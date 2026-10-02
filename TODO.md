@@ -13,7 +13,7 @@ Scope: simple, trusted-beta version of the PRD. No auth or security layers yet; 
 - [x] 9. Invite jxn@blxmail.com; write README with how-to-use
 
 ## Follow-ups
-- [ ] Verify a domain in Resend so invite emails reach anyone (currently only the account owner)
+- [x] ~~Verify a domain in Resend~~ — superseded: WorkOS sends invitation emails
 - [ ] Next phase: the PRD's security (WorkOS login, Gateway egress/ingress, action policy, grants)
 
 # Phase 2 — WorkOS login, personal tokens, members-only boards, WorkOS invites

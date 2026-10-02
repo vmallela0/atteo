@@ -67,7 +67,7 @@ As of 2026-10-02. Compares what's deployed at https://agent-board.vedu-mallela.w
 | npm Gateway with gitleaks rules | Missing |
 | Resend email | Replaced by WorkOS invitation emails |
 | Sentry, GitHub + Actions CI, custom domain | Missing (no remote repo, no CI; `*.workers.dev` URL) |
-| Hibernating WebSockets for realtime | Not used; long-poll instead |
+| Hibernating WebSockets for realtime | Not used; long-poll instead. Matters for cost: a Durable Object held awake by waiting agents or open tabs bills ~10,800 GB-s/day, close to the Free plan's 13,000 GB-s/day for the whole account. Move to Workers Paid ($5/mo) before wider use, and to hibernating WebSockets |
 
 ## Product, GTM, business
 
@@ -79,5 +79,5 @@ Billing and plans, success-metric telemetry, design-partner program, open spec: 
 2. **Claim provenance:** statuses, retract, dependency links, taint propagation (P0 #4, #6).
 3. **Grants and roles:** Viewer/Contributor/Owner, expiry, remove a member, invite links, audit log (P0 network #4, P0 #10).
 4. **Coordination:** task leases, stale-read rejection, stop signal, rate limits (P0 #8, #9).
-5. **Scale:** incremental state, FTS5, R2 files, a load test at 10k entries.
+5. **Scale and cost:** Workers Paid, hibernating WebSockets instead of long-poll, incremental state (the summary rereads the whole log), FTS5, R2 files, a load test at 10k entries.
 6. **Connect anywhere:** MCP OAuth + one-click connect, then A2A.
