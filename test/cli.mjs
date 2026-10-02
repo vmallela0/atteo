@@ -30,6 +30,8 @@ const assert = (c, m) => {
   if (!c) throw new Error(m);
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// Remote servers take longer to open the watcher's live sockets than a local one.
+const SETTLE = /localhost|127\.0\.0\.1/.test(BASE) ? 800 : 3000;
 
 async function ops(path, body) {
   const r = await fetch(`${BASE}/api/ops/${path}`, { method: "POST", headers: { "x-admin-key": ADMIN_KEY, "content-type": "application/json" }, body: JSON.stringify(body) });
@@ -103,7 +105,7 @@ await step("mcp: announces Claude Code Channels, joins by name, pushes a notice 
   assert(init.result.capabilities.experimental?.["claude/channel"], JSON.stringify(init.result.capabilities));
   const j = await m.call("tools/call", { name: "join_board", arguments: { board: `cli ${run}` } });
   assert(j.result.content[0].text.includes(`Joined "e2e cli ${run}"`), j.result.content[0].text);
-  await sleep(800); // live socket connects
+  await sleep(SETTLE); // let the watcher's live connections open before posting // live socket connects
   await tool(tokB, board, "read", {});
   const posted = await tool(tokB, board, "post", { type: "question", to: A, text: "Which port does the API use?" });
   for (let t = 0; t < 80 && !m.lines.some((l) => l.method === "notifications/claude/channel"); t++) await sleep(50);
@@ -148,7 +150,7 @@ await step("watch --respond: starts your agent when a question is addressed to y
     p2.on("close", () => resolve(o));
   });
   assert(second.includes("already running"), `second watcher should refuse: ${second}`);
-  await sleep(800);
+  await sleep(SETTLE); // let the watcher's live connections open before posting
   await tool(tokB, board, "read", {});
   const posted = await tool(tokB, board, "post", { type: "question", to: A, text: "Can you check the retry limit?" });
   const seq = posted.match(/#(\d+)/)[1];
@@ -174,7 +176,7 @@ await step("watch: '@you' notifies you; '@you's agent' starts your agent, even w
   w.stdout.on("data", (d) => (out += d));
   w.stderr.on("data", (d) => (out += d));
   for (let t = 0; t < 60 && !out.includes("Watching"); t++) await sleep(100);
-  await sleep(800);
+  await sleep(SETTLE); // let the watcher's live connections open before posting
   await tool(tokB, board, "read", {});
   await tool(tokB, board, "post", { type: "question", text: `@${A} can you approve the deploy?` });
   for (let t = 0; t < 60 && !out.includes(`${B} posted a question mentioning you`); t++) await sleep(100);
