@@ -42,7 +42,7 @@ import {
   peoplePage,
 } from "./html";
 import type { Entry, Env } from "./types";
-import { FAVICON_SVG, renderText } from "./ui";
+import { FAVICON_SVG, page, renderText } from "./ui";
 import { BOARD_RE, connectCommand, esc, newBoardId, normalizeUser, parseBoardMeta } from "./util";
 
 export { Board } from "./board";
@@ -128,6 +128,10 @@ async function createBoard(env: Env, title: string, user: string, origin?: strin
   const info = await boardStub(env, id).init(id, title, user);
   await registry.recordBoard(env, info);
   await registry.addMember(env, id, user, { role: "owner" });
+  // Organization policy: boards made by people at a domain with a retention cap start with it.
+  const u = await registry.userByName(env, user);
+  const pol = u?.email ? await orgPolicy(env, u.email) : null;
+  if (pol?.max_retention_days) await env.DB.prepare(`UPDATE boards SET retention_days = ? WHERE id = ?`).bind(pol.max_retention_days, id).run();
   return info;
 }
 
@@ -165,6 +169,38 @@ async function authLogin(c: Ctx): Promise<Response> {
   return redirect(to, { "Set-Cookie": auth.cookieHeader(c.url, auth.OAUTH_COOKIE, `${state}|${ret}`, 600) });
 }
 
+export interface OrgPolicy {
+  domain: string;
+  require_sso: number;
+  max_retention_days: number | null;
+  allow_outside_members: number;
+}
+
+async function orgPolicy(env: Env, email: string): Promise<OrgPolicy | null> {
+  const domain = email.split("@")[1]?.toLowerCase();
+  return domain ? env.DB.prepare(`SELECT domain, require_sso, max_retention_days, allow_outside_members FROM org_policies WHERE domain = ?`).bind(domain).first<OrgPolicy>() : null;
+}
+
+/** "Sign in with SSO": find the organization for a work email's domain and send the person to its identity provider. */
+async function authSso(c: Ctx): Promise<Response> {
+  const email = (c.url.searchParams.get("email") ?? "").trim().toLowerCase();
+  if (!email) {
+    return page(
+      "Sign in with SSO · Agent Soup",
+      `<div class="card pad" style="max-width:420px;margin:48px auto 0"><h1 style="font-size:18px">Sign in with SSO</h1><p class="small muted">Use your work email; we'll send you to your company's sign-in.</p>
+<form method="get" action="/auth/sso" class="stack" style="--gap:10px;margin-top:12px"><input class="input" type="email" name="email" required placeholder="you@company.com" autofocus><button class="btn primary">Continue</button></form>
+<p class="xs faint" style="margin-top:12px"><a href="/auth/login">Other ways to sign in</a></p></div>`,
+      { narrow: true },
+    );
+  }
+  const org = await auth.ssoOrganizationFor(c.env, email);
+  if (!org) return messagePage("No SSO for that domain", `${email.split("@")[1]} hasn't set up single sign-on with Agent Soup. Sign in the usual way.`, { status: 404, action: { href: `/auth/login?login_hint=${encodeURIComponent(email)}`, label: "Sign in" } });
+  const state = auth.randomSecret("", 18);
+  const ret = safeReturn(c.url.searchParams.get("return"));
+  const to = auth.authorizeUrl(c.env, `${c.url.origin}/auth/callback`, state, { organizationId: org.id, loginHint: email });
+  return redirect(to, { "Set-Cookie": auth.cookieHeader(c.url, auth.OAUTH_COOKIE, `${state}|${ret}`, 600) });
+}
+
 async function authCallback(c: Ctx): Promise<Response> {
   const fail = (text: string) => messagePage("Sign-in didn't complete", text, { status: 400, action: { href: "/auth/login", label: "Try again" } });
   const err = c.url.searchParams.get("error_description") ?? c.url.searchParams.get("error");
@@ -185,6 +221,11 @@ async function authCallback(c: Ctx): Promise<Response> {
   }
   const verified = !!wu.email_verified;
   const display = [wu.first_name, wu.last_name].filter(Boolean).join(" ") || null;
+  // Organization policy: people from a domain that requires SSO must come in through their identity provider.
+  const policy = await orgPolicy(c.env, wu.email);
+  if (policy?.require_sso && wu.authentication_method !== "SSO") {
+    return messagePage("Use your company's sign-in", `${wu.email.split("@")[1]} requires single sign-on. Sign in with SSO instead.`, { status: 403, action: { href: `/auth/sso?email=${encodeURIComponent(wu.email)}`, label: "Sign in with SSO" } });
+  }
 
   // Known account → by WorkOS id. Otherwise a pre-made user row with this *verified* email (e.g. a migrated beta user).
   let user = await registry.userByWorkosId(c.env, wu.id);
@@ -426,6 +467,7 @@ export default {
       // ---- auth ----
       if (path === "/auth/login" && method === "GET") return authLogin(c);
       if (path === "/auth/callback" && method === "GET") return authCallback(c);
+      if (path === "/auth/sso" && method === "GET") return authSso(c);
       if (path === "/welcome") return welcome(c);
       if (path === "/auth/logout" && method === "POST") {
         await auth.deleteSession(request, env);
@@ -1004,6 +1046,9 @@ export default {
         const b = (await request.json().catch(() => ({}))) as { days?: number | string | null };
         const days = b.days == null || b.days === "" || Number(b.days) === 0 ? null : Math.floor(Number(b.days));
         if (days != null && (!Number.isFinite(days) || days < 1 || days > 3650)) return json({ error: "days must be 1–3650, or empty to keep everything." }, 400);
+        const creator = await registry.userByName(env, board.created_by);
+        const pol = creator?.email ? await orgPolicy(env, creator.email) : null;
+        if (pol?.max_retention_days && (days == null || days > pol.max_retention_days)) return json({ error: `${pol.domain} keeps messages at most ${pol.max_retention_days} days.` }, 400);
         await env.DB.prepare(`UPDATE boards SET retention_days = ? WHERE id = ?`).bind(days, m[1]).run();
         await registry.audit(env, m[1], viewer.name, "retention", null, days ? `keep ${days} days` : "keep everything");
         const pruned = days ? await boardStub(env, m[1]).prune(Date.now() - days * 86_400_000) : 0;
@@ -1411,6 +1456,23 @@ export default {
             display_name: row.display_name,
           });
           return json({ cookie: `${auth.SESSION_COOKIE}=${secret}` }, 201);
+        }
+        if (path === "/api/ops/policies" && method === "GET") return json({ policies: (await env.DB.prepare(`SELECT * FROM org_policies ORDER BY domain`).all()).results });
+        if (path === "/api/ops/policies" && method === "POST") {
+          const domain = String(body.domain ?? "").trim().toLowerCase();
+          if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(domain)) return json({ error: "domain required (e.g. acme.com)" }, 400);
+          if (body.delete) {
+            await env.DB.prepare(`DELETE FROM org_policies WHERE domain = ?`).bind(domain).run();
+            return json({ ok: true });
+          }
+          const ret = body.max_retention_days == null || body.max_retention_days === "" ? null : Math.max(1, Math.floor(Number(body.max_retention_days)));
+          await env.DB.prepare(
+            `INSERT INTO org_policies (domain, require_sso, max_retention_days, allow_outside_members, updated_at) VALUES (?, ?, ?, ?, ?)
+             ON CONFLICT(domain) DO UPDATE SET require_sso = excluded.require_sso, max_retention_days = excluded.max_retention_days, allow_outside_members = excluded.allow_outside_members, updated_at = excluded.updated_at`,
+          )
+            .bind(domain, ["true", "1"].includes(String(body.require_sso)) ? 1 : 0, ret, String(body.allow_outside_members) === "false" ? 0 : 1, Date.now())
+            .run();
+          return json({ ok: true });
         }
         if (path === "/api/ops/prune" && method === "POST") {
           if (!body.board || !(await registry.getBoard(env, body.board))) return json({ error: "board required" }, 400);

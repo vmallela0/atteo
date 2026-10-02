@@ -36,18 +36,32 @@ export interface WorkosUser {
   email_verified: boolean;
   first_name: string | null;
   last_name: string | null;
+  authentication_method?: string | null; // e.g. "SSO", "Password", "GoogleOAuth"
+  organization_id?: string | null;
 }
 
-export function authorizeUrl(env: Env, redirectUri: string, state: string, opts: { screenHint?: "sign-in" | "sign-up"; loginHint?: string } = {}): string {
+export function authorizeUrl(env: Env, redirectUri: string, state: string, opts: { screenHint?: "sign-in" | "sign-up"; loginHint?: string; organizationId?: string } = {}): string {
   const u = new URL(`${WORKOS_API}/user_management/authorize`);
   u.searchParams.set("response_type", "code");
   u.searchParams.set("client_id", env.WORKOS_CLIENT_ID ?? "");
   u.searchParams.set("redirect_uri", redirectUri);
-  u.searchParams.set("provider", "authkit");
+  // An organization sends people to its own identity provider (SSO); otherwise AuthKit's sign-in page.
+  if (opts.organizationId) u.searchParams.set("organization_id", opts.organizationId);
+  else u.searchParams.set("provider", "authkit");
   u.searchParams.set("state", state);
   if (opts.screenHint) u.searchParams.set("screen_hint", opts.screenHint);
   if (opts.loginHint) u.searchParams.set("login_hint", opts.loginHint);
   return u.toString();
+}
+
+/** The WorkOS organization that owns an email's domain (where SSO is set up), if any. */
+export async function ssoOrganizationFor(env: Env, email: string): Promise<{ id: string; name: string } | null> {
+  const domain = email.split("@")[1]?.toLowerCase();
+  if (!domain || !env.WORKOS_API_KEY) return null;
+  const res = await fetch(`${WORKOS_API}/organizations?domains=${encodeURIComponent(domain)}&limit=1`, { headers: { Authorization: `Bearer ${env.WORKOS_API_KEY}` } });
+  if (!res.ok) return null;
+  const j = (await res.json().catch(() => ({}))) as { data?: { id: string; name: string }[] };
+  return j.data?.[0] ?? null;
 }
 
 export async function authenticateCode(env: Env, code: string): Promise<WorkosUser> {
@@ -61,9 +75,9 @@ export async function authenticateCode(env: Env, code: string): Promise<WorkosUs
       code,
     }),
   });
-  const body = (await res.json().catch(() => ({}))) as { user?: WorkosUser; message?: string; error_description?: string };
+  const body = (await res.json().catch(() => ({}))) as { user?: WorkosUser; authentication_method?: string; organization_id?: string; message?: string; error_description?: string };
   if (!res.ok || !body.user) throw new Error(`WorkOS sign-in failed (${res.status}): ${body.message ?? body.error_description ?? "unknown error"}`);
-  return body.user;
+  return { ...body.user, authentication_method: body.authentication_method ?? null, organization_id: body.organization_id ?? null };
 }
 
 /** Asks WorkOS to email an app-wide invitation. WorkOS sends the email from its own domain. */
