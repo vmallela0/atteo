@@ -507,7 +507,6 @@ function apply(){const t=q.value.trim().toLowerCase(),s=show();let n=0;
   document.getElementById('b-none').hidden=n>0||!!t}
 document.querySelectorAll('input[name=bshow]').forEach(r=>r.addEventListener('change',apply));
 const hits=document.getElementById('b-hits'),hl=document.getElementById('b-hits-list');let timer=0,seq=0;
-function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c])}
 function snip(s){return esc(s).replace(/«/g,'<mark>').replace(/»/g,'</mark>')}
 q.addEventListener('input',()=>{apply();clearTimeout(timer);const t=q.value.trim();if(t.length<2){hits.hidden=true;return}
   timer=setTimeout(async()=>{const my=++seq;const r=await fetch('/api/boards/search?q='+encodeURIComponent(t));const j=await r.json().catch(()=>({hits:[]}));if(my!==seq)return;
@@ -553,7 +552,7 @@ const SHEET = `<dialog class="sheet" id="sheet"><div class="hd"><div><h2 id="she
 const SHEET_JS = `
 window.openEntry=async(board,seq)=>{const d=document.getElementById('sheet');
   const r=await fetch('/api/boards/'+board+'/entries/'+seq);const j=await r.json();if(!r.ok){toast(j.error||'Could not load');return}
-  const e=j.entry;const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const e=j.entry;
   document.getElementById('sheet-title').textContent='#'+e.seq+' '+e.type;
   document.getElementById('sheet-sub').innerHTML=esc(e.author)+(e.to?' → '+esc(e.to):'')+' · '+new Date(e.ts).toLocaleString()+' · <a class="link" href="/b/'+board+'#e'+e.seq+'">Show in conversation</a>';
   const kv=[['Board',board],['Sequence','#'+e.seq],['Type',e.type],['Author',e.author],['To',e.to||'everyone'],['Mentions',(e.mentions||[]).length?e.mentions.map(m=>'@'+m.user+(m.agent?"'s agent":'')).join(', '):'—'],['Time',new Date(e.ts).toISOString()],
@@ -777,10 +776,9 @@ function mtokens(v){const out=[],re=/(^|[^A-Za-z0-9_.@\\/-])@([A-Za-z0-9][A-Za-z
     const agent=!!m[3]&&h===raw;if(!agent&&h===ME)continue; // you can't mention yourself, only your agent
     const start=m.index+m[1].length;out.push({start,end:start+1+h.length+(agent?m[3].length:0),agent})}
   return out}
-const mesc=s=>s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 function msync(){const v=ta.value,cs=getComputedStyle(ta);let h='',i=0;
-  for(const t of mtokens(v)){h+=mesc(v.slice(i,t.start))+'<span class="chip'+(t.agent?' agent':'')+'">'+mesc(v.slice(t.start,t.end))+'</span>';i=t.end}
-  mirror.innerHTML=h+mesc(v.slice(i))+'\\n';
+  for(const t of mtokens(v)){h+=esc(v.slice(i,t.start))+'<span class="chip'+(t.agent?' agent':'')+'">'+esc(v.slice(t.start,t.end))+'</span>';i=t.end}
+  mirror.innerHTML=h+esc(v.slice(i))+'\\n';
   for(const k of ['fontFamily','fontSize','fontWeight','lineHeight','letterSpacing','wordSpacing','tabSize','paddingTop','paddingRight','paddingBottom','paddingLeft'])mirror.style[k]=cs[k];
   mirror.style.left=cs.borderLeftWidth;mirror.style.top=cs.borderTopWidth;mirror.style.width=ta.clientWidth+'px';mirror.style.height=ta.clientHeight+'px';mirror.scrollTop=ta.scrollTop}
 ta.addEventListener('scroll',()=>{mirror.scrollTop=ta.scrollTop});window.addEventListener('resize',msync);msync();
@@ -807,7 +805,6 @@ document.getElementById('composer-text')?.addEventListener('keydown',e=>{
   if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();const f=e.target.closest('form');if(e.target.value.trim()||pending.length)f.requestSubmit()}});
 // ---- shared documents ----
 const READONLY=${info.archived || readOnly ? "true" : "false"};let curDoc=null,editing=false;
-const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 async function loadDocs(){const r=await fetch('/api/boards/'+BOARD+'/files');const j=await r.json();const el=document.getElementById('doc-items');const fs=j.files||j.docs||[];
   const kb=n=>n<1024?n+' B':(n/1024).toFixed(1)+' KB';
   el.innerHTML=fs.length?fs.map(d=>'<a href="#files" class="doc-item'+(curDoc&&curDoc.name===d.name?' on':'')+'" data-doc="'+esc(d.name)+'" title="'+esc(d.name+' · v'+d.version+(d.updated_by?' · '+(d.via==='agent'?d.updated_by+"'s agent":d.updated_by):''))+'"><span class="truncate mono">'+esc(d.name)+'</span><span class="xs faint">v'+d.version+(d.size!=null?' · '+kb(d.size):'')+'</span></a>').join(''):'<p class="xs faint">No files yet.</p>';
@@ -1113,8 +1110,7 @@ document.getElementById('acc-members').addEventListener('change',async e=>{const
   toast(r.ok?'Saved':(j.error||'Could not save'));accLoad()});
 document.getElementById('link-make')?.addEventListener('click',async()=>{const r=await fetch('/api/boards/'+BOARD+'/links',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({role:document.getElementById('link-role').value,link_days:+document.getElementById('link-days').value})});
   const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||'Could not create');return}const box=document.getElementById('link-new');
-  box.innerHTML='<div class="acc-row"><input class="input mono grow acc-url" id="link-url" readonly value="'+esc(j.url)+'" aria-label="Invite link"><button class="btn sm" type="button" id="link-copy">Copy</button></div>';
-  document.getElementById('link-copy').onclick=()=>{navigator.clipboard.writeText(j.url).then(()=>toast('Link copied'),()=>{document.getElementById('link-url').select()})};box.hidden=false;accLoad()});
+  box.innerHTML='<div class="acc-row"><input class="input mono grow acc-url" id="link-url" readonly value="'+esc(j.url)+'" aria-label="Invite link"><button class="btn sm" type="button" data-copy="link-url">Copy</button></div>';box.hidden=false;accLoad()});
 document.addEventListener('click',async e=>{const b=e.target.closest('[data-link-revoke]');if(!b)return;const r=await fetch('/api/boards/'+BOARD+'/links/'+b.dataset.linkRevoke,{method:'DELETE'});toast(r.ok?'Link revoked':'Could not revoke');accLoad()});
 window.deleted=()=>{location.href='/'};
 // Every place the board name shows: heading, breadcrumb, sidebar, browser tab (also used for live renames by others).
@@ -1167,8 +1163,7 @@ if(location.hash==='#log')tab(1);if(location.hash==='#files'||location.hash==='#
 // ---- Tasks (Kanban): the board's tasks by status; drag a card to another column to change it ----
 const KCOLS=[['todo','To do'],['doing','In progress'],['blocked','Blocked'],['done','Done']];
 const PRI={high:0,medium:1,low:2};
-function kesc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c])}
-async function loadTasks(){const r=await fetch('/api/boards/'+BOARD+'/tasks');const j=await r.json().catch(()=>({}));if(!r.ok){document.getElementById('kanban').innerHTML='<p class="muted small">'+kesc(j.error||'Could not load tasks')+'</p>';return}
+async function loadTasks(){const r=await fetch('/api/boards/'+BOARD+'/tasks');const j=await r.json().catch(()=>({}));if(!r.ok){document.getElementById('kanban').innerHTML='<p class="muted small">'+esc(j.error||'Could not load tasks')+'</p>';return}
   const ts=j.tasks||[];const open=ts.filter(t=>t.status!=='done').length;document.getElementById('task-count').textContent=open||'';
   document.getElementById('kanban').innerHTML=KCOLS.map(([k,label])=>{const col=ts.filter(t=>(k==='blocked'?(t.status==='blocked'||t.status==='stopped'):t.status===k))
       .sort((a,b)=>(PRI[a.priority]??3)-(PRI[b.priority]??3)||(k==='done'?b.updated_at-a.updated_at:a.seq-b.seq)).slice(0,k==='done'?30:200);
@@ -1177,11 +1172,11 @@ function card(t){const first=t.title||'';const boxes=(t.body||'').match(/^\s*[-*
   const who=t.assignee?(t.assignee_agent?t.assignee+"'s agent":t.assignee):'';
   const hold=t.lease_holder?(t.lease_agent?t.lease_holder+"'s agent":t.lease_holder):'';
   // Title first; one quiet line under it: number, priority, checklist, due date, and who it's for / who holds it.
-  return '<article class="kcard" draggable="true" data-seq="'+t.seq+'"><div class="ktext">'+kesc(first)+'</div>'+
+  return '<article class="kcard" draggable="true" data-seq="'+t.seq+'"><div class="ktext">'+esc(first)+'</div>'+
     '<div class="kmeta"><a class="seq" href="#e'+t.seq+'" data-kopen="'+t.seq+'">#'+t.seq+'</a>'+(t.priority?'<span class="badge pri-'+t.priority+'">'+t.priority+'</span>':'')+(t.status==='stopped'?'<span class="badge pri-high">stopped</span>':'')+
     (boxes.length?'<span>☑ '+ticked+'/'+boxes.length+'</span>':'')+(t.due?'<span>due '+new Date(t.due).toISOString().slice(5,10)+'</span>':'')+'<span class="grow"></span>'+
-    (hold?'<span title="'+kesc(hold)+' is working on it">🔒</span>':'')+(who?'<span title="For '+kesc(who)+'">'+avatar16(t.assignee,t.assignee_agent)+'</span>':'')+'</div>'+
-    (t.stop_reason?'<div class="xs faint">'+kesc(t.stop_reason)+'</div>':'')+'</article>'}
+    (hold?'<span title="'+esc(hold)+' is working on it">🔒</span>':'')+(who?'<span title="For '+esc(who)+'">'+avatar16(t.assignee,t.assignee_agent)+'</span>':'')+'</div>'+
+    (t.stop_reason?'<div class="xs faint">'+esc(t.stop_reason)+'</div>':'')+'</article>'}
 async function taskAct(seq,body){const r=await fetch('/api/boards/'+BOARD+'/tasks/'+seq,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
   const j=await r.json().catch(()=>({}));if(!r.ok)toast(j.error||'Could not update');loadTasks();tick(false)}
 const kb=document.getElementById('kanban');let dragSeq=null;
@@ -1204,7 +1199,7 @@ async function openTask(seq){const r=await fetch('/api/boards/'+BOARD+'/tasks/'+
   document.getElementById('td-assignee').value=t.assignee?(t.assignee_agent?t.assignee+"'s agent":t.assignee):'';
   const by=t.updated_via==='agent'?t.updated_by+"'s agent":t.updated_by;
   document.getElementById('td-meta').textContent='v'+t.version+' · edited by '+by+' '+tdate(t.updated_at)+(t.lease_holder?' · 🔒 '+(t.lease_agent?t.lease_holder+"'s agent":t.lease_holder)+' until '+tdate(t.lease_until):'')+(t.stop_reason?' · stopped: '+t.stop_reason:'');
-  document.getElementById('td-hist').innerHTML=(j.history||[]).map(v=>'<li>v'+v.version+' · '+kesc(v.via==='agent'?v.author+"'s agent":v.author)+' · '+tdate(v.ts)+(v.summary?' — '+kesc(v.summary):'')+'</li>').join('')||'<li>No edits yet</li>';
+  document.getElementById('td-hist').innerHTML=(j.history||[]).map(v=>'<li>v'+v.version+' · '+esc(v.via==='agent'?v.author+"'s agent":v.author)+' · '+tdate(v.ts)+(v.summary?' — '+esc(v.summary):'')+'</li>').join('')||'<li>No edits yet</li>';
   document.getElementById('td-claim').textContent=t.lease_holder===ME?'Release':'Claim';document.getElementById('td-err').hidden=true;
   if(!td.open){td.showModal();const ti=document.getElementById('td-title');ti.setSelectionRange(0,0);ti.scrollLeft=0;if(matchMedia('(pointer:coarse)').matches)ti.blur()}}
 ['td-title','td-body'].forEach(id=>document.getElementById(id).addEventListener('input',()=>tdirty=true));
@@ -1506,11 +1501,10 @@ ${requests}${friends}${sent}${blocked}
     FRIENDS_JS +
     `
 const pq=document.getElementById('ppl-q'),pres=document.getElementById('ppl-res');let pt=null;
-const pesc=x=>String(x==null?'':x).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 pq.addEventListener('input',()=>{clearTimeout(pt);pt=setTimeout(async()=>{const q=pq.value.trim();if(!q){pres.hidden=true;return}
   const r=await fetch('/api/people?q='+encodeURIComponent(q));const j=await r.json().catch(()=>({}));const ps=j.people||[];
-  pres.innerHTML=ps.length?ps.map(p=>'<li class="item"><a class="grow" href="/u/'+pesc(p.name)+'"><b style="color:var(--ink)">'+pesc(p.display_name||p.name)+'</b> <span class="xs faint">@'+pesc(p.name)+'</span></a>'+
-    (p.relation==='none'?'<button class="btn sm primary" data-add="'+pesc(p.name)+'">Add friend</button>':p.relation==='friend'?'<button class="btn sm" data-direct="'+pesc(p.name)+'">Message agent</button>':'<span class="xs faint">'+({self:'you',pending_out:'request sent',pending_in:'wants to be friends',blocked:'blocked'}[p.relation]||'')+'</span>')+'</li>').join(''):'<li class="item xs faint">No one by that handle. Handles are exact unless you share a board or are friends.</li>';
+  pres.innerHTML=ps.length?ps.map(p=>'<li class="item"><a class="grow" href="/u/'+esc(p.name)+'"><b style="color:var(--ink)">'+esc(p.display_name||p.name)+'</b> <span class="xs faint">@'+esc(p.name)+'</span></a>'+
+    (p.relation==='none'?'<button class="btn sm primary" data-add="'+esc(p.name)+'">Add friend</button>':p.relation==='friend'?'<button class="btn sm" data-direct="'+esc(p.name)+'">Message agent</button>':'<span class="xs faint">'+({self:'you',pending_out:'request sent',pending_in:'wants to be friends',blocked:'blocked'}[p.relation]||'')+'</span>')+'</li>').join(''):'<li class="item xs faint">No one by that handle. Handles are exact unless you share a board or are friends.</li>';
   pres.hidden=false},200)});
 document.addEventListener('click',async e=>{const a=e.target.closest('[data-add]'),d=e.target.closest('[data-direct]');if(!a&&!d)return;
   if(a){a.disabled=true;const r=await fetch('/api/friends/request',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({user:a.dataset.add})});const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||'Could not send');a.disabled=false;return}toast(j.relation==='friend'?'You are friends now':'Request sent');setTimeout(()=>location.reload(),400);return}

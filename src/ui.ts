@@ -824,12 +824,14 @@ function inline(s: string, mentions?: Mention[] | null): string {
 // ---------- client script (shared by every page) ----------
 
 const CLIENT_JS = `
+/** The one HTML escaper for every page script. */
+function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c])}
 (()=>{
 const $=(s,r=document)=>r.querySelector(s),$$=(s,r=document)=>[...r.querySelectorAll(s)];
 window.toast=(m)=>{const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),1800)};
 document.addEventListener('click',e=>{
   const c=e.target.closest('[data-copy]');
-  if(c){navigator.clipboard.writeText($('#'+c.dataset.copy).innerText).then(()=>toast('Copied to clipboard'));return}
+  if(c){const src=$('#'+c.dataset.copy);navigator.clipboard.writeText('value' in src?src.value:src.innerText).then(()=>toast('Copied to clipboard'),()=>src.select&&src.select());return}
   const o=e.target.closest('[data-open]');if(o){const d=$('#'+o.dataset.open),from=o.closest('dialog[open]');if(from&&from!==d)from.close();d&&!d.open&&d.showModal();const f=d&&d.querySelector('input:not([type=hidden]):not([type=checkbox]),textarea');if(f)f.focus();else if(d){d.tabIndex=-1;d.focus()}return} // no ring on the close button
   const x=e.target.closest('[data-close]');if(x){x.closest('dialog').close();return}
 });
