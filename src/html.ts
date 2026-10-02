@@ -783,7 +783,10 @@ window.posted=(j)=>{replyClear();document.querySelectorAll('#thread .entry.pendi
 document.querySelector('form.composer')?.addEventListener('submit',()=>{const t=ta.value.trim();if(!t||!rpTo||rpTo.value)return; // replies go in their thread, after the real post
   const el=document.createElement('article');el.className='entry pending';el.innerHTML='<div class="grow"><div class="meta"><span class="who"></span><span class="xs faint">sending…</span></div><div class="body"></div></div>';
   el.querySelector('.who').textContent=ME;el.querySelector('.body').textContent=t;document.getElementById('thread').appendChild(el);toBottom();
-  setTimeout(()=>{if(el.isConnected){el.querySelector('.faint').textContent='not sent';el.classList.add('failed');setTimeout(()=>el.remove(),4000)}},8000)},true);
+},true);
+// While a post is retrying it says so; if it really can't be sent, your text is still in the box (the form only resets on success).
+window.postRetrying=()=>document.querySelectorAll('#thread .entry.pending .faint').forEach(x=>x.textContent='connection lost, retrying…');
+window.postFailed=(j)=>{document.querySelectorAll('#thread .entry.pending').forEach(x=>x.remove());toast(j.error||"Couldn't send. Your message is still in the box.")};
 // Reply: any entry's Reply button points the composer at it (Esc or ✕ cancels).
 const rpBox=document.getElementById('replying'),rpTo=document.getElementById('reply-to');
 function replyClear(){rpTo.value='';rpBox.hidden=true}
@@ -1109,8 +1112,8 @@ const thrSync=mentionize(thrText,document.getElementById('thr-menu'),document.ge
 thrText.addEventListener('keydown',e=>{if(e.defaultPrevented)return; // the mention menu took the key
   if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();thrForm.requestSubmit()}if(e.key==='Escape'){e.preventDefault();e.stopPropagation();thrText.blur()}});
 thrForm.addEventListener('submit',async e=>{e.preventDefault();const text=thrText.value.trim();if(!text||!thrRoot)return;const btn=thrForm.querySelector('button');btn.disabled=true;
-  try{const r=await fetch('/api/boards/'+BOARD+'/entries',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({type:'note',text,reply_to:thrTarget||thrRoot})});
-    const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||"Couldn't reply");return}thrText.value='';thrSync();thrTarget=thrRoot;document.getElementById('thr-to').textContent='';await tick(false);thrForm.scrollIntoView({block:'nearest'})}
+  try{const r=await sendReliably('/api/boards/'+BOARD+'/entries',{type:'note',text,reply_to:thrTarget||thrRoot},()=>toast('Connection lost; retrying your reply…'));
+    const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||"Couldn't reply. Your reply is still in the box.");return}thrText.value='';thrSync();thrTarget=thrRoot;document.getElementById('thr-to').textContent='';await tick(false);thrForm.scrollIntoView({block:'nearest'})}
   finally{btn.disabled=false}});
 document.querySelectorAll('#thread>.entry').forEach(x=>thrSum(+x.dataset.seq));
 // a link to a reply (#e<n>) opens its thread
@@ -1318,7 +1321,7 @@ ${info.archived ? "" : VOICE_HTML}<div role="tabpanel" id="panel-conv" class="bp
     <div class="thread-wrap"><div class="thread-scroll" id="thread-scroll"><div class="thread" id="thread">${thread}</div><form class="thr-form" id="thr-form" hidden><div class="cmp-field thr-field"><div class="cmp-mirror" id="thr-mirror" aria-hidden="true"></div><textarea class="input" id="thr-text" rows="1" placeholder="Reply…" aria-label="Reply in thread" role="combobox" aria-autocomplete="list" aria-controls="thr-menu" aria-expanded="false"></textarea></div><ul class="mention-menu" id="thr-menu" role="listbox" aria-label="Mention" hidden></ul><span class="xs faint" id="thr-to"></span><button class="btn primary sm">Reply</button></form></div>
       <div class="rail" id="rail" aria-hidden="true"></div><div class="rail-tip" id="rail-tip" hidden></div>
       <button class="btn sm new-pill" type="button" id="new-pill" hidden>Jump to latest ↓</button></div>
-    <form class="card composer" method="post" action="/api/boards/${esc(info.id)}/entries" data-api data-done="posted" data-reset${info.archived || readOnly || info.encrypted ? " hidden" : ""}>
+    <form class="card composer" method="post" action="/api/boards/${esc(info.id)}/entries" data-api data-reliable data-done="posted" data-failed="postFailed" data-retrying="postRetrying" data-reset${info.archived || readOnly || info.encrypted ? " hidden" : ""}>
       <div class="replying" id="replying" hidden>Replying to <b id="replying-who"></b> <a id="replying-seq" href="#"></a><button class="btn ghost sm x" type="button" id="reply-cancel" aria-label="Cancel reply">✕</button></div>
       <input type="hidden" name="reply_to" id="reply-to" value="">
       <div class="attachments" id="attachments" hidden></div>

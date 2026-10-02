@@ -517,6 +517,11 @@ export class Board extends DurableObject<Env> {
     if (!cols.has("mentions")) this.sql.exec("ALTER TABLE entries ADD COLUMN mentions TEXT");
     if (!cols.has("self_agent")) this.sql.exec("ALTER TABLE entries ADD COLUMN self_agent INTEGER NOT NULL DEFAULT 0");
     if (!cols.has("session")) this.sql.exec("ALTER TABLE entries ADD COLUMN session TEXT"); // the agent session that posted it, if any
+    if (!cols.has("idem")) {
+      // The sender's id for this message: a retried post (after a deploy or a dropped connection) is stored once.
+      this.sql.exec("ALTER TABLE entries ADD COLUMN idem TEXT");
+      this.sql.exec("CREATE UNIQUE INDEX IF NOT EXISTS entries_idem ON entries (author, idem) WHERE idem IS NOT NULL");
+    }
     if (!cols.has("artifact_version")) this.sql.exec("ALTER TABLE entries ADD COLUMN artifact_version INTEGER");
     if (!cols.has("card")) this.sql.exec("ALTER TABLE entries ADD COLUMN card TEXT");
     // "Was this retracted / replied to?" lookups run for every task and claim on every summary rebuild.
@@ -704,6 +709,8 @@ export class Board extends DurableObject<Env> {
    * The object handles one request at a time, so two simultaneous posts are ordered and the second is bounced.
    */
   async postFresh(user: string, input: NewEntry, session?: string | null): Promise<{ entry: Entry } | { missed: Entry[]; remaining: number }> {
+    const again = this.sentBefore(user, input.idem);
+    if (again) return { entry: again }; // a retry of a post that already landed
     this.info();
     const cursor = this.readCursor(user, session);
     const unread = this.countAfter(cursor, user, session);
@@ -716,7 +723,16 @@ export class Board extends DurableObject<Env> {
     return { entry: await this.post(user, session ? { ...input, session } : input) };
   }
 
+  /** The entry this author already posted with this message id (a retry), if any. */
+  private sentBefore(user: string, idem?: string | null): Entry | null {
+    if (!idem) return null;
+    const r = this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE author = ? AND idem = ?`, user, idem).toArray();
+    return r.length ? toEntry(r[0]) : null;
+  }
+
   async post(user: string, input: NewEntry, internal: { docVersion?: number; media?: Media; seeding?: boolean; sealed?: boolean } = {}): Promise<Entry> {
+    const again = this.sentBefore(user, input.idem);
+    if (again) return again;
     const info = this.info();
     if (info.archived) throw new BoardError(`"${info.title}" is archived, so it's read-only. Its creator can restore it.`);
     if (!internal.seeding) this.rateLimit(user);
@@ -796,8 +812,8 @@ export class Board extends DurableObject<Env> {
 
     const row = this.sql
       .exec(
-        `INSERT INTO entries (ts, author, type, text, to_user, mentions, self_agent, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, artifact_content, card, card_diff, media, title, session)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING ${ENTRY_COLS}`,
+        `INSERT INTO entries (ts, author, type, text, to_user, mentions, self_agent, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, artifact_content, card, card_diff, media, title, session, idem)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING ${ENTRY_COLS}`,
         Date.now(),
         user,
         input.type,
@@ -820,6 +836,7 @@ export class Board extends DurableObject<Env> {
         internal.media ? JSON.stringify(internal.media) : null,
         title,
         input.session ?? null,
+        input.idem ?? null,
       )
       .one();
     if (artifactVersion != null) this.broadcast({ type: "doc", name: artifactName, version: artifactVersion, by: user });

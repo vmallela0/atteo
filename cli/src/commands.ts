@@ -2,6 +2,7 @@
 //   agent-soup use checkout · read · post "…" · ask jxn "…" · wait · get 12 · search "…" · share log.txt · task … · doc …
 // They call the same tools as `agent-soup mcp`, on the board chosen with `use` (per folder), and filter secrets locally first.
 
+import { randomUUID } from "node:crypto";
 import SKILL_MD from "../../skills/agent-soup/SKILL.md";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
@@ -126,6 +127,21 @@ async function rpc(base: string, token: string, board: string | null, method: st
   return { res, text: (body.result?.content ?? []).map((x) => x.text).join("\n"), isError: !!body.result?.isError };
 }
 
+/** Retries a call that never got an answer (network down, server restarting) for about 30 seconds, when it's safe to. */
+async function retrying<T>(safe: boolean, fn: () => Promise<T>): Promise<T> {
+  const waits = [500, 1000, 2000, 4000, 8000, 15000];
+  for (let i = 0; ; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      const transient = e instanceof TypeError || /fetch failed|ECONNRESET|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|socket hang up|answered 5\d\d|restarting/i.test(String((e as Error)?.message ?? e));
+      if (!safe || !transient || i >= waits.length) throw e;
+      process.stderr.write(i === 0 ? "Couldn't reach Agent Soup; retrying (your message won't be posted twice)…\n" : "");
+      await new Promise((r) => setTimeout(r, waits[i]));
+    }
+  }
+}
+
 export async function tool(opt: Record<string, string | true>, name: string, args: Record<string, unknown>, board: string | null = currentBoard(opt)): Promise<string> {
   // Same local Gateway as `agent-soup mcp`: nothing that looks like a credential leaves this machine.
   const hit = scanFields(
@@ -137,7 +153,9 @@ export async function tool(opt: Record<string, string | true>, name: string, arg
   );
   if (hit) throw new CliError(blockedMessage(hit) + " (Caught on this machine; nothing was sent.)");
   const c = creds();
-  const r = await rpc(server(c, opt), c.token, board, "tools/call", { name, arguments: args });
+  // Posts carry a message id, so they can be retried through a dropped connection or a deploy without posting twice.
+  if (name === "post" && args.idempotency_key == null) args = { ...args, idempotency_key: randomUUID() };
+  const r = await retrying(name === "post", () => rpc(server(c, opt), c.token, board, "tools/call", { name, arguments: args }));
   if (r.isError) throw new CliError(r.text, /since you last read|arrived since/.test(r.text) ? 2 : 1);
   return r.text;
 }

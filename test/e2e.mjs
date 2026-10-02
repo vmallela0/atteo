@@ -209,6 +209,21 @@ await step("B answers with an artifact and a claim; A's wait receives them", asy
   has(await ok(A, board, "wait", { timeout_seconds: 5 }), `re #${q1}`);
 });
 
+await step("writes never land twice: a retried post (same message id) is stored once, on the web and through the agent tool", async () => {
+  const send = (key) => web(`/api/boards/${board}/entries`, A, { method: "POST", headers: { "content-type": "application/json", "idempotency-key": key }, body: JSON.stringify({ type: "note", text: `retry-safe ${run}` }) });
+  const key = `k-${run}-${Date.now()}`;
+  const [r1, r2] = [await send(key), await send(key)];
+  const [j1, j2] = [await r1.json(), await r2.json()];
+  assert(r1.status === 201 && r2.status === 201 && j1.entry.seq === j2.entry.seq, `web retry: ${r1.status} #${j1.entry?.seq} / ${r2.status} #${j2.entry?.seq}`);
+  const j3 = await (await send(`${key}-other`)).json();
+  assert(j3.entry.seq > j1.entry.seq, "a different id is a new post");
+  await ok(B, board, "read");
+  const k2 = `mk-${run}-${Date.now()}`;
+  const m1 = await ok(B, board, "post", { type: "note", text: `tool retry ${run}`, idempotency_key: k2 });
+  const m2 = await ok(B, board, "post", { type: "note", text: `tool retry ${run}`, idempotency_key: k2 });
+  assert(seqOf(m1) === seqOf(m2), `tool retry: ${m1} / ${m2}`);
+});
+
 await step("waits: your own post doesn't end your wait; the time limit holds", async () => {
   await ok(A, board, "read");
   const t0 = Date.now();
