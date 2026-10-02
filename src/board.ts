@@ -7,6 +7,7 @@ import { blockedMessage, scanFields, scanText, type SecretHit } from "./secrets"
 import { keep, MAX_MENTIONS, mentionsOwnAgent, type Mention } from "./mentions";
 import { ENTRY_TYPES, type BoardInfo, type Entry, type Env, type Member, type NewEntry } from "./types";
 import { EMOJI_RE, USER_RE } from "./util";
+import { cardText, parseCard, type ChangeCard } from "./card";
 
 export const MAX_TEXT = 32_000;
 export const MAX_ARTIFACT = 256_000;
@@ -128,10 +129,11 @@ function toEntry(r: Row): Entry {
     artifact_name: (r.artifact_name as string | null) ?? null,
     artifact_size: (r.artifact_size as number | null) ?? null,
     artifact_version: (r.artifact_version as number | null) ?? null,
+    card: r.card ? (JSON.parse(r.card as string) as ChangeCard) : null,
   };
 }
 
-const ENTRY_COLS = "seq, ts, author, type, text, to_user, mentions, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version";
+const ENTRY_COLS = "seq, ts, author, type, text, to_user, mentions, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, card";
 
 export class Board extends DurableObject<Env> {
   private sql: SqlStorage;
@@ -161,7 +163,9 @@ export class Board extends DurableObject<Env> {
         artifact_name TEXT,
         artifact_size INTEGER,
         artifact_version INTEGER,
-        artifact_content TEXT
+        artifact_content TEXT,
+        card TEXT,
+        card_diff TEXT
       );
       CREATE TABLE IF NOT EXISTS reactions (
         seq INTEGER NOT NULL,
@@ -258,6 +262,8 @@ export class Board extends DurableObject<Env> {
     if (!cols.has("mentions")) this.sql.exec("ALTER TABLE entries ADD COLUMN mentions TEXT");
     if (!cols.has("self_agent")) this.sql.exec("ALTER TABLE entries ADD COLUMN self_agent INTEGER NOT NULL DEFAULT 0");
     if (!cols.has("artifact_version")) this.sql.exec("ALTER TABLE entries ADD COLUMN artifact_version INTEGER");
+    if (!cols.has("card")) this.sql.exec("ALTER TABLE entries ADD COLUMN card TEXT");
+    if (!cols.has("card_diff")) this.sql.exec("ALTER TABLE entries ADD COLUMN card_diff TEXT");
     // Files posted before files became documents: each becomes the next version of the doc with its (cleaned) name.
     if (this.meta("files_backfilled") !== "1") {
       for (const r of this.sql.exec("SELECT seq, ts, author, via, client, text, artifact_name, artifact_content FROM entries WHERE type = 'artifact' AND artifact_version IS NULL AND artifact_content IS NOT NULL ORDER BY seq").toArray()) {
@@ -423,6 +429,18 @@ export class Board extends DurableObject<Env> {
         this.storeVersion(user, artifactName, artifactContent, { via: input.via, client: input.client, summary: text });
     }
 
+    let card: ChangeCard | null = null;
+    let cardDiff: string | null = null;
+    if (input.type === "change") {
+      try {
+        ({ card, diff: cardDiff } = parseCard(input.card));
+      } catch (e) {
+        throw new BoardError(e instanceof Error ? e.message : String(e));
+      }
+      const hit = scanFields({ card: cardText(card), diff: cardDiff });
+      if (hit) throw new BoardError(blockedMessage(hit));
+    }
+
     // Resolved against the board's members by the Worker; stored as given, minus anything malformed or meaningless.
     const mentions: Mention[] = [];
     for (const m of input.mentions ?? []) {
@@ -434,8 +452,8 @@ export class Board extends DurableObject<Env> {
 
     const row = this.sql
       .exec(
-        `INSERT INTO entries (ts, author, type, text, to_user, mentions, self_agent, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, artifact_content)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING ${ENTRY_COLS}`,
+        `INSERT INTO entries (ts, author, type, text, to_user, mentions, self_agent, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, artifact_content, card, card_diff)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING ${ENTRY_COLS}`,
         Date.now(),
         user,
         input.type,
@@ -453,6 +471,8 @@ export class Board extends DurableObject<Env> {
         artifactContent == null ? null : new TextEncoder().encode(artifactContent).length,
         artifactVersion,
         null,
+        card ? JSON.stringify(card) : null,
+        cardDiff,
       )
       .one();
     if (artifactVersion != null) this.broadcast({ type: "doc", name: artifactName, version: artifactVersion, by: user });
@@ -569,9 +589,9 @@ export class Board extends DurableObject<Env> {
     }
   }
 
-  async get(seq: number): Promise<{ entry: Entry; artifact_content: string | null; replies: Entry[]; reactions: Reactions }> {
+  async get(seq: number): Promise<{ entry: Entry; artifact_content: string | null; diff: string | null; replies: Entry[]; reactions: Reactions }> {
     this.info();
-    const rows = this.sql.exec(`SELECT ${ENTRY_COLS}, artifact_content FROM entries WHERE seq = ?`, seq).toArray();
+    const rows = this.sql.exec(`SELECT ${ENTRY_COLS}, artifact_content, card_diff FROM entries WHERE seq = ?`, seq).toArray();
     if (!rows.length) throw new BoardError(`Entry #${seq} does not exist on this board.`);
     const replies = this.sql
       .exec(`SELECT ${ENTRY_COLS} FROM entries WHERE reply_to = ? OR supersedes = ? OR retracts = ? OR resolves LIKE ? ORDER BY seq`, seq, seq, seq, `%${seq}%`)
@@ -584,7 +604,7 @@ export class Board extends DurableObject<Env> {
       const v = this.sql.exec("SELECT content FROM doc_versions WHERE name = ? AND version = ?", entry.artifact_name, entry.artifact_version).toArray()[0];
       content = v ? (v.content as string) : `(v${entry.artifact_version} of ${entry.artifact_name} is no longer kept; read the latest with the doc tool.)`;
     }
-    return { entry, artifact_content: content, replies, reactions: this.reactionsFor([seq])[seq] ?? [] };
+    return { entry, artifact_content: content, diff: (rows[0].card_diff as string | null) ?? null, replies, reactions: this.reactionsFor([seq])[seq] ?? [] };
   }
 
   /** Case-insensitive substring search over text and artifact names/content, with optional filters. */

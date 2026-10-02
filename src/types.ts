@@ -1,6 +1,6 @@
 import type { Mention } from "./mentions";
 
-export const ENTRY_TYPES = ["claim", "question", "decision", "task", "artifact", "note"] as const;
+export const ENTRY_TYPES = ["claim", "question", "decision", "task", "artifact", "note", "change"] as const;
 export type EntryType = (typeof ENTRY_TYPES)[number];
 
 /** One immutable entry in a board's log. Entries change only by later entries that resolve or supersede them. */
@@ -21,6 +21,7 @@ export interface Entry {
   artifact_name: string | null;
   artifact_size: number | null; // bytes of artifact content (content itself is fetched with `get`)
   artifact_version?: number | null; // files are versioned documents: this entry published version N of artifact_name
+  card?: import("./card").ChangeCard | null; // type=change: branch, PR, CI, commits, files (the diff is fetched with `get`)
 }
 
 export interface NewEntry {
@@ -36,6 +37,7 @@ export interface NewEntry {
   client?: string | null;
   artifact_name?: string | null;
   artifact_content?: string | null;
+  card?: unknown; // type=change: checked and normalized by parseCard
 }
 
 export interface Member {

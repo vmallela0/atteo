@@ -1,6 +1,7 @@
 // Pure functions: derive a board's "hot context" summary from its entry log and format entries for agents.
 // No I/O here so it is unit-testable outside the Workers runtime.
 
+import { cardLine } from "./card";
 import type { BoardInfo, Entry, Member } from "./types";
 import { forAgent, forPerson, mentionLabel } from "./mentions";
 import { screenText } from "./screen";
@@ -11,6 +12,7 @@ export interface Summary {
   decisions: Entry[];
   claims: Entry[];
   artifacts: Entry[];
+  changes: Entry[];
 }
 
 /** Rough budget for the summary text: ~4 chars per token, PRD default of 4k tokens. */
@@ -31,6 +33,8 @@ export function retractedSet(entries: Entry[]): Set<number> {
   for (const e of entries) if (e.retracts != null) out.add(e.retracts);
   return out;
 }
+
+const MAX_CHANGES = 5;
 
 export function computeSummary(entries: Entry[]): Summary {
   const retracted = retractedSet(entries);
@@ -56,6 +60,7 @@ export function computeSummary(entries: Entry[]): Summary {
     claims: live.filter((e) => e.type === "claim").slice(-MAX_CLAIMS),
     // Files are versioned: one line per file, its latest version.
     artifacts: live.filter((e) => e.type === "artifact" && latestFile.get(e.artifact_name ?? "") === e.seq),
+    changes: live.filter((e) => e.type === "change").slice(-MAX_CHANGES),
   };
 }
 
@@ -106,7 +111,11 @@ function oneLine(e: Entry, max = SUMMARY_LINE_CHARS, tags?: TaskTags): string {
   const first = (lines[0] ?? "").replace(/\s+/g, " ");
   const t = lines.length > 1 && first.length <= max ? first + " …" : first;
   const who = e.to ? `${authorLabel(e)} → ${e.to}` : authorLabel(e);
-  const extra = e.artifact_name ? ` [file: ${e.artifact_name}${e.artifact_version ? ` v${e.artifact_version}` : ""}]` : "";
+  const extra = e.artifact_name
+    ? ` [file: ${e.artifact_name}${e.artifact_version ? ` v${e.artifact_version}` : ""}]`
+    : e.card
+      ? ` [change: ${cardLine(e.card)}]`
+      : "";
   const flag = screenText(e.text) ? "⚠ flagged · " : "";
   const tag = tags?.get(e.seq) ? `[${tags.get(e.seq)}] ` : "";
   return `#${e.seq} (${who})${extra} ${tag}${flag}${t.length > max + 2 ? t.slice(0, max) + "…" : t}`;
@@ -145,6 +154,7 @@ export function formatSummary(
     section("Decisions", s.decisions, "none");
     section("Recent claims", s.claims, "none");
     section("Files", s.artifacts, "none");
+    if (s.changes.length) section("Recent changes", s.changes, "");
     lines.push("", "(One line per entry; `get` an entry number for the full text.)");
     return lines.join("\n");
   };
