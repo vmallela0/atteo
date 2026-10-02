@@ -1452,6 +1452,26 @@ await step("A2A: Agent Card, message/send asks a member's agent, tasks/get retur
   assert(bad.error?.message.includes("not on a board"), JSON.stringify(bad));
 });
 
+await step("SSO and organization policies: SSO entry point, retention cap and in-house-only boards by domain", async () => {
+  has(await (await fetch(`${BASE}/auth/sso`)).text(), "Sign in with SSO");
+  const none = await fetch(`${BASE}/auth/sso?email=${encodeURIComponent(`someone@no-sso-${run}.test`)}`, { redirect: "manual" });
+  assert(none.status === 404 && (await none.text()).includes("set up single sign-on"), `no-SSO domain: ${none.status}`);
+  const dom = `e2e-pol-${run}.test`;
+  const setPol = (b) => fetch(`${BASE}/api/ops/policies`, { method: "POST", headers: { "x-admin-key": ADMIN_KEY, "content-type": "application/json" }, body: JSON.stringify(b) });
+  assert((await setPol({ domain: dom, max_retention_days: 7, allow_outside_members: false })).status === 200, "policy saved");
+  const P = `e2e-pol-${run}`;
+  await ops("users", { name: P, email: `${P}@${dom}`, verified: "true" });
+  const pc = (await ops("sessions", { user: P })).body.cookie;
+  const made = await fetch(`${BASE}/boards`, { method: "POST", redirect: "manual", headers: { cookie: pc, "content-type": "application/x-www-form-urlencoded" }, body: `title=${encodeURIComponent(`e2e policy ${run}`)}` });
+  const bid = made.headers.get("location").split("/b/")[1];
+  const ret = await fetch(`${BASE}/api/boards/${bid}/retention`, { method: "POST", headers: { cookie: pc, "content-type": "application/json" }, body: JSON.stringify({ days: 30 }) });
+  assert(ret.status === 400 && (await ret.json()).error.includes("at most 7 days"), "retention capped by policy");
+  const link = await (await fetch(`${BASE}/api/boards/${bid}/links`, { method: "POST", headers: { cookie: pc, "content-type": "application/json" }, body: "{}" })).json();
+  const join = await web(new URL(link.url).pathname, A);
+  assert(join.status === 410 && (await join.text()).includes("accounts only"), `outsider blocked: ${join.status}`);
+  await setPol({ domain: dom, delete: true });
+});
+
 await step("rename and archive: creator only; archived boards are read-only and listed separately; restore works", async () => {
   const id = (await ops("boards", { user: A, title: `e2e arch ${run}` })).body.board.id;
   await ops("members", { board: id, user: B });

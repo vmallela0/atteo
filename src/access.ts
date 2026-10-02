@@ -1,6 +1,7 @@
 // Shareable invite links: an owner makes a link with a role, an optional end date for the link, a use limit, and
 // how long people who join keep access. Only a hash of the link's secret is stored.
 
+import { checkOutsideMember } from "./policy";
 import { sha256hex, randomSecret } from "./auth";
 import { addMember, audit, memberRole, type Role, ROLES } from "./registry";
 import { checkCanAddMember } from "./billing";
@@ -74,6 +75,10 @@ export async function redeemLink(env: Env, secret: string, user: string, origin:
   if (await memberRole(env, l.board_id, user)) return l.board_id;
   if (l.max_uses != null && l.uses >= l.max_uses) throw new AccessError("This invite link has been used up. Ask for a new one.");
   await checkCanAddMember(env, l.board_id, origin);
+  const joiner = await env.DB.prepare(`SELECT email FROM users WHERE name = ?`).bind(user).first<{ email: string | null }>();
+  await checkOutsideMember(env, l.board_id, joiner?.email ?? null).catch((e) => {
+    throw new AccessError(e instanceof Error ? e.message : String(e));
+  });
   // Count the use first (atomically), so a burst can't exceed the limit.
   const used = await env.DB.prepare(`UPDATE invite_links SET uses = uses + 1 WHERE id = ? AND (max_uses IS NULL OR uses < max_uses)`).bind(l.id).run();
   if (!used.meta.changes) throw new AccessError("This invite link has been used up. Ask for a new one.");

@@ -1,5 +1,6 @@
 // D1 directory: which boards exist, who uses them, and invites. Kept in step with the boards by the Worker.
 
+import { checkOutsideMember } from "./policy";
 import { checkCanAddMember } from "./billing";
 import type { Env } from "./types";
 
@@ -281,6 +282,7 @@ export async function invitationsFor(env: Env, user: FullUser): Promise<Invitati
 export async function acceptInvitation(env: Env, user: FullUser, boardId: string, origin = ""): Promise<boolean> {
   if (!(await invitationsFor(env, user)).some((i) => i.board_id === boardId)) return false;
   await checkCanAddMember(env, boardId, origin); // the board's creator's plan caps its members
+  await checkOutsideMember(env, boardId, user.email); // the creator's organization may keep boards in-house
   const inv = await env.DB.prepare(
     `SELECT invited_by, role, expires_days FROM invites WHERE board_id = ? AND lower(email) = lower(?) AND accepted_at IS NULL AND declined_at IS NULL ORDER BY created_at DESC LIMIT 1`,
   )
