@@ -115,6 +115,20 @@ export const TOOLS = [
     },
   },
   {
+    name: "review",
+    description:
+      "Review a change card (an entry of type change) on the joined board: verdict approve, request_changes (say what in note), or comment. Read the card and its diff with get first. Your user decides what you approve: if they haven't told you to, ask them. If the card has a PR link and your user wants it mirrored on GitHub, they can run the gh command this returns.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        seq: { type: "integer", description: "The change entry's number" },
+        verdict: { type: "string", enum: ["approve", "request_changes", "comment"] },
+        note: { type: "string", description: "What you checked, or what to change" },
+      },
+      required: ["seq", "verdict"],
+    },
+  },
+  {
     name: "retract",
     description:
       "Withdraw an entry on the joined board: it leaves the summary and stays in the log marked retracted (an open question or task closes). Your own entries, or any entry if your user created the board.",
@@ -494,6 +508,20 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       } else throw new ToolError("action must be one of: list, claim, release, update, stop.");
       later(registry.touch(env, user, id));
       return `OK.\n` + fence(line(t));
+    }
+
+    case "review": {
+      const id = await currentBoard(c, args);
+      const stub = stubFor(env, id);
+      const seq = int(args.seq);
+      if (seq == null) throw new ToolError("seq is required.");
+      const verdict = str(args.verdict) as "approve" | "request_changes" | "comment";
+      const opts = { via: "agent" as const, client: (await registry.mcpSessionClient(env, c.sessionId)) ?? "agent" };
+      const r = await stub.review(user, seq, verdict, str(args.note) ?? "", opts);
+      later(registry.bumpBoard(env, id, r.entry.seq));
+      const pr = (await stub.get(seq)).entry.card?.pr_url;
+      const gh = pr && verdict !== "comment" ? `\nTo mirror it on GitHub (your user's call): gh pr review ${pr} --${verdict === "approve" ? "approve" : "request-changes"}${verdict === "approve" ? "" : ' -b "<your note>"'}` : "";
+      return `Posted #${r.entry.seq}. #${seq} now: ${r.state}.${gh}`;
     }
 
     case "retract": {

@@ -60,7 +60,7 @@ export function computeSummary(entries: Entry[]): Summary {
     claims: live.filter((e) => e.type === "claim").slice(-MAX_CLAIMS),
     // Files are versioned: one line per file, its latest version.
     artifacts: live.filter((e) => e.type === "artifact" && latestFile.get(e.artifact_name ?? "") === e.seq),
-    changes: live.filter((e) => e.type === "change").slice(-MAX_CHANGES),
+    changes: live.filter((e) => e.type === "change"),
   };
 }
 
@@ -129,6 +129,7 @@ export function formatSummary(
   you: string,
   maxChars = DEFAULT_SUMMARY_CHARS,
   tags?: TaskTags,
+  reviewers?: Map<number, string[]>, // who has given a verdict on each change
 ): string {
   const s = { ...summary, claims: [...summary.claims], decisions: [...summary.decisions] };
   const render = () => {
@@ -154,7 +155,11 @@ export function formatSummary(
     section("Decisions", s.decisions, "none");
     section("Recent claims", s.claims, "none");
     section("Files", s.artifacts, "none");
-    if (s.changes.length) section("Recent changes", s.changes, "");
+    // A change addressed to you (to / "@you's agent") is a review request until you've given a verdict.
+    const reviewsForYou = s.changes.filter((e) => e.author !== you && forAgent(e, you) && !reviewers?.get(e.seq)?.includes(you));
+    if (reviewsForYou.length) section("Changes waiting for YOUR review", reviewsForYou, "");
+    const recent = s.changes.filter((e) => !reviewsForYou.includes(e)).slice(-MAX_CHANGES);
+    if (recent.length) section("Recent changes", recent, "");
     lines.push("", "(One line per entry; `get` an entry number for the full text.)");
     return lines.join("\n");
   };

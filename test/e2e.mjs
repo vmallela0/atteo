@@ -152,7 +152,7 @@ await step("MCP initialize, tools/list, notifications, protocol errors", async (
   assert(r.protocolVersion === "2025-06-18" && r.serverInfo.name === "agent-soup", JSON.stringify(r));
   has(r.instructions, "Agent Soup");
   const names = (await rpcRaw(auth(A), null, "tools/list", {})).tools.map((t) => t.name).sort();
-  assert(JSON.stringify(names) === JSON.stringify(["create_board", "doc", "get", "invite", "join_board", "leave_board", "list_boards", "post", "read", "retract", "search", "task", "wait"]), names.join());
+  assert(JSON.stringify(names) === JSON.stringify(["create_board", "doc", "get", "invite", "join_board", "leave_board", "list_boards", "post", "read", "retract", "review", "search", "task", "wait"]), names.join());
   assert((await rpcRaw({}, null, "notifications/initialized", {}, { notification: true })).status === 202, "notification status");
   assert((await fetch(`${BASE}/mcp`)).status === 405, "GET /mcp should be 405");
   const p = await fetch(`${BASE}/mcp`, { method: "POST", headers: { "content-type": "application/json" }, body: "{" });
@@ -780,6 +780,34 @@ await step("change cards: agents post a git card; summary, get and the secret fi
   await err(A, board, "post", { type: "change", text: "no branch", card: { ci: "passing" } }, "card.branch is required");
   const fake = ["ghp", "_", "Zx9Yw8Vu7Ts6Rq5Po4Nm3Lk2Jh1Gf0Ed9Cb8A"].join("");
   await err(A, board, "post", { type: "change", text: "leaky", card: { branch: "x", diff: `+ token = "${fake}"` } }, "Blocked");
+});
+
+await step("reviews: a change addressed to someone is a review request; verdicts show in summaries; web reviews too", async () => {
+  await ok(A, board, "read");
+  const card = { branch: `feat/x-${run}`, base: "main", pr_url: "https://github.com/acme/shop/pull/7", files: [{ path: "a.ts", added: 1, removed: 0 }], diff: "+ x" };
+  const seq = seqOf(await ok(A, board, "post", { type: "change", to: B, text: "please review", card }));
+  const sumB = await ok(B, board, "read");
+  has(sumB, "Changes waiting for YOUR review");
+  await err(A, board, "review", { seq, verdict: "approve" }, "your own change");
+  await err(B, board, "review", { seq, verdict: "request_changes" }, "Say what to change");
+  await err(B, board, "review", { seq: 1, verdict: "approve" }, "isn't a change card");
+  const r1 = await ok(B, board, "review", { seq, verdict: "request_changes", note: "add a test" });
+  has(r1, `changes requested by ${B}'s agent`);
+  has(r1, "gh pr review https://github.com/acme/shop/pull/7 --request-changes");
+  has(await ok(A, board, "read"), `Changes requested on #${seq}: add a test`);
+  const r2 = await ok(B, board, "review", { seq, verdict: "approve", note: "LGTM" });
+  has(r2, `approved by ${B}'s agent`);
+  assert(!r2.includes("changes requested"), "the latest verdict replaces the earlier one");
+  const sumB2 = await ok(B, board, "read");
+  assert(!sumB2.includes("Changes waiting for YOUR review"), "reviewed changes leave your queue");
+  has(sumB2, `[approved by ${B}'s agent]`);
+  // People review from the web.
+  const res = await web(`/api/boards/${board}/entries/${seq}/review`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ verdict: "comment", note: "thanks!" }) });
+  assert(res.status === 201, `web review: ${res.status}`);
+  assert((await web(`/api/boards/${board}/entries/${seq}/review`, OUT, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).status === 404, "outsiders can't review");
+  const upd = await (await web(`/api/boards/${board}/updates?after=${seq - 1}`, A)).json();
+  const row = upd.entries.find((x) => x.seq === seq);
+  assert(row.reviews.length === 1 && row.reviews[0].verdict === "approve" && row.reviews[0].via === "agent", JSON.stringify(row.reviews));
 });
 
 await step("tasks: claim leases, conflicts, release, assign, done closes it, stop signal, retracted premise stops it", async () => {
