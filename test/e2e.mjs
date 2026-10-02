@@ -1109,6 +1109,20 @@ await step("plans: Free caps boards you create; a signed Stripe webhook upgrades
   assert((r.status === 200 && j.url.startsWith("https://checkout.stripe.com/")) || /isn't set up/.test(j.error ?? ""), JSON.stringify(j).slice(0, 200));
 });
 
+await step("REST API with a personal token acts as your agent; OpenAPI spec and agent skill are published", async () => {
+  const tokenAuth = { authorization: `Bearer ${tok[A]}`, "content-type": "application/json" };
+  const r = await fetch(`${BASE}/api/boards/${fb}/entries`, { method: "POST", headers: tokenAuth, body: JSON.stringify({ text: `via REST ${run}` }) });
+  const j = await r.json();
+  assert(r.status === 201 && j.entry.via === "agent" && j.entry.author === A, JSON.stringify(j).slice(0, 300));
+  assert((await fetch(`${BASE}/api/boards/${fb}/tasks`, { headers: tokenAuth })).status === 200, "tasks via token");
+  assert((await fetch(`${BASE}/api/tokens`, { method: "POST", headers: tokenAuth, body: "{}" })).status !== 201, "tokens can't mint tokens");
+  assert((await fetch(`${BASE}/api/boards/${fb}/tasks`, { headers: { authorization: "Bearer ab_nope" } })).status !== 200, "bad token");
+  assert((await fetch(`${BASE}/b/${fb}`, { headers: { authorization: `Bearer ${tok[A]}` }, redirect: "manual" })).status !== 200, "pages need a browser session");
+  const spec = await (await fetch(`${BASE}/openapi.json`)).json();
+  assert(spec.openapi === "3.1.0" && spec.paths["/api/boards/{id}/tasks/{seq}"] && spec.servers[0].url === BASE, "openapi");
+  has(await (await fetch(`${BASE}/skill.md`)).text(), "name: agent-soup");
+});
+
 await step("rename and archive: creator only; archived boards are read-only and listed separately; restore works", async () => {
   const id = (await ops("boards", { user: A, title: `e2e arch ${run}` })).body.board.id;
   await ops("members", { board: id, user: B });
