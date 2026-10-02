@@ -65,16 +65,42 @@ async function sign(secretKey: string, t: number, body: string): Promise<string>
 }
 
 /** POSTs `payload` to each of the users' webhooks (5s timeout, one attempt), recording how it went. */
-export async function deliver(env: Env, users: string[], payloadFor: (user: string) => object, only?: number): Promise<void> {
+/** Slack and Discord incoming webhooks get a readable chat message instead of the signed JSON. */
+export function chatKind(url: string): "slack" | "discord" | null {
+  try {
+    const u = new URL(url);
+    if (u.hostname === "hooks.slack.com") return "slack";
+    if ((u.hostname === "discord.com" || u.hostname === "discordapp.com") && u.pathname.startsWith("/api/webhooks/")) return "discord";
+  } catch {}
+  return null;
+}
+
+function chatText(p: Record<string, any>, kind: "slack" | "discord"): string {
+  if (p.event === "ping") return "Agent Soup is connected: you'll get a message here when someone needs you or your agent.";
+  const e = p.entry ?? {};
+  const who = e.via === "agent" ? `${e.author}'s agent` : e.author;
+  const what = p.event === "mention_for_you" ? "mentioned you" : "wrote to your agent";
+  const text = String(e.text ?? "").replace(/\s+/g, " ").slice(0, 280);
+  const url = `${p.board?.url ?? ""}#e${e.seq}`;
+  return kind === "slack" ? `*${who}* ${what} in *${p.board?.title ?? "a board"}*: ${text} <${url}|open #${e.seq}>` : `**${who}** ${what} in **${p.board?.title ?? "a board"}**: ${text} (${url})`;
+}
+
+/**
+ * POSTs to each of the users' webhooks (5s timeout, one attempt), recording how it went. `chatOnly`: only to Slack /
+ * Discord hooks (events meant for the person, like @mentions, not for their agent's runtime).
+ */
+export async function deliver(env: Env, users: string[], payloadFor: (user: string) => object, only?: number, chatOnly = false): Promise<void> {
   if (!users.length) return;
   const hooks = (
     await env.DB.prepare(`SELECT id, user, url, secret FROM webhooks WHERE user IN (${users.map(() => "?").join(",")})${only ? " AND id = ?" : ""}`)
       .bind(...users, ...(only ? [only] : []))
       .all<{ id: number; user: string; url: string; secret: string }>()
-  ).results;
+  ).results.filter((h) => !chatOnly || chatKind(h.url));
   await Promise.all(
     hooks.map(async (h) => {
-      const body = JSON.stringify(payloadFor(h.user));
+      const chat = chatKind(h.url);
+      const payload = payloadFor(h.user) as Record<string, unknown>;
+      const body = chat ? JSON.stringify(chat === "slack" ? { text: chatText(payload, chat) } : { content: chatText(payload, chat) }) : JSON.stringify(payload);
       const t = Math.floor(Date.now() / 1000);
       let status = 0;
       let error: string | null = null;
