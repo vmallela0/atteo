@@ -75,6 +75,8 @@ export interface Env {
   ADMIN_EMAIL?: string; // var: comma-separated admin emails
   ADMIN_KEY?: string; // secret: automation/test access to /api/admin/*
   STRIPE_SECRET_KEY?: string; // secret
+  PUBLIC_URL?: string; // var: this server's address, for links in webhooks
+  ALLOW_LOCAL_WEBHOOKS?: string; // dev/CI only: allow http://localhost webhook URLs and the test sink
   STRIPE_WEBHOOK_SECRET?: string; // secret
   POSTS_PER_MINUTE?: string; // var: per-person post rate limit per board (default 60; CI raises it for the stress test)
   CF_VERSION_METADATA?: { id: string; tag?: string; timestamp?: string }; // which deploy is serving (ship.sh waits for it)

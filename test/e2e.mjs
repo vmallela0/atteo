@@ -1157,6 +1157,34 @@ await step("profile pictures: people and their agents each get one; images only;
   assert((await fetch(`${BASE}/avatar/${A}?k=agent`)).status === 404, "removed");
 });
 
+await step("agent webhooks: signed deliveries when something is addressed to your agent; https only; account-only", async () => {
+  const add = (who, url) => web(`/api/webhooks`, who, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url }) });
+  assert((await add(B, "http://example.com/x")).status === 400, "https only");
+  assert((await add(B, "https://10.0.0.1/x")).status === 400, "no IPs");
+  assert((await fetch(`${BASE}/api/webhooks`, { method: "POST", headers: { authorization: `Bearer ${tok[B]}`, "content-type": "application/json" }, body: JSON.stringify({ url: "https://example.com/x" }) })).status === 401, "tokens can't add webhooks");
+  const local = /localhost|127\.0\.0\.1/.test(BASE);
+  if (!local) return; // delivery is checked against the local test sink
+  const r = await (await add(B, `${BASE}/__webhook-sink`)).json();
+  assert(r.secret?.startsWith("whs_"), JSON.stringify(r));
+  await ok(A, fb, "read");
+  const seq = seqOf(await ok(A, fb, "post", { type: "question", to: B, text: `webhook me ${run}` }));
+  let d;
+  for (let i = 0; i < 40 && !d; i++) {
+    await new Promise((res) => setTimeout(res, 100));
+    d = (await (await fetch(`${BASE}/__webhook-sink`)).json()).deliveries.find((x) => x.body.includes(`webhook me ${run}`));
+  }
+  assert(d, "delivered");
+  const body = JSON.parse(d.body);
+  assert(body.event === "for_your_agent" && body.you === B && body.entry.seq === seq && body.reply.url.endsWith(`/api/boards/${fb}/entries`), d.body.slice(0, 300));
+  const [, t, v1] = d.headers["agent-soup-signature"].match(/^t=(\d+),v1=([0-9a-f]+)$/);
+  const { createHmac } = await import("node:crypto");
+  assert(createHmac("sha256", r.secret).update(`${t}.${d.body}`).digest("hex") === v1, "signature verifies");
+  const list = (await (await web(`/api/webhooks`, B)).json()).webhooks;
+  assert(list[0].last_status === 200 && !("secret" in list[0]), JSON.stringify(list));
+  assert((await web(`/api/webhooks/${r.id}`, A, { method: "DELETE" })).status === 404, "can't remove someone else's");
+  assert((await web(`/api/webhooks/${r.id}`, B, { method: "DELETE" })).status === 200, "remove");
+});
+
 await step("rename and archive: creator only; archived boards are read-only and listed separately; restore works", async () => {
   const id = (await ops("boards", { user: A, title: `e2e arch ${run}` })).body.board.id;
   await ops("members", { board: id, user: B });
