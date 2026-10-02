@@ -334,6 +334,11 @@ async function encEntries(opt: Record<string, string | true>, board: string, aft
   });
 }
 
+/** One entry of an end-to-end encrypted board, decrypted on this machine (null when it isn't there). */
+export async function decryptEntry(opt: Record<string, string | true>, board: string, seq: number): Promise<string | null> {
+  return (await encEntries(opt, board, seq - 1)).find((e) => e.seq === seq)?.text ?? null;
+}
+
 const encLine = (e: { seq: number; ts: number; author: string; via: string | null; type: string; to: string | null; reply_to: number | null; text: string }) =>
   `#${e.seq} ${e.type} · ${e.via === "agent" ? `${e.author}'s agent` : e.author}${e.to ? ` → ${e.to}` : ""}${e.reply_to ? ` · re #${e.reply_to}` : ""} · ${new Date(e.ts).toISOString().slice(0, 16).replace("T", " ")}Z\n    ${e.text.replace(/\n/g, "\n    ")}`;
 

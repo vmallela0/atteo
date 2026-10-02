@@ -682,6 +682,53 @@ await step("harness: the agent you choose answers your DMs (a person's message s
   assert((calls.match(/sent you a direct message/g) ?? []).length === 1, `an agent's reply started another run:\n${calls}`);
 });
 
+await step("mailbox: another person's DM and @mention of your agent show up in full, fenced; --peek leaves them, a plain run delivers them; --json and --wait", async () => {
+  // Fresh people, so earlier steps' mail doesn't get in the way.
+  const M = `e2e-cli-m-${run}`, N = `e2e-cli-n-${run}`;
+  for (const u of [M, N]) await ops("users", { name: u, email: `${u}@example.com`, verified: "true" });
+  const tokM = (await ops("tokens", { user: M })).token;
+  const tokN = (await ops("tokens", { user: N })).token;
+  const credM = join(dir, "m.json");
+  writeFileSync(credM, JSON.stringify({ server: BASE, user: M, token: tokM, expires_at: Date.now() + 86400e3 }), { mode: 0o600 });
+  const call = async (tok, method, path, body) => (await fetch(`${BASE}${path}`, { method, headers: { authorization: `Bearer ${tok}`, "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined })).json();
+  await call(tokN, "POST", "/api/friends/request", { user: M });
+  await call(tokM, "POST", `/api/friends/${N}/accept`);
+  const dm = (await call(tokN, "POST", `/api/direct/${M}`)).board;
+  const shared = (await ops("boards", { user: N, title: `e2e cli mail ${run}` })).board.id;
+  await ops("members", { board: shared, user: M });
+  const mb = (args) => cli(["mailbox", ...args], { cred: credM, env: { XDG_CONFIG_HOME: join(dir, "cfg-mailbox") } });
+  // Drain what joining and befriending sent (contact requests and the like).
+  await mb([]);
+  const long = `Line one of the DM ${run}\nline two, ${"all of it ".repeat(30)}end`;
+  // The DM from N in the browser (a person), the mention from N's agent.
+  const cookieN = (await ops("sessions", { user: N })).cookie;
+  const r0 = await fetch(`${BASE}/api/boards/${dm}/entries`, { method: "POST", headers: { "content-type": "application/json", cookie: cookieN }, body: JSON.stringify({ text: long }) });
+  assert(r0.status === 201, "N's DM");
+  await tool(tokN, shared, "post", { type: "question", text: `@${M}'s agent which port does staging use? ${run}` });
+  let r = await mb(["--peek"]);
+  assert(r.code === 0 && r.out.includes("Mail for your agent (2)") && r.out.includes("direct message") && r.out.includes("for your agent"), r.out + r.err);
+  assert(r.out.includes(`from ${N} (person)`) && r.out.includes(`from ${N}'s agent (agent)`) && r.out.includes(`(${shared}) #`) && r.out.includes("    line two") && r.out.includes("all of it end"), "labelled, full text: " + r.out);
+  assert(r.out.indexOf("Line one of the DM") < r.out.indexOf("which port does staging use"), "oldest first: " + r.out);
+  assert(/<<untrusted [0-9a-f]+:[^\n]*>>/.test(r.out) && /<<end untrusted [0-9a-f]+>>/.test(r.out), "fenced as board content: " + r.out);
+  assert(r.out.includes("Peeked"), r.out);
+  r = await mb([]);
+  assert(r.code === 0 && r.out.includes("Mail for your agent (2)") && r.out.includes("Delivered"), "a peek leaves it waiting: " + r.out + r.err);
+  r = await mb([]);
+  assert(r.code === 0 && r.out.trim() === "Nothing new.", "a plain run delivered it: " + r.out + r.err);
+  // --json: the raw structure, for dispatchers; --wait returns as soon as mail arrives.
+  const t0 = Date.now();
+  const waiting = mb(["--wait", "20", "--json"]);
+  await sleep(1500);
+  await call(tokN, "POST", `/api/boards/${dm}/entries`, { type: "question", text: `quick one ${run}` });
+  r = await waiting;
+  const j = JSON.parse(r.out);
+  assert(r.code === 0 && j.mail.length === 1 && j.more === false && Date.now() - t0 < 15000, `${Date.now() - t0}ms ${r.out}${r.err}`);
+  const m = j.mail[0];
+  assert(m.kind === "dm" && m.board === dm && m.from === N && m.type === "question" && m.text === `quick one ${run}` && typeof m.id === "number" && typeof m.seq === "number" && typeof m.ts === "number", r.out);
+  r = await mb(["--wait", "2"]);
+  assert(r.out.includes("Nothing new in 2s."), "--json without --peek delivered it too: " + r.out);
+});
+
 await step("staying current: an older CLI says so (once, then hourly) and agent-soup update replaces it with the server's", async () => {
   const old = join(dir, "old-agent-soup.mjs");
   writeFileSync(old, readFileSync(CLI, "utf8") + "\n// an older build\n", { mode: 0o755 });

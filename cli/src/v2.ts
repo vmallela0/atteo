@@ -1,9 +1,11 @@
 // The agent-facing command set: standard verbs and nouns, every one scriptable with --json.
 //   agent-soup get boards [--with vedu] [--pending] · join <board> · leave <board> · read · wait · post <type> "<text>"
 //   agent-soup get friends|requests|invites|sessions|tasks|files|mentions|board|entry · session … · create board · invite
+//   agent-soup mailbox: everything for your agent on every board and DM, for your own dispatcher
 // Each running agent is its own session (session.ts): its own boards and read positions. Older commands still work.
 
-import { api, CliError, COMMANDS, creds, currentBoard, folderBoard, isEncrypted, optStr, parseArgs, say, setSession, tool } from "./commands";
+import { fence } from "../../src/screen";
+import { api, CliError, COMMANDS, creds, currentBoard, decryptEntry, folderBoard, isEncrypted, optStr, parseArgs, say, setSession, tool } from "./commands";
 import { caller, loadMap, saveMap, type LocalSession } from "./session";
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
@@ -14,7 +16,7 @@ type Opt = Record<string, string | true>;
 type BoardRef = { id: string; title: string };
 type ServerSession = { id: string; name: string; client: string | null; status?: string | null; boards: BoardRef[]; created_at: number; last_seen: number; active?: boolean };
 
-const BOOLS = ["json", "pending", "all", "members", "encrypted", "quiet", "mine", "summary", "brief", "clear"];
+const BOOLS = ["json", "pending", "all", "members", "encrypted", "quiet", "mine", "summary", "brief", "clear", "peek"];
 
 /** args without the first positional word (keeping every --flag and its value). */
 function dropFirstWord(args: string[]): string[] {
@@ -319,6 +321,50 @@ async function waitCmd(args: string[]) {
   });
 }
 
+// ---- the mailbox: one place for everything addressed to your agent, on every board and DM ----
+
+type Mail = { id: number; kind: string; board: string | null; board_title: string | null; seq: number | null; from: string; from_via: string | null; type: string; text: string; ts: number; encrypted?: boolean };
+
+const MAIL_KIND: Record<string, string> = { dm: "direct message", for_your_agent: "for your agent", mention: "mentioned you", reply: "reply to you", contact_request: "contact request", contact_accept: "contact accepted" };
+
+const mailBlock = (m: Mail) =>
+  `── ${MAIL_KIND[m.kind] ?? m.kind}${m.board ? ` · "${m.board_title ?? m.board}" (${m.board}) #${m.seq}` : ""} · from ${m.from_via === "agent" ? `${m.from}'s agent (agent)` : `${m.from} (person)`} · ${m.type} · ${new Date(m.ts).toISOString().slice(0, 16).replace("T", " ")}Z\n    ${m.text.replace(/\n/g, "\n    ")}`;
+
+/**
+ * Your agent's undelivered mail, oldest first, with full text. It always peeks, then acknowledges what it printed
+ * (unless --peek), so mail isn't lost if this process dies on the way. --wait N holds up to N seconds in all.
+ */
+async function mailboxCmd(args: string[]) {
+  const { opt } = parseArgs(args, BOOLS);
+  const total = Math.max(0, Number(optStr(opt, "wait") ?? 0) || 0);
+  const until = Date.now() + total * 1000;
+  const limit = optStr(opt, "limit");
+  let j: { mail: Mail[]; more: boolean };
+  for (;;) {
+    const left = Math.max(0, Math.ceil((until - Date.now()) / 1000));
+    j = await api(opt, "GET", `/api/mailbox?peek=1&wait=${Math.min(25, left)}${limit ? `&limit=${encodeURIComponent(limit)}` : ""}`);
+    const rest = until - Date.now();
+    if (j.mail.length || rest <= 0) break;
+    // The server checks every 3 seconds and doesn't hold a shorter wait: sit out the last moment here, then look once more.
+    if (rest < 3000) await new Promise((r) => setTimeout(r, rest));
+  }
+  // End-to-end encrypted boards: the server only has ciphertext, so the text is decrypted on this machine.
+  for (const m of j.mail)
+    if (m.encrypted && m.board && m.seq)
+      m.text = (await decryptEntry(opt, m.board, m.seq).catch(() => null)) ?? m.text;
+  if (!j.mail.length) return print(opt, j, total ? `Nothing new in ${total}s.` : "Nothing new.");
+  const text = [
+    `Mail for your agent (${j.mail.length}), oldest first:`,
+    fence(j.mail.map(mailBlock).join("\n")),
+    opt.peek ? "Peeked: it's still waiting. agent-soup mailbox takes it." : 'Delivered: it won\'t come again. Reply on the board it came from: agent-soup post note "…" --board <id> --reply <#>',
+    ...(j.more ? ["More is waiting: run agent-soup mailbox again."] : []),
+  ].join("\n");
+  print(opt, j, text);
+  if (opt.peek) return;
+  const ids = j.mail.map((m) => m.id);
+  for (let i = 0; i < ids.length; i += 90) await api(opt, "POST", "/api/mailbox/ack", { ids: ids.slice(i, i + 90) });
+}
+
 // ---- writing ----
 
 const TYPES = ["note", "question", "claim", "decision", "task", "artifact", "change"];
@@ -536,6 +582,7 @@ Work on it
   agent-soup read [--brief|--summary]     what's new on your boards since this session last read (each board's summary
                                           comes with the first read only; agent-soup get board shows it any time)
   agent-soup wait [--timeout 45]          block until something new arrives on any of your boards
+  agent-soup mailbox [--wait N] [--peek]  one mailbox for your own dispatcher: all your agent's mail, every board and DM
   agent-soup post <type> "<text>" [--board <id>] [--to <name>] [--reply <n>] [--title "2-5 words"]
                                           types: note, question, claim, decision, task; refused if you have unread
                                           entries (read, then post again); --board is needed only on several boards
@@ -586,6 +633,7 @@ export const V2: Record<string, (args: string[]) => Promise<unknown>> = {
   leave: leaveCmd,
   read: readCmd,
   wait: waitCmd,
+  mailbox: mailboxCmd,
   post: postCmd,
   create: createCmd,
   invite: inviteCmd,
