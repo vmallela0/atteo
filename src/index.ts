@@ -1,5 +1,7 @@
 // Worker entry: MCP endpoint, sign-in, web pages, JSON API, and the operator console (/_ops).
 
+import * as oauth from "./oauth";
+import { consentPage } from "./oauthPage";
 import * as approvals from "./approvals";
 import { approvalsPage } from "./approvalsPage";
 import * as access from "./access";
@@ -302,6 +304,46 @@ export default {
       const c: Ctx = { request, env, ctx, url, session, viewer };
       const needLogin = () =>
         method === "GET" && !path.startsWith("/api/") ? redirect(`/auth/login?return=${encodeURIComponent(url.pathname + url.search)}`) : json({ error: "sign in required" }, 401);
+
+      // ---- MCP OAuth: discovery, client registration, sign-in + approve, code → token ----
+      const cors = { "access-control-allow-origin": "*", "access-control-allow-headers": "content-type, authorization, mcp-protocol-version", "access-control-allow-methods": "GET, POST, OPTIONS" };
+      if ((path.startsWith("/.well-known/oauth-") || path.startsWith("/oauth/")) && method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
+      if (path === "/.well-known/oauth-protected-resource" || path === "/.well-known/oauth-protected-resource/mcp") return json(oauth.protectedResource(url.origin), 200, cors);
+      if (path === "/.well-known/oauth-authorization-server" || path === "/.well-known/openid-configuration") return json(oauth.authorizationServer(url.origin), 200, cors);
+      if (path === "/oauth/register" && method === "POST") {
+        try {
+          return json(await oauth.register(env, (await request.json().catch(() => ({}))) as Record<string, unknown>), 201, cors);
+        } catch (e) {
+          return json({ error: e instanceof oauth.OAuthError ? e.code : "invalid_client_metadata", error_description: e instanceof Error ? e.message : String(e) }, 400, cors);
+        }
+      }
+      if (path === "/oauth/token" && method === "POST") {
+        const ct = request.headers.get("content-type") ?? "";
+        const f = ct.includes("json") ? ((await request.json().catch(() => ({}))) as Record<string, string>) : Object.fromEntries(new URLSearchParams(await request.text()));
+        try {
+          return json(await oauth.exchange(env, f), 200, { ...cors, "cache-control": "no-store" });
+        } catch (e) {
+          return json({ error: e instanceof oauth.OAuthError ? e.code : "invalid_request", error_description: e instanceof Error ? e.message : String(e) }, 400, cors);
+        }
+      }
+      if (path === "/oauth/authorize" && method === "GET") {
+        if (!viewer || viewer.via === "agent") return redirect(`/auth/login?return=${encodeURIComponent(url.pathname + url.search)}`);
+        try {
+          const r = await oauth.startAuthorize(env, viewer.name, url.searchParams);
+          return consentPage(viewer, r.id, r.client.name, new URL(r.redirect).host);
+        } catch (e) {
+          return messagePage("Can't connect", e instanceof Error ? e.message : String(e), { viewer, status: 400, action: { href: "/", label: "Your boards" } });
+        }
+      }
+      if (path === "/oauth/authorize" && method === "POST") {
+        if (!viewer || viewer.via === "agent") return needLogin();
+        const f = new URLSearchParams(await request.text());
+        try {
+          return redirect(await oauth.finishAuthorize(env, viewer.name, f.get("request_id") ?? "", f.get("allow") === "1"));
+        } catch (e) {
+          return messagePage("Can't connect", e instanceof Error ? e.message : String(e), { viewer, status: 400, action: { href: "/", label: "Your boards" } });
+        }
+      }
 
       // ---- auth ----
       if (path === "/auth/login" && method === "GET") return authLogin(c);

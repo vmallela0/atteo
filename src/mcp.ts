@@ -979,6 +979,10 @@ export async function handleMcp(request: Request, env: Env, ctx: ExecutionContex
   }
   const results = (await Promise.all(msgs.map((m) => handleOne(c, m)))).filter((r): r is object => r != null);
   const headers: Record<string, string> = issued ? { "Mcp-Session-Id": issued } : {};
-  if (!results.length) return new Response(null, { status: 202, headers });
-  return Response.json(batch ? results : results[0], { headers });
+  // No credentials at all: say so the standard way, so OAuth-capable clients start one-click sign-in (MCP authorization).
+  // A token that's wrong or expired keeps getting its explanation in the reply (the CLI shows it).
+  if (!token && !legacy) headers["WWW-Authenticate"] = `Bearer resource_metadata="${url.origin}/.well-known/oauth-protected-resource"`;
+  const status = !token && !legacy ? 401 : 200;
+  if (!results.length) return new Response(null, { status: status === 401 ? 401 : 202, headers });
+  return Response.json(batch ? results : results[0], { headers, status });
 }
