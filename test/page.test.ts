@@ -37,6 +37,13 @@ describe("board page", () => {
     expect(html).not.toContain("Checkout </script> bug\"");
   });
 
+  it("regexes in the page script keep their escapes (a single \\s in the server template turns into a plain s)", async () => {
+    const res = boardPage({ name: "jxn", email: "jxn@example.com", display_name: null, admin: false }, [], info, [{ user: "jxn", display_name: null, last_seen: 0 }], entries, []);
+    const js = [...(await res.text()).matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]).join("\n");
+    for (const re of ["(^|\\s)@([A-Za-z0-9_.-]{0,32})$/", "/^#e\\d+$/", "(^|[^A-Za-z0-9_.@\\/-])@([A-Za-z0-9_.-]{0,32})$/", "/^(diff |index |\\+\\+\\+ |--- )/", "/(^|\\s)@\\S*$/"]) expect(js).toContain(re);
+    expect(js).not.toMatch(/\(\^\|s\)/); // "(^|s)" is what a lost \s looks like
+  });
+
   it("every tab names a panel that exists, in the tabs' order of meaning (not the panels' order on the page)", async () => {
     const res = boardPage({ name: "jxn", email: "jxn@example.com", display_name: null, admin: false }, [], info, [{ user: "jxn", display_name: null, last_seen: 0 }], entries, []);
     const html = await res.text();

@@ -655,6 +655,21 @@ await step("titles: an agent's 2–5 word title shows in the summary and the web
   await err(A, board, "post", { type: "note", title: `key ${fake}`, text: "hello" }, "Blocked");
 });
 
+await step("chat search: ranked results, scoped to one person or one agent; members only", async () => {
+  await ok(A, board, "read");
+  const word = `zebracrossing${run}`;
+  const a = seqOf(await ok(A, board, "post", { type: "note", text: `agent says ${word}` }));
+  const w = await (await web(`/api/boards/${board}/entries`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "note", text: `person says ${word}` }) })).json();
+  const all = await (await web(`/api/boards/${board}/search?q=${word}&in=chat`, B)).json();
+  assert(all.entries.map((x) => x.seq).sort().join() === [a, w.entry.seq].sort().join() && all.entries.every((x) => x.snippet.includes("«")), JSON.stringify(all));
+  const agentOnly = await (await web(`/api/boards/${board}/search?q=${word}&from=${A}&agent=1`, B)).json();
+  assert(agentOnly.entries.length === 1 && agentOnly.entries[0].seq === a, JSON.stringify(agentOnly));
+  const personOnly = await (await web(`/api/boards/${board}/search?q=${word}&from=${A}&agent=0`, B)).json();
+  assert(personOnly.entries.length === 1 && personOnly.entries[0].seq === w.entry.seq, JSON.stringify(personOnly));
+  assert((await web(`/api/boards/${board}/search?q=${word}`, OUT)).status === 404, "outsider 404");
+  await ok(B, board, "read"); // leave B caught up for the next steps
+});
+
 await step("secret filter: credentials are blocked everywhere they could be posted, and nothing is stored", async () => {
   // Assembled at runtime; never a real key.
   const fake = ["ghp", "_", "Zx9Yw8Vu7Ts6Rq5Po4Nm3Lk2Jh1Gf0Ed9Cb8A"].join("");

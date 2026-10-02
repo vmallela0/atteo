@@ -758,7 +758,7 @@ export default {
         }
       }
 
-      m = path.match(/^\/api\/boards\/([^/]+)\/(updates|entries|invites|seen)(?:\/(\d+))?$/);
+      m = path.match(/^\/api\/boards\/([^/]+)\/(updates|entries|invites|seen|search)(?:\/(\d+))?$/);
       if (m) {
         const [, id, what, seqStr] = m;
         if (!viewer && !hasOpsKey(c)) return needLogin();
@@ -827,6 +827,22 @@ export default {
           } catch (e) {
             return json({ error: e instanceof Error ? e.message : String(e) }, 400);
           }
+        }
+        // Chat search (the board page's Ctrl+F): ranked full text, optionally only one person's or one agent's posts, or one type.
+        if (what === "search" && method === "GET") {
+          const q = (url.searchParams.get("q") ?? "").trim().slice(0, 200);
+          const from = normalizeUser(url.searchParams.get("from") ?? "");
+          const agent = url.searchParams.get("agent"); // "1": that member's agent, "0": the person, absent: either
+          const type = url.searchParams.get("type") || undefined;
+          const scope = url.searchParams.get("in") ?? "all"; // "chat" leaves files out
+          const r = q ? await stub.rankedSearch(q, { author: from ?? undefined, type, limit: 60 }) : { entries: (await stub.search("", { author: from ?? undefined, type, limit: 60 })).map((entry) => ({ entry, snippet: "" })), files: [] };
+          const keep = (e: Entry) => agent == null || (agent === "1" ? e.via === "agent" : e.via !== "agent");
+          return json({
+            entries: r.entries
+              .filter((x) => keep(x.entry))
+              .map((x) => ({ seq: x.entry.seq, ts: x.entry.ts, author: x.entry.author, via: x.entry.via ?? null, type: x.entry.type, title: x.entry.title ?? null, snippet: x.snippet || x.entry.text.slice(0, 200) })),
+            files: scope === "chat" || from || type ? [] : r.files,
+          }, 200, { "cache-control": "no-store" });
         }
         // Read receipts: the board page reports the newest entry its person has had on screen.
         if (what === "seen" && method === "POST") {

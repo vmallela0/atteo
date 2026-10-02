@@ -198,6 +198,26 @@ dialog[open]{animation:pop .16s ease-out}
 .file .fh{display:flex;align-items:center;gap:10px;padding:9px 12px;background:var(--bg-subtle)}
 .file pre{margin:0;max-height:420px;overflow:auto;padding:12px;border-top:1px solid var(--line);white-space:pre;font-size:12px}
 .t-change{color:var(--accent)}
+/* chat search (Ctrl+F): a bar over the top of the conversation, chips for scope, ranked results below it */
+.conv{position:relative}
+.srch{position:absolute;top:8px;left:0;right:22px;z-index:8}
+.srch[hidden]{display:none}
+.srch-bar{display:flex;align-items:center;gap:8px;min-height:38px;padding:4px 6px 4px 10px;border:1px solid var(--line-strong);border-radius:10px;background:var(--bg);box-shadow:var(--shadow-lg);color:var(--muted)}
+.srch-bar:focus-within{border-color:var(--accent)}
+.srch-bar input{flex:1;min-width:80px;border:0;outline:0;background:none;font:inherit;color:var(--text);height:28px}
+.srch-chips{display:inline-flex;gap:6px;flex-wrap:wrap}
+.srch-chip{display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 4px 0 8px;border-radius:6px;font-size:12.5px;font-weight:500;color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,transparent)}
+.srch-chip.agent{outline:1px dashed color-mix(in srgb,var(--accent) 50%,transparent);outline-offset:-1px}
+.srch-chip button{border:0;background:none;color:inherit;opacity:.6;cursor:pointer;font-size:10px;padding:2px 3px}.srch-chip button:hover{opacity:1}
+.srch-menu{position:absolute;top:44px;left:40px;bottom:auto}
+.srch-res{list-style:none;margin:6px 0 0;padding:4px;max-height:min(420px,55vh);overflow-y:auto;border:1px solid var(--line);border-radius:10px;background:var(--bg);box-shadow:var(--shadow-lg)}
+.srch-res[hidden]{display:none}
+.srch-res li{display:flex;flex-direction:column;gap:2px;padding:7px 10px;border-radius:7px;cursor:pointer}
+.srch-res li[aria-selected=true]{background:var(--bg-hover)}
+.srch-who{font-size:12px;color:var(--muted)}.srch-snip{font-size:13px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.srch-snip mark{background:color-mix(in srgb,var(--warn) 28%,transparent);color:inherit;border-radius:3px;padding:0 1px}
+.srch-none{color:var(--faint);font-size:13px;cursor:default}
+.entry.hit{background:color-mix(in srgb,var(--warn) 9%,transparent);border-radius:8px;box-shadow:inset 3px 0 0 var(--warn)}
 /* a task in the conversation: status, priority, who it's for / who holds it, and Claim · Done · Open */
 .tk{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px;padding:6px 6px 6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg-subtle);font-size:12.5px}
 .tk[hidden]{display:none}
