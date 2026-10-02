@@ -405,12 +405,16 @@ ${agent.connected ? "" : `<button class="btn primary lg" style="margin-top:16px"
   const rows = [...entries].reverse().map((e) => logRow(e)).join("");
   const script = SHEET_JS + CONNECT_JS + `
 window.BOARD=${JSON.stringify(info.id)};let last=${last};
-async function tick(wait){try{
+// One update fetch at a time (a post's own refresh and the live signal used to race and add the entry twice).
+let ticking=null,again=false;
+function tick(wait){if(ticking){if(!wait)again=true;return ticking}ticking=tick1(wait).finally(()=>{ticking=null;if(again){again=false;tick(false)}});return ticking}
+async function tick1(wait){try{
   const r=await fetch('/api/boards/'+BOARD+'/updates?after='+last+(wait?'&wait=25':''));if(!r.ok){await new Promise(r=>setTimeout(r,5000));return}const d=await r.json();
-  for(const e of d.entries){const box=e.root!==e.seq&&document.getElementById('r'+e.root);
+  for(const e of d.entries){if(document.getElementById('e'+e.seq)){last=Math.max(last,e.seq);continue} // already on the page
+    const box=e.root!==e.seq&&document.getElementById('r'+e.root);
     const tmp=document.createElement('div');tmp.innerHTML=e.html;const el=tmp.firstElementChild;el.classList.add('flash-in');
     if(box){el.querySelector('.replies')?.remove();box.appendChild(el)}else{document.getElementById('empty')?.remove();document.getElementById('thread').appendChild(el)}
-    const lt=document.createElement('tbody');lt.innerHTML=e.row;document.getElementById('log-body').prepend(lt.firstElementChild);document.getElementById('log-empty')?.remove();
+    if(!document.querySelector('#log-body tr[data-seq="'+e.seq+'"]')){const lt=document.createElement('tbody');lt.innerHTML=e.row;document.getElementById('log-body').prepend(lt.firstElementChild);document.getElementById('log-empty')?.remove()}
     if(e.retracts){const t=document.getElementById('e'+e.retracts);if(t){t.classList.add('retracted');t.querySelector('[data-retract]')?.remove()}}
     last=Math.max(last,e.seq)}
   if(typeof d.last==='number')last=Math.max(last,d.last);
@@ -452,6 +456,10 @@ ta.addEventListener('keydown',e=>{if(mm.hidden)return;
   else if(e.key==='Escape'){mclose();e.preventDefault()}});
 ta.addEventListener('blur',mclose);
 mm.addEventListener('mousedown',e=>{e.preventDefault();const li=e.target.closest('[data-i]');if(li)mpick(ms[+li.dataset.i])});
+// Enter posts, Shift+Enter adds a line. An Enter that picked a mention (default prevented above) doesn't post.
+document.getElementById('composer-text')?.addEventListener('keydown',e=>{
+  if(e.defaultPrevented)return;
+  if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();const f=e.target.closest('form');if(e.target.value.trim())f.requestSubmit()}});
 // ---- shared documents ----
 const READONLY=${info.archived ? "true" : "false"};let curDoc=null,editing=false;
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -548,7 +556,7 @@ window.boardKeys=(e,k)=>{
   <section>
     <div class="thread" id="thread">${thread}</div>
     <form class="card composer" method="post" action="/api/boards/${esc(info.id)}/entries" data-api data-done="posted" data-reset${info.archived ? " hidden" : ""}>
-      <textarea class="input" id="composer-text" name="text" required placeholder="Write a note, question, task or decision…  @ to mention someone or their agent  (C)" aria-label="Message"
+      <textarea class="input" id="composer-text" name="text" required placeholder="Write a note, question, task or decision… (Enter to post, Shift+Enter for a new line, @ to mention)" aria-label="Message"
         role="combobox" aria-autocomplete="list" aria-controls="mention-menu" aria-expanded="false"></textarea>
       <ul class="mention-menu" id="mention-menu" role="listbox" aria-label="Mention" hidden></ul>
       <div class="bar">
