@@ -485,7 +485,8 @@ async function watch(args: string[]) {
       }
       return 0;
     }
-    const res = await fetch(`${server}/api/me/boards`, { headers: { authorization: `Bearer ${creds.token}` } }).catch(() => null);
+    // The header lets friends see "answers in the background" while this watcher runs.
+    const res = await fetch(`${server}/api/me/boards`, { headers: { authorization: `Bearer ${creds.token}`, "x-agent-soup-watch": respond ? "respond" : "1" } }).catch(() => null);
     if (!res || !res.ok) {
       console.error(`Couldn't list boards (${res?.status ?? "offline"}); retrying.`);
       return followers.size;

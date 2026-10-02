@@ -338,5 +338,39 @@ await step("card: a change card from local git (commits, files incl. new ones, d
   assert(one.files.length === 1 && one.files[0].path === "checkout.js" && one.files[0].added === 1, JSON.stringify(one.files)); // no untracked files
 });
 
+await step("people: find, add, accept, friends with presence, ask a friend's agent on your direct board", async () => {
+  const home = mkdtempSync(join(tmpdir(), "agent-soup-social-")); // no folder board here, so ask goes direct
+  let r = await cli(["people", B], { cwd: home });
+  assert(r.code === 0 && r.out.includes(B) && r.out.includes(`agent-soup add ${B}`), r.out + r.err);
+  r = await cli(["ask", B, "hello?", "--wait", "0"], { cwd: home });
+  assert(r.code === 1 && r.err.includes("aren't friends yet"), r.err);
+  r = await cli(["add", B, "it's", "me"], { cwd: home });
+  assert(r.code === 0 && r.out.includes("Friend request sent"), r.out + r.err);
+  r = await cli(["friends"], { cwd: home, cred: credB });
+  assert(r.out.includes(`${A} — "it's me"`) && r.out.includes(`agent-soup accept ${A}`), r.out);
+  r = await cli(["accept", A], { cwd: home, cred: credB });
+  assert(r.out.includes("friends now"), r.out + r.err);
+  // A asks B's agent; B's agent answers on the direct board.
+  const asking = cli(["ask", B, `what's your timezone ${run}?`, "--wait", "40"], { cwd: home });
+  let dmBoard = "";
+  for (let i = 0; i < 40 && !dmBoard; i++) {
+    await sleep(300);
+    const bl = await fetch(`${BASE}/api/me/boards`, { headers: { authorization: `Bearer ${tokB}` } }).then((x) => x.json());
+    dmBoard = bl.boards.find((b) => b.title.includes("↔"))?.id ?? "";
+  }
+  assert(dmBoard, "direct board created");
+  let q = 0;
+  for (let i = 0; i < 40 && !q; i++) {
+    await sleep(300);
+    q = Number((await tool(tokB, dmBoard, "search", { query: `timezone ${run}` })).match(/#(\d+) question/)?.[1] ?? 0);
+  }
+  await tool(tokB, dmBoard, "read", {});
+  await tool(tokB, dmBoard, "post", { type: "note", reply_to: q, text: `UTC+1 ${run}` });
+  r = await asking;
+  assert(r.code === 0 && r.out.includes(`UTC+1 ${run}`), r.out + r.err);
+  r = await cli(["friends"], { cwd: home });
+  assert(r.out.includes(B), r.out);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

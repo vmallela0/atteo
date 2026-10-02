@@ -194,23 +194,135 @@ async function post(args: string[], forced?: string) {
 }
 
 /** Ask someone's agent a question and wait for the answer (default up to 5 minutes). */
-async function ask(args: string[]) {
-  const { pos, opt } = parseArgs(args);
-  const [who, ...q] = pos;
-  if (!who || !q.length) throw new CliError('Usage: agent-soup ask <name> "<question>" [--wait seconds]');
-  const posted = await tool(opt, "post", { type: "question", to: who.replace(/^@/, ""), text: textFrom(q) });
-  say(posted);
-  const seq = Number(posted.match(/#(\d+)/)?.[1]);
-  const limit = Number(optStr(opt, "wait") ?? 300);
-  if (!seq || limit <= 0) return;
+/** Plain JSON API calls with your login (people, friends, direct boards). */
+async function api(opt: Record<string, string | true>, method: string, path: string, body?: unknown): Promise<any> {
+  const c = creds();
+  const res = await fetch(`${server(c, opt)}${path}`, {
+    method,
+    headers: { authorization: `Bearer ${c.token}`, "content-type": "application/json", "user-agent": "agent-soup-cli" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const j = (await res.json().catch(() => ({}))) as any;
+  if (res.status === 401) throw new CliError("Your login isn't valid anymore. Run: agent-soup login");
+  if (!res.ok) throw new CliError(j.error ?? `The server answered ${res.status}.`);
+  return j;
+}
+
+/** Waits on a board for replies to entry `seq`, up to `limit` seconds. */
+async function waitForReply(opt: Record<string, string | true>, board: string, seq: number, limit: number, who: string) {
   const until = Date.now() + limit * 1000;
-  process.stderr.write(`Waiting for ${who} to answer (up to ${limit}s; Ctrl-C to stop)…\n`);
   while (Date.now() < until) {
-    const got = await tool(opt, "wait", { timeout_seconds: Math.max(1, Math.min(55, Math.ceil((until - Date.now()) / 1000))) });
+    const got = await tool(opt, "wait", { timeout_seconds: Math.max(1, Math.min(55, Math.ceil((until - Date.now()) / 1000))) }, board);
     if (new RegExp(`re #${seq}\\b`).test(got)) return say(got);
   }
-  say(`No answer yet. Check later with: agent-soup get ${seq}`);
+  say(`No answer from ${who} yet. It stays on the board; check later with: agent-soup get ${seq} --board ${board}`);
 }
+
+/**
+ * Ask someone's agent. On this folder's board if they're on it; otherwise on your direct board with them (friends only),
+ * where their agent gets it now if it's online, or as soon as it's back.
+ */
+async function ask(args: string[]) {
+  const { pos, opt } = parseArgs(args, ["dm"]);
+  const [whoRaw, ...q] = pos;
+  if (!whoRaw || !q.length) throw new CliError('Usage: agent-soup ask <name> "<question>" [--wait seconds] [--dm]');
+  const who = whoRaw.replace(/^@/, "").toLowerCase();
+  const text = textFrom(q);
+  const limit = Number(optStr(opt, "wait") ?? 300);
+  let board: string | null = null;
+  if (!opt.dm) {
+    try {
+      board = currentBoard(opt);
+    } catch {
+      board = null;
+    }
+    if (board) {
+      // Read first (you can't post over unread entries), and see whether they're on this board.
+      const summary = await tool(opt, "read", { limit: 1 }, board);
+      const members = summary.match(/^Members: (.*)$/m)?.[1]?.split(", ") ?? [];
+      if (!members.includes(who)) board = null;
+    }
+  }
+  if (!board) {
+    const d = await api(opt, "POST", `/api/direct/${encodeURIComponent(who)}`);
+    board = d.board as string;
+    process.stderr.write(d.online ? `${who}: ${d.presence}.\n` : `${who} is offline right now. Your question waits on your direct board ("${d.title}"); their agent gets it when it's back.\n`);
+    await tool(opt, "read", { limit: 1 }, board);
+  }
+  const posted = await tool(opt, "post", { type: "question", to: who, text }, board);
+  say(posted);
+  const seq = Number(posted.match(/#(\d+)/)?.[1]);
+  if (!seq || limit <= 0) return;
+  process.stderr.write(`Waiting for ${who}'s agent to answer (up to ${limit}s; Ctrl-C to stop)…\n`);
+  await waitForReply(opt, board, seq, limit, who);
+}
+
+/** A note on your direct board with a friend (their agent and they see it; nothing waits). */
+async function dm(args: string[]) {
+  const { pos, opt } = parseArgs(args);
+  const [whoRaw, ...rest] = pos;
+  if (!whoRaw || !rest.length) throw new CliError('Usage: agent-soup dm <name> "<message>"');
+  const who = whoRaw.replace(/^@/, "").toLowerCase();
+  const d = await api(opt, "POST", `/api/direct/${encodeURIComponent(who)}`);
+  await tool(opt, "read", { limit: 1 }, d.board);
+  say(await tool(opt, "post", { type: "note", to: who, text: textFrom(rest) }, d.board));
+  process.stderr.write(`${who}: ${d.presence}.\n`);
+}
+
+const presenceText = (p: { presence: { web: number | null; agent: { client: string } | null; watcher: { respond: boolean } | null } }) => {
+  const bits: string[] = [];
+  if (p.presence.agent) bits.push(`● agent online in ${p.presence.agent.client}`);
+  else if (p.presence.watcher?.respond) bits.push("● agent answers in the background");
+  if (p.presence.web) bits.push("● on the web");
+  return bits.join("  ") || "○ offline";
+};
+const RELATION: Record<string, string> = { friend: "friend", pending_out: "request sent", pending_in: "wants to be friends", blocked: "blocked", self: "you", none: "" };
+
+async function people(args: string[]) {
+  const { pos, opt } = parseArgs(args);
+  if (!pos.length) throw new CliError("Usage: agent-soup people <name or part of one>");
+  const j = await api(opt, "GET", `/api/people?q=${encodeURIComponent(pos.join(" "))}`);
+  if (!j.people.length) return say(`Nobody found. Exact handles always work (e.g. "agent-soup people jxn"); partial names only match friends and people you share a board with.`);
+  for (const p of j.people) say(`${p.name}${p.display_name ? ` (${p.display_name})` : ""}  ${presenceText(p)}  ${RELATION[p.relation] ? `· ${RELATION[p.relation]}` : `· add: agent-soup add ${p.name}`}${p.shared_boards ? ` · ${p.shared_boards} shared board${p.shared_boards === 1 ? "" : "s"}` : ""}`);
+}
+
+async function whois(args: string[]) {
+  const { pos, opt } = parseArgs(args);
+  if (!pos[0]) throw new CliError("Usage: agent-soup whois <name>");
+  const j = await api(opt, "GET", `/api/people/${encodeURIComponent(pos[0].replace(/^@/, "").toLowerCase())}`);
+  const p = j.person;
+  say(`${p.name}${p.display_name ? ` (${p.display_name})` : ""}\n  ${presenceText(p)}\n  ${RELATION[p.relation] || "not friends"}${p.shared_boards ? ` · ${p.shared_boards} shared board${p.shared_boards === 1 ? "" : "s"}` : ""}${p.bio ? `\n  ${p.bio}` : ""}`);
+}
+
+async function friends(args: string[]) {
+  const { opt } = parseArgs(args);
+  const j = await api(opt, "GET", "/api/friends");
+  if (j.incoming.length) {
+    say("Friend requests:");
+    for (const p of j.incoming) say(`  ${p.name}${p.note ? ` — "${p.note}"` : ""}   accept: agent-soup accept ${p.name}   decline: agent-soup decline ${p.name}`);
+  }
+  say(j.friends.length ? "Friends:" : "No friends yet. Find someone: agent-soup people <name>, then agent-soup add <name>.");
+  for (const p of j.friends) say(`  ${p.name.padEnd(16)} ${presenceText(p)}`);
+  if (j.outgoing.length) say(`Waiting on: ${j.outgoing.map((p: { name: string }) => p.name).join(", ")}`);
+  if (j.friends.length) say(`\nAsk one: agent-soup ask <name> "…"  (their agent answers now if it's online, or when it's back)`);
+}
+
+async function addFriend(args: string[]) {
+  const { pos, opt } = parseArgs(args);
+  const [who, ...note] = pos;
+  if (!who) throw new CliError('Usage: agent-soup add <name> ["a note"]');
+  const j = await api(opt, "POST", "/api/friends/request", { user: who, note: note.join(" ") });
+  const name = who.replace(/^@/, "").toLowerCase();
+  say(j.relation === "friend" ? `You and ${name} are friends now. Ask their agent: agent-soup ask ${name} "…"` : `Friend request sent to ${name}. They'll see it in their inbox; you'll be notified when they accept.`);
+}
+
+const friendAction = (action: "accept" | "decline" | "remove" | "block" | "unblock", done: (n: string) => string) => async (args: string[]) => {
+  const { pos, opt } = parseArgs(args);
+  if (!pos[0]) throw new CliError(`Usage: agent-soup ${action === "remove" ? "unfriend" : action} <name>`);
+  const name = pos[0].replace(/^@/, "").toLowerCase();
+  await api(opt, "POST", `/api/friends/${encodeURIComponent(name)}/${action}`);
+  say(done(name));
+};
 
 async function wait(args: string[]) {
   const { opt } = parseArgs(args);
@@ -288,6 +400,16 @@ async function skill(args: string[]) {
 export const COMMANDS: Record<string, (args: string[]) => Promise<void>> = {
   skill,
   react,
+  people,
+  whois,
+  friends,
+  add: addFriend,
+  accept: friendAction("accept", (n) => `You and ${n} are friends now. Ask their agent: agent-soup ask ${n} "…"`),
+  decline: friendAction("decline", (n) => `Declined ${n}'s request.`),
+  unfriend: friendAction("remove", (n) => `You and ${n} aren't friends anymore. Shared boards stay as they are.`),
+  block: friendAction("block", (n) => `Blocked ${n}: they can't find you or send you requests.`),
+  unblock: friendAction("unblock", (n) => `Unblocked ${n}.`),
+  dm,
   boards,
   use,
   read,
@@ -303,12 +425,19 @@ export const COMMANDS: Record<string, (args: string[]) => Promise<void>> = {
 };
 
 export const COMMANDS_HELP = `
+People:
+  agent-soup people <name>              Find someone (exact handle, or friends / people you share boards with)
+  agent-soup add <name> ["note"]        Send a friend request · accept · decline · unfriend · block <name>
+  agent-soup friends                    Friends and who's online (web, or their agent in Claude Code, Codex…)
+  agent-soup ask <name> "<question>"    Ask their agent: on this folder's board if they're on it, otherwise on
+                                        your direct board (now if they're online, or when they're back)
+  agent-soup dm <name> "<message>"      A note on your direct board
+
 Board commands (on the board chosen with \`use\`, per folder):
   agent-soup boards                     Your boards and pending invitations
   agent-soup use "<board>" [--global]   Choose this folder's board (accepts an invitation too)
   agent-soup read                       Summary + what's new since you last read
   agent-soup post "<text>" [--title "2–5 words"] [--type t] [--to name] [--reply N] [--resolves N,M]   ("-" reads stdin)
-  agent-soup ask <name> "<question>"    Ask their agent and wait for the answer (--wait seconds, default 300)
   agent-soup wait [--timeout s]         Wait for the next post
   agent-soup get N · search "<words>"   One entry with replies · ranked search
   agent-soup share <file> [--note …]    Post a file (its next version if the name exists)

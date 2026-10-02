@@ -1,5 +1,6 @@
 // Worker entry: MCP endpoint, sign-in, web pages, JSON API, and the operator console (/_ops).
 
+import * as social from "./social";
 import * as webhooks from "./webhooks";
 import * as avatars from "./avatars";
 import SKILL_MD from "../skills/agent-soup/SKILL.md";
@@ -30,6 +31,7 @@ import {
   type SideBoard,
   type Viewer,
   legalPage,
+  profilePage,
 } from "./html";
 import type { Entry, Env } from "./types";
 import { FAVICON_SVG, renderText } from "./ui";
@@ -280,6 +282,7 @@ export default {
       const session = await auth.getSession(request, env);
       const viewer = await loadViewer(env, session, request, path);
       const pv = (): "agent" | "person" => viewer?.via ?? "person"; // who wrote it: a person on the web, or an agent via token
+      if (viewer && viewer.via !== "agent") ctx.waitUntil(Promise.resolve(social.markSeen(env, viewer.name, "web")).catch(() => {}));
       const c: Ctx = { request, env, ctx, url, session, viewer };
       const needLogin = () =>
         method === "GET" && !path.startsWith("/api/") ? redirect(`/auth/login?return=${encodeURIComponent(url.pathname + url.search)}`) : json({ error: "sign in required" }, 401);
@@ -448,6 +451,52 @@ export default {
         return json({ ok: true, webhook: (await webhooks.listWebhooks(env, viewer.name)).find((w) => w.id === hid) });
       }
 
+      // ---- social: people, friends, presence, direct boards ----
+      let um = path.match(/^\/u\/([a-z0-9][a-z0-9_.-]{0,31})$/);
+      if (um && method === "GET") {
+        if (!viewer) return needLogin();
+        const [side, p] = await Promise.all([sideBoards(env, viewer.name), social.person(env, viewer.name, um[1])]);
+        if (!p) return notFound(viewer);
+        return profilePage(viewer, side, p, social.presenceLabel(p.presence));
+      }
+      if (path.startsWith("/api/people") || path.startsWith("/api/friends") || path.startsWith("/api/direct/")) {
+        if (!viewer) return needLogin();
+        const me = viewer.name;
+        const err = (e: unknown) => json({ error: e instanceof Error ? e.message : String(e) }, e instanceof social.SocialError ? 400 : 500);
+        try {
+          if (path === "/api/people" && method === "GET") return json({ people: await social.findPeople(env, me, url.searchParams.get("q") ?? "") });
+          let pm = path.match(/^\/api\/people\/([a-z0-9][a-z0-9_.-]{0,31})$/);
+          if (pm && method === "GET") {
+            const p = await social.person(env, me, pm[1]);
+            return p ? json({ person: p, presence: social.presenceLabel(p.presence) }) : json({ error: "not found" }, 404);
+          }
+          if (path === "/api/friends" && method === "GET") return json(await social.friendsOf(env, me));
+          if (path === "/api/friends/request" && method === "POST") {
+            const b = (await request.json().catch(() => ({}))) as { user?: string; note?: string };
+            const note = String(b.note ?? "").trim();
+            const hit = scanFields({ note });
+            if (hit) return json({ error: blockedMessage(hit) }, 400);
+            return json({ ok: true, relation: await social.requestFriend(env, me, String(b.user ?? ""), note) });
+          }
+          pm = path.match(/^\/api\/friends\/([a-z0-9][a-z0-9_.-]{0,31})\/(accept|decline|remove|block|unblock)$/);
+          if (pm && method === "POST") {
+            if (pm[2] === "accept") return json({ ok: true, relation: await social.acceptFriend(env, me, pm[1]) });
+            if (pm[2] === "block") await social.blockPerson(env, me, pm[1]);
+            else await social.removeFriend(env, me, pm[1]);
+            return json({ ok: true });
+          }
+          pm = path.match(/^\/api\/direct\/([a-z0-9][a-z0-9_.-]{0,31})$/);
+          if (pm && method === "POST") {
+            const d = await social.directBoard(env, me, pm[1], (bid, title, creator) => boardStub(env, bid).init(bid, title, creator));
+            const p = await social.person(env, me, pm[1]);
+            return json({ ok: true, board: d.id, title: d.title, created: d.created, presence: p ? social.presenceLabel(p.presence) : "offline", online: p ? social.isOnline(p.presence) : false });
+          }
+        } catch (e) {
+          return err(e);
+        }
+        return json({ error: "not found" }, 404);
+      }
+
       // ---- profile pictures (people and their agents) ----
       m = path.match(/^\/avatar\/([a-z0-9][a-z0-9_.-]{0,31})$/);
       if (m && method === "GET") return avatars.avatarResponse(env, m[1], url.searchParams.get("k") === "agent" ? "agent" : "person");
@@ -465,8 +514,14 @@ export default {
 
       if (path === "/me" && method === "GET") {
         if (!viewer) return needLogin();
-        const [side, tokens, plan, hooks] = await Promise.all([sideBoards(env, viewer.name), auth.listTokens(env, viewer.name), billing.planOf(env, viewer.name), webhooks.listWebhooks(env, viewer.name)]);
-        return mePage(viewer, side, tokens, plan, !!env.STRIPE_SECRET_KEY, hooks);
+        const [side, tokens, plan, hooks, friends] = await Promise.all([
+          sideBoards(env, viewer.name),
+          auth.listTokens(env, viewer.name),
+          billing.planOf(env, viewer.name),
+          webhooks.listWebhooks(env, viewer.name),
+          social.friendsOf(env, viewer.name),
+        ]);
+        return mePage(viewer, side, tokens, plan, !!env.STRIPE_SECRET_KEY, hooks, friends);
       }
 
       if (path === OPS_PATH && method === "GET") {
@@ -546,6 +601,9 @@ export default {
         const tok = auth.bearer(request);
         const who = viewer?.name ?? (tok ? (await auth.resolveToken(env, tok, ctx)).user : null);
         if (!who) return json({ error: "sign in required" }, 401);
+        // The watcher checks in here every few minutes: that's how friends see "answers in the background".
+        const watching = request.headers.get("x-agent-soup-watch");
+        if (watching) ctx.waitUntil(Promise.resolve(social.markSeen(env, who, "watch", watching === "respond")).catch(() => {}));
         const boards = await registry.boardsForUser(env, who);
         return json({ user: who, boards: boards.map((b) => ({ id: b.id, title: b.title, entry_count: b.entry_count, last_activity: b.last_activity })) });
       }

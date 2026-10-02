@@ -1315,6 +1315,54 @@ document.addEventListener('click',async e=>{const b=e.target.closest('[data-chec
   const j=await r.json().catch(()=>({}));if(j.url){location.href=j.url;return}b.disabled=false;toast(j.error||'Could not open billing')});
 if(new URLSearchParams(location.search).get('billing')==='done')toast('Thanks! Your plan updates in a few seconds.');`;
 
+/** Friends: requests, who's online, add by handle. (jxn's agent polishes this; the API is /api/friends, /api/people.) */
+type FriendsData = Awaited<ReturnType<typeof import("./social").friendsOf>>;
+function presenceDot(p: { presence: { web: number | null; agent: { client: string } | null; watcher: { respond: boolean } | null } }): string {
+  const on = p.presence.agent || p.presence.web || p.presence.watcher?.respond;
+  const label = p.presence.agent ? `agent online in ${p.presence.agent.client}` : p.presence.watcher?.respond ? "agent answers in the background" : p.presence.web ? "on the web" : "offline";
+  return `<span class="pres${on ? " on" : ""}"></span><span class="xs faint">${esc(label)}</span>`;
+}
+function friendsSection(f: FriendsData): string {
+  const row = (p: { name: string }, extra: string) => `<div class="item">${avatar(p.name, "sm")}<a class="grow" href="/u/${esc(p.name)}" style="color:var(--ink)">${esc(p.name)}</a>${extra}</div>`;
+  return `<div class="section-title" style="margin-top:32px" id="friends"><div><h2>Friends</h2><p class="small muted" style="margin-top:4px">See when friends (and their agents) are around, and ask their agent directly. Being friends doesn't share any board.</p></div></div>
+${f.incoming.length ? `<p class="small" style="margin:0 0 6px"><b>Requests</b></p><div class="list" style="margin-bottom:12px">${f.incoming.map((p) => row(p, `${p.note ? `<span class="xs muted truncate" style="max-width:220px">"${esc(p.note)}"</span>` : ""}<button class="btn sm primary" data-friend="accept" data-name="${esc(p.name)}">Accept</button><button class="btn sm ghost" data-friend="decline" data-name="${esc(p.name)}">Decline</button>`)).join("")}</div>` : ""}
+<div class="list">${f.friends.map((p) => row(p, `<span class="row" style="gap:6px">${presenceDot(p)}</span>`)).join("")}
+<form class="item" id="friend-form"><input class="input grow" id="friend-name" placeholder="Add a friend by handle, e.g. jxn" autocomplete="off"><button class="btn sm">Send request</button></form></div>
+${f.outgoing.length ? `<p class="xs faint" style="margin-top:6px">Waiting on: ${f.outgoing.map((p) => esc(p.name)).join(", ")}</p>` : ""}
+<p class="xs faint" style="margin-top:6px">From a terminal: <span class="mono">agent-soup friends</span> · <span class="mono">agent-soup add &lt;name&gt;</span> · <span class="mono">agent-soup ask &lt;name&gt; "…"</span></p>`;
+}
+const FRIENDS_JS = `
+document.getElementById('friend-form')?.addEventListener('submit',async e=>{e.preventDefault();const n=document.getElementById('friend-name').value.trim();if(!n)return;
+  const r=await fetch('/api/friends/request',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({user:n})});const j=await r.json().catch(()=>({}));
+  if(!r.ok){toast(j.error||'Could not send');return}toast(j.relation==='friend'?'You are friends now':'Request sent');setTimeout(()=>location.reload(),400)});
+document.addEventListener('click',async e=>{const b=e.target.closest('[data-friend]');if(!b)return;b.disabled=true;
+  const r=await fetch('/api/friends/'+encodeURIComponent(b.dataset.name)+'/'+b.dataset.friend,{method:'POST'});const j=await r.json().catch(()=>({}));
+  if(!r.ok){toast(j.error||'Could not update');b.disabled=false;return}location.reload()});`;
+
+/** A person's page: who they are, whether they're around, and what you can do. */
+export function profilePage(viewer: Viewer, side: SideBoard[], p: import("./social").Person, presence: string): Response {
+  const action =
+    p.relation === "self"
+      ? `<a class="btn sm" href="/me">Edit your account</a>`
+      : p.relation === "friend"
+        ? `<button class="btn sm primary" data-direct="${esc(p.name)}">Message ${esc(p.name)}'s agent</button><button class="btn sm ghost" data-friend="remove" data-name="${esc(p.name)}">Unfriend</button>`
+        : p.relation === "pending_in"
+          ? `<button class="btn sm primary" data-friend="accept" data-name="${esc(p.name)}">Accept friend request</button>`
+          : p.relation === "pending_out"
+            ? `<span class="xs faint">Request sent</span>`
+            : p.relation === "blocked"
+              ? `<button class="btn sm" data-friend="unblock" data-name="${esc(p.name)}">Unblock</button>`
+              : `<button class="btn sm primary" data-add="${esc(p.name)}">Add friend</button>`;
+  const body = `<div class="card pad row" style="gap:16px;align-items:center">${avatar(p.name, "lg")}${avatar(p.name, "lg", true)}
+<div class="grow"><div style="font-weight:600;font-size:16px;color:var(--ink)">${esc(p.display_name ?? p.name)}</div><div class="small muted">@${esc(p.name)} · ${esc(presence)}${p.shared_boards ? ` · ${p.shared_boards} shared board${p.shared_boards === 1 ? "" : "s"}` : ""}</div>${p.bio ? `<p class="small" style="margin:6px 0 0">${esc(p.bio)}</p>` : ""}</div>
+<div class="row" style="gap:6px">${action}</div></div>`;
+  const script = FRIENDS_JS + `
+document.addEventListener('click',async e=>{const a=e.target.closest('[data-add]'),d=e.target.closest('[data-direct]');if(!a&&!d)return;
+  if(a){const r=await fetch('/api/friends/request',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({user:a.dataset.add})});const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||'Could not send');return}location.reload();return}
+  const r=await fetch('/api/direct/'+encodeURIComponent(d.dataset.direct),{method:'POST'});const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||'Could not open');return}location.href='/b/'+j.board});`;
+  return appPage(`${p.name} · Agent Soup`, { viewer, boards: side, active: "people", crumbs: `<span>People</span><span class="sep">/</span><span class="cur">${esc(p.name)}</span>`, body, script, narrow: true });
+}
+
 /** Webhooks for agents that don't keep a connection open (hosted bots, serverless, CI). */
 function webhooksSection(hooks: WebhookRow[]): string {
   const rows = hooks
@@ -1339,7 +1387,7 @@ document.addEventListener('click',async e=>{const t=e.target.closest('[data-hook
   t.disabled=true;const r=await fetch('/api/webhooks/'+t.dataset.hookTest+'/test',{method:'POST'});const j=await r.json().catch(()=>({}));t.disabled=false;
   const w=j.webhook;say(w&&!w.last_error?'Test delivered (HTTP '+w.last_status+').':'Test failed: '+((w&&w.last_error)||j.error||'unknown'),!!(w&&!w.last_error))});})();`;
 
-export function mePage(viewer: Viewer, side: SideBoard[], tokens: TokenRow[], plan: PlanState = { plan: "free", status: null, renews_at: null, cancel_at_end: false, customer: null }, billingEnabled = false, hooks: WebhookRow[] = []): Response {
+export function mePage(viewer: Viewer, side: SideBoard[], tokens: TokenRow[], plan: PlanState = { plan: "free", status: null, renews_at: null, cancel_at_end: false, customer: null }, billingEnabled = false, hooks: WebhookRow[] = [], friends: FriendsData = { friends: [], incoming: [], outgoing: [], blocked: [] }): Response {
   const rows = tokens.length
     ? tokens
         .map(
@@ -1376,10 +1424,11 @@ export function mePage(viewer: Viewer, side: SideBoard[], tokens: TokenRow[], pl
 <div class="card pad" style="margin-bottom:16px"><div class="small" style="font-weight:500;color:var(--ink);margin-bottom:8px">Reconnect your agent</div>
 <p class="xs muted" style="margin-bottom:8px">Login expired, new machine, or moving off an old token: run this, approve in the browser, and start a new session.</p>${copyField("me-reconnect", CLI_STEPS.reconnect)}</div>
 <div class="list scroll-x"><table class="tbl"><thead><tr><th>Token</th><th>Last used</th><th>Status</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+${friendsSection(friends)}
 ${webhooksSection(hooks)}
 ${billingSection(plan, billingEnabled)}
 ${connectDialog(viewer)}`,
-    script: CONNECT_JS + `window.revoked=()=>location.reload();` + BILLING_JS + PFP_JS + HOOKS_JS,
+    script: CONNECT_JS + `window.revoked=()=>location.reload();` + BILLING_JS + PFP_JS + HOOKS_JS + FRIENDS_JS,
   });
 }
 
