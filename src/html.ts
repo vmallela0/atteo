@@ -591,8 +591,8 @@ function toBottom(smooth){const far=scroller.scrollHeight-scroller.scrollTop-scr
 // The rail: one tick per message at its place in the conversation (instead of a scrollbar). Ticks in view are darker,
 // so scrolling steps through them; hover previews a message, click jumps to it, drag scrubs.
 const rail=document.getElementById('rail'),tip=document.getElementById('rail-tip');let ticks=[];
-function railBuild(){const th=document.getElementById('thread'),top0=th.getBoundingClientRect().top,H=Math.max(1,th.scrollHeight);
-  ticks=[...th.querySelectorAll('.entry')].map(el=>({el,y:(el.getBoundingClientRect().top-top0)/H,h:el.querySelector(':scope>.grow>.meta')?.offsetHeight||20}));
+function railBuild(){const th=document.getElementById('thread'),top0=th.getBoundingClientRect().top,H=Math.max(1,th.scrollHeight);// top-level messages only: replies live in their thread
+  ticks=[...th.querySelectorAll(':scope>.entry')].map(el=>({el,y:(el.getBoundingClientRect().top-top0)/H,h:el.querySelector(':scope>.grow>.meta')?.offsetHeight||20}));
   rail.innerHTML=ticks.map((t,i)=>'<i data-i="'+i+'" style="top:'+(t.y*100).toFixed(3)+'%"></i>').join('');railMark()}
 function railMark(){setTimeout(reportSeen,0);const a=scroller.scrollTop,b=a+scroller.clientHeight,H=Math.max(1,scroller.scrollHeight);const is=rail.children;
   ticks.forEach((t,i)=>{const y=t.y*document.getElementById('thread').scrollHeight;is[i]?.classList.toggle('on',y+t.h>a&&y<b)})}
@@ -636,6 +636,7 @@ async function tick1(wait){try{
     if(box){el.querySelector('.replies')?.remove();box.appendChild(el)}else{document.getElementById('empty')?.remove();document.getElementById('thread').appendChild(el)}
     if(e.reactions)renderRx(e.seq,e.reactions);
     if(el.querySelector('[data-task]'))refreshTask(e.seq);
+    if(box){thrSum(e.root);if(tpRootSeq===e.root)tpRender()}
     if(!document.querySelector('#log-body tr[data-seq="'+e.seq+'"]')){const lt=document.createElement('tbody');lt.innerHTML=e.row;document.getElementById('log-body').prepend(lt.firstElementChild);document.getElementById('log-empty')?.remove()}
     if(e.retracts){const t=document.getElementById('e'+e.retracts);if(t){t.classList.add('retracted');t.querySelector('[data-retract]')?.remove()}}
     last=Math.max(last,e.seq)}
@@ -844,7 +845,7 @@ function audience(el){const by=el.dataset.author,byAgent=el.classList.contains('
 function renderReads(){
   document.querySelectorAll('#thread .mention[data-user]').forEach(m=>{const seq=+m.closest('.entry').dataset.seq;m.classList.toggle('seen',seenAs(m.dataset.user,m.classList.contains('agent'))>=seq)});
   document.querySelectorAll('#thread .rd').forEach(x=>{x.closest('.entry')?.classList.remove('has-rd');x.remove()});
-  const mine=[...document.querySelectorAll('#thread .entry')].filter(e=>e.dataset.author===ME&&!e.classList.contains('retracted')).pop();if(!mine)return;
+  const mine=[...document.querySelectorAll('#thread>.entry')].filter(e=>e.dataset.author===ME&&!e.classList.contains('retracted')).pop();if(!mine)return;
   const seq=+mine.dataset.seq,who=audience(mine),read=who.filter(w=>seenAs(w.u,w.agent)>=seq),all=who.length>0&&read.length===who.length;
   const C=2*Math.PI*6,frac=who.length?read.length/who.length:0,name=w=>esc(w.agent?w.u+"'s agent":w.u);
   const el=document.createElement('span');el.className='rd'+(all?' all':'');el.tabIndex=0;
@@ -930,7 +931,7 @@ async function sRun(){const p=sParams();if(!p.get('q')&&!p.get('from')&&!p.get('
 function sMark(){sRes.querySelectorAll('[data-sr]').forEach(li=>li.setAttribute('aria-selected',String(+li.dataset.sr===sSel)));const li=document.getElementById('sr-'+sSel);li?.scrollIntoView({block:'nearest'});sq.setAttribute('aria-activedescendant',sSel>=0?'sr-'+sSel:'')}
 function sGo(i){const h=sHits[i];if(!h)return;sSel=i;sMark();
   if(h.kind==='file'){closeSearch(false);tab(2);openDoc(h.name,h.version);return}
-  const el=document.getElementById('e'+h.seq);if(!el){toast('#'+h.seq+' is further back than this page shows');return}
+  const el=document.getElementById('e'+h.seq);if(el&&el.closest('.replies')){openThread(+el.closest('#thread>.entry').dataset.seq,{focus:h.seq});return}if(!el){toast('#'+h.seq+' is further back than this page shows');return}
   document.querySelectorAll('#thread .entry.hit').forEach(x=>x.classList.remove('hit'));el.classList.add('hit');el.scrollIntoView({block:'center'});moved=true}
 // "@" in the search box picks a person or an agent, like mentions, and becomes a chip
 function sMenuRender(){const m=sq.value.slice(0,sq.selectionStart).match(/(^|\\s)@([A-Za-z0-9_.-]{0,32})$/);
@@ -954,6 +955,44 @@ sRes.addEventListener('mousedown',e=>{const li=e.target.closest('[data-sr]');if(
 document.getElementById('srch-close').addEventListener('click',()=>closeSearch(false));
 // Ctrl+F / ⌘F on a board searches the board instead of the browser page
 document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&!e.altKey&&!e.shiftKey&&e.key.toLowerCase()==='f'&&!document.querySelector('dialog[open]')){e.preventDefault();openSearch()}},true);
+// ---- threads (Slack-style): replies fold into "N replies" under their message and open in a side panel ----
+const pane=document.getElementById('thread-pane'),tpForm=document.getElementById('tp-form'),tpText=document.getElementById('tp-text');let tpRootSeq=null,tpTarget=null;
+function thrSum(root){const top=document.getElementById('e'+root);if(!top)return;const kids=[...(document.getElementById('r'+root)?.querySelectorAll('.entry')||[])];
+  let b=top.querySelector(':scope>.grow>.thr-sum');if(!kids.length){b?.remove();return}
+  if(!b){b=document.createElement('button');b.type='button';b.className='thr-sum';b.dataset.thread=root;top.querySelector(':scope>.grow>.replies').before(b)}
+  const who=[];for(const k of kids){const key=k.dataset.author+(k.classList.contains('by-agent')?'/a':'');if(!who.includes(key))who.push(key)}
+  const lastT=kids[kids.length-1].querySelector('time[data-ts]');
+  b.innerHTML='<span class="avs">'+who.slice(0,3).map(w=>avatar16(w.split('/')[0],w.endsWith('/a'))).join('')+'</span><b>'+kids.length+' repl'+(kids.length===1?'y':'ies')+'</b><span class="faint">'+(lastT?'last '+lastT.textContent:'')+'</span>';
+  b.setAttribute('aria-label','Open thread: '+kids.length+' repl'+(kids.length===1?'y':'ies'))}
+function tpClone(el){const c=el.cloneNode(true);c.removeAttribute('id');c.querySelector(':scope>.grow>.replies')?.remove();c.querySelector(':scope>.grow>.thr-sum')?.remove();c.querySelector('.rd')?.remove();c.classList.remove('hit','flash-in');return c}
+function tpRender(focus){const top=document.getElementById('e'+tpRootSeq);if(!top){closeThread();return}
+  const kids=[...(document.getElementById('r'+tpRootSeq)?.querySelectorAll('.entry')||[])];
+  document.getElementById('tp-root').replaceChildren(tpClone(top));document.getElementById('tp-replies').replaceChildren(...kids.map(tpClone));
+  document.getElementById('tp-count').textContent=kids.length?kids.length+' repl'+(kids.length===1?'y':'ies'):'No replies yet';
+  document.getElementById('tp-sub').textContent='#'+tpRootSeq;
+  const sc=document.getElementById('tp-scroll');const f=focus&&[...document.querySelectorAll('#tp-replies .entry')].find(x=>x.dataset.seq==String(focus));
+  if(f){f.classList.add('hit');f.scrollIntoView({block:'center'})}else sc.scrollTop=sc.scrollHeight}
+/** Opens a message's thread. Replying to someone puts an @mention of them in the reply box, like Slack. */
+function openThread(root,o={}){tpRootSeq=root;tpTarget=o.replyTo||root;convLayout.classList.add('thread-open');pane.hidden=false;infoOpen(false);tpRender(o.focus);
+  const tgt=document.getElementById('e'+tpTarget),by=tgt?.dataset.author,byAgent=tgt?.classList.contains('by-agent');
+  if(o.replyTo&&by&&by!==ME){const at='@'+by+(byAgent?"'s agent":'')+' ';if(!tpText.value.includes(at.trim()))tpText.value=at+tpText.value}
+  document.getElementById('tp-to').textContent=tpTarget!==root?'Replying to #'+tpTarget:'';
+  if(o.replyTo||o.compose){tpText.focus();tpText.setSelectionRange(tpText.value.length,tpText.value.length)}}
+function closeThread(){tpRootSeq=null;convLayout.classList.remove('thread-open');pane.hidden=true;tpText.value=''}
+document.addEventListener('click',e=>{const s=e.target.closest('[data-thread]');if(s){openThread(+s.dataset.thread);return}
+  if(e.target.closest('#tp-close'))closeThread()});
+// Reply opens the message's thread (instead of replying in the main box)
+document.addEventListener('click',e=>{const b=e.target.closest('[data-reply]');if(!b)return;e.stopImmediatePropagation();e.preventDefault();
+  const seq=+b.dataset.reply,top=document.getElementById('e'+seq)?.closest('#thread>.entry');openThread(top?+top.dataset.seq:seq,{replyTo:seq})},true);
+tpText.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();tpForm.requestSubmit()}if(e.key==='Escape'){e.preventDefault();closeThread()}});
+tpForm.addEventListener('submit',async e=>{e.preventDefault();const text=tpText.value.trim();if(!text||!tpRootSeq)return;const btn=tpForm.querySelector('button');btn.disabled=true;
+  try{const r=await fetch('/api/boards/'+BOARD+'/entries',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({type:'note',text,reply_to:tpTarget||tpRootSeq})});
+    const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||"Couldn't reply");return}tpText.value='';tpTarget=tpRootSeq;document.getElementById('tp-to').textContent='';await tick(false);tpRender()}
+  finally{btn.disabled=false}});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!pane.hidden&&!document.querySelector('dialog[open]')&&!e.target.closest('input,textarea'))closeThread()});
+document.querySelectorAll('#thread>.entry').forEach(x=>thrSum(+x.dataset.seq));
+// a link to a reply (#e<n>) opens its thread
+setTimeout(()=>{const m=location.hash.match(/^#e([0-9]+)$/);const el=m&&document.getElementById('e'+m[1]);if(el&&el.closest('.replies'))openThread(+el.closest('#thread>.entry').dataset.seq,{focus:+m[1]})},0); // after the whole script has run
 window.deleted=()=>{location.href='/'};
 // Every place the board name shows: heading, breadcrumb, sidebar, browser tab (also used for live renames by others).
 window.applyTitle=(t)=>{const h=document.getElementById('board-title');if(h)h.textContent=t;document.title=t+' · Agent Soup';
@@ -1061,7 +1100,7 @@ let cur=-1;
 window.boardKeys=(e,k)=>{
   if(k==='1'||k==='2'||k==='3'||k==='4'){tab(+k-1);return}
   const inLog=!document.getElementById('panel-log').hidden;
-  const els=[...document.querySelectorAll(inLog?'#log-body tr.ev':'#thread .entry')];
+  const els=[...document.querySelectorAll(inLog?'#log-body tr.ev':'#thread>.entry')];
   if(k==='j'||k==='k'){e.preventDefault();cur=Math.max(0,Math.min(els.length-1,cur+(k==='j'?1:-1)));
     els.forEach(x=>x.classList.remove('sel'));const el=els[cur];if(el){el.classList.add('sel');el.scrollIntoView({block:'nearest'})}}
   if(e.key==='Enter'&&els[cur]){openEntry(BOARD,els[cur].dataset.seq)}
@@ -1126,6 +1165,12 @@ window.boardKeys=(e,k)=>{
 <button class="btn ghost sm danger" type="button" data-open="delete-board">Delete board…</button></div>`
         : ""
     }</aside>
+  <aside class="thread-pane" id="thread-pane" aria-label="Thread" hidden>
+    <div class="tp-head"><b>Thread</b><span class="xs faint" id="tp-sub"></span><span class="grow"></span><button class="btn ghost sm" type="button" id="tp-close" aria-label="Close thread (Esc)" title="Close (Esc)">✕</button></div>
+    <div class="tp-scroll" id="tp-scroll"><div id="tp-root"></div><div class="tp-count xs faint" id="tp-count"></div><div id="tp-replies"></div></div>
+    <form class="tp-composer card" id="tp-form"${info.archived ? " hidden" : ""}><textarea class="input" id="tp-text" rows="2" placeholder="Reply… (Enter to send, Shift+Enter for a new line)" aria-label="Reply in thread"></textarea>
+      <div class="bar"><span class="xs faint" id="tp-to"></span><span class="grow"></span><button class="btn primary sm">Reply</button></div></form>
+  </aside>
 </div></div>
 <div role="tabpanel" id="panel-log" class="bp-panel" data-board-panel hidden><div class="list scroll-x"><table class="log"><thead><tr><th>Time (UTC)</th><th>#</th><th>Author</th><th>Type</th><th>To</th><th>Summary</th></tr></thead>
 <tbody id="log-body">${rows || `<tr id="log-empty"><td colspan="6" class="empty small">No events yet.</td></tr>`}</tbody></table></div>

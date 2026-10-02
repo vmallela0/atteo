@@ -201,6 +201,21 @@ dialog[open]{animation:pop .16s ease-out}
 .file .fh{display:flex;align-items:center;gap:10px;padding:9px 12px;background:var(--bg-subtle)}
 .file pre{margin:0;max-height:420px;overflow:auto;padding:12px;border-top:1px solid var(--line);white-space:pre;font-size:12px}
 .t-change{color:var(--accent)}
+/* threads: replies fold into "N replies" under their message; the thread opens in a side panel (an overlay on phones) */
+#thread>.entry>.grow>.replies{display:none}
+.thr-sum{display:inline-flex;align-items:center;gap:8px;margin-top:6px;padding:3px 10px 3px 4px;border:1px solid transparent;border-radius:8px;background:none;font:inherit;font-size:12.5px;color:var(--accent);cursor:pointer}
+.thr-sum:hover{border-color:var(--line);background:var(--bg-subtle)}.thr-sum .faint{color:var(--faint)}
+.thr-sum .avs .av{width:20px;height:20px;font-size:8.5px}
+.thread-pane{display:flex;flex-direction:column;min-height:0;border-left:1px solid var(--line);padding:0 0 12px 16px;background:var(--bg)}
+.thread-pane[hidden]{display:none}
+.tp-head{display:flex;align-items:center;gap:8px;padding:10px 0 8px;border-bottom:1px solid var(--line)}
+.tp-scroll{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:4px 4px 8px 0}
+.tp-scroll .entry{padding:12px 0}.tp-scroll .acts{display:none}
+.tp-count{padding:6px 0;border-bottom:1px solid var(--line)}
+.tp-composer{flex:none;margin-top:6px}.tp-composer .bar{display:flex;align-items:center;gap:8px;padding:8px 10px;border-top:1px solid var(--line)}
+.tp-scroll .refs{display:none}.tp-composer textarea{border:0;border-radius:var(--r) var(--r) 0 0;box-shadow:none;min-height:44px;resize:none}
+@media(min-width:960px){.bp-panel>.layout.thread-open{grid-template-columns:minmax(0,1fr) 380px}.layout.thread-open>.aside{display:none}.layout.thread-open .info-btn{display:none}}
+@media(max-width:959px){.layout.thread-open>.thread-pane{position:absolute;inset:0;z-index:9;padding-left:0;border-left:0}}
 /* chat search (Ctrl+F): a bar over the top of the conversation, chips for scope, ranked results below it */
 .conv{position:relative}
 .srch{position:absolute;top:8px;left:0;right:22px;z-index:8}
