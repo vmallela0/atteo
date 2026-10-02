@@ -236,6 +236,13 @@ export const TOOLS = [
 
 // ---------- helpers ----------
 
+/** Viewers can read a board but not change it. */
+async function requireWriter(env: Env, boardId: string, user: string) {
+  if ((await registry.memberRole(env, boardId, user)) === "viewer") {
+    throw new ToolError("Your user can view this board but not change it (their role is viewer). Ask a board owner for contributor access.");
+  }
+}
+
 function str(v: unknown): string | undefined {
   return typeof v === "string" && v.trim() ? v.trim() : undefined;
 }
@@ -400,7 +407,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const id = newBoardId();
       const info = await stubFor(env, id).init(id, title, user);
       await registry.recordBoard(env, info);
-      await registry.addMember(env, id, user);
+      await registry.addMember(env, id, user, { role: "owner" });
       if (!c.pinnedBoard) await registry.setMcpSessionBoard(env, c.sessionId, user, id);
       return [
         `Created board "${title}" (${id}). Your user is its first member${c.pinnedBoard ? "" : ", and this session has joined it"}.`,
@@ -423,6 +430,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
 
     case "post": {
       const id = await currentBoard(c, args);
+      if (true) await requireWriter(env, id, user);
       const type = str(args.type)?.toLowerCase() as NewEntry["type"] | undefined;
       if (!type || !ENTRY_TYPES.includes(type)) throw new ToolError(`type must be one of: ${ENTRY_TYPES.join(", ")}`);
       const to = args.to == null || args.to === "" ? null : normalizeUser(String(args.to));
@@ -466,6 +474,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
 
     case "doc": {
       const id = await currentBoard(c, args);
+      if (["write","edit"].includes(str(args.action) ?? "")) await requireWriter(env, id, user);
       const stub = stubFor(env, id);
       const action = str(args.action);
       const name = str(args.name);
@@ -520,6 +529,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
 
     case "task": {
       const id = await currentBoard(c, args);
+      if (["create","edit","claim","release","update","stop"].includes(str(args.action) ?? "")) await requireWriter(env, id, user);
       const stub = stubFor(env, id);
       const action = str(args.action);
       const opts = { via: "agent" as const, client: (await registry.mcpSessionClient(env, c.sessionId)) ?? "agent" };
@@ -602,6 +612,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
 
     case "review": {
       const id = await currentBoard(c, args);
+      if (true) await requireWriter(env, id, user);
       const stub = stubFor(env, id);
       const seq = int(args.seq);
       if (seq == null) throw new ToolError("seq is required.");
@@ -654,6 +665,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
 
     case "react": {
       const id = await currentBoard(c, args);
+      if (true) await requireWriter(env, id, user);
       const seq = int(args.seq);
       if (seq == null) throw new ToolError("seq is required.");
       const r = await stubFor(env, id).react(user, seq, str(args.emoji) ?? "", { via: "agent" });
@@ -662,6 +674,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
 
     case "retract": {
       const id = await currentBoard(c, args);
+      if (true) await requireWriter(env, id, user);
       const seq = int(args.seq);
       if (seq == null) throw new ToolError("seq is required.");
       const entry = await stubFor(env, id).post(user, {
@@ -718,6 +731,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
 
     case "invite": {
       const id = await currentBoard(c, args);
+      if (true) await requireWriter(env, id, user);
       const email = str(args.email);
       if (!email || !EMAIL_RE.test(email)) throw new ToolError("A valid email is required.");
       const r = await sendInvite(env, c.origin, { boardId: id, email, invitedBy: user });

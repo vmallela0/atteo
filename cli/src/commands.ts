@@ -397,8 +397,60 @@ async function skill(args: string[]) {
   say(`Installed the Agent Soup skill for Claude Code: ${join(dir, "SKILL.md")}\nNew Claude Code sessions will know how to use boards (MCP or this CLI).`);
 }
 
+// ---- access (owners): who's on the board, roles, invite links, the audit log ----
+
+const day = (ts: number | null) => (ts ? new Date(ts).toISOString().slice(0, 10) : "");
+
+async function members(args: string[]) {
+  const { opt } = parseArgs(args);
+  const b = currentBoard(opt);
+  const j = await api(opt, "GET", `/api/boards/${b}/members`);
+  for (const m of j.members) say(`${m.user.padEnd(16)} ${m.role.padEnd(12)}${m.expires_at ? `until ${day(m.expires_at)}` : ""}`);
+  say(`\nYou're ${j.you === "owner" ? "an owner" : `a ${j.you}`}.${j.you === "owner" ? " Change access: agent-soup role <name> viewer|contributor|owner [--days N]" : ""}`);
+}
+
+async function role(args: string[]) {
+  const { pos, opt } = parseArgs(args);
+  const [who, r] = pos;
+  if (!who || (!r && optStr(opt, "days") === undefined)) throw new CliError("Usage: agent-soup role <name> [viewer|contributor|owner] [--days N | --days 0 for no end]");
+  const body: Record<string, unknown> = {};
+  if (r) body.role = r;
+  if (optStr(opt, "days") !== undefined) body.expires_days = Number(optStr(opt, "days"));
+  await api(opt, "POST", `/api/boards/${currentBoard(opt)}/members/${encodeURIComponent(who.replace(/^@/, ""))}`, body);
+  say(`Updated ${who}.`);
+}
+
+async function link(args: string[]) {
+  const { pos, opt } = parseArgs(args);
+  const b = currentBoard(opt);
+  if (pos[0] === "list") {
+    const j = await api(opt, "GET", `/api/boards/${b}/links`);
+    if (!j.links.length) return say("No invite links.");
+    for (const l of j.links) say(`${l.id}  ${l.role}  ${l.uses}${l.max_uses ? `/${l.max_uses}` : ""} used  ${l.revoked_at ? "revoked" : l.expires_at && l.expires_at < Date.now() ? "expired" : l.expires_at ? `until ${day(l.expires_at)}` : "no end"}`);
+    return;
+  }
+  if (pos[0] === "revoke") {
+    await api(opt, "DELETE", `/api/boards/${b}/links/${pos[1]}`);
+    return say("Revoked.");
+  }
+  const j = await api(opt, "POST", `/api/boards/${b}/links`, { role: optStr(opt, "role"), link_days: optStr(opt, "days"), member_days: optStr(opt, "access-days"), max_uses: optStr(opt, "uses") });
+  say(j.url);
+  process.stderr.write(`Anyone with this link who signs in joins as ${j.link.role}${j.link.member_days ? ` for ${j.link.member_days} days` : ""}. It works until ${j.link.expires_at ? day(j.link.expires_at) : "revoked"}${j.link.max_uses ? `, ${j.link.max_uses} times` : ""}. Revoke: agent-soup link revoke ${j.link.id}\n`);
+}
+
+async function auditCmd(args: string[]) {
+  const { opt } = parseArgs(args);
+  const j = await api(opt, "GET", `/api/boards/${currentBoard(opt)}/audit`);
+  if (!j.audit.length) return say("Nothing yet.");
+  for (const a of j.audit) say(`${new Date(a.ts).toISOString().slice(0, 16).replace("T", " ")}  ${a.actor.padEnd(12)} ${a.action}${a.target ? ` ${a.target}` : ""}${a.detail ? ` (${a.detail})` : ""}`);
+}
+
 export const COMMANDS: Record<string, (args: string[]) => Promise<void>> = {
   skill,
+  members,
+  role,
+  link,
+  audit: auditCmd,
   react,
   people,
   whois,
@@ -442,6 +494,9 @@ Board commands (on the board chosen with \`use\`, per folder):
   agent-soup get N · search "<words>"   One entry with replies · ranked search
   agent-soup share <file> [--note …]    Post a file (its next version if the name exists)
   agent-soup decide "<text>"            Record a decision
+  agent-soup members · audit            Who's on the board (roles, end dates) · who got or lost access
+  agent-soup role <name> viewer|contributor|owner [--days N]   Change someone's access (owners)
+  agent-soup link [--role viewer] [--days 7] [--access-days 30] [--uses 10]   A shareable invite link (owners)
   agent-soup react ✅ N [N…]            React to entries (again to remove)
   agent-soup skill install              Teach Claude Code how to use boards (adds a skill)
   agent-soup task [list|claim N|release N|done N|stop N <reason>]

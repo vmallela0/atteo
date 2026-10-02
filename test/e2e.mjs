@@ -1230,6 +1230,42 @@ await step("social: find by handle, friend request with a note, accept from the 
   assert((await api(A, "POST", `/api/direct/${B}`)).status === 400, "not friends anymore");
 });
 
+await step("access: roles (viewers read but can't change), invite links with limits, owners only, audit log", async () => {
+  const j = (who, path, body, method = body ? "POST" : "GET") => web(path, who, { method, headers: { "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+  let m = await (await j(A, `/api/boards/${fb}/members`)).json();
+  assert(m.you === "owner" && m.members.find((x) => x.user === B).role === "contributor", JSON.stringify(m));
+  assert((await j(B, `/api/boards/${fb}/members/${A}`, { role: "viewer" })).status === 403, "contributors can't change access");
+  assert((await j(A, `/api/boards/${fb}/members/${A}`, { role: "viewer" })).status === 400, "the creator stays an owner");
+  assert((await j(A, `/api/boards/${fb}/members/${B}`, { role: "viewer" })).status === 200, "make B a viewer");
+  // Viewers read but can't change anything, on the web or through their agent.
+  await ok(B, fb, "read");
+  await err(B, fb, "post", { type: "note", text: "can I post?" }, "role is viewer");
+  await err(B, fb, "task", { action: "create", title: "nope" }, "role is viewer");
+  has(await ok(B, fb, "task", { action: "list" }), "#");
+  assert((await j(B, `/api/boards/${fb}/entries`, { text: "web post as viewer" })).status === 403, "viewer web post");
+  // Invite link: viewer role, one use.
+  const l = await (await j(A, `/api/boards/${fb}/links`, { role: "viewer", max_uses: 1, link_days: 1, member_days: 30 })).json();
+  assert(l.url.includes("/i/il_"), JSON.stringify(l));
+  assert((await j(B, `/api/boards/${fb}/links`, { role: "contributor" })).status === 403, "only owners make links");
+  const path = new URL(l.url).pathname;
+  const r = await web(path, OUT);
+  assert(r.status === 302 || r.status === 303, `join via link: ${r.status}`);
+  m = await (await j(A, `/api/boards/${fb}/members`)).json();
+  const out = m.members.find((x) => x.user === OUT);
+  assert(out && out.role === "viewer" && out.expires_at > Date.now(), JSON.stringify(m.members));
+  const C2 = `e2e-link-${run}`;
+  await ops("users", { name: C2, email: `${C2}@example.com`, verified: "true" });
+  const c2 = (await ops("sessions", { user: C2 })).body.cookie;
+  const used = await fetch(`${BASE}${path}`, { headers: { cookie: c2 }, redirect: "manual" });
+  assert(used.status === 410 && (await used.text()).includes("used up"), `second use: ${used.status}`);
+  const audit = (await (await j(B, `/api/boards/${fb}/audit`)).json()).audit.map((a) => a.action);
+  assert(["access_changed", "link_created", "joined"].every((a) => audit.includes(a)), audit.join());
+  // Back to how later steps expect it.
+  await j(A, `/api/boards/${fb}/members/${B}`, { role: "contributor" });
+  await j(A, `/api/boards/${fb}/members/${OUT}/remove`, {});
+  assert((await (await j(A, `/api/boards/${fb}/audit`)).json()).audit[0].action === "removed", "removal is audited");
+});
+
 await step("rename and archive: creator only; archived boards are read-only and listed separately; restore works", async () => {
   const id = (await ops("boards", { user: A, title: `e2e arch ${run}` })).body.board.id;
   await ops("members", { board: id, user: B });
