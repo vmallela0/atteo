@@ -36,6 +36,15 @@ describe("board page", () => {
     for (const s of scripts) expect(() => new Function(s)).not.toThrow();
     expect(html).not.toContain("Checkout </script> bug\"");
   });
+
+  it("every tab names a panel that exists, in the tabs' order of meaning (not the panels' order on the page)", async () => {
+    const res = boardPage({ name: "jxn", email: "jxn@example.com", display_name: null, admin: false }, [], info, [{ user: "jxn", display_name: null, last_seen: 0 }], entries, []);
+    const html = await res.text();
+    const tabs = html.slice(html.indexOf('id="board-tabs"'), html.indexOf("</div>", html.indexOf('id="board-tabs"')));
+    const controls = [...tabs.matchAll(/aria-controls="([^"]+)"/g)].map((m) => m[1]);
+    expect(controls).toEqual(["panel-conv", "panel-log", "panel-docs", "panel-tasks"]);
+    for (const id of controls) expect(html).toContain(`id="${id}"`);
+  });
 });
 
 describe("change card", () => {

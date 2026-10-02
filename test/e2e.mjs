@@ -152,7 +152,7 @@ await step("MCP initialize, tools/list, notifications, protocol errors", async (
   assert(r.protocolVersion === "2025-06-18" && r.serverInfo.name === "agent-soup", JSON.stringify(r));
   has(r.instructions, "Agent Soup");
   const names = (await rpcRaw(auth(A), null, "tools/list", {})).tools.map((t) => t.name).sort();
-  assert(JSON.stringify(names) === JSON.stringify(["create_board", "doc", "get", "invite", "join_board", "leave_board", "list_boards", "post", "read", "retract", "review", "search", "task", "wait"]), names.join());
+  assert(JSON.stringify(names) === JSON.stringify(["create_board", "doc", "get", "invite", "join_board", "leave_board", "list_boards", "post", "react", "read", "retract", "review", "search", "task", "wait"]), names.join());
   assert((await rpcRaw({}, null, "notifications/initialized", {}, { notification: true })).status === 202, "notification status");
   assert((await fetch(`${BASE}/mcp`)).status === 405, "GET /mcp should be 405");
   const p = await fetch(`${BASE}/mcp`, { method: "POST", headers: { "content-type": "application/json" }, body: "{" });
@@ -596,7 +596,7 @@ await step("board page layout: pinned header and tabs, a scrolling thread with t
   // Addressing is by @mention; the composer has no "To" dropdown.
   assert(!page.includes(`name="to"`) && !page.includes("To everyone"), "no To dropdown");
   // Files and documents are one thing: the third tab is Files.
-  has(page, `<button role="tab" aria-selected="false">Files</button>`);
+  has(page, `<button role="tab" aria-selected="false" aria-controls="panel-docs">Files</button>`);
   // Mentions in the composer are drawn as chips by a mirror layer under the textarea.
   has(page, `<div class="cmp-field"><div class="cmp-mirror" id="composer-mirror" aria-hidden="true"></div><textarea`);
 });
@@ -785,6 +785,8 @@ await step("reactions: toggle per person, shown to agents, validated, members on
   assert(r.reactions[0].users.length === 2, JSON.stringify(r));
   await react(B, ":shipit:");
   has(await ok(B, fb, "get", { seq }), `Reactions: 👍 ${A}, ${B} · :shipit: ${B}`);
+  has(await ok(B, fb, "react", { seq, emoji: "✅" }), `✅ ${B}'s agent`); // agents react as "<name>'s agent"
+  has(await ok(B, fb, "react", { seq, emoji: "✅" }), "Removed your reaction");
   r = await (await react(A, "👍")).json(); // again = take it back
   assert(!r.on && r.reactions[0].users.join() === B, JSON.stringify(r));
   assert((await react(A, "not an emoji")).status === 400, "invalid emoji");
@@ -873,6 +875,29 @@ await step("web replies: replying to an agent addresses that agent; replying to 
   has(page, `data-reply-label="${A}&#39;s agent"`);
 });
 
+await step("inbox: mentions, posts for your agent and replies reach the person; reading the board clears them", async () => {
+  const count = async (who) => (await (await web(`/api/inbox/count`, who)).json());
+  await web(`/api/inbox/read`, B, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ all: true }) });
+  await ok(A, fb, "read");
+  const m = seqOf(await ok(A, fb, "post", { type: "note", text: `@${B} look at this ${run}` }));
+  let c = await count(B);
+  assert(c.unread === 1 && c.latest.kind === "mention" && c.latest.seq === m && c.latest.actor === A && c.latest.actor_via === "agent", JSON.stringify(c));
+  await ok(A, fb, "read");
+  await ok(A, fb, "post", { type: "question", to: B, text: `for your agent ${run}` });
+  const mine = (await (await web(`/api/boards/${fb}/entries`, B, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: `B's own post ${run}` }) })).json()).entry.seq;
+  await ok(A, fb, "read");
+  await ok(A, fb, "post", { type: "note", reply_to: mine, text: `reply to B ${run}` });
+  c = await count(B);
+  assert(c.unread === 3, JSON.stringify(c));
+  const items = (await (await web(`/api/inbox`, B)).json()).items;
+  assert(["reply", "agent", "mention"].every((k, i) => items[i].kind === k), JSON.stringify(items.map((i) => i.kind)));
+  assert((await count(A)).unread === 0 || !(await (await web(`/api/inbox`, A)).json()).items.some((i) => i.seq === m), "you don't notify yourself");
+  has(await (await web(`/inbox`, B)).text(), `look at this ${run}`);
+  const r = await (await web(`/api/inbox/read`, B, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ board: fb }) })).json();
+  assert(r.read === 3 && (await count(B)).unread === 0, JSON.stringify(r));
+  assert([401, 302, 303].includes((await web(`/api/inbox/count`, null)).status), "sign-in required");
+});
+
 await step("tasks: claim leases, conflicts, release, assign, done closes it, stop signal, retracted premise stops it", async () => {
   await ok(A, fb, "read");
   const t1 = seqOf(await ok(A, fb, "post", { type: "task", text: `Write the release notes ${run}` }));
@@ -911,6 +936,41 @@ await step("tasks: claim leases, conflicts, release, assign, done closes it, sto
   await err(A, fb, "task", { action: "fly", seq: t3 }, "action must be");
   const out = await tool(OUT, fb, "task", { action: "list" });
   assert(out.isError, "outsiders can't see tasks");
+});
+
+await step("tasks board (web): list, move between columns, priority, claim conflicts, members only", async () => {
+  await ok(A, fb, "read");
+  const t = seqOf(await ok(A, fb, "post", { type: "task", text: `kanban card ${run}` }));
+  const act = (who, body) => web(`/api/boards/${fb}/tasks/${t}`, who, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  let list = (await (await web(`/api/boards/${fb}/tasks`, B)).json()).tasks;
+  assert(list.some((x) => x.seq === t && x.status === "todo"), JSON.stringify(list).slice(0, 300));
+  let r = await (await act(B, { action: "update", status: "blocked", priority: "high", note: "waiting on keys" })).json();
+  assert(r.task.status === "blocked" && r.task.priority === "high", JSON.stringify(r));
+  has(await ok(A, fb, "task", { action: "list", status: "blocked" }), `#${t} [blocked · high]`);
+  await ok(A, fb, "task", { action: "claim", seq: t });
+  const res = await act(B, { action: "update", status: "done" });
+  assert(res.status === 400 && (await res.json()).error.includes("claimed by"), "someone else's claimed task can't be moved");
+  r = await (await act(A, { action: "update", status: "done" })).json();
+  assert(r.task.status === "done", JSON.stringify(r));
+  assert((await web(`/api/boards/${fb}/tasks`, OUT)).status === 404, "outsiders");
+  has(await (await web(`/b/${fb}`, B)).text(), 'id="panel-tasks"');
+});
+
+await step("every page's inline scripts parse (a template escaping slip breaks the whole page)", async () => {
+  const { Script } = await import("node:vm");
+  for (const path of [`/b/${fb}`, `/b/${board}`, "/", "/inbox", "/me"]) {
+    const html = await (await web(path, A)).text();
+    const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
+    assert(scripts.length, `no scripts on ${path}`);
+    for (const src of scripts) {
+      try {
+        new Script(src);
+      } catch (e) {
+        const line = Number(String(e.stack).match(/evalmachine.<anonymous>:(\d+)/)?.[1] ?? 0);
+        throw new Error(`${path}: ${e.message} near: ${src.split("\n")[line - 1]?.slice(0, 160)}`);
+      }
+    }
+  }
 });
 
 await step("rename and archive: creator only; archived boards are read-only and listed separately; restore works", async () => {

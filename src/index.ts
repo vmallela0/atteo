@@ -1,5 +1,6 @@
 // Worker entry: MCP endpoint, sign-in, web pages, JSON API, and the operator console (/_ops).
 
+import * as inbox from "./inbox";
 import * as auth from "./auth";
 import { handleMcp } from "./mcp";
 import * as device from "./device";
@@ -343,6 +344,28 @@ export default {
         return boardPage(viewer, side, snap.info, withAgents, snap.entries, invites, { connected: status.connected, onThisBoard: !!live[viewer.name] });
       }
 
+      // ---- inbox: mentions of you, posts for your agent, replies to you ----
+      if (path === "/inbox" && method === "GET") {
+        if (!viewer) return needLogin();
+        const [side, items] = await Promise.all([sideBoards(env, viewer.name), inbox.listInbox(env, viewer.name)]);
+        return inbox.inboxPage(viewer, side, items);
+      }
+      if (path === "/api/inbox" && method === "GET") {
+        if (!viewer) return needLogin();
+        return json({ items: await inbox.listInbox(env, viewer.name, 50) });
+      }
+      if (path === "/api/inbox/count" && method === "GET") {
+        if (!viewer) return needLogin();
+        return json(await inbox.inboxCount(env, viewer.name), 200, { "cache-control": "no-store" });
+      }
+      if (path === "/api/inbox/read" && method === "POST") {
+        if (!viewer) return needLogin();
+        const body = (await request.json().catch(() => ({}))) as { all?: unknown; board?: string; ids?: unknown };
+        const ids = Array.isArray(body.ids) ? body.ids.map(Number) : undefined;
+        const n = await inbox.markRead(env, viewer.name, { all: body.all === true || body.all === "1", board: typeof body.board === "string" ? body.board : undefined, ids });
+        return json({ ok: true, read: n });
+      }
+
       if (path === "/me" && method === "GET") {
         if (!viewer) return needLogin();
         const [side, tokens] = await Promise.all([sideBoards(env, viewer.name), auth.listTokens(env, viewer.name)]);
@@ -483,6 +506,48 @@ export default {
           const body = (await request.json().catch(() => ({}))) as { emoji?: string };
           try {
             return json(await stub.react(viewer.name, parseInt(m[2], 10), String(body.emoji ?? "")));
+          } catch (e) {
+            return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+          }
+        }
+        return json({ error: "not found" }, 404);
+      }
+
+      // ---- tasks board (web): list, and act on one task as a person ----
+      m = path.match(/^\/api\/boards\/([^/]+)\/tasks(?:\/(\d+))?$/);
+      if (m) {
+        if (!viewer) return needLogin();
+        if (!(await registry.isMember(env, m[1], viewer.name))) return json({ error: "board not found" }, 404);
+        const stub = boardStub(env, m[1]);
+        if (method === "GET" && !m[2]) return json({ tasks: await stub.tasks() });
+        if (method === "POST" && m[2]) {
+          const seq = parseInt(m[2], 10);
+          const b = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+          const s = (k: string) => (typeof b[k] === "string" ? (b[k] as string).trim() : undefined);
+          const opts = { via: "person" as const };
+          try {
+            let t;
+            if (b.action === "claim") t = await stub.taskClaim(viewer.name, seq, Number(b.minutes) || 60, opts);
+            else if (b.action === "release") t = await stub.taskRelease(viewer.name, seq, opts);
+            else if (b.action === "stop") t = await stub.taskStop(viewer.name, seq, s("reason") ?? "", opts);
+            else if (b.action === "update") {
+              const due = s("due");
+              t = await stub.taskUpdate(
+                viewer.name,
+                seq,
+                {
+                  status: s("status") as "todo" | "doing" | "blocked" | "done" | undefined,
+                  assignee: b.assignee === undefined ? undefined : s("assignee") || null,
+                  assignee_agent: b.assignee_is_person === true ? false : true,
+                  due: due === undefined ? undefined : due === "" ? null : Date.parse(due + "T23:59:00Z") || undefined,
+                  priority: b.priority === undefined ? undefined : ((s("priority") as "high" | "medium" | "low") || null),
+                  note: s("note") ?? null,
+                },
+                opts,
+              );
+            } else return json({ error: "action must be claim, release, update or stop" }, 400);
+            ctx.waitUntil(registry.bumpBoard(env, m[1], 0).catch(() => {}));
+            return json({ ok: true, task: t });
           } catch (e) {
             return json({ error: e instanceof Error ? e.message : String(e) }, 400);
           }

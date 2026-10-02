@@ -98,7 +98,7 @@ export const TOOLS = [
   {
     name: "task",
     description:
-      "Work items on the joined board (post type=task to create one). Actions: list {status?, mine?}; claim {seq, minutes?} (lease it so no one else takes it; claim again to renew; default 30 min); release {seq}; update {seq, status? (todo|doing|blocked|done), assignee?, assignee_is_person?, due? (YYYY-MM-DD), note?}; stop {seq, reason} (halt a task, e.g. its premise changed). Claim before working on a task; if a task you hold gets stopped, stop working on it.",
+      "Work items on the joined board (post type=task to create one). Actions: list {status?, mine?}; claim {seq, minutes?} (lease it so no one else takes it; claim again to renew; default 30 min); release {seq}; update {seq, status? (todo|doing|blocked|done), assignee?, assignee_is_person?, due? (YYYY-MM-DD), priority? (high|medium|low), note?}; stop {seq, reason} (halt a task, e.g. its premise changed). Claim before working on a task; if a task you hold gets stopped, stop working on it.",
     inputSchema: {
       type: "object",
       properties: {
@@ -110,6 +110,7 @@ export const TOOLS = [
         assignee: { type: "string", description: "update: member name (empty to unassign)" },
         assignee_is_person: { type: "boolean", description: "update: assign the person instead of their agent" },
         due: { type: "string", description: "update: YYYY-MM-DD, or empty to clear" },
+        priority: { type: "string", enum: ["high", "medium", "low", ""], description: "update: priority (empty to clear)" },
         note: { type: "string", description: "update: one line of progress" },
         reason: { type: "string", description: "stop: why" },
       },
@@ -128,6 +129,16 @@ export const TOOLS = [
         note: { type: "string", description: "What you checked, or what to change" },
       },
       required: ["seq", "verdict"],
+    },
+  },
+  {
+    name: "react",
+    description:
+      "React to an entry on the joined board with one emoji (e.g. ✅ when something you were asked for is done, 👀 when you're on it, 👍). Calling it again with the same emoji removes it. Shown as your user's agent.",
+    inputSchema: {
+      type: "object",
+      properties: { seq: { type: "integer" }, emoji: { type: "string", description: "One emoji, or a :shortcode:" } },
+      required: ["seq", "emoji"],
     },
   },
   {
@@ -482,7 +493,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const opts = { via: "agent" as const, client: (await registry.mcpSessionClient(env, c.sessionId)) ?? "agent" };
       const when = (ts: number) => new Date(ts).toISOString().slice(0, 16).replace("T", " ") + "Z";
       const line = (t: Awaited<ReturnType<typeof stub.tasks>>[number]) =>
-        `#${t.seq} [${t.status}]${t.assignee ? ` for ${t.assignee_agent ? `${t.assignee}'s agent` : t.assignee}` : ""}${
+        `#${t.seq} [${t.status}${t.priority ? ` · ${t.priority}` : ""}]${t.assignee ? ` for ${t.assignee_agent ? `${t.assignee}'s agent` : t.assignee}` : ""}${
           t.lease_holder ? ` · held by ${t.lease_agent ? `${t.lease_holder}'s agent` : t.lease_holder} until ${when(t.lease_until!)}` : ""
         }${t.due ? ` · due ${when(t.due).slice(0, 10)}` : ""}${t.stop_reason ? ` · stopped: ${t.stop_reason}` : ""}\n    ${t.text.replace(/\s+/g, " ").slice(0, 200)}`;
       if (action === "list") {
@@ -510,6 +521,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
             assignee: args.assignee === undefined ? undefined : str(args.assignee) ?? null,
             assignee_agent: args.assignee_is_person === true ? false : true,
             due,
+            priority: args.priority === undefined ? undefined : ((str(args.priority) as "high" | "medium" | "low" | undefined) ?? null),
             note: str(args.note) ?? null,
           },
           opts,
@@ -531,6 +543,14 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const pr = (await stub.get(seq)).entry.card?.pr_url;
       const gh = pr && verdict !== "comment" ? `\nTo mirror it on GitHub (your user's call): gh pr review ${pr} --${verdict === "approve" ? "approve" : "request-changes"}${verdict === "approve" ? "" : ' -b "<your note>"'}` : "";
       return `Posted #${r.entry.seq}. #${seq} now: ${r.state}.${gh}`;
+    }
+
+    case "react": {
+      const id = await currentBoard(c, args);
+      const seq = int(args.seq);
+      if (seq == null) throw new ToolError("seq is required.");
+      const r = await stubFor(env, id).react(user, seq, str(args.emoji) ?? "", { via: "agent" });
+      return `${r.on ? "Reacted" : "Removed your reaction"} on #${seq}. Now: ${r.reactions.map((x) => `${x.emoji} ${x.users.join(", ")}`).join(" · ") || "no reactions"}`;
     }
 
     case "retract": {
