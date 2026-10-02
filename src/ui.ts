@@ -611,7 +611,12 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
 .bp-panel>.layout{flex:1;min-height:0;grid-template-rows:minmax(0,1fr);position:relative;gap:20px}
 @media(min-width:960px){.bp-panel>.layout{grid-template-columns:minmax(0,1fr) 280px}.bp-panel>.layout.info-collapsed{grid-template-columns:minmax(0,1fr)}.layout.info-collapsed>.aside{display:none}
   .layout.info-collapsed>.conv{width:100%;max-width:820px;margin:0 auto} /* a readable measure even with the sidebar hidden */}
-.bp-panel .aside{position:static;align-self:stretch;max-height:none;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;padding:44px 4px 16px 8px;margin-left:-8px}
+.bp-panel .aside{position:static;align-self:stretch;max-height:none;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;margin:40px 0 0 -8px;padding:4px 8px 16px 8px}
+/* Board info scrolls below the panel toggle (nothing slides under it), with a thin, faint scrollbar. */
+.aside::-webkit-scrollbar{width:4px}
+.aside::-webkit-scrollbar-track{margin:4px 0 8px}
+.aside::-webkit-scrollbar-thumb{background:color-mix(in srgb,var(--muted) 22%,transparent)}
+.aside::-webkit-scrollbar-thumb:hover{background:var(--sb-hover)}
 .layout.info-collapsed .rail{top:44px} /* clear of the toggle when it sits over the thread */
 .conv{display:flex;flex-direction:column;min-height:0;min-width:0}
 .thread-wrap{flex:1;min-height:0;position:relative;display:flex}
@@ -646,7 +651,7 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
 .doc-view.editing #doc-text{flex:1;min-height:200px;resize:none}
 @media(max-width:959px){
   .bp-panel .aside{display:none}
-  .layout.info-open>.aside{display:block;position:absolute;inset:0;z-index:6;background:var(--bg);padding:44px 2px 16px}
+  .layout.info-open>.aside{display:block;position:absolute;inset:0;z-index:6;background:var(--bg);margin:0;padding:44px 2px 16px}
   .bp-panel .rail{top:44px}
   .layout.info-open>.conv{visibility:hidden} /* only the open panel's scrollbar shows */
 }
