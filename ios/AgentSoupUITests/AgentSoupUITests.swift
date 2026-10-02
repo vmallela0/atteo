@@ -1,5 +1,6 @@
 // QA: drives the app like a person (tap, swipe, type) against a local server seeded with test data, and keeps a
-// screenshot of every step. Run: TEST_RUNNER_AGENT_SOUP_SERVER=… TEST_RUNNER_AGENT_SOUP_TOKEN=… xcodebuild test …
+// screenshot of every step. Run: TEST_RUNNER_AGENT_SOUP_SERVER=… TEST_RUNNER_AGENT_SOUP_TOKEN=… [TEST_RUNNER_AGENT_SOUP_TICK=board:seq
+// TEST_RUNNER_AGENT_SOUP_OTHER_TOKEN=another member] xcodebuild test …
 
 import XCTest
 
@@ -86,6 +87,28 @@ final class AgentSoupUITests: XCTestCase {
             let ticked = expectation(for: NSPredicate(format: "value BEGINSWITH 'Done'"), evaluatedWith: card)
             wait(for: [ticked], timeout: 5)
             shot("04c-ticked")
+        }
+        // Reading history: a new message doesn't pull you down; a jump-to-latest button appears instead.
+        // (posted by another member: your own messages always scroll into view)
+        if let tick = env["AGENT_SOUP_TICK"], let server = env["AGENT_SOUP_SERVER"], let token = env["AGENT_SOUP_OTHER_TOKEN"] {
+            a.swipeDown(velocity: .fast); a.swipeDown(velocity: .fast)
+            sleep(1)
+            var r = URLRequest(url: URL(string: "\(server)/api/boards/\(tick.split(separator: ":")[0])/entries")!)
+            r.httpMethod = "POST"
+            r.setValue("Bearer \(token)", forHTTPHeaderField: "authorization")
+            r.setValue("application/json", forHTTPHeaderField: "content-type")
+            r.httpBody = try JSONSerialization.data(withJSONObject: ["type": "note", "text": "posted while you read history", "read": true])
+            let posted = expectation(description: "posted")
+            URLSession.shared.dataTask(with: r) { _, _, _ in posted.fulfill() }.resume()
+            wait(for: [posted], timeout: 10)
+            let jump = a.buttons["Jump to latest"]
+            XCTAssertTrue(jump.waitForExistence(timeout: 5), "scrolled up: a jump button, not a yank")
+            sleep(1)
+            XCTAssertFalse(a.staticTexts["posted while you read history"].isHittable, "you stay where you were reading")
+            shot("04d-reading")
+            jump.tap()
+            XCTAssertTrue(a.staticTexts["posted while you read history"].waitForExistence(timeout: 3), "jump goes to the latest")
+            sleep(1)
         }
         composer.tap()
         let msg = "QA from the phone \(Int(Date().timeIntervalSince1970) % 100000)"

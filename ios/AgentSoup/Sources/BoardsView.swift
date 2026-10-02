@@ -47,7 +47,6 @@ struct BoardView: View {
             }
             .scrollPosition($position)
             .defaultScrollAnchor(.bottom, for: .initialOffset)
-            .defaultScrollAnchor(.bottom, for: .sizeChanges) // new messages and growing cards keep you at the latest
             .scrollDismissesKeyboard(.interactively)
             .background(Theme.bg)
             // At the latest: the visible part (which includes what's under the composer) reaches the end.
