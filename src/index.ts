@@ -490,6 +490,21 @@ export default {
         return json({ error: "not found" }, 404);
       }
 
+      // ---- review a change card as a person (approve / request_changes / comment) ----
+      m = path.match(/^\/api\/boards\/([^/]+)\/entries\/(\d+)\/review$/);
+      if (m && method === "POST") {
+        if (!viewer) return needLogin();
+        if (!(await registry.isMember(env, m[1], viewer.name))) return json({ error: "board not found" }, 404);
+        const body = (await request.json().catch(() => ({}))) as { verdict?: string; note?: string };
+        try {
+          const r = await boardStub(env, m[1]).review(viewer.name, parseInt(m[2], 10), String(body.verdict ?? "") as "approve", String(body.note ?? ""), { via: "person" });
+          ctx.waitUntil(registry.bumpBoard(env, m[1], r.entry.seq).catch(() => {}));
+          return json({ ok: true, entry: r.entry, state: r.state }, 201);
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+        }
+      }
+
       // ---- retract an entry (its author or the board's creator) ----
       m = path.match(/^\/api\/boards\/([^/]+)\/entries\/(\d+)\/retract$/);
       if (m && method === "POST") {
@@ -537,8 +552,10 @@ export default {
               html: entryHtml(e, id, true, { canRetract: canRetract(e) }),
               row: logRow(e),
               reactions: snap.reactions[e.seq] ?? [],
+              ...(e.type === "change" ? { reviews: snap.reviews[e.seq] ?? [] } : {}),
             })),
             ...(after === 0 ? { reactions: snap.reactions } : {}),
+            reviews: snap.reviews, // every card's current verdicts (small), so open tabs can update cards above the fold
             summary: summaryHtml([], viewer?.name ?? "", members, snap.summary, { boardId: id, creator: snap.info.created_by }),
             count: snap.info.entry_count,
             last: fresh.length ? fresh[fresh.length - 1].seq : after,

@@ -16,6 +16,8 @@ export const MAX_WAIT_MS = 55_000;
 export class BoardError extends Error {}
 
 export const POSTS_PER_MINUTE = 60;
+export const REVIEW_VERDICTS = ["approve", "request_changes", "comment"] as const;
+export type ReviewVerdict = (typeof REVIEW_VERDICTS)[number];
 export const TASK_STATUSES = ["todo", "doing", "blocked", "done", "stopped"] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 export interface TaskView {
@@ -173,6 +175,15 @@ export class Board extends DurableObject<Env> {
         emoji TEXT NOT NULL,
         ts INTEGER NOT NULL,
         PRIMARY KEY (seq, user, emoji)
+      );
+      CREATE TABLE IF NOT EXISTS reviews (
+        seq INTEGER NOT NULL,
+        reviewer TEXT NOT NULL,
+        verdict TEXT NOT NULL,
+        via TEXT,
+        note_seq INTEGER NOT NULL,
+        ts INTEGER NOT NULL,
+        PRIMARY KEY (seq, reviewer)
       );
       CREATE TABLE IF NOT EXISTS tasks (
         seq INTEGER PRIMARY KEY,
@@ -538,7 +549,7 @@ export class Board extends DurableObject<Env> {
     return {
       info,
       members,
-      summaryText: formatSummary(info, members, this.summary(), user, DEFAULT_SUMMARY_CHARS, this.taskTags()),
+      summaryText: formatSummary(info, members, this.summary(), user, DEFAULT_SUMMARY_CHARS, this.taskTags(), this.reviewers()),
       entries: fresh,
       remaining,
     };
@@ -755,8 +766,58 @@ export class Board extends DurableObject<Env> {
     return t;
   }
 
+  /** Each reviewer's latest verdict on each change. */
+  reviewRows(): { seq: number; reviewer: string; verdict: ReviewVerdict; via: string | null }[] {
+    return this.sql.exec("SELECT seq, reviewer, verdict, via FROM reviews ORDER BY ts").toArray() as unknown as { seq: number; reviewer: string; verdict: ReviewVerdict; via: string | null }[];
+  }
+
+  reviewsBySeq(): Record<number, { reviewer: string; verdict: ReviewVerdict; via: string | null }[]> {
+    const out: Record<number, { reviewer: string; verdict: ReviewVerdict; via: string | null }[]> = {};
+    for (const r of this.reviewRows()) (out[r.seq] ??= []).push({ reviewer: r.reviewer, verdict: r.verdict, via: r.via });
+    return out;
+  }
+
+  /** Who has reviewed each change (for "Reviews for YOU"). */
+  reviewers(): Map<number, string[]> {
+    const m = new Map<number, string[]>();
+    for (const r of this.reviewRows()) m.set(r.seq, [...(m.get(r.seq) ?? []), r.reviewer]);
+    return m;
+  }
+
+  /**
+   * Review a change card: approve, request changes, or comment. Your latest approve/request_changes is your verdict;
+   * each review is also a reply in the conversation, addressed to the change's author.
+   */
+  async review(user: string, seq: number, verdict: ReviewVerdict, note: string, opts: TaskActOpts): Promise<{ entry: Entry; state: string }> {
+    this.info();
+    if (!REVIEW_VERDICTS.includes(verdict)) throw new BoardError(`verdict must be one of: ${REVIEW_VERDICTS.join(", ")}`);
+    const row = this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq = ?`, seq).toArray()[0];
+    if (!row || row.type !== "change") throw new BoardError(`#${seq} isn't a change card. Reviews are for entries of type change.`);
+    if (this.sql.exec("SELECT 1 AS x FROM entries WHERE retracts = ?", seq).toArray().length) throw new BoardError(`#${seq} was retracted.`);
+    const change = toEntry(row);
+    if (verdict !== "comment" && change.author === user) throw new BoardError("You can't approve or request changes on your own change; ask someone else to review it.");
+    const text = (note ?? "").trim();
+    if (verdict !== "approve" && !text) throw new BoardError("Say what to change (note).");
+    const head = verdict === "approve" ? `✅ Approved #${seq}` : verdict === "request_changes" ? `✋ Changes requested on #${seq}` : `💬 Review comment on #${seq}`;
+    const entry = await this.post(user, { type: "note", reply_to: seq, to: change.author, text: text ? `${head}: ${text}` : `${head}.`, via: opts.via, client: opts.client });
+    if (verdict !== "comment") {
+      this.sql.exec(
+        "INSERT OR REPLACE INTO reviews (seq, reviewer, verdict, via, note_seq, ts) VALUES (?, ?, ?, ?, ?, ?)",
+        seq, user, verdict, opts.via ?? null, entry.seq, Date.now(),
+      );
+    }
+    return { entry, state: this.taskTags().get(seq) ?? "no verdicts yet" };
+  }
+
   taskTags(): Map<number, string> {
     const m = new Map<number, string>();
+    // Change cards: each reviewer's verdict, e.g. "approved by jxn's agent · changes requested by vedu".
+    const byChange = new Map<number, string[]>();
+    for (const r of this.reviewRows()) {
+      const who = r.via === "agent" ? `${r.reviewer}'s agent` : r.reviewer;
+      byChange.set(r.seq, [...(byChange.get(r.seq) ?? []), `${r.verdict === "approve" ? "approved" : "changes requested"} by ${who}`]);
+    }
+    for (const [seq, bits] of byChange) m.set(seq, bits.join(" · "));
     for (const t of this.taskRows()) {
       const bits: string[] = [t.status];
       if (t.assignee) bits.push(`for ${t.assignee_agent ? `${t.assignee}'s agent` : t.assignee}`);
@@ -1030,6 +1091,7 @@ export class Board extends DurableObject<Env> {
       summary: this.summary(),
       entries: this.entriesAfter(afterSeq, null, 1000),
       reactions: afterSeq === 0 ? this.reactionsFor() : {},
+      reviews: this.reviewsBySeq(),
     };
   }
 }
