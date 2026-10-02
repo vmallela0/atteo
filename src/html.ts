@@ -2,7 +2,7 @@
 
 import type { BoardRow, InviteRow, UserRow } from "./registry";
 import type { TokenRow } from "./auth";
-import { computeSummary } from "./state";
+import { computeSummary, type Summary } from "./state";
 import type { BoardInfo, Entry } from "./types";
 import { appPage, avatar, avatarStack, copyField, hue, page, renderText, typeTag, when, type SideBoard, type Viewer } from "./ui";
 import { esc } from "./util";
@@ -77,8 +77,8 @@ export function threadHtml(entries: Entry[], boardId: string): string {
     .join("");
 }
 
-export function summaryHtml(entries: Entry[], viewer: string, members: MemberView[]): string {
-  const s = computeSummary(entries);
+export function summaryHtml(entries: Entry[], viewer: string, members: MemberView[], precomputed?: Summary): string {
+  const s = precomputed ?? computeSummary(entries);
   const item = (e: Entry) =>
     `<li><a href="#e${e.seq}"><span class="n">#${e.seq}</span><span>${e.to ? `<b>${esc(e.author)}</b> → ${esc(e.to)}: ` : `<b>${esc(e.author)}</b>: `}${esc(clip(e.artifact_name ?? e.text, 90))}</span></a></li>`;
   const sec = (title: string, items: Entry[]) =>
@@ -243,6 +243,7 @@ async function tick(wait){try{
     if(box){el.querySelector('.replies')?.remove();box.appendChild(el)}else{document.getElementById('empty')?.remove();document.getElementById('thread').appendChild(el)}
     const lt=document.createElement('tbody');lt.innerHTML=e.row;document.getElementById('log-body').prepend(lt.firstElementChild);document.getElementById('log-empty')?.remove();
     last=Math.max(last,e.seq)}
+  if(typeof d.last==='number')last=Math.max(last,d.last);
   if(d.entries.length){document.getElementById('sum').innerHTML=d.summary;document.querySelectorAll('[data-count]').forEach(x=>x.textContent=d.count);refreshTimes()}
 }catch(e){await new Promise(r=>setTimeout(r,5000))}}
 (async()=>{for(;;){if(document.hidden){await new Promise(r=>setTimeout(r,2000));continue}await tick(true)}})();

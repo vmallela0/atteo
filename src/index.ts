@@ -14,7 +14,6 @@ import {
   mePage,
   messagePage,
   notFound,
-  rootMap,
   summaryHtml,
   welcomePage,
   type AdminData,
@@ -136,8 +135,12 @@ async function authCallback(c: Ctx): Promise<Response> {
   const err = c.url.searchParams.get("error_description") ?? c.url.searchParams.get("error");
   if (err) return fail(`WorkOS said: ${err}`);
   const code = c.url.searchParams.get("code");
+  const sentState = c.url.searchParams.get("state");
+  // Flows that start on WorkOS's side (an invitation email, AuthKit's own pages) arrive without our state.
+  // Restart from /auth/login: AuthKit already has a session, so it bounces straight back with a proper state.
+  if (!sentState) return redirect("/auth/login");
   const [state, ret] = (auth.readCookie(c.request, auth.OAUTH_COOKIE) ?? "").split("|");
-  if (!code || !state || state !== c.url.searchParams.get("state")) return fail("The sign-in link expired or was opened in a different browser. Start again.");
+  if (!code || !state || state !== sentState) return fail("The sign-in link expired or was opened in a different browser. Start again.");
 
   let wu: auth.WorkosUser;
   try {
@@ -317,14 +320,15 @@ export default {
           // Long-poll (wait=seconds) so an open board tab costs one request per change or per ~25s, not one every few seconds.
           const waitSec = Math.min(25, Math.max(0, parseInt(url.searchParams.get("wait") ?? "0", 10) || 0));
           if (waitSec) await stub.waitForAny(after, waitSec * 1000);
-          const [snap, members] = await Promise.all([stub.snapshot(0), registry.boardMembers(env, id)]);
-          const roots = rootMap(snap.entries);
-          const fresh = snap.entries.filter((e) => e.seq > after);
+          // Only entries after `after` (up to 1000 per call; the client advances and asks again), roots resolved in the DO.
+          const [snap, members] = await Promise.all([stub.snapshot(after), registry.boardMembers(env, id)]);
+          const fresh = snap.entries;
+          const roots = await stub.rootsFor(fresh.map((e) => e.seq));
           return json({
-            entries: fresh.map((e) => ({ seq: e.seq, root: roots.get(e.seq), html: entryHtml(e, id), row: logRow(e) })),
-            summary: summaryHtml(snap.entries, viewer?.name ?? "", members),
+            entries: fresh.map((e) => ({ seq: e.seq, root: roots[e.seq] ?? e.seq, html: entryHtml(e, id), row: logRow(e) })),
+            summary: summaryHtml([], viewer?.name ?? "", members, snap.summary),
             count: snap.info.entry_count,
-            last: snap.info.last_seq,
+            last: fresh.length ? fresh[fresh.length - 1].seq : after,
           });
         }
         if (what === "entries" && seqStr && method === "GET") {

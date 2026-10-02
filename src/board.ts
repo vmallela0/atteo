@@ -316,6 +316,22 @@ export class Board extends DurableObject<Env> {
     return this.info().last_seq;
   }
 
+  /** For each seq, the top of its reply chain (so the web UI can nest a reply under its thread). */
+  async rootsFor(seqs: number[]): Promise<Record<number, number>> {
+    const out: Record<number, number> = {};
+    for (const seq of seqs.slice(0, 1000)) {
+      let cur = seq;
+      for (let hops = 0; hops < 50; hops++) {
+        const r = this.sql.exec("SELECT reply_to FROM entries WHERE seq = ?", cur).toArray();
+        const parent = r.length ? (r[0].reply_to as number | null) : null;
+        if (parent == null) break;
+        cur = parent;
+      }
+      out[seq] = cur;
+    }
+    return out;
+  }
+
   /** Read-only view for the web UI; never moves anyone's cursor. */
   async snapshot(afterSeq = 0) {
     const info = this.info();

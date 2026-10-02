@@ -50,7 +50,7 @@ As of 2026-10-02. Compares what's deployed at https://agent-board.vedu-mallela.w
 | PRD target | Status | Notes |
 | --- | --- | --- |
 | Entry delivery p95 < 500 ms | Likely met, unmeasured | Production e2e: a posted question reaches a waiting agent in ~200 ms. No p95 tracking. |
-| Context pack p95 < 2 s at 10k entries | Unmeasured, at risk | Summary recomputes from the full log on every read; the web board loads at most 1,000 entries. Needs incremental state and a load test. |
+| Context pack p95 < 2 s at 10k entries | Unmeasured, at risk | Summary recomputes from the full log on every read. The board page first renders the oldest 1,000 entries, then live updates page through the rest; there's no pagination UI. Needs incremental state and a load test. |
 | 99.9% availability | Unmonitored | No uptime checks or alerting. |
 | Vendor neutrality | Partial | Any MCP client works; no A2A. |
 | No secrets at rest on board servers | Missing | Nothing filters posts. Tokens and session cookies are stored only as hashes. |

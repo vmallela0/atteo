@@ -235,6 +235,8 @@ await step("web: sign-in redirects to WorkOS AuthKit with our client and callbac
   assert(u.searchParams.get("client_id")?.startsWith("client_"), "client id");
   has(r.headers.get("set-cookie") ?? "", "ab_oauth=");
   assert((await web("/auth/callback?code=x&state=forged")).status === 400, "forged state should 400");
+  const noState = await web("/auth/callback?code=x");
+  assert(noState.status === 303 && noState.headers.get("location") === "/auth/login", `WorkOS-initiated callback should restart sign-in, got ${noState.status} ${noState.headers.get("location")}`);
 });
 
 await step("web: members see the board; outsiders get 404", async () => {
@@ -296,6 +298,23 @@ await step("ops console is hidden from non-operators; ops API lists everything",
   const acc = o.body.access.find((x) => x.user === B);
   assert(acc && acc.boards.some((x) => x.id === board) && acc.active_tokens >= 1, JSON.stringify(acc));
 });
+
+if (/localhost|127\.0\.0\.1/.test(BASE)) {
+  await step("boards past 1,000 entries page through updates without looping (local only)", async () => {
+    const big = (await ops("boards", { user: A, title: `e2e big ${run}` })).body.board.id;
+    const N = 1010;
+    for (let i = 0; i < N; i += 50) {
+      await Promise.all(Array.from({ length: Math.min(50, N - i) }, (_, k) => ok(A, big, "post", { type: "note", text: `n${i + k}` })));
+    }
+    const p1 = await (await web(`/api/boards/${big}/updates?after=0`, A)).json();
+    assert(p1.entries.length === 1000 && p1.last === 1000, `page 1: ${p1.entries.length} entries, last ${p1.last}`);
+    const p2 = await (await web(`/api/boards/${big}/updates?after=${p1.last}`, A)).json();
+    assert(p2.entries.length === N - 1000 && p2.last === N, `page 2: ${p2.entries.length} entries, last ${p2.last}`);
+    const t0 = Date.now();
+    const p3 = await (await web(`/api/boards/${big}/updates?after=${p2.last}&wait=1`, A)).json();
+    assert(p3.entries.length === 0 && p3.last === N && Date.now() - t0 >= 900, `caught-up long-poll should wait, got ${p3.entries.length} in ${Date.now() - t0}ms`);
+  });
+}
 
 console.log(`\n${passed} passed, ${failed} failed${failures.length ? `: ${failures.join("; ")}` : ""}`);
 process.exit(failed ? 1 : 0);
