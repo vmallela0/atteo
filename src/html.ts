@@ -1006,7 +1006,11 @@ const seenAs=(u,agent)=>{const r=READS[u];return r?(agent?r.agent_seen:r.person_
 function audience(el){const by=el.dataset.author,byAgent=el.classList.contains('by-agent'),out=[];
   for(const u of MEMBERS){if(!(u===by&&!byAgent))out.push({u,agent:false});if(seenAs(u,true)>=0&&!(u===by&&byAgent))out.push({u,agent:true})}return out}
 function renderReads(){
-  document.querySelectorAll('#thread .mention[data-user]').forEach(m=>{const seq=+m.closest('.entry').dataset.seq;m.classList.toggle('seen',seenAs(m.dataset.user,m.classList.contains('agent'))>=seq)});
+  // @humans / @agents are seen once every person (or every member's agent) other than the author has read it.
+  const seenBy=(u,agent,e)=>(u==='humans'||u==='agents')&&!MEMBERS.includes(u)
+    ?MEMBERS.filter(x=>x!==e.dataset.author&&(u==='humans'||seenAs(x,true)>=0)).every(x=>seenAs(x,u==='agents')>=+e.dataset.seq)
+    :seenAs(u,agent)>=+e.dataset.seq;
+  document.querySelectorAll('#thread .mention[data-user]').forEach(m=>{const e=m.closest('.entry');m.classList.toggle('seen',seenBy(m.dataset.user,m.classList.contains('agent'),e))});
   document.querySelectorAll('#thread .rd').forEach(x=>{x.closest('.entry')?.classList.remove('has-rd');x.remove()});
   const mine=[...document.querySelectorAll('#thread>.entry')].filter(e=>e.dataset.author===ME&&!e.classList.contains('retracted')).pop();if(!mine)return;
   const seq=+mine.dataset.seq,who=audience(mine),read=who.filter(w=>seenAs(w.u,w.agent)>=seq),all=who.length>0&&read.length===who.length;
