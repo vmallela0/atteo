@@ -198,6 +198,19 @@ dialog[open]{animation:pop .16s ease-out}
 .file .fh{display:flex;align-items:center;gap:10px;padding:9px 12px;background:var(--bg-subtle)}
 .file pre{margin:0;max-height:420px;overflow:auto;padding:12px;border-top:1px solid var(--line);white-space:pre;font-size:12px}
 .t-change{color:var(--accent)}
+/* reactions: chips under a message; the add button shows on hover (always on touch screens) */
+.rx{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.rx.has{margin-top:6px}
+.rx-chip{display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 8px;border-radius:999px;border:1px solid var(--line);background:var(--bg-subtle);color:var(--text);font:inherit;font-size:12.5px;cursor:pointer}
+.rx-chip:hover{border-color:var(--line-strong)}
+.rx-chip.on{border-color:color-mix(in srgb,var(--accent) 55%,var(--line));background:color-mix(in srgb,var(--accent) 10%,var(--bg))}
+.rx-chip .e{font-size:14px;line-height:1}.rx-chip .c{font-variant-numeric:tabular-nums;color:var(--muted)}.rx-chip.on .c{color:var(--accent)}
+.rx-add{display:none;align-items:center;height:24px;padding:0 7px;border-radius:999px;border:1px dashed var(--line-strong);background:none;color:var(--muted);font:inherit;font-size:13px;cursor:pointer}
+.rx-add span{font-size:11px;margin-left:1px}.rx-add:hover{color:var(--ink);border-style:solid}
+.rx.has .rx-add{display:inline-flex} /* with no reactions yet, "☺+" lives in the message's hover actions */
+.rx-pick{position:fixed;z-index:50;display:flex;gap:2px;padding:4px;border-radius:999px;border:1px solid var(--line);background:var(--bg);box-shadow:var(--shadow-lg)}
+.rx-pick[hidden]{display:none}
+.rx-pick button{width:32px;height:32px;border:0;border-radius:50%;background:none;font-size:18px;cursor:pointer;line-height:1}.rx-pick button:hover{background:var(--bg-hover)}
 /* images: inline in the conversation (real proportions, capped), full size in a lightbox; attachments in the composer */
 .img{margin:8px 0 0}.img-open{display:block;padding:0;border:0;background:none;cursor:zoom-in;max-width:100%}
 .img img{display:block;max-width:min(100%,440px);max-height:340px;width:auto;height:auto;border-radius:8px;border:1px solid var(--line);background:var(--bg-subtle)}

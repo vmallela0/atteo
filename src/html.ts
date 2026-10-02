@@ -77,13 +77,15 @@ ${
   // Reply sets the composer to answer this entry: an agent's post gets the reply addressed to that agent.
   const reply = !opts.retracted && e.retracts == null ? `<button class="btn ghost sm" type="button" data-reply="${e.seq}" data-reply-label="${esc(e.via === "person" ? e.author : `${e.author}'s agent`)}">Reply</button>` : "";
   const retract = opts.canRetract && !opts.retracted && e.retracts == null ? `<button class="btn ghost sm retract" type="button" data-retract="${e.seq}">Unsend</button>` : "";
-  const actions = reply || retract ? `<span class="acts">${reply}${retract}</span>` : "";
+  const react = !opts.retracted && e.retracts == null ? `<button class="btn ghost sm rx-act" type="button" data-rx-add="${e.seq}" aria-label="Add a reaction" title="Add a reaction">☺+</button>` : "";
+  const actions = react || reply || retract ? `<span class="acts">${react}${reply}${retract}</span>` : "";
   return `<article class="entry${opts.retracted ? " retracted" : ""}${e.via === "agent" ? " by-agent" : ""}" id="e${e.seq}" data-seq="${e.seq}" data-author="${esc(e.author)}">
 ${avatar(e.author, "", e.via === "agent")}
 <div class="grow">
   <div class="meta">${whoHtml(e)}${e.to ? `<span class="to">→ ${esc(e.to)}</span>` : ""}${typeTag(e.type)}${when(e.ts)}<a class="seq" href="#e${e.seq}">#${e.seq}</a><span class="badge rbadge">Unsent</span>${flagBadge(e.text)}${actions}</div>
   <div class="body">${renderText(e.text, e.mentions)}</div>${file}${e.card ? changeCardHtml(e.seq, e.card) : ""}
   ${refs.length ? `<div class="refs">${refs.join(" · ")}</div>` : ""}
+  <div class="rx" data-rx="${e.seq}"><button class="rx-add" type="button" data-rx-add="${e.seq}" aria-label="Add a reaction" title="Add a reaction">☺<span>+</span></button></div>
   ${withReplies ? `<div class="replies" id="r${e.seq}"></div>` : ""}
 </div></article>`;
 }
@@ -601,6 +603,7 @@ async function tick1(wait){try{
     const box=e.root!==e.seq&&document.getElementById('r'+e.root);
     const tmp=document.createElement('div');tmp.innerHTML=e.html;const el=tmp.firstElementChild;el.classList.add('flash-in');
     if(box){el.querySelector('.replies')?.remove();box.appendChild(el)}else{document.getElementById('empty')?.remove();document.getElementById('thread').appendChild(el)}
+    if(e.reactions)renderRx(e.seq,e.reactions);
     if(!document.querySelector('#log-body tr[data-seq="'+e.seq+'"]')){const lt=document.createElement('tbody');lt.innerHTML=e.row;document.getElementById('log-body').prepend(lt.firstElementChild);document.getElementById('log-empty')?.remove()}
     if(e.retracts){const t=document.getElementById('e'+e.retracts);if(t){t.classList.add('retracted');t.querySelector('[data-retract]')?.remove()}}
     last=Math.max(last,e.seq)}
@@ -621,6 +624,7 @@ function connect(){
     if(d.type==='renamed'){window.applyTitle(d.title);return}
     if(d.type==='archived'){location.reload();return}
     if(d.type==='doc'){window.onDocChanged&&onDocChanged(d)}
+    if(d.type==='reaction'){renderRx(d.seq,d.reactions);return}
     if(d.type==='read'){READS[d.user]={person_seen:d.person_seen,agent_seen:d.agent_seen};renderReads();return}
     if(d.type==='task'){if(!document.getElementById('panel-tasks').hidden)loadTasks();if(td&&td.open&&tcur&&tcur.seq===d.seq&&!tdirty)openTask(d.seq)}
     if(d.type==='entry'||(d.type==='hello'&&d.last>last)){tick(false);if(!document.getElementById('panel-tasks').hidden)loadTasks()}};
@@ -829,6 +833,32 @@ document.addEventListener('visibilitychange',reportSeen);window.addEventListener
 (()=>{const key='soup.agentCard.'+BOARD,card=document.querySelector('#board-info [data-agent-card]');if(!card)return;
   try{if(localStorage.getItem(key)==='closed')card.remove()}catch(e){}
   card.querySelector('[data-dismiss-agent]')?.addEventListener('click',()=>{card.remove();try{localStorage.setItem(key,'closed')}catch(e){}})})();
+// ---- reactions: chips under each message (who reacted on hover; yours highlighted; click to toggle) and a quick picker ----
+const QUICK=['👍','✅','👀','🎉','❤️','🔥','😂','🙏'];
+const SHORT={'+1':'👍',thumbsup:'👍','-1':'👎',thumbsdown:'👎',white_check_mark:'✅',heavy_check_mark:'✔️',check:'✅',eyes:'👀',tada:'🎉',heart:'❤️',fire:'🔥',joy:'😂',pray:'🙏',rocket:'🚀',
+  raised_hands:'🙌',clap:'👏',ok_hand:'👌',thinking:'🤔',warning:'⚠️',x:'❌',100:'💯',hourglass:'⏳',bug:'🐛',ship:'🚢',sparkles:'✨',wave:'👋',smile:'😄',sob:'😭',muscle:'💪',star:'⭐'};
+const emo=e=>{const m=/^:([a-z0-9_+-]+):$/i.exec(e);return m&&SHORT[m[1].toLowerCase()]||e};
+const rxWho=u=>u===ME?'you':u===ME+"'s agent"?'your agent':u;
+function renderRx(seq,list){const row=document.querySelector('[data-rx="'+seq+'"]');if(!row)return;const add=row.querySelector('.rx-add');
+  row.querySelectorAll('.rx-chip').forEach(c=>c.remove());
+  for(const r of list||[]){const b=document.createElement('button');b.type='button';b.className='rx-chip'+(r.users.includes(ME)?' on':'');b.dataset.react=r.emoji;b.dataset.seq=seq;
+    b.title=r.users.map(rxWho).join(', ');b.setAttribute('aria-label',emo(r.emoji)+' '+r.users.length+': '+b.title+(r.users.includes(ME)?'. Click to remove yours':'. Click to add yours'));
+    b.innerHTML='<span class="e">'+esc(emo(r.emoji))+'</span><span class="c">'+r.users.length+'</span>';row.insertBefore(b,add)}
+  row.classList.toggle('has',!!(list&&list.length))}
+async function react(seq,emoji){const r=await fetch('/api/boards/'+BOARD+'/entries/'+seq+'/react',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({emoji})});
+  const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||"Couldn't react");return}renderRx(seq,j.reactions)}
+const picker=document.createElement('div');picker.className='rx-pick';picker.hidden=true;picker.setAttribute('role','menu');
+picker.innerHTML=QUICK.map(q=>'<button type="button" role="menuitem" data-pick="'+q+'" aria-label="React '+q+'">'+q+'</button>').join('');document.body.appendChild(picker);
+function closePicker(){picker.hidden=true;picker.dataset.seq=''}
+document.addEventListener('click',e=>{
+  const chip=e.target.closest('.rx-chip');if(chip){react(+chip.dataset.seq,chip.dataset.react);return}
+  const add=e.target.closest('[data-rx-add]');if(add){const r=add.getBoundingClientRect();picker.dataset.seq=add.dataset.rxAdd;picker.hidden=false;
+    picker.style.left=Math.max(8,Math.min(innerWidth-picker.offsetWidth-8,r.left))+'px';picker.style.top=(r.top-picker.offsetHeight-6<8?r.bottom+6:r.top-picker.offsetHeight-6)+'px';return}
+  const pk=e.target.closest('[data-pick]');if(pk&&picker.dataset.seq){react(+picker.dataset.seq,pk.dataset.pick);closePicker();return}
+  if(!picker.hidden&&!e.target.closest('.rx-pick'))closePicker()});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!picker.hidden)closePicker()});
+scroller.addEventListener('scroll',()=>{if(!picker.hidden)closePicker()},{passive:true});
+fetch('/api/boards/'+BOARD+'/reactions').then(r=>r.json()).then(j=>{for(const [seq,list] of Object.entries(j.reactions||{}))renderRx(+seq,list)}).catch(()=>{});
 window.deleted=()=>{location.href='/'};
 // Every place the board name shows: heading, breadcrumb, sidebar, browser tab (also used for live renames by others).
 window.applyTitle=(t)=>{const h=document.getElementById('board-title');if(h)h.textContent=t;document.title=t+' · Agent Soup';

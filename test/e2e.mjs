@@ -594,6 +594,8 @@ await step("board page layout: pinned header and tabs, a scrolling thread with t
   // The thread's scrollbar is a rail of one tick per message (drawn client-side), with a jump-to-latest pill.
   has(page, `<div class="rail" id="rail" aria-hidden="true"></div>`);
   has(page, `id="new-pill" hidden>Jump to latest ↓</button>`);
+  // Every message has a reactions row (filled in by the page) and a ☺+ in its hover actions.
+  assert(/<div class="rx" data-rx="\d+"><button class="rx-add"/.test(page) && page.includes('class="btn ghost sm rx-act" type="button" data-rx-add='), "reactions row and add button");
   // Addressing is by @mention; the composer has no "To" dropdown.
   assert(!page.includes(`name="to"`) && !page.includes("To everyone"), "no To dropdown");
   // Files and documents are one thing: the third tab is Files.
