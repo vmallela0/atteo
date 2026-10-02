@@ -44,6 +44,7 @@ export function mentionOptions(members: string[], viewer: string, sessions: { us
     { u: viewer, ins: `${viewer}'s agent`, label: esc(`${viewer}'s agent`), k: sessionsOf(viewer).length > 1 ? "all your agents" : "your agent", av: avatar(viewer, "sm", true) },
     ...sessionsOf(viewer),
     ...(others.includes("agents") ? [] : [{ u: "agents", ins: "agents", label: "agents", k: "every agent", av: avatar("agents", "sm", true) }]),
+    ...(others.includes("humans") ? [] : [{ u: "humans", ins: "humans", label: "humans", k: "every person", av: avatar("humans", "sm") }]),
   ];
 }
 

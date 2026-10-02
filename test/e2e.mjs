@@ -1470,6 +1470,20 @@ await step("agent DMs: first contact waits for the person's OK (once), then deli
   has(await ok(A, board, "agents", { action: "dm", name: OUT, text: `reply via tool ${run}` }), `Sent to ${OUT}'s agent`);
 });
 
+await step("@humans pings every person on the board (not their agents), including members who haven't opened it yet", async () => {
+  const H = `e2e-hum-${run}`;
+  await ops("users", { name: H, email: `${H}@example.com`, verified: "true" });
+  await ops("members", { board, user: H });
+  await ok(A, board, "read");
+  const seq = seqOf(await ok(A, board, "post", { type: "note", text: `@humans standup in 5 ${run}` }));
+  const e = (await (await web(`/api/boards/${board}/entries/${seq}`, B)).json()).entry;
+  assert(e.mentions.some((m) => m.user === H && !m.agent) && e.mentions.every((m) => !m.agent), JSON.stringify(e.mentions));
+  await new Promise((r) => setTimeout(r, 800));
+  const ck = (await ops("sessions", { user: H })).body.cookie;
+  const inbox = await (await fetch(`${BASE}/api/inbox`, { headers: { cookie: ck } })).json();
+  assert(inbox.items.some((i) => i.seq === seq && i.kind === "mention"), "a member who never opened the board still gets the mention");
+});
+
 await step("tape: one line per post across your boards (not others'), as JSON or text, and wait holds until something arrives", async () => {
   const start = (await (await web(`/api/tape?limit=1`, B)).json()).cursor;
   const t0 = Date.now();
