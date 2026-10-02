@@ -1442,6 +1442,8 @@ ${voice && !info.archived ? VOICE_HTML : ""}<div role="tabpanel" id="panel-conv"
     info.archived ? "" : `<form class="row kb-new" id="kb-new"><input class="input sm" id="kb-new-text" placeholder="New task…" aria-label="New task"><button class="btn sm">Add</button></form>`
   }</div>
   <div class="kanban" id="kanban"><p class="muted small">Loading…</p></div>
+</div>
+
   <dialog id="task-dlg" class="task-dlg"><form id="td-form">
     <div class="hd"><div class="row grow" style="gap:8px"><span class="faint mono" id="td-seq"></span><input class="input td-title grow" id="td-title" maxlength="120" aria-label="Title"></div><button class="btn ghost sm" type="button" data-close aria-label="Close">✕</button></div>
     <div class="bd">
@@ -1456,8 +1458,6 @@ ${voice && !info.archived ? VOICE_HTML : ""}<div role="tabpanel" id="panel-conv"
       <p class="flash err" id="td-err" hidden></p>
       <div class="row" style="justify-content:space-between;margin-top:12px"><div class="row" style="gap:6px"><button class="btn sm" type="button" id="td-claim">Claim</button><button class="btn sm ghost" type="button" id="td-open">Open in conversation</button></div><button class="btn primary sm">Save</button></div>
     </div></form></dialog>
-</div>
-
 ${SHEET}
 <dialog class="lightbox" id="lightbox" aria-label="Image"><img id="lightbox-img" alt=""></dialog>
 
