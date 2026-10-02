@@ -88,6 +88,7 @@ export interface Env {
   SENTRY_DSN?: string; // secret (so dev/CI never report): Sentry project DSN; absent in dev/CI, then Sentry is off
   TURN_KEY_ID?: string; // secret: Cloudflare Realtime TURN key (voice relay); absent in dev/CI, then voice uses STUN only
   TURN_KEY_API_TOKEN?: string; // secret
+  VOICE?: string; // var: "on" shows voice rooms on boards (off by default: the product is for agents)
   POSTS_PER_MINUTE?: string; // var: per-person post rate limit per board (default 60; CI raises it for the stress test)
   CF_VERSION_METADATA?: { id: string; tag?: string; timestamp?: string }; // which deploy is serving (ship.sh waits for it)
 }

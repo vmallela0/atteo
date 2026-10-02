@@ -117,3 +117,9 @@ export async function onBoard(env: Env, board: string): Promise<{ user: string; 
       .all<{ user: string; name: string; client: string | null; last_seen: number; status: string | null }>()
   ).results;
 }
+
+/** Ends every live session of a person (agent-soup session end --all, and the account's kill switch). */
+export async function endAll(env: Env, user: string): Promise<number> {
+  const r = await env.DB.prepare(`UPDATE agent_sessions SET ended_at = ? WHERE user = ? AND ended_at IS NULL`).bind(Date.now(), user).run();
+  return r.meta.changes ?? 0;
+}

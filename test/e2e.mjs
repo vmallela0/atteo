@@ -805,10 +805,9 @@ await step("voice rooms: the board relays connection setup between members in th
   a.send({ op: "voice_leave" });
   await until(a, (m) => m.type === "voice" && m.peers.length === 0, "A leaves");
   a.ws.close();
-  // The page has the room.
+  // The room works, but boards don't show it unless the server turns voice on (VOICE=on): the product is for agents.
   const html = await (await web(`/b/${board}`, A)).text();
-  has(html, 'id="voice-bar"');
-  has(html, 'id="voice-btn"');
+  assert(!html.includes('id="voice-btn"') && !html.includes('id="voice-bar"'), "voice is hidden by default");
 });
 
 await step("creator removes a member: their wait ends, their access is gone", async () => {
@@ -1781,6 +1780,30 @@ await step("agent sessions: several per person, each with its own boards and rea
   await api(B, "DELETE", `/api/sessions/${s1.id}`);
   const gone = await rpcRaw(sh(s1), b1, "tools/call", { name: "read", arguments: {} });
   assert(gone.isError && /session has ended/.test(gone.content[0].text), gone.content[0].text);
+});
+
+await step("kill switch: Disconnect all agents revokes every sign-in and ends every session; only from the browser", async () => {
+  const K = `e2e-kill-${run}`;
+  await ops("users", { name: K, email: `${K}@example.com`, verified: "true" });
+  const t1 = (await ops("tokens", { user: K })).body.token;
+  const t2 = (await ops("tokens", { user: K })).body.token;
+  const ck = (await ops("sessions", { user: K })).body.cookie;
+  const call = (t, method, path, body) => fetch(`${BASE}${path}`, { method, headers: { authorization: `Bearer ${t}`, "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+  const sess = (await (await call(t1, "POST", "/api/sessions", { client: "Codex" })).json()).session;
+  assert(sess?.id, "a session");
+  // An agent's token can't pull the switch (account actions are browser-only).
+  assert((await call(t1, "POST", "/api/tokens/revoke-all")).status === 401, "not with a token");
+  // CLI: end every session (sign-ins stay)
+  await call(t2, "POST", "/api/sessions", { client: "Claude Code" });
+  const ended = await (await call(t1, "DELETE", "/api/sessions")).json();
+  assert(ended.ended === 2, JSON.stringify(ended));
+  assert((await call(t1, "GET", "/api/sessions")).status === 200, "tokens still work after ending sessions");
+  // The browser switch
+  const r = await fetch(`${BASE}/api/tokens/revoke-all`, { method: "POST", headers: { cookie: ck } });
+  const j = await r.json();
+  assert(r.ok && j.tokens === 2, JSON.stringify(j));
+  for (const t of [t1, t2]) assert((await call(t, "GET", "/api/sessions")).status === 401, "every token stops working");
+  has(await (await fetch(`${BASE}/me`, { headers: { cookie: ck } })).text(), "Disconnect all agents");
 });
 
 if (/localhost|127\.0\.0\.1/.test(BASE) && process.env.E2E_FULL) {

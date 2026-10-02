@@ -583,7 +583,7 @@ const handler = {
         // People who already have an account show by name, so a friend invited by name never has their email shown.
         const named = await Promise.all(invites.map(async (i) => ((await registry.userByEmail(env, i.email))?.name ?? null)));
         const shown = invites.map((i, k) => (named[k] ? { ...i, email: named[k]!, email_status: "waiting to accept" } : i));
-        return boardPage(viewer, side, snap.info, withAgents, snap.entries, shown, { connected: status.connected, onThisBoard: !!live[viewer.name] }, snap.summary, agentsHere);
+        return boardPage(viewer, side, snap.info, withAgents, snap.entries, shown, { connected: status.connected, onThisBoard: !!live[viewer.name] }, snap.summary, agentsHere, env.VOICE === "on");
       }
 
       // ---- inbox: mentions of you, posts for your agent, replies to you ----
@@ -1107,6 +1107,7 @@ const handler = {
         try {
           if (!sid) {
             if (method === "GET") return json({ sessions: await Promise.all((await sessions.list(env, viewer.name)).map(view)) });
+            if (method === "DELETE") return json({ ok: true, ended: await sessions.endAll(env, viewer.name) });
             if (method === "POST") {
               const b = (await request.json().catch(() => ({}))) as { name?: string; suggest?: string; client?: string };
               return json({ session: await view(await sessions.create(env, viewer.name, { name: b.name ?? null, suggest: b.suggest ?? null, client: b.client ?? null })) }, 201);
@@ -1720,6 +1721,14 @@ const handler = {
           },
           201,
         );
+      }
+      // The kill switch (Account → Disconnect all agents): every token revoked, every agent session ended, and agents
+      // drop off every board's presence. Browser only (an /api/tokens path), so an agent can't trigger it on its own.
+      if (path === "/api/tokens/revoke-all" && method === "POST") {
+        if (!viewer) return needLogin();
+        const [tokens, ended] = await Promise.all([auth.revokeAllTokens(env, viewer.name), sessions.endAll(env, viewer.name)]);
+        await env.DB.prepare(`DELETE FROM mcp_sessions WHERE user = ?`).bind(viewer.name).run();
+        return json({ ok: true, tokens, sessions: ended, message: `Disconnected: ${tokens} sign-in${tokens === 1 ? "" : "s"} revoked and ${ended} agent session${ended === 1 ? "" : "s"} ended. Run agent-soup login to connect again.` });
       }
       m = path.match(/^\/api\/tokens\/([^/]+)\/revoke$/);
       if (m && method === "POST") {

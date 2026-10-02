@@ -231,6 +231,13 @@ export async function listTokens(env: Env, user: string): Promise<TokenRow[]> {
   return r.results;
 }
 
+/** The kill switch: every live token of this person (CLI logins, MCP sign-ins, personal tokens) stops working now. */
+export async function revokeAllTokens(env: Env, user: string): Promise<number> {
+  const r = await env.DB.prepare(`UPDATE tokens SET revoked_at = ? WHERE user = ? AND revoked_at IS NULL`).bind(Date.now(), user).run();
+  for (const [k, v] of tokenCache) if (v.user === user) tokenCache.delete(k); // here at once; elsewhere within TOKEN_CACHE_MS
+  return r.meta.changes ?? 0;
+}
+
 export async function revokeToken(env: Env, user: string, id: string): Promise<boolean> {
   const r = await env.DB.prepare(`UPDATE tokens SET revoked_at = ? WHERE id = ? AND user = ? AND revoked_at IS NULL`).bind(Date.now(), id, user).run();
   forgetToken(id);

@@ -646,6 +646,7 @@ export function boardPage(
   agent: AgentState = { connected: false, onThisBoard: false },
   summary?: Summary, // the whole board's (big boards only send their newest entries)
   agents: AgentHere[] = [],
+  voice = false, // voice rooms (people talking in the browser) are off unless the server turns them on (VOICE=on)
 ): Response {
   const ctl = { boardId: info.id, creator: info.created_by };
   // Your role on this board: owners manage access; viewers read only (no composer, no reactions, no invites).
@@ -859,6 +860,10 @@ function msnap(){if(document.activeElement!==ta)return;const a=ta.selectionStart
   const t=mtokens(ta.value).find(t=>t.start<a&&a<t.end);if(t){const p=a-t.start<t.end-a?t.start:t.end;ta.setSelectionRange(p,p)}}
 ta.addEventListener('selectionchange',msnap);document.addEventListener('selectionchange',msnap); // fired on the textarea in newer browsers, on document in older ones
 return msync}
+// The @ button: starts a mention where the caret is and opens the menu of people and agents.
+document.addEventListener('click',e=>{const b=e.target.closest('[data-mention-for]');if(!b)return;const t=document.getElementById(b.dataset.mentionFor);if(!t)return;
+  t.focus();const a=t.selectionStart??t.value.length,pre=t.value.slice(0,a);const ins=(pre&&!/[ ]$/.test(pre)&&!pre.endsWith(String.fromCharCode(10))?' ':'')+'@';
+  t.setRangeText(ins,a,t.selectionEnd??a,'end');t.dispatchEvent(new Event('input'))});
 const ta=document.getElementById('composer-text'),msync=mentionize(ta,document.getElementById('mention-menu'),document.getElementById('composer-mirror'));
 // Enter posts, Shift+Enter adds a line. An Enter that picked a mention (default prevented above) doesn't post.
 document.getElementById('composer-text')?.addEventListener('keydown',e=>{
@@ -1310,15 +1315,15 @@ window.boardKeys=(e,k)=>{
   <div class="row small muted bp-meta" title="${esc(info.id)}">
     <span class="badge conn" id="conn" hidden title="Live updates are reconnecting">Reconnecting…</span>${readOnly ? `<span class="badge" title="Your role on this board is viewer: you can read, not post">View only</span>` : ""}
     <span class="row" style="min-width:0" title="${esc(members.map((m) => m.user).join(", "))}">${avatarStack(members.map((m) => m.user))}</span>
-    ${info.archived ? "" : VOICE_BUTTON}
+    ${voice && !info.archived ? VOICE_BUTTON : ""}
   </div></div>
   <div class="bp-tabs"><div class="tabs" role="tablist" id="board-tabs"><button role="tab" aria-selected="true" aria-controls="panel-conv">Conversation</button><button role="tab" aria-selected="false" aria-controls="panel-log">Log <span class="faint" data-count>${info.entry_count}</span></button><button role="tab" aria-selected="false" aria-controls="panel-docs">Files</button><button role="tab" aria-selected="false" aria-controls="panel-tasks">Tasks <span class="faint" id="task-count"></span></button></div>
     </div>
 </div>
-${info.archived ? "" : VOICE_HTML}<div role="tabpanel" id="panel-conv" class="bp-panel" data-board-panel><div class="layout" id="conv-layout">
+${voice && !info.archived ? VOICE_HTML : ""}<div role="tabpanel" id="panel-conv" class="bp-panel" data-board-panel><div class="layout" id="conv-layout">
   <button class="btn ghost sm info-btn" type="button" id="info-btn" aria-expanded="false" aria-controls="board-info" aria-label="Board info" title="Board info"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2"/><path d="M10 2.75v10.5"/><path class="fill" d="M10.7 3.45h2.1a.75.75 0 0 1 .75.75v7.6a.75.75 0 0 1-.75.75h-2.1z" fill="currentColor" stroke="none"/></svg><span class="count" id="info-count" hidden></span></button>
   <section class="conv">
-    <div class="thread-wrap"><div class="thread-scroll" id="thread-scroll"><div class="thread" id="thread">${thread}</div><form class="thr-form" id="thr-form" hidden><div class="cmp-field thr-field"><div class="cmp-mirror" id="thr-mirror" aria-hidden="true"></div><textarea class="input" id="thr-text" rows="1" placeholder="Reply…" aria-label="Reply in thread" role="combobox" aria-autocomplete="list" aria-controls="thr-menu" aria-expanded="false"></textarea></div><ul class="mention-menu" id="thr-menu" role="listbox" aria-label="Mention" hidden></ul><span class="xs faint" id="thr-to"></span><button class="btn primary sm">Reply</button></form></div>
+    <div class="thread-wrap"><div class="thread-scroll" id="thread-scroll"><div class="thread" id="thread">${thread}</div><form class="thr-form" id="thr-form" hidden><div class="cmp-field thr-field"><div class="cmp-mirror" id="thr-mirror" aria-hidden="true"></div><textarea class="input" id="thr-text" rows="1" placeholder="Reply…" aria-label="Reply in thread" role="combobox" aria-autocomplete="list" aria-controls="thr-menu" aria-expanded="false"></textarea></div><ul class="mention-menu" id="thr-menu" role="listbox" aria-label="Mention" hidden></ul><button class="btn ghost sm at-btn" type="button" data-mention-for="thr-text" aria-label="Mention someone" title="Mention a person or their agent (or type @)">@</button><span class="xs faint" id="thr-to"></span><button class="btn primary sm">Reply</button></form></div>
       <div class="rail" id="rail" aria-hidden="true"></div><div class="rail-tip" id="rail-tip" hidden></div>
       <button class="btn sm new-pill" type="button" id="new-pill" hidden>Jump to latest ↓</button></div>
     <form class="card composer" method="post" action="/api/boards/${esc(info.id)}/entries" data-api data-reliable data-done="posted" data-failed="postFailed" data-retrying="postRetrying" data-reset${info.archived || readOnly || info.encrypted ? " hidden" : ""}>
@@ -1331,6 +1336,7 @@ ${info.archived ? "" : VOICE_HTML}<div role="tabpanel" id="panel-conv" class="bp
       <div class="bar">
         <button class="btn ghost sm attach" type="button" id="attach-btn" aria-label="Attach files" title="Attach files or images (or paste or drop them)"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M13.5 7.6 8.3 12.8a3.2 3.2 0 0 1-4.5-4.5l5.6-5.6a2.1 2.1 0 0 1 3 3L6.8 11.3a1 1 0 0 1-1.5-1.5l4.9-4.9"/></svg></button>
         <input type="file" id="attach-input" multiple hidden>
+        <button class="btn ghost sm at-btn" type="button" data-mention-for="composer-text" aria-label="Mention someone" title="Mention a person or their agent (or type @)">@</button>
         <div class="seg" role="radiogroup" aria-label="Type">${["note", "question", "task", "decision"]
           .map((t, i) => `<input type="radio" name="type" id="ty-${t}" value="${t}"${i === 0 ? " checked" : ""}><label for="ty-${t}">${t[0].toUpperCase() + t.slice(1)}</label>`)
           .join("")}</div>
@@ -1434,7 +1440,7 @@ ${connectDialog(viewer, { id: info.id, title: info.title })}
     crumbs: `<a class="muted" href="/">Boards</a><span class="faint">/</span><span class="cur truncate">${esc(info.title)}</span>`,
     actions: `${agent.connected ? "" : `<button class="btn sm" data-open="connect">Connect an agent</button>`}${readOnly ? "" : `<button class="btn sm" data-open="invite">Invite<kbd class="hide-sm">I</kbd></button>`}`,
     body,
-    script: script + (info.archived ? "" : `window.VOICE_VIEWER=${readOnly};` + VOICE_JS),
+    script: script + (voice && !info.archived ? `window.VOICE_VIEWER=${readOnly};` + VOICE_JS : ""),
     full: true,
   });
 }
@@ -1663,6 +1669,13 @@ document.getElementById('pf-form')?.addEventListener('submit',async e=>{e.preven
     rules:{auto_accept_invites:f.auto_invites.checked?'friends':null,auto_accept_friends:f.auto_friends.checked?'coworkers':null}})});
   const j=await r.json().catch(()=>({}));b.disabled=false;toast(r.ok?'Profile saved':(j.error||'Could not save'))});`;
 
+// The kill switch: one confirmation, then every agent of this person is disconnected.
+const KILL_JS = `
+document.getElementById('kill-all')?.addEventListener('click',async e=>{const b=e.currentTarget;
+  if(!confirm('Disconnect all your agents now? Every sign-in is revoked and every agent session ends.'))return;b.disabled=true;
+  const r=await fetch('/api/tokens/revoke-all',{method:'POST'});const j=await r.json().catch(()=>({}));toast(r.ok?j.message:(j.error||'Could not disconnect'));
+  if(r.ok)setTimeout(()=>location.reload(),900);else b.disabled=false});`;
+
 export function mePage(viewer: Viewer, side: SideBoard[], tokens: TokenRow[], plan: PlanState = { plan: "free", status: null, renews_at: null, cancel_at_end: false, customer: null }, billingEnabled = false, hooks: WebhookRow[] = [], prof: ProfileView | null = null): Response {
   const rows = tokens.length
     ? tokens
@@ -1698,6 +1711,7 @@ export function mePage(viewer: Viewer, side: SideBoard[], tokens: TokenRow[], pl
 ${profileSection(prof)}
 <div class="section-title" style="margin-top:32px"><div><h2>Agent connections</h2><p class="small muted" style="margin-top:4px">Each connected agent has its own sign-in. Revoke one to disconnect that agent immediately.</p></div><button class="btn sm" data-open="connect">Connect an agent</button></div>
 <div class="list scroll-x"><table class="tbl"><thead><tr><th>Connection</th><th>Last used</th><th>Status</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+<div class="kill"><div class="grow"><b>Disconnect all agents</b><p class="xs muted">Stops every agent of yours at once: all sign-ins revoked, all sessions ended. Reconnect with <span class="mono">agent-soup login</span>.</p></div><button class="btn sm danger" type="button" id="kill-all">Disconnect all</button></div>
 ${
   tokens.length
     ? `<details class="small" style="margin-top:10px"><summary class="muted" style="cursor:pointer">Reconnecting? Login expired, new machine, or moving off an old token</summary>
@@ -1707,7 +1721,7 @@ ${
 ${webhooksSection(hooks)}
 ${billingSection(plan, billingEnabled)}
 ${connectDialog(viewer)}`,
-    script: CONNECT_JS + `window.revoked=()=>location.reload();` + BILLING_JS + PFP_JS + HOOKS_JS + PROFILE_JS,
+    script: CONNECT_JS + `window.revoked=()=>location.reload();` + BILLING_JS + PFP_JS + HOOKS_JS + PROFILE_JS + KILL_JS,
   });
 }
 
