@@ -27,6 +27,7 @@ import * as device from "./device";
 import { EMAIL_RE, sendInvite } from "./invite";
 import { mayMention, parseMentions, type Mention } from "./mentions";
 import * as registry from "./registry";
+import * as boardkeys from "./boardkeys";
 import {
   adminPage,
   boardPage,
@@ -718,6 +719,44 @@ const handler = {
         const members = (await registry.boardMembers(env, km[1])).map((x) => x.user);
         return json({ keys: rows, without_keys: members.filter((u) => !rows.some((r) => r.user === u)) });
       }
+      // A device key you no longer trust (a lost laptop): its copies of board keys go, and those boards rotate.
+      km = path.match(/^\/api\/me\/keys\/([a-z0-9-]{1,40})$/);
+      if (km && method === "DELETE") {
+        if (!viewer) return needLogin();
+        if (viewer.via === "agent") return json({ error: "Remove devices from your account (the website or the app)." }, 403);
+        try {
+          await boardkeys.revokeDevice(env, viewer.name, km[1]);
+          return json({ ok: true });
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, e instanceof boardkeys.KeyError ? 400 : 500);
+        }
+      }
+      // ---- encryption v2: the board's epoch keys, wrapped per member device (see boardkeys.ts for the rules) ----
+      km = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/(epochs|grants)$/);
+      if (km) {
+        if (!viewer) return needLogin();
+        if (!(await registry.isMember(env, km[1], viewer.name))) return json({ error: "board not found" }, 404);
+        try {
+          if (method === "GET" && km[2] === "epochs") return json(await boardkeys.state(env, km[1], viewer.name));
+          if (method === "POST") {
+            if ((await registry.memberRole(env, km[1], viewer.name)) === "viewer") return json({ error: "Your role on this board is viewer." }, 403);
+            const b = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+            const opts = { via: pv(), client: viewer.via === "agent" ? "agent-soup CLI" : null, session: await asid() };
+            const stub = boardStub(env, km[1]);
+            if (km[2] === "epochs") {
+              const r = await boardkeys.openEpoch(env, km[1], viewer.name, b);
+              if (r.epoch > 1) await stub.keyNotice(viewer.name, `🔄 New key for this board (epoch ${r.epoch}): from here on only ${r.users.join(", ")} can read new messages.`, opts);
+              return json({ ok: true, ...r }, 201);
+            }
+            const r = await boardkeys.addGrants(env, km[1], viewer.name, b);
+            // Visible before the call returns: a device nobody recognises is seen by everyone.
+            for (const a of r.added) await stub.keyNotice(viewer.name, boardkeys.grantNotice(viewer.name, a), opts);
+            return json({ ok: true, ...r });
+          }
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, e instanceof boardkeys.KeyError ? 400 : 500);
+        }
+      }
       km = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/sealed(?:\/(\d+))?$/);
       if (km) {
         if (!viewer) return needLogin();
@@ -730,6 +769,14 @@ const handler = {
             const hit = scanFields({ note });
             if (hit) return json({ error: blockedMessage(hit) }, 400);
             if ((await registry.memberRole(env, km[1], viewer.name)) === "viewer") return json({ error: "Your role on this board is viewer." }, 403);
+            // v2 messages use the board's current key; while a removal's rotation is pending, nothing new goes out
+            // under the old one (the person removed still has it).
+            const v2 = (() => { try { return (JSON.parse(String(b.payload ?? "")) as { v?: number; epoch?: number }).v === 2 ? JSON.parse(String(b.payload)) as { epoch?: number } : null; } catch { return null; } })();
+            if (v2) {
+              const k = await boardkeys.state(env, km[1], viewer.name);
+              if (k.rotate_needed) return json({ error: "Someone left or a device was removed: open a new epoch first (agent-soup does this for you).", rotate_needed: true }, 409);
+              if (v2.epoch !== k.current) return json({ error: `This board's key is at epoch ${k.current}; encrypt with that.`, current: k.current }, 409);
+            }
             const e = await stub.postSealed(viewer.name, { to: b.to ? String(b.to) : null, note, payload: String(b.payload ?? ""), type: b.type, reply_to: Number(b.reply_to) || null }, { via: pv(), client: viewer.via === "agent" ? "agent-soup CLI" : null, session: await asid() });
             ctx.waitUntil(registry.bumpBoard(env, km[1], e.seq).catch(() => {}));
             return json({ ok: true, entry: e }, 201);
@@ -1936,7 +1983,7 @@ const handler = {
           const u = normalizeUser(body.user);
           if (!u || !(await registry.userByName(env, u)) || !body.title) return json({ error: "user and title required" }, 400);
           try {
-            return json({ board: await createBoard(env, body.title.slice(0, 120), u) }, 201);
+            return json({ board: await createBoard(env, body.title.slice(0, 120), u, undefined, { encrypted: (body as { encrypted?: unknown }).encrypted === true }) }, 201);
           } catch (e) {
             return json({ error: e instanceof Error ? e.message : String(e) }, 400);
           }

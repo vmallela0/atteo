@@ -2183,13 +2183,17 @@ export class Board extends DurableObject<Env> {
     if (!to && !info.encrypted) throw new BoardError("Say who it's for (to).");
     if (to && !this.sql.exec("SELECT 1 AS x FROM members WHERE name = ?", to).toArray().length) throw new BoardError(`${to} isn't on this board.`);
     if (s.payload.length > 100_000) throw new BoardError("Sealed secrets are limited to about 64 KB.");
-    let env: { v?: number; recipients?: unknown[]; ct?: string; iv?: string };
+    let env: { v?: number; recipients?: unknown[]; ct?: string; iv?: string; epoch?: number };
     try {
       env = JSON.parse(s.payload);
     } catch {
       throw new BoardError("Not a sealed envelope.");
     }
-    if (env.v !== 1 || !Array.isArray(env.recipients) || !env.recipients.length || typeof env.ct !== "string" || typeof env.iv !== "string") throw new BoardError("Not a sealed envelope.");
+    // v1: a fresh key per message, wrapped to each recipient. v2 (encrypted boards): the board's epoch key, no
+    // per-recipient part (the Worker has checked the epoch is the board's current one).
+    const v1 = env.v === 1 && Array.isArray(env.recipients) && env.recipients.length > 0;
+    const v2 = env.v === 2 && info.encrypted && !to && Number.isInteger(env.epoch) && (env.epoch ?? 0) >= 1;
+    if ((!v1 && !v2) || typeof env.ct !== "string" || typeof env.iv !== "string") throw new BoardError("Not a sealed envelope.");
     const note = (s.note ?? "").replace(/\s+/g, " ").trim().slice(0, 200);
     // On an encrypted board every message is an envelope for all members; elsewhere it's a secret for one member.
     const type = (["note", "question", "claim", "decision", "task"] as const).find((t) => t === s.type) ?? "note";
@@ -2202,6 +2206,11 @@ export class Board extends DurableObject<Env> {
   }
 
   /** Encrypted board: every envelope after `after` (members only; the Worker checks membership). */
+  /** A plain line on an encrypted board about its keys (who can read it), so a new device never goes unnoticed. */
+  async keyNotice(user: string, text: string, opts: TaskActOpts): Promise<Entry> {
+    return this.post(user, { type: "note", title: "Board key", text, via: opts.via, client: opts.client, session: opts.session }, { sealed: true });
+  }
+
   async sealedAfter(after: number, limit = 200): Promise<{ seq: number; ts: number; author: string; via: string | null; type: string; to: string | null; reply_to: number | null; payload: string }[]> {
     this.info();
     return this.sql

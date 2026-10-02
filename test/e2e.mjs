@@ -4,6 +4,7 @@
 // Creates e2e-* users and "e2e …" boards on the target (remove with scripts/cleanup-e2e.sh). Sends no email.
 
 import { readFileSync } from "node:fs";
+import { createCipheriv, createDecipheriv, createPrivateKey, createPublicKey, diffieHellman, generateKeyPairSync, hkdfSync, randomBytes } from "node:crypto";
 
 const BASE = (process.env.BASE ?? "http://localhost:8787").replace(/\/$/, "");
 let ADMIN_KEY = process.env.ADMIN_KEY;
@@ -2002,6 +2003,71 @@ await step("kill switch: Disconnect all agents revokes every sign-in and ends ev
     assert(s === 401, "every token stops working");
   }
   has(await (await fetch(`${BASE}/me`, { headers: { cookie: ck } })).text(), "Disconnect all agents");
+});
+
+await step("encryption v2: one key per board; newcomers read history; later devices only via their own; removal rotates", async () => {
+  // A tiny client, the same scheme as the CLI: X25519 → HKDF-SHA256 → AES-256-GCM.
+  const b64u = (s) => s.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (s.length % 4)) % 4);
+  const device = () => { const k = generateKeyPairSync("x25519"); return { priv: k.privateKey, pub: b64u(k.publicKey.export({ format: "jwk" }).x) }; };
+  const pubKey = (b) => createPublicKey({ key: { kty: "OKP", crv: "X25519", x: b.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "") }, format: "jwk" });
+  const gcm = (key, data) => { const iv = randomBytes(12); const c = createCipheriv("aes-256-gcm", key, iv); return { iv: iv.toString("base64"), out: Buffer.concat([c.update(data), c.final(), c.getAuthTag()]).toString("base64") }; };
+  const ungcm = (key, iv, data) => { const raw = Buffer.from(data, "base64"); const d = createDecipheriv("aes-256-gcm", key, Buffer.from(iv, "base64")); d.setAuthTag(raw.subarray(raw.length - 16)); return Buffer.concat([d.update(raw.subarray(0, raw.length - 16)), d.final()]); };
+  const kek = (shared, epk, rpk) => Buffer.from(hkdfSync("sha256", shared, Buffer.concat([Buffer.from(epk, "base64"), Buffer.from(rpk, "base64")]), "agent-soup board key v2", 32));
+  const wrap = (key, pub) => { const e = device(); const w = gcm(kek(diffieHellman({ privateKey: e.priv, publicKey: pubKey(pub) }), e.pub, pub), key); return { epk: e.pub, iv: w.iv, wrapped: w.out }; };
+  const unwrap = (g, d) => ungcm(kek(diffieHellman({ privateKey: d.priv, publicKey: pubKey(g.epk) }), g.epk, d.pub), g.iv, g.wrapped);
+  const api = async (who, path, body) => { const r = await web(path, who, body === undefined ? {} : { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }); return { status: r.status, body: await r.json() }; };
+  const register = async (who, label) => { const d = device(); d.kid = (await api(who, "/api/me/keys", { public_key: d.pub, label })).body.id; return d; };
+  const C = `e2e-enc-${run}`;
+  await ops("users", { name: C, email: `${C}@example.com`, verified: "true" });
+  cookie[C] = (await ops("sessions", { user: C })).body.cookie;
+  const eb = (await ops("boards", { user: A, title: `e2e encrypted ${run}`, encrypted: true })).body.board.id;
+  await ops("members", { board: eb, user: B });
+  const a1 = await register(A, "laptop"), b1 = await register(B, "desk");
+  // Epoch 1: A wraps a fresh board key to every member device.
+  let st = (await api(A, `/api/boards/${eb}/epochs`)).body;
+  assert(st.current === 0 && st.keys.length === 2, JSON.stringify(st));
+  const k1 = randomBytes(32);
+  assert((await api(A, `/api/boards/${eb}/epochs`, { epoch: 1, grants: st.keys.map((k) => ({ kid: k.kid, ...wrap(k1, k.public_key) })) })).status === 201, "epoch 1");
+  assert((await api(A, `/api/boards/${eb}/epochs`, { epoch: 1, grants: [{ kid: a1.kid, ...wrap(k1, a1.pub) }] })).status === 400, "epoch 1 only once");
+  // A posts once (no per-member wrapping); B decrypts with B's own copy.
+  const post = (who, key, epoch, text) => { const c = gcm(key, Buffer.from(text)); return api(who, `/api/boards/${eb}/sealed`, { payload: JSON.stringify({ v: 2, epoch, iv: c.iv, ct: c.out }) }); };
+  assert((await post(A, k1, 1, "the launch date is the 14th")).status === 201, "v2 post");
+  const read = async (who, d) => { const s = (await api(who, `/api/boards/${eb}/epochs`)).body; const keys = new Map(s.mine.filter((g) => g.kid === d.kid).map((g) => [g.epoch, unwrap(g, d)])); const es = (await api(who, `/api/boards/${eb}/sealed?after=0`)).body.entries; return es.map((e) => JSON.parse(e.payload)).filter((p) => p.v === 2).map((p) => (keys.has(p.epoch) ? ungcm(keys.get(p.epoch), p.iv, p.ct).toString() : null)); };
+  assert((await read(B, b1)).includes("the launch date is the 14th"), "B reads A's message");
+  // C joins later and registers a device: A hands C's first device every epoch, so C reads the history.
+  await ops("members", { board: eb, user: C });
+  const c1 = await register(C, "phone");
+  st = (await api(A, `/api/boards/${eb}/epochs`)).body;
+  const miss = st.missing.find((m) => m.kid === c1.kid);
+  assert(miss && miss.first_device && miss.epochs.join() === "1", JSON.stringify(st.missing));
+  const mine1 = unwrap(st.mine.find((g) => g.kid === a1.kid), a1);
+  assert((await api(A, `/api/boards/${eb}/grants`, { grants: [{ epoch: 1, kid: c1.kid, ...wrap(mine1, c1.pub) }] })).status === 200, "grant C");
+  assert((await read(C, c1)).includes("the launch date is the 14th"), "a newcomer reads the history");
+  // B's second device: only B's own device may grant it, not A (the server can't slip in a device for B).
+  const b2 = await register(B, "slipped-in");
+  assert(!(await api(A, `/api/boards/${eb}/epochs`)).body.missing.some((m) => m.kid === b2.kid), "A isn't asked to grant B's later device");
+  const refused = await api(A, `/api/boards/${eb}/grants`, { grants: [{ epoch: 1, kid: b2.kid, ...wrap(k1, b2.pub) }] });
+  assert(refused.status === 400 && refused.body.error.includes("own devices"), JSON.stringify(refused.body));
+  assert((await api(B, `/api/boards/${eb}/grants`, { grants: [{ epoch: 1, kid: b2.kid, ...wrap(k1, b2.pub) }] })).status === 200, "B adds B's own device");
+  // Every grant is a visible line on the board.
+  const html = (await (await web(`/api/boards/${eb}/updates?after=0`, A)).json()).entries.map((e) => e.html).join("\n");
+  has(html, "the key to this encrypted board");
+  has(html, "“phone”");
+  has(html, "added another of their devices, “slipped-in”");
+  // Removing C: their copies go, posting under the old key is refused until someone opens epoch 2 for those remaining.
+  assert((await web(`/api/boards/${eb}/members/${C}/remove`, A, { method: "POST" })).status === 200, "remove C");
+  st = (await api(A, `/api/boards/${eb}/epochs`)).body;
+  assert(st.rotate_needed && !st.keys.some((k) => k.user === C), JSON.stringify(st));
+  const blocked = await post(A, k1, 1, "after C left");
+  assert(blocked.status === 409 && blocked.body.rotate_needed, JSON.stringify(blocked.body));
+  const k2 = randomBytes(32);
+  assert((await api(A, `/api/boards/${eb}/epochs`, { epoch: 2, grants: st.keys.map((k) => ({ kid: k.kid, ...wrap(k2, k.public_key) })) })).status === 201, "epoch 2");
+  assert((await post(A, k1, 1, "old key")).status === 409, "the old epoch is closed");
+  assert((await post(A, k2, 2, "only for A and B now")).status === 201, "post under epoch 2");
+  assert((await read(B, b1)).includes("only for A and B now"), "B reads epoch 2");
+  // Revoking a device drops its copies and flags the board again.
+  assert((await web(`/api/me/keys/${b2.kid}`, B, { method: "DELETE" })).status === 200, "revoke B's second device");
+  assert((await api(A, `/api/boards/${eb}/epochs`)).body.rotate_needed, "revoking a device rotates");
 });
 
 if (/localhost|127\.0\.0\.1/.test(BASE) && process.env.E2E_FULL) {

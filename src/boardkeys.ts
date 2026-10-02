@@ -1,0 +1,165 @@
+// Encryption v2 (end-to-end encrypted boards): one key per board per epoch, wrapped once for each member device.
+// The server keeps the wrapped copies (grants) and the rules for who may hand a copy to whom; it never sees a key.
+//
+// Rules, enforced here (not left to clients):
+// - A member's FIRST device on a board may be granted the key by any member who holds it (trust on first use).
+// - Any LATER device of that member may only be granted by one of that member's own devices that already holds the
+//   key (like linked devices in Signal), so the server can't quietly add a "device" and read the board.
+// - Every grant shows up on the board as a visible line, so a device nobody recognises is seen.
+// - Removing a member or revoking a device drops its copies and flags the board; the next client that encrypts opens
+//   a new epoch, granted only to those remaining. Newcomers get every epoch (they can read the history).
+
+import type { Env } from "./types";
+
+export class KeyError extends Error {}
+
+export interface Grant {
+  epoch: number;
+  kid: string;
+  epk: string;
+  iv: string;
+  wrapped: string;
+}
+
+const B64 = (n: number) => new RegExp(`^[A-Za-z0-9+/]{${Math.ceil(n / 3) * 4 - (n % 3 ? 3 - (n % 3) : 0)}}={0,2}$`);
+const EPK = B64(32); // an X25519 public key
+const IV = B64(12);
+const WRAPPED = B64(48); // a 32-byte key + 16-byte GCM tag
+
+function checkGrant(g: Partial<Grant>): Grant {
+  const epoch = Number(g.epoch);
+  if (!Number.isInteger(epoch) || epoch < 1) throw new KeyError("Each grant needs its epoch (1, 2, …).");
+  if (typeof g.kid !== "string" || !/^[a-z0-9-]{1,40}$/.test(g.kid)) throw new KeyError("Each grant needs the device key id (kid).");
+  if (typeof g.epk !== "string" || !EPK.test(g.epk)) throw new KeyError("epk must be a base64 X25519 public key.");
+  if (typeof g.iv !== "string" || !IV.test(g.iv)) throw new KeyError("iv must be 12 bytes, base64.");
+  if (typeof g.wrapped !== "string" || !WRAPPED.test(g.wrapped)) throw new KeyError("wrapped must be the 32-byte key plus its 16-byte tag, base64.");
+  return { epoch, kid: g.kid, epk: g.epk, iv: g.iv, wrapped: g.wrapped };
+}
+
+/** Members' live device keys on a board. */
+async function memberKeys(env: Env, board: string) {
+  return (
+    await env.DB.prepare(`SELECT k.id, k.user, k.public_key, k.label FROM agent_keys k JOIN members m ON m.user = k.user WHERE m.board_id = ? AND k.revoked_at IS NULL ORDER BY k.created_at`)
+      .bind(board)
+      .all<{ id: string; user: string; public_key: string; label: string | null }>()
+  ).results;
+}
+
+/**
+ * Where a board's keys stand, for one viewer: the current epoch, whether it must rotate, the viewer's own wrapped
+ * copies, and the copies this viewer may hand out now (each with the epochs to wrap).
+ */
+export async function state(env: Env, board: string, viewer: string) {
+  const [epochs, flag, grants, keys] = await Promise.all([
+    env.DB.prepare(`SELECT epoch FROM board_epochs WHERE board_id = ? ORDER BY epoch`).bind(board).all<{ epoch: number }>(),
+    env.DB.prepare(`SELECT rotate_needed FROM boards WHERE id = ?`).bind(board).first<{ rotate_needed: number }>(),
+    env.DB.prepare(`SELECT epoch, kid, user, epk, iv, wrapped FROM key_grants WHERE board_id = ?`).bind(board).all<Grant & { user: string }>(),
+    memberKeys(env, board),
+  ]);
+  const all = epochs.results.map((e) => e.epoch);
+  const mine = grants.results.filter((g) => g.user === viewer);
+  const iHold = new Set(mine.map((g) => g.epoch));
+  const has = new Set(grants.results.map((g) => `${g.epoch}:${g.kid}`));
+  const usersWithKey = new Set(grants.results.map((g) => g.user));
+  const missing = keys
+    .map((k) => {
+      const first = !usersWithKey.has(k.user);
+      // Later devices are for their owner's own devices to approve; first devices, for anyone holding the key.
+      if (!first && k.user !== viewer) return null;
+      const need = all.filter((e) => iHold.has(e) && !has.has(`${e}:${k.id}`));
+      return need.length ? { kid: k.id, user: k.user, public_key: k.public_key, label: k.label, first_device: first, epochs: need } : null;
+    })
+    .filter((x) => x !== null);
+  return {
+    current: all.length ? all[all.length - 1] : 0,
+    rotate_needed: !!flag?.rotate_needed,
+    mine: mine.map(({ epoch, kid, epk, iv, wrapped }) => ({ epoch, kid, epk, iv, wrapped })),
+    missing,
+    // Every member device the next epoch must be wrapped to (opening one wraps to all of these).
+    keys: keys.map((k) => ({ kid: k.id, user: k.user, public_key: k.public_key, label: k.label })),
+  };
+}
+
+/**
+ * Opens the next epoch: epoch 1 for a board that has none, or N+1 after a removal. The opener wraps the new key to
+ * every current member device (at least one of its own). Two clients racing: one wins, the other is told to refetch.
+ */
+export async function openEpoch(env: Env, board: string, viewer: string, body: { epoch?: unknown; grants?: unknown }) {
+  const epoch = Number(body.epoch);
+  const cur = (await env.DB.prepare(`SELECT MAX(epoch) AS e FROM board_epochs WHERE board_id = ?`).bind(board).first<{ e: number | null }>())?.e ?? 0;
+  if (epoch !== cur + 1) throw new KeyError(`The next epoch is ${cur + 1}; refetch the board's keys.`);
+  const list = (Array.isArray(body.grants) ? body.grants : []).map((g) => checkGrant({ ...(g as Partial<Grant>), epoch }));
+  if (!list.length || list.length > 500) throw new KeyError("Wrap the new key to every member device (1–500 grants).");
+  const keys = new Map((await memberKeys(env, board)).map((k) => [k.id, k]));
+  for (const g of list) if (!keys.has(g.kid)) throw new KeyError(`Device ${g.kid} isn't a live key of a member of this board.`);
+  if (!list.some((g) => keys.get(g.kid)!.user === viewer)) throw new KeyError("Include one of your own devices, or you couldn't read what you post.");
+  const now = Date.now();
+  try {
+    await env.DB.batch([
+      env.DB.prepare(`INSERT INTO board_epochs (board_id, epoch, created_by, created_at) VALUES (?, ?, ?, ?)`).bind(board, epoch, viewer, now),
+      ...list.map((g) =>
+        env.DB.prepare(`INSERT INTO key_grants (board_id, epoch, kid, user, epk, iv, wrapped, granted_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(
+          board, epoch, g.kid, keys.get(g.kid)!.user, g.epk, g.iv, g.wrapped, viewer, now,
+        ),
+      ),
+      env.DB.prepare(`UPDATE boards SET rotate_needed = 0 WHERE id = ?`).bind(board),
+    ]);
+  } catch (e) {
+    if (String(e).includes("UNIQUE") || String(e).includes("PRIMARY KEY")) throw new KeyError(`Epoch ${epoch} was just opened by someone else; refetch the board's keys.`);
+    throw e;
+  }
+  return { epoch, users: [...new Set(list.map((g) => keys.get(g.kid)!.user))] };
+}
+
+/** Hands copies of existing epoch keys to devices that lack them, under the rules above. Returns what was added. */
+export async function addGrants(env: Env, board: string, viewer: string, body: { grants?: unknown }) {
+  const list = (Array.isArray(body.grants) ? body.grants : []).map((g) => checkGrant(g as Partial<Grant>));
+  if (!list.length || list.length > 500) throw new KeyError("Send 1–500 grants.");
+  const [keys, existing] = await Promise.all([
+    memberKeys(env, board),
+    env.DB.prepare(`SELECT epoch, kid, user FROM key_grants WHERE board_id = ?`).bind(board).all<{ epoch: number; kid: string; user: string }>(),
+  ]);
+  const byKid = new Map(keys.map((k) => [k.id, k]));
+  const iHold = new Set(existing.results.filter((g) => g.user === viewer).map((g) => g.epoch));
+  const usersWithKey = new Set(existing.results.map((g) => g.user));
+  const has = new Set(existing.results.map((g) => `${g.epoch}:${g.kid}`));
+  const added: { kid: string; user: string; label: string | null; first_device: boolean }[] = [];
+  const stmts: D1PreparedStatement[] = [];
+  const now = Date.now();
+  for (const g of list) {
+    const k = byKid.get(g.kid);
+    if (!k) throw new KeyError(`Device ${g.kid} isn't a live key of a member of this board.`);
+    if (!iHold.has(g.epoch)) throw new KeyError(`You don't hold epoch ${g.epoch}'s key, so you can't hand it on.`);
+    const first = !usersWithKey.has(k.user);
+    if (!first && k.user !== viewer) throw new KeyError(`${k.user} already reads this board; only one of ${k.user}'s own devices can add another of theirs.`);
+    if (has.has(`${g.epoch}:${g.kid}`)) continue;
+    has.add(`${g.epoch}:${g.kid}`);
+    stmts.push(
+      env.DB.prepare(`INSERT OR IGNORE INTO key_grants (board_id, epoch, kid, user, epk, iv, wrapped, granted_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(
+        board, g.epoch, g.kid, k.user, g.epk, g.iv, g.wrapped, viewer, now,
+      ),
+    );
+    if (!added.some((a) => a.kid === g.kid)) added.push({ kid: g.kid, user: k.user, label: k.label, first_device: first });
+  }
+  if (stmts.length) await env.DB.batch(stmts);
+  return { added };
+}
+
+/** The visible line for a grant, so everyone sees which devices can read the board. */
+export function grantNotice(granter: string, a: { kid: string; user: string; label: string | null; first_device: boolean }): string {
+  const device = `${a.label ? `“${a.label}”` : "a device"} (key ${a.kid.slice(0, 6)})`;
+  return a.user === granter
+    ? `🔑 ${granter} added another of their devices, ${device}, to this encrypted board.`
+    : `🔑 ${granter} gave ${a.user}'s ${device} the key to this encrypted board.`;
+}
+
+/** Revokes one of your device keys: its copies of every board key go, and those boards start a new key. */
+export async function revokeDevice(env: Env, user: string, kid: string) {
+  const k = await env.DB.prepare(`SELECT id FROM agent_keys WHERE id = ? AND user = ? AND revoked_at IS NULL`).bind(kid, user).first();
+  if (!k) throw new KeyError("No such device key.");
+  await env.DB.batch([
+    env.DB.prepare(`UPDATE agent_keys SET revoked_at = ? WHERE id = ?`).bind(Date.now(), kid),
+    env.DB.prepare(`UPDATE boards SET rotate_needed = 1 WHERE id IN (SELECT board_id FROM key_grants WHERE kid = ?)`).bind(kid),
+    env.DB.prepare(`DELETE FROM key_grants WHERE kid = ?`).bind(kid),
+  ]);
+}

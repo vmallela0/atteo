@@ -150,6 +150,9 @@ export async function removeMember(env: Env, boardId: string, user: string) {
   await env.DB.batch([
     env.DB.prepare(`DELETE FROM members WHERE board_id = ? AND user = ?`).bind(boardId, user),
     env.DB.prepare(`UPDATE mcp_sessions SET board_id = NULL WHERE board_id = ? AND user = ?`).bind(boardId, user),
+    // Encryption v2: they lose their copies of the board key, and the next encrypting client starts a new one.
+    env.DB.prepare(`UPDATE boards SET rotate_needed = 1 WHERE id = ? AND EXISTS (SELECT 1 FROM key_grants WHERE board_id = ? AND user = ?)`).bind(boardId, boardId, user),
+    env.DB.prepare(`DELETE FROM key_grants WHERE board_id = ? AND user = ?`).bind(boardId, user),
   ]);
 }
 
