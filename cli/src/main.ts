@@ -14,7 +14,7 @@ import { CARD_HELP, cardCommand } from "./card";
 import { CliError, COMMANDS, COMMANDS_HELP } from "./commands";
 import { agentCommand, HARNESSES, splitCommand } from "./harness";
 import { myKey } from "./sealed";
-import { forgetSession, HELP_AGENTS, mentionLine, prepare, session as agentSessionFor, V2 } from "./v2";
+import { forgetSession, HELP_AGENTS, mentionLine, prepare, session as agentSessionFor, V2, versionCheck } from "./v2";
 import { load, remove, save, storeName, type Credentials } from "./credentials";
 
 const VERSION = "0.1.0";
@@ -824,6 +824,7 @@ const board = (name: string, f: (a: string[]) => Promise<unknown>) => async () =
   if (BOARD_CMDS.has(name)) await prepare(quiet);
   await f(rest);
   await mentionLine(quiet);
+  if (name !== "update") await versionCheck(quiet);
 };
 const run: Record<string, () => unknown> = {
   login: () => login(rest),
@@ -841,7 +842,8 @@ const run: Record<string, () => unknown> = {
   version: () => console.log(VERSION),
   "--version": () => console.log(VERSION),
 };
-Promise.resolve((run[cmd] ?? (() => (cmd ? err(`Unknown command "${cmd}".\n\n${HELP_AGENTS}`) : console.log(HELP_AGENTS + "\n\nSetup, the background watcher and every command: agent-soup help --all"))))()).catch((e: Error) => {
+Promise.resolve((run[cmd] ?? (() => (cmd ? err(`Unknown command "${cmd}".\n\n${HELP_AGENTS}`) : console.log(HELP_AGENTS + "\n\nSetup, the background watcher and every command: agent-soup help --all"))))()).catch(async (e: Error) => {
   err(e.message);
+  if (cmd !== "update" && cmd !== "mcp" && cmd !== "watch") await versionCheck(quiet); // an old CLI is a likely reason for a failure
   process.exit(e instanceof CliError ? e.code : 1);
 });
