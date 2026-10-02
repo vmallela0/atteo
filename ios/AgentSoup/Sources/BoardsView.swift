@@ -13,9 +13,12 @@ struct BoardView: View {
     private var list: [Entry] { state.entries[board.id] ?? [] }
     private var canSend: Bool { !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
+    @State private var atBottom = true
+    @State private var stick = true // pinned to the latest until you scroll up yourself (like any messenger)
+    @State private var position = ScrollPosition(edge: .bottom) // like any messenger: you start at the latest
+
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
+        ScrollView {
                 // Placeholders and messages are separate containers: sharing one list would give them colliding ids
                 // (placeholder 1… and message #1…), and SwiftUI kept showing placeholders in place of messages.
                 if state.entries[board.id] == nil {
@@ -26,19 +29,59 @@ struct BoardView: View {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(list.enumerated()), id: \.element.id) { i, e in
                         let prev = i > 0 ? list[i - 1] : nil
-                        let grouped = prev != nil && prev!.author == e.author && prev!.via == e.via && e.ts - prev!.ts < 5 * 60_000 && e.type == "note"
-                        EntryRow(e: e, grouped: grouped, mine: e.author == state.me?.owner && e.via != "agent", board: board.id, tasks: state.tasks[board.id] ?? []) { Task { await state.send(e.text, to: board, retrying: e) } }
-                            .id(e.id)
-                            .transition(.asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity), removal: .opacity))
+                        let newDay = prev.map { !Calendar.current.isDate(Date(timeIntervalSince1970: $0.ts / 1000), inSameDayAs: Date(timeIntervalSince1970: e.ts / 1000)) } ?? true
+                        let grouped = !newDay && prev != nil && prev!.author == e.author && prev!.via == e.via && e.ts - prev!.ts < 5 * 60_000 && e.type == "note"
+                        let mine = e.author == state.me?.owner && e.via != "agent"
+                        let prevMine = prev.map { $0.author == state.me?.owner && $0.via != "agent" && $0.type != "task" } ?? false
+                        VStack(alignment: .leading, spacing: 0) {
+                            if newDay { DaySeparator(ts: e.ts) }
+                            // A hairline between separate messages from others (bubbles are separate already).
+                            else if !(mine && e.type != "task") && !prevMine { Rectangle().fill(Theme.line.opacity(grouped ? 0.5 : 1)).frame(height: 0.5).padding(.leading, 36).padding(.top, grouped ? 6 : 12) }
+                            EntryRow(e: e, grouped: grouped, mine: mine, board: board.id, tasks: state.tasks[board.id] ?? []) { Task { await state.send(e.text, to: board, retrying: e) } }
+                        }
+                        .id(e.id)
+                        .transition(.asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity), removal: .opacity))
                     }
                 }
-                .padding(.horizontal, 16).padding(.vertical, 12)
+                .padding(.horizontal, 16).padding(.top, 4).padding(.bottom, 12)
             }
-            .defaultScrollAnchor(.bottom)
+            .scrollPosition($position)
+            .defaultScrollAnchor(.bottom, for: .initialOffset)
+            .defaultScrollAnchor(.bottom, for: .sizeChanges) // new messages and growing cards keep you at the latest
             .scrollDismissesKeyboard(.interactively)
             .background(Theme.bg)
-            .onChange(of: list.last?.id) { _, id in if let id { withAnimation(.smooth) { proxy.scrollTo(id, anchor: .bottom) } } }
-        }
+            // At the latest: the visible part (which includes what's under the composer) reaches the end.
+            .onScrollGeometryChange(for: Bool.self) { g in g.visibleRect.maxY >= g.contentSize.height - 80 } action: { _, bottom in
+                if bottom != atBottom { withAnimation(.snappy) { atBottom = bottom } }
+            }
+            // Only your own scrolling unpins it; reaching the bottom again re-pins.
+            .onScrollPhaseChange { old, phase in
+                if phase == .interacting { stick = false }
+                else if phase == .idle && (old == .interacting || old == .decelerating) { stick = atBottom } // after a swipe, not our own scrolls
+            }
+            // Whatever grows (messages loading, older ones filling in, cards and the task strip arriving), a pinned
+            // chat stays on the latest: it opens at the bottom and stays there.
+            .onScrollGeometryChange(for: CGFloat.self) { g in g.contentSize.height + g.containerSize.height } action: { _, _ in
+                if stick { position.scrollTo(edge: .bottom) }
+            }
+            .onChange(of: list.last?.id) { _, _ in
+                // Yours always scrolls into view (and re-pins); others' do if you're pinned.
+                if list.last.map({ $0.author == state.me?.owner && $0.via != "agent" }) == true { stick = true }
+                if stick { withAnimation(.smooth) { position.scrollTo(edge: .bottom) } }
+            }
+            .onChange(of: focused) { _, f in if f { stick = true; withAnimation(.smooth) { position.scrollTo(edge: .bottom) } } }
+            .overlay(alignment: .bottomTrailing) {
+                if !atBottom && !list.isEmpty {
+                    Button { Haptic.tap(); stick = true; withAnimation(.smooth) { position.scrollTo(edge: .bottom) } } label: {
+                        Image(systemName: "chevron.down").font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.text)
+                            .frame(width: 38, height: 38).background(Theme.raised, in: Circle())
+                            .overlay(Circle().stroke(Theme.line, lineWidth: 0.5))
+                    }
+                    .padding(.trailing, 14).padding(.bottom, 10)
+                    .transition(.scale(scale: 0.6).combined(with: .opacity))
+                    .accessibilityLabel("Jump to latest")
+                }
+            }
         .safeAreaInset(edge: .top, spacing: 0) { WorkStrip(tasks: state.tasks[board.id] ?? []) { Haptic.tap(); showTasks = true } }
         .safeAreaInset(edge: .bottom, spacing: 0) { composer }
         .sheet(isPresented: $showTasks) { TasksSheet(board: board).presentationDetents([.medium, .large]).presentationBackground(Theme.bg) }
@@ -96,7 +139,11 @@ struct EntryRow: View {
     private var who: String { e.byAgent ? "\(e.author)'s agent" : e.author }
 
     var body: some View {
-        if mine && e.type != "task" { myMessage } else { theirMessage }
+        Group { if mine && e.type != "task" { myMessage } else { theirMessage } }
+            .contextMenu {
+                Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = e.text; Haptic.tap() }
+                if e.failed == true { Button("Retry", systemImage: "arrow.clockwise", action: retry) }
+            }
     }
 
     /// Yours: a right-aligned bubble, like any messenger.
@@ -107,7 +154,7 @@ struct EntryRow: View {
                 .font(.callout).foregroundStyle(Theme.text.opacity(e.pending == true ? 0.55 : 1))
                 .padding(.horizontal, 14).padding(.vertical, 9)
                 .background(Theme.raised, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                .textSelection(.enabled)
+                
             if e.pending == true {
                 Text("Sending…").font(.caption2).foregroundStyle(Theme.faint)
             } else if e.failed == true {
@@ -136,11 +183,22 @@ struct EntryRow: View {
                 }
                 if let a = e.artifactName { Label(a, systemImage: "doc.text").font(.caption.monospaced()).foregroundStyle(Theme.muted) }
                 if e.type == "task" { TaskCard(seq: e.seq, board: board, text: e.text, tasks: tasks) } else {
-                    Text(e.text.md).font(.callout).foregroundStyle(Theme.text.opacity(0.92)).textSelection(.enabled).lineSpacing(2)
+                    Text(e.text.md).font(.callout).foregroundStyle(Theme.text.opacity(0.92)).lineSpacing(2)
                 }
             }
         }
-        .padding(.top, grouped ? 4 : 16)
+        .padding(.top, grouped ? 6 : 12)
+    }
+}
+
+/// "Today", "Yesterday", or the date, between days.
+struct DaySeparator: View {
+    let ts: Double
+    var body: some View {
+        let d = Date(timeIntervalSince1970: ts / 1000)
+        let label = Calendar.current.isDateInToday(d) ? "Today" : Calendar.current.isDateInYesterday(d) ? "Yesterday" : d.formatted(.dateTime.weekday(.wide).month(.abbreviated).day())
+        Text(label).font(.caption2.weight(.semibold)).foregroundStyle(Theme.faint)
+            .frame(maxWidth: .infinity).padding(.top, 18).padding(.bottom, 2)
     }
 }
 

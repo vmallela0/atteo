@@ -23,10 +23,19 @@ enum Theme {
     }
 }
 
+/// Which pictures changed in this run (so the new one shows everywhere at once, past the image cache).
+final class AvatarCache: ObservableObject {
+    static let shared = AvatarCache()
+    @Published private(set) var versions: [String: Int] = [:]
+    func bump(_ name: String, agent: Bool) { versions["\(name):\(agent)", default: 0] += 1 }
+    func version(_ name: String, agent: Bool) -> Int { versions["\(name):\(agent)"] ?? 0 }
+}
+
 struct Avatar: View {
     let name: String
     var agent = false
     var size: CGFloat = 32
+    @ObservedObject private var cache = AvatarCache.shared
 
     var body: some View {
         ZStack {
@@ -42,7 +51,7 @@ struct Avatar: View {
         }
         .frame(width: size, height: size)
         .overlay(alignment: .center) {
-            AsyncImage(url: URL(string: "/avatar/\(name)\(agent ? "?k=agent" : "")", relativeTo: API.shared.base)) { phase in
+            AsyncImage(url: URL(string: "/avatar/\(name)?k=\(agent ? "agent" : "person")&v=\(cache.version(name, agent: agent))", relativeTo: API.shared.base)) { phase in
                 if case .success(let img) = phase {
                     img.resizable().scaledToFill().frame(width: size, height: size)
                         .clipShape(RoundedRectangle(cornerRadius: agent ? size * 0.28 : size / 2, style: .continuous))

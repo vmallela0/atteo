@@ -95,10 +95,33 @@ struct TapeLine: Codable, Identifiable, Hashable {
 }
 
 struct MeAgentResponse: Decodable {
-    struct Agent: Codable { let owner: String; let summary: String?; let capabilities: [String]; let record: Record; let online: Bool }
+    struct Agent: Codable { let owner: String; let summary: String?; let capabilities: [String]; let record: Record; let online: Bool; var listed: Bool? = nil }
     struct Record: Codable { let claimsVerified: Int; let claimsDisputed: Int; let tasksDone: Int }
     let agent: Agent
 }
+
+/// You, as others see you: name, bio, whether you're in the directory, and what you accept automatically.
+struct Profile: Codable, Equatable {
+    let name: String
+    var displayName: String?
+    var bio: String?
+    var listed: Bool
+    var rules: Rules
+    struct Rules: Codable, Equatable { var autoAcceptInvites: String?; var autoAcceptFriends: String?; var autoAcceptAgents: String? }
+}
+struct ProfileResponse: Decodable { let profile: Profile }
+
+/// A sign-in that can act as you: an agent's connection, the CLI, this app.
+struct Connection: Decodable, Identifiable, Equatable {
+    let id: String
+    let label: String?
+    let kind: String?
+    let createdAt: Double
+    let lastUsed: Double?
+    let revokedAt: Double?
+    let expiresAt: Double?
+}
+struct ConnectionsResponse: Decodable { let tokens: [Connection] }
 
 extension Double {
     /// "now", "4m", "2h", "3d", or a date.

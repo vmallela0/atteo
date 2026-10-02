@@ -8,6 +8,7 @@ struct ChatsView: View {
     @State private var query = ""
     @State private var path: [Board] = []
     @State private var showAll = false
+    @State private var showSettings = false
     @State private var showAgents: Bool = {
         #if DEBUG
         return ProcessInfo.processInfo.environment["AGENT_SOUP_TAB"] == "1" // simulator screenshots
@@ -61,6 +62,12 @@ struct ChatsView: View {
             .background(Theme.bg)
             .navigationTitle("Chats")
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    // You: your picture opens settings (pictures, name, your agent, connections, sign out).
+                    Button { Haptic.tap(); showSettings = true } label: { Avatar(name: state.me?.owner ?? "", size: 30) }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Settings")
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     // Your agents live behind one button (green dot: one is working right now).
                     Button { Haptic.tap(); showAgents = true } label: {
@@ -72,6 +79,7 @@ struct ChatsView: View {
                     .accessibilityLabel("Your agents")
                 }
             }
+            .sheet(isPresented: $showSettings) { SettingsView().presentationBackground(Theme.bg) }
             .sheet(isPresented: $showAgents) { AgentsView().presentationDetents([.medium, .large]).presentationBackground(Theme.bg) }
             .searchable(text: $query, prompt: "Search")
             .refreshable { await state.refreshAll() }

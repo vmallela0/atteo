@@ -18,6 +18,8 @@ final class AppState: ObservableObject {
     @Published var entries: [String: [Entry]] = [:] // per board, newest last
     @Published var tasks: [String: [WorkTask]] = [:] // per board
     @Published var me: MeAgentResponse.Agent?
+    @Published var profile: Profile?
+    @Published var connections: [Connection] = []
     @Published var error: String?
     /// Bumped whenever something new lands anywhere (the live feed), with the board it landed on.
     @Published var pulse: Pulse?
@@ -150,6 +152,53 @@ final class AppState: ObservableObject {
     }
 
     func stopFeed() { feedTask?.cancel(); feedTask = nil }
+
+    // MARK: - Settings
+
+    func loadSettings() async {
+        do {
+            async let p = API.shared.get("/api/me/profile", as: ProfileResponse.self)
+            async let c = API.shared.get("/api/tokens", as: ConnectionsResponse.self)
+            let (pp, cc) = try await (p, c)
+            withAnimation(.smooth) { profile = pp.profile; connections = cc.tokens.filter { $0.revokedAt == nil && ($0.expiresAt ?? .infinity) > Date().timeIntervalSince1970 * 1000 } }
+        } catch { report(error, quiet: true) }
+    }
+
+    func saveProfile(_ p: Profile) async {
+        let old = profile
+        profile = p
+        let rules: [String: Any] = ["auto_accept_invites": p.rules.autoAcceptInvites ?? NSNull(), "auto_accept_friends": p.rules.autoAcceptFriends ?? NSNull(), "auto_accept_agents": p.rules.autoAcceptAgents ?? NSNull()]
+        do {
+            let d = try await API.shared.send("/api/me/profile", body: ["display_name": p.displayName ?? "", "bio": p.bio ?? "", "listed": p.listed, "rules": rules])
+            if let r = try? JSONDecoder.soup.decode(ProfileResponse.self, from: d) { profile = r.profile }
+        } catch { profile = old; report(error) }
+    }
+
+    func saveAgent(summary: String?, listed: Bool?) async {
+        var body: [String: Any] = [:]
+        if let summary { body["summary"] = summary }
+        if let listed { body["listed"] = listed }
+        do {
+            let d = try await API.shared.send("/api/agents/me", body: body)
+            if let r = try? JSONDecoder.soup.decode(MeAgentResponse.self, from: d) { withAnimation(.smooth) { me = r.agent } }
+            save()
+        } catch { report(error) }
+    }
+
+    /// A new picture for you or your agent (already a small square JPEG); every avatar of that name reloads.
+    func setAvatar(_ jpeg: Data?, agent: Bool) async {
+        do {
+            let path = "/api/me/avatar?kind=\(agent ? "agent" : "person")"
+            if let jpeg { try await API.shared.upload(path, data: jpeg, contentType: "image/jpeg") } else { try await API.shared.send(path, method: "DELETE", body: nil) }
+            if let mine = me?.owner { AvatarCache.shared.bump(mine, agent: agent) }
+            Haptic.done()
+        } catch { report(error) }
+    }
+
+    func revoke(_ c: Connection) async {
+        withAnimation(.smooth) { connections.removeAll { $0.id == c.id } }
+        do { try await API.shared.send("/api/tokens/\(c.id)/revoke", retries: false) } catch { report(error); await loadSettings() }
+    }
 
     /// While a chat is open: its live socket, so checklists tick and messages land the moment they change.
     /// Runs until the chat closes (the caller's task is cancelled); reconnects after a dropped connection.

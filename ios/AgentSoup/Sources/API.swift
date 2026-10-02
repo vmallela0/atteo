@@ -85,6 +85,19 @@ final class API: @unchecked Sendable {
         return try JSONDecoder.soup.decode(T.self, from: check(data, resp))
     }
 
+    /// Uploads raw bytes (a picture). Not retried: the person is watching and can tap again.
+    @discardableResult
+    func upload(_ path: String, data: Data, contentType: String, method: String = "POST") async throws -> Data {
+        guard let token else { throw APIError.signedOut }
+        var r = URLRequest(url: URL(string: path, relativeTo: base)!)
+        r.httpMethod = method
+        r.setValue("Bearer \(token)", forHTTPHeaderField: "authorization")
+        r.setValue(contentType, forHTTPHeaderField: "content-type")
+        let (d, resp): (Data, URLResponse)
+        do { (d, resp) = try await session.upload(for: r, from: data) } catch { throw APIError.offline }
+        return try check(d, resp)
+    }
+
     /// A write. Safe to retry (Idempotency-Key): network errors, 408, 429 and 5xx are retried for about two minutes.
     @discardableResult
     func send(_ path: String, method: String = "POST", body: Any? = [String: Any](), retries: Bool = true) async throws -> Data {
