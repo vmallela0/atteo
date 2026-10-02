@@ -1098,6 +1098,38 @@ const handler = {
         return json({ user: who, boards: mine.filter(keep), invitations: pending.filter(keep) });
       }
 
+      // ---- forward (people only, from the browser): selected messages from one board, quoted with who said what, into
+      // another board they're on. Never through a token, so an agent can't carry one chat's content into another. ----
+      if (path === "/api/forward" && method === "POST") {
+        if (!viewer) return needLogin();
+        if (viewer.via === "agent") return json({ error: "Forwarding is for people, in the browser: agents can't move messages between boards." }, 403);
+        const b = (await request.json().catch(() => ({}))) as { from?: string; to?: string; seqs?: unknown; note?: string };
+        const from = String(b.from ?? ""), to = String(b.to ?? "");
+        const seqs = [...new Set((Array.isArray(b.seqs) ? b.seqs : []).map(Number).filter((n) => Number.isInteger(n) && n > 0))].sort((x, y) => x - y).slice(0, 50);
+        if (!seqs.length) return json({ error: "Select at least one message." }, 400);
+        if (!from || !to || from === to) return json({ error: "Pick another board to forward to." }, 400);
+        if (!(await registry.isMember(env, from, viewer.name)) || !(await registry.isMember(env, to, viewer.name))) return json({ error: "board not found" }, 404);
+        if ((await registry.memberRole(env, to, viewer.name)) === "viewer") return json({ error: "You can view that board but not post to it." }, 403);
+        const [src, dst] = await Promise.all([registry.getBoard(env, from), registry.getBoard(env, to)]);
+        if (!src || !dst) return json({ error: "board not found" }, 404);
+        if ((src as { encrypted?: number }).encrypted || (dst as { encrypted?: number }).encrypted) return json({ error: "End-to-end encrypted boards can't forward: the server can't read them." }, 400);
+        const got = await Promise.all(seqs.map((n) => boardStub(env, from).get(n).catch(() => null)));
+        const picked = got.filter((g): g is NonNullable<typeof g> => !!g && !g.replies.some((r) => r.retracts === g.entry.seq)).map((g) => g.entry);
+        if (!picked.length) return json({ error: "Those messages aren't there anymore." }, 404);
+        const who = (e: Entry) => (e.via === "agent" ? `${e.author}'s agent` : e.author);
+        const quote = (e: Entry) =>
+          [`> **${who(e)}** · #${e.seq}`, ...(e.artifact_name ? [`> 📎 ${e.artifact_name}`] : []), ...e.text.slice(0, 2000).split("\n").slice(0, 40).map((l) => `> ${l}`)].join("\n");
+        const note = String(b.note ?? "").trim().slice(0, 2000);
+        const text = [...(note ? [note] : []), `↪ Forwarded from **${src.title}** · ${picked.length} message${picked.length === 1 ? "" : "s"}`, ...picked.map(quote)].join("\n\n").slice(0, 20000);
+        const hit = scanFields({ text });
+        if (hit) return json({ error: blockedMessage(hit) }, 400);
+        // Only the note can mention anyone: quoted @names don't ping people on the new board.
+        const { mentions } = note && mayMention(note) ? parseMentions(note, (await registry.boardMembers(env, to)).map((x) => x.user), viewer.name, "person") : { mentions: [] as Mention[] };
+        const entry = await boardStub(env, to).post(viewer.name, { type: "note", title: `Forwarded from ${src.title}`.slice(0, 60), text, mentions, via: "person" });
+        ctx.waitUntil(registry.bumpBoard(env, to, entry.seq).catch(() => {}));
+        return json({ ok: true, board: { id: to, title: dst.title }, seq: entry.seq, forwarded: picked.length }, 201);
+      }
+
       // ---- agent sessions: every running agent is a session of its person, with its own boards and read positions ----
       if (path === "/api/sessions" || path.startsWith("/api/sessions/")) {
         if (!viewer) return needLogin();
