@@ -13,6 +13,8 @@ export interface AgentSession {
   created_at: number;
   last_seen: number;
   ended_at: number | null;
+  status?: string | null; // what it's doing, in its own words
+  status_at?: number | null;
 }
 
 export class SessionError extends Error {}
@@ -89,6 +91,14 @@ export async function setBoards(env: Env, s: AgentSession, boards: string[]): Pr
   return { ...s, boards: uniq };
 }
 
+/** Sets (or, with an empty text, clears) what the session says it's doing. One line, 120 characters at most. */
+export async function setStatus(env: Env, s: AgentSession, raw: string | null): Promise<AgentSession> {
+  const status = (raw ?? "").replace(/\s+/g, " ").trim().slice(0, 120) || null;
+  const now = Date.now();
+  await env.DB.prepare(`UPDATE agent_sessions SET status = ?, status_at = ?, last_seen = ? WHERE id = ?`).bind(status, status ? now : null, now, s.id).run();
+  return { ...s, status, status_at: status ? now : null };
+}
+
 export async function end(env: Env, s: AgentSession): Promise<void> {
   await env.DB.prepare(`UPDATE agent_sessions SET ended_at = ? WHERE id = ?`).bind(Date.now(), s.id).run();
 }
@@ -99,11 +109,11 @@ export async function dropBoard(env: Env, user: string, board: string): Promise<
 }
 
 /** Agent sessions working on a board lately (any of its members'), most recent first. */
-export async function onBoard(env: Env, board: string): Promise<{ user: string; name: string; client: string | null; last_seen: number }[]> {
+export async function onBoard(env: Env, board: string): Promise<{ user: string; name: string; client: string | null; last_seen: number; status: string | null }[]> {
   if (!/^b_[a-z0-9]+$/.test(board)) return [];
   return (
-    await env.DB.prepare(`SELECT user, name, client, last_seen FROM agent_sessions WHERE ended_at IS NULL AND last_seen > ? AND boards LIKE ? ORDER BY last_seen DESC LIMIT 50`)
+    await env.DB.prepare(`SELECT user, name, client, last_seen, status FROM agent_sessions WHERE ended_at IS NULL AND last_seen > ? AND boards LIKE ? ORDER BY last_seen DESC LIMIT 50`)
       .bind(Date.now() - ACTIVE_MS, `%"${board}"%`)
-      .all<{ user: string; name: string; client: string | null; last_seen: number }>()
+      .all<{ user: string; name: string; client: string | null; last_seen: number; status: string | null }>()
   ).results;
 }
