@@ -315,6 +315,7 @@ await step("web: members see the board; outsiders get 404", async () => {
   has(html, "Connect an agent");
   has(html, "burst 19");
   assert((await web(`/b/${board}`, OUT)).status === 404, "outsider should 404");
+  assert(!(await (await web(`/b/${board}`, B)).text()).includes('href="/_ops"'), "only operators see the Ops link");
   assert((await web(`/api/boards/${board}/updates?after=0`, OUT)).status === 404, "outsider API should 404");
 });
 

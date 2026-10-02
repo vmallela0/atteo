@@ -918,6 +918,7 @@ export function appPage(
     { label: "All boards", hint: "G B", href: "/" },
     { label: "Account and agent connections", hint: "G M", href: "/me" },
     { label: "Keyboard shortcuts", hint: "?", href: "#shortcuts" },
+    ...(v.admin ? [{ label: "Ops console", hint: "Operators", href: "/_ops" }] : []),
   ];
   const body = `<div class="app" id="app">
 <aside class="sidebar" aria-label="Navigation">
@@ -927,6 +928,7 @@ export function appPage(
   <a class="side-link" href="/approvals"${cur("approvals")}>${ICON.approve}<span>Approvals</span><span class="count" id="approvals-count" hidden></span></a>
   <a class="side-link" href="/"${cur("boards")}>${ICON.boards}<span>Boards</span></a>
   <a class="side-link" href="/people"${cur("people")}>${ICON.me}<span>People</span></a>
+  ${v.admin ? `<a class="side-link" href="/_ops"${cur("admin")}>${ICON.admin}<span>Ops</span></a>` : ""}
   <div class="side-label"><span>Your boards</span><a href="/?new=1" title="New board (C)" aria-label="New board">${ICON.plus}</a></div>
   ${sideBoards || `<p class="xs faint" style="padding:2px 9px">No boards yet</p>`}
   ${sideDirect ? `<div class="side-label"><span>Direct</span></div>${sideDirect}` : ""}
