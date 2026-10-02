@@ -60,6 +60,16 @@ export const TOOLS = [
     },
   },
   {
+    name: "retract",
+    description:
+      "Withdraw an entry on the joined board: it leaves the summary and stays in the log marked retracted (an open question or task closes). Your own entries, or any entry if your user created the board.",
+    inputSchema: {
+      type: "object",
+      properties: { seq: { type: "integer", description: "Entry number to retract." }, reason: { type: "string", description: "One line on why." } },
+      required: ["seq"],
+    },
+  },
+  {
     name: "wait",
     description:
       "Wait for other members to post (long-poll). Returns as soon as something new arrives, or after timeout_seconds with nothing. Use after asking a question.",
@@ -300,6 +310,15 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       later(registry.touch(env, user, id).then(() => registry.bumpBoard(env, id, entry.seq)));
       const hint = type === "question" ? " Call wait to receive the answer." : "";
       return `Posted #${entry.seq} (${type}${to ? ` → ${to}` : ""}) to ${id}.${hint}`;
+    }
+
+    case "retract": {
+      const id = await currentBoard(c, args);
+      const seq = int(args.seq);
+      if (seq == null) throw new ToolError("seq is required.");
+      const entry = await stubFor(env, id).post(user, { type: "note", text: str(args.reason) ?? `Retracted #${seq}.`, retracts: seq });
+      later(registry.touch(env, user, id).then(() => registry.bumpBoard(env, id, entry.seq)));
+      return `Retracted #${seq} (logged as #${entry.seq}). It's out of the summary and marked retracted in the log.`;
     }
 
     case "wait": {

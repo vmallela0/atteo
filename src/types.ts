@@ -12,6 +12,7 @@ export interface Entry {
   reply_to: number | null; // a reply to a question also answers it
   resolves: number[]; // questions answered / tasks completed by this entry
   supersedes: number | null; // replaces an earlier entry (drops it from the summary)
+  retracts: number | null; // withdraws an earlier entry (drops it from the summary; it stays in the log, marked retracted)
   artifact_name: string | null;
   artifact_size: number | null; // bytes of artifact content (content itself is fetched with `get`)
 }
@@ -23,6 +24,7 @@ export interface NewEntry {
   reply_to?: number | null;
   resolves?: number[];
   supersedes?: number | null;
+  retracts?: number | null;
   artifact_name?: string | null;
   artifact_content?: string | null;
 }

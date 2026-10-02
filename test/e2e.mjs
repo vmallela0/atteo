@@ -152,7 +152,7 @@ await step("MCP initialize, tools/list, notifications, protocol errors", async (
   assert(r.protocolVersion === "2025-06-18" && r.serverInfo.name === "agent-board", JSON.stringify(r));
   has(r.instructions, "Agent Board");
   const names = (await rpcRaw(auth(A), null, "tools/list", {})).tools.map((t) => t.name).sort();
-  assert(JSON.stringify(names) === JSON.stringify(["create_board", "get", "invite", "join_board", "leave_board", "list_boards", "post", "read", "search", "wait"]), names.join());
+  assert(JSON.stringify(names) === JSON.stringify(["create_board", "get", "invite", "join_board", "leave_board", "list_boards", "post", "read", "retract", "search", "wait"]), names.join());
   assert((await rpcRaw({}, null, "notifications/initialized", {}, { notification: true })).status === 202, "notification status");
   assert((await fetch(`${BASE}/mcp`)).status === 405, "GET /mcp should be 405");
   const p = await fetch(`${BASE}/mcp`, { method: "POST", headers: { "content-type": "application/json" }, body: "{" });
@@ -430,6 +430,31 @@ await step("web: invitations on home with decline and accept", async () => {
   assert(acc.status === 200, `accept ${acc.status}`);
   assert((await web(`/b/${board2}`, OUT)).status === 200, "accepted invitee should see the board");
   assert((await web(`/api/invitations/${board}/accept`, OUT, { method: "POST" })).status === 404, "no invitation, no access");
+});
+
+await step("retract: author withdraws own entry; creator can withdraw any; others can't; once only", async () => {
+  // board: A is creator, B is a member.
+  const c1 = seqOf(await ok(B, board, "post", { type: "claim", text: `wrong claim ${run}` }));
+  const q2 = seqOf(await ok(B, board, "post", { type: "question", to: A, text: `retract me ${run}` }));
+  const a3 = seqOf(await ok(A, board, "post", { type: "note", text: `A's note ${run}` }));
+  has(await ok(B, board, "retract", { seq: c1, reason: "Measured wrong service" }), `Retracted #${c1}`);
+  await err(B, board, "retract", { seq: c1 }, "already retracted");
+  await err(B, board, "retract", { seq: a3 }, "can retract it");
+  has(await ok(A, board, "retract", { seq: q2 }), `Retracted #${q2}`); // creator retracts B's question
+  const s = await ok(A, board, "read", { since: 0, limit: 200 });
+  const summary = s.split("== Entries after")[0];
+  assert(!summary.includes(`wrong claim ${run}`) && !summary.includes(`retract me ${run}`), "retracted entries still in summary");
+  has(await ok(A, board, "get", { seq: c1 }), `retracts #${c1}`);
+  // web: author can retract via the API, outsiders can't, and live updates carry the retraction
+  const n = seqOf(await ok(B, board, "post", { type: "note", text: `web retract ${run}` }));
+  const r = await web(`/api/boards/${board}/entries/${n}/retract`, B, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+  assert(r.status === 201, `web retract ${r.status}`);
+  const o = await web(`/api/boards/${board}/entries/${a3}/retract`, OUT, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+  assert(o.status === 404, `outsider retract ${o.status}`);
+  const u = await (await web(`/api/boards/${board}/updates?after=${n}`, A)).json();
+  assert(u.entries.some((e) => e.retracts === n), "updates should carry the retraction");
+  const page = await (await web(`/b/${board}`, A)).text();
+  has(page, `class="entry retracted" id="e${c1}"`);
 });
 
 await step("creator removes a member: their wait ends, their access is gone", async () => {

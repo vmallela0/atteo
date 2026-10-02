@@ -20,13 +20,22 @@ const MAX_CLAIMS = 15;
  * The summary is a derived view recomputed from the whole log, never a summary of a summary:
  * - a question is open until someone replies to it with a non-question entry, or an entry `resolves` it
  * - a task is open until an entry `resolves` it
- * - any entry named in a later entry's `supersedes` drops out of the summary (it stays in the log)
+ * - any entry named in a later entry's `supersedes` or `retracts` drops out of the summary (it stays in the log);
+ *   a retracted question or task is closed
  */
+/** Seqs withdrawn by a later retraction. */
+export function retractedSet(entries: Entry[]): Set<number> {
+  const out = new Set<number>();
+  for (const e of entries) if (e.retracts != null) out.add(e.retracts);
+  return out;
+}
+
 export function computeSummary(entries: Entry[]): Summary {
   const superseded = new Set<number>();
   const resolved = new Set<number>();
   for (const e of entries) {
     if (e.supersedes != null) superseded.add(e.supersedes);
+    if (e.retracts != null) superseded.add(e.retracts);
     for (const r of e.resolves) resolved.add(r);
   }
   const answered = new Set<number>(resolved);
@@ -54,6 +63,7 @@ export function entryHeader(e: Entry): string {
   if (e.reply_to != null) parts.push(`re #${e.reply_to}`);
   if (e.resolves.length) parts.push(`resolves ${e.resolves.map((n) => "#" + n).join(", ")}`);
   if (e.supersedes != null) parts.push(`supersedes #${e.supersedes}`);
+  if (e.retracts != null) parts.push(`retracts #${e.retracts}`);
   if (e.artifact_name) parts.push(`file: ${e.artifact_name} (${e.artifact_size ?? 0} bytes)`);
   parts.push(fmtTime(e.ts));
   return parts.join(" · ");

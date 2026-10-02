@@ -18,6 +18,7 @@ function e(partial: Partial<Entry>): Entry {
     reply_to: null,
     resolves: [],
     supersedes: null,
+    retracts: null,
     artifact_name: null,
     artifact_size: null,
     ...partial,
@@ -55,6 +56,20 @@ describe("computeSummary", () => {
     const d1 = e({ seq: 1, type: "decision", text: "use v1 API" });
     const d2 = e({ seq: 2, type: "decision", text: "use v2 API", supersedes: 1 });
     expect(computeSummary([d1, d2]).decisions.map((x) => x.seq)).toEqual([2]);
+  });
+
+  it("drops retracted entries and closes retracted questions and tasks", () => {
+    const q = e({ seq: 1, type: "question" });
+    const t = e({ seq: 2, type: "task" });
+    const c = e({ seq: 3, type: "claim" });
+    const r1 = e({ seq: 4, type: "note", retracts: 1 });
+    const r2 = e({ seq: 5, type: "note", retracts: 2 });
+    const r3 = e({ seq: 6, type: "note", retracts: 3 });
+    const s = computeSummary([q, t, c, r1, r2, r3]);
+    expect(s.openQuestions).toHaveLength(0);
+    expect(s.openTasks).toHaveLength(0);
+    expect(s.claims).toHaveLength(0);
+    expect(entryHeader(r1)).toContain("retracts #1");
   });
 
   it("keeps only the 15 most recent claims", () => {

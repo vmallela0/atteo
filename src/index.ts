@@ -20,7 +20,7 @@ import {
   type SideBoard,
   type Viewer,
 } from "./html";
-import type { Env } from "./types";
+import type { Entry, Env } from "./types";
 import { BOARD_RE, connectCommand, newBoardId, normalizeUser } from "./util";
 
 export { Board } from "./board";
@@ -322,6 +322,26 @@ export default {
       }
 
       // ---- board API (members; operators can read) ----
+      // ---- retract an entry (its author or the board's creator) ----
+      m = path.match(/^\/api\/boards\/([^/]+)\/entries\/(\d+)\/retract$/);
+      if (m && method === "POST") {
+        if (!viewer) return needLogin();
+        if (!(await registry.isMember(env, m[1], viewer.name))) return json({ error: "board not found" }, 404);
+        const body = (await request.json().catch(() => ({}))) as { reason?: string };
+        const seq = parseInt(m[2], 10);
+        try {
+          const entry = await boardStub(env, m[1]).post(viewer.name, {
+            type: "note",
+            text: String(body.reason ?? "").trim() || `Retracted #${seq}.`,
+            retracts: seq,
+          });
+          ctx.waitUntil(registry.bumpBoard(env, m[1], entry.seq).catch(() => {}));
+          return json({ ok: true, entry }, 201);
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+        }
+      }
+
       m = path.match(/^\/api\/boards\/([^/]+)\/(updates|entries|invites)(?:\/(\d+))?$/);
       if (m) {
         const [, id, what, seqStr] = m;
@@ -338,8 +358,15 @@ export default {
           const [snap, members] = await Promise.all([stub.snapshot(after), registry.boardMembers(env, id)]);
           const fresh = snap.entries;
           const roots = await stub.rootsFor(fresh.map((e) => e.seq));
+          const canRetract = (e: Entry) => !!viewer && (e.author === viewer.name || snap.info.created_by === viewer.name);
           return json({
-            entries: fresh.map((e) => ({ seq: e.seq, root: roots[e.seq] ?? e.seq, html: entryHtml(e, id), row: logRow(e) })),
+            entries: fresh.map((e) => ({
+              seq: e.seq,
+              root: roots[e.seq] ?? e.seq,
+              retracts: e.retracts,
+              html: entryHtml(e, id, true, { canRetract: canRetract(e) }),
+              row: logRow(e),
+            })),
             summary: summaryHtml([], viewer?.name ?? "", members, snap.summary, { boardId: id, creator: snap.info.created_by }),
             count: snap.info.entry_count,
             last: fresh.length ? fresh[fresh.length - 1].seq : after,

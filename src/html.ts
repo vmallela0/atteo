@@ -2,7 +2,7 @@
 
 import type { BoardRow, InviteRow, Invitation, UserRow } from "./registry";
 import type { TokenRow } from "./auth";
-import { computeSummary, type Summary } from "./state";
+import { computeSummary, retractedSet, type Summary } from "./state";
 import type { BoardInfo, Entry } from "./types";
 import { appPage, avatar, avatarStack, copyField, hue, page, renderText, typeTag, when, type SideBoard, type Viewer } from "./ui";
 import { esc } from "./util";
@@ -33,8 +33,9 @@ export function rootMap(entries: Entry[]): Map<number, number> {
   return roots;
 }
 
-export function entryHtml(e: Entry, boardId: string, withReplies = true): string {
+export function entryHtml(e: Entry, boardId: string, withReplies = true, opts: { retracted?: boolean; canRetract?: boolean } = {}): string {
   const refs: string[] = [];
+  if (e.retracts != null) refs.push(`retracts <a href="#e${e.retracts}">#${e.retracts}</a>`);
   if (e.reply_to != null) refs.push(`reply to <a href="#e${e.reply_to}">#${e.reply_to}</a>`);
   if (e.resolves.length) refs.push(`resolves ${e.resolves.map((n) => `<a href="#e${n}">#${n}</a>`).join(", ")}`);
   if (e.supersedes != null) refs.push(`supersedes <a href="#e${e.supersedes}">#${e.supersedes}</a>`);
@@ -43,10 +44,11 @@ export function entryHtml(e: Entry, boardId: string, withReplies = true): string
 <span class="mono grow truncate">${esc(e.artifact_name)}</span><span class="xs faint">${fmtBytes(e.artifact_size ?? 0)}</span>
 <button class="btn sm" type="button" data-file="${e.seq}" data-board="${esc(boardId)}">View</button></div></div>`
     : "";
-  return `<article class="entry" id="e${e.seq}" data-seq="${e.seq}">
+  const actions = opts.canRetract && !opts.retracted && e.retracts == null ? `<button class="btn ghost sm retract" type="button" data-retract="${e.seq}">Retract</button>` : "";
+  return `<article class="entry${opts.retracted ? " retracted" : ""}" id="e${e.seq}" data-seq="${e.seq}" data-author="${esc(e.author)}">
 ${avatar(e.author)}
 <div class="grow">
-  <div class="meta"><span class="who">${esc(e.author)}</span>${e.to ? `<span class="to">→ ${esc(e.to)}</span>` : ""}${typeTag(e.type)}${when(e.ts)}<a class="seq" href="#e${e.seq}">#${e.seq}</a></div>
+  <div class="meta"><span class="who">${esc(e.author)}</span>${e.to ? `<span class="to">→ ${esc(e.to)}</span>` : ""}${typeTag(e.type)}${when(e.ts)}<a class="seq" href="#e${e.seq}">#${e.seq}</a><span class="badge rbadge">Retracted</span>${actions}</div>
   <div class="body">${renderText(e.text)}</div>${file}
   ${refs.length ? `<div class="refs">${refs.join(" · ")}</div>` : ""}
   ${withReplies ? `<div class="replies" id="r${e.seq}"></div>` : ""}
@@ -59,8 +61,10 @@ function fmtBytes(n: number): string {
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
-export function threadHtml(entries: Entry[], boardId: string): string {
+export function threadHtml(entries: Entry[], boardId: string, viewer?: { name: string; creator: string }): string {
   const roots = rootMap(entries);
+  const gone = retractedSet(entries);
+  const flags = (e: Entry) => ({ retracted: gone.has(e.seq), canRetract: !!viewer && (e.author === viewer.name || viewer.creator === viewer.name) });
   const replies = new Map<number, Entry[]>();
   const top: Entry[] = [];
   for (const e of entries) {
@@ -70,8 +74,8 @@ export function threadHtml(entries: Entry[], boardId: string): string {
   }
   return top
     .map((e) => {
-      const html = entryHtml(e, boardId);
-      const kids = (replies.get(e.seq) ?? []).map((k) => entryHtml(k, boardId, false)).join("");
+      const html = entryHtml(e, boardId, true, flags(e));
+      const kids = (replies.get(e.seq) ?? []).map((k) => entryHtml(k, boardId, false, flags(k))).join("");
       return html.replace(`<div class="replies" id="r${e.seq}"></div>`, `<div class="replies" id="r${e.seq}">${kids}</div>`);
     })
     .join("");
@@ -122,10 +126,10 @@ function clip(s: string, n: number): string {
 export function landingPage(error?: string): Response {
   const t = Date.now();
   const sample: Entry[] = [
-    { seq: 1, ts: t - 9 * 60e3, author: "vedu", type: "question", to: "jxn", text: "Can you share the failing stack trace from checkout?", reply_to: null, resolves: [], supersedes: null, artifact_name: null, artifact_size: null },
-    { seq: 2, ts: t - 7 * 60e3, author: "jxn", type: "artifact", to: null, text: "Trace from checkout-service", reply_to: 1, resolves: [], supersedes: null, artifact_name: "checkout-trace.log", artifact_size: 2140 },
-    { seq: 3, ts: t - 6 * 60e3, author: "jxn", type: "claim", to: "vedu", text: "`charge()` receives an undefined payment when the cart is empty. Repro is in the trace above.", reply_to: 1, resolves: [], supersedes: null, artifact_name: null, artifact_size: null },
-    { seq: 4, ts: t - 2 * 60e3, author: "vedu", type: "decision", to: null, text: "Guard empty carts in `charge()` and ship behind **PAYMENTS_V2**.", reply_to: null, resolves: [1], supersedes: null, artifact_name: null, artifact_size: null },
+    { seq: 1, ts: t - 9 * 60e3, author: "vedu", type: "question", to: "jxn", text: "Can you share the failing stack trace from checkout?", reply_to: null, resolves: [], supersedes: null, retracts: null, artifact_name: null, artifact_size: null },
+    { seq: 2, ts: t - 7 * 60e3, author: "jxn", type: "artifact", to: null, text: "Trace from checkout-service", reply_to: 1, resolves: [], supersedes: null, retracts: null, artifact_name: "checkout-trace.log", artifact_size: 2140 },
+    { seq: 3, ts: t - 6 * 60e3, author: "jxn", type: "claim", to: "vedu", text: "`charge()` receives an undefined payment when the cart is empty. Repro is in the trace above.", reply_to: 1, resolves: [], supersedes: null, retracts: null, artifact_name: null, artifact_size: null },
+    { seq: 4, ts: t - 2 * 60e3, author: "vedu", type: "decision", to: null, text: "Guard empty carts in `charge()` and ship behind **PAYMENTS_V2**.", reply_to: null, resolves: [1], supersedes: null, retracts: null, artifact_name: null, artifact_size: null },
   ];
   return page(
     "Agent Board",
@@ -297,7 +301,7 @@ export function boardPage(viewer: Viewer, side: SideBoard[], info: BoardInfo, me
   const last = entries.length ? entries[entries.length - 1].seq : 0;
   const others = members.filter((m) => m.user !== viewer.name);
   const thread = entries.length
-    ? threadHtml(entries, info.id)
+    ? threadHtml(entries, info.id, { name: viewer.name, creator: info.created_by })
     : `<div class="empty" id="empty"><h3>Nothing here yet</h3><p class="small">Connect an agent and ask it to post, or write the first note below.</p></div>`;
   const rows = [...entries].reverse().map((e) => logRow(e)).join("");
   const script = SHEET_JS + CONNECT_JS + `
@@ -308,12 +312,17 @@ async function tick(wait){try{
     const tmp=document.createElement('div');tmp.innerHTML=e.html;const el=tmp.firstElementChild;el.classList.add('flash-in');
     if(box){el.querySelector('.replies')?.remove();box.appendChild(el)}else{document.getElementById('empty')?.remove();document.getElementById('thread').appendChild(el)}
     const lt=document.createElement('tbody');lt.innerHTML=e.row;document.getElementById('log-body').prepend(lt.firstElementChild);document.getElementById('log-empty')?.remove();
+    if(e.retracts){const t=document.getElementById('e'+e.retracts);if(t){t.classList.add('retracted');t.querySelector('[data-retract]')?.remove()}}
     last=Math.max(last,e.seq)}
   if(typeof d.last==='number')last=Math.max(last,d.last);
   if(d.entries.length){document.getElementById('sum').innerHTML=d.summary;document.querySelectorAll('[data-count]').forEach(x=>x.textContent=d.count);refreshTimes()}
 }catch(e){await new Promise(r=>setTimeout(r,5000))}}
 (async()=>{for(;;){if(document.hidden){await new Promise(r=>setTimeout(r,2000));continue}await tick(true)}})();
 window.posted=()=>{toast('Posted');tick(false)};
+document.addEventListener('click',async e=>{const b=e.target.closest('[data-retract]');if(!b)return;
+  if(b.dataset.armed!=='1'){b.dataset.armed='1';b.textContent='Retract #'+b.dataset.retract+'?';b.classList.add('danger');setTimeout(()=>{b.dataset.armed='';b.textContent='Retract';b.classList.remove('danger')},4000);return}
+  b.disabled=true;const r=await fetch('/api/boards/'+BOARD+'/entries/'+b.dataset.retract+'/retract',{method:'POST',headers:{'content-type':'application/json'},body:'{}'});
+  const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||'Could not retract');b.disabled=false;return}toast('Retracted');tick(false)});
 document.addEventListener('click',async e=>{const b=e.target.closest('[data-member-remove]');if(!b)return;
   if(b.dataset.armed!=='1'){b.dataset.armed='1';b.textContent=b.dataset.label==='Leave'?'Leave board?':'Remove '+b.dataset.memberRemove+'?';b.classList.add('danger');
     setTimeout(()=>{b.dataset.armed='';b.textContent=b.dataset.label;b.classList.remove('danger')},4000);return}

@@ -29,12 +29,13 @@ function toEntry(r: Row): Entry {
     reply_to: (r.reply_to as number | null) ?? null,
     resolves: JSON.parse((r.resolves as string) || "[]"),
     supersedes: (r.supersedes as number | null) ?? null,
+    retracts: (r.retracts as number | null) ?? null,
     artifact_name: (r.artifact_name as string | null) ?? null,
     artifact_size: (r.artifact_size as number | null) ?? null,
   };
 }
 
-const ENTRY_COLS = "seq, ts, author, type, text, to_user, reply_to, resolves, supersedes, artifact_name, artifact_size";
+const ENTRY_COLS = "seq, ts, author, type, text, to_user, reply_to, resolves, supersedes, retracts, artifact_name, artifact_size";
 
 export class Board extends DurableObject<Env> {
   private sql: SqlStorage;
@@ -56,6 +57,7 @@ export class Board extends DurableObject<Env> {
         reply_to INTEGER,
         resolves TEXT NOT NULL DEFAULT '[]',
         supersedes INTEGER,
+        retracts INTEGER,
         artifact_name TEXT,
         artifact_size INTEGER,
         artifact_content TEXT
@@ -67,6 +69,13 @@ export class Board extends DurableObject<Env> {
         last_seen INTEGER NOT NULL
       );
     `);
+    this.migrate();
+  }
+
+  /** Columns added after a board was created. Idempotent; runs on every wake-up. */
+  private migrate() {
+    const cols = new Set(this.sql.exec("PRAGMA table_info(entries)").toArray().map((r) => r.name as string));
+    if (!cols.has("retracts")) this.sql.exec("ALTER TABLE entries ADD COLUMN retracts INTEGER");
   }
 
   // ---- metadata ----
@@ -152,9 +161,20 @@ export class Board extends DurableObject<Env> {
     if (!text) throw new BoardError("text is required.");
     if (text.length > MAX_TEXT) throw new BoardError(`text is too long (max ${MAX_TEXT} characters); post the long part as an artifact.`);
 
-    const refs = [input.reply_to, input.supersedes, ...(input.resolves ?? [])].filter((n): n is number => n != null);
+    const refs = [input.reply_to, input.supersedes, input.retracts, ...(input.resolves ?? [])].filter((n): n is number => n != null);
     for (const n of refs) {
       if (!Number.isInteger(n) || n < 1 || n > info.last_seq) throw new BoardError(`Entry #${n} does not exist on this board.`);
+    }
+    if (input.retracts != null) {
+      // Only the entry's author, or the board's creator, may withdraw it; once is enough.
+      const target = this.sql.exec("SELECT author, retracts FROM entries WHERE seq = ?", input.retracts).one();
+      if (target.author !== user && info.created_by !== user) {
+        throw new BoardError(`Only ${target.author} (who posted #${input.retracts}) or the board's creator can retract it.`);
+      }
+      if (target.retracts != null) throw new BoardError(`#${input.retracts} is itself a retraction; it can't be retracted.`);
+      if (this.sql.exec("SELECT 1 AS x FROM entries WHERE retracts = ?", input.retracts).toArray().length) {
+        throw new BoardError(`#${input.retracts} is already retracted.`);
+      }
     }
 
     let artifactName: string | null = null;
@@ -170,8 +190,8 @@ export class Board extends DurableObject<Env> {
 
     const row = this.sql
       .exec(
-        `INSERT INTO entries (ts, author, type, text, to_user, reply_to, resolves, supersedes, artifact_name, artifact_size, artifact_content)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING ${ENTRY_COLS}`,
+        `INSERT INTO entries (ts, author, type, text, to_user, reply_to, resolves, supersedes, retracts, artifact_name, artifact_size, artifact_content)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING ${ENTRY_COLS}`,
         Date.now(),
         user,
         input.type,
@@ -180,6 +200,7 @@ export class Board extends DurableObject<Env> {
         input.reply_to ?? null,
         JSON.stringify([...new Set(input.resolves ?? [])]),
         input.supersedes ?? null,
+        input.retracts ?? null,
         artifactName,
         artifactContent == null ? null : new TextEncoder().encode(artifactContent).length,
         artifactContent,
@@ -281,10 +302,10 @@ export class Board extends DurableObject<Env> {
     const rows = this.sql.exec(`SELECT ${ENTRY_COLS}, artifact_content FROM entries WHERE seq = ?`, seq).toArray();
     if (!rows.length) throw new BoardError(`Entry #${seq} does not exist on this board.`);
     const replies = this.sql
-      .exec(`SELECT ${ENTRY_COLS} FROM entries WHERE reply_to = ? OR supersedes = ? OR resolves LIKE ? ORDER BY seq`, seq, seq, `%${seq}%`)
+      .exec(`SELECT ${ENTRY_COLS} FROM entries WHERE reply_to = ? OR supersedes = ? OR retracts = ? OR resolves LIKE ? ORDER BY seq`, seq, seq, seq, `%${seq}%`)
       .toArray()
       .map(toEntry)
-      .filter((e) => e.reply_to === seq || e.supersedes === seq || e.resolves.includes(seq));
+      .filter((e) => e.reply_to === seq || e.supersedes === seq || e.retracts === seq || e.resolves.includes(seq));
     return { entry: toEntry(rows[0]), artifact_content: (rows[0].artifact_content as string | null) ?? null, replies };
   }
 

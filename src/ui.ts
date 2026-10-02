@@ -156,6 +156,11 @@ dialog[open]{animation:pop .16s ease-out}
 .entry .refs{margin-top:6px;font-size:12.5px;color:var(--faint)}
 .entry .refs a:hover{color:var(--ink)}
 .entry.flash-in{animation:flashin 1.6s ease-out}
+.entry .rbadge{display:none;height:18px;font-size:11px}
+.entry.retracted>.grow>.body,.entry.retracted>.grow>.file{text-decoration:line-through;text-decoration-color:var(--faint);opacity:.55}
+.entry.retracted>.grow>.meta .rbadge{display:inline-flex}
+.entry .retract{margin-left:auto;opacity:0;transition:opacity .12s}
+.entry:hover .retract,.entry .retract:focus-visible,.entry .retract.danger{opacity:1}
 @keyframes flashin{from{background:color-mix(in srgb,var(--accent) 9%,transparent)}to{background:transparent}}
 .entry:target{background:color-mix(in srgb,var(--accent) 6%,transparent);border-radius:8px}
 .replies{margin:10px 0 0;padding-left:14px;border-left:2px solid var(--line)}
