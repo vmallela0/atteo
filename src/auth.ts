@@ -174,15 +174,16 @@ export async function createToken(
 
 /** Resolves a bearer token: its user, or why it can't be used. */
 // Token lookups are cached briefly per isolate: agents call several tools a second, and each D1 round trip adds
-// tens of milliseconds. A revoked token stops working everywhere within TOKEN_CACHE_MS (immediately where it was revoked).
+// tens of milliseconds. Anything that changes something looks the token up fresh (`fresh`), so a revoked token (the
+// kill switch) can't write anywhere from that moment; reads stop within TOKEN_CACHE_MS on other isolates.
 const TOKEN_CACHE_MS = 10_000;
 const tokenCache = new Map<string, { id: string; user: string; expires_at: number | null; at: number; touched: number }>();
 
-async function lookupToken(env: Env, token: string, ctx?: ExecutionContext) {
+async function lookupToken(env: Env, token: string, ctx?: ExecutionContext, fresh = false) {
   const hash = await sha256hex(token);
   const now = Date.now();
   let row = tokenCache.get(hash);
-  if (!row || now - row.at > TOKEN_CACHE_MS) {
+  if (!row || fresh || now - row.at > TOKEN_CACHE_MS) {
     const r = await env.DB.prepare(`SELECT id, user, expires_at FROM tokens WHERE hash = ? AND revoked_at IS NULL`).bind(hash).first<{ id: string; user: string; expires_at: number | null }>();
     if (!r) {
       tokenCache.delete(hash);
@@ -206,18 +207,18 @@ export function forgetToken(id: string) {
   for (const [k, v] of tokenCache) if (v.id === id) tokenCache.delete(k);
 }
 
-export async function resolveToken(env: Env, token: string, ctx?: ExecutionContext): Promise<{ user: string | null; expired: boolean }> {
+export async function resolveToken(env: Env, token: string, ctx?: ExecutionContext, fresh = false): Promise<{ user: string | null; expired: boolean }> {
   if (!token.startsWith("ab_")) return { user: null, expired: false };
-  const row = await lookupToken(env, token, ctx);
+  const row = await lookupToken(env, token, ctx, fresh);
   if (!row) return { user: null, expired: false };
   if (row.expires_at != null && row.expires_at < Date.now()) return { user: null, expired: true };
   return { user: row.user, expired: false };
 }
 
 /** Resolves a bearer token to its user, or null if unknown, revoked or expired. */
-export async function userForToken(env: Env, token: string, ctx?: ExecutionContext): Promise<string | null> {
+export async function userForToken(env: Env, token: string, ctx?: ExecutionContext, fresh = false): Promise<string | null> {
   if (!token.startsWith("ab_")) return null;
-  const row = await lookupToken(env, token, ctx);
+  const row = await lookupToken(env, token, ctx, fresh);
   if (!row || (row.expires_at != null && row.expires_at < Date.now())) return null;
   return row.user;
 }

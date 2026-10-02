@@ -1107,7 +1107,12 @@ export async function handleMcp(request: Request, env: Env, ctx: ExecutionContex
   }
 
   const token = bearer(request);
-  const resolved = token ? await resolveToken(env, token, ctx) : { user: null, expired: false };
+  // Tools that change something check the token fresh (a revoked token can't act anywhere); read-only ones may use the
+  // short cache (they stop within seconds).
+  const READS = new Set(["read", "wait", "get", "search", "list_boards", "doc", "people", "agents"]);
+  const call = body as { method?: string; params?: { name?: string; arguments?: { action?: string } } } | null;
+  const readOnly = !Array.isArray(body) && (call?.method !== "tools/call" || (READS.has(String(call?.params?.name)) && !["write", "profile", "dm", "direct"].includes(String(call?.params?.arguments?.action ?? ""))));
+  const resolved = token ? await resolveToken(env, token, ctx, !readOnly) : { user: null, expired: false };
   const user = resolved.user;
   const legacy = !token && !!request.headers.get("x-user");
   const isInit = (Array.isArray(body) ? body : [body]).some((m) => (m as RpcRequest | null)?.method === "initialize");

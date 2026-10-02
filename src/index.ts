@@ -97,7 +97,8 @@ async function loadViewer(env: Env, session: auth.Session | null, request?: Requ
   // Account-level actions (tokens, billing, ops) stay browser-only, so a leaked token can't mint more or change plans.
   const accountOnly = /^\/api\/(ops|tokens|billing|webhooks)(\/|$)/.test(path);
   if (!session?.user && bearer && path.startsWith("/api/") && !accountOnly) {
-    const name = await auth.userForToken(env, bearer);
+    // Writes look the token up fresh, so a revoked token can't change anything anywhere (the kill switch).
+    const name = await auth.userForToken(env, bearer, undefined, !!request && request.method !== "GET" && request.method !== "HEAD");
     const u = name ? await registry.userByName(env, name) : null;
     return u ? { name: u.name, email: u.email ?? "", display_name: u.display_name, admin: false, via: "agent" } : null;
   }

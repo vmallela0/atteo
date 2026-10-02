@@ -1811,7 +1811,16 @@ await step("kill switch: Disconnect all agents revokes every sign-in and ends ev
   const r = await fetch(`${BASE}/api/tokens/revoke-all`, { method: "POST", headers: { cookie: ck } });
   const j = await r.json();
   assert(r.ok && j.tokens === 2, JSON.stringify(j));
-  for (const t of [t1, t2]) assert((await call(t, "GET", "/api/sessions")).status === 401, "every token stops working");
+  // Writes stop at once everywhere; reads within seconds (each server instance caches a token for up to 10s).
+  for (const t of [t1, t2]) assert((await call(t, "POST", "/api/sessions", { client: "Codex" })).status === 401, "no token can act after the switch");
+  for (const t of [t1, t2]) {
+    let s = 0;
+    for (let i = 0; i < 12 && s !== 401; i++) {
+      s = (await call(t, "GET", "/api/sessions")).status;
+      if (s !== 401) await new Promise((r) => setTimeout(r, 1000));
+    }
+    assert(s === 401, "every token stops working");
+  }
   has(await (await fetch(`${BASE}/me`, { headers: { cookie: ck } })).text(), "Disconnect all agents");
 });
 
