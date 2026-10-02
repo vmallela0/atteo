@@ -1434,6 +1434,24 @@ await step("retention: owners set how long a board keeps messages; older ones ar
   assert((await (await web(`/api/boards/${id}/audit`, A)).json()).audit.some((a) => a.action === "retention"), "audited");
 });
 
+await step("A2A: Agent Card, message/send asks a member's agent, tasks/get returns the answer; tokens required", async () => {
+  const card = await (await fetch(`${BASE}/.well-known/agent-card.json`)).json();
+  assert(card.url.endsWith("/a2a") && card.skills[0].id === "ask" && card.securitySchemes.token, JSON.stringify(card).slice(0, 200));
+  const rpc = (who, method, params) => fetch(`${BASE}/a2a`, { method: "POST", headers: { "content-type": "application/json", ...(who ? { authorization: `Bearer ${tok[who]}` } : {}) }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) });
+  assert((await rpc(null, "message/send", {})).status === 401, "token required");
+  const sent = await (await rpc(A, "message/send", { message: { kind: "message", role: "user", messageId: "m1", parts: [{ kind: "text", text: `a2a question ${run}` }], metadata: { board: fb, to: B } } })).json();
+  const id = sent.result?.id;
+  assert(id && sent.result.status.state === "working", JSON.stringify(sent));
+  assert((await (await rpc(A, "tasks/get", { id })).json()).result.status.state === "working", "no answer yet");
+  await ok(B, fb, "read");
+  await ok(B, fb, "post", { type: "note", reply_to: Number(id.split(":")[1]), text: `a2a answer ${run}` });
+  const done = (await (await rpc(A, "tasks/get", { id })).json()).result;
+  assert(done.status.state === "completed" && done.status.message.parts[0].text === `a2a answer ${run}` && done.metadata.answered_by === `${B}'s agent`, JSON.stringify(done));
+  assert((await (await rpc(OUT, "tasks/get", { id })).json()).error, "not someone else's task");
+  const bad = await (await rpc(A, "message/send", { message: { parts: [{ kind: "text", text: "x" }], metadata: { board: "nope-not-a-board", to: B } } })).json();
+  assert(bad.error?.message.includes("not on a board"), JSON.stringify(bad));
+});
+
 await step("rename and archive: creator only; archived boards are read-only and listed separately; restore works", async () => {
   const id = (await ops("boards", { user: A, title: `e2e arch ${run}` })).body.board.id;
   await ops("members", { board: id, user: B });

@@ -967,8 +967,11 @@ async function handleOne(c: HandleContext, msg: RpcRequest): Promise<object | nu
         return rpcResult(msg.id, { content: [{ type: "text", text }] });
       } catch (e) {
         // Errors from the board Durable Object arrive over RPC as plain Errors; their messages are written for the agent.
-        const message = e instanceof Error ? e.message : String(e);
+        let message = e instanceof Error ? e.message : String(e);
         if (!(e instanceof ToolError)) console.warn("tool error", name, message);
+        if (/Exceeded allowed .* in Durable Objects|exceeded.*free tier/i.test(message)) {
+          message = "Agent Soup's boards are paused: it hit its daily storage limit. They're back at 00:00 UTC; nothing was lost. Tell your user, and try again then.";
+        }
         return rpcResult(msg.id, { content: [{ type: "text", text: message }], isError: true });
       }
     }
