@@ -171,6 +171,11 @@ dialog[open]{animation:pop .16s ease-out}
 .entry.retracted>.grow>.meta .rbadge{display:inline-flex}
 .entry .retract{margin-left:auto;opacity:0;transition:opacity .12s}
 .entry:hover .retract,.entry .retract:focus-visible,.entry .retract.danger{opacity:1}
+/* Retract takes no room in the header line, so narrow screens don't get a blank line under every entry. Touch
+   screens have no hover: there it appears on the entry you opened (tap its #number). */
+.entry{position:relative}
+@media(hover:hover){.entry .retract{position:absolute;top:12px;right:0;background:var(--bg)}}
+@media(hover:none){.entry .retract{display:none}.entry:target>.grow>.meta .retract,.entry.sel>.grow>.meta .retract{display:inline-flex;opacity:1}}
 @keyframes flashin{from{background:color-mix(in srgb,var(--accent) 9%,transparent)}to{background:transparent}}
 .entry:target{background:color-mix(in srgb,var(--accent) 6%,transparent);border-radius:8px}
 .replies{margin:10px 0 0;padding-left:14px;border-left:2px solid var(--line)}
@@ -185,6 +190,7 @@ dialog[open]{animation:pop .16s ease-out}
 .sum li a{display:flex;gap:8px;padding:6px 8px;margin:0 -8px;border-radius:6px;font-size:13px;line-height:1.45}
 .sum li a:hover{background:var(--bg-hover)}
 .sum li .n{color:var(--faint);flex:none;font-variant-numeric:tabular-nums}
+.sum li .one{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .sum .none{font-size:13px;color:var(--faint)}
 .waiting{border:1px solid color-mix(in srgb,var(--q) 40%,var(--line));background:color-mix(in srgb,var(--q) 6%,var(--bg));border-radius:var(--r-sm);padding:10px 12px;margin-bottom:6px}
 .composer{margin-top:20px;position:relative}
@@ -278,6 +284,46 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
 .doc-item{display:flex;justify-content:space-between;gap:8px;padding:6px 8px;margin:0 -8px;border-radius:6px;font-size:13px}
 .doc-item:hover,.doc-item.on{background:var(--bg-hover)}
 .doc-body{font-size:14px}.doc-body p+p{margin-top:10px}
+/* board page: the header and tabs stay put; the thread, sidebar, log and docs each scroll on their own */
+.content.full{max-width:1280px;height:calc(100vh - 48px);height:calc(100dvh - 48px);padding:20px 24px 0;display:flex;flex-direction:column;overflow:hidden}
+.bp-head{flex:none}
+.bp-head h1{font-size:24px}
+.bp-meta{margin-top:6px;gap:14px}
+.bp-tabs{display:flex;align-items:flex-end;gap:8px;margin-top:14px;border-bottom:1px solid var(--line)}
+.bp-tabs .tabs{border-bottom:0;margin-bottom:0}
+.info-btn{display:none;margin:0 0 5px auto}
+.info-btn .count{min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:var(--q);color:var(--on-ink);font-size:11px;display:inline-grid;place-items:center}
+.bp-panel{flex:1;min-height:0;display:flex;flex-direction:column}
+.bp-panel>.layout{flex:1;min-height:0;grid-template-rows:minmax(0,1fr);position:relative}
+.bp-panel .aside{position:static;align-self:stretch;max-height:none;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:16px 4px 16px 0}
+.conv{display:flex;flex-direction:column;min-height:0;min-width:0}
+.thread-wrap{flex:1;min-height:0;position:relative;display:flex}
+.thread-scroll{flex:1;min-width:0;overflow-y:auto;overscroll-behavior:contain;padding:8px 6px 8px 0}
+.new-pill{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);z-index:4;box-shadow:var(--shadow-lg);border-radius:999px}
+.new-pill[hidden],.info-btn .count[hidden]{display:none}
+.conv .composer{flex:none;margin:6px 0 max(14px,env(safe-area-inset-bottom))}
+.conv .composer textarea{min-height:48px;max-height:30vh;resize:none}
+#panel-log .list{flex:1;min-height:0;overflow:auto;margin-top:16px}
+#panel-log .log th{position:sticky;top:0;z-index:1;background:var(--bg-subtle)}
+#panel-log>p{flex:none;margin:8px 0 14px}
+#panel-docs .docs{flex:1;min-height:0;padding:16px 0 14px;grid-template-rows:minmax(0,1fr)}
+.doc-list{min-height:0;overflow-y:auto}
+.doc-view{min-height:0;overflow-y:auto}
+.doc-view.editing{display:flex;flex-direction:column}
+.doc-view.editing #doc-text{flex:1;min-height:200px;resize:none}
+@media(max-width:959px){
+  .info-btn:not([hidden]){display:inline-flex}
+  .bp-panel .aside{display:none}
+  .layout.info-open>.aside{display:block;position:absolute;inset:0;z-index:6;background:var(--bg);padding:16px 2px}
+}
+@media(max-width:859px){
+  .content.full{padding:12px 16px 0}
+  .bp-head h1{font-size:20px}
+  .bp-id{display:none}
+  .bp-tabs{margin-top:10px}
+  #panel-docs .docs{grid-template-rows:auto minmax(0,1fr)}
+  .doc-list{max-height:22vh}
+}
 
 /* agent connect card + presence */
 .agent-card{display:flex;align-items:center;gap:12px;padding:14px 16px;border:1px solid var(--line);border-radius:var(--r);background:var(--bg-subtle);margin-bottom:20px;font-size:13.5px}
@@ -537,6 +583,7 @@ export function appPage(
     body: string;
     script?: string;
     narrow?: boolean;
+    full?: boolean; // fills the viewport below the top bar; the page lays out its own scrolling areas
     status?: number;
   },
 ): Response {
@@ -566,7 +613,7 @@ export function appPage(
 <div class="grow" style="min-width:0">
   <header class="topbar"><button class="btn ghost sm menu-btn" type="button" data-nav aria-label="Menu">${ICON.menu}</button>
     <nav class="crumbs" aria-label="Breadcrumb">${opts.crumbs}</nav><div class="actions">${opts.actions ?? ""}</div></header>
-  <div class="content${opts.narrow ? " narrow" : ""}">${opts.body}</div>
+  <div class="content${opts.narrow ? " narrow" : ""}${opts.full ? " full" : ""}">${opts.body}</div>
 </div></div>
 <dialog class="palette" id="palette" aria-label="Command palette"><input class="input" id="palette-q" placeholder="Search boards and actions…" autocomplete="off">
 <ul id="palette-list" role="listbox"></ul><div class="foot"><span><kbd>↑</kbd> <kbd>↓</kbd> move</span><span><kbd>↵</kbd> open</span><span><kbd>esc</kbd> close</span></div></dialog>

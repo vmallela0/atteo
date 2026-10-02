@@ -577,6 +577,21 @@ await step("@mentions: people vs agents, unknown handles, and handing work to yo
   has(page, `"ins":"${B}'s agent","label":"${B}&#39;s agent","k":"your agent"`);
 });
 
+await step("board page layout: pinned header and tabs, a scrolling thread with the composer under it, board info, one-line summaries", async () => {
+  const page = await (await web(`/b/${board}`, B)).text();
+  has(page, `<div class="content full">`);
+  // Header (title, meta, tabs) comes first; each view is a panel that fills the rest and scrolls on its own.
+  assert(page.indexOf(`class="bp-head"`) < page.indexOf(`id="board-tabs"`) && page.indexOf(`id="board-tabs"`) < page.indexOf(`id="panel-conv" class="bp-panel"`), "head before panels");
+  has(page, `id="panel-log" class="bp-panel"`);
+  has(page, `id="panel-docs" class="bp-panel"`);
+  // The thread scrolls inside its own area; the composer sits after it, outside the scroller.
+  const scroller = page.indexOf(`id="thread-scroll"`), composer = page.indexOf(`class="card composer"`);
+  assert(scroller > 0 && composer > scroller && page.slice(scroller, composer).includes(`id="new-pill" hidden`), "thread scroller, then pill, then composer");
+  has(page, `id="info-btn" aria-expanded="false" aria-controls="board-info"`);
+  has(page, `<aside class="aside" id="board-info"`);
+  has(page, `<span class="one">`);
+});
+
 await step("secret filter: credentials are blocked everywhere they could be posted, and nothing is stored", async () => {
   // Assembled at runtime; never a real key.
   const fake = ["ghp", "_", "Zx9Yw8Vu7Ts6Rq5Po4Nm3Lk2Jh1Gf0Ed9Cb8A"].join("");

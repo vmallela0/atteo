@@ -115,8 +115,9 @@ export function threadHtml(entries: Entry[], boardId: string, viewer?: { name: s
 
 export function summaryHtml(entries: Entry[], viewer: string, members: MemberView[], precomputed?: Summary, ctl?: { boardId: string; creator: string }): string {
   const s = precomputed ?? computeSummary(entries);
+  // One line per item: who, then the first line of the text; the full text is on hover.
   const item = (e: Entry) =>
-    `<li><a href="#e${e.seq}"><span class="n">#${e.seq}</span><span>${e.to ? `<b>${esc(authorLabel(e))}</b> → ${esc(e.to)}: ` : `<b>${esc(authorLabel(e))}</b>: `}${esc(clip(e.artifact_name ?? e.text, 90))}</span></a></li>`;
+    `<li><a href="#e${e.seq}" title="${esc(clip(e.artifact_name ?? e.text, 300))}"><span class="n">#${e.seq}</span><span class="one">${e.to ? `<b>${esc(authorLabel(e))}</b> → ${esc(e.to)}: ` : `<b>${esc(authorLabel(e))}</b>: `}${esc(clip(e.artifact_name ?? firstLine(e.text), 120))}</span></a></li>`;
   const sec = (title: string, items: Entry[]) =>
     `<h3><span>${title}</span><span class="faint">${items.length || ""}</span></h3>${items.length ? `<ul>${items.map(item).join("")}</ul>` : `<p class="none">None</p>`}`;
   // The viewer is a person: `to` and "@viewer" wait on them; "@viewer's agent" is work handed to their agent.
@@ -150,6 +151,17 @@ export function summaryHtml(entries: Entry[], viewer: string, members: MemberVie
     sec("Decisions", s.decisions) +
     sec("Files", s.artifacts) +
     people
+  );
+}
+
+/** The first line that has text, outside code fences: what a one-line summary should show. */
+export function firstLine(s: string): string {
+  return (
+    s
+      .replace(/```[\s\S]*?```/g, "\n")
+      .split("\n")
+      .map((l) => l.replace(/^\s*(#{1,3}|[-*]|\d+[.)])\s+/, "").trim())
+      .find(Boolean) ?? ""
   );
 }
 
@@ -405,12 +417,26 @@ ${agent.connected ? "" : `<button class="btn primary lg" style="margin-top:16px"
   const rows = [...entries].reverse().map((e) => logRow(e)).join("");
   const script = SHEET_JS + CONNECT_JS + `
 window.BOARD=${JSON.stringify(info.id)};let last=${last};
+// The thread scrolls in its own area and opens at the latest entry. New entries keep you at the bottom only if you
+// were already there (or just posted); otherwise a "New messages" pill offers the jump.
+const scroller=document.getElementById('thread-scroll'),pill=document.getElementById('new-pill');let stickNext=false,moved=false;
+const atBottom=()=>scroller.clientHeight===0||scroller.scrollHeight-scroller.scrollTop-scroller.clientHeight<80;
+function toBottom(smooth){const far=scroller.scrollHeight-scroller.scrollTop-scroller.clientHeight>1200; // long jumps are instant
+  scroller.scrollTo({top:scroller.scrollHeight,behavior:smooth&&!far?'smooth':'auto'});pill.hidden=true}
+scroller.addEventListener('scroll',()=>{if(atBottom())pill.hidden=true},{passive:true});
+['wheel','touchmove','keydown'].forEach(t=>scroller.addEventListener(t,()=>{moved=true},{passive:true}));
+pill.addEventListener('click',()=>toBottom(true));
+const linked=/^#e\\d+$/.test(location.hash);
+if(!linked)toBottom();
+window.addEventListener('load',()=>{if(!linked&&!moved)toBottom()});
 // One update fetch at a time (a post's own refresh and the live signal used to race and add the entry twice).
 let ticking=null,again=false;
 function tick(wait){if(ticking){if(!wait)again=true;return ticking}ticking=tick1(wait).finally(()=>{ticking=null;if(again){again=false;tick(false)}});return ticking}
 async function tick1(wait){try{
   const r=await fetch('/api/boards/'+BOARD+'/updates?after='+last+(wait?'&wait=25':''));if(!r.ok){await new Promise(r=>setTimeout(r,5000));return}const d=await r.json();
+  const stick=stickNext||atBottom();stickNext=false;let added=0;
   for(const e of d.entries){if(document.getElementById('e'+e.seq)){last=Math.max(last,e.seq);continue} // already on the page
+    added++;
     const box=e.root!==e.seq&&document.getElementById('r'+e.root);
     const tmp=document.createElement('div');tmp.innerHTML=e.html;const el=tmp.firstElementChild;el.classList.add('flash-in');
     if(box){el.querySelector('.replies')?.remove();box.appendChild(el)}else{document.getElementById('empty')?.remove();document.getElementById('thread').appendChild(el)}
@@ -418,7 +444,8 @@ async function tick1(wait){try{
     if(e.retracts){const t=document.getElementById('e'+e.retracts);if(t){t.classList.add('retracted');t.querySelector('[data-retract]')?.remove()}}
     last=Math.max(last,e.seq)}
   if(typeof d.last==='number')last=Math.max(last,d.last);
-  if(d.entries.length){document.getElementById('sum').innerHTML=d.summary;document.querySelectorAll('[data-count]').forEach(x=>x.textContent=d.count);refreshTimes()}
+  if(added){if(stick)toBottom();else pill.hidden=false}
+  if(d.entries.length){document.getElementById('sum').innerHTML=d.summary;document.querySelectorAll('[data-count]').forEach(x=>x.textContent=d.count);refreshTimes();infoCount()}
 }catch(e){await new Promise(r=>setTimeout(r,5000))}}
 // Live updates: a WebSocket that only says "something changed"; fall back to long-polling if it can't stay up.
 let ws,retry=0,polling=false;
@@ -437,7 +464,7 @@ function connect(){
 }
 connect();
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!polling)tick(false)});
-window.posted=()=>{toast('Posted');tick(false)};
+window.posted=()=>{toast('Posted');stickNext=true;tick(false);setTimeout(()=>{ta.style.height=''},0)};
 // @mention autocomplete: people ("@vedu") and agents ("@vedu's agent", including your own).
 const MOPTS=${jsString(mentionOptions(members.map((m) => m.user), viewer.name))};
 const ta=document.getElementById('composer-text'),mm=document.getElementById('mention-menu');let mi=0,ms=[],mq=null;
@@ -449,7 +476,7 @@ function mrender(){mq=mfind();ms=mq?MOPTS.filter(o=>o.u.startsWith(mq.q)):[];if(
   mm.hidden=false;ta.setAttribute('aria-expanded','true');ta.setAttribute('aria-activedescendant','mo-'+mi)}
 function mpick(o){const end=ta.selectionStart,before=ta.value.slice(0,mq.start),after=ta.value.slice(end);const ins='@'+o.ins+(/^\\s/.test(after)?'':' ');
   ta.value=before+ins+after;const p=before.length+ins.length;ta.setSelectionRange(p,p);mclose();ta.focus()}
-ta.addEventListener('input',()=>{mi=0;mrender()});
+ta.addEventListener('input',()=>{mi=0;mrender();ta.style.height='';ta.style.height=ta.scrollHeight+2+'px'});
 ta.addEventListener('keydown',e=>{if(mm.hidden)return;
   if(e.key==='ArrowDown'||e.key==='ArrowUp'){mi=(mi+(e.key==='ArrowDown'?1:ms.length-1))%ms.length;mrender();e.preventDefault()}
   else if(e.key==='Enter'||e.key==='Tab'){mpick(ms[mi]);e.preventDefault()}
@@ -466,11 +493,11 @@ const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&g
 async function loadDocs(){const r=await fetch('/api/boards/'+BOARD+'/docs');const j=await r.json();const el=document.getElementById('doc-items');
   el.innerHTML=(j.docs||[]).length?j.docs.map(d=>'<a href="#docs" class="doc-item'+(curDoc&&curDoc.name===d.name?' on':'')+'" data-doc="'+esc(d.name)+'"><span class="truncate">'+esc(d.name)+'</span><span class="xs faint">v'+d.version+'</span></a>').join(''):'<p class="xs faint">No documents yet.</p>'}
 async function openDoc(name,version){editing=false;const r=await fetch('/api/boards/'+BOARD+'/doc?name='+encodeURIComponent(name)+(version?'&version='+version:''));const d=await r.json();if(!r.ok){toast(d.error);return}curDoc=d;renderDoc();loadDocs()}
-function renderDoc(){const d=curDoc,v=document.getElementById('doc-view');const old=d.version!==d.latest;
+function renderDoc(){const d=curDoc,v=document.getElementById('doc-view');const old=d.version!==d.latest;v.classList.remove('editing');
   v.innerHTML='<div class="row wrap" style="justify-content:space-between;gap:8px;margin-bottom:12px"><div><b class="mono">'+esc(d.name)+'</b> <span class="xs faint">v'+d.version+(old?' (viewing an older version; latest v'+d.latest+')':'')+' · '+esc(d.via==='agent'?d.updated_by+"'s agent":d.updated_by)+'</span></div><div class="row">'+
   '<button class="btn sm ghost" type="button" id="doc-hist">History</button>'+(READONLY||old?'':'<button class="btn sm" type="button" id="doc-edit">Edit</button>')+'</div></div><div class="doc-body body">'+d.html+'</div><div id="doc-history"></div>'}
-function editDoc(){const d=curDoc,v=document.getElementById('doc-view');editing=true;
-  v.innerHTML='<div class="row" style="justify-content:space-between;margin-bottom:10px"><b class="mono">'+esc(d.name)+'</b><span class="xs faint">editing v'+d.version+'</span></div><textarea class="input mono" id="doc-text" style="min-height:360px;font-size:12.5px">'+esc(d.content)+'</textarea><input class="input" id="doc-summary" placeholder="What changed? (optional)" style="margin-top:8px"><p id="doc-warn" class="flash" hidden style="margin-top:8px"></p><div class="row" style="justify-content:flex-end;margin-top:10px"><button class="btn" type="button" id="doc-cancel">Cancel</button><button class="btn primary" type="button" id="doc-save">Save</button></div>'}
+function editDoc(){const d=curDoc,v=document.getElementById('doc-view');editing=true;v.classList.add('editing');
+  v.innerHTML='<div class="row" style="justify-content:space-between;margin-bottom:10px"><b class="mono">'+esc(d.name)+'</b><span class="xs faint">editing v'+d.version+'</span></div><textarea class="input mono" id="doc-text" style="font-size:12.5px">'+esc(d.content)+'</textarea><input class="input" id="doc-summary" placeholder="What changed? (optional)" style="margin-top:8px"><p id="doc-warn" class="flash" hidden style="margin-top:8px"></p><div class="row" style="justify-content:flex-end;margin-top:10px"><button class="btn" type="button" id="doc-cancel">Cancel</button><button class="btn primary" type="button" id="doc-save">Save</button></div>'}
 async function saveDoc(name,content,base,summary){const r=await fetch('/api/boards/'+BOARD+'/doc',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'write',name,content,base_version:base,summary})});const j=await r.json();
   if(!r.ok){const w=document.getElementById('doc-warn');if(w){w.hidden=false;w.className='flash err';w.textContent=j.error}else toast(j.error);return false}toast(j.message);await openDoc(name);tick(false);return true}
 document.addEventListener('click',async e=>{const t=e.target;
@@ -480,8 +507,8 @@ document.addEventListener('click',async e=>{const t=e.target;
   if(t.closest('#doc-save')){saveDoc(curDoc.name,document.getElementById('doc-text').value,curDoc.version,document.getElementById('doc-summary').value);return}
   if(t.closest('#doc-hist')){const r=await fetch('/api/boards/'+BOARD+'/doc-history?name='+encodeURIComponent(curDoc.name));const j=await r.json();
     document.getElementById('doc-history').innerHTML='<div class="divider"></div>'+(j.versions||[]).map(v=>'<a href="#docs" class="doc-item" data-doc="'+esc(curDoc.name)+'" data-ver="'+v.version+'"><span>v'+v.version+' · '+esc(v.via==='agent'?v.author+"'s agent":v.author)+(v.summary?' · '+esc(v.summary):'')+'</span><span class="xs faint">'+new Date(v.ts).toLocaleString()+'</span></a>').join('');return}
-  if(t.closest('#doc-new')){const v=document.getElementById('doc-view');editing=true;curDoc=null;
-    v.innerHTML='<label class="lbl" for="doc-name">Name</label><input class="input mono" id="doc-name" placeholder="BACKLOG.md"><label class="lbl" style="margin-top:12px" for="doc-text">Content</label><textarea class="input mono" id="doc-text" style="min-height:300px;font-size:12.5px"></textarea><p id="doc-warn" class="flash" hidden style="margin-top:8px"></p><div class="row" style="justify-content:flex-end;margin-top:10px"><button class="btn primary" type="button" id="doc-create">Create</button></div>';return}
+  if(t.closest('#doc-new')){const v=document.getElementById('doc-view');editing=true;curDoc=null;v.classList.add('editing');
+    v.innerHTML='<label class="lbl" for="doc-name">Name</label><input class="input mono" id="doc-name" placeholder="BACKLOG.md"><label class="lbl" style="margin-top:12px" for="doc-text">Content</label><textarea class="input mono" id="doc-text" style="font-size:12.5px"></textarea><p id="doc-warn" class="flash" hidden style="margin-top:8px"></p><div class="row" style="justify-content:flex-end;margin-top:10px"><button class="btn primary" type="button" id="doc-create">Create</button></div>';return}
   if(t.closest('#doc-create')){saveDoc(document.getElementById('doc-name').value.trim(),document.getElementById('doc-text').value,0,'created');return}
 });
 document.addEventListener('click',e=>{const it=e.target.closest('[data-ver]');if(it){e.preventDefault();e.stopPropagation();openDoc(it.dataset.doc,+it.dataset.ver)}},true);
@@ -517,8 +544,18 @@ document.addEventListener('click',async e=>{const b=e.target.closest('[data-file
   const card=b.closest('.file');let pre=card.querySelector('pre');if(pre){pre.remove();b.textContent='View';return}
   b.disabled=true;const r=await fetch('/api/boards/'+b.dataset.board+'/entries/'+b.dataset.file);const j=await r.json();b.disabled=false;
   pre=document.createElement('pre');pre.className='mono';pre.textContent=j.artifact_content??j.error;card.appendChild(pre);b.textContent='Hide'});
-function tab(n){document.querySelectorAll('#board-tabs button').forEach((b,i)=>b.setAttribute('aria-selected',String(i===n)));
-  document.querySelectorAll('[data-board-panel]').forEach((p,i)=>p.hidden=i!==n);history.replaceState(null,'',['',"#log","#docs"][n]||location.pathname);if(n===2)loadDocs()}
+const infoBtn=document.getElementById('info-btn'),convLayout=document.getElementById('conv-layout');
+function infoOpen(o){convLayout.classList.toggle('info-open',o);infoBtn.setAttribute('aria-expanded',String(o))}
+function infoCount(){const n=document.querySelectorAll('#sum .waiting li').length,c=document.getElementById('info-count');c.textContent=n||'';c.hidden=!n}
+infoBtn.addEventListener('click',()=>infoOpen(!convLayout.classList.contains('info-open')));
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&convLayout.classList.contains('info-open')&&!document.querySelector('dialog[open]'))infoOpen(false)});
+document.getElementById('board-info').addEventListener('click',e=>{if(e.target.closest('a[href^="#e"]'))infoOpen(false)});
+infoCount();
+let convStuck=true;
+function tab(n){if(!document.getElementById('panel-conv').hidden)convStuck=atBottom();
+  document.querySelectorAll('#board-tabs button').forEach((b,i)=>b.setAttribute('aria-selected',String(i===n)));
+  document.querySelectorAll('[data-board-panel]').forEach((p,i)=>p.hidden=i!==n);
+  infoBtn.hidden=n!==0;if(n===0&&convStuck)toBottom();history.replaceState(null,'',['',"#log","#docs"][n]||location.pathname);if(n===2)loadDocs()}
 document.querySelectorAll('#board-tabs button').forEach((b,i)=>b.addEventListener('click',()=>tab(i)));
 if(location.hash==='#log')tab(1);if(location.hash==='#docs')tab(2);
 let cur=-1;
@@ -538,23 +575,26 @@ window.boardKeys=(e,k)=>{
         isCreator ? `<form method="post" action="/api/boards/${esc(info.id)}/archive" data-api data-done="archiveDone"><input type="hidden" name="archived" value="false"><button class="btn sm">Restore</button></form>` : ""
       }</div>`
     : "";
-  const body = `${archivedBanner}<div style="margin-bottom:18px">
+  const body = `<div class="bp-head">${archivedBanner}
   ${
     isCreator && !info.archived
       ? `<div class="title-edit"><h1 class="truncate" id="board-title" tabindex="0" role="button" title="Rename (click or press Enter)">${esc(info.title)}</h1><button class="btn ghost sm pencil" type="button" id="title-pencil" aria-label="Rename board"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M11.5 2.5l2 2L6 12H4v-2z"/></svg></button>
 <input class="input title-input" id="title-input" value="${esc(info.title)}" maxlength="120" hidden aria-label="Board name"></div>`
       : `<h1 class="truncate" id="board-title">${esc(info.title)}</h1>`
   }
-  <div class="row wrap small muted" style="margin-top:8px;gap:14px">
+  <div class="row wrap small muted bp-meta">
     <span class="badge live"><span class="dot"></span>Live</span>
-    <span class="row">${avatarStack(members.map((m) => m.user))}<span>${members.map((m) => esc(m.user)).join(", ")}</span></span>
+    <span class="row" style="min-width:0">${avatarStack(members.map((m) => m.user))}<span class="truncate">${members.map((m) => esc(m.user)).join(", ")}</span></span>
     <span><span data-count>${info.entry_count}</span> entries</span>
-    <span class="mono xs faint">${esc(info.id)}</span>
-  </div></div>
-<div class="tabs" role="tablist" id="board-tabs"><button role="tab" aria-selected="true">Conversation</button><button role="tab" aria-selected="false">Log <span class="faint" data-count>${info.entry_count}</span></button><button role="tab" aria-selected="false">Docs</button></div>
-<div role="tabpanel" id="panel-conv" data-board-panel><div class="layout">
-  <section>
-    <div class="thread" id="thread">${thread}</div>
+    <span class="mono xs faint bp-id">${esc(info.id)}</span>
+  </div>
+  <div class="bp-tabs"><div class="tabs" role="tablist" id="board-tabs"><button role="tab" aria-selected="true">Conversation</button><button role="tab" aria-selected="false">Log <span class="faint" data-count>${info.entry_count}</span></button><button role="tab" aria-selected="false">Docs</button></div>
+    <button class="btn ghost sm info-btn" type="button" id="info-btn" aria-expanded="false" aria-controls="board-info">Board info <span class="count" id="info-count" hidden></span></button></div>
+</div>
+<div role="tabpanel" id="panel-conv" class="bp-panel" data-board-panel><div class="layout" id="conv-layout">
+  <section class="conv">
+    <div class="thread-wrap"><div class="thread-scroll" id="thread-scroll"><div class="thread" id="thread">${thread}</div></div>
+      <button class="btn sm new-pill" type="button" id="new-pill" hidden>New messages ↓</button></div>
     <form class="card composer" method="post" action="/api/boards/${esc(info.id)}/entries" data-api data-done="posted" data-reset${info.archived ? " hidden" : ""}>
       <textarea class="input" id="composer-text" name="text" required placeholder="Write a note, question, task or decision… (Enter to post, Shift+Enter for a new line, @ to mention)" aria-label="Message"
         role="combobox" aria-autocomplete="list" aria-controls="mention-menu" aria-expanded="false"></textarea>
@@ -568,7 +608,7 @@ window.boardKeys=(e,k)=>{
       </div>
     </form>
   </section>
-  <aside class="aside">${agentCard(agent, info.title)}<div class="sum" id="sum">${summaryHtml(entries, viewer.name, members, undefined, ctl)}</div>
+  <aside class="aside" id="board-info" aria-label="Board info">${agentCard(agent, info.title)}<div class="sum" id="sum">${summaryHtml(entries, viewer.name, members, undefined, ctl)}</div>
     ${
       isCreator
         ? `<div class="divider"></div><div class="stack" style="--gap:4px"><form method="post" action="/api/boards/${esc(info.id)}/archive" data-api data-done="archiveDone" style="margin:0"><input type="hidden" name="archived" value="${info.archived ? "false" : "true"}"><button class="btn ghost sm">${info.archived ? "Restore board" : "Archive board"}</button></form>
@@ -576,10 +616,10 @@ window.boardKeys=(e,k)=>{
         : ""
     }</aside>
 </div></div>
-<div role="tabpanel" id="panel-log" data-board-panel hidden><div class="list scroll-x"><table class="log"><thead><tr><th>Time (UTC)</th><th>#</th><th>Author</th><th>Type</th><th>To</th><th>Summary</th></tr></thead>
+<div role="tabpanel" id="panel-log" class="bp-panel" data-board-panel hidden><div class="list scroll-x"><table class="log"><thead><tr><th>Time (UTC)</th><th>#</th><th>Author</th><th>Type</th><th>To</th><th>Summary</th></tr></thead>
 <tbody id="log-body">${rows || `<tr id="log-empty"><td colspan="6" class="empty small">No events yet.</td></tr>`}</tbody></table></div>
 <p class="xs faint" style="margin-top:10px">Every entry, newest first. Click a row (or <kbd>J</kbd>/<kbd>K</kbd> then <kbd>↵</kbd>) for its raw payload.</p></div>
-<div role="tabpanel" id="panel-docs" data-board-panel hidden>
+<div role="tabpanel" id="panel-docs" class="bp-panel" data-board-panel hidden>
   <div class="docs">
     <div class="doc-list"><div class="row" style="justify-content:space-between;margin-bottom:8px"><span class="small muted">Documents</span>${info.archived ? "" : `<button class="btn sm" type="button" id="doc-new">New</button>`}</div><div id="doc-items" class="small muted">Loading…</div></div>
     <div class="doc-view card pad" id="doc-view"><p class="muted small">Pick a document, or create one, e.g. BACKLOG.md. People and agents on this board edit it together; every save is a new version.</p></div>
@@ -621,6 +661,7 @@ ${connectDialog(viewer, { id: info.id, title: info.title })}
     actions: `<button class="btn sm" data-open="invite">Invite <kbd>I</kbd></button><button class="btn primary sm" data-open="connect">Connect an agent</button>`,
     body,
     script,
+    full: true,
   });
 }
 

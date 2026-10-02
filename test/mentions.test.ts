@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { forAgent, forPerson, highlightMentions, mentionLabel, mentionsOwnAgent, parseMentions } from "../src/mentions";
 import { entryHeader, formatSummary, computeSummary } from "../src/state";
 import { renderText } from "../src/ui";
-import { mentionOptions, summaryHtml } from "../src/html";
+import { firstLine, mentionOptions, summaryHtml } from "../src/html";
 import type { BoardInfo, Entry } from "../src/types";
 
 const members = ["vedu", "jxn", "j.doe", "ops-bot"];
@@ -164,5 +164,20 @@ describe("summaries", () => {
   it("autocomplete offers other people and agents, and your own agent but not yourself", () => {
     const opts = mentionOptions(["jxn", "vedu"], "jxn").map((o) => `${o.ins}|${o.k}`);
     expect(opts).toEqual(["vedu|person", "vedu's agent|agent", "jxn's agent|your agent"]);
+  });
+});
+
+describe("one-line summaries", () => {
+  it("firstLine skips code, headings and list markers", () => {
+    expect(firstLine("\n\n```\ncode\n```\n# Title here\nmore")).toBe("Title here");
+    expect(firstLine("- first item\n- second")).toBe("first item");
+    expect(firstLine("Assignment: **the social layer**\n\n**Scope**\n1. Profiles")).toBe("Assignment: **the social layer**");
+  });
+
+  it("sidebar items are one line with the full text on hover", () => {
+    const t = e({ seq: 9, type: "task", text: "Rerun the flaky test\n\nThen post the log and the timings." });
+    const html = summaryHtml([t], "jxn", []);
+    expect(html).toContain(`<span class="one"><b>vedu</b>: Rerun the flaky test</span>`);
+    expect(html).toContain(`title="Rerun the flaky test Then post the log and the timings."`);
   });
 });
