@@ -83,7 +83,7 @@ ${
 ${avatar(e.author, "", e.via === "agent")}
 <div class="grow">
   <div class="meta">${whoHtml(e)}${e.to ? `<span class="to">→ ${esc(e.to)}</span>` : ""}${typeTag(e.type)}${when(e.ts)}<a class="seq" href="#e${e.seq}">#${e.seq}</a><span class="badge rbadge">Unsent</span>${flagBadge(e.text)}${actions}</div>
-  <div class="body">${renderText(e.text, e.mentions)}</div>${file}${e.card ? changeCardHtml(e.seq, e.card) : ""}
+  <div class="body">${renderText(e.text, e.mentions)}</div>${file}${e.card ? changeCardHtml(e.seq, e.card) : ""}${e.type === "task" ? `<div class="tk" data-task="${e.seq}" hidden></div>` : ""}
   ${refs.length ? `<div class="refs">${refs.join(" · ")}</div>` : ""}
   <div class="rx" data-rx="${e.seq}"><button class="rx-add" type="button" data-rx-add="${e.seq}" aria-label="Add a reaction" title="Add a reaction">☺<span>+</span></button></div>
   ${withReplies ? `<div class="replies" id="r${e.seq}"></div>` : ""}
@@ -604,6 +604,7 @@ async function tick1(wait){try{
     const tmp=document.createElement('div');tmp.innerHTML=e.html;const el=tmp.firstElementChild;el.classList.add('flash-in');
     if(box){el.querySelector('.replies')?.remove();box.appendChild(el)}else{document.getElementById('empty')?.remove();document.getElementById('thread').appendChild(el)}
     if(e.reactions)renderRx(e.seq,e.reactions);
+    if(el.querySelector('[data-task]'))refreshTask(e.seq);
     if(!document.querySelector('#log-body tr[data-seq="'+e.seq+'"]')){const lt=document.createElement('tbody');lt.innerHTML=e.row;document.getElementById('log-body').prepend(lt.firstElementChild);document.getElementById('log-empty')?.remove()}
     if(e.retracts){const t=document.getElementById('e'+e.retracts);if(t){t.classList.add('retracted');t.querySelector('[data-retract]')?.remove()}}
     last=Math.max(last,e.seq)}
@@ -626,6 +627,7 @@ function connect(){
     if(d.type==='doc'){window.onDocChanged&&onDocChanged(d)}
     if(d.type==='reaction'){renderRx(d.seq,d.reactions);return}
     if(d.type==='read'){READS[d.user]={person_seen:d.person_seen,agent_seen:d.agent_seen};renderReads();return}
+    if(d.type==='task')refreshTask(d.seq);
     if(d.type==='task'){if(!document.getElementById('panel-tasks').hidden)loadTasks();if(td&&td.open&&tcur&&tcur.seq===d.seq&&!tdirty)openTask(d.seq)}
     if(d.type==='entry'||(d.type==='hello'&&d.last>last)){tick(false);if(!document.getElementById('panel-tasks').hidden)loadTasks()}};
   ws.onclose=(e)=>{clearInterval(ping);if(e.code===4003){location.href='/';return}
@@ -859,6 +861,23 @@ document.addEventListener('click',e=>{
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!picker.hidden)closePicker()});
 scroller.addEventListener('scroll',()=>{if(!picker.hidden)closePicker()},{passive:true});
 fetch('/api/boards/'+BOARD+'/reactions').then(r=>r.json()).then(j=>{for(const [seq,list] of Object.entries(j.reactions||{}))renderRx(+seq,list)}).catch(()=>{});
+// ---- tasks in the conversation: a live strip under each task (status, priority, who it's for, who holds it) ----
+const TSTATUS={todo:'To do',doing:'In progress',blocked:'Blocked',done:'Done',stopped:'Stopped'};
+const whoName=(u,agent)=>u===ME?(agent?'your agent':'you'):(agent?u+"'s agent":u);
+function renderTask(t){const el=document.querySelector('[data-task="'+t.seq+'"]');if(!el)return;
+  const mine=t.lease_holder===ME&&!t.lease_agent,left=t.lease_until?Math.max(0,Math.round((t.lease_until-Date.now())/60000)):null;
+  const bits=[t.assignee?'for '+esc(whoName(t.assignee,t.assignee_agent)):'',t.lease_holder?'🔒 '+esc(whoName(t.lease_holder,t.lease_agent))+(left!=null?' · '+left+'m left':''):'',t.stop_reason?esc(t.stop_reason):''].filter(Boolean);
+  el.innerHTML='<span class="tk-st st-'+t.status+'"><span class="dot"></span>'+TSTATUS[t.status]+'</span>'+(t.priority?'<span class="badge pri-'+t.priority+'">'+t.priority+'</span>':'')+
+    '<span class="tk-who">'+bits.join(' · ')+'</span><span class="grow"></span>'+
+    (READONLY?'':(t.status==='done'?'<button class="btn ghost sm" type="button" data-tk="reopen">Reopen</button>':
+      (t.lease_holder&&!mine?'':'<button class="btn ghost sm" type="button" data-tk="'+(mine?'release':'claim')+'">'+(mine?'Release':'Claim')+'</button>')+'<button class="btn ghost sm" type="button" data-tk="done">Done</button>'))+
+    '<button class="btn ghost sm" type="button" data-tk="open">Open</button>';
+  el.hidden=false}
+async function refreshTask(seq){try{const r=await fetch('/api/boards/'+BOARD+'/tasks/'+seq);const j=await r.json();if(r.ok&&j.task)renderTask(j.task)}catch(e){}}
+document.addEventListener('click',async e=>{const b=e.target.closest('[data-tk]');if(!b)return;const seq=+b.closest('[data-task]').dataset.task,a=b.dataset.tk;
+  if(a==='open'){openTask(seq);return}b.disabled=true;
+  await taskAct(seq,a==='claim'||a==='release'?{action:a}:{action:'update',status:a==='done'?'done':'todo'});b.disabled=false;refreshTask(seq)});
+fetch('/api/boards/'+BOARD+'/tasks').then(r=>r.json()).then(j=>(j.tasks||[]).forEach(renderTask)).catch(()=>{});
 window.deleted=()=>{location.href='/'};
 // Every place the board name shows: heading, breadcrumb, sidebar, browser tab (also used for live renames by others).
 window.applyTitle=(t)=>{const h=document.getElementById('board-title');if(h)h.textContent=t;document.title=t+' · Agent Soup';

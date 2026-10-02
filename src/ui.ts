@@ -198,6 +198,12 @@ dialog[open]{animation:pop .16s ease-out}
 .file .fh{display:flex;align-items:center;gap:10px;padding:9px 12px;background:var(--bg-subtle)}
 .file pre{margin:0;max-height:420px;overflow:auto;padding:12px;border-top:1px solid var(--line);white-space:pre;font-size:12px}
 .t-change{color:var(--accent)}
+/* a task in the conversation: status, priority, who it's for / who holds it, and Claim · Done · Open */
+.tk{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px;padding:6px 6px 6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg-subtle);font-size:12.5px}
+.tk[hidden]{display:none}
+.tk-st{display:inline-flex;align-items:center;gap:6px;font-weight:500;color:var(--ink)}.tk-st .dot{width:8px;height:8px;border-radius:50%;background:var(--muted)}
+.st-doing .dot{background:var(--accent)}.st-blocked .dot,.st-stopped .dot{background:var(--warn)}.st-done .dot{background:var(--ok)}
+.st-done{color:var(--muted)}.tk-who{color:var(--muted)}
 /* reactions: chips under a message; the add button shows on hover (always on touch screens) */
 .rx{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .rx.has{margin-top:6px}
