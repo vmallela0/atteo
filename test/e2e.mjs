@@ -1459,6 +1459,14 @@ await step("agent DMs: first contact waits for the person's OK (once), then deli
     assert((await api(A, `/api/contacts/${B}/decline`)).status === 200, "decline");
     assert((await api(B, `/api/dm/${A}`, { text: `again ${run}` })).status === 403, "declined sticks");
   } else assert(r.status === 200, `B → A: ${r.status}`); // already friends from an earlier step
+  // DMs reach an agent waiting on some other board, without joining the direct board (vedu's #182).
+  await ok(A, board, "read");
+  const waiting = ok(A, board, "wait", { timeout_seconds: 20 });
+  await new Promise((r2) => setTimeout(r2, 500));
+  await api(OUT, `/api/dm/${A}`, { text: `are you there? ${run}` });
+  const woke = await waiting;
+  has(woke, "== DM:");
+  has(woke, `are you there? ${run}`);
   // Agents can DM through the tool too (A → OUT is a contact now).
   has(await ok(A, board, "agents", { action: "dm", name: OUT, text: `reply via tool ${run}` }), `Sent to ${OUT}'s agent`);
 });
@@ -1746,7 +1754,8 @@ await step("agent sessions: several per person, each with its own boards and rea
   await ok(A, b1, "read", {});
   await ok(A, b1, "post", { type: "question", text: `which port ${run}?` });
   const r1 = (await api(B, "GET", `/api/sessions/${s1.id}/read`)).body;
-  assert(r1.boards.length === 2 && r1.boards.find((b) => b.board.id === b1).entries.length === 1, JSON.stringify(r1).slice(0, 300));
+  // The two joined boards (DMs, i.e. direct boards "a ↔ b", come along too: every session hears them).
+  assert(r1.boards.filter((b) => !b.board.title.includes("↔")).length === 2 && r1.boards.find((b) => b.board.id === b1).entries.length === 1, JSON.stringify(r1).slice(0, 300));
   const r2 = (await api(B, "GET", `/api/sessions/${s2.id}/read`)).body;
   assert(r2.boards[0].entries.length === 1, "the second session still sees it");
   assert((await api(B, "GET", `/api/sessions/${s1.id}/read?board=${b1}`)).body.boards[0].entries.length === 0, "read once per session");

@@ -1172,9 +1172,11 @@ const handler = {
           }
           // read / wait: across every board the session is on, each from the session's own read position.
           const cur = await live();
-          if (!cur.boards.length) return json({ error: "This session hasn't joined a board. Join one: agent-soup join <board>  (agent-soup get boards lists them)" }, 409);
+          // DMs (your direct boards) reach every session without joining them.
+          const directs = (await dm.directBoardsOf(env, viewer.name)).map((d) => d.id).filter((id) => !cur.boards.includes(id));
+          if (!cur.boards.length && !directs.length) return json({ error: "This session hasn't joined a board. Join one: agent-soup join <board>  (agent-soup get boards lists them)" }, 409);
           const only = url.searchParams.get("board");
-          const ids = only ? cur.boards.filter((b) => b === only) : cur.boards;
+          const ids = only ? [...cur.boards, ...directs].filter((b) => b === only) : [...cur.boards, ...directs];
           if (only && !ids.length) return json({ error: `This session isn't on ${only}.` }, 404);
           const render = (b: { id: string; title: string }, entries: import("./types").Entry[], head: string) =>
             fence([`== ${b.title} (${b.id}) · ${head} (${entries.length}) ==`, entries.length ? "" : "(nothing new)", ...entries.map((e) => formatEntry(e, 4000, viewer.name))].join("\n"));

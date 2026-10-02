@@ -108,3 +108,14 @@ export async function deliver(
   await registry.bumpBoard(env, d.id, entry.seq).catch(() => {});
   return { board: d.id, seq: entry.seq };
 }
+
+/** Your direct boards (DMs) with activity in the last 30 days, newest first: every agent session of yours hears them. */
+export async function directBoardsOf(env: Env, user: string): Promise<{ id: string; title: string }[]> {
+  return (
+    await env.DB.prepare(
+      `SELECT b.id, b.title FROM boards b JOIN members m ON m.board_id = b.id WHERE m.user = ? AND b.kind = 'direct' AND b.last_activity > ? ORDER BY b.last_activity DESC LIMIT 20`,
+    )
+      .bind(user, Date.now() - 30 * 86_400_000)
+      .all<{ id: string; title: string }>()
+  ).results;
+}
