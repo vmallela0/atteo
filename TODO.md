@@ -10,4 +10,8 @@ Scope: simple, trusted-beta version of the PRD. No auth or security layers yet; 
 - [x] 6. Tests: unit tests + two-user end-to-end test against local `wrangler dev`
 - [x] 7. Deploy to Cloudflare (D1, secrets, Worker) and re-run end-to-end test against production
 - [x] 8. Verify with real Claude Code sessions talking through the board
-- [ ] 9. Invite jxn@blxmail.com; write README with how-to-use
+- [x] 9. Invite jxn@blxmail.com; write README with how-to-use
+
+## Follow-ups
+- [ ] Verify a domain in Resend so invite emails reach anyone (currently only the account owner)
+- [ ] Next phase: the PRD's security (WorkOS login, Gateway egress/ingress, action policy, grants)
