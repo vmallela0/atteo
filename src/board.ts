@@ -4,7 +4,9 @@
 import { DurableObject } from "cloudflare:workers";
 import { computeSummary, formatSummary, DEFAULT_SUMMARY_CHARS, type Summary } from "./state";
 import { blockedMessage, scanFields, scanText, type SecretHit } from "./secrets";
+import { keep, MAX_MENTIONS, mentionsOwnAgent, type Mention } from "./mentions";
 import { ENTRY_TYPES, type BoardInfo, type Entry, type Env, type Member, type NewEntry } from "./types";
+import { USER_RE } from "./util";
 
 export const MAX_TEXT = 32_000;
 export const MAX_ARTIFACT = 256_000;
@@ -27,6 +29,7 @@ function toEntry(r: Row): Entry {
     type: r.type as Entry["type"],
     text: r.text as string,
     to: (r.to_user as string | null) ?? null,
+    mentions: JSON.parse((r.mentions as string | null) || "[]"),
     reply_to: (r.reply_to as number | null) ?? null,
     resolves: JSON.parse((r.resolves as string) || "[]"),
     supersedes: (r.supersedes as number | null) ?? null,
@@ -38,7 +41,7 @@ function toEntry(r: Row): Entry {
   };
 }
 
-const ENTRY_COLS = "seq, ts, author, type, text, to_user, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size";
+const ENTRY_COLS = "seq, ts, author, type, text, to_user, mentions, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size";
 
 export class Board extends DurableObject<Env> {
   private sql: SqlStorage;
@@ -57,6 +60,8 @@ export class Board extends DurableObject<Env> {
         type TEXT NOT NULL,
         text TEXT NOT NULL,
         to_user TEXT,
+        mentions TEXT,
+        self_agent INTEGER NOT NULL DEFAULT 0,
         reply_to INTEGER,
         resolves TEXT NOT NULL DEFAULT '[]',
         supersedes INTEGER,
@@ -118,6 +123,8 @@ export class Board extends DurableObject<Env> {
     if (!cols.has("retracts")) this.sql.exec("ALTER TABLE entries ADD COLUMN retracts INTEGER");
     if (!cols.has("via")) this.sql.exec("ALTER TABLE entries ADD COLUMN via TEXT");
     if (!cols.has("client")) this.sql.exec("ALTER TABLE entries ADD COLUMN client TEXT");
+    if (!cols.has("mentions")) this.sql.exec("ALTER TABLE entries ADD COLUMN mentions TEXT");
+    if (!cols.has("self_agent")) this.sql.exec("ALTER TABLE entries ADD COLUMN self_agent INTEGER NOT NULL DEFAULT 0");
   }
 
   // ---- metadata ----
@@ -255,15 +262,26 @@ export class Board extends DurableObject<Env> {
       if (artifactContent.length > MAX_ARTIFACT) throw new BoardError(`artifact_content is too large (max ${MAX_ARTIFACT} characters).`);
     }
 
+    // Resolved against the board's members by the Worker; stored as given, minus anything malformed or meaningless.
+    const mentions: Mention[] = [];
+    for (const m of input.mentions ?? []) {
+      if (typeof m?.user !== "string" || !USER_RE.test(m.user)) continue;
+      const clean = { user: m.user, agent: m.agent === true };
+      if (keep(clean, user, input.via) && !mentions.some((x) => x.user === clean.user && x.agent === clean.agent)) mentions.push(clean);
+      if (mentions.length >= MAX_MENTIONS) break;
+    }
+
     const row = this.sql
       .exec(
-        `INSERT INTO entries (ts, author, type, text, to_user, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_content)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING ${ENTRY_COLS}`,
+        `INSERT INTO entries (ts, author, type, text, to_user, mentions, self_agent, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_content)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING ${ENTRY_COLS}`,
         Date.now(),
         user,
         input.type,
         text,
         input.to ?? null,
+        mentions.length ? JSON.stringify(mentions) : null,
+        mentionsOwnAgent({ author: user, mentions }) ? 1 : 0,
         input.reply_to ?? null,
         JSON.stringify([...new Set(input.resolves ?? [])]),
         input.supersedes ?? null,
@@ -277,27 +295,35 @@ export class Board extends DurableObject<Env> {
       .one();
     const entry = toEntry(row);
 
-    // Your own post counts as read.
-    this.setCursor(user, entry.seq);
+    // Your own post counts as read, unless you're handing it to your own agent: then it's new for your agent.
+    // A later post doesn't skip the agent past a hand-off it hasn't read yet.
+    const forOwnAgent = mentionsOwnAgent(entry);
+    if (!forOwnAgent) {
+      const pending = this.sql
+        .exec("SELECT MIN(e.seq) AS s FROM entries e, members m WHERE m.name = ? AND e.seq > m.cursor AND e.author = ? AND e.self_agent = 1", user, user)
+        .one().s as number | null;
+      this.setCursor(user, pending != null ? pending - 1 : entry.seq);
+    }
 
-    for (const w of this.waiters) if (w.user !== user) w.wake();
+    for (const w of this.waiters) if (w.user !== user || forOwnAgent) w.wake();
     for (const wake of this.watchers) wake();
     // Who posted what to whom (no text): enough for tabs to refresh and for a member's CLI to decide whether to wake its agent.
-    this.broadcast({ type: "entry", seq: entry.seq, retracts: entry.retracts, author: entry.author, kind: entry.type, to: entry.to, reply_to: entry.reply_to, board: info.id, title: info.title });
+    this.broadcast({ type: "entry", seq: entry.seq, retracts: entry.retracts, author: entry.author, kind: entry.type, to: entry.to, mentions: entry.mentions, reply_to: entry.reply_to, board: info.id, title: info.title });
     return entry;
   }
 
   // ---- reads ----
 
+  // "From others" for an agent: other members' entries, plus its own person's posts that mention it ("@me's agent").
   private entriesAfter(seq: number, excludeAuthor: string | null, limit: number): Entry[] {
     const rows = excludeAuthor
-      ? this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq > ? AND author != ? ORDER BY seq LIMIT ?`, seq, excludeAuthor, limit)
+      ? this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq > ? AND (author != ? OR self_agent = 1) ORDER BY seq LIMIT ?`, seq, excludeAuthor, limit)
       : this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq > ? ORDER BY seq LIMIT ?`, seq, limit);
     return rows.toArray().map(toEntry);
   }
 
   private countAfter(seq: number, excludeAuthor: string): number {
-    return this.sql.exec("SELECT COUNT(*) AS n FROM entries WHERE seq > ? AND author != ?", seq, excludeAuthor).one().n as number;
+    return this.sql.exec("SELECT COUNT(*) AS n FROM entries WHERE seq > ? AND (author != ? OR self_agent = 1)", seq, excludeAuthor).one().n as number;
   }
 
   allEntries(): Entry[] {

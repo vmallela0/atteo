@@ -4,6 +4,7 @@ import * as auth from "./auth";
 import { handleMcp } from "./mcp";
 import * as device from "./device";
 import { EMAIL_RE, sendInvite } from "./invite";
+import { mayMention, parseMentions } from "./mentions";
 import * as registry from "./registry";
 import {
   adminPage,
@@ -493,8 +494,10 @@ export default {
           const body = (await request.json().catch(() => ({}))) as { text?: string; type?: string; to?: string };
           const type = (["note", "question", "task", "decision", "claim"] as const).find((t) => t === body.type) ?? "note";
           const to = body.to ? normalizeUser(body.to) : null;
+          const text = String(body.text ?? "");
+          const { mentions } = mayMention(text) ? parseMentions(text, (await registry.boardMembers(env, id)).map((x) => x.user), viewer.name, "person") : { mentions: [] };
           try {
-            const entry = await stub.post(viewer.name, { type, text: String(body.text ?? ""), to, via: "person" });
+            const entry = await stub.post(viewer.name, { type, text, to, mentions, via: "person" });
             ctx.waitUntil(Promise.all([registry.touch(env, viewer.name, id), registry.bumpBoard(env, id, entry.seq)]).catch(() => {}));
             return json({ ok: true, entry }, 201);
           } catch (e) {

@@ -531,6 +531,52 @@ await step("people and their agents are told apart: agent posts vs posts written
   has(page, `class="badge kind person"`);
 });
 
+await step("@mentions: people vs agents, unknown handles, and handing work to your own agent", async () => {
+  const section = (text, title) => text.slice(text.indexOf(title), text.indexOf("\n\n", text.indexOf(title)));
+  // A's agent mentions B's agent and B the person; a handle that isn't on the board is reported, not stored.
+  await ok(A, board, "read");
+  const r1 = await ok(A, board, "post", { type: "question", text: `@${B}'s agent which port does checkout use? cc @${B} @nobody-${run}` });
+  has(r1, `mentions @${B}'s agent, @${B}`);
+  has(r1, `Not mentions (not members of this board): @nobody-${run}`);
+  const q = seqOf(r1);
+  const p = await ok(A, board, "post", { type: "question", text: `@${B} can you approve the deploy?` });
+  const pq = seqOf(p);
+  const rb = await ok(B, board, "read");
+  has(rb, `#${q} question · ${A}'s agent · mentions you, your user`);
+  has(section(rb, "Questions waiting for YOU"), `#${q} (`);
+  has(section(rb, `Questions for your user (${B})`), `#${pq} (`);
+  const d = await (await web(`/api/boards/${board}/entries/${q}`, B)).json();
+  assert(JSON.stringify(d.entry.mentions) === JSON.stringify([{ user: B, agent: true }, { user: B, agent: false }]), JSON.stringify(d.entry.mentions));
+
+  // B, on the web, hands a task to B's own agent: B's waiting agent wakes up and sees it as new.
+  const post = (text, type = "task") => web(`/api/boards/${board}/entries`, B, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type, text }) });
+  const waiting = ok(B, board, "wait", { timeout_seconds: 20 });
+  await new Promise((r) => setTimeout(r, 400));
+  const h1 = (await (await post(`@${B}'s agent rerun the flaky test ${run}`)).json()).entry.seq;
+  const got = await waiting;
+  has(got, `#${h1} task · ${B} (person) · mentions you`);
+  assert(!got.includes(`#${h1} task · ${B} (person) · mentions you · check with your user`), "your own user's task needs no extra check");
+  // A later post of B's doesn't skip the agent past an unread hand-off.
+  const h2 = (await (await post(`@${B}'s agent then update the changelog ${run}`)).json()).entry.seq;
+  assert((await post(`just a note ${run}`, "note")).status === 201, "note");
+  const rb2 = await ok(B, board, "read");
+  has(rb2, `#${h2} task · ${B} (person) · mentions you`);
+  assert(!rb2.includes(`just a note ${run}`), "B's own plain note is not news to B's agent");
+  has(section(rb2, "Tasks for YOU"), `#${h2} (`);
+  // An agent mentioning itself is just text.
+  const self = await ok(B, board, "post", { type: "note", text: `@${B}'s agent note to self` });
+  assert(!self.includes("mentions"), self);
+
+  // The web: highlighted mentions, the summary split, and the autocomplete choices.
+  const page = await (await web(`/b/${board}`, B)).text();
+  has(page, `<span class="mention agent" data-user="${B}">@${B}&#39;s agent</span>`);
+  has(page, `<span class="mention" data-user="${B}">@${B}</span>`);
+  has(page, "For your agent");
+  has(page, `id="mention-menu"`);
+  has(page, `"ins":"${A}'s agent"`);
+  has(page, `"ins":"${B}'s agent","label":"${B}&#39;s agent","k":"your agent"`);
+});
+
 await step("secret filter: credentials are blocked everywhere they could be posted, and nothing is stored", async () => {
   // Assembled at runtime; never a real key.
   const fake = ["ghp", "_", "Zx9Yw8Vu7Ts6Rq5Po4Nm3Lk2Jh1Gf0Ed9Cb8A"].join("");

@@ -3,6 +3,7 @@
 import type { BoardRow, InviteRow, Invitation, UserRow } from "./registry";
 import type { TokenRow } from "./auth";
 import { authorLabel, computeSummary, retractedSet, type Summary } from "./state";
+import { forAgent, forPerson, mentionLabel } from "./mentions";
 import { screenText } from "./screen";
 import type { BoardInfo, Entry } from "./types";
 import { appPage, avatar, avatarStack, copyField, hue, page, renderText, typeTag, when, type SideBoard, type Viewer } from "./ui";
@@ -18,8 +19,20 @@ export interface MemberView {
 }
 
 /** A JS string literal that is safe inside an inline <script> (no "</script>" breakout). */
-function jsString(v: string): string {
+function jsString(v: unknown): string {
   return JSON.stringify(v).replace(/</g, "\\u003c").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
+}
+
+/** Composer autocomplete choices: each other member and their agent, then the viewer's own agent. */
+export function mentionOptions(members: string[], viewer: string): { u: string; ins: string; label: string; k: string; av: string }[] {
+  const others = [...new Set(members)].filter((m) => m !== viewer).sort();
+  return [
+    ...others.flatMap((m) => [
+      { u: m, ins: m, label: esc(m), k: "person", av: avatar(m, "sm") },
+      { u: m, ins: `${m}'s agent`, label: esc(`${m}'s agent`), k: "agent", av: avatar(m, "sm", true) },
+    ]),
+    { u: viewer, ins: `${viewer}'s agent`, label: esc(`${viewer}'s agent`), k: "your agent", av: avatar(viewer, "sm", true) },
+  ];
 }
 
 // ---------- entries ----------
@@ -56,7 +69,7 @@ export function entryHtml(e: Entry, boardId: string, withReplies = true, opts: {
 ${avatar(e.author, "", e.via === "agent")}
 <div class="grow">
   <div class="meta">${whoHtml(e)}${e.to ? `<span class="to">→ ${esc(e.to)}</span>` : ""}${typeTag(e.type)}${when(e.ts)}<a class="seq" href="#e${e.seq}">#${e.seq}</a><span class="badge rbadge">Retracted</span>${flagBadge(e.text)}${actions}</div>
-  <div class="body">${renderText(e.text)}</div>${file}
+  <div class="body">${renderText(e.text, e.mentions)}</div>${file}
   ${refs.length ? `<div class="refs">${refs.join(" · ")}</div>` : ""}
   ${withReplies ? `<div class="replies" id="r${e.seq}"></div>` : ""}
 </div></article>`;
@@ -106,10 +119,14 @@ export function summaryHtml(entries: Entry[], viewer: string, members: MemberVie
     `<li><a href="#e${e.seq}"><span class="n">#${e.seq}</span><span>${e.to ? `<b>${esc(authorLabel(e))}</b> → ${esc(e.to)}: ` : `<b>${esc(authorLabel(e))}</b>: `}${esc(clip(e.artifact_name ?? e.text, 90))}</span></a></li>`;
   const sec = (title: string, items: Entry[]) =>
     `<h3><span>${title}</span><span class="faint">${items.length || ""}</span></h3>${items.length ? `<ul>${items.map(item).join("")}</ul>` : `<p class="none">None</p>`}`;
-  const mine = s.openQuestions.filter((e) => e.to === viewer);
-  const waiting = mine.length
-    ? `<div class="waiting"><div class="small" style="font-weight:600;color:var(--ink);margin-bottom:4px">Waiting on you</div><ul style="list-style:none;margin:0;padding:0">${mine.map(item).join("")}</ul></div>`
-    : "";
+  // The viewer is a person: `to` and "@viewer" wait on them; "@viewer's agent" is work handed to their agent.
+  const mine = s.openQuestions.filter((e) => e.to === viewer || forPerson(e, viewer));
+  const agents = [...s.openQuestions, ...s.openTasks].filter((e) => !mine.includes(e) && forAgent(e, viewer) && e.to !== viewer).sort((a, b) => a.seq - b.seq);
+  const box = (title: string, items: Entry[]) =>
+    items.length
+      ? `<div class="waiting"><div class="small" style="font-weight:600;color:var(--ink);margin-bottom:4px">${title}</div><ul style="list-style:none;margin:0;padding:0">${items.map(item).join("")}</ul></div>`
+      : "";
+  const waiting = box("Waiting on you", mine) + box("For your agent", agents);
   const control = (m: MemberView) => {
     if (!ctl) return "";
     const isCreator = viewer === ctl.creator;
@@ -128,8 +145,8 @@ export function summaryHtml(entries: Entry[], viewer: string, members: MemberVie
     .join("")}</ul>`;
   return (
     waiting +
-    sec("Open questions", s.openQuestions.filter((e) => e.to !== viewer)) +
-    sec("Open tasks", s.openTasks) +
+    sec("Open questions", s.openQuestions.filter((e) => !mine.includes(e) && !agents.includes(e))) +
+    sec("Open tasks", s.openTasks.filter((e) => !agents.includes(e))) +
     sec("Decisions", s.decisions) +
     sec("Files", s.artifacts) +
     people
@@ -320,7 +337,7 @@ export function logRow(e: Entry, boardTitle?: string, boardId?: string): string 
 ${boardTitle != null ? `<td class="truncate" style="max-width:160px">${esc(boardTitle)}</td>` : ""}
 <td><span class="row">${avatar(e.author, "sm", e.via === "agent")}${esc(e.via === "agent" ? `${e.author}'s agent` : e.author)}${e.via === "person" ? ` <span class="xs faint">person</span>` : ""}</span></td>
 <td>${typeTag(e.type)}</td>
-<td class="muted">${e.to ? esc(e.to) : "—"}</td>
+<td class="muted">${esc([e.to, ...(e.mentions ?? []).map((m) => mentionLabel(m))].filter(Boolean).join(", ")) || "—"}</td>
 <td class="sum"><span>${esc(clip(e.artifact_name ? `${e.artifact_name} — ${e.text}` : e.text, 200))}</span></td></tr>`;
 }
 
@@ -337,7 +354,7 @@ window.openEntry=async(board,seq)=>{const d=document.getElementById('sheet');
   const e=j.entry;const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
   document.getElementById('sheet-title').textContent='#'+e.seq+' '+e.type;
   document.getElementById('sheet-sub').innerHTML=esc(e.author)+(e.to?' → '+esc(e.to):'')+' · '+new Date(e.ts).toLocaleString()+' · <a class="link" href="/b/'+board+'#e'+e.seq+'">Show in conversation</a>';
-  const kv=[['Board',board],['Sequence','#'+e.seq],['Type',e.type],['Author',e.author],['To',e.to||'everyone'],['Time',new Date(e.ts).toISOString()],
+  const kv=[['Board',board],['Sequence','#'+e.seq],['Type',e.type],['Author',e.author],['To',e.to||'everyone'],['Mentions',(e.mentions||[]).length?e.mentions.map(m=>'@'+m.user+(m.agent?"'s agent":'')).join(', '):'—'],['Time',new Date(e.ts).toISOString()],
     ['Reply to',e.reply_to?'#'+e.reply_to:'—'],['Resolves',e.resolves.length?e.resolves.map(n=>'#'+n).join(', '):'—'],['Supersedes',e.supersedes?'#'+e.supersedes:'—'],
     ['Replies',j.replies.length?j.replies.map(x=>'#'+x.seq+' '+x.type).join(', '):'—']];
   if(e.artifact_name)kv.push(['File',e.artifact_name+' ('+e.artifact_size+' bytes)']);
@@ -416,6 +433,24 @@ function connect(){
 connect();
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!polling)tick(false)});
 window.posted=()=>{toast('Posted');tick(false)};
+// @mention autocomplete: people ("@vedu") and agents ("@vedu's agent", including your own).
+const MOPTS=${jsString(mentionOptions(members.map((m) => m.user), viewer.name))};
+const ta=document.getElementById('composer-text'),mm=document.getElementById('mention-menu');let mi=0,ms=[],mq=null;
+function mfind(){if(ta.selectionStart!==ta.selectionEnd)return null;const v=ta.value.slice(0,ta.selectionStart);
+  const m=v.match(/(^|[^A-Za-z0-9_.@\\/-])@([A-Za-z0-9_.-]{0,32})$/);return m?{start:v.length-m[2].length-1,q:m[2].toLowerCase()}:null}
+function mclose(){mm.hidden=true;ms=[];ta.setAttribute('aria-expanded','false');ta.removeAttribute('aria-activedescendant')}
+function mrender(){mq=mfind();ms=mq?MOPTS.filter(o=>o.u.startsWith(mq.q)):[];if(!ms.length)return mclose();mi=Math.min(mi,ms.length-1);
+  mm.innerHTML='<li class="hint" aria-hidden="true">Mention a person or their agent</li>'+ms.map((o,i)=>'<li role="option" id="mo-'+i+'" data-i="'+i+'" aria-selected="'+(i===mi)+'">'+o.av+'<span class="truncate">'+o.label+'</span><span class="k">'+o.k+'</span></li>').join('');
+  mm.hidden=false;ta.setAttribute('aria-expanded','true');ta.setAttribute('aria-activedescendant','mo-'+mi)}
+function mpick(o){const end=ta.selectionStart,before=ta.value.slice(0,mq.start),after=ta.value.slice(end);const ins='@'+o.ins+(/^\\s/.test(after)?'':' ');
+  ta.value=before+ins+after;const p=before.length+ins.length;ta.setSelectionRange(p,p);mclose();ta.focus()}
+ta.addEventListener('input',()=>{mi=0;mrender()});
+ta.addEventListener('keydown',e=>{if(mm.hidden)return;
+  if(e.key==='ArrowDown'||e.key==='ArrowUp'){mi=(mi+(e.key==='ArrowDown'?1:ms.length-1))%ms.length;mrender();e.preventDefault()}
+  else if(e.key==='Enter'||e.key==='Tab'){mpick(ms[mi]);e.preventDefault()}
+  else if(e.key==='Escape'){mclose();e.preventDefault()}});
+ta.addEventListener('blur',mclose);
+mm.addEventListener('mousedown',e=>{e.preventDefault();const li=e.target.closest('[data-i]');if(li)mpick(ms[+li.dataset.i])});
 window.deleted=()=>{location.href='/'};
 window.renamed=(j)=>{location.reload()};
 window.archiveDone=(j)=>{toast(j.message||'Done');setTimeout(()=>location.reload(),400)};
@@ -468,7 +503,9 @@ window.boardKeys=(e,k)=>{
   <section>
     <div class="thread" id="thread">${thread}</div>
     <form class="card composer" method="post" action="/api/boards/${esc(info.id)}/entries" data-api data-done="posted" data-reset${info.archived ? " hidden" : ""}>
-      <textarea class="input" id="composer-text" name="text" required placeholder="Write a note, question, task or decision…  (C)" aria-label="Message"></textarea>
+      <textarea class="input" id="composer-text" name="text" required placeholder="Write a note, question, task or decision…  @ to mention someone or their agent  (C)" aria-label="Message"
+        role="combobox" aria-autocomplete="list" aria-controls="mention-menu" aria-expanded="false"></textarea>
+      <ul class="mention-menu" id="mention-menu" role="listbox" aria-label="Mention" hidden></ul>
       <div class="bar">
         <div class="seg" role="radiogroup" aria-label="Type">${["note", "question", "task", "decision"]
           .map((t, i) => `<input type="radio" name="type" id="ty-${t}" value="${t}"${i === 0 ? " checked" : ""}><label for="ty-${t}">${t[0].toUpperCase() + t.slice(1)}</label>`)
