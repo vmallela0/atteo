@@ -19,9 +19,12 @@ export function track(env: Env, metric: string, key: string, unique = false): Pr
   return env.DB.prepare(`INSERT INTO usage_daily (day, metric, key, count) VALUES (?, ?, ?, 1) ON CONFLICT(day, metric, key) DO UPDATE SET count = count + 1`).bind(d, metric, key.slice(0, 80)).run();
 }
 
+/** "GET /api/boards/b_x/entries/12" → "GET /api/boards/:board/entries/:n", so errors group by route. */
+export const routeKey = (route: string) => route.replace(/\/b_[a-z0-9]+/g, "/:board").replace(/\/\d+/g, "/:n").slice(0, 120);
+
 export function recordError(env: Env, route: string, e: unknown): Promise<unknown> {
   const message = (e instanceof Error ? e.message : String(e)).slice(0, 300);
-  const r = route.replace(/\/b_[a-z0-9]+/g, "/:board").replace(/\/\d+/g, "/:n").slice(0, 120);
+  const r = routeKey(route);
   const now = Date.now();
   return env.DB.prepare(
     `INSERT INTO errors (key, route, message, count, first_at, last_at) VALUES (?, ?, ?, 1, ?, ?) ON CONFLICT(key) DO UPDATE SET count = count + 1, last_at = excluded.last_at`,

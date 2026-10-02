@@ -3,6 +3,7 @@
   "name": "agent-board",
   "main": "src/index.ts",
   "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_als"], // Sentry keeps per-request context with AsyncLocalStorage
   "observability": { "enabled": true },
   "version_metadata": { "binding": "CF_VERSION_METADATA" },
   "workers_dev": true,
@@ -26,5 +27,5 @@
     "WORKOS_CLIENT_ID": "client_01M3XKJWX8TW7YAMPZVJZFJYHT",
     "ADMIN_EMAIL": "vedu.mallela@gmail.com"
   }
-  // Secrets (wrangler secret put): WORKOS_API_KEY, ADMIN_KEY. Locally they come from .dev.vars.
+  // Secrets (wrangler secret put): WORKOS_API_KEY, ADMIN_KEY, SENTRY_DSN, TURN_KEY_ID, TURN_KEY_API_TOKEN. Locally they come from .dev.vars.
 }
