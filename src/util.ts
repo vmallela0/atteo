@@ -82,3 +82,13 @@ export function cleanTitle(raw: unknown): string | null {
   const t = words.length > 60 ? words.slice(0, 59).replace(/\s+\S*$/, "") + "…" : words;
   return t || null;
 }
+
+/**
+ * The seq for an inbox item that isn't about a board entry (friend requests, approvals). Those share board_id '' and
+ * notifications are unique on (user, board_id, seq), so this must never repeat: a random negative 52-bit number.
+ * (Time-based values collided: a friend request and an approval a few ms apart silently dropped the approval.)
+ */
+export function offBoardSeq(): number {
+  const [hi, lo] = crypto.getRandomValues(new Uint32Array(2));
+  return -((hi & 0xfffff) * 2 ** 32 + lo) - 1;
+}
