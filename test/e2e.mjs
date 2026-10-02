@@ -152,7 +152,7 @@ await step("MCP initialize, tools/list, notifications, protocol errors", async (
   assert(r.protocolVersion === "2025-06-18" && r.serverInfo.name === "agent-soup", JSON.stringify(r));
   has(r.instructions, "Agent Soup");
   const names = (await rpcRaw(auth(A), null, "tools/list", {})).tools.map((t) => t.name).sort();
-  assert(JSON.stringify(names) === JSON.stringify(["approval", "claim", "create_board", "doc", "get", "invite", "join_board", "leave_board", "list_boards", "people", "post", "react", "read", "request_approval", "retract", "review", "search", "task", "wait"]), names.join());
+  assert(JSON.stringify(names) === JSON.stringify(["approval", "claim", "create_board", "doc", "get", "invite", "join_board", "leave_board", "list_boards", "people", "post", "publish", "react", "read", "request_approval", "retract", "review", "search", "task", "wait"]), names.join());
   assert((await rpcRaw(auth(A), null, "notifications/initialized", {}, { notification: true })).status === 202, "notification status");
   assert((await rpcRaw({}, null, "notifications/initialized", {}, { notification: true })).status === 401, "no credentials: 401 so OAuth clients can sign in");
   assert((await fetch(`${BASE}/mcp`)).status === 405, "GET /mcp should be 405");
@@ -1356,6 +1356,34 @@ await step("one-click connect (MCP OAuth): discovery, registration, sign-in + al
   assert((await tokenReq(verifier)).status === 400, "codes are single-use");
   has((await tool(t.access_token, null, "list_boards")).text, `e2e ${run}`);
   has(await (await web("/me", A)).text(), `E2E Agent ${run}`); // listed (and revocable) under Agent connections
+});
+
+await step("publish a session slice: preview first, then everything in one go linked to a summary; secrets stop it all", async () => {
+  await ok(A, fb, "read");
+  const slice = { summary: `Debugged the flaky checkout test ${run}`, title: "Checkout flake", claims: ["The flake is a race in cart init"], decisions: ["Await cart init before charge()"], tasks: ["Add a regression test"], files: [{ name: `flake-${run}.log`, content: "race at cart.ts:42" }] };
+  const pv = await ok(A, fb, "publish", slice);
+  has(pv, "Will post to this board");
+  has(pv, `file: flake-${run}.log`);
+  const before = (await (await web(`/api/boards/${fb}/updates?after=0`, A)).json()).count;
+  assert((await (await web(`/api/boards/${fb}/updates?after=0`, A)).json()).count === before, "preview posts nothing");
+  const done = await ok(A, fb, "publish", { ...slice, preview: false });
+  const head = Number(done.match(/summary #(\d+)/)[1]);
+  const g = await ok(B, fb, "get", { seq: head });
+  for (const t of ["The flake is a race", "Await cart init", "Add a regression test", `flake-${run}.log`]) has(g, t);
+  const fake = ["ghp", "_", "Zx9Yw8Vu7Ts6Rq5Po4Nm3Lk2Jh1Gf0Ed9Cb8A"].join("");
+  const n0 = (await (await web(`/api/boards/${fb}/updates?after=0`, A)).json()).count;
+  await err(A, fb, "publish", { summary: "ok", claims: ["fine", `token ${fake}`], preview: false }, "Blocked");
+  assert((await (await web(`/api/boards/${fb}/updates?after=0`, A)).json()).count === n0, "nothing posted when one item is blocked");
+});
+
+await step("sealed envelopes: stored as given, fetched only by their recipient (or sender)", async () => {
+  const envl = JSON.stringify({ v: 1, alg: "x25519-hkdf-sha256-aes256gcm", recipients: [{ kid: "k1", epk: "AA==", iv: "AA==", wrapped: "AA==" }], iv: "AA==", ct: "AA==" });
+  const r = await (await web(`/api/boards/${fb}/sealed`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ to: A, note: "for me", payload: envl }) })).json();
+  assert(r.entry?.seq, JSON.stringify(r));
+  assert((await web(`/api/boards/${fb}/sealed/${r.entry.seq}`, B)).status === 400, "not the recipient");
+  assert((await (await web(`/api/boards/${fb}/sealed/${r.entry.seq}`, A)).json()).payload === envl, "recipient gets the envelope");
+  assert((await web(`/api/boards/${fb}/sealed`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ to: B, payload: "plain text secret" }) })).status === 400, "only envelopes");
+  assert((await web(`/api/boards/${fb}/sealed`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ to: OUT, payload: envl }) })).status === 400, "recipient must be on the board");
 });
 
 await step("rename and archive: creator only; archived boards are read-only and listed separately; restore works", async () => {

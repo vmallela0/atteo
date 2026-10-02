@@ -4,6 +4,8 @@
 
 import SKILL_MD from "../../skills/agent-soup/SKILL.md";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { hostname } from "node:os";
+import { myKey, seal, unseal } from "./sealed";
 import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { blockedMessage, scanFields } from "../../src/secrets";
@@ -455,8 +457,65 @@ async function approvalsCmd(args: string[]) {
   say(`\nDecide in your browser: ${server(c, opt)}/approvals`);
 }
 
+// ---- sealed secrets: encrypted here, opened only by the recipient's agent on their machine ----
+
+/** Registers this machine's public key (once; repeat calls are no-ops). Returns its id. */
+async function ensureKey(opt: Record<string, string | true>): Promise<string> {
+  const { pub } = myKey();
+  const j = await api(opt, "POST", "/api/me/keys", { public_key: pub, label: hostname() });
+  return j.id as string;
+}
+
+async function keys(args: string[]) {
+  const { opt } = parseArgs(args);
+  const mine = await ensureKey(opt);
+  const j = await api(opt, "GET", "/api/me/keys");
+  for (const k of j.keys) say(`${k.id}  ${k.label ?? ""}${k.id === mine ? "  (this machine)" : ""}  ${new Date(k.created_at).toISOString().slice(0, 10)}`);
+}
+
+async function sealCmd(args: string[]) {
+  const { pos, opt } = parseArgs(args);
+  const [whoRaw, file] = pos;
+  if (!whoRaw) throw new CliError('Usage: agent-soup seal <name> [file | -] [--note "what it is"]   (reads stdin without a file; never pass secrets as arguments)');
+  const who = whoRaw.replace(/^@/, "").toLowerCase();
+  const secret = file && file !== "-" ? readFileSync(file) : Buffer.from(readStdin());
+  if (!secret.length) throw new CliError("Nothing to seal (empty input).");
+  if (secret.length > 48_000) throw new CliError("Sealed secrets are limited to about 48 KB.");
+  const board = currentBoard(opt);
+  await ensureKey(opt);
+  const [theirs, mine] = await Promise.all([api(opt, "GET", `/api/keys/${encodeURIComponent(who)}`), api(opt, "GET", "/api/me/keys")]);
+  if (!theirs.keys.length) throw new CliError(`${who} can't receive sealed secrets yet: they need to run "agent-soup keys" once (any recent agent-soup login does it).`);
+  // You can reopen what you sealed, too.
+  const recipients = [...theirs.keys, ...(who === creds().user ? [] : mine.keys)];
+  const env = seal(secret, recipients);
+  const j = await api(opt, "POST", `/api/boards/${board}/sealed`, { to: who, note: optStr(opt, "note") ?? "", payload: JSON.stringify(env) });
+  say(`Sealed #${j.entry.seq} for ${who}'s agent (${theirs.keys.length} of their machine${theirs.keys.length === 1 ? "" : "s"}). The server only has ciphertext. They open it with: agent-soup unseal ${j.entry.seq}`);
+}
+
+async function unsealCmd(args: string[]) {
+  const { pos, opt } = parseArgs(args);
+  const seq = int(pos[0]?.replace(/^#/, ""), "The entry");
+  const kid = await ensureKey(opt);
+  const j = await api(opt, "GET", `/api/boards/${currentBoard(opt)}/sealed/${seq}`);
+  let plain: Buffer;
+  try {
+    plain = unseal(JSON.parse(j.payload), kid);
+  } catch (e) {
+    throw new CliError((e as Error).message);
+  }
+  const out = optStr(opt, "out");
+  if (out) {
+    writeFileSync(out, plain, { mode: 0o600 });
+    return say(`Wrote the secret from ${j.from} to ${out} (readable only by you).`);
+  }
+  process.stdout.write(plain);
+}
+
 export const COMMANDS: Record<string, (args: string[]) => Promise<void>> = {
   skill,
+  keys,
+  seal: sealCmd,
+  unseal: unsealCmd,
   approvals: approvalsCmd,
   members,
   role,
@@ -506,6 +565,8 @@ Board commands (on the board chosen with \`use\`, per folder):
   agent-soup share <file> [--note …]    Post a file (its next version if the name exists)
   agent-soup decide "<text>"            Record a decision
   agent-soup approvals [--all]          What your agents are waiting on you to approve (you decide in the browser)
+  agent-soup seal <name> [file|-] [--note …]   A secret only their agent can open (encrypted here; stdin by default)
+  agent-soup unseal N [--out file]      Open a sealed secret addressed to you (decrypted on this machine)
   agent-soup members · audit            Who's on the board (roles, end dates) · who got or lost access
   agent-soup role <name> viewer|contributor|owner [--days N]   Change someone's access (owners)
   agent-soup link [--role viewer] [--days 7] [--access-days 30] [--uses 10]   A shareable invite link (owners)

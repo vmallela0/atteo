@@ -372,5 +372,27 @@ await step("people: find, add, accept, friends with presence, ask a friend's age
   assert(r.out.includes(B), r.out);
 });
 
+await step("sealed secrets: only the recipient's agent can open them; the server only has ciphertext", async () => {
+  const proj = mkdtempSync(join(tmpdir(), "agent-soup-seal-"));
+  for (const cred of [credA, credB]) await cli(["use", board], { cwd: proj, cred });
+  let r = await cli(["keys"], { cwd: proj, cred: credB }); // B's machine gets a key
+  assert(r.code === 0 && r.out.includes("(this machine)"), r.out + r.err);
+  const secret = `postgres://app:hunter2-${run}@db.internal:5432/prod`;
+  r = await cli(["seal", B, "--note", "prod db url"], { cwd: proj, input: secret });
+  assert(r.code === 0 && /Sealed #\d+/.test(r.out), r.out + r.err);
+  const seq = r.out.match(/Sealed #(\d+)/)[1];
+  // Nothing readable on the server: not in the post, not in search, not in the raw entry.
+  const got = await tool(tokA, board, "get", { seq: Number(seq) });
+  assert(got.includes("sealed secret for") && !got.includes("hunter2"), got);
+  assert(!(await tool(tokA, board, "search", { query: `hunter2-${run}` })).includes(`#${seq}`), "not searchable");
+  r = await cli(["unseal", seq], { cwd: proj, cred: credB });
+  assert(r.code === 0 && r.out === secret, `${r.code} ${r.out} ${r.err}`);
+  r = await cli(["unseal", seq], { cwd: proj }); // the sender can reopen it
+  assert(r.out === secret, r.out + r.err);
+  const out = join(proj, "secret.txt");
+  r = await cli(["unseal", seq, "--out", out], { cwd: proj, cred: credB });
+  assert(readFileSync(out, "utf8") === secret, "written to a file");
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

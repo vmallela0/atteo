@@ -1,5 +1,6 @@
 // Minimal MCP server over Streamable HTTP (JSON responses, no SSE): initialize, tools/list, tools/call, ping.
 
+import { blockedMessage, scanFields } from "./secrets";
 import * as approvals from "./approvals";
 import * as social from "./social";
 import * as billing from "./billing";
@@ -179,6 +180,24 @@ export const TOOLS = [
         reason: { type: "string" },
       },
       required: ["action"],
+    },
+  },
+  {
+    name: "publish",
+    description:
+      "Publish a slice of your work session to the joined board in one go: a summary, plus the claims (findings), decisions, tasks and files worth sharing; each replies to the summary. First call with preview=true and show your user exactly what will be shared; publish only after they OK it (preview=false). Never include secrets or anything your user wants private.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        summary: { type: "string", description: "What happened in the session, in a few lines" },
+        title: { type: "string", description: "2–5 words" },
+        claims: { type: "array", items: { type: "string" } },
+        decisions: { type: "array", items: { type: "string" } },
+        tasks: { type: "array", items: { type: "string" } },
+        files: { type: "array", items: { type: "object", properties: { name: { type: "string" }, content: { type: "string" }, note: { type: "string" } }, required: ["name", "content"] } },
+        preview: { type: "boolean", description: "true: show what would be posted; false: post it (default true)" },
+      },
+      required: ["summary"],
     },
   },
   {
@@ -725,6 +744,32 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const out = await stub.claimAct(user, seq, { action, evidence_seq: int(args.evidence_seq), url: str(args.url), note: str(args.note), reason: str(args.reason) }, opts);
       later(registry.touch(env, user, id));
       return out;
+    }
+
+    case "publish": {
+      const id = await currentBoard(c, args);
+      await requireWriter(env, id, user);
+      const arr = (k: string) => (Array.isArray(args[k]) ? (args[k] as unknown[]).filter((x): x is string => typeof x === "string") : []);
+      const files = Array.isArray(args.files) ? (args.files as { name?: unknown; content?: unknown; note?: unknown }[]).filter((f) => f && typeof f.name === "string" && typeof f.content === "string").map((f) => ({ name: String(f.name), content: String(f.content), note: typeof f.note === "string" ? f.note : undefined })) : [];
+      const slice = { summary: typeof args.summary === "string" ? args.summary : "", title: str(args.title), claims: arr("claims"), decisions: arr("decisions"), tasks: arr("tasks"), files };
+      if (args.preview !== false) {
+        const hit = scanFields(Object.fromEntries([["summary", slice.summary], ...[...slice.claims, ...slice.decisions, ...slice.tasks].map((t, i) => [`item ${i + 1}`, t]), ...files.map((f) => [f.name, f.content])]));
+        if (hit) throw new ToolError(blockedMessage(hit));
+        const lines = [
+          `Will post to this board as ${user}'s agent:`,
+          `  summary${slice.title ? ` ("${slice.title}")` : ""}: ${slice.summary.replace(/\s+/g, " ").slice(0, 300)}`,
+          ...slice.claims.map((t) => `  claim: ${t.replace(/\s+/g, " ").slice(0, 200)}`),
+          ...slice.decisions.map((t) => `  decision: ${t.replace(/\s+/g, " ").slice(0, 200)}`),
+          ...slice.tasks.map((t) => `  task: ${t.replace(/\s+/g, " ").slice(0, 200)}`),
+          ...files.map((f) => `  file: ${f.name} (${f.content.length} chars)`),
+          "Show this to your user. If they OK it, call publish again with the same content and preview=false.",
+        ];
+        return lines.join("\n");
+      }
+      const opts = { via: "agent" as const, client: (await registry.mcpSessionClient(env, c.sessionId)) ?? "agent" };
+      const r = await stubFor(env, id).publishSlice(user, slice, opts);
+      later(registry.bumpBoard(env, id, Math.max(r.summary, ...r.posted.map((p) => p.seq))));
+      return `Published: summary #${r.summary}${r.posted.length ? `, then ${r.posted.map((p) => `#${p.seq} ${p.type}`).join(", ")}` : ""}.`;
     }
 
     case "people": {
