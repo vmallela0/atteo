@@ -938,7 +938,10 @@ await step("tasks board (web): list, move between columns, priority, claim confl
   r = await (await act(A, { action: "update", status: "done" })).json();
   assert(r.task.status === "done", JSON.stringify(r));
   assert((await web(`/api/boards/${fb}/tasks`, OUT)).status === 404, "outsiders");
-  has(await (await web(`/b/${fb}`, B)).text(), 'id="panel-tasks"');
+  const page = await (await web(`/b/${fb}`, B)).text();
+  // Tabs switch panels by position: Conversation, Log, Files, Tasks.
+  const order = ["panel-conv", "panel-log", "panel-docs", "panel-tasks"].map((id) => page.indexOf(`id="${id}"`));
+  assert(order.every((x, i) => x > 0 && (i === 0 || x > order[i - 1])), `panel order ${order}`);
 });
 
 await step("every page's inline scripts parse (a template escaping slip breaks the whole page)", async () => {
