@@ -152,8 +152,9 @@ await step("MCP initialize, tools/list, notifications, protocol errors", async (
   assert(r.protocolVersion === "2025-06-18" && r.serverInfo.name === "agent-soup", JSON.stringify(r));
   has(r.instructions, "Agent Soup");
   const names = (await rpcRaw(auth(A), null, "tools/list", {})).tools.map((t) => t.name).sort();
-  assert(JSON.stringify(names) === JSON.stringify(["approval", "create_board", "doc", "get", "invite", "join_board", "leave_board", "list_boards", "people", "post", "react", "read", "request_approval", "retract", "review", "search", "task", "wait"]), names.join());
-  assert((await rpcRaw({}, null, "notifications/initialized", {}, { notification: true })).status === 202, "notification status");
+  assert(JSON.stringify(names) === JSON.stringify(["approval", "claim", "create_board", "doc", "get", "invite", "join_board", "leave_board", "list_boards", "people", "post", "react", "read", "request_approval", "retract", "review", "search", "task", "wait"]), names.join());
+  assert((await rpcRaw(auth(A), null, "notifications/initialized", {}, { notification: true })).status === 202, "notification status");
+  assert((await rpcRaw({}, null, "notifications/initialized", {}, { notification: true })).status === 401, "no credentials: 401 so OAuth clients can sign in");
   assert((await fetch(`${BASE}/mcp`)).status === 405, "GET /mcp should be 405");
   const p = await fetch(`${BASE}/mcp`, { method: "POST", headers: { "content-type": "application/json" }, body: "{" });
   assert(p.status === 400, "parse error");
@@ -1288,6 +1289,71 @@ await step("approvals: an agent asks before side effects; only the person decide
   has(await sok(sa, "approval", { id, wait_seconds: 0 }), '"go"');
   assert((await web(`/api/approvals/${id}/reject`, A, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).status === 400, "decided once");
   await serr(sa, "request_approval", { title: "x", details: `key ${["ghp", "_", "Zx9Yw8Vu7Ts6Rq5Po4Nm3Lk2Jh1Gf0Ed9Cb8A"].join("")}` }, "Blocked");
+});
+
+await step("claims: evidence, verify (never your own), dispute flags everything built on it as stale", async () => {
+  await ok(A, fb, "read");
+  const c1 = seqOf(await ok(A, fb, "post", { type: "claim", text: `The leak is in the image cache ${run}` }));
+  const log = seqOf(await ok(A, fb, "post", { type: "artifact", artifact_name: `heap-${run}.txt`, artifact_content: "retained: ImageCache 1.2GB", text: "heap dump" }));
+  has(await ok(A, fb, "claim", { action: "evidence", seq: c1, evidence_seq: log, note: "heap dump" }), "Evidence added");
+  await err(A, fb, "claim", { action: "verify", seq: c1 }, "can't verify your own claim");
+  await ok(B, fb, "read");
+  has(await ok(B, fb, "claim", { action: "verify", seq: c1, note: "reproduced" }), "verified");
+  has(await ok(A, fb, "read"), `[verified by ${B}'s agent]`);
+  // A decision that rests on the claim goes stale when the claim is disputed.
+  await ok(A, fb, "read");
+  const d1 = seqOf(await ok(A, fb, "post", { type: "decision", text: `Cap the image cache at 200MB ${run}`, depends_on: [c1] }));
+  await ok(B, fb, "read");
+  await err(B, fb, "claim", { action: "dispute", seq: c1 }, "Say why");
+  has(await ok(B, fb, "claim", { action: "dispute", seq: c1, reason: "the leak is in the font cache" }), `stale: #${d1}`);
+  const sum = await ok(A, fb, "read");
+  has(sum, `stale: premise #${c1} disputed`);
+  has(await ok(A, fb, "claim", { action: "list" }), `#${c1} [disputed]`);
+  await err(A, fb, "claim", { action: "verify", seq: log }, "isn't a claim");
+});
+
+await step("big boards open on the newest entries; earlier ones load on demand", async () => {
+  const id = (await ops("boards", { user: A, title: `e2e big ${run}` })).body.board.id;
+  assert((await ops("seed", { board: id, user: A, count: 320, prefix: `big` })).body.count === 320, "seeded");
+  const page = await (await web(`/b/${id}`, A)).text();
+  has(page, `big 319`);
+  assert(!/big 0</.test(page), "the oldest entries aren't on the first page");
+  const before = Number(page.match(/data-before="(\d+)"/)[1]);
+  const j = await (await web(`/api/boards/${id}/entries?before=${before}&limit=150`, A)).json();
+  assert(j.entries.length === before - 1 && j.first === 1 && j.entries[0].html.includes(`big 0<`), `${j.entries.length} ${j.first}`);
+  const t0 = Date.now();
+  has(await ok(A, id, "read"), "320 entries");
+  assert(Date.now() - t0 < 2000, "summary of a few hundred entries is quick");
+});
+
+await step("one-click connect (MCP OAuth): discovery, registration, sign-in + allow, PKCE code → token that works on /mcp", async () => {
+  const { createHash, randomBytes } = await import("node:crypto");
+  const r0 = await fetch(`${BASE}/mcp`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {} } }) });
+  assert(r0.status === 401 && /resource_metadata="[^"]+\/\.well-known\/oauth-protected-resource"/.test(r0.headers.get("www-authenticate") ?? ""), `401 + discovery: ${r0.status}`);
+  const pr = await (await fetch(`${BASE}/.well-known/oauth-protected-resource`)).json();
+  const as = await (await fetch(`${pr.authorization_servers[0]}/.well-known/oauth-authorization-server`)).json();
+  assert(as.code_challenge_methods_supported.includes("S256") && as.registration_endpoint, JSON.stringify(as));
+  const cb = "http://localhost:47123/callback";
+  const reg = await (await fetch(as.registration_endpoint, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ client_name: `E2E Agent ${run}`, redirect_uris: [cb] }) })).json();
+  assert(reg.client_id, JSON.stringify(reg));
+  assert((await fetch(as.registration_endpoint, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ redirect_uris: ["javascript:alert(1)"] }) })).status === 400, "bad redirect");
+  const verifier = randomBytes(32).toString("base64url");
+  const challenge = createHash("sha256").update(verifier).digest("base64url");
+  const q = new URLSearchParams({ response_type: "code", client_id: reg.client_id, redirect_uri: cb, code_challenge: challenge, code_challenge_method: "S256", state: "xyz" });
+  const consent = await (await web(`/oauth/authorize?${q}`, A)).text();
+  has(consent, `E2E Agent ${run} wants to be your agent`);
+  const rid = consent.match(/name="request_id" value="([^"]+)"/)[1];
+  assert((await web(`/oauth/authorize?${new URLSearchParams({ ...Object.fromEntries(q), redirect_uri: "https://evil.example/cb" })}`, A)).status === 400, "unregistered redirect");
+  const allow = await web(`/oauth/authorize`, A, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: `request_id=${rid}&allow=1` });
+  const back = new URL(allow.headers.get("location"));
+  assert(back.origin + back.pathname === cb && back.searchParams.get("state") === "xyz" && back.searchParams.get("code"), allow.headers.get("location"));
+  const code = back.searchParams.get("code");
+  const tokenReq = (v) => fetch(as.token_endpoint, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ grant_type: "authorization_code", code, redirect_uri: cb, client_id: reg.client_id, code_verifier: v }) });
+  const t = await (await tokenReq(verifier)).json();
+  assert(t.access_token?.startsWith("ab_") && t.token_type === "Bearer", JSON.stringify(t));
+  assert((await tokenReq(verifier)).status === 400, "codes are single-use");
+  has((await tool(t.access_token, null, "list_boards")).text, `e2e ${run}`);
+  has(await (await web("/me", A)).text(), `E2E Agent ${run}`); // listed (and revocable) under Agent connections
 });
 
 await step("rename and archive: creator only; archived boards are read-only and listed separately; restore works", async () => {

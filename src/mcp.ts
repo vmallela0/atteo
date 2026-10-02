@@ -68,6 +68,7 @@ export const TOOLS = [
         reply_to: { type: "integer", description: "Entry number this replies to. A non-question reply answers a question." },
         resolves: { type: "array", items: { type: "integer" }, description: "Entry numbers this answers or completes (questions, tasks)." },
         supersedes: { type: "integer", description: "Entry number this replaces (drops it from the summary)." },
+        depends_on: { type: "array", items: { type: "integer" }, description: "Claims or decisions this rests on: if one is disputed or retracted, this entry is flagged stale." },
         artifact_name: { type: "string", description: "File name, for type=artifact." },
         artifact_content: { type: "string", description: "File content (text, up to 256k chars), for type=artifact." },
         card: {
@@ -162,6 +163,23 @@ export const TOOLS = [
     name: "approval",
     description: "Check (and optionally wait for) a decision on an approval you requested: {id, wait_seconds?}. Only act if it's approved.",
     inputSchema: { type: "object", properties: { id: { type: "string" }, wait_seconds: { type: "integer" } }, required: ["id"] },
+  },
+  {
+    name: "claim",
+    description:
+      "Work with claims (findings) on the joined board. Actions: list (status of every claim); evidence {seq, evidence_seq? (an entry, e.g. a log you posted) or url, note?} (asserted → evidenced); verify {seq, note?} (you checked it and it holds; never your own user's claim); dispute {seq, reason} (it's wrong; everything that depends on it is flagged stale). When you post something that rests on earlier claims or decisions, pass depends_on to post.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["list", "evidence", "verify", "dispute"] },
+        seq: { type: "integer" },
+        evidence_seq: { type: "integer" },
+        url: { type: "string" },
+        note: { type: "string" },
+        reason: { type: "string" },
+      },
+      required: ["action"],
+    },
   },
   {
     name: "people",
@@ -472,6 +490,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
         reply_to: int(args.reply_to) ?? null,
         resolves: intList(args.resolves),
         supersedes: int(args.supersedes) ?? null,
+        depends_on: intList(args.depends_on),
         artifact_name: str(args.artifact_name) ?? null,
         artifact_content: typeof args.artifact_content === "string" ? args.artifact_content : null,
         card: args.card,
@@ -685,6 +704,29 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       return `Waiting for ${user} to decide on ${a.id} (they can approve or reject at ${url}). Don't act yet: check again with approval {id: "${a.id}"}.`;
     }
 
+    case "claim": {
+      const id = await currentBoard(c, args);
+      const stub = stubFor(env, id);
+      const action = str(args.action);
+      if (action === "list") {
+        const list = await stub.claims();
+        if (!list.length) return "No claims on this board yet.";
+        return fence(
+          list
+            .map((x) => `#${x.seq} [${x.status}]${x.verified_by ? ` verified by ${x.verified_by}` : ""}${x.disputed_by ? ` disputed by ${x.disputed_by}: ${x.dispute_reason}` : ""}${x.evidence.length ? ` · evidence: ${x.evidence.map((e) => (e.seq ? `#${e.seq}` : e.url)).join(", ")}` : ""}`)
+            .join("\n"),
+        );
+      }
+      await requireWriter(env, id, user);
+      const seq = int(args.seq);
+      if (seq == null) throw new ToolError("seq is required.");
+      if (action !== "evidence" && action !== "verify" && action !== "dispute") throw new ToolError("action must be one of: list, evidence, verify, dispute.");
+      const opts = { via: "agent" as const, client: (await registry.mcpSessionClient(env, c.sessionId)) ?? "agent" };
+      const out = await stub.claimAct(user, seq, { action, evidence_seq: int(args.evidence_seq), url: str(args.url), note: str(args.note), reason: str(args.reason) }, opts);
+      later(registry.touch(env, user, id));
+      return out;
+    }
+
     case "people": {
       const action = str(args.action);
       const pres = (p: social.Person) => social.presenceLabel(p.presence);
@@ -751,7 +793,17 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
     case "wait": {
       const id = await currentBoard(c, args);
       const secs = int(args.timeout_seconds) ?? 45;
-      const r = await stubFor(env, id).wait(user, secs * 1000);
+      // A deploy restarts the board's Durable Object and ends any wait in progress; wait on the new one instead.
+      const started = Date.now();
+      let r;
+      for (let attempt = 0; ; attempt++) {
+        try {
+          r = await stubFor(env, id).wait(user, Math.max(1000, secs * 1000 - (Date.now() - started)));
+          break;
+        } catch (e) {
+          if (attempt >= 2 || !/reset because its code was updated|Network connection lost|object to be reset/i.test(String(e instanceof Error ? e.message : e))) throw e;
+        }
+      }
       later(registry.touch(env, user, id));
       if (r.timedOut) return `Nothing new from other members in ${Math.min(secs, MAX_WAIT_MS / 1000)}s. Call wait again to keep listening, or carry on.`;
       return `${r.entries.length} new from others:\n` + fence(r.entries.map((e) => formatEntry(e, 4000, user)).join("\n"));
@@ -927,6 +979,10 @@ export async function handleMcp(request: Request, env: Env, ctx: ExecutionContex
   }
   const results = (await Promise.all(msgs.map((m) => handleOne(c, m)))).filter((r): r is object => r != null);
   const headers: Record<string, string> = issued ? { "Mcp-Session-Id": issued } : {};
-  if (!results.length) return new Response(null, { status: 202, headers });
-  return Response.json(batch ? results : results[0], { headers });
+  // No credentials at all: say so the standard way, so OAuth-capable clients start one-click sign-in (MCP authorization).
+  // A token that's wrong or expired keeps getting its explanation in the reply (the CLI shows it).
+  if (!token && !legacy) headers["WWW-Authenticate"] = `Bearer resource_metadata="${url.origin}/.well-known/oauth-protected-resource"`;
+  const status = !token && !legacy ? 401 : 200;
+  if (!results.length) return new Response(null, { status: status === 401 ? 401 : 202, headers });
+  return Response.json(batch ? results : results[0], { headers, status });
 }

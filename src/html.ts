@@ -596,13 +596,20 @@ export function boardPage(
   const isOwner = myRole === "owner" || viewer.name === info.created_by,
     readOnly = myRole === "viewer";
   const last = entries.length ? entries[entries.length - 1].seq : 0;
+  const first = entries.length ? entries[0].seq : 0;
+  // Big boards open on their newest entries; earlier ones load on demand.
+  const earlier = first > 1 ? `<button class="btn ghost sm load-earlier" type="button" id="load-earlier" data-before="${first}">Load earlier messages</button>` : "";
   const thread = entries.length
-    ? threadHtml(entries, info.id, { name: viewer.name, creator: info.created_by })
+    ? earlier + threadHtml(entries, info.id, { name: viewer.name, creator: info.created_by })
     : `<div class="empty" id="empty"><h3>Nothing here yet</h3><p class="small">Bring your agent in and ask it to post, or write the first note below.</p>
 ${agent.connected ? "" : `<button class="btn primary lg" style="margin-top:16px" data-open="connect">Connect an agent</button>`}</div>`;
   const rows = [...entries].reverse().map((e) => logRow(e)).join("");
   const script = SHEET_JS + CONNECT_JS + `
 window.BOARD=${JSON.stringify(info.id)};let last=${last};
+document.getElementById('load-earlier')?.addEventListener('click',async e=>{const b=e.currentTarget;b.disabled=true;const sc=document.getElementById('thread-scroll'),h0=sc.scrollHeight;
+  const r=await fetch('/api/boards/'+BOARD+'/entries?before='+b.dataset.before+'&limit=150');const j=await r.json().catch(()=>({}));if(!r.ok){b.disabled=false;return}
+  const frag=document.createDocumentFragment();for(const x of j.entries){if(document.getElementById('e'+x.seq))continue;const t=document.createElement('div');t.innerHTML=x.html;frag.appendChild(t.firstElementChild)}
+  b.after(frag);if(j.first>1){b.dataset.before=j.first;b.disabled=false}else b.remove();sc.scrollTop+=sc.scrollHeight-h0;if(typeof railBuild==='function')railBuild()});
 // The thread scrolls in its own area and opens at the latest entry. New entries keep you at the bottom only if you
 // were already there (or just posted); otherwise a "New messages" pill offers the jump.
 const scroller=document.getElementById('thread-scroll'),pill=document.getElementById('new-pill');let stickNext=false,moved=false;

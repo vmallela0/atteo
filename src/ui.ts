@@ -392,6 +392,7 @@ dialog.lightbox img{display:block;max-width:min(96vw,1600px);max-height:92vh;wid
 .ap-row summary:hover{background:var(--bg-hover)}.ap-row>p,.ap-row>pre{margin:0 14px 12px}.ap-row>pre{margin-top:0}
 .ap-st{flex:none;width:64px;font-size:11.5px;font-weight:600;color:var(--muted)}.ap-st.st-approved{color:var(--ok)}.ap-st.st-rejected{color:var(--danger)}
 @media (max-width:640px){.ap-form{flex-wrap:wrap}.ap-form .input{flex-basis:100%}.ap-form .btn{flex:1}}
+.load-earlier{display:block;margin:6px auto 12px}
 /* Profile pictures */
 .pfps{display:grid;gap:10px}
 .pfp{gap:14px;align-items:center}
