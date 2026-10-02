@@ -426,10 +426,33 @@ window.BOARD=${JSON.stringify(info.id)};let last=${last};
 const scroller=document.getElementById('thread-scroll'),pill=document.getElementById('new-pill');let stickNext=false,moved=false;
 const atBottom=()=>scroller.clientHeight===0||scroller.scrollHeight-scroller.scrollTop-scroller.clientHeight<80;
 function toBottom(smooth){const far=scroller.scrollHeight-scroller.scrollTop-scroller.clientHeight>1200; // long jumps are instant
-  scroller.scrollTo({top:scroller.scrollHeight,behavior:smooth&&!far?'smooth':'auto'});pill.hidden=true}
-scroller.addEventListener('scroll',()=>{if(atBottom())pill.hidden=true},{passive:true});
+  scroller.scrollTo({top:scroller.scrollHeight,behavior:smooth&&!far?'smooth':'auto'});pill.hidden=true;unseen=false}
+// The rail: one tick per message at its place in the conversation (instead of a scrollbar). Ticks in view are darker,
+// so scrolling steps through them; hover previews a message, click jumps to it, drag scrubs.
+const rail=document.getElementById('rail'),tip=document.getElementById('rail-tip');let ticks=[];
+function railBuild(){const th=document.getElementById('thread'),top0=th.getBoundingClientRect().top,H=Math.max(1,th.scrollHeight);
+  ticks=[...th.querySelectorAll('.entry')].map(el=>({el,y:(el.getBoundingClientRect().top-top0)/H,h:el.querySelector(':scope>.grow>.meta')?.offsetHeight||20}));
+  rail.innerHTML=ticks.map((t,i)=>'<i data-i="'+i+'" style="top:'+(t.y*100).toFixed(3)+'%"></i>').join('');railMark()}
+function railMark(){const a=scroller.scrollTop,b=a+scroller.clientHeight,H=Math.max(1,scroller.scrollHeight);const is=rail.children;
+  ticks.forEach((t,i)=>{const y=t.y*document.getElementById('thread').scrollHeight;is[i]?.classList.toggle('on',y+t.h>a&&y<b)})}
+function railAt(ev){const r=rail.getBoundingClientRect();return Math.min(1,Math.max(0,(ev.clientY-r.top)/r.height))}
+function railNear(f){let best=-1,d=2;ticks.forEach((t,i)=>{const x=Math.abs(t.y-f);if(x<d){d=x;best=i}});return d<0.03?best:-1}
+let scrub=false;
+rail.addEventListener('pointerdown',ev=>{scrub=true;rail.setPointerCapture(ev.pointerId);railMove(ev)});
+rail.addEventListener('pointermove',ev=>{if(scrub){railMove(ev);return}const i=railNear(railAt(ev));if(i<0){tip.hidden=true;return}
+  const el=ticks[i].el,m=el.querySelector(':scope>.grow>.meta'),who=m?.querySelector('.who')?.textContent||'',ty=m?.querySelector('.type')?.textContent||'',when=m?.querySelector('time')?.textContent||'';
+  const body=(el.querySelector(':scope>.grow>.body')?.textContent||'').trim().split('\\n')[0];
+  tip.textContent=who+' · '+ty+(when?' · '+when:'')+(body?' — '+body:'');tip.style.top=(ticks[i].y*rail.getBoundingClientRect().height+rail.offsetTop)+'px';tip.hidden=false});
+rail.addEventListener('pointerleave',()=>{tip.hidden=true});
+rail.addEventListener('pointerup',ev=>{if(!scrub)return;scrub=false;const i=railNear(railAt(ev));if(i>=0&&ev.pointerType!=='touch')ticks[i].el.scrollIntoView({block:'center'})});
+function railMove(ev){moved=true;scroller.scrollTop=railAt(ev)*scroller.scrollHeight-scroller.clientHeight/2}
+new ResizeObserver(()=>railBuild()).observe(document.getElementById('thread'));
+let unseen=false;
+function pillSync(){if(atBottom()){pill.hidden=true;unseen=false}else{pill.textContent=unseen?'New messages ↓':'Jump to latest ↓';pill.hidden=false}}
+scroller.addEventListener('scroll',()=>{pillSync();railMark()},{passive:true});
 ['wheel','touchmove','keydown'].forEach(t=>scroller.addEventListener(t,()=>{moved=true},{passive:true}));
 pill.addEventListener('click',()=>toBottom(true));
+railBuild();pillSync();
 const linked=/^#e\\d+$/.test(location.hash);
 if(!linked)toBottom();
 window.addEventListener('load',()=>{if(!linked&&!moved)toBottom()});
@@ -448,7 +471,7 @@ async function tick1(wait){try{
     if(e.retracts){const t=document.getElementById('e'+e.retracts);if(t){t.classList.add('retracted');t.querySelector('[data-retract]')?.remove()}}
     last=Math.max(last,e.seq)}
   if(typeof d.last==='number')last=Math.max(last,d.last);
-  if(added){if(stick)toBottom();else pill.hidden=false}
+  if(added){railBuild();if(stick)toBottom();else{unseen=true;pillSync()}}
   if(d.entries.length){document.getElementById('sum').innerHTML=d.summary;document.querySelectorAll('[data-count]').forEach(x=>x.textContent=d.count);refreshTimes();infoCount()}
 }catch(e){await new Promise(r=>setTimeout(r,5000))}}
 // Live updates: a WebSocket that only says "something changed"; fall back to long-polling if it can't stay up.
@@ -640,7 +663,8 @@ window.boardKeys=(e,k)=>{
 <div role="tabpanel" id="panel-conv" class="bp-panel" data-board-panel><div class="layout" id="conv-layout">
   <section class="conv">
     <div class="thread-wrap"><div class="thread-scroll" id="thread-scroll"><div class="thread" id="thread">${thread}</div></div>
-      <button class="btn sm new-pill" type="button" id="new-pill" hidden>New messages ↓</button></div>
+      <div class="rail" id="rail" aria-hidden="true"></div><div class="rail-tip" id="rail-tip" hidden></div>
+      <button class="btn sm new-pill" type="button" id="new-pill" hidden>Jump to latest ↓</button></div>
     <form class="card composer" method="post" action="/api/boards/${esc(info.id)}/entries" data-api data-done="posted" data-reset${info.archived ? " hidden" : ""}>
       <div class="replying" id="replying" hidden>Replying to <b id="replying-who"></b> <a id="replying-seq" href="#"></a><button class="btn ghost sm x" type="button" id="reply-cancel" aria-label="Cancel reply">✕</button></div>
       <input type="hidden" name="reply_to" id="reply-to" value="">

@@ -590,6 +590,9 @@ await step("board page layout: pinned header and tabs, a scrolling thread with t
   has(page, `id="info-btn" aria-expanded="false" aria-controls="board-info"`);
   has(page, `<aside class="aside" id="board-info"`);
   has(page, `<span class="one">`);
+  // The thread's scrollbar is a rail of one tick per message (drawn client-side), with a jump-to-latest pill.
+  has(page, `<div class="rail" id="rail" aria-hidden="true"></div>`);
+  has(page, `id="new-pill" hidden>Jump to latest ↓</button>`);
   // Addressing is by @mention; the composer has no "To" dropdown.
   assert(!page.includes(`name="to"`) && !page.includes("To everyone"), "no To dropdown");
   // Files and documents are one thing: the third tab is Files.

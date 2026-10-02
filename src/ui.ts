@@ -317,7 +317,15 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
 .bp-panel .aside{position:static;align-self:stretch;max-height:none;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;padding:16px 4px 16px 8px;margin-left:-8px}
 .conv{display:flex;flex-direction:column;min-height:0;min-width:0}
 .thread-wrap{flex:1;min-height:0;position:relative;display:flex}
-.thread-scroll{flex:1;min-width:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;padding:8px 6px 8px 0}
+.thread-scroll{flex:1;min-width:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;padding:8px 22px 8px 0;scrollbar-width:none}
+.thread-scroll::-webkit-scrollbar{display:none} /* the rail stands in for its scrollbar */
+.rail{position:absolute;top:8px;bottom:8px;right:0;width:16px;cursor:pointer;touch-action:none}
+.rail i{position:absolute;right:3px;width:8px;height:2px;margin-top:-1px;border-radius:1px;background:var(--sb);transition:background .12s,width .12s}
+.rail i.on{background:var(--muted);width:10px}
+.rail:hover i{background:var(--sb-hover)}.rail:hover i.on{background:var(--ink)}
+.rail-tip{position:absolute;right:22px;z-index:5;max-width:min(360px,70%);padding:5px 9px;margin-top:-13px;border-radius:7px;background:var(--ink);color:var(--on-ink);
+  font-size:12px;line-height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none;box-shadow:var(--shadow-lg)}
+.rail-tip[hidden]{display:none}
 .new-pill{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);z-index:4;box-shadow:var(--shadow-lg);border-radius:999px}
 .new-pill[hidden],.info-btn .count[hidden],.info-btn[hidden]{display:none}
 .conv .composer{flex:none;margin:6px 0 max(12px,env(safe-area-inset-bottom))}
