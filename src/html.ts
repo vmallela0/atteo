@@ -77,7 +77,11 @@ ${
   // Reply sets the composer to answer this entry: an agent's post gets the reply addressed to that agent.
   const reply = !opts.retracted && e.retracts == null ? `<button class="btn ghost sm" type="button" data-reply="${e.seq}" data-reply-label="${esc(e.via === "person" ? e.author : `${e.author}'s agent`)}">Reply</button>` : "";
   const retract = opts.canRetract && !opts.retracted && e.retracts == null ? `<button class="btn ghost sm retract" type="button" data-retract="${e.seq}">Unsend</button>` : "";
-  const react = !opts.retracted && e.retracts == null ? `<button class="btn ghost sm rx-act" type="button" data-rx-add="${e.seq}" aria-label="Add a reaction" title="Add a reaction">☺+</button>` : "";
+  const react =
+    !opts.retracted && e.retracts == null
+      ? ["👍", "✅", "👀"].map((q) => `<button class="btn ghost sm rx-q" type="button" data-qr="${e.seq}" data-emo="${q}" aria-label="React ${q}" title="React ${q}">${q}</button>`).join("") +
+        `<button class="btn ghost sm rx-act" type="button" data-rx-add="${e.seq}" aria-label="Add a reaction" title="Add a reaction">☺+</button>`
+      : "";
   const actions = react || reply || retract ? `<span class="acts">${react}${reply}${retract}</span>` : "";
   return `<article class="entry${opts.retracted ? " retracted" : ""}${e.via === "agent" ? " by-agent" : ""}" id="e${e.seq}" data-seq="${e.seq}" data-author="${esc(e.author)}">
 ${avatar(e.author, "", e.via === "agent")}
@@ -674,8 +678,6 @@ function replyClear(){rpTo.value='';rpBox.hidden=true}
 document.addEventListener('click',e=>{const b=e.target.closest('[data-reply]');if(b){const n=b.dataset.reply;rpTo.value=n;
   document.getElementById('replying-who').textContent=b.dataset.replyLabel;const a=document.getElementById('replying-seq');a.textContent='#'+n;a.href='#e'+n;
   rpBox.hidden=false;const ta2=document.getElementById('composer-text');
-  // Like Slack: the reply starts by @mentioning who you're answering (unless you already did, or it's you).
-  const tag='@'+b.dataset.replyLabel+' ';if(b.dataset.replyLabel!==ME&&!ta2.value.includes('@'+b.dataset.replyLabel)){ta2.value=tag+ta2.value.replace(/^\\s+/,'');ta2.dispatchEvent(new Event('input'))}
   ta2.focus();ta2.setSelectionRange(ta2.value.length,ta2.value.length);return}
   if(e.target.closest('#reply-cancel'))replyClear()});
 document.getElementById('composer-text').addEventListener('keydown',e=>{if(e.key==='Escape'&&!rpBox.hidden&&document.getElementById('mention-menu').hidden)replyClear()});
@@ -895,6 +897,13 @@ document.addEventListener('click',e=>{
   if(!picker.hidden&&!e.target.closest('.rx-pick'))closePicker()});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!picker.hidden)closePicker()});
 scroller.addEventListener('scroll',()=>{if(!picker.hidden)closePicker()},{passive:true});
+// quick reactions from the hover actions; and who reacted, in a small card over a chip
+document.addEventListener('click',e=>{const q=e.target.closest('[data-qr]');if(q){react(+q.dataset.qr,q.dataset.emo);q.blur()}});
+const rxTip=document.createElement('div');rxTip.className='rx-tip';rxTip.hidden=true;rxTip.setAttribute('role','tooltip');document.body.appendChild(rxTip);
+document.addEventListener('mouseover',e=>{const c=e.target.closest('.rx-chip');if(!c){rxTip.hidden=true;return}
+  const names=c.title.split(', ').filter(Boolean),emoji=c.querySelector('.e')?.textContent||'';
+  rxTip.innerHTML='<span class="big">'+esc(emoji)+'</span><span><b>'+names.map(esc).join(', ')+'</b><span class="faint"> reacted with '+esc(emoji)+'</span></span>';
+  rxTip.hidden=false;const r=c.getBoundingClientRect();rxTip.style.left=Math.max(8,Math.min(innerWidth-rxTip.offsetWidth-8,r.left+r.width/2-rxTip.offsetWidth/2))+'px';rxTip.style.top=(r.top-rxTip.offsetHeight-8)+'px'});
 fetch('/api/boards/'+BOARD+'/reactions').then(r=>r.json()).then(j=>{for(const [seq,list] of Object.entries(j.reactions||{}))renderRx(+seq,list)}).catch(()=>{});
 // ---- tasks in the conversation: a live strip under each task (status, priority, who it's for, who holds it) ----
 const TSTATUS={todo:'To do',doing:'In progress',blocked:'Blocked',done:'Done',stopped:'Stopped'};

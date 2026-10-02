@@ -254,6 +254,9 @@ dialog[open]{animation:pop .16s ease-out}
 .rx.has .rx-add{display:inline-flex} /* with no reactions yet, "☺+" lives in the message's hover actions */
 .rx-pick{position:fixed;z-index:50;display:flex;gap:2px;padding:4px;border-radius:999px;border:1px solid var(--line);background:var(--bg);box-shadow:var(--shadow-lg)}
 .rx-pick[hidden]{display:none}
+.rx-tip{position:fixed;z-index:50;display:flex;align-items:center;gap:10px;max-width:280px;padding:8px 12px;border-radius:10px;background:var(--ink);color:var(--on-ink);font-size:12.5px;line-height:1.35;box-shadow:var(--shadow-lg);pointer-events:none}
+.rx-tip[hidden]{display:none}.rx-tip .big{font-size:24px;line-height:1}.rx-tip .faint{color:color-mix(in srgb,var(--on-ink) 65%,transparent)}
+.entry .acts .rx-q{width:28px;padding:0;justify-content:center;font-size:14px}
 .rx-pick button{width:32px;height:32px;border:0;border-radius:50%;background:none;font-size:18px;cursor:pointer;line-height:1}.rx-pick button:hover{background:var(--bg-hover)}
 /* images: inline in the conversation (real proportions, capped), full size in a lightbox; attachments in the composer */
 .img{margin:8px 0 0}.img-open{display:block;padding:0;border:0;background:none;cursor:zoom-in;max-width:100%}
