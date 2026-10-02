@@ -156,7 +156,6 @@ dialog[open]{animation:pop .16s ease-out}dialog:focus{outline:none}
 #toast.show{opacity:1;transform:translateX(-50%)}
 
 /* board */
-.board-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:28px}
 .crumbs{font-size:13px;color:var(--muted);margin-bottom:8px}.crumbs a:hover{color:var(--ink)}
 .layout{display:grid;gap:28px;grid-template-columns:minmax(0,1fr)}
 @media(min-width:960px){.layout{grid-template-columns:minmax(0,1fr) 300px}.aside{position:sticky;top:64px;align-self:start;max-height:calc(100vh - 84px);overflow-y:auto;overflow-x:hidden;padding-right:4px}}
@@ -284,7 +283,6 @@ dialog.lightbox img{display:block;max-width:min(96vw,1600px);max-height:92vh;wid
 .att-x:hover{color:var(--ink)}
 .att.file{display:flex;flex-direction:column;justify-content:center;gap:2px;height:64px;max-width:180px;padding:0 12px;border:1px solid var(--line);border-radius:7px;background:var(--bg-subtle)}
 .att-name{font-size:12px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.doc-bin{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px;border:1px dashed var(--line-strong);border-radius:8px}
 .composer .attach{width:30px;padding:0;justify-content:center;color:var(--muted)}.composer .attach:hover{color:var(--ink)}
 .conv.drop .composer{box-shadow:0 0 0 2px var(--accent)}
 .doc-img img{display:block;max-width:100%;height:auto;border-radius:8px;border:1px solid var(--line);background:var(--bg-subtle)}
@@ -427,7 +425,6 @@ dialog.lightbox img{display:block;max-width:min(96vw,1600px);max-height:92vh;wid
 .bcard .bc-edit,.bcard .bc-links a{position:relative;z-index:1}
 .bc-top{gap:8px;align-items:center}
 .bc-top h3{margin:0;font-size:14.5px;font-weight:600;color:var(--ink)}
-.bc-emoji{font-size:18px;line-height:1}
 .bc-dot{width:10px;height:10px;border-radius:3px;background:hsl(var(--h) 55% 55%);flex:none}
 .bc-unread{font-size:11px;font-weight:600;color:#fff;background:var(--accent);border-radius:9px;padding:1px 7px;white-space:nowrap}
 .bc-edit{opacity:0;transition:opacity .12s}
@@ -624,8 +621,6 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
 .aside .agent-card.ok{flex-direction:row;align-items:center}
 .aside .agent-card.cta .btn{width:100%}
 .agent-card.ok .dot{color:var(--ok);width:9px;height:9px;flex:none}
-.agent-live{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:var(--ok);white-space:nowrap}
-.agent-live::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor;box-shadow:0 0 0 3px color-mix(in srgb,var(--ok) 20%,transparent)}
 
 /* landing */
 .hero{text-align:center;padding:64px 0 40px}
