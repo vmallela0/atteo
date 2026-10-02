@@ -1038,9 +1038,9 @@ await step("inbox: mentions, posts for your agent and replies reach the person; 
   const items = (await (await web(`/api/inbox`, B)).json()).items;
   assert(["reply", "agent", "mention"].every((k, i) => items[i].kind === k), JSON.stringify(items.map((i) => i.kind)));
   assert((await count(A)).unread === 0 || !(await (await web(`/api/inbox`, A)).json()).items.some((i) => i.seq === m), "you don't notify yourself");
-  has(await (await web(`/inbox`, B)).text(), `look at this ${run}`);
   const r = await (await web(`/api/inbox/read`, B, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ board: fb }) })).json();
   assert(r.read === 3 && (await count(B)).unread === 0, JSON.stringify(r));
+  has(await (await web(`/inbox`, B)).text(), `look at this ${run}`); // still listed after being read (viewing the inbox also reads it)
   assert([401, 302, 303].includes((await web(`/api/inbox/count`, null)).status), "sign-in required");
 });
 
