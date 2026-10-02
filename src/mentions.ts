@@ -1,6 +1,7 @@
 // @mentions. Every member is a person plus their agent, and either can be mentioned:
 //   "@vedu"          the person
 //   "@vedu's agent"  their agent (you can mention your own agent, e.g. from the web, to hand it work)
+//   "@vedu/scout"    one of vedu's agent sessions, by its name (a person can run several agents at once)
 //   "@agents"        every member's agent on the board (unless a member is actually named "agents")
 // A mention counts as addressed to whoever it names, alongside the entry's `to` (which addresses the member's agent).
 // Pure functions, shared by the Worker, the web UI and the CLI.
@@ -8,6 +9,7 @@
 export interface Mention {
   user: string;
   agent: boolean; // true: "@user's agent"; false: the person
+  session?: string; // "@user/name": one of their agent sessions (agent is true)
 }
 
 export const MAX_MENTIONS = 20;
@@ -17,7 +19,8 @@ export const MAX_MENTIONS = 20;
  * a handle, an email or a path, so "x@vedu.com" and "https://host/@vedu" aren't mentions. Handles follow USER_RE in
  * util.ts. The apostrophe may be straight, curly, or HTML-escaped (for text that's already escaped).
  */
-const MENTION_RE = /(^|[^A-Za-z0-9_.@/-])@([A-Za-z0-9][A-Za-z0-9_.-]{0,31})((?:'|’|&#39;)s\s+agent\b)?/gi;
+const MENTION_RE = /(^|[^A-Za-z0-9_.@/-])@([A-Za-z0-9][A-Za-z0-9_.-]{0,31})((?:'|’|&#39;)s\s+agent\b|\/[A-Za-z0-9][A-Za-z0-9_.-]{0,31})?/gi;
+export const SESSION_NAME_RE = /^[a-z0-9][a-z0-9._-]{0,31}$/;
 
 /** Text with code fences and inline code blanked out: "@name" inside code is never a mention. */
 function withoutCode(text: string): string {
@@ -32,7 +35,8 @@ function resolve(handle: string, suffix: string | undefined, isMember: (name: st
   const raw = handle.toLowerCase();
   const trimmed = raw.replace(/[.-]+$/, "");
   const user = isMember(raw) || !trimmed ? raw : trimmed;
-  return { user, agent: !!suffix && user === raw, known: isMember(user) };
+  const session = suffix?.startsWith("/") && user === raw ? suffix.slice(1).toLowerCase().replace(/[.-]+$/, "") : undefined;
+  return { user, agent: !!suffix && user === raw, ...(session ? { session } : {}), known: isMember(user) };
 }
 
 export const ALL_AGENTS = "agents";
@@ -63,14 +67,14 @@ export function parseMentions(
     }
     const r = resolve(m[2], m[3], (n) => set.has(n));
     if (!r.known) unknown.add(r.user);
-    else if (keep(r, author, via)) mentions.set(key(r), { user: r.user, agent: r.agent });
+    else if (keep(r, author, via)) mentions.set(key(r), { user: r.user, agent: r.agent, ...(r.session ? { session: r.session } : {}) });
   }
   return { mentions: [...mentions.values()].slice(0, MAX_MENTIONS), unknown: [...unknown].slice(0, MAX_MENTIONS) };
 }
 
 /** Self-mentions: only a person handing work to their own agent is meaningful. */
 export function keep(m: Mention, author?: string, via?: "agent" | "person" | null): boolean {
-  if (m.user !== author) return true;
+  if (m.user !== author || m.session) return true; // one of your own sessions handing work to another counts
   // Your own name only counts across the person/agent line: you hand your agent work ("@me's agent"),
   // or your agent gets your attention ("@me").
   return via === "agent" ? !m.agent : m.agent;
@@ -100,8 +104,9 @@ export function mentionsOwnAgent(e: { author: string; mentions?: Mention[] | nul
 
 /** "@vedu", "@vedu's agent"; for the viewer's own: "your user" / "you" (agents) or "you" / "your agent" (people). */
 export function mentionLabel(m: Mention, viewer?: string, viewerIs: "agent" | "person" = "agent"): string {
+  if (m.user === viewer && m.session) return viewerIs === "agent" ? `your session "${m.session}"` : `your agent ${m.session}`;
   if (m.user === viewer) return viewerIs === "agent" ? (m.agent ? "you" : "your user") : m.agent ? "your agent" : "you";
-  return m.agent ? `@${m.user}'s agent` : `@${m.user}`;
+  return m.session ? `@${m.user}/${m.session}` : m.agent ? `@${m.user}'s agent` : `@${m.user}`;
 }
 
 /** Already-escaped HTML with each stored mention wrapped in `<span class="mention">` (plus `agent` for agents). */

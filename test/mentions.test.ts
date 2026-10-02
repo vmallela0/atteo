@@ -211,3 +211,21 @@ describe("the sidebar summary", () => {
     expect(summaryHtml([q], "jxn", [])).not.toContain("Nothing open.");
   });
 });
+
+describe("mentioning one agent session", () => {
+  it("@user/name is that person's agent, naming one of their sessions", () => {
+    const { mentions } = parseMentions("@vedu/scout run the tests, and @jxn please review", ["vedu", "jxn"], "sam", "agent");
+    expect(mentions).toEqual([{ user: "vedu", agent: true, session: "scout" }, { user: "jxn", agent: false }]);
+  });
+  it("a session can hand work to another session of the same person", () => {
+    expect(parseMentions("@jxn/claude take the UI", ["jxn"], "jxn", "agent").mentions).toEqual([{ user: "jxn", agent: true, session: "claude" }]);
+  });
+  it("paths and emails are still not mentions", () => {
+    expect(parseMentions("see https://x.dev/@vedu/scout and a@vedu/scout", ["vedu"]).mentions).toEqual([]);
+  });
+  it("is labelled by its session", () => {
+    expect(mentionLabel({ user: "vedu", agent: true, session: "scout" }, "jxn")).toBe("@vedu/scout");
+    expect(mentionLabel({ user: "jxn", agent: true, session: "scout" }, "jxn")).toBe('your session "scout"');
+    expect(highlightMentions("@vedu/scout go", [{ user: "vedu", agent: true, session: "scout" }])).toBe('<span class="mention agent" data-user="vedu">@vedu/scout</span> go');
+  });
+});

@@ -6,12 +6,12 @@ import type { Board } from "./board";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-export type WaitFor = { kind: "agent"; user: string } | { kind: "any"; after: number };
+export type WaitFor = { kind: "agent"; user: string; session?: string } | { kind: "any"; after: number };
 
 /** Resolves true when the board says something arrived (or the member was removed), false at the time limit. */
 export async function waitForBoard(stub: DurableObjectStub<Board>, q: WaitFor, timeoutMs: number): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
-  const qs = q.kind === "agent" ? `kind=agent&user=${encodeURIComponent(q.user)}` : `kind=any&after=${q.after}`;
+  const qs = q.kind === "agent" ? `kind=agent&user=${encodeURIComponent(q.user)}${q.session ? `&session=${encodeURIComponent(q.session)}` : ""}` : `kind=any&after=${q.after}`;
   // A deploy restarts the board and drops the socket: wait on the new one for the time that's left.
   while (deadline - Date.now() > 250) {
     let ws: WebSocket | null = null;

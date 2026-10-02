@@ -14,6 +14,7 @@ import { CARD_HELP, cardCommand } from "./card";
 import { CliError, COMMANDS, COMMANDS_HELP } from "./commands";
 import { agentCommand, HARNESSES, splitCommand } from "./harness";
 import { myKey } from "./sealed";
+import { forgetSession, HELP_AGENTS, mentionLine, prepare, session as agentSessionFor, V2 } from "./v2";
 import { load, remove, save, storeName, type Credentials } from "./credentials";
 
 const VERSION = "0.1.0";
@@ -280,9 +281,24 @@ async function mcp(args: string[]) {
     toolText(id, `Agent Soup needs your user to sign in. Ask them to open ${pendingLink} and click Approve (it takes a few seconds), then try again.`);
   }
 
+  // The agent this server runs for (e.g. a Claude Code window) is one session, shared with the agent-soup commands it
+  // runs in its shell: its own read positions, and its boards listed under agent-soup get sessions.
+  let agentSession: string | null | undefined;
+  async function sessionHeader(): Promise<Record<string, string>> {
+    if (agentSession === undefined && creds && creds.expires_at > Date.now()) {
+      try {
+        agentSession = (await agentSessionFor({}))?.id ?? null;
+      } catch {
+        agentSession = null;
+      }
+    }
+    return agentSession ? { "x-agent-soup-session": agentSession } : {};
+  }
+
   async function forward(msg: Rpc): Promise<Response> {
     const headers: Record<string, string> = { "content-type": "application/json", accept: "application/json, text/event-stream", "user-agent": `agent-board-cli/${VERSION}` };
     if (creds?.token) headers.authorization = `Bearer ${creds.token}`;
+    if (msg.method === "tools/call") Object.assign(headers, await sessionHeader());
     if (sessionId) headers["mcp-session-id"] = sessionId;
     const res = await fetch(`${server}/mcp`, { method: "POST", headers, body: JSON.stringify(msg) });
     const sid = res.headers.get("mcp-session-id");
@@ -331,6 +347,11 @@ async function mcp(args: string[]) {
         const first = text.split("\n")[0];
         if (name === "join_board" || name === "create_board") followBoard(first.match(/\((b_[a-z0-9]+)\)/)?.[1] ?? followed);
         if (name === "leave_board") followBoard(null);
+      }
+      if (body.result?.isError && /agent session has ended/.test(text) && agentSession) {
+        forgetSession(); // ended elsewhere (agent-soup session end): start a fresh one and try again
+        agentSession = undefined;
+        return write(await (await forward(msg)).json());
       }
       if (body.result?.isError && /login has expired|not valid|Not signed in/.test(text)) {
         creds = load();
@@ -707,6 +728,14 @@ ${COMMANDS_HELP}${CARD_HELP}
 Options: --server <url> (default ${DEFAULT_SERVER}), --no-open, --no-watch (login: don't offer the watcher)`;
 
 const [cmd, ...rest] = process.argv.slice(2);
+// Older board commands also run as the calling agent's session (its board is their default).
+const BOARD_CMDS = new Set(["react", "task", "doc", "search", "share", "ask", "members", "role", "link", "audit", "decide", "check", "verify", "dm", "seal", "unseal", "use", "card", "create"]);
+const quiet = { ...(rest.includes("--quiet") ? { quiet: true as const } : {}) };
+const board = (name: string, f: (a: string[]) => Promise<unknown>) => async () => {
+  if (BOARD_CMDS.has(name)) await prepare(quiet);
+  await f(rest);
+  await mentionLine(quiet);
+};
 const run: Record<string, () => unknown> = {
   login: () => login(rest),
   status,
@@ -714,13 +743,15 @@ const run: Record<string, () => unknown> = {
   logout,
   mcp: () => mcp(rest),
   watch: () => (rest.includes("--install") ? serviceInstall(rest) : rest.includes("--uninstall") ? serviceUninstall() : rest.includes("--status") ? serviceStatus() : watch(rest)),
-  ...Object.fromEntries(Object.entries(COMMANDS).map(([k, f]) => [k, () => f(rest)])),
-  card: () => cardCommand(rest),
+  ...Object.fromEntries(Object.entries(COMMANDS).map(([k, f]) => [k, board(k, f)])),
+  ...Object.fromEntries(Object.entries(V2).map(([k, f]) => [k, board(k, f)])),
+  help: () => (rest.includes("--all") ? err(HELP) : console.log(HELP_AGENTS + "\n\nSetup, the background watcher and every command: agent-soup help --all")),
+  card: board("card", (a) => cardCommand(a)),
   connect: () => connectHelp(rest[0]),
   version: () => console.log(VERSION),
   "--version": () => console.log(VERSION),
 };
-Promise.resolve((run[cmd] ?? (() => err(HELP)))()).catch((e: Error) => {
+Promise.resolve((run[cmd] ?? (() => (cmd ? err(`Unknown command "${cmd}".\n\n${HELP_AGENTS}`) : console.log(HELP_AGENTS + "\n\nSetup, the background watcher and every command: agent-soup help --all"))))()).catch((e: Error) => {
   err(e.message);
   process.exit(e instanceof CliError ? e.code : 1);
 });

@@ -11,6 +11,7 @@ import { waitForBoard } from "./waits";
 import { mayMention, mentionLabel, parseMentions } from "./mentions";
 import { formatEntry } from "./state";
 import * as registry from "./registry";
+import * as sessions from "./sessions";
 import { sendInvite } from "./invite";
 import { ENTRY_TYPES, type Env, type NewEntry } from "./types";
 import { bearer, resolveToken, sha256hex } from "./auth";
@@ -341,6 +342,15 @@ export interface CallContext {
   sharedSession: boolean; // no Mcp-Session-Id: every session on this connection shares one board
   pinnedBoard: string | null; // ?board= in the MCP URL pins this connection to one board
   origin: string;
+  // The agent session making the call (X-Agent-Soup-Session, sent by the CLI): its own read positions and name.
+  agentSession?: { id: string; name: string; client: string | null } | null;
+  badSession?: boolean; // a session header that isn't one of this user's live sessions
+}
+
+/** How an agent's actions are recorded: its session's name and tool when it has one, else its MCP client's name. */
+async function agentOpts(c: CallContext): Promise<{ via: "agent"; client: string; session: string | null }> {
+  const client = c.agentSession ? `${c.agentSession.name} · ${c.agentSession.client ?? "agent"}` : ((await registry.mcpSessionClient(c.env, c.sessionId)) ?? "agent");
+  return { via: "agent", client, session: c.agentSession?.id ?? null };
 }
 
 function stubFor(env: Env, id: string) {
@@ -440,7 +450,12 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
         accepted = true;
       }
       if (!c.pinnedBoard) await registry.setMcpSessionBoard(env, c.sessionId, user, target.id);
-      const r = await stubFor(env, target.id).read(user, {});
+      const r = await stubFor(env, target.id).read(user, {}, c.agentSession?.id ?? null);
+      // An agent session (agent-soup mcp sends it) lists the board among its own.
+      if (c.agentSession) {
+        const as = await sessions.get(env, user, c.agentSession.id);
+        if (as && !as.boards.includes(target.id)) later(sessions.setBoards(env, as, [...as.boards, target.id]));
+      }
       later(registry.touch(env, user, target.id));
       const out = [accepted ? `Accepted ${target.from}'s invitation and joined "${target.title}" (${target.id}).` : `Joined "${target.title}" (${target.id}) for this session.`];
       if (c.sharedSession) out.push("Note: this MCP client doesn't send a session id, so every session on this connection shares this board.");
@@ -482,7 +497,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
 
     case "read": {
       const id = await currentBoard(c, args);
-      const r = await stubFor(env, id).read(user, { limit: int(args.limit), since: int(args.since) });
+      const r = await stubFor(env, id).read(user, { limit: int(args.limit), since: int(args.since) }, c.agentSession?.id ?? null);
       later(registry.touch(env, user, id));
       const out = [r.summaryText, ""];
       const label = int(args.since) != null ? `Entries after #${int(args.since)}` : "New from others since your last read";
@@ -501,7 +516,8 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const to = args.to == null || args.to === "" ? null : normalizeUser(String(args.to));
       if (args.to != null && args.to !== "" && !to) throw new ToolError(`"${args.to}" is not a valid member name.`);
       const stub = stubFor(env, id);
-      const agentClient = (await registry.mcpSessionClient(env, c.sessionId)) ?? "agent";
+      // An agent session shows as its name (and tool): "scout · Codex"; otherwise the MCP client's name.
+      const agentClient = (await agentOpts(c)).client;
       const text = typeof args.text === "string" ? args.text : "";
       const { mentions, unknown } = mayMention(text) ? parseMentions(text, (await registry.boardMembers(env, id)).map((m) => m.user), user, "agent") : { mentions: [], unknown: [] };
       const res = await stub.postFresh(user, {
@@ -519,7 +535,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
         artifact_name: str(args.artifact_name) ?? null,
         artifact_content: typeof args.artifact_content === "string" ? args.artifact_content : null,
         card: args.card,
-      });
+      }, c.agentSession?.id ?? null);
       if ("missed" in res) {
         const n = res.missed.length + res.remaining;
         throw new ToolError(
@@ -544,8 +560,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const stub = stubFor(env, id);
       const action = str(args.action);
       const name = str(args.name);
-      const client = (await registry.mcpSessionClient(env, c.sessionId)) ?? "agent";
-      const opts = { via: "agent" as const, client, summary: str(args.summary) ?? null };
+      const opts = { ...(await agentOpts(c)), summary: str(args.summary) ?? null };
       const when = (ts: number) => new Date(ts).toISOString().slice(0, 16).replace("T", " ") + "Z";
       const by = (d: { updated_by: string; via: string | null }) => (d.via === "agent" ? `${d.updated_by}'s agent` : d.via === "person" ? `${d.updated_by} (person)` : d.updated_by);
       if (action === "grep") {
@@ -598,7 +613,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       if (["create","edit","claim","release","update","stop"].includes(str(args.action) ?? "")) await requireWriter(env, id, user);
       const stub = stubFor(env, id);
       const action = str(args.action);
-      const opts = { via: "agent" as const, client: (await registry.mcpSessionClient(env, c.sessionId)) ?? "agent" };
+      const opts = await agentOpts(c);
       const when = (ts: number) => new Date(ts).toISOString().slice(0, 16).replace("T", " ") + "Z";
       const line = (t: Awaited<ReturnType<typeof stub.tasks>>[number]) =>
         `#${t.seq} [${t.status}${t.priority ? ` · ${t.priority}` : ""}]${t.assignee ? ` for ${t.assignee_agent ? `${t.assignee}'s agent` : t.assignee}` : ""}${
@@ -683,7 +698,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const seq = int(args.seq);
       if (seq == null) throw new ToolError("seq is required.");
       const verdict = str(args.verdict) as "approve" | "request_changes" | "comment";
-      const opts = { via: "agent" as const, client: (await registry.mcpSessionClient(env, c.sessionId)) ?? "agent" };
+      const opts = await agentOpts(c);
       const r = await stub.review(user, seq, verdict, str(args.note) ?? "", opts);
       later(registry.bumpBoard(env, id, r.entry.seq));
       const pr = (await stub.get(seq)).entry.card?.pr_url;
@@ -746,7 +761,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const seq = int(args.seq);
       if (seq == null) throw new ToolError("seq is required.");
       if (action !== "evidence" && action !== "verify" && action !== "dispute" && action !== "check") throw new ToolError("action must be one of: list, evidence, verify, dispute, check.");
-      const opts = { via: "agent" as const, client: (await registry.mcpSessionClient(env, c.sessionId)) ?? "agent" };
+      const opts = await agentOpts(c);
       const out = await stub.claimAct(user, seq, { action, evidence_seq: int(args.evidence_seq), url: str(args.url), note: str(args.note), reason: str(args.reason), command: str(args.command), commit: str(args.commit) }, opts);
       later(registry.touch(env, user, id));
       return out;
@@ -772,7 +787,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
         ];
         return lines.join("\n");
       }
-      const opts = { via: "agent" as const, client: (await registry.mcpSessionClient(env, c.sessionId)) ?? "agent" };
+      const opts = await agentOpts(c);
       const r = await stubFor(env, id).publishSlice(user, slice, opts);
       later(registry.bumpBoard(env, id, Math.max(r.summary, ...r.posted.map((p) => p.seq))));
       return `Published: summary #${r.summary}${r.posted.length ? `, then ${r.posted.map((p) => `#${p.seq} ${p.type}`).join(", ")}` : ""}.`;
@@ -834,8 +849,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
         type: "note",
         text: str(args.reason) ?? `Retracted #${seq}.`,
         retracts: seq,
-        via: "agent",
-        client: (await registry.mcpSessionClient(env, c.sessionId)) ?? "agent",
+        ...(await agentOpts(c)),
       });
       later(registry.touch(env, user, id).then(() => registry.bumpBoard(env, id, entry.seq)));
       return `Retracted #${seq} (logged as #${entry.seq}). It's out of the summary and marked retracted in the log.`;
@@ -848,7 +862,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const take = async (join: boolean) => {
         for (let attempt = 0; ; attempt++) {
           try {
-            return await stubFor(env, id).wait(user, join);
+            return await stubFor(env, id).wait(user, join, c.agentSession?.id ?? null);
           } catch (e) {
             if (attempt >= 2 || !/reset because its code was updated|Network connection lost|object to be reset/i.test(String(e instanceof Error ? e.message : e))) throw e;
           }
@@ -856,7 +870,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       };
       // Anything already new comes back at once; otherwise this Worker waits (the board sleeps) and reads again.
       let r = await take(true);
-      if (!r.entries.length && (await waitForBoard(stubFor(env, id), { kind: "agent", user }, Math.max(1000, Math.min(secs * 1000, MAX_WAIT_MS))))) r = await take(false);
+      if (!r.entries.length && (await waitForBoard(stubFor(env, id), { kind: "agent", user, session: c.agentSession?.id }, Math.max(1000, Math.min(secs * 1000, MAX_WAIT_MS))))) r = await take(false);
       later(registry.touch(env, user, id));
       if (r.timedOut) return `Nothing new from other members in ${Math.min(secs, MAX_WAIT_MS / 1000)}s. Call wait again to keep listening, or carry on.`;
       return `${r.entries.length} new from others:\n` + fence(r.entries.map((e) => formatEntry(e, 4000, user)).join("\n"));
@@ -970,6 +984,7 @@ async function handleOne(c: HandleContext, msg: RpcRequest): Promise<object | nu
         });
       }
       try {
+        if (c.badSession) throw new ToolError("That agent session has ended or isn't yours. Start a new one: agent-soup session new");
         const text = await callTool({ ...c, user: c.user }, name, args);
         return rpcResult(msg.id, { content: [{ type: "text", text }] });
       } catch (e) {
@@ -1031,6 +1046,15 @@ export async function handleMcp(request: Request, env: Env, ctx: ExecutionContex
     tokenSent: !!token,
     expired: resolved.expired,
   };
+  const asHeader = request.headers.get("x-agent-soup-session");
+  if (asHeader && user) {
+    const s = await sessions.get(env, user, asHeader);
+    if (s) {
+      c.agentSession = { id: s.id, name: s.name, client: s.client };
+      const t = sessions.touch(env, s.id);
+      if (t) ctx.waitUntil(t.catch(() => {}));
+    } else c.badSession = true;
+  }
 
   const batch = Array.isArray(body);
   const msgs = (batch ? body : [body]) as RpcRequest[];

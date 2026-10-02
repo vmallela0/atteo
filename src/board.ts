@@ -6,7 +6,7 @@ import { screenText } from "./screen";
 import { DurableObject } from "cloudflare:workers";
 import { computeSummary, formatSummary, DEFAULT_SUMMARY_CHARS, type Summary } from "./state";
 import { blockedMessage, scanFields, scanText, type SecretHit } from "./secrets";
-import { keep, MAX_MENTIONS, mentionsOwnAgent, type Mention } from "./mentions";
+import { keep, MAX_MENTIONS, mentionsOwnAgent, SESSION_NAME_RE, type Mention } from "./mentions";
 import { ENTRY_TYPES, type BoardInfo, type Entry, type Env, type Media, type Member, type NewEntry } from "./types";
 import { cleanTitle, EMOJI_RE, ftsQuery, USER_RE } from "./util";
 import { cardText, parseCard, type ChangeCard } from "./card";
@@ -76,6 +76,7 @@ export interface TaskChange {
 export interface TaskActOpts {
   via?: "agent" | "person" | null;
   client?: string | null;
+  session?: string | null; // the agent session acting: notes it causes count as its own posts
 }
 const iso = (ts: number) => new Date(ts).toISOString().slice(0, 16).replace("T", " ") + "Z";
 
@@ -113,6 +114,7 @@ export interface DocEditOpts {
   via?: "agent" | "person" | null;
   client?: string | null;
   summary?: string | null;
+  session?: string | null; // the agent session editing
 }
 export type DocResult = { conflict: false; version: number; note: number } | { conflict: true; current: number; content: string };
 
@@ -142,6 +144,7 @@ function validateDocName(name: string) {
 interface WaitAtt {
   wait: "agent" | "any";
   user: string;
+  session?: string; // an agent session's wait: woken by anything but its own posts, including its person's other sessions
 }
 
 type Row = Record<string, SqlStorageValue>;
@@ -305,6 +308,13 @@ export class Board extends DurableObject<Env> {
         person_seen INTEGER NOT NULL DEFAULT 0,
         agent_seen INTEGER NOT NULL DEFAULT -1 -- -1: their agent has never been on this board
       );
+      -- One read position per agent session (a person can run several agents at once); the member's cursor above is
+      -- the furthest any of them got.
+      CREATE TABLE IF NOT EXISTS session_cursors (
+        session TEXT PRIMARY KEY,
+        user TEXT NOT NULL,
+        cursor INTEGER NOT NULL DEFAULT 0
+      );
     `);
     this.migrate();
     // Keep-alive pings from open board tabs are answered without waking this object (no duration billed).
@@ -333,7 +343,7 @@ export class Board extends DurableObject<Env> {
   // Worker opens a hibernating socket, and this object only wakes to send "go" when something arrives.
 
   private acceptWait(url: URL): Response {
-    const att: WaitAtt = { wait: url.searchParams.get("kind") === "any" ? "any" : "agent", user: url.searchParams.get("user") ?? "" };
+    const att: WaitAtt = { wait: url.searchParams.get("kind") === "any" ? "any" : "agent", user: url.searchParams.get("user") ?? "", ...(url.searchParams.get("session") ? { session: url.searchParams.get("session")! } : {}) };
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
     this.ctx.acceptWebSocket(server, ["wait"]);
@@ -343,7 +353,8 @@ export class Board extends DurableObject<Env> {
     if (att.wait === "any") ready = this.info().last_seq > (parseInt(url.searchParams.get("after") ?? "0", 10) || 0);
     else {
       const row = this.sql.exec("SELECT cursor FROM members WHERE name = ?", att.user).toArray();
-      ready = !row.length || this.countAfter(row[0].cursor as number, att.user) > 0;
+      const own = att.session ? this.sql.exec("SELECT cursor FROM session_cursors WHERE session = ?", att.session).toArray()[0] : undefined;
+      ready = !row.length || this.countAfter(own ? (own.cursor as number) : (row[0].cursor as number), att.user, att.session) > 0;
     }
     if (ready) server.send("go");
     return new Response(null, { status: 101, webSocket: client });
@@ -505,6 +516,7 @@ export class Board extends DurableObject<Env> {
     if (!cols.has("client")) this.sql.exec("ALTER TABLE entries ADD COLUMN client TEXT");
     if (!cols.has("mentions")) this.sql.exec("ALTER TABLE entries ADD COLUMN mentions TEXT");
     if (!cols.has("self_agent")) this.sql.exec("ALTER TABLE entries ADD COLUMN self_agent INTEGER NOT NULL DEFAULT 0");
+    if (!cols.has("session")) this.sql.exec("ALTER TABLE entries ADD COLUMN session TEXT"); // the agent session that posted it, if any
     if (!cols.has("artifact_version")) this.sql.exec("ALTER TABLE entries ADD COLUMN artifact_version INTEGER");
     if (!cols.has("card")) this.sql.exec("ALTER TABLE entries ADD COLUMN card TEXT");
     // "Was this retracted / replied to?" lookups run for every task and claim on every summary rebuild.
@@ -655,9 +667,32 @@ export class Board extends DurableObject<Env> {
     this.sql.exec("UPDATE members SET cursor = MAX(cursor, ?) WHERE name = ?", seq, user);
   }
 
+  /** Where a reader is: an agent session's own position (a new session starts where its person's agent left off), else the member's. */
+  private readCursor(user: string, session?: string | null): number {
+    const member = this.touch(user);
+    if (!session) return member;
+    const r = this.sql.exec("SELECT cursor FROM session_cursors WHERE session = ? AND user = ?", session, user).toArray();
+    if (r.length) return r[0].cursor as number;
+    this.sql.exec("INSERT OR REPLACE INTO session_cursors (session, user, cursor) VALUES (?, ?, ?)", session, user, member);
+    return member;
+  }
+
+  /** Moves a reader forward: the session (if any) and the member (the furthest any of their sessions got). */
+  private advance(user: string, seq: number, session?: string | null) {
+    this.setCursor(user, seq);
+    if (session) this.sql.exec("UPDATE session_cursors SET cursor = MAX(cursor, ?) WHERE session = ? AND user = ?", seq, session, user);
+  }
+
   async join(user: string): Promise<BoardInfo> {
     this.info();
     this.touch(user);
+    return this.info();
+  }
+
+  /** An agent session starts following this board: its read position starts where its person's agent left off. */
+  async joinSession(user: string, session: string): Promise<BoardInfo> {
+    this.info();
+    this.readCursor(user, session);
     return this.info();
   }
 
@@ -668,17 +703,17 @@ export class Board extends DurableObject<Env> {
    * nothing is posted; the agent gets what it missed (now marked read) and decides whether to post again.
    * The object handles one request at a time, so two simultaneous posts are ordered and the second is bounced.
    */
-  async postFresh(user: string, input: NewEntry): Promise<{ entry: Entry } | { missed: Entry[]; remaining: number }> {
+  async postFresh(user: string, input: NewEntry, session?: string | null): Promise<{ entry: Entry } | { missed: Entry[]; remaining: number }> {
     this.info();
-    const cursor = this.touch(user);
-    const unread = this.countAfter(cursor, user);
+    const cursor = this.readCursor(user, session);
+    const unread = this.countAfter(cursor, user, session);
     if (unread > 0) {
-      const missed = this.entriesAfter(cursor, user, 20);
-      this.setCursor(user, missed[missed.length - 1].seq);
+      const missed = this.entriesAfter(cursor, user, 20, session);
+      this.advance(user, missed[missed.length - 1].seq, session);
       this.markSeen(user, "agent", missed[missed.length - 1].seq);
       return { missed, remaining: unread - missed.length };
     }
-    return { entry: await this.post(user, input) };
+    return { entry: await this.post(user, session ? { ...input, session } : input) };
   }
 
   async post(user: string, input: NewEntry, internal: { docVersion?: number; media?: Media; seeding?: boolean; sealed?: boolean } = {}): Promise<Entry> {
@@ -754,15 +789,15 @@ export class Board extends DurableObject<Env> {
     const mentions: Mention[] = [];
     for (const m of input.mentions ?? []) {
       if (typeof m?.user !== "string" || !USER_RE.test(m.user)) continue;
-      const clean = { user: m.user, agent: m.agent === true };
+      const clean = { user: m.user, agent: m.agent === true || typeof m.session === "string", ...(typeof m.session === "string" && SESSION_NAME_RE.test(m.session) ? { session: m.session } : {}) };
       if (keep(clean, user, input.via) && !mentions.some((x) => x.user === clean.user && x.agent === clean.agent)) mentions.push(clean);
       if (mentions.length >= MAX_MENTIONS) break;
     }
 
     const row = this.sql
       .exec(
-        `INSERT INTO entries (ts, author, type, text, to_user, mentions, self_agent, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, artifact_content, card, card_diff, media, title)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING ${ENTRY_COLS}`,
+        `INSERT INTO entries (ts, author, type, text, to_user, mentions, self_agent, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, artifact_content, card, card_diff, media, title, session)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING ${ENTRY_COLS}`,
         Date.now(),
         user,
         input.type,
@@ -784,6 +819,7 @@ export class Board extends DurableObject<Env> {
         cardDiff,
         internal.media ? JSON.stringify(internal.media) : null,
         title,
+        input.session ?? null,
       )
       .one();
     if (artifactVersion != null) this.broadcast({ type: "doc", name: artifactName, version: artifactVersion, by: user });
@@ -810,12 +846,14 @@ export class Board extends DurableObject<Env> {
         .one().s as number | null;
       this.setCursor(user, pending != null ? pending - 1 : entry.seq);
     }
+    if (input.session) this.advance(user, entry.seq, input.session); // its own post is read for the session that wrote it
 
     this.ctx.waitUntil(this.notify(info, entry).catch(() => {}));
     if (!internal.seeding && !user.startsWith("e2e-")) this.ctx.waitUntil(Promise.resolve(track(this.env, "posts", input.via ?? "agent")).catch(() => {}));
     if (this.env.AI_TOKEN && !internal.seeding && text.length >= 25 && !screenText(text)) this.ctx.waitUntil(this.screenWithModel(entry.seq, text).catch(() => {}));
 
-    this.wakeWaits((a) => a.wait === "any" || a.user !== user || forOwnAgent);
+    // Wake everyone else's waits, and this person's other agent sessions (they see each other's posts).
+    this.wakeWaits((a) => a.wait === "any" || a.user !== user || forOwnAgent || (!!a.session && a.session !== input.session));
     // Who posted what to whom (no text): enough for tabs to refresh and for a member's CLI to decide whether to wake its agent.
     this.broadcast({ type: "entry", seq: entry.seq, retracts: entry.retracts, author: entry.author, via: entry.via ?? null, kind: entry.type, to: entry.to, mentions: entry.mentions, reply_to: entry.reply_to, board: info.id, title: info.title });
     return entry;
@@ -824,15 +862,21 @@ export class Board extends DurableObject<Env> {
   // ---- reads ----
 
   // "From others" for an agent: other members' entries, plus its own person's posts that mention it ("@me's agent").
-  private entriesAfter(seq: number, excludeAuthor: string | null, limit: number): Entry[] {
-    const rows = excludeAuthor
-      ? this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq > ? AND (author != ? OR self_agent = 1) ORDER BY seq LIMIT ?`, seq, excludeAuthor, limit)
-      : this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq > ? ORDER BY seq LIMIT ?`, seq, limit);
+  // An agent session reads everything except its own posts (so a person's sessions see each other's work);
+  // otherwise a reader gets other members' entries plus hand-offs to their own agent.
+  private entriesAfter(seq: number, excludeAuthor: string | null, limit: number, session?: string | null): Entry[] {
+    const rows = session
+      ? this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq > ? AND (session IS NULL OR session != ?) ORDER BY seq LIMIT ?`, seq, session, limit)
+      : excludeAuthor
+        ? this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq > ? AND (author != ? OR self_agent = 1) ORDER BY seq LIMIT ?`, seq, excludeAuthor, limit)
+        : this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq > ? ORDER BY seq LIMIT ?`, seq, limit);
     return rows.toArray().map(toEntry);
   }
 
-  private countAfter(seq: number, excludeAuthor: string): number {
-    return this.sql.exec("SELECT COUNT(*) AS n FROM entries WHERE seq > ? AND (author != ? OR self_agent = 1)", seq, excludeAuthor).one().n as number;
+  private countAfter(seq: number, excludeAuthor: string, session?: string | null): number {
+    return session
+      ? (this.sql.exec("SELECT COUNT(*) AS n FROM entries WHERE seq > ? AND (session IS NULL OR session != ?)", seq, session).one().n as number)
+      : (this.sql.exec("SELECT COUNT(*) AS n FROM entries WHERE seq > ? AND (author != ? OR self_agent = 1)", seq, excludeAuthor).one().n as number);
   }
 
   // Entries never change once posted, so the in-memory copy only ever needs the new ones appended.
@@ -860,15 +904,15 @@ export class Board extends DurableObject<Env> {
    * Returns the summary plus entries from other members that this user has not read yet (oldest first),
    * and advances the user's cursor past what was returned.
    */
-  async read(user: string, opts: { limit?: number; since?: number } = {}) {
+  async read(user: string, opts: { limit?: number; since?: number } = {}, session?: string | null) {
     const info = this.info();
-    const cursor = this.touch(user);
+    const cursor = this.readCursor(user, session);
     const from = opts.since != null ? Math.max(0, opts.since) : cursor;
     const limit = clamp(opts.limit ?? 50, 1, 200);
-    const fresh = this.entriesAfter(from, opts.since != null ? null : user, limit);
-    const remaining = opts.since != null ? 0 : Math.max(0, this.countAfter(from, user) - fresh.length);
-    if (fresh.length) this.setCursor(user, fresh[fresh.length - 1].seq);
-    else if (opts.since == null) this.setCursor(user, info.last_seq);
+    const fresh = opts.since != null ? this.entriesAfter(from, null, limit) : this.entriesAfter(from, user, limit, session);
+    const remaining = opts.since != null ? 0 : Math.max(0, this.countAfter(from, user, session) - fresh.length);
+    if (fresh.length) this.advance(user, fresh[fresh.length - 1].seq, session);
+    else if (opts.since == null) this.advance(user, info.last_seq, session);
     if (fresh.length) this.markSeen(user, "agent", fresh[fresh.length - 1].seq);
     else if (opts.since == null) this.markSeen(user, "agent", info.last_seq);
     const members = this.members();
@@ -892,13 +936,13 @@ export class Board extends DurableObject<Env> {
    * acceptWait). Advances the cursor past what it returns. `join` false: after a wait, so a member removed
    * meanwhile gets nothing and isn't re-added.
    */
-  async wait(user: string, join = true) {
+  async wait(user: string, join = true, session?: string | null) {
     this.info();
     if (join) this.touch(user);
     const row = this.sql.exec("SELECT cursor FROM members WHERE name = ?", user).toArray();
     if (!row.length) return { info: this.info(), entries: [] as Entry[], timedOut: true };
-    const fresh = this.entriesAfter(row[0].cursor as number, user, 50);
-    if (fresh.length) this.setCursor(user, fresh[fresh.length - 1].seq);
+    const fresh = this.entriesAfter(session ? this.readCursor(user, session) : (row[0].cursor as number), user, 50, session);
+    if (fresh.length) this.advance(user, fresh[fresh.length - 1].seq, session);
     if (fresh.length) this.markSeen(user, "agent", fresh[fresh.length - 1].seq);
     this.touch(user);
     return { info: this.info(), entries: fresh, timedOut: fresh.length === 0 };
@@ -907,6 +951,7 @@ export class Board extends DurableObject<Env> {
   /** Drops a member's cursor and ends any wait they have in progress. Access itself is enforced by the Worker. */
   async removeMember(user: string): Promise<void> {
     this.sql.exec("DELETE FROM members WHERE name = ?", user);
+    this.sql.exec("DELETE FROM session_cursors WHERE user = ?", user);
     this.touched.delete(user);
     this.sql.exec("UPDATE tasks SET lease_holder = NULL, lease_until = NULL, status = CASE WHEN status = 'doing' THEN 'todo' ELSE status END WHERE lease_holder = ?", user);
     this.wakeWaits((a) => a.user === user);
@@ -1283,7 +1328,7 @@ export class Board extends DurableObject<Env> {
     const text = (note ?? "").trim();
     if (verdict !== "approve" && !text) throw new BoardError("Say what to change (note).");
     const head = verdict === "approve" ? `✅ Approved #${seq}` : verdict === "request_changes" ? `✋ Changes requested on #${seq}` : `💬 Review comment on #${seq}`;
-    const entry = await this.post(user, { type: "note", reply_to: seq, to: change.author, text: text ? `${head}: ${text}` : `${head}.`, via: opts.via, client: opts.client });
+    const entry = await this.post(user, { type: "note", reply_to: seq, to: change.author, text: text ? `${head}: ${text}` : `${head}.`, via: opts.via, client: opts.client, session: opts.session });
     if (verdict !== "comment") {
       this.sql.exec(
         "INSERT OR REPLACE INTO reviews (seq, reviewer, verdict, via, note_seq, ts) VALUES (?, ?, ?, ?, ?, ?)",
@@ -1355,7 +1400,7 @@ export class Board extends DurableObject<Env> {
     if (act.action === "verify") {
       if (claim.author === user) throw new BoardError("You can't verify your own claim (or your agent's); someone else has to check it.");
       this.sql.exec("UPDATE claim_state SET status = 'verified', verified_by = ?, verified_via = ?, disputed_by = NULL, disputed_via = NULL, dispute_reason = NULL, updated_at = ? WHERE seq = ?", user, opts.via ?? null, Date.now(), seq);
-      await this.post(user, { type: "note", reply_to: seq, to: claim.author, text: `✓ Verified #${seq}${act.note ? `: ${act.note}` : "."}`, via: opts.via, client: opts.client });
+      await this.post(user, { type: "note", reply_to: seq, to: claim.author, text: `✓ Verified #${seq}${act.note ? `: ${act.note}` : "."}`, via: opts.via, client: opts.client, session: opts.session });
       return `#${seq} is verified by ${who}.`;
     }
     if (act.action === "dispute") {
@@ -1370,6 +1415,7 @@ export class Board extends DurableObject<Env> {
         text: `✗ Disputed #${seq}: ${reason}${deps.length ? ` (now stale: ${deps.map((d) => `#${d}`).join(", ")})` : ""}`,
         via: opts.via,
         client: opts.client,
+        session: opts.session,
       });
       return `#${seq} is disputed.${deps.length ? ` Flagged as stale: ${deps.map((d) => `#${d}`).join(", ")}.` : ""}`;
     }
@@ -1564,6 +1610,7 @@ export class Board extends DurableObject<Env> {
         text: `${done ? "✅ Done" : "Task"} #${seq} (${after.title}): ${[...parts.filter((p) => !(done && p === "status → done")), change.note ?? ""].filter(Boolean).join("; ") || "finished"}`,
         via: opts.via,
         client: opts.client,
+        session: opts.session,
       });
     }
     return after;
@@ -1575,7 +1622,7 @@ export class Board extends DurableObject<Env> {
     const t = this.task(seq);
     const why = reason.trim().slice(0, 300) || "stopped";
     this.sql.exec("UPDATE tasks SET status = 'stopped', stop_reason = ?, lease_holder = NULL, lease_until = NULL, updated_at = ? WHERE seq = ?", why, Date.now(), seq);
-    await this.post(user, { type: "note", reply_to: seq, to: t.lease_holder ?? t.assignee, text: `Stop task #${seq}: ${why}`, via: opts.via, client: opts.client });
+    await this.post(user, { type: "note", reply_to: seq, to: t.lease_holder ?? t.assignee, text: `Stop task #${seq}: ${why}`, via: opts.via, client: opts.client, session: opts.session });
     this.broadcast({ type: "task", seq });
     return this.task(seq);
   }
@@ -1587,7 +1634,7 @@ export class Board extends DurableObject<Env> {
     const body = (input.body ?? "").trim();
     const who = input.assignee ? input.assignee.toLowerCase() : null;
     if (who && !this.sql.exec("SELECT 1 AS x FROM members WHERE name = ?", who).toArray().length) throw new BoardError(`${who} isn't a member of this board.`);
-    const e = await this.post(user, { type: "task", text: body ? `${title}\n\n${body}` : title, to: who, via: opts.via, client: opts.client });
+    const e = await this.post(user, { type: "task", text: body ? `${title}\n\n${body}` : title, to: who, via: opts.via, client: opts.client, session: opts.session });
     if (who || input.priority || input.due || input.assignee_agent === false) {
       this.sql.exec(
         "UPDATE tasks SET assignee = ?, assignee_agent = ?, priority = ?, due = ? WHERE seq = ?",
@@ -1839,6 +1886,7 @@ export class Board extends DurableObject<Env> {
         artifact_content: content,
         via: opts.via,
         client: opts.client,
+        session: opts.session,
       },
       { docVersion: version },
     );
@@ -1945,10 +1993,10 @@ export class Board extends DurableObject<Env> {
     const hit = scanFields(Object.fromEntries([["summary", slice.summary], ...items.map((x, i) => [`item ${i + 1}`, x.text]), ...files.map((f) => [f.name, f.content])]));
     if (hit) throw new BoardError(blockedMessage(hit));
     this.rateLimit(user); // one slice counts as one post
-    const head = await this.post(user, { type: "note", title: slice.title ?? "Session summary", text: slice.summary, via: opts.via, client: opts.client }, { seeding: true });
+    const head = await this.post(user, { type: "note", title: slice.title ?? "Session summary", text: slice.summary, via: opts.via, client: opts.client, session: opts.session }, { seeding: true });
     const posted: { seq: number; type: string }[] = [];
-    for (const x of items) posted.push({ seq: (await this.post(user, { type: x.type, text: x.text, reply_to: head.seq, via: opts.via, client: opts.client }, { seeding: true })).seq, type: x.type });
-    for (const f of files) posted.push({ seq: (await this.post(user, { type: "artifact", artifact_name: f.name, artifact_content: f.content, text: f.note ?? `From the session: ${f.name}`, reply_to: head.seq, via: opts.via, client: opts.client }, { seeding: true })).seq, type: "artifact" });
+    for (const x of items) posted.push({ seq: (await this.post(user, { type: x.type, text: x.text, reply_to: head.seq, via: opts.via, client: opts.client, session: opts.session }, { seeding: true })).seq, type: x.type });
+    for (const f of files) posted.push({ seq: (await this.post(user, { type: "artifact", artifact_name: f.name, artifact_content: f.content, text: f.note ?? `From the session: ${f.name}`, reply_to: head.seq, via: opts.via, client: opts.client, session: opts.session }, { seeding: true })).seq, type: "artifact" });
     return { summary: head.seq, posted };
   }
 
@@ -1973,8 +2021,8 @@ export class Board extends DurableObject<Env> {
     // On an encrypted board every message is an envelope for all members; elsewhere it's a secret for one member.
     const type = (["note", "question", "claim", "decision", "task"] as const).find((t) => t === s.type) ?? "note";
     const e = info.encrypted
-      ? await this.post(user, { type, to, reply_to: s.reply_to ?? null, title: "Encrypted", text: "🔒 Encrypted message (read it with agent-soup read)", via: opts.via, client: opts.client }, { sealed: true })
-      : await this.post(user, { type: "note", to, title: "Sealed secret", text: `🔒 A sealed secret for ${to}'s agent${note ? `: ${note}` : "."} Only ${to}'s agent can open it: agent-soup unseal <this entry's number>.`, via: opts.via, client: opts.client });
+      ? await this.post(user, { type, to, reply_to: s.reply_to ?? null, title: "Encrypted", text: "🔒 Encrypted message (read it with agent-soup read)", via: opts.via, client: opts.client, session: opts.session }, { sealed: true })
+      : await this.post(user, { type: "note", to, title: "Sealed secret", text: `🔒 A sealed secret for ${to}'s agent${note ? `: ${note}` : "."} Only ${to}'s agent can open it: agent-soup unseal <this entry's number>.`, via: opts.via, client: opts.client, session: opts.session });
     // On an encrypted board every envelope is for all members ("*"); `to` is just who it's addressed to.
     this.sql.exec("UPDATE entries SET sealed = ?, sealed_to = ? WHERE seq = ?", s.payload, info.encrypted ? "*" : to, e.seq);
     return e;

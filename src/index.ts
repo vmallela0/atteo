@@ -49,7 +49,10 @@ import { BOARD_RE, connectCommand, esc, newBoardId, normalizeUser, parseBoardMet
 import * as Sentry from "@sentry/cloudflare";
 import { scrubForSentry } from "./sentry";
 export { Board } from "./board";
-import { MAX_IMAGE } from "./board";
+import { MAX_IMAGE, MAX_WAIT_MS } from "./board";
+import * as sessions from "./sessions";
+import { formatEntry } from "./state";
+import { fence } from "./screen";
 
 const OPS_PATH = "/_ops";
 
@@ -422,6 +425,13 @@ const handler = {
       const session = await auth.getSession(request, env);
       const viewer = await loadViewer(env, session, request, path);
       const pv = (): "agent" | "person" => viewer?.via ?? "person"; // who wrote it: a person on the web, or an agent via token
+      // The agent session making the call (the CLI sends X-Agent-Soup-Session): what it causes counts as its own posts.
+      let sessionMemo: Promise<string | null> | null = null;
+      const asid = () =>
+        (sessionMemo ??= (async () => {
+          const h = request.headers.get("x-agent-soup-session");
+          return h && viewer?.via === "agent" ? ((await sessions.get(env, viewer.name, h))?.id ?? null) : null;
+        })());
       if (viewer && viewer.via !== "agent") ctx.waitUntil(Promise.resolve(social.markSeen(env, viewer.name, "web")).catch(() => {}));
       if (viewer && viewer.via !== "agent" && !viewer.name.startsWith("e2e-")) ctx.waitUntil(Promise.resolve(usage.track(env, "active_person", viewer.name, true)).catch(() => {}));
       const c: Ctx = { request, env, ctx, url, session, viewer };
@@ -554,11 +564,20 @@ const handler = {
           registry.agentsOnBoard(env, m[2]),
           registry.agentStatus(env, viewer.name),
         ]);
+        // Agents here: named sessions, plus members' agents connected without one (e.g. an MCP URL connection).
+        const memberSet = new Set(members.map((x) => x.user));
+        const sessionsHere = (await sessions.onBoard(env, m[2])).filter((x) => memberSet.has(x.user));
+        const agentsHere = [
+          ...sessionsHere,
+          ...Object.entries(live)
+            .filter(([u]) => memberSet.has(u) && !sessionsHere.some((x) => x.user === u))
+            .map(([u, seen]) => ({ user: u, name: null, client: null, last_seen: seen })),
+        ];
         const withAgents = members.map((x) => ({ ...x, agent_seen: live[x.user] ?? null }));
         // People who already have an account show by name, so a friend invited by name never has their email shown.
         const named = await Promise.all(invites.map(async (i) => ((await registry.userByEmail(env, i.email))?.name ?? null)));
         const shown = invites.map((i, k) => (named[k] ? { ...i, email: named[k]!, email_status: "waiting to accept" } : i));
-        return boardPage(viewer, side, snap.info, withAgents, snap.entries, shown, { connected: status.connected, onThisBoard: !!live[viewer.name] }, snap.summary);
+        return boardPage(viewer, side, snap.info, withAgents, snap.entries, shown, { connected: status.connected, onThisBoard: !!live[viewer.name] }, snap.summary, agentsHere);
       }
 
       // ---- inbox: mentions of you, posts for your agent, replies to you ----
@@ -680,7 +699,7 @@ const handler = {
             const hit = scanFields({ note });
             if (hit) return json({ error: blockedMessage(hit) }, 400);
             if ((await registry.memberRole(env, km[1], viewer.name)) === "viewer") return json({ error: "Your role on this board is viewer." }, 403);
-            const e = await stub.postSealed(viewer.name, { to: b.to ? String(b.to) : null, note, payload: String(b.payload ?? ""), type: b.type, reply_to: Number(b.reply_to) || null }, { via: pv(), client: viewer.via === "agent" ? "agent-soup CLI" : null });
+            const e = await stub.postSealed(viewer.name, { to: b.to ? String(b.to) : null, note, payload: String(b.payload ?? ""), type: b.type, reply_to: Number(b.reply_to) || null }, { via: pv(), client: viewer.via === "agent" ? "agent-soup CLI" : null, session: await asid() });
             ctx.waitUntil(registry.bumpBoard(env, km[1], e.seq).catch(() => {}));
             return json({ ok: true, entry: e }, 201);
           }
@@ -949,7 +968,129 @@ const handler = {
         const watching = request.headers.get("x-agent-soup-watch");
         if (watching) ctx.waitUntil(Promise.resolve(social.markSeen(env, who, "watch", watching === "respond")).catch(() => {}));
         const boards = await registry.boardsForUser(env, who);
-        return json({ user: who, boards: boards.map((b) => ({ id: b.id, title: b.title, entry_count: b.entry_count, last_activity: b.last_activity, encrypted: !!(b as { encrypted?: number }).encrypted })) });
+        const row = (b: (typeof boards)[number]) => ({ id: b.id, title: b.title, entry_count: b.entry_count, last_activity: b.last_activity, encrypted: !!(b as { encrypted?: number }).encrypted });
+        // ?with=<user>: only boards they're on (and invitations involving them); ?members=1 lists each board's members.
+        // Pending invitations are always included, so an agent can tell "the board with vedu" apart from one waiting to be accepted.
+        const withUser = normalizeUser(url.searchParams.get("with"));
+        const wantMembers = !!withUser || url.searchParams.get("members") === "1";
+        const memberNames = async (id: string) => (wantMembers ? (await registry.boardMembers(env, id)).map((m) => m.user) : undefined);
+        const me = await registry.userByName(env, who);
+        const invites = me ? await registry.invitationsFor(env, me) : [];
+        const mine = await Promise.all(boards.map(async (b) => ({ ...row(b), status: "member" as const, members: await memberNames(b.id) })));
+        const pending = await Promise.all(
+          invites.map(async (i) => ({ id: i.board_id, title: i.board_title, status: "invited" as const, invited_by: i.invited_by, invited_at: i.created_at, members: await memberNames(i.board_id) })),
+        );
+        const keep = (b: { members?: string[]; invited_by?: string }) => !withUser || !!b.members?.includes(withUser) || b.invited_by === withUser;
+        return json({ user: who, boards: mine.filter(keep), invitations: pending.filter(keep) });
+      }
+
+      // ---- agent sessions: every running agent is a session of its person, with its own boards and read positions ----
+      if (path === "/api/sessions" || path.startsWith("/api/sessions/")) {
+        if (!viewer) return needLogin();
+        const sm = path.match(/^\/api\/sessions(?:\/([^/]+))?(?:\/(boards|read|wait))?(?:\/([^/]+))?$/);
+        if (!sm) return json({ error: "not found" }, 404);
+        const [, sid, sub, subId] = sm;
+        const titled = async (ids: string[]) => Promise.all(ids.map(async (id) => ({ id, title: (await registry.getBoard(env, id))?.title ?? id })));
+        const view = async (x: sessions.AgentSession & { active?: boolean }) => ({ id: x.id, name: x.name, client: x.client, boards: await titled(x.boards), created_at: x.created_at, last_seen: x.last_seen, ...(x.active != null ? { active: x.active } : {}) });
+        try {
+          if (!sid) {
+            if (method === "GET") return json({ sessions: await Promise.all((await sessions.list(env, viewer.name)).map(view)) });
+            if (method === "POST") {
+              const b = (await request.json().catch(() => ({}))) as { name?: string; suggest?: string; client?: string };
+              return json({ session: await view(await sessions.create(env, viewer.name, { name: b.name ?? null, suggest: b.suggest ?? null, client: b.client ?? null })) }, 201);
+            }
+            return json({ error: "method not allowed" }, 405);
+          }
+          const s = await sessions.get(env, viewer.name, decodeURIComponent(sid));
+          if (!s) return json({ error: "No live session of yours by that id or name. Start one: agent-soup session new" }, 404);
+          ctx.waitUntil(Promise.resolve(sessions.touch(env, s.id)).catch(() => {}));
+          // Boards the person lost access to drop out of the session quietly.
+          const live = async () => {
+            const ok = await Promise.all(s.boards.map((b) => registry.isMember(env, b, viewer.name)));
+            const keepIds = s.boards.filter((_, i) => ok[i]);
+            return keepIds.length === s.boards.length ? s : sessions.setBoards(env, s, keepIds);
+          };
+          if (!sub) {
+            if (method === "GET") return json({ session: await view(await live()) });
+            if (method === "POST") {
+              const b = (await request.json().catch(() => ({}))) as { name?: string };
+              return json({ session: await view(await sessions.rename(env, s, String(b.name ?? ""))) });
+            }
+            if (method === "DELETE") {
+              await sessions.end(env, s);
+              return json({ ok: true });
+            }
+            return json({ error: "method not allowed" }, 405);
+          }
+          if (sub === "boards") {
+            if (method === "POST" && !subId) {
+              // Join: a board of yours or a pending invitation, by id or by (part of) its title; one match only.
+              const want = String(((await request.json().catch(() => ({}))) as { board?: string }).board ?? "").trim();
+              if (!want) return json({ error: "Say which board: an id (b_…) or its title." }, 400);
+              const me = await registry.userByName(env, viewer.name);
+              const [mine, invites] = await Promise.all([registry.boardsForUser(env, viewer.name), me ? registry.invitationsFor(env, me) : []]);
+              const options = [...mine.map((b) => ({ id: b.id, title: b.title, invite: false })), ...invites.map((i) => ({ id: i.board_id, title: i.board_title, invite: true }))];
+              const q = want.toLowerCase();
+              let hits = options.filter((o) => o.id === want);
+              if (!hits.length) hits = options.filter((o) => o.title.toLowerCase() === q);
+              if (!hits.length) hits = options.filter((o) => o.title.toLowerCase().includes(q));
+              if (!hits.length) return json({ error: `No board of yours or invitation matches "${want}". List them: agent-soup get boards` }, 404);
+              if (hits.length > 1) return json({ error: `"${want}" matches more than one board; use its id.`, matches: hits.map((h) => ({ id: h.id, title: h.title, status: h.invite ? "invited" : "member" })) }, 409);
+              const target = hits[0];
+              if (target.invite && !(me && (await registry.acceptInvitation(env, me, target.id, url.origin)))) return json({ error: `Couldn't accept the invitation to "${target.title}".` }, 400);
+              await boardStub(env, target.id).joinSession(viewer.name, s.id);
+              const cur = await live();
+              const next = await sessions.setBoards(env, cur, [...cur.boards.filter((b) => b !== target.id), target.id]);
+              return json({ board: { id: target.id, title: target.title }, accepted_invitation: target.invite, session: await view(next) });
+            }
+            if (method === "DELETE" && subId) {
+              const cur = await live();
+              if (!cur.boards.includes(subId)) return json({ error: `This session isn't on ${subId}.` }, 404);
+              return json({ session: await view(await sessions.setBoards(env, cur, cur.boards.filter((b) => b !== subId))) });
+            }
+            return json({ error: "method not allowed" }, 405);
+          }
+          // read / wait: across every board the session is on, each from the session's own read position.
+          const cur = await live();
+          if (!cur.boards.length) return json({ error: "This session hasn't joined a board. Join one: agent-soup join <board>  (agent-soup get boards lists them)" }, 409);
+          const only = url.searchParams.get("board");
+          const ids = only ? cur.boards.filter((b) => b === only) : cur.boards;
+          if (only && !ids.length) return json({ error: `This session isn't on ${only}.` }, 404);
+          const render = (b: { id: string; title: string }, entries: import("./types").Entry[], head: string) =>
+            fence([`== ${b.title} (${b.id}) · ${head} (${entries.length}) ==`, entries.length ? "" : "(nothing new)", ...entries.map((e) => formatEntry(e, 4000, viewer.name))].join("\n"));
+          if (method === "GET" && sub === "read") {
+            const limit = Number(url.searchParams.get("limit")) || undefined;
+            const out = await Promise.all(
+              ids.map(async (id) => {
+                const r = await boardStub(env, id).read(viewer.name, { limit }, cur.id);
+                const b = { id, title: r.info.title };
+                return { board: b, summary: r.summaryText, entries: r.entries, remaining: r.remaining, text: fence(r.summaryText) + "\n" + render(b, r.entries, "new since this session last read") };
+              }),
+            );
+            return json({ session: { id: cur.id, name: cur.name }, boards: out });
+          }
+          if (method === "GET" && sub === "wait") {
+            const ms = Math.max(1000, Math.min((Number(url.searchParams.get("timeout")) || 45) * 1000, MAX_WAIT_MS));
+            const take = async (join: boolean) =>
+              (await Promise.all(ids.map(async (id) => ({ id, r: await boardStub(env, id).wait(viewer.name, join, cur.id).catch(() => null) })))).filter((x) => x.r && x.r.entries.length);
+            let got = await take(true);
+            if (!got.length) {
+              // The Worker waits on every board at once (they sleep meanwhile); the first that has something wakes it.
+              const woke = await new Promise<boolean>((resolve) => {
+                let left = ids.length;
+                for (const id of ids)
+                  waitForBoard(boardStub(env, id), { kind: "agent", user: viewer.name, session: cur.id }, ms).then((v) => (v ? resolve(true) : --left === 0 && resolve(false)), () => --left === 0 && resolve(false));
+              });
+              if (woke) got = await take(false);
+            }
+            const entries = got.flatMap((x) => x.r!.entries.map((e) => ({ board: { id: x.id, title: x.r!.info.title }, entry: e })));
+            return json({ timed_out: !entries.length, entries, text: entries.length ? got.map((x) => render({ id: x.id, title: x.r!.info.title }, x.r!.entries, "new")).join("\n") : `Nothing new on ${ids.length} board${ids.length === 1 ? "" : "s"} in ${Math.round(ms / 1000)}s.` });
+          }
+          return json({ error: "method not allowed" }, 405);
+        } catch (e) {
+          if (e instanceof sessions.SessionError) return json({ error: e.message }, 400);
+          throw e;
+        }
       }
 
       // ---- files: upload any file (members, from the web) and serve stored ones (anyone who can see the board) ----
@@ -1023,7 +1164,7 @@ const handler = {
               new_str?: string;
               summary?: string;
             };
-            const opts = { via: pv(), summary: body.summary ?? null };
+            const opts = { via: pv(), summary: body.summary ?? null, session: await asid() };
             const r =
               body.action === "edit"
                 ? await stub.docEdit(viewer.name, String(body.name ?? ""), String(body.old_str ?? ""), String(body.new_str ?? ""), opts)
@@ -1174,7 +1315,7 @@ const handler = {
             const t = await stub.taskCreate(
               viewer.name,
               { title: String(b.title ?? ""), body: typeof b.body === "string" ? b.body : "", priority: (["high", "medium", "low"] as const).find((p) => p === b.priority) ?? null },
-              { via: pv() },
+              { via: pv(), session: await asid() },
             );
             ctx.waitUntil(registry.bumpBoard(env, m[1], t.seq).catch(() => {}));
             return json({ ok: true, task: t }, 201);
@@ -1186,7 +1327,7 @@ const handler = {
           const seq = parseInt(m[2], 10);
           const b = (await request.json().catch(() => ({}))) as Record<string, unknown>;
           const s = (k: string) => (typeof b[k] === "string" ? (b[k] as string).trim() : undefined);
-          const opts = { via: pv() };
+          const opts = { via: pv(), session: await asid() };
           try {
             let t;
             if (b.action === "edit")
@@ -1236,7 +1377,7 @@ const handler = {
         if (!(await registry.isMember(env, m[1], viewer.name))) return json({ error: "board not found" }, 404);
         const body = (await request.json().catch(() => ({}))) as { verdict?: string; note?: string };
         try {
-          const r = await boardStub(env, m[1]).review(viewer.name, parseInt(m[2], 10), String(body.verdict ?? "") as "approve", String(body.note ?? ""), { via: pv() });
+          const r = await boardStub(env, m[1]).review(viewer.name, parseInt(m[2], 10), String(body.verdict ?? "") as "approve", String(body.note ?? ""), { via: pv(), session: await asid() });
           ctx.waitUntil(registry.bumpBoard(env, m[1], r.entry.seq).catch(() => {}));
           return json({ ok: true, entry: r.entry, state: r.state }, 201);
         } catch (e) {
@@ -1257,6 +1398,7 @@ const handler = {
             text: String(body.reason ?? "").trim() || `Unsent #${seq}.`,
             retracts: seq,
             via: pv(),
+            session: await asid(),
           });
           ctx.waitUntil(registry.bumpBoard(env, m[1], entry.seq).catch(() => {}));
           return json({ ok: true, entry }, 201);
@@ -1361,7 +1503,7 @@ const handler = {
             }
           }
           try {
-            const entry = await stub.post(viewer.name, { type, text, to, mentions, reply_to: replyTo, via: pv() });
+            const entry = await stub.post(viewer.name, { type, text, to, mentions, reply_to: replyTo, via: pv(), session: await asid() });
             ctx.waitUntil(Promise.all([registry.touch(env, viewer.name, id), registry.bumpBoard(env, id, entry.seq)]).catch(() => {}));
             // The rendered entry comes back with the post, so the page shows it without another round trip.
             const root = replyTo ? ((await stub.rootsFor([entry.seq]))[entry.seq] ?? entry.seq) : entry.seq;

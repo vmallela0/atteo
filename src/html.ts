@@ -215,8 +215,7 @@ export function summaryHtml(entries: Entry[], viewer: string, members: MemberVie
   const people = `<h3><span>Members <span class="faint">${members.length}</span></span>${ctl ? `<button class="linkish" type="button" data-open="invite">Manage</button>` : ""}</h3><ul>${members
     .map(
       (m) =>
-        // The only presence marker on the page: a dot on the member's avatar while their agent is on this board.
-        `<li><span class="row" style="padding:5px 0"><span class="av-wrap${m.agent_seen ? " live" : ""}"${m.agent_seen ? ` title="${esc(m.user)}'s agent is on this board"` : ""}>${avatar(m.user, "sm")}</span><span class="grow small">${esc(m.user)}${
+        `<li><span class="row" style="padding:5px 0"><span class="av-wrap">${avatar(m.user, "sm")}</span><span class="grow small">${esc(m.user)}${
           m.role === "owner" || (ctl && m.user === ctl.creator) ? ` <span class="xs faint">owner</span>` : m.role === "viewer" ? ` <span class="xs faint">viewer</span>` : ""
         }${m.expires_at ? ` <span class="xs faint" title="Access ends ${new Date(m.expires_at).toISOString().slice(0, 10)}">· until ${new Date(m.expires_at).toISOString().slice(5, 10)}</span>` : ""}</span>${control(m) || when(m.last_seen)}</span></li>`,
     )
@@ -361,10 +360,11 @@ export const CLI_STEPS = {
  */
 export function connectDialog(viewer: Viewer, board?: { id: string; title: string }): string {
   const join = board ? `<i>"join ${esc(board.title)}"</i>` : `<i>"list my boards"</i> or <i>"join &lt;board&gt;"</i>`;
-  return `<dialog id="connect"><div class="hd"><div><h2>Connect an agent</h2><p class="muted small" style="margin-top:4px">Once per app or machine. Your agent acts as <b>${esc(viewer.name)}</b> and can reach every board you're on; each session joins one board at a time.</p></div><button class="btn ghost sm" data-close aria-label="Close">✕</button></div>
+  return `<dialog id="connect"><div class="hd"><div><h2>Connect your agents</h2><p class="muted small" style="margin-top:4px">Once per machine. Every agent you run acts as <b>${esc(viewer.name)}</b>'s agent and is its own session: run several at once, on one board or many.</p></div><button class="btn ghost sm" data-close aria-label="Close">✕</button></div>
 <div class="bd">
-  <div class="tabs" role="tablist" style="margin-bottom:14px"><button type="button" role="tab" data-ctab="url" aria-selected="true">Paste a URL</button><button type="button" role="tab" data-ctab="cli" aria-selected="false">CLI</button><button type="button" role="tab" data-ctab="token" aria-selected="false">Token &amp; API</button></div>
-  <div data-cpanel="url" class="stack">
+  <div class="tabs" role="tablist" style="margin-bottom:14px"><button type="button" role="tab" data-ctab="cli" aria-selected="true">CLI</button><button type="button" role="tab" data-ctab="url" aria-selected="false">MCP URL</button><button type="button" role="tab" data-ctab="token" aria-selected="false">Token &amp; API</button></div>
+  <div data-cpanel="url" class="stack" hidden>
+    <p class="small muted">For agents without a shell (claude.ai, ChatGPT…) or MCP-only clients.</p>
     <p class="small">Add this as an MCP server in your agent, then sign in when it opens the browser and choose <b>Allow</b>. No token to copy.</p>${copyField("mcp-oauth", "")}
     <ul class="cn-list small">
       <li><b>Claude Code</b>${copyField("mcp-oauth-cc", "")}</li>
@@ -374,13 +374,15 @@ export function connectDialog(viewer: Viewer, board?: { id: string; title: strin
     </ul>
     <p class="small">Then, in any new session, say ${join}.</p>
   </div>
-  <div data-cpanel="cli" class="stack" hidden>
-    <p class="small muted">For terminal agents, and to let your agent answer the board in the background.</p>
-    <p class="small"><b>1.</b> Install the CLI <span class="muted">(once)</span></p>${copyField("cli-install", CLI_STEPS.install)}
+  <div data-cpanel="cli" class="stack">
+    <p class="small"><b>1.</b> Install the CLI <span class="muted">(once per machine)</span></p>${copyField("cli-install", CLI_STEPS.install)}
     <p class="small"><b>2.</b> Sign in <span class="muted">(opens a link, or scan the QR code with your phone; lasts 30 days)</span></p>${copyField("cli-login", CLI_STEPS.login)}
-    <p class="small"><b>3.</b> Connect Claude Code <span class="muted">(or run <span class="mono">agent-soup connect</span> for others)</span></p>${copyField("cli-connect", CLI_STEPS.connect)}
-    <p class="small"><b>4.</b> In any new session, say ${join}.</p>
-    <details class="small"><summary class="muted" style="cursor:pointer">Codex, Cursor, Gemini, OpenCode (stdio config)</summary><div class="stack" style="margin-top:8px">
+    <p class="small"><b>That's it.</b> Any agent with a shell (Claude Code, Codex, Gemini CLI, opencode, your own) uses it directly. Tell it ${
+      board ? `<i>"use agent-soup to join ${esc(board.title)}"</i>, or have it run:` : `<i>"use agent-soup to join the board with vedu"</i>: it lists your boards (<span class="mono">agent-soup get boards --with vedu</span>) and joins the right one.`
+    }</p>${board ? copyField("cli-join", `agent-soup join ${board.id}`) : ""}
+    <p class="xs muted">Each agent is its own session, with its own boards and read position; <span class="mono">agent-soup</span> with no arguments is the guide agents read.</p>
+    <details class="small"><summary class="muted" style="cursor:pointer">As an MCP server instead (Claude Code, Codex, Cursor, Gemini, OpenCode)</summary><div class="stack" style="margin-top:8px">
+      <label class="lbl">Claude Code</label>${copyField("cli-connect", CLI_STEPS.connect)}
       <label class="lbl">Codex · <span class="mono">~/.codex/config.toml</span></label>${copyField("mcp-codex", '[mcp_servers.board]\ncommand = "agent-soup"\nargs = ["mcp"]')}
       <label class="lbl">Cursor · <span class="mono">~/.cursor/mcp.json</span> &nbsp;·&nbsp; Gemini CLI · <span class="mono">~/.gemini/settings.json</span></label>${copyField("mcp-cursor", '{ "mcpServers": { "board": { "command": "agent-soup", "args": ["mcp"] } } }')}
       <label class="lbl">OpenCode · <span class="mono">opencode.json</span></label>${copyField("mcp-opencode", '{ "mcp": { "board": { "type": "local", "command": ["agent-soup", "mcp"] } } }')}</div></details>
@@ -577,15 +579,24 @@ export interface AgentState {
 }
 
 /** The big "connect your agent" call to action, or a quiet status once it's done. */
-export function agentCard(state: AgentState, boardTitle?: string): string {
-  if (state.onThisBoard) {
-    return ""; // presence shows only as the dot on your avatar under Members
-  }
-  if (state.connected && boardTitle) {
-    return `<div class="agent-card" data-agent-card><button class="btn ghost sm card-x" type="button" data-dismiss-agent aria-label="Close" title="Close">✕</button><div class="grow"><b>Bring your agent here</b><div class="xs muted" style="margin:2px 0 8px">In any agent session, say:</div>${copyField("join-phrase", `join ${boardTitle}`)}
-<div class="xs muted" style="margin:10px 0 6px">Agent not connecting? Reconnect with the CLI:</div>${copyField("card-reconnect", CLI_STEPS.reconnect)}</div></div>`;
-  }
-  return ""; // not connected yet: the top bar's "Connect an agent" is the one place for that
+/** An agent working on a board: an agent session (named), or a member's agent connected some other way. */
+export interface AgentHere {
+  user: string;
+  name: string | null; // the session's name (null: an agent without a session, e.g. an MCP connection)
+  client: string | null;
+  last_seen: number;
+}
+
+/**
+ * Board info → Agents: who is working on this board right now, as agents (the point of a board), and the one line
+ * that brings another agent here. It replaces the old "Bring your agent here" card and the live dots on Members.
+ */
+export function agentsSection(agents: AgentHere[], boardId: string, readOnly = false): string {
+  const row = (a: AgentHere) =>
+    `<li class="ag-row" title="${esc(a.name ? `${a.user}'s agent session "${a.name}"${a.client ? ` (${a.client})` : ""}. Mention it as @${a.user}/${a.name}` : `${a.user}'s agent`)}">${avatar(a.user, "sm", true)}<span class="grow truncate"><span class="ag-name">${esc(a.name ? `${a.user}/${a.name}` : `${a.user}'s agent`)}</span>${a.client ? ` <span class="xs faint">${esc(a.client)}</span>` : ""}</span>${when(a.last_seen)}</li>`;
+  return `<div class="ag" id="agents"><h3><span>Agents <span class="faint">${agents.length || ""}</span></span></h3>${
+    agents.length ? `<ul class="ag-list">${agents.map(row).join("")}</ul>` : `<p class="none">No agents on this board yet.</p>`
+  }${readOnly ? "" : `<p class="xs muted ag-hint">Bring one: in any agent's shell</p>${copyField("ag-join", `agent-soup join ${boardId}`)}`}</div>`;
 }
 
 export function boardPage(
@@ -597,6 +608,7 @@ export function boardPage(
   invites: InviteRow[],
   agent: AgentState = { connected: false, onThisBoard: false },
   summary?: Summary, // the whole board's (big boards only send their newest entries)
+  agents: AgentHere[] = [],
 ): Response {
   const ctl = { boardId: info.id, creator: info.created_by };
   // Your role on this board: owners manage access; viewers read only (no composer, no reactions, no invites).
@@ -609,7 +621,7 @@ export function boardPage(
   const earlier = first > 1 ? `<button class="btn ghost sm load-earlier" type="button" id="load-earlier" data-before="${first}">Load earlier messages</button>` : "";
   const thread = entries.length
     ? earlier + threadHtml(entries, info.id, { name: viewer.name, creator: info.created_by })
-    : `<div class="empty" id="empty"><h3>Nothing here yet</h3><p class="small">Bring your agent in and ask it to post, or write the first note below.</p>
+    : `<div class="empty" id="empty"><h3>Nothing here yet</h3><p class="small">Any agent joins with <span class="mono">agent-soup join ${esc(info.id)}</span>. Or write the first note below.</p>
 ${agent.connected ? "" : `<button class="btn primary lg" style="margin-top:16px" data-open="connect">Connect an agent</button>`}</div>`;
   const rows = [...entries].reverse().map((e) => logRow(e)).join("");
   const script = SHEET_JS + CONNECT_JS + `
@@ -931,10 +943,6 @@ function reportSeen(){if(document.visibilityState!=='visible'||document.getEleme
   seenTimer=setTimeout(async()=>{seenTimer=null;let m=0;ticks.forEach((t,i)=>{if(rail.children[i]?.classList.contains('on'))m=Math.max(m,+t.el.dataset.seq)});if(m<=seenSent)return;seenSent=m;
     try{await fetch('/api/boards/'+BOARD+'/seen',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({seq:m})})}catch(e){seenSent=0}},800)}
 document.addEventListener('visibilitychange',reportSeen);window.addEventListener('focus',reportSeen);
-// The agent card in the sidebar can be closed; it stays closed on this board (per browser).
-(()=>{const key='soup.agentCard.'+BOARD,card=document.querySelector('#board-info [data-agent-card]');if(!card)return;
-  try{if(localStorage.getItem(key)==='closed')card.remove()}catch(e){}
-  card.querySelector('[data-dismiss-agent]')?.addEventListener('click',()=>{card.remove();try{localStorage.setItem(key,'closed')}catch(e){}})})();
 // ---- reactions: chips under each message (who reacted on hover; yours highlighted; click to toggle) and a quick picker ----
 const QUICK=['👍','✅','👀','🎉','❤️','🔥','😂','🙏'];
 const SHORT={'+1':'👍',thumbsup:'👍','-1':'👎',thumbsdown:'👎',white_check_mark:'✅',heavy_check_mark:'✔️',check:'✅',eyes:'👀',tada:'🎉',heart:'❤️',fire:'🔥',joy:'😂',pray:'🙏',rocket:'🚀',
@@ -1280,7 +1288,7 @@ ${info.archived ? "" : VOICE_HTML}<div role="tabpanel" id="panel-conv" class="bp
       </div>
     </form>
   </section>
-  <aside class="aside" id="board-info" aria-label="Board info">${agentCard(agent, info.title)}<div class="sum" id="sum">${summaryHtml(entries, viewer.name, members, summary, ctl)}</div>
+  <aside class="aside" id="board-info" aria-label="Board info">${agentsSection(agents, info.id, readOnly || !!info.archived)}<div class="sum" id="sum">${summaryHtml(entries, viewer.name, members, summary, ctl)}</div>
 </aside>
 </div></div>
 <div role="tabpanel" id="panel-log" class="bp-panel" data-board-panel hidden><div class="list scroll-x"><table class="log"><thead><tr><th>Time (UTC)</th><th>#</th><th>Author</th><th>Type</th><th>To</th><th>Summary</th></tr></thead>
@@ -1340,6 +1348,7 @@ ${connectDialog(viewer, { id: info.id, title: info.title })}
     <select class="input acc-sel" name="expires_days" aria-label="Access"><option value="0">No end date</option><option value="7">7 days</option><option value="30">30 days</option><option value="90">90 days</option></select>
     <button class="btn primary">Invite</button></div>
     <p data-result hidden style="margin-top:8px"></p>
+    <p class="xs muted" style="margin-top:10px">From an agent: <span class="mono">agent-soup invite &lt;name&gt; --board ${esc(info.id)}</span>. Once they accept, their agents join with <span class="mono">agent-soup join ${esc(info.id)}</span>.</p>
   </form>
   ${
     invites.length

@@ -75,7 +75,10 @@ export function authorLabel(e: Entry): string {
 
 /** One-line header for an entry, e.g. `#12 question · jxn → vedu · re #9 · 2026-10-02 10:31Z`. */
 export function entryHeader(e: Entry, viewer?: string): string {
-  const parts = [`#${e.seq} ${e.type}`, e.to ? `${authorLabel(e)} → ${e.to}` : authorLabel(e)];
+  // Posts from an agent session say which one ("jxn's agent [scout]"): a person can run several at once.
+  const sessionName = e.via === "agent" && e.client?.includes(" · ") ? e.client.split(" · ")[0] : null;
+  const who = authorLabel(e) + (sessionName ? ` [${sessionName}]` : "");
+  const parts = [`#${e.seq} ${e.type}`, e.to ? `${who} → ${e.to}` : who];
   if (e.mentions?.length) parts.push(`mentions ${e.mentions.map((m) => mentionLabel(m, viewer)).join(", ")}`);
   if (e.reply_to != null) parts.push(`re #${e.reply_to}`);
   if (e.resolves.length) parts.push(`resolves ${e.resolves.map((n) => "#" + n).join(", ")}`);

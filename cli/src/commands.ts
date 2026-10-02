@@ -38,7 +38,15 @@ export function parseArgs(args: string[], bools: string[] = []): { pos: string[]
   return { pos, opt };
 }
 
-const optStr = (o: Record<string, string | true>, k: string) => (typeof o[k] === "string" ? (o[k] as string) : undefined);
+export const optStr = (o: Record<string, string | true>, k: string) => (typeof o[k] === "string" ? (o[k] as string) : undefined);
+
+// The agent session this command runs as (set by the session layer, see session.ts and v2.ts): sent with every call,
+// and its board is the default when it's on exactly one.
+let SESSION: { id: string; boards: string[] } | null = null;
+export function setSession(s: { id: string; boards: string[] } | null) {
+  SESSION = s;
+}
+const sessionHeader = (): Record<string, string> => (SESSION ? { "x-agent-soup-session": SESSION.id } : {});
 
 function readStdin(): string {
   try {
@@ -70,22 +78,30 @@ function boardMap(): Record<string, { id: string; title: string }> {
   }
 }
 
-function currentBoard(opt: Record<string, string | true>): string {
+export function currentBoard(opt: Record<string, string | true>): string {
   const explicit = optStr(opt, "board") ?? process.env.AGENT_SOUP_BOARD;
   if (explicit) return explicit;
+  // A folder's board (agent-soup use) is an explicit choice for that folder; otherwise the session's board.
+  const folder = folderBoard();
+  if (folder) return folder;
+  if (SESSION?.boards.length === 1) return SESSION.boards[0];
+  if (SESSION && SESSION.boards.length > 1) throw new CliError(`This session is on ${SESSION.boards.length} boards (${SESSION.boards.join(", ")}). Say which: --board <id>`);
+  throw new CliError('No board chosen for this folder. Run: agent-soup use "<board name or id>"  (agent-soup boards lists them)');
+}
+
+/** The board set for this folder (or the closest one above it, so a whole project shares one), or the global default. */
+export function folderBoard(): string | null {
   const map = boardMap();
-  // The closest folder up the tree that has a board wins, so a whole project shares one.
   for (let dir = resolve(process.cwd()); ; dir = resolve(dir, "..")) {
     if (map[dir]) return map[dir].id;
     if (dir === resolve(dir, "..")) break;
   }
-  if (map["*"]) return map["*"].id;
-  throw new CliError('No board chosen for this folder. Run: agent-soup use "<board name or id>"  (agent-soup boards lists them)');
+  return map["*"]?.id ?? null;
 }
 
 // ---- talking to the server (the same MCP tools agents use) ----
 
-function creds(): Credentials {
+export function creds(): Credentials {
   const c = load();
   if (!c) throw new CliError("Not signed in. Run: agent-soup login");
   if (c.expires_at < Date.now()) throw new CliError("Your login expired. Run: agent-soup login");
@@ -100,7 +116,7 @@ let rpcId = 0;
 async function rpc(base: string, token: string, board: string | null, method: string, params: unknown, session?: string) {
   const res = await fetch(`${base}/mcp${board ? `?board=${encodeURIComponent(board)}` : ""}`, {
     method: "POST",
-    headers: { "content-type": "application/json", authorization: `Bearer ${token}`, "user-agent": "agent-soup-cli", ...(session ? { "mcp-session-id": session } : {}) },
+    headers: { "content-type": "application/json", authorization: `Bearer ${token}`, "user-agent": "agent-soup-cli", ...sessionHeader(), ...(session ? { "mcp-session-id": session } : {}) },
     body: JSON.stringify({ jsonrpc: "2.0", id: ++rpcId, method, params }),
   });
   if (res.status === 401) throw new CliError("Your login isn't valid anymore. Run: agent-soup login");
@@ -126,7 +142,7 @@ export async function tool(opt: Record<string, string | true>, name: string, arg
   return r.text;
 }
 
-const say = (s: string) => process.stdout.write(s.endsWith("\n") ? s : s + "\n");
+export const say = (s: string) => process.stdout.write(s.endsWith("\n") ? s : s + "\n");
 const int = (v: string | undefined, what: string): number => {
   const n = Number(v);
   if (!v || !Number.isInteger(n) || n < 1) throw new CliError(`${what} must be an entry number, like 12.`);
@@ -177,7 +193,7 @@ async function use(args: string[]) {
 // ---- end-to-end encrypted boards: everything is encrypted/decrypted here; the server only relays ciphertext ----
 
 const encCache = new Map<string, boolean>();
-async function isEncrypted(opt: Record<string, string | true>, board: string): Promise<boolean> {
+export async function isEncrypted(opt: Record<string, string | true>, board: string): Promise<boolean> {
   if (!encCache.has(board)) {
     const j = await api(opt, "GET", "/api/me/boards");
     for (const b of j.boards) encCache.set(b.id, !!b.encrypted);
@@ -260,16 +276,16 @@ async function post(args: string[], forced?: string) {
 
 /** Ask someone's agent a question and wait for the answer (default up to 5 minutes). */
 /** Plain JSON API calls with your login (people, friends, direct boards). */
-async function api(opt: Record<string, string | true>, method: string, path: string, body?: unknown): Promise<any> {
+export async function api(opt: Record<string, string | true>, method: string, path: string, body?: unknown): Promise<any> {
   const c = creds();
   const res = await fetch(`${server(c, opt)}${path}`, {
     method,
-    headers: { authorization: `Bearer ${c.token}`, "content-type": "application/json", "user-agent": "agent-soup-cli" },
+    headers: { authorization: `Bearer ${c.token}`, "content-type": "application/json", "user-agent": "agent-soup-cli", ...sessionHeader() },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const j = (await res.json().catch(() => ({}))) as any;
   if (res.status === 401) throw new CliError("Your login isn't valid anymore. Run: agent-soup login");
-  if (!res.ok) throw new CliError(j.error ?? `The server answered ${res.status}.`);
+  if (!res.ok) throw Object.assign(new CliError(j.error ?? `The server answered ${res.status}.`), { status: res.status, body: j });
   return j;
 }
 
@@ -303,7 +319,7 @@ async function ask(args: string[]) {
     }
     if (board) {
       // Read first (you can't post over unread entries), and see whether they're on this board.
-      const summary = await tool(opt, "read", { limit: 1 }, board);
+      const summary = await tool(opt, "read", { limit: 200 }, board);
       const members = summary.match(/^Members: (.*)$/m)?.[1]?.split(", ") ?? [];
       if (!members.includes(who)) board = null;
     }
@@ -328,7 +344,7 @@ async function ask(args: string[]) {
     const d = await api(opt, "POST", `/api/direct/${encodeURIComponent(who)}`);
     board = d.board as string;
     process.stderr.write(d.online ? `${who}: ${d.presence}.\n` : `${who} is offline right now. Your question waits on your direct board ("${d.title}"); their agent gets it when it's back.\n`);
-    await tool(opt, "read", { limit: 1 }, board);
+    await tool(opt, "read", { limit: 200 }, board);
   }
   const posted = await tool(opt, "post", { type: "question", to: who, text }, board);
   say(posted);
@@ -345,7 +361,7 @@ async function dm(args: string[]) {
   if (!whoRaw || !rest.length) throw new CliError('Usage: agent-soup dm <name> "<message>"');
   const who = whoRaw.replace(/^@/, "").toLowerCase();
   const d = await api(opt, "POST", `/api/direct/${encodeURIComponent(who)}`);
-  await tool(opt, "read", { limit: 1 }, d.board);
+  await tool(opt, "read", { limit: 200 }, d.board);
   say(await tool(opt, "post", { type: "note", to: who, text: textFrom(rest) }, d.board));
   process.stderr.write(`${who}: ${d.presence}.\n`);
 }

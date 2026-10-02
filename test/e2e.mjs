@@ -1636,6 +1636,68 @@ await step("CLI login: device code, approve in the browser, token works once; de
   has(await (await web("/me", A)).text(), "expired");
 });
 
+await step("agent sessions: several per person, each with its own boards and read position; they see each other's posts", async () => {
+  const api = async (who, method, path, body) => {
+    const r = await fetch(`${BASE}${path}`, { method, headers: { ...auth(who), "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+    return { status: r.status, body: await r.json().catch(() => ({})) };
+  };
+  const b1 = (await ops("boards", { user: A, title: `e2e sess one ${run}` })).body.board.id;
+  await ops("members", { board: b1, user: B });
+  const b3 = (await ops("boards", { user: A, title: `e2e sess three ${run}` })).body.board.id;
+  await web(`/api/boards/${b3}/invites`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: `${B}@example.com` }) });
+  // "The board with A": boards they share, plus invitations waiting
+  const mine = (await api(B, "GET", `/api/me/boards?with=${A}`)).body;
+  assert(mine.boards.some((b) => b.id === b1 && b.members.includes(A)) && mine.invitations.some((i) => i.id === b3), JSON.stringify(mine).slice(0, 400));
+  // Two sessions of the same tool get distinct names
+  const s1 = (await api(B, "POST", "/api/sessions", { client: "Codex" })).body.session;
+  const s2 = (await api(B, "POST", "/api/sessions", { client: "Codex" })).body.session;
+  assert(s1.name === "codex" && s2.name === "codex-2", `${s1.name}, ${s2.name}`);
+  // Join by id, and by title (accepting the invitation); one session on two boards
+  assert((await api(B, "POST", `/api/sessions/${s1.id}/boards`, { board: b1 })).status === 200, "join b1");
+  const inv = (await api(B, "POST", `/api/sessions/${s1.id}/boards`, { board: `e2e sess three ${run}` })).body;
+  assert(inv.accepted_invitation === true && inv.session.boards.length === 2, JSON.stringify(inv));
+  assert((await api(B, "POST", `/api/sessions/${s2.id}/boards`, { board: b1 })).status === 200, "join s2");
+  // Each session reads A's question once, independently
+  await ok(A, b1, "read", {});
+  await ok(A, b1, "post", { type: "question", text: `which port ${run}?` });
+  const r1 = (await api(B, "GET", `/api/sessions/${s1.id}/read`)).body;
+  assert(r1.boards.length === 2 && r1.boards.find((b) => b.board.id === b1).entries.length === 1, JSON.stringify(r1).slice(0, 300));
+  const r2 = (await api(B, "GET", `/api/sessions/${s2.id}/read`)).body;
+  assert(r2.boards[0].entries.length === 1, "the second session still sees it");
+  assert((await api(B, "GET", `/api/sessions/${s1.id}/read?board=${b1}`)).body.boards[0].entries.length === 0, "read once per session");
+  // A session posts (MCP + its header): the other session sees it, labelled; it doesn't come back to the poster
+  const sh = (s) => ({ ...auth(B), "x-agent-soup-session": s.id });
+  const posted = await rpcRaw(sh(s1), b1, "tools/call", { name: "post", arguments: { type: "note", text: `8443 (${run}). @${B}/codex-2 take the tests` } });
+  has(posted.content[0].text, "Posted #");
+  const seen2 = (await api(B, "GET", `/api/sessions/${s2.id}/read?board=${b1}`)).body.boards[0];
+  assert(seen2.entries.length === 1 && seen2.entries[0].client === "codex · Codex", JSON.stringify(seen2.entries));
+  has(seen2.text, `'s agent [codex]`);
+  has(seen2.text, `your session "codex-2"`);
+  assert((await api(B, "GET", `/api/sessions/${s1.id}/read?board=${b1}`)).body.boards[0].entries.length === 0, "a session doesn't get its own post back");
+  // Stale-post check per session
+  await ok(A, b1, "read", {});
+  await ok(A, b1, "post", { type: "note", text: `one more ${run}` });
+  const refused = await rpcRaw(sh(s2), b1, "tools/call", { name: "post", arguments: { type: "note", text: "hi" } });
+  assert(refused.isError && /Not posted/.test(refused.content[0].text), refused.content[0].text.slice(0, 200));
+  // Waiting covers every board of the session: a post on b3 wakes it
+  await api(B, "GET", `/api/sessions/${s1.id}/read`);
+  const waiting = api(B, "GET", `/api/sessions/${s1.id}/wait?timeout=20`);
+  await new Promise((r) => setTimeout(r, 600));
+  await ok(A, b3, "read", {});
+  await ok(A, b3, "post", { type: "note", text: `wake ${run}` });
+  const w = (await waiting).body;
+  assert(!w.timed_out && w.entries.some((x) => x.board.id === b3), JSON.stringify(w).slice(0, 300));
+  // List, rename (then found by name), leave a board, only your own, end
+  assert((await api(B, "GET", "/api/sessions")).body.sessions.some((x) => x.id === s1.id && x.boards.length === 2), "listed with its boards");
+  assert((await api(B, "POST", `/api/sessions/${s1.id}`, { name: "scout" })).body.session.name === "scout", "rename");
+  assert((await api(B, "GET", `/api/sessions/scout`)).body.session.id === s1.id, "by name");
+  assert((await api(B, "DELETE", `/api/sessions/${s1.id}/boards/${b3}`)).body.session.boards.length === 1, "leave one board");
+  assert((await api(A, "GET", `/api/sessions/${s1.id}`)).status === 404, "another person's session is invisible");
+  await api(B, "DELETE", `/api/sessions/${s1.id}`);
+  const gone = await rpcRaw(sh(s1), b1, "tools/call", { name: "read", arguments: {} });
+  assert(gone.isError && /session has ended/.test(gone.content[0].text), gone.content[0].text);
+});
+
 if (/localhost|127\.0\.0\.1/.test(BASE) && process.env.E2E_FULL) {
   await step("boards past 1,000 entries page through updates without looping (local only)", async () => {
     const big = (await ops("boards", { user: A, title: `e2e big ${run}` })).body.board.id;

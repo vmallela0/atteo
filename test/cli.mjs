@@ -343,7 +343,7 @@ await step("people: find, add, accept, friends with presence, ask a friend's age
   const home = mkdtempSync(join(tmpdir(), "agent-soup-social-")); // no folder board here, so ask goes direct
   let r = await cli(["people", B], { cwd: home });
   assert(r.code === 0 && r.out.includes(B) && r.out.includes(`agent-soup add ${B}`), r.out + r.err);
-  r = await cli(["ask", B, "hello?", "--wait", "0"], { cwd: home });
+  r = await cli(["ask", B, "hello?", "--wait", "0", "--dm"], { cwd: home });
   assert(r.code === 1 && r.err.includes("aren't friends yet"), r.err);
   r = await cli(["add", B, "it's", "me"], { cwd: home });
   assert(r.code === 0 && r.out.includes("Friend request sent"), r.out + r.err);
@@ -352,7 +352,7 @@ await step("people: find, add, accept, friends with presence, ask a friend's age
   r = await cli(["accept", A], { cwd: home, cred: credB });
   assert(r.out.includes("friends now"), r.out + r.err);
   // A asks B's agent; B's agent answers on the direct board.
-  const asking = cli(["ask", B, `what's your timezone ${run}?`, "--wait", "40"], { cwd: home });
+  const asking = cli(["ask", B, `what's your timezone ${run}?`, "--wait", "40", "--dm"], { cwd: home }); // --dm: this session is also on a board with B
   let dmBoard = "";
   for (let i = 0; i < 40 && !dmBoard; i++) {
     await sleep(300);
@@ -499,6 +499,75 @@ await step("end-to-end encrypted board: CLI encrypts and decrypts; the server an
   assert(r.code === 0, r.err);
   r = await asking;
   assert(r.out.includes(`yes, go ${run}`), r.out + r.err);
+});
+
+await step("sessions: each agent is its own session (found from its process), joins boards with standard commands, sees its person's other sessions", async () => {
+  // Fake agents: long-lived processes named like the agent, running agent-soup commands from their shell (as real agents do).
+  const cfg = mkdtempSync(join(tmpdir(), "agent-soup-sess-"));
+  const agent = (name) => {
+    const f = join(cfg, name);
+    writeFileSync(f, `#!/bin/bash\nwhile IFS= read -r line; do eval "node ${CLI} $line"; echo "<<rc=$?>>"; done\n`);
+    chmodSync(f, 0o755);
+    const p = spawn(f, [], { cwd: cfg, env: { ...process.env, AGENT_BOARD_CREDENTIALS_FILE: credA, AGENT_BOARD_SERVER: BASE, XDG_CONFIG_HOME: join(cfg, "cfg") } });
+    let buf = "";
+    p.stdout.on("data", (d) => (buf += d));
+    p.stderr.on("data", (d) => (buf += d));
+    return {
+      run: async (line) => {
+        buf = "";
+        p.stdin.write(line + "\n");
+        for (let i = 0; i < 400 && !/<<rc=\d+>>/.test(buf); i++) await sleep(50);
+        const code = Number(buf.match(/<<rc=(\d+)>>/)?.[1] ?? -1);
+        return { code, out: buf.replace(/<<rc=\d+>>\s*$/, "") };
+      },
+      stop: () => p.stdin.end(),
+    };
+  };
+  const codex = agent("codex");
+  const claude = agent("claude");
+  try {
+    const b2 = (await ops("boards", { user: B, title: `e2e cli sess ${run}` })).board.id; // B invites A: pending
+    await fetch(`${BASE}/api/boards/${b2}/invites`, { method: "POST", headers: { authorization: `Bearer ${tokB}`, "content-type": "application/json" }, body: JSON.stringify({ to: `${A}@example.com` }) });
+    let r = await codex.run(`get boards --with ${B} --json`);
+    const j = JSON.parse(r.out.slice(r.out.indexOf("{"), r.out.lastIndexOf("}") + 1));
+    assert(j.boards.some((x) => x.id === board) && j.invitations.some((x) => x.id === b2), r.out);
+    r = await codex.run(`join ${board}`);
+    assert(r.code === 0 && r.out.includes("Joined") && r.out.includes("Session codex"), r.out);
+    r = await claude.run(`join "e2e cli sess ${run}"`);
+    assert(r.code === 0 && r.out.includes("accepting the invitation") && r.out.includes("Session claude"), r.out);
+    r = await claude.run(`join ${board}`);
+    assert(r.code === 0 && r.out.includes(`"e2e cli sess ${run}", "e2e cli ${run}"`), r.out);
+    r = await codex.run(`get sessions`);
+    assert(/claude .*Claude Code/.test(r.out) && /codex .*Codex.*← this one/.test(r.out), r.out);
+    // B asks; both sessions get it; codex answers; claude sees codex's answer, labelled
+    await tool(tokB, board, "read", {});
+    await tool(tokB, board, "post", { type: "question", text: `@${A}'s agent retries ${run}?` });
+    r = await codex.run(`read`);
+    assert(r.out.includes(`retries ${run}?`), r.out);
+    r = await claude.run(`read --board ${board}`);
+    assert(r.out.includes(`retries ${run}?`), "the other session still sees it: " + r.out);
+    r = await codex.run(`post note "three, with backoff ${run}" --title "Retry limit"`);
+    assert(r.code === 0 && /Posted #\d+/.test(r.out), r.out);
+    r = await claude.run(`post note "talking over codex"`);
+    assert(r.code !== 0 && r.out.includes("boards"), "claude is on two boards: it has to say which: " + r.out);
+    r = await claude.run(`post note "agreed" --board ${board}`);
+    assert(r.code === 2 && r.out.includes(`three, with backoff ${run}`) && r.out.includes("[codex]"), "refused until it reads codex's post: " + r.out);
+    r = await claude.run(`post note "agreed ${run}" --board ${board}`);
+    assert(r.code === 0, r.out);
+    r = await codex.run(`wait --timeout 5`);
+    assert(r.out.includes(`agreed ${run}`), r.out);
+    r = await codex.run(`session rename scout`);
+    assert(r.out.includes(`"scout"`), r.out);
+    r = await codex.run(`leave ${board}`);
+    assert(r.code === 0 && r.out.includes("no board"), r.out);
+    r = await codex.run(`read`);
+    assert(r.code === 1 && r.out.includes("No board chosen"), r.out);
+    r = await codex.run(`help`);
+    assert(r.out.includes("agent-soup get boards") && !/curl[^\n]*\|\s*sh/.test(r.out), "help is for agents, and never pipes a script into a shell");
+  } finally {
+    codex.stop();
+    claude.stop();
+  }
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);
