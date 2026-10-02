@@ -958,13 +958,21 @@ const attIn=document.getElementById('attach-input'),attBox=document.getElementBy
 const IMG_TYPES=['image/png','image/jpeg','image/gif','image/webp'],FILE_MAX=1500000;
 const kbs=n=>n<1024?n+' B':n<1048576?(n/1024).toFixed(1)+' KB':(n/1048576).toFixed(1)+' MB';
 const fileUrl=(name,v)=>'/api/boards/'+BOARD+'/image?name='+encodeURIComponent(name)+(v?'&version='+v:'');
+/** Pasted pictures all come in as "image.png": give those (and unnamed ones) a name with the time, so each upload is its
+ *  own file instead of the next version of the last one. Files with a real name keep it. */
+let lastUp='',upN=0;
+function upName(file){const ext=(file.type.split('/')[1]||'png').replace('jpeg','jpg');
+  if(file.name&&!/^(image|blob|untitled)\\.[a-z0-9]+$/i.test(file.name))return file.name;
+  const d=new Date(),p=n=>String(n).padStart(2,'0');
+  let base='image-'+d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+'-'+p(d.getHours())+p(d.getMinutes())+p(d.getSeconds());
+  upN=base===lastUp?upN+1:1;lastUp=base;if(upN>1)base+='-'+upN;return base+'.'+ext}
 /** Pictures over 1600px or the size limit are scaled and re-encoded as WebP (GIFs stay as they are, for animation). */
 async function shrink(file){const bmp=await createImageBitmap(file);let w=bmp.width,h=bmp.height;
-  if(file.type==='image/gif'||(file.size<=FILE_MAX&&Math.max(w,h)<=1600))return {blob:file,w,h,name:file.name||'image.'+file.type.split('/')[1],image:true};
+  if(file.type==='image/gif'||(file.size<=FILE_MAX&&Math.max(w,h)<=1600))return {blob:file,w,h,name:upName(file),image:true};
   const k=Math.min(1,1600/Math.max(w,h));w=Math.round(w*k);h=Math.round(h*k);
   const c=document.createElement('canvas');c.width=w;c.height=h;c.getContext('2d').drawImage(bmp,0,0,w,h);
   let q=.86,blob;do{blob=await new Promise(r=>c.toBlob(r,'image/webp',q));q-=.12}while(blob&&blob.size>FILE_MAX&&q>.3);
-  return {blob,w,h,name:(file.name||'image').replace(/\\.[^.]+$/,'')+'.webp',image:true}}
+  return {blob,w,h,name:upName(file).replace(/\\.[^.]+$/,'')+'.webp',image:true}}
 /** Other files over the limit are gzipped (and sent as name.gz) when that makes them fit. */
 async function pack(file){if(file.size<=FILE_MAX)return {blob:file,name:file.name||'file'};
   if(typeof CompressionStream==='undefined')return null;
