@@ -35,6 +35,7 @@ const SETTLE = /localhost|127\.0\.0\.1/.test(BASE) ? 800 : 3000;
 
 async function ops(path, body) {
   const r = await fetch(`${BASE}/api/ops/${path}`, { method: "POST", headers: { "x-admin-key": ADMIN_KEY, "content-type": "application/json" }, body: JSON.stringify(body) });
+  if (!r.ok) throw new Error(`ops ${path}: HTTP ${r.status}`);
   return r.json();
 }
 let rid = 0;
@@ -88,6 +89,11 @@ await step("setup", async () => {
   writeFileSync(credA, JSON.stringify({ server: BASE, user: A, token: tokA, expires_at: Date.now() + 86400e3 }), { mode: 0o600 });
   writeFileSync(credB, JSON.stringify({ server: BASE, user: B, token: tokB, expires_at: Date.now() + 86400e3 }), { mode: 0o600 });
 });
+// Without test logins every later step would fall back to the real login in the keychain. Never run them that way.
+if (!credA || !tokA) {
+  console.log("Setup failed (is ADMIN_KEY the key for this server?); stopping before anything runs as a real user.");
+  process.exit(1);
+}
 
 await step("status reads the saved login", async () => {
   const out = await new Promise((resolve) => {

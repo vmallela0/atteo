@@ -271,6 +271,7 @@ async function mcp(args: string[]) {
           content: typeof a.content === "string" ? a.content : null,
           new_str: typeof a.new_str === "string" ? a.new_str : null,
           summary: typeof a.summary === "string" ? a.summary : null,
+          note: typeof a.note === "string" ? a.note : null,
         });
         if (hit) return toolText(msg.id, blockedMessage(hit) + " (Caught on this machine; nothing was sent.)");
         if (!creds || creds.expires_at < Date.now()) {

@@ -14,6 +14,38 @@ export const MAX_WAIT_MS = 55_000;
 
 export class BoardError extends Error {}
 
+export const POSTS_PER_MINUTE = 60;
+export const TASK_STATUSES = ["todo", "doing", "blocked", "done", "stopped"] as const;
+export type TaskStatus = (typeof TASK_STATUSES)[number];
+export interface TaskView {
+  seq: number;
+  text: string;
+  author: string;
+  via: string | null;
+  status: TaskStatus;
+  assignee: string | null;
+  assignee_agent: boolean;
+  due: number | null;
+  lease_holder: string | null;
+  lease_agent: boolean;
+  lease_until: number | null;
+  stop_reason: string | null;
+  reply_to: number | null;
+  updated_at: number;
+}
+export interface TaskChange {
+  status?: TaskStatus;
+  assignee?: string | null;
+  assignee_agent?: boolean;
+  due?: number | null;
+  note?: string | null;
+}
+export interface TaskActOpts {
+  via?: "agent" | "person" | null;
+  client?: string | null;
+}
+const iso = (ts: number) => new Date(ts).toISOString().slice(0, 16).replace("T", " ") + "Z";
+
 export interface DocMeta {
   name: string;
   version: number;
@@ -114,6 +146,18 @@ export class Board extends DurableObject<Env> {
         artifact_size INTEGER,
         artifact_content TEXT
       );
+      CREATE TABLE IF NOT EXISTS tasks (
+        seq INTEGER PRIMARY KEY,
+        status TEXT NOT NULL DEFAULT 'todo',
+        assignee TEXT,
+        assignee_agent INTEGER NOT NULL DEFAULT 1,
+        due INTEGER,
+        lease_holder TEXT,
+        lease_agent INTEGER,
+        lease_until INTEGER,
+        stop_reason TEXT,
+        updated_at INTEGER NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS docs (
         name TEXT PRIMARY KEY,
         version INTEGER NOT NULL,
@@ -189,6 +233,17 @@ export class Board extends DurableObject<Env> {
     if (!cols.has("client")) this.sql.exec("ALTER TABLE entries ADD COLUMN client TEXT");
     if (!cols.has("mentions")) this.sql.exec("ALTER TABLE entries ADD COLUMN mentions TEXT");
     if (!cols.has("self_agent")) this.sql.exec("ALTER TABLE entries ADD COLUMN self_agent INTEGER NOT NULL DEFAULT 0");
+    // Tasks posted before the tasks table existed: give them a row once (done if something resolved them).
+    if (this.meta("tasks_backfilled") !== "1") {
+      this.sql.exec(
+        `INSERT OR IGNORE INTO tasks (seq, status, assignee, assignee_agent, updated_at)
+         SELECT t.seq,
+                CASE WHEN EXISTS (SELECT 1 FROM entries r, json_each(r.resolves) j WHERE j.value = t.seq) THEN 'done' ELSE 'todo' END,
+                t.to_user, 1, t.ts
+         FROM entries t WHERE t.type = 'task'`,
+      );
+      this.setMeta("tasks_backfilled", "1");
+    }
   }
 
   // ---- metadata ----
@@ -286,6 +341,7 @@ export class Board extends DurableObject<Env> {
   async post(user: string, input: NewEntry): Promise<Entry> {
     const info = this.info();
     if (info.archived) throw new BoardError(`"${info.title}" is archived, so it's read-only. Its creator can restore it.`);
+    this.rateLimit(user);
     this.touch(user);
 
     if (!ENTRY_TYPES.includes(input.type)) {
@@ -358,6 +414,10 @@ export class Board extends DurableObject<Env> {
       )
       .one();
     const entry = toEntry(row);
+    if (entry.type === "task") {
+      this.sql.exec("INSERT OR IGNORE INTO tasks (seq, status, assignee, assignee_agent, updated_at) VALUES (?, 'todo', ?, 1, ?)", entry.seq, entry.to, entry.ts);
+    }
+    if (entry.retracts != null) this.stopDependents(user, entry.retracts);
 
     // Your own post counts as read, unless you're handing it to your own agent: then it's new for your agent.
     // A later post doesn't skip the agent past a hand-off it hasn't read yet.
@@ -415,7 +475,7 @@ export class Board extends DurableObject<Env> {
     return {
       info,
       members,
-      summaryText: formatSummary(info, members, this.summary(), user, DEFAULT_SUMMARY_CHARS),
+      summaryText: formatSummary(info, members, this.summary(), user, DEFAULT_SUMMARY_CHARS, this.taskTags()),
       entries: fresh,
       remaining,
     };
@@ -455,6 +515,7 @@ export class Board extends DurableObject<Env> {
   /** Drops a member's cursor and ends any wait they have in progress. Access itself is enforced by the Worker. */
   async removeMember(user: string): Promise<void> {
     this.sql.exec("DELETE FROM members WHERE name = ?", user);
+    this.sql.exec("UPDATE tasks SET lease_holder = NULL, lease_until = NULL, status = CASE WHEN status = 'doing' THEN 'todo' ELSE status END WHERE lease_holder = ?", user);
     for (const w of this.waiters) if (w.user === user) w.wake();
     // Say so explicitly before closing: a close frame alone isn't reliably delivered to the page.
     for (const ws of this.ctx.getWebSockets(user)) {
@@ -527,6 +588,165 @@ export class Board extends DurableObject<Env> {
       out[seq] = cur;
     }
     return out;
+  }
+
+  // ---- per-person rate limit (abuse is bounded by budgets, not reputation: PRD) ----
+
+  private rates = new Map<string, { minute: number; n: number }>();
+  private rateLimit(user: string) {
+    const minute = Math.floor(Date.now() / 60_000);
+    const r = this.rates.get(user);
+    if (!r || r.minute !== minute) return void this.rates.set(user, { minute, n: 1 });
+    if (++r.n > POSTS_PER_MINUTE) throw new BoardError(`Slow down: at most ${POSTS_PER_MINUTE} posts a minute per person on a board.`);
+  }
+
+  // ---- tasks: status, assignee, leases, stop signal ----
+
+  taskRows(filter: { status?: string; assignee?: string } = {}): TaskView[] {
+    const now = Date.now();
+    const rows = this.sql
+      .exec(
+        `SELECT t.*, e.text, e.author, e.via, e.ts AS created_at, e.reply_to FROM tasks t JOIN entries e ON e.seq = t.seq
+         WHERE NOT EXISTS (SELECT 1 FROM entries r WHERE r.retracts = t.seq) ORDER BY t.seq`,
+      )
+      .toArray()
+      .map((r) => ({
+        seq: r.seq as number,
+        text: r.text as string,
+        author: r.author as string,
+        via: (r.via as string | null) ?? null,
+        status: r.status as TaskStatus,
+        assignee: (r.assignee as string | null) ?? null,
+        assignee_agent: r.assignee_agent === 1,
+        due: (r.due as number | null) ?? null,
+        lease_holder: (r.lease_until as number | null) && (r.lease_until as number) > now ? ((r.lease_holder as string | null) ?? null) : null,
+        lease_agent: r.lease_agent === 1,
+        lease_until: (r.lease_until as number | null) && (r.lease_until as number) > now ? (r.lease_until as number) : null,
+        stop_reason: (r.stop_reason as string | null) ?? null,
+        reply_to: (r.reply_to as number | null) ?? null,
+        updated_at: r.updated_at as number,
+      }));
+    return rows.filter((t) => (!filter.status || t.status === filter.status) && (!filter.assignee || t.assignee === filter.assignee));
+  }
+
+  async tasks(filter: { status?: string; assignee?: string } = {}): Promise<TaskView[]> {
+    this.info();
+    return this.taskRows(filter);
+  }
+
+  private task(seq: number): TaskView {
+    const t = this.taskRows().find((x) => x.seq === seq);
+    if (!t) throw new BoardError(`#${seq} isn't an open task on this board (or it was retracted).`);
+    return t;
+  }
+
+  taskTags(): Map<number, string> {
+    const m = new Map<number, string>();
+    for (const t of this.taskRows()) {
+      const bits: string[] = [t.status];
+      if (t.assignee) bits.push(`for ${t.assignee_agent ? `${t.assignee}'s agent` : t.assignee}`);
+      if (t.lease_holder) bits.push(`${t.lease_agent ? `${t.lease_holder}'s agent` : t.lease_holder} holds it until ${iso(t.lease_until!)}`);
+      if (t.stop_reason) bits.push(t.stop_reason);
+      if (t.due) bits.push(`due ${iso(t.due).slice(0, 10)}`);
+      m.set(t.seq, bits.join(" · "));
+    }
+    return m;
+  }
+
+  /** Lease a task so no one else takes it. Expires on its own; claim again to renew. */
+  async taskClaim(user: string, seq: number, minutes: number, opts: TaskActOpts): Promise<TaskView> {
+    const info = this.info();
+    const t = this.task(seq);
+    if (t.status === "done") throw new BoardError(`#${seq} is already done.`);
+    if (t.lease_holder && t.lease_holder !== user) {
+      throw new BoardError(`#${seq} is claimed by ${t.lease_agent ? `${t.lease_holder}'s agent` : t.lease_holder} until ${iso(t.lease_until!)}. Pick another task, or ask them on the board.`);
+    }
+    const mins = Math.min(240, Math.max(5, Math.floor(minutes || 30)));
+    const until = Date.now() + mins * 60_000;
+    const renewing = t.lease_holder === user;
+    this.sql.exec(
+      "UPDATE tasks SET lease_holder = ?, lease_agent = ?, lease_until = ?, status = CASE WHEN status IN ('todo','stopped') THEN 'doing' ELSE status END, stop_reason = NULL, updated_at = ? WHERE seq = ?",
+      user, opts.via === "agent" ? 1 : 0, until, Date.now(), seq,
+    );
+    if (!renewing) await this.post(user, { type: "note", reply_to: seq, text: `Claimed task #${seq} for ${mins} min.`, via: opts.via, client: opts.client });
+    void info;
+    return this.task(seq);
+  }
+
+  async taskRelease(user: string, seq: number, opts: TaskActOpts): Promise<TaskView> {
+    const info = this.info();
+    const t = this.task(seq);
+    if (t.lease_holder && t.lease_holder !== user && info.created_by !== user) throw new BoardError(`Only ${t.lease_holder} (or the board's creator) can release #${seq}.`);
+    this.sql.exec("UPDATE tasks SET lease_holder = NULL, lease_agent = NULL, lease_until = NULL, status = CASE WHEN status = 'doing' THEN 'todo' ELSE status END, updated_at = ? WHERE seq = ?", Date.now(), seq);
+    await this.post(user, { type: "note", reply_to: seq, text: `Released task #${seq}; anyone can pick it up.`, via: opts.via, client: opts.client });
+    return this.task(seq);
+  }
+
+  /** Change status, assignee or due date, optionally with a note. Blocked while someone else holds the lease. */
+  async taskUpdate(user: string, seq: number, change: TaskChange, opts: TaskActOpts): Promise<TaskView> {
+    const info = this.info();
+    const t = this.task(seq);
+    if (t.lease_holder && t.lease_holder !== user && info.created_by !== user) {
+      throw new BoardError(`#${seq} is claimed by ${t.lease_holder} until ${iso(t.lease_until!)}; post on the board instead of changing it.`);
+    }
+    const parts: string[] = [];
+    if (change.status && change.status !== t.status) {
+      if (!TASK_STATUSES.includes(change.status)) throw new BoardError(`status must be one of: ${TASK_STATUSES.join(", ")}`);
+      this.sql.exec("UPDATE tasks SET status = ?, stop_reason = CASE WHEN ? = 'stopped' THEN stop_reason ELSE NULL END WHERE seq = ?", change.status, change.status, seq);
+      if (change.status === "done") this.sql.exec("UPDATE tasks SET lease_holder = NULL, lease_until = NULL WHERE seq = ?", seq);
+      parts.push(`status → ${change.status}`);
+    }
+    if (change.assignee !== undefined) {
+      const who = change.assignee ? change.assignee.toLowerCase() : null;
+      if (who && !this.sql.exec("SELECT 1 AS x FROM members WHERE name = ?", who).toArray().length) throw new BoardError(`${who} isn't a member of this board.`);
+      this.sql.exec("UPDATE tasks SET assignee = ?, assignee_agent = ? WHERE seq = ?", who, change.assignee_agent === false ? 0 : 1, seq);
+      parts.push(who ? `assigned to ${change.assignee_agent === false ? who : `${who}'s agent`}` : "unassigned");
+    }
+    if (change.due !== undefined) {
+      this.sql.exec("UPDATE tasks SET due = ? WHERE seq = ?", change.due, seq);
+      parts.push(change.due ? `due ${iso(change.due).slice(0, 10)}` : "no due date");
+    }
+    if (!parts.length && !change.note) throw new BoardError("Nothing to update: give a status, assignee, due date or note.");
+    this.sql.exec("UPDATE tasks SET updated_at = ? WHERE seq = ?", Date.now(), seq);
+    const after = this.task(seq);
+    await this.post(user, {
+      type: "note",
+      reply_to: seq,
+      to: change.assignee ? change.assignee.toLowerCase() : after.assignee,
+      resolves: change.status === "done" ? [seq] : undefined,
+      text: `Task #${seq}: ${[...parts, change.note ?? ""].filter(Boolean).join("; ")}`,
+      via: opts.via,
+      client: opts.client,
+    });
+    return after;
+  }
+
+  /** Stop signal: any member can halt a task; whoever holds it hears about it on their next read. */
+  async taskStop(user: string, seq: number, reason: string, opts: TaskActOpts): Promise<TaskView> {
+    this.info();
+    const t = this.task(seq);
+    const why = reason.trim().slice(0, 300) || "stopped";
+    this.sql.exec("UPDATE tasks SET status = 'stopped', stop_reason = ?, lease_holder = NULL, lease_until = NULL, updated_at = ? WHERE seq = ?", why, Date.now(), seq);
+    await this.post(user, { type: "note", reply_to: seq, to: t.lease_holder ?? t.assignee, text: `Stop task #${seq}: ${why}`, via: opts.via, client: opts.client });
+    return this.task(seq);
+  }
+
+  /** A retracted premise stops every open task built on it (reply_to). */
+  private stopDependents(user: string, retracted: number) {
+    const deps = this.sql
+      .exec("SELECT t.seq, t.lease_holder, t.assignee FROM tasks t JOIN entries e ON e.seq = t.seq WHERE e.reply_to = ? AND t.status NOT IN ('done','stopped')", retracted)
+      .toArray();
+    for (const d of deps) {
+      this.sql.exec("UPDATE tasks SET status = 'stopped', stop_reason = ?, lease_holder = NULL, lease_until = NULL, updated_at = ? WHERE seq = ?", `premise #${retracted} was retracted`, Date.now(), d.seq);
+    }
+    if (deps.length) {
+      // Queued after the retraction itself so the notice lands right after it.
+      queueMicrotask(() => {
+        for (const d of deps) {
+          void this.post(user, { type: "note", reply_to: d.seq as number, to: (d.lease_holder as string | null) ?? (d.assignee as string | null), text: `Stop task #${d.seq}: its premise #${retracted} was retracted.` }).catch(() => {});
+        }
+      });
+    }
   }
 
   // ---- shared documents: versioned files people and agents edit together ----
