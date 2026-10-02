@@ -9,6 +9,7 @@ export interface BoardRow {
   created_at: number;
   entry_count: number;
   last_activity: number;
+  archived_at?: number | null;
 }
 
 export interface UserRow {
@@ -74,6 +75,14 @@ export async function removeMember(env: Env, boardId: string, user: string) {
     env.DB.prepare(`DELETE FROM members WHERE board_id = ? AND user = ?`).bind(boardId, user),
     env.DB.prepare(`UPDATE mcp_sessions SET board_id = NULL WHERE board_id = ? AND user = ?`).bind(boardId, user),
   ]);
+}
+
+export async function renameBoard(env: Env, boardId: string, title: string) {
+  await env.DB.prepare(`UPDATE boards SET title = ? WHERE id = ?`).bind(title, boardId).run();
+}
+
+export async function setBoardArchived(env: Env, boardId: string, on: boolean) {
+  await env.DB.prepare(`UPDATE boards SET archived_at = ? WHERE id = ?`).bind(on ? Date.now() : null, boardId).run();
 }
 
 /** Removes a board from the directory: memberships, invitations, joined sessions, and the board row. */

@@ -80,7 +80,7 @@ function hasOpsKey(c: Ctx): boolean {
 const isOps = (c: Ctx) => !!c.viewer?.admin || hasOpsKey(c);
 
 async function sideBoards(env: Env, user: string): Promise<SideBoard[]> {
-  return (await registry.boardsForUser(env, user)).map((b) => ({ id: b.id, title: b.title }));
+  return (await registry.boardsForUser(env, user)).filter((b) => !b.archived_at).map((b) => ({ id: b.id, title: b.title }));
 }
 
 /** Members (and operators) can see a board; everyone else gets a 404 so board ids don't leak. */
@@ -309,7 +309,7 @@ export default {
           me ? registry.invitationsFor(env, me) : [],
           registry.agentStatus(env, viewer.name),
         ]);
-        const mine = new Set(side.map((b) => b.id));
+        const mine = new Set((await registry.boardsForUser(env, viewer.name)).map((b) => b.id));
         return homePage(viewer, side, boards.filter((b) => mine.has(b.id)), invitations, { connected: status.connected, onThisBoard: false });
       }
 
@@ -352,6 +352,29 @@ export default {
         if (!viewer?.admin) return notFound(viewer); // indistinguishable from a missing page unless you're an operator
         const [side, data] = await Promise.all([sideBoards(env, viewer.name), opsData(env)]);
         return adminPage(viewer, side, data);
+      }
+
+      // ---- rename / archive / restore a board (its creator, or an operator) ----
+      m = path.match(/^\/api\/boards\/([^/]+)\/(rename|archive)$/);
+      if (m && method === "POST") {
+        if (!viewer && !hasOpsKey(c)) return needLogin();
+        const board = BOARD_RE.test(m[1]) ? await registry.getBoard(env, m[1]) : null;
+        if (!board || !(await canSee(c, m[1]))) return json({ error: "board not found" }, 404);
+        if (!isOps(c) && board.created_by !== viewer?.name) return json({ error: "Only the board's creator can do that." }, 403);
+        const body = (await request.json().catch(() => ({}))) as { title?: string; archived?: boolean | string };
+        try {
+          if (m[2] === "rename") {
+            const info = await boardStub(env, board.id).rename(String(body.title ?? ""));
+            await registry.renameBoard(env, board.id, info.title);
+            return json({ ok: true, title: info.title, message: `Renamed to "${info.title}".` });
+          }
+          const on = body.archived === true || body.archived === "true";
+          await boardStub(env, board.id).setArchived(on);
+          await registry.setBoardArchived(env, board.id, on);
+          return json({ ok: true, archived: on, message: on ? `Archived "${board.title}". It's read-only until restored.` : `Restored "${board.title}".` });
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+        }
       }
 
       // ---- delete a board (its creator, or an operator); confirm by typing the title ----

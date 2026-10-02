@@ -226,7 +226,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const joined = c.pinnedBoard ?? (await registry.mcpSessionBoard(env, c.sessionId, user));
       const lines: string[] = [];
       lines.push(boards.length ? "Boards you're on:" : "You're not on any board yet.");
-      for (const b of boards) lines.push(`  ${b.id}  "${b.title}"  ${b.entry_count} entries${b.id === joined ? "  ← this session" : ""}`);
+      for (const b of boards) lines.push(`  ${b.id}  "${b.title}"  ${b.entry_count} entries${b.archived_at ? "  (archived, read-only)" : ""}${b.id === joined ? "  ← this session" : ""}`);
       if (invitations.length) {
         lines.push("", "Invitations (join_board accepts one when your user asks):");
         for (const i of invitations) lines.push(`  ${i.board_id}  "${i.board_title}"  from ${i.invited_by}`);

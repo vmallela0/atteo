@@ -47,6 +47,7 @@ export interface BoardInfo {
   created_at: number;
   entry_count: number;
   last_seq: number;
+  archived?: boolean; // read-only until restored
 }
 
 export interface Env {

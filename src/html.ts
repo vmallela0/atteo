@@ -266,6 +266,15 @@ export function homePage(
         )
         .join("")}</div>`
     : "";
+  const archived = boards.filter((b) => b.archived_at);
+  boards = boards.filter((b) => !b.archived_at);
+  const archivedList = archived.length
+    ? `<details style="margin-top:28px"><summary class="small muted" style="cursor:pointer">Archived (${archived.length})</summary><div class="list" style="margin-top:10px">${archived
+        .map(
+          (b) => `<a class="item" href="/b/${esc(b.id)}"><span class="grow truncate muted">${esc(b.title)}</span><span class="xs faint">archived ${when(b.archived_at!)}</span></a>`,
+        )
+        .join("")}</div></details>`
+    : "";
   const list = boards.length
     ? `<div class="list">${boards
         .map((b) => {
@@ -291,6 +300,7 @@ ${agent.connected ? "" : `<div style="margin-bottom:24px">${agentCard(agent)}</d
 ${invites}
 <div class="section-title"><div><h1>Boards</h1><p class="muted" style="margin-top:4px">Problems you and your collaborators' agents are working on.</p></div></div>
 ${list}
+${archivedList}
 ${connectDialog(viewer)}
 <dialog id="new-board"><div class="hd"><div><h2>New board</h2><p class="muted small" style="margin-top:4px">You can invite people right after.</p></div><button class="btn ghost sm" data-close aria-label="Close">✕</button></div>
 <form class="bd" method="post" action="/boards"><label class="lbl" for="title">Title</label>
@@ -397,6 +407,8 @@ function connect(){
   let ping;ws.onopen=()=>{retry=0;ping=setInterval(()=>{try{ws.send('ping')}catch(e){}},30000)};
   ws.onmessage=(m)=>{if(m.data==='pong')return;let d;try{d=JSON.parse(m.data)}catch(e){return}
     if(d.type==='removed'||d.type==='deleted'){location.href='/';return}
+    if(d.type==='renamed'){const h=document.getElementById('board-title');if(h)h.textContent=d.title;document.title=d.title+' · Agent Soup';return}
+    if(d.type==='archived'){location.reload();return}
     if(d.type==='entry'||(d.type==='hello'&&d.last>last))tick(false)};
   ws.onclose=(e)=>{clearInterval(ping);if(e.code===4003){location.href='/';return}
     if(++retry>4)return poll();setTimeout(connect,Math.min(30000,1000*2**retry))};
@@ -405,6 +417,8 @@ connect();
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!polling)tick(false)});
 window.posted=()=>{toast('Posted');tick(false)};
 window.deleted=()=>{location.href='/'};
+window.renamed=(j)=>{location.reload()};
+window.archiveDone=(j)=>{toast(j.message||'Done');setTimeout(()=>location.reload(),400)};
 document.getElementById('del-confirm')?.addEventListener('input',e=>{document.getElementById('del-go').disabled=e.target.value.trim()!==${jsString(info.title)}});
 document.addEventListener('click',async e=>{const b=e.target.closest('[data-retract]');if(!b)return;
   if(b.dataset.armed!=='1'){b.dataset.armed='1';b.textContent='Retract #'+b.dataset.retract+'?';b.classList.add('danger');setTimeout(()=>{b.dataset.armed='';b.textContent='Retract';b.classList.remove('danger')},4000);return}
@@ -435,8 +449,14 @@ window.boardKeys=(e,k)=>{
 };
 `;
   const toOptions = others.map((m) => `<option value="${esc(m.user)}">${esc(m.user)}</option>`).join("");
-  const body = `<div style="margin-bottom:18px">
-  <h1 class="truncate">${esc(info.title)}</h1>
+  const isCreator = viewer.name === info.created_by;
+  const archivedBanner = info.archived
+    ? `<div class="flash" style="margin-bottom:16px;display:flex;align-items:center;gap:12px"><span class="grow"><b>Archived.</b> This board is read-only.</span>${
+        isCreator ? `<form method="post" action="/api/boards/${esc(info.id)}/archive" data-api data-done="archiveDone"><input type="hidden" name="archived" value="false"><button class="btn sm">Restore</button></form>` : ""
+      }</div>`
+    : "";
+  const body = `${archivedBanner}<div style="margin-bottom:18px">
+  <h1 class="truncate" id="board-title">${esc(info.title)}</h1>
   <div class="row wrap small muted" style="margin-top:8px;gap:14px">
     <span class="badge live"><span class="dot"></span>Live</span>
     <span class="row">${avatarStack(members.map((m) => m.user))}<span>${members.map((m) => esc(m.user)).join(", ")}</span></span>
@@ -447,7 +467,7 @@ window.boardKeys=(e,k)=>{
 <div role="tabpanel" id="panel-conv" data-board-panel><div class="layout">
   <section>
     <div class="thread" id="thread">${thread}</div>
-    <form class="card composer" method="post" action="/api/boards/${esc(info.id)}/entries" data-api data-done="posted" data-reset>
+    <form class="card composer" method="post" action="/api/boards/${esc(info.id)}/entries" data-api data-done="posted" data-reset${info.archived ? " hidden" : ""}>
       <textarea class="input" id="composer-text" name="text" required placeholder="Write a note, question, task or decision…  (C)" aria-label="Message"></textarea>
       <div class="bar">
         <div class="seg" role="radiogroup" aria-label="Type">${["note", "question", "task", "decision"]
@@ -459,7 +479,13 @@ window.boardKeys=(e,k)=>{
     </form>
   </section>
   <aside class="aside">${agentCard(agent, info.title)}<div class="sum" id="sum">${summaryHtml(entries, viewer.name, members, undefined, ctl)}</div>
-    ${viewer.name === info.created_by ? `<div class="divider"></div><button class="btn ghost sm danger" type="button" data-open="delete-board">Delete board…</button>` : ""}</aside>
+    ${
+      isCreator
+        ? `<div class="divider"></div><div class="stack" style="--gap:4px"><button class="btn ghost sm" type="button" data-open="rename-board">Rename…</button>
+<form method="post" action="/api/boards/${esc(info.id)}/archive" data-api data-done="archiveDone" style="margin:0"><input type="hidden" name="archived" value="${info.archived ? "false" : "true"}"><button class="btn ghost sm">${info.archived ? "Restore board" : "Archive board"}</button></form>
+<button class="btn ghost sm danger" type="button" data-open="delete-board">Delete board…</button></div>`
+        : ""
+    }</aside>
 </div></div>
 <div role="tabpanel" id="panel-log" data-board-panel hidden><div class="list scroll-x"><table class="log"><thead><tr><th>Time (UTC)</th><th>#</th><th>Author</th><th>Type</th><th>To</th><th>Summary</th></tr></thead>
 <tbody id="log-body">${rows || `<tr id="log-empty"><td colspan="6" class="empty small">No events yet.</td></tr>`}</tbody></table></div>
@@ -468,6 +494,13 @@ window.boardKeys=(e,k)=>{
 ${SHEET}
 
 ${connectDialog(viewer, { id: info.id, title: info.title })}
+
+<dialog id="rename-board"><div class="hd"><h2>Rename board</h2><button class="btn ghost sm" data-close aria-label="Close">✕</button></div>
+<form class="bd" method="post" action="/api/boards/${esc(info.id)}/rename" data-api data-done="renamed">
+  <label class="lbl" for="rename-title">Name</label><input class="input" id="rename-title" name="title" value="${esc(info.title)}" maxlength="120" required>
+  <p data-result hidden style="margin-top:12px"></p>
+  <div class="row" style="justify-content:flex-end;margin-top:18px"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary">Rename</button></div>
+</form></dialog>
 
 <dialog id="delete-board"><div class="hd"><div><h2>Delete ${esc(info.title)}?</h2><p class="muted small" style="margin-top:4px">This permanently deletes every entry, file, member and invitation on this board. Connected agents lose it on their next call. It can't be undone.</p></div><button class="btn ghost sm" data-close aria-label="Close">✕</button></div>
 <form class="bd" method="post" action="/api/boards/${esc(info.id)}/delete" data-api data-done="deleted">

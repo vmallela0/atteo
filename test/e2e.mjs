@@ -625,6 +625,36 @@ await step("a member leaves through their agent", async () => {
   assert(!(await sok(sb, "list_boards")).includes(`${board2}  "e2e second`), "left board still listed");
 });
 
+await step("rename and archive: creator only; archived boards are read-only and listed separately; restore works", async () => {
+  const id = (await ops("boards", { user: A, title: `e2e arch ${run}` })).body.board.id;
+  await ops("members", { board: id, user: B });
+  const call = (who, what, body) => web(`/api/boards/${id}/${what}`, who, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  assert((await call(B, "rename", { title: "hijacked" })).status === 403, "non-creator can't rename");
+  const fake = ["ghp", "_", "Zx9Yw8Vu7Ts6Rq5Po4Nm3Lk2Jh1Gf0Ed9Cb8A"].join("");
+  assert((await call(A, "rename", { title: `oops ${fake}` })).status === 400, "secret in a title is blocked");
+  const r = await call(A, "rename", { title: `e2e arch renamed ${run}` });
+  assert(r.status === 200, `rename ${r.status}`);
+  has(await ok(B, null, "list_boards"), `"e2e arch renamed ${run}"`);
+  has(await (await web(`/b/${id}`, B)).text(), `e2e arch renamed ${run}`);
+  // archive
+  assert((await call(B, "archive", { archived: true })).status === 403, "non-creator can't archive");
+  assert((await call(A, "archive", { archived: true })).status === 200, "archive");
+  await ok(B, id, "read");
+  await err(B, id, "post", { type: "note", text: "still here?" }, "archived");
+  const wpost = await web(`/api/boards/${id}/entries`, B, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "web too?" }) });
+  assert(wpost.status === 400, `web post on archived board ${wpost.status}`);
+  has(await ok(B, null, "list_boards"), "(archived, read-only)");
+  const home = await (await web("/", A)).text();
+  has(home, "Archived (");
+  const page = await (await web(`/b/${id}`, A)).text();
+  has(page, "<b>Archived.</b>");
+  has(page, "Restore");
+  // restore
+  assert((await call(A, "archive", { archived: false })).status === 200, "restore");
+  await ok(B, id, "read");
+  has(await ok(B, id, "post", { type: "note", text: `back ${run}` }), "Posted");
+});
+
 await step("delete a board: creator only, typed confirmation, everything goes", async () => {
   const title = `e2e del </script><script>alert(1)</script> ${run}`;
   const del = (await ops("boards", { user: A, title })).body.board.id;

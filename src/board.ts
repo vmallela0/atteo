@@ -160,6 +160,7 @@ export class Board extends DurableObject<Env> {
       created_at: Number(this.meta("created_at") ?? 0),
       entry_count: stats.n as number,
       last_seq: stats.last as number,
+      archived: this.meta("archived") === "1",
     };
   }
 
@@ -213,6 +214,7 @@ export class Board extends DurableObject<Env> {
 
   async post(user: string, input: NewEntry): Promise<Entry> {
     const info = this.info();
+    if (info.archived) throw new BoardError(`"${info.title}" is archived, so it's read-only. Its creator can restore it.`);
     this.touch(user);
 
     if (!ENTRY_TYPES.includes(input.type)) {
@@ -435,6 +437,25 @@ export class Board extends DurableObject<Env> {
       out[seq] = cur;
     }
     return out;
+  }
+
+  /** New title (checked for secrets); open tabs update live. Access is checked by the Worker. */
+  async rename(title: string): Promise<BoardInfo> {
+    const t = title.trim().slice(0, 120);
+    if (!t) throw new BoardError("Give the board a name.");
+    const hit = scanText(t, "board title");
+    if (hit) throw new BoardError(blockedMessage(hit));
+    this.setMeta("title", t);
+    this.broadcast({ type: "renamed", title: t });
+    return this.info();
+  }
+
+  /** Archive (read-only) or restore. Access is checked by the Worker. */
+  async setArchived(on: boolean): Promise<BoardInfo> {
+    this.setMeta("archived", on ? "1" : "0");
+    for (const w of this.waiters) w.wake();
+    this.broadcast({ type: "archived", archived: on });
+    return this.info();
   }
 
   /** Permanently erases this board: tells open tabs, ends waits, and deletes all storage. Access is checked by the Worker. */
