@@ -26,6 +26,7 @@ export const CSS = `
   color-scheme:dark;
 }}
 *{box-sizing:border-box}
+[hidden]{display:none!important} /* the hidden attribute always wins over a component display (e.g. .btn is inline-flex) */
 /* Scrollbars: thin and quiet (Linear/Slack-like), one per scrolling pane. Chrome and Safari use the ::-webkit
    rules (Chrome ignores them once scrollbar-width is set, so that's Firefox-only); darker while the pane is hovered. */
 :root{--sb:color-mix(in srgb,var(--muted) 35%,transparent);--sb-hover:color-mix(in srgb,var(--muted) 70%,transparent)}
