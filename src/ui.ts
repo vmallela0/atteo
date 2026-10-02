@@ -228,9 +228,11 @@ dialog.lightbox img{display:block;max-width:min(96vw,1600px);max-height:92vh;wid
 .rd.down .rd-pop{bottom:auto;top:22px}
 .rd-pop b{font-weight:600;margin-bottom:2px}.rd-pop .y::before{content:"✓ ";color:var(--ok)}.rd-pop .n{opacity:.6}.rd-pop .n::before{content:"○ "}
 .entry .body .mention{position:relative}
+/* the dot takes the mention's own colour: an outline until they've seen it, filled once they have */
+.entry .body .mention{--dot:var(--accent)}.entry .body .mention.me{--dot:var(--warn)}
 .entry .body .mention::after{content:"";position:absolute;top:-3px;right:-3px;width:6px;height:6px;border-radius:50%;box-shadow:0 0 0 1.5px var(--bg);
-  border:1.5px solid color-mix(in srgb,var(--ok) 70%,var(--muted));background:var(--bg);box-sizing:border-box}
-.entry .body .mention.seen::after{background:var(--ok);border-color:var(--ok)}
+  border:1.5px solid var(--dot);background:var(--bg);box-sizing:border-box}
+.entry .body .mention.seen::after{background:var(--dot)}
 /* change cards: a git change as a card (branch → base, CI, PR, commits, files, reviews, diff on demand) */
 .chg{margin-top:8px;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--bg)}
 .chg-h{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 12px;background:var(--bg-subtle);color:var(--muted);font-size:13px}
@@ -276,7 +278,9 @@ dialog.lightbox img{display:block;max-width:min(96vw,1600px);max-height:92vh;wid
 .mention.agent{border:1px dashed color-mix(in srgb,var(--accent) 45%,transparent);padding:0 3px}
 /* Takes real space (border, not an outline ring), so it never overlaps the text or the mention next to it. */
 .mention.me{color:var(--ink);background:color-mix(in srgb,var(--warn) 22%,transparent);border:1px solid color-mix(in srgb,var(--warn) 45%,transparent);padding:0 3px;margin:0 1px}
-.entry.for-you{background:color-mix(in srgb,var(--warn) 6%,transparent);box-shadow:inset 3px 0 0 color-mix(in srgb,var(--warn) 70%,transparent);border-radius:8px;animation:foryou 1.6s ease-out 1}
+/* The highlight extends 12px beyond the entry on both sides (content stays put), so its bar never sits on the avatar. */
+.entry.for-you{margin-left:-12px;margin-right:-12px;padding-left:12px;padding-right:12px;background:color-mix(in srgb,var(--warn) 6%,transparent);box-shadow:inset 3px 0 0 color-mix(in srgb,var(--warn) 70%,transparent);border-radius:8px;animation:foryou 1.6s ease-out 1}
+.entry.for-you .rd{right:12px}
 @keyframes foryou{from{background:color-mix(in srgb,var(--warn) 18%,transparent)}}
 .mention-menu{position:absolute;left:12px;bottom:calc(100% - 6px);z-index:5;width:min(280px,calc(100% - 24px));list-style:none;margin:0;padding:6px;
   border:1px solid var(--line);border-radius:10px;background:var(--bg);box-shadow:var(--shadow-lg)}
@@ -303,7 +307,38 @@ dialog.lightbox img{display:block;max-width:min(96vw,1600px);max-height:92vh;wid
 .side-link .count{margin-left:auto;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--accent);color:#fff;font-size:11px;font-weight:600;display:inline-flex;align-items:center;justify-content:center}
 .side-link .count[hidden]{display:none}
 .inbox{list-style:none;margin:0;padding:4px}
+/* Boards page */
+.boards-bar{gap:10px;margin:4px 0 16px;flex-wrap:wrap}
+.bsearch .input{width:100%}
+.bgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
+.bcard{position:relative;display:flex;flex-direction:column;gap:8px;padding:14px 14px 12px;border:1px solid var(--line);border-radius:12px;background:var(--bg);transition:border-color .12s,box-shadow .12s}
+.bcard:hover{border-color:color-mix(in srgb,var(--ink) 22%,var(--line));box-shadow:0 1px 0 var(--line),0 6px 18px -12px rgba(0,0,0,.25)}
+.bcard[hidden]{display:none}
+.bcard.archived{opacity:.7}
+.bcard-link{position:absolute;inset:0;border-radius:12px;z-index:0}
+.bcard .bc-edit,.bcard .bc-links a{position:relative;z-index:1}
+.bc-top{gap:8px;align-items:center}
+.bc-top h3{margin:0;font-size:14.5px;font-weight:600;color:var(--ink)}
+.bc-emoji{font-size:18px;line-height:1}
+.bc-dot{width:10px;height:10px;border-radius:3px;background:hsl(var(--h) 55% 55%);flex:none}
+.bc-unread{font-size:11px;font-weight:600;color:#fff;background:var(--accent);border-radius:9px;padding:1px 7px;white-space:nowrap}
+.bc-edit{opacity:0;transition:opacity .12s}
+.bcard:hover .bc-edit,.bc-edit:focus-visible{opacity:1}
+@media(hover:none){.bc-edit{opacity:1}}
+.bc-desc{margin:0;font-size:13px;color:var(--muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:2.6em}
+.bc-tags{display:flex;flex-wrap:wrap;gap:4px}
+.tag{font-size:11.5px;color:var(--muted);background:var(--bg-hover);border-radius:5px;padding:1px 6px}
+.bc-links{display:flex;flex-wrap:wrap;gap:10px;font-size:12px}
+.bc-foot{gap:8px;align-items:center;margin-top:auto}
+mark{background:color-mix(in srgb,var(--warn) 30%,transparent);color:inherit;border-radius:2px;padding:0 1px}
 /* Tasks board */
+.kcard{cursor:pointer}
+.task-dlg{width:min(720px,calc(100vw - 32px))}
+.task-dlg .td-title{font-size:15px;font-weight:600}
+.td-fields{gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.td-fields label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}
+.td-body{width:100%;min-height:220px;font-size:12.5px;line-height:1.5}
+.td-hist{margin:6px 0 0;padding-left:16px}
 .kanban-head{gap:10px;margin-bottom:12px;align-items:center}
 .kb-new{gap:6px;margin:0}.kb-new .input{width:240px}
 .kanban{display:grid;grid-template-columns:repeat(4,minmax(220px,1fr));gap:12px;overflow-x:auto;align-items:start;padding-bottom:6px}

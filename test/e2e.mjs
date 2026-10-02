@@ -1011,6 +1011,58 @@ await step("every page's inline scripts parse (a template escaping slip breaks t
   }
 });
 
+await step("boards page: details (emoji, description, tags, links), search across boards and inside them", async () => {
+  const save = (who, body) => web(`/api/boards/${fb}/meta`, who, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  let r = await save(B, { emoji: "🍲", description: `Soup board ${run}`, tags: "Payments, #checkout, payments", links: [{ label: "Repo", url: "https://github.com/acme/shop" }] });
+  const j = await r.json();
+  assert(r.status === 200 && JSON.stringify(j.meta.tags) === '["payments","checkout"]', JSON.stringify(j));
+  assert((await save(B, { emoji: "not one" })).status === 400, "emoji");
+  assert((await save(B, { links: [{ url: "javascript:alert(1)" }] })).status === 400, "links must be https");
+  const fake = ["ghp", "_", "Zx9Yw8Vu7Ts6Rq5Po4Nm3Lk2Jh1Gf0Ed9Cb8A"].join("");
+  assert((await save(B, { description: `token ${fake}` })).status === 400, "secrets blocked");
+  assert((await save(OUT, { description: "x" })).status === 404, "outsiders");
+  const home = await (await web("/", A)).text();
+  has(home, `Soup board ${run}`);
+  has(home, "#checkout");
+  has(home, 'href="https://github.com/acme/shop"');
+  const s = await (await web(`/api/boards/search?q=${encodeURIComponent(`zorbex${run}`)}`, A)).json();
+  assert(s.hits.some((h) => h.board === fb && h.kind === "entry" && h.snippet.includes("«")), JSON.stringify(s).slice(0, 400));
+  const t = await (await web(`/api/boards/search?q=checkout`, A)).json();
+  assert(t.boards.includes(fb), JSON.stringify(t.boards));
+  assert(!(await (await web(`/api/boards/search?q=${encodeURIComponent(`zorbex${run}`)}`, OUT)).json()).hits.length, "outsiders see nothing inside");
+});
+
+await step("tasks are shared items: create, get, edit in place (versions, conflicts, checklist ticks), quiet conversation", async () => {
+  const created = await ok(A, fb, "task", { action: "create", title: `Ship the soup ${run}`, body: "- [ ] stock\n- [ ] noodles", assignee: B, priority: "high" });
+  const t = Number(created.match(/Created task #(\d+)/)[1]);
+  has(created, `for ${B}'s agent`);
+  has(await ok(B, fb, "read"), `[todo · high priority · for ${B}'s agent] Ship the soup ${run}`);
+  // Tick a checklist item in place; the summary keeps the title, not the creating post.
+  has(await ok(B, fb, "task", { action: "edit", seq: t, old_str: "- [ ] stock", new_str: "- [x] stock", summary: "stock done" }), "v2");
+  await err(A, fb, "task", { action: "edit", seq: t, body: "rewrite", base_version: 1 }, "is at v2, not v1");
+  has(await ok(A, fb, "task", { action: "edit", seq: t, body: "- [x] stock\n- [x] noodles", base_version: 2, title: `Ship the soup now ${run}` }), "v3");
+  const g = await ok(B, fb, "task", { action: "get", seq: t });
+  has(g, "- [x] noodles");
+  has(g, `Ship the soup now ${run}`);
+  has(await ok(B, fb, "task", { action: "history", seq: t }), "stock done");
+  // Claims, releases and edits don't post to the conversation; done does, once.
+  const before = (await (await web(`/api/boards/${fb}/updates?after=0`, A)).json()).count;
+  await ok(B, fb, "task", { action: "claim", seq: t });
+  await ok(B, fb, "task", { action: "release", seq: t });
+  await ok(B, fb, "task", { action: "update", seq: t, priority: "low" });
+  assert((await (await web(`/api/boards/${fb}/updates?after=0`, A)).json()).count === before, "quiet");
+  await ok(B, fb, "task", { action: "update", seq: t, status: "done" });
+  has(await ok(A, fb, "read"), `✅ Done #${t} (Ship the soup now ${run})`);
+  has(await ok(A, fb, "search", { query: "noodles" }), `#${t}`); // task bodies are searchable
+  // Web: open and edit a task as a person.
+  const w = await (await web(`/api/boards/${fb}/tasks/${t}`, B)).json();
+  assert(w.task.version === 3 && w.history.length >= 3, JSON.stringify(w).slice(0, 200));
+  const r = await web(`/api/boards/${fb}/tasks/${t}`, B, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "edit", body: "web edit", base_version: 3 }) });
+  assert(r.status === 200 && (await r.json()).task.updated_via === "person", "web edit");
+  const nt = await web(`/api/boards/${fb}/tasks`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: `web task ${run}` }) });
+  assert(nt.status === 201, "web create");
+});
+
 await step("rename and archive: creator only; archived boards are read-only and listed separately; restore works", async () => {
   const id = (await ops("boards", { user: A, title: `e2e arch ${run}` })).body.board.id;
   await ops("members", { board: id, user: B });
@@ -1034,7 +1086,7 @@ await step("rename and archive: creator only; archived boards are read-only and 
   assert(wpost.status === 400, `web post on archived board ${wpost.status}`);
   has(await ok(B, null, "list_boards"), "(archived, read-only)");
   const home = await (await web("/", A)).text();
-  has(home, "Archived (");
+  assert(new RegExp(`data-archived="1" data-id="${id}"`).test(home), "archived boards are listed, marked archived (shown under the Archived filter)");
   const page = await (await web(`/b/${id}`, A)).text();
   has(page, "<b>Archived.</b>");
   has(page, "Restore");

@@ -10,6 +10,47 @@ export interface BoardRow {
   entry_count: number;
   last_activity: number;
   archived_at?: number | null;
+  description?: string | null;
+  tags?: string | null; // JSON array
+  emoji?: string | null;
+  links?: string | null; // JSON array of {label, url}
+}
+
+export interface BoardMeta {
+  description: string | null;
+  tags: string[];
+  emoji: string | null;
+  links: { label: string; url: string }[];
+}
+
+export function boardMeta(b: BoardRow): BoardMeta {
+  const arr = <T>(s: string | null | undefined): T[] => {
+    try {
+      const v = s ? JSON.parse(s) : [];
+      return Array.isArray(v) ? v : [];
+    } catch {
+      return [];
+    }
+  };
+  return { description: b.description ?? null, tags: arr<string>(b.tags), emoji: b.emoji ?? null, links: arr<{ label: string; url: string }>(b.links) };
+}
+
+/** Your boards (active and archived) with members and how many inbox items wait for you on each. */
+export async function boardsOverview(env: Env, user: string): Promise<(BoardRow & { members: string | null; unread: number })[]> {
+  const r = await env.DB.prepare(
+    `SELECT b.*, (SELECT GROUP_CONCAT(user, ', ') FROM members m2 WHERE m2.board_id = b.id) AS members,
+            (SELECT COUNT(*) FROM notifications n WHERE n.user = ?1 AND n.board_id = b.id AND n.read_at IS NULL) AS unread
+     FROM members m JOIN boards b ON b.id = m.board_id WHERE m.user = ?1 ORDER BY b.last_activity DESC`,
+  )
+    .bind(user)
+    .all<BoardRow & { members: string | null; unread: number }>();
+  return r.results;
+}
+
+export async function setBoardMeta(env: Env, boardId: string, meta: BoardMeta): Promise<void> {
+  await env.DB.prepare(`UPDATE boards SET description = ?, tags = ?, emoji = ?, links = ? WHERE id = ?`)
+    .bind(meta.description, JSON.stringify(meta.tags), meta.emoji, JSON.stringify(meta.links), boardId)
+    .run();
 }
 
 export interface UserRow {

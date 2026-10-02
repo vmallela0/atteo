@@ -1,6 +1,6 @@
 // Pages. Server-rendered with the design system in ui.ts; small inline scripts for live updates.
 
-import type { BoardRow, InviteRow, Invitation, UserRow } from "./registry";
+import { boardMeta, type BoardRow, type InviteRow, type Invitation, type UserRow } from "./registry";
 import type { TokenRow } from "./auth";
 import { authorLabel, computeSummary, retractedSet, type Summary } from "./state";
 import { forAgent, forPerson, mentionLabel } from "./mentions";
@@ -57,7 +57,7 @@ export function rootMap(entries: Entry[]): Map<number, number> {
 
 export function entryHtml(e: Entry, boardId: string, withReplies = true, opts: { retracted?: boolean; canRetract?: boolean } = {}): string {
   const refs: string[] = [];
-  if (e.retracts != null) refs.push(`retracts <a href="#e${e.retracts}">#${e.retracts}</a>`);
+  if (e.retracts != null) refs.push(`unsends <a href="#e${e.retracts}">#${e.retracts}</a>`);
   if (e.reply_to != null) refs.push(`reply to <a href="#e${e.reply_to}">#${e.reply_to}</a>`);
   if (e.resolves.length) refs.push(`resolves ${e.resolves.map((n) => `<a href="#e${n}">#${n}</a>`).join(", ")}`);
   if (e.supersedes != null) refs.push(`supersedes <a href="#e${e.supersedes}">#${e.supersedes}</a>`);
@@ -75,12 +75,12 @@ ${
     : "";
   // Reply sets the composer to answer this entry: an agent's post gets the reply addressed to that agent.
   const reply = !opts.retracted && e.retracts == null ? `<button class="btn ghost sm" type="button" data-reply="${e.seq}" data-reply-label="${esc(e.via === "person" ? e.author : `${e.author}'s agent`)}">Reply</button>` : "";
-  const retract = opts.canRetract && !opts.retracted && e.retracts == null ? `<button class="btn ghost sm retract" type="button" data-retract="${e.seq}">Retract</button>` : "";
+  const retract = opts.canRetract && !opts.retracted && e.retracts == null ? `<button class="btn ghost sm retract" type="button" data-retract="${e.seq}">Unsend</button>` : "";
   const actions = reply || retract ? `<span class="acts">${reply}${retract}</span>` : "";
   return `<article class="entry${opts.retracted ? " retracted" : ""}${e.via === "agent" ? " by-agent" : ""}" id="e${e.seq}" data-seq="${e.seq}" data-author="${esc(e.author)}">
 ${avatar(e.author, "", e.via === "agent")}
 <div class="grow">
-  <div class="meta">${whoHtml(e)}${e.to ? `<span class="to">→ ${esc(e.to)}</span>` : ""}${typeTag(e.type)}${when(e.ts)}<a class="seq" href="#e${e.seq}">#${e.seq}</a><span class="badge rbadge">Retracted</span>${flagBadge(e.text)}${actions}</div>
+  <div class="meta">${whoHtml(e)}${e.to ? `<span class="to">→ ${esc(e.to)}</span>` : ""}${typeTag(e.type)}${when(e.ts)}<a class="seq" href="#e${e.seq}">#${e.seq}</a><span class="badge rbadge">Unsent</span>${flagBadge(e.text)}${actions}</div>
   <div class="body">${renderText(e.text, e.mentions)}</div>${file}${e.card ? changeCardHtml(e.seq, e.card) : ""}
   ${refs.length ? `<div class="refs">${refs.join(" · ")}</div>` : ""}
   ${withReplies ? `<div class="replies" id="r${e.seq}"></div>` : ""}
@@ -371,7 +371,7 @@ document.addEventListener('click',e=>{const t=e.target.closest('[data-ctab]');if
 export function homePage(
   viewer: Viewer,
   side: SideBoard[],
-  boards: (BoardRow & { members: string | null })[],
+  boards: (BoardRow & { members: string | null; unread?: number })[],
   invitations: Invitation[] = [],
   agent: AgentState = { connected: false, onThisBoard: false },
   flash?: string,
@@ -385,27 +385,32 @@ export function homePage(
         )
         .join("")}</div>`
     : "";
-  const archived = boards.filter((b) => b.archived_at);
-  boards = boards.filter((b) => !b.archived_at);
-  const archivedList = archived.length
-    ? `<details style="margin-top:28px"><summary class="small muted" style="cursor:pointer">Archived (${archived.length})</summary><div class="list" style="margin-top:10px">${archived
-        .map(
-          (b) => `<a class="item" href="/b/${esc(b.id)}"><span class="grow truncate muted">${esc(b.title)}</span><span class="xs faint">archived ${when(b.archived_at!)}</span></a>`,
-        )
-        .join("")}</div></details>`
-    : "";
+  const active = boards.filter((b) => !b.archived_at).length;
+  const archivedCount = boards.length - active;
+  const cards = boards
+    .map((b) => {
+      const meta = boardMeta(b);
+      const names = (b.members ?? "").split(", ").filter(Boolean);
+      const text = [b.title, meta.description ?? "", ...meta.tags, ...names].join(" ").toLowerCase();
+      return `<article class="bcard${b.archived_at ? " archived" : ""}" data-text="${esc(text)}" data-archived="${b.archived_at ? 1 : 0}" data-id="${esc(b.id)}" data-meta="${esc(JSON.stringify(meta))}" data-title="${esc(b.title)}">
+  <a class="bcard-link" href="/b/${esc(b.id)}" aria-label="${esc(b.title)}"></a>
+  <div class="row bc-top">${meta.emoji ? `<span class="bc-emoji">${esc(meta.emoji)}</span>` : `<span class="bc-dot" style="--h:${hue(b.id)}"></span>`}
+    <h3 class="grow truncate">${esc(b.title)}</h3>
+    ${b.unread ? `<span class="bc-unread" title="Waiting for you">${b.unread} for you</span>` : ""}
+    <button class="btn ghost sm bc-edit" type="button" data-edit-board="${esc(b.id)}" aria-label="Edit details">Edit</button></div>
+  <p class="bc-desc${meta.description ? "" : " faint"}">${meta.description ? esc(meta.description) : "No description yet."}</p>
+  ${meta.tags.length ? `<div class="bc-tags">${meta.tags.map((t) => `<span class="tag">#${esc(t)}</span>`).join("")}</div>` : ""}
+  ${meta.links.length ? `<div class="bc-links">${meta.links.map((l) => `<a href="${esc(l.url)}" target="_blank" rel="noopener noreferrer">${esc(l.label)} ↗</a>`).join("")}</div>` : ""}
+  <div class="row bc-foot">${avatarStack(names, 5)}<span class="grow"></span><span class="xs faint">${b.archived_at ? `archived ${when(b.archived_at)}` : `${b.entry_count} ${b.entry_count === 1 ? "entry" : "entries"} · ${when(b.last_activity)}`}</span></div>
+</article>`;
+    })
+    .join("");
   const list = boards.length
-    ? `<div class="list">${boards
-        .map((b) => {
-          const names = (b.members ?? "").split(", ").filter(Boolean);
-          return `<a class="item" href="/b/${esc(b.id)}">
-  <span class="bdot" style="width:9px;height:9px;border-radius:3px;background:hsl(${hue(b.id)} 55% 55%)"></span>
-  <div class="grow"><div class="truncate" style="font-weight:500;color:var(--ink)">${esc(b.title)}</div></div>
-  <span class="xs faint hide-sm" style="width:90px">${b.entry_count} ${b.entry_count === 1 ? "entry" : "entries"}</span>
-  <span class="xs faint hide-sm" style="width:80px">${when(b.last_activity)}</span>
-  <span class="row" style="width:110px;justify-content:flex-end">${avatarStack(names, 4)}</span></a>`;
-        })
-        .join("")}</div>`
+    ? `<div class="boards-bar row"><div class="bsearch grow"><input class="input" id="bq" type="search" placeholder="Search boards, and what's inside them…" autocomplete="off" aria-label="Search boards"></div>
+  <div class="seg" role="radiogroup" aria-label="Show"><input type="radio" name="bshow" id="bs-active" value="active" checked><label for="bs-active">Active <span class="faint">${active}</span></label><input type="radio" name="bshow" id="bs-arch" value="archived"><label for="bs-arch">Archived <span class="faint">${archivedCount}</span></label><input type="radio" name="bshow" id="bs-all" value="all"><label for="bs-all">All</label></div></div>
+<div class="bgrid" id="bgrid">${cards}</div>
+<p class="muted small" id="b-none" hidden>No boards match.</p>
+<section id="b-hits" hidden><h2 class="small muted" style="margin:22px 0 8px">Inside your boards</h2><div class="list" id="b-hits-list"></div></section>`
     : `<div class="card empty"><h3>No boards yet</h3><p class="small">Create a board, then invite the people whose agents should work on it.</p>
   <button class="btn primary" style="margin-top:18px" data-open="new-board">New board <kbd style="margin-left:4px">C</kbd></button></div>`;
   return appPage("Boards · Agent Soup", {
@@ -419,15 +424,53 @@ ${agent.connected ? "" : `<div style="margin-bottom:24px">${agentCard(agent)}</d
 ${invites}
 <div class="section-title"><div><h1>Boards</h1><p class="muted" style="margin-top:4px">Problems you and your collaborators' agents are working on.</p></div></div>
 ${list}
-${archivedList}
 ${connectDialog(viewer)}
 <dialog id="new-board"><div class="hd"><div><h2>New board</h2><p class="muted small" style="margin-top:4px">You can invite people right after.</p></div><button class="btn ghost sm" data-close aria-label="Close">✕</button></div>
 <form class="bd" method="post" action="/boards"><label class="lbl" for="title">Title</label>
 <input class="input" id="title" name="title" required maxlength="120" placeholder="Debug the payments integration">
-<div class="row" style="justify-content:flex-end;margin-top:18px"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary">Create board</button></div></form></dialog>`,
-    script: CONNECT_JS + `window.answered=(j)=>{location.href=j.message==='Joined'?'/b/'+j.board:'/'};`,
+<div class="row" style="justify-content:flex-end;margin-top:18px"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary">Create board</button></div></form></dialog>
+<dialog id="edit-board"><div class="hd"><div><h2>Board details</h2><p class="muted small" style="margin-top:4px" id="eb-title"></p></div><button class="btn ghost sm" data-close aria-label="Close">✕</button></div>
+<form class="bd" id="eb-form">
+<div class="row" style="gap:10px;align-items:flex-end"><div style="width:72px"><label class="lbl" for="eb-emoji">Emoji</label><input class="input" id="eb-emoji" maxlength="16" placeholder="🍲"></div>
+<div class="grow"><label class="lbl" for="eb-tags">Tags</label><input class="input" id="eb-tags" placeholder="checkout, payments"></div></div>
+<label class="lbl" for="eb-desc" style="margin-top:12px">Description</label><textarea class="input" id="eb-desc" maxlength="280" rows="3" placeholder="What this board is for, in a sentence or two."></textarea>
+<label class="lbl" style="margin-top:12px">Links</label>
+${[0, 1, 2].map((i) => `<div class="row" style="gap:6px;margin-bottom:6px"><input class="input" id="eb-l${i}" placeholder="Label" style="width:120px"><input class="input grow" id="eb-u${i}" placeholder="https://github.com/…"></div>`).join("")}
+<p class="flash err" id="eb-err" hidden></p>
+<div class="row" style="justify-content:flex-end;margin-top:14px"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary">Save</button></div></form></dialog>`,
+    script: CONNECT_JS + `window.answered=(j)=>{location.href=j.message==='Joined'?'/b/'+j.board:'/'};` + BOARDS_JS,
   });
 }
+
+// Boards page: instant filter on titles/descriptions/tags/people, Active/Archived/All, content search inside every
+// board (debounced), and the details editor.
+const BOARDS_JS = `
+(()=>{const q=document.getElementById('bq');if(!q)return;const cards=[...document.querySelectorAll('.bcard')];
+const show=()=>document.querySelector('input[name=bshow]:checked').value;
+function apply(){const t=q.value.trim().toLowerCase(),s=show();let n=0;
+  cards.forEach(c=>{const ok=(s==='all'||(s==='archived')===(c.dataset.archived==='1'))&&(!t||c.dataset.text.includes(t));c.hidden=!ok;if(ok)n++});
+  document.getElementById('b-none').hidden=n>0||!!t}
+document.querySelectorAll('input[name=bshow]').forEach(r=>r.addEventListener('change',apply));
+const hits=document.getElementById('b-hits'),hl=document.getElementById('b-hits-list');let timer=0,seq=0;
+function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c])}
+function snip(s){return esc(s).replace(/«/g,'<mark>').replace(/»/g,'</mark>')}
+q.addEventListener('input',()=>{apply();clearTimeout(timer);const t=q.value.trim();if(t.length<2){hits.hidden=true;return}
+  timer=setTimeout(async()=>{const my=++seq;const r=await fetch('/api/boards/search?q='+encodeURIComponent(t));const j=await r.json().catch(()=>({hits:[]}));if(my!==seq)return;
+    // Boards whose content matches show even if their title doesn't.
+    const inside=new Set((j.hits||[]).map(h=>h.board));if(show()!=='archived')cards.forEach(c=>{if(inside.has(c.dataset.id)&&(show()==='all'||c.dataset.archived!=='1'))c.hidden=false});
+    hl.innerHTML=(j.hits||[]).map(h=>'<a class="item" href="/b/'+esc(h.board)+(h.kind==='file'?'#files':'#e'+h.seq)+'"><div class="grow" style="min-width:0"><div class="xs faint">'+esc(h.title)+' · '+(h.kind==='file'?esc(h.name)+' v'+h.version:'#'+h.seq+' '+esc(h.via==='agent'?h.author+"'s agent":h.author))+'</div><div class="small truncate">'+snip(h.snippet)+'</div></div></a>').join('');
+    hits.hidden=!(j.hits||[]).length},250)});
+document.addEventListener('keydown',e=>{if(e.key==='/'&&!e.target.closest('input,textarea')&&!document.querySelector('dialog[open]')){e.preventDefault();q.focus()}});
+apply();
+const dlg=document.getElementById('edit-board'),f=document.getElementById('eb-form');let editing=null;
+document.addEventListener('click',e=>{const b=e.target.closest('[data-edit-board]');if(!b)return;e.preventDefault();const c=b.closest('.bcard');editing=c.dataset.id;const m=JSON.parse(c.dataset.meta);
+  document.getElementById('eb-title').textContent=c.dataset.title;document.getElementById('eb-emoji').value=m.emoji||'';document.getElementById('eb-desc').value=m.description||'';document.getElementById('eb-tags').value=m.tags.join(', ');
+  [0,1,2].forEach(i=>{document.getElementById('eb-l'+i).value=m.links[i]?.label||'';document.getElementById('eb-u'+i).value=m.links[i]?.url||''});
+  document.getElementById('eb-err').hidden=true;dlg.showModal()});
+f.addEventListener('submit',async e=>{e.preventDefault();const links=[0,1,2].map(i=>({label:document.getElementById('eb-l'+i).value,url:document.getElementById('eb-u'+i).value.trim()})).filter(l=>l.url);
+  const r=await fetch('/api/boards/'+editing+'/meta',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({emoji:document.getElementById('eb-emoji').value,description:document.getElementById('eb-desc').value,tags:document.getElementById('eb-tags').value,links})});
+  const j=await r.json().catch(()=>({}));if(!r.ok){const w=document.getElementById('eb-err');w.hidden=false;w.textContent=j.error||'Could not save';return}location.reload()});
+})();`;
 
 /** One row of the Stripe-style event log. */
 export function logRow(e: Entry, boardTitle?: string, boardId?: string): string {
@@ -573,6 +616,7 @@ function connect(){
     if(d.type==='archived'){location.reload();return}
     if(d.type==='doc'){window.onDocChanged&&onDocChanged(d)}
     if(d.type==='read'){READS[d.user]={person_seen:d.person_seen,agent_seen:d.agent_seen};renderReads();return}
+    if(d.type==='task'){if(!document.getElementById('panel-tasks').hidden)loadTasks();if(td&&td.open&&tcur&&tcur.seq===d.seq&&!tdirty)openTask(d.seq)}
     if(d.type==='entry'||(d.type==='hello'&&d.last>last)){tick(false);if(!document.getElementById('panel-tasks').hidden)loadTasks()}};
   ws.onclose=(e)=>{clearInterval(ping);if(e.code===4003){location.href='/';return}
     if(++retry>4)return poll();setTimeout(connect,Math.min(30000,1000*2**retry))};
@@ -793,9 +837,9 @@ window.applyTitle=(t)=>{const h=document.getElementById('board-title');if(h)h.te
 window.archiveDone=(j)=>{toast(j.message||'Done');setTimeout(()=>location.reload(),400)};
 document.getElementById('del-confirm')?.addEventListener('input',e=>{document.getElementById('del-go').disabled=e.target.value.trim()!==${jsString(info.title)}});
 document.addEventListener('click',async e=>{const b=e.target.closest('[data-retract]');if(!b)return;
-  if(b.dataset.armed!=='1'){b.dataset.armed='1';b.textContent='Retract #'+b.dataset.retract+'?';b.classList.add('danger');setTimeout(()=>{b.dataset.armed='';b.textContent='Retract';b.classList.remove('danger')},4000);return}
+  if(b.dataset.armed!=='1'){b.dataset.armed='1';b.textContent='Unsend #'+b.dataset.retract+'?';b.classList.add('danger');setTimeout(()=>{b.dataset.armed='';b.textContent='Unsend';b.classList.remove('danger')},4000);return}
   b.disabled=true;const r=await fetch('/api/boards/'+BOARD+'/entries/'+b.dataset.retract+'/retract',{method:'POST',headers:{'content-type':'application/json'},body:'{}'});
-  const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||'Could not retract');b.disabled=false;return}toast('Retracted');tick(false)});
+  const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||'Could not unsend');b.disabled=false;return}toast('Unsent');tick(false)});
 document.addEventListener('click',async e=>{const b=e.target.closest('[data-member-remove]');if(!b)return;
   if(b.dataset.armed!=='1'){b.dataset.armed='1';b.textContent=b.dataset.label==='Leave'?'Leave board?':'Remove '+b.dataset.memberRemove+'?';b.classList.add('danger');
     setTimeout(()=>{b.dataset.armed='';b.textContent=b.dataset.label;b.classList.remove('danger')},4000);return}
@@ -832,12 +876,12 @@ async function loadTasks(){const r=await fetch('/api/boards/'+BOARD+'/tasks');co
   document.getElementById('kanban').innerHTML=KCOLS.map(([k,label])=>{const col=ts.filter(t=>(k==='blocked'?(t.status==='blocked'||t.status==='stopped'):t.status===k))
       .sort((a,b)=>(PRI[a.priority]??3)-(PRI[b.priority]??3)||(k==='done'?b.updated_at-a.updated_at:a.seq-b.seq)).slice(0,k==='done'?30:200);
     return '<section class="kcol" data-status="'+k+'"><h3>'+label+' <span class="faint">'+col.length+'</span></h3><div class="kcards">'+col.map(card).join('')+'</div></section>'}).join('')}
-function card(t){const first=(t.text||'').split(String.fromCharCode(10)).find(l=>l.trim())||'';
+function card(t){const first=t.title||'';const boxes=(t.body||'').match(/^\s*[-*] \[( |x|X)\]/gm)||[];const ticked=boxes.filter(b=>/x/i.test(b)).length;
   const who=t.assignee?(t.assignee_agent?t.assignee+"'s agent":t.assignee):'';
   const hold=t.lease_holder?(t.lease_agent?t.lease_holder+"'s agent":t.lease_holder):'';
   return '<article class="kcard" draggable="true" data-seq="'+t.seq+'">'+
     '<div class="row" style="gap:6px"><a class="seq" href="#e'+t.seq+'" data-kopen="'+t.seq+'">#'+t.seq+'</a>'+(t.priority?'<span class="badge pri-'+t.priority+'">'+t.priority+'</span>':'')+(t.status==='stopped'?'<span class="badge pri-high">stopped</span>':'')+'<span class="grow"></span>'+(t.due?'<span class="xs faint">due '+new Date(t.due).toISOString().slice(5,10)+'</span>':'')+'</div>'+
-    '<div class="ktext">'+kesc(first.length>140?first.slice(0,140)+'…':first)+'</div>'+
+    '<div class="ktext">'+kesc(first)+'</div>'+(boxes.length?'<div class="xs faint">☑ '+ticked+'/'+boxes.length+'</div>':'')+
     ((who||hold||t.stop_reason)?'<div class="xs faint">'+[who&&('for '+kesc(who)),hold&&('🔒 '+kesc(hold)),t.stop_reason&&kesc(t.stop_reason)].filter(Boolean).join(' · ')+'</div>':'')+'</article>'}
 async function taskAct(seq,body){const r=await fetch('/api/boards/'+BOARD+'/tasks/'+seq,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
   const j=await r.json().catch(()=>({}));if(!r.ok)toast(j.error||'Could not update');loadTasks();tick(false)}
@@ -846,10 +890,37 @@ kb.addEventListener('dragstart',e=>{const c=e.target.closest('.kcard');if(!c)ret
 kb.addEventListener('dragend',e=>{e.target.closest('.kcard')?.classList.remove('dragging');kb.querySelectorAll('.kcol.over').forEach(x=>x.classList.remove('over'))});
 kb.addEventListener('dragover',e=>{const col=e.target.closest('.kcol');if(!col||!dragSeq)return;e.preventDefault();kb.querySelectorAll('.kcol.over').forEach(x=>x!==col&&x.classList.remove('over'));col.classList.add('over')});
 kb.addEventListener('drop',e=>{const col=e.target.closest('.kcol');if(!col||!dragSeq)return;e.preventDefault();const s=dragSeq;dragSeq=null;taskAct(s,{action:'update',status:col.dataset.status})});
-kb.addEventListener('click',e=>{const a=e.target.closest('[data-kopen]');if(!a)return;e.preventDefault();tab(0);location.hash='#e'+a.dataset.kopen});
-document.getElementById('kb-new')?.addEventListener('submit',async e=>{e.preventDefault();const i=document.getElementById('kb-new-text');const text=i.value.trim();if(!text)return;
-  const r=await fetch('/api/boards/'+BOARD+'/entries',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({type:'task',text})});
-  const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||'Could not add');return}i.value='';loadTasks();tick(false)});
+kb.addEventListener('click',e=>{const a=e.target.closest('[data-kopen]');if(a){e.preventDefault();tab(0);location.hash='#e'+a.dataset.kopen;return}
+  const c=e.target.closest('.kcard');if(c)openTask(+c.dataset.seq)});
+document.getElementById('kb-new')?.addEventListener('submit',async e=>{e.preventDefault();const i=document.getElementById('kb-new-text');const title=i.value.trim();if(!title)return;
+  const r=await fetch('/api/boards/'+BOARD+'/tasks',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({title})});
+  const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||'Could not add');return}i.value='';loadTasks();tick(false);openTask(j.task.seq)});
+// Task drawer: the task is a shared item. Edit its title and body (versioned, conflicts caught), and its fields.
+const td=document.getElementById('task-dlg');let tcur=null,tdirty=false;
+function tdate(ts){return new Date(ts).toISOString().slice(0,16).replace('T',' ')+'Z'}
+async function openTask(seq){const r=await fetch('/api/boards/'+BOARD+'/tasks/'+seq);const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||'Could not open');return}
+  tcur=j.task;tdirty=false;const t=tcur;
+  document.getElementById('td-seq').textContent='#'+t.seq;document.getElementById('td-title').value=t.title;document.getElementById('td-body').value=t.body;
+  document.getElementById('td-status').value=t.status==='stopped'?'blocked':t.status;document.getElementById('td-pri').value=t.priority||'';
+  document.getElementById('td-assignee').value=t.assignee?(t.assignee_agent?t.assignee+"'s agent":t.assignee):'';
+  const by=t.updated_via==='agent'?t.updated_by+"'s agent":t.updated_by;
+  document.getElementById('td-meta').textContent='v'+t.version+' · edited by '+by+' '+tdate(t.updated_at)+(t.lease_holder?' · 🔒 '+(t.lease_agent?t.lease_holder+"'s agent":t.lease_holder)+' until '+tdate(t.lease_until):'')+(t.stop_reason?' · stopped: '+t.stop_reason:'');
+  document.getElementById('td-hist').innerHTML=(j.history||[]).map(v=>'<li>v'+v.version+' · '+kesc(v.via==='agent'?v.author+"'s agent":v.author)+' · '+tdate(v.ts)+(v.summary?' — '+kesc(v.summary):'')+'</li>').join('')||'<li>No edits yet</li>';
+  document.getElementById('td-claim').textContent=t.lease_holder===ME?'Release':'Claim';document.getElementById('td-err').hidden=true;
+  if(!td.open)td.showModal()}
+['td-title','td-body'].forEach(id=>document.getElementById(id).addEventListener('input',()=>tdirty=true));
+document.getElementById('td-open').addEventListener('click',()=>{td.close();tab(0);location.hash='#e'+tcur.seq});
+document.getElementById('td-claim').addEventListener('click',()=>{taskAct(tcur.seq,{action:tcur.lease_holder===ME?'release':'claim'}).then(()=>openTask(tcur.seq))});
+document.getElementById('td-form').addEventListener('submit',async e=>{e.preventDefault();const t=tcur,err=document.getElementById('td-err');err.hidden=true;
+  const title=document.getElementById('td-title').value,body=document.getElementById('td-body').value;
+  const post=async b=>{const r=await fetch('/api/boards/'+BOARD+'/tasks/'+t.seq,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(b)});const j=await r.json().catch(()=>({}));if(!r.ok){err.hidden=false;err.textContent=j.error||'Could not save';throw 0}return j};
+  try{if(title!==t.title||body!==t.body)await post({action:'edit',title,body,base_version:t.version,summary:document.getElementById('td-sum').value});
+    const st=document.getElementById('td-status').value,pr=document.getElementById('td-pri').value,as=document.getElementById('td-assignee').value.trim();
+    const curAs=t.assignee?(t.assignee_agent?t.assignee+"'s agent":t.assignee):'';const ch={action:'update'};
+    if(st!==(t.status==='stopped'?'blocked':t.status))ch.status=st;if(pr!==(t.priority||''))ch.priority=pr;
+    if(as!==curAs){ch.assignee=as.replace(/'s agent$/,'');if(!/'s agent$/.test(as)&&as)ch.assignee_is_person=true}
+    if(Object.keys(ch).length>1)await post(ch);
+    td.close();document.getElementById('td-sum').value='';loadTasks();tick(false)}catch(e){}});
 if(location.hash==='#tasks')tab(3);
 let cur=-1;
 window.boardKeys=(e,k)=>{
@@ -928,6 +999,20 @@ window.boardKeys=(e,k)=>{
     info.archived ? "" : `<form class="row kb-new" id="kb-new"><input class="input sm" id="kb-new-text" placeholder="New task…" aria-label="New task"><button class="btn sm">Add</button></form>`
   }</div>
   <div class="kanban" id="kanban"><p class="muted small">Loading…</p></div>
+  <dialog id="task-dlg" class="task-dlg"><form id="td-form">
+    <div class="hd"><div class="row grow" style="gap:8px"><span class="faint mono" id="td-seq"></span><input class="input td-title grow" id="td-title" maxlength="120" aria-label="Title"></div><button class="btn ghost sm" type="button" data-close aria-label="Close">✕</button></div>
+    <div class="bd">
+      <div class="row td-fields"><label>Status <select class="input sm" id="td-status"><option value="todo">To do</option><option value="doing">In progress</option><option value="blocked">Blocked</option><option value="done">Done</option></select></label>
+        <label>Priority <select class="input sm" id="td-pri"><option value="">—</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select></label>
+        <label class="grow">Assignee <input class="input sm" id="td-assignee" list="td-people" placeholder="name or name's agent"></label></div>
+      <datalist id="td-people">${members.flatMap((m) => [`<option value="${esc(m.user)}">`, `<option value="${esc(m.user)}'s agent">`]).join("")}</datalist>
+      <textarea class="input mono td-body" id="td-body" rows="12" placeholder="The plan, a checklist (- [ ] step), findings, links. People and agents edit this together."></textarea>
+      <input class="input sm" id="td-sum" placeholder="What changed? (optional)" style="margin-top:8px">
+      <p class="xs faint" id="td-meta" style="margin:8px 0 0"></p>
+      <details style="margin-top:6px"><summary class="xs faint" style="cursor:pointer">History</summary><ul class="xs faint td-hist" id="td-hist"></ul></details>
+      <p class="flash err" id="td-err" hidden></p>
+      <div class="row" style="justify-content:space-between;margin-top:12px"><div class="row" style="gap:6px"><button class="btn sm" type="button" id="td-claim">Claim</button><button class="btn sm ghost" type="button" id="td-open">Open in conversation</button></div><button class="btn primary sm">Save</button></div>
+    </div></form></dialog>
 </div>
 
 ${SHEET}
