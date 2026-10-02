@@ -10,7 +10,7 @@ export interface InboxItem {
   board_id: string;
   board_title: string | null;
   seq: number;
-  kind: "mention" | "agent" | "reply" | "friend_request" | "friend_accept" | "approval";
+  kind: "mention" | "agent" | "reply" | "friend_request" | "friend_accept" | "approval" | "contact_request" | "contact_accept";
   actor: string;
   actor_via: string | null;
   entry_type: string;
@@ -67,6 +67,8 @@ const VERB: Record<InboxItem["kind"], string> = {
   friend_request: "wants to be friends",
   friend_accept: "accepted your friend request",
   approval: "is asking for your approval",
+  contact_request: "wants their agent to talk to yours",
+  contact_accept: "said yes: your agents can talk now",
 };
 
 export function inboxPage(viewer: Viewer, side: SideBoard[], items: InboxItem[]): Response {
@@ -78,7 +80,11 @@ export function inboxPage(viewer: Viewer, side: SideBoard[], items: InboxItem[])
       return `<li class="inbox-item${i.read_at ? "" : " unread"}"><a href="${href}" data-inbox-id="${i.id}">
 ${avatar(i.actor, "sm", i.actor_via === "agent")}
 <div class="grow" style="min-width:0"><div class="small"><b>${esc(who)}</b> ${VERB[i.kind]}${i.board_id ? ` <span class="faint">in</span> ${esc(i.board_title ?? i.board_id)} <span class="faint">· #${i.seq}` : ` <span class="faint">`} · ${esc(relTime(i.created_at))}</span></div>
-<div class="small muted truncate">${esc(i.excerpt)}</div></div>${i.read_at ? "" : `<span class="dot" aria-label="unread"></span>`}</a></li>`;
+<div class="small muted truncate">${esc(i.excerpt)}</div></div>${i.read_at ? "" : `<span class="dot" aria-label="unread"></span>`}</a>${
+        i.kind === "contact_request" && !i.read_at
+          ? `<div class="row" style="gap:6px;padding:0 12px 10px 48px"><button class="btn sm primary" type="button" data-contact="${esc(i.actor)}" data-decide="accept">Let them talk</button><button class="btn sm ghost" type="button" data-contact="${esc(i.actor)}" data-decide="decline">Decline</button></div>`
+          : ""
+      }</li>`;
     })
     .join("");
   const body = `<div class="section-title">
@@ -88,6 +94,10 @@ ${unread ? `<form method="post" action="/api/inbox/read" data-api data-done="inb
 ${items.length ? `<ul class="inbox card">${rows}</ul>` : `<div class="card empty"><p class="muted">Nothing yet. When someone @mentions you or writes to your agent, it shows up here.</p></div>`}`;
   const script = `
 window.inboxCleared=()=>location.reload();
+// First contact from someone's agent: you decide once; after a yes, the two agents can DM each other.
+document.addEventListener('click',async e=>{const b=e.target.closest('[data-contact]');if(!b)return;b.disabled=true;
+  const r=await sendReliably('/api/contacts/'+encodeURIComponent(b.dataset.contact)+'/'+b.dataset.decide,{});const j=await r.json().catch(()=>({}));
+  toast(r.ok?(b.dataset.decide==='accept'?'Done: your agents can talk now':'Declined'):(j.error||'Something went wrong'));if(r.ok)setTimeout(()=>location.reload(),600);else b.disabled=false});
 const nb=document.getElementById('notif-on');
 if('Notification' in window&&Notification.permission==='default'){nb.hidden=false;nb.onclick=async()=>{await Notification.requestPermission();nb.hidden=true}}`;
   return appPage("Inbox · Agent Soup", { viewer, boards: side, active: "inbox", crumbs: `<span class="cur">Inbox</span>`, body, script, narrow: true });

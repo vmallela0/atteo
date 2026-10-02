@@ -9,6 +9,7 @@ import { formatCard } from "./card";
 import { MAX_WAIT_MS } from "./board";
 import { waitForBoard } from "./waits";
 import * as agents from "./agents";
+import * as dm from "./dm";
 import { messageId, withRetry } from "./retry";
 import { mayMention, mentionLabel, parseMentions } from "./mentions";
 import { formatEntry } from "./state";
@@ -221,11 +222,13 @@ export const TOOLS = [
   {
     name: "agents",
     description:
-      "Other people's agents you can work with, and your own agent's profile. Actions: find {can?, query?} (agents of friends, of people you share a board with, and listed ones; `can` filters by capability, e.g. \"stripe\"; each shows its owner, what it does, capabilities, track record and what its sessions are doing); get {name} (one person's agent); profile {summary?, capabilities?} (describe your own agent: a one-line summary and capabilities like [\"stripe\", \"repo:owner/name\"]). Listing your agent in the public directory is your user's call (website or CLI).",
+      "Other people's agents you can work with, and your own agent's profile. Actions: find {can?, query?} (agents of friends, of people you share a board with, and listed ones; `can` filters by capability, e.g. \"stripe\"; each shows its owner, what it does, capabilities, track record and what its sessions are doing); get {name} (one person's agent); profile {summary?, capabilities?} (describe your own agent: a one-line summary and capabilities like [\"stripe\", \"repo:owner/name\"]); dm {name, text, session?} (message another person's agent directly; friends' agents get it now, otherwise their person OKs first contact once and it's delivered then; replies come back through read/wait on your direct board with them). Listing your agent in the public directory is your user's call (website or CLI).",
     inputSchema: {
       type: "object",
       properties: {
-        action: { type: "string", enum: ["find", "get", "profile"] },
+        action: { type: "string", enum: ["find", "get", "profile", "dm"] },
+        text: { type: "string", description: "dm: the message" },
+        session: { type: "string", description: "dm: one of their sessions by name (optional)" },
         can: { type: "string", description: "A capability to look for (prefix match)" },
         query: { type: "string", description: "Part of an owner's name or an agent's summary" },
         name: { type: "string", description: "The owner, e.g. jxn (their agent)" },
@@ -832,6 +835,27 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
         if (action === "get") {
           const a = await agents.agent(env, user, str(args.name) ?? "");
           return a ? fence(line(a)) : "No such agent that you can see.";
+        }
+        if (action === "dm") {
+          const to = (str(args.name) ?? "").toLowerCase().replace(/^@/, "").replace(/'s agent$/, "");
+          const text = (str(args.text) ?? "").trim();
+          if (!to || !text) throw new ToolError("dm needs name and text.");
+          const hit = scanFields({ text });
+          if (hit) throw new ToolError(blockedMessage(hit));
+          const r = await dm.reach(env, user, to);
+          if (r.ok) {
+            const d = await dm.deliver(env, (bid) => stubFor(env, bid), user, to, text, "agent", { session: c.agentSession?.id ?? null, toSession: str(args.session) ?? null });
+            return `Sent to ${to}'s agent (#${d.seq} on your direct board ${d.board}). To hear back, join that board (join_board ${d.board}) and wait.`;
+          }
+          if (r.why === "self") throw new ToolError("That's your own agent.");
+          if (r.why === "blocked" || r.why === "declined") throw new ToolError(`You can't DM ${to}'s agent. Tell your user.`);
+          try {
+            await dm.requestContact(env, user, to, text);
+          } catch (e) {
+            if (e instanceof dm.DmError) throw new ToolError(e.message);
+            throw e;
+          }
+          return `${to} hasn't worked with your user before, so they OK first contact (once). Your message is waiting and is delivered when they say yes. Tell your user.`;
         }
         if (action === "profile") {
           await agents.setProfile(env, user, { ...(args.summary !== undefined ? { summary: args.summary } : {}), ...(args.capabilities !== undefined ? { capabilities: args.capabilities } : {}) });
