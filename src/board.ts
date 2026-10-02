@@ -36,6 +36,11 @@ export interface TaskView {
   lease_until: number | null;
   stop_reason: string | null;
   priority: TaskPriority | null;
+  title: string;
+  body: string;
+  version: number;
+  updated_by: string;
+  updated_via: string | null;
   reply_to: number | null;
   updated_at: number;
 }
@@ -201,7 +206,23 @@ export class Board extends DurableObject<Env> {
         lease_until INTEGER,
         stop_reason TEXT,
         priority TEXT,
+        title TEXT,
+        body TEXT,
+        version INTEGER NOT NULL DEFAULT 1,
+        updated_by TEXT,
+        updated_via TEXT,
         updated_at INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS task_versions (
+        seq INTEGER NOT NULL,
+        version INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        body TEXT NOT NULL,
+        author TEXT NOT NULL,
+        via TEXT,
+        summary TEXT,
+        ts INTEGER NOT NULL,
+        PRIMARY KEY (seq, version)
       );
       CREATE TABLE IF NOT EXISTS docs (
         name TEXT PRIMARY KEY,
@@ -289,6 +310,14 @@ export class Board extends DurableObject<Env> {
     if (!memberCols.has("agent_seen")) this.sql.exec("ALTER TABLE members ADD COLUMN agent_seen INTEGER NOT NULL DEFAULT -1"); // -1: never here
     const taskCols = new Set(this.sql.exec("PRAGMA table_info(tasks)").toArray().map((r) => r.name as string));
     if (!taskCols.has("priority")) this.sql.exec("ALTER TABLE tasks ADD COLUMN priority TEXT");
+    for (const [col, def] of [["title", "TEXT"], ["body", "TEXT"], ["version", "INTEGER NOT NULL DEFAULT 1"], ["updated_by", "TEXT"], ["updated_via", "TEXT"]]) {
+      if (!taskCols.has(col)) this.sql.exec(`ALTER TABLE tasks ADD COLUMN ${col} ${def}`);
+    }
+    // Tasks are living shared items: a title and an editable body, split from the post that created them.
+    for (const r of this.sql.exec("SELECT t.seq, e.text FROM tasks t JOIN entries e ON e.seq = t.seq WHERE t.title IS NULL").toArray()) {
+      const { title, body } = splitTask(r.text as string);
+      this.sql.exec("UPDATE tasks SET title = ?, body = ? WHERE seq = ?", title, body, r.seq);
+    }
     // Files posted before files became documents: each becomes the next version of the doc with its (cleaned) name.
     if (this.meta("files_backfilled") !== "1") {
       for (const r of this.sql.exec("SELECT seq, ts, author, via, client, text, artifact_name, artifact_content FROM entries WHERE type = 'artifact' AND artifact_version IS NULL AND artifact_content IS NOT NULL ORDER BY seq").toArray()) {
@@ -520,7 +549,11 @@ export class Board extends DurableObject<Env> {
     const entry = toEntry(row);
     this.indexEntry(entry.seq, entry.text, entry.artifact_name, entry.card ?? null, artifactContent);
     if (entry.type === "task") {
-      this.sql.exec("INSERT OR IGNORE INTO tasks (seq, status, assignee, assignee_agent, updated_at) VALUES (?, 'todo', ?, 1, ?)", entry.seq, entry.to, entry.ts);
+      const { title, body } = splitTask(entry.text);
+      this.sql.exec(
+        "INSERT OR IGNORE INTO tasks (seq, status, assignee, assignee_agent, title, body, version, updated_by, updated_via, updated_at) VALUES (?, 'todo', ?, 1, ?, ?, 1, ?, ?, ?)",
+        entry.seq, entry.to, title, body, user, input.via ?? null, entry.ts,
+      );
     }
     if (entry.retracts != null) this.stopDependents(user, entry.retracts);
 
@@ -562,8 +595,12 @@ export class Board extends DurableObject<Env> {
     return this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries ORDER BY seq`).toArray().map(toEntry);
   }
 
+  /** Open tasks show their current title (tasks are edited in place), not the text of the post that created them. */
   summary(): Summary {
-    return computeSummary(this.allEntries());
+    const s = computeSummary(this.allEntries());
+    const titles = new Map(this.sql.exec("SELECT seq, title FROM tasks WHERE title IS NOT NULL").toArray().map((r) => [r.seq as number, r.title as string]));
+    s.openTasks = s.openTasks.map((e) => (titles.has(e.seq) ? { ...e, text: titles.get(e.seq)! } : e));
+    return s;
   }
 
   /**
@@ -692,7 +729,9 @@ export class Board extends DurableObject<Env> {
       // Anything FTS can't parse falls back to plain substring search.
       return { entries: (await this.search(query, opts)).map((entry) => ({ entry, snippet: "" })), files: [] };
     }
-    const seqs = rows.filter((r) => r.kind === "entry").map((r) => Number(r.ref));
+    // A task's live title/body is indexed as kind "task"; it points at the task's entry like an entry hit.
+    const isEntry = (r: Row) => r.kind === "entry" || r.kind === "task";
+    const seqs = rows.filter(isEntry).map((r) => Number(r.ref));
     const bySeq = new Map<number, Entry>();
     if (seqs.length) {
       for (const r of this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq IN (${seqs.map(() => "?").join(",")})`, ...seqs).toArray()) bySeq.set(r.seq as number, toEntry(r));
@@ -701,9 +740,9 @@ export class Board extends DurableObject<Env> {
     const files: { name: string; version: number; snippet: string }[] = [];
     const filtered = !!(opts.author || opts.type);
     for (const r of rows) {
-      if (r.kind === "entry") {
+      if (isEntry(r)) {
         const e = bySeq.get(Number(r.ref));
-        if (!e || (opts.author && e.author !== opts.author) || (opts.type && e.type !== opts.type)) continue;
+        if (!e || entries.some((x) => x.entry.seq === e.seq) || (opts.author && e.author !== opts.author) || (opts.type && e.type !== opts.type)) continue;
         if (entries.length < limit) entries.push({ entry: e, snippet: r.snip as string });
       } else if (!filtered && files.length < 10) {
         const v = this.sql.exec("SELECT version FROM docs WHERE name = ?", r.ref).toArray()[0];
@@ -915,6 +954,11 @@ export class Board extends DurableObject<Env> {
         lease_until: (r.lease_until as number | null) && (r.lease_until as number) > now ? (r.lease_until as number) : null,
         stop_reason: (r.stop_reason as string | null) ?? null,
         priority: (r.priority as TaskPriority | null) ?? null,
+        title: (r.title as string | null) ?? splitTask(r.text as string).title,
+        body: (r.body as string | null) ?? "",
+        version: (r.version as number | null) ?? 1,
+        updated_by: (r.updated_by as string | null) ?? (r.author as string),
+        updated_via: (r.updated_via as string | null) ?? null,
         reply_to: (r.reply_to as number | null) ?? null,
         updated_at: r.updated_at as number,
       }));
@@ -1006,13 +1050,13 @@ export class Board extends DurableObject<Env> {
     }
     const mins = Math.min(240, Math.max(5, Math.floor(minutes || 30)));
     const until = Date.now() + mins * 60_000;
-    const renewing = t.lease_holder === user;
     this.sql.exec(
       "UPDATE tasks SET lease_holder = ?, lease_agent = ?, lease_until = ?, status = CASE WHEN status IN ('todo','stopped') THEN 'doing' ELSE status END, stop_reason = NULL, updated_at = ? WHERE seq = ?",
       user, opts.via === "agent" ? 1 : 0, until, Date.now(), seq,
     );
-    if (!renewing) await this.post(user, { type: "note", reply_to: seq, text: `Claimed task #${seq} for ${mins} min.`, via: opts.via, client: opts.client });
     void info;
+    void opts;
+    this.broadcast({ type: "task", seq });
     return this.task(seq);
   }
 
@@ -1021,7 +1065,8 @@ export class Board extends DurableObject<Env> {
     const t = this.task(seq);
     if (t.lease_holder && t.lease_holder !== user && info.created_by !== user) throw new BoardError(`Only ${t.lease_holder} (or the board's creator) can release #${seq}.`);
     this.sql.exec("UPDATE tasks SET lease_holder = NULL, lease_agent = NULL, lease_until = NULL, status = CASE WHEN status = 'doing' THEN 'todo' ELSE status END, updated_at = ? WHERE seq = ?", Date.now(), seq);
-    await this.post(user, { type: "note", reply_to: seq, text: `Released task #${seq}; anyone can pick it up.`, via: opts.via, client: opts.client });
+    void opts;
+    this.broadcast({ type: "task", seq });
     return this.task(seq);
   }
 
@@ -1057,15 +1102,22 @@ export class Board extends DurableObject<Env> {
     if (!parts.length && !change.note) throw new BoardError("Nothing to update: give a status, assignee, due date or note.");
     this.sql.exec("UPDATE tasks SET updated_at = ? WHERE seq = ?", Date.now(), seq);
     const after = this.task(seq);
-    await this.post(user, {
-      type: "note",
-      reply_to: seq,
-      to: change.assignee ? change.assignee.toLowerCase() : after.assignee,
-      resolves: change.status === "done" ? [seq] : undefined,
-      text: `Task #${seq}: ${[...parts, change.note ?? ""].filter(Boolean).join("; ")}`,
-      via: opts.via,
-      client: opts.client,
-    });
+    this.broadcast({ type: "task", seq });
+    // The conversation only hears about a task when it's finished, newly assigned, or someone adds a note;
+    // everything else is visible on the task itself (Tasks tab, `task get`).
+    const done = change.status === "done" && t.status !== "done";
+    const assigned = change.assignee !== undefined && !!change.assignee && change.assignee.toLowerCase() !== t.assignee;
+    if (done || assigned || change.note) {
+      await this.post(user, {
+        type: "note",
+        reply_to: seq,
+        to: change.assignee ? change.assignee.toLowerCase() : after.assignee,
+        resolves: done ? [seq] : undefined,
+        text: `${done ? "✅ Done" : "Task"} #${seq} (${after.title}): ${[...parts.filter((p) => !(done && p === "status → done")), change.note ?? ""].filter(Boolean).join("; ") || "finished"}`,
+        via: opts.via,
+        client: opts.client,
+      });
+    }
     return after;
   }
 
@@ -1076,6 +1128,85 @@ export class Board extends DurableObject<Env> {
     const why = reason.trim().slice(0, 300) || "stopped";
     this.sql.exec("UPDATE tasks SET status = 'stopped', stop_reason = ?, lease_holder = NULL, lease_until = NULL, updated_at = ? WHERE seq = ?", why, Date.now(), seq);
     await this.post(user, { type: "note", reply_to: seq, to: t.lease_holder ?? t.assignee, text: `Stop task #${seq}: ${why}`, via: opts.via, client: opts.client });
+    this.broadcast({ type: "task", seq });
+    return this.task(seq);
+  }
+
+  /** Create a task as a shared item: a title, a body (plan, checklist, notes), and optional fields. */
+  async taskCreate(user: string, input: { title: string; body?: string; assignee?: string | null; assignee_agent?: boolean; priority?: TaskPriority | null; due?: number | null }, opts: TaskActOpts): Promise<TaskView> {
+    const title = (input.title ?? "").replace(/\s+/g, " ").trim().slice(0, 120);
+    if (!title) throw new BoardError("A task needs a title.");
+    const body = (input.body ?? "").trim();
+    const who = input.assignee ? input.assignee.toLowerCase() : null;
+    if (who && !this.sql.exec("SELECT 1 AS x FROM members WHERE name = ?", who).toArray().length) throw new BoardError(`${who} isn't a member of this board.`);
+    const e = await this.post(user, { type: "task", text: body ? `${title}\n\n${body}` : title, to: who, via: opts.via, client: opts.client });
+    if (who || input.priority || input.due || input.assignee_agent === false) {
+      this.sql.exec(
+        "UPDATE tasks SET assignee = ?, assignee_agent = ?, priority = ?, due = ? WHERE seq = ?",
+        who, input.assignee_agent === false ? 0 : 1, input.priority ?? null, input.due ?? null, e.seq,
+      );
+    }
+    return this.task(e.seq);
+  }
+
+  /**
+   * Edit a task's title or body in place, like a shared document: replace the body (base_version must match the
+   * version you read) or swap one exact piece of it (old_str → new_str). Versions are kept; the conversation isn't.
+   */
+  async taskEdit(
+    user: string,
+    seq: number,
+    edit: { title?: string; body?: string; base_version?: number; old_str?: string; new_str?: string; summary?: string },
+    opts: TaskActOpts,
+  ): Promise<TaskView> {
+    const info = this.info();
+    if (info.archived) throw new BoardError(`"${info.title}" is archived, so it's read-only. Its creator can restore it.`);
+    const t = this.task(seq);
+    let title = t.title;
+    let body = t.body;
+    if (edit.title !== undefined) {
+      title = edit.title.replace(/\s+/g, " ").trim().slice(0, 120);
+      if (!title) throw new BoardError("A task needs a title.");
+    }
+    if (edit.old_str !== undefined) {
+      if (!edit.old_str) throw new BoardError("old_str can't be empty.");
+      const i = body.indexOf(edit.old_str);
+      if (i < 0) throw new BoardError(`old_str wasn't found in task #${seq} (v${t.version}). Read it with task get and copy the text exactly.`);
+      if (body.indexOf(edit.old_str, i + 1) >= 0) throw new BoardError("old_str appears more than once; include more surrounding text.");
+      body = body.slice(0, i) + (edit.new_str ?? "") + body.slice(i + edit.old_str.length);
+    } else if (edit.body !== undefined) {
+      if (edit.base_version !== t.version) throw new BoardError(`Task #${seq} is at v${t.version}, not v${edit.base_version ?? "?"}. Its current body:\n${t.body}`);
+      body = edit.body;
+    }
+    if (body.length > MAX_TEXT) throw new BoardError(`A task's body is limited to ${MAX_TEXT} characters; put long material in a file.`);
+    if (title === t.title && body === t.body) throw new BoardError("Nothing changed.");
+    const hit = scanFields({ title, body, summary: edit.summary ?? null });
+    if (hit) throw new BoardError(blockedMessage(hit));
+    this.rateLimit(user);
+    const now = Date.now();
+    const version = t.version + 1;
+    if (!this.sql.exec("SELECT 1 AS x FROM task_versions WHERE seq = ?", seq).toArray().length) {
+      this.sql.exec("INSERT INTO task_versions (seq, version, title, body, author, via, summary, ts) VALUES (?, ?, ?, ?, ?, ?, NULL, ?)", seq, t.version, t.title, t.body, t.author, t.via, t.updated_at);
+    }
+    this.sql.exec("INSERT INTO task_versions (seq, version, title, body, author, via, summary, ts) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", seq, version, title, body, user, opts.via ?? null, edit.summary?.slice(0, 200) ?? null, now);
+    this.sql.exec("DELETE FROM task_versions WHERE seq = ? AND version <= ?", seq, version - 50);
+    this.sql.exec("UPDATE tasks SET title = ?, body = ?, version = ?, updated_by = ?, updated_via = ?, updated_at = ? WHERE seq = ?", title, body, version, user, opts.via ?? null, now, seq);
+    this.sql.exec("DELETE FROM search_idx WHERE kind = 'task' AND ref = ?", String(seq));
+    this.sql.exec("INSERT INTO search_idx (body, name, kind, ref) VALUES (?, ?, 'task', ?)", body, title, String(seq));
+    this.broadcast({ type: "task", seq });
+    return this.task(seq);
+  }
+
+  async taskHistory(seq: number): Promise<{ version: number; title: string; author: string; via: string | null; summary: string | null; ts: number }[]> {
+    this.info();
+    this.task(seq);
+    return this.sql.exec("SELECT version, title, author, via, summary, ts FROM task_versions WHERE seq = ? ORDER BY version DESC LIMIT 50", seq).toArray() as unknown as {
+      version: number; title: string; author: string; via: string | null; summary: string | null; ts: number;
+    }[];
+  }
+
+  async taskGet(seq: number): Promise<TaskView> {
+    this.info();
     return this.task(seq);
   }
 
@@ -1294,6 +1425,17 @@ export class Board extends DurableObject<Env> {
       reviews: this.reviewsBySeq(),
     };
   }
+}
+
+/** A task post's first meaningful line is its title (markdown markers dropped); the rest is its body. */
+export function splitTask(text: string): { title: string; body: string } {
+  const lines = text.split("\n");
+  const i = lines.findIndex((l) => l.trim() && !/^```/.test(l.trim()));
+  if (i < 0) return { title: "Untitled task", body: "" };
+  const raw = lines[i].replace(/^\s*(#+|[-*]|\d+\.)\s+/, "").replace(/\*\*|__/g, "").trim();
+  const title = raw.length > 100 ? raw.slice(0, 99).replace(/\s+\S*$/, "") + "…" : raw;
+  const rest = (raw.length > 100 ? [raw, ...lines.slice(i + 1)] : lines.slice(i + 1)).join("\n").trim();
+  return { title, body: rest };
 }
 
 function clamp(n: number, lo: number, hi: number): number {

@@ -1031,6 +1031,37 @@ await step("boards page: details (emoji, description, tags, links), search acros
   assert(!(await (await web(`/api/boards/search?q=${encodeURIComponent(`zorbex${run}`)}`, OUT)).json()).hits.length, "outsiders see nothing inside");
 });
 
+await step("tasks are shared items: create, get, edit in place (versions, conflicts, checklist ticks), quiet conversation", async () => {
+  const created = await ok(A, fb, "task", { action: "create", title: `Ship the soup ${run}`, body: "- [ ] stock\n- [ ] noodles", assignee: B, priority: "high" });
+  const t = Number(created.match(/Created task #(\d+)/)[1]);
+  has(created, `for ${B}'s agent`);
+  has(await ok(B, fb, "read"), `[todo · high priority · for ${B}'s agent] Ship the soup ${run}`);
+  // Tick a checklist item in place; the summary keeps the title, not the creating post.
+  has(await ok(B, fb, "task", { action: "edit", seq: t, old_str: "- [ ] stock", new_str: "- [x] stock", summary: "stock done" }), "v2");
+  await err(A, fb, "task", { action: "edit", seq: t, body: "rewrite", base_version: 1 }, "is at v2, not v1");
+  has(await ok(A, fb, "task", { action: "edit", seq: t, body: "- [x] stock\n- [x] noodles", base_version: 2, title: `Ship the soup now ${run}` }), "v3");
+  const g = await ok(B, fb, "task", { action: "get", seq: t });
+  has(g, "- [x] noodles");
+  has(g, `Ship the soup now ${run}`);
+  has(await ok(B, fb, "task", { action: "history", seq: t }), "stock done");
+  // Claims, releases and edits don't post to the conversation; done does, once.
+  const before = (await (await web(`/api/boards/${fb}/updates?after=0`, A)).json()).count;
+  await ok(B, fb, "task", { action: "claim", seq: t });
+  await ok(B, fb, "task", { action: "release", seq: t });
+  await ok(B, fb, "task", { action: "update", seq: t, priority: "low" });
+  assert((await (await web(`/api/boards/${fb}/updates?after=0`, A)).json()).count === before, "quiet");
+  await ok(B, fb, "task", { action: "update", seq: t, status: "done" });
+  has(await ok(A, fb, "read"), `✅ Done #${t} (Ship the soup now ${run})`);
+  has(await ok(A, fb, "search", { query: "noodles" }), `#${t}`); // task bodies are searchable
+  // Web: open and edit a task as a person.
+  const w = await (await web(`/api/boards/${fb}/tasks/${t}`, B)).json();
+  assert(w.task.version === 3 && w.history.length >= 3, JSON.stringify(w).slice(0, 200));
+  const r = await web(`/api/boards/${fb}/tasks/${t}`, B, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "edit", body: "web edit", base_version: 3 }) });
+  assert(r.status === 200 && (await r.json()).task.updated_via === "person", "web edit");
+  const nt = await web(`/api/boards/${fb}/tasks`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: `web task ${run}` }) });
+  assert(nt.status === 201, "web create");
+});
+
 await step("rename and archive: creator only; archived boards are read-only and listed separately; restore works", async () => {
   const id = (await ops("boards", { user: A, title: `e2e arch ${run}` })).body.board.id;
   await ops("members", { board: id, user: B });

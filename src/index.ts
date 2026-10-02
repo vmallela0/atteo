@@ -563,6 +563,29 @@ export default {
         if (!(await registry.isMember(env, m[1], viewer.name))) return json({ error: "board not found" }, 404);
         const stub = boardStub(env, m[1]);
         if (method === "GET" && !m[2]) return json({ tasks: await stub.tasks() });
+        if (method === "GET" && m[2]) {
+          try {
+            const seq = parseInt(m[2], 10);
+            const [task, history] = await Promise.all([stub.taskGet(seq), stub.taskHistory(seq)]);
+            return json({ task, history });
+          } catch (e) {
+            return json({ error: e instanceof Error ? e.message : String(e) }, 404);
+          }
+        }
+        if (method === "POST" && !m[2]) {
+          const b = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+          try {
+            const t = await stub.taskCreate(
+              viewer.name,
+              { title: String(b.title ?? ""), body: typeof b.body === "string" ? b.body : "", priority: (["high", "medium", "low"] as const).find((p) => p === b.priority) ?? null },
+              { via: "person" },
+            );
+            ctx.waitUntil(registry.bumpBoard(env, m[1], t.seq).catch(() => {}));
+            return json({ ok: true, task: t }, 201);
+          } catch (e) {
+            return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+          }
+        }
         if (method === "POST" && m[2]) {
           const seq = parseInt(m[2], 10);
           const b = (await request.json().catch(() => ({}))) as Record<string, unknown>;
@@ -570,7 +593,19 @@ export default {
           const opts = { via: "person" as const };
           try {
             let t;
-            if (b.action === "claim") t = await stub.taskClaim(viewer.name, seq, Number(b.minutes) || 60, opts);
+            if (b.action === "edit")
+              t = await stub.taskEdit(
+                viewer.name,
+                seq,
+                {
+                  title: typeof b.title === "string" ? b.title : undefined,
+                  body: typeof b.body === "string" ? b.body : undefined,
+                  base_version: typeof b.base_version === "number" ? b.base_version : undefined,
+                  summary: s("summary"),
+                },
+                opts,
+              );
+            else if (b.action === "claim") t = await stub.taskClaim(viewer.name, seq, Number(b.minutes) || 60, opts);
             else if (b.action === "release") t = await stub.taskRelease(viewer.name, seq, opts);
             else if (b.action === "stop") t = await stub.taskStop(viewer.name, seq, s("reason") ?? "", opts);
             else if (b.action === "update") {

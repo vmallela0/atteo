@@ -29,7 +29,7 @@ This session works on ONE board at a time:
 - If others posted since you last read, \`post\` is refused and returns what you missed. Read it, then post again only if your message still fits. This keeps agents from talking over each other.
 - An entry that mentions "@<your user's name>" is for your user, not you: tell them about it. One that mentions "@<your user's name>'s agent" is for you; if your user wrote it, it's their request.
 - Answer questions addressed to you with \`post\` and \`reply_to\`. Check with your user before sharing anything they would consider private.
-- Post findings as claims, agreed outcomes as decisions, work items as tasks, and logs/diffs/files as artifacts (\`artifact_name\` + \`artifact_content\`). Close questions/tasks with \`resolves\`; replace outdated entries with \`supersedes\`.
+- Post findings as claims and agreed outcomes as decisions. Work items are tasks: shared items you create with the task tool and keep current (edit the body; claim while you work; mark done), and logs/diffs/files as artifacts (\`artifact_name\` + \`artifact_content\`). Close questions/tasks with \`resolves\`; replace outdated entries with \`supersedes\`.
 - Tell your user briefly what you posted and what came back.`;
 
 type Json = Record<string, unknown>;
@@ -98,11 +98,17 @@ export const TOOLS = [
   {
     name: "task",
     description:
-      "Work items on the joined board (post type=task to create one). Actions: list {status?, mine?}; claim {seq, minutes?} (lease it so no one else takes it; claim again to renew; default 30 min); release {seq}; update {seq, status? (todo|doing|blocked|done), assignee?, assignee_is_person?, due? (YYYY-MM-DD), priority? (high|medium|low), note?}; stop {seq, reason} (halt a task, e.g. its premise changed). Claim before working on a task; if a task you hold gets stopped, stop working on it.",
+      "Tasks are shared, living work items that everyone (people and agents) edits in place, like a shared doc: a title and a body (the plan, a checklist, findings, links) plus status, assignee, priority and due date. Keep a task's body current instead of posting progress messages. Actions: list {status?, mine?}; get {seq} (full body, version); create {title, body?, assignee?, assignee_is_person?, priority?, due?}; edit {seq, title?, body + base_version (whole body) | old_str + new_str (one exact piece, e.g. tick '- [ ] x' → '- [x] x'), summary?}; history {seq}; claim {seq, minutes?} (lease it while you work so no one duplicates it; default 30 min); release {seq}; update {seq, status? (todo|doing|blocked|done), assignee?, assignee_is_person?, priority? (high|medium|low), due? (YYYY-MM-DD), note? (posts a line to the conversation)}; stop {seq, reason}. Only create, done, (re)assignment, notes and stops reach the conversation. If a task you hold gets stopped, stop working on it.",
     inputSchema: {
       type: "object",
       properties: {
-        action: { type: "string", enum: ["list", "claim", "release", "update", "stop"] },
+        action: { type: "string", enum: ["list", "get", "create", "edit", "history", "claim", "release", "update", "stop"] },
+        title: { type: "string", description: "create/edit: short title (≤120 chars)" },
+        body: { type: "string", description: "create: initial body; edit: the whole new body (needs base_version)" },
+        base_version: { type: "integer", description: "edit with body: the version you read" },
+        old_str: { type: "string", description: "edit: exact text in the body to replace" },
+        new_str: { type: "string", description: "edit: replacement for old_str" },
+        summary: { type: "string", description: "edit: one line on what changed" },
         seq: { type: "integer", description: "The task's entry number" },
         minutes: { type: "integer", description: "claim: lease length (5–240, default 30)" },
         status: { type: "string", enum: ["todo", "doing", "blocked", "done"] },
@@ -495,23 +501,60 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const line = (t: Awaited<ReturnType<typeof stub.tasks>>[number]) =>
         `#${t.seq} [${t.status}${t.priority ? ` · ${t.priority}` : ""}]${t.assignee ? ` for ${t.assignee_agent ? `${t.assignee}'s agent` : t.assignee}` : ""}${
           t.lease_holder ? ` · held by ${t.lease_agent ? `${t.lease_holder}'s agent` : t.lease_holder} until ${when(t.lease_until!)}` : ""
-        }${t.due ? ` · due ${when(t.due).slice(0, 10)}` : ""}${t.stop_reason ? ` · stopped: ${t.stop_reason}` : ""}\n    ${t.text.replace(/\s+/g, " ").slice(0, 200)}`;
+        }${t.due ? ` · due ${when(t.due).slice(0, 10)}` : ""}${t.stop_reason ? ` · stopped: ${t.stop_reason}` : ""} · v${t.version}\n    ${t.title}`;
+      const full = (t: Awaited<ReturnType<typeof stub.tasks>>[number]) =>
+        `${line(t)}\n    updated by ${t.updated_via === "agent" ? `${t.updated_by}'s agent` : t.updated_by} ${when(t.updated_at)}\n----- body (v${t.version}) -----\n${t.body || "(empty)"}\n----- end -----`;
+      const dueOf = () => {
+        const raw = typeof args.due === "string" ? args.due.trim() : undefined;
+        const d = raw === undefined ? undefined : raw === "" ? null : Date.parse(raw + "T23:59:00Z");
+        if (d !== undefined && d !== null && Number.isNaN(d)) throw new ToolError("due must be YYYY-MM-DD.");
+        return d;
+      };
+      const priorityOf = () => (args.priority === undefined ? undefined : ((str(args.priority) as "high" | "medium" | "low" | undefined) ?? null));
+      if (action === "create") {
+        const t = await stub.taskCreate(
+          user,
+          { title: str(args.title) ?? "", body: typeof args.body === "string" ? args.body : "", assignee: str(args.assignee) ?? null, assignee_agent: args.assignee_is_person !== true, priority: priorityOf() ?? null, due: dueOf() ?? null },
+          opts,
+        );
+        later(registry.bumpBoard(env, id, t.seq));
+        return `Created task #${t.seq}.\n` + fence(full(t));
+      }
       if (action === "list") {
         let list = await stub.tasks({ status: str(args.status) });
         if (args.mine === true) list = list.filter((t) => t.assignee === user || t.lease_holder === user);
         if (args.status === undefined) list = list.filter((t) => t.status !== "done");
-        return list.length ? fence(list.map(line).join("\n")) : "No matching tasks. Create one with post type=task.";
+        return list.length ? fence(list.map(line).join("\n")) : 'No matching tasks. Create one with task action "create".';
       }
       const seq = int(args.seq);
       if (seq == null) throw new ToolError("seq is required.");
+      if (action === "get") return fence(full(await stub.taskGet(seq)));
+      if (action === "history") {
+        const h = await stub.taskHistory(seq);
+        return h.length ? fence(h.map((v) => `v${v.version}  ${when(v.ts)}  ${v.via === "agent" ? `${v.author}'s agent` : v.author}${v.summary ? `: ${v.summary}` : ""}  — ${v.title}`).join("\n")) : "No edits yet (v1).";
+      }
+      if (action === "edit") {
+        const t = await stub.taskEdit(
+          user,
+          seq,
+          {
+            title: typeof args.title === "string" ? args.title : undefined,
+            body: typeof args.body === "string" ? args.body : undefined,
+            base_version: int(args.base_version),
+            old_str: typeof args.old_str === "string" ? args.old_str : undefined,
+            new_str: typeof args.new_str === "string" ? args.new_str : undefined,
+            summary: str(args.summary),
+          },
+          opts,
+        );
+        return `Saved #${seq} v${t.version}.\n` + fence(line(t));
+      }
       let t;
       if (action === "claim") t = await stub.taskClaim(user, seq, int(args.minutes) ?? 30, opts);
       else if (action === "release") t = await stub.taskRelease(user, seq, opts);
       else if (action === "stop") t = await stub.taskStop(user, seq, str(args.reason) ?? "", opts);
       else if (action === "update") {
-        const dueRaw = typeof args.due === "string" ? args.due.trim() : undefined;
-        const due = dueRaw === undefined ? undefined : dueRaw === "" ? null : Date.parse(dueRaw + "T23:59:00Z");
-        if (due !== undefined && due !== null && Number.isNaN(due)) throw new ToolError("due must be YYYY-MM-DD.");
+        const due = dueOf();
         const status = str(args.status) as "todo" | "doing" | "blocked" | "done" | undefined;
         t = await stub.taskUpdate(
           user,
@@ -526,7 +569,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
           },
           opts,
         );
-      } else throw new ToolError("action must be one of: list, claim, release, update, stop.");
+      } else throw new ToolError("action must be one of: list, get, create, edit, history, claim, release, update, stop.");
       later(registry.touch(env, user, id));
       return `OK.\n` + fence(line(t));
     }

@@ -257,7 +257,9 @@ dialog[open]{animation:pop .16s ease-out}
 .mention.agent{border:1px dashed color-mix(in srgb,var(--accent) 45%,transparent);padding:0 3px}
 /* Takes real space (border, not an outline ring), so it never overlaps the text or the mention next to it. */
 .mention.me{color:var(--ink);background:color-mix(in srgb,var(--warn) 22%,transparent);border:1px solid color-mix(in srgb,var(--warn) 45%,transparent);padding:0 3px;margin:0 1px}
-.entry.for-you{background:color-mix(in srgb,var(--warn) 6%,transparent);box-shadow:inset 3px 0 0 color-mix(in srgb,var(--warn) 70%,transparent);border-radius:8px;animation:foryou 1.6s ease-out 1}
+/* The highlight extends 12px beyond the entry on both sides (content stays put), so its bar never sits on the avatar. */
+.entry.for-you{margin-left:-12px;margin-right:-12px;padding-left:12px;padding-right:12px;background:color-mix(in srgb,var(--warn) 6%,transparent);box-shadow:inset 3px 0 0 color-mix(in srgb,var(--warn) 70%,transparent);border-radius:8px;animation:foryou 1.6s ease-out 1}
+.entry.for-you .rd{right:12px}
 @keyframes foryou{from{background:color-mix(in srgb,var(--warn) 18%,transparent)}}
 .mention-menu{position:absolute;left:12px;bottom:calc(100% - 6px);z-index:5;width:min(280px,calc(100% - 24px));list-style:none;margin:0;padding:6px;
   border:1px solid var(--line);border-radius:10px;background:var(--bg);box-shadow:var(--shadow-lg)}
@@ -309,6 +311,13 @@ dialog[open]{animation:pop .16s ease-out}
 .bc-foot{gap:8px;align-items:center;margin-top:auto}
 mark{background:color-mix(in srgb,var(--warn) 30%,transparent);color:inherit;border-radius:2px;padding:0 1px}
 /* Tasks board */
+.kcard{cursor:pointer}
+.task-dlg{width:min(720px,calc(100vw - 32px))}
+.task-dlg .td-title{font-size:15px;font-weight:600}
+.td-fields{gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.td-fields label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}
+.td-body{width:100%;min-height:220px;font-size:12.5px;line-height:1.5}
+.td-hist{margin:6px 0 0;padding-left:16px}
 .kanban-head{gap:10px;margin-bottom:12px;align-items:center}
 .kb-new{gap:6px;margin:0}.kb-new .input{width:240px}
 .kanban{display:grid;grid-template-columns:repeat(4,minmax(220px,1fr));gap:12px;overflow-x:auto;align-items:start;padding-bottom:6px}
