@@ -1690,6 +1690,35 @@ export class Board extends DurableObject<Env> {
     return out;
   }
 
+  /**
+   * Publish a slice of a work session in one go: a summary note, then its claims, decisions, tasks and files, each
+   * replying to the summary. Checked as a whole first (secrets, sizes), so it posts everything or nothing.
+   */
+  async publishSlice(
+    user: string,
+    slice: { summary: string; title?: string; claims?: string[]; decisions?: string[]; tasks?: string[]; files?: { name: string; content: string; note?: string }[] },
+    opts: TaskActOpts,
+  ): Promise<{ summary: number; posted: { seq: number; type: string }[] }> {
+    const items = [
+      ...(slice.claims ?? []).map((t) => ({ type: "claim" as const, text: t })),
+      ...(slice.decisions ?? []).map((t) => ({ type: "decision" as const, text: t })),
+      ...(slice.tasks ?? []).map((t) => ({ type: "task" as const, text: t })),
+    ].filter((x) => typeof x.text === "string" && x.text.trim());
+    const files = (slice.files ?? []).filter((f) => f && typeof f.name === "string" && typeof f.content === "string");
+    if (!slice.summary?.trim()) throw new BoardError("A slice needs a summary.");
+    if (items.length + files.length > 40) throw new BoardError("At most 40 items in one slice; publish the rest separately.");
+    for (const x of [{ text: slice.summary }, ...items]) if (x.text.length > MAX_TEXT) throw new BoardError(`Each item is limited to ${MAX_TEXT} characters.`);
+    for (const f of files) if (f.content.length > MAX_ARTIFACT) throw new BoardError(`${f.name} is too large (max ${MAX_ARTIFACT} characters).`);
+    const hit = scanFields(Object.fromEntries([["summary", slice.summary], ...items.map((x, i) => [`item ${i + 1}`, x.text]), ...files.map((f) => [f.name, f.content])]));
+    if (hit) throw new BoardError(blockedMessage(hit));
+    this.rateLimit(user); // one slice counts as one post
+    const head = await this.post(user, { type: "note", title: slice.title ?? "Session summary", text: slice.summary, via: opts.via, client: opts.client }, { seeding: true });
+    const posted: { seq: number; type: string }[] = [];
+    for (const x of items) posted.push({ seq: (await this.post(user, { type: x.type, text: x.text, reply_to: head.seq, via: opts.via, client: opts.client }, { seeding: true })).seq, type: x.type });
+    for (const f of files) posted.push({ seq: (await this.post(user, { type: "artifact", artifact_name: f.name, artifact_content: f.content, text: f.note ?? `From the session: ${f.name}`, reply_to: head.seq, via: opts.via, client: opts.client }, { seeding: true })).seq, type: "artifact" });
+    return { summary: head.seq, posted };
+  }
+
   /** Operators only (load tests): many plain notes at once, past the post rate limit. */
   async seed(user: string, count: number, prefix: string): Promise<number> {
     const n = clamp(count, 1, 20_000);
