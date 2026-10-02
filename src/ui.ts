@@ -145,7 +145,7 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]) dialog{background:#141414;border-color:var(--line-strong)}}
 dialog .hd{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:20px 22px 0}
 dialog .bd{padding:16px 22px 22px}
-dialog[open]{animation:pop .16s ease-out}
+dialog[open]{animation:pop .16s ease-out}dialog:focus{outline:none}
 @keyframes pop{from{opacity:0;transform:translateY(6px) scale(.985)}to{opacity:1;transform:none}}
 
 /* flash / toast */
@@ -830,7 +830,7 @@ window.toast=(m)=>{const t=$('#toast');t.textContent=m;t.classList.add('show');c
 document.addEventListener('click',e=>{
   const c=e.target.closest('[data-copy]');
   if(c){navigator.clipboard.writeText($('#'+c.dataset.copy).innerText).then(()=>toast('Copied to clipboard'));return}
-  const o=e.target.closest('[data-open]');if(o){const d=$('#'+o.dataset.open),from=o.closest('dialog[open]');if(from&&from!==d)from.close();d&&!d.open&&d.showModal();const f=d&&d.querySelector('input,textarea');f&&f.focus();return}
+  const o=e.target.closest('[data-open]');if(o){const d=$('#'+o.dataset.open),from=o.closest('dialog[open]');if(from&&from!==d)from.close();d&&!d.open&&d.showModal();const f=d&&d.querySelector('input:not([type=hidden]):not([type=checkbox]),textarea');if(f)f.focus();else if(d){d.tabIndex=-1;d.focus()}return} // no ring on the close button
   const x=e.target.closest('[data-close]');if(x){x.closest('dialog').close();return}
 });
 $$('dialog').forEach(d=>d.addEventListener('click',e=>{if(e.target===d)d.close()}));
