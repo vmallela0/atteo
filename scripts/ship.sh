@@ -31,7 +31,7 @@ done
 echo "live after $(( $(date +%s) - start ))s"
 wait $cleanup || true
 # The e2e billing step signs a test webhook with the same secret Stripe uses.
-STRIPE_WEBHOOK_SECRET="${STRIPE_WEBHOOK_SECRET:-$(grep -i '^stripe webhook secret (test)' secrets.txt 2>/dev/null | sed -E 's/^[^-]*- *//')}"
+STRIPE_WEBHOOK_SECRET="${STRIPE_WEBHOOK_SECRET:-$(grep -i '^stripe webhook secret (live)' secrets.txt 2>/dev/null | sed -E 's/^[^-]*- *//')}"
 export ADMIN_KEY BASE STRIPE_WEBHOOK_SECRET
 node test/e2e.mjs > /tmp/ship-e2e.log 2>&1 & e2e=$!
 cli=""

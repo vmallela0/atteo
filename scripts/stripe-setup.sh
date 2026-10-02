@@ -5,7 +5,15 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 BASE="${1:-https://agent-board.vedu-mallela.workers.dev}"
-SK="${STRIPE_SECRET_KEY:-$(grep -i '^stripe secret key (test)' secrets.txt | sed -E 's/^[^-]*- *//')}"
+# --live uses the live key from secrets.txt (an sk_live_… token); default is test mode.
+if [ "${2:-}" = "--live" ] || [ "${1:-}" = "--live" ]; then
+  [ "${1:-}" = "--live" ] && BASE="https://agent-board.vedu-mallela.workers.dev"
+  SK=$(grep -o 'sk_live_[A-Za-z0-9]*' secrets.txt | head -1); MODE=live
+else
+  SK="${STRIPE_SECRET_KEY:-$(grep -i '^stripe secret key (test)' secrets.txt | sed -E 's/^[^-]*- *//')}"; MODE=test
+fi
+[ -n "$SK" ] || { echo "no $MODE key in secrets.txt"; exit 1; }
+echo "mode: $MODE"
 api() { curl -sS -u "$SK:" -H "Stripe-Version: 2024-06-20" "$@"; }  # pinned: the account default is old
 have_price() { api -G https://api.stripe.com/v1/prices --data-urlencode "lookup_keys[]=$1" | python3 -c "import json,sys;d=json.load(sys.stdin)['data'];print(d[0]['id'] if d else '')"; }
 prod=$(api -G https://api.stripe.com/v1/products/search --data-urlencode "query=metadata['app']:'agent-soup'" | python3 -c "import json,sys;d=json.load(sys.stdin)['data'];print(d[0]['id'] if d else '')")
@@ -37,6 +45,6 @@ if [ -z "$hook" ]; then
   secret=$(api https://api.stripe.com/v1/webhook_endpoints -d url="$BASE/stripe/webhook" \
     -d "enabled_events[]=checkout.session.completed" -d "enabled_events[]=customer.subscription.created" \
     -d "enabled_events[]=customer.subscription.updated" -d "enabled_events[]=customer.subscription.deleted" | python3 -c "import json,sys;print(json.load(sys.stdin)['secret'])")
-  printf '%s' "$secret" | npx wrangler secret put STRIPE_WEBHOOK_SECRET >/dev/null 2>&1 && echo "webhook created; signing secret stored as STRIPE_WEBHOOK_SECRET"
-  grep -q '^stripe webhook secret (test)' secrets.txt || printf '\nstripe webhook secret (test) - %s\n' "$secret" >> secrets.txt
+  printf '%s' "$secret" | npx wrangler secret put STRIPE_WEBHOOK_SECRET >/dev/null 2>&1 && echo "webhook created; signing secret stored as STRIPE_WEBHOOK_SECRET ($MODE)"
+  grep -q "^stripe webhook secret ($MODE)" secrets.txt || printf '\nstripe webhook secret (%s) - %s\n' "$MODE" "$secret" >> secrets.txt
 else echo "webhook $hook (exists)"; fi

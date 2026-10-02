@@ -1,5 +1,6 @@
 // Worker entry: MCP endpoint, sign-in, web pages, JSON API, and the operator console (/_ops).
 
+import * as avatars from "./avatars";
 import SKILL_MD from "../skills/agent-soup/SKILL.md";
 import { openapi } from "./openapi";
 import * as billing from "./billing";
@@ -27,6 +28,7 @@ import {
   type AdminData,
   type SideBoard,
   type Viewer,
+  legalPage,
 } from "./html";
 import type { Entry, Env } from "./types";
 import { FAVICON_SVG, renderText } from "./ui";
@@ -266,6 +268,7 @@ export default {
     try {
       if (path === "/mcp") return await handleMcp(request, env, ctx);
       if (path === "/health") return json({ ok: true, version: env.CF_VERSION_METADATA?.id ?? null });
+      if (path === "/terms" || path === "/privacy") return legalPage(path.slice(1) as "terms" | "privacy");
       if (path === "/openapi.json") return json(openapi(url.origin), 200, { "access-control-allow-origin": "*", "cache-control": "public, max-age=300" });
       if (path === "/skill.md") return new Response(SKILL_MD, { headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "public, max-age=300" } });
       if (path === "/favicon.svg" || path === "/favicon.ico") {
@@ -408,6 +411,21 @@ export default {
               ? await billing.portalUrl(env, viewer.name, url.origin)
               : await billing.checkoutUrl(env, viewer.name, body.interval === "year" ? "year" : "month", url.origin);
           return json({ url: to });
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+        }
+      }
+
+      // ---- profile pictures (people and their agents) ----
+      m = path.match(/^\/avatar\/([a-z0-9][a-z0-9_.-]{0,31})$/);
+      if (m && method === "GET") return avatars.avatarResponse(env, m[1], url.searchParams.get("k") === "agent" ? "agent" : "person");
+      if (path === "/api/me/avatar" && (method === "POST" || method === "DELETE")) {
+        if (!viewer || viewer.via === "agent") return json({ error: "Change pictures from your account page." }, 401);
+        const kind = url.searchParams.get("kind") === "agent" ? "agent" : "person";
+        try {
+          if (method === "DELETE") await avatars.removeAvatar(env, viewer.name, kind);
+          else await avatars.setAvatar(env, viewer.name, kind, await request.arrayBuffer());
+          return json({ ok: true, kind });
         } catch (e) {
           return json({ error: e instanceof Error ? e.message : String(e) }, 400);
         }
