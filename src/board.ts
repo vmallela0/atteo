@@ -188,6 +188,23 @@ export class Board extends DurableObject<Env> {
 
   // ---- writes ----
 
+  /**
+   * Agent posts go through here: stale-read rejection. If other members posted since this agent last read,
+   * nothing is posted; the agent gets what it missed (now marked read) and decides whether to post again.
+   * The object handles one request at a time, so two simultaneous posts are ordered and the second is bounced.
+   */
+  async postFresh(user: string, input: NewEntry): Promise<{ entry: Entry } | { missed: Entry[]; remaining: number }> {
+    this.info();
+    const cursor = this.touch(user);
+    const unread = this.countAfter(cursor, user);
+    if (unread > 0) {
+      const missed = this.entriesAfter(cursor, user, 20);
+      this.setCursor(user, missed[missed.length - 1].seq);
+      return { missed, remaining: unread - missed.length };
+    }
+    return { entry: await this.post(user, input) };
+  }
+
   async post(user: string, input: NewEntry): Promise<Entry> {
     const info = this.info();
     this.touch(user);

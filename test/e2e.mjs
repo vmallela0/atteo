@@ -217,7 +217,9 @@ await step("summary, get, search, resolves and supersedes", async () => {
   has(await ok(A, board, "get", { seq: Number(hit.match(/#(\d+) artifact/)[1]) }), "TypeError at charge");
   const t = seqOf(await ok(A, board, "post", { type: "task", to: B, text: "Guard empty carts" }));
   const d = seqOf(await ok(A, board, "post", { type: "decision", text: "Ship behind a flag" }));
+  await ok(B, board, "read");
   await ok(B, board, "post", { type: "note", text: "Guard added", resolves: [t] });
+  await ok(A, board, "read");
   await ok(A, board, "post", { type: "decision", text: "Ship without a flag", supersedes: d });
   const s2 = await ok(B, board, "read");
   has(s2, "Open tasks:\n  none");
@@ -241,8 +243,29 @@ await step("wait times out cleanly", async () => {
 });
 
 await step("20 concurrent posts get unique, contiguous sequence numbers", async () => {
-  const seqs = (await Promise.all(Array.from({ length: 20 }, (_, i) => ok(i % 2 ? A : B, board, "post", { type: "note", text: `burst ${i}` })))).map(seqOf).sort((a, b) => a - b);
+  await ok(A, board, "read");
+  const seqs = (await Promise.all(Array.from({ length: 20 }, (_, i) => ok(A, board, "post", { type: "note", text: `burst ${i}` })))).map(seqOf).sort((a, b) => a - b);
   assert(new Set(seqs).size === 20 && seqs[19] - seqs[0] === 19, seqs.join());
+});
+
+await step("stale-read rejection: an agent that hasn't read new entries can't post over them", async () => {
+  await ok(A, board, "read");
+  await ok(B, board, "read");
+  const bq = seqOf(await ok(B, board, "post", { type: "question", to: A, text: `Did you see my update? ${run}` }));
+  const blind = await err(A, board, "post", { type: "note", text: `Talking past you ${run}` }, "Not posted: 1 new entry");
+  has(blind, `#${bq} question`);
+  has(blind, "<<untrusted ");
+  has(await ok(A, board, "search", { query: `Talking past you ${run}` }), "No entries match"); // nothing stored
+  seqOf(await ok(A, board, "post", { type: "claim", reply_to: bq, text: `Yes, saw it ${run}` })); // now caught up
+  // Two agents that are both caught up post at the same moment: one lands, the other is told what it missed.
+  await ok(B, board, "read");
+  const [ra, rb] = await Promise.all([
+    tool(A, board, "post", { type: "note", text: `race A ${run}` }),
+    tool(B, board, "post", { type: "note", text: `race B ${run}` }),
+  ]);
+  assert(ra.isError !== rb.isError, `exactly one should be refused: A ${ra.isError} B ${rb.isError}`);
+  const loser = ra.isError ? ra : rb;
+  has(loser.text, ra.isError ? `race B ${run}` : `race A ${run}`);
 });
 
 await step("list_boards shows only your boards", async () => {
@@ -328,7 +351,8 @@ await step("ops console is hidden from non-operators; ops API lists everything",
   assert((await web("/admin", A)).status === 404, "old /admin path should not exist");
   const o = await ops("overview");
   const b = o.body.boards.find((x) => x.id === board);
-  assert(b && b.members.includes(A) && b.members.includes(B) && b.entry_count === 29, `expected 29 entries: ${JSON.stringify(b)}`);
+  const live = await (await web(`/api/boards/${board}/updates?after=0`, A)).json();
+  assert(b && b.members.includes(A) && b.members.includes(B) && b.entry_count === live.count, `directory count ${b?.entry_count} vs board ${live.count}`);
   const acc = o.body.access.find((x) => x.user === B);
   assert(acc && acc.boards.some((x) => x.id === board) && acc.active_tokens >= 1, JSON.stringify(acc));
 });
@@ -353,6 +377,12 @@ await step("join_board by id and by name; read/post act on the joined board only
   await serr(s1, "read", { board }, "This session is on board");
   has(await sok(s1, "list_boards"), `${board2}  "e2e second ${run}"`);
   has(await sok(s1, "list_boards"), "← this session");
+  // Presence: the web shows A's agent live on board2, and a join prompt on the board it left.
+  await new Promise((r) => setTimeout(r, 300));
+  const p2 = await (await web(`/b/${board2}`, A)).text();
+  has(p2, "Your agent is on this board.");
+  has(p2, "agent live");
+  // (A's other connections are live on the first board, so it doesn't show the join prompt there.)
 });
 
 await step("ambiguous or unknown names join nothing; outsiders can't join", async () => {
@@ -434,8 +464,10 @@ await step("web: invitations on home with decline and accept", async () => {
 
 await step("retract: author withdraws own entry; creator can withdraw any; others can't; once only", async () => {
   // board: A is creator, B is a member.
+  await ok(B, board, "read");
   const c1 = seqOf(await ok(B, board, "post", { type: "claim", text: `wrong claim ${run}` }));
   const q2 = seqOf(await ok(B, board, "post", { type: "question", to: A, text: `retract me ${run}` }));
+  await ok(A, board, "read");
   const a3 = seqOf(await ok(A, board, "post", { type: "note", text: `A's note ${run}` }));
   has(await ok(B, board, "retract", { seq: c1, reason: "Measured wrong service" }), `Retracted #${c1}`);
   await err(B, board, "retract", { seq: c1 }, "already retracted");
@@ -446,6 +478,7 @@ await step("retract: author withdraws own entry; creator can withdraw any; other
   assert(!summary.includes(`wrong claim ${run}`) && !summary.includes(`retract me ${run}`), "retracted entries still in summary");
   has(await ok(A, board, "get", { seq: c1 }), `retracts #${c1}`);
   // web: author can retract via the API, outsiders can't, and live updates carry the retraction
+  await ok(B, board, "read");
   const n = seqOf(await ok(B, board, "post", { type: "note", text: `web retract ${run}` }));
   const r = await web(`/api/boards/${board}/entries/${n}/retract`, B, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
   assert(r.status === 201, `web retract ${r.status}`);

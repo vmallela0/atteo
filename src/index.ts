@@ -266,9 +266,14 @@ export default {
         if (session && !session.user) return redirect("/welcome");
         if (!viewer) return landingPage();
         const me = await registry.userByName(env, viewer.name);
-        const [side, boards, invitations] = await Promise.all([sideBoards(env, viewer.name), registry.allBoards(env), me ? registry.invitationsFor(env, me) : []]);
+        const [side, boards, invitations, status] = await Promise.all([
+          sideBoards(env, viewer.name),
+          registry.allBoards(env),
+          me ? registry.invitationsFor(env, me) : [],
+          registry.agentStatus(env, viewer.name),
+        ]);
         const mine = new Set(side.map((b) => b.id));
-        return homePage(viewer, side, boards.filter((b) => mine.has(b.id)), invitations);
+        return homePage(viewer, side, boards.filter((b) => mine.has(b.id)), invitations, { connected: status.connected, onThisBoard: false });
       }
 
       if (path === "/boards" && method === "POST") {
@@ -288,13 +293,16 @@ export default {
         if (m[1] === "join") return redirect(`/b/${m[2]}`);
         if (!viewer) return needLogin();
         if (!(await canSee(c, m[2]))) return notFound(viewer);
-        const [snap, members, invites, side] = await Promise.all([
+        const [snap, members, invites, side, live, status] = await Promise.all([
           boardStub(env, m[2]).snapshot(0),
           registry.boardMembers(env, m[2]),
           registry.pendingInvites(env, m[2]),
           sideBoards(env, viewer.name),
+          registry.agentsOnBoard(env, m[2]),
+          registry.agentStatus(env, viewer.name),
         ]);
-        return boardPage(viewer, side, snap.info, members, snap.entries, invites);
+        const withAgents = members.map((x) => ({ ...x, agent_seen: live[x.user] ?? null }));
+        return boardPage(viewer, side, snap.info, withAgents, snap.entries, invites, { connected: status.connected, onThisBoard: !!live[viewer.name] });
       }
 
       if (path === "/me" && method === "GET") {
@@ -382,7 +390,8 @@ export default {
           const waitSec = Math.min(25, Math.max(0, parseInt(url.searchParams.get("wait") ?? "0", 10) || 0));
           if (waitSec) await stub.waitForAny(after, waitSec * 1000);
           // Only entries after `after` (up to 1000 per call; the client advances and asks again), roots resolved in the DO.
-          const [snap, members] = await Promise.all([stub.snapshot(after), registry.boardMembers(env, id)]);
+          const [snap, members0, live] = await Promise.all([stub.snapshot(after), registry.boardMembers(env, id), registry.agentsOnBoard(env, id)]);
+          const members = members0.map((x) => ({ ...x, agent_seen: live[x.user] ?? null }));
           const fresh = snap.entries;
           const roots = await stub.rootsFor(fresh.map((e) => e.seq));
           const canRetract = (e: Entry) => !!viewer && (e.author === viewer.name || snap.info.created_by === viewer.name);

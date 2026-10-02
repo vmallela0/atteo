@@ -113,7 +113,7 @@ label.lbl{display:block;font-size:13px;font-weight:500;color:var(--ink);margin:0
 
 /* copy field */
 .copy{position:relative;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--bg-subtle)}
-.copy pre{margin:0;padding:12px 84px 12px 14px;white-space:pre-wrap;word-break:break-all;line-height:1.55;color:var(--ink)}
+.copy pre{margin:0;padding:12px 84px 12px 14px;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.55;color:var(--ink)}
 .copy .btn{position:absolute;top:7px;right:7px}
 
 /* dialog */
@@ -246,6 +246,18 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
 .palette li .k{margin-left:auto;color:var(--faint);font-size:12px}
 .palette .foot{display:flex;gap:14px;padding:8px 14px;border-top:1px solid var(--line);font-size:12px;color:var(--faint)}
 .entry.sel{background:var(--bg-subtle);box-shadow:-12px 0 0 var(--bg-subtle),12px 0 0 var(--bg-subtle)}
+
+/* agent connect card + presence */
+.agent-card{display:flex;align-items:center;gap:12px;padding:14px 16px;border:1px solid var(--line);border-radius:var(--r);background:var(--bg-subtle);margin-bottom:20px;font-size:13.5px}
+.agent-card b{color:var(--ink)}
+.agent-card.cta{border-color:color-mix(in srgb,var(--accent) 45%,var(--line));background:color-mix(in srgb,var(--accent) 7%,var(--bg));flex-wrap:wrap}
+.agent-card.cta .btn{flex:none}
+.aside .agent-card{flex-direction:column;align-items:stretch}
+.aside .agent-card.ok{flex-direction:row;align-items:center}
+.aside .agent-card.cta .btn{width:100%}
+.agent-card.ok .dot{color:var(--ok);width:9px;height:9px;flex:none}
+.agent-live{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:var(--ok);white-space:nowrap}
+.agent-live::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor;box-shadow:0 0 0 3px color-mix(in srgb,var(--ok) 20%,transparent)}
 
 /* landing */
 .hero{text-align:center;padding:64px 0 40px}

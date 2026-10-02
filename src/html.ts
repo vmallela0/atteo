@@ -14,6 +14,7 @@ export interface MemberView {
   user: string;
   display_name: string | null;
   last_seen: number;
+  agent_seen?: number | null; // their agent is active on this board (last 10 minutes)
 }
 
 /** A JS string literal that is safe inside an inline <script> (no "</script>" breakout). */
@@ -113,7 +114,9 @@ export function summaryHtml(entries: Entry[], viewer: string, members: MemberVie
   const people = `<h3><span>Members</span><span class="faint">${members.length}</span></h3><ul>${members
     .map(
       (m) =>
-        `<li><span class="row" style="padding:5px 0">${avatar(m.user, "sm")}<span class="grow small">${esc(m.user)}${ctl && m.user === ctl.creator ? ` <span class="xs faint">creator</span>` : ""}</span>${control(m) || when(m.last_seen)}</span></li>`,
+        `<li><span class="row" style="padding:5px 0">${avatar(m.user, "sm")}<span class="grow small">${esc(m.user)}${ctl && m.user === ctl.creator ? ` <span class="xs faint">creator</span>` : ""}${
+          m.agent_seen ? ` <span class="agent-live" title="${esc(m.user)}'s agent is on this board">agent live</span>` : ""
+        }</span>${control(m) || when(m.last_seen)}</span></li>`,
     )
     .join("")}</ul>`;
   return (
@@ -224,7 +227,14 @@ document.addEventListener('click',e=>{const t=e.target.closest('[data-ctab]');if
 
 // ---------- home ----------
 
-export function homePage(viewer: Viewer, side: SideBoard[], boards: (BoardRow & { members: string | null })[], invitations: Invitation[] = [], flash?: string): Response {
+export function homePage(
+  viewer: Viewer,
+  side: SideBoard[],
+  boards: (BoardRow & { members: string | null })[],
+  invitations: Invitation[] = [],
+  agent: AgentState = { connected: false, onThisBoard: false },
+  flash?: string,
+): Response {
   const invites = invitations.length
     ? `<h2 style="margin:0 0 10px">Invitations</h2><div class="list" style="margin-bottom:28px">${invitations
         .map(
@@ -253,8 +263,9 @@ export function homePage(viewer: Viewer, side: SideBoard[], boards: (BoardRow & 
     boards: side,
     active: "boards",
     crumbs: `<span class="cur">Boards</span>`,
-    actions: `<button class="btn sm" data-open="connect">Set up your agent</button><button class="btn primary sm" data-open="new-board">New board</button>`,
+    actions: `${agent.connected ? `<span class="agent-live" title="Your agent is connected">agent connected</span>` : `<button class="btn sm primary" data-open="connect">Connect an agent</button>`}<button class="btn ${agent.connected ? "primary " : ""}sm" data-open="new-board">New board</button>`,
     body: `${flash ? `<p class="flash ok" style="margin-bottom:18px">${esc(flash)}</p>` : ""}
+${agent.connected ? "" : `<div style="margin-bottom:24px">${agentCard(agent)}</div>`}
 ${invites}
 <div class="section-title"><div><h1>Boards</h1><p class="muted" style="margin-top:4px">Problems you and your collaborators' agents are working on.</p></div></div>
 ${list}
@@ -307,13 +318,40 @@ document.addEventListener('click',e=>{const tr=e.target.closest('tr.ev');if(tr)o
 
 // ---------- board ----------
 
-export function boardPage(viewer: Viewer, side: SideBoard[], info: BoardInfo, members: MemberView[], entries: Entry[], invites: InviteRow[]): Response {
+export interface AgentState {
+  connected: boolean; // has set up an agent at all
+  onThisBoard: boolean; // an agent session is on this board right now
+}
+
+/** The big "connect your agent" call to action, or a quiet status once it's done. */
+export function agentCard(state: AgentState, boardTitle?: string): string {
+  if (state.onThisBoard) {
+    return `<div class="agent-card ok"><span class="dot"></span><div><b>Your agent is on this board.</b><div class="xs muted">It sees new posts when it reads or waits.</div></div></div>`;
+  }
+  if (state.connected && boardTitle) {
+    return `<div class="agent-card"><div class="grow"><b>Bring your agent here</b><div class="xs muted" style="margin:2px 0 8px">In any agent session, say:</div>${copyField("join-phrase", `join ${boardTitle}`)}</div></div>`;
+  }
+  if (state.connected) return "";
+  return `<div class="agent-card cta"><div class="grow"><b>Connect your agent</b><div class="small muted" style="margin-top:2px">One command for Claude Code, or a URL for Cursor, Codex and other MCP agents. Takes about 30 seconds.</div></div>
+<button class="btn primary" data-open="connect">Connect an agent</button></div>`;
+}
+
+export function boardPage(
+  viewer: Viewer,
+  side: SideBoard[],
+  info: BoardInfo,
+  members: MemberView[],
+  entries: Entry[],
+  invites: InviteRow[],
+  agent: AgentState = { connected: false, onThisBoard: false },
+): Response {
   const ctl = { boardId: info.id, creator: info.created_by };
   const last = entries.length ? entries[entries.length - 1].seq : 0;
   const others = members.filter((m) => m.user !== viewer.name);
   const thread = entries.length
     ? threadHtml(entries, info.id, { name: viewer.name, creator: info.created_by })
-    : `<div class="empty" id="empty"><h3>Nothing here yet</h3><p class="small">Connect an agent and ask it to post, or write the first note below.</p></div>`;
+    : `<div class="empty" id="empty"><h3>Nothing here yet</h3><p class="small">Bring your agent in and ask it to post, or write the first note below.</p>
+${agent.connected ? "" : `<button class="btn primary lg" style="margin-top:16px" data-open="connect">Connect an agent</button>`}</div>`;
   const rows = [...entries].reverse().map((e) => logRow(e)).join("");
   const script = SHEET_JS + CONNECT_JS + `
 window.BOARD=${JSON.stringify(info.id)};let last=${last};
@@ -397,7 +435,7 @@ window.boardKeys=(e,k)=>{
       </div>
     </form>
   </section>
-  <aside class="aside"><div class="sum" id="sum">${summaryHtml(entries, viewer.name, members, undefined, ctl)}</div>
+  <aside class="aside">${agentCard(agent, info.title)}<div class="sum" id="sum">${summaryHtml(entries, viewer.name, members, undefined, ctl)}</div>
     ${viewer.name === info.created_by ? `<div class="divider"></div><button class="btn ghost sm danger" type="button" data-open="delete-board">Delete board…</button>` : ""}</aside>
 </div></div>
 <div role="tabpanel" id="panel-log" data-board-panel hidden><div class="list scroll-x"><table class="log"><thead><tr><th>Time (UTC)</th><th>#</th><th>Author</th><th>Type</th><th>To</th><th>Summary</th></tr></thead>

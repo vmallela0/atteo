@@ -233,6 +233,26 @@ export async function setMcpSessionBoard(env: Env, sessionId: string, user: stri
     .run();
 }
 
+export async function touchMcpSession(env: Env, sessionId: string, user: string) {
+  await env.DB.prepare(`UPDATE mcp_sessions SET last_seen = ? WHERE id = ? AND user = ?`).bind(Date.now(), sessionId, user).run();
+}
+
+export const AGENT_LIVE_MS = 10 * 60 * 1000;
+
+/** Members whose agent has a session on this board that was active in the last 10 minutes. */
+export async function agentsOnBoard(env: Env, boardId: string): Promise<Record<string, number>> {
+  const r = await env.DB.prepare(`SELECT user, MAX(last_seen) AS seen FROM mcp_sessions WHERE board_id = ? AND last_seen > ? GROUP BY user`)
+    .bind(boardId, Date.now() - AGENT_LIVE_MS)
+    .all<{ user: string; seen: number }>();
+  return Object.fromEntries(r.results.map((x) => [x.user, x.seen]));
+}
+
+/** Whether this person has set up an agent (an active token that has been used), and when it was last active. */
+export async function agentStatus(env: Env, user: string): Promise<{ connected: boolean; lastUsed: number | null }> {
+  const r = await env.DB.prepare(`SELECT MAX(last_used) AS last FROM tokens WHERE user = ? AND revoked_at IS NULL`).bind(user).first<{ last: number | null }>();
+  return { connected: !!r?.last, lastUsed: r?.last ?? null };
+}
+
 export async function endMcpSession(env: Env, sessionId: string) {
   await env.DB.prepare(`DELETE FROM mcp_sessions WHERE id = ?`).bind(sessionId).run();
 }
