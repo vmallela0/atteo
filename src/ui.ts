@@ -209,7 +209,8 @@ dialog[open]{animation:pop .16s ease-out}
 .composer{margin-top:20px;position:relative}
 .mention{color:var(--accent);font-weight:500;background:color-mix(in srgb,var(--accent) 9%,transparent);padding:0 3px;border-radius:4px;white-space:nowrap}
 .mention.agent{border:1px dashed color-mix(in srgb,var(--accent) 45%,transparent);padding:0 3px}
-.mention.me{color:var(--ink);background:color-mix(in srgb,var(--warn) 24%,transparent);box-shadow:0 0 0 1px color-mix(in srgb,var(--warn) 45%,transparent)}
+/* Takes real space (border, not an outline ring), so it never overlaps the text or the mention next to it. */
+.mention.me{color:var(--ink);background:color-mix(in srgb,var(--warn) 22%,transparent);border:1px solid color-mix(in srgb,var(--warn) 45%,transparent);padding:0 3px;margin:0 1px}
 .entry.for-you{background:color-mix(in srgb,var(--warn) 6%,transparent);box-shadow:inset 3px 0 0 color-mix(in srgb,var(--warn) 70%,transparent);border-radius:8px;animation:foryou 1.6s ease-out 1}
 @keyframes foryou{from{background:color-mix(in srgb,var(--warn) 18%,transparent)}}
 .mention-menu{position:absolute;left:12px;bottom:calc(100% - 6px);z-index:5;width:min(280px,calc(100% - 24px));list-style:none;margin:0;padding:6px;
@@ -234,6 +235,13 @@ dialog[open]{animation:pop .16s ease-out}
 .side-link:hover{background:var(--bg-hover);color:var(--ink)}
 .side-link[aria-current]{background:var(--bg-hover);color:var(--ink);font-weight:500}
 .side-link svg{flex:none;opacity:.85}
+.side-link .count{margin-left:auto;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--accent);color:#fff;font-size:11px;font-weight:600;display:inline-flex;align-items:center;justify-content:center}
+.side-link .count[hidden]{display:none}
+.inbox{list-style:none;margin:0;padding:4px}
+.inbox-item a{display:flex;gap:10px;align-items:flex-start;padding:10px;border-radius:8px;color:inherit}
+.inbox-item a:hover{background:var(--bg-hover)}
+.inbox-item.unread b{color:var(--ink)}
+.inbox-item .dot{width:8px;height:8px;border-radius:50%;background:var(--accent);flex:none;margin-top:6px}
 .side-label{font-size:11.5px;font-weight:500;color:var(--faint);padding:14px 9px 4px;display:flex;justify-content:space-between;align-items:center}
 .side-label a{color:var(--faint)}.side-label a:hover{color:var(--ink)}
 .side-board .bdot{width:8px;height:8px;border-radius:3px;flex:none;background:hsl(var(--h) 55% 55%)}
@@ -604,6 +612,7 @@ const ICON = {
   boards: `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="2" y="2" width="5" height="5" rx="1.2"/><rect x="9" y="2" width="5" height="5" rx="1.2"/><rect x="2" y="9" width="5" height="5" rx="1.2"/><rect x="9" y="9" width="5" height="5" rx="1.2"/></svg>`,
   admin: `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M8 1.8l5 2v4c0 3-2.2 5.2-5 6.4C5.2 13 3 10.8 3 7.8v-4z"/></svg>`,
   me: `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="8" cy="5.5" r="2.8"/><path d="M2.8 14c.8-2.6 2.8-4 5.2-4s4.4 1.4 5.2 4"/></svg>`,
+  inbox: `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M2 9.5l1.8-6h8.4l1.8 6v3.5H2z"/><path d="M2 9.5h3.5l1 1.5h3l1-1.5H14"/></svg>`,
   search: `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>`,
   menu: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"/></svg>`,
   plus: `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg>`,
@@ -645,6 +654,7 @@ export function appPage(
 <aside class="sidebar" aria-label="Navigation">
   <a class="ws" href="/">${LOGO}<span>Agent Soup</span></a>
   <button class="search" type="button" data-palette>${ICON.search}<span>Search or jump to…</span><kbd>⌘K</kbd></button>
+  <a class="side-link" href="/inbox"${cur("inbox")}>${ICON.inbox}<span>Inbox</span><span class="count" id="inbox-count" hidden></span></a>
   <a class="side-link" href="/"${cur("boards")}>${ICON.boards}<span>Boards</span></a>
   <a class="side-link" href="/me"${cur("me")}>${ICON.me}<span>Account</span></a>
   <div class="side-label"><span>Your boards</span><a href="/?new=1" title="New board (C)" aria-label="New board">${ICON.plus}</a></div>
@@ -670,8 +680,21 @@ export function appPage(
 <dt><kbd>G</kbd> then <kbd>B</kbd> <kbd>M</kbd></dt><dd>Go to Boards / Account</dd>
 <dt><kbd>?</kbd></dt><dd>This list</dd></dl></div></dialog>
 <script>window.PALETTE=${JSON.stringify(paletteItems).replace(/</g, "\\u003c")};${v.admin ? "window.OPS=1;" : ""}</script>`;
-  return rawPage(title, body, (opts.script ?? "") + SHELL_JS, opts.status);
+  return rawPage(title, body, (opts.script ?? "") + SHELL_JS + INBOX_JS, opts.status);
 }
+
+// Inbox badge on every signed-in page: checks on load, when the tab comes back, and every minute. With permission,
+// a new item also shows a browser notification (once per item, across tabs).
+const INBOX_JS = `
+(()=>{const el=document.getElementById('inbox-count');if(!el)return;const base=document.title;
+let seen=0;try{seen=+localStorage.getItem('inbox-seen')||0}catch{}
+window.inboxRefresh=async()=>{try{const r=await fetch('/api/inbox/count');if(!r.ok)return;const j=await r.json();
+  el.hidden=!j.unread;el.textContent=j.unread>99?'99+':String(j.unread);document.title=(j.unread?'('+j.unread+') ':'')+base;
+  const l=j.latest;if(l&&l.created_at>seen){if(seen&&'Notification' in window&&Notification.permission==='granted'&&!(document.visibilityState==='visible'&&location.pathname==='/b/'+l.board_id)){
+    const who=l.actor_via==='agent'?l.actor+"'s agent":l.actor;const n=new Notification(who+(l.kind==='mention'?' mentioned you':l.kind==='reply'?' replied to you':' wrote to your agent'),{body:l.excerpt,tag:'inbox-'+l.id});
+    n.onclick=()=>{window.focus();location.href='/b/'+l.board_id+'#e'+l.seq}}
+  seen=l.created_at;try{localStorage.setItem('inbox-seen',String(seen))}catch{}}}catch{}};
+inboxRefresh();setInterval(inboxRefresh,60000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)inboxRefresh()})})();`;
 
 function rawPage(title: string, body: string, script: string, status = 200): Response {
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">

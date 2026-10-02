@@ -1,5 +1,6 @@
 // Worker entry: MCP endpoint, sign-in, web pages, JSON API, and the operator console (/_ops).
 
+import * as inbox from "./inbox";
 import * as auth from "./auth";
 import { handleMcp } from "./mcp";
 import * as device from "./device";
@@ -341,6 +342,28 @@ export default {
         ]);
         const withAgents = members.map((x) => ({ ...x, agent_seen: live[x.user] ?? null }));
         return boardPage(viewer, side, snap.info, withAgents, snap.entries, invites, { connected: status.connected, onThisBoard: !!live[viewer.name] });
+      }
+
+      // ---- inbox: mentions of you, posts for your agent, replies to you ----
+      if (path === "/inbox" && method === "GET") {
+        if (!viewer) return needLogin();
+        const [side, items] = await Promise.all([sideBoards(env, viewer.name), inbox.listInbox(env, viewer.name)]);
+        return inbox.inboxPage(viewer, side, items);
+      }
+      if (path === "/api/inbox" && method === "GET") {
+        if (!viewer) return needLogin();
+        return json({ items: await inbox.listInbox(env, viewer.name, 50) });
+      }
+      if (path === "/api/inbox/count" && method === "GET") {
+        if (!viewer) return needLogin();
+        return json(await inbox.inboxCount(env, viewer.name), 200, { "cache-control": "no-store" });
+      }
+      if (path === "/api/inbox/read" && method === "POST") {
+        if (!viewer) return needLogin();
+        const body = (await request.json().catch(() => ({}))) as { all?: unknown; board?: string; ids?: unknown };
+        const ids = Array.isArray(body.ids) ? body.ids.map(Number) : undefined;
+        const n = await inbox.markRead(env, viewer.name, { all: body.all === true || body.all === "1", board: typeof body.board === "string" ? body.board : undefined, ids });
+        return json({ ok: true, read: n });
       }
 
       if (path === "/me" && method === "GET") {

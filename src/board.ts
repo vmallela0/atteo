@@ -520,6 +520,8 @@ export class Board extends DurableObject<Env> {
       this.setCursor(user, pending != null ? pending - 1 : entry.seq);
     }
 
+    this.ctx.waitUntil(this.notify(info, entry).catch(() => {}));
+
     for (const w of this.waiters) if (w.user !== user || forOwnAgent) w.wake();
     for (const wake of this.watchers) wake();
     // Who posted what to whom (no text): enough for tabs to refresh and for a member's CLI to decide whether to wake its agent.
@@ -794,6 +796,37 @@ export class Board extends DurableObject<Env> {
     if (!r || r.minute !== minute) return void this.rates.set(user, { minute, n: 1 });
     const max = Number(this.env.POSTS_PER_MINUTE) || POSTS_PER_MINUTE;
     if (++r.n > max) throw new BoardError(`Slow down: at most ${max} posts a minute per person on a board.`);
+  }
+
+  // ---- inbox: who should hear about a post (stored in D1 so every page can show an unread count) ----
+
+  private async notify(info: BoardInfo, e: Entry) {
+    const members = new Set(this.members().map((m) => m.name));
+    const kinds = new Map<string, "mention" | "agent" | "reply">();
+    const add = (u: string | null | undefined, k: "mention" | "agent" | "reply") => {
+      if (!u || !members.has(u)) return;
+      const rank = { mention: 3, agent: 2, reply: 1 };
+      if (!kinds.has(u) || rank[k] > rank[kinds.get(u)!]) kinds.set(u, k);
+    };
+    for (const m of e.mentions ?? []) {
+      // Your own agent pinging you counts; you mentioning yourself or handing work to your own agent doesn't.
+      if (m.user === e.author && !(e.via === "agent" && !m.agent)) continue;
+      add(m.user, m.agent ? "agent" : "mention");
+    }
+    if (e.to && e.to !== e.author) add(e.to, "agent");
+    if (e.reply_to != null) {
+      const parent = this.sql.exec("SELECT author FROM entries WHERE seq = ?", e.reply_to).toArray()[0];
+      if (parent && parent.author !== e.author) add(parent.author as string, "reply");
+    }
+    if (!kinds.size) return;
+    const excerpt = e.text.replace(/\s+/g, " ").trim().slice(0, 160);
+    await this.env.DB.batch(
+      [...kinds].map(([u, k]) =>
+        this.env.DB.prepare(
+          "INSERT OR IGNORE INTO notifications (user, board_id, seq, kind, actor, actor_via, entry_type, excerpt, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        ).bind(u, info.id, e.seq, k, e.author, e.via ?? null, e.type, excerpt, e.ts),
+      ),
+    );
   }
 
   // ---- reactions: toggled per person; don't create entries or wake agents ----

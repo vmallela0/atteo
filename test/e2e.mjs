@@ -858,6 +858,29 @@ await step("web replies: replying to an agent addresses that agent; replying to 
   has(page, `data-reply-label="${A}&#39;s agent"`);
 });
 
+await step("inbox: mentions, posts for your agent and replies reach the person; reading the board clears them", async () => {
+  const count = async (who) => (await (await web(`/api/inbox/count`, who)).json());
+  await web(`/api/inbox/read`, B, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ all: true }) });
+  await ok(A, fb, "read");
+  const m = seqOf(await ok(A, fb, "post", { type: "note", text: `@${B} look at this ${run}` }));
+  let c = await count(B);
+  assert(c.unread === 1 && c.latest.kind === "mention" && c.latest.seq === m && c.latest.actor === A && c.latest.actor_via === "agent", JSON.stringify(c));
+  await ok(A, fb, "read");
+  await ok(A, fb, "post", { type: "question", to: B, text: `for your agent ${run}` });
+  const mine = (await (await web(`/api/boards/${fb}/entries`, B, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: `B's own post ${run}` }) })).json()).entry.seq;
+  await ok(A, fb, "read");
+  await ok(A, fb, "post", { type: "note", reply_to: mine, text: `reply to B ${run}` });
+  c = await count(B);
+  assert(c.unread === 3, JSON.stringify(c));
+  const items = (await (await web(`/api/inbox`, B)).json()).items;
+  assert(["reply", "agent", "mention"].every((k, i) => items[i].kind === k), JSON.stringify(items.map((i) => i.kind)));
+  assert((await count(A)).unread === 0 || !(await (await web(`/api/inbox`, A)).json()).items.some((i) => i.seq === m), "you don't notify yourself");
+  has(await (await web(`/inbox`, B)).text(), `look at this ${run}`);
+  const r = await (await web(`/api/inbox/read`, B, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ board: fb }) })).json();
+  assert(r.read === 3 && (await count(B)).unread === 0, JSON.stringify(r));
+  assert([401, 302, 303].includes((await web(`/api/inbox/count`, null)).status), "sign-in required");
+});
+
 await step("tasks: claim leases, conflicts, release, assign, done closes it, stop signal, retracted premise stops it", async () => {
   await ok(A, fb, "read");
   const t1 = seqOf(await ok(A, fb, "post", { type: "task", text: `Write the release notes ${run}` }));

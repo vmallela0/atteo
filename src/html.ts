@@ -525,6 +525,11 @@ const mirror=document.getElementById('composer-mirror'),MNAMES=new Set(MOPTS.map
 function markMe(root){root.querySelectorAll('.mention:not(.agent)').forEach(m=>{if(m.dataset.user===ME){m.classList.add('me');m.closest('.entry')?.classList.add('for-you')}})}
 markMe(document.getElementById('thread'));
 new MutationObserver(ms=>ms.forEach(m=>m.addedNodes.forEach(n=>{if(n.nodeType===1)markMe(n)}))).observe(document.getElementById('thread'),{childList:true,subtree:true});
+// Looking at a board reads its inbox items (now, and as new ones arrive while you're here).
+let inboxT=0;function readInbox(){clearTimeout(inboxT);inboxT=setTimeout(()=>{if(document.visibilityState!=='visible')return;
+  fetch('/api/inbox/read',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({board:BOARD})}).then(()=>window.inboxRefresh&&inboxRefresh()).catch(()=>{})},800)}
+readInbox();document.addEventListener('visibilitychange',readInbox);
+new MutationObserver(readInbox).observe(document.getElementById('thread'),{childList:true});
 function mtokens(v){const out=[],re=/(^|[^A-Za-z0-9_.@\\/-])@([A-Za-z0-9][A-Za-z0-9_.-]{0,31})((?:'|’)s\\s+agent\\b)?/gi;let m;
   while((m=re.exec(v))){const raw=m[2].toLowerCase();let h=raw;if(!MNAMES.has(h))h=raw.replace(/[.-]+$/,'');if(!MNAMES.has(h))continue;
     const agent=!!m[3]&&h===raw;if(!agent&&h===ME)continue; // you can't mention yourself, only your agent

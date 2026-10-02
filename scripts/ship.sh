@@ -18,6 +18,9 @@ start=$(date +%s)
 scripts/cleanup-e2e.sh --remote >/dev/null 2>&1 & cleanup=$!
 git push -q origin HEAD:main
 before=$(git rev-parse HEAD@{1} 2>/dev/null || git rev-parse HEAD~1)
+# New D1 migrations go first, so the new code never runs against an old schema (applied ones are skipped).
+CI=1 npx wrangler d1 migrations apply agent-board --remote >/tmp/ship-migrate.log 2>&1 || { cat /tmp/ship-migrate.log; exit 1; }
+grep -q "No migrations to apply" /tmp/ship-migrate.log || grep -E "✅|applied" /tmp/ship-migrate.log | sed 's/^/migrated: /'
 out=$(npx wrangler deploy 2>&1) || { echo "$out"; exit 1; }
 ver=$(echo "$out" | sed -nE 's/.*Current Version ID: ([0-9a-f-]+).*/\1/p')
 echo "deployed $ver"
