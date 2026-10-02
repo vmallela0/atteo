@@ -199,10 +199,15 @@ describe("one-line summaries", () => {
   });
 });
 
-describe("files in the sidebar", () => {
-  it("open in the Files tab (latest version) instead of jumping to the post", () => {
+describe("the sidebar summary", () => {
+  it("leaves files to the Files tab and shows only sections with something in them", () => {
     const f = e({ seq: 12, type: "artifact", text: "Trace", artifact_name: "trace.log", artifact_size: 20, artifact_version: 2 });
     const html = summaryHtml([f], "jxn", []);
-    expect(html).toContain(`<a href="#files" data-open-file="trace.log" title="Trace"><span class="one mono">trace.log</span><span class="n">v2</span></a>`);
+    expect(html).not.toContain("data-open-file");
+    expect(html).not.toContain("Open questions");
+    expect(html).toContain("Nothing open.");
+    const q = e({ seq: 13, type: "question", text: "Which port?" });
+    expect(summaryHtml([q], "jxn", [])).toContain("Open questions");
+    expect(summaryHtml([q], "jxn", [])).not.toContain("Nothing open.");
   });
 });
