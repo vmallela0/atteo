@@ -215,6 +215,9 @@ dialog.access-dlg{width:min(640px,calc(100vw - 24px))}
 .cn-list{list-style:none;margin:4px 0 0;padding:0;display:flex;flex-direction:column;gap:10px}.cn-list li>.copy{margin-top:5px}
 .doc-code{margin:0;font-size:12.5px;line-height:1.55;white-space:pre-wrap;word-break:break-word}
 @media (max-width:640px){.pfp{flex-wrap:wrap}.pfp>.row:last-child{flex-basis:100%;justify-content:flex-start}}
+.pf-grid{display:grid;grid-template-columns:110px 1fr;gap:10px 14px;align-items:center}.pf-grid .lbl{margin:0}.pf-grid textarea{resize:vertical;min-height:56px}
+.pf-check{display:flex;gap:10px;align-items:flex-start;cursor:pointer}.pf-check input{margin-top:3px}.pf-check>span{display:flex;flex-direction:column;gap:1px}
+@media (max-width:640px){.pf-grid{grid-template-columns:1fr;gap:6px}}
 .acc-url{font-size:12px;height:30px}.acc-to{position:relative;min-width:200px}.acc-to .input{width:100%}
 .acc-sug{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:5;list-style:none;margin:0;padding:4px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--bg);box-shadow:var(--shadow-lg)}
 .acc-sug[hidden]{display:none}.acc-sug li{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;font-size:13px;cursor:pointer;min-width:0}
