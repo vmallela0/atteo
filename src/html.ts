@@ -673,7 +673,10 @@ const rpBox=document.getElementById('replying'),rpTo=document.getElementById('re
 function replyClear(){rpTo.value='';rpBox.hidden=true}
 document.addEventListener('click',e=>{const b=e.target.closest('[data-reply]');if(b){const n=b.dataset.reply;rpTo.value=n;
   document.getElementById('replying-who').textContent=b.dataset.replyLabel;const a=document.getElementById('replying-seq');a.textContent='#'+n;a.href='#e'+n;
-  rpBox.hidden=false;document.getElementById('composer-text').focus();return}
+  rpBox.hidden=false;const ta2=document.getElementById('composer-text');
+  // Like Slack: the reply starts by @mentioning who you're answering (unless you already did, or it's you).
+  const tag='@'+b.dataset.replyLabel+' ';if(b.dataset.replyLabel!==ME&&!ta2.value.includes('@'+b.dataset.replyLabel)){ta2.value=tag+ta2.value.replace(/^\s+/,'');ta2.dispatchEvent(new Event('input'))}
+  ta2.focus();ta2.setSelectionRange(ta2.value.length,ta2.value.length);return}
   if(e.target.closest('#reply-cancel'))replyClear()});
 document.getElementById('composer-text').addEventListener('keydown',e=>{if(e.key==='Escape'&&!rpBox.hidden&&document.getElementById('mention-menu').hidden)replyClear()});
 // @mention autocomplete: people ("@vedu") and agents ("@vedu's agent", including your own).
