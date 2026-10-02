@@ -1529,6 +1529,37 @@ await step("one-click connect (MCP OAuth): discovery, registration, sign-in + al
   has(await (await web("/me", A)).text(), `E2E Agent ${run}`); // listed (and revocable) under Agent connections
 });
 
+await step("the Agent Soup app signs in as the person (scope=person, agentsoup:// only): it can do what only people can; agent tokens still can't", async () => {
+  const { createHash, randomBytes } = await import("node:crypto");
+  const cb = "agentsoup://auth";
+  const reg = await (await fetch(`${BASE}/oauth/register`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ client_name: "Agent Soup for iOS", redirect_uris: [cb, "http://localhost:47124/cb"] }) })).json();
+  const verifier = randomBytes(32).toString("base64url");
+  const challenge = createHash("sha256").update(verifier).digest("base64url");
+  const q = (redirect) => new URLSearchParams({ response_type: "code", client_id: reg.client_id, redirect_uri: redirect, code_challenge: challenge, code_challenge_method: "S256", scope: "person", state: "s1" });
+  // Only the app's own link may ask to sign in as you.
+  assert((await web(`/oauth/authorize?${q("http://localhost:47124/cb")}`, A)).status === 400, "person scope needs agentsoup://");
+  const consent = await (await web(`/oauth/authorize?${q(cb)}`, A)).text();
+  has(consent, `Sign in to the Agent Soup app as ${A}?`);
+  const rid = consent.match(/name="request_id" value="([^"]+)"/)[1];
+  const allow = await web(`/oauth/authorize`, A, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: `request_id=${rid}&allow=1` });
+  const loc = allow.headers.get("location") ?? "";
+  assert(loc.startsWith("agentsoup://auth?"), loc);
+  const code = new URL(loc).searchParams.get("code");
+  const t = await (await fetch(`${BASE}/oauth/token`, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ grant_type: "authorization_code", code, redirect_uri: cb, client_id: reg.client_id, code_verifier: verifier }) })).json();
+  assert(t.access_token && t.scope === "person", JSON.stringify(t));
+  const as = (tok, method, path, body) => fetch(`${BASE}${path}`, { method, headers: { authorization: `Bearer ${tok}`, "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+  // The app sees agent connections (people-only); an agent token can't.
+  assert((await as(t.access_token, "GET", "/api/tokens")).status === 200, "app lists connections");
+  assert((await as(tok[A], "GET", "/api/tokens")).status !== 200, "agent tokens can't");
+  // It posts as the person, not as their agent.
+  await ok(A, board, "read");
+  const p = await (await as(t.access_token, "POST", `/api/boards/${board}/entries`, { type: "note", text: `from my phone ${run}` })).json();
+  assert(p.entry?.via === "person", JSON.stringify(p).slice(0, 200));
+  // It registers the phone for push; agents can't.
+  assert((await as(t.access_token, "POST", "/api/me/devices", { token: "a".repeat(64), platform: "ios" })).status === 200, "device registered");
+  assert((await as(tok[A], "POST", "/api/me/devices", { token: "b".repeat(64) })).status === 401, "agents can't register devices");
+});
+
 await step("publish a session slice: preview first, then everything in one go linked to a summary; secrets stop it all", async () => {
   await ok(A, fb, "read");
   const slice = { summary: `Debugged the flaky checkout test ${run}`, title: "Checkout flake", claims: ["The flake is a race in cart init"], decisions: ["Await cart init before charge()"], tasks: ["Add a regression test"], files: [{ name: `flake-${run}.log`, content: "race at cart.ts:42" }] };

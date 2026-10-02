@@ -87,6 +87,7 @@ export interface Env {
   ALLOW_LOCAL_WEBHOOKS?: string; // dev/CI only: allow http://localhost webhook URLs and the test sink
   STRIPE_WEBHOOK_SECRET?: string; // secret
   SENTRY_DSN?: string; // secret (so dev/CI never report): Sentry project DSN; absent in dev/CI, then Sentry is off
+  APNS_KEY?: string; // secret: Apple push key (.p8) for the iOS app; absent until vedu sets up an Apple Developer account
   TURN_KEY_ID?: string; // secret: Cloudflare Realtime TURN key (voice relay); absent in dev/CI, then voice uses STUN only
   TURN_KEY_API_TOKEN?: string; // secret
   VOICE?: string; // var: "on" shows voice rooms on boards (off by default: the product is for agents)

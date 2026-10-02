@@ -29,7 +29,7 @@ export function authorizationServer(origin: string) {
     grant_types_supported: ["authorization_code"],
     code_challenge_methods_supported: ["S256"],
     token_endpoint_auth_methods_supported: ["none"],
-    scopes_supported: ["board"],
+    scopes_supported: ["board", "person"],
   };
 }
 
@@ -74,16 +74,20 @@ export async function startAuthorize(env: Env, user: string, p: URLSearchParams)
   if (p.get("response_type") !== "code") throw new OAuthError("unsupported_response_type", "Only response_type=code is supported.");
   const challenge = p.get("code_challenge") ?? "";
   if (p.get("code_challenge_method") !== "S256" || !/^[A-Za-z0-9_-]{43,128}$/.test(challenge)) throw new OAuthError("invalid_request", "PKCE (S256) is required.");
+  // scope "person": the Agent Soup app signing in as you (not your agent). Only for the app's own agentsoup:// link,
+  // so no agent connector can ask for it.
+  const person = (p.get("scope") ?? "").split(/\s+/).includes("person");
+  if (person && !redirect.startsWith("agentsoup://")) throw new OAuthError("invalid_scope", "Only the Agent Soup app can sign in as you.");
   const id = randomSecret("oq_", 16);
-  await env.DB.prepare(`INSERT INTO oauth_requests (id, client_id, redirect_uri, code_challenge, state, user, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)`)
-    .bind(id, c.client_id, redirect, challenge, p.get("state"), user, Date.now() + REQUEST_TTL_MS)
+  await env.DB.prepare(`INSERT INTO oauth_requests (id, client_id, redirect_uri, code_challenge, state, user, expires_at, scope) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+    .bind(id, c.client_id, redirect, challenge, p.get("state"), user, Date.now() + REQUEST_TTL_MS, person ? "person" : null)
     .run();
-  return { id, client: c, redirect };
+  return { id, client: c, redirect, person };
 }
 
 /** The person said yes (or no): back to the app with a code (or an error). */
 export async function finishAuthorize(env: Env, user: string, requestId: string, allow: boolean): Promise<string> {
-  const r = await env.DB.prepare(`SELECT * FROM oauth_requests WHERE id = ? AND user = ?`).bind(requestId, user).first<{ client_id: string; redirect_uri: string; code_challenge: string; state: string | null; expires_at: number }>();
+  const r = await env.DB.prepare(`SELECT * FROM oauth_requests WHERE id = ? AND user = ?`).bind(requestId, user).first<{ client_id: string; redirect_uri: string; code_challenge: string; state: string | null; expires_at: number; scope: string | null }>();
   if (!r || r.expires_at < Date.now()) throw new OAuthError("invalid_request", "This request expired. Start connecting again from your agent.");
   await env.DB.prepare(`DELETE FROM oauth_requests WHERE id = ?`).bind(requestId).run();
   const to = new URL(r.redirect_uri);
@@ -93,8 +97,8 @@ export async function finishAuthorize(env: Env, user: string, requestId: string,
     return to.toString();
   }
   const code = randomSecret("ocd_", 24);
-  await env.DB.prepare(`INSERT INTO oauth_codes (code_hash, client_id, user, redirect_uri, code_challenge, expires_at) VALUES (?, ?, ?, ?, ?, ?)`)
-    .bind(await sha256hex(code), r.client_id, user, r.redirect_uri, r.code_challenge, Date.now() + CODE_TTL_MS)
+  await env.DB.prepare(`INSERT INTO oauth_codes (code_hash, client_id, user, redirect_uri, code_challenge, expires_at, scope) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+    .bind(await sha256hex(code), r.client_id, user, r.redirect_uri, r.code_challenge, Date.now() + CODE_TTL_MS, r.scope ?? null)
     .run();
   to.searchParams.set("code", code);
   return to.toString();
@@ -109,7 +113,7 @@ async function s256(verifier: string): Promise<string> {
 export async function exchange(env: Env, f: { grant_type?: string; code?: string; redirect_uri?: string; client_id?: string; code_verifier?: string }) {
   if (f.grant_type !== "authorization_code") throw new OAuthError("unsupported_grant_type", "Only authorization_code is supported.");
   const hash = await sha256hex(f.code ?? "");
-  const row = await env.DB.prepare(`SELECT * FROM oauth_codes WHERE code_hash = ?`).bind(hash).first<{ client_id: string; user: string; redirect_uri: string; code_challenge: string; expires_at: number; used: number }>();
+  const row = await env.DB.prepare(`SELECT * FROM oauth_codes WHERE code_hash = ?`).bind(hash).first<{ client_id: string; user: string; redirect_uri: string; code_challenge: string; expires_at: number; used: number; scope: string | null }>();
   if (!row || row.used || row.expires_at < Date.now()) throw new OAuthError("invalid_grant", "The code is invalid or expired.");
   // Single use, atomically.
   const claim = await env.DB.prepare(`UPDATE oauth_codes SET used = 1 WHERE code_hash = ? AND used = 0`).bind(hash).run();
@@ -119,6 +123,7 @@ export async function exchange(env: Env, f: { grant_type?: string; code?: string
   if (!f.code_verifier || (await s256(f.code_verifier)) !== row.code_challenge) throw new OAuthError("invalid_grant", "PKCE verification failed.");
   const c = await client(env, row.client_id);
   const expires = Date.now() + OAUTH_TOKEN_TTL_MS;
-  const t = await createToken(env, row.user, c?.name ?? "MCP app", { expiresAt: expires, kind: "cli" });
-  return { access_token: t.token, token_type: "Bearer", expires_in: Math.floor(OAUTH_TOKEN_TTL_MS / 1000), scope: "board" };
+  const person = row.scope === "person";
+  const t = await createToken(env, row.user, person ? "Agent Soup app" : (c?.name ?? "MCP app"), { expiresAt: expires, kind: person ? "app" : "cli" });
+  return { access_token: t.token, token_type: "Bearer", expires_in: Math.floor(OAUTH_TOKEN_TTL_MS / 1000), scope: person ? "person" : "board" };
 }

@@ -96,11 +96,15 @@ async function loadViewer(env: Env, session: auth.Session | null, request?: Requ
   const bearer = request?.headers.get("authorization")?.match(/^Bearer\s+(\S+)$/i)?.[1];
   // Account-level actions (tokens, billing, ops) stay browser-only, so a leaked token can't mint more or change plans.
   const accountOnly = /^\/api\/(ops|tokens|billing|webhooks)(\/|$)/.test(path);
-  if (!session?.user && bearer && path.startsWith("/api/") && !accountOnly) {
+  // The Agent Soup app (a token of kind "app") acts as the person, and may also see and revoke agent connections.
+  // (list connections, revoke one, or pull the kill switch; never mint new tokens).
+  const appAllowed = request?.method === "POST" ? /^\/api\/tokens(\/revoke-all|\/[^/]+\/revoke)$/.test(path) : path === "/api/tokens";
+  if (!session?.user && bearer && path.startsWith("/api/") && (!accountOnly || appAllowed)) {
     // Writes look the token up fresh, so a revoked token can't change anything anywhere (the kill switch).
-    const name = await auth.userForToken(env, bearer, undefined, !!request && request.method !== "GET" && request.method !== "HEAD");
-    const u = name ? await registry.userByName(env, name) : null;
-    return u ? { name: u.name, email: u.email ?? "", display_name: u.display_name, admin: false, via: "agent" } : null;
+    const id = await auth.tokenIdentity(env, bearer, !!request && request.method !== "GET" && request.method !== "HEAD");
+    if (!id || (accountOnly && id.kind !== "app")) return null;
+    const u = await registry.userByName(env, id.user);
+    return u ? { name: u.name, email: u.email ?? "", display_name: u.display_name, admin: false, via: id.kind === "app" ? "person" : "agent" } : null;
   }
   if (!session?.user) return null;
   // Usually already joined in by getSession; look the member up only if it wasn't.
@@ -480,7 +484,7 @@ const handler = {
         if (!viewer || viewer.via === "agent") return redirect(`/auth/login?return=${encodeURIComponent(url.pathname + url.search)}`);
         try {
           const r = await oauth.startAuthorize(env, viewer.name, url.searchParams);
-          return consentPage(viewer, r.id, r.client.name, new URL(r.redirect).host);
+          return consentPage(viewer, r.id, r.client.name, new URL(r.redirect).host, r.person);
         } catch (e) {
           return messagePage("Can't connect", e instanceof Error ? e.message : String(e), { viewer, status: 400, action: { href: "/", label: "Your boards" } });
         }
@@ -929,6 +933,20 @@ const handler = {
       // ---- the CLI, one file, and a readable installer: curl -fsSL <server>/install.sh | sh ----
       if (path === "/install.sh" && method === "GET") return new Response(installScript(url.origin), { headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "public, max-age=300" } });
       if (path === "/cli/agent-soup.mjs" && method === "GET") return new Response(CLI_BUNDLE, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": "public, max-age=300", "x-content-type-options": "nosniff" } });
+
+      // ---- phones for push notifications (the Agent Soup app registers its APNs device token) ----
+      if (path === "/api/me/devices" && (method === "POST" || method === "DELETE")) {
+        if (!viewer || viewer.via === "agent") return json({ error: "Only the Agent Soup app (signed in as you) registers devices." }, 401);
+        const b = (await request.json().catch(() => ({}))) as { token?: string; platform?: string };
+        const tok = String(b.token ?? "");
+        if (!/^[0-9a-fA-F]{32,200}$/.test(tok)) return json({ error: "token must be an APNs device token (hex)." }, 400);
+        if (method === "DELETE") await env.DB.prepare(`DELETE FROM push_devices WHERE token = ? AND user = ?`).bind(tok, viewer.name).run();
+        else
+          await env.DB.prepare(`INSERT INTO push_devices (token, user, platform, created_at, last_seen) VALUES (?, ?, ?, ?, ?) ON CONFLICT(token) DO UPDATE SET user = excluded.user, last_seen = excluded.last_seen`)
+            .bind(tok, viewer.name, b.platform === "ios" ? "ios" : "ios", Date.now(), Date.now())
+            .run();
+        return json({ ok: true, push: !!env.APNS_KEY ? "on" : "registered (sending turns on once the server has an APNs key)" });
+      }
 
       // ---- profile pictures (people and their agents) ----
       m = path.match(/^\/avatar\/([a-z0-9][a-z0-9_.-]{0,31})$/);
@@ -1776,6 +1794,11 @@ const handler = {
       }
 
       // ---- personal tokens ----
+      if (path === "/api/tokens" && method === "GET") {
+        if (!viewer) return needLogin();
+        const list = await auth.listTokens(env, viewer.name);
+        return json({ tokens: list.map((t) => ({ id: t.id, label: t.label, kind: t.kind, created_at: t.created_at, last_used: t.last_used, revoked_at: t.revoked_at, expires_at: t.expires_at })) });
+      }
       if (path === "/api/tokens" && method === "POST") {
         if (!viewer) return needLogin();
         const body = (await request.json().catch(() => ({}))) as { board?: string; label?: string };

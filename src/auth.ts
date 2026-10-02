@@ -162,7 +162,7 @@ export async function createToken(
   env: Env,
   user: string,
   label: string,
-  opts: { expiresAt?: number | null; kind?: "manual" | "cli" } = {},
+  opts: { expiresAt?: number | null; kind?: "manual" | "cli" | "app" } = {},
 ): Promise<{ id: string; token: string }> {
   const token = randomSecret("ab_", 32);
   const id = crypto.randomUUID();
@@ -177,14 +177,14 @@ export async function createToken(
 // tens of milliseconds. Anything that changes something looks the token up fresh (`fresh`), so a revoked token (the
 // kill switch) can't write anywhere from that moment; reads stop within TOKEN_CACHE_MS on other isolates.
 const TOKEN_CACHE_MS = 10_000;
-const tokenCache = new Map<string, { id: string; user: string; expires_at: number | null; at: number; touched: number }>();
+const tokenCache = new Map<string, { id: string; user: string; expires_at: number | null; kind: string | null; at: number; touched: number }>();
 
 async function lookupToken(env: Env, token: string, ctx?: ExecutionContext, fresh = false) {
   const hash = await sha256hex(token);
   const now = Date.now();
   let row = tokenCache.get(hash);
   if (!row || fresh || now - row.at > TOKEN_CACHE_MS) {
-    const r = await env.DB.prepare(`SELECT id, user, expires_at FROM tokens WHERE hash = ? AND revoked_at IS NULL`).bind(hash).first<{ id: string; user: string; expires_at: number | null }>();
+    const r = await env.DB.prepare(`SELECT id, user, expires_at, kind FROM tokens WHERE hash = ? AND revoked_at IS NULL`).bind(hash).first<{ id: string; user: string; expires_at: number | null; kind: string | null }>();
     if (!r) {
       tokenCache.delete(hash);
       return null;
@@ -213,6 +213,14 @@ export async function resolveToken(env: Env, token: string, ctx?: ExecutionConte
   if (!row) return { user: null, expired: false };
   if (row.expires_at != null && row.expires_at < Date.now()) return { user: null, expired: true };
   return { user: row.user, expired: false };
+}
+
+/** A bearer token's user and kind ("app": the Agent Soup app, acting as the person), or null. */
+export async function tokenIdentity(env: Env, token: string, fresh = false): Promise<{ user: string; kind: string | null } | null> {
+  if (!token.startsWith("ab_")) return null;
+  const row = await lookupToken(env, token, undefined, fresh);
+  if (!row || (row.expires_at != null && row.expires_at < Date.now())) return null;
+  return { user: row.user, kind: row.kind ?? null };
 }
 
 /** Resolves a bearer token to its user, or null if unknown, revoked or expired. */
