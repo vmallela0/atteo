@@ -431,7 +431,7 @@ export default {
       }
 
       // ---- shared documents (members; operators can read) ----
-      m = path.match(/^\/api\/boards\/([^/]+)\/(doc|docs|doc-history)$/);
+      m = path.match(/^\/api\/boards\/([^/]+)\/(doc|docs|files|doc-history)$/);
       if (m) {
         const [, id, what] = m;
         if (!viewer && !hasOpsKey(c)) return needLogin();
@@ -439,7 +439,7 @@ export default {
         const stub = boardStub(env, id);
         const name = url.searchParams.get("name") ?? "";
         try {
-          if (what === "docs" && method === "GET") return json({ docs: await stub.docs() });
+          if ((what === "docs" || what === "files") && method === "GET") return json({ docs: await stub.docs() });
           if (what === "doc-history" && method === "GET") return json({ versions: await stub.docHistory(name) });
           if (what === "doc" && method === "GET") {
             const v = url.searchParams.get("version");

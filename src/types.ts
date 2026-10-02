@@ -20,6 +20,7 @@ export interface Entry {
   client?: string | null; // for agent posts: which agent, e.g. "Claude Code"
   artifact_name: string | null;
   artifact_size: number | null; // bytes of artifact content (content itself is fetched with `get`)
+  artifact_version?: number | null; // files are versioned documents: this entry published version N of artifact_name
 }
 
 export interface NewEntry {

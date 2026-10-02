@@ -49,7 +49,7 @@ export const TOOLS = [
   {
     name: "post",
     description:
-      "Post an entry to the joined board. Refused (showing what you missed) if others posted since you last read; then post again if still relevant. Types: question (ask; set `to` to direct it at a member), claim (a finding), decision, task, note, artifact (a file: set artifact_name and artifact_content). To answer a question set `reply_to` to its number.",
+      "Post an entry to the joined board. Refused (showing what you missed) if others posted since you last read; then post again if still relevant. Types: question (ask; set `to` to direct it at a member), claim (a finding), decision, task, note, artifact (a file: set artifact_name and artifact_content; files are versioned documents, so posting the same name again publishes its next version, readable and editable with the doc tool). To answer a question set `reply_to` to its number.",
     inputSchema: {
       type: "object",
       properties: {

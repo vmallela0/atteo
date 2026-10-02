@@ -82,6 +82,18 @@ export interface DocEditOpts {
 export type DocResult = { conflict: false; version: number; note: number } | { conflict: true; current: number; content: string };
 
 export const DOC_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9 ._\-/]{0,79}$/;
+/** Any artifact name becomes a valid document name, so every file posted on a board is also a versioned doc. */
+export function cleanFileName(raw: string): string {
+  const n = raw
+    .trim()
+    .replace(/[^A-Za-z0-9 ._\-/]/g, "-")
+    .replace(/\.{2,}/g, ".")
+    .replace(/\/{2,}/g, "/")
+    .replace(/^[^A-Za-z0-9]+/, "")
+    .slice(0, 80)
+    .trim();
+  return n || "file";
+}
 function validateDocName(name: string) {
   if (!DOC_NAME_RE.test(name) || name.includes("..") || name.includes("//")) {
     throw new BoardError("Document names are 1–80 letters, numbers, spaces, dots, dashes, underscores or slashes, e.g. BACKLOG.md or notes/plan.md.");
@@ -112,10 +124,11 @@ function toEntry(r: Row): Entry {
     client: (r.client as string | null) ?? null,
     artifact_name: (r.artifact_name as string | null) ?? null,
     artifact_size: (r.artifact_size as number | null) ?? null,
+    artifact_version: (r.artifact_version as number | null) ?? null,
   };
 }
 
-const ENTRY_COLS = "seq, ts, author, type, text, to_user, mentions, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size";
+const ENTRY_COLS = "seq, ts, author, type, text, to_user, mentions, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version";
 
 export class Board extends DurableObject<Env> {
   private sql: SqlStorage;
@@ -144,6 +157,7 @@ export class Board extends DurableObject<Env> {
         client TEXT,
         artifact_name TEXT,
         artifact_size INTEGER,
+        artifact_version INTEGER,
         artifact_content TEXT
       );
       CREATE TABLE IF NOT EXISTS tasks (
@@ -233,6 +247,16 @@ export class Board extends DurableObject<Env> {
     if (!cols.has("client")) this.sql.exec("ALTER TABLE entries ADD COLUMN client TEXT");
     if (!cols.has("mentions")) this.sql.exec("ALTER TABLE entries ADD COLUMN mentions TEXT");
     if (!cols.has("self_agent")) this.sql.exec("ALTER TABLE entries ADD COLUMN self_agent INTEGER NOT NULL DEFAULT 0");
+    if (!cols.has("artifact_version")) this.sql.exec("ALTER TABLE entries ADD COLUMN artifact_version INTEGER");
+    // Files posted before files became documents: each becomes the next version of the doc with its (cleaned) name.
+    if (this.meta("files_backfilled") !== "1") {
+      for (const r of this.sql.exec("SELECT seq, ts, author, via, client, text, artifact_name, artifact_content FROM entries WHERE type = 'artifact' AND artifact_version IS NULL AND artifact_content IS NOT NULL ORDER BY seq").toArray()) {
+        const name = cleanFileName(r.artifact_name as string);
+        const v = this.storeVersion(r.author as string, name, r.artifact_content as string, { via: r.via as "agent" | "person" | null, client: r.client as string | null, summary: r.text as string }, r.ts as number);
+        this.sql.exec("UPDATE entries SET artifact_name = ?, artifact_version = ? WHERE seq = ?", name, v, r.seq);
+      }
+      this.setMeta("files_backfilled", "1");
+    }
     // Tasks posted before the tasks table existed: give them a row once (done if something resolved them).
     if (this.meta("tasks_backfilled") !== "1") {
       this.sql.exec(
@@ -338,7 +362,7 @@ export class Board extends DurableObject<Env> {
     return { entry: await this.post(user, input) };
   }
 
-  async post(user: string, input: NewEntry): Promise<Entry> {
+  async post(user: string, input: NewEntry, internal: { docVersion?: number } = {}): Promise<Entry> {
     const info = this.info();
     if (info.archived) throw new BoardError(`"${info.title}" is archived, so it's read-only. Its creator can restore it.`);
     this.rateLimit(user);
@@ -352,7 +376,8 @@ export class Board extends DurableObject<Env> {
     if (text.length > MAX_TEXT) throw new BoardError(`text is too long (max ${MAX_TEXT} characters); post the long part as an artifact.`);
 
     // Egress filter: nothing that looks like a credential is ever stored.
-    const hit = scanFields({ text, artifact_name: input.artifact_name, artifact_content: input.artifact_content });
+    // (A document save already checked its content; the log entry for it carries the same content.)
+    const hit = scanFields({ text, artifact_name: input.artifact_name, artifact_content: internal.docVersion != null ? null : input.artifact_content });
     if (hit) throw new BoardError(blockedMessage(hit));
 
     const refs = [input.reply_to, input.supersedes, input.retracts, ...(input.resolves ?? [])].filter((n): n is number => n != null);
@@ -373,6 +398,7 @@ export class Board extends DurableObject<Env> {
 
     let artifactName: string | null = null;
     let artifactContent: string | null = null;
+    let artifactVersion: number | null = null;
     if (input.type === "artifact") {
       artifactName = (input.artifact_name ?? "").trim() || null;
       artifactContent = input.artifact_content ?? null;
@@ -380,6 +406,11 @@ export class Board extends DurableObject<Env> {
         throw new BoardError("artifact entries need artifact_name and artifact_content.");
       }
       if (artifactContent.length > MAX_ARTIFACT) throw new BoardError(`artifact_content is too large (max ${MAX_ARTIFACT} characters).`);
+      // A file is a document: posting one publishes its next version (no base version needed). Content lives in doc_versions.
+      artifactName = cleanFileName(artifactName);
+      artifactVersion =
+        internal.docVersion ??
+        this.storeVersion(user, artifactName, artifactContent, { via: input.via, client: input.client, summary: text });
     }
 
     // Resolved against the board's members by the Worker; stored as given, minus anything malformed or meaningless.
@@ -393,8 +424,8 @@ export class Board extends DurableObject<Env> {
 
     const row = this.sql
       .exec(
-        `INSERT INTO entries (ts, author, type, text, to_user, mentions, self_agent, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_content)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING ${ENTRY_COLS}`,
+        `INSERT INTO entries (ts, author, type, text, to_user, mentions, self_agent, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, artifact_content)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING ${ENTRY_COLS}`,
         Date.now(),
         user,
         input.type,
@@ -410,9 +441,11 @@ export class Board extends DurableObject<Env> {
         input.via === "agent" ? (input.client ?? "agent").slice(0, 40) : null,
         artifactName,
         artifactContent == null ? null : new TextEncoder().encode(artifactContent).length,
-        artifactContent,
+        artifactVersion,
+        null,
       )
       .one();
+    if (artifactVersion != null) this.broadcast({ type: "doc", name: artifactName, version: artifactVersion, by: user });
     const entry = toEntry(row);
     if (entry.type === "task") {
       this.sql.exec("INSERT OR IGNORE INTO tasks (seq, status, assignee, assignee_agent, updated_at) VALUES (?, 'todo', ?, 1, ?)", entry.seq, entry.to, entry.ts);
@@ -535,14 +568,23 @@ export class Board extends DurableObject<Env> {
       .toArray()
       .map(toEntry)
       .filter((e) => e.reply_to === seq || e.supersedes === seq || e.retracts === seq || e.resolves.includes(seq));
-    return { entry: toEntry(rows[0]), artifact_content: (rows[0].artifact_content as string | null) ?? null, replies };
+    const entry = toEntry(rows[0]);
+    let content = (rows[0].artifact_content as string | null) ?? null;
+    if (content == null && entry.artifact_name && entry.artifact_version != null) {
+      const v = this.sql.exec("SELECT content FROM doc_versions WHERE name = ? AND version = ?", entry.artifact_name, entry.artifact_version).toArray()[0];
+      content = v ? (v.content as string) : `(v${entry.artifact_version} of ${entry.artifact_name} is no longer kept; read the latest with the doc tool.)`;
+    }
+    return { entry, artifact_content: content, replies };
   }
 
   /** Case-insensitive substring search over text and artifact names/content, with optional filters. */
   async search(query: string, opts: { author?: string; type?: string; limit?: number } = {}): Promise<Entry[]> {
     this.info();
     const q = `%${query.replace(/[\\%_]/g, (c) => "\\" + c)}%`;
-    const clauses = ["(text LIKE ?1 ESCAPE '\\' OR artifact_name LIKE ?1 ESCAPE '\\' OR artifact_content LIKE ?1 ESCAPE '\\')"];
+    const clauses = [
+      `(text LIKE ?1 ESCAPE '\\' OR artifact_name LIKE ?1 ESCAPE '\\' OR artifact_content LIKE ?1 ESCAPE '\\'
+        OR EXISTS (SELECT 1 FROM doc_versions v WHERE v.name = entries.artifact_name AND v.version = entries.artifact_version AND v.content LIKE ?1 ESCAPE '\\'))`,
+    ];
     const args: SqlStorageValue[] = [q];
     if (opts.author) {
       args.push(opts.author);
@@ -816,8 +858,9 @@ export class Board extends DurableObject<Env> {
     return this.saveDoc(user, name, next, cur.version as number, opts);
   }
 
-  private async saveDoc(user: string, name: string, content: string, prev: number, opts: DocEditOpts): Promise<DocResult> {
-    const now = Date.now();
+  /** Store the next version of a document (no log entry). Returns the new version number. */
+  private storeVersion(user: string, name: string, content: string, opts: DocEditOpts, now = Date.now()): number {
+    const prev = (this.sql.exec("SELECT version FROM docs WHERE name = ?", name).toArray()[0]?.version as number | undefined) ?? 0;
     const version = prev + 1;
     const client = opts.via === "agent" ? (opts.client ?? "agent").slice(0, 40) : null;
     if (prev === 0) {
@@ -834,15 +877,26 @@ export class Board extends DurableObject<Env> {
     );
     // Keep the last 50 versions of each document.
     this.sql.exec("DELETE FROM doc_versions WHERE name = ? AND version <= ?", name, version - 50);
-    // Everyone's agents notice through the conversation; tabs update live.
-    const note = await this.post(user, {
-      type: "note",
-      text: `${prev === 0 ? "Created" : "Updated"} the document ${name} (v${version})${opts.summary ? `: ${opts.summary}` : "."}`,
-      via: opts.via,
-      client: opts.client,
-    });
-    this.broadcast({ type: "doc", name, version, by: user });
-    return { conflict: false, version, note: note.seq };
+    return version;
+  }
+
+  private async saveDoc(user: string, name: string, content: string, prev: number, opts: DocEditOpts): Promise<DocResult> {
+    const version = this.storeVersion(user, name, content, opts);
+    void prev;
+    // One log entry per version: everyone's agents notice through the conversation, and tabs update live.
+    const entry = await this.post(
+      user,
+      {
+        type: "artifact",
+        text: `${version === 1 ? "Created" : "Updated"} the document ${name} (v${version})${opts.summary ? `: ${opts.summary}` : "."}`,
+        artifact_name: name,
+        artifact_content: content,
+        via: opts.via,
+        client: opts.client,
+      },
+      { docVersion: version },
+    );
+    return { conflict: false, version, note: entry.seq };
   }
 
   /** New title (checked for secrets); open tabs update live. Access is checked by the Worker. */
@@ -883,6 +937,11 @@ export class Board extends DurableObject<Env> {
     for (const r of this.sql.exec("SELECT seq, text, artifact_name, artifact_content FROM entries ORDER BY seq").toArray()) {
       const hit = scanFields({ text: r.text as string, artifact_name: r.artifact_name as string | null, artifact_content: r.artifact_content as string | null });
       if (hit) out.push({ seq: r.seq as number, hit });
+    }
+    // File and document versions (reported against the entry that published them, or 0 if none).
+    for (const r of this.sql.exec("SELECT v.name, v.version, v.content, (SELECT seq FROM entries e WHERE e.artifact_name = v.name AND e.artifact_version = v.version) AS seq FROM doc_versions v").toArray()) {
+      const hit = scanText(r.content as string, `${r.name} v${r.version}`);
+      if (hit) out.push({ seq: (r.seq as number | null) ?? 0, hit });
     }
     const t = scanText(this.meta("title") ?? "", "board title");
     if (t) out.push({ seq: 0, hit: t });
