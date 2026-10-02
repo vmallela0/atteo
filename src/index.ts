@@ -1034,9 +1034,11 @@ export default {
               row: logRow(e),
               reactions: snap.reactions[e.seq] ?? [],
               ...(e.type === "change" ? { reviews: snap.reviews[e.seq] ?? [] } : {}),
+              ...(snap.claims[e.seq] ? { claim: snap.claims[e.seq] } : {}),
             })),
             ...(after === 0 ? { reactions: snap.reactions } : {}),
             reviews: snap.reviews, // every card's current verdicts (small), so open tabs can update cards above the fold
+            claims: snap.claims, // every claim's status and every stale entry, same idea
             reads: snap.reads, // how far each member has seen, as a person and through their agent (read receipts)
             summary: summaryHtml([], viewer?.name ?? "", members, snap.summary, { boardId: id, creator: snap.info.created_by }),
             count: snap.info.entry_count,

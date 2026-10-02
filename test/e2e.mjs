@@ -1310,6 +1310,8 @@ await step("claims: evidence, verify (never your own), dispute flags everything 
   has(sum, `stale: premise #${c1} disputed`);
   has(await ok(A, fb, "claim", { action: "list" }), `#${c1} [disputed]`);
   await err(A, fb, "claim", { action: "verify", seq: log }, "isn't a claim");
+  const upd = await (await web(`/api/boards/${fb}/updates?after=${c1 - 1}`, A)).json();
+  assert(upd.claims[c1].status === "disputed" && upd.claims[d1].stale_from === c1 && upd.entries.find((x) => x.seq === d1).claim.stale_why === "disputed", JSON.stringify(upd.claims).slice(0, 300));
 });
 
 await step("big boards open on the newest entries; earlier ones load on demand", async () => {
