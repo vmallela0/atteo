@@ -1244,6 +1244,7 @@ await step("access: roles (viewers read but can't change), invite links with lim
   await err(B, fb, "task", { action: "create", title: "nope" }, "role is viewer");
   has(await ok(B, fb, "task", { action: "list" }), "#");
   assert((await j(B, `/api/boards/${fb}/entries`, { text: "web post as viewer" })).status === 403, "viewer web post");
+  assert((await j(B, `/api/boards/${fb}/seen`, { seq: 1 })).status === 200, "viewers still send read receipts");
   // Invite link: viewer role, one use.
   const l = await (await j(A, `/api/boards/${fb}/links`, { role: "viewer", max_uses: 1, link_days: 1, member_days: 30 })).json();
   assert(l.url.includes("/i/il_"), JSON.stringify(l));

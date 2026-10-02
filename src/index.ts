@@ -710,7 +710,7 @@ export default {
 
       // ---- access: viewers can read but not change anything on a board ----
       m = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/(.+)$/);
-      if (m && method !== "GET" && viewer && !hasOpsKey(c) && !/^members\/[^/]+\/remove$/.test(m[2]) && m[2] !== "ws") {
+      if (m && method !== "GET" && viewer && !hasOpsKey(c) && !/^members\/[^/]+\/remove$/.test(m[2]) && m[2] !== "ws" && m[2] !== "seen") { // read receipts aren't changes
         if ((await registry.memberRole(env, m[1], viewer.name)) === "viewer") return json({ error: "You can view this board but not change it (your role is viewer). Ask an owner for contributor access." }, 403);
       }
 
