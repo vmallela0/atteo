@@ -482,8 +482,8 @@ ${list}
 ${connectDialog(viewer)}
 <dialog id="new-board"><div class="hd"><div><h2>New board</h2><p class="muted small" style="margin-top:4px">You can invite people right after.</p></div><button class="btn ghost sm" data-close aria-label="Close">✕</button></div>
 <form class="bd" method="post" action="/boards"><label class="lbl" for="title">Title</label>
-<input class="input" id="title" name="title" required maxlength="120" placeholder="Debug the payments integration">
-<label class="row small" style="gap:8px;margin-top:12px"><input type="checkbox" name="encrypted" value="1"> <span>End-to-end encrypted <span class="muted">(members read and write through the agent-soup CLI; the server only sees ciphertext)</span></span></label>
+<input class="input" id="title" name="title" required maxlength="120" placeholder="Debug the payments integration" autofocus>
+<label class="pf-check" style="margin-top:14px"><input type="checkbox" name="encrypted" value="1"><span><span class="small" style="color:var(--ink)">End-to-end encrypted</span><span class="xs muted">Members read and write through the agent-soup CLI; the server and this site only see ciphertext.</span></span></label>
 <div class="row" style="justify-content:flex-end;margin-top:18px"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary">Create board</button></div></form></dialog>
 <dialog id="edit-board"><div class="hd"><div><h2>Board details</h2><p class="muted small" style="margin-top:4px" id="eb-title"></p></div><button class="btn ghost sm" data-close aria-label="Close">✕</button></div>
 <form class="bd" id="eb-form">
@@ -1253,7 +1253,7 @@ window.boardKeys=(e,k)=>{
   <div class="row small muted bp-meta" title="${esc(info.id)}">
     <span class="badge conn" id="conn" hidden title="Live updates are reconnecting">Reconnecting…</span>${readOnly ? `<span class="badge" title="Your role on this board is viewer: you can read, not post">View only</span>` : ""}
     <span class="row" style="min-width:0" title="${esc(members.map((m) => m.user).join(", "))}">${avatarStack(members.map((m) => m.user))}</span>
-    <span class="bp-count"><span data-count>${info.entry_count}</span> entries</span>${info.archived ? "" : VOICE_BUTTON}
+    ${info.archived ? "" : VOICE_BUTTON}
   </div></div>
   <div class="bp-tabs"><div class="tabs" role="tablist" id="board-tabs"><button role="tab" aria-selected="true" aria-controls="panel-conv">Conversation</button><button role="tab" aria-selected="false" aria-controls="panel-log">Log <span class="faint" data-count>${info.entry_count}</span></button><button role="tab" aria-selected="false" aria-controls="panel-docs">Files</button><button role="tab" aria-selected="false" aria-controls="panel-tasks">Tasks <span class="faint" id="task-count"></span></button></div>
     </div>
@@ -1583,7 +1583,36 @@ document.addEventListener('click',async e=>{const t=e.target.closest('[data-hook
   t.disabled=true;const r=await fetch('/api/webhooks/'+t.dataset.hookTest+'/test',{method:'POST'});const j=await r.json().catch(()=>({}));t.disabled=false;
   const w=j.webhook;say(w&&!w.last_error?'Test delivered (HTTP '+w.last_status+').':'Test failed: '+((w&&w.last_error)||j.error||'unknown'),!!(w&&!w.last_error))});})();`;
 
-export function mePage(viewer: Viewer, side: SideBoard[], tokens: TokenRow[], plan: PlanState = { plan: "free", status: null, renews_at: null, cancel_at_end: false, customer: null }, billingEnabled = false, hooks: WebhookRow[] = []): Response {
+export interface ProfileView {
+  display_name: string | null;
+  bio: string | null;
+  listed: boolean;
+  rules: { auto_accept_invites?: "friends" | null; auto_accept_friends?: "coworkers" | null };
+}
+
+/** Account → Profile: how you show up to others (name, bio, the directory) and what your account accepts on its own. */
+function profileSection(p: ProfileView | null): string {
+  if (!p) return "";
+  const box = (name: string, on: boolean, label: string, hint: string) =>
+    `<label class="pf-check"><input type="checkbox" name="${name}"${on ? " checked" : ""}><span><span class="small" style="color:var(--ink)">${label}</span><span class="xs muted">${hint}</span></span></label>`;
+  return `<form class="card pad pf-form" id="pf-form" style="margin-top:10px">
+  <div class="pf-grid"><label class="lbl" for="pf-name">Display name</label><input class="input" id="pf-name" name="display_name" maxlength="60" value="${esc(p.display_name ?? "")}" placeholder="Your name">
+  <label class="lbl" for="pf-bio">Bio</label><textarea class="input" id="pf-bio" name="bio" maxlength="280" rows="2" placeholder="What you work on">${esc(p.bio ?? "")}</textarea></div>
+  <div class="stack" style="--gap:10px;margin-top:14px">
+  ${box("listed", p.listed, "List me in the people directory", "Anyone signed in can find you by name, not only people you share a board with.")}
+  ${box("auto_invites", p.rules.auto_accept_invites === "friends", "Join boards friends invite me to", "Skips accepting each invitation from a friend.")}
+  ${box("auto_friends", p.rules.auto_accept_friends === "coworkers", "Accept friend requests from people I share a board with", "")}</div>
+  <div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn primary sm">Save profile</button></div>
+</form>`;
+}
+
+const PROFILE_JS = `
+document.getElementById('pf-form')?.addEventListener('submit',async e=>{e.preventDefault();const f=e.target,b=f.querySelector('button');b.disabled=true;
+  const r=await fetch('/api/me/profile',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({display_name:f.display_name.value,bio:f.bio.value,listed:f.listed.checked,
+    rules:{auto_accept_invites:f.auto_invites.checked?'friends':null,auto_accept_friends:f.auto_friends.checked?'coworkers':null}})});
+  const j=await r.json().catch(()=>({}));b.disabled=false;toast(r.ok?'Profile saved':(j.error||'Could not save'))});`;
+
+export function mePage(viewer: Viewer, side: SideBoard[], tokens: TokenRow[], plan: PlanState = { plan: "free", status: null, renews_at: null, cancel_at_end: false, customer: null }, billingEnabled = false, hooks: WebhookRow[] = [], prof: ProfileView | null = null): Response {
   const rows = tokens.length
     ? tokens
         .map(
@@ -1608,13 +1637,14 @@ export function mePage(viewer: Viewer, side: SideBoard[], tokens: TokenRow[], pl
     crumbs: `<span class="cur">Account</span>`,
     body: `<div class="section-title"><div><h1>Account</h1><p class="muted" style="margin-top:4px">Signed in as <b>${esc(viewer.name)}</b> · ${esc(viewer.email)}</p></div>
   <form method="post" action="/auth/logout"><button class="btn sm">Sign out</button></form></div>
-<div class="section-title" style="margin-top:32px"><div><h2>Profile pictures</h2><p class="small muted" style="margin-top:4px">One for you and one for your agent, so people can tell them apart at a glance.</p></div></div>
+<div class="section-title" style="margin-top:32px"><div><h2>Profile</h2><p class="small muted" style="margin-top:4px">How you and your agent show up to others. Two pictures, so people can tell you apart at a glance.</p></div></div>
 <div class="pfps">${(["person", "agent"] as const)
       .map(
         (k) => `<div class="pfp card pad row" data-kind="${k}">${avatar(viewer.name, "lg", k === "agent")}<div class="grow"><b>${k === "agent" ? `${esc(viewer.name)}'s agent` : esc(viewer.name)}</b><div class="xs faint">${k === "agent" ? "Shown on everything your agent posts" : "Shown on what you post from the web"}</div></div>
 <div class="row" style="gap:6px"><label class="btn sm">Upload<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden data-pfp-file></label><button class="btn sm" type="button" data-pfp-gen>Generate</button><button class="btn ghost sm" type="button" data-pfp-rm>Remove</button></div></div>`,
       )
       .join("")}</div>
+${profileSection(prof)}
 <div class="section-title" style="margin-top:32px"><div><h2>Agent connections</h2><p class="small muted" style="margin-top:4px">Each connected agent has its own sign-in. Revoke one to disconnect that agent immediately.</p></div><button class="btn sm" data-open="connect">Connect an agent</button></div>
 <div class="list scroll-x"><table class="tbl"><thead><tr><th>Connection</th><th>Last used</th><th>Status</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
 ${
@@ -1626,7 +1656,7 @@ ${
 ${webhooksSection(hooks)}
 ${billingSection(plan, billingEnabled)}
 ${connectDialog(viewer)}`,
-    script: CONNECT_JS + `window.revoked=()=>location.reload();` + BILLING_JS + PFP_JS + HOOKS_JS,
+    script: CONNECT_JS + `window.revoked=()=>location.reload();` + BILLING_JS + PFP_JS + HOOKS_JS + PROFILE_JS,
   });
 }
 

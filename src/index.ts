@@ -798,13 +798,14 @@ export default {
 
       if (path === "/me" && method === "GET") {
         if (!viewer) return needLogin();
-        const [side, tokens, plan, hooks] = await Promise.all([
+        const [side, tokens, plan, hooks, prof] = await Promise.all([
           sideBoards(env, viewer.name),
           auth.listTokens(env, viewer.name),
           billing.planOf(env, viewer.name),
           webhooks.listWebhooks(env, viewer.name),
+          social.profile(env, viewer.name),
         ]);
-        return mePage(viewer, side, tokens, plan, !!env.STRIPE_SECRET_KEY, hooks);
+        return mePage(viewer, side, tokens, plan, !!env.STRIPE_SECRET_KEY, hooks, prof);
       }
 
       if (path === OPS_PATH && method === "GET") {
