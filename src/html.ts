@@ -2,7 +2,7 @@
 
 import type { BoardRow, InviteRow, Invitation, UserRow } from "./registry";
 import type { TokenRow } from "./auth";
-import { computeSummary, retractedSet, type Summary } from "./state";
+import { authorLabel, computeSummary, retractedSet, type Summary } from "./state";
 import { screenText } from "./screen";
 import type { BoardInfo, Entry } from "./types";
 import { appPage, avatar, avatarStack, copyField, hue, page, renderText, typeTag, when, type SideBoard, type Viewer } from "./ui";
@@ -52,14 +52,21 @@ export function entryHtml(e: Entry, boardId: string, withReplies = true, opts: {
 <button class="btn sm" type="button" data-file="${e.seq}" data-board="${esc(boardId)}">View</button></div></div>`
     : "";
   const actions = opts.canRetract && !opts.retracted && e.retracts == null ? `<button class="btn ghost sm retract" type="button" data-retract="${e.seq}">Retract</button>` : "";
-  return `<article class="entry${opts.retracted ? " retracted" : ""}" id="e${e.seq}" data-seq="${e.seq}" data-author="${esc(e.author)}">
-${avatar(e.author)}
+  return `<article class="entry${opts.retracted ? " retracted" : ""}${e.via === "agent" ? " by-agent" : ""}" id="e${e.seq}" data-seq="${e.seq}" data-author="${esc(e.author)}">
+${avatar(e.author, "", e.via === "agent")}
 <div class="grow">
-  <div class="meta"><span class="who">${esc(e.author)}</span>${e.to ? `<span class="to">→ ${esc(e.to)}</span>` : ""}${typeTag(e.type)}${when(e.ts)}<a class="seq" href="#e${e.seq}">#${e.seq}</a><span class="badge rbadge">Retracted</span>${flagBadge(e.text)}${actions}</div>
+  <div class="meta">${whoHtml(e)}${e.to ? `<span class="to">→ ${esc(e.to)}</span>` : ""}${typeTag(e.type)}${when(e.ts)}<a class="seq" href="#e${e.seq}">#${e.seq}</a><span class="badge rbadge">Retracted</span>${flagBadge(e.text)}${actions}</div>
   <div class="body">${renderText(e.text)}</div>${file}
   ${refs.length ? `<div class="refs">${refs.join(" · ")}</div>` : ""}
   ${withReplies ? `<div class="replies" id="r${e.seq}"></div>` : ""}
 </div></article>`;
+}
+
+/** Author, marked as the person or their agent (and which agent). */
+function whoHtml(e: Entry): string {
+  if (e.via === "agent") return `<span class="who">${esc(e.author)}'s agent</span><span class="badge kind agent" title="Posted by ${esc(e.author)}'s agent">${esc(e.client || "agent")}</span>`;
+  if (e.via === "person") return `<span class="who">${esc(e.author)}</span><span class="badge kind person" title="Written by ${esc(e.author)} themselves">person</span>`;
+  return `<span class="who">${esc(e.author)}</span>`;
 }
 
 function flagBadge(text: string): string {
@@ -96,7 +103,7 @@ export function threadHtml(entries: Entry[], boardId: string, viewer?: { name: s
 export function summaryHtml(entries: Entry[], viewer: string, members: MemberView[], precomputed?: Summary, ctl?: { boardId: string; creator: string }): string {
   const s = precomputed ?? computeSummary(entries);
   const item = (e: Entry) =>
-    `<li><a href="#e${e.seq}"><span class="n">#${e.seq}</span><span>${e.to ? `<b>${esc(e.author)}</b> → ${esc(e.to)}: ` : `<b>${esc(e.author)}</b>: `}${esc(clip(e.artifact_name ?? e.text, 90))}</span></a></li>`;
+    `<li><a href="#e${e.seq}"><span class="n">#${e.seq}</span><span>${e.to ? `<b>${esc(authorLabel(e))}</b> → ${esc(e.to)}: ` : `<b>${esc(authorLabel(e))}</b>: `}${esc(clip(e.artifact_name ?? e.text, 90))}</span></a></li>`;
   const sec = (title: string, items: Entry[]) =>
     `<h3><span>${title}</span><span class="faint">${items.length || ""}</span></h3>${items.length ? `<ul>${items.map(item).join("")}</ul>` : `<p class="none">None</p>`}`;
   const mine = s.openQuestions.filter((e) => e.to === viewer);
@@ -301,7 +308,7 @@ export function logRow(e: Entry, boardTitle?: string, boardId?: string): string 
 <td class="mono" title="${t}">${t.slice(5, 10)} ${t.slice(11, 19)}</td>
 <td class="mono">#${e.seq}</td>
 ${boardTitle != null ? `<td class="truncate" style="max-width:160px">${esc(boardTitle)}</td>` : ""}
-<td><span class="row">${avatar(e.author, "sm")}${esc(e.author)}</span></td>
+<td><span class="row">${avatar(e.author, "sm", e.via === "agent")}${esc(e.via === "agent" ? `${e.author}'s agent` : e.author)}${e.via === "person" ? ` <span class="xs faint">person</span>` : ""}</span></td>
 <td>${typeTag(e.type)}</td>
 <td class="muted">${e.to ? esc(e.to) : "—"}</td>
 <td class="sum"><span>${esc(clip(e.artifact_name ? `${e.artifact_name} — ${e.text}` : e.text, 200))}</span></td></tr>`;

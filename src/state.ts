@@ -59,9 +59,14 @@ export function fmtTime(ts: number): string {
   return new Date(ts).toISOString().slice(0, 16).replace("T", " ") + "Z";
 }
 
+/** "jxn's agent" for agent posts, "jxn (person)" for posts the member wrote themselves, plain name for older entries. */
+export function authorLabel(e: Entry): string {
+  return e.via === "agent" ? `${e.author}'s agent` : e.via === "person" ? `${e.author} (person)` : e.author;
+}
+
 /** One-line header for an entry, e.g. `#12 question · jxn → vedu · re #9 · 2026-10-02 10:31Z`. */
 export function entryHeader(e: Entry, viewer?: string): string {
-  const parts = [`#${e.seq} ${e.type}`, e.to ? `${e.author} → ${e.to}` : e.author];
+  const parts = [`#${e.seq} ${e.type}`, e.to ? `${authorLabel(e)} → ${e.to}` : authorLabel(e)];
   if (e.reply_to != null) parts.push(`re #${e.reply_to}`);
   if (e.resolves.length) parts.push(`resolves ${e.resolves.map((n) => "#" + n).join(", ")}`);
   if (e.supersedes != null) parts.push(`supersedes #${e.supersedes}`);
@@ -88,7 +93,7 @@ function indent(s: string): string {
 
 function oneLine(e: Entry, max = 240): string {
   const t = e.text.replace(/\s+/g, " ").trim();
-  const who = e.to ? `${e.author} → ${e.to}` : e.author;
+  const who = e.to ? `${authorLabel(e)} → ${e.to}` : authorLabel(e);
   const extra = e.artifact_name ? ` [file: ${e.artifact_name}]` : "";
   const flag = screenText(e.text) ? "⚠ flagged · " : "";
   return `#${e.seq} (${who})${extra} ${flag}${t.length > max ? t.slice(0, max) + "…" : t}`;

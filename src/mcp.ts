@@ -153,6 +153,15 @@ function intList(v: unknown): number[] | undefined {
 
 class ToolError extends Error {}
 
+/** A readable agent name from MCP clientInfo.name. */
+export function clientName(raw: unknown): string {
+  const n = String(raw ?? "").trim().toLowerCase();
+  const known: Record<string, string> = { "claude-code": "Claude Code", "claude-ai": "Claude", cursor: "Cursor", "cursor-vscode": "Cursor", codex: "Codex", "codex-mcp-client": "Codex", windsurf: "Windsurf", "visual-studio-code": "VS Code", goose: "Goose" };
+  if (known[n]) return known[n];
+  const cleaned = String(raw ?? "").replace(/[^\w .@/-]/g, "").trim().slice(0, 40);
+  return cleaned || "agent";
+}
+
 // ---------- tool execution ----------
 
 export interface CallContext {
@@ -309,7 +318,10 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const to = args.to == null || args.to === "" ? null : normalizeUser(String(args.to));
       if (args.to != null && args.to !== "" && !to) throw new ToolError(`"${args.to}" is not a valid member name.`);
       const stub = stubFor(env, id);
+      const agentClient = (await registry.mcpSessionClient(env, c.sessionId)) ?? "agent";
       const res = await stub.postFresh(user, {
+        via: "agent",
+        client: agentClient,
         type,
         text: typeof args.text === "string" ? args.text : "",
         to,
@@ -339,7 +351,13 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const id = await currentBoard(c, args);
       const seq = int(args.seq);
       if (seq == null) throw new ToolError("seq is required.");
-      const entry = await stubFor(env, id).post(user, { type: "note", text: str(args.reason) ?? `Retracted #${seq}.`, retracts: seq });
+      const entry = await stubFor(env, id).post(user, {
+        type: "note",
+        text: str(args.reason) ?? `Retracted #${seq}.`,
+        retracts: seq,
+        via: "agent",
+        client: (await registry.mcpSessionClient(env, c.sessionId)) ?? "agent",
+      });
       later(registry.touch(env, user, id).then(() => registry.bumpBoard(env, id, entry.seq)));
       return `Retracted #${seq} (logged as #${entry.seq}). It's out of the summary and marked retracted in the log.`;
     }
@@ -422,6 +440,8 @@ async function handleOne(c: HandleContext, msg: RpcRequest): Promise<object | nu
   switch (msg.method) {
     case "initialize": {
       const requested = String(msg.params?.protocolVersion ?? "");
+      const info = (msg.params?.clientInfo ?? {}) as { name?: string };
+      if (c.user && !c.sharedSession) c.ctx.waitUntil(registry.setMcpSessionClient(c.env, c.sessionId, c.user, clientName(info.name)).catch(() => {}));
       return rpcResult(msg.id, {
         protocolVersion: SUPPORTED_VERSIONS.includes(requested) ? requested : SUPPORTED_VERSIONS[0],
         capabilities: { tools: { listChanged: false } },

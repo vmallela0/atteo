@@ -13,6 +13,8 @@ export interface Entry {
   resolves: number[]; // questions answered / tasks completed by this entry
   supersedes: number | null; // replaces an earlier entry (drops it from the summary)
   retracts: number | null; // withdraws an earlier entry (drops it from the summary; it stays in the log, marked retracted)
+  via?: "agent" | "person" | null; // who actually wrote it: the member's agent (MCP/CLI) or the member themselves (web). Null on older entries.
+  client?: string | null; // for agent posts: which agent, e.g. "Claude Code"
   artifact_name: string | null;
   artifact_size: number | null; // bytes of artifact content (content itself is fetched with `get`)
 }
@@ -25,6 +27,8 @@ export interface NewEntry {
   resolves?: number[];
   supersedes?: number | null;
   retracts?: number | null;
+  via?: "agent" | "person" | null;
+  client?: string | null;
   artifact_name?: string | null;
   artifact_content?: string | null;
 }

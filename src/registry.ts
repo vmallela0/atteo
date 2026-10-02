@@ -253,6 +253,21 @@ export async function agentStatus(env: Env, user: string): Promise<{ connected: 
   return { connected: !!r?.last, lastUsed: r?.last ?? null };
 }
 
+export async function setMcpSessionClient(env: Env, sessionId: string, user: string, client: string) {
+  const now = Date.now();
+  await env.DB.prepare(
+    `INSERT INTO mcp_sessions (id, user, board_id, created_at, last_seen, client) VALUES (?, ?, NULL, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET client = excluded.client WHERE mcp_sessions.user = excluded.user`,
+  )
+    .bind(sessionId, user, now, now, client)
+    .run();
+}
+
+export async function mcpSessionClient(env: Env, sessionId: string): Promise<string | null> {
+  const r = await env.DB.prepare(`SELECT client FROM mcp_sessions WHERE id = ?`).bind(sessionId).first<{ client: string | null }>();
+  return r?.client ?? null;
+}
+
 export async function endMcpSession(env: Env, sessionId: string) {
   await env.DB.prepare(`DELETE FROM mcp_sessions WHERE id = ?`).bind(sessionId).run();
 }

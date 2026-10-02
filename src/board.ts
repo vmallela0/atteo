@@ -31,12 +31,14 @@ function toEntry(r: Row): Entry {
     resolves: JSON.parse((r.resolves as string) || "[]"),
     supersedes: (r.supersedes as number | null) ?? null,
     retracts: (r.retracts as number | null) ?? null,
+    via: ((r.via as string | null) ?? null) as Entry["via"],
+    client: (r.client as string | null) ?? null,
     artifact_name: (r.artifact_name as string | null) ?? null,
     artifact_size: (r.artifact_size as number | null) ?? null,
   };
 }
 
-const ENTRY_COLS = "seq, ts, author, type, text, to_user, reply_to, resolves, supersedes, retracts, artifact_name, artifact_size";
+const ENTRY_COLS = "seq, ts, author, type, text, to_user, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size";
 
 export class Board extends DurableObject<Env> {
   private sql: SqlStorage;
@@ -59,6 +61,8 @@ export class Board extends DurableObject<Env> {
         resolves TEXT NOT NULL DEFAULT '[]',
         supersedes INTEGER,
         retracts INTEGER,
+        via TEXT,
+        client TEXT,
         artifact_name TEXT,
         artifact_size INTEGER,
         artifact_content TEXT
@@ -112,6 +116,8 @@ export class Board extends DurableObject<Env> {
   private migrate() {
     const cols = new Set(this.sql.exec("PRAGMA table_info(entries)").toArray().map((r) => r.name as string));
     if (!cols.has("retracts")) this.sql.exec("ALTER TABLE entries ADD COLUMN retracts INTEGER");
+    if (!cols.has("via")) this.sql.exec("ALTER TABLE entries ADD COLUMN via TEXT");
+    if (!cols.has("client")) this.sql.exec("ALTER TABLE entries ADD COLUMN client TEXT");
   }
 
   // ---- metadata ----
@@ -249,8 +255,8 @@ export class Board extends DurableObject<Env> {
 
     const row = this.sql
       .exec(
-        `INSERT INTO entries (ts, author, type, text, to_user, reply_to, resolves, supersedes, retracts, artifact_name, artifact_size, artifact_content)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING ${ENTRY_COLS}`,
+        `INSERT INTO entries (ts, author, type, text, to_user, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_content)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING ${ENTRY_COLS}`,
         Date.now(),
         user,
         input.type,
@@ -260,6 +266,8 @@ export class Board extends DurableObject<Env> {
         JSON.stringify([...new Set(input.resolves ?? [])]),
         input.supersedes ?? null,
         input.retracts ?? null,
+        input.via ?? null,
+        input.via === "agent" ? (input.client ?? "agent").slice(0, 40) : null,
         artifactName,
         artifactContent == null ? null : new TextEncoder().encode(artifactContent).length,
         artifactContent,

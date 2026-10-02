@@ -195,7 +195,7 @@ await step("core loop: B waits, A asks, B receives the question in real time", a
   await new Promise((r) => setTimeout(r, 400));
   const t0 = Date.now();
   q1 = seqOf(await ok(A, board, "post", { type: "question", to: B, text: "Can you share the failing stack trace from checkout?" }));
-  has(await waiting, `#${q1} question · ${A} → ${B}`);
+  has(await waiting, `#${q1} question · ${A}'s agent → ${B}`);
   assert(Date.now() - t0 < 3000, `delivery took ${Date.now() - t0}ms`);
 });
 
@@ -487,7 +487,7 @@ await step("retract: author withdraws own entry; creator can withdraw any; other
   const u = await (await web(`/api/boards/${board}/updates?after=${n}`, A)).json();
   assert(u.entries.some((e) => e.retracts === n), "updates should carry the retraction");
   const page = await (await web(`/b/${board}`, A)).text();
-  has(page, `class="entry retracted" id="e${c1}"`);
+  assert(new RegExp(`class="entry retracted[^"]*" id="e${c1}"`).test(page), "retracted entry should be marked");
 });
 
 await step("ingress: board content arrives fenced; injection attempts are flagged and can't break the fence", async () => {
@@ -511,6 +511,24 @@ await step("ingress: board content arrives fenced; injection attempts are flagge
   // A task assigned by someone else carries the check-with-your-user note.
   await ok(B, board, "post", { type: "task", to: A, text: `rotate keys ${run}` });
   has(await ok(A, board, "read"), `task from ${B}: check with your user`);
+});
+
+await step("people and their agents are told apart: agent posts vs posts written on the web", async () => {
+  // Agent post through an initialized MCP session (clientInfo names the client).
+  const res = await fetch(`${BASE}/mcp`, { method: "POST", headers: { "content-type": "application/json", ...auth(A) }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "claude-code", version: "2" } } }) });
+  const sid = res.headers.get("mcp-session-id");
+  const sa = { who: A, sid, board: null };
+  await sok(sa, "join_board", { board });
+  const ap = seqOf(await sok(sa, "post", { type: "claim", text: `agent wrote this ${run}` }));
+  const wp = await web(`/api/boards/${board}/entries`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "decision", text: `person wrote this ${run}` }) });
+  const wseq = (await wp.json()).entry.seq;
+  const r = await ok(B, board, "read");
+  has(r, `#${ap} claim · ${A}'s agent`);
+  has(r, `#${wseq} decision · ${A} (person)`);
+  const page = await (await web(`/b/${board}`, B)).text();
+  has(page, `${A}'s agent</span><span class="badge kind agent"`);
+  has(page, ">Claude Code<");
+  has(page, `class="badge kind person"`);
 });
 
 await step("secret filter: credentials are blocked everywhere they could be posted, and nothing is stored", async () => {

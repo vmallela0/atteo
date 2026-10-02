@@ -96,6 +96,12 @@ label.lbl{display:block;font-size:13px;font-weight:500;color:var(--ink);margin:0
 .av{--h:220;width:28px;height:28px;flex:none;border-radius:50%;display:inline-grid;place-items:center;font-size:11.5px;font-weight:600;letter-spacing:.01em;
   background:hsl(var(--h) var(--av-s) var(--av-l));color:hsl(var(--h) 55% var(--av-c));user-select:none}
 .av.sm{width:22px;height:22px;font-size:10px}.av.lg{width:40px;height:40px;font-size:15px}
+.av.agent{border-radius:7px;position:relative}
+.av.sm.agent{border-radius:5px}
+.av.agent::after{content:"";position:absolute;right:-3px;bottom:-3px;width:11px;height:11px;border-radius:50%;background:var(--bg);
+  -webkit-mask:none;box-shadow:0 0 0 1.5px var(--bg);background-image:radial-gradient(circle,hsl(var(--h) 60% 50%) 0 3px,transparent 3.5px)}
+.badge.kind{height:18px;font-size:11px;padding:0 6px}
+.badge.kind.agent{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 35%,var(--line))}
 .avs{display:inline-flex}.avs .av{border:2px solid var(--bg);margin-left:-7px}.avs .av:first-child{margin-left:0}
 
 /* lists & tables */
@@ -328,8 +334,9 @@ export function initials(name: string): string {
   return ((parts[0]?.[0] ?? "?") + (parts[1]?.[0] ?? parts[0]?.[1] ?? "")).toUpperCase();
 }
 
-export function avatar(name: string, size: "" | "sm" | "lg" = ""): string {
-  return `<span class="av ${size}" style="--h:${hue(name)}" title="${esc(name)}">${esc(initials(name))}</span>`;
+/** People are circles; their agents are rounded squares with a small bolt, so the two read apart at a glance. */
+export function avatar(name: string, size: "" | "sm" | "lg" = "", agent = false): string {
+  return `<span class="av ${size}${agent ? " agent" : ""}" style="--h:${hue(name)}" title="${esc(agent ? `${name}'s agent` : name)}">${esc(initials(name))}</span>`;
 }
 
 export function avatarStack(names: string[], max = 5): string {

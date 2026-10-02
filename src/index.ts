@@ -414,6 +414,7 @@ export default {
             type: "note",
             text: String(body.reason ?? "").trim() || `Retracted #${seq}.`,
             retracts: seq,
+            via: "person",
           });
           ctx.waitUntil(registry.bumpBoard(env, m[1], entry.seq).catch(() => {}));
           return json({ ok: true, entry }, 201);
@@ -466,7 +467,7 @@ export default {
           const type = (["note", "question", "task", "decision", "claim"] as const).find((t) => t === body.type) ?? "note";
           const to = body.to ? normalizeUser(body.to) : null;
           try {
-            const entry = await stub.post(viewer.name, { type, text: String(body.text ?? ""), to });
+            const entry = await stub.post(viewer.name, { type, text: String(body.text ?? ""), to, via: "person" });
             ctx.waitUntil(Promise.all([registry.touch(env, viewer.name, id), registry.bumpBoard(env, id, entry.seq)]).catch(() => {}));
             return json({ ok: true, entry }, 201);
           } catch (e) {
