@@ -380,8 +380,9 @@ await step("join_board by id and by name; read/post act on the joined board only
   // Presence: the web shows A's agent live on board2, and a join prompt on the board it left.
   await new Promise((r) => setTimeout(r, 300));
   const p2 = await (await web(`/b/${board2}`, A)).text();
-  has(p2, "Your agent is on this board.");
-  has(p2, "agent live");
+  // The only presence marker: a dot on the member's avatar in the Members list.
+  has(p2, `<span class="av-wrap live" title="${A}'s agent is on this board">`);
+  assert(!p2.includes("Your agent is on this board.") && !p2.includes(">agent live<"), "no presence text");
   // (A's other connections are live on the first board, so it doesn't show the join prompt there.)
 });
 

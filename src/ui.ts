@@ -107,8 +107,8 @@ label.lbl{display:block;font-size:13px;font-weight:500;color:var(--ink);margin:0
 .av.sm{width:22px;height:22px;font-size:10px}.av.lg{width:40px;height:40px;font-size:15px}
 .av.agent{border-radius:7px;position:relative}
 .av.sm.agent{border-radius:5px}
-.av.agent::after{content:"";position:absolute;right:-3px;bottom:-3px;width:11px;height:11px;border-radius:50%;background:var(--bg);
-  -webkit-mask:none;box-shadow:0 0 0 1.5px var(--bg);background-image:radial-gradient(circle,hsl(var(--h) 60% 50%) 0 3px,transparent 3.5px)}
+.av-wrap{position:relative;display:inline-flex}
+.av-wrap.live::after{content:"";position:absolute;right:-2px;bottom:-2px;width:8px;height:8px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 2px var(--bg)}
 .badge.kind{height:18px;font-size:11px;padding:0 6px}
 .badge.kind.agent{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 35%,var(--line))}
 .avs{display:inline-flex}.avs .av{border:2px solid var(--bg);margin-left:-7px}.avs .av:first-child{margin-left:0}
@@ -268,7 +268,7 @@ dialog.lightbox img{display:block;max-width:min(96vw,1600px);max-height:92vh;wid
 .sum li .n{color:var(--faint);flex:none;font-variant-numeric:tabular-nums}
 .sum li .one{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .sum li a{align-items:center}.sum li .avs{flex:none;width:40px}.sum li .avs .av{width:18px;height:18px;font-size:8px;margin-left:-6px}.sum li .avs .av:first-child{margin-left:0}
-.sum li .avs .av.agent::after{width:8px;height:8px;right:-2px;bottom:-2px}
+
 .sum .none{font-size:13px;color:var(--faint)}
 .waiting{border:1px solid color-mix(in srgb,var(--q) 40%,var(--line));background:color-mix(in srgb,var(--q) 6%,var(--bg));border-radius:var(--r-sm);padding:10px 12px;margin-bottom:6px}
 .composer{margin-top:20px;position:relative}

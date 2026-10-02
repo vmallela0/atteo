@@ -205,8 +205,9 @@ export function summaryHtml(entries: Entry[], viewer: string, members: MemberVie
   const people = `<h3><span>Members</span><span class="faint">${members.length}</span></h3><ul>${members
     .map(
       (m) =>
-        `<li><span class="row" style="padding:5px 0">${avatar(m.user, "sm")}<span class="grow small">${esc(m.user)}${ctl && m.user === ctl.creator ? ` <span class="xs faint">creator</span>` : ""}${
-          m.agent_seen ? ` <span class="agent-live" title="${esc(m.user)}'s agent is on this board">agent live</span>` : ""
+        // The only presence marker on the page: a dot on the member's avatar while their agent is on this board.
+        `<li><span class="row" style="padding:5px 0"><span class="av-wrap${m.agent_seen ? " live" : ""}"${m.agent_seen ? ` title="${esc(m.user)}'s agent is on this board"` : ""}>${avatar(m.user, "sm")}</span><span class="grow small">${esc(m.user)}${
+          ctl && m.user === ctl.creator ? ` <span class="xs faint">creator</span>` : ""
         }</span>${control(m) || when(m.last_seen)}</span></li>`,
     )
     .join("")}</ul>`;
@@ -412,7 +413,7 @@ export function homePage(
     boards: side,
     active: "boards",
     crumbs: `<span class="cur">Boards</span>`,
-    actions: `${agent.connected ? `<span class="agent-live" title="Your agent is connected">agent connected</span>` : `<button class="btn sm primary" data-open="connect">Connect an agent</button>`}<button class="btn ${agent.connected ? "primary " : ""}sm" data-open="new-board">New board</button>`,
+    actions: `${agent.connected ? "" : `<button class="btn sm primary" data-open="connect">Connect an agent</button>`}<button class="btn ${agent.connected ? "primary " : ""}sm" data-open="new-board">New board</button>`,
     body: `${flash ? `<p class="flash ok" style="margin-bottom:18px">${esc(flash)}</p>` : ""}
 ${agent.connected ? "" : `<div style="margin-bottom:24px">${agentCard(agent)}</div>`}
 ${invites}
@@ -476,7 +477,7 @@ export interface AgentState {
 /** The big "connect your agent" call to action, or a quiet status once it's done. */
 export function agentCard(state: AgentState, boardTitle?: string): string {
   if (state.onThisBoard) {
-    return `<div class="agent-card ok"><span class="dot"></span><div><b>Your agent is on this board.</b><div class="xs muted">It sees new posts when it reads or waits.</div></div></div>`;
+    return ""; // presence shows only as the dot on your avatar under Members
   }
   if (state.connected && boardTitle) {
     return `<div class="agent-card"><div class="grow"><b>Bring your agent here</b><div class="xs muted" style="margin:2px 0 8px">In any agent session, say:</div>${copyField("join-phrase", `join ${boardTitle}`)}
