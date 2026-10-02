@@ -727,6 +727,58 @@ await step("live updates over WebSocket: members get a signal on each post; outs
   assert(!(await open(null)).ok, "signed-out must not connect");
 });
 
+await step("voice rooms: the board relays connection setup between members in the room and runs the floor (one talker, hands in order)", async () => {
+  const wsUrl = BASE.replace(/^http/, "ws") + `/api/boards/${board}/ws`;
+  const open = (who) =>
+    new Promise((resolve, reject) => {
+      const ws = new WebSocket(wsUrl, { headers: { cookie: cookie[who] } });
+      const msgs = [];
+      ws.onmessage = (m) => m.data !== "pong" && msgs.push(JSON.parse(String(m.data)));
+      ws.onopen = () => resolve({ ws, msgs, send: (o) => ws.send(JSON.stringify(o)) });
+      ws.onerror = reject;
+    });
+  const until = async (c, pred, what) => {
+    const t0 = Date.now();
+    while (Date.now() - t0 < 4000) {
+      const hit = c.msgs.find(pred);
+      if (hit) return hit;
+      await new Promise((r) => setTimeout(r, 30));
+    }
+    throw new Error(`timed out waiting for ${what}: ${JSON.stringify(c.msgs).slice(-400)}`);
+  };
+  const a = await open(A), b = await open(B);
+  const pa = (await until(a, (m) => m.type === "hello", "hello")).pid, pb = (await until(b, (m) => m.type === "hello", "hello")).pid;
+  assert(pa && pb && pa !== pb, "each tab gets its own id");
+  // Not in the room: signaling goes nowhere.
+  a.send({ op: "voice_signal", to: pb, data: { x: 1 } });
+  b.send({ op: "voice_join" });
+  await until(b, (m) => m.type === "voice_joined" && m.peers.length === 0, "B joins an empty room");
+  await until(a, (m) => m.type === "voice" && m.peers.some((p) => p.pid === pb && p.user === B), "A sees B in the room (without joining)");
+  a.send({ op: "voice_join" });
+  const j = await until(a, (m) => m.type === "voice_joined", "A joined");
+  assert(j.peers.length === 1 && j.peers[0].pid === pb, "the newcomer is told whom to call");
+  a.send({ op: "voice_signal", to: pb, data: { sdp: { type: "offer", sdp: "v=0" } } });
+  const sig = await until(b, (m) => m.type === "voice_signal", "B gets A's offer");
+  assert(sig.from === pa && sig.user === A && sig.data.sdp.type === "offer", JSON.stringify(sig));
+  assert(!b.msgs.some((m) => m.type === "voice_signal" && m.data?.x === 1), "signals from outside the room are dropped");
+  // Floor: A takes it, B raises a hand, A passes it on, B leaving frees it.
+  a.send({ op: "voice_talk" });
+  await until(b, (m) => m.type === "voice" && m.floor === pa, "A has the floor");
+  b.send({ op: "voice_talk" });
+  await until(a, (m) => m.type === "voice" && m.floor === pa && m.queue[0] === pb, "B's hand is up");
+  a.send({ op: "voice_release" });
+  await until(a, (m) => m.type === "voice" && m.floor === pb && m.queue.length === 0, "the floor goes to B");
+  b.ws.close();
+  await until(a, (m) => m.type === "voice" && m.floor === null && m.peers.length === 1, "B closing the tab leaves the room and frees the floor");
+  a.send({ op: "voice_leave" });
+  await until(a, (m) => m.type === "voice" && m.peers.length === 0, "A leaves");
+  a.ws.close();
+  // The page has the room.
+  const html = await (await web(`/b/${board}`, A)).text();
+  has(html, 'id="voice-bar"');
+  has(html, 'id="voice-btn"');
+});
+
 await step("creator removes a member: their wait ends, their access is gone", async () => {
   // OUT accepted an invitation to board2 in the previous step; A created board2.
   const so = await session(OUT);

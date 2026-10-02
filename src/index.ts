@@ -930,8 +930,9 @@ export default {
         const tok = auth.bearer(request);
         const who = viewer?.name ?? (tok ? (await auth.resolveToken(env, tok, ctx)).user : null);
         if (!who) return json({ error: "sign in required" }, 401);
-        if (!(await registry.isMember(env, m[1], who))) return json({ error: "board not found" }, 404);
-        return boardStub(env, m[1]).fetch(new Request(`https://board/ws?user=${encodeURIComponent(who)}`, request));
+        const role = await registry.memberRole(env, m[1], who);
+        if (!role) return json({ error: "board not found" }, 404);
+        return boardStub(env, m[1]).fetch(new Request(`https://board/ws?user=${encodeURIComponent(who)}&role=${role}`, request));
       }
 
       // ---- the signed-in person's boards (CLI uses its bearer token) ----
