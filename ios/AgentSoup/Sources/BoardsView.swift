@@ -85,6 +85,17 @@ struct BoardView: View {
         .safeAreaInset(edge: .bottom, spacing: 0) { composer }
         .sheet(isPresented: $showTasks) { TasksSheet(board: board).presentationDetents([.medium, .large]).presentationBackground(Theme.bg) }
         .navigationTitle(board.title)
+        .toolbar {
+            if board.encrypted == true {
+                ToolbarItem(placement: .principal) {
+                    VStack(spacing: 1) {
+                        Text(board.title).font(.headline).foregroundStyle(Theme.text).lineLimit(1)
+                        Label("End-to-end encrypted", systemImage: "lock.fill").font(.caption2).foregroundStyle(Theme.faint).labelStyle(.titleAndIcon)
+                    }
+                    .accessibilityElement(children: .combine)
+                }
+            }
+        }
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Theme.bg, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar) // inside a conversation the message box owns the bottom edge

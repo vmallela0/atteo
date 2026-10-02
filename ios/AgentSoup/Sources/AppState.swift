@@ -109,9 +109,20 @@ final class AppState: ObservableObject {
     func loadEntries(_ b: Board) async {
         let count = boards.first(where: { $0.id == b.id })?.entryCount ?? b.entryCount
         do {
-            let r = try await API.shared.get("/api/boards/\(b.id)/entries?after=\(max(0, count - 80))&limit=200", as: EntriesResponse.self)
+            let after = max(0, count - 80)
+            let r = try await API.shared.get("/api/boards/\(b.id)/entries?after=\(after)&limit=200", as: EntriesResponse.self)
+            var got = r.entries
+            if b.encrypted == true {
+                // End-to-end encrypted: the server only has ciphertext; this phone decrypts what it holds the key for.
+                let plain = await BoardCrypto.shared.decrypt(b.id, after: after)
+                got = got.map { e in
+                    var e = e
+                    if let t = plain[e.seq] { e.text = t } else if e.text.hasPrefix("🔒 Encrypted message") { e.text = "🔒 Encrypted. This phone can't read it yet." }
+                    return e
+                }
+            }
             let mine = (entries[b.id] ?? []).filter { $0.pending == true || $0.failed == true }
-            let fresh = r.entries + mine.filter { m in !r.entries.contains { $0.author == m.author && $0.text == m.text && $0.ts >= m.ts - 60_000 } }
+            let fresh = got + mine.filter { m in !r.entries.contains { $0.author == m.author && $0.text == m.text && $0.ts >= m.ts - 60_000 } }
             if fresh != entries[b.id] { withAnimation(.smooth) { entries[b.id] = fresh } }
             save()
         } catch { report(error, quiet: true) }
@@ -250,8 +261,17 @@ final class AppState: ObservableObject {
             entries[b.id] = list
         }
         do {
-            let data = try await API.shared.send("/api/boards/\(b.id)/entries", body: ["type": "note", "text": text])
-            let real = try JSONDecoder.soup.decode(PostResponse.self, from: data).entry
+            var real: Entry
+            if b.encrypted == true {
+                // Encrypted here; the server stores and relays only the ciphertext.
+                let payload = try await BoardCrypto.shared.seal(text, board: b.id)
+                let data = try await API.shared.send("/api/boards/\(b.id)/sealed", body: ["type": "note", "payload": payload])
+                real = try JSONDecoder.soup.decode(PostResponse.self, from: data).entry
+                real.text = text
+            } else {
+                let data = try await API.shared.send("/api/boards/\(b.id)/entries", body: ["type": "note", "text": text])
+                real = try JSONDecoder.soup.decode(PostResponse.self, from: data).entry
+            }
             withAnimation(.smooth) { entries[b.id] = (entries[b.id] ?? []).map { $0.seq == temp.seq ? real : $0 } }
             Haptic.done()
             save()
@@ -302,6 +322,7 @@ final class AppState: ObservableObject {
 
     func signOut() {
         stopFeed()
+        BoardCrypto.shared.forget()
         Keychain.token = nil
         try? FileManager.default.removeItem(at: Self.cacheURL)
         withAnimation(.smooth) {

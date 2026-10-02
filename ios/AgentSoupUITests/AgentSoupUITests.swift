@@ -185,6 +185,29 @@ final class AgentSoupUITests: XCTestCase {
         a.buttons["Done"].tap()
     }
 
+    /// An end-to-end encrypted board: the phone encrypts what you send, theo's client (another device, another
+    /// person) decrypts it and answers, and the phone decrypts the answer. The server only ever has ciphertext.
+    func testEncryptedChat() throws {
+        guard env["AGENT_SOUP_ENC"] != nil else { throw XCTSkip("needs the encrypted-board seed (enc-peer.mjs running)") }
+        let a = app(fresh: true)
+        a.launch()
+        let chat = a.buttons.matching(NSPredicate(format: "identifier == 'chat-Secret plans'")).firstMatch
+        XCTAssertTrue(chat.waitForExistence(timeout: 10), "the encrypted board is in Chats")
+        chat.tap()
+        let composer = a.textFields["composer"].exists ? a.textFields["composer"] : a.textViews["composer"]
+        XCTAssertTrue(composer.waitForExistence(timeout: 10))
+        let msg = "hello encrypted \(Int(Date().timeIntervalSince1970) % 100000)"
+        composer.tap()
+        composer.typeText(msg)
+        a.buttons["send"].tap()
+        let sent = a.staticTexts[msg]
+        XCTAssertTrue(sent.waitForExistence(timeout: 5), "your message shows in plain text here")
+        XCTAssertFalse(a.staticTexts["Not sent. Tap to retry"].waitForExistence(timeout: 4), "it was encrypted and sent")
+        // theo's client decrypts it and answers; the answer arrives over the live socket and is decrypted here.
+        XCTAssertTrue(a.staticTexts["theo read: \(msg)"].waitForExistence(timeout: 20), "theo read it, and the phone read theo's answer")
+        shot("15-encrypted")
+    }
+
     func testInstantRelaunchFromCache() throws {
         let a = app(fresh: false)
         a.launch()

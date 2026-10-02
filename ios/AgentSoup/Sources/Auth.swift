@@ -30,6 +30,22 @@ enum Keychain {
             SecItemAdd(add as CFDictionary, nil)
         }
     }
+
+    /// Other secrets this phone keeps (its device key for encrypted boards); this device only, never synced.
+    static func data(_ account: String) -> Data? {
+        var out: AnyObject?
+        let q: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account, kSecReturnData as String: true]
+        return SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess ? out as? Data : nil
+    }
+
+    static func setData(_ d: Data, for account: String) {
+        let q: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account]
+        SecItemDelete(q as CFDictionary)
+        var add = q
+        add[kSecValueData as String] = d
+        add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        SecItemAdd(add as CFDictionary, nil)
+    }
 }
 
 @MainActor

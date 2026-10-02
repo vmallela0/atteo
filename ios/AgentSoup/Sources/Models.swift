@@ -66,7 +66,7 @@ struct Entry: Codable, Identifiable, Hashable {
     let ts: Double
     let author: String
     let type: String
-    let text: String
+    var text: String // on an encrypted board: decrypted on this phone
     let title: String?
     let to: String?
     let via: String?

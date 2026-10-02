@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# The app's QA, against a LOCAL server (never production): seeds believable data, starts theo's encrypted-board peer,
+# and runs every UI test on the simulator. Screenshots land in the result bundle.
+# Usage: (npx wrangler dev --port 8788 running) ios/qa/run.sh
+set -euo pipefail
+cd "$(dirname "$0")/../.."
+BASE="${BASE:-http://localhost:8788}"
+case "$BASE" in http://localhost*|http://127.0.0.1*) ;; *) echo "QA runs against a local server only"; exit 1 ;; esac
+out=$(mktemp -d)
+ADMIN_KEY=$(grep '^ADMIN_KEY=' .dev.vars | cut -d= -f2-) BASE="$BASE" node ios/qa/seed.mjs > "$out/seed.json"
+j() { python3 -c "import json,sys;d=json.load(open('$out/seed.json'));print($1)"; }
+node ios/qa/enc-peer.mjs "$BASE" "$(j "d['other']")" "$(j "d['enc']")" > "$out/peer.log" 2>&1 &
+cd ios
+TEST_RUNNER_AGENT_SOUP_SERVER="$BASE" TEST_RUNNER_AGENT_SOUP_TOKEN="$(j "d['app']")" TEST_RUNNER_AGENT_SOUP_OTHER_TOKEN="$(j "d['other']")" \
+TEST_RUNNER_AGENT_SOUP_TICK="$(j "d['b1']+':'+str(d['sub'])")" TEST_RUNNER_AGENT_SOUP_ENC=1 \
+  xcodebuild test -project AgentSoup.xcodeproj -scheme AgentSoup -destination "platform=iOS Simulator,name=${SIM:-iPhone 17 Pro}" -resultBundlePath "$out/qa.xcresult" 2>&1 | grep -E "Test Case.*(passed|failed)|error:|TEST (SUCCEEDED|FAILED)"
+echo "results: $out/qa.xcresult"
