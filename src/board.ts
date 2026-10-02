@@ -319,7 +319,7 @@ export class Board extends DurableObject<Env> {
 
   // Summaries are rebuilt from the whole log, so they're cached until something changes (every change broadcasts).
   private changes = 0;
-  private cache: { key: string; summary: Summary; tags: Map<number, string>; reviewers: Map<number, string[]> } | null = null;
+  private cache: { key: string; summary: Summary; tags: Map<number, string>; reviewers: Map<number, string[]>; claims?: ReturnType<Board["claimStatesNow"]>; reviews?: ReturnType<Board["reviewsBySeqNow"]> } | null = null;
   private cached() {
     const key = String(this.changes);
     if (this.cache?.key !== key) this.cache = { key, summary: this.computeSummaryNow(), tags: this.taskTags(), reviewers: this.reviewers() };
@@ -366,10 +366,11 @@ export class Board extends DurableObject<Env> {
       if (!taskCols.has(col)) this.sql.exec(`ALTER TABLE tasks ADD COLUMN ${col} ${def}`);
     }
     // Tasks are living shared items: a title and an editable body, split from the post that created them.
-    for (const r of this.sql.exec("SELECT t.seq, e.text FROM tasks t JOIN entries e ON e.seq = t.seq WHERE t.title IS NULL").toArray()) {
+    if (this.meta("tasks_titled") !== "1") for (const r of this.sql.exec("SELECT t.seq, e.text FROM tasks t JOIN entries e ON e.seq = t.seq WHERE t.title IS NULL").toArray()) {
       const { title, body } = splitTask(r.text as string);
       this.sql.exec("UPDATE tasks SET title = ?, body = ? WHERE seq = ?", title, body, r.seq);
     }
+    if (this.meta("id") && this.meta("tasks_titled") !== "1") this.setMeta("tasks_titled", "1");
     // Files posted before files became documents: each becomes the next version of the doc with its (cleaned) name.
     if (this.meta("files_backfilled") !== "1") {
       for (const r of this.sql.exec("SELECT seq, ts, author, via, client, text, artifact_name, artifact_content FROM entries WHERE type = 'artifact' AND artifact_version IS NULL AND artifact_content IS NOT NULL ORDER BY seq").toArray()) {
@@ -409,13 +410,19 @@ export class Board extends DurableObject<Env> {
 
   // ---- metadata ----
 
+  // Board metadata is read on almost every call; keep it in memory (this object is the only writer).
+  private metaCache = new Map<string, string | null>();
   private meta(key: string): string | null {
+    if (this.metaCache.has(key)) return this.metaCache.get(key)!;
     const rows = this.sql.exec("SELECT value FROM meta WHERE key = ?", key).toArray();
-    return rows.length ? (rows[0].value as string) : null;
+    const v = rows.length ? (rows[0].value as string) : null;
+    this.metaCache.set(key, v);
+    return v;
   }
 
   private setMeta(key: string, value: string) {
     this.sql.exec("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", key, value);
+    this.metaCache.set(key, value);
   }
 
   /** Idempotent: sets id/title/creator the first time only. */
@@ -439,14 +446,16 @@ export class Board extends DurableObject<Env> {
   info(): BoardInfo {
     const id = this.meta("id");
     if (!id) throw new BoardError("Board not found.");
-    const stats = this.sql.exec("SELECT COUNT(*) AS n, COALESCE(MAX(seq), 0) AS last FROM entries").one();
+    // Entries are never deleted (retention blanks them), so the count is the newest number: a one-row read.
+    // (COUNT(*) here read every row on every call, which is what exhausted the free tier's daily row reads.)
+    const last = (this.sql.exec("SELECT seq FROM entries ORDER BY seq DESC LIMIT 1").toArray()[0]?.seq as number | undefined) ?? 0;
     return {
       id,
       title: this.meta("title") ?? id,
       created_by: this.meta("created_by") ?? "",
       created_at: Number(this.meta("created_at") ?? 0),
-      entry_count: stats.n as number,
-      last_seq: stats.last as number,
+      entry_count: last,
+      last_seq: last,
       archived: this.meta("archived") === "1",
     };
   }
@@ -1097,7 +1106,7 @@ export class Board extends DurableObject<Env> {
     return this.sql.exec("SELECT seq, reviewer, verdict, via FROM reviews ORDER BY ts").toArray() as unknown as { seq: number; reviewer: string; verdict: ReviewVerdict; via: string | null }[];
   }
 
-  reviewsBySeq(): Record<number, { reviewer: string; verdict: ReviewVerdict; via: string | null }[]> {
+  reviewsBySeqNow(): Record<number, { reviewer: string; verdict: ReviewVerdict; via: string | null }[]> {
     const out: Record<number, { reviewer: string; verdict: ReviewVerdict; via: string | null }[]> = {};
     for (const r of this.reviewRows()) (out[r.seq] ??= []).push({ reviewer: r.reviewer, verdict: r.verdict, via: r.via });
     return out;
@@ -1204,7 +1213,7 @@ export class Board extends DurableObject<Env> {
   }
 
   /** For pages: each claim's status, and each entry resting on a disputed or retracted premise. */
-  claimStates(): Record<number, { status?: string; by?: string; reason?: string; stale_from?: number; stale_why?: string }> {
+  claimStatesNow(): Record<number, { status?: string; by?: string; reason?: string; stale_from?: number; stale_why?: string }> {
     const out: Record<number, { status?: string; by?: string; reason?: string; stale_from?: number; stale_why?: string }> = {};
     const bad = new Map<number, string>();
     for (const r of this.sql.exec("SELECT seq, status, verified_by, verified_via, disputed_by, disputed_via, dispute_reason FROM claim_state").toArray()) {
@@ -1231,6 +1240,17 @@ export class Board extends DurableObject<Env> {
       }
     }
     return out;
+  }
+
+  /** Cached with the summary: every live update asks for these, for every viewer. */
+  claimStates() {
+    const c = this.cached();
+    return (c.claims ??= this.claimStatesNow());
+  }
+
+  reviewsBySeq() {
+    const c = this.cached();
+    return (c.reviews ??= this.reviewsBySeqNow());
   }
 
   /** Entries that (directly or through other entries) depend on `seq`. */
@@ -1687,6 +1707,9 @@ export class Board extends DurableObject<Env> {
     for (const w of this.waiters) w.wake();
     for (const wake of this.watchers) wake();
     await this.ctx.storage.deleteAll();
+    this.metaCache.clear();
+    this.entryMemo = [];
+    this.cache = null;
   }
 
   /** Operator audit: entries that would be blocked by today's filter (seq and rule only, never the value). */
@@ -1798,9 +1821,19 @@ export class Board extends DurableObject<Env> {
    */
   async prune(cutoff: number): Promise<number> {
     const BLANK = "(removed: older than this board keeps messages)";
-    const rows = this.sql.exec("SELECT seq FROM entries WHERE ts < ? AND text != ?", cutoff, BLANK).toArray().map((r) => r.seq as number);
+    // Walk forward from where the last prune stopped (entries are in time order), so each run reads only what it blanks.
+    const rows: number[] = [];
+    let from = Number(this.meta("pruned_through") ?? 0);
+    for (;;) {
+      const page = this.sql.exec("SELECT seq, ts FROM entries WHERE seq > ? ORDER BY seq LIMIT 500", from).toArray();
+      const old = page.filter((r) => (r.ts as number) < cutoff).map((r) => r.seq as number);
+      rows.push(...old);
+      if (old.length < page.length || !page.length) break;
+      from = old[old.length - 1];
+    }
     if (!rows.length) return 0;
-    this.sql.exec("UPDATE entries SET text = ?, artifact_content = NULL, card = NULL, card_diff = NULL, sealed = NULL WHERE ts < ? AND text != ?", BLANK, cutoff, BLANK);
+    this.setMeta("pruned_through", String(rows[rows.length - 1]));
+    this.sql.exec("UPDATE entries SET text = ?, artifact_content = NULL, card = NULL, card_diff = NULL, sealed = NULL WHERE seq BETWEEN ? AND ?", BLANK, rows[0], rows[rows.length - 1]);
     for (let i = 0; i < rows.length; i += 90) {
       const chunk = rows.slice(i, i + 90);
       this.sql.exec(`DELETE FROM search_idx WHERE kind = 'entry' AND ref IN (${chunk.map(() => "?").join(",")})`, ...chunk.map(String));
