@@ -523,11 +523,11 @@ export function agentCard(state: AgentState, boardTitle?: string): string {
     return ""; // presence shows only as the dot on your avatar under Members
   }
   if (state.connected && boardTitle) {
-    return `<div class="agent-card"><div class="grow"><b>Bring your agent here</b><div class="xs muted" style="margin:2px 0 8px">In any agent session, say:</div>${copyField("join-phrase", `join ${boardTitle}`)}
+    return `<div class="agent-card" data-agent-card><button class="btn ghost sm card-x" type="button" data-dismiss-agent aria-label="Close" title="Close">✕</button><div class="grow"><b>Bring your agent here</b><div class="xs muted" style="margin:2px 0 8px">In any agent session, say:</div>${copyField("join-phrase", `join ${boardTitle}`)}
 <div class="xs muted" style="margin:10px 0 6px">Agent not connecting? Reconnect with the CLI:</div>${copyField("card-reconnect", CLI_STEPS.reconnect)}</div></div>`;
   }
   if (state.connected) return "";
-  return `<div class="agent-card cta"><div class="grow"><b>Connect your agent</b><div class="small muted" style="margin-top:2px">One command for Claude Code, or a URL for Cursor, Codex and other MCP agents. Takes about 30 seconds.</div></div>
+  return `<div class="agent-card cta" data-agent-card><button class="btn ghost sm card-x" type="button" data-dismiss-agent aria-label="Close" title="Close">✕</button><div class="grow"><b>Connect your agent</b><div class="small muted" style="margin-top:2px">One command for Claude Code, or a URL for Cursor, Codex and other MCP agents. Takes about 30 seconds.</div></div>
 <button class="btn primary" data-open="connect">Connect an agent</button></div>`;
 }
 
@@ -580,6 +580,12 @@ function pillSync(){if(atBottom()){pill.hidden=true;unseen=false}else{pill.textC
 scroller.addEventListener('scroll',()=>{pillSync();railMark()},{passive:true});
 ['wheel','touchmove','keydown'].forEach(t=>scroller.addEventListener(t,()=>{moved=true},{passive:true}));
 pill.addEventListener('click',()=>toBottom(true));
+// The wheel scrolls the conversation from anywhere around it (the margins, the header), not only over the thread;
+// panes that scroll on their own (sidebar, log, files, the composer, menus, the left nav) keep their wheel.
+document.addEventListener('wheel',e=>{if(e.ctrlKey||document.getElementById('panel-conv').hidden||document.querySelector('dialog[open]'))return;
+  if(e.target.closest('.thread-scroll,.aside,.sidebar,textarea,.mention-menu,.rd-pop,.chg-diff,pre'))return;
+  if(!e.target.closest('#app'))return; // the whole main column: margins, top bar and board header
+  scroller.scrollBy({top:e.deltaMode===1?e.deltaY*20:e.deltaY});e.preventDefault()},{passive:false});
 railBuild();pillSync();
 const linked=/^#e\\d+$/.test(location.hash);
 if(!linked)toBottom();
@@ -819,6 +825,10 @@ function reportSeen(){if(document.visibilityState!=='visible'||document.getEleme
   seenTimer=setTimeout(async()=>{seenTimer=null;let m=0;ticks.forEach((t,i)=>{if(rail.children[i]?.classList.contains('on'))m=Math.max(m,+t.el.dataset.seq)});if(m<=seenSent)return;seenSent=m;
     try{await fetch('/api/boards/'+BOARD+'/seen',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({seq:m})})}catch(e){seenSent=0}},800)}
 document.addEventListener('visibilitychange',reportSeen);window.addEventListener('focus',reportSeen);
+// The agent card in the sidebar can be closed; it stays closed on this board (per browser).
+(()=>{const key='soup.agentCard.'+BOARD,card=document.querySelector('#board-info [data-agent-card]');if(!card)return;
+  try{if(localStorage.getItem(key)==='closed')card.remove()}catch(e){}
+  card.querySelector('[data-dismiss-agent]')?.addEventListener('click',()=>{card.remove();try{localStorage.setItem(key,'closed')}catch(e){}})})();
 window.deleted=()=>{location.href='/'};
 // Every place the board name shows: heading, breadcrumb, sidebar, browser tab (also used for live renames by others).
 window.applyTitle=(t)=>{const h=document.getElementById('board-title');if(h)h.textContent=t;document.title=t+' · Agent Soup';
@@ -952,9 +962,10 @@ window.boardKeys=(e,k)=>{
     <span class="bp-count"><span data-count>${info.entry_count}</span> entries</span>
   </div></div>
   <div class="bp-tabs"><div class="tabs" role="tablist" id="board-tabs"><button role="tab" aria-selected="true" aria-controls="panel-conv">Conversation</button><button role="tab" aria-selected="false" aria-controls="panel-log">Log <span class="faint" data-count>${info.entry_count}</span></button><button role="tab" aria-selected="false" aria-controls="panel-docs">Files</button><button role="tab" aria-selected="false" aria-controls="panel-tasks">Tasks <span class="faint" id="task-count"></span></button></div>
-    <button class="btn ghost sm info-btn" type="button" id="info-btn" aria-expanded="false" aria-controls="board-info" aria-label="Board info" title="Board info"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2"/><path d="M10 2.75v10.5"/><path class="fill" d="M10.7 3.45h2.1a.75.75 0 0 1 .75.75v7.6a.75.75 0 0 1-.75.75h-2.1z" fill="currentColor" stroke="none"/></svg><span class="count" id="info-count" hidden></span></button></div>
+    </div>
 </div>
 <div role="tabpanel" id="panel-conv" class="bp-panel" data-board-panel><div class="layout" id="conv-layout">
+  <button class="btn ghost sm info-btn" type="button" id="info-btn" aria-expanded="false" aria-controls="board-info" aria-label="Board info" title="Board info"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2"/><path d="M10 2.75v10.5"/><path class="fill" d="M10.7 3.45h2.1a.75.75 0 0 1 .75.75v7.6a.75.75 0 0 1-.75.75h-2.1z" fill="currentColor" stroke="none"/></svg><span class="count" id="info-count" hidden></span></button>
   <section class="conv">
     <div class="thread-wrap"><div class="thread-scroll" id="thread-scroll"><div class="thread" id="thread">${thread}</div></div>
       <div class="rail" id="rail" aria-hidden="true"></div><div class="rail-tip" id="rail-tip" hidden></div>

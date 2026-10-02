@@ -435,7 +435,8 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
 .bp-tabs{display:flex;align-items:flex-end;gap:8px;flex:none}
 .bp-tabs .tabs{border-bottom:0;margin-bottom:0}
 .bp-tabs .tabs button{padding:7px 10px}
-.bp-tabs .info-btn{display:inline-flex;margin:0 0 3px;width:30px;padding:0;justify-content:center;position:relative;color:var(--muted)}
+/* the sidebar toggle sits in the board area, top right: over the sidebar's corner, or the thread's when it's hidden */
+.bp-panel .info-btn{display:inline-flex;position:absolute;top:8px;right:0;z-index:7;width:30px;padding:0;justify-content:center;color:var(--muted);background:var(--bg)}
 .info-btn svg{flex:none}
 .info-btn:hover,.info-btn[aria-expanded=true]{color:var(--ink)}
 .info-btn .fill{opacity:0;transition:opacity .12s}.info-btn[aria-expanded=true] .fill{opacity:.35}
@@ -444,7 +445,8 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
 .bp-panel>.layout{flex:1;min-height:0;grid-template-rows:minmax(0,1fr);position:relative;gap:20px}
 @media(min-width:960px){.bp-panel>.layout{grid-template-columns:minmax(0,1fr) 280px}.bp-panel>.layout.info-collapsed{grid-template-columns:minmax(0,1fr)}.layout.info-collapsed>.aside{display:none}
   .layout.info-collapsed>.conv{width:100%;max-width:820px;margin:0 auto} /* a readable measure even with the sidebar hidden */}
-.bp-panel .aside{position:static;align-self:stretch;max-height:none;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;padding:16px 4px 16px 8px;margin-left:-8px}
+.bp-panel .aside{position:static;align-self:stretch;max-height:none;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;padding:44px 4px 16px 8px;margin-left:-8px}
+.layout.info-collapsed .rail{top:44px} /* clear of the toggle when it sits over the thread */
 .conv{display:flex;flex-direction:column;min-height:0;min-width:0}
 .thread-wrap{flex:1;min-height:0;position:relative;display:flex}
 .thread-scroll{flex:1;min-width:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;padding:8px 22px 8px 0;scrollbar-width:none}
@@ -478,7 +480,8 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
 .doc-view.editing #doc-text{flex:1;min-height:200px;resize:none}
 @media(max-width:959px){
   .bp-panel .aside{display:none}
-  .layout.info-open>.aside{display:block;position:absolute;inset:0;z-index:6;background:var(--bg);padding:16px 2px}
+  .layout.info-open>.aside{display:block;position:absolute;inset:0;z-index:6;background:var(--bg);padding:44px 2px 16px}
+  .bp-panel .rail{top:44px}
   .layout.info-open>.conv{visibility:hidden} /* only the open panel's scrollbar shows */
 }
 @media(max-width:859px){
@@ -487,7 +490,6 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
   .bp-title{flex:none;gap:10px;padding:4px 0 0}
   .bp-names,.bp-count{display:none}
   .bp-tabs .tabs button{padding:7px 8px}
-  .bp-tabs .info-btn{margin-left:auto}
   #panel-docs .docs{grid-template-rows:auto minmax(0,1fr)}
   .doc-list{max-height:22vh}
 }
@@ -497,7 +499,9 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
 .agent-card b{color:var(--ink)}
 .agent-card.cta{border-color:color-mix(in srgb,var(--accent) 45%,var(--line));background:color-mix(in srgb,var(--accent) 7%,var(--bg));flex-wrap:wrap}
 .agent-card.cta .btn{flex:none}
-.aside .agent-card{flex-direction:column;align-items:stretch}
+.aside .agent-card{flex-direction:column;align-items:stretch;position:relative}
+.aside .agent-card .btn.sm.card-x{position:absolute;top:6px;right:6px;width:24px;height:24px;padding:0;justify-content:center;color:var(--muted)}.agent-card .card-x:hover{color:var(--ink)}
+.aside .agent-card .grow>b{padding-right:22px}
 .aside .agent-card.ok{flex-direction:row;align-items:center}
 .aside .agent-card.cta .btn{width:100%}
 .agent-card.ok .dot{color:var(--ok);width:9px;height:9px;flex:none}
