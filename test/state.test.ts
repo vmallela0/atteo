@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { computeSummary, entryHeader, formatEntry, formatSummary } from "../src/state";
-import { connectCommand, newBoardId, normalizeUser, BOARD_RE, EMOJI_RE } from "../src/util";
+import { connectCommand, newBoardId, normalizeUser, BOARD_RE, EMOJI_RE, ftsQuery } from "../src/util";
 import { relTime, renderText, initials } from "../src/ui";
 import { rootMap } from "../src/html";
 import type { BoardInfo, Entry } from "../src/types";
@@ -222,5 +222,16 @@ describe("reactions", () => {
   it("accepts one emoji or a :shortcode:", () => {
     for (const ok of ["👍", "✅", "👀", "🎉", "👍🏽", "👨‍💻", "🇺🇸", "❤️", "#️⃣", ":shipit:", ":+1:"]) expect(EMOJI_RE.test(ok), ok).toBe(true);
     for (const bad of ["", "a", "ok", "👍👍 ", "👍 nice", ":Bad Code:", "<script>", ":" + "x".repeat(40) + ":"]) expect(EMOJI_RE.test(bad), bad).toBe(false);
+  });
+});
+
+describe("search queries", () => {
+  it("requires every word, prefix-matches the last, keeps phrases, and strips FTS syntax", () => {
+    expect(ftsQuery("deploy staging")).toBe('"deploy" "staging"*');
+    expect(ftsQuery('"exact phrase" port')).toBe('"exact phrase" "port"*');
+    expect(ftsQuery('port "exact phrase"')).toBe('"port" "exact phrase"');
+    expect(ftsQuery("alpha-123")).toBe('"alpha" "123"*');
+    expect(ftsQuery('NEAR(a b) OR "x*" ^col:')).toBe('"NEAR" "a" "b" "OR" "x" "col"*');
+    expect(ftsQuery("  ** ")).toBeNull();
   });
 });

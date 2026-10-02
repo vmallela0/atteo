@@ -255,7 +255,7 @@ await step("stale-read rejection: an agent that hasn't read new entries can't po
   const blind = await err(A, board, "post", { type: "note", text: `Talking past you ${run}` }, "Not posted: 1 new entry");
   has(blind, `#${bq} question`);
   has(blind, "<<untrusted ");
-  has(await ok(A, board, "search", { query: `Talking past you ${run}` }), "No entries match"); // nothing stored
+  has(await ok(A, board, "search", { query: `Talking past you ${run}` }), "Nothing matches"); // nothing stored
   seqOf(await ok(A, board, "post", { type: "claim", reply_to: bq, text: `Yes, saw it ${run}` })); // now caught up
   // Two agents that are both caught up post at the same moment: one lands, the other is told what it missed.
   await ok(B, board, "read");
@@ -612,7 +612,7 @@ await step("secret filter: credentials are blocked everywhere they could be post
   await err(A, null, "create_board", { title: `e2e ${fake}` }, "Blocked");
   const w = await web(`/api/boards/${board}/entries`, B, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "note", text: `${marker} ${fake}` }) });
   assert(w.status === 400 && !(await w.text()).includes(fake), `web post ${w.status}`);
-  has(await ok(A, board, "search", { query: marker }), "No entries match");
+  has(await ok(A, board, "search", { query: marker }), "Nothing matches");
   // The audit endpoint finds nothing on this board either.
   const scan = (await ops("scan-secrets")).body;
   assert(!scan.findings.some((f) => f.board === board), JSON.stringify(scan.findings));
@@ -724,129 +724,159 @@ await step("shared documents: create, read, edit, stale-write conflict, merge, h
   await err(A, board, "doc", { action: "write", name: "../etc/passwd", content: "x", base_version: 0 }, "Document names");
 });
 
+// Later steps run on a second board, so one test user stays under the per-board post rate limit.
+let fb;
+await step("a second board for the later steps", async () => {
+  fb = (await ops("boards", { user: A, title: `e2e board two ${run}` })).body.board.id;
+  await ops("members", { board: fb, user: B });
+});
+
 await step("files are documents: posting a file publishes a version; get, search, summary and the files API agree", async () => {
   const name = `trace (prod) ${run}.log`;
   const clean = `trace -prod- ${run}.log`;
-  await ok(A, board, "read");
-  const p1 = await ok(A, board, "post", { type: "artifact", text: "first trace", artifact_name: name, artifact_content: `alpha-${run}\nline 2` });
+  await ok(A, fb, "read");
+  const p1 = await ok(A, fb, "post", { type: "artifact", text: "first trace", artifact_name: name, artifact_content: `alpha-${run}\nline 2` });
   const s1 = seqOf(p1);
-  await ok(A, board, "read");
-  const s2 = seqOf(await ok(A, board, "post", { type: "artifact", text: "second trace", artifact_name: name, artifact_content: `beta-${run}` }));
-  const doc = await ok(B, board, "doc", { action: "read", name: clean });
+  await ok(A, fb, "read");
+  const s2 = seqOf(await ok(A, fb, "post", { type: "artifact", text: "second trace", artifact_name: name, artifact_content: `beta-${run}` }));
+  const doc = await ok(B, fb, "doc", { action: "read", name: clean });
   has(doc, `${clean} v2`);
   has(doc, `beta-${run}`);
-  has(await ok(B, board, "get", { seq: s1 }), `alpha-${run}`); // each entry keeps the version it published
-  has(await ok(B, board, "get", { seq: s2 }), `file: ${clean} v2`);
-  has(await ok(B, board, "search", { query: `alpha-${run}` }), `#${s1}`);
-  const summary = await ok(B, board, "read");
+  has(await ok(B, fb, "get", { seq: s1 }), `alpha-${run}`); // each entry keeps the version it published
+  has(await ok(B, fb, "get", { seq: s2 }), `file: ${clean} v2`);
+  has(await ok(B, fb, "search", { query: `alpha-${run}` }), `#${s1}`);
+  const summary = await ok(B, fb, "read");
   has(summary, `[file: ${clean} v2]`);
   assert(!summary.includes(`[file: ${clean} v1]`), "the summary lists each file once, at its latest version");
   // Editing the doc publishes v3 as a file entry too.
-  const ed = await ok(B, board, "doc", { action: "edit", name: clean, old_str: `beta-${run}`, new_str: `gamma-${run}`, summary: "fix" });
+  const ed = await ok(B, fb, "doc", { action: "edit", name: clean, old_str: `beta-${run}`, new_str: `gamma-${run}`, summary: "fix" });
   has(ed, "v3");
-  has(await ok(A, board, "search", { query: `gamma-${run}` }), `Updated the document ${clean} (v3)`);
-  const files = await (await web(`/api/boards/${board}/files`, A)).json();
+  has(await ok(A, fb, "search", { query: `gamma-${run}` }), `Updated the document ${clean} (v3)`);
+  const files = await (await web(`/api/boards/${fb}/files`, A)).json();
   assert(files.docs.some((d) => d.name === clean && d.version === 3), JSON.stringify(files).slice(0, 300));
-  assert((await web(`/api/boards/${board}/files`, OUT)).status === 404, "outsiders can't list files");
+  assert((await web(`/api/boards/${fb}/files`, OUT)).status === 404, "outsiders can't list files");
 });
 
 await step("reactions: toggle per person, shown to agents, validated, members only", async () => {
-  await ok(A, board, "read");
-  const seq = seqOf(await ok(A, board, "post", { type: "note", text: `react to me ${run}` }));
-  const react = (who, emoji) => web(`/api/boards/${board}/entries/${seq}/react`, who, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ emoji }) });
+  await ok(A, fb, "read");
+  const seq = seqOf(await ok(A, fb, "post", { type: "note", text: `react to me ${run}` }));
+  const react = (who, emoji) => web(`/api/boards/${fb}/entries/${seq}/react`, who, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ emoji }) });
   let r = await (await react(A, "👍")).json();
   assert(r.on && r.reactions[0].emoji === "👍" && r.reactions[0].users.join() === A, JSON.stringify(r));
   r = await (await react(B, "👍")).json();
   assert(r.reactions[0].users.length === 2, JSON.stringify(r));
   await react(B, ":shipit:");
-  has(await ok(B, board, "get", { seq }), `Reactions: 👍 ${A}, ${B} · :shipit: ${B}`);
+  has(await ok(B, fb, "get", { seq }), `Reactions: 👍 ${A}, ${B} · :shipit: ${B}`);
   r = await (await react(A, "👍")).json(); // again = take it back
   assert(!r.on && r.reactions[0].users.join() === B, JSON.stringify(r));
   assert((await react(A, "not an emoji")).status === 400, "invalid emoji");
   assert((await react(OUT, "👍")).status === 404, "outsiders can't react");
-  const all = await (await web(`/api/boards/${board}/reactions`, B)).json();
+  const all = await (await web(`/api/boards/${fb}/reactions`, B)).json();
   assert(all.reactions[seq].length === 2, JSON.stringify(all).slice(0, 300));
 });
 
 await step("change cards: agents post a git card; summary, get and the secret filter handle it", async () => {
-  await ok(A, board, "read");
+  await ok(A, fb, "read");
   const card = { repo: "acme/shop", branch: `fix/cart-${run}`, base: "main", ci: "pending", commits: [{ sha: "a1b2c3d4", title: "Guard empty carts" }], files: [{ path: "src/cart.ts", added: 9, removed: 2 }], diff: "+ if (!cart.items.length) return;" };
-  const seq = seqOf(await ok(A, board, "post", { type: "change", text: "Empty-cart guard, ready for review", card }));
-  has(await ok(B, board, "read"), `[change: fix/cart-${run} → main · 1 commit · 1 file +9 −2 · CI pending]`);
-  const got = await ok(B, board, "get", { seq });
+  const seq = seqOf(await ok(A, fb, "post", { type: "change", text: "Empty-cart guard, ready for review", card }));
+  has(await ok(B, fb, "read"), `[change: fix/cart-${run} → main · 1 commit · 1 file +9 −2 · CI pending]`);
+  const got = await ok(B, fb, "get", { seq });
   has(got, "Guard empty carts");
   has(got, "+ if (!cart.items.length) return;");
-  await ok(A, board, "read");
-  await err(A, board, "post", { type: "change", text: "no branch", card: { ci: "passing" } }, "card.branch is required");
+  await ok(A, fb, "read");
+  await err(A, fb, "post", { type: "change", text: "no branch", card: { ci: "passing" } }, "card.branch is required");
   const fake = ["ghp", "_", "Zx9Yw8Vu7Ts6Rq5Po4Nm3Lk2Jh1Gf0Ed9Cb8A"].join("");
-  await err(A, board, "post", { type: "change", text: "leaky", card: { branch: "x", diff: `+ token = "${fake}"` } }, "Blocked");
+  await err(A, fb, "post", { type: "change", text: "leaky", card: { branch: "x", diff: `+ token = "${fake}"` } }, "Blocked");
 });
 
 await step("reviews: a change addressed to someone is a review request; verdicts show in summaries; web reviews too", async () => {
-  await ok(A, board, "read");
+  await ok(A, fb, "read");
   const card = { branch: `feat/x-${run}`, base: "main", pr_url: "https://github.com/acme/shop/pull/7", files: [{ path: "a.ts", added: 1, removed: 0 }], diff: "+ x" };
-  const seq = seqOf(await ok(A, board, "post", { type: "change", to: B, text: "please review", card }));
-  const sumB = await ok(B, board, "read");
+  const seq = seqOf(await ok(A, fb, "post", { type: "change", to: B, text: "please review", card }));
+  const sumB = await ok(B, fb, "read");
   has(sumB, "Changes waiting for YOUR review");
-  await err(A, board, "review", { seq, verdict: "approve" }, "your own change");
-  await err(B, board, "review", { seq, verdict: "request_changes" }, "Say what to change");
-  await err(B, board, "review", { seq: 1, verdict: "approve" }, "isn't a change card");
-  const r1 = await ok(B, board, "review", { seq, verdict: "request_changes", note: "add a test" });
+  await err(A, fb, "review", { seq, verdict: "approve" }, "your own change");
+  await err(B, fb, "review", { seq, verdict: "request_changes" }, "Say what to change");
+  await err(B, fb, "review", { seq: 1, verdict: "approve" }, "isn't a change card");
+  const r1 = await ok(B, fb, "review", { seq, verdict: "request_changes", note: "add a test" });
   has(r1, `changes requested by ${B}'s agent`);
   has(r1, "gh pr review https://github.com/acme/shop/pull/7 --request-changes");
-  has(await ok(A, board, "read"), `Changes requested on #${seq}: add a test`);
-  const r2 = await ok(B, board, "review", { seq, verdict: "approve", note: "LGTM" });
+  has(await ok(A, fb, "read"), `Changes requested on #${seq}: add a test`);
+  const r2 = await ok(B, fb, "review", { seq, verdict: "approve", note: "LGTM" });
   has(r2, `approved by ${B}'s agent`);
   assert(!r2.includes("changes requested"), "the latest verdict replaces the earlier one");
-  const sumB2 = await ok(B, board, "read");
+  const sumB2 = await ok(B, fb, "read");
   assert(!sumB2.includes("Changes waiting for YOUR review"), "reviewed changes leave your queue");
   has(sumB2, `[approved by ${B}'s agent]`);
   // People review from the web.
-  const res = await web(`/api/boards/${board}/entries/${seq}/review`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ verdict: "comment", note: "thanks!" }) });
+  const res = await web(`/api/boards/${fb}/entries/${seq}/review`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ verdict: "comment", note: "thanks!" }) });
   assert(res.status === 201, `web review: ${res.status}`);
-  assert((await web(`/api/boards/${board}/entries/${seq}/review`, OUT, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).status === 404, "outsiders can't review");
-  const upd = await (await web(`/api/boards/${board}/updates?after=${seq - 1}`, A)).json();
+  assert((await web(`/api/boards/${fb}/entries/${seq}/review`, OUT, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).status === 404, "outsiders can't review");
+  const upd = await (await web(`/api/boards/${fb}/updates?after=${seq - 1}`, A)).json();
   const row = upd.entries.find((x) => x.seq === seq);
   assert(row.reviews.length === 1 && row.reviews[0].verdict === "approve" && row.reviews[0].via === "agent", JSON.stringify(row.reviews));
 });
 
+await step("search: ranked full text over entries and files, prefixes and phrases; grep finds lines in files", async () => {
+  await ok(A, fb, "read");
+  const w = `zorbex${run}`;
+  await ok(A, fb, "post", { type: "note", text: `passing mention of ${w} in a long note about other things entirely` });
+  await ok(A, fb, "read");
+  const best = seqOf(await ok(A, fb, "post", { type: "decision", text: `${w} ${w} ${w}: we deploy ${w} to staging` }));
+  const r = await ok(B, fb, "search", { query: w });
+  assert(seqOf(r.split("Entries, best match first")[1]) === best, `best match first:\n${r.slice(0, 600)}`);
+  has(r, `«${w}»`);
+  has(await ok(B, fb, "search", { query: w.slice(0, -2) }), `#${best}`); // prefix
+  has(await ok(B, fb, "search", { query: `"deploy ${w}"` }), `#${best}`); // phrase
+  assert(!(await ok(B, fb, "search", { query: `"staging ${w}"` })).includes(`#${best}`), "phrases are exact");
+  await ok(B, fb, "search", { query: 'NEAR( "' }); // FTS syntax can't break it
+  // Files: latest version is listed; grep finds lines.
+  await ok(A, fb, "doc", { action: "write", name: `notes-${run}.md`, content: `# Notes\nport 8443 for ${w}\nnothing here\nPORT 9000`, base_version: 0 });
+  has(await ok(B, fb, "search", { query: `8443 ${w}` }), `notes-${run}.md v1`);
+  const g = await ok(B, fb, "doc", { action: "grep", pattern: "port", name: `notes-${run}.md` });
+  has(g, `notes-${run}.md:2: port 8443`);
+  has(g, `notes-${run}.md:4: PORT 9000`);
+  has(await ok(B, fb, "doc", { action: "grep", pattern: "^PORT \\d+$", regex: true }), `notes-${run}.md:4:`);
+  await err(B, fb, "doc", { action: "grep", pattern: "(a+)+$", regex: true }, "nested repetition");
+});
+
 await step("tasks: claim leases, conflicts, release, assign, done closes it, stop signal, retracted premise stops it", async () => {
-  await ok(A, board, "read");
-  const t1 = seqOf(await ok(A, board, "post", { type: "task", text: `Write the release notes ${run}` }));
-  has(await ok(B, board, "task", { action: "list" }), `#${t1} [todo]`);
-  has(await ok(A, board, "task", { action: "claim", seq: t1, minutes: 20 }), `held by ${A}'s agent`);
-  await err(B, board, "task", { action: "claim", seq: t1 }, `claimed by ${A}'s agent`);
-  await err(B, board, "task", { action: "update", seq: t1, status: "done" }, "is claimed by");
-  has(await ok(A, board, "read"), `[doing · `); // summary shows live task state
-  has(await ok(A, board, "task", { action: "release", seq: t1 }), `#${t1} [todo]`);
-  has(await ok(B, board, "task", { action: "claim", seq: t1 }), `held by ${B}'s agent`);
-  has(await ok(B, board, "task", { action: "update", seq: t1, assignee: B, due: "2030-01-31", note: "drafting" }), `for ${B}'s agent`);
-  await err(B, board, "task", { action: "update", seq: t1, assignee: OUT }, "isn't a member");
-  await err(B, board, "task", { action: "update", seq: t1, due: "someday" }, "YYYY-MM-DD");
-  assert(!(await ok(A, board, "task", { action: "list", mine: true })).includes(`#${t1} `), "mine: only tasks for or held by you");
-  has(await ok(B, board, "task", { action: "list", mine: true }), `#${t1}`);
-  has(await ok(B, board, "task", { action: "update", seq: t1, status: "done", note: "shipped" }), `#${t1} [done]`);
-  assert(!(await ok(A, board, "task", { action: "list" })).includes(`#${t1} `), "done tasks leave the default list");
-  has(await ok(A, board, "task", { action: "list", status: "done" }), `#${t1} [done]`);
-  await err(A, board, "task", { action: "claim", seq: t1 }, "already done");
+  await ok(A, fb, "read");
+  const t1 = seqOf(await ok(A, fb, "post", { type: "task", text: `Write the release notes ${run}` }));
+  has(await ok(B, fb, "task", { action: "list" }), `#${t1} [todo]`);
+  has(await ok(A, fb, "task", { action: "claim", seq: t1, minutes: 20 }), `held by ${A}'s agent`);
+  await err(B, fb, "task", { action: "claim", seq: t1 }, `claimed by ${A}'s agent`);
+  await err(B, fb, "task", { action: "update", seq: t1, status: "done" }, "is claimed by");
+  has(await ok(A, fb, "read"), `[doing · `); // summary shows live task state
+  has(await ok(A, fb, "task", { action: "release", seq: t1 }), `#${t1} [todo]`);
+  has(await ok(B, fb, "task", { action: "claim", seq: t1 }), `held by ${B}'s agent`);
+  has(await ok(B, fb, "task", { action: "update", seq: t1, assignee: B, due: "2030-01-31", note: "drafting" }), `for ${B}'s agent`);
+  await err(B, fb, "task", { action: "update", seq: t1, assignee: OUT }, "isn't a member");
+  await err(B, fb, "task", { action: "update", seq: t1, due: "someday" }, "YYYY-MM-DD");
+  assert(!(await ok(A, fb, "task", { action: "list", mine: true })).includes(`#${t1} `), "mine: only tasks for or held by you");
+  has(await ok(B, fb, "task", { action: "list", mine: true }), `#${t1}`);
+  has(await ok(B, fb, "task", { action: "update", seq: t1, status: "done", note: "shipped" }), `#${t1} [done]`);
+  assert(!(await ok(A, fb, "task", { action: "list" })).includes(`#${t1} `), "done tasks leave the default list");
+  has(await ok(A, fb, "task", { action: "list", status: "done" }), `#${t1} [done]`);
+  await err(A, fb, "task", { action: "claim", seq: t1 }, "already done");
   // Stop signal: any member halts a task someone else holds; the holder is told.
-  await ok(A, board, "read");
-  const t2 = seqOf(await ok(A, board, "post", { type: "task", text: `Migrate staging ${run}` }));
-  await ok(A, board, "task", { action: "claim", seq: t2 });
-  has(await ok(B, board, "task", { action: "stop", seq: t2, reason: "staging is frozen this week" }), "stopped: staging is frozen");
-  has(await ok(A, board, "search", { query: `Stop task #${t2}` }), "staging is frozen");
-  has(await ok(A, board, "task", { action: "claim", seq: t2 }), `#${t2} [doing]`); // picking it back up clears the stop
+  await ok(A, fb, "read");
+  const t2 = seqOf(await ok(A, fb, "post", { type: "task", text: `Migrate staging ${run}` }));
+  await ok(A, fb, "task", { action: "claim", seq: t2 });
+  has(await ok(B, fb, "task", { action: "stop", seq: t2, reason: "staging is frozen this week" }), "stopped: staging is frozen");
+  has(await ok(A, fb, "search", { query: `Stop task #${t2}` }), "staging is frozen");
+  has(await ok(A, fb, "task", { action: "claim", seq: t2 }), `#${t2} [doing]`); // picking it back up clears the stop
   // A retracted premise stops the tasks built on it.
-  await ok(A, board, "read");
-  const premise = seqOf(await ok(A, board, "post", { type: "claim", text: `The bug is in the cache ${run}` }));
-  await ok(A, board, "read");
-  const t3 = seqOf(await ok(A, board, "post", { type: "task", text: `Patch the cache ${run}`, reply_to: premise }));
-  await ok(B, board, "task", { action: "claim", seq: t3 });
-  await ok(A, board, "retract", { seq: premise, reason: "it was the CDN" });
-  has(await ok(B, board, "task", { action: "list", status: "stopped" }), `premise #${premise} was retracted`);
-  await err(A, board, "task", { action: "claim", seq: 999999 }, "isn't an open task");
-  await err(A, board, "task", { action: "fly", seq: t3 }, "action must be");
-  const out = await tool(OUT, board, "task", { action: "list" });
+  await ok(A, fb, "read");
+  const premise = seqOf(await ok(A, fb, "post", { type: "claim", text: `The bug is in the cache ${run}` }));
+  await ok(A, fb, "read");
+  const t3 = seqOf(await ok(A, fb, "post", { type: "task", text: `Patch the cache ${run}`, reply_to: premise }));
+  await ok(B, fb, "task", { action: "claim", seq: t3 });
+  await ok(A, fb, "retract", { seq: premise, reason: "it was the CDN" });
+  has(await ok(B, fb, "task", { action: "list", status: "stopped" }), `premise #${premise} was retracted`);
+  await err(A, fb, "task", { action: "claim", seq: 999999 }, "isn't an open task");
+  await err(A, fb, "task", { action: "fly", seq: t3 }, "action must be");
+  const out = await tool(OUT, fb, "task", { action: "list" });
   assert(out.isError, "outsiders can't see tasks");
 });
 
