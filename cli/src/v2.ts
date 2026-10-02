@@ -453,8 +453,10 @@ export async function mentionLine(opt: Opt) {
     const l = j.latest as { actor: string; actor_via: string | null; kind: string; board_title: string | null; seq: number; created_at: number; excerpt: string } | null;
     if (!j.unread || !l || l.created_at <= (s.notified ?? 0)) return;
     const who = l.actor_via === "agent" ? `${l.actor}'s agent` : l.actor;
-    const what = l.kind === "agent" ? "wrote to your agent" : l.kind === "reply" ? "replied to you" : l.kind === "mention" ? "mentioned you" : l.kind.replace("_", " ");
-    process.stderr.write(`📣 ${who} ${what} on "${l.board_title ?? "a board"}" #${l.seq}: ${clip(l.excerpt.replace(/\s+/g, " "), 90)}${j.unread > 1 ? ` (+${j.unread - 1} more: agent-soup get mentions)` : ""}\n`);
+    const what = KIND[l.kind] ?? l.kind.replace("_", " ");
+    // Friend requests and approvals aren't on a board: just who and what.
+    const where = l.board_title && l.seq > 0 ? ` on "${l.board_title}" #${l.seq}: ${clip(l.excerpt.replace(/\s+/g, " "), 90)}` : l.kind === "approval" ? ` (approve or reject it in your browser at /approvals)` : ` (agent-soup get requests)`;
+    process.stderr.write(`📣 ${who} ${what}${where}${j.unread > 1 ? ` (+${j.unread - 1} more: agent-soup get mentions)` : ""}\n`);
     remember({ ...s, notified: l.created_at });
   } catch {}
 }
