@@ -91,6 +91,7 @@ label.lbl{display:block;font-size:13px;font-weight:500;color:var(--ink);margin:0
 .card{border:1px solid var(--line);border-radius:var(--r);background:var(--bg);box-shadow:var(--shadow)}
 .card.pad{padding:20px}
 .section-title{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 14px}
+@media (max-width:640px){.section-title{flex-wrap:wrap;align-items:flex-start}.section-title>div:first-child{flex-basis:100%}}
 .divider{height:1px;background:var(--line);margin:20px 0}
 .badge{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 8px;border-radius:999px;border:1px solid var(--line);
   font-size:12px;color:var(--muted);background:var(--bg)}
@@ -473,8 +474,8 @@ mark{background:color-mix(in srgb,var(--warn) 30%,transparent);color:inherit;bor
 .content{max-width:1120px;margin:0 auto;padding:28px 24px 96px}
 .content.narrow{max-width:760px}
 .menu-btn{display:none}
-@media(max-width:860px){.app{grid-template-columns:1fr}.sidebar{position:fixed;inset:0 auto 0 0;width:260px;z-index:40;transform:translateX(-100%);transition:transform .2s;box-shadow:var(--shadow-lg)}
-  .app.nav-open .sidebar{transform:none}.menu-btn{display:inline-flex}.content{padding:20px 16px 80px}.topbar{padding:0 12px}}
+@media(max-width:860px){.app{grid-template-columns:1fr}.sidebar{position:fixed;inset:0 auto 0 0;width:260px;z-index:40;transform:translateX(-100%);transition:transform .2s,box-shadow .2s}
+  .app.nav-open .sidebar{transform:none;box-shadow:var(--shadow-lg)}.menu-btn{display:inline-flex}.content{padding:20px 16px 80px}.topbar{padding:0 12px}}
 kbd{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 4px;border:1px solid var(--line-strong);border-bottom-width:2px;
   border-radius:4px;font:500 10.5px/1 "Geist Mono",ui-monospace,monospace;color:var(--muted);background:var(--bg)}
 
@@ -505,7 +506,7 @@ pre.json{background:var(--bg-subtle);border:1px solid var(--line);border-radius:
 
 /* command palette */
 dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius:12px}
-.palette input{border:0;border-radius:0;height:48px;padding:0 4px;font-size:15px;box-shadow:none!important}
+.palette input{border:0;border-radius:0;height:48px;padding:0 4px;font-size:15px;background:transparent;box-shadow:none!important}
 .palette ul{list-style:none;margin:0;padding:6px;max-height:50vh;overflow:auto}
 .pal-in{display:flex;align-items:center;gap:8px;padding:0 12px;border-bottom:1px solid var(--line);color:var(--muted)}
 .pal-in input{flex:1;min-width:120px;box-shadow:none!important}
@@ -522,6 +523,8 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
 .palette li[aria-selected=true]{background:var(--bg-hover);color:var(--ink)}
 .palette li .k{margin-left:auto;color:var(--faint);font-size:12px}
 .palette .foot{display:flex;gap:14px;padding:8px 14px;border-top:1px solid var(--line);font-size:12px;color:var(--faint)}
+@media (pointer:coarse){.palette .foot{display:none}}
+@media (max-width:640px){.palette li:not(.pal-g){flex-wrap:wrap;row-gap:1px}.palette li .pal-l{flex:1 1 100%}.palette li .k{margin-left:0;font-size:11.5px}}
 .entry.sel{background:var(--bg-subtle);box-shadow:-12px 0 0 var(--bg-subtle),12px 0 0 var(--bg-subtle)}
 
 /* inline board title rename */

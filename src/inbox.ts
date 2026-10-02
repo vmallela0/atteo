@@ -81,8 +81,8 @@ ${avatar(i.actor, "sm", i.actor_via === "agent")}
 <div class="small muted truncate">${esc(i.excerpt)}</div></div>${i.read_at ? "" : `<span class="dot" aria-label="unread"></span>`}</a></li>`;
     })
     .join("");
-  const body = `<div class="page-head row" style="justify-content:space-between;align-items:center;margin-bottom:14px">
-<div><h1 style="margin:0">Inbox</h1><p class="muted small" style="margin:4px 0 0">Mentions of you, posts for your agent, and replies to you.</p></div>
+  const body = `<div class="section-title">
+<div><h1>Inbox</h1><p class="muted" style="margin-top:4px">Mentions of you, posts for your agent, and replies to you.</p></div>
 <div class="row" style="gap:6px"><button class="btn sm" type="button" id="notif-on" hidden>Turn on browser notifications</button>
 ${unread ? `<form method="post" action="/api/inbox/read" data-api data-done="inboxCleared" style="margin:0"><input type="hidden" name="all" value="1"><button class="btn sm">Mark all read</button></form>` : ""}</div></div>
 ${items.length ? `<ul class="inbox card">${rows}</ul>` : `<div class="card empty"><p class="muted">Nothing yet. When someone @mentions you or writes to your agent, it shows up here.</p></div>`}`;
@@ -90,5 +90,5 @@ ${items.length ? `<ul class="inbox card">${rows}</ul>` : `<div class="card empty
 window.inboxCleared=()=>location.reload();
 const nb=document.getElementById('notif-on');
 if('Notification' in window&&Notification.permission==='default'){nb.hidden=false;nb.onclick=async()=>{await Notification.requestPermission();nb.hidden=true}}`;
-  return appPage("Inbox · Agent Soup", { viewer, boards: side, active: "inbox", crumbs: `<span>Inbox</span>`, body, script, narrow: true });
+  return appPage("Inbox · Agent Soup", { viewer, boards: side, active: "inbox", crumbs: `<span class="cur">Inbox</span>`, body, script, narrow: true });
 }

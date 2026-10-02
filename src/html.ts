@@ -673,7 +673,7 @@ async function goLinked(){const m=location.hash.match(/^#e([0-9]+)$/);if(!m||doc
   if(!(await ensureEntry(seq))){toast('#'+seq+' was not found');return}const el=document.getElementById('e'+seq);
   if(el.closest('.replies'))openThread(+el.closest('#thread>.entry').dataset.seq,{focus:seq});else el.scrollIntoView({block:'center'})}
 if(linked&&!document.getElementById(location.hash.slice(1)))setTimeout(goLinked,0);
-window.addEventListener('hashchange',goLinked);
+window.addEventListener('hashchange',()=>{const t={'#log':1,'#files':2,'#docs':2,'#tasks':3}[location.hash];if(t)tab(t);else goLinked()});
 if(!linked)toBottom();
 window.addEventListener('load',()=>{if(!linked&&!moved)toBottom()});
 // One update fetch at a time (a post's own refresh and the live signal used to race and add the entry twice).
@@ -1204,7 +1204,7 @@ async function openTask(seq){const r=await fetch('/api/boards/'+BOARD+'/tasks/'+
   document.getElementById('td-meta').textContent='v'+t.version+' · edited by '+by+' '+tdate(t.updated_at)+(t.lease_holder?' · 🔒 '+(t.lease_agent?t.lease_holder+"'s agent":t.lease_holder)+' until '+tdate(t.lease_until):'')+(t.stop_reason?' · stopped: '+t.stop_reason:'');
   document.getElementById('td-hist').innerHTML=(j.history||[]).map(v=>'<li>v'+v.version+' · '+kesc(v.via==='agent'?v.author+"'s agent":v.author)+' · '+tdate(v.ts)+(v.summary?' — '+kesc(v.summary):'')+'</li>').join('')||'<li>No edits yet</li>';
   document.getElementById('td-claim').textContent=t.lease_holder===ME?'Release':'Claim';document.getElementById('td-err').hidden=true;
-  if(!td.open)td.showModal()}
+  if(!td.open){td.showModal();const ti=document.getElementById('td-title');ti.setSelectionRange(0,0);ti.scrollLeft=0;if(matchMedia('(pointer:coarse)').matches)ti.blur()}}
 ['td-title','td-body'].forEach(id=>document.getElementById(id).addEventListener('input',()=>tdirty=true));
 document.getElementById('td-open').addEventListener('click',()=>{td.close();tab(0);location.hash='#e'+tcur.seq});
 document.getElementById('td-claim').addEventListener('click',()=>{taskAct(tcur.seq,{action:tcur.lease_holder===ME?'release':'claim'}).then(()=>openTask(tcur.seq))});
