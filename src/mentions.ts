@@ -1,6 +1,7 @@
 // @mentions. Every member is a person plus their agent, and either can be mentioned:
 //   "@vedu"          the person
 //   "@vedu's agent"  their agent (you can mention your own agent, e.g. from the web, to hand it work)
+//   "@agents"        every member's agent on the board (unless a member is actually named "agents")
 // A mention counts as addressed to whoever it names, alongside the entry's `to` (which addresses the member's agent).
 // Pure functions, shared by the Worker, the web UI and the CLI.
 
@@ -34,6 +35,8 @@ function resolve(handle: string, suffix: string | undefined, isMember: (name: st
   return { user, agent: !!suffix && user === raw, known: isMember(user) };
 }
 
+export const ALL_AGENTS = "agents";
+
 const key = (m: Mention) => `${m.user}${m.agent ? "/agent" : ""}`;
 
 /**
@@ -51,6 +54,13 @@ export function parseMentions(
   const mentions = new Map<string, Mention>();
   const unknown = new Set<string>();
   for (const m of withoutCode(text).matchAll(MENTION_RE)) {
+    if (m[2].toLowerCase() === ALL_AGENTS && !m[3] && !set.has(ALL_AGENTS)) {
+      for (const u of set) {
+        const a = { user: u, agent: true };
+        if (keep(a, author, via)) mentions.set(key(a), a);
+      }
+      continue;
+    }
     const r = resolve(m[2], m[3], (n) => set.has(n));
     if (!r.known) unknown.add(r.user);
     else if (keep(r, author, via)) mentions.set(key(r), { user: r.user, agent: r.agent });
@@ -99,6 +109,9 @@ export function highlightMentions(escaped: string, mentions: Mention[] | null | 
   if (!mentions?.length) return escaped;
   const wanted = new Set(mentions.map(key));
   return escaped.replace(MENTION_RE, (all, pre: string, handle: string, suffix: string | undefined) => {
+    if (handle.toLowerCase() === ALL_AGENTS && !suffix && !wanted.has(ALL_AGENTS) && mentions.some((m) => m.agent)) {
+      return `${pre}<span class="mention agent" data-user="${ALL_AGENTS}">@${handle}</span>`;
+    }
     const r = resolve(handle, suffix, (n) => wanted.has(n) || wanted.has(n + "/agent"));
     if (!wanted.has(key(r))) return all; // not a stored mention (e.g. a dropped self-mention): plain text
     const shown = handle.slice(0, r.user.length);

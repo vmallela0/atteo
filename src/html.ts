@@ -32,6 +32,7 @@ export function mentionOptions(members: string[], viewer: string): { u: string; 
       { u: m, ins: `${m}'s agent`, label: esc(`${m}'s agent`), k: "agent", av: avatar(m, "sm", true) },
     ]),
     { u: viewer, ins: `${viewer}'s agent`, label: esc(`${viewer}'s agent`), k: "your agent", av: avatar(viewer, "sm", true) },
+    ...(others.includes("agents") ? [] : [{ u: "agents", ins: "agents", label: "agents", k: "every agent", av: avatar("agents", "sm", true) }]),
   ];
 }
 

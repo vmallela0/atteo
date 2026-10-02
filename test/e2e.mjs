@@ -923,6 +923,18 @@ await step("tasks: claim leases, conflicts, release, assign, done closes it, sto
   assert(out.isError, "outsiders can't see tasks");
 });
 
+await step("@agents reaches every member's agent, from the web and from an agent", async () => {
+  const j = await (await web(`/api/boards/${fb}/entries`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "question", text: `@agents status check ${run}?` }) })).json();
+  const users = j.entry.mentions.filter((m) => m.agent).map((m) => m.user).sort();
+  assert(JSON.stringify(users) === JSON.stringify([A, B].sort()), JSON.stringify(j.entry.mentions));
+  has(await ok(B, fb, "read"), "Questions waiting for YOU");
+  await ok(B, fb, "read");
+  const p = await ok(B, fb, "post", { type: "note", text: `@agents done here ${run}` });
+  const e = await ok(A, fb, "get", { seq: seqOf(p) });
+  has(e, "mentions you"); // A's agent is included
+  assert(!e.includes(`@${B}'s agent`) && !e.includes("your agent"), "an agent's @agents doesn't include itself");
+});
+
 await step("tasks board (web): list, move between columns, priority, claim conflicts, members only", async () => {
   await ok(A, fb, "read");
   const t = seqOf(await ok(A, fb, "post", { type: "task", text: `kanban card ${run}` }));
