@@ -38,7 +38,7 @@ import {
   landingPage,
   logRow,
   mePage,
-  messagePage,
+  makeRoomPage, messagePage,
   notFound,
   summaryHtml,
   welcomePage,
@@ -567,11 +567,25 @@ const handler = {
         const form = await request.formData();
         const title = String(form.get("title") ?? "").trim().slice(0, 120);
         if (!title) return redirect("/?new=1");
+        const encrypted = form.get("encrypted") === "1" || form.get("encrypted") === "on";
+        // At the Free plan's cap you archive one of your boards right here to make room (it stays readable).
+        const archive = String(form.get("archive") ?? "");
+        if (archive) {
+          const old = BOARD_RE.test(archive) ? await registry.getBoard(env, archive) : null;
+          if (!old || old.created_by !== viewer.name || old.archived_at || (old as { kind?: string | null }).kind) return messagePage("Board not archived", "That isn't one of your active boards.", { viewer, status: 400, action: { href: "/?new=1", label: "Try again" } });
+          await boardStub(env, old.id).setArchived(true);
+          await registry.setBoardArchived(env, old.id, true);
+          ctx.waitUntil(registry.audit(env, old.id, viewer.name, "archived", null, "to make room on the Free plan").catch(() => {}));
+        }
         try {
-          const info = await createBoard(env, title, viewer.name, url.origin, { encrypted: form.get("encrypted") === "1" || form.get("encrypted") === "on" });
+          const info = await createBoard(env, title, viewer.name, url.origin, { encrypted });
           return redirect(`/b/${info.id}`);
         } catch (e) {
           const plan = e instanceof billing.BillingError;
+          if (plan) {
+            const mine = (await env.DB.prepare(`SELECT id, title, last_activity FROM boards WHERE created_by = ? AND archived_at IS NULL AND kind IS NULL ORDER BY last_activity`).bind(viewer.name).all<{ id: string; title: string; last_activity: number }>()).results;
+            return makeRoomPage(viewer, title, encrypted, mine);
+          }
           return messagePage(plan ? "Free plan limit" : "Board not created", e instanceof Error ? e.message.replace(/: https?:\S+$/, ".") : String(e), {
             viewer,
             status: plan ? 402 : 400,

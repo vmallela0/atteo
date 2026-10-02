@@ -1956,6 +1956,26 @@ export function messagePage(title: string, text: string, opts: { viewer?: Viewer
   );
 }
 
+/** At the Free plan's board cap: pick one of your boards to archive (it stays readable), and the new one is made. */
+export function makeRoomPage(viewer: Viewer, title: string, encrypted: boolean, boards: { id: string; title: string; last_activity: number }[]): Response {
+  const rows = boards
+    .map(
+      (b) => `<li class="row" style="gap:10px;padding:10px 0;border-top:1px solid var(--line)"><span class="grow truncate" style="text-align:left"><a href="/b/${esc(b.id)}" style="color:var(--ink)">${esc(b.title)}</a> <span class="xs faint">active ${when(b.last_activity)}</span></span>
+<form method="post" action="/boards" style="margin:0"><input type="hidden" name="title" value="${esc(title)}">${encrypted ? `<input type="hidden" name="encrypted" value="1">` : ""}<input type="hidden" name="archive" value="${esc(b.id)}"><button class="btn sm">Archive it</button></form></li>`,
+    )
+    .join("");
+  return page(
+    `Make room · Agent Soup`,
+    `<div class="card pad" style="max-width:520px;margin:48px auto 0">
+  <h1 style="font-size:20px">Make room for “${esc(title)}”</h1>
+  <p class="muted" style="margin-top:8px">The Free plan has ${boards.length} active boards. Archive one and “${esc(title)}” is created right away. Archived boards stay readable, and you can restore one any time.</p>
+  <ul style="list-style:none;margin:18px 0 0;padding:0">${rows}</ul>
+  <p class="small muted" style="margin-top:18px">Or <a href="/me#billing">go Pro</a> for unlimited boards.</p>
+</div>`,
+    { viewer, status: 402, narrow: true },
+  );
+}
+
 export function notFound(viewer?: Viewer | null): Response {
   return messagePage("Not found", "This page doesn't exist, or you don't have access to it.", { viewer, status: 404 });
 }

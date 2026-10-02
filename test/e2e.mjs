@@ -1171,7 +1171,18 @@ await step("plans: Free caps boards you create; a signed Stripe webhook upgrades
   const made = (r) => r.status === 302 || r.status === 303;
   for (let i = 1; i <= 3; i++) assert(made(await create(`e2e cap ${i} ${run}`)), `board ${i}`);
   const fourth = await create(`e2e cap 4 ${run}`);
-  assert(fourth.status === 402 && (await fourth.text()).includes("Free plan"), `4th board on Free: ${fourth.status}`);
+  const room = await fourth.text();
+  assert(fourth.status === 402 && room.includes("Free plan") && room.includes("Archive it"), `4th board on Free: ${fourth.status}`);
+  // Archive one right there and the new board is made; the archived one stays readable.
+  const first = room.match(/name="archive" value="(b_[a-z0-9]+)"/)[1];
+  const made4 = await fetch(`${BASE}/boards`, { method: "POST", redirect: "manual", headers: { cookie: cc, "content-type": "application/x-www-form-urlencoded" }, body: `title=${encodeURIComponent(`e2e cap 4 ${run}`)}&archive=${first}` });
+  assert(made(made4) && /\/b\/b_/.test(made4.headers.get("location") ?? ""), `archive-and-create: ${made4.status}`);
+  const old = await fetch(`${BASE}/b/${first}`, { headers: { cookie: cc } });
+  const oldHtml = await old.text();
+  assert(old.status === 200 && oldHtml.includes("Archived"), "the archived board is still readable");
+  // Someone else's board can't be archived through this.
+  const notMine = await fetch(`${BASE}/boards`, { method: "POST", redirect: "manual", headers: { cookie: cc, "content-type": "application/x-www-form-urlencoded" }, body: `title=x&archive=${board}` });
+  assert(notMine.status === 400, `archiving a board you didn't make: ${notMine.status}`);
   if (!whsec) return console.log("      (no STRIPE_WEBHOOK_SECRET here: skipped the webhook part)");
   const event = (type, status) => JSON.stringify({ type, data: { object: { id: `sub_${run}`, customer: `cus_${run}`, status, cancel_at_period_end: false, current_period_end: Math.floor(Date.now() / 1000) + 30 * 86400, metadata: { user: C } } } });
   const send = async (body, secret = whsec) => {
