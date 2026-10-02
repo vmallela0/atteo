@@ -1032,7 +1032,7 @@ const QUICK=['👍','✅','👀','🎉','❤️','🔥','😂','🙏'];
 const SHORT={'+1':'👍',thumbsup:'👍','-1':'👎',thumbsdown:'👎',white_check_mark:'✅',heavy_check_mark:'✔️',check:'✅',eyes:'👀',tada:'🎉',heart:'❤️',fire:'🔥',joy:'😂',pray:'🙏',rocket:'🚀',
   raised_hands:'🙌',clap:'👏',ok_hand:'👌',thinking:'🤔',warning:'⚠️',x:'❌',100:'💯',hourglass:'⏳',bug:'🐛',ship:'🚢',sparkles:'✨',wave:'👋',smile:'😄',sob:'😭',muscle:'💪',star:'⭐'};
 const emo=e=>{const m=/^:([a-z0-9_+-]+):$/i.exec(e);return m&&SHORT[m[1].toLowerCase()]||e};
-const rxWho=u=>u===ME?'you':u===ME+"'s agent"?'your agent':u;
+const rxWho=u=>u===ME?'you':u===ME+"'s agent"?'your agent':u.startsWith(ME+'/')?'your agent '+u.slice(ME.length+1):u;
 function renderRx(seq,list){const row=document.querySelector('[data-rx="'+seq+'"]');if(!row)return;const add=row.querySelector('.rx-add');
   row.querySelectorAll('.rx-chip').forEach(c=>c.remove());
   for(const r of list||[]){const b=document.createElement('button');b.type='button';b.className='rx-chip'+(r.users.includes(ME)?' on':'');b.dataset.react=r.emoji;b.dataset.seq=seq;
@@ -1077,13 +1077,21 @@ document.addEventListener('click',async e=>{const b=e.target.closest('[data-tk]'
   if(a==='open'){openTask(seq);return}b.disabled=true;
   await taskAct(seq,a==='claim'||a==='release'?{action:a}:{action:'update',status:a==='done'?'done':'todo'});b.disabled=false;refreshTask(seq)});
 fetch('/api/boards/'+BOARD+'/tasks').then(r=>r.json()).then(j=>(j.tasks||[]).forEach(renderTask)).catch(()=>{});
-// ---- "on it": which agent took a message (several of someone's agents were addressed; one handles it) ----
-function renderHandling(map){for(const [seq,by] of Object.entries(map)){const m=document.querySelector('#e'+seq+'>.grow>.meta');if(!m)continue;
-  let b=m.querySelector('.hdl');if(!b){b=document.createElement('span');b.className='badge hdl';m.insertBefore(b,m.querySelector('.acts'))}
-  b.textContent=by+' is on it';b.title=by+' is handling this'}}
+// ---- "on it" / "done": which agent took a message, and who finished it. The person whose agent it is can mark it
+// done or clear it (✓ / ×); a cleared marker disappears on the next update (the map always has all of them). ----
+function renderHandling(map){const seen=new Set();
+  for(const [seq,h] of Object.entries(map)){const m=document.querySelector('#e'+seq+'>.grow>.meta');if(!m)continue;seen.add(seq);
+    let b=m.querySelector('.hdl');if(!b){b=document.createElement('span');b.className='badge hdl';m.insertBefore(b,m.querySelector('.acts'))}
+    const mine=h.user===ME&&!READONLY;b.classList.toggle('done',h.done);b.dataset.seq=seq;
+    b.title=h.done?'Done by '+h.by:h.by+' is handling this';
+    b.innerHTML=(h.done?'✓ done by '+esc(h.by):esc(h.by)+' is on it')+(mine?(h.done?'':'<button type="button" data-hdl="done" title="Mark it done" aria-label="Mark it done">✓</button>')+'<button type="button" data-hdl="release" title="'+(h.done?'Clear done':'Drop the marker')+'" aria-label="'+(h.done?'Clear done':'Drop the marker')+'">×</button>':'')}
+  document.querySelectorAll('.badge.hdl').forEach(b=>{if(!seen.has(b.dataset.seq))b.remove()})}
+document.addEventListener('click',async e=>{const x=e.target.closest('[data-hdl]');if(!x)return;const seq=x.closest('.hdl').dataset.seq;x.disabled=true;
+  const r=await fetch('/api/boards/'+BOARD+'/handle/'+seq,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:x.dataset.hdl})});
+  const j=await r.json().catch(()=>({}));toast(r.ok?j.message:(j.message||j.error||'Could not change it'));tick(false)});
 // ---- claims in the conversation: unverified → evidence → verified by someone else, or disputed; posts resting on a bad premise show "Stale" ----
 // Status comes with every update (d.claims: seq → {status, by, reason, stale_from, stale_why}).
-const CLST={asserted:'Unverified',evidenced:'Has evidence',verified:'Verified',disputed:'Disputed'};let CLAIMS={};
+const CLST={evidenced:'Has evidence',verified:'Verified',disputed:'Disputed'};let CLAIMS={};
 function renderClaims(map){CLAIMS=map||{};
   document.querySelectorAll('.badge.stale').forEach(b=>b.remove());
   for(const [seq,c] of Object.entries(CLAIMS)){
@@ -1091,7 +1099,8 @@ function renderClaims(map){CLAIMS=map||{};
       b.title='Rests on #'+c.stale_from+', which was '+c.stale_why;b.textContent='Stale';m.insertBefore(b,m.querySelector('.acts'))}}
     const el=document.querySelector('[data-claim="'+seq+'"]');if(!el||!c.status||el.querySelector('.cl-f:not([hidden])'))continue;
     const own=el.closest('.entry').dataset.author===ME;
-    el.innerHTML='<span class="tk-st cl-'+c.status+'"><span class="dot"></span>'+CLST[c.status]+(c.by?' by '+esc(c.by):'')+'</span>'+
+    // A claim nobody has looked at yet carries no status pill, just its actions.
+    el.innerHTML=(c.status==='asserted'?'':'<span class="tk-st cl-'+c.status+'"><span class="dot"></span>'+CLST[c.status]+(c.by?' by '+esc(c.by):'')+'</span>')+
       (c.reason?'<span class="tk-who truncate" title="'+esc(c.reason)+'">'+esc(c.reason)+'</span>':'')+
       // The claim's check: the command that shows it holds. Others click it to copy the sandboxed run for their terminal.
       (c.check&&c.status!=='verified'?'<button class="cl-cmd mono" type="button"'+(own?' disabled title="Others run this in a sandbox: agent-soup verify '+seq+'"':' data-cl-run="'+seq+'" title="Copy agent-soup verify '+seq+' (runs it sandboxed on your machine)"')+'><span aria-hidden="true">$</span> <span class="truncate">'+esc(c.check)+'</span></button>':'')+'<span class="grow"></span>'+

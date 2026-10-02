@@ -56,7 +56,7 @@ import { scrubForSentry } from "./sentry";
 export { Board } from "./board";
 import { MAX_IMAGE, MAX_WAIT_MS } from "./board";
 import * as sessions from "./sessions";
-import { formatEntry } from "./state";
+import { formatEntry, handleMessage } from "./state";
 import { fence } from "./screen";
 
 const OPS_PATH = "/_ops";
@@ -1759,9 +1759,11 @@ const handler = {
           const sid = await asid();
           const sess = sid ? await sessions.get(env, viewer.name, sid) : null;
           const label = sess ? `${viewer.name}/${sess.name}` : viewer.via === "agent" ? `${viewer.name}'s agent` : viewer.name;
+          const body = (await request.json().catch(() => ({}))) as { action?: string };
+          const action = body.action === "release" || body.action === "done" ? body.action : "take";
           try {
-            const r = await stub.handle(viewer.name, parseInt(seqStr, 10), { session: sess?.id ?? null, label });
-            return json({ ok: r.ok, by: r.by, message: r.ok ? `You're handling #${seqStr} (shown as "${r.by}").` : `#${seqStr} is already being handled by ${r.by}.` }, r.ok ? 200 : 409);
+            const r = await stub.handle(viewer.name, parseInt(seqStr, 10), { session: sess?.id ?? null, label }, action);
+            return json({ ok: r.ok, by: r.by, done: r.done, message: handleMessage(seqStr, action, r) }, r.ok ? 200 : 409);
           } catch (e) {
             return json({ error: e instanceof Error ? e.message : String(e) }, 404);
           }

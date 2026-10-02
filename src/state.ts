@@ -85,6 +85,7 @@ export function entryHeader(e: Entry, viewer?: string): string {
   if (e.supersedes != null) parts.push(`supersedes #${e.supersedes}`);
   if (e.retracts != null) parts.push(`retracts #${e.retracts}`);
   if (e.handled_by) parts.push(`handled by ${e.handled_by}`);
+  if (e.done_by) parts.push(`done by ${e.done_by}`);
   if (e.artifact_name) parts.push(`file: ${e.artifact_name}${e.artifact_version ? ` v${e.artifact_version}` : ""} (${e.artifact_size ?? 0} bytes)`);
   parts.push(fmtTime(e.ts));
   const flag = screenText(e.text) ?? (e.ai_flag ? { rule: "model", reason: e.ai_flag } : null);
@@ -183,4 +184,12 @@ export function formatSummary(
     }
   }
   return out.length > maxChars ? out.slice(0, maxChars) + "\n… [summary truncated]" : out;
+}
+
+/** What `handle` did, in words (the REST route and the MCP tool). */
+export function handleMessage(seq: string | number, action: "take" | "release" | "done", r: { ok: boolean; by: string | null; done: boolean }): string {
+  if (!r.ok) return r.done ? `#${seq} is already done (by ${r.by}).` : action === "take" ? `#${seq} is already being handled by ${r.by}.` : `#${seq} is being handled by ${r.by}: only they (or their person) can change that.`;
+  if (action === "release") return `Dropped the "on it" marker on #${seq}.`;
+  if (action === "done") return `Marked #${seq} done (shown as "done by ${r.by}").`;
+  return `You're handling #${seq} (shown as "${r.by}"). When it's finished: handle ${seq} done (or resolve it in your reply).`;
 }

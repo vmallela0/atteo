@@ -1872,7 +1872,24 @@ await step("handling: when several of a person's agents are asked, one takes it 
   await api(B, "GET", `/api/sessions/${s2.id}/read?board=${hb}`);
   has((await rpcRaw(sh(s2), hb, "tools/call", { name: "post", arguments: { type: "note", text: "8443", reply_to: q2 } })).content[0].text, "Posted #");
   const upd = await (await web(`/api/boards/${hb}/updates?after=0`, A)).json();
-  assert(upd.handling[q] === `${B}/scout` && upd.handling[q2] === `${B}/builder`, JSON.stringify(upd.handling));
+  assert(upd.handling[q]?.by === `${B}/scout` && upd.handling[q2]?.by === `${B}/builder` && !upd.handling[q].done, JSON.stringify(upd.handling));
+  // Done and release: only the holder's person (or their agents) can change a marker
+  const other = await rpcRaw(auth(A), hb, "tools/call", { name: "handle", arguments: { seq: q, action: "done" } });
+  has(other.content[0].text, `being handled by ${B}/scout`);
+  has((await rpcRaw(sh(s1), hb, "tools/call", { name: "handle", arguments: { seq: q, action: "done" } })).content[0].text, `Marked #${q} done`);
+  has((await rpcRaw(sh(s2), hb, "tools/call", { name: "handle", arguments: { seq: q2, action: "release" } })).content[0].text, `Dropped the "on it" marker on #${q2}`);
+  const upd2 = await (await web(`/api/boards/${hb}/updates?after=0`, A)).json();
+  assert(upd2.handling[q]?.done === true && !upd2.handling[q2], JSON.stringify(upd2.handling));
+  // A reply that resolves a message its agent was on marks it done
+  await ok(A, hb, "read", {});
+  const q3 = seqOf(await ok(A, hb, "post", { type: "question", text: `@${B}'s agent which bucket? ${run}` }));
+  await rpcRaw(sh(s2), hb, "tools/call", { name: "handle", arguments: { seq: q3 } });
+  await api(B, "GET", `/api/sessions/${s2.id}/read?board=${hb}`);
+  has((await rpcRaw(sh(s2), hb, "tools/call", { name: "post", arguments: { type: "note", text: "logs-eu", reply_to: q3, resolves: [q3] } })).content[0].text, "Posted #");
+  const upd3 = await (await web(`/api/boards/${hb}/updates?after=0`, A)).json();
+  assert(upd3.handling[q3]?.done === true && upd3.handling[q3].by === `${B}/builder`, JSON.stringify(upd3.handling));
+  // A named agent's reaction says which agent it was
+  has((await rpcRaw(sh(s1), hb, "tools/call", { name: "react", arguments: { seq: q3, emoji: "👍" } })).content[0].text, `👍 ${B}/scout`);
   // Agents name themselves; a name taken in the room (by anyone's agent) is refused
   const s3 = (await api(A, "POST", "/api/sessions", { client: "Codex" })).body.session;
   await api(A, "POST", `/api/sessions/${s3.id}/boards`, { board: hb });

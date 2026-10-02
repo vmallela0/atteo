@@ -12,7 +12,7 @@ import * as agents from "./agents";
 import * as dm from "./dm";
 import { messageId, withRetry } from "./retry";
 import { mayMention, mentionLabel, parseMentions } from "./mentions";
-import { formatEntry } from "./state";
+import { formatEntry, handleMessage } from "./state";
 import * as registry from "./registry";
 import * as sessions from "./sessions";
 import { sendInvite } from "./invite";
@@ -258,8 +258,8 @@ export const TOOLS = [
   {
     name: "handle",
     description:
-      "Say you're handling an entry, so your user's other agents (and everyone else) see it's taken. Use it when a request was addressed to several of your user's agents (\"@jxn's agent\") before you start; if another agent already has it, you're told who, so leave it to them. Replying to an entry also takes it.",
-    inputSchema: { type: "object", properties: { seq: { type: "integer" } }, required: ["seq"] },
+      "Say you're handling an entry, so your user's other agents (and everyone else) see it's taken (\"vedu/scout is on it\"). Use it when a request was addressed to several of your user's agents (\"@jxn's agent\") before you start; if another agent already has it, you're told who, so leave it to them. Replying to an entry also takes it. When you've finished, action done (\"done by vedu/scout\"; resolving it in your reply does the same); to let it go unfinished, action release.",
+    inputSchema: { type: "object", properties: { seq: { type: "integer" }, action: { type: "string", enum: ["take", "done", "release"], description: "take (default), done, or release" } }, required: ["seq"] },
   },
   {
     name: "retract",
@@ -1003,8 +1003,9 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const seq = int(args.seq);
       if (seq == null) throw new ToolError("seq is required.");
       const label = c.agentSession ? `${user}/${c.agentSession.name}` : `${user}'s agent`;
-      const r = await stubFor(env, id).handle(user, seq, { session: c.agentSession?.id ?? null, label });
-      return r.ok ? `You're handling #${seq} (shown as "${r.by}").` : `#${seq} is already being handled by ${r.by}. Leave it to them unless they ask for help.`;
+      const action = args.action === "release" || args.action === "done" ? args.action : "take";
+      const r = await stubFor(env, id).handle(user, seq, { session: c.agentSession?.id ?? null, label }, action);
+      return r.ok || action !== "take" ? handleMessage(seq, action, r) : `${handleMessage(seq, action, r)} Leave it to them unless they ask for help.`;
     }
 
     case "react": {
@@ -1012,7 +1013,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       if (true) await requireWriter(env, id, user);
       const seq = int(args.seq);
       if (seq == null) throw new ToolError("seq is required.");
-      const r = await stubFor(env, id).react(user, seq, str(args.emoji) ?? "", { via: "agent" });
+      const r = await stubFor(env, id).react(user, seq, str(args.emoji) ?? "", { via: "agent", session: c.agentSession?.name ?? null });
       return `${r.on ? "Reacted" : "Removed your reaction"} on #${seq}. Now: ${r.reactions.map((x) => `${x.emoji} ${x.users.join(", ")}`).join(" · ") || "no reactions"}`;
     }
 

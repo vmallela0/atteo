@@ -317,7 +317,8 @@ export class Board extends DurableObject<Env> {
         user TEXT NOT NULL,
         session TEXT,
         label TEXT NOT NULL,
-        ts INTEGER NOT NULL
+        ts INTEGER NOT NULL,
+        done INTEGER NOT NULL DEFAULT 0 -- 1: "done by vedu/scout" instead of "is on it"
       );
       CREATE TABLE IF NOT EXISTS session_cursors (
         session TEXT PRIMARY KEY,
@@ -544,6 +545,8 @@ export class Board extends DurableObject<Env> {
     if (!cols.has("media")) this.sql.exec("ALTER TABLE entries ADD COLUMN media TEXT"); // images: {mime, w, h, size}
     if (!cols.has("title")) this.sql.exec("ALTER TABLE entries ADD COLUMN title TEXT"); // the author's 2–5 word summary
     // Read receipts: how far each member has seen, as a person (web) and through their agent (read/wait/post).
+    const handlingCols = new Set(this.sql.exec("PRAGMA table_info(handling)").toArray().map((r) => r.name as string));
+    if (handlingCols.size && !handlingCols.has("done")) this.sql.exec("ALTER TABLE handling ADD COLUMN done INTEGER NOT NULL DEFAULT 0");
     const memberCols = new Set(this.sql.exec("PRAGMA table_info(members)").toArray().map((r) => r.name as string));
     if (!memberCols.has("person_seen")) this.sql.exec("ALTER TABLE members ADD COLUMN person_seen INTEGER NOT NULL DEFAULT 0");
     if (!memberCols.has("agent_seen")) this.sql.exec("ALTER TABLE members ADD COLUMN agent_seen INTEGER NOT NULL DEFAULT -1"); // -1: never here
@@ -706,30 +709,51 @@ export class Board extends DurableObject<Env> {
   /**
    * "I'm on it": one agent takes a message (useful when several of a person's agents were addressed). The first one
    * wins; another session of the same person trying later is told who has it. Anyone else can't take it from them.
+   * The person whose agent has it can drop the marker (release) or turn it into "done"; a message nobody took can be
+   * marked done straight away.
    */
-  async handle(user: string, seq: number, who: { session?: string | null; label: string }): Promise<{ ok: boolean; by: string }> {
+  async handle(user: string, seq: number, who: { session?: string | null; label: string }, action: "take" | "release" | "done" = "take"): Promise<{ ok: boolean; by: string | null; done: boolean }> {
     this.info();
     if (!this.sql.exec("SELECT 1 AS x FROM entries WHERE seq = ?", seq).toArray().length) throw new BoardError(`Entry #${seq} does not exist on this board.`);
-    const cur = this.sql.exec("SELECT user, session, label FROM handling WHERE seq = ?", seq).toArray()[0];
-    if (cur) return { ok: cur.user === user && (cur.session ?? null) === (who.session ?? null), by: cur.label as string };
-    this.sql.exec("INSERT INTO handling (seq, user, session, label, ts) VALUES (?, ?, ?, ?, ?)", seq, user, who.session ?? null, who.label.slice(0, 80), Date.now());
-    this.broadcast({ type: "handling", seq, by: who.label });
-    return { ok: true, by: who.label };
+    const cur = this.sql.exec("SELECT user, session, label, done FROM handling WHERE seq = ?", seq).toArray()[0];
+    const label = who.label.slice(0, 80);
+    if (action === "take") {
+      if (cur) return { ok: !cur.done && cur.user === user && (cur.session ?? null) === (who.session ?? null), by: cur.label as string, done: !!cur.done };
+      this.sql.exec("INSERT INTO handling (seq, user, session, label, ts, done) VALUES (?, ?, ?, ?, ?, 0)", seq, user, who.session ?? null, label, Date.now());
+      this.broadcast({ type: "handling", seq, by: label });
+      return { ok: true, by: label, done: false };
+    }
+    if (cur && cur.user !== user) return { ok: false, by: cur.label as string, done: !!cur.done };
+    if (action === "release") {
+      if (cur) this.sql.exec("DELETE FROM handling WHERE seq = ?", seq);
+      this.broadcast({ type: "handling", seq, by: null });
+      return { ok: true, by: null, done: false };
+    }
+    this.markDone(seq, user, who.session ?? null, cur ? (cur.label as string) : label);
+    return { ok: true, by: cur ? (cur.label as string) : label, done: true };
   }
 
-  /** Who is handling what (for pages, and to label entries agents read). */
-  handlingMap(seqs?: number[]): Record<number, string> {
+  private markDone(seq: number, user: string, session: string | null, label: string) {
+    this.sql.exec(
+      "INSERT INTO handling (seq, user, session, label, ts, done) VALUES (?, ?, ?, ?, ?, 1) ON CONFLICT(seq) DO UPDATE SET done = 1, ts = excluded.ts",
+      seq, user, session, label, Date.now(),
+    );
+    this.broadcast({ type: "handling", seq, by: label, done: true });
+  }
+
+  /** Who is on what, and who finished what (for pages, and to label entries agents read). */
+  handlingMap(seqs?: number[]): Record<number, { by: string; user: string; done: boolean }> {
     const rows = seqs
       ? seqs.length
-        ? this.sql.exec("SELECT seq, label FROM handling WHERE seq BETWEEN ? AND ?", Math.min(...seqs), Math.max(...seqs)).toArray()
+        ? this.sql.exec("SELECT seq, label, user, done FROM handling WHERE seq BETWEEN ? AND ?", Math.min(...seqs), Math.max(...seqs)).toArray()
         : []
-      : this.sql.exec("SELECT seq, label FROM handling ORDER BY seq DESC LIMIT 500").toArray();
-    return Object.fromEntries(rows.map((r) => [r.seq as number, r.label as string]));
+      : this.sql.exec("SELECT seq, label, user, done FROM handling ORDER BY seq DESC LIMIT 500").toArray();
+    return Object.fromEntries(rows.map((r) => [r.seq as number, { by: r.label as string, user: r.user as string, done: !!r.done }]));
   }
 
   private withHandling(entries: Entry[]): Entry[] {
     const m = this.handlingMap(entries.map((e) => e.seq));
-    return entries.map((e) => (m[e.seq] ? { ...e, handled_by: m[e.seq] } : e));
+    return entries.map((e) => (m[e.seq] ? { ...e, ...(m[e.seq].done ? { done_by: m[e.seq].by } : { handled_by: m[e.seq].by }) } : e));
   }
 
   /** An agent session starts following this board: its read position starts where its person's agent left off. */
@@ -907,6 +931,11 @@ export class Board extends DurableObject<Env> {
       const label = `${user}/${(input.client ?? "agent").split(" · ")[0]}`;
       this.sql.exec("INSERT INTO handling (seq, user, session, label, ts) VALUES (?, ?, ?, ?, ?)", input.reply_to, user, input.session, label, Date.now());
       this.broadcast({ type: "handling", seq: input.reply_to, by: label });
+    }
+    // Resolving a message you (or another of your agents) were on turns "is on it" into "done".
+    for (const r of new Set(input.resolves ?? [])) {
+      const h = this.sql.exec("SELECT user, session, label, done FROM handling WHERE seq = ?", r).toArray()[0];
+      if (h && h.user === user && !h.done) this.markDone(r, user, (h.session as string | null) ?? null, h.label as string);
     }
 
     this.ctx.waitUntil(this.notify(info, entry).catch(() => {}));
@@ -1310,13 +1339,14 @@ export class Board extends DurableObject<Env> {
 
   /** Add your reaction, or remove it if it's already there. Returns the entry's reactions. */
   /** An agent's reaction is shown (and toggled) as "<name>'s agent", separately from its person's. */
-  async react(user: string, seq: number, emoji: string, opts: { via?: "agent" | "person" | null } = {}): Promise<{ on: boolean; reactions: Reactions }> {
+  async react(user: string, seq: number, emoji: string, opts: { via?: "agent" | "person" | null; session?: string | null } = {}): Promise<{ on: boolean; reactions: Reactions }> {
     const info = this.info();
     if (info.archived) throw new BoardError(`"${info.title}" is archived, so it's read-only. Its creator can restore it.`);
     const e = (emoji ?? "").trim();
     if (!EMOJI_RE.test(e)) throw new BoardError("Give one emoji, like 👍, or a :shortcode:.");
     if (!Number.isInteger(seq) || seq < 1 || seq > info.last_seq) throw new BoardError(`Entry #${seq} does not exist on this board.`);
-    const who = opts.via === "agent" ? `${user}'s agent` : user;
+    // A named agent reacts as itself ("vedu/scout"), so people can tell which of someone's agents it was.
+    const who = opts.via === "agent" ? (opts.session ? `${user}/${opts.session}` : `${user}'s agent`) : user;
     const had = this.sql.exec("DELETE FROM reactions WHERE seq = ? AND user = ? AND emoji = ? RETURNING seq", seq, who, e).toArray().length > 0;
     if (!had) {
       this.rateLimit(user);
@@ -1447,7 +1477,8 @@ export class Board extends DurableObject<Env> {
   ): Promise<string> {
     const info = this.info();
     const claim = this.claimRow(seq);
-    const who = opts.via === "agent" ? `${user}'s agent` : user;
+    // A named agent reacts as itself ("vedu/scout"), so people can tell which of someone's agents it was.
+    const who = opts.via === "agent" ? (opts.session ? `${user}/${opts.session}` : `${user}'s agent`) : user;
     if (act.action === "check") {
       // Only the claim's author says how to check it; anyone else runs it (sandboxed, on their own machine, after
       // their person OKs the exact command) with agent-soup verify N.
