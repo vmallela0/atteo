@@ -306,6 +306,11 @@ await step("card: a change card from local git (commits, files incl. new ones, d
   const seq = Number(r.out.match(/Posted #(\d+)/)[1]);
   const got = await tool(tokB, board, "get", { seq });
   assert(got.includes("Change: fix/empty-cart → main · 1 commit") && got.includes("Guard empty carts"), got);
+  // One commit as a card: just that commit against its parent.
+  r = await cli(["card", "--commit", "HEAD", "--no-gh"], { cwd: repo });
+  const one = JSON.parse(r.out);
+  assert(r.code === 0 && one.commits.length === 1 && one.commits[0].title === "Guard empty carts" && one.base === null, r.out);
+  assert(one.files.length === 1 && one.files[0].path === "checkout.js" && one.files[0].added === 1, JSON.stringify(one.files)); // no untracked files
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

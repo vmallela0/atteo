@@ -62,19 +62,23 @@ export interface BuiltCard {
  * Builds the card for this repo: commits on HEAD since it left `base`, and the files and diff from there to the
  * working tree (uncommitted changes included), or to HEAD with `committed`.
  */
-export function buildCard(run: Run, o: { base?: string; pr?: string; ci?: string; committed?: boolean; diff?: boolean; gh?: boolean }): BuiltCard {
+export function buildCard(run: Run, o: { base?: string; pr?: string; ci?: string; committed?: boolean; diff?: boolean; gh?: boolean; commit?: string }): BuiltCard {
   const top = run("git", ["rev-parse", "--show-toplevel"]);
   if (top == null) throw new CliError("Not in a git repository. Run this from the project you changed.");
   const notes: string[] = [];
   const head = run("git", ["rev-parse", "--abbrev-ref", "HEAD"]);
   const branch = head && head !== "HEAD" ? head : (run("git", ["rev-parse", "--short", "HEAD"]) ?? "HEAD");
-  const base = o.base ?? run("git", ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"])?.replace(/^origin\//, "") ?? "main";
-  const baseRef = [`origin/${base}`, base].find((r) => run("git", ["rev-parse", "--verify", "--quiet", `${r}^{commit}`]) != null);
-  if (!baseRef) throw new CliError(`Can't find the base branch "${base}". Pass it with --base.`);
-  const from = run("git", ["merge-base", "HEAD", baseRef]) ?? baseRef;
-  const to = o.committed ? ["HEAD"] : [];
+  // One commit (`--commit <ref>`): that commit against its first parent. Otherwise: HEAD since it left the base.
+  const sha = o.commit ? run("git", ["rev-parse", "--verify", "--quiet", `${o.commit}^{commit}`]) : null;
+  if (o.commit && !sha) throw new CliError(`Can't find commit "${o.commit}".`);
+  const base = sha ? null : (o.base ?? run("git", ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"])?.replace(/^origin\//, "") ?? "main");
+  const baseRef = base == null ? null : [`origin/${base}`, base].find((r) => run("git", ["rev-parse", "--verify", "--quiet", `${r}^{commit}`]) != null);
+  if (base != null && !baseRef) throw new CliError(`Can't find the base branch "${base}". Pass it with --base.`);
+  const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+  const from = sha ? (run("git", ["rev-parse", "--verify", "--quiet", `${sha}^`]) ?? EMPTY_TREE) : (run("git", ["merge-base", "HEAD", baseRef!]) ?? baseRef!);
+  const to = sha ? [sha] : o.committed ? ["HEAD"] : [];
 
-  const commits = (run("git", ["log", "--format=%h%x09%s", "--max-count=100", `${from}..HEAD`]) ?? "")
+  const commits = (run("git", ["log", "--format=%h%x09%s", "--max-count=100", ...(sha ? ["-1", sha] : [`${from}..HEAD`])]) ?? "")
     .split("\n")
     .filter(Boolean)
     .map((l) => ({ sha: l.split("\t")[0], title: l.slice(l.indexOf("\t") + 1) }));
@@ -87,7 +91,7 @@ export function buildCard(run: Run, o: { base?: string; pr?: string; ci?: string
     });
 
   // New files git doesn't track yet are part of "what I'm about to push" too.
-  const untracked = o.committed ? [] : untrackedFiles(run, top);
+  const untracked = o.committed || sha ? [] : untrackedFiles(run, top);
   files.push(...untracked.map((u) => ({ path: u.path, added: u.lines, removed: 0 })));
 
   let diff: string | null = null;
@@ -106,7 +110,7 @@ export function buildCard(run: Run, o: { base?: string; pr?: string; ci?: string
 
   let pr = o.pr ?? null;
   let ci = o.ci ?? null;
-  if (o.gh !== false && (!pr || !ci)) {
+  if (o.gh !== false && !sha && (!pr || !ci)) {
     const view = run("gh", ["pr", "view", "--json", "url,statusCheckRollup"]);
     if (view) {
       try {
@@ -124,8 +128,9 @@ export function buildCard(run: Run, o: { base?: string; pr?: string; ci?: string
 
 export async function cardCommand(args: string[]) {
   const { pos, opt } = parseArgs(args, ["committed", "no-diff", "no-gh", "post", "json"]);
+  if (opt.commit === true) opt.commit = "HEAD";
   const s = (k: string) => (typeof opt[k] === "string" ? (opt[k] as string) : undefined);
-  const built = buildCard(runner(process.cwd()), { base: s("base"), pr: s("pr"), ci: s("ci"), committed: !!opt.committed, diff: !opt["no-diff"], gh: !opt["no-gh"] });
+  const built = buildCard(runner(process.cwd()), { base: s("base"), pr: s("pr"), ci: s("ci"), committed: !!opt.committed, diff: !opt["no-diff"], gh: !opt["no-gh"], commit: s("commit") });
   for (const n of built.notes) process.stderr.write(`[agent-soup] ${n}\n`);
   const payload = { ...built.card, ...(built.diff ? { diff: built.diff } : {}) };
   const message = s("post") ?? (opt.post === true ? pos.join(" ") : undefined);
@@ -135,11 +140,12 @@ export async function cardCommand(args: string[]) {
     return;
   }
   const text = (message ?? "").trim() || cardLine(built.card);
-  const title = s("title") ?? `${built.card.branch} → ${built.card.base ?? "main"}`;
+  const title = s("title") ?? (s("commit") ? built.card.commits[0]?.title.split(/\s+/).slice(0, 5).join(" ") : undefined) ?? `${built.card.branch} → ${built.card.base ?? "main"}`;
   process.stdout.write((await tool(opt, "post", { type: "change", text, title, card: payload, to: s("to")?.replace(/^@/, "") })) + "\n");
 }
 
 export const CARD_HELP = `
   agent-soup card [--base main] [--pr url] [--ci passing|failing|pending] [--committed] [--no-diff] [--no-gh]
                          A change card from local git (branch, commits, files +/−, diff; PR and CI via gh), as JSON
+  agent-soup card --commit [ref] --post "<one sentence>"   One commit (default HEAD) as a card on the board
   agent-soup card --post "<what changed>" [--title "2–5 words"] [--to name]   Post it as a change on this folder's board (--to asks for a review)`;
