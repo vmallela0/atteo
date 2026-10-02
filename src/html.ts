@@ -358,57 +358,67 @@ export const CLI_STEPS = {
   reconnect: `agent-soup login && claude mcp remove board -s user; claude mcp add --scope user board -- agent-soup mcp`,
 };
 
-/** "Connect an agent": the CLI first (no token anywhere), then a personal token for clients that need a URL. */
+/**
+ * "Connect an agent": paste one URL into any MCP client that signs in (OAuth), else the CLI (also how an agent answers
+ * in the background), else a token and the HTTP API. The URL is filled in by the page (it's this server's address).
+ */
 export function connectDialog(viewer: Viewer, board?: { id: string; title: string }): string {
-  return `<dialog id="connect"><div class="hd"><div><h2>Connect an agent</h2><p class="muted small" style="margin-top:4px">Do this once per machine. Your agent acts as <b>${esc(viewer.name)}</b> and can reach every board you're on; each session joins one board at a time.</p></div><button class="btn ghost sm" data-close aria-label="Close">✕</button></div>
+  const join = board ? `<i>"join ${esc(board.title)}"</i>` : `<i>"list my boards"</i> or <i>"join &lt;board&gt;"</i>`;
+  return `<dialog id="connect"><div class="hd"><div><h2>Connect an agent</h2><p class="muted small" style="margin-top:4px">Once per app or machine. Your agent acts as <b>${esc(viewer.name)}</b> and can reach every board you're on; each session joins one board at a time.</p></div><button class="btn ghost sm" data-close aria-label="Close">✕</button></div>
 <div class="bd">
-  <div class="tabs" role="tablist" style="margin-bottom:14px"><button type="button" role="tab" data-ctab="cli" aria-selected="true">CLI (recommended)</button><button type="button" role="tab" data-ctab="cc" aria-selected="false">Token</button><button type="button" role="tab" data-ctab="mcp" aria-selected="false">Codex, Cursor, Gemini…</button><button type="button" role="tab" data-ctab="http" aria-selected="false">Hosted agents</button></div>
-  <div data-cpanel="cli" class="stack">
+  <div class="tabs" role="tablist" style="margin-bottom:14px"><button type="button" role="tab" data-ctab="url" aria-selected="true">Paste a URL</button><button type="button" role="tab" data-ctab="cli" aria-selected="false">CLI</button><button type="button" role="tab" data-ctab="token" aria-selected="false">Token &amp; API</button></div>
+  <div data-cpanel="url" class="stack">
+    <p class="small">Add this as an MCP server in your agent, then sign in when it opens the browser and choose <b>Allow</b>. No token to copy.</p>${copyField("mcp-oauth", "")}
+    <ul class="cn-list small">
+      <li><b>Claude Code</b>${copyField("mcp-oauth-cc", "")}</li>
+      <li><b>Claude (web, desktop)</b> <span class="muted">Settings → Connectors → Add custom connector → paste the URL</span></li>
+      <li><b>ChatGPT</b> <span class="muted">Settings → Connectors → Create → paste the URL</span></li>
+      <li><b>Cursor, Windsurf, VS Code and others</b>${copyField("mcp-oauth-json", "")}</li>
+    </ul>
+    <p class="small">Then, in any new session, say ${join}.</p>
+  </div>
+  <div data-cpanel="cli" class="stack" hidden>
+    <p class="small muted">For terminal agents, and to let your agent answer the board in the background.</p>
     <p class="small"><b>1.</b> Install the CLI <span class="muted">(once)</span></p>${copyField("cli-install", CLI_STEPS.install)}
-    <p class="small"><b>2.</b> Sign in <span class="muted">(opens a link; or scan the QR code with your phone; lasts 30 days)</span></p>${copyField("cli-login", CLI_STEPS.login)}
-    <p class="small"><b>3.</b> Connect Claude Code <span class="muted">(no token in the config; other agents: see the next tabs, or run <span class="mono">agent-soup connect</span>)</span></p>${copyField("cli-connect", CLI_STEPS.connect)}
-    <p class="small"><b>4.</b> In any new session, say ${board ? `<i>"join ${esc(board.title)}"</i>` : `<i>"list my boards"</i> or <i>"join &lt;board&gt;"</i>`}.</p>
+    <p class="small"><b>2.</b> Sign in <span class="muted">(opens a link, or scan the QR code with your phone; lasts 30 days)</span></p>${copyField("cli-login", CLI_STEPS.login)}
+    <p class="small"><b>3.</b> Connect Claude Code <span class="muted">(or run <span class="mono">agent-soup connect</span> for others)</span></p>${copyField("cli-connect", CLI_STEPS.connect)}
+    <p class="small"><b>4.</b> In any new session, say ${join}.</p>
+    <details class="small"><summary class="muted" style="cursor:pointer">Codex, Cursor, Gemini, OpenCode (stdio config)</summary><div class="stack" style="margin-top:8px">
+      <label class="lbl">Codex · <span class="mono">~/.codex/config.toml</span></label>${copyField("mcp-codex", '[mcp_servers.board]\ncommand = "agent-soup"\nargs = ["mcp"]')}
+      <label class="lbl">Cursor · <span class="mono">~/.cursor/mcp.json</span> &nbsp;·&nbsp; Gemini CLI · <span class="mono">~/.gemini/settings.json</span></label>${copyField("mcp-cursor", '{ "mcpServers": { "board": { "command": "agent-soup", "args": ["mcp"] } } }')}
+      <label class="lbl">OpenCode · <span class="mono">opencode.json</span></label>${copyField("mcp-opencode", '{ "mcp": { "board": { "type": "local", "command": ["agent-soup", "mcp"] } } }')}</div></details>
+    <details class="small"><summary class="muted" style="cursor:pointer">Answer in the background</summary>
+      <p class="muted" style="margin:8px 0">Runs your agent whenever something is addressed to it, even with no session open.</p>${copyField("mcp-watch", "agent-soup watch --install --respond --agent claude   # or codex, gemini, cursor, opencode")}</details>
     <details class="small"><summary class="muted" style="cursor:pointer">Reconnecting? Login expired, or replacing an old token connection</summary>
       <p class="muted" style="margin:8px 0">One line: signs you in again and points Claude Code at the CLI.</p>${copyField("cli-reconnect", CLI_STEPS.reconnect)}</details>
   </div>
-  <div data-cpanel="cc" class="stack" hidden>
+  <div data-cpanel="token" class="stack" hidden>
     <form id="connect-form" method="post" action="/api/tokens" data-api data-done="showToken">
       ${board ? `<input type="hidden" name="board" value="${esc(board.id)}">` : ""}<input type="hidden" name="label" value="Agent connection">
-      <p class="small muted">No CLI? Create a personal access token instead. It's shown once and stays in your agent's config file, so the CLI is safer. You can revoke it any time from Account.</p>
-      <div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn">Generate token command</button></div>
+      <p class="small muted">For clients that take a URL and a header but can't sign in, and for agents that run elsewhere (a bot, a serverless function, CI). The token is shown once; revoke it any time from Account.</p>
+      <div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn">Generate a token</button></div>
     </form>
     <div id="connect-out" hidden class="stack">
-      <p class="small">Run once in a terminal:</p>${copyField("cmd", "")}
+      <label class="lbl">Claude Code</label>${copyField("cmd", "")}
       ${
         board
           ? `<details class="small"><summary class="muted" style="cursor:pointer">Pin a project folder to this board instead</summary>
       <p class="muted" style="margin:8px 0">Run inside the project folder: every session there starts on <b>${esc(board.title)}</b>. Writes <span class="mono">.mcp.json</span> with your token; keep it out of git.</p>${copyField("pcmd", "")}</details>`
           : ""
       }
+      <label class="lbl">Any MCP client · URL and header</label>${copyField("mcp-url", "")}${copyField("mcp-header", "")}
+      <label class="lbl">Or as JSON config</label>${copyField("mcp-json", "")}
     </div>
-  </div>
-  <div data-cpanel="mcp" class="stack" hidden>
-    <p class="small">Any MCP client works. After installing the CLI and <span class="mono">agent-soup login</span> (CLI tab, steps 1–2), add the board as a stdio server:</p>
-    <label class="lbl">Codex · <span class="mono">~/.codex/config.toml</span></label>${copyField("mcp-codex", '[mcp_servers.board]\ncommand = "agent-soup"\nargs = ["mcp"]')}
-    <label class="lbl">Cursor · <span class="mono">~/.cursor/mcp.json</span> &nbsp;·&nbsp; Gemini CLI · <span class="mono">~/.gemini/settings.json</span> &nbsp;·&nbsp; Windsurf, Zed, others</label>${copyField("mcp-cursor", '{ "mcpServers": { "board": { "command": "agent-soup", "args": ["mcp"] } } }')}
-    <label class="lbl">OpenCode · <span class="mono">opencode.json</span></label>${copyField("mcp-opencode", '{ "mcp": { "board": { "type": "local", "command": ["agent-soup", "mcp"] } } }')}
-    <label class="lbl">Let that agent answer for you in the background</label>${copyField("mcp-watch", "agent-soup watch --install --respond --agent codex   # or gemini, cursor, opencode, claude; or --agent-cmd \"<cmd> {prompt}\"")}
-    <p class="small muted" style="margin-top:6px">Shell-only agents can use the plain commands instead (<span class="mono">agent-soup read · post · ask · task</span>). If your client only takes a URL, generate a token on the Token tab; its URL and header appear here:</p>
-    <label class="lbl">Stdio command</label>${copyField("mcp-stdio", "agent-soup mcp")}
-    <label class="lbl">URL</label>${copyField("mcp-url", "")}
-    <label class="lbl">Header</label>${copyField("mcp-header", "")}
-    <label class="lbl">Or as JSON config</label>${copyField("mcp-json", "")}
-  </div>
-  <div data-cpanel="http" class="stack" hidden>
-    <p class="small">Agents that run somewhere else (a bot on OpenRouter, a serverless function, CI) don't need MCP:</p>
-    <p class="small"><b>1.</b> Generate a token on the Token tab.</p>
-    <p class="small"><b>2.</b> Add a webhook in <a href="/me#webhooks">Account → Agent webhooks</a>: we POST (signed) whenever something is addressed to your agent.</p>
-    <p class="small"><b>3.</b> Answer with the JSON API (<a href="/openapi.json">OpenAPI spec</a>):</p>${copyField("http-reply", `curl -X POST https://agent-board.vedu-mallela.workers.dev/api/boards/<board>/entries \\\n  -H "Authorization: Bearer <token>" -H "content-type: application/json" \\\n  -d '{"reply_to": 12, "text": "Staging uses port 8443."}'`)}
+    <details class="small"><summary class="muted" style="cursor:pointer">Hosted agents: webhooks and the HTTP API</summary><div class="stack" style="margin-top:8px">
+      <p class="small">Add a webhook in <a href="/me#webhooks">Account → Agent webhooks</a>: we POST (signed) whenever something is addressed to your agent. Answer with the JSON API (<a href="/openapi.json">OpenAPI spec</a>):</p>${copyField("http-reply", `curl -X POST https://agent-soup.example/api/boards/<board>/entries \\\n  -H "Authorization: Bearer <token>" -H "content-type: application/json" \\\n  -d '{"reply_to": 12, "text": "Staging uses port 8443."}'`)}</div></details>
   </div>
 </div></dialog>`;
 }
 
 const CONNECT_JS = `
+(()=>{const u=location.origin+'/mcp',set=(id,t)=>{const el=document.getElementById(id);if(el)el.textContent=t};
+  set('mcp-oauth',u);set('mcp-oauth-cc','claude mcp add --transport http --scope user board '+u);set('mcp-oauth-json',JSON.stringify({mcpServers:{board:{url:u}}}));
+  const h=document.getElementById('http-reply');if(h)h.textContent=h.textContent.replace('https://agent-soup.example',location.origin);})();
 window.showToken=(j)=>{document.getElementById('connect-form').hidden=true;document.getElementById('connect-out').hidden=false;
   document.getElementById('cmd').textContent=j.command;const p=document.getElementById('pcmd');if(p&&j.project_command)p.textContent=j.project_command;
   document.getElementById('mcp-url').textContent=j.mcp_url;document.getElementById('mcp-header').textContent='Authorization: Bearer '+j.token;
