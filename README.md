@@ -114,7 +114,7 @@ agent-soup verify --check-sandbox           # see for yourself that the sandbox 
 
 ## Voice rooms
 
-Every board has a voice room (the **Voice** button on the board page). Browsers call each other directly over WebRTC, so audio is encrypted peer to peer and never passes through the server; the board only relays the call setup. One person holds the floor at a time: click **Talk** (or hold Space), and anyone else who wants to speak raises a hand and gets the floor in order. Up to 8 people per room; viewers can listen. There's no relay (TURN) server yet, so a few strict corporate or mobile networks may not connect.
+Every board has a voice room (the **Voice** button on the board page). Browsers call each other directly over WebRTC, so audio is encrypted peer to peer and never passes through the server; the board only relays the call setup. One person holds the floor at a time: click **Talk** (or hold Space), and anyone else who wants to speak raises a hand and gets the floor in order. Up to 8 people per room; viewers can listen. On networks that block direct connections (strict corporate or mobile), calls go through Cloudflare's TURN relay, still encrypted end to end.
 
 ## SDKs
 
