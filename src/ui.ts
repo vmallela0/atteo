@@ -303,6 +303,14 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
 .new-pill[hidden],.info-btn .count[hidden]{display:none}
 .conv .composer{flex:none;margin:6px 0 max(14px,env(safe-area-inset-bottom))}
 .conv .composer textarea{min-height:48px;max-height:30vh;resize:none}
+/* composer mention chips: the mirror draws the text (chips included) under a transparent textarea that keeps the caret */
+.cmp-field{position:relative}
+.cmp-mirror{position:absolute;box-sizing:border-box;margin:0;border:0;pointer-events:none;overflow:hidden;white-space:pre-wrap;overflow-wrap:break-word;color:var(--text)}
+.cmp-field textarea{position:relative;background:transparent;color:transparent;caret-color:var(--text)}
+.cmp-field textarea::placeholder{color:var(--faint)}
+.cmp-field textarea::selection{color:transparent;background:color-mix(in srgb,var(--accent) 28%,transparent)}
+.cmp-mirror .chip{color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,transparent);border-radius:4px;box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 12%,transparent)}
+.cmp-mirror .chip.agent{outline:1px dashed color-mix(in srgb,var(--accent) 50%,transparent);outline-offset:1px}
 #panel-log .list{flex:1;min-height:0;overflow:auto;margin-top:16px}
 #panel-log .log th{position:sticky;top:0;z-index:1;background:var(--bg-subtle)}
 #panel-log>p{flex:none;margin:8px 0 14px}

@@ -463,7 +463,7 @@ function connect(){
 }
 connect();
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!polling)tick(false)});
-window.posted=()=>{toast('Posted');stickNext=true;tick(false);setTimeout(()=>{ta.style.height=''},0)};
+window.posted=()=>{toast('Posted');stickNext=true;tick(false);setTimeout(()=>{ta.style.height='';msync()},0)};
 // @mention autocomplete: people ("@vedu") and agents ("@vedu's agent", including your own).
 const MOPTS=${jsString(mentionOptions(members.map((m) => m.user), viewer.name))};
 const ta=document.getElementById('composer-text'),mm=document.getElementById('mention-menu');let mi=0,ms=[],mq=null;
@@ -474,14 +474,46 @@ function mrender(){mq=mfind();ms=mq?MOPTS.filter(o=>o.u.startsWith(mq.q)):[];if(
   mm.innerHTML='<li class="hint" aria-hidden="true">Mention a person or their agent</li>'+ms.map((o,i)=>'<li role="option" id="mo-'+i+'" data-i="'+i+'" aria-selected="'+(i===mi)+'">'+o.av+'<span class="truncate">'+o.label+'</span><span class="k">'+o.k+'</span></li>').join('');
   mm.hidden=false;ta.setAttribute('aria-expanded','true');ta.setAttribute('aria-activedescendant','mo-'+mi)}
 function mpick(o){const end=ta.selectionStart,before=ta.value.slice(0,mq.start),after=ta.value.slice(end);const ins='@'+o.ins+(/^\\s/.test(after)?'':' ');
-  ta.value=before+ins+after;const p=before.length+ins.length;ta.setSelectionRange(p,p);mclose();ta.focus()}
-ta.addEventListener('input',()=>{mi=0;mrender();ta.style.height='';ta.style.height=ta.scrollHeight+2+'px'});
+  ta.value=before+ins+after;const p=before.length+ins.length;ta.setSelectionRange(p,p);mclose();ta.focus();msync()}
+ta.addEventListener('input',()=>{mi=0;mrender();ta.style.height='';ta.style.height=ta.scrollHeight+2+'px';msync()});
 ta.addEventListener('keydown',e=>{if(mm.hidden)return;
   if(e.key==='ArrowDown'||e.key==='ArrowUp'){mi=(mi+(e.key==='ArrowDown'?1:ms.length-1))%ms.length;mrender();e.preventDefault()}
   else if(e.key==='Enter'||e.key==='Tab'){mpick(ms[mi]);e.preventDefault()}
   else if(e.key==='Escape'){mclose();e.preventDefault()}});
 ta.addEventListener('blur',mclose);
 mm.addEventListener('mousedown',e=>{e.preventDefault();const li=e.target.closest('[data-i]');if(li)mpick(ms[+li.dataset.i])});
+// Mentions in the composer are chips: a mirror under the (transparent) text draws them, and an edit or a caret move
+// treats each one as a single unit, so one Backspace removes "@vedu's agent" whole and the caret never lands inside.
+const mirror=document.getElementById('composer-mirror'),MNAMES=new Set(MOPTS.map(o=>o.u)),ME=${jsString(viewer.name)};
+function mtokens(v){const out=[],re=/(^|[^A-Za-z0-9_.@\\/-])@([A-Za-z0-9][A-Za-z0-9_.-]{0,31})((?:'|’)s\\s+agent\\b)?/gi;let m;
+  while((m=re.exec(v))){const raw=m[2].toLowerCase();let h=raw;if(!MNAMES.has(h))h=raw.replace(/[.-]+$/,'');if(!MNAMES.has(h))continue;
+    const agent=!!m[3]&&h===raw;if(!agent&&h===ME)continue; // you can't mention yourself, only your agent
+    const start=m.index+m[1].length;out.push({start,end:start+1+h.length+(agent?m[3].length:0),agent})}
+  return out}
+const mesc=s=>s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+function msync(){const v=ta.value,cs=getComputedStyle(ta);let h='',i=0;
+  for(const t of mtokens(v)){h+=mesc(v.slice(i,t.start))+'<span class="chip'+(t.agent?' agent':'')+'">'+mesc(v.slice(t.start,t.end))+'</span>';i=t.end}
+  mirror.innerHTML=h+mesc(v.slice(i))+'\\n';
+  for(const k of ['fontFamily','fontSize','fontWeight','lineHeight','letterSpacing','wordSpacing','tabSize','paddingTop','paddingRight','paddingBottom','paddingLeft'])mirror.style[k]=cs[k];
+  mirror.style.left=cs.borderLeftWidth;mirror.style.top=cs.borderTopWidth;mirror.style.width=ta.clientWidth+'px';mirror.style.height=ta.clientHeight+'px';mirror.scrollTop=ta.scrollTop}
+ta.addEventListener('scroll',()=>{mirror.scrollTop=ta.scrollTop});window.addEventListener('resize',msync);msync();
+let medit=false;
+function mreplace(a,b,text){ta.focus();ta.setSelectionRange(a,b);medit=true; // execCommand keeps the edit on the undo stack
+  const ok=text?document.execCommand('insertText',false,text):document.execCommand('delete');medit=false;
+  if(!ok){ta.setRangeText(text,a,b,'end');ta.dispatchEvent(new Event('input'))}}
+ta.addEventListener('beforeinput',e=>{if(medit||e.isComposing)return;
+  const dir=e.inputType==='deleteContentBackward'?-1:e.inputType.startsWith('delete')?1:0;
+  const toks=mtokens(ta.value);let a=ta.selectionStart,b=ta.selectionEnd;
+  if(a===b&&dir){const t=toks.find(t=>dir<0?t.start<a&&a<=t.end:t.start<=a&&a<t.end);if(!t)return;a=t.start;b=t.end} // Backspace at a chip's end
+  else{let na=a,nb=b;for(const t of toks){if(t.start<na&&na<t.end)na=t.start;if(t.start<nb&&nb<t.end)nb=t.end}if(na===a&&nb===b)return;a=na;b=nb} // edits cutting into a chip take all of it
+  e.preventDefault();mreplace(a,b,dir?'':(e.data??''))});
+ta.addEventListener('keydown',e=>{if(e.defaultPrevented||e.shiftKey||e.altKey||e.metaKey||e.ctrlKey||(e.key!=='ArrowLeft'&&e.key!=='ArrowRight'))return;
+  const a=ta.selectionStart;if(a!==ta.selectionEnd)return;const left=e.key==='ArrowLeft';
+  const t=mtokens(ta.value).find(t=>left?t.start<a&&a<=t.end:t.start<=a&&a<t.end);if(!t)return; // arrows step over a chip
+  e.preventDefault();const p=left?t.start:t.end;ta.setSelectionRange(p,p)});
+function msnap(){if(document.activeElement!==ta)return;const a=ta.selectionStart;if(a!==ta.selectionEnd)return; // a click inside a chip goes to its nearer edge
+  const t=mtokens(ta.value).find(t=>t.start<a&&a<t.end);if(t){const p=a-t.start<t.end-a?t.start:t.end;ta.setSelectionRange(p,p)}}
+ta.addEventListener('selectionchange',msnap);document.addEventListener('selectionchange',msnap); // fired on the textarea in newer browsers, on document in older ones
 // Enter posts, Shift+Enter adds a line. An Enter that picked a mention (default prevented above) doesn't post.
 document.getElementById('composer-text')?.addEventListener('keydown',e=>{
   if(e.defaultPrevented)return;
@@ -594,8 +626,8 @@ window.boardKeys=(e,k)=>{
     <div class="thread-wrap"><div class="thread-scroll" id="thread-scroll"><div class="thread" id="thread">${thread}</div></div>
       <button class="btn sm new-pill" type="button" id="new-pill" hidden>New messages ↓</button></div>
     <form class="card composer" method="post" action="/api/boards/${esc(info.id)}/entries" data-api data-done="posted" data-reset${info.archived ? " hidden" : ""}>
-      <textarea class="input" id="composer-text" name="text" required placeholder="Write a note, question, task or decision… (Enter to post, Shift+Enter for a new line, @ to mention)" aria-label="Message"
-        role="combobox" aria-autocomplete="list" aria-controls="mention-menu" aria-expanded="false"></textarea>
+      <div class="cmp-field"><div class="cmp-mirror" id="composer-mirror" aria-hidden="true"></div><textarea class="input" id="composer-text" name="text" required placeholder="Write a note, question, task or decision… (Enter to post, Shift+Enter for a new line, @ to mention)" aria-label="Message"
+        role="combobox" aria-autocomplete="list" aria-controls="mention-menu" aria-expanded="false"></textarea></div>
       <ul class="mention-menu" id="mention-menu" role="listbox" aria-label="Mention" hidden></ul>
       <div class="bar">
         <div class="seg" role="radiogroup" aria-label="Type">${["note", "question", "task", "decision"]

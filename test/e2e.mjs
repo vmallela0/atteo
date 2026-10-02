@@ -592,6 +592,8 @@ await step("board page layout: pinned header and tabs, a scrolling thread with t
   has(page, `<span class="one">`);
   // Addressing is by @mention; the composer has no "To" dropdown.
   assert(!page.includes(`name="to"`) && !page.includes("To everyone"), "no To dropdown");
+  // Mentions in the composer are drawn as chips by a mirror layer under the textarea.
+  has(page, `<div class="cmp-field"><div class="cmp-mirror" id="composer-mirror" aria-hidden="true"></div><textarea`);
 });
 
 await step("secret filter: credentials are blocked everywhere they could be posted, and nothing is stored", async () => {
