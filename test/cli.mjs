@@ -345,8 +345,9 @@ await step("people: find, add, accept, friends with presence, ask a friend's age
   const home = mkdtempSync(join(tmpdir(), "agent-soup-social-")); // no folder board here, so ask goes direct
   let r = await cli(["people", B], { cwd: home });
   assert(r.code === 0 && r.out.includes(B) && r.out.includes(`agent-soup add ${B}`), r.out + r.err);
+  // Not friends yet: the first DM waits for B's OK (once) instead of going through.
   r = await cli(["ask", B, "hello?", "--wait", "0", "--dm"], { cwd: home });
-  assert(r.code === 1 && r.err.includes("aren't friends yet"), r.err);
+  assert(r.code === 0 && r.out.includes("OK it first"), r.out + r.err);
   r = await cli(["add", B, "it's", "me"], { cwd: home });
   assert(r.code === 0 && r.out.includes("Friend request sent"), r.out + r.err);
   r = await cli(["friends"], { cwd: home, cred: credB });
@@ -365,7 +366,7 @@ await step("people: find, add, accept, friends with presence, ask a friend's age
   let q = 0;
   for (let i = 0; i < 40 && !q; i++) {
     await sleep(300);
-    q = Number((await tool(tokB, dmBoard, "search", { query: `timezone ${run}` })).match(/#(\d+) question/)?.[1] ?? 0);
+    q = Number((await tool(tokB, dmBoard, "search", { query: `timezone ${run}` })).match(/#(\d+) /)?.[1] ?? 0);
   }
   await tool(tokB, dmBoard, "read", {});
   await tool(tokB, dmBoard, "post", { type: "note", reply_to: q, text: `UTC+1 ${run}` });
@@ -587,7 +588,7 @@ await step("harness: the agent you choose answers your DMs (a person's message s
   writeFileSync(stub, `#!/bin/sh\nprintf '%s\\n' "$@" >> "${marker}"\necho "answered"\n`);
   chmodSync(stub, 0o755);
   const cfg = join(dir, "cfg-harness");
-  const env = { ...process.env, AGENT_BOARD_CREDENTIALS_FILE: credA, AGENT_BOARD_SERVER: BASE, XDG_CONFIG_HOME: cfg };
+  const env = { ...process.env, AGENT_BOARD_CREDENTIALS_FILE: credA, AGENT_BOARD_SERVER: BASE, XDG_CONFIG_HOME: cfg, AGENT_SOUP_DM_GRACE_MS: "1500" };
   let r = await cli(["harness", `${stub} {prompt}`], { env: { XDG_CONFIG_HOME: cfg } });
   assert(r.code === 0 && r.out.includes("now answers with"), r.out + r.err);
   r = await cli(["harness"], { env: { XDG_CONFIG_HOME: cfg } });
@@ -607,8 +608,15 @@ await step("harness: the agent you choose answers your DMs (a person's message s
   // B's agent replying (a plain note from an agent) must not start another run.
   await tool(tokB, dm, "read", {});
   await tool(tokB, dm, "post", { type: "note", text: `my agent's follow-up ${run}` });
-  await sleep(2500);
+  // A running session of A's reads the next DM within the grace period: the harness leaves it to that session.
+  const sess = (await (await fetch(`${BASE}/api/sessions`, { method: "POST", headers: { authorization: `Bearer ${tokA}`, "content-type": "application/json" }, body: JSON.stringify({ client: "Claude Code" }) })).json()).session;
+  assert((await post({ text: `second DM, a session is up ${run}` })).status === 201, "B's second DM");
+  await sleep(300);
+  const seen = await (await fetch(`${BASE}/api/sessions/${sess.id}/read`, { headers: { authorization: `Bearer ${tokA}` } })).json();
+  assert(JSON.stringify(seen).includes(`second DM, a session is up ${run}`), "the session gets the DM without joining: " + JSON.stringify(seen).slice(0, 300));
+  await sleep(3500);
   w.kill();
+  assert(out.includes("a running session of yours has it"), `the watcher should defer to the session: ${out}`);
   assert(existsSync(marker), `the harness wasn't started for the DM. watch output:\n${out}`);
   const calls = readFileSync(marker, "utf8");
   assert(calls.includes("sent you a direct message") && calls.includes(dm), calls);

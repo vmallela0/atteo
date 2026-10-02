@@ -307,6 +307,16 @@ export async function api(opt: Record<string, string | true>, method: string, pa
   return j;
 }
 
+/** Waits on a direct board for the first post from `who` (or their agent) after entry `after`, up to `limit` seconds. */
+async function waitForFrom(opt: Record<string, string | true>, board: string, who: string, after: number, limit: number) {
+  const until = Date.now() + limit * 1000;
+  while (Date.now() < until) {
+    const got = await tool(opt, "wait", { timeout_seconds: Math.max(1, Math.min(55, Math.ceil((until - Date.now()) / 1000))) }, board);
+    if (new RegExp(`#(\\d+) [a-z]+ · ${who}(?:'s agent)?\\b`).test(got) && Number(got.match(new RegExp(`#(\\d+) [a-z]+ · ${who}`))?.[1]) > after) return say(got);
+  }
+  say(`No answer from ${who} yet. It stays on your direct board; check later with: agent-soup read`);
+}
+
 /** Waits on a board for replies to entry `seq`, up to `limit` seconds. */
 async function waitForReply(opt: Record<string, string | true>, board: string, seq: number, limit: number, who: string) {
   const until = Date.now() + limit * 1000;
@@ -359,10 +369,12 @@ async function ask(args: string[]) {
     return say(`No answer from ${who} yet. Check later with: agent-soup read`);
   }
   if (!board) {
-    const d = await api(opt, "POST", `/api/direct/${encodeURIComponent(who)}`);
-    board = d.board as string;
-    process.stderr.write(d.online ? `${who}: ${d.presence}.\n` : `${who} is offline right now. Your question waits on your direct board ("${d.title}"); their agent gets it when it's back.\n`);
-    await tool(opt, "read", { limit: 200 }, board);
+    // A DM: through /api/dm, so first-contact rules apply; then wait for their reply on your direct board.
+    const r = await sendDm(opt, who, text);
+    say(r.message);
+    if (!r.delivered || !r.board || limit <= 0) return;
+    process.stderr.write(`Waiting for ${who}'s agent to answer (up to ${limit}s; Ctrl-C to stop)…\n`);
+    return waitForFrom(opt, r.board, who, r.seq ?? 0, limit);
   }
   const posted = await tool(opt, "post", { type: "question", to: who, text }, board);
   say(posted);
@@ -373,15 +385,18 @@ async function ask(args: string[]) {
 }
 
 /** A note on your direct board with a friend (their agent and they see it; nothing waits). */
+/** Sends a DM to someone's agent (or one session: name/session). First contact waits for their OK, once. */
+async function sendDm(opt: Record<string, string | true>, target: string, text: string): Promise<{ delivered: boolean; board?: string; seq?: number; message: string }> {
+  const [who, sess] = target.replace(/^@/, "").toLowerCase().split("/");
+  return api(opt, "POST", `/api/dm/${encodeURIComponent(who)}${sess ? `/${encodeURIComponent(sess)}` : ""}`, { text });
+}
+
 async function dm(args: string[]) {
   const { pos, opt } = parseArgs(args);
   const [whoRaw, ...rest] = pos;
-  if (!whoRaw || !rest.length) throw new CliError('Usage: agent-soup dm <name> "<message>"');
-  const who = whoRaw.replace(/^@/, "").toLowerCase();
-  const d = await api(opt, "POST", `/api/direct/${encodeURIComponent(who)}`);
-  await tool(opt, "read", { limit: 200 }, d.board);
-  say(await tool(opt, "post", { type: "note", to: who, text: textFrom(rest) }, d.board));
-  process.stderr.write(`${who}: ${d.presence}.\n`);
+  if (!whoRaw || !rest.length) throw new CliError('Usage: agent-soup dm <name>[/<session>] "<message>"');
+  const r = await sendDm(opt, whoRaw, textFrom(rest));
+  say(r.message);
 }
 
 const presenceText = (p: { presence: { web: number | null; agent: { client: string } | null; watcher: { respond: boolean } | null } }) => {

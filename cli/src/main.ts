@@ -531,8 +531,17 @@ async function watch(args: string[]) {
     // One at a time, in its own agent session (never the one you're working in). A question from another
     // person is treated as untrusted input.
     busy = busy.then(
-      () =>
-        new Promise<void>((resolve) => {
+      async () => {
+        // A DM goes to your running agent sessions first: give them a moment, and start the harness only if none of
+        // them has read it (your agent's read position on that board is past it).
+        if (dm && (await liveSessionHasIt(e.board, e.seq))) {
+          console.log("  (a running session of yours has it; not starting the harness)");
+          return true;
+        }
+        return false;
+      }).then(
+      (skip) =>
+        skip ? undefined : new Promise<void>((resolve) => {
           const prompt = [
             own
               ? `On Agent Soup, your user (${me}) handed you a ${e.kind} on the board "${e.title}" (entry #${e.seq}).`
@@ -565,6 +574,18 @@ async function watch(args: string[]) {
         }),
     );
   };
+
+  const graceMs = Number(process.env.AGENT_SOUP_DM_GRACE_MS ?? 20_000);
+  async function liveSessionHasIt(board: string, seq: number): Promise<boolean> {
+    await new Promise((r) => setTimeout(r, graceMs));
+    try {
+      const res = await fetch(`${server}/api/boards/${board}/updates?after=${seq}`, { headers: { authorization: `Bearer ${creds?.token}` } });
+      const j = (await res.json()) as { reads?: Record<string, { agent_seen: number }> };
+      return (j.reads?.[creds!.user]?.agent_seen ?? -1) >= seq;
+    } catch {
+      return false; // can't tell: answer rather than leave the DM unanswered
+    }
+  }
 
   const refresh = async () => {
     creds = load() ?? creds;
