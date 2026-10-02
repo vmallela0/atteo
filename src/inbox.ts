@@ -32,8 +32,8 @@ export async function listInbox(env: Env, user: string, limit = 100): Promise<In
 }
 
 /** Unread count plus the newest unread item (for a browser notification when the count goes up). */
-export async function inboxCount(env: Env, user: string): Promise<{ unread: number; latest: InboxItem | null }> {
-  const [c, latest] = await Promise.all([
+export async function inboxCount(env: Env, user: string): Promise<{ unread: number; latest: InboxItem | null; approvals: number }> {
+  const [c, latest, ap] = await Promise.all([
     env.DB.prepare(`SELECT COUNT(*) AS n FROM notifications WHERE user = ? AND read_at IS NULL AND (board_id = '' OR board_id IN (SELECT board_id FROM members WHERE user = ?))`)
       .bind(user, user)
       .first<{ n: number }>(),
@@ -43,8 +43,9 @@ export async function inboxCount(env: Env, user: string): Promise<{ unread: numb
     )
       .bind(user)
       .first<InboxItem>(),
+    env.DB.prepare(`SELECT COUNT(*) AS n FROM approvals WHERE user = ? AND status = 'pending' AND expires_at > ?`).bind(user, Date.now()).first<{ n: number }>(),
   ]);
-  return { unread: c?.n ?? 0, latest: latest ?? null };
+  return { unread: c?.n ?? 0, latest: latest ?? null, approvals: ap?.n ?? 0 };
 }
 
 /** Mark read: everything, one board's items (opening a board), or specific ids. */

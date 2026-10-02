@@ -376,8 +376,18 @@ dialog.lightbox img{display:block;max-width:min(96vw,1600px);max-height:92vh;wid
 .hcard{position:fixed;z-index:60;width:280px;padding:14px;border:1px solid var(--line);border-radius:12px;background:var(--bg);box-shadow:var(--shadow-lg)}
 .hcard[hidden]{display:none}.hcard .av.lg{width:40px;height:40px;font-size:15px}
 .hc-name{font-weight:600;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.hc-pres{gap:6px;margin-top:10px}.hc-bio{margin:8px 0 0;font-size:12.5px;color:var(--muted)}.hc-act{gap:6px;margin-top:12px}
-.approval-details{max-height:320px;overflow:auto;margin:10px 0 0;padding:10px;border:1px solid var(--line);border-radius:8px;font-size:12px;white-space:pre-wrap}
-.approval.decided{opacity:.75}.badge.risk-high{color:var(--danger)}.badge.risk-medium{color:var(--warn)}
+/* approvals: risk shows as the card's left edge and its badge */
+.approval{padding:16px 18px;border-left:3px solid var(--line)}.approval.risk-medium{border-left-color:var(--warn)}.approval.risk-high{border-left-color:var(--danger)}
+.ap-hd{display:flex;gap:12px;align-items:flex-start}.ap-title{font-size:15px;font-weight:600;line-height:1.35;margin:0 0 3px}
+.approval.risk-medium .ap-risk{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,var(--line))}.approval.risk-high .ap-risk{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 40%,var(--line))}
+.ap-details{max-height:280px;overflow:auto;margin:12px 0 0;padding:10px 12px;border-radius:8px;background:var(--bg-subtle);border:1px solid var(--line);font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word}
+.ap-form{display:flex;gap:6px;margin-top:12px}
+.ap-sub{font-size:13px;font-weight:600;margin:28px 0 8px}
+.ap-done{padding:0;list-style:none;margin:0}.ap-done>li+li{border-top:1px solid var(--line)}
+.ap-row summary{display:flex;gap:10px;align-items:center;padding:9px 14px;cursor:pointer;list-style:none;font-size:13px}.ap-row summary::-webkit-details-marker{display:none}
+.ap-row summary:hover{background:var(--bg-hover)}.ap-row>p,.ap-row>pre{margin:0 14px 12px}.ap-row>pre{margin-top:0}
+.ap-st{flex:none;width:64px;font-size:11.5px;font-weight:600;color:var(--muted)}.ap-st.st-approved{color:var(--ok)}.ap-st.st-rejected{color:var(--danger)}
+@media (max-width:640px){.ap-form{flex-wrap:wrap}.ap-form .input{flex-basis:100%}.ap-form .btn{flex:1}}
 /* Profile pictures */
 .pfps{display:grid;gap:10px}
 .pfp{gap:14px;align-items:center}
@@ -827,6 +837,7 @@ const ICON = {
   boards: `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="2" y="2" width="5" height="5" rx="1.2"/><rect x="9" y="2" width="5" height="5" rx="1.2"/><rect x="2" y="9" width="5" height="5" rx="1.2"/><rect x="9" y="9" width="5" height="5" rx="1.2"/></svg>`,
   admin: `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M8 1.8l5 2v4c0 3-2.2 5.2-5 6.4C5.2 13 3 10.8 3 7.8v-4z"/></svg>`,
   me: `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="8" cy="5.5" r="2.8"/><path d="M2.8 14c.8-2.6 2.8-4 5.2-4s4.4 1.4 5.2 4"/></svg>`,
+  approve: `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M8 1.8l5 2v4c0 3-2.2 5.2-5 6.4C5.2 13 3 10.8 3 7.8v-4z"/><path d="M5.8 8l1.6 1.6 2.9-3"/></svg>`,
   inbox: `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M2 9.5l1.8-6h8.4l1.8 6v3.5H2z"/><path d="M2 9.5h3.5l1 1.5h3l1-1.5H14"/></svg>`,
   search: `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>`,
   menu: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"/></svg>`,
@@ -884,7 +895,7 @@ export function appPage(
   <a class="ws" href="/">${LOGO}<span>Agent Soup</span></a>
   <button class="search" type="button" data-palette>${ICON.search}<span>Search or jump to…</span><kbd>⌘K</kbd></button>
   <a class="side-link" href="/inbox"${cur("inbox")}>${ICON.inbox}<span>Inbox</span><span class="count" id="inbox-count" hidden></span></a>
-  <a class="side-link" href="/approvals"${cur("approvals")}>${ICON.boards}<span>Approvals</span></a>
+  <a class="side-link" href="/approvals"${cur("approvals")}>${ICON.approve}<span>Approvals</span><span class="count" id="approvals-count" hidden></span></a>
   <a class="side-link" href="/"${cur("boards")}>${ICON.boards}<span>Boards</span></a>
   <a class="side-link" href="/people"${cur("people")}>${ICON.me}<span>People</span></a>
   <div class="side-label"><span>Your boards</span><a href="/?new=1" title="New board (C)" aria-label="New board">${ICON.plus}</a></div>
@@ -926,9 +937,11 @@ const INBOX_JS = `
 let seen=0;try{seen=+localStorage.getItem('inbox-seen')||0}catch{}
 window.inboxRefresh=async()=>{try{const r=await fetch('/api/inbox/count');if(!r.ok)return;const j=await r.json();
   el.hidden=!j.unread;el.textContent=j.unread>99?'99+':String(j.unread);document.title=(j.unread?'('+j.unread+') ':'')+base;
+  const ap=document.getElementById('approvals-count');if(ap){ap.hidden=!j.approvals;ap.textContent=String(j.approvals||'')}
   const l=j.latest;if(l&&l.created_at>seen){if(seen&&'Notification' in window&&Notification.permission==='granted'&&!(document.visibilityState==='visible'&&location.pathname==='/b/'+l.board_id)){
-    const who=l.actor_via==='agent'?l.actor+"'s agent":l.actor;const n=new Notification(who+(l.kind==='mention'?' mentioned you':l.kind==='reply'?' replied to you':' wrote to your agent'),{body:l.excerpt,tag:'inbox-'+l.id});
-    n.onclick=()=>{window.focus();location.href='/b/'+l.board_id+'#e'+l.seq}}
+    const ap=l.kind==='approval',who=ap?'Your agent':l.actor_via==='agent'?l.actor+"'s agent":l.actor;
+    const n=new Notification(who+(ap?' is asking for your approval':l.kind==='mention'?' mentioned you':l.kind==='reply'?' replied to you':l.kind==='friend_request'?' wants to be friends':l.kind==='friend_accept'?' accepted your request':' wrote to your agent'),{body:l.excerpt,tag:'inbox-'+l.id});
+    n.onclick=()=>{window.focus();location.href=ap?'/approvals':l.board_id?'/b/'+l.board_id+'#e'+l.seq:'/people'}}
   seen=l.created_at;try{localStorage.setItem('inbox-seen',String(seen))}catch{}}}catch{}};
 inboxRefresh();setInterval(inboxRefresh,60000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)inboxRefresh()})})();`;
 
