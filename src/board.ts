@@ -14,6 +14,48 @@ export const MAX_WAIT_MS = 55_000;
 
 export class BoardError extends Error {}
 
+export interface DocMeta {
+  name: string;
+  version: number;
+  updated_by: string;
+  updated_at: number;
+  via: string | null;
+  client: string | null;
+  size: number;
+}
+export interface Doc {
+  name: string;
+  version: number;
+  latest: number;
+  content: string;
+  updated_by: string;
+  updated_at: number;
+  via: string | null;
+  client: string | null;
+}
+export interface DocVersion {
+  version: number;
+  author: string;
+  ts: number;
+  via: string | null;
+  client: string | null;
+  summary: string | null;
+  size: number;
+}
+export interface DocEditOpts {
+  via?: "agent" | "person" | null;
+  client?: string | null;
+  summary?: string | null;
+}
+export type DocResult = { conflict: false; version: number; note: number } | { conflict: true; current: number; content: string };
+
+export const DOC_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9 ._\-/]{0,79}$/;
+function validateDocName(name: string) {
+  if (!DOC_NAME_RE.test(name) || name.includes("..") || name.includes("//")) {
+    throw new BoardError("Document names are 1–80 letters, numbers, spaces, dots, dashes, underscores or slashes, e.g. BACKLOG.md or notes/plan.md.");
+  }
+}
+
 interface Waiter {
   user: string;
   wake: () => void;
@@ -71,6 +113,28 @@ export class Board extends DurableObject<Env> {
         artifact_name TEXT,
         artifact_size INTEGER,
         artifact_content TEXT
+      );
+      CREATE TABLE IF NOT EXISTS docs (
+        name TEXT PRIMARY KEY,
+        version INTEGER NOT NULL,
+        content TEXT NOT NULL,
+        updated_by TEXT NOT NULL,
+        updated_at INTEGER NOT NULL,
+        via TEXT,
+        client TEXT,
+        created_by TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS doc_versions (
+        name TEXT NOT NULL,
+        version INTEGER NOT NULL,
+        content TEXT NOT NULL,
+        author TEXT NOT NULL,
+        ts INTEGER NOT NULL,
+        via TEXT,
+        client TEXT,
+        summary TEXT,
+        PRIMARY KEY (name, version)
       );
       CREATE TABLE IF NOT EXISTS members (
         name TEXT PRIMARY KEY,
@@ -463,6 +527,102 @@ export class Board extends DurableObject<Env> {
       out[seq] = cur;
     }
     return out;
+  }
+
+  // ---- shared documents: versioned files people and agents edit together ----
+
+  docList(): DocMeta[] {
+    return this.sql
+      .exec("SELECT name, version, updated_by, updated_at, via, client, length(content) AS size FROM docs ORDER BY updated_at DESC")
+      .toArray() as unknown as DocMeta[];
+  }
+
+  async docs(): Promise<DocMeta[]> {
+    this.info();
+    return this.docList();
+  }
+
+  async docRead(name: string, version?: number): Promise<Doc> {
+    this.info();
+    const cur = this.sql.exec("SELECT name, version, content, updated_by, updated_at, via, client, created_by, created_at FROM docs WHERE name = ?", name).toArray()[0];
+    if (!cur) throw new BoardError(`There's no document named "${name}" on this board.`);
+    if (version != null && version !== cur.version) {
+      const v = this.sql.exec("SELECT name, version, content, author AS updated_by, ts AS updated_at, via, client FROM doc_versions WHERE name = ? AND version = ?", name, version).toArray()[0];
+      if (!v) throw new BoardError(`"${name}" has no version ${version} (current is v${cur.version}; older versions may have been pruned).`);
+      return { ...(v as unknown as Doc), latest: cur.version as number };
+    }
+    return { ...(cur as unknown as Doc), latest: cur.version as number };
+  }
+
+  async docHistory(name: string): Promise<DocVersion[]> {
+    this.info();
+    return this.sql
+      .exec("SELECT version, author, ts, via, client, summary, length(content) AS size FROM doc_versions WHERE name = ? ORDER BY version DESC LIMIT 100", name)
+      .toArray() as unknown as DocVersion[];
+  }
+
+  /**
+   * Write a whole document. Creating needs base_version 0; changing needs the version you read, so two editors
+   * can't silently overwrite each other (a mismatch returns the current version to merge with).
+   */
+  async docWrite(user: string, name: string, content: string, baseVersion: number, opts: DocEditOpts): Promise<DocResult> {
+    const info = this.info();
+    if (info.archived) throw new BoardError(`"${info.title}" is archived, so it's read-only. Its creator can restore it.`);
+    validateDocName(name);
+    if (content.length > MAX_ARTIFACT) throw new BoardError(`That document is too large (max ${MAX_ARTIFACT} characters).`);
+    const hit = scanFields({ [name]: content, summary: opts.summary ?? null });
+    if (hit) throw new BoardError(blockedMessage(hit));
+    const cur = this.sql.exec("SELECT version, content FROM docs WHERE name = ?", name).toArray()[0];
+    const curVersion = (cur?.version as number) ?? 0;
+    if (baseVersion !== curVersion) return { conflict: true, current: curVersion, content: (cur?.content as string) ?? "" };
+    return this.saveDoc(user, name, content, curVersion, opts);
+  }
+
+  /** Replace one exact, unique piece of text in the latest version (atomic, no version needed). */
+  async docEdit(user: string, name: string, oldStr: string, newStr: string, opts: DocEditOpts): Promise<DocResult> {
+    const info = this.info();
+    if (info.archived) throw new BoardError(`"${info.title}" is archived, so it's read-only. Its creator can restore it.`);
+    const cur = this.sql.exec("SELECT version, content FROM docs WHERE name = ?", name).toArray()[0];
+    if (!cur) throw new BoardError(`There's no document named "${name}" on this board. Create it with action "write" and base_version 0.`);
+    const content = cur.content as string;
+    if (!oldStr) throw new BoardError("old_str is required for an edit.");
+    const first = content.indexOf(oldStr);
+    if (first < 0) throw new BoardError(`old_str wasn't found in "${name}" v${cur.version}. Read it again and copy the text exactly.`);
+    if (content.indexOf(oldStr, first + 1) >= 0) throw new BoardError(`old_str appears more than once in "${name}"; include more surrounding text so it's unique.`);
+    const next = content.slice(0, first) + newStr + content.slice(first + oldStr.length);
+    if (next.length > MAX_ARTIFACT) throw new BoardError(`That would make the document too large (max ${MAX_ARTIFACT} characters).`);
+    const hit = scanFields({ [name]: newStr, summary: opts.summary ?? null });
+    if (hit) throw new BoardError(blockedMessage(hit));
+    return this.saveDoc(user, name, next, cur.version as number, opts);
+  }
+
+  private async saveDoc(user: string, name: string, content: string, prev: number, opts: DocEditOpts): Promise<DocResult> {
+    const now = Date.now();
+    const version = prev + 1;
+    const client = opts.via === "agent" ? (opts.client ?? "agent").slice(0, 40) : null;
+    if (prev === 0) {
+      this.sql.exec(
+        "INSERT INTO docs (name, version, content, updated_by, updated_at, via, client, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        name, version, content, user, now, opts.via ?? null, client, user, now,
+      );
+    } else {
+      this.sql.exec("UPDATE docs SET version = ?, content = ?, updated_by = ?, updated_at = ?, via = ?, client = ? WHERE name = ?", version, content, user, now, opts.via ?? null, client, name);
+    }
+    this.sql.exec(
+      "INSERT INTO doc_versions (name, version, content, author, ts, via, client, summary) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      name, version, content, user, now, opts.via ?? null, client, opts.summary?.slice(0, 200) ?? null,
+    );
+    // Keep the last 50 versions of each document.
+    this.sql.exec("DELETE FROM doc_versions WHERE name = ? AND version <= ?", name, version - 50);
+    // Everyone's agents notice through the conversation; tabs update live.
+    const note = await this.post(user, {
+      type: "note",
+      text: `${prev === 0 ? "Created" : "Updated"} the document ${name} (v${version})${opts.summary ? `: ${opts.summary}` : "."}`,
+      via: opts.via,
+      client: opts.client,
+    });
+    this.broadcast({ type: "doc", name, version, by: user });
+    return { conflict: false, version, note: note.seq };
   }
 
   /** New title (checked for secrets); open tabs update live. Access is checked by the Worker. */

@@ -152,7 +152,7 @@ await step("MCP initialize, tools/list, notifications, protocol errors", async (
   assert(r.protocolVersion === "2025-06-18" && r.serverInfo.name === "agent-soup", JSON.stringify(r));
   has(r.instructions, "Agent Soup");
   const names = (await rpcRaw(auth(A), null, "tools/list", {})).tools.map((t) => t.name).sort();
-  assert(JSON.stringify(names) === JSON.stringify(["create_board", "get", "invite", "join_board", "leave_board", "list_boards", "post", "read", "retract", "search", "wait"]), names.join());
+  assert(JSON.stringify(names) === JSON.stringify(["create_board", "doc", "get", "invite", "join_board", "leave_board", "list_boards", "post", "read", "retract", "search", "wait"]), names.join());
   assert((await rpcRaw({}, null, "notifications/initialized", {}, { notification: true })).status === 202, "notification status");
   assert((await fetch(`${BASE}/mcp`)).status === 405, "GET /mcp should be 405");
   const p = await fetch(`${BASE}/mcp`, { method: "POST", headers: { "content-type": "application/json" }, body: "{" });
@@ -671,6 +671,38 @@ await step("a member leaves through their agent", async () => {
   assert(!(await sok(sb, "list_boards")).includes(`${board2}  "e2e second`), "left board still listed");
 });
 
+await step("shared documents: create, read, edit, stale-write conflict, merge, history, web editing, secrets, outsiders", async () => {
+  const name = `BACKLOG-${run}.md`;
+  has(await ok(A, board, "doc", { action: "write", name, content: "# Backlog\n- mentions\n- files", base_version: 0, summary: "start" }), "v1");
+  const rb = await ok(B, board, "doc", { action: "read", name });
+  has(rb, `${name} v1`);
+  has(rb, "<<untrusted ");
+  has(rb, "- mentions");
+  has(await ok(B, board, "doc", { action: "edit", name, old_str: "- files", new_str: "- files and search", summary: "clarify" }), "v2");
+  const conflict = await err(A, board, "doc", { action: "write", name, content: "# Backlog\n- only mine", base_version: 1 }, "is at v2, not v1");
+  has(conflict, "- files and search"); // current text comes back to merge with
+  has(await ok(A, board, "doc", { action: "write", name, content: "# Backlog\n- mentions\n- files and search\n- archive", base_version: 2 }), "v3");
+  const hist = await ok(B, board, "doc", { action: "history", name });
+  for (const v of ["v1", "v2", "v3"]) has(hist, v);
+  has(await ok(B, board, "doc", { action: "read", name, version: 1 }), "(latest is v3)");
+  has(await ok(B, board, "doc", { action: "list" }), `${name}  v3`);
+  await err(A, board, "doc", { action: "edit", name, old_str: "nope-not-there", new_str: "x" }, "wasn't found");
+  const fake = ["ghp", "_", "Zx9Yw8Vu7Ts6Rq5Po4Nm3Lk2Jh1Gf0Ed9Cb8A"].join("");
+  await err(A, board, "doc", { action: "edit", name, old_str: "- archive", new_str: `- token ${fake}` }, "Blocked");
+  // Everyone notices: each save is also a note in the conversation.
+  has(await ok(B, board, "search", { query: `document ${name}` }), "Updated the document");
+  // Web: read rendered, write as a person, stale write is a 409.
+  const w = await (await web(`/api/boards/${board}/doc?name=${encodeURIComponent(name)}`, B)).json();
+  assert(w.version === 3 && w.html.includes("<ul>"), JSON.stringify(w).slice(0, 200));
+  const save = (base) => web(`/api/boards/${board}/doc`, B, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "write", name, content: w.content + "\n- from the web", base_version: base }) });
+  assert((await save(3)).status === 200, "web save");
+  assert((await save(3)).status === 409, "stale web save should conflict");
+  const latest = await (await web(`/api/boards/${board}/doc?name=${encodeURIComponent(name)}`, A)).json();
+  assert(latest.version === 4 && latest.via === "person" && latest.updated_by === B, JSON.stringify(latest).slice(0, 200));
+  assert((await web(`/api/boards/${board}/docs`, OUT)).status === 404, "outsiders can't list documents");
+  await err(A, board, "doc", { action: "write", name: "../etc/passwd", content: "x", base_version: 0 }, "Document names");
+});
+
 await step("rename and archive: creator only; archived boards are read-only and listed separately; restore works", async () => {
   const id = (await ops("boards", { user: A, title: `e2e arch ${run}` })).body.board.id;
   await ops("members", { board: id, user: B });
@@ -681,7 +713,10 @@ await step("rename and archive: creator only; archived boards are read-only and 
   const r = await call(A, "rename", { title: `e2e arch renamed ${run}` });
   assert(r.status === 200, `rename ${r.status}`);
   has(await ok(B, null, "list_boards"), `"e2e arch renamed ${run}"`);
-  has(await (await web(`/b/${id}`, B)).text(), `e2e arch renamed ${run}`);
+  const memberPage = await (await web(`/b/${id}`, B)).text();
+  has(memberPage, `e2e arch renamed ${run}`);
+  assert(!memberPage.includes('id="title-input"'), "only the creator gets the inline rename");
+  has(await (await web(`/b/${id}`, A)).text(), 'id="title-input"');
   // archive
   assert((await call(B, "archive", { archived: true })).status === 403, "non-creator can't archive");
   assert((await call(A, "archive", { archived: true })).status === 200, "archive");

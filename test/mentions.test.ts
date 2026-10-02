@@ -110,6 +110,13 @@ describe("rendering", () => {
     expect(html).toContain("<code>@jxn</code>");
   });
 
+  it("highlights mentions inside headings and list items too", () => {
+    const html = renderText("# For @jxn\n- @jxn's agent rerun tests\n1. ask @jxn", [person("jxn"), agent("jxn")]);
+    expect(html).toMatch(/<h3 class="md-h">For <span class="mention" data-user="jxn">@jxn<\/span><\/h3>/);
+    expect(html).toContain(`<li><span class="mention agent" data-user="jxn">@jxn&#39;s agent</span> rerun tests</li>`);
+    expect(html).toContain(`<li>ask <span class="mention" data-user="jxn">@jxn</span></li>`);
+  });
+
   it("an agent mention in the text that wasn't stored stays plain", () => {
     expect(highlightMentions("@jxn&#39;s agent", [person("jxn")])).toBe("@jxn&#39;s agent");
   });

@@ -156,6 +156,8 @@ dialog[open]{animation:pop .16s ease-out}
 .entry .seq:hover{color:var(--ink)}
 .entry .body{margin-top:3px;color:var(--text);word-wrap:break-word;overflow-wrap:anywhere}
 .entry .body p+p{margin-top:8px}
+.body ul,.body ol{margin:6px 0;padding-left:20px}.body li{margin:2px 0}
+.body .md-h{margin:12px 0 4px;font-size:14px;color:var(--ink)}.body .md-h:first-child{margin-top:0}
 .entry .body pre{background:var(--bg-subtle);border:1px solid var(--line);border-radius:8px;padding:10px 12px;overflow-x:auto;margin:8px 0;white-space:pre}
 .entry .body code{background:var(--bg-hover);padding:1px 5px;border-radius:4px}
 .entry .body pre code{background:none;padding:0}
@@ -261,6 +263,21 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
 .palette li .k{margin-left:auto;color:var(--faint);font-size:12px}
 .palette .foot{display:flex;gap:14px;padding:8px 14px;border-top:1px solid var(--line);font-size:12px;color:var(--faint)}
 .entry.sel{background:var(--bg-subtle);box-shadow:-12px 0 0 var(--bg-subtle),12px 0 0 var(--bg-subtle)}
+
+/* inline board title rename */
+.title-edit{display:flex;align-items:center;gap:6px;min-width:0}
+.title-edit h1{cursor:text;border-radius:6px;padding:0 4px;margin-left:-4px}
+.title-edit h1:hover{background:var(--bg-hover)}
+.title-edit .pencil{opacity:0;transition:opacity .12s}
+.title-edit:hover .pencil,.title-edit .pencil:focus-visible{opacity:1}
+.title-input{font-size:22px;font-weight:600;letter-spacing:-.02em;height:40px;max-width:640px}
+
+/* shared documents */
+.docs{display:grid;gap:20px;grid-template-columns:minmax(0,1fr)}
+@media(min-width:860px){.docs{grid-template-columns:220px minmax(0,1fr)}}
+.doc-item{display:flex;justify-content:space-between;gap:8px;padding:6px 8px;margin:0 -8px;border-radius:6px;font-size:13px}
+.doc-item:hover,.doc-item.on{background:var(--bg-hover)}
+.doc-body{font-size:14px}.doc-body p+p{margin-top:10px}
 
 /* agent connect card + presence */
 .agent-card{display:flex;align-items:center;gap:12px;padding:14px 16px;border:1px solid var(--line);border-radius:var(--r);background:var(--bg-subtle);margin-bottom:20px;font-size:13.5px}
@@ -396,8 +413,49 @@ export function renderText(text: string, mentions?: Mention[] | null): string {
       return;
     }
     const paras = part.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
-    for (const p of paras) out.push(`<p>${inline(p, mentions)}</p>`);
+    for (const p of paras) out.push(block(p, mentions));
   });
+  return out.join("");
+}
+
+/** One paragraph-sized block: headings (#–###), bullet and numbered lists, or a paragraph. */
+function block(p: string, mentions?: Mention[] | null): string {
+  const lines = p.split("\n");
+  const out: string[] = [];
+  let list: { kind: "ul" | "ol"; items: string[] } | null = null;
+  let para: string[] = [];
+  const flushPara = () => {
+    if (para.length) out.push(`<p>${inline(para.join("\n"), mentions)}</p>`);
+    para = [];
+  };
+  const flushList = () => {
+    if (list) out.push(`<${list.kind}>${list.items.map((i) => `<li>${inline(i, mentions)}</li>`).join("")}</${list.kind}>`);
+    list = null;
+  };
+  for (const line of lines) {
+    const h = line.match(/^(#{1,3})\s+(.+)$/);
+    const ul = line.match(/^\s*[-*]\s+(.+)$/);
+    const ol = line.match(/^\s*\d+[.)]\s+(.+)$/);
+    if (h) {
+      flushPara();
+      flushList();
+      const level = h[1].length + 2; // # → h3, ## → h4, ### → h5 (stay below page headings)
+      out.push(`<h${level} class="md-h">${inline(h[2], mentions)}</h${level}>`);
+    } else if (ul || ol) {
+      flushPara();
+      const kind = ul ? "ul" : "ol";
+      if (!list || list.kind !== kind) {
+        flushList();
+        list = { kind, items: [] };
+      }
+      list.items.push((ul ?? ol)![1]);
+    } else {
+      flushList();
+      para.push(line);
+    }
+  }
+  flushPara();
+  flushList();
   return out.join("");
 }
 

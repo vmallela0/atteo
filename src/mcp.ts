@@ -69,6 +69,25 @@ export const TOOLS = [
     },
   },
   {
+    name: "doc",
+    description:
+      "Shared documents on the joined board that everyone (people and agents) edits together, e.g. BACKLOG.md. Actions: list; read {name, version?}; write {name, content, base_version} (whole document: base_version 0 to create, else the version you read; a mismatch returns the current text to merge); edit {name, old_str, new_str} (replace one exact, unique piece of text in the latest version); history {name}. Add a one-line summary to write/edit.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["list", "read", "write", "edit", "history"] },
+        name: { type: "string", description: "Document name, e.g. BACKLOG.md" },
+        content: { type: "string", description: "write: the whole new document" },
+        base_version: { type: "integer", description: "write: the version you read (0 to create)" },
+        old_str: { type: "string", description: "edit: exact text to replace (must appear once)" },
+        new_str: { type: "string", description: "edit: replacement text" },
+        version: { type: "integer", description: "read: an older version" },
+        summary: { type: "string", description: "write/edit: one line on what changed" },
+      },
+      required: ["action"],
+    },
+  },
+  {
     name: "retract",
     description:
       "Withdraw an entry on the joined board: it leaves the summary and stays in the log marked retracted (an open question or task closes). Your own entries, or any entry if your user created the board.",
@@ -355,6 +374,54 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const tagged = entry.mentions?.length ? `, mentions ${entry.mentions.map((m) => mentionLabel(m)).join(", ")}` : "";
       const notTagged = unknown.length ? ` Not mentions (not members of this board): ${unknown.map((m) => "@" + m).join(", ")}.` : "";
       return `Posted #${entry.seq} (${type}${to ? ` → ${to}` : ""}${tagged}) to ${id}.${hint}${notTagged}`;
+    }
+
+    case "doc": {
+      const id = await currentBoard(c, args);
+      const stub = stubFor(env, id);
+      const action = str(args.action);
+      const name = str(args.name);
+      const client = (await registry.mcpSessionClient(env, c.sessionId)) ?? "agent";
+      const opts = { via: "agent" as const, client, summary: str(args.summary) ?? null };
+      const when = (ts: number) => new Date(ts).toISOString().slice(0, 16).replace("T", " ") + "Z";
+      const by = (d: { updated_by: string; via: string | null }) => (d.via === "agent" ? `${d.updated_by}'s agent` : d.via === "person" ? `${d.updated_by} (person)` : d.updated_by);
+      if (action === "list") {
+        const list = await stub.docs();
+        if (!list.length) return 'No documents on this board yet. Create one with doc action "write", a name, content and base_version 0.';
+        return fence(list.map((d) => `${d.name}  v${d.version}  ${d.size} chars  updated by ${by(d)} ${when(d.updated_at)}`).join("\n"));
+      }
+      if (!name) throw new ToolError("name is required (e.g. BACKLOG.md).");
+      if (action === "read") {
+        const d = await stub.docRead(name, int(args.version));
+        const head = `${d.name} v${d.version}${d.version !== d.latest ? ` (latest is v${d.latest})` : ""}, last edited by ${by(d)} ${when(d.updated_at)}. To change it: edit {old_str,new_str}, or write {content, base_version: ${d.latest}}.`;
+        return `${head}\n` + fence(d.content);
+      }
+      if (action === "history") {
+        const h = await stub.docHistory(name);
+        if (!h.length) throw new ToolError(`There's no document named "${name}" on this board.`);
+        return fence(h.map((v) => `v${v.version}  ${v.via === "agent" ? `${v.author}'s agent` : v.author}  ${when(v.ts)}  ${v.size} chars${v.summary ? `  ${v.summary}` : ""}`).join("\n"));
+      }
+      if (action === "write") {
+        const content = typeof args.content === "string" ? args.content : null;
+        const base = int(args.base_version);
+        if (content == null || base == null) throw new ToolError("write needs content and base_version (0 to create, else the version you read).");
+        const r = await stub.docWrite(user, name, content, base, opts);
+        if (r.conflict) {
+          throw new ToolError(
+            `Not saved: "${name}" is at v${r.current}, not v${base}; someone else edited it. Merge your change into the current text below and write again with base_version ${r.current} (or use edit for a small change).\n` + fence(r.content),
+          );
+        }
+        later(registry.bumpBoard(env, id, r.note));
+        return `Saved ${name} v${r.version}.`;
+      }
+      if (action === "edit") {
+        if (typeof args.old_str !== "string" || typeof args.new_str !== "string") throw new ToolError("edit needs old_str and new_str.");
+        const r = await stub.docEdit(user, name, args.old_str, args.new_str, opts);
+        if (r.conflict) throw new ToolError("Edit conflict; read the document and try again.");
+        later(registry.bumpBoard(env, id, r.note));
+        return `Saved ${name} v${r.version}.`;
+      }
+      throw new ToolError('action must be one of: list, read, write, edit, history.');
     }
 
     case "retract": {
