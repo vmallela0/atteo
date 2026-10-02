@@ -1,5 +1,7 @@
 // Worker entry: MCP endpoint, sign-in, web pages, JSON API, and the operator console (/_ops).
 
+import SKILL_MD from "../skills/agent-soup/SKILL.md";
+import { openapi } from "./openapi";
 import * as billing from "./billing";
 import { blockedMessage, scanFields } from "./secrets";
 import * as inbox from "./inbox";
@@ -65,7 +67,16 @@ interface Ctx {
   viewer: Viewer | null;
 }
 
-async function loadViewer(env: Env, session: auth.Session | null): Promise<Viewer | null> {
+async function loadViewer(env: Env, session: auth.Session | null, request?: Request, path = ""): Promise<Viewer | null> {
+  // The JSON API also takes a personal token (Authorization: Bearer ab_…), as agents use for MCP. Never for pages.
+  const bearer = request?.headers.get("authorization")?.match(/^Bearer\s+(\S+)$/i)?.[1];
+  // Account-level actions (tokens, billing, ops) stay browser-only, so a leaked token can't mint more or change plans.
+  const accountOnly = /^\/api\/(ops|tokens|billing)(\/|$)/.test(path);
+  if (!session?.user && bearer && path.startsWith("/api/") && !accountOnly) {
+    const name = await auth.userForToken(env, bearer);
+    const u = name ? await registry.userByName(env, name) : null;
+    return u ? { name: u.name, email: u.email ?? "", display_name: u.display_name, admin: false, via: "agent" } : null;
+  }
   if (!session?.user) return null;
   const u = await registry.userByName(env, session.user);
   if (!u) return null;
@@ -255,15 +266,18 @@ export default {
     try {
       if (path === "/mcp") return await handleMcp(request, env, ctx);
       if (path === "/health") return json({ ok: true, version: env.CF_VERSION_METADATA?.id ?? null });
+      if (path === "/openapi.json") return json(openapi(url.origin), 200, { "access-control-allow-origin": "*", "cache-control": "public, max-age=300" });
+      if (path === "/skill.md") return new Response(SKILL_MD, { headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "public, max-age=300" } });
       if (path === "/favicon.svg" || path === "/favicon.ico") {
         return new Response(FAVICON_SVG, { headers: { "content-type": "image/svg+xml", "cache-control": "public, max-age=86400" } });
       }
 
       const session = await auth.getSession(request, env);
-      const viewer = await loadViewer(env, session);
+      const viewer = await loadViewer(env, session, request, path);
+      const pv = (): "agent" | "person" => viewer?.via ?? "person"; // who wrote it: a person on the web, or an agent via token
       const c: Ctx = { request, env, ctx, url, session, viewer };
       const needLogin = () =>
-        method === "GET" ? redirect(`/auth/login?return=${encodeURIComponent(url.pathname + url.search)}`) : json({ error: "sign in required" }, 401);
+        method === "GET" && !path.startsWith("/api/") ? redirect(`/auth/login?return=${encodeURIComponent(url.pathname + url.search)}`) : json({ error: "sign in required" }, 401);
 
       // ---- auth ----
       if (path === "/auth/login" && method === "GET") return authLogin(c);
@@ -516,9 +530,9 @@ export default {
           const bytes = await request.arrayBuffer();
           const q = (k: string) => url.searchParams.get(k);
           const text = (q("text") ?? "").slice(0, 4000);
-          const { mentions } = mayMention(text) ? parseMentions(text, (await registry.boardMembers(env, id)).map((x) => x.user), viewer.name, "person") : { mentions: [] };
+          const { mentions } = mayMention(text) ? parseMentions(text, (await registry.boardMembers(env, id)).map((x) => x.user), viewer.name, pv()) : { mentions: [] };
           try {
-            const entry = await stub.postFile(viewer.name, { name: q("name") ?? "", bytes, width: Number(q("w")) || null, height: Number(q("h")) || null, text, mentions, via: "person" });
+            const entry = await stub.postFile(viewer.name, { name: q("name") ?? "", bytes, width: Number(q("w")) || null, height: Number(q("h")) || null, text, mentions, via: pv() });
             ctx.waitUntil(Promise.all([registry.touch(env, viewer.name, id), registry.bumpBoard(env, id, entry.seq)]).catch(() => {}));
             return json({ ok: true, entry }, 201);
           } catch (e) {
@@ -555,7 +569,7 @@ export default {
               new_str?: string;
               summary?: string;
             };
-            const opts = { via: "person" as const, summary: body.summary ?? null };
+            const opts = { via: pv(), summary: body.summary ?? null };
             const r =
               body.action === "edit"
                 ? await stub.docEdit(viewer.name, String(body.name ?? ""), String(body.old_str ?? ""), String(body.new_str ?? ""), opts)
@@ -653,7 +667,7 @@ export default {
             const t = await stub.taskCreate(
               viewer.name,
               { title: String(b.title ?? ""), body: typeof b.body === "string" ? b.body : "", priority: (["high", "medium", "low"] as const).find((p) => p === b.priority) ?? null },
-              { via: "person" },
+              { via: pv() },
             );
             ctx.waitUntil(registry.bumpBoard(env, m[1], t.seq).catch(() => {}));
             return json({ ok: true, task: t }, 201);
@@ -665,7 +679,7 @@ export default {
           const seq = parseInt(m[2], 10);
           const b = (await request.json().catch(() => ({}))) as Record<string, unknown>;
           const s = (k: string) => (typeof b[k] === "string" ? (b[k] as string).trim() : undefined);
-          const opts = { via: "person" as const };
+          const opts = { via: pv() };
           try {
             let t;
             if (b.action === "edit")
@@ -715,7 +729,7 @@ export default {
         if (!(await registry.isMember(env, m[1], viewer.name))) return json({ error: "board not found" }, 404);
         const body = (await request.json().catch(() => ({}))) as { verdict?: string; note?: string };
         try {
-          const r = await boardStub(env, m[1]).review(viewer.name, parseInt(m[2], 10), String(body.verdict ?? "") as "approve", String(body.note ?? ""), { via: "person" });
+          const r = await boardStub(env, m[1]).review(viewer.name, parseInt(m[2], 10), String(body.verdict ?? "") as "approve", String(body.note ?? ""), { via: pv() });
           ctx.waitUntil(registry.bumpBoard(env, m[1], r.entry.seq).catch(() => {}));
           return json({ ok: true, entry: r.entry, state: r.state }, 201);
         } catch (e) {
@@ -735,7 +749,7 @@ export default {
             type: "note",
             text: String(body.reason ?? "").trim() || `Unsent #${seq}.`,
             retracts: seq,
-            via: "person",
+            via: pv(),
           });
           ctx.waitUntil(registry.bumpBoard(env, m[1], entry.seq).catch(() => {}));
           return json({ ok: true, entry }, 201);
@@ -793,7 +807,7 @@ export default {
           const type = (["note", "question", "task", "decision", "claim"] as const).find((t) => t === body.type) ?? "note";
           let to = body.to ? normalizeUser(body.to) : null;
           const text = String(body.text ?? "");
-          const { mentions }: { mentions: Mention[] } = mayMention(text) ? parseMentions(text, (await registry.boardMembers(env, id)).map((x) => x.user), viewer.name, "person") : { mentions: [] };
+          const { mentions }: { mentions: Mention[] } = mayMention(text) ? parseMentions(text, (await registry.boardMembers(env, id)).map((x) => x.user), viewer.name, pv()) : { mentions: [] };
           // Replying: to an agent's post, the reply goes to that agent; to a person's post, it mentions them.
           const replyTo = Number(body.reply_to) > 0 ? Math.floor(Number(body.reply_to)) : null;
           if (replyTo) {
@@ -807,7 +821,7 @@ export default {
             }
           }
           try {
-            const entry = await stub.post(viewer.name, { type, text, to, mentions, reply_to: replyTo, via: "person" });
+            const entry = await stub.post(viewer.name, { type, text, to, mentions, reply_to: replyTo, via: pv() });
             ctx.waitUntil(Promise.all([registry.touch(env, viewer.name, id), registry.bumpBoard(env, id, entry.seq)]).catch(() => {}));
             return json({ ok: true, entry }, 201);
           } catch (e) {

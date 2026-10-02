@@ -556,6 +556,7 @@ export interface Viewer {
   email: string;
   display_name: string | null;
   admin: boolean;
+  via?: "agent" | "person"; // "agent" when the request came with a personal token (scripts, CLI, other agents)
 }
 
 export function page(

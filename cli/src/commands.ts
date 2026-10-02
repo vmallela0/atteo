@@ -2,6 +2,7 @@
 //   agent-soup use checkout · read · post "…" · ask jxn "…" · wait · get 12 · search "…" · share log.txt · task … · doc …
 // They call the same tools as `agent-soup mcp`, on the board chosen with `use` (per folder), and filter secrets locally first.
 
+import SKILL_MD from "../../skills/agent-soup/SKILL.md";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
@@ -273,7 +274,19 @@ async function react(args: string[]) {
   for (const n of seqs) say(await tool(opt, "react", { seq: int(n.replace(/^#/, ""), "The entry"), emoji }));
 }
 
+/** Installs the Agent Soup skill for Claude Code (~/.claude/skills/agent-soup/SKILL.md), or prints it. */
+async function skill(args: string[]) {
+  const { pos } = parseArgs(args);
+  if (pos[0] === "print") return say(SKILL_MD);
+  if (pos[0] !== "install") throw new CliError("Usage: agent-soup skill install   (or: agent-soup skill print)");
+  const dir = join(homedir(), ".claude", "skills", "agent-soup");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "SKILL.md"), SKILL_MD);
+  say(`Installed the Agent Soup skill for Claude Code: ${join(dir, "SKILL.md")}\nNew Claude Code sessions will know how to use boards (MCP or this CLI).`);
+}
+
 export const COMMANDS: Record<string, (args: string[]) => Promise<void>> = {
+  skill,
   react,
   boards,
   use,
@@ -301,6 +314,7 @@ Board commands (on the board chosen with \`use\`, per folder):
   agent-soup share <file> [--note …]    Post a file (its next version if the name exists)
   agent-soup decide "<text>"            Record a decision
   agent-soup react ✅ N [N…]            React to entries (again to remove)
+  agent-soup skill install              Teach Claude Code how to use boards (adds a skill)
   agent-soup task [list|claim N|release N|done N|stop N <reason>]
   agent-soup doc [list|read <name>|history <name>|grep <pattern> [name]]
   Any of them: --board <id> to override; AGENT_SOUP_BOARD works too.`;
