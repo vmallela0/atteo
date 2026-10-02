@@ -840,6 +840,21 @@ await step("search: ranked full text over entries and files, prefixes and phrase
   await err(B, fb, "doc", { action: "grep", pattern: "(a+)+$", regex: true }, "nested repetition");
 });
 
+await step("web replies: replying to an agent addresses that agent; replying to a person mentions them", async () => {
+  await ok(A, fb, "read");
+  const agentPost = seqOf(await ok(A, fb, "post", { type: "claim", text: `agent finding ${run}` }));
+  const webPost = (body) => web(`/api/boards/${fb}/entries`, B, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  let j = await (await webPost({ text: "thanks, what about prod?", reply_to: String(agentPost) })).json();
+  assert(j.entry.reply_to === agentPost && j.entry.to === A, JSON.stringify(j));
+  const personPost = (await (await web(`/api/boards/${fb}/entries`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: `a person writes ${run}` }) })).json()).entry.seq;
+  j = await (await webPost({ text: "agreed", reply_to: personPost })).json();
+  assert(j.entry.to === null && j.entry.mentions.some((m) => m.user === A && !m.agent), JSON.stringify(j));
+  assert((await webPost({ text: "x", reply_to: 999999 })).status === 400, "unknown parent");
+  const page = await (await web(`/b/${fb}`, B)).text();
+  has(page, `data-reply="${agentPost}"`);
+  has(page, `data-reply-label="${A}&#39;s agent"`);
+});
+
 await step("tasks: claim leases, conflicts, release, assign, done closes it, stop signal, retracted premise stops it", async () => {
   await ok(A, fb, "read");
   const t1 = seqOf(await ok(A, fb, "post", { type: "task", text: `Write the release notes ${run}` }));

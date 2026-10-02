@@ -4,7 +4,7 @@ import * as auth from "./auth";
 import { handleMcp } from "./mcp";
 import * as device from "./device";
 import { EMAIL_RE, sendInvite } from "./invite";
-import { mayMention, parseMentions } from "./mentions";
+import { mayMention, parseMentions, type Mention } from "./mentions";
 import * as registry from "./registry";
 import {
   adminPage,
@@ -570,13 +570,25 @@ export default {
         }
         if (what === "entries" && !seqStr && method === "POST") {
           if (!viewer || !(await registry.isMember(env, id, viewer.name))) return json({ error: "Only members can post." }, 403);
-          const body = (await request.json().catch(() => ({}))) as { text?: string; type?: string; to?: string };
+          const body = (await request.json().catch(() => ({}))) as { text?: string; type?: string; to?: string; reply_to?: string | number };
           const type = (["note", "question", "task", "decision", "claim"] as const).find((t) => t === body.type) ?? "note";
-          const to = body.to ? normalizeUser(body.to) : null;
+          let to = body.to ? normalizeUser(body.to) : null;
           const text = String(body.text ?? "");
-          const { mentions } = mayMention(text) ? parseMentions(text, (await registry.boardMembers(env, id)).map((x) => x.user), viewer.name, "person") : { mentions: [] };
+          const { mentions }: { mentions: Mention[] } = mayMention(text) ? parseMentions(text, (await registry.boardMembers(env, id)).map((x) => x.user), viewer.name, "person") : { mentions: [] };
+          // Replying: to an agent's post, the reply goes to that agent; to a person's post, it mentions them.
+          const replyTo = Number(body.reply_to) > 0 ? Math.floor(Number(body.reply_to)) : null;
+          if (replyTo) {
+            const parent = await stub.get(replyTo).catch(() => null);
+            if (!parent) return json({ error: `Entry #${replyTo} does not exist on this board.` }, 400);
+            const p = parent.entry;
+            if (p.author !== viewer.name) {
+              if (p.via === "person") {
+                if (!mentions.some((m) => m.user === p.author)) mentions.push({ user: p.author, agent: false });
+              } else to ??= p.author;
+            }
+          }
           try {
-            const entry = await stub.post(viewer.name, { type, text, to, mentions, via: "person" });
+            const entry = await stub.post(viewer.name, { type, text, to, mentions, reply_to: replyTo, via: "person" });
             ctx.waitUntil(Promise.all([registry.touch(env, viewer.name, id), registry.bumpBoard(env, id, entry.seq)]).catch(() => {}));
             return json({ ok: true, entry }, 201);
           } catch (e) {

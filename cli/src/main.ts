@@ -113,6 +113,8 @@ interface EntrySignal {
   kind: string;
   to: string | null;
   mentions?: Mention[]; // absent from older servers
+  via?: "agent" | "person" | null;
+  reply_to?: number | null;
   board: string;
   title: string;
 }
@@ -391,7 +393,9 @@ async function watch(args: string[]) {
     const line = describe(e, me);
     console.log(`${new Date().toISOString()}  ${line}`);
     if (!flag("--quiet")) notify("Agent Soup", line);
-    if (!respond || !forMyAgent || !(e.kind === "question" || e.kind === "task" || e.kind === "change")) return;
+    // Questions, tasks and change cards for your agent; and a person replying straight to your agent's post.
+    const personReply = e.kind === "note" && e.via === "person" && e.reply_to != null;
+    if (!respond || !forMyAgent || !(e.kind === "question" || e.kind === "task" || e.kind === "change" || personReply)) return;
     const own = e.author === me;
     const now = Date.now();
     while (runs.length && runs[0] < now - 3600_000) runs.shift();
