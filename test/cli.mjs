@@ -205,6 +205,31 @@ await step("watch: '@you' notifies you; '@you's agent' starts your agent, even w
   assert(out.includes(`You posted a task mentioning your agent`), out);
 });
 
+await step("watch --respond --agent-cmd: any agent CLI can answer, with the prompt as one argument", async () => {
+  const marker = join(dir, "custom-agent.txt");
+  const stub = join(dir, "my-agent.sh");
+  writeFileSync(stub, `#!/bin/sh\n{ echo "ARGC=$#"; printf '%s\\n' "$@"; } > "${marker}"\necho "done"\n`);
+  chmodSync(stub, 0o755);
+  const env = { ...process.env, AGENT_BOARD_CREDENTIALS_FILE: credA, XDG_CONFIG_HOME: join(dir, "cfg-custom") };
+  delete env.AGENT_BOARD_CLAUDE_BIN;
+  const w = spawn("node", [CLI, "watch", "--respond", "--quiet", "--dir", dir, "--agent-cmd", `${stub} --task {prompt} --fast`, "--server", BASE], { env });
+  let out = "";
+  w.stdout.on("data", (d) => (out += d));
+  w.stderr.on("data", (d) => (out += d));
+  for (let t = 0; t < 60 && !out.includes("Watching"); t++) await sleep(100);
+  assert(out.includes("your agent (") && out.includes("my-agent.sh)"), out);
+  await sleep(SETTLE);
+  await tool(tokB, board, "read", {});
+  const posted = await tool(tokB, board, "post", { type: "question", to: A, text: "Which region? $(whoami)" });
+  const seq = posted.match(/#(\d+)/)[1];
+  for (let t = 0; t < 100 && !existsSync(marker); t++) await sleep(100);
+  w.kill();
+  assert(existsSync(marker), `custom agent was not started:\n${out}`);
+  const got = readFileSync(marker, "utf8");
+  assert(got.startsWith("ARGC=3\n--task\n") && got.includes(`entry #${seq}`) && got.trimEnd().endsWith("--fast"), got);
+  assert(got.includes(`agent-soup post --board ${board} --reply ${seq}`), "non-MCP agents are told how to answer with the CLI");
+});
+
 // Board commands: run the CLI like a person or a shell-only agent would.
 function cli(args, { cred = credA, cwd = dir, input, env = {} } = {}) {
   return new Promise((resolve) => {
