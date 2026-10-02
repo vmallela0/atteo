@@ -303,6 +303,10 @@ dialog.access-dlg{width:min(640px,calc(100vw - 24px))}
 .rx-add{display:none;align-items:center;height:24px;padding:0 7px;border-radius:999px;border:1px dashed var(--line-strong);background:none;color:var(--muted);font:inherit;font-size:13px;cursor:pointer}
 .rx-add span{font-size:11px;margin-left:1px}.rx-add:hover{color:var(--ink);border-style:solid}
 .rx.has .rx-add{display:inline-flex} /* with no reactions yet, "☺+" lives in the message's hover actions */
+/* agents' 👀 / ✅ on a person's message: a quiet receipt line under it, like the app */
+.rx.rcpt{margin-top:4px}.rx.has.rcpt{margin-top:6px}
+.rx-rcpt{flex-basis:100%;display:flex;flex-wrap:wrap;align-items:center;gap:0 6px;font-size:12px;line-height:18px;color:var(--muted)}
+.rx-rcpt .e{font-size:11.5px}.rx-rcpt .sep{color:var(--faint)}
 .rx-pick{position:fixed;z-index:50;display:flex;gap:2px;padding:4px;border-radius:999px;border:1px solid var(--line);background:var(--bg);box-shadow:var(--shadow-lg)}
 .rx-pick[hidden]{display:none}
 .rx-tip{position:fixed;z-index:50;display:flex;align-items:center;gap:10px;max-width:280px;padding:8px 12px;border-radius:10px;background:var(--ink);color:var(--on-ink);font-size:12.5px;line-height:1.35;box-shadow:var(--shadow-lg);pointer-events:none}

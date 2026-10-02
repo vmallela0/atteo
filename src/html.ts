@@ -789,12 +789,14 @@ async function tick1(wait){try{
   if(added){railBuild();if(stick)toBottom();else{unseen=true;pillSync()}}
   if(d.entries.length){document.getElementById('sum').innerHTML=d.summary;foldApply();document.querySelectorAll('[data-count]').forEach(x=>x.textContent=d.count);refreshTimes();infoCount()}
 }catch(e){await new Promise(r=>setTimeout(r,5000))}}
+// Reactions that arrive live before their entry is on the page (an agent's 👀 often beats the entry's own fetch).
+const RXP={};
 /** Puts one entry (from updates, or straight from a post's response) on the page; false if it's already there. */
 function addEntry(e){if(document.getElementById('e'+e.seq)){last=Math.max(last,e.seq);return false}
     const box=e.root!==e.seq&&document.getElementById('r'+e.root);
     const tmp=document.createElement('div');tmp.innerHTML=e.html;const el=tmp.firstElementChild;el.classList.add('flash-in');
     if(box){el.querySelector('.replies')?.remove();box.appendChild(el)}else{document.getElementById('empty')?.remove();document.getElementById('thread').appendChild(el)}
-    if(e.reactions)renderRx(e.seq,e.reactions);
+    const rx=RXP[e.seq]||e.reactions;if(rx)renderRx(e.seq,rx);
     if(el.querySelector('[data-task]'))refreshTask(e.seq);
     if(box){thrSum(e.root);setTimeout(()=>window.reportSeen&&reportSeen(),0)}
     if(!document.querySelector('#log-body tr[data-seq="'+e.seq+'"]')){const lt=document.createElement('tbody');lt.innerHTML=e.row;document.getElementById('log-body').prepend(lt.firstElementChild);document.getElementById('log-empty')?.remove()}
@@ -1086,12 +1088,23 @@ const SHORT={'+1':'👍',thumbsup:'👍','-1':'👎',thumbsdown:'👎',white_che
   raised_hands:'🙌',clap:'👏',ok_hand:'👌',thinking:'🤔',warning:'⚠️',x:'❌',100:'💯',hourglass:'⏳',bug:'🐛',ship:'🚢',sparkles:'✨',wave:'👋',smile:'😄',sob:'😭',muscle:'💪',star:'⭐'};
 const emo=e=>{const m=/^:([a-z0-9_+-]+):$/i.exec(e);return m&&SHORT[m[1].toLowerCase()]||e};
 const rxWho=u=>u===ME?'you':u===ME+"'s agent"?'your agent':u.startsWith(ME+'/')?'your agent '+u.slice(ME.length+1):u;
-function renderRx(seq,list){const row=document.querySelector('[data-rx="'+seq+'"]');if(!row)return;const add=row.querySelector('.rx-add');
-  row.querySelectorAll('.rx-chip').forEach(c=>c.remove());
-  for(const r of list||[]){const b=document.createElement('button');b.type='button';b.className='rx-chip'+(r.users.includes(ME)?' on':'');b.dataset.react=r.emoji;b.dataset.seq=seq;
+// Agents' 👀 (read it, working) and ✅ (done) on a person's message are receipts, like the app: one quiet line under
+// it ("👀 read by jxn/builder · ✅ done by vedu's agent"), not chips. Other reactions, and people's, stay chips.
+const rxAgent=u=>u.endsWith("'s agent")||u.includes('/');
+const rxNames=us=>{const n=us.map(rxWho);return n.length<3?n.join(' and '):n.slice(0,2).join(', ')+' and '+(n.length-2)+' more'};
+function renderRx(seq,list){const row=document.querySelector('[data-rx="'+seq+'"]');if(!row){RXP[seq]=list;return}delete RXP[seq];const add=row.querySelector('.rx-add');
+  row.querySelectorAll('.rx-chip,.rx-rcpt').forEach(c=>c.remove());
+  const byPerson=!row.closest('.entry')?.classList.contains('by-agent');const seen=[],done=[],chips=[];
+  for(const r of list||[]){const rc=byPerson&&(r.emoji==='👀'||r.emoji==='✅')?r.users.filter(rxAgent):[];
+    (r.emoji==='✅'?done:seen).push(...rc);const rest=r.users.filter(u=>!rc.includes(u));if(rest.length)chips.push({emoji:r.emoji,users:rest})}
+  const read=seen.filter(u=>!done.includes(u)); // an agent that's done isn't "reading" any more
+  for(const r of chips){const b=document.createElement('button');b.type='button';b.className='rx-chip'+(r.users.includes(ME)?' on':'');b.dataset.react=r.emoji;b.dataset.seq=seq;
     b.title=r.users.map(rxWho).join(', ');b.setAttribute('aria-label',emo(r.emoji)+' '+r.users.length+': '+b.title+(r.users.includes(ME)?'. Click to remove yours':'. Click to add yours'));
     b.innerHTML='<span class="e">'+esc(emo(r.emoji))+'</span><span class="c">'+r.users.length+'</span>';row.insertBefore(b,add)}
-  row.classList.toggle('has',!!(list&&list.length))}
+  if(read.length||done.length){const d=document.createElement('div');d.className='rx-rcpt';
+    const part=(e,us,what)=>'<span title="'+esc(us.map(rxWho).join(', '))+'"><span class="e">'+e+'</span> '+what+' '+esc(rxNames(us))+'</span>';
+    d.innerHTML=[read.length?part('👀',read,'read by'):'',done.length?part('✅',done,'done by'):''].filter(Boolean).join('<span class="sep">·</span>');row.appendChild(d)}
+  row.classList.toggle('has',chips.length>0);row.classList.toggle('rcpt',!!(read.length||done.length))}
 async function react(seq,emoji){const r=await fetch('/api/boards/'+BOARD+'/entries/'+seq+'/react',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({emoji})});
   const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||"Couldn't react");return}renderRx(seq,j.reactions)}
 const picker=document.createElement('div');picker.className='rx-pick';picker.hidden=true;picker.setAttribute('role','menu');
