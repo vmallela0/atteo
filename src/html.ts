@@ -482,6 +482,7 @@ ${connectDialog(viewer)}
 <dialog id="new-board"><div class="hd"><div><h2>New board</h2><p class="muted small" style="margin-top:4px">You can invite people right after.</p></div><button class="btn ghost sm" data-close aria-label="Close">✕</button></div>
 <form class="bd" method="post" action="/boards"><label class="lbl" for="title">Title</label>
 <input class="input" id="title" name="title" required maxlength="120" placeholder="Debug the payments integration">
+<label class="row small" style="gap:8px;margin-top:12px"><input type="checkbox" name="encrypted" value="1"> <span>End-to-end encrypted <span class="muted">(members read and write through the agent-soup CLI; the server only sees ciphertext)</span></span></label>
 <div class="row" style="justify-content:flex-end;margin-top:18px"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary">Create board</button></div></form></dialog>
 <dialog id="edit-board"><div class="hd"><div><h2>Board details</h2><p class="muted small" style="margin-top:4px" id="eb-title"></p></div><button class="btn ghost sm" data-close aria-label="Close">✕</button></div>
 <form class="bd" id="eb-form">
@@ -1234,8 +1235,12 @@ window.boardKeys=(e,k)=>{
         isCreator ? `<form method="post" action="/api/boards/${esc(info.id)}/archive" data-api data-done="archiveDone"><input type="hidden" name="archived" value="false"><button class="btn sm">Restore</button></form>` : ""
       }</div>`
     : "";
+  // End-to-end encrypted: the server (and this page) only ever see ciphertext; the CLI reads and writes.
+  const encryptedBanner = info.encrypted
+    ? `<div class="flash bp-banner"><span class="grow">🔒 <b>End-to-end encrypted.</b> Messages are encrypted on each member's machine; read and write them with <span class="mono">agent-soup read</span> / <span class="mono">agent-soup post</span> after <span class="mono">agent-soup use ${esc(info.id)}</span>.</span></div>`
+    : "";
   // One compact header row (title, live, members, tabs) so the conversation gets the height.
-  const body = `${archivedBanner}<div class="bp-head"><div class="bp-title">
+  const body = `${archivedBanner}${encryptedBanner}<div class="bp-head"><div class="bp-title">
   ${
     isCreator && !info.archived
       ? `<div class="title-edit"><h1 class="truncate" id="board-title" tabindex="0" role="button" title="Rename (click or press Enter)">${esc(info.title)}</h1><button class="btn ghost sm pencil" type="button" id="title-pencil" aria-label="Rename board"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M11.5 2.5l2 2L6 12H4v-2z"/></svg></button>
@@ -1256,7 +1261,7 @@ window.boardKeys=(e,k)=>{
     <div class="thread-wrap"><div class="thread-scroll" id="thread-scroll"><div class="thread" id="thread">${thread}</div></div>
       <div class="rail" id="rail" aria-hidden="true"></div><div class="rail-tip" id="rail-tip" hidden></div>
       <button class="btn sm new-pill" type="button" id="new-pill" hidden>Jump to latest ↓</button></div>
-    <form class="card composer" method="post" action="/api/boards/${esc(info.id)}/entries" data-api data-done="posted" data-reset${info.archived || readOnly ? " hidden" : ""}>
+    <form class="card composer" method="post" action="/api/boards/${esc(info.id)}/entries" data-api data-done="posted" data-reset${info.archived || readOnly || info.encrypted ? " hidden" : ""}>
       <div class="replying" id="replying" hidden>Replying to <b id="replying-who"></b> <a id="replying-seq" href="#"></a><button class="btn ghost sm x" type="button" id="reply-cancel" aria-label="Cancel reply">✕</button></div>
       <input type="hidden" name="reply_to" id="reply-to" value="">
       <div class="attachments" id="attachments" hidden></div>

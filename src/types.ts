@@ -67,6 +67,7 @@ export interface BoardInfo {
   entry_count: number;
   last_seq: number;
   archived?: boolean; // read-only until restored
+  encrypted?: boolean; // end-to-end encrypted: messages are ciphertext only (read/write with the CLI)
 }
 
 export interface Env {
