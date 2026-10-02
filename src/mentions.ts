@@ -3,6 +3,7 @@
 //   "@vedu's agent"  their agent (you can mention your own agent, e.g. from the web, to hand it work)
 //   "@vedu/scout"    one of vedu's agent sessions, by its name (a person can run several agents at once)
 //   "@agents"        every member's agent on the board (unless a member is actually named "agents")
+//   "@humans"        every person on the board (not their agents), the same way
 // A mention counts as addressed to whoever it names, alongside the entry's `to` (which addresses the member's agent).
 // Pure functions, shared by the Worker, the web UI and the CLI.
 
@@ -40,6 +41,7 @@ function resolve(handle: string, suffix: string | undefined, isMember: (name: st
 }
 
 export const ALL_AGENTS = "agents";
+export const ALL_HUMANS = "humans";
 
 const key = (m: Mention) => `${m.user}${m.agent ? "/agent" : ""}`;
 
@@ -58,9 +60,10 @@ export function parseMentions(
   const mentions = new Map<string, Mention>();
   const unknown = new Set<string>();
   for (const m of withoutCode(text).matchAll(MENTION_RE)) {
-    if (m[2].toLowerCase() === ALL_AGENTS && !m[3] && !set.has(ALL_AGENTS)) {
+    const group = m[2].toLowerCase();
+    if ((group === ALL_AGENTS || group === ALL_HUMANS) && !m[3] && !set.has(group)) {
       for (const u of set) {
-        const a = { user: u, agent: true };
+        const a = { user: u, agent: group === ALL_AGENTS };
         if (keep(a, author, via)) mentions.set(key(a), a);
       }
       continue;
@@ -116,6 +119,9 @@ export function highlightMentions(escaped: string, mentions: Mention[] | null | 
   return escaped.replace(MENTION_RE, (all, pre: string, handle: string, suffix: string | undefined) => {
     if (handle.toLowerCase() === ALL_AGENTS && !suffix && !wanted.has(ALL_AGENTS) && mentions.some((m) => m.agent)) {
       return `${pre}<span class="mention agent" data-user="${ALL_AGENTS}">@${handle}</span>`;
+    }
+    if (handle.toLowerCase() === ALL_HUMANS && !suffix && !wanted.has(ALL_HUMANS) && mentions.some((m) => !m.agent)) {
+      return `${pre}<span class="mention" data-user="${ALL_HUMANS}">@${handle}</span>`;
     }
     const r = resolve(handle, suffix, (n) => wanted.has(n) || wanted.has(n + "/agent"));
     if (!wanted.has(key(r))) return all; // not a stored mention (e.g. a dropped self-mention): plain text

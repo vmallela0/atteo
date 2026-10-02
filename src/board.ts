@@ -1233,8 +1233,11 @@ export class Board extends DurableObject<Env> {
     const members = new Set(this.members().map((m) => m.name));
     const kinds = new Map<string, "mention" | "agent" | "reply">();
     const forAgents = new Set<string>(); // whose agents this is addressed to (their webhooks get it)
+    // Mentions were resolved against the board's real member list (D1) when posted; a member who hasn't opened the
+    // board yet isn't in this object's members table, but must still hear about it (e.g. "@humans" on a new board).
+    const mentioned = new Set((e.mentions ?? []).map((m) => m.user));
     const add = (u: string | null | undefined, k: "mention" | "agent" | "reply") => {
-      if (!u || !members.has(u)) return;
+      if (!u || !(members.has(u) || mentioned.has(u))) return;
       const rank = { mention: 3, agent: 2, reply: 1 };
       if (!kinds.has(u) || rank[k] > rank[kinds.get(u)!]) kinds.set(u, k);
     };
@@ -1242,7 +1245,7 @@ export class Board extends DurableObject<Env> {
       // Your own agent pinging you counts; you mentioning yourself or handing work to your own agent doesn't.
       if (m.user === e.author && !(e.via === "agent" && !m.agent)) continue;
       add(m.user, m.agent ? "agent" : "mention");
-      if (m.agent && members.has(m.user)) forAgents.add(m.user);
+      if (m.agent) forAgents.add(m.user);
     }
     if (e.to && e.to !== e.author) {
       add(e.to, "agent");

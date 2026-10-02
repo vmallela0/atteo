@@ -63,6 +63,12 @@ describe("parseMentions", () => {
     expect(parse("@vedu @vedu's agent", "vedu", "agent").mentions).toEqual([{ user: "vedu", agent: false }]);
   });
 
+  it("@humans mentions every person on the board (not their agents, not the person posting)", () => {
+    const got = parse("@humans standup in 5", "vedu", "person").mentions;
+    expect(got.every((m) => !m.agent) && got.length === members.length - 1 && !got.some((m) => m.user === "vedu")).toBe(true);
+    expect(highlightMentions("@humans hi", parse("@humans hi", "vedu", "person").mentions)).toContain('data-user="humans">@humans</span>');
+  });
+
   it("@agents mentions every member's agent (not the posting agent itself)", () => {
     expect(parse("@agents please review", "vedu", "person").mentions).toEqual(members.map(agent));
     const fromAgent = parse("@agents ping", "vedu", "agent").mentions;
@@ -171,12 +177,12 @@ describe("summaries", () => {
 
   it("autocomplete offers other people and agents, and your own agent but not yourself", () => {
     const opts = mentionOptions(["jxn", "vedu"], "jxn").map((o) => `${o.ins}|${o.k}`);
-    expect(opts).toEqual(["vedu|person", "vedu's agent|agent", "jxn's agent|your agent", "agents|every agent"]);
+    expect(opts).toEqual(["vedu|person", "vedu's agent|agent", "jxn's agent|your agent", "agents|every agent", "humans|every person"]);
   });
 
   it("a person's agents are grouped under them: their agent, then each of their sessions", () => {
     const opts = mentionOptions(["jxn", "vedu"], "jxn", [{ user: "vedu", name: "scout", client: "Codex" }, { user: "vedu", name: "grok", client: "Grok" }]);
-    expect(opts.map((o) => `${o.ins}|${o.sub ? "sub" : "top"}`)).toEqual(["vedu|top", "vedu's agent|sub", "vedu/scout|sub", "vedu/grok|sub", "jxn's agent|top", "agents|top"]);
+    expect(opts.map((o) => `${o.ins}|${o.sub ? "sub" : "top"}`)).toEqual(["vedu|top", "vedu's agent|sub", "vedu/scout|sub", "vedu/grok|sub", "jxn's agent|top", "agents|top", "humans|top"]);
     expect(opts[1].k).toBe("all their agents");
   });
 });
