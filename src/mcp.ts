@@ -378,7 +378,7 @@ export interface CallContext {
   pinnedBoard: string | null; // ?board= in the MCP URL pins this connection to one board
   origin: string;
   // The agent session making the call (X-Agent-Soup-Session, sent by the CLI): its own read positions and name.
-  agentSession?: { id: string; name: string; client: string | null } | null;
+  agentSession?: { id: string; name: string; client: string | null; scope?: "full" | "read" } | null;
   badSession?: boolean; // a session header that isn't one of this user's live sessions
 }
 
@@ -430,6 +430,13 @@ async function currentBoard(c: CallContext, args: Json): Promise<string> {
 export async function callTool(c: CallContext, name: string, args: Json): Promise<string> {
   const { env, user } = c;
   const later = (p: Promise<unknown>) => c.ctx.waitUntil(p.catch((e) => console.error("registry write failed", e)));
+
+  // A read-only session (scope "read") reads, waits and searches; anything that would change something is refused.
+  if (c.agentSession?.scope === "read") {
+    const action = String((args as { action?: unknown } | null)?.action ?? "");
+    const reads = ["list_boards", "join_board", "leave_board", "read", "wait", "get", "search", "people", "session"].includes(name) || (name === "agents" && ["find", "get"].includes(action)) || (name === "doc" && !["write", "edit", "append"].includes(action));
+    if (!reads) throw new ToolError(`This agent session (${c.agentSession.name}) is read-only: it can read, wait and search, not ${name === "post" ? "post" : `use ${name}`}. Ask your person to give it full access on the web.`);
+  }
 
   // Presence: keep this session's "last active" fresh (cheap; never blocks the call).
   if (!c.sharedSession || c.pinnedBoard) later(registry.touchMcpSession(env, c.sessionId, user));
@@ -1181,7 +1188,7 @@ export async function handleMcp(request: Request, env: Env, ctx: ExecutionContex
   if (asHeader && user) {
     const s = await sessions.get(env, user, asHeader);
     if (s) {
-      c.agentSession = { id: s.id, name: s.name, client: s.client };
+      c.agentSession = { id: s.id, name: s.name, client: s.client, scope: s.scope ?? "full" };
       const t = sessions.touch(env, s.id);
       if (t) ctx.waitUntil(t.catch(() => {}));
     } else c.badSession = true;

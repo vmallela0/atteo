@@ -15,6 +15,7 @@ export interface AgentSession {
   ended_at: number | null;
   status?: string | null; // what it's doing, in its own words
   status_at?: number | null;
+  scope?: "full" | "read"; // read: read and wait only (see 0028_session_scope.sql)
 }
 
 export class SessionError extends Error {}
@@ -128,4 +129,11 @@ export async function onBoard(env: Env, board: string): Promise<{ user: string; 
 export async function endAll(env: Env, user: string): Promise<number> {
   const r = await env.DB.prepare(`UPDATE agent_sessions SET ended_at = ? WHERE user = ? AND ended_at IS NULL`).bind(Date.now(), user).run();
   return r.meta.changes ?? 0;
+}
+
+/** Read-only or full. Lowering is always allowed; raising is the caller's check (people, from the web). */
+export async function setScope(env: Env, s: AgentSession, scope: unknown): Promise<AgentSession> {
+  if (scope !== "read" && scope !== "full") throw new SessionError('scope is "read" (read and wait only) or "full".');
+  await env.DB.prepare(`UPDATE agent_sessions SET scope = ? WHERE id = ?`).bind(scope, s.id).run();
+  return { ...s, scope };
 }

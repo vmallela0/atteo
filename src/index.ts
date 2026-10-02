@@ -441,6 +441,14 @@ const handler = {
           const h = request.headers.get("x-agent-soup-session");
           return h && viewer?.via === "agent" ? ((await sessions.get(env, viewer.name, h))?.id ?? null) : null;
         })());
+      // A read-only agent session (scope "read") can read and wait, mark things seen, and manage its own session,
+      // but nothing it sends may change a board or anyone's account.
+      if (viewer?.via === "agent" && method !== "GET" && method !== "HEAD" && request.headers.get("x-agent-soup-session")) {
+        const sid = await asid();
+        const s = sid ? await sessions.get(env, viewer.name, sid) : null;
+        if (s?.scope === "read" && !/^\/api\/(sessions(\/|$)|boards\/[^/]+\/seen$)/.test(path))
+          return json({ error: `This agent session (${s.name}) is read-only: it can read and wait, not post or change anything. Your person can give it full access on the web.` }, 403);
+      }
       if (viewer && viewer.via !== "agent") ctx.waitUntil(Promise.resolve(social.markSeen(env, viewer.name, "web")).catch(() => {}));
       if (viewer && viewer.via !== "agent" && !viewer.name.startsWith("e2e-")) ctx.waitUntil(Promise.resolve(usage.track(env, "active_person", viewer.name, true)).catch(() => {}));
       const c: Ctx = { request, env, ctx, url, session, viewer };
@@ -1142,14 +1150,16 @@ const handler = {
         if (!sm) return json({ error: "not found" }, 404);
         const [, sid, sub, subId] = sm;
         const titled = async (ids: string[]) => Promise.all(ids.map(async (id) => ({ id, title: (await registry.getBoard(env, id))?.title ?? id })));
-        const view = async (x: sessions.AgentSession & { active?: boolean }) => ({ id: x.id, name: x.name, client: x.client, status: x.status ?? null, status_at: x.status_at ?? null, boards: await titled(x.boards), created_at: x.created_at, last_seen: x.last_seen, ...(x.active != null ? { active: x.active } : {}) });
+        const view = async (x: sessions.AgentSession & { active?: boolean }) => ({ id: x.id, name: x.name, client: x.client, scope: x.scope ?? "full", status: x.status ?? null, status_at: x.status_at ?? null, boards: await titled(x.boards), created_at: x.created_at, last_seen: x.last_seen, ...(x.active != null ? { active: x.active } : {}) });
         try {
           if (!sid) {
             if (method === "GET") return json({ sessions: await Promise.all((await sessions.list(env, viewer.name)).map(view)) });
             if (method === "DELETE") return json({ ok: true, ended: await sessions.endAll(env, viewer.name) });
             if (method === "POST") {
-              const b = (await request.json().catch(() => ({}))) as { name?: string; suggest?: string; client?: string };
-              return json({ session: await view(await sessions.create(env, viewer.name, { name: b.name ?? null, suggest: b.suggest ?? null, client: b.client ?? null })) }, 201);
+              const b = (await request.json().catch(() => ({}))) as { name?: string; suggest?: string; client?: string; scope?: string };
+              let made = await sessions.create(env, viewer.name, { name: b.name ?? null, suggest: b.suggest ?? null, client: b.client ?? null });
+              if (b.scope === "read") made = await sessions.setScope(env, made, "read");
+              return json({ session: await view(made) }, 201);
             }
             return json({ error: "method not allowed" }, 405);
           }
@@ -1165,9 +1175,14 @@ const handler = {
           if (!sub) {
             if (method === "GET") return json({ session: await view(await live()) });
             if (method === "POST") {
-              // {name} renames it; {status} says what it's doing (empty clears it).
-              const b = (await request.json().catch(() => ({}))) as { name?: string; status?: string | null };
+              // {name} renames it; {status} says what it's doing (empty clears it); {scope} "read" | "full".
+              const b = (await request.json().catch(() => ({}))) as { name?: string; status?: string | null; scope?: string };
               let next = s;
+              if (b.scope !== undefined) {
+                // An agent can make itself read-only; only its person, from the web, gives full access back.
+                if (b.scope === "full" && (s.scope ?? "full") === "read" && viewer.via === "agent") return json({ error: "Only your person can give this session full access again, from the web (Account → Agents)." }, 403);
+                next = await sessions.setScope(env, next, b.scope);
+              }
               if (b.name != null) next = await sessions.rename(env, next, String(b.name));
               if (b.status !== undefined) {
                 const hit = scanFields({ status: typeof b.status === "string" ? b.status : null });

@@ -1791,6 +1791,30 @@ await step("agent sessions: several per person, each with its own boards and rea
   assert(gone.isError && /session has ended/.test(gone.content[0].text), gone.content[0].text);
 });
 
+await step("read-only agent sessions: read and wait work; posting, through the API or a tool, is refused; only the person raises it back", async () => {
+  const H = (sid) => ({ ...auth(B), "content-type": "application/json", "x-agent-soup-session": sid });
+  const ro = (await (await fetch(`${BASE}/api/sessions`, { method: "POST", headers: { ...auth(B), "content-type": "application/json" }, body: JSON.stringify({ client: "Codex", scope: "read" }) })).json()).session;
+  assert(ro.scope === "read", JSON.stringify(ro));
+  // API: posting is refused; marking seen and its own session are fine.
+  let r = await fetch(`${BASE}/api/boards/${board}/entries`, { method: "POST", headers: H(ro.id), body: JSON.stringify({ type: "note", text: `ro post ${run}` }) });
+  assert(r.status === 403 && /read-only/.test((await r.json()).error), `ro post: ${r.status}`);
+  assert((await fetch(`${BASE}/api/sessions/${ro.id}`, { method: "POST", headers: H(ro.id), body: JSON.stringify({ status: "watching only" }) })).status === 200, "status ok");
+  // Tools: read works, post is refused.
+  const call = async (name, args) => {
+    const res = await fetch(`${BASE}/mcp?board=${board}`, { method: "POST", headers: H(ro.id), body: JSON.stringify({ jsonrpc: "2.0", id: ++rpcId, method: "tools/call", params: { name, arguments: args } }) });
+    const j = (await res.json()).result;
+    return { text: j.content.map((c) => c.text).join("\n"), isError: !!j.isError };
+  };
+  assert(!(await call("read", {})).isError, "read works");
+  const p = await call("post", { type: "note", text: `ro tool post ${run}` });
+  assert(p.isError && /read-only/.test(p.text), p.text);
+  // The session can't raise itself; the person (web) can.
+  assert((await fetch(`${BASE}/api/sessions/${ro.id}`, { method: "POST", headers: H(ro.id), body: JSON.stringify({ scope: "full" }) })).status === 403, "can't raise itself");
+  r = await web(`/api/sessions/${ro.id}`, B, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ scope: "full" }) });
+  assert(r.status === 200 && (await r.json()).session.scope === "full", "the person raises it");
+  assert(!(await call("post", { type: "note", text: `full again ${run}` })).isError, "posts again");
+});
+
 await step("handling: when several of a person's agents are asked, one takes it and the rest see who; replying takes it too; @user/session reaches one", async () => {
   const api = async (who, method, path, body) => {
     const r = await fetch(`${BASE}${path}`, { method, headers: { ...auth(who), "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
