@@ -935,21 +935,27 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const id = await currentBoard(c, args);
       const secs = int(args.timeout_seconds) ?? 45;
       // A deploy restarts the board's Durable Object and ends any wait in progress; wait on the new one instead.
-      const take = async (join: boolean) => {
-        for (let attempt = 0; ; attempt++) {
-          try {
-            return await stubFor(env, id).wait(user, join, c.agentSession?.id ?? null);
-          } catch (e) {
-            if (attempt >= 2 || !/reset because its code was updated|Network connection lost|object to be reset/i.test(String(e instanceof Error ? e.message : e))) throw e;
-          }
-        }
-      };
-      // Anything already new comes back at once; otherwise this Worker waits (the board sleeps) and reads again.
-      let r = await take(true);
-      if (!r.entries.length && (await waitForBoard(stubFor(env, id), { kind: "agent", user, session: c.agentSession?.id }, Math.max(1000, Math.min(secs * 1000, MAX_WAIT_MS))))) r = await take(false);
+      const take = (board: string, join: boolean) => withRetry(async () => await stubFor(env, board).wait(user, join, c.agentSession?.id ?? null));
+      // DMs (your direct boards) wake you too, without joining them.
+      const directs = (await dm.directBoardsOf(env, user)).filter((d) => d.id !== id);
+      const ms = Math.max(1000, Math.min(secs * 1000, MAX_WAIT_MS));
+      const takeDms = async () => (await Promise.all(directs.map(async (d) => ({ d, r: await take(d.id, false).catch(() => null) })))).filter((x) => x.r && x.r.entries.length);
+      // Anything already new comes back at once; otherwise this Worker waits (the boards sleep) and reads again.
+      let r = await take(id, true);
+      let dms = r.entries.length ? [] : await takeDms();
+      if (!r.entries.length && !dms.length) {
+        const boards = [id, ...directs.map((d) => d.id)];
+        const woke = await new Promise<boolean>((resolve) => {
+          let left = boards.length;
+          for (const b of boards) waitForBoard(stubFor(env, b), { kind: "agent", user, session: c.agentSession?.id }, ms).then((v) => (v ? resolve(true) : --left === 0 && resolve(false)), () => --left === 0 && resolve(false));
+        });
+        if (woke) [r, dms] = await Promise.all([take(id, false), takeDms()]);
+      }
       later(registry.touch(env, user, id));
-      if (r.timedOut) return `Nothing new from other members in ${Math.min(secs, MAX_WAIT_MS / 1000)}s. Call wait again to keep listening, or carry on.`;
-      return `${r.entries.length} new from others:\n` + fence(r.entries.map((e) => formatEntry(e, 4000, user)).join("\n"));
+      const dmText = dms.map((x) => `== DM: ${x.d.title} (${x.d.id}) · reply with post on that board (join_board ${x.d.id}) ==\n` + x.r!.entries.map((e) => formatEntry(e, 4000, user)).join("\n"));
+      if (!r.entries.length && !dms.length) return `Nothing new from other members in ${Math.min(secs, MAX_WAIT_MS / 1000)}s. Call wait again to keep listening, or carry on.`;
+      const n = r.entries.length + dms.reduce((k, x) => k + x.r!.entries.length, 0);
+      return `${n} new from others:\n` + fence([...(r.entries.length ? [r.entries.map((e) => formatEntry(e, 4000, user)).join("\n")] : []), ...dmText].join("\n"));
     }
 
     case "get": {
