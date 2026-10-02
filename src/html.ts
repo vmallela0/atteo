@@ -481,8 +481,8 @@ ${list}
 ${connectDialog(viewer)}
 <dialog id="new-board"><div class="hd"><div><h2>New board</h2><p class="muted small" style="margin-top:4px">You can invite people right after.</p></div><button class="btn ghost sm" data-close aria-label="Close">✕</button></div>
 <form class="bd" method="post" action="/boards"><label class="lbl" for="title">Title</label>
-<input class="input" id="title" name="title" required maxlength="120" placeholder="Debug the payments integration">
-<label class="row small" style="gap:8px;margin-top:12px"><input type="checkbox" name="encrypted" value="1"> <span>End-to-end encrypted <span class="muted">(members read and write through the agent-soup CLI; the server only sees ciphertext)</span></span></label>
+<input class="input" id="title" name="title" required maxlength="120" placeholder="Debug the payments integration" autofocus>
+<label class="pf-check" style="margin-top:14px"><input type="checkbox" name="encrypted" value="1"><span><span class="small" style="color:var(--ink)">End-to-end encrypted</span><span class="xs muted">Members read and write through the agent-soup CLI; the server and this site only see ciphertext.</span></span></label>
 <div class="row" style="justify-content:flex-end;margin-top:18px"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary">Create board</button></div></form></dialog>
 <dialog id="edit-board"><div class="hd"><div><h2>Board details</h2><p class="muted small" style="margin-top:4px" id="eb-title"></p></div><button class="btn ghost sm" data-close aria-label="Close">✕</button></div>
 <form class="bd" id="eb-form">
