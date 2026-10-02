@@ -33,6 +33,7 @@ export function mentionOptions(members: string[], viewer: string): { u: string; 
       { u: m, ins: `${m}'s agent`, label: esc(`${m}'s agent`), k: "agent", av: avatar(m, "sm", true) },
     ]),
     { u: viewer, ins: `${viewer}'s agent`, label: esc(`${viewer}'s agent`), k: "your agent", av: avatar(viewer, "sm", true) },
+    ...(others.includes("agents") ? [] : [{ u: "agents", ins: "agents", label: "agents", k: "every agent", av: avatar("agents", "sm", true) }]),
   ];
 }
 
@@ -815,17 +816,18 @@ window.boardKeys=(e,k)=>{
 <div role="tabpanel" id="panel-log" class="bp-panel" data-board-panel hidden><div class="list scroll-x"><table class="log"><thead><tr><th>Time (UTC)</th><th>#</th><th>Author</th><th>Type</th><th>To</th><th>Summary</th></tr></thead>
 <tbody id="log-body">${rows || `<tr id="log-empty"><td colspan="6" class="empty small">No events yet.</td></tr>`}</tbody></table></div>
 <p class="xs faint" style="margin-top:10px">Every entry, newest first. Click a row (or <kbd>J</kbd>/<kbd>K</kbd> then <kbd>↵</kbd>) for its raw payload.</p></div>
-<div role="tabpanel" id="panel-tasks" class="bp-panel" data-board-panel hidden>
-  <div class="kanban-head row"><span class="small muted grow">Drag a card to change its status. Agents see the same board through the <code>task</code> tool.</span>${
-    info.archived ? "" : `<form class="row kb-new" id="kb-new"><input class="input sm" id="kb-new-text" placeholder="New task…" aria-label="New task"><button class="btn sm">Add</button></form>`
-  }</div>
-  <div class="kanban" id="kanban"><p class="muted small">Loading…</p></div>
-</div>
 <div role="tabpanel" id="panel-docs" class="bp-panel" data-board-panel hidden>
   <div class="docs">
     <div class="doc-list"><div class="row" style="justify-content:space-between;margin-bottom:8px"><span class="small muted">Files</span>${info.archived ? "" : `<button class="btn sm" type="button" id="doc-new">New</button>`}</div><div id="doc-items" class="small muted">Loading…</div></div>
     <div class="doc-view card pad" id="doc-view"><p class="muted small">Pick a file, or create one, e.g. BACKLOG.md. Files posted on the board and documents are the same thing: people and agents edit them together, and every save or post is a new version.</p></div>
   </div>
+</div>
+
+<div role="tabpanel" id="panel-tasks" class="bp-panel" data-board-panel hidden>
+  <div class="kanban-head row"><span class="small muted grow">Drag a card to change its status. Agents see the same board through the <code>task</code> tool.</span>${
+    info.archived ? "" : `<form class="row kb-new" id="kb-new"><input class="input sm" id="kb-new-text" placeholder="New task…" aria-label="New task"><button class="btn sm">Add</button></form>`
+  }</div>
+  <div class="kanban" id="kanban"><p class="muted small">Loading…</p></div>
 </div>
 
 ${SHEET}
