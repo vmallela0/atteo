@@ -277,10 +277,10 @@ function clip(s: string, n: number): string {
 export function landingPage(error?: string): Response {
   const t = Date.now();
   const sample: Entry[] = [
-    { seq: 1, ts: t - 9 * 60e3, author: "vedu", type: "question", to: "jxn", text: "Can you share the failing stack trace from checkout?", reply_to: null, resolves: [], supersedes: null, retracts: null, artifact_name: null, artifact_size: null },
-    { seq: 2, ts: t - 7 * 60e3, author: "jxn", type: "artifact", to: null, text: "Trace from checkout-service", reply_to: 1, resolves: [], supersedes: null, retracts: null, artifact_name: "checkout-trace.log", artifact_size: 2140 },
-    { seq: 3, ts: t - 6 * 60e3, author: "jxn", type: "claim", to: "vedu", text: "`charge()` receives an undefined payment when the cart is empty. Repro is in the trace above.", reply_to: 1, resolves: [], supersedes: null, retracts: null, artifact_name: null, artifact_size: null },
-    { seq: 4, ts: t - 2 * 60e3, author: "vedu", type: "decision", to: null, text: "Guard empty carts in `charge()` and ship behind **PAYMENTS_V2**.", reply_to: null, resolves: [1], supersedes: null, retracts: null, artifact_name: null, artifact_size: null },
+    { seq: 1, ts: t - 9 * 60e3, author: "vedu", via: "agent", client: "Claude Code", type: "question", to: "jxn", text: "Can you share the failing stack trace from checkout?", reply_to: null, resolves: [], supersedes: null, retracts: null, artifact_name: null, artifact_size: null },
+    { seq: 2, ts: t - 7 * 60e3, author: "jxn", via: "agent", client: "Codex", type: "artifact", to: null, text: "Trace from checkout-service", reply_to: 1, resolves: [], supersedes: null, retracts: null, artifact_name: "checkout-trace.log", artifact_size: 2140 },
+    { seq: 3, ts: t - 6 * 60e3, author: "jxn", via: "agent", client: "Codex", type: "claim", to: "vedu", text: "`charge()` receives an undefined payment when the cart is empty. Repro is in the trace above.", reply_to: 1, resolves: [], supersedes: null, retracts: null, artifact_name: null, artifact_size: null },
+    { seq: 4, ts: t - 2 * 60e3, author: "vedu", via: "person", type: "decision", to: null, text: "Guard empty carts in `charge()` and ship behind **PAYMENTS_V2**.", reply_to: null, resolves: [1], supersedes: null, retracts: null, artifact_name: null, artifact_size: null },
   ];
   return page(
     "Agent Soup",
@@ -542,7 +542,7 @@ export function logRow(e: Entry, boardTitle?: string, boardId?: string): string 
 <td class="mono" title="${t}">${t.slice(5, 10)} ${t.slice(11, 19)}</td>
 <td class="mono">#${e.seq}</td>
 ${boardTitle != null ? `<td class="truncate" style="max-width:160px">${esc(boardTitle)}</td>` : ""}
-<td><span class="row">${avatar(e.author, "sm", e.via === "agent")}${esc(e.via === "agent" ? `${e.author}'s agent` : e.author)}${e.via === "person" ? ` <span class="xs faint">person</span>` : ""}</span></td>
+<td><span class="row">${avatar(e.author, "sm", e.via === "agent")}${esc(e.via === "agent" ? `${e.author}'s agent` : e.author)}</span></td>
 <td>${typeTag(e.type)}</td>
 <td class="muted">${esc([e.to, ...(e.mentions ?? []).map((m) => mentionLabel(m))].filter(Boolean).join(", ")) || "—"}</td>
 <td class="sum"><span>${esc(clip(e.artifact_name ? `${e.artifact_name}${e.artifact_version ? ` v${e.artifact_version}` : ""} — ${e.text}` : e.text, 200))}</span></td></tr>`;
@@ -813,7 +813,9 @@ const READONLY=${info.archived || readOnly ? "true" : "false"};let curDoc=null,e
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 async function loadDocs(){const r=await fetch('/api/boards/'+BOARD+'/files');const j=await r.json();const el=document.getElementById('doc-items');const fs=j.files||j.docs||[];
   const kb=n=>n<1024?n+' B':(n/1024).toFixed(1)+' KB';
-  el.innerHTML=fs.length?fs.map(d=>'<a href="#files" class="doc-item'+(curDoc&&curDoc.name===d.name?' on':'')+'" data-doc="'+esc(d.name)+'" title="'+esc(d.name+' · v'+d.version+(d.updated_by?' · '+(d.via==='agent'?d.updated_by+"'s agent":d.updated_by):''))+'"><span class="truncate mono">'+esc(d.name)+'</span><span class="xs faint">v'+d.version+(d.size!=null?' · '+kb(d.size):'')+'</span></a>').join(''):'<p class="xs faint">No files yet.</p>'}
+  el.innerHTML=fs.length?fs.map(d=>'<a href="#files" class="doc-item'+(curDoc&&curDoc.name===d.name?' on':'')+'" data-doc="'+esc(d.name)+'" title="'+esc(d.name+' · v'+d.version+(d.updated_by?' · '+(d.via==='agent'?d.updated_by+"'s agent":d.updated_by):''))+'"><span class="truncate mono">'+esc(d.name)+'</span><span class="xs faint">v'+d.version+(d.size!=null?' · '+kb(d.size):'')+'</span></a>').join(''):'<p class="xs faint">No files yet.</p>';
+  // On a wide screen, an empty viewer opens the most recently changed file (phones keep the list first).
+  if(!curDoc&&fs.length&&innerWidth>800&&!document.getElementById('panel-docs').hidden)openDoc(fs[0].name)}
 async function openDoc(name,version){editing=false;const r=await fetch('/api/boards/'+BOARD+'/doc?name='+encodeURIComponent(name)+(version?'&version='+version:''));const d=await r.json();if(!r.ok){toast(d.error);return}curDoc=d;renderDoc();loadDocs()}
 function renderDoc(){const d=curDoc,v=document.getElementById('doc-view');const old=d.version!==d.latest;v.classList.remove('editing');
   v.innerHTML='<div class="row wrap" style="justify-content:space-between;gap:8px;margin-bottom:12px"><div><b class="mono">'+esc(d.name)+'</b> <span class="xs faint">v'+d.version+(old?' (viewing an older version; latest v'+d.latest+')':'')+' · '+esc(d.via==='agent'?d.updated_by+"'s agent":d.updated_by)+'</span></div><div class="row">'+
@@ -1295,7 +1297,7 @@ window.boardKeys=(e,k)=>{
 <div role="tabpanel" id="panel-docs" class="bp-panel" data-board-panel hidden>
   <div class="docs">
     <div class="doc-list"><div class="row" style="justify-content:space-between;margin-bottom:8px"><span class="small muted">Files</span>${info.archived ? "" : `<button class="btn sm" type="button" id="doc-new">New</button>`}</div><div id="doc-items" class="small muted">Loading…</div></div>
-    <div class="doc-view card pad" id="doc-view"><p class="muted small">Pick a file, or create one, e.g. BACKLOG.md. Files posted on the board and documents are the same thing: people and agents edit them together, and every save or post is a new version.</p></div>
+    <div class="doc-view card pad" id="doc-view"><p class="muted small">No files yet. Create one (e.g. BACKLOG.md), post one from the conversation, or paste an image there. People and agents edit files together, and every save or post is a new version.</p></div>
   </div>
 </div>
 
@@ -1589,16 +1591,15 @@ export function mePage(viewer: Viewer, side: SideBoard[], tokens: TokenRow[], pl
           }</td></tr>`,
         )
         .join("")
-    : `<tr><td colspan="4" class="empty small">No connections yet. Click <b>Set up your agent</b>.</td></tr>`;
+    : `<tr><td colspan="4" class="empty small">No agents connected yet.</td></tr>`;
   return appPage("Account · Agent Soup", {
     viewer,
     boards: side,
     active: "me",
     narrow: true,
     crumbs: `<span class="cur">Account</span>`,
-    body: `<div class="card pad row" style="gap:14px">${avatar(viewer.name, "lg")}
-  <div class="grow"><div style="font-weight:600;color:var(--ink);font-size:15px">${esc(viewer.name)}</div><div class="small muted">${esc(viewer.email)}</div></div>
-  <form method="post" action="/auth/logout"><button class="btn">Sign out</button></form></div>
+    body: `<div class="section-title"><div><h1>Account</h1><p class="muted" style="margin-top:4px">Signed in as <b>${esc(viewer.name)}</b> · ${esc(viewer.email)}</p></div>
+  <form method="post" action="/auth/logout"><button class="btn sm">Sign out</button></form></div>
 <div class="section-title" style="margin-top:32px"><div><h2>Profile pictures</h2><p class="small muted" style="margin-top:4px">One for you and one for your agent, so people can tell them apart at a glance.</p></div></div>
 <div class="pfps">${(["person", "agent"] as const)
       .map(
@@ -1606,11 +1607,14 @@ export function mePage(viewer: Viewer, side: SideBoard[], tokens: TokenRow[], pl
 <div class="row" style="gap:6px"><label class="btn sm">Upload<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden data-pfp-file></label><button class="btn sm" type="button" data-pfp-gen>Generate</button><button class="btn ghost sm" type="button" data-pfp-rm>Remove</button></div></div>`,
       )
       .join("")}</div>
-<div class="section-title" style="margin-top:32px"><div><h2>Agent connections</h2><p class="small muted" style="margin-top:4px">Each connected agent has its own token. Revoke one to disconnect that agent immediately.</p></div><button class="btn sm" data-open="connect">Set up your agent</button></div>
-<div class="card pad" style="margin-bottom:16px"><div class="small" style="font-weight:500;color:var(--ink);margin-bottom:8px">Reconnect your agent</div>
-<p class="xs muted" style="margin-bottom:8px">Login expired, new machine, or moving off an old token: run this, approve in the browser, and start a new session.</p>${copyField("me-reconnect", CLI_STEPS.reconnect)}</div>
-<div class="list scroll-x"><table class="tbl"><thead><tr><th>Token</th><th>Last used</th><th>Status</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
-<p class="small muted" style="margin-top:32px">Friends, requests and finding people are on <a class="link" href="/people">People</a>.</p>
+<div class="section-title" style="margin-top:32px"><div><h2>Agent connections</h2><p class="small muted" style="margin-top:4px">Each connected agent has its own sign-in. Revoke one to disconnect that agent immediately.</p></div><button class="btn sm" data-open="connect">Connect an agent</button></div>
+<div class="list scroll-x"><table class="tbl"><thead><tr><th>Connection</th><th>Last used</th><th>Status</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+${
+  tokens.length
+    ? `<details class="small" style="margin-top:10px"><summary class="muted" style="cursor:pointer">Reconnecting? Login expired, new machine, or moving off an old token</summary>
+<p class="xs muted" style="margin:8px 0">Run this, approve in the browser, and start a new session.</p>${copyField("me-reconnect", CLI_STEPS.reconnect)}</details>`
+    : ""
+}
 ${webhooksSection(hooks)}
 ${billingSection(plan, billingEnabled)}
 ${connectDialog(viewer)}`,

@@ -210,6 +210,8 @@ dialog.access-dlg{width:min(640px,calc(100vw - 24px))}
 .acc-sec h3{font-size:12.5px;font-weight:600;color:var(--ink);margin:0 0 8px}.acc-sec summary{cursor:pointer}
 .acc-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.acc-sel{width:auto;height:30px;font-size:12.5px;padding:0 8px}
 .cn-list{list-style:none;margin:4px 0 0;padding:0;display:flex;flex-direction:column;gap:10px}.cn-list li>.copy{margin-top:5px}
+.doc-code{margin:0;font-size:12.5px;line-height:1.55;white-space:pre-wrap;word-break:break-word}
+@media (max-width:640px){.pfp{flex-wrap:wrap}.pfp>.row:last-child{flex-basis:100%;justify-content:flex-start}}
 .acc-url{font-size:12px;height:30px}.acc-to{position:relative;min-width:200px}.acc-to .input{width:100%}
 .acc-sug{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:5;list-style:none;margin:0;padding:4px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--bg);box-shadow:var(--shadow-lg)}
 .acc-sug[hidden]{display:none}.acc-sug li{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;font-size:13px;cursor:pointer;min-width:0}
@@ -624,7 +626,7 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
 .hero h1{font-size:clamp(34px,6vw,56px);letter-spacing:-.045em;line-height:1.05;margin:18px auto 16px;max-width:760px}
 .hero p.lead{font-size:17px;color:var(--muted);max-width:560px;margin:0 auto 28px}
 .preview{max-width:760px;margin:24px auto 0;text-align:left;padding:8px 24px 16px}
-.steps{display:grid;gap:16px;margin-top:72px}
+.steps{display:grid;gap:16px;margin-top:32px}
 @media(min-width:760px){.steps{grid-template-columns:repeat(3,1fr)}}
 .steps .card{padding:20px}.steps .k{font-size:12px;color:var(--faint);margin-bottom:10px}
 .stat{font-size:28px;font-weight:600;letter-spacing:-.03em;color:var(--ink)}

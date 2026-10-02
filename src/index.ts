@@ -41,7 +41,7 @@ import {
 } from "./html";
 import type { Entry, Env } from "./types";
 import { FAVICON_SVG, renderText } from "./ui";
-import { BOARD_RE, connectCommand, newBoardId, normalizeUser, parseBoardMeta } from "./util";
+import { BOARD_RE, connectCommand, esc, newBoardId, normalizeUser, parseBoardMeta } from "./util";
 
 export { Board } from "./board";
 import { MAX_IMAGE } from "./board";
@@ -858,7 +858,9 @@ export default {
           if (what === "doc" && method === "GET") {
             const v = url.searchParams.get("version");
             const d = await stub.docRead(name, v ? parseInt(v, 10) : undefined);
-            return json({ ...d, html: renderText(d.content) });
+            // Prose (Markdown, plain text) is rendered; anything else (logs, code, JSON…) shows as it is, in monospace.
+            const prose = !/\.[a-z0-9]+$/i.test(d.name) || /\.(md|markdown|txt)$/i.test(d.name);
+            return json({ ...d, html: prose ? renderText(d.content) : `<pre class="doc-code mono">${esc(d.content)}</pre>` });
           }
           if (what === "doc" && method === "POST") {
             if (!viewer || !(await registry.isMember(env, id, viewer.name))) return json({ error: "Only members can edit." }, 403);
