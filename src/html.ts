@@ -576,9 +576,14 @@ document.addEventListener('click',async e=>{const b=e.target.closest('[data-memb
   const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||'Could not remove');b.disabled=false;return}
   if(j.left){location.href='/'}else{toast(j.message);location.reload()}});
 const infoBtn=document.getElementById('info-btn'),convLayout=document.getElementById('conv-layout');
-function infoOpen(o){convLayout.classList.toggle('info-open',o);infoBtn.setAttribute('aria-expanded',String(o))}
+const narrow=matchMedia('(max-width:959px)');let infoHidden=false;try{infoHidden=localStorage.getItem('soup.infoHidden')==='1'}catch(e){}
+function infoSync(){const wide=!narrow.matches;convLayout.classList.toggle('info-collapsed',wide&&infoHidden);
+  infoBtn.setAttribute('aria-expanded',String(wide?!infoHidden:convLayout.classList.contains('info-open')));infoBtn.title=wide?(infoHidden?'Show board info':'Hide board info'):''}
+function infoOpen(o){convLayout.classList.toggle('info-open',o);infoSync()}
+narrow.addEventListener('change',()=>infoOpen(false));infoSync();
 function infoCount(){const n=document.querySelectorAll('#sum .waiting li').length,c=document.getElementById('info-count');c.textContent=n||'';c.hidden=!n}
-infoBtn.addEventListener('click',()=>infoOpen(!convLayout.classList.contains('info-open')));
+infoBtn.addEventListener('click',()=>{if(narrow.matches){infoOpen(!convLayout.classList.contains('info-open'));return}
+  infoHidden=!infoHidden;try{localStorage.setItem('soup.infoHidden',infoHidden?'1':'0')}catch(e){}infoSync()});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&convLayout.classList.contains('info-open')&&!document.querySelector('dialog[open]'))infoOpen(false)});
 document.getElementById('board-info').addEventListener('click',e=>{if(e.target.closest('a[href^="#e"]'))infoOpen(false)});
 infoCount();
@@ -601,25 +606,25 @@ window.boardKeys=(e,k)=>{
 `;
   const isCreator = viewer.name === info.created_by;
   const archivedBanner = info.archived
-    ? `<div class="flash" style="margin-bottom:16px;display:flex;align-items:center;gap:12px"><span class="grow"><b>Archived.</b> This board is read-only.</span>${
+    ? `<div class="flash bp-banner"><span class="grow"><b>Archived.</b> This board is read-only.</span>${
         isCreator ? `<form method="post" action="/api/boards/${esc(info.id)}/archive" data-api data-done="archiveDone"><input type="hidden" name="archived" value="false"><button class="btn sm">Restore</button></form>` : ""
       }</div>`
     : "";
-  const body = `<div class="bp-head">${archivedBanner}
+  // One compact header row (title, live, members, tabs) so the conversation gets the height.
+  const body = `${archivedBanner}<div class="bp-head"><div class="bp-title">
   ${
     isCreator && !info.archived
       ? `<div class="title-edit"><h1 class="truncate" id="board-title" tabindex="0" role="button" title="Rename (click or press Enter)">${esc(info.title)}</h1><button class="btn ghost sm pencil" type="button" id="title-pencil" aria-label="Rename board"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M11.5 2.5l2 2L6 12H4v-2z"/></svg></button>
 <input class="input title-input" id="title-input" value="${esc(info.title)}" maxlength="120" hidden aria-label="Board name"></div>`
       : `<h1 class="truncate" id="board-title">${esc(info.title)}</h1>`
   }
-  <div class="row wrap small muted bp-meta">
+  <div class="row small muted bp-meta" title="${esc(info.id)}">
     <span class="badge live"><span class="dot"></span>Live</span>
-    <span class="row" style="min-width:0">${avatarStack(members.map((m) => m.user))}<span class="truncate">${members.map((m) => esc(m.user)).join(", ")}</span></span>
-    <span><span data-count>${info.entry_count}</span> entries</span>
-    <span class="mono xs faint bp-id">${esc(info.id)}</span>
-  </div>
+    <span class="row" style="min-width:0">${avatarStack(members.map((m) => m.user))}<span class="truncate bp-names">${members.map((m) => esc(m.user)).join(", ")}</span></span>
+    <span class="bp-count"><span data-count>${info.entry_count}</span> entries</span>
+  </div></div>
   <div class="bp-tabs"><div class="tabs" role="tablist" id="board-tabs"><button role="tab" aria-selected="true">Conversation</button><button role="tab" aria-selected="false">Log <span class="faint" data-count>${info.entry_count}</span></button><button role="tab" aria-selected="false">Files</button></div>
-    <button class="btn ghost sm info-btn" type="button" id="info-btn" aria-expanded="false" aria-controls="board-info">Board info <span class="count" id="info-count" hidden></span></button></div>
+    <button class="btn ghost sm info-btn" type="button" id="info-btn" aria-expanded="false" aria-controls="board-info"><span class="lbl-wide">Board info</span><span class="lbl-narrow">Info</span> <span class="count" id="info-count" hidden></span></button></div>
 </div>
 <div role="tabpanel" id="panel-conv" class="bp-panel" data-board-panel><div class="layout" id="conv-layout">
   <section class="conv">

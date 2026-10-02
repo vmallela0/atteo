@@ -293,23 +293,29 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
 .doc-item:hover,.doc-item.on{background:var(--bg-hover)}
 .doc-body{font-size:14px}.doc-body p+p{margin-top:10px}
 /* board page: the header and tabs stay put; the thread, sidebar, log and docs each scroll on their own */
-.content.full{max-width:1280px;height:calc(100vh - 48px);height:calc(100dvh - 48px);padding:20px 24px 0;display:flex;flex-direction:column;overflow:hidden}
-.bp-head{flex:none}
-.bp-head h1{font-size:24px}
-.bp-meta{margin-top:6px;gap:14px}
-.bp-tabs{display:flex;align-items:flex-end;gap:8px;margin-top:14px;border-bottom:1px solid var(--line)}
+.content.full{max-width:none;height:calc(100vh - 48px);height:calc(100dvh - 48px);padding:6px 20px 0;display:flex;flex-direction:column;overflow:hidden}
+.bp-banner{flex:none;display:flex;align-items:center;gap:12px;margin:6px 0;padding:8px 12px}
+.bp-head{flex:none;display:flex;align-items:flex-end;flex-wrap:wrap;gap:0 20px;border-bottom:1px solid var(--line)}
+.bp-title{flex:1 1 320px;min-width:0;display:flex;align-items:center;gap:14px;padding:6px 0 7px}
+.bp-head h1{font-size:17px;line-height:26px;margin:0;min-width:0}
+.bp-head .title-edit{min-width:0;flex:0 1 auto}
+.bp-meta{gap:10px;flex-wrap:nowrap;min-width:0;white-space:nowrap}
+.bp-tabs{display:flex;align-items:flex-end;gap:8px;flex:none}
 .bp-tabs .tabs{border-bottom:0;margin-bottom:0}
-.info-btn{display:none;margin:0 0 5px auto}
+.bp-tabs .tabs button{padding:7px 10px}
+.info-btn{display:inline-flex;margin:0 0 4px}
+.info-btn .lbl-narrow{display:none}
 .info-btn .count{min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:var(--q);color:var(--on-ink);font-size:11px;display:inline-grid;place-items:center}
 .bp-panel{flex:1;min-height:0;display:flex;flex-direction:column}
-.bp-panel>.layout{flex:1;min-height:0;grid-template-rows:minmax(0,1fr);position:relative}
+.bp-panel>.layout{flex:1;min-height:0;grid-template-rows:minmax(0,1fr);position:relative;gap:20px}
+@media(min-width:960px){.bp-panel>.layout{grid-template-columns:minmax(0,1fr) 280px}.bp-panel>.layout.info-collapsed{grid-template-columns:minmax(0,1fr)}.layout.info-collapsed>.aside{display:none}}
 .bp-panel .aside{position:static;align-self:stretch;max-height:none;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;padding:16px 4px 16px 8px;margin-left:-8px}
 .conv{display:flex;flex-direction:column;min-height:0;min-width:0}
 .thread-wrap{flex:1;min-height:0;position:relative;display:flex}
 .thread-scroll{flex:1;min-width:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;padding:8px 6px 8px 0}
 .new-pill{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);z-index:4;box-shadow:var(--shadow-lg);border-radius:999px}
-.new-pill[hidden],.info-btn .count[hidden]{display:none}
-.conv .composer{flex:none;margin:6px 0 max(14px,env(safe-area-inset-bottom))}
+.new-pill[hidden],.info-btn .count[hidden],.info-btn[hidden]{display:none}
+.conv .composer{flex:none;margin:6px 0 max(12px,env(safe-area-inset-bottom))}
 .conv .composer textarea{min-height:48px;max-height:30vh;resize:none}
 /* composer mention chips: the mirror draws the text (chips included) under a transparent textarea that keeps the caret */
 .cmp-field{position:relative}
@@ -328,16 +334,18 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
 .doc-view.editing{display:flex;flex-direction:column;overflow:hidden} /* only the editor scrolls */
 .doc-view.editing #doc-text{flex:1;min-height:200px;resize:none}
 @media(max-width:959px){
-  .info-btn:not([hidden]){display:inline-flex}
   .bp-panel .aside{display:none}
   .layout.info-open>.aside{display:block;position:absolute;inset:0;z-index:6;background:var(--bg);padding:16px 2px}
   .layout.info-open>.conv{visibility:hidden} /* only the open panel's scrollbar shows */
 }
 @media(max-width:859px){
-  .content.full{padding:12px 16px 0}
-  .bp-head h1{font-size:20px}
-  .bp-id{display:none}
-  .bp-tabs{margin-top:10px}
+  .content.full{padding:4px 12px 0}
+  .bp-head{flex-direction:column;align-items:stretch}
+  .bp-title{flex:none;gap:10px;padding:4px 0 0}
+  .bp-names,.bp-count,.info-btn .lbl-wide{display:none}
+  .info-btn .lbl-narrow{display:inline}
+  .bp-tabs .tabs button{padding:7px 8px}
+  .bp-tabs .info-btn{margin-left:auto}
   #panel-docs .docs{grid-template-rows:auto minmax(0,1fr)}
   .doc-list{max-height:22vh}
 }
