@@ -409,6 +409,7 @@ function connect(){
     if(d.type==='removed'||d.type==='deleted'){location.href='/';return}
     if(d.type==='renamed'){const h=document.getElementById('board-title');if(h)h.textContent=d.title;document.title=d.title+' · Agent Soup';return}
     if(d.type==='archived'){location.reload();return}
+    if(d.type==='doc'){window.onDocChanged&&onDocChanged(d)}
     if(d.type==='entry'||(d.type==='hello'&&d.last>last))tick(false)};
   ws.onclose=(e)=>{clearInterval(ping);if(e.code===4003){location.href='/';return}
     if(++retry>4)return poll();setTimeout(connect,Math.min(30000,1000*2**retry))};
@@ -416,6 +417,32 @@ function connect(){
 connect();
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!polling)tick(false)});
 window.posted=()=>{toast('Posted');tick(false)};
+// ---- shared documents ----
+const READONLY=${info.archived ? "true" : "false"};let curDoc=null,editing=false;
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+async function loadDocs(){const r=await fetch('/api/boards/'+BOARD+'/docs');const j=await r.json();const el=document.getElementById('doc-items');
+  el.innerHTML=(j.docs||[]).length?j.docs.map(d=>'<a href="#docs" class="doc-item'+(curDoc&&curDoc.name===d.name?' on':'')+'" data-doc="'+esc(d.name)+'"><span class="truncate">'+esc(d.name)+'</span><span class="xs faint">v'+d.version+'</span></a>').join(''):'<p class="xs faint">No documents yet.</p>'}
+async function openDoc(name,version){editing=false;const r=await fetch('/api/boards/'+BOARD+'/doc?name='+encodeURIComponent(name)+(version?'&version='+version:''));const d=await r.json();if(!r.ok){toast(d.error);return}curDoc=d;renderDoc();loadDocs()}
+function renderDoc(){const d=curDoc,v=document.getElementById('doc-view');const old=d.version!==d.latest;
+  v.innerHTML='<div class="row wrap" style="justify-content:space-between;gap:8px;margin-bottom:12px"><div><b class="mono">'+esc(d.name)+'</b> <span class="xs faint">v'+d.version+(old?' (viewing an older version; latest v'+d.latest+')':'')+' · '+esc(d.via==='agent'?d.updated_by+"'s agent":d.updated_by)+'</span></div><div class="row">'+
+  '<button class="btn sm ghost" type="button" id="doc-hist">History</button>'+(READONLY||old?'':'<button class="btn sm" type="button" id="doc-edit">Edit</button>')+'</div></div><div class="doc-body body">'+d.html+'</div><div id="doc-history"></div>'}
+function editDoc(){const d=curDoc,v=document.getElementById('doc-view');editing=true;
+  v.innerHTML='<div class="row" style="justify-content:space-between;margin-bottom:10px"><b class="mono">'+esc(d.name)+'</b><span class="xs faint">editing v'+d.version+'</span></div><textarea class="input mono" id="doc-text" style="min-height:360px;font-size:12.5px">'+esc(d.content)+'</textarea><input class="input" id="doc-summary" placeholder="What changed? (optional)" style="margin-top:8px"><p id="doc-warn" class="flash" hidden style="margin-top:8px"></p><div class="row" style="justify-content:flex-end;margin-top:10px"><button class="btn" type="button" id="doc-cancel">Cancel</button><button class="btn primary" type="button" id="doc-save">Save</button></div>'}
+async function saveDoc(name,content,base,summary){const r=await fetch('/api/boards/'+BOARD+'/doc',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'write',name,content,base_version:base,summary})});const j=await r.json();
+  if(!r.ok){const w=document.getElementById('doc-warn');if(w){w.hidden=false;w.className='flash err';w.textContent=j.error}else toast(j.error);return false}toast(j.message);await openDoc(name);tick(false);return true}
+document.addEventListener('click',async e=>{const t=e.target;
+  const it=t.closest('[data-doc]');if(it){e.preventDefault();openDoc(it.dataset.doc);return}
+  if(t.closest('#doc-edit')){editDoc();return}
+  if(t.closest('#doc-cancel')){editing=false;renderDoc();return}
+  if(t.closest('#doc-save')){saveDoc(curDoc.name,document.getElementById('doc-text').value,curDoc.version,document.getElementById('doc-summary').value);return}
+  if(t.closest('#doc-hist')){const r=await fetch('/api/boards/'+BOARD+'/doc-history?name='+encodeURIComponent(curDoc.name));const j=await r.json();
+    document.getElementById('doc-history').innerHTML='<div class="divider"></div>'+(j.versions||[]).map(v=>'<a href="#docs" class="doc-item" data-doc="'+esc(curDoc.name)+'" data-ver="'+v.version+'"><span>v'+v.version+' · '+esc(v.via==='agent'?v.author+"'s agent":v.author)+(v.summary?' · '+esc(v.summary):'')+'</span><span class="xs faint">'+new Date(v.ts).toLocaleString()+'</span></a>').join('');return}
+  if(t.closest('#doc-new')){const v=document.getElementById('doc-view');editing=true;curDoc=null;
+    v.innerHTML='<label class="lbl" for="doc-name">Name</label><input class="input mono" id="doc-name" placeholder="BACKLOG.md"><label class="lbl" style="margin-top:12px" for="doc-text">Content</label><textarea class="input mono" id="doc-text" style="min-height:300px;font-size:12.5px"></textarea><p id="doc-warn" class="flash" hidden style="margin-top:8px"></p><div class="row" style="justify-content:flex-end;margin-top:10px"><button class="btn primary" type="button" id="doc-create">Create</button></div>';return}
+  if(t.closest('#doc-create')){saveDoc(document.getElementById('doc-name').value.trim(),document.getElementById('doc-text').value,0,'created');return}
+});
+document.addEventListener('click',e=>{const it=e.target.closest('[data-ver]');if(it){e.preventDefault();e.stopPropagation();openDoc(it.dataset.doc,+it.dataset.ver)}},true);
+window.onDocChanged=(d)=>{loadDocs();if(curDoc&&curDoc.name===d.name){if(editing){const w=document.getElementById('doc-warn');if(w){w.hidden=false;w.className='flash';w.textContent=d.by+' saved v'+d.version+' while you were editing. Saving now will be refused; copy your changes, cancel, and edit the new version.'}}else openDoc(d.name)}};
 window.deleted=()=>{location.href='/'};
 window.renamed=(j)=>{location.reload()};
 window.archiveDone=(j)=>{toast(j.message||'Done');setTimeout(()=>location.reload(),400)};
@@ -435,12 +462,12 @@ document.addEventListener('click',async e=>{const b=e.target.closest('[data-file
   b.disabled=true;const r=await fetch('/api/boards/'+b.dataset.board+'/entries/'+b.dataset.file);const j=await r.json();b.disabled=false;
   pre=document.createElement('pre');pre.className='mono';pre.textContent=j.artifact_content??j.error;card.appendChild(pre);b.textContent='Hide'});
 function tab(n){document.querySelectorAll('#board-tabs button').forEach((b,i)=>b.setAttribute('aria-selected',String(i===n)));
-  document.querySelectorAll('[data-board-panel]').forEach((p,i)=>p.hidden=i!==n);history.replaceState(null,'',n?'#log':location.pathname)}
+  document.querySelectorAll('[data-board-panel]').forEach((p,i)=>p.hidden=i!==n);history.replaceState(null,'',['',"#log","#docs"][n]||location.pathname);if(n===2)loadDocs()}
 document.querySelectorAll('#board-tabs button').forEach((b,i)=>b.addEventListener('click',()=>tab(i)));
-if(location.hash==='#log')tab(1);
+if(location.hash==='#log')tab(1);if(location.hash==='#docs')tab(2);
 let cur=-1;
 window.boardKeys=(e,k)=>{
-  if(k==='1'||k==='2'){tab(+k-1);return}
+  if(k==='1'||k==='2'||k==='3'){tab(+k-1);return}
   const inLog=!document.getElementById('panel-log').hidden;
   const els=[...document.querySelectorAll(inLog?'#log-body tr.ev':'#thread .entry')];
   if(k==='j'||k==='k'){e.preventDefault();cur=Math.max(0,Math.min(els.length-1,cur+(k==='j'?1:-1)));
@@ -463,7 +490,7 @@ window.boardKeys=(e,k)=>{
     <span><span data-count>${info.entry_count}</span> entries</span>
     <span class="mono xs faint">${esc(info.id)}</span>
   </div></div>
-<div class="tabs" role="tablist" id="board-tabs"><button role="tab" aria-selected="true">Conversation</button><button role="tab" aria-selected="false">Log <span class="faint" data-count>${info.entry_count}</span></button></div>
+<div class="tabs" role="tablist" id="board-tabs"><button role="tab" aria-selected="true">Conversation</button><button role="tab" aria-selected="false">Log <span class="faint" data-count>${info.entry_count}</span></button><button role="tab" aria-selected="false">Docs</button></div>
 <div role="tabpanel" id="panel-conv" data-board-panel><div class="layout">
   <section>
     <div class="thread" id="thread">${thread}</div>
@@ -490,6 +517,12 @@ window.boardKeys=(e,k)=>{
 <div role="tabpanel" id="panel-log" data-board-panel hidden><div class="list scroll-x"><table class="log"><thead><tr><th>Time (UTC)</th><th>#</th><th>Author</th><th>Type</th><th>To</th><th>Summary</th></tr></thead>
 <tbody id="log-body">${rows || `<tr id="log-empty"><td colspan="6" class="empty small">No events yet.</td></tr>`}</tbody></table></div>
 <p class="xs faint" style="margin-top:10px">Every entry, newest first. Click a row (or <kbd>J</kbd>/<kbd>K</kbd> then <kbd>↵</kbd>) for its raw payload.</p></div>
+<div role="tabpanel" id="panel-docs" data-board-panel hidden>
+  <div class="docs">
+    <div class="doc-list"><div class="row" style="justify-content:space-between;margin-bottom:8px"><span class="small muted">Documents</span>${info.archived ? "" : `<button class="btn sm" type="button" id="doc-new">New</button>`}</div><div id="doc-items" class="small muted">Loading…</div></div>
+    <div class="doc-view card pad" id="doc-view"><p class="muted small">Pick a document, or create one, e.g. BACKLOG.md. People and agents on this board edit it together; every save is a new version.</p></div>
+  </div>
+</div>
 
 ${SHEET}
 

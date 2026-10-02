@@ -166,6 +166,14 @@ describe("ui helpers", () => {
     expect(html).not.toMatch(/href="[^"]*"[^>]*onx/);
   });
 
+  it("renders headings and lists, still escaped", () => {
+    const html = renderText("# Backlog\n- one <b>\n- two\n\n1. first\n2. second\n\nplain **text**");
+    expect(html).toContain('<h3 class="md-h">Backlog</h3>');
+    expect(html).toContain("<ul><li>one &lt;b&gt;</li><li>two</li></ul>");
+    expect(html).toContain("<ol><li>first</li><li>second</li></ol>");
+    expect(html).toContain("<p>plain <strong>text</strong></p>");
+  });
+
   it("formats relative times", () => {
     const now = Date.UTC(2026, 9, 2, 12, 0, 0);
     expect(relTime(now - 10_000, now)).toBe("just now");

@@ -23,7 +23,7 @@ import {
   type Viewer,
 } from "./html";
 import type { Entry, Env } from "./types";
-import { FAVICON_SVG } from "./ui";
+import { FAVICON_SVG, renderText } from "./ui";
 import { BOARD_RE, connectCommand, newBoardId, normalizeUser } from "./util";
 
 export { Board } from "./board";
@@ -427,6 +427,48 @@ export default {
         if (!who) return json({ error: "sign in required" }, 401);
         const boards = await registry.boardsForUser(env, who);
         return json({ user: who, boards: boards.map((b) => ({ id: b.id, title: b.title, entry_count: b.entry_count, last_activity: b.last_activity })) });
+      }
+
+      // ---- shared documents (members; operators can read) ----
+      m = path.match(/^\/api\/boards\/([^/]+)\/(doc|docs|doc-history)$/);
+      if (m) {
+        const [, id, what] = m;
+        if (!viewer && !hasOpsKey(c)) return needLogin();
+        if (!(await canSee(c, id))) return json({ error: "board not found" }, 404);
+        const stub = boardStub(env, id);
+        const name = url.searchParams.get("name") ?? "";
+        try {
+          if (what === "docs" && method === "GET") return json({ docs: await stub.docs() });
+          if (what === "doc-history" && method === "GET") return json({ versions: await stub.docHistory(name) });
+          if (what === "doc" && method === "GET") {
+            const v = url.searchParams.get("version");
+            const d = await stub.docRead(name, v ? parseInt(v, 10) : undefined);
+            return json({ ...d, html: renderText(d.content) });
+          }
+          if (what === "doc" && method === "POST") {
+            if (!viewer || !(await registry.isMember(env, id, viewer.name))) return json({ error: "Only members can edit." }, 403);
+            const body = (await request.json().catch(() => ({}))) as {
+              action?: string;
+              name?: string;
+              content?: string;
+              base_version?: number | string;
+              old_str?: string;
+              new_str?: string;
+              summary?: string;
+            };
+            const opts = { via: "person" as const, summary: body.summary ?? null };
+            const r =
+              body.action === "edit"
+                ? await stub.docEdit(viewer.name, String(body.name ?? ""), String(body.old_str ?? ""), String(body.new_str ?? ""), opts)
+                : await stub.docWrite(viewer.name, String(body.name ?? ""), String(body.content ?? ""), Number(body.base_version ?? -1), opts);
+            if (r.conflict) return json({ error: `Someone saved v${r.current} while you were editing. Copy your changes, reload, and apply them again.`, current: r.current }, 409);
+            ctx.waitUntil(registry.bumpBoard(env, id, r.note).catch(() => {}));
+            return json({ ok: true, version: r.version, message: `Saved v${r.version}` });
+          }
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+        }
+        return json({ error: "not found" }, 404);
       }
 
       // ---- retract an entry (its author or the board's creator) ----
