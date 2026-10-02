@@ -1118,7 +1118,8 @@ await step("plans: Free caps boards you create; a signed Stripe webhook upgrades
   has(await (await fetch(`${BASE}/me`, { headers: { cookie: cc } })).text(), "You're on <b>Pro");
   await send(event("customer.subscription.deleted", "canceled"));
   assert((await create(`e2e cap 5 ${run}`)).status === 402, "back on Free after cancelling");
-  // Checkout opens a Stripe-hosted page (only where a Stripe key is configured).
+  // Checkout opens a Stripe-hosted page. Only against a local server: production uses live keys.
+  if (!/localhost|127\.0\.0\.1/.test(BASE)) return;
   const r = await fetch(`${BASE}/api/billing/checkout`, { method: "POST", headers: { cookie: cc, "content-type": "application/json" }, body: JSON.stringify({ interval: "year" }) });
   const j = await r.json();
   assert((r.status === 200 && j.url.startsWith("https://checkout.stripe.com/")) || /isn't set up/.test(j.error ?? ""), JSON.stringify(j).slice(0, 200));
@@ -1136,6 +1137,22 @@ await step("REST API with a personal token acts as your agent; OpenAPI spec and 
   const spec = await (await fetch(`${BASE}/openapi.json`)).json();
   assert(spec.openapi === "3.1.0" && spec.paths["/api/boards/{id}/tasks/{seq}"] && spec.servers[0].url === BASE, "openapi");
   has(await (await fetch(`${BASE}/skill.md`)).text(), "name: agent-soup");
+});
+
+await step("profile pictures: people and their agents each get one; images only; served safely", async () => {
+  // A 1×1 PNG.
+  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
+  const up = (who, kind, body, headers = {}) => web(`/api/me/avatar?kind=${kind}`, who, { method: "POST", headers, body });
+  assert((await (await fetch(`${BASE}/avatar/${A}?k=agent`)).status) === 404, "no agent picture yet");
+  assert((await up(A, "agent", png)).status === 200, "upload agent picture");
+  const r = await fetch(`${BASE}/avatar/${A}?k=agent`);
+  assert(r.status === 200 && r.headers.get("content-type") === "image/png" && r.headers.get("x-content-type-options") === "nosniff", `${r.status} ${r.headers.get("content-type")}`);
+  assert((await fetch(`${BASE}/avatar/${A}`)).status === 404, "the person's picture is separate");
+  assert((await up(A, "person", "<svg xmlns='http://www.w3.org/2000/svg'/>")).status === 400, "no SVG");
+  assert((await fetch(`${BASE}/api/me/avatar?kind=person`, { method: "POST", headers: { authorization: `Bearer ${tok[A]}` }, body: png })).status === 401, "tokens can't change pictures");
+  has(await (await web(`/b/${fb}`, A)).text(), `src="/avatar/${A}?k=agent"`);
+  assert((await web(`/api/me/avatar?kind=agent`, A, { method: "DELETE" })).status === 200, "remove");
+  assert((await fetch(`${BASE}/avatar/${A}?k=agent`)).status === 404, "removed");
 });
 
 await step("rename and archive: creator only; archived boards are read-only and listed separately; restore works", async () => {

@@ -106,6 +106,9 @@ label.lbl{display:block;font-size:13px;font-weight:500;color:var(--ink);margin:0
   background:hsl(var(--h) var(--av-s) var(--av-l));color:hsl(var(--h) 55% var(--av-c));user-select:none}
 .av.sm{width:22px;height:22px;font-size:10px}.av.lg{width:40px;height:40px;font-size:15px}
 .av.agent{border-radius:7px;position:relative}
+.av{position:relative;overflow:hidden}
+.av-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:inherit;opacity:0}
+.av-img.ok{opacity:1}
 .av.sm.agent{border-radius:5px}
 .av-wrap{position:relative;display:inline-flex}
 .av-wrap.live::after{content:"";position:absolute;right:-2px;bottom:-2px;width:8px;height:8px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 2px var(--bg)}
@@ -346,6 +349,10 @@ dialog.lightbox img{display:block;max-width:min(96vw,1600px);max-height:92vh;wid
 .side-link .count{margin-left:auto;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--accent);color:#fff;font-size:11px;font-weight:600;display:inline-flex;align-items:center;justify-content:center}
 .side-link .count[hidden]{display:none}
 .inbox{list-style:none;margin:0;padding:4px}
+.legal h2{font-size:15px;margin:18px 0 6px}.legal p{font-size:13.5px;line-height:1.6;color:var(--text)}
+/* Profile pictures */
+.pfps{display:grid;gap:10px}
+.pfp{gap:14px;align-items:center}
 /* Plans */
 .plans{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
 .plan{border:1px solid var(--line);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:10px}
@@ -630,8 +637,10 @@ export function initials(name: string): string {
 }
 
 /** People are circles; their agents are rounded squares with a small bolt, so the two read apart at a glance. */
+/** Initials on a color, covered by the member's picture when they've set one (a missing picture just stays hidden). */
 export function avatar(name: string, size: "" | "sm" | "lg" = "", agent = false): string {
-  return `<span class="av ${size}${agent ? " agent" : ""}" style="--h:${hue(name)}" title="${esc(agent ? `${name}'s agent` : name)}">${esc(initials(name))}</span>`;
+  const src = `/avatar/${encodeURIComponent(name)}${agent ? "?k=agent" : ""}`;
+  return `<span class="av ${size}${agent ? " agent" : ""}" style="--h:${hue(name)}" title="${esc(agent ? `${name}'s agent` : name)}">${esc(initials(name))}<img class="av-img" src="${esc(src)}" alt="" loading="lazy" onerror="this.remove()" onload="this.classList.add('ok')"></span>`;
 }
 
 export function avatarStack(names: string[], max = 5): string {
