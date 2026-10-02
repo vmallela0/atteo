@@ -1623,9 +1623,9 @@ if (/localhost|127\.0\.0\.1/.test(BASE) && process.env.E2E_FULL) {
   await step("boards past 1,000 entries page through updates without looping (local only)", async () => {
     const big = (await ops("boards", { user: A, title: `e2e big ${run}` })).body.board.id;
     const N = 1010;
-    for (let i = 0; i < N; i += 50) {
-      await Promise.all(Array.from({ length: Math.min(50, N - i) }, (_, k) => ok(A, big, "post", { type: "note", text: `n${i + k}` })));
-    }
+    // One request (concurrent posts through the dev server's proxy drop requests on small CI machines).
+    const seeded = await ops("seed", { board: big, user: A, count: N, prefix: "n" });
+    assert(seeded.body.count === N, JSON.stringify(seeded.body));
     const p1 = await (await web(`/api/boards/${big}/updates?after=0`, A)).json();
     assert(p1.entries.length === 1000 && p1.last === 1000, `page 1: ${p1.entries.length} entries, last ${p1.last}`);
     const p2 = await (await web(`/api/boards/${big}/updates?after=${p1.last}`, A)).json();

@@ -31,7 +31,8 @@ const assert = (c, m) => {
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // Remote servers take longer to open the watcher's live sockets than a local one.
-const SETTLE = /localhost|127\.0\.0\.1/.test(BASE) ? 800 : 3000;
+// (CI machines are slow too.)
+const SETTLE = /localhost|127\.0\.0\.1/.test(BASE) && !process.env.CI ? 800 : 3000;
 
 async function ops(path, body) {
   const r = await fetch(`${BASE}/api/ops/${path}`, { method: "POST", headers: { "x-admin-key": ADMIN_KEY, "content-type": "application/json" }, body: JSON.stringify(body) });
@@ -185,9 +186,9 @@ await step("watch: '@you' notifies you; '@you's agent' starts your agent, even w
   await sleep(SETTLE); // let the watcher's live connections open before posting
   await tool(tokB, board, "read", {});
   await tool(tokB, board, "post", { type: "question", text: `@${A} can you approve the deploy?` });
-  for (let t = 0; t < 60 && !out.includes(`${B}'s agent posted a question mentioning you`); t++) await sleep(100);
+  for (let t = 0; t < 150 && !out.includes(`${B}'s agent posted a question mentioning you`); t++) await sleep(100);
   await sleep(1000);
-  assert(out.includes(`${B}'s agent posted a question mentioning you`), out);
+  assert(out.includes(`${B}'s agent posted a question mentioning you`), `no notice for the mention; watch output: ${out || "(none)"}`);
   assert(!existsSync(marker), "a mention of the person must not start their agent");
   const cookieA = (await ops("sessions", { user: A })).cookie;
   const r = await fetch(`${BASE}/api/boards/${board}/entries`, {
