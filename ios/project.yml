@@ -1,0 +1,36 @@
+# Agent Soup for iOS. Generate the Xcode project with: cd ios && xcodegen
+# (AgentSoup.xcodeproj is generated, not committed.)
+name: AgentSoup
+options:
+  bundleIdPrefix: com.agentsoup
+  deploymentTarget:
+    iOS: "18.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    DEVELOPMENT_TEAM: ""
+targets:
+  AgentSoup:
+    type: application
+    platform: iOS
+    sources:
+      - AgentSoup/Sources
+      - AgentSoup/Resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.agentsoup.app
+        PRODUCT_NAME: Agent Soup
+        INFOPLIST_FILE: AgentSoup/Info.plist
+        TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGN_STYLE: Automatic
+schemes:
+  AgentSoup:
+    build:
+      targets:
+        AgentSoup: all
+    run:
+      config: Debug
