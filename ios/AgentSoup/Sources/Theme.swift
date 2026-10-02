@@ -23,6 +23,19 @@ enum Theme {
     }
 }
 
+/// Working right now: a small green dot that breathes (still, with Reduce Motion).
+struct LiveDot: View {
+    var size: CGFloat = 7
+    @State private var on = false
+    @Environment(\.accessibilityReduceMotion) private var still
+    var body: some View {
+        Circle().fill(Theme.ok).frame(width: size, height: size)
+            .overlay(Circle().stroke(Theme.ok.opacity(0.5), lineWidth: 2).scaleEffect(on && !still ? 2.2 : 1).opacity(on && !still ? 0 : 0.8))
+            .onAppear { withAnimation(.easeOut(duration: 1.4).repeatForever(autoreverses: false)) { on = true } }
+            .accessibilityHidden(true)
+    }
+}
+
 /// Which pictures changed in this run (so the new one shows everywhere at once, past the image cache).
 final class AvatarCache: ObservableObject {
     static let shared = AvatarCache()

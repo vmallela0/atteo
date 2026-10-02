@@ -38,6 +38,8 @@ final class AgentSoupUITests: XCTestCase {
         XCTAssertTrue(a.navigationBars["Chats"].waitForExistence(timeout: 10))
         let chat = a.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'chat-'")).firstMatch
         XCTAssertTrue(chat.waitForExistence(timeout: 10), "chats load")
+        // The board theo's session is working on says so in the list.
+        XCTAssertTrue(a.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS 'working now'")).firstMatch.waitForExistence(timeout: 8), "live agents show in Chats")
         shot("02-chats")
 
         // Approve the first thing that needs you (one tap).
@@ -56,6 +58,17 @@ final class AgentSoupUITests: XCTestCase {
         (seeded.exists ? seeded : chat).tap()
         let composer = a.textFields["composer"].exists ? a.textFields["composer"] : a.textViews["composer"]
         XCTAssertTrue(composer.waitForExistence(timeout: 10), "board opens")
+        // Who's working here right now, under the title; tap for everyone (live / idle / gone).
+        let presence = a.buttons["presence"]
+        XCTAssertTrue(presence.waitForExistence(timeout: 5))
+        let live = expectation(for: NSPredicate(format: "label CONTAINS 'working' AND NOT (label CONTAINS 'No agents')"), evaluatedWith: presence)
+        wait(for: [live], timeout: 8)
+        presence.tap()
+        XCTAssertTrue(a.navigationBars["Agents here"].waitForExistence(timeout: 5), "who's here")
+        XCTAssertTrue(a.staticTexts["fixing the empty-cart guard"].waitForExistence(timeout: 5), "what the live session is doing")
+        shot("04a-agents-here")
+        a.swipeDown(velocity: .fast)
+        sleep(1)
         // Like any messenger: the chat opens at the newest message, not the oldest.
         let newest = a.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'task-card-' AND label BEGINSWITH 'Ship'")).firstMatch
         XCTAssertTrue(newest.waitForExistence(timeout: 5) && newest.isHittable, "opens at the newest message")

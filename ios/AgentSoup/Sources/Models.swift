@@ -46,7 +46,21 @@ struct AgentSession: Codable, Identifiable, Hashable {
     let status: String?
     let lastSeen: Double
     let active: Bool?
+    var state: String? = nil // live (working now) | idle | gone
 }
+
+/// An agent on a board: a named session, or a member's agent connected without one.
+struct BoardAgent: Codable, Hashable, Identifiable {
+    let user: String
+    let name: String?
+    let client: String?
+    let status: String?
+    let lastSeen: Double
+    let state: String // live | idle | gone
+    var id: String { "\(user)/\(name ?? "")" }
+    var label: String { name.map { "\(user)/\($0)" } ?? "\(user)'s agent" }
+}
+struct BoardAgentsResponse: Decodable { let agents: [BoardAgent] }
 
 struct BoardsResponse: Decodable { let boards: [Board] }
 struct Board: Codable, Identifiable, Hashable {
@@ -58,6 +72,7 @@ struct Board: Codable, Identifiable, Hashable {
     let lastActivity: Double
     let encrypted: Bool?
     let last: Last?
+    var liveAgents: Int? = nil // agent sessions working on it right now
 }
 
 struct EntriesResponse: Decodable { let entries: [Entry]; let last: Int }

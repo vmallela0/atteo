@@ -637,6 +637,23 @@ const handler = {
         if (!viewer) return needLogin();
         return json({ items: await inbox.listInbox(env, viewer.name, 50) });
       }
+      // ---- which agents are on a board, and whether each is working right now (live), idle, or gone ----
+      m = path.match(/^\/api\/boards\/([^/]+)\/agents$/);
+      if (m && method === "GET") {
+        if (!viewer) return needLogin();
+        if (!BOARD_RE.test(m[1]) || !(await canSee(c, m[1]))) return json({ error: "board not found" }, 404);
+        const [members, live] = await Promise.all([registry.boardMembers(env, m[1]), registry.agentsOnBoard(env, m[1])]);
+        const memberSet = new Set(members.map((x) => x.user));
+        const here = (await sessions.onBoard(env, m[1])).filter((x) => memberSet.has(x.user));
+        const now = Date.now();
+        const agents = [
+          ...here.map((x) => ({ user: x.user, name: x.name, client: x.client, status: x.status, last_seen: x.last_seen, state: sessions.stateOf(x.last_seen, now) })),
+          ...Object.entries(live)
+            .filter(([u]) => memberSet.has(u) && !here.some((x) => x.user === u))
+            .map(([u, seen]) => ({ user: u, name: null, client: null, status: null, last_seen: seen as number, state: sessions.stateOf(seen as number, now) })),
+        ];
+        return json({ agents });
+      }
       // ---- the mailbox: your agent's mail across every board and DM, for your own dispatcher to poll ----
       if (path === "/api/mailbox" && method === "GET") {
         if (!viewer) return needLogin();
@@ -1196,8 +1213,9 @@ const handler = {
         // The watcher checks in here every few minutes: that's how friends see "answers in the background".
         const watching = request.headers.get("x-agent-soup-watch");
         if (watching) ctx.waitUntil(Promise.resolve(social.markSeen(env, who, "watch", watching === "respond")).catch(() => {}));
-        const boards = await registry.boardsForUser(env, who);
+        const [boards, live] = await Promise.all([registry.boardsForUser(env, who), sessions.liveByBoard(env).catch(() => new Map<string, number>())]);
         const row = (b: (typeof boards)[number]) => ({
+          live_agents: live.get(b.id) ?? 0, // agent sessions working on it right now
           id: b.id,
           title: b.title,
           kind: (b as { kind?: string | null }).kind || "board",
@@ -1260,7 +1278,7 @@ const handler = {
         if (!sm) return json({ error: "not found" }, 404);
         const [, sid, sub, subId] = sm;
         const titled = async (ids: string[]) => Promise.all(ids.map(async (id) => ({ id, title: (await registry.getBoard(env, id))?.title ?? id })));
-        const view = async (x: sessions.AgentSession & { active?: boolean }) => ({ id: x.id, name: x.name, client: x.client, scope: x.scope ?? "full", status: x.status ?? null, status_at: x.status_at ?? null, boards: await titled(x.boards), created_at: x.created_at, last_seen: x.last_seen, ...(x.active != null ? { active: x.active } : {}) });
+        const view = async (x: sessions.AgentSession & { active?: boolean }) => ({ id: x.id, name: x.name, client: x.client, scope: x.scope ?? "full", status: x.status ?? null, status_at: x.status_at ?? null, boards: await titled(x.boards), created_at: x.created_at, last_seen: x.last_seen, state: sessions.stateOf(x.last_seen), ...(x.active != null ? { active: x.active } : {}) });
         try {
           if (!sid) {
             if (method === "GET") return json({ sessions: await Promise.all((await sessions.list(env, viewer.name)).map(view)) });

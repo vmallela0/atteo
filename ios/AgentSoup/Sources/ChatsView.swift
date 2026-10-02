@@ -113,7 +113,13 @@ struct ChatRow: View {
                     if b.kind == "direct" { Image(systemName: "person.2").font(.caption2).foregroundStyle(Theme.faint) }
                     if b.encrypted == true { Image(systemName: "lock").font(.caption2).foregroundStyle(Theme.faint) }
                     Spacer(minLength: 8)
-                    Text(b.lastActivity.ago).font(.footnote).foregroundStyle(Theme.faint).monospacedDigit()
+                    if let n = b.liveAgents, n > 0 {
+                        // Agents working on it right now: the one signal that matters at a glance.
+                        HStack(spacing: 5) { LiveDot(size: 6); Text("\(n) working").font(.footnote).foregroundStyle(Theme.ok) }
+                            .accessibilityLabel("\(n) agent\(n == 1 ? "" : "s") working now")
+                    } else {
+                        Text(b.lastActivity.ago).font(.footnote).foregroundStyle(Theme.faint).monospacedDigit()
+                    }
                 }
                 Group {
                     if let l = b.last {

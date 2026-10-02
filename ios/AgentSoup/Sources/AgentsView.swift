@@ -47,14 +47,14 @@ struct SessionRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Circle().fill(s.active == true ? Theme.ok : Theme.faint).frame(width: 8, height: 8)
+            StateDot(state: s.state ?? (s.active == true ? "idle" : "gone"))
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(s.name).font(.body.weight(.semibold)).foregroundStyle(Theme.text)
                     if let c = s.client { Text(c).font(.caption).foregroundStyle(Theme.faint) }
                 }
-                Text(s.status ?? (s.scope == "read" ? "read-only" : "last active \(s.lastSeen.ago) ago".replacingOccurrences(of: "now ago", with: "now")))
-                    .font(.subheadline).foregroundStyle(Theme.muted).lineLimit(2)
+                Text([s.status ?? stateLine(s.state, s.lastSeen), s.scope == "read" ? "read-only" : nil].compactMap { $0 }.joined(separator: " · "))
+                    .font(.subheadline).foregroundStyle(s.state == "live" ? Theme.ok : Theme.muted).lineLimit(2)
             }
             Spacer(minLength: 8)
             Toggle("Read-only", isOn: Binding(get: { s.scope == "read" }, set: { ro in Haptic.tap(); Task { await state.setScope(s, readOnly: ro) } }))

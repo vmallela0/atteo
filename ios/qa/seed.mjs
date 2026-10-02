@@ -56,6 +56,10 @@ await tool(tt, b1, "read", {});
 const sub = await tool(tt, b1, "task", { action: "create", title: "Test behind PAYMENTS_V2", parent: s1n, assignee: "theo" });
 await tool(tt, b1, "read", {});
 await tool(tt, b1, "task", { action: "create", title: "Ship", parent: s1n });
+// theo's Claude Code session is working on the board right now (the live signal in Chats and the chat header).
+const ts = (await call(tt, "POST", "/api/sessions", { client: "Claude Code" })).session;
+await call(tt, "POST", `/api/sessions/${ts.id}/boards`, { board: b1 });
+await call(tt, "POST", `/api/sessions/${ts.id}`, { status: "fixing the empty-cart guard" });
 // An end-to-end encrypted board (maya + theo): the phone and theo's client (enc-peer.mjs) must read each other.
 const enc = (await ops("boards", { user: "maya", title: "Secret plans", encrypted: true })).board.id;
 await ops("members", { board: enc, user: "theo" });

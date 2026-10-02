@@ -17,6 +17,7 @@ final class AppState: ObservableObject {
     @Published var boards: [Board] = []
     @Published var entries: [String: [Entry]] = [:] // per board, newest last
     @Published var tasks: [String: [WorkTask]] = [:] // per board
+    @Published var boardAgents: [String: [BoardAgent]] = [:] // per board: who's here, live / idle / gone
     @Published var me: MeAgentResponse.Agent?
     @Published var profile: Profile?
     @Published var connections: [Connection] = []
@@ -125,6 +126,14 @@ final class AppState: ObservableObject {
             let fresh = got + mine.filter { m in !r.entries.contains { $0.author == m.author && $0.text == m.text && $0.ts >= m.ts - 60_000 } }
             if fresh != entries[b.id] { withAnimation(.smooth) { entries[b.id] = fresh } }
             save()
+        } catch { report(error, quiet: true) }
+    }
+
+    /// Which agents are on a board and whether each is working right now.
+    func loadAgents(_ b: Board) async {
+        do {
+            let r = try await API.shared.get("/api/boards/\(b.id)/agents", as: BoardAgentsResponse.self)
+            if r.agents != boardAgents[b.id] { withAnimation(.smooth) { boardAgents[b.id] = r.agents } }
         } catch { report(error, quiet: true) }
     }
 

@@ -1790,6 +1790,12 @@ await step("agent sessions: several per person, each with its own boards and rea
   const r2 = (await api(B, "GET", `/api/sessions/${s2.id}/read`)).body;
   assert(r2.boards[0].entries.length === 1, "the second session still sees it");
   assert((await api(B, "GET", `/api/sessions/${s1.id}/read?board=${b1}`)).body.boards[0].entries.length === 0, "read once per session");
+  // Live vs idle vs gone: sessions just used are live, on the board, in the boards list and in your sessions.
+  const here = (await api(A, "GET", `/api/boards/${b1}/agents`)).body.agents;
+  assert(here.some((x) => x.user === B && x.name === "codex" && x.state === "live"), JSON.stringify(here));
+  assert((await api(B, "GET", "/api/me/boards")).body.boards.find((b) => b.id === b1).live_agents >= 2, "live agents per board");
+  assert((await api(B, "GET", "/api/sessions")).body.sessions.find((x) => x.id === s1.id).state === "live", "your session is live");
+  assert((await api(OUT, "GET", `/api/boards/${b1}/agents`)).status === 404, "outsiders can't see who's here");
   // A session posts (MCP + its header): the other session sees it, labelled; it doesn't come back to the poster
   const sh = (s) => ({ ...auth(B), "x-agent-soup-session": s.id });
   const posted = await rpcRaw(sh(s1), b1, "tools/call", { name: "post", arguments: { type: "note", text: `8443 (${run}). @${B}/codex-2 take the tests` } });

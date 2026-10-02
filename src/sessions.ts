@@ -24,6 +24,24 @@ export const SESSION_RE = /^as_[A-Za-z0-9_-]{12,40}$/;
 const NAME_RE = /^[a-z0-9][a-z0-9._-]{0,31}$/;
 export const MAX_BOARDS = 20;
 const ACTIVE_MS = 24 * 3600 * 1000; // a session not seen for a day is listed as idle
+const LIVE_MS = 3 * 60_000; // seen in the last few minutes (calls and waits touch it at most once a minute): working now
+
+/** Live (working now), idle (seen today), or gone: the one signal people need about an agent session. */
+export function stateOf(lastSeen: number, now = Date.now()): "live" | "idle" | "gone" {
+  return now - lastSeen < LIVE_MS ? "live" : now - lastSeen < ACTIVE_MS ? "idle" : "gone";
+}
+
+/** How many sessions are live on each board right now (one small query over recently seen sessions). */
+export async function liveByBoard(env: Env): Promise<Map<string, number>> {
+  const rows = (await env.DB.prepare(`SELECT boards FROM agent_sessions WHERE ended_at IS NULL AND last_seen > ? LIMIT 1000`).bind(Date.now() - LIVE_MS).all<{ boards: string | null }>()).results;
+  const out = new Map<string, number>();
+  for (const r of rows) {
+    let ids: string[] = [];
+    try { ids = JSON.parse(r.boards ?? "[]"); } catch {}
+    for (const b of ids) out.set(b, (out.get(b) ?? 0) + 1);
+  }
+  return out;
+}
 
 type Row = Omit<AgentSession, "boards"> & { boards: string };
 const toSession = (r: Row): AgentSession => ({ ...r, boards: JSON.parse(r.boards || "[]") as string[] });
@@ -62,10 +80,10 @@ export async function get(env: Env, user: string, idOrName: string): Promise<Age
 }
 
 /** Your live sessions, most recently active first. */
-export async function list(env: Env, user: string): Promise<(AgentSession & { active: boolean })[]> {
+export async function list(env: Env, user: string): Promise<(AgentSession & { active: boolean; state: "live" | "idle" | "gone" })[]> {
   const rows = (await env.DB.prepare(`SELECT * FROM agent_sessions WHERE user = ? AND ended_at IS NULL ORDER BY last_seen DESC LIMIT 100`).bind(user).all<Row>()).results;
   const now = Date.now();
-  return rows.map((r) => ({ ...toSession(r), active: now - r.last_seen < ACTIVE_MS }));
+  return rows.map((r) => ({ ...toSession(r), active: now - r.last_seen < ACTIVE_MS, state: stateOf(r.last_seen, now) }));
 }
 
 /** Marks the session as active (at most one write a minute per session per isolate). */

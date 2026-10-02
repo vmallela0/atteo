@@ -8,6 +8,14 @@ struct BoardView: View {
     let board: Board
     @State private var draft = ""
     @State private var showTasks = false
+    @State private var showAgents = false
+    private var live: [BoardAgent] { (state.boardAgents[board.id] ?? []).filter { $0.state == "live" } }
+    /// "theo's agent working", "codex and 2 more working", or "no agents working now".
+    private var presence: String {
+        let names = live.map(\.label)
+        if names.isEmpty { return board.encrypted == true ? "End-to-end encrypted" : "No agents working now" }
+        return (names.count == 1 ? names[0] : "\(names[0]) and \(names.count - 1) more") + " working"
+    }
     @FocusState private var focused: Bool
 
     private var list: [Entry] { state.entries[board.id] ?? [] }
@@ -86,21 +94,28 @@ struct BoardView: View {
         .sheet(isPresented: $showTasks) { TasksSheet(board: board).presentationDetents([.medium, .large]).presentationBackground(Theme.bg) }
         .navigationTitle(board.title)
         .toolbar {
-            if board.encrypted == true {
-                ToolbarItem(placement: .principal) {
+            // The title, and under it who's working here right now (tap for everyone, live / idle / gone).
+            ToolbarItem(placement: .principal) {
+                Button { Haptic.tap(); showAgents = true } label: {
                     VStack(spacing: 1) {
                         Text(board.title).font(.headline).foregroundStyle(Theme.text).lineLimit(1)
-                        Label("End-to-end encrypted", systemImage: "lock.fill").font(.caption2).foregroundStyle(Theme.faint).labelStyle(.titleAndIcon)
+                        HStack(spacing: 5) {
+                            if board.encrypted == true { Image(systemName: "lock.fill").font(.system(size: 9)).foregroundStyle(Theme.faint) }
+                            if !live.isEmpty { LiveDot(size: 6) }
+                            Text(presence).font(.caption2).foregroundStyle(live.isEmpty ? Theme.faint : Theme.ok).lineLimit(1)
+                        }
                     }
-                    .accessibilityElement(children: .combine)
                 }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("presence")
             }
         }
+        .sheet(isPresented: $showAgents) { AgentsHereSheet(board: board).presentationDetents([.medium]).presentationBackground(Theme.bg) }
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Theme.bg, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar) // inside a conversation the message box owns the bottom edge
-        .task { async let e: Void = state.loadEntries(board); async let t: Void = state.loadTasks(board); _ = await (e, t); await state.markRead(board) }
-        .onChange(of: state.pulse) { _, p in if p?.board == board.id { Task { async let e: Void = state.loadEntries(board); async let t: Void = state.loadTasks(board); _ = await (e, t); await state.markRead(board) } } }
+        .task { async let e: Void = state.loadEntries(board); async let t: Void = state.loadTasks(board); async let a: Void = state.loadAgents(board); _ = await (e, t, a); await state.markRead(board) }
+        .onChange(of: state.pulse) { _, p in if p?.board == board.id { Task { async let e: Void = state.loadEntries(board); async let t: Void = state.loadTasks(board); async let a: Void = state.loadAgents(board); _ = await (e, t, a); await state.markRead(board) } } }
         .task(id: board.id) { await state.watch(board) } // live: ticks and new messages as they happen
         .refreshable { await state.loadEntries(board) }
     }
@@ -280,5 +295,57 @@ struct TaskCard: View {
             }
                 .presentationDetents([.medium, .large]).presentationBackground(Theme.bg)
         }
+    }
+}
+
+/// Everyone's agents on this board: working now, idle, or gone, with what they said they're doing.
+struct AgentsHereSheet: View {
+    @EnvironmentObject var state: AppState
+    let board: Board
+    var body: some View {
+        let all = (state.boardAgents[board.id] ?? []).sorted { ($0.state == "live" ? 0 : $0.state == "idle" ? 1 : 2, -$0.lastSeen) < ($1.state == "live" ? 0 : $1.state == "idle" ? 1 : 2, -$1.lastSeen) }
+        NavigationStack {
+            List {
+                if all.isEmpty { Text("No agents on this board yet.").foregroundStyle(Theme.muted).listRowBackground(Theme.card) }
+                ForEach(all) { a in
+                    HStack(spacing: 12) {
+                        StateDot(state: a.state)
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 6) {
+                                Text(a.label).font(.body.weight(.medium)).foregroundStyle(Theme.text)
+                                if let c = a.client { Text(c).font(.caption).foregroundStyle(Theme.faint) }
+                            }
+                            Text(a.status ?? stateLine(a.state, a.lastSeen)).font(.subheadline).foregroundStyle(a.state == "live" ? Theme.ok : Theme.muted).lineLimit(2)
+                        }
+                    }
+                    .listRowBackground(Theme.card)
+                }
+            }
+            .scrollContentBackground(.hidden)
+            .background(Theme.bg)
+            .navigationTitle("Agents here")
+            .navigationBarTitleDisplayMode(.inline)
+            .refreshable { await state.loadAgents(board) }
+        }
+    }
+}
+
+/// live: green and breathing; idle: grey; gone: an empty ring.
+struct StateDot: View {
+    let state: String?
+    var body: some View {
+        switch state {
+        case "live": LiveDot(size: 8)
+        case "idle": Circle().fill(Theme.faint).frame(width: 8, height: 8)
+        default: Circle().stroke(Theme.faint, lineWidth: 1.2).frame(width: 8, height: 8)
+        }
+    }
+}
+
+func stateLine(_ state: String?, _ lastSeen: Double) -> String {
+    switch state {
+    case "live": return "working now"
+    case "idle": return "idle · last active \(lastSeen.ago) ago".replacingOccurrences(of: "now ago", with: "just now")
+    default: return "gone · last seen \(lastSeen.ago) ago".replacingOccurrences(of: "now ago", with: "just now")
     }
 }
