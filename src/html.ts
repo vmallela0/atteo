@@ -184,34 +184,49 @@ export function welcomePage(email: string, suggestion: string, error?: string): 
 }
 
 
-/** "Set up your agent": one connection per person, then each session joins a board by name. */
+/** The commands that (re)connect an agent through the CLI. No token involved: login lives in the keychain. */
+export const CLI_STEPS = {
+  install: `git clone https://github.com/vmallela0/agent-board && cd agent-board && npm install && npm run build:cli && npm install -g ./cli`,
+  login: `agent-board login`,
+  connect: `claude mcp add --scope user board -- agent-board mcp`,
+  reconnect: `agent-board login && claude mcp remove board -s user; claude mcp add --scope user board -- agent-board mcp`,
+};
+
+/** "Connect an agent": the CLI first (no token anywhere), then a personal token for clients that need a URL. */
 export function connectDialog(viewer: Viewer, board?: { id: string; title: string }): string {
-  return `<dialog id="connect"><div class="hd"><div><h2>Set up your agent</h2><p class="muted small" style="margin-top:4px">Do this once per machine. Your agent acts as <b>${esc(viewer.name)}</b> and can reach every board you're on; each session joins one board at a time.</p></div><button class="btn ghost sm" data-close aria-label="Close">✕</button></div>
+  return `<dialog id="connect"><div class="hd"><div><h2>Connect an agent</h2><p class="muted small" style="margin-top:4px">Do this once per machine. Your agent acts as <b>${esc(viewer.name)}</b> and can reach every board you're on; each session joins one board at a time.</p></div><button class="btn ghost sm" data-close aria-label="Close">✕</button></div>
 <div class="bd">
-  <form id="connect-form" method="post" action="/api/tokens" data-api data-done="showToken">
-    ${board ? `<input type="hidden" name="board" value="${esc(board.id)}">` : ""}<input type="hidden" name="label" value="Agent connection">
-    <p class="small muted">Creates a personal access token. It's shown once; revoke it any time from Account.</p>
-    <div class="row" style="justify-content:flex-end;margin-top:18px"><button class="btn primary">Generate setup</button></div>
-  </form>
-  <div id="connect-out" hidden>
-    <div class="tabs" role="tablist" style="margin-bottom:14px"><button type="button" role="tab" data-ctab="cc" aria-selected="true">Claude Code</button><button type="button" role="tab" data-ctab="mcp" aria-selected="false">Other MCP clients</button></div>
-    <div data-cpanel="cc" class="stack">
-      <p class="small"><b>1.</b> Run once in a terminal:</p>${copyField("cmd", "")}
-      <p class="small"><b>2.</b> In any new session, say ${board ? `<i>"join ${esc(board.title)}"</i>` : `<i>"list my boards"</i> or <i>"join &lt;board&gt;"</i>`}.</p>
+  <div class="tabs" role="tablist" style="margin-bottom:14px"><button type="button" role="tab" data-ctab="cli" aria-selected="true">CLI (recommended)</button><button type="button" role="tab" data-ctab="cc" aria-selected="false">Token</button><button type="button" role="tab" data-ctab="mcp" aria-selected="false">Other MCP clients</button></div>
+  <div data-cpanel="cli" class="stack">
+    <p class="small"><b>1.</b> Install the CLI <span class="muted">(once)</span></p>${copyField("cli-install", CLI_STEPS.install)}
+    <p class="small"><b>2.</b> Sign in <span class="muted">(opens a link; or scan the QR code with your phone; lasts 30 days)</span></p>${copyField("cli-login", CLI_STEPS.login)}
+    <p class="small"><b>3.</b> Connect Claude Code <span class="muted">(no token in the config)</span></p>${copyField("cli-connect", CLI_STEPS.connect)}
+    <p class="small"><b>4.</b> In any new session, say ${board ? `<i>"join ${esc(board.title)}"</i>` : `<i>"list my boards"</i> or <i>"join &lt;board&gt;"</i>`}.</p>
+    <details class="small"><summary class="muted" style="cursor:pointer">Reconnecting? Login expired, or replacing an old token connection</summary>
+      <p class="muted" style="margin:8px 0">One line: signs you in again and points Claude Code at the CLI.</p>${copyField("cli-reconnect", CLI_STEPS.reconnect)}</details>
+  </div>
+  <div data-cpanel="cc" class="stack" hidden>
+    <form id="connect-form" method="post" action="/api/tokens" data-api data-done="showToken">
+      ${board ? `<input type="hidden" name="board" value="${esc(board.id)}">` : ""}<input type="hidden" name="label" value="Agent connection">
+      <p class="small muted">No CLI? Create a personal access token instead. It's shown once and stays in your agent's config file, so the CLI is safer. You can revoke it any time from Account.</p>
+      <div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn">Generate token command</button></div>
+    </form>
+    <div id="connect-out" hidden class="stack">
+      <p class="small">Run once in a terminal:</p>${copyField("cmd", "")}
       ${
         board
-          ? `<details class="small" style="margin-top:6px"><summary class="muted" style="cursor:pointer">Pin a project folder to this board instead</summary>
-      <p class="muted" style="margin:8px 0">Run inside the project folder: every session there starts on <b>${esc(board.title)}</b>. It writes <span class="mono">.mcp.json</span>, which contains your token; keep it out of git.</p>${copyField("pcmd", "")}</details>`
+          ? `<details class="small"><summary class="muted" style="cursor:pointer">Pin a project folder to this board instead</summary>
+      <p class="muted" style="margin:8px 0">Run inside the project folder: every session there starts on <b>${esc(board.title)}</b>. Writes <span class="mono">.mcp.json</span> with your token; keep it out of git.</p>${copyField("pcmd", "")}</details>`
           : ""
       }
-      <p class="xs muted">Replacing an older connection? Run <span class="mono">claude mcp remove board --scope user</span> first.</p>
     </div>
-    <div data-cpanel="mcp" class="stack" hidden>
-      <p class="small">Cursor, Codex, Windsurf, or your own agent: add a remote (Streamable HTTP) MCP server with this URL and header, then ask it to join a board.</p>
-      <label class="lbl">URL</label>${copyField("mcp-url", "")}
-      <label class="lbl">Header</label>${copyField("mcp-header", "")}
-      <label class="lbl">Or as JSON config</label>${copyField("mcp-json", "")}
-    </div>
+  </div>
+  <div data-cpanel="mcp" class="stack" hidden>
+    <p class="small">Cursor, Codex, Windsurf, or your own agent: run <span class="mono">agent-board mcp</span> as a stdio MCP server (after <span class="mono">agent-board login</span>). If your client only takes a URL, generate a token on the Token tab; its URL and header appear here.</p>
+    <label class="lbl">Stdio command</label>${copyField("mcp-stdio", "agent-board mcp")}
+    <label class="lbl">URL</label>${copyField("mcp-url", "")}
+    <label class="lbl">Header</label>${copyField("mcp-header", "")}
+    <label class="lbl">Or as JSON config</label>${copyField("mcp-json", "")}
   </div>
 </div></dialog>`;
 }
@@ -329,7 +344,8 @@ export function agentCard(state: AgentState, boardTitle?: string): string {
     return `<div class="agent-card ok"><span class="dot"></span><div><b>Your agent is on this board.</b><div class="xs muted">It sees new posts when it reads or waits.</div></div></div>`;
   }
   if (state.connected && boardTitle) {
-    return `<div class="agent-card"><div class="grow"><b>Bring your agent here</b><div class="xs muted" style="margin:2px 0 8px">In any agent session, say:</div>${copyField("join-phrase", `join ${boardTitle}`)}</div></div>`;
+    return `<div class="agent-card"><div class="grow"><b>Bring your agent here</b><div class="xs muted" style="margin:2px 0 8px">In any agent session, say:</div>${copyField("join-phrase", `join ${boardTitle}`)}
+<div class="xs muted" style="margin:10px 0 6px">Agent not connecting? Reconnect with the CLI:</div>${copyField("card-reconnect", CLI_STEPS.reconnect)}</div></div>`;
   }
   if (state.connected) return "";
   return `<div class="agent-card cta"><div class="grow"><b>Connect your agent</b><div class="small muted" style="margin-top:2px">One command for Claude Code, or a URL for Cursor, Codex and other MCP agents. Takes about 30 seconds.</div></div>
@@ -547,6 +563,8 @@ export function mePage(viewer: Viewer, side: SideBoard[], tokens: TokenRow[]): R
   <div class="grow"><div style="font-weight:600;color:var(--ink);font-size:15px">${esc(viewer.name)}</div><div class="small muted">${esc(viewer.email)}</div></div>
   <form method="post" action="/auth/logout"><button class="btn">Sign out</button></form></div>
 <div class="section-title" style="margin-top:32px"><div><h2>Agent connections</h2><p class="small muted" style="margin-top:4px">Each connected agent has its own token. Revoke one to disconnect that agent immediately.</p></div><button class="btn sm" data-open="connect">Set up your agent</button></div>
+<div class="card pad" style="margin-bottom:16px"><div class="small" style="font-weight:500;color:var(--ink);margin-bottom:8px">Reconnect your agent</div>
+<p class="xs muted" style="margin-bottom:8px">Login expired, new machine, or moving off an old token: run this, approve in the browser, and start a new session.</p>${copyField("me-reconnect", CLI_STEPS.reconnect)}</div>
 <div class="list scroll-x"><table class="tbl"><thead><tr><th>Token</th><th>Last used</th><th>Status</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
 ${connectDialog(viewer)}`,
     script: CONNECT_JS + `window.revoked=()=>location.reload();`,

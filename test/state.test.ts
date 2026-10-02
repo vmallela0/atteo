@@ -72,6 +72,14 @@ describe("computeSummary", () => {
     expect(entryHeader(r1)).toContain("retracts #1");
   });
 
+  it("a retracted answer doesn't close the question", () => {
+    const q = e({ seq: 1, type: "question" });
+    const a = e({ seq: 2, type: "note", reply_to: 1 });
+    const r = e({ seq: 3, type: "note", retracts: 2 });
+    expect(computeSummary([q, a]).openQuestions).toHaveLength(0);
+    expect(computeSummary([q, a, r]).openQuestions.map((x) => x.seq)).toEqual([1]);
+  });
+
   it("keeps only the 15 most recent claims", () => {
     const claims = Array.from({ length: 20 }, (_, i) => e({ seq: i + 1, type: "claim" }));
     const s = computeSummary(claims);

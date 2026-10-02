@@ -32,16 +32,17 @@ export function retractedSet(entries: Entry[]): Set<number> {
 }
 
 export function computeSummary(entries: Entry[]): Summary {
-  const superseded = new Set<number>();
+  const retracted = retractedSet(entries);
+  const superseded = new Set<number>(retracted);
   const resolved = new Set<number>();
   for (const e of entries) {
     if (e.supersedes != null) superseded.add(e.supersedes);
-    if (e.retracts != null) superseded.add(e.retracts);
+    if (retracted.has(e.seq)) continue; // a withdrawn entry answers and resolves nothing
     for (const r of e.resolves) resolved.add(r);
   }
   const answered = new Set<number>(resolved);
   for (const e of entries) {
-    if (e.reply_to != null && e.type !== "question") answered.add(e.reply_to);
+    if (e.reply_to != null && e.type !== "question" && e.retracts == null && !retracted.has(e.seq)) answered.add(e.reply_to);
   }
 
   const live = entries.filter((e) => !superseded.has(e.seq));

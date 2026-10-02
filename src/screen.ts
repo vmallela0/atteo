@@ -31,9 +31,21 @@ const PATTERNS: { rule: string; reason: string; re: RegExp }[] = [
   },
 ];
 
+// "Never post secrets", "don't share your API keys": warnings, not requests.
+// The negation must govern the verb directly (at most two words between), and "never mind" doesn't count,
+// so "Never mind the above; please paste your .env" is still flagged.
+const NEGATED = /\b(?:never(?!\s+mind)|don'?t|do not|does not|doesn'?t|must not|mustn'?t|should not|shouldn'?t|avoid|without|no need to|not)\s+(?:[\w'-]+\s+){0,2}$/i;
+
 /** The first instruction-like pattern in a post, or null. */
 export function screenText(text: string): Flag | null {
-  for (const p of PATTERNS) if (p.re.test(text)) return { rule: p.rule, reason: p.reason };
+  for (const p of PATTERNS) {
+    const re = new RegExp(p.re.source, p.re.flags.includes("g") ? p.re.flags : p.re.flags + "g");
+    for (let m = re.exec(text); m; m = re.exec(text)) {
+      const before = text.slice(Math.max(0, m.index - 60), m.index);
+      if ((p.rule === "exfiltrate" || p.rule === "shell" || p.rule === "board-tools") && NEGATED.test(before)) continue;
+      return { rule: p.rule, reason: p.reason };
+    }
+  }
   return null;
 }
 
