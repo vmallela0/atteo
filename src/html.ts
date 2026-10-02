@@ -1172,10 +1172,12 @@ async function loadTasks(){const r=await fetch('/api/boards/'+BOARD+'/tasks');co
 function card(t){const first=t.title||'';const boxes=(t.body||'').match(/^\s*[-*] \[( |x|X)\]/gm)||[];const ticked=boxes.filter(b=>/x/i.test(b)).length;
   const who=t.assignee?(t.assignee_agent?t.assignee+"'s agent":t.assignee):'';
   const hold=t.lease_holder?(t.lease_agent?t.lease_holder+"'s agent":t.lease_holder):'';
-  return '<article class="kcard" draggable="true" data-seq="'+t.seq+'">'+
-    '<div class="row" style="gap:6px"><a class="seq" href="#e'+t.seq+'" data-kopen="'+t.seq+'">#'+t.seq+'</a>'+(t.priority?'<span class="badge pri-'+t.priority+'">'+t.priority+'</span>':'')+(t.status==='stopped'?'<span class="badge pri-high">stopped</span>':'')+'<span class="grow"></span>'+(t.due?'<span class="xs faint">due '+new Date(t.due).toISOString().slice(5,10)+'</span>':'')+'</div>'+
-    '<div class="ktext">'+kesc(first)+'</div>'+(boxes.length?'<div class="xs faint">☑ '+ticked+'/'+boxes.length+'</div>':'')+
-    ((who||hold||t.stop_reason)?'<div class="xs faint">'+[who&&('for '+kesc(who)),hold&&('🔒 '+kesc(hold)),t.stop_reason&&kesc(t.stop_reason)].filter(Boolean).join(' · ')+'</div>':'')+'</article>'}
+  // Title first; one quiet line under it: number, priority, checklist, due date, and who it's for / who holds it.
+  return '<article class="kcard" draggable="true" data-seq="'+t.seq+'"><div class="ktext">'+kesc(first)+'</div>'+
+    '<div class="kmeta"><a class="seq" href="#e'+t.seq+'" data-kopen="'+t.seq+'">#'+t.seq+'</a>'+(t.priority?'<span class="badge pri-'+t.priority+'">'+t.priority+'</span>':'')+(t.status==='stopped'?'<span class="badge pri-high">stopped</span>':'')+
+    (boxes.length?'<span>☑ '+ticked+'/'+boxes.length+'</span>':'')+(t.due?'<span>due '+new Date(t.due).toISOString().slice(5,10)+'</span>':'')+'<span class="grow"></span>'+
+    (hold?'<span title="'+kesc(hold)+' is working on it">🔒</span>':'')+(who?'<span title="For '+kesc(who)+'">'+avatar16(t.assignee,t.assignee_agent)+'</span>':'')+'</div>'+
+    (t.stop_reason?'<div class="xs faint">'+kesc(t.stop_reason)+'</div>':'')+'</article>'}
 async function taskAct(seq,body){const r=await fetch('/api/boards/'+BOARD+'/tasks/'+seq,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
   const j=await r.json().catch(()=>({}));if(!r.ok)toast(j.error||'Could not update');loadTasks();tick(false)}
 const kb=document.getElementById('kanban');let dragSeq=null;
@@ -1295,7 +1297,7 @@ window.boardKeys=(e,k)=>{
 </div>
 
 <div role="tabpanel" id="panel-tasks" class="bp-panel" data-board-panel hidden>
-  <div class="kanban-head row"><span class="small muted grow">Drag a card to change its status. Agents see the same board through the <code>task</code> tool.</span>${
+  <div class="kanban-head row"><span class="small muted grow kb-hint">Drag a card to change its status. Agents see the same board through the <code>task</code> tool.</span>${
     info.archived ? "" : `<form class="row kb-new" id="kb-new"><input class="input sm" id="kb-new-text" placeholder="New task…" aria-label="New task"><button class="btn sm">Add</button></form>`
   }</div>
   <div class="kanban" id="kanban"><p class="muted small">Loading…</p></div>
