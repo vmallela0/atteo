@@ -658,7 +658,7 @@ export default {
         try {
           const entry = await boardStub(env, m[1]).post(viewer.name, {
             type: "note",
-            text: String(body.reason ?? "").trim() || `Retracted #${seq}.`,
+            text: String(body.reason ?? "").trim() || `Unsent #${seq}.`,
             retracts: seq,
             via: "person",
           });

@@ -57,7 +57,7 @@ export function rootMap(entries: Entry[]): Map<number, number> {
 
 export function entryHtml(e: Entry, boardId: string, withReplies = true, opts: { retracted?: boolean; canRetract?: boolean } = {}): string {
   const refs: string[] = [];
-  if (e.retracts != null) refs.push(`retracts <a href="#e${e.retracts}">#${e.retracts}</a>`);
+  if (e.retracts != null) refs.push(`unsends <a href="#e${e.retracts}">#${e.retracts}</a>`);
   if (e.reply_to != null) refs.push(`reply to <a href="#e${e.reply_to}">#${e.reply_to}</a>`);
   if (e.resolves.length) refs.push(`resolves ${e.resolves.map((n) => `<a href="#e${n}">#${n}</a>`).join(", ")}`);
   if (e.supersedes != null) refs.push(`supersedes <a href="#e${e.supersedes}">#${e.supersedes}</a>`);
@@ -68,12 +68,12 @@ export function entryHtml(e: Entry, boardId: string, withReplies = true, opts: {
     : "";
   // Reply sets the composer to answer this entry: an agent's post gets the reply addressed to that agent.
   const reply = !opts.retracted && e.retracts == null ? `<button class="btn ghost sm" type="button" data-reply="${e.seq}" data-reply-label="${esc(e.via === "person" ? e.author : `${e.author}'s agent`)}">Reply</button>` : "";
-  const retract = opts.canRetract && !opts.retracted && e.retracts == null ? `<button class="btn ghost sm retract" type="button" data-retract="${e.seq}">Retract</button>` : "";
+  const retract = opts.canRetract && !opts.retracted && e.retracts == null ? `<button class="btn ghost sm retract" type="button" data-retract="${e.seq}">Unsend</button>` : "";
   const actions = reply || retract ? `<span class="acts">${reply}${retract}</span>` : "";
   return `<article class="entry${opts.retracted ? " retracted" : ""}${e.via === "agent" ? " by-agent" : ""}" id="e${e.seq}" data-seq="${e.seq}" data-author="${esc(e.author)}">
 ${avatar(e.author, "", e.via === "agent")}
 <div class="grow">
-  <div class="meta">${whoHtml(e)}${e.to ? `<span class="to">→ ${esc(e.to)}</span>` : ""}${typeTag(e.type)}${when(e.ts)}<a class="seq" href="#e${e.seq}">#${e.seq}</a><span class="badge rbadge">Retracted</span>${flagBadge(e.text)}${actions}</div>
+  <div class="meta">${whoHtml(e)}${e.to ? `<span class="to">→ ${esc(e.to)}</span>` : ""}${typeTag(e.type)}${when(e.ts)}<a class="seq" href="#e${e.seq}">#${e.seq}</a><span class="badge rbadge">Unsent</span>${flagBadge(e.text)}${actions}</div>
   <div class="body">${renderText(e.text, e.mentions)}</div>${file}${e.card ? changeCardHtml(e.seq, e.card) : ""}
   ${refs.length ? `<div class="refs">${refs.join(" · ")}</div>` : ""}
   ${withReplies ? `<div class="replies" id="r${e.seq}"></div>` : ""}
@@ -769,9 +769,9 @@ window.applyTitle=(t)=>{const h=document.getElementById('board-title');if(h)h.te
 window.archiveDone=(j)=>{toast(j.message||'Done');setTimeout(()=>location.reload(),400)};
 document.getElementById('del-confirm')?.addEventListener('input',e=>{document.getElementById('del-go').disabled=e.target.value.trim()!==${jsString(info.title)}});
 document.addEventListener('click',async e=>{const b=e.target.closest('[data-retract]');if(!b)return;
-  if(b.dataset.armed!=='1'){b.dataset.armed='1';b.textContent='Retract #'+b.dataset.retract+'?';b.classList.add('danger');setTimeout(()=>{b.dataset.armed='';b.textContent='Retract';b.classList.remove('danger')},4000);return}
+  if(b.dataset.armed!=='1'){b.dataset.armed='1';b.textContent='Unsend #'+b.dataset.retract+'?';b.classList.add('danger');setTimeout(()=>{b.dataset.armed='';b.textContent='Unsend';b.classList.remove('danger')},4000);return}
   b.disabled=true;const r=await fetch('/api/boards/'+BOARD+'/entries/'+b.dataset.retract+'/retract',{method:'POST',headers:{'content-type':'application/json'},body:'{}'});
-  const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||'Could not retract');b.disabled=false;return}toast('Retracted');tick(false)});
+  const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||'Could not unsend');b.disabled=false;return}toast('Unsent');tick(false)});
 document.addEventListener('click',async e=>{const b=e.target.closest('[data-member-remove]');if(!b)return;
   if(b.dataset.armed!=='1'){b.dataset.armed='1';b.textContent=b.dataset.label==='Leave'?'Leave board?':'Remove '+b.dataset.memberRemove+'?';b.classList.add('danger');
     setTimeout(()=>{b.dataset.armed='';b.textContent=b.dataset.label;b.classList.remove('danger')},4000);return}
