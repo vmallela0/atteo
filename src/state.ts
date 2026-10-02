@@ -84,6 +84,7 @@ export function entryHeader(e: Entry, viewer?: string): string {
   if (e.resolves.length) parts.push(`resolves ${e.resolves.map((n) => "#" + n).join(", ")}`);
   if (e.supersedes != null) parts.push(`supersedes #${e.supersedes}`);
   if (e.retracts != null) parts.push(`retracts #${e.retracts}`);
+  if (e.handled_by) parts.push(`handled by ${e.handled_by}`);
   if (e.artifact_name) parts.push(`file: ${e.artifact_name}${e.artifact_version ? ` v${e.artifact_version}` : ""} (${e.artifact_size ?? 0} bytes)`);
   parts.push(fmtTime(e.ts));
   const flag = screenText(e.text) ?? (e.ai_flag ? { rule: "model", reason: e.ai_flag } : null);

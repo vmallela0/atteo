@@ -40,7 +40,7 @@ describe("board page", () => {
   it("regexes in the page script keep their escapes (a single \\s in the server template turns into a plain s)", async () => {
     const res = boardPage({ name: "jxn", email: "jxn@example.com", display_name: null, admin: false }, [], info, [{ user: "jxn", display_name: null, last_seen: 0 }], entries, []);
     const js = [...(await res.text()).matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]).join("\n");
-    for (const re of ["/^#e\\d+$/", "(^|[^A-Za-z0-9_.@\\/-])@([A-Za-z0-9_.-]{0,32})$/", "/^(diff |index |\\+\\+\\+ |--- )/"]) expect(js).toContain(re);
+    for (const re of ["/^#e\\d+$/", "(^|[^A-Za-z0-9_.@\\/-])@([A-Za-z0-9_.-]{0,32}(?:\\/[A-Za-z0-9_.-]{0,32})?)$/", "s\\s+agent\\b|\\/[A-Za-z0-9]", "/^(diff |index |\\+\\+\\+ |--- )/"]) expect(js).toContain(re);
     expect(js).not.toMatch(/\(\^\|s\)/); // "(^|s)" is what a lost \s looks like
   });
 

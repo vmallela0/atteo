@@ -30,14 +30,19 @@ function jsString(v: unknown): string {
 }
 
 /** Composer autocomplete choices: each other member and their agent, then the viewer's own agent. */
-export function mentionOptions(members: string[], viewer: string): { u: string; ins: string; label: string; k: string; av: string }[] {
+export function mentionOptions(members: string[], viewer: string, sessions: { user: string; name: string | null; client: string | null }[] = []): { u: string; ins: string; label: string; k: string; av: string }[] {
   const others = [...new Set(members)].filter((m) => m !== viewer).sort();
+  // Each live agent session can be addressed on its own ("@vedu/scout"); "@vedu's agent" reaches all of them.
+  const sessionsOf = (u: string) =>
+    sessions.filter((x) => x.user === u && x.name).map((x) => ({ u, ins: `${u}/${x.name}`, label: esc(`${u}/${x.name}`), k: x.client ?? "session", av: avatar(u, "sm", true) }));
   return [
     ...others.flatMap((m) => [
       { u: m, ins: m, label: esc(m), k: "person", av: avatar(m, "sm") },
-      { u: m, ins: `${m}'s agent`, label: esc(`${m}'s agent`), k: "agent", av: avatar(m, "sm", true) },
+      { u: m, ins: `${m}'s agent`, label: esc(`${m}'s agent`), k: sessionsOf(m).length > 1 ? "all their agents" : "agent", av: avatar(m, "sm", true) },
+      ...sessionsOf(m),
     ]),
-    { u: viewer, ins: `${viewer}'s agent`, label: esc(`${viewer}'s agent`), k: "your agent", av: avatar(viewer, "sm", true) },
+    { u: viewer, ins: `${viewer}'s agent`, label: esc(`${viewer}'s agent`), k: sessionsOf(viewer).length > 1 ? "all your agents" : "your agent", av: avatar(viewer, "sm", true) },
+    ...sessionsOf(viewer),
     ...(others.includes("agents") ? [] : [{ u: "agents", ins: "agents", label: "agents", k: "every agent", av: avatar("agents", "sm", true) }]),
   ];
 }
@@ -752,6 +757,7 @@ async function tick1(wait){try{
   if(typeof d.last==='number')last=Math.max(last,d.last);
   if(d.reviews)applyReviews(d.reviews);
   if(d.claims)renderClaims(d.claims);
+  if(d.handling)renderHandling(d.handling);
   if(d.reads){READS=d.reads;renderReads()}
   if(added){railBuild();if(stick)toBottom();else{unseen=true;pillSync()}}
   if(d.entries.length){document.getElementById('sum').innerHTML=d.summary;document.querySelectorAll('[data-count]').forEach(x=>x.textContent=d.count);refreshTimes();infoCount()}
@@ -782,7 +788,7 @@ function connect(){
     if(d.type==='reaction'){renderRx(d.seq,d.reactions);return}
     if(d.type==='read'){READS[d.user]={person_seen:d.person_seen,agent_seen:d.agent_seen};renderReads();return}
     if(d.type==='task')refreshTask(d.seq);
-    if(d.type==='claim')tick(false);
+    if(d.type==='claim'||d.type==='handling')tick(false);
     if(d.type==='task'){if(!document.getElementById('panel-tasks').hidden)loadTasks();if(td&&td.open&&tcur&&tcur.seq===d.seq&&!tdirty)openTask(d.seq)}
     if(d.type==='entry'||(d.type==='hello'&&d.last>last)){tick(false);if(!document.getElementById('panel-tasks').hidden)loadTasks()}};
   ws.onclose=(e)=>{clearInterval(ping);if(e.code!==4003)document.getElementById('conn').hidden=false;if(e.code===4003){location.href='/';return}
@@ -811,7 +817,7 @@ document.addEventListener('click',e=>{const b=e.target.closest('[data-reply]');i
   if(e.target.closest('#reply-cancel'))replyClear()});
 document.getElementById('composer-text').addEventListener('keydown',e=>{if(e.key==='Escape'&&!rpBox.hidden&&document.getElementById('mention-menu').hidden)replyClear()});
 // @mention autocomplete: people ("@vedu") and agents ("@vedu's agent", including your own).
-const MOPTS=${jsString(mentionOptions(members.map((m) => m.user), viewer.name))};
+const MOPTS=${jsString(mentionOptions(members.map((m) => m.user), viewer.name, agents))};
 const MNAMES=new Set(MOPTS.map(o=>o.u)),ME=${jsString(viewer.name)};
 // "@you" glows, and so does the message it's in, including ones that arrive live.
 function markMe(root){root.querySelectorAll('.mention:not(.agent)').forEach(m=>{if(m.dataset.user===ME){m.classList.add('me');m.closest('.entry')?.classList.add('for-you')}})}
@@ -828,9 +834,9 @@ new MutationObserver(readInbox).observe(document.getElementById('thread'),{child
 function mentionize(ta,mm,mirror){
 let mi=0,ms=[],mq=null;
 function mfind(){if(ta.selectionStart!==ta.selectionEnd)return null;const v=ta.value.slice(0,ta.selectionStart);
-  const m=v.match(/(^|[^A-Za-z0-9_.@\\/-])@([A-Za-z0-9_.-]{0,32})$/);return m?{start:v.length-m[2].length-1,q:m[2].toLowerCase()}:null}
+  const m=v.match(/(^|[^A-Za-z0-9_.@\\/-])@([A-Za-z0-9_.-]{0,32}(?:\\/[A-Za-z0-9_.-]{0,32})?)$/);return m?{start:v.length-m[2].length-1,q:m[2].toLowerCase()}:null}
 function mclose(){mm.hidden=true;ms=[];ta.setAttribute('aria-expanded','false');ta.removeAttribute('aria-activedescendant')}
-function mrender(){mq=mfind();ms=mq?MOPTS.filter(o=>o.u.startsWith(mq.q)):[];if(!ms.length)return mclose();mi=Math.min(mi,ms.length-1);
+function mrender(){mq=mfind();ms=mq?MOPTS.filter(o=>mq.q.includes('/')?o.ins.toLowerCase().startsWith(mq.q):o.u.startsWith(mq.q)):[];if(!ms.length)return mclose();mi=Math.min(mi,ms.length-1);
   mm.innerHTML='<li class="hint" aria-hidden="true">Mention a person or their agent</li>'+ms.map((o,i)=>'<li role="option" id="'+mm.id+'-'+i+'" data-i="'+i+'" aria-selected="'+(i===mi)+'">'+o.av+'<span class="truncate">'+o.label+'</span><span class="k">'+o.k+'</span></li>').join('');
   mm.hidden=false;ta.setAttribute('aria-expanded','true');ta.setAttribute('aria-activedescendant',mm.id+'-'+mi)}
 function mpick(o){const end=ta.selectionStart,before=ta.value.slice(0,mq.start),after=ta.value.slice(end);const ins='@'+o.ins+(/^\\s/.test(after)?'':' ');
@@ -844,7 +850,7 @@ ta.addEventListener('blur',mclose);
 mm.addEventListener('mousedown',e=>{e.preventDefault();const li=e.target.closest('[data-i]');if(li)mpick(ms[+li.dataset.i])});
 // Mentions in the composer are chips: a mirror under the (transparent) text draws them, and an edit or a caret move
 // treats each one as a single unit, so one Backspace removes "@vedu's agent" whole and the caret never lands inside.
-function mtokens(v){const out=[],re=/(^|[^A-Za-z0-9_.@\\/-])@([A-Za-z0-9][A-Za-z0-9_.-]{0,31})((?:'|’)s\\s+agent\\b)?/gi;let m;
+function mtokens(v){const out=[],re=/(^|[^A-Za-z0-9_.@\\/-])@([A-Za-z0-9][A-Za-z0-9_.-]{0,31})((?:'|’)s\\s+agent\\b|\\/[A-Za-z0-9][A-Za-z0-9_.-]{0,31})?/gi;let m;
   while((m=re.exec(v))){const raw=m[2].toLowerCase();let h=raw;if(!MNAMES.has(h))h=raw.replace(/[.-]+$/,'');if(!MNAMES.has(h))continue;
     const agent=!!m[3]&&h===raw;if(!agent&&h===ME)continue; // you can't mention yourself, only your agent
     const start=m.index+m[1].length;out.push({start,end:start+1+h.length+(agent?m[3].length:0),agent})}
@@ -1066,6 +1072,10 @@ document.addEventListener('click',async e=>{const b=e.target.closest('[data-tk]'
   if(a==='open'){openTask(seq);return}b.disabled=true;
   await taskAct(seq,a==='claim'||a==='release'?{action:a}:{action:'update',status:a==='done'?'done':'todo'});b.disabled=false;refreshTask(seq)});
 fetch('/api/boards/'+BOARD+'/tasks').then(r=>r.json()).then(j=>(j.tasks||[]).forEach(renderTask)).catch(()=>{});
+// ---- "on it": which agent took a message (several of someone's agents were addressed; one handles it) ----
+function renderHandling(map){for(const [seq,by] of Object.entries(map)){const m=document.querySelector('#e'+seq+'>.grow>.meta');if(!m)continue;
+  let b=m.querySelector('.hdl');if(!b){b=document.createElement('span');b.className='badge hdl';m.insertBefore(b,m.querySelector('.acts'))}
+  b.textContent=by+' is on it';b.title=by+' is handling this'}}
 // ---- claims in the conversation: unverified → evidence → verified by someone else, or disputed; posts resting on a bad premise show "Stale" ----
 // Status comes with every update (d.claims: seq → {status, by, reason, stale_from, stale_why}).
 const CLST={asserted:'Unverified',evidenced:'Has evidence',verified:'Verified',disputed:'Disputed'};let CLAIMS={};

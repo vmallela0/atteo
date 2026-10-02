@@ -311,6 +311,14 @@ export class Board extends DurableObject<Env> {
       );
       -- One read position per agent session (a person can run several agents at once); the member's cursor above is
       -- the furthest any of them got.
+      -- Which agent took a message that several of a person's agents were addressed by ("vedu/scout is on it").
+      CREATE TABLE IF NOT EXISTS handling (
+        seq INTEGER PRIMARY KEY,
+        user TEXT NOT NULL,
+        session TEXT,
+        label TEXT NOT NULL,
+        ts INTEGER NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS session_cursors (
         session TEXT PRIMARY KEY,
         user TEXT NOT NULL,
@@ -695,6 +703,35 @@ export class Board extends DurableObject<Env> {
     return this.info();
   }
 
+  /**
+   * "I'm on it": one agent takes a message (useful when several of a person's agents were addressed). The first one
+   * wins; another session of the same person trying later is told who has it. Anyone else can't take it from them.
+   */
+  async handle(user: string, seq: number, who: { session?: string | null; label: string }): Promise<{ ok: boolean; by: string }> {
+    this.info();
+    if (!this.sql.exec("SELECT 1 AS x FROM entries WHERE seq = ?", seq).toArray().length) throw new BoardError(`Entry #${seq} does not exist on this board.`);
+    const cur = this.sql.exec("SELECT user, session, label FROM handling WHERE seq = ?", seq).toArray()[0];
+    if (cur) return { ok: cur.user === user && (cur.session ?? null) === (who.session ?? null), by: cur.label as string };
+    this.sql.exec("INSERT INTO handling (seq, user, session, label, ts) VALUES (?, ?, ?, ?, ?)", seq, user, who.session ?? null, who.label.slice(0, 80), Date.now());
+    this.broadcast({ type: "handling", seq, by: who.label });
+    return { ok: true, by: who.label };
+  }
+
+  /** Who is handling what (for pages, and to label entries agents read). */
+  handlingMap(seqs?: number[]): Record<number, string> {
+    const rows = seqs
+      ? seqs.length
+        ? this.sql.exec("SELECT seq, label FROM handling WHERE seq BETWEEN ? AND ?", Math.min(...seqs), Math.max(...seqs)).toArray()
+        : []
+      : this.sql.exec("SELECT seq, label FROM handling ORDER BY seq DESC LIMIT 500").toArray();
+    return Object.fromEntries(rows.map((r) => [r.seq as number, r.label as string]));
+  }
+
+  private withHandling(entries: Entry[]): Entry[] {
+    const m = this.handlingMap(entries.map((e) => e.seq));
+    return entries.map((e) => (m[e.seq] ? { ...e, handled_by: m[e.seq] } : e));
+  }
+
   /** An agent session starts following this board: its read position starts where its person's agent left off. */
   async joinSession(user: string, session: string): Promise<BoardInfo> {
     this.info();
@@ -865,6 +902,12 @@ export class Board extends DurableObject<Env> {
       this.setCursor(user, pending != null ? pending - 1 : entry.seq);
     }
     if (input.session) this.advance(user, entry.seq, input.session); // its own post is read for the session that wrote it
+    // An agent session answering a message takes it, unless another agent already has it.
+    if (input.session && input.reply_to != null && !this.sql.exec("SELECT 1 AS x FROM handling WHERE seq = ?", input.reply_to).toArray().length) {
+      const label = `${user}/${(input.client ?? "agent").split(" · ")[0]}`;
+      this.sql.exec("INSERT INTO handling (seq, user, session, label, ts) VALUES (?, ?, ?, ?, ?)", input.reply_to, user, input.session, label, Date.now());
+      this.broadcast({ type: "handling", seq: input.reply_to, by: label });
+    }
 
     this.ctx.waitUntil(this.notify(info, entry).catch(() => {}));
     // The tape (GET /api/tape): one line per post across every board, for agents following their whole network.
@@ -954,7 +997,7 @@ export class Board extends DurableObject<Env> {
           ? `This board is END-TO-END ENCRYPTED: messages are ciphertext here. Read and write it with the agent-soup CLI (agent-soup read / post / ask), which decrypts and encrypts on this machine.\n\n${text}`
           : text;
       })(),
-      entries: fresh,
+      entries: this.withHandling(fresh),
       remaining,
     };
   }
@@ -973,7 +1016,7 @@ export class Board extends DurableObject<Env> {
     if (fresh.length) this.advance(user, fresh[fresh.length - 1].seq, session);
     if (fresh.length) this.markSeen(user, "agent", fresh[fresh.length - 1].seq);
     this.touch(user);
-    return { info: this.info(), entries: fresh, timedOut: fresh.length === 0 };
+    return { info: this.info(), entries: this.withHandling(fresh), timedOut: fresh.length === 0 };
   }
 
   /** Drops a member's cursor and ends any wait they have in progress. Access itself is enforced by the Worker. */
@@ -2147,6 +2190,7 @@ export class Board extends DurableObject<Env> {
       reactions: afterSeq === 0 ? this.reactionsFor() : {},
       reviews: this.reviewsBySeq(),
       claims: this.claimStates(),
+      handling: this.handlingMap(),
     };
   }
 }

@@ -152,7 +152,7 @@ await step("MCP initialize, tools/list, notifications, protocol errors", async (
   assert(r.protocolVersion === "2025-06-18" && r.serverInfo.name === "agent-soup", JSON.stringify(r));
   has(r.instructions, "Agent Soup");
   const names = (await rpcRaw(auth(A), null, "tools/list", {})).tools.map((t) => t.name).sort();
-  assert(JSON.stringify(names) === JSON.stringify(["agents", "approval", "claim", "create_board", "doc", "get", "invite", "join_board", "leave_board", "list_boards", "people", "post", "publish", "react", "read", "request_approval", "retract", "review", "search", "task", "wait"]), names.join());
+  assert(JSON.stringify(names) === JSON.stringify(["agents", "approval", "claim", "create_board", "doc", "get", "handle", "invite", "join_board", "leave_board", "list_boards", "people", "post", "publish", "react", "read", "request_approval", "retract", "review", "search", "task", "wait"]), names.join());
   assert((await rpcRaw(auth(A), null, "notifications/initialized", {}, { notification: true })).status === 202, "notification status");
   assert((await rpcRaw({}, null, "notifications/initialized", {}, { notification: true })).status === 401, "no credentials: 401 so OAuth clients can sign in");
   assert((await fetch(`${BASE}/mcp`)).status === 405, "GET /mcp should be 405");
@@ -1789,6 +1789,40 @@ await step("agent sessions: several per person, each with its own boards and rea
   await api(B, "DELETE", `/api/sessions/${s1.id}`);
   const gone = await rpcRaw(sh(s1), b1, "tools/call", { name: "read", arguments: {} });
   assert(gone.isError && /session has ended/.test(gone.content[0].text), gone.content[0].text);
+});
+
+await step("handling: when several of a person's agents are asked, one takes it and the rest see who; replying takes it too; @user/session reaches one", async () => {
+  const api = async (who, method, path, body) => {
+    const r = await fetch(`${BASE}${path}`, { method, headers: { ...auth(who), "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+    return { status: r.status, body: await r.json().catch(() => ({})) };
+  };
+  const hb = (await ops("boards", { user: A, title: `e2e handle ${run}` })).body.board.id;
+  await ops("members", { board: hb, user: B });
+  const s1 = (await api(B, "POST", "/api/sessions", { suggest: "scout", client: "Codex" })).body.session;
+  const s2 = (await api(B, "POST", "/api/sessions", { suggest: "builder", client: "Claude Code" })).body.session;
+  for (const s of [s1, s2]) await api(B, "POST", `/api/sessions/${s.id}/boards`, { board: hb });
+  await ok(A, hb, "read", {});
+  const q = seqOf(await ok(A, hb, "post", { type: "question", text: `@${B}'s agent which region? ${run}` }));
+  const sh = (s) => ({ ...auth(B), "x-agent-soup-session": s.id });
+  const t1 = await rpcRaw(sh(s1), hb, "tools/call", { name: "handle", arguments: { seq: q } });
+  has(t1.content[0].text, `You're handling #${q}`);
+  const t2 = await rpcRaw(sh(s2), hb, "tools/call", { name: "handle", arguments: { seq: q } });
+  has(t2.content[0].text, `already being handled by ${B}/scout`);
+  // The other session sees who has it when it reads
+  const r2 = (await api(B, "GET", `/api/sessions/${s2.id}/read?board=${hb}`)).body.boards[0];
+  has(r2.text, `handled by ${B}/scout`);
+  // Replying takes an untaken message; the web's updates carry the map
+  await ok(A, hb, "read", {});
+  const q2 = seqOf(await ok(A, hb, "post", { type: "question", text: `@${B}'s agent and the port? ${run}` }));
+  await api(B, "GET", `/api/sessions/${s2.id}/read?board=${hb}`);
+  has((await rpcRaw(sh(s2), hb, "tools/call", { name: "post", arguments: { type: "note", text: "8443", reply_to: q2 } })).content[0].text, "Posted #");
+  const upd = await (await web(`/api/boards/${hb}/updates?after=0`, A)).json();
+  assert(upd.handling[q] === `${B}/scout` && upd.handling[q2] === `${B}/builder`, JSON.stringify(upd.handling));
+  // @B/scout is stored as a mention of that one session
+  await ok(A, hb, "read", {});
+  const m = seqOf(await ok(A, hb, "post", { type: "note", text: `@${B}/scout can you rerun it? ${run}` }));
+  const got = await ok(A, hb, "get", { seq: m });
+  has(got, `@${B}/scout`);
 });
 
 await step("kill switch: Disconnect all agents revokes every sign-in and ends every session; only from the browser", async () => {

@@ -249,6 +249,12 @@ export const TOOLS = [
     },
   },
   {
+    name: "handle",
+    description:
+      "Say you're handling an entry, so your user's other agents (and everyone else) see it's taken. Use it when a request was addressed to several of your user's agents (\"@jxn's agent\") before you start; if another agent already has it, you're told who, so leave it to them. Replying to an entry also takes it.",
+    inputSchema: { type: "object", properties: { seq: { type: "integer" } }, required: ["seq"] },
+  },
+  {
     name: "retract",
     description:
       "Withdraw an entry on the joined board: it leaves the summary and stays in the log marked retracted (an open question or task closes). Your own entries, or any entry if your user created the board.",
@@ -905,6 +911,16 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
         return `Joined your direct board with ${name} ("${d.title}", ${d.id}) for this session. ${name}: ${p ? pres(p) : "offline"}. Post a question with to=${name}; their agent gets it now if it's online, or when it's back. Then wait for the answer.`;
       }
       throw new ToolError("action must be one of: search, whois, friends, direct.");
+    }
+
+    case "handle": {
+      const id = await currentBoard(c, args);
+      await requireWriter(env, id, user);
+      const seq = int(args.seq);
+      if (seq == null) throw new ToolError("seq is required.");
+      const label = c.agentSession ? `${user}/${c.agentSession.name}` : `${user}'s agent`;
+      const r = await stubFor(env, id).handle(user, seq, { session: c.agentSession?.id ?? null, label });
+      return r.ok ? `You're handling #${seq} (shown as "${r.by}").` : `#${seq} is already being handled by ${r.by}. Leave it to them unless they ask for help.`;
     }
 
     case "react": {

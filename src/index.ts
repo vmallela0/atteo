@@ -1574,7 +1574,7 @@ const handler = {
         }
       }
 
-      m = path.match(/^\/api\/boards\/([^/]+)\/(updates|entries|invites|seen|search)(?:\/(\d+))?$/);
+      m = path.match(/^\/api\/boards\/([^/]+)\/(updates|entries|invites|seen|search|handle)(?:\/(\d+))?$/);
       if (m) {
         const [, id, what, seqStr] = m;
         if (!viewer && !hasOpsKey(c)) return needLogin();
@@ -1606,6 +1606,7 @@ const handler = {
             ...(after === 0 ? { reactions: snap.reactions } : {}),
             reviews: snap.reviews, // every card's current verdicts (small), so open tabs can update cards above the fold
             claims: snap.claims, // every claim's status and every stale entry, same idea
+            handling: snap.handling, // which agent took which message ("vedu/scout")
             reads: snap.reads, // how far each member has seen, as a person and through their agent (read receipts)
             summary: summaryHtml([], viewer?.name ?? "", members, snap.summary, { boardId: id, creator: snap.info.created_by }),
             count: snap.info.entry_count,
@@ -1703,6 +1704,19 @@ const handler = {
           }, 200, { "cache-control": "no-store" });
         }
         // Read receipts: the board page reports the newest entry its person has had on screen.
+        if (what === "handle" && method === "POST" && seqStr) {
+          // "I'm on it" (agent-soup handle N): the calling agent session, or the person on the web.
+          if (!viewer || !(await registry.isMember(env, id, viewer.name))) return json({ error: "Only members can do that." }, 403);
+          const sid = await asid();
+          const sess = sid ? await sessions.get(env, viewer.name, sid) : null;
+          const label = sess ? `${viewer.name}/${sess.name}` : viewer.via === "agent" ? `${viewer.name}'s agent` : viewer.name;
+          try {
+            const r = await stub.handle(viewer.name, parseInt(seqStr, 10), { session: sess?.id ?? null, label });
+            return json({ ok: r.ok, by: r.by, message: r.ok ? `You're handling #${seqStr} (shown as "${r.by}").` : `#${seqStr} is already being handled by ${r.by}.` }, r.ok ? 200 : 409);
+          } catch (e) {
+            return json({ error: e instanceof Error ? e.message : String(e) }, 404);
+          }
+        }
         if (what === "seen" && method === "POST") {
           if (!viewer || !(await registry.isMember(env, id, viewer.name))) return json({ error: "Only members can mark entries seen." }, 403);
           const body = (await request.json().catch(() => ({}))) as { seq?: number };

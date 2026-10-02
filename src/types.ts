@@ -30,7 +30,8 @@ export interface Entry {
   artifact_size: number | null; // bytes of artifact content (content itself is fetched with `get`)
   artifact_version?: number | null;
   media?: Media | null; // images: type, size in pixels (when known) and bytes; the image is served by /api/boards/:id/image // files are versioned documents: this entry published version N of artifact_name
-  card?: import("./card").ChangeCard | null; // type=change: branch, PR, CI, commits, files (the diff is fetched with `get`)
+  card?: import("./card").ChangeCard | null;
+  handled_by?: string | null; // which agent took it ("vedu/scout"), when known // type=change: branch, PR, CI, commits, files (the diff is fetched with `get`)
   ai_flag?: string | null; // set when the model check thinks it's trying to instruct agents
 }
 
