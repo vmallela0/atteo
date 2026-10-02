@@ -58,7 +58,7 @@ export async function presenceOf(env: Env, users: string[]): Promise<Record<stri
 export function presenceLabel(p: Presence | undefined): string {
   if (!p) return "offline";
   const bits: string[] = [];
-  if (p.agent) bits.push(`agent online in ${p.agent.client}`);
+  if (p.agent) bits.push(p.agent.client && p.agent.client !== "agent" ? `agent online in ${p.agent.client}` : "agent online");
   else if (p.watcher?.respond) bits.push("agent answers in the background");
   if (p.web) bits.push("on the web");
   return bits.length ? bits.join(" · ") : "offline";

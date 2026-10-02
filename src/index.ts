@@ -32,6 +32,7 @@ import {
   type Viewer,
   legalPage,
   profilePage,
+  peoplePage,
 } from "./html";
 import type { Entry, Env } from "./types";
 import { FAVICON_SVG, renderText } from "./ui";
@@ -102,7 +103,7 @@ function hasOpsKey(c: Ctx): boolean {
 const isOps = (c: Ctx) => !!c.viewer?.admin || hasOpsKey(c);
 
 async function sideBoards(env: Env, user: string): Promise<SideBoard[]> {
-  return (await registry.boardsForUser(env, user)).filter((b) => !b.archived_at).map((b) => ({ id: b.id, title: b.title }));
+  return (await registry.boardsForUser(env, user)).filter((b) => !b.archived_at).map((b) => ({ id: b.id, title: b.title, kind: (b as { kind?: string | null }).kind ?? null }));
 }
 
 /** Members (and operators) can see a board; everyone else gets a 404 so board ids don't leak. */
@@ -452,6 +453,11 @@ export default {
       }
 
       // ---- social: people, friends, presence, direct boards ----
+      if (path === "/people" && method === "GET") {
+        if (!viewer) return needLogin();
+        const [side, friends] = await Promise.all([sideBoards(env, viewer.name), social.friendsOf(env, viewer.name)]);
+        return peoplePage(viewer, side, friends);
+      }
       let um = path.match(/^\/u\/([a-z0-9][a-z0-9_.-]{0,31})$/);
       if (um && method === "GET") {
         if (!viewer) return needLogin();
@@ -514,14 +520,13 @@ export default {
 
       if (path === "/me" && method === "GET") {
         if (!viewer) return needLogin();
-        const [side, tokens, plan, hooks, friends] = await Promise.all([
+        const [side, tokens, plan, hooks] = await Promise.all([
           sideBoards(env, viewer.name),
           auth.listTokens(env, viewer.name),
           billing.planOf(env, viewer.name),
           webhooks.listWebhooks(env, viewer.name),
-          social.friendsOf(env, viewer.name),
         ]);
-        return mePage(viewer, side, tokens, plan, !!env.STRIPE_SECRET_KEY, hooks, friends);
+        return mePage(viewer, side, tokens, plan, !!env.STRIPE_SECRET_KEY, hooks);
       }
 
       if (path === OPS_PATH && method === "GET") {

@@ -72,7 +72,7 @@ export function inboxPage(viewer: Viewer, side: SideBoard[], items: InboxItem[])
   const rows = items
     .map((i) => {
       const who = i.actor_via === "agent" ? `${i.actor}'s agent` : i.actor;
-      const href = i.board_id ? `/b/${esc(i.board_id)}#e${i.seq}` : "/me#friends";
+      const href = i.board_id ? `/b/${esc(i.board_id)}#e${i.seq}` : "/people";
       return `<li class="inbox-item${i.read_at ? "" : " unread"}"><a href="${href}" data-inbox-id="${i.id}">
 ${avatar(i.actor, "sm", i.actor_via === "agent")}
 <div class="grow" style="min-width:0"><div class="small"><b>${esc(who)}</b> ${VERB[i.kind]}${i.board_id ? ` <span class="faint">in</span> ${esc(i.board_title ?? i.board_id)} <span class="faint">· #${i.seq}` : ` <span class="faint">`} · ${esc(relTime(i.created_at))}</span></div>

@@ -987,6 +987,27 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!pane.hidden&&!docu
 document.querySelectorAll('#thread>.entry').forEach(x=>thrSum(+x.dataset.seq));
 // a link to a reply (#e<n>) opens its thread
 setTimeout(()=>{const m=location.hash.match(/^#e([0-9]+)$/);const el=m&&document.getElementById('e'+m[1]);if(el&&el.closest('.replies'))openThread(+el.closest('#thread>.entry').dataset.seq,{focus:+m[1]})},0); // after the whole script has run
+// ---- hover cards: who someone is, whether they or their agent are around, and what you can do (people and agents) ----
+const hcard=document.createElement('div');hcard.className='hcard';hcard.hidden=true;hcard.setAttribute('role','dialog');document.body.appendChild(hcard);
+const pcache={};let hTimer=null,hFor=null;
+const pfetch=u=>pcache[u]||(pcache[u]=fetch('/api/people/'+encodeURIComponent(u)).then(r=>r.ok?r.json():null).catch(()=>null));
+function hTarget(el){const m=el.closest('.mention[data-user]');if(m)return {u:m.dataset.user,agent:m.classList.contains('agent'),el:m};
+  const e=el.closest('.entry');const w=el.closest('.entry>.av, .entry>.grow>.meta>.who');if(e&&w)return {u:e.dataset.author,agent:e.classList.contains('by-agent'),el:w};
+  const s=el.closest('.av-wrap');if(s){const n=s.parentElement.querySelector('.grow');return n?{u:n.textContent.trim().split(/ /)[0],agent:false,el:s}:null}return null}
+async function hShow(t){hFor=t.el;const j=await pfetch(t.u);if(hFor!==t.el)return;if(!j||!j.person){hcard.hidden=true;return}const p=j.person;
+  const act=p.relation==='self'?'':p.relation==='friend'?'<button class="btn sm primary" data-direct="'+esc(p.name)+'">Message agent</button>':p.relation==='pending_in'?'<button class="btn sm primary" data-friend="accept" data-name="'+esc(p.name)+'">Accept</button>':p.relation==='none'?'<button class="btn sm primary" data-add="'+esc(p.name)+'">Add friend</button>':'<span class="xs faint">'+(p.relation==='pending_out'?'Request sent':'')+'</span>';
+  const on=p.presence&&(p.presence.agent||p.presence.web||(p.presence.watcher&&p.presence.watcher.respond));
+  hcard.innerHTML='<div class="row" style="gap:12px;align-items:center">'+avatar16(p.name,t.agent).replace('av sm','av lg')+'<div class="grow" style="min-width:0"><div class="hc-name">'+esc(t.agent?p.name+"'s agent":(p.display_name||p.name))+'</div><div class="xs faint">@'+esc(p.name)+(p.shared_boards?' · '+p.shared_boards+' shared board'+(p.shared_boards===1?'':'s'):'')+'</div></div></div>'+
+    '<div class="row hc-pres"><span class="pres'+(on?' on':'')+'"></span><span class="xs">'+esc(j.presence||'')+'</span></div>'+(p.bio&&!t.agent?'<p class="hc-bio">'+esc(p.bio)+'</p>':'')+
+    '<div class="row hc-act"><a class="btn sm ghost" href="/u/'+esc(p.name)+'">Profile</a><span class="grow"></span>'+act+'</div>';
+  hcard.hidden=false;const r=t.el.getBoundingClientRect(),w=hcard.offsetWidth,hh=hcard.offsetHeight;
+  hcard.style.left=Math.max(8,Math.min(innerWidth-w-8,r.left))+'px';hcard.style.top=(r.bottom+hh+8>innerHeight?r.top-hh-6:r.bottom+6)+'px'}
+document.addEventListener('mouseover',e=>{if(e.target.closest('.hcard')){clearTimeout(hTimer);return}const t=hTarget(e.target);clearTimeout(hTimer);
+  if(!t){hTimer=setTimeout(()=>{hcard.hidden=true;hFor=null},250);return}if(hFor===t.el&&!hcard.hidden)return;hTimer=setTimeout(()=>hShow(t),350)});
+document.addEventListener('click',async e=>{const a=e.target.closest('.hcard [data-add]'),d=e.target.closest('.hcard [data-direct]');if(!a&&!d)return;e.stopPropagation();
+  if(a){const r=await fetch('/api/friends/request',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({user:a.dataset.add})});const j=await r.json().catch(()=>({}));toast(r.ok?(j.relation==='friend'?'You are friends now':'Request sent'):(j.error||'Could not send'));delete pcache[a.dataset.add];hcard.hidden=true;return}
+  const r=await fetch('/api/direct/'+encodeURIComponent(d.dataset.direct),{method:'POST'});const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||'Could not open');return}location.href='/b/'+j.board},true);
+document.addEventListener('click',async e=>{const b=e.target.closest('.hcard [data-friend]');if(!b)return;e.stopPropagation();const r=await fetch('/api/friends/'+encodeURIComponent(b.dataset.name)+'/'+b.dataset.friend,{method:'POST'});toast(r.ok?'Friends now':'Could not update');delete pcache[b.dataset.name];hcard.hidden=true},true);
 window.deleted=()=>{location.href='/'};
 // Every place the board name shows: heading, breadcrumb, sidebar, browser tab (also used for live renames by others).
 window.applyTitle=(t)=>{const h=document.getElementById('board-title');if(h)h.textContent=t;document.title=t+' · Agent Soup';
@@ -1318,18 +1339,50 @@ if(new URLSearchParams(location.search).get('billing')==='done')toast('Thanks! Y
 type FriendsData = Awaited<ReturnType<typeof import("./social").friendsOf>>;
 function presenceDot(p: { presence: { web: number | null; agent: { client: string } | null; watcher: { respond: boolean } | null } }): string {
   const on = p.presence.agent || p.presence.web || p.presence.watcher?.respond;
-  const label = p.presence.agent ? `agent online in ${p.presence.agent.client}` : p.presence.watcher?.respond ? "agent answers in the background" : p.presence.web ? "on the web" : "offline";
+  const label = p.presence.agent ? (p.presence.agent.client && p.presence.agent.client !== "agent" ? `agent online in ${p.presence.agent.client}` : "agent online") : p.presence.watcher?.respond ? "agent answers in the background" : p.presence.web ? "on the web" : "offline";
   return `<span class="pres${on ? " on" : ""}"></span><span class="xs faint">${esc(label)}</span>`;
 }
-function friendsSection(f: FriendsData): string {
-  const row = (p: { name: string }, extra: string) => `<div class="item">${avatar(p.name, "sm")}<a class="grow" href="/u/${esc(p.name)}" style="color:var(--ink)">${esc(p.name)}</a>${extra}</div>`;
-  return `<div class="section-title" style="margin-top:32px" id="friends"><div><h2>Friends</h2><p class="small muted" style="margin-top:4px">See when friends (and their agents) are around, and ask their agent directly. Being friends doesn't share any board.</p></div></div>
-${f.incoming.length ? `<p class="small" style="margin:0 0 6px"><b>Requests</b></p><div class="list" style="margin-bottom:12px">${f.incoming.map((p) => row(p, `${p.note ? `<span class="xs muted truncate" style="max-width:220px">"${esc(p.note)}"</span>` : ""}<button class="btn sm primary" data-friend="accept" data-name="${esc(p.name)}">Accept</button><button class="btn sm ghost" data-friend="decline" data-name="${esc(p.name)}">Decline</button>`)).join("")}</div>` : ""}
-<div class="list">${f.friends.map((p) => row(p, `<span class="row" style="gap:6px">${presenceDot(p)}</span>`)).join("")}
-<form class="item" id="friend-form"><input class="input grow" id="friend-name" placeholder="Add a friend by handle, e.g. jxn" autocomplete="off"><button class="btn sm">Send request</button></form></div>
-${f.outgoing.length ? `<p class="xs faint" style="margin-top:6px">Waiting on: ${f.outgoing.map((p) => esc(p.name)).join(", ")}</p>` : ""}
-<p class="xs faint" style="margin-top:6px">From a terminal: <span class="mono">agent-soup friends</span> · <span class="mono">agent-soup add &lt;name&gt;</span> · <span class="mono">agent-soup ask &lt;name&gt; "…"</span></p>`;
+/** People: your friends (and whether they or their agents are around), requests, finding someone, and who you've blocked. */
+export function peoplePage(viewer: Viewer, side: SideBoard[], f: FriendsData): Response {
+  const who = (p: { name: string; display_name?: string | null }) =>
+    `<a class="grow" href="/u/${esc(p.name)}" style="min-width:0"><span class="truncate" style="display:block;color:var(--ink);font-weight:500">${esc(p.display_name || p.name)}</span><span class="xs faint">@${esc(p.name)}</span></a>`;
+  const row = (p: { name: string; display_name?: string | null }, extra: string, agent = false) =>
+    `<div class="item">${avatar(p.name, "", agent)}${who(p)}<span class="row" style="gap:6px;flex:none">${extra}</span></div>`;
+  const section = (title: string, n: number, inner: string) => `<h2 class="ppl-h">${title}${n ? ` <span class="faint">${n}</span>` : ""}</h2>${inner}`;
+  const requests = f.incoming.length
+    ? section("Requests", f.incoming.length, `<div class="list">${f.incoming
+        .map((p) => row(p, `${p.note ? `<span class="xs muted truncate" style="max-width:240px" title="${esc(p.note)}">“${esc(p.note)}”</span>` : ""}<button class="btn sm ghost" data-friend="decline" data-name="${esc(p.name)}">Decline</button><button class="btn sm primary" data-friend="accept" data-name="${esc(p.name)}">Accept</button>`))
+        .join("")}</div>`)
+    : "";
+  const friends = section("Friends", f.friends.length, f.friends.length
+    ? `<div class="list">${f.friends
+        .map((p) => row(p, `<span class="row ppl-pres">${presenceDot(p)}</span><button class="btn sm" data-direct="${esc(p.name)}" title="Open your direct board with ${esc(p.name)} and ask their agent">Message agent</button>`))
+        .join("")}</div>`
+    : `<div class="card empty small">No friends yet. Find someone by their handle above, or add people you share a board with.</div>`);
+  const sent = f.outgoing.length ? `<p class="xs faint ppl-note">Waiting on: ${f.outgoing.map((p) => `<a class="link" href="/u/${esc(p.name)}">${esc(p.name)}</a>`).join(", ")}</p>` : "";
+  const blocked = f.blocked.length
+    ? `<details class="ppl-blocked"><summary class="small muted">Blocked (${f.blocked.length})</summary><div class="list">${f.blocked.map((n) => row({ name: String(n) }, `<button class="btn sm ghost" data-friend="unblock" data-name="${esc(String(n))}">Unblock</button>`)).join("")}</div></details>`
+    : "";
+  const body = `<div class="section-title"><div><h1>People</h1><p class="muted" style="margin-top:4px">Friends see when you and your agent are around, and can ask your agent on a direct board. Being friends doesn't share any board.</p></div></div>
+<div class="ppl-find"><input class="input" id="ppl-q" placeholder="Find someone by handle, e.g. jxn" autocomplete="off" aria-label="Find people"><ul class="ppl-res list" id="ppl-res" hidden></ul></div>
+${requests}${friends}${sent}${blocked}
+<p class="xs faint ppl-note">From a terminal: <span class="mono">agent-soup friends</span> · <span class="mono">agent-soup add &lt;name&gt;</span> · <span class="mono">agent-soup ask &lt;name&gt; "…"</span></p>`;
+  const script =
+    FRIENDS_JS +
+    `
+const pq=document.getElementById('ppl-q'),pres=document.getElementById('ppl-res');let pt=null;
+const pesc=x=>String(x==null?'':x).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+pq.addEventListener('input',()=>{clearTimeout(pt);pt=setTimeout(async()=>{const q=pq.value.trim();if(!q){pres.hidden=true;return}
+  const r=await fetch('/api/people?q='+encodeURIComponent(q));const j=await r.json().catch(()=>({}));const ps=j.people||[];
+  pres.innerHTML=ps.length?ps.map(p=>'<li class="item"><a class="grow" href="/u/'+pesc(p.name)+'"><b style="color:var(--ink)">'+pesc(p.display_name||p.name)+'</b> <span class="xs faint">@'+pesc(p.name)+'</span></a>'+
+    (p.relation==='none'?'<button class="btn sm primary" data-add="'+pesc(p.name)+'">Add friend</button>':p.relation==='friend'?'<button class="btn sm" data-direct="'+pesc(p.name)+'">Message agent</button>':'<span class="xs faint">'+({self:'you',pending_out:'request sent',pending_in:'wants to be friends',blocked:'blocked'}[p.relation]||'')+'</span>')+'</li>').join(''):'<li class="item xs faint">No one by that handle. Handles are exact unless you share a board or are friends.</li>';
+  pres.hidden=false},200)});
+document.addEventListener('click',async e=>{const a=e.target.closest('[data-add]'),d=e.target.closest('[data-direct]');if(!a&&!d)return;
+  if(a){a.disabled=true;const r=await fetch('/api/friends/request',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({user:a.dataset.add})});const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||'Could not send');a.disabled=false;return}toast(j.relation==='friend'?'You are friends now':'Request sent');setTimeout(()=>location.reload(),400);return}
+  d.disabled=true;const r=await fetch('/api/direct/'+encodeURIComponent(d.dataset.direct),{method:'POST'});const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||'Could not open');d.disabled=false;return}location.href='/b/'+j.board});`;
+  return appPage("People · Agent Soup", { viewer, boards: side, active: "people", crumbs: `<span class="cur">People</span>`, body, script, narrow: true });
 }
+
 const FRIENDS_JS = `
 document.getElementById('friend-form')?.addEventListener('submit',async e=>{e.preventDefault();const n=document.getElementById('friend-name').value.trim();if(!n)return;
   const r=await fetch('/api/friends/request',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({user:n})});const j=await r.json().catch(()=>({}));
@@ -1344,7 +1397,7 @@ export function profilePage(viewer: Viewer, side: SideBoard[], p: import("./soci
     p.relation === "self"
       ? `<a class="btn sm" href="/me">Edit your account</a>`
       : p.relation === "friend"
-        ? `<button class="btn sm primary" data-direct="${esc(p.name)}">Message ${esc(p.name)}'s agent</button><button class="btn sm ghost" data-friend="remove" data-name="${esc(p.name)}">Unfriend</button>`
+        ? `<button class="btn sm primary" data-direct="${esc(p.name)}">Message agent</button><button class="btn sm ghost" data-friend="remove" data-name="${esc(p.name)}">Unfriend</button>`
         : p.relation === "pending_in"
           ? `<button class="btn sm primary" data-friend="accept" data-name="${esc(p.name)}">Accept friend request</button>`
           : p.relation === "pending_out"
@@ -1352,14 +1405,22 @@ export function profilePage(viewer: Viewer, side: SideBoard[], p: import("./soci
             : p.relation === "blocked"
               ? `<button class="btn sm" data-friend="unblock" data-name="${esc(p.name)}">Unblock</button>`
               : `<button class="btn sm primary" data-add="${esc(p.name)}">Add friend</button>`;
-  const body = `<div class="card pad row" style="gap:16px;align-items:center">${avatar(p.name, "lg")}${avatar(p.name, "lg", true)}
-<div class="grow"><div style="font-weight:600;font-size:16px;color:var(--ink)">${esc(p.display_name ?? p.name)}</div><div class="small muted">@${esc(p.name)} · ${esc(presence)}${p.shared_boards ? ` · ${p.shared_boards} shared board${p.shared_boards === 1 ? "" : "s"}` : ""}</div>${p.bio ? `<p class="small" style="margin:6px 0 0">${esc(p.bio)}</p>` : ""}</div>
-<div class="row" style="gap:6px">${action}</div></div>`;
+  const on = p.presence.agent || p.presence.web || p.presence.watcher?.respond;
+  const body = `<div class="card pad prof">
+  <div class="prof-av">${avatar(p.name, "lg")}<span class="prof-agent" title="${esc(p.name)}'s agent">${avatar(p.name, "sm", true)}</span></div>
+  <div class="grow" style="min-width:0">
+    <h1 class="prof-name">${esc(p.display_name ?? p.name)}</h1>
+    <div class="small muted">@${esc(p.name)}</div>
+    <div class="row prof-pres"><span class="pres${on ? " on" : ""}"></span><span class="small">${esc(presence)}</span>${p.shared_boards ? `<span class="faint">·</span><span class="small muted">${p.shared_boards} shared board${p.shared_boards === 1 ? "" : "s"}</span>` : ""}</div>
+    ${p.bio ? `<p class="prof-bio">${esc(p.bio)}</p>` : ""}
+  </div>
+  <div class="row prof-act">${action}</div>
+</div>`;
   const script = FRIENDS_JS + `
 document.addEventListener('click',async e=>{const a=e.target.closest('[data-add]'),d=e.target.closest('[data-direct]');if(!a&&!d)return;
   if(a){const r=await fetch('/api/friends/request',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({user:a.dataset.add})});const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||'Could not send');return}location.reload();return}
   const r=await fetch('/api/direct/'+encodeURIComponent(d.dataset.direct),{method:'POST'});const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||'Could not open');return}location.href='/b/'+j.board});`;
-  return appPage(`${p.name} · Agent Soup`, { viewer, boards: side, active: "people", crumbs: `<span>People</span><span class="sep">/</span><span class="cur">${esc(p.name)}</span>`, body, script, narrow: true });
+  return appPage(`${p.name} · Agent Soup`, { viewer, boards: side, active: "people", crumbs: `<a class="muted" href="/people">People</a><span class="faint">/</span><span class="cur">${esc(p.name)}</span>`, body, script, narrow: true });
 }
 
 /** Webhooks for agents that don't keep a connection open (hosted bots, serverless, CI). */
@@ -1386,7 +1447,7 @@ document.addEventListener('click',async e=>{const t=e.target.closest('[data-hook
   t.disabled=true;const r=await fetch('/api/webhooks/'+t.dataset.hookTest+'/test',{method:'POST'});const j=await r.json().catch(()=>({}));t.disabled=false;
   const w=j.webhook;say(w&&!w.last_error?'Test delivered (HTTP '+w.last_status+').':'Test failed: '+((w&&w.last_error)||j.error||'unknown'),!!(w&&!w.last_error))});})();`;
 
-export function mePage(viewer: Viewer, side: SideBoard[], tokens: TokenRow[], plan: PlanState = { plan: "free", status: null, renews_at: null, cancel_at_end: false, customer: null }, billingEnabled = false, hooks: WebhookRow[] = [], friends: FriendsData = { friends: [], incoming: [], outgoing: [], blocked: [] }): Response {
+export function mePage(viewer: Viewer, side: SideBoard[], tokens: TokenRow[], plan: PlanState = { plan: "free", status: null, renews_at: null, cancel_at_end: false, customer: null }, billingEnabled = false, hooks: WebhookRow[] = []): Response {
   const rows = tokens.length
     ? tokens
         .map(
@@ -1423,11 +1484,11 @@ export function mePage(viewer: Viewer, side: SideBoard[], tokens: TokenRow[], pl
 <div class="card pad" style="margin-bottom:16px"><div class="small" style="font-weight:500;color:var(--ink);margin-bottom:8px">Reconnect your agent</div>
 <p class="xs muted" style="margin-bottom:8px">Login expired, new machine, or moving off an old token: run this, approve in the browser, and start a new session.</p>${copyField("me-reconnect", CLI_STEPS.reconnect)}</div>
 <div class="list scroll-x"><table class="tbl"><thead><tr><th>Token</th><th>Last used</th><th>Status</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
-${friendsSection(friends)}
+<p class="small muted" style="margin-top:32px">Friends, requests and finding people are on <a class="link" href="/people">People</a>.</p>
 ${webhooksSection(hooks)}
 ${billingSection(plan, billingEnabled)}
 ${connectDialog(viewer)}`,
-    script: CONNECT_JS + `window.revoked=()=>location.reload();` + BILLING_JS + PFP_JS + HOOKS_JS + FRIENDS_JS,
+    script: CONNECT_JS + `window.revoked=()=>location.reload();` + BILLING_JS + PFP_JS + HOOKS_JS,
   });
 }
 

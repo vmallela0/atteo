@@ -105,7 +105,7 @@ label.lbl{display:block;font-size:13px;font-weight:500;color:var(--ink);margin:0
 /* avatars */
 .av{--h:220;width:28px;height:28px;flex:none;border-radius:50%;display:inline-grid;place-items:center;font-size:11.5px;font-weight:600;letter-spacing:.01em;
   background:hsl(var(--h) var(--av-s) var(--av-l));color:hsl(var(--h) 55% var(--av-c));user-select:none}
-.av.sm{width:22px;height:22px;font-size:10px}.av.lg{width:40px;height:40px;font-size:15px}
+.av.sm{width:22px;height:22px;font-size:10px}.av.xs{width:18px;height:18px;font-size:8px;flex:none}.av.lg{width:40px;height:40px;font-size:15px}
 .av.agent{border-radius:7px;position:relative}
 .av{position:relative;overflow:hidden}
 .av-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:inherit;opacity:0}
@@ -354,6 +354,18 @@ dialog.lightbox img{display:block;max-width:min(96vw,1600px);max-height:92vh;wid
 .legal h2{font-size:15px;margin:18px 0 6px}.legal p{font-size:13.5px;line-height:1.6;color:var(--text)}
 .entry.pending{opacity:.6}.entry.pending .body{white-space:pre-wrap}.entry.pending.failed .faint{color:var(--danger)}
 .pres{width:8px;height:8px;border-radius:50%;background:var(--line-strong,var(--line));display:inline-block}.pres.on{background:var(--ok)}
+/* People and profiles */
+.ppl-h{font-size:13px;font-weight:600;color:var(--ink);margin:28px 0 8px}.ppl-h .faint{font-weight:400}
+.ppl-find{position:relative;margin-top:16px}.ppl-res{position:absolute;left:0;right:0;top:38px;z-index:5;box-shadow:var(--shadow-lg);margin:0;padding:0;list-style:none}.ppl-res[hidden]{display:none}
+.ppl-pres{gap:6px}.ppl-note{margin-top:10px}.ppl-blocked{margin-top:20px}.ppl-blocked summary{cursor:pointer}.ppl-blocked .list{margin-top:8px}
+.prof{display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap}
+.prof-av{position:relative;flex:none}.prof-av .av.lg{width:64px;height:64px;font-size:22px}
+.prof-agent{position:absolute;right:-6px;bottom:-6px;border-radius:7px;box-shadow:0 0 0 3px var(--bg)}
+.prof-name{font-size:20px;line-height:1.25}.prof-pres{gap:6px;margin-top:8px}.prof-bio{margin:10px 0 0;font-size:13.5px;color:var(--text)}.prof-act{gap:6px;flex:none}
+/* hover cards */
+.hcard{position:fixed;z-index:60;width:280px;padding:14px;border:1px solid var(--line);border-radius:12px;background:var(--bg);box-shadow:var(--shadow-lg)}
+.hcard[hidden]{display:none}.hcard .av.lg{width:40px;height:40px;font-size:15px}
+.hc-name{font-weight:600;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.hc-pres{gap:6px;margin-top:10px}.hc-bio{margin:8px 0 0;font-size:12.5px;color:var(--muted)}.hc-act{gap:6px;margin-top:12px}
 /* Profile pictures */
 .pfps{display:grid;gap:10px}
 .pfp{gap:14px;align-items:center}
@@ -653,7 +665,7 @@ export function initials(name: string): string {
 
 /** People are circles; their agents are rounded squares with a small bolt, so the two read apart at a glance. */
 /** Initials on a color, covered by the member's picture when they've set one (a missing picture just stays hidden). */
-export function avatar(name: string, size: "" | "sm" | "lg" = "", agent = false): string {
+export function avatar(name: string, size: "" | "xs" | "sm" | "lg" = "", agent = false): string {
   const src = `/avatar/${encodeURIComponent(name)}${agent ? "?k=agent" : ""}`;
   return `<span class="av ${size}${agent ? " agent" : ""}" style="--h:${hue(name)}" title="${esc(agent ? `${name}'s agent` : name)}">${esc(initials(name))}<img class="av-img" src="${esc(src)}" alt="" loading="lazy" onerror="this.remove()" onload="this.classList.add('ok')"></span>`;
 }
@@ -812,6 +824,13 @@ const ICON = {
 export interface SideBoard {
   id: string;
   title: string;
+  kind?: string | null; // "direct": a private board between two friends (title "a ↔ b")
+}
+
+/** The other person on a direct board ("a ↔ b"), from the viewer's side. */
+export function directPeer(b: SideBoard, me: string): string {
+  const [a, c] = b.title.split(" ↔ ");
+  return a === me ? (c ?? a) : a;
 }
 
 export function appPage(
@@ -831,11 +850,18 @@ export function appPage(
 ): Response {
   const v = opts.viewer;
   const cur = (k: string) => (opts.active === k ? ' aria-current="page"' : "");
-  const sideBoards = opts.boards
+  const shared = opts.boards.filter((b) => b.kind !== "direct"),
+    direct = opts.boards.filter((b) => b.kind === "direct");
+  const sideBoards = shared
     .map((b) => `<a class="side-link side-board" href="/b/${esc(b.id)}"${cur(b.id)}><span class="bdot" style="--h:${hue(b.id)}"></span><span class="truncate">${esc(b.title)}</span></a>`)
     .join("");
+  // Direct boards read as the person you share them with.
+  const sideDirect = direct
+    .map((b) => `<a class="side-link side-board" href="/b/${esc(b.id)}"${cur(b.id)}>${avatar(directPeer(b, v.name), "xs")}<span class="truncate">${esc(directPeer(b, v.name))}</span></a>`)
+    .join("");
   const paletteItems = [
-    ...opts.boards.map((b) => ({ label: b.title, hint: "Board", href: `/b/${b.id}` })),
+    ...opts.boards.map((b) => ({ label: b.kind === "direct" ? `${directPeer(b, v.name)} (direct)` : b.title, hint: "Board", href: `/b/${b.id}` })),
+    { label: "People and friends", hint: "G P", href: "/people" },
     { label: "New board", hint: "C", href: "/?new=1" },
     { label: "All boards", hint: "G B", href: "/" },
     { label: "Account and agent connections", hint: "G M", href: "/me" },
@@ -847,9 +873,10 @@ export function appPage(
   <button class="search" type="button" data-palette>${ICON.search}<span>Search or jump to…</span><kbd>⌘K</kbd></button>
   <a class="side-link" href="/inbox"${cur("inbox")}>${ICON.inbox}<span>Inbox</span><span class="count" id="inbox-count" hidden></span></a>
   <a class="side-link" href="/"${cur("boards")}>${ICON.boards}<span>Boards</span></a>
-  <a class="side-link" href="/me"${cur("me")}>${ICON.me}<span>Account</span></a>
+  <a class="side-link" href="/people"${cur("people")}>${ICON.me}<span>People</span></a>
   <div class="side-label"><span>Your boards</span><a href="/?new=1" title="New board (C)" aria-label="New board">${ICON.plus}</a></div>
   ${sideBoards || `<p class="xs faint" style="padding:2px 9px">No boards yet</p>`}
+  ${sideDirect ? `<div class="side-label"><span>Direct</span></div>${sideDirect}` : ""}
   <div class="me"><a class="side-link" href="/me">${avatar(v.name, "sm")}<span class="truncate">${esc(v.name)}</span></a>
   <button class="side-link" style="width:100%;border:0;background:none;cursor:pointer;font:inherit" type="button" data-open="shortcuts"><kbd>?</kbd><span>Shortcuts</span></button></div>
 </aside>
@@ -873,7 +900,7 @@ export function appPage(
 <dt><kbd>@</kbd></dt><dd>Mention a person or their agent</dd>
 <dt><kbd>J</kbd> <kbd>K</kbd></dt><dd>Move down / up through entries</dd>
 <dt><kbd>↵</kbd></dt><dd>Open the selected entry's details</dd>
-<dt><kbd>G</kbd> then <kbd>B</kbd> <kbd>M</kbd></dt><dd>Go to Boards / Account</dd>
+<dt><kbd>G</kbd> then <kbd>B</kbd> <kbd>P</kbd> <kbd>M</kbd></dt><dd>Go to Boards / People / Account</dd>
 <dt><kbd>?</kbd></dt><dd>This list</dd></dl></div></dialog>
 <script>window.PALETTE=${JSON.stringify(paletteItems).replace(/</g, "\\u003c")};${v.admin ? "window.OPS=1;" : ""}</script>`;
   return rawPage(title, body, (opts.script ?? "") + SHELL_JS + INBOX_JS, opts.status);
@@ -962,7 +989,7 @@ document.addEventListener('keydown',e=>{
   if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault();pal.open?pal.close():openPalette();return}
   const t=e.target;if(e.metaKey||e.ctrlKey||e.altKey||t.closest('input,textarea,select,[contenteditable]')||$('dialog[open]'))return;
   const k=e.key.toLowerCase();
-  if(g){g=false;clearTimeout(gt);const to={b:'/',m:'/me',o:window.OPS?'/_ops':null}[k];if(to){location.href=to;e.preventDefault()}return}
+  if(g){g=false;clearTimeout(gt);const to={b:'/',m:'/me',p:'/people',o:window.OPS?'/_ops':null}[k];if(to){location.href=to;e.preventDefault()}return}
   if(k==='g'){g=true;gt=setTimeout(()=>g=false,900);return}
   if(k==='/'){e.preventDefault();openPalette();return}
   if(e.key==='?'){$('#shortcuts').showModal();return}
