@@ -1,4 +1,4 @@
-// Your agents: each running session, what it says it's doing, read-only or not, and the kill switch.
+// Your agents: each running session, what it's doing, a read-only switch, and the kill switch.
 
 import SwiftUI
 
@@ -8,46 +8,32 @@ struct AgentsView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    if let me = state.me {
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack(spacing: 10) {
-                                Avatar(name: me.owner, agent: true, size: 40)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text("\(me.owner)'s agent").font(.headline).foregroundStyle(Theme.text)
-                                    Text(me.online ? "online" : "offline").font(.caption).foregroundStyle(me.online ? Theme.ok : Theme.faint)
-                                }
-                            }
-                            if let s = me.summary { Text(s).font(.subheadline).foregroundStyle(Theme.muted) }
-                            HStack(spacing: 8) {
-                                Pill(text: "\(me.record.claimsVerified) verified", color: Theme.ok)
-                                Pill(text: "\(me.record.tasksDone) tasks done", color: Theme.accent)
-                                if me.record.claimsDisputed > 0 { Pill(text: "\(me.record.claimsDisputed) disputed", color: Theme.warn) }
-                            }
-                        }
-                        .card()
-                    }
-                    Text("SESSIONS").font(.caption.weight(.semibold)).foregroundStyle(Theme.faint).padding(.top, 6)
+            List {
+                Section {
                     if state.sessions.isEmpty {
-                        Text("No agent is running. Connect one from the website or with agent-soup login.").font(.subheadline).foregroundStyle(Theme.muted).card()
+                        Text("No agent is running. Connect one from the website (Add your agent) or with agent-soup login.")
+                            .font(.subheadline).foregroundStyle(Theme.muted)
                     }
                     ForEach(state.sessions) { s in SessionRow(s: s) }
-                    Button(role: .destructive) { confirmKill = true } label: {
-                        Label("Disconnect all agents", systemImage: "power").frame(maxWidth: .infinity).padding(.vertical, 12)
+                } footer: {
+                    if let me = state.me {
+                        Text("Track record: \(me.record.claimsVerified) claims verified · \(me.record.tasksDone) tasks done\(me.record.claimsDisputed > 0 ? " · \(me.record.claimsDisputed) disputed" : "")")
+                            .font(.caption).foregroundStyle(Theme.faint)
                     }
-                    .buttonStyle(.bordered).tint(Theme.danger).padding(.top, 18)
-                    Text("Revokes every sign-in (this phone's too) and ends every session, right away.").font(.caption).foregroundStyle(Theme.faint)
-                        .frame(maxWidth: .infinity)
                 }
-                .padding(16)
+                .listRowBackground(Theme.card)
+                Section {
+                    Button(role: .destructive) { confirmKill = true } label: { Label("Disconnect all agents", systemImage: "power").foregroundStyle(Theme.danger) }
+                } footer: { Text("Stops every agent at once: revokes every sign-in (this phone's too) and ends every session.").font(.caption) }
+                .listRowBackground(Theme.card)
             }
+            .scrollContentBackground(.hidden)
             .background(Theme.bg)
             .navigationTitle("Agents")
             .refreshable { await state.refreshAgents() }
             .confirmationDialog("Disconnect all your agents?", isPresented: $confirmKill, titleVisibility: .visible) {
                 Button("Disconnect all", role: .destructive) { Haptic.warn(); Task { await state.disconnectAll() } }
-            } message: { Text("Every agent stops at once. You'll sign in again here, and reconnect your agents with agent-soup login.") }
+            } message: { Text("Every agent stops right away. Reconnect them later with agent-soup login.") }
         }
     }
 }
@@ -57,20 +43,21 @@ struct SessionRow: View {
     let s: AgentSession
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 10) {
-                Circle().fill(s.active == true ? Theme.ok : Theme.faint).frame(width: 8, height: 8)
-                Text(s.name).font(.body.weight(.semibold)).foregroundStyle(Theme.text)
-                if let c = s.client { Text(c).font(.caption).foregroundStyle(Theme.faint) }
-                Spacer()
-                Text(s.lastSeen.ago).font(.caption).foregroundStyle(Theme.faint)
+        HStack(spacing: 12) {
+            Circle().fill(s.active == true ? Theme.ok : Theme.faint).frame(width: 8, height: 8)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(s.name).font(.body.weight(.semibold)).foregroundStyle(Theme.text)
+                    if let c = s.client { Text(c).font(.caption).foregroundStyle(Theme.faint) }
+                }
+                Text(s.status ?? (s.scope == "read" ? "read-only" : "last active \(s.lastSeen.ago) ago".replacingOccurrences(of: "now ago", with: "now")))
+                    .font(.subheadline).foregroundStyle(Theme.muted).lineLimit(2)
             }
-            if let st = s.status { Text(st).font(.subheadline).foregroundStyle(Theme.muted) }
-            Toggle(isOn: Binding(get: { s.scope == "read" }, set: { ro in Haptic.tap(); Task { await state.setScope(s, readOnly: ro) } })) {
-                Text("Read-only").font(.subheadline).foregroundStyle(Theme.muted)
-            }
-            .tint(Theme.warn)
+            Spacer(minLength: 8)
+            Toggle("Read-only", isOn: Binding(get: { s.scope == "read" }, set: { ro in Haptic.tap(); Task { await state.setScope(s, readOnly: ro) } }))
+                .labelsHidden().tint(Theme.warn)
+                .accessibilityLabel("Read-only")
         }
-        .card()
+        .padding(.vertical, 2)
     }
 }

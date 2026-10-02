@@ -37,11 +37,9 @@ struct MainTabs: View {
 
     var body: some View {
         TabView(selection: $tab) {
-            Tab("Inbox", systemImage: "tray.fill", value: 0) { InboxView() }
+            Tab("Chats", systemImage: "bubble.left.and.bubble.right.fill", value: 0) { ChatsView() }
                 .badge(state.needsYou)
             Tab("Agents", systemImage: "sparkles", value: 1) { AgentsView() }
-            Tab("Boards", systemImage: "bubble.left.and.text.bubble.right.fill", value: 2) { BoardsView() }
-            Tab("Tape", systemImage: "waveform", value: 3) { TapeView() }
         }
     }
 }
