@@ -77,11 +77,13 @@ export const TOOLS = [
   {
     name: "doc",
     description:
-      "Shared documents on the joined board that everyone (people and agents) edits together, e.g. BACKLOG.md. Actions: list; read {name, version?}; write {name, content, base_version} (whole document: base_version 0 to create, else the version you read; a mismatch returns the current text to merge); edit {name, old_str, new_str} (replace one exact, unique piece of text in the latest version); history {name}. Add a one-line summary to write/edit.",
+      "Shared documents on the joined board that everyone (people and agents) edits together, e.g. BACKLOG.md. Actions: list; read {name, version?}; write {name, content, base_version} (whole document: base_version 0 to create, else the version you read; a mismatch returns the current text to merge); edit {name, old_str, new_str} (replace one exact, unique piece of text in the latest version); history {name}; grep {pattern, name?, regex?} (matching lines with line numbers, across all files or one). Add a one-line summary to write/edit.",
     inputSchema: {
       type: "object",
       properties: {
-        action: { type: "string", enum: ["list", "read", "write", "edit", "history"] },
+        action: { type: "string", enum: ["list", "read", "write", "edit", "history", "grep"] },
+        pattern: { type: "string", description: "grep: text to find (case-insensitive), or a regex with regex=true" },
+        regex: { type: "boolean", description: "grep: treat pattern as a regular expression" },
         name: { type: "string", description: "Document name, e.g. BACKLOG.md" },
         content: { type: "string", description: "write: the whole new document" },
         base_version: { type: "integer", description: "write: the version you read (0 to create)" },
@@ -156,7 +158,8 @@ export const TOOLS = [
   },
   {
     name: "search",
-    description: "Search the board's full log (text, file names and file content), newest first. Optional author/type filters.",
+    description:
+      'Search the board: entries and files, best match first, with the matching part highlighted «like this». Every word must appear; the last can be a prefix; "quoted phrases" match exactly. Optional author/type filters (entries only). For exact lines inside files, use doc action "grep".',
     inputSchema: {
       type: "object",
       properties: {
@@ -427,6 +430,12 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const opts = { via: "agent" as const, client, summary: str(args.summary) ?? null };
       const when = (ts: number) => new Date(ts).toISOString().slice(0, 16).replace("T", " ") + "Z";
       const by = (d: { updated_by: string; via: string | null }) => (d.via === "agent" ? `${d.updated_by}'s agent` : d.via === "person" ? `${d.updated_by} (person)` : d.updated_by);
+      if (action === "grep") {
+        const pattern = typeof args.pattern === "string" ? args.pattern : "";
+        const hits = await stub.grep(pattern, { name, regex: args.regex === true, limit: int(args.limit) });
+        if (!hits.length) return `No lines match "${pattern}"${name ? ` in ${name}` : ""}.`;
+        return fence(hits.map((h) => `${h.name}:${h.line}: ${h.text}`).join("\n")) + (hits.length >= (int(args.limit) ?? 100) ? "\n(more matches may exist; narrow the pattern or pass name)" : "");
+      }
       if (action === "list") {
         const list = await stub.docs();
         if (!list.length) return 'No documents on this board yet. Create one with doc action "write", a name, content and base_version 0.';
@@ -565,13 +574,19 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const id = await currentBoard(c, args);
       const query = typeof args.query === "string" ? args.query : "";
       if (!query.trim()) throw new ToolError("query is required.");
-      const hits = await stubFor(env, id).search(query, {
+      const r = await stubFor(env, id).rankedSearch(query, {
         author: normalizeUser(str(args.author)) ?? undefined,
         type: str(args.type),
         limit: int(args.limit),
       });
-      if (!hits.length) return `No entries match "${query}".`;
-      return `${hits.length} match(es), newest first:\n` + fence(hits.map((e) => formatEntry(e, 600, user)).join("\n"));
+      if (!r.entries.length && !r.files.length) return `Nothing matches "${query}".`;
+      const out: string[] = [];
+      if (r.files.length) out.push("Files (latest version; read with doc):", ...r.files.map((f) => `  ${f.name} v${f.version}: ${f.snippet.replace(/\s+/g, " ")}`), "");
+      if (r.entries.length) {
+        out.push(`Entries, best match first (${r.entries.length}):`);
+        for (const { entry, snippet } of r.entries) out.push(formatEntry(entry, 300, user) + (snippet ? `\n    match: ${snippet.replace(/\s+/g, " ")}` : ""));
+      }
+      return fence(out.join("\n"));
     }
 
     case "invite": {

@@ -6,7 +6,7 @@ import { computeSummary, formatSummary, DEFAULT_SUMMARY_CHARS, type Summary } fr
 import { blockedMessage, scanFields, scanText, type SecretHit } from "./secrets";
 import { keep, MAX_MENTIONS, mentionsOwnAgent, type Mention } from "./mentions";
 import { ENTRY_TYPES, type BoardInfo, type Entry, type Env, type Member, type NewEntry } from "./types";
-import { EMOJI_RE, USER_RE } from "./util";
+import { EMOJI_RE, ftsQuery, USER_RE } from "./util";
 import { cardText, parseCard, type ChangeCard } from "./card";
 
 export const MAX_TEXT = 32_000;
@@ -176,6 +176,7 @@ export class Board extends DurableObject<Env> {
         ts INTEGER NOT NULL,
         PRIMARY KEY (seq, user, emoji)
       );
+      CREATE VIRTUAL TABLE IF NOT EXISTS search_idx USING fts5(body, name, kind UNINDEXED, ref UNINDEXED, tokenize = 'unicode61 remove_diacritics 2');
       CREATE TABLE IF NOT EXISTS reviews (
         seq INTEGER NOT NULL,
         reviewer TEXT NOT NULL,
@@ -283,6 +284,21 @@ export class Board extends DurableObject<Env> {
         this.sql.exec("UPDATE entries SET artifact_name = ?, artifact_version = ? WHERE seq = ?", name, v, r.seq);
       }
       this.setMeta("files_backfilled", "1");
+    }
+    // Full-text index: every entry, plus the latest version of every file/doc.
+    if (this.meta("fts_built") !== "1") {
+      this.sql.exec("DELETE FROM search_idx");
+      const rows = this.sql
+        .exec(
+          `SELECT e.seq, e.text, e.artifact_name, e.card, COALESCE(e.artifact_content, v.content) AS content
+           FROM entries e LEFT JOIN doc_versions v ON v.name = e.artifact_name AND v.version = e.artifact_version`,
+        )
+        .toArray();
+      for (const r of rows) {
+        this.indexEntry(r.seq as number, r.text as string, r.artifact_name as string | null, r.card ? (JSON.parse(r.card as string) as ChangeCard) : null, (r.content as string | null) ?? null);
+      }
+      for (const d of this.sql.exec("SELECT name, content FROM docs").toArray()) this.indexDoc(d.name as string, d.content as string);
+      this.setMeta("fts_built", "1");
     }
     // Tasks posted before the tasks table existed: give them a row once (done if something resolved them).
     if (this.meta("tasks_backfilled") !== "1") {
@@ -488,6 +504,7 @@ export class Board extends DurableObject<Env> {
       .one();
     if (artifactVersion != null) this.broadcast({ type: "doc", name: artifactName, version: artifactVersion, by: user });
     const entry = toEntry(row);
+    this.indexEntry(entry.seq, entry.text, entry.artifact_name, entry.card ?? null, artifactContent);
     if (entry.type === "task") {
       this.sql.exec("INSERT OR IGNORE INTO tasks (seq, status, assignee, assignee_agent, updated_at) VALUES (?, 'todo', ?, 1, ?)", entry.seq, entry.to, entry.ts);
     }
@@ -616,6 +633,101 @@ export class Board extends DurableObject<Env> {
       content = v ? (v.content as string) : `(v${entry.artifact_version} of ${entry.artifact_name} is no longer kept; read the latest with the doc tool.)`;
     }
     return { entry, artifact_content: content, diff: (rows[0].card_diff as string | null) ?? null, replies, reactions: this.reactionsFor([seq])[seq] ?? [] };
+  }
+
+  // ---- search: ranked full text (FTS5, bm25) over entries and the latest version of every file; grep over files ----
+
+  /** An entry's text, plus the file version it published or its change card, so older versions stay findable. */
+  private indexEntry(seq: number, text: string, artifactName: string | null, card: ChangeCard | null, fileContent: string | null = null) {
+    const body = [text, card ? cardText(card) : null, fileContent].filter(Boolean).join("\n");
+    this.sql.exec("INSERT INTO search_idx (body, name, kind, ref) VALUES (?, ?, 'entry', ?)", body, artifactName ?? "", String(seq));
+  }
+
+  private indexDoc(name: string, content: string) {
+    this.sql.exec("DELETE FROM search_idx WHERE kind = 'doc' AND ref = ?", name);
+    this.sql.exec("INSERT INTO search_idx (body, name, kind, ref) VALUES (?, ?, 'doc', ?)", content, name, name);
+  }
+
+  /**
+   * Best matches first. Every word must appear (the last one as a prefix, so "deplo" finds "deploy"); "quoted phrases"
+   * match exactly. Returns entries (with a snippet) and files (latest version, with a snippet).
+   */
+  async rankedSearch(
+    query: string,
+    opts: { author?: string; type?: string; limit?: number } = {},
+  ): Promise<{ entries: { entry: Entry; snippet: string }[]; files: { name: string; version: number; snippet: string }[] }> {
+    this.info();
+    const match = ftsQuery(query);
+    if (!match) return { entries: [], files: [] };
+    const limit = clamp(opts.limit ?? 20, 1, 100);
+    let rows: Row[];
+    try {
+      rows = this.sql
+        .exec(
+          "SELECT kind, ref, snippet(search_idx, 0, '«', '»', ' … ', 16) AS snip FROM search_idx WHERE search_idx MATCH ? ORDER BY bm25(search_idx, 1.0, 4.0) LIMIT 500",
+          match,
+        )
+        .toArray();
+    } catch {
+      // Anything FTS can't parse falls back to plain substring search.
+      return { entries: (await this.search(query, opts)).map((entry) => ({ entry, snippet: "" })), files: [] };
+    }
+    const seqs = rows.filter((r) => r.kind === "entry").map((r) => Number(r.ref));
+    const bySeq = new Map<number, Entry>();
+    if (seqs.length) {
+      for (const r of this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq IN (${seqs.map(() => "?").join(",")})`, ...seqs).toArray()) bySeq.set(r.seq as number, toEntry(r));
+    }
+    const entries: { entry: Entry; snippet: string }[] = [];
+    const files: { name: string; version: number; snippet: string }[] = [];
+    const filtered = !!(opts.author || opts.type);
+    for (const r of rows) {
+      if (r.kind === "entry") {
+        const e = bySeq.get(Number(r.ref));
+        if (!e || (opts.author && e.author !== opts.author) || (opts.type && e.type !== opts.type)) continue;
+        if (entries.length < limit) entries.push({ entry: e, snippet: r.snip as string });
+      } else if (!filtered && files.length < 10) {
+        const v = this.sql.exec("SELECT version FROM docs WHERE name = ?", r.ref).toArray()[0];
+        if (v) files.push({ name: r.ref as string, version: v.version as number, snippet: r.snip as string });
+      }
+    }
+    return { entries, files };
+  }
+
+  /** Lines in files (latest versions) containing `pattern` (case-insensitive text, or a simple regex), like grep -n. */
+  async grep(pattern: string, opts: { name?: string; regex?: boolean; limit?: number } = {}): Promise<{ name: string; version: number; line: number; text: string }[]> {
+    this.info();
+    const p = pattern.trim();
+    if (!p || p.length > 200) throw new BoardError("Give a pattern of 1–200 characters.");
+    let test: (line: string) => boolean;
+    if (opts.regex) {
+      // Nested quantifiers like (a+)+ can take forever on a crafted line; refuse them.
+      if (/\([^)]*[+*}][^)]*\)\s*[+*{]/.test(p)) throw new BoardError("That regex has nested repetition (like (a+)+); simplify it.");
+      let re: RegExp;
+      try {
+        re = new RegExp(p, "i");
+      } catch (e) {
+        throw new BoardError(`Not a valid regex: ${e instanceof Error ? e.message : e}`);
+      }
+      test = (line) => re.test(line);
+    } else {
+      const needle = p.toLowerCase();
+      test = (line) => line.toLowerCase().includes(needle);
+    }
+    const limit = clamp(opts.limit ?? 100, 1, 500);
+    const out: { name: string; version: number; line: number; text: string }[] = [];
+    const docs = opts.name
+      ? this.sql.exec("SELECT name, version, content FROM docs WHERE name = ?", opts.name).toArray()
+      : this.sql.exec("SELECT name, version, content FROM docs ORDER BY name").toArray();
+    if (opts.name && !docs.length) throw new BoardError(`There's no file named "${opts.name}" on this board.`);
+    for (const d of docs) {
+      const lines = (d.content as string).split("\n");
+      for (let i = 0; i < lines.length && out.length < limit; i++) {
+        const line = lines[i].length > 2000 ? lines[i].slice(0, 2000) : lines[i];
+        if (test(line)) out.push({ name: d.name as string, version: d.version as number, line: i + 1, text: line.slice(0, 300) });
+      }
+      if (out.length >= limit) break;
+    }
+    return out;
   }
 
   /** Case-insensitive substring search over text and artifact names/content, with optional filters. */
@@ -1011,6 +1123,7 @@ export class Board extends DurableObject<Env> {
     );
     // Keep the last 50 versions of each document.
     this.sql.exec("DELETE FROM doc_versions WHERE name = ? AND version <= ?", name, version - 50);
+    this.indexDoc(name, content);
     return version;
   }
 

@@ -32,3 +32,19 @@ export function esc(s: unknown): string {
 
 /** One emoji (with skin tones, ZWJ sequences, flags) or a :shortcode: (custom names the web app renders). */
 export const EMOJI_RE = /^(?:(?:\p{Extended_Pictographic}|\p{Regional_Indicator}|[#*0-9]\uFE0F?\u20E3)(?:\p{Emoji_Modifier}|\p{Regional_Indicator}|\uFE0F|\u200D\p{Extended_Pictographic})*|:[a-z0-9_+\-]{1,32}:)$/u;
+
+/** Turns what a person or agent typed into a safe FTS5 query: every word required, last word as a prefix, "phrases" kept. */
+export function ftsQuery(q: string): string | null {
+  const terms: { text: string; phrase: boolean }[] = [];
+  const re = /"([^"]+)"|(\S+)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(q)) && terms.length < 12) {
+    const words = (m[1] ?? m[2]).replace(/[^\p{L}\p{N}_]+/gu, " ").trim();
+    if (!words) continue;
+    if (m[1] != null) terms.push({ text: words, phrase: true });
+    else for (const w of words.split(/\s+/)) terms.push({ text: w, phrase: false });
+  }
+  if (!terms.length) return null;
+  // Prefix-match the last bare word so search-as-you-type works.
+  return terms.map((t, i) => `"${t.text}"${!t.phrase && i === terms.length - 1 ? "*" : ""}`).join(" ");
+}
