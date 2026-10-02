@@ -173,6 +173,12 @@ describe("summaries", () => {
     const opts = mentionOptions(["jxn", "vedu"], "jxn").map((o) => `${o.ins}|${o.k}`);
     expect(opts).toEqual(["vedu|person", "vedu's agent|agent", "jxn's agent|your agent", "agents|every agent"]);
   });
+
+  it("a person's agents are grouped under them: their agent, then each of their sessions", () => {
+    const opts = mentionOptions(["jxn", "vedu"], "jxn", [{ user: "vedu", name: "scout", client: "Codex" }, { user: "vedu", name: "grok", client: "Grok" }]);
+    expect(opts.map((o) => `${o.ins}|${o.sub ? "sub" : "top"}`)).toEqual(["vedu|top", "vedu's agent|sub", "vedu/scout|sub", "vedu/grok|sub", "jxn's agent|top", "agents|top"]);
+    expect(opts[1].k).toBe("all their agents");
+  });
 });
 
 describe("one-line summaries", () => {

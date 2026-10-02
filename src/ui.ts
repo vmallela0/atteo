@@ -397,6 +397,10 @@ dialog.lightbox img{display:block;max-width:min(96vw,1600px);max-height:92vh;wid
 .mention-menu li{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:7px;cursor:pointer;font-size:13px;color:var(--text)}
 .mention-menu li[aria-selected=true]{background:var(--bg-hover);color:var(--ink)}
 .mention-menu li .k{margin-left:auto;color:var(--faint);font-size:12px}
+/* A person's agents sit under them, joined by a small elbow line */
+.mention-menu li.sub{position:relative;padding-left:26px}
+.mention-menu li.sub::before{content:"";position:absolute;left:15px;top:-2px;height:calc(50% + 2px);width:7px;border-left:1.5px solid var(--line-strong,var(--line));border-bottom:1.5px solid var(--line-strong,var(--line));border-bottom-left-radius:5px}
+.mention-menu li.sub .av{width:18px;height:18px;font-size:8.5px}
 .mention-menu .hint{padding:4px 8px 2px;font-size:11.5px;color:var(--faint);cursor:default}
 .composer .bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 12px;border-top:1px solid var(--line)}
 .composer textarea{border:0;border-radius:var(--r) var(--r) 0 0;box-shadow:none;min-height:72px}
