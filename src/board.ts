@@ -6,6 +6,7 @@ import { screenText } from "./screen";
 import { DurableObject } from "cloudflare:workers";
 import { computeSummary, formatSummary, DEFAULT_SUMMARY_CHARS, type Summary } from "./state";
 import { blockedMessage, scanFields, scanText, type SecretHit } from "./secrets";
+import { recordOutcome } from "./agents";
 import { keep, MAX_MENTIONS, mentionsOwnAgent, SESSION_NAME_RE, type Mention } from "./mentions";
 import { ENTRY_TYPES, type BoardInfo, type Entry, type Env, type Media, type Member, type NewEntry } from "./types";
 import { cleanTitle, EMOJI_RE, ftsQuery, USER_RE } from "./util";
@@ -1358,6 +1359,12 @@ export class Board extends DurableObject<Env> {
 
   // ---- claims: asserted → evidenced → verified (never by their author), or disputed; dependents go stale ----
 
+  /** An agent's track record (agents.ts): its claims others verified or disputed, and tasks it finished. People's own posts don't count. */
+  private trackRecord(seq: number, kind: "claim" | "task", by: { author: string; via?: string | null }, outcome: "verified" | "disputed" | "done") {
+    if (by.via !== "agent" || by.author.startsWith("e2e-seed")) return;
+    this.ctx.waitUntil(recordOutcome(this.env, this.info().id, seq, kind, by.author, outcome).catch(() => {}));
+  }
+
   private claimRow(seq: number) {
     const e = this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq = ?`, seq).toArray()[0];
     if (!e || e.type !== "claim") throw new BoardError(`#${seq} isn't a claim.`);
@@ -1417,6 +1424,7 @@ export class Board extends DurableObject<Env> {
     if (act.action === "verify") {
       if (claim.author === user) throw new BoardError("You can't verify your own claim (or your agent's); someone else has to check it.");
       this.sql.exec("UPDATE claim_state SET status = 'verified', verified_by = ?, verified_via = ?, disputed_by = NULL, disputed_via = NULL, dispute_reason = NULL, updated_at = ? WHERE seq = ?", user, opts.via ?? null, Date.now(), seq);
+      this.trackRecord(seq, "claim", claim, "verified");
       await this.post(user, { type: "note", reply_to: seq, to: claim.author, text: `✓ Verified #${seq}${act.note ? `: ${act.note}` : "."}`, via: opts.via, client: opts.client, session: opts.session });
       return `#${seq} is verified by ${who}.`;
     }
@@ -1424,6 +1432,7 @@ export class Board extends DurableObject<Env> {
       const reason = (act.reason ?? "").trim().slice(0, 300);
       if (!reason) throw new BoardError("Say why it's wrong (reason).");
       this.sql.exec("UPDATE claim_state SET status = 'disputed', disputed_by = ?, disputed_via = ?, dispute_reason = ?, updated_at = ? WHERE seq = ?", user, opts.via ?? null, reason, Date.now(), seq);
+      this.trackRecord(seq, "claim", claim, "disputed");
       const deps = this.dependents(seq);
       await this.post(user, {
         type: "note",
@@ -1617,6 +1626,7 @@ export class Board extends DurableObject<Env> {
     // The conversation only hears about a task when it's finished, newly assigned, or someone adds a note;
     // everything else is visible on the task itself (Tasks tab, `task get`).
     const done = change.status === "done" && t.status !== "done";
+    if (done) this.trackRecord(seq, "task", { author: user, via: opts.via }, "done");
     const assigned = change.assignee !== undefined && !!change.assignee && change.assignee.toLowerCase() !== t.assignee;
     if (done || assigned || change.note) {
       await this.post(user, {
