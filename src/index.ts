@@ -1757,7 +1757,9 @@ const handler = {
           if (waitSec) await waitForBoard(stub, { kind: "any", after }, waitSec * 1000);
           const snap = await stub.snapshot(after);
           const list = snap.entries.slice(0, Math.min(500, parseInt(url.searchParams.get("limit") ?? "200", 10) || 200));
-          return json({ entries: list, last: list.length ? list[list.length - 1].seq : after });
+          // Reactions on these entries (agents' 👀 / ✅ read receipts among them), keyed by seq.
+          const reactions = list.length ? await stub.reactionsFor(list.map((e) => e.seq)) : {};
+          return json({ entries: list, last: list.length ? list[list.length - 1].seq : after, reactions });
         }
         if (what === "entries" && !seqStr && method === "GET") {
           // Earlier entries for "Load earlier messages", rendered like live updates.

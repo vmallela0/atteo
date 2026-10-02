@@ -23,6 +23,12 @@ final class AgentSoupUITests: XCTestCase {
         field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count + 2) + text)
     }
 
+    /// Start on Boards, whatever tab the last run left selected.
+    func onBoards(_ a: XCUIApplication) {
+        let t = a.buttons["tab-boards"]
+        if t.waitForExistence(timeout: 10) { t.tap() }
+    }
+
     func shot(_ name: String) {
         let s = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         s.name = name
@@ -36,8 +42,19 @@ final class AgentSoupUITests: XCTestCase {
         a.launch()
         shot("01-launch")
         XCTAssertTrue(a.navigationBars["Chats"].waitForExistence(timeout: 10))
+        onBoards(a)
         let chat = a.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'chat-'")).firstMatch
         XCTAssertTrue(chat.waitForExistence(timeout: 10), "chats load")
+        // Boards and DMs are separate: switch to Direct, the DM shows the other person; open it, come back.
+        a.buttons["tab-direct"].tap()
+        let dm = a.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'chat-' AND identifier CONTAINS 'priya'")).firstMatch
+        XCTAssertTrue(dm.waitForExistence(timeout: 5), "the DM with priya is under Direct")
+        XCTAssertFalse(a.buttons.matching(NSPredicate(format: "identifier == 'chat-Checkout bug'")).firstMatch.exists, "boards aren't under Direct")
+        shot("02a-direct")
+        dm.tap()
+        XCTAssertTrue(a.navigationBars.matching(NSPredicate(format: "identifier == 'priya'")).firstMatch.waitForExistence(timeout: 5) || a.buttons["presence"].label.hasPrefix("priya"), "the DM is titled with the other person")
+        a.navigationBars.buttons.element(boundBy: 0).tap()
+        a.buttons["tab-boards"].tap()
         // The board theo's session is working on says so in the list.
         XCTAssertTrue(a.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS 'working now'")).firstMatch.waitForExistence(timeout: 8), "live agents show in Chats")
         shot("02-chats")
@@ -124,7 +141,7 @@ final class AgentSoupUITests: XCTestCase {
             sleep(1)
         }
         composer.tap()
-        let msg = "QA from the phone \(Int(Date().timeIntervalSince1970) % 100000)"
+        let msg = "@theo's agent QA from the phone \(Int(Date().timeIntervalSince1970) % 100000)"
         composer.typeText(msg)
         shot("05-typing")
         a.buttons["send"].tap()
@@ -134,6 +151,23 @@ final class AgentSoupUITests: XCTestCase {
         let gone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: sending)
         wait(for: [gone], timeout: 10)
         shot("07-sent")
+        // theo's agent reads it: a 👀 receipt shows under your message, live.
+        if let tick = env["AGENT_SOUP_TICK"], let server = env["AGENT_SOUP_SERVER"], let other = env["AGENT_SOUP_OTHER_TOKEN"] {
+            var r = URLRequest(url: URL(string: "\(server)/mcp?board=\(tick.split(separator: ":")[0])")!)
+            r.httpMethod = "POST"
+            r.setValue("Bearer \(other)", forHTTPHeaderField: "authorization")
+            r.setValue("application/json", forHTTPHeaderField: "content-type")
+            r.setValue("application/json, text/event-stream", forHTTPHeaderField: "accept")
+            r.httpBody = try JSONSerialization.data(withJSONObject: ["jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": ["name": "read", "arguments": [String: String]()]])
+            let read = expectation(description: "theo's agent reads")
+            URLSession.shared.dataTask(with: r) { _, _, _ in read.fulfill() }.resume()
+            wait(for: [read], timeout: 10)
+            let seen = a.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Seen, working: theo's agent")).firstMatch
+            XCTAssertTrue(seen.waitForExistence(timeout: 6), "👀 from theo's agent under your message")
+            let visible = expectation(for: NSPredicate(format: "hittable == true"), evaluatedWith: seen)
+            wait(for: [visible], timeout: 3) // on screen, not tucked under the message box
+            shot("07a-seen")
+        }
 
         // Back to the list, then Agents: flip a session to read-only.
         a.navigationBars.buttons.element(boundBy: 0).tap()
@@ -204,6 +238,7 @@ final class AgentSoupUITests: XCTestCase {
         guard env["AGENT_SOUP_ENC"] != nil else { throw XCTSkip("needs the encrypted-board seed (enc-peer.mjs running)") }
         let a = app(fresh: true)
         a.launch()
+        onBoards(a)
         let chat = a.buttons.matching(NSPredicate(format: "identifier == 'chat-Secret plans'")).firstMatch
         XCTAssertTrue(chat.waitForExistence(timeout: 10), "the encrypted board is in Chats")
         chat.tap()

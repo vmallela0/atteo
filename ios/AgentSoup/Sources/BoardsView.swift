@@ -45,16 +45,20 @@ struct BoardView: View {
                             if newDay { DaySeparator(ts: e.ts) }
                             // A hairline between separate messages from others (bubbles are separate already).
                             else if !(mine && e.type != "task") && !prevMine { Rectangle().fill(Theme.line.opacity(grouped ? 0.5 : 1)).frame(height: 0.5).padding(.leading, 36).padding(.top, grouped ? 6 : 12) }
-                            EntryRow(e: e, grouped: grouped, mine: mine, board: board.id, tasks: state.tasks[board.id] ?? []) { Task { await state.send(e.text, to: board, retrying: e) } }
+                            EntryRow(e: e, grouped: grouped, mine: mine, board: board.id, tasks: state.tasks[board.id] ?? [], reactions: state.reactions[board.id]?[e.seq] ?? []) { Task { await state.send(e.text, to: board, retrying: e) } }
                         }
                         .id(e.id)
                         .transition(.asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity), removal: .opacity))
                     }
                 }
-                .padding(.horizontal, 16).padding(.top, 4).padding(.bottom, 12)
+                .padding(.horizontal, 16).padding(.top, 4).padding(.bottom, 6)
             }
             .scrollPosition($position)
             .defaultScrollAnchor(.bottom, for: .initialOffset)
+            // A short chat sits right above the message box, like any messenger: no empty space below the last
+            // message, nothing to scroll down to, and no bounce when it all fits.
+            .defaultScrollAnchor(.bottom, for: .alignment)
+            .scrollBounceBehavior(.basedOnSize)
             .scrollDismissesKeyboard(.interactively)
             .background(Theme.bg)
             // At the latest: the visible part (which includes what's under the composer) reaches the end.
@@ -69,7 +73,11 @@ struct BoardView: View {
             // Whatever grows (messages loading, older ones filling in, cards and the task strip arriving), a pinned
             // chat stays on the latest: it opens at the bottom and stays there.
             .onScrollGeometryChange(for: CGFloat.self) { g in g.contentSize.height + g.containerSize.height } action: { _, _ in
-                if stick { position.scrollTo(edge: .bottom) }
+                // On the next pass too: a line that just appeared (a receipt under your message) is measured by then.
+                if stick { position.scrollTo(edge: .bottom); DispatchQueue.main.async { if stick { position.scrollTo(edge: .bottom) } } }
+            }
+            .onChange(of: state.reactions[board.id]) { _, _ in
+                if stick { Task { try? await Task.sleep(nanoseconds: 120_000_000); withAnimation(.smooth) { position.scrollTo(edge: .bottom) } } }
             }
             .onChange(of: list.last?.id) { _, _ in
                 // Yours always scrolls into view (and re-pins); others' do if you're pinned.
@@ -92,13 +100,13 @@ struct BoardView: View {
         .safeAreaInset(edge: .top, spacing: 0) { WorkStrip(tasks: state.tasks[board.id] ?? []) { Haptic.tap(); showTasks = true } }
         .safeAreaInset(edge: .bottom, spacing: 0) { composer }
         .sheet(isPresented: $showTasks) { TasksSheet(board: board).presentationDetents([.medium, .large]).presentationBackground(Theme.bg) }
-        .navigationTitle(board.title)
+        .navigationTitle(board.displayName(me: state.me?.owner))
         .toolbar {
             // The title, and under it who's working here right now (tap for everyone, live / idle / gone).
             ToolbarItem(placement: .principal) {
                 Button { Haptic.tap(); showAgents = true } label: {
                     VStack(spacing: 1) {
-                        Text(board.title).font(.headline).foregroundStyle(Theme.text).lineLimit(1)
+                        Text(board.displayName(me: state.me?.owner)).font(.headline).foregroundStyle(Theme.text).lineLimit(1)
                         HStack(spacing: 5) {
                             if board.encrypted == true { Image(systemName: "lock.fill").font(.system(size: 9)).foregroundStyle(Theme.faint) }
                             if !live.isEmpty { LiveDot(size: 6) }
@@ -122,7 +130,7 @@ struct BoardView: View {
 
     var composer: some View {
         HStack(alignment: .bottom, spacing: 8) {
-            TextField(board.kind == "direct" ? "Message" : "Message \(board.title)", text: $draft, axis: .vertical)
+            TextField(board.kind == "direct" ? "Message \(board.displayName(me: state.me?.owner))" : "Message \(board.title)", text: $draft, axis: .vertical)
                 .lineLimit(1...6).focused($focused)
                 .padding(.horizontal, 14).padding(.vertical, 10)
                 .background(Theme.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
@@ -159,6 +167,7 @@ struct EntryRow: View {
     var mine = false
     var board = "" // the board's id
     var tasks: [WorkTask] = [] // the board's tasks, so a task posted here shows as it is now
+    var reactions: [Reaction] = [] // on this message (agents' 👀 / ✅: read and working / done)
     var retry: () -> Void = {}
 
     private var who: String { e.byAgent ? "\(e.author)'s agent" : e.author }
@@ -180,6 +189,7 @@ struct EntryRow: View {
                 .padding(.horizontal, 14).padding(.vertical, 9)
                 .background(Theme.raised, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                 
+            if !reactions.isEmpty { ReactionLine(reactions: reactions, trailing: true) }
             if e.pending == true {
                 Text("Sending…").font(.caption2).foregroundStyle(Theme.faint)
             } else if e.failed == true {
@@ -210,6 +220,7 @@ struct EntryRow: View {
                 if e.type == "task" { TaskCard(seq: e.seq, board: board, text: e.text, tasks: tasks) } else {
                     Text(e.text.md).font(.callout).foregroundStyle(Theme.text.opacity(0.92)).lineSpacing(2)
                 }
+                if !reactions.isEmpty { ReactionLine(reactions: reactions, trailing: false) }
             }
         }
         .padding(.top, grouped ? 6 : 12)
@@ -348,4 +359,28 @@ func stateLine(_ state: String?, _ lastSeen: Double) -> String {
     case "idle": return "idle · last active \(lastSeen.ago) ago".replacingOccurrences(of: "now ago", with: "just now")
     default: return "gone · last seen \(lastSeen.ago) ago".replacingOccurrences(of: "now ago", with: "just now")
     }
+}
+
+/// Reactions under a message. Agents' 👀 (read it, working) and ✅ (done) read like a messenger's receipts:
+/// "👀 theo's agent". Others are compact: "👍 2".
+struct ReactionLine: View {
+    let reactions: [Reaction]
+    let trailing: Bool
+    var body: some View {
+        HStack(spacing: 8) {
+            ForEach(reactions, id: \.emoji) { r in
+                let receipt = r.emoji == "👀" || r.emoji == "✅"
+                HStack(spacing: 3) {
+                    Text(r.emoji).font(.caption2)
+                    Text(receipt ? names(r.users) : "\(r.users.count)").font(.caption2).foregroundStyle(r.emoji == "✅" ? Theme.ok : Theme.faint).lineLimit(1)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(receipt ? "\(r.emoji == "👀" ? "Seen, working" : "Done"): \(names(r.users))" : "\(r.emoji) \(r.users.count)")
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: trailing ? .trailing : .leading)
+        .padding(.top, 2)
+        .transition(.opacity)
+    }
+    private func names(_ users: [String]) -> String { users.count <= 2 ? users.joined(separator: ", ") : "\(users[0]) and \(users.count - 1) more" }
 }
