@@ -10,6 +10,7 @@ export interface Entry {
   author: string;
   type: EntryType;
   text: string;
+  title?: string | null; // a 3–4 word summary from its author (for the sidebar and lists); absent on older entries
   to: string | null; // addressed member, or null for everyone
   mentions?: Mention[]; // people and agents @mentioned in the text; also addressed to them. Empty on older entries.
   reply_to: number | null; // a reply to a question also answers it

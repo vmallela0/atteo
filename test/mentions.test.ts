@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { forAgent, forPerson, highlightMentions, mentionLabel, mentionsOwnAgent, parseMentions } from "../src/mentions";
 import { entryHeader, formatSummary, computeSummary } from "../src/state";
 import { renderText } from "../src/ui";
-import { firstLine, mentionOptions, summaryHtml } from "../src/html";
+import { firstLine, involved, mentionOptions, shortTitle, summaryHtml } from "../src/html";
 import type { BoardInfo, Entry } from "../src/types";
 
 const members = ["vedu", "jxn", "j.doe", "ops-bot"];
@@ -174,11 +174,20 @@ describe("one-line summaries", () => {
     expect(firstLine("Assignment: **the social layer**\n\n**Scope**\n1. Profiles")).toBe("Assignment: **the social layer**");
   });
 
-  it("sidebar items are one line with the full text on hover", () => {
-    const t = e({ seq: 9, type: "task", text: "Rerun the flaky test\n\nThen post the log and the timings." });
+  it("sidebar items: who's involved as avatars, a 3–4 word title, the full text on hover", () => {
+    const t = e({ seq: 9, type: "task", author: "vedu", via: "agent", to: "jxn", text: "Rerun the flaky checkout test\n\nThen post the log.", mentions: [{ user: "sam", agent: false }] });
     const html = summaryHtml([t], "jxn", []);
-    expect(html).toContain(`<span class="one"><b>vedu</b>: Rerun the flaky test</span>`);
-    expect(html).toContain(`title="Rerun the flaky test Then post the log and the timings."`);
+    expect(html).toContain(`<span class="one">Rerun the flaky checkout…</span><span class="n">#9</span>`);
+    expect(html).toContain(`title="vedu&#39;s agent → jxn: Rerun the flaky checkout test Then post the log."`);
+    expect(involved(t).map((x) => `${x.user}${x.agent ? "/agent" : ""}`)).toEqual(["vedu/agent", "jxn/agent", "sam"]);
+    expect((html.match(/class="av sm/g) ?? []).length).toBe(3);
+  });
+
+  it("short titles: the author's own title, else the first few words with mentions left out", () => {
+    expect(shortTitle({ text: "long text", title: "Fix empty carts", artifact_name: null })).toBe("Fix empty carts");
+    expect(shortTitle({ text: "@jxn's agent: Assignment for the social layer (backlog: friends)", artifact_name: null })).toBe("Assignment for the social…");
+    expect(shortTitle({ text: "Ship it.", artifact_name: null })).toBe("Ship it");
+    expect(shortTitle({ text: "@vedu", artifact_name: null })).toBe("#entry");
   });
 });
 

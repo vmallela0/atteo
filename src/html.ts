@@ -157,8 +157,9 @@ export function threadHtml(entries: Entry[], boardId: string, viewer?: { name: s
 export function summaryHtml(entries: Entry[], viewer: string, members: MemberView[], precomputed?: Summary, ctl?: { boardId: string; creator: string }): string {
   const s = precomputed ?? computeSummary(entries);
   // One line per item: who, then the first line of the text; the full text is on hover.
+  // One short line per item: the people and agents involved as small overlapping avatars, then a 3–4 word title.
   const item = (e: Entry) =>
-    `<li><a href="#e${e.seq}" title="${esc(clip(e.artifact_name ?? e.text, 300))}"><span class="n">#${e.seq}</span><span class="one">${e.to ? `<b>${esc(authorLabel(e))}</b> → ${esc(e.to)}: ` : `<b>${esc(authorLabel(e))}</b>: `}${esc(clip(e.artifact_name ?? firstLine(e.text), 120))}</span></a></li>`;
+    `<li><a href="#e${e.seq}" title="${esc(`${authorLabel(e)}${e.to ? ` → ${e.to}` : ""}: ${clip(e.artifact_name ?? e.text, 300)}`)}">${involvedAvatars(e)}<span class="one">${esc(shortTitle(e))}</span><span class="n">#${e.seq}</span></a></li>`;
   const fileItem = (e: Entry) =>
     `<li><a href="#files" data-open-file="${esc(e.artifact_name ?? "")}" title="${esc(clip(e.text, 300))}"><span class="one mono">${esc(e.artifact_name ?? "")}</span>${e.artifact_version ? `<span class="n">v${e.artifact_version}</span>` : ""}</a></li>`;
   const sec = (title: string, items: Entry[], render = item) =>
@@ -195,6 +196,29 @@ export function summaryHtml(entries: Entry[], viewer: string, members: MemberVie
     sec("Files", s.artifacts, fileItem) +
     people
   );
+}
+
+/** Everyone an entry involves (author, `to`, mentions), as people or agents, deduplicated, at most `max`. */
+export function involved(e: Entry, max = 3): { user: string; agent: boolean }[] {
+  const all = [{ user: e.author, agent: e.via === "agent" }, ...(e.to ? [{ user: e.to, agent: true }] : []), ...(e.mentions ?? [])];
+  const seen = new Set<string>();
+  return all.filter((x) => !seen.has(x.user + "/" + x.agent) && !!seen.add(x.user + "/" + x.agent)).slice(0, max);
+}
+
+function involvedAvatars(e: Entry): string {
+  return `<span class="avs">${involved(e)
+    .map((x) => avatar(x.user, "sm", x.agent))
+    .join("")}</span>`;
+}
+
+/** A 3–4 word title for lists: the author's own `title` when given, else the start of the first line, mentions left out. */
+export function shortTitle(e: Pick<Entry, "text" | "title" | "artifact_name">, words = 4): string {
+  if (e.title?.trim()) return clip(e.title, 48);
+  const line = clip(e.artifact_name ?? firstLine(e.text), 400)
+    .replace(/@[A-Za-z0-9][A-Za-z0-9_.-]*(?:['’]s\s+agent)?/gi, " ")
+    .replace(/^[\s,:;.\-–—]+/, "");
+  const w = line.split(/\s+/).filter(Boolean);
+  return w.length ? w.slice(0, words).join(" ").replace(/[,:;.\-–—]+$/, "") + (w.length > words ? "…" : "") : `#entry`;
 }
 
 /** The first line that has text, outside code fences: what a one-line summary should show. */
@@ -678,7 +702,7 @@ document.addEventListener('click',async e=>{const b=e.target.closest('[data-memb
 const infoBtn=document.getElementById('info-btn'),convLayout=document.getElementById('conv-layout');
 const narrow=matchMedia('(max-width:959px)');let infoHidden=false;try{infoHidden=localStorage.getItem('soup.infoHidden')==='1'}catch(e){}
 function infoSync(){const wide=!narrow.matches;convLayout.classList.toggle('info-collapsed',wide&&infoHidden);
-  infoBtn.setAttribute('aria-expanded',String(wide?!infoHidden:convLayout.classList.contains('info-open')));infoBtn.title=wide?(infoHidden?'Show board info':'Hide board info'):''}
+  const shown=wide?!infoHidden:convLayout.classList.contains('info-open');infoBtn.setAttribute('aria-expanded',String(shown));infoBtn.title=shown?'Hide board info':'Show board info'}
 function infoOpen(o){convLayout.classList.toggle('info-open',o);infoSync()}
 narrow.addEventListener('change',()=>infoOpen(false));infoSync();
 function infoCount(){const n=document.querySelectorAll('#sum .waiting li').length,c=document.getElementById('info-count');c.textContent=n||'';c.hidden=!n}
@@ -724,7 +748,7 @@ window.boardKeys=(e,k)=>{
     <span class="bp-count"><span data-count>${info.entry_count}</span> entries</span>
   </div></div>
   <div class="bp-tabs"><div class="tabs" role="tablist" id="board-tabs"><button role="tab" aria-selected="true">Conversation</button><button role="tab" aria-selected="false">Log <span class="faint" data-count>${info.entry_count}</span></button><button role="tab" aria-selected="false">Files</button></div>
-    <button class="btn ghost sm info-btn" type="button" id="info-btn" aria-expanded="false" aria-controls="board-info"><span class="lbl-wide">Board info</span><span class="lbl-narrow">Info</span> <span class="count" id="info-count" hidden></span></button></div>
+    <button class="btn ghost sm info-btn" type="button" id="info-btn" aria-expanded="false" aria-controls="board-info" aria-label="Board info" title="Board info"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2"/><path d="M10 2.75v10.5"/><path class="fill" d="M10.7 3.45h2.1a.75.75 0 0 1 .75.75v7.6a.75.75 0 0 1-.75.75h-2.1z" fill="currentColor" stroke="none"/></svg><span class="count" id="info-count" hidden></span></button></div>
 </div>
 <div role="tabpanel" id="panel-conv" class="bp-panel" data-board-panel><div class="layout" id="conv-layout">
   <section class="conv">

@@ -234,6 +234,8 @@ dialog[open]{animation:pop .16s ease-out}
 .sum li a:hover{background:var(--bg-hover)}
 .sum li .n{color:var(--faint);flex:none;font-variant-numeric:tabular-nums}
 .sum li .one{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sum li a{align-items:center}.sum li .avs{flex:none;width:40px}.sum li .avs .av{width:18px;height:18px;font-size:8px;margin-left:-6px}.sum li .avs .av:first-child{margin-left:0}
+.sum li .avs .av.agent::after{width:8px;height:8px;right:-2px;bottom:-2px}
 .sum .none{font-size:13px;color:var(--faint)}
 .waiting{border:1px solid color-mix(in srgb,var(--q) 40%,var(--line));background:color-mix(in srgb,var(--q) 6%,var(--bg));border-radius:var(--r-sm);padding:10px 12px;margin-bottom:6px}
 .composer{margin-top:20px;position:relative}
@@ -341,9 +343,11 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
 .bp-tabs{display:flex;align-items:flex-end;gap:8px;flex:none}
 .bp-tabs .tabs{border-bottom:0;margin-bottom:0}
 .bp-tabs .tabs button{padding:7px 10px}
-.info-btn{display:inline-flex;margin:0 0 4px}
-.info-btn .lbl-narrow{display:none}
-.info-btn .count{min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:var(--q);color:var(--on-ink);font-size:11px;display:inline-grid;place-items:center}
+.bp-tabs .info-btn{display:inline-flex;margin:0 0 3px;width:30px;padding:0;justify-content:center;position:relative;color:var(--muted)}
+.info-btn svg{flex:none}
+.info-btn:hover,.info-btn[aria-expanded=true]{color:var(--ink)}
+.info-btn .fill{opacity:0;transition:opacity .12s}.info-btn[aria-expanded=true] .fill{opacity:.35}
+.info-btn .count{position:absolute;top:-3px;right:-4px;min-width:15px;height:15px;padding:0 4px;border-radius:999px;background:var(--q);color:var(--on-ink);font-size:10px;font-weight:600;display:inline-grid;place-items:center;line-height:1}
 .bp-panel{flex:1;min-height:0;display:flex;flex-direction:column}
 .bp-panel>.layout{flex:1;min-height:0;grid-template-rows:minmax(0,1fr);position:relative;gap:20px}
 @media(min-width:960px){.bp-panel>.layout{grid-template-columns:minmax(0,1fr) 280px}.bp-panel>.layout.info-collapsed{grid-template-columns:minmax(0,1fr)}.layout.info-collapsed>.aside{display:none}
@@ -354,9 +358,9 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
 .thread-scroll{flex:1;min-width:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;padding:8px 22px 8px 0;scrollbar-width:none}
 .thread-scroll::-webkit-scrollbar{display:none} /* the rail stands in for its scrollbar */
 .rail{position:absolute;top:8px;bottom:8px;right:0;width:16px;cursor:pointer;touch-action:none}
-.rail i{position:absolute;right:3px;width:8px;height:2px;margin-top:-1px;border-radius:1px;background:var(--sb);transition:background .12s,width .12s}
+.rail i{position:absolute;right:3px;width:8px;height:2px;margin-top:-1px;border-radius:1px;background:color-mix(in srgb,var(--muted) 16%,transparent);transition:background .12s,width .12s}
 .rail i.on{background:var(--muted);width:10px}
-.rail:hover i{background:var(--sb-hover)}.rail:hover i.on{background:var(--ink)}
+.rail:hover i{background:var(--sb)}.rail:hover i.on{background:var(--ink)}
 .rail-tip{position:absolute;right:22px;z-index:5;max-width:min(360px,70%);padding:5px 9px;margin-top:-13px;border-radius:7px;background:var(--ink);color:var(--on-ink);
   font-size:12px;line-height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none;box-shadow:var(--shadow-lg)}
 .rail-tip[hidden]{display:none}
@@ -389,8 +393,7 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
   .content.full{padding:4px 12px 0}
   .bp-head{flex-direction:column;align-items:stretch}
   .bp-title{flex:none;gap:10px;padding:4px 0 0}
-  .bp-names,.bp-count,.info-btn .lbl-wide{display:none}
-  .info-btn .lbl-narrow{display:inline}
+  .bp-names,.bp-count{display:none}
   .bp-tabs .tabs button{padding:7px 8px}
   .bp-tabs .info-btn{margin-left:auto}
   #panel-docs .docs{grid-template-rows:auto minmax(0,1fr)}
