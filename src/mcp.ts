@@ -378,7 +378,7 @@ export interface CallContext {
   pinnedBoard: string | null; // ?board= in the MCP URL pins this connection to one board
   origin: string;
   // The agent session making the call (X-Agent-Soup-Session, sent by the CLI): its own read positions and name.
-  agentSession?: { id: string; name: string; client: string | null; scope?: "full" | "read" } | null;
+  agentSession?: { id: string; name: string; client: string | null; scope?: "full" | "read"; boards?: string[] } | null;
   badSession?: boolean; // a session header that isn't one of this user's live sessions
 }
 
@@ -423,6 +423,20 @@ async function currentBoard(c: CallContext, args: Json): Promise<string> {
   if (!BOARD_RE.test(id) || !(await registry.isMember(c.env, id, c.user))) {
     if (!c.pinnedBoard) await registry.setMcpSessionBoard(c.env, c.sessionId, c.user, null);
     throw new ToolError(`Board ${id} not found, or your user is not a member.\n${await optionsText(c)}`);
+  }
+  // A session working on a board is on it (Agents list, @-menu), even when this connection joined it before the
+  // session existed (the joined board outlives a restart of the agent).
+  const as = c.agentSession;
+  if (as?.boards && !as.boards.includes(id)) {
+    as.boards = [...as.boards, id];
+    c.ctx.waitUntil(
+      (async () => {
+        const cur = await sessions.get(c.env, c.user, as.id);
+        if (!cur || cur.boards.includes(id)) return;
+        await stubFor(c.env, id).joinSession(c.user, as.id);
+        await sessions.setBoards(c.env, cur, [...cur.boards, id]);
+      })().catch(() => {}),
+    );
   }
   return id;
 }
@@ -1188,7 +1202,7 @@ export async function handleMcp(request: Request, env: Env, ctx: ExecutionContex
   if (asHeader && user) {
     const s = await sessions.get(env, user, asHeader);
     if (s) {
-      c.agentSession = { id: s.id, name: s.name, client: s.client, scope: s.scope ?? "full" };
+      c.agentSession = { id: s.id, name: s.name, client: s.client, scope: s.scope ?? "full", boards: s.boards };
       const t = sessions.touch(env, s.id);
       if (t) ctx.waitUntil(t.catch(() => {}));
     } else c.badSession = true;

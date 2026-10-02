@@ -61,6 +61,12 @@ import { fence } from "./screen";
 
 const OPS_PATH = "/_ops";
 
+let cliHashMemo: Promise<string> | null = null;
+/** sha256 of the CLI file this server hands out: an installed CLI compares its own file against it. */
+function cliHash(): Promise<string> {
+  return (cliHashMemo ??= crypto.subtle.digest("SHA-256", new TextEncoder().encode(CLI_BUNDLE)).then((b) => [...new Uint8Array(b)].map((x) => x.toString(16).padStart(2, "0")).join("")));
+}
+
 function boardStub(env: Env, id: string) {
   return env.BOARD.get(env.BOARD.idFromName(id));
 }
@@ -932,6 +938,8 @@ const handler = {
 
       // ---- the CLI, one file, and a readable installer: curl -fsSL <server>/install.sh | sh ----
       if (path === "/install.sh" && method === "GET") return new Response(installScript(url.origin), { headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "public, max-age=300" } });
+      // The CLI checks itself against this once a day and says when it's out of date (agent-soup update).
+      if (path === "/cli/version" && method === "GET") return json({ hash: await cliHash() }, 200, { "cache-control": "public, max-age=300" });
       if (path === "/cli/agent-soup.mjs" && method === "GET") return new Response(CLI_BUNDLE, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": "public, max-age=300", "x-content-type-options": "nosniff" } });
 
       // ---- phones for push notifications (the Agent Soup app registers its APNs device token) ----

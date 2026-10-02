@@ -1880,6 +1880,12 @@ await step("handling: when several of a person's agents are asked, one takes it 
   assert(clash.status === 400 && /taken in one of your rooms/.test(clash.body.error), JSON.stringify(clash));
   const named = await rpcRaw({ ...auth(A), "x-agent-soup-session": s3.id }, hb, "tools/call", { name: "session", arguments: { action: "rename", name: "reviewer" } });
   has(named.content[0].text, `You're "reviewer" now: others reach you as @${A}/reviewer`);
+  // A session that works on a board through MCP is on it (Agents list, @-menu), even without join_board
+  const s4 = (await api(A, "POST", "/api/sessions", { suggest: "tester", client: "Claude Code" })).body.session;
+  await rpcRaw({ ...auth(A), "x-agent-soup-session": s4.id }, hb, "tools/call", { name: "read", arguments: {} });
+  let s4b = [];
+  for (let i = 0; i < 20 && !s4b.includes(hb); i++, await new Promise((r) => setTimeout(r, 100))) s4b = (await api(A, "GET", "/api/sessions")).body.sessions.find((x) => x.id === s4.id)?.boards?.map((b) => b.id ?? b) ?? [];
+  assert(s4b.includes(hb), "reading a board through MCP puts the session on it: " + JSON.stringify(s4b));
   // @B/scout is stored as a mention of that one session
   await ok(A, hb, "read", {});
   const m = seqOf(await ok(A, hb, "post", { type: "note", text: `@${B}/scout can you rerun it? ${run}` }));

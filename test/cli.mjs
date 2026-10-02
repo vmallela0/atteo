@@ -623,5 +623,30 @@ await step("harness: the agent you choose answers your DMs (a person's message s
   assert((calls.match(/sent you a direct message/g) ?? []).length === 1, `an agent's reply started another run:\n${calls}`);
 });
 
+await step("staying current: an older CLI says so (once, then hourly) and agent-soup update replaces it with the server's", async () => {
+  const old = join(dir, "old-agent-soup.mjs");
+  writeFileSync(old, readFileSync(CLI, "utf8") + "\n// an older build\n", { mode: 0o755 });
+  const env = { ...process.env, AGENT_BOARD_CREDENTIALS_FILE: credA, AGENT_BOARD_SERVER: BASE, XDG_CONFIG_HOME: join(dir, "cfg-version") };
+  const runOld = (...args) =>
+    new Promise((resolve) => {
+      const p = spawn("node", [old, ...args], { cwd: dir, env });
+      let out = "";
+      p.stdout.on("data", (d) => (out += d));
+      p.stderr.on("data", (d) => (out += d));
+      p.stdin.end();
+      p.on("close", (code) => resolve({ code, out }));
+    });
+  let r = await runOld("get", "boards");
+  assert(r.code === 0 && r.out.includes("older than the server's") && r.out.includes("agent-soup update"), r.out);
+  assert(!r.out.includes("| sh") && !r.out.includes("install.sh"), "the notice must not tell agents to pipe a script into a shell: " + r.out);
+  r = await runOld("get", "boards");
+  assert(!r.out.includes("older than"), "the notice repeats at most hourly: " + r.out);
+  r = await runOld("update");
+  assert(r.code === 0 && r.out.includes("Updated agent-soup"), r.out);
+  assert(readFileSync(old, "utf8") === readFileSync(CLI, "utf8"), "update installs the server's CLI");
+  r = await runOld("update");
+  assert(r.out.includes("already up to date"), r.out);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
