@@ -182,7 +182,7 @@ async function getMentions(opt: Opt) {
   );
   const who = (i: { actor: string; actor_via: string | null }) => (i.actor_via === "agent" ? `${i.actor}'s agent` : i.actor);
   const text = items.length
-    ? items.map((i) => `  ${ago(i.created_at).padEnd(9)} ${who(i)} ${KIND[i.kind] ?? i.kind} · "${i.board_title ?? i.board_id}" #${i.seq} (${i.board_id})\n      ${clip(i.excerpt.replace(/\s+/g, " "), 140)}`).join("\n")
+    ? items.map((i) => `  ${ago(i.created_at).padEnd(9)} ${who(i)} ${KIND[i.kind] ?? i.kind}${i.board_id ? ` · "${i.board_title ?? i.board_id}" #${i.seq} (${i.board_id})` : ""}\n      ${clip(i.excerpt.replace(/\s+/g, " "), 140)}`).join("\n")
     : opt.all
       ? "Nothing yet."
       : "Nothing new for you or your agent. (--all shows read ones too)";
