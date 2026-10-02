@@ -183,7 +183,7 @@ dialog[open]{animation:pop .16s ease-out}dialog:focus{outline:none}
 .entry.retracted>.grow>.body,.entry.retracted>.grow>.file{text-decoration:line-through;text-decoration-color:var(--faint);opacity:.55}
 .entry.retracted>.grow>.meta .rbadge{display:inline-flex}
 .entry .acts{margin-left:auto;display:inline-flex;gap:2px;opacity:0;transition:opacity .12s}
-.entry:hover .acts,.entry .acts:focus-within,.entry .acts:has(.danger){opacity:1}
+.entry:hover>.grow>.meta>.acts,.entry .acts:focus-within,.entry .acts:has(.danger){opacity:1} /* only the message under the pointer, not its whole thread */
 /* Retract takes no room in the header line, so narrow screens don't get a blank line under every entry. Touch
    screens have no hover: there it appears on the entry you opened (tap its #number). */
 .entry{position:relative}
@@ -244,20 +244,14 @@ dialog.access-dlg{width:min(640px,calc(100vw - 24px))}
 .ro .composer,.ro [data-qr],.ro [data-rx-add],.ro [data-reply],.ro .rx-add,.ro [data-tk],.ro [data-review],.ro .kb-new,.ro #doc-new,.ro #doc-edit{display:none!important}
 .ro .rx-chip{pointer-events:none}
 /* threads: replies fold into "N replies" under their message; the thread opens in a side panel (an overlay on phones) */
-#thread>.entry>.grow>.replies{display:none}
+#thread>.entry>.grow>.replies{display:none}#thread>.entry.thr-open>.grow>.replies{display:block}
 .thr-sum{display:inline-flex;align-items:center;gap:8px;margin-top:6px;padding:3px 10px 3px 4px;border:1px solid transparent;border-radius:8px;background:none;font:inherit;font-size:12.5px;color:var(--accent);cursor:pointer}
 .thr-sum:hover{border-color:var(--line);background:var(--bg-subtle)}.thr-sum .faint{color:var(--faint)}
 .thr-sum .avs .av{width:20px;height:20px;font-size:8.5px}
-.thread-pane{display:flex;flex-direction:column;min-height:0;border-left:1px solid var(--line);padding:0 0 12px 16px;background:var(--bg)}
-.thread-pane[hidden]{display:none}
-.tp-head{display:flex;align-items:center;gap:8px;padding:10px 0 8px;border-bottom:1px solid var(--line)}
-.tp-scroll{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:4px 4px 8px 0}
-.tp-scroll .entry{padding:12px 0}.tp-scroll .acts{display:none}
-.tp-count{padding:6px 0;border-bottom:1px solid var(--line)}
-.tp-composer{flex:none;margin-top:6px}.tp-composer .bar{display:flex;align-items:center;gap:8px;padding:8px 10px;border-top:1px solid var(--line)}
-.tp-scroll .refs{display:none}.tp-composer textarea{border:0;border-radius:var(--r) var(--r) 0 0;box-shadow:none;min-height:44px;resize:none}
-@media(min-width:960px){.bp-panel>.layout.thread-open{grid-template-columns:minmax(0,1fr) 380px}.layout.thread-open>.aside{display:none}.layout.thread-open .info-btn{display:none}}
-@media(max-width:959px){.layout.thread-open>.thread-pane{position:absolute;inset:0;z-index:9;padding-left:0;border-left:0}}
+.thr-form{display:flex;align-items:flex-end;gap:8px;margin:10px 0 0 16px;padding:6px 6px 6px 10px;border:1px solid var(--line);border-radius:10px;background:var(--bg)}
+.thr-form[hidden]{display:none}.thr-form:focus-within{border-color:var(--line-strong)}
+.thr-form textarea{flex:1;min-height:30px;max-height:160px;border:0;padding:5px 0;box-shadow:none!important;resize:none;field-sizing:content}
+.thr-form #thr-to:empty{display:none}.thr-form #thr-to{align-self:center;white-space:nowrap}
 .entry.hit{background:color-mix(in srgb,var(--warn) 9%,transparent);border-radius:8px;box-shadow:inset 3px 0 0 var(--warn)}
 /* a task in the conversation: status, priority, who it's for / who holds it, and Claim · Done · Open */
 .tk{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px;padding:6px 6px 6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg-subtle);font-size:12.5px}

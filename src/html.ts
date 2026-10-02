@@ -700,7 +700,7 @@ function addEntry(e){if(document.getElementById('e'+e.seq)){last=Math.max(last,e
     if(box){el.querySelector('.replies')?.remove();box.appendChild(el)}else{document.getElementById('empty')?.remove();document.getElementById('thread').appendChild(el)}
     if(e.reactions)renderRx(e.seq,e.reactions);
     if(el.querySelector('[data-task]'))refreshTask(e.seq);
-    if(box){thrSum(e.root);if(tpRootSeq===e.root)tpRender()}
+    if(box)thrSum(e.root);
     if(!document.querySelector('#log-body tr[data-seq="'+e.seq+'"]')){const lt=document.createElement('tbody');lt.innerHTML=e.row;document.getElementById('log-body').prepend(lt.firstElementChild);document.getElementById('log-empty')?.remove()}
     if(e.retracts){const t=document.getElementById('e'+e.retracts);if(t){t.classList.add('retracted');t.querySelector('[data-retract]')?.remove()}}
     last=Math.max(last,e.seq);return true}
@@ -1022,42 +1022,41 @@ window.BOARD_CTX={id:BOARD,me:ME,members:MEMBERS,
     document.querySelectorAll('#thread .entry.hit').forEach(x=>x.classList.remove('hit'));el.classList.add('hit');el.scrollIntoView({block:'center'});moved=true;setTimeout(()=>el.classList.remove('hit'),4000)},
   openFile(name,v){tab(2);openDoc(name,v)}};
 document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&!e.altKey&&!e.shiftKey&&e.key.toLowerCase()==='f'&&!document.querySelector('dialog[open]:not(#palette)')){e.preventDefault();window.openPalette([{k:'board'},{k:'kind',v:'messages'}])}},true);
-// ---- threads (Slack-style): replies fold into "N replies" under their message and open in a side panel ----
+// ---- threads: replies fold into "N replies" under their message; clicking it opens the thread right there, in the chat ----
 const avatar16=(u,agent)=>'<span class="av sm'+(agent?' agent':'')+'" style="--h:'+(MOPTS.find(o=>o.u===u)?.av.match(/--h:([0-9]+)/)?.[1]||220)+'">'+esc(u.slice(0,2).toUpperCase())+'</span>';
-const pane=document.getElementById('thread-pane'),tpForm=document.getElementById('tp-form'),tpText=document.getElementById('tp-text');let tpRootSeq=null,tpTarget=null;
+const thrForm=document.getElementById('thr-form'),thrText=document.getElementById('thr-text');let thrRoot=null,thrTarget=null;
 function thrSum(root){const top=document.getElementById('e'+root);if(!top)return;const kids=[...(document.getElementById('r'+root)?.querySelectorAll('.entry')||[])];
-  let b=top.querySelector(':scope>.grow>.thr-sum');if(!kids.length){b?.remove();return}
+  let b=top.querySelector(':scope>.grow>.thr-sum');if(!kids.length&&thrRoot!==root){b?.remove();return}
   if(!b){b=document.createElement('button');b.type='button';b.className='thr-sum';b.dataset.thread=root;top.querySelector(':scope>.grow>.replies').before(b)}
+  for(const k of kids){const r=k.querySelector(':scope>.grow>.refs');if(r&&r.textContent.trim()==='reply to #'+root)r.hidden=true} // obvious inside its own thread
+  const open=top.classList.contains('thr-open');b.setAttribute('aria-expanded',String(open));
+  if(open){b.innerHTML='<b>Hide replies</b>';b.setAttribute('aria-label','Hide replies');return}
   const who=[];for(const k of kids){const key=k.dataset.author+(k.classList.contains('by-agent')?'/a':'');if(!who.includes(key))who.push(key)}
-  const lastT=kids[kids.length-1].querySelector('time[data-ts]');
+  const lastT=kids[kids.length-1]?.querySelector('time[data-ts]');
   b.innerHTML='<span class="avs">'+who.slice(0,3).map(w=>avatar16(w.split('/')[0],w.endsWith('/a'))).join('')+'</span><b>'+kids.length+' repl'+(kids.length===1?'y':'ies')+'</b><span class="faint">'+(lastT?'last '+lastT.textContent:'')+'</span>';
-  b.setAttribute('aria-label','Open thread: '+kids.length+' repl'+(kids.length===1?'y':'ies'))}
-function tpClone(el){const c=el.cloneNode(true);c.removeAttribute('id');c.querySelector(':scope>.grow>.replies')?.remove();c.querySelector(':scope>.grow>.thr-sum')?.remove();c.querySelector('.rd')?.remove();c.classList.remove('hit','flash-in');return c}
-function tpRender(focus){const top=document.getElementById('e'+tpRootSeq);if(!top){closeThread();return}
-  const kids=[...(document.getElementById('r'+tpRootSeq)?.querySelectorAll('.entry')||[])];
-  document.getElementById('tp-root').replaceChildren(tpClone(top));document.getElementById('tp-replies').replaceChildren(...kids.map(tpClone));
-  document.getElementById('tp-count').textContent=kids.length?kids.length+' repl'+(kids.length===1?'y':'ies'):'No replies yet';
-  document.getElementById('tp-sub').textContent='#'+tpRootSeq;
-  const sc=document.getElementById('tp-scroll');const f=focus&&[...document.querySelectorAll('#tp-replies .entry')].find(x=>x.dataset.seq==String(focus));
-  if(f){f.classList.add('hit');f.scrollIntoView({block:'center'})}else sc.scrollTop=sc.scrollHeight}
-/** Opens a message's thread. Replying to someone puts an @mention of them in the reply box, like Slack. */
-function openThread(root,o={}){tpRootSeq=root;tpTarget=o.replyTo||root;convLayout.classList.add('thread-open');pane.hidden=false;infoOpen(false);tpRender(o.focus);
-  const tgt=document.getElementById('e'+tpTarget),by=tgt?.dataset.author,byAgent=tgt?.classList.contains('by-agent');
-  if(o.replyTo&&by&&by!==ME){const at='@'+by+(byAgent?"'s agent":'')+' ';if(!tpText.value.includes(at.trim()))tpText.value=at+tpText.value}
-  document.getElementById('tp-to').textContent=tpTarget!==root?'Replying to #'+tpTarget:'';
-  if(o.replyTo||o.compose){tpText.focus();tpText.setSelectionRange(tpText.value.length,tpText.value.length)}}
-function closeThread(){tpRootSeq=null;convLayout.classList.remove('thread-open');pane.hidden=true;tpText.value=''}
-document.addEventListener('click',e=>{const s=e.target.closest('[data-thread]');if(s){openThread(+s.dataset.thread);return}
-  if(e.target.closest('#tp-close'))closeThread()});
-// Reply opens the message's thread (instead of replying in the main box)
+  b.setAttribute('aria-label','Show '+kids.length+' repl'+(kids.length===1?'y':'ies'))}
+/** Opens a message's thread in place. Replying to someone puts an @mention of them in the reply box, like Slack. */
+function openThread(root,o={}){const top=document.getElementById('e'+root);if(!top)return;top.classList.add('thr-open');
+  if(!READONLY&&(o.replyTo||o.compose||thrRoot===root||thrRoot==null)){if(thrRoot!==root){thrText.value=''};thrRoot=root;thrTarget=o.replyTo||root;
+    top.querySelector(':scope>.grow>.replies').after(thrForm);thrForm.hidden=false;
+    const tgt=document.getElementById('e'+thrTarget),by=tgt?.dataset.author,byAgent=tgt?.classList.contains('by-agent');
+    if(o.replyTo&&by&&by!==ME){const at='@'+by+(byAgent?"'s agent":'')+' ';if(!thrText.value.includes(at.trim()))thrText.value=at+thrText.value}
+    document.getElementById('thr-to').textContent=thrTarget!==root?'Replying to #'+thrTarget:''}
+  thrSum(root);
+  const f=o.focus&&document.getElementById('e'+o.focus);if(f){f.classList.add('hit');f.scrollIntoView({block:'center'})}
+  if(o.replyTo||o.compose){thrText.focus();thrText.setSelectionRange(thrText.value.length,thrText.value.length);thrForm.scrollIntoView({block:'nearest'})}}
+function closeThread(root){const top=document.getElementById('e'+root);if(!top)return;top.classList.remove('thr-open');
+  if(thrRoot===root){thrRoot=null;thrForm.hidden=true;thrText.value='';document.getElementById('thread-scroll').appendChild(thrForm)}thrSum(root)}
+document.addEventListener('click',e=>{const s=e.target.closest('[data-thread]');if(!s)return;const root=+s.dataset.thread;
+  if(document.getElementById('e'+root)?.classList.contains('thr-open'))closeThread(root);else openThread(root,{compose:false})});
+// Reply opens the message's thread in place, with the reply box focused
 document.addEventListener('click',e=>{const b=e.target.closest('[data-reply]');if(!b)return;e.stopImmediatePropagation();e.preventDefault();
   const seq=+b.dataset.reply,top=document.getElementById('e'+seq)?.closest('#thread>.entry');openThread(top?+top.dataset.seq:seq,{replyTo:seq})},true);
-tpText.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();tpForm.requestSubmit()}if(e.key==='Escape'){e.preventDefault();closeThread()}});
-tpForm.addEventListener('submit',async e=>{e.preventDefault();const text=tpText.value.trim();if(!text||!tpRootSeq)return;const btn=tpForm.querySelector('button');btn.disabled=true;
-  try{const r=await fetch('/api/boards/'+BOARD+'/entries',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({type:'note',text,reply_to:tpTarget||tpRootSeq})});
-    const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||"Couldn't reply");return}tpText.value='';tpTarget=tpRootSeq;document.getElementById('tp-to').textContent='';await tick(false);tpRender()}
+thrText.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();thrForm.requestSubmit()}if(e.key==='Escape'){e.preventDefault();e.stopPropagation();thrText.blur()}});
+thrForm.addEventListener('submit',async e=>{e.preventDefault();const text=thrText.value.trim();if(!text||!thrRoot)return;const btn=thrForm.querySelector('button');btn.disabled=true;
+  try{const r=await fetch('/api/boards/'+BOARD+'/entries',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({type:'note',text,reply_to:thrTarget||thrRoot})});
+    const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||"Couldn't reply");return}thrText.value='';thrTarget=thrRoot;document.getElementById('thr-to').textContent='';await tick(false);thrForm.scrollIntoView({block:'nearest'})}
   finally{btn.disabled=false}});
-document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!pane.hidden&&!document.querySelector('dialog[open]')&&!e.target.closest('input,textarea'))closeThread()});
 document.querySelectorAll('#thread>.entry').forEach(x=>thrSum(+x.dataset.seq));
 // a link to a reply (#e<n>) opens its thread
 setTimeout(()=>{const m=location.hash.match(/^#e([0-9]+)$/);const el=m&&document.getElementById('e'+m[1]);if(el&&el.closest('.replies'))openThread(+el.closest('#thread>.entry').dataset.seq,{focus:+m[1]})},0); // after the whole script has run
@@ -1261,7 +1260,7 @@ window.boardKeys=(e,k)=>{
 ${info.archived ? "" : VOICE_HTML}<div role="tabpanel" id="panel-conv" class="bp-panel" data-board-panel><div class="layout" id="conv-layout">
   <button class="btn ghost sm info-btn" type="button" id="info-btn" aria-expanded="false" aria-controls="board-info" aria-label="Board info" title="Board info"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2"/><path d="M10 2.75v10.5"/><path class="fill" d="M10.7 3.45h2.1a.75.75 0 0 1 .75.75v7.6a.75.75 0 0 1-.75.75h-2.1z" fill="currentColor" stroke="none"/></svg><span class="count" id="info-count" hidden></span></button>
   <section class="conv">
-    <div class="thread-wrap"><div class="thread-scroll" id="thread-scroll"><div class="thread" id="thread">${thread}</div></div>
+    <div class="thread-wrap"><div class="thread-scroll" id="thread-scroll"><div class="thread" id="thread">${thread}</div><form class="thr-form" id="thr-form" hidden><textarea class="input" id="thr-text" rows="1" placeholder="Reply…" aria-label="Reply in thread"></textarea><span class="xs faint" id="thr-to"></span><button class="btn primary sm">Reply</button></form></div>
       <div class="rail" id="rail" aria-hidden="true"></div><div class="rail-tip" id="rail-tip" hidden></div>
       <button class="btn sm new-pill" type="button" id="new-pill" hidden>Jump to latest ↓</button></div>
     <form class="card composer" method="post" action="/api/boards/${esc(info.id)}/entries" data-api data-done="posted" data-reset${info.archived || readOnly || info.encrypted ? " hidden" : ""}>
@@ -1283,12 +1282,6 @@ ${info.archived ? "" : VOICE_HTML}<div role="tabpanel" id="panel-conv" class="bp
   </section>
   <aside class="aside" id="board-info" aria-label="Board info">${agentCard(agent, info.title)}<div class="sum" id="sum">${summaryHtml(entries, viewer.name, members, summary, ctl)}</div>
 </aside>
-  <aside class="thread-pane" id="thread-pane" aria-label="Thread" hidden>
-    <div class="tp-head"><b>Thread</b><span class="xs faint" id="tp-sub"></span><span class="grow"></span><button class="btn ghost sm" type="button" id="tp-close" aria-label="Close thread (Esc)" title="Close (Esc)">✕</button></div>
-    <div class="tp-scroll" id="tp-scroll"><div id="tp-root"></div><div class="tp-count xs faint" id="tp-count"></div><div id="tp-replies"></div></div>
-    <form class="tp-composer card" id="tp-form"${info.archived ? " hidden" : ""}><textarea class="input" id="tp-text" rows="2" placeholder="Reply…" aria-label="Reply in thread"></textarea>
-      <div class="bar"><span class="xs faint" id="tp-to"></span><span class="grow"></span><button class="btn primary sm">Reply</button></div></form>
-  </aside>
 </div></div>
 <div role="tabpanel" id="panel-log" class="bp-panel" data-board-panel hidden><div class="list scroll-x"><table class="log"><thead><tr><th>Time (UTC)</th><th>#</th><th>Author</th><th>Type</th><th>To</th><th>Summary</th></tr></thead>
 <tbody id="log-body">${rows || `<tr id="log-empty"><td colspan="6" class="empty small">No events yet.</td></tr>`}</tbody></table></div>

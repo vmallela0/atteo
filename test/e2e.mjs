@@ -614,8 +614,8 @@ await step("board page layout: pinned header and tabs, a scrolling thread with t
   has(page, `id="new-pill" hidden>Jump to latest ↓</button>`);
   // A task in the conversation carries a live task strip (status, who holds it, Claim · Done · Open), filled in by the page.
   assert(/<div class="tk" data-task="\d+" hidden><\/div>/.test(page), "task strip");
-  // Threads open in a side panel (replies fold under their message on the page).
-  has(page, `<aside class="thread-pane" id="thread-pane" aria-label="Thread" hidden>`);
+  // Threads open in place under their message (replies fold into "N replies" until opened).
+  has(page, `<form class="thr-form" id="thr-form" hidden>`); // threads open in place, in the chat
   // Every message has a reactions row (filled in by the page) and a ☺+ in its hover actions.
   assert(/<div class="rx" data-rx="\d+"><button class="rx-add"/.test(page) && page.includes('class="btn ghost sm rx-act" type="button" data-rx-add='), "reactions row and add button");
   // Addressing is by @mention; the composer has no "To" dropdown.
