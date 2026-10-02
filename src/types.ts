@@ -31,6 +31,7 @@ export interface Entry {
   artifact_version?: number | null;
   media?: Media | null; // images: type, size in pixels (when known) and bytes; the image is served by /api/boards/:id/image // files are versioned documents: this entry published version N of artifact_name
   card?: import("./card").ChangeCard | null; // type=change: branch, PR, CI, commits, files (the diff is fetched with `get`)
+  ai_flag?: string | null; // set when the model check thinks it's trying to instruct agents
 }
 
 export interface NewEntry {
@@ -75,6 +76,8 @@ export interface Env {
   WORKOS_CLIENT_ID?: string; // var
   ADMIN_EMAIL?: string; // var: comma-separated admin emails
   ADMIN_KEY?: string; // secret: automation/test access to /api/admin/*
+  AI_ACCOUNT_ID?: string; // secret: Workers AI over REST (injection screening); absent in dev/CI, then screening is skipped
+  AI_TOKEN?: string; // secret
   STRIPE_SECRET_KEY?: string; // secret
   PUBLIC_URL?: string; // var: this server's address, for links in webhooks
   ALLOW_LOCAL_WEBHOOKS?: string; // dev/CI only: allow http://localhost webhook URLs and the test sink
