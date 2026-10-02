@@ -248,7 +248,7 @@ export default {
 
     try {
       if (path === "/mcp") return await handleMcp(request, env, ctx);
-      if (path === "/health") return json({ ok: true });
+      if (path === "/health") return json({ ok: true, version: env.CF_VERSION_METADATA?.id ?? null });
       if (path === "/favicon.svg" || path === "/favicon.ico") {
         return new Response(FAVICON_SVG, { headers: { "content-type": "image/svg+xml", "cache-control": "public, max-age=86400" } });
       }

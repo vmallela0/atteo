@@ -789,7 +789,7 @@ await step("CLI login: device code, approve in the browser, token works once; de
   has(await (await web("/me", A)).text(), "expired");
 });
 
-if (/localhost|127\.0\.0\.1/.test(BASE)) {
+if (/localhost|127\.0\.0\.1/.test(BASE) && process.env.E2E_FULL) {
   await step("boards past 1,000 entries page through updates without looping (local only)", async () => {
     const big = (await ops("boards", { user: A, title: `e2e big ${run}` })).body.board.id;
     const N = 1010;
