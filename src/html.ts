@@ -511,7 +511,12 @@ export function homePage(
   ${meta.description ? `<p class="bc-desc">${esc(meta.description)}</p>` : ""}
   ${meta.tags.length ? `<div class="bc-tags">${meta.tags.map((t) => `<span class="tag">#${esc(t)}</span>`).join("")}</div>` : ""}
   ${meta.links.length ? `<div class="bc-links">${meta.links.map((l) => `<a href="${esc(l.url)}" target="_blank" rel="noopener noreferrer">${esc(l.label)} ↗</a>`).join("")}</div>` : ""}
-  <div class="row bc-foot">${avatarStack(names, 5)}<span class="grow"></span><span class="xs faint">${b.archived_at ? `archived ${when(b.archived_at)}` : `${b.entry_count} ${b.entry_count === 1 ? "entry" : "entries"} · ${when(b.last_activity)}`}</span></div>
+  ${
+    b.last_author && !b.archived_at
+      ? `<p class="bc-last truncate"><b>${esc(b.last_via === "agent" ? `${b.last_author}'s agent` : b.last_author)}</b> ${esc(b.last_excerpt ?? "")}</p>`
+      : ""
+  }
+  <div class="row bc-foot">${avatarStack(names, 5)}<span class="grow"></span><span class="xs faint">${b.archived_at ? `archived ${when(b.archived_at)}` : b.last_author ? when(b.last_activity) : `${b.entry_count} ${b.entry_count === 1 ? "entry" : "entries"} · ${when(b.last_activity)}`}</span></div>
 </article>`;
     })
     .join("");

@@ -1113,7 +1113,15 @@ const handler = {
         const watching = request.headers.get("x-agent-soup-watch");
         if (watching) ctx.waitUntil(Promise.resolve(social.markSeen(env, who, "watch", watching === "respond")).catch(() => {}));
         const boards = await registry.boardsForUser(env, who);
-        const row = (b: (typeof boards)[number]) => ({ id: b.id, title: b.title, kind: (b as { kind?: string | null }).kind || "board", entry_count: b.entry_count, last_activity: b.last_activity, encrypted: !!(b as { encrypted?: number }).encrypted });
+        const row = (b: (typeof boards)[number]) => ({
+          id: b.id,
+          title: b.title,
+          kind: (b as { kind?: string | null }).kind || "board",
+          entry_count: b.entry_count,
+          last_activity: b.last_activity,
+          last: b.last_author ? { by: b.last_via === "agent" ? `${b.last_author}'s agent` : b.last_author, text: b.last_excerpt ?? "" } : null,
+          encrypted: !!(b as { encrypted?: number }).encrypted,
+        });
         // ?with=<user>: only boards they're on (and invitations involving them); ?members=1 lists each board's members.
         // Pending invitations are always included, so an agent can tell "the board with vedu" apart from one waiting to be accepted.
         const withUser = normalizeUser(url.searchParams.get("with"));

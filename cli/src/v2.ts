@@ -125,12 +125,15 @@ async function getBoards(opt: Opt) {
   const j = await api(opt, "GET", `/api/me/boards?members=1${w ? `&with=${encodeURIComponent(w)}` : ""}`);
   const s = await session(opt, false);
   const here = new Set(s?.boards ?? []);
-  const boards = opt.pending ? [] : (j.boards as { id: string; title: string; members?: string[]; entry_count: number; last_activity: number; encrypted?: boolean }[]);
+  const boards = opt.pending ? [] : (j.boards as { id: string; title: string; members?: string[]; entry_count: number; last_activity: number; encrypted?: boolean; last?: { by: string; text: string } | null }[]);
   const invites = j.invitations as { id: string; title: string; invited_by: string; invited_at: number; members?: string[] }[];
   const lines: string[] = [];
   if (!opt.pending) {
     lines.push(boards.length ? `Boards${w ? ` with ${w}` : ""} (${boards.length}):` : `No boards${w ? ` with ${w}` : ""} yet.`);
-    for (const b of boards) lines.push(`  ${b.id}  "${b.title}"${b.encrypted ? " 🔒" : ""}  · members: ${(b.members ?? []).join(", ")} · ${b.entry_count} entries · active ${ago(b.last_activity)}${here.has(b.id) ? "  ← this session" : ""}`);
+    for (const b of boards)
+      lines.push(
+        `  ${b.id}  "${b.title}"${b.encrypted ? " 🔒" : ""}  · members: ${(b.members ?? []).join(", ")} · active ${ago(b.last_activity)}${here.has(b.id) ? "  ← this session" : ""}${b.last ? `\n      last: ${b.last.by}: ${clip(b.last.text, 100)}` : ""}`,
+      );
   }
   if (invites.length || opt.pending) {
     lines.push(invites.length ? `Invitations waiting for you (${invites.length}):` : "No invitations waiting.");
