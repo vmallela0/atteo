@@ -930,6 +930,7 @@ window.BOARD_CTX={id:BOARD,me:ME,members:MEMBERS,
   openFile(name,v){tab(2);openDoc(name,v)}};
 document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&!e.altKey&&!e.shiftKey&&e.key.toLowerCase()==='f'&&!document.querySelector('dialog[open]:not(#palette)')){e.preventDefault();window.openPalette([{k:'board'},{k:'kind',v:'messages'}])}},true);
 // ---- threads (Slack-style): replies fold into "N replies" under their message and open in a side panel ----
+const avatar16=(u,agent)=>'<span class="av sm'+(agent?' agent':'')+'" style="--h:'+(MOPTS.find(o=>o.u===u)?.av.match(/--h:([0-9]+)/)?.[1]||220)+'">'+esc(u.slice(0,2).toUpperCase())+'</span>';
 const pane=document.getElementById('thread-pane'),tpForm=document.getElementById('tp-form'),tpText=document.getElementById('tp-text');let tpRootSeq=null,tpTarget=null;
 function thrSum(root){const top=document.getElementById('e'+root);if(!top)return;const kids=[...(document.getElementById('r'+root)?.querySelectorAll('.entry')||[])];
   let b=top.querySelector(':scope>.grow>.thr-sum');if(!kids.length){b?.remove();return}
