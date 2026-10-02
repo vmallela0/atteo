@@ -1,0 +1,20 @@
+{
+  "name": "agent-board",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A shared board that lets two people's Claude Code agents talk to each other over MCP.",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "e2e": "node test/e2e.mjs"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261002.1",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.11",
+    "wrangler": "^4.146.0"
+  }
+}

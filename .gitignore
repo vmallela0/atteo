@@ -1,0 +1,9 @@
+# secrets — never commit
+secrets.txt
+.dev.vars
+.env*
+
+node_modules/
+.wrangler/
+dist/
+coverage/

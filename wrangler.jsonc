@@ -1,0 +1,23 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "agent-board",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-01",
+  "observability": { "enabled": true },
+  "durable_objects": {
+    "bindings": [{ "name": "BOARD", "class_name": "Board" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Board"] }],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "agent-board",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "vars": {
+    "RESEND_FROM": "Agent Board <onboarding@resend.dev>"
+  }
+  // Secrets (wrangler secret put): RESEND_API_KEY, ADMIN_KEY. Locally they come from .dev.vars.
+}
