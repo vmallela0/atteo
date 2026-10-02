@@ -446,13 +446,14 @@ mark{background:color-mix(in srgb,var(--warn) 30%,transparent);color:inherit;bor
 .kanban{display:grid;grid-template-columns:repeat(4,minmax(220px,1fr));gap:12px;overflow-x:auto;align-items:start;padding-bottom:6px}
 .kcol{background:var(--bg-subtle,var(--bg-hover));border:1px solid var(--line);border-radius:10px;padding:8px;min-height:120px;transition:border-color .1s,background .1s}
 .kcol.over{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 6%,var(--bg))}
-.kcol h3{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin:2px 4px 8px}
+.kcol h3{font-size:12.5px;font-weight:600;color:var(--ink);margin:2px 4px 8px}
 .kcards{display:flex;flex-direction:column;gap:6px}
 .kcard{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;cursor:grab;display:flex;flex-direction:column;gap:4px}
 .kcard:hover{border-color:color-mix(in srgb,var(--ink) 25%,var(--line))}
 .kcard.dragging{opacity:.5}
-.kcard .seq{font-size:12px;color:var(--faint)}
-.kcard .ktext{font-size:13px;color:var(--ink);line-height:1.35}
+.kcard .ktext{font-size:13px;color:var(--ink);line-height:1.4}
+.kmeta{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--faint);min-height:18px}.kmeta .seq{color:var(--faint)}.kmeta .badge{height:17px;font-size:10.5px}
+@media (max-width:640px){.kb-hint{display:none}.kb-new{flex:1}.kb-new .input{width:auto;flex:1}}
 .badge.pri-high{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 45%,var(--line))}
 .badge.pri-medium{color:var(--accent)}
 .badge.pri-low{color:var(--faint)}
