@@ -177,13 +177,18 @@ dialog[open]{animation:pop .16s ease-out}
 .entry .fbadge{height:18px;font-size:11px;color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,var(--line))}
 .entry.retracted>.grow>.body,.entry.retracted>.grow>.file{text-decoration:line-through;text-decoration-color:var(--faint);opacity:.55}
 .entry.retracted>.grow>.meta .rbadge{display:inline-flex}
-.entry .retract{margin-left:auto;opacity:0;transition:opacity .12s}
-.entry:hover .retract,.entry .retract:focus-visible,.entry .retract.danger{opacity:1}
+.entry .acts{margin-left:auto;display:inline-flex;gap:2px;opacity:0;transition:opacity .12s}
+.entry:hover .acts,.entry .acts:focus-within,.entry .acts:has(.danger){opacity:1}
 /* Retract takes no room in the header line, so narrow screens don't get a blank line under every entry. Touch
    screens have no hover: there it appears on the entry you opened (tap its #number). */
 .entry{position:relative}
-@media(hover:hover){.entry .retract{position:absolute;top:12px;right:0;background:var(--bg)}}
-@media(hover:none){.entry .retract{display:none}.entry:target>.grow>.meta .retract,.entry.sel>.grow>.meta .retract{display:inline-flex;opacity:1}}
+@media(hover:hover){.entry .acts{position:absolute;top:12px;right:0;background:var(--bg)}}
+@media(hover:none){.entry .acts{display:none}.entry:target>.grow>.meta .acts,.entry.sel>.grow>.meta .acts{display:inline-flex;opacity:1}}
+/* "Replying to …" above the composer: the reply goes to that agent (or mentions that person). */
+.replying{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted);padding:2px 2px 8px}
+.replying[hidden]{display:none}
+.replying b{color:var(--text);font-weight:550}
+.replying .x{margin-left:auto}
 @keyframes flashin{from{background:color-mix(in srgb,var(--accent) 9%,transparent)}to{background:transparent}}
 .entry:target{background:color-mix(in srgb,var(--accent) 6%,transparent);border-radius:8px}
 .replies{margin:10px 0 0;padding-left:14px;border-left:2px solid var(--line)}

@@ -64,7 +64,10 @@ export function entryHtml(e: Entry, boardId: string, withReplies = true, opts: {
 <span class="mono grow truncate">${esc(e.artifact_name)}${e.artifact_version ? ` <span class="xs faint">v${e.artifact_version}</span>` : ""}</span><span class="xs faint">${fmtBytes(e.artifact_size ?? 0)}</span>
 <button class="btn sm" type="button" data-open-file="${esc(e.artifact_name)}"${e.artifact_version ? ` data-file-ver="${e.artifact_version}"` : ""}>Open</button></div></div>`
     : "";
-  const actions = opts.canRetract && !opts.retracted && e.retracts == null ? `<button class="btn ghost sm retract" type="button" data-retract="${e.seq}">Retract</button>` : "";
+  // Reply sets the composer to answer this entry: an agent's post gets the reply addressed to that agent.
+  const reply = !opts.retracted && e.retracts == null ? `<button class="btn ghost sm" type="button" data-reply="${e.seq}" data-reply-label="${esc(e.via === "person" ? e.author : `${e.author}'s agent`)}">Reply</button>` : "";
+  const retract = opts.canRetract && !opts.retracted && e.retracts == null ? `<button class="btn ghost sm retract" type="button" data-retract="${e.seq}">Retract</button>` : "";
+  const actions = reply || retract ? `<span class="acts">${reply}${retract}</span>` : "";
   return `<article class="entry${opts.retracted ? " retracted" : ""}${e.via === "agent" ? " by-agent" : ""}" id="e${e.seq}" data-seq="${e.seq}" data-author="${esc(e.author)}">
 ${avatar(e.author, "", e.via === "agent")}
 <div class="grow">
@@ -465,7 +468,15 @@ function connect(){
 }
 connect();
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!polling)tick(false)});
-window.posted=()=>{toast('Posted');stickNext=true;tick(false);setTimeout(()=>{ta.style.height='';msync()},0)};
+window.posted=()=>{replyClear();stickNext=true;tick(false);setTimeout(()=>{ta.style.height='';msync()},0)};
+// Reply: any entry's Reply button points the composer at it (Esc or ✕ cancels).
+const rpBox=document.getElementById('replying'),rpTo=document.getElementById('reply-to');
+function replyClear(){rpTo.value='';rpBox.hidden=true}
+document.addEventListener('click',e=>{const b=e.target.closest('[data-reply]');if(b){const n=b.dataset.reply;rpTo.value=n;
+  document.getElementById('replying-who').textContent=b.dataset.replyLabel;const a=document.getElementById('replying-seq');a.textContent='#'+n;a.href='#e'+n;
+  rpBox.hidden=false;document.getElementById('composer-text').focus();return}
+  if(e.target.closest('#reply-cancel'))replyClear()});
+document.getElementById('composer-text').addEventListener('keydown',e=>{if(e.key==='Escape'&&!rpBox.hidden&&document.getElementById('mention-menu').hidden)replyClear()});
 // @mention autocomplete: people ("@vedu") and agents ("@vedu's agent", including your own).
 const MOPTS=${jsString(mentionOptions(members.map((m) => m.user), viewer.name))};
 const ta=document.getElementById('composer-text'),mm=document.getElementById('mention-menu');let mi=0,ms=[],mq=null;
@@ -626,6 +637,8 @@ window.boardKeys=(e,k)=>{
     <div class="thread-wrap"><div class="thread-scroll" id="thread-scroll"><div class="thread" id="thread">${thread}</div></div>
       <button class="btn sm new-pill" type="button" id="new-pill" hidden>New messages ↓</button></div>
     <form class="card composer" method="post" action="/api/boards/${esc(info.id)}/entries" data-api data-done="posted" data-reset${info.archived ? " hidden" : ""}>
+      <div class="replying" id="replying" hidden>Replying to <b id="replying-who"></b> <a id="replying-seq" href="#"></a><button class="btn ghost sm x" type="button" id="reply-cancel" aria-label="Cancel reply">✕</button></div>
+      <input type="hidden" name="reply_to" id="reply-to" value="">
       <div class="cmp-field"><div class="cmp-mirror" id="composer-mirror" aria-hidden="true"></div><textarea class="input" id="composer-text" name="text" required placeholder="Write a note, question, task or decision… (Enter to post, Shift+Enter for a new line, @ to mention)" aria-label="Message"
         role="combobox" aria-autocomplete="list" aria-controls="mention-menu" aria-expanded="false"></textarea></div>
       <ul class="mention-menu" id="mention-menu" role="listbox" aria-label="Mention" hidden></ul>
