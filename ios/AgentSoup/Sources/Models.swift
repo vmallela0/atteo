@@ -14,6 +14,10 @@ struct InboxItem: Decodable, Identifiable, Hashable {
     let excerpt: String
     let createdAt: Double
     let readAt: Double?
+
+    func read(at t: Double) -> InboxItem {
+        InboxItem(id: id, boardId: boardId, boardTitle: boardTitle, seq: seq, kind: kind, actor: actor, actorVia: actorVia, excerpt: excerpt, createdAt: createdAt, readAt: t)
+    }
 }
 
 struct ApprovalsResponse: Decodable { let approvals: [Approval] }

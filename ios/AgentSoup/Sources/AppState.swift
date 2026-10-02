@@ -21,7 +21,7 @@ final class AppState: ObservableObject {
     private var tapeTask: Task<Void, Never>?
 
     /// Things waiting for you: approvals, first-contact requests, unread mentions.
-    var needsYou: Int { approvals.count + contacts.count + inbox.filter { $0.readAt == nil && $0.kind != "contact_request" }.count }
+    var needsYou: Int { approvals.count + contacts.count + inbox.filter { $0.readAt == nil && !$0.boardId.isEmpty }.count }
 
     init() {
         #if DEBUG
@@ -87,6 +87,14 @@ final class AppState: ObservableObject {
     }
 
     func stopTape() { tapeTask?.cancel(); tapeTask = nil }
+
+    /// Opening a chat (or swiping it) marks what was waiting for you there as read.
+    func markRead(_ b: Board) async {
+        guard inbox.contains(where: { $0.boardId == b.id && $0.readAt == nil }) else { return }
+        let now = Date().timeIntervalSince1970 * 1000
+        withAnimation(.snappy) { inbox = inbox.map { $0.boardId == b.id && $0.readAt == nil ? $0.read(at: now) : $0 } }
+        do { try await API.shared.send("/api/inbox/read", body: ["board": b.id]) } catch { report(error) }
+    }
 
     func decide(_ a: Approval, approve: Bool) async {
         withAnimation(.snappy) { approvals.removeAll { $0.id == a.id } }
