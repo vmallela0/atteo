@@ -468,6 +468,61 @@ await step("claim checks: the author attaches one; another member's person OKs i
   assert(!g("worktree", "list").includes("agent-soup-verify"), "throwaway checkouts are removed");
 });
 
+await step("encryption v2: one key per board epoch; a newcomer reads history; your new device needs your OK; removing someone rotates the key", async () => {
+  const C = `e2e-cli-c-${run}`;
+  await ops("users", { name: C, email: `${C}@example.com`, verified: "true" });
+  const tokC = (await ops("tokens", { user: C })).token;
+  const credC = join(dir, "c.json"), credA2 = join(dir, "a2.json"); // a2: A's second machine (its own device key)
+  writeFileSync(credC, JSON.stringify({ server: BASE, user: C, token: tokC, expires_at: Date.now() + 86400e3 }), { mode: 0o600 });
+  writeFileSync(credA2, JSON.stringify({ server: BASE, user: A, token: tokA, expires_at: Date.now() + 86400e3 }), { mode: 0o600 });
+  const pa = mkdtempSync(join(tmpdir(), "agent-soup-v2-a-")), pa2 = mkdtempSync(join(tmpdir(), "agent-soup-v2-a2-")), pb = mkdtempSync(join(tmpdir(), "agent-soup-v2-b-")), pc = mkdtempSync(join(tmpdir(), "agent-soup-v2-c-"));
+  let r = await cli(["create", `e2e v2 ${run}`, "--encrypted"], { cwd: pa });
+  const eb = r.out.match(/\((b_[a-z0-9]+)\)/)[1];
+  await ops("members", { board: eb, user: B });
+  await cli(["keys"], { cwd: pb, cred: credB });
+  await cli(["use", eb], { cwd: pb, cred: credB });
+  r = await cli(["post", `first v2 message ${run}`], { cwd: pa });
+  assert(r.code === 0, r.out + r.err);
+  const sealed = async (tok) => (await fetch(`${BASE}/api/boards/${eb}/sealed?after=0`, { headers: { authorization: `Bearer ${tok}` } }).then((x) => x.json())).entries;
+  const p1 = JSON.parse((await sealed(tokA))[0].payload);
+  assert(p1.v === 2 && p1.epoch === 1 && !p1.recipients, "posted as v2 (one ciphertext, no per-member envelopes): " + JSON.stringify(p1).slice(0, 120));
+  r = await cli(["read", "--all"], { cwd: pb, cred: credB });
+  assert(r.out.includes(`first v2 message ${run}`), r.out + r.err);
+  // A newcomer joins later: once a member's machine is on the board again, they read the history.
+  await ops("members", { board: eb, user: C });
+  await cli(["keys"], { cwd: pc, cred: credC });
+  await cli(["use", eb], { cwd: pc, cred: credC });
+  await cli(["read"], { cwd: pb, cred: credB }); // B's machine hands C's first device the key
+  r = await cli(["read", "--all"], { cwd: pc, cred: credC });
+  assert(r.out.includes(`first v2 message ${run}`), "newcomer reads history: " + r.out + r.err);
+  // A's second machine: nobody else may hand it the key, and A's first machine only does after A approves it.
+  await cli(["keys"], { cwd: pa2, cred: credA2 });
+  await cli(["use", eb], { cwd: pa2, cred: credA2 });
+  await cli(["read"], { cwd: pb, cred: credB });
+  r = await cli(["read", "--all"], { cwd: pa2, cred: credA2 });
+  assert(!r.out.includes(`first v2 message ${run}`) && r.out.includes("no key"), "a later device waits for its owner: " + r.out);
+  r = await cli(["read"], { cwd: pa });
+  const kid2 = (r.err.match(/keys approve (\S+)/) ?? [])[1];
+  assert(kid2, "A's first machine says a new device of A's is waiting: " + r.err);
+  r = await cli(["keys", "approve", kid2], { cwd: pa });
+  assert(r.out.includes("Approved"), r.out + r.err);
+  await cli(["read"], { cwd: pa });
+  r = await cli(["read", "--all"], { cwd: pa2, cred: credA2 });
+  assert(r.out.includes(`first v2 message ${run}`), "after approval, A's second machine reads: " + r.out + r.err);
+  // Removing C rotates: the next message is in epoch 2, which C can't open.
+  const ck = (await ops("sessions", { user: A })).cookie;
+  const rm = await fetch(`${BASE}/api/boards/${eb}/members/${C}/remove`, { method: "POST", headers: { cookie: ck } });
+  assert(rm.ok, `remove C: ${rm.status}`);
+  r = await cli(["post", `after removal ${run}`], { cwd: pa });
+  assert(r.code === 0, r.out + r.err);
+  const last = JSON.parse((await sealed(tokA)).at(-1).payload);
+  assert(last.v === 2 && last.epoch === 2, "removal rotated to epoch 2: " + JSON.stringify(last).slice(0, 80));
+  const st = await fetch(`${BASE}/api/boards/${eb}/epochs`, { headers: { authorization: `Bearer ${tokB}` } }).then((x) => x.json());
+  assert(st.mine.some((g) => g.epoch === 2), "B holds epoch 2");
+  r = await cli(["read", "--all"], { cwd: pb, cred: credB });
+  assert(r.out.includes(`after removal ${run}`), r.out + r.err);
+});
+
 await step("end-to-end encrypted board: CLI encrypts and decrypts; the server and plain agent tools only see ciphertext", async () => {
   const projA = mkdtempSync(join(tmpdir(), "agent-soup-e2ee-a-"));
   const projB = mkdtempSync(join(tmpdir(), "agent-soup-e2ee-b-"));

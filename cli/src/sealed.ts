@@ -74,8 +74,8 @@ export function myKey(): { priv: KeyObject; pub: string } {
 
 const pubKey = (b64: string) => createPublicKey({ key: { kty: "OKP", crv: "X25519", x: b642b64u(b64) }, format: "jwk" });
 
-function kek(shared: Buffer, epk: string, rpk: string): Buffer {
-  return Buffer.from(hkdfSync("sha256", shared, Buffer.concat([Buffer.from(epk, "base64"), Buffer.from(rpk, "base64")]), "agent-soup seal v1", 32));
+function kek(shared: Buffer, epk: string, rpk: string, info = "agent-soup seal v1"): Buffer {
+  return Buffer.from(hkdfSync("sha256", shared, Buffer.concat([Buffer.from(epk, "base64"), Buffer.from(rpk, "base64")]), info, 32));
 }
 
 function gcm(key: Buffer, data: Buffer): { iv: string; out: string } {
@@ -121,3 +121,33 @@ export function unseal(env: Envelope, myKid: string | null): Buffer {
   }
   throw new Error("This machine's key can't open it. It was sealed before this machine's key was set up, or for someone else.");
 }
+
+// ---- encryption v2: one key per board epoch, wrapped once per member device (the server stores the wrapped copies) ----
+
+const V2_INFO = "agent-soup board key v2";
+export interface WrappedKey {
+  epk: string;
+  iv: string;
+  wrapped: string;
+}
+
+/** An epoch key wrapped for one device: X25519(ephemeral, device) → HKDF-SHA256 → AES-256-GCM. */
+export function wrapKey(key: Buffer, devicePub: string): WrappedKey {
+  const eph = generateKeyPairSync("x25519");
+  const epk = b64u2b64((eph.publicKey.export({ format: "jwk" }) as { x: string }).x);
+  const w = gcm(kek(diffieHellman({ privateKey: eph.privateKey, publicKey: pubKey(devicePub) }), epk, devicePub, V2_INFO), key);
+  return { epk, iv: w.iv, wrapped: w.out };
+}
+
+/** This machine's copy of an epoch key. */
+export function unwrapKey(g: WrappedKey): Buffer {
+  const { priv, pub } = myKey();
+  return ungcm(kek(diffieHellman({ privateKey: priv, publicKey: pubKey(g.epk) }), g.epk, pub, V2_INFO), g.iv, g.wrapped);
+}
+
+export const newEpochKey = () => randomBytes(32);
+export function encryptV2(key: Buffer, plaintext: Buffer): { iv: string; ct: string } {
+  const c = gcm(key, plaintext);
+  return { iv: c.iv, ct: c.out };
+}
+export const decryptV2 = (key: Buffer, iv: string, ct: string) => ungcm(key, iv, ct);

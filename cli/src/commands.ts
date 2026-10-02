@@ -6,7 +6,7 @@ import { randomUUID } from "node:crypto";
 import SKILL_MD from "../../skills/agent-soup/SKILL.md";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
-import { myKey, seal, unseal } from "./sealed";
+import { decryptV2, encryptV2, myKey, newEpochKey, seal, unseal, unwrapKey, wrapKey, type WrappedKey } from "./sealed";
 import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { blockedMessage, scanFields } from "../../src/secrets";
@@ -219,13 +219,91 @@ export async function isEncrypted(opt: Record<string, string | true>, board: str
   return encCache.get(board) ?? false;
 }
 
-async function encPost(opt: Record<string, string | true>, board: string, p: { type: string; text: string; to?: string; reply_to?: number }): Promise<{ seq: number }> {
-  await ensureKey(opt);
-  const k = await api(opt, "GET", `/api/boards/${board}/keys`);
-  if (k.without_keys.length) process.stderr.write(`Note: ${k.without_keys.join(", ")} can't read this yet (no key: they need to run "agent-soup keys").\n`);
-  const env = seal(Buffer.from(p.text), k.keys);
-  const j = await api(opt, "POST", `/api/boards/${board}/sealed`, { payload: JSON.stringify(env), type: p.type, to: p.to, reply_to: p.reply_to });
-  return j.entry;
+// Encryption v2: one key per board epoch, wrapped once per member device; the server only stores wrapped copies.
+// Devices are trusted on first sight of a person (pinned on this machine); a person's later devices get the key only
+// from their own devices, so a device the server slips in is never handed a key from here.
+type DeviceKey = { kid: string; user: string; public_key: string; label: string | null };
+type EpochState = {
+  current: number;
+  rotate_needed: boolean;
+  mine: (WrappedKey & { epoch: number; kid: string })[];
+  missing: (DeviceKey & { first_device: boolean; epochs: number[] })[];
+  keys: DeviceKey[];
+};
+
+const pinFile = () => (process.env.AGENT_BOARD_CREDENTIALS_FILE ? `${process.env.AGENT_BOARD_CREDENTIALS_FILE}.pins` : join(configDir(), "e2e-pins.json"));
+export function pins(): Record<string, string[]> {
+  try {
+    return JSON.parse(readFileSync(pinFile(), "utf8"));
+  } catch {
+    return {};
+  }
+}
+export function savePins(p: Record<string, string[]>) {
+  mkdirSync(join(pinFile(), ".."), { recursive: true, mode: 0o700 });
+  writeFileSync(pinFile(), JSON.stringify(p, null, 2), { mode: 0o600 });
+}
+const warned = new Set<string>();
+const warnOnce = (k: string, line: string) => {
+  if (!warned.has(k)) process.stderr.write(line + "\n");
+  warned.add(k);
+};
+
+/** This machine's epoch keys for a board: opens the next epoch when there is none or after a removal, and hands the
+ *  key to newcomers' first devices (and to your own devices you approved). */
+async function boardKeys(opt: Record<string, string | true>, board: string, tries = 0): Promise<{ current: number; keys: Map<number, Buffer> }> {
+  const kid = await ensureKey(opt);
+  const me = creds().user;
+  const st: EpochState = await api(opt, "GET", `/api/boards/${board}/epochs`);
+  const keys = new Map<number, Buffer>();
+  for (const g of st.mine)
+    if (g.kid === kid)
+      try {
+        keys.set(g.epoch, unwrapKey(g));
+      } catch {}
+  const pin = pins();
+  const before = JSON.stringify(pin);
+  if (!pin[me]?.includes(kid)) (pin[me] ??= []).push(kid);
+  for (const k of st.keys) if (k.user !== me && !pin[k.user]) (pin[k.user] ??= []).push(k.kid); // first sight: trust on first use
+  for (const m of st.missing) if (m.user !== me && m.first_device && !pin[m.user]?.length) (pin[m.user] ??= []).push(m.kid);
+  if (JSON.stringify(pin) !== before) savePins(pin);
+  const trusted = (k: { kid: string; user: string }) => !!pin[k.user]?.includes(k.kid);
+  const skip = (k: DeviceKey) =>
+    k.user === me
+      ? warnOnce(k.kid, `🔑 A new device of yours (${k.label ?? "unnamed"}, ${k.kid.slice(0, 8)}) is waiting for this board's key. If it's yours: agent-soup keys approve ${k.kid}`)
+      : warnOnce(k.kid, `🔑 ${k.user} has a device this machine hasn't seen (${k.label ?? "unnamed"}, ${k.kid.slice(0, 8)}). It gets the key from one of ${k.user}'s own devices, not from here.`);
+
+  let current = st.current;
+  if (current === 0 || st.rotate_needed) {
+    const key = newEpochKey();
+    const to = st.keys.filter((k) => (trusted(k) ? true : (skip(k), false)));
+    try {
+      await api(opt, "POST", `/api/boards/${board}/epochs`, { epoch: current + 1, grants: to.map((k) => ({ kid: k.kid, ...wrapKey(key, k.public_key) })) });
+    } catch (e) {
+      if (tries < 2 && (e as { status?: number }).status === 400) return boardKeys(opt, board, tries + 1); // someone else opened it first
+      throw e;
+    }
+    current += 1;
+    keys.set(current, key);
+  }
+  const grants = st.missing
+    .filter((m) => (trusted(m) ? true : (skip(m), false)))
+    .flatMap((m) => m.epochs.filter((e) => keys.has(e)).map((e) => ({ epoch: e, kid: m.kid, ...wrapKey(keys.get(e)!, m.public_key) })));
+  if (grants.length) await api(opt, "POST", `/api/boards/${board}/grants`, { grants }).catch(() => {}); // anyone else online can do it too
+  return { current, keys };
+}
+
+async function encPost(opt: Record<string, string | true>, board: string, p: { type: string; text: string; to?: string; reply_to?: number }, tries = 0): Promise<{ seq: number }> {
+  const { current, keys } = await boardKeys(opt, board);
+  const payload = JSON.stringify({ v: 2, epoch: current, ...encryptV2(keys.get(current)!, Buffer.from(p.text)) });
+  try {
+    const j = await api(opt, "POST", `/api/boards/${board}/sealed`, { payload, type: p.type, to: p.to, reply_to: p.reply_to });
+    return j.entry;
+  } catch (e) {
+    // A removal or a newer epoch since we looked: refetch the keys and encrypt again.
+    if (tries < 2 && (e as { status?: number }).status === 409) return encPost(opt, board, p, tries + 1);
+    throw e;
+  }
 }
 
 const cursorFile = () => join(configDir(), "e2e-cursors.json");
@@ -239,11 +317,16 @@ function cursors(): Record<string, number> {
 
 async function encEntries(opt: Record<string, string | true>, board: string, after: number) {
   const kid = await ensureKey(opt);
+  const { keys } = await boardKeys(opt, board);
   const j = await api(opt, "GET", `/api/boards/${board}/sealed?after=${after}`);
   return (j.entries as { seq: number; ts: number; author: string; via: string | null; type: string; to: string | null; reply_to: number | null; payload: string }[]).map((e) => {
     let text: string;
     try {
-      text = unseal(JSON.parse(e.payload), kid).toString("utf8");
+      const p = JSON.parse(e.payload);
+      if (p.v === 2) {
+        const k = keys.get(p.epoch);
+        text = k ? decryptV2(k, p.iv, p.ct).toString("utf8") : `(no key for this part of the board on this machine yet: a member's device hands it over when they're next here)`;
+      } else text = unseal(p, kid).toString("utf8");
     } catch {
       text = "(can't decrypt on this machine: it was sent before this machine's key existed)";
     }
@@ -595,10 +678,22 @@ async function ensureKey(opt: Record<string, string | true>): Promise<string> {
 }
 
 async function keys(args: string[]) {
-  const { opt } = parseArgs(args);
+  const { pos, opt } = parseArgs(args);
   const mine = await ensureKey(opt);
   const j = await api(opt, "GET", "/api/me/keys");
-  for (const k of j.keys) say(`${k.id}  ${k.label ?? ""}${k.id === mine ? "  (this machine)" : ""}  ${new Date(k.created_at).toISOString().slice(0, 10)}`);
+  if (pos[0] === "approve") {
+    // Your own new device (another machine, the web, the phone): this machine hands it the keys of your encrypted boards.
+    const kid = pos[1];
+    const k = (j.keys as { id: string; label: string | null }[]).find((x) => x.id === kid || (kid && kid.length >= 6 && x.id.startsWith(kid)));
+    if (!k) throw new CliError(`Usage: agent-soup keys approve <device id>   (one of yours: ${(j.keys as { id: string }[]).map((x) => x.id.slice(0, 8)).join(", ")})`);
+    const p = pins();
+    const me = creds().user;
+    if (!p[me]?.includes(k.id)) (p[me] ??= []).push(k.id);
+    savePins(p);
+    return say(`Approved ${k.label ?? "that device"} (${k.id.slice(0, 8)}). It gets the keys of your encrypted boards the next time this machine reads or posts on them.`);
+  }
+  const ok = new Set(pins()[creds().user] ?? []);
+  for (const k of j.keys) say(`${k.id}  ${k.label ?? ""}${k.id === mine ? "  (this machine)" : ok.has(k.id) ? "  (approved here)" : ""}  ${new Date(k.created_at).toISOString().slice(0, 10)}`);
 }
 
 async function sealCmd(args: string[]) {
@@ -823,6 +918,7 @@ Board commands (on the board chosen with \`use\`, per folder):
   agent-soup share <file> [--note …]    Post a file (its next version if the name exists)
   agent-soup decide "<text>"            Record a decision
   agent-soup approvals [--all]          What your agents are waiting on you to approve (you decide in the browser)
+  agent-soup keys [approve <device>]    Your devices' keys; approve one of yours so it can read your encrypted boards
   agent-soup seal <name> [file|-] [--note …]   A secret only their agent can open (encrypted here; stdin by default)
   agent-soup unseal N [--out file]      Open a sealed secret addressed to you (decrypted on this machine)
   agent-soup members · audit            Who's on the board (roles, end dates) · who got or lost access
