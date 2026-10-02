@@ -611,7 +611,6 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
   .content.full{padding:4px 12px 0}
   .bp-head{flex-direction:column;align-items:stretch}
   .bp-title{flex:none;gap:10px;padding:4px 0 0}
-  .bp-names,.bp-count{display:none}
   .bp-tabs .tabs button{padding:7px 8px}
   #panel-docs .docs{grid-template-rows:auto minmax(0,1fr)}
   .doc-list{max-height:22vh}
@@ -906,6 +905,8 @@ export function appPage(
     .join("");
   const paletteItems = [
     ...opts.boards.map((b) => ({ label: b.kind === "direct" ? `${directPeer(b, v.name)} (direct)` : b.title, hint: "Board", href: `/b/${b.id}` })),
+    { label: "Inbox", hint: "G I", href: "/inbox" },
+    { label: "Approvals", hint: "G A", href: "/approvals" },
     { label: "People and friends", hint: "G P", href: "/people" },
     { label: "New board", hint: "C", href: "/?new=1" },
     { label: "All boards", hint: "G B", href: "/" },
@@ -946,7 +947,7 @@ export function appPage(
 <dt><kbd>@</kbd></dt><dd>Mention a person or their agent</dd>
 <dt><kbd>J</kbd> <kbd>K</kbd></dt><dd>Move down / up through entries</dd>
 <dt><kbd>↵</kbd></dt><dd>Open the selected entry's details</dd>
-<dt><kbd>G</kbd> then <kbd>B</kbd> <kbd>P</kbd> <kbd>M</kbd></dt><dd>Go to Boards / People / Account</dd>
+<dt><kbd>G</kbd> then <kbd>I</kbd> <kbd>A</kbd> <kbd>B</kbd> <kbd>P</kbd> <kbd>M</kbd></dt><dd>Go to Inbox / Approvals / Boards / People / Account</dd>
 <dt><kbd>?</kbd></dt><dd>This list</dd></dl></div></dialog>
 <script>window.PALETTE=${JSON.stringify(paletteItems).replace(/</g, "\\u003c")};${v.admin ? "window.OPS=1;" : ""}</script>`;
   return rawPage(title, body, (opts.script ?? "") + SHELL_JS + INBOX_JS, opts.status);
@@ -1037,12 +1038,12 @@ document.addEventListener('keydown',e=>{
   if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault();pal.open?pal.close():openPalette();return}
   const t=e.target;if(e.metaKey||e.ctrlKey||e.altKey||t.closest('input,textarea,select,[contenteditable]')||$('dialog[open]'))return;
   const k=e.key.toLowerCase();
-  if(g){g=false;clearTimeout(gt);const to={b:'/',m:'/me',p:'/people',o:window.OPS?'/_ops':null}[k];if(to){location.href=to;e.preventDefault()}return}
+  if(g){g=false;clearTimeout(gt);const to={b:'/',i:'/inbox',a:'/approvals',m:'/me',p:'/people',o:window.OPS?'/_ops':null}[k];if(to){location.href=to;e.preventDefault()}return}
   if(k==='g'){g=true;gt=setTimeout(()=>g=false,900);return}
   if(k==='/'){e.preventDefault();openPalette();return}
   if(e.key==='?'){$('#shortcuts').showModal();return}
   if(k==='c'){const c=$('#composer-text');if(c){e.preventDefault();c.focus();return}const n=$('#new-board');if(n){e.preventDefault();n.showModal();$('#title')?.focus()}return}
-  if(k==='i'){const d=$('#invite');if(d){e.preventDefault();d.showModal();$('#inv-email')?.focus()}return}
+  if(k==='i'){const b=$('[data-open="invite"]');if(b){e.preventDefault();b.click()}return} // same as clicking Invite (loads the members)
   if(window.boardKeys)window.boardKeys(e,k);
 });
 if(new URLSearchParams(location.search).get('new')==='1'){const n=$('#new-board');n&&n.showModal()}
