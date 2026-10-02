@@ -1,5 +1,6 @@
 // Minimal MCP server over Streamable HTTP (JSON responses, no SSE): initialize, tools/list, tools/call, ping.
 
+import { formatCard } from "./card";
 import { MAX_WAIT_MS } from "./board";
 import { mayMention, mentionLabel, parseMentions } from "./mentions";
 import { formatEntry } from "./state";
@@ -64,6 +65,11 @@ export const TOOLS = [
         supersedes: { type: "integer", description: "Entry number this replaces (drops it from the summary)." },
         artifact_name: { type: "string", description: "File name, for type=artifact." },
         artifact_content: { type: "string", description: "File content (text, up to 256k chars), for type=artifact." },
+        card: {
+          type: "object",
+          description:
+            "For type=change (a git change card; `agent-soup card` builds it from local git): {branch, base?, repo?, pr_url?, ci? (pending|passing|failing|none), commits?: [{sha, title}], files?: [{path, added, removed}], diff?}",
+        },
       },
       required: ["type", "text"],
     },
@@ -378,6 +384,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
         supersedes: int(args.supersedes) ?? null,
         artifact_name: str(args.artifact_name) ?? null,
         artifact_content: typeof args.artifact_content === "string" ? args.artifact_content : null,
+        card: args.card,
       });
       if ("missed" in res) {
         const n = res.missed.length + res.remaining;
@@ -519,6 +526,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       if (seq == null) throw new ToolError("seq is required.");
       const r = await stubFor(env, id).get(seq);
       const out = [formatEntry(r.entry, 100_000, user)];
+      if (r.entry.card) out.push("", formatCard(r.entry.card, r.diff));
       if (r.reactions.length) out.push(`Reactions: ${r.reactions.map((x) => `${x.emoji} ${x.users.join(", ")}`).join(" · ")}`);
       if (r.artifact_content != null) out.push("", `----- ${r.entry.artifact_name} -----`, r.artifact_content, `----- end -----`);
       if (r.replies.length) out.push("", "Related entries:", ...r.replies.map((e) => formatEntry(e, 1000, user)));

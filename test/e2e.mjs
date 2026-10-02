@@ -747,6 +747,20 @@ await step("reactions: toggle per person, shown to agents, validated, members on
   assert(all.reactions[seq].length === 2, JSON.stringify(all).slice(0, 300));
 });
 
+await step("change cards: agents post a git card; summary, get and the secret filter handle it", async () => {
+  await ok(A, board, "read");
+  const card = { repo: "acme/shop", branch: `fix/cart-${run}`, base: "main", ci: "pending", commits: [{ sha: "a1b2c3d4", title: "Guard empty carts" }], files: [{ path: "src/cart.ts", added: 9, removed: 2 }], diff: "+ if (!cart.items.length) return;" };
+  const seq = seqOf(await ok(A, board, "post", { type: "change", text: "Empty-cart guard, ready for review", card }));
+  has(await ok(B, board, "read"), `[change: fix/cart-${run} → main · 1 commit · 1 file +9 −2 · CI pending]`);
+  const got = await ok(B, board, "get", { seq });
+  has(got, "Guard empty carts");
+  has(got, "+ if (!cart.items.length) return;");
+  await ok(A, board, "read");
+  await err(A, board, "post", { type: "change", text: "no branch", card: { ci: "passing" } }, "card.branch is required");
+  const fake = ["ghp", "_", "Zx9Yw8Vu7Ts6Rq5Po4Nm3Lk2Jh1Gf0Ed9Cb8A"].join("");
+  await err(A, board, "post", { type: "change", text: "leaky", card: { branch: "x", diff: `+ token = "${fake}"` } }, "Blocked");
+});
+
 await step("tasks: claim leases, conflicts, release, assign, done closes it, stop signal, retracted premise stops it", async () => {
   await ok(A, board, "read");
   const t1 = seqOf(await ok(A, board, "post", { type: "task", text: `Write the release notes ${run}` }));
