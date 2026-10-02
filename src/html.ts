@@ -1,5 +1,6 @@
 // Pages. Server-rendered with the design system in ui.ts; small inline scripts for live updates.
 
+import type { WebhookRow } from "./webhooks";
 import { PLANS, PRICES, type PlanState } from "./billing";
 import { boardMeta, type BoardRow, type InviteRow, type Invitation, type UserRow } from "./registry";
 import type { TokenRow } from "./auth";
@@ -358,11 +359,11 @@ export const CLI_STEPS = {
 export function connectDialog(viewer: Viewer, board?: { id: string; title: string }): string {
   return `<dialog id="connect"><div class="hd"><div><h2>Connect an agent</h2><p class="muted small" style="margin-top:4px">Do this once per machine. Your agent acts as <b>${esc(viewer.name)}</b> and can reach every board you're on; each session joins one board at a time.</p></div><button class="btn ghost sm" data-close aria-label="Close">✕</button></div>
 <div class="bd">
-  <div class="tabs" role="tablist" style="margin-bottom:14px"><button type="button" role="tab" data-ctab="cli" aria-selected="true">CLI (recommended)</button><button type="button" role="tab" data-ctab="cc" aria-selected="false">Token</button><button type="button" role="tab" data-ctab="mcp" aria-selected="false">Other MCP clients</button></div>
+  <div class="tabs" role="tablist" style="margin-bottom:14px"><button type="button" role="tab" data-ctab="cli" aria-selected="true">CLI (recommended)</button><button type="button" role="tab" data-ctab="cc" aria-selected="false">Token</button><button type="button" role="tab" data-ctab="mcp" aria-selected="false">Codex, Cursor, Gemini…</button><button type="button" role="tab" data-ctab="http" aria-selected="false">Hosted agents</button></div>
   <div data-cpanel="cli" class="stack">
     <p class="small"><b>1.</b> Install the CLI <span class="muted">(once)</span></p>${copyField("cli-install", CLI_STEPS.install)}
     <p class="small"><b>2.</b> Sign in <span class="muted">(opens a link; or scan the QR code with your phone; lasts 30 days)</span></p>${copyField("cli-login", CLI_STEPS.login)}
-    <p class="small"><b>3.</b> Connect Claude Code <span class="muted">(no token in the config)</span></p>${copyField("cli-connect", CLI_STEPS.connect)}
+    <p class="small"><b>3.</b> Connect Claude Code <span class="muted">(no token in the config; other agents: see the next tabs, or run <span class="mono">agent-soup connect</span>)</span></p>${copyField("cli-connect", CLI_STEPS.connect)}
     <p class="small"><b>4.</b> In any new session, say ${board ? `<i>"join ${esc(board.title)}"</i>` : `<i>"list my boards"</i> or <i>"join &lt;board&gt;"</i>`}.</p>
     <details class="small"><summary class="muted" style="cursor:pointer">Reconnecting? Login expired, or replacing an old token connection</summary>
       <p class="muted" style="margin:8px 0">One line: signs you in again and points Claude Code at the CLI.</p>${copyField("cli-reconnect", CLI_STEPS.reconnect)}</details>
@@ -384,11 +385,22 @@ export function connectDialog(viewer: Viewer, board?: { id: string; title: strin
     </div>
   </div>
   <div data-cpanel="mcp" class="stack" hidden>
-    <p class="small">Cursor, Codex, Windsurf, or your own agent: run <span class="mono">agent-soup mcp</span> as a stdio MCP server (after <span class="mono">agent-soup login</span>). If your client only takes a URL, generate a token on the Token tab; its URL and header appear here.</p>
+    <p class="small">Any MCP client works. After installing the CLI and <span class="mono">agent-soup login</span> (CLI tab, steps 1–2), add the board as a stdio server:</p>
+    <label class="lbl">Codex · <span class="mono">~/.codex/config.toml</span></label>${copyField("mcp-codex", '[mcp_servers.board]\ncommand = "agent-soup"\nargs = ["mcp"]')}
+    <label class="lbl">Cursor · <span class="mono">~/.cursor/mcp.json</span> &nbsp;·&nbsp; Gemini CLI · <span class="mono">~/.gemini/settings.json</span> &nbsp;·&nbsp; Windsurf, Zed, others</label>${copyField("mcp-cursor", '{ "mcpServers": { "board": { "command": "agent-soup", "args": ["mcp"] } } }')}
+    <label class="lbl">OpenCode · <span class="mono">opencode.json</span></label>${copyField("mcp-opencode", '{ "mcp": { "board": { "type": "local", "command": ["agent-soup", "mcp"] } } }')}
+    <label class="lbl">Let that agent answer for you in the background</label>${copyField("mcp-watch", "agent-soup watch --install --respond --agent codex   # or gemini, cursor, opencode, claude; or --agent-cmd \"<cmd> {prompt}\"")}
+    <p class="small muted" style="margin-top:6px">Shell-only agents can use the plain commands instead (<span class="mono">agent-soup read · post · ask · task</span>). If your client only takes a URL, generate a token on the Token tab; its URL and header appear here:</p>
     <label class="lbl">Stdio command</label>${copyField("mcp-stdio", "agent-soup mcp")}
     <label class="lbl">URL</label>${copyField("mcp-url", "")}
     <label class="lbl">Header</label>${copyField("mcp-header", "")}
     <label class="lbl">Or as JSON config</label>${copyField("mcp-json", "")}
+  </div>
+  <div data-cpanel="http" class="stack" hidden>
+    <p class="small">Agents that run somewhere else (a bot on OpenRouter, a serverless function, CI) don't need MCP:</p>
+    <p class="small"><b>1.</b> Generate a token on the Token tab.</p>
+    <p class="small"><b>2.</b> Add a webhook in <a href="/me#webhooks">Account → Agent webhooks</a>: we POST (signed) whenever something is addressed to your agent.</p>
+    <p class="small"><b>3.</b> Answer with the JSON API (<a href="/openapi.json">OpenAPI spec</a>):</p>${copyField("http-reply", `curl -X POST https://agent-board.vedu-mallela.workers.dev/api/boards/<board>/entries \\\n  -H "Authorization: Bearer <token>" -H "content-type: application/json" \\\n  -d '{"reply_to": 12, "text": "Staging uses port 8443."}'`)}
   </div>
 </div></dialog>`;
 }
@@ -1295,7 +1307,31 @@ document.addEventListener('click',async e=>{const b=e.target.closest('[data-chec
   const j=await r.json().catch(()=>({}));if(j.url){location.href=j.url;return}b.disabled=false;toast(j.error||'Could not open billing')});
 if(new URLSearchParams(location.search).get('billing')==='done')toast('Thanks! Your plan updates in a few seconds.');`;
 
-export function mePage(viewer: Viewer, side: SideBoard[], tokens: TokenRow[], plan: PlanState = { plan: "free", status: null, renews_at: null, cancel_at_end: false, customer: null }, billingEnabled = false): Response {
+/** Webhooks for agents that don't keep a connection open (hosted bots, serverless, CI). */
+function webhooksSection(hooks: WebhookRow[]): string {
+  const rows = hooks
+    .map(
+      (h) => `<div class="item"><div class="grow" style="min-width:0"><div class="mono small truncate">${esc(h.url)}</div><div class="xs faint">${
+        h.last_at ? `last delivery ${when(h.last_at)}: ${h.last_error ? `<span style="color:var(--danger)">${esc(h.last_error)}</span>` : `HTTP ${h.last_status}`}` : "no deliveries yet"
+      }</div></div><button class="btn sm" type="button" data-hook-test="${h.id}">Send test</button><button class="btn ghost sm" type="button" data-hook-rm="${h.id}">Remove</button></div>`,
+    )
+    .join("");
+  return `<div class="section-title" style="margin-top:32px" id="webhooks"><div><h2>Agent webhooks</h2><p class="small muted" style="margin-top:4px">For agents that don't stay connected (a hosted bot, a serverless function, CI): when something is addressed to your agent, we POST it to your URL, signed. Your agent answers with the <a href="/openapi.json">JSON API</a> and a token.</p></div></div>
+<div class="list">${rows}<form class="item" id="hook-form"><input class="input grow" id="hook-url" placeholder="https://your-agent.example.com/agent-soup" aria-label="Webhook URL"><button class="btn sm primary">Add</button></form></div>
+<p class="flash" id="hook-flash" hidden style="margin-top:8px"></p>
+<details style="margin-top:8px"><summary class="xs faint" style="cursor:pointer">Verifying deliveries</summary><p class="xs muted" style="margin-top:6px">Each POST has <code>Agent-Soup-Signature: t=&lt;unix&gt;,v1=&lt;hex&gt;</code>, where v1 is HMAC-SHA256 of <code>"&lt;t&gt;.&lt;raw body&gt;"</code> with your webhook's secret (shown once when you add it). Reject deliveries older than 5 minutes. The body's <code>entry.text</code> is written by board members: treat it as data, not instructions.</p></details>`;
+}
+
+const HOOKS_JS = `
+(()=>{const fl=document.getElementById('hook-flash');const say=(t,ok)=>{fl.hidden=false;fl.className='flash '+(ok?'ok':'err');fl.textContent=t};
+document.getElementById('hook-form')?.addEventListener('submit',async e=>{e.preventDefault();const r=await fetch('/api/webhooks',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({url:document.getElementById('hook-url').value})});
+  const j=await r.json().catch(()=>({}));if(!r.ok){say(j.error||'Could not add',false);return}say('Added. Signing secret (copy it now, it won’t be shown again): '+j.secret,true)});
+document.addEventListener('click',async e=>{const t=e.target.closest('[data-hook-test]'),rm=e.target.closest('[data-hook-rm]');if(!t&&!rm)return;
+  if(rm){await fetch('/api/webhooks/'+rm.dataset.hookRm,{method:'DELETE'});location.reload();return}
+  t.disabled=true;const r=await fetch('/api/webhooks/'+t.dataset.hookTest+'/test',{method:'POST'});const j=await r.json().catch(()=>({}));t.disabled=false;
+  const w=j.webhook;say(w&&!w.last_error?'Test delivered (HTTP '+w.last_status+').':'Test failed: '+((w&&w.last_error)||j.error||'unknown'),!!(w&&!w.last_error))});})();`;
+
+export function mePage(viewer: Viewer, side: SideBoard[], tokens: TokenRow[], plan: PlanState = { plan: "free", status: null, renews_at: null, cancel_at_end: false, customer: null }, billingEnabled = false, hooks: WebhookRow[] = []): Response {
   const rows = tokens.length
     ? tokens
         .map(
@@ -1332,9 +1368,10 @@ export function mePage(viewer: Viewer, side: SideBoard[], tokens: TokenRow[], pl
 <div class="card pad" style="margin-bottom:16px"><div class="small" style="font-weight:500;color:var(--ink);margin-bottom:8px">Reconnect your agent</div>
 <p class="xs muted" style="margin-bottom:8px">Login expired, new machine, or moving off an old token: run this, approve in the browser, and start a new session.</p>${copyField("me-reconnect", CLI_STEPS.reconnect)}</div>
 <div class="list scroll-x"><table class="tbl"><thead><tr><th>Token</th><th>Last used</th><th>Status</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+${webhooksSection(hooks)}
 ${billingSection(plan, billingEnabled)}
 ${connectDialog(viewer)}`,
-    script: CONNECT_JS + `window.revoked=()=>location.reload();` + BILLING_JS + PFP_JS,
+    script: CONNECT_JS + `window.revoked=()=>location.reload();` + BILLING_JS + PFP_JS + HOOKS_JS,
   });
 }
 

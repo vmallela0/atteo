@@ -1,5 +1,6 @@
 // Worker entry: MCP endpoint, sign-in, web pages, JSON API, and the operator console (/_ops).
 
+import * as webhooks from "./webhooks";
 import * as avatars from "./avatars";
 import SKILL_MD from "../skills/agent-soup/SKILL.md";
 import { openapi } from "./openapi";
@@ -73,7 +74,7 @@ async function loadViewer(env: Env, session: auth.Session | null, request?: Requ
   // The JSON API also takes a personal token (Authorization: Bearer ab_…), as agents use for MCP. Never for pages.
   const bearer = request?.headers.get("authorization")?.match(/^Bearer\s+(\S+)$/i)?.[1];
   // Account-level actions (tokens, billing, ops) stay browser-only, so a leaked token can't mint more or change plans.
-  const accountOnly = /^\/api\/(ops|tokens|billing)(\/|$)/.test(path);
+  const accountOnly = /^\/api\/(ops|tokens|billing|webhooks)(\/|$)/.test(path);
   if (!session?.user && bearer && path.startsWith("/api/") && !accountOnly) {
     const name = await auth.userForToken(env, bearer);
     const u = name ? await registry.userByName(env, name) : null;
@@ -416,6 +417,36 @@ export default {
         }
       }
 
+      // ---- agent webhooks (signed POSTs when something is addressed to your agent) ----
+      if (path === "/__webhook-sink" && env.ALLOW_LOCAL_WEBHOOKS === "1") {
+        if (method === "POST") {
+          webhooks.sink.push({ headers: Object.fromEntries(request.headers), body: await request.text() });
+          if (webhooks.sink.length > 50) webhooks.sink.shift();
+          return json({ ok: true });
+        }
+        return json({ deliveries: webhooks.sink });
+      }
+      if (path === "/api/webhooks" && (method === "GET" || method === "POST")) {
+        if (!viewer || viewer.via === "agent") return needLogin();
+        if (method === "GET") return json({ webhooks: await webhooks.listWebhooks(env, viewer.name) });
+        const body = (await request.json().catch(() => ({}))) as { url?: string };
+        try {
+          return json({ ok: true, ...(await webhooks.addWebhook(env, viewer.name, String(body.url ?? ""))) }, 201);
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+        }
+      }
+      m = path.match(/^\/api\/webhooks\/(\d+)(\/test)?$/);
+      if (m && (method === "DELETE" || (method === "POST" && m[2]))) {
+        if (!viewer || viewer.via === "agent") return needLogin();
+        const hid = parseInt(m[1], 10);
+        if (method === "DELETE") return (await webhooks.removeWebhook(env, viewer.name, hid)) ? json({ ok: true }) : json({ error: "not found" }, 404);
+        const mine = (await webhooks.listWebhooks(env, viewer.name)).find((w) => w.id === hid);
+        if (!mine) return json({ error: "not found" }, 404);
+        await webhooks.deliver(env, [viewer.name], (u) => ({ event: "ping", note: "A test delivery from Agent Soup.", you: u }), hid);
+        return json({ ok: true, webhook: (await webhooks.listWebhooks(env, viewer.name)).find((w) => w.id === hid) });
+      }
+
       // ---- profile pictures (people and their agents) ----
       m = path.match(/^\/avatar\/([a-z0-9][a-z0-9_.-]{0,31})$/);
       if (m && method === "GET") return avatars.avatarResponse(env, m[1], url.searchParams.get("k") === "agent" ? "agent" : "person");
@@ -433,8 +464,8 @@ export default {
 
       if (path === "/me" && method === "GET") {
         if (!viewer) return needLogin();
-        const [side, tokens, plan] = await Promise.all([sideBoards(env, viewer.name), auth.listTokens(env, viewer.name), billing.planOf(env, viewer.name)]);
-        return mePage(viewer, side, tokens, plan, !!env.STRIPE_SECRET_KEY);
+        const [side, tokens, plan, hooks] = await Promise.all([sideBoards(env, viewer.name), auth.listTokens(env, viewer.name), billing.planOf(env, viewer.name), webhooks.listWebhooks(env, viewer.name)]);
+        return mePage(viewer, side, tokens, plan, !!env.STRIPE_SECRET_KEY, hooks);
       }
 
       if (path === OPS_PATH && method === "GET") {
