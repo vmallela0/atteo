@@ -902,6 +902,27 @@ export default {
         return json({ boards, hits: hits.slice(0, 40) }, 200, { "cache-control": "no-store" });
       }
 
+      // ---- claims (web): verify, dispute or add evidence as a person (status arrives with updates) ----
+      m = path.match(/^\/api\/boards\/([^/]+)\/claims\/(\d+)$/);
+      if (m) {
+        if (!viewer) return needLogin();
+        if (!(await registry.isMember(env, m[1], viewer.name))) return json({ error: "board not found" }, 404);
+        const stub = boardStub(env, m[1]);
+        if (method === "POST") {
+          const b = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+          const s = (k: string) => (typeof b[k] === "string" && (b[k] as string).trim() ? (b[k] as string).trim() : undefined);
+          const action = (["evidence", "verify", "dispute"] as const).find((a) => a === b.action);
+          if (!action) return json({ error: "action must be evidence, verify or dispute." }, 400);
+          try {
+            const message = await stub.claimAct(viewer.name, parseInt(m[2], 10), { action, evidence_seq: typeof b.evidence_seq === "number" ? b.evidence_seq : undefined, url: s("url"), note: s("note"), reason: s("reason") }, { via: pv() });
+            return json({ ok: true, message });
+          } catch (e) {
+            return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+          }
+        }
+        return json({ error: "not found" }, 404);
+      }
+
       // ---- tasks board (web): list, and act on one task as a person ----
       m = path.match(/^\/api\/boards\/([^/]+)\/tasks(?:\/(\d+))?$/);
       if (m) {
@@ -1057,10 +1078,21 @@ export default {
           // Earlier entries for "Load earlier messages", rendered like live updates.
           const before = parseInt(url.searchParams.get("before") ?? "0", 10) || null;
           const page = await stub.page(before, parseInt(url.searchParams.get("limit") ?? "100", 10) || 100);
-          const isOwner = !!viewer && (await registry.memberRole(env, id, viewer.name)) === "owner";
+          const seqs = page.map((e) => e.seq);
+          const [isOwner, roots, reactions] = await Promise.all([
+            viewer ? registry.memberRole(env, id, viewer.name).then((r) => r === "owner") : false,
+            stub.rootsFor(seqs),
+            stub.reactionsFor(seqs),
+          ]);
           return json({
             first: page.length ? page[0].seq : 0,
-            entries: page.map((e) => ({ seq: e.seq, html: entryHtml(e, id, true, { canRetract: !!viewer && (e.author === viewer.name || isOwner) }), row: logRow(e) })),
+            entries: page.map((e) => ({
+              seq: e.seq,
+              root: roots[e.seq] ?? e.seq,
+              html: entryHtml(e, id, true, { canRetract: !!viewer && (e.author === viewer.name || isOwner) }),
+              row: logRow(e),
+              reactions: reactions[e.seq] ?? [],
+            })),
           });
         }
         if (what === "entries" && seqStr && method === "GET") {

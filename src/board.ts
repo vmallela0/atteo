@@ -975,9 +975,11 @@ export class Board extends DurableObject<Env> {
   // ---- reactions: toggled per person; don't create entries or wake agents ----
 
   reactionsFor(seqs?: number[]): Record<number, Reactions> {
+    // By range, then filtered: SQLite here allows at most 100 bound parameters, and pages ask for hundreds of entries.
+    const want = seqs && new Set(seqs);
     const rows = seqs
       ? seqs.length
-        ? this.sql.exec(`SELECT seq, emoji, user FROM reactions WHERE seq IN (${seqs.map(() => "?").join(",")}) ORDER BY ts`, ...seqs).toArray()
+        ? this.sql.exec("SELECT seq, emoji, user FROM reactions WHERE seq BETWEEN ? AND ? ORDER BY ts", Math.min(...seqs), Math.max(...seqs)).toArray().filter((r) => want!.has(r.seq as number))
         : []
       : this.sql.exec("SELECT seq, emoji, user FROM reactions ORDER BY ts").toArray();
     const out: Record<number, Reactions> = {};
@@ -1183,9 +1185,22 @@ export class Board extends DurableObject<Env> {
       if (r.status === "disputed") bad.set(r.seq as number, "disputed");
     }
     for (const r of this.sql.exec("SELECT retracts FROM entries WHERE retracts IS NOT NULL").toArray()) bad.set(r.retracts as number, "retracted");
-    if (bad.size) for (const r of this.sql.exec("SELECT seq, on_seq FROM depends").toArray()) {
-      const why = bad.get(r.on_seq as number);
-      if (why) out[r.seq as number] = { ...(out[r.seq as number] ?? {}), stale_from: r.on_seq as number, stale_why: why };
+    // Transitively, like the dispute message: a decision resting on a claim that rests on a disputed one is stale too.
+    // (This runs on every update, so the dependency table is read once and walked in memory.)
+    if (bad.size) {
+      const on = new Map<number, number[]>();
+      for (const r of this.sql.exec("SELECT seq, on_seq FROM depends").toArray()) on.set(r.on_seq as number, [...(on.get(r.on_seq as number) ?? []), r.seq as number]);
+      for (const [seq, why] of bad) {
+        let frontier = on.get(seq) ?? [];
+        for (let depth = 0; depth < 5 && frontier.length; depth++) {
+          const next: number[] = [];
+          for (const d of frontier) if (!out[d]?.stale_from) {
+            out[d] = { ...(out[d] ?? {}), stale_from: seq, stale_why: why };
+            next.push(...(on.get(d) ?? []));
+          }
+          frontier = next;
+        }
+      }
     }
     return out;
   }

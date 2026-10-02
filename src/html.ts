@@ -90,7 +90,7 @@ ${
 ${avatar(e.author, "", e.via === "agent")}
 <div class="grow">
   <div class="meta">${whoHtml(e)}${e.to ? `<span class="to">→ ${esc(e.to)}</span>` : ""}${e.type === "note" ? "" : typeTag(e.type)}${when(e.ts)}<a class="seq" href="#e${e.seq}">#${e.seq}</a><span class="badge rbadge">Unsent</span>${flagBadge(e.text)}${actions}</div>
-  <div class="body">${renderText(e.text, e.mentions)}</div>${file}${e.card ? changeCardHtml(e.seq, e.card) : ""}${e.type === "task" ? `<div class="tk" data-task="${e.seq}" hidden></div>` : ""}
+  <div class="body">${renderText(e.text, e.mentions)}</div>${file}${e.card ? changeCardHtml(e.seq, e.card) : ""}${e.type === "task" ? `<div class="tk" data-task="${e.seq}" hidden></div>` : ""}${e.type === "claim" && !opts.retracted ? `<div class="tk cl" data-claim="${e.seq}" hidden></div>` : ""}
   ${refs.length ? `<div class="refs">${refs.join(" · ")}</div>` : ""}
   <div class="rx" data-rx="${e.seq}"><button class="rx-add" type="button" data-rx-add="${e.seq}" aria-label="Add a reaction" title="Add a reaction">☺<span>+</span></button></div>
   ${withReplies ? `<div class="replies" id="r${e.seq}"></div>` : ""}
@@ -606,10 +606,24 @@ ${agent.connected ? "" : `<button class="btn primary lg" style="margin-top:16px"
   const rows = [...entries].reverse().map((e) => logRow(e)).join("");
   const script = SHEET_JS + CONNECT_JS + `
 window.BOARD=${JSON.stringify(info.id)};let last=${last};
-document.getElementById('load-earlier')?.addEventListener('click',async e=>{const b=e.currentTarget;b.disabled=true;const sc=document.getElementById('thread-scroll'),h0=sc.scrollHeight;
-  const r=await fetch('/api/boards/'+BOARD+'/entries?before='+b.dataset.before+'&limit=150');const j=await r.json().catch(()=>({}));if(!r.ok){b.disabled=false;return}
-  const frag=document.createDocumentFragment();for(const x of j.entries){if(document.getElementById('e'+x.seq))continue;const t=document.createElement('div');t.innerHTML=x.html;frag.appendChild(t.firstElementChild)}
-  b.after(frag);if(j.first>1){b.dataset.before=j.first;b.disabled=false}else b.remove();sc.scrollTop+=sc.scrollHeight-h0;if(typeof railBuild==='function')railBuild()});
+// Earlier messages, on demand (a page at a time, or as far back as a given entry for a link to an older message). Replies go
+// into their threads and get the same reactions, task strips and claim chips as live entries.
+async function loadEarlier(until){const b=document.getElementById('load-earlier');if(!b||b.disabled)return;b.disabled=true;
+  const sc=document.getElementById('thread-scroll'),h0=sc.scrollHeight,before=+b.dataset.before;
+  const r=await fetch('/api/boards/'+BOARD+'/entries?before='+before+'&limit='+(until?Math.min(500,before-until+20):150));const j=await r.json().catch(()=>({}));if(!r.ok){b.disabled=false;return}
+  const frag=document.createDocumentFragment(),later=[];
+  for(const x of j.entries){if(document.getElementById('e'+x.seq))continue;const t=document.createElement('div');t.innerHTML=x.html;const el=t.firstElementChild;
+    const box=x.root!==x.seq&&(document.getElementById('r'+x.root)||frag.querySelector('#r'+x.root));
+    if(box){el.querySelector('.replies')?.remove();box.appendChild(el)}else frag.appendChild(el);later.push(x)}
+  b.after(frag);
+  for(const x of later){if(x.reactions?.length)renderRx(x.seq,x.reactions);if(document.querySelector('#e'+x.seq+' [data-task]'))refreshTask(x.seq);if(x.root!==x.seq)thrSum(x.root)}
+  renderClaims(CLAIMS);
+  if(j.first>1){b.dataset.before=j.first;b.disabled=false}else b.remove();sc.scrollTop+=sc.scrollHeight-h0;railBuild()}
+document.getElementById('load-earlier')?.addEventListener('click',()=>loadEarlier());
+document.addEventListener('click',async e=>{const a=e.target.closest('a[href^="#e"]');if(!a||document.getElementById(a.getAttribute('href').slice(1)))return;e.preventDefault();
+  const seq=+a.getAttribute('href').slice(2);if(await ensureEntry(seq))location.hash='#e'+seq;else toast('#'+seq+' was not found')});
+/** Makes sure #seq is on the page (loading earlier messages if needed); false if it doesn't exist. */
+window.ensureEntry=async seq=>{for(let i=0;i<20&&!document.getElementById('e'+seq)&&document.getElementById('load-earlier');i++)await loadEarlier(seq);return !!document.getElementById('e'+seq)};
 // The thread scrolls in its own area and opens at the latest entry. New entries keep you at the bottom only if you
 // were already there (or just posted); otherwise a "New messages" pill offers the jump.
 const scroller=document.getElementById('thread-scroll'),pill=document.getElementById('new-pill');let stickNext=false,moved=false;
@@ -649,6 +663,12 @@ document.addEventListener('wheel',e=>{if(e.ctrlKey||document.getElementById('pan
   scroller.scrollBy({top:e.deltaMode===1?e.deltaY*20:e.deltaY});e.preventDefault()},{passive:false});
 railBuild();pillSync();
 const linked=/^#e\\d+$/.test(location.hash);
+// A link to a message further back than the page shows loads back to it (on open, or when the hash changes).
+async function goLinked(){const m=location.hash.match(/^#e([0-9]+)$/);if(!m||document.getElementById('e'+m[1]))return;const seq=+m[1];
+  if(!(await ensureEntry(seq))){toast('#'+seq+' was not found');return}const el=document.getElementById('e'+seq);
+  if(el.closest('.replies'))openThread(+el.closest('#thread>.entry').dataset.seq,{focus:seq});else el.scrollIntoView({block:'center'})}
+if(linked&&!document.getElementById(location.hash.slice(1)))setTimeout(goLinked,0);
+window.addEventListener('hashchange',goLinked);
 if(!linked)toBottom();
 window.addEventListener('load',()=>{if(!linked&&!moved)toBottom()});
 // One update fetch at a time (a post's own refresh and the live signal used to race and add the entry twice).
@@ -660,6 +680,7 @@ async function tick1(wait){try{
   for(const e of d.entries){if(addEntry(e))added++}
   if(typeof d.last==='number')last=Math.max(last,d.last);
   if(d.reviews)applyReviews(d.reviews);
+  if(d.claims)renderClaims(d.claims);
   if(d.reads){READS=d.reads;renderReads()}
   if(added){railBuild();if(stick)toBottom();else{unseen=true;pillSync()}}
   if(d.entries.length){document.getElementById('sum').innerHTML=d.summary;document.querySelectorAll('[data-count]').forEach(x=>x.textContent=d.count);refreshTimes();infoCount()}
@@ -689,6 +710,7 @@ function connect(){
     if(d.type==='reaction'){renderRx(d.seq,d.reactions);return}
     if(d.type==='read'){READS[d.user]={person_seen:d.person_seen,agent_seen:d.agent_seen};renderReads();return}
     if(d.type==='task')refreshTask(d.seq);
+    if(d.type==='claim')tick(false);
     if(d.type==='task'){if(!document.getElementById('panel-tasks').hidden)loadTasks();if(td&&td.open&&tcur&&tcur.seq===d.seq&&!tdirty)openTask(d.seq)}
     if(d.type==='entry'||(d.type==='hello'&&d.last>last)){tick(false);if(!document.getElementById('panel-tasks').hidden)loadTasks()}};
   ws.onclose=(e)=>{clearInterval(ping);if(e.code!==4003)document.getElementById('conn').hidden=false;if(e.code===4003){location.href='/';return}
@@ -777,7 +799,7 @@ document.getElementById('composer-text')?.addEventListener('keydown',e=>{
   if(e.defaultPrevented)return;
   if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();const f=e.target.closest('form');if(e.target.value.trim()||pending.length)f.requestSubmit()}});
 // ---- shared documents ----
-const READONLY=${info.archived ? "true" : "false"};let curDoc=null,editing=false;
+const READONLY=${info.archived || readOnly ? "true" : "false"};let curDoc=null,editing=false;
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 async function loadDocs(){const r=await fetch('/api/boards/'+BOARD+'/files');const j=await r.json();const el=document.getElementById('doc-items');const fs=j.files||j.docs||[];
   const kb=n=>n<1024?n+' B':(n/1024).toFixed(1)+' KB';
@@ -954,9 +976,36 @@ document.addEventListener('click',async e=>{const b=e.target.closest('[data-tk]'
   if(a==='open'){openTask(seq);return}b.disabled=true;
   await taskAct(seq,a==='claim'||a==='release'?{action:a}:{action:'update',status:a==='done'?'done':'todo'});b.disabled=false;refreshTask(seq)});
 fetch('/api/boards/'+BOARD+'/tasks').then(r=>r.json()).then(j=>(j.tasks||[]).forEach(renderTask)).catch(()=>{});
+// ---- claims in the conversation: unverified → evidence → verified by someone else, or disputed; posts resting on a bad premise show "Stale" ----
+// Status comes with every update (d.claims: seq → {status, by, reason, stale_from, stale_why}).
+const CLST={asserted:'Unverified',evidenced:'Has evidence',verified:'Verified',disputed:'Disputed'};let CLAIMS={};
+function renderClaims(map){CLAIMS=map||{};
+  document.querySelectorAll('.badge.stale').forEach(b=>b.remove());
+  for(const [seq,c] of Object.entries(CLAIMS)){
+    if(c.stale_from){const m=document.querySelector('#e'+seq+'>.grow>.meta');if(m){const b=document.createElement('span');b.className='badge stale';
+      b.title='Rests on #'+c.stale_from+', which was '+c.stale_why;b.textContent='Stale';m.insertBefore(b,m.querySelector('.acts'))}}
+    const el=document.querySelector('[data-claim="'+seq+'"]');if(!el||!c.status||el.querySelector('.cl-f:not([hidden])'))continue;
+    const own=el.closest('.entry').dataset.author===ME;
+    el.innerHTML='<span class="tk-st cl-'+c.status+'"><span class="dot"></span>'+CLST[c.status]+(c.by?' by '+esc(c.by):'')+'</span>'+
+      (c.reason?'<span class="tk-who truncate" title="'+esc(c.reason)+'">'+esc(c.reason)+'</span>':'')+'<span class="grow"></span>'+
+      (READONLY?'':(own||c.status==='verified'?'':'<button class="btn ghost sm" type="button" data-cl="verify">Verify</button>')+
+        (own||c.status==='disputed'?'':'<button class="btn ghost sm" type="button" data-cl="dispute">Dispute</button>')+
+        '<button class="btn ghost sm" type="button" data-cl="evidence">Evidence</button>')+
+      '<form class="cl-f" hidden><input class="input" name="v" maxlength="300" required><button class="btn sm primary"></button><button class="btn sm ghost" type="button" data-cl-cancel>Cancel</button></form>';
+    el.hidden=false}}
+async function claimAct(seq,body){const r=await fetch('/api/boards/'+BOARD+'/claims/'+seq,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
+  const j=await r.json().catch(()=>({}));toast(r.ok?j.message:(j.error||'Could not save'));tick(false);return r.ok}
+document.addEventListener('click',async e=>{const b=e.target.closest('[data-cl]');if(!b)return;const strip=b.closest('[data-claim]'),seq=+strip.dataset.claim,a=b.dataset.cl;
+  if(a==='verify'){b.disabled=true;await claimAct(seq,{action:'verify'});return}
+  const f=strip.querySelector('.cl-f');f.dataset.mode=a;f.v.value='';f.v.placeholder=a==='dispute'?"What's wrong with it?":'A link, or #entry (a log or file posted here)';
+  f.querySelector('.primary').textContent=a==='dispute'?'Dispute':'Add evidence';f.hidden=false;f.v.focus()});
+document.addEventListener('click',e=>{const c=e.target.closest('[data-cl-cancel]');if(c){c.closest('.cl-f').hidden=true;renderClaims(CLAIMS)}});
+document.addEventListener('submit',async e=>{const f=e.target.closest('.cl-f');if(!f)return;e.preventDefault();const seq=+f.closest('[data-claim]').dataset.claim,v=f.v.value.trim();
+  let body;if(f.dataset.mode==='dispute')body={action:'dispute',reason:v};else{const n=v.match(/^#?([0-9]+)$/);body=n?{action:'evidence',evidence_seq:+n[1]}:{action:'evidence',url:v}}
+  if(await claimAct(seq,body))f.hidden=true});
 // ---- search: the palette (⌘K) knows this board; ⌘F opens it already filtered to this board's messages ----
 window.BOARD_CTX={id:BOARD,me:ME,members:MEMBERS,
-  jump(seq){const el=document.getElementById('e'+seq);if(!el){toast('#'+seq+' is further back than this page shows');return}
+  async jump(seq){if(!(await ensureEntry(seq))){toast('#'+seq+' was not found');return}const el=document.getElementById('e'+seq);
     if(document.getElementById('panel-conv').hidden)tab(0);if(el.closest('.replies')){openThread(+el.closest('#thread>.entry').dataset.seq,{focus:seq});return}
     document.querySelectorAll('#thread .entry.hit').forEach(x=>x.classList.remove('hit'));el.classList.add('hit');el.scrollIntoView({block:'center'});moved=true;setTimeout(()=>el.classList.remove('hit'),4000)},
   openFile(name,v){tab(2);openDoc(name,v)}};
@@ -1281,7 +1330,7 @@ ${connectDialog(viewer, { id: info.id, title: info.title })}
       ? ""
       : `<section class="acc-sec"><h3>Invite</h3>
   <form method="post" action="/api/boards/${esc(info.id)}/invites" data-api data-reset class="acc-inv">
-    <div class="acc-row"><div class="acc-to grow"><input class="input" id="inv-email" name="to" required autocomplete="off" placeholder="A friend's name, or anyone's email" aria-label="Friend's name or email" aria-autocomplete="list" aria-controls="inv-sug">
+    <div class="acc-row"><div class="acc-to grow"><input class="input" id="inv-email" name="email" required autocomplete="off" placeholder="A friend's name, or anyone's email" aria-label="Friend's name or email" aria-autocomplete="list" aria-controls="inv-sug">
       <ul class="acc-sug" id="inv-sug" role="listbox" hidden></ul></div>
     <select class="input acc-sel" name="role" aria-label="Role"><option value="contributor">Can post</option><option value="viewer">View only</option></select>
     <select class="input acc-sel" name="expires_days" aria-label="Access"><option value="0">No end date</option><option value="7">7 days</option><option value="30">30 days</option><option value="90">90 days</option></select>
