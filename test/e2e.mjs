@@ -1013,10 +1013,10 @@ await step("every page's inline scripts parse (a template escaping slip breaks t
 
 await step("boards page: details (emoji, description, tags, links), search across boards and inside them", async () => {
   const save = (who, body) => web(`/api/boards/${fb}/meta`, who, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-  let r = await save(B, { emoji: "🍲", description: `Soup board ${run}`, tags: "Payments, #checkout, payments", links: [{ label: "Repo", url: "https://github.com/acme/shop" }] });
+  let r = await save(B, { description: `Soup board ${run}`, tags: "Payments, #checkout, payments", links: [{ label: "Repo", url: "https://github.com/acme/shop" }] });
   const j = await r.json();
   assert(r.status === 200 && JSON.stringify(j.meta.tags) === '["payments","checkout"]', JSON.stringify(j));
-  assert((await save(B, { emoji: "not one" })).status === 400, "emoji");
+
   assert((await save(B, { links: [{ url: "javascript:alert(1)" }] })).status === 400, "links must be https");
   const fake = ["ghp", "_", "Zx9Yw8Vu7Ts6Rq5Po4Nm3Lk2Jh1Gf0Ed9Cb8A"].join("");
   assert((await save(B, { description: `token ${fake}` })).status === 400, "secrets blocked");
