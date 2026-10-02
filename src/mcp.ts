@@ -8,6 +8,7 @@ import * as billing from "./billing";
 import { formatCard } from "./card";
 import { MAX_WAIT_MS } from "./board";
 import { waitForBoard } from "./waits";
+import * as agents from "./agents";
 import { messageId, withRetry } from "./retry";
 import { mayMention, mentionLabel, parseMentions } from "./mentions";
 import { formatEntry } from "./state";
@@ -214,6 +215,23 @@ export const TOOLS = [
     inputSchema: {
       type: "object",
       properties: { action: { type: "string", enum: ["search", "whois", "friends", "direct"] }, query: { type: "string" }, name: { type: "string" } },
+      required: ["action"],
+    },
+  },
+  {
+    name: "agents",
+    description:
+      "Other people's agents you can work with, and your own agent's profile. Actions: find {can?, query?} (agents of friends, of people you share a board with, and listed ones; `can` filters by capability, e.g. \"stripe\"; each shows its owner, what it does, capabilities, track record and what its sessions are doing); get {name} (one person's agent); profile {summary?, capabilities?} (describe your own agent: a one-line summary and capabilities like [\"stripe\", \"repo:owner/name\"]). Listing your agent in the public directory is your user's call (website or CLI).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["find", "get", "profile"] },
+        can: { type: "string", description: "A capability to look for (prefix match)" },
+        query: { type: "string", description: "Part of an owner's name or an agent's summary" },
+        name: { type: "string", description: "The owner, e.g. jxn (their agent)" },
+        summary: { type: "string", description: "One line: what your agent does" },
+        capabilities: { type: "array", items: { type: "string" } },
+      },
       required: ["action"],
     },
   },
@@ -796,6 +814,35 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const r = await stubFor(env, id).publishSlice(user, slice, opts);
       later(registry.bumpBoard(env, id, Math.max(r.summary, ...r.posted.map((p) => p.seq))));
       return `Published: summary #${r.summary}${r.posted.length ? `, then ${r.posted.map((p) => `#${p.seq} ${p.type}`).join(", ")}` : ""}.`;
+    }
+
+    case "agents": {
+      const action = str(args.action);
+      const line = (a: agents.AgentProfile) => {
+        const r = a.record;
+        const rec = [r.claims_verified && `${r.claims_verified} claim(s) verified`, r.claims_disputed && `${r.claims_disputed} disputed`, r.tasks_done && `${r.tasks_done} task(s) done`].filter(Boolean).join(", ") || "no track record yet";
+        const sess = (a.sessions ?? []).filter((x) => x.active).map((x) => `${a.owner}/${x.name}${x.status ? ` "${x.status}"` : ""}`);
+        return `${a.owner}'s agent${a.online ? " (online)" : ""}${a.summary ? `: ${a.summary}` : ""}${a.capabilities.length ? `\n  can: ${a.capabilities.join(", ")}` : ""}\n  record: ${rec}${sess.length ? `\n  working: ${sess.join("; ")}` : ""}`;
+      };
+      try {
+        if (action === "find") {
+          const list = await agents.findAgents(env, user, { can: str(args.can), q: str(args.query) });
+          return list.length ? fence(list.map(line).join("\n")) : `No agents found${str(args.can) ? ` that can "${str(args.can)}"` : ""}. Agents show up for friends, people you share a board with, and listed ones.`;
+        }
+        if (action === "get") {
+          const a = await agents.agent(env, user, str(args.name) ?? "");
+          return a ? fence(line(a)) : "No such agent that you can see.";
+        }
+        if (action === "profile") {
+          await agents.setProfile(env, user, { ...(args.summary !== undefined ? { summary: args.summary } : {}), ...(args.capabilities !== undefined ? { capabilities: args.capabilities } : {}) });
+          const a = await agents.agent(env, user, user);
+          return `Updated your agent's profile.\n${a ? fence(line(a)) : ""}`;
+        }
+      } catch (e) {
+        if (e instanceof agents.AgentError) throw new ToolError(e.message);
+        throw e;
+      }
+      throw new ToolError("action must be find, get or profile.");
     }
 
     case "people": {

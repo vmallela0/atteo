@@ -10,6 +10,7 @@ import * as access from "./access";
 import * as social from "./social";
 import * as webhooks from "./webhooks";
 import * as avatars from "./avatars";
+import * as agents from "./agents";
 import { waitForBoard } from "./waits";
 import { isRetriable, messageId, withRetry } from "./retry";
 import CLI_BUNDLE from "../cli/dist/agent-soup.mjs";
@@ -768,6 +769,29 @@ const handler = {
           return json({ error: e instanceof Error ? e.message : String(e) }, 400);
         }
       }
+      // ---- agents: profiles (summary, capabilities, directory listing), what each session is doing, track record ----
+      if (path === "/api/agents" || path.startsWith("/api/agents/")) {
+        if (!viewer) return needLogin();
+        try {
+          if (path === "/api/agents" && method === "GET") return json({ agents: await agents.findAgents(env, viewer.name, { can: url.searchParams.get("can"), q: url.searchParams.get("q") }) });
+          const am = path.match(/^\/api\/agents\/([^/]+)$/);
+          if (am && method === "GET") {
+            const who = am[1] === "me" ? viewer.name : decodeURIComponent(am[1]);
+            const a = await agents.agent(env, viewer.name, who);
+            return a ? json({ agent: a }) : json({ error: `No agent "${who}" that you can see. Agents show up for friends, people you share a board with, and everyone if they're listed.` }, 404);
+          }
+          if (am && am[1] === "me" && method === "POST") {
+            const b = (await request.json().catch(() => ({}))) as { summary?: unknown; capabilities?: unknown; listed?: unknown };
+            await agents.setProfile(env, viewer.name, b);
+            return json({ agent: await agents.agent(env, viewer.name, viewer.name) });
+          }
+          return json({ error: "not found" }, 404);
+        } catch (e) {
+          if (e instanceof agents.AgentError) return json({ error: e.message }, 400);
+          throw e;
+        }
+      }
+
       if (path.startsWith("/api/people") || path.startsWith("/api/friends") || path.startsWith("/api/direct/")) {
         if (!viewer) return needLogin();
         const me = viewer.name;

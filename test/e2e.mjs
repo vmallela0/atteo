@@ -152,7 +152,7 @@ await step("MCP initialize, tools/list, notifications, protocol errors", async (
   assert(r.protocolVersion === "2025-06-18" && r.serverInfo.name === "agent-soup", JSON.stringify(r));
   has(r.instructions, "Agent Soup");
   const names = (await rpcRaw(auth(A), null, "tools/list", {})).tools.map((t) => t.name).sort();
-  assert(JSON.stringify(names) === JSON.stringify(["approval", "claim", "create_board", "doc", "get", "invite", "join_board", "leave_board", "list_boards", "people", "post", "publish", "react", "read", "request_approval", "retract", "review", "search", "task", "wait"]), names.join());
+  assert(JSON.stringify(names) === JSON.stringify(["agents", "approval", "claim", "create_board", "doc", "get", "invite", "join_board", "leave_board", "list_boards", "people", "post", "publish", "react", "read", "request_approval", "retract", "review", "search", "task", "wait"]), names.join());
   assert((await rpcRaw(auth(A), null, "notifications/initialized", {}, { notification: true })).status === 202, "notification status");
   assert((await rpcRaw({}, null, "notifications/initialized", {}, { notification: true })).status === 401, "no credentials: 401 so OAuth clients can sign in");
   assert((await fetch(`${BASE}/mcp`)).status === 405, "GET /mcp should be 405");
@@ -1406,6 +1406,29 @@ await step("claims: evidence, verify (never your own), dispute flags everything 
   await err(A, fb, "claim", { action: "verify", seq: log }, "isn't a claim");
   const upd = await (await web(`/api/boards/${fb}/updates?after=${c1 - 1}`, A)).json();
   assert(upd.claims[c1].status === "disputed" && upd.claims[d1].stale_from === c1 && upd.entries.find((x) => x.seq === d1).claim.stale_why === "disputed", JSON.stringify(upd.claims).slice(0, 300));
+});
+
+await step("agents: profiles with capabilities, found by what they can do; friends and coworkers see sessions, listed agents are public; track record from verified claims", async () => {
+  const api = (who, path, body) => web(path, who, body === undefined ? {} : { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  let r = await api(A, "/api/agents/me", { summary: `knows the checkout service ${run}`, capabilities: ["Stripe", "repo:acme/checkout", "stripe"] });
+  let j = await r.json();
+  assert(r.status === 200 && JSON.stringify(j.agent.capabilities) === JSON.stringify(["repo:acme/checkout", "stripe"]), JSON.stringify(j));
+  // A's claim was verified by B, then disputed in the claims step: the latest outcome is what counts.
+  assert(j.agent.record.claims_verified + j.agent.record.claims_disputed >= 1, `track record: ${JSON.stringify(j.agent.record)}`);
+  assert((await api(A, "/api/agents/me", { capabilities: ["no<script>"] })).status === 400, "capabilities are checked");
+  // B shares a board with A: finds A's agent by capability (prefix), with sessions.
+  j = await (await api(B, "/api/agents?can=strip")).json();
+  const a = j.agents.find((x) => x.owner === A);
+  assert(a && a.relation !== "listed" && Array.isArray(a.sessions), JSON.stringify(j).slice(0, 300));
+  assert(!(await (await api(B, "/api/agents?can=kubernetes")).json()).agents.some((x) => x.owner === A), "capability filter");
+  // An outsider doesn't see A's agent until A lists it; then sees the profile but not what its sessions are doing.
+  assert((await api(OUT, `/api/agents/${A}`)).status === 404, "unlisted agents are private");
+  await api(A, "/api/agents/me", { listed: true });
+  j = await (await api(OUT, `/api/agents/${A}`)).json();
+  assert(j.agent && j.agent.relation === "listed" && j.agent.sessions === undefined && j.agent.summary.includes(run), JSON.stringify(j));
+  await api(A, "/api/agents/me", { listed: false });
+  // The agent tool says the same, for agents without a shell.
+  has(await ok(B, board, "agents", { action: "find", can: "stripe" }), `${A}'s agent`);
 });
 
 await step("big boards open on the newest entries; earlier ones load on demand", async () => {
