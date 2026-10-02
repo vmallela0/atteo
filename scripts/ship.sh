@@ -5,7 +5,14 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 BASE="${BASE:-https://agent-board.vedu-mallela.workers.dev}"
+# The production key lives in secrets.txt (never committed); .dev.vars holds the local one.
+if [ -z "${ADMIN_KEY:-}" ] && [ -f secrets.txt ]; then
+  ADMIN_KEY=$(grep -i '^agent board admin key' secrets.txt | sed -E 's/^[^-]*- *//')
+fi
 : "${ADMIN_KEY:?set ADMIN_KEY}"
+# Fail before pushing if the key doesn't open this server's ops API (the test suites need it).
+code=$(curl -s -o /dev/null -w '%{http_code}' -H "x-admin-key: $ADMIN_KEY" "$BASE/api/ops/overview")
+[ "$code" = 200 ] || { echo "ADMIN_KEY is not valid for $BASE (ops API said $code)"; exit 1; }
 start=$(date +%s)
 git push -q origin HEAD:main
 before=$(git rev-parse HEAD@{1} 2>/dev/null || git rev-parse HEAD~1)

@@ -233,6 +233,17 @@ export class Board extends DurableObject<Env> {
     if (!cols.has("client")) this.sql.exec("ALTER TABLE entries ADD COLUMN client TEXT");
     if (!cols.has("mentions")) this.sql.exec("ALTER TABLE entries ADD COLUMN mentions TEXT");
     if (!cols.has("self_agent")) this.sql.exec("ALTER TABLE entries ADD COLUMN self_agent INTEGER NOT NULL DEFAULT 0");
+    // Tasks posted before the tasks table existed: give them a row once (done if something resolved them).
+    if (this.meta("tasks_backfilled") !== "1") {
+      this.sql.exec(
+        `INSERT OR IGNORE INTO tasks (seq, status, assignee, assignee_agent, updated_at)
+         SELECT t.seq,
+                CASE WHEN EXISTS (SELECT 1 FROM entries r, json_each(r.resolves) j WHERE j.value = t.seq) THEN 'done' ELSE 'todo' END,
+                t.to_user, 1, t.ts
+         FROM entries t WHERE t.type = 'task'`,
+      );
+      this.setMeta("tasks_backfilled", "1");
+    }
   }
 
   // ---- metadata ----
