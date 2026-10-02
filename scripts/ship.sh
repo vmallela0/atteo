@@ -1,30 +1,44 @@
 #!/usr/bin/env bash
-# Ship main: push, deploy, wait until the new version is actually serving (no fixed sleep), then run the production
-# e2e suite and (if CLI-related code changed) the CLI suite in parallel, then clean up test data.
-# Needs CLOUDFLARE_ACCOUNT_ID / CLOUDFLARE_API_TOKEN and ADMIN_KEY in the environment.
+# Ship main: run the e2e suite (and the CLI suite, if CLI-related code changed) against a LOCAL server first, then
+# push, deploy, and wait until the new version is actually serving (no fixed sleep). Production only ever gets health
+# checks from here: no test suites, no test data, no load (vedu, Oct 2: "stop making tests that stress test our
+# cloudflare"). Needs CLOUDFLARE_ACCOUNT_ID / CLOUDFLARE_API_TOKEN in the environment.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 BASE="${BASE:-https://agent-board.vedu-mallela.workers.dev}"
-# The production key lives in secrets.txt (never committed); .dev.vars holds the local one.
-if [ -z "${ADMIN_KEY:-}" ] && [ -f secrets.txt ]; then
-  ADMIN_KEY=$(grep -i '^agent board admin key' secrets.txt | sed -E 's/^[^-]*- *//')
-fi
-: "${ADMIN_KEY:?set ADMIN_KEY}"
-# Fail before pushing if the key doesn't open this server's ops API (the test suites need it).
-code=$(curl -s -o /dev/null -w '%{http_code}' -H "x-admin-key: $ADMIN_KEY" "$BASE/api/ops/overview")
-[ "$code" = 200 ] || { echo "ADMIN_KEY is not valid for $BASE (ops API said $code)"; exit 1; }
+LOCAL="http://localhost:${LOCAL_PORT:-8788}"
 start=$(date +%s)
-# Clear the last run's test data while we deploy; finish before the new suites create theirs (never during them).
-scripts/cleanup-e2e.sh --remote >/dev/null 2>&1 & cleanup=$!
+before=$(git rev-parse origin/main 2>/dev/null || git rev-parse HEAD~1)
+
+# 1. The suites, locally (local D1 + Durable Objects; the ADMIN_KEY in .dev.vars). Reuse a dev server if one is up.
+dev=""
+if ! curl -s -o /dev/null "$LOCAL/health"; then
+  npx wrangler dev --port "${LOCAL##*:}" >/tmp/ship-dev.log 2>&1 & dev=$!
+  trap '[ -n "$dev" ] && kill $dev 2>/dev/null; true' EXIT
+  for i in $(seq 1 120); do curl -s -o /dev/null "$LOCAL/health" && break; sleep 0.5; done
+fi
+CI=1 npx wrangler d1 migrations apply agent-board --local >/tmp/ship-migrate-local.log 2>&1 || { cat /tmp/ship-migrate-local.log; exit 1; }
+(unset ADMIN_KEY; BASE="$LOCAL" node test/e2e.mjs > /tmp/ship-e2e.log 2>&1) & e2e=$!
+cli=""
+if git diff --name-only "$before" HEAD | grep -qE '^(cli/|src/(mcp|secrets|device|auth|index|board)\.ts|test/cli\.mjs)'; then
+  (npm run -s build:cli >/dev/null && unset ADMIN_KEY && BASE="$LOCAL" node test/cli.mjs > /tmp/ship-cli.log 2>&1) & cli=$!
+fi
+status=0
+wait $e2e || status=1; tail -1 /tmp/ship-e2e.log; grep "✗" -A2 /tmp/ship-e2e.log || true
+if [ -n "$cli" ]; then wait $cli || status=1; tail -1 /tmp/ship-cli.log; grep "✗" -A2 /tmp/ship-cli.log || true; fi
+[ "$status" = 0 ] || { echo "local suites failed: not shipping"; exit 1; }
+echo "local suites passed after $(( $(date +%s) - start ))s"
+
+# 2. Push, migrate (new D1 migrations first, so new code never runs on an old schema), deploy.
 git push -q origin HEAD:main
-before=$(git rev-parse HEAD@{1} 2>/dev/null || git rev-parse HEAD~1)
-# New D1 migrations go first, so the new code never runs against an old schema (applied ones are skipped).
 CI=1 npx wrangler d1 migrations apply agent-board --remote >/tmp/ship-migrate.log 2>&1 || { cat /tmp/ship-migrate.log; exit 1; }
 grep -q "No migrations to apply" /tmp/ship-migrate.log || grep -E "✅|applied" /tmp/ship-migrate.log | sed 's/^/migrated: /'
 out=$(npx wrangler deploy 2>&1) || { echo "$out"; exit 1; }
 ver=$(echo "$out" | sed -nE 's/.*Current Version ID: ([0-9a-f-]+).*/\1/p')
 echo "deployed $ver"
-# Rollouts reach instances gradually: wait for 6 health checks in a row to report the new version.
+
+# 3. Production: rollouts reach instances gradually, so wait for 6 health checks in a row on the new version,
+# then one deep check (database + a board answering). That's all prod gets.
 ok=0
 for i in $(seq 1 240); do
   if [ "$(curl -s "$BASE/health" | sed -nE 's/.*"version":"([^"]*)".*/\1/p')" = "$ver" ]; then ok=$((ok + 1)); else ok=0; fi
@@ -32,17 +46,6 @@ for i in $(seq 1 240); do
   sleep 0.5
 done
 echo "live after $(( $(date +%s) - start ))s"
-wait $cleanup || true
-# The e2e billing step signs a test webhook with the same secret Stripe uses.
-STRIPE_WEBHOOK_SECRET="${STRIPE_WEBHOOK_SECRET:-$(grep -i '^stripe webhook secret (live)' secrets.txt 2>/dev/null | sed -E 's/^[^-]*- *//')}"
-export ADMIN_KEY BASE STRIPE_WEBHOOK_SECRET
-node test/e2e.mjs > /tmp/ship-e2e.log 2>&1 & e2e=$!
-cli=""
-if git diff --name-only "$before" HEAD | grep -qE '^(cli/|src/(mcp|secrets|device|auth|index|board)\.ts|test/cli\.mjs)'; then
-  npm run -s build:cli >/dev/null && node test/cli.mjs > /tmp/ship-cli.log 2>&1 & cli=$!
-fi
-status=0
-wait $e2e || status=1; tail -1 /tmp/ship-e2e.log; grep "✗" -A2 /tmp/ship-e2e.log || true
-if [ -n "$cli" ]; then wait $cli || status=1; tail -1 /tmp/ship-cli.log; grep "✗" -A2 /tmp/ship-cli.log || true; fi
-echo "shipped in $(( $(date +%s) - start ))s"
-exit $status
+deep=$(curl -s "$BASE/health/deep")
+echo "$deep" | grep -q '"ok":true' || { echo "deep health check failed: $deep"; exit 1; }
+echo "prod healthy; shipped in $(( $(date +%s) - start ))s"
