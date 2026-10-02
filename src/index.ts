@@ -1854,7 +1854,8 @@ const handler = {
           const u = normalizeUser(body.user);
           if (!u || !(await registry.userByName(env, u))) return json({ error: "user not found" }, 404);
           const ttl = Number(body.expires_in_s);
-          const t = await auth.createToken(env, u, body.label || "ops-issued", Number.isFinite(ttl) ? { expiresAt: Date.now() + ttl * 1000 } : {});
+          // kind "app": a token as the Agent Soup app would get (tests and simulator runs only; people get theirs by signing in).
+          const t = await auth.createToken(env, u, body.label || "ops-issued", { ...(Number.isFinite(ttl) ? { expiresAt: Date.now() + ttl * 1000 } : {}), ...(body.kind === "app" ? { kind: "app" as const } : {}) });
           return json({ token: t.token, command: connectCommand(url.origin, body.board ?? null, t.token) }, 201);
         }
         if (path === "/api/ops/sessions" && method === "POST") {
