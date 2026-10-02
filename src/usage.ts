@@ -51,7 +51,8 @@ export interface Kpis {
   boards_active_7d: number;
   agents_7d: number; // people whose agent or CLI used a token in the last 7 days
   posts_7d: number;
-  errors_24h: number;
+  errors_24h: number; // kinds of server error seen in the last 24 hours
+  errors_24h_total: number; // how often those kinds have happened, all time
 }
 
 export interface Metrics {
@@ -86,7 +87,7 @@ export async function metrics(env: Env, n = 14): Promise<Metrics> {
       .first<Record<string, number | null>>(),
     env.DB.prepare(`SELECT COUNT(*) AS boards, SUM(last_activity >= ?) AS active FROM boards WHERE title NOT LIKE 'e2e %' AND created_by NOT LIKE 'e2e-%'`).bind(now - 7 * D).first<{ boards: number; active: number | null }>(),
     env.DB.prepare(`SELECT COUNT(DISTINCT user) AS n FROM tokens WHERE last_used >= ? AND revoked_at IS NULL AND user NOT LIKE 'e2e-%'`).bind(now - 7 * D).first<{ n: number }>(),
-    env.DB.prepare(`SELECT COALESCE(SUM(count), 0) AS n FROM errors WHERE last_at >= ?`).bind(now - D).first<{ n: number }>(),
+    env.DB.prepare(`SELECT COUNT(*) AS kinds, COALESCE(SUM(count), 0) AS n FROM errors WHERE last_at >= ?`).bind(now - D).first<{ kinds: number; n: number }>(),
   ]);
   const days = Array.from({ length: n }, (_, i) => ({ day: day(Date.now() - (n - 1 - i) * 86_400_000), people: 0, agents: 0, posts_person: 0, posts_agent: 0, new_users: 0, new_boards: 0 }));
   const at = (d: string) => days.find((x) => x.day === d);
@@ -114,7 +115,8 @@ export async function metrics(env: Env, n = 14): Promise<Metrics> {
     boards_active_7d: kb?.active ?? 0,
     agents_7d: ka?.n ?? 0,
     posts_7d: days.slice(-7).reduce((n, x) => n + x.posts_person + x.posts_agent, 0),
-    errors_24h: ke?.n ?? 0,
+    errors_24h: ke?.kinds ?? 0,
+    errors_24h_total: ke?.n ?? 0,
   };
   return { kpis, days, clients: cl.results, errors: er.results };
 }
