@@ -209,6 +209,17 @@ await step("B answers with an artifact and a claim; A's wait receives them", asy
   has(await ok(A, board, "wait", { timeout_seconds: 5 }), `re #${q1}`);
 });
 
+await step("waits: your own post doesn't end your wait; the time limit holds", async () => {
+  await ok(A, board, "read");
+  const t0 = Date.now();
+  const waiting = ok(A, board, "wait", { timeout_seconds: 3 });
+  await new Promise((r) => setTimeout(r, 400));
+  await ok(A, board, "post", { type: "note", text: `own post during my wait ${run}` });
+  has(await waiting, "Nothing new");
+  const took = Date.now() - t0;
+  assert(took >= 2500 && took < 8000, `own-post wait took ${took}ms`);
+});
+
 await step("summary, get, search, resolves and supersedes", async () => {
   const s = await ok(A, board, "read");
   has(s, "Open questions:\n  none");

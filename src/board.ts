@@ -138,9 +138,10 @@ function validateDocName(name: string) {
   }
 }
 
-interface Waiter {
+/** A wait held by the Worker on a hibernating socket: "agent" wakes on posts this user hasn't read, "any" on any post. */
+interface WaitAtt {
+  wait: "agent" | "any";
   user: string;
-  wake: () => void;
 }
 
 type Row = Record<string, SqlStorageValue>;
@@ -174,8 +175,7 @@ const ENTRY_COLS = "seq, ts, author, type, text, title, to_user, mentions, reply
 
 export class Board extends DurableObject<Env> {
   private sql: SqlStorage;
-  private waiters = new Set<Waiter>();
-  private watchers = new Set<() => void>(); // web viewers long-polling for any new entry
+  private touched = new Map<string, number>(); // when each member's last_seen was last written (it's rounded to a minute)
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -316,6 +316,7 @@ export class Board extends DurableObject<Env> {
   /** The Worker forwards an authorized upgrade here; it has already checked the session and membership. */
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
+    if (url.pathname === "/wait" && request.headers.get("Upgrade") === "websocket") return this.acceptWait(url);
     if (url.pathname !== "/ws" || request.headers.get("Upgrade") !== "websocket") return new Response("Not found", { status: 404 });
     const user = url.searchParams.get("user") ?? "";
     const pair = new WebSocketPair();
@@ -325,6 +326,47 @@ export class Board extends DurableObject<Env> {
     server.serializeAttachment(att);
     server.send(JSON.stringify({ type: "hello", last: this.info().last_seq, pid: att.pid, voice: this.voiceState() }));
     return new Response(null, { status: 101, webSocket: client });
+  }
+
+  // ---- waits (agent `wait`, long-polls): the Worker holds them, so this object can hibernate meanwhile ----
+  // Holding a wait here (a pending timer) kept the object awake and billed for duration the whole time. Instead the
+  // Worker opens a hibernating socket, and this object only wakes to send "go" when something arrives.
+
+  private acceptWait(url: URL): Response {
+    const att: WaitAtt = { wait: url.searchParams.get("kind") === "any" ? "any" : "agent", user: url.searchParams.get("user") ?? "" };
+    const pair = new WebSocketPair();
+    const [client, server] = Object.values(pair);
+    this.ctx.acceptWebSocket(server, ["wait"]);
+    server.serializeAttachment(att);
+    // Already something to return (or they were removed): say so at once.
+    let ready: boolean;
+    if (att.wait === "any") ready = this.info().last_seq > (parseInt(url.searchParams.get("after") ?? "0", 10) || 0);
+    else {
+      const row = this.sql.exec("SELECT cursor FROM members WHERE name = ?", att.user).toArray();
+      ready = !row.length || this.countAfter(row[0].cursor as number, att.user) > 0;
+    }
+    if (ready) server.send("go");
+    return new Response(null, { status: 101, webSocket: client });
+  }
+
+  private isWait(ws: WebSocket): boolean {
+    return this.ctx.getTags(ws)[0] === "wait";
+  }
+
+  /** Board tabs and CLI watchers (not waits). */
+  private tabs(): WebSocket[] {
+    return this.ctx.getWebSockets().filter((ws) => !this.isWait(ws));
+  }
+
+  /** Ends waits: all of them, or (for a post) every wait except the author's own agent's, unless they handed it work. */
+  private wakeWaits(filter?: (a: WaitAtt) => boolean) {
+    for (const ws of this.ctx.getWebSockets("wait")) {
+      const a = ws.deserializeAttachment() as WaitAtt | null;
+      if (filter && a && !filter(a)) continue;
+      try {
+        ws.send("go");
+      } catch {}
+    }
   }
 
   // ---- voice rooms: browsers talk to each other directly (WebRTC, encrypted peer to peer); this object only relays
@@ -340,8 +382,7 @@ export class Board extends DurableObject<Env> {
   }
 
   private voicePeers(except?: WebSocket): { ws: WebSocket; a: VoiceAtt }[] {
-    return this.ctx
-      .getWebSockets()
+    return this.tabs()
       .filter((ws) => ws !== except && ws.readyState === WebSocket.OPEN)
       .map((ws) => ({ ws, a: this.voiceAtt(ws) }))
       .filter((p) => p.a.voice);
@@ -364,7 +405,7 @@ export class Board extends DurableObject<Env> {
       if (next) next.ws.serializeAttachment({ ...next.a, floor: true, raised: undefined, since: Date.now() });
     }
     const data = JSON.stringify({ type: "voice", ...this.voiceState(except) });
-    for (const ws of this.ctx.getWebSockets()) {
+    for (const ws of this.tabs()) {
       if (ws === except) continue;
       try {
         ws.send(data);
@@ -374,7 +415,7 @@ export class Board extends DurableObject<Env> {
 
   async webSocketMessage(ws: WebSocket, msg: string | ArrayBuffer): Promise<void> {
     // "ping" is auto-answered; everything else is voice. Signaling messages are small (SDP + ICE candidates).
-    if (typeof msg !== "string" || msg.length > 32_000) return;
+    if (typeof msg !== "string" || msg.length > 32_000 || this.isWait(ws)) return;
     let d: { op?: string; to?: string; data?: unknown };
     try {
       d = JSON.parse(msg);
@@ -427,11 +468,13 @@ export class Board extends DurableObject<Env> {
     try {
       ws.close(code, reason);
     } catch {}
+    if (this.isWait(ws)) return;
     // Leaving the page leaves voice (and passes the floor on).
     if (this.voiceAtt(ws).voice) this.voiceUpdate(ws);
   }
 
   async webSocketError(ws: WebSocket): Promise<void> {
+    if (this.isWait(ws)) return;
     if (this.voiceAtt(ws).voice) this.voiceUpdate(ws);
   }
 
@@ -447,7 +490,7 @@ export class Board extends DurableObject<Env> {
   private broadcast(msg: object) {
     this.changes++;
     const data = JSON.stringify(msg);
-    for (const ws of this.ctx.getWebSockets()) {
+    for (const ws of this.tabs()) {
       try {
         ws.send(data);
       } catch {}
@@ -592,6 +635,12 @@ export class Board extends DurableObject<Env> {
   /** Registers the user as a member (first time) and updates last_seen. Returns their cursor. */
   private touch(user: string): number {
     const now = Date.now();
+    // last_seen is shown to the minute: write it at most once a minute per member (a row write on every call adds up).
+    if (now - (this.touched.get(user) ?? 0) < 60_000) {
+      const r = this.sql.exec("SELECT cursor FROM members WHERE name = ?", user).toArray();
+      if (r.length) return r[0].cursor as number;
+    }
+    this.touched.set(user, now);
     this.sql.exec(
       `INSERT INTO members (name, cursor, joined_at, last_seen) VALUES (?, 0, ?, ?)
        ON CONFLICT(name) DO UPDATE SET last_seen = excluded.last_seen`,
@@ -766,8 +815,7 @@ export class Board extends DurableObject<Env> {
     if (!internal.seeding && !user.startsWith("e2e-")) this.ctx.waitUntil(Promise.resolve(track(this.env, "posts", input.via ?? "agent")).catch(() => {}));
     if (this.env.AI_TOKEN && !internal.seeding && text.length >= 25 && !screenText(text)) this.ctx.waitUntil(this.screenWithModel(entry.seq, text).catch(() => {}));
 
-    for (const w of this.waiters) if (w.user !== user || forOwnAgent) w.wake();
-    for (const wake of this.watchers) wake();
+    this.wakeWaits((a) => a.wait === "any" || a.user !== user || forOwnAgent);
     // Who posted what to whom (no text): enough for tabs to refresh and for a member's CLI to decide whether to wake its agent.
     this.broadcast({ type: "entry", seq: entry.seq, retracts: entry.retracts, author: entry.author, via: entry.via ?? null, kind: entry.type, to: entry.to, mentions: entry.mentions, reply_to: entry.reply_to, board: info.id, title: info.title });
     return entry;
@@ -840,28 +888,13 @@ export class Board extends DurableObject<Env> {
   }
 
   /**
-   * Long-poll: resolves as soon as another member posts something this user has not read,
-   * or after `timeoutMs` with no entries. Advances the cursor past what it returns.
+   * What other members posted that this user's agent hasn't read (never blocks: the Worker does the waiting, see
+   * acceptWait). Advances the cursor past what it returns. `join` false: after a wait, so a member removed
+   * meanwhile gets nothing and isn't re-added.
    */
-  async wait(user: string, timeoutMs: number) {
+  async wait(user: string, join = true) {
     this.info();
-    const timeout = clamp(timeoutMs, 0, MAX_WAIT_MS);
-    const cursor = this.touch(user);
-    if (this.countAfter(cursor, user) === 0 && timeout > 0) {
-      await new Promise<void>((resolve) => {
-        const w: Waiter = {
-          user,
-          wake: () => {
-            clearTimeout(timer);
-            this.waiters.delete(w);
-            resolve();
-          },
-        };
-        const timer = setTimeout(w.wake, timeout);
-        this.waiters.add(w);
-      });
-    }
-    // Removed from the board while waiting: return nothing, and don't re-add them.
+    if (join) this.touch(user);
     const row = this.sql.exec("SELECT cursor FROM members WHERE name = ?", user).toArray();
     if (!row.length) return { info: this.info(), entries: [] as Entry[], timedOut: true };
     const fresh = this.entriesAfter(row[0].cursor as number, user, 50);
@@ -874,8 +907,9 @@ export class Board extends DurableObject<Env> {
   /** Drops a member's cursor and ends any wait they have in progress. Access itself is enforced by the Worker. */
   async removeMember(user: string): Promise<void> {
     this.sql.exec("DELETE FROM members WHERE name = ?", user);
+    this.touched.delete(user);
     this.sql.exec("UPDATE tasks SET lease_holder = NULL, lease_until = NULL, status = CASE WHEN status = 'doing' THEN 'todo' ELSE status END WHERE lease_holder = ?", user);
-    for (const w of this.waiters) if (w.user === user) w.wake();
+    this.wakeWaits((a) => a.user === user);
     // Say so explicitly before closing: a close frame alone isn't reliably delivered to the page.
     for (const ws of this.ctx.getWebSockets(user)) {
       try {
@@ -1022,21 +1056,6 @@ export class Board extends DurableObject<Env> {
       .exec(`SELECT ${ENTRY_COLS} FROM entries WHERE ${clauses.join(" AND ")} ORDER BY seq DESC LIMIT ?${args.length}`, ...args)
       .toArray()
       .map(toEntry);
-  }
-
-  /** Long-poll for the web UI: resolves when an entry newer than `afterSeq` exists, or after `timeoutMs`. */
-  async waitForAny(afterSeq: number, timeoutMs: number): Promise<number> {
-    if (this.info().last_seq > afterSeq) return this.info().last_seq;
-    await new Promise<void>((resolve) => {
-      const wake = () => {
-        clearTimeout(timer);
-        this.watchers.delete(wake);
-        resolve();
-      };
-      const timer = setTimeout(wake, clamp(timeoutMs, 0, MAX_WAIT_MS));
-      this.watchers.add(wake);
-    });
-    return this.info().last_seq;
   }
 
   /** For each seq, the top of its reply chain (so the web UI can nest a reply under its thread). */
@@ -1840,7 +1859,7 @@ export class Board extends DurableObject<Env> {
   /** Archive (read-only) or restore. Access is checked by the Worker. */
   async setArchived(on: boolean): Promise<BoardInfo> {
     this.setMeta("archived", on ? "1" : "0");
-    for (const w of this.waiters) w.wake();
+    this.wakeWaits();
     this.broadcast({ type: "archived", archived: on });
     return this.info();
   }
@@ -1853,8 +1872,7 @@ export class Board extends DurableObject<Env> {
         ws.close(4004, "board deleted");
       } catch {}
     }
-    for (const w of this.waiters) w.wake();
-    for (const wake of this.watchers) wake();
+    this.wakeWaits();
     await this.ctx.storage.deleteAll();
     this.metaCache.clear();
     this.entryMemo = [];

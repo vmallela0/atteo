@@ -10,6 +10,7 @@ import * as access from "./access";
 import * as social from "./social";
 import * as webhooks from "./webhooks";
 import * as avatars from "./avatars";
+import { waitForBoard } from "./waits";
 import SKILL_MD from "../skills/agent-soup/SKILL.md";
 import { openapi } from "./openapi";
 import * as billing from "./billing";
@@ -1274,7 +1275,7 @@ const handler = {
           const after = Math.max(0, parseInt(url.searchParams.get("after") ?? "0", 10) || 0);
           // Long-poll (wait=seconds) so an open board tab costs one request per change or per ~25s, not one every few seconds.
           const waitSec = Math.min(25, Math.max(0, parseInt(url.searchParams.get("wait") ?? "0", 10) || 0));
-          if (waitSec) await stub.waitForAny(after, waitSec * 1000);
+          if (waitSec) await waitForBoard(stub, { kind: "any", after }, waitSec * 1000);
           // Only entries after `after` (up to 1000 per call; the client advances and asks again), roots resolved in the DO.
           const [snap, members0, live] = await Promise.all([stub.snapshot(after), registry.boardMembers(env, id), registry.agentsOnBoard(env, id)]);
           const members = members0.map((x) => ({ ...x, agent_seen: live[x.user] ?? null }));
@@ -1305,7 +1306,7 @@ const handler = {
           // Plain JSON for SDKs and scripts: entries after N (oldest first), optionally waiting up to 25s for new ones.
           const after = Math.max(0, parseInt(url.searchParams.get("after") ?? "0", 10) || 0);
           const waitSec = Math.min(25, Math.max(0, parseInt(url.searchParams.get("wait") ?? "0", 10) || 0));
-          if (waitSec) await stub.waitForAny(after, waitSec * 1000);
+          if (waitSec) await waitForBoard(stub, { kind: "any", after }, waitSec * 1000);
           const snap = await stub.snapshot(after);
           const list = snap.entries.slice(0, Math.min(500, parseInt(url.searchParams.get("limit") ?? "200", 10) || 200));
           return json({ entries: list, last: list.length ? list[list.length - 1].seq : after });
