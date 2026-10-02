@@ -645,8 +645,15 @@ function tick(wait){if(ticking){if(!wait)again=true;return ticking}ticking=tick1
 async function tick1(wait){try{
   const r=await fetch('/api/boards/'+BOARD+'/updates?after='+last+(wait?'&wait=25':''));if(!r.ok){await new Promise(r=>setTimeout(r,5000));return}const d=await r.json();
   const stick=stickNext||atBottom();stickNext=false;let added=0;
-  for(const e of d.entries){if(document.getElementById('e'+e.seq)){last=Math.max(last,e.seq);continue} // already on the page
-    added++;
+  for(const e of d.entries){if(addEntry(e))added++}
+  if(typeof d.last==='number')last=Math.max(last,d.last);
+  if(d.reviews)applyReviews(d.reviews);
+  if(d.reads){READS=d.reads;renderReads()}
+  if(added){railBuild();if(stick)toBottom();else{unseen=true;pillSync()}}
+  if(d.entries.length){document.getElementById('sum').innerHTML=d.summary;document.querySelectorAll('[data-count]').forEach(x=>x.textContent=d.count);refreshTimes();infoCount()}
+}catch(e){await new Promise(r=>setTimeout(r,5000))}}
+/** Puts one entry (from updates, or straight from a post's response) on the page; false if it's already there. */
+function addEntry(e){if(document.getElementById('e'+e.seq)){last=Math.max(last,e.seq);return false}
     const box=e.root!==e.seq&&document.getElementById('r'+e.root);
     const tmp=document.createElement('div');tmp.innerHTML=e.html;const el=tmp.firstElementChild;el.classList.add('flash-in');
     if(box){el.querySelector('.replies')?.remove();box.appendChild(el)}else{document.getElementById('empty')?.remove();document.getElementById('thread').appendChild(el)}
@@ -655,13 +662,7 @@ async function tick1(wait){try{
     if(box){thrSum(e.root);if(tpRootSeq===e.root)tpRender()}
     if(!document.querySelector('#log-body tr[data-seq="'+e.seq+'"]')){const lt=document.createElement('tbody');lt.innerHTML=e.row;document.getElementById('log-body').prepend(lt.firstElementChild);document.getElementById('log-empty')?.remove()}
     if(e.retracts){const t=document.getElementById('e'+e.retracts);if(t){t.classList.add('retracted');t.querySelector('[data-retract]')?.remove()}}
-    last=Math.max(last,e.seq)}
-  if(typeof d.last==='number')last=Math.max(last,d.last);
-  if(d.reviews)applyReviews(d.reviews);
-  if(d.reads){READS=d.reads;renderReads()}
-  if(added){railBuild();if(stick)toBottom();else{unseen=true;pillSync()}}
-  if(d.entries.length){document.getElementById('sum').innerHTML=d.summary;document.querySelectorAll('[data-count]').forEach(x=>x.textContent=d.count);refreshTimes();infoCount()}
-}catch(e){await new Promise(r=>setTimeout(r,5000))}}
+    last=Math.max(last,e.seq);return true}
 // Live updates: a WebSocket that only says "something changed"; fall back to long-polling if it can't stay up.
 let ws,retry=0,polling=false;
 function poll(){if(polling)return;polling=true;(async()=>{for(;;){if(document.hidden){await new Promise(r=>setTimeout(r,2000));continue}await tick(true)}})()}
@@ -683,7 +684,14 @@ function connect(){
 }
 connect();
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!polling)tick(false)});
-window.posted=()=>{replyClear();stickNext=true;tick(false);setTimeout(()=>{ta.style.height='';msync()},0)};
+// Your post shows up the moment you send it (a "sending" copy), then the real one from the post's own response.
+window.posted=(j)=>{replyClear();document.querySelectorAll('#thread .entry.pending').forEach(x=>x.remove());
+  if(j&&j.update&&addEntry(j.update)){railBuild();toBottom()}else stickNext=true;
+  tick(false);setTimeout(()=>{ta.style.height='';msync()},0)};
+document.querySelector('form.composer')?.addEventListener('submit',()=>{const t=ta.value.trim();if(!t||!rpTo||rpTo.value)return; // replies go in their thread, after the real post
+  const el=document.createElement('article');el.className='entry pending';el.innerHTML='<div class="grow"><div class="meta"><span class="who"></span><span class="xs faint">sending…</span></div><div class="body"></div></div>';
+  el.querySelector('.who').textContent=ME;el.querySelector('.body').textContent=t;document.getElementById('thread').appendChild(el);toBottom();
+  setTimeout(()=>{if(el.isConnected){el.querySelector('.faint').textContent='not sent';el.classList.add('failed');setTimeout(()=>el.remove(),4000)}},8000)},true);
 // Reply: any entry's Reply button points the composer at it (Esc or ✕ cancels).
 const rpBox=document.getElementById('replying'),rpTo=document.getElementById('reply-to');
 function replyClear(){rpTo.value='';rpBox.hidden=true}

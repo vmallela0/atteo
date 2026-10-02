@@ -349,6 +349,7 @@ dialog.lightbox img{display:block;max-width:min(96vw,1600px);max-height:92vh;wid
 .side-link .count[hidden]{display:none}
 .inbox{list-style:none;margin:0;padding:4px}
 .legal h2{font-size:15px;margin:18px 0 6px}.legal p{font-size:13.5px;line-height:1.6;color:var(--text)}
+.entry.pending{opacity:.6}.entry.pending .body{white-space:pre-wrap}.entry.pending.failed .faint{color:var(--danger)}
 /* Profile pictures */
 .pfps{display:grid;gap:10px}
 .pfp{gap:14px;align-items:center}

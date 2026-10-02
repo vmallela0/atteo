@@ -81,7 +81,8 @@ async function loadViewer(env: Env, session: auth.Session | null, request?: Requ
     return u ? { name: u.name, email: u.email ?? "", display_name: u.display_name, admin: false, via: "agent" } : null;
   }
   if (!session?.user) return null;
-  const u = await registry.userByName(env, session.user);
+  // Usually already joined in by getSession; look the member up only if it wasn't.
+  const u = session.u_name ? { name: session.u_name, email: session.u_email ?? null, display_name: session.u_display_name ?? null } : await registry.userByName(env, session.user);
   if (!u) return null;
   return {
     name: u.name,
@@ -105,9 +106,9 @@ async function sideBoards(env: Env, user: string): Promise<SideBoard[]> {
 /** Members (and operators) can see a board; everyone else gets a 404 so board ids don't leak. */
 async function canSee(c: Ctx, boardId: string): Promise<boolean> {
   if (!BOARD_RE.test(boardId)) return false;
-  if (!(await registry.getBoard(c.env, boardId))) return false;
-  if (isOps(c)) return true;
-  return !!c.viewer && (await registry.isMember(c.env, boardId, c.viewer.name));
+  const a = await registry.boardAccess(c.env, boardId, c.viewer?.name ?? null);
+  if (!a.exists) return false;
+  return isOps(c) || a.member;
 }
 
 /** Plan limits apply to people (origin given); the ops API creates boards without them. */
@@ -851,7 +852,8 @@ export default {
           }
         }
         if (what === "entries" && !seqStr && method === "POST") {
-          if (!viewer || !(await registry.isMember(env, id, viewer.name))) return json({ error: "Only members can post." }, 403);
+          // canSee above already checked membership, unless it let an operator through.
+          if (!viewer || (isOps(c) && !(await registry.isMember(env, id, viewer.name)))) return json({ error: "Only members can post." }, 403);
           const body = (await request.json().catch(() => ({}))) as { text?: string; type?: string; to?: string; reply_to?: string | number };
           const type = (["note", "question", "task", "decision", "claim"] as const).find((t) => t === body.type) ?? "note";
           let to = body.to ? normalizeUser(body.to) : null;
@@ -872,7 +874,9 @@ export default {
           try {
             const entry = await stub.post(viewer.name, { type, text, to, mentions, reply_to: replyTo, via: pv() });
             ctx.waitUntil(Promise.all([registry.touch(env, viewer.name, id), registry.bumpBoard(env, id, entry.seq)]).catch(() => {}));
-            return json({ ok: true, entry }, 201);
+            // The rendered entry comes back with the post, so the page shows it without another round trip.
+            const root = replyTo ? ((await stub.rootsFor([entry.seq]))[entry.seq] ?? entry.seq) : entry.seq;
+            return json({ ok: true, entry, update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(entry, id, true, { canRetract: true }), row: logRow(entry), reactions: [] } }, 201);
           } catch (e) {
             return json({ error: e instanceof Error ? e.message : String(e) }, 400);
           }

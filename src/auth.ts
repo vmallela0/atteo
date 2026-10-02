@@ -89,6 +89,10 @@ export interface Session {
   email_verified: number; // 0/1 — WorkOS says this person controls the email
   display_name: string | null;
   expires_at: number;
+  // The signed-in member's row, fetched in the same query (one D1 round trip per request instead of two).
+  u_name?: string | null;
+  u_email?: string | null;
+  u_display_name?: string | null;
 }
 
 export async function createSession(
@@ -108,7 +112,10 @@ export async function createSession(
 export async function getSession(request: Request, env: Env): Promise<Session | null> {
   const secret = readCookie(request, SESSION_COOKIE);
   if (!secret) return null;
-  const row = await env.DB.prepare(`SELECT id_hash, user, workos_id, email, email_verified, display_name, expires_at FROM sessions WHERE id_hash = ?`)
+  const row = await env.DB.prepare(
+    `SELECT s.id_hash, s.user, s.workos_id, s.email, s.email_verified, s.display_name, s.expires_at, u.name AS u_name, u.email AS u_email, u.display_name AS u_display_name
+     FROM sessions s LEFT JOIN users u ON u.name = s.user WHERE s.id_hash = ?`,
+  )
     .bind(await sha256hex(secret))
     .first<Session>();
   if (!row || row.expires_at < Date.now()) return null;
@@ -152,29 +159,52 @@ export async function createToken(
 }
 
 /** Resolves a bearer token: its user, or why it can't be used. */
+// Token lookups are cached briefly per isolate: agents call several tools a second, and each D1 round trip adds
+// tens of milliseconds. A revoked token stops working everywhere within TOKEN_CACHE_MS (immediately where it was revoked).
+const TOKEN_CACHE_MS = 10_000;
+const tokenCache = new Map<string, { id: string; user: string; expires_at: number | null; at: number; touched: number }>();
+
+async function lookupToken(env: Env, token: string, ctx?: ExecutionContext) {
+  const hash = await sha256hex(token);
+  const now = Date.now();
+  let row = tokenCache.get(hash);
+  if (!row || now - row.at > TOKEN_CACHE_MS) {
+    const r = await env.DB.prepare(`SELECT id, user, expires_at FROM tokens WHERE hash = ? AND revoked_at IS NULL`).bind(hash).first<{ id: string; user: string; expires_at: number | null }>();
+    if (!r) {
+      tokenCache.delete(hash);
+      return null;
+    }
+    row = { ...r, at: now, touched: row?.touched ?? 0 };
+    if (tokenCache.size > 5000) tokenCache.clear();
+    tokenCache.set(hash, row);
+  }
+  // "Last used" is good to a minute; don't write it on every call.
+  if (now - row.touched > 60_000) {
+    row.touched = now;
+    const touch = env.DB.prepare(`UPDATE tokens SET last_used = ? WHERE id = ?`).bind(now, row.id).run();
+    if (ctx) ctx.waitUntil(touch.catch(() => {}));
+    else await touch;
+  }
+  return row;
+}
+
+export function forgetToken(id: string) {
+  for (const [k, v] of tokenCache) if (v.id === id) tokenCache.delete(k);
+}
+
 export async function resolveToken(env: Env, token: string, ctx?: ExecutionContext): Promise<{ user: string | null; expired: boolean }> {
   if (!token.startsWith("ab_")) return { user: null, expired: false };
-  const row = await env.DB.prepare(`SELECT id, user, expires_at FROM tokens WHERE hash = ? AND revoked_at IS NULL`)
-    .bind(await sha256hex(token))
-    .first<{ id: string; user: string; expires_at: number | null }>();
+  const row = await lookupToken(env, token, ctx);
   if (!row) return { user: null, expired: false };
   if (row.expires_at != null && row.expires_at < Date.now()) return { user: null, expired: true };
-  const touch = env.DB.prepare(`UPDATE tokens SET last_used = ? WHERE id = ?`).bind(Date.now(), row.id).run();
-  if (ctx) ctx.waitUntil(touch.catch(() => {}));
-  else await touch;
   return { user: row.user, expired: false };
 }
 
 /** Resolves a bearer token to its user, or null if unknown, revoked or expired. */
 export async function userForToken(env: Env, token: string, ctx?: ExecutionContext): Promise<string | null> {
   if (!token.startsWith("ab_")) return null;
-  const row = await env.DB.prepare(`SELECT id, user, expires_at FROM tokens WHERE hash = ? AND revoked_at IS NULL`)
-    .bind(await sha256hex(token))
-    .first<{ id: string; user: string; expires_at: number | null }>();
+  const row = await lookupToken(env, token, ctx);
   if (!row || (row.expires_at != null && row.expires_at < Date.now())) return null;
-  const touch = env.DB.prepare(`UPDATE tokens SET last_used = ? WHERE id = ?`).bind(Date.now(), row.id).run();
-  if (ctx) ctx.waitUntil(touch.catch(() => {}));
-  else await touch;
   return row.user;
 }
 
@@ -189,6 +219,7 @@ export async function listTokens(env: Env, user: string): Promise<TokenRow[]> {
 
 export async function revokeToken(env: Env, user: string, id: string): Promise<boolean> {
   const r = await env.DB.prepare(`UPDATE tokens SET revoked_at = ? WHERE id = ? AND user = ? AND revoked_at IS NULL`).bind(Date.now(), id, user).run();
+  forgetToken(id);
   return (r.meta.changes ?? 0) > 0;
 }
 
