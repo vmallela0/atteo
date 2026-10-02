@@ -2155,9 +2155,9 @@ export class Board extends DurableObject<Env> {
       throw new BoardError("Not a sealed envelope.");
     }
     // v1: a fresh key per message, wrapped to each recipient. v2 (encrypted boards): the board's epoch key, no
-    // per-recipient part (the Worker has checked the epoch is the board's current one).
+    // per-recipient part (the Worker has checked the epoch is the board's current one). `to` only addresses it.
     const v1 = env.v === 1 && Array.isArray(env.recipients) && env.recipients.length > 0;
-    const v2 = env.v === 2 && info.encrypted && !to && Number.isInteger(env.epoch) && (env.epoch ?? 0) >= 1;
+    const v2 = env.v === 2 && info.encrypted && Number.isInteger(env.epoch) && (env.epoch ?? 0) >= 1;
     if ((!v1 && !v2) || typeof env.ct !== "string" || typeof env.iv !== "string") throw new BoardError("Not a sealed envelope.");
     const note = (s.note ?? "").replace(/\s+/g, " ").trim().slice(0, 200);
     // On an encrypted board every message is an envelope for all members; elsewhere it's a secret for one member.

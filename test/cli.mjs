@@ -496,6 +496,61 @@ await step("claim checks: the author attaches one; another member's person OKs i
   assert(!g("worktree", "list").includes("agent-soup-verify"), "throwaway checkouts are removed");
 });
 
+await step("encryption v2: one key per board epoch; a newcomer reads history; your new device needs your OK; removing someone rotates the key", async () => {
+  const C = `e2e-cli-c-${run}`;
+  await ops("users", { name: C, email: `${C}@example.com`, verified: "true" });
+  const tokC = (await ops("tokens", { user: C })).token;
+  const credC = join(dir, "c.json"), credA2 = join(dir, "a2.json"); // a2: A's second machine (its own device key)
+  writeFileSync(credC, JSON.stringify({ server: BASE, user: C, token: tokC, expires_at: Date.now() + 86400e3 }), { mode: 0o600 });
+  writeFileSync(credA2, JSON.stringify({ server: BASE, user: A, token: tokA, expires_at: Date.now() + 86400e3 }), { mode: 0o600 });
+  const pa = mkdtempSync(join(tmpdir(), "agent-soup-v2-a-")), pa2 = mkdtempSync(join(tmpdir(), "agent-soup-v2-a2-")), pb = mkdtempSync(join(tmpdir(), "agent-soup-v2-b-")), pc = mkdtempSync(join(tmpdir(), "agent-soup-v2-c-"));
+  let r = await cli(["create", `e2e v2 ${run}`, "--encrypted"], { cwd: pa });
+  const eb = r.out.match(/\((b_[a-z0-9]+)\)/)[1];
+  await ops("members", { board: eb, user: B });
+  await cli(["keys"], { cwd: pb, cred: credB });
+  await cli(["use", eb], { cwd: pb, cred: credB });
+  r = await cli(["post", `first v2 message ${run}`], { cwd: pa });
+  assert(r.code === 0, r.out + r.err);
+  const sealed = async (tok) => (await fetch(`${BASE}/api/boards/${eb}/sealed?after=0`, { headers: { authorization: `Bearer ${tok}` } }).then((x) => x.json())).entries;
+  const p1 = JSON.parse((await sealed(tokA))[0].payload);
+  assert(p1.v === 2 && p1.epoch === 1 && !p1.recipients, "posted as v2 (one ciphertext, no per-member envelopes): " + JSON.stringify(p1).slice(0, 120));
+  r = await cli(["read", "--all"], { cwd: pb, cred: credB });
+  assert(r.out.includes(`first v2 message ${run}`), r.out + r.err);
+  // A newcomer joins later: once a member's machine is on the board again, they read the history.
+  await ops("members", { board: eb, user: C });
+  await cli(["keys"], { cwd: pc, cred: credC });
+  await cli(["use", eb], { cwd: pc, cred: credC });
+  await cli(["read"], { cwd: pb, cred: credB }); // B's machine hands C's first device the key
+  r = await cli(["read", "--all"], { cwd: pc, cred: credC });
+  assert(r.out.includes(`first v2 message ${run}`), "newcomer reads history: " + r.out + r.err);
+  // A's second machine: nobody else may hand it the key, and A's first machine only does after A approves it.
+  await cli(["keys"], { cwd: pa2, cred: credA2 });
+  await cli(["use", eb], { cwd: pa2, cred: credA2 });
+  await cli(["read"], { cwd: pb, cred: credB });
+  r = await cli(["read", "--all"], { cwd: pa2, cred: credA2 });
+  assert(!r.out.includes(`first v2 message ${run}`) && r.out.includes("no key"), "a later device waits for its owner: " + r.out);
+  r = await cli(["read"], { cwd: pa });
+  const kid2 = (r.err.match(/keys approve (\S+)/) ?? [])[1];
+  assert(kid2, "A's first machine says a new device of A's is waiting: " + r.err);
+  r = await cli(["keys", "approve", kid2], { cwd: pa });
+  assert(r.out.includes("Approved"), r.out + r.err);
+  await cli(["read"], { cwd: pa });
+  r = await cli(["read", "--all"], { cwd: pa2, cred: credA2 });
+  assert(r.out.includes(`first v2 message ${run}`), "after approval, A's second machine reads: " + r.out + r.err);
+  // Removing C rotates: the next message is in epoch 2, which C can't open.
+  const ck = (await ops("sessions", { user: A })).cookie;
+  const rm = await fetch(`${BASE}/api/boards/${eb}/members/${C}/remove`, { method: "POST", headers: { cookie: ck } });
+  assert(rm.ok, `remove C: ${rm.status}`);
+  r = await cli(["post", `after removal ${run}`], { cwd: pa });
+  assert(r.code === 0, r.out + r.err);
+  const last = JSON.parse((await sealed(tokA)).at(-1).payload);
+  assert(last.v === 2 && last.epoch === 2, "removal rotated to epoch 2: " + JSON.stringify(last).slice(0, 80));
+  const st = await fetch(`${BASE}/api/boards/${eb}/epochs`, { headers: { authorization: `Bearer ${tokB}` } }).then((x) => x.json());
+  assert(st.mine.some((g) => g.epoch === 2), "B holds epoch 2");
+  r = await cli(["read", "--all"], { cwd: pb, cred: credB });
+  assert(r.out.includes(`after removal ${run}`), r.out + r.err);
+});
+
 await step("end-to-end encrypted board: CLI encrypts and decrypts; the server and plain agent tools only see ciphertext", async () => {
   const projA = mkdtempSync(join(tmpdir(), "agent-soup-e2ee-a-"));
   const projB = mkdtempSync(join(tmpdir(), "agent-soup-e2ee-b-"));
@@ -653,6 +708,77 @@ await step("harness: the agent you choose answers your DMs (a person's message s
   const calls = readFileSync(marker, "utf8");
   assert(calls.includes("sent you a direct message") && calls.includes(dm), calls);
   assert((calls.match(/sent you a direct message/g) ?? []).length === 1, `an agent's reply started another run:\n${calls}`);
+});
+
+await step("task tick / untick / edit: tick the one checklist item matching the words; clear errors for none or several", async () => {
+  const made = await tool(tokA, board, "task", { action: "create", title: `Ship tick ${run}`, body: `The plan:\n- [ ] write the tests\n- [ ] update the docs\n- [ ] update the help docs\n- [x] sketch it` });
+  const n = Number(made.match(/#(\d+)/)[1]);
+  const body = async () => (await (await fetch(`${BASE}/api/boards/${board}/tasks/${n}`, { headers: { authorization: `Bearer ${tokA}` } })).json()).task.body;
+  const t = (...args) => cli(["task", ...args, "--board", board]);
+  let r = await t("tick", String(n), "Write the TESTS");
+  assert(r.code === 0 && r.out.includes(`Saved #${n} v2`), r.out + r.err);
+  assert((await body()).includes("- [x] write the tests\n- [ ] update the docs"), await body());
+  r = await t("tick", String(n), "write the tests");
+  assert(r.code === 0 && r.out.includes("Already ticked"), "ticking twice changes nothing: " + r.out + r.err);
+  r = await t("tick", String(n), "docs");
+  assert(r.code === 1 && r.err.includes("matches 2 items") && r.err.includes("update the help docs"), "several matches: " + r.err);
+  r = await t("tick", String(n), "deploy");
+  assert(r.code === 1 && r.err.includes(`No checklist item on #${n} contains "deploy"`) && r.err.includes("- [ ] update the docs"), "no match: " + r.err);
+  r = await t("untick", String(n), "sketch");
+  assert(r.code === 0 && (await body()).includes("- [ ] sketch it"), r.out + r.err);
+  r = await t("edit", String(n), "--old", "update the help docs", "--new", "update the agent help", "--summary", "renamed an item");
+  assert(r.code === 0 && (await body()).includes("- [ ] update the agent help"), r.out + r.err);
+  r = await t("edit", String(n), "--old", "not in the task", "--new", "x");
+  assert(r.code === 1 && r.err.includes("wasn't found"), r.err);
+  r = await t("edit", String(n), "--new", "x");
+  assert(r.code === 1 && r.err.includes("Usage: agent-soup task edit"), r.err);
+});
+
+await step("mailbox: another person's DM and @mention of your agent show up in full, fenced; --peek leaves them, a plain run delivers them; --json and --wait", async () => {
+  // Fresh people, so earlier steps' mail doesn't get in the way.
+  const M = `e2e-cli-m-${run}`, N = `e2e-cli-n-${run}`;
+  for (const u of [M, N]) await ops("users", { name: u, email: `${u}@example.com`, verified: "true" });
+  const tokM = (await ops("tokens", { user: M })).token;
+  const tokN = (await ops("tokens", { user: N })).token;
+  const credM = join(dir, "m.json");
+  writeFileSync(credM, JSON.stringify({ server: BASE, user: M, token: tokM, expires_at: Date.now() + 86400e3 }), { mode: 0o600 });
+  const call = async (tok, method, path, body) => (await fetch(`${BASE}${path}`, { method, headers: { authorization: `Bearer ${tok}`, "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined })).json();
+  await call(tokN, "POST", "/api/friends/request", { user: M });
+  await call(tokM, "POST", `/api/friends/${N}/accept`);
+  const dm = (await call(tokN, "POST", `/api/direct/${M}`)).board;
+  const shared = (await ops("boards", { user: N, title: `e2e cli mail ${run}` })).board.id;
+  await ops("members", { board: shared, user: M });
+  const mb = (args) => cli(["mailbox", ...args], { cred: credM, env: { XDG_CONFIG_HOME: join(dir, "cfg-mailbox") } });
+  // Drain what joining and befriending sent (contact requests and the like).
+  await mb([]);
+  const long = `Line one of the DM ${run}\nline two, ${"all of it ".repeat(30)}end`;
+  // The DM from N in the browser (a person), the mention from N's agent.
+  const cookieN = (await ops("sessions", { user: N })).cookie;
+  const r0 = await fetch(`${BASE}/api/boards/${dm}/entries`, { method: "POST", headers: { "content-type": "application/json", cookie: cookieN }, body: JSON.stringify({ text: long }) });
+  assert(r0.status === 201, "N's DM");
+  await tool(tokN, shared, "post", { type: "question", text: `@${M}'s agent which port does staging use? ${run}` });
+  let r = await mb(["--peek"]);
+  assert(r.code === 0 && r.out.includes("Mail for your agent (2)") && r.out.includes("direct message") && r.out.includes("for your agent"), r.out + r.err);
+  assert(r.out.includes(`from ${N} (person)`) && r.out.includes(`from ${N}'s agent (agent)`) && r.out.includes(`(${shared}) #`) && r.out.includes("    line two") && r.out.includes("all of it end"), "labelled, full text: " + r.out);
+  assert(r.out.indexOf("Line one of the DM") < r.out.indexOf("which port does staging use"), "oldest first: " + r.out);
+  assert(/<<untrusted [0-9a-f]+:[^\n]*>>/.test(r.out) && /<<end untrusted [0-9a-f]+>>/.test(r.out), "fenced as board content: " + r.out);
+  assert(r.out.includes("Peeked"), r.out);
+  r = await mb([]);
+  assert(r.code === 0 && r.out.includes("Mail for your agent (2)") && r.out.includes("Delivered"), "a peek leaves it waiting: " + r.out + r.err);
+  r = await mb([]);
+  assert(r.code === 0 && r.out.trim() === "Nothing new.", "a plain run delivered it: " + r.out + r.err);
+  // --json: the raw structure, for dispatchers; --wait returns as soon as mail arrives.
+  const t0 = Date.now();
+  const waiting = mb(["--wait", "20", "--json"]);
+  await sleep(1500);
+  await call(tokN, "POST", `/api/boards/${dm}/entries`, { type: "question", text: `quick one ${run}` });
+  r = await waiting;
+  const j = JSON.parse(r.out);
+  assert(r.code === 0 && j.mail.length === 1 && j.more === false && Date.now() - t0 < 15000, `${Date.now() - t0}ms ${r.out}${r.err}`);
+  const m = j.mail[0];
+  assert(m.kind === "dm" && m.board === dm && m.from === N && m.type === "question" && m.text === `quick one ${run}` && typeof m.id === "number" && typeof m.seq === "number" && typeof m.ts === "number", r.out);
+  r = await mb(["--wait", "2"]);
+  assert(r.out.includes("Nothing new in 2s."), "--json without --peek delivered it too: " + r.out);
 });
 
 await step("staying current: an older CLI says so (once, then hourly) and agent-soup update replaces it with the server's", async () => {
