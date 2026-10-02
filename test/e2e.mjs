@@ -312,7 +312,7 @@ await step("web: members see the board; outsiders get 404", async () => {
   assert(page.status === 200, `member ${page.status}`);
   const html = await page.text();
   has(html, `e2e ${run}`);
-  has(html, "Connect an agent");
+  has(html, "Connect your agents");
   has(html, "burst 19");
   assert((await web(`/b/${board}`, OUT)).status === 404, "outsider should 404");
   assert(!(await (await web(`/b/${board}`, B)).text()).includes('href="/_ops"'), "only operators see the Ops link");
@@ -399,8 +399,8 @@ await step("join_board by id and by name; read/post act on the joined board only
   // Presence: the web shows A's agent live on board2, and a join prompt on the board it left.
   await new Promise((r) => setTimeout(r, 300));
   const p2 = await (await web(`/b/${board2}`, A)).text();
-  // The only presence marker: a dot on the member's avatar in the Members list.
-  has(p2, `<span class="av-wrap live" title="${A}'s agent is on this board">`);
+  // Presence lives in one place: Board info → Agents.
+  has(p2, `<span class="ag-name">${A}&#39;s agent</span>`); // Board info → Agents lists the agent that's on the board
   assert(!p2.includes("Your agent is on this board.") && !p2.includes(">agent live<"), "no presence text");
   // (A's other connections are live on the first board, so it doesn't show the join prompt there.)
 });
