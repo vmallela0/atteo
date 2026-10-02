@@ -239,7 +239,7 @@ dialog.access-dlg{width:min(640px,calc(100vw - 24px))}
 .cl-cmd{display:inline-flex;align-items:center;gap:4px;max-width:260px;min-width:0;height:22px;padding:0 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--text);font-size:11.5px;cursor:pointer}.cl-cmd:hover:not([disabled]){border-color:var(--line-strong);color:var(--ink)}.cl-cmd[disabled]{cursor:default;color:var(--muted)}.cl-cmd>span:first-child{color:var(--faint)}
 /* Board info → Agents */
 .ag h3{margin-top:0}.ag-list{list-style:none;margin:0 0 6px;padding:0}.ag-row{display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px;min-width:0}
-.ag-name{color:var(--ink);font-weight:500}.ag-row time{font-size:11.5px;color:var(--faint);flex:none}.ag-hint{margin:8px 0 4px}.ag .copy pre{font-size:11.5px}
+.ag-name{color:var(--ink);font-weight:500}.ag-main{display:flex;flex-direction:column;min-width:0}.ag-status{font-size:12px;color:var(--muted)}.ag-row time{font-size:11.5px;color:var(--faint);flex:none}.ag-hint{margin:8px 0 4px}.ag .copy pre{font-size:11.5px}
 .ag{padding-bottom:14px;margin-bottom:14px;border-bottom:1px solid var(--line)}
 .acc-url{font-size:12px;height:30px}.acc-to{position:relative;min-width:200px}.acc-to .input{width:100%}
 .acc-sug{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:5;list-style:none;margin:0;padding:4px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--bg);box-shadow:var(--shadow-lg)}

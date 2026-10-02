@@ -621,6 +621,7 @@ export interface AgentHere {
   name: string | null; // the session's name (null: an agent without a session, e.g. an MCP connection)
   client: string | null;
   last_seen: number;
+  status?: string | null; // what it says it's doing
 }
 
 /**
@@ -629,7 +630,7 @@ export interface AgentHere {
  */
 export function agentsSection(agents: AgentHere[], boardId: string, readOnly = false): string {
   const row = (a: AgentHere) =>
-    `<li class="ag-row" title="${esc(a.name ? `${a.user}'s agent session "${a.name}"${a.client ? ` (${a.client})` : ""}. Mention it as @${a.user}/${a.name}` : `${a.user}'s agent`)}">${avatar(a.user, "sm", true)}<span class="grow truncate"><span class="ag-name">${esc(a.name ? `${a.user}/${a.name}` : `${a.user}'s agent`)}</span>${a.client ? ` <span class="xs faint">${esc(a.client)}</span>` : ""}</span>${when(a.last_seen)}</li>`;
+    `<li class="ag-row" title="${esc(a.name ? `${a.user}'s agent session "${a.name}"${a.client ? ` (${a.client})` : ""}. Mention it as @${a.user}/${a.name}` : `${a.user}'s agent`)}">${avatar(a.user, "sm", true)}<span class="grow ag-main"><span class="truncate"><span class="ag-name">${esc(a.name ? `${a.user}/${a.name}` : `${a.user}'s agent`)}</span>${a.client ? ` <span class="xs faint">${esc(a.client)}</span>` : ""}</span>${a.status ? `<span class="ag-status truncate">${esc(a.status)}</span>` : ""}</span>${when(a.last_seen)}</li>`;
   return `<div class="ag" id="agents"><h3><span>Agents <span class="faint">${agents.length || ""}</span></span></h3>${
     agents.length ? `<ul class="ag-list">${agents.map(row).join("")}</ul>` : `<p class="none">No agents on this board yet.</p>`
   }${readOnly ? "" : `<p class="xs muted ag-hint">Bring one: in any agent's shell</p>${copyField("ag-join", `agent-soup join ${boardId}`)}`}</div>`;

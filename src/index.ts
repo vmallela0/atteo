@@ -574,7 +574,7 @@ const handler = {
           ...sessionsHere,
           ...Object.entries(live)
             .filter(([u]) => memberSet.has(u) && !sessionsHere.some((x) => x.user === u))
-            .map(([u, seen]) => ({ user: u, name: null, client: null, last_seen: seen })),
+            .map(([u, seen]) => ({ user: u, name: null, client: null, last_seen: seen, status: null })),
         ];
         const withAgents = members.map((x) => ({ ...x, agent_seen: live[x.user] ?? null }));
         // People who already have an account show by name, so a friend invited by name never has their email shown.
@@ -998,7 +998,7 @@ const handler = {
         if (!sm) return json({ error: "not found" }, 404);
         const [, sid, sub, subId] = sm;
         const titled = async (ids: string[]) => Promise.all(ids.map(async (id) => ({ id, title: (await registry.getBoard(env, id))?.title ?? id })));
-        const view = async (x: sessions.AgentSession & { active?: boolean }) => ({ id: x.id, name: x.name, client: x.client, boards: await titled(x.boards), created_at: x.created_at, last_seen: x.last_seen, ...(x.active != null ? { active: x.active } : {}) });
+        const view = async (x: sessions.AgentSession & { active?: boolean }) => ({ id: x.id, name: x.name, client: x.client, status: x.status ?? null, status_at: x.status_at ?? null, boards: await titled(x.boards), created_at: x.created_at, last_seen: x.last_seen, ...(x.active != null ? { active: x.active } : {}) });
         try {
           if (!sid) {
             if (method === "GET") return json({ sessions: await Promise.all((await sessions.list(env, viewer.name)).map(view)) });
@@ -1020,8 +1020,16 @@ const handler = {
           if (!sub) {
             if (method === "GET") return json({ session: await view(await live()) });
             if (method === "POST") {
-              const b = (await request.json().catch(() => ({}))) as { name?: string };
-              return json({ session: await view(await sessions.rename(env, s, String(b.name ?? ""))) });
+              // {name} renames it; {status} says what it's doing (empty clears it).
+              const b = (await request.json().catch(() => ({}))) as { name?: string; status?: string | null };
+              let next = s;
+              if (b.name != null) next = await sessions.rename(env, next, String(b.name));
+              if (b.status !== undefined) {
+                const hit = scanFields({ status: typeof b.status === "string" ? b.status : null });
+                if (hit) return json({ error: blockedMessage(hit) }, 400);
+                next = await sessions.setStatus(env, next, b.status);
+              }
+              return json({ session: await view(next) });
             }
             if (method === "DELETE") {
               await sessions.end(env, s);
@@ -1067,11 +1075,16 @@ const handler = {
             fence([`== ${b.title} (${b.id}) · ${head} (${entries.length}) ==`, entries.length ? "" : "(nothing new)", ...entries.map((e) => formatEntry(e, 4000, viewer.name))].join("\n"));
           if (method === "GET" && sub === "read") {
             const limit = Number(url.searchParams.get("limit")) || undefined;
+            // ?summary=none, or a comma list of the boards whose summary to include (the CLI asks once per board per
+            // session, so agents don't pay for the same summary on every read); without it, every board's.
+            const sumParam = url.searchParams.get("summary");
+            const withSummary = (id: string) => sumParam == null || sumParam === "all" || sumParam.split(",").includes(id);
             const out = await Promise.all(
               ids.map(async (id) => {
                 const r = await boardStub(env, id).read(viewer.name, { limit }, cur.id);
                 const b = { id, title: r.info.title };
-                return { board: b, summary: r.summaryText, entries: r.entries, remaining: r.remaining, text: fence(r.summaryText) + "\n" + render(b, r.entries, "new since this session last read") };
+                const sum = withSummary(id);
+                return { board: b, summary: sum ? r.summaryText : null, entries: r.entries, remaining: r.remaining, text: (sum ? fence(r.summaryText) + "\n" : "") + render(b, r.entries, "new since this session last read") };
               }),
             );
             return json({ session: { id: cur.id, name: cur.name }, boards: out });

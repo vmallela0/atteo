@@ -544,6 +544,15 @@ await step("sessions: each agent is its own session (found from its process), jo
     await tool(tokB, board, "post", { type: "question", text: `@${A}'s agent retries ${run}?` });
     r = await codex.run(`read`);
     assert(r.out.includes(`retries ${run}?`), r.out);
+    assert(r.out.includes("Members:"), "the first read brings the board's summary: " + r.out.slice(0, 300));
+    r = await codex.run(`read`);
+    assert(!r.out.includes("Members:") && r.out.includes("(nothing new)"), "…and later reads only what's new: " + r.out.slice(0, 300));
+    r = await codex.run(`read --summary`);
+    assert(r.out.includes("Members:"), "--summary brings it back");
+    r = await codex.run(`session status "fixing the retry tests ${run}"`);
+    assert(r.code === 0 && r.out.includes(`Status: fixing the retry tests ${run}`), r.out);
+    r = await claude.run(`get sessions`);
+    assert(r.out.includes(`fixing the retry tests ${run}`), "other sessions see the status: " + r.out);
     r = await claude.run(`read --board ${board}`);
     assert(r.out.includes(`retries ${run}?`), "the other session still sees it: " + r.out);
     r = await codex.run(`post note "three, with backoff ${run}" --title "Retry limit"`);

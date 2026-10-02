@@ -88,6 +88,7 @@ export interface LocalSession {
   name: string;
   boards: string[]; // last known; refreshed on join/leave and whenever the server reports them
   notified?: number; // newest inbox item already shown to this session (the "📣" line)
+  summarized?: string[]; // boards whose summary this session has already been given (read sends it once)
   pid?: number;
 }
 
