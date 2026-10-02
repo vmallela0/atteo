@@ -1456,6 +1456,8 @@ const handler = {
         if (!isOps(c)) return json({ error: "not found" }, 404);
         const body = method === "POST" ? ((await request.json().catch(() => ({}))) as Record<string, string>) : {};
         if (path === "/api/ops/overview" && method === "GET") return json(await opsData(env));
+        // Proves error reporting end to end (D1 errors + Sentry): throws on purpose.
+        if (path === "/api/ops/test-error" && method === "POST") throw new Error(`Test error from /api/ops/test-error (${new Date().toISOString()})`);
         if (path === "/api/ops/metrics" && method === "GET") return json(await usage.metrics(env, Number(url.searchParams.get("days")) || 14));
         if (path === "/api/ops/users" && method === "POST") {
           const name = normalizeUser(body.name);
