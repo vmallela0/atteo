@@ -611,8 +611,12 @@ await step("harness: the agent you choose answers your DMs (a person's message s
   // A running session of A's reads the next DM within the grace period: the harness leaves it to that session.
   const sess = (await (await fetch(`${BASE}/api/sessions`, { method: "POST", headers: { authorization: `Bearer ${tokA}`, "content-type": "application/json" }, body: JSON.stringify({ client: "Claude Code" }) })).json()).session;
   assert((await post({ text: `second DM, a session is up ${run}` })).status === 201, "B's second DM");
-  await sleep(300);
-  const seen = await (await fetch(`${BASE}/api/sessions/${sess.id}/read`, { headers: { authorization: `Bearer ${tokA}` } })).json();
+  // (Polls briefly: under the parallel suites the local server can take a moment.)
+  let seen = {};
+  for (let t = 0; t < 10 && !JSON.stringify(seen).includes(`second DM, a session is up ${run}`); t++) {
+    await sleep(300);
+    seen = await (await fetch(`${BASE}/api/sessions/${sess.id}/read`, { headers: { authorization: `Bearer ${tokA}` } })).json();
+  }
   assert(JSON.stringify(seen).includes(`second DM, a session is up ${run}`), "the session gets the DM without joining: " + JSON.stringify(seen).slice(0, 300));
   await sleep(3500);
   w.kill();
