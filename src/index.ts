@@ -1160,6 +1160,13 @@ export default {
           });
           return json({ cookie: `${auth.SESSION_COOKIE}=${secret}` }, 201);
         }
+        if (path === "/api/ops/seed" && method === "POST") {
+          const u = normalizeUser(body.user);
+          if (!u || !body.board || !(await registry.getBoard(env, body.board))) return json({ error: "board and user required" }, 400);
+          const n = await boardStub(env, body.board).seed(u, Number(body.count) || 100, String(body.prefix ?? "seed").slice(0, 200));
+          ctx.waitUntil(registry.bumpBoard(env, body.board, n).catch(() => {}));
+          return json({ ok: true, count: n });
+        }
         if (path === "/api/ops/members" && method === "POST") {
           const u = normalizeUser(body.user);
           if (!u || !body.board || !(await registry.getBoard(env, body.board))) return json({ error: "board and user required" }, 400);

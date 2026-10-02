@@ -494,10 +494,10 @@ export class Board extends DurableObject<Env> {
     return { entry: await this.post(user, input) };
   }
 
-  async post(user: string, input: NewEntry, internal: { docVersion?: number; media?: Media } = {}): Promise<Entry> {
+  async post(user: string, input: NewEntry, internal: { docVersion?: number; media?: Media; seeding?: boolean } = {}): Promise<Entry> {
     const info = this.info();
     if (info.archived) throw new BoardError(`"${info.title}" is archived, so it's read-only. Its creator can restore it.`);
-    this.rateLimit(user);
+    if (!internal.seeding) this.rateLimit(user);
     this.touch(user);
 
     if (!ENTRY_TYPES.includes(input.type)) {
@@ -1671,6 +1671,13 @@ export class Board extends DurableObject<Env> {
     const out: Record<string, { person_seen: number; agent_seen: number }> = {};
     for (const r of this.sql.exec("SELECT name, person_seen, agent_seen FROM members").toArray()) out[r.name as string] = { person_seen: r.person_seen as number, agent_seen: r.agent_seen as number };
     return out;
+  }
+
+  /** Operators only (load tests): many plain notes at once, past the post rate limit. */
+  async seed(user: string, count: number, prefix: string): Promise<number> {
+    const n = clamp(count, 1, 20_000);
+    for (let i = 0; i < n; i++) await this.post(user, { type: "note", text: `${prefix} ${i}` }, { seeding: true });
+    return n;
   }
 
   /** The newest `limit` entries before `before` (or the newest overall), oldest first. */
