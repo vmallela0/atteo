@@ -275,8 +275,12 @@ export default {
         if (!viewer) return needLogin();
         const title = String((await request.formData()).get("title") ?? "").trim().slice(0, 120);
         if (!title) return redirect("/?new=1");
-        const info = await createBoard(env, title, viewer.name);
-        return redirect(`/b/${info.id}`);
+        try {
+          const info = await createBoard(env, title, viewer.name);
+          return redirect(`/b/${info.id}`);
+        } catch (e) {
+          return messagePage("Board not created", e instanceof Error ? e.message : String(e), { viewer, status: 400, action: { href: "/?new=1", label: "Try again" } });
+        }
       }
 
       let m = path.match(/^\/(b|join)\/([^/]+)$/);
@@ -488,10 +492,22 @@ export default {
           await registry.addMember(env, body.board, u);
           return json({ ok: true });
         }
+        if (path === "/api/ops/scan-secrets" && method === "GET") {
+          const boards = await registry.allBoards(env);
+          const found: { board: string; title: string; seq: number; rule: string; field: string; line: number }[] = [];
+          for (const b of boards) {
+            for (const h of await boardStub(env, b.id).scanSecrets()) found.push({ board: b.id, title: b.title, seq: h.seq, rule: h.hit.rule, field: h.hit.field, line: h.hit.line });
+          }
+          return json({ boards: boards.length, findings: found });
+        }
         if (path === "/api/ops/boards" && method === "POST") {
           const u = normalizeUser(body.user);
           if (!u || !(await registry.userByName(env, u)) || !body.title) return json({ error: "user and title required" }, 400);
-          return json({ board: await createBoard(env, body.title.slice(0, 120), u) }, 201);
+          try {
+            return json({ board: await createBoard(env, body.title.slice(0, 120), u) }, 201);
+          } catch (e) {
+            return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+          }
         }
         return json({ error: "not found" }, 404);
       }

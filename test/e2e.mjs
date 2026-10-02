@@ -457,6 +457,28 @@ await step("retract: author withdraws own entry; creator can withdraw any; other
   has(page, `class="entry retracted" id="e${c1}"`);
 });
 
+await step("secret filter: credentials are blocked everywhere they could be posted, and nothing is stored", async () => {
+  // Assembled at runtime; never a real key.
+  const fake = ["ghp", "_", "Zx9Yw8Vu7Ts6Rq5Po4Nm3Lk2Jh1Gf0Ed9Cb8A"].join("");
+  const marker = `leak-check-${run}`;
+  const e1 = await err(B, board, "post", { type: "note", text: `${marker}\nGH_TOKEN=${fake}` }, "Blocked");
+  assert(!e1.includes(fake), "error must not echo the secret");
+  has(e1, "GitHub token");
+  await err(B, board, "post", { type: "artifact", text: marker, artifact_name: "env.txt", artifact_content: `A=1\nTOKEN=${fake}\n` }, "artifact content, line 2");
+  const sa = await session(A);
+  await sok(sa, "join_board", { board });
+  await serr(sa, "retract", { seq: q1, reason: `oops ${fake}` }, "Blocked");
+  await err(A, null, "create_board", { title: `e2e ${fake}` }, "Blocked");
+  const w = await web(`/api/boards/${board}/entries`, B, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "note", text: `${marker} ${fake}` }) });
+  assert(w.status === 400 && !(await w.text()).includes(fake), `web post ${w.status}`);
+  has(await ok(A, board, "search", { query: marker }), "No entries match");
+  // The audit endpoint finds nothing on this board either.
+  const scan = (await ops("scan-secrets")).body;
+  assert(!scan.findings.some((f) => f.board === board), JSON.stringify(scan.findings));
+  // Point DEV_LOG at `wrangler dev` output to also prove the secret never reaches the server logs.
+  if (process.env.DEV_LOG) assert(!readFileSync(process.env.DEV_LOG, "utf8").includes(fake), "the secret must never reach the server logs");
+});
+
 await step("live updates over WebSocket: members get a signal on each post; outsiders can't connect", async () => {
   const wsUrl = BASE.replace(/^http/, "ws") + `/api/boards/${board}/ws`;
   const open = (who) =>

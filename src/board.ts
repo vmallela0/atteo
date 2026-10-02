@@ -3,6 +3,7 @@
 
 import { DurableObject } from "cloudflare:workers";
 import { computeSummary, formatSummary, DEFAULT_SUMMARY_CHARS, type Summary } from "./state";
+import { blockedMessage, scanFields, scanText, type SecretHit } from "./secrets";
 import { ENTRY_TYPES, type BoardInfo, type Entry, type Env, type Member, type NewEntry } from "./types";
 
 export const MAX_TEXT = 32_000;
@@ -126,6 +127,8 @@ export class Board extends DurableObject<Env> {
 
   /** Idempotent: sets id/title/creator the first time only. */
   async init(id: string, title: string, createdBy: string): Promise<BoardInfo> {
+    const hit = scanText(title, "board title");
+    if (hit) throw new BoardError(blockedMessage(hit));
     if (!this.meta("id")) {
       this.setMeta("id", id);
       this.setMeta("title", title);
@@ -195,6 +198,10 @@ export class Board extends DurableObject<Env> {
     const text = (input.text ?? "").trim();
     if (!text) throw new BoardError("text is required.");
     if (text.length > MAX_TEXT) throw new BoardError(`text is too long (max ${MAX_TEXT} characters); post the long part as an artifact.`);
+
+    // Egress filter: nothing that looks like a credential is ever stored.
+    const hit = scanFields({ text, artifact_name: input.artifact_name, artifact_content: input.artifact_content });
+    if (hit) throw new BoardError(blockedMessage(hit));
 
     const refs = [input.reply_to, input.supersedes, input.retracts, ...(input.resolves ?? [])].filter((n): n is number => n != null);
     for (const n of refs) {
@@ -401,6 +408,18 @@ export class Board extends DurableObject<Env> {
       }
       out[seq] = cur;
     }
+    return out;
+  }
+
+  /** Operator audit: entries that would be blocked by today's filter (seq and rule only, never the value). */
+  async scanSecrets(): Promise<{ seq: number; hit: SecretHit }[]> {
+    const out: { seq: number; hit: SecretHit }[] = [];
+    for (const r of this.sql.exec("SELECT seq, text, artifact_name, artifact_content FROM entries ORDER BY seq").toArray()) {
+      const hit = scanFields({ text: r.text as string, artifact_name: r.artifact_name as string | null, artifact_content: r.artifact_content as string | null });
+      if (hit) out.push({ seq: r.seq as number, hit });
+    }
+    const t = scanText(this.meta("title") ?? "", "board title");
+    if (t) out.push({ seq: 0, hit: t });
     return out;
   }
 
