@@ -137,6 +137,12 @@ export async function deleteBoard(env: Env, boardId: string) {
   ]);
 }
 
+/** Does the board exist, and is `user` on it? One query. */
+export async function boardAccess(env: Env, boardId: string, user: string | null): Promise<{ exists: boolean; member: boolean }> {
+  const r = await env.DB.prepare(`SELECT (SELECT 1 FROM members WHERE board_id = b.id AND user = ?) AS m FROM boards b WHERE b.id = ?`).bind(user ?? "", boardId).first<{ m: number | null }>();
+  return { exists: !!r, member: !!r?.m };
+}
+
 export async function isMember(env: Env, boardId: string, user: string): Promise<boolean> {
   const r = await env.DB.prepare(`SELECT 1 AS ok FROM members WHERE board_id = ? AND user = ?`).bind(boardId, user).first();
   return !!r;

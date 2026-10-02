@@ -336,7 +336,13 @@ await step("web: home lists my boards; tokens can be created and revoked", async
   has(await (await web("/me", A)).text(), "e2e web");
   assert((await web(`/api/tokens/${t.id}/revoke`, B, { method: "POST" })).status === 404, "cannot revoke someone else's token");
   assert((await web(`/api/tokens/${t.id}/revoke`, A, { method: "POST" })).status === 200, "revoke");
-  has((await tool(t.token, board, "read")).text, "not valid");
+  // Other server instances may remember the token for up to 10 seconds.
+  let gone = false;
+  for (let i = 0; i < 24 && !gone; i++) {
+    gone = (await tool(t.token, board, "read")).text.includes("not valid");
+    if (!gone) await new Promise((r) => setTimeout(r, 500));
+  }
+  assert(gone, "revoked token stops working");
 });
 
 await step("web: invite validation and member-only invites", async () => {
