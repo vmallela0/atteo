@@ -26,6 +26,14 @@ export const CSS = `
   color-scheme:dark;
 }}
 *{box-sizing:border-box}
+/* Scrollbars: thin and quiet (Linear/Slack-like), one per scrolling pane. Chrome and Safari use the ::-webkit
+   rules (Chrome ignores them once scrollbar-width is set, so that's Firefox-only); darker while the pane is hovered. */
+:root{--sb:color-mix(in srgb,var(--muted) 35%,transparent);--sb-hover:color-mix(in srgb,var(--muted) 70%,transparent)}
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track,::-webkit-scrollbar-corner{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--sb);border-radius:6px}
+:hover::-webkit-scrollbar-thumb{background:var(--sb-hover)}
+@supports not selector(::-webkit-scrollbar){*{scrollbar-width:thin;scrollbar-color:var(--sb) transparent}*:hover{scrollbar-color:var(--sb-hover) transparent}}
 html{-webkit-text-size-adjust:100%}
 body{margin:0;background:var(--bg);color:var(--text);font:13.5px/1.5 "Geist",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
   -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;font-feature-settings:"ss01","cv11"}
@@ -295,10 +303,10 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
 .info-btn .count{min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:var(--q);color:var(--on-ink);font-size:11px;display:inline-grid;place-items:center}
 .bp-panel{flex:1;min-height:0;display:flex;flex-direction:column}
 .bp-panel>.layout{flex:1;min-height:0;grid-template-rows:minmax(0,1fr);position:relative}
-.bp-panel .aside{position:static;align-self:stretch;max-height:none;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:16px 4px 16px 0}
+.bp-panel .aside{position:static;align-self:stretch;max-height:none;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;padding:16px 4px 16px 8px;margin-left:-8px}
 .conv{display:flex;flex-direction:column;min-height:0;min-width:0}
 .thread-wrap{flex:1;min-height:0;position:relative;display:flex}
-.thread-scroll{flex:1;min-width:0;overflow-y:auto;overscroll-behavior:contain;padding:8px 6px 8px 0}
+.thread-scroll{flex:1;min-width:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;padding:8px 6px 8px 0}
 .new-pill{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);z-index:4;box-shadow:var(--shadow-lg);border-radius:999px}
 .new-pill[hidden],.info-btn .count[hidden]{display:none}
 .conv .composer{flex:none;margin:6px 0 max(14px,env(safe-area-inset-bottom))}
@@ -315,14 +323,15 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
 #panel-log .log th{position:sticky;top:0;z-index:1;background:var(--bg-subtle)}
 #panel-log>p{flex:none;margin:8px 0 14px}
 #panel-docs .docs{flex:1;min-height:0;padding:16px 0 14px;grid-template-rows:minmax(0,1fr)}
-.doc-list{min-height:0;overflow-y:auto}
-.doc-view{min-height:0;overflow-y:auto}
-.doc-view.editing{display:flex;flex-direction:column}
+.doc-list{min-height:0;overflow-y:auto;overflow-x:hidden;padding:0 8px;margin:0 -8px} /* room for the items' hover background */
+.doc-view{min-height:0;overflow-y:auto;overflow-x:hidden}
+.doc-view.editing{display:flex;flex-direction:column;overflow:hidden} /* only the editor scrolls */
 .doc-view.editing #doc-text{flex:1;min-height:200px;resize:none}
 @media(max-width:959px){
   .info-btn:not([hidden]){display:inline-flex}
   .bp-panel .aside{display:none}
   .layout.info-open>.aside{display:block;position:absolute;inset:0;z-index:6;background:var(--bg);padding:16px 2px}
+  .layout.info-open>.conv{visibility:hidden} /* only the open panel's scrollbar shows */
 }
 @media(max-width:859px){
   .content.full{padding:12px 16px 0}
