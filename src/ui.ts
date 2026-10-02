@@ -611,7 +611,6 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
   .content.full{padding:4px 12px 0}
   .bp-head{flex-direction:column;align-items:stretch}
   .bp-title{flex:none;gap:10px;padding:4px 0 0}
-  .bp-names,.bp-count{display:none}
   .bp-tabs .tabs button{padding:7px 8px}
   #panel-docs .docs{grid-template-rows:auto minmax(0,1fr)}
   .doc-list{max-height:22vh}
