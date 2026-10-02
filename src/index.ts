@@ -1,5 +1,6 @@
 // Worker entry: MCP endpoint, sign-in, web pages, JSON API, and the operator console (/_ops).
 
+import * as usage from "./usage";
 import * as oauth from "./oauth";
 import { consentPage } from "./oauthPage";
 import * as approvals from "./approvals";
@@ -264,7 +265,7 @@ async function opsData(env: Env): Promise<AdminData> {
       a.last_token_use = t.last;
     }
   }
-  return { boards, users, invites, recent, totalEntries: boards.reduce((n, b) => n + b.entry_count, 0), access: [...access.values()] };
+  return { boards, users, invites, recent, totalEntries: boards.reduce((n, b) => n + b.entry_count, 0), access: [...access.values()], metrics: await usage.metrics(env).catch(() => undefined) };
 }
 
 // ---------- router ----------
@@ -302,6 +303,7 @@ export default {
       const viewer = await loadViewer(env, session, request, path);
       const pv = (): "agent" | "person" => viewer?.via ?? "person"; // who wrote it: a person on the web, or an agent via token
       if (viewer && viewer.via !== "agent") ctx.waitUntil(Promise.resolve(social.markSeen(env, viewer.name, "web")).catch(() => {}));
+      if (viewer && viewer.via !== "agent" && !viewer.name.startsWith("e2e-")) ctx.waitUntil(Promise.resolve(usage.track(env, "active_person", viewer.name, true)).catch(() => {}));
       const c: Ctx = { request, env, ctx, url, session, viewer };
       const needLogin = () =>
         method === "GET" && !path.startsWith("/api/") ? redirect(`/auth/login?return=${encodeURIComponent(url.pathname + url.search)}`) : json({ error: "sign in required" }, 401);
@@ -1267,6 +1269,7 @@ export default {
         if (!isOps(c)) return json({ error: "not found" }, 404);
         const body = method === "POST" ? ((await request.json().catch(() => ({}))) as Record<string, string>) : {};
         if (path === "/api/ops/overview" && method === "GET") return json(await opsData(env));
+        if (path === "/api/ops/metrics" && method === "GET") return json(await usage.metrics(env, Number(url.searchParams.get("days")) || 14));
         if (path === "/api/ops/users" && method === "POST") {
           const name = normalizeUser(body.name);
           if (!name) return json({ error: "valid name required" }, 400);
@@ -1336,6 +1339,7 @@ export default {
       return notFound(viewer);
     } catch (e) {
       console.error("request failed", path, e);
+      ctx.waitUntil(usage.recordError(env, `${method} ${path}`, e).catch(() => {}));
       return json({ error: e instanceof Error ? e.message : String(e) }, 500);
     }
   },

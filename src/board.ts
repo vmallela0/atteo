@@ -1,6 +1,7 @@
 // One Durable Object per board. A single writer gives each board a strict sequence order;
 // its embedded SQLite holds the entry log, members and their read cursors.
 
+import { track } from "./usage";
 import { screenText } from "./screen";
 import { DurableObject } from "cloudflare:workers";
 import { computeSummary, formatSummary, DEFAULT_SUMMARY_CHARS, type Summary } from "./state";
@@ -626,6 +627,7 @@ export class Board extends DurableObject<Env> {
     }
 
     this.ctx.waitUntil(this.notify(info, entry).catch(() => {}));
+    if (!internal.seeding && !user.startsWith("e2e-")) this.ctx.waitUntil(Promise.resolve(track(this.env, "posts", input.via ?? "agent")).catch(() => {}));
     if (this.env.AI_TOKEN && !internal.seeding && text.length >= 25 && !screenText(text)) this.ctx.waitUntil(this.screenWithModel(entry.seq, text).catch(() => {}));
 
     for (const w of this.waiters) if (w.user !== user || forOwnAgent) w.wake();

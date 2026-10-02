@@ -1387,6 +1387,13 @@ await step("sealed envelopes: stored as given, fetched only by their recipient (
   assert((await web(`/api/boards/${fb}/sealed`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ to: OUT, payload: envl }) })).status === 400, "recipient must be on the board");
 });
 
+await step("ops: usage metrics and server errors are on the console (operators only)", async () => {
+  const r = await fetch(`${BASE}/api/ops/metrics`, { headers: { "x-admin-key": ADMIN_KEY } });
+  const m = await r.json();
+  assert(r.status === 200 && m.days.length === 14 && Array.isArray(m.errors) && Array.isArray(m.clients), JSON.stringify(m).slice(0, 200));
+  assert((await fetch(`${BASE}/api/ops/metrics`)).status !== 200, "operators only");
+});
+
 await step("rename and archive: creator only; archived boards are read-only and listed separately; restore works", async () => {
   const id = (await ops("boards", { user: A, title: `e2e arch ${run}` })).body.board.id;
   await ops("members", { board: id, user: B });

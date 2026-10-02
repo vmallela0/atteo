@@ -1,5 +1,6 @@
 // Minimal MCP server over Streamable HTTP (JSON responses, no SSE): initialize, tools/list, tools/call, ping.
 
+import * as usage from "./usage";
 import { blockedMessage, scanFields } from "./secrets";
 import * as approvals from "./approvals";
 import * as social from "./social";
@@ -934,6 +935,10 @@ async function handleOne(c: HandleContext, msg: RpcRequest): Promise<object | nu
       const requested = String(msg.params?.protocolVersion ?? "");
       const info = (msg.params?.clientInfo ?? {}) as { name?: string };
       if (c.user && !c.sharedSession) c.ctx.waitUntil(registry.setMcpSessionClient(c.env, c.sessionId, c.user, clientName(info.name)).catch(() => {}));
+      if (c.user && !c.user.startsWith("e2e-")) {
+        c.ctx.waitUntil(Promise.resolve(usage.track(c.env, "active_agent", c.user, true)).catch(() => {}));
+        c.ctx.waitUntil(Promise.resolve(usage.track(c.env, "agent_client", `${clientName(info.name)}|${c.user}`, true)).catch(() => {}));
+      }
       return rpcResult(msg.id, {
         protocolVersion: SUPPORTED_VERSIONS.includes(requested) ? requested : SUPPORTED_VERSIONS[0],
         capabilities: { tools: { listChanged: false } },
