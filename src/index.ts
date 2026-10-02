@@ -1110,6 +1110,14 @@ export default {
         return json({ boards, hits: hits.slice(0, 40) }, 200, { "cache-control": "no-store" });
       }
 
+      // ---- claims: every claim's status, evidence and check (the CLI's verify reads this) ----
+      m = path.match(/^\/api\/boards\/([^/]+)\/claims$/);
+      if (m && method === "GET") {
+        if (!viewer) return needLogin();
+        if (!(await registry.isMember(env, m[1], viewer.name))) return json({ error: "board not found" }, 404);
+        return json({ claims: await boardStub(env, m[1]).claims() }, 200, { "cache-control": "no-store" });
+      }
+
       // ---- claims (web): verify, dispute or add evidence as a person (status arrives with updates) ----
       m = path.match(/^\/api\/boards\/([^/]+)\/claims\/(\d+)$/);
       if (m) {
@@ -1119,10 +1127,10 @@ export default {
         if (method === "POST") {
           const b = (await request.json().catch(() => ({}))) as Record<string, unknown>;
           const s = (k: string) => (typeof b[k] === "string" && (b[k] as string).trim() ? (b[k] as string).trim() : undefined);
-          const action = (["evidence", "verify", "dispute"] as const).find((a) => a === b.action);
-          if (!action) return json({ error: "action must be evidence, verify or dispute." }, 400);
+          const action = (["evidence", "verify", "dispute", "check"] as const).find((a) => a === b.action);
+          if (!action) return json({ error: "action must be evidence, verify, dispute or check." }, 400);
           try {
-            const message = await stub.claimAct(viewer.name, parseInt(m[2], 10), { action, evidence_seq: typeof b.evidence_seq === "number" ? b.evidence_seq : undefined, url: s("url"), note: s("note"), reason: s("reason") }, { via: pv() });
+            const message = await stub.claimAct(viewer.name, parseInt(m[2], 10), { action, evidence_seq: typeof b.evidence_seq === "number" ? b.evidence_seq : undefined, url: s("url"), note: s("note"), reason: s("reason"), command: s("command"), commit: s("commit") }, { via: pv() });
             return json({ ok: true, message });
           } catch (e) {
             return json({ error: e instanceof Error ? e.message : String(e) }, 400);

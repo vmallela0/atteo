@@ -993,7 +993,8 @@ function renderClaims(map){CLAIMS=map||{};
     const el=document.querySelector('[data-claim="'+seq+'"]');if(!el||!c.status||el.querySelector('.cl-f:not([hidden])'))continue;
     const own=el.closest('.entry').dataset.author===ME;
     el.innerHTML='<span class="tk-st cl-'+c.status+'"><span class="dot"></span>'+CLST[c.status]+(c.by?' by '+esc(c.by):'')+'</span>'+
-      (c.reason?'<span class="tk-who truncate" title="'+esc(c.reason)+'">'+esc(c.reason)+'</span>':'')+'<span class="grow"></span>'+
+      (c.reason?'<span class="tk-who truncate" title="'+esc(c.reason)+'">'+esc(c.reason)+'</span>':'')+
+      (c.check&&c.status!=='verified'?'<span class="tk-who truncate mono" title="'+esc(own?'Others can run this in a sandbox: agent-soup verify '+seq:'Run it sandboxed on your machine: agent-soup verify '+seq)+'">check: '+esc(c.check)+'</span>':'')+'<span class="grow"></span>'+
       (READONLY?'':(own||c.status==='verified'?'':'<button class="btn ghost sm" type="button" data-cl="verify">Verify</button>')+
         (own||c.status==='disputed'?'':'<button class="btn ghost sm" type="button" data-cl="dispute">Dispute</button>')+
         '<button class="btn ghost sm" type="button" data-cl="evidence">Evidence</button>')+

@@ -169,11 +169,13 @@ export const TOOLS = [
   {
     name: "claim",
     description:
-      "Work with claims (findings) on the joined board. Actions: list (status of every claim); evidence {seq, evidence_seq? (an entry, e.g. a log you posted) or url, note?} (asserted → evidenced); verify {seq, note?} (you checked it and it holds; never your own user's claim); dispute {seq, reason} (it's wrong; everything that depends on it is flagged stale). When you post something that rests on earlier claims or decisions, pass depends_on to post.",
+      "Work with claims (findings) on the joined board. Actions: list (status of every claim); evidence {seq, evidence_seq? (an entry, e.g. a log you posted) or url, note?} (asserted → evidenced); verify {seq, note?} (you checked it and it holds; never your own user's claim); dispute {seq, reason} (it's wrong; everything that depends on it is flagged stale); check {seq, command, commit?} (your own claims only: the command that proves it, exit 0 = holds, at that commit; other members run it in a sandbox on their machine with `agent-soup verify N` after their person OKs it — you can't run another member's check yourself). When you post something that rests on earlier claims or decisions, pass depends_on to post.",
     inputSchema: {
       type: "object",
       properties: {
-        action: { type: "string", enum: ["list", "evidence", "verify", "dispute"] },
+        action: { type: "string", enum: ["list", "evidence", "verify", "dispute", "check"] },
+        command: { type: "string", description: "check: what to run to prove the claim (exit 0 = it holds), e.g. npm test -- auth" },
+        commit: { type: "string", description: "check: the git commit it holds at" },
         seq: { type: "integer" },
         evidence_seq: { type: "integer" },
         url: { type: "string" },
@@ -735,16 +737,16 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
         if (!list.length) return "No claims on this board yet.";
         return fence(
           list
-            .map((x) => `#${x.seq} [${x.status}]${x.verified_by ? ` verified by ${x.verified_by}` : ""}${x.disputed_by ? ` disputed by ${x.disputed_by}: ${x.dispute_reason}` : ""}${x.evidence.length ? ` · evidence: ${x.evidence.map((e) => (e.seq ? `#${e.seq}` : e.url)).join(", ")}` : ""}`)
+            .map((x) => `#${x.seq} [${x.status}]${x.verified_by ? ` verified by ${x.verified_by}` : ""}${x.disputed_by ? ` disputed by ${x.disputed_by}: ${x.dispute_reason}` : ""}${x.evidence.length ? ` · evidence: ${x.evidence.map((e) => (e.seq ? `#${e.seq}` : e.url)).join(", ")}` : ""}${x.check ? ` · check: ${x.check.command}${x.check.commit ? ` @ ${x.check.commit.slice(0, 7)}` : ""} (a person runs: agent-soup verify ${x.seq})` : ""}`)
             .join("\n"),
         );
       }
       await requireWriter(env, id, user);
       const seq = int(args.seq);
       if (seq == null) throw new ToolError("seq is required.");
-      if (action !== "evidence" && action !== "verify" && action !== "dispute") throw new ToolError("action must be one of: list, evidence, verify, dispute.");
+      if (action !== "evidence" && action !== "verify" && action !== "dispute" && action !== "check") throw new ToolError("action must be one of: list, evidence, verify, dispute, check.");
       const opts = { via: "agent" as const, client: (await registry.mcpSessionClient(env, c.sessionId)) ?? "agent" };
-      const out = await stub.claimAct(user, seq, { action, evidence_seq: int(args.evidence_seq), url: str(args.url), note: str(args.note), reason: str(args.reason) }, opts);
+      const out = await stub.claimAct(user, seq, { action, evidence_seq: int(args.evidence_seq), url: str(args.url), note: str(args.note), reason: str(args.reason), command: str(args.command), commit: str(args.commit) }, opts);
       later(registry.touch(env, user, id));
       return out;
     }

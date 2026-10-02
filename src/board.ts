@@ -16,6 +16,12 @@ export const MAX_TEXT = 32_000;
 export const MAX_ARTIFACT = 256_000;
 export const MAX_WAIT_MS = 55_000;
 
+/** How to check a claim: run `command` (exit 0 = holds) in a sandboxed checkout of `commit`. */
+export interface ClaimCheck {
+  command: string;
+  commit?: string;
+}
+
 /** What a board tab's WebSocket carries across hibernation: who it is, and its place in the voice room. */
 interface VoiceAtt {
   user: string;
@@ -472,6 +478,9 @@ export class Board extends DurableObject<Env> {
     const memberCols = new Set(this.sql.exec("PRAGMA table_info(members)").toArray().map((r) => r.name as string));
     if (!memberCols.has("person_seen")) this.sql.exec("ALTER TABLE members ADD COLUMN person_seen INTEGER NOT NULL DEFAULT 0");
     if (!memberCols.has("agent_seen")) this.sql.exec("ALTER TABLE members ADD COLUMN agent_seen INTEGER NOT NULL DEFAULT -1"); // -1: never here
+    // A claim's reproducible check: {command, commit?}, run by other members in a sandbox (agent-soup verify N).
+    const claimCols = new Set(this.sql.exec("PRAGMA table_info(claim_state)").toArray().map((r) => r.name as string));
+    if (!claimCols.has("check_json")) this.sql.exec("ALTER TABLE claim_state ADD COLUMN check_json TEXT");
     const taskCols = new Set(this.sql.exec("PRAGMA table_info(tasks)").toArray().map((r) => r.name as string));
     if (!taskCols.has("priority")) this.sql.exec("ALTER TABLE tasks ADD COLUMN priority TEXT");
     for (const [col, def] of [["title", "TEXT"], ["body", "TEXT"], ["version", "INTEGER NOT NULL DEFAULT 1"], ["updated_by", "TEXT"], ["updated_via", "TEXT"]]) {
@@ -1283,12 +1292,27 @@ export class Board extends DurableObject<Env> {
   async claimAct(
     user: string,
     seq: number,
-    act: { action: "evidence" | "verify" | "dispute"; evidence_seq?: number; url?: string; note?: string; reason?: string },
+    act: { action: "evidence" | "verify" | "dispute" | "check"; evidence_seq?: number; url?: string; note?: string; reason?: string; command?: string; commit?: string },
     opts: TaskActOpts,
   ): Promise<string> {
     const info = this.info();
     const claim = this.claimRow(seq);
     const who = opts.via === "agent" ? `${user}'s agent` : user;
+    if (act.action === "check") {
+      // Only the claim's author says how to check it; anyone else runs it (sandboxed, on their own machine, after
+      // their person OKs the exact command) with agent-soup verify N.
+      if (claim.author !== user) throw new BoardError("Only the claim's author attaches its check.");
+      const command = (act.command ?? "").trim();
+      if (!command) throw new BoardError("command is required: what to run to check the claim (e.g. npm test -- auth).");
+      if (command.length > 500) throw new BoardError("Keep the check command under 500 characters; put longer steps in a script in the repo.");
+      const commit = act.commit?.trim() || undefined;
+      if (commit && !/^[0-9a-f]{7,40}$/i.test(commit)) throw new BoardError("commit must be a git commit hash (7–40 hex characters).");
+      const hit = scanFields({ command });
+      if (hit) throw new BoardError(blockedMessage(hit));
+      this.sql.exec("UPDATE claim_state SET check_json = ?, updated_at = ? WHERE seq = ?", JSON.stringify({ command, ...(commit ? { commit: commit.toLowerCase() } : {}) }), Date.now(), seq);
+      this.broadcast({ type: "claim", seq });
+      return `Check attached to #${seq}. Other members can run it in a sandbox with: agent-soup verify ${seq}`;
+    }
     if (act.action === "evidence") {
       const ev: { seq?: number; url?: string; note?: string; by: string } = { by: who };
       if (act.evidence_seq != null) {
@@ -1334,12 +1358,12 @@ export class Board extends DurableObject<Env> {
   }
 
   /** For pages: each claim's status, and each entry resting on a disputed or retracted premise. */
-  claimStatesNow(): Record<number, { status?: string; by?: string; reason?: string; stale_from?: number; stale_why?: string }> {
-    const out: Record<number, { status?: string; by?: string; reason?: string; stale_from?: number; stale_why?: string }> = {};
+  claimStatesNow(): Record<number, { status?: string; by?: string; reason?: string; check?: string; stale_from?: number; stale_why?: string }> {
+    const out: Record<number, { status?: string; by?: string; reason?: string; check?: string; stale_from?: number; stale_why?: string }> = {};
     const bad = new Map<number, string>();
-    for (const r of this.sql.exec("SELECT seq, status, verified_by, verified_via, disputed_by, disputed_via, dispute_reason FROM claim_state").toArray()) {
+    for (const r of this.sql.exec("SELECT seq, status, verified_by, verified_via, disputed_by, disputed_via, dispute_reason, check_json FROM claim_state").toArray()) {
       const who = r.status === "verified" ? (r.verified_via === "agent" ? `${r.verified_by}'s agent` : r.verified_by) : r.status === "disputed" ? (r.disputed_via === "agent" ? `${r.disputed_by}'s agent` : r.disputed_by) : null;
-      out[r.seq as number] = { status: r.status as string, ...(who ? { by: who as string } : {}), ...(r.dispute_reason ? { reason: r.dispute_reason as string } : {}) };
+      out[r.seq as number] = { status: r.status as string, ...(who ? { by: who as string } : {}), ...(r.dispute_reason ? { reason: r.dispute_reason as string } : {}), ...(r.check_json ? { check: (JSON.parse(r.check_json as string) as ClaimCheck).command } : {}) };
       if (r.status === "disputed") bad.set(r.seq as number, "disputed");
     }
     for (const r of this.sql.exec("SELECT retracts FROM entries WHERE retracts IS NOT NULL").toArray()) bad.set(r.retracts as number, "retracted");
@@ -1389,12 +1413,12 @@ export class Board extends DurableObject<Env> {
     return [...out];
   }
 
-  async claims(): Promise<{ seq: number; status: string; evidence: { seq?: number; url?: string; note?: string; by: string }[]; verified_by: string | null; disputed_by: string | null; dispute_reason: string | null }[]> {
+  async claims(): Promise<{ seq: number; author: string; status: string; evidence: { seq?: number; url?: string; note?: string; by: string }[]; verified_by: string | null; disputed_by: string | null; dispute_reason: string | null; check: ClaimCheck | null }[]> {
     this.info();
     return this.sql
-      .exec("SELECT c.seq, c.status, c.evidence, c.verified_by, c.disputed_by, c.dispute_reason FROM claim_state c WHERE NOT EXISTS (SELECT 1 FROM entries r WHERE r.retracts = c.seq) ORDER BY c.seq DESC LIMIT 200")
+      .exec("SELECT c.seq, c.status, c.evidence, c.verified_by, c.disputed_by, c.dispute_reason, c.check_json, e.author FROM claim_state c JOIN entries e ON e.seq = c.seq WHERE NOT EXISTS (SELECT 1 FROM entries r WHERE r.retracts = c.seq) ORDER BY c.seq DESC LIMIT 200")
       .toArray()
-      .map((r) => ({ seq: r.seq as number, status: r.status as string, evidence: JSON.parse((r.evidence as string) || "[]"), verified_by: (r.verified_by as string | null) ?? null, disputed_by: (r.disputed_by as string | null) ?? null, dispute_reason: (r.dispute_reason as string | null) ?? null }));
+      .map((r) => ({ seq: r.seq as number, author: r.author as string, status: r.status as string, evidence: JSON.parse((r.evidence as string) || "[]"), verified_by: (r.verified_by as string | null) ?? null, disputed_by: (r.disputed_by as string | null) ?? null, dispute_reason: (r.dispute_reason as string | null) ?? null, check: r.check_json ? (JSON.parse(r.check_json as string) as ClaimCheck) : null }));
   }
 
   /** Claim status and staleness, shown next to entries in summaries. */
@@ -1409,6 +1433,10 @@ export class Board extends DurableObject<Env> {
         add(seq, `disputed by ${r.disputed_via === "agent" ? `${r.disputed_by}'s agent` : r.disputed_by}: ${r.dispute_reason}`);
         bad.set(seq, "disputed");
       }
+    }
+    for (const r of this.sql.exec("SELECT seq, check_json FROM claim_state WHERE check_json IS NOT NULL AND status != 'verified'").toArray()) {
+      const c = JSON.parse(r.check_json as string) as ClaimCheck;
+      add(r.seq as number, `check: ${c.command}${c.commit ? ` @ ${c.commit.slice(0, 7)}` : ""} (agent-soup verify ${r.seq})`);
     }
     for (const r of this.sql.exec("SELECT retracts FROM entries WHERE retracts IS NOT NULL").toArray()) bad.set(r.retracts as number, "retracted");
     if (!bad.size) return;

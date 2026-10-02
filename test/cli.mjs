@@ -394,6 +394,76 @@ await step("sealed secrets: only the recipient's agent can open them; the server
   assert(readFileSync(out, "utf8") === secret, "written to a file");
 });
 
+/** Runs the CLI in a pseudo-terminal (a person at a keyboard) and answers "y" to every [y/N] / [Y/n] prompt. */
+function cliTty(args, { cred = credA, cwd = dir } = {}) {
+  const py = `
+import os, pty, sys, json, re, time
+argv = json.loads(sys.argv[1])
+pid, fd = pty.fork()
+if pid == 0:
+    os.execvp(argv[0], argv)
+out = b""; answered = 0; deadline = time.time() + 120
+while time.time() < deadline:
+    try:
+        chunk = os.read(fd, 4096)
+    except OSError:
+        break
+    if not chunk:
+        break
+    out += chunk
+    if len(re.findall(rb"\\[(y/N|Y/n)\\]", out)) > answered:
+        answered += 1
+        os.write(fd, b"y\\n")
+_, status = os.waitpid(pid, 0)
+sys.stdout.write(out.decode("utf8", "replace"))
+sys.exit(os.waitstatus_to_exitcode(status))
+`;
+  return new Promise((resolve) => {
+    const p = spawn("python3", ["-c", py, JSON.stringify(["node", CLI, ...args])], { cwd, env: { ...process.env, AGENT_BOARD_CREDENTIALS_FILE: cred, AGENT_BOARD_SERVER: BASE, XDG_CONFIG_HOME: join(dir, "cfg-cmds") } });
+    let out = "";
+    p.stdout.on("data", (d) => (out += d));
+    p.stderr.on("data", (d) => (out += d));
+    p.on("close", (code) => resolve({ code, out }));
+  });
+}
+
+await step("claim checks: the author attaches one; another member's person OKs it; it runs sandboxed (no network) in a throwaway checkout; pass verifies, fail disputes", async () => {
+  const repo = realpathSync(mkdtempSync(join(tmpdir(), "agent-board-verify-")));
+  const genv = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.com" };
+  const g = (...a) => execFileSync("git", a, { cwd: repo, env: genv, stdio: "pipe" }).toString();
+  g("init", "-q", "-b", "main");
+  writeFileSync(join(repo, "check.sh"), "test -f ok.txt && echo 'all good' && touch made-in-checkout.txt\n");
+  writeFileSync(join(repo, "ok.txt"), "yes\n");
+  g("add", "."); g("commit", "-qm", "start");
+  const c1 = Number((await tool(tokA, board, "post", { type: "claim", text: `ok.txt exists ${run}` })).match(/#(\d+)/)[1]);
+  const c2 = Number((await tool(tokA, board, "post", { type: "claim", text: `the network is reachable ${run}` })).match(/#(\d+)/)[1]);
+  let r = await cli(["check", String(c1), "sh check.sh", "--board", board], { cwd: repo });
+  assert(r.code === 0 && r.out.includes(`agent-soup verify ${c1}`), r.out + r.err);
+  r = await cli(["check", String(c2), "curl -sS -m 5 -o /dev/null https://example.com", "--board", board], { cwd: repo });
+  assert(r.code === 0, r.out + r.err);
+  r = await cli(["check", String(c1), "true", "--board", board], { cwd: repo, cred: credB });
+  assert(r.code === 1 && r.err.includes("Only the claim's author"), r.out + r.err);
+  // Agents (no terminal) can't run someone else's command.
+  r = await cli(["verify", String(c1), "--board", board], { cwd: repo, cred: credB });
+  assert(r.code === 1 && r.err.includes("a person has to read it"), r.out + r.err);
+  const list = await (await fetch(`${BASE}/api/boards/${board}/claims`, { headers: { authorization: `Bearer ${tokB}` } })).json();
+  const head = g("rev-parse", "HEAD").trim();
+  assert(list.claims.find((c) => c.seq === c1)?.check?.commit === head, JSON.stringify(list).slice(0, 300));
+  if (process.platform !== "darwin") return; // the sandbox runs on macOS here; CI (Linux) has no bubblewrap
+  r = await cli(["verify", "--check-sandbox"], { cwd: repo, cred: credB });
+  assert(r.code === 0 && r.out.includes("The sandbox holds"), r.out + r.err);
+  r = await cliTty(["verify", String(c1), "--board", board], { cwd: repo, cred: credB });
+  assert(r.code === 0 && r.out.includes("$ sh check.sh") && r.out.includes("all good") && r.out.includes("Check passed") && r.out.includes("verified"), `exit ${r.code}: ${r.out.slice(-600)}`);
+  assert(!existsSync(join(repo, "made-in-checkout.txt")), "the check ran in a throwaway checkout, not the repo");
+  r = await cliTty(["verify", String(c2), "--board", board], { cwd: repo, cred: credB });
+  assert(r.code === 0 && r.out.includes("Check failed"), r.out);
+  const after = (await (await fetch(`${BASE}/api/boards/${board}/claims`, { headers: { authorization: `Bearer ${tokB}` } })).json()).claims;
+  const s1 = after.find((c) => c.seq === c1), s2 = after.find((c) => c.seq === c2);
+  assert(s1.status === "verified" && s1.verified_by === B && s1.evidence.length === 1, JSON.stringify(s1));
+  assert(s2.status === "disputed" && /check failed/.test(s2.dispute_reason), JSON.stringify(s2));
+  assert(!g("worktree", "list").includes("agent-soup-verify"), "throwaway checkouts are removed");
+});
+
 await step("end-to-end encrypted board: CLI encrypts and decrypts; the server and plain agent tools only see ciphertext", async () => {
   const projA = mkdtempSync(join(tmpdir(), "agent-soup-e2ee-a-"));
   const projB = mkdtempSync(join(tmpdir(), "agent-soup-e2ee-b-"));

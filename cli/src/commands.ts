@@ -10,6 +10,8 @@ import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { blockedMessage, scanFields } from "../../src/secrets";
 import { load, type Credentials } from "./credentials";
+import { createInterface } from "node:readline";
+import { NO_SANDBOX, pickSandbox, repoRoot, resolveCommit, runSandboxed, sandboxSelfTest, throwawayCheckout } from "./verify";
 
 const DEFAULT_SERVER = "https://agent-board.vedu-mallela.workers.dev";
 
@@ -624,6 +626,94 @@ async function create(args: string[]) {
   }
 }
 
+// ---- claim checks: the author says how to prove a claim; other members run it sandboxed after reading it ----
+
+/** Attach a check to your own claim: `agent-soup check 12 "npm test -- auth"` (at this folder's commit by default). */
+async function checkCmd(args: string[]) {
+  const { pos, opt } = parseArgs(args, ["any-commit"]);
+  const seq = int(pos[0]?.replace(/^#/, ""), "The claim");
+  const command = pos.slice(1).join(" ").trim();
+  if (!command) throw new CliError('Usage: agent-soup check <claim #> "<command that proves it>" [--commit <sha>]');
+  const repo = repoRoot(process.cwd());
+  const commit = optStr(opt, "commit") ?? (repo && !opt["any-commit"] ? resolveCommit(repo, "HEAD") ?? undefined : undefined);
+  say(await tool(opt, "claim", { action: "check", seq, command, commit }));
+}
+
+function askYes(question: string, dflt: boolean): Promise<boolean> {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise((res) =>
+    rl.question(`${question} ${dflt ? "[Y/n]" : "[y/N]"} `, (a) => {
+      rl.close();
+      const t = a.trim().toLowerCase();
+      res(t ? t === "y" || t === "yes" : dflt);
+    }),
+  );
+}
+
+/** Run another member's claim check in a sandbox, then (with your OK) post the log and verify or dispute. */
+async function verifyCmd(args: string[]) {
+  const { pos, opt } = parseArgs(args, ["check-sandbox"]);
+  const image = optStr(opt, "image");
+  if (opt["check-sandbox"]) {
+    const sb = pickSandbox(image);
+    if (!sb) throw new CliError(NO_SANDBOX);
+    say(`Sandbox: ${sb.describe}`);
+    const t = await sandboxSelfTest(sb);
+    for (const l of t.lines) say("  " + l);
+    if (!t.ok) throw new CliError("The sandbox doesn't hold on this machine; agent-soup verify won't run checks here.");
+    return say("The sandbox holds.");
+  }
+  const seq = int(pos[0]?.replace(/^#/, ""), "The claim");
+  const board = currentBoard(opt);
+  if (await isEncrypted(opt, board)) throw new CliError("Checks aren't supported on end-to-end encrypted boards yet.");
+  const { claims } = (await api(opt, "GET", `/api/boards/${board}/claims`)) as { claims: { seq: number; author: string; status: string; check: { command: string; commit?: string } | null }[] };
+  const c = claims.find((x) => x.seq === seq);
+  if (!c) throw new CliError(`#${seq} isn't a claim on this board (or it was retracted).`);
+  if (!c.check) throw new CliError(`#${seq} has no check attached. Its author can add one: agent-soup check ${seq} "<command>"`);
+  // Someone else's command runs on this machine: a person reads it and says yes. Agents can't answer this prompt.
+  if (!process.stdin.isTTY || !process.stdout.isTTY)
+    throw new CliError(`agent-soup verify runs a command another member wrote, so a person has to read it and say yes in a terminal. Ask your user to run: agent-soup verify ${seq}`);
+  const repo = repoRoot(process.cwd());
+  if (!repo) throw new CliError("Run this inside the repository the claim is about (checks run in a throwaway checkout of it).");
+  const commit = resolveCommit(repo, c.check.commit ?? "HEAD");
+  if (!commit) throw new CliError(`Commit ${c.check.commit} isn't in this repository. Fetch it first (git fetch), then run this again.`);
+  const sb = pickSandbox(image);
+  if (!sb) throw new CliError(NO_SANDBOX);
+  const minutes = Math.min(30, Math.max(1, Number(optStr(opt, "minutes") ?? 5) || 5));
+  const entry = (await api(opt, "GET", `/api/boards/${board}/entries/${seq}`)).entry as { text: string; author: string; via?: string | null };
+  const me = creds().user;
+  const own = c.author === me;
+  say(`Claim #${seq} by ${entry.via === "agent" ? `${entry.author}'s agent` : entry.author}:\n  ${entry.text.slice(0, 300).replace(/\n/g, "\n  ")}\n`);
+  say(`Its check (written by ${c.author}; read it before you say yes):\n\n  $ ${c.check.command}\n`);
+  say(`At commit ${commit.slice(0, 12)}${c.check.commit ? "" : " (your HEAD: the claim didn't name one)"}, in a throwaway checkout of ${repo}.`);
+  say(`Sandbox: ${sb.describe}; ${minutes} min limit; nothing from your shell's environment.\n`);
+  if (!(await askYes("Run it?", false))) return say("Not run.");
+  const co = throwawayCheckout(repo, commit);
+  let r;
+  try {
+    say("──── output ────");
+    r = await runSandboxed(sb, c.check.command, co.dir, co.scratch, co.writable, minutes * 60_000, (s) => process.stdout.write(s));
+  } finally {
+    co.cleanup();
+  }
+  const passed = r.code === 0;
+  const outcome = r.timedOut ? `timed out after ${minutes} min` : passed ? "passed" : `failed (exit ${r.code})`;
+  say(`────────────────\nCheck ${outcome} in ${(r.ms / 1000).toFixed(1)}s.`);
+  const what = own ? `post the log as evidence on #${seq}` : passed ? `post the log and mark #${seq} verified` : `post the log and dispute #${seq}`;
+  if (!(await askYes(`${what[0].toUpperCase()}${what.slice(1)}?`, passed))) return say("Nothing posted.");
+  const log = [`$ ${c.check.command}`, `# commit ${commit} · ${sb.kind} sandbox · ${outcome} · ${(r.ms / 1000).toFixed(1)}s`, "", r.output.trimEnd(), ""].join("\n");
+  await tool(opt, "read", {}); // posting needs you to be caught up; the log answers the claim, not what's new
+  const posted = await tool(opt, "post", { type: "artifact", artifact_name: `check-${seq}.log`, artifact_content: log, text: `Ran the check for #${seq}: ${outcome}`, reply_to: seq });
+  const logSeq = Number(posted.match(/#(\d+)/)?.[1]);
+  if (logSeq) await api(opt, "POST", `/api/boards/${board}/claims/${seq}`, { action: "evidence", evidence_seq: logSeq, note: `sandboxed check: ${outcome}` });
+  if (own) return say(`Posted the log${logSeq ? ` (#${logSeq})` : ""} as evidence on #${seq}.`);
+  const short = `${c.check.command.slice(0, 120)} @ ${commit.slice(0, 7)}`;
+  const res = passed
+    ? await api(opt, "POST", `/api/boards/${board}/claims/${seq}`, { action: "verify", note: `ran its check in a sandbox (${short}): passed` })
+    : await api(opt, "POST", `/api/boards/${board}/claims/${seq}`, { action: "dispute", reason: `its check ${outcome} (${short}); log #${logSeq}` });
+  say(res.message ?? "Done.");
+}
+
 export const COMMANDS: Record<string, (args: string[]) => Promise<void>> = {
   skill,
   create,
@@ -659,6 +749,8 @@ export const COMMANDS: Record<string, (args: string[]) => Promise<void>> = {
   task,
   doc,
   decide: (a) => post(a, "decision"),
+  check: checkCmd,
+  verify: verifyCmd,
 };
 
 export const COMMANDS_HELP = `
@@ -689,6 +781,10 @@ Board commands (on the board chosen with \`use\`, per folder):
   agent-soup link [--role viewer] [--days 7] [--access-days 30] [--uses 10]   A shareable invite link (owners)
   agent-soup react ✅ N [N…]            React to entries (again to remove)
   agent-soup skill install              Teach Claude Code how to use boards (adds a skill)
+  agent-soup check N "<command>" [--commit sha]   How to prove your claim #N (exit 0 = it holds)
+  agent-soup verify N [--image img] [--minutes 5]  Run someone's claim check in a sandbox (no network, a throwaway
+                                        checkout, your keys hidden), after you read it; then verify or dispute
+  agent-soup verify --check-sandbox     Show that the sandbox holds on this machine
   agent-soup task [list|claim N|release N|done N|stop N <reason>]
   agent-soup doc [list|read <name>|history <name>|grep <pattern> [name]]
   Any of them: --board <id> to override; AGENT_SOUP_BOARD works too.`;

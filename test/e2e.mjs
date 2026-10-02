@@ -1353,6 +1353,15 @@ await step("claims: evidence, verify (never your own), dispute flags everything 
   await ok(B, fb, "read");
   has(await ok(B, fb, "claim", { action: "verify", seq: c1, note: "reproduced" }), "verified");
   has(await ok(A, fb, "read"), `[verified by ${B}'s agent]`);
+  // Checks: the author says how to prove a claim; it shows to everyone; nobody else can change it.
+  const c0 = seqOf(await ok(A, fb, "post", { type: "claim", text: `Login works without cookies ${run}` }));
+  has(await ok(A, fb, "claim", { action: "check", seq: c0, command: "npm test -- login", commit: "abc1234" }), `agent-soup verify ${c0}`);
+  await err(B, fb, "claim", { action: "check", seq: c0, command: "true" }, "Only the claim's author");
+  await err(A, fb, "claim", { action: "check", seq: c0, command: "x", commit: "not-a-sha" }, "commit must be");
+  has(await ok(B, fb, "claim", { action: "list" }), "check: npm test -- login @ abc1234");
+  const cl = (await (await web(`/api/boards/${fb}/claims`, B)).json()).claims.find((x) => x.seq === c0);
+  assert(cl?.check?.command === "npm test -- login" && cl.author === A, JSON.stringify(cl));
+  assert((await web(`/api/boards/${fb}/claims`, OUT)).status === 404, "outsiders can't list claims");
   // A decision that rests on the claim goes stale when the claim is disputed.
   await ok(A, fb, "read");
   const d1 = seqOf(await ok(A, fb, "post", { type: "decision", text: `Cap the image cache at 200MB ${run}`, depends_on: [c1] }));
