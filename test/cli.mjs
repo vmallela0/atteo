@@ -225,7 +225,7 @@ await step("watch --respond --agent-cmd: any agent CLI can answer, with the prom
   await tool(tokB, board, "read", {});
   const posted = await tool(tokB, board, "post", { type: "question", to: A, text: "Which region? $(whoami)" });
   const seq = posted.match(/#(\d+)/)[1];
-  for (let t = 0; t < 100 && !existsSync(marker); t++) await sleep(100);
+  for (let t = 0; t < 300 && !existsSync(marker); t++) await sleep(100); // the watcher waits ~20s for a running session to take it first
   w.kill();
   assert(existsSync(marker), `custom agent was not started:\n${out}`);
   const got = readFileSync(marker, "utf8");
