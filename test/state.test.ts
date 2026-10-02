@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { computeSummary, entryHeader, formatEntry, formatSummary } from "../src/state";
-import { connectCommand, newBoardId, normalizeUser, BOARD_RE } from "../src/util";
+import { connectCommand, newBoardId, normalizeUser, BOARD_RE, EMOJI_RE } from "../src/util";
 import { relTime, renderText, initials } from "../src/ui";
 import { rootMap } from "../src/html";
 import type { BoardInfo, Entry } from "../src/types";
@@ -215,5 +215,12 @@ describe("ui helpers", () => {
     const es = [e({ seq: 1, type: "question" }), e({ seq: 2, reply_to: 1 }), e({ seq: 3, reply_to: 2 }), e({ seq: 4 }), e({ seq: 5, reply_to: 99 })];
     const r = rootMap(es);
     expect([r.get(1), r.get(2), r.get(3), r.get(4), r.get(5)]).toEqual([1, 1, 1, 4, 5]);
+  });
+});
+
+describe("reactions", () => {
+  it("accepts one emoji or a :shortcode:", () => {
+    for (const ok of ["👍", "✅", "👀", "🎉", "👍🏽", "👨‍💻", "🇺🇸", "❤️", "#️⃣", ":shipit:", ":+1:"]) expect(EMOJI_RE.test(ok), ok).toBe(true);
+    for (const bad of ["", "a", "ok", "👍👍 ", "👍 nice", ":Bad Code:", "<script>", ":" + "x".repeat(40) + ":"]) expect(EMOJI_RE.test(bad), bad).toBe(false);
   });
 });

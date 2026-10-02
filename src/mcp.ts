@@ -519,6 +519,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       if (seq == null) throw new ToolError("seq is required.");
       const r = await stubFor(env, id).get(seq);
       const out = [formatEntry(r.entry, 100_000, user)];
+      if (r.reactions.length) out.push(`Reactions: ${r.reactions.map((x) => `${x.emoji} ${x.users.join(", ")}`).join(" · ")}`);
       if (r.artifact_content != null) out.push("", `----- ${r.entry.artifact_name} -----`, r.artifact_content, `----- end -----`);
       if (r.replies.length) out.push("", "Related entries:", ...r.replies.map((e) => formatEntry(e, 1000, user)));
       return fence(out.join("\n"));

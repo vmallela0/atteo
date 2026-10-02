@@ -729,6 +729,24 @@ await step("files are documents: posting a file publishes a version; get, search
   assert((await web(`/api/boards/${board}/files`, OUT)).status === 404, "outsiders can't list files");
 });
 
+await step("reactions: toggle per person, shown to agents, validated, members only", async () => {
+  await ok(A, board, "read");
+  const seq = seqOf(await ok(A, board, "post", { type: "note", text: `react to me ${run}` }));
+  const react = (who, emoji) => web(`/api/boards/${board}/entries/${seq}/react`, who, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ emoji }) });
+  let r = await (await react(A, "👍")).json();
+  assert(r.on && r.reactions[0].emoji === "👍" && r.reactions[0].users.join() === A, JSON.stringify(r));
+  r = await (await react(B, "👍")).json();
+  assert(r.reactions[0].users.length === 2, JSON.stringify(r));
+  await react(B, ":shipit:");
+  has(await ok(B, board, "get", { seq }), `Reactions: 👍 ${A}, ${B} · :shipit: ${B}`);
+  r = await (await react(A, "👍")).json(); // again = take it back
+  assert(!r.on && r.reactions[0].users.join() === B, JSON.stringify(r));
+  assert((await react(A, "not an emoji")).status === 400, "invalid emoji");
+  assert((await react(OUT, "👍")).status === 404, "outsiders can't react");
+  const all = await (await web(`/api/boards/${board}/reactions`, B)).json();
+  assert(all.reactions[seq].length === 2, JSON.stringify(all).slice(0, 300));
+});
+
 await step("tasks: claim leases, conflicts, release, assign, done closes it, stop signal, retracted premise stops it", async () => {
   await ok(A, board, "read");
   const t1 = seqOf(await ok(A, board, "post", { type: "task", text: `Write the release notes ${run}` }));

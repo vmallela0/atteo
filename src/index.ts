@@ -472,6 +472,24 @@ export default {
         return json({ error: "not found" }, 404);
       }
 
+      // ---- react to an entry (toggle); GET lists every reaction on the board ----
+      m = path.match(/^\/api\/boards\/([^/]+)\/(?:entries\/(\d+)\/react|reactions)$/);
+      if (m && (method === "POST" || method === "GET")) {
+        if (!viewer) return needLogin();
+        if (!(await registry.isMember(env, m[1], viewer.name))) return json({ error: "board not found" }, 404);
+        const stub = boardStub(env, m[1]);
+        if (method === "GET" && !m[2]) return json({ reactions: await stub.reactions() });
+        if (method === "POST" && m[2]) {
+          const body = (await request.json().catch(() => ({}))) as { emoji?: string };
+          try {
+            return json(await stub.react(viewer.name, parseInt(m[2], 10), String(body.emoji ?? "")));
+          } catch (e) {
+            return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+          }
+        }
+        return json({ error: "not found" }, 404);
+      }
+
       // ---- retract an entry (its author or the board's creator) ----
       m = path.match(/^\/api\/boards\/([^/]+)\/entries\/(\d+)\/retract$/);
       if (m && method === "POST") {
@@ -518,7 +536,9 @@ export default {
               retracts: e.retracts,
               html: entryHtml(e, id, true, { canRetract: canRetract(e) }),
               row: logRow(e),
+              reactions: snap.reactions[e.seq] ?? [],
             })),
+            ...(after === 0 ? { reactions: snap.reactions } : {}),
             summary: summaryHtml([], viewer?.name ?? "", members, snap.summary, { boardId: id, creator: snap.info.created_by }),
             count: snap.info.entry_count,
             last: fresh.length ? fresh[fresh.length - 1].seq : after,

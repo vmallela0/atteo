@@ -6,7 +6,7 @@ import { computeSummary, formatSummary, DEFAULT_SUMMARY_CHARS, type Summary } fr
 import { blockedMessage, scanFields, scanText, type SecretHit } from "./secrets";
 import { keep, MAX_MENTIONS, mentionsOwnAgent, type Mention } from "./mentions";
 import { ENTRY_TYPES, type BoardInfo, type Entry, type Env, type Member, type NewEntry } from "./types";
-import { USER_RE } from "./util";
+import { EMOJI_RE, USER_RE } from "./util";
 
 export const MAX_TEXT = 32_000;
 export const MAX_ARTIFACT = 256_000;
@@ -80,6 +80,9 @@ export interface DocEditOpts {
   summary?: string | null;
 }
 export type DocResult = { conflict: false; version: number; note: number } | { conflict: true; current: number; content: string };
+
+export const MAX_REACTIONS_PER_PERSON = 12; // distinct emoji one person can leave on one entry
+export type Reactions = { emoji: string; users: string[] }[];
 
 export const DOC_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9 ._\-/]{0,79}$/;
 /** Any artifact name becomes a valid document name, so every file posted on a board is also a versioned doc. */
@@ -159,6 +162,13 @@ export class Board extends DurableObject<Env> {
         artifact_size INTEGER,
         artifact_version INTEGER,
         artifact_content TEXT
+      );
+      CREATE TABLE IF NOT EXISTS reactions (
+        seq INTEGER NOT NULL,
+        user TEXT NOT NULL,
+        emoji TEXT NOT NULL,
+        ts INTEGER NOT NULL,
+        PRIMARY KEY (seq, user, emoji)
       );
       CREATE TABLE IF NOT EXISTS tasks (
         seq INTEGER PRIMARY KEY,
@@ -559,7 +569,7 @@ export class Board extends DurableObject<Env> {
     }
   }
 
-  async get(seq: number): Promise<{ entry: Entry; artifact_content: string | null; replies: Entry[] }> {
+  async get(seq: number): Promise<{ entry: Entry; artifact_content: string | null; replies: Entry[]; reactions: Reactions }> {
     this.info();
     const rows = this.sql.exec(`SELECT ${ENTRY_COLS}, artifact_content FROM entries WHERE seq = ?`, seq).toArray();
     if (!rows.length) throw new BoardError(`Entry #${seq} does not exist on this board.`);
@@ -574,7 +584,7 @@ export class Board extends DurableObject<Env> {
       const v = this.sql.exec("SELECT content FROM doc_versions WHERE name = ? AND version = ?", entry.artifact_name, entry.artifact_version).toArray()[0];
       content = v ? (v.content as string) : `(v${entry.artifact_version} of ${entry.artifact_name} is no longer kept; read the latest with the doc tool.)`;
     }
-    return { entry, artifact_content: content, replies };
+    return { entry, artifact_content: content, replies, reactions: this.reactionsFor([seq])[seq] ?? [] };
   }
 
   /** Case-insensitive substring search over text and artifact names/content, with optional filters. */
@@ -641,6 +651,48 @@ export class Board extends DurableObject<Env> {
     if (!r || r.minute !== minute) return void this.rates.set(user, { minute, n: 1 });
     const max = Number(this.env.POSTS_PER_MINUTE) || POSTS_PER_MINUTE;
     if (++r.n > max) throw new BoardError(`Slow down: at most ${max} posts a minute per person on a board.`);
+  }
+
+  // ---- reactions: toggled per person; don't create entries or wake agents ----
+
+  reactionsFor(seqs?: number[]): Record<number, Reactions> {
+    const rows = seqs
+      ? seqs.length
+        ? this.sql.exec(`SELECT seq, emoji, user FROM reactions WHERE seq IN (${seqs.map(() => "?").join(",")}) ORDER BY ts`, ...seqs).toArray()
+        : []
+      : this.sql.exec("SELECT seq, emoji, user FROM reactions ORDER BY ts").toArray();
+    const out: Record<number, Reactions> = {};
+    for (const r of rows) {
+      const list = (out[r.seq as number] ??= []);
+      const hit = list.find((x) => x.emoji === r.emoji);
+      if (hit) hit.users.push(r.user as string);
+      else list.push({ emoji: r.emoji as string, users: [r.user as string] });
+    }
+    return out;
+  }
+
+  async reactions(): Promise<Record<number, Reactions>> {
+    this.info();
+    return this.reactionsFor();
+  }
+
+  /** Add your reaction, or remove it if it's already there. Returns the entry's reactions. */
+  async react(user: string, seq: number, emoji: string): Promise<{ on: boolean; reactions: Reactions }> {
+    const info = this.info();
+    if (info.archived) throw new BoardError(`"${info.title}" is archived, so it's read-only. Its creator can restore it.`);
+    const e = (emoji ?? "").trim();
+    if (!EMOJI_RE.test(e)) throw new BoardError("Give one emoji, like 👍, or a :shortcode:.");
+    if (!Number.isInteger(seq) || seq < 1 || seq > info.last_seq) throw new BoardError(`Entry #${seq} does not exist on this board.`);
+    const had = this.sql.exec("DELETE FROM reactions WHERE seq = ? AND user = ? AND emoji = ? RETURNING seq", seq, user, e).toArray().length > 0;
+    if (!had) {
+      this.rateLimit(user);
+      const n = this.sql.exec("SELECT COUNT(*) AS n FROM reactions WHERE seq = ? AND user = ?", seq, user).one().n as number;
+      if (n >= MAX_REACTIONS_PER_PERSON) throw new BoardError(`At most ${MAX_REACTIONS_PER_PERSON} different reactions per person on one entry.`);
+      this.sql.exec("INSERT INTO reactions (seq, user, emoji, ts) VALUES (?, ?, ?, ?)", seq, user, e, Date.now());
+    }
+    const reactions = this.reactionsFor([seq])[seq] ?? [];
+    this.broadcast({ type: "reaction", seq, reactions });
+    return { on: !had, reactions };
   }
 
   // ---- tasks: status, assignee, leases, stop signal ----
@@ -957,6 +1009,7 @@ export class Board extends DurableObject<Env> {
       members: this.members(),
       summary: this.summary(),
       entries: this.entriesAfter(afterSeq, null, 1000),
+      reactions: afterSeq === 0 ? this.reactionsFor() : {},
     };
   }
 }
