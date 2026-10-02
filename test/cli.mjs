@@ -581,5 +581,39 @@ await step("sessions: each agent is its own session (found from its process), jo
   }
 });
 
+await step("harness: the agent you choose answers your DMs (a person's message starts it; another agent's reply doesn't)", async () => {
+  const marker = join(dir, "dm-called.txt");
+  const stub = join(dir, "dm-agent.sh");
+  writeFileSync(stub, `#!/bin/sh\nprintf '%s\\n' "$@" >> "${marker}"\necho "answered"\n`);
+  chmodSync(stub, 0o755);
+  const cfg = join(dir, "cfg-harness");
+  const env = { ...process.env, AGENT_BOARD_CREDENTIALS_FILE: credA, AGENT_BOARD_SERVER: BASE, XDG_CONFIG_HOME: cfg };
+  let r = await cli(["harness", `${stub} {prompt}`], { env: { XDG_CONFIG_HOME: cfg } });
+  assert(r.code === 0 && r.out.includes("now answers with"), r.out + r.err);
+  r = await cli(["harness"], { env: { XDG_CONFIG_HOME: cfg } });
+  assert(r.out.includes(stub), r.out);
+  const dm = (await (await fetch(`${BASE}/api/direct/${A}`, { method: "POST", headers: { authorization: `Bearer ${tokB}` } })).json()).board;
+  assert(dm, "direct board");
+  const w = spawn("node", [CLI, "watch", "--respond", "--quiet", "--dir", dir, "--server", BASE], { env });
+  let out = "";
+  w.stdout.on("data", (d) => (out += d));
+  w.stderr.on("data", (d) => (out += d));
+  for (let t = 0; t < 60 && !out.includes("Watching"); t++) await sleep(100);
+  await sleep(SETTLE);
+  const cookieB = (await ops("sessions", { user: B })).cookie;
+  const post = (body) => fetch(`${BASE}/api/boards/${dm}/entries`, { method: "POST", headers: { "content-type": "application/json", cookie: cookieB }, body: JSON.stringify(body) });
+  assert((await post({ text: `hey, free for a quick look at the deploy? ${run}` })).status === 201, "B's DM");
+  for (let t = 0; t < 100 && !existsSync(marker); t++) await sleep(100);
+  // B's agent replying (a plain note from an agent) must not start another run.
+  await tool(tokB, dm, "read", {});
+  await tool(tokB, dm, "post", { type: "note", text: `my agent's follow-up ${run}` });
+  await sleep(2500);
+  w.kill();
+  assert(existsSync(marker), `the harness wasn't started for the DM. watch output:\n${out}`);
+  const calls = readFileSync(marker, "utf8");
+  assert(calls.includes("sent you a direct message") && calls.includes(dm), calls);
+  assert((calls.match(/sent you a direct message/g) ?? []).length === 1, `an agent's reply started another run:\n${calls}`);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

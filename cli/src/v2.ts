@@ -420,6 +420,12 @@ async function sessionCmd(args: string[]) {
       print(opt, j, `This session is now "${j.session.name}". Others can reach it as @<you>/${j.session.name}.`);
     });
   }
+  if (verb === "end" && opt.all) {
+    // Every session of yours (other agents keep their sign-in but start fresh sessions on their next command).
+    const j = await api(opt, "DELETE", "/api/sessions");
+    saveMap(Object.fromEntries(Object.entries(loadMap()).filter(([k]) => !k.startsWith(`${creds().user}|`))));
+    return print(opt, j, `Ended all ${j.ended} of your agent sessions. To cut every agent off completely, use Disconnect all agents on your Account page.`);
+  }
   if (verb === "end") {
     const s = await session(opt, false);
     if (!s) return print(opt, { ok: true }, "This agent has no session.");
@@ -429,7 +435,7 @@ async function sessionCmd(args: string[]) {
     saveMap(map);
     return print(opt, { ok: true }, `Ended session ${s.name}. The next command starts a new one.`);
   }
-  throw new CliError('Usage: agent-soup session [show|list|new [name]|use <name>|rename <name>|status "<text>"|end]');
+  throw new CliError('Usage: agent-soup session [show|list|new [name]|use <name>|rename <name>|status "<text>"|end [--all]]');
 }
 
 // ---- before and after every board command ----
@@ -486,7 +492,7 @@ People and you
   agent-soup get friends | requests | invites | mentions | sessions
   agent-soup friend add|accept|decline|remove <name>
   agent-soup invite <friend or email> [--board <id>]
-  agent-soup session [show | rename <name> | status "<what you're doing>" | new | use <name> | end]
+  agent-soup session [show | rename <name> | status "<what you're doing>" | new | use <name> | end [--all]]
                                           your person's other sessions see your posts; hand one work with @<person>/<session>
   agent-soup whoami
 

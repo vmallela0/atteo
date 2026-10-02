@@ -100,6 +100,51 @@ async function login(args: string[]) {
   await offerWatcher(args);
 }
 
+// ---------- your harness: which agent answers for you when you're not there ----------
+
+interface HarnessChoice {
+  agent?: string; // a preset: claude, codex, gemini, cursor, opencode
+  agentCmd?: string; // any other agent: a command with {prompt}
+}
+const harnessFile = () => join(configDirPath(), "harness.json");
+function loadHarness(): HarnessChoice | null {
+  try {
+    return JSON.parse(readFileSync(harnessFile(), "utf8"));
+  } catch {
+    return null;
+  }
+}
+function saveHarness(h: HarnessChoice | null) {
+  mkdirSync(configDirPath(), { recursive: true, mode: 0o700 });
+  if (h) writeFileSync(harnessFile(), JSON.stringify(h, null, 2), { mode: 0o600 });
+  else rmSync(harnessFile(), { force: true });
+}
+/** "claude" (a preset), a command with {prompt}, or off. */
+function parseHarness(raw: string): HarnessChoice | null {
+  const v = raw.trim();
+  if (!v || /^(off|none|no)$/i.test(v)) return null;
+  if (v.includes("{prompt}")) return { agentCmd: v };
+  if (!HARNESSES[v]) throw new CliError(`"${v}" isn't a known agent. Use one of ${Object.keys(HARNESSES).join(", ")}, or a command with {prompt} where the prompt goes (e.g. "mybot --ask {prompt}").`);
+  return { agent: v };
+}
+const harnessLabel = (h: HarnessChoice | null) => (!h ? "none" : h.agentCmd ? `"${h.agentCmd}"` : h.agent!);
+
+/** agent-soup harness [<agent> | "<command> {prompt}" | off]: the agent that answers for you (DMs, questions, tasks). */
+function harnessCmd(args: string[]) {
+  const raw = args.filter((a) => !a.startsWith("--")).join(" ");
+  if (!raw) {
+    const h = loadHarness();
+    console.log(h ? `Your agent answers with ${harnessLabel(h)} when something is addressed to it (agent-soup watch --respond).` : `No agent set to answer for you. Set one: agent-soup harness claude  (or codex, gemini, cursor, opencode, or "<command> {prompt}")`);
+    return;
+  }
+  const h = parseHarness(raw);
+  saveHarness(h);
+  if (!h) return console.log("Off: no agent answers for you. (A running background watcher still notifies you; stop it with agent-soup watch --uninstall.)");
+  const bin = h.agentCmd ? splitCommand(h.agentCmd)[0] : HARNESSES[h.agent!].bin;
+  console.log(`Your agent now answers with ${harnessLabel(h)} when you're DM'd, asked a question or handed a task.${which(bin) ? "" : ` (Note: "${bin}" isn't on this machine's PATH yet.)`}`);
+  console.log(`Keep it running in the background: agent-soup watch --install --respond`);
+}
+
 /** After login: offer to keep your agent on the chat with the background watcher (one key, skippable). */
 async function offerWatcher(args: string[]) {
   if (!process.stdin.isTTY || args.includes("--no-watch") || platform() === "win32") return;
@@ -108,19 +153,27 @@ async function offerWatcher(args: string[]) {
       `  · notify you when someone @mentions you or addresses your agent\n` +
       `  · have your agent answer questions, tasks, reviews and replies addressed to it (board tools only, max 12/hour)`,
   );
+  // You choose which agent answers (nothing on the machine is guessed); Enter skips.
   const rl = createInterface({ input: process.stdin, output: process.stderr });
-  const answer = await new Promise<string>((res) => rl.question("Set it up now? [Y/n] ", res));
+  const answer = await new Promise<string>((res) => rl.question(`Which agent should answer for you? (${Object.keys(HARNESSES).join(", ")}, or a command with {prompt}; Enter to skip) `, res));
   rl.close();
-  if (/^n/i.test(answer.trim())) {
-    err("Skipped. Later: agent-soup watch --install --respond");
+  let choice: HarnessChoice | null = null;
+  try {
+    choice = parseHarness(answer);
+  } catch (e) {
+    err((e as Error).message);
+  }
+  if (!choice) {
+    err("Skipped. Later: agent-soup harness <agent>, then agent-soup watch --install --respond");
     return;
   }
+  saveHarness(choice);
   // Answers run from a neutral folder (background services can't open ~/Downloads, ~/Documents or ~/Desktop on macOS).
   // Point a board at a project with --board-dir "<board>=<path>" for project-aware answers.
   const dir = join(homedir(), ".local/share/agent-board/answers");
   mkdirSync(dir, { recursive: true });
   try {
-    serviceInstall(["--install", "--respond", "--dir", dir, ...(args.includes("--server") ? ["--server", serverFrom(args)] : [])]);
+    serviceInstall(["--install", "--respond", "--dir", dir, ...(choice.agentCmd ? ["--agent-cmd", choice.agentCmd] : ["--agent", choice.agent!]), ...(args.includes("--server") ? ["--server", serverFrom(args)] : [])]);
     err("Your agent is on the chat. Status: agent-soup watch --status · stop: agent-soup watch --uninstall");
   } catch (e) {
     err(`Couldn't set up the watcher: ${(e as Error).message}\nRun it yourself any time: agent-soup watch --respond`);
@@ -435,13 +488,19 @@ async function watch(args: string[]) {
     boardDirs.find((d) => title.toLowerCase().includes(d.key))?.dir ??
     defaultDir;
   // Which agent answers: --agent <preset> (claude, codex, gemini, cursor, opencode) or --agent-cmd "<command> {prompt}".
-  const agentChoice = { agent: opt("--agent") ?? process.env.AGENT_SOUP_AGENT ?? defaultAgent(), agentCmd: opt("--agent-cmd") };
+  // Which agent answers: --agent / --agent-cmd, else the one you chose (agent-soup harness), else the first installed.
+  const saved = loadHarness();
+  const agentChoice = {
+    agent: opt("--agent") ?? process.env.AGENT_SOUP_AGENT ?? saved?.agent ?? defaultAgent(),
+    agentCmd: opt("--agent-cmd") ?? (opt("--agent") ? undefined : saved?.agentCmd),
+  };
   const agentName = agentChoice.agentCmd ? splitCommand(agentChoice.agentCmd)[0] : agentChoice.agent;
   const tools = opt("--allow") ?? "mcp__board__list_boards,mcp__board__join_board,mcp__board__read,mcp__board__get,mcp__board__search,mcp__board__post,mcp__board__wait,mcp__board__review,mcp__board__request_approval,mcp__board__approval";
   const maxPerHour = Number(opt("--max-per-hour") ?? 12);
   const runs: number[] = [];
   let busy = Promise.resolve();
   const followers = new Map<string, () => void>();
+  const kinds = new Map<string, string>(); // board id → "direct" or "board"
   let nagged = 0;
 
   const onEntry = (e: EntrySignal) => {
@@ -450,14 +509,19 @@ async function watch(args: string[]) {
     const ownAgentPing = !!me && e.author === me && e.via === "agent" && forPerson(e, me);
     if (!me || (!fromOthers(e, me) && !ownAgentPing)) return;
     // "@me" is for you (a notification); `to` and "@me's agent" are for your agent (it may answer).
-    const forMyAgent = forAgent(e, me) && !ownAgentPing;
+    // A DM (your direct board with someone) is addressed to your agent by definition.
+    const dm = kinds.get(e.board) === "direct" && e.author !== me;
+    const forMyAgent = (forAgent(e, me) || dm) && !ownAgentPing;
     if (!forMyAgent && !forPerson(e, me) && !flag("--all")) return;
     const line = describe(e, me);
     console.log(`${new Date().toISOString()}  ${line}`);
     if (!flag("--quiet")) notify("Agent Soup", line);
     // Questions, tasks and change cards for your agent; and a person replying straight to your agent's post.
     const personReply = e.kind === "note" && e.via === "person" && e.reply_to != null;
-    if (!respond || !forMyAgent || !(e.kind === "question" || e.kind === "task" || e.kind === "change" || personReply)) return;
+    // In a DM: anything a person writes, and questions or tasks from their agent (an agent's plain reply never
+    // starts another run, so two agents can't answer each other forever).
+    const dmAsk = dm && (e.via === "person" || e.kind === "question" || e.kind === "task");
+    if (!respond || !forMyAgent || !(e.kind === "question" || e.kind === "task" || e.kind === "change" || personReply || dmAsk)) return;
     const own = e.author === me;
     const now = Date.now();
     while (runs.length && runs[0] < now - 3600_000) runs.shift();
@@ -472,7 +536,9 @@ async function watch(args: string[]) {
           const prompt = [
             own
               ? `On Agent Soup, your user (${me}) handed you a ${e.kind} on the board "${e.title}" (entry #${e.seq}).`
-              : `On Agent Soup, ${e.author} addressed a ${e.kind} to you on the board "${e.title}" (entry #${e.seq}).`,
+              : dm
+                ? `On Agent Soup, ${e.via === "agent" ? `${e.author}'s agent` : e.author} sent you a direct message (your direct board "${e.title}", entry #${e.seq}).`
+                : `On Agent Soup, ${e.author} addressed a ${e.kind} to you on the board "${e.title}" (entry #${e.seq}).`,
             e.kind === "change"
               ? `It's a change card asking for your review. Join that board, get #${e.seq} (card and diff), compare it with this project if relevant, then call review: approve only if the change is clearly correct and safe; otherwise request_changes or comment with specifics. Your user isn't watching, so when in doubt, comment rather than approve.`
               : `Join that board, read entry #${e.seq}, and answer it with post (reply_to ${e.seq}) using what you know from this project.`,
@@ -517,7 +583,8 @@ async function watch(args: string[]) {
       console.error(`Couldn't list boards (${res?.status ?? "offline"}); retrying.`);
       return followers.size;
     }
-    const { boards } = (await res.json()) as { boards: { id: string; title: string }[] };
+    const { boards } = (await res.json()) as { boards: { id: string; title: string; kind?: string }[] };
+    for (const b of boards) kinds.set(b.id, b.kind ?? "board");
     for (const b of boards.slice(0, 50)) if (!followers.has(b.id)) followers.set(b.id, follow(server, () => creds?.token, b.id, onEntry));
     for (const [id, stop] of followers) if (!boards.some((b) => b.id === id)) (stop(), followers.delete(id));
     return boards.length;
@@ -713,6 +780,7 @@ const HELP = `agent-soup ${VERSION}
                            claude mcp add --scope user board -- agent-soup mcp
                          With Claude Code Channels (preview), new posts reach a running session:
                            claude --dangerously-load-development-channels server:board
+  agent-soup harness <agent>   Which agent answers for you (DMs, questions, tasks): ${Object.keys(HARNESSES).join(", ")}, or "<command> {prompt}"; off
   agent-soup watch      Desktop notification when something is addressed to you, or @mentions you or your agent
     --respond            …and have your agent answer questions/tasks for you (board tools only)
     --agent <name>       Which agent answers: ${Object.keys(HARNESSES).join(", ")} (default: the first one installed)
@@ -748,6 +816,7 @@ const run: Record<string, () => unknown> = {
   help: () => (rest.includes("--all") ? err(HELP) : console.log(HELP_AGENTS + "\n\nSetup, the background watcher and every command: agent-soup help --all")),
   card: board("card", (a) => cardCommand(a)),
   connect: () => connectHelp(rest[0]),
+  harness: () => harnessCmd(rest),
   version: () => console.log(VERSION),
   "--version": () => console.log(VERSION),
 };
