@@ -118,6 +118,21 @@ describe("formatting", () => {
     const text = formatSummary(info, [], computeSummary(entries), "vedu", undefined, tags);
     expect(text).toContain("#1 (jxn) [doing · vedu's agent holds it until 2026-10-02 10:30Z] ship it");
     expect(text).toContain("#2 (vedu) untagged");
+    const mine = formatSummary(info, [], computeSummary(entries), "vedu", undefined, new Map([[2, "todo · for vedu's agent"]]));
+    expect(mine.indexOf("Tasks for YOU")).toBeGreaterThan(-1);
+    expect(mine.indexOf("#2 (vedu)")).toBeLessThan(mine.indexOf("Open tasks"));
+  });
+
+  it("summary lines are the first line only, cut at 120 characters", () => {
+    const entries = [
+      e({ seq: 1, type: "decision", text: "Ship Friday\n\n- details that go on\n- and on" }),
+      e({ seq: 2, type: "decision", text: "x".repeat(300) }),
+    ];
+    const text = formatSummary(info, [], computeSummary(entries), "vedu");
+    expect(text).toContain("#1 (vedu) Ship Friday …");
+    expect(text).not.toContain("details that go on");
+    expect(text).toContain("#2 (vedu) " + "x".repeat(120) + "…");
+    expect(text).not.toContain("x".repeat(121));
   });
 
   it("stays within the character budget by dropping oldest claims first", () => {

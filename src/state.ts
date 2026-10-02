@@ -95,14 +95,18 @@ function indent(s: string): string {
 
 /** Live task state shown next to a task in the summary, e.g. "[doing · jxn's agent holds it until 10:31Z]". */
 export type TaskTags = Map<number, string>;
+export const SUMMARY_LINE_CHARS = 120;
 
-function oneLine(e: Entry, max = 240, tags?: TaskTags): string {
-  const t = e.text.replace(/\s+/g, " ").trim();
+/** Summary lines are one line each: the entry's first line, cut at `max` characters. `get` has the rest. */
+function oneLine(e: Entry, max = SUMMARY_LINE_CHARS, tags?: TaskTags): string {
+  const lines = e.text.split("\n").map((l) => l.trim()).filter(Boolean);
+  const first = (lines[0] ?? "").replace(/\s+/g, " ");
+  const t = lines.length > 1 && first.length <= max ? first + " …" : first;
   const who = e.to ? `${authorLabel(e)} → ${e.to}` : authorLabel(e);
   const extra = e.artifact_name ? ` [file: ${e.artifact_name}]` : "";
   const flag = screenText(e.text) ? "⚠ flagged · " : "";
   const tag = tags?.get(e.seq) ? `[${tags.get(e.seq)}] ` : "";
-  return `#${e.seq} (${who})${extra} ${tag}${flag}${t.length > max ? t.slice(0, max) + "…" : t}`;
+  return `#${e.seq} (${who})${extra} ${tag}${flag}${t.length > max + 2 ? t.slice(0, max) + "…" : t}`;
 }
 
 /** Text summary for agents, trimmed to `maxChars` by dropping the oldest claims, then oldest decisions. */
@@ -122,7 +126,7 @@ export function formatSummary(
     const section = (title: string, items: Entry[], empty: string) => {
       lines.push("", `${title}:`);
       if (!items.length) lines.push(`  ${empty}`);
-      for (const e of items) lines.push("  " + oneLine(e, 240, tags));
+      for (const e of items) lines.push("  " + oneLine(e, SUMMARY_LINE_CHARS, tags));
     };
     // The reader is `you`'s agent: "@you's agent" and `to` are for it; "@you" is for its user, so it should pass those on.
     const forYou = s.openQuestions.filter((e) => forAgent(e, you));
@@ -130,12 +134,15 @@ export function formatSummary(
     if (forYou.length) section("Questions waiting for YOU", forYou, "");
     if (forUser.length) section(`Questions for your user (${you}) — tell them`, forUser, "");
     section("Open questions", s.openQuestions.filter((e) => !forAgent(e, you) && !forPerson(e, you)), "none");
-    const tasksForYou = s.openTasks.filter((e) => forAgent(e, you));
+    // Assigned with the task tool shows up in the tag as "for <you>'s agent".
+    const assignedToYou = (e: Entry) => !!tags?.get(e.seq)?.split(" · ").includes(`for ${you}'s agent`);
+    const tasksForYou = s.openTasks.filter((e) => forAgent(e, you) || assignedToYou(e));
     if (tasksForYou.length) section("Tasks for YOU", tasksForYou, "");
-    section("Open tasks", s.openTasks.filter((e) => !forAgent(e, you)), "none");
+    section("Open tasks", s.openTasks.filter((e) => !forAgent(e, you) && !assignedToYou(e)), "none");
     section("Decisions", s.decisions, "none");
     section("Recent claims", s.claims, "none");
     section("Files", s.artifacts, "none");
+    lines.push("", "(One line per entry; `get` an entry number for the full text.)");
     return lines.join("\n");
   };
   let out = render();
