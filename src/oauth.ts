@@ -33,21 +33,27 @@ export function authorizationServer(origin: string) {
   };
 }
 
-/** Redirects must be https, or http on the same machine (native apps); exact match with what was registered. */
-function okRedirect(u: string): boolean {
+/**
+ * Redirects must be https, http on the same machine, or an app's own link (cursor://, vscode://: native apps,
+ * RFC 8252); exact match with what was registered. PKCE is required, so a code sent to the wrong app is useless.
+ */
+export function okRedirect(u: string): boolean {
+  let x: URL;
   try {
-    const x = new URL(u);
-    if (x.hash || x.username || x.password) return false;
-    if (x.protocol === "https:") return true;
-    return x.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(x.hostname);
+    x = new URL(u);
   } catch {
-    return /^[a-z][a-z0-9+.-]*:\/\/[^\s]+$/i.test(u) && !/^(javascript|data|file|vbscript):/i.test(u); // custom app schemes
+    return false;
   }
+  if (x.hash || x.username || x.password || /\s/.test(u)) return false;
+  if (x.protocol === "https:") return true;
+  if (x.protocol === "http:") return ["localhost", "127.0.0.1", "[::1]"].includes(x.hostname);
+  // App links: a real scheme name followed by "://", never one a browser would run or read from disk.
+  return /^[a-z][a-z0-9+.-]*:\/\/./i.test(u) && !/^(javascript|data|file|vbscript|blob|about|chrome|ws|wss|ftp):/i.test(u);
 }
 
 export async function register(env: Env, body: { client_name?: unknown; redirect_uris?: unknown }) {
   const uris = Array.isArray(body.redirect_uris) ? body.redirect_uris.filter((u): u is string => typeof u === "string").slice(0, 10) : [];
-  if (!uris.length || !uris.every(okRedirect)) throw new OAuthError("invalid_redirect_uri", "redirect_uris must be https (or http://localhost) URLs.");
+  if (!uris.length || !uris.every(okRedirect)) throw new OAuthError("invalid_redirect_uri", "redirect_uris must be https, http://localhost or an app link (like cursor://).");
   const name = (typeof body.client_name === "string" ? body.client_name : "An MCP client").replace(/[\u0000-\u001f]/g, "").trim().slice(0, 60) || "An MCP client";
   const client_id = randomSecret("oc_", 16);
   await env.DB.prepare(`INSERT INTO oauth_clients (client_id, name, redirect_uris, created_at) VALUES (?, ?, ?, ?)`).bind(client_id, name, JSON.stringify(uris), Date.now()).run();

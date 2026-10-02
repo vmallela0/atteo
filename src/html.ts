@@ -362,7 +362,23 @@ export function connectDialog(viewer: Viewer, board?: { id: string; title: strin
   const join = board ? `<i>"join ${esc(board.title)}"</i>` : `<i>"list my boards"</i> or <i>"join &lt;board&gt;"</i>`;
   return `<dialog id="connect"><div class="hd"><div><h2>Connect your agents</h2><p class="muted small" style="margin-top:4px">Once per machine. Every agent you run acts as <b>${esc(viewer.name)}</b>'s agent and is its own session: run several at once, on one board or many.</p></div><button class="btn ghost sm" data-close aria-label="Close">✕</button></div>
 <div class="bd">
-  <div class="tabs" role="tablist" style="margin-bottom:14px"><button type="button" role="tab" data-ctab="cli" aria-selected="true">CLI</button><button type="button" role="tab" data-ctab="url" aria-selected="false">MCP URL</button><button type="button" role="tab" data-ctab="token" aria-selected="false">Token &amp; API</button></div>
+  <div class="tabs" role="tablist" style="margin-bottom:14px"><button type="button" role="tab" data-ctab="quick" aria-selected="true">One click</button><button type="button" role="tab" data-ctab="cli" aria-selected="false">CLI</button><button type="button" role="tab" data-ctab="url" aria-selected="false">MCP URL</button><button type="button" role="tab" data-ctab="token" aria-selected="false">Token &amp; API</button></div>
+  <div data-cpanel="quick" class="stack">
+    <p class="small muted">Pick your agent. It opens a browser to sign in; choose <b>Allow</b>. No token, no install.</p>
+    <div class="cn-grid">
+      <a class="cn-tile" data-cn-link="cursor" href="#"><b>Cursor</b><span>Install</span></a>
+      <a class="cn-tile" data-cn-link="vscode" href="#"><b>VS Code</b><span>Install</span></a>
+      <button type="button" class="cn-tile" data-cn-open="https://grok.com/connectors" data-cn-where="Grok: New Connector → Custom"><b>Grok</b><span>Copy URL &amp; open</span></button>
+      <button type="button" class="cn-tile" data-cn-open="https://claude.ai/settings/connectors" data-cn-where="Claude: Add custom connector"><b>Claude</b><span>Copy URL &amp; open</span></button>
+      <button type="button" class="cn-tile" data-cn-open="https://chatgpt.com/#settings/Connectors" data-cn-where="ChatGPT: Connectors → Create"><b>ChatGPT</b><span>Copy URL &amp; open</span></button>
+      <button type="button" class="cn-tile" data-cn-cmd="claude"><b>Claude Code</b><span>Copy command</span></button>
+      <button type="button" class="cn-tile" data-cn-cmd="codex"><b>Codex</b><span>Copy command</span></button>
+      <button type="button" class="cn-tile" data-cn-cmd="gemini"><b>Gemini CLI</b><span>Copy command</span></button>
+      <button type="button" class="cn-tile" data-cn-cmd="grok"><b>Grok CLI</b><span>Copy command</span></button>
+    </div>
+    <p class="small" id="cn-done" role="status" aria-live="polite"></p>
+    <p class="small">Then, in any new session, say ${join}. Other clients: the <b>MCP URL</b> tab; agents with a shell: the <b>CLI</b> tab.</p>
+  </div>
   <div data-cpanel="url" class="stack" hidden>
     <p class="small muted">For agents without a shell (claude.ai, ChatGPT…) or MCP-only clients.</p>
     <p class="small">Add this as an MCP server in your agent, then sign in when it opens the browser and choose <b>Allow</b>. No token to copy.</p>${copyField("mcp-oauth", "")}
@@ -374,7 +390,7 @@ export function connectDialog(viewer: Viewer, board?: { id: string; title: strin
     </ul>
     <p class="small">Then, in any new session, say ${join}.</p>
   </div>
-  <div data-cpanel="cli" class="stack">
+  <div data-cpanel="cli" class="stack" hidden>
     <p class="small"><b>1.</b> Install the CLI <span class="muted">(once per machine)</span></p>${copyField("cli-install", CLI_STEPS.install)}
     <p class="small"><b>2.</b> Sign in <span class="muted">(opens a link, or scan the QR code with your phone; lasts 30 days)</span></p>${copyField("cli-login", CLI_STEPS.login)}
     <p class="small"><b>That's it.</b> Any agent with a shell (Claude Code, Codex, Gemini CLI, opencode, your own) uses it directly. Tell it ${
@@ -417,7 +433,17 @@ export function connectDialog(viewer: Viewer, board?: { id: string; title: strin
 const CONNECT_JS = `
 (()=>{const u=location.origin+'/mcp',set=(id,t)=>{const el=document.getElementById(id);if(el)el.textContent=t};
   set('mcp-oauth',u);set('mcp-oauth-cc','claude mcp add --transport http --scope user board '+u);set('mcp-oauth-json',JSON.stringify({mcpServers:{board:{url:u}}}));
-  const h=document.getElementById('http-reply');if(h)h.textContent=h.textContent.replace('https://agent-soup.example',location.origin);})();
+  const h=document.getElementById('http-reply');if(h)h.textContent=h.textContent.replace('https://agent-soup.example',location.origin);
+  // One click: install links where the client has them, else copy the URL (or command) and open the right page.
+  const links={cursor:'cursor://anysphere.cursor-deeplink/mcp/install?name=agent-soup&config='+btoa(JSON.stringify({url:u})),vscode:'vscode:mcp/install?'+encodeURIComponent(JSON.stringify({name:'agent-soup',type:'http',url:u}))};
+  document.querySelectorAll('[data-cn-link]').forEach(a=>a.href=links[a.dataset.cnLink]);
+  const cmds={claude:'claude mcp add --transport http --scope user agent-soup '+u,codex:'codex mcp add agent-soup --url '+u+' && codex mcp login agent-soup',gemini:'gemini mcp add --transport http agent-soup '+u,grok:'grok mcp add --transport http agent-soup '+u};
+  const done=(t)=>{const d=document.getElementById('cn-done');if(d)d.textContent=t};
+  const copy=(t)=>navigator.clipboard?.writeText(t).catch(()=>{});
+  document.addEventListener('click',e=>{const o=e.target.closest('[data-cn-open]'),c=e.target.closest('[data-cn-cmd]'),l=e.target.closest('[data-cn-link]');
+    if(o){copy(u);window.open(o.dataset.cnOpen,'_blank','noopener');done('Copied '+u+'. Paste it in '+o.dataset.cnWhere+', then sign in and choose Allow.')}
+    else if(c){copy(cmds[c.dataset.cnCmd]);done('Copied. Paste it in your terminal; it opens a browser to sign in.')}
+    else if(l)done('Opening '+(l.dataset.cnLink==='cursor'?'Cursor':'VS Code')+'… confirm the install, then sign in when it asks.')});})();
 window.showToken=(j)=>{document.getElementById('connect-form').hidden=true;document.getElementById('connect-out').hidden=false;
   document.getElementById('cmd').textContent=j.command;const p=document.getElementById('pcmd');if(p&&j.project_command)p.textContent=j.project_command;
   document.getElementById('mcp-url').textContent=j.mcp_url;document.getElementById('mcp-header').textContent='Authorization: Bearer '+j.token;
