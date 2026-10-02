@@ -45,6 +45,7 @@ import type { Entry, Env } from "./types";
 import { FAVICON_SVG, page, renderText } from "./ui";
 import { BOARD_RE, connectCommand, esc, newBoardId, normalizeUser, parseBoardMeta } from "./util";
 
+import * as Sentry from "@sentry/cloudflare";
 export { Board } from "./board";
 import { MAX_IMAGE } from "./board";
 
@@ -313,7 +314,7 @@ async function opsData(env: Env): Promise<AdminData> {
 
 // ---------- router ----------
 
-export default {
+const handler = {
   /** Every 5 minutes: memberships whose time ran out are removed (access checks already ignore them). */
   async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     // Boards with a retention period: blank what's older.
@@ -1547,6 +1548,7 @@ export default {
     } catch (e) {
       console.error("request failed", path, e);
       ctx.waitUntil(usage.recordError(env, `${method} ${path}`, e).catch(() => {}));
+      Sentry.captureException(e, { tags: { route: usage.routeKey(`${method} ${path}`) } });
       const msg = e instanceof Error ? e.message : String(e);
       // Cloudflare's daily storage allowance ran out: say so plainly, and when it comes back.
       if (/Exceeded allowed (rows|.*) in Durable Objects|exceeded.*free tier/i.test(msg)) {
@@ -1558,6 +1560,12 @@ export default {
     }
   },
 } satisfies ExportedHandler<Env>;
+
+// Errors also go to Sentry when SENTRY_DSN is set (prod); with no DSN the SDK stays off (dev/CI). No PII (the default).
+export default Sentry.withSentry(
+  (env: Env) => ({ dsn: env.SENTRY_DSN, release: env.CF_VERSION_METADATA?.id, tracesSampleRate: 0 }),
+  handler,
+);
 
 const STUN_ONLY = [{ urls: "stun:stun.cloudflare.com:3478" }, { urls: "stun:stun.l.google.com:19302" }];
 
