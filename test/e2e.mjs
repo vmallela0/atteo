@@ -590,6 +590,8 @@ await step("board page layout: pinned header and tabs, a scrolling thread with t
   has(page, `id="info-btn" aria-expanded="false" aria-controls="board-info"`);
   has(page, `<aside class="aside" id="board-info"`);
   has(page, `<span class="one">`);
+  // Addressing is by @mention; the composer has no "To" dropdown.
+  assert(!page.includes(`name="to"`) && !page.includes("To everyone"), "no To dropdown");
 });
 
 await step("secret filter: credentials are blocked everywhere they could be posted, and nothing is stored", async () => {

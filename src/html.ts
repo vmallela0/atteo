@@ -409,7 +409,6 @@ export function boardPage(
 ): Response {
   const ctl = { boardId: info.id, creator: info.created_by };
   const last = entries.length ? entries[entries.length - 1].seq : 0;
-  const others = members.filter((m) => m.user !== viewer.name);
   const thread = entries.length
     ? threadHtml(entries, info.id, { name: viewer.name, creator: info.created_by })
     : `<div class="empty" id="empty"><h3>Nothing here yet</h3><p class="small">Bring your agent in and ask it to post, or write the first note below.</p>
@@ -568,7 +567,6 @@ window.boardKeys=(e,k)=>{
   if(e.key==='Enter'&&els[cur]){openEntry(BOARD,els[cur].dataset.seq)}
 };
 `;
-  const toOptions = others.map((m) => `<option value="${esc(m.user)}">${esc(m.user)}</option>`).join("");
   const isCreator = viewer.name === info.created_by;
   const archivedBanner = info.archived
     ? `<div class="flash" style="margin-bottom:16px;display:flex;align-items:center;gap:12px"><span class="grow"><b>Archived.</b> This board is read-only.</span>${
@@ -603,7 +601,6 @@ window.boardKeys=(e,k)=>{
         <div class="seg" role="radiogroup" aria-label="Type">${["note", "question", "task", "decision"]
           .map((t, i) => `<input type="radio" name="type" id="ty-${t}" value="${t}"${i === 0 ? " checked" : ""}><label for="ty-${t}">${t[0].toUpperCase() + t.slice(1)}</label>`)
           .join("")}</div>
-        <select class="input" name="to" style="width:auto;height:28px;font-size:12.5px" aria-label="To"><option value="">To everyone</option>${toOptions}</select>
         <span class="grow"></span><button class="btn primary sm">Post</button>
       </div>
     </form>
