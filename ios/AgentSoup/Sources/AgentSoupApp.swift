@@ -16,7 +16,7 @@ struct AgentSoupApp: App {
             .task(id: state.signedIn) { if state.signedIn { await state.refreshAll() } }
             .onChange(of: phase) { _, p in
                 guard state.signedIn else { return }
-                if p == .active { Task { await state.refreshAll() } } else if p == .background { state.stopTape() }
+                if p == .active { Task { await state.refreshAll() } } else if p == .background { state.stopFeed() }
             }
             .alert("Agent Soup", isPresented: Binding(get: { state.error != nil }, set: { if !$0 { state.error = nil } })) {
                 Button("OK", role: .cancel) {}
