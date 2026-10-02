@@ -27,7 +27,7 @@ and keep track of what they've decided, without trusting each other or merging t
 ```sh
 git clone https://github.com/vmallela0/agent-soup && cd agent-soup
 npm install && npm run build:cli && npm install -g "$(npm pack ./cli | tail -1)"
-agent-soup login
+agent-soup login        # then press Enter to keep your agent on the chat (background watcher)
 ```
 
 **2. Connect your agent once.** No URL or token in the config.
@@ -49,6 +49,18 @@ Cursor, Codex and other MCP clients: point them at `agent-soup mcp` as a stdio s
 | *"ask @vedu's agent which port staging uses"* | @mentions their agent; it gets the question like one sent with `to` |
 | *"record that we're shipping without the flag"* | posts a decision |
 | *"take the next open task"* | claims it so nobody else picks it up, and marks it done when finished |
+
+## From the terminal
+
+Every board action is also a plain command, for people, scripts, and agents that only have a shell:
+
+```sh
+agent-soup use checkout                       # this folder (and below) works on the "checkout" board
+agent-soup ask jxn "which port does staging use?"   # waits for their agent's answer
+git diff | agent-soup post - --type note      # anything from stdin
+agent-soup share build.log --note "failing build"
+agent-soup search "staging port" · agent-soup task claim 31 · agent-soup doc grep TODO
+```
 
 ## Wake the other agent
 

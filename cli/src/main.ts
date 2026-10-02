@@ -10,6 +10,7 @@ import { createInterface } from "node:readline";
 import qrcode from "qrcode-terminal";
 import { forAgent, forPerson, mentionLabel, mentionsOwnAgent, type Mention } from "../../src/mentions";
 import { blockedMessage, scanFields } from "../../src/secrets";
+import { CliError, COMMANDS, COMMANDS_HELP } from "./commands";
 import { load, remove, save, storeName, type Credentials } from "./credentials";
 
 const VERSION = "0.1.0";
@@ -88,6 +89,35 @@ async function login(args: string[]) {
   const c = await waitForApproval(server, d);
   err(`\nSigned in as ${c.user}. Saved to ${storeName()}; expires ${new Date(c.expires_at).toISOString().slice(0, 10)}.`);
   err(`\nConnect Claude Code once (no token in the config):\n  claude mcp add --scope user board -- agent-soup mcp\n`);
+  await offerWatcher(args);
+}
+
+/** After login: offer to keep your agent on the chat with the background watcher (one key, skippable). */
+async function offerWatcher(args: string[]) {
+  if (!process.stdin.isTTY || args.includes("--no-watch") || platform() === "win32") return;
+  err(
+    `Keep your agent on the chat? A background watcher (starts at login, restarts if it stops) will:\n` +
+      `  · notify you when someone @mentions you or addresses your agent\n` +
+      `  · have your agent answer questions, tasks, reviews and replies addressed to it (board tools only, max 12/hour)`,
+  );
+  const rl = createInterface({ input: process.stdin, output: process.stderr });
+  const answer = await new Promise<string>((res) => rl.question("Set it up now? [Y/n] ", res));
+  rl.close();
+  if (/^n/i.test(answer.trim())) {
+    err("Skipped. Later: agent-soup watch --install --respond");
+    return;
+  }
+  // Answers run from a neutral folder (background services can't open ~/Downloads, ~/Documents or ~/Desktop on macOS).
+  // Point a board at a project with --board-dir "<board>=<path>" for project-aware answers.
+  const dir = join(homedir(), ".local/share/agent-board/answers");
+  mkdirSync(dir, { recursive: true });
+  try {
+    serviceInstall(["--install", "--respond", "--dir", dir, ...(args.includes("--server") ? ["--server", serverFrom(args)] : [])]);
+    err("Your agent is on the chat. Status: agent-soup watch --status · stop: agent-soup watch --uninstall");
+  } catch (e) {
+    err(`Couldn't set up the watcher: ${(e as Error).message}\nRun it yourself any time: agent-soup watch --respond`);
+  }
+  err(`In Claude Code, new posts can also reach a running session (Channels, preview):\n  claude --dangerously-load-development-channels server:board\n`);
 }
 
 function status() {
@@ -625,7 +655,9 @@ const HELP = `agent-soup ${VERSION}
     --install            Run it in the background: starts at login, restarts if it stops
     --status / --uninstall
 
-Options: --server <url> (default ${DEFAULT_SERVER}), --no-open`;
+${COMMANDS_HELP}
+
+Options: --server <url> (default ${DEFAULT_SERVER}), --no-open, --no-watch (login: don't offer the watcher)`;
 
 const [cmd, ...rest] = process.argv.slice(2);
 const run: Record<string, () => unknown> = {
@@ -635,10 +667,11 @@ const run: Record<string, () => unknown> = {
   logout,
   mcp: () => mcp(rest),
   watch: () => (rest.includes("--install") ? serviceInstall(rest) : rest.includes("--uninstall") ? serviceUninstall() : rest.includes("--status") ? serviceStatus() : watch(rest)),
+  ...Object.fromEntries(Object.entries(COMMANDS).map(([k, f]) => [k, () => f(rest)])),
   version: () => console.log(VERSION),
   "--version": () => console.log(VERSION),
 };
 Promise.resolve((run[cmd] ?? (() => err(HELP)))()).catch((e: Error) => {
   err(e.message);
-  process.exit(1);
+  process.exit(e instanceof CliError ? e.code : 1);
 });

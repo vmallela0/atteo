@@ -205,5 +205,73 @@ await step("watch: '@you' notifies you; '@you's agent' starts your agent, even w
   assert(out.includes(`You posted a task mentioning your agent`), out);
 });
 
+// Board commands: run the CLI like a person or a shell-only agent would.
+function cli(args, { cred = credA, cwd = dir, input, env = {} } = {}) {
+  return new Promise((resolve) => {
+    const p = spawn("node", [CLI, ...args], { cwd, env: { ...process.env, AGENT_BOARD_CREDENTIALS_FILE: cred, AGENT_BOARD_SERVER: BASE, XDG_CONFIG_HOME: join(dir, "cfg-cmds"), ...env } });
+    let out = "";
+    let errOut = "";
+    p.stdout.on("data", (d) => (out += d));
+    p.stderr.on("data", (d) => (errOut += d));
+    if (input != null) p.stdin.end(input);
+    else p.stdin.end();
+    p.on("close", (code) => resolve({ code, out, err: errOut }));
+  });
+}
+
+await step("board commands: use, post, read, ask (waits for the answer), search, share, task, doc grep, local secret filter", async () => {
+  const proj = join(dir, "proj");
+  (await import("node:fs")).mkdirSync(join(proj, "sub"), { recursive: true });
+  let r = await cli(["read"], { cwd: proj });
+  assert(r.code === 1 && r.err.includes("No board chosen"), r.err);
+  r = await cli(["use", board], { cwd: proj });
+  assert(r.code === 0 && r.out.includes(`e2e cli ${run}`), r.out + r.err);
+  r = await cli(["use"], { cwd: join(proj, "sub") }); // inherited by subfolders
+  assert(r.out.includes(board), r.out);
+  r = await cli(["read"], { cwd: proj });
+  assert(r.code === 0 && r.out.includes("Members:"), r.out + r.err);
+  r = await cli(["post", "hello from the cli", run], { cwd: proj });
+  assert(r.code === 0 && /Posted #\d+/.test(r.out), r.out + r.err);
+  r = await cli(["post", "-"], { cwd: proj, input: `piped text ${run}` });
+  assert(r.code === 0, r.out + r.err);
+  // B posts; A's stale post is refused with exit code 2 and what was missed.
+  await tool(tokB, board, "read", {});
+  await tool(tokB, board, "post", { type: "note", text: `B was here ${run}` });
+  r = await cli(["post", "talking over B"], { cwd: proj });
+  assert(r.code === 2 && r.err.includes(`B was here ${run}`), `${r.code} ${r.err}`);
+  // ask: B's agent answers while A waits.
+  const asking = cli(["ask", B, `which port ${run}?`, "--wait", "40"], { cwd: proj });
+  let q = 0;
+  for (let i = 0; i < 40 && !q; i++) {
+    await sleep(300);
+    const s = await tool(tokB, board, "search", { query: `which port ${run}` });
+    q = Number(s.match(/#(\d+) question/)?.[1] ?? 0);
+  }
+  assert(q, "question posted");
+  await tool(tokB, board, "read", {});
+  await tool(tokB, board, "post", { type: "note", reply_to: q, text: `port 8443 ${run}` });
+  r = await asking;
+  assert(r.code === 0 && r.out.includes(`port 8443 ${run}`), r.out + r.err);
+  r = await cli(["search", "piped", "text", run], { cwd: proj });
+  assert(r.out.includes(`piped text ${run}`), r.out);
+  const file = join(dir, `notes-${run}.md`);
+  writeFileSync(file, `# notes\nTODO ship ${run}\n`);
+  await cli(["read"], { cwd: proj });
+  r = await cli(["share", file, "--note", "my notes"], { cwd: proj });
+  assert(r.code === 0, r.out + r.err);
+  r = await cli(["doc", "grep", "todo"], { cwd: proj });
+  assert(r.out.includes(`notes-${run}.md:2: TODO ship ${run}`), r.out + r.err);
+  await cli(["read"], { cwd: proj });
+  const t = (await cli(["post", "--type", "task", `write docs ${run}`], { cwd: proj })).out.match(/#(\d+)/)[1];
+  r = await cli(["task", "claim", t], { cwd: proj });
+  assert(r.out.includes(`#${t} [doing]`), r.out + r.err);
+  r = await cli(["task", "done", t, "shipped"], { cwd: proj });
+  assert(r.out.includes(`#${t} [done]`), r.out + r.err);
+  // Secrets never leave the machine.
+  const fake = ["ghp", "_", "Zx9Yw8Vu7Ts6Rq5Po4Nm3Lk2Jh1Gf0Ed9Cb8A"].join("");
+  r = await cli(["post", `token ${fake}`], { cwd: proj });
+  assert(r.code === 1 && r.err.includes("nothing was sent"), r.err);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
