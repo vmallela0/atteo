@@ -1,5 +1,6 @@
 // Pages. Server-rendered with the design system in ui.ts; small inline scripts for live updates.
 
+import { PLANS, PRICES, type PlanState } from "./billing";
 import { boardMeta, type BoardRow, type InviteRow, type Invitation, type UserRow } from "./registry";
 import type { TokenRow } from "./auth";
 import { authorLabel, computeSummary, retractedSet, type Summary } from "./state";
@@ -1106,7 +1107,32 @@ export function devicePage(viewer: Viewer, side: SideBoard[], code: string | nul
 
 // ---------- account ----------
 
-export function mePage(viewer: Viewer, side: SideBoard[], tokens: TokenRow[]): Response {
+/** Plans, in one glance: only board creators ever pay; people they invite join free. */
+function billingSection(plan: PlanState, enabled: boolean): string {
+  const pro = plan.plan === "pro";
+  const status = pro
+    ? plan.customer
+      ? `Pro${plan.renews_at ? ` · ${plan.cancel_at_end ? "ends" : "renews"} ${new Date(plan.renews_at).toISOString().slice(0, 10)}` : ""}${plan.status && plan.status !== "active" ? ` · ${esc(plan.status)}` : ""}`
+      : "Pro (included for operators)"
+    : "Free";
+  const tier = (name: string, price: string, lines: string[], cur: boolean, cta = "") => `<div class="plan${cur ? " cur" : ""}"><div class="row" style="justify-content:space-between"><b>${name}</b>${cur ? `<span class="badge">Current</span>` : ""}</div>
+<div class="plan-price">${price}</div><ul>${lines.map((l) => `<li>${l}</li>`).join("")}</ul>${cta}</div>`;
+  const upgrade = enabled
+    ? `<div class="row" style="gap:6px;flex-wrap:wrap"><button class="btn primary sm" data-checkout="month">Upgrade · ${PRICES.month.label}</button><button class="btn sm" data-checkout="year">${PRICES.year.label} <span class="faint">(2 months free)</span></button></div>`
+    : `<p class="xs faint">Billing isn't enabled on this server.</p>`;
+  return `<div class="section-title" style="margin-top:32px" id="billing"><div><h2>Plan</h2><p class="small muted" style="margin-top:4px">You're on <b>${status}</b>. Only people who create boards pay; everyone they invite joins free.</p></div>
+${pro && plan.customer ? `<button class="btn sm" data-portal>Manage billing</button>` : ""}</div>
+<div class="plans">${tier("Free", "$0", [`${PLANS.free.boards} active boards you create`, `Up to ${PLANS.free.members} people per board`, "Every feature, agents included"], !pro)}
+${tier("Pro", `$10<span class="small muted"> / month</span>`, ["Unlimited boards", `Up to ${PLANS.pro.members} people per board`, "Everything in Free"], pro, pro ? "" : upgrade)}</div>`;
+}
+
+const BILLING_JS = `
+document.addEventListener('click',async e=>{const b=e.target.closest('[data-checkout],[data-portal]');if(!b)return;b.disabled=true;
+  const r=await fetch(b.dataset.checkout?'/api/billing/checkout':'/api/billing/portal',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({interval:b.dataset.checkout})});
+  const j=await r.json().catch(()=>({}));if(j.url){location.href=j.url;return}b.disabled=false;toast(j.error||'Could not open billing')});
+if(new URLSearchParams(location.search).get('billing')==='done')toast('Thanks! Your plan updates in a few seconds.');`;
+
+export function mePage(viewer: Viewer, side: SideBoard[], tokens: TokenRow[], plan: PlanState = { plan: "free", status: null, renews_at: null, cancel_at_end: false, customer: null }, billingEnabled = false): Response {
   const rows = tokens.length
     ? tokens
         .map(
@@ -1136,8 +1162,9 @@ export function mePage(viewer: Viewer, side: SideBoard[], tokens: TokenRow[]): R
 <div class="card pad" style="margin-bottom:16px"><div class="small" style="font-weight:500;color:var(--ink);margin-bottom:8px">Reconnect your agent</div>
 <p class="xs muted" style="margin-bottom:8px">Login expired, new machine, or moving off an old token: run this, approve in the browser, and start a new session.</p>${copyField("me-reconnect", CLI_STEPS.reconnect)}</div>
 <div class="list scroll-x"><table class="tbl"><thead><tr><th>Token</th><th>Last used</th><th>Status</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+${billingSection(plan, billingEnabled)}
 ${connectDialog(viewer)}`,
-    script: CONNECT_JS + `window.revoked=()=>location.reload();`,
+    script: CONNECT_JS + `window.revoked=()=>location.reload();` + BILLING_JS,
   });
 }
 

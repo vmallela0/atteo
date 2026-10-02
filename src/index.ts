@@ -1,5 +1,6 @@
 // Worker entry: MCP endpoint, sign-in, web pages, JSON API, and the operator console (/_ops).
 
+import * as billing from "./billing";
 import { blockedMessage, scanFields } from "./secrets";
 import * as inbox from "./inbox";
 import * as auth from "./auth";
@@ -95,7 +96,9 @@ async function canSee(c: Ctx, boardId: string): Promise<boolean> {
   return !!c.viewer && (await registry.isMember(c.env, boardId, c.viewer.name));
 }
 
-async function createBoard(env: Env, title: string, user: string) {
+/** Plan limits apply to people (origin given); the ops API creates boards without them. */
+async function createBoard(env: Env, title: string, user: string, origin?: string) {
+  if (origin) await billing.checkCanCreateBoard(env, user, origin);
   const id = newBoardId();
   const info = await boardStub(env, id).init(id, title, user);
   await registry.recordBoard(env, info);
@@ -321,10 +324,15 @@ export default {
         const title = String((await request.formData()).get("title") ?? "").trim().slice(0, 120);
         if (!title) return redirect("/?new=1");
         try {
-          const info = await createBoard(env, title, viewer.name);
+          const info = await createBoard(env, title, viewer.name, url.origin);
           return redirect(`/b/${info.id}`);
         } catch (e) {
-          return messagePage("Board not created", e instanceof Error ? e.message : String(e), { viewer, status: 400, action: { href: "/?new=1", label: "Try again" } });
+          const plan = e instanceof billing.BillingError;
+          return messagePage(plan ? "Free plan limit" : "Board not created", e instanceof Error ? e.message.replace(/: https?:\S+$/, ".") : String(e), {
+            viewer,
+            status: plan ? 402 : 400,
+            action: plan ? { href: "/me#billing", label: "See plans" } : { href: "/?new=1", label: "Try again" },
+          });
         }
       }
 
@@ -367,10 +375,34 @@ export default {
         return json({ ok: true, read: n });
       }
 
+      // ---- billing: Stripe Checkout and portal (hosted), webhook keeps plans in sync ----
+      if (path === "/stripe/webhook" && method === "POST") {
+        const raw = await request.text();
+        if (!(await billing.verifySignature(raw, request.headers.get("stripe-signature"), env.STRIPE_WEBHOOK_SECRET ?? ""))) return json({ error: "bad signature" }, 400);
+        try {
+          return json({ ok: true, applied: await billing.applyEvent(env, JSON.parse(raw)) });
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+        }
+      }
+      if ((path === "/api/billing/checkout" || path === "/api/billing/portal") && method === "POST") {
+        if (!viewer) return needLogin();
+        const body = (await request.json().catch(() => ({}))) as { interval?: string };
+        try {
+          const to =
+            path === "/api/billing/portal"
+              ? await billing.portalUrl(env, viewer.name, url.origin)
+              : await billing.checkoutUrl(env, viewer.name, body.interval === "year" ? "year" : "month", url.origin);
+          return json({ url: to });
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+        }
+      }
+
       if (path === "/me" && method === "GET") {
         if (!viewer) return needLogin();
-        const [side, tokens] = await Promise.all([sideBoards(env, viewer.name), auth.listTokens(env, viewer.name)]);
-        return mePage(viewer, side, tokens);
+        const [side, tokens, plan] = await Promise.all([sideBoards(env, viewer.name), auth.listTokens(env, viewer.name), billing.planOf(env, viewer.name)]);
+        return mePage(viewer, side, tokens, plan, !!env.STRIPE_SECRET_KEY);
       }
 
       if (path === OPS_PATH && method === "GET") {
@@ -805,7 +837,12 @@ export default {
         if (!viewer) return needLogin();
         const me = await registry.userByName(env, viewer.name);
         if (!me) return needLogin();
-        const ok = m[2] === "accept" ? await registry.acceptInvitation(env, me, m[1]) : await registry.declineInvitation(env, me, m[1]);
+        let ok: boolean;
+        try {
+          ok = m[2] === "accept" ? await registry.acceptInvitation(env, me, m[1], url.origin) : await registry.declineInvitation(env, me, m[1]);
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, 402);
+        }
         if (!ok) return json({ error: "No open invitation to that board for your verified email." }, 404);
         return json({ ok: true, board: m[1], message: m[2] === "accept" ? "Joined" : "Declined" });
       }

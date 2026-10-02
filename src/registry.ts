@@ -1,5 +1,6 @@
 // D1 directory: which boards exist, who uses them, and invites. Kept in step with the boards by the Worker.
 
+import { checkCanAddMember } from "./billing";
 import type { Env } from "./types";
 
 export interface BoardRow {
@@ -238,8 +239,9 @@ export async function invitationsFor(env: Env, user: FullUser): Promise<Invitati
 }
 
 /** Accepts the user's open invitation(s) to a board: adds them as a member. Returns false if there was none. */
-export async function acceptInvitation(env: Env, user: FullUser, boardId: string): Promise<boolean> {
+export async function acceptInvitation(env: Env, user: FullUser, boardId: string, origin = ""): Promise<boolean> {
   if (!(await invitationsFor(env, user)).some((i) => i.board_id === boardId)) return false;
+  await checkCanAddMember(env, boardId, origin); // the board's creator's plan caps its members
   await addMember(env, boardId, user.name);
   await env.DB.prepare(
     `UPDATE invites SET accepted_at = ?, accepted_by = ? WHERE board_id = ? AND lower(email) = lower(?) AND accepted_at IS NULL AND declined_at IS NULL`,

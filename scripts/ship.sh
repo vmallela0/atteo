@@ -30,7 +30,9 @@ for i in $(seq 1 120); do
 done
 echo "live after $(( $(date +%s) - start ))s"
 wait $cleanup || true
-export ADMIN_KEY BASE
+# The e2e billing step signs a test webhook with the same secret Stripe uses.
+STRIPE_WEBHOOK_SECRET="${STRIPE_WEBHOOK_SECRET:-$(grep -i '^stripe webhook secret (test)' secrets.txt 2>/dev/null | sed -E 's/^[^-]*- *//')}"
+export ADMIN_KEY BASE STRIPE_WEBHOOK_SECRET
 node test/e2e.mjs > /tmp/ship-e2e.log 2>&1 & e2e=$!
 cli=""
 if git diff --name-only "$before" HEAD | grep -qE '^(cli/|src/(mcp|secrets|device|auth|index|board)\.ts|test/cli\.mjs)'; then

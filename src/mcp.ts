@@ -1,5 +1,6 @@
 // Minimal MCP server over Streamable HTTP (JSON responses, no SSE): initialize, tools/list, tools/call, ping.
 
+import * as billing from "./billing";
 import { formatCard } from "./card";
 import { MAX_WAIT_MS } from "./board";
 import { mayMention, mentionLabel, parseMentions } from "./mentions";
@@ -346,7 +347,13 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       }
       let accepted = false;
       if (target.invite) {
-        if (!me || !(await registry.acceptInvitation(env, me, target.id))) throw new ToolError(`Couldn't accept the invitation to "${target.title}".`);
+        let joined = false;
+        try {
+          joined = !!me && (await registry.acceptInvitation(env, me, target.id, c.origin));
+        } catch (e) {
+          throw new ToolError(e instanceof Error ? e.message : String(e));
+        }
+        if (!joined) throw new ToolError(`Couldn't accept the invitation to "${target.title}".`);
         accepted = true;
       }
       if (!c.pinnedBoard) await registry.setMcpSessionBoard(env, c.sessionId, user, target.id);
@@ -372,6 +379,11 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
     case "create_board": {
       const title = str(args.title)?.slice(0, 120);
       if (!title) throw new ToolError("title is required.");
+      try {
+        await billing.checkCanCreateBoard(env, user, c.origin);
+      } catch (e) {
+        throw new ToolError(e instanceof Error ? e.message : String(e));
+      }
       const id = newBoardId();
       const info = await stubFor(env, id).init(id, title, user);
       await registry.recordBoard(env, info);

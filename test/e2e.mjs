@@ -1063,6 +1063,36 @@ await step("tasks are shared items: create, get, edit in place (versions, confli
   assert(nt.status === 201, "web create");
 });
 
+await step("plans: Free caps boards you create; a signed Stripe webhook upgrades to Pro and back; checkout opens", async () => {
+  const whsec = process.env.STRIPE_WEBHOOK_SECRET ?? (() => { try { return readFileSync(new URL("../.dev.vars", import.meta.url), "utf8").match(/^STRIPE_WEBHOOK_SECRET=(.*)$/m)?.[1]; } catch { return undefined; } })();
+  const C = `e2e-cap-${run}`;
+  await ops("users", { name: C, email: `${C}@example.com`, verified: "true" });
+  const cc = (await ops("sessions", { user: C })).body.cookie;
+  const create = (title) => fetch(`${BASE}/boards`, { method: "POST", redirect: "manual", headers: { cookie: cc, "content-type": "application/x-www-form-urlencoded" }, body: `title=${encodeURIComponent(title)}` });
+  const made = (r) => r.status === 302 || r.status === 303;
+  for (let i = 1; i <= 3; i++) assert(made(await create(`e2e cap ${i} ${run}`)), `board ${i}`);
+  const fourth = await create(`e2e cap 4 ${run}`);
+  assert(fourth.status === 402 && (await fourth.text()).includes("Free plan"), `4th board on Free: ${fourth.status}`);
+  if (!whsec) return console.log("      (no STRIPE_WEBHOOK_SECRET here: skipped the webhook part)");
+  const event = (type, status) => JSON.stringify({ type, data: { object: { id: `sub_${run}`, customer: `cus_${run}`, status, cancel_at_period_end: false, current_period_end: Math.floor(Date.now() / 1000) + 30 * 86400, metadata: { user: C } } } });
+  const send = async (body, secret = whsec) => {
+    const t = Math.floor(Date.now() / 1000);
+    const { createHmac } = await import("node:crypto");
+    const sig = createHmac("sha256", secret).update(`${t}.${body}`).digest("hex");
+    return fetch(`${BASE}/stripe/webhook`, { method: "POST", headers: { "content-type": "application/json", "stripe-signature": `t=${t},v1=${sig}` }, body });
+  };
+  assert((await send(event("customer.subscription.updated", "active"), "whsec_wrong")).status === 400, "forged webhook rejected");
+  assert((await send(event("customer.subscription.created", "active"))).status === 200, "webhook accepted");
+  assert(made(await create(`e2e cap 4 ${run}`)), "Pro lifts the board limit");
+  has(await (await fetch(`${BASE}/me`, { headers: { cookie: cc } })).text(), "You're on <b>Pro");
+  await send(event("customer.subscription.deleted", "canceled"));
+  assert((await create(`e2e cap 5 ${run}`)).status === 402, "back on Free after cancelling");
+  // Checkout opens a Stripe-hosted page (only where a Stripe key is configured).
+  const r = await fetch(`${BASE}/api/billing/checkout`, { method: "POST", headers: { cookie: cc, "content-type": "application/json" }, body: JSON.stringify({ interval: "year" }) });
+  const j = await r.json();
+  assert((r.status === 200 && j.url.startsWith("https://checkout.stripe.com/")) || /isn't set up/.test(j.error ?? ""), JSON.stringify(j).slice(0, 200));
+});
+
 await step("rename and archive: creator only; archived boards are read-only and listed separately; restore works", async () => {
   const id = (await ops("boards", { user: A, title: `e2e arch ${run}` })).body.board.id;
   await ops("members", { board: id, user: B });
