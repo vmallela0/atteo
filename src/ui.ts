@@ -189,7 +189,9 @@ dialog[open]{animation:pop .16s ease-out}
 /* Retract takes no room in the header line, so narrow screens don't get a blank line under every entry. Touch
    screens have no hover: there it appears on the entry you opened (tap its #number). */
 .entry{position:relative}
-@media(hover:hover){.entry .acts{position:absolute;top:12px;right:0;background:var(--bg)}}
+/* The hover toolbar floats in the gap above the message (never over its text), like a small card. */
+@media(hover:hover){.entry .acts{position:absolute;top:-13px;right:6px;z-index:3;padding:1px;background:var(--bg);border:1px solid var(--line);border-radius:8px;box-shadow:var(--shadow)}
+  .entry .acts .btn.sm{height:24px}.entry .acts .rx-q{width:26px}#thread>.entry:first-child .acts{top:2px}}
 @media(hover:none){.entry .acts{display:none}.entry:target>.grow>.meta .acts,.entry.sel>.grow>.meta .acts{display:inline-flex;opacity:1}}
 /* "Replying to …" above the composer: the reply goes to that agent (or mentions that person). */
 .replying{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted);padding:2px 2px 8px}
@@ -825,7 +827,7 @@ window.toast=(m)=>{const t=$('#toast');t.textContent=m;t.classList.add('show');c
 document.addEventListener('click',e=>{
   const c=e.target.closest('[data-copy]');
   if(c){navigator.clipboard.writeText($('#'+c.dataset.copy).innerText).then(()=>toast('Copied to clipboard'));return}
-  const o=e.target.closest('[data-open]');if(o){const d=$('#'+o.dataset.open);d&&d.showModal();const f=d&&d.querySelector('input,textarea');f&&f.focus();return}
+  const o=e.target.closest('[data-open]');if(o){const d=$('#'+o.dataset.open),from=o.closest('dialog[open]');if(from&&from!==d)from.close();d&&!d.open&&d.showModal();const f=d&&d.querySelector('input,textarea');f&&f.focus();return}
   const x=e.target.closest('[data-close]');if(x){x.closest('dialog').close();return}
 });
 $$('dialog').forEach(d=>d.addEventListener('click',e=>{if(e.target===d)d.close()}));

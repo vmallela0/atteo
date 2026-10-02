@@ -1281,16 +1281,11 @@ ${info.archived ? "" : VOICE_HTML}<div role="tabpanel" id="panel-conv" class="bp
     </form>
   </section>
   <aside class="aside" id="board-info" aria-label="Board info">${agentCard(agent, info.title)}<div class="sum" id="sum">${summaryHtml(entries, viewer.name, members, summary, ctl)}</div>
-    ${
-      isCreator
-        ? `<div class="divider"></div><div class="stack" style="--gap:4px"><form method="post" action="/api/boards/${esc(info.id)}/archive" data-api data-done="archiveDone" style="margin:0"><input type="hidden" name="archived" value="${info.archived ? "false" : "true"}"><button class="btn ghost sm">${info.archived ? "Restore board" : "Archive board"}</button></form>
-<button class="btn ghost sm danger" type="button" data-open="delete-board">Delete board…</button></div>`
-        : ""
-    }</aside>
+</aside>
   <aside class="thread-pane" id="thread-pane" aria-label="Thread" hidden>
     <div class="tp-head"><b>Thread</b><span class="xs faint" id="tp-sub"></span><span class="grow"></span><button class="btn ghost sm" type="button" id="tp-close" aria-label="Close thread (Esc)" title="Close (Esc)">✕</button></div>
     <div class="tp-scroll" id="tp-scroll"><div id="tp-root"></div><div class="tp-count xs faint" id="tp-count"></div><div id="tp-replies"></div></div>
-    <form class="tp-composer card" id="tp-form"${info.archived ? " hidden" : ""}><textarea class="input" id="tp-text" rows="2" placeholder="Reply… (Enter to send, Shift+Enter for a new line)" aria-label="Reply in thread"></textarea>
+    <form class="tp-composer card" id="tp-form"${info.archived ? " hidden" : ""}><textarea class="input" id="tp-text" rows="2" placeholder="Reply…" aria-label="Reply in thread"></textarea>
       <div class="bar"><span class="xs faint" id="tp-to"></span><span class="grow"></span><button class="btn primary sm">Reply</button></div></form>
   </aside>
 </div></div>
@@ -1369,6 +1364,15 @@ ${connectDialog(viewer, { id: info.id, title: info.title })}
   }
   <section class="acc-sec"><h3>Members</h3>${isOwner ? "" : `<p class="xs muted">Only owners change roles and access.</p>`}<ul class="acc-list" id="acc-members"><li class="xs faint">Loading…</li></ul></section>
   <details class="acc-sec"><summary class="small muted">Activity</summary><ul class="acc-list" id="acc-audit"></ul></details>
+  ${
+    isCreator
+      ? `<section class="acc-sec"><h3>This board</h3><div class="acc-row">${
+          info.archived
+            ? ""
+            : `<form method="post" action="/api/boards/${esc(info.id)}/archive" data-api data-done="archiveDone" style="margin:0"><input type="hidden" name="archived" value="true"><button class="btn sm" title="Read-only until you restore it">Archive board</button></form>`
+        }<button class="btn ghost sm danger" type="button" data-open="delete-board">Delete board…</button></div></section>`
+      : ""
+  }
 </div></dialog>`;
   return appPage(`${info.title} · Agent Soup`, {
     viewer,
