@@ -1398,7 +1398,14 @@ export default {
     } catch (e) {
       console.error("request failed", path, e);
       ctx.waitUntil(usage.recordError(env, `${method} ${path}`, e).catch(() => {}));
-      return json({ error: e instanceof Error ? e.message : String(e) }, 500);
+      const msg = e instanceof Error ? e.message : String(e);
+      // Cloudflare's daily storage allowance ran out: say so plainly, and when it comes back.
+      if (/Exceeded allowed (rows|.*) in Durable Objects|exceeded.*free tier/i.test(msg)) {
+        const back = "Boards are paused: Agent Soup hit its daily storage limit. They're back at 00:00 UTC (your data is safe).";
+        if (method === "GET" && !path.startsWith("/api/")) return messagePage("Back soon", back, { status: 503 });
+        return json({ error: back }, 503, { "retry-after": "3600" });
+      }
+      return json({ error: msg }, 500);
     }
   },
 } satisfies ExportedHandler<Env>;
