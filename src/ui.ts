@@ -366,6 +366,8 @@ dialog.lightbox img{display:block;max-width:min(96vw,1600px);max-height:92vh;wid
 .hcard{position:fixed;z-index:60;width:280px;padding:14px;border:1px solid var(--line);border-radius:12px;background:var(--bg);box-shadow:var(--shadow-lg)}
 .hcard[hidden]{display:none}.hcard .av.lg{width:40px;height:40px;font-size:15px}
 .hc-name{font-weight:600;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.hc-pres{gap:6px;margin-top:10px}.hc-bio{margin:8px 0 0;font-size:12.5px;color:var(--muted)}.hc-act{gap:6px;margin-top:12px}
+.approval-details{max-height:320px;overflow:auto;margin:10px 0 0;padding:10px;border:1px solid var(--line);border-radius:8px;font-size:12px;white-space:pre-wrap}
+.approval.decided{opacity:.75}.badge.risk-high{color:var(--danger)}.badge.risk-medium{color:var(--warn)}
 /* Profile pictures */
 .pfps{display:grid;gap:10px}
 .pfp{gap:14px;align-items:center}
@@ -872,6 +874,7 @@ export function appPage(
   <a class="ws" href="/">${LOGO}<span>Agent Soup</span></a>
   <button class="search" type="button" data-palette>${ICON.search}<span>Search or jump to…</span><kbd>⌘K</kbd></button>
   <a class="side-link" href="/inbox"${cur("inbox")}>${ICON.inbox}<span>Inbox</span><span class="count" id="inbox-count" hidden></span></a>
+  <a class="side-link" href="/approvals"${cur("approvals")}>${ICON.boards}<span>Approvals</span></a>
   <a class="side-link" href="/"${cur("boards")}>${ICON.boards}<span>Boards</span></a>
   <a class="side-link" href="/people"${cur("people")}>${ICON.me}<span>People</span></a>
   <div class="side-label"><span>Your boards</span><a href="/?new=1" title="New board (C)" aria-label="New board">${ICON.plus}</a></div>

@@ -1,5 +1,8 @@
 // Worker entry: MCP endpoint, sign-in, web pages, JSON API, and the operator console (/_ops).
 
+import * as approvals from "./approvals";
+import { approvalsPage } from "./approvalsPage";
+import * as access from "./access";
 import * as social from "./social";
 import * as webhooks from "./webhooks";
 import * as avatars from "./avatars";
@@ -120,7 +123,7 @@ async function createBoard(env: Env, title: string, user: string, origin?: strin
   const id = newBoardId();
   const info = await boardStub(env, id).init(id, title, user);
   await registry.recordBoard(env, info);
-  await registry.addMember(env, id, user);
+  await registry.addMember(env, id, user, { role: "owner" });
   return info;
 }
 
@@ -265,6 +268,19 @@ async function opsData(env: Env): Promise<AdminData> {
 // ---------- router ----------
 
 export default {
+  /** Every 5 minutes: memberships whose time ran out are removed (access checks already ignore them). */
+  async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    for (const m of await registry.expiredMembers(env)) {
+      ctx.waitUntil(
+        (async () => {
+          await registry.removeMember(env, m.board_id, m.user);
+          await boardStub(env, m.board_id).removeMember(m.user).catch(() => {});
+          await registry.audit(env, m.board_id, "system", "expired", m.user);
+        })().catch(() => {}),
+      );
+    }
+  },
+
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname.replace(/\/+$/, "") || "/";
@@ -452,6 +468,35 @@ export default {
         return json({ ok: true, webhook: (await webhooks.listWebhooks(env, viewer.name)).find((w) => w.id === hid) });
       }
 
+      // ---- approvals: agents ask their person before side effects; decisions only from a browser ----
+      if (path === "/approvals" && method === "GET") {
+        if (!viewer) return needLogin();
+        const [side, list] = await Promise.all([sideBoards(env, viewer.name), approvals.listApprovals(env, viewer.name, "all")]);
+        const titles = Object.fromEntries(side.map((b) => [b.id, b.title]));
+        ctx.waitUntil(env.DB.prepare(`UPDATE notifications SET read_at = ? WHERE user = ? AND kind = 'approval' AND read_at IS NULL`).bind(Date.now(), viewer.name).run().catch(() => {}));
+        return approvalsPage(viewer, side, list, titles);
+      }
+      let am = path.match(/^\/api\/approvals(?:\/(ap_[A-Za-z0-9_-]+))?(?:\/(approve|reject))?$/);
+      if (am) {
+        if (!viewer) return needLogin();
+        try {
+          if (method === "GET" && !am[1]) return json({ approvals: await approvals.listApprovals(env, viewer.name, url.searchParams.get("all") ? "all" : "pending") });
+          if (method === "GET" && am[1] && !am[2]) {
+            const a = await approvals.getApproval(env, viewer.name, am[1]);
+            return a ? json({ approval: a }) : json({ error: "not found" }, 404);
+          }
+          if (method === "POST" && am[1] && am[2]) {
+            // A token (an agent, or the CLI an agent could run) never decides: only the person in a browser.
+            if (viewer.via === "agent") return json({ error: `Approve or reject in the browser: ${url.origin}/approvals#${am[1]}` }, 403);
+            const b = (await request.json().catch(() => ({}))) as { note?: string };
+            return json({ ok: true, approval: await approvals.decide(env, viewer.name, am[1], am[2] === "approve", String(b.note ?? "")) });
+          }
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+        }
+        return json({ error: "not found" }, 404);
+      }
+
       // ---- social: people, friends, presence, direct boards ----
       if (path === "/people" && method === "GET") {
         if (!viewer) return needLogin();
@@ -541,8 +586,9 @@ export default {
         if (!viewer && !hasOpsKey(c)) return needLogin();
         const board = BOARD_RE.test(m[1]) ? await registry.getBoard(env, m[1]) : null;
         if (!board || !(await canSee(c, m[1]))) return json({ error: "board not found" }, 404);
-        if (!isOps(c) && board.created_by !== viewer?.name) return json({ error: "Only the board's creator can do that." }, 403);
+        if (!isOps(c) && board.created_by !== viewer?.name && (await registry.memberRole(env, board.id, viewer?.name ?? "")) !== "owner") return json({ error: "Only the board's owners can do that." }, 403);
         const body = (await request.json().catch(() => ({}))) as { title?: string; archived?: boolean | string };
+        ctx.waitUntil(registry.audit(env, board.id, viewer?.name ?? "ops", m[2] === "rename" ? "renamed" : body.archived === true || body.archived === "true" ? "archived" : "restored", null, m[2] === "rename" ? String(body.title ?? "").slice(0, 120) : null).catch(() => {}));
         try {
           if (m[2] === "rename") {
             const info = await boardStub(env, board.id).rename(String(body.title ?? ""));
@@ -572,6 +618,57 @@ export default {
         return json({ ok: true, message: `Deleted "${board.title}".` });
       }
 
+      // ---- access: viewers can read but not change anything on a board ----
+      m = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/(.+)$/);
+      if (m && method !== "GET" && viewer && !hasOpsKey(c) && !/^members\/[^/]+\/remove$/.test(m[2]) && m[2] !== "ws") {
+        if ((await registry.memberRole(env, m[1], viewer.name)) === "viewer") return json({ error: "You can view this board but not change it (your role is viewer). Ask an owner for contributor access." }, 403);
+      }
+
+      // ---- access management: roles, expiry, invite links, audit log ----
+      m = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/(members|links|audit)(?:\/([^/]+))?$/);
+      if (m && !(m[2] === "members" && method === "POST" && /\/remove$/.test(path))) {
+        if (!viewer) return needLogin();
+        const [, id, what, arg] = m;
+        const myRole = await registry.memberRole(env, id, viewer.name);
+        if (!myRole) return json({ error: "board not found" }, 404);
+        const board = await registry.getBoard(env, id);
+        const owner = myRole === "owner" || board?.created_by === viewer.name;
+        try {
+          if (what === "members" && method === "GET" && !arg) return json({ members: await registry.boardMembers(env, id), you: myRole });
+          if (what === "audit" && method === "GET") return json({ audit: await registry.auditLog(env, id) });
+          if (!owner) return json({ error: "Only the board's owners can manage access." }, 403);
+          if (what === "members" && method === "POST" && arg) {
+            const body = (await request.json().catch(() => ({}))) as { role?: string; expires_days?: number | string | null };
+            if (arg === board?.created_by && body.role && body.role !== "owner") return json({ error: "The board's creator stays an owner." }, 400);
+            if (!(await registry.memberRole(env, id, arg))) return json({ error: `${arg} isn't a member.` }, 404);
+            const change: { role?: registry.Role; expires_at?: number | null } = {};
+            if (body.role !== undefined) change.role = access.parseRole(body.role);
+            if (body.expires_days !== undefined) {
+              const d = Number(body.expires_days);
+              change.expires_at = !body.expires_days || d <= 0 ? null : Date.now() + Math.min(365, Math.floor(d)) * 86_400_000;
+            }
+            await registry.setMemberAccess(env, id, arg, change);
+            await registry.audit(env, id, viewer.name, "access_changed", arg, [change.role ? `role ${change.role}` : "", change.expires_at !== undefined ? (change.expires_at ? `until ${new Date(change.expires_at).toISOString().slice(0, 10)}` : "no end date") : ""].filter(Boolean).join(", "));
+            return json({ ok: true, members: await registry.boardMembers(env, id) });
+          }
+          if (what === "links" && method === "GET") return json({ links: await access.listLinks(env, id) });
+          if (what === "links" && method === "POST" && !arg) return json(await access.createLink(env, id, viewer.name, (await request.json().catch(() => ({}))) as Record<string, unknown>, url.origin), 201);
+          if (what === "links" && method === "DELETE" && arg) return (await access.revokeLink(env, id, arg, viewer.name)) ? json({ ok: true }) : json({ error: "not found" }, 404);
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+        }
+        return json({ error: "not found" }, 404);
+      }
+      m = path.match(/^\/i\/(il_[A-Za-z0-9_-]+)$/);
+      if (m && method === "GET") {
+        if (!viewer) return needLogin();
+        try {
+          return redirect(`/b/${await access.redeemLink(env, m[1], viewer.name, url.origin)}`);
+        } catch (e) {
+          return messagePage("Invite link", e instanceof Error ? e.message.replace(/: https?:\S+$/, ".") : String(e), { viewer, status: 410, action: { href: "/", label: "Your boards" } });
+        }
+      }
+
       // ---- membership: the board's creator removes people; anyone else can leave ----
       m = path.match(/^\/api\/boards\/([^/]+)\/members\/([^/]+)\/remove$/);
       if (m && method === "POST") {
@@ -581,10 +678,12 @@ export default {
         if (!board || !(await registry.isMember(env, id, viewer.name))) return json({ error: "board not found" }, 404);
         const self = who === viewer.name;
         if (self && board.created_by === viewer.name) return json({ error: "You created this board, so you can't leave it." }, 400);
-        if (!self && board.created_by !== viewer.name) return json({ error: "Only the board's creator can remove people." }, 403);
+        if (!self && board.created_by !== viewer.name && (await registry.memberRole(env, id, viewer.name)) !== "owner") return json({ error: "Only the board's owners can remove people." }, 403);
+        if (!self && who === board.created_by) return json({ error: "The board's creator can't be removed." }, 403);
         if (!(await registry.isMember(env, id, who))) return json({ error: `${who} isn't a member.` }, 404);
         await registry.removeMember(env, id, who);
         await boardStub(env, id).removeMember(who);
+        ctx.waitUntil(registry.audit(env, id, viewer.name, self ? "left" : "removed", who).catch(() => {}));
         return json({ ok: true, left: self, message: self ? "You left the board." : `Removed ${who}.` });
       }
 
@@ -969,10 +1068,12 @@ export default {
         }
         if (what === "invites" && method === "POST") {
           if (viewer && !viewer.admin && !(await registry.isMember(env, id, viewer.name))) return json({ error: "Only members can invite." }, 403);
-          const body = (await request.json().catch(() => ({}))) as { email?: string };
+          const body = (await request.json().catch(() => ({}))) as { email?: string; role?: string; expires_days?: string | number };
           const email = String(body.email ?? "").trim();
           if (!EMAIL_RE.test(email)) return json({ error: "Enter a valid email address." }, 400);
-          return json(await sendInvite(env, url.origin, { boardId: id, email, invitedBy: viewer?.name ?? "ops" }));
+          const role = body.role === "viewer" ? "viewer" : "contributor"; // owners are promoted after they join
+          const expiresDays = Number(body.expires_days) > 0 ? Math.min(365, Math.floor(Number(body.expires_days))) : null;
+          return json(await sendInvite(env, url.origin, { boardId: id, email, invitedBy: viewer?.name ?? "ops", role, expiresDays }));
         }
         return json({ error: "not found" }, 404);
       }

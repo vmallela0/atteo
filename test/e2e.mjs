@@ -152,7 +152,7 @@ await step("MCP initialize, tools/list, notifications, protocol errors", async (
   assert(r.protocolVersion === "2025-06-18" && r.serverInfo.name === "agent-soup", JSON.stringify(r));
   has(r.instructions, "Agent Soup");
   const names = (await rpcRaw(auth(A), null, "tools/list", {})).tools.map((t) => t.name).sort();
-  assert(JSON.stringify(names) === JSON.stringify(["create_board", "doc", "get", "invite", "join_board", "leave_board", "list_boards", "people", "post", "react", "read", "retract", "review", "search", "task", "wait"]), names.join());
+  assert(JSON.stringify(names) === JSON.stringify(["approval", "create_board", "doc", "get", "invite", "join_board", "leave_board", "list_boards", "people", "post", "react", "read", "request_approval", "retract", "review", "search", "task", "wait"]), names.join());
   assert((await rpcRaw({}, null, "notifications/initialized", {}, { notification: true })).status === 202, "notification status");
   assert((await fetch(`${BASE}/mcp`)).status === 405, "GET /mcp should be 405");
   const p = await fetch(`${BASE}/mcp`, { method: "POST", headers: { "content-type": "application/json" }, body: "{" });
@@ -1228,6 +1228,66 @@ await step("social: find by handle, friend request with a note, accept from the 
   assert((await api(OUT, "POST", "/api/friends/request", { user: B })).status === 400, "blocked people can't ask");
   await api(A, "POST", `/api/friends/${B}/remove`);
   assert((await api(A, "POST", `/api/direct/${B}`)).status === 400, "not friends anymore");
+});
+
+await step("access: roles (viewers read but can't change), invite links with limits, owners only, audit log", async () => {
+  const j = (who, path, body, method = body ? "POST" : "GET") => web(path, who, { method, headers: { "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+  let m = await (await j(A, `/api/boards/${fb}/members`)).json();
+  assert(m.you === "owner" && m.members.find((x) => x.user === B).role === "contributor", JSON.stringify(m));
+  assert((await j(B, `/api/boards/${fb}/members/${A}`, { role: "viewer" })).status === 403, "contributors can't change access");
+  assert((await j(A, `/api/boards/${fb}/members/${A}`, { role: "viewer" })).status === 400, "the creator stays an owner");
+  assert((await j(A, `/api/boards/${fb}/members/${B}`, { role: "viewer" })).status === 200, "make B a viewer");
+  // Viewers read but can't change anything, on the web or through their agent.
+  await ok(B, fb, "read");
+  await err(B, fb, "post", { type: "note", text: "can I post?" }, "role is viewer");
+  await err(B, fb, "task", { action: "create", title: "nope" }, "role is viewer");
+  has(await ok(B, fb, "task", { action: "list" }), "#");
+  assert((await j(B, `/api/boards/${fb}/entries`, { text: "web post as viewer" })).status === 403, "viewer web post");
+  // Invite link: viewer role, one use.
+  const l = await (await j(A, `/api/boards/${fb}/links`, { role: "viewer", max_uses: 1, link_days: 1, member_days: 30 })).json();
+  assert(l.url.includes("/i/il_"), JSON.stringify(l));
+  assert((await j(B, `/api/boards/${fb}/links`, { role: "contributor" })).status === 403, "only owners make links");
+  const path = new URL(l.url).pathname;
+  const r = await web(path, OUT);
+  assert(r.status === 302 || r.status === 303, `join via link: ${r.status}`);
+  m = await (await j(A, `/api/boards/${fb}/members`)).json();
+  const out = m.members.find((x) => x.user === OUT);
+  assert(out && out.role === "viewer" && out.expires_at > Date.now(), JSON.stringify(m.members));
+  const C2 = `e2e-link-${run}`;
+  await ops("users", { name: C2, email: `${C2}@example.com`, verified: "true" });
+  const c2 = (await ops("sessions", { user: C2 })).body.cookie;
+  const used = await fetch(`${BASE}${path}`, { headers: { cookie: c2 }, redirect: "manual" });
+  assert(used.status === 410 && (await used.text()).includes("used up"), `second use: ${used.status}`);
+  const audit = (await (await j(B, `/api/boards/${fb}/audit`)).json()).audit.map((a) => a.action);
+  assert(["access_changed", "link_created", "joined"].every((a) => audit.includes(a)), audit.join());
+  // Back to how later steps expect it.
+  await j(A, `/api/boards/${fb}/members/${B}`, { role: "contributor" });
+  await j(A, `/api/boards/${fb}/members/${OUT}/remove`, {});
+  assert((await (await j(A, `/api/boards/${fb}/audit`)).json()).audit[0].action === "removed", "removal is audited");
+});
+
+await step("approvals: an agent asks before side effects; only the person decides, in a browser; the agent sees the answer", async () => {
+  const sa = await session(A, fb);
+  await ok(B, fb, "read");
+  const ask = seqOf(await ok(B, fb, "post", { type: "task", to: A, text: `please deploy staging ${run}` }));
+  const t = await sok(sa, "request_approval", { title: `Deploy staging for B ${run}`, details: "npm run deploy -- --env staging", risk: "high", seq: ask, wait_seconds: 0 });
+  const id = t.match(/(ap_[A-Za-z0-9_-]+)/)[1];
+  has(t, "Don't act yet");
+  const list = (await (await web(`/api/approvals`, A)).json()).approvals;
+  const a = list.find((x) => x.id === id);
+  assert(a && a.requested_by === B && a.board_id === fb && a.risk === "high", JSON.stringify(list).slice(0, 300));
+  assert((await (await web(`/api/inbox`, A)).json()).items.some((i) => i.kind === "approval"), "inbox shows it");
+  // Agents (tokens) can't approve, even through the API; the person can, in the browser.
+  assert((await fetch(`${BASE}/api/approvals/${id}/approve`, { method: "POST", headers: { authorization: `Bearer ${tok[A]}` } })).status === 403, "tokens can't decide");
+  assert((await web(`/api/approvals/${id}/approve`, B, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).status === 400, "only your own approvals");
+  has(await (await web(`/approvals`, A)).text(), `Deploy staging for B ${run}`);
+  const waiting = sok(sa, "approval", { id, wait_seconds: 10 });
+  await new Promise((r) => setTimeout(r, 1500));
+  assert((await web(`/api/approvals/${id}/approve`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ note: "go" }) })).status === 200, "approve");
+  has(await waiting, 'Approved by');
+  has(await sok(sa, "approval", { id, wait_seconds: 0 }), '"go"');
+  assert((await web(`/api/approvals/${id}/reject`, A, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).status === 400, "decided once");
+  await serr(sa, "request_approval", { title: "x", details: `key ${["ghp", "_", "Zx9Yw8Vu7Ts6Rq5Po4Nm3Lk2Jh1Gf0Ed9Cb8A"].join("")}` }, "Blocked");
 });
 
 await step("rename and archive: creator only; archived boards are read-only and listed separately; restore works", async () => {

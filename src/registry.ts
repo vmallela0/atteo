@@ -81,6 +81,8 @@ export interface InviteRow {
   accepted_at?: number | null;
   accepted_by?: string | null;
   workos_invitation_id?: string | null;
+  role?: Role;
+  expires_days?: number | null;
 }
 
 export async function recordBoard(env: Env, b: { id: string; title: string; created_by: string; created_at: number }) {
@@ -103,13 +105,41 @@ export async function touch(env: Env, user: string, boardId: string | null) {
 }
 
 /** The only way into a board: creating it, an accepted invite, or an existing member adding someone. */
-export async function addMember(env: Env, boardId: string, user: string) {
+export type Role = "owner" | "contributor" | "viewer";
+export const ROLES: Role[] = ["owner", "contributor", "viewer"];
+
+export async function addMember(env: Env, boardId: string, user: string, opts: { role?: Role; expires_at?: number | null; added_by?: string | null } = {}) {
   const now = Date.now();
   await env.DB.prepare(
-    `INSERT INTO members (board_id, user, joined_at, last_seen) VALUES (?, ?, ?, ?) ON CONFLICT(board_id, user) DO NOTHING`,
+    `INSERT INTO members (board_id, user, joined_at, last_seen, role, expires_at, added_by) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(board_id, user) DO NOTHING`,
   )
-    .bind(boardId, user, now, now)
+    .bind(boardId, user, now, now, opts.role ?? "contributor", opts.expires_at ?? null, opts.added_by ?? null)
     .run();
+}
+
+/** A member's role, or null if they aren't one (or their access has expired). */
+export async function memberRole(env: Env, boardId: string, user: string): Promise<Role | null> {
+  const r = await env.DB.prepare(`SELECT role, expires_at FROM members WHERE board_id = ? AND user = ?`).bind(boardId, user).first<{ role: Role; expires_at: number | null }>();
+  if (!r || (r.expires_at != null && r.expires_at < Date.now())) return null;
+  return r.role;
+}
+
+export async function setMemberAccess(env: Env, boardId: string, user: string, change: { role?: Role; expires_at?: number | null }) {
+  if (change.role) await env.DB.prepare(`UPDATE members SET role = ? WHERE board_id = ? AND user = ?`).bind(change.role, boardId, user).run();
+  if (change.expires_at !== undefined) await env.DB.prepare(`UPDATE members SET expires_at = ? WHERE board_id = ? AND user = ?`).bind(change.expires_at, boardId, user).run();
+}
+
+export async function audit(env: Env, boardId: string, actor: string, action: string, target: string | null = null, detail: string | null = null) {
+  await env.DB.prepare(`INSERT INTO audit (board_id, actor, action, target, detail, ts) VALUES (?, ?, ?, ?, ?, ?)`).bind(boardId, actor, action, target, detail, Date.now()).run();
+}
+
+export async function auditLog(env: Env, boardId: string, limit = 100) {
+  return (await env.DB.prepare(`SELECT actor, action, target, detail, ts FROM audit WHERE board_id = ? ORDER BY ts DESC, id DESC LIMIT ?`).bind(boardId, limit).all<{ actor: string; action: string; target: string | null; detail: string | null; ts: number }>()).results;
+}
+
+/** Memberships whose time ran out: removed (with an audit entry) by the scheduled cleanup. */
+export async function expiredMembers(env: Env): Promise<{ board_id: string; user: string }[]> {
+  return (await env.DB.prepare(`SELECT board_id, user FROM members WHERE expires_at IS NOT NULL AND expires_at < ? LIMIT 500`).bind(Date.now()).all<{ board_id: string; user: string }>()).results;
 }
 
 export async function removeMember(env: Env, boardId: string, user: string) {
@@ -138,22 +168,25 @@ export async function deleteBoard(env: Env, boardId: string) {
 }
 
 /** Does the board exist, and is `user` on it? One query. */
-export async function boardAccess(env: Env, boardId: string, user: string | null): Promise<{ exists: boolean; member: boolean }> {
-  const r = await env.DB.prepare(`SELECT (SELECT 1 FROM members WHERE board_id = b.id AND user = ?) AS m FROM boards b WHERE b.id = ?`).bind(user ?? "", boardId).first<{ m: number | null }>();
-  return { exists: !!r, member: !!r?.m };
+export async function boardAccess(env: Env, boardId: string, user: string | null): Promise<{ exists: boolean; member: boolean; role: Role | null }> {
+  const r = await env.DB.prepare(`SELECT (SELECT role FROM members WHERE board_id = b.id AND user = ?1 AND (expires_at IS NULL OR expires_at > ?3)) AS role FROM boards b WHERE b.id = ?2`)
+    .bind(user ?? "", boardId, Date.now())
+    .first<{ role: Role | null }>();
+  return { exists: !!r, member: !!r?.role, role: r?.role ?? null };
 }
 
 export async function isMember(env: Env, boardId: string, user: string): Promise<boolean> {
-  const r = await env.DB.prepare(`SELECT 1 AS ok FROM members WHERE board_id = ? AND user = ?`).bind(boardId, user).first();
+  const r = await env.DB.prepare(`SELECT 1 AS ok FROM members WHERE board_id = ? AND user = ? AND (expires_at IS NULL OR expires_at > ?)`).bind(boardId, user, Date.now()).first();
   return !!r;
 }
 
-export async function boardMembers(env: Env, boardId: string): Promise<{ user: string; joined_at: number; last_seen: number; display_name: string | null }[]> {
+export async function boardMembers(env: Env, boardId: string): Promise<{ user: string; joined_at: number; last_seen: number; display_name: string | null; role: Role; expires_at: number | null }[]> {
   const r = await env.DB.prepare(
-    `SELECT m.user, m.joined_at, m.last_seen, u.display_name FROM members m LEFT JOIN users u ON u.name = m.user WHERE m.board_id = ? ORDER BY m.joined_at`,
+    `SELECT m.user, m.joined_at, m.last_seen, m.role, m.expires_at, u.display_name FROM members m LEFT JOIN users u ON u.name = m.user
+     WHERE m.board_id = ? AND (m.expires_at IS NULL OR m.expires_at > ?) ORDER BY m.joined_at`,
   )
-    .bind(boardId)
-    .all<{ user: string; joined_at: number; last_seen: number; display_name: string | null }>();
+    .bind(boardId, Date.now())
+    .all<{ user: string; joined_at: number; last_seen: number; display_name: string | null; role: Role; expires_at: number | null }>();
   return r.results;
 }
 
@@ -248,7 +281,14 @@ export async function invitationsFor(env: Env, user: FullUser): Promise<Invitati
 export async function acceptInvitation(env: Env, user: FullUser, boardId: string, origin = ""): Promise<boolean> {
   if (!(await invitationsFor(env, user)).some((i) => i.board_id === boardId)) return false;
   await checkCanAddMember(env, boardId, origin); // the board's creator's plan caps its members
-  await addMember(env, boardId, user.name);
+  const inv = await env.DB.prepare(
+    `SELECT invited_by, role, expires_days FROM invites WHERE board_id = ? AND lower(email) = lower(?) AND accepted_at IS NULL AND declined_at IS NULL ORDER BY created_at DESC LIMIT 1`,
+  )
+    .bind(boardId, user.email)
+    .first<{ invited_by: string; role: Role | null; expires_days: number | null }>();
+  await env.DB.prepare(`DELETE FROM members WHERE board_id = ? AND user = ? AND expires_at IS NOT NULL AND expires_at < ?`).bind(boardId, user.name, Date.now()).run();
+  await addMember(env, boardId, user.name, { role: inv?.role ?? "contributor", expires_at: inv?.expires_days ? Date.now() + inv.expires_days * 86_400_000 : null, added_by: inv?.invited_by ?? null });
+  await audit(env, boardId, user.name, "joined", user.name, `accepted ${inv?.invited_by ?? "an"} invitation${inv?.role && inv.role !== "contributor" ? ` as ${inv.role}` : ""}${inv?.expires_days ? ` for ${inv.expires_days}d` : ""}`);
   await env.DB.prepare(
     `UPDATE invites SET accepted_at = ?, accepted_by = ? WHERE board_id = ? AND lower(email) = lower(?) AND accepted_at IS NULL AND declined_at IS NULL`,
   )
@@ -372,8 +412,9 @@ export async function allInvites(env: Env): Promise<(InviteRow & { board_title: 
 
 export async function recordInvite(env: Env, inv: InviteRow) {
   await env.DB.prepare(
-    `INSERT INTO invites (id, board_id, email, invited_by, created_at, email_status, accepted_at, accepted_by, workos_invitation_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO invites (id, board_id, email, invited_by, created_at, email_status, accepted_at, accepted_by, workos_invitation_id, role, expires_days) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
-    .bind(inv.id, inv.board_id, inv.email, inv.invited_by, inv.created_at, inv.email_status, inv.accepted_at ?? null, inv.accepted_by ?? null, inv.workos_invitation_id ?? null)
+    .bind(inv.id, inv.board_id, inv.email, inv.invited_by, inv.created_at, inv.email_status, inv.accepted_at ?? null, inv.accepted_by ?? null, inv.workos_invitation_id ?? null, inv.role ?? "contributor", inv.expires_days ?? null)
     .run();
+  await audit(env, inv.board_id, inv.invited_by, "invited", inv.email, inv.role && inv.role !== "contributor" ? inv.role : null);
 }

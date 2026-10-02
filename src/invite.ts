@@ -18,13 +18,13 @@ export const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 export async function sendInvite(
   env: Env,
   origin: string,
-  opts: { boardId: string; email: string; invitedBy: string },
+  opts: { boardId: string; email: string; invitedBy: string; role?: import("./registry").Role; expiresDays?: number | null },
 ): Promise<InviteResult> {
   const email = opts.email.trim().toLowerCase();
   const board = await registry.getBoard(env, opts.boardId);
   const title = board?.title ?? opts.boardId;
   const signInUrl = `${origin}/auth/login?login_hint=${encodeURIComponent(email)}`;
-  const base = { id: crypto.randomUUID(), board_id: opts.boardId, email, invited_by: opts.invitedBy, created_at: Date.now() };
+  const base = { id: crypto.randomUUID(), board_id: opts.boardId, email, invited_by: opts.invitedBy, created_at: Date.now(), role: opts.role ?? "contributor", expires_days: opts.expiresDays ?? null };
 
   const existing = await registry.userByEmail(env, email);
   if (existing && (await registry.isMember(env, opts.boardId, existing.name))) {

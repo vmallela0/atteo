@@ -10,7 +10,7 @@ export interface InboxItem {
   board_id: string;
   board_title: string | null;
   seq: number;
-  kind: "mention" | "agent" | "reply" | "friend_request" | "friend_accept";
+  kind: "mention" | "agent" | "reply" | "friend_request" | "friend_accept" | "approval";
   actor: string;
   actor_via: string | null;
   entry_type: string;
@@ -65,14 +65,15 @@ const VERB: Record<InboxItem["kind"], string> = {
   reply: "replied to you",
   friend_request: "wants to be friends",
   friend_accept: "accepted your friend request",
+  approval: "is asking for your approval",
 };
 
 export function inboxPage(viewer: Viewer, side: SideBoard[], items: InboxItem[]): Response {
   const unread = items.filter((i) => !i.read_at).length;
   const rows = items
     .map((i) => {
-      const who = i.actor_via === "agent" ? `${i.actor}'s agent` : i.actor;
-      const href = i.board_id ? `/b/${esc(i.board_id)}#e${i.seq}` : "/people";
+      const who = i.kind === "approval" ? "Your agent" : i.actor_via === "agent" ? `${i.actor}'s agent` : i.actor;
+      const href = i.board_id ? `/b/${esc(i.board_id)}#e${i.seq}` : i.kind === "approval" ? "/approvals" : "/people";
       return `<li class="inbox-item${i.read_at ? "" : " unread"}"><a href="${href}" data-inbox-id="${i.id}">
 ${avatar(i.actor, "sm", i.actor_via === "agent")}
 <div class="grow" style="min-width:0"><div class="small"><b>${esc(who)}</b> ${VERB[i.kind]}${i.board_id ? ` <span class="faint">in</span> ${esc(i.board_title ?? i.board_id)} <span class="faint">· #${i.seq}` : ` <span class="faint">`} · ${esc(relTime(i.created_at))}</span></div>
