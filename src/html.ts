@@ -86,7 +86,9 @@ ${
       ? ["👍", "✅", "👀"].map((q) => `<button class="btn ghost sm rx-q" type="button" data-qr="${e.seq}" data-emo="${q}" aria-label="React ${q}" title="React ${q}">${q}</button>`).join("") +
         `<button class="btn ghost sm rx-act" type="button" data-rx-add="${e.seq}" aria-label="Add a reaction" title="Add a reaction">☺+</button>`
       : "";
-  const actions = react || reply || retract ? `<span class="acts">${react}${reply}${retract}</span>` : "";
+  // Select starts picking messages to forward (people only, from the page).
+  const select = !opts.retracted && e.retracts == null ? `<button class="btn ghost sm sel-act" type="button" data-select="${e.seq}" aria-label="Select to forward" title="Select messages to forward"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="2.5" y="2.5" width="11" height="11" rx="3"/><path d="M5.5 8.2l1.8 1.8 3.4-3.6"/></svg></button>` : "";
+  const actions = react || reply || retract ? `<span class="acts">${react}${reply}${select}${retract}</span>` : "";
   return `<article class="entry${opts.retracted ? " retracted" : ""}${e.via === "agent" ? " by-agent" : ""}" id="e${e.seq}" data-seq="${e.seq}" data-author="${esc(e.author)}">
 ${avatar(e.author, "", e.via === "agent")}
 <div class="grow">
@@ -1074,6 +1076,37 @@ document.addEventListener('click',e=>{const c=e.target.closest('[data-cl-cancel]
 document.addEventListener('submit',async e=>{const f=e.target.closest('.cl-f');if(!f)return;e.preventDefault();const seq=+f.closest('[data-claim]').dataset.claim,v=f.v.value.trim();
   let body;if(f.dataset.mode==='dispute')body={action:'dispute',reason:v};else{const n=v.match(/^#?([0-9]+)$/);body=n?{action:'evidence',evidence_seq:+n[1]}:{action:'evidence',url:v}}
   if(await claimAct(seq,body))f.hidden=true});
+// ---- multi-select and forward (people only): pick messages here, send them quoted to another board you're on ----
+let SEL=null,fwdTo=null,fwdBoards=null;const selBar=document.getElementById('sel-bar');
+function selUpdate(){selBar.hidden=!SEL;if(!SEL)return;document.getElementById('sel-n').textContent=SEL.size+' selected';document.getElementById('sel-fwd').disabled=!SEL.size}
+function selToggle(seq){const el=document.getElementById('e'+seq);if(!el||!SEL)return;if(SEL.has(seq)){SEL.delete(seq);el.classList.remove('picked')}else{SEL.add(seq);el.classList.add('picked')}selUpdate()}
+function selStart(seq){SEL=new Set();document.documentElement.classList.add('selecting');selToggle(seq)}
+function selEnd(){SEL=null;document.documentElement.classList.remove('selecting');document.querySelectorAll('.entry.picked').forEach(x=>x.classList.remove('picked'));selUpdate()}
+document.addEventListener('click',e=>{const s=e.target.closest('[data-select]');
+  if(s){e.preventDefault();e.stopPropagation();if(SEL)selToggle(+s.dataset.select);else selStart(+s.dataset.select);return}
+  if(!SEL)return;const en=e.target.closest('#thread .entry');if(!en||e.target.closest('a,button,input,textarea,select,video,audio,#sel-bar'))return;
+  e.preventDefault();e.stopPropagation();selToggle(+en.dataset.seq)},true);
+document.getElementById('sel-cancel').addEventListener('click',selEnd);
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&SEL&&!document.querySelector('dialog[open]'))selEnd()});
+const fwdDlg=document.getElementById('fwd-dlg'),fwdList=document.getElementById('fwd-list'),fwdQ=document.getElementById('fwd-q');
+const peerOf=t=>{const p=t.split(' ↔ ');return p.length===2?(p[0]===ME?p[1]:p[0]):null};
+function fwdRender(){const q=fwdQ.value.trim().toLowerCase();const list=(fwdBoards||[]).filter(b=>!q||b.title.toLowerCase().includes(q));
+  fwdList.innerHTML=list.length?list.map(b=>{const peer=peerOf(b.title);return '<li role="option" data-to="'+esc(b.id)+'" aria-selected="'+(fwdTo===b.id)+'">'+(peer?avatar16(peer,false)+'<span class="truncate">'+esc(peer)+'</span><span class="xs faint">direct</span>':'<span class="fwd-dot"></span><span class="truncate">'+esc(b.title)+'</span>')+'</li>'}).join(''):'<li class="xs faint">No other boards'+(q?' match':'')+'.</li>';
+  document.getElementById('fwd-send').disabled=!fwdTo}
+fwdList.addEventListener('click',e=>{const li=e.target.closest('[data-to]');if(!li)return;fwdTo=li.dataset.to;fwdRender()});
+fwdQ.addEventListener('input',fwdRender);
+document.getElementById('sel-fwd').addEventListener('click',async()=>{if(!SEL||!SEL.size)return;fwdTo=null;fwdQ.value='';document.getElementById('fwd-note').value='';
+  const seqs=[...SEL].sort((a,b)=>a-b);document.getElementById('fwd-n').textContent=seqs.length+' message'+(seqs.length===1?'':'s');
+  // The preview is what will be quoted: who said it, then its first lines.
+  document.getElementById('fwd-prev').innerHTML=seqs.map(n=>{const el=document.getElementById('e'+n);const w=el?.querySelector(':scope>.grow>.meta .who')?.textContent||el?.dataset.author||'';
+    return '<div class="fwd-q"><b>'+esc(w)+'</b> <span class="faint">#'+n+'</span><div class="truncate">'+esc((el?.querySelector(':scope>.grow>.body')?.textContent||'').trim().slice(0,240))+'</div></div>'}).join('');
+  fwdDlg.showModal();fwdQ.focus();
+  if(!fwdBoards){fwdList.innerHTML='<li class="xs faint">Loading…</li>';const j=await fetch('/api/me/boards').then(r=>r.json()).catch(()=>({}));fwdBoards=(j.boards||[]).filter(b=>b.id!==BOARD&&!b.encrypted)}
+  fwdRender()});
+document.getElementById('fwd-send').addEventListener('click',async e=>{const b=e.currentTarget;if(!fwdTo||!SEL)return;b.disabled=true;
+  const r=await fetch('/api/forward',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({from:BOARD,to:fwdTo,seqs:[...SEL],note:document.getElementById('fwd-note').value})});
+  const j=await r.json().catch(()=>({}));b.disabled=false;if(!r.ok){toast(j.error||'Could not forward');return}
+  fwdDlg.close();selEnd();toast('Forwarded '+j.forwarded+' to '+(peerOf(j.board.title)||j.board.title))});
 // ---- search: the palette (⌘K) knows this board; ⌘F opens it already filtered to this board's messages ----
 window.BOARD_CTX={id:BOARD,me:ME,members:MEMBERS,
   async jump(seq){if(!(await ensureEntry(seq))){toast('#'+seq+' was not found');return}const el=document.getElementById('e'+seq);
@@ -1326,6 +1359,7 @@ ${voice && !info.archived ? VOICE_HTML : ""}<div role="tabpanel" id="panel-conv"
     <div class="thread-wrap"><div class="thread-scroll" id="thread-scroll"><div class="thread" id="thread">${thread}</div><form class="thr-form" id="thr-form" hidden><div class="cmp-field thr-field"><div class="cmp-mirror" id="thr-mirror" aria-hidden="true"></div><textarea class="input" id="thr-text" rows="1" placeholder="Reply…" aria-label="Reply in thread" role="combobox" aria-autocomplete="list" aria-controls="thr-menu" aria-expanded="false"></textarea></div><ul class="mention-menu" id="thr-menu" role="listbox" aria-label="Mention" hidden></ul><button class="btn ghost sm at-btn" type="button" data-mention-for="thr-text" aria-label="Mention someone" title="Mention a person or their agent (or type @)">@</button><span class="xs faint" id="thr-to"></span><button class="btn primary sm">Reply</button></form></div>
       <div class="rail" id="rail" aria-hidden="true"></div><div class="rail-tip" id="rail-tip" hidden></div>
       <button class="btn sm new-pill" type="button" id="new-pill" hidden>Jump to latest ↓</button></div>
+    <div class="sel-bar card" id="sel-bar" hidden><span id="sel-n">0 selected</span><span class="xs faint hide-sm">Click messages to add or remove them</span><span class="grow"></span><button class="btn sm" type="button" id="sel-cancel">Cancel</button><button class="btn sm primary" type="button" id="sel-fwd" disabled>Forward</button></div>
     <form class="card composer" method="post" action="/api/boards/${esc(info.id)}/entries" data-api data-reliable data-done="posted" data-failed="postFailed" data-retrying="postRetrying" data-reset${info.archived || readOnly || info.encrypted ? " hidden" : ""}>
       <div class="replying" id="replying" hidden>Replying to <b id="replying-who"></b> <a id="replying-seq" href="#"></a><button class="btn ghost sm x" type="button" id="reply-cancel" aria-label="Cancel reply">✕</button></div>
       <input type="hidden" name="reply_to" id="reply-to" value="">
@@ -1383,6 +1417,14 @@ ${SHEET}
 
 ${connectDialog(viewer, { id: info.id, title: info.title })}
 
+<dialog id="fwd-dlg" class="fwd-dlg" aria-label="Forward messages"><div class="hd"><div><h2>Forward <span id="fwd-n"></span></h2><p class="muted small" style="margin-top:4px">Quoted with who said what, as one message from you. Only you can forward (agents can't move messages between boards).</p></div><button class="btn ghost sm" data-close aria-label="Close">✕</button></div>
+<div class="bd stack" style="--gap:10px">
+  <input class="input" id="fwd-q" placeholder="Find a board or person" autocomplete="off" aria-label="Find a board">
+  <ul class="fwd-list" id="fwd-list" role="listbox" aria-label="Boards"></ul>
+  <div class="fwd-prev" id="fwd-prev"></div>
+  <textarea class="input" id="fwd-note" rows="2" maxlength="2000" placeholder="Add a note (optional)" aria-label="Note"></textarea>
+  <div class="row" style="justify-content:flex-end;gap:8px"><button type="button" class="btn" data-close>Cancel</button><button type="button" class="btn primary" id="fwd-send" disabled>Forward</button></div>
+</div></dialog>
 <dialog id="delete-board"><div class="hd"><div><h2>Delete ${esc(info.title)}?</h2><p class="muted small" style="margin-top:4px">This permanently deletes every entry, file, member and invitation on this board. Connected agents lose it on their next call. It can't be undone.</p></div><button class="btn ghost sm" data-close aria-label="Close">✕</button></div>
 <form class="bd" method="post" action="/api/boards/${esc(info.id)}/delete" data-api data-done="deleted">
   <label class="lbl" for="del-confirm">Type <b>${esc(info.title)}</b> to confirm</label>

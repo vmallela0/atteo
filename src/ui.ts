@@ -243,6 +243,19 @@ dialog.access-dlg{width:min(640px,calc(100vw - 24px))}
 .ag{padding-bottom:14px;margin-bottom:14px;border-bottom:1px solid var(--line)}
 .kill{display:flex;align-items:center;gap:14px;margin-top:12px;padding:12px 14px;border:1px solid color-mix(in srgb,var(--danger) 30%,var(--line));border-radius:var(--r)}.kill b{color:var(--ink);font-size:13px}.kill p{margin:2px 0 0}
 .at-btn{width:30px;padding:0;justify-content:center;font-weight:600;font-size:14px;color:var(--muted)}.at-btn:hover{color:var(--ink)}.thr-form .at-btn{flex:none;align-self:center}
+/* quotes (forwarded messages) */
+.body blockquote.md-q{margin:6px 0;padding:6px 10px;border-left:3px solid var(--line-strong);background:var(--bg-subtle);border-radius:0 6px 6px 0;color:var(--text)}
+/* multi-select and forward */
+.sel-bar{display:none;align-items:center;gap:10px;padding:10px 12px;margin-bottom:8px;font-size:13px}.selecting .sel-bar:not([hidden]){display:flex}
+.selecting .composer{display:none}.selecting #thread .entry{cursor:pointer;padding-left:30px}.selecting .entry .acts{display:none!important}
+.selecting #thread .entry::before{content:"";position:absolute;left:4px;top:18px;width:16px;height:16px;border:1.5px solid var(--line-strong);border-radius:50%;background:var(--bg)}
+.selecting #thread .entry.picked::before{border-color:var(--accent);background:var(--accent);box-shadow:inset 0 0 0 3px var(--bg)}
+.selecting #thread .entry.picked{background:color-mix(in srgb,var(--accent) 5%,transparent)}
+.fwd-dlg{width:min(520px,calc(100vw - 24px))}.fwd-list{list-style:none;margin:0;padding:0;max-height:220px;overflow:auto;border:1px solid var(--line);border-radius:var(--r-sm)}
+.fwd-list li{display:flex;align-items:center;gap:8px;padding:8px 10px;cursor:pointer;font-size:13px;min-width:0}.fwd-list li+li{border-top:1px solid var(--line)}
+.fwd-list li:hover{background:var(--bg-hover)}.fwd-list li[aria-selected="true"]{background:color-mix(in srgb,var(--accent) 9%,var(--bg));color:var(--ink)}
+.fwd-dot{width:8px;height:8px;border-radius:2px;background:var(--faint);flex:none}
+.fwd-prev{max-height:160px;overflow:auto;display:flex;flex-direction:column;gap:6px}.fwd-q{padding:6px 10px;border-left:3px solid var(--line-strong);background:var(--bg-subtle);border-radius:0 6px 6px 0;font-size:12.5px;min-width:0}
 .acc-url{font-size:12px;height:30px}.acc-to{position:relative;min-width:200px}.acc-to .input{width:100%}
 .acc-sug{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:5;list-style:none;margin:0;padding:4px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--bg);box-shadow:var(--shadow-lg)}
 .acc-sug[hidden]{display:none}.acc-sug li{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;font-size:13px;cursor:pointer;min-width:0}
@@ -780,7 +793,21 @@ function block(p: string, mentions?: Mention[] | null): string {
     if (list) out.push(`<${list.kind}>${list.items.map((i) => `<li>${inline(i, mentions)}</li>`).join("")}</${list.kind}>`);
     list = null;
   };
+  let quote: string[] | null = null;
+  const flushQuote = () => {
+    if (quote) out.push(`<blockquote class="md-q">${inline(quote.join("\n"), mentions)}</blockquote>`);
+    quote = null;
+  };
   for (const line of lines) {
+    // "> " lines are a quote (forwarded messages are written this way).
+    const q = line.match(/^>\s?(.*)$/);
+    if (q) {
+      flushPara();
+      flushList();
+      (quote ??= []).push(q[1]);
+      continue;
+    }
+    flushQuote();
     const h = line.match(/^(#{1,3})\s+(.+)$/);
     const ul = line.match(/^\s*[-*]\s+(.+)$/);
     const ol = line.match(/^\s*\d+[.)]\s+(.+)$/);
@@ -804,6 +831,7 @@ function block(p: string, mentions?: Mention[] | null): string {
   }
   flushPara();
   flushList();
+  flushQuote();
   return out.join("");
 }
 
