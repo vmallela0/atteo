@@ -17,7 +17,9 @@ const PATTERNS: { rule: string; reason: string; re: RegExp }[] = [
   {
     rule: "exfiltrate",
     reason: "asks an agent to reveal secrets or private context",
-    re: /\b(?:send|post|share|paste|print|reveal|show|upload|exfiltrate|read out)\b[^.\n]{0,60}(?:\.env\b|api[_ -]?keys?|tokens?|passwords?|credentials?|secrets?|ssh keys?|~\/\.ssh|system prompt|your instructions)/i,
+    // The secret has to be the verb's object ("paste your API key", "post the contents of ~/.ssh"), not just appear later
+    // in the sentence ("paste one URL…, then Token & API" is a UI description).
+    re: /\b(?:send|post|share|paste|print|reveal|show|upload|exfiltrate|read out|dump|leak)\b\s+(?:(?:me|us|it|them|here|back)\s+)?(?:(?:your|the|my|our|all|any|every|those|these|its|their)\s+)?(?:[\w.-]+\s+){0,3}?(?:\.env\b|api[_ -]?keys?|tokens?|passwords?|credentials?|secrets?|ssh keys?|private keys?|~\/\.ssh|system prompt|instructions)(?![\w-]|\s+(?:counts?|limits?|usage|budgets?|length|expiry|expiration|tab|page|field|button|list|names?|format|types?|scopes?|ids?)\b)/i,
   },
   {
     rule: "shell",

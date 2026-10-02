@@ -602,6 +602,18 @@ export default {
         if (!p) return notFound(viewer);
         return profilePage(viewer, side, p, social.presenceLabel(p.presence));
       }
+      if (path === "/api/me/profile" && (method === "GET" || method === "POST")) {
+        if (!viewer) return needLogin();
+        if (method === "GET") return json({ profile: await social.profile(env, viewer.name) });
+        const b = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+        const hit = scanFields({ bio: typeof b.bio === "string" ? b.bio : null, display_name: typeof b.display_name === "string" ? b.display_name : null });
+        if (hit) return json({ error: blockedMessage(hit) }, 400);
+        try {
+          return json({ ok: true, profile: await social.setProfile(env, viewer.name, b) });
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+        }
+      }
       if (path.startsWith("/api/people") || path.startsWith("/api/friends") || path.startsWith("/api/direct/")) {
         if (!viewer) return needLogin();
         const me = viewer.name;

@@ -92,7 +92,8 @@ export async function findPeople(env: Env, me: string, query: string): Promise<P
        WHERE u.name = ?1
           OR ((u.name LIKE ?2 ESCAPE '\\' OR lower(u.display_name) LIKE ?2 ESCAPE '\\') AND (
                 EXISTS (SELECT 1 FROM members m1 JOIN members m2 ON m1.board_id = m2.board_id WHERE m1.user = ?3 AND m2.user = u.name)
-             OR EXISTS (SELECT 1 FROM friendships f WHERE f.status = 'accepted' AND ((f.a = ?3 AND f.b = u.name) OR (f.b = ?3 AND f.a = u.name)))))
+             OR EXISTS (SELECT 1 FROM friendships f WHERE f.status = 'accepted' AND ((f.a = ?3 AND f.b = u.name) OR (f.b = ?3 AND f.a = u.name)))
+             OR u.listed = 1))
        ORDER BY (u.name = ?1) DESC, u.name LIMIT 20`,
     )
       .bind(q, like, me)
@@ -153,6 +154,15 @@ export async function requestFriend(env: Env, me: string, other: string, note: s
   if (today >= FRIEND_REQUESTS_PER_DAY) throw new SocialError(`That's ${FRIEND_REQUESTS_PER_DAY} friend requests today; try again tomorrow.`);
   const [a, b] = pair(me, who);
   await env.DB.prepare(`INSERT OR REPLACE INTO friendships (a, b, status, requested_by, note, created_at) VALUES (?, ?, 'pending', ?, ?, ?)`).bind(a, b, me, note.slice(0, 280) || null, Date.now()).run();
+  // Their standing rule: accept requests from people they already share a board with.
+  if ((await rulesOf(env, who)).auto_accept_friends === "coworkers") {
+    const shared = await env.DB.prepare(`SELECT 1 AS x FROM members m1 JOIN members m2 ON m1.board_id = m2.board_id WHERE m1.user = ? AND m2.user = ? LIMIT 1`).bind(me, who).first();
+    if (shared) {
+      await env.DB.prepare(`UPDATE friendships SET status = 'accepted', decided_at = ? WHERE a = ? AND b = ?`).bind(Date.now(), a, b).run();
+      await notify(env, who, me, "friend_accept", "is now your friend (accepted by your rule for people you share a board with)");
+      return "friend";
+    }
+  }
   await notify(env, who, me, "friend_request", note ? `wants to be friends: ${note}` : "wants to be friends");
   return "pending_out";
 }
@@ -226,6 +236,48 @@ export async function directBoard(env: Env, me: string, other: string, initBoard
   await addMember(env, id, a);
   await addMember(env, id, b);
   return { id, title: info.title, created: true };
+}
+
+// ---- profile and standing rules ----
+
+export interface Rules {
+  auto_accept_invites?: "friends" | null; // board invites from friends join you right away
+  auto_accept_friends?: "coworkers" | null; // friend requests from people you share a board with are accepted
+}
+
+export async function rulesOf(env: Env, user: string): Promise<Rules> {
+  const r = await env.DB.prepare(`SELECT rules FROM users WHERE name = ?`).bind(user).first<{ rules: string | null }>();
+  try {
+    return r?.rules ? (JSON.parse(r.rules) as Rules) : {};
+  } catch {
+    return {};
+  }
+}
+
+export async function isFriend(env: Env, x: string, y: string): Promise<boolean> {
+  const [a, b] = pair(x, y);
+  return !!(await env.DB.prepare(`SELECT 1 AS k FROM friendships WHERE a = ? AND b = ? AND status = 'accepted'`).bind(a, b).first());
+}
+
+export async function profile(env: Env, user: string) {
+  const r = await env.DB.prepare(`SELECT name, display_name, bio, listed, rules FROM users WHERE name = ?`).bind(user).first<{ name: string; display_name: string | null; bio: string | null; listed: number; rules: string | null }>();
+  return r ? { name: r.name, display_name: r.display_name, bio: r.bio, listed: !!r.listed, rules: (r.rules ? JSON.parse(r.rules) : {}) as Rules } : null;
+}
+
+export async function setProfile(env: Env, user: string, p: { display_name?: unknown; bio?: unknown; listed?: unknown; rules?: unknown }) {
+  const cur = await profile(env, user);
+  if (!cur) throw new SocialError("No such person.");
+  const text = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/[\u0000-\u001f]/g, " ").trim().slice(0, max) || null : undefined);
+  const display = p.display_name === undefined ? cur.display_name : text(p.display_name, 60) ?? null;
+  const bio = p.bio === undefined ? cur.bio : text(p.bio, 280) ?? null;
+  const listed = p.listed === undefined ? cur.listed : p.listed === true || p.listed === "true" || p.listed === "on" || p.listed === "yes";
+  const r = (p.rules && typeof p.rules === "object" ? p.rules : {}) as Record<string, unknown>;
+  const rules: Rules = {
+    auto_accept_invites: "auto_accept_invites" in r ? (r.auto_accept_invites === "friends" ? "friends" : null) : cur.rules.auto_accept_invites ?? null,
+    auto_accept_friends: "auto_accept_friends" in r ? (r.auto_accept_friends === "coworkers" ? "coworkers" : null) : cur.rules.auto_accept_friends ?? null,
+  };
+  await env.DB.prepare(`UPDATE users SET display_name = ?, bio = ?, listed = ?, rules = ? WHERE name = ?`).bind(display, bio, listed ? 1 : 0, JSON.stringify(rules), user).run();
+  return { ...cur, display_name: display, bio, listed, rules };
 }
 
 /** Throttled "last seen" for presence: at most one write a minute per person per isolate. */
