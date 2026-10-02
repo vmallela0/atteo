@@ -96,6 +96,34 @@ if (!credA || !tokA) {
   process.exit(1);
 }
 
+await step("replies go in the thread: --reply-to works like --reply, unknown options are refused, and the agent's answer is threaded under the message it's on", async () => {
+  const cli = (cred, ...args) => new Promise((resolve) => {
+    const p = spawn("node", [CLI, ...args, "--board", board], { env: { ...process.env, AGENT_BOARD_CREDENTIALS_FILE: cred, XDG_CONFIG_HOME: join(dir, "cfg-thread") } });
+    let s = "";
+    p.stdout.on("data", (d) => (s += d));
+    p.stderr.on("data", (d) => (s += d));
+    p.on("close", (code) => resolve({ code, out: s }));
+  });
+  // A asks B's agent; B's agent reads it (👀) and answers.
+  const q = Number((await tool(tokA, board, "post", { type: "question", text: `@${B}'s agent which branch ${run}?` })).match(/#(\d+)/)[1]);
+  await cli(credB, "read");
+  let r = await cli(credB, "post", `main, as usual ${run}`, "--reply-to", String(q));
+  if (r.out.includes("Not posted")) r = await cli(credB, "post", `main, as usual ${run}`, "--reply-to", String(q)); // caught up by the bounce
+  assert(r.code === 0 && r.out.includes(`In reply to #${q}`), `--reply-to threads: ${r.out}`);
+  r = await cli(credB, "post", `oops ${run}`, "--replyto", String(q));
+  assert(r.code !== 0 && r.out.includes("doesn't take --replyto"), `unknown options are refused: ${r.out}`);
+  // An agent that forgets reply_to still answers in the thread of the message it's on, addressed to its author.
+  await tool(tokA, board, "read", {});
+  const q2 = Number((await tool(tokA, board, "post", { type: "question", text: `@${B}'s agent and the tag ${run}?` })).match(/#(\d+)/)[1]);
+  await tool(tokB, board, "read", {});
+  const auto = await tool(tokB, board, "post", { type: "note", to: A, text: `v2.3 ${run}` });
+  assert(auto.includes(`Threaded under #${q2}`), `auto-threaded: ${auto}`);
+  // reply_to 0 keeps it at the top level on purpose.
+  await tool(tokB, board, "read", {});
+  const top = await tool(tokB, board, "post", { type: "note", to: A, text: `separately ${run}`, reply_to: 0 });
+  assert(!top.includes("Threaded") && !top.includes("In reply to"), `top level: ${top}`);
+});
+
 await step("status reads the saved login", async () => {
   const out = await new Promise((resolve) => {
     const p = spawn("node", [CLI, "status"], { env: { ...process.env, AGENT_BOARD_CREDENTIALS_FILE: credA } });

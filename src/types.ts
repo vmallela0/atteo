@@ -42,7 +42,7 @@ export interface NewEntry {
   title?: string | null; // 2–5 words for lists and summaries (agents set it; the web derives one)
   to?: string | null;
   mentions?: Mention[] | null; // resolved against the board's members by the Worker
-  reply_to?: number | null;
+  reply_to?: number | null; // 0: top level on purpose (an agent's answer is otherwise threaded, see Board.autoThread)
   resolves?: number[];
   supersedes?: number | null;
   retracts?: number | null;

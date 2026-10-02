@@ -25,13 +25,22 @@ export class CliError extends Error {
 // ---- arguments ----
 
 /** Splits `--flag value` options from positional words. Boolean flags are listed in `bools`. */
+// Spellings people (and agents) reach for: --reply-to used to be dropped silently, so replies landed at the top level.
+const ALIASES: Record<string, string> = { "reply-to": "reply", reply_to: "reply", re: "reply", thread: "reply" };
+
+/** Refuses options a command doesn't know, instead of quietly ignoring them. */
+export function onlyOptions(cmd: string, opt: Record<string, string | true>, known: string[]) {
+  const bad = Object.keys(opt).filter((k) => !known.includes(k));
+  if (bad.length) throw new CliError(`agent-soup ${cmd} doesn't take ${bad.map((k) => "--" + k).join(", ")}. Options: ${known.map((k) => "--" + k).join(" ")}`);
+}
+
 export function parseArgs(args: string[], bools: string[] = []): { pos: string[]; opt: Record<string, string | true> } {
   const pos: string[] = [];
   const opt: Record<string, string | true> = {};
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a.startsWith("--")) {
-      const key = a.slice(2);
+      const key = ALIASES[a.slice(2)] ?? a.slice(2);
       if (bools.includes(key) || i + 1 >= args.length) opt[key] = true;
       else opt[key] = args[++i];
     } else pos.push(a);
@@ -272,6 +281,7 @@ async function read(args: string[]) {
 
 async function post(args: string[], forced?: string) {
   const { pos, opt } = parseArgs(args);
+  onlyOptions(forced ?? "post", opt, ["board", "server", "type", "to", "reply", "title", "resolves", "supersedes"]);
   if (await isEncrypted(opt, currentBoard(opt))) {
     const e = await encPost(opt, currentBoard(opt), { type: forced ?? optStr(opt, "type") ?? "note", text: textFrom(pos), to: optStr(opt, "to"), reply_to: optStr(opt, "reply") ? int(optStr(opt, "reply")!.replace(/^#/, ""), "--reply") : undefined });
     return say(`Posted #${e.seq} (encrypted on this machine).`);
