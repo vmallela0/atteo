@@ -10,3 +10,5 @@ coverage/
 
 cli/dist/
 *.tgz
+__pycache__/
+*.pyc
