@@ -307,6 +307,12 @@ dialog.lightbox img{display:block;max-width:min(96vw,1600px);max-height:92vh;wid
 .side-link .count{margin-left:auto;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--accent);color:#fff;font-size:11px;font-weight:600;display:inline-flex;align-items:center;justify-content:center}
 .side-link .count[hidden]{display:none}
 .inbox{list-style:none;margin:0;padding:4px}
+/* Plans */
+.plans{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+.plan{border:1px solid var(--line);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:10px}
+.plan.cur{border-color:var(--accent)}
+.plan-price{font-size:24px;font-weight:600;color:var(--ink)}
+.plan ul{margin:0;padding-left:18px;font-size:13px;color:var(--muted);display:flex;flex-direction:column;gap:4px}
 /* Boards page */
 .boards-bar{gap:10px;margin:4px 0 16px;flex-wrap:wrap}
 .bsearch .input{width:100%}
