@@ -157,6 +157,7 @@ dialog[open]{animation:pop .16s ease-out}
 .entry .refs a:hover{color:var(--ink)}
 .entry.flash-in{animation:flashin 1.6s ease-out}
 .entry .rbadge{display:none;height:18px;font-size:11px}
+.entry .fbadge{height:18px;font-size:11px;color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,var(--line))}
 .entry.retracted>.grow>.body,.entry.retracted>.grow>.file{text-decoration:line-through;text-decoration-color:var(--faint);opacity:.55}
 .entry.retracted>.grow>.meta .rbadge{display:inline-flex}
 .entry .retract{margin-left:auto;opacity:0;transition:opacity .12s}

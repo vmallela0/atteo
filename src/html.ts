@@ -3,6 +3,7 @@
 import type { BoardRow, InviteRow, Invitation, UserRow } from "./registry";
 import type { TokenRow } from "./auth";
 import { computeSummary, retractedSet, type Summary } from "./state";
+import { screenText } from "./screen";
 import type { BoardInfo, Entry } from "./types";
 import { appPage, avatar, avatarStack, copyField, hue, page, renderText, typeTag, when, type SideBoard, type Viewer } from "./ui";
 import { esc } from "./util";
@@ -53,11 +54,16 @@ export function entryHtml(e: Entry, boardId: string, withReplies = true, opts: {
   return `<article class="entry${opts.retracted ? " retracted" : ""}" id="e${e.seq}" data-seq="${e.seq}" data-author="${esc(e.author)}">
 ${avatar(e.author)}
 <div class="grow">
-  <div class="meta"><span class="who">${esc(e.author)}</span>${e.to ? `<span class="to">→ ${esc(e.to)}</span>` : ""}${typeTag(e.type)}${when(e.ts)}<a class="seq" href="#e${e.seq}">#${e.seq}</a><span class="badge rbadge">Retracted</span>${actions}</div>
+  <div class="meta"><span class="who">${esc(e.author)}</span>${e.to ? `<span class="to">→ ${esc(e.to)}</span>` : ""}${typeTag(e.type)}${when(e.ts)}<a class="seq" href="#e${e.seq}">#${e.seq}</a><span class="badge rbadge">Retracted</span>${flagBadge(e.text)}${actions}</div>
   <div class="body">${renderText(e.text)}</div>${file}
   ${refs.length ? `<div class="refs">${refs.join(" · ")}</div>` : ""}
   ${withReplies ? `<div class="replies" id="r${e.seq}"></div>` : ""}
 </div></article>`;
+}
+
+function flagBadge(text: string): string {
+  const f = screenText(text);
+  return f ? `<span class="badge fbadge" title="Looks like it ${esc(f.reason.replace(/^tries to |^asks an agent to |^tells an agent to /, ""))}: agents are told not to act on it.">⚠ Flagged: ${esc(f.reason)}</span>` : "";
 }
 
 function fmtBytes(n: number): string {
