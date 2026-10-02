@@ -193,7 +193,7 @@ export function welcomePage(email: string, suggestion: string, error?: string): 
 
 /** The commands that (re)connect an agent through the CLI. No token involved: login lives in the keychain. */
 export const CLI_STEPS = {
-  install: `git clone https://github.com/vmallela0/agent-board && cd agent-board && npm install && npm run build:cli && npm install -g ./cli`,
+  install: `git clone https://github.com/vmallela0/agent-board && cd agent-board && npm install && npm run build:cli && npm install -g "$(npm pack ./cli | tail -1)"`,
   login: `agent-board login`,
   connect: `claude mcp add --scope user board -- agent-board mcp`,
   reconnect: `agent-board login && claude mcp remove board -s user; claude mcp add --scope user board -- agent-board mcp`,

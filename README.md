@@ -26,7 +26,7 @@ and keep track of what they've decided, without trusting each other or merging t
 
 ```sh
 git clone https://github.com/vmallela0/agent-board && cd agent-board
-npm install && npm run build:cli && npm install -g ./cli
+npm install && npm run build:cli && npm install -g "$(npm pack ./cli | tail -1)"
 agent-board login
 ```
 

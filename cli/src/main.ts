@@ -1,8 +1,10 @@
 // agent-board: sign in once (link, code or QR), keep the token in the OS keychain, and run the local MCP server
 // your agent connects to. The local server filters secrets on this machine before anything is sent.
 
-import { execFile } from "node:child_process";
-import { hostname, platform } from "node:os";
+import { execFile, execFileSync } from "node:child_process";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, hostname, platform } from "node:os";
+import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
 // @ts-expect-error: no types shipped; bundled by esbuild
 import qrcode from "qrcode-terminal";
@@ -305,24 +307,67 @@ function notify(title: string, message: string) {
   else if (platform() === "linux") execFile("notify-send", [title, message], () => {});
 }
 
+// One watcher per machine, so a question is never answered twice.
+function lockWatcher(): boolean {
+  const file = join(configDirPath(), "watch.pid");
+  try {
+    const pid = Number(readFileSync(file, "utf8"));
+    if (pid && pid !== process.pid) {
+      try {
+        process.kill(pid, 0);
+        return false; // still running
+      } catch {}
+    }
+  } catch {}
+  mkdirSync(configDirPath(), { recursive: true, mode: 0o700 });
+  writeFileSync(file, String(process.pid));
+  process.on("exit", () => {
+    try {
+      if (Number(readFileSync(file, "utf8")) === process.pid) rmSync(file);
+    } catch {}
+  });
+  for (const sig of ["SIGINT", "SIGTERM"] as const) process.on(sig, () => process.exit(0));
+  return true;
+}
+
+function configDirPath(): string {
+  return join(process.env.XDG_CONFIG_HOME || join(homedir(), ".config"), "agent-board");
+}
+
+const expandHome = (p: string) => (p.startsWith("~/") ? join(homedir(), p.slice(2)) : p);
+
 async function watch(args: string[]) {
   const flag = (n: string) => args.includes(n);
   const opt = (n: string) => (args.indexOf(n) >= 0 ? args[args.indexOf(n) + 1] : undefined);
+  const opts = (n: string) => args.flatMap((a, i) => (a === n && args[i + 1] ? [args[i + 1]] : []));
+  if (!lockWatcher()) {
+    console.error("Another agent-board watch is already running on this machine (see: agent-board watch --status).");
+    process.exit(0);
+  }
   let creds = load();
-  if (!creds || creds.expires_at < Date.now()) throw new Error("Not signed in (or the login expired). Run: agent-board login");
   const server = serverFrom(args, creds);
   const respond = flag("--respond");
-  const dir = opt("--dir") ?? process.cwd();
+  const defaultDir = expandHome(opt("--dir") ?? process.cwd());
+  // --board-dir "<board id or title>=<folder>": answer that board's questions from its own project.
+  const boardDirs = opts("--board-dir").map((x) => {
+    const k = x.indexOf("=");
+    return { key: x.slice(0, k).trim().toLowerCase(), dir: expandHome(x.slice(k + 1).trim()) };
+  });
+  const dirFor = (id: string, title: string) =>
+    boardDirs.find((d) => d.key === id.toLowerCase() || d.key === title.toLowerCase())?.dir ??
+    boardDirs.find((d) => title.toLowerCase().includes(d.key))?.dir ??
+    defaultDir;
   const claudeBin = process.env.AGENT_BOARD_CLAUDE_BIN ?? "claude";
   const tools = opt("--allow") ?? "mcp__board__list_boards,mcp__board__join_board,mcp__board__read,mcp__board__get,mcp__board__search,mcp__board__post,mcp__board__wait";
   const maxPerHour = Number(opt("--max-per-hour") ?? 12);
   const runs: number[] = [];
   let busy = Promise.resolve();
   const followers = new Map<string, () => void>();
+  let nagged = 0;
 
   const onEntry = (e: EntrySignal) => {
-    const me = creds!.user;
-    if (e.author === me) return;
+    const me = creds?.user;
+    if (!me || e.author === me) return;
     const forMe = e.to === me;
     if (!forMe && !flag("--all")) return;
     const line = describe(e, me);
@@ -333,7 +378,9 @@ async function watch(args: string[]) {
     while (runs.length && runs[0] < now - 3600_000) runs.shift();
     if (runs.length >= maxPerHour) return console.log(`  (skipped: ${maxPerHour} automatic answers in the last hour)`);
     runs.push(now);
-    // One at a time. The question comes from another person, so it's treated as untrusted input.
+    const dir = dirFor(e.board, e.title);
+    // One at a time, in its own agent session (never the one you're working in). The question comes from
+    // another person, so it's treated as untrusted input.
     busy = busy.then(
       () =>
         new Promise<void>((resolve) => {
@@ -353,8 +400,20 @@ async function watch(args: string[]) {
 
   const refresh = async () => {
     creds = load() ?? creds;
-    const res = await fetch(`${server}/api/me/boards`, { headers: { authorization: `Bearer ${creds!.token}` } });
-    if (!res.ok) return console.error(`Couldn't list boards (${res.status}). Run agent-board login if your login expired.`);
+    if (!creds || creds.expires_at < Date.now()) {
+      // As a background service we can't prompt; nudge once an hour until someone signs in again.
+      if (Date.now() - nagged > 3600_000) {
+        nagged = Date.now();
+        notify("Agent Board", "Your agent stopped listening: sign in again with agent-board login");
+        console.error("Not signed in (or the login expired). Run: agent-board login");
+      }
+      return 0;
+    }
+    const res = await fetch(`${server}/api/me/boards`, { headers: { authorization: `Bearer ${creds.token}` } }).catch(() => null);
+    if (!res || !res.ok) {
+      console.error(`Couldn't list boards (${res?.status ?? "offline"}); retrying.`);
+      return followers.size;
+    }
     const { boards } = (await res.json()) as { boards: { id: string; title: string }[] };
     for (const b of boards.slice(0, 50)) if (!followers.has(b.id)) followers.set(b.id, follow(server, () => creds?.token, b.id, onEntry));
     for (const [id, stop] of followers) if (!boards.some((b) => b.id === id)) (stop(), followers.delete(id));
@@ -362,8 +421,138 @@ async function watch(args: string[]) {
   };
 
   const n = await refresh();
-  console.log(`Watching ${n} board${n === 1 ? "" : "s"} as ${creds.user}${respond ? `; your agent answers questions and tasks addressed to you (in ${dir}, up to ${maxPerHour}/hour)` : ""}. Ctrl+C to stop.`);
-  setInterval(refresh, 5 * 60_000);
+  console.log(
+    `Watching ${n} board${n === 1 ? "" : "s"}${creds ? ` as ${creds.user}` : ""}${respond ? `; your agent answers questions and tasks addressed to you (up to ${maxPerHour}/hour)` : ""}.`,
+  );
+  for (const d of boardDirs) console.log(`  "${d.key}" answers from ${d.dir}`);
+  setInterval(refresh, 60_000);
+}
+
+// ---------- watch as a background service (always on, survives closing terminals) ----------
+
+const LABEL = "com.agentboard.watch";
+
+function which(cmd: string): string | null {
+  try {
+    return execFileSync("/bin/sh", ["-lc", `command -v ${cmd}`], { stdio: ["ignore", "pipe", "ignore"] }).toString().trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+function serviceInstall(args: string[]) {
+  const watchArgs = args.filter((a) => a !== "--install");
+  const node = process.execPath;
+  // Run from a copy outside macOS-protected folders: background services can't read ~/Downloads, ~/Documents
+  // or ~/Desktop (and trying can revoke the terminal's own access). Re-run --install after updating the CLI.
+  const home = join(homedir(), ".local/share/agent-board");
+  mkdirSync(home, { recursive: true });
+  const script = join(home, "agent-board.mjs");
+  copyFileSync(realpathSync(process.argv[1]), script);
+  const protectedDirs = ["Downloads", "Documents", "Desktop"].map((d) => join(homedir(), d) + "/");
+  const answerDirs = [...watchArgs.flatMap((a, i) => (watchArgs[i - 1] === "--dir" ? [a] : watchArgs[i - 1] === "--board-dir" ? [a.slice(a.indexOf("=") + 1)] : []))];
+  const blocked = answerDirs.map(expandHome).filter((d) => platform() === "darwin" && protectedDirs.some((p) => (d + "/").startsWith(p)));
+  if (blocked.length) {
+    throw new Error(
+      `macOS doesn't let background services open folders inside Downloads, Documents or Desktop:\n  ${blocked.join("\n  ")}\n` +
+        `Move those projects (e.g. to ~/code), or run agent-board watch in a terminal instead of --install.`,
+    );
+  }
+  const claude = process.env.AGENT_BOARD_CLAUDE_BIN ?? which("claude") ?? "claude";
+  const path = [dirname(node), dirname(claude), "/usr/local/bin", "/opt/homebrew/bin", "/usr/bin", "/bin"].join(":");
+  if (platform() === "darwin") {
+    const plist = join(homedir(), "Library/LaunchAgents", `${LABEL}.plist`);
+    const log = join(homedir(), "Library/Logs/agent-board-watch.log");
+    const x = (v: string) => v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    mkdirSync(dirname(plist), { recursive: true });
+    writeFileSync(
+      plist,
+      `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>${LABEL}</string>
+  <key>ProgramArguments</key><array>${[node, script, "watch", ...watchArgs].map((a) => `<string>${x(a)}</string>`).join("")}</array>
+  <key>EnvironmentVariables</key><dict><key>PATH</key><string>${x(path)}</string><key>AGENT_BOARD_CLAUDE_BIN</key><string>${x(claude)}</string></dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>30</integer>
+  <key>StandardOutPath</key><string>${x(log)}</string>
+  <key>StandardErrorPath</key><string>${x(log)}</string>
+</dict></plist>
+`,
+    );
+    const domain = `gui/${process.getuid?.()}`;
+    try {
+      execFileSync("launchctl", ["bootout", `${domain}/${LABEL}`], { stdio: "ignore" });
+    } catch {}
+    execFileSync("launchctl", ["bootstrap", domain, plist]);
+    err(`Installed. Your agent now listens in the background, starts at login, and restarts if it stops.\n  Log: ${log}\n  Check: agent-board watch --status    Remove: agent-board watch --uninstall`);
+    return;
+  }
+  if (platform() === "linux") {
+    const unit = join(homedir(), ".config/systemd/user/agent-board-watch.service");
+    mkdirSync(dirname(unit), { recursive: true });
+    const q = (a: string) => `"${a.replace(/(["\\$`])/g, "\\$1")}"`;
+    writeFileSync(
+      unit,
+      `[Unit]
+Description=Agent Board watcher (your agent listens for posts addressed to you)
+[Service]
+ExecStart=${[node, script, "watch", ...watchArgs].map(q).join(" ")}
+Environment=PATH=${path}
+Environment=AGENT_BOARD_CLAUDE_BIN=${claude}
+Restart=always
+RestartSec=30
+[Install]
+WantedBy=default.target
+`,
+    );
+    execFileSync("systemctl", ["--user", "daemon-reload"]);
+    execFileSync("systemctl", ["--user", "enable", "--now", "agent-board-watch.service"]);
+    err("Installed as a systemd user service (agent-board-watch). Check: agent-board watch --status");
+    return;
+  }
+  throw new Error("Background install is supported on macOS and Linux. On Windows, run agent-board watch in a terminal that stays open.");
+}
+
+function serviceUninstall() {
+  if (platform() === "darwin") {
+    try {
+      execFileSync("launchctl", ["bootout", `gui/${process.getuid?.()}/${LABEL}`], { stdio: "ignore" });
+    } catch {}
+    rmSync(join(homedir(), "Library/LaunchAgents", `${LABEL}.plist`), { force: true });
+  } else if (platform() === "linux") {
+    try {
+      execFileSync("systemctl", ["--user", "disable", "--now", "agent-board-watch.service"], { stdio: "ignore" });
+    } catch {}
+    rmSync(join(homedir(), ".config/systemd/user/agent-board-watch.service"), { force: true });
+  }
+  err("Removed. Your agent no longer listens in the background.");
+}
+
+function serviceStatus() {
+  if (platform() === "darwin") {
+    try {
+      const out = execFileSync("launchctl", ["print", `gui/${process.getuid?.()}/${LABEL}`], { stdio: ["ignore", "pipe", "ignore"] }).toString();
+      const state = out.match(/state = (\S+)/)?.[1] ?? "unknown";
+      const pid = out.match(/pid = (\d+)/)?.[1];
+      err(`Background watcher: ${state}${pid ? ` (pid ${pid})` : ""}`);
+      const log = join(homedir(), "Library/Logs/agent-board-watch.log");
+      if (existsSync(log)) err(readFileSync(log, "utf8").trim().split("\n").slice(-8).join("\n"));
+    } catch {
+      err("Background watcher: not installed. Install with: agent-board watch --install --respond");
+    }
+    return;
+  }
+  if (platform() === "linux") {
+    try {
+      err(execFileSync("systemctl", ["--user", "status", "agent-board-watch.service", "--no-pager", "-n", "8"]).toString());
+    } catch (e) {
+      err(String((e as { stdout?: Buffer }).stdout ?? "Background watcher: not installed."));
+    }
+    return;
+  }
+  err("Background service status is available on macOS and Linux.");
 }
 
 // ---------- entry ----------
@@ -380,7 +569,10 @@ const HELP = `agent-board ${VERSION}
   agent-board watch      Desktop notification when something is addressed to you
     --respond            …and have your agent answer questions/tasks for you (board tools only)
     --dir <path>         Folder your agent answers from (default: here)
+    --board-dir "<board>=<path>"   Answer a board's questions from its own project (repeatable)
     --all                Notify on every post, not just ones addressed to you
+    --install            Run it in the background: starts at login, restarts if it stops
+    --status / --uninstall
 
 Options: --server <url> (default ${DEFAULT_SERVER}), --no-open`;
 
@@ -391,7 +583,7 @@ const run: Record<string, () => unknown> = {
   whoami: status,
   logout,
   mcp: () => mcp(rest),
-  watch: () => watch(rest),
+  watch: () => (rest.includes("--install") ? serviceInstall(rest) : rest.includes("--uninstall") ? serviceUninstall() : rest.includes("--status") ? serviceStatus() : watch(rest)),
   version: () => console.log(VERSION),
   "--version": () => console.log(VERSION),
 };

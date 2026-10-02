@@ -2,7 +2,7 @@
 // Usage: npm run build:cli && BASE=http://localhost:8787 ADMIN_KEY=... node test/cli.mjs
 
 import { spawn } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync, chmodSync, existsSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync, chmodSync, existsSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -131,15 +131,23 @@ await step("mcp: an expired login hands the agent a sign-in link instead of fail
 await step("watch --respond: starts your agent when a question is addressed to you", async () => {
   const marker = join(dir, "claude-called.txt");
   const stub = join(dir, "fake-claude.sh");
-  writeFileSync(stub, `#!/bin/sh\nprintf '%s\\n' "$@" > "${marker}"\necho "answered"\n`);
+  writeFileSync(stub, `#!/bin/sh\n{ echo "CWD=$(pwd)"; printf '%s\\n' "$@"; } > "${marker}"\necho "answered"\n`);
   chmodSync(stub, 0o755);
-  const w = spawn("node", [CLI, "watch", "--respond", "--quiet", "--dir", dir, "--server", BASE], {
-    env: { ...process.env, AGENT_BOARD_CREDENTIALS_FILE: credA, AGENT_BOARD_CLAUDE_BIN: stub },
-  });
+  const projDir = mkdtempSync(join(tmpdir(), "agent-board-proj-"));
+  const env = { ...process.env, AGENT_BOARD_CREDENTIALS_FILE: credA, AGENT_BOARD_CLAUDE_BIN: stub, XDG_CONFIG_HOME: join(dir, "cfg") };
+  const w = spawn("node", [CLI, "watch", "--respond", "--quiet", "--dir", dir, "--board-dir", `cli ${run}=${projDir}`, "--server", BASE], { env });
   let out = "";
   w.stdout.on("data", (d) => (out += d));
   w.stderr.on("data", (d) => (out += d));
   for (let t = 0; t < 60 && !out.includes("Watching"); t++) await sleep(100);
+  // A second watcher on the same machine refuses to start (no double answers).
+  const second = await new Promise((resolve) => {
+    const p2 = spawn("node", [CLI, "watch", "--server", BASE], { env });
+    let o = "";
+    p2.stderr.on("data", (d) => (o += d));
+    p2.on("close", () => resolve(o));
+  });
+  assert(second.includes("already running"), `second watcher should refuse: ${second}`);
   await sleep(800);
   await tool(tokB, board, "read", {});
   const posted = await tool(tokB, board, "post", { type: "question", to: A, text: "Can you check the retry limit?" });
@@ -149,6 +157,7 @@ await step("watch --respond: starts your agent when a question is addressed to y
   assert(existsSync(marker), `agent was not started. watch output:\n${out}`);
   const argv = readFileSync(marker, "utf8");
   assert(argv.includes(`entry #${seq}`) && argv.includes("--allowedTools") && argv.includes("mcp__board__post") && !argv.includes("Bash"), argv);
+  assert(argv.includes(`CWD=${realpathSync(projDir)}`), `should answer from the board's own folder:\n${argv}`);
   assert(out.includes(`${B} posted a question to you`), out);
 });
 
