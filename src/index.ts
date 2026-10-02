@@ -47,6 +47,7 @@ import { FAVICON_SVG, page, renderText } from "./ui";
 import { BOARD_RE, connectCommand, esc, newBoardId, normalizeUser, parseBoardMeta } from "./util";
 
 import * as Sentry from "@sentry/cloudflare";
+import { scrubForSentry } from "./sentry";
 export { Board } from "./board";
 import { MAX_IMAGE } from "./board";
 
@@ -1458,7 +1459,7 @@ const handler = {
         const body = method === "POST" ? ((await request.json().catch(() => ({}))) as Record<string, string>) : {};
         if (path === "/api/ops/overview" && method === "GET") return json(await opsData(env));
         // Proves error reporting end to end (D1 errors + Sentry): throws on purpose.
-        if (path === "/api/ops/test-error" && method === "POST") throw new Error(`Test error from /api/ops/test-error (${new Date().toISOString()})`);
+        if (path === "/api/ops/test-error" && method === "POST") throw new Error("Test error from /api/ops/test-error");
         if (path === "/api/ops/metrics" && method === "GET") return json(await usage.metrics(env, Number(url.searchParams.get("days")) || 14));
         if (path === "/api/ops/users" && method === "POST") {
           const name = normalizeUser(body.name);
@@ -1564,9 +1565,9 @@ const handler = {
   },
 } satisfies ExportedHandler<Env>;
 
-// Errors also go to Sentry when SENTRY_DSN is set (prod); with no DSN the SDK stays off (dev/CI). No PII (the default).
+// Errors also go to Sentry when SENTRY_DSN is set (prod); with no DSN the SDK stays off (dev/CI).
 export default Sentry.withSentry(
-  (env: Env) => ({ dsn: env.SENTRY_DSN, release: env.CF_VERSION_METADATA?.id, tracesSampleRate: 0 }),
+  (env: Env) => ({ dsn: env.SENTRY_DSN, release: env.CF_VERSION_METADATA?.id, tracesSampleRate: 0, beforeSend: scrubForSentry }),
   handler,
 );
 
