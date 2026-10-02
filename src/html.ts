@@ -196,6 +196,15 @@ export function threadHtml(entries: Entry[], boardId: string, viewer?: { name: s
     .join("");
 }
 
+/** A board info section that folds: the heading is a button (chevron, title, count); folded, it keeps a one-line peek
+ *  of its newest item. Which sections a person folded is remembered per board in their browser (FOLD_JS). */
+export function fold(id: string, title: string, count: number | string, body: string, peek = "", extra = ""): string {
+  return `<section class="fold" data-fold="${id}"><h3><button type="button" class="fold-h" aria-expanded="true" aria-controls="fold-${id}">${CHEVRON}<span class="fold-t">${title}</span><span class="faint fold-n">${count}</span>${
+    peek ? `<span class="fold-peek truncate">${esc(peek)}</span>` : ""
+  }</button>${extra}</h3><div class="fold-b" id="fold-${id}">${body}</div></section>`;
+}
+const CHEVRON = `<svg class="fold-c" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M4.5 3l3 3-3 3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+
 export function summaryHtml(entries: Entry[], viewer: string, members: MemberView[], precomputed?: Summary, ctl?: { boardId: string; creator: string }): string {
   const s = precomputed ?? computeSummary(entries);
   // One line per item: who, then the first line of the text; the full text is on hover.
@@ -203,7 +212,7 @@ export function summaryHtml(entries: Entry[], viewer: string, members: MemberVie
   const item = (e: Entry) =>
     `<li><a href="#e${e.seq}" title="${esc(`${authorLabel(e)}${e.to ? ` → ${e.to}` : ""}: ${clip(e.artifact_name ?? e.text, 300)}`)}">${involvedAvatars(e)}<span class="one">${esc(shortTitle(e))}</span><span class="n">#${e.seq}</span></a></li>`;
   // Only sections with something in them show (files have their own tab); an empty board says so once.
-  const sec = (title: string, items: Entry[]) => (items.length ? `<h3><span>${title}</span><span class="faint">${items.length}</span></h3><ul>${items.map(item).join("")}</ul>` : "");
+  const sec = (id: string, title: string, items: Entry[]) => (items.length ? fold(id, title, items.length, `<ul>${items.map(item).join("")}</ul>`, shortTitle(items[items.length - 1])) : "");
   // The viewer is a person: `to` and "@viewer" wait on them; "@viewer's agent" is work handed to their agent.
   const mine = s.openQuestions.filter((e) => e.to === viewer || forPerson(e, viewer));
   const agents = [...s.openQuestions, ...s.openTasks].filter((e) => !mine.includes(e) && forAgent(e, viewer) && e.to !== viewer).sort((a, b) => a.seq - b.seq);
@@ -220,16 +229,18 @@ export function summaryHtml(entries: Entry[], viewer: string, members: MemberVie
     if (!self && isCreator) return `<button class="btn ghost sm" data-member-remove="${esc(m.user)}" data-label="Remove">Remove</button>`;
     return "";
   };
-  const people = `<h3><span>Members <span class="faint">${members.length}</span></span>${ctl ? `<button class="linkish" type="button" data-open="invite">Manage</button>` : ""}</h3><ul>${members
+  const people = fold("members", "Members", members.length, `<ul>${members
     .map(
       (m) =>
         `<li><span class="row" style="padding:5px 0"><span class="av-wrap">${avatar(m.user, "sm")}</span><span class="grow small">${esc(m.user)}${
           m.role === "owner" || (ctl && m.user === ctl.creator) ? ` <span class="xs faint">owner</span>` : m.role === "viewer" ? ` <span class="xs faint">viewer</span>` : ""
         }${m.expires_at ? ` <span class="xs faint" title="Access ends ${new Date(m.expires_at).toISOString().slice(0, 10)}">· until ${new Date(m.expires_at).toISOString().slice(5, 10)}</span>` : ""}</span>${control(m) || when(m.last_seen)}</span></li>`,
     )
-    .join("")}</ul>`;
+    .join("")}</ul>`, members.map((m) => m.user).join(", "), ctl ? `<button class="linkish" type="button" data-open="invite">Manage</button>` : "");
   const open =
-    sec("Open questions", s.openQuestions.filter((e) => !mine.includes(e) && !agents.includes(e))) + sec("Open tasks", s.openTasks.filter((e) => !agents.includes(e))) + sec("Decisions", s.decisions);
+    sec("questions", "Open questions", s.openQuestions.filter((e) => !mine.includes(e) && !agents.includes(e))) +
+    sec("tasks", "Open tasks", s.openTasks.filter((e) => !agents.includes(e))) +
+    sec("decisions", "Decisions", s.decisions);
   return waiting + (open || (waiting ? "" : `<p class="none">Nothing open. Questions, tasks and decisions collect here.</p>`)) + people;
 }
 
@@ -655,9 +666,11 @@ export interface AgentHere {
 export function agentsSection(agents: AgentHere[], boardId: string, readOnly = false): string {
   const row = (a: AgentHere) =>
     `<li class="ag-row" title="${esc(a.name ? `${a.user}'s agent session "${a.name}"${a.client ? ` (${a.client})` : ""}. Mention it as @${a.user}/${a.name}` : `${a.user}'s agent`)}">${avatar(a.user, "sm", true)}<span class="grow ag-main"><span class="truncate"><span class="ag-name">${esc(a.name ? `${a.user}/${a.name}` : `${a.user}'s agent`)}</span>${a.client ? ` <span class="xs faint">${esc(a.client)}</span>` : ""}</span>${a.status ? `<span class="ag-status truncate">${esc(a.status)}</span>` : ""}</span>${when(a.last_seen)}</li>`;
-  return `<div class="ag" id="agents"><h3><span>Agents <span class="faint">${agents.length || ""}</span></span></h3>${
-    agents.length ? `<ul class="ag-list">${agents.map(row).join("")}</ul>` : `<p class="none">No agents on this board yet.</p>`
-  }${readOnly ? "" : `<p class="xs muted ag-hint">Bring one: in any agent's shell</p>${copyField("ag-join", `agent-soup join ${boardId}`)}`}</div>`;
+  const body = `${agents.length ? `<ul class="ag-list">${agents.map(row).join("")}</ul>` : `<p class="none">No agents on this board yet.</p>`}${
+    readOnly ? "" : `<p class="xs muted ag-hint">Bring one: in any agent's shell</p>${copyField("ag-join", `agent-soup join ${boardId}`)}`
+  }`;
+  const peek = agents.map((a) => (a.name ? `${a.user}/${a.name}` : `${a.user}'s agent`)).join(", ");
+  return `<div class="ag" id="agents">${fold("agents", "Agents", agents.length || "", body, peek)}</div>`;
 }
 
 export function boardPage(
@@ -766,7 +779,7 @@ async function tick1(wait){try{
   if(d.handling)renderHandling(d.handling);
   if(d.reads){READS=d.reads;renderReads()}
   if(added){railBuild();if(stick)toBottom();else{unseen=true;pillSync()}}
-  if(d.entries.length){document.getElementById('sum').innerHTML=d.summary;document.querySelectorAll('[data-count]').forEach(x=>x.textContent=d.count);refreshTimes();infoCount()}
+  if(d.entries.length){document.getElementById('sum').innerHTML=d.summary;foldApply();document.querySelectorAll('[data-count]').forEach(x=>x.textContent=d.count);refreshTimes();infoCount()}
 }catch(e){await new Promise(r=>setTimeout(r,5000))}}
 /** Puts one entry (from updates, or straight from a post's response) on the page; false if it's already there. */
 function addEntry(e){if(document.getElementById('e'+e.seq)){last=Math.max(last,e.seq);return false}
@@ -1013,6 +1026,13 @@ const seenAs=(u,agent)=>{const r=READS[u];return r?(agent?r.agent_seen:r.person_
 /** Everyone who should see an entry: each member, and each member's agent once it has been on the board; not its author. */
 function audience(el){const by=el.dataset.author,byAgent=el.classList.contains('by-agent'),out=[];
   for(const u of MEMBERS){if(!(u===by&&!byAgent))out.push({u,agent:false});if(seenAs(u,true)>=0&&!(u===by&&byAgent))out.push({u,agent:true})}return out}
+// ---- board info sections fold; which ones this person folded is remembered per board (only in this browser) ----
+const FOLD_KEY='soup.fold.'+BOARD;
+function foldGet(){try{return new Set(JSON.parse(localStorage.getItem(FOLD_KEY)||'[]'))}catch{return new Set()}}
+function foldApply(){const f=foldGet();document.querySelectorAll('#board-info .fold').forEach(x=>{const shut=f.has(x.dataset.fold);x.classList.toggle('folded',shut);x.querySelector('.fold-h').setAttribute('aria-expanded',String(!shut))})}
+document.addEventListener('click',e=>{const h=e.target.closest('#board-info .fold-h');if(!h)return;const id=h.closest('.fold').dataset.fold,f=foldGet();
+  f.has(id)?f.delete(id):f.add(id);try{localStorage.setItem(FOLD_KEY,JSON.stringify([...f]))}catch{}foldApply()});
+foldApply();
 function renderReads(){
   // @humans / @agents are seen once every person (or every member's agent) other than the author has read it.
   const seenBy=(u,agent,e)=>(u==='humans'||u==='agents')&&!MEMBERS.includes(u)

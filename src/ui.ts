@@ -378,6 +378,21 @@ dialog.lightbox img{display:block;max-width:min(96vw,1600px);max-height:92vh;wid
 .chg-diff .dk{color:var(--accent)}.chg-diff .dh{color:var(--ink);font-weight:600}
 .sum h3{font-size:12px;font-weight:500;color:var(--muted);text-transform:none;margin:22px 0 8px;display:flex;justify-content:space-between}
 .sum h3:first-child{margin-top:0}
+/* Board info sections fold: the heading is the toggle (chevron, title, count); folded, a one-line peek of the newest item */
+.fold h3{display:flex;align-items:flex-start;gap:8px}.fold h3 .linkish{line-height:20px}
+.sum .fold h3{margin-top:22px}.sum>.fold:first-child h3,.sum>.waiting+.fold h3{margin-top:12px}.sum>.fold:first-child h3{margin-top:0}
+.fold-h{all:unset;box-sizing:border-box;flex:1;min-width:0;display:grid;grid-template-columns:12px auto 1fr;align-items:center;column-gap:6px;cursor:pointer;border-radius:5px;margin:-3px -4px;padding:3px 4px;color:var(--muted)}
+.fold-h:hover{color:var(--ink);background:var(--bg-hover)}
+.fold-h:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.fold-c{transform:rotate(90deg);transition:transform .15s;opacity:.7}
+.fold.folded .fold-c{transform:none}
+.fold-t{white-space:nowrap}.fold-n{justify-self:end}
+.fold-peek{display:none;grid-column:2/4;font-size:12px;color:var(--faint);font-weight:400}
+.fold.folded .fold-peek{display:block}
+.fold.folded .fold-b{display:none}
+.fold.folded h3{margin-bottom:0}
+.sum .fold.folded+.fold h3{margin-top:14px}
+@media (prefers-reduced-motion:reduce){.fold-c{transition:none}}
 .sum ul{list-style:none;margin:0;padding:0}
 .sum li a{display:flex;align-items:center;gap:8px;padding:6px 8px;margin:0 -8px;border-radius:6px;font-size:13px;line-height:1.45}
 .sum li a:hover{background:var(--bg-hover)}
