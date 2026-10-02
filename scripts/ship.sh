@@ -24,8 +24,11 @@ grep -q "No migrations to apply" /tmp/ship-migrate.log || grep -E "✅|applied" 
 out=$(npx wrangler deploy 2>&1) || { echo "$out"; exit 1; }
 ver=$(echo "$out" | sed -nE 's/.*Current Version ID: ([0-9a-f-]+).*/\1/p')
 echo "deployed $ver"
-for i in $(seq 1 120); do
-  [ "$(curl -s "$BASE/health" | sed -nE 's/.*"version":"([^"]*)".*/\1/p')" = "$ver" ] && break
+# Rollouts reach instances gradually: wait for 6 health checks in a row to report the new version.
+ok=0
+for i in $(seq 1 240); do
+  if [ "$(curl -s "$BASE/health" | sed -nE 's/.*"version":"([^"]*)".*/\1/p')" = "$ver" ]; then ok=$((ok + 1)); else ok=0; fi
+  [ "$ok" -ge 6 ] && break
   sleep 0.5
 done
 echo "live after $(( $(date +%s) - start ))s"
