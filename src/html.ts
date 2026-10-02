@@ -922,51 +922,13 @@ document.addEventListener('click',async e=>{const b=e.target.closest('[data-tk]'
   if(a==='open'){openTask(seq);return}b.disabled=true;
   await taskAct(seq,a==='claim'||a==='release'?{action:a}:{action:'update',status:a==='done'?'done':'todo'});b.disabled=false;refreshTask(seq)});
 fetch('/api/boards/'+BOARD+'/tasks').then(r=>r.json()).then(j=>(j.tasks||[]).forEach(renderTask)).catch(()=>{});
-// ---- chat search (Ctrl+F / ⌘F): scope chips like mentions ("Chat", "@vedu", "@vedu's agent", a type); ranked results ----
-const srch=document.getElementById('srch'),sq=document.getElementById('srch-q'),sChips=document.getElementById('srch-chips'),sRes=document.getElementById('srch-res'),sMenu=document.getElementById('srch-menu'),sN=document.getElementById('srch-n');
-let sScope=[],sHits=[],sSel=-1,sSaved=0,sTimer=null,sOpts=[],sMi=0;
-const STYPES=['question','task','decision','claim','note','change','artifact'];
-function sChipHtml(c,i){const label=c.k==='in'?'Chat':c.k==='type'?c.v:(c.agent?'@'+c.v+"'s agent":'@'+c.v);
-  return '<span class="srch-chip'+(c.k==='from'&&c.agent?' agent':'')+'">'+esc(label)+'<button type="button" data-schip="'+i+'" aria-label="Remove '+esc(label)+'">✕</button></span>'}
-function sRender(){sChips.innerHTML=sScope.map(sChipHtml).join('')}
-function openSearch(){if(!srch.hidden){sq.focus();sq.select();return}if(document.getElementById('panel-conv').hidden)tab(0);
-  sSaved=scroller.scrollTop;srch.hidden=false;sScope=[{k:'in',v:'chat'}];sRender();sq.value='';sRes.hidden=true;sN.textContent='';sq.focus()}
-function closeSearch(restore){srch.hidden=true;sRes.hidden=true;sMenu.hidden=true;document.querySelectorAll('#thread .entry.hit').forEach(x=>x.classList.remove('hit'));if(restore)scroller.scrollTop=sSaved}
-function sParams(){const p=new URLSearchParams();p.set('q',sq.value.replace(/(^|\\s)@\\S*$/,'').trim());for(const c of sScope){if(c.k==='in')p.set('in','chat');if(c.k==='type')p.set('type',c.v);if(c.k==='from'){p.set('from',c.v);p.set('agent',c.agent?'1':'0')}}return p}
-async function sRun(){const p=sParams();if(!p.get('q')&&!p.get('from')&&!p.get('type')){sHits=[];sRes.hidden=true;sN.textContent='';return}
-  const r=await fetch('/api/boards/'+BOARD+'/search?'+p);const j=await r.json().catch(()=>({}));if(!r.ok){sN.textContent=j.error||'';return}
-  sHits=[...(j.entries||[]).map(x=>({...x,kind:'entry'})),...(j.files||[]).map(x=>({...x,kind:'file'}))];sSel=sHits.length?0:-1;
-  const snip=t=>esc(t||'').replace(/«/g,'<mark>').replace(/»/g,'</mark>');
-  sRes.innerHTML=sHits.length?sHits.map((h,i)=>'<li role="option" id="sr-'+i+'" data-sr="'+i+'" aria-selected="'+(i===sSel)+'">'+(h.kind==='file'?'<span class="srch-who mono">'+esc(h.name)+' v'+h.version+'</span>':
-      '<span class="srch-who">'+esc(whoName(h.author,h.via==='agent'))+' · '+esc(h.type)+' · #'+h.seq+'</span>')+'<span class="srch-snip">'+(h.title?'<b>'+esc(h.title)+'</b> ':'')+snip(h.snippet)+'</span></li>').join(''):'<li class="srch-none">No matches</li>';
-  sRes.hidden=false;sN.textContent=sHits.length?(sHits.length+' result'+(sHits.length===1?'':'s')):'';sq.setAttribute('aria-activedescendant',sSel>=0?'sr-'+sSel:'')}
-function sMark(){sRes.querySelectorAll('[data-sr]').forEach(li=>li.setAttribute('aria-selected',String(+li.dataset.sr===sSel)));const li=document.getElementById('sr-'+sSel);li?.scrollIntoView({block:'nearest'});sq.setAttribute('aria-activedescendant',sSel>=0?'sr-'+sSel:'')}
-function sGo(i){const h=sHits[i];if(!h)return;sSel=i;sMark();
-  if(h.kind==='file'){closeSearch(false);tab(2);openDoc(h.name,h.version);return}
-  const el=document.getElementById('e'+h.seq);if(el&&el.closest('.replies')){openThread(+el.closest('#thread>.entry').dataset.seq,{focus:h.seq});return}if(!el){toast('#'+h.seq+' is further back than this page shows');return}
-  document.querySelectorAll('#thread .entry.hit').forEach(x=>x.classList.remove('hit'));el.classList.add('hit');el.scrollIntoView({block:'center'});moved=true}
-// "@" in the search box picks a person or an agent, like mentions, and becomes a chip
-function sMenuRender(){const m=sq.value.slice(0,sq.selectionStart).match(/(^|\\s)@([A-Za-z0-9_.-]{0,32})$/);
-  if(!m){sMenu.hidden=true;return}const q=m[2].toLowerCase();
-  sOpts=[...MEMBERS.flatMap(u=>[{u,agent:false},{u,agent:true}]).filter(o=>o.u.startsWith(q)).map(o=>({...o,label:whoName(o.u,o.agent)})),...STYPES.filter(t=>t.startsWith(q)).map(t=>({type:t,label:'type: '+t}))].slice(0,10);
-  if(!sOpts.length){sMenu.hidden=true;return}sMi=Math.min(sMi,sOpts.length-1);
-  sMenu.innerHTML=sOpts.map((o,i)=>'<li role="option" data-so="'+i+'" aria-selected="'+(i===sMi)+'">'+(o.type?'<span class="faint">#</span>':avatar16(o.u,o.agent))+'<span>'+esc(o.label)+'</span></li>').join('');sMenu.hidden=false}
-const avatar16=(u,agent)=>'<span class="av sm'+(agent?' agent':'')+'" style="--h:'+(MOPTS.find(o=>o.u===u)?.av.match(/--h:(\\d+)/)?.[1]||220)+'">'+esc(u.slice(0,2).toUpperCase())+'</span>';
-function sPick(o){sq.value=sq.value.replace(/(^|\\s)@[A-Za-z0-9_.-]*$/,'$1');sScope=sScope.filter(c=>o.type?c.k!=='type':c.k!=='from');sScope.push(o.type?{k:'type',v:o.type}:{k:'from',v:o.u,agent:o.agent});sMenu.hidden=true;sRender();sq.focus();sRun()}
-sq.addEventListener('input',()=>{sMi=0;sMenuRender();clearTimeout(sTimer);sTimer=setTimeout(sRun,180)});
-sq.addEventListener('keydown',e=>{
-  if(!sMenu.hidden&&sOpts.length){if(e.key==='ArrowDown'||e.key==='ArrowUp'){sMi=(sMi+(e.key==='ArrowDown'?1:sOpts.length-1))%sOpts.length;sMenuRender();e.preventDefault();return}
-    if(e.key==='Enter'||e.key==='Tab'){sPick(sOpts[sMi]);e.preventDefault();return}if(e.key==='Escape'){sMenu.hidden=true;e.preventDefault();return}}
-  if(e.key==='Backspace'&&sq.selectionStart===0&&sq.selectionEnd===0&&sScope.length){sScope.pop();sRender();sRun();e.preventDefault();return} // a chip goes in one go
-  if(e.key==='ArrowDown'||e.key==='ArrowUp'){if(sHits.length){sSel=(sSel+(e.key==='ArrowDown'?1:sHits.length-1))%sHits.length;sMark()}e.preventDefault();return}
-  if(e.key==='Enter'){e.preventDefault();if(sHits.length){sGo(sSel<0?0:sSel);if(e.shiftKey)sSel=(sSel+sHits.length-1)%sHits.length;else sSel=(sSel+1)%sHits.length}return}
-  if(e.key==='Escape'){e.preventDefault();closeSearch(true)}});
-sChips.addEventListener('click',e=>{const b=e.target.closest('[data-schip]');if(!b)return;sScope.splice(+b.dataset.schip,1);sRender();sq.focus();sRun()});
-sMenu.addEventListener('mousedown',e=>{e.preventDefault();const li=e.target.closest('[data-so]');if(li)sPick(sOpts[+li.dataset.so])});
-sRes.addEventListener('mousedown',e=>{const li=e.target.closest('[data-sr]');if(!li)return;e.preventDefault();sGo(+li.dataset.sr)});
-document.getElementById('srch-close').addEventListener('click',()=>closeSearch(false));
-// Ctrl+F / ⌘F on a board searches the board instead of the browser page
-document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&!e.altKey&&!e.shiftKey&&e.key.toLowerCase()==='f'&&!document.querySelector('dialog[open]')){e.preventDefault();openSearch()}},true);
+// ---- search: the palette (⌘K) knows this board; ⌘F opens it already filtered to this board's messages ----
+window.BOARD_CTX={id:BOARD,me:ME,members:MEMBERS,
+  jump(seq){const el=document.getElementById('e'+seq);if(!el){toast('#'+seq+' is further back than this page shows');return}
+    if(document.getElementById('panel-conv').hidden)tab(0);if(el.closest('.replies')){openThread(+el.closest('#thread>.entry').dataset.seq,{focus:seq});return}
+    document.querySelectorAll('#thread .entry.hit').forEach(x=>x.classList.remove('hit'));el.classList.add('hit');el.scrollIntoView({block:'center'});moved=true;setTimeout(()=>el.classList.remove('hit'),4000)},
+  openFile(name,v){tab(2);openDoc(name,v)}};
+document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&!e.altKey&&!e.shiftKey&&e.key.toLowerCase()==='f'&&!document.querySelector('dialog[open]:not(#palette)')){e.preventDefault();window.openPalette([{k:'board'},{k:'kind',v:'messages'}])}},true);
 // ---- threads (Slack-style): replies fold into "N replies" under their message and open in a side panel ----
 const pane=document.getElementById('thread-pane'),tpForm=document.getElementById('tp-form'),tpText=document.getElementById('tp-text');let tpRootSeq=null,tpTarget=null;
 function thrSum(root){const top=document.getElementById('e'+root);if(!top)return;const kids=[...(document.getElementById('r'+root)?.querySelectorAll('.entry')||[])];
@@ -1143,13 +1105,6 @@ window.boardKeys=(e,k)=>{
 <div role="tabpanel" id="panel-conv" class="bp-panel" data-board-panel><div class="layout" id="conv-layout">
   <button class="btn ghost sm info-btn" type="button" id="info-btn" aria-expanded="false" aria-controls="board-info" aria-label="Board info" title="Board info"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2"/><path d="M10 2.75v10.5"/><path class="fill" d="M10.7 3.45h2.1a.75.75 0 0 1 .75.75v7.6a.75.75 0 0 1-.75.75h-2.1z" fill="currentColor" stroke="none"/></svg><span class="count" id="info-count" hidden></span></button>
   <section class="conv">
-    <div class="srch" id="srch" role="search" hidden>
-      <div class="srch-bar"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/></svg>
-        <span class="srch-chips" id="srch-chips"></span><input id="srch-q" placeholder="Search this board · @ to filter by person or agent" autocomplete="off" aria-label="Search this board" aria-controls="srch-res">
-        <span class="srch-n xs faint" id="srch-n"></span><button class="btn ghost sm" type="button" id="srch-close" aria-label="Close search (Esc)" title="Close (Esc)">✕</button></div>
-      <ul class="mention-menu srch-menu" id="srch-menu" role="listbox" aria-label="Filter by" hidden></ul>
-      <ul class="srch-res" id="srch-res" role="listbox" aria-label="Results" hidden></ul>
-    </div>
     <div class="thread-wrap"><div class="thread-scroll" id="thread-scroll"><div class="thread" id="thread">${thread}</div></div>
       <div class="rail" id="rail" aria-hidden="true"></div><div class="rail-tip" id="rail-tip" hidden></div>
       <button class="btn sm new-pill" type="button" id="new-pill" hidden>Jump to latest ↓</button></div>

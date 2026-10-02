@@ -216,25 +216,6 @@ dialog[open]{animation:pop .16s ease-out}
 .tp-scroll .refs{display:none}.tp-composer textarea{border:0;border-radius:var(--r) var(--r) 0 0;box-shadow:none;min-height:44px;resize:none}
 @media(min-width:960px){.bp-panel>.layout.thread-open{grid-template-columns:minmax(0,1fr) 380px}.layout.thread-open>.aside{display:none}.layout.thread-open .info-btn{display:none}}
 @media(max-width:959px){.layout.thread-open>.thread-pane{position:absolute;inset:0;z-index:9;padding-left:0;border-left:0}}
-/* chat search (Ctrl+F): a bar over the top of the conversation, chips for scope, ranked results below it */
-.conv{position:relative}
-.srch{position:absolute;top:8px;left:0;right:22px;z-index:8}
-.srch[hidden]{display:none}
-.srch-bar{display:flex;align-items:center;gap:8px;min-height:38px;padding:4px 6px 4px 10px;border:1px solid var(--line-strong);border-radius:10px;background:var(--bg);box-shadow:var(--shadow-lg);color:var(--muted)}
-.srch-bar:focus-within{border-color:var(--accent)}
-.srch-bar input{flex:1;min-width:80px;border:0;outline:0;background:none;font:inherit;color:var(--text);height:28px}
-.srch-chips{display:inline-flex;gap:6px;flex-wrap:wrap}
-.srch-chip{display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 4px 0 8px;border-radius:6px;font-size:12.5px;font-weight:500;color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,transparent)}
-.srch-chip.agent{outline:1px dashed color-mix(in srgb,var(--accent) 50%,transparent);outline-offset:-1px}
-.srch-chip button{border:0;background:none;color:inherit;opacity:.6;cursor:pointer;font-size:10px;padding:2px 3px}.srch-chip button:hover{opacity:1}
-.srch-menu{position:absolute;top:44px;left:40px;bottom:auto}
-.srch-res{list-style:none;margin:6px 0 0;padding:4px;max-height:min(420px,55vh);overflow-y:auto;border:1px solid var(--line);border-radius:10px;background:var(--bg);box-shadow:var(--shadow-lg)}
-.srch-res[hidden]{display:none}
-.srch-res li{display:flex;flex-direction:column;gap:2px;padding:7px 10px;border-radius:7px;cursor:pointer}
-.srch-res li[aria-selected=true]{background:var(--bg-hover)}
-.srch-who{font-size:12px;color:var(--muted)}.srch-snip{font-size:13px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.srch-snip mark{background:color-mix(in srgb,var(--warn) 28%,transparent);color:inherit;border-radius:3px;padding:0 1px}
-.srch-none{color:var(--faint);font-size:13px;cursor:default}
 .entry.hit{background:color-mix(in srgb,var(--warn) 9%,transparent);border-radius:8px;box-shadow:inset 3px 0 0 var(--warn)}
 /* a task in the conversation: status, priority, who it's for / who holds it, and Claim · Done · Open */
 .tk{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px;padding:6px 6px 6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg-subtle);font-size:12.5px}
@@ -472,8 +453,19 @@ pre.json{background:var(--bg-subtle);border:1px solid var(--line);border-radius:
 
 /* command palette */
 dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius:12px}
-.palette input{border:0;border-bottom:1px solid var(--line);border-radius:0;height:48px;padding:0 16px;font-size:15px;box-shadow:none!important}
+.palette input{border:0;border-radius:0;height:48px;padding:0 4px;font-size:15px;box-shadow:none!important}
 .palette ul{list-style:none;margin:0;padding:6px;max-height:50vh;overflow:auto}
+.pal-in{display:flex;align-items:center;gap:8px;padding:0 12px;border-bottom:1px solid var(--line);color:var(--muted)}
+.pal-in input{flex:1;min-width:120px;box-shadow:none!important}
+.pal-chips{display:inline-flex;gap:6px;flex-wrap:wrap}
+.pal-chip{display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 4px 0 8px;border-radius:6px;font-size:12.5px;font-weight:500;color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,transparent);white-space:nowrap}
+.pal-chip button{border:0;background:none;color:inherit;opacity:.6;cursor:pointer;font-size:10px;padding:2px 3px}.pal-chip button:hover{opacity:1}
+.pal-filters{display:flex;gap:6px;flex-wrap:wrap;padding:8px 12px;border-bottom:1px solid var(--line)}.pal-filters[hidden]{display:none}
+.pal-opt{height:24px;padding:0 9px;border-radius:999px;border:1px solid var(--line);background:var(--bg-subtle);color:var(--muted);font:inherit;font-size:12px;cursor:pointer}
+.pal-opt:hover{color:var(--ink);border-color:var(--line-strong)}
+.palette li.pal-g{padding:8px 10px 2px;font-size:11.5px;color:var(--faint);cursor:default;text-transform:uppercase;letter-spacing:.04em}
+.palette .pal-l{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.palette .pal-l mark{background:color-mix(in srgb,var(--warn) 28%,transparent);color:inherit;border-radius:3px;padding:0 1px}
+.palette li .k{flex:none;white-space:nowrap}
 .palette li{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:7px;cursor:pointer;font-size:13.5px;color:var(--text)}
 .palette li[aria-selected=true]{background:var(--bg-hover);color:var(--ink)}
 .palette li .k{margin-left:auto;color:var(--faint);font-size:12px}
@@ -861,8 +853,10 @@ export function appPage(
     <nav class="crumbs" aria-label="Breadcrumb">${opts.crumbs}</nav><div class="actions">${opts.actions ?? ""}</div></header>
   <div class="content${opts.narrow ? " narrow" : ""}${opts.full ? " full" : ""}">${opts.body}</div>
 </div></div>
-<dialog class="palette" id="palette" aria-label="Command palette"><input class="input" id="palette-q" placeholder="Search boards and actions…" autocomplete="off">
-<ul id="palette-list" role="listbox"></ul><div class="foot"><span><kbd>↑</kbd> <kbd>↓</kbd> move</span><span><kbd>↵</kbd> open</span><span><kbd>esc</kbd> close</span></div></dialog>
+<dialog class="palette" id="palette" aria-label="Search">
+<div class="pal-in"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/></svg><span class="pal-chips" id="pal-chips"></span><input class="input" id="palette-q" placeholder="Search messages, files, boards and actions…" autocomplete="off" aria-label="Search" aria-controls="palette-list"></div>
+<div class="pal-filters" id="pal-filters" aria-label="Filters"></div>
+<ul id="palette-list" role="listbox"></ul><div class="foot"><span><kbd>↑</kbd> <kbd>↓</kbd> move</span><span><kbd>↵</kbd> open</span><span><kbd>⌫</kbd> remove filter</span><span><kbd>esc</kbd> close</span></div></dialog>
 <dialog id="shortcuts"><div class="hd"><h2>Keyboard shortcuts</h2><button class="btn ghost sm" data-close aria-label="Close">✕</button></div>
 <div class="bd"><dl class="kv">
 <dt><kbd>⌘K</kbd> <kbd>/</kbd></dt><dd>Search or jump to a board</dd>
@@ -905,15 +899,55 @@ function rawPage(title: string, body: string, script: string, status = 200): Res
 const SHELL_JS = `
 (()=>{
 const $=(s,r=document)=>r.querySelector(s),$$=(s,r=document)=>[...r.querySelectorAll(s)];
-const pal=$('#palette'),q=$('#palette-q'),list=$('#palette-list');let sel=0,items=[];
-function render(){const t=q.value.toLowerCase().trim();items=PALETTE.filter(i=>!t||i.label.toLowerCase().includes(t));sel=Math.min(sel,Math.max(0,items.length-1));
-  list.innerHTML=items.map((i,n)=>'<li role="option" data-n="'+n+'" aria-selected="'+(n===sel)+'"><span class="truncate">'+i.label.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))+'</span><span class="k">'+i.hint+'</span></li>').join('')||'<li class="faint">No matches</li>'}
-function go(i){if(!i)return;pal.close();if(i.href==='#shortcuts'){$('#shortcuts').showModal();return}location.href=i.href}
-window.openPalette=()=>{q.value='';sel=0;render();pal.showModal();q.focus()};
-q.addEventListener('input',()=>{sel=0;render()});
-q.addEventListener('keydown',e=>{if(e.key==='ArrowDown'){sel=Math.min(sel+1,items.length-1);render();e.preventDefault()}
-  else if(e.key==='ArrowUp'){sel=Math.max(sel-1,0);render();e.preventDefault()}else if(e.key==='Enter'){go(items[sel]);e.preventDefault()}});
-list.addEventListener('click',e=>{const li=e.target.closest('[data-n]');li&&go(items[+li.dataset.n])});
+// Search (⌘K everywhere; ⌘F on a board starts with "This board · Messages"): filters show up front like VS Code or Lark,
+// and become chips; results mix boards and actions with ranked messages and files (this board, or all your boards).
+const pal=$('#palette'),q=$('#palette-q'),list=$('#palette-list'),pChips=$('#pal-chips'),pFilt=$('#pal-filters');
+let sel=0,items=[],chips=[],mode=null,run=0,timer=null;
+const B=()=>window.BOARD_CTX||null; // on a board page: {id, me, members, jump(seq), openFile(name, version)}
+const KINDS=[['messages','Messages'],['files','Files'],['boards','Boards'],['actions','Actions']],TYPES=['question','task','decision','claim','note','change','artifact'];
+const h=x=>String(x==null?'':x).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const has=(k,v)=>chips.some(c=>c.k===k&&(v==null||c.v===v)),chip=k=>chips.find(c=>c.k===k);
+const who=(u,agent)=>{const me=B()&&B().me;return u===me?(agent?'your agent':'you'):(agent?u+"'s agent":u)};
+const label=c=>c.k==='board'?'This board':c.k==='kind'?KINDS.find(k=>k[0]===c.v)[1]:c.k==='type'?'type: '+c.v:'from '+who(c.v,c.agent);
+function paintChips(){pChips.innerHTML=chips.map((c,i)=>'<span class="pal-chip">'+h(label(c))+'<button type="button" data-pchip="'+i+'" aria-label="Remove '+h(label(c))+'">✕</button></span>').join('');
+  const o=[];if(B()&&!has('board'))o.push(['board','','This board']);if(!has('kind'))KINDS.forEach(([v,l])=>o.push(['kind',v,l]));
+  if(B()&&!has('from'))o.push(['from','','From…']);if(!has('type'))o.push(['type','','Type…']);
+  pFilt.innerHTML=o.map(x=>'<button type="button" class="pal-opt" data-popt="'+x[0]+'" data-v="'+x[1]+'">'+h(x[2])+'</button>').join('');pFilt.hidden=!o.length}
+function paint(rows){items=rows;sel=Math.min(sel,Math.max(0,rows.length-1));let g='';
+  list.innerHTML=rows.map((r,n)=>(r.g!==g?'<li class="pal-g" aria-hidden="true">'+(g=r.g)+'</li>':'')+'<li role="option" data-n="'+n+'" id="po-'+n+'" aria-selected="'+(n===sel)+'"><span class="pal-l">'+r.label+'</span><span class="k">'+h(r.hint||'')+'</span></li>').join('')||'<li class="faint pal-none">'+(q.value.trim()?'No matches':'Type to search')+'</li>';
+  q.setAttribute('aria-activedescendant',rows.length?'po-'+sel:'')}
+function pickList(){const t=q.value.trim().replace(/^@/,'').toLowerCase();
+  const rows=mode==='from'?(B()?B().members:[]).flatMap(u=>[{u,agent:false},{u,agent:true}]).filter(x=>x.u.startsWith(t)).map(x=>({g:'From',label:h(who(x.u,x.agent)),pick:{k:'from',v:x.u,agent:x.agent}}))
+    :TYPES.filter(x=>x.startsWith(t)).map(x=>({g:'Type',label:h(x),pick:{k:'type',v:x}}));paint(rows)}
+const snip=x=>h(x||'').split('«').join('<mark>').split('»').join('</mark>');
+function render(){const my=++run;if(mode){pickList();return}const t=q.value.trim(),kind=chip('kind')&&chip('kind').v,b=B(),scoped=b&&(has('board')||has('from')||has('type'));
+  const rows=[];
+  if((!kind||kind==='boards'||kind==='actions')&&!scoped&&!has('from')&&!has('type'))
+    PALETTE.filter(i=>!t||i.label.toLowerCase().includes(t.toLowerCase())).filter(i=>!kind||(kind==='boards')===(i.hint==='Board')).slice(0,t?8:6)
+      .forEach(i=>rows.push({g:i.hint==='Board'?'Boards':'Actions',label:h(i.label),hint:i.hint==='Board'?'':i.hint,href:i.href}));
+  paint(rows);
+  if(kind==='boards'||kind==='actions'||(!t&&!has('from')&&!has('type')))return;
+  clearTimeout(timer);timer=setTimeout(async()=>{const more=[];
+    try{if(scoped){const p=new URLSearchParams({q:t});const f=chip('from');if(f){p.set('from',f.v);p.set('agent',f.agent?'1':'0')}if(chip('type'))p.set('type',chip('type').v);if(kind==='messages')p.set('in','chat');
+        const j=await (await fetch('/api/boards/'+b.id+'/search?'+p)).json();
+        if(kind!=='files')(j.entries||[]).forEach(x=>more.push({g:'Messages',label:(x.title?'<b>'+h(x.title)+'</b> ':'')+snip(x.snippet),hint:who(x.author,x.via==='agent')+' · #'+x.seq,act:()=>b.jump(x.seq)}));
+        if(kind!=='messages')(j.files||[]).forEach(x=>more.push({g:'Files',label:'<span class="mono">'+h(x.name)+'</span> '+snip(x.snippet),hint:'v'+x.version,act:()=>b.openFile(x.name,x.version)}))}
+      else if(t){const j=await (await fetch('/api/boards/search?q='+encodeURIComponent(t))).json();
+        (j.hits||[]).filter(x=>kind==='files'?x.kind==='file':kind==='messages'?x.kind==='entry':true).forEach(x=>{const here=b&&x.board===b.id;
+          more.push({g:x.kind==='file'?'Files':'Messages',label:(x.kind==='file'?'<span class="mono">'+h(x.name)+'</span> ':'')+snip(x.snippet),hint:x.title+(x.seq?' · #'+x.seq:''),
+            act:here?(x.kind==='file'?()=>b.openFile(x.name,x.version):()=>b.jump(x.seq)):null,href:'/b/'+x.board+(x.kind==='file'?'#files':'#e'+x.seq)})})}}catch(e){}
+    if(my===run)paint(rows.concat(more))},150)}
+function go(i){if(!i)return;if(i.pick){chips=chips.filter(c=>c.k!==i.pick.k);chips.push(i.pick);mode=null;q.value='';paintChips();sel=0;render();q.focus();return}
+  pal.close();if(i.href==='#shortcuts'){$('#shortcuts').showModal();return}if(i.act){i.act();return}location.href=i.href}
+window.openPalette=(preset)=>{chips=(preset||[]).slice();mode=null;q.value='';sel=0;paintChips();render();if(!pal.open)pal.showModal();q.focus()};
+q.addEventListener('input',()=>{sel=0;if(!mode&&q.value.startsWith('@')&&B())mode='from';if(mode&&!q.value&&mode==='from')mode=null;render()});
+q.addEventListener('keydown',e=>{if(e.key==='ArrowDown'){sel=Math.min(sel+1,items.length-1);paint(items);e.preventDefault()}
+  else if(e.key==='ArrowUp'){sel=Math.max(sel-1,0);paint(items);e.preventDefault()}else if(e.key==='Enter'){go(items[sel]);e.preventDefault()}
+  else if(e.key==='Backspace'&&!q.value&&(mode||chips.length)){if(mode)mode=null;else chips.pop();paintChips();render();e.preventDefault()}});
+list.addEventListener('mousedown',e=>{const li=e.target.closest('[data-n]');if(li){e.preventDefault();go(items[+li.dataset.n])}});
+pChips.addEventListener('click',e=>{const b=e.target.closest('[data-pchip]');if(!b)return;chips.splice(+b.dataset.pchip,1);paintChips();render();q.focus()});
+pFilt.addEventListener('click',e=>{const b=e.target.closest('[data-popt]');if(!b)return;const k=b.dataset.popt;
+  if(k==='from'||k==='type'){mode=k;q.value='';sel=0;render();q.focus();return}chips.push({k,v:b.dataset.v||null});paintChips();render();q.focus()});
 document.addEventListener('click',e=>{if(e.target.closest('[data-palette]'))openPalette();if(e.target.closest('[data-nav]'))$('#app').classList.toggle('nav-open')});
 let g=false,gt;
 document.addEventListener('keydown',e=>{
