@@ -507,6 +507,8 @@ export function homePage(
         )
         .join("")}</div>`
     : "";
+  // Direct messages are conversations, not boards: they live under Direct in the sidebar.
+  boards = boards.filter((b) => (b as { kind?: string | null }).kind !== "direct");
   const active = boards.filter((b) => !b.archived_at).length;
   const archivedCount = boards.length - active;
   const cards = boards
