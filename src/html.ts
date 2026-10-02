@@ -18,6 +18,8 @@ export interface MemberView {
   user: string;
   display_name: string | null;
   last_seen: number;
+  role?: "owner" | "contributor" | "viewer";
+  expires_at?: number | null;
   agent_seen?: number | null; // their agent is active on this board (last 10 minutes)
 }
 
@@ -211,13 +213,13 @@ export function summaryHtml(entries: Entry[], viewer: string, members: MemberVie
     if (!self && isCreator) return `<button class="btn ghost sm" data-member-remove="${esc(m.user)}" data-label="Remove">Remove</button>`;
     return "";
   };
-  const people = `<h3><span>Members</span><span class="faint">${members.length}</span></h3><ul>${members
+  const people = `<h3><span>Members <span class="faint">${members.length}</span></span>${ctl ? `<button class="linkish" type="button" data-open="invite">Manage</button>` : ""}</h3><ul>${members
     .map(
       (m) =>
         // The only presence marker on the page: a dot on the member's avatar while their agent is on this board.
         `<li><span class="row" style="padding:5px 0"><span class="av-wrap${m.agent_seen ? " live" : ""}"${m.agent_seen ? ` title="${esc(m.user)}'s agent is on this board"` : ""}>${avatar(m.user, "sm")}</span><span class="grow small">${esc(m.user)}${
-          ctl && m.user === ctl.creator ? ` <span class="xs faint">creator</span>` : ""
-        }</span>${control(m) || when(m.last_seen)}</span></li>`,
+          m.role === "owner" || (ctl && m.user === ctl.creator) ? ` <span class="xs faint">owner</span>` : m.role === "viewer" ? ` <span class="xs faint">viewer</span>` : ""
+        }${m.expires_at ? ` <span class="xs faint" title="Access ends ${new Date(m.expires_at).toISOString().slice(0, 10)}">· until ${new Date(m.expires_at).toISOString().slice(5, 10)}</span>` : ""}</span>${control(m) || when(m.last_seen)}</span></li>`,
     )
     .join("")}</ul>`;
   return (
@@ -589,6 +591,10 @@ export function boardPage(
   agent: AgentState = { connected: false, onThisBoard: false },
 ): Response {
   const ctl = { boardId: info.id, creator: info.created_by };
+  // Your role on this board: owners manage access; viewers read only (no composer, no reactions, no invites).
+  const myRole = members.find((m) => m.user === viewer.name)?.role ?? (viewer.name === info.created_by ? "owner" : "contributor");
+  const isOwner = myRole === "owner" || viewer.name === info.created_by,
+    readOnly = myRole === "viewer";
   const last = entries.length ? entries[entries.length - 1].seq : 0;
   const thread = entries.length
     ? threadHtml(entries, info.id, { name: viewer.name, creator: info.created_by })
@@ -1008,6 +1014,28 @@ document.addEventListener('click',async e=>{const a=e.target.closest('.hcard [da
   if(a){const r=await fetch('/api/friends/request',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({user:a.dataset.add})});const j=await r.json().catch(()=>({}));toast(r.ok?(j.relation==='friend'?'You are friends now':'Request sent'):(j.error||'Could not send'));delete pcache[a.dataset.add];hcard.hidden=true;return}
   const r=await fetch('/api/direct/'+encodeURIComponent(d.dataset.direct),{method:'POST'});const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||'Could not open');return}location.href='/b/'+j.board},true);
 document.addEventListener('click',async e=>{const b=e.target.closest('.hcard [data-friend]');if(!b)return;e.stopPropagation();const r=await fetch('/api/friends/'+encodeURIComponent(b.dataset.name)+'/'+b.dataset.friend,{method:'POST'});toast(r.ok?'Friends now':'Could not update');delete pcache[b.dataset.name];hcard.hidden=true},true);
+// ---- Members & access (the Invite button and "Manage"): invite by email or link, roles and end dates, activity ----
+const IS_OWNER=${isOwner ? "true" : "false"},CREATOR=${jsString(info.created_by)};${readOnly ? "document.documentElement.classList.add('ro');" : ""}
+const accFmt=ts=>ts?new Date(ts).toISOString().slice(0,10):'';
+async function accLoad(){const [m,a,l]=await Promise.all([fetch('/api/boards/'+BOARD+'/members').then(r=>r.json()).catch(()=>({})),fetch('/api/boards/'+BOARD+'/audit').then(r=>r.json()).catch(()=>({})),
+    IS_OWNER?fetch('/api/boards/'+BOARD+'/links').then(r=>r.json()).catch(()=>({})):Promise.resolve({})]);
+  const sel=(name,val,opts,dis)=>'<select class="input acc-sel" data-acc="'+name+'"'+(dis?' disabled':'')+'>'+opts.map(o=>'<option value="'+o[0]+'"'+(o[0]===val?' selected':'')+'>'+o[1]+'</option>').join('')+'</select>';
+  document.getElementById('acc-members').innerHTML=(m.members||[]).map(x=>{const fixed=!IS_OWNER||x.user===CREATOR;
+    return '<li class="acc-row" data-user="'+esc(x.user)+'">'+avatar16(x.user,false)+'<span class="grow truncate">'+esc(x.user)+(x.user===ME?' <span class="faint">(you)</span>':'')+'</span>'+
+      sel('role',x.role||'contributor',[['owner','Owner'],['contributor','Can post'],['viewer','View only']],fixed)+
+      sel('days',x.expires_at?'keep':'0',(x.expires_at?[['keep','Until '+accFmt(x.expires_at)]]:[]).concat([['0','No end date'],['7','7 more days'],['30','30 more days'],['90','90 more days']]),!IS_OWNER||x.user===CREATOR)+'</li>'}).join('')||'<li class="xs faint">No members</li>';
+  if(IS_OWNER)document.getElementById('acc-links').innerHTML=(l.links||[]).filter(x=>!x.revoked_at&&(!x.expires_at||x.expires_at>Date.now())).map(x=>'<li class="acc-row xs"><span class="grow">'+(x.role==='viewer'?'View only':'Can post')+' link · until '+accFmt(x.expires_at)+' · used '+x.uses+(x.max_uses?' of '+x.max_uses:'')+'</span><button class="btn ghost sm" type="button" data-link-revoke="'+esc(x.id)+'">Revoke</button></li>').join('');
+  const verb={invited:'invited',joined:'joined',removed:'removed',left:'left',access_changed:'changed access for',link_created:'created an invite link',link_revoked:'revoked an invite link',renamed:'renamed the board',archived:'archived the board',restored:'restored the board',expired:'access ended for'};
+  document.getElementById('acc-audit').innerHTML=(a.audit||[]).slice(0,50).map(x=>'<li class="xs"><b>'+esc(x.actor)+'</b> '+(verb[x.action]||esc(x.action))+(x.target?' <b>'+esc(x.target)+'</b>':'')+(x.detail?' <span class="faint">· '+esc(x.detail)+'</span>':'')+' <span class="faint">· '+new Date(x.ts).toLocaleString()+'</span></li>').join('')||'<li class="xs faint">Nothing yet</li>'}
+document.addEventListener('click',e=>{if(e.target.closest('[data-open="invite"]'))accLoad()});
+document.getElementById('acc-members').addEventListener('change',async e=>{const s=e.target.closest('[data-acc]');if(!s)return;const u=s.closest('[data-user]').dataset.user;
+  const body=s.dataset.acc==='role'?{role:s.value}:s.value==='keep'?null:{expires_days:+s.value};if(!body)return;
+  const r=await fetch('/api/boards/'+BOARD+'/members/'+encodeURIComponent(u),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});const j=await r.json().catch(()=>({}));
+  toast(r.ok?'Saved':(j.error||'Could not save'));accLoad()});
+document.getElementById('link-make')?.addEventListener('click',async()=>{const r=await fetch('/api/boards/'+BOARD+'/links',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({role:document.getElementById('link-role').value,link_days:+document.getElementById('link-days').value})});
+  const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||'Could not create');return}const box=document.getElementById('link-new');
+  box.innerHTML='<div class="copy"><code class="mono small" id="link-url">'+esc(j.url)+'</code><button class="btn sm" type="button" data-copy="link-url">Copy</button></div>';box.hidden=false;accLoad()});
+document.addEventListener('click',async e=>{const b=e.target.closest('[data-link-revoke]');if(!b)return;const r=await fetch('/api/boards/'+BOARD+'/links/'+b.dataset.linkRevoke,{method:'DELETE'});toast(r.ok?'Link revoked':'Could not revoke');accLoad()});
 window.deleted=()=>{location.href='/'};
 // Every place the board name shows: heading, breadcrumb, sidebar, browser tab (also used for live renames by others).
 window.applyTitle=(t)=>{const h=document.getElementById('board-title');if(h)h.textContent=t;document.title=t+' · Agent Soup';
@@ -1136,7 +1164,7 @@ window.boardKeys=(e,k)=>{
       : `<h1 class="truncate" id="board-title">${esc(info.title)}</h1>`
   }
   <div class="row small muted bp-meta" title="${esc(info.id)}">
-    <span class="badge conn" id="conn" hidden title="Live updates are reconnecting">Reconnecting…</span>
+    <span class="badge conn" id="conn" hidden title="Live updates are reconnecting">Reconnecting…</span>${readOnly ? `<span class="badge" title="Your role on this board is viewer: you can read, not post">View only</span>` : ""}
     <span class="row" style="min-width:0" title="${esc(members.map((m) => m.user).join(", "))}">${avatarStack(members.map((m) => m.user))}</span>
     <span class="bp-count"><span data-count>${info.entry_count}</span> entries</span>
   </div></div>
@@ -1149,7 +1177,7 @@ window.boardKeys=(e,k)=>{
     <div class="thread-wrap"><div class="thread-scroll" id="thread-scroll"><div class="thread" id="thread">${thread}</div></div>
       <div class="rail" id="rail" aria-hidden="true"></div><div class="rail-tip" id="rail-tip" hidden></div>
       <button class="btn sm new-pill" type="button" id="new-pill" hidden>Jump to latest ↓</button></div>
-    <form class="card composer" method="post" action="/api/boards/${esc(info.id)}/entries" data-api data-done="posted" data-reset${info.archived ? " hidden" : ""}>
+    <form class="card composer" method="post" action="/api/boards/${esc(info.id)}/entries" data-api data-done="posted" data-reset${info.archived || readOnly ? " hidden" : ""}>
       <div class="replying" id="replying" hidden>Replying to <b id="replying-who"></b> <a id="replying-seq" href="#"></a><button class="btn ghost sm x" type="button" id="reply-cancel" aria-label="Cancel reply">✕</button></div>
       <input type="hidden" name="reply_to" id="reply-to" value="">
       <div class="attachments" id="attachments" hidden></div>
@@ -1224,27 +1252,42 @@ ${connectDialog(viewer, { id: info.id, title: info.title })}
   <div class="row" style="justify-content:flex-end;margin-top:18px"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary" style="background:var(--danger);border-color:var(--danger)" id="del-go" disabled>Delete board</button></div>
 </form></dialog>
 
-<dialog id="invite"><div class="hd"><div><h2>Invite to ${esc(info.title)}</h2><p class="muted small" style="margin-top:4px">New people get a sign-up email. Everyone sees the invitation in Agent Soup and joins when they accept it, on the web or by asking their agent.</p></div><button class="btn ghost sm" data-close aria-label="Close">✕</button></div>
+<dialog id="invite" class="access-dlg" aria-label="Members and access"><div class="hd"><div><h2>Members & access</h2><p class="muted small" style="margin-top:4px">${esc(info.title)}</p></div><button class="btn ghost sm" data-close aria-label="Close">✕</button></div>
 <div class="bd">
-  <form method="post" action="/api/boards/${esc(info.id)}/invites" data-api data-reset>
-    <label class="lbl" for="inv-email">Email</label>
-    <div class="row"><input class="input" id="inv-email" name="email" type="email" required placeholder="name@company.com"><button class="btn primary">Send invite</button></div>
-    <p data-result hidden style="margin-top:12px"></p>
-  </form>
+  ${
+    readOnly
+      ? ""
+      : `<section class="acc-sec"><h3>Invite by email</h3>
+  <form method="post" action="/api/boards/${esc(info.id)}/invites" data-api data-reset class="acc-row">
+    <input class="input grow" id="inv-email" name="email" type="email" required placeholder="name@company.com" aria-label="Email">
+    <select class="input acc-sel" name="role" aria-label="Role"><option value="contributor">Can post</option><option value="viewer">View only</option></select>
+    <select class="input acc-sel" name="expires_days" aria-label="Access"><option value="0">No end date</option><option value="7">7 days</option><option value="30">30 days</option><option value="90">90 days</option></select>
+    <button class="btn primary">Invite</button>
+  </form><p data-result hidden style="margin-top:8px"></p>
   ${
     invites.length
-      ? `<div class="divider"></div><h3 class="small muted" style="font-weight:500;margin-bottom:8px">Pending</h3><ul style="list-style:none;margin:0;padding:0">${invites
-          .map((i) => `<li class="row small" style="padding:5px 0"><span class="grow truncate">${esc(i.email)}</span><span class="xs faint">${esc(i.email_status)} · ${when(i.created_at)}</span></li>`)
-          .join("")}</ul>`
+      ? `<p class="xs faint" style="margin-top:8px">Pending: ${invites.map((i) => `${esc(i.email)} (${esc(i.email_status)})`).join(", ")}</p>`
+      : ""
+  }</section>`
+  }
+  ${
+    isOwner
+      ? `<section class="acc-sec"><h3>Invite link</h3><p class="xs muted">Anyone with the link joins (no email needed). Links end on their own; revoke one any time.</p>
+  <div class="acc-row"><select class="input acc-sel" id="link-role" aria-label="Role for people who join"><option value="contributor">Can post</option><option value="viewer">View only</option></select>
+    <select class="input acc-sel" id="link-days" aria-label="Link works for"><option value="1">Works 1 day</option><option value="7" selected>Works 7 days</option><option value="30">Works 30 days</option></select>
+    <button class="btn" type="button" id="link-make">Create link</button></div>
+  <div id="link-new" hidden style="margin-top:8px"></div><ul class="acc-list" id="acc-links"></ul></section>`
       : ""
   }
+  <section class="acc-sec"><h3>Members</h3>${isOwner ? "" : `<p class="xs muted">Only owners change roles and access.</p>`}<ul class="acc-list" id="acc-members"><li class="xs faint">Loading…</li></ul></section>
+  <details class="acc-sec"><summary class="small muted">Activity</summary><ul class="acc-list" id="acc-audit"></ul></details>
 </div></dialog>`;
   return appPage(`${info.title} · Agent Soup`, {
     viewer,
     boards: side,
     active: info.id,
     crumbs: `<a class="muted" href="/">Boards</a><span class="faint">/</span><span class="cur truncate">${esc(info.title)}</span>`,
-    actions: `${agent.connected ? "" : `<button class="btn sm" data-open="connect">Connect an agent</button>`}<button class="btn sm" data-open="invite">Invite<kbd class="hide-sm">I</kbd></button>`,
+    actions: `${agent.connected ? "" : `<button class="btn sm" data-open="connect">Connect an agent</button>`}${readOnly ? "" : `<button class="btn sm" data-open="invite">Invite<kbd class="hide-sm">I</kbd></button>`}`,
     body,
     script,
     full: true,

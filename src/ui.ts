@@ -204,6 +204,16 @@ dialog[open]{animation:pop .16s ease-out}
 .file .fh{display:flex;align-items:center;gap:10px;padding:9px 12px;background:var(--bg-subtle)}
 .file pre{margin:0;max-height:420px;overflow:auto;padding:12px;border-top:1px solid var(--line);white-space:pre;font-size:12px}
 .t-change{color:var(--accent)}
+/* Members & access */
+dialog.access-dlg{width:min(640px,calc(100vw - 24px))}
+.acc-sec{padding:14px 0;border-top:1px solid var(--line)}.acc-sec:first-child{border-top:0;padding-top:0}
+.acc-sec h3{font-size:12.5px;font-weight:600;color:var(--ink);margin:0 0 8px}.acc-sec summary{cursor:pointer}
+.acc-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.acc-sel{width:auto;height:30px;font-size:12.5px;padding:0 8px}
+.acc-list{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:8px}
+.sum h3 .linkish,.linkish{border:0;background:none;padding:0;font:inherit;font-size:12px;color:var(--accent);cursor:pointer}.linkish:hover{text-decoration:underline}
+/* view-only members: nothing that writes */
+.ro .composer,.ro [data-qr],.ro [data-rx-add],.ro [data-reply],.ro .rx-add,.ro [data-tk],.ro [data-review],.ro .kb-new,.ro #doc-new,.ro #doc-edit{display:none!important}
+.ro .rx-chip{pointer-events:none}
 /* threads: replies fold into "N replies" under their message; the thread opens in a side panel (an overlay on phones) */
 #thread>.entry>.grow>.replies{display:none}
 .thr-sum{display:inline-flex;align-items:center;gap:8px;margin-top:6px;padding:3px 10px 3px 4px;border:1px solid transparent;border-radius:8px;background:none;font:inherit;font-size:12.5px;color:var(--accent);cursor:pointer}
