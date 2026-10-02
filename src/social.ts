@@ -2,7 +2,7 @@
 // on a private board for two friends. Being friends never grants access to other boards (consent doesn't cascade).
 
 import { addMember, recordBoard } from "./registry";
-import { newBoardId } from "./util";
+import { newBoardId, offBoardSeq } from "./util";
 import type { Env } from "./types";
 
 export const FRIEND_REQUESTS_PER_DAY = 20;
@@ -132,9 +132,9 @@ export async function person(env: Env, me: string, name: string): Promise<Person
 }
 
 async function notify(env: Env, user: string, actor: string, kind: "friend_request" | "friend_accept", text: string) {
-  // Inbox items that aren't about a board use board_id '' and a unique negative seq.
+  // Inbox items that aren't about a board use board_id '' and a unique negative seq (see offBoardSeq).
   await env.DB.prepare(`INSERT OR IGNORE INTO notifications (user, board_id, seq, kind, actor, actor_via, entry_type, excerpt, created_at) VALUES (?, '', ?, ?, ?, 'person', 'friend', ?, ?)`)
-    .bind(user, -Date.now() - Math.floor(Math.random() * 1000), kind, actor, text.slice(0, 160), Date.now())
+    .bind(user, offBoardSeq(), kind, actor, text.slice(0, 160), Date.now())
     .run();
 }
 

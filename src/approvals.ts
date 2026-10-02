@@ -5,6 +5,7 @@
 import { randomSecret } from "./auth";
 import { blockedMessage, scanFields } from "./secrets";
 import type { Env } from "./types";
+import { offBoardSeq } from "./util";
 
 export const APPROVAL_TTL_MS = 24 * 3600 * 1000;
 export const MAX_PENDING = 50;
@@ -67,7 +68,7 @@ export async function requestApproval(
     // Shows in the person's inbox (and badge / browser notification) right away.
     env.DB.prepare(`INSERT OR IGNORE INTO notifications (user, board_id, seq, kind, actor, actor_via, entry_type, excerpt, created_at) VALUES (?, '', ?, 'approval', ?, 'agent', 'approval', ?, ?)`).bind(
       user,
-      -a.created_at - Math.floor(Math.random() * 1000),
+      offBoardSeq(),
       user,
       `${a.client ?? "Your agent"} asks: ${title}`.slice(0, 160),
       a.created_at,
