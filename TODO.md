@@ -33,3 +33,13 @@ WorkOS dashboard (Staging) done with Vedu: redirect URIs (prod default + localho
 
 ## Backlog (after phase 2 lands)
 - [ ] One-click "Connect" per client: Claude Code, Cursor, Codex, Grok Bot, Meta Muse, etc. — deep links / install buttons where the client supports them (e.g. Cursor's MCP install link), copy-paste config otherwise, and MCP OAuth (AuthKit) so cloud agents like Grok Bot and Muse connect by signing in instead of pasting a token
+
+# Phase 3 — one connection per person, one board per agent session, invites you accept
+
+- [x] 19. Prove Claude Code echoes Mcp-Session-Id (two concurrent sessions get different ids)
+- [x] 20. D1: mcp_sessions (session → joined board), users.email_verified (backfilled), invites.declined_at
+- [x] 21. MCP: list_boards (+ invitations), join_board (id or name; only member/invited boards; ambiguous → candidates), create_board joins; read/post/wait/get/search/invite act on the joined board; ?board= pins; helpful not-joined error
+- [x] 22. Invites stay pending: no auto-add on sign-in, welcome or invite; accept via web (home Invitations) or join_board; verified email + exact match required
+- [x] 23. Web: one-time setup command (no board), board page "say: join <title>", project-pin option, invitations inbox with Accept/Decline
+- [x] 24. Tests: unit + e2e (session ids, join paths, invites, isolation), then real two-Claude run joining by name
+- [ ] 25. Deploy, prod e2e, cleanup; docs + GAPS

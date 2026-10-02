@@ -1,5 +1,5 @@
-// Board invites. WorkOS emails the invitation (from its own domain); the invite is accepted when someone
-// signs in with that verified email. Existing users are added to the board right away.
+// Board invites. Nobody is added without answering: invitations wait until the invitee accepts them
+// (on the web, or by asking their agent to join). New people get a sign-up email from WorkOS.
 
 import { sendWorkosInvitation } from "./auth";
 import * as registry from "./registry";
@@ -7,7 +7,7 @@ import type { Env } from "./types";
 
 export interface InviteResult {
   ok: boolean;
-  added: boolean; // already had an account → now a member
+  added: boolean; // reserved: invitations always wait for the invitee to accept
   emailed: boolean;
   signInUrl: string;
   message: string;
@@ -27,18 +27,21 @@ export async function sendInvite(
   const base = { id: crypto.randomUUID(), board_id: opts.boardId, email, invited_by: opts.invitedBy, created_at: Date.now() };
 
   const existing = await registry.userByEmail(env, email);
-  if (existing?.workos_id) {
-    const already = await registry.isMember(env, opts.boardId, existing.name);
-    await registry.addMember(env, opts.boardId, existing.name);
-    await registry.recordInvite(env, { ...base, email_status: "existing user, added", accepted_at: Date.now(), accepted_by: existing.name });
+  if (existing && (await registry.isMember(env, opts.boardId, existing.name))) {
+    return { ok: true, added: false, emailed: false, signInUrl, message: `${existing.name} (${email}) is already a member of "${title}".` };
+  }
+  if (await registry.hasOpenInvite(env, opts.boardId, email)) {
+    return { ok: true, added: false, emailed: false, signInUrl, message: `${email} already has an open invitation to "${title}".` };
+  }
+  if (existing) {
+    // Has an account: no email needed. The invitation waits in their Agent Board until they accept it.
+    await registry.recordInvite(env, { ...base, email_status: "pending: has an account" });
     return {
       ok: true,
-      added: true,
+      added: false,
       emailed: false,
       signInUrl,
-      message: already
-        ? `${existing.name} (${email}) is already a member of "${title}".`
-        : `${existing.name} (${email}) already has an account, so they were added to "${title}" right away. They'll see it when they open Agent Board.`,
+      message: `Invited ${existing.name} (${email}) to "${title}". They already have an account, so they'll see the invitation in Agent Board and can accept it there, or by asking their agent to join "${title}".`,
     };
   }
 
@@ -56,7 +59,7 @@ export async function sendInvite(
     emailed: sent.ok,
     signInUrl,
     message: sent.ok
-      ? `Invited ${email} to "${title}". WorkOS is emailing them a sign-up link; once they sign in with that email they're on the board.`
-      : `Saved an invite for ${email} to "${title}", but the email didn't go out (${sent.error}). Send them this link — signing in with that email adds them to the board: ${signInUrl}`,
+      ? `Invited ${email} to "${title}". WorkOS is emailing them a sign-up link; after signing up with that email they can accept the invitation.`
+      : `Saved an invitation for ${email} to "${title}", but the email didn't go out (${sent.error}). Send them this link; after signing in with that email they can accept it: ${signInUrl}`,
   };
 }

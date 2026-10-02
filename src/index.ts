@@ -153,10 +153,11 @@ async function authCallback(c: Ctx): Promise<Response> {
 
   // Known account → by WorkOS id. Otherwise a pre-made user row with this *verified* email (e.g. a migrated beta user).
   let user = await registry.userByWorkosId(c.env, wu.id);
+  if (user) await registry.setEmailVerified(c.env, user.name, wu.email, verified);
   if (!user && verified) {
     const unlinked = await registry.unlinkedUserByEmail(c.env, wu.email);
     if (unlinked) {
-      await registry.linkWorkos(c.env, unlinked.name, wu.id, wu.email, display);
+      await registry.linkWorkos(c.env, unlinked.name, wu.id, wu.email, display, verified);
       user = await registry.userByName(c.env, unlinked.name);
     }
   }
@@ -175,10 +176,8 @@ async function authCallback(c: Ctx): Promise<Response> {
     headers.set("Location", `/welcome?return=${encodeURIComponent(safeReturn(ret))}`);
     return new Response(null, { status: 303, headers });
   }
-  // Invites are matched by email, so only a verified email may accept them.
-  const joined = verified ? await registry.acceptInvites(c.env, wu.email, user.name) : [];
-  const dest = safeReturn(ret);
-  headers.set("Location", dest !== "/" ? dest : joined.length ? `/b/${joined[0]}` : "/");
+  // Invitations wait for an answer: home lists them with Accept / Decline.
+  headers.set("Location", safeReturn(ret));
   return new Response(null, { status: 303, headers });
 }
 
@@ -194,11 +193,9 @@ async function welcome(c: Ctx): Promise<Response> {
   if (!name) return welcomePage(s.email, suggestion, "Use 1–32 lowercase letters, numbers, dot, dash or underscore, starting with a letter or number.");
   if (await registry.userByName(c.env, name)) return welcomePage(s.email, name, `"${name}" is taken. Try another.`);
   if (await registry.userByWorkosId(c.env, s.workos_id)) return redirect("/");
-  await registry.createUser(c.env, { name, email: s.email, workos_id: s.workos_id, display_name: s.display_name });
+  await registry.createUser(c.env, { name, email: s.email, email_verified: !!s.email_verified, workos_id: s.workos_id, display_name: s.display_name });
   await auth.setSessionUser(c.env, s.id_hash, name);
-  const joined = s.email_verified ? await registry.acceptInvites(c.env, s.email, name) : [];
-  const ret = safeReturn(c.url.searchParams.get("return"));
-  return redirect(ret !== "/" ? ret : joined.length ? `/b/${joined[0]}` : "/");
+  return redirect(safeReturn(c.url.searchParams.get("return")));
 }
 
 // ---------- ops data ----------
@@ -268,9 +265,10 @@ export default {
       if (path === "/" && method === "GET") {
         if (session && !session.user) return redirect("/welcome");
         if (!viewer) return landingPage();
-        const [side, boards] = await Promise.all([sideBoards(env, viewer.name), registry.allBoards(env)]);
+        const me = await registry.userByName(env, viewer.name);
+        const [side, boards, invitations] = await Promise.all([sideBoards(env, viewer.name), registry.allBoards(env), me ? registry.invitationsFor(env, me) : []]);
         const mine = new Set(side.map((b) => b.id));
-        return homePage(viewer, side, boards.filter((b) => mine.has(b.id)));
+        return homePage(viewer, side, boards.filter((b) => mine.has(b.id)), invitations);
       }
 
       if (path === "/boards" && method === "POST") {
@@ -361,14 +359,31 @@ export default {
         return json({ error: "not found" }, 404);
       }
 
+      // ---- invitations (accept / decline) ----
+      m = path.match(/^\/api\/invitations\/([^/]+)\/(accept|decline)$/);
+      if (m && method === "POST") {
+        if (!viewer) return needLogin();
+        const me = await registry.userByName(env, viewer.name);
+        if (!me) return needLogin();
+        const ok = m[2] === "accept" ? await registry.acceptInvitation(env, me, m[1]) : await registry.declineInvitation(env, me, m[1]);
+        if (!ok) return json({ error: "No open invitation to that board for your verified email." }, 404);
+        return json({ ok: true, board: m[1], message: m[2] === "accept" ? "Joined" : "Declined" });
+      }
+
       // ---- personal tokens ----
       if (path === "/api/tokens" && method === "POST") {
         if (!viewer) return needLogin();
         const body = (await request.json().catch(() => ({}))) as { board?: string; label?: string };
         const board = body.board && (await canSee(c, body.board)) ? body.board : null;
-        const t = await auth.createToken(env, viewer.name, String(body.label ?? "").slice(0, 80) || "Claude Code");
+        const t = await auth.createToken(env, viewer.name, String(body.label ?? "").slice(0, 80) || "Agent");
         return json(
-          { id: t.id, token: t.token, command: connectCommand(url.origin, board, t.token), mcp_url: board ? `${url.origin}/mcp?board=${board}` : `${url.origin}/mcp` },
+          {
+            id: t.id,
+            token: t.token,
+            command: connectCommand(url.origin, null, t.token),
+            mcp_url: `${url.origin}/mcp`,
+            ...(board ? { project_command: connectCommand(url.origin, board, t.token), project_mcp_url: `${url.origin}/mcp?board=${board}` } : {}),
+          },
           201,
         );
       }
@@ -387,7 +402,13 @@ export default {
           const name = normalizeUser(body.name);
           if (!name) return json({ error: "valid name required" }, 400);
           if (await registry.userByName(env, name)) return json({ error: "name taken" }, 409);
-          await registry.createUser(env, { name, email: body.email ? body.email.toLowerCase() : null, workos_id: null, display_name: body.display_name ?? null });
+          await registry.createUser(env, {
+            name,
+            email: body.email ? body.email.toLowerCase() : null,
+            email_verified: String(body.verified) === "true",
+            workos_id: null,
+            display_name: body.display_name ?? null,
+          });
           return json({ ok: true, name }, 201);
         }
         if (path === "/api/ops/tokens" && method === "POST") {

@@ -1,6 +1,6 @@
 // Pages. Server-rendered with the design system in ui.ts; small inline scripts for live updates.
 
-import type { BoardRow, InviteRow, UserRow } from "./registry";
+import type { BoardRow, InviteRow, Invitation, UserRow } from "./registry";
 import type { TokenRow } from "./auth";
 import { computeSummary, type Summary } from "./state";
 import type { BoardInfo, Entry } from "./types";
@@ -154,9 +154,60 @@ export function welcomePage(email: string, suggestion: string, error?: string): 
   );
 }
 
+
+/** "Set up your agent": one connection per person, then each session joins a board by name. */
+export function connectDialog(viewer: Viewer, board?: { id: string; title: string }): string {
+  return `<dialog id="connect"><div class="hd"><div><h2>Set up your agent</h2><p class="muted small" style="margin-top:4px">Do this once per machine. Your agent acts as <b>${esc(viewer.name)}</b> and can reach every board you're on; each session joins one board at a time.</p></div><button class="btn ghost sm" data-close aria-label="Close">✕</button></div>
+<div class="bd">
+  <form id="connect-form" method="post" action="/api/tokens" data-api data-done="showToken">
+    ${board ? `<input type="hidden" name="board" value="${esc(board.id)}">` : ""}<input type="hidden" name="label" value="Agent connection">
+    <p class="small muted">Creates a personal access token. It's shown once; revoke it any time from Account.</p>
+    <div class="row" style="justify-content:flex-end;margin-top:18px"><button class="btn primary">Generate setup</button></div>
+  </form>
+  <div id="connect-out" hidden>
+    <div class="tabs" role="tablist" style="margin-bottom:14px"><button type="button" role="tab" data-ctab="cc" aria-selected="true">Claude Code</button><button type="button" role="tab" data-ctab="mcp" aria-selected="false">Other MCP clients</button></div>
+    <div data-cpanel="cc" class="stack">
+      <p class="small"><b>1.</b> Run once in a terminal:</p>${copyField("cmd", "")}
+      <p class="small"><b>2.</b> In any new session, say ${board ? `<i>"join ${esc(board.title)}"</i>` : `<i>"list my boards"</i> or <i>"join &lt;board&gt;"</i>`}.</p>
+      ${
+        board
+          ? `<details class="small" style="margin-top:6px"><summary class="muted" style="cursor:pointer">Pin a project folder to this board instead</summary>
+      <p class="muted" style="margin:8px 0">Run inside the project folder: every session there starts on <b>${esc(board.title)}</b>. It writes <span class="mono">.mcp.json</span>, which contains your token; keep it out of git.</p>${copyField("pcmd", "")}</details>`
+          : ""
+      }
+      <p class="xs muted">Replacing an older connection? Run <span class="mono">claude mcp remove board --scope user</span> first.</p>
+    </div>
+    <div data-cpanel="mcp" class="stack" hidden>
+      <p class="small">Cursor, Codex, Windsurf, or your own agent: add a remote (Streamable HTTP) MCP server with this URL and header, then ask it to join a board.</p>
+      <label class="lbl">URL</label>${copyField("mcp-url", "")}
+      <label class="lbl">Header</label>${copyField("mcp-header", "")}
+      <label class="lbl">Or as JSON config</label>${copyField("mcp-json", "")}
+    </div>
+  </div>
+</div></dialog>`;
+}
+
+const CONNECT_JS = `
+window.showToken=(j)=>{document.getElementById('connect-form').hidden=true;document.getElementById('connect-out').hidden=false;
+  document.getElementById('cmd').textContent=j.command;const p=document.getElementById('pcmd');if(p&&j.project_command)p.textContent=j.project_command;
+  document.getElementById('mcp-url').textContent=j.mcp_url;document.getElementById('mcp-header').textContent='Authorization: Bearer '+j.token;
+  document.getElementById('mcp-json').textContent=JSON.stringify({mcpServers:{board:{url:j.mcp_url,headers:{Authorization:'Bearer '+j.token}}}},null,2)};
+document.addEventListener('click',e=>{const t=e.target.closest('[data-ctab]');if(!t)return;document.querySelectorAll('[data-ctab]').forEach(b=>b.setAttribute('aria-selected',String(b===t)));
+  document.querySelectorAll('[data-cpanel]').forEach(p=>p.hidden=p.dataset.cpanel!==t.dataset.ctab)});
+`;
+
 // ---------- home ----------
 
-export function homePage(viewer: Viewer, side: SideBoard[], boards: (BoardRow & { members: string | null })[], flash?: string): Response {
+export function homePage(viewer: Viewer, side: SideBoard[], boards: (BoardRow & { members: string | null })[], invitations: Invitation[] = [], flash?: string): Response {
+  const invites = invitations.length
+    ? `<h2 style="margin:0 0 10px">Invitations</h2><div class="list" style="margin-bottom:28px">${invitations
+        .map(
+          (i) => `<div class="item">${avatar(i.invited_by, "sm")}<div class="grow"><div style="color:var(--ink)"><b>${esc(i.invited_by)}</b> invited you to <b>${esc(i.board_title)}</b></div><div class="xs faint">${when(i.created_at)}</div></div>
+<form method="post" action="/api/invitations/${esc(i.board_id)}/decline" data-api data-done="answered"><button class="btn sm ghost">Decline</button></form>
+<form method="post" action="/api/invitations/${esc(i.board_id)}/accept" data-api data-done="answered"><button class="btn sm primary">Accept</button></form></div>`,
+        )
+        .join("")}</div>`
+    : "";
   const list = boards.length
     ? `<div class="list">${boards
         .map((b) => {
@@ -176,14 +227,17 @@ export function homePage(viewer: Viewer, side: SideBoard[], boards: (BoardRow & 
     boards: side,
     active: "boards",
     crumbs: `<span class="cur">Boards</span>`,
-    actions: `<button class="btn primary sm" data-open="new-board">New board</button>`,
+    actions: `<button class="btn sm" data-open="connect">Set up your agent</button><button class="btn primary sm" data-open="new-board">New board</button>`,
     body: `${flash ? `<p class="flash ok" style="margin-bottom:18px">${esc(flash)}</p>` : ""}
+${invites}
 <div class="section-title"><div><h1>Boards</h1><p class="muted" style="margin-top:4px">Problems you and your collaborators' agents are working on.</p></div></div>
 ${list}
+${connectDialog(viewer)}
 <dialog id="new-board"><div class="hd"><div><h2>New board</h2><p class="muted small" style="margin-top:4px">You can invite people right after.</p></div><button class="btn ghost sm" data-close aria-label="Close">✕</button></div>
 <form class="bd" method="post" action="/boards"><label class="lbl" for="title">Title</label>
 <input class="input" id="title" name="title" required maxlength="120" placeholder="Debug the payments integration">
 <div class="row" style="justify-content:flex-end;margin-top:18px"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary">Create board</button></div></form></dialog>`,
+    script: CONNECT_JS + `window.answered=(j)=>{location.href=j.message==='Joined'?'/b/'+j.board:'/'};`,
   });
 }
 
@@ -234,7 +288,7 @@ export function boardPage(viewer: Viewer, side: SideBoard[], info: BoardInfo, me
     ? threadHtml(entries, info.id)
     : `<div class="empty" id="empty"><h3>Nothing here yet</h3><p class="small">Connect an agent and ask it to post, or write the first note below.</p></div>`;
   const rows = [...entries].reverse().map((e) => logRow(e)).join("");
-  const script = SHEET_JS + `
+  const script = SHEET_JS + CONNECT_JS + `
 window.BOARD=${JSON.stringify(info.id)};let last=${last};
 async function tick(wait){try{
   const r=await fetch('/api/boards/'+BOARD+'/updates?after='+last+(wait?'&wait=25':''));if(!r.ok){await new Promise(r=>setTimeout(r,5000));return}const d=await r.json();
@@ -248,11 +302,6 @@ async function tick(wait){try{
 }catch(e){await new Promise(r=>setTimeout(r,5000))}}
 (async()=>{for(;;){if(document.hidden){await new Promise(r=>setTimeout(r,2000));continue}await tick(true)}})();
 window.posted=()=>{toast('Posted');tick(false)};
-window.showToken=(j)=>{document.getElementById('connect-form').hidden=true;document.getElementById('connect-out').hidden=false;document.getElementById('cmd').textContent=j.command;
-  document.getElementById('mcp-url').textContent=j.mcp_url;document.getElementById('mcp-header').textContent='Authorization: Bearer '+j.token;
-  document.getElementById('mcp-json').textContent=JSON.stringify({mcpServers:{board:{url:j.mcp_url,headers:{Authorization:'Bearer '+j.token}}}},null,2)};
-document.addEventListener('click',e=>{const t=e.target.closest('[data-ctab]');if(!t)return;document.querySelectorAll('[data-ctab]').forEach(b=>b.setAttribute('aria-selected',String(b===t)));
-  document.querySelectorAll('[data-cpanel]').forEach(p=>p.hidden=p.dataset.cpanel!==t.dataset.ctab)});
 document.addEventListener('click',async e=>{const b=e.target.closest('[data-file]');if(!b)return;
   const card=b.closest('.file');let pre=card.querySelector('pre');if(pre){pre.remove();b.textContent='View';return}
   b.disabled=true;const r=await fetch('/api/boards/'+b.dataset.board+'/entries/'+b.dataset.file);const j=await r.json();b.disabled=false;
@@ -303,30 +352,9 @@ window.boardKeys=(e,k)=>{
 
 ${SHEET}
 
-<dialog id="connect"><div class="hd"><div><h2>Connect an agent</h2><p class="muted small" style="margin-top:4px">Gives your agent <span class="mono">read</span>, <span class="mono">post</span> and <span class="mono">wait</span> tools for this board, acting as <b>${esc(viewer.name)}</b>. Works with any MCP client.</p></div><button class="btn ghost sm" data-close aria-label="Close">✕</button></div>
-<div class="bd">
-  <form id="connect-form" method="post" action="/api/tokens" data-api data-done="showToken">
-    <input type="hidden" name="board" value="${esc(info.id)}"><input type="hidden" name="label" value="Agent · ${esc(info.title)}">
-    <p class="small muted">Creates a personal access token for one agent. It's shown once; revoke it any time from Account.</p>
-    <div class="row" style="justify-content:flex-end;margin-top:18px"><button class="btn primary">Generate connection</button></div>
-  </form>
-  <div id="connect-out" hidden>
-    <div class="tabs" role="tablist" style="margin-bottom:14px"><button type="button" role="tab" data-ctab="cc" aria-selected="true">Claude Code</button><button type="button" role="tab" data-ctab="mcp" aria-selected="false">Other MCP clients</button></div>
-    <div data-cpanel="cc" class="stack">
-      <p class="small"><b>1.</b> Run this in a terminal:</p>${copyField("cmd", "")}
-      <p class="small"><b>2.</b> Start a new session and say <i>"check the board"</i>.</p>
-      <p class="xs muted">Already connected to another board? Run <span class="mono">claude mcp remove board --scope user</span> first.</p>
-    </div>
-    <div data-cpanel="mcp" class="stack" hidden>
-      <p class="small">Cursor, Codex, Windsurf, or your own agent: add a remote (Streamable HTTP) MCP server with this URL and header.</p>
-      <label class="lbl">URL</label>${copyField("mcp-url", "")}
-      <label class="lbl">Header</label>${copyField("mcp-header", "")}
-      <label class="lbl">Or as JSON config</label>${copyField("mcp-json", "")}
-    </div>
-  </div>
-</div></dialog>
+${connectDialog(viewer, { id: info.id, title: info.title })}
 
-<dialog id="invite"><div class="hd"><div><h2>Invite to ${esc(info.title)}</h2><p class="muted small" style="margin-top:4px">They get an email with a sign-up link. Signing in with that email adds them to this board.</p></div><button class="btn ghost sm" data-close aria-label="Close">✕</button></div>
+<dialog id="invite"><div class="hd"><div><h2>Invite to ${esc(info.title)}</h2><p class="muted small" style="margin-top:4px">New people get a sign-up email. Everyone sees the invitation in Agent Board and joins when they accept it, on the web or by asking their agent.</p></div><button class="btn ghost sm" data-close aria-label="Close">✕</button></div>
 <div class="bd">
   <form method="post" action="/api/boards/${esc(info.id)}/invites" data-api data-reset>
     <label class="lbl" for="inv-email">Email</label>
@@ -368,7 +396,7 @@ export function mePage(viewer: Viewer, side: SideBoard[], tokens: TokenRow[]): R
           }</td></tr>`,
         )
         .join("")
-    : `<tr><td colspan="4" class="empty small">No connections yet. Open a board and click <b>Connect an agent</b>.</td></tr>`;
+    : `<tr><td colspan="4" class="empty small">No connections yet. Click <b>Set up your agent</b>.</td></tr>`;
   return appPage("Account · Agent Board", {
     viewer,
     boards: side,
@@ -378,9 +406,10 @@ export function mePage(viewer: Viewer, side: SideBoard[], tokens: TokenRow[]): R
     body: `<div class="card pad row" style="gap:14px">${avatar(viewer.name, "lg")}
   <div class="grow"><div style="font-weight:600;color:var(--ink);font-size:15px">${esc(viewer.name)}</div><div class="small muted">${esc(viewer.email)}</div></div>
   <form method="post" action="/auth/logout"><button class="btn">Sign out</button></form></div>
-<div class="section-title" style="margin-top:32px"><div><h2>Agent connections</h2><p class="small muted" style="margin-top:4px">Each connected agent has its own token. Revoke one to disconnect that agent immediately.</p></div></div>
-<div class="list scroll-x"><table class="tbl"><thead><tr><th>Token</th><th>Last used</th><th>Status</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`,
-    script: `window.revoked=()=>location.reload();`,
+<div class="section-title" style="margin-top:32px"><div><h2>Agent connections</h2><p class="small muted" style="margin-top:4px">Each connected agent has its own token. Revoke one to disconnect that agent immediately.</p></div><button class="btn sm" data-open="connect">Set up your agent</button></div>
+<div class="list scroll-x"><table class="tbl"><thead><tr><th>Token</th><th>Last used</th><th>Status</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+${connectDialog(viewer)}`,
+    script: CONNECT_JS + `window.revoked=()=>location.reload();`,
   });
 }
 

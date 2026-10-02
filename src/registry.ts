@@ -92,6 +92,7 @@ export async function getBoard(env: Env, id: string): Promise<BoardRow | null> {
 export interface FullUser {
   name: string;
   email: string | null;
+  email_verified: number;
   workos_id: string | null;
   display_name: string | null;
   first_seen: number;
@@ -99,54 +100,124 @@ export interface FullUser {
 }
 
 export async function userByName(env: Env, name: string): Promise<FullUser | null> {
-  return env.DB.prepare(`SELECT name, email, workos_id, display_name, first_seen, last_seen FROM users WHERE name = ?`).bind(name).first<FullUser>();
+  return env.DB.prepare(`SELECT name, email, email_verified, workos_id, display_name, first_seen, last_seen FROM users WHERE name = ?`).bind(name).first<FullUser>();
 }
 
 export async function userByWorkosId(env: Env, workosId: string): Promise<FullUser | null> {
-  return env.DB.prepare(`SELECT name, email, workos_id, display_name, first_seen, last_seen FROM users WHERE workos_id = ?`).bind(workosId).first<FullUser>();
+  return env.DB.prepare(`SELECT name, email, email_verified, workos_id, display_name, first_seen, last_seen FROM users WHERE workos_id = ?`).bind(workosId).first<FullUser>();
 }
 
 /** A user row with this (verified) email that has not been linked to a WorkOS account yet. */
 export async function unlinkedUserByEmail(env: Env, email: string): Promise<FullUser | null> {
   return env.DB.prepare(
-    `SELECT name, email, workos_id, display_name, first_seen, last_seen FROM users WHERE lower(email) = lower(?) AND workos_id IS NULL`,
+    `SELECT name, email, email_verified, workos_id, display_name, first_seen, last_seen FROM users WHERE lower(email) = lower(?) AND workos_id IS NULL`,
   )
     .bind(email)
     .first<FullUser>();
 }
 
 export async function userByEmail(env: Env, email: string): Promise<FullUser | null> {
-  return env.DB.prepare(`SELECT name, email, workos_id, display_name, first_seen, last_seen FROM users WHERE lower(email) = lower(?)`)
+  return env.DB.prepare(`SELECT name, email, email_verified, workos_id, display_name, first_seen, last_seen FROM users WHERE lower(email) = lower(?)`)
     .bind(email)
     .first<FullUser>();
 }
 
-export async function createUser(env: Env, u: { name: string; email: string | null; workos_id: string | null; display_name: string | null }) {
+export async function createUser(
+  env: Env,
+  u: { name: string; email: string | null; email_verified?: boolean; workos_id: string | null; display_name: string | null },
+) {
   const now = Date.now();
-  await env.DB.prepare(`INSERT INTO users (name, email, workos_id, display_name, first_seen, last_seen) VALUES (?, ?, ?, ?, ?, ?)`)
-    .bind(u.name, u.email, u.workos_id, u.display_name, now, now)
+  await env.DB.prepare(`INSERT INTO users (name, email, email_verified, workos_id, display_name, first_seen, last_seen) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+    .bind(u.name, u.email, u.email_verified ? 1 : 0, u.workos_id, u.display_name, now, now)
     .run();
 }
 
-export async function linkWorkos(env: Env, name: string, workosId: string, email: string, displayName: string | null) {
-  await env.DB.prepare(`UPDATE users SET workos_id = ?, email = ?, display_name = COALESCE(display_name, ?), last_seen = ? WHERE name = ?`)
-    .bind(workosId, email, displayName, Date.now(), name)
+export async function linkWorkos(env: Env, name: string, workosId: string, email: string, displayName: string | null, verified: boolean) {
+  await env.DB.prepare(
+    `UPDATE users SET workos_id = ?, email = ?, email_verified = ?, display_name = COALESCE(display_name, ?), last_seen = ? WHERE name = ?`,
+  )
+    .bind(workosId, email, verified ? 1 : 0, displayName, Date.now(), name)
     .run();
+}
+
+/** Refreshed on every sign-in from what WorkOS reports. */
+export async function setEmailVerified(env: Env, name: string, email: string, verified: boolean) {
+  await env.DB.prepare(`UPDATE users SET email = ?, email_verified = ?, last_seen = ? WHERE name = ?`).bind(email, verified ? 1 : 0, Date.now(), name).run();
 }
 
 // ---------- invites ----------
 
-/** Adds the user to every board with a pending invite for this email. Returns the board ids. */
-export async function acceptInvites(env: Env, email: string, user: string): Promise<string[]> {
-  const r = await env.DB.prepare(`SELECT id, board_id FROM invites WHERE lower(email) = lower(?) AND accepted_at IS NULL`)
-    .bind(email)
-    .all<{ id: string; board_id: string }>();
+export interface Invitation {
+  id: string;
+  board_id: string;
+  board_title: string;
+  invited_by: string;
+  created_at: number;
+}
+
+/** Open invitations addressed to this user's email. Only a WorkOS-verified email can see or accept them. */
+export async function invitationsFor(env: Env, user: FullUser): Promise<Invitation[]> {
+  if (!user.email || !user.email_verified) return [];
+  const r = await env.DB.prepare(
+    `SELECT i.id, i.board_id, b.title AS board_title, i.invited_by, MAX(i.created_at) AS created_at
+     FROM invites i JOIN boards b ON b.id = i.board_id
+     WHERE lower(i.email) = lower(?) AND i.accepted_at IS NULL AND i.declined_at IS NULL
+       AND NOT EXISTS (SELECT 1 FROM members m WHERE m.board_id = i.board_id AND m.user = ?)
+     GROUP BY i.board_id ORDER BY created_at DESC`,
+  )
+    .bind(user.email, user.name)
+    .all<Invitation>();
+  return r.results;
+}
+
+/** Accepts the user's open invitation(s) to a board: adds them as a member. Returns false if there was none. */
+export async function acceptInvitation(env: Env, user: FullUser, boardId: string): Promise<boolean> {
+  if (!(await invitationsFor(env, user)).some((i) => i.board_id === boardId)) return false;
+  await addMember(env, boardId, user.name);
+  await env.DB.prepare(
+    `UPDATE invites SET accepted_at = ?, accepted_by = ? WHERE board_id = ? AND lower(email) = lower(?) AND accepted_at IS NULL AND declined_at IS NULL`,
+  )
+    .bind(Date.now(), user.name, boardId, user.email)
+    .run();
+  return true;
+}
+
+export async function declineInvitation(env: Env, user: FullUser, boardId: string): Promise<boolean> {
+  if (!(await invitationsFor(env, user)).some((i) => i.board_id === boardId)) return false;
+  await env.DB.prepare(`UPDATE invites SET declined_at = ? WHERE board_id = ? AND lower(email) = lower(?) AND accepted_at IS NULL AND declined_at IS NULL`)
+    .bind(Date.now(), boardId, user.email)
+    .run();
+  return true;
+}
+
+export async function hasOpenInvite(env: Env, boardId: string, email: string): Promise<boolean> {
+  const r = await env.DB.prepare(
+    `SELECT 1 AS ok FROM invites WHERE board_id = ? AND lower(email) = lower(?) AND accepted_at IS NULL AND declined_at IS NULL`,
+  )
+    .bind(boardId, email)
+    .first();
+  return !!r;
+}
+
+// ---------- MCP sessions: which board each agent session has joined ----------
+
+export async function mcpSessionBoard(env: Env, sessionId: string, user: string): Promise<string | null> {
+  const r = await env.DB.prepare(`SELECT board_id FROM mcp_sessions WHERE id = ? AND user = ?`).bind(sessionId, user).first<{ board_id: string | null }>();
+  return r?.board_id ?? null;
+}
+
+export async function setMcpSessionBoard(env: Env, sessionId: string, user: string, boardId: string | null) {
   const now = Date.now();
-  for (const inv of r.results) {
-    await addMember(env, inv.board_id, user);
-    await env.DB.prepare(`UPDATE invites SET accepted_at = ?, accepted_by = ? WHERE id = ?`).bind(now, user, inv.id).run();
-  }
-  return [...new Set(r.results.map((i) => i.board_id))];
+  await env.DB.prepare(
+    `INSERT INTO mcp_sessions (id, user, board_id, created_at, last_seen) VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET board_id = excluded.board_id, last_seen = excluded.last_seen WHERE mcp_sessions.user = excluded.user`,
+  )
+    .bind(sessionId, user, boardId, now, now)
+    .run();
+}
+
+export async function endMcpSession(env: Env, sessionId: string) {
+  await env.DB.prepare(`DELETE FROM mcp_sessions WHERE id = ?`).bind(sessionId).run();
 }
 
 export async function pendingInvites(env: Env, boardId: string): Promise<InviteRow[]> {

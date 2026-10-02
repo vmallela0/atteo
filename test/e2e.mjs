@@ -42,6 +42,7 @@ const run = Date.now().toString(36).slice(-5);
 const A = `e2e-vedu-${run}`;
 const B = `e2e-jxn-${run}`;
 const OUT = `e2e-out-${run}`;
+const UNV = `e2e-unv-${run}`;
 const tok = {};
 const cookie = {};
 
@@ -82,6 +83,38 @@ async function err(who, board, name, args, needle) {
   if (needle) has(r.text, needle);
   return r.text;
 }
+// Explicit MCP sessions: initialize returns an Mcp-Session-Id that later calls send back (as Claude Code does).
+async function session(who, board = null) {
+  const res = await fetch(`${BASE}/mcp${board ? `?board=${board}` : ""}`, {
+    method: "POST",
+    headers: { "content-type": "application/json", ...auth(who) },
+    body: JSON.stringify({ jsonrpc: "2.0", id: ++rpcId, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {} } }),
+  });
+  const sid = res.headers.get("mcp-session-id");
+  assert(sid, "initialize should return Mcp-Session-Id");
+  return { who, sid, board };
+}
+async function stool(sess, name, args = {}) {
+  const res = await fetch(`${BASE}/mcp${sess.board ? `?board=${sess.board}` : ""}`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "mcp-session-id": sess.sid, ...auth(sess.who) },
+    body: JSON.stringify({ jsonrpc: "2.0", id: ++rpcId, method: "tools/call", params: { name, arguments: args } }),
+  });
+  const r = (await res.json()).result;
+  return { text: r.content.map((c) => c.text).join("\n"), isError: !!r.isError };
+}
+async function sok(sess, name, args) {
+  const r = await stool(sess, name, args);
+  assert(!r.isError, `${name} failed: ${r.text}`);
+  return r.text;
+}
+async function serr(sess, name, args, needle) {
+  const r = await stool(sess, name, args);
+  assert(r.isError, `${name} should have failed but returned: ${r.text}`);
+  if (needle) has(r.text, needle);
+  return r.text;
+}
+
 const web = (path, who, init = {}) =>
   fetch(`${BASE}${path}`, { redirect: "manual", ...init, headers: { ...(init.headers ?? {}), ...(who ? { cookie: cookie[who] } : {}) } });
 const seqOf = (t) => Number(t.match(/#(\d+)/)[1]);
@@ -96,8 +129,8 @@ await step("health", async () => {
 
 await step("setup through the ops API: users, tokens, sessions", async () => {
   assert(ADMIN_KEY, "ADMIN_KEY not available");
-  for (const [n, e] of [[A, `${A}@example.com`], [B, `${B}@example.com`], [OUT, `${OUT}@example.com`]]) {
-    const r = await ops("users", { name: n, email: e });
+  for (const [n, e, v] of [[A, `${A}@example.com`, "true"], [B, `${B}@example.com`, "true"], [OUT, `${OUT}@example.com`, "true"], [UNV, `${UNV}@example.com`, "false"]]) {
+    const r = await ops("users", { name: n, email: e, verified: v });
     assert(r.status === 201, `create ${n}: ${r.status} ${JSON.stringify(r.body)}`);
     const t = await ops("tokens", { user: n, label: "e2e" });
     assert(t.body.token?.startsWith("ab_"), JSON.stringify(t.body));
@@ -119,7 +152,7 @@ await step("MCP initialize, tools/list, notifications, protocol errors", async (
   assert(r.protocolVersion === "2025-06-18" && r.serverInfo.name === "agent-board", JSON.stringify(r));
   has(r.instructions, "Agent Board");
   const names = (await rpcRaw(auth(A), null, "tools/list", {})).tools.map((t) => t.name).sort();
-  assert(JSON.stringify(names) === JSON.stringify(["create_board", "get", "invite", "list_boards", "post", "read", "search", "wait"]), names.join());
+  assert(JSON.stringify(names) === JSON.stringify(["create_board", "get", "invite", "join_board", "list_boards", "post", "read", "search", "wait"]), names.join());
   assert((await rpcRaw({}, null, "notifications/initialized", {}, { notification: true })).status === 202, "notification status");
   assert((await fetch(`${BASE}/mcp`)).status === 405, "GET /mcp should be 405");
   const p = await fetch(`${BASE}/mcp`, { method: "POST", headers: { "content-type": "application/json" }, body: "{" });
@@ -147,7 +180,7 @@ await step("non-members cannot read, post, wait, get, search or invite", async (
     await err(B, board, name, args, "not a member");
   }
   await err(OUT, "b_doesnotexist1", "read", {}, "not a member");
-  await err(A, "../etc", "read", {}, "not a board id");
+  await err(A, "../etc", "read", {}, "not a member");
 });
 
 await step("adding B as a member grants access", async () => {
@@ -214,7 +247,7 @@ await step("20 concurrent posts get unique, contiguous sequence numbers", async 
 
 await step("list_boards shows only your boards", async () => {
   has(await ok(B, null, "list_boards"), board);
-  has(await ok(OUT, null, "list_boards"), "not on any board");
+  has(await ok(OUT, null, "list_boards"), "not on any board yet");
 });
 
 await step("web: signed-out visitors are sent to sign-in; landing renders", async () => {
@@ -273,8 +306,9 @@ await step("web: home lists my boards; tokens can be created and revoked", async
   has(await (await web("/", A)).text(), `e2e ${run}`);
   const r = await web("/api/tokens", A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ board, label: "e2e web" }) });
   const t = await r.json();
-  assert(r.status === 201 && t.command.includes(`Authorization: Bearer ${t.token}`) && t.command.includes(`board=${board}`), JSON.stringify(t));
-  assert(t.mcp_url === `${BASE}/mcp?board=${board}`, `mcp_url ${t.mcp_url}`);
+  assert(r.status === 201 && t.command.includes(`Authorization: Bearer ${t.token}`) && t.command.includes("--scope user") && !t.command.includes("board="), JSON.stringify(t));
+  assert(t.mcp_url === `${BASE}/mcp`, `mcp_url ${t.mcp_url}`);
+  assert(t.project_command.includes("--scope project") && t.project_command.includes(`/mcp?board=${board}`), t.project_command);
   has(await ok(t.token, board, "read"), `Board "e2e ${run}"`);
   has(await (await web("/me", A)).text(), "e2e web");
   assert((await web(`/api/tokens/${t.id}/revoke`, B, { method: "POST" })).status === 404, "cannot revoke someone else's token");
@@ -297,6 +331,105 @@ await step("ops console is hidden from non-operators; ops API lists everything",
   assert(b && b.members.includes(A) && b.members.includes(B) && b.entry_count === 29, `expected 29 entries: ${JSON.stringify(b)}`);
   const acc = o.body.access.find((x) => x.user === B);
   assert(acc && acc.boards.some((x) => x.id === board) && acc.active_tokens >= 1, JSON.stringify(acc));
+});
+
+
+// ---- one board per session ----
+let board2;
+await step("an unpinned session must join a board first; the error lists the user's boards", async () => {
+  board2 = (await ops("boards", { user: A, title: `e2e second ${run}` })).body.board.id;
+  const s1 = await session(A);
+  const e = await serr(s1, "read", {}, "hasn't joined a board");
+  has(e, board);
+  has(e, `e2e second ${run}`);
+});
+
+await step("join_board by id and by name; read/post act on the joined board only", async () => {
+  const s1 = await session(A);
+  has(await sok(s1, "join_board", { board }), `Joined "e2e ${run}"`);
+  has(await sok(s1, "read"), `Board "e2e ${run}"`);
+  has(await sok(s1, "join_board", { board: `SECOND ${run}` }), `Joined "e2e second ${run}"`);
+  has(await sok(s1, "read"), `Board "e2e second ${run}"`);
+  await serr(s1, "read", { board }, "This session is on board");
+  has(await sok(s1, "list_boards"), `${board2}  "e2e second ${run}"`);
+  has(await sok(s1, "list_boards"), "← this session");
+});
+
+await step("ambiguous or unknown names join nothing; outsiders can't join", async () => {
+  const s1 = await session(A);
+  const amb = await serr(s1, "join_board", { board: `e2e` }, "matches more than one board");
+  has(amb, board);
+  has(amb, board2);
+  await serr(s1, "read", {}, "hasn't joined");
+  await serr(s1, "join_board", { board: "no such board zzz" }, "No board of yours");
+  const so = await session(OUT);
+  await serr(so, "join_board", { board }, "No board of yours");
+});
+
+await step("two sessions on one token stay on different boards", async () => {
+  const s1 = await session(A);
+  const s2 = await session(A);
+  await sok(s1, "join_board", { board });
+  await sok(s2, "join_board", { board: board2 });
+  has(await sok(s1, "read"), `Board "e2e ${run}"`);
+  has(await sok(s2, "read"), `Board "e2e second ${run}"`);
+  const p = await sok(s2, "post", { type: "note", text: `only on second ${run}` });
+  has(p, board2);
+  assert(!(await ok(A, board, "search", { query: `only on second ${run}` })).includes("match(es)"), "post leaked to the other board");
+});
+
+await step("ending a session (DELETE /mcp) forgets its board", async () => {
+  const s1 = await session(A);
+  await sok(s1, "join_board", { board });
+  const d = await fetch(`${BASE}/mcp`, { method: "DELETE", headers: { "mcp-session-id": s1.sid, ...auth(A) } });
+  assert(d.status === 204, `delete ${d.status}`);
+  await serr(s1, "read", {}, "hasn't joined");
+});
+
+await step("a pinned connection can't switch boards", async () => {
+  const p = await session(A, board);
+  has(await sok(p, "read"), `Board "e2e ${run}"`);
+  await serr(p, "join_board", { board: board2 }, "pinned to board");
+});
+
+await step("invites wait for an answer; joining by name accepts", async () => {
+  const sa = await session(A);
+  await sok(sa, "join_board", { board: board2 });
+  has(await sok(sa, "invite", { email: `${B}@example.com` }), "already have an account");
+  has(await sok(sa, "invite", { email: `${B}@example.com` }), "already has an open invitation");
+  await err(B, board2, "read", {}, "not a member"); // not added until B answers
+  const sb = await session(B);
+  has(await sok(sb, "list_boards"), `"e2e second ${run}"  from ${A}`);
+  has(await sok(sb, "join_board", { board: "second" }), `Accepted ${A}'s invitation`);
+  has(await sok(sb, "read"), `Board "e2e second ${run}"`);
+  has(await sok(sa, "invite", { email: `${B}@example.com` }), "already a member");
+});
+
+await step("unverified emails can't see or accept invitations", async () => {
+  const sa = await session(A);
+  await sok(sa, "join_board", { board: board2 });
+  await sok(sa, "invite", { email: `${UNV}@example.com` });
+  const su = await session(UNV);
+  const l = await sok(su, "list_boards");
+  assert(!l.includes(`e2e second ${run}`), "unverified user should not see the invitation");
+  await serr(su, "join_board", { board: "second" }, "No board of yours");
+});
+
+await step("web: invitations on home with decline and accept", async () => {
+  const inv = (email) =>
+    web(`/api/boards/${board2}/invites`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email }) }).then((r) => r.json());
+  has((await inv(`${OUT}@example.com`)).message, "already have an account");
+  let home = await (await web("/", OUT)).text();
+  has(home, "Invitations");
+  has(home, `e2e second ${run}`);
+  assert((await web(`/api/invitations/${board2}/decline`, OUT, { method: "POST" })).status === 200, "decline");
+  assert(!(await (await web("/", OUT)).text()).includes(`/api/invitations/${board2}/accept`), "declined invitation still shown");
+  assert((await web(`/api/invitations/${board2}/accept`, OUT, { method: "POST" })).status === 404, "can't accept a declined invitation");
+  await inv(`${OUT}@example.com`);
+  const acc = await web(`/api/invitations/${board2}/accept`, OUT, { method: "POST" });
+  assert(acc.status === 200, `accept ${acc.status}`);
+  assert((await web(`/b/${board2}`, OUT)).status === 200, "accepted invitee should see the board");
+  assert((await web(`/api/invitations/${board}/accept`, OUT, { method: "POST" })).status === 404, "no invitation, no access");
 });
 
 if (/localhost|127\.0\.0\.1/.test(BASE)) {

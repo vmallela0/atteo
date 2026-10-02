@@ -116,11 +116,13 @@ describe("util", () => {
     for (const id of ids) expect(id).toMatch(BOARD_RE);
   });
 
-  it("builds the connect command with a bearer token", () => {
-    expect(connectCommand("https://x.dev", "b_abc12345", "ab_tok")).toBe(
-      'claude mcp add --scope user --transport http board "https://x.dev/mcp?board=b_abc12345" --header "Authorization: Bearer ab_tok"',
+  it("builds the one-time (user scope) and project-pinned connect commands", () => {
+    expect(connectCommand("https://x.dev", null, "ab_tok")).toBe(
+      'claude mcp add --scope user --transport http board "https://x.dev/mcp" --header "Authorization: Bearer ab_tok"',
     );
-    expect(connectCommand("https://x.dev", null, "ab_tok")).toContain('"https://x.dev/mcp"');
+    expect(connectCommand("https://x.dev", "b_abc12345", "ab_tok")).toBe(
+      'claude mcp add --scope project --transport http board "https://x.dev/mcp?board=b_abc12345" --header "Authorization: Bearer ab_tok"',
+    );
   });
 });
 

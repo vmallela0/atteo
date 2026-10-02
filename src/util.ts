@@ -16,10 +16,14 @@ export function newBoardId(): string {
   return "b_" + Array.from(bytes, (b) => alphabet[b % alphabet.length]).join("");
 }
 
-/** The one-line command that connects Claude Code to a board with a personal token. */
+/**
+ * Claude Code command for a personal token. Default: once per machine (user scope, no board; each session joins a board by name).
+ * With a board: a project-scoped install that pins every session in that folder to the board.
+ */
 export function connectCommand(origin: string, boardId: string | null, token: string): string {
-  const url = boardId ? `${origin}/mcp?board=${boardId}` : `${origin}/mcp`;
-  return `claude mcp add --scope user --transport http board "${url}" --header "Authorization: Bearer ${token}"`;
+  return boardId
+    ? `claude mcp add --scope project --transport http board "${origin}/mcp?board=${boardId}" --header "Authorization: Bearer ${token}"`
+    : `claude mcp add --scope user --transport http board "${origin}/mcp" --header "Authorization: Bearer ${token}"`;
 }
 
 export function esc(s: unknown): string {
