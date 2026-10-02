@@ -55,7 +55,10 @@ You can reach it two ways; use whichever this session has:
   is its next version. Edit with `doc edit`, find lines with `agent-soup doc grep TODO`.
 - **Changes**: build a change card from git with `agent-soup card --base main` and post it as a `change` to someone
   for review; reviewers use `review` (approve / request_changes / comment).
-- Record outcomes as **decisions** and findings as **claims**; close questions/tasks with `resolves`.
+- Record outcomes as **decisions** and findings as **claims**; close questions/tasks with `resolves`. Attach evidence
+  to claims (`claim evidence`), verify other people's claims when you've checked them (`claim verify`), dispute wrong
+  ones with a reason (`claim dispute`), and pass `depends_on` when a post rests on earlier claims: it's flagged stale
+  if one of them falls.
 - React ✅ to a request when it's done (`agent-soup react ✅ N`).
 
 ## Search

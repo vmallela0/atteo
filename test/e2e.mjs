@@ -152,7 +152,7 @@ await step("MCP initialize, tools/list, notifications, protocol errors", async (
   assert(r.protocolVersion === "2025-06-18" && r.serverInfo.name === "agent-soup", JSON.stringify(r));
   has(r.instructions, "Agent Soup");
   const names = (await rpcRaw(auth(A), null, "tools/list", {})).tools.map((t) => t.name).sort();
-  assert(JSON.stringify(names) === JSON.stringify(["approval", "create_board", "doc", "get", "invite", "join_board", "leave_board", "list_boards", "people", "post", "react", "read", "request_approval", "retract", "review", "search", "task", "wait"]), names.join());
+  assert(JSON.stringify(names) === JSON.stringify(["approval", "claim", "create_board", "doc", "get", "invite", "join_board", "leave_board", "list_boards", "people", "post", "react", "read", "request_approval", "retract", "review", "search", "task", "wait"]), names.join());
   assert((await rpcRaw({}, null, "notifications/initialized", {}, { notification: true })).status === 202, "notification status");
   assert((await fetch(`${BASE}/mcp`)).status === 405, "GET /mcp should be 405");
   const p = await fetch(`${BASE}/mcp`, { method: "POST", headers: { "content-type": "application/json" }, body: "{" });
@@ -1288,6 +1288,27 @@ await step("approvals: an agent asks before side effects; only the person decide
   has(await sok(sa, "approval", { id, wait_seconds: 0 }), '"go"');
   assert((await web(`/api/approvals/${id}/reject`, A, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).status === 400, "decided once");
   await serr(sa, "request_approval", { title: "x", details: `key ${["ghp", "_", "Zx9Yw8Vu7Ts6Rq5Po4Nm3Lk2Jh1Gf0Ed9Cb8A"].join("")}` }, "Blocked");
+});
+
+await step("claims: evidence, verify (never your own), dispute flags everything built on it as stale", async () => {
+  await ok(A, fb, "read");
+  const c1 = seqOf(await ok(A, fb, "post", { type: "claim", text: `The leak is in the image cache ${run}` }));
+  const log = seqOf(await ok(A, fb, "post", { type: "artifact", artifact_name: `heap-${run}.txt`, artifact_content: "retained: ImageCache 1.2GB", text: "heap dump" }));
+  has(await ok(A, fb, "claim", { action: "evidence", seq: c1, evidence_seq: log, note: "heap dump" }), "Evidence added");
+  await err(A, fb, "claim", { action: "verify", seq: c1 }, "can't verify your own claim");
+  await ok(B, fb, "read");
+  has(await ok(B, fb, "claim", { action: "verify", seq: c1, note: "reproduced" }), "verified");
+  has(await ok(A, fb, "read"), `[verified by ${B}'s agent]`);
+  // A decision that rests on the claim goes stale when the claim is disputed.
+  await ok(A, fb, "read");
+  const d1 = seqOf(await ok(A, fb, "post", { type: "decision", text: `Cap the image cache at 200MB ${run}`, depends_on: [c1] }));
+  await ok(B, fb, "read");
+  await err(B, fb, "claim", { action: "dispute", seq: c1 }, "Say why");
+  has(await ok(B, fb, "claim", { action: "dispute", seq: c1, reason: "the leak is in the font cache" }), `stale: #${d1}`);
+  const sum = await ok(A, fb, "read");
+  has(sum, `stale: premise #${c1} disputed`);
+  has(await ok(A, fb, "claim", { action: "list" }), `#${c1} [disputed]`);
+  await err(A, fb, "claim", { action: "verify", seq: log }, "isn't a claim");
 });
 
 await step("rename and archive: creator only; archived boards are read-only and listed separately; restore works", async () => {

@@ -218,6 +218,22 @@ export class Board extends DurableObject<Env> {
         updated_via TEXT,
         updated_at INTEGER NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS claim_state (
+        seq INTEGER PRIMARY KEY,
+        status TEXT NOT NULL DEFAULT 'asserted',
+        evidence TEXT NOT NULL DEFAULT '[]',
+        verified_by TEXT,
+        verified_via TEXT,
+        disputed_by TEXT,
+        disputed_via TEXT,
+        dispute_reason TEXT,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS depends (
+        seq INTEGER NOT NULL,
+        on_seq INTEGER NOT NULL,
+        PRIMARY KEY (seq, on_seq)
+      );
       CREATE TABLE IF NOT EXISTS task_versions (
         seq INTEGER NOT NULL,
         version INTEGER NOT NULL,
@@ -483,7 +499,8 @@ export class Board extends DurableObject<Env> {
     const hit = scanFields({ text, title, artifact_name: input.artifact_name, artifact_content: internal.docVersion != null ? null : input.artifact_content });
     if (hit) throw new BoardError(blockedMessage(hit));
 
-    const refs = [input.reply_to, input.supersedes, input.retracts, ...(input.resolves ?? [])].filter((n): n is number => n != null);
+    const depends = [...new Set((input.depends_on ?? []).filter((n) => Number.isInteger(n)))].slice(0, 20);
+    const refs = [input.reply_to, input.supersedes, input.retracts, ...(input.resolves ?? []), ...depends].filter((n): n is number => n != null);
     for (const n of refs) {
       if (!Number.isInteger(n) || n < 1 || n > info.last_seq) throw new BoardError(`Entry #${n} does not exist on this board.`);
     }
@@ -575,6 +592,8 @@ export class Board extends DurableObject<Env> {
       );
     }
     if (entry.retracts != null) this.stopDependents(user, entry.retracts);
+    if (entry.type === "claim") this.sql.exec("INSERT OR IGNORE INTO claim_state (seq, updated_at) VALUES (?, ?)", entry.seq, entry.ts);
+    for (const d of depends) this.sql.exec("INSERT OR IGNORE INTO depends (seq, on_seq) VALUES (?, ?)", entry.seq, d);
 
     if (input.via === "agent" || input.via === "person") this.markSeen(user, input.via, entry.seq);
     // Your own post counts as read, unless you're handing it to your own agent: then it's new for your agent.
@@ -1060,15 +1079,128 @@ export class Board extends DurableObject<Env> {
     return { entry, state: this.taskTags().get(seq) ?? "no verdicts yet" };
   }
 
+  // ---- claims: asserted → evidenced → verified (never by their author), or disputed; dependents go stale ----
+
+  private claimRow(seq: number) {
+    const e = this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq = ?`, seq).toArray()[0];
+    if (!e || e.type !== "claim") throw new BoardError(`#${seq} isn't a claim.`);
+    if (this.sql.exec("SELECT 1 AS x FROM entries WHERE retracts = ?", seq).toArray().length) throw new BoardError(`#${seq} was retracted.`);
+    this.sql.exec("INSERT OR IGNORE INTO claim_state (seq, updated_at) VALUES (?, ?)", seq, Date.now());
+    return toEntry(e);
+  }
+
+  /**
+   * Act on a claim. evidence: attach an entry (a log, a file) or a link; verify: someone other than its author
+   * confirms it; dispute: someone says it's wrong (with a reason), which flags everything that depends on it.
+   */
+  async claimAct(
+    user: string,
+    seq: number,
+    act: { action: "evidence" | "verify" | "dispute"; evidence_seq?: number; url?: string; note?: string; reason?: string },
+    opts: TaskActOpts,
+  ): Promise<string> {
+    const info = this.info();
+    const claim = this.claimRow(seq);
+    const who = opts.via === "agent" ? `${user}'s agent` : user;
+    if (act.action === "evidence") {
+      const ev: { seq?: number; url?: string; note?: string; by: string } = { by: who };
+      if (act.evidence_seq != null) {
+        if (!Number.isInteger(act.evidence_seq) || act.evidence_seq < 1 || act.evidence_seq > info.last_seq) throw new BoardError(`Entry #${act.evidence_seq} does not exist.`);
+        ev.seq = act.evidence_seq;
+      }
+      if (act.url) {
+        if (!/^https?:\/\/\S+$/.test(act.url)) throw new BoardError("Evidence links must be http(s) URLs.");
+        ev.url = act.url.slice(0, 500);
+      }
+      if (act.note) ev.note = act.note.slice(0, 300);
+      if (!ev.seq && !ev.url) throw new BoardError("Point at the evidence: evidence_seq (an entry, e.g. a log you posted) or url.");
+      const hit = scanFields({ url: ev.url ?? null, note: ev.note ?? null });
+      if (hit) throw new BoardError(blockedMessage(hit));
+      const cur = JSON.parse((this.sql.exec("SELECT evidence FROM claim_state WHERE seq = ?", seq).one().evidence as string) || "[]");
+      cur.push(ev);
+      this.sql.exec("UPDATE claim_state SET evidence = ?, status = CASE WHEN status = 'asserted' THEN 'evidenced' ELSE status END, updated_at = ? WHERE seq = ?", JSON.stringify(cur.slice(-20)), Date.now(), seq);
+      this.broadcast({ type: "claim", seq });
+      return `Evidence added to #${seq}.`;
+    }
+    if (act.action === "verify") {
+      if (claim.author === user) throw new BoardError("You can't verify your own claim (or your agent's); someone else has to check it.");
+      this.sql.exec("UPDATE claim_state SET status = 'verified', verified_by = ?, verified_via = ?, disputed_by = NULL, disputed_via = NULL, dispute_reason = NULL, updated_at = ? WHERE seq = ?", user, opts.via ?? null, Date.now(), seq);
+      await this.post(user, { type: "note", reply_to: seq, to: claim.author, text: `✓ Verified #${seq}${act.note ? `: ${act.note}` : "."}`, via: opts.via, client: opts.client });
+      return `#${seq} is verified by ${who}.`;
+    }
+    if (act.action === "dispute") {
+      const reason = (act.reason ?? "").trim().slice(0, 300);
+      if (!reason) throw new BoardError("Say why it's wrong (reason).");
+      this.sql.exec("UPDATE claim_state SET status = 'disputed', disputed_by = ?, disputed_via = ?, dispute_reason = ?, updated_at = ? WHERE seq = ?", user, opts.via ?? null, reason, Date.now(), seq);
+      const deps = this.dependents(seq);
+      await this.post(user, {
+        type: "note",
+        reply_to: seq,
+        to: claim.author,
+        text: `✗ Disputed #${seq}: ${reason}${deps.length ? ` (now stale: ${deps.map((d) => `#${d}`).join(", ")})` : ""}`,
+        via: opts.via,
+        client: opts.client,
+      });
+      return `#${seq} is disputed.${deps.length ? ` Flagged as stale: ${deps.map((d) => `#${d}`).join(", ")}.` : ""}`;
+    }
+    throw new BoardError("action must be evidence, verify or dispute.");
+  }
+
+  /** Entries that (directly or through other entries) depend on `seq`. */
+  private dependents(seq: number): number[] {
+    const out = new Set<number>();
+    let frontier = [seq];
+    for (let depth = 0; depth < 5 && frontier.length; depth++) {
+      const next: number[] = [];
+      for (const s of frontier) for (const r of this.sql.exec("SELECT seq FROM depends WHERE on_seq = ?", s).toArray()) if (!out.has(r.seq as number)) {
+        out.add(r.seq as number);
+        next.push(r.seq as number);
+      }
+      frontier = next;
+    }
+    return [...out];
+  }
+
+  async claims(): Promise<{ seq: number; status: string; evidence: { seq?: number; url?: string; note?: string; by: string }[]; verified_by: string | null; disputed_by: string | null; dispute_reason: string | null }[]> {
+    this.info();
+    return this.sql
+      .exec("SELECT c.seq, c.status, c.evidence, c.verified_by, c.disputed_by, c.dispute_reason FROM claim_state c WHERE NOT EXISTS (SELECT 1 FROM entries r WHERE r.retracts = c.seq) ORDER BY c.seq DESC LIMIT 200")
+      .toArray()
+      .map((r) => ({ seq: r.seq as number, status: r.status as string, evidence: JSON.parse((r.evidence as string) || "[]"), verified_by: (r.verified_by as string | null) ?? null, disputed_by: (r.disputed_by as string | null) ?? null, dispute_reason: (r.dispute_reason as string | null) ?? null }));
+  }
+
+  /** Claim status and staleness, shown next to entries in summaries. */
+  private claimTags(m: Map<number, string>) {
+    const add = (seq: number, tag: string) => m.set(seq, m.has(seq) ? `${m.get(seq)} · ${tag}` : tag);
+    const bad = new Map<number, string>(); // premise → why it's bad
+    for (const r of this.sql.exec("SELECT seq, status, evidence, verified_by, verified_via, disputed_by, disputed_via, dispute_reason FROM claim_state WHERE status != 'asserted'").toArray()) {
+      const seq = r.seq as number;
+      if (r.status === "verified") add(seq, `verified by ${r.verified_via === "agent" ? `${r.verified_by}'s agent` : r.verified_by}`);
+      else if (r.status === "evidenced") add(seq, `evidence: ${JSON.parse((r.evidence as string) || "[]").length}`);
+      else if (r.status === "disputed") {
+        add(seq, `disputed by ${r.disputed_via === "agent" ? `${r.disputed_by}'s agent` : r.disputed_by}: ${r.dispute_reason}`);
+        bad.set(seq, "disputed");
+      }
+    }
+    for (const r of this.sql.exec("SELECT retracts FROM entries WHERE retracts IS NOT NULL").toArray()) bad.set(r.retracts as number, "retracted");
+    if (!bad.size) return;
+    for (const r of this.sql.exec("SELECT seq, on_seq FROM depends").toArray()) {
+      const why = bad.get(r.on_seq as number);
+      if (why) add(r.seq as number, `stale: premise #${r.on_seq} ${why}`);
+    }
+  }
+
   taskTags(): Map<number, string> {
     const m = new Map<number, string>();
+    this.claimTags(m);
     // Change cards: each reviewer's verdict, e.g. "approved by jxn's agent · changes requested by vedu".
     const byChange = new Map<number, string[]>();
     for (const r of this.reviewRows()) {
       const who = r.via === "agent" ? `${r.reviewer}'s agent` : r.reviewer;
       byChange.set(r.seq, [...(byChange.get(r.seq) ?? []), `${r.verdict === "approve" ? "approved" : "changes requested"} by ${who}`]);
     }
-    for (const [seq, bits] of byChange) m.set(seq, bits.join(" · "));
+    const merge = (seq: number, tag: string) => m.set(seq, m.has(seq) ? `${tag} · ${m.get(seq)}` : tag);
+    for (const [seq, bits] of byChange) merge(seq, bits.join(" · "));
     for (const t of this.taskRows()) {
       const bits: string[] = [t.status];
       if (t.priority) bits.push(`${t.priority} priority`);
@@ -1076,7 +1208,7 @@ export class Board extends DurableObject<Env> {
       if (t.lease_holder) bits.push(`${t.lease_agent ? `${t.lease_holder}'s agent` : t.lease_holder} holds it until ${iso(t.lease_until!)}`);
       if (t.stop_reason) bits.push(t.stop_reason);
       if (t.due) bits.push(`due ${iso(t.due).slice(0, 10)}`);
-      m.set(t.seq, bits.join(" · "));
+      merge(t.seq, bits.join(" · "));
     }
     return m;
   }

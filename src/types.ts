@@ -48,6 +48,7 @@ export interface NewEntry {
   artifact_name?: string | null;
   artifact_content?: string | null;
   card?: unknown; // type=change: checked and normalized by parseCard
+  depends_on?: number[]; // premises: if one is disputed or retracted, this entry is flagged stale
 }
 
 export interface Member {
