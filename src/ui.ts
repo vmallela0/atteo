@@ -209,6 +209,9 @@ dialog[open]{animation:pop .16s ease-out}
 .composer{margin-top:20px;position:relative}
 .mention{color:var(--accent);font-weight:500;background:color-mix(in srgb,var(--accent) 9%,transparent);padding:0 3px;border-radius:4px;white-space:nowrap}
 .mention.agent{border:1px dashed color-mix(in srgb,var(--accent) 45%,transparent);padding:0 3px}
+.mention.me{color:var(--ink);background:color-mix(in srgb,var(--warn) 24%,transparent);box-shadow:0 0 0 1px color-mix(in srgb,var(--warn) 45%,transparent)}
+.entry.for-you{background:color-mix(in srgb,var(--warn) 6%,transparent);box-shadow:inset 3px 0 0 color-mix(in srgb,var(--warn) 70%,transparent);border-radius:8px;animation:foryou 1.6s ease-out 1}
+@keyframes foryou{from{background:color-mix(in srgb,var(--warn) 18%,transparent)}}
 .mention-menu{position:absolute;left:12px;bottom:calc(100% - 6px);z-index:5;width:min(280px,calc(100% - 24px));list-style:none;margin:0;padding:6px;
   border:1px solid var(--line);border-radius:10px;background:var(--bg);box-shadow:var(--shadow-lg)}
 .mention-menu li{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:7px;cursor:pointer;font-size:13px;color:var(--text)}

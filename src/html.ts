@@ -521,6 +521,10 @@ mm.addEventListener('mousedown',e=>{e.preventDefault();const li=e.target.closest
 // Mentions in the composer are chips: a mirror under the (transparent) text draws them, and an edit or a caret move
 // treats each one as a single unit, so one Backspace removes "@vedu's agent" whole and the caret never lands inside.
 const mirror=document.getElementById('composer-mirror'),MNAMES=new Set(MOPTS.map(o=>o.u)),ME=${jsString(viewer.name)};
+// "@you" glows, and so does the message it's in, including ones that arrive live.
+function markMe(root){root.querySelectorAll('.mention:not(.agent)').forEach(m=>{if(m.dataset.user===ME){m.classList.add('me');m.closest('.entry')?.classList.add('for-you')}})}
+markMe(document.getElementById('thread'));
+new MutationObserver(ms=>ms.forEach(m=>m.addedNodes.forEach(n=>{if(n.nodeType===1)markMe(n)}))).observe(document.getElementById('thread'),{childList:true,subtree:true});
 function mtokens(v){const out=[],re=/(^|[^A-Za-z0-9_.@\\/-])@([A-Za-z0-9][A-Za-z0-9_.-]{0,31})((?:'|’)s\\s+agent\\b)?/gi;let m;
   while((m=re.exec(v))){const raw=m[2].toLowerCase();let h=raw;if(!MNAMES.has(h))h=raw.replace(/[.-]+$/,'');if(!MNAMES.has(h))continue;
     const agent=!!m[3]&&h===raw;if(!agent&&h===ME)continue; // you can't mention yourself, only your agent

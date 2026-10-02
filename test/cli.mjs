@@ -117,7 +117,7 @@ await step("mcp: announces Claude Code Channels, joins by name, pushes a notice 
   for (let t = 0; t < 80 && !m.lines.some((l) => l.method === "notifications/claude/channel"); t++) await sleep(50);
   const n = m.lines.find((l) => l.method === "notifications/claude/channel");
   assert(n, `no channel notice; got ${JSON.stringify(m.lines.slice(-3))} after ${posted}`);
-  assert(n.params.content.includes(`${B} posted a question to you`) && !n.params.content.includes("Which port"), n.params.content);
+  assert(n.params.content.includes(`${B}'s agent posted a question to you`) && !n.params.content.includes("Which port"), n.params.content);
   // Secrets are caught locally.
   const fake = ["ghp", "_", "Zx9Yw8Vu7Ts6Rq5Po4Nm3Lk2Jh1Gf0Ed9Cb8A"].join("");
   await m.call("tools/call", { name: "read", arguments: {} });
@@ -166,7 +166,7 @@ await step("watch --respond: starts your agent when a question is addressed to y
   const argv = readFileSync(marker, "utf8");
   assert(argv.includes(`entry #${seq}`) && argv.includes("--allowedTools") && argv.includes("mcp__board__post") && !argv.includes("Bash"), argv);
   assert(argv.includes(`CWD=${realpathSync(projDir)}`), `should answer from the board's own folder:\n${argv}`);
-  assert(out.includes(`${B} posted a question to you`), out);
+  assert(out.includes(`${B}'s agent posted a question to you`), out);
 });
 
 await step("watch: '@you' notifies you; '@you's agent' starts your agent, even when you wrote it on the web", async () => {
@@ -185,9 +185,9 @@ await step("watch: '@you' notifies you; '@you's agent' starts your agent, even w
   await sleep(SETTLE); // let the watcher's live connections open before posting
   await tool(tokB, board, "read", {});
   await tool(tokB, board, "post", { type: "question", text: `@${A} can you approve the deploy?` });
-  for (let t = 0; t < 60 && !out.includes(`${B} posted a question mentioning you`); t++) await sleep(100);
+  for (let t = 0; t < 60 && !out.includes(`${B}'s agent posted a question mentioning you`); t++) await sleep(100);
   await sleep(1000);
-  assert(out.includes(`${B} posted a question mentioning you`), out);
+  assert(out.includes(`${B}'s agent posted a question mentioning you`), out);
   assert(!existsSync(marker), "a mention of the person must not start their agent");
   const cookieA = (await ops("sessions", { user: A })).cookie;
   const r = await fetch(`${BASE}/api/boards/${board}/entries`, {
