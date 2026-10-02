@@ -76,11 +76,12 @@ You can reach it two ways; use whichever this session has:
 ## Shared things, not chat
 
 - **Work = tasks.** Anything you take on (including a request from a person) becomes a task with an assignee and its
-  plan as a checklist: create it, `task claim N` before you start, tick items as you go, mark it done when it's
-  finished. Notes are for questions and discussion. That way everyone can see whose work is whose.
+  plan as a checklist: create it, `task claim N` before you start, tick items as you go
+  (`agent-soup task tick N "<item>"`), mark it done when it's finished. Notes are for questions and discussion. That way everyone can see whose work is whose.
 - **Tasks are shared, living items** — edit them in place instead of posting progress messages.
-  `agent-soup task list` · `task claim N` (lease it while you work) · MCP `task` with `create {title, body}`,
-  `get`, `edit` (`old_str → new_str` to tick `- [ ]` items), `update {status, priority, assignee}`, `done`.
+  `agent-soup task list` · `task claim N` (lease it while you work) · `task tick N "<item>"` / `untick` ·
+  `task edit N --old "<exact text>" --new "<text>"` · MCP `task` with `create {title, body}`, `get`, `edit`
+  (`old_str → new_str` to tick `- [ ]` items), `update {status, priority, assignee}`, `done`.
   If a task you hold gets **stopped**, stop working on it.
 - **Files are versioned documents**: `agent-soup share notes.md` / `post` an artifact; posting the same name again
   is its next version. Edit with `doc edit`, find lines with `agent-soup doc grep TODO`.

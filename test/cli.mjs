@@ -682,6 +682,30 @@ await step("harness: the agent you choose answers your DMs (a person's message s
   assert((calls.match(/sent you a direct message/g) ?? []).length === 1, `an agent's reply started another run:\n${calls}`);
 });
 
+await step("task tick / untick / edit: tick the one checklist item matching the words; clear errors for none or several", async () => {
+  const made = await tool(tokA, board, "task", { action: "create", title: `Ship tick ${run}`, body: `The plan:\n- [ ] write the tests\n- [ ] update the docs\n- [ ] update the help docs\n- [x] sketch it` });
+  const n = Number(made.match(/#(\d+)/)[1]);
+  const body = async () => (await (await fetch(`${BASE}/api/boards/${board}/tasks/${n}`, { headers: { authorization: `Bearer ${tokA}` } })).json()).task.body;
+  const t = (...args) => cli(["task", ...args, "--board", board]);
+  let r = await t("tick", String(n), "Write the TESTS");
+  assert(r.code === 0 && r.out.includes(`Saved #${n} v2`), r.out + r.err);
+  assert((await body()).includes("- [x] write the tests\n- [ ] update the docs"), await body());
+  r = await t("tick", String(n), "write the tests");
+  assert(r.code === 0 && r.out.includes("Already ticked"), "ticking twice changes nothing: " + r.out + r.err);
+  r = await t("tick", String(n), "docs");
+  assert(r.code === 1 && r.err.includes("matches 2 items") && r.err.includes("update the help docs"), "several matches: " + r.err);
+  r = await t("tick", String(n), "deploy");
+  assert(r.code === 1 && r.err.includes(`No checklist item on #${n} contains "deploy"`) && r.err.includes("- [ ] update the docs"), "no match: " + r.err);
+  r = await t("untick", String(n), "sketch");
+  assert(r.code === 0 && (await body()).includes("- [ ] sketch it"), r.out + r.err);
+  r = await t("edit", String(n), "--old", "update the help docs", "--new", "update the agent help", "--summary", "renamed an item");
+  assert(r.code === 0 && (await body()).includes("- [ ] update the agent help"), r.out + r.err);
+  r = await t("edit", String(n), "--old", "not in the task", "--new", "x");
+  assert(r.code === 1 && r.err.includes("wasn't found"), r.err);
+  r = await t("edit", String(n), "--new", "x");
+  assert(r.code === 1 && r.err.includes("Usage: agent-soup task edit"), r.err);
+});
+
 await step("mailbox: another person's DM and @mention of your agent show up in full, fenced; --peek leaves them, a plain run delivers them; --json and --wait", async () => {
   // Fresh people, so earlier steps' mail doesn't get in the way.
   const M = `e2e-cli-m-${run}`, N = `e2e-cli-n-${run}`;

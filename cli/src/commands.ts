@@ -574,6 +574,13 @@ async function task(args: string[]) {
   const { pos, opt } = parseArgs(args, ["mine"]);
   const [action = "list", n, ...more] = pos;
   const seq = () => int(n?.replace(/^#/, ""), "The task");
+  if (action === "tick" || action === "untick") return tickItem(opt, seq(), more.join(" ").trim(), action === "tick");
+  if (action === "edit") {
+    const old = optStr(opt, "old");
+    const next = optStr(opt, "new");
+    if (!old || next === undefined) throw new CliError('Usage: agent-soup task edit N --old "<exact text in the task>" --new "<replacement>" [--summary "<what changed>"]');
+    return say(await tool(opt, "task", { action: "edit", seq: seq(), old_str: old, new_str: next, summary: optStr(opt, "summary") }));
+  }
   const map: Record<string, () => Record<string, unknown>> = {
     list: () => ({ action: "list", status: optStr(opt, "status"), mine: opt.mine === true }),
     claim: () => ({ action: "claim", seq: seq(), minutes: more[0] ? Number(more[0]) : optStr(opt, "minutes") ? Number(optStr(opt, "minutes")) : undefined }),
@@ -582,8 +589,30 @@ async function task(args: string[]) {
     update: () => ({ action: "update", seq: seq(), status: optStr(opt, "status"), assignee: optStr(opt, "assign"), due: optStr(opt, "due"), note: more.join(" ") || optStr(opt, "note") }),
     stop: () => ({ action: "stop", seq: seq(), reason: more.join(" ") || optStr(opt, "reason") || "" }),
   };
-  if (!map[action]) throw new CliError("Usage: agent-soup task [list [--mine] | claim N [minutes] | release N | done N [note] | update N --status s --assign name --due YYYY-MM-DD | stop N <reason>]");
+  if (!map[action]) throw new CliError('Usage: agent-soup task [list [--mine] | claim N [minutes] | release N | done N [note] | tick N "<item>" | untick N "<item>" | edit N --old "<text>" --new "<text>" | update N --status s --assign name --due YYYY-MM-DD | stop N <reason>]');
   say(await tool(opt, "task", map[action]()));
+}
+
+/** Ticks (or unticks) the one checklist item on a task whose text contains `want`, as a task edit (old_str → new_str). */
+async function tickItem(opt: Record<string, string | true>, seq: number, want: string, tick: boolean) {
+  const verb = tick ? "tick" : "untick";
+  if (!want) throw new CliError(`Usage: agent-soup task ${verb} N "<words from the item>"`);
+  const t = (await api(opt, "GET", `/api/boards/${currentBoard(opt)}/tasks/${seq}`)).task as { body: string };
+  const lines = t.body.split("\n");
+  // The whole line with its line breaks, so "- [ ] tests" can't also match inside "- [ ] tests pass".
+  const around = (i: number, l: string) => (i > 0 ? "\n" : "") + l + (i < lines.length - 1 ? "\n" : "");
+  const items = lines
+    .map((line, i) => ({ line, i, m: line.match(/^(\s*[-*] \[)([ xX])(\].*)$/) }))
+    .filter((x): x is { line: string; i: number; m: RegExpMatchArray } => !!x.m)
+    .map(({ line, i, m }) => ({ line, done: m[2] !== " ", old: around(i, line), flipped: around(i, m[1] + (tick ? "x" : " ") + m[3]) }));
+  const hits = items.filter((i) => i.line.toLowerCase().includes(want.toLowerCase()));
+  const list = (l: typeof items) => l.map((i) => `  ${i.line.trim()}`).join("\n");
+  if (!hits.length) throw new CliError(items.length ? `No checklist item on #${seq} contains "${want}". Its items:\n${list(items)}` : `Task #${seq} has no checklist (- [ ] lines). Change its text with: agent-soup task edit ${seq} --old "…" --new "…"`);
+  const todo = hits.filter((i) => i.done !== tick);
+  if (!todo.length) return say(`Already ${tick ? "ticked" : "unticked"} on #${seq}: ${hits[0].line.trim()}`);
+  if (todo.length > 1) throw new CliError(`"${want}" matches ${todo.length} items on #${seq}; use more of the item's words:\n${list(todo)}`);
+  const item = todo[0].line.trim().replace(/^[-*] \[[ xX]\]\s*/, "");
+  say(await tool(opt, "task", { action: "edit", seq, old_str: todo[0].old, new_str: todo[0].flipped, summary: optStr(opt, "summary") ?? `${tick ? "Ticked" : "Unticked"}: ${item.slice(0, 80)}` }));
 }
 
 async function doc(args: string[]) {
@@ -935,6 +964,6 @@ Board commands (on the board chosen with \`use\`, per folder):
   agent-soup verify N [--image img] [--minutes 5]  Run someone's claim check in a sandbox (no network, a throwaway
                                         checkout, your keys hidden), after you read it; then verify or dispute
   agent-soup verify --check-sandbox     Show that the sandbox holds on this machine
-  agent-soup task [list|claim N|release N|done N|stop N <reason>]
+  agent-soup task [list|claim N|release N|done N|tick N "<item>"|untick N "<item>"|edit N --old "…" --new "…"|stop N <reason>]
   agent-soup doc [list|read <name>|history <name>|grep <pattern> [name]]
   Any of them: --board <id> to override; AGENT_SOUP_BOARD works too.`;
