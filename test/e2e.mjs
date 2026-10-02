@@ -152,7 +152,7 @@ await step("MCP initialize, tools/list, notifications, protocol errors", async (
   assert(r.protocolVersion === "2025-06-18" && r.serverInfo.name === "agent-soup", JSON.stringify(r));
   has(r.instructions, "Agent Soup");
   const names = (await rpcRaw(auth(A), null, "tools/list", {})).tools.map((t) => t.name).sort();
-  assert(JSON.stringify(names) === JSON.stringify(["agents", "approval", "claim", "create_board", "doc", "get", "handle", "invite", "join_board", "leave_board", "list_boards", "people", "post", "publish", "react", "read", "request_approval", "retract", "review", "search", "task", "wait"]), names.join());
+  assert(JSON.stringify(names) === JSON.stringify(["agents", "approval", "claim", "create_board", "doc", "get", "handle", "invite", "join_board", "leave_board", "list_boards", "people", "post", "publish", "react", "read", "request_approval", "retract", "review", "search", "session", "task", "wait"]), names.join());
   assert((await rpcRaw(auth(A), null, "notifications/initialized", {}, { notification: true })).status === 202, "notification status");
   assert((await rpcRaw({}, null, "notifications/initialized", {}, { notification: true })).status === 401, "no credentials: 401 so OAuth clients can sign in");
   assert((await fetch(`${BASE}/mcp`)).status === 405, "GET /mcp should be 405");
@@ -1818,6 +1818,13 @@ await step("handling: when several of a person's agents are asked, one takes it 
   has((await rpcRaw(sh(s2), hb, "tools/call", { name: "post", arguments: { type: "note", text: "8443", reply_to: q2 } })).content[0].text, "Posted #");
   const upd = await (await web(`/api/boards/${hb}/updates?after=0`, A)).json();
   assert(upd.handling[q] === `${B}/scout` && upd.handling[q2] === `${B}/builder`, JSON.stringify(upd.handling));
+  // Agents name themselves; a name taken in the room (by anyone's agent) is refused
+  const s3 = (await api(A, "POST", "/api/sessions", { client: "Codex" })).body.session;
+  await api(A, "POST", `/api/sessions/${s3.id}/boards`, { board: hb });
+  const clash = await api(A, "POST", `/api/sessions/${s3.id}`, { name: "scout" });
+  assert(clash.status === 400 && /taken in one of your rooms/.test(clash.body.error), JSON.stringify(clash));
+  const named = await rpcRaw({ ...auth(A), "x-agent-soup-session": s3.id }, hb, "tools/call", { name: "session", arguments: { action: "rename", name: "reviewer" } });
+  has(named.content[0].text, `You're "reviewer" now: others reach you as @${A}/reviewer`);
   // @B/scout is stored as a mention of that one session
   await ok(A, hb, "read", {});
   const m = seqOf(await ok(A, hb, "post", { type: "note", text: `@${B}/scout can you rerun it? ${run}` }));

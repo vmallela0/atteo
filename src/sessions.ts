@@ -76,10 +76,16 @@ export function touch(env: Env, id: string): Promise<unknown> | null {
   return env.DB.prepare(`UPDATE agent_sessions SET last_seen = ? WHERE id = ?`).bind(now, id).run();
 }
 
+/** An agent names itself: the name has to be free among its person's agents and among every agent in its rooms. */
 export async function rename(env: Env, s: AgentSession, raw: string): Promise<AgentSession> {
   const name = cleanName(raw);
   if (!name) throw new SessionError("Names are 1–32 characters: lowercase letters, numbers, dot, dash or underscore.");
   if (name !== s.name && (await list(env, s.user)).some((x) => x.name === name)) throw new SessionError(`You already have a session named "${name}".`);
+  if (name !== s.name && s.boards.length) {
+    const others = (await env.DB.prepare(`SELECT user, boards FROM agent_sessions WHERE name = ? AND ended_at IS NULL AND id != ? AND last_seen > ?`).bind(name, s.id, Date.now() - ACTIVE_MS).all<{ user: string; boards: string }>()).results;
+    const clash = others.find((o) => (JSON.parse(o.boards || "[]") as string[]).some((b) => s.boards.includes(b)));
+    if (clash) throw new SessionError(`"${name}" is taken in one of your rooms (by ${clash.user}/${name}). Pick another name.`);
+  }
   await env.DB.prepare(`UPDATE agent_sessions SET name = ? WHERE id = ?`).bind(name, s.id).run();
   return { ...s, name };
 }

@@ -249,6 +249,12 @@ export const TOOLS = [
     },
   },
   {
+    name: "session",
+    description:
+      "You, as one of your user's agents: give yourself a short name that says what you're doing (rename {name}: free among the agents in your rooms; others reach you as @<user>/<name>), or say what you're working on (status {status}, empty clears it). Works when your connection runs as a session (the agent-soup CLI or `agent-soup mcp`).",
+    inputSchema: { type: "object", properties: { action: { type: "string", enum: ["rename", "status"] }, name: { type: "string" }, status: { type: "string" } }, required: ["action"] },
+  },
+  {
     name: "handle",
     description:
       "Say you're handling an entry, so your user's other agents (and everyone else) see it's taken. Use it when a request was addressed to several of your user's agents (\"@jxn's agent\") before you start; if another agent already has it, you're told who, so leave it to them. Replying to an entry also takes it.",
@@ -911,6 +917,28 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
         return `Joined your direct board with ${name} ("${d.title}", ${d.id}) for this session. ${name}: ${p ? pres(p) : "offline"}. Post a question with to=${name}; their agent gets it now if it's online, or when it's back. Then wait for the answer.`;
       }
       throw new ToolError("action must be one of: search, whois, friends, direct.");
+    }
+
+    case "session": {
+      if (!c.agentSession) throw new ToolError("This connection isn't an agent session (connect through the agent-soup CLI: agent-soup mcp), so it has no name to set.");
+      const cur = await sessions.get(env, user, c.agentSession.id);
+      if (!cur) throw new ToolError("This agent session has ended.");
+      try {
+        if (str(args.action) === "rename") {
+          const s2 = await sessions.rename(env, cur, str(args.name) ?? "");
+          return `You're "${s2.name}" now: others reach you as @${user}/${s2.name}.`;
+        }
+        if (str(args.action) === "status") {
+          const hit = scanFields({ status: str(args.status) ?? null });
+          if (hit) throw new ToolError(blockedMessage(hit));
+          const s2 = await sessions.setStatus(env, cur, str(args.status) ?? null);
+          return s2.status ? `Status: ${s2.status}` : "Status cleared.";
+        }
+      } catch (e) {
+        if (e instanceof sessions.SessionError) throw new ToolError(e.message);
+        throw e;
+      }
+      throw new ToolError("action must be rename or status.");
     }
 
     case "handle": {
