@@ -1,6 +1,6 @@
 // Pages. Server-rendered with the design system in ui.ts; small inline scripts for live updates.
 
-import type { BoardRow, InviteRow, Invitation, UserRow } from "./registry";
+import { boardMeta, type BoardRow, type InviteRow, type Invitation, type UserRow } from "./registry";
 import type { TokenRow } from "./auth";
 import { authorLabel, computeSummary, retractedSet, type Summary } from "./state";
 import { forAgent, forPerson, mentionLabel } from "./mentions";
@@ -349,7 +349,7 @@ document.addEventListener('click',e=>{const t=e.target.closest('[data-ctab]');if
 export function homePage(
   viewer: Viewer,
   side: SideBoard[],
-  boards: (BoardRow & { members: string | null })[],
+  boards: (BoardRow & { members: string | null; unread?: number })[],
   invitations: Invitation[] = [],
   agent: AgentState = { connected: false, onThisBoard: false },
   flash?: string,
@@ -363,27 +363,32 @@ export function homePage(
         )
         .join("")}</div>`
     : "";
-  const archived = boards.filter((b) => b.archived_at);
-  boards = boards.filter((b) => !b.archived_at);
-  const archivedList = archived.length
-    ? `<details style="margin-top:28px"><summary class="small muted" style="cursor:pointer">Archived (${archived.length})</summary><div class="list" style="margin-top:10px">${archived
-        .map(
-          (b) => `<a class="item" href="/b/${esc(b.id)}"><span class="grow truncate muted">${esc(b.title)}</span><span class="xs faint">archived ${when(b.archived_at!)}</span></a>`,
-        )
-        .join("")}</div></details>`
-    : "";
+  const active = boards.filter((b) => !b.archived_at).length;
+  const archivedCount = boards.length - active;
+  const cards = boards
+    .map((b) => {
+      const meta = boardMeta(b);
+      const names = (b.members ?? "").split(", ").filter(Boolean);
+      const text = [b.title, meta.description ?? "", ...meta.tags, ...names].join(" ").toLowerCase();
+      return `<article class="bcard${b.archived_at ? " archived" : ""}" data-text="${esc(text)}" data-archived="${b.archived_at ? 1 : 0}" data-id="${esc(b.id)}" data-meta="${esc(JSON.stringify(meta))}" data-title="${esc(b.title)}">
+  <a class="bcard-link" href="/b/${esc(b.id)}" aria-label="${esc(b.title)}"></a>
+  <div class="row bc-top">${meta.emoji ? `<span class="bc-emoji">${esc(meta.emoji)}</span>` : `<span class="bc-dot" style="--h:${hue(b.id)}"></span>`}
+    <h3 class="grow truncate">${esc(b.title)}</h3>
+    ${b.unread ? `<span class="bc-unread" title="Waiting for you">${b.unread} for you</span>` : ""}
+    <button class="btn ghost sm bc-edit" type="button" data-edit-board="${esc(b.id)}" aria-label="Edit details">Edit</button></div>
+  <p class="bc-desc${meta.description ? "" : " faint"}">${meta.description ? esc(meta.description) : "No description yet."}</p>
+  ${meta.tags.length ? `<div class="bc-tags">${meta.tags.map((t) => `<span class="tag">#${esc(t)}</span>`).join("")}</div>` : ""}
+  ${meta.links.length ? `<div class="bc-links">${meta.links.map((l) => `<a href="${esc(l.url)}" target="_blank" rel="noopener noreferrer">${esc(l.label)} ↗</a>`).join("")}</div>` : ""}
+  <div class="row bc-foot">${avatarStack(names, 5)}<span class="grow"></span><span class="xs faint">${b.archived_at ? `archived ${when(b.archived_at)}` : `${b.entry_count} ${b.entry_count === 1 ? "entry" : "entries"} · ${when(b.last_activity)}`}</span></div>
+</article>`;
+    })
+    .join("");
   const list = boards.length
-    ? `<div class="list">${boards
-        .map((b) => {
-          const names = (b.members ?? "").split(", ").filter(Boolean);
-          return `<a class="item" href="/b/${esc(b.id)}">
-  <span class="bdot" style="width:9px;height:9px;border-radius:3px;background:hsl(${hue(b.id)} 55% 55%)"></span>
-  <div class="grow"><div class="truncate" style="font-weight:500;color:var(--ink)">${esc(b.title)}</div></div>
-  <span class="xs faint hide-sm" style="width:90px">${b.entry_count} ${b.entry_count === 1 ? "entry" : "entries"}</span>
-  <span class="xs faint hide-sm" style="width:80px">${when(b.last_activity)}</span>
-  <span class="row" style="width:110px;justify-content:flex-end">${avatarStack(names, 4)}</span></a>`;
-        })
-        .join("")}</div>`
+    ? `<div class="boards-bar row"><div class="bsearch grow"><input class="input" id="bq" type="search" placeholder="Search boards, and what's inside them…" autocomplete="off" aria-label="Search boards"></div>
+  <div class="seg" role="radiogroup" aria-label="Show"><input type="radio" name="bshow" id="bs-active" value="active" checked><label for="bs-active">Active <span class="faint">${active}</span></label><input type="radio" name="bshow" id="bs-arch" value="archived"><label for="bs-arch">Archived <span class="faint">${archivedCount}</span></label><input type="radio" name="bshow" id="bs-all" value="all"><label for="bs-all">All</label></div></div>
+<div class="bgrid" id="bgrid">${cards}</div>
+<p class="muted small" id="b-none" hidden>No boards match.</p>
+<section id="b-hits" hidden><h2 class="small muted" style="margin:22px 0 8px">Inside your boards</h2><div class="list" id="b-hits-list"></div></section>`
     : `<div class="card empty"><h3>No boards yet</h3><p class="small">Create a board, then invite the people whose agents should work on it.</p>
   <button class="btn primary" style="margin-top:18px" data-open="new-board">New board <kbd style="margin-left:4px">C</kbd></button></div>`;
   return appPage("Boards · Agent Soup", {
@@ -397,15 +402,53 @@ ${agent.connected ? "" : `<div style="margin-bottom:24px">${agentCard(agent)}</d
 ${invites}
 <div class="section-title"><div><h1>Boards</h1><p class="muted" style="margin-top:4px">Problems you and your collaborators' agents are working on.</p></div></div>
 ${list}
-${archivedList}
 ${connectDialog(viewer)}
 <dialog id="new-board"><div class="hd"><div><h2>New board</h2><p class="muted small" style="margin-top:4px">You can invite people right after.</p></div><button class="btn ghost sm" data-close aria-label="Close">✕</button></div>
 <form class="bd" method="post" action="/boards"><label class="lbl" for="title">Title</label>
 <input class="input" id="title" name="title" required maxlength="120" placeholder="Debug the payments integration">
-<div class="row" style="justify-content:flex-end;margin-top:18px"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary">Create board</button></div></form></dialog>`,
-    script: CONNECT_JS + `window.answered=(j)=>{location.href=j.message==='Joined'?'/b/'+j.board:'/'};`,
+<div class="row" style="justify-content:flex-end;margin-top:18px"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary">Create board</button></div></form></dialog>
+<dialog id="edit-board"><div class="hd"><div><h2>Board details</h2><p class="muted small" style="margin-top:4px" id="eb-title"></p></div><button class="btn ghost sm" data-close aria-label="Close">✕</button></div>
+<form class="bd" id="eb-form">
+<div class="row" style="gap:10px;align-items:flex-end"><div style="width:72px"><label class="lbl" for="eb-emoji">Emoji</label><input class="input" id="eb-emoji" maxlength="16" placeholder="🍲"></div>
+<div class="grow"><label class="lbl" for="eb-tags">Tags</label><input class="input" id="eb-tags" placeholder="checkout, payments"></div></div>
+<label class="lbl" for="eb-desc" style="margin-top:12px">Description</label><textarea class="input" id="eb-desc" maxlength="280" rows="3" placeholder="What this board is for, in a sentence or two."></textarea>
+<label class="lbl" style="margin-top:12px">Links</label>
+${[0, 1, 2].map((i) => `<div class="row" style="gap:6px;margin-bottom:6px"><input class="input" id="eb-l${i}" placeholder="Label" style="width:120px"><input class="input grow" id="eb-u${i}" placeholder="https://github.com/…"></div>`).join("")}
+<p class="flash err" id="eb-err" hidden></p>
+<div class="row" style="justify-content:flex-end;margin-top:14px"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary">Save</button></div></form></dialog>`,
+    script: CONNECT_JS + `window.answered=(j)=>{location.href=j.message==='Joined'?'/b/'+j.board:'/'};` + BOARDS_JS,
   });
 }
+
+// Boards page: instant filter on titles/descriptions/tags/people, Active/Archived/All, content search inside every
+// board (debounced), and the details editor.
+const BOARDS_JS = `
+(()=>{const q=document.getElementById('bq');if(!q)return;const cards=[...document.querySelectorAll('.bcard')];
+const show=()=>document.querySelector('input[name=bshow]:checked').value;
+function apply(){const t=q.value.trim().toLowerCase(),s=show();let n=0;
+  cards.forEach(c=>{const ok=(s==='all'||(s==='archived')===(c.dataset.archived==='1'))&&(!t||c.dataset.text.includes(t));c.hidden=!ok;if(ok)n++});
+  document.getElementById('b-none').hidden=n>0||!!t}
+document.querySelectorAll('input[name=bshow]').forEach(r=>r.addEventListener('change',apply));
+const hits=document.getElementById('b-hits'),hl=document.getElementById('b-hits-list');let timer=0,seq=0;
+function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c])}
+function snip(s){return esc(s).replace(/«/g,'<mark>').replace(/»/g,'</mark>')}
+q.addEventListener('input',()=>{apply();clearTimeout(timer);const t=q.value.trim();if(t.length<2){hits.hidden=true;return}
+  timer=setTimeout(async()=>{const my=++seq;const r=await fetch('/api/boards/search?q='+encodeURIComponent(t));const j=await r.json().catch(()=>({hits:[]}));if(my!==seq)return;
+    // Boards whose content matches show even if their title doesn't.
+    const inside=new Set((j.hits||[]).map(h=>h.board));if(show()!=='archived')cards.forEach(c=>{if(inside.has(c.dataset.id)&&(show()==='all'||c.dataset.archived!=='1'))c.hidden=false});
+    hl.innerHTML=(j.hits||[]).map(h=>'<a class="item" href="/b/'+esc(h.board)+(h.kind==='file'?'#files':'#e'+h.seq)+'"><div class="grow" style="min-width:0"><div class="xs faint">'+esc(h.title)+' · '+(h.kind==='file'?esc(h.name)+' v'+h.version:'#'+h.seq+' '+esc(h.via==='agent'?h.author+"'s agent":h.author))+'</div><div class="small truncate">'+snip(h.snippet)+'</div></div></a>').join('');
+    hits.hidden=!(j.hits||[]).length},250)});
+document.addEventListener('keydown',e=>{if(e.key==='/'&&!e.target.closest('input,textarea')&&!document.querySelector('dialog[open]')){e.preventDefault();q.focus()}});
+apply();
+const dlg=document.getElementById('edit-board'),f=document.getElementById('eb-form');let editing=null;
+document.addEventListener('click',e=>{const b=e.target.closest('[data-edit-board]');if(!b)return;e.preventDefault();const c=b.closest('.bcard');editing=c.dataset.id;const m=JSON.parse(c.dataset.meta);
+  document.getElementById('eb-title').textContent=c.dataset.title;document.getElementById('eb-emoji').value=m.emoji||'';document.getElementById('eb-desc').value=m.description||'';document.getElementById('eb-tags').value=m.tags.join(', ');
+  [0,1,2].forEach(i=>{document.getElementById('eb-l'+i).value=m.links[i]?.label||'';document.getElementById('eb-u'+i).value=m.links[i]?.url||''});
+  document.getElementById('eb-err').hidden=true;dlg.showModal()});
+f.addEventListener('submit',async e=>{e.preventDefault();const links=[0,1,2].map(i=>({label:document.getElementById('eb-l'+i).value,url:document.getElementById('eb-u'+i).value.trim()})).filter(l=>l.url);
+  const r=await fetch('/api/boards/'+editing+'/meta',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({emoji:document.getElementById('eb-emoji').value,description:document.getElementById('eb-desc').value,tags:document.getElementById('eb-tags').value,links})});
+  const j=await r.json().catch(()=>({}));if(!r.ok){const w=document.getElementById('eb-err');w.hidden=false;w.textContent=j.error||'Could not save';return}location.reload()});
+})();`;
 
 /** One row of the Stripe-style event log. */
 export function logRow(e: Entry, boardTitle?: string, boardId?: string): string {

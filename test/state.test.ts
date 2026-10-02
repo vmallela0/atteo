@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { computeSummary, entryHeader, formatEntry, formatSummary } from "../src/state";
-import { connectCommand, newBoardId, normalizeUser, BOARD_RE, EMOJI_RE, ftsQuery } from "../src/util";
+import { connectCommand, newBoardId, normalizeUser, BOARD_RE, EMOJI_RE, ftsQuery, parseBoardMeta } from "../src/util";
 import { relTime, renderText, initials } from "../src/ui";
 import { rootMap } from "../src/html";
 import type { BoardInfo, Entry } from "../src/types";
@@ -233,5 +233,15 @@ describe("search queries", () => {
     expect(ftsQuery("alpha-123")).toBe('"alpha" "123"*');
     expect(ftsQuery('NEAR(a b) OR "x*" ^col:')).toBe('"NEAR" "a" "b" "OR" "x" "col"*');
     expect(ftsQuery("  ** ")).toBeNull();
+  });
+});
+
+describe("board details", () => {
+  it("normalizes tags, checks the emoji and links", () => {
+    const m = parseBoardMeta({ description: "  hi  ", tags: "Big Tag, #two,two, ", emoji: "🍲", links: [{ url: "https://x.dev/a" }] });
+    expect(m).toEqual({ description: "hi", tags: ["big-tag", "two"], emoji: "🍲", links: [{ label: "x.dev", url: "https://x.dev/a" }] });
+    expect(() => parseBoardMeta({ emoji: "abc" })).toThrow("emoji");
+    expect(() => parseBoardMeta({ links: [{ url: "http://x.dev" }] })).toThrow("https");
+    expect(parseBoardMeta({}).tags).toEqual([]);
   });
 });

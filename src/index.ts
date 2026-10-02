@@ -1,5 +1,6 @@
 // Worker entry: MCP endpoint, sign-in, web pages, JSON API, and the operator console (/_ops).
 
+import { blockedMessage, scanFields } from "./secrets";
 import * as inbox from "./inbox";
 import * as auth from "./auth";
 import { handleMcp } from "./mcp";
@@ -26,7 +27,7 @@ import {
 } from "./html";
 import type { Entry, Env } from "./types";
 import { FAVICON_SVG, renderText } from "./ui";
-import { BOARD_RE, connectCommand, newBoardId, normalizeUser } from "./util";
+import { BOARD_RE, connectCommand, newBoardId, normalizeUser, parseBoardMeta } from "./util";
 
 export { Board } from "./board";
 
@@ -307,12 +308,11 @@ export default {
         const me = await registry.userByName(env, viewer.name);
         const [side, boards, invitations, status] = await Promise.all([
           sideBoards(env, viewer.name),
-          registry.allBoards(env),
+          registry.boardsOverview(env, viewer.name),
           me ? registry.invitationsFor(env, me) : [],
           registry.agentStatus(env, viewer.name),
         ]);
-        const mine = new Set((await registry.boardsForUser(env, viewer.name)).map((b) => b.id));
-        return homePage(viewer, side, boards.filter((b) => mine.has(b.id)), invitations, { connected: status.connected, onThisBoard: false });
+        return homePage(viewer, side, boards, invitations, { connected: status.connected, onThisBoard: false });
       }
 
       if (path === "/boards" && method === "POST") {
@@ -511,6 +511,49 @@ export default {
           }
         }
         return json({ error: "not found" }, 404);
+      }
+
+      // ---- board details (any member edits) and search across your boards ----
+      m = path.match(/^\/api\/boards\/([^/]+)\/meta$/);
+      if (m && method === "POST") {
+        if (!viewer) return needLogin();
+        if (!(await registry.isMember(env, m[1], viewer.name))) return json({ error: "board not found" }, 404);
+        try {
+          const meta = parseBoardMeta(await request.json().catch(() => ({})));
+          const hit = scanFields({ description: meta.description, tags: meta.tags.join(" "), links: meta.links.map((l) => `${l.label} ${l.url}`).join("\n") });
+          if (hit) return json({ error: blockedMessage(hit) }, 400);
+          await registry.setBoardMeta(env, m[1], meta);
+          return json({ ok: true, meta });
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+        }
+      }
+      if (path === "/api/boards/search" && method === "GET") {
+        if (!viewer) return needLogin();
+        const q = (url.searchParams.get("q") ?? "").trim().slice(0, 200);
+        if (!q) return json({ boards: [], hits: [] });
+        const all = await registry.boardsOverview(env, viewer.name);
+        const needle = q.toLowerCase();
+        const boards = all
+          .filter((b) => [b.title, b.description ?? "", b.tags ?? ""].join(" ").toLowerCase().includes(needle))
+          .map((b) => b.id);
+        // Content: ranked search inside the 25 most recently active boards, in parallel.
+        const hits = (
+          await Promise.all(
+            all.slice(0, 25).map(async (b) => {
+              try {
+                const r = await boardStub(env, b.id).rankedSearch(q, { limit: 3 });
+                return [
+                  ...r.files.slice(0, 2).map((f) => ({ board: b.id, title: b.title, kind: "file", name: f.name, version: f.version, snippet: f.snippet })),
+                  ...r.entries.map((x) => ({ board: b.id, title: b.title, kind: "entry", seq: x.entry.seq, author: x.entry.author, via: x.entry.via ?? null, snippet: x.snippet || x.entry.text.slice(0, 160) })),
+                ];
+              } catch {
+                return [];
+              }
+            }),
+          )
+        ).flat();
+        return json({ boards, hits: hits.slice(0, 40) }, 200, { "cache-control": "no-store" });
       }
 
       // ---- tasks board (web): list, and act on one task as a person ----

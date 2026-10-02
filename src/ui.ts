@@ -284,6 +284,30 @@ dialog[open]{animation:pop .16s ease-out}
 .side-link .count{margin-left:auto;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--accent);color:#fff;font-size:11px;font-weight:600;display:inline-flex;align-items:center;justify-content:center}
 .side-link .count[hidden]{display:none}
 .inbox{list-style:none;margin:0;padding:4px}
+/* Boards page */
+.boards-bar{gap:10px;margin:4px 0 16px;flex-wrap:wrap}
+.bsearch .input{width:100%}
+.bgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
+.bcard{position:relative;display:flex;flex-direction:column;gap:8px;padding:14px 14px 12px;border:1px solid var(--line);border-radius:12px;background:var(--bg);transition:border-color .12s,box-shadow .12s}
+.bcard:hover{border-color:color-mix(in srgb,var(--ink) 22%,var(--line));box-shadow:0 1px 0 var(--line),0 6px 18px -12px rgba(0,0,0,.25)}
+.bcard[hidden]{display:none}
+.bcard.archived{opacity:.7}
+.bcard-link{position:absolute;inset:0;border-radius:12px;z-index:0}
+.bcard .bc-edit,.bcard .bc-links a{position:relative;z-index:1}
+.bc-top{gap:8px;align-items:center}
+.bc-top h3{margin:0;font-size:14.5px;font-weight:600;color:var(--ink)}
+.bc-emoji{font-size:18px;line-height:1}
+.bc-dot{width:10px;height:10px;border-radius:3px;background:hsl(var(--h) 55% 55%);flex:none}
+.bc-unread{font-size:11px;font-weight:600;color:#fff;background:var(--accent);border-radius:9px;padding:1px 7px;white-space:nowrap}
+.bc-edit{opacity:0;transition:opacity .12s}
+.bcard:hover .bc-edit,.bc-edit:focus-visible{opacity:1}
+@media(hover:none){.bc-edit{opacity:1}}
+.bc-desc{margin:0;font-size:13px;color:var(--muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:2.6em}
+.bc-tags{display:flex;flex-wrap:wrap;gap:4px}
+.tag{font-size:11.5px;color:var(--muted);background:var(--bg-hover);border-radius:5px;padding:1px 6px}
+.bc-links{display:flex;flex-wrap:wrap;gap:10px;font-size:12px}
+.bc-foot{gap:8px;align-items:center;margin-top:auto}
+mark{background:color-mix(in srgb,var(--warn) 30%,transparent);color:inherit;border-radius:2px;padding:0 1px}
 /* Tasks board */
 .kanban-head{gap:10px;margin-bottom:12px;align-items:center}
 .kb-new{gap:6px;margin:0}.kb-new .input{width:240px}

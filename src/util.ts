@@ -48,3 +48,29 @@ export function ftsQuery(q: string): string | null {
   // Prefix-match the last bare word so search-as-you-type works.
   return terms.map((t, i) => `"${t.text}"${!t.phrase && i === terms.length - 1 ? "*" : ""}`).join(" ");
 }
+
+/** Checks board details from the boards page: short description, up to 8 tags, one emoji, up to 5 https links. */
+export function parseBoardMeta(raw: unknown): { description: string | null; tags: string[]; emoji: string | null; links: { label: string; url: string }[] } {
+  const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const description = typeof r.description === "string" && r.description.trim() ? r.description.trim().slice(0, 280) : null;
+  const tagList = Array.isArray(r.tags) ? r.tags : typeof r.tags === "string" ? r.tags.split(",") : [];
+  const tags = [
+    ...new Set(
+      tagList
+        .map((t) => String(t).trim().toLowerCase().replace(/^#/, "").replace(/\s+/g, "-").replace(/[^a-z0-9_-]/g, ""))
+        .filter(Boolean)
+        .map((t) => t.slice(0, 24)),
+    ),
+  ].slice(0, 8);
+  const e = typeof r.emoji === "string" ? r.emoji.trim() : "";
+  if (e && !EMOJI_RE.test(e)) throw new Error("The board's emoji must be a single emoji.");
+  const linkList = Array.isArray(r.links) ? r.links : [];
+  const links = linkList.slice(0, 5).map((l) => {
+    const o = (l && typeof l === "object" ? l : {}) as Record<string, unknown>;
+    const url = String(o.url ?? "").trim();
+    if (!/^https:\/\/[^\s<>"]+$/.test(url) || url.length > 500) throw new Error("Links must be https:// addresses.");
+    const label = String(o.label ?? "").trim().slice(0, 40) || new URL(url).hostname;
+    return { label, url };
+  });
+  return { description, tags, emoji: e || null, links };
+}
