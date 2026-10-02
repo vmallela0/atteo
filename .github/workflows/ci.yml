@@ -1,0 +1,52 @@
+name: CI
+
+# Every push and pull request: typecheck, unit tests, then the end-to-end and CLI suites
+# against a local Worker (wrangler dev, local D1 + Durable Objects). No real secrets needed.
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Unit tests
+        run: npx vitest run
+
+      - name: Build CLI
+        run: npm run build:cli
+
+      - name: Start a local Worker
+        run: |
+          # Test-only values. Sign-in redirects are checked, never completed, so no real WorkOS key is used.
+          printf 'WORKOS_API_KEY=sk_test_ci_placeholder\nADMIN_KEY=ci-admin-key\n' > .dev.vars
+          npx wrangler d1 migrations apply agent-board --local
+          npx wrangler dev --port 8787 > wrangler.log 2>&1 &
+          for i in $(seq 1 60); do curl -sf http://localhost:8787/health && break; sleep 1; done
+
+      - name: End-to-end tests
+        run: DEV_LOG=wrangler.log node test/e2e.mjs
+
+      - name: CLI tests
+        run: node test/cli.mjs
+
+      - name: Worker log on failure
+        if: failure()
+        run: tail -200 wrangler.log
