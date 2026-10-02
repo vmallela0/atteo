@@ -407,7 +407,7 @@ function connect(){
   let ping;ws.onopen=()=>{retry=0;ping=setInterval(()=>{try{ws.send('ping')}catch(e){}},30000)};
   ws.onmessage=(m)=>{if(m.data==='pong')return;let d;try{d=JSON.parse(m.data)}catch(e){return}
     if(d.type==='removed'||d.type==='deleted'){location.href='/';return}
-    if(d.type==='renamed'){const h=document.getElementById('board-title');if(h)h.textContent=d.title;document.title=d.title+' · Agent Soup';return}
+    if(d.type==='renamed'){window.applyTitle(d.title);return}
     if(d.type==='archived'){location.reload();return}
     if(d.type==='doc'){window.onDocChanged&&onDocChanged(d)}
     if(d.type==='entry'||(d.type==='hello'&&d.last>last))tick(false)};
@@ -444,7 +444,20 @@ document.addEventListener('click',async e=>{const t=e.target;
 document.addEventListener('click',e=>{const it=e.target.closest('[data-ver]');if(it){e.preventDefault();e.stopPropagation();openDoc(it.dataset.doc,+it.dataset.ver)}},true);
 window.onDocChanged=(d)=>{loadDocs();if(curDoc&&curDoc.name===d.name){if(editing){const w=document.getElementById('doc-warn');if(w){w.hidden=false;w.className='flash';w.textContent=d.by+' saved v'+d.version+' while you were editing. Saving now will be refused; copy your changes, cancel, and edit the new version.'}}else openDoc(d.name)}};
 window.deleted=()=>{location.href='/'};
-window.renamed=(j)=>{location.reload()};
+// Every place the board name shows: heading, breadcrumb, sidebar, browser tab (also used for live renames by others).
+window.applyTitle=(t)=>{const h=document.getElementById('board-title');if(h)h.textContent=t;document.title=t+' · Agent Soup';
+  document.querySelectorAll('.topbar .crumbs .cur, .side-board[aria-current] .truncate').forEach(x=>x.textContent=t)};
+// Inline rename (creator only): click the title or the pencil, Enter saves, Esc cancels.
+(()=>{const h=document.getElementById('board-title'),inp=document.getElementById('title-input'),pen=document.getElementById('title-pencil');if(!inp)return;
+  const start=()=>{inp.value=h.textContent;h.hidden=true;pen.hidden=true;inp.hidden=false;inp.focus();inp.select()};
+  const stop=()=>{inp.hidden=true;h.hidden=false;pen.hidden=false};
+  const save=async()=>{const t=inp.value.trim();if(!t||t===h.textContent){stop();return}inp.disabled=true;
+    const r=await fetch('/api/boards/'+BOARD+'/rename',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({title:t})});
+    const j=await r.json().catch(()=>({}));inp.disabled=false;if(!r.ok){toast(j.error||'Could not rename');inp.focus();return}
+    window.applyTitle(j.title);toast('Renamed');stop()};
+  h.addEventListener('click',start);pen.addEventListener('click',start);h.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();start()}});
+  inp.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();save()}if(e.key==='Escape'){e.preventDefault();stop()}});
+  inp.addEventListener('blur',()=>{if(!inp.hidden&&!inp.disabled)save()});})();
 window.archiveDone=(j)=>{toast(j.message||'Done');setTimeout(()=>location.reload(),400)};
 document.getElementById('del-confirm')?.addEventListener('input',e=>{document.getElementById('del-go').disabled=e.target.value.trim()!==${jsString(info.title)}});
 document.addEventListener('click',async e=>{const b=e.target.closest('[data-retract]');if(!b)return;
@@ -483,7 +496,12 @@ window.boardKeys=(e,k)=>{
       }</div>`
     : "";
   const body = `${archivedBanner}<div style="margin-bottom:18px">
-  <h1 class="truncate" id="board-title">${esc(info.title)}</h1>
+  ${
+    isCreator && !info.archived
+      ? `<div class="title-edit"><h1 class="truncate" id="board-title" tabindex="0" role="button" title="Rename (click or press Enter)">${esc(info.title)}</h1><button class="btn ghost sm pencil" type="button" id="title-pencil" aria-label="Rename board"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M11.5 2.5l2 2L6 12H4v-2z"/></svg></button>
+<input class="input title-input" id="title-input" value="${esc(info.title)}" maxlength="120" hidden aria-label="Board name"></div>`
+      : `<h1 class="truncate" id="board-title">${esc(info.title)}</h1>`
+  }
   <div class="row wrap small muted" style="margin-top:8px;gap:14px">
     <span class="badge live"><span class="dot"></span>Live</span>
     <span class="row">${avatarStack(members.map((m) => m.user))}<span>${members.map((m) => esc(m.user)).join(", ")}</span></span>
@@ -508,8 +526,7 @@ window.boardKeys=(e,k)=>{
   <aside class="aside">${agentCard(agent, info.title)}<div class="sum" id="sum">${summaryHtml(entries, viewer.name, members, undefined, ctl)}</div>
     ${
       isCreator
-        ? `<div class="divider"></div><div class="stack" style="--gap:4px"><button class="btn ghost sm" type="button" data-open="rename-board">Rename…</button>
-<form method="post" action="/api/boards/${esc(info.id)}/archive" data-api data-done="archiveDone" style="margin:0"><input type="hidden" name="archived" value="${info.archived ? "false" : "true"}"><button class="btn ghost sm">${info.archived ? "Restore board" : "Archive board"}</button></form>
+        ? `<div class="divider"></div><div class="stack" style="--gap:4px"><form method="post" action="/api/boards/${esc(info.id)}/archive" data-api data-done="archiveDone" style="margin:0"><input type="hidden" name="archived" value="${info.archived ? "false" : "true"}"><button class="btn ghost sm">${info.archived ? "Restore board" : "Archive board"}</button></form>
 <button class="btn ghost sm danger" type="button" data-open="delete-board">Delete board…</button></div>`
         : ""
     }</aside>
@@ -527,13 +544,6 @@ window.boardKeys=(e,k)=>{
 ${SHEET}
 
 ${connectDialog(viewer, { id: info.id, title: info.title })}
-
-<dialog id="rename-board"><div class="hd"><h2>Rename board</h2><button class="btn ghost sm" data-close aria-label="Close">✕</button></div>
-<form class="bd" method="post" action="/api/boards/${esc(info.id)}/rename" data-api data-done="renamed">
-  <label class="lbl" for="rename-title">Name</label><input class="input" id="rename-title" name="title" value="${esc(info.title)}" maxlength="120" required>
-  <p data-result hidden style="margin-top:12px"></p>
-  <div class="row" style="justify-content:flex-end;margin-top:18px"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary">Rename</button></div>
-</form></dialog>
 
 <dialog id="delete-board"><div class="hd"><div><h2>Delete ${esc(info.title)}?</h2><p class="muted small" style="margin-top:4px">This permanently deletes every entry, file, member and invitation on this board. Connected agents lose it on their next call. It can't be undone.</p></div><button class="btn ghost sm" data-close aria-label="Close">✕</button></div>
 <form class="bd" method="post" action="/api/boards/${esc(info.id)}/delete" data-api data-done="deleted">

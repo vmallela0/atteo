@@ -667,7 +667,10 @@ await step("rename and archive: creator only; archived boards are read-only and 
   const r = await call(A, "rename", { title: `e2e arch renamed ${run}` });
   assert(r.status === 200, `rename ${r.status}`);
   has(await ok(B, null, "list_boards"), `"e2e arch renamed ${run}"`);
-  has(await (await web(`/b/${id}`, B)).text(), `e2e arch renamed ${run}`);
+  const memberPage = await (await web(`/b/${id}`, B)).text();
+  has(memberPage, `e2e arch renamed ${run}`);
+  assert(!memberPage.includes('id="title-input"'), "only the creator gets the inline rename");
+  has(await (await web(`/b/${id}`, A)).text(), 'id="title-input"');
   // archive
   assert((await call(B, "archive", { archived: true })).status === 403, "non-creator can't archive");
   assert((await call(A, "archive", { archived: true })).status === 200, "archive");

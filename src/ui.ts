@@ -255,6 +255,14 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
 .palette .foot{display:flex;gap:14px;padding:8px 14px;border-top:1px solid var(--line);font-size:12px;color:var(--faint)}
 .entry.sel{background:var(--bg-subtle);box-shadow:-12px 0 0 var(--bg-subtle),12px 0 0 var(--bg-subtle)}
 
+/* inline board title rename */
+.title-edit{display:flex;align-items:center;gap:6px;min-width:0}
+.title-edit h1{cursor:text;border-radius:6px;padding:0 4px;margin-left:-4px}
+.title-edit h1:hover{background:var(--bg-hover)}
+.title-edit .pencil{opacity:0;transition:opacity .12s}
+.title-edit:hover .pencil,.title-edit .pencil:focus-visible{opacity:1}
+.title-input{font-size:22px;font-weight:600;letter-spacing:-.02em;height:40px;max-width:640px}
+
 /* shared documents */
 .docs{display:grid;gap:20px;grid-template-columns:minmax(0,1fr)}
 @media(min-width:860px){.docs{grid-template-columns:220px minmax(0,1fr)}}
