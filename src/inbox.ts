@@ -10,7 +10,7 @@ export interface InboxItem {
   board_id: string;
   board_title: string | null;
   seq: number;
-  kind: "mention" | "agent" | "reply";
+  kind: "mention" | "agent" | "reply" | "friend_request" | "friend_accept";
   actor: string;
   actor_via: string | null;
   entry_type: string;
@@ -23,7 +23,7 @@ export async function listInbox(env: Env, user: string, limit = 100): Promise<In
   const r = await env.DB.prepare(
     `SELECT n.id, n.board_id, b.title AS board_title, n.seq, n.kind, n.actor, n.actor_via, n.entry_type, n.excerpt, n.created_at, n.read_at
      FROM notifications n LEFT JOIN boards b ON b.id = n.board_id
-     WHERE n.user = ? AND n.board_id IN (SELECT board_id FROM members WHERE user = ?)
+     WHERE n.user = ? AND (n.board_id = '' OR n.board_id IN (SELECT board_id FROM members WHERE user = ?))
      ORDER BY n.created_at DESC LIMIT ?`,
   )
     .bind(user, user, limit)
@@ -34,7 +34,7 @@ export async function listInbox(env: Env, user: string, limit = 100): Promise<In
 /** Unread count plus the newest unread item (for a browser notification when the count goes up). */
 export async function inboxCount(env: Env, user: string): Promise<{ unread: number; latest: InboxItem | null }> {
   const [c, latest] = await Promise.all([
-    env.DB.prepare(`SELECT COUNT(*) AS n FROM notifications WHERE user = ? AND read_at IS NULL AND board_id IN (SELECT board_id FROM members WHERE user = ?)`)
+    env.DB.prepare(`SELECT COUNT(*) AS n FROM notifications WHERE user = ? AND read_at IS NULL AND (board_id = '' OR board_id IN (SELECT board_id FROM members WHERE user = ?))`)
       .bind(user, user)
       .first<{ n: number }>(),
     env.DB.prepare(
@@ -63,6 +63,8 @@ const VERB: Record<InboxItem["kind"], string> = {
   mention: "mentioned you",
   agent: "wrote to your agent",
   reply: "replied to you",
+  friend_request: "wants to be friends",
+  friend_accept: "accepted your friend request",
 };
 
 export function inboxPage(viewer: Viewer, side: SideBoard[], items: InboxItem[]): Response {
@@ -70,9 +72,10 @@ export function inboxPage(viewer: Viewer, side: SideBoard[], items: InboxItem[])
   const rows = items
     .map((i) => {
       const who = i.actor_via === "agent" ? `${i.actor}'s agent` : i.actor;
-      return `<li class="inbox-item${i.read_at ? "" : " unread"}"><a href="/b/${esc(i.board_id)}#e${i.seq}" data-inbox-id="${i.id}">
+      const href = i.board_id ? `/b/${esc(i.board_id)}#e${i.seq}` : "/me#friends";
+      return `<li class="inbox-item${i.read_at ? "" : " unread"}"><a href="${href}" data-inbox-id="${i.id}">
 ${avatar(i.actor, "sm", i.actor_via === "agent")}
-<div class="grow" style="min-width:0"><div class="small"><b>${esc(who)}</b> ${VERB[i.kind]} <span class="faint">in</span> ${esc(i.board_title ?? i.board_id)} <span class="faint">· #${i.seq} · ${esc(relTime(i.created_at))}</span></div>
+<div class="grow" style="min-width:0"><div class="small"><b>${esc(who)}</b> ${VERB[i.kind]}${i.board_id ? ` <span class="faint">in</span> ${esc(i.board_title ?? i.board_id)} <span class="faint">· #${i.seq}` : ` <span class="faint">`} · ${esc(relTime(i.created_at))}</span></div>
 <div class="small muted truncate">${esc(i.excerpt)}</div></div>${i.read_at ? "" : `<span class="dot" aria-label="unread"></span>`}</a></li>`;
     })
     .join("");

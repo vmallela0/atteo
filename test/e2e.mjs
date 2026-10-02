@@ -152,7 +152,7 @@ await step("MCP initialize, tools/list, notifications, protocol errors", async (
   assert(r.protocolVersion === "2025-06-18" && r.serverInfo.name === "agent-soup", JSON.stringify(r));
   has(r.instructions, "Agent Soup");
   const names = (await rpcRaw(auth(A), null, "tools/list", {})).tools.map((t) => t.name).sort();
-  assert(JSON.stringify(names) === JSON.stringify(["create_board", "doc", "get", "invite", "join_board", "leave_board", "list_boards", "post", "react", "read", "retract", "review", "search", "task", "wait"]), names.join());
+  assert(JSON.stringify(names) === JSON.stringify(["create_board", "doc", "get", "invite", "join_board", "leave_board", "list_boards", "people", "post", "react", "read", "retract", "review", "search", "task", "wait"]), names.join());
   assert((await rpcRaw({}, null, "notifications/initialized", {}, { notification: true })).status === 202, "notification status");
   assert((await fetch(`${BASE}/mcp`)).status === 405, "GET /mcp should be 405");
   const p = await fetch(`${BASE}/mcp`, { method: "POST", headers: { "content-type": "application/json" }, body: "{" });
@@ -1189,6 +1189,45 @@ await step("agent webhooks: signed deliveries when something is addressed to you
   assert(list[0].last_status === 200 && !("secret" in list[0]), JSON.stringify(list));
   assert((await web(`/api/webhooks/${r.id}`, A, { method: "DELETE" })).status === 404, "can't remove someone else's");
   assert((await web(`/api/webhooks/${r.id}`, B, { method: "DELETE" })).status === 200, "remove");
+});
+
+await step("social: find by handle, friend request with a note, accept from the CLI, presence, direct board, block", async () => {
+  const api = (who, method, path, body) => fetch(`${BASE}${path}`, { method, headers: { authorization: `Bearer ${tok[who]}`, "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+  // Exact handles always resolve; strangers don't show up for partial names.
+  let r = await (await api(OUT, "GET", `/api/people?q=${B}`)).json();
+  assert(r.people.length === 1 && r.people[0].name === B && r.people[0].relation === "none", JSON.stringify(r));
+  r = await (await api(OUT, "GET", `/api/people?q=${B.slice(0, -2)}`)).json();
+  assert(!r.people.some((p) => p.name === B), "partial names only match people you know");
+  // Request with a note; it lands in B's inbox; B accepts with a token (the CLI's way).
+  assert((await api(A, "POST", `/api/direct/${B}`)).status === 400, "direct boards need friends");
+  r = await (await api(A, "POST", "/api/friends/request", { user: B, note: `from e2e ${run}` })).json();
+  assert(r.relation === "pending_out", JSON.stringify(r));
+  const inbox = (await (await api(B, "GET", "/api/inbox")).json()).items;
+  assert(inbox.some((i) => i.kind === "friend_request" && i.actor === A && i.excerpt.includes(`from e2e ${run}`)), JSON.stringify(inbox.slice(0, 3)));
+  assert((await (await api(B, "POST", `/api/friends/${A}/accept`)).json()).relation === "friend", "accept");
+  // Presence: B's agent session (MCP initialize with a client name) shows as online.
+  const sb = await session(B);
+  await sok(sb, "list_boards", {});
+  const d = await (await api(A, "POST", `/api/direct/${B}`)).json();
+  assert(d.board && d.created && d.title.includes("↔"), JSON.stringify(d));
+  assert((await (await api(A, "POST", `/api/direct/${B}`)).json()).board === d.board, "one direct board per pair");
+  const f = await (await api(A, "GET", "/api/friends")).json();
+  assert(f.friends.some((p) => p.name === B), JSON.stringify(f));
+  // Agents: people tool; direct joins the DM board for the session.
+  const sa = await session(A);
+  has(await sok(sa, "people", { action: "whois", name: B }), "friend");
+  has(await sok(sa, "people", { action: "direct", name: B }), d.board);
+  await sok(sa, "read", {});
+  has(await sok(sa, "post", { type: "question", to: B, text: `dm question ${run}` }), d.board);
+  has(await ok(B, d.board, "read"), `dm question ${run}`);
+  has(await (await web(`/u/${B}`, A)).text(), "Message");
+  // Blocking hides you and stops requests; unfriending closes the direct route.
+  await api(B, "POST", `/api/friends/${OUT}/block`);
+  r = await (await api(OUT, "GET", `/api/people?q=${B}`)).json();
+  assert(!r.people.length, "blocked people can't find you");
+  assert((await api(OUT, "POST", "/api/friends/request", { user: B })).status === 400, "blocked people can't ask");
+  await api(A, "POST", `/api/friends/${B}/remove`);
+  assert((await api(A, "POST", `/api/direct/${B}`)).status === 400, "not friends anymore");
 });
 
 await step("rename and archive: creator only; archived boards are read-only and listed separately; restore works", async () => {

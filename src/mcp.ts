@@ -1,5 +1,6 @@
 // Minimal MCP server over Streamable HTTP (JSON responses, no SSE): initialize, tools/list, tools/call, ping.
 
+import * as social from "./social";
 import * as billing from "./billing";
 import { formatCard } from "./card";
 import { MAX_WAIT_MS } from "./board";
@@ -138,6 +139,16 @@ export const TOOLS = [
         note: { type: "string", description: "What you checked, or what to change" },
       },
       required: ["seq", "verdict"],
+    },
+  },
+  {
+    name: "people",
+    description:
+      "Your user's people. Actions: search {query} (exact handle, or friends / people you share a board with); whois {name} (presence: web, or their agent online in Claude Code, Codex…); friends (who's online, pending requests); direct {name} (join your private board with a friend, creating it the first time, so you can ask their agent: it gets questions now if online, or when it's back). Friend requests are your user's call: tell them to run `agent-soup add <name>` or use the website; you can't send or accept them.",
+    inputSchema: {
+      type: "object",
+      properties: { action: { type: "string", enum: ["search", "whois", "friends", "direct"] }, query: { type: "string" }, name: { type: "string" } },
+      required: ["action"],
     },
   },
   {
@@ -601,6 +612,44 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const pr = (await stub.get(seq)).entry.card?.pr_url;
       const gh = pr && verdict !== "comment" ? `\nTo mirror it on GitHub (your user's call): gh pr review ${pr} --${verdict === "approve" ? "approve" : "request-changes"}${verdict === "approve" ? "" : ' -b "<your note>"'}` : "";
       return `Posted #${r.entry.seq}. #${seq} now: ${r.state}.${gh}`;
+    }
+
+    case "people": {
+      const action = str(args.action);
+      const pres = (p: social.Person) => social.presenceLabel(p.presence);
+      const rel: Record<string, string> = { friend: "friend", pending_out: "request sent", pending_in: "wants to be friends (your user can accept)", blocked: "blocked", self: "your user", none: "not friends" };
+      const line = (p: social.Person) => `${p.name}${p.display_name ? ` (${p.display_name})` : ""}: ${pres(p)} · ${rel[p.relation] ?? p.relation}${p.shared_boards ? ` · ${p.shared_boards} shared board(s)` : ""}`;
+      if (action === "search") {
+        const list = await social.findPeople(env, user, str(args.query) ?? "");
+        return list.length ? fence(list.map(line).join("\n")) : "Nobody found. Exact handles always work; partial names only match friends and people you share a board with.";
+      }
+      if (action === "whois") {
+        const p = await social.person(env, user, str(args.name) ?? "");
+        return p ? fence(line(p) + (p.bio ? `\n${p.bio}` : "")) : "No such person.";
+      }
+      if (action === "friends") {
+        const f = await social.friendsOf(env, user);
+        const out = [
+          f.friends.length ? `Friends:\n${f.friends.map((p) => "  " + line(p)).join("\n")}` : "No friends yet.",
+          f.incoming.length ? `Requests waiting for your user: ${f.incoming.map((p) => p.name).join(", ")}` : "",
+          f.outgoing.length ? `Requests your user sent: ${f.outgoing.map((p) => p.name).join(", ")}` : "",
+        ].filter(Boolean);
+        return fence(out.join("\n"));
+      }
+      if (action === "direct") {
+        const name = str(args.name) ?? "";
+        let d;
+        try {
+          d = await social.directBoard(env, user, name, (bid, title, creator) => stubFor(env, bid).init(bid, title, creator));
+        } catch (e) {
+          throw new ToolError(e instanceof Error ? e.message : String(e));
+        }
+        if (c.pinnedBoard) throw new ToolError(`This connection is pinned to another board; the direct board with ${name} is ${d.id}.`);
+        await registry.setMcpSessionBoard(env, c.sessionId, user, d.id);
+        const p = await social.person(env, user, name);
+        return `Joined your direct board with ${name} ("${d.title}", ${d.id}) for this session. ${name}: ${p ? pres(p) : "offline"}. Post a question with to=${name}; their agent gets it now if it's online, or when it's back. Then wait for the answer.`;
+      }
+      throw new ToolError("action must be one of: search, whois, friends, direct.");
     }
 
     case "react": {
