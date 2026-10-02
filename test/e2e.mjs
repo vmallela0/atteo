@@ -635,6 +635,31 @@ await step("delete a board: creator only, typed confirmation, everything goes", 
   assert(!(await ops("overview")).body.boards.some((b) => b.id === del), "deleted board still in ops overview");
 });
 
+await step("CLI login: device code, approve in the browser, token works once; deny and expiry", async () => {
+  const start = await (await fetch(`${BASE}/api/device/start`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ client: "e2e laptop" }) })).json();
+  assert(/^[A-Z]{4}-[A-Z]{4}$/.test(start.user_code) && start.verification_uri_complete.endsWith(start.user_code), JSON.stringify(start));
+  const poll = () => fetch(`${BASE}/api/device/token`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ device_code: start.device_code }) });
+  assert((await poll()).status === 428, "should be pending before approval");
+  const page = await (await web(`/device?code=${start.user_code}`, A)).text();
+  has(page, "Approve the Agent Board CLI?");
+  has(page, "e2e laptop");
+  const ok1 = await web("/api/device/decide", A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ user_code: start.user_code, approve: true }) });
+  assert(ok1.status === 200, `approve ${ok1.status}`);
+  const got = await (await poll()).json();
+  assert(got.status === "ok" && got.user === A && got.token.startsWith("ab_") && got.expires_at > Date.now() + 29 * 86400e3, JSON.stringify(got));
+  has(await ok(got.token, board, "read"), `Board "e2e ${run}"`);
+  assert((await (await poll()).json()).status === "used", "a code issues a token only once");
+  // deny
+  const s2 = await (await fetch(`${BASE}/api/device/start`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).json();
+  await web("/api/device/decide", A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ user_code: s2.user_code, approve: false }) });
+  const d2 = await fetch(`${BASE}/api/device/token`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ device_code: s2.device_code }) });
+  assert((await d2.json()).status === "denied", "denied login should say so");
+  // expired token
+  const exp = (await ops("tokens", { user: A, label: "expired", expires_in_s: "-60" })).body.token;
+  has((await tool(exp, board, "read")).text, "login has expired");
+  has(await (await web("/me", A)).text(), "expired");
+});
+
 if (/localhost|127\.0\.0\.1/.test(BASE)) {
   await step("boards past 1,000 entries page through updates without looping (local only)", async () => {
     const big = (await ops("boards", { user: A, title: `e2e big ${run}` })).body.board.id;

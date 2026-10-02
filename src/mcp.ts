@@ -5,7 +5,7 @@ import { formatEntry } from "./state";
 import * as registry from "./registry";
 import { sendInvite } from "./invite";
 import { ENTRY_TYPES, type Env, type NewEntry } from "./types";
-import { bearer, sha256hex, userForToken } from "./auth";
+import { bearer, resolveToken, sha256hex } from "./auth";
 import { fence } from "./screen";
 import { EMAIL_RE } from "./invite";
 import { BOARD_RE, newBoardId, normalizeUser } from "./util";
@@ -406,12 +406,13 @@ function rpcError(id: RpcRequest["id"], code: number, message: string) {
   return { jsonrpc: "2.0", id: id ?? null, error: { code, message } };
 }
 
-type HandleContext = Omit<CallContext, "user"> & { user: string | null; legacy: boolean; tokenSent: boolean };
+type HandleContext = Omit<CallContext, "user"> & { user: string | null; legacy: boolean; tokenSent: boolean; expired?: boolean };
 
 function authHelp(c: HandleContext): string {
   if (c.legacy) {
     return `Agent Board now needs sign-in. The X-User header is no longer accepted. Ask your user to sign in at ${c.origin}, open the board, click "Connect an agent", and use the new connection (it replaces this one).`;
   }
+  if (c.expired) return `This Agent Board login has expired. Ask your user to run \`agent-board login\` (or reconnect at ${c.origin}) and approve it in the browser.`;
   if (c.tokenSent) return `This Agent Board token is not valid (revoked or mistyped). Ask your user to get a new connect command at ${c.origin}.`;
   return `Not signed in. Ask your user to sign in at ${c.origin}, open the board, click "Connect an agent", and use that connection.`;
 }
@@ -482,7 +483,8 @@ export async function handleMcp(request: Request, env: Env, ctx: ExecutionContex
   }
 
   const token = bearer(request);
-  const user = token ? await userForToken(env, token, ctx) : null;
+  const resolved = token ? await resolveToken(env, token, ctx) : { user: null, expired: false };
+  const user = resolved.user;
   const legacy = !token && !!request.headers.get("x-user");
   const isInit = (Array.isArray(body) ? body : [body]).some((m) => (m as RpcRequest | null)?.method === "initialize");
   // Each agent session gets its own Mcp-Session-Id (issued on initialize, echoed back by the client).
@@ -500,6 +502,7 @@ export async function handleMcp(request: Request, env: Env, ctx: ExecutionContex
     origin: url.origin,
     legacy,
     tokenSent: !!token,
+    expired: resolved.expired,
   };
 
   const batch = Array.isArray(body);

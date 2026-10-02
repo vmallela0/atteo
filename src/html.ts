@@ -480,15 +480,55 @@ ${connectDialog(viewer, { id: info.id, title: info.title })}
   });
 }
 
+// ---------- CLI login approval ----------
+
+export function devicePage(viewer: Viewer, side: SideBoard[], code: string | null, d: { client: string; expires_at: number; status: string; created_at: number } | null): Response {
+  const expired = !!d && d.expires_at < Date.now();
+  let body: string;
+  if (!code || !d) {
+    body = `<div class="card pad" style="max-width:460px;margin:24px auto 0">
+  <h1 style="font-size:20px">Sign in the Agent Board CLI</h1>
+  <p class="muted" style="margin:8px 0 18px">Enter the code shown in your terminal.</p>
+  ${code ? `<p class="flash err" style="margin-bottom:14px">No sign-in is waiting for that code.</p>` : ""}
+  <form method="get" action="/device"><label class="lbl" for="code">Code</label>
+  <div class="row"><input class="input mono" id="code" name="code" placeholder="BCDF-GHJK" autocomplete="off" autofocus style="text-transform:uppercase;letter-spacing:.1em"><button class="btn primary">Continue</button></div></form></div>`;
+  } else if (d.status !== "pending" || expired) {
+    const msg = expired ? "This code expired. Run agent-board login again." : d.status === "denied" ? "This sign-in was denied." : "This sign-in was already approved. You can go back to your terminal.";
+    body = `<div class="card pad" style="max-width:460px;margin:24px auto 0;text-align:center"><h1 style="font-size:20px">${esc(code)}</h1><p class="muted" style="margin-top:8px">${esc(msg)}</p></div>`;
+  } else {
+    body = `<div class="card pad" style="max-width:460px;margin:24px auto 0">
+  <p class="small muted">Sign-in request</p>
+  <h1 style="font-size:20px;margin-top:4px">Approve the Agent Board CLI?</h1>
+  <dl class="kv" style="margin:18px 0"><dt>Device</dt><dd>${esc(d.client)}</dd><dt>Code</dt><dd class="mono">${esc(code)}</dd><dt>Signs in as</dt><dd>${esc(viewer.name)} (${esc(viewer.email)})</dd><dt>Access</dt><dd>Your boards, as you, for 30 days</dd></dl>
+  <p class="small muted">Only approve if this code matches the one in your terminal and you started this sign-in yourself.</p>
+  <form method="post" action="/api/device/decide" data-api data-done="decided" style="margin-top:18px">
+    <input type="hidden" name="user_code" value="${esc(code)}"><input type="hidden" name="approve" id="approve" value="true">
+    <div class="row" style="justify-content:flex-end"><button type="submit" class="btn" onclick="document.getElementById('approve').value='false'">Deny</button><button type="submit" class="btn primary" onclick="document.getElementById('approve').value='true'">Approve</button></div>
+    <p data-result hidden style="margin-top:12px"></p>
+  </form></div>`;
+  }
+  return appPage("Approve sign-in · Agent Board", {
+    viewer,
+    boards: side,
+    active: "me",
+    narrow: true,
+    crumbs: `<span class="cur">Approve sign-in</span>`,
+    body,
+    script: `window.decided=(j,f)=>{f.outerHTML='<p class="flash '+(j.approved?'ok':'')+'" style="margin-top:18px">'+(j.message||'Done')+'</p>'};`,
+  });
+}
+
 // ---------- account ----------
 
 export function mePage(viewer: Viewer, side: SideBoard[], tokens: TokenRow[]): Response {
   const rows = tokens.length
     ? tokens
         .map(
-          (t) => `<tr><td><div style="color:var(--ink)">${esc(t.label)}</div><div class="xs faint">created ${when(t.created_at)}</div></td>
+          (t) => `<tr><td><div style="color:var(--ink)">${esc(t.label)}</div><div class="xs faint">${t.kind === "cli" ? "CLI · " : ""}created ${when(t.created_at)}${
+            t.expires_at ? ` · ${t.expires_at < Date.now() ? "expired" : "expires " + new Date(t.expires_at).toISOString().slice(0, 10)}` : ""
+          }</div></td>
 <td class="small muted">${t.last_used ? when(t.last_used) : "never"}</td>
-<td>${t.revoked_at ? `<span class="badge">Revoked</span>` : `<span class="badge"><span class="dot" style="color:var(--ok)"></span>Active</span>`}</td>
+<td>${t.revoked_at ? `<span class="badge">Revoked</span>` : t.expires_at && t.expires_at < Date.now() ? `<span class="badge">Expired</span>` : `<span class="badge"><span class="dot" style="color:var(--ok)"></span>Active</span>`}</td>
 <td style="text-align:right">${
             t.revoked_at
               ? ""

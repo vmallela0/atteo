@@ -133,24 +133,45 @@ export interface TokenRow {
   created_at: number;
   last_used: number | null;
   revoked_at: number | null;
+  expires_at: number | null;
+  kind: string;
 }
 
-export async function createToken(env: Env, user: string, label: string): Promise<{ id: string; token: string }> {
+export async function createToken(
+  env: Env,
+  user: string,
+  label: string,
+  opts: { expiresAt?: number | null; kind?: "manual" | "cli" } = {},
+): Promise<{ id: string; token: string }> {
   const token = randomSecret("ab_", 32);
   const id = crypto.randomUUID();
-  await env.DB.prepare(`INSERT INTO tokens (id, hash, user, label, created_at) VALUES (?, ?, ?, ?, ?)`)
-    .bind(id, await sha256hex(token), user, label.slice(0, 80), Date.now())
+  await env.DB.prepare(`INSERT INTO tokens (id, hash, user, label, created_at, expires_at, kind) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+    .bind(id, await sha256hex(token), user, label.slice(0, 80), Date.now(), opts.expiresAt ?? null, opts.kind ?? "manual")
     .run();
   return { id, token };
 }
 
-/** Resolves a bearer token to its user, or null if unknown or revoked. */
+/** Resolves a bearer token: its user, or why it can't be used. */
+export async function resolveToken(env: Env, token: string, ctx?: ExecutionContext): Promise<{ user: string | null; expired: boolean }> {
+  if (!token.startsWith("ab_")) return { user: null, expired: false };
+  const row = await env.DB.prepare(`SELECT id, user, expires_at FROM tokens WHERE hash = ? AND revoked_at IS NULL`)
+    .bind(await sha256hex(token))
+    .first<{ id: string; user: string; expires_at: number | null }>();
+  if (!row) return { user: null, expired: false };
+  if (row.expires_at != null && row.expires_at < Date.now()) return { user: null, expired: true };
+  const touch = env.DB.prepare(`UPDATE tokens SET last_used = ? WHERE id = ?`).bind(Date.now(), row.id).run();
+  if (ctx) ctx.waitUntil(touch.catch(() => {}));
+  else await touch;
+  return { user: row.user, expired: false };
+}
+
+/** Resolves a bearer token to its user, or null if unknown, revoked or expired. */
 export async function userForToken(env: Env, token: string, ctx?: ExecutionContext): Promise<string | null> {
   if (!token.startsWith("ab_")) return null;
-  const row = await env.DB.prepare(`SELECT id, user FROM tokens WHERE hash = ? AND revoked_at IS NULL`)
+  const row = await env.DB.prepare(`SELECT id, user, expires_at FROM tokens WHERE hash = ? AND revoked_at IS NULL`)
     .bind(await sha256hex(token))
-    .first<{ id: string; user: string }>();
-  if (!row) return null;
+    .first<{ id: string; user: string; expires_at: number | null }>();
+  if (!row || (row.expires_at != null && row.expires_at < Date.now())) return null;
   const touch = env.DB.prepare(`UPDATE tokens SET last_used = ? WHERE id = ?`).bind(Date.now(), row.id).run();
   if (ctx) ctx.waitUntil(touch.catch(() => {}));
   else await touch;
@@ -159,7 +180,7 @@ export async function userForToken(env: Env, token: string, ctx?: ExecutionConte
 
 export async function listTokens(env: Env, user: string): Promise<TokenRow[]> {
   const r = await env.DB.prepare(
-    `SELECT id, user, label, created_at, last_used, revoked_at FROM tokens WHERE user = ? ORDER BY revoked_at IS NOT NULL, created_at DESC`,
+    `SELECT id, user, label, created_at, last_used, revoked_at, expires_at, kind FROM tokens WHERE user = ? ORDER BY revoked_at IS NOT NULL, created_at DESC`,
   )
     .bind(user)
     .all<TokenRow>();

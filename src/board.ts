@@ -272,7 +272,8 @@ export class Board extends DurableObject<Env> {
 
     for (const w of this.waiters) if (w.user !== user) w.wake();
     for (const wake of this.watchers) wake();
-    this.broadcast({ type: "entry", seq: entry.seq, retracts: entry.retracts });
+    // Who posted what to whom (no text): enough for tabs to refresh and for a member's CLI to decide whether to wake its agent.
+    this.broadcast({ type: "entry", seq: entry.seq, retracts: entry.retracts, author: entry.author, kind: entry.type, to: entry.to, reply_to: entry.reply_to, board: info.id, title: info.title });
     return entry;
   }
 

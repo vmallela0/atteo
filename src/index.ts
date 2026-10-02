@@ -2,11 +2,13 @@
 
 import * as auth from "./auth";
 import { handleMcp } from "./mcp";
+import * as device from "./device";
 import { EMAIL_RE, sendInvite } from "./invite";
 import * as registry from "./registry";
 import {
   adminPage,
   boardPage,
+  devicePage,
   entryHtml,
   homePage,
   landingPage,
@@ -261,6 +263,37 @@ export default {
         return redirect("/", { "Set-Cookie": auth.cookieHeader(url, auth.SESSION_COOKIE, "", 0) });
       }
 
+      // ---- CLI login (device flow) ----
+      if (path === "/api/device/start" && method === "POST") {
+        const body = (await request.json().catch(() => ({}))) as { client?: string };
+        return json(await device.startDeviceLogin(env, url.origin, String(body.client ?? "Agent Board CLI")));
+      }
+      if (path === "/api/device/token" && method === "POST") {
+        const body = (await request.json().catch(() => ({}))) as { device_code?: string };
+        if (!body.device_code) return json({ error: "device_code required" }, 400);
+        const r = await device.pollDeviceLogin(env, body.device_code);
+        return json(r, r.status === "ok" ? 200 : r.status === "pending" ? 428 : 400);
+      }
+      if (path === "/device" && method === "GET") {
+        if (!viewer) return needLogin();
+        const code = device.normalizeUserCode(url.searchParams.get("code"));
+        const d = code ? await device.deviceByUserCode(env, code) : null;
+        const side = await sideBoards(env, viewer.name);
+        return devicePage(viewer, side, code, d);
+      }
+      if (path === "/api/device/decide" && method === "POST") {
+        if (!viewer) return needLogin();
+        const body = (await request.json().catch(() => ({}))) as { user_code?: string; approve?: boolean | string };
+        const code = device.normalizeUserCode(body.user_code);
+        if (!code) return json({ error: "That code doesn't look right. It's 8 letters, like BCDF-GHJK." }, 400);
+        const approve = body.approve === true || body.approve === "true";
+        const r = await device.decideDeviceLogin(env, code, viewer.name, approve);
+        if (r === "not_found") return json({ error: "No sign-in is waiting for that code." }, 404);
+        if (r === "expired") return json({ error: "That code expired. Run agent-board login again." }, 410);
+        if (r === "already") return json({ error: "That code was already used." }, 409);
+        return json({ ok: true, approved: approve, message: approve ? "Approved. You can go back to your terminal." : "Denied. Nothing was signed in." });
+      }
+
       // ---- pages ----
       if (path === "/" && method === "GET") {
         if (session && !session.user) return redirect("/welcome");
@@ -352,9 +385,21 @@ export default {
       m = path.match(/^\/api\/boards\/([^/]+)\/ws$/);
       if (m && method === "GET") {
         if (request.headers.get("Upgrade") !== "websocket") return json({ error: "expected a WebSocket upgrade" }, 426);
-        if (!viewer) return json({ error: "sign in required" }, 401);
-        if (!(await registry.isMember(env, m[1], viewer.name))) return json({ error: "board not found" }, 404);
-        return boardStub(env, m[1]).fetch(new Request(`https://board/ws?user=${encodeURIComponent(viewer.name)}`, request));
+        // Browsers authenticate with the session cookie; the CLI with its bearer token.
+        const tok = auth.bearer(request);
+        const who = viewer?.name ?? (tok ? (await auth.resolveToken(env, tok, ctx)).user : null);
+        if (!who) return json({ error: "sign in required" }, 401);
+        if (!(await registry.isMember(env, m[1], who))) return json({ error: "board not found" }, 404);
+        return boardStub(env, m[1]).fetch(new Request(`https://board/ws?user=${encodeURIComponent(who)}`, request));
+      }
+
+      // ---- the signed-in person's boards (CLI uses its bearer token) ----
+      if (path === "/api/me/boards" && method === "GET") {
+        const tok = auth.bearer(request);
+        const who = viewer?.name ?? (tok ? (await auth.resolveToken(env, tok, ctx)).user : null);
+        if (!who) return json({ error: "sign in required" }, 401);
+        const boards = await registry.boardsForUser(env, who);
+        return json({ user: who, boards: boards.map((b) => ({ id: b.id, title: b.title, entry_count: b.entry_count, last_activity: b.last_activity })) });
       }
 
       // ---- retract an entry (its author or the board's creator) ----
@@ -493,7 +538,8 @@ export default {
         if (path === "/api/ops/tokens" && method === "POST") {
           const u = normalizeUser(body.user);
           if (!u || !(await registry.userByName(env, u))) return json({ error: "user not found" }, 404);
-          const t = await auth.createToken(env, u, body.label || "ops-issued");
+          const ttl = Number(body.expires_in_s);
+          const t = await auth.createToken(env, u, body.label || "ops-issued", Number.isFinite(ttl) ? { expiresAt: Date.now() + ttl * 1000 } : {});
           return json({ token: t.token, command: connectCommand(url.origin, body.board ?? null, t.token) }, 201);
         }
         if (path === "/api/ops/sessions" && method === "POST") {
