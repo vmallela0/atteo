@@ -348,6 +348,8 @@ export class Board extends DurableObject<Env> {
     this.sql.exec("CREATE INDEX IF NOT EXISTS entries_reply_to ON entries (reply_to) WHERE reply_to IS NOT NULL");
     this.sql.exec("CREATE INDEX IF NOT EXISTS depends_on ON depends (on_seq)");
     if (!cols.has("card_diff")) this.sql.exec("ALTER TABLE entries ADD COLUMN card_diff TEXT");
+    if (!cols.has("sealed")) this.sql.exec("ALTER TABLE entries ADD COLUMN sealed TEXT"); // ciphertext only
+    if (!cols.has("sealed_to")) this.sql.exec("ALTER TABLE entries ADD COLUMN sealed_to TEXT");
     if (!cols.has("media")) this.sql.exec("ALTER TABLE entries ADD COLUMN media TEXT"); // images: {mime, w, h, size}
     if (!cols.has("title")) this.sql.exec("ALTER TABLE entries ADD COLUMN title TEXT"); // the author's 2–5 word summary
     // Read receipts: how far each member has seen, as a person (web) and through their agent (read/wait/post).
@@ -1717,6 +1719,36 @@ export class Board extends DurableObject<Env> {
     for (const x of items) posted.push({ seq: (await this.post(user, { type: x.type, text: x.text, reply_to: head.seq, via: opts.via, client: opts.client }, { seeding: true })).seq, type: x.type });
     for (const f of files) posted.push({ seq: (await this.post(user, { type: "artifact", artifact_name: f.name, artifact_content: f.content, text: f.note ?? `From the session: ${f.name}`, reply_to: head.seq, via: opts.via, client: opts.client }, { seeding: true })).seq, type: "artifact" });
     return { summary: head.seq, posted };
+  }
+
+  /**
+   * A sealed secret: ciphertext only the recipient's agents can open (their CLI holds the private keys). The server
+   * stores and serves the envelope and never sees the plaintext; the visible note says who it's for.
+   */
+  async postSealed(user: string, s: { to: string; note?: string; payload: string }, opts: TaskActOpts): Promise<Entry> {
+    const to = s.to.toLowerCase();
+    if (!this.sql.exec("SELECT 1 AS x FROM members WHERE name = ?", to).toArray().length) throw new BoardError(`${to} isn't on this board.`);
+    if (s.payload.length > 100_000) throw new BoardError("Sealed secrets are limited to about 64 KB.");
+    let env: { v?: number; recipients?: unknown[]; ct?: string; iv?: string };
+    try {
+      env = JSON.parse(s.payload);
+    } catch {
+      throw new BoardError("Not a sealed envelope.");
+    }
+    if (env.v !== 1 || !Array.isArray(env.recipients) || !env.recipients.length || typeof env.ct !== "string" || typeof env.iv !== "string") throw new BoardError("Not a sealed envelope.");
+    const note = (s.note ?? "").replace(/\s+/g, " ").trim().slice(0, 200);
+    const e = await this.post(user, { type: "note", to, title: "Sealed secret", text: `🔒 A sealed secret for ${to}'s agent${note ? `: ${note}` : "."} Only ${to}'s agent can open it: agent-soup unseal <this entry's number>.`, via: opts.via, client: opts.client });
+    this.sql.exec("UPDATE entries SET sealed = ?, sealed_to = ? WHERE seq = ?", s.payload, to, e.seq);
+    return e;
+  }
+
+  /** The envelope, for its recipient only. */
+  async sealedFor(user: string, seq: number): Promise<{ payload: string; from: string }> {
+    this.info();
+    const r = this.sql.exec("SELECT author, sealed, sealed_to FROM entries WHERE seq = ?", seq).toArray()[0];
+    if (!r || !r.sealed) throw new BoardError(`#${seq} isn't a sealed secret.`);
+    if (r.sealed_to !== user && r.author !== user) throw new BoardError(`#${seq} is sealed for ${r.sealed_to}'s agent, not yours.`);
+    return { payload: r.sealed as string, from: r.author as string };
   }
 
   /** Operators only (load tests): many plain notes at once, past the post rate limit. */

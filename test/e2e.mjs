@@ -1376,6 +1376,16 @@ await step("publish a session slice: preview first, then everything in one go li
   assert((await (await web(`/api/boards/${fb}/updates?after=0`, A)).json()).count === n0, "nothing posted when one item is blocked");
 });
 
+await step("sealed envelopes: stored as given, fetched only by their recipient (or sender)", async () => {
+  const envl = JSON.stringify({ v: 1, alg: "x25519-hkdf-sha256-aes256gcm", recipients: [{ kid: "k1", epk: "AA==", iv: "AA==", wrapped: "AA==" }], iv: "AA==", ct: "AA==" });
+  const r = await (await web(`/api/boards/${fb}/sealed`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ to: A, note: "for me", payload: envl }) })).json();
+  assert(r.entry?.seq, JSON.stringify(r));
+  assert((await web(`/api/boards/${fb}/sealed/${r.entry.seq}`, B)).status === 400, "not the recipient");
+  assert((await (await web(`/api/boards/${fb}/sealed/${r.entry.seq}`, A)).json()).payload === envl, "recipient gets the envelope");
+  assert((await web(`/api/boards/${fb}/sealed`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ to: B, payload: "plain text secret" }) })).status === 400, "only envelopes");
+  assert((await web(`/api/boards/${fb}/sealed`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ to: OUT, payload: envl }) })).status === 400, "recipient must be on the board");
+});
+
 await step("rename and archive: creator only; archived boards are read-only and listed separately; restore works", async () => {
   const id = (await ops("boards", { user: A, title: `e2e arch ${run}` })).body.board.id;
   await ops("members", { board: id, user: B });

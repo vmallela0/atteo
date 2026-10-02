@@ -509,6 +509,51 @@ export default {
         return json({ ok: true, webhook: (await webhooks.listWebhooks(env, viewer.name)).find((w) => w.id === hid) });
       }
 
+      // ---- sealed secrets: public keys per CLI login; envelopes only their recipient can fetch ----
+      if (path === "/api/me/keys" && (method === "GET" || method === "POST")) {
+        if (!viewer) return needLogin();
+        if (method === "GET") return json({ keys: (await env.DB.prepare(`SELECT id, public_key, label, created_at FROM agent_keys WHERE user = ? AND revoked_at IS NULL ORDER BY created_at`).bind(viewer.name).all()).results });
+        const b = (await request.json().catch(() => ({}))) as { public_key?: string; label?: string };
+        const pk = String(b.public_key ?? "");
+        if (!/^[A-Za-z0-9+/]{43}=$/.test(pk)) return json({ error: "public_key must be a base64 X25519 key (32 bytes)." }, 400);
+        const existing = await env.DB.prepare(`SELECT id FROM agent_keys WHERE user = ? AND public_key = ? AND revoked_at IS NULL`).bind(viewer.name, pk).first<{ id: string }>();
+        if (existing) return json({ ok: true, id: existing.id });
+        const n = (await env.DB.prepare(`SELECT COUNT(*) AS n FROM agent_keys WHERE user = ? AND revoked_at IS NULL`).bind(viewer.name).first<{ n: number }>())?.n ?? 0;
+        if (n >= 10) return json({ error: "At most 10 machines; remove one first." }, 400);
+        const kid = crypto.randomUUID().slice(0, 8);
+        await env.DB.prepare(`INSERT INTO agent_keys (id, user, public_key, label, created_at) VALUES (?, ?, ?, ?, ?)`).bind(kid, viewer.name, pk, String(b.label ?? "").slice(0, 60) || null, Date.now()).run();
+        return json({ ok: true, id: kid }, 201);
+      }
+      let km = path.match(/^\/api\/keys\/([a-z0-9][a-z0-9_.-]{0,31})$/);
+      if (km && method === "GET") {
+        if (!viewer) return needLogin();
+        // Anyone you share a board with (sealing needs a shared board anyway).
+        const shared = await env.DB.prepare(`SELECT 1 AS x FROM members m1 JOIN members m2 ON m1.board_id = m2.board_id WHERE m1.user = ? AND m2.user = ? LIMIT 1`).bind(viewer.name, km[1]).first();
+        if (!shared && km[1] !== viewer.name) return json({ error: "You don't share a board with them." }, 404);
+        return json({ keys: (await env.DB.prepare(`SELECT id, public_key, label, created_at FROM agent_keys WHERE user = ? AND revoked_at IS NULL`).bind(km[1]).all()).results });
+      }
+      km = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/sealed(?:\/(\d+))?$/);
+      if (km) {
+        if (!viewer) return needLogin();
+        if (!(await registry.isMember(env, km[1], viewer.name))) return json({ error: "board not found" }, 404);
+        const stub = boardStub(env, km[1]);
+        try {
+          if (method === "POST" && !km[2]) {
+            const b = (await request.json().catch(() => ({}))) as { to?: string; note?: string; payload?: string };
+            const note = String(b.note ?? "");
+            const hit = scanFields({ note });
+            if (hit) return json({ error: blockedMessage(hit) }, 400);
+            const e = await stub.postSealed(viewer.name, { to: String(b.to ?? ""), note, payload: String(b.payload ?? "") }, { via: pv(), client: viewer.via === "agent" ? "agent-soup CLI" : null });
+            ctx.waitUntil(registry.bumpBoard(env, km[1], e.seq).catch(() => {}));
+            return json({ ok: true, entry: e }, 201);
+          }
+          if (method === "GET" && km[2]) return json(await stub.sealedFor(viewer.name, parseInt(km[2], 10)));
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+        }
+        return json({ error: "not found" }, 404);
+      }
+
       // ---- approvals: agents ask their person before side effects; decisions only from a browser ----
       if (path === "/approvals" && method === "GET") {
         if (!viewer) return needLogin();

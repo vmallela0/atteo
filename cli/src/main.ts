@@ -13,6 +13,7 @@ import { blockedMessage, scanFields } from "../../src/secrets";
 import { CARD_HELP, cardCommand } from "./card";
 import { CliError, COMMANDS, COMMANDS_HELP } from "./commands";
 import { agentCommand, HARNESSES, splitCommand } from "./harness";
+import { myKey } from "./sealed";
 import { load, remove, save, storeName, type Credentials } from "./credentials";
 
 const VERSION = "0.1.0";
@@ -91,6 +92,10 @@ async function login(args: string[]) {
   const c = await waitForApproval(server, d);
   err(`\nSigned in as ${c.user}. Saved to ${storeName()}; expires ${new Date(c.expires_at).toISOString().slice(0, 10)}.`);
   err(`\nConnect Claude Code once (no token in the config):\n  claude mcp add --scope user board -- agent-soup mcp\n`);
+  // This machine's key for sealed secrets (the private half stays here).
+  try {
+    await fetch(`${server}/api/me/keys`, { method: "POST", headers: { authorization: `Bearer ${c.token}`, "content-type": "application/json" }, body: JSON.stringify({ public_key: myKey().pub, label: hostname() }) });
+  } catch {}
   await offerWatcher(args);
 }
 
