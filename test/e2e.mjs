@@ -415,7 +415,7 @@ await step("join_board by id and by name; read/post act on the joined board only
   await new Promise((r) => setTimeout(r, 300));
   const p2 = await (await web(`/b/${board2}`, A)).text();
   // Presence lives in one place: Board info → Agents.
-  has(p2, `<span class="ag-name">${A}&#39;s agent</span>`); // Board info → Agents lists the agent that's on the board
+  has(p2, `<span class="ag-name">${A}/agent`); // Board info → Agents lists the agent on the board: each MCP connection is a named session
   assert(!p2.includes("Your agent is on this board.") && !p2.includes(">agent live<"), "no presence text");
   // (A's other connections are live on the first board, so it doesn't show the join prompt there.)
 });
@@ -562,7 +562,7 @@ await step("people and their agents are told apart: agent posts vs posts written
   has(r, `#${wseq} decision · ${A} (person)`);
   const page = await (await web(`/b/${board}`, B)).text();
   // On the page: agents read as "<name>'s agent" with their client as quiet text; people's posts carry just the name.
-  has(page, `${A}'s agent</span><span class="via" title="Posted by ${A}'s agent with Claude Code">Claude Code</span>`);
+  has(page, `${A}'s agent</span><span class="via" title="Posted by ${A}'s agent with claude · Claude Code">claude · Claude Code</span>`); // its session is named after the client
   has(page, `<span class="who" title="Written by ${A} on the web">${A}</span>`);
 });
 
@@ -1891,6 +1891,28 @@ await step("handling: when several of a person's agents are asked, one takes it 
   const m = seqOf(await ok(A, hb, "post", { type: "note", text: `@${B}/scout can you rerun it? ${run}` }));
   const got = await ok(A, hb, "get", { seq: m });
   has(got, `@${B}/scout`);
+});
+
+await step("URL connections (Cursor, claude.ai, a bot) are named agents too: listed under Agents and in the @-menu; closing the connection ends it", async () => {
+  const U = `e2e-url-${run}`;
+  await ops("users", { name: U, email: `${U}@example.com`, verified: "true" });
+  tok[U] = (await ops("tokens", { user: U })).body.token;
+  cookie[U] = (await ops("sessions", { user: U })).body.cookie;
+  const ub = (await ok(U, null, "create_board", { title: `e2e url ${run}` })).match(/b_[a-z0-9]+/)[0];
+  const init = await fetch(`${BASE}/mcp`, { method: "POST", headers: { "content-type": "application/json", ...auth(U) }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "grok-bot", version: "1" } } }) });
+  const cur = { who: U, sid: init.headers.get("mcp-session-id"), board: null };
+  await sok(cur, "join_board", { board: ub });
+  await sok(cur, "read");
+  const mine = async () => (await (await fetch(`${BASE}/api/sessions`, { headers: auth(U) })).json()).sessions;
+  const s = (await mine()).find((x) => x.client === "grok-bot");
+  assert(s && s.name === "grok-bot" && s.boards.some((b) => (b.id ?? b) === ub), "a URL connection gets a session named after its client, on its board: " + JSON.stringify(await mine()));
+  const page = await (await web(`/b/${ub}`, U)).text();
+  has(page, `<span class="ag-name">${U}/grok-bot</span>`);
+  has(page, `${U}/grok-bot`); // the @-menu offers it
+  has(await sok(cur, "session", { action: "status", status: "watching the url board" }), "watching the url board");
+  // Closing the connection ends its session
+  await fetch(`${BASE}/mcp`, { method: "DELETE", headers: { "mcp-session-id": cur.sid, ...auth(U) } });
+  assert(!(await mine()).some((x) => x.id === s.id), "the session ends with its connection");
 });
 
 await step("kill switch: Disconnect all agents revokes every sign-in and ends every session; only from the browser", async () => {

@@ -371,6 +371,32 @@ export async function mcpSessionClient(env: Env, sessionId: string): Promise<str
   return r?.client ?? null;
 }
 
+/** The agent session behind an MCP connection (and the board it's on and its client), if it has one yet. */
+export async function mcpSessionRow(env: Env, sessionId: string, user: string): Promise<{ agent_session: string | null; client: string | null; board_id: string | null } | null> {
+  return env.DB.prepare(`SELECT agent_session, client, board_id FROM mcp_sessions WHERE id = ? AND user = ?`).bind(sessionId, user).first();
+}
+
+/** The most recent agent session of this person's MCP connections from this client that has been idle since `before`. */
+export async function idleMcpAgentSession(env: Env, user: string, client: string, before: number): Promise<string | null> {
+  const r = await env.DB.prepare(
+    `SELECT a.id FROM mcp_sessions m JOIN agent_sessions a ON a.id = m.agent_session
+     WHERE m.user = ? AND m.client = ? AND a.user = ? AND a.ended_at IS NULL AND a.last_seen < ? ORDER BY a.last_seen DESC LIMIT 1`,
+  )
+    .bind(user, client, user, before)
+    .first<{ id: string }>();
+  return r?.id ?? null;
+}
+
+export async function setMcpAgentSession(env: Env, sessionId: string, user: string, agentSession: string) {
+  const now = Date.now();
+  await env.DB.prepare(
+    `INSERT INTO mcp_sessions (id, user, board_id, created_at, last_seen, agent_session) VALUES (?, ?, NULL, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET agent_session = excluded.agent_session WHERE mcp_sessions.user = excluded.user`,
+  )
+    .bind(sessionId, user, now, now, agentSession)
+    .run();
+}
+
 export async function endMcpSession(env: Env, sessionId: string) {
   await env.DB.prepare(`DELETE FROM mcp_sessions WHERE id = ?`).bind(sessionId).run();
 }

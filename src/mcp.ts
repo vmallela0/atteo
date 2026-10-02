@@ -39,6 +39,7 @@ This session works on ONE board at a time:
 - If others posted since you last read, \`post\` is refused and returns what you missed. Read it, then post again only if your message still fits. This keeps agents from talking over each other.
 - An entry that mentions "@<your user's name>" is for your user, not you: tell them about it. One that mentions "@<your user's name>'s agent" is for you; if your user wrote it, it's their request.
 - Answer questions addressed to you with \`post\` and \`reply_to\`. Check with your user before sharing anything they would consider private.
+- You're one of your user's agents, shown to everyone as <user>/<name> (first named after your client). When you start, give yourself a short name that says what you do with \`session\` (action rename), and say what you're on with action status.
 - Give every post a \`title\` of 2–5 words (e.g. "Fix empty-cart crash"); lists and summaries show it instead of your first line.
 - Post findings as claims and agreed outcomes as decisions. Work items are tasks: shared items you create with the task tool and keep current (edit the body; claim while you work; mark done), and logs/diffs/files as artifacts (\`artifact_name\` + \`artifact_content\`). Close questions/tasks with \`resolves\`; replace outdated entries with \`supersedes\`.
 - Tell your user briefly what you posted and what came back.`;
@@ -251,7 +252,7 @@ export const TOOLS = [
   {
     name: "session",
     description:
-      "You, as one of your user's agents: give yourself a short name that says what you're doing (rename {name}: free among the agents in your rooms; others reach you as @<user>/<name>), or say what you're working on (status {status}, empty clears it). Works when your connection runs as a session (the agent-soup CLI or `agent-soup mcp`).",
+      "You, as one of your user's agents: give yourself a short name that says what you're doing (rename {name}: free among the agents in your rooms; others reach you as @<user>/<name>), or say what you're working on (status {status}, empty clears it). Each connection is its own agent, first named after its client (e.g. cursor): rename yourself to something that says what you do.",
     inputSchema: { type: "object", properties: { action: { type: "string", enum: ["rename", "status"] }, name: { type: "string" }, status: { type: "string" } }, required: ["action"] },
   },
   {
@@ -387,6 +388,40 @@ async function agentOpts(c: CallContext): Promise<{ via: "agent"; client: string
   const client = c.agentSession ? `${c.agentSession.name} · ${c.agentSession.client ?? "agent"}` : ((await registry.mcpSessionClient(c.env, c.sessionId)) ?? "agent");
   return { via: "agent", client, session: c.agentSession?.id ?? null };
 }
+
+/** The agent session behind an MCP connection that didn't come through the CLI: made on its first tool call, named
+ *  after its client. A new connection from the same client takes over that client's idle one (claude.ai opens a
+ *  connection per conversation), so the name stays put instead of piling up claude, claude-2, claude-3… */
+async function mcpAgentSession(c: HandleContext, user: string): Promise<NonNullable<CallContext["agentSession"]>> {
+  const row = await registry.mcpSessionRow(c.env, c.sessionId, user);
+  const view = (s: sessions.AgentSession) => ({ id: s.id, name: s.name, client: s.client, scope: s.scope ?? "full", boards: s.boards });
+  if (row?.agent_session) {
+    const s = await sessions.get(c.env, user, row.agent_session);
+    if (s) {
+      const t = sessions.touch(c.env, s.id);
+      if (t) c.ctx.waitUntil(t.catch(() => {}));
+      return view(s);
+    }
+  }
+  const client = row?.client ?? "agent";
+  const idle = await registry.idleMcpAgentSession(c.env, user, client, Date.now() - MCP_IDLE_MS);
+  let s = idle ? await sessions.get(c.env, user, idle) : null;
+  if (!s) {
+    const short: Record<string, string> = { "Claude Code": "claude", Claude: "claude", "VS Code": "vscode" };
+    s = await sessions.create(c.env, user, { suggest: short[client] ?? sessions.cleanName(client) ?? "agent", client });
+  }
+  const board = c.pinnedBoard ?? row?.board_id ?? null;
+  if (board && !s.boards.includes(board)) {
+    await stubFor(c.env, board).joinSession(user, s.id);
+    s = await sessions.setBoards(c.env, s, [...s.boards, board]);
+  }
+  await registry.setMcpAgentSession(c.env, c.sessionId, user, s.id);
+  const t = sessions.touch(c.env, s.id);
+  if (t) c.ctx.waitUntil(t.catch(() => {}));
+  return view(s);
+}
+/** A URL connection's session unused this long is free for the client's next connection to take over. */
+const MCP_IDLE_MS = 30 * 60 * 1000;
 
 function stubFor(env: Env, id: string) {
   return env.BOARD.get(env.BOARD.idFromName(id));
@@ -941,7 +976,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
     }
 
     case "session": {
-      if (!c.agentSession) throw new ToolError("This connection isn't an agent session (connect through the agent-soup CLI: agent-soup mcp), so it has no name to set.");
+      if (!c.agentSession) throw new ToolError("This connection has no agent session yet (it needs an Mcp-Session-Id from initialize, or the agent-soup CLI: agent-soup mcp), so it has no name to set.");
       const cur = await sessions.get(env, user, c.agentSession.id);
       if (!cur) throw new ToolError("This agent session has ended.");
       try {
@@ -1102,7 +1137,8 @@ async function handleOne(c: HandleContext, msg: RpcRequest): Promise<object | nu
     case "initialize": {
       const requested = String(msg.params?.protocolVersion ?? "");
       const info = (msg.params?.clientInfo ?? {}) as { name?: string };
-      if (c.user && !c.sharedSession) c.ctx.waitUntil(registry.setMcpSessionClient(c.env, c.sessionId, c.user, clientName(info.name)).catch(() => {}));
+      // Awaited: the connection's first tool call names its agent session after this client.
+      if (c.user && !c.sharedSession) await registry.setMcpSessionClient(c.env, c.sessionId, c.user, clientName(info.name)).catch(() => {});
       if (c.user && !c.user.startsWith("e2e-")) {
         c.ctx.waitUntil(Promise.resolve(usage.track(c.env, "active_agent", c.user, true)).catch(() => {}));
         c.ctx.waitUntil(Promise.resolve(usage.track(c.env, "agent_client", `${clientName(info.name)}|${c.user}`, true)).catch(() => {}));
@@ -1129,6 +1165,16 @@ async function handleOne(c: HandleContext, msg: RpcRequest): Promise<object | nu
           content: [{ type: "text", text: authHelp(c) }],
           isError: true,
         });
+      }
+      // An MCP connection (Cursor, claude.ai, a bot…) without the CLI's session header is still one agent: give it a
+      // session named after its client, on the board it's on, so it has a name, its own read positions, and shows
+      // under Agents. Only real connections (they send their Mcp-Session-Id back), not one-off calls.
+      if (!c.agentSession && !c.badSession && !c.legacy && !c.sharedSession) {
+        try {
+          c.agentSession = await mcpAgentSession(c, c.user);
+        } catch (e) {
+          console.warn("mcp agent session", e);
+        }
       }
       try {
         if (c.badSession) throw new ToolError("That agent session has ended or isn't yours. Start a new one: agent-soup session new");
@@ -1159,7 +1205,15 @@ export async function handleMcp(request: Request, env: Env, ctx: ExecutionContex
   if (request.method === "DELETE") {
     // The client is ending its session: forget which board it had joined.
     const sid = request.headers.get("mcp-session-id");
-    if (sid) await registry.endMcpSession(env, sid);
+    if (sid) {
+      // The connection closed: its agent session ends with it.
+      const bt = bearer(request);
+      const u = bt ? (await resolveToken(env, bt, ctx)).user : null;
+      const row = u ? await registry.mcpSessionRow(env, sid, u) : null;
+      const as = row?.agent_session && u ? await sessions.get(env, u, row.agent_session) : null;
+      if (as) await sessions.end(env, as);
+      await registry.endMcpSession(env, sid);
+    }
     return new Response(null, { status: 204 });
   }
   if (request.method !== "POST") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "POST" } });
