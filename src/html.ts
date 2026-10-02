@@ -395,7 +395,7 @@ export function homePage(
       const text = [b.title, meta.description ?? "", ...meta.tags, ...names].join(" ").toLowerCase();
       return `<article class="bcard${b.archived_at ? " archived" : ""}" data-text="${esc(text)}" data-archived="${b.archived_at ? 1 : 0}" data-id="${esc(b.id)}" data-meta="${esc(JSON.stringify(meta))}" data-title="${esc(b.title)}">
   <a class="bcard-link" href="/b/${esc(b.id)}" aria-label="${esc(b.title)}"></a>
-  <div class="row bc-top">${meta.emoji ? `<span class="bc-emoji">${esc(meta.emoji)}</span>` : `<span class="bc-dot" style="--h:${hue(b.id)}"></span>`}
+  <div class="row bc-top"><span class="bc-dot" style="--h:${hue(b.id)}"></span>
     <h3 class="grow truncate">${esc(b.title)}</h3>
     ${b.unread ? `<span class="bc-unread" title="Waiting for you">${b.unread} for you</span>` : ""}
     <button class="btn ghost sm bc-edit" type="button" data-edit-board="${esc(b.id)}" aria-label="Edit details">Edit</button></div>
@@ -432,8 +432,7 @@ ${connectDialog(viewer)}
 <div class="row" style="justify-content:flex-end;margin-top:18px"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary">Create board</button></div></form></dialog>
 <dialog id="edit-board"><div class="hd"><div><h2>Board details</h2><p class="muted small" style="margin-top:4px" id="eb-title"></p></div><button class="btn ghost sm" data-close aria-label="Close">✕</button></div>
 <form class="bd" id="eb-form">
-<div class="row" style="gap:10px;align-items:flex-end"><div style="width:72px"><label class="lbl" for="eb-emoji">Emoji</label><input class="input" id="eb-emoji" maxlength="16" placeholder="🍲"></div>
-<div class="grow"><label class="lbl" for="eb-tags">Tags</label><input class="input" id="eb-tags" placeholder="checkout, payments"></div></div>
+<label class="lbl" for="eb-tags">Tags</label><input class="input" id="eb-tags" placeholder="checkout, payments">
 <label class="lbl" for="eb-desc" style="margin-top:12px">Description</label><textarea class="input" id="eb-desc" maxlength="280" rows="3" placeholder="What this board is for, in a sentence or two."></textarea>
 <label class="lbl" style="margin-top:12px">Links</label>
 ${[0, 1, 2].map((i) => `<div class="row" style="gap:6px;margin-bottom:6px"><input class="input" id="eb-l${i}" placeholder="Label" style="width:120px"><input class="input grow" id="eb-u${i}" placeholder="https://github.com/…"></div>`).join("")}
@@ -465,11 +464,11 @@ document.addEventListener('keydown',e=>{if(e.key==='/'&&!e.target.closest('input
 apply();
 const dlg=document.getElementById('edit-board'),f=document.getElementById('eb-form');let editing=null;
 document.addEventListener('click',e=>{const b=e.target.closest('[data-edit-board]');if(!b)return;e.preventDefault();const c=b.closest('.bcard');editing=c.dataset.id;const m=JSON.parse(c.dataset.meta);
-  document.getElementById('eb-title').textContent=c.dataset.title;document.getElementById('eb-emoji').value=m.emoji||'';document.getElementById('eb-desc').value=m.description||'';document.getElementById('eb-tags').value=m.tags.join(', ');
+  document.getElementById('eb-title').textContent=c.dataset.title;document.getElementById('eb-desc').value=m.description||'';document.getElementById('eb-tags').value=m.tags.join(', ');
   [0,1,2].forEach(i=>{document.getElementById('eb-l'+i).value=m.links[i]?.label||'';document.getElementById('eb-u'+i).value=m.links[i]?.url||''});
   document.getElementById('eb-err').hidden=true;dlg.showModal()});
 f.addEventListener('submit',async e=>{e.preventDefault();const links=[0,1,2].map(i=>({label:document.getElementById('eb-l'+i).value,url:document.getElementById('eb-u'+i).value.trim()})).filter(l=>l.url);
-  const r=await fetch('/api/boards/'+editing+'/meta',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({emoji:document.getElementById('eb-emoji').value,description:document.getElementById('eb-desc').value,tags:document.getElementById('eb-tags').value,links})});
+  const r=await fetch('/api/boards/'+editing+'/meta',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({description:document.getElementById('eb-desc').value,tags:document.getElementById('eb-tags').value,links})});
   const j=await r.json().catch(()=>({}));if(!r.ok){const w=document.getElementById('eb-err');w.hidden=false;w.textContent=j.error||'Could not save';return}location.reload()});
 })();`;
 
