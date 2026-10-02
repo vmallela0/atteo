@@ -39,6 +39,7 @@ const ENTRY_COLS = "seq, ts, author, type, text, to_user, reply_to, resolves, su
 export class Board extends DurableObject<Env> {
   private sql: SqlStorage;
   private waiters = new Set<Waiter>();
+  private watchers = new Set<() => void>(); // web viewers long-polling for any new entry
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -190,6 +191,7 @@ export class Board extends DurableObject<Env> {
     this.setCursor(user, entry.seq);
 
     for (const w of this.waiters) if (w.user !== user) w.wake();
+    for (const wake of this.watchers) wake();
     return entry;
   }
 
@@ -297,6 +299,21 @@ export class Board extends DurableObject<Env> {
       .exec(`SELECT ${ENTRY_COLS} FROM entries WHERE ${clauses.join(" AND ")} ORDER BY seq DESC LIMIT ?${args.length}`, ...args)
       .toArray()
       .map(toEntry);
+  }
+
+  /** Long-poll for the web UI: resolves when an entry newer than `afterSeq` exists, or after `timeoutMs`. */
+  async waitForAny(afterSeq: number, timeoutMs: number): Promise<number> {
+    if (this.info().last_seq > afterSeq) return this.info().last_seq;
+    await new Promise<void>((resolve) => {
+      const wake = () => {
+        clearTimeout(timer);
+        this.watchers.delete(wake);
+        resolve();
+      };
+      const timer = setTimeout(wake, clamp(timeoutMs, 0, MAX_WAIT_MS));
+      this.watchers.add(wake);
+    });
+    return this.info().last_seq;
   }
 
   /** Read-only view for the web UI; never moves anyone's cursor. */

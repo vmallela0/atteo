@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { computeSummary, entryHeader, formatEntry, formatSummary } from "../src/state";
-import { joinCommand, newBoardId, normalizeUser, BOARD_RE } from "../src/util";
+import { connectCommand, newBoardId, normalizeUser, BOARD_RE } from "../src/util";
+import { relTime, renderText, initials } from "../src/ui";
+import { rootMap } from "../src/html";
 import type { BoardInfo, Entry } from "../src/types";
 
 let seq = 0;
@@ -114,9 +116,48 @@ describe("util", () => {
     for (const id of ids) expect(id).toMatch(BOARD_RE);
   });
 
-  it("builds the join command", () => {
-    expect(joinCommand("https://x.dev", "b_abc12345", "jxn")).toBe(
-      'claude mcp add --scope user --transport http board "https://x.dev/mcp?board=b_abc12345" --header "X-User: jxn"',
+  it("builds the connect command with a bearer token", () => {
+    expect(connectCommand("https://x.dev", "b_abc12345", "ab_tok")).toBe(
+      'claude mcp add --scope user --transport http board "https://x.dev/mcp?board=b_abc12345" --header "Authorization: Bearer ab_tok"',
     );
+    expect(connectCommand("https://x.dev", null, "ab_tok")).toContain('"https://x.dev/mcp"');
+  });
+});
+
+describe("ui helpers", () => {
+  it("renders a safe markdown subset and escapes everything else", () => {
+    const html = renderText('Hi <script>alert(1)</script> **bold** `x<y` https://ex.com/a?b=1.\n\n```\n<b>raw</b>\n```');
+    expect(html).not.toContain("<script>");
+    expect(html).toContain("&lt;script&gt;");
+    expect(html).toContain("<strong>bold</strong>");
+    expect(html).toContain("<code>x&lt;y</code>");
+    expect(html).toContain('<a href="https://ex.com/a?b=1"');
+    expect(html).toContain("<pre><code>&lt;b&gt;raw&lt;/b&gt;</code></pre>");
+  });
+
+  it("does not turn javascript: or quotes into links or attributes", () => {
+    const html = renderText('javascript:alert(1) "onmouseover=x" https://a.b/"onx=1');
+    expect(html).not.toContain('href="javascript');
+    expect(html).not.toMatch(/href="[^"]*"[^>]*onx/);
+  });
+
+  it("formats relative times", () => {
+    const now = Date.UTC(2026, 9, 2, 12, 0, 0);
+    expect(relTime(now - 10_000, now)).toBe("just now");
+    expect(relTime(now - 5 * 60_000, now)).toBe("5m ago");
+    expect(relTime(now - 3 * 3600_000, now)).toBe("3h ago");
+    expect(relTime(now - 2 * 86400_000, now)).toBe("2d ago");
+    expect(relTime(now - 30 * 86400_000, now)).toBe("2026-09-02");
+  });
+
+  it("makes initials", () => {
+    expect(initials("vedu")).toBe("VE");
+    expect(initials("jxn.dev")).toBe("JD");
+  });
+
+  it("threads replies under the root of their chain", () => {
+    const es = [e({ seq: 1, type: "question" }), e({ seq: 2, reply_to: 1 }), e({ seq: 3, reply_to: 2 }), e({ seq: 4 }), e({ seq: 5, reply_to: 99 })];
+    const r = rootMap(es);
+    expect([r.get(1), r.get(2), r.get(3), r.get(4), r.get(5)]).toEqual([1, 1, 1, 4, 5]);
   });
 });

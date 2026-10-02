@@ -5,9 +5,9 @@ import { formatEntry } from "./state";
 import * as registry from "./registry";
 import { sendInvite } from "./invite";
 import { ENTRY_TYPES, type Env, type NewEntry } from "./types";
-import { BOARD_RE, joinCommand, newBoardId, normalizeUser } from "./util";
-
-export { joinCommand, normalizeUser };
+import { bearer, userForToken } from "./auth";
+import { EMAIL_RE } from "./invite";
+import { BOARD_RE, newBoardId, normalizeUser } from "./util";
 
 export const SERVER_NAME = "agent-board";
 export const SERVER_VERSION = "0.1.0";
@@ -98,7 +98,7 @@ export const TOOLS = [
   },
   {
     name: "create_board",
-    description: "Create a new board. Returns its id and the command another person runs to connect their Claude Code to it.",
+    description: "Create a new board. You become its first member; invite others by email.",
     inputSchema: { type: "object", properties: { title: { type: "string" } }, required: ["title"] },
   },
   {
@@ -108,10 +108,10 @@ export const TOOLS = [
   },
   {
     name: "invite",
-    description: "Email someone an invite to a board, with the one-line command to connect their Claude Code. Only do this when your user asks.",
+    description: "Invite someone to a board by email (they get a sign-up link; signing in adds them). Only do this when your user asks.",
     inputSchema: {
       type: "object",
-      properties: { ...boardProp, email: { type: "string" }, name: { type: "string", description: "Suggested member name for them (default: the part of the email before @)." } },
+      properties: { ...boardProp, email: { type: "string" } },
       required: ["email"],
     },
   },
@@ -157,8 +157,9 @@ async function resolveBoard(c: CallContext, args: Json): Promise<string> {
     );
   }
   if (!BOARD_RE.test(id)) throw new ToolError(`"${id}" is not a board id (they look like b_xxxxxxxxxxxx).`);
-  const stub = c.env.BOARD.get(c.env.BOARD.idFromName(id));
-  if (!(await stub.exists())) throw new ToolError(`Board ${id} not found.`);
+  if (!(await registry.isMember(c.env, id, c.user))) {
+    throw new ToolError(`Board ${id} not found, or you are not a member. Ask a member to invite you (${c.origin}).`);
+  }
   return id;
 }
 
@@ -177,14 +178,10 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const id = newBoardId();
       const info = await stubFor(env, id).init(id, title, user);
       await registry.recordBoard(env, info);
-      await registry.touch(env, user, id);
+      await registry.addMember(env, id, user);
       return [
-        `Created board "${title}" (${id}). You (${user}) are a member.`,
-        ``,
-        `For a teammate to join, they run this in a terminal (with their own name after X-User:):`,
-        `  ${joinCommand(c.origin, id, "<their-name>")}`,
-        `Join page: ${c.origin}/join/${id}`,
-        `Live view: ${c.origin}/b/${id}`,
+        `Created board "${title}" (${id}). You (${user}) are its first member.`,
+        `To bring someone in, use invite with their email (only when your user asks), or invite them from ${c.origin}/b/${id}.`,
         c.defaultBoard && c.defaultBoard !== id ? `\nNote: your MCP URL defaults to board ${c.defaultBoard}; pass board="${id}" to use this one.` : "",
       ].join("\n");
     }
@@ -268,8 +265,8 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
     case "invite": {
       const id = await resolveBoard(c, args);
       const email = str(args.email);
-      if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new ToolError("A valid email is required.");
-      const r = await sendInvite(env, c.origin, { boardId: id, email, invitedBy: user, name: str(args.name) });
+      if (!email || !EMAIL_RE.test(email)) throw new ToolError("A valid email is required.");
+      const r = await sendInvite(env, c.origin, { boardId: id, email, invitedBy: user });
       return r.message;
     }
 
@@ -294,7 +291,17 @@ function rpcError(id: RpcRequest["id"], code: number, message: string) {
   return { jsonrpc: "2.0", id: id ?? null, error: { code, message } };
 }
 
-async function handleOne(c: Omit<CallContext, "user"> & { user: string | null }, msg: RpcRequest): Promise<object | null> {
+type HandleContext = Omit<CallContext, "user"> & { user: string | null; legacy: boolean; tokenSent: boolean };
+
+function authHelp(c: HandleContext): string {
+  if (c.legacy) {
+    return `Agent Board now needs sign-in. The X-User header is no longer accepted. Ask your user to sign in at ${c.origin}, open the board, click "Connect an agent", and use the new connection (it replaces this one).`;
+  }
+  if (c.tokenSent) return `This Agent Board token is not valid (revoked or mistyped). Ask your user to get a new connect command at ${c.origin}.`;
+  return `Not signed in. Ask your user to sign in at ${c.origin}, open the board, click "Connect an agent", and use that connection.`;
+}
+
+async function handleOne(c: HandleContext, msg: RpcRequest): Promise<object | null> {
   const isNotification = msg.id === undefined;
   switch (msg.method) {
     case "initialize": {
@@ -318,7 +325,7 @@ async function handleOne(c: Omit<CallContext, "user"> & { user: string | null },
       const args = (msg.params?.arguments ?? {}) as Json;
       if (!c.user) {
         return rpcResult(msg.id, {
-          content: [{ type: "text", text: 'No member name. Reconnect with the header "X-User: <your-name>" (lowercase letters, digits, - _ .).' }],
+          content: [{ type: "text", text: authHelp(c) }],
           isError: true,
         });
       }
@@ -354,9 +361,11 @@ export async function handleMcp(request: Request, env: Env, ctx: ExecutionContex
     return Response.json(rpcError(null, -32700, "Parse error"), { status: 400 });
   }
 
-  const user = normalizeUser(request.headers.get("x-user") ?? url.searchParams.get("user"));
+  const token = bearer(request);
+  const user = token ? await userForToken(env, token, ctx) : null;
+  const legacy = !token && !!request.headers.get("x-user");
   const defaultBoard = url.searchParams.get("board") || request.headers.get("x-board") || null;
-  const c = { env, ctx, user, defaultBoard, origin: url.origin };
+  const c = { env, ctx, user, defaultBoard, origin: url.origin, legacy, tokenSent: !!token };
 
   const batch = Array.isArray(body);
   const msgs = (batch ? body : [body]) as RpcRequest[];

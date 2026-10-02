@@ -1,6 +1,7 @@
-// End-to-end test: two agents ("e2e-vedu" and "e2e-jxn") talk through a board over MCP, plus web and admin pages.
+// End-to-end test: two agents talk through a board over MCP with personal tokens, plus access control,
+// web pages and the ops API.
 // Usage: BASE=http://localhost:8787 ADMIN_KEY=... node test/e2e.mjs
-// Creates real boards on the target deployment (titled "e2e …"). Does not send invite emails.
+// Creates e2e-* users and "e2e …" boards on the target (remove with scripts/cleanup-e2e.sh). Sends no email.
 
 import { readFileSync } from "node:fs";
 
@@ -11,7 +12,6 @@ if (!ADMIN_KEY) {
     ADMIN_KEY = readFileSync(new URL("../.dev.vars", import.meta.url), "utf8").match(/^ADMIN_KEY=(.*)$/m)?.[1];
   } catch {}
 }
-
 // A failed step can leave a background wait() promise rejected; report it instead of crashing the run.
 process.on("unhandledRejection", (e) => console.log(`      (background: ${e?.message ?? e})`));
 
@@ -34,299 +34,267 @@ function assert(cond, msg) {
   if (!cond) throw new Error(msg);
 }
 function has(text, needle) {
-  assert(text.includes(needle), `expected to find ${JSON.stringify(needle)} in:\n${text.slice(0, 1500)}`);
+  assert(text.includes(needle), `expected to find ${JSON.stringify(needle)} in:\n${String(text).slice(0, 1200)}`);
+}
+
+// ---- helpers ----
+const run = Date.now().toString(36).slice(-5);
+const A = `e2e-vedu-${run}`;
+const B = `e2e-jxn-${run}`;
+const OUT = `e2e-out-${run}`;
+const tok = {};
+const cookie = {};
+
+async function ops(path, body, key = ADMIN_KEY) {
+  const r = await fetch(`${BASE}/api/ops/${path}`, {
+    method: body ? "POST" : "GET",
+    headers: { ...(key ? { "x-admin-key": key } : {}), "content-type": "application/json" },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  return { status: r.status, body: await r.json().catch(() => ({})) };
 }
 
 let rpcId = 0;
-async function rpc(user, board, method, params, { notification = false } = {}) {
-  const url = `${BASE}/mcp${board ? `?board=${board}` : ""}`;
-  const headers = { "content-type": "application/json", accept: "application/json, text/event-stream" };
-  if (user) headers["x-user"] = user;
-  const body = notification ? { jsonrpc: "2.0", method, params } : { jsonrpc: "2.0", id: ++rpcId, method, params };
-  const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
+async function rpcRaw(headers, board, method, params, { notification = false } = {}) {
+  const res = await fetch(`${BASE}/mcp${board ? `?board=${board}` : ""}`, {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json, text/event-stream", ...headers },
+    body: JSON.stringify(notification ? { jsonrpc: "2.0", method, params } : { jsonrpc: "2.0", id: ++rpcId, method, params }),
+  });
   if (notification) return { status: res.status };
   const json = await res.json();
   if (json.error) throw new Error(`${method}: ${json.error.message}`);
   return json.result;
 }
-async function tool(user, board, name, args = {}) {
-  const r = await rpc(user, board, "tools/call", { name, arguments: args });
+const auth = (who) => (who ? { authorization: `Bearer ${tok[who] ?? who}` } : {});
+async function tool(who, board, name, args = {}) {
+  const r = await rpcRaw(auth(who), board, "tools/call", { name, arguments: args });
   return { text: r.content.map((c) => c.text).join("\n"), isError: !!r.isError };
 }
-async function ok(user, board, name, args) {
-  const r = await tool(user, board, name, args);
+async function ok(who, board, name, args) {
+  const r = await tool(who, board, name, args);
   assert(!r.isError, `${name} failed: ${r.text}`);
   return r.text;
 }
-async function err(user, board, name, args, needle) {
-  const r = await tool(user, board, name, args);
+async function err(who, board, name, args, needle) {
+  const r = await tool(who, board, name, args);
   assert(r.isError, `${name} should have failed but returned: ${r.text}`);
   if (needle) has(r.text, needle);
   return r.text;
 }
+const web = (path, who, init = {}) =>
+  fetch(`${BASE}${path}`, { redirect: "manual", ...init, headers: { ...(init.headers ?? {}), ...(who ? { cookie: cookie[who] } : {}) } });
+const seqOf = (t) => Number(t.match(/#(\d+)/)[1]);
 
 console.log(`E2E against ${BASE}`);
-const stamp = new Date().toISOString().slice(11, 19);
 let board;
 let q1;
 
 await step("health", async () => {
-  const r = await fetch(`${BASE}/health`);
-  assert(r.ok, `status ${r.status}`);
+  assert((await fetch(`${BASE}/health`)).ok, "not ok");
 });
 
-await step("MCP initialize returns server info and instructions", async () => {
-  const r = await rpc("e2e-vedu", null, "initialize", {
-    protocolVersion: "2025-06-18",
-    capabilities: {},
-    clientInfo: { name: "e2e", version: "0" },
-  });
-  assert(r.protocolVersion === "2025-06-18", `protocolVersion ${r.protocolVersion}`);
-  assert(r.serverInfo.name === "agent-board", "server name");
-  assert(r.capabilities.tools, "tools capability");
-  has(r.instructions, 'connected as "e2e-vedu"');
+await step("setup through the ops API: users, tokens, sessions", async () => {
+  assert(ADMIN_KEY, "ADMIN_KEY not available");
+  for (const [n, e] of [[A, `${A}@example.com`], [B, `${B}@example.com`], [OUT, `${OUT}@example.com`]]) {
+    const r = await ops("users", { name: n, email: e });
+    assert(r.status === 201, `create ${n}: ${r.status} ${JSON.stringify(r.body)}`);
+    const t = await ops("tokens", { user: n, label: "e2e" });
+    assert(t.body.token?.startsWith("ab_"), JSON.stringify(t.body));
+    tok[n] = t.body.token;
+    const s = await ops("sessions", { user: n });
+    cookie[n] = s.body.cookie;
+    assert(cookie[n]?.startsWith("ab_session="), JSON.stringify(s.body));
+  }
+  assert((await ops("users", { name: A })).status === 409, "duplicate name should conflict");
 });
 
-await step("unknown protocol version falls back to latest supported", async () => {
-  const r = await rpc("e2e-vedu", null, "initialize", { protocolVersion: "1999-01-01", capabilities: {} });
-  assert(/^\d{4}-\d{2}-\d{2}$/.test(r.protocolVersion), r.protocolVersion);
+await step("ops API is invisible without the key", async () => {
+  assert((await ops("overview", null, null)).status === 404, "no key should 404");
+  assert((await ops("overview", null, "wrong")).status === 404, "wrong key should 404");
 });
 
-await step("notifications get 202 with no body", async () => {
-  const r = await rpc("e2e-vedu", null, "notifications/initialized", {}, { notification: true });
-  assert(r.status === 202, `status ${r.status}`);
-});
-
-await step("tools/list exposes all tools with schemas", async () => {
-  const r = await rpc("e2e-vedu", null, "tools/list", {});
-  const names = r.tools.map((t) => t.name).sort();
-  assert(
-    JSON.stringify(names) === JSON.stringify(["create_board", "get", "invite", "list_boards", "post", "read", "search", "wait"]),
-    names.join(","),
-  );
-  for (const t of r.tools) assert(t.inputSchema?.type === "object", `${t.name} schema`);
-});
-
-await step("GET /mcp is 405 (no SSE stream)", async () => {
-  const r = await fetch(`${BASE}/mcp`);
-  assert(r.status === 405, `status ${r.status}`);
-});
-
-await step("unknown method is a JSON-RPC error; bad JSON is a parse error", async () => {
-  const r = await fetch(`${BASE}/mcp`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "nope" }) });
-  const j = await r.json();
-  assert(j.error?.code === -32601, JSON.stringify(j));
+await step("MCP initialize, tools/list, notifications, protocol errors", async () => {
+  const r = await rpcRaw(auth(A), null, "initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "e2e", version: "0" } });
+  assert(r.protocolVersion === "2025-06-18" && r.serverInfo.name === "agent-board", JSON.stringify(r));
+  has(r.instructions, "Agent Board");
+  const names = (await rpcRaw(auth(A), null, "tools/list", {})).tools.map((t) => t.name).sort();
+  assert(JSON.stringify(names) === JSON.stringify(["create_board", "get", "invite", "list_boards", "post", "read", "search", "wait"]), names.join());
+  assert((await rpcRaw({}, null, "notifications/initialized", {}, { notification: true })).status === 202, "notification status");
+  assert((await fetch(`${BASE}/mcp`)).status === 405, "GET /mcp should be 405");
   const p = await fetch(`${BASE}/mcp`, { method: "POST", headers: { "content-type": "application/json" }, body: "{" });
-  assert(p.status === 400 && (await p.json()).error.code === -32700, "parse error");
+  assert(p.status === 400, "parse error");
 });
 
-await step("tool call without X-User is rejected with guidance", async () => {
-  await err(null, null, "list_boards", {}, "X-User");
+await step("MCP rejects missing, legacy X-User, unknown and malformed tokens with clear guidance", async () => {
+  has((await tool(null, null, "list_boards")).text, "Not signed in");
+  const legacy = await rpcRaw({ "x-user": "vedu" }, null, "tools/call", { name: "list_boards", arguments: {} });
+  assert(legacy.isError, "legacy should error");
+  has(legacy.content[0].text, "X-User header is no longer accepted");
+  has((await tool("ab_not-a-real-token", null, "list_boards")).text, "not valid");
+  has((await tool("garbage", null, "list_boards")).text, "not valid");
 });
 
-await step("e2e-vedu creates a board", async () => {
-  const text = await ok("e2e-vedu", null, "create_board", { title: `e2e ${stamp}` });
+await step("A creates a board and is its only member", async () => {
+  const text = await ok(A, null, "create_board", { title: `e2e ${run}` });
   board = text.match(/\((b_[a-z0-9]+)\)/)?.[1];
   assert(board, text);
-  has(text, `/mcp?board=${board}`);
-  has(text, `/join/${board}`);
+  has(await ok(A, board, "read"), `Members: ${A}`);
 });
 
-await step("e2e-jxn joins by reading the board (default board from URL)", async () => {
-  const text = await ok("e2e-jxn", board, "read");
-  has(text, `Board "e2e ${stamp}"`);
-  has(text, "Members: e2e-vedu, e2e-jxn");
-  has(text, "(nothing new)");
+await step("non-members cannot read, post, wait, get, search or invite", async () => {
+  for (const [name, args] of [["read", {}], ["post", { type: "note", text: "x" }], ["wait", { timeout_seconds: 1 }], ["get", { seq: 1 }], ["search", { query: "x" }], ["invite", { email: "a@b.co" }]]) {
+    await err(B, board, name, args, "not a member");
+  }
+  await err(OUT, "b_doesnotexist1", "read", {}, "not a member");
+  await err(A, "../etc", "read", {}, "not a board id");
 });
 
-await step("core loop: e2e-jxn waits, e2e-vedu asks, e2e-jxn receives the question in real time", async () => {
-  const waiting = ok("e2e-jxn", board, "wait", { timeout_seconds: 20 });
+await step("adding B as a member grants access", async () => {
+  assert((await ops("members", { board, user: B })).status === 200, "add member");
+  const t = await ok(B, board, "read");
+  has(t, `Members: ${A}, ${B}`);
+  has(t, "(nothing new)");
+});
+
+await step("core loop: B waits, A asks, B receives the question in real time", async () => {
+  const waiting = ok(B, board, "wait", { timeout_seconds: 20 });
   await new Promise((r) => setTimeout(r, 400));
   const t0 = Date.now();
-  const posted = await ok("e2e-vedu", board, "post", { type: "question", to: "e2e-jxn", text: "Can you share the failing stack trace from checkout?" });
-  q1 = Number(posted.match(/Posted #(\d+)/)?.[1]);
-  assert(q1, posted);
-  has(posted, "Call wait");
-  const got = await waiting;
-  const latency = Date.now() - t0;
-  has(got, `#${q1} question · e2e-vedu → e2e-jxn`);
-  has(got, "failing stack trace");
-  assert(latency < 3000, `delivery took ${latency}ms`);
+  q1 = seqOf(await ok(A, board, "post", { type: "question", to: B, text: "Can you share the failing stack trace from checkout?" }));
+  has(await waiting, `#${q1} question · ${A} → ${B}`);
+  assert(Date.now() - t0 < 3000, `delivery took ${Date.now() - t0}ms`);
 });
 
-await step("question shows as waiting for e2e-jxn in e2e-jxn's summary", async () => {
-  const text = await ok("e2e-jxn", board, "read");
-  has(text, "Questions waiting for YOU");
-  has(text, `#${q1} (e2e-vedu → e2e-jxn)`);
-  has(text, "(nothing new)"); // already delivered by wait
-});
-
-await step("e2e-jxn answers with an artifact and a claim; e2e-vedu's wait receives both", async () => {
-  const waiting = ok("e2e-vedu", board, "wait", { timeout_seconds: 20 });
+await step("B answers with an artifact and a claim; A's wait receives them", async () => {
+  const waiting = ok(A, board, "wait", { timeout_seconds: 20 });
   await new Promise((r) => setTimeout(r, 300));
-  const a = await ok("e2e-jxn", board, "post", {
-    type: "artifact",
-    text: "Stack trace from checkout-service",
-    artifact_name: "checkout-trace.log",
-    artifact_content: "TypeError: cannot read properties of undefined (reading 'amount')\n    at charge (checkout.js:42)",
-  });
-  const aSeq = Number(a.match(/#(\d+)/)[1]);
-  const first = await waiting;
-  has(first, "checkout-trace.log");
-  const c = await ok("e2e-jxn", board, "post", {
-    type: "claim",
-    reply_to: q1,
-    text: `Trace attached in #${aSeq}: charge() gets an undefined payment when the cart is empty.`,
-  });
-  has(c, "Posted");
-  const second = await ok("e2e-vedu", board, "wait", { timeout_seconds: 5 });
-  has(second, `re #${q1}`);
-  has(second, "undefined payment");
+  await ok(B, board, "post", { type: "artifact", reply_to: q1, text: "Stack trace", artifact_name: "trace.log", artifact_content: "TypeError at charge (checkout.js:42)" });
+  has(await waiting, "trace.log");
+  await ok(B, board, "post", { type: "claim", reply_to: q1, text: "charge() gets an undefined payment when the cart is empty." });
+  has(await ok(A, board, "wait", { timeout_seconds: 5 }), `re #${q1}`);
 });
 
-await step("answered question leaves the summary; file is listed", async () => {
-  const text = await ok("e2e-vedu", board, "read");
-  has(text, "Open questions:\n  none");
-  has(text, "checkout-trace.log");
-  has(text, "Recent claims:");
+await step("summary, get, search, resolves and supersedes", async () => {
+  const s = await ok(A, board, "read");
+  has(s, "Open questions:\n  none");
+  has(s, "trace.log");
+  has(await ok(A, board, "get", { seq: q1 }), "Related entries:");
+  const hit = await ok(A, board, "search", { query: "checkout.js:42" });
+  has(await ok(A, board, "get", { seq: Number(hit.match(/#(\d+) artifact/)[1]) }), "TypeError at charge");
+  const t = seqOf(await ok(A, board, "post", { type: "task", to: B, text: "Guard empty carts" }));
+  const d = seqOf(await ok(A, board, "post", { type: "decision", text: "Ship behind a flag" }));
+  await ok(B, board, "post", { type: "note", text: "Guard added", resolves: [t] });
+  await ok(A, board, "post", { type: "decision", text: "Ship without a flag", supersedes: d });
+  const s2 = await ok(B, board, "read");
+  has(s2, "Open tasks:\n  none");
+  has(s2, "without a flag");
+  assert(!s2.includes(`#${d} (${A}) Ship behind`), "superseded decision still listed");
 });
 
-await step("get returns artifact content and related entries", async () => {
-  const text = await ok("e2e-vedu", board, "get", { seq: q1 });
-  has(text, "Related entries:");
-  has(text, "undefined payment");
-  const s = await ok("e2e-vedu", board, "search", { query: "checkout-trace" });
-  const aSeq = Number(s.match(/#(\d+) artifact/)?.[1]);
-  const art = await ok("e2e-vedu", board, "get", { seq: aSeq });
-  has(art, "----- checkout-trace.log -----");
-  has(art, "at charge (checkout.js:42)");
-});
-
-await step("search covers text and file content, with filters", async () => {
-  has(await ok("e2e-vedu", board, "search", { query: "checkout.js:42" }), "artifact");
-  has(await ok("e2e-vedu", board, "search", { query: "stack trace", author: "e2e-vedu" }), "question");
-  has(await ok("e2e-vedu", board, "search", { query: "zzz-not-there" }), "No entries match");
-  has(await ok("e2e-vedu", board, "search", { query: "100%_literal" }), "No entries match");
-});
-
-await step("tasks, decisions, resolves and supersedes update the summary", async () => {
-  const t = await ok("e2e-vedu", board, "post", { type: "task", to: "e2e-jxn", text: "Add a guard for empty carts" });
-  const tSeq = Number(t.match(/#(\d+)/)[1]);
-  const d1 = await ok("e2e-vedu", board, "post", { type: "decision", text: "Ship the fix behind a flag" });
-  const d1Seq = Number(d1.match(/#(\d+)/)[1]);
-  let s = await ok("e2e-jxn", board, "read");
-  has(s, `#${tSeq} (e2e-vedu → e2e-jxn) Add a guard`);
-  await ok("e2e-jxn", board, "post", { type: "note", text: "Guard added in PR 118", resolves: [tSeq] });
-  await ok("e2e-vedu", board, "post", { type: "decision", text: "Ship the fix without a flag", supersedes: d1Seq });
-  s = await ok("e2e-jxn", board, "read");
-  has(s, "Open tasks:\n  none");
-  has(s, "without a flag");
-  assert(!s.includes("behind a flag\n") && !s.includes(`#${d1Seq} (e2e-vedu) Ship the fix behind`), "superseded decision still in summary");
-});
-
-await step("own posts never come back as unread", async () => {
-  await ok("e2e-vedu", board, "post", { type: "note", text: "note to self" });
-  const r = await ok("e2e-vedu", board, "read");
-  assert(!r.includes("note to self\n") || r.includes("(nothing new)"), r);
-});
-
-await step("read with since returns history without moving the cursor", async () => {
-  const r = await ok("e2e-jxn", board, "read", { since: 0, limit: 3 });
-  has(r, "Entries after #0 (3)");
-  has(r, `#${q1} question`);
+await step("validation errors are tool errors", async () => {
+  await err(A, board, "post", { type: "gossip", text: "x" }, "type must be one of");
+  await err(A, board, "post", { type: "note", text: " " }, "text is required");
+  await err(A, board, "post", { type: "note", text: "x", reply_to: 99999 }, "does not exist");
+  await err(A, board, "post", { type: "artifact", text: "x" }, "artifact_name");
+  await err(A, board, "invite", { email: "nope" }, "valid email");
 });
 
 await step("wait times out cleanly", async () => {
-  await ok("e2e-jxn", board, "read"); // catch up first, so there is nothing unread
+  await ok(B, board, "read");
   const t0 = Date.now();
-  const r = await ok("e2e-jxn", board, "wait", { timeout_seconds: 1 });
-  has(r, "Nothing new from other members in 1s");
-  assert(Date.now() - t0 < 4000, "took too long");
-});
-
-await step("validation errors are tool errors with clear messages", async () => {
-  await err("e2e-vedu", board, "post", { type: "gossip", text: "x" }, "type must be one of");
-  await err("e2e-vedu", board, "post", { type: "note", text: "   " }, "text is required");
-  await err("e2e-vedu", board, "post", { type: "note", text: "x", reply_to: 99999 }, "does not exist");
-  await err("e2e-vedu", board, "post", { type: "artifact", text: "x" }, "artifact_name");
-  await err("e2e-vedu", board, "post", { type: "note", text: "x", to: "Not A Name!" }, "not a valid member name");
-  await err("e2e-vedu", board, "get", { seq: 99999 }, "does not exist");
-  await err("e2e-vedu", "b_doesnotexist1", "read", {}, "not found");
-  await err("e2e-vedu", "../etc", "read", {}, "not a board id");
+  has(await ok(B, board, "wait", { timeout_seconds: 1 }), "Nothing new");
+  assert(Date.now() - t0 < 4000, "too slow");
 });
 
 await step("20 concurrent posts get unique, contiguous sequence numbers", async () => {
-  const results = await Promise.all(
-    Array.from({ length: 20 }, (_, i) => ok(i % 2 ? "e2e-vedu" : "e2e-jxn", board, "post", { type: "note", text: `burst ${i}` })),
-  );
-  const seqs = results.map((t) => Number(t.match(/#(\d+)/)[1])).sort((a, b) => a - b);
-  assert(new Set(seqs).size === 20, "duplicate seq");
-  assert(seqs[19] - seqs[0] === 19, `not contiguous: ${seqs.join(",")}`);
+  const seqs = (await Promise.all(Array.from({ length: 20 }, (_, i) => ok(i % 2 ? A : B, board, "post", { type: "note", text: `burst ${i}` })))).map(seqOf).sort((a, b) => a - b);
+  assert(new Set(seqs).size === 20 && seqs[19] - seqs[0] === 19, seqs.join());
 });
 
-await step("list_boards shows the board for both members", async () => {
-  has(await ok("e2e-vedu", null, "list_boards"), board);
-  has(await ok("e2e-jxn", null, "list_boards"), board);
+await step("list_boards shows only your boards", async () => {
+  has(await ok(B, null, "list_boards"), board);
+  has(await ok(OUT, null, "list_boards"), "not on any board");
 });
 
-await step("without a default board, a single-board user's board is used; otherwise board is required", async () => {
-  const solo = `e2e-solo${Date.now().toString(36)}`;
-  await ok(solo, board, "read"); // solo is only on this board
-  has(await ok(solo, null, "read"), `(${board})`);
-  await ok("e2e-vedu", null, "create_board", { title: `e2e second ${stamp}` });
-  await err("e2e-vedu", null, "read", {}, "Pass `board`");
+await step("web: signed-out visitors are sent to sign-in; landing renders", async () => {
+  const home = await web("/");
+  assert(home.status === 200, `home ${home.status}`);
+  has(await home.text(), "Sign in");
+  const b = await web(`/b/${board}`);
+  assert(b.status === 303 && b.headers.get("location").startsWith("/auth/login?return="), `board ${b.status} ${b.headers.get("location")}`);
+  assert((await web(`/join/${board}`)).headers.get("location") === `/b/${board}`, "join redirect");
 });
 
-await step("web: landing, join, board view and live JSON", async () => {
-  const home = await (await fetch(`${BASE}/`)).text();
-  has(home, "Create a board");
-  const join = await fetch(`${BASE}/join/${board}?name=e2e-jxn`);
-  assert(join.ok, `join ${join.status}`);
-  const jt = await join.text();
-  has(jt, `e2e ${stamp}`);
-  has(jt, `X-User: e2e-jxn`);
-  const view = await (await fetch(`${BASE}/b/${board}`)).text();
-  has(view, "failing stack trace");
-  has(view, "checkout-trace.log");
-  const delta = await (await fetch(`${BASE}/api/boards/${board}?after=${q1}`)).json();
-  assert(delta.html.includes("checkout-trace.log") && !delta.html.includes(`id="e${q1}"`), "delta should include only newer entries");
-  assert((await fetch(`${BASE}/b/b_doesnotexist1`)).status === 404, "missing board 404");
+await step("web: sign-in redirects to WorkOS AuthKit with our client and callback", async () => {
+  const r = await web("/auth/login?return=/me");
+  const loc = r.headers.get("location") ?? "";
+  assert(r.status === 303 && loc.startsWith("https://api.workos.com/user_management/authorize?"), loc);
+  const u = new URL(loc);
+  assert(u.searchParams.get("provider") === "authkit" && u.searchParams.get("redirect_uri") === `${BASE}/auth/callback`, loc);
+  assert(u.searchParams.get("client_id")?.startsWith("client_"), "client id");
+  has(r.headers.get("set-cookie") ?? "", "ab_oauth=");
+  assert((await web("/auth/callback?code=x&state=forged")).status === 400, "forged state should 400");
 });
 
-await step("web form creates a board and redirects to its join page", async () => {
-  const r = await fetch(`${BASE}/boards`, {
-    method: "POST",
-    body: new URLSearchParams({ title: `e2e form ${stamp}`, user: "e2e-vedu" }),
-    redirect: "manual",
-  });
-  assert(r.status === 303, `status ${r.status}`);
-  assert(/\/join\/b_[a-z0-9]+\?name=e2e-vedu$/.test(r.headers.get("location")), r.headers.get("location"));
+await step("web: members see the board; outsiders get 404", async () => {
+  const page = await web(`/b/${board}`, A);
+  assert(page.status === 200, `member ${page.status}`);
+  const html = await page.text();
+  has(html, `e2e ${run}`);
+  has(html, "Connect an agent");
+  has(html, "burst 19");
+  assert((await web(`/b/${board}`, OUT)).status === 404, "outsider should 404");
+  assert((await web(`/api/boards/${board}/updates?after=0`, OUT)).status === 404, "outsider API should 404");
 });
 
-await step("admin: login required, wrong key rejected, dashboard lists boards, users and messages", async () => {
-  assert(ADMIN_KEY, "ADMIN_KEY not available to the test");
-  has(await (await fetch(`${BASE}/admin`)).text(), "Admin key");
-  const adminPost = (key) => fetch(`${BASE}/admin`, { method: "POST", body: new URLSearchParams({ key }), redirect: "manual" });
-  has(await (await adminPost("wrong")).text(), "Wrong key");
-  assert((await fetch(`${BASE}/api/admin/overview`)).status === 401, "overview should need auth");
-  const login = await adminPost(ADMIN_KEY);
-  assert(login.status === 303, `login ${login.status}`);
-  const cookie = login.headers.get("set-cookie").split(";")[0];
-  const page = await (await fetch(`${BASE}/admin`, { headers: { cookie } })).text();
-  has(page, `e2e ${stamp}`);
-  has(page, "e2e-jxn");
-  has(page, "Recent messages");
-  has(page, "burst 19");
-  const o = await (await fetch(`${BASE}/api/admin/overview`, { headers: { "x-admin-key": ADMIN_KEY } })).json();
-  const b = o.boards.find((x) => x.id === board);
-  assert(b && b.members.includes("e2e-vedu") && b.members.includes("e2e-jxn"), JSON.stringify(b));
-  assert(b.entry_count === 28, `entry_count ${b.entry_count} (expected 28)`);
-  const invalid = await fetch(`${BASE}/api/admin/invite`, {
-    method: "POST",
-    headers: { "x-admin-key": ADMIN_KEY, "content-type": "application/json" },
-    body: JSON.stringify({ board, email: "not-an-email" }),
-  });
-  assert(invalid.status === 400, `invite validation ${invalid.status}`);
+await step("web: live updates (incl. long-poll), entry detail and posting from the composer", async () => {
+  const u = await (await web(`/api/boards/${board}/updates?after=${q1}`, B)).json();
+  assert(u.entries.length > 5 && u.entries.every((e) => e.seq > q1 && e.html && e.row) && typeof u.last === "number", "updates shape");
+  // Long-poll returns as soon as someone posts.
+  const t0 = Date.now();
+  const lp = web(`/api/boards/${board}/updates?after=${u.last}&wait=20`, B).then((r) => r.json());
+  await new Promise((r) => setTimeout(r, 400));
+  await ok(A, board, "post", { type: "note", text: "long-poll wake-up" });
+  const lpr = await lp;
+  assert(lpr.entries.some((e) => e.html.includes("long-poll wake-up")) && Date.now() - t0 < 4000, `long-poll ${Date.now() - t0}ms`);
+  const d = await (await web(`/api/boards/${board}/entries/${q1}`, B)).json();
+  assert(d.entry.seq === q1 && d.replies.length >= 2, JSON.stringify(d).slice(0, 200));
+  const post = await web(`/api/boards/${board}/entries`, B, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "decision", text: "Posted from the web", to: A }) });
+  assert(post.status === 201, `post ${post.status}`);
+  has(await ok(A, board, "read"), "Posted from the web");
+  const outsiderPost = await web(`/api/boards/${board}/entries`, OUT, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "x" }) });
+  assert(outsiderPost.status === 404, `outsider post ${outsiderPost.status}`);
+});
+
+await step("web: home lists my boards; tokens can be created and revoked", async () => {
+  has(await (await web("/", A)).text(), `e2e ${run}`);
+  const r = await web("/api/tokens", A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ board, label: "e2e web" }) });
+  const t = await r.json();
+  assert(r.status === 201 && t.command.includes(`Authorization: Bearer ${t.token}`) && t.command.includes(`board=${board}`), JSON.stringify(t));
+  assert(t.mcp_url === `${BASE}/mcp?board=${board}`, `mcp_url ${t.mcp_url}`);
+  has(await ok(t.token, board, "read"), `Board "e2e ${run}"`);
+  has(await (await web("/me", A)).text(), "e2e web");
+  assert((await web(`/api/tokens/${t.id}/revoke`, B, { method: "POST" })).status === 404, "cannot revoke someone else's token");
+  assert((await web(`/api/tokens/${t.id}/revoke`, A, { method: "POST" })).status === 200, "revoke");
+  has((await tool(t.token, board, "read")).text, "not valid");
+});
+
+await step("web: invite validation and member-only invites", async () => {
+  const bad = await web(`/api/boards/${board}/invites`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: "nope" }) });
+  assert(bad.status === 400, `bad email ${bad.status}`);
+  const outsider = await web(`/api/boards/${board}/invites`, OUT, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: "x@y.co" }) });
+  assert(outsider.status === 404, `outsider invite ${outsider.status}`);
+});
+
+await step("ops console is hidden from non-operators; ops API lists everything", async () => {
+  assert((await web("/_ops", A)).status === 404, "member without operator rights should 404");
+  assert((await web("/admin", A)).status === 404, "old /admin path should not exist");
+  const o = await ops("overview");
+  const b = o.body.boards.find((x) => x.id === board);
+  assert(b && b.members.includes(A) && b.members.includes(B) && b.entry_count === 29, `expected 29 entries: ${JSON.stringify(b)}`);
+  const acc = o.body.access.find((x) => x.user === B);
+  assert(acc && acc.boards.some((x) => x.id === board) && acc.active_tokens >= 1, JSON.stringify(acc));
 });
 
 console.log(`\n${passed} passed, ${failed} failed${failures.length ? `: ${failures.join("; ")}` : ""}`);

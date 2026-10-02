@@ -19,7 +19,8 @@
     }
   ],
   "vars": {
-    "RESEND_FROM": "Agent Board <onboarding@resend.dev>"
+    "WORKOS_CLIENT_ID": "client_01M3XKJWX8TW7YAMPZVJZFJYHT",
+    "ADMIN_EMAIL": "vedu.mallela@gmail.com"
   }
-  // Secrets (wrangler secret put): RESEND_API_KEY, ADMIN_KEY. Locally they come from .dev.vars.
+  // Secrets (wrangler secret put): WORKOS_API_KEY, ADMIN_KEY. Locally they come from .dev.vars.
 }

@@ -1,93 +1,62 @@
-// Board invites: record in D1 and email the join command via Resend.
+// Board invites. WorkOS emails the invitation (from its own domain); the invite is accepted when someone
+// signs in with that verified email. Existing users are added to the board right away.
 
-import { esc, joinCommand, normalizeUser } from "./util";
+import { sendWorkosInvitation } from "./auth";
 import * as registry from "./registry";
 import type { Env } from "./types";
 
 export interface InviteResult {
   ok: boolean;
+  added: boolean; // already had an account → now a member
   emailed: boolean;
-  command: string;
-  joinUrl: string;
+  signInUrl: string;
   message: string;
 }
 
-export function suggestedName(email: string): string {
-  const local = email.split("@")[0].toLowerCase().replace(/[^a-z0-9_.-]/g, "").replace(/^[^a-z0-9]+/, "");
-  return normalizeUser(local.slice(0, 32)) ?? "friend";
-}
+export const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
 export async function sendInvite(
   env: Env,
   origin: string,
-  opts: { boardId: string; email: string; invitedBy: string; name?: string },
+  opts: { boardId: string; email: string; invitedBy: string },
 ): Promise<InviteResult> {
-  const stub = env.BOARD.get(env.BOARD.idFromName(opts.boardId));
-  const info = await stub.info();
-  const name = normalizeUser(opts.name) ?? suggestedName(opts.email);
-  const command = joinCommand(origin, opts.boardId, name);
-  const joinUrl = `${origin}/join/${opts.boardId}?name=${encodeURIComponent(name)}`;
+  const email = opts.email.trim().toLowerCase();
+  const board = await registry.getBoard(env, opts.boardId);
+  const title = board?.title ?? opts.boardId;
+  const signInUrl = `${origin}/auth/login?login_hint=${encodeURIComponent(email)}`;
+  const base = { id: crypto.randomUUID(), board_id: opts.boardId, email, invited_by: opts.invitedBy, created_at: Date.now() };
 
-  let emailed = false;
-  let status = "not sent: RESEND_API_KEY not configured";
-  if (env.RESEND_API_KEY) {
-    try {
-      const res = await fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          from: env.RESEND_FROM || "Agent Board <onboarding@resend.dev>",
-          to: [opts.email],
-          subject: `${opts.invitedBy} invited you to "${info.title}" on Agent Board`,
-          text: inviteText(opts.invitedBy, info.title, command, joinUrl),
-          html: inviteHtml(opts.invitedBy, info.title, command, joinUrl),
-        }),
-      });
-      if (res.ok) {
-        emailed = true;
-        status = "sent";
-      } else {
-        status = `not sent: Resend ${res.status} ${(await res.text()).slice(0, 300)}`;
-      }
-    } catch (e) {
-      status = `not sent: ${e instanceof Error ? e.message : String(e)}`;
-    }
+  const existing = await registry.userByEmail(env, email);
+  if (existing?.workos_id) {
+    const already = await registry.isMember(env, opts.boardId, existing.name);
+    await registry.addMember(env, opts.boardId, existing.name);
+    await registry.recordInvite(env, { ...base, email_status: "existing user, added", accepted_at: Date.now(), accepted_by: existing.name });
+    return {
+      ok: true,
+      added: true,
+      emailed: false,
+      signInUrl,
+      message: already
+        ? `${existing.name} (${email}) is already a member of "${title}".`
+        : `${existing.name} (${email}) already has an account, so they were added to "${title}" right away. They'll see it when they open Agent Board.`,
+    };
   }
 
+  const inviter = await registry.userByName(env, opts.invitedBy);
+  const sent = await sendWorkosInvitation(env, email, inviter?.workos_id ?? null);
   await registry.recordInvite(env, {
-    id: crypto.randomUUID(),
-    board_id: opts.boardId,
-    email: opts.email,
-    invited_by: opts.invitedBy,
-    created_at: Date.now(),
-    email_status: status,
+    ...base,
+    email_status: sent.ok ? "emailed by WorkOS" : `not emailed: ${sent.error}`,
+    workos_invitation_id: sent.ok ? sent.id : null,
   });
 
-  const message = emailed
-    ? `Emailed an invite to ${opts.email} for "${info.title}". They join as "${name}" by running:\n  ${command}`
-    : `Could not email ${opts.email} (${status}). Send them this yourself — they run:\n  ${command}\nor open ${joinUrl}`;
-  return { ok: true, emailed, command, joinUrl, message };
-}
-
-function inviteText(by: string, title: string, command: string, joinUrl: string): string {
-  return `${by} invited you to the board "${title}" on Agent Board, so your Claude Code can work with theirs.
-
-1. In a terminal, run:
-
-${command}
-
-2. Start Claude Code and say: "check the board".
-
-Details and other names: ${joinUrl}
-`;
-}
-
-function inviteHtml(by: string, title: string, command: string, joinUrl: string): string {
-  return `<div style="font-family:system-ui,sans-serif;max-width:560px;line-height:1.5;color:#1a1a1a">
-<p><b>${esc(by)}</b> invited you to the board <b>${esc(title)}</b> on Agent Board, so your Claude Code can work with theirs.</p>
-<p>1. In a terminal, run:</p>
-<pre style="background:#f4f4f2;padding:12px;border-radius:6px;white-space:pre-wrap;word-break:break-all;font-size:13px">${esc(command)}</pre>
-<p>2. Start Claude Code and say: <i>check the board</i>.</p>
-<p><a href="${esc(joinUrl)}">Open the join page</a> to pick a different name or see the board.</p>
-</div>`;
+  return {
+    ok: true,
+    added: false,
+    emailed: sent.ok,
+    signInUrl,
+    message: sent.ok
+      ? `Invited ${email} to "${title}". WorkOS is emailing them a sign-up link; once they sign in with that email they're on the board.`
+      : `Saved an invite for ${email} to "${title}", but the email didn't go out (${sent.error}). Send them this link — signing in with that email adds them to the board: ${signInUrl}`,
+  };
 }

@@ -15,3 +15,18 @@ Scope: simple, trusted-beta version of the PRD. No auth or security layers yet; 
 ## Follow-ups
 - [ ] Verify a domain in Resend so invite emails reach anyone (currently only the account owner)
 - [ ] Next phase: the PRD's security (WorkOS login, Gateway egress/ingress, action policy, grants)
+
+# Phase 2 — WorkOS login, personal tokens, members-only boards, WorkOS invites
+
+WorkOS dashboard (Staging) done with Vedu: redirect URIs (prod default + localhost), app homepage URL. Google/GitHub/Microsoft/Apple and email+password were already enabled.
+
+- [x] 10. D1 migration: sessions, MCP tokens, WorkOS identity on users, invite acceptance
+- [x] 11. Sign-in with AuthKit: /auth/login, /auth/callback, /auth/logout, sessions; pick a name on first sign-in; admin = vedu.mallela@gmail.com
+- [x] 12. Personal MCP tokens: connect command with `Authorization: Bearer …`; account page to see/revoke; MCP no longer trusts X-User
+- [x] 13. Members-only boards: MCP + web check membership; home lists my boards; board page has "connect your Claude" + invite form
+- [x] 13b. Full web UI redesign: design system (Geist font, tokens, light+dark, mobile), chat-style board view with avatars/threads, every page
+- [x] 14. Invites via WorkOS (WorkOS sends the email); invite accepted on sign-in → added to the board
+- [ ] 15. Tests: unit + e2e updated (admin API mints test users/tokens/sessions), pass locally; screenshot every page light/dark/mobile
+- [ ] 16. Deploy: migration, secrets, e2e on production, cleanup
+- [ ] 17. Vedu signs in (you do this; I can't sign in for you), move your Claude Code to a token, invite jxn
+- [ ] 18. List every gap between what's built and the main PRD

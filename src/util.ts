@@ -16,8 +16,10 @@ export function newBoardId(): string {
   return "b_" + Array.from(bytes, (b) => alphabet[b % alphabet.length]).join("");
 }
 
-export function joinCommand(origin: string, boardId: string, user: string): string {
-  return `claude mcp add --scope user --transport http board "${origin}/mcp?board=${boardId}" --header "X-User: ${user}"`;
+/** The one-line command that connects Claude Code to a board with a personal token. */
+export function connectCommand(origin: string, boardId: string | null, token: string): string {
+  const url = boardId ? `${origin}/mcp?board=${boardId}` : `${origin}/mcp`;
+  return `claude mcp add --scope user --transport http board "${url}" --header "Authorization: Bearer ${token}"`;
 }
 
 export function esc(s: unknown): string {

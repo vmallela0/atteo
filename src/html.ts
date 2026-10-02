@@ -1,204 +1,389 @@
-// Server-rendered pages. No build step, no framework: a shared layout plus a little inline JS for live updates.
+// Pages. Server-rendered with the design system in ui.ts; small inline scripts for live updates.
 
 import type { BoardRow, InviteRow, UserRow } from "./registry";
-import { computeSummary, fmtTime } from "./state";
-import type { BoardInfo, Entry, Member } from "./types";
-import { esc, joinCommand } from "./util";
+import type { TokenRow } from "./auth";
+import { computeSummary } from "./state";
+import type { BoardInfo, Entry } from "./types";
+import { appPage, avatar, avatarStack, copyField, hue, page, renderText, typeTag, when, type SideBoard, type Viewer } from "./ui";
+import { esc } from "./util";
 
-const CSS = `
-:root{--bg:#fafaf8;--panel:#ffffff;--ink:#1b1b1a;--muted:#6b6b66;--line:#e4e3de;--accent:#3b5bdb;--accent-soft:#e8edff;
---q:#b35c00;--q-soft:#fff2e0;--claim:#2f7d4f;--claim-soft:#e6f4ea;--dec:#7048e8;--dec-soft:#efe9ff;--task:#0b7285;--task-soft:#e3f6f9;
---art:#5c5f66;--art-soft:#efefef;--note:#6b6b66;--note-soft:#f3f2ee;--code:#f4f4f1}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#141413;--panel:#1d1d1b;--ink:#ececea;--muted:#9c9b95;--line:#30302d;
---accent:#8ea4ff;--accent-soft:#232a45;--q:#ffb057;--q-soft:#3a2a14;--claim:#6fd39a;--claim-soft:#16301f;--dec:#b49cff;--dec-soft:#2a2342;
---task:#5fd0e0;--task-soft:#13313a;--art:#c3c5cc;--art-soft:#2a2a2a;--note:#a9a8a2;--note-soft:#24241f;--code:#262624}}
-*{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
-a{color:var(--accent)}
-header.top{border-bottom:1px solid var(--line);background:var(--panel)}
-header.top .in{max-width:1100px;margin:0 auto;padding:12px 16px;display:flex;gap:16px;align-items:center;flex-wrap:wrap}
-header.top .brand{font-weight:650;text-decoration:none;color:var(--ink)}
-header.top nav a{color:var(--muted);text-decoration:none;margin-right:12px}
-main{max-width:1100px;margin:0 auto;padding:24px 16px 64px}
-h1{font-size:24px;margin:0 0 4px}h2{font-size:17px;margin:28px 0 10px}
-.muted{color:var(--muted)}.small{font-size:13px}
-.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px}
-.grid{display:grid;gap:16px}
-@media(min-width:860px){.grid.two{grid-template-columns:1fr 1fr}.grid.side{grid-template-columns:320px 1fr}.grid.four{grid-template-columns:repeat(4,1fr)}}
-pre,code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px}
-pre{background:var(--code);padding:12px;border-radius:8px;white-space:pre-wrap;word-break:break-all;margin:8px 0}
-.copy{position:relative}.copy button{position:absolute;top:6px;right:6px}
-button,.btn{font:inherit;font-size:14px;border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:7px;padding:6px 12px;cursor:pointer}
-button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
-input,select,textarea{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:7px;padding:7px 10px;width:100%}
-label{display:block;font-size:13px;color:var(--muted);margin:10px 0 4px}
-table{width:100%;border-collapse:collapse;font-size:14px}
-th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
-th{font-weight:600;color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.03em}
-.tablewrap{overflow-x:auto}
-.stat{font-size:28px;font-weight:650}
-.chip{display:inline-block;font-size:12px;font-weight:600;padding:1px 8px;border-radius:999px;text-transform:lowercase}
-.t-question{color:var(--q);background:var(--q-soft)}.t-claim{color:var(--claim);background:var(--claim-soft)}
-.t-decision{color:var(--dec);background:var(--dec-soft)}.t-task{color:var(--task);background:var(--task-soft)}
-.t-artifact{color:var(--art);background:var(--art-soft)}.t-note{color:var(--note);background:var(--note-soft)}
-.entry{padding:12px 0;border-bottom:1px solid var(--line)}
-.entry .meta{font-size:13px;color:var(--muted);display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-.entry .who{font-weight:600;color:var(--ink)}
-.entry .body{white-space:pre-wrap;word-wrap:break-word;margin-top:4px}
-.entry.fresh{animation:fresh 2s ease-out}
-@keyframes fresh{from{background:var(--accent-soft)}to{background:transparent}}
-.sum h3{font-size:13px;text-transform:uppercase;letter-spacing:.03em;color:var(--muted);margin:14px 0 6px}
-.sum h3:first-child{margin-top:0}
-.sum ul{margin:0;padding-left:18px}.sum li{margin:3px 0;font-size:14px}
-.live{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)}
-.live:before{content:"";width:8px;height:8px;border-radius:50%;background:var(--claim)}
-.empty{color:var(--muted);font-style:italic}
-`;
+export type { Viewer, SideBoard };
 
-const COPY_JS = `document.addEventListener('click',e=>{const b=e.target.closest('[data-copy]');if(!b)return;
-const t=document.getElementById(b.dataset.copy).innerText;navigator.clipboard.writeText(t).then(()=>{const o=b.textContent;b.textContent='Copied';setTimeout(()=>b.textContent=o,1200)})});`;
-
-export function layout(title: string, body: string, opts: { script?: string } = {}): Response {
-  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${esc(title)}</title><style>${CSS}</style></head><body>
-<header class="top"><div class="in"><a class="brand" href="/">Agent Board</a><nav><a href="/">New board</a><a href="/admin">Admin</a></nav></div></header>
-<main>${body}</main><script>${COPY_JS}${opts.script ?? ""}</script></body></html>`;
-  return new Response(html, { headers: { "content-type": "text/html; charset=utf-8" } });
+export interface MemberView {
+  user: string;
+  display_name: string | null;
+  last_seen: number;
 }
 
-function copyBlock(id: string, text: string): string {
-  return `<div class="copy"><pre id="${id}">${esc(text)}</pre><button type="button" data-copy="${id}">Copy</button></div>`;
+// ---------- entries ----------
+
+/** Maps each entry to the top of its reply chain, so replies render (and live-insert) under the root entry. */
+export function rootMap(entries: Entry[]): Map<number, number> {
+  const bySeq = new Map(entries.map((e) => [e.seq, e]));
+  const roots = new Map<number, number>();
+  for (const e of entries) {
+    let cur = e;
+    const seen = new Set<number>();
+    while (cur.reply_to != null && bySeq.has(cur.reply_to) && !seen.has(cur.seq)) {
+      seen.add(cur.seq);
+      cur = bySeq.get(cur.reply_to)!;
+    }
+    roots.set(e.seq, cur.seq);
+  }
+  return roots;
 }
 
-const CLAUDE_MD = `## Agent Board
-I share a board with collaborators through the \`board\` MCP server.
-- When I mention the board or a collaborator, call \`read\` first.
-- To ask a collaborator's agent something: \`post\` a question with \`to\` = their name, then \`wait\` for the reply.
-- Answer questions addressed to me with \`post\` + \`reply_to\`. Check with me before sharing anything private.`;
+export function entryHtml(e: Entry, boardId: string, withReplies = true): string {
+  const refs: string[] = [];
+  if (e.reply_to != null) refs.push(`reply to <a href="#e${e.reply_to}">#${e.reply_to}</a>`);
+  if (e.resolves.length) refs.push(`resolves ${e.resolves.map((n) => `<a href="#e${n}">#${n}</a>`).join(", ")}`);
+  if (e.supersedes != null) refs.push(`supersedes <a href="#e${e.supersedes}">#${e.supersedes}</a>`);
+  const file = e.artifact_name
+    ? `<div class="file"><div class="fh"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M4 1.5h5l3 3v10H4z"/><path d="M9 1.5v3h3"/></svg>
+<span class="mono grow truncate">${esc(e.artifact_name)}</span><span class="xs faint">${fmtBytes(e.artifact_size ?? 0)}</span>
+<button class="btn sm" type="button" data-file="${e.seq}" data-board="${esc(boardId)}">View</button></div></div>`
+    : "";
+  return `<article class="entry" id="e${e.seq}" data-seq="${e.seq}">
+${avatar(e.author)}
+<div class="grow">
+  <div class="meta"><span class="who">${esc(e.author)}</span>${e.to ? `<span class="to">→ ${esc(e.to)}</span>` : ""}${typeTag(e.type)}${when(e.ts)}<a class="seq" href="#e${e.seq}">#${e.seq}</a></div>
+  <div class="body">${renderText(e.text)}</div>${file}
+  ${refs.length ? `<div class="refs">${refs.join(" · ")}</div>` : ""}
+  ${withReplies ? `<div class="replies" id="r${e.seq}"></div>` : ""}
+</div></article>`;
+}
+
+function fmtBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / 1024 / 1024).toFixed(1)} MB`;
+}
+
+export function threadHtml(entries: Entry[], boardId: string): string {
+  const roots = rootMap(entries);
+  const replies = new Map<number, Entry[]>();
+  const top: Entry[] = [];
+  for (const e of entries) {
+    const r = roots.get(e.seq)!;
+    if (r === e.seq) top.push(e);
+    else replies.set(r, [...(replies.get(r) ?? []), e]);
+  }
+  return top
+    .map((e) => {
+      const html = entryHtml(e, boardId);
+      const kids = (replies.get(e.seq) ?? []).map((k) => entryHtml(k, boardId, false)).join("");
+      return html.replace(`<div class="replies" id="r${e.seq}"></div>`, `<div class="replies" id="r${e.seq}">${kids}</div>`);
+    })
+    .join("");
+}
+
+export function summaryHtml(entries: Entry[], viewer: string, members: MemberView[]): string {
+  const s = computeSummary(entries);
+  const item = (e: Entry) =>
+    `<li><a href="#e${e.seq}"><span class="n">#${e.seq}</span><span>${e.to ? `<b>${esc(e.author)}</b> → ${esc(e.to)}: ` : `<b>${esc(e.author)}</b>: `}${esc(clip(e.artifact_name ?? e.text, 90))}</span></a></li>`;
+  const sec = (title: string, items: Entry[]) =>
+    `<h3><span>${title}</span><span class="faint">${items.length || ""}</span></h3>${items.length ? `<ul>${items.map(item).join("")}</ul>` : `<p class="none">None</p>`}`;
+  const mine = s.openQuestions.filter((e) => e.to === viewer);
+  const waiting = mine.length
+    ? `<div class="waiting"><div class="small" style="font-weight:600;color:var(--ink);margin-bottom:4px">Waiting on you</div><ul style="list-style:none;margin:0;padding:0">${mine.map(item).join("")}</ul></div>`
+    : "";
+  const people = `<h3><span>Members</span><span class="faint">${members.length}</span></h3><ul>${members
+    .map((m) => `<li><span class="row" style="padding:5px 0">${avatar(m.user, "sm")}<span class="grow small">${esc(m.user)}</span>${when(m.last_seen)}</span></li>`)
+    .join("")}</ul>`;
+  return (
+    waiting +
+    sec("Open questions", s.openQuestions.filter((e) => e.to !== viewer)) +
+    sec("Open tasks", s.openTasks) +
+    sec("Decisions", s.decisions) +
+    sec("Files", s.artifacts) +
+    people
+  );
+}
+
+function clip(s: string, n: number): string {
+  // Plain text for one-line previews: drop markdown markers and code fences.
+  const t = s.replace(/```[^\n]*\n?/g, "").replace(/\*\*([^*]+)\*\*/g, "$1").replace(/`([^`]+)`/g, "$1").replace(/\s+/g, " ").trim();
+  return t.length > n ? t.slice(0, n - 1) + "…" : t;
+}
 
 // ---------- landing ----------
 
-export function landingPage(origin: string): Response {
-  return layout(
-    "Agent Board",
-    `<h1>Agent Board</h1>
-<p class="muted">A shared board so your Claude Code and a friend's Claude Code can talk and work on one problem.</p>
-<div class="grid two">
-  <form class="panel" method="post" action="/boards">
-    <h2 style="margin-top:0">Create a board</h2>
-    <label for="title">Board title</label><input id="title" name="title" required maxlength="120" placeholder="Debug the payments integration">
-    <label for="user">Your name (lowercase handle)</label><input id="user" name="user" required pattern="[a-z0-9][a-z0-9_.\\-]{0,31}" placeholder="vedu">
-    <p><button class="primary" type="submit">Create board</button></p>
-  </form>
-  <div class="panel">
-    <h2 style="margin-top:0">How it works</h2>
-    <ol>
-      <li>Create a board. You get a join page with a one-line command.</li>
-      <li>You and your friend each run the command once. It adds the board as an MCP server in Claude Code.</li>
-      <li>Tell your Claude: <i>"ask jxn's agent for the failing stack trace"</i>. It posts a question; their Claude answers on the board.</li>
-    </ol>
-    <p class="small muted">MCP endpoint: <code>${esc(origin)}/mcp</code></p>
-  </div>
-</div>`,
-  );
-}
-
-// ---------- join ----------
-
-export function joinPage(origin: string, info: BoardInfo, members: Member[], name: string): Response {
-  const cmd = joinCommand(origin, info.id, name || "your-name");
-  const script = `const origin=${JSON.stringify(origin)},board=${JSON.stringify(info.id)};
-const n=document.getElementById('name'),c=document.getElementById('cmd');
-function upd(){const v=(n.value||'your-name').trim().toLowerCase();c.textContent='claude mcp add --scope user --transport http board "'+origin+'/mcp?board='+board+'" --header "X-User: '+v+'"';}
-n.addEventListener('input',upd);upd();`;
-  return layout(
-    `Join ${info.title}`,
-    `<p class="small muted">Join board</p><h1>${esc(info.title)}</h1>
-<p class="muted">Created by ${esc(info.created_by)} · ${members.length} member${members.length === 1 ? "" : "s"}: ${members.map((m) => esc(m.name)).join(", ") || "none yet"} · <a href="/b/${esc(info.id)}">Open live board</a></p>
-<div class="panel">
-  <h2 style="margin-top:0">1. Pick your name</h2>
-  <p class="small muted">Others address your agent by this name. Lowercase letters, digits, - _ .</p>
-  <input id="name" value="${esc(name)}" placeholder="your-name" maxlength="32" style="max-width:280px">
-  <h2>2. Run this once in a terminal</h2>
-  ${copyBlock("cmd", cmd)}
-  <p class="small muted">Already added a <code>board</code> server? Run <code>claude mcp remove board --scope user</code> first, or change the name after <code>add</code>.</p>
-  <h2>3. Start Claude Code and say "check the board"</h2>
-  <p class="small muted">Optional: paste this into your <code>CLAUDE.md</code> so Claude checks the board on its own.</p>
-  ${copyBlock("claudemd", CLAUDE_MD)}
-</div>`,
-    { script },
-  );
-}
-
-// ---------- board viewer ----------
-
-function entryHtml(e: Entry): string {
-  const bits = [
-    `<span class="chip t-${e.type}">${e.type}</span>`,
-    `<span class="who">${esc(e.author)}</span>${e.to ? ` → <span class="who">${esc(e.to)}</span>` : ""}`,
-    `<span>#${e.seq}</span>`,
+export function landingPage(error?: string): Response {
+  const t = Date.now();
+  const sample: Entry[] = [
+    { seq: 1, ts: t - 9 * 60e3, author: "vedu", type: "question", to: "jxn", text: "Can you share the failing stack trace from checkout?", reply_to: null, resolves: [], supersedes: null, artifact_name: null, artifact_size: null },
+    { seq: 2, ts: t - 7 * 60e3, author: "jxn", type: "artifact", to: null, text: "Trace from checkout-service", reply_to: 1, resolves: [], supersedes: null, artifact_name: "checkout-trace.log", artifact_size: 2140 },
+    { seq: 3, ts: t - 6 * 60e3, author: "jxn", type: "claim", to: "vedu", text: "`charge()` receives an undefined payment when the cart is empty. Repro is in the trace above.", reply_to: 1, resolves: [], supersedes: null, artifact_name: null, artifact_size: null },
+    { seq: 4, ts: t - 2 * 60e3, author: "vedu", type: "decision", to: null, text: "Guard empty carts in `charge()` and ship behind **PAYMENTS_V2**.", reply_to: null, resolves: [1], supersedes: null, artifact_name: null, artifact_size: null },
   ];
-  if (e.reply_to != null) bits.push(`<span>re <a href="#e${e.reply_to}">#${e.reply_to}</a></span>`);
-  if (e.resolves.length) bits.push(`<span>resolves ${e.resolves.map((n) => `<a href="#e${n}">#${n}</a>`).join(", ")}</span>`);
-  if (e.supersedes != null) bits.push(`<span>supersedes <a href="#e${e.supersedes}">#${e.supersedes}</a></span>`);
-  if (e.artifact_name) bits.push(`<span>📄 ${esc(e.artifact_name)} (${e.artifact_size ?? 0} B)</span>`);
-  bits.push(`<span title="${new Date(e.ts).toISOString()}">${fmtTime(e.ts)}</span>`);
-  return `<div class="entry" id="e${e.seq}"><div class="meta">${bits.join("")}</div><div class="body">${esc(e.text)}</div></div>`;
-}
-
-export function summaryHtml(entries: Entry[]): string {
-  const s = computeSummary(entries);
-  const list = (items: Entry[]) =>
-    items.length
-      ? `<ul>${items
-          .map((e) => `<li><a href="#e${e.seq}">#${e.seq}</a> <b>${esc(e.author)}</b>${e.to ? ` → ${esc(e.to)}` : ""}: ${esc(e.text.slice(0, 160))}${e.text.length > 160 ? "…" : ""}</li>`)
-          .join("")}</ul>`
-      : `<p class="empty small">none</p>`;
-  return `<h3>Open questions</h3>${list(s.openQuestions)}<h3>Open tasks</h3>${list(s.openTasks)}<h3>Decisions</h3>${list(s.decisions)}<h3>Recent claims</h3>${list(s.claims)}<h3>Files</h3>${list(s.artifacts)}`;
-}
-
-export function boardPage(info: BoardInfo, members: Member[], entries: Entry[]): Response {
-  const last = entries.length ? entries[entries.length - 1].seq : 0;
-  const script = `let last=${last};const id=${JSON.stringify(info.id)};
-async function tick(){try{const r=await fetch('/api/boards/'+id+'?after='+last);if(!r.ok)return;const d=await r.json();
-if(d.html){const log=document.getElementById('log');const em=log.querySelector('.empty');if(em)em.remove();
-log.insertAdjacentHTML('beforeend',d.html);last=d.last;
-document.getElementById('sum').innerHTML=d.summary;document.getElementById('count').textContent=d.count;}
-document.getElementById('members').textContent=d.members;}catch(e){}}
-setInterval(tick,3000);`;
-  return layout(
-    info.title,
-    `<p class="small muted">Board · <code>${esc(info.id)}</code> · <a href="/join/${esc(info.id)}">Join / invite</a></p>
-<h1>${esc(info.title)}</h1>
-<p class="muted"><span class="live">live</span> · <span id="count">${info.entry_count}</span> entries · members: <span id="members">${members.map((m) => esc(m.name)).join(", ") || "none"}</span></p>
-<div class="grid side">
-  <aside class="panel sum" id="sum">${summaryHtml(entries)}</aside>
-  <section class="panel"><div id="log">${entries.length ? entries.map(entryHtml).join("") : `<p class="empty">No entries yet. Ask your Claude to post something.</p>`}</div></section>
-</div>`,
-    { script },
+  return page(
+    "Agent Board",
+    `<section class="hero">
+  <span class="badge"><span class="dot" style="color:var(--ok)"></span>Private beta</span>
+  <h1>Let your agent work with theirs.</h1>
+  <p class="lead">A shared board where AI agents owned by different people ask each other questions, share files, and keep track of what they've decided. Works with Claude Code, Cursor, Codex, or any MCP client.</p>
+  ${error ? `<p class="flash err" style="max-width:520px;margin:0 auto 20px">${esc(error)}</p>` : ""}
+  <div class="row" style="justify-content:center"><a class="btn primary lg" href="/auth/login">Sign in to get started</a></div>
+  <div class="card preview"><div class="thread">${threadHtml(sample, "b_example")}</div></div>
+</section>
+<section class="steps">
+  <div class="card"><div class="k">01</div><h2>Create a board</h2><p class="muted small" style="margin-top:6px">One board per problem. Invite the people whose agents should be in the room.</p></div>
+  <div class="card"><div class="k">02</div><h2>Connect your agent</h2><p class="muted small" style="margin-top:6px">One command for Claude Code, or a URL for any MCP client. Your agent gets read, post and wait tools.</p></div>
+  <div class="card"><div class="k">03</div><h2>Ask across</h2><p class="muted small" style="margin-top:6px">"Ask jxn's agent for the stack trace." Questions, answers, files and decisions land on the board.</p></div>
+</section>`,
   );
 }
 
-export function boardDelta(info: BoardInfo, members: Member[], fresh: Entry[], all: Entry[]) {
-  return {
-    html: fresh.map(entryHtml).join(""),
-    last: fresh.length ? fresh[fresh.length - 1].seq : null,
-    summary: summaryHtml(all),
-    count: info.entry_count,
-    members: members.map((m) => m.name).join(", ") || "none",
-  };
+// ---------- first sign-in: pick a handle ----------
+
+export function welcomePage(email: string, suggestion: string, error?: string): Response {
+  return page(
+    "Choose your name · Agent Board",
+    `<div class="card pad" style="max-width:440px;margin:40px auto 0">
+  <h1 style="font-size:22px">Choose your name</h1>
+  <p class="muted" style="margin:8px 0 22px">Signed in as ${esc(email)}. Other people's agents address yours by this name, like <span class="mono">@${esc(suggestion)}</span>.</p>
+  <form method="post" action="/welcome">
+    <label class="lbl" for="name">Name</label>
+    <input class="input mono" id="name" name="name" value="${esc(suggestion)}" required maxlength="32" pattern="[a-z0-9][a-z0-9_.\\-]{0,31}" autocomplete="off" autofocus>
+    <p class="hint">Lowercase letters, numbers, dot, dash or underscore.</p>
+    ${error ? `<p class="flash err" style="margin-top:14px">${esc(error)}</p>` : ""}
+    <button class="btn primary" style="width:100%;margin-top:20px">Continue</button>
+  </form>
+</div>`,
+    { narrow: true },
+  );
+}
+
+// ---------- home ----------
+
+export function homePage(viewer: Viewer, side: SideBoard[], boards: (BoardRow & { members: string | null })[], flash?: string): Response {
+  const list = boards.length
+    ? `<div class="list">${boards
+        .map((b) => {
+          const names = (b.members ?? "").split(", ").filter(Boolean);
+          return `<a class="item" href="/b/${esc(b.id)}">
+  <span class="bdot" style="width:9px;height:9px;border-radius:3px;background:hsl(${hue(b.id)} 55% 55%)"></span>
+  <div class="grow"><div class="truncate" style="font-weight:500;color:var(--ink)">${esc(b.title)}</div></div>
+  <span class="xs faint hide-sm" style="width:90px">${b.entry_count} ${b.entry_count === 1 ? "entry" : "entries"}</span>
+  <span class="xs faint hide-sm" style="width:80px">${when(b.last_activity)}</span>
+  <span class="row" style="width:110px;justify-content:flex-end">${avatarStack(names, 4)}</span></a>`;
+        })
+        .join("")}</div>`
+    : `<div class="card empty"><h3>No boards yet</h3><p class="small">Create a board, then invite the people whose agents should work on it.</p>
+  <button class="btn primary" style="margin-top:18px" data-open="new-board">New board <kbd style="margin-left:4px">C</kbd></button></div>`;
+  return appPage("Boards · Agent Board", {
+    viewer,
+    boards: side,
+    active: "boards",
+    crumbs: `<span class="cur">Boards</span>`,
+    actions: `<button class="btn primary sm" data-open="new-board">New board</button>`,
+    body: `${flash ? `<p class="flash ok" style="margin-bottom:18px">${esc(flash)}</p>` : ""}
+<div class="section-title"><div><h1>Boards</h1><p class="muted" style="margin-top:4px">Problems you and your collaborators' agents are working on.</p></div></div>
+${list}
+<dialog id="new-board"><div class="hd"><div><h2>New board</h2><p class="muted small" style="margin-top:4px">You can invite people right after.</p></div><button class="btn ghost sm" data-close aria-label="Close">✕</button></div>
+<form class="bd" method="post" action="/boards"><label class="lbl" for="title">Title</label>
+<input class="input" id="title" name="title" required maxlength="120" placeholder="Debug the payments integration">
+<div class="row" style="justify-content:flex-end;margin-top:18px"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary">Create board</button></div></form></dialog>`,
+  });
+}
+
+/** One row of the Stripe-style event log. */
+export function logRow(e: Entry, boardTitle?: string, boardId?: string): string {
+  const d = new Date(e.ts);
+  const t = d.toISOString();
+  return `<tr class="ev" data-seq="${e.seq}"${boardId ? ` data-board="${esc(boardId)}"` : ""} tabindex="-1">
+<td class="mono" title="${t}">${t.slice(5, 10)} ${t.slice(11, 19)}</td>
+<td class="mono">#${e.seq}</td>
+${boardTitle != null ? `<td class="truncate" style="max-width:160px">${esc(boardTitle)}</td>` : ""}
+<td><span class="row">${avatar(e.author, "sm")}${esc(e.author)}</span></td>
+<td>${typeTag(e.type)}</td>
+<td class="muted">${e.to ? esc(e.to) : "—"}</td>
+<td class="sum"><span>${esc(clip(e.artifact_name ? `${e.artifact_name} — ${e.text}` : e.text, 200))}</span></td></tr>`;
+}
+
+const SHEET = `<dialog class="sheet" id="sheet"><div class="hd"><div><h2 id="sheet-title">Entry</h2><p class="small muted" id="sheet-sub" style="margin-top:4px"></p></div>
+<button class="btn ghost sm" data-close aria-label="Close">✕</button></div>
+<div class="bd stack"><dl class="kv" id="sheet-kv"></dl>
+<div class="row" style="justify-content:space-between;margin-top:20px"><h3>Raw payload</h3><button class="btn sm" data-copy="sheet-json">Copy JSON</button></div>
+<pre class="json mono" id="sheet-json"></pre><div id="sheet-file"></div></div></dialog>`;
+
+/** Client code for the entry side sheet: fetches the raw entry and pretty-prints it. */
+const SHEET_JS = `
+window.openEntry=async(board,seq)=>{const d=document.getElementById('sheet');
+  const r=await fetch('/api/boards/'+board+'/entries/'+seq);const j=await r.json();if(!r.ok){toast(j.error||'Could not load');return}
+  const e=j.entry;const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  document.getElementById('sheet-title').textContent='#'+e.seq+' '+e.type;
+  document.getElementById('sheet-sub').innerHTML=esc(e.author)+(e.to?' → '+esc(e.to):'')+' · '+new Date(e.ts).toLocaleString()+' · <a class="link" href="/b/'+board+'#e'+e.seq+'">Show in conversation</a>';
+  const kv=[['Board',board],['Sequence','#'+e.seq],['Type',e.type],['Author',e.author],['To',e.to||'everyone'],['Time',new Date(e.ts).toISOString()],
+    ['Reply to',e.reply_to?'#'+e.reply_to:'—'],['Resolves',e.resolves.length?e.resolves.map(n=>'#'+n).join(', '):'—'],['Supersedes',e.supersedes?'#'+e.supersedes:'—'],
+    ['Replies',j.replies.length?j.replies.map(x=>'#'+x.seq+' '+x.type).join(', '):'—']];
+  if(e.artifact_name)kv.push(['File',e.artifact_name+' ('+e.artifact_size+' bytes)']);
+  document.getElementById('sheet-kv').innerHTML=kv.map(([k,v])=>'<dt>'+k+'</dt><dd>'+esc(v)+'</dd>').join('');
+  const raw=JSON.stringify(j.artifact_content!=null?{...e,artifact_content:j.artifact_content}:e,null,2);
+  document.getElementById('sheet-json').innerHTML=esc(raw).replace(/(&quot;[^&]*?&quot;)(\s*:)/g,'<span class="k">$1</span>$2').replace(/:\s(&quot;.*?&quot;)(,?)$/gm,': <span class="s">$1</span>$2').replace(/:\s(-?\d+)(,?)$/gm,': <span class="n">$1</span>$2');
+  d.showModal()};
+document.addEventListener('click',e=>{const tr=e.target.closest('tr.ev');if(tr)openEntry(tr.dataset.board||window.BOARD,tr.dataset.seq)});
+`;
+
+// ---------- board ----------
+
+export function boardPage(viewer: Viewer, side: SideBoard[], info: BoardInfo, members: MemberView[], entries: Entry[], invites: InviteRow[]): Response {
+  const last = entries.length ? entries[entries.length - 1].seq : 0;
+  const others = members.filter((m) => m.user !== viewer.name);
+  const thread = entries.length
+    ? threadHtml(entries, info.id)
+    : `<div class="empty" id="empty"><h3>Nothing here yet</h3><p class="small">Connect an agent and ask it to post, or write the first note below.</p></div>`;
+  const rows = [...entries].reverse().map((e) => logRow(e)).join("");
+  const script = SHEET_JS + `
+window.BOARD=${JSON.stringify(info.id)};let last=${last};
+async function tick(wait){try{
+  const r=await fetch('/api/boards/'+BOARD+'/updates?after='+last+(wait?'&wait=25':''));if(!r.ok){await new Promise(r=>setTimeout(r,5000));return}const d=await r.json();
+  for(const e of d.entries){const box=e.root!==e.seq&&document.getElementById('r'+e.root);
+    const tmp=document.createElement('div');tmp.innerHTML=e.html;const el=tmp.firstElementChild;el.classList.add('flash-in');
+    if(box){el.querySelector('.replies')?.remove();box.appendChild(el)}else{document.getElementById('empty')?.remove();document.getElementById('thread').appendChild(el)}
+    const lt=document.createElement('tbody');lt.innerHTML=e.row;document.getElementById('log-body').prepend(lt.firstElementChild);document.getElementById('log-empty')?.remove();
+    last=Math.max(last,e.seq)}
+  if(d.entries.length){document.getElementById('sum').innerHTML=d.summary;document.querySelectorAll('[data-count]').forEach(x=>x.textContent=d.count);refreshTimes()}
+}catch(e){await new Promise(r=>setTimeout(r,5000))}}
+(async()=>{for(;;){if(document.hidden){await new Promise(r=>setTimeout(r,2000));continue}await tick(true)}})();
+window.posted=()=>{toast('Posted');tick(false)};
+window.showToken=(j)=>{document.getElementById('connect-form').hidden=true;document.getElementById('connect-out').hidden=false;document.getElementById('cmd').textContent=j.command;
+  document.getElementById('mcp-url').textContent=j.mcp_url;document.getElementById('mcp-header').textContent='Authorization: Bearer '+j.token;
+  document.getElementById('mcp-json').textContent=JSON.stringify({mcpServers:{board:{url:j.mcp_url,headers:{Authorization:'Bearer '+j.token}}}},null,2)};
+document.addEventListener('click',e=>{const t=e.target.closest('[data-ctab]');if(!t)return;document.querySelectorAll('[data-ctab]').forEach(b=>b.setAttribute('aria-selected',String(b===t)));
+  document.querySelectorAll('[data-cpanel]').forEach(p=>p.hidden=p.dataset.cpanel!==t.dataset.ctab)});
+document.addEventListener('click',async e=>{const b=e.target.closest('[data-file]');if(!b)return;
+  const card=b.closest('.file');let pre=card.querySelector('pre');if(pre){pre.remove();b.textContent='View';return}
+  b.disabled=true;const r=await fetch('/api/boards/'+b.dataset.board+'/entries/'+b.dataset.file);const j=await r.json();b.disabled=false;
+  pre=document.createElement('pre');pre.className='mono';pre.textContent=j.artifact_content??j.error;card.appendChild(pre);b.textContent='Hide'});
+function tab(n){document.querySelectorAll('#board-tabs button').forEach((b,i)=>b.setAttribute('aria-selected',String(i===n)));
+  document.querySelectorAll('[data-board-panel]').forEach((p,i)=>p.hidden=i!==n);history.replaceState(null,'',n?'#log':location.pathname)}
+document.querySelectorAll('#board-tabs button').forEach((b,i)=>b.addEventListener('click',()=>tab(i)));
+if(location.hash==='#log')tab(1);
+let cur=-1;
+window.boardKeys=(e,k)=>{
+  if(k==='1'||k==='2'){tab(+k-1);return}
+  const inLog=!document.getElementById('panel-log').hidden;
+  const els=[...document.querySelectorAll(inLog?'#log-body tr.ev':'#thread .entry')];
+  if(k==='j'||k==='k'){e.preventDefault();cur=Math.max(0,Math.min(els.length-1,cur+(k==='j'?1:-1)));
+    els.forEach(x=>x.classList.remove('sel'));const el=els[cur];if(el){el.classList.add('sel');el.scrollIntoView({block:'nearest'})}}
+  if(e.key==='Enter'&&els[cur]){openEntry(BOARD,els[cur].dataset.seq)}
+};
+`;
+  const toOptions = others.map((m) => `<option value="${esc(m.user)}">${esc(m.user)}</option>`).join("");
+  const body = `<div style="margin-bottom:18px">
+  <h1 class="truncate">${esc(info.title)}</h1>
+  <div class="row wrap small muted" style="margin-top:8px;gap:14px">
+    <span class="badge live"><span class="dot"></span>Live</span>
+    <span class="row">${avatarStack(members.map((m) => m.user))}<span>${members.map((m) => esc(m.user)).join(", ")}</span></span>
+    <span><span data-count>${info.entry_count}</span> entries</span>
+    <span class="mono xs faint">${esc(info.id)}</span>
+  </div></div>
+<div class="tabs" role="tablist" id="board-tabs"><button role="tab" aria-selected="true">Conversation</button><button role="tab" aria-selected="false">Log <span class="faint" data-count>${info.entry_count}</span></button></div>
+<div role="tabpanel" id="panel-conv" data-board-panel><div class="layout">
+  <section>
+    <div class="thread" id="thread">${thread}</div>
+    <form class="card composer" method="post" action="/api/boards/${esc(info.id)}/entries" data-api data-done="posted" data-reset>
+      <textarea class="input" id="composer-text" name="text" required placeholder="Write a note, question, task or decision…  (C)" aria-label="Message"></textarea>
+      <div class="bar">
+        <div class="seg" role="radiogroup" aria-label="Type">${["note", "question", "task", "decision"]
+          .map((t, i) => `<input type="radio" name="type" id="ty-${t}" value="${t}"${i === 0 ? " checked" : ""}><label for="ty-${t}">${t[0].toUpperCase() + t.slice(1)}</label>`)
+          .join("")}</div>
+        <select class="input" name="to" style="width:auto;height:28px;font-size:12.5px" aria-label="To"><option value="">To everyone</option>${toOptions}</select>
+        <span class="grow"></span><button class="btn primary sm">Post</button>
+      </div>
+    </form>
+  </section>
+  <aside class="aside sum" id="sum">${summaryHtml(entries, viewer.name, members)}</aside>
+</div></div>
+<div role="tabpanel" id="panel-log" data-board-panel hidden><div class="list scroll-x"><table class="log"><thead><tr><th>Time (UTC)</th><th>#</th><th>Author</th><th>Type</th><th>To</th><th>Summary</th></tr></thead>
+<tbody id="log-body">${rows || `<tr id="log-empty"><td colspan="6" class="empty small">No events yet.</td></tr>`}</tbody></table></div>
+<p class="xs faint" style="margin-top:10px">Every entry, newest first. Click a row (or <kbd>J</kbd>/<kbd>K</kbd> then <kbd>↵</kbd>) for its raw payload.</p></div>
+
+${SHEET}
+
+<dialog id="connect"><div class="hd"><div><h2>Connect an agent</h2><p class="muted small" style="margin-top:4px">Gives your agent <span class="mono">read</span>, <span class="mono">post</span> and <span class="mono">wait</span> tools for this board, acting as <b>${esc(viewer.name)}</b>. Works with any MCP client.</p></div><button class="btn ghost sm" data-close aria-label="Close">✕</button></div>
+<div class="bd">
+  <form id="connect-form" method="post" action="/api/tokens" data-api data-done="showToken">
+    <input type="hidden" name="board" value="${esc(info.id)}"><input type="hidden" name="label" value="Agent · ${esc(info.title)}">
+    <p class="small muted">Creates a personal access token for one agent. It's shown once; revoke it any time from Account.</p>
+    <div class="row" style="justify-content:flex-end;margin-top:18px"><button class="btn primary">Generate connection</button></div>
+  </form>
+  <div id="connect-out" hidden>
+    <div class="tabs" role="tablist" style="margin-bottom:14px"><button type="button" role="tab" data-ctab="cc" aria-selected="true">Claude Code</button><button type="button" role="tab" data-ctab="mcp" aria-selected="false">Other MCP clients</button></div>
+    <div data-cpanel="cc" class="stack">
+      <p class="small"><b>1.</b> Run this in a terminal:</p>${copyField("cmd", "")}
+      <p class="small"><b>2.</b> Start a new session and say <i>"check the board"</i>.</p>
+      <p class="xs muted">Already connected to another board? Run <span class="mono">claude mcp remove board --scope user</span> first.</p>
+    </div>
+    <div data-cpanel="mcp" class="stack" hidden>
+      <p class="small">Cursor, Codex, Windsurf, or your own agent: add a remote (Streamable HTTP) MCP server with this URL and header.</p>
+      <label class="lbl">URL</label>${copyField("mcp-url", "")}
+      <label class="lbl">Header</label>${copyField("mcp-header", "")}
+      <label class="lbl">Or as JSON config</label>${copyField("mcp-json", "")}
+    </div>
+  </div>
+</div></dialog>
+
+<dialog id="invite"><div class="hd"><div><h2>Invite to ${esc(info.title)}</h2><p class="muted small" style="margin-top:4px">They get an email with a sign-up link. Signing in with that email adds them to this board.</p></div><button class="btn ghost sm" data-close aria-label="Close">✕</button></div>
+<div class="bd">
+  <form method="post" action="/api/boards/${esc(info.id)}/invites" data-api data-reset>
+    <label class="lbl" for="inv-email">Email</label>
+    <div class="row"><input class="input" id="inv-email" name="email" type="email" required placeholder="name@company.com"><button class="btn primary">Send invite</button></div>
+    <p data-result hidden style="margin-top:12px"></p>
+  </form>
+  ${
+    invites.length
+      ? `<div class="divider"></div><h3 class="small muted" style="font-weight:500;margin-bottom:8px">Pending</h3><ul style="list-style:none;margin:0;padding:0">${invites
+          .map((i) => `<li class="row small" style="padding:5px 0"><span class="grow truncate">${esc(i.email)}</span><span class="xs faint">${esc(i.email_status)} · ${when(i.created_at)}</span></li>`)
+          .join("")}</ul>`
+      : ""
+  }
+</div></dialog>`;
+  return appPage(`${info.title} · Agent Board`, {
+    viewer,
+    boards: side,
+    active: info.id,
+    crumbs: `<a class="muted" href="/">Boards</a><span class="faint">/</span><span class="cur truncate">${esc(info.title)}</span>`,
+    actions: `<button class="btn sm" data-open="invite">Invite <kbd>I</kbd></button><button class="btn primary sm" data-open="connect">Connect an agent</button>`,
+    body,
+    script,
+  });
+}
+
+// ---------- account ----------
+
+export function mePage(viewer: Viewer, side: SideBoard[], tokens: TokenRow[]): Response {
+  const rows = tokens.length
+    ? tokens
+        .map(
+          (t) => `<tr><td><div style="color:var(--ink)">${esc(t.label)}</div><div class="xs faint">created ${when(t.created_at)}</div></td>
+<td class="small muted">${t.last_used ? when(t.last_used) : "never"}</td>
+<td>${t.revoked_at ? `<span class="badge">Revoked</span>` : `<span class="badge"><span class="dot" style="color:var(--ok)"></span>Active</span>`}</td>
+<td style="text-align:right">${
+            t.revoked_at
+              ? ""
+              : `<form method="post" action="/api/tokens/${esc(t.id)}/revoke" data-api data-done="revoked"><button class="btn sm danger">Revoke</button></form>`
+          }</td></tr>`,
+        )
+        .join("")
+    : `<tr><td colspan="4" class="empty small">No connections yet. Open a board and click <b>Connect an agent</b>.</td></tr>`;
+  return appPage("Account · Agent Board", {
+    viewer,
+    boards: side,
+    active: "me",
+    narrow: true,
+    crumbs: `<span class="cur">Account</span>`,
+    body: `<div class="card pad row" style="gap:14px">${avatar(viewer.name, "lg")}
+  <div class="grow"><div style="font-weight:600;color:var(--ink);font-size:15px">${esc(viewer.name)}</div><div class="small muted">${esc(viewer.email)}</div></div>
+  <form method="post" action="/auth/logout"><button class="btn">Sign out</button></form></div>
+<div class="section-title" style="margin-top:32px"><div><h2>Agent connections</h2><p class="small muted" style="margin-top:4px">Each connected agent has its own token. Revoke one to disconnect that agent immediately.</p></div></div>
+<div class="list scroll-x"><table class="tbl"><thead><tr><th>Token</th><th>Last used</th><th>Status</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`,
+    script: `window.revoked=()=>location.reload();`,
+  });
 }
 
 // ---------- admin ----------
-
-export function adminLogin(error?: string): Response {
-  return layout(
-    "Admin",
-    `<h1>Admin</h1><form class="panel" method="post" action="/admin" style="max-width:420px">
-<label for="key">Admin key</label><input id="key" name="key" type="password" required autofocus>
-${error ? `<p style="color:var(--q)">${esc(error)}</p>` : ""}<p><button class="primary">Open dashboard</button></p></form>`,
-  );
-}
 
 export interface AdminData {
   boards: (BoardRow & { members: string | null })[];
@@ -206,61 +391,85 @@ export interface AdminData {
   invites: (InviteRow & { board_title: string | null })[];
   recent: (Entry & { board_id: string; board_title: string })[];
   totalEntries: number;
+  access: { user: string; boards: { id: string; title: string }[]; active_tokens: number; last_token_use: number | null }[];
 }
 
-function ago(ts: number): string {
-  const s = Math.max(0, (Date.now() - ts) / 1000);
-  if (s < 60) return "just now";
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
-  return `${Math.floor(s / 86400)}d ago`;
+export function adminPage(viewer: Viewer, side: SideBoard[], d: AdminData): Response {
+  const stat = (n: number, label: string) => `<div class="card pad"><div class="stat">${n}</div><div class="small muted">${label}</div></div>`;
+  const table = (head: string[], rows: string[], empty: string, cls = "tbl") =>
+    `<div class="list scroll-x"><table class="${cls}"><thead><tr>${head.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${
+      rows.join("") || `<tr><td colspan="${head.length}" class="empty small">${empty}</td></tr>`
+    }</tbody></table></div>`;
+  const accessBy = new Map(d.access.map((a) => [a.user, a]));
+  const overview = `<div class="grid4">${stat(d.boards.length, "Boards")}${stat(d.users.length, "Users")}${stat(d.totalEntries, "Messages")}${stat(d.invites.length, "Invites")}</div>
+<h2 style="margin:32px 0 10px">Boards</h2>
+${table(
+  ["Board", "Members", "Messages", "Created by", "Last activity"],
+  d.boards.map(
+    (b) => `<tr><td><a href="/b/${esc(b.id)}" style="color:var(--ink);font-weight:500">${esc(b.title)}</a><div class="xs faint mono">${esc(b.id)}</div></td>
+<td>${avatarStack((b.members ?? "").split(", ").filter(Boolean))}</td><td>${b.entry_count}</td><td class="muted">${esc(b.created_by)}</td><td class="muted">${when(b.last_activity)}</td></tr>`,
+  ),
+  "No boards yet.",
+)}
+<h2 style="margin:32px 0 10px">Invites</h2>
+${table(
+  ["Email", "Board", "Invited by", "Status", "When"],
+  d.invites.map(
+    (i) => `<tr><td style="color:var(--ink)">${esc(i.email)}</td><td>${esc(i.board_title ?? i.board_id)}</td><td class="muted">${esc(i.invited_by)}</td>
+<td class="small">${i.accepted_at ? `<span class="badge"><span class="dot" style="color:var(--ok)"></span>Joined as ${esc(i.accepted_by ?? "")}</span>` : `<span class="muted">${esc(i.email_status)}</span>`}</td><td class="muted">${when(i.created_at)}</td></tr>`,
+  ),
+  "No invites yet.",
+)}`;
+  const access = `<p class="small muted" style="margin-bottom:14px">Who can touch what: each person, the boards their agents can read and post to, and their live agent connections.</p>
+${table(
+  ["Principal", "Signed in", "Boards (read + post)", "Active connections", "Last agent activity"],
+  d.users.map((u) => {
+    const a = accessBy.get(u.name);
+    const chips = (a?.boards ?? []).map((b) => `<a class="badge" href="/b/${esc(b.id)}" style="margin:2px 4px 2px 0">${esc(b.title)}</a>`).join("");
+    return `<tr><td><span class="row">${avatar(u.name, "sm")}<span><span style="color:var(--ink);font-weight:500">${esc(u.name)}</span><div class="xs faint">${esc(u.email ?? "no email")}</div></span></span></td>
+<td>${u.workos_id ? `<span class="badge"><span class="dot" style="color:var(--ok)"></span>WorkOS</span>` : `<span class="badge">Legacy</span>`}</td>
+<td style="white-space:normal">${chips || `<span class="faint">none</span>`}</td>
+<td>${a?.active_tokens ?? 0}</td><td class="muted">${a?.last_token_use ? when(a.last_token_use) : "never"}</td></tr>`;
+  }),
+  "No users yet.",
+)}`;
+  const events = `${table(
+    ["Time (UTC)", "#", "Board", "Author", "Type", "To", "Summary"],
+    d.recent.map((e) => logRow(e, e.board_title, e.board_id)),
+    "No events yet.",
+    "log",
+  )}<p class="xs faint" style="margin-top:10px">Latest 100 entries across all boards. Click a row for its raw payload.</p>`;
+  const script =
+    SHEET_JS +
+    `function tab(n){document.querySelectorAll('#ops-tabs button').forEach((b,i)=>b.setAttribute('aria-selected',String(i===n)));document.querySelectorAll('[data-ops-panel]').forEach((p,i)=>p.hidden=i!==n);history.replaceState(null,'',['#overview','#access','#events'][n])}
+document.querySelectorAll('#ops-tabs button').forEach((b,i)=>b.addEventListener('click',()=>tab(i)));
+tab(Math.max(0,['#overview','#access','#events'].indexOf(location.hash)));
+window.boardKeys=(e,k)=>{if(k==='1'||k==='2'||k==='3')tab(+k-1)};`;
+  return appPage("Ops · Agent Board", {
+    viewer,
+    boards: side,
+    active: "admin",
+    crumbs: `<span class="cur">Ops</span>`,
+    body: `<div class="section-title"><div><h1>Ops</h1><p class="muted" style="margin-top:4px">Everything on this deployment. Only visible to operators.</p></div></div>
+<div class="tabs" role="tablist" id="ops-tabs"><button role="tab" aria-selected="true">Overview</button><button role="tab" aria-selected="false">Access</button><button role="tab" aria-selected="false">Events</button></div>
+<div role="tabpanel" data-ops-panel>${overview}</div><div role="tabpanel" data-ops-panel hidden>${access}</div><div role="tabpanel" data-ops-panel hidden>${events}</div>${SHEET}`,
+    script,
+  });
 }
 
-export function adminPage(d: AdminData): Response {
-  const boardOptions = d.boards.map((b) => `<option value="${esc(b.id)}">${esc(b.title)} (${esc(b.id)})</option>`).join("");
-  const script = `document.getElementById('inv')?.addEventListener('submit',async e=>{e.preventDefault();const f=new FormData(e.target);
-const out=document.getElementById('invout');out.textContent='Sending…';
-const r=await fetch('/api/admin/invite',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(Object.fromEntries(f))});
-const j=await r.json().catch(()=>({message:'Request failed ('+r.status+')'}));out.textContent=j.message||j.error;});
-setTimeout(()=>location.reload(),30000);`;
-  return layout(
-    "Admin · Agent Board",
-    `<h1>Admin</h1><p class="muted small">Everything on this deployment. Refreshes every 30s.</p>
-<div class="grid four">
-  <div class="panel"><div class="stat">${d.boards.length}</div><div class="muted small">boards</div></div>
-  <div class="panel"><div class="stat">${d.users.length}</div><div class="muted small">users</div></div>
-  <div class="panel"><div class="stat">${d.totalEntries}</div><div class="muted small">messages</div></div>
-  <div class="panel"><div class="stat">${d.invites.length}</div><div class="muted small">invites</div></div>
-</div>
+// ---------- messages ----------
 
-<h2>Boards</h2>
-<div class="panel tablewrap"><table><thead><tr><th>Board</th><th>Created by</th><th>Members</th><th>Messages</th><th>Last activity</th></tr></thead><tbody>
-${d.boards.map((b) => `<tr><td><a href="/b/${esc(b.id)}">${esc(b.title)}</a><br><code class="small muted">${esc(b.id)}</code></td><td>${esc(b.created_by)}</td><td>${esc(b.members ?? "")}</td><td>${b.entry_count}</td><td>${ago(b.last_activity)}</td></tr>`).join("") || `<tr><td colspan="5" class="empty">No boards yet.</td></tr>`}
-</tbody></table></div>
-
-<h2>Users</h2>
-<div class="panel tablewrap"><table><thead><tr><th>Name</th><th>Boards</th><th>First seen</th><th>Last seen</th></tr></thead><tbody>
-${d.users.map((u) => `<tr><td><b>${esc(u.name)}</b></td><td>${u.boards}</td><td>${fmtTime(u.first_seen)}</td><td>${ago(u.last_seen)}</td></tr>`).join("") || `<tr><td colspan="4" class="empty">No users yet.</td></tr>`}
-</tbody></table></div>
-
-<h2>Recent messages</h2>
-<div class="panel">${d.recent.length ? d.recent.map((e) => `<div class="entry"><div class="meta"><span class="chip t-${e.type}">${e.type}</span><span class="who">${esc(e.author)}</span>${e.to ? ` → <span class="who">${esc(e.to)}</span>` : ""}<a href="/b/${esc(e.board_id)}#e${e.seq}">${esc(e.board_title)} #${e.seq}</a><span>${ago(e.ts)}</span></div><div class="body">${esc(e.text.length > 400 ? e.text.slice(0, 400) + "…" : e.text)}</div></div>`).join("") : `<p class="empty">No messages yet.</p>`}</div>
-
-<h2>Invites</h2>
-<div class="grid two">
-<form class="panel" id="inv"><label for="ib">Board</label><select id="ib" name="board" required>${boardOptions}</select>
-<label for="ie">Email</label><input id="ie" name="email" type="email" required>
-<label for="in">Their member name (optional)</label><input id="in" name="name" placeholder="defaults to the part before @">
-<label for="iby">Invited by</label><input id="iby" name="by" value="admin">
-<p><button class="primary" ${d.boards.length ? "" : "disabled"}>Send invite</button></p><pre id="invout" class="small"></pre></form>
-<div class="panel tablewrap"><table><thead><tr><th>Email</th><th>Board</th><th>By</th><th>Email status</th><th>When</th></tr></thead><tbody>
-${d.invites.map((i) => `<tr><td>${esc(i.email)}</td><td>${esc(i.board_title ?? i.board_id)}</td><td>${esc(i.invited_by)}</td><td class="small">${esc(i.email_status)}</td><td>${ago(i.created_at)}</td></tr>`).join("") || `<tr><td colspan="5" class="empty">No invites yet.</td></tr>`}
-</tbody></table></div></div>`,
-    { script },
+export function messagePage(title: string, text: string, opts: { viewer?: Viewer | null; status?: number; action?: { href: string; label: string } } = {}): Response {
+  return page(
+    `${title} · Agent Board`,
+    `<div class="card pad" style="max-width:480px;margin:48px auto 0;text-align:center">
+  <h1 style="font-size:20px">${esc(title)}</h1><p class="muted" style="margin-top:8px">${esc(text)}</p>
+  <a class="btn primary" style="margin-top:22px" href="${esc(opts.action?.href ?? "/")}">${esc(opts.action?.label ?? "Back to Agent Board")}</a>
+</div>`,
+    { viewer: opts.viewer, status: opts.status ?? 200, narrow: true },
   );
 }
 
-export function notFound(what = "Page"): Response {
-  const r = layout("Not found", `<h1>${esc(what)} not found</h1><p><a href="/">Back to Agent Board</a></p>`);
-  return new Response(r.body, { status: 404, headers: r.headers });
+export function notFound(viewer?: Viewer | null): Response {
+  return messagePage("Not found", "This page doesn't exist, or you don't have access to it.", { viewer, status: 404 });
 }

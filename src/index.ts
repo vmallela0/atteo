@@ -1,30 +1,46 @@
-// Worker entry: MCP endpoint, web pages, and a small JSON API.
+// Worker entry: MCP endpoint, sign-in, web pages, JSON API, and the operator console (/_ops).
 
+import * as auth from "./auth";
 import { handleMcp } from "./mcp";
-import { sendInvite } from "./invite";
+import { EMAIL_RE, sendInvite } from "./invite";
 import * as registry from "./registry";
-import { adminLogin, adminPage, boardDelta, boardPage, joinPage, landingPage, notFound, type AdminData } from "./html";
+import {
+  adminPage,
+  boardPage,
+  entryHtml,
+  homePage,
+  landingPage,
+  logRow,
+  mePage,
+  messagePage,
+  notFound,
+  rootMap,
+  summaryHtml,
+  welcomePage,
+  type AdminData,
+  type SideBoard,
+  type Viewer,
+} from "./html";
 import type { Env } from "./types";
-import { BOARD_RE, newBoardId, normalizeUser } from "./util";
+import { BOARD_RE, connectCommand, newBoardId, normalizeUser } from "./util";
 
 export { Board } from "./board";
 
-const ADMIN_COOKIE = "ab_admin";
+const OPS_PATH = "/_ops";
 
 function boardStub(env: Env, id: string) {
   return env.BOARD.get(env.BOARD.idFromName(id));
 }
 
-async function boardExists(env: Env, id: string): Promise<boolean> {
-  return BOARD_RE.test(id) && (await boardStub(env, id).exists());
+function json(data: unknown, status = 200, headers?: HeadersInit): Response {
+  return Response.json(data, { status, headers });
 }
 
-function cookie(request: Request, name: string): string | null {
-  const m = (request.headers.get("cookie") ?? "").match(new RegExp(`(?:^|;\\s*)${name}=([^;]*)`));
-  return m ? decodeURIComponent(m[1]) : null;
+function redirect(to: string, headers: HeadersInit = {}): Response {
+  return new Response(null, { status: 303, headers: { Location: to, ...headers } });
 }
 
-/** Constant-time string comparison for the admin key. */
+/** Constant-time comparison for the ops automation key. */
 function safeEqual(a: string, b: string): boolean {
   const ea = new TextEncoder().encode(a);
   const eb = new TextEncoder().encode(b);
@@ -33,144 +49,380 @@ function safeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
-function isAdmin(request: Request, env: Env): boolean {
-  if (!env.ADMIN_KEY) return false;
-  const supplied = cookie(request, ADMIN_COOKIE) ?? request.headers.get("x-admin-key") ?? "";
-  return safeEqual(supplied, env.ADMIN_KEY);
+interface Ctx {
+  request: Request;
+  env: Env;
+  ctx: ExecutionContext;
+  url: URL;
+  session: auth.Session | null;
+  viewer: Viewer | null;
+}
+
+async function loadViewer(env: Env, session: auth.Session | null): Promise<Viewer | null> {
+  if (!session?.user) return null;
+  const u = await registry.userByName(env, session.user);
+  if (!u) return null;
+  return {
+    name: u.name,
+    email: u.email ?? session.email,
+    display_name: u.display_name,
+    admin: !!session.email_verified && auth.isAdminEmail(env, session.email),
+  };
+}
+
+function hasOpsKey(c: Ctx): boolean {
+  const k = c.request.headers.get("x-admin-key");
+  return !!c.env.ADMIN_KEY && !!k && safeEqual(k, c.env.ADMIN_KEY);
+}
+
+const isOps = (c: Ctx) => !!c.viewer?.admin || hasOpsKey(c);
+
+async function sideBoards(env: Env, user: string): Promise<SideBoard[]> {
+  return (await registry.boardsForUser(env, user)).map((b) => ({ id: b.id, title: b.title }));
+}
+
+/** Members (and operators) can see a board; everyone else gets a 404 so board ids don't leak. */
+async function canSee(c: Ctx, boardId: string): Promise<boolean> {
+  if (!BOARD_RE.test(boardId)) return false;
+  if (!(await registry.getBoard(c.env, boardId))) return false;
+  if (isOps(c)) return true;
+  return !!c.viewer && (await registry.isMember(c.env, boardId, c.viewer.name));
 }
 
 async function createBoard(env: Env, title: string, user: string) {
   const id = newBoardId();
   const info = await boardStub(env, id).init(id, title, user);
   await registry.recordBoard(env, info);
-  await registry.touch(env, user, id);
+  await registry.addMember(env, id, user);
   return info;
 }
 
-async function adminData(env: Env): Promise<AdminData> {
+function suggestName(email: string, display: string | null): string {
+  const base = (email.split("@")[0] || display || "me").toLowerCase().replace(/[^a-z0-9_.-]/g, "").replace(/^[^a-z0-9]+/, "");
+  return normalizeUser(base.slice(0, 32)) ?? "me";
+}
+
+async function freeName(env: Env, base: string): Promise<string> {
+  if (!(await registry.userByName(env, base))) return base;
+  for (let i = 2; i < 100; i++) {
+    const n = `${base.slice(0, 29)}${i}`;
+    if (!(await registry.userByName(env, n))) return n;
+  }
+  return `${base.slice(0, 24)}${crypto.randomUUID().slice(0, 6)}`;
+}
+
+function safeReturn(to: string | null | undefined): string {
+  return to && to.startsWith("/") && !to.startsWith("//") ? to : "/";
+}
+
+// ---------- auth routes ----------
+
+async function authLogin(c: Ctx): Promise<Response> {
+  if (!c.env.WORKOS_CLIENT_ID || !c.env.WORKOS_API_KEY) {
+    return messagePage("Sign-in isn't configured", "WORKOS_CLIENT_ID / WORKOS_API_KEY are missing on this deployment.", { status: 500 });
+  }
+  const state = auth.randomSecret("", 18);
+  const ret = safeReturn(c.url.searchParams.get("return"));
+  const hint = c.url.searchParams.get("login_hint") ?? undefined;
+  const to = auth.authorizeUrl(c.env, `${c.url.origin}/auth/callback`, state, {
+    loginHint: hint,
+    screenHint: c.url.searchParams.get("signup") ? "sign-up" : undefined,
+  });
+  return redirect(to, { "Set-Cookie": auth.cookieHeader(c.url, auth.OAUTH_COOKIE, `${state}|${ret}`, 600) });
+}
+
+async function authCallback(c: Ctx): Promise<Response> {
+  const fail = (text: string) => messagePage("Sign-in didn't complete", text, { status: 400, action: { href: "/auth/login", label: "Try again" } });
+  const err = c.url.searchParams.get("error_description") ?? c.url.searchParams.get("error");
+  if (err) return fail(`WorkOS said: ${err}`);
+  const code = c.url.searchParams.get("code");
+  const [state, ret] = (auth.readCookie(c.request, auth.OAUTH_COOKIE) ?? "").split("|");
+  if (!code || !state || state !== c.url.searchParams.get("state")) return fail("The sign-in link expired or was opened in a different browser. Start again.");
+
+  let wu: auth.WorkosUser;
+  try {
+    wu = await auth.authenticateCode(c.env, code);
+  } catch (e) {
+    return fail(e instanceof Error ? e.message : String(e));
+  }
+  const verified = !!wu.email_verified;
+  const display = [wu.first_name, wu.last_name].filter(Boolean).join(" ") || null;
+
+  // Known account → by WorkOS id. Otherwise a pre-made user row with this *verified* email (e.g. a migrated beta user).
+  let user = await registry.userByWorkosId(c.env, wu.id);
+  if (!user && verified) {
+    const unlinked = await registry.unlinkedUserByEmail(c.env, wu.email);
+    if (unlinked) {
+      await registry.linkWorkos(c.env, unlinked.name, wu.id, wu.email, display);
+      user = await registry.userByName(c.env, unlinked.name);
+    }
+  }
+  const session = await auth.createSession(c.env, {
+    user: user?.name ?? null,
+    workos_id: wu.id,
+    email: wu.email,
+    email_verified: verified,
+    display_name: display,
+  });
+  const headers = new Headers();
+  headers.append("Set-Cookie", auth.cookieHeader(c.url, auth.SESSION_COOKIE, session, 30 * 24 * 3600));
+  headers.append("Set-Cookie", auth.cookieHeader(c.url, auth.OAUTH_COOKIE, "", 0));
+
+  if (!user) {
+    headers.set("Location", `/welcome?return=${encodeURIComponent(safeReturn(ret))}`);
+    return new Response(null, { status: 303, headers });
+  }
+  // Invites are matched by email, so only a verified email may accept them.
+  const joined = verified ? await registry.acceptInvites(c.env, wu.email, user.name) : [];
+  const dest = safeReturn(ret);
+  headers.set("Location", dest !== "/" ? dest : joined.length ? `/b/${joined[0]}` : "/");
+  return new Response(null, { status: 303, headers });
+}
+
+async function welcome(c: Ctx): Promise<Response> {
+  const s = c.session;
+  if (!s) return redirect("/auth/login");
+  if (s.user) return redirect("/");
+  const suggestion = await freeName(c.env, suggestName(s.email, s.display_name));
+  if (c.request.method === "GET") return welcomePage(s.email, suggestion);
+  if (c.request.method !== "POST") return notFound();
+
+  const name = normalizeUser(String((await c.request.formData()).get("name") ?? ""));
+  if (!name) return welcomePage(s.email, suggestion, "Use 1–32 lowercase letters, numbers, dot, dash or underscore, starting with a letter or number.");
+  if (await registry.userByName(c.env, name)) return welcomePage(s.email, name, `"${name}" is taken. Try another.`);
+  if (await registry.userByWorkosId(c.env, s.workos_id)) return redirect("/");
+  await registry.createUser(c.env, { name, email: s.email, workos_id: s.workos_id, display_name: s.display_name });
+  await auth.setSessionUser(c.env, s.id_hash, name);
+  const joined = s.email_verified ? await registry.acceptInvites(c.env, s.email, name) : [];
+  const ret = safeReturn(c.url.searchParams.get("return"));
+  return redirect(ret !== "/" ? ret : joined.length ? `/b/${joined[0]}` : "/");
+}
+
+// ---------- ops data ----------
+
+async function opsData(env: Env): Promise<AdminData> {
   const [boards, users, invites] = await Promise.all([registry.allBoards(env), registry.allUsers(env), registry.allInvites(env)]);
-  // Recent messages: last few entries from the 25 most recently active boards.
-  const recentBoards = boards.slice(0, 25);
   const snaps = await Promise.all(
-    recentBoards.map(async (b) => {
+    boards.slice(0, 25).map(async (b) => {
       try {
-        const s = await boardStub(env, b.id).snapshot(Math.max(0, b.entry_count - 20));
+        const s = await boardStub(env, b.id).snapshot(Math.max(0, b.entry_count - 30));
         return s.entries.map((e) => ({ ...e, board_id: b.id, board_title: b.title }));
       } catch {
         return [];
       }
     }),
   );
-  const recent = snaps.flat().sort((a, b) => b.ts - a.ts || b.seq - a.seq).slice(0, 50);
-  const totalEntries = boards.reduce((n, b) => n + b.entry_count, 0);
-  return { boards, users, invites, recent, totalEntries };
+  const recent = snaps.flat().sort((a, b) => b.ts - a.ts || b.seq - a.seq).slice(0, 100);
+  const memberRows = await env.DB.prepare(`SELECT m.user, b.id, b.title FROM members m JOIN boards b ON b.id = m.board_id ORDER BY b.title`).all<{
+    user: string;
+    id: string;
+    title: string;
+  }>();
+  const tokenRows = await env.DB.prepare(
+    `SELECT user, SUM(CASE WHEN revoked_at IS NULL THEN 1 ELSE 0 END) AS active, MAX(last_used) AS last FROM tokens GROUP BY user`,
+  ).all<{ user: string; active: number; last: number | null }>();
+  const access = new Map<string, AdminData["access"][number]>();
+  for (const u of users) access.set(u.name, { user: u.name, boards: [], active_tokens: 0, last_token_use: null });
+  for (const r of memberRows.results) access.get(r.user)?.boards.push({ id: r.id, title: r.title });
+  for (const t of tokenRows.results) {
+    const a = access.get(t.user);
+    if (a) {
+      a.active_tokens = t.active;
+      a.last_token_use = t.last;
+    }
+  }
+  return { boards, users, invites, recent, totalEntries: boards.reduce((n, b) => n + b.entry_count, 0), access: [...access.values()] };
 }
+
+// ---------- router ----------
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname.replace(/\/+$/, "") || "/";
-    const origin = url.origin;
+    const method = request.method;
 
     try {
       if (path === "/mcp") return await handleMcp(request, env, ctx);
+      if (path === "/health") return json({ ok: true });
 
-      if (path === "/health") return Response.json({ ok: true });
+      const session = await auth.getSession(request, env);
+      const viewer = await loadViewer(env, session);
+      const c: Ctx = { request, env, ctx, url, session, viewer };
+      const needLogin = () =>
+        method === "GET" ? redirect(`/auth/login?return=${encodeURIComponent(url.pathname + url.search)}`) : json({ error: "sign in required" }, 401);
 
-      if (path === "/" && request.method === "GET") return landingPage(origin);
-
-      // Create a board from the landing page form.
-      if (path === "/boards" && request.method === "POST") {
-        const form = await request.formData();
-        const title = String(form.get("title") ?? "").trim().slice(0, 120);
-        const user = normalizeUser(String(form.get("user") ?? ""));
-        if (!title || !user) return new Response("Title and a valid name are required.", { status: 400 });
-        const info = await createBoard(env, title, user);
-        return Response.redirect(`${origin}/join/${info.id}?name=${encodeURIComponent(user)}`, 303);
+      // ---- auth ----
+      if (path === "/auth/login" && method === "GET") return authLogin(c);
+      if (path === "/auth/callback" && method === "GET") return authCallback(c);
+      if (path === "/welcome") return welcome(c);
+      if (path === "/auth/logout" && method === "POST") {
+        await auth.deleteSession(request, env);
+        return redirect("/", { "Set-Cookie": auth.cookieHeader(url, auth.SESSION_COOKIE, "", 0) });
       }
 
-      let m = path.match(/^\/join\/([^/]+)$/);
-      if (m && request.method === "GET") {
-        if (!(await boardExists(env, m[1]))) return notFound("Board");
-        const stub = boardStub(env, m[1]);
-        const [info, members] = await Promise.all([stub.info(), stub.members()]);
-        return joinPage(origin, info, members, normalizeUser(url.searchParams.get("name")) ?? "");
+      // ---- pages ----
+      if (path === "/" && method === "GET") {
+        if (session && !session.user) return redirect("/welcome");
+        if (!viewer) return landingPage();
+        const [side, boards] = await Promise.all([sideBoards(env, viewer.name), registry.allBoards(env)]);
+        const mine = new Set(side.map((b) => b.id));
+        return homePage(viewer, side, boards.filter((b) => mine.has(b.id)));
       }
 
-      m = path.match(/^\/b\/([^/]+)$/);
-      if (m && request.method === "GET") {
-        if (!(await boardExists(env, m[1]))) return notFound("Board");
-        const s = await boardStub(env, m[1]).snapshot(0);
-        return boardPage(s.info, s.members, s.entries);
+      if (path === "/boards" && method === "POST") {
+        if (!viewer) return needLogin();
+        const title = String((await request.formData()).get("title") ?? "").trim().slice(0, 120);
+        if (!title) return redirect("/?new=1");
+        const info = await createBoard(env, title, viewer.name);
+        return redirect(`/b/${info.id}`);
       }
 
-      // ---- JSON API ----
-
-      if (path === "/api/boards" && request.method === "POST") {
-        const body = (await request.json().catch(() => ({}))) as { title?: string; user?: string };
-        const title = String(body.title ?? "").trim().slice(0, 120);
-        const user = normalizeUser(body.user);
-        if (!title || !user) return Response.json({ error: "title and a valid user are required" }, { status: 400 });
-        const info = await createBoard(env, title, user);
-        return Response.json({ board: info, join_url: `${origin}/join/${info.id}`, view_url: `${origin}/b/${info.id}` }, { status: 201 });
+      let m = path.match(/^\/(b|join)\/([^/]+)$/);
+      if (m && method === "GET") {
+        if (m[1] === "join") return redirect(`/b/${m[2]}`);
+        if (!viewer) return needLogin();
+        if (!(await canSee(c, m[2]))) return notFound(viewer);
+        const [snap, members, invites, side] = await Promise.all([
+          boardStub(env, m[2]).snapshot(0),
+          registry.boardMembers(env, m[2]),
+          registry.pendingInvites(env, m[2]),
+          sideBoards(env, viewer.name),
+        ]);
+        return boardPage(viewer, side, snap.info, members, snap.entries, invites);
       }
 
-      m = path.match(/^\/api\/boards\/([^/]+)$/);
-      if (m && request.method === "GET") {
-        if (!(await boardExists(env, m[1]))) return Response.json({ error: "board not found" }, { status: 404 });
-        const after = Math.max(0, parseInt(url.searchParams.get("after") ?? "0", 10) || 0);
-        const s = await boardStub(env, m[1]).snapshot(0);
-        const fresh = s.entries.filter((e) => e.seq > after);
-        if (url.searchParams.get("format") === "json") return Response.json({ ...s, entries: fresh });
-        return Response.json(boardDelta(s.info, s.members, fresh, s.entries));
+      if (path === "/me" && method === "GET") {
+        if (!viewer) return needLogin();
+        const [side, tokens] = await Promise.all([sideBoards(env, viewer.name), auth.listTokens(env, viewer.name)]);
+        return mePage(viewer, side, tokens);
       }
 
-      // ---- admin ----
-
-      if (path === "/admin" && request.method === "POST") {
-        if (!env.ADMIN_KEY) return adminLogin("ADMIN_KEY is not configured on this deployment.");
-        const key = String((await request.formData()).get("key") ?? "");
-        if (!safeEqual(key, env.ADMIN_KEY)) return adminLogin("Wrong key.");
-        const secure = url.protocol === "https:" ? " Secure;" : "";
-        return new Response(null, {
-          status: 303,
-          headers: {
-            Location: "/admin",
-            "Set-Cookie": `${ADMIN_COOKIE}=${encodeURIComponent(key)}; Path=/; HttpOnly;${secure} SameSite=Lax; Max-Age=2592000`,
-          },
-        });
+      if (path === OPS_PATH && method === "GET") {
+        if (!viewer?.admin) return notFound(viewer); // indistinguishable from a missing page unless you're an operator
+        const [side, data] = await Promise.all([sideBoards(env, viewer.name), opsData(env)]);
+        return adminPage(viewer, side, data);
       }
 
-      if (path === "/admin" && request.method === "GET") {
-        if (!env.ADMIN_KEY) return adminLogin("ADMIN_KEY is not configured on this deployment.");
-        if (!isAdmin(request, env)) return adminLogin();
-        return adminPage(await adminData(env));
+      // ---- board API (members; operators can read) ----
+      m = path.match(/^\/api\/boards\/([^/]+)\/(updates|entries|invites)(?:\/(\d+))?$/);
+      if (m) {
+        const [, id, what, seqStr] = m;
+        if (!viewer && !hasOpsKey(c)) return needLogin();
+        if (!(await canSee(c, id))) return json({ error: "board not found" }, 404);
+        const stub = boardStub(env, id);
+
+        if (what === "updates" && method === "GET") {
+          const after = Math.max(0, parseInt(url.searchParams.get("after") ?? "0", 10) || 0);
+          // Long-poll (wait=seconds) so an open board tab costs one request per change or per ~25s, not one every few seconds.
+          const waitSec = Math.min(25, Math.max(0, parseInt(url.searchParams.get("wait") ?? "0", 10) || 0));
+          if (waitSec) await stub.waitForAny(after, waitSec * 1000);
+          const [snap, members] = await Promise.all([stub.snapshot(0), registry.boardMembers(env, id)]);
+          const roots = rootMap(snap.entries);
+          const fresh = snap.entries.filter((e) => e.seq > after);
+          return json({
+            entries: fresh.map((e) => ({ seq: e.seq, root: roots.get(e.seq), html: entryHtml(e, id), row: logRow(e) })),
+            summary: summaryHtml(snap.entries, viewer?.name ?? "", members),
+            count: snap.info.entry_count,
+            last: snap.info.last_seq,
+          });
+        }
+        if (what === "entries" && seqStr && method === "GET") {
+          try {
+            return json(await stub.get(parseInt(seqStr, 10)));
+          } catch (e) {
+            return json({ error: e instanceof Error ? e.message : String(e) }, 404);
+          }
+        }
+        if (what === "entries" && !seqStr && method === "POST") {
+          if (!viewer || !(await registry.isMember(env, id, viewer.name))) return json({ error: "Only members can post." }, 403);
+          const body = (await request.json().catch(() => ({}))) as { text?: string; type?: string; to?: string };
+          const type = (["note", "question", "task", "decision", "claim"] as const).find((t) => t === body.type) ?? "note";
+          const to = body.to ? normalizeUser(body.to) : null;
+          try {
+            const entry = await stub.post(viewer.name, { type, text: String(body.text ?? ""), to });
+            ctx.waitUntil(Promise.all([registry.touch(env, viewer.name, id), registry.bumpBoard(env, id, entry.seq)]).catch(() => {}));
+            return json({ ok: true, entry }, 201);
+          } catch (e) {
+            return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+          }
+        }
+        if (what === "invites" && method === "POST") {
+          if (viewer && !viewer.admin && !(await registry.isMember(env, id, viewer.name))) return json({ error: "Only members can invite." }, 403);
+          const body = (await request.json().catch(() => ({}))) as { email?: string };
+          const email = String(body.email ?? "").trim();
+          if (!EMAIL_RE.test(email)) return json({ error: "Enter a valid email address." }, 400);
+          return json(await sendInvite(env, url.origin, { boardId: id, email, invitedBy: viewer?.name ?? "ops" }));
+        }
+        return json({ error: "not found" }, 404);
       }
 
-      if (path === "/api/admin/overview" && request.method === "GET") {
-        if (!isAdmin(request, env)) return Response.json({ error: "unauthorized" }, { status: 401 });
-        return Response.json(await adminData(env));
+      // ---- personal tokens ----
+      if (path === "/api/tokens" && method === "POST") {
+        if (!viewer) return needLogin();
+        const body = (await request.json().catch(() => ({}))) as { board?: string; label?: string };
+        const board = body.board && (await canSee(c, body.board)) ? body.board : null;
+        const t = await auth.createToken(env, viewer.name, String(body.label ?? "").slice(0, 80) || "Claude Code");
+        return json(
+          { id: t.id, token: t.token, command: connectCommand(url.origin, board, t.token), mcp_url: board ? `${url.origin}/mcp?board=${board}` : `${url.origin}/mcp` },
+          201,
+        );
+      }
+      m = path.match(/^\/api\/tokens\/([^/]+)\/revoke$/);
+      if (m && method === "POST") {
+        if (!viewer) return needLogin();
+        return (await auth.revokeToken(env, viewer.name, m[1])) ? json({ ok: true, message: "Revoked" }) : json({ error: "token not found" }, 404);
       }
 
-      if (path === "/api/admin/invite" && request.method === "POST") {
-        if (!isAdmin(request, env)) return Response.json({ error: "unauthorized" }, { status: 401 });
-        const body = (await request.json().catch(() => ({}))) as { board?: string; email?: string; name?: string; by?: string };
-        const email = String(body.email ?? "").trim();
-        if (!body.board || !(await boardExists(env, body.board))) return Response.json({ error: "board not found" }, { status: 404 });
-        if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return Response.json({ error: "valid email required" }, { status: 400 });
-        const r = await sendInvite(env, origin, {
-          boardId: body.board,
-          email,
-          invitedBy: normalizeUser(body.by) ?? "admin",
-          name: body.name,
-        });
-        return Response.json(r);
+      // ---- ops API: operator session or x-admin-key (automation and tests) ----
+      if (path.startsWith("/api/ops/")) {
+        if (!isOps(c)) return json({ error: "not found" }, 404);
+        const body = method === "POST" ? ((await request.json().catch(() => ({}))) as Record<string, string>) : {};
+        if (path === "/api/ops/overview" && method === "GET") return json(await opsData(env));
+        if (path === "/api/ops/users" && method === "POST") {
+          const name = normalizeUser(body.name);
+          if (!name) return json({ error: "valid name required" }, 400);
+          if (await registry.userByName(env, name)) return json({ error: "name taken" }, 409);
+          await registry.createUser(env, { name, email: body.email ? body.email.toLowerCase() : null, workos_id: null, display_name: body.display_name ?? null });
+          return json({ ok: true, name }, 201);
+        }
+        if (path === "/api/ops/tokens" && method === "POST") {
+          const u = normalizeUser(body.user);
+          if (!u || !(await registry.userByName(env, u))) return json({ error: "user not found" }, 404);
+          const t = await auth.createToken(env, u, body.label || "ops-issued");
+          return json({ token: t.token, command: connectCommand(url.origin, body.board ?? null, t.token) }, 201);
+        }
+        if (path === "/api/ops/sessions" && method === "POST") {
+          const u = normalizeUser(body.user);
+          const row = u ? await registry.userByName(env, u) : null;
+          if (!row) return json({ error: "user not found" }, 404);
+          const secret = await auth.createSession(env, {
+            user: row.name,
+            workos_id: row.workos_id ?? "ops-issued",
+            email: row.email ?? "",
+            email_verified: String(body.verified) === "true",
+            display_name: row.display_name,
+          });
+          return json({ cookie: `${auth.SESSION_COOKIE}=${secret}` }, 201);
+        }
+        if (path === "/api/ops/members" && method === "POST") {
+          const u = normalizeUser(body.user);
+          if (!u || !body.board || !(await registry.getBoard(env, body.board))) return json({ error: "board and user required" }, 400);
+          await registry.addMember(env, body.board, u);
+          return json({ ok: true });
+        }
+        if (path === "/api/ops/boards" && method === "POST") {
+          const u = normalizeUser(body.user);
+          if (!u || !(await registry.userByName(env, u)) || !body.title) return json({ error: "user and title required" }, 400);
+          return json({ board: await createBoard(env, body.title.slice(0, 120), u) }, 201);
+        }
+        return json({ error: "not found" }, 404);
       }
 
-      return notFound();
+      return notFound(viewer);
     } catch (e) {
       console.error("request failed", path, e);
-      return Response.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });
+      return json({ error: e instanceof Error ? e.message : String(e) }, 500);
     }
   },
 } satisfies ExportedHandler<Env>;

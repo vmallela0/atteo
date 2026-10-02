@@ -46,7 +46,8 @@ export interface BoardInfo {
 export interface Env {
   BOARD: DurableObjectNamespace<import("./board").Board>;
   DB: D1Database;
-  RESEND_API_KEY?: string;
-  RESEND_FROM?: string;
-  ADMIN_KEY?: string;
+  WORKOS_API_KEY?: string; // secret
+  WORKOS_CLIENT_ID?: string; // var
+  ADMIN_EMAIL?: string; // var: comma-separated admin emails
+  ADMIN_KEY?: string; // secret: automation/test access to /api/admin/*
 }
