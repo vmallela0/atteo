@@ -1393,6 +1393,29 @@ await step("ops: usage metrics and server errors are on the console (operators o
   assert((await fetch(`${BASE}/api/ops/metrics`)).status !== 200, "operators only");
 });
 
+await step("network: an opt-in directory, and standing rules (invites from friends, friends from coworkers)", async () => {
+  const api = (who, method, path, body) => fetch(`${BASE}${path}`, { method, headers: { authorization: `Bearer ${tok[who]}`, "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+  const partial = B.slice(0, -2);
+  const D = `e2e-dir-${run}`;
+  await ops("users", { name: D, email: `${D}@example.com`, verified: "true" });
+  tok[D] = (await ops("tokens", { user: D })).body.token;
+  assert(!(await (await api(D, "GET", `/api/people?q=${partial}`)).json()).people.some((p) => p.name === B), "not listed yet");
+  assert((await (await api(B, "POST", "/api/me/profile", { listed: true, bio: `hi from ${run}` })).json()).profile.listed, "listed");
+  assert((await (await api(D, "GET", `/api/people?q=${partial}`)).json()).people.some((p) => p.name === B), "listed people show up by partial name");
+  // Friend requests from people B shares a board with are accepted by B's rule.
+  await api(A, "POST", `/api/friends/${B}/remove`);
+  await api(B, "POST", "/api/me/profile", { rules: { auto_accept_friends: "coworkers" } });
+  assert((await (await api(A, "POST", "/api/friends/request", { user: B })).json()).relation === "friend", "accepted by rule");
+  // Board invites from friends join B right away.
+  await api(B, "POST", "/api/me/profile", { rules: { auto_accept_invites: "friends" } });
+  const nb = (await ops("boards", { user: A, title: `e2e rules ${run}` })).body.board.id;
+  await ops("members", { board: nb, user: A });
+  const inv = await (await web(`/api/boards/${nb}/invites`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: `${B}@example.com` }) })).json();
+  assert(inv.added && inv.message.includes("right away"), JSON.stringify(inv));
+  has(await ok(B, nb, "read"), `e2e rules ${run}`);
+  await api(B, "POST", "/api/me/profile", { listed: false, rules: { auto_accept_invites: null, auto_accept_friends: null } });
+});
+
 await step("rename and archive: creator only; archived boards are read-only and listed separately; restore works", async () => {
   const id = (await ops("boards", { user: A, title: `e2e arch ${run}` })).body.board.id;
   await ops("members", { board: id, user: B });

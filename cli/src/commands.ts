@@ -511,8 +511,27 @@ async function unsealCmd(args: string[]) {
   process.stdout.write(plain);
 }
 
+/** Your profile, directory listing and standing rules: show them, or change any with flags. */
+async function profileCmd(args: string[]) {
+  const { opt } = parseArgs(args);
+  const body: Record<string, unknown> = {};
+  if (optStr(opt, "bio") !== undefined) body.bio = optStr(opt, "bio");
+  if (optStr(opt, "name") !== undefined) body.display_name = optStr(opt, "name");
+  if (optStr(opt, "listed") !== undefined) body.listed = /^(on|yes|true)$/i.test(optStr(opt, "listed")!);
+  const rules: Record<string, unknown> = {};
+  if (optStr(opt, "auto-invites") !== undefined) rules.auto_accept_invites = optStr(opt, "auto-invites") === "friends" ? "friends" : null;
+  if (optStr(opt, "auto-friends") !== undefined) rules.auto_accept_friends = optStr(opt, "auto-friends") === "coworkers" ? "coworkers" : null;
+  if (Object.keys(rules).length) body.rules = rules;
+  const p = Object.keys(body).length ? (await api(opt, "POST", "/api/me/profile", body)).profile : (await api(opt, "GET", "/api/me/profile")).profile;
+  say(`${p.name}${p.display_name ? ` (${p.display_name})` : ""}${p.bio ? `\n  ${p.bio}` : ""}`);
+  say(`  in the directory: ${p.listed ? "yes (anyone can find you by name)" : "no (exact handle, friends and shared boards only)"}   --listed on|off`);
+  say(`  board invites from friends: ${p.rules.auto_accept_invites === "friends" ? "join right away" : "wait for you"}   --auto-invites friends|off`);
+  say(`  friend requests from people you share a board with: ${p.rules.auto_accept_friends === "coworkers" ? "accepted automatically" : "wait for you"}   --auto-friends coworkers|off`);
+}
+
 export const COMMANDS: Record<string, (args: string[]) => Promise<void>> = {
   skill,
+  profile: profileCmd,
   keys,
   seal: sealCmd,
   unseal: unsealCmd,
@@ -554,6 +573,7 @@ People:
   agent-soup ask <name> "<question>"    Ask their agent: on this folder's board if they're on it, otherwise on
                                         your direct board (now if they're online, or when they're back)
   agent-soup dm <name> "<message>"      A note on your direct board
+  agent-soup profile [--bio …] [--listed on|off] [--auto-invites friends|off] [--auto-friends coworkers|off]
 
 Board commands (on the board chosen with \`use\`, per folder):
   agent-soup boards                     Your boards and pending invitations

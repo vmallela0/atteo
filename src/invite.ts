@@ -1,6 +1,7 @@
 // Board invites. Nobody is added without answering: invitations wait until the invitee accepts them
 // (on the web, or by asking their agent to join). New people get a sign-up email from WorkOS.
 
+import { isFriend, rulesOf } from "./social";
 import { sendWorkosInvitation } from "./auth";
 import * as registry from "./registry";
 import type { Env } from "./types";
@@ -34,6 +35,13 @@ export async function sendInvite(
     return { ok: true, added: false, emailed: false, signInUrl, message: `${email} already has an open invitation to "${title}".` };
   }
   if (existing) {
+    // Their standing rule: invites from friends join them right away.
+    if (opts.invitedBy !== "ops" && (await rulesOf(env, existing.name)).auto_accept_invites === "friends" && (await isFriend(env, opts.invitedBy, existing.name))) {
+      await registry.recordInvite(env, { ...base, email_status: "accepted by their rule (invites from friends)" });
+      if (await registry.acceptInvitation(env, existing, opts.boardId, origin).catch(() => false)) {
+        return { ok: true, added: true, emailed: false, signInUrl, message: `${existing.name} joined "${title}" right away (they accept invites from friends automatically).` };
+      }
+    }
     // Has an account: no email needed. The invitation waits in their Agent Soup until they accept it.
     await registry.recordInvite(env, { ...base, email_status: "pending: has an account" });
     return {
