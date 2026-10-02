@@ -5,7 +5,7 @@ import { DurableObject } from "cloudflare:workers";
 import { computeSummary, formatSummary, DEFAULT_SUMMARY_CHARS, type Summary } from "./state";
 import { blockedMessage, scanFields, scanText, type SecretHit } from "./secrets";
 import { keep, MAX_MENTIONS, mentionsOwnAgent, type Mention } from "./mentions";
-import { ENTRY_TYPES, type BoardInfo, type Entry, type Env, type Member, type NewEntry } from "./types";
+import { ENTRY_TYPES, type BoardInfo, type Entry, type Env, type Media, type Member, type NewEntry } from "./types";
 import { EMOJI_RE, ftsQuery, USER_RE } from "./util";
 import { cardText, parseCard, type ChangeCard } from "./card";
 
@@ -54,6 +54,7 @@ export interface TaskActOpts {
 const iso = (ts: number) => new Date(ts).toISOString().slice(0, 16).replace("T", " ") + "Z";
 
 export interface DocMeta {
+  mime?: string | null; // set for images
   name: string;
   version: number;
   updated_by: string;
@@ -63,6 +64,7 @@ export interface DocMeta {
   size: number;
 }
 export interface Doc {
+  media?: Media | null; // set for images
   name: string;
   version: number;
   latest: number;
@@ -135,11 +137,12 @@ function toEntry(r: Row): Entry {
     artifact_name: (r.artifact_name as string | null) ?? null,
     artifact_size: (r.artifact_size as number | null) ?? null,
     artifact_version: (r.artifact_version as number | null) ?? null,
+    media: r.media ? (JSON.parse(r.media as string) as Media) : null,
     card: r.card ? (JSON.parse(r.card as string) as ChangeCard) : null,
   };
 }
 
-const ENTRY_COLS = "seq, ts, author, type, text, to_user, mentions, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, card";
+const ENTRY_COLS = "seq, ts, author, type, text, to_user, mentions, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, card, media";
 
 export class Board extends DurableObject<Env> {
   private sql: SqlStorage;
@@ -214,6 +217,15 @@ export class Board extends DurableObject<Env> {
         created_by TEXT NOT NULL,
         created_at INTEGER NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS blobs (
+        name TEXT NOT NULL,
+        version INTEGER NOT NULL,
+        mime TEXT NOT NULL,
+        bytes BLOB NOT NULL,
+        width INTEGER,
+        height INTEGER,
+        PRIMARY KEY (name, version)
+      );
       CREATE TABLE IF NOT EXISTS doc_versions (
         name TEXT NOT NULL,
         version INTEGER NOT NULL,
@@ -283,6 +295,7 @@ export class Board extends DurableObject<Env> {
     if (!cols.has("artifact_version")) this.sql.exec("ALTER TABLE entries ADD COLUMN artifact_version INTEGER");
     if (!cols.has("card")) this.sql.exec("ALTER TABLE entries ADD COLUMN card TEXT");
     if (!cols.has("card_diff")) this.sql.exec("ALTER TABLE entries ADD COLUMN card_diff TEXT");
+    if (!cols.has("media")) this.sql.exec("ALTER TABLE entries ADD COLUMN media TEXT"); // images: {mime, w, h, size}
     // Read receipts: how far each member has seen, as a person (web) and through their agent (read/wait/post).
     const memberCols = new Set(this.sql.exec("PRAGMA table_info(members)").toArray().map((r) => r.name as string));
     if (!memberCols.has("person_seen")) this.sql.exec("ALTER TABLE members ADD COLUMN person_seen INTEGER NOT NULL DEFAULT 0");
@@ -419,7 +432,7 @@ export class Board extends DurableObject<Env> {
     return { entry: await this.post(user, input) };
   }
 
-  async post(user: string, input: NewEntry, internal: { docVersion?: number } = {}): Promise<Entry> {
+  async post(user: string, input: NewEntry, internal: { docVersion?: number; media?: Media } = {}): Promise<Entry> {
     const info = this.info();
     if (info.archived) throw new BoardError(`"${info.title}" is archived, so it's read-only. Its creator can restore it.`);
     this.rateLimit(user);
@@ -493,8 +506,8 @@ export class Board extends DurableObject<Env> {
 
     const row = this.sql
       .exec(
-        `INSERT INTO entries (ts, author, type, text, to_user, mentions, self_agent, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, artifact_content, card, card_diff)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING ${ENTRY_COLS}`,
+        `INSERT INTO entries (ts, author, type, text, to_user, mentions, self_agent, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, artifact_content, card, card_diff, media)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING ${ENTRY_COLS}`,
         Date.now(),
         user,
         input.type,
@@ -509,11 +522,12 @@ export class Board extends DurableObject<Env> {
         input.via ?? null,
         input.via === "agent" ? (input.client ?? "agent").slice(0, 40) : null,
         artifactName,
-        artifactContent == null ? null : new TextEncoder().encode(artifactContent).length,
+        internal.media ? internal.media.size : artifactContent == null ? null : new TextEncoder().encode(artifactContent).length,
         artifactVersion,
         null,
         card ? JSON.stringify(card) : null,
         cardDiff,
+        internal.media ? JSON.stringify(internal.media) : null,
       )
       .one();
     if (artifactVersion != null) this.broadcast({ type: "doc", name: artifactName, version: artifactVersion, by: user });
@@ -1097,11 +1111,70 @@ export class Board extends DurableObject<Env> {
     }
   }
 
+  // ---- images: binary files, versioned like any other file (the doc version's text describes the image) ----
+
+  private mediaOf(name: string, version: number): Media | null {
+    const r = this.sql.exec("SELECT mime, width, height, length(bytes) AS size FROM blobs WHERE name = ? AND version = ?", name, version).toArray()[0];
+    return r ? { mime: r.mime as string, w: (r.width as number | null) ?? null, h: (r.height as number | null) ?? null, size: r.size as number } : null;
+  }
+
+  private isImage(name: string): boolean {
+    return this.sql.exec("SELECT 1 AS x FROM blobs b JOIN docs d ON d.name = b.name AND d.version = b.version WHERE d.name = ?", name).toArray().length > 0;
+  }
+
+  /**
+   * Posts any file as the next version of file `name` and as a file entry in the conversation:
+   * - images (PNG, JPEG, GIF, WebP, by their bytes; never SVG, which can carry script) are shown inline;
+   * - UTF-8 text up to the text limit becomes an ordinary text version (agents read it; the secret filter checks it);
+   * - anything else is kept as bytes and offered as a download. Its readable strings still go through the secret filter.
+   */
+  async postFile(user: string, f: { name: string; bytes: ArrayBuffer; width?: number | null; height?: number | null; text?: string; mentions?: Mention[]; via: "agent" | "person"; client?: string | null }): Promise<Entry> {
+    const info = this.info();
+    if (info.archived) throw new BoardError(`"${info.title}" is archived, so it's read-only. Its creator can restore it.`);
+    if (f.bytes.byteLength > MAX_IMAGE) throw new BoardError(`That file is too large (max ${MAX_IMAGE / 1e6} MB).`);
+    const bytes = new Uint8Array(f.bytes);
+    const text = (f.text ?? "").trim();
+    const image = sniffImage(bytes);
+    if (!image) {
+      const asText = utf8Text(bytes);
+      if (asText != null && asText.length <= MAX_ARTIFACT) {
+        const name = cleanFileName((f.name || "").trim() || `file-${Date.now()}.txt`);
+        return this.post(user, { type: "artifact", text: text || `Shared ${name}`, artifact_name: name, artifact_content: asText, mentions: f.mentions, via: f.via, client: f.client });
+      }
+      // Binary: no type of ours is trusted to render, so it's always served as a download.
+      const hit = scanText(byteString(bytes), "file");
+      if (hit) throw new BoardError(blockedMessage(hit));
+    }
+    const mime = image ?? "application/octet-stream";
+    let name = cleanFileName((f.name || "").trim() || `${image ? "image" : "file"}-${Date.now()}${image ? "." + image.split("/")[1].replace("jpeg", "jpg") : ""}`);
+    if (image && !/\.(png|jpe?g|gif|webp)$/i.test(name)) name = `${name}.${image.split("/")[1].replace("jpeg", "jpg")}`;
+    const dim = (n: number | null | undefined) => (image && Number.isInteger(n) && (n as number) > 0 && (n as number) <= 20000 ? (n as number) : null);
+    const media: Media = { mime, w: dim(f.width), h: dim(f.height), size: bytes.byteLength };
+    const kb = `${Math.max(1, Math.round(media.size / 1024))} KB`;
+    const about = image ? `[image · ${mime}${media.w && media.h ? ` · ${media.w}×${media.h}` : ""} · ${kb}]` : `[binary file · ${kb}; download it from the Files tab]`;
+    const version = this.storeVersion(user, name, about, { via: f.via, client: f.client, summary: text || `Shared ${name}` });
+    this.sql.exec("INSERT OR REPLACE INTO blobs (name, version, mime, bytes, width, height) VALUES (?, ?, ?, ?, ?, ?)", name, version, mime, f.bytes, media.w, media.h);
+    this.sql.exec("DELETE FROM blobs WHERE name = ? AND version <= ?", name, version - 50); // same history depth as text versions
+    return this.post(user, { type: "artifact", text: text || `Shared ${name}`, artifact_name: name, artifact_content: about, mentions: f.mentions, via: f.via, client: f.client }, { docVersion: version, media });
+  }
+
+  /** A stored file's bytes (latest version unless one is given). */
+  async image(name: string, version?: number): Promise<{ mime: string; bytes: ArrayBuffer } | null> {
+    this.info();
+    const v = version ?? (this.sql.exec("SELECT version FROM docs WHERE name = ?", name).toArray()[0]?.version as number | undefined);
+    if (v == null) return null;
+    const r = this.sql.exec("SELECT mime, bytes FROM blobs WHERE name = ? AND version = ?", name, v).toArray()[0];
+    return r ? { mime: r.mime as string, bytes: r.bytes as ArrayBuffer } : null;
+  }
+
   // ---- shared documents: versioned files people and agents edit together ----
 
   docList(): DocMeta[] {
     return this.sql
-      .exec("SELECT name, version, updated_by, updated_at, via, client, length(content) AS size FROM docs ORDER BY updated_at DESC")
+      .exec(
+        `SELECT d.name, d.version, d.updated_by, d.updated_at, d.via, d.client, COALESCE(length(b.bytes), length(d.content)) AS size, b.mime
+         FROM docs d LEFT JOIN blobs b ON b.name = d.name AND b.version = d.version ORDER BY d.updated_at DESC`,
+      )
       .toArray() as unknown as DocMeta[];
   }
 
@@ -1117,9 +1190,9 @@ export class Board extends DurableObject<Env> {
     if (version != null && version !== cur.version) {
       const v = this.sql.exec("SELECT name, version, content, author AS updated_by, ts AS updated_at, via, client FROM doc_versions WHERE name = ? AND version = ?", name, version).toArray()[0];
       if (!v) throw new BoardError(`"${name}" has no version ${version} (current is v${cur.version}; older versions may have been pruned).`);
-      return { ...(v as unknown as Doc), latest: cur.version as number };
+      return { ...(v as unknown as Doc), latest: cur.version as number, media: this.mediaOf(name, version) };
     }
-    return { ...(cur as unknown as Doc), latest: cur.version as number };
+    return { ...(cur as unknown as Doc), latest: cur.version as number, media: this.mediaOf(name, cur.version as number) };
   }
 
   async docHistory(name: string): Promise<DocVersion[]> {
@@ -1135,6 +1208,7 @@ export class Board extends DurableObject<Env> {
    */
   async docWrite(user: string, name: string, content: string, baseVersion: number, opts: DocEditOpts): Promise<DocResult> {
     const info = this.info();
+    if (this.isImage(name)) throw new BoardError(`"${name}" isn't a text file; post a new version of it instead.`);
     if (info.archived) throw new BoardError(`"${info.title}" is archived, so it's read-only. Its creator can restore it.`);
     validateDocName(name);
     if (content.length > MAX_ARTIFACT) throw new BoardError(`That document is too large (max ${MAX_ARTIFACT} characters).`);
@@ -1294,6 +1368,34 @@ export class Board extends DurableObject<Env> {
       reviews: this.reviewsBySeq(),
     };
   }
+}
+
+export const MAX_IMAGE = 1_500_000; // any stored file (images and other binaries)
+
+/** Bytes as a 1:1 string (each byte one char), so the secret filter can look for readable keys inside binaries. */
+function byteString(b: Uint8Array): string {
+  let out = "";
+  for (let i = 0; i < b.length; i += 8192) out += String.fromCharCode(...b.subarray(i, i + 8192));
+  return out;
+}
+
+/** The text in `b` if it's valid UTF-8 without NUL bytes (i.e. a text file), else null. */
+export function utf8Text(b: Uint8Array): string | null {
+  try {
+    const t = new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(b);
+    return t.includes("\0") ? null : t;
+  } catch {
+    return null;
+  }
+}
+
+/** The image type from its first bytes, or null: PNG, JPEG, GIF and WebP only. */
+export function sniffImage(b: Uint8Array): string | null {
+  if (b.length >= 8 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47 && b[4] === 0x0d && b[5] === 0x0a && b[6] === 0x1a && b[7] === 0x0a) return "image/png";
+  if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "image/jpeg";
+  if (b.length >= 6 && b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x38 && (b[4] === 0x37 || b[4] === 0x39) && b[5] === 0x61) return "image/gif";
+  if (b.length >= 12 && String.fromCharCode(...b.slice(0, 4)) === "RIFF" && String.fromCharCode(...b.slice(8, 12)) === "WEBP") return "image/webp";
+  return null;
 }
 
 function clamp(n: number, lo: number, hi: number): number {

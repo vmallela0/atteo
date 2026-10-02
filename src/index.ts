@@ -29,6 +29,7 @@ import { FAVICON_SVG, renderText } from "./ui";
 import { BOARD_RE, connectCommand, newBoardId, normalizeUser } from "./util";
 
 export { Board } from "./board";
+import { MAX_IMAGE } from "./board";
 
 const OPS_PATH = "/_ops";
 
@@ -451,6 +452,48 @@ export default {
         if (!who) return json({ error: "sign in required" }, 401);
         const boards = await registry.boardsForUser(env, who);
         return json({ user: who, boards: boards.map((b) => ({ id: b.id, title: b.title, entry_count: b.entry_count, last_activity: b.last_activity })) });
+      }
+
+      // ---- files: upload any file (members, from the web) and serve stored ones (anyone who can see the board) ----
+      m = path.match(/^\/api\/boards\/([^/]+)\/(image|upload)$/);
+      if (m) {
+        const [, id, what] = m;
+        if (!viewer && !hasOpsKey(c)) return needLogin();
+        if (!(await canSee(c, id))) return json({ error: "board not found" }, 404);
+        const stub = boardStub(env, id);
+        if (what === "image" && method === "GET") {
+          const v = url.searchParams.get("version");
+          const img = await stub.image(url.searchParams.get("name") ?? "", v ? parseInt(v, 10) : undefined);
+          if (!img) return new Response("Not found", { status: 404 });
+          // Images are served inert (their own type, no sniffing, no script); everything else only as a download.
+          const isImg = img.mime.startsWith("image/");
+          const fname = (url.searchParams.get("name") ?? "file").replace(/[^\w.\- ]+/g, "_");
+          return new Response(img.bytes, {
+            headers: {
+              "content-type": isImg ? img.mime : "application/octet-stream",
+              "x-content-type-options": "nosniff",
+              "content-security-policy": "default-src 'none'; sandbox",
+              "content-disposition": isImg ? "inline" : `attachment; filename="${fname}"`,
+              "cache-control": v ? "private, max-age=31536000, immutable" : "private, no-cache",
+            },
+          });
+        }
+        if (what === "upload" && method === "POST") {
+          if (!viewer || !(await registry.isMember(env, id, viewer.name))) return json({ error: "Only members can post." }, 403);
+          if (Number(request.headers.get("content-length") ?? 0) > MAX_IMAGE) return json({ error: `That file is too large (max ${MAX_IMAGE / 1e6} MB).` }, 413);
+          const bytes = await request.arrayBuffer();
+          const q = (k: string) => url.searchParams.get(k);
+          const text = (q("text") ?? "").slice(0, 4000);
+          const { mentions } = mayMention(text) ? parseMentions(text, (await registry.boardMembers(env, id)).map((x) => x.user), viewer.name, "person") : { mentions: [] };
+          try {
+            const entry = await stub.postFile(viewer.name, { name: q("name") ?? "", bytes, width: Number(q("w")) || null, height: Number(q("h")) || null, text, mentions, via: "person" });
+            ctx.waitUntil(Promise.all([registry.touch(env, viewer.name, id), registry.bumpBoard(env, id, entry.seq)]).catch(() => {}));
+            return json({ ok: true, entry }, 201);
+          } catch (e) {
+            return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+          }
+        }
+        return json({ error: "not found" }, 404);
       }
 
       // ---- shared documents (members; operators can read) ----

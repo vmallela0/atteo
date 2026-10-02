@@ -61,10 +61,17 @@ export function entryHtml(e: Entry, boardId: string, withReplies = true, opts: {
   if (e.reply_to != null) refs.push(`reply to <a href="#e${e.reply_to}">#${e.reply_to}</a>`);
   if (e.resolves.length) refs.push(`resolves ${e.resolves.map((n) => `<a href="#e${n}">#${n}</a>`).join(", ")}`);
   if (e.supersedes != null) refs.push(`supersedes <a href="#e${e.supersedes}">#${e.supersedes}</a>`);
-  const file = e.artifact_name
+  const img = e.artifact_name && e.media?.mime.startsWith("image/") ? imageHtml(boardId, e) : "";
+  const file = img
+    ? img
+    : e.artifact_name
     ? `<div class="file"><div class="fh"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M4 1.5h5l3 3v10H4z"/><path d="M9 1.5v3h3"/></svg>
 <span class="mono grow truncate">${esc(e.artifact_name)}${e.artifact_version ? ` <span class="xs faint">v${e.artifact_version}</span>` : ""}</span><span class="xs faint">${fmtBytes(e.artifact_size ?? 0)}</span>
-<button class="btn sm" type="button" data-open-file="${esc(e.artifact_name)}"${e.artifact_version ? ` data-file-ver="${e.artifact_version}"` : ""}>Open</button></div></div>`
+${
+        e.media
+          ? `<a class="btn sm" href="${esc(fileSrc(boardId, e.artifact_name, e.artifact_version))}" download="${esc(e.artifact_name)}">Download</a>`
+          : `<button class="btn sm" type="button" data-open-file="${esc(e.artifact_name)}"${e.artifact_version ? ` data-file-ver="${e.artifact_version}"` : ""}>Open</button>`
+      }</div></div>`
     : "";
   // Reply sets the composer to answer this entry: an agent's post gets the reply addressed to that agent.
   const reply = !opts.retracted && e.retracts == null ? `<button class="btn ghost sm" type="button" data-reply="${e.seq}" data-reply-label="${esc(e.via === "person" ? e.author : `${e.author}'s agent`)}">Reply</button>` : "";
@@ -115,6 +122,20 @@ ${c.files.length ? `<div class="chg-sec chg-files"><div class="chg-label">${c.fi
 <button class="btn ghost sm" type="button" data-diff="${seq}">View diff</button><button class="btn sm" type="button" data-review="request_changes" data-seq="${seq}">Request changes</button><button class="btn sm primary" type="button" data-review="approve" data-seq="${seq}">Approve</button></div>
 <form class="chg-rc" data-rc="${seq}" hidden><input class="input" name="note" maxlength="2000" placeholder="What should change?" aria-label="What should change?" required><button class="btn sm primary">Request changes</button><button class="btn sm ghost" type="button" data-rc-cancel>Cancel</button></form>
 <pre class="chg-diff mono" data-diff-for="${seq}" hidden></pre></div>`;
+}
+
+/** An image post: the picture (laid out at its real proportions before it loads), with its name, version and size. */
+/** Where a stored file (image or other binary) is served, at a given version. */
+function fileSrc(boardId: string, name: string, version: number | null | undefined): string {
+  return `/api/boards/${encodeURIComponent(boardId)}/image?name=${encodeURIComponent(name)}${version ? `&version=${version}` : ""}`;
+}
+
+function imageHtml(boardId: string, e: Entry): string {
+  const name = e.artifact_name ?? "";
+  const src = fileSrc(boardId, name, e.artifact_version);
+  const dims = e.media?.w && e.media?.h ? ` width="${e.media.w}" height="${e.media.h}"` : "";
+  return `<figure class="img"><button class="img-open" type="button" data-img="${esc(src)}" aria-label="View ${esc(name)} full size"><img src="${esc(src)}" alt="${esc(name)}" loading="lazy"${dims}></button>
+<figcaption class="xs faint"><span class="mono">${esc(name)}</span>${e.artifact_version ? ` v${e.artifact_version}` : ""} · ${fmtBytes(e.media?.size ?? e.artifact_size ?? 0)} · <a class="link" href="#files" data-open-file="${esc(name)}"${e.artifact_version ? ` data-file-ver="${e.artifact_version}"` : ""}>Open in Files</a></figcaption></figure>`;
 }
 
 /** Author, marked as the person or their agent (and which agent). */
@@ -628,7 +649,7 @@ ta.addEventListener('selectionchange',msnap);document.addEventListener('selectio
 // Enter posts, Shift+Enter adds a line. An Enter that picked a mention (default prevented above) doesn't post.
 document.getElementById('composer-text')?.addEventListener('keydown',e=>{
   if(e.defaultPrevented)return;
-  if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();const f=e.target.closest('form');if(e.target.value.trim())f.requestSubmit()}});
+  if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();const f=e.target.closest('form');if(e.target.value.trim()||pending.length)f.requestSubmit()}});
 // ---- shared documents ----
 const READONLY=${info.archived ? "true" : "false"};let curDoc=null,editing=false;
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -638,7 +659,7 @@ async function loadDocs(){const r=await fetch('/api/boards/'+BOARD+'/files');con
 async function openDoc(name,version){editing=false;const r=await fetch('/api/boards/'+BOARD+'/doc?name='+encodeURIComponent(name)+(version?'&version='+version:''));const d=await r.json();if(!r.ok){toast(d.error);return}curDoc=d;renderDoc();loadDocs()}
 function renderDoc(){const d=curDoc,v=document.getElementById('doc-view');const old=d.version!==d.latest;v.classList.remove('editing');
   v.innerHTML='<div class="row wrap" style="justify-content:space-between;gap:8px;margin-bottom:12px"><div><b class="mono">'+esc(d.name)+'</b> <span class="xs faint">v'+d.version+(old?' (viewing an older version; latest v'+d.latest+')':'')+' · '+esc(d.via==='agent'?d.updated_by+"'s agent":d.updated_by)+'</span></div><div class="row">'+
-  '<button class="btn sm ghost" type="button" id="doc-hist">History</button>'+(READONLY||old?'':'<button class="btn sm" type="button" id="doc-edit">Edit</button>')+'</div></div><div class="doc-body body">'+d.html+'</div><div id="doc-history"></div>'}
+  '<button class="btn sm ghost" type="button" id="doc-hist">History</button>'+(READONLY||old||d.media?'':'<button class="btn sm" type="button" id="doc-edit">Edit</button>')+'</div></div>'+(d.media?'<div class="doc-img"><img alt="'+esc(d.name)+'" src="/api/boards/'+BOARD+'/image?name='+encodeURIComponent(d.name)+'&version='+d.version+'"></div>':'<div class="doc-body body">'+d.html+'</div>')+'<div id="doc-history"></div>'}
 function editDoc(){const d=curDoc,v=document.getElementById('doc-view');editing=true;v.classList.add('editing');
   v.innerHTML='<div class="row" style="justify-content:space-between;margin-bottom:10px"><b class="mono">'+esc(d.name)+'</b><span class="xs faint">editing v'+d.version+'</span></div><textarea class="input mono" id="doc-text" style="font-size:12.5px">'+esc(d.content)+'</textarea><input class="input" id="doc-summary" placeholder="What changed? (optional)" style="margin-top:8px"><p id="doc-warn" class="flash" hidden style="margin-top:8px"></p><div class="row" style="justify-content:flex-end;margin-top:10px"><button class="btn" type="button" id="doc-cancel">Cancel</button><button class="btn primary" type="button" id="doc-save">Save</button></div>'}
 async function saveDoc(name,content,base,summary){const r=await fetch('/api/boards/'+BOARD+'/doc',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'write',name,content,base_version:base,summary})});const j=await r.json();
@@ -680,6 +701,52 @@ document.addEventListener('click',async e=>{
 document.addEventListener('submit',async e=>{const f=e.target.closest('[data-rc]');if(!f)return;e.preventDefault();
   const note=f.note.value.trim();if(!note)return;if(await review(f.dataset.rc,'request_changes',note)){f.reset();f.hidden=true}});
 applyReviews({});tick(false); // the first update brings every card's verdicts
+// ---- files and images: paste, drop or attach; previewed above the text; each becomes a file post when you post ----
+const attIn=document.getElementById('attach-input'),attBox=document.getElementById('attachments'),cform=ta.closest('form');let pending=[];
+const IMG_TYPES=['image/png','image/jpeg','image/gif','image/webp'],FILE_MAX=1500000;
+const kbs=n=>n<1024?n+' B':n<1048576?(n/1024).toFixed(1)+' KB':(n/1048576).toFixed(1)+' MB';
+const fileUrl=(name,v)=>'/api/boards/'+BOARD+'/image?name='+encodeURIComponent(name)+(v?'&version='+v:'');
+/** Pictures over 1600px or the size limit are scaled and re-encoded as WebP (GIFs stay as they are, for animation). */
+async function shrink(file){const bmp=await createImageBitmap(file);let w=bmp.width,h=bmp.height;
+  if(file.type==='image/gif'||(file.size<=FILE_MAX&&Math.max(w,h)<=1600))return {blob:file,w,h,name:file.name||'image.'+file.type.split('/')[1],image:true};
+  const k=Math.min(1,1600/Math.max(w,h));w=Math.round(w*k);h=Math.round(h*k);
+  const c=document.createElement('canvas');c.width=w;c.height=h;c.getContext('2d').drawImage(bmp,0,0,w,h);
+  let q=.86,blob;do{blob=await new Promise(r=>c.toBlob(r,'image/webp',q));q-=.12}while(blob&&blob.size>FILE_MAX&&q>.3);
+  return {blob,w,h,name:(file.name||'image').replace(/\\.[^.]+$/,'')+'.webp',image:true}}
+/** Other files over the limit are gzipped (and sent as name.gz) when that makes them fit. */
+async function pack(file){if(file.size<=FILE_MAX)return {blob:file,name:file.name||'file'};
+  if(typeof CompressionStream==='undefined')return null;
+  const gz=await new Response(file.stream().pipeThrough(new CompressionStream('gzip'))).blob();
+  return gz.size<=FILE_MAX?{blob:gz,name:(file.name||'file')+'.gz',packed:file.size}:null}
+async function addFiles(files){for(const f of files){
+  try{const x=IMG_TYPES.includes(f.type)?await shrink(f):await pack(f);
+    if(!x||!x.blob||x.blob.size>FILE_MAX){toast((f.name||'That file')+' is too large, even compressed (max 1.5 MB)');continue}
+    if(x.packed)toast(f.name+' compressed to '+kbs(x.blob.size));
+    x.url=x.image?URL.createObjectURL(x.blob):null;pending.push(x)}catch(e){toast("Couldn't read "+(f.name||'that file'))}}
+  renderAtt()}
+function renderAtt(){attBox.hidden=!pending.length;ta.required=!pending.length;
+  attBox.innerHTML=pending.map((x,i)=>'<span class="att'+(x.image?'':' file')+'">'+(x.image?'<img src="'+x.url+'" alt="'+esc(x.name)+'">':'<span class="att-name mono">'+esc(x.name)+'</span><span class="xs faint">'+kbs(x.blob.size)+'</span>')+
+    '<button type="button" class="att-x" data-att-rm="'+i+'" aria-label="Remove '+esc(x.name)+'">✕</button></span>').join('')}
+document.getElementById('attach-btn').addEventListener('click',()=>attIn.click());
+attIn.addEventListener('change',()=>{addFiles([...attIn.files]);attIn.value=''});
+attBox.addEventListener('click',e=>{const b=e.target.closest('[data-att-rm]');if(!b)return;const i=+b.dataset.attRm;if(pending[i].url)URL.revokeObjectURL(pending[i].url);pending.splice(i,1);renderAtt();ta.focus()});
+ta.addEventListener('paste',e=>{const fs=[...(e.clipboardData?.files||[])];if(fs.length){e.preventDefault();addFiles(fs)}});
+const convEl=document.querySelector('.conv');
+convEl.addEventListener('dragover',e=>{if([...(e.dataTransfer?.types||[])].includes('Files')){e.preventDefault();convEl.classList.add('drop')}});
+convEl.addEventListener('dragleave',e=>{if(!convEl.contains(e.relatedTarget))convEl.classList.remove('drop')});
+convEl.addEventListener('drop',e=>{convEl.classList.remove('drop');const fs=[...(e.dataTransfer?.files||[])];if(fs.length){e.preventDefault();addFiles(fs)}});
+// With files attached, posting uploads each one (the text goes with the first) instead of a plain post.
+cform.addEventListener('submit',async e=>{if(!pending.length)return;e.preventDefault();e.stopPropagation();
+  const btn=cform.querySelector('.bar .btn.primary');btn.disabled=true;let text=ta.value.trim();
+  try{while(pending.length){const x=pending[0];
+      const r=await fetch('/api/boards/'+BOARD+'/upload?name='+encodeURIComponent(x.name)+(x.image?'&w='+x.w+'&h='+x.h:'')+'&text='+encodeURIComponent(text),{method:'POST',headers:{'content-type':x.blob.type||'application/octet-stream'},body:x.blob});
+      const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||"Couldn't post "+x.name);return}
+      if(x.url)URL.revokeObjectURL(x.url);pending.shift();renderAtt();text='';ta.value='';msync()}
+    cform.reset();ta.style.height='';msync();stickNext=true;tick(false)}
+  finally{btn.disabled=false}});
+const lb=document.getElementById('lightbox');
+document.addEventListener('click',e=>{const b=e.target.closest('[data-img]');if(!b)return;document.getElementById('lightbox-img').src=b.dataset.img;lb.showModal()});
+lb.addEventListener('click',()=>lb.close());
 // ---- read receipts: a ring on your latest message (who has seen it), a dot on each @mention (has that one seen it) ----
 const MEMBERS=${jsString(members.map((m) => m.user))};let READS={},seenSent=0,seenTimer=null;
 const seenAs=(u,agent)=>{const r=READS[u];return r?(agent?r.agent_seen:r.person_seen):(agent?-1:0)}; // agent -1: never on this board
@@ -823,10 +890,13 @@ window.boardKeys=(e,k)=>{
     <form class="card composer" method="post" action="/api/boards/${esc(info.id)}/entries" data-api data-done="posted" data-reset${info.archived ? " hidden" : ""}>
       <div class="replying" id="replying" hidden>Replying to <b id="replying-who"></b> <a id="replying-seq" href="#"></a><button class="btn ghost sm x" type="button" id="reply-cancel" aria-label="Cancel reply">✕</button></div>
       <input type="hidden" name="reply_to" id="reply-to" value="">
+      <div class="attachments" id="attachments" hidden></div>
       <div class="cmp-field"><div class="cmp-mirror" id="composer-mirror" aria-hidden="true"></div><textarea class="input" id="composer-text" name="text" required placeholder="Write a note, question, task or decision… (Enter to post, Shift+Enter for a new line, @ to mention)" aria-label="Message"
         role="combobox" aria-autocomplete="list" aria-controls="mention-menu" aria-expanded="false"></textarea></div>
       <ul class="mention-menu" id="mention-menu" role="listbox" aria-label="Mention" hidden></ul>
       <div class="bar">
+        <button class="btn ghost sm attach" type="button" id="attach-btn" aria-label="Attach files" title="Attach files or images (or paste or drop them)"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M13.5 7.6 8.3 12.8a3.2 3.2 0 0 1-4.5-4.5l5.6-5.6a2.1 2.1 0 0 1 3 3L6.8 11.3a1 1 0 0 1-1.5-1.5l4.9-4.9"/></svg></button>
+        <input type="file" id="attach-input" multiple hidden>
         <div class="seg" role="radiogroup" aria-label="Type">${["note", "question", "task", "decision"]
           .map((t, i) => `<input type="radio" name="type" id="ty-${t}" value="${t}"${i === 0 ? " checked" : ""}><label for="ty-${t}">${t[0].toUpperCase() + t.slice(1)}</label>`)
           .join("")}</div>
@@ -860,6 +930,7 @@ window.boardKeys=(e,k)=>{
 </div>
 
 ${SHEET}
+<dialog class="lightbox" id="lightbox" aria-label="Image"><img id="lightbox-img" alt=""></dialog>
 
 ${connectDialog(viewer, { id: info.id, title: info.title })}
 

@@ -1,5 +1,12 @@
 import type { Mention } from "./mentions";
 
+export interface Media {
+  mime: string;
+  w: number | null;
+  h: number | null;
+  size: number;
+}
+
 export const ENTRY_TYPES = ["claim", "question", "decision", "task", "artifact", "note", "change"] as const;
 export type EntryType = (typeof ENTRY_TYPES)[number];
 
@@ -21,7 +28,8 @@ export interface Entry {
   client?: string | null; // for agent posts: which agent, e.g. "Claude Code"
   artifact_name: string | null;
   artifact_size: number | null; // bytes of artifact content (content itself is fetched with `get`)
-  artifact_version?: number | null; // files are versioned documents: this entry published version N of artifact_name
+  artifact_version?: number | null;
+  media?: Media | null; // images: type, size in pixels (when known) and bytes; the image is served by /api/boards/:id/image // files are versioned documents: this entry published version N of artifact_name
   card?: import("./card").ChangeCard | null; // type=change: branch, PR, CI, commits, files (the diff is fetched with `get`)
 }
 

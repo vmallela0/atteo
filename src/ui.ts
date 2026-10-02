@@ -198,6 +198,25 @@ dialog[open]{animation:pop .16s ease-out}
 .file .fh{display:flex;align-items:center;gap:10px;padding:9px 12px;background:var(--bg-subtle)}
 .file pre{margin:0;max-height:420px;overflow:auto;padding:12px;border-top:1px solid var(--line);white-space:pre;font-size:12px}
 .t-change{color:var(--accent)}
+/* images: inline in the conversation (real proportions, capped), full size in a lightbox; attachments in the composer */
+.img{margin:8px 0 0}.img-open{display:block;padding:0;border:0;background:none;cursor:zoom-in;max-width:100%}
+.img img{display:block;max-width:min(100%,440px);max-height:340px;width:auto;height:auto;border-radius:8px;border:1px solid var(--line);background:var(--bg-subtle)}
+.img figcaption{margin-top:4px}
+dialog.lightbox{padding:0;border:0;background:transparent;box-shadow:none;max-width:min(96vw,1600px);max-height:92vh;cursor:zoom-out}
+dialog.lightbox::backdrop{background:rgba(0,0,0,.78)}
+dialog.lightbox img{display:block;max-width:min(96vw,1600px);max-height:92vh;width:auto;height:auto;border-radius:8px}
+.attachments{display:flex;gap:8px;flex-wrap:wrap;padding:10px 12px 0}
+.attachments[hidden]{display:none}
+.att{position:relative;display:block}
+.att img{display:block;height:64px;width:auto;max-width:140px;object-fit:cover;border-radius:7px;border:1px solid var(--line)}
+.att-x{position:absolute;top:-6px;right:-6px;width:18px;height:18px;border-radius:50%;border:1px solid var(--line-strong);background:var(--bg);color:var(--muted);font-size:10px;line-height:1;cursor:pointer;display:grid;place-items:center;padding:0}
+.att-x:hover{color:var(--ink)}
+.att.file{display:flex;flex-direction:column;justify-content:center;gap:2px;height:64px;max-width:180px;padding:0 12px;border:1px solid var(--line);border-radius:7px;background:var(--bg-subtle)}
+.att-name{font-size:12px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.doc-bin{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px;border:1px dashed var(--line-strong);border-radius:8px}
+.composer .attach{width:30px;padding:0;justify-content:center;color:var(--muted)}.composer .attach:hover{color:var(--ink)}
+.conv.drop .composer{box-shadow:0 0 0 2px var(--accent)}
+.doc-img img{display:block;max-width:100%;height:auto;border-radius:8px;border:1px solid var(--line);background:var(--bg-subtle)}
 /* read receipts: a ring on your latest message, filling green as people and agents see it; a dot on each @mention */
 .entry.has-rd>.grow{padding-right:24px}
 .rd{position:absolute;right:0;bottom:12px;width:16px;height:16px;display:grid;place-items:center;cursor:default;outline-offset:2px}
