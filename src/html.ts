@@ -61,8 +61,8 @@ export function entryHtml(e: Entry, boardId: string, withReplies = true, opts: {
   if (e.supersedes != null) refs.push(`supersedes <a href="#e${e.supersedes}">#${e.supersedes}</a>`);
   const file = e.artifact_name
     ? `<div class="file"><div class="fh"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M4 1.5h5l3 3v10H4z"/><path d="M9 1.5v3h3"/></svg>
-<span class="mono grow truncate">${esc(e.artifact_name)}</span><span class="xs faint">${fmtBytes(e.artifact_size ?? 0)}</span>
-<button class="btn sm" type="button" data-file="${e.seq}" data-board="${esc(boardId)}">View</button></div></div>`
+<span class="mono grow truncate">${esc(e.artifact_name)}${e.artifact_version ? ` <span class="xs faint">v${e.artifact_version}</span>` : ""}</span><span class="xs faint">${fmtBytes(e.artifact_size ?? 0)}</span>
+<button class="btn sm" type="button" data-open-file="${esc(e.artifact_name)}"${e.artifact_version ? ` data-file-ver="${e.artifact_version}"` : ""}>Open</button></div></div>`
     : "";
   const actions = opts.canRetract && !opts.retracted && e.retracts == null ? `<button class="btn ghost sm retract" type="button" data-retract="${e.seq}">Retract</button>` : "";
   return `<article class="entry${opts.retracted ? " retracted" : ""}${e.via === "agent" ? " by-agent" : ""}" id="e${e.seq}" data-seq="${e.seq}" data-author="${esc(e.author)}">
@@ -118,8 +118,10 @@ export function summaryHtml(entries: Entry[], viewer: string, members: MemberVie
   // One line per item: who, then the first line of the text; the full text is on hover.
   const item = (e: Entry) =>
     `<li><a href="#e${e.seq}" title="${esc(clip(e.artifact_name ?? e.text, 300))}"><span class="n">#${e.seq}</span><span class="one">${e.to ? `<b>${esc(authorLabel(e))}</b> → ${esc(e.to)}: ` : `<b>${esc(authorLabel(e))}</b>: `}${esc(clip(e.artifact_name ?? firstLine(e.text), 120))}</span></a></li>`;
-  const sec = (title: string, items: Entry[]) =>
-    `<h3><span>${title}</span><span class="faint">${items.length || ""}</span></h3>${items.length ? `<ul>${items.map(item).join("")}</ul>` : `<p class="none">None</p>`}`;
+  const fileItem = (e: Entry) =>
+    `<li><a href="#files" data-open-file="${esc(e.artifact_name ?? "")}" title="${esc(clip(e.text, 300))}"><span class="one mono">${esc(e.artifact_name ?? "")}</span>${e.artifact_version ? `<span class="n">v${e.artifact_version}</span>` : ""}</a></li>`;
+  const sec = (title: string, items: Entry[], render = item) =>
+    `<h3><span>${title}</span><span class="faint">${items.length || ""}</span></h3>${items.length ? `<ul>${items.map(render).join("")}</ul>` : `<p class="none">None</p>`}`;
   // The viewer is a person: `to` and "@viewer" wait on them; "@viewer's agent" is work handed to their agent.
   const mine = s.openQuestions.filter((e) => e.to === viewer || forPerson(e, viewer));
   const agents = [...s.openQuestions, ...s.openTasks].filter((e) => !mine.includes(e) && forAgent(e, viewer) && e.to !== viewer).sort((a, b) => a.seq - b.seq);
@@ -149,7 +151,7 @@ export function summaryHtml(entries: Entry[], viewer: string, members: MemberVie
     sec("Open questions", s.openQuestions.filter((e) => !mine.includes(e) && !agents.includes(e))) +
     sec("Open tasks", s.openTasks.filter((e) => !agents.includes(e))) +
     sec("Decisions", s.decisions) +
-    sec("Files", s.artifacts) +
+    sec("Files", s.artifacts, fileItem) +
     people
   );
 }
@@ -350,7 +352,7 @@ ${boardTitle != null ? `<td class="truncate" style="max-width:160px">${esc(board
 <td><span class="row">${avatar(e.author, "sm", e.via === "agent")}${esc(e.via === "agent" ? `${e.author}'s agent` : e.author)}${e.via === "person" ? ` <span class="xs faint">person</span>` : ""}</span></td>
 <td>${typeTag(e.type)}</td>
 <td class="muted">${esc([e.to, ...(e.mentions ?? []).map((m) => mentionLabel(m))].filter(Boolean).join(", ")) || "—"}</td>
-<td class="sum"><span>${esc(clip(e.artifact_name ? `${e.artifact_name} — ${e.text}` : e.text, 200))}</span></td></tr>`;
+<td class="sum"><span>${esc(clip(e.artifact_name ? `${e.artifact_name}${e.artifact_version ? ` v${e.artifact_version}` : ""} — ${e.text}` : e.text, 200))}</span></td></tr>`;
 }
 
 const SHEET = `<dialog class="sheet" id="sheet"><div class="hd"><div><h2 id="sheet-title">Entry</h2><p class="small muted" id="sheet-sub" style="margin-top:4px"></p></div>
@@ -521,8 +523,9 @@ document.getElementById('composer-text')?.addEventListener('keydown',e=>{
 // ---- shared documents ----
 const READONLY=${info.archived ? "true" : "false"};let curDoc=null,editing=false;
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-async function loadDocs(){const r=await fetch('/api/boards/'+BOARD+'/docs');const j=await r.json();const el=document.getElementById('doc-items');
-  el.innerHTML=(j.docs||[]).length?j.docs.map(d=>'<a href="#docs" class="doc-item'+(curDoc&&curDoc.name===d.name?' on':'')+'" data-doc="'+esc(d.name)+'"><span class="truncate">'+esc(d.name)+'</span><span class="xs faint">v'+d.version+'</span></a>').join(''):'<p class="xs faint">No documents yet.</p>'}
+async function loadDocs(){const r=await fetch('/api/boards/'+BOARD+'/files');const j=await r.json();const el=document.getElementById('doc-items');const fs=j.files||j.docs||[];
+  const kb=n=>n<1024?n+' B':(n/1024).toFixed(1)+' KB';
+  el.innerHTML=fs.length?fs.map(d=>'<a href="#files" class="doc-item'+(curDoc&&curDoc.name===d.name?' on':'')+'" data-doc="'+esc(d.name)+'" title="'+esc(d.name+' · v'+d.version+(d.updated_by?' · '+(d.via==='agent'?d.updated_by+"'s agent":d.updated_by):''))+'"><span class="truncate mono">'+esc(d.name)+'</span><span class="xs faint">v'+d.version+(d.size!=null?' · '+kb(d.size):'')+'</span></a>').join(''):'<p class="xs faint">No files yet.</p>'}
 async function openDoc(name,version){editing=false;const r=await fetch('/api/boards/'+BOARD+'/doc?name='+encodeURIComponent(name)+(version?'&version='+version:''));const d=await r.json();if(!r.ok){toast(d.error);return}curDoc=d;renderDoc();loadDocs()}
 function renderDoc(){const d=curDoc,v=document.getElementById('doc-view');const old=d.version!==d.latest;v.classList.remove('editing');
   v.innerHTML='<div class="row wrap" style="justify-content:space-between;gap:8px;margin-bottom:12px"><div><b class="mono">'+esc(d.name)+'</b> <span class="xs faint">v'+d.version+(old?' (viewing an older version; latest v'+d.latest+')':'')+' · '+esc(d.via==='agent'?d.updated_by+"'s agent":d.updated_by)+'</span></div><div class="row">'+
@@ -543,6 +546,7 @@ document.addEventListener('click',async e=>{const t=e.target;
   if(t.closest('#doc-create')){saveDoc(document.getElementById('doc-name').value.trim(),document.getElementById('doc-text').value,0,'created');return}
 });
 document.addEventListener('click',e=>{const it=e.target.closest('[data-ver]');if(it){e.preventDefault();e.stopPropagation();openDoc(it.dataset.doc,+it.dataset.ver)}},true);
+document.addEventListener('click',e=>{const b=e.target.closest('[data-open-file]');if(!b)return;e.preventDefault();infoOpen(false);tab(2);openDoc(b.dataset.openFile,b.dataset.fileVer?+b.dataset.fileVer:undefined)});
 window.onDocChanged=(d)=>{loadDocs();if(curDoc&&curDoc.name===d.name){if(editing){const w=document.getElementById('doc-warn');if(w){w.hidden=false;w.className='flash';w.textContent=d.by+' saved v'+d.version+' while you were editing. Saving now will be refused; copy your changes, cancel, and edit the new version.'}}else openDoc(d.name)}};
 window.deleted=()=>{location.href='/'};
 // Every place the board name shows: heading, breadcrumb, sidebar, browser tab (also used for live renames by others).
@@ -571,10 +575,6 @@ document.addEventListener('click',async e=>{const b=e.target.closest('[data-memb
   b.disabled=true;const r=await fetch('/api/boards/'+BOARD+'/members/'+encodeURIComponent(b.dataset.memberRemove)+'/remove',{method:'POST'});
   const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||'Could not remove');b.disabled=false;return}
   if(j.left){location.href='/'}else{toast(j.message);location.reload()}});
-document.addEventListener('click',async e=>{const b=e.target.closest('[data-file]');if(!b)return;
-  const card=b.closest('.file');let pre=card.querySelector('pre');if(pre){pre.remove();b.textContent='View';return}
-  b.disabled=true;const r=await fetch('/api/boards/'+b.dataset.board+'/entries/'+b.dataset.file);const j=await r.json();b.disabled=false;
-  pre=document.createElement('pre');pre.className='mono';pre.textContent=j.artifact_content??j.error;card.appendChild(pre);b.textContent='Hide'});
 const infoBtn=document.getElementById('info-btn'),convLayout=document.getElementById('conv-layout');
 function infoOpen(o){convLayout.classList.toggle('info-open',o);infoBtn.setAttribute('aria-expanded',String(o))}
 function infoCount(){const n=document.querySelectorAll('#sum .waiting li').length,c=document.getElementById('info-count');c.textContent=n||'';c.hidden=!n}
@@ -586,9 +586,9 @@ let convStuck=true;
 function tab(n){if(!document.getElementById('panel-conv').hidden)convStuck=atBottom();
   document.querySelectorAll('#board-tabs button').forEach((b,i)=>b.setAttribute('aria-selected',String(i===n)));
   document.querySelectorAll('[data-board-panel]').forEach((p,i)=>p.hidden=i!==n);
-  infoBtn.hidden=n!==0;if(n===0&&convStuck)toBottom();history.replaceState(null,'',['',"#log","#docs"][n]||location.pathname);if(n===2)loadDocs()}
+  infoBtn.hidden=n!==0;if(n===0&&convStuck)toBottom();history.replaceState(null,'',['',"#log","#files"][n]||location.pathname);if(n===2)loadDocs()}
 document.querySelectorAll('#board-tabs button').forEach((b,i)=>b.addEventListener('click',()=>tab(i)));
-if(location.hash==='#log')tab(1);if(location.hash==='#docs')tab(2);
+if(location.hash==='#log')tab(1);if(location.hash==='#files'||location.hash==='#docs')tab(2);
 let cur=-1;
 window.boardKeys=(e,k)=>{
   if(k==='1'||k==='2'||k==='3'){tab(+k-1);return}
@@ -618,7 +618,7 @@ window.boardKeys=(e,k)=>{
     <span><span data-count>${info.entry_count}</span> entries</span>
     <span class="mono xs faint bp-id">${esc(info.id)}</span>
   </div>
-  <div class="bp-tabs"><div class="tabs" role="tablist" id="board-tabs"><button role="tab" aria-selected="true">Conversation</button><button role="tab" aria-selected="false">Log <span class="faint" data-count>${info.entry_count}</span></button><button role="tab" aria-selected="false">Docs</button></div>
+  <div class="bp-tabs"><div class="tabs" role="tablist" id="board-tabs"><button role="tab" aria-selected="true">Conversation</button><button role="tab" aria-selected="false">Log <span class="faint" data-count>${info.entry_count}</span></button><button role="tab" aria-selected="false">Files</button></div>
     <button class="btn ghost sm info-btn" type="button" id="info-btn" aria-expanded="false" aria-controls="board-info">Board info <span class="count" id="info-count" hidden></span></button></div>
 </div>
 <div role="tabpanel" id="panel-conv" class="bp-panel" data-board-panel><div class="layout" id="conv-layout">
@@ -650,8 +650,8 @@ window.boardKeys=(e,k)=>{
 <p class="xs faint" style="margin-top:10px">Every entry, newest first. Click a row (or <kbd>J</kbd>/<kbd>K</kbd> then <kbd>↵</kbd>) for its raw payload.</p></div>
 <div role="tabpanel" id="panel-docs" class="bp-panel" data-board-panel hidden>
   <div class="docs">
-    <div class="doc-list"><div class="row" style="justify-content:space-between;margin-bottom:8px"><span class="small muted">Documents</span>${info.archived ? "" : `<button class="btn sm" type="button" id="doc-new">New</button>`}</div><div id="doc-items" class="small muted">Loading…</div></div>
-    <div class="doc-view card pad" id="doc-view"><p class="muted small">Pick a document, or create one, e.g. BACKLOG.md. People and agents on this board edit it together; every save is a new version.</p></div>
+    <div class="doc-list"><div class="row" style="justify-content:space-between;margin-bottom:8px"><span class="small muted">Files</span>${info.archived ? "" : `<button class="btn sm" type="button" id="doc-new">New</button>`}</div><div id="doc-items" class="small muted">Loading…</div></div>
+    <div class="doc-view card pad" id="doc-view"><p class="muted small">Pick a file, or create one, e.g. BACKLOG.md. Files posted on the board and documents are the same thing: people and agents edit them together, and every save or post is a new version.</p></div>
   </div>
 </div>
 

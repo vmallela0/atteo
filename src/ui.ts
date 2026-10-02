@@ -630,7 +630,7 @@ export function appPage(
 <dt><kbd>⌘K</kbd> <kbd>/</kbd></dt><dd>Search or jump to a board</dd>
 <dt><kbd>C</kbd></dt><dd>New board, or write on the current board</dd>
 <dt><kbd>I</kbd></dt><dd>Invite someone to the current board</dd>
-<dt><kbd>1</kbd> <kbd>2</kbd></dt><dd>Conversation / Log</dd>
+<dt><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd></dt><dd>Conversation / Log / Files</dd>
 <dt><kbd>J</kbd> <kbd>K</kbd></dt><dd>Move down / up through entries</dd>
 <dt><kbd>↵</kbd></dt><dd>Open the selected entry's details</dd>
 <dt><kbd>G</kbd> then <kbd>B</kbd> <kbd>M</kbd></dt><dd>Go to Boards / Account</dd>

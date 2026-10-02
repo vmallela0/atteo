@@ -181,3 +181,11 @@ describe("one-line summaries", () => {
     expect(html).toContain(`title="Rerun the flaky test Then post the log and the timings."`);
   });
 });
+
+describe("files in the sidebar", () => {
+  it("open in the Files tab (latest version) instead of jumping to the post", () => {
+    const f = e({ seq: 12, type: "artifact", text: "Trace", artifact_name: "trace.log", artifact_size: 20, artifact_version: 2 });
+    const html = summaryHtml([f], "jxn", []);
+    expect(html).toContain(`<a href="#files" data-open-file="trace.log" title="Trace"><span class="one mono">trace.log</span><span class="n">v2</span></a>`);
+  });
+});
