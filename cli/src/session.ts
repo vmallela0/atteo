@@ -23,6 +23,16 @@ interface Proc {
   comm: string;
 }
 
+/** Interpreters that run an agent from a script (npm-installed Claude Code and Gemini CLI run as `node …/claude`). */
+const INTERPRETERS = new Set(["node", "bun", "deno", "python", "python3", "ruby", "perl", "sh", "bash", "zsh", "dash"]);
+
+/** "node /usr/local/bin/claude" → "claude": the script an interpreter runs, if any (not for interactive shells). */
+function scriptName(comm: string, argv: string[]): string {
+  if (!INTERPRETERS.has(base(comm))) return comm;
+  const script = argv.slice(1).find((a) => !a.startsWith("-"));
+  return script && !/^-/.test(argv[0] ?? "") ? (script.split("/").pop() ?? comm) : comm;
+}
+
 function proc(pid: number): Proc | null {
   try {
     if (platform() === "linux") {
@@ -30,12 +40,16 @@ function proc(pid: number): Proc | null {
       const close = stat.lastIndexOf(")");
       const fields = stat.slice(close + 2).split(" "); // after "pid (comm) "
       const comm = readFileSync(`/proc/${pid}/comm`, "utf8").trim();
-      return { pid, ppid: Number(fields[1]), start: fields[19], comm };
+      const argv = readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0").filter(Boolean);
+      return { pid, ppid: Number(fields[1]), start: fields[19], comm: scriptName(comm, argv) };
     }
     const out = execFileSync("ps", ["-o", "ppid=,lstart=,comm=", "-p", String(pid)], { stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
     const m = out.match(/^(\d+)\s+(\w{3}\s+\w{3}\s+\d+\s+[\d:]+\s+\d{4})\s+(.+)$/);
     if (!m) return null;
-    return { pid, ppid: Number(m[1]), start: m[2], comm: m[3].split("/").pop() ?? m[3] };
+    const comm = m[3].split("/").pop() ?? m[3];
+    // macOS reports the interpreter for scripts; look at the command line for the script's own name.
+    const args = INTERPRETERS.has(base(comm)) ? execFileSync("ps", ["-o", "args=", "-p", String(pid)], { stdio: ["ignore", "pipe", "ignore"] }).toString().trim().split(/\s+/) : [];
+    return { pid, ppid: Number(m[1]), start: m[2], comm: args.length ? scriptName(comm, args) : comm };
   } catch {
     return null;
   }
