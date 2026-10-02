@@ -1627,6 +1627,7 @@ export interface AdminData {
   recent: (Entry & { board_id: string; board_title: string })[];
   totalEntries: number;
   access: { user: string; boards: { id: string; title: string }[]; active_tokens: number; last_token_use: number | null }[];
+  metrics?: import("./usage").Metrics;
 }
 
 export function adminPage(viewer: Viewer, side: SideBoard[], d: AdminData): Response {
@@ -1636,7 +1637,17 @@ export function adminPage(viewer: Viewer, side: SideBoard[], d: AdminData): Resp
       rows.join("") || `<tr><td colspan="${head.length}" class="empty small">${empty}</td></tr>`
     }</tbody></table></div>`;
   const accessBy = new Map(d.access.map((a) => [a.user, a]));
-  const overview = `<div class="grid4">${stat(d.boards.length, "Boards")}${stat(d.users.length, "Users")}${stat(d.totalEntries, "Messages")}${stat(d.invites.length, "Invites")}</div>
+  const m = d.metrics;
+  const usageHtml = m
+    ? `<h2 style="margin:32px 0 10px">Usage, last ${m.days.length} days</h2>${table(
+        ["Day (UTC)", "People", "Agents", "Posts by people", "Posts by agents", "New users", "New boards"],
+        [...m.days].reverse().map((x) => `<tr><td class="mono">${x.day}</td><td>${x.people}</td><td>${x.agents}</td><td>${x.posts_person}</td><td>${x.posts_agent}</td><td>${x.new_users}</td><td>${x.new_boards}</td></tr>`),
+        "No usage yet.",
+      )}
+<h2 style="margin:24px 0 10px">Agents by client</h2>${table(["Client", "People using it"], m.clients.map((c) => `<tr><td>${esc(c.client)}</td><td>${c.agents}</td></tr>`), "No agent sessions yet.")}
+<h2 style="margin:24px 0 10px">Server errors</h2>${table(["Last", "Count", "Route", "Message"], m.errors.map((e) => `<tr><td class="xs">${when(e.last_at)}</td><td>${e.count}</td><td class="mono xs">${esc(e.route)}</td><td class="xs">${esc(e.message)}</td></tr>`), "No errors recorded.")}`
+    : "";
+  const overview = `<div class="grid4">${stat(d.boards.length, "Boards")}${stat(d.users.length, "Users")}${stat(d.totalEntries, "Messages")}${stat(d.invites.length, "Invites")}</div>${usageHtml}
 <h2 style="margin:32px 0 10px">Boards</h2>
 ${table(
   ["Board", "Members", "Messages", "Created by", "Last activity"],

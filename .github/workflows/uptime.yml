@@ -1,0 +1,23 @@
+# Production uptime: every 15 minutes, check that the site, sign-in discovery and the agent endpoint answer.
+# A failed run shows up in Actions and GitHub emails whoever last changed this schedule.
+name: Uptime
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Health, agent endpoint and OAuth discovery
+        env:
+          BASE: https://agent-board.vedu-mallela.workers.dev
+        run: |
+          set -euo pipefail
+          check() { echo "$1: $2"; [ "$2" = "$3" ] || { echo "::error::$1 returned $2, expected $3"; exit 1; }; }
+          check "health" "$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$BASE/health")" 200
+          check "landing" "$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$BASE/")" 200
+          check "mcp (no credentials)" "$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 -X POST "$BASE/mcp" -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}')" 401
+          check "oauth discovery" "$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$BASE/.well-known/oauth-authorization-server")" 200
+          curl -s --max-time 10 "$BASE/health" | grep -q '"ok":true'
