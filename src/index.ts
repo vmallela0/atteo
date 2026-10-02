@@ -1,5 +1,6 @@
 // Worker entry: MCP endpoint, sign-in, web pages, JSON API, and the operator console (/_ops).
 
+import * as a2a from "./a2a";
 import * as usage from "./usage";
 import * as oauth from "./oauth";
 import { consentPage } from "./oauthPage";
@@ -314,6 +315,58 @@ export default {
         const ok = Object.values(checks).every((v) => v === "ok");
         return json({ ok, version: env.CF_VERSION_METADATA?.id ?? null, checks }, ok ? 200 : 503, { "cache-control": "no-store" });
       }
+      // ---- A2A: an Agent Card and a JSON-RPC endpoint for agents that don't speak MCP ----
+      if (path === "/.well-known/agent-card.json" || path === "/.well-known/agent.json") return json(a2a.agentCard(url.origin), 200, { "access-control-allow-origin": "*" });
+      if (path === "/a2a" && method === "POST") {
+        const tok = auth.bearer(request);
+        const who = tok ? (await auth.resolveToken(env, tok, ctx)).user : null;
+        const rpcErr = (id: unknown, code: number, message: string, status = 200) => json({ jsonrpc: "2.0", id: id ?? null, error: { code, message } }, status);
+        if (!who) return new Response(JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32001, message: "Send a personal token: Authorization: Bearer <token>" } }), { status: 401, headers: { "content-type": "application/json", "WWW-Authenticate": `Bearer resource_metadata="${url.origin}/.well-known/oauth-protected-resource"` } });
+        const rpc = (await request.json().catch(() => null)) as { id?: unknown; method?: string; params?: Record<string, any> } | null;
+        if (!rpc?.method) return rpcErr(null, -32600, "Invalid request");
+        const ok = (result: unknown) => json({ jsonrpc: "2.0", id: rpc.id ?? null, result });
+        try {
+          if (rpc.method === "message/send") {
+            const msg = rpc.params?.message as a2a.A2AMessage | undefined;
+            const text = a2a.textOf(msg);
+            const to = String(msg?.metadata?.to ?? "").toLowerCase().replace(/^@/, "");
+            const want = String(msg?.metadata?.board ?? "").trim();
+            if (!text) return rpcErr(rpc.id, -32602, "message needs a text part");
+            if (!to || !want) return rpcErr(rpc.id, -32602, 'Put {"board": "<id or name>", "to": "<member>"} in message.metadata');
+            const mine = await registry.boardsForUser(env, who);
+            const board = mine.find((b) => b.id === want) ?? mine.find((b) => b.title.toLowerCase() === want.toLowerCase()) ?? mine.find((b) => b.title.toLowerCase().includes(want.toLowerCase()));
+            if (!board) return rpcErr(rpc.id, -32602, `You're not on a board called "${want}".`);
+            if ((await registry.memberRole(env, board.id, who)) === "viewer") return rpcErr(rpc.id, -32602, "Your role on that board is viewer.");
+            const hit = scanFields({ text });
+            if (hit) return rpcErr(rpc.id, -32602, blockedMessage(hit));
+            const e = await boardStub(env, board.id).post(who, { type: "question", to, text, via: "agent", client: "A2A agent" });
+            ctx.waitUntil(registry.bumpBoard(env, board.id, e.seq).catch(() => {}));
+            return ok(a2a.task(a2a.taskId(board.id, e.seq), "working", undefined, { metadata: { board: board.id, seq: e.seq, url: `${url.origin}/b/${board.id}#e${e.seq}` } }));
+          }
+          if (rpc.method === "tasks/get" || rpc.method === "tasks/cancel") {
+            const t = a2a.parseTaskId(rpc.params?.id);
+            if (!t || !(await registry.isMember(env, t.board, who))) return rpcErr(rpc.id, -32001, "Task not found");
+            const stub = boardStub(env, t.board);
+            const r = await stub.get(t.seq).catch(() => null);
+            if (!r || r.entry.author !== who) return rpcErr(rpc.id, -32001, "Task not found");
+            const id = a2a.taskId(t.board, t.seq);
+            if (rpc.method === "tasks/cancel") {
+              await stub.post(who, { type: "note", retracts: t.seq, text: "Withdrawn by the asking agent.", via: "agent", client: "A2A agent" }).catch(() => {});
+              return ok(a2a.task(id, "canceled"));
+            }
+            if (r.replies.some((x) => x.retracts === t.seq)) return ok(a2a.task(id, "canceled"));
+            const answer = r.replies.find((x) => x.author !== who && x.retracts == null && (x.reply_to === t.seq || x.resolves.includes(t.seq)));
+            if (!answer) return ok(a2a.task(id, "working"));
+            const by = answer.via === "agent" ? `${answer.author}'s agent` : answer.author;
+            // The answer is another member's words: hand it over as data.
+            return ok(a2a.task(id, "completed", answer.text, { metadata: { answered_by: by, untrusted: true, seq: answer.seq } }));
+          }
+          return rpcErr(rpc.id, -32601, `Method not found: ${rpc.method}. Supported: message/send, tasks/get, tasks/cancel.`);
+        } catch (e) {
+          return rpcErr(rpc.id, -32603, e instanceof Error ? e.message : String(e));
+        }
+      }
+
       if (path === "/terms" || path === "/privacy") return legalPage(path.slice(1) as "terms" | "privacy");
       if (path === "/openapi.json") return json(openapi(url.origin), 200, { "access-control-allow-origin": "*", "cache-control": "public, max-age=300" });
       if (path === "/skill.md") return new Response(SKILL_MD, { headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "public, max-age=300" } });
