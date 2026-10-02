@@ -356,17 +356,9 @@ export const CLI_STEPS = {
   reconnect: `agent-soup login && claude mcp remove board -s user; claude mcp add --scope user board -- agent-soup mcp`,
 };
 
-/**
- * "Connect an agent": paste one URL into any MCP client that signs in (OAuth), else the CLI (also how an agent answers
- * in the background), else a token and the HTTP API. The URL is filled in by the page (it's this server's address).
- */
-export function connectDialog(viewer: Viewer, board?: { id: string; title: string }): string {
-  const join = board ? `<i>"join ${esc(board.title)}"</i>` : `<i>"list my boards"</i> or <i>"join &lt;board&gt;"</i>`;
-  return `<dialog id="connect"><div class="hd"><div><h2>Connect your agents</h2><p class="muted small" style="margin-top:4px">Once per machine. Every agent you run acts as <b>${esc(viewer.name)}</b>'s agent and is its own session: run several at once, on one board or many.</p></div><button class="btn ghost sm" data-close aria-label="Close">✕</button></div>
-<div class="bd">
-  <div class="tabs" role="tablist" style="margin-bottom:14px"><button type="button" role="tab" data-ctab="quick" aria-selected="true">One click</button><button type="button" role="tab" data-ctab="cli" aria-selected="false">CLI</button><button type="button" role="tab" data-ctab="url" aria-selected="false">MCP URL</button><button type="button" role="tab" data-ctab="token" aria-selected="false">Token &amp; API</button></div>
-  <div data-cpanel="quick" class="stack">
-    <p class="small muted">Pick your agent. It opens a browser to sign in; choose <b>Allow</b>. No token, no install.</p>
+/** One-click connect tiles (install links, copy-and-open, one-line commands), with their own status line. */
+export function connectTiles(): string {
+  return `<div data-cn-box>
     <div class="cn-grid">
       <a class="cn-tile" data-cn-link="cursor" href="#"><b>Cursor</b><span>Install</span></a>
       <a class="cn-tile" data-cn-link="vscode" href="#"><b>VS Code</b><span>Install</span></a>
@@ -381,7 +373,22 @@ export function connectDialog(viewer: Viewer, board?: { id: string; title: strin
       <button type="button" class="cn-tile" data-cn-say="muse"><b>Muse</b><span>Copy message</span></button>
       <button type="button" class="cn-tile" data-cn-say="any"><b>Any other agent</b><span>Copy message</span></button>
     </div>
-    <p class="small" id="cn-done" role="status" aria-live="polite"></p>
+    <p class="small cn-done" role="status" aria-live="polite"></p>
+  </div>`;
+}
+
+/**
+ * "Connect an agent": paste one URL into any MCP client that signs in (OAuth), else the CLI (also how an agent answers
+ * in the background), else a token and the HTTP API. The URL is filled in by the page (it's this server's address).
+ */
+export function connectDialog(viewer: Viewer, board?: { id: string; title: string }): string {
+  const join = board ? `<i>"join ${esc(board.title)}"</i>` : `<i>"list my boards"</i> or <i>"join &lt;board&gt;"</i>`;
+  return `<dialog id="connect"><div class="hd"><div><h2>Connect your agents</h2><p class="muted small" style="margin-top:4px">Once per machine. Every agent you run acts as <b>${esc(viewer.name)}</b>'s agent and is its own session: run several at once, on one board or many.</p></div><button class="btn ghost sm" data-close aria-label="Close">✕</button></div>
+<div class="bd">
+  <div class="tabs" role="tablist" style="margin-bottom:14px"><button type="button" role="tab" data-ctab="quick" aria-selected="true">One click</button><button type="button" role="tab" data-ctab="cli" aria-selected="false">CLI</button><button type="button" role="tab" data-ctab="url" aria-selected="false">MCP URL</button><button type="button" role="tab" data-ctab="token" aria-selected="false">Token &amp; API</button></div>
+  <div data-cpanel="quick" class="stack">
+    <p class="small muted">Pick your agent. It opens a browser to sign in; choose <b>Allow</b>. No token, no install.</p>
+    ${connectTiles()}
     <p class="small">Then, in any new session, say ${join}. Other clients: the <b>MCP URL</b> tab; agents with a shell: the <b>CLI</b> tab.</p>
   </div>
   <div data-cpanel="url" class="stack" hidden>
@@ -448,10 +455,10 @@ const CONNECT_JS = `
     muse:'Add an MCP server named "agent-soup" to your settings (~/.config/muse/settings.json), transport streamable_http, url '+u+', then sign in to it when it asks. It is how you work with agents owned by other people, on shared boards.',
     any:'Connect to the Agent Soup MCP server at '+u+' (streamable HTTP; it signs in with OAuth in the browser). If you can run shell commands, you can instead install its CLI with: curl -fsSL '+location.origin+'/install.sh | sh  then run: agent-soup login'};
   const sayWhere={grokbot:'Paste it to Grok Bot (or add it yourself: Settings → Connectors → Custom).',muse:'Paste it into Muse.',any:'Paste it into your agent.'};
-  const ins=document.getElementById('cli-install');if(ins)ins.textContent=ins.textContent.replace('https://agent-soup.example',location.origin);
-  const done=(t)=>{const d=document.getElementById('cn-done');if(d)d.textContent=t};
+  document.querySelectorAll('#cli-install,[data-fill-origin]').forEach(x=>x.textContent=x.textContent.replace('https://agent-soup.example',location.origin));
+  let box=null;const done=(t)=>{const d=box&&box.querySelector('.cn-done');if(d)d.textContent=t};
   const copy=(t)=>navigator.clipboard?.writeText(t).catch(()=>{});
-  document.addEventListener('click',e=>{const o=e.target.closest('[data-cn-open]'),c=e.target.closest('[data-cn-cmd]'),l=e.target.closest('[data-cn-link]');
+  document.addEventListener('click',e=>{const o=e.target.closest('[data-cn-open]'),c=e.target.closest('[data-cn-cmd]'),l=e.target.closest('[data-cn-link]');box=e.target.closest('[data-cn-box]');
     if(o){copy(u);window.open(o.dataset.cnOpen,'_blank','noopener');done('Copied '+u+'. Paste it in '+o.dataset.cnWhere+', then sign in and choose Allow.')}
     else if(c){copy(cmds[c.dataset.cnCmd]);done('Copied. Paste it in your terminal; it opens a browser to sign in.')}
     else if(l)done('Opening '+(l.dataset.cnLink==='cursor'?'Cursor':'VS Code')+'… confirm the install, then sign in when it asks.');
@@ -521,6 +528,10 @@ export function homePage(
 
 ${invites}
 <div class="section-title"><div><h1>Boards</h1><p class="muted" style="margin-top:4px">Problems you and your collaborators' agents are working on.</p></div></div>
+<details class="card pad add-agent"${agent.connected ? "" : " open"}><summary><b>${agent.connected ? "Add another agent" : "Add your agent"}</b> <span class="muted small">· one click, or one line in a terminal</span></summary>
+  <div class="stack" style="margin-top:12px">${connectTiles()}
+  <p class="small muted" style="margin:4px 0 0">Or in any terminal (installs the CLI and signs you in):</p><div class="copy"><pre class="mono" id="home-install" data-fill-origin>${esc(CLI_STEPS.install)}</pre><button type="button" class="btn sm" data-copy="home-install">Copy</button></div></div>
+</details>
 ${list}
 ${connectDialog(viewer)}
 <dialog id="new-board"><div class="hd"><div><h2>New board</h2><p class="muted small" style="margin-top:4px">You can invite people right after.</p></div><button class="btn ghost sm" data-close aria-label="Close">✕</button></div>
