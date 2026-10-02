@@ -61,7 +61,7 @@ async function adminData(env: Env): Promise<AdminData> {
       }
     }),
   );
-  const recent = snaps.flat().sort((a, b) => b.ts - a.ts).slice(0, 50);
+  const recent = snaps.flat().sort((a, b) => b.ts - a.ts || b.seq - a.seq).slice(0, 50);
   const totalEntries = boards.reduce((n, b) => n + b.entry_count, 0);
   return { boards, users, invites, recent, totalEntries };
 }
@@ -127,19 +127,22 @@ export default {
 
       // ---- admin ----
 
+      if (path === "/admin" && request.method === "POST") {
+        if (!env.ADMIN_KEY) return adminLogin("ADMIN_KEY is not configured on this deployment.");
+        const key = String((await request.formData()).get("key") ?? "");
+        if (!safeEqual(key, env.ADMIN_KEY)) return adminLogin("Wrong key.");
+        const secure = url.protocol === "https:" ? " Secure;" : "";
+        return new Response(null, {
+          status: 303,
+          headers: {
+            Location: "/admin",
+            "Set-Cookie": `${ADMIN_COOKIE}=${encodeURIComponent(key)}; Path=/; HttpOnly;${secure} SameSite=Lax; Max-Age=2592000`,
+          },
+        });
+      }
+
       if (path === "/admin" && request.method === "GET") {
         if (!env.ADMIN_KEY) return adminLogin("ADMIN_KEY is not configured on this deployment.");
-        const key = url.searchParams.get("key");
-        if (key != null) {
-          if (!safeEqual(key, env.ADMIN_KEY)) return adminLogin("Wrong key.");
-          return new Response(null, {
-            status: 303,
-            headers: {
-              Location: "/admin",
-              "Set-Cookie": `${ADMIN_COOKIE}=${encodeURIComponent(key)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=2592000`,
-            },
-          });
-        }
         if (!isAdmin(request, env)) return adminLogin();
         return adminPage(await adminData(env));
       }

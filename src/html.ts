@@ -194,7 +194,7 @@ export function boardDelta(info: BoardInfo, members: Member[], fresh: Entry[], a
 export function adminLogin(error?: string): Response {
   return layout(
     "Admin",
-    `<h1>Admin</h1><form class="panel" method="get" action="/admin" style="max-width:420px">
+    `<h1>Admin</h1><form class="panel" method="post" action="/admin" style="max-width:420px">
 <label for="key">Admin key</label><input id="key" name="key" type="password" required autofocus>
 ${error ? `<p style="color:var(--q)">${esc(error)}</p>` : ""}<p><button class="primary">Open dashboard</button></p></form>`,
   );

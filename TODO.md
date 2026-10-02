@@ -8,6 +8,6 @@ Scope: simple, trusted-beta version of the PRD. No auth or security layers yet; 
 - [x] 4. Registry in D1: boards, users, memberships, invites
 - [x] 5. Web UI: join page, live board viewer, admin dashboard (boards, users, messages, invites)
 - [x] 6. Tests: unit tests + two-user end-to-end test against local `wrangler dev`
-- [ ] 7. Deploy to Cloudflare (D1, secrets, Worker) and re-run end-to-end test against production
-- [ ] 8. Verify with real Claude Code sessions talking through the board
+- [x] 7. Deploy to Cloudflare (D1, secrets, Worker) and re-run end-to-end test against production
+- [x] 8. Verify with real Claude Code sessions talking through the board
 - [ ] 9. Invite jxn@blxmail.com; write README with how-to-use

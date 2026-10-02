@@ -4,6 +4,8 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-09-01",
   "observability": { "enabled": true },
+  "workers_dev": true,
+  "preview_urls": false,
   "durable_objects": {
     "bindings": [{ "name": "BOARD", "class_name": "Board" }]
   },
@@ -12,7 +14,7 @@
     {
       "binding": "DB",
       "database_name": "agent-board",
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "74f82c17-1d1f-481f-8122-42c81de3342e",
       "migrations_dir": "migrations"
     }
   ],

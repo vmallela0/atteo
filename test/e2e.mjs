@@ -1,4 +1,4 @@
-// End-to-end test: two agents ("vedu" and "jxn") talk through a board over MCP, plus web and admin pages.
+// End-to-end test: two agents ("e2e-vedu" and "e2e-jxn") talk through a board over MCP, plus web and admin pages.
 // Usage: BASE=http://localhost:8787 ADMIN_KEY=... node test/e2e.mjs
 // Creates real boards on the target deployment (titled "e2e …"). Does not send invite emails.
 
@@ -11,6 +11,9 @@ if (!ADMIN_KEY) {
     ADMIN_KEY = readFileSync(new URL("../.dev.vars", import.meta.url), "utf8").match(/^ADMIN_KEY=(.*)$/m)?.[1];
   } catch {}
 }
+
+// A failed step can leave a background wait() promise rejected; report it instead of crashing the run.
+process.on("unhandledRejection", (e) => console.log(`      (background: ${e?.message ?? e})`));
 
 let passed = 0;
 let failed = 0;
@@ -73,7 +76,7 @@ await step("health", async () => {
 });
 
 await step("MCP initialize returns server info and instructions", async () => {
-  const r = await rpc("vedu", null, "initialize", {
+  const r = await rpc("e2e-vedu", null, "initialize", {
     protocolVersion: "2025-06-18",
     capabilities: {},
     clientInfo: { name: "e2e", version: "0" },
@@ -81,21 +84,21 @@ await step("MCP initialize returns server info and instructions", async () => {
   assert(r.protocolVersion === "2025-06-18", `protocolVersion ${r.protocolVersion}`);
   assert(r.serverInfo.name === "agent-board", "server name");
   assert(r.capabilities.tools, "tools capability");
-  has(r.instructions, 'connected as "vedu"');
+  has(r.instructions, 'connected as "e2e-vedu"');
 });
 
 await step("unknown protocol version falls back to latest supported", async () => {
-  const r = await rpc("vedu", null, "initialize", { protocolVersion: "1999-01-01", capabilities: {} });
+  const r = await rpc("e2e-vedu", null, "initialize", { protocolVersion: "1999-01-01", capabilities: {} });
   assert(/^\d{4}-\d{2}-\d{2}$/.test(r.protocolVersion), r.protocolVersion);
 });
 
 await step("notifications get 202 with no body", async () => {
-  const r = await rpc("vedu", null, "notifications/initialized", {}, { notification: true });
+  const r = await rpc("e2e-vedu", null, "notifications/initialized", {}, { notification: true });
   assert(r.status === 202, `status ${r.status}`);
 });
 
 await step("tools/list exposes all tools with schemas", async () => {
-  const r = await rpc("vedu", null, "tools/list", {});
+  const r = await rpc("e2e-vedu", null, "tools/list", {});
   const names = r.tools.map((t) => t.name).sort();
   assert(
     JSON.stringify(names) === JSON.stringify(["create_board", "get", "invite", "list_boards", "post", "read", "search", "wait"]),
@@ -121,47 +124,47 @@ await step("tool call without X-User is rejected with guidance", async () => {
   await err(null, null, "list_boards", {}, "X-User");
 });
 
-await step("vedu creates a board", async () => {
-  const text = await ok("vedu", null, "create_board", { title: `e2e ${stamp}` });
+await step("e2e-vedu creates a board", async () => {
+  const text = await ok("e2e-vedu", null, "create_board", { title: `e2e ${stamp}` });
   board = text.match(/\((b_[a-z0-9]+)\)/)?.[1];
   assert(board, text);
   has(text, `/mcp?board=${board}`);
   has(text, `/join/${board}`);
 });
 
-await step("jxn joins by reading the board (default board from URL)", async () => {
-  const text = await ok("jxn", board, "read");
+await step("e2e-jxn joins by reading the board (default board from URL)", async () => {
+  const text = await ok("e2e-jxn", board, "read");
   has(text, `Board "e2e ${stamp}"`);
-  has(text, "Members: vedu, jxn");
+  has(text, "Members: e2e-vedu, e2e-jxn");
   has(text, "(nothing new)");
 });
 
-await step("core loop: jxn waits, vedu asks, jxn receives the question in real time", async () => {
-  const waiting = ok("jxn", board, "wait", { timeout_seconds: 20 });
+await step("core loop: e2e-jxn waits, e2e-vedu asks, e2e-jxn receives the question in real time", async () => {
+  const waiting = ok("e2e-jxn", board, "wait", { timeout_seconds: 20 });
   await new Promise((r) => setTimeout(r, 400));
   const t0 = Date.now();
-  const posted = await ok("vedu", board, "post", { type: "question", to: "jxn", text: "Can you share the failing stack trace from checkout?" });
+  const posted = await ok("e2e-vedu", board, "post", { type: "question", to: "e2e-jxn", text: "Can you share the failing stack trace from checkout?" });
   q1 = Number(posted.match(/Posted #(\d+)/)?.[1]);
   assert(q1, posted);
   has(posted, "Call wait");
   const got = await waiting;
   const latency = Date.now() - t0;
-  has(got, `#${q1} question · vedu → jxn`);
+  has(got, `#${q1} question · e2e-vedu → e2e-jxn`);
   has(got, "failing stack trace");
   assert(latency < 3000, `delivery took ${latency}ms`);
 });
 
-await step("question shows as waiting for jxn in jxn's summary", async () => {
-  const text = await ok("jxn", board, "read");
+await step("question shows as waiting for e2e-jxn in e2e-jxn's summary", async () => {
+  const text = await ok("e2e-jxn", board, "read");
   has(text, "Questions waiting for YOU");
-  has(text, `#${q1} (vedu → jxn)`);
+  has(text, `#${q1} (e2e-vedu → e2e-jxn)`);
   has(text, "(nothing new)"); // already delivered by wait
 });
 
-await step("jxn answers with an artifact and a claim; vedu's wait receives both", async () => {
-  const waiting = ok("vedu", board, "wait", { timeout_seconds: 20 });
+await step("e2e-jxn answers with an artifact and a claim; e2e-vedu's wait receives both", async () => {
+  const waiting = ok("e2e-vedu", board, "wait", { timeout_seconds: 20 });
   await new Promise((r) => setTimeout(r, 300));
-  const a = await ok("jxn", board, "post", {
+  const a = await ok("e2e-jxn", board, "post", {
     type: "artifact",
     text: "Stack trace from checkout-service",
     artifact_name: "checkout-trace.log",
@@ -170,91 +173,91 @@ await step("jxn answers with an artifact and a claim; vedu's wait receives both"
   const aSeq = Number(a.match(/#(\d+)/)[1]);
   const first = await waiting;
   has(first, "checkout-trace.log");
-  const c = await ok("jxn", board, "post", {
+  const c = await ok("e2e-jxn", board, "post", {
     type: "claim",
     reply_to: q1,
     text: `Trace attached in #${aSeq}: charge() gets an undefined payment when the cart is empty.`,
   });
   has(c, "Posted");
-  const second = await ok("vedu", board, "wait", { timeout_seconds: 5 });
+  const second = await ok("e2e-vedu", board, "wait", { timeout_seconds: 5 });
   has(second, `re #${q1}`);
   has(second, "undefined payment");
 });
 
 await step("answered question leaves the summary; file is listed", async () => {
-  const text = await ok("vedu", board, "read");
+  const text = await ok("e2e-vedu", board, "read");
   has(text, "Open questions:\n  none");
   has(text, "checkout-trace.log");
   has(text, "Recent claims:");
 });
 
 await step("get returns artifact content and related entries", async () => {
-  const text = await ok("vedu", board, "get", { seq: q1 });
+  const text = await ok("e2e-vedu", board, "get", { seq: q1 });
   has(text, "Related entries:");
   has(text, "undefined payment");
-  const s = await ok("vedu", board, "search", { query: "checkout-trace" });
+  const s = await ok("e2e-vedu", board, "search", { query: "checkout-trace" });
   const aSeq = Number(s.match(/#(\d+) artifact/)?.[1]);
-  const art = await ok("vedu", board, "get", { seq: aSeq });
+  const art = await ok("e2e-vedu", board, "get", { seq: aSeq });
   has(art, "----- checkout-trace.log -----");
   has(art, "at charge (checkout.js:42)");
 });
 
 await step("search covers text and file content, with filters", async () => {
-  has(await ok("vedu", board, "search", { query: "checkout.js:42" }), "artifact");
-  has(await ok("vedu", board, "search", { query: "stack trace", author: "vedu" }), "question");
-  has(await ok("vedu", board, "search", { query: "zzz-not-there" }), "No entries match");
-  has(await ok("vedu", board, "search", { query: "100%_literal" }), "No entries match");
+  has(await ok("e2e-vedu", board, "search", { query: "checkout.js:42" }), "artifact");
+  has(await ok("e2e-vedu", board, "search", { query: "stack trace", author: "e2e-vedu" }), "question");
+  has(await ok("e2e-vedu", board, "search", { query: "zzz-not-there" }), "No entries match");
+  has(await ok("e2e-vedu", board, "search", { query: "100%_literal" }), "No entries match");
 });
 
 await step("tasks, decisions, resolves and supersedes update the summary", async () => {
-  const t = await ok("vedu", board, "post", { type: "task", to: "jxn", text: "Add a guard for empty carts" });
+  const t = await ok("e2e-vedu", board, "post", { type: "task", to: "e2e-jxn", text: "Add a guard for empty carts" });
   const tSeq = Number(t.match(/#(\d+)/)[1]);
-  const d1 = await ok("vedu", board, "post", { type: "decision", text: "Ship the fix behind a flag" });
+  const d1 = await ok("e2e-vedu", board, "post", { type: "decision", text: "Ship the fix behind a flag" });
   const d1Seq = Number(d1.match(/#(\d+)/)[1]);
-  let s = await ok("jxn", board, "read");
-  has(s, `#${tSeq} (vedu → jxn) Add a guard`);
-  await ok("jxn", board, "post", { type: "note", text: "Guard added in PR 118", resolves: [tSeq] });
-  await ok("vedu", board, "post", { type: "decision", text: "Ship the fix without a flag", supersedes: d1Seq });
-  s = await ok("jxn", board, "read");
+  let s = await ok("e2e-jxn", board, "read");
+  has(s, `#${tSeq} (e2e-vedu → e2e-jxn) Add a guard`);
+  await ok("e2e-jxn", board, "post", { type: "note", text: "Guard added in PR 118", resolves: [tSeq] });
+  await ok("e2e-vedu", board, "post", { type: "decision", text: "Ship the fix without a flag", supersedes: d1Seq });
+  s = await ok("e2e-jxn", board, "read");
   has(s, "Open tasks:\n  none");
   has(s, "without a flag");
-  assert(!s.includes("behind a flag\n") && !s.includes(`#${d1Seq} (vedu) Ship the fix behind`), "superseded decision still in summary");
+  assert(!s.includes("behind a flag\n") && !s.includes(`#${d1Seq} (e2e-vedu) Ship the fix behind`), "superseded decision still in summary");
 });
 
 await step("own posts never come back as unread", async () => {
-  await ok("vedu", board, "post", { type: "note", text: "note to self" });
-  const r = await ok("vedu", board, "read");
+  await ok("e2e-vedu", board, "post", { type: "note", text: "note to self" });
+  const r = await ok("e2e-vedu", board, "read");
   assert(!r.includes("note to self\n") || r.includes("(nothing new)"), r);
 });
 
 await step("read with since returns history without moving the cursor", async () => {
-  const r = await ok("jxn", board, "read", { since: 0, limit: 3 });
+  const r = await ok("e2e-jxn", board, "read", { since: 0, limit: 3 });
   has(r, "Entries after #0 (3)");
   has(r, `#${q1} question`);
 });
 
 await step("wait times out cleanly", async () => {
-  await ok("jxn", board, "read"); // catch up first, so there is nothing unread
+  await ok("e2e-jxn", board, "read"); // catch up first, so there is nothing unread
   const t0 = Date.now();
-  const r = await ok("jxn", board, "wait", { timeout_seconds: 1 });
+  const r = await ok("e2e-jxn", board, "wait", { timeout_seconds: 1 });
   has(r, "Nothing new from other members in 1s");
   assert(Date.now() - t0 < 4000, "took too long");
 });
 
 await step("validation errors are tool errors with clear messages", async () => {
-  await err("vedu", board, "post", { type: "gossip", text: "x" }, "type must be one of");
-  await err("vedu", board, "post", { type: "note", text: "   " }, "text is required");
-  await err("vedu", board, "post", { type: "note", text: "x", reply_to: 99999 }, "does not exist");
-  await err("vedu", board, "post", { type: "artifact", text: "x" }, "artifact_name");
-  await err("vedu", board, "post", { type: "note", text: "x", to: "Not A Name!" }, "not a valid member name");
-  await err("vedu", board, "get", { seq: 99999 }, "does not exist");
-  await err("vedu", "b_doesnotexist1", "read", {}, "not found");
-  await err("vedu", "../etc", "read", {}, "not a board id");
+  await err("e2e-vedu", board, "post", { type: "gossip", text: "x" }, "type must be one of");
+  await err("e2e-vedu", board, "post", { type: "note", text: "   " }, "text is required");
+  await err("e2e-vedu", board, "post", { type: "note", text: "x", reply_to: 99999 }, "does not exist");
+  await err("e2e-vedu", board, "post", { type: "artifact", text: "x" }, "artifact_name");
+  await err("e2e-vedu", board, "post", { type: "note", text: "x", to: "Not A Name!" }, "not a valid member name");
+  await err("e2e-vedu", board, "get", { seq: 99999 }, "does not exist");
+  await err("e2e-vedu", "b_doesnotexist1", "read", {}, "not found");
+  await err("e2e-vedu", "../etc", "read", {}, "not a board id");
 });
 
 await step("20 concurrent posts get unique, contiguous sequence numbers", async () => {
   const results = await Promise.all(
-    Array.from({ length: 20 }, (_, i) => ok(i % 2 ? "vedu" : "jxn", board, "post", { type: "note", text: `burst ${i}` })),
+    Array.from({ length: 20 }, (_, i) => ok(i % 2 ? "e2e-vedu" : "e2e-jxn", board, "post", { type: "note", text: `burst ${i}` })),
   );
   const seqs = results.map((t) => Number(t.match(/#(\d+)/)[1])).sort((a, b) => a - b);
   assert(new Set(seqs).size === 20, "duplicate seq");
@@ -262,26 +265,26 @@ await step("20 concurrent posts get unique, contiguous sequence numbers", async 
 });
 
 await step("list_boards shows the board for both members", async () => {
-  has(await ok("vedu", null, "list_boards"), board);
-  has(await ok("jxn", null, "list_boards"), board);
+  has(await ok("e2e-vedu", null, "list_boards"), board);
+  has(await ok("e2e-jxn", null, "list_boards"), board);
 });
 
 await step("without a default board, a single-board user's board is used; otherwise board is required", async () => {
-  const solo = `solo${Date.now().toString(36)}`;
+  const solo = `e2e-solo${Date.now().toString(36)}`;
   await ok(solo, board, "read"); // solo is only on this board
   has(await ok(solo, null, "read"), `(${board})`);
-  await ok("vedu", null, "create_board", { title: `e2e second ${stamp}` });
-  await err("vedu", null, "read", {}, "Pass `board`");
+  await ok("e2e-vedu", null, "create_board", { title: `e2e second ${stamp}` });
+  await err("e2e-vedu", null, "read", {}, "Pass `board`");
 });
 
 await step("web: landing, join, board view and live JSON", async () => {
   const home = await (await fetch(`${BASE}/`)).text();
   has(home, "Create a board");
-  const join = await fetch(`${BASE}/join/${board}?name=jxn`);
+  const join = await fetch(`${BASE}/join/${board}?name=e2e-jxn`);
   assert(join.ok, `join ${join.status}`);
   const jt = await join.text();
   has(jt, `e2e ${stamp}`);
-  has(jt, `X-User: jxn`);
+  has(jt, `X-User: e2e-jxn`);
   const view = await (await fetch(`${BASE}/b/${board}`)).text();
   has(view, "failing stack trace");
   has(view, "checkout-trace.log");
@@ -293,29 +296,30 @@ await step("web: landing, join, board view and live JSON", async () => {
 await step("web form creates a board and redirects to its join page", async () => {
   const r = await fetch(`${BASE}/boards`, {
     method: "POST",
-    body: new URLSearchParams({ title: `e2e form ${stamp}`, user: "vedu" }),
+    body: new URLSearchParams({ title: `e2e form ${stamp}`, user: "e2e-vedu" }),
     redirect: "manual",
   });
   assert(r.status === 303, `status ${r.status}`);
-  assert(/\/join\/b_[a-z0-9]+\?name=vedu$/.test(r.headers.get("location")), r.headers.get("location"));
+  assert(/\/join\/b_[a-z0-9]+\?name=e2e-vedu$/.test(r.headers.get("location")), r.headers.get("location"));
 });
 
 await step("admin: login required, wrong key rejected, dashboard lists boards, users and messages", async () => {
   assert(ADMIN_KEY, "ADMIN_KEY not available to the test");
   has(await (await fetch(`${BASE}/admin`)).text(), "Admin key");
-  has(await (await fetch(`${BASE}/admin?key=wrong`)).text(), "Wrong key");
+  const adminPost = (key) => fetch(`${BASE}/admin`, { method: "POST", body: new URLSearchParams({ key }), redirect: "manual" });
+  has(await (await adminPost("wrong")).text(), "Wrong key");
   assert((await fetch(`${BASE}/api/admin/overview`)).status === 401, "overview should need auth");
-  const login = await fetch(`${BASE}/admin?key=${encodeURIComponent(ADMIN_KEY)}`, { redirect: "manual" });
+  const login = await adminPost(ADMIN_KEY);
   assert(login.status === 303, `login ${login.status}`);
   const cookie = login.headers.get("set-cookie").split(";")[0];
   const page = await (await fetch(`${BASE}/admin`, { headers: { cookie } })).text();
   has(page, `e2e ${stamp}`);
-  has(page, "jxn");
+  has(page, "e2e-jxn");
   has(page, "Recent messages");
   has(page, "burst 19");
   const o = await (await fetch(`${BASE}/api/admin/overview`, { headers: { "x-admin-key": ADMIN_KEY } })).json();
   const b = o.boards.find((x) => x.id === board);
-  assert(b && b.members.includes("vedu") && b.members.includes("jxn"), JSON.stringify(b));
+  assert(b && b.members.includes("e2e-vedu") && b.members.includes("e2e-jxn"), JSON.stringify(b));
   assert(b.entry_count === 28, `entry_count ${b.entry_count} (expected 28)`);
   const invalid = await fetch(`${BASE}/api/admin/invite`, {
     method: "POST",
