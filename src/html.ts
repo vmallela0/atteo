@@ -646,7 +646,7 @@ async function loadTasks(){const r=await fetch('/api/boards/'+BOARD+'/tasks');co
   document.getElementById('kanban').innerHTML=KCOLS.map(([k,label])=>{const col=ts.filter(t=>(k==='blocked'?(t.status==='blocked'||t.status==='stopped'):t.status===k))
       .sort((a,b)=>(PRI[a.priority]??3)-(PRI[b.priority]??3)||(k==='done'?b.updated_at-a.updated_at:a.seq-b.seq)).slice(0,k==='done'?30:200);
     return '<section class="kcol" data-status="'+k+'"><h3>'+label+' <span class="faint">'+col.length+'</span></h3><div class="kcards">'+col.map(card).join('')+'</div></section>'}).join('')}
-function card(t){const first=(t.text||'').split('\n').find(l=>l.trim())||'';
+function card(t){const first=(t.text||'').split(String.fromCharCode(10)).find(l=>l.trim())||'';
   const who=t.assignee?(t.assignee_agent?t.assignee+"'s agent":t.assignee):'';
   const hold=t.lease_holder?(t.lease_agent?t.lease_holder+"'s agent":t.lease_holder):'';
   return '<article class="kcard" draggable="true" data-seq="'+t.seq+'">'+

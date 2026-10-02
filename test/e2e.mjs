@@ -941,6 +941,23 @@ await step("tasks board (web): list, move between columns, priority, claim confl
   has(await (await web(`/b/${fb}`, B)).text(), 'id="panel-tasks"');
 });
 
+await step("every page's inline scripts parse (a template escaping slip breaks the whole page)", async () => {
+  const { Script } = await import("node:vm");
+  for (const path of [`/b/${fb}`, `/b/${board}`, "/", "/inbox", "/me"]) {
+    const html = await (await web(path, A)).text();
+    const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
+    assert(scripts.length, `no scripts on ${path}`);
+    for (const src of scripts) {
+      try {
+        new Script(src);
+      } catch (e) {
+        const line = Number(String(e.stack).match(/evalmachine.<anonymous>:(\d+)/)?.[1] ?? 0);
+        throw new Error(`${path}: ${e.message} near: ${src.split("\n")[line - 1]?.slice(0, 160)}`);
+      }
+    }
+  }
+});
+
 await step("rename and archive: creator only; archived boards are read-only and listed separately; restore works", async () => {
   const id = (await ops("boards", { user: A, title: `e2e arch ${run}` })).body.board.id;
   await ops("members", { board: id, user: B });
