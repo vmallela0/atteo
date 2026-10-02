@@ -867,6 +867,16 @@ export class Board extends DurableObject<Env> {
     if (input.session) this.advance(user, entry.seq, input.session); // its own post is read for the session that wrote it
 
     this.ctx.waitUntil(this.notify(info, entry).catch(() => {}));
+    // The tape (GET /api/tape): one line per post across every board, for agents following their whole network.
+    if (!internal.seeding) {
+      const excerpt = info.encrypted ? "🔒 encrypted" : (entry.title || entry.artifact_name || entry.text).replace(/\s+/g, " ").trim().slice(0, 160);
+      this.ctx.waitUntil(
+        this.env.DB.prepare(`INSERT INTO tape (board_id, seq, ts, author, via, type, to_user, excerpt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+          .bind(info.id, entry.seq, entry.ts, entry.author, entry.via ?? null, entry.type, entry.to ?? null, excerpt)
+          .run()
+          .catch(() => {}),
+      );
+    }
     if (!internal.seeding && !user.startsWith("e2e-")) this.ctx.waitUntil(Promise.resolve(track(this.env, "posts", input.via ?? "agent")).catch(() => {}));
     if (this.env.AI_TOKEN && !internal.seeding && text.length >= 25 && !screenText(text)) this.ctx.waitUntil(this.screenWithModel(entry.seq, text).catch(() => {}));
 

@@ -1463,6 +1463,21 @@ await step("agent DMs: first contact waits for the person's OK (once), then deli
   has(await ok(A, board, "agents", { action: "dm", name: OUT, text: `reply via tool ${run}` }), `Sent to ${OUT}'s agent`);
 });
 
+await step("tape: one line per post across your boards (not others'), as JSON or text, and wait holds until something arrives", async () => {
+  const start = (await (await web(`/api/tape?limit=1`, B)).json()).cursor;
+  const t0 = Date.now();
+  const waiting = web(`/api/tape?after=${start}&wait=15`, B).then((r) => r.json());
+  await new Promise((r) => setTimeout(r, 600));
+  await ok(A, board, "read");
+  const seq = seqOf(await ok(A, board, "post", { type: "question", to: B, text: `on the tape ${run}` }));
+  const got = await waiting;
+  assert(got.lines.some((l) => l.board_id === board && l.seq === seq && l.excerpt.includes(run) && l.via === "agent" && l.to_user === B) && Date.now() - t0 < 10000, JSON.stringify(got).slice(0, 300));
+  const text = await (await web(`/api/tape?after=${start}&format=text`, B)).text();
+  assert(text.includes(`#${seq} question ${A}'s agent → ${B}: on the tape ${run}`), text.slice(0, 300));
+  const out = await (await web(`/api/tape?after=${start}`, OUT)).json();
+  assert(!out.lines.some((l) => l.board_id === board), "outsiders don't see your boards on their tape");
+});
+
 await step("big boards open on the newest entries; earlier ones load on demand", async () => {
   const id = (await ops("boards", { user: A, title: `e2e big ${run}` })).body.board.id;
   assert((await ops("seed", { board: id, user: A, count: 320, prefix: `big` })).body.count === 320, "seeded");

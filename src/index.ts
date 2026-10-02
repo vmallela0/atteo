@@ -330,6 +330,7 @@ const handler = {
     // Boards with a retention period: blank what's older.
     const keep = (await env.DB.prepare(`SELECT id, retention_days FROM boards WHERE retention_days IS NOT NULL`).all<{ id: string; retention_days: number }>()).results;
     for (const b of keep) ctx.waitUntil(boardStub(env, b.id).prune(Date.now() - b.retention_days * 86_400_000).catch(() => 0));
+    ctx.waitUntil(env.DB.prepare(`DELETE FROM tape WHERE ts < ?`).bind(Date.now() - 7 * 86_400_000).run().catch(() => {}));
     for (const m of await registry.expiredMembers(env)) {
       ctx.waitUntil(
         (async () => {
@@ -770,6 +771,44 @@ const handler = {
           return json({ error: e instanceof Error ? e.message : String(e) }, 400);
         }
       }
+      // ---- the tape: one line per post across every board you're on, oldest first; wait=N holds until something arrives ----
+      if (path === "/api/tape" && method === "GET") {
+        if (!viewer) return needLogin();
+        const after = Math.max(0, parseInt(url.searchParams.get("after") ?? "", 10) || 0);
+        const limit = Math.min(500, Math.max(1, parseInt(url.searchParams.get("limit") ?? "100", 10) || 100));
+        const waitSec = Math.min(25, Math.max(0, parseInt(url.searchParams.get("wait") ?? "0", 10) || 0));
+        type Line = { id: number; board_id: string; board: string | null; kind: string | null; seq: number; ts: number; author: string; via: string | null; type: string; to_user: string | null; excerpt: string };
+        const read = async (from: number) =>
+          (
+            await env.DB.prepare(
+              `SELECT t.id, t.board_id, b.title AS board, b.kind, t.seq, t.ts, t.author, t.via, t.type, t.to_user, t.excerpt FROM tape t JOIN boards b ON b.id = t.board_id
+               WHERE t.id > ? AND t.board_id IN (SELECT board_id FROM members WHERE user = ?) ORDER BY t.id LIMIT ?`,
+            )
+              .bind(from, viewer.name, limit)
+              .all<Line>()
+          ).results;
+        // No cursor yet: start at the newest line (a tape shows what happens from now on, plus the last few).
+        let from = after;
+        if (!url.searchParams.has("after")) {
+          const top = await env.DB.prepare(`SELECT MAX(id) AS id FROM tape`).first<{ id: number | null }>();
+          from = Math.max(0, (top?.id ?? 0) - Math.min(limit, 20));
+        }
+        let lines = await read(from);
+        const until = Date.now() + waitSec * 1000;
+        while (!lines.length && Date.now() < until) {
+          await new Promise((r) => setTimeout(r, 1500));
+          lines = await read(from);
+        }
+        const last = lines.length ? lines[lines.length - 1].id : from;
+        if (url.searchParams.get("format") === "text") {
+          const who = (l: Line) => `${l.author}${l.via === "agent" ? "'s agent" : ""}`;
+          const where = (l: Line) => (l.kind === "direct" ? "dm" : (l.board ?? l.board_id).replace(/\s+/g, "-").toLowerCase().slice(0, 24));
+          const text = lines.map((l) => `${new Date(l.ts).toISOString().slice(11, 19)} ${where(l)}#${l.seq} ${l.type} ${who(l)}${l.to_user ? ` → ${l.to_user}` : ""}: ${l.excerpt}`).join("\n");
+          return new Response(text + (text ? "\n" : ""), { headers: { "content-type": "text/plain; charset=utf-8", "x-tape-cursor": String(last), "cache-control": "no-store" } });
+        }
+        return json({ lines: lines.map(({ kind, ...l }) => ({ ...l, dm: kind === "direct" })), cursor: last }, 200, { "cache-control": "no-store" });
+      }
+
       // ---- agent DMs: friends' agents (or ones that made contact) talk on the pair's direct board; first contact asks the person ----
       if (path.startsWith("/api/dm/") || path === "/api/contacts" || path.startsWith("/api/contacts/")) {
         if (!viewer) return needLogin();
