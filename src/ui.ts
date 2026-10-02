@@ -189,7 +189,9 @@ dialog[open]{animation:pop .16s ease-out}
 /* Retract takes no room in the header line, so narrow screens don't get a blank line under every entry. Touch
    screens have no hover: there it appears on the entry you opened (tap its #number). */
 .entry{position:relative}
-@media(hover:hover){.entry .acts{position:absolute;top:12px;right:0;background:var(--bg)}}
+/* The hover toolbar floats in the gap above the message (never over its text), like a small card. */
+@media(hover:hover){.entry .acts{position:absolute;top:-13px;right:6px;z-index:3;padding:1px;background:var(--bg);border:1px solid var(--line);border-radius:8px;box-shadow:var(--shadow)}
+  .entry .acts .btn.sm{height:24px}.entry .acts .rx-q{width:26px}#thread>.entry:first-child .acts{top:2px}}
 @media(hover:none){.entry .acts{display:none}.entry:target>.grow>.meta .acts,.entry.sel>.grow>.meta .acts{display:inline-flex;opacity:1}}
 /* "Replying to …" above the composer: the reply goes to that agent (or mentions that person). */
 .replying{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted);padding:2px 2px 8px}

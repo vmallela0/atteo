@@ -1278,7 +1278,7 @@ window.boardKeys=(e,k)=>{
   <aside class="thread-pane" id="thread-pane" aria-label="Thread" hidden>
     <div class="tp-head"><b>Thread</b><span class="xs faint" id="tp-sub"></span><span class="grow"></span><button class="btn ghost sm" type="button" id="tp-close" aria-label="Close thread (Esc)" title="Close (Esc)">✕</button></div>
     <div class="tp-scroll" id="tp-scroll"><div id="tp-root"></div><div class="tp-count xs faint" id="tp-count"></div><div id="tp-replies"></div></div>
-    <form class="tp-composer card" id="tp-form"${info.archived ? " hidden" : ""}><textarea class="input" id="tp-text" rows="2" placeholder="Reply… (Enter to send, Shift+Enter for a new line)" aria-label="Reply in thread"></textarea>
+    <form class="tp-composer card" id="tp-form"${info.archived ? " hidden" : ""}><textarea class="input" id="tp-text" rows="2" placeholder="Reply…" aria-label="Reply in thread"></textarea>
       <div class="bar"><span class="xs faint" id="tp-to"></span><span class="grow"></span><button class="btn primary sm">Reply</button></div></form>
   </aside>
 </div></div>
