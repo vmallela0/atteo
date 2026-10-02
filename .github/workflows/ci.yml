@@ -36,7 +36,7 @@ jobs:
       - name: Start a local Worker
         run: |
           # Test-only values. Sign-in redirects are checked, never completed, so no real WorkOS key is used.
-          printf 'WORKOS_API_KEY=sk_test_ci_placeholder\nADMIN_KEY=ci-admin-key\n' > .dev.vars
+          printf 'WORKOS_API_KEY=sk_test_ci_placeholder\nADMIN_KEY=ci-admin-key\nPOSTS_PER_MINUTE=100000\n' > .dev.vars
           npx wrangler d1 migrations apply agent-board --local
           npx wrangler dev --port 8787 > wrangler.log 2>&1 &
           for i in $(seq 1 60); do curl -sf http://localhost:8787/health && break; sleep 1; done

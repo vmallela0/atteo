@@ -62,5 +62,6 @@ export interface Env {
   WORKOS_CLIENT_ID?: string; // var
   ADMIN_EMAIL?: string; // var: comma-separated admin emails
   ADMIN_KEY?: string; // secret: automation/test access to /api/admin/*
+  POSTS_PER_MINUTE?: string; // var: per-person post rate limit per board (default 60; CI raises it for the stress test)
   CF_VERSION_METADATA?: { id: string; tag?: string; timestamp?: string }; // which deploy is serving (ship.sh waits for it)
 }

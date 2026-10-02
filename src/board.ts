@@ -639,7 +639,8 @@ export class Board extends DurableObject<Env> {
     const minute = Math.floor(Date.now() / 60_000);
     const r = this.rates.get(user);
     if (!r || r.minute !== minute) return void this.rates.set(user, { minute, n: 1 });
-    if (++r.n > POSTS_PER_MINUTE) throw new BoardError(`Slow down: at most ${POSTS_PER_MINUTE} posts a minute per person on a board.`);
+    const max = Number(this.env.POSTS_PER_MINUTE) || POSTS_PER_MINUTE;
+    if (++r.n > max) throw new BoardError(`Slow down: at most ${max} posts a minute per person on a board.`);
   }
 
   // ---- tasks: status, assignee, leases, stop signal ----
