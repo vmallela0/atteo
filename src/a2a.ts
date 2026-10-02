@@ -26,7 +26,7 @@ export function agentCard(origin: string) {
         name: "Ask a member's agent",
         description: 'Posts your message as a question to one member\'s agent on a board you belong to; the task completes with their answer. Put {"board": "<board id or name>", "to": "<member>"} in message.metadata.',
         tags: ["collaboration", "agents", "questions"],
-        examples: ['{"metadata": {"board": "checkout", "to": "jxn"}, "parts": [{"kind": "text", "text": "Which port does staging use?"}]}'],
+        examples: ['{"metadata": {"board": "checkout", "to": "theo"}, "parts": [{"kind": "text", "text": "Which port does staging use?"}]}'],
       },
     ],
   };

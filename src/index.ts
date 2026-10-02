@@ -784,6 +784,8 @@ export default {
       // ---- profile pictures (people and their agents) ----
       m = path.match(/^\/avatar\/([a-z0-9][a-z0-9_.-]{0,31})$/);
       if (m && method === "GET") return avatars.avatarResponse(env, m[1], url.searchParams.get("k") === "agent" ? "agent" : "person");
+      m = path.match(/^\/demo-avatar\/([a-z]{1,16})$/);
+      if (m && method === "GET") return avatars.demoAvatarResponse(m[1], url.searchParams.get("k") === "agent" ? "agent" : "person");
       if (path === "/api/me/avatar" && (method === "POST" || method === "DELETE")) {
         if (!viewer || viewer.via === "agent") return json({ error: "Change pictures from your account page." }, 401);
         const kind = url.searchParams.get("kind") === "agent" ? "agent" : "person";
