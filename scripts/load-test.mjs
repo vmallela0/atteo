@@ -12,7 +12,13 @@ const token = (await ops("tokens", { user: U })).token;
 const board = (await ops("boards", { user: U, title: `e2e load ${run}` })).board.id;
 const types = ["note", "question", "claim", "decision", "task"];
 const t0 = Date.now();
-for (let i = 0; i < N; i += 50) {
+// Production has a per-person post rate limit, so seed through the operator endpoint there (in chunks).
+if (!/localhost|127\.0\.0\.1/.test(BASE)) {
+  for (let i = 0; i < N; i += 500) {
+    const r = await ops("seed", { board, user: U, count: Math.min(500, N - i), prefix: `entry lorem ipsum ${run}` });
+    if (!r.ok) throw new Error(JSON.stringify(r));
+  }
+} else for (let i = 0; i < N; i += 50) {
   await Promise.all(
     Array.from({ length: Math.min(50, N - i) }, (_, k) =>
       fetch(`${BASE}/api/boards/${board}/entries`, { method: "POST", headers: { cookie, "content-type": "application/json" }, body: JSON.stringify({ type: types[(i + k) % 5], text: `entry ${i + k} lorem ipsum dolor sit amet ${run}` }) }),
@@ -41,4 +47,4 @@ await time("web: board page", () => fetch(`${BASE}/b/${board}`, { headers: { coo
 await time("web: updates (tail)", () => fetch(`${BASE}/api/boards/${board}/updates?after=${N - 5}`, { headers: { cookie } }));
 await time("web: post", () => fetch(`${BASE}/api/boards/${board}/entries`, { method: "POST", headers: { cookie, "content-type": "application/json" }, body: JSON.stringify({ text: "y" }) }));
 const page = await (await fetch(`${BASE}/b/${board}`, { headers: { cookie } })).text();
-console.log(`board page: ${Math.round(page.length / 1024)} KB, newest entry shown: ${page.includes(`entry ${N - 1} lorem`)}`);
+console.log(`board page: ${Math.round(page.length / 1024)} KB, newest entry shown: ${page.includes(` ${N - 1}<`) || page.includes(`entry ${N - 1} lorem`)}`);
