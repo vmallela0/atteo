@@ -1028,6 +1028,20 @@ async function accLoad(){const [m,a,l]=await Promise.all([fetch('/api/boards/'+B
   const verb={invited:'invited',joined:'joined',removed:'removed',left:'left',access_changed:'changed access for',link_created:'created an invite link',link_revoked:'revoked an invite link',renamed:'renamed the board',archived:'archived the board',restored:'restored the board',expired:'access ended for'};
   document.getElementById('acc-audit').innerHTML=(a.audit||[]).slice(0,50).map(x=>'<li class="xs"><b>'+esc(x.actor)+'</b> '+(verb[x.action]||esc(x.action))+(x.target?' <b>'+esc(x.target)+'</b>':'')+(x.detail?' <span class="faint">· '+esc(x.detail)+'</span>':'')+' <span class="faint">· '+new Date(x.ts).toLocaleString()+'</span></li>').join('')||'<li class="xs faint">Nothing yet</li>'}
 document.addEventListener('click',e=>{if(e.target.closest('[data-open="invite"]'))accLoad()});
+// Invite: suggest friends who aren't on the board yet, as you type (arrow keys and Enter pick one).
+let accFriends=null,accSel=0;const invIn=document.getElementById('inv-email'),invSug=document.getElementById('inv-sug');
+async function invSuggest(){if(!invIn)return;if(!accFriends)accFriends=(await fetch('/api/friends').then(r=>r.json()).catch(()=>({}))).friends||[];
+  const q=invIn.value.trim().toLowerCase().replace(/^@/,''),here=new Set(MOPTS.map(o=>o.u));
+  const list=q.includes('@')?[]:accFriends.filter(f=>!here.has(f.name)&&(!q||f.name.includes(q)||(f.display_name||'').toLowerCase().includes(q))).slice(0,6);
+  accSel=Math.min(accSel,Math.max(0,list.length-1));invSug.hidden=!list.length;
+  invSug.innerHTML=list.map((f,i)=>'<li role="option" data-friend-pick="'+esc(f.name)+'"'+(i===accSel?' aria-selected="true"':'')+'>'+avatar16(f.name,false)+'<span>'+esc(f.name)+'</span>'+(f.display_name?'<span class="faint truncate">'+esc(f.display_name)+'</span>':'')+'<span class="xs faint" style="margin-left:auto">friend</span></li>').join('')}
+invIn?.addEventListener('input',()=>{accSel=0;invSuggest()});invIn?.addEventListener('focus',invSuggest);
+invIn?.addEventListener('blur',()=>setTimeout(()=>{invSug.hidden=true},150));
+invIn?.addEventListener('keydown',e=>{if(invSug.hidden)return;const n=invSug.children.length;
+  if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();accSel=(accSel+(e.key==='ArrowDown'?1:n-1))%n;invSuggest()}
+  else if(e.key==='Enter'&&n&&invIn.value.trim()!==invSug.children[accSel].dataset.friendPick){e.preventDefault();invIn.value=invSug.children[accSel].dataset.friendPick;invSug.hidden=true}
+  else if(e.key==='Escape'){e.stopPropagation();invSug.hidden=true}});
+invSug?.addEventListener('mousedown',e=>{const li=e.target.closest('[data-friend-pick]');if(!li)return;e.preventDefault();invIn.value=li.dataset.friendPick;invSug.hidden=true;invIn.focus()});
 document.getElementById('acc-members').addEventListener('change',async e=>{const s=e.target.closest('[data-acc]');if(!s)return;const u=s.closest('[data-user]').dataset.user;
   const body=s.dataset.acc==='role'?{role:s.value}:s.value==='keep'?null:{expires_days:+s.value};if(!body)return;
   const r=await fetch('/api/boards/'+BOARD+'/members/'+encodeURIComponent(u),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});const j=await r.json().catch(()=>({}));
@@ -1257,13 +1271,15 @@ ${connectDialog(viewer, { id: info.id, title: info.title })}
   ${
     readOnly
       ? ""
-      : `<section class="acc-sec"><h3>Invite by email</h3>
-  <form method="post" action="/api/boards/${esc(info.id)}/invites" data-api data-reset class="acc-row">
-    <input class="input grow" id="inv-email" name="email" type="email" required placeholder="name@company.com" aria-label="Email">
+      : `<section class="acc-sec"><h3>Invite</h3>
+  <form method="post" action="/api/boards/${esc(info.id)}/invites" data-api data-reset class="acc-inv">
+    <div class="acc-row"><div class="acc-to grow"><input class="input" id="inv-email" name="to" required autocomplete="off" placeholder="A friend's name, or anyone's email" aria-label="Friend's name or email" aria-autocomplete="list" aria-controls="inv-sug">
+      <ul class="acc-sug" id="inv-sug" role="listbox" hidden></ul></div>
     <select class="input acc-sel" name="role" aria-label="Role"><option value="contributor">Can post</option><option value="viewer">View only</option></select>
     <select class="input acc-sel" name="expires_days" aria-label="Access"><option value="0">No end date</option><option value="7">7 days</option><option value="30">30 days</option><option value="90">90 days</option></select>
-    <button class="btn primary">Invite</button>
-  </form><p data-result hidden style="margin-top:8px"></p>
+    <button class="btn primary">Invite</button></div>
+    <p data-result hidden style="margin-top:8px"></p>
+  </form>
   ${
     invites.length
       ? `<p class="xs faint" style="margin-top:8px">Pending: ${invites.map((i) => `${esc(i.email)} (${esc(i.email_status)})`).join(", ")}</p>`

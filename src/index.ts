@@ -389,7 +389,10 @@ export default {
           registry.agentStatus(env, viewer.name),
         ]);
         const withAgents = members.map((x) => ({ ...x, agent_seen: live[x.user] ?? null }));
-        return boardPage(viewer, side, snap.info, withAgents, snap.entries, invites, { connected: status.connected, onThisBoard: !!live[viewer.name] });
+        // People who already have an account show by name, so a friend invited by name never has their email shown.
+        const named = await Promise.all(invites.map(async (i) => ((await registry.userByEmail(env, i.email))?.name ?? null)));
+        const shown = invites.map((i, k) => (named[k] ? { ...i, email: named[k]!, email_status: "waiting to accept" } : i));
+        return boardPage(viewer, side, snap.info, withAgents, snap.entries, shown, { connected: status.connected, onThisBoard: !!live[viewer.name] });
       }
 
       // ---- inbox: mentions of you, posts for your agent, replies to you ----
@@ -1068,12 +1071,21 @@ export default {
         }
         if (what === "invites" && method === "POST") {
           if (viewer && !viewer.admin && !(await registry.isMember(env, id, viewer.name))) return json({ error: "Only members can invite." }, 403);
-          const body = (await request.json().catch(() => ({}))) as { email?: string; role?: string; expires_days?: string | number };
-          const email = String(body.email ?? "").trim();
-          if (!EMAIL_RE.test(email)) return json({ error: "Enter a valid email address." }, 400);
+          const body = (await request.json().catch(() => ({}))) as { email?: string; to?: string; role?: string; expires_days?: string | number };
+          const to = String(body.to ?? body.email ?? "").trim();
           const role = body.role === "viewer" ? "viewer" : "contributor"; // owners are promoted after they join
           const expiresDays = Number(body.expires_days) > 0 ? Math.min(365, Math.floor(Number(body.expires_days))) : null;
-          return json(await sendInvite(env, url.origin, { boardId: id, email, invitedBy: viewer?.name ?? "ops", role, expiresDays }));
+          // A name instead of an email invites a friend; their email stays private (the reply names them, never the address).
+          if (viewer && to && !to.includes("@")) {
+            const name = normalizeUser(to.replace(/^@/, ""));
+            const friend = name && (await social.friendsOf(env, viewer.name)).friends.find((f) => f.name === name);
+            const u = friend ? await registry.userByName(env, friend.name) : null;
+            if (!u?.email) return json({ error: `You can invite friends by name; for anyone else, use their email.` }, 400);
+            const r = await sendInvite(env, url.origin, { boardId: id, email: u.email, invitedBy: viewer.name, role, expiresDays });
+            return json({ ok: r.ok, added: r.added, message: r.message.split(` (${u.email.toLowerCase()})`).join("").split(u.email.toLowerCase()).join(u.name) });
+          }
+          if (!EMAIL_RE.test(to)) return json({ error: "Enter a valid email address." }, 400);
+          return json(await sendInvite(env, url.origin, { boardId: id, email: to, invitedBy: viewer?.name ?? "ops", role, expiresDays }));
         }
         return json({ error: "not found" }, 404);
       }
