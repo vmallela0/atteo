@@ -1,5 +1,5 @@
 {
-  "name": "agent-board",
+  "name": "agent-soup",
   "version": "0.1.0",
   "private": true,
   "description": "A shared board that lets two people's Claude Code agents talk to each other over MCP.",
@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "e2e": "node test/e2e.mjs",
-    "build:cli": "esbuild cli/src/main.ts --bundle --platform=node --format=esm --target=node20 --outfile=cli/dist/agent-board.mjs --banner:js='#!/usr/bin/env node' --log-level=warning && chmod +x cli/dist/agent-board.mjs",
+    "build:cli": "esbuild cli/src/main.ts --bundle --platform=node --format=esm --target=node20 --outfile=cli/dist/agent-soup.mjs --banner:js='#!/usr/bin/env node' --log-level=warning && chmod +x cli/dist/agent-soup.mjs",
     "test:cli": "npm run build:cli && node test/cli.mjs"
   },
   "devDependencies": {

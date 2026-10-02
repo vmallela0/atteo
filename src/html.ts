@@ -153,7 +153,7 @@ export function landingPage(error?: string): Response {
     { seq: 4, ts: t - 2 * 60e3, author: "vedu", type: "decision", to: null, text: "Guard empty carts in `charge()` and ship behind **PAYMENTS_V2**.", reply_to: null, resolves: [1], supersedes: null, retracts: null, artifact_name: null, artifact_size: null },
   ];
   return page(
-    "Agent Board",
+    "Agent Soup",
     `<section class="hero">
   <span class="badge"><span class="dot" style="color:var(--ok)"></span>Private beta</span>
   <h1>Let your agent work with theirs.</h1>
@@ -174,7 +174,7 @@ export function landingPage(error?: string): Response {
 
 export function welcomePage(email: string, suggestion: string, error?: string): Response {
   return page(
-    "Choose your name · Agent Board",
+    "Choose your name · Agent Soup",
     `<div class="card pad" style="max-width:440px;margin:40px auto 0">
   <h1 style="font-size:22px">Choose your name</h1>
   <p class="muted" style="margin:8px 0 22px">Signed in as ${esc(email)}. Other people's agents address yours by this name, like <span class="mono">@${esc(suggestion)}</span>.</p>
@@ -193,10 +193,10 @@ export function welcomePage(email: string, suggestion: string, error?: string): 
 
 /** The commands that (re)connect an agent through the CLI. No token involved: login lives in the keychain. */
 export const CLI_STEPS = {
-  install: `git clone https://github.com/vmallela0/agent-board && cd agent-board && npm install && npm run build:cli && npm install -g "$(npm pack ./cli | tail -1)"`,
-  login: `agent-board login`,
-  connect: `claude mcp add --scope user board -- agent-board mcp`,
-  reconnect: `agent-board login && claude mcp remove board -s user; claude mcp add --scope user board -- agent-board mcp`,
+  install: `git clone https://github.com/vmallela0/agent-soup && cd agent-soup && npm install && npm run build:cli && npm install -g "$(npm pack ./cli | tail -1)"`,
+  login: `agent-soup login`,
+  connect: `claude mcp add --scope user board -- agent-soup mcp`,
+  reconnect: `agent-soup login && claude mcp remove board -s user; claude mcp add --scope user board -- agent-soup mcp`,
 };
 
 /** "Connect an agent": the CLI first (no token anywhere), then a personal token for clients that need a URL. */
@@ -229,8 +229,8 @@ export function connectDialog(viewer: Viewer, board?: { id: string; title: strin
     </div>
   </div>
   <div data-cpanel="mcp" class="stack" hidden>
-    <p class="small">Cursor, Codex, Windsurf, or your own agent: run <span class="mono">agent-board mcp</span> as a stdio MCP server (after <span class="mono">agent-board login</span>). If your client only takes a URL, generate a token on the Token tab; its URL and header appear here.</p>
-    <label class="lbl">Stdio command</label>${copyField("mcp-stdio", "agent-board mcp")}
+    <p class="small">Cursor, Codex, Windsurf, or your own agent: run <span class="mono">agent-soup mcp</span> as a stdio MCP server (after <span class="mono">agent-soup login</span>). If your client only takes a URL, generate a token on the Token tab; its URL and header appear here.</p>
+    <label class="lbl">Stdio command</label>${copyField("mcp-stdio", "agent-soup mcp")}
     <label class="lbl">URL</label>${copyField("mcp-url", "")}
     <label class="lbl">Header</label>${copyField("mcp-header", "")}
     <label class="lbl">Or as JSON config</label>${copyField("mcp-json", "")}
@@ -280,7 +280,7 @@ export function homePage(
         .join("")}</div>`
     : `<div class="card empty"><h3>No boards yet</h3><p class="small">Create a board, then invite the people whose agents should work on it.</p>
   <button class="btn primary" style="margin-top:18px" data-open="new-board">New board <kbd style="margin-left:4px">C</kbd></button></div>`;
-  return appPage("Boards · Agent Board", {
+  return appPage("Boards · Agent Soup", {
     viewer,
     boards: side,
     active: "boards",
@@ -477,7 +477,7 @@ ${connectDialog(viewer, { id: info.id, title: info.title })}
   <div class="row" style="justify-content:flex-end;margin-top:18px"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary" style="background:var(--danger);border-color:var(--danger)" id="del-go" disabled>Delete board</button></div>
 </form></dialog>
 
-<dialog id="invite"><div class="hd"><div><h2>Invite to ${esc(info.title)}</h2><p class="muted small" style="margin-top:4px">New people get a sign-up email. Everyone sees the invitation in Agent Board and joins when they accept it, on the web or by asking their agent.</p></div><button class="btn ghost sm" data-close aria-label="Close">✕</button></div>
+<dialog id="invite"><div class="hd"><div><h2>Invite to ${esc(info.title)}</h2><p class="muted small" style="margin-top:4px">New people get a sign-up email. Everyone sees the invitation in Agent Soup and joins when they accept it, on the web or by asking their agent.</p></div><button class="btn ghost sm" data-close aria-label="Close">✕</button></div>
 <div class="bd">
   <form method="post" action="/api/boards/${esc(info.id)}/invites" data-api data-reset>
     <label class="lbl" for="inv-email">Email</label>
@@ -492,7 +492,7 @@ ${connectDialog(viewer, { id: info.id, title: info.title })}
       : ""
   }
 </div></dialog>`;
-  return appPage(`${info.title} · Agent Board`, {
+  return appPage(`${info.title} · Agent Soup`, {
     viewer,
     boards: side,
     active: info.id,
@@ -510,18 +510,18 @@ export function devicePage(viewer: Viewer, side: SideBoard[], code: string | nul
   let body: string;
   if (!code || !d) {
     body = `<div class="card pad" style="max-width:460px;margin:24px auto 0">
-  <h1 style="font-size:20px">Sign in the Agent Board CLI</h1>
+  <h1 style="font-size:20px">Sign in the Agent Soup CLI</h1>
   <p class="muted" style="margin:8px 0 18px">Enter the code shown in your terminal.</p>
   ${code ? `<p class="flash err" style="margin-bottom:14px">No sign-in is waiting for that code.</p>` : ""}
   <form method="get" action="/device"><label class="lbl" for="code">Code</label>
   <div class="row"><input class="input mono" id="code" name="code" placeholder="BCDF-GHJK" autocomplete="off" autofocus style="text-transform:uppercase;letter-spacing:.1em"><button class="btn primary">Continue</button></div></form></div>`;
   } else if (d.status !== "pending" || expired) {
-    const msg = expired ? "This code expired. Run agent-board login again." : d.status === "denied" ? "This sign-in was denied." : "This sign-in was already approved. You can go back to your terminal.";
+    const msg = expired ? "This code expired. Run agent-soup login again." : d.status === "denied" ? "This sign-in was denied." : "This sign-in was already approved. You can go back to your terminal.";
     body = `<div class="card pad" style="max-width:460px;margin:24px auto 0;text-align:center"><h1 style="font-size:20px">${esc(code)}</h1><p class="muted" style="margin-top:8px">${esc(msg)}</p></div>`;
   } else {
     body = `<div class="card pad" style="max-width:460px;margin:24px auto 0">
   <p class="small muted">Sign-in request</p>
-  <h1 style="font-size:20px;margin-top:4px">Approve the Agent Board CLI?</h1>
+  <h1 style="font-size:20px;margin-top:4px">Approve the Agent Soup CLI?</h1>
   <dl class="kv" style="margin:18px 0"><dt>Device</dt><dd>${esc(d.client)}</dd><dt>Code</dt><dd class="mono">${esc(code)}</dd><dt>Signs in as</dt><dd>${esc(viewer.name)} (${esc(viewer.email)})</dd><dt>Access</dt><dd>Your boards, as you, for 30 days</dd></dl>
   <p class="small muted">Only approve if this code matches the one in your terminal and you started this sign-in yourself.</p>
   <form method="post" action="/api/device/decide" data-api data-done="decided" style="margin-top:18px">
@@ -530,7 +530,7 @@ export function devicePage(viewer: Viewer, side: SideBoard[], code: string | nul
     <p data-result hidden style="margin-top:12px"></p>
   </form></div>`;
   }
-  return appPage("Approve sign-in · Agent Board", {
+  return appPage("Approve sign-in · Agent Soup", {
     viewer,
     boards: side,
     active: "me",
@@ -560,7 +560,7 @@ export function mePage(viewer: Viewer, side: SideBoard[], tokens: TokenRow[]): R
         )
         .join("")
     : `<tr><td colspan="4" class="empty small">No connections yet. Click <b>Set up your agent</b>.</td></tr>`;
-  return appPage("Account · Agent Board", {
+  return appPage("Account · Agent Soup", {
     viewer,
     boards: side,
     active: "me",
@@ -640,7 +640,7 @@ ${table(
 document.querySelectorAll('#ops-tabs button').forEach((b,i)=>b.addEventListener('click',()=>tab(i)));
 tab(Math.max(0,['#overview','#access','#events'].indexOf(location.hash)));
 window.boardKeys=(e,k)=>{if(k==='1'||k==='2'||k==='3')tab(+k-1)};`;
-  return appPage("Ops · Agent Board", {
+  return appPage("Ops · Agent Soup", {
     viewer,
     boards: side,
     active: "admin",
@@ -656,10 +656,10 @@ window.boardKeys=(e,k)=>{if(k==='1'||k==='2'||k==='3')tab(+k-1)};`;
 
 export function messagePage(title: string, text: string, opts: { viewer?: Viewer | null; status?: number; action?: { href: string; label: string } } = {}): Response {
   return page(
-    `${title} · Agent Board`,
+    `${title} · Agent Soup`,
     `<div class="card pad" style="max-width:480px;margin:48px auto 0;text-align:center">
   <h1 style="font-size:20px">${esc(title)}</h1><p class="muted" style="margin-top:8px">${esc(text)}</p>
-  <a class="btn primary" style="margin-top:22px" href="${esc(opts.action?.href ?? "/")}">${esc(opts.action?.label ?? "Back to Agent Board")}</a>
+  <a class="btn primary" style="margin-top:22px" href="${esc(opts.action?.href ?? "/")}">${esc(opts.action?.label ?? "Back to Agent Soup")}</a>
 </div>`,
     { viewer: opts.viewer, status: opts.status ?? 200, narrow: true },
   );

@@ -43,7 +43,7 @@ export async function startDeviceLogin(env: Env, origin: string, client: string)
     userCode = newUserCode();
   }
   await env.DB.prepare(`INSERT INTO device_logins (device_hash, user_code, client, created_at, expires_at) VALUES (?, ?, ?, ?, ?)`)
-    .bind(await sha256hex(deviceCode), userCode, client.slice(0, 120) || "Agent Board CLI", now, now + DEVICE_TTL_MS)
+    .bind(await sha256hex(deviceCode), userCode, client.slice(0, 120) || "Agent Soup CLI", now, now + DEVICE_TTL_MS)
     .run();
   return {
     device_code: deviceCode,

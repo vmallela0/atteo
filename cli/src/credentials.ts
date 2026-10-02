@@ -46,7 +46,7 @@ export function save(c: Credentials): void {
     return;
   }
   if (!file && platform() === "linux" && has("secret-tool")) {
-    execFileSync("secret-tool", ["store", "--label=Agent Board", "service", SERVICE, "account", "default"], { input: json, stdio: ["pipe", "ignore", "ignore"] });
+    execFileSync("secret-tool", ["store", "--label=Agent Soup", "service", SERVICE, "account", "default"], { input: json, stdio: ["pipe", "ignore", "ignore"] });
     return;
   }
   const path = file || FILE();

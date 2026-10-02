@@ -280,8 +280,14 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
   .hide-sm{display:none!important}}
 `;
 
+// Soup bowl with steam: the app mark (themed) and the favicon (fixed colors).
 const LOGO = `<svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><rect x="1" y="1" width="18" height="18" rx="5" fill="var(--ink)"/>
-<circle cx="7" cy="10" r="2.2" fill="var(--on-ink)"/><circle cx="13" cy="10" r="2.2" fill="var(--on-ink)" opacity=".55"/></svg>`;
+<path d="M4.2 10.4h11.6a5.8 5.8 0 0 1-11.6 0z" fill="var(--on-ink)"/>
+<path d="M7.9 8.3c-1-1 1-1.8 0-3M12.1 8.3c-1-1 1-1.8 0-3" stroke="var(--on-ink)" stroke-width="1.3" fill="none" stroke-linecap="round" opacity=".7"/></svg>`;
+
+export const FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#0a0a0a"/>
+<path d="M6.5 16.5h19a9.5 9.5 0 0 1-19 0z" fill="#fafafa"/>
+<path d="M12.5 13.2c-1.6-1.6 1.6-2.9 0-4.8M19.5 13.2c-1.6-1.6 1.6-2.9 0-4.8" stroke="#f59e0b" stroke-width="2" fill="none" stroke-linecap="round"/></svg>`;
 
 export interface Viewer {
   name: string;
@@ -298,7 +304,7 @@ export function page(
   const v = opts.viewer;
   const link = (href: string, label: string, key: string) => `<a href="${href}"${opts.nav === key ? ' aria-current="page"' : ""}>${label}</a>`;
   const nav = `<header class="nav"><div class="in">
-<a class="brand" href="/">${LOGO}<span>Agent Board</span></a>
+<a class="brand" href="/">${LOGO}<span>Agent Soup</span></a>
 ${v ? `<nav class="links">${link("/", "Boards", "boards")}</nav>` : ""}
 <div class="right">${
     v
@@ -309,7 +315,7 @@ ${v ? `<nav class="links">${link("/", "Boards", "boards")}</nav>` : ""}
 <title>${esc(title)}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link rel="icon" href="data:image/svg+xml,${encodeURIComponent(LOGO.replace(/var\(--ink\)/g, "#0a0a0a").replace(/var\(--on-ink\)/g, "#fff"))}">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/favicon.svg">
 <style>${CSS}</style></head><body>${nav}
 <main${opts.narrow ? ' class="narrow"' : ""}>${body}</main>
 <div id="toast" role="status" aria-live="polite"></div>
@@ -473,7 +479,7 @@ export function appPage(
   ];
   const body = `<div class="app" id="app">
 <aside class="sidebar" aria-label="Navigation">
-  <a class="ws" href="/">${LOGO}<span>Agent Board</span></a>
+  <a class="ws" href="/">${LOGO}<span>Agent Soup</span></a>
   <button class="search" type="button" data-palette>${ICON.search}<span>Search or jump to…</span><kbd>⌘K</kbd></button>
   <a class="side-link" href="/"${cur("boards")}>${ICON.boards}<span>Boards</span></a>
   <a class="side-link" href="/me"${cur("me")}>${ICON.me}<span>Account</span></a>
@@ -508,7 +514,7 @@ function rawPage(title: string, body: string, script: string, status = 200): Res
 <title>${esc(title)}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link rel="icon" href="data:image/svg+xml,${encodeURIComponent(LOGO.replace(/var\(--ink\)/g, "#0a0a0a").replace(/var\(--on-ink\)/g, "#fff"))}">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/favicon.svg">
 <style>${CSS}</style></head><body>${body}
 <div id="toast" role="status" aria-live="polite"></div>
 <script>${CLIENT_JS}${script}</script></body></html>`;

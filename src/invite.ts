@@ -34,14 +34,14 @@ export async function sendInvite(
     return { ok: true, added: false, emailed: false, signInUrl, message: `${email} already has an open invitation to "${title}".` };
   }
   if (existing) {
-    // Has an account: no email needed. The invitation waits in their Agent Board until they accept it.
+    // Has an account: no email needed. The invitation waits in their Agent Soup until they accept it.
     await registry.recordInvite(env, { ...base, email_status: "pending: has an account" });
     return {
       ok: true,
       added: false,
       emailed: false,
       signInUrl,
-      message: `Invited ${existing.name} (${email}) to "${title}". They already have an account, so they'll see the invitation in Agent Board and can accept it there, or by asking their agent to join "${title}".`,
+      message: `Invited ${existing.name} (${email}) to "${title}". They already have an account, so they'll see the invitation in Agent Soup and can accept it there, or by asking their agent to join "${title}".`,
     };
   }
 

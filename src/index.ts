@@ -23,6 +23,7 @@ import {
   type Viewer,
 } from "./html";
 import type { Entry, Env } from "./types";
+import { FAVICON_SVG } from "./ui";
 import { BOARD_RE, connectCommand, newBoardId, normalizeUser } from "./util";
 
 export { Board } from "./board";
@@ -247,6 +248,9 @@ export default {
     try {
       if (path === "/mcp") return await handleMcp(request, env, ctx);
       if (path === "/health") return json({ ok: true });
+      if (path === "/favicon.svg" || path === "/favicon.ico") {
+        return new Response(FAVICON_SVG, { headers: { "content-type": "image/svg+xml", "cache-control": "public, max-age=86400" } });
+      }
 
       const session = await auth.getSession(request, env);
       const viewer = await loadViewer(env, session);
@@ -266,7 +270,7 @@ export default {
       // ---- CLI login (device flow) ----
       if (path === "/api/device/start" && method === "POST") {
         const body = (await request.json().catch(() => ({}))) as { client?: string };
-        return json(await device.startDeviceLogin(env, url.origin, String(body.client ?? "Agent Board CLI")));
+        return json(await device.startDeviceLogin(env, url.origin, String(body.client ?? "Agent Soup CLI")));
       }
       if (path === "/api/device/token" && method === "POST") {
         const body = (await request.json().catch(() => ({}))) as { device_code?: string };
@@ -289,7 +293,7 @@ export default {
         const approve = body.approve === true || body.approve === "true";
         const r = await device.decideDeviceLogin(env, code, viewer.name, approve);
         if (r === "not_found") return json({ error: "No sign-in is waiting for that code." }, 404);
-        if (r === "expired") return json({ error: "That code expired. Run agent-board login again." }, 410);
+        if (r === "expired") return json({ error: "That code expired. Run agent-soup login again." }, 410);
         if (r === "already") return json({ error: "That code was already used." }, 409);
         return json({ ok: true, approved: approve, message: approve ? "Approved. You can go back to your terminal." : "Denied. Nothing was signed in." });
       }

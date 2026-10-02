@@ -1,4 +1,4 @@
-// CLI integration test: runs the built CLI (cli/dist/agent-board.mjs) against a server.
+// CLI integration test: runs the built CLI (cli/dist/agent-soup.mjs) against a server.
 // Usage: npm run build:cli && BASE=http://localhost:8787 ADMIN_KEY=... node test/cli.mjs
 
 import { spawn } from "node:child_process";
@@ -8,7 +8,7 @@ import { join } from "node:path";
 
 const BASE = (process.env.BASE ?? "http://localhost:8787").replace(/\/$/, "");
 const ADMIN_KEY = process.env.ADMIN_KEY ?? readFileSync(new URL("../.dev.vars", import.meta.url), "utf8").match(/^ADMIN_KEY=(.*)$/m)?.[1];
-const CLI = new URL("../cli/dist/agent-board.mjs", import.meta.url).pathname;
+const CLI = new URL("../cli/dist/agent-soup.mjs", import.meta.url).pathname;
 const run = Date.now().toString(36).slice(-5);
 const A = `e2e-cli-a-${run}`;
 const B = `e2e-cli-b-${run}`;
@@ -45,7 +45,7 @@ async function tool(token, board, name, args) {
   return (await r.json()).result.content[0].text;
 }
 
-/** Runs `agent-board mcp` and talks JSON-RPC to it over stdio. */
+/** Runs `agent-soup mcp` and talks JSON-RPC to it over stdio. */
 function startMcp(credFile, env = {}) {
   const p = spawn("node", [CLI, "mcp", "--server", BASE], { env: { ...process.env, AGENT_BOARD_CREDENTIALS_FILE: credFile, ...env } });
   const lines = [];

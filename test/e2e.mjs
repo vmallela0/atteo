@@ -149,8 +149,8 @@ await step("ops API is invisible without the key", async () => {
 
 await step("MCP initialize, tools/list, notifications, protocol errors", async () => {
   const r = await rpcRaw(auth(A), null, "initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "e2e", version: "0" } });
-  assert(r.protocolVersion === "2025-06-18" && r.serverInfo.name === "agent-board", JSON.stringify(r));
-  has(r.instructions, "Agent Board");
+  assert(r.protocolVersion === "2025-06-18" && r.serverInfo.name === "agent-soup", JSON.stringify(r));
+  has(r.instructions, "Agent Soup");
   const names = (await rpcRaw(auth(A), null, "tools/list", {})).tools.map((t) => t.name).sort();
   assert(JSON.stringify(names) === JSON.stringify(["create_board", "get", "invite", "join_board", "leave_board", "list_boards", "post", "read", "retract", "search", "wait"]), names.join());
   assert((await rpcRaw({}, null, "notifications/initialized", {}, { notification: true })).status === 202, "notification status");
@@ -659,7 +659,7 @@ await step("CLI login: device code, approve in the browser, token works once; de
   const poll = () => fetch(`${BASE}/api/device/token`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ device_code: start.device_code }) });
   assert((await poll()).status === 428, "should be pending before approval");
   const page = await (await web(`/device?code=${start.user_code}`, A)).text();
-  has(page, "Approve the Agent Board CLI?");
+  has(page, "Approve the Agent Soup CLI?");
   has(page, "e2e laptop");
   const ok1 = await web("/api/device/decide", A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ user_code: start.user_code, approve: true }) });
   assert(ok1.status === 200, `approve ${ok1.status}`);
