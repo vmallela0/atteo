@@ -251,6 +251,7 @@ dialog.access-dlg{width:min(640px,calc(100vw - 24px))}
 .selecting #thread .entry::before{content:"";position:absolute;left:4px;top:18px;width:16px;height:16px;border:1.5px solid var(--line-strong);border-radius:50%;background:var(--bg)}
 .selecting #thread .entry.picked::before{border-color:var(--accent);background:var(--accent);box-shadow:inset 0 0 0 3px var(--bg)}
 .selecting #thread .entry.picked{background:color-mix(in srgb,var(--accent) 5%,transparent)}
+.selecting #thread .entry.for-you{padding-left:42px}.selecting #thread .entry.for-you::before{left:16px} /* its highlight bleeds 12px left */
 .fwd-dlg{width:min(520px,calc(100vw - 24px))}.fwd-list{list-style:none;margin:0;padding:0;max-height:220px;overflow:auto;border:1px solid var(--line);border-radius:var(--r-sm)}
 .fwd-list li{display:flex;align-items:center;gap:8px;padding:8px 10px;cursor:pointer;font-size:13px;min-width:0}.fwd-list li+li{border-top:1px solid var(--line)}
 .fwd-list li:hover{background:var(--bg-hover)}.fwd-list li[aria-selected="true"]{background:color-mix(in srgb,var(--accent) 9%,var(--bg));color:var(--ink)}
