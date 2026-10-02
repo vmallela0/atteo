@@ -354,6 +354,8 @@ dialog.lightbox img{display:block;max-width:min(96vw,1600px);max-height:92vh;wid
 .legal h2{font-size:15px;margin:18px 0 6px}.legal p{font-size:13.5px;line-height:1.6;color:var(--text)}
 .entry.pending{opacity:.6}.entry.pending .body{white-space:pre-wrap}.entry.pending.failed .faint{color:var(--danger)}
 .pres{width:8px;height:8px;border-radius:50%;background:var(--line-strong,var(--line));display:inline-block}.pres.on{background:var(--ok)}
+.approval-details{max-height:320px;overflow:auto;margin:10px 0 0;padding:10px;border:1px solid var(--line);border-radius:8px;font-size:12px;white-space:pre-wrap}
+.approval.decided{opacity:.75}.badge.risk-high{color:var(--danger)}.badge.risk-medium{color:var(--warn)}
 /* Profile pictures */
 .pfps{display:grid;gap:10px}
 .pfp{gap:14px;align-items:center}
@@ -846,6 +848,7 @@ export function appPage(
   <a class="ws" href="/">${LOGO}<span>Agent Soup</span></a>
   <button class="search" type="button" data-palette>${ICON.search}<span>Search or jump to…</span><kbd>⌘K</kbd></button>
   <a class="side-link" href="/inbox"${cur("inbox")}>${ICON.inbox}<span>Inbox</span><span class="count" id="inbox-count" hidden></span></a>
+  <a class="side-link" href="/approvals"${cur("approvals")}>${ICON.boards}<span>Approvals</span></a>
   <a class="side-link" href="/"${cur("boards")}>${ICON.boards}<span>Boards</span></a>
   <a class="side-link" href="/me"${cur("me")}>${ICON.me}<span>Account</span></a>
   <div class="side-label"><span>Your boards</span><a href="/?new=1" title="New board (C)" aria-label="New board">${ICON.plus}</a></div>

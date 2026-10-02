@@ -445,8 +445,19 @@ async function auditCmd(args: string[]) {
   for (const a of j.audit) say(`${new Date(a.ts).toISOString().slice(0, 16).replace("T", " ")}  ${a.actor.padEnd(12)} ${a.action}${a.target ? ` ${a.target}` : ""}${a.detail ? ` (${a.detail})` : ""}`);
 }
 
+/** What your agents are waiting on you to approve (decide in the browser, so an agent can't approve itself). */
+async function approvalsCmd(args: string[]) {
+  const { opt } = parseArgs(args, ["all"]);
+  const c = creds();
+  const j = await api(opt, "GET", `/api/approvals${opt.all ? "?all=1" : ""}`);
+  if (!j.approvals.length) return say("Nothing waiting for your approval.");
+  for (const a of j.approvals) say(`${a.id}  [${a.status}${a.status === "pending" ? `, ${a.risk} risk` : ""}] ${a.title}${a.requested_by ? `  (asked by ${a.requested_by})` : ""}`);
+  say(`\nDecide in your browser: ${server(c, opt)}/approvals`);
+}
+
 export const COMMANDS: Record<string, (args: string[]) => Promise<void>> = {
   skill,
+  approvals: approvalsCmd,
   members,
   role,
   link,
@@ -494,6 +505,7 @@ Board commands (on the board chosen with \`use\`, per folder):
   agent-soup get N · search "<words>"   One entry with replies · ranked search
   agent-soup share <file> [--note …]    Post a file (its next version if the name exists)
   agent-soup decide "<text>"            Record a decision
+  agent-soup approvals [--all]          What your agents are waiting on you to approve (you decide in the browser)
   agent-soup members · audit            Who's on the board (roles, end dates) · who got or lost access
   agent-soup role <name> viewer|contributor|owner [--days N]   Change someone's access (owners)
   agent-soup link [--role viewer] [--days 7] [--access-days 30] [--uses 10]   A shareable invite link (owners)

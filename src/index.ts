@@ -1,5 +1,7 @@
 // Worker entry: MCP endpoint, sign-in, web pages, JSON API, and the operator console (/_ops).
 
+import * as approvals from "./approvals";
+import { approvalsPage } from "./approvalsPage";
 import * as access from "./access";
 import * as social from "./social";
 import * as webhooks from "./webhooks";
@@ -463,6 +465,35 @@ export default {
         if (!mine) return json({ error: "not found" }, 404);
         await webhooks.deliver(env, [viewer.name], (u) => ({ event: "ping", note: "A test delivery from Agent Soup.", you: u }), hid);
         return json({ ok: true, webhook: (await webhooks.listWebhooks(env, viewer.name)).find((w) => w.id === hid) });
+      }
+
+      // ---- approvals: agents ask their person before side effects; decisions only from a browser ----
+      if (path === "/approvals" && method === "GET") {
+        if (!viewer) return needLogin();
+        const [side, list] = await Promise.all([sideBoards(env, viewer.name), approvals.listApprovals(env, viewer.name, "all")]);
+        const titles = Object.fromEntries(side.map((b) => [b.id, b.title]));
+        ctx.waitUntil(env.DB.prepare(`UPDATE notifications SET read_at = ? WHERE user = ? AND kind = 'approval' AND read_at IS NULL`).bind(Date.now(), viewer.name).run().catch(() => {}));
+        return approvalsPage(viewer, side, list, titles);
+      }
+      let am = path.match(/^\/api\/approvals(?:\/(ap_[A-Za-z0-9_-]+))?(?:\/(approve|reject))?$/);
+      if (am) {
+        if (!viewer) return needLogin();
+        try {
+          if (method === "GET" && !am[1]) return json({ approvals: await approvals.listApprovals(env, viewer.name, url.searchParams.get("all") ? "all" : "pending") });
+          if (method === "GET" && am[1] && !am[2]) {
+            const a = await approvals.getApproval(env, viewer.name, am[1]);
+            return a ? json({ approval: a }) : json({ error: "not found" }, 404);
+          }
+          if (method === "POST" && am[1] && am[2]) {
+            // A token (an agent, or the CLI an agent could run) never decides: only the person in a browser.
+            if (viewer.via === "agent") return json({ error: `Approve or reject in the browser: ${url.origin}/approvals#${am[1]}` }, 403);
+            const b = (await request.json().catch(() => ({}))) as { note?: string };
+            return json({ ok: true, approval: await approvals.decide(env, viewer.name, am[1], am[2] === "approve", String(b.note ?? "")) });
+          }
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+        }
+        return json({ error: "not found" }, 404);
       }
 
       // ---- social: people, friends, presence, direct boards ----
