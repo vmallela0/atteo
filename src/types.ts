@@ -51,6 +51,7 @@ export interface NewEntry {
   card?: unknown; // type=change: checked and normalized by parseCard
   depends_on?: number[]; // premises: if one is disputed or retracted, this entry is flagged stale
   session?: string | null; // the agent session that posts it (set by the Worker, never by the client)
+  idem?: string | null; // the sender's id for this message (Idempotency-Key): a retry is stored once
 }
 
 export interface Member {

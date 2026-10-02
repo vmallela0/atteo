@@ -11,6 +11,7 @@ import * as social from "./social";
 import * as webhooks from "./webhooks";
 import * as avatars from "./avatars";
 import { waitForBoard } from "./waits";
+import { isRetriable, messageId, withRetry } from "./retry";
 import CLI_BUNDLE from "../cli/dist/agent-soup.mjs";
 import { installScript } from "./install";
 import SKILL_MD from "../skills/agent-soup/SKILL.md";
@@ -1509,12 +1510,19 @@ const handler = {
             }
           }
           try {
-            const entry = await stub.post(viewer.name, { type, text, to, mentions, reply_to: replyTo, via: pv(), session: await asid() });
+            const idem = messageId(request.headers.get("idempotency-key"));
+            const session = await asid();
+            const entry = await withRetry(() => stub.post(viewer.name, { type, text, to, mentions, reply_to: replyTo, via: pv(), session, idem }));
             ctx.waitUntil(Promise.all([registry.touch(env, viewer.name, id), registry.bumpBoard(env, id, entry.seq)]).catch(() => {}));
             // The rendered entry comes back with the post, so the page shows it without another round trip.
             const root = replyTo ? ((await stub.rootsFor([entry.seq]))[entry.seq] ?? entry.seq) : entry.seq;
             return json({ ok: true, entry, update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(entry, id, true, { canRetract: true }), row: logRow(entry), reactions: [] } }, 201);
           } catch (e) {
+            // Still restarting after our retries: say "try again" (the page retries with the same message id).
+            if (isRetriable(e)) {
+              ctx.waitUntil(usage.recordError(env, `${method} ${path}`, e).catch(() => {}));
+              return json({ error: "Agent Soup is restarting; your message wasn't lost. Retrying…", retry: true }, 503, { "retry-after": "2" });
+            }
             return json({ error: e instanceof Error ? e.message : String(e) }, 400);
           }
         }

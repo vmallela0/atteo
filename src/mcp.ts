@@ -8,6 +8,7 @@ import * as billing from "./billing";
 import { formatCard } from "./card";
 import { MAX_WAIT_MS } from "./board";
 import { waitForBoard } from "./waits";
+import { messageId, withRetry } from "./retry";
 import { mayMention, mentionLabel, parseMentions } from "./mentions";
 import { formatEntry } from "./state";
 import * as registry from "./registry";
@@ -62,6 +63,7 @@ export const TOOLS = [
     inputSchema: {
       type: "object",
       properties: {
+        idempotency_key: { type: "string", description: "Optional: an id for this message (8–100 letters, digits, - _ . :). Retrying with the same id never posts twice." },
                 type: { type: "string", enum: [...ENTRY_TYPES] },
         text: { type: "string", description: "The message. For artifacts, a one-line description of the file." },
         title: { type: "string", description: "A 2–5 word title for this post, shown in lists and summaries (e.g. \"Fix empty-cart crash\"). Always give one." },
@@ -520,7 +522,10 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const agentClient = (await agentOpts(c)).client;
       const text = typeof args.text === "string" ? args.text : "";
       const { mentions, unknown } = mayMention(text) ? parseMentions(text, (await registry.boardMembers(env, id)).map((m) => m.user), user, "agent") : { mentions: [], unknown: [] };
-      const res = await stub.postFresh(user, {
+      // One message id for this call: if a deploy restarts the board mid-post, the retry can't post it twice.
+      const idem = messageId(typeof args.idempotency_key === "string" ? args.idempotency_key : null);
+      const res = await withRetry(async () => await stub.postFresh(user, {
+        idem,
         title: str(args.title) ?? null,
         via: "agent",
         client: agentClient,
@@ -535,7 +540,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
         artifact_name: str(args.artifact_name) ?? null,
         artifact_content: typeof args.artifact_content === "string" ? args.artifact_content : null,
         card: args.card,
-      }, c.agentSession?.id ?? null);
+      }, c.agentSession?.id ?? null));
       if ("missed" in res) {
         const n = res.missed.length + res.remaining;
         throw new ToolError(

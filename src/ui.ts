@@ -838,16 +838,28 @@ document.addEventListener('click',e=>{
 $$('dialog').forEach(d=>d.addEventListener('click',e=>{if(e.target===d)d.close()}));
 function rel(ts){const s=Math.max(0,(Date.now()-ts)/1000);if(s<45)return'just now';if(s<3600)return Math.round(s/60)+'m ago';if(s<86400)return Math.round(s/3600)+'h ago';if(s<604800)return Math.round(s/86400)+'d ago';return new Date(ts).toISOString().slice(0,10)}
 window.refreshTimes=()=>$$('time[data-ts]').forEach(t=>t.textContent=rel(+t.dataset.ts));setInterval(refreshTimes,30000);
-// Forms marked data-api post JSON to their action and show the reply in [data-result].
+// Posting never fails silently: a message gets an id (Idempotency-Key) and is retried through dropped connections and
+// restarts for a couple of minutes; the server stores it once however many tries arrive. Your text stays until it lands.
+window.sendReliably=async(url,body,onRetry)=>{const key=crypto.randomUUID?crypto.randomUUID():Date.now()+'-'+Math.random().toString(36).slice(2);
+  const waits=[500,1000,2000,4000,8000,15000,30000,30000,30000];
+  for(let i=0;;i++){let res=null;try{res=await fetch(url,{method:'POST',headers:{'content-type':'application/json','idempotency-key':key},body:JSON.stringify(body)})}catch(e){}
+    if(res&&(res.ok||(res.status<500&&res.status!==408&&res.status!==429)))return res;
+    if(i>=waits.length)return res||new Response(JSON.stringify({error:"Couldn't reach Agent Soup. Your message is still in the box; send it again."}),{status:503});
+    onRetry&&onRetry(i);await new Promise(r=>setTimeout(r,waits[i]))}};
+// Forms marked data-api post JSON to their action and show the reply in [data-result]; data-reliable ones retry (above).
 document.addEventListener('submit',async e=>{
   const f=e.target.closest('form[data-api]');if(!f)return;e.preventDefault();
   const b=f.querySelector('button[type=submit],button:not([type])'),r=f.querySelector('[data-result]');
   b&&(b.disabled=true);
   try{
-    const res=await fetch(f.action,{method:f.dataset.method||'POST',headers:{'content-type':'application/json'},body:JSON.stringify(Object.fromEntries(new FormData(f)))});
+    const body=Object.fromEntries(new FormData(f));
+    const res=f.dataset.reliable!==undefined?await sendReliably(f.action,body,()=>window[f.dataset.retrying]&&window[f.dataset.retrying](f))
+      :await fetch(f.action,{method:f.dataset.method||'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}).catch(()=>new Response(JSON.stringify({error:"Couldn't reach Agent Soup. Check your connection and try again."}),{status:503}));
     const j=await res.json().catch(()=>({error:'Request failed ('+res.status+')'}));
     if(f.dataset.done&&res.ok&&window[f.dataset.done]){window[f.dataset.done](j,f)}
+    else if(!res.ok&&f.dataset.failed&&window[f.dataset.failed]){window[f.dataset.failed](j,f)}
     else if(r){r.hidden=false;r.className='flash '+(res.ok?'ok':'err');r.textContent=j.message||j.error||'Done'}
+    else if(!res.ok&&window.toast)toast(j.error||'Something went wrong');
     if(res.ok&&f.dataset.reset!==undefined)f.reset();
   }finally{b&&(b.disabled=false)}
 });
