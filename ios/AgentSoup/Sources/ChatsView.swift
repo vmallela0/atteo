@@ -1,5 +1,5 @@
-// The one screen you live in: what needs you (approvals, first contact) pinned on top with one-tap answers, then
-// every board and DM, newest first, with unread counts and who spoke last. Open one to read and reply.
+// The one screen you live in: what needs you (approvals, first contact) pinned on top with one-tap answers, then your
+// boards or your DMs (a switch between the two), newest first, with unread counts and who spoke last.
 
 import SwiftUI
 
@@ -9,6 +9,7 @@ struct ChatsView: View {
     @State private var path: [Board] = []
     @State private var showAll = false
     @State private var showSettings = false
+    @AppStorage("chats-tab") private var tab = "boards" // boards | direct
     @State private var showAgents: Bool = {
         #if DEBUG
         return ProcessInfo.processInfo.environment["AGENT_SOUP_TAB"] == "1" // simulator screenshots
@@ -19,8 +20,11 @@ struct ChatsView: View {
 
     private func unread(_ b: Board) -> Int { state.inbox.filter { $0.boardId == b.id && $0.readAt == nil }.count }
 
+    private func isDirect(_ b: Board) -> Bool { b.kind == "direct" }
+    private func unreadIn(direct: Bool) -> Int { state.boards.filter { isDirect($0) == direct }.reduce(0) { $0 + unread($1) } }
+
     var chats: [Board] {
-        let all = state.boards.sorted { (unread($0) > 0 ? 1 : 0, $0.lastActivity) > (unread($1) > 0 ? 1 : 0, $1.lastActivity) }
+        let all = state.boards.filter { isDirect($0) == (tab == "direct") }.sorted { (unread($0) > 0 ? 1 : 0, $0.lastActivity) > (unread($1) > 0 ? 1 : 0, $1.lastActivity) }
         guard !query.isEmpty else { return all }
         return all.filter { $0.title.localizedCaseInsensitiveContains(query) || ($0.last?.text.localizedCaseInsensitiveContains(query) ?? false) || ($0.last?.by.localizedCaseInsensitiveContains(query) ?? false) }
     }
@@ -41,9 +45,13 @@ struct ChatsView: View {
                     } header: { Text("Needs you · \(state.approvals.count + state.contacts.count)").font(.footnote.weight(.semibold)).foregroundStyle(Theme.accent).contentTransition(.numericText()).accessibilityIdentifier("needs-you") }
                 }
                 Section {
+                    if chats.isEmpty && query.isEmpty && state.loaded {
+                        Text(tab == "direct" ? "No direct messages yet. When someone's agent writes to yours, it lands here." : "No boards yet. Make one on the web, or ask your agent to.")
+                            .font(.subheadline).foregroundStyle(Theme.faint).listRowBackground(Theme.bg).listRowSeparator(.hidden)
+                    }
                     ForEach(chats) { b in
                         // A row you tap (no disclosure arrow): the whole row opens the chat.
-                        ChatRow(b: b, unread: unread(b))
+                        ChatRow(b: b, unread: unread(b), me: state.me?.owner)
                             .contentShape(Rectangle())
                             .onTapGesture { Haptic.tap(); path.append(b) }
                             .accessibilityAddTraits(.isButton)
@@ -55,6 +63,8 @@ struct ChatsView: View {
                                 if unread(b) > 0 { Button { Task { await state.markRead(b) } } label: { Label("Read", systemImage: "checkmark") }.tint(Theme.accent) }
                             }
                     }
+                } header: {
+                    ChatsSwitch(tab: $tab, boards: unreadIn(direct: false), direct: unreadIn(direct: true))
                 }
             }
             .listStyle(.plain)
@@ -100,17 +110,55 @@ struct ChatsView: View {
     }
 }
 
+/// Boards or DMs: two quiet tabs, each with how many unread messages it holds.
+struct ChatsSwitch: View {
+    @Binding var tab: String
+    let boards: Int
+    let direct: Int
+    @Namespace private var pill
+
+    var body: some View {
+        HStack(spacing: 4) {
+            item("boards", "Boards", boards)
+            item("direct", "Direct", direct)
+            Spacer()
+        }
+        .padding(.vertical, 6)
+        .textCase(nil)
+    }
+
+    private func item(_ key: String, _ label: String, _ n: Int) -> some View {
+        Button { Haptic.tap(); withAnimation(.snappy) { tab = key } } label: {
+            HStack(spacing: 6) {
+                Text(label).font(.subheadline.weight(.semibold))
+                if n > 0 { Text("\(n)").font(.caption2.weight(.bold)).monospacedDigit().padding(.horizontal, 6).padding(.vertical, 1).background(Theme.accent, in: Capsule()).foregroundStyle(.black) }
+            }
+            .foregroundStyle(tab == key ? Theme.text : Theme.faint)
+            .padding(.horizontal, 12).padding(.vertical, 6)
+            .background { if tab == key { Capsule().fill(Theme.raised).matchedGeometryEffect(id: "pill", in: pill) } }
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("tab-\(key)")
+        .accessibilityValue(n > 0 ? "\(n) unread" : "")
+        .accessibilityAddTraits(tab == key ? .isSelected : [])
+    }
+}
+
 struct ChatRow: View {
     let b: Board
     let unread: Int
+    var me: String? = nil
+    /// A DM is titled "maya ↔ priya": show the other person.
+    private var other: String? { b.kind == "direct" ? b.displayName(me: me) : nil }
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             Circle().fill(unread > 0 ? Theme.accent : .clear).frame(width: 7, height: 7).padding(.top, 7)
+            if let o = other { Avatar(name: o, size: 34).padding(.top, 1) }
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline) {
-                    Text(b.title).font(.body.weight(unread > 0 ? .semibold : .regular)).foregroundStyle(Theme.text).lineLimit(1)
-                    if b.kind == "direct" { Image(systemName: "person.2").font(.caption2).foregroundStyle(Theme.faint) }
+                    Text(other ?? b.title).font(.body.weight(unread > 0 ? .semibold : .regular)).foregroundStyle(Theme.text).lineLimit(1)
                     if b.encrypted == true { Image(systemName: "lock").font(.caption2).foregroundStyle(Theme.faint) }
                     Spacer(minLength: 8)
                     if let n = b.liveAgents, n > 0 {

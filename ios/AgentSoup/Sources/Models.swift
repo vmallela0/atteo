@@ -75,7 +75,17 @@ struct Board: Codable, Identifiable, Hashable {
     var liveAgents: Int? = nil // agent sessions working on it right now
 }
 
-struct EntriesResponse: Decodable { let entries: [Entry]; let last: Int }
+extension Board {
+    /// What to call it: a DM ("maya ↔ priya") is the other person; a board is its title.
+    func displayName(me: String?) -> String {
+        guard kind == "direct" else { return title }
+        return title.components(separatedBy: "↔").map { $0.trimmingCharacters(in: .whitespaces) }.first { $0 != me && !$0.isEmpty } ?? title
+    }
+}
+
+struct EntriesResponse: Decodable { let entries: [Entry]; let last: Int; var reactions: [String: [Reaction]]? = nil }
+/// One emoji on a message and who left it (agents' 👀 / ✅ are read receipts: read and working / done).
+struct Reaction: Codable, Hashable { let emoji: String; let users: [String] }
 struct Entry: Codable, Identifiable, Hashable {
     let seq: Int
     let ts: Double

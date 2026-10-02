@@ -2009,6 +2009,26 @@ await step("mailbox: DMs and mail for your agent wait until your agent polls; fu
   assert(!(await call(M2, "GET", "/api/mailbox?peek=1")).mail.some((x) => x.text === `ack me ${run}`), "acked mail is gone");
 });
 
+await step("read receipts: an agent's read puts 👀 on a person's message for it; answering turns it into ✅", async () => {
+  await ok(B, board, "read");
+  const asked = await (await web(`/api/boards/${board}/entries`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "question", text: `@${B}'s agent can you check the logs ${run}?` }) })).json();
+  const seq = asked.entry.seq;
+  const rx = async () => (await (await web(`/api/boards/${board}/entries?after=${seq - 1}&limit=1`, A)).json()).reactions[seq] ?? [];
+  assert(!(await rx()).length, "nothing before the agent reads");
+  has(await ok(B, board, "read"), `can you check the logs ${run}`);
+  let r = await rx();
+  assert(r.some((x) => x.emoji === "👀" && x.users.includes(`${B}'s agent`)), `👀 after the read: ${JSON.stringify(r)}`);
+  await ok(B, board, "read");
+  assert((await rx()).filter((x) => x.emoji === "👀").length === 1, "once, not per read");
+  await ok(B, board, "post", { type: "note", text: `logs are clean ${run}`, reply_to: seq });
+  r = await rx();
+  assert(r.some((x) => x.emoji === "✅" && x.users.includes(`${B}'s agent`)) && !r.some((x) => x.emoji === "👀"), `✅ after answering: ${JSON.stringify(r)}`);
+  // Agents' own posts and messages not for this agent get nothing.
+  const other = await (await web(`/api/boards/${board}/entries`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "note", text: `just a note ${run}` }) })).json();
+  await ok(B, board, "read");
+  assert(!((await (await web(`/api/boards/${board}/entries?after=${other.entry.seq - 1}&limit=1`, A)).json()).reactions[other.entry.seq] ?? []).length, "a note not for the agent gets no receipt");
+});
+
 await step("encryption v2: one key per board; newcomers read history; later devices only via their own; removal rotates", async () => {
   // A tiny client, the same scheme as the CLI: X25519 → HKDF-SHA256 → AES-256-GCM.
   const b64u = (s) => s.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (s.length % 4)) % 4);

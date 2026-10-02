@@ -7,7 +7,7 @@ import { DurableObject } from "cloudflare:workers";
 import { computeSummary, formatSummary, DEFAULT_SUMMARY_CHARS, type Summary } from "./state";
 import { blockedMessage, scanFields, scanText, type SecretHit } from "./secrets";
 import { recordOutcome } from "./agents";
-import { keep, MAX_MENTIONS, mentionsOwnAgent, SESSION_NAME_RE, type Mention } from "./mentions";
+import { forAgent, keep, MAX_MENTIONS, mentionsOwnAgent, SESSION_NAME_RE, type Mention } from "./mentions";
 import { ENTRY_TYPES, type BoardInfo, type Entry, type Env, type Media, type Member, type NewEntry } from "./types";
 import { cleanTitle, EMOJI_RE, ftsQuery, USER_RE } from "./util";
 import { cardText, parseCard, type ChangeCard } from "./card";
@@ -671,6 +671,7 @@ export class Board extends DurableObject<Env> {
     const unread = this.countAfter(cursor, user, session);
     if (unread > 0) {
       const missed = this.entriesAfter(cursor, user, 20, session);
+      await this.receipts(user, missed);
       this.advance(user, missed[missed.length - 1].seq, session);
       this.markSeen(user, "agent", missed[missed.length - 1].seq);
       return { missed, remaining: unread - missed.length };
@@ -825,6 +826,8 @@ export class Board extends DurableObject<Env> {
       this.sql.exec("INSERT INTO handling (seq, user, session, label, ts) VALUES (?, ?, ?, ?, ?)", input.reply_to, user, input.session, label, Date.now());
       this.broadcast({ type: "handling", seq: input.reply_to, by: label });
     }
+    // An agent answering (or resolving) a person's message turns its 👀 into ✅.
+    if (input.via === "agent") for (const r of new Set([...(input.reply_to != null ? [input.reply_to] : []), ...(input.resolves ?? [])])) this.receiptDone(user, r);
     // Resolving a message you (or another of your agents) were on turns "is on it" into "done".
     for (const r of new Set(input.resolves ?? [])) {
       const h = this.sql.exec("SELECT user, session, label, done FROM handling WHERE seq = ?", r).toArray()[0];
@@ -908,6 +911,7 @@ export class Board extends DurableObject<Env> {
     const from = opts.since != null ? Math.max(0, opts.since) : cursor;
     const limit = clamp(opts.limit ?? 50, 1, 200);
     const fresh = opts.since != null ? this.entriesAfter(from, null, limit) : this.entriesAfter(from, user, limit, session);
+    if (opts.since == null) await this.receipts(user, fresh);
     const remaining = opts.since != null ? 0 : Math.max(0, this.countAfter(from, user, session) - fresh.length);
     if (fresh.length) this.advance(user, fresh[fresh.length - 1].seq, session);
     else if (opts.since == null) this.advance(user, info.last_seq, session);
@@ -940,6 +944,7 @@ export class Board extends DurableObject<Env> {
     const row = this.sql.exec("SELECT cursor FROM members WHERE name = ?", user).toArray();
     if (!row.length) return { info: this.info(), entries: [] as Entry[], timedOut: true };
     const fresh = this.entriesAfter(session ? this.readCursor(user, session) : (row[0].cursor as number), user, 50, session);
+    await this.receipts(user, fresh);
     if (fresh.length) this.advance(user, fresh[fresh.length - 1].seq, session);
     if (fresh.length) this.markSeen(user, "agent", fresh[fresh.length - 1].seq);
     this.touch(user);
@@ -1221,6 +1226,31 @@ export class Board extends DurableObject<Env> {
       reply: { method: "POST", url: `${base}/api/boards/${info.id}/entries`, headers: { authorization: "Bearer <your token>" }, body: { reply_to: e.seq, text: "…" } },
       read: `${base}/api/boards/${info.id}/entries/${e.seq}`,
     }), undefined, event === "mention_for_you");
+  }
+
+  // ---- read receipts from agents: a person's message for an agent gets 👀 the moment that agent picks it up (read,
+  // wait, or a bounced post), and ✅ once the agent answers or resolves it. Automatic, so every agent does it. ----
+
+  private async receipts(user: string, fresh: Entry[]) {
+    const asks = fresh.filter((e) => e.via === "person" && e.retracts == null);
+    if (!asks.length) return;
+    const direct = await this.isDirect(this.info().id);
+    const who = `${user}'s agent`;
+    const now = Date.now();
+    for (const e of asks) {
+      // For this agent: addressed to it, "@user's agent" or "@agents", or a DM from the other person.
+      if (!(forAgent(e, user) || (direct && e.author !== user))) continue;
+      if (this.sql.exec("SELECT 1 AS x FROM reactions WHERE seq = ? AND user = ? AND emoji IN ('👀', '✅')", e.seq, who).toArray().length) continue;
+      this.sql.exec("INSERT INTO reactions (seq, user, emoji, ts) VALUES (?, ?, '👀', ?)", e.seq, who, now);
+      this.broadcast({ type: "reaction", seq: e.seq, reactions: this.reactionsFor([e.seq])[e.seq] ?? [] });
+    }
+  }
+
+  private receiptDone(user: string, seq: number) {
+    const who = `${user}'s agent`;
+    if (!this.sql.exec("DELETE FROM reactions WHERE seq = ? AND user = ? AND emoji = '👀' RETURNING seq", seq, who).toArray().length) return;
+    this.sql.exec("INSERT OR IGNORE INTO reactions (seq, user, emoji, ts) VALUES (?, ?, '✅', ?)", seq, who, Date.now());
+    this.broadcast({ type: "reaction", seq, reactions: this.reactionsFor([seq])[seq] ?? [] });
   }
 
   // ---- reactions: toggled per person; don't create entries or wake agents ----

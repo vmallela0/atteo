@@ -17,6 +17,7 @@ final class AppState: ObservableObject {
     @Published var boards: [Board] = []
     @Published var entries: [String: [Entry]] = [:] // per board, newest last
     @Published var tasks: [String: [WorkTask]] = [:] // per board
+    @Published var reactions: [String: [Int: [Reaction]]] = [:] // per board, per message
     @Published var boardAgents: [String: [BoardAgent]] = [:] // per board: who's here, live / idle / gone
     @Published var me: MeAgentResponse.Agent?
     @Published var profile: Profile?
@@ -113,6 +114,8 @@ final class AppState: ObservableObject {
             let after = max(0, count - 80)
             let r = try await API.shared.get("/api/boards/\(b.id)/entries?after=\(after)&limit=200", as: EntriesResponse.self)
             var got = r.entries
+            let rx = Dictionary(uniqueKeysWithValues: (r.reactions ?? [:]).compactMap { k, v in Int(k).map { ($0, v) } })
+            if rx != reactions[b.id] { withAnimation(.smooth) { reactions[b.id] = rx } }
             if b.encrypted == true {
                 // End-to-end encrypted: the server only has ciphertext; this phone decrypts what it holds the key for.
                 let plain = await BoardCrypto.shared.decrypt(b.id, after: after)
@@ -236,14 +239,14 @@ final class AppState: ObservableObject {
                     let msg = try await ws.receive()
                     backoff = 1
                     guard case .string(let s) = msg, let e = try? JSONDecoder().decode(Event.self, from: Data(s.utf8)) else { continue }
-                    guard e.type == "task" || e.type == "entry" else { continue }
+                    guard e.type == "task" || e.type == "entry" || e.type == "reaction" else { continue }
                     // Bursts (a done that ticks a parent and posts a line) refresh once.
                     pending?.cancel()
                     pending = Task { [weak self] in
                         try? await Task.sleep(nanoseconds: 150_000_000)
                         guard let self, !Task.isCancelled else { return }
                         async let t: Void = self.loadTasks(b)
-                        async let n: Void = e.type == "entry" ? self.loadEntries(b) : ()
+                        async let n: Void = e.type == "entry" || e.type == "reaction" ? self.loadEntries(b) : ()
                         _ = await (t, n)
                     }
                 }
