@@ -134,7 +134,8 @@ function hasOpsKey(c: Ctx): boolean {
 const isOps = (c: Ctx) => !!c.viewer?.admin || hasOpsKey(c);
 
 async function sideBoards(env: Env, user: string): Promise<SideBoard[]> {
-  return (await registry.boardsForUser(env, user)).filter((b) => !b.archived_at).map((b) => ({ id: b.id, title: b.title, kind: (b as { kind?: string | null }).kind ?? null }));
+  const [boards, live] = await Promise.all([registry.boardsForUser(env, user), sessions.liveByBoard(env).catch(() => new Map<string, number>())]);
+  return boards.filter((b) => !b.archived_at).map((b) => ({ id: b.id, title: b.title, kind: (b as { kind?: string | null }).kind ?? null, live: live.get(b.id) ?? 0 }));
 }
 
 /** Members (and operators) can see a board; everyone else gets a 404 so board ids don't leak. */

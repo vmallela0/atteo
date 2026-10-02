@@ -226,6 +226,8 @@ dialog.access-dlg{width:min(640px,calc(100vw - 24px))}
 /* Board info → Agents */
 .ag h3{margin-top:0}.ag-list{list-style:none;margin:0 0 6px;padding:0}.ag-row{display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px;min-width:0}
 .ag-name{color:var(--ink);font-weight:500}.ag-main{display:flex;flex-direction:column;min-width:0}.ag-status{font-size:12px;color:var(--muted)}.ag-row time{font-size:11.5px;color:var(--faint);flex:none}.ag-hint{margin:8px 0 4px}.ag .copy pre{font-size:11.5px}
+.ag-dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;vertical-align:1px;box-sizing:border-box}.ag-dot.idle{background:var(--muted);opacity:.7}.ag-dot.gone{border:1.5px solid var(--faint)}
+.ag-row[data-state="gone"] .ag-name{color:var(--muted)}
 .ag{padding-bottom:14px;margin-bottom:14px;border-bottom:1px solid var(--line)}
 .kill{display:flex;align-items:center;gap:14px;margin-top:12px;padding:12px 14px;border:1px solid color-mix(in srgb,var(--danger) 30%,var(--line));border-radius:var(--r)}.kill b{color:var(--ink);font-size:13px}.kill p{margin:2px 0 0}
 .at-btn{width:30px;padding:0;justify-content:center;font-weight:600;font-size:14px;color:var(--muted)}.at-btn:hover{color:var(--ink)}.thr-form .at-btn{flex:none;align-self:center}
@@ -514,6 +516,11 @@ mark{background:color-mix(in srgb,var(--warn) 30%,transparent);color:inherit;bor
 .inbox-item .dot{width:8px;height:8px;border-radius:50%;background:var(--accent);flex:none;margin-top:6px}
 .side-label{font-size:11.5px;font-weight:500;color:var(--faint);padding:14px 9px 4px;display:flex;justify-content:space-between;align-items:center}
 .side-label a{color:var(--faint)}.side-label a:hover{color:var(--ink)}
+.working{display:inline-flex;align-items:center;gap:5px;flex:none;font-size:11px;font-weight:500;color:var(--muted);white-space:nowrap}.working[hidden]{display:none}
+.working .dot,.ag-dot.live{background:var(--ok);animation:breathe 2.4s ease-in-out infinite}
+@keyframes breathe{0%,100%{box-shadow:0 0 0 0 color-mix(in srgb,var(--ok) 45%,transparent)}50%{box-shadow:0 0 0 3px color-mix(in srgb,var(--ok) 18%,transparent)}}
+.side-board .working{margin-left:auto;font-size:10.5px}.side-board .working .dot{width:6px;height:6px}
+@media (prefers-reduced-motion:reduce){.working .dot,.ag-dot.live{animation:none}}
 .side-board .bdot{width:8px;height:8px;border-radius:3px;flex:none;background:hsl(var(--h) 55% 55%)}
 .sidebar .me{margin-top:auto;border-top:1px solid var(--line);padding-top:8px}
 .topbar{position:sticky;top:0;z-index:10;height:48px;display:flex;align-items:center;gap:12px;padding:0 20px;border-bottom:1px solid var(--line);
@@ -934,6 +941,12 @@ export interface SideBoard {
   id: string;
   title: string;
   kind?: string | null; // "direct": a private board between two friends (title "a ↔ b")
+  live?: number; // agent sessions working on it right now
+}
+
+/** "N working" with a breathing green dot: agents on a board right now. Always rendered (hidden at 0) so it can update live. */
+export function working(n: number, boardId: string): string {
+  return `<span class="working" data-live="${esc(boardId)}" title="${n} agent${n === 1 ? "" : "s"} working now"${n ? "" : " hidden"}><span class="dot"></span><span class="wk-n">${n} working</span></span>`;
 }
 
 /** The other person on a direct board ("a ↔ b"), from the viewer's side. */
@@ -962,11 +975,11 @@ export function appPage(
   const shared = opts.boards.filter((b) => b.kind !== "direct"),
     direct = opts.boards.filter((b) => b.kind === "direct");
   const sideBoards = shared
-    .map((b) => `<a class="side-link side-board" href="/b/${esc(b.id)}"${cur(b.id)}><span class="bdot" style="--h:${hue(b.id)}"></span><span class="truncate">${esc(b.title)}</span></a>`)
+    .map((b) => `<a class="side-link side-board" href="/b/${esc(b.id)}"${cur(b.id)}><span class="bdot" style="--h:${hue(b.id)}"></span><span class="truncate">${esc(b.title)}</span>${working(b.live ?? 0, b.id)}</a>`)
     .join("");
   // Direct boards read as the person you share them with.
   const sideDirect = direct
-    .map((b) => `<a class="side-link side-board" href="/b/${esc(b.id)}"${cur(b.id)}>${avatar(directPeer(b, v.name), "xs")}<span class="truncate">${esc(directPeer(b, v.name))}</span></a>`)
+    .map((b) => `<a class="side-link side-board" href="/b/${esc(b.id)}"${cur(b.id)}>${avatar(directPeer(b, v.name), "xs")}<span class="truncate">${esc(directPeer(b, v.name))}</span>${working(b.live ?? 0, b.id)}</a>`)
     .join("");
   const paletteItems = [
     ...opts.boards.map((b) => ({ label: b.kind === "direct" ? `${directPeer(b, v.name)} (direct)` : b.title, hint: "Board", href: `/b/${b.id}` })),
@@ -1017,7 +1030,7 @@ export function appPage(
 <dt><kbd>G</kbd> then <kbd>I</kbd> <kbd>A</kbd> <kbd>B</kbd> <kbd>P</kbd> <kbd>M</kbd></dt><dd>Go to Inbox / Approvals / Boards / People / Account</dd>
 <dt><kbd>?</kbd></dt><dd>This list</dd></dl></div></dialog>
 <script>window.PALETTE=${JSON.stringify(paletteItems).replace(/</g, "\\u003c")};${v.admin ? "window.OPS=1;" : ""}</script>`;
-  return rawPage(title, body, (opts.script ?? "") + SHELL_JS + INBOX_JS, opts.status);
+  return rawPage(title, body, (opts.script ?? "") + SHELL_JS + INBOX_JS + LIVE_JS, opts.status);
 }
 
 // Inbox badge on every signed-in page: checks on load, when the tab comes back, and every minute. With permission,
@@ -1034,6 +1047,13 @@ window.inboxRefresh=async()=>{try{const r=await fetch('/api/inbox/count');if(!r.
     n.onclick=()=>{window.focus();location.href=ap?'/approvals':l.board_id?'/b/'+l.board_id+'#e'+l.seq:'/people'}}
   seen=l.created_at;try{localStorage.setItem('inbox-seen',String(seen))}catch{}}}catch{}};
 inboxRefresh();setInterval(inboxRefresh,60000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)inboxRefresh()})})();`;
+
+// "N working" on the sidebar's boards (and the Boards page): refreshed every minute while the tab is visible.
+const LIVE_JS = `
+(()=>{if(!document.querySelector('[data-live]'))return;
+window.liveRefresh=async()=>{if(document.hidden)return;try{const r=await fetch('/api/me/boards');if(!r.ok)return;const j=await r.json();const n={};(j.boards||[]).forEach(b=>n[b.id]=b.live_agents||0);
+  document.querySelectorAll('[data-live]').forEach(el=>{const k=n[el.dataset.live]||0;el.hidden=!k;el.title=k+' agent'+(k===1?'':'s')+' working now';el.querySelector('.wk-n').textContent=k+' working'})}catch{}};
+setInterval(liveRefresh,60000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)liveRefresh()})})();`;
 
 function rawPage(title: string, body: string, script: string, status = 200): Response {
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">

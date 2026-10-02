@@ -9,8 +9,9 @@ import { forAgent, forPerson, mentionLabel } from "./mentions";
 import { screenText } from "./screen";
 import type { ChangeCard } from "./card";
 import type { BoardInfo, Entry } from "./types";
-import { appPage, avatar, avatarStack, copyField, hue, page, renderText, typeTag, when, type SideBoard, type Viewer } from "./ui";
+import { appPage, avatar, avatarStack, copyField, hue, page, renderText, typeTag, when, working, type SideBoard, type Viewer } from "./ui";
 import { esc } from "./util";
+import { stateOf } from "./sessions";
 
 export type { Viewer, SideBoard };
 
@@ -510,6 +511,7 @@ export function homePage(
   boards = boards.filter((b) => (b as { kind?: string | null }).kind !== "direct");
   const active = boards.filter((b) => !b.archived_at).length;
   const archivedCount = boards.length - active;
+  const liveOf = new Map(side.map((b) => [b.id, b.live ?? 0]));
   const cards = boards
     .map((b) => {
       const meta = boardMeta(b);
@@ -519,7 +521,7 @@ export function homePage(
   <a class="bcard-link" href="/b/${esc(b.id)}" aria-label="${esc(b.title)}"></a>
   <div class="row bc-top"><span class="bc-dot" style="--h:${hue(b.id)}"></span>
     <h3 class="grow truncate">${esc(b.title)}</h3>
-    ${b.unread ? `<span class="bc-unread" title="Waiting for you">${b.unread} for you</span>` : ""}
+    ${working(liveOf.get(b.id) ?? 0, b.id)}${b.unread ? `<span class="bc-unread" title="Waiting for you">${b.unread} for you</span>` : ""}
     <button class="btn ghost sm bc-edit" type="button" data-edit-board="${esc(b.id)}" aria-label="Edit details">Edit</button></div>
   ${meta.description ? `<p class="bc-desc">${esc(meta.description)}</p>` : ""}
   ${meta.tags.length ? `<div class="bc-tags">${meta.tags.map((t) => `<span class="tag">#${esc(t)}</span>`).join("")}</div>` : ""}
@@ -660,13 +662,19 @@ export interface AgentHere {
   status?: string | null; // what it says it's doing
 }
 
+const STATE_LABEL = { live: "working now", idle: "idle", gone: "gone" } as const;
+/** Live: green and breathing; idle: grey; gone: a hollow ring. */
+const agentDot = (st: keyof typeof STATE_LABEL) => `<span class="ag-dot ${st}" role="img" aria-label="${STATE_LABEL[st]}" title="${STATE_LABEL[st]}"></span>`;
+
 /**
  * Board info → Agents: who is working on this board right now, as agents (the point of a board), and the one line
  * that brings another agent here. It replaces the old "Bring your agent here" card and the live dots on Members.
  */
 export function agentsSection(agents: AgentHere[], boardId: string, readOnly = false): string {
-  const row = (a: AgentHere) =>
-    `<li class="ag-row" title="${esc(a.name ? `${a.user}'s agent session "${a.name}"${a.client ? ` (${a.client})` : ""}. Mention it as @${a.user}/${a.name}` : `${a.user}'s agent`)}">${avatar(a.user, "sm", true)}<span class="grow ag-main"><span class="truncate"><span class="ag-name">${esc(a.name ? `${a.user}/${a.name}` : `${a.user}'s agent`)}</span>${a.client ? ` <span class="xs faint">${esc(a.client)}</span>` : ""}</span>${a.status ? `<span class="ag-status truncate">${esc(a.status)}</span>` : ""}</span>${when(a.last_seen)}</li>`;
+  const row = (a: AgentHere) => {
+    const st = stateOf(a.last_seen);
+    return `<li class="ag-row" data-k="${esc(`${a.user}/${a.name ?? ""}`)}" data-state="${st}" title="${esc(a.name ? `${a.user}'s agent session "${a.name}"${a.client ? ` (${a.client})` : ""}. Mention it as @${a.user}/${a.name}` : `${a.user}'s agent`)}">${avatar(a.user, "sm", true)}<span class="grow ag-main"><span class="truncate">${agentDot(st)}<span class="ag-name">${esc(a.name ? `${a.user}/${a.name}` : `${a.user}'s agent`)}</span>${a.client ? ` <span class="xs faint">${esc(a.client)}</span>` : ""}</span>${a.status ? `<span class="ag-status truncate">${esc(a.status)}</span>` : ""}</span>${when(a.last_seen)}</li>`;
+  };
   const body = `${agents.length ? `<ul class="ag-list">${agents.map(row).join("")}</ul>` : `<p class="none">No agents on this board yet.</p>`}${
     readOnly ? "" : `<p class="xs muted ag-hint">Bring one: in any agent's shell</p>${copyField("ag-join", `agent-soup join ${boardId}`)}`
   }`;
@@ -814,6 +822,19 @@ function connect(){
 }
 connect();
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!polling)tick(false)});
+// Board info → Agents: working now, idle or gone, refreshed every 30s while the tab is visible (avatars are kept, so nothing flickers).
+const AG_LABEL={live:'working now',idle:'idle',gone:'gone'};
+function agRow(a){const nm=a.name?a.user+'/'+a.name:a.user+"'s agent",st=AG_LABEL[a.state]?a.state:'gone';
+  const tip=a.name?a.user+"'s agent session \\""+a.name+'"'+(a.client?' ('+a.client+')':'')+'. Mention it as @'+a.user+'/'+a.name:a.user+"'s agent";
+  return '<li class="ag-row" data-k="'+esc(a.user+'/'+(a.name||''))+'" data-state="'+st+'" title="'+esc(tip)+'">'+avatar16(a.user,true)+'<span class="grow ag-main"><span class="truncate"><span class="ag-dot '+st+'" role="img" aria-label="'+AG_LABEL[st]+'" title="'+AG_LABEL[st]+'"></span><span class="ag-name">'+esc(nm)+'</span>'+(a.client?' <span class="xs faint">'+esc(a.client)+'</span>':'')+'</span>'+(a.status?'<span class="ag-status truncate">'+esc(a.status)+'</span>':'')+'</span><time class="when" datetime="'+new Date(a.last_seen).toISOString()+'" data-ts="'+a.last_seen+'" title="'+new Date(a.last_seen).toUTCString()+'"></time></li>'}
+window.agentsRefresh=async()=>{if(document.hidden)return;const box=document.getElementById('agents');if(!box)return;
+  const r=await fetch('/api/boards/'+BOARD+'/agents').catch(()=>null);if(!r||!r.ok)return;const ag=(await r.json()).agents||[];
+  const cur=box.querySelector('.ag-list')||box.querySelector('.fold-b>.none'),old={};box.querySelectorAll('.ag-row').forEach(li=>old[li.dataset.k]=li.querySelector('.av'));
+  const t=document.createElement('div');t.innerHTML=ag.length?'<ul class="ag-list">'+ag.map(agRow).join('')+'</ul>':'<p class="none">No agents on this board yet.</p>';
+  t.querySelectorAll('.ag-row').forEach(li=>{const av=old[li.dataset.k];if(av)li.querySelector('.av').replaceWith(av)});cur.replaceWith(t.firstElementChild);
+  box.querySelector('.fold-n').textContent=ag.length||'';const peek=ag.map(a=>a.name?a.user+'/'+a.name:a.user+"'s agent").join(', ');let pk=box.querySelector('.fold-peek');
+  if(!pk&&peek){pk=document.createElement('span');pk.className='fold-peek truncate';box.querySelector('.fold-h').appendChild(pk)}if(pk)pk.textContent=peek;refreshTimes()};
+setInterval(agentsRefresh,30000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)agentsRefresh()});
 // Your post shows up the moment you send it (a "sending" copy), then the real one from the post's own response.
 window.posted=(j)=>{replyClear();document.querySelectorAll('#thread .entry.pending').forEach(x=>x.remove());
   if(j&&j.update&&addEntry(j.update)){railBuild();toBottom()}else stickNext=true;
