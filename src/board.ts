@@ -23,18 +23,6 @@ export interface ClaimCheck {
   commit?: string;
 }
 
-/** What a board tab's WebSocket carries across hibernation: who it is, and its place in the voice room. */
-interface VoiceAtt {
-  user: string;
-  pid: string; // this tab's id in the voice room
-  viewer?: boolean;
-  voice?: boolean;
-  floor?: boolean;
-  since?: number;
-  raised?: number;
-}
-const VOICE_MAX = 8; // a full mesh: every browser sends its audio to every other one
-
 export class BoardError extends Error {}
 
 export const POSTS_PER_MINUTE = 60;
@@ -345,9 +333,7 @@ export class Board extends DurableObject<Env> {
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
     this.ctx.acceptWebSocket(server, [user]);
-    const att: VoiceAtt = { user, pid: crypto.randomUUID().slice(0, 8), viewer: url.searchParams.get("role") === "viewer" };
-    server.serializeAttachment(att);
-    server.send(JSON.stringify({ type: "hello", last: this.info().last_seq, pid: att.pid, voice: this.voiceState() }));
+    server.send(JSON.stringify({ type: "hello", last: this.info().last_seq }));
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -393,114 +379,17 @@ export class Board extends DurableObject<Env> {
     }
   }
 
-  // ---- voice rooms: browsers talk to each other directly (WebRTC, encrypted peer to peer); this object only relays
-  // their connection setup and runs the floor: one person talks at a time, others raise a hand and get it in order. ----
-
-  private voiceAtt(ws: WebSocket): VoiceAtt {
-    const a = ws.deserializeAttachment() as VoiceAtt | null;
-    if (a?.pid) return a;
-    // Sockets opened before voice existed have no attachment yet.
-    const fresh: VoiceAtt = { user: this.ctx.getTags(ws)[0] ?? "", pid: crypto.randomUUID().slice(0, 8) };
-    ws.serializeAttachment(fresh);
-    return fresh;
-  }
-
-  private voicePeers(except?: WebSocket): { ws: WebSocket; a: VoiceAtt }[] {
-    return this.tabs()
-      .filter((ws) => ws !== except && ws.readyState === WebSocket.OPEN)
-      .map((ws) => ({ ws, a: this.voiceAtt(ws) }))
-      .filter((p) => p.a.voice);
-  }
-
-  private voiceState(except?: WebSocket) {
-    const peers = this.voicePeers(except);
-    return {
-      peers: peers.map((p) => ({ pid: p.a.pid, user: p.a.user })),
-      floor: peers.find((p) => p.a.floor)?.a.pid ?? null,
-      queue: peers.filter((p) => p.a.raised).sort((x, y) => x.a.raised! - y.a.raised!).map((p) => p.a.pid),
-    };
-  }
-
-  /** Gives the floor to the longest-waiting raised hand if nobody holds it, then tells every open tab. */
-  private voiceUpdate(except?: WebSocket) {
-    const peers = this.voicePeers(except);
-    if (!peers.some((p) => p.a.floor)) {
-      const next = peers.filter((p) => p.a.raised).sort((x, y) => x.a.raised! - y.a.raised!)[0];
-      if (next) next.ws.serializeAttachment({ ...next.a, floor: true, raised: undefined, since: Date.now() });
-    }
-    const data = JSON.stringify({ type: "voice", ...this.voiceState(except) });
-    for (const ws of this.tabs()) {
-      if (ws === except) continue;
-      try {
-        ws.send(data);
-      } catch {}
-    }
-  }
-
-  async webSocketMessage(ws: WebSocket, msg: string | ArrayBuffer): Promise<void> {
-    // "ping" is auto-answered; everything else is voice. Signaling messages are small (SDP + ICE candidates).
-    if (typeof msg !== "string" || msg.length > 32_000 || this.isWait(ws)) return;
-    let d: { op?: string; to?: string; data?: unknown };
-    try {
-      d = JSON.parse(msg);
-    } catch {
-      return;
-    }
-    const a = this.voiceAtt(ws);
-    const say = (m: object) => {
-      try {
-        ws.send(JSON.stringify(m));
-      } catch {}
-    };
-    switch (d.op) {
-      case "voice_join": {
-        if (a.voice) return;
-        if (this.voicePeers().length >= VOICE_MAX) return say({ type: "voice_error", error: `Voice is full (${VOICE_MAX} people).` });
-        ws.serializeAttachment({ ...a, voice: true, floor: false, raised: undefined });
-        // The newcomer calls everyone already in the room (one side always offers, so offers never cross).
-        say({ type: "voice_joined", pid: a.pid, peers: this.voicePeers(ws).map((p) => ({ pid: p.a.pid, user: p.a.user })) });
-        return this.voiceUpdate();
-      }
-      case "voice_leave":
-        if (!a.voice) return;
-        ws.serializeAttachment({ ...a, voice: false, floor: false, raised: undefined });
-        return this.voiceUpdate();
-      case "voice_signal": {
-        if (!a.voice || typeof d.to !== "string") return;
-        const to = this.voicePeers(ws).find((p) => p.a.pid === d.to);
-        if (!to) return;
-        try {
-          to.ws.send(JSON.stringify({ type: "voice_signal", from: a.pid, user: a.user, data: d.data }));
-        } catch {}
-        return;
-      }
-      case "voice_talk": {
-        if (!a.voice || a.floor || a.raised) return;
-        if (a.viewer) return say({ type: "voice_error", error: "Viewers can listen but not talk." });
-        const free = !this.voicePeers(ws).some((p) => p.a.floor);
-        ws.serializeAttachment(free ? { ...a, floor: true, since: Date.now() } : { ...a, raised: Date.now() });
-        return this.voiceUpdate();
-      }
-      case "voice_release":
-        if (!a.voice || (!a.floor && !a.raised)) return;
-        ws.serializeAttachment({ ...a, floor: false, raised: undefined });
-        return this.voiceUpdate();
-    }
+  async webSocketMessage(): Promise<void> {
+    // Tabs only listen ("ping" is answered automatically); nothing they send changes the board.
   }
 
   async webSocketClose(ws: WebSocket, code: number, reason: string): Promise<void> {
     try {
       ws.close(code, reason);
     } catch {}
-    if (this.isWait(ws)) return;
-    // Leaving the page leaves voice (and passes the floor on).
-    if (this.voiceAtt(ws).voice) this.voiceUpdate(ws);
   }
 
-  async webSocketError(ws: WebSocket): Promise<void> {
-    if (this.isWait(ws)) return;
-    if (this.voiceAtt(ws).voice) this.voiceUpdate(ws);
-  }
+  async webSocketError(): Promise<void> {}
 
   // Summaries are rebuilt from the whole log, so they're cached until something changes (every change broadcasts).
   private changes = 0;
@@ -1262,6 +1151,15 @@ export class Board extends DurableObject<Env> {
 
   // ---- inbox: who should hear about a post (stored in D1 so every page can show an unread count) ----
 
+  /** Whether this board is a DM (two people's agents). Asked of D1 once, then remembered. */
+  private async isDirect(id: string): Promise<boolean> {
+    const known = this.meta("kind");
+    if (known != null) return known === "direct";
+    const r = await this.env.DB.prepare("SELECT kind FROM boards WHERE id = ?").bind(id).first<{ kind: string | null }>().catch(() => null);
+    if (r) this.setMeta("kind", r.kind ?? "board");
+    return r?.kind === "direct";
+  }
+
   private async notify(info: BoardInfo, e: Entry) {
     const members = new Set(this.members().map((m) => m.name));
     const kinds = new Map<string, "mention" | "agent" | "reply">();
@@ -1283,6 +1181,12 @@ export class Board extends DurableObject<Env> {
     if (e.to && e.to !== e.author) {
       add(e.to, "agent");
       if (members.has(e.to)) forAgents.add(e.to);
+    }
+    // A DM is mail for the other side's agent, whatever it says (the mailbox model: it waits until their agent polls).
+    // (Both people, from D1: the other side may not have opened the DM yet.)
+    if (await this.isDirect(info.id)) {
+      const both = (await this.env.DB.prepare("SELECT user FROM members WHERE board_id = ?").bind(info.id).all<{ user: string }>()).results.map((r) => r.user);
+      for (const u of both) if (u !== e.author) { mentioned.add(u); add(u, "agent"); forAgents.add(u); }
     }
     if (e.reply_to != null) {
       const parent = this.sql.exec("SELECT author, via FROM entries WHERE seq = ?", e.reply_to).toArray()[0];

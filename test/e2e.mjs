@@ -755,60 +755,10 @@ await step("live updates over WebSocket: members get a signal on each post; outs
   assert(!(await open(null)).ok, "signed-out must not connect");
 });
 
-await step("voice rooms: the board relays connection setup between members in the room and runs the floor (one talker, hands in order)", async () => {
-  // Relay (TURN) credentials: members get ICE servers (STUN-only where no TURN key is set); outsiders get nothing.
-  const ice = await web(`/api/boards/${board}/voice/ice`, A);
-  const servers = (await ice.json()).iceServers;
-  assert(ice.status === 200 && Array.isArray(servers) && servers.length > 0, "members get ICE servers");
-  assert((await web(`/api/boards/${board}/voice/ice`, OUT)).status === 404, "outsiders get no ICE servers");
-  const wsUrl = BASE.replace(/^http/, "ws") + `/api/boards/${board}/ws`;
-  const open = (who) =>
-    new Promise((resolve, reject) => {
-      const ws = new WebSocket(wsUrl, { headers: { cookie: cookie[who] } });
-      const msgs = [];
-      ws.onmessage = (m) => m.data !== "pong" && msgs.push(JSON.parse(String(m.data)));
-      ws.onopen = () => resolve({ ws, msgs, send: (o) => ws.send(JSON.stringify(o)) });
-      ws.onerror = reject;
-    });
-  const until = async (c, pred, what) => {
-    const t0 = Date.now();
-    while (Date.now() - t0 < 4000) {
-      const hit = c.msgs.find(pred);
-      if (hit) return hit;
-      await new Promise((r) => setTimeout(r, 30));
-    }
-    throw new Error(`timed out waiting for ${what}: ${JSON.stringify(c.msgs).slice(-400)}`);
-  };
-  const a = await open(A), b = await open(B);
-  const pa = (await until(a, (m) => m.type === "hello", "hello")).pid, pb = (await until(b, (m) => m.type === "hello", "hello")).pid;
-  assert(pa && pb && pa !== pb, "each tab gets its own id");
-  // Not in the room: signaling goes nowhere.
-  a.send({ op: "voice_signal", to: pb, data: { x: 1 } });
-  b.send({ op: "voice_join" });
-  await until(b, (m) => m.type === "voice_joined" && m.peers.length === 0, "B joins an empty room");
-  await until(a, (m) => m.type === "voice" && m.peers.some((p) => p.pid === pb && p.user === B), "A sees B in the room (without joining)");
-  a.send({ op: "voice_join" });
-  const j = await until(a, (m) => m.type === "voice_joined", "A joined");
-  assert(j.peers.length === 1 && j.peers[0].pid === pb, "the newcomer is told whom to call");
-  a.send({ op: "voice_signal", to: pb, data: { sdp: { type: "offer", sdp: "v=0" } } });
-  const sig = await until(b, (m) => m.type === "voice_signal", "B gets A's offer");
-  assert(sig.from === pa && sig.user === A && sig.data.sdp.type === "offer", JSON.stringify(sig));
-  assert(!b.msgs.some((m) => m.type === "voice_signal" && m.data?.x === 1), "signals from outside the room are dropped");
-  // Floor: A takes it, B raises a hand, A passes it on, B leaving frees it.
-  a.send({ op: "voice_talk" });
-  await until(b, (m) => m.type === "voice" && m.floor === pa, "A has the floor");
-  b.send({ op: "voice_talk" });
-  await until(a, (m) => m.type === "voice" && m.floor === pa && m.queue[0] === pb, "B's hand is up");
-  a.send({ op: "voice_release" });
-  await until(a, (m) => m.type === "voice" && m.floor === pb && m.queue.length === 0, "the floor goes to B");
-  b.ws.close();
-  await until(a, (m) => m.type === "voice" && m.floor === null && m.peers.length === 1, "B closing the tab leaves the room and frees the floor");
-  a.send({ op: "voice_leave" });
-  await until(a, (m) => m.type === "voice" && m.peers.length === 0, "A leaves");
-  a.ws.close();
-  // The room works, but boards don't show it unless the server turns voice on (VOICE=on): the product is for agents.
+await step("no voice rooms: the relay route is gone and boards show no voice controls", async () => {
+  assert((await web(`/api/boards/${board}/voice/ice`, A)).status === 404, "no voice ICE route");
   const html = await (await web(`/b/${board}`, A)).text();
-  assert(!html.includes('id="voice-btn"') && !html.includes('id="voice-bar"'), "voice is hidden by default");
+  assert(!html.includes('id="voice-btn"') && !html.includes('id="voice-bar"') && !html.includes("onVoice"), "no voice on the board page");
 });
 
 await step("creator removes a member: their wait ends, their access is gone", async () => {
@@ -2003,6 +1953,43 @@ await step("kill switch: Disconnect all agents revokes every sign-in and ends ev
     assert(s === 401, "every token stops working");
   }
   has(await (await fetch(`${BASE}/me`, { headers: { cookie: ck } })).text(), "Disconnect all agents");
+});
+
+await step("mailbox: DMs and mail for your agent wait until your agent polls; full text; delivery is separate from your web reading; wait and ack", async () => {
+  const M1 = `e2e-mb1-${run}`, M2 = `e2e-mb2-${run}`;
+  for (const n of [M1, M2]) {
+    await ops("users", { name: n, email: `${n}@example.com`, verified: "true" });
+    tok[n] = (await ops("tokens", { user: n, label: "e2e" })).body.token;
+  }
+  const call = async (who, method, path, body) => { const r = await fetch(`${BASE}${path}`, { method, headers: { ...auth(who), "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined }); return r.json(); };
+  await call(M1, "POST", "/api/friends/request", { user: M2 });
+  await call(M2, "POST", `/api/friends/${M1}/accept`);
+  const dm = (await call(M1, "POST", `/api/direct/${M2}`)).board;
+  const long = `Can your agent review the webhook check? ${"details ".repeat(40)}${run}`;
+  await call(M1, "POST", `/api/boards/${dm}/entries`, { type: "note", text: long });
+  // Peeking doesn't deliver; the text is complete (not the 160-character excerpt).
+  let m = await call(M2, "GET", "/api/mailbox?peek=1");
+  const mine = m.mail.filter((x) => x.board === dm);
+  assert(mine.length === 1 && mine[0].kind === "dm" && mine[0].from === M1 && mine[0].text === long, JSON.stringify(m).slice(0, 400));
+  assert((await call(M2, "GET", "/api/mailbox?peek=1")).mail.some((x) => x.board === dm), "still there after a peek");
+  // Reading on the web doesn't hide it from the agent.
+  await call(M2, "POST", "/api/inbox/read", { all: true });
+  m = await call(M2, "GET", "/api/mailbox");
+  assert(m.mail.some((x) => x.board === dm && x.text === long), "your web reading doesn't deliver your agent's mail");
+  assert(!(await call(M2, "GET", "/api/mailbox")).mail.some((x) => x.board === dm), "polling delivered it");
+  assert(!(await call(M1, "GET", "/api/mailbox")).mail.some((x) => x.board === dm && x.from === M1), "your own messages aren't your mail");
+  // wait: the poll holds until mail arrives.
+  const t0 = Date.now();
+  const waiting = call(M2, "GET", "/api/mailbox?wait=10");
+  await new Promise((r) => setTimeout(r, 1000));
+  await call(M1, "POST", `/api/boards/${dm}/entries`, { type: "question", text: `quick one ${run}` });
+  m = await waiting;
+  assert(m.mail.some((x) => x.text === `quick one ${run}`) && Date.now() - t0 < 9000, `wait returned ${JSON.stringify(m).slice(0, 200)} after ${Date.now() - t0}ms`);
+  // Peek + ack, for dispatchers that confirm after handling.
+  await call(M1, "POST", `/api/boards/${dm}/entries`, { type: "note", text: `ack me ${run}` });
+  const p = (await call(M2, "GET", "/api/mailbox?peek=1")).mail.filter((x) => x.text === `ack me ${run}`);
+  assert(p.length === 1 && (await call(M2, "POST", "/api/mailbox/ack", { ids: p.map((x) => x.id) })).delivered === 1, "ack");
+  assert(!(await call(M2, "GET", "/api/mailbox?peek=1")).mail.some((x) => x.text === `ack me ${run}`), "acked mail is gone");
 });
 
 await step("encryption v2: one key per board; newcomers read history; later devices only via their own; removal rotates", async () => {

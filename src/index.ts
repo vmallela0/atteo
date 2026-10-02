@@ -28,6 +28,7 @@ import { EMAIL_RE, sendInvite } from "./invite";
 import { mayMention, parseMentions, type Mention } from "./mentions";
 import * as registry from "./registry";
 import * as boardkeys from "./boardkeys";
+import * as mailbox from "./mailbox";
 import {
   adminPage,
   boardPage,
@@ -605,7 +606,7 @@ const handler = {
         // People who already have an account show by name, so a friend invited by name never has their email shown.
         const named = await Promise.all(invites.map(async (i) => ((await registry.userByEmail(env, i.email))?.name ?? null)));
         const shown = invites.map((i, k) => (named[k] ? { ...i, email: named[k]!, email_status: "waiting to accept" } : i));
-        return boardPage(viewer, side, snap.info, withAgents, snap.entries, shown, { connected: status.connected, onThisBoard: !!live[viewer.name] }, snap.summary, agentsHere, env.VOICE === "on");
+        return boardPage(viewer, side, snap.info, withAgents, snap.entries, shown, { connected: status.connected, onThisBoard: !!live[viewer.name] }, snap.summary, agentsHere);
       }
 
       // ---- inbox: mentions of you, posts for your agent, replies to you ----
@@ -621,6 +622,20 @@ const handler = {
       if (path === "/api/inbox" && method === "GET") {
         if (!viewer) return needLogin();
         return json({ items: await inbox.listInbox(env, viewer.name, 50) });
+      }
+      // ---- the mailbox: your agent's mail across every board and DM, for your own dispatcher to poll ----
+      if (path === "/api/mailbox" && method === "GET") {
+        if (!viewer) return needLogin();
+        const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get("limit") ?? "50", 10) || 50));
+        const wait = Math.min(25, Math.max(0, parseInt(url.searchParams.get("wait") ?? "0", 10) || 0));
+        const peek = url.searchParams.get("peek") === "1";
+        const r = await mailbox.collect(env, viewer.name, { limit, wait, peek }, async (b, seq) => (await boardStub(env, b).get(seq)).entry.text);
+        return json(r, 200, { "cache-control": "no-store" });
+      }
+      if (path === "/api/mailbox/ack" && method === "POST") {
+        if (!viewer) return needLogin();
+        const b = (await request.json().catch(() => ({}))) as { ids?: unknown };
+        return json({ ok: true, delivered: await mailbox.ack(env, viewer.name, Array.isArray(b.ids) ? b.ids.map(Number) : []) });
       }
       if (path === "/api/inbox/count" && method === "GET") {
         if (!viewer) return needLogin();
@@ -1527,13 +1542,6 @@ const handler = {
         return json({ claims: await boardStub(env, m[1]).claims() }, 200, { "cache-control": "no-store" });
       }
 
-      // ---- voice: short-lived relay (TURN) credentials so calls connect on networks that block peer-to-peer ----
-      m = path.match(/^\/api\/boards\/([^/]+)\/voice\/ice$/);
-      if (m && method === "GET") {
-        if (!viewer) return needLogin();
-        if (!(await registry.isMember(env, m[1], viewer.name))) return json({ error: "board not found" }, 404);
-        return json({ iceServers: await voiceIceServers(env) }, 200, { "cache-control": "no-store" });
-      }
 
       // ---- claims (web): verify, dispute or add evidence as a person (status arrives with updates) ----
       m = path.match(/^\/api\/boards\/([^/]+)\/claims\/(\d+)$/);
@@ -2014,22 +2022,4 @@ export default Sentry.withSentry(
   handler,
 );
 
-const STUN_ONLY = [{ urls: "stun:stun.cloudflare.com:3478" }, { urls: "stun:stun.l.google.com:19302" }];
 
-/** ICE servers for a voice call: Cloudflare's TURN relay (credentials good for 4 hours) when configured, else STUN only. */
-async function voiceIceServers(env: Env): Promise<unknown[]> {
-  if (!env.TURN_KEY_ID || !env.TURN_KEY_API_TOKEN) return STUN_ONLY;
-  try {
-    const r = await fetch(`https://rtc.live.cloudflare.com/v1/turn/keys/${env.TURN_KEY_ID}/credentials/generate-ice-servers`, {
-      method: "POST",
-      headers: { authorization: `Bearer ${env.TURN_KEY_API_TOKEN}`, "content-type": "application/json" },
-      body: JSON.stringify({ ttl: 4 * 3600 }),
-    });
-    if (!r.ok) return STUN_ONLY;
-    const d = (await r.json()) as { iceServers?: unknown };
-    const list = Array.isArray(d.iceServers) ? d.iceServers : d.iceServers ? [d.iceServers] : [];
-    return list.length ? list : STUN_ONLY;
-  } catch {
-    return STUN_ONLY;
-  }
-}
