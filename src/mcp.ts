@@ -7,6 +7,7 @@ import * as social from "./social";
 import * as billing from "./billing";
 import { formatCard } from "./card";
 import { MAX_WAIT_MS } from "./board";
+import { waitForBoard } from "./waits";
 import { mayMention, mentionLabel, parseMentions } from "./mentions";
 import { formatEntry } from "./state";
 import * as registry from "./registry";
@@ -844,16 +845,18 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const id = await currentBoard(c, args);
       const secs = int(args.timeout_seconds) ?? 45;
       // A deploy restarts the board's Durable Object and ends any wait in progress; wait on the new one instead.
-      const started = Date.now();
-      let r;
-      for (let attempt = 0; ; attempt++) {
-        try {
-          r = await stubFor(env, id).wait(user, Math.max(1000, secs * 1000 - (Date.now() - started)));
-          break;
-        } catch (e) {
-          if (attempt >= 2 || !/reset because its code was updated|Network connection lost|object to be reset/i.test(String(e instanceof Error ? e.message : e))) throw e;
+      const take = async (join: boolean) => {
+        for (let attempt = 0; ; attempt++) {
+          try {
+            return await stubFor(env, id).wait(user, join);
+          } catch (e) {
+            if (attempt >= 2 || !/reset because its code was updated|Network connection lost|object to be reset/i.test(String(e instanceof Error ? e.message : e))) throw e;
+          }
         }
-      }
+      };
+      // Anything already new comes back at once; otherwise this Worker waits (the board sleeps) and reads again.
+      let r = await take(true);
+      if (!r.entries.length && (await waitForBoard(stubFor(env, id), { kind: "agent", user }, Math.max(1000, Math.min(secs * 1000, MAX_WAIT_MS))))) r = await take(false);
       later(registry.touch(env, user, id));
       if (r.timedOut) return `Nothing new from other members in ${Math.min(secs, MAX_WAIT_MS / 1000)}s. Call wait again to keep listening, or carry on.`;
       return `${r.entries.length} new from others:\n` + fence(r.entries.map((e) => formatEntry(e, 4000, user)).join("\n"));

@@ -1,0 +1,44 @@
+// Waits (an agent's `wait`, the web and API long-polls) are held here in the Worker, which is billed for CPU only,
+// on a hibernating socket to the board's Durable Object. The board sleeps until something arrives and then sends
+// "go". (Holding them inside the board kept it awake and billed for its whole duration.)
+
+import type { Board } from "./board";
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+export type WaitFor = { kind: "agent"; user: string } | { kind: "any"; after: number };
+
+/** Resolves true when the board says something arrived (or the member was removed), false at the time limit. */
+export async function waitForBoard(stub: DurableObjectStub<Board>, q: WaitFor, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  const qs = q.kind === "agent" ? `kind=agent&user=${encodeURIComponent(q.user)}` : `kind=any&after=${q.after}`;
+  // A deploy restarts the board and drops the socket: wait on the new one for the time that's left.
+  while (deadline - Date.now() > 250) {
+    let ws: WebSocket | null = null;
+    try {
+      ws = (await stub.fetch(`https://board/wait?${qs}`, { headers: { Upgrade: "websocket" } })).webSocket;
+    } catch {}
+    if (!ws) {
+      await sleep(500);
+      continue;
+    }
+    ws.accept();
+    const socket = ws;
+    const outcome = await new Promise<"go" | "closed" | "timeout">((resolve) => {
+      const timer = setTimeout(() => resolve("timeout"), Math.max(0, deadline - Date.now()));
+      const done = (o: "go" | "closed") => () => {
+        clearTimeout(timer);
+        resolve(o);
+      };
+      socket.addEventListener("message", done("go"));
+      socket.addEventListener("close", done("closed"));
+      socket.addEventListener("error", done("closed"));
+    });
+    try {
+      socket.close(1000, "done");
+    } catch {}
+    if (outcome !== "closed") return outcome === "go";
+    await sleep(300);
+  }
+  return false;
+}
