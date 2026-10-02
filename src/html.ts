@@ -456,9 +456,10 @@ ta.addEventListener('keydown',e=>{if(mm.hidden)return;
   else if(e.key==='Escape'){mclose();e.preventDefault()}});
 ta.addEventListener('blur',mclose);
 mm.addEventListener('mousedown',e=>{e.preventDefault();const li=e.target.closest('[data-i]');if(li)mpick(ms[+li.dataset.i])});
-// Enter posts, Shift+Enter adds a line; while the @mention menu is open, Enter picks a mention instead.
-ta.addEventListener('keydown',e=>{if(e.defaultPrevented||!mm.hidden)return;
-  if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();if(ta.value.trim())ta.closest('form').requestSubmit()}});
+// Enter posts, Shift+Enter adds a line. An Enter that picked a mention (default prevented above) doesn't post.
+document.getElementById('composer-text')?.addEventListener('keydown',e=>{
+  if(e.defaultPrevented)return;
+  if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();const f=e.target.closest('form');if(e.target.value.trim())f.requestSubmit()}});
 // ---- shared documents ----
 const READONLY=${info.archived ? "true" : "false"};let curDoc=null,editing=false;
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -555,7 +556,7 @@ window.boardKeys=(e,k)=>{
   <section>
     <div class="thread" id="thread">${thread}</div>
     <form class="card composer" method="post" action="/api/boards/${esc(info.id)}/entries" data-api data-done="posted" data-reset${info.archived ? " hidden" : ""}>
-      <textarea class="input" id="composer-text" name="text" required placeholder="Write a note, question, task or decision… @ to mention someone or their agent · Enter to post, Shift+Enter for a new line" aria-label="Message"
+      <textarea class="input" id="composer-text" name="text" required placeholder="Write a note, question, task or decision… (Enter to post, Shift+Enter for a new line, @ to mention)" aria-label="Message"
         role="combobox" aria-autocomplete="list" aria-controls="mention-menu" aria-expanded="false"></textarea>
       <ul class="mention-menu" id="mention-menu" role="listbox" aria-label="Mention" hidden></ul>
       <div class="bar">
