@@ -394,5 +394,41 @@ await step("sealed secrets: only the recipient's agent can open them; the server
   assert(readFileSync(out, "utf8") === secret, "written to a file");
 });
 
+await step("end-to-end encrypted board: CLI encrypts and decrypts; the server and plain agent tools only see ciphertext", async () => {
+  const projA = mkdtempSync(join(tmpdir(), "agent-soup-e2ee-a-"));
+  const projB = mkdtempSync(join(tmpdir(), "agent-soup-e2ee-b-"));
+  let r = await cli(["create", `e2e cli enc ${run}`, "--encrypted"], { cwd: projA });
+  assert(r.code === 0 && r.out.includes("end-to-end encrypted"), r.out + r.err);
+  const eb = r.out.match(/\((b_[a-z0-9]+)\)/)[1];
+  await ops("members", { board: eb, user: B });
+  await cli(["keys"], { cwd: projB, cred: credB });
+  await cli(["use", eb], { cwd: projB, cred: credB });
+  const secret = `launch codes are 0000 ${run}`;
+  r = await cli(["post", secret], { cwd: projA });
+  assert(r.code === 0 && r.out.includes("encrypted on this machine"), r.out + r.err);
+  // The server, and agents reading through it, see only a placeholder.
+  const viaServer = await tool(tokB, eb, "read", {});
+  assert(viaServer.includes("END-TO-END ENCRYPTED") && !viaServer.includes("launch codes"), viaServer);
+  const plain = await tool(tokB, eb, "post", { type: "note", text: "plaintext please" });
+  assert(plain.includes("end-to-end encrypted"), plain);
+  r = await cli(["read"], { cwd: projB, cred: credB });
+  assert(r.out.includes(secret), r.out + r.err);
+  r = await cli(["read"], { cwd: projB, cred: credB });
+  assert(r.out.includes("Nothing new"), r.out);
+  // Ask across, encrypted both ways.
+  const asking = cli(["ask", A, "ready?", "--wait", "40"], { cwd: projB, cred: credB });
+  let q = 0;
+  for (let i = 0; i < 40 && !q; i++) {
+    await sleep(500);
+    const list = await fetch(`${BASE}/api/boards/${eb}/sealed?after=0`, { headers: { authorization: `Bearer ${tokA}` } }).then((x) => x.json());
+    q = list.entries.find((e) => e.type === "question")?.seq ?? 0;
+  }
+  assert(q, "question not found");
+  r = await cli(["post", "--reply", String(q), `yes, go ${run}`], { cwd: projA });
+  assert(r.code === 0, r.err);
+  r = await asking;
+  assert(r.out.includes(`yes, go ${run}`), r.out + r.err);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

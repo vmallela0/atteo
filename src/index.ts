@@ -122,12 +122,13 @@ async function canSee(c: Ctx, boardId: string): Promise<boolean> {
 }
 
 /** Plan limits apply to people (origin given); the ops API creates boards without them. */
-async function createBoard(env: Env, title: string, user: string, origin?: string) {
+async function createBoard(env: Env, title: string, user: string, origin?: string, opts: { encrypted?: boolean } = {}) {
   if (origin) await billing.checkCanCreateBoard(env, user, origin);
   const id = newBoardId();
-  const info = await boardStub(env, id).init(id, title, user);
+  const info = await boardStub(env, id).init(id, title, user, opts);
   await registry.recordBoard(env, info);
   await registry.addMember(env, id, user, { role: "owner" });
+  if (opts.encrypted) await env.DB.prepare(`UPDATE boards SET encrypted = 1 WHERE id = ?`).bind(id).run();
   // Organization policy: boards made by people at a domain with a retention cap start with it.
   const u = await registry.userByName(env, user);
   const pol = u?.email ? await orgPolicy(env, u.email) : null;
@@ -521,10 +522,11 @@ export default {
 
       if (path === "/boards" && method === "POST") {
         if (!viewer) return needLogin();
-        const title = String((await request.formData()).get("title") ?? "").trim().slice(0, 120);
+        const form = await request.formData();
+        const title = String(form.get("title") ?? "").trim().slice(0, 120);
         if (!title) return redirect("/?new=1");
         try {
-          const info = await createBoard(env, title, viewer.name, url.origin);
+          const info = await createBoard(env, title, viewer.name, url.origin, { encrypted: form.get("encrypted") === "1" || form.get("encrypted") === "on" });
           return redirect(`/b/${info.id}`);
         } catch (e) {
           const plan = e instanceof billing.BillingError;
@@ -655,6 +657,14 @@ export default {
         if (!shared && km[1] !== viewer.name) return json({ error: "You don't share a board with them." }, 404);
         return json({ keys: (await env.DB.prepare(`SELECT id, public_key, label, created_at FROM agent_keys WHERE user = ? AND revoked_at IS NULL`).bind(km[1]).all()).results });
       }
+      km = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/keys$/);
+      if (km && method === "GET") {
+        if (!viewer) return needLogin();
+        if (!(await registry.isMember(env, km[1], viewer.name))) return json({ error: "board not found" }, 404);
+        const rows = (await env.DB.prepare(`SELECT k.id, k.user, k.public_key FROM agent_keys k JOIN members m ON m.user = k.user WHERE m.board_id = ? AND k.revoked_at IS NULL`).bind(km[1]).all<{ id: string; user: string; public_key: string }>()).results;
+        const members = (await registry.boardMembers(env, km[1])).map((x) => x.user);
+        return json({ keys: rows, without_keys: members.filter((u) => !rows.some((r) => r.user === u)) });
+      }
       km = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/sealed(?:\/(\d+))?$/);
       if (km) {
         if (!viewer) return needLogin();
@@ -662,15 +672,17 @@ export default {
         const stub = boardStub(env, km[1]);
         try {
           if (method === "POST" && !km[2]) {
-            const b = (await request.json().catch(() => ({}))) as { to?: string; note?: string; payload?: string };
+            const b = (await request.json().catch(() => ({}))) as { to?: string; note?: string; payload?: string; type?: string; reply_to?: number };
             const note = String(b.note ?? "");
             const hit = scanFields({ note });
             if (hit) return json({ error: blockedMessage(hit) }, 400);
-            const e = await stub.postSealed(viewer.name, { to: String(b.to ?? ""), note, payload: String(b.payload ?? "") }, { via: pv(), client: viewer.via === "agent" ? "agent-soup CLI" : null });
+            if ((await registry.memberRole(env, km[1], viewer.name)) === "viewer") return json({ error: "Your role on this board is viewer." }, 403);
+            const e = await stub.postSealed(viewer.name, { to: b.to ? String(b.to) : null, note, payload: String(b.payload ?? ""), type: b.type, reply_to: Number(b.reply_to) || null }, { via: pv(), client: viewer.via === "agent" ? "agent-soup CLI" : null });
             ctx.waitUntil(registry.bumpBoard(env, km[1], e.seq).catch(() => {}));
             return json({ ok: true, entry: e }, 201);
           }
           if (method === "GET" && km[2]) return json(await stub.sealedFor(viewer.name, parseInt(km[2], 10)));
+          if (method === "GET" && !km[2]) return json({ entries: await stub.sealedAfter(parseInt(url.searchParams.get("after") ?? "0", 10) || 0) });
         } catch (e) {
           return json({ error: e instanceof Error ? e.message : String(e) }, 400);
         }
@@ -930,7 +942,7 @@ export default {
         const watching = request.headers.get("x-agent-soup-watch");
         if (watching) ctx.waitUntil(Promise.resolve(social.markSeen(env, who, "watch", watching === "respond")).catch(() => {}));
         const boards = await registry.boardsForUser(env, who);
-        return json({ user: who, boards: boards.map((b) => ({ id: b.id, title: b.title, entry_count: b.entry_count, last_activity: b.last_activity })) });
+        return json({ user: who, boards: boards.map((b) => ({ id: b.id, title: b.title, entry_count: b.entry_count, last_activity: b.last_activity, encrypted: !!(b as { encrypted?: number }).encrypted })) });
       }
 
       // ---- files: upload any file (members, from the web) and serve stored ones (anyone who can see the board) ----

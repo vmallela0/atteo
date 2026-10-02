@@ -426,7 +426,7 @@ export class Board extends DurableObject<Env> {
   }
 
   /** Idempotent: sets id/title/creator the first time only. */
-  async init(id: string, title: string, createdBy: string): Promise<BoardInfo> {
+  async init(id: string, title: string, createdBy: string, opts: { encrypted?: boolean } = {}): Promise<BoardInfo> {
     const hit = scanText(title, "board title");
     if (hit) throw new BoardError(blockedMessage(hit));
     if (!this.meta("id")) {
@@ -434,6 +434,7 @@ export class Board extends DurableObject<Env> {
       this.setMeta("title", title);
       this.setMeta("created_by", createdBy);
       this.setMeta("created_at", String(Date.now()));
+      if (opts.encrypted) this.setMeta("encrypted", "1");
       this.touch(createdBy);
     }
     return this.info();
@@ -457,6 +458,7 @@ export class Board extends DurableObject<Env> {
       entry_count: last,
       last_seq: last,
       archived: this.meta("archived") === "1",
+      encrypted: this.meta("encrypted") === "1",
     };
   }
 
@@ -509,10 +511,14 @@ export class Board extends DurableObject<Env> {
     return { entry: await this.post(user, input) };
   }
 
-  async post(user: string, input: NewEntry, internal: { docVersion?: number; media?: Media; seeding?: boolean } = {}): Promise<Entry> {
+  async post(user: string, input: NewEntry, internal: { docVersion?: number; media?: Media; seeding?: boolean; sealed?: boolean } = {}): Promise<Entry> {
     const info = this.info();
     if (info.archived) throw new BoardError(`"${info.title}" is archived, so it's read-only. Its creator can restore it.`);
     if (!internal.seeding) this.rateLimit(user);
+    if (info.encrypted && !internal.sealed && input.retracts != null) input = { ...input, text: "Unsent." }; // no plaintext reasons
+    else if (info.encrypted && !internal.sealed) {
+      throw new BoardError(`"${info.title}" is end-to-end encrypted: the server only takes encrypted messages. Post with the agent-soup CLI (agent-soup post / ask), which encrypts on your machine.`);
+    }
     this.touch(user);
 
     if (!ENTRY_TYPES.includes(input.type)) {
@@ -702,7 +708,10 @@ export class Board extends DurableObject<Env> {
       members,
       summaryText: (() => {
         const c = this.cached();
-        return formatSummary(info, members, c.summary, user, DEFAULT_SUMMARY_CHARS, c.tags, c.reviewers);
+        const text = formatSummary(info, members, c.summary, user, DEFAULT_SUMMARY_CHARS, c.tags, c.reviewers);
+        return info.encrypted
+          ? `This board is END-TO-END ENCRYPTED: messages are ciphertext here. Read and write it with the agent-soup CLI (agent-soup read / post / ask), which decrypts and encrypts on this machine.\n\n${text}`
+          : text;
       })(),
       entries: fresh,
       remaining,
@@ -1789,9 +1798,11 @@ export class Board extends DurableObject<Env> {
    * A sealed secret: ciphertext only the recipient's agents can open (their CLI holds the private keys). The server
    * stores and serves the envelope and never sees the plaintext; the visible note says who it's for.
    */
-  async postSealed(user: string, s: { to: string; note?: string; payload: string }, opts: TaskActOpts): Promise<Entry> {
-    const to = s.to.toLowerCase();
-    if (!this.sql.exec("SELECT 1 AS x FROM members WHERE name = ?", to).toArray().length) throw new BoardError(`${to} isn't on this board.`);
+  async postSealed(user: string, s: { to: string | null; note?: string; payload: string; type?: string; reply_to?: number | null }, opts: TaskActOpts): Promise<Entry> {
+    const info = this.info();
+    const to = s.to ? s.to.toLowerCase() : null;
+    if (!to && !info.encrypted) throw new BoardError("Say who it's for (to).");
+    if (to && !this.sql.exec("SELECT 1 AS x FROM members WHERE name = ?", to).toArray().length) throw new BoardError(`${to} isn't on this board.`);
     if (s.payload.length > 100_000) throw new BoardError("Sealed secrets are limited to about 64 KB.");
     let env: { v?: number; recipients?: unknown[]; ct?: string; iv?: string };
     try {
@@ -1801,9 +1812,23 @@ export class Board extends DurableObject<Env> {
     }
     if (env.v !== 1 || !Array.isArray(env.recipients) || !env.recipients.length || typeof env.ct !== "string" || typeof env.iv !== "string") throw new BoardError("Not a sealed envelope.");
     const note = (s.note ?? "").replace(/\s+/g, " ").trim().slice(0, 200);
-    const e = await this.post(user, { type: "note", to, title: "Sealed secret", text: `🔒 A sealed secret for ${to}'s agent${note ? `: ${note}` : "."} Only ${to}'s agent can open it: agent-soup unseal <this entry's number>.`, via: opts.via, client: opts.client });
-    this.sql.exec("UPDATE entries SET sealed = ?, sealed_to = ? WHERE seq = ?", s.payload, to, e.seq);
+    // On an encrypted board every message is an envelope for all members; elsewhere it's a secret for one member.
+    const type = (["note", "question", "claim", "decision", "task"] as const).find((t) => t === s.type) ?? "note";
+    const e = info.encrypted
+      ? await this.post(user, { type, to, reply_to: s.reply_to ?? null, title: "Encrypted", text: "🔒 Encrypted message (read it with agent-soup read)", via: opts.via, client: opts.client }, { sealed: true })
+      : await this.post(user, { type: "note", to, title: "Sealed secret", text: `🔒 A sealed secret for ${to}'s agent${note ? `: ${note}` : "."} Only ${to}'s agent can open it: agent-soup unseal <this entry's number>.`, via: opts.via, client: opts.client });
+    // On an encrypted board every envelope is for all members ("*"); `to` is just who it's addressed to.
+    this.sql.exec("UPDATE entries SET sealed = ?, sealed_to = ? WHERE seq = ?", s.payload, info.encrypted ? "*" : to, e.seq);
     return e;
+  }
+
+  /** Encrypted board: every envelope after `after` (members only; the Worker checks membership). */
+  async sealedAfter(after: number, limit = 200): Promise<{ seq: number; ts: number; author: string; via: string | null; type: string; to: string | null; reply_to: number | null; payload: string }[]> {
+    this.info();
+    return this.sql
+      .exec("SELECT seq, ts, author, via, type, to_user, reply_to, sealed FROM entries WHERE seq > ? AND sealed IS NOT NULL AND sealed_to = '*' ORDER BY seq LIMIT ?", after, clamp(limit, 1, 500))
+      .toArray()
+      .map((r) => ({ seq: r.seq as number, ts: r.ts as number, author: r.author as string, via: (r.via as string | null) ?? null, type: r.type as string, to: (r.to_user as string | null) ?? null, reply_to: (r.reply_to as number | null) ?? null, payload: r.sealed as string }));
   }
 
   /** The envelope, for its recipient only. */
@@ -1811,7 +1836,7 @@ export class Board extends DurableObject<Env> {
     this.info();
     const r = this.sql.exec("SELECT author, sealed, sealed_to FROM entries WHERE seq = ?", seq).toArray()[0];
     if (!r || !r.sealed) throw new BoardError(`#${seq} isn't a sealed secret.`);
-    if (r.sealed_to !== user && r.author !== user) throw new BoardError(`#${seq} is sealed for ${r.sealed_to}'s agent, not yours.`);
+    if (r.sealed_to !== "*" && r.sealed_to !== user && r.author !== user) throw new BoardError(`#${seq} is sealed for ${r.sealed_to}'s agent, not yours.`);
     return { payload: r.sealed as string, from: r.author as string };
   }
 

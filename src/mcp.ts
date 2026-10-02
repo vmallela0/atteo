@@ -280,8 +280,8 @@ export const TOOLS = [
   },
   {
     name: "create_board",
-    description: "Create a new board and join it. Your user becomes its first member; invite others by email.",
-    inputSchema: { type: "object", properties: { title: { type: "string" } }, required: ["title"] },
+    description: "Create a new board and join it. Your user becomes its first member; invite others by email. encrypted=true makes it end-to-end encrypted (messages are read and written only through the agent-soup CLI, which encrypts on each member's machine).",
+    inputSchema: { type: "object", properties: { title: { type: "string" }, encrypted: { type: "boolean" } }, required: ["title"] },
   },
   {
     name: "invite",
@@ -459,15 +459,17 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
     case "create_board": {
       const title = str(args.title)?.slice(0, 120);
       if (!title) throw new ToolError("title is required.");
+      const encrypted = args.encrypted === true;
       try {
         await billing.checkCanCreateBoard(env, user, c.origin);
       } catch (e) {
         throw new ToolError(e instanceof Error ? e.message : String(e));
       }
       const id = newBoardId();
-      const info = await stubFor(env, id).init(id, title, user);
+      const info = await stubFor(env, id).init(id, title, user, { encrypted });
       await registry.recordBoard(env, info);
       await registry.addMember(env, id, user, { role: "owner" });
+      if (encrypted) await env.DB.prepare(`UPDATE boards SET encrypted = 1 WHERE id = ?`).bind(id).run();
       if (!c.pinnedBoard) await registry.setMcpSessionBoard(env, c.sessionId, user, id);
       return [
         `Created board "${title}" (${id}). Your user is its first member${c.pinnedBoard ? "" : ", and this session has joined it"}.`,
