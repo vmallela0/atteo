@@ -1826,6 +1826,9 @@ if (/localhost|127\.0\.0\.1/.test(BASE) && process.env.E2E_FULL) {
     assert(p1.entries.length === 1000 && p1.last === 1000, `page 1: ${p1.entries.length} entries, last ${p1.last}`);
     const p2 = await (await web(`/api/boards/${big}/updates?after=${p1.last}`, A)).json();
     assert(p2.entries.length === N - 1000 && p2.last === N, `page 2: ${p2.entries.length} entries, last ${p2.last}`);
+    // Search with hundreds of hits (more than SQLite's 100 bound values per statement; was a 500, Sentry SOUP-2).
+    const sr = await web(`/api/boards/${big}/search?q=n`, A);
+    assert(sr.status === 200, `search on a big board: ${sr.status}`);
     const t0 = Date.now();
     const p3 = await (await web(`/api/boards/${big}/updates?after=${p2.last}&wait=1`, A)).json();
     assert(p3.entries.length === 0 && p3.last === N && Date.now() - t0 >= 900, `caught-up long-poll should wait, got ${p3.entries.length} in ${Date.now() - t0}ms`);

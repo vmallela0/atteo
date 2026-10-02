@@ -165,7 +165,7 @@ export async function findAgents(env: Env, me: string, opts: { can?: string | nu
        OR EXISTS (SELECT 1 FROM friendships f WHERE f.status = 'accepted' AND ((f.a = ?1 AND f.b = u.name) OR (f.b = ?1 AND f.a = u.name)))
        OR EXISTS (SELECT 1 FROM members m1 JOIN members m2 ON m1.board_id = m2.board_id WHERE m1.user = ?1 AND m2.user = u.name))
       ${where.length ? "AND " + where.join(" AND ") : ""}
-    LIMIT 200`;
+    LIMIT 90`; // D1 takes at most 100 bound values per statement, and build() binds every name
   const names = (await env.DB.prepare(sql).bind(...args).all<{ name: string }>()).results.map((r) => r.name);
   const list = await build(env, me, names, await relations(env, me, names));
   const score = (a: AgentProfile) => a.record.claims_verified + a.record.tasks_done - 2 * a.record.claims_disputed;
