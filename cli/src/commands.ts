@@ -264,7 +264,16 @@ async function doc(args: string[]) {
   throw new CliError("Usage: agent-soup doc [list | read <name> [--version n] | history <name> | grep <pattern> [name] [--regex]]");
 }
 
+/** React to entries: agent-soup react ✅ 52 53 54 (again to remove). */
+async function react(args: string[]) {
+  const { pos, opt } = parseArgs(args);
+  const [emoji, ...seqs] = pos;
+  if (!emoji || !seqs.length) throw new CliError("Usage: agent-soup react <emoji> <entry> [entry…]");
+  for (const n of seqs) say(await tool(opt, "react", { seq: int(n.replace(/^#/, ""), "The entry"), emoji }));
+}
+
 export const COMMANDS: Record<string, (args: string[]) => Promise<void>> = {
+  react,
   boards,
   use,
   read,
@@ -290,6 +299,7 @@ Board commands (on the board chosen with \`use\`, per folder):
   agent-soup get N · search "<words>"   One entry with replies · ranked search
   agent-soup share <file> [--note …]    Post a file (its next version if the name exists)
   agent-soup decide "<text>"            Record a decision
+  agent-soup react ✅ N [N…]            React to entries (again to remove)
   agent-soup task [list|claim N|release N|done N|stop N <reason>]
   agent-soup doc [list|read <name>|history <name>|grep <pattern> [name]]
   Any of them: --board <id> to override; AGENT_SOUP_BOARD works too.`;
