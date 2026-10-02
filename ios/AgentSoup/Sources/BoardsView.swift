@@ -1,94 +1,131 @@
-// One board or DM: read it (opening marks it read) and reply as you.
+// One board or DM: opens on what you saw last (cached), refreshes in place, marks itself read, and sends instantly
+// (your message shows at once; if it can't be delivered it says so and you tap to retry).
 
 import SwiftUI
 
 struct BoardView: View {
     @EnvironmentObject var state: AppState
     let board: Board
-    @State private var entries: [Entry] = []
     @State private var draft = ""
-    @State private var sending = false
     @FocusState private var focused: Bool
+
+    private var list: [Entry] { state.entries[board.id] ?? [] }
+    private var canSend: Bool { !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 14) {
-                    ForEach(entries) { e in EntryRow(e: e).id(e.seq) }
+                // Placeholders and messages are separate containers: sharing one list would give them colliding ids
+                // (placeholder 1… and message #1…), and SwiftUI kept showing placeholders in place of messages.
+                if state.entries[board.id] == nil {
+                    VStack(alignment: .leading, spacing: 0) { ForEach(0..<6, id: \.self) { _ in PlaceholderMessage() } }
+                        .padding(.horizontal, 16).padding(.vertical, 12)
+                        .transition(.opacity)
                 }
-                .padding(16)
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(list.enumerated()), id: \.element.id) { i, e in
+                        let prev = i > 0 ? list[i - 1] : nil
+                        let grouped = prev != nil && prev!.author == e.author && prev!.via == e.via && e.ts - prev!.ts < 5 * 60_000 && e.type == "note"
+                        EntryRow(e: e, grouped: grouped) { Task { await state.send(e.text, to: board, retrying: e) } }
+                            .id(e.id)
+                            .transition(.asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity), removal: .opacity))
+                    }
+                }
+                .padding(.horizontal, 16).padding(.vertical, 12)
             }
+            .defaultScrollAnchor(.bottom)
+            .scrollDismissesKeyboard(.interactively)
             .background(Theme.bg)
-            .onChange(of: entries.last?.seq) { _, s in if let s { withAnimation(.snappy) { proxy.scrollTo(s, anchor: .bottom) } } }
+            .onChange(of: list.last?.id) { _, id in if let id { withAnimation(.smooth) { proxy.scrollTo(id, anchor: .bottom) } } }
         }
-        .safeAreaInset(edge: .bottom) { composer }
+        .safeAreaInset(edge: .bottom, spacing: 0) { composer }
         .navigationTitle(board.title)
         .navigationBarTitleDisplayMode(.inline)
-        .task { await load(); await state.markRead(board) }
-        .onChange(of: state.tape.first?.id) { _, _ in
-            if state.tape.first?.boardId == board.id { Task { await load() } }
-        }
-        .refreshable { await load() }
+        .toolbarBackground(Theme.bg, for: .navigationBar)
+        .toolbar(.hidden, for: .tabBar) // inside a conversation the message box owns the bottom edge
+        .task { await state.loadEntries(board); await state.markRead(board) }
+        .onChange(of: state.pulse) { _, p in if p?.board == board.id { Task { await state.loadEntries(board); await state.markRead(board) } } }
+        .refreshable { await state.loadEntries(board) }
     }
 
     var composer: some View {
         HStack(alignment: .bottom, spacing: 8) {
-            TextField("Message", text: $draft, axis: .vertical)
+            TextField(board.kind == "direct" ? "Message" : "Message \(board.title)", text: $draft, axis: .vertical)
                 .lineLimit(1...6).focused($focused)
                 .padding(.horizontal, 14).padding(.vertical, 10)
                 .background(Theme.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(Theme.line, lineWidth: 0.5))
-            Button { Task { await send() } } label: {
-                Image(systemName: sending ? "ellipsis" : "arrow.up").font(.system(size: 15, weight: .bold))
-                    .frame(width: 36, height: 36).background(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Theme.line : Theme.accent, in: Circle())
-                    .foregroundStyle(.black)
+                .accessibilityIdentifier("composer")
+            Button(action: send) {
+                Image(systemName: "arrow.up").font(.system(size: 15, weight: .bold))
+                    .frame(width: 36, height: 36)
+                    .background(canSend ? Theme.accent : Theme.line, in: Circle())
+                    .foregroundStyle(canSend ? .black : Theme.faint)
+                    .scaleEffect(canSend ? 1 : 0.92)
+                    .animation(.snappy, value: canSend)
             }
-            .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || sending)
+            .disabled(!canSend)
+            .accessibilityIdentifier("send")
+            .accessibilityLabel("Send")
         }
         .padding(.horizontal, 12).padding(.vertical, 8)
-        .background(.ultraThinMaterial)
+        .background(.bar)
     }
 
-    func load() async {
-        let after = max(0, board.entryCount - 80)
-        do {
-            let r = try await API.shared.get("/api/boards/\(board.id)/entries?after=\(after)&limit=200", as: EntriesResponse.self)
-            entries = r.entries
-        } catch { state.report(error) }
-    }
-
-    func send() async {
+    private func send() {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
-        sending = true
+        draft = ""
         Haptic.tap()
-        defer { sending = false }
-        do {
-            // Retries with one message id: never lost, never posted twice. The text stays until it lands.
-            let data = try await API.shared.send("/api/boards/\(board.id)/entries", body: ["type": "note", "text": text])
-            if let r = try? JSONDecoder.soup.decode(PostResponse.self, from: data) { entries.append(r.entry) }
-            draft = ""
-            Haptic.done()
-        } catch { state.report(error) }
+        Task { await state.send(text, to: board) }
     }
 }
 
 struct EntryRow: View {
     let e: Entry
+    var grouped = false
+    var retry: () -> Void = {}
+
+    private var who: String { e.byAgent ? "\(e.author)'s agent" : e.author }
+
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            Avatar(name: e.author, agent: e.byAgent, size: 28)
+            if grouped { Color.clear.frame(width: 28, height: 1) } else { Avatar(name: e.author, agent: e.byAgent, size: 28) }
             VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
-                    Text(e.byAgent ? "\(e.author)'s agent" : e.author).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.text)
-                    if e.type != "note" { Pill(text: e.type, color: e.type == "question" ? Theme.warn : e.type == "decision" ? Theme.ok : Theme.accent) }
-                    if let to = e.to { Text("→ \(to)").font(.caption).foregroundStyle(Theme.faint) }
-                    Spacer()
-                    Text(e.ts.ago).font(.caption2).foregroundStyle(Theme.faint)
+                if !grouped {
+                    HStack(spacing: 6) {
+                        Text(who).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.text)
+                        if e.type != "note" { Pill(text: e.type, color: e.type == "question" ? Theme.warn : e.type == "decision" ? Theme.ok : Theme.accent) }
+                        if let to = e.to { Text("→ \(to)").font(.caption).foregroundStyle(Theme.faint) }
+                        Spacer(minLength: 4)
+                        Text(e.ts.ago).font(.caption2).foregroundStyle(Theme.faint)
+                    }
                 }
                 if let a = e.artifactName { Label(a, systemImage: "doc.text").font(.caption.monospaced()).foregroundStyle(Theme.accent) }
-                Text(e.text.md).font(.subheadline).foregroundStyle(Theme.text.opacity(0.88)).textSelection(.enabled)
+                Text(e.text.md).font(.subheadline).foregroundStyle(Theme.text.opacity(e.pending == true ? 0.5 : 0.88)).textSelection(.enabled)
+                if e.pending == true {
+                    Text("Sending…").font(.caption2).foregroundStyle(Theme.faint)
+                } else if e.failed == true {
+                    Button(action: retry) { Label("Not sent. Tap to retry", systemImage: "exclamationmark.circle").font(.caption2.weight(.semibold)) }
+                        .buttonStyle(.plain).foregroundStyle(Theme.danger)
+                }
             }
         }
+        .padding(.top, grouped ? 3 : 14)
+    }
+}
+
+/// A grey stand-in while a board loads for the first time (no blank flash).
+struct PlaceholderMessage: View {
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Circle().fill(Theme.card).frame(width: 28, height: 28)
+            VStack(alignment: .leading, spacing: 6) {
+                RoundedRectangle(cornerRadius: 4).fill(Theme.card).frame(width: 110, height: 11)
+                RoundedRectangle(cornerRadius: 4).fill(Theme.card).frame(maxWidth: .infinity).frame(height: 11)
+                RoundedRectangle(cornerRadius: 4).fill(Theme.card).frame(width: 180, height: 11)
+            }
+        }
+        .padding(.top, 16)
     }
 }

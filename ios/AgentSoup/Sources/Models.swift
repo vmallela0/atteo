@@ -3,7 +3,7 @@
 import Foundation
 
 struct InboxResponse: Decodable { let items: [InboxItem] }
-struct InboxItem: Decodable, Identifiable, Hashable {
+struct InboxItem: Codable, Identifiable, Hashable {
     let id: Int
     let boardId: String
     let boardTitle: String?
@@ -21,7 +21,7 @@ struct InboxItem: Decodable, Identifiable, Hashable {
 }
 
 struct ApprovalsResponse: Decodable { let approvals: [Approval] }
-struct Approval: Decodable, Identifiable, Hashable {
+struct Approval: Codable, Identifiable, Hashable {
     let id: String
     let client: String?
     let boardId: String?
@@ -32,13 +32,13 @@ struct Approval: Decodable, Identifiable, Hashable {
     let createdAt: Double
 }
 
-struct ContactsResponse: Decodable {
-    struct Incoming: Decodable, Hashable { let from: String; let text: String?; let createdAt: Double }
+struct ContactsResponse: Codable {
+    struct Incoming: Codable, Hashable { let from: String; let text: String?; let createdAt: Double }
     let incoming: [Incoming]
 }
 
 struct SessionsResponse: Decodable { let sessions: [AgentSession] }
-struct AgentSession: Decodable, Identifiable, Hashable {
+struct AgentSession: Codable, Identifiable, Hashable {
     let id: String
     let name: String
     let client: String?
@@ -49,8 +49,8 @@ struct AgentSession: Decodable, Identifiable, Hashable {
 }
 
 struct BoardsResponse: Decodable { let boards: [Board] }
-struct Board: Decodable, Identifiable, Hashable {
-    struct Last: Decodable, Hashable { let by: String; let text: String } // jxn's #218: "vedu's agent", "deploy is green…"
+struct Board: Codable, Identifiable, Hashable {
+    struct Last: Codable, Hashable { let by: String; let text: String } // jxn's #218: "vedu's agent", "deploy is green…"
     let id: String
     let title: String
     let kind: String?
@@ -61,7 +61,7 @@ struct Board: Decodable, Identifiable, Hashable {
 }
 
 struct EntriesResponse: Decodable { let entries: [Entry]; let last: Int }
-struct Entry: Decodable, Identifiable, Hashable {
+struct Entry: Codable, Identifiable, Hashable {
     let seq: Int
     let ts: Double
     let author: String
@@ -71,6 +71,8 @@ struct Entry: Decodable, Identifiable, Hashable {
     let to: String?
     let via: String?
     let artifactName: String?
+    var pending: Bool? = nil // sent from this phone, not confirmed yet
+    var failed: Bool? = nil
     var id: Int { seq }
     var byAgent: Bool { via == "agent" }
 }
@@ -78,7 +80,7 @@ struct Entry: Decodable, Identifiable, Hashable {
 struct PostResponse: Decodable { let entry: Entry }
 
 struct TapeResponse: Decodable { let lines: [TapeLine]; let cursor: Int }
-struct TapeLine: Decodable, Identifiable, Hashable {
+struct TapeLine: Codable, Identifiable, Hashable {
     let id: Int
     let boardId: String
     let board: String?
@@ -93,8 +95,8 @@ struct TapeLine: Decodable, Identifiable, Hashable {
 }
 
 struct MeAgentResponse: Decodable {
-    struct Agent: Decodable { let owner: String; let summary: String?; let capabilities: [String]; let record: Record; let online: Bool }
-    struct Record: Decodable { let claimsVerified: Int; let claimsDisputed: Int; let tasksDone: Int }
+    struct Agent: Codable { let owner: String; let summary: String?; let capabilities: [String]; let record: Record; let online: Bool }
+    struct Record: Codable { let claimsVerified: Int; let claimsDisputed: Int; let tasksDone: Int }
     let agent: Agent
 }
 

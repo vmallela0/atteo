@@ -22,17 +22,24 @@ struct ChatsView: View {
             List {
                 if query.isEmpty && (!state.approvals.isEmpty || !state.contacts.isEmpty) {
                     Section {
-                        let items: [AnyView] = state.approvals.map { AnyView(ApprovalRow(a: $0)) } + state.contacts.map { AnyView(ContactRow(c: $0)) }
-                        ForEach(Array((showAll ? items : Array(items.prefix(2))).enumerated()), id: \.offset) { $0.element }
+                        // Keyed by each item's own id, so answering one animates it out (instead of the next row's
+                        // content swapping into its place).
+                        let items: [(id: String, view: AnyView)] = state.approvals.map { ("a-" + $0.id, AnyView(ApprovalRow(a: $0))) } + state.contacts.map { ("c-" + $0.from, AnyView(ContactRow(c: $0))) }
+                        ForEach(showAll ? items : Array(items.prefix(2)), id: \.id) { $0.view.transition(.opacity.combined(with: .move(edge: .leading))) }
                         if items.count > 2 {
                             Button(showAll ? "Show less" : "Show \(items.count - 2) more") { withAnimation(.snappy) { showAll.toggle() } }
                                 .font(.footnote.weight(.semibold)).foregroundStyle(Theme.accent).listRowBackground(Theme.bg)
                         }
-                    } header: { Text("Needs you · \(state.approvals.count + state.contacts.count)").font(.footnote.weight(.semibold)).foregroundStyle(Theme.warn) }
+                    } header: { Text("Needs you · \(state.approvals.count + state.contacts.count)").font(.footnote.weight(.semibold)).foregroundStyle(Theme.warn).contentTransition(.numericText()).accessibilityIdentifier("needs-you") }
                 }
                 Section {
                     ForEach(chats) { b in
-                        NavigationLink(value: b) { ChatRow(b: b, unread: unread(b)) }
+                        // A row you tap (no disclosure arrow): the whole row opens the chat.
+                        ChatRow(b: b, unread: unread(b))
+                            .contentShape(Rectangle())
+                            .onTapGesture { Haptic.tap(); path.append(b) }
+                            .accessibilityAddTraits(.isButton)
+                            .accessibilityIdentifier("chat-\(b.title)")
                             .listRowBackground(Theme.bg)
                             .listRowSeparatorTint(Theme.line)
                             .swipeActions(edge: .leading) {
@@ -48,7 +55,12 @@ struct ChatsView: View {
             .searchable(text: $query, prompt: "Search")
             .refreshable { await state.refreshAll() }
             .navigationDestination(for: Board.self) { b in BoardView(board: b) }
-            .overlay { if state.boards.isEmpty && state.approvals.isEmpty { ContentUnavailableView("No chats yet", systemImage: "bubble.left.and.bubble.right", description: Text("Boards and DMs you're in show up here.")) } }
+            .overlay {
+                if state.boards.isEmpty && !state.loaded {
+                    VStack(spacing: 0) { ForEach(0..<7, id: \.self) { _ in PlaceholderChat() } }.frame(maxHeight: .infinity, alignment: .top).padding(.top, 8)
+                }
+            }
+            .overlay { if state.loaded && state.boards.isEmpty && state.approvals.isEmpty { ContentUnavailableView("No chats yet", systemImage: "bubble.left.and.bubble.right", description: Text("Boards and DMs you're in show up here.")) } }
             .onChange(of: state.boards.count) { _, _ in
                 #if DEBUG
                 // Simulator screenshots: AGENT_SOUP_OPEN_BOARD opens that board once the list loads.
@@ -87,7 +99,7 @@ struct ChatRow: View {
                     .font(.subheadline).lineLimit(1)
                     Spacer(minLength: 6)
                     if unread > 0 {
-                        Text("\(unread)").font(.caption2.weight(.bold)).foregroundStyle(.black)
+                        Text("\(unread)").font(.caption2.weight(.bold)).foregroundStyle(.black).contentTransition(.numericText())
                             .padding(.horizontal, 6).frame(minWidth: 20, minHeight: 20).background(Theme.accent, in: Capsule())
                     }
                 }
@@ -155,5 +167,19 @@ struct ContactRow: View {
         .listRowBackground(Theme.bg)
         .swipeActions(edge: .leading) { Button { Task { await state.answer(c, accept: true) } } label: { Label("Allow", systemImage: "checkmark") }.tint(Theme.accent) }
         .swipeActions(edge: .trailing) { Button(role: .destructive) { Task { await state.answer(c, accept: false) } } label: { Label("Decline", systemImage: "xmark") } }
+    }
+}
+
+/// A grey stand-in for a chat row while the first list loads (no blank flash).
+struct PlaceholderChat: View {
+    var body: some View {
+        HStack(spacing: 12) {
+            RoundedRectangle(cornerRadius: 11, style: .continuous).fill(Theme.card).frame(width: 44, height: 44)
+            VStack(alignment: .leading, spacing: 7) {
+                RoundedRectangle(cornerRadius: 4).fill(Theme.card).frame(width: 140, height: 12)
+                RoundedRectangle(cornerRadius: 4).fill(Theme.card).frame(maxWidth: .infinity).frame(height: 11)
+            }
+        }
+        .padding(.horizontal, 20).padding(.vertical, 10)
     }
 }

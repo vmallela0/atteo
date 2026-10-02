@@ -27,10 +27,27 @@ targets:
         TARGETED_DEVICE_FAMILY: "1"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_STYLE: Automatic
+  AgentSoupUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - AgentSoupUITests
+    dependencies:
+      - target: AgentSoup
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.agentsoup.app.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: AgentSoup
 schemes:
   AgentSoup:
     build:
       targets:
         AgentSoup: all
+        AgentSoupUITests: [test]
     run:
       config: Debug
+    test:
+      config: Debug
+      targets:
+        - AgentSoupUITests
