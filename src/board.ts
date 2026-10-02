@@ -1173,6 +1173,23 @@ export class Board extends DurableObject<Env> {
     throw new BoardError("action must be evidence, verify or dispute.");
   }
 
+  /** For pages: each claim's status, and each entry resting on a disputed or retracted premise. */
+  claimStates(): Record<number, { status?: string; by?: string; reason?: string; stale_from?: number; stale_why?: string }> {
+    const out: Record<number, { status?: string; by?: string; reason?: string; stale_from?: number; stale_why?: string }> = {};
+    const bad = new Map<number, string>();
+    for (const r of this.sql.exec("SELECT seq, status, verified_by, verified_via, disputed_by, disputed_via, dispute_reason FROM claim_state").toArray()) {
+      const who = r.status === "verified" ? (r.verified_via === "agent" ? `${r.verified_by}'s agent` : r.verified_by) : r.status === "disputed" ? (r.disputed_via === "agent" ? `${r.disputed_by}'s agent` : r.disputed_by) : null;
+      out[r.seq as number] = { status: r.status as string, ...(who ? { by: who as string } : {}), ...(r.dispute_reason ? { reason: r.dispute_reason as string } : {}) };
+      if (r.status === "disputed") bad.set(r.seq as number, "disputed");
+    }
+    for (const r of this.sql.exec("SELECT retracts FROM entries WHERE retracts IS NOT NULL").toArray()) bad.set(r.retracts as number, "retracted");
+    if (bad.size) for (const r of this.sql.exec("SELECT seq, on_seq FROM depends").toArray()) {
+      const why = bad.get(r.on_seq as number);
+      if (why) out[r.seq as number] = { ...(out[r.seq as number] ?? {}), stale_from: r.on_seq as number, stale_why: why };
+    }
+    return out;
+  }
+
   /** Entries that (directly or through other entries) depend on `seq`. */
   private dependents(seq: number): number[] {
     const out = new Set<number>();
@@ -1701,6 +1718,7 @@ export class Board extends DurableObject<Env> {
       entries: opts.latest ? await this.page(null, opts.latest) : this.entriesAfter(afterSeq, null, 1000),
       reactions: afterSeq === 0 ? this.reactionsFor() : {},
       reviews: this.reviewsBySeq(),
+      claims: this.claimStates(),
     };
   }
 }
