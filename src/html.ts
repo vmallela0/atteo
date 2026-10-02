@@ -763,7 +763,7 @@ function addEntry(e){if(document.getElementById('e'+e.seq)){last=Math.max(last,e
     if(box){el.querySelector('.replies')?.remove();box.appendChild(el)}else{document.getElementById('empty')?.remove();document.getElementById('thread').appendChild(el)}
     if(e.reactions)renderRx(e.seq,e.reactions);
     if(el.querySelector('[data-task]'))refreshTask(e.seq);
-    if(box)thrSum(e.root);
+    if(box){thrSum(e.root);setTimeout(()=>window.reportSeen&&reportSeen(),0)}
     if(!document.querySelector('#log-body tr[data-seq="'+e.seq+'"]')){const lt=document.createElement('tbody');lt.innerHTML=e.row;document.getElementById('log-body').prepend(lt.firstElementChild);document.getElementById('log-empty')?.remove()}
     if(e.retracts){const t=document.getElementById('e'+e.retracts);if(t){t.classList.add('retracted');t.querySelector('[data-retract]')?.remove()}}
     last=Math.max(last,e.seq);return true}
@@ -793,7 +793,7 @@ document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!polling)
 // Your post shows up the moment you send it (a "sending" copy), then the real one from the post's own response.
 window.posted=(j)=>{replyClear();document.querySelectorAll('#thread .entry.pending').forEach(x=>x.remove());
   if(j&&j.update&&addEntry(j.update)){railBuild();toBottom()}else stickNext=true;
-  tick(false);setTimeout(()=>{ta.style.height='';msync()},0)};
+  draftSave('','');tick(false);setTimeout(()=>{ta.style.height='';msync()},0)};
 document.querySelector('form.composer')?.addEventListener('submit',()=>{const t=ta.value.trim();if(!t||!rpTo||rpTo.value)return; // replies go in their thread, after the real post
   const el=document.createElement('article');el.className='entry pending';el.innerHTML='<div class="grow"><div class="meta"><span class="who"></span><span class="xs faint">sending…</span></div><div class="body"></div></div>';
   el.querySelector('.who').textContent=ME;el.querySelector('.body').textContent=t;document.getElementById('thread').appendChild(el);toBottom();
@@ -878,6 +878,13 @@ document.addEventListener('click',e=>{const b=e.target.closest('[data-mention-fo
   t.focus();const a=t.selectionStart??t.value.length,pre=t.value.slice(0,a);const ins=(pre&&!/[ ]$/.test(pre)&&!pre.endsWith(String.fromCharCode(10))?' ':'')+'@';
   t.setRangeText(ins,a,t.selectionEnd??a,'end');t.dispatchEvent(new Event('input'))});
 const ta=document.getElementById('composer-text'),msync=mentionize(ta,document.getElementById('mention-menu'),document.getElementById('composer-mirror'));
+// Drafts: what you were typing survives leaving the board (or the tab) and coming back; posting clears it.
+const draftKey=k=>'soup.draft.'+BOARD+(k?'.'+k:'');
+function draftSave(k,v){try{v.trim()?localStorage.setItem(draftKey(k),v):localStorage.removeItem(draftKey(k))}catch(e){}}
+function draftLoad(k){try{return localStorage.getItem(draftKey(k))||''}catch(e){return ''}}
+let draftT=0;ta.addEventListener('input',()=>{clearTimeout(draftT);draftT=setTimeout(()=>draftSave('',ta.value),250)});
+window.addEventListener('pagehide',()=>draftSave('',ta.value));
+if(!ta.value){const d=draftLoad('');if(d){ta.value=d;setTimeout(()=>{msync();ta.style.height=ta.scrollHeight+2+'px'},0)}}
 // Enter posts, Shift+Enter adds a line. An Enter that picked a mention (default prevented above) doesn't post.
 document.getElementById('composer-text')?.addEventListener('keydown',e=>{
   if(e.defaultPrevented)return;
@@ -975,7 +982,7 @@ cform.addEventListener('submit',async e=>{if(!pending.length)return;e.preventDef
       const r=await fetch('/api/boards/'+BOARD+'/upload?name='+encodeURIComponent(x.name)+(x.image?'&w='+x.w+'&h='+x.h:'')+'&text='+encodeURIComponent(text),{method:'POST',headers:{'content-type':x.blob.type||'application/octet-stream'},body:x.blob});
       const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||"Couldn't post "+x.name);return}
       if(x.url)URL.revokeObjectURL(x.url);pending.shift();renderAtt();text='';ta.value='';msync()}
-    cform.reset();ta.style.height='';msync();stickNext=true;tick(false)}
+    cform.reset();draftSave('','');ta.style.height='';msync();stickNext=true;tick(false)}
   finally{btn.disabled=false}});
 const lb=document.getElementById('lightbox');
 document.addEventListener('click',e=>{const b=e.target.closest('[data-img]');if(!b)return;document.getElementById('lightbox-img').src=b.dataset.img;lb.showModal()});
@@ -1002,11 +1009,13 @@ function renderReads(){
   mine.classList.add('has-rd');mine.appendChild(el)}
 /** Tells the board how far its person has read: the newest entry on screen while this tab is visible. */
 function reportSeen(){if(document.visibilityState!=='visible'||document.getElementById('panel-conv').hidden)return;
-  let max=0;ticks.forEach((t,i)=>{if(rail.children[i]?.classList.contains('on'))max=Math.max(max,+t.el.dataset.seq)});
+  // Messages in view, and the replies of threads in view (a folded thread shows its latest replies).
+  const seenIn=el=>Math.max(+el.dataset.seq,...[...el.querySelectorAll('.replies .entry')].map(r=>+r.dataset.seq));
+  let max=0;ticks.forEach((t,i)=>{if(rail.children[i]?.classList.contains('on'))max=Math.max(max,seenIn(t.el))});
   if(max<=seenSent||seenTimer)return;
-  seenTimer=setTimeout(async()=>{seenTimer=null;let m=0;ticks.forEach((t,i)=>{if(rail.children[i]?.classList.contains('on'))m=Math.max(m,+t.el.dataset.seq)});if(m<=seenSent)return;seenSent=m;
+  seenTimer=setTimeout(async()=>{seenTimer=null;let m=0;ticks.forEach((t,i)=>{if(rail.children[i]?.classList.contains('on'))m=Math.max(m,seenIn(t.el))});if(m<=seenSent)return;seenSent=m;
     try{await fetch('/api/boards/'+BOARD+'/seen',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({seq:m})})}catch(e){seenSent=0}},800)}
-document.addEventListener('visibilitychange',reportSeen);window.addEventListener('focus',reportSeen);
+document.addEventListener('visibilitychange',reportSeen);window.addEventListener('focus',reportSeen);window.reportSeen=reportSeen;
 // ---- reactions: chips under each message (who reacted on hover; yours highlighted; click to toggle) and a quick picker ----
 const QUICK=['👍','✅','👀','🎉','❤️','🔥','😂','🙏'];
 const SHORT={'+1':'👍',thumbsup:'👍','-1':'👎',thumbsdown:'👎',white_check_mark:'✅',heavy_check_mark:'✔️',check:'✅',eyes:'👀',tada:'🎉',heart:'❤️',fire:'🔥',joy:'😂',pray:'🙏',rocket:'🚀',
@@ -1142,7 +1151,7 @@ function thrSum(root){const top=document.getElementById('e'+root);if(!top)return
   b.setAttribute('aria-label','Show '+kids.length+' repl'+(kids.length===1?'y':'ies'))}
 /** Opens a message's thread in place. Replying to someone puts an @mention of them in the reply box, like Slack. */
 function openThread(root,o={}){const top=document.getElementById('e'+root);if(!top)return;top.classList.add('thr-open');
-  if(!READONLY&&(o.replyTo||o.compose||thrRoot===root||thrRoot==null)){if(thrRoot!==root){thrText.value=''};thrRoot=root;thrTarget=o.replyTo||root;
+  if(!READONLY&&(o.replyTo||o.compose||thrRoot===root||thrRoot==null)){if(thrRoot!==root){thrText.value=draftLoad('t'+root)};thrRoot=root;thrTarget=o.replyTo||root;
     top.querySelector(':scope>.grow>.replies').after(thrForm);thrForm.hidden=false;
     const tgt=document.getElementById('e'+thrTarget),by=tgt?.dataset.author,byAgent=tgt?.classList.contains('by-agent');
     if(o.replyTo&&by&&by!==ME){const at='@'+by+(byAgent?"'s agent":'')+' ';if(!thrText.value.includes(at.trim()))thrText.value=at+thrText.value}setTimeout(thrSync,0);
@@ -1158,11 +1167,12 @@ document.addEventListener('click',e=>{const s=e.target.closest('[data-thread]');
 document.addEventListener('click',e=>{const b=e.target.closest('[data-reply]');if(!b)return;e.stopImmediatePropagation();e.preventDefault();
   const seq=+b.dataset.reply,top=document.getElementById('e'+seq)?.closest('#thread>.entry');openThread(top?+top.dataset.seq:seq,{replyTo:seq})},true);
 const thrSync=mentionize(thrText,document.getElementById('thr-menu'),document.getElementById('thr-mirror'));
+thrText.addEventListener('input',()=>{if(thrRoot)draftSave('t'+thrRoot,thrText.value)});
 thrText.addEventListener('keydown',e=>{if(e.defaultPrevented)return; // the mention menu took the key
   if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();thrForm.requestSubmit()}if(e.key==='Escape'){e.preventDefault();e.stopPropagation();thrText.blur()}});
 thrForm.addEventListener('submit',async e=>{e.preventDefault();const text=thrText.value.trim();if(!text||!thrRoot)return;const btn=thrForm.querySelector('button');btn.disabled=true;
   try{const r=await sendReliably('/api/boards/'+BOARD+'/entries',{type:'note',text,reply_to:thrTarget||thrRoot},()=>toast('Connection lost; retrying your reply…'));
-    const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||"Couldn't reply. Your reply is still in the box.");return}thrText.value='';thrSync();thrTarget=thrRoot;document.getElementById('thr-to').textContent='';await tick(false);thrForm.scrollIntoView({block:'nearest'})}
+    const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||"Couldn't reply. Your reply is still in the box.");return}thrText.value='';draftSave('t'+thrRoot,'');thrSync();thrTarget=thrRoot;document.getElementById('thr-to').textContent='';await tick(false);thrForm.scrollIntoView({block:'nearest'})}
   finally{btn.disabled=false}});
 document.querySelectorAll('#thread>.entry').forEach(x=>thrSum(+x.dataset.seq));
 // a link to a reply (#e<n>) opens its thread
