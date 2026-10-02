@@ -101,6 +101,11 @@ export const TOOLS = [
     inputSchema: { type: "object", properties: { board: { type: "string", description: "Board id (b_…) or part of its name." } }, required: ["board"] },
   },
   {
+    name: "leave_board",
+    description: "Leave the board this session has joined: your user stops being a member (they'd need a new invitation to come back). Only when your user explicitly asks to leave.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
     name: "create_board",
     description: "Create a new board and join it. Your user becomes its first member; invite others by email.",
     inputSchema: { type: "object", properties: { title: { type: "string" } }, required: ["title"] },
@@ -237,6 +242,15 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       out.push("", r.summaryText, "", `== New from others since your last read (${r.entries.length}) ==`);
       out.push(...(r.entries.length ? r.entries.map((e) => formatEntry(e)) : ["(nothing new)"]));
       return out.join("\n");
+    }
+
+    case "leave_board": {
+      const id = await currentBoard(c, args);
+      const board = await registry.getBoard(env, id);
+      if (board?.created_by === user) throw new ToolError(`Your user created "${board.title}", so they can't leave it.`);
+      await registry.removeMember(env, id, user);
+      await stubFor(env, id).removeMember(user);
+      return `Left "${board?.title ?? id}". This session isn't on a board now.`;
     }
 
     case "create_board": {

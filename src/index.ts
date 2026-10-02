@@ -305,6 +305,22 @@ export default {
         return adminPage(viewer, side, data);
       }
 
+      // ---- membership: the board's creator removes people; anyone else can leave ----
+      m = path.match(/^\/api\/boards\/([^/]+)\/members\/([^/]+)\/remove$/);
+      if (m && method === "POST") {
+        if (!viewer) return needLogin();
+        const [, id, who] = m;
+        const board = BOARD_RE.test(id) ? await registry.getBoard(env, id) : null;
+        if (!board || !(await registry.isMember(env, id, viewer.name))) return json({ error: "board not found" }, 404);
+        const self = who === viewer.name;
+        if (self && board.created_by === viewer.name) return json({ error: "You created this board, so you can't leave it." }, 400);
+        if (!self && board.created_by !== viewer.name) return json({ error: "Only the board's creator can remove people." }, 403);
+        if (!(await registry.isMember(env, id, who))) return json({ error: `${who} isn't a member.` }, 404);
+        await registry.removeMember(env, id, who);
+        await boardStub(env, id).removeMember(who);
+        return json({ ok: true, left: self, message: self ? "You left the board." : `Removed ${who}.` });
+      }
+
       // ---- board API (members; operators can read) ----
       m = path.match(/^\/api\/boards\/([^/]+)\/(updates|entries|invites)(?:\/(\d+))?$/);
       if (m) {
@@ -324,7 +340,7 @@ export default {
           const roots = await stub.rootsFor(fresh.map((e) => e.seq));
           return json({
             entries: fresh.map((e) => ({ seq: e.seq, root: roots[e.seq] ?? e.seq, html: entryHtml(e, id), row: logRow(e) })),
-            summary: summaryHtml([], viewer?.name ?? "", members, snap.summary),
+            summary: summaryHtml([], viewer?.name ?? "", members, snap.summary, { boardId: id, creator: snap.info.created_by }),
             count: snap.info.entry_count,
             last: fresh.length ? fresh[fresh.length - 1].seq : after,
           });

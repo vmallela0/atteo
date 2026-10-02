@@ -69,6 +69,13 @@ export async function addMember(env: Env, boardId: string, user: string) {
     .run();
 }
 
+export async function removeMember(env: Env, boardId: string, user: string) {
+  await env.DB.batch([
+    env.DB.prepare(`DELETE FROM members WHERE board_id = ? AND user = ?`).bind(boardId, user),
+    env.DB.prepare(`UPDATE mcp_sessions SET board_id = NULL WHERE board_id = ? AND user = ?`).bind(boardId, user),
+  ]);
+}
+
 export async function isMember(env: Env, boardId: string, user: string): Promise<boolean> {
   const r = await env.DB.prepare(`SELECT 1 AS ok FROM members WHERE board_id = ? AND user = ?`).bind(boardId, user).first();
   return !!r;

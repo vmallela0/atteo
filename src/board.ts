@@ -261,11 +261,19 @@ export class Board extends DurableObject<Env> {
         this.waiters.add(w);
       });
     }
-    const now = this.sql.exec("SELECT cursor FROM members WHERE name = ?", user).one().cursor as number;
-    const fresh = this.entriesAfter(now, user, 50);
+    // Removed from the board while waiting: return nothing, and don't re-add them.
+    const row = this.sql.exec("SELECT cursor FROM members WHERE name = ?", user).toArray();
+    if (!row.length) return { info: this.info(), entries: [] as Entry[], timedOut: true };
+    const fresh = this.entriesAfter(row[0].cursor as number, user, 50);
     if (fresh.length) this.setCursor(user, fresh[fresh.length - 1].seq);
     this.touch(user);
     return { info: this.info(), entries: fresh, timedOut: fresh.length === 0 };
+  }
+
+  /** Drops a member's cursor and ends any wait they have in progress. Access itself is enforced by the Worker. */
+  async removeMember(user: string): Promise<void> {
+    this.sql.exec("DELETE FROM members WHERE name = ?", user);
+    for (const w of this.waiters) if (w.user === user) w.wake();
   }
 
   async get(seq: number): Promise<{ entry: Entry; artifact_content: string | null; replies: Entry[] }> {

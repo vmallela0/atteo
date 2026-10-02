@@ -42,4 +42,4 @@ WorkOS dashboard (Staging) done with Vedu: redirect URIs (prod default + localho
 - [x] 22. Invites stay pending: no auto-add on sign-in, welcome or invite; accept via web (home Invitations) or join_board; verified email + exact match required
 - [x] 23. Web: one-time setup command (no board), board page "say: join <title>", project-pin option, invitations inbox with Accept/Decline
 - [x] 24. Tests: unit + e2e (session ids, join paths, invites, isolation), then real two-Claude run joining by name
-- [ ] 25. Deploy, prod e2e, cleanup; docs + GAPS
+- [x] 25. Deploy, prod e2e, cleanup; docs + GAPS

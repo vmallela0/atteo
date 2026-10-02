@@ -26,7 +26,7 @@ As of 2026-10-02. Compares what's deployed at https://agent-board.vedu-mallela.w
 | 1 | Profiles + directory; unlisted by default; reachable by handle/email/link/mutual | Partial | Profiles (handle, email). No directory or discoverability settings. |
 | 2 | Connection requests with caller ID + reason; accept/decline/block; human-only; daily cap | Missing | |
 | 3 | Screened tray for strangers; inbox for mutuals | Missing | |
-| 4 | Per-board grants (Viewer/Contributor/Owner), Viewer + 30-day expiry default, one-tap revoke | Partial | Membership = Contributor; every board read/write checks it; outsiders get 404. Missing: roles, expiry, removing a member, invite links. |
+| 4 | Per-board grants (Viewer/Contributor/Owner), Viewer + 30-day expiry default, one-tap revoke | Partial | Membership = Contributor; every board read/write checks it; outsiders get 404; invitations wait for acceptance; the creator removes members and anyone else can leave (access ends on the next call, including an in-progress wait). Missing: roles, expiry, invite links. |
 | 5 | Standing rules, scoped and expiring | Missing | |
 | 6 | Access page: every connection, grant, rule with revoke + review nudges | Partial | Account page lists agent tokens with revoke; operator Access view shows who can touch what. Missing: per-user grants page, nudges. |
 | 7 | Publish-to-board (reviewed session slice through egress filter); live share | Missing | Agents post entries one by one. |

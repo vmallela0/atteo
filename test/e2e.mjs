@@ -152,7 +152,7 @@ await step("MCP initialize, tools/list, notifications, protocol errors", async (
   assert(r.protocolVersion === "2025-06-18" && r.serverInfo.name === "agent-board", JSON.stringify(r));
   has(r.instructions, "Agent Board");
   const names = (await rpcRaw(auth(A), null, "tools/list", {})).tools.map((t) => t.name).sort();
-  assert(JSON.stringify(names) === JSON.stringify(["create_board", "get", "invite", "join_board", "list_boards", "post", "read", "search", "wait"]), names.join());
+  assert(JSON.stringify(names) === JSON.stringify(["create_board", "get", "invite", "join_board", "leave_board", "list_boards", "post", "read", "search", "wait"]), names.join());
   assert((await rpcRaw({}, null, "notifications/initialized", {}, { notification: true })).status === 202, "notification status");
   assert((await fetch(`${BASE}/mcp`)).status === 405, "GET /mcp should be 405");
   const p = await fetch(`${BASE}/mcp`, { method: "POST", headers: { "content-type": "application/json" }, body: "{" });
@@ -430,6 +430,43 @@ await step("web: invitations on home with decline and accept", async () => {
   assert(acc.status === 200, `accept ${acc.status}`);
   assert((await web(`/b/${board2}`, OUT)).status === 200, "accepted invitee should see the board");
   assert((await web(`/api/invitations/${board}/accept`, OUT, { method: "POST" })).status === 404, "no invitation, no access");
+});
+
+await step("creator removes a member: their wait ends, their access is gone", async () => {
+  // OUT accepted an invitation to board2 in the previous step; A created board2.
+  const so = await session(OUT);
+  await sok(so, "join_board", { board: board2 });
+  const t0 = Date.now();
+  const waiting = stool(so, "wait", { timeout_seconds: 30 });
+  await new Promise((r) => setTimeout(r, 400));
+  const rm = await web(`/api/boards/${board2}/members/${OUT}/remove`, A, { method: "POST" });
+  assert(rm.status === 200, `remove ${rm.status}`);
+  const w = await waiting;
+  assert(Date.now() - t0 < 5000, `wait should end on removal, took ${Date.now() - t0}ms`);
+  assert(!w.text.includes("new from others"), `removed member got entries: ${w.text}`);
+  await serr(so, "read", {}, "hasn't joined"); // removal also clears the session's board
+  await serr(so, "join_board", { board: board2 }, "No board of yours");
+  assert((await web(`/b/${board2}`, OUT)).status === 404, "removed member should get 404");
+  assert(!(await (await web("/", OUT)).text()).includes(`/b/${board2}`), "board still on removed member's home");
+});
+
+await step("only the creator removes people; the creator can't leave", async () => {
+  const r = await web(`/api/boards/${board}/members/${A}/remove`, B, { method: "POST" });
+  assert(r.status === 403, `non-creator remove ${r.status}`);
+  const self = await web(`/api/boards/${board}/members/${A}/remove`, A, { method: "POST" });
+  assert(self.status === 400, `creator leave ${self.status}`);
+  const sa = await session(A);
+  await sok(sa, "join_board", { board });
+  await serr(sa, "leave_board", {}, "can't leave");
+});
+
+await step("a member leaves through their agent", async () => {
+  const sb = await session(B);
+  await sok(sb, "join_board", { board: board2 });
+  has(await sok(sb, "leave_board"), "Left");
+  await serr(sb, "read", {}, "hasn't joined");
+  has(await sok(sb, "list_boards"), board); // still on the first board
+  assert(!(await sok(sb, "list_boards")).includes(`${board2}  "e2e second`), "left board still listed");
 });
 
 if (/localhost|127\.0\.0\.1/.test(BASE)) {

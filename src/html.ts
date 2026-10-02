@@ -77,7 +77,7 @@ export function threadHtml(entries: Entry[], boardId: string): string {
     .join("");
 }
 
-export function summaryHtml(entries: Entry[], viewer: string, members: MemberView[], precomputed?: Summary): string {
+export function summaryHtml(entries: Entry[], viewer: string, members: MemberView[], precomputed?: Summary, ctl?: { boardId: string; creator: string }): string {
   const s = precomputed ?? computeSummary(entries);
   const item = (e: Entry) =>
     `<li><a href="#e${e.seq}"><span class="n">#${e.seq}</span><span>${e.to ? `<b>${esc(e.author)}</b> → ${esc(e.to)}: ` : `<b>${esc(e.author)}</b>: `}${esc(clip(e.artifact_name ?? e.text, 90))}</span></a></li>`;
@@ -87,8 +87,19 @@ export function summaryHtml(entries: Entry[], viewer: string, members: MemberVie
   const waiting = mine.length
     ? `<div class="waiting"><div class="small" style="font-weight:600;color:var(--ink);margin-bottom:4px">Waiting on you</div><ul style="list-style:none;margin:0;padding:0">${mine.map(item).join("")}</ul></div>`
     : "";
+  const control = (m: MemberView) => {
+    if (!ctl) return "";
+    const isCreator = viewer === ctl.creator;
+    const self = m.user === viewer;
+    if (self && !isCreator) return `<button class="btn ghost sm" data-member-remove="${esc(m.user)}" data-label="Leave">Leave</button>`;
+    if (!self && isCreator) return `<button class="btn ghost sm" data-member-remove="${esc(m.user)}" data-label="Remove">Remove</button>`;
+    return "";
+  };
   const people = `<h3><span>Members</span><span class="faint">${members.length}</span></h3><ul>${members
-    .map((m) => `<li><span class="row" style="padding:5px 0">${avatar(m.user, "sm")}<span class="grow small">${esc(m.user)}</span>${when(m.last_seen)}</span></li>`)
+    .map(
+      (m) =>
+        `<li><span class="row" style="padding:5px 0">${avatar(m.user, "sm")}<span class="grow small">${esc(m.user)}${ctl && m.user === ctl.creator ? ` <span class="xs faint">creator</span>` : ""}</span>${control(m) || when(m.last_seen)}</span></li>`,
+    )
     .join("")}</ul>`;
   return (
     waiting +
@@ -282,6 +293,7 @@ document.addEventListener('click',e=>{const tr=e.target.closest('tr.ev');if(tr)o
 // ---------- board ----------
 
 export function boardPage(viewer: Viewer, side: SideBoard[], info: BoardInfo, members: MemberView[], entries: Entry[], invites: InviteRow[]): Response {
+  const ctl = { boardId: info.id, creator: info.created_by };
   const last = entries.length ? entries[entries.length - 1].seq : 0;
   const others = members.filter((m) => m.user !== viewer.name);
   const thread = entries.length
@@ -302,6 +314,12 @@ async function tick(wait){try{
 }catch(e){await new Promise(r=>setTimeout(r,5000))}}
 (async()=>{for(;;){if(document.hidden){await new Promise(r=>setTimeout(r,2000));continue}await tick(true)}})();
 window.posted=()=>{toast('Posted');tick(false)};
+document.addEventListener('click',async e=>{const b=e.target.closest('[data-member-remove]');if(!b)return;
+  if(b.dataset.armed!=='1'){b.dataset.armed='1';b.textContent=b.dataset.label==='Leave'?'Leave board?':'Remove '+b.dataset.memberRemove+'?';b.classList.add('danger');
+    setTimeout(()=>{b.dataset.armed='';b.textContent=b.dataset.label;b.classList.remove('danger')},4000);return}
+  b.disabled=true;const r=await fetch('/api/boards/'+BOARD+'/members/'+encodeURIComponent(b.dataset.memberRemove)+'/remove',{method:'POST'});
+  const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||'Could not remove');b.disabled=false;return}
+  if(j.left){location.href='/'}else{toast(j.message);location.reload()}});
 document.addEventListener('click',async e=>{const b=e.target.closest('[data-file]');if(!b)return;
   const card=b.closest('.file');let pre=card.querySelector('pre');if(pre){pre.remove();b.textContent='View';return}
   b.disabled=true;const r=await fetch('/api/boards/'+b.dataset.board+'/entries/'+b.dataset.file);const j=await r.json();b.disabled=false;
@@ -344,7 +362,7 @@ window.boardKeys=(e,k)=>{
       </div>
     </form>
   </section>
-  <aside class="aside sum" id="sum">${summaryHtml(entries, viewer.name, members)}</aside>
+  <aside class="aside sum" id="sum">${summaryHtml(entries, viewer.name, members, undefined, ctl)}</aside>
 </div></div>
 <div role="tabpanel" id="panel-log" data-board-panel hidden><div class="list scroll-x"><table class="log"><thead><tr><th>Time (UTC)</th><th>#</th><th>Author</th><th>Type</th><th>To</th><th>Summary</th></tr></thead>
 <tbody id="log-body">${rows || `<tr id="log-empty"><td colspan="6" class="empty small">No events yet.</td></tr>`}</tbody></table></div>
