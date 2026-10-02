@@ -29,3 +29,6 @@ export function connectCommand(origin: string, boardId: string | null, token: st
 export function esc(s: unknown): string {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 }
+
+/** One emoji (with skin tones, ZWJ sequences, flags) or a :shortcode: (custom names the web app renders). */
+export const EMOJI_RE = /^(?:(?:\p{Extended_Pictographic}|\p{Regional_Indicator}|[#*0-9]\uFE0F?\u20E3)(?:\p{Emoji_Modifier}|\p{Regional_Indicator}|\uFE0F|\u200D\p{Extended_Pictographic})*|:[a-z0-9_+\-]{1,32}:)$/u;

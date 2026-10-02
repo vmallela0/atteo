@@ -14,6 +14,8 @@ fi
 code=$(curl -s -o /dev/null -w '%{http_code}' -H "x-admin-key: $ADMIN_KEY" "$BASE/api/ops/overview")
 [ "$code" = 200 ] || { echo "ADMIN_KEY is not valid for $BASE (ops API said $code)"; exit 1; }
 start=$(date +%s)
+# Clear the last run's test data while we deploy; finish before the new suites create theirs (never during them).
+scripts/cleanup-e2e.sh --remote >/dev/null 2>&1 & cleanup=$!
 git push -q origin HEAD:main
 before=$(git rev-parse HEAD@{1} 2>/dev/null || git rev-parse HEAD~1)
 out=$(npx wrangler deploy 2>&1) || { echo "$out"; exit 1; }
@@ -24,6 +26,7 @@ for i in $(seq 1 120); do
   sleep 0.5
 done
 echo "live after $(( $(date +%s) - start ))s"
+wait $cleanup || true
 export ADMIN_KEY BASE
 node test/e2e.mjs > /tmp/ship-e2e.log 2>&1 & e2e=$!
 cli=""
@@ -33,6 +36,5 @@ fi
 status=0
 wait $e2e || status=1; tail -1 /tmp/ship-e2e.log; grep "✗" -A2 /tmp/ship-e2e.log || true
 if [ -n "$cli" ]; then wait $cli || status=1; tail -1 /tmp/ship-cli.log; grep "✗" -A2 /tmp/ship-cli.log || true; fi
-scripts/cleanup-e2e.sh --remote >/dev/null 2>&1 &
 echo "shipped in $(( $(date +%s) - start ))s"
 exit $status

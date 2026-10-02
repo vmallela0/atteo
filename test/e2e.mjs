@@ -722,6 +722,50 @@ await step("shared documents: create, read, edit, stale-write conflict, merge, h
   await err(A, board, "doc", { action: "write", name: "../etc/passwd", content: "x", base_version: 0 }, "Document names");
 });
 
+await step("files are documents: posting a file publishes a version; get, search, summary and the files API agree", async () => {
+  const name = `trace (prod) ${run}.log`;
+  const clean = `trace -prod- ${run}.log`;
+  await ok(A, board, "read");
+  const p1 = await ok(A, board, "post", { type: "artifact", text: "first trace", artifact_name: name, artifact_content: `alpha-${run}\nline 2` });
+  const s1 = seqOf(p1);
+  await ok(A, board, "read");
+  const s2 = seqOf(await ok(A, board, "post", { type: "artifact", text: "second trace", artifact_name: name, artifact_content: `beta-${run}` }));
+  const doc = await ok(B, board, "doc", { action: "read", name: clean });
+  has(doc, `${clean} v2`);
+  has(doc, `beta-${run}`);
+  has(await ok(B, board, "get", { seq: s1 }), `alpha-${run}`); // each entry keeps the version it published
+  has(await ok(B, board, "get", { seq: s2 }), `file: ${clean} v2`);
+  has(await ok(B, board, "search", { query: `alpha-${run}` }), `#${s1}`);
+  const summary = await ok(B, board, "read");
+  has(summary, `[file: ${clean} v2]`);
+  assert(!summary.includes(`[file: ${clean} v1]`), "the summary lists each file once, at its latest version");
+  // Editing the doc publishes v3 as a file entry too.
+  const ed = await ok(B, board, "doc", { action: "edit", name: clean, old_str: `beta-${run}`, new_str: `gamma-${run}`, summary: "fix" });
+  has(ed, "v3");
+  has(await ok(A, board, "search", { query: `gamma-${run}` }), `Updated the document ${clean} (v3)`);
+  const files = await (await web(`/api/boards/${board}/files`, A)).json();
+  assert(files.docs.some((d) => d.name === clean && d.version === 3), JSON.stringify(files).slice(0, 300));
+  assert((await web(`/api/boards/${board}/files`, OUT)).status === 404, "outsiders can't list files");
+});
+
+await step("reactions: toggle per person, shown to agents, validated, members only", async () => {
+  await ok(A, board, "read");
+  const seq = seqOf(await ok(A, board, "post", { type: "note", text: `react to me ${run}` }));
+  const react = (who, emoji) => web(`/api/boards/${board}/entries/${seq}/react`, who, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ emoji }) });
+  let r = await (await react(A, "👍")).json();
+  assert(r.on && r.reactions[0].emoji === "👍" && r.reactions[0].users.join() === A, JSON.stringify(r));
+  r = await (await react(B, "👍")).json();
+  assert(r.reactions[0].users.length === 2, JSON.stringify(r));
+  await react(B, ":shipit:");
+  has(await ok(B, board, "get", { seq }), `Reactions: 👍 ${A}, ${B} · :shipit: ${B}`);
+  r = await (await react(A, "👍")).json(); // again = take it back
+  assert(!r.on && r.reactions[0].users.join() === B, JSON.stringify(r));
+  assert((await react(A, "not an emoji")).status === 400, "invalid emoji");
+  assert((await react(OUT, "👍")).status === 404, "outsiders can't react");
+  const all = await (await web(`/api/boards/${board}/reactions`, B)).json();
+  assert(all.reactions[seq].length === 2, JSON.stringify(all).slice(0, 300));
+});
+
 await step("tasks: claim leases, conflicts, release, assign, done closes it, stop signal, retracted premise stops it", async () => {
   await ok(A, board, "read");
   const t1 = seqOf(await ok(A, board, "post", { type: "task", text: `Write the release notes ${run}` }));

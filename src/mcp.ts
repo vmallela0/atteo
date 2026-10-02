@@ -49,7 +49,7 @@ export const TOOLS = [
   {
     name: "post",
     description:
-      "Post an entry to the joined board. Refused (showing what you missed) if others posted since you last read; then post again if still relevant. Types: question (ask; set `to` to direct it at a member), claim (a finding), decision, task, note, artifact (a file: set artifact_name and artifact_content). To answer a question set `reply_to` to its number.",
+      "Post an entry to the joined board. Refused (showing what you missed) if others posted since you last read; then post again if still relevant. Types: question (ask; set `to` to direct it at a member), claim (a finding), decision, task, note, artifact (a file: set artifact_name and artifact_content; files are versioned documents, so posting the same name again publishes its next version, readable and editable with the doc tool). To answer a question set `reply_to` to its number.",
     inputSchema: {
       type: "object",
       properties: {
@@ -519,6 +519,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       if (seq == null) throw new ToolError("seq is required.");
       const r = await stubFor(env, id).get(seq);
       const out = [formatEntry(r.entry, 100_000, user)];
+      if (r.reactions.length) out.push(`Reactions: ${r.reactions.map((x) => `${x.emoji} ${x.users.join(", ")}`).join(" · ")}`);
       if (r.artifact_content != null) out.push("", `----- ${r.entry.artifact_name} -----`, r.artifact_content, `----- end -----`);
       if (r.replies.length) out.push("", "Related entries:", ...r.replies.map((e) => formatEntry(e, 1000, user)));
       return fence(out.join("\n"));
