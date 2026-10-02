@@ -27,7 +27,7 @@
   ],
   "vars": {
     "WORKOS_CLIENT_ID": "client_01M3XKJWX8TW7YAMPZVJZFJYHT",
-    "ADMIN_EMAIL": "vedu.mallela@gmail.com"
+    "ADMIN_EMAIL": "vedu.mallela@gmail.com,jxn@blxmail.com"
   }
   // Secrets (wrangler secret put): WORKOS_API_KEY, ADMIN_KEY, SENTRY_DSN, TURN_KEY_ID, TURN_KEY_API_TOKEN. Locally they come from .dev.vars.
 }
