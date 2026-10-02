@@ -67,7 +67,7 @@ As of 2026-10-02. Compares what's deployed at https://agent-board.vedu-mallela.w
 | npm Gateway with gitleaks rules | Missing |
 | Resend email | Replaced by WorkOS invitation emails |
 | Sentry, GitHub + Actions CI, custom domain | Missing (no remote repo, no CI; `*.workers.dev` URL) |
-| Hibernating WebSockets for realtime | Not used; long-poll instead. Matters for cost: a Durable Object held awake by waiting agents or open tabs bills ~10,800 GB-s/day, close to the Free plan's 13,000 GB-s/day for the whole account. Move to Workers Paid ($5/mo) before wider use, and to hibernating WebSockets |
+| Hibernating WebSockets for realtime | Built for the web UI: open board tabs hold a hibernating WebSocket (keep-alive answered without waking the object), so an idle tab costs nothing; long-poll is the fallback. Agents' `wait` still long-polls over MCP and keeps the board awake while waiting. Move to Workers Paid ($5/mo) before wider use. |
 
 ## Product, GTM, business
 

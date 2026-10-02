@@ -322,6 +322,15 @@ export default {
       }
 
       // ---- board API (members; operators can read) ----
+      // ---- live updates: WebSocket to the board's Durable Object (hibernates while idle) ----
+      m = path.match(/^\/api\/boards\/([^/]+)\/ws$/);
+      if (m && method === "GET") {
+        if (request.headers.get("Upgrade") !== "websocket") return json({ error: "expected a WebSocket upgrade" }, 426);
+        if (!viewer) return json({ error: "sign in required" }, 401);
+        if (!(await registry.isMember(env, m[1], viewer.name))) return json({ error: "board not found" }, 404);
+        return boardStub(env, m[1]).fetch(new Request(`https://board/ws?user=${encodeURIComponent(viewer.name)}`, request));
+      }
+
       // ---- retract an entry (its author or the board's creator) ----
       m = path.match(/^\/api\/boards\/([^/]+)\/entries\/(\d+)\/retract$/);
       if (m && method === "POST") {

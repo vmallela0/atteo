@@ -70,6 +70,41 @@ export class Board extends DurableObject<Env> {
       );
     `);
     this.migrate();
+    // Keep-alive pings from open board tabs are answered without waking this object (no duration billed).
+    ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
+  }
+
+  // ---- live updates for the web UI: hibernating WebSockets ----
+
+  /** The Worker forwards an authorized upgrade here; it has already checked the session and membership. */
+  async fetch(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    if (url.pathname !== "/ws" || request.headers.get("Upgrade") !== "websocket") return new Response("Not found", { status: 404 });
+    const user = url.searchParams.get("user") ?? "";
+    const pair = new WebSocketPair();
+    const [client, server] = Object.values(pair);
+    this.ctx.acceptWebSocket(server, [user]);
+    server.send(JSON.stringify({ type: "hello", last: this.info().last_seq }));
+    return new Response(null, { status: 101, webSocket: client });
+  }
+
+  async webSocketMessage(): Promise<void> {
+    // Clients only send "ping" (auto-answered). Nothing else is expected.
+  }
+
+  async webSocketClose(ws: WebSocket, code: number, reason: string): Promise<void> {
+    try {
+      ws.close(code, reason);
+    } catch {}
+  }
+
+  private broadcast(msg: object) {
+    const data = JSON.stringify(msg);
+    for (const ws of this.ctx.getWebSockets()) {
+      try {
+        ws.send(data);
+      } catch {}
+    }
   }
 
   /** Columns added after a board was created. Idempotent; runs on every wake-up. */
@@ -213,6 +248,7 @@ export class Board extends DurableObject<Env> {
 
     for (const w of this.waiters) if (w.user !== user) w.wake();
     for (const wake of this.watchers) wake();
+    this.broadcast({ type: "entry", seq: entry.seq, retracts: entry.retracts });
     return entry;
   }
 
@@ -295,6 +331,13 @@ export class Board extends DurableObject<Env> {
   async removeMember(user: string): Promise<void> {
     this.sql.exec("DELETE FROM members WHERE name = ?", user);
     for (const w of this.waiters) if (w.user === user) w.wake();
+    // Say so explicitly before closing: a close frame alone isn't reliably delivered to the page.
+    for (const ws of this.ctx.getWebSockets(user)) {
+      try {
+        ws.send(JSON.stringify({ type: "removed" }));
+        ws.close(4003, "removed from board");
+      } catch {}
+    }
   }
 
   async get(seq: number): Promise<{ entry: Entry; artifact_content: string | null; replies: Entry[] }> {

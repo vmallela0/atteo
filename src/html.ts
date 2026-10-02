@@ -317,7 +317,20 @@ async function tick(wait){try{
   if(typeof d.last==='number')last=Math.max(last,d.last);
   if(d.entries.length){document.getElementById('sum').innerHTML=d.summary;document.querySelectorAll('[data-count]').forEach(x=>x.textContent=d.count);refreshTimes()}
 }catch(e){await new Promise(r=>setTimeout(r,5000))}}
-(async()=>{for(;;){if(document.hidden){await new Promise(r=>setTimeout(r,2000));continue}await tick(true)}})();
+// Live updates: a WebSocket that only says "something changed"; fall back to long-polling if it can't stay up.
+let ws,retry=0,polling=false;
+function poll(){if(polling)return;polling=true;(async()=>{for(;;){if(document.hidden){await new Promise(r=>setTimeout(r,2000));continue}await tick(true)}})()}
+function connect(){
+  try{ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/api/boards/'+BOARD+'/ws')}catch(e){return poll()}
+  let ping;ws.onopen=()=>{retry=0;ping=setInterval(()=>{try{ws.send('ping')}catch(e){}},30000)};
+  ws.onmessage=(m)=>{if(m.data==='pong')return;let d;try{d=JSON.parse(m.data)}catch(e){return}
+    if(d.type==='removed'){location.href='/';return}
+    if(d.type==='entry'||(d.type==='hello'&&d.last>last))tick(false)};
+  ws.onclose=(e)=>{clearInterval(ping);if(e.code===4003){location.href='/';return}
+    if(++retry>4)return poll();setTimeout(connect,Math.min(30000,1000*2**retry))};
+}
+connect();
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!polling)tick(false)});
 window.posted=()=>{toast('Posted');tick(false)};
 document.addEventListener('click',async e=>{const b=e.target.closest('[data-retract]');if(!b)return;
   if(b.dataset.armed!=='1'){b.dataset.armed='1';b.textContent='Retract #'+b.dataset.retract+'?';b.classList.add('danger');setTimeout(()=>{b.dataset.armed='';b.textContent='Retract';b.classList.remove('danger')},4000);return}

@@ -457,10 +457,43 @@ await step("retract: author withdraws own entry; creator can withdraw any; other
   has(page, `class="entry retracted" id="e${c1}"`);
 });
 
+await step("live updates over WebSocket: members get a signal on each post; outsiders can't connect", async () => {
+  const wsUrl = BASE.replace(/^http/, "ws") + `/api/boards/${board}/ws`;
+  const open = (who) =>
+    new Promise((resolve) => {
+      const ws = new WebSocket(wsUrl, { headers: who ? { cookie: cookie[who] } : {} });
+      const msgs = [];
+      ws.onmessage = (m) => msgs.push(String(m.data));
+      ws.onopen = () => resolve({ ws, msgs, ok: true });
+      ws.onerror = () => resolve({ ws, msgs, ok: false });
+    });
+  const m = await open(B);
+  assert(m.ok, "member should connect");
+  await new Promise((r) => setTimeout(r, 300));
+  assert(m.msgs.some((x) => JSON.parse(x).type === "hello"), "expected hello");
+  const t0 = Date.now();
+  const posted = seqOf(await ok(A, board, "post", { type: "note", text: `ws ping ${run}` }));
+  while (!m.msgs.some((x) => x.includes(`"seq":${posted}`)) && Date.now() - t0 < 4000) await new Promise((r) => setTimeout(r, 50));
+  assert(m.msgs.some((x) => x.includes(`"seq":${posted}`)), `no signal for #${posted}: ${m.msgs.join(" | ")}`);
+  m.ws.send("ping");
+  await new Promise((r) => setTimeout(r, 400));
+  assert(m.msgs.includes("pong"), "keep-alive ping should be answered");
+  m.ws.close();
+  assert(!(await open(OUT)).ok, "outsider must not connect");
+  assert(!(await open(null)).ok, "signed-out must not connect");
+});
+
 await step("creator removes a member: their wait ends, their access is gone", async () => {
   // OUT accepted an invitation to board2 in the previous step; A created board2.
   const so = await session(OUT);
   await sok(so, "join_board", { board: board2 });
+  const closed = new Promise((resolve) => {
+    const ws = new WebSocket(BASE.replace(/^http/, "ws") + `/api/boards/${board2}/ws`, { headers: { cookie: cookie[OUT] } });
+    ws.onmessage = (m) => String(m.data).includes('"removed"') && resolve("removed");
+    ws.onclose = (e) => resolve(e.code === 4003 ? "removed" : `closed ${e.code}`);
+    setTimeout(() => resolve("timeout"), 8000);
+  });
+  await new Promise((r) => setTimeout(r, 400));
   const t0 = Date.now();
   const waiting = stool(so, "wait", { timeout_seconds: 30 });
   await new Promise((r) => setTimeout(r, 400));
@@ -469,6 +502,8 @@ await step("creator removes a member: their wait ends, their access is gone", as
   const w = await waiting;
   assert(Date.now() - t0 < 5000, `wait should end on removal, took ${Date.now() - t0}ms`);
   assert(!w.text.includes("new from others"), `removed member got entries: ${w.text}`);
+  const code = await closed;
+  assert(code === "removed", `removed member's live socket should be told, got ${code}`);
   await serr(so, "read", {}, "hasn't joined"); // removal also clears the session's board
   await serr(so, "join_board", { board: board2 }, "No board of yours");
   assert((await web(`/b/${board2}`, OUT)).status === 404, "removed member should get 404");
