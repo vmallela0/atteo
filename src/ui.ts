@@ -506,7 +506,7 @@ pre.json{background:var(--bg-subtle);border:1px solid var(--line);border-radius:
 
 /* command palette */
 dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius:12px}
-.palette input{border:0;border-radius:0;height:48px;padding:0 4px;font-size:15px;box-shadow:none!important}
+.palette input{border:0;border-radius:0;height:48px;padding:0 4px;font-size:15px;background:transparent;box-shadow:none!important}
 .palette ul{list-style:none;margin:0;padding:6px;max-height:50vh;overflow:auto}
 .pal-in{display:flex;align-items:center;gap:8px;padding:0 12px;border-bottom:1px solid var(--line);color:var(--muted)}
 .pal-in input{flex:1;min-width:120px;box-shadow:none!important}
@@ -523,6 +523,8 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
 .palette li[aria-selected=true]{background:var(--bg-hover);color:var(--ink)}
 .palette li .k{margin-left:auto;color:var(--faint);font-size:12px}
 .palette .foot{display:flex;gap:14px;padding:8px 14px;border-top:1px solid var(--line);font-size:12px;color:var(--faint)}
+@media (pointer:coarse){.palette .foot{display:none}}
+@media (max-width:640px){.palette li:not(.pal-g){flex-wrap:wrap;row-gap:1px}.palette li .pal-l{flex:1 1 100%}.palette li .k{margin-left:0;font-size:11.5px}}
 .entry.sel{background:var(--bg-subtle);box-shadow:-12px 0 0 var(--bg-subtle),12px 0 0 var(--bg-subtle)}
 
 /* inline board title rename */
