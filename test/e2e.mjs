@@ -152,7 +152,7 @@ await step("MCP initialize, tools/list, notifications, protocol errors", async (
   assert(r.protocolVersion === "2025-06-18" && r.serverInfo.name === "agent-soup", JSON.stringify(r));
   has(r.instructions, "Agent Soup");
   const names = (await rpcRaw(auth(A), null, "tools/list", {})).tools.map((t) => t.name).sort();
-  assert(JSON.stringify(names) === JSON.stringify(["create_board", "doc", "get", "invite", "join_board", "leave_board", "list_boards", "post", "read", "retract", "search", "wait"]), names.join());
+  assert(JSON.stringify(names) === JSON.stringify(["create_board", "doc", "get", "invite", "join_board", "leave_board", "list_boards", "post", "read", "retract", "search", "task", "wait"]), names.join());
   assert((await rpcRaw({}, null, "notifications/initialized", {}, { notification: true })).status === 202, "notification status");
   assert((await fetch(`${BASE}/mcp`)).status === 405, "GET /mcp should be 405");
   const p = await fetch(`${BASE}/mcp`, { method: "POST", headers: { "content-type": "application/json" }, body: "{" });
@@ -701,6 +701,46 @@ await step("shared documents: create, read, edit, stale-write conflict, merge, h
   assert(latest.version === 4 && latest.via === "person" && latest.updated_by === B, JSON.stringify(latest).slice(0, 200));
   assert((await web(`/api/boards/${board}/docs`, OUT)).status === 404, "outsiders can't list documents");
   await err(A, board, "doc", { action: "write", name: "../etc/passwd", content: "x", base_version: 0 }, "Document names");
+});
+
+await step("tasks: claim leases, conflicts, release, assign, done closes it, stop signal, retracted premise stops it", async () => {
+  await ok(A, board, "read");
+  const t1 = seqOf(await ok(A, board, "post", { type: "task", text: `Write the release notes ${run}` }));
+  has(await ok(B, board, "task", { action: "list" }), `#${t1} [todo]`);
+  has(await ok(A, board, "task", { action: "claim", seq: t1, minutes: 20 }), `held by ${A}'s agent`);
+  await err(B, board, "task", { action: "claim", seq: t1 }, `claimed by ${A}'s agent`);
+  await err(B, board, "task", { action: "update", seq: t1, status: "done" }, "is claimed by");
+  has(await ok(A, board, "read"), `[doing · `); // summary shows live task state
+  has(await ok(A, board, "task", { action: "release", seq: t1 }), `#${t1} [todo]`);
+  has(await ok(B, board, "task", { action: "claim", seq: t1 }), `held by ${B}'s agent`);
+  has(await ok(B, board, "task", { action: "update", seq: t1, assignee: B, due: "2030-01-31", note: "drafting" }), `for ${B}'s agent`);
+  await err(B, board, "task", { action: "update", seq: t1, assignee: OUT }, "isn't a member");
+  await err(B, board, "task", { action: "update", seq: t1, due: "someday" }, "YYYY-MM-DD");
+  assert(!(await ok(A, board, "task", { action: "list", mine: true })).includes(`#${t1} `), "mine: only tasks for or held by you");
+  has(await ok(B, board, "task", { action: "list", mine: true }), `#${t1}`);
+  has(await ok(B, board, "task", { action: "update", seq: t1, status: "done", note: "shipped" }), `#${t1} [done]`);
+  assert(!(await ok(A, board, "task", { action: "list" })).includes(`#${t1} `), "done tasks leave the default list");
+  has(await ok(A, board, "task", { action: "list", status: "done" }), `#${t1} [done]`);
+  await err(A, board, "task", { action: "claim", seq: t1 }, "already done");
+  // Stop signal: any member halts a task someone else holds; the holder is told.
+  await ok(A, board, "read");
+  const t2 = seqOf(await ok(A, board, "post", { type: "task", text: `Migrate staging ${run}` }));
+  await ok(A, board, "task", { action: "claim", seq: t2 });
+  has(await ok(B, board, "task", { action: "stop", seq: t2, reason: "staging is frozen this week" }), "stopped: staging is frozen");
+  has(await ok(A, board, "search", { query: `Stop task #${t2}` }), "staging is frozen");
+  has(await ok(A, board, "task", { action: "claim", seq: t2 }), `#${t2} [doing]`); // picking it back up clears the stop
+  // A retracted premise stops the tasks built on it.
+  await ok(A, board, "read");
+  const premise = seqOf(await ok(A, board, "post", { type: "claim", text: `The bug is in the cache ${run}` }));
+  await ok(A, board, "read");
+  const t3 = seqOf(await ok(A, board, "post", { type: "task", text: `Patch the cache ${run}`, reply_to: premise }));
+  await ok(B, board, "task", { action: "claim", seq: t3 });
+  await ok(A, board, "retract", { seq: premise, reason: "it was the CDN" });
+  has(await ok(B, board, "task", { action: "list", status: "stopped" }), `premise #${premise} was retracted`);
+  await err(A, board, "task", { action: "claim", seq: 999999 }, "isn't an open task");
+  await err(A, board, "task", { action: "fly", seq: t3 }, "action must be");
+  const out = await tool(OUT, board, "task", { action: "list" });
+  assert(out.isError, "outsiders can't see tasks");
 });
 
 await step("rename and archive: creator only; archived boards are read-only and listed separately; restore works", async () => {

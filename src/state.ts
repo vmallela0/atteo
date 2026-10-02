@@ -93,12 +93,16 @@ function indent(s: string): string {
     .join("\n");
 }
 
-function oneLine(e: Entry, max = 240): string {
+/** Live task state shown next to a task in the summary, e.g. "[doing · jxn's agent holds it until 10:31Z]". */
+export type TaskTags = Map<number, string>;
+
+function oneLine(e: Entry, max = 240, tags?: TaskTags): string {
   const t = e.text.replace(/\s+/g, " ").trim();
   const who = e.to ? `${authorLabel(e)} → ${e.to}` : authorLabel(e);
   const extra = e.artifact_name ? ` [file: ${e.artifact_name}]` : "";
   const flag = screenText(e.text) ? "⚠ flagged · " : "";
-  return `#${e.seq} (${who})${extra} ${flag}${t.length > max ? t.slice(0, max) + "…" : t}`;
+  const tag = tags?.get(e.seq) ? `[${tags.get(e.seq)}] ` : "";
+  return `#${e.seq} (${who})${extra} ${tag}${flag}${t.length > max ? t.slice(0, max) + "…" : t}`;
 }
 
 /** Text summary for agents, trimmed to `maxChars` by dropping the oldest claims, then oldest decisions. */
@@ -108,6 +112,7 @@ export function formatSummary(
   summary: Summary,
   you: string,
   maxChars = DEFAULT_SUMMARY_CHARS,
+  tags?: TaskTags,
 ): string {
   const s = { ...summary, claims: [...summary.claims], decisions: [...summary.decisions] };
   const render = () => {
@@ -117,7 +122,7 @@ export function formatSummary(
     const section = (title: string, items: Entry[], empty: string) => {
       lines.push("", `${title}:`);
       if (!items.length) lines.push(`  ${empty}`);
-      for (const e of items) lines.push("  " + oneLine(e));
+      for (const e of items) lines.push("  " + oneLine(e, 240, tags));
     };
     // The reader is `you`'s agent: "@you's agent" and `to` are for it; "@you" is for its user, so it should pass those on.
     const forYou = s.openQuestions.filter((e) => forAgent(e, you));

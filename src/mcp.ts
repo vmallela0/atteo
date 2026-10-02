@@ -88,6 +88,27 @@ export const TOOLS = [
     },
   },
   {
+    name: "task",
+    description:
+      "Work items on the joined board (post type=task to create one). Actions: list {status?, mine?}; claim {seq, minutes?} (lease it so no one else takes it; claim again to renew; default 30 min); release {seq}; update {seq, status? (todo|doing|blocked|done), assignee?, assignee_is_person?, due? (YYYY-MM-DD), note?}; stop {seq, reason} (halt a task, e.g. its premise changed). Claim before working on a task; if a task you hold gets stopped, stop working on it.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["list", "claim", "release", "update", "stop"] },
+        seq: { type: "integer", description: "The task's entry number" },
+        minutes: { type: "integer", description: "claim: lease length (5–240, default 30)" },
+        status: { type: "string", enum: ["todo", "doing", "blocked", "done"] },
+        mine: { type: "boolean", description: "list: only tasks assigned to or held by your user" },
+        assignee: { type: "string", description: "update: member name (empty to unassign)" },
+        assignee_is_person: { type: "boolean", description: "update: assign the person instead of their agent" },
+        due: { type: "string", description: "update: YYYY-MM-DD, or empty to clear" },
+        note: { type: "string", description: "update: one line of progress" },
+        reason: { type: "string", description: "stop: why" },
+      },
+      required: ["action"],
+    },
+  },
+  {
     name: "retract",
     description:
       "Withdraw an entry on the joined board: it leaves the summary and stays in the log marked retracted (an open question or task closes). Your own entries, or any entry if your user created the board.",
@@ -422,6 +443,50 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
         return `Saved ${name} v${r.version}.`;
       }
       throw new ToolError('action must be one of: list, read, write, edit, history.');
+    }
+
+    case "task": {
+      const id = await currentBoard(c, args);
+      const stub = stubFor(env, id);
+      const action = str(args.action);
+      const opts = { via: "agent" as const, client: (await registry.mcpSessionClient(env, c.sessionId)) ?? "agent" };
+      const when = (ts: number) => new Date(ts).toISOString().slice(0, 16).replace("T", " ") + "Z";
+      const line = (t: Awaited<ReturnType<typeof stub.tasks>>[number]) =>
+        `#${t.seq} [${t.status}]${t.assignee ? ` for ${t.assignee_agent ? `${t.assignee}'s agent` : t.assignee}` : ""}${
+          t.lease_holder ? ` · held by ${t.lease_agent ? `${t.lease_holder}'s agent` : t.lease_holder} until ${when(t.lease_until!)}` : ""
+        }${t.due ? ` · due ${when(t.due).slice(0, 10)}` : ""}${t.stop_reason ? ` · stopped: ${t.stop_reason}` : ""}\n    ${t.text.replace(/\s+/g, " ").slice(0, 200)}`;
+      if (action === "list") {
+        let list = await stub.tasks({ status: str(args.status) });
+        if (args.mine === true) list = list.filter((t) => t.assignee === user || t.lease_holder === user);
+        if (args.status === undefined) list = list.filter((t) => t.status !== "done");
+        return list.length ? fence(list.map(line).join("\n")) : "No matching tasks. Create one with post type=task.";
+      }
+      const seq = int(args.seq);
+      if (seq == null) throw new ToolError("seq is required.");
+      let t;
+      if (action === "claim") t = await stub.taskClaim(user, seq, int(args.minutes) ?? 30, opts);
+      else if (action === "release") t = await stub.taskRelease(user, seq, opts);
+      else if (action === "stop") t = await stub.taskStop(user, seq, str(args.reason) ?? "", opts);
+      else if (action === "update") {
+        const dueRaw = typeof args.due === "string" ? args.due.trim() : undefined;
+        const due = dueRaw === undefined ? undefined : dueRaw === "" ? null : Date.parse(dueRaw + "T23:59:00Z");
+        if (due !== undefined && due !== null && Number.isNaN(due)) throw new ToolError("due must be YYYY-MM-DD.");
+        const status = str(args.status) as "todo" | "doing" | "blocked" | "done" | undefined;
+        t = await stub.taskUpdate(
+          user,
+          seq,
+          {
+            status,
+            assignee: args.assignee === undefined ? undefined : str(args.assignee) ?? null,
+            assignee_agent: args.assignee_is_person === true ? false : true,
+            due,
+            note: str(args.note) ?? null,
+          },
+          opts,
+        );
+      } else throw new ToolError("action must be one of: list, claim, release, update, stop.");
+      later(registry.touch(env, user, id));
+      return `OK.\n` + fence(line(t));
     }
 
     case "retract": {

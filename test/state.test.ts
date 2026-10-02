@@ -112,6 +112,14 @@ describe("formatting", () => {
     expect(text).toContain("#1 (jxn → vedu) what env?");
   });
 
+  it("shows live task state next to open tasks", () => {
+    const entries = [e({ seq: 1, type: "task", author: "jxn", text: "ship it" }), e({ seq: 2, type: "task", text: "untagged" })];
+    const tags = new Map([[1, "doing · vedu's agent holds it until 2026-10-02 10:30Z"]]);
+    const text = formatSummary(info, [], computeSummary(entries), "vedu", undefined, tags);
+    expect(text).toContain("#1 (jxn) [doing · vedu's agent holds it until 2026-10-02 10:30Z] ship it");
+    expect(text).toContain("#2 (vedu) untagged");
+  });
+
   it("stays within the character budget by dropping oldest claims first", () => {
     const entries = Array.from({ length: 15 }, (_, i) => e({ seq: i + 1, type: "claim", text: "c".repeat(200) }));
     entries.push(e({ seq: 16, type: "decision", text: "keep me" }));
