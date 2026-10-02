@@ -592,6 +592,7 @@ export function boardPage(
   entries: Entry[],
   invites: InviteRow[],
   agent: AgentState = { connected: false, onThisBoard: false },
+  summary?: Summary, // the whole board's (big boards only send their newest entries)
 ): Response {
   const ctl = { boardId: info.id, creator: info.created_by };
   // Your role on this board: owners manage access; viewers read only (no composer, no reactions, no invites).
@@ -1272,7 +1273,7 @@ window.boardKeys=(e,k)=>{
       </div>
     </form>
   </section>
-  <aside class="aside" id="board-info" aria-label="Board info">${agentCard(agent, info.title)}<div class="sum" id="sum">${summaryHtml(entries, viewer.name, members, undefined, ctl)}</div>
+  <aside class="aside" id="board-info" aria-label="Board info">${agentCard(agent, info.title)}<div class="sum" id="sum">${summaryHtml(entries, viewer.name, members, summary, ctl)}</div>
     ${
       isCreator
         ? `<div class="divider"></div><div class="stack" style="--gap:4px"><form method="post" action="/api/boards/${esc(info.id)}/archive" data-api data-done="archiveDone" style="margin:0"><input type="hidden" name="archived" value="${info.archived ? "false" : "true"}"><button class="btn ghost sm">${info.archived ? "Restore board" : "Archive board"}</button></form>
