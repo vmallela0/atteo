@@ -47,6 +47,14 @@ final class AgentSoupUITests: XCTestCase {
         let composer = a.textFields["composer"].exists ? a.textFields["composer"] : a.textViews["composer"]
         XCTAssertTrue(composer.waitForExistence(timeout: 10), "board opens")
         shot("04-board")
+        // Who's doing what: the strip at the top opens the board's task list.
+        let strip = a.buttons["work-strip"]
+        if strip.waitForExistence(timeout: 5) {
+            strip.tap()
+            XCTAssertTrue(a.navigationBars.matching(NSPredicate(format: "identifier BEGINSWITH 'Work on'")).firstMatch.waitForExistence(timeout: 5), "task list opens")
+            shot("04b-tasks")
+            a.buttons["Done"].tap()
+        }
         composer.tap()
         let msg = "QA from the phone \(Int(Date().timeIntervalSince1970) % 100000)"
         composer.typeText(msg)
@@ -63,8 +71,8 @@ final class AgentSoupUITests: XCTestCase {
         a.navigationBars.buttons.element(boundBy: 0).tap()
         XCTAssertTrue(a.navigationBars["Chats"].waitForExistence(timeout: 5))
         shot("08-back")
-        a.tabBars.buttons["Agents"].tap()
-        XCTAssertTrue(a.navigationBars["Agents"].waitForExistence(timeout: 5))
+        a.buttons["Your agents"].tap()
+        XCTAssertTrue(a.navigationBars["Your agents"].waitForExistence(timeout: 5))
         shot("09-agents")
         let toggle = a.switches.firstMatch
         if toggle.waitForExistence(timeout: 5) {

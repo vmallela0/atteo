@@ -111,3 +111,35 @@ extension Double {
         return Date(timeIntervalSince1970: self / 1000).formatted(.dateTime.month(.abbreviated).day())
     }
 }
+
+struct TasksResponse: Decodable { let tasks: [WorkTask] }
+/// A board task: who it's for, who's on it right now, how far along its checklist is.
+struct WorkTask: Codable, Identifiable, Hashable {
+    let seq: Int
+    let status: String // todo | doing | blocked | done | stopped
+    let assignee: String?
+    let assigneeAgent: Bool?
+    let leaseHolder: String?
+    let leaseAgent: Bool?
+    let leaseUntil: Double?
+    let priority: String?
+    let title: String
+    let body: String
+    let updatedAt: Double
+    var id: Int { seq }
+
+    /// Who's on it: the agent or person holding it right now, else who it's assigned to.
+    var who: String? {
+        if let h = leaseHolder, (leaseUntil ?? 0) > Date().timeIntervalSince1970 * 1000 { return leaseAgent == true ? "\(h)'s agent" : h }
+        if let a = assignee { return assigneeAgent == true ? "\(a)'s agent" : a }
+        return nil
+    }
+    /// The body's checklist: (done, total), if it has one.
+    var checklist: (done: Int, total: Int)? {
+        let lines = body.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
+        let done = lines.filter { $0.hasPrefix("- [x]") || $0.hasPrefix("- [X]") }.count
+        let total = done + lines.filter { $0.hasPrefix("- [ ]") }.count
+        return total > 0 ? (done, total) : nil
+    }
+    var priorityRank: Int { priority == "high" ? 0 : priority == "medium" ? 1 : priority == "low" ? 3 : 2 }
+}
