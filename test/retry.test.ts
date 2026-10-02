@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isRetriable, messageId, withRetry } from "../src/retry";
+import { isRetriable, messageId, retryingReads, withRetry } from "../src/retry";
 
 describe("retry", () => {
   it("knows which board errors are safe to retry", () => {
@@ -22,5 +22,46 @@ describe("retry", () => {
     expect(messageId("abc12345-xyz")).toBe("abc12345-xyz");
     expect(messageId("bad id with spaces")).toMatch(/^[0-9a-f-]{36}$/);
     expect(messageId(null)).toMatch(/^[0-9a-f-]{36}$/);
+  });
+});
+
+describe("retryingReads", () => {
+  const fakeDb = (fails: number) => {
+    let calls = 0;
+    const stmt = (sql: string) => ({
+      sql,
+      bind: (..._a: unknown[]) => stmt(sql),
+      first: async () => {
+        calls++;
+        if (calls <= fails) throw new Error("D1_ERROR: Network connection lost.");
+        return { ok: sql };
+      },
+      run: async () => {
+        calls++;
+        if (calls <= fails) throw new Error("D1_ERROR: Network connection lost.");
+        return { ok: true };
+      },
+    });
+    const db = { prepare: (sql: string) => stmt(sql), batch: async (s: unknown[]) => s, calls: () => calls };
+    return db;
+  };
+  it("retries a read through a dropped connection", async () => {
+    const db = fakeDb(2);
+    const r = await (retryingReads(db as unknown as D1Database).prepare("SELECT 1").bind(1).first() as Promise<unknown>);
+    expect(r).toEqual({ ok: "SELECT 1" });
+    expect(db.calls()).toBe(3);
+  });
+  it("doesn't retry writes (they may have committed)", async () => {
+    const db = fakeDb(1);
+    await expect(retryingReads(db as unknown as D1Database).prepare("UPDATE x SET y = 1").run()).rejects.toThrow("Network connection lost");
+    expect(db.calls()).toBe(1);
+  });
+  it("hands batch() the real statements", async () => {
+    const db = fakeDb(0);
+    const wrapped = retryingReads(db as unknown as D1Database);
+    const s = wrapped.prepare("SELECT 2");
+    const out = (await wrapped.batch([s])) as unknown as { sql: string }[];
+    expect(out[0].sql).toBe("SELECT 2");
+    expect(out[0]).not.toBe(s);
   });
 });

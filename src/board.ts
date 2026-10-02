@@ -1052,7 +1052,11 @@ export class Board extends DurableObject<Env> {
     const seqs = rows.filter(isEntry).map((r) => Number(r.ref));
     const bySeq = new Map<number, Entry>();
     if (seqs.length) {
-      for (const r of this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq IN (${seqs.map(() => "?").join(",")})`, ...seqs).toArray()) bySeq.set(r.seq as number, toEntry(r));
+      // SQLite in a Durable Object takes at most 100 bound values per statement: look them up 90 at a time.
+      for (let i = 0; i < seqs.length; i += 90) {
+        const chunk = seqs.slice(i, i + 90);
+        for (const r of this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq IN (${chunk.map(() => "?").join(",")})`, ...chunk).toArray()) bySeq.set(r.seq as number, toEntry(r));
+      }
     }
     const entries: { entry: Entry; snippet: string }[] = [];
     const files: { name: string; version: number; snippet: string }[] = [];

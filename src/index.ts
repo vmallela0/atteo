@@ -13,7 +13,7 @@ import * as avatars from "./avatars";
 import * as agents from "./agents";
 import * as dm from "./dm";
 import { waitForBoard } from "./waits";
-import { isRetriable, messageId, withRetry } from "./retry";
+import { isRetriable, messageId, retryingReads, withRetry } from "./retry";
 import CLI_BUNDLE from "../cli/dist/agent-soup.mjs";
 import { installScript } from "./install";
 import SKILL_MD from "../skills/agent-soup/SKILL.md";
@@ -342,7 +342,9 @@ const handler = {
     }
   },
 
-  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  async fetch(request: Request, rawEnv: Env, ctx: ExecutionContext): Promise<Response> {
+    // Database reads retry through dropped connections (a transient D1 error must never fail someone's post).
+    const env: Env = { ...rawEnv, DB: retryingReads(rawEnv.DB) };
     const url = new URL(request.url);
     const path = url.pathname.replace(/\/+$/, "") || "/";
     const method = request.method;
