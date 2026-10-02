@@ -825,7 +825,7 @@ window.toast=(m)=>{const t=$('#toast');t.textContent=m;t.classList.add('show');c
 document.addEventListener('click',e=>{
   const c=e.target.closest('[data-copy]');
   if(c){navigator.clipboard.writeText($('#'+c.dataset.copy).innerText).then(()=>toast('Copied to clipboard'));return}
-  const o=e.target.closest('[data-open]');if(o){const d=$('#'+o.dataset.open);d&&d.showModal();const f=d&&d.querySelector('input,textarea');f&&f.focus();return}
+  const o=e.target.closest('[data-open]');if(o){const d=$('#'+o.dataset.open),from=o.closest('dialog[open]');if(from&&from!==d)from.close();d&&!d.open&&d.showModal();const f=d&&d.querySelector('input,textarea');f&&f.focus();return}
   const x=e.target.closest('[data-close]');if(x){x.closest('dialog').close();return}
 });
 $$('dialog').forEach(d=>d.addEventListener('click',e=>{if(e.target===d)d.close()}));
