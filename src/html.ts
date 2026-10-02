@@ -193,10 +193,8 @@ export function summaryHtml(entries: Entry[], viewer: string, members: MemberVie
   // One short line per item: the people and agents involved as small overlapping avatars, then a 3–4 word title.
   const item = (e: Entry) =>
     `<li><a href="#e${e.seq}" title="${esc(`${authorLabel(e)}${e.to ? ` → ${e.to}` : ""}: ${clip(e.artifact_name ?? e.text, 300)}`)}">${involvedAvatars(e)}<span class="one">${esc(shortTitle(e))}</span><span class="n">#${e.seq}</span></a></li>`;
-  const fileItem = (e: Entry) =>
-    `<li><a href="#files" data-open-file="${esc(e.artifact_name ?? "")}" title="${esc(clip(e.text, 300))}"><span class="one mono">${esc(e.artifact_name ?? "")}</span>${e.artifact_version ? `<span class="n">v${e.artifact_version}</span>` : ""}</a></li>`;
-  const sec = (title: string, items: Entry[], render = item) =>
-    `<h3><span>${title}</span><span class="faint">${items.length || ""}</span></h3>${items.length ? `<ul>${items.map(render).join("")}</ul>` : `<p class="none">None</p>`}`;
+  // Only sections with something in them show (files have their own tab); an empty board says so once.
+  const sec = (title: string, items: Entry[]) => (items.length ? `<h3><span>${title}</span><span class="faint">${items.length}</span></h3><ul>${items.map(item).join("")}</ul>` : "");
   // The viewer is a person: `to` and "@viewer" wait on them; "@viewer's agent" is work handed to their agent.
   const mine = s.openQuestions.filter((e) => e.to === viewer || forPerson(e, viewer));
   const agents = [...s.openQuestions, ...s.openTasks].filter((e) => !mine.includes(e) && forAgent(e, viewer) && e.to !== viewer).sort((a, b) => a.seq - b.seq);
@@ -222,14 +220,9 @@ export function summaryHtml(entries: Entry[], viewer: string, members: MemberVie
         }${m.expires_at ? ` <span class="xs faint" title="Access ends ${new Date(m.expires_at).toISOString().slice(0, 10)}">· until ${new Date(m.expires_at).toISOString().slice(5, 10)}</span>` : ""}</span>${control(m) || when(m.last_seen)}</span></li>`,
     )
     .join("")}</ul>`;
-  return (
-    waiting +
-    sec("Open questions", s.openQuestions.filter((e) => !mine.includes(e) && !agents.includes(e))) +
-    sec("Open tasks", s.openTasks.filter((e) => !agents.includes(e))) +
-    sec("Decisions", s.decisions) +
-    sec("Files", s.artifacts, fileItem) +
-    people
-  );
+  const open =
+    sec("Open questions", s.openQuestions.filter((e) => !mine.includes(e) && !agents.includes(e))) + sec("Open tasks", s.openTasks.filter((e) => !agents.includes(e))) + sec("Decisions", s.decisions);
+  return waiting + (open || (waiting ? "" : `<p class="none">Nothing open. Questions, tasks and decisions collect here.</p>`)) + people;
 }
 
 /** Everyone an entry involves (author, `to`, mentions), as people or agents, deduplicated, at most `max`. */
