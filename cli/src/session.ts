@@ -29,8 +29,11 @@ const INTERPRETERS = new Set(["node", "bun", "deno", "python", "python3", "ruby"
 /** "node /usr/local/bin/claude" → "claude": the script an interpreter runs, if any (not for interactive shells). */
 function scriptName(comm: string, argv: string[]): string {
   if (!INTERPRETERS.has(base(comm))) return comm;
-  const script = argv.slice(1).find((a) => !a.startsWith("-"));
-  return script && !/^-/.test(argv[0] ?? "") ? (script.split("/").pop() ?? comm) : comm;
+  const args = argv.slice(1);
+  // `bash -c "…"` / `node -e "…"` run an inline command, not a script: the process is just a shell (passed through).
+  if (args.some((a) => /^-[a-zA-Z]*[ce]$/.test(a))) return comm;
+  const script = args.find((a) => !a.startsWith("-"));
+  return script && !/\s/.test(script) && !/^-/.test(argv[0] ?? "") ? (script.split("/").pop() ?? comm) : comm;
 }
 
 function proc(pid: number): Proc | null {

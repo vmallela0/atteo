@@ -252,12 +252,16 @@ dialog.access-dlg{width:min(640px,calc(100vw - 24px))}
 .ro .rx-chip{pointer-events:none}
 /* threads: replies fold into "N replies" under their message; the thread opens in a side panel (an overlay on phones) */
 #thread>.entry>.grow>.replies{display:none}#thread>.entry.thr-open>.grow>.replies{display:block}
-.thr-sum{display:inline-flex;align-items:center;gap:8px;margin-top:6px;padding:3px 10px 3px 4px;border:1px solid transparent;border-radius:8px;background:none;font:inherit;font-size:12.5px;color:var(--accent);cursor:pointer}
+.thr-sum{display:flex;flex-direction:column;align-items:stretch;gap:2px;width:fit-content;max-width:100%;margin-top:6px;padding:3px 10px 4px 4px;text-align:left;border:1px solid transparent;border-radius:8px;background:none;font:inherit;font-size:12.5px;color:var(--accent);cursor:pointer}
 .thr-sum:hover{border-color:var(--line);background:var(--bg-subtle)}.thr-sum .faint{color:var(--faint)}
 .thr-sum .avs .av{width:20px;height:20px;font-size:8.5px}
+.thr-head{display:inline-flex;align-items:center;gap:8px}
+.thr-line{display:block;padding-left:4px;font-size:12.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.thr-line b{color:var(--text);font-weight:500}
 .thr-form{display:flex;align-items:flex-end;gap:8px;margin:10px 0 0 16px;padding:6px 6px 6px 10px;border:1px solid var(--line);border-radius:10px;background:var(--bg)}
 .thr-form[hidden]{display:none}.thr-form:focus-within{border-color:var(--line-strong)}
-.thr-form textarea{flex:1;min-height:30px;max-height:160px;border:0;padding:5px 0;box-shadow:none!important;resize:none;field-sizing:content}
+.thr-form{position:relative}.thr-field{flex:1;min-width:0}
+.thr-form textarea{width:100%;min-height:30px;max-height:160px;border:0;padding:5px 0;box-shadow:none!important;resize:none;field-sizing:content}
+.thr-form .mention-menu{left:0}
 .thr-form #thr-to:empty{display:none}.thr-form #thr-to{align-self:center;white-space:nowrap}
 .entry.hit{background:color-mix(in srgb,var(--warn) 9%,transparent);border-radius:8px;box-shadow:inset 3px 0 0 var(--warn)}
 /* a task in the conversation: status, priority, who it's for / who holds it, and Claim · Done · Open */

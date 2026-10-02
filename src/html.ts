@@ -798,13 +798,27 @@ document.addEventListener('click',e=>{const b=e.target.closest('[data-reply]');i
 document.getElementById('composer-text').addEventListener('keydown',e=>{if(e.key==='Escape'&&!rpBox.hidden&&document.getElementById('mention-menu').hidden)replyClear()});
 // @mention autocomplete: people ("@vedu") and agents ("@vedu's agent", including your own).
 const MOPTS=${jsString(mentionOptions(members.map((m) => m.user), viewer.name))};
-const ta=document.getElementById('composer-text'),mm=document.getElementById('mention-menu');let mi=0,ms=[],mq=null;
+const MNAMES=new Set(MOPTS.map(o=>o.u)),ME=${jsString(viewer.name)};
+// "@you" glows, and so does the message it's in, including ones that arrive live.
+function markMe(root){root.querySelectorAll('.mention:not(.agent)').forEach(m=>{if(m.dataset.user===ME){m.classList.add('me');m.closest('.entry')?.classList.add('for-you')}})}
+markMe(document.getElementById('thread'));
+new MutationObserver(ms=>ms.forEach(m=>m.addedNodes.forEach(n=>{if(n.nodeType===1)markMe(n)}))).observe(document.getElementById('thread'),{childList:true,subtree:true});
+// Looking at a board reads its inbox items (now, and as new ones arrive while you're here).
+let inboxT=0;function readInbox(){clearTimeout(inboxT);inboxT=setTimeout(()=>{if(document.visibilityState!=='visible')return;
+  fetch('/api/inbox/read',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({board:BOARD})}).then(()=>window.inboxRefresh&&inboxRefresh()).catch(()=>{})},800)}
+readInbox();document.addEventListener('visibilitychange',readInbox);
+new MutationObserver(readInbox).observe(document.getElementById('thread'),{childList:true});
+
+/** @-mentions for a text box (the composer, a thread's reply box): a menu of people and agents while typing "@…",
+ * and chips that act as one unit. Returns msync, which redraws the chips after the text changes from code. */
+function mentionize(ta,mm,mirror){
+let mi=0,ms=[],mq=null;
 function mfind(){if(ta.selectionStart!==ta.selectionEnd)return null;const v=ta.value.slice(0,ta.selectionStart);
   const m=v.match(/(^|[^A-Za-z0-9_.@\\/-])@([A-Za-z0-9_.-]{0,32})$/);return m?{start:v.length-m[2].length-1,q:m[2].toLowerCase()}:null}
 function mclose(){mm.hidden=true;ms=[];ta.setAttribute('aria-expanded','false');ta.removeAttribute('aria-activedescendant')}
 function mrender(){mq=mfind();ms=mq?MOPTS.filter(o=>o.u.startsWith(mq.q)):[];if(!ms.length)return mclose();mi=Math.min(mi,ms.length-1);
-  mm.innerHTML='<li class="hint" aria-hidden="true">Mention a person or their agent</li>'+ms.map((o,i)=>'<li role="option" id="mo-'+i+'" data-i="'+i+'" aria-selected="'+(i===mi)+'">'+o.av+'<span class="truncate">'+o.label+'</span><span class="k">'+o.k+'</span></li>').join('');
-  mm.hidden=false;ta.setAttribute('aria-expanded','true');ta.setAttribute('aria-activedescendant','mo-'+mi)}
+  mm.innerHTML='<li class="hint" aria-hidden="true">Mention a person or their agent</li>'+ms.map((o,i)=>'<li role="option" id="'+mm.id+'-'+i+'" data-i="'+i+'" aria-selected="'+(i===mi)+'">'+o.av+'<span class="truncate">'+o.label+'</span><span class="k">'+o.k+'</span></li>').join('');
+  mm.hidden=false;ta.setAttribute('aria-expanded','true');ta.setAttribute('aria-activedescendant',mm.id+'-'+mi)}
 function mpick(o){const end=ta.selectionStart,before=ta.value.slice(0,mq.start),after=ta.value.slice(end);const ins='@'+o.ins+(/^\\s/.test(after)?'':' ');
   ta.value=before+ins+after;const p=before.length+ins.length;ta.setSelectionRange(p,p);mclose();ta.focus();msync()}
 ta.addEventListener('input',()=>{mi=0;mrender();ta.style.height='';ta.style.height=ta.scrollHeight+2+'px';msync()});
@@ -816,16 +830,6 @@ ta.addEventListener('blur',mclose);
 mm.addEventListener('mousedown',e=>{e.preventDefault();const li=e.target.closest('[data-i]');if(li)mpick(ms[+li.dataset.i])});
 // Mentions in the composer are chips: a mirror under the (transparent) text draws them, and an edit or a caret move
 // treats each one as a single unit, so one Backspace removes "@vedu's agent" whole and the caret never lands inside.
-const mirror=document.getElementById('composer-mirror'),MNAMES=new Set(MOPTS.map(o=>o.u)),ME=${jsString(viewer.name)};
-// "@you" glows, and so does the message it's in, including ones that arrive live.
-function markMe(root){root.querySelectorAll('.mention:not(.agent)').forEach(m=>{if(m.dataset.user===ME){m.classList.add('me');m.closest('.entry')?.classList.add('for-you')}})}
-markMe(document.getElementById('thread'));
-new MutationObserver(ms=>ms.forEach(m=>m.addedNodes.forEach(n=>{if(n.nodeType===1)markMe(n)}))).observe(document.getElementById('thread'),{childList:true,subtree:true});
-// Looking at a board reads its inbox items (now, and as new ones arrive while you're here).
-let inboxT=0;function readInbox(){clearTimeout(inboxT);inboxT=setTimeout(()=>{if(document.visibilityState!=='visible')return;
-  fetch('/api/inbox/read',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({board:BOARD})}).then(()=>window.inboxRefresh&&inboxRefresh()).catch(()=>{})},800)}
-readInbox();document.addEventListener('visibilitychange',readInbox);
-new MutationObserver(readInbox).observe(document.getElementById('thread'),{childList:true});
 function mtokens(v){const out=[],re=/(^|[^A-Za-z0-9_.@\\/-])@([A-Za-z0-9][A-Za-z0-9_.-]{0,31})((?:'|’)s\\s+agent\\b)?/gi;let m;
   while((m=re.exec(v))){const raw=m[2].toLowerCase();let h=raw;if(!MNAMES.has(h))h=raw.replace(/[.-]+$/,'');if(!MNAMES.has(h))continue;
     const agent=!!m[3]&&h===raw;if(!agent&&h===ME)continue; // you can't mention yourself, only your agent
@@ -854,6 +858,8 @@ ta.addEventListener('keydown',e=>{if(e.defaultPrevented||e.shiftKey||e.altKey||e
 function msnap(){if(document.activeElement!==ta)return;const a=ta.selectionStart;if(a!==ta.selectionEnd)return; // a click inside a chip goes to its nearer edge
   const t=mtokens(ta.value).find(t=>t.start<a&&a<t.end);if(t){const p=a-t.start<t.end-a?t.start:t.end;ta.setSelectionRange(p,p)}}
 ta.addEventListener('selectionchange',msnap);document.addEventListener('selectionchange',msnap); // fired on the textarea in newer browsers, on document in older ones
+return msync}
+const ta=document.getElementById('composer-text'),msync=mentionize(ta,document.getElementById('mention-menu'),document.getElementById('composer-mirror'));
 // Enter posts, Shift+Enter adds a line. An Enter that picked a mention (default prevented above) doesn't post.
 document.getElementById('composer-text')?.addEventListener('keydown',e=>{
   if(e.defaultPrevented)return;
@@ -1081,14 +1087,16 @@ function thrSum(root){const top=document.getElementById('e'+root);if(!top)return
   if(open){b.innerHTML='<b>Hide replies</b>';b.setAttribute('aria-label','Hide replies');return}
   const who=[];for(const k of kids){const key=k.dataset.author+(k.classList.contains('by-agent')?'/a':'');if(!who.includes(key))who.push(key)}
   const lastT=kids[kids.length-1]?.querySelector('time[data-ts]');
-  b.innerHTML='<span class="avs">'+who.slice(0,3).map(w=>avatar16(w.split('/')[0],w.endsWith('/a'))).join('')+'</span><b>'+kids.length+' repl'+(kids.length===1?'y':'ies')+'</b><span class="faint">'+(lastT?'last '+lastT.textContent:'')+'</span>';
+  // The latest three replies, one line each, so new answers show without opening the thread.
+  const peek=kids.slice(-3).map(k=>'<span class="thr-line"><b>'+esc(k.dataset.author+(k.classList.contains('by-agent')?"'s agent":''))+'</b> '+esc((k.querySelector(':scope>.grow>.body')?.textContent||'').trim().slice(0,200))+'</span>').join('');
+  b.innerHTML='<span class="thr-head"><span class="avs">'+who.slice(0,3).map(w=>avatar16(w.split('/')[0],w.endsWith('/a'))).join('')+'</span><b>'+kids.length+' repl'+(kids.length===1?'y':'ies')+'</b><span class="faint">'+(lastT?'last '+lastT.textContent:'')+'</span></span>'+peek;
   b.setAttribute('aria-label','Show '+kids.length+' repl'+(kids.length===1?'y':'ies'))}
 /** Opens a message's thread in place. Replying to someone puts an @mention of them in the reply box, like Slack. */
 function openThread(root,o={}){const top=document.getElementById('e'+root);if(!top)return;top.classList.add('thr-open');
   if(!READONLY&&(o.replyTo||o.compose||thrRoot===root||thrRoot==null)){if(thrRoot!==root){thrText.value=''};thrRoot=root;thrTarget=o.replyTo||root;
     top.querySelector(':scope>.grow>.replies').after(thrForm);thrForm.hidden=false;
     const tgt=document.getElementById('e'+thrTarget),by=tgt?.dataset.author,byAgent=tgt?.classList.contains('by-agent');
-    if(o.replyTo&&by&&by!==ME){const at='@'+by+(byAgent?"'s agent":'')+' ';if(!thrText.value.includes(at.trim()))thrText.value=at+thrText.value}
+    if(o.replyTo&&by&&by!==ME){const at='@'+by+(byAgent?"'s agent":'')+' ';if(!thrText.value.includes(at.trim()))thrText.value=at+thrText.value}setTimeout(thrSync,0);
     document.getElementById('thr-to').textContent=thrTarget!==root?'Replying to #'+thrTarget:''}
   thrSum(root);
   const f=o.focus&&document.getElementById('e'+o.focus);if(f){f.classList.add('hit');f.scrollIntoView({block:'center'})}
@@ -1100,10 +1108,12 @@ document.addEventListener('click',e=>{const s=e.target.closest('[data-thread]');
 // Reply opens the message's thread in place, with the reply box focused
 document.addEventListener('click',e=>{const b=e.target.closest('[data-reply]');if(!b)return;e.stopImmediatePropagation();e.preventDefault();
   const seq=+b.dataset.reply,top=document.getElementById('e'+seq)?.closest('#thread>.entry');openThread(top?+top.dataset.seq:seq,{replyTo:seq})},true);
-thrText.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();thrForm.requestSubmit()}if(e.key==='Escape'){e.preventDefault();e.stopPropagation();thrText.blur()}});
+const thrSync=mentionize(thrText,document.getElementById('thr-menu'),document.getElementById('thr-mirror'));
+thrText.addEventListener('keydown',e=>{if(e.defaultPrevented)return; // the mention menu took the key
+  if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();thrForm.requestSubmit()}if(e.key==='Escape'){e.preventDefault();e.stopPropagation();thrText.blur()}});
 thrForm.addEventListener('submit',async e=>{e.preventDefault();const text=thrText.value.trim();if(!text||!thrRoot)return;const btn=thrForm.querySelector('button');btn.disabled=true;
   try{const r=await sendReliably('/api/boards/'+BOARD+'/entries',{type:'note',text,reply_to:thrTarget||thrRoot},()=>toast('Connection lost; retrying your reply…'));
-    const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||"Couldn't reply. Your reply is still in the box.");return}thrText.value='';thrTarget=thrRoot;document.getElementById('thr-to').textContent='';await tick(false);thrForm.scrollIntoView({block:'nearest'})}
+    const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||"Couldn't reply. Your reply is still in the box.");return}thrText.value='';thrSync();thrTarget=thrRoot;document.getElementById('thr-to').textContent='';await tick(false);thrForm.scrollIntoView({block:'nearest'})}
   finally{btn.disabled=false}});
 document.querySelectorAll('#thread>.entry').forEach(x=>thrSum(+x.dataset.seq));
 // a link to a reply (#e<n>) opens its thread
@@ -1308,7 +1318,7 @@ window.boardKeys=(e,k)=>{
 ${info.archived ? "" : VOICE_HTML}<div role="tabpanel" id="panel-conv" class="bp-panel" data-board-panel><div class="layout" id="conv-layout">
   <button class="btn ghost sm info-btn" type="button" id="info-btn" aria-expanded="false" aria-controls="board-info" aria-label="Board info" title="Board info"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2"/><path d="M10 2.75v10.5"/><path class="fill" d="M10.7 3.45h2.1a.75.75 0 0 1 .75.75v7.6a.75.75 0 0 1-.75.75h-2.1z" fill="currentColor" stroke="none"/></svg><span class="count" id="info-count" hidden></span></button>
   <section class="conv">
-    <div class="thread-wrap"><div class="thread-scroll" id="thread-scroll"><div class="thread" id="thread">${thread}</div><form class="thr-form" id="thr-form" hidden><textarea class="input" id="thr-text" rows="1" placeholder="Reply…" aria-label="Reply in thread"></textarea><span class="xs faint" id="thr-to"></span><button class="btn primary sm">Reply</button></form></div>
+    <div class="thread-wrap"><div class="thread-scroll" id="thread-scroll"><div class="thread" id="thread">${thread}</div><form class="thr-form" id="thr-form" hidden><div class="cmp-field thr-field"><div class="cmp-mirror" id="thr-mirror" aria-hidden="true"></div><textarea class="input" id="thr-text" rows="1" placeholder="Reply…" aria-label="Reply in thread" role="combobox" aria-autocomplete="list" aria-controls="thr-menu" aria-expanded="false"></textarea></div><ul class="mention-menu" id="thr-menu" role="listbox" aria-label="Mention" hidden></ul><span class="xs faint" id="thr-to"></span><button class="btn primary sm">Reply</button></form></div>
       <div class="rail" id="rail" aria-hidden="true"></div><div class="rail-tip" id="rail-tip" hidden></div>
       <button class="btn sm new-pill" type="button" id="new-pill" hidden>Jump to latest ↓</button></div>
     <form class="card composer" method="post" action="/api/boards/${esc(info.id)}/entries" data-api data-reliable data-done="posted" data-failed="postFailed" data-retrying="postRetrying" data-reset${info.archived || readOnly || info.encrypted ? " hidden" : ""}>
