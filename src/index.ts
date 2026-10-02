@@ -309,6 +309,20 @@ export default {
         return adminPage(viewer, side, data);
       }
 
+      // ---- delete a board (its creator, or an operator); confirm by typing the title ----
+      m = path.match(/^\/api\/boards\/([^/]+)\/delete$/);
+      if (m && method === "POST") {
+        if (!viewer && !hasOpsKey(c)) return needLogin();
+        const board = BOARD_RE.test(m[1]) ? await registry.getBoard(env, m[1]) : null;
+        if (!board || !(await canSee(c, m[1]))) return json({ error: "board not found" }, 404);
+        if (!isOps(c) && board.created_by !== viewer?.name) return json({ error: "Only the board's creator can delete it." }, 403);
+        const body = (await request.json().catch(() => ({}))) as { confirm?: string };
+        if (String(body.confirm ?? "").trim() !== board.title) return json({ error: "Type the board's name exactly to confirm." }, 400);
+        await registry.deleteBoard(env, board.id); // access ends here
+        await boardStub(env, board.id).destroy(); // then the data
+        return json({ ok: true, message: `Deleted "${board.title}".` });
+      }
+
       // ---- membership: the board's creator removes people; anyone else can leave ----
       m = path.match(/^\/api\/boards\/([^/]+)\/members\/([^/]+)\/remove$/);
       if (m && method === "POST") {

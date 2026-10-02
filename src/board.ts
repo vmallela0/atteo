@@ -411,6 +411,19 @@ export class Board extends DurableObject<Env> {
     return out;
   }
 
+  /** Permanently erases this board: tells open tabs, ends waits, and deletes all storage. Access is checked by the Worker. */
+  async destroy(): Promise<void> {
+    for (const ws of this.ctx.getWebSockets()) {
+      try {
+        ws.send(JSON.stringify({ type: "deleted" }));
+        ws.close(4004, "board deleted");
+      } catch {}
+    }
+    for (const w of this.waiters) w.wake();
+    for (const wake of this.watchers) wake();
+    await this.ctx.storage.deleteAll();
+  }
+
   /** Operator audit: entries that would be blocked by today's filter (seq and rule only, never the value). */
   async scanSecrets(): Promise<{ seq: number; hit: SecretHit }[]> {
     const out: { seq: number; hit: SecretHit }[] = [];

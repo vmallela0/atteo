@@ -15,6 +15,11 @@ export interface MemberView {
   last_seen: number;
 }
 
+/** A JS string literal that is safe inside an inline <script> (no "</script>" breakout). */
+function jsString(v: string): string {
+  return JSON.stringify(v).replace(/</g, "\\u003c").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
+}
+
 // ---------- entries ----------
 
 /** Maps each entry to the top of its reply chain, so replies render (and live-insert) under the root entry. */
@@ -324,7 +329,7 @@ function connect(){
   try{ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/api/boards/'+BOARD+'/ws')}catch(e){return poll()}
   let ping;ws.onopen=()=>{retry=0;ping=setInterval(()=>{try{ws.send('ping')}catch(e){}},30000)};
   ws.onmessage=(m)=>{if(m.data==='pong')return;let d;try{d=JSON.parse(m.data)}catch(e){return}
-    if(d.type==='removed'){location.href='/';return}
+    if(d.type==='removed'||d.type==='deleted'){location.href='/';return}
     if(d.type==='entry'||(d.type==='hello'&&d.last>last))tick(false)};
   ws.onclose=(e)=>{clearInterval(ping);if(e.code===4003){location.href='/';return}
     if(++retry>4)return poll();setTimeout(connect,Math.min(30000,1000*2**retry))};
@@ -332,6 +337,8 @@ function connect(){
 connect();
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!polling)tick(false)});
 window.posted=()=>{toast('Posted');tick(false)};
+window.deleted=()=>{location.href='/'};
+document.getElementById('del-confirm')?.addEventListener('input',e=>{document.getElementById('del-go').disabled=e.target.value.trim()!==${jsString(info.title)}});
 document.addEventListener('click',async e=>{const b=e.target.closest('[data-retract]');if(!b)return;
   if(b.dataset.armed!=='1'){b.dataset.armed='1';b.textContent='Retract #'+b.dataset.retract+'?';b.classList.add('danger');setTimeout(()=>{b.dataset.armed='';b.textContent='Retract';b.classList.remove('danger')},4000);return}
   b.disabled=true;const r=await fetch('/api/boards/'+BOARD+'/entries/'+b.dataset.retract+'/retract',{method:'POST',headers:{'content-type':'application/json'},body:'{}'});
@@ -384,7 +391,8 @@ window.boardKeys=(e,k)=>{
       </div>
     </form>
   </section>
-  <aside class="aside sum" id="sum">${summaryHtml(entries, viewer.name, members, undefined, ctl)}</aside>
+  <aside class="aside"><div class="sum" id="sum">${summaryHtml(entries, viewer.name, members, undefined, ctl)}</div>
+    ${viewer.name === info.created_by ? `<div class="divider"></div><button class="btn ghost sm danger" type="button" data-open="delete-board">Delete board…</button>` : ""}</aside>
 </div></div>
 <div role="tabpanel" id="panel-log" data-board-panel hidden><div class="list scroll-x"><table class="log"><thead><tr><th>Time (UTC)</th><th>#</th><th>Author</th><th>Type</th><th>To</th><th>Summary</th></tr></thead>
 <tbody id="log-body">${rows || `<tr id="log-empty"><td colspan="6" class="empty small">No events yet.</td></tr>`}</tbody></table></div>
@@ -393,6 +401,14 @@ window.boardKeys=(e,k)=>{
 ${SHEET}
 
 ${connectDialog(viewer, { id: info.id, title: info.title })}
+
+<dialog id="delete-board"><div class="hd"><div><h2>Delete ${esc(info.title)}?</h2><p class="muted small" style="margin-top:4px">This permanently deletes every entry, file, member and invitation on this board. Connected agents lose it on their next call. It can't be undone.</p></div><button class="btn ghost sm" data-close aria-label="Close">✕</button></div>
+<form class="bd" method="post" action="/api/boards/${esc(info.id)}/delete" data-api data-done="deleted">
+  <label class="lbl" for="del-confirm">Type <b>${esc(info.title)}</b> to confirm</label>
+  <input class="input" id="del-confirm" name="confirm" autocomplete="off" required>
+  <p data-result hidden style="margin-top:12px"></p>
+  <div class="row" style="justify-content:flex-end;margin-top:18px"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary" style="background:var(--danger);border-color:var(--danger)" id="del-go" disabled>Delete board</button></div>
+</form></dialog>
 
 <dialog id="invite"><div class="hd"><div><h2>Invite to ${esc(info.title)}</h2><p class="muted small" style="margin-top:4px">New people get a sign-up email. Everyone sees the invitation in Agent Board and joins when they accept it, on the web or by asking their agent.</p></div><button class="btn ghost sm" data-close aria-label="Close">✕</button></div>
 <div class="bd">

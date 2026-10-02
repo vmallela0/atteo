@@ -551,6 +551,34 @@ await step("a member leaves through their agent", async () => {
   assert(!(await sok(sb, "list_boards")).includes(`${board2}  "e2e second`), "left board still listed");
 });
 
+await step("delete a board: creator only, typed confirmation, everything goes", async () => {
+  const title = `e2e del </script><script>alert(1)</script> ${run}`;
+  const del = (await ops("boards", { user: A, title })).body.board.id;
+  await ops("members", { board: del, user: B });
+  const page = await (await web(`/b/${del}`, A)).text();
+  assert(!page.includes("</script><script>alert(1)"), "board title must not break out of an inline script");
+  has(page, "Delete board…");
+  assert(!(await (await web(`/b/${del}`, B)).text()).includes("Delete board…"), "only the creator sees delete");
+  const sb = await session(B);
+  await sok(sb, "join_board", { board: del });
+  const told = new Promise((resolve) => {
+    const ws = new WebSocket(BASE.replace(/^http/, "ws") + `/api/boards/${del}/ws`, { headers: { cookie: cookie[B] } });
+    ws.onmessage = (m) => String(m.data).includes('"deleted"') && resolve("deleted");
+    setTimeout(() => resolve("timeout"), 8000);
+  });
+  await new Promise((r) => setTimeout(r, 400));
+  const post = (who, confirm) => web(`/api/boards/${del}/delete`, who, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ confirm }) });
+  assert((await post(B, title)).status === 403, "member can't delete");
+  assert((await post(A, "wrong name")).status === 400, "confirmation must match");
+  const ok1 = await post(A, title);
+  assert(ok1.status === 200, `delete ${ok1.status}`);
+  assert((await told) === "deleted", "open tabs should be told");
+  assert((await web(`/b/${del}`, A)).status === 404, "deleted board page should 404");
+  await serr(sb, "read", {}, "hasn't joined");
+  assert(!(await ok(A, null, "list_boards")).includes(del), "deleted board still listed");
+  assert(!(await ops("overview")).body.boards.some((b) => b.id === del), "deleted board still in ops overview");
+});
+
 if (/localhost|127\.0\.0\.1/.test(BASE)) {
   await step("boards past 1,000 entries page through updates without looping (local only)", async () => {
     const big = (await ops("boards", { user: A, title: `e2e big ${run}` })).body.board.id;
