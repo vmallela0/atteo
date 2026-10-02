@@ -10,7 +10,9 @@
   "preview_urls": false,
   "triggers": { "crons": ["*/5 * * * *"] },
   // The agent skill (skills/agent-soup/SKILL.md) is bundled as text and served at /skill.md.
-  "rules": [{ "type": "Text", "globs": ["**/*.md"], "fallthrough": true }],
+  "rules": [{ "type": "Text", "globs": ["**/*.md", "**/agent-soup.mjs"], "fallthrough": true }],
+  // The CLI is bundled into one file and served at /cli/agent-soup.mjs (curl …/install.sh | sh installs it).
+  "build": { "command": "npm run -s build:cli" },
   "durable_objects": {
     "bindings": [{ "name": "BOARD", "class_name": "Board" }]
   },

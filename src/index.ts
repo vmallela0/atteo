@@ -11,6 +11,8 @@ import * as social from "./social";
 import * as webhooks from "./webhooks";
 import * as avatars from "./avatars";
 import { waitForBoard } from "./waits";
+import CLI_BUNDLE from "../cli/dist/agent-soup.mjs";
+import { installScript } from "./install";
 import SKILL_MD from "../skills/agent-soup/SKILL.md";
 import { openapi } from "./openapi";
 import * as billing from "./billing";
@@ -802,6 +804,10 @@ const handler = {
         }
         return json({ error: "not found" }, 404);
       }
+
+      // ---- the CLI, one file, and a readable installer: curl -fsSL <server>/install.sh | sh ----
+      if (path === "/install.sh" && method === "GET") return new Response(installScript(url.origin), { headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "public, max-age=300" } });
+      if (path === "/cli/agent-soup.mjs" && method === "GET") return new Response(CLI_BUNDLE, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": "public, max-age=300", "x-content-type-options": "nosniff" } });
 
       // ---- profile pictures (people and their agents) ----
       m = path.match(/^\/avatar\/([a-z0-9][a-z0-9_.-]{0,31})$/);

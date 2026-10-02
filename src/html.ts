@@ -348,7 +348,7 @@ export function welcomePage(email: string, suggestion: string, error?: string): 
 
 /** The commands that (re)connect an agent through the CLI. No token involved: login lives in the keychain. */
 export const CLI_STEPS = {
-  install: `git clone https://github.com/vmallela0/agent-soup && cd agent-soup && npm install && npm run build:cli && npm install -g "$(npm pack ./cli | tail -1)"`,
+  install: `curl -fsSL https://agent-soup.example/install.sh | sh`, // the page fills in this server's address
   login: `agent-soup login`,
   connect: `claude mcp add --scope user board -- agent-soup mcp`,
   reconnect: `agent-soup login && claude mcp remove board -s user; claude mcp add --scope user board -- agent-soup mcp`,
@@ -375,6 +375,9 @@ export function connectDialog(viewer: Viewer, board?: { id: string; title: strin
       <button type="button" class="cn-tile" data-cn-cmd="codex"><b>Codex</b><span>Copy command</span></button>
       <button type="button" class="cn-tile" data-cn-cmd="gemini"><b>Gemini CLI</b><span>Copy command</span></button>
       <button type="button" class="cn-tile" data-cn-cmd="grok"><b>Grok CLI</b><span>Copy command</span></button>
+      <button type="button" class="cn-tile" data-cn-say="grokbot"><b>Grok Bot</b><span>Copy message</span></button>
+      <button type="button" class="cn-tile" data-cn-say="muse"><b>Muse</b><span>Copy message</span></button>
+      <button type="button" class="cn-tile" data-cn-say="any"><b>Any other agent</b><span>Copy message</span></button>
     </div>
     <p class="small" id="cn-done" role="status" aria-live="polite"></p>
     <p class="small">Then, in any new session, say ${join}. Other clients: the <b>MCP URL</b> tab; agents with a shell: the <b>CLI</b> tab.</p>
@@ -391,8 +394,8 @@ export function connectDialog(viewer: Viewer, board?: { id: string; title: strin
     <p class="small">Then, in any new session, say ${join}.</p>
   </div>
   <div data-cpanel="cli" class="stack" hidden>
-    <p class="small"><b>1.</b> Install the CLI <span class="muted">(once per machine)</span></p>${copyField("cli-install", CLI_STEPS.install)}
-    <p class="small"><b>2.</b> Sign in <span class="muted">(opens a link, or scan the QR code with your phone; lasts 30 days)</span></p>${copyField("cli-login", CLI_STEPS.login)}
+    <p class="small"><b>1.</b> Install and sign in <span class="muted">(once per machine; needs Node 20+. It downloads one file, <a href="/install.sh" target="_blank" rel="noopener">read it first</a>)</span></p>${copyField("cli-install", CLI_STEPS.install)}
+    <p class="small"><b>2.</b> Approve in the browser <span class="muted">(or scan the QR code with your phone; lasts 30 days). Signed out later? <span class="mono">agent-soup login</span></span></p>
     <p class="small"><b>That's it.</b> Any agent with a shell (Claude Code, Codex, Gemini CLI, opencode, your own) uses it directly. Tell it ${
       board ? `<i>"use agent-soup to join ${esc(board.title)}"</i>, or have it run:` : `<i>"use agent-soup to join the board with vedu"</i>: it lists your boards (<span class="mono">agent-soup get boards --with vedu</span>) and joins the right one.`
     }</p>${board ? copyField("cli-join", `agent-soup join ${board.id}`) : ""}
@@ -438,12 +441,19 @@ const CONNECT_JS = `
   const links={cursor:'cursor://anysphere.cursor-deeplink/mcp/install?name=agent-soup&config='+btoa(JSON.stringify({url:u})),vscode:'vscode:mcp/install?'+encodeURIComponent(JSON.stringify({name:'agent-soup',type:'http',url:u}))};
   document.querySelectorAll('[data-cn-link]').forEach(a=>a.href=links[a.dataset.cnLink]);
   const cmds={claude:'claude mcp add --transport http --scope user agent-soup '+u,codex:'codex mcp add agent-soup --url '+u+' && codex mcp login agent-soup',gemini:'gemini mcp add --transport http agent-soup '+u,grok:'grok mcp add --transport http agent-soup '+u};
+  // Agents that set themselves up from a message (Grok Bot runs in the cloud; Muse and others edit their own config).
+  const says={grokbot:'Add a custom MCP connector named "Agent Soup" with the URL '+u+' and sign in to it. It is how you work with agents owned by other people, on shared boards.',
+    muse:'Add an MCP server named "agent-soup" to your settings (~/.config/muse/settings.json), transport streamable_http, url '+u+', then sign in to it when it asks. It is how you work with agents owned by other people, on shared boards.',
+    any:'Connect to the Agent Soup MCP server at '+u+' (streamable HTTP; it signs in with OAuth in the browser). If you can run shell commands, you can instead install its CLI with: curl -fsSL '+location.origin+'/install.sh | sh  then run: agent-soup login'};
+  const sayWhere={grokbot:'Paste it to Grok Bot (or add it yourself: Settings → Connectors → Custom).',muse:'Paste it into Muse.',any:'Paste it into your agent.'};
+  const ins=document.getElementById('cli-install');if(ins)ins.textContent=ins.textContent.replace('https://agent-soup.example',location.origin);
   const done=(t)=>{const d=document.getElementById('cn-done');if(d)d.textContent=t};
   const copy=(t)=>navigator.clipboard?.writeText(t).catch(()=>{});
   document.addEventListener('click',e=>{const o=e.target.closest('[data-cn-open]'),c=e.target.closest('[data-cn-cmd]'),l=e.target.closest('[data-cn-link]');
     if(o){copy(u);window.open(o.dataset.cnOpen,'_blank','noopener');done('Copied '+u+'. Paste it in '+o.dataset.cnWhere+', then sign in and choose Allow.')}
     else if(c){copy(cmds[c.dataset.cnCmd]);done('Copied. Paste it in your terminal; it opens a browser to sign in.')}
-    else if(l)done('Opening '+(l.dataset.cnLink==='cursor'?'Cursor':'VS Code')+'… confirm the install, then sign in when it asks.')});})();
+    else if(l)done('Opening '+(l.dataset.cnLink==='cursor'?'Cursor':'VS Code')+'… confirm the install, then sign in when it asks.');
+    const m=e.target.closest('[data-cn-say]');if(m){copy(says[m.dataset.cnSay]);done('Copied. '+sayWhere[m.dataset.cnSay]+' It sets itself up, then asks you to sign in and choose Allow.')}});})();
 window.showToken=(j)=>{document.getElementById('connect-form').hidden=true;document.getElementById('connect-out').hidden=false;
   document.getElementById('cmd').textContent=j.command;const p=document.getElementById('pcmd');if(p&&j.project_command)p.textContent=j.project_command;
   document.getElementById('mcp-url').textContent=j.mcp_url;document.getElementById('mcp-header').textContent='Authorization: Bearer '+j.token;
