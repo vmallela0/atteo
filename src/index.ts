@@ -380,7 +380,7 @@ export default {
         if (!viewer) return needLogin();
         if (!(await canSee(c, m[2]))) return notFound(viewer);
         const [snap, members, invites, side, live, status] = await Promise.all([
-          boardStub(env, m[2]).snapshot(0),
+          boardStub(env, m[2]).snapshot(0, { latest: 300 }),
           registry.boardMembers(env, m[2]),
           registry.pendingInvites(env, m[2]),
           sideBoards(env, viewer.name),
@@ -999,6 +999,16 @@ export default {
             summary: summaryHtml([], viewer?.name ?? "", members, snap.summary, { boardId: id, creator: snap.info.created_by }),
             count: snap.info.entry_count,
             last: fresh.length ? fresh[fresh.length - 1].seq : after,
+          });
+        }
+        if (what === "entries" && !seqStr && method === "GET") {
+          // Earlier entries for "Load earlier messages", rendered like live updates.
+          const before = parseInt(url.searchParams.get("before") ?? "0", 10) || null;
+          const page = await stub.page(before, parseInt(url.searchParams.get("limit") ?? "100", 10) || 100);
+          const isOwner = !!viewer && (await registry.memberRole(env, id, viewer.name)) === "owner";
+          return json({
+            first: page.length ? page[0].seq : 0,
+            entries: page.map((e) => ({ seq: e.seq, html: entryHtml(e, id, true, { canRetract: !!viewer && (e.author === viewer.name || isOwner) }), row: logRow(e) })),
           });
         }
         if (what === "entries" && seqStr && method === "GET") {

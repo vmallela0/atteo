@@ -132,43 +132,51 @@ export function formatSummary(
   tags?: TaskTags,
   reviewers?: Map<number, string[]>, // who has given a verdict on each change
 ): string {
-  const s = { ...summary, claims: [...summary.claims], decisions: [...summary.decisions] };
+  const s = summary;
+  // Each section shows its newest items up to a cap (big boards have thousands); the rest is a search away.
+  const cap = { forYou: 25, forUser: 15, questions: 20, tasksForYou: 25, tasks: 20, decisions: 20, claims: MAX_CLAIMS, files: 15 };
+  // Computed once: who each item is for doesn't change while we shrink the caps.
+  const forYou = s.openQuestions.filter((e) => forAgent(e, you));
+  const forUser = s.openQuestions.filter((e) => !forAgent(e, you) && forPerson(e, you));
+  const otherQ = s.openQuestions.filter((e) => !forAgent(e, you) && !forPerson(e, you));
+  // Assigned with the task tool shows up in the tag as "for <you>'s agent".
+  const assignedToYou = (e: Entry) => !!tags?.get(e.seq)?.split(" · ").includes(`for ${you}'s agent`);
+  const tasksForYou = s.openTasks.filter((e) => forAgent(e, you) || assignedToYou(e));
+  const otherT = s.openTasks.filter((e) => !forAgent(e, you) && !assignedToYou(e));
+  // A change addressed to you (to / "@you's agent") is a review request until you've given a verdict.
+  const reviewsForYou = s.changes.filter((e) => e.author !== you && forAgent(e, you) && !reviewers?.get(e.seq)?.includes(you));
+  const recent = s.changes.filter((e) => !reviewsForYou.includes(e)).slice(-MAX_CHANGES);
   const render = () => {
     const lines: string[] = [];
     lines.push(`Board "${board.title}" (${board.id}) · you are ${you} · ${board.entry_count} entries`);
     lines.push(`Members: ${members.map((m) => m.name).join(", ") || "(none yet)"}`);
-    const section = (title: string, items: Entry[], empty: string) => {
+    const section = (title: string, items: Entry[], empty: string, max: number, more = "search to find them") => {
       lines.push("", `${title}:`);
       if (!items.length) lines.push(`  ${empty}`);
-      for (const e of items) lines.push("  " + oneLine(e, SUMMARY_LINE_CHARS, tags));
+      const shown = max >= items.length ? items : items.slice(items.length - max);
+      if (shown.length < items.length) lines.push(`  … ${items.length - shown.length} older (${more})`);
+      for (const e of shown) lines.push("  " + oneLine(e, SUMMARY_LINE_CHARS, tags));
     };
-    // The reader is `you`'s agent: "@you's agent" and `to` are for it; "@you" is for its user, so it should pass those on.
-    const forYou = s.openQuestions.filter((e) => forAgent(e, you));
-    const forUser = s.openQuestions.filter((e) => !forAgent(e, you) && forPerson(e, you));
-    if (forYou.length) section("Questions waiting for YOU", forYou, "");
-    if (forUser.length) section(`Questions for your user (${you}) — tell them`, forUser, "");
-    section("Open questions", s.openQuestions.filter((e) => !forAgent(e, you) && !forPerson(e, you)), "none");
-    // Assigned with the task tool shows up in the tag as "for <you>'s agent".
-    const assignedToYou = (e: Entry) => !!tags?.get(e.seq)?.split(" · ").includes(`for ${you}'s agent`);
-    const tasksForYou = s.openTasks.filter((e) => forAgent(e, you) || assignedToYou(e));
-    if (tasksForYou.length) section("Tasks for YOU", tasksForYou, "");
-    section("Open tasks", s.openTasks.filter((e) => !forAgent(e, you) && !assignedToYou(e)), "none");
-    section("Decisions", s.decisions, "none");
-    section("Recent claims", s.claims, "none");
-    section("Files", s.artifacts, "none");
-    // A change addressed to you (to / "@you's agent") is a review request until you've given a verdict.
-    const reviewsForYou = s.changes.filter((e) => e.author !== you && forAgent(e, you) && !reviewers?.get(e.seq)?.includes(you));
-    if (reviewsForYou.length) section("Changes waiting for YOUR review", reviewsForYou, "");
-    const recent = s.changes.filter((e) => !reviewsForYou.includes(e)).slice(-MAX_CHANGES);
-    if (recent.length) section("Recent changes", recent, "");
+    if (forYou.length) section("Questions waiting for YOU", forYou, "", cap.forYou);
+    if (forUser.length) section(`Questions for your user (${you}) — tell them`, forUser, "", cap.forUser);
+    section("Open questions", otherQ, "none", cap.questions);
+    if (tasksForYou.length) section("Tasks for YOU", tasksForYou, "", cap.tasksForYou, "task list --mine");
+    section("Open tasks", otherT, "none", cap.tasks, "task list");
+    section("Decisions", s.decisions, "none", cap.decisions);
+    section("Recent claims", s.claims, "none", cap.claims, "claim list");
+    section("Files", s.artifacts, "none", cap.files, "doc list");
+    if (reviewsForYou.length) section("Changes waiting for YOUR review", reviewsForYou, "", 20);
+    if (recent.length) section("Recent changes", recent, "", MAX_CHANGES);
     lines.push("", "(One line per entry; `get` an entry number for the full text.)");
     return lines.join("\n");
   };
+  // Over budget: shrink the less urgent sections (claims first, then decisions, files, open items), a few renders at most.
   let out = render();
-  while (out.length > maxChars && (s.claims.length || s.decisions.length)) {
-    if (s.claims.length) s.claims.shift();
-    else s.decisions.shift();
-    out = render();
+  for (const k of ["claims", "decisions", "files", "questions", "tasks"] as const) {
+    while (out.length > maxChars && cap[k] > 0) {
+      cap[k] = cap[k] > 3 ? Math.floor(cap[k] / 2) : cap[k] - 1;
+      out = render();
+    }
   }
   return out.length > maxChars ? out.slice(0, maxChars) + "\n… [summary truncated]" : out;
 }

@@ -356,6 +356,7 @@ dialog.lightbox img{display:block;max-width:min(96vw,1600px);max-height:92vh;wid
 .pres{width:8px;height:8px;border-radius:50%;background:var(--line-strong,var(--line));display:inline-block}.pres.on{background:var(--ok)}
 .approval-details{max-height:320px;overflow:auto;margin:10px 0 0;padding:10px;border:1px solid var(--line);border-radius:8px;font-size:12px;white-space:pre-wrap}
 .approval.decided{opacity:.75}.badge.risk-high{color:var(--danger)}.badge.risk-medium{color:var(--warn)}
+.load-earlier{display:block;margin:6px auto 12px}
 /* Profile pictures */
 .pfps{display:grid;gap:10px}
 .pfp{gap:14px;align-items:center}

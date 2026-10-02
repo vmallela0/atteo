@@ -314,7 +314,17 @@ export class Board extends DurableObject<Env> {
     } catch {}
   }
 
+  // Summaries are rebuilt from the whole log, so they're cached until something changes (every change broadcasts).
+  private changes = 0;
+  private cache: { key: string; summary: Summary; tags: Map<number, string>; reviewers: Map<number, string[]> } | null = null;
+  private cached() {
+    const key = String(this.changes);
+    if (this.cache?.key !== key) this.cache = { key, summary: this.computeSummaryNow(), tags: this.taskTags(), reviewers: this.reviewers() };
+    return this.cache;
+  }
+
   private broadcast(msg: object) {
+    this.changes++;
     const data = JSON.stringify(msg);
     for (const ws of this.ctx.getWebSockets()) {
       try {
@@ -333,6 +343,10 @@ export class Board extends DurableObject<Env> {
     if (!cols.has("self_agent")) this.sql.exec("ALTER TABLE entries ADD COLUMN self_agent INTEGER NOT NULL DEFAULT 0");
     if (!cols.has("artifact_version")) this.sql.exec("ALTER TABLE entries ADD COLUMN artifact_version INTEGER");
     if (!cols.has("card")) this.sql.exec("ALTER TABLE entries ADD COLUMN card TEXT");
+    // "Was this retracted / replied to?" lookups run for every task and claim on every summary rebuild.
+    this.sql.exec("CREATE INDEX IF NOT EXISTS entries_retracts ON entries (retracts) WHERE retracts IS NOT NULL");
+    this.sql.exec("CREATE INDEX IF NOT EXISTS entries_reply_to ON entries (reply_to) WHERE reply_to IS NOT NULL");
+    this.sql.exec("CREATE INDEX IF NOT EXISTS depends_on ON depends (on_seq)");
     if (!cols.has("card_diff")) this.sql.exec("ALTER TABLE entries ADD COLUMN card_diff TEXT");
     if (!cols.has("media")) this.sql.exec("ALTER TABLE entries ADD COLUMN media TEXT"); // images: {mime, w, h, size}
     if (!cols.has("title")) this.sql.exec("ALTER TABLE entries ADD COLUMN title TEXT"); // the author's 2–5 word summary
@@ -629,12 +643,21 @@ export class Board extends DurableObject<Env> {
     return this.sql.exec("SELECT COUNT(*) AS n FROM entries WHERE seq > ? AND (author != ? OR self_agent = 1)", seq, excludeAuthor).one().n as number;
   }
 
+  // Entries never change once posted, so the in-memory copy only ever needs the new ones appended.
+  private entryMemo: Entry[] = [];
   allEntries(): Entry[] {
-    return this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries ORDER BY seq`).toArray().map(toEntry);
+    const after = this.entryMemo.length ? this.entryMemo[this.entryMemo.length - 1].seq : 0;
+    const fresh = this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq > ? ORDER BY seq`, after).toArray().map(toEntry);
+    if (fresh.length) this.entryMemo = this.entryMemo.concat(fresh);
+    return this.entryMemo;
   }
 
   /** Open tasks show their current title (tasks are edited in place), not the text of the post that created them. */
   summary(): Summary {
+    return this.cached().summary;
+  }
+
+  private computeSummaryNow(): Summary {
     const s = computeSummary(this.allEntries());
     const titles = new Map(this.sql.exec("SELECT seq, title FROM tasks WHERE title IS NOT NULL").toArray().map((r) => [r.seq as number, r.title as string]));
     s.openTasks = s.openTasks.map((e) => (titles.has(e.seq) ? { ...e, text: titles.get(e.seq)! } : e));
@@ -660,7 +683,10 @@ export class Board extends DurableObject<Env> {
     return {
       info,
       members,
-      summaryText: formatSummary(info, members, this.summary(), user, DEFAULT_SUMMARY_CHARS, this.taskTags(), this.reviewers()),
+      summaryText: (() => {
+        const c = this.cached();
+        return formatSummary(info, members, c.summary, user, DEFAULT_SUMMARY_CHARS, c.tags, c.reviewers);
+      })(),
       entries: fresh,
       remaining,
     };
@@ -1075,6 +1101,7 @@ export class Board extends DurableObject<Env> {
         "INSERT OR REPLACE INTO reviews (seq, reviewer, verdict, via, note_seq, ts) VALUES (?, ?, ?, ?, ?, ?)",
         seq, user, verdict, opts.via ?? null, entry.seq, Date.now(),
       );
+      this.changes++; // the verdict changes the summary's tags
     }
     return { entry, state: this.taskTags().get(seq) ?? "no verdicts yet" };
   }
@@ -1646,14 +1673,25 @@ export class Board extends DurableObject<Env> {
     return out;
   }
 
-  async snapshot(afterSeq = 0) {
+  /** The newest `limit` entries before `before` (or the newest overall), oldest first. */
+  async page(before: number | null, limit = 100): Promise<Entry[]> {
+    this.info();
+    const n = clamp(limit, 1, 500);
+    const rows = before
+      ? this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq < ? ORDER BY seq DESC LIMIT ?`, before, n)
+      : this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries ORDER BY seq DESC LIMIT ?`, n);
+    return rows.toArray().map(toEntry).reverse();
+  }
+
+  /** For pages: afterSeq 0 means "open the board", which shows the newest entries (big boards load earlier ones on demand). */
+  async snapshot(afterSeq = 0, opts: { latest?: number } = {}) {
     const info = this.info();
     return {
       info,
       reads: this.reads(),
       members: this.members(),
       summary: this.summary(),
-      entries: this.entriesAfter(afterSeq, null, 1000),
+      entries: opts.latest ? await this.page(null, opts.latest) : this.entriesAfter(afterSeq, null, 1000),
       reactions: afterSeq === 0 ? this.reactionsFor() : {},
       reviews: this.reviewsBySeq(),
     };

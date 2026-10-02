@@ -1311,6 +1311,21 @@ await step("claims: evidence, verify (never your own), dispute flags everything 
   await err(A, fb, "claim", { action: "verify", seq: log }, "isn't a claim");
 });
 
+await step("big boards open on the newest entries; earlier ones load on demand", async () => {
+  const id = (await ops("boards", { user: A, title: `e2e big ${run}` })).body.board.id;
+  const post = (t) => web(`/api/boards/${id}/entries`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: t }) });
+  for (let i = 0; i < 320; i += 40) await Promise.all(Array.from({ length: 40 }, (_, k) => post(`big ${i + k} ${run}`)));
+  const page = await (await web(`/b/${id}`, A)).text();
+  has(page, `big 319 ${run}`);
+  assert(!page.includes(`>big 0 ${run}<`) && !page.includes(`big 0 ${run}</p>`), "the oldest entries aren't on the first page");
+  const before = Number(page.match(/data-before="(\d+)"/)[1]);
+  const j = await (await web(`/api/boards/${id}/entries?before=${before}&limit=150`, A)).json();
+  assert(j.entries.length === before - 1 && j.first === 1 && j.entries[0].html.includes(`big 0 ${run}`), `${j.entries.length} ${j.first}`);
+  const t0 = Date.now();
+  has(await ok(A, id, "read"), "320 entries");
+  assert(Date.now() - t0 < 2000, "summary of a few hundred entries is quick");
+});
+
 await step("rename and archive: creator only; archived boards are read-only and listed separately; restore works", async () => {
   const id = (await ops("boards", { user: A, title: `e2e arch ${run}` })).body.board.id;
   await ops("members", { board: id, user: B });
