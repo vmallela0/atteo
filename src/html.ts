@@ -1023,7 +1023,7 @@ window.BOARD_CTX={id:BOARD,me:ME,members:MEMBERS,
   openFile(name,v){tab(2);openDoc(name,v)}};
 document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&!e.altKey&&!e.shiftKey&&e.key.toLowerCase()==='f'&&!document.querySelector('dialog[open]:not(#palette)')){e.preventDefault();window.openPalette([{k:'board'},{k:'kind',v:'messages'}])}},true);
 // ---- threads: replies fold into "N replies" under their message; clicking it opens the thread right there, in the chat ----
-const avatar16=(u,agent)=>'<span class="av sm'+(agent?' agent':'')+'" style="--h:'+(MOPTS.find(o=>o.u===u)?.av.match(/--h:([0-9]+)/)?.[1]||220)+'">'+esc(u.slice(0,2).toUpperCase())+'</span>';
+const avatar16=(u,agent)=>'<span class="av sm'+(agent?' agent':'')+'" style="--h:'+(MOPTS.find(o=>o.u===u)?.av.match(/--h:([0-9]+)/)?.[1]||220)+'">'+esc(u.slice(0,2).toUpperCase())+'<img class="av-img" src="/avatar/'+encodeURIComponent(u)+(agent?'?k=agent':'')+'" alt="" loading="lazy" onerror="this.remove()" onload="this.classList.add(&quot;ok&quot;)"></span>';
 const thrForm=document.getElementById('thr-form'),thrText=document.getElementById('thr-text');let thrRoot=null,thrTarget=null;
 function thrSum(root){const top=document.getElementById('e'+root);if(!top)return;const kids=[...(document.getElementById('r'+root)?.querySelectorAll('.entry')||[])];
   let b=top.querySelector(':scope>.grow>.thr-sum');if(!kids.length&&thrRoot!==root){b?.remove();return}
@@ -1681,7 +1681,18 @@ export function adminPage(viewer: Viewer, side: SideBoard[], d: AdminData): Resp
 <h2 style="margin:24px 0 10px">Agents by client</h2>${table(["Client", "People using it"], m.clients.map((c) => `<tr><td>${esc(c.client)}</td><td>${c.agents}</td></tr>`), "No agent sessions yet.")}
 <h2 style="margin:24px 0 10px">Server errors</h2>${table(["Last", "Count", "Route", "Message"], m.errors.map((e) => `<tr><td class="xs">${when(e.last_at)}</td><td>${e.count}</td><td class="mono xs">${esc(e.route)}</td><td class="xs">${esc(e.message)}</td></tr>`), "No errors recorded.")}`
     : "";
-  const overview = `<div class="grid4">${stat(d.boards.length, "Boards")}${stat(d.users.length, "Users")}${stat(d.totalEntries, "Messages")}${stat(d.invites.length, "Invites")}</div>${usageHtml}
+  const k = m?.kpis;
+  const kpi = (n: string | number, label: string, sub = "") => `<div class="card pad"><div class="stat">${esc(String(n))}</div><div class="small muted">${label}</div>${sub ? `<div class="xs faint" style="margin-top:2px">${sub}</div>` : ""}</div>`;
+  // The numbers worth knowing at a glance (test accounts and boards left out).
+  const kpiHtml = k
+    ? `<div class="grid4">${kpi(k.users, "Users", `+${k.users_7d} this week · +${k.users_30d} in 30 days`)}${kpi(k.active_7d, "Active this week", `${k.active_1d} today · ${k.active_30d} in 30 days`)}${kpi(
+        `$${k.mrr.toLocaleString("en-US")}`,
+        "MRR (est.)",
+        `${k.pro} on Pro${k.cancelling ? ` · ${k.cancelling} cancelling` : ""}${k.active_30d ? ` · ${Math.round((k.pro / k.active_30d) * 100)}% of active` : ""}`,
+      )}${kpi(k.agents_7d, "People with an agent connected", "used a token this week")}</div>
+<div class="grid4" style="margin-top:12px">${kpi(k.boards, "Boards", `${k.boards_active_7d} active this week`)}${kpi(k.posts_7d, "Posts this week", "people and agents")}${kpi(d.totalEntries, "Messages, all time")}${kpi(k.errors_24h, "Server errors, last 24h", k.errors_24h ? "see Server errors below and Sentry" : "all quiet")}</div>`
+    : `<div class="grid4">${stat(d.boards.length, "Boards")}${stat(d.users.length, "Users")}${stat(d.totalEntries, "Messages")}${stat(d.invites.length, "Invites")}</div>`;
+  const overview = `${kpiHtml}${usageHtml}
 <h2 style="margin:32px 0 10px">Boards</h2>
 ${table(
   ["Board", "Members", "Messages", "Created by", "Last activity"],

@@ -33,7 +33,29 @@ export function recordError(env: Env, route: string, e: unknown): Promise<unknow
     .run();
 }
 
+/** Pro's list price (USD/month), for the MRR estimate on /_ops. Keep in step with the pricing on the landing page. */
+export const PRO_MONTHLY_USD = 10;
+
+/** The numbers worth knowing at a glance. Test accounts (e2e-*) and test boards are left out. */
+export interface Kpis {
+  users: number;
+  users_7d: number; // signed up in the last 7 days
+  users_30d: number;
+  active_1d: number; // people seen on the web, through an agent or a watcher
+  active_7d: number;
+  active_30d: number;
+  pro: number; // paying (active or trialing)
+  cancelling: number; // Pro, ending at the period end
+  mrr: number; // USD, estimated from list price
+  boards: number;
+  boards_active_7d: number;
+  agents_7d: number; // people whose agent or CLI used a token in the last 7 days
+  posts_7d: number;
+  errors_24h: number;
+}
+
 export interface Metrics {
+  kpis: Kpis;
   days: { day: string; people: number; agents: number; posts_person: number; posts_agent: number; new_users: number; new_boards: number }[];
   clients: { client: string; agents: number }[];
   errors: { route: string; message: string; count: number; last_at: number }[];
@@ -42,13 +64,29 @@ export interface Metrics {
 export async function metrics(env: Env, n = 14): Promise<Metrics> {
   const since = day(Date.now() - (n - 1) * 86_400_000);
   const sinceMs = Date.parse(since + "T00:00:00Z");
-  const [u, nu, nb, cl, er] = await Promise.all([
+  const now = Date.now(),
+    D = 86_400_000;
+  const [u, nu, nb, cl, er, ku, kb, ka, ke] = await Promise.all([
     env.DB.prepare(`SELECT day, metric, key, SUM(count) AS c, COUNT(*) AS k FROM usage_daily WHERE day >= ? GROUP BY day, metric, CASE WHEN metric = 'posts' THEN key ELSE '' END`).bind(since).all<{ day: string; metric: string; key: string; c: number; k: number }>(),
     env.DB.prepare(`SELECT strftime('%Y-%m-%d', first_seen / 1000, 'unixepoch') AS day, COUNT(*) AS c FROM users WHERE first_seen >= ? AND name NOT LIKE 'e2e-%' GROUP BY day`).bind(sinceMs).all<{ day: string; c: number }>(),
-    env.DB.prepare(`SELECT strftime('%Y-%m-%d', created_at / 1000, 'unixepoch') AS day, COUNT(*) AS c FROM boards WHERE created_at >= ? AND title NOT LIKE 'e2e %' GROUP BY day`).bind(sinceMs).all<{ day: string; c: number }>(),
+    env.DB.prepare(`SELECT strftime('%Y-%m-%d', created_at / 1000, 'unixepoch') AS day, COUNT(*) AS c FROM boards WHERE created_at >= ? AND title NOT LIKE 'e2e %' AND created_by NOT LIKE 'e2e-%' GROUP BY day`).bind(sinceMs).all<{ day: string; c: number }>(),
     // agent_client keys are "client|user": distinct people's agents per client.
     env.DB.prepare(`SELECT substr(key, 1, instr(key, '|') - 1) AS client, COUNT(DISTINCT substr(key, instr(key, '|') + 1)) AS agents FROM usage_daily WHERE metric = 'agent_client' AND day >= ? GROUP BY client ORDER BY agents DESC LIMIT 10`).bind(since).all<{ client: string; agents: number }>(),
     env.DB.prepare(`SELECT route, message, count, last_at FROM errors ORDER BY last_at DESC LIMIT 20`).all<{ route: string; message: string; count: number; last_at: number }>(),
+    env.DB.prepare(
+      `SELECT COUNT(*) AS users, SUM(first_seen >= ?1) AS users_7d, SUM(first_seen >= ?2) AS users_30d,
+         SUM(MAX(last_seen, COALESCE(web_seen, 0), COALESCE(watch_seen, 0)) >= ?3) AS active_1d,
+         SUM(MAX(last_seen, COALESCE(web_seen, 0), COALESCE(watch_seen, 0)) >= ?1) AS active_7d,
+         SUM(MAX(last_seen, COALESCE(web_seen, 0), COALESCE(watch_seen, 0)) >= ?2) AS active_30d,
+         SUM(plan = 'pro' AND COALESCE(plan_status, 'active') IN ('active', 'trialing')) AS pro,
+         SUM(plan = 'pro' AND plan_cancel_at_end = 1) AS cancelling
+       FROM users WHERE name NOT LIKE 'e2e-%'`,
+    )
+      .bind(now - 7 * D, now - 30 * D, now - D)
+      .first<Record<string, number | null>>(),
+    env.DB.prepare(`SELECT COUNT(*) AS boards, SUM(last_activity >= ?) AS active FROM boards WHERE title NOT LIKE 'e2e %' AND created_by NOT LIKE 'e2e-%'`).bind(now - 7 * D).first<{ boards: number; active: number | null }>(),
+    env.DB.prepare(`SELECT COUNT(DISTINCT user) AS n FROM tokens WHERE last_used >= ? AND revoked_at IS NULL AND user NOT LIKE 'e2e-%'`).bind(now - 7 * D).first<{ n: number }>(),
+    env.DB.prepare(`SELECT COALESCE(SUM(count), 0) AS n FROM errors WHERE last_at >= ?`).bind(now - D).first<{ n: number }>(),
   ]);
   const days = Array.from({ length: n }, (_, i) => ({ day: day(Date.now() - (n - 1 - i) * 86_400_000), people: 0, agents: 0, posts_person: 0, posts_agent: 0, new_users: 0, new_boards: 0 }));
   const at = (d: string) => days.find((x) => x.day === d);
@@ -61,5 +99,22 @@ export async function metrics(env: Env, n = 14): Promise<Metrics> {
   }
   for (const r of nu.results) if (at(r.day)) at(r.day)!.new_users = r.c;
   for (const r of nb.results) if (at(r.day)) at(r.day)!.new_boards = r.c;
-  return { days, clients: cl.results, errors: er.results };
+  const k = (key: string) => Number(ku?.[key] ?? 0);
+  const kpis: Kpis = {
+    users: k("users"),
+    users_7d: k("users_7d"),
+    users_30d: k("users_30d"),
+    active_1d: k("active_1d"),
+    active_7d: k("active_7d"),
+    active_30d: k("active_30d"),
+    pro: k("pro"),
+    cancelling: k("cancelling"),
+    mrr: k("pro") * PRO_MONTHLY_USD,
+    boards: kb?.boards ?? 0,
+    boards_active_7d: kb?.active ?? 0,
+    agents_7d: ka?.n ?? 0,
+    posts_7d: days.slice(-7).reduce((n, x) => n + x.posts_person + x.posts_agent, 0),
+    errors_24h: ke?.n ?? 0,
+  };
+  return { kpis, days, clients: cl.results, errors: er.results };
 }
