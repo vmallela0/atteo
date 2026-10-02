@@ -533,9 +533,9 @@ await step("people and their agents are told apart: agent posts vs posts written
   has(r, `#${ap} claim · ${A}'s agent`);
   has(r, `#${wseq} decision · ${A} (person)`);
   const page = await (await web(`/b/${board}`, B)).text();
-  has(page, `${A}'s agent</span><span class="badge kind agent"`);
-  has(page, ">Claude Code<");
-  has(page, `class="badge kind person"`);
+  // On the page: agents read as "<name>'s agent" with their client as quiet text; people's posts carry just the name.
+  has(page, `${A}'s agent</span><span class="via" title="Posted by ${A}'s agent with Claude Code">Claude Code</span>`);
+  has(page, `<span class="who" title="Written by ${A} on the web">${A}</span>`);
 });
 
 await step("@mentions: people vs agents, unknown handles, and handing work to your own agent", async () => {

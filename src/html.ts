@@ -87,7 +87,7 @@ ${
   return `<article class="entry${opts.retracted ? " retracted" : ""}${e.via === "agent" ? " by-agent" : ""}" id="e${e.seq}" data-seq="${e.seq}" data-author="${esc(e.author)}">
 ${avatar(e.author, "", e.via === "agent")}
 <div class="grow">
-  <div class="meta">${whoHtml(e)}${e.to ? `<span class="to">→ ${esc(e.to)}</span>` : ""}${typeTag(e.type)}${when(e.ts)}<a class="seq" href="#e${e.seq}">#${e.seq}</a><span class="badge rbadge">Unsent</span>${flagBadge(e.text)}${actions}</div>
+  <div class="meta">${whoHtml(e)}${e.to ? `<span class="to">→ ${esc(e.to)}</span>` : ""}${e.type === "note" ? "" : typeTag(e.type)}${when(e.ts)}<a class="seq" href="#e${e.seq}">#${e.seq}</a><span class="badge rbadge">Unsent</span>${flagBadge(e.text)}${actions}</div>
   <div class="body">${renderText(e.text, e.mentions)}</div>${file}${e.card ? changeCardHtml(e.seq, e.card) : ""}${e.type === "task" ? `<div class="tk" data-task="${e.seq}" hidden></div>` : ""}
   ${refs.length ? `<div class="refs">${refs.join(" · ")}</div>` : ""}
   <div class="rx" data-rx="${e.seq}"><button class="rx-add" type="button" data-rx-add="${e.seq}" aria-label="Add a reaction" title="Add a reaction">☺<span>+</span></button></div>
@@ -148,8 +148,9 @@ function imageHtml(boardId: string, e: Entry): string {
 
 /** Author, marked as the person or their agent (and which agent). */
 function whoHtml(e: Entry): string {
-  if (e.via === "agent") return `<span class="who">${esc(e.author)}'s agent</span><span class="badge kind agent" title="Posted by ${esc(e.author)}'s agent">${esc(e.client || "agent")}</span>`;
-  if (e.via === "person") return `<span class="who">${esc(e.author)}</span><span class="badge kind person" title="Written by ${esc(e.author)} themselves">person</span>`;
+  // Agents read apart by their square avatar and "<name>'s agent"; the client is plain text, people get no tag.
+  if (e.via === "agent") return `<span class="who">${esc(e.author)}'s agent</span>${e.client && e.client !== "agent" ? `<span class="via" title="Posted by ${esc(e.author)}'s agent with ${esc(e.client)}">${esc(e.client)}</span>` : ""}`;
+  if (e.via === "person") return `<span class="who" title="Written by ${esc(e.author)} on the web">${esc(e.author)}</span>`;
   return `<span class="who">${esc(e.author)}</span>`;
 }
 
@@ -446,7 +447,7 @@ export function homePage(
     <h3 class="grow truncate">${esc(b.title)}</h3>
     ${b.unread ? `<span class="bc-unread" title="Waiting for you">${b.unread} for you</span>` : ""}
     <button class="btn ghost sm bc-edit" type="button" data-edit-board="${esc(b.id)}" aria-label="Edit details">Edit</button></div>
-  <p class="bc-desc${meta.description ? "" : " faint"}">${meta.description ? esc(meta.description) : "No description yet."}</p>
+  ${meta.description ? `<p class="bc-desc">${esc(meta.description)}</p>` : ""}
   ${meta.tags.length ? `<div class="bc-tags">${meta.tags.map((t) => `<span class="tag">#${esc(t)}</span>`).join("")}</div>` : ""}
   ${meta.links.length ? `<div class="bc-links">${meta.links.map((l) => `<a href="${esc(l.url)}" target="_blank" rel="noopener noreferrer">${esc(l.label)} ↗</a>`).join("")}</div>` : ""}
   <div class="row bc-foot">${avatarStack(names, 5)}<span class="grow"></span><span class="xs faint">${b.archived_at ? `archived ${when(b.archived_at)}` : `${b.entry_count} ${b.entry_count === 1 ? "entry" : "entries"} · ${when(b.last_activity)}`}</span></div>
@@ -468,7 +469,7 @@ export function homePage(
     crumbs: `<span class="cur">Boards</span>`,
     actions: `${agent.connected ? "" : `<button class="btn sm primary" data-open="connect">Connect an agent</button>`}<button class="btn ${agent.connected ? "primary " : ""}sm" data-open="new-board">New board</button>`,
     body: `${flash ? `<p class="flash ok" style="margin-bottom:18px">${esc(flash)}</p>` : ""}
-${agent.connected ? "" : `<div style="margin-bottom:24px">${agentCard(agent)}</div>`}
+
 ${invites}
 <div class="section-title"><div><h1>Boards</h1><p class="muted" style="margin-top:4px">Problems you and your collaborators' agents are working on.</p></div></div>
 ${list}
@@ -575,9 +576,7 @@ export function agentCard(state: AgentState, boardTitle?: string): string {
     return `<div class="agent-card" data-agent-card><button class="btn ghost sm card-x" type="button" data-dismiss-agent aria-label="Close" title="Close">✕</button><div class="grow"><b>Bring your agent here</b><div class="xs muted" style="margin:2px 0 8px">In any agent session, say:</div>${copyField("join-phrase", `join ${boardTitle}`)}
 <div class="xs muted" style="margin:10px 0 6px">Agent not connecting? Reconnect with the CLI:</div>${copyField("card-reconnect", CLI_STEPS.reconnect)}</div></div>`;
   }
-  if (state.connected) return "";
-  return `<div class="agent-card cta" data-agent-card><button class="btn ghost sm card-x" type="button" data-dismiss-agent aria-label="Close" title="Close">✕</button><div class="grow"><b>Connect your agent</b><div class="small muted" style="margin-top:2px">One command for Claude Code, or a URL for Cursor, Codex and other MCP agents. Takes about 30 seconds.</div></div>
-<button class="btn primary" data-open="connect">Connect an agent</button></div>`;
+  return ""; // not connected yet: the top bar's "Connect an agent" is the one place for that
 }
 
 export function boardPage(
@@ -668,7 +667,7 @@ let ws,retry=0,polling=false;
 function poll(){if(polling)return;polling=true;(async()=>{for(;;){if(document.hidden){await new Promise(r=>setTimeout(r,2000));continue}await tick(true)}})()}
 function connect(){
   try{ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/api/boards/'+BOARD+'/ws')}catch(e){return poll()}
-  let ping;ws.onopen=()=>{retry=0;ping=setInterval(()=>{try{ws.send('ping')}catch(e){}},30000)};
+  let ping;ws.onopen=()=>{retry=0;document.getElementById('conn').hidden=true;ping=setInterval(()=>{try{ws.send('ping')}catch(e){}},30000)};
   ws.onmessage=(m)=>{if(m.data==='pong')return;let d;try{d=JSON.parse(m.data)}catch(e){return}
     if(d.type==='removed'||d.type==='deleted'){location.href='/';return}
     if(d.type==='renamed'){window.applyTitle(d.title);return}
@@ -679,7 +678,7 @@ function connect(){
     if(d.type==='task')refreshTask(d.seq);
     if(d.type==='task'){if(!document.getElementById('panel-tasks').hidden)loadTasks();if(td&&td.open&&tcur&&tcur.seq===d.seq&&!tdirty)openTask(d.seq)}
     if(d.type==='entry'||(d.type==='hello'&&d.last>last)){tick(false);if(!document.getElementById('panel-tasks').hidden)loadTasks()}};
-  ws.onclose=(e)=>{clearInterval(ping);if(e.code===4003){location.href='/';return}
+  ws.onclose=(e)=>{clearInterval(ping);if(e.code!==4003)document.getElementById('conn').hidden=false;if(e.code===4003){location.href='/';return}
     if(++retry>4)return poll();setTimeout(connect,Math.min(30000,1000*2**retry))};
 }
 connect();
@@ -1116,8 +1115,8 @@ window.boardKeys=(e,k)=>{
       : `<h1 class="truncate" id="board-title">${esc(info.title)}</h1>`
   }
   <div class="row small muted bp-meta" title="${esc(info.id)}">
-    <span class="badge live"><span class="dot"></span>Live</span>
-    <span class="row" style="min-width:0">${avatarStack(members.map((m) => m.user))}<span class="truncate bp-names">${members.map((m) => esc(m.user)).join(", ")}</span></span>
+    <span class="badge conn" id="conn" hidden title="Live updates are reconnecting">Reconnecting…</span>
+    <span class="row" style="min-width:0" title="${esc(members.map((m) => m.user).join(", "))}">${avatarStack(members.map((m) => m.user))}</span>
     <span class="bp-count"><span data-count>${info.entry_count}</span> entries</span>
   </div></div>
   <div class="bp-tabs"><div class="tabs" role="tablist" id="board-tabs"><button role="tab" aria-selected="true" aria-controls="panel-conv">Conversation</button><button role="tab" aria-selected="false" aria-controls="panel-log">Log <span class="faint" data-count>${info.entry_count}</span></button><button role="tab" aria-selected="false" aria-controls="panel-docs">Files</button><button role="tab" aria-selected="false" aria-controls="panel-tasks">Tasks <span class="faint" id="task-count"></span></button></div>
@@ -1133,7 +1132,7 @@ window.boardKeys=(e,k)=>{
       <div class="replying" id="replying" hidden>Replying to <b id="replying-who"></b> <a id="replying-seq" href="#"></a><button class="btn ghost sm x" type="button" id="reply-cancel" aria-label="Cancel reply">✕</button></div>
       <input type="hidden" name="reply_to" id="reply-to" value="">
       <div class="attachments" id="attachments" hidden></div>
-      <div class="cmp-field"><div class="cmp-mirror" id="composer-mirror" aria-hidden="true"></div><textarea class="input" id="composer-text" name="text" required placeholder="Write a note, question, task or decision… (Enter to post, Shift+Enter for a new line, @ to mention)" aria-label="Message"
+      <div class="cmp-field"><div class="cmp-mirror" id="composer-mirror" aria-hidden="true"></div><textarea class="input" id="composer-text" name="text" required placeholder="Write a message…  @ to mention" aria-label="Message"
         role="combobox" aria-autocomplete="list" aria-controls="mention-menu" aria-expanded="false"></textarea></div>
       <ul class="mention-menu" id="mention-menu" role="listbox" aria-label="Mention" hidden></ul>
       <div class="bar">
@@ -1224,7 +1223,7 @@ ${connectDialog(viewer, { id: info.id, title: info.title })}
     boards: side,
     active: info.id,
     crumbs: `<a class="muted" href="/">Boards</a><span class="faint">/</span><span class="cur truncate">${esc(info.title)}</span>`,
-    actions: `<button class="btn sm" data-open="invite">Invite <kbd>I</kbd></button><button class="btn primary sm" data-open="connect">Connect an agent</button>`,
+    actions: `${agent.connected ? "" : `<button class="btn sm" data-open="connect">Connect an agent</button>`}<button class="btn sm" data-open="invite">Invite<kbd class="hide-sm">I</kbd></button>`,
     body,
     script,
     full: true,

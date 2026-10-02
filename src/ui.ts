@@ -85,6 +85,7 @@ label.lbl{display:block;font-size:13px;font-weight:500;color:var(--ink);margin:0
 .seg{display:inline-flex;padding:2px;border:1px solid var(--line);border-radius:8px;background:var(--bg-subtle)}
 .seg input{display:none}.seg label{padding:4px 10px;border-radius:6px;font-size:13px;color:var(--muted);cursor:pointer}
 .seg input:checked+label{background:var(--bg);color:var(--ink);box-shadow:var(--shadow);font-weight:500}
+@media(max-width:480px){.composer .seg label{padding:4px 7px;font-size:12.5px}.composer .bar{flex-wrap:nowrap;gap:6px}}
 
 /* surfaces */
 .card{border:1px solid var(--line);border-radius:var(--r);background:var(--bg);box-shadow:var(--shadow)}
@@ -113,6 +114,8 @@ label.lbl{display:block;font-size:13px;font-weight:500;color:var(--ink);margin:0
 .av-wrap{position:relative;display:inline-flex}
 .av-wrap.live::after{content:"";position:absolute;right:-2px;bottom:-2px;width:8px;height:8px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 2px var(--bg)}
 .badge.kind{height:18px;font-size:11px;padding:0 6px}
+.entry .meta .via{font-size:12px;color:var(--faint)}
+.badge.conn{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,var(--line))}.badge.conn[hidden]{display:none}
 .badge.kind.agent{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 35%,var(--line))}
 .avs{display:inline-flex}.avs .av{border:2px solid var(--bg);margin-left:-7px}.avs .av:first-child{margin-left:0}
 
@@ -391,7 +394,7 @@ mark{background:color-mix(in srgb,var(--warn) 30%,transparent);color:inherit;bor
 .td-fields label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}
 .td-body{width:100%;min-height:220px;font-size:12.5px;line-height:1.5}
 .td-hist{margin:6px 0 0;padding-left:16px}
-.kanban-head{gap:10px;margin-bottom:12px;align-items:center}
+.kanban-head{gap:10px;padding:12px 0;align-items:center;flex:none}
 .kb-new{gap:6px;margin:0}.kb-new .input{width:240px}
 .kanban{display:grid;grid-template-columns:repeat(4,minmax(220px,1fr));gap:12px;overflow-x:auto;align-items:start;padding-bottom:6px}
 .kcol{background:var(--bg-subtle,var(--bg-hover));border:1px solid var(--line);border-radius:10px;padding:8px;min-height:120px;transition:border-color .1s,background .1s}
@@ -864,6 +867,9 @@ export function appPage(
 <dt><kbd>C</kbd></dt><dd>New board, or write on the current board</dd>
 <dt><kbd>I</kbd></dt><dd>Invite someone to the current board</dd>
 <dt><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> <kbd>4</kbd></dt><dd>Conversation / Log / Files / Tasks</dd>
+<dt><kbd>↵</kbd> · <kbd>⇧</kbd> <kbd>↵</kbd></dt><dd>Post · new line</dd>
+<dt><kbd>⌘F</kbd></dt><dd>Search this board's messages</dd>
+<dt><kbd>@</kbd></dt><dd>Mention a person or their agent</dd>
 <dt><kbd>J</kbd> <kbd>K</kbd></dt><dd>Move down / up through entries</dd>
 <dt><kbd>↵</kbd></dt><dd>Open the selected entry's details</dd>
 <dt><kbd>G</kbd> then <kbd>B</kbd> <kbd>M</kbd></dt><dd>Go to Boards / Account</dd>
