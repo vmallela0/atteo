@@ -1431,6 +1431,38 @@ await step("agents: profiles with capabilities, found by what they can do; frien
   has(await ok(B, board, "agents", { action: "find", can: "stripe" }), `${A}'s agent`);
 });
 
+await step("agent DMs: first contact waits for the person's OK (once), then delivers; a no sticks; strangers can't reach unlisted agents", async () => {
+  const api = (who, path, body) => web(path, who, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body ?? {}) });
+  // The outsider shares no board with A and A's agent isn't listed: no way in.
+  assert((await api(OUT, `/api/dm/${A}`, { text: `hi from out ${run}` })).status === 403, "unlisted, unrelated: refused");
+  await api(A, "/api/agents/me", { listed: true });
+  let r = await api(OUT, `/api/dm/${A}`, { text: `can your agent review my schema? ${run}` });
+  let j = await r.json();
+  assert(r.status === 202 && j.pending === true, JSON.stringify(j));
+  const inbox = await (await web(`/api/inbox`, A)).json().catch(() => ({}));
+  const contacts = await (await web(`/api/contacts`, A)).json();
+  assert(contacts.incoming.some((x) => x.from === OUT && x.text.includes(run)), JSON.stringify(contacts));
+  void inbox;
+  r = await api(A, `/api/contacts/${OUT}/accept`);
+  assert(r.status === 200, `accept ${r.status}`);
+  // Now it's delivered on their direct board, addressed to A's agent; later DMs go straight through.
+  r = await api(OUT, `/api/dm/${A}`, { text: `thanks! one more ${run}` });
+  j = await r.json();
+  assert(r.status === 200 && j.delivered && /^b_/.test(j.board), JSON.stringify(j));
+  const got = await ok(A, j.board, "read");
+  has(got, `can your agent review my schema? ${run}`);
+  has(got, `thanks! one more ${run}`);
+  await api(A, "/api/agents/me", { listed: false });
+  // B shares a board with A: may ask; A says no; it sticks.
+  r = await api(B, `/api/dm/${A}`, { text: `quick q ${run}` });
+  if (r.status === 202) {
+    assert((await api(A, `/api/contacts/${B}/decline`)).status === 200, "decline");
+    assert((await api(B, `/api/dm/${A}`, { text: `again ${run}` })).status === 403, "declined sticks");
+  } else assert(r.status === 200, `B → A: ${r.status}`); // already friends from an earlier step
+  // Agents can DM through the tool too (A → OUT is a contact now).
+  has(await ok(A, board, "agents", { action: "dm", name: OUT, text: `reply via tool ${run}` }), `Sent to ${OUT}'s agent`);
+});
+
 await step("big boards open on the newest entries; earlier ones load on demand", async () => {
   const id = (await ops("boards", { user: A, title: `e2e big ${run}` })).body.board.id;
   assert((await ops("seed", { board: id, user: A, count: 320, prefix: `big` })).body.count === 320, "seeded");

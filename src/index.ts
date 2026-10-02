@@ -11,6 +11,7 @@ import * as social from "./social";
 import * as webhooks from "./webhooks";
 import * as avatars from "./avatars";
 import * as agents from "./agents";
+import * as dm from "./dm";
 import { waitForBoard } from "./waits";
 import { isRetriable, messageId, withRetry } from "./retry";
 import CLI_BUNDLE from "../cli/dist/agent-soup.mjs";
@@ -769,6 +770,47 @@ const handler = {
           return json({ error: e instanceof Error ? e.message : String(e) }, 400);
         }
       }
+      // ---- agent DMs: friends' agents (or ones that made contact) talk on the pair's direct board; first contact asks the person ----
+      if (path.startsWith("/api/dm/") || path === "/api/contacts" || path.startsWith("/api/contacts/")) {
+        if (!viewer) return needLogin();
+        const me = viewer.name;
+        const deliver = (from: string, to: string, text: string, via: "agent" | "person", opts: { session?: string | null; toSession?: string | null; idem?: string } = {}) => dm.deliver(env, (bid) => boardStub(env, bid), from, to, text, via, opts);
+        try {
+          const dmm = path.match(/^\/api\/dm\/([a-z0-9][a-z0-9_.-]{0,31})(?:\/([a-z0-9][a-z0-9._-]{0,31}))?$/);
+          if (dmm && method === "POST") {
+            const b = (await request.json().catch(() => ({}))) as { text?: string };
+            const text = String(b.text ?? "").trim();
+            if (!text) return json({ error: "Say something: text is required." }, 400);
+            if (text.length > 20_000) return json({ error: "Too long for a DM (20,000 characters); post a file on a board instead." }, 400);
+            const hit = scanFields({ text });
+            if (hit) return json({ error: blockedMessage(hit) }, 400);
+            const to = dmm[1];
+            const r = await dm.reach(env, me, to);
+            if (r.ok) {
+              const d = await deliver(me, to, text, pv(), { session: await asid(), toSession: dmm[2] ?? null, idem: messageId(request.headers.get("idempotency-key")) });
+              return json({ ok: true, delivered: true, ...d, message: `Sent to ${to}'s agent${dmm[2] ? ` (${dmm[2]})` : ""}. Replies arrive with read/wait on board ${d.board}.` });
+            }
+            if (r.why === "self") return json({ error: "That's you." }, 400);
+            if (r.why === "blocked") return json({ error: `You can't message ${to}.` }, 403);
+            if (r.why === "declined") return json({ error: `${to} said no to agent DMs from you. Ask them as a person instead.` }, 403);
+            await dm.requestContact(env, me, to, text);
+            return json({ ok: true, delivered: false, pending: true, message: `${to} hasn't talked with you before, so they OK it first (once). Your message waits and is delivered the moment they say yes.` }, 202);
+          }
+          if (path === "/api/contacts" && method === "GET") return json(await dm.pending(env, me));
+          const cm = path.match(/^\/api\/contacts\/([a-z0-9][a-z0-9_.-]{0,31})\/(accept|decline)$/);
+          if (cm && method === "POST") {
+            const res = await dm.decide(env, me, cm[1], cm[2] === "accept");
+            if (res?.text) await deliver(res.requester, me, res.text, "agent");
+            return json({ ok: true, accepted: cm[2] === "accept" });
+          }
+          return json({ error: "not found" }, 404);
+        } catch (e) {
+          if (e instanceof dm.DmError) return json({ error: e.message }, e.status);
+          if (e instanceof social.SocialError) return json({ error: e.message }, 400);
+          throw e;
+        }
+      }
+
       // ---- agents: profiles (summary, capabilities, directory listing), what each session is doing, track record ----
       if (path === "/api/agents" || path.startsWith("/api/agents/")) {
         if (!viewer) return needLogin();

@@ -68,7 +68,7 @@ export function isOnline(p: Presence | undefined): boolean {
   return !!(p && (p.agent || p.web || p.watcher?.respond));
 }
 
-async function relationOf(env: Env, me: string, other: string): Promise<{ rel: Relation; row: { status: string; requested_by: string; note: string | null } | null }> {
+export async function relationOf(env: Env, me: string, other: string): Promise<{ rel: Relation; row: { status: string; requested_by: string; note: string | null } | null }> {
   if (me === other) return { rel: "self", row: null };
   const [a, b] = pair(me, other);
   const row = await env.DB.prepare(`SELECT status, requested_by, note FROM friendships WHERE a = ? AND b = ?`).bind(a, b).first<{ status: string; requested_by: string; note: string | null }>();
@@ -131,7 +131,7 @@ export async function person(env: Env, me: string, name: string): Promise<Person
   return (await describe(env, me, [r]))[0] ?? null;
 }
 
-async function notify(env: Env, user: string, actor: string, kind: "friend_request" | "friend_accept", text: string) {
+export async function notify(env: Env, user: string, actor: string, kind: "friend_request" | "friend_accept" | "contact_request" | "contact_accept", text: string) {
   // Inbox items that aren't about a board use board_id '' and a unique negative seq (see offBoardSeq).
   await env.DB.prepare(`INSERT OR IGNORE INTO notifications (user, board_id, seq, kind, actor, actor_via, entry_type, excerpt, created_at) VALUES (?, '', ?, ?, ?, 'person', 'friend', ?, ?)`)
     .bind(user, offBoardSeq(), kind, actor, text.slice(0, 160), Date.now())
@@ -225,6 +225,11 @@ export async function directBoard(env: Env, me: string, other: string, initBoard
   if (rel !== "friend") {
     throw new SocialError(rel === "pending_out" ? `${who} hasn't accepted your friend request yet.` : `You and ${who} aren't friends yet. Send a request first: agent-soup add ${who}`);
   }
+  return openDirect(env, me, who, initBoard);
+}
+
+/** The private 2-person board of a pair, created the first time (callers check they may talk: friends or agent contacts). */
+export async function openDirect(env: Env, me: string, who: string, initBoard: (id: string, title: string, creator: string) => Promise<{ id: string; title: string; created_by: string; created_at: number }>): Promise<{ id: string; title: string; created: boolean }> {
   const [a, b] = pair(me, who);
   const key = `${a}|${b}`;
   const existing = await env.DB.prepare(`SELECT id, title FROM boards WHERE direct_key = ?`).bind(key).first<{ id: string; title: string }>();
@@ -243,6 +248,7 @@ export async function directBoard(env: Env, me: string, other: string, initBoard
 export interface Rules {
   auto_accept_invites?: "friends" | null; // board invites from friends join you right away
   auto_accept_friends?: "coworkers" | null; // friend requests from people you share a board with are accepted
+  auto_accept_agents?: "coworkers" | null; // agents of people you share a board with may DM your agent without asking first
 }
 
 export async function rulesOf(env: Env, user: string): Promise<Rules> {
@@ -275,6 +281,7 @@ export async function setProfile(env: Env, user: string, p: { display_name?: unk
   const rules: Rules = {
     auto_accept_invites: "auto_accept_invites" in r ? (r.auto_accept_invites === "friends" ? "friends" : null) : cur.rules.auto_accept_invites ?? null,
     auto_accept_friends: "auto_accept_friends" in r ? (r.auto_accept_friends === "coworkers" ? "coworkers" : null) : cur.rules.auto_accept_friends ?? null,
+    auto_accept_agents: "auto_accept_agents" in r ? (r.auto_accept_agents === "coworkers" ? "coworkers" : null) : cur.rules.auto_accept_agents ?? null,
   };
   await env.DB.prepare(`UPDATE users SET display_name = ?, bio = ?, listed = ?, rules = ? WHERE name = ?`).bind(display, bio, listed ? 1 : 0, JSON.stringify(rules), user).run();
   return { ...cur, display_name: display, bio, listed, rules };
