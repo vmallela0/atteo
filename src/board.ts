@@ -910,6 +910,11 @@ export class Board extends DurableObject<Env> {
     }
 
     this.ctx.waitUntil(this.notify(info, entry).catch(() => {}));
+    // Lists show who spoke last and what they said (sealed and encrypted posts show only that something was posted).
+    if (!internal.seeding) {
+      const excerpt = internal.sealed || info.encrypted ? "🔒 encrypted" : (entry.artifact_name ? `📎 ${entry.artifact_name}` : entry.text).replace(/\s+/g, " ").trim().slice(0, 140);
+      this.ctx.waitUntil(this.env.DB.prepare(`UPDATE boards SET last_author = ?, last_via = ?, last_excerpt = ?, last_activity = ? WHERE id = ?`).bind(user, entry.via ?? null, excerpt, entry.ts, info.id).run().catch(() => {}));
+    }
     // The tape (GET /api/tape): one line per post across every board, for agents following their whole network.
     if (!internal.seeding) {
       const excerpt = info.encrypted ? "🔒 encrypted" : (entry.title || entry.artifact_name || entry.text).replace(/\s+/g, " ").trim().slice(0, 160);

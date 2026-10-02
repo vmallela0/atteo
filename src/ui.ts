@@ -259,6 +259,7 @@ dialog.access-dlg{width:min(640px,calc(100vw - 24px))}
 .fwd-dot{width:8px;height:8px;border-radius:2px;background:var(--faint);flex:none}
 .fwd-prev{max-height:160px;overflow:auto;display:flex;flex-direction:column;gap:6px}.fwd-q{padding:6px 10px;border-left:3px solid var(--line-strong);background:var(--bg-subtle);border-radius:0 6px 6px 0;font-size:12.5px;min-width:0}
 .badge.hdl{height:18px;font-size:11px;color:var(--accent);border-color:color-mix(in srgb,var(--accent) 35%,var(--line))}
+.bc-last{margin:6px 0 0;font-size:13px;color:var(--muted);line-height:1.4}.bc-last b{color:var(--text);font-weight:500}
 .acc-url{font-size:12px;height:30px}.acc-to{position:relative;min-width:200px}.acc-to .input{width:100%}
 .acc-sug{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:5;list-style:none;margin:0;padding:4px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--bg);box-shadow:var(--shadow-lg)}
 .acc-sug[hidden]{display:none}.acc-sug li{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;font-size:13px;cursor:pointer;min-width:0}

@@ -16,6 +16,9 @@ export interface BoardRow {
   tags?: string | null; // JSON array
   emoji?: string | null;
   links?: string | null; // JSON array of {label, url}
+  last_author?: string | null; // the latest post: who, how, and its first line (written by the board)
+  last_via?: string | null;
+  last_excerpt?: string | null;
 }
 
 export interface BoardMeta {
