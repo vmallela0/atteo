@@ -47,6 +47,9 @@ jobs:
       - name: CLI tests
         run: node test/cli.mjs
 
+      - name: SDK tests (TypeScript asks, Python answers)
+        run: node test/sdk.mjs
+
       - name: Worker log on failure
         if: failure()
         run: tail -200 wrangler.log

@@ -273,6 +273,9 @@ async function opsData(env: Env): Promise<AdminData> {
 export default {
   /** Every 5 minutes: memberships whose time ran out are removed (access checks already ignore them). */
   async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    // Boards with a retention period: blank what's older.
+    const keep = (await env.DB.prepare(`SELECT id, retention_days FROM boards WHERE retention_days IS NOT NULL`).all<{ id: string; retention_days: number }>()).results;
+    for (const b of keep) ctx.waitUntil(boardStub(env, b.id).prune(Date.now() - b.retention_days * 86_400_000).catch(() => 0));
     for (const m of await registry.expiredMembers(env)) {
       ctx.waitUntil(
         (async () => {
@@ -921,6 +924,19 @@ export default {
       }
 
       // ---- board details (any member edits) and search across your boards ----
+      m = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/retention$/);
+      if (m && method === "POST") {
+        if (!viewer) return needLogin();
+        const board = await registry.getBoard(env, m[1]);
+        if (!board || ((await registry.memberRole(env, m[1], viewer.name)) !== "owner" && board.created_by !== viewer.name)) return json({ error: "Only the board's owners can set how long it keeps messages." }, 403);
+        const b = (await request.json().catch(() => ({}))) as { days?: number | string | null };
+        const days = b.days == null || b.days === "" || Number(b.days) === 0 ? null : Math.floor(Number(b.days));
+        if (days != null && (!Number.isFinite(days) || days < 1 || days > 3650)) return json({ error: "days must be 1–3650, or empty to keep everything." }, 400);
+        await env.DB.prepare(`UPDATE boards SET retention_days = ? WHERE id = ?`).bind(days, m[1]).run();
+        await registry.audit(env, m[1], viewer.name, "retention", null, days ? `keep ${days} days` : "keep everything");
+        const pruned = days ? await boardStub(env, m[1]).prune(Date.now() - days * 86_400_000) : 0;
+        return json({ ok: true, retention_days: days, pruned });
+      }
       m = path.match(/^\/api\/boards\/([^/]+)\/meta$/);
       if (m && method === "POST") {
         if (!viewer) return needLogin();
@@ -1135,6 +1151,15 @@ export default {
             last: fresh.length ? fresh[fresh.length - 1].seq : after,
           });
         }
+        if (what === "entries" && !seqStr && method === "GET" && url.searchParams.has("after")) {
+          // Plain JSON for SDKs and scripts: entries after N (oldest first), optionally waiting up to 25s for new ones.
+          const after = Math.max(0, parseInt(url.searchParams.get("after") ?? "0", 10) || 0);
+          const waitSec = Math.min(25, Math.max(0, parseInt(url.searchParams.get("wait") ?? "0", 10) || 0));
+          if (waitSec) await stub.waitForAny(after, waitSec * 1000);
+          const snap = await stub.snapshot(after);
+          const list = snap.entries.slice(0, Math.min(500, parseInt(url.searchParams.get("limit") ?? "200", 10) || 200));
+          return json({ entries: list, last: list.length ? list[list.length - 1].seq : after });
+        }
         if (what === "entries" && !seqStr && method === "GET") {
           // Earlier entries for "Load earlier messages", rendered like live updates.
           const before = parseInt(url.searchParams.get("before") ?? "0", 10) || null;
@@ -1314,6 +1339,10 @@ export default {
             display_name: row.display_name,
           });
           return json({ cookie: `${auth.SESSION_COOKIE}=${secret}` }, 201);
+        }
+        if (path === "/api/ops/prune" && method === "POST") {
+          if (!body.board || !(await registry.getBoard(env, body.board))) return json({ error: "board required" }, 400);
+          return json({ ok: true, pruned: await boardStub(env, body.board).prune(Number(body.before) || Date.now()) });
         }
         if (path === "/api/ops/seed" && method === "POST") {
           const u = normalizeUser(body.user);

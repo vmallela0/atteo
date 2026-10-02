@@ -1417,6 +1417,23 @@ await step("network: an opt-in directory, and standing rules (invites from frien
   await api(B, "POST", "/api/me/profile", { listed: false, rules: { auto_accept_invites: null, auto_accept_friends: null } });
 });
 
+await step("retention: owners set how long a board keeps messages; older ones are blanked, threads stay", async () => {
+  const id = (await ops("boards", { user: A, title: `e2e retention ${run}` })).body.board.id;
+  await ops("members", { board: id, user: A }).catch(() => {});
+  await ops("members", { board: id, user: B });
+  await ok(A, id, "read");
+  const old = seqOf(await ok(A, id, "post", { type: "claim", text: `old secretless fact ${run}` }));
+  const set = (who, days) => web(`/api/boards/${id}/retention`, who, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ days }) });
+  assert((await set(B, 30)).status === 403, "owners only");
+  const r = await (await set(A, 30)).json();
+  assert(r.retention_days === 30 && r.pruned === 0, JSON.stringify(r));
+  const p = await (await fetch(`${BASE}/api/ops/prune`, { method: "POST", headers: { "x-admin-key": ADMIN_KEY, "content-type": "application/json" }, body: JSON.stringify({ board: id, before: Date.now() + 1000 }) })).json();
+  assert(p.pruned >= 1, JSON.stringify(p));
+  has(await ok(B, id, "get", { seq: old }), "removed: older than this board keeps messages");
+  assert(!(await ok(B, id, "search", { query: `secretless ${run}` })).includes(`#${old}`), "gone from search");
+  assert((await (await web(`/api/boards/${id}/audit`, A)).json()).audit.some((a) => a.action === "retention"), "audited");
+});
+
 await step("rename and archive: creator only; archived boards are read-only and listed separately; restore works", async () => {
   const id = (await ops("boards", { user: A, title: `e2e arch ${run}` })).body.board.id;
   await ops("members", { board: id, user: B });
