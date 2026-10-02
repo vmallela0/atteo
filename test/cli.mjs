@@ -1,7 +1,7 @@
 // CLI integration test: runs the built CLI (cli/dist/agent-soup.mjs) against a server.
 // Usage: npm run build:cli && BASE=http://localhost:8787 ADMIN_KEY=... node test/cli.mjs
 
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { mkdtempSync, readFileSync, writeFileSync, chmodSync, existsSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -271,6 +271,41 @@ await step("board commands: use, post, read, ask (waits for the answer), search,
   const fake = ["ghp", "_", "Zx9Yw8Vu7Ts6Rq5Po4Nm3Lk2Jh1Gf0Ed9Cb8A"].join("");
   r = await cli(["post", `token ${fake}`], { cwd: proj });
   assert(r.code === 1 && r.err.includes("nothing was sent"), r.err);
+});
+
+await step("card: a change card from local git (commits, files incl. new ones, diff), secrets kept out, posted as a change", async () => {
+  const repo = mkdtempSync(join(tmpdir(), "agent-board-card-"));
+  const genv = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.com" };
+  const g = (...a) => execFileSync("git", a, { cwd: repo, env: genv, stdio: "pipe" }).toString();
+  g("init", "-q", "-b", "main");
+  writeFileSync(join(repo, "checkout.js"), "function charge(cart) {\n  return pay(cart.payment);\n}\n");
+  g("add", "."); g("commit", "-qm", "start");
+  g("switch", "-qc", "fix/empty-cart");
+  writeFileSync(join(repo, "checkout.js"), "function charge(cart) {\n  if (!cart.items.length) return null;\n  return pay(cart.payment);\n}\n");
+  g("commit", "-qam", "Guard empty carts");
+  writeFileSync(join(repo, "notes.md"), "one\ntwo\n"); // not committed, not tracked
+  let r = await cli(["card", "--no-gh"], { cwd: repo });
+  assert(r.code === 0, r.err);
+  const c = JSON.parse(r.out);
+  assert(c.branch === "fix/empty-cart" && c.base === "main" && c.ci === "none", r.out);
+  assert(c.commits.length === 1 && c.commits[0].title === "Guard empty carts", JSON.stringify(c.commits));
+  const f = Object.fromEntries(c.files.map((x) => [x.path, x]));
+  assert(f["checkout.js"]?.added === 1 && f["checkout.js"].removed === 0 && f["notes.md"]?.added === 2, JSON.stringify(c.files));
+  assert(c.diff.includes("+  if (!cart.items.length) return null;") && c.diff.includes("+++ b/notes.md"), c.diff);
+  assert(r.err.includes("fix/empty-cart → main · 1 commit · 2 files +3 −0"), r.err);
+  // A credential in the diff: the diff is left out (and never printed); the card still works.
+  const fake = ["ghp", "_", "Zx9Yw8Vu7Ts6Rq5Po4Nm3Lk2Jh1Gf0Ed9Cb8A"].join("");
+  writeFileSync(join(repo, ".env.local"), `TOKEN=${fake}\n`);
+  r = await cli(["card", "--no-gh"], { cwd: repo });
+  assert(r.code === 0 && !r.out.includes(fake) && !r.err.includes(fake) && !("diff" in JSON.parse(r.out)) && r.err.includes("diff left out"), r.err + r.out);
+  // Post it to the board, asking B for a review.
+  r = await cli(["use", board], { cwd: repo });
+  assert(r.code === 0, r.err);
+  r = await cli(["card", "--no-gh", "--no-diff", "--post", "Guard empty carts in charge()", "--to", B], { cwd: repo });
+  assert(r.code === 0 && /Posted #\d+/.test(r.out), r.err + r.out);
+  const seq = Number(r.out.match(/Posted #(\d+)/)[1]);
+  const got = await tool(tokB, board, "get", { seq });
+  assert(got.includes("Change: fix/empty-cart → main · 1 commit") && got.includes("Guard empty carts"), got);
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

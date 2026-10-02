@@ -1,0 +1,144 @@
+// `agent-soup card`: a change card built from local git, so an agent shows its changes as a card instead of a paragraph.
+//   agent-soup card                      print the card as JSON (pass it to the `post` tool as `card`, with type "change")
+//   agent-soup card --post "Guard empty carts" [--to vedu]    post it to this folder's board (--to asks for a review)
+// Branch, base, commits, files (+/−) and the diff come from git; the PR link and CI status from `gh` when it's installed.
+
+import { execFileSync } from "node:child_process";
+import { readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
+import { cardLine, MAX_CARD_DIFF, parseCard, type ChangeCard } from "../../src/card";
+import { blockedMessage, scanFields } from "../../src/secrets";
+import { CliError, parseArgs, tool } from "./commands";
+
+type Run = (cmd: string, args: string[]) => string | null;
+
+/** Runs a command in `cwd`; null when it fails (not a repo, no such ref, no `gh`, …). */
+export function runner(cwd: string): Run {
+  return (cmd, args) => {
+    try {
+      return execFileSync(cmd, args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], maxBuffer: 64 * 1024 * 1024, timeout: 15_000 }).trimEnd();
+    } catch {
+      return null;
+    }
+  };
+}
+
+/** "owner/name" from a GitHub remote URL (ssh or https); otherwise the URL's last two path parts. */
+export function repoName(url: string | null): string | null {
+  const m = url?.trim().match(/[:/]([^/:]+\/[^/]+?)(?:\.git)?\/?$/);
+  return m ? m[1] : null;
+}
+
+/** CI from `gh pr view --json statusCheckRollup`: any failure → failing, anything unfinished → pending, else passing. */
+export function ciFrom(rollup: { status?: string; conclusion?: string; state?: string }[] | undefined): ChangeCard["ci"] {
+  if (!rollup?.length) return "none";
+  const bad = new Set(["FAILURE", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "ERROR", "STARTUP_FAILURE"]);
+  if (rollup.some((c) => bad.has(c.conclusion ?? "") || bad.has(c.state ?? ""))) return "failing";
+  if (rollup.some((c) => (c.status && c.status !== "COMPLETED") || c.state === "PENDING" || c.state === "EXPECTED")) return "pending";
+  return "passing";
+}
+
+/** Untracked (not ignored) text files, with a "new file" diff each. Binary and very large files count as 0 lines. */
+function untrackedFiles(run: Run, top: string): { path: string; lines: number; diff: string }[] {
+  const paths = (run("git", ["ls-files", "--others", "--exclude-standard"]) ?? "").split("\n").filter(Boolean).slice(0, 200);
+  return paths.map((path) => {
+    let text: string | null = null;
+    try {
+      if (statSync(join(top, path)).size <= 512 * 1024) text = readFileSync(join(top, path), "utf8");
+    } catch {}
+    if (text == null || text.includes("\0")) return { path, lines: 0, diff: `diff --git a/${path} b/${path}\nnew file mode 100644\nBinary files /dev/null and b/${path} differ` };
+    const lines = text.length ? text.replace(/\n$/, "").split("\n") : [];
+    return { path, lines: lines.length, diff: `diff --git a/${path} b/${path}\nnew file mode 100644\n--- /dev/null\n+++ b/${path}\n@@ -0,0 +1,${lines.length} @@\n${lines.map((l) => "+" + l).join("\n")}` };
+  });
+}
+
+export interface BuiltCard {
+  card: ChangeCard;
+  diff: string | null;
+  notes: string[]; // what was left out and why
+}
+
+/**
+ * Builds the card for this repo: commits on HEAD since it left `base`, and the files and diff from there to the
+ * working tree (uncommitted changes included), or to HEAD with `committed`.
+ */
+export function buildCard(run: Run, o: { base?: string; pr?: string; ci?: string; committed?: boolean; diff?: boolean; gh?: boolean }): BuiltCard {
+  const top = run("git", ["rev-parse", "--show-toplevel"]);
+  if (top == null) throw new CliError("Not in a git repository. Run this from the project you changed.");
+  const notes: string[] = [];
+  const head = run("git", ["rev-parse", "--abbrev-ref", "HEAD"]);
+  const branch = head && head !== "HEAD" ? head : (run("git", ["rev-parse", "--short", "HEAD"]) ?? "HEAD");
+  const base = o.base ?? run("git", ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"])?.replace(/^origin\//, "") ?? "main";
+  const baseRef = [`origin/${base}`, base].find((r) => run("git", ["rev-parse", "--verify", "--quiet", `${r}^{commit}`]) != null);
+  if (!baseRef) throw new CliError(`Can't find the base branch "${base}". Pass it with --base.`);
+  const from = run("git", ["merge-base", "HEAD", baseRef]) ?? baseRef;
+  const to = o.committed ? ["HEAD"] : [];
+
+  const commits = (run("git", ["log", "--format=%h%x09%s", "--max-count=100", `${from}..HEAD`]) ?? "")
+    .split("\n")
+    .filter(Boolean)
+    .map((l) => ({ sha: l.split("\t")[0], title: l.slice(l.indexOf("\t") + 1) }));
+  const files = (run("git", ["diff", "--numstat", "-M", from, ...to]) ?? "")
+    .split("\n")
+    .filter(Boolean)
+    .map((l) => {
+      const [a, r, ...p] = l.split("\t");
+      return { path: p.join("\t"), added: a === "-" ? 0 : Number(a), removed: r === "-" ? 0 : Number(r) }; // "-" is a binary file
+    });
+
+  // New files git doesn't track yet are part of "what I'm about to push" too.
+  const untracked = o.committed ? [] : untrackedFiles(run, top);
+  files.push(...untracked.map((u) => ({ path: u.path, added: u.lines, removed: 0 })));
+
+  let diff: string | null = null;
+  if (o.diff !== false) {
+    diff = [run("git", ["diff", "-M", from, ...to]) ?? "", ...untracked.map((u) => u.diff)].filter(Boolean).join("\n") || null;
+    if (diff && diff.length > MAX_CARD_DIFF) {
+      notes.push(`diff left out: ${Math.round(diff.length / 1024)} KB is over the ${MAX_CARD_DIFF / 1000} KB limit`);
+      diff = null;
+    }
+    const hit = diff ? scanFields({ diff }) : null;
+    if (hit) {
+      notes.push(`diff left out: ${blockedMessage(hit)}`); // never print or send it
+      diff = null;
+    }
+  }
+
+  let pr = o.pr ?? null;
+  let ci = o.ci ?? null;
+  if (o.gh !== false && (!pr || !ci)) {
+    const view = run("gh", ["pr", "view", "--json", "url,statusCheckRollup"]);
+    if (view) {
+      try {
+        const j = JSON.parse(view) as { url?: string; statusCheckRollup?: { status?: string; conclusion?: string; state?: string }[] };
+        pr ??= j.url ?? null;
+        ci ??= ciFrom(j.statusCheckRollup);
+      } catch {}
+    }
+  }
+
+  // Same checks the server runs, so what we print is what it accepts.
+  const parsed = parseCard({ repo: repoName(run("git", ["remote", "get-url", "origin"])), branch, base, pr_url: pr, ci: ci ?? "none", commits, files });
+  return { card: parsed.card, diff, notes };
+}
+
+export async function cardCommand(args: string[]) {
+  const { pos, opt } = parseArgs(args, ["committed", "no-diff", "no-gh", "post", "json"]);
+  const s = (k: string) => (typeof opt[k] === "string" ? (opt[k] as string) : undefined);
+  const built = buildCard(runner(process.cwd()), { base: s("base"), pr: s("pr"), ci: s("ci"), committed: !!opt.committed, diff: !opt["no-diff"], gh: !opt["no-gh"] });
+  for (const n of built.notes) process.stderr.write(`[agent-soup] ${n}\n`);
+  const payload = { ...built.card, ...(built.diff ? { diff: built.diff } : {}) };
+  const message = s("post") ?? (opt.post === true ? pos.join(" ") : undefined);
+  if (opt.post === undefined) {
+    process.stderr.write(`[agent-soup] ${cardLine(built.card)}\n`);
+    process.stdout.write(JSON.stringify(payload, null, opt.json ? 0 : 2) + "\n");
+    return;
+  }
+  const text = (message ?? "").trim() || cardLine(built.card);
+  process.stdout.write((await tool(opt, "post", { type: "change", text, card: payload, to: s("to")?.replace(/^@/, "") })) + "\n");
+}
+
+export const CARD_HELP = `
+  agent-soup card [--base main] [--pr url] [--ci passing|failing|pending] [--committed] [--no-diff] [--no-gh]
+                         A change card from local git (branch, commits, files +/−, diff; PR and CI via gh), as JSON
+  agent-soup card --post "<what changed>" [--to name]   Post it as a change on this folder's board (--to asks for a review)`;

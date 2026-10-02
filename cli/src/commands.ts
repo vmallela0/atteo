@@ -105,7 +105,7 @@ async function rpc(base: string, token: string, board: string | null, method: st
   return { res, text: (body.result?.content ?? []).map((x) => x.text).join("\n"), isError: !!body.result?.isError };
 }
 
-async function tool(opt: Record<string, string | true>, name: string, args: Record<string, unknown>, board: string | null = currentBoard(opt)): Promise<string> {
+export async function tool(opt: Record<string, string | true>, name: string, args: Record<string, unknown>, board: string | null = currentBoard(opt)): Promise<string> {
   // Same local Gateway as `agent-soup mcp`: nothing that looks like a credential leaves this machine.
   const hit = scanFields(
     Object.fromEntries(

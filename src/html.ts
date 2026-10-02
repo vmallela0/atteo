@@ -5,6 +5,7 @@ import type { TokenRow } from "./auth";
 import { authorLabel, computeSummary, retractedSet, type Summary } from "./state";
 import { forAgent, forPerson, mentionLabel } from "./mentions";
 import { screenText } from "./screen";
+import type { ChangeCard } from "./card";
 import type { BoardInfo, Entry } from "./types";
 import { appPage, avatar, avatarStack, copyField, hue, page, renderText, typeTag, when, type SideBoard, type Viewer } from "./ui";
 import { esc } from "./util";
@@ -72,10 +73,47 @@ export function entryHtml(e: Entry, boardId: string, withReplies = true, opts: {
 ${avatar(e.author, "", e.via === "agent")}
 <div class="grow">
   <div class="meta">${whoHtml(e)}${e.to ? `<span class="to">→ ${esc(e.to)}</span>` : ""}${typeTag(e.type)}${when(e.ts)}<a class="seq" href="#e${e.seq}">#${e.seq}</a><span class="badge rbadge">Retracted</span>${flagBadge(e.text)}${actions}</div>
-  <div class="body">${renderText(e.text, e.mentions)}</div>${file}
+  <div class="body">${renderText(e.text, e.mentions)}</div>${file}${e.card ? changeCardHtml(e.seq, e.card) : ""}
   ${refs.length ? `<div class="refs">${refs.join(" · ")}</div>` : ""}
   ${withReplies ? `<div class="replies" id="r${e.seq}"></div>` : ""}
 </div></article>`;
+}
+
+const BRANCH_ICON = `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="4.5" cy="3.5" r="1.6"/><circle cx="4.5" cy="12.5" r="1.6"/><circle cx="11.5" cy="5.5" r="1.6"/><path d="M4.5 5.1v5.8M11.5 7.1c0 3-7 2-7 3.8"/></svg>`;
+
+/** GitHub-style +/− bar: five squares split by the share of added vs removed lines (small changes leave some grey). */
+function diffBar(added: number, removed: number): string {
+  const total = added + removed;
+  const lit = Math.min(5, total);
+  const a = total ? Math.round((lit * added) / total) : 0;
+  const d = lit - a;
+  return `<span class="bar" aria-hidden="true">${"<i class=\"a\"></i>".repeat(a)}${"<i class=\"d\"></i>".repeat(d)}${"<i></i>".repeat(5 - a - d)}</span>`;
+}
+
+/**
+ * A change entry as a git card: branch → base, CI, PR link, commits, files with +/− bars, and a footer for reviews
+ * (filled in by the page from the live `reviews` map), the diff (fetched on demand) and Approve / Request changes.
+ */
+export function changeCardHtml(seq: number, c: ChangeCard): string {
+  const added = c.files.reduce((n, f) => n + f.added, 0);
+  const removed = c.files.reduce((n, f) => n + f.removed, 0);
+  const pr = c.pr_url ? `<a class="chg-pr" href="${esc(c.pr_url)}" target="_blank" rel="noopener noreferrer">${esc(/\/pull\/(\d+)/.exec(c.pr_url)?.[1] ? `PR #${/\/pull\/(\d+)/.exec(c.pr_url)![1]}` : "Pull request")} ↗</a>` : "";
+  const ci = c.ci !== "none" ? `<span class="ci ci-${esc(c.ci)}"><span class="dot"></span>CI ${esc(c.ci)}</span>` : "";
+  const commit = (x: ChangeCard["commits"][number]) => `<li><code class="sha">${esc(x.sha)}</code><span class="truncate">${esc(x.title)}</span></li>`;
+  const file = (f: ChangeCard["files"][number]) =>
+    `<li><span class="path mono" title="${esc(f.path)}">${esc(f.path)}</span><span class="n"><span class="add">+${f.added}</span> <span class="del">−${f.removed}</span></span>${diffBar(f.added, f.removed)}</li>`;
+  const list = <T,>(items: T[], show: number, render: (x: T) => string, more: string) =>
+    items.length <= show + 1
+      ? `<ul>${items.map(render).join("")}</ul>`
+      : `<ul>${items.slice(0, show).map(render).join("")}</ul><details><summary>${items.length - show} more ${more}</summary><ul>${items.slice(show).map(render).join("")}</ul></details>`;
+  return `<div class="chg" data-change="${seq}">
+<div class="chg-h">${BRANCH_ICON}${c.repo ? `<span class="xs faint">${esc(c.repo)}</span>` : ""}<span class="chg-br mono">${esc(c.branch)}</span>${c.base ? `<span class="faint">→</span><span class="chg-br mono">${esc(c.base)}</span>` : ""}${ci}<span class="grow"></span>${pr}</div>
+${c.commits.length ? `<div class="chg-sec chg-commits"><div class="chg-label">${c.commits.length} commit${c.commits.length === 1 ? "" : "s"}</div>${list(c.commits, 4, commit, "commits")}</div>` : ""}
+${c.files.length ? `<div class="chg-sec chg-files"><div class="chg-label">${c.files.length} file${c.files.length === 1 ? "" : "s"} changed <span class="add">+${added}</span> <span class="del">−${removed}</span></div>${list(c.files, 6, file, "files")}</div>` : ""}
+<div class="chg-foot"><span class="chg-reviews" data-reviews="${seq}"></span><span class="grow"></span>
+<button class="btn ghost sm" type="button" data-diff="${seq}">View diff</button><button class="btn sm" type="button" data-review="request_changes" data-seq="${seq}">Request changes</button><button class="btn sm primary" type="button" data-review="approve" data-seq="${seq}">Approve</button></div>
+<form class="chg-rc" data-rc="${seq}" hidden><input class="input" name="note" maxlength="2000" placeholder="What should change?" aria-label="What should change?" required><button class="btn sm primary">Request changes</button><button class="btn sm ghost" type="button" data-rc-cancel>Cancel</button></form>
+<pre class="chg-diff mono" data-diff-for="${seq}" hidden></pre></div>`;
 }
 
 /** Author, marked as the person or their agent (and which agent). */
@@ -471,6 +509,7 @@ async function tick1(wait){try{
     if(e.retracts){const t=document.getElementById('e'+e.retracts);if(t){t.classList.add('retracted');t.querySelector('[data-retract]')?.remove()}}
     last=Math.max(last,e.seq)}
   if(typeof d.last==='number')last=Math.max(last,d.last);
+  if(d.reviews)applyReviews(d.reviews);
   if(added){railBuild();if(stick)toBottom();else{unseen=true;pillSync()}}
   if(d.entries.length){document.getElementById('sum').innerHTML=d.summary;document.querySelectorAll('[data-count]').forEach(x=>x.textContent=d.count);refreshTimes();infoCount()}
 }catch(e){await new Promise(r=>setTimeout(r,5000))}}
@@ -586,6 +625,29 @@ document.addEventListener('click',async e=>{const t=e.target;
 document.addEventListener('click',e=>{const it=e.target.closest('[data-ver]');if(it){e.preventDefault();e.stopPropagation();openDoc(it.dataset.doc,+it.dataset.ver)}},true);
 document.addEventListener('click',e=>{const b=e.target.closest('[data-open-file]');if(!b)return;e.preventDefault();infoOpen(false);tab(2);openDoc(b.dataset.openFile,b.dataset.fileVer?+b.dataset.fileVer:undefined)});
 window.onDocChanged=(d)=>{loadDocs();if(curDoc&&curDoc.name===d.name){if(editing){const w=document.getElementById('doc-warn');if(w){w.hidden=false;w.className='flash';w.textContent=d.by+' saved v'+d.version+' while you were editing. Saving now will be refused; copy your changes, cancel, and edit the new version.'}}else openDoc(d.name)}};
+// ---- change cards: review verdicts (from the live reviews map), Approve / Request changes, the diff on demand ----
+let REVIEWS={};
+function applyReviews(map){REVIEWS=map||{};document.querySelectorAll('[data-reviews]').forEach(el=>{const seq=el.dataset.reviews,rs=REVIEWS[seq]||[];
+    el.innerHTML=rs.length?rs.map(r=>'<span class="rv '+(r.verdict==='approve'?'ok':'no')+'">'+(r.verdict==='approve'?'✅ Approved by ':'✋ Changes requested by ')+'<b>'+esc(r.via==='agent'?r.reviewer+"'s agent":r.reviewer)+'</b></span>').join(''):'<span class="faint">No reviews yet</span>';
+    const card=el.closest('.chg'),own=card.closest('.entry')?.dataset.author===ME,mine=rs.find(r=>r.reviewer===ME&&r.via!=='agent');
+    card.querySelectorAll('[data-review]').forEach(b=>{b.hidden=own||READONLY;b.setAttribute('aria-pressed',String(!!mine&&mine.verdict===b.dataset.review))})})}
+function diffHtml(t){return t.split('\\n').map(l=>{const c=/^(diff |index |\\+\\+\\+ |--- )/.test(l)?'dh':l.startsWith('@@')?'dk':l.startsWith('+')?'da':l.startsWith('-')?'dd':'';
+  return '<span'+(c?' class="'+c+'"':'')+'>'+esc(l)+'</span>'}).join('')}
+async function review(seq,verdict,note){const r=await fetch('/api/boards/'+BOARD+'/entries/'+seq+'/review',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({verdict,note})});
+  const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||'Could not review');return false}toast(verdict==='approve'?'Approved':'Changes requested');stickNext=true;tick(false);return true}
+document.addEventListener('click',async e=>{
+  const dv=e.target.closest('[data-diff]');if(dv){const pre=document.querySelector('[data-diff-for="'+dv.dataset.diff+'"]');
+    if(!pre.hidden){pre.hidden=true;dv.textContent='View diff';return}
+    if(!pre.dataset.loaded){dv.disabled=true;const r=await fetch('/api/boards/'+BOARD+'/entries/'+dv.dataset.diff);const j=await r.json().catch(()=>({}));dv.disabled=false;
+      pre.innerHTML=j.diff?diffHtml(j.diff):'<span class="faint">No diff was attached to this change.</span>';pre.dataset.loaded='1'}
+    pre.hidden=false;dv.textContent='Hide diff';return}
+  const rb=e.target.closest('[data-review]');if(rb){const seq=rb.dataset.seq;
+    if(rb.dataset.review==='approve'){rb.disabled=true;await review(seq,'approve','');rb.disabled=false;return}
+    const f=document.querySelector('[data-rc="'+seq+'"]');f.hidden=false;f.querySelector('input').focus();return}
+  if(e.target.closest('[data-rc-cancel]')){e.target.closest('form').hidden=true}});
+document.addEventListener('submit',async e=>{const f=e.target.closest('[data-rc]');if(!f)return;e.preventDefault();
+  const note=f.note.value.trim();if(!note)return;if(await review(f.dataset.rc,'request_changes',note)){f.reset();f.hidden=true}});
+applyReviews({});tick(false); // the first update brings every card's verdicts
 window.deleted=()=>{location.href='/'};
 // Every place the board name shows: heading, breadcrumb, sidebar, browser tab (also used for live renames by others).
 window.applyTitle=(t)=>{const h=document.getElementById('board-title');if(h)h.textContent=t;document.title=t+' · Agent Soup';

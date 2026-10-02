@@ -197,6 +197,36 @@ dialog[open]{animation:pop .16s ease-out}
 .file{margin-top:8px;border:1px solid var(--line);border-radius:8px;overflow:hidden}
 .file .fh{display:flex;align-items:center;gap:10px;padding:9px 12px;background:var(--bg-subtle)}
 .file pre{margin:0;max-height:420px;overflow:auto;padding:12px;border-top:1px solid var(--line);white-space:pre;font-size:12px}
+.t-change{color:var(--accent)}
+/* change cards: a git change as a card (branch → base, CI, PR, commits, files, reviews, diff on demand) */
+.chg{margin-top:8px;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--bg)}
+.chg-h{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 12px;background:var(--bg-subtle);color:var(--muted);font-size:13px}
+.chg-br{color:var(--ink);font-size:12px;padding:1px 6px;border-radius:5px;background:var(--bg-hover);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chg-pr{color:var(--accent);font-weight:500;font-size:12.5px}.chg-pr:hover{text-decoration:underline}
+.ci{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:500}.ci .dot{width:7px;height:7px;border-radius:50%;background:currentColor}
+.ci-passing{color:var(--ok)}.ci-failing{color:var(--danger)}.ci-pending{color:var(--warn)}
+.chg-sec{padding:8px 12px;border-top:1px solid var(--line)}
+.chg-label{font-size:12px;color:var(--muted);margin-bottom:4px}
+.chg ul{list-style:none;margin:0;padding:0}
+.chg-commits li{display:flex;gap:8px;align-items:baseline;font-size:13px;line-height:20px;min-width:0}
+.chg-commits .sha{flex:none;font-size:11.5px;color:var(--muted);background:none;padding:0}
+.chg-files li{display:flex;align-items:center;gap:10px;font-size:12.5px;line-height:22px;min-width:0}
+.chg-files .path{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;direction:rtl;text-align:left} /* long paths keep their file name */
+.chg-files .n{flex:none;font-variant-numeric:tabular-nums}
+.chg .add{color:var(--ok)}.chg .del{color:var(--danger)}
+.chg .bar{display:inline-flex;gap:2px;flex:none}.chg .bar i{width:7px;height:7px;border-radius:2px;background:var(--line-strong)}
+.chg .bar i.a{background:var(--ok)}.chg .bar i.d{background:var(--danger)}
+.chg details>summary{cursor:pointer;font-size:12px;color:var(--muted);padding:2px 0;list-style:none}.chg details>summary:hover{color:var(--ink)}
+.chg details>summary::-webkit-details-marker{display:none}
+.chg-foot{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 12px;border-top:1px solid var(--line)}
+.chg-reviews{font-size:12.5px;color:var(--muted);display:flex;gap:12px;flex-wrap:wrap}.rv b{color:var(--ink);font-weight:500}
+.chg [data-review][aria-pressed=true]{box-shadow:inset 0 0 0 1px var(--accent)}
+.chg [data-review][hidden],.chg-rc[hidden],.chg-diff[hidden]{display:none}
+.chg-rc{display:flex;gap:8px;padding:0 12px 10px}.chg-rc .input{height:30px}
+.chg-diff{margin:0;padding:8px 0;border-top:1px solid var(--line);background:var(--bg-subtle);font-size:12px;line-height:1.5;overflow-x:auto;white-space:pre}
+.chg-diff span{display:block;padding:0 12px;min-width:max-content;min-height:1.5em}
+.chg-diff .da{background:color-mix(in srgb,var(--ok) 13%,transparent)}.chg-diff .dd{background:color-mix(in srgb,var(--danger) 12%,transparent)}
+.chg-diff .dk{color:var(--accent)}.chg-diff .dh{color:var(--ink);font-weight:600}
 .sum h3{font-size:12px;font-weight:500;color:var(--muted);text-transform:none;margin:22px 0 8px;display:flex;justify-content:space-between}
 .sum h3:first-child{margin-top:0}
 .sum ul{list-style:none;margin:0;padding:0}

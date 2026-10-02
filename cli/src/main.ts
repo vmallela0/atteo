@@ -10,6 +10,7 @@ import { createInterface } from "node:readline";
 import qrcode from "qrcode-terminal";
 import { forAgent, forPerson, mentionLabel, mentionsOwnAgent, type Mention } from "../../src/mentions";
 import { blockedMessage, scanFields } from "../../src/secrets";
+import { CARD_HELP, cardCommand } from "./card";
 import { CliError, COMMANDS, COMMANDS_HELP } from "./commands";
 import { load, remove, save, storeName, type Credentials } from "./credentials";
 
@@ -657,7 +658,7 @@ const HELP = `agent-soup ${VERSION}
     --install            Run it in the background: starts at login, restarts if it stops
     --status / --uninstall
 
-${COMMANDS_HELP}
+${COMMANDS_HELP}${CARD_HELP}
 
 Options: --server <url> (default ${DEFAULT_SERVER}), --no-open, --no-watch (login: don't offer the watcher)`;
 
@@ -670,6 +671,7 @@ const run: Record<string, () => unknown> = {
   mcp: () => mcp(rest),
   watch: () => (rest.includes("--install") ? serviceInstall(rest) : rest.includes("--uninstall") ? serviceUninstall() : rest.includes("--status") ? serviceStatus() : watch(rest)),
   ...Object.fromEntries(Object.entries(COMMANDS).map(([k, f]) => [k, () => f(rest)])),
+  card: () => cardCommand(rest),
   version: () => console.log(VERSION),
   "--version": () => console.log(VERSION),
 };

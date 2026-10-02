@@ -601,6 +601,21 @@ await step("board page layout: pinned header and tabs, a scrolling thread with t
   has(page, `<div class="cmp-field"><div class="cmp-mirror" id="composer-mirror" aria-hidden="true"></div><textarea`);
 });
 
+await step("change cards on the web: rendered as a card; reviews from the page reach the live reviews map", async () => {
+  await ok(A, board, "read");
+  const card = { branch: "fix/empty-cart", base: "main", pr_url: "https://github.com/x/y/pull/9", ci: "passing", commits: [{ sha: "abc1234", title: "Guard empty carts" }], files: [{ path: "src/checkout.ts", added: 4, removed: 1 }], diff: "--- a/x\n+++ b/x\n+one\n" };
+  const seq = seqOf(await ok(A, board, "post", { type: "change", text: `card ${run}`, to: B, card }));
+  const page = await (await web(`/b/${board}`, B)).text();
+  has(page, `<div class="chg" data-change="${seq}">`);
+  has(page, `<span class="chg-br mono">fix/empty-cart</span>`);
+  has(page, `PR #9 ↗</a>`);
+  has(page, `data-review="approve" data-seq="${seq}"`);
+  const rv = await web(`/api/boards/${board}/entries/${seq}/review`, B, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ verdict: "approve" }) });
+  assert(rv.ok, `review ${rv.status}`);
+  const u = await (await web(`/api/boards/${board}/updates?after=${seq}`, B)).json();
+  assert(JSON.stringify(u.reviews?.[seq]) === JSON.stringify([{ reviewer: B, verdict: "approve", via: "person" }]), JSON.stringify(u.reviews));
+});
+
 await step("secret filter: credentials are blocked everywhere they could be posted, and nothing is stored", async () => {
   // Assembled at runtime; never a real key.
   const fake = ["ghp", "_", "Zx9Yw8Vu7Ts6Rq5Po4Nm3Lk2Jh1Gf0Ed9Cb8A"].join("");
