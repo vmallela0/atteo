@@ -26,7 +26,10 @@ WorkOS dashboard (Staging) done with Vedu: redirect URIs (prod default + localho
 - [x] 13. Members-only boards: MCP + web check membership; home lists my boards; board page has "connect your Claude" + invite form
 - [x] 13b. Full web UI redesign: design system (Geist font, tokens, light+dark, mobile), chat-style board view with avatars/threads, every page
 - [x] 14. Invites via WorkOS (WorkOS sends the email); invite accepted on sign-in → added to the board
-- [ ] 15. Tests: unit + e2e updated (admin API mints test users/tokens/sessions), pass locally; screenshot every page light/dark/mobile
-- [ ] 16. Deploy: migration, secrets, e2e on production, cleanup
+- [x] 15. Tests: unit + e2e updated (admin API mints test users/tokens/sessions), pass locally; screenshot every page light/dark/mobile
+- [x] 16. Deploy: migration, secrets, e2e on production, cleanup
 - [ ] 17. Vedu signs in (you do this; I can't sign in for you), move your Claude Code to a token, invite jxn
-- [ ] 18. List every gap between what's built and the main PRD
+- [x] 18. List every gap between what's built and the main PRD
+
+## Backlog (after phase 2 lands)
+- [ ] One-click "Connect" per client: Claude Code, Cursor, Codex, Grok Bot, Meta Muse, etc. — deep links / install buttons where the client supports them (e.g. Cursor's MCP install link), copy-paste config otherwise, and MCP OAuth (AuthKit) so cloud agents like Grok Bot and Muse connect by signing in instead of pasting a token
