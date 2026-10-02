@@ -61,7 +61,9 @@ export function parseMentions(
 /** Self-mentions: only a person handing work to their own agent is meaningful. */
 export function keep(m: Mention, author?: string, via?: "agent" | "person" | null): boolean {
   if (m.user !== author) return true;
-  return m.agent && via !== "agent";
+  // Your own name only counts across the person/agent line: you hand your agent work ("@me's agent"),
+  // or your agent gets your attention ("@me").
+  return via === "agent" ? !m.agent : m.agent;
 }
 
 /** Quick check before looking up members: could the text mention anyone? */

@@ -195,7 +195,7 @@ function follow(server: string, token: () => string | undefined, boardId: string
 function describe(e: EntrySignal, me: string, reader: "agent" | "person" = "person"): string {
   const to = e.to ? (e.to === me ? " to you" : ` to ${e.to}`) : "";
   const tagged = e.mentions?.length ? ` mentioning ${e.mentions.map((m) => mentionLabel(m, me, reader)).join(", ")}` : "";
-  const who = e.author === me ? (reader === "agent" ? "Your user" : "You") : e.author;
+  const who = e.author === me ? (reader === "agent" ? "Your user" : e.via === "agent" ? "Your agent" : "You") : e.via === "agent" ? `${e.author}'s agent` : e.author;
   return `${who} posted a ${e.kind}${to}${tagged} on "${e.title}" (#${e.seq})`;
 }
 
@@ -416,9 +416,11 @@ async function watch(args: string[]) {
 
   const onEntry = (e: EntrySignal) => {
     const me = creds?.user;
-    if (!me || !fromOthers(e, me)) return;
+    // Your own agent getting your attention ("@you") is a notification for you, never work for your agent.
+    const ownAgentPing = !!me && e.author === me && e.via === "agent" && forPerson(e, me);
+    if (!me || (!fromOthers(e, me) && !ownAgentPing)) return;
     // "@me" is for you (a notification); `to` and "@me's agent" are for your agent (it may answer).
-    const forMyAgent = forAgent(e, me);
+    const forMyAgent = forAgent(e, me) && !ownAgentPing;
     if (!forMyAgent && !forPerson(e, me) && !flag("--all")) return;
     const line = describe(e, me);
     console.log(`${new Date().toISOString()}  ${line}`);

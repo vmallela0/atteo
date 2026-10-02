@@ -58,9 +58,9 @@ describe("parseMentions", () => {
     expect(r.unknown).toEqual(["nobody"]);
   });
 
-  it("self-mentions: a person can hand work to their own agent; nothing else counts", () => {
+  it("self-mentions cross the person/agent line: you hand work to your agent, your agent gets your attention", () => {
     expect(parse("@vedu @vedu's agent", "vedu", "person").mentions).toEqual([agent("vedu")]);
-    expect(parse("@vedu @vedu's agent", "vedu", "agent").mentions).toEqual([]);
+    expect(parse("@vedu @vedu's agent", "vedu", "agent").mentions).toEqual([{ user: "vedu", agent: false }]);
   });
 
   it("caps the number of mentions", () => {
