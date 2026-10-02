@@ -8,6 +8,13 @@ struct ChatsView: View {
     @State private var query = ""
     @State private var path: [Board] = []
     @State private var showAll = false
+    @State private var showAgents: Bool = {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["AGENT_SOUP_TAB"] == "1" // simulator screenshots
+        #else
+        return false
+        #endif
+    }()
 
     private func unread(_ b: Board) -> Int { state.inbox.filter { $0.boardId == b.id && $0.readAt == nil }.count }
 
@@ -30,7 +37,7 @@ struct ChatsView: View {
                             Button(showAll ? "Show less" : "Show \(items.count - 2) more") { withAnimation(.snappy) { showAll.toggle() } }
                                 .font(.footnote.weight(.semibold)).foregroundStyle(Theme.accent).listRowBackground(Theme.bg)
                         }
-                    } header: { Text("Needs you · \(state.approvals.count + state.contacts.count)").font(.footnote.weight(.semibold)).foregroundStyle(Theme.warn).contentTransition(.numericText()).accessibilityIdentifier("needs-you") }
+                    } header: { Text("Needs you · \(state.approvals.count + state.contacts.count)").font(.footnote.weight(.semibold)).foregroundStyle(Theme.accent).contentTransition(.numericText()).accessibilityIdentifier("needs-you") }
                 }
                 Section {
                     ForEach(chats) { b in
@@ -41,17 +48,31 @@ struct ChatsView: View {
                             .accessibilityAddTraits(.isButton)
                             .accessibilityIdentifier("chat-\(b.title)")
                             .listRowBackground(Theme.bg)
-                            .listRowSeparatorTint(Theme.line)
+                            .listRowSeparator(.hidden)
+                            .listRowInsets(EdgeInsets(top: 8, leading: 14, bottom: 8, trailing: 16))
                             .swipeActions(edge: .leading) {
                                 if unread(b) > 0 { Button { Task { await state.markRead(b) } } label: { Label("Read", systemImage: "checkmark") }.tint(Theme.accent) }
                             }
                     }
-                } header: { if query.isEmpty && (!state.approvals.isEmpty || !state.contacts.isEmpty) { Text("Chats").font(.footnote.weight(.semibold)).foregroundStyle(Theme.faint) } }
+                }
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
             .background(Theme.bg)
             .navigationTitle("Chats")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    // Your agents live behind one button (green dot: one is working right now).
+                    Button { Haptic.tap(); showAgents = true } label: {
+                        Image(systemName: "sparkles").font(.system(size: 16, weight: .semibold)).foregroundStyle(Theme.text)
+                            .overlay(alignment: .topTrailing) {
+                                if state.sessions.contains(where: { $0.active == true }) { Circle().fill(Theme.ok).frame(width: 7, height: 7).offset(x: 4, y: -3) }
+                            }
+                    }
+                    .accessibilityLabel("Your agents")
+                }
+            }
+            .sheet(isPresented: $showAgents) { AgentsView().presentationDetents([.medium, .large]).presentationBackground(Theme.bg) }
             .searchable(text: $query, prompt: "Search")
             .refreshable { await state.refreshAll() }
             .navigationDestination(for: Board.self) { b in BoardView(board: b) }
@@ -74,38 +95,29 @@ struct ChatsView: View {
 struct ChatRow: View {
     let b: Board
     let unread: Int
-    var dm: Bool { b.kind == "direct" }
 
     var body: some View {
-        HStack(spacing: 12) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 11, style: .continuous).fill(Theme.hue(b.id).opacity(0.2)).frame(width: 44, height: 44)
-                Image(systemName: dm ? "person.2.fill" : b.encrypted == true ? "lock.fill" : "number").font(.system(size: 17, weight: .semibold)).foregroundStyle(Theme.hue(b.id))
-            }
+        HStack(alignment: .top, spacing: 10) {
+            Circle().fill(unread > 0 ? Theme.accent : .clear).frame(width: 7, height: 7).padding(.top, 7)
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline) {
-                    Text(b.title).font(.body.weight(unread > 0 ? .bold : .semibold)).foregroundStyle(Theme.text).lineLimit(1)
-                    Spacer(minLength: 6)
-                    Text(b.lastActivity.ago).font(.caption).foregroundStyle(unread > 0 ? Theme.accent : Theme.faint)
+                    Text(b.title).font(.body.weight(unread > 0 ? .semibold : .regular)).foregroundStyle(Theme.text).lineLimit(1)
+                    if b.kind == "direct" { Image(systemName: "person.2").font(.caption2).foregroundStyle(Theme.faint) }
+                    if b.encrypted == true { Image(systemName: "lock").font(.caption2).foregroundStyle(Theme.faint) }
+                    Spacer(minLength: 8)
+                    Text(b.lastActivity.ago).font(.footnote).foregroundStyle(Theme.faint).monospacedDigit()
                 }
-                HStack(alignment: .center) {
-                    Group {
-                        if let l = b.last {
-                            Text(l.by).fontWeight(.medium).foregroundStyle(Theme.muted) + Text(": ").foregroundStyle(Theme.faint) + Text(l.text.md).foregroundStyle(Theme.faint)
-                        } else {
-                            Text(b.entryCount == 1 ? "1 message" : "\(b.entryCount) messages").foregroundStyle(Theme.faint)
-                        }
-                    }
-                    .font(.subheadline).lineLimit(1)
-                    Spacer(minLength: 6)
-                    if unread > 0 {
-                        Text("\(unread)").font(.caption2.weight(.bold)).foregroundStyle(.black).contentTransition(.numericText())
-                            .padding(.horizontal, 6).frame(minWidth: 20, minHeight: 20).background(Theme.accent, in: Capsule())
+                Group {
+                    if let l = b.last {
+                        Text(l.by).foregroundStyle(Theme.muted) + Text(": ").foregroundStyle(Theme.faint) + Text(l.text.md).foregroundStyle(Theme.faint)
+                    } else {
+                        Text(b.entryCount == 1 ? "1 message" : "\(b.entryCount) messages").foregroundStyle(Theme.faint)
                     }
                 }
+                .font(.subheadline).lineLimit(1)
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 2)
     }
 }
 
@@ -117,9 +129,9 @@ struct AnswerButtons: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Button(action: no) { Image(systemName: "xmark").font(.system(size: 14, weight: .bold)).frame(width: 34, height: 34).background(Theme.line, in: Circle()).foregroundStyle(Theme.text) }
+            Button(action: no) { Image(systemName: "xmark").font(.system(size: 13, weight: .semibold)).frame(width: 34, height: 34).overlay(Circle().stroke(Theme.line, lineWidth: 1)).foregroundStyle(Theme.muted) }
                 .buttonStyle(.plain).accessibilityLabel("No")
-            Button(action: yes) { Image(systemName: "checkmark").font(.system(size: 14, weight: .bold)).frame(width: 34, height: 34).background(yesColor, in: Circle()).foregroundStyle(.black) }
+            Button(action: yes) { Image(systemName: "checkmark").font(.system(size: 13, weight: .bold)).frame(width: 34, height: 34).background(Theme.text, in: Circle()).foregroundStyle(.black) }
                 .buttonStyle(.plain).accessibilityLabel("Yes")
         }
     }
@@ -133,7 +145,7 @@ struct ApprovalRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: "hand.raised.fill").font(.system(size: 15)).foregroundStyle(riskColor).frame(width: 28)
+            Circle().fill(riskColor).frame(width: 7, height: 7).frame(width: 14)
             VStack(alignment: .leading, spacing: 2) {
                 Text(a.title).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.text).lineLimit(1)
                 Text(a.details.isEmpty ? "\(a.risk) risk · \(a.createdAt.ago)" : a.details).font(.caption).foregroundStyle(Theme.muted).lineLimit(1)
@@ -155,7 +167,7 @@ struct ContactRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Avatar(name: c.from, agent: true, size: 28)
+            Image(systemName: "sparkle").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.accent).frame(width: 14)
             VStack(alignment: .leading, spacing: 2) {
                 Text("\(c.from)'s agent wants to talk").font(.subheadline.weight(.semibold)).foregroundStyle(Theme.text).lineLimit(1)
                 Text(c.text ?? "first contact · \(c.createdAt.ago)").font(.caption).foregroundStyle(Theme.muted).lineLimit(1)

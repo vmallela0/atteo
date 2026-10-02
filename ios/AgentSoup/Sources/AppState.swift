@@ -16,6 +16,7 @@ final class AppState: ObservableObject {
     @Published var sessions: [AgentSession] = []
     @Published var boards: [Board] = []
     @Published var entries: [String: [Entry]] = [:] // per board, newest last
+    @Published var tasks: [String: [WorkTask]] = [:] // per board
     @Published var me: MeAgentResponse.Agent?
     @Published var error: String?
     /// Bumped whenever something new lands anywhere (the live feed), with the board it landed on.
@@ -41,13 +42,14 @@ final class AppState: ObservableObject {
     private struct Snapshot: Codable {
         var inbox: [InboxItem]; var approvals: [Approval]; var contacts: [ContactsResponse.Incoming]
         var sessions: [AgentSession]; var boards: [Board]; var entries: [String: [Entry]]; var me: MeAgentResponse.Agent?
+        var tasks: [String: [WorkTask]]? = nil
     }
     private static let cacheURL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("agent-soup-v1.json")
     private var saveTask: Task<Void, Never>?
 
     private func restore() {
         guard let d = try? Data(contentsOf: Self.cacheURL), let s = try? JSONDecoder().decode(Snapshot.self, from: d) else { return }
-        inbox = s.inbox; approvals = s.approvals; contacts = s.contacts; sessions = s.sessions; boards = s.boards; entries = s.entries; me = s.me
+        inbox = s.inbox; approvals = s.approvals; contacts = s.contacts; sessions = s.sessions; boards = s.boards; entries = s.entries; me = s.me; tasks = s.tasks ?? [:]
     }
 
     private func save() {
@@ -56,7 +58,7 @@ final class AppState: ObservableObject {
             try? await Task.sleep(nanoseconds: 400_000_000)
             guard let self, !Task.isCancelled else { return }
             let trimmed = self.entries.mapValues { Array($0.filter { $0.pending != true }.suffix(60)) }
-            let snap = Snapshot(inbox: self.inbox, approvals: self.approvals, contacts: self.contacts, sessions: self.sessions, boards: self.boards, entries: trimmed, me: self.me)
+            let snap = Snapshot(inbox: self.inbox, approvals: self.approvals, contacts: self.contacts, sessions: self.sessions, boards: self.boards, entries: trimmed, me: self.me, tasks: self.tasks)
             if let d = try? JSONEncoder().encode(snap) { try? d.write(to: Self.cacheURL, options: .atomic) }
         }
     }
@@ -109,6 +111,15 @@ final class AppState: ObservableObject {
             let mine = (entries[b.id] ?? []).filter { $0.pending == true || $0.failed == true }
             let fresh = r.entries + mine.filter { m in !r.entries.contains { $0.author == m.author && $0.text == m.text && $0.ts >= m.ts - 60_000 } }
             if fresh != entries[b.id] { withAnimation(.smooth) { entries[b.id] = fresh } }
+            save()
+        } catch { report(error, quiet: true) }
+    }
+
+    /// A board's tasks (the work strip and the task list).
+    func loadTasks(_ b: Board) async {
+        do {
+            let r = try await API.shared.get("/api/boards/\(b.id)/tasks", as: TasksResponse.self)
+            if r.tasks != tasks[b.id] { withAnimation(.smooth) { tasks[b.id] = r.tasks } }
             save()
         } catch { report(error, quiet: true) }
     }
@@ -210,7 +221,7 @@ final class AppState: ObservableObject {
         try? FileManager.default.removeItem(at: Self.cacheURL)
         withAnimation(.smooth) {
             signedIn = false; loaded = false
-            inbox = []; approvals = []; contacts = []; sessions = []; boards = []; entries = [:]; me = nil; feedCursor = nil
+            inbox = []; approvals = []; contacts = []; sessions = []; boards = []; entries = [:]; tasks = [:]; me = nil; feedCursor = nil
         }
     }
 

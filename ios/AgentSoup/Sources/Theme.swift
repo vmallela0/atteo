@@ -1,23 +1,25 @@
-// The look: near-black, quiet greys, one soft accent, SF Pro. Inspired by Cursor's iOS app: dense, calm, fast.
+// The look: near-black, a few quiet greys, and one warm accent (clay) used only where something needs you: unread,
+// the primary action, work in progress. Everything else is type and spacing. Calm, dense, fast.
 
 import SwiftUI
 
 enum Theme {
-    static let bg = Color(red: 0.035, green: 0.035, blue: 0.04)
-    static let card = Color(white: 0.085)
-    static let line = Color(white: 0.16)
-    static let text = Color(white: 0.94)
-    static let muted = Color(white: 0.56)
-    static let faint = Color(white: 0.36)
-    static let accent = Color(red: 0.55, green: 0.62, blue: 1.0)
-    static let ok = Color(red: 0.36, green: 0.84, blue: 0.56)
-    static let warn = Color(red: 1.0, green: 0.74, blue: 0.33)
-    static let danger = Color(red: 1.0, green: 0.42, blue: 0.42)
+    static let bg = Color(red: 0.039, green: 0.039, blue: 0.039)
+    static let card = Color(white: 0.09)
+    static let raised = Color(white: 0.14) // your messages, pressed states
+    static let line = Color(white: 0.15)
+    static let text = Color(white: 0.95)
+    static let muted = Color(white: 0.62)
+    static let faint = Color(white: 0.40)
+    static let accent = Color(red: 0.85, green: 0.47, blue: 0.34) // clay
+    static let ok = Color(red: 0.45, green: 0.78, blue: 0.55)
+    static let warn = Color(red: 0.95, green: 0.72, blue: 0.38)
+    static let danger = Color(red: 0.94, green: 0.43, blue: 0.40)
 
     /// A stable color per name, for avatars.
     static func hue(_ s: String) -> Color {
         let h = s.unicodeScalars.reduce(0) { ($0 &* 31 &+ Int($1.value)) & 0xffff }
-        return Color(hue: Double(h % 360) / 360, saturation: 0.45, brightness: 0.78)
+        return Color(hue: Double(h % 360) / 360, saturation: 0.18, brightness: 0.80) // a hint of color, never loud
     }
 }
 
@@ -29,13 +31,13 @@ struct Avatar: View {
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: agent ? size * 0.28 : size / 2, style: .continuous)
-                .fill(Theme.hue(name).opacity(0.22))
-            Text(String(name.prefix(2)).uppercased())
-                .font(.system(size: size * 0.36, weight: .semibold, design: .rounded))
+                .fill(Theme.raised)
+            Text(String(name.prefix(1)).uppercased())
+                .font(.system(size: size * 0.42, weight: .medium))
                 .foregroundStyle(Theme.hue(name))
             if agent {
-                Image(systemName: "sparkle").font(.system(size: size * 0.3, weight: .bold)).foregroundStyle(Theme.accent)
-                    .offset(x: size * 0.36, y: -size * 0.36)
+                Image(systemName: "sparkle").font(.system(size: size * 0.28, weight: .bold)).foregroundStyle(Theme.accent)
+                    .offset(x: size * 0.38, y: -size * 0.38)
             }
         }
         .frame(width: size, height: size)

@@ -4,6 +4,7 @@ import SwiftUI
 
 struct AgentsView: View {
     @EnvironmentObject var state: AppState
+    @Environment(\.dismiss) private var dismiss
     @State private var confirmKill = false
 
     var body: some View {
@@ -29,7 +30,9 @@ struct AgentsView: View {
             }
             .scrollContentBackground(.hidden)
             .background(Theme.bg)
-            .navigationTitle("Agents")
+            .navigationTitle("Your agents")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() }.fontWeight(.semibold) } }
             .refreshable { await state.refreshAgents() }
             .confirmationDialog("Disconnect all your agents?", isPresented: $confirmKill, titleVisibility: .visible) {
                 Button("Disconnect all", role: .destructive) { Haptic.warn(); Task { await state.disconnectAll() } }
@@ -55,7 +58,7 @@ struct SessionRow: View {
             }
             Spacer(minLength: 8)
             Toggle("Read-only", isOn: Binding(get: { s.scope == "read" }, set: { ro in Haptic.tap(); Task { await state.setScope(s, readOnly: ro) } }))
-                .labelsHidden().tint(Theme.warn)
+                .labelsHidden().tint(Theme.accent)
                 .accessibilityLabel("Read-only")
         }
         .padding(.vertical, 2)

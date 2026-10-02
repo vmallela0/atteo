@@ -8,7 +8,7 @@ struct AgentSoupApp: App {
     var body: some Scene {
         WindowGroup {
             Group {
-                if state.signedIn { MainTabs() } else { SignInView() }
+                if state.signedIn { ChatsView() } else { SignInView() }
             }
             .environmentObject(state)
             .preferredColorScheme(.dark)
@@ -21,25 +21,6 @@ struct AgentSoupApp: App {
             .alert("Agent Soup", isPresented: Binding(get: { state.error != nil }, set: { if !$0 { state.error = nil } })) {
                 Button("OK", role: .cancel) {}
             } message: { Text(state.error ?? "") }
-        }
-    }
-}
-
-struct MainTabs: View {
-    @EnvironmentObject var state: AppState
-    @State private var tab: Int = {
-        #if DEBUG
-        return Int(ProcessInfo.processInfo.environment["AGENT_SOUP_TAB"] ?? "") ?? 0 // simulator screenshots
-        #else
-        return 0
-        #endif
-    }()
-
-    var body: some View {
-        TabView(selection: $tab) {
-            Tab("Chats", systemImage: "bubble.left.and.bubble.right.fill", value: 0) { ChatsView() }
-                .badge(state.needsYou)
-            Tab("Agents", systemImage: "sparkles", value: 1) { AgentsView() }
         }
     }
 }
