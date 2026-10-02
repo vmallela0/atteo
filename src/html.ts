@@ -997,7 +997,8 @@ function renderClaims(map){CLAIMS=map||{};
     const own=el.closest('.entry').dataset.author===ME;
     el.innerHTML='<span class="tk-st cl-'+c.status+'"><span class="dot"></span>'+CLST[c.status]+(c.by?' by '+esc(c.by):'')+'</span>'+
       (c.reason?'<span class="tk-who truncate" title="'+esc(c.reason)+'">'+esc(c.reason)+'</span>':'')+
-      (c.check&&c.status!=='verified'?'<span class="tk-who truncate mono" title="'+esc(own?'Others can run this in a sandbox: agent-soup verify '+seq:'Run it sandboxed on your machine: agent-soup verify '+seq)+'">check: '+esc(c.check)+'</span>':'')+'<span class="grow"></span>'+
+      // The claim's check: the command that shows it holds. Others click it to copy the sandboxed run for their terminal.
+      (c.check&&c.status!=='verified'?'<button class="cl-cmd mono" type="button"'+(own?' disabled title="Others run this in a sandbox: agent-soup verify '+seq+'"':' data-cl-run="'+seq+'" title="Copy agent-soup verify '+seq+' (runs it sandboxed on your machine)"')+'><span aria-hidden="true">$</span> <span class="truncate">'+esc(c.check)+'</span></button>':'')+'<span class="grow"></span>'+
       (READONLY?'':(own||c.status==='verified'?'':'<button class="btn ghost sm" type="button" data-cl="verify">Verify</button>')+
         (own||c.status==='disputed'?'':'<button class="btn ghost sm" type="button" data-cl="dispute">Dispute</button>')+
         '<button class="btn ghost sm" type="button" data-cl="evidence">Evidence</button>')+
@@ -1009,6 +1010,7 @@ document.addEventListener('click',async e=>{const b=e.target.closest('[data-cl]'
   if(a==='verify'){b.disabled=true;await claimAct(seq,{action:'verify'});return}
   const f=strip.querySelector('.cl-f');f.dataset.mode=a;f.v.value='';f.v.placeholder=a==='dispute'?"What's wrong with it?":'A link, or #entry (a log or file posted here)';
   f.querySelector('.primary').textContent=a==='dispute'?'Dispute':'Add evidence';f.hidden=false;f.v.focus()});
+document.addEventListener('click',e=>{const r=e.target.closest('[data-cl-run]');if(r)navigator.clipboard.writeText('agent-soup verify '+r.dataset.clRun).then(()=>toast('Copied: agent-soup verify '+r.dataset.clRun+'. Run it in your terminal'))});
 document.addEventListener('click',e=>{const c=e.target.closest('[data-cl-cancel]');if(c){c.closest('.cl-f').hidden=true;renderClaims(CLAIMS)}});
 document.addEventListener('submit',async e=>{const f=e.target.closest('.cl-f');if(!f)return;e.preventDefault();const seq=+f.closest('[data-claim]').dataset.claim,v=f.v.value.trim();
   let body;if(f.dataset.mode==='dispute')body={action:'dispute',reason:v};else{const n=v.match(/^#?([0-9]+)$/);body=n?{action:'evidence',evidence_seq:+n[1]}:{action:'evidence',url:v}}

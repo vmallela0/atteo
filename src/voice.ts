@@ -4,23 +4,7 @@
 // Kept free of backslashes and template literals: this is inlined into a page script.
 
 /** The bar under the board header: who's in the room, who has the floor, and your controls. */
-export const VOICE_HTML = `<style>
-.vbtn .vn{font-variant-numeric:tabular-nums}
-.vbtn.live{color:var(--ok);border-color:var(--ok)}
-.voice-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 12px;margin:0 0 10px;border:1px solid var(--line);border-radius:var(--r);background:var(--bg-subtle)}
-.voice-bar[hidden],.voice-bar [hidden]{display:none!important}
-.voice-bar .vpeople{display:flex;gap:6px;flex-wrap:wrap;flex:1;min-width:0}
-.voice-bar .vp{display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:999px;border:1px solid var(--line);background:var(--bg);font-size:12px;white-space:nowrap}
-.voice-bar .vp.floor{border-color:var(--ok);color:var(--ok);box-shadow:0 0 0 2px color-mix(in srgb,var(--ok) 25%,transparent)}
-.voice-bar .vp .dot{width:7px;height:7px;border-radius:50%;background:var(--faint)}
-.voice-bar .vp.floor .dot{background:var(--ok);animation:vpulse 1s ease-in-out infinite}
-.voice-bar .vp .q{color:var(--warn);font-weight:600}
-.voice-bar .vstatus{font-size:12px;color:var(--muted)}
-.voice-bar .vtalk[aria-pressed=true]{background:var(--ok);border-color:var(--ok);color:var(--on-ink)}
-@keyframes vpulse{50%{opacity:.35}}
-@media (prefers-reduced-motion:reduce){.voice-bar .vp.floor .dot{animation:none}}
-</style>
-<div class="voice-bar" id="voice-bar" hidden role="region" aria-label="Voice room">
+export const VOICE_HTML = `<div class="voice-bar" id="voice-bar" hidden role="region" aria-label="Voice room">
   <div class="vpeople" id="voice-people" aria-live="polite"></div>
   <span class="vstatus" id="voice-status"></span>
   <button class="btn sm vtalk" type="button" id="voice-talk" aria-pressed="false" title="Ask for the floor (or hold Space)">Talk</button>
