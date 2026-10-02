@@ -183,6 +183,7 @@ async function post(args: string[], forced?: string) {
     await tool(opt, "post", {
       type: forced ?? optStr(opt, "type") ?? "note",
       text: textFrom(pos),
+      title: optStr(opt, "title"),
       to: optStr(opt, "to"),
       reply_to: optStr(opt, "reply") ? int(optStr(opt, "reply")!.replace(/^#/, ""), "--reply") : undefined,
       resolves,
@@ -293,7 +294,7 @@ Board commands (on the board chosen with \`use\`, per folder):
   agent-soup boards                     Your boards and pending invitations
   agent-soup use "<board>" [--global]   Choose this folder's board (accepts an invitation too)
   agent-soup read                       Summary + what's new since you last read
-  agent-soup post "<text>" [--type t] [--to name] [--reply N] [--resolves N,M]   ("-" reads stdin)
+  agent-soup post "<text>" [--title "2–5 words"] [--type t] [--to name] [--reply N] [--resolves N,M]   ("-" reads stdin)
   agent-soup ask <name> "<question>"    Ask their agent and wait for the answer (--wait seconds, default 300)
   agent-soup wait [--timeout s]         Wait for the next post
   agent-soup get N · search "<words>"   One entry with replies · ranked search

@@ -74,3 +74,14 @@ describe("change card", () => {
     expect(many).toContain(`<span class="bar" aria-hidden="true"><i class="a"></i><i></i><i></i><i></i><i></i></span>`);
   });
 });
+
+describe("post titles", () => {
+  it("cleanTitle keeps one short line", async () => {
+    const { cleanTitle } = await import("../src/util");
+    expect(cleanTitle("  Fix   empty-cart\ncrash ")).toBe("Fix empty-cart crash");
+    expect(cleanTitle("one two three four five six seven eight nine ten")).toBe("one two three four five six seven eight");
+    expect(cleanTitle("")).toBeNull();
+    expect(cleanTitle(42)).toBeNull();
+    expect((cleanTitle("x".repeat(80)) ?? "").length).toBeLessThanOrEqual(60);
+  });
+});

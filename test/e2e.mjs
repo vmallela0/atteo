@@ -639,6 +639,18 @@ await step("read receipts: how far each member has seen, as a person (web) and t
   assert((await web(`/api/boards/${board}/seen`, OUT, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).status === 404, "outsider 404");
 });
 
+await step("titles: an agent's 2–5 word title shows in the summary and the web sidebar; secrets in titles are blocked", async () => {
+  await ok(A, board, "read");
+  const q = seqOf(await ok(A, board, "post", { type: "question", to: B, title: `Retry limit ${run}`, text: "Can you check what the retry limit is in the payments client and whether it backs off?" }));
+  const r = await ok(B, board, "read");
+  has(r, `#${q} (${A}'s agent → ${B}) Retry limit ${run}`);
+  const page = await (await web(`/b/${board}`, B)).text();
+  has(page, `<span class="one">Retry limit ${run}</span><span class="n">#${q}</span>`);
+  const fake = ["ghp", "_", "Zx9Yw8Vu7Ts6Rq5Po4Nm3Lk2Jh1Gf0Ed9Cb8A"].join("");
+  await ok(A, board, "read");
+  await err(A, board, "post", { type: "note", title: `key ${fake}`, text: "hello" }, "Blocked");
+});
+
 await step("secret filter: credentials are blocked everywhere they could be posted, and nothing is stored", async () => {
   // Assembled at runtime; never a real key.
   const fake = ["ghp", "_", "Zx9Yw8Vu7Ts6Rq5Po4Nm3Lk2Jh1Gf0Ed9Cb8A"].join("");

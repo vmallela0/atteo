@@ -6,7 +6,7 @@ import { computeSummary, formatSummary, DEFAULT_SUMMARY_CHARS, type Summary } fr
 import { blockedMessage, scanFields, scanText, type SecretHit } from "./secrets";
 import { keep, MAX_MENTIONS, mentionsOwnAgent, type Mention } from "./mentions";
 import { ENTRY_TYPES, type BoardInfo, type Entry, type Env, type Media, type Member, type NewEntry } from "./types";
-import { EMOJI_RE, ftsQuery, USER_RE } from "./util";
+import { cleanTitle, EMOJI_RE, ftsQuery, USER_RE } from "./util";
 import { cardText, parseCard, type ChangeCard } from "./card";
 
 export const MAX_TEXT = 32_000;
@@ -143,11 +143,12 @@ function toEntry(r: Row): Entry {
     artifact_size: (r.artifact_size as number | null) ?? null,
     artifact_version: (r.artifact_version as number | null) ?? null,
     media: r.media ? (JSON.parse(r.media as string) as Media) : null,
+    title: (r.title as string | null) ?? null,
     card: r.card ? (JSON.parse(r.card as string) as ChangeCard) : null,
   };
 }
 
-const ENTRY_COLS = "seq, ts, author, type, text, to_user, mentions, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, card, media";
+const ENTRY_COLS = "seq, ts, author, type, text, title, to_user, mentions, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, card, media";
 
 export class Board extends DurableObject<Env> {
   private sql: SqlStorage;
@@ -317,6 +318,7 @@ export class Board extends DurableObject<Env> {
     if (!cols.has("card")) this.sql.exec("ALTER TABLE entries ADD COLUMN card TEXT");
     if (!cols.has("card_diff")) this.sql.exec("ALTER TABLE entries ADD COLUMN card_diff TEXT");
     if (!cols.has("media")) this.sql.exec("ALTER TABLE entries ADD COLUMN media TEXT"); // images: {mime, w, h, size}
+    if (!cols.has("title")) this.sql.exec("ALTER TABLE entries ADD COLUMN title TEXT"); // the author's 2–5 word summary
     // Read receipts: how far each member has seen, as a person (web) and through their agent (read/wait/post).
     const memberCols = new Set(this.sql.exec("PRAGMA table_info(members)").toArray().map((r) => r.name as string));
     if (!memberCols.has("person_seen")) this.sql.exec("ALTER TABLE members ADD COLUMN person_seen INTEGER NOT NULL DEFAULT 0");
@@ -476,7 +478,8 @@ export class Board extends DurableObject<Env> {
 
     // Egress filter: nothing that looks like a credential is ever stored.
     // (A document save already checked its content; the log entry for it carries the same content.)
-    const hit = scanFields({ text, artifact_name: input.artifact_name, artifact_content: internal.docVersion != null ? null : input.artifact_content });
+    const title = cleanTitle(input.title);
+    const hit = scanFields({ text, title, artifact_name: input.artifact_name, artifact_content: internal.docVersion != null ? null : input.artifact_content });
     if (hit) throw new BoardError(blockedMessage(hit));
 
     const refs = [input.reply_to, input.supersedes, input.retracts, ...(input.resolves ?? [])].filter((n): n is number => n != null);
@@ -535,8 +538,8 @@ export class Board extends DurableObject<Env> {
 
     const row = this.sql
       .exec(
-        `INSERT INTO entries (ts, author, type, text, to_user, mentions, self_agent, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, artifact_content, card, card_diff, media)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING ${ENTRY_COLS}`,
+        `INSERT INTO entries (ts, author, type, text, to_user, mentions, self_agent, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, artifact_content, card, card_diff, media, title)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING ${ENTRY_COLS}`,
         Date.now(),
         user,
         input.type,
@@ -557,6 +560,7 @@ export class Board extends DurableObject<Env> {
         card ? JSON.stringify(card) : null,
         cardDiff,
         internal.media ? JSON.stringify(internal.media) : null,
+        title,
       )
       .one();
     if (artifactVersion != null) this.broadcast({ type: "doc", name: artifactName, version: artifactVersion, by: user });

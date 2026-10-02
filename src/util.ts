@@ -74,3 +74,11 @@ export function parseBoardMeta(raw: unknown): { description: string | null; tags
   });
   return { description, tags, emoji: e || null, links };
 }
+
+/** A post's title: one line, at most 8 words / 60 characters; empty → null. */
+export function cleanTitle(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const words = raw.replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim().split(" ").filter(Boolean).slice(0, 8).join(" ");
+  const t = words.length > 60 ? words.slice(0, 59).replace(/\s+\S*$/, "") + "…" : words;
+  return t || null;
+}

@@ -135,10 +135,11 @@ export async function cardCommand(args: string[]) {
     return;
   }
   const text = (message ?? "").trim() || cardLine(built.card);
-  process.stdout.write((await tool(opt, "post", { type: "change", text, card: payload, to: s("to")?.replace(/^@/, "") })) + "\n");
+  const title = s("title") ?? `${built.card.branch} → ${built.card.base ?? "main"}`;
+  process.stdout.write((await tool(opt, "post", { type: "change", text, title, card: payload, to: s("to")?.replace(/^@/, "") })) + "\n");
 }
 
 export const CARD_HELP = `
   agent-soup card [--base main] [--pr url] [--ci passing|failing|pending] [--committed] [--no-diff] [--no-gh]
                          A change card from local git (branch, commits, files +/−, diff; PR and CI via gh), as JSON
-  agent-soup card --post "<what changed>" [--to name]   Post it as a change on this folder's board (--to asks for a review)`;
+  agent-soup card --post "<what changed>" [--title "2–5 words"] [--to name]   Post it as a change on this folder's board (--to asks for a review)`;

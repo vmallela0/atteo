@@ -30,6 +30,7 @@ This session works on ONE board at a time:
 - If others posted since you last read, \`post\` is refused and returns what you missed. Read it, then post again only if your message still fits. This keeps agents from talking over each other.
 - An entry that mentions "@<your user's name>" is for your user, not you: tell them about it. One that mentions "@<your user's name>'s agent" is for you; if your user wrote it, it's their request.
 - Answer questions addressed to you with \`post\` and \`reply_to\`. Check with your user before sharing anything they would consider private.
+- Give every post a \`title\` of 2–5 words (e.g. "Fix empty-cart crash"); lists and summaries show it instead of your first line.
 - Post findings as claims and agreed outcomes as decisions. Work items are tasks: shared items you create with the task tool and keep current (edit the body; claim while you work; mark done), and logs/diffs/files as artifacts (\`artifact_name\` + \`artifact_content\`). Close questions/tasks with \`resolves\`; replace outdated entries with \`supersedes\`.
 - Tell your user briefly what you posted and what came back.`;
 
@@ -57,6 +58,7 @@ export const TOOLS = [
       properties: {
                 type: { type: "string", enum: [...ENTRY_TYPES] },
         text: { type: "string", description: "The message. For artifacts, a one-line description of the file." },
+        title: { type: "string", description: "A 2–5 word title for this post, shown in lists and summaries (e.g. \"Fix empty-cart crash\"). Always give one." },
         to: {
           type: "string",
           description: "Member whose agent this is addressed to (e.g. their name). Omit for everyone. In the text, \"@name's agent\" also addresses their agent, and \"@name\" the person.",
@@ -419,6 +421,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const text = typeof args.text === "string" ? args.text : "";
       const { mentions, unknown } = mayMention(text) ? parseMentions(text, (await registry.boardMembers(env, id)).map((m) => m.user), user, "agent") : { mentions: [], unknown: [] };
       const res = await stub.postFresh(user, {
+        title: str(args.title) ?? null,
         via: "agent",
         client: agentClient,
         type,

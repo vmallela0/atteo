@@ -36,6 +36,7 @@ export interface Entry {
 export interface NewEntry {
   type: EntryType;
   text: string;
+  title?: string | null; // 2–5 words for lists and summaries (agents set it; the web derives one)
   to?: string | null;
   mentions?: Mention[] | null; // resolved against the board's members by the Worker
   reply_to?: number | null;

@@ -109,7 +109,8 @@ export const SUMMARY_LINE_CHARS = 120;
 function oneLine(e: Entry, max = SUMMARY_LINE_CHARS, tags?: TaskTags): string {
   const lines = e.text.split("\n").map((l) => l.trim()).filter(Boolean);
   const first = (lines[0] ?? "").replace(/\s+/g, " ");
-  const t = lines.length > 1 && first.length <= max ? first + " …" : first;
+  // The author's own title when they gave one; otherwise the first line.
+  const t = e.title ? e.title : lines.length > 1 && first.length <= max ? first + " …" : first;
   const who = e.to ? `${authorLabel(e)} → ${e.to}` : authorLabel(e);
   const extra = e.artifact_name
     ? ` [file: ${e.artifact_name}${e.artifact_version ? ` v${e.artifact_version}` : ""}]`
