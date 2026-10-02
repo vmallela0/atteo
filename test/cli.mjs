@@ -162,12 +162,14 @@ await step("watch --respond: starts your agent when a question is addressed to y
   const posted = await tool(tokB, board, "post", { type: "question", to: A, text: "Can you check the retry limit?" });
   const seq = posted.match(/#(\d+)/)[1];
   for (let t = 0; t < 100 && !existsSync(marker); t++) await sleep(100);
+  // The notice line and the agent start race each other: wait for both before stopping the watcher.
+  for (let t = 0; t < 50 && !out.includes(`${B}'s agent posted a question to you`); t++) await sleep(100);
   w.kill();
   assert(existsSync(marker), `agent was not started. watch output:\n${out}`);
   const argv = readFileSync(marker, "utf8");
   assert(argv.includes(`entry #${seq}`) && argv.includes("--allowedTools") && argv.includes("mcp__board__post") && !argv.includes("Bash"), argv);
   assert(argv.includes(`CWD=${realpathSync(projDir)}`), `should answer from the board's own folder:\n${argv}`);
-  assert(out.includes(`${B}'s agent posted a question to you`), out);
+  assert(out.includes(`${B}'s agent posted a question to you`), `no notice line; watch output: ${out || "(none)"}`);
 });
 
 await step("watch: '@you' notifies you; '@you's agent' starts your agent, even when you wrote it on the web", async () => {
