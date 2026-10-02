@@ -17,6 +17,9 @@ jobs:
           set -euo pipefail
           check() { echo "$1: $2"; [ "$2" = "$3" ] || { echo "::error::$1 returned $2, expected $3"; exit 1; }; }
           check "health" "$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$BASE/health")" 200
+          # Boards and the database answer (catches quota exhaustion and storage outages, not just a live Worker)
+          curl -s --max-time 15 "$BASE/health/deep" | tee /tmp/deep.json; echo
+          grep -q '"ok":true' /tmp/deep.json || { echo "::error::deep health failed: $(cat /tmp/deep.json)"; exit 1; }
           check "landing" "$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$BASE/")" 200
           check "mcp (no credentials)" "$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 -X POST "$BASE/mcp" -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}')" 401
           check "oauth discovery" "$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$BASE/.well-known/oauth-authorization-server")" 200

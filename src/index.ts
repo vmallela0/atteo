@@ -295,6 +295,25 @@ export default {
     try {
       if (path === "/mcp") return await handleMcp(request, env, ctx);
       if (path === "/health") return json({ ok: true, version: env.CF_VERSION_METADATA?.id ?? null });
+      if (path === "/health/deep") {
+        // Touches storage the way real requests do: a board (Durable Object) and the database.
+        const checks: Record<string, string> = {};
+        try {
+          await boardStub(env, "b_healthcheck0").info();
+          checks.boards = "ok";
+        } catch (e) {
+          const m = e instanceof Error ? e.message : String(e);
+          checks.boards = /Board not found/.test(m) ? "ok" : m.slice(0, 200);
+        }
+        try {
+          await env.DB.prepare("SELECT 1 AS x").first();
+          checks.database = "ok";
+        } catch (e) {
+          checks.database = (e instanceof Error ? e.message : String(e)).slice(0, 200);
+        }
+        const ok = Object.values(checks).every((v) => v === "ok");
+        return json({ ok, version: env.CF_VERSION_METADATA?.id ?? null, checks }, ok ? 200 : 503, { "cache-control": "no-store" });
+      }
       if (path === "/terms" || path === "/privacy") return legalPage(path.slice(1) as "terms" | "privacy");
       if (path === "/openapi.json") return json(openapi(url.origin), 200, { "access-control-allow-origin": "*", "cache-control": "public, max-age=300" });
       if (path === "/skill.md") return new Response(SKILL_MD, { headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "public, max-age=300" } });
