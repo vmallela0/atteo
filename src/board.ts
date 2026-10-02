@@ -229,7 +229,9 @@ export class Board extends DurableObject<Env> {
         name TEXT PRIMARY KEY,
         cursor INTEGER NOT NULL DEFAULT 0,
         joined_at INTEGER NOT NULL,
-        last_seen INTEGER NOT NULL
+        last_seen INTEGER NOT NULL,
+        person_seen INTEGER NOT NULL DEFAULT 0,
+        agent_seen INTEGER NOT NULL DEFAULT -1 -- -1: their agent has never been on this board
       );
     `);
     this.migrate();
@@ -281,6 +283,10 @@ export class Board extends DurableObject<Env> {
     if (!cols.has("artifact_version")) this.sql.exec("ALTER TABLE entries ADD COLUMN artifact_version INTEGER");
     if (!cols.has("card")) this.sql.exec("ALTER TABLE entries ADD COLUMN card TEXT");
     if (!cols.has("card_diff")) this.sql.exec("ALTER TABLE entries ADD COLUMN card_diff TEXT");
+    // Read receipts: how far each member has seen, as a person (web) and through their agent (read/wait/post).
+    const memberCols = new Set(this.sql.exec("PRAGMA table_info(members)").toArray().map((r) => r.name as string));
+    if (!memberCols.has("person_seen")) this.sql.exec("ALTER TABLE members ADD COLUMN person_seen INTEGER NOT NULL DEFAULT 0");
+    if (!memberCols.has("agent_seen")) this.sql.exec("ALTER TABLE members ADD COLUMN agent_seen INTEGER NOT NULL DEFAULT -1"); // -1: never here
     const taskCols = new Set(this.sql.exec("PRAGMA table_info(tasks)").toArray().map((r) => r.name as string));
     if (!taskCols.has("priority")) this.sql.exec("ALTER TABLE tasks ADD COLUMN priority TEXT");
     // Files posted before files became documents: each becomes the next version of the doc with its (cleaned) name.
@@ -407,6 +413,7 @@ export class Board extends DurableObject<Env> {
     if (unread > 0) {
       const missed = this.entriesAfter(cursor, user, 20);
       this.setCursor(user, missed[missed.length - 1].seq);
+      this.markSeen(user, "agent", missed[missed.length - 1].seq);
       return { missed, remaining: unread - missed.length };
     }
     return { entry: await this.post(user, input) };
@@ -517,6 +524,7 @@ export class Board extends DurableObject<Env> {
     }
     if (entry.retracts != null) this.stopDependents(user, entry.retracts);
 
+    if (input.via === "agent" || input.via === "person") this.markSeen(user, input.via, entry.seq);
     // Your own post counts as read, unless you're handing it to your own agent: then it's new for your agent.
     // A later post doesn't skip the agent past a hand-off it hasn't read yet.
     const forOwnAgent = mentionsOwnAgent(entry);
@@ -571,6 +579,8 @@ export class Board extends DurableObject<Env> {
     const remaining = opts.since != null ? 0 : Math.max(0, this.countAfter(from, user) - fresh.length);
     if (fresh.length) this.setCursor(user, fresh[fresh.length - 1].seq);
     else if (opts.since == null) this.setCursor(user, info.last_seq);
+    if (fresh.length) this.markSeen(user, "agent", fresh[fresh.length - 1].seq);
+    else if (opts.since == null) this.markSeen(user, "agent", info.last_seq);
     const members = this.members();
     return {
       info,
@@ -608,6 +618,7 @@ export class Board extends DurableObject<Env> {
     if (!row.length) return { info: this.info(), entries: [] as Entry[], timedOut: true };
     const fresh = this.entriesAfter(row[0].cursor as number, user, 50);
     if (fresh.length) this.setCursor(user, fresh[fresh.length - 1].seq);
+    if (fresh.length) this.markSeen(user, "agent", fresh[fresh.length - 1].seq);
     this.touch(user);
     return { info: this.info(), entries: fresh, timedOut: fresh.length === 0 };
   }
@@ -1245,10 +1256,37 @@ export class Board extends DurableObject<Env> {
   }
 
   /** Read-only view for the web UI; never moves anyone's cursor. */
+  // ---- read receipts ----
+
+  /** Moves a member's "seen up to" mark forward (never back) and tells open tabs. */
+  private markSeen(user: string, as: "agent" | "person", seq: number) {
+    const col = as === "agent" ? "agent_seen" : "person_seen";
+    const before = this.sql.exec(`SELECT ${col} AS v FROM members WHERE name = ?`, user).toArray()[0]?.v as number | undefined;
+    if (before == null || seq <= before) return;
+    this.sql.exec(`UPDATE members SET ${col} = ? WHERE name = ?`, seq, user);
+    const r = this.sql.exec("SELECT person_seen, agent_seen FROM members WHERE name = ?", user).one();
+    this.broadcast({ type: "read", user, person_seen: r.person_seen, agent_seen: r.agent_seen });
+  }
+
+  /** The web page reports what its person has had on screen. */
+  async seen(user: string, seq: number): Promise<void> {
+    const info = this.info();
+    this.touch(user);
+    this.markSeen(user, "person", Math.min(Math.max(0, Math.floor(seq) || 0), info.last_seq));
+  }
+
+  /** Each member's marks: how far they've seen as a person and through their agent. */
+  reads(): Record<string, { person_seen: number; agent_seen: number }> {
+    const out: Record<string, { person_seen: number; agent_seen: number }> = {};
+    for (const r of this.sql.exec("SELECT name, person_seen, agent_seen FROM members").toArray()) out[r.name as string] = { person_seen: r.person_seen as number, agent_seen: r.agent_seen as number };
+    return out;
+  }
+
   async snapshot(afterSeq = 0) {
     const info = this.info();
     return {
       info,
+      reads: this.reads(),
       members: this.members(),
       summary: this.summary(),
       entries: this.entriesAfter(afterSeq, null, 1000),

@@ -198,6 +198,20 @@ dialog[open]{animation:pop .16s ease-out}
 .file .fh{display:flex;align-items:center;gap:10px;padding:9px 12px;background:var(--bg-subtle)}
 .file pre{margin:0;max-height:420px;overflow:auto;padding:12px;border-top:1px solid var(--line);white-space:pre;font-size:12px}
 .t-change{color:var(--accent)}
+/* read receipts: a ring on your latest message, filling green as people and agents see it; a dot on each @mention */
+.entry.has-rd>.grow{padding-right:24px}
+.rd{position:absolute;right:0;bottom:12px;width:16px;height:16px;display:grid;place-items:center;cursor:default;outline-offset:2px}
+.rd svg{display:block}.rd .t{fill:none;stroke:var(--line-strong);stroke-width:2}.rd .p{fill:none;stroke:var(--ok);stroke-width:2;stroke-linecap:round;transition:stroke-dasharray .3s}
+.rd.all .t{fill:var(--ok);stroke:var(--ok)}.rd .ck{fill:none;stroke:var(--bg);stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.rd-pop{display:none;position:absolute;right:0;bottom:22px;z-index:6;min-width:150px;max-width:240px;padding:8px 10px;border-radius:8px;background:var(--ink);color:var(--on-ink);
+  font-size:12px;line-height:18px;box-shadow:var(--shadow-lg);flex-direction:column;white-space:nowrap}
+.rd:hover .rd-pop,.rd:focus .rd-pop{display:flex}
+.rd.down .rd-pop{bottom:auto;top:22px}
+.rd-pop b{font-weight:600;margin-bottom:2px}.rd-pop .y::before{content:"✓ ";color:var(--ok)}.rd-pop .n{opacity:.6}.rd-pop .n::before{content:"○ "}
+.entry .body .mention{position:relative}
+.entry .body .mention::after{content:"";position:absolute;top:-3px;right:-3px;width:6px;height:6px;border-radius:50%;box-shadow:0 0 0 1.5px var(--bg);
+  border:1.5px solid color-mix(in srgb,var(--ok) 70%,var(--muted));background:var(--bg);box-sizing:border-box}
+.entry .body .mention.seen::after{background:var(--ok);border-color:var(--ok)}
 /* change cards: a git change as a card (branch → base, CI, PR, commits, files, reviews, diff on demand) */
 .chg{margin-top:8px;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--bg)}
 .chg-h{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 12px;background:var(--bg-subtle);color:var(--muted);font-size:13px}

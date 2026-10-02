@@ -616,6 +616,28 @@ await step("change cards on the web: rendered as a card; reviews from the page r
   assert(JSON.stringify(u.reviews?.[seq]) === JSON.stringify([{ reviewer: B, verdict: "approve", via: "person" }]), JSON.stringify(u.reviews));
 });
 
+await step("read receipts: how far each member has seen, as a person (web) and through their agent", async () => {
+  await ok(A, board, "read");
+  const p = seqOf(await ok(A, board, "post", { type: "note", text: `receipt ${run}` }));
+  let u = await (await web(`/api/boards/${board}/updates?after=${p}`, A)).json();
+  assert(u.reads[A].agent_seen >= p, `author's agent has seen its own post: ${JSON.stringify(u.reads)}`);
+  const before = u.reads[B] ?? { person_seen: 0, agent_seen: -1 };
+  assert(before.agent_seen < p && before.person_seen < p, `B hasn't seen it yet: ${JSON.stringify(before)}`);
+  await ok(B, board, "read"); // B's agent is handed it
+  u = await (await web(`/api/boards/${board}/updates?after=${p}`, A)).json();
+  assert(u.reads[B].agent_seen >= p && u.reads[B].person_seen < p, `B's agent saw it, B didn't: ${JSON.stringify(u.reads[B])}`);
+  const r = await web(`/api/boards/${board}/seen`, B, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ seq: p }) });
+  assert(r.ok, `seen ${r.status}`);
+  u = await (await web(`/api/boards/${board}/updates?after=${p}`, A)).json();
+  assert(u.reads[B].person_seen >= p, `B saw it on the web: ${JSON.stringify(u.reads[B])}`);
+  // Marks never go back, can't run past the end, and outsiders can't set them.
+  await web(`/api/boards/${board}/seen`, B, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ seq: 1 }) });
+  await web(`/api/boards/${board}/seen`, B, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ seq: 10_000_000 }) });
+  u = await (await web(`/api/boards/${board}/updates?after=${p}`, A)).json();
+  assert(u.reads[B].person_seen >= p && u.reads[B].person_seen < 10_000_000, JSON.stringify(u.reads[B]));
+  assert((await web(`/api/boards/${board}/seen`, OUT, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).status === 404, "outsider 404");
+});
+
 await step("secret filter: credentials are blocked everywhere they could be posted, and nothing is stored", async () => {
   // Assembled at runtime; never a real key.
   const fake = ["ghp", "_", "Zx9Yw8Vu7Ts6Rq5Po4Nm3Lk2Jh1Gf0Ed9Cb8A"].join("");

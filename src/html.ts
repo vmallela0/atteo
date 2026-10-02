@@ -496,7 +496,7 @@ const rail=document.getElementById('rail'),tip=document.getElementById('rail-tip
 function railBuild(){const th=document.getElementById('thread'),top0=th.getBoundingClientRect().top,H=Math.max(1,th.scrollHeight);
   ticks=[...th.querySelectorAll('.entry')].map(el=>({el,y:(el.getBoundingClientRect().top-top0)/H,h:el.querySelector(':scope>.grow>.meta')?.offsetHeight||20}));
   rail.innerHTML=ticks.map((t,i)=>'<i data-i="'+i+'" style="top:'+(t.y*100).toFixed(3)+'%"></i>').join('');railMark()}
-function railMark(){const a=scroller.scrollTop,b=a+scroller.clientHeight,H=Math.max(1,scroller.scrollHeight);const is=rail.children;
+function railMark(){setTimeout(reportSeen,0);const a=scroller.scrollTop,b=a+scroller.clientHeight,H=Math.max(1,scroller.scrollHeight);const is=rail.children;
   ticks.forEach((t,i)=>{const y=t.y*document.getElementById('thread').scrollHeight;is[i]?.classList.toggle('on',y+t.h>a&&y<b)})}
 function railAt(ev){const r=rail.getBoundingClientRect();return Math.min(1,Math.max(0,(ev.clientY-r.top)/r.height))}
 function railNear(f){let best=-1,d=2;ticks.forEach((t,i)=>{const x=Math.abs(t.y-f);if(x<d){d=x;best=i}});return d<0.03?best:-1}
@@ -535,6 +535,7 @@ async function tick1(wait){try{
     last=Math.max(last,e.seq)}
   if(typeof d.last==='number')last=Math.max(last,d.last);
   if(d.reviews)applyReviews(d.reviews);
+  if(d.reads){READS=d.reads;renderReads()}
   if(added){railBuild();if(stick)toBottom();else{unseen=true;pillSync()}}
   if(d.entries.length){document.getElementById('sum').innerHTML=d.summary;document.querySelectorAll('[data-count]').forEach(x=>x.textContent=d.count);refreshTimes();infoCount()}
 }catch(e){await new Promise(r=>setTimeout(r,5000))}}
@@ -549,6 +550,7 @@ function connect(){
     if(d.type==='renamed'){window.applyTitle(d.title);return}
     if(d.type==='archived'){location.reload();return}
     if(d.type==='doc'){window.onDocChanged&&onDocChanged(d)}
+    if(d.type==='read'){READS[d.user]={person_seen:d.person_seen,agent_seen:d.agent_seen};renderReads();return}
     if(d.type==='entry'||(d.type==='hello'&&d.last>last)){tick(false);if(!document.getElementById('panel-tasks').hidden)loadTasks()}};
   ws.onclose=(e)=>{clearInterval(ping);if(e.code===4003){location.href='/';return}
     if(++retry>4)return poll();setTimeout(connect,Math.min(30000,1000*2**retry))};
@@ -678,6 +680,33 @@ document.addEventListener('click',async e=>{
 document.addEventListener('submit',async e=>{const f=e.target.closest('[data-rc]');if(!f)return;e.preventDefault();
   const note=f.note.value.trim();if(!note)return;if(await review(f.dataset.rc,'request_changes',note)){f.reset();f.hidden=true}});
 applyReviews({});tick(false); // the first update brings every card's verdicts
+// ---- read receipts: a ring on your latest message (who has seen it), a dot on each @mention (has that one seen it) ----
+const MEMBERS=${jsString(members.map((m) => m.user))};let READS={},seenSent=0,seenTimer=null;
+const seenAs=(u,agent)=>{const r=READS[u];return r?(agent?r.agent_seen:r.person_seen):(agent?-1:0)}; // agent -1: never on this board
+/** Everyone who should see an entry: each member, and each member's agent once it has been on the board; not its author. */
+function audience(el){const by=el.dataset.author,byAgent=el.classList.contains('by-agent'),out=[];
+  for(const u of MEMBERS){if(!(u===by&&!byAgent))out.push({u,agent:false});if(seenAs(u,true)>=0&&!(u===by&&byAgent))out.push({u,agent:true})}return out}
+function renderReads(){
+  document.querySelectorAll('#thread .mention[data-user]').forEach(m=>{const seq=+m.closest('.entry').dataset.seq;m.classList.toggle('seen',seenAs(m.dataset.user,m.classList.contains('agent'))>=seq)});
+  document.querySelectorAll('#thread .rd').forEach(x=>{x.closest('.entry')?.classList.remove('has-rd');x.remove()});
+  const mine=[...document.querySelectorAll('#thread .entry')].filter(e=>e.dataset.author===ME&&!e.classList.contains('retracted')).pop();if(!mine)return;
+  const seq=+mine.dataset.seq,who=audience(mine),read=who.filter(w=>seenAs(w.u,w.agent)>=seq),all=who.length>0&&read.length===who.length;
+  const C=2*Math.PI*6,frac=who.length?read.length/who.length:0,name=w=>esc(w.agent?w.u+"'s agent":w.u);
+  const el=document.createElement('span');el.className='rd'+(all?' all':'');el.tabIndex=0;
+  el.setAttribute('aria-label',who.length?(all?'Seen by everyone':'Seen by '+read.length+' of '+who.length):'No one else here yet');
+  el.innerHTML='<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6" class="t"/><circle cx="8" cy="8" r="6" class="p" stroke-dasharray="'+(C*frac).toFixed(2)+' '+C.toFixed(2)+'" transform="rotate(-90 8 8)"/>'+(all?'<path d="M5.2 8.2l1.9 1.9 3.7-4" class="ck"/>':'')+'</svg>'+
+    '<span class="rd-pop" role="tooltip"><b>'+(all?'Seen by everyone':'Seen by '+read.length+' of '+who.length)+'</b>'+who.map(w=>'<span class="'+(seenAs(w.u,w.agent)>=seq?'y':'n')+'">'+name(w)+'</span>').join('')+'</span>';
+  // The list opens upward, or downward when the message is near the top of the thread.
+  const flip=()=>el.classList.toggle('down',el.getBoundingClientRect().top-scroller.getBoundingClientRect().top<40+22*who.length);
+  el.addEventListener('mouseenter',flip);el.addEventListener('focus',flip);
+  mine.classList.add('has-rd');mine.appendChild(el)}
+/** Tells the board how far its person has read: the newest entry on screen while this tab is visible. */
+function reportSeen(){if(document.visibilityState!=='visible'||document.getElementById('panel-conv').hidden)return;
+  let max=0;ticks.forEach((t,i)=>{if(rail.children[i]?.classList.contains('on'))max=Math.max(max,+t.el.dataset.seq)});
+  if(max<=seenSent||seenTimer)return;
+  seenTimer=setTimeout(async()=>{seenTimer=null;let m=0;ticks.forEach((t,i)=>{if(rail.children[i]?.classList.contains('on'))m=Math.max(m,+t.el.dataset.seq)});if(m<=seenSent)return;seenSent=m;
+    try{await fetch('/api/boards/'+BOARD+'/seen',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({seq:m})})}catch(e){seenSent=0}},800)}
+document.addEventListener('visibilitychange',reportSeen);window.addEventListener('focus',reportSeen);
 window.deleted=()=>{location.href='/'};
 // Every place the board name shows: heading, breadcrumb, sidebar, browser tab (also used for live renames by others).
 window.applyTitle=(t)=>{const h=document.getElementById('board-title');if(h)h.textContent=t;document.title=t+' · Agent Soup';

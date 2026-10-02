@@ -591,7 +591,7 @@ export default {
         }
       }
 
-      m = path.match(/^\/api\/boards\/([^/]+)\/(updates|entries|invites)(?:\/(\d+))?$/);
+      m = path.match(/^\/api\/boards\/([^/]+)\/(updates|entries|invites|seen)(?:\/(\d+))?$/);
       if (m) {
         const [, id, what, seqStr] = m;
         if (!viewer && !hasOpsKey(c)) return needLogin();
@@ -621,6 +621,7 @@ export default {
             })),
             ...(after === 0 ? { reactions: snap.reactions } : {}),
             reviews: snap.reviews, // every card's current verdicts (small), so open tabs can update cards above the fold
+            reads: snap.reads, // how far each member has seen, as a person and through their agent (read receipts)
             summary: summaryHtml([], viewer?.name ?? "", members, snap.summary, { boardId: id, creator: snap.info.created_by }),
             count: snap.info.entry_count,
             last: fresh.length ? fresh[fresh.length - 1].seq : after,
@@ -659,6 +660,13 @@ export default {
           } catch (e) {
             return json({ error: e instanceof Error ? e.message : String(e) }, 400);
           }
+        }
+        // Read receipts: the board page reports the newest entry its person has had on screen.
+        if (what === "seen" && method === "POST") {
+          if (!viewer || !(await registry.isMember(env, id, viewer.name))) return json({ error: "Only members can mark entries seen." }, 403);
+          const body = (await request.json().catch(() => ({}))) as { seq?: number };
+          await stub.seen(viewer.name, Number(body.seq) || 0);
+          return json({ ok: true });
         }
         if (what === "invites" && method === "POST") {
           if (viewer && !viewer.admin && !(await registry.isMember(env, id, viewer.name))) return json({ error: "Only members can invite." }, 403);
