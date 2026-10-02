@@ -513,6 +513,48 @@ export default {
         return json({ error: "not found" }, 404);
       }
 
+      // ---- tasks board (web): list, and act on one task as a person ----
+      m = path.match(/^\/api\/boards\/([^/]+)\/tasks(?:\/(\d+))?$/);
+      if (m) {
+        if (!viewer) return needLogin();
+        if (!(await registry.isMember(env, m[1], viewer.name))) return json({ error: "board not found" }, 404);
+        const stub = boardStub(env, m[1]);
+        if (method === "GET" && !m[2]) return json({ tasks: await stub.tasks() });
+        if (method === "POST" && m[2]) {
+          const seq = parseInt(m[2], 10);
+          const b = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+          const s = (k: string) => (typeof b[k] === "string" ? (b[k] as string).trim() : undefined);
+          const opts = { via: "person" as const };
+          try {
+            let t;
+            if (b.action === "claim") t = await stub.taskClaim(viewer.name, seq, Number(b.minutes) || 60, opts);
+            else if (b.action === "release") t = await stub.taskRelease(viewer.name, seq, opts);
+            else if (b.action === "stop") t = await stub.taskStop(viewer.name, seq, s("reason") ?? "", opts);
+            else if (b.action === "update") {
+              const due = s("due");
+              t = await stub.taskUpdate(
+                viewer.name,
+                seq,
+                {
+                  status: s("status") as "todo" | "doing" | "blocked" | "done" | undefined,
+                  assignee: b.assignee === undefined ? undefined : s("assignee") || null,
+                  assignee_agent: b.assignee_is_person === true ? false : true,
+                  due: due === undefined ? undefined : due === "" ? null : Date.parse(due + "T23:59:00Z") || undefined,
+                  priority: b.priority === undefined ? undefined : ((s("priority") as "high" | "medium" | "low") || null),
+                  note: s("note") ?? null,
+                },
+                opts,
+              );
+            } else return json({ error: "action must be claim, release, update or stop" }, 400);
+            ctx.waitUntil(registry.bumpBoard(env, m[1], 0).catch(() => {}));
+            return json({ ok: true, task: t });
+          } catch (e) {
+            return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+          }
+        }
+        return json({ error: "not found" }, 404);
+      }
+
       // ---- review a change card as a person (approve / request_changes / comment) ----
       m = path.match(/^\/api\/boards\/([^/]+)\/entries\/(\d+)\/review$/);
       if (m && method === "POST") {

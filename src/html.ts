@@ -485,7 +485,7 @@ function connect(){
     if(d.type==='renamed'){window.applyTitle(d.title);return}
     if(d.type==='archived'){location.reload();return}
     if(d.type==='doc'){window.onDocChanged&&onDocChanged(d)}
-    if(d.type==='entry'||(d.type==='hello'&&d.last>last))tick(false)};
+    if(d.type==='entry'||(d.type==='hello'&&d.last>last)){tick(false);if(!document.getElementById('panel-tasks').hidden)loadTasks()}};
   ws.onclose=(e)=>{clearInterval(ping);if(e.code===4003){location.href='/';return}
     if(++retry>4)return poll();setTimeout(connect,Math.min(30000,1000*2**retry))};
 }
@@ -634,12 +634,40 @@ let convStuck=true;
 function tab(n){if(!document.getElementById('panel-conv').hidden)convStuck=atBottom();
   document.querySelectorAll('#board-tabs button').forEach((b,i)=>b.setAttribute('aria-selected',String(i===n)));
   document.querySelectorAll('[data-board-panel]').forEach((p,i)=>p.hidden=i!==n);
-  infoBtn.hidden=n!==0;if(n===0&&convStuck)toBottom();history.replaceState(null,'',['',"#log","#files"][n]||location.pathname);if(n===2)loadDocs()}
+  infoBtn.hidden=n!==0;if(n===0&&convStuck)toBottom();history.replaceState(null,'',['',"#log","#files","#tasks"][n]||location.pathname);if(n===2)loadDocs();if(n===3)loadTasks()}
 document.querySelectorAll('#board-tabs button').forEach((b,i)=>b.addEventListener('click',()=>tab(i)));
 if(location.hash==='#log')tab(1);if(location.hash==='#files'||location.hash==='#docs')tab(2);
+// ---- Tasks (Kanban): the board's tasks by status; drag a card to another column to change it ----
+const KCOLS=[['todo','To do'],['doing','In progress'],['blocked','Blocked'],['done','Done']];
+const PRI={high:0,medium:1,low:2};
+function kesc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c])}
+async function loadTasks(){const r=await fetch('/api/boards/'+BOARD+'/tasks');const j=await r.json().catch(()=>({}));if(!r.ok){document.getElementById('kanban').innerHTML='<p class="muted small">'+kesc(j.error||'Could not load tasks')+'</p>';return}
+  const ts=j.tasks||[];const open=ts.filter(t=>t.status!=='done').length;document.getElementById('task-count').textContent=open||'';
+  document.getElementById('kanban').innerHTML=KCOLS.map(([k,label])=>{const col=ts.filter(t=>(k==='blocked'?(t.status==='blocked'||t.status==='stopped'):t.status===k))
+      .sort((a,b)=>(PRI[a.priority]??3)-(PRI[b.priority]??3)||(k==='done'?b.updated_at-a.updated_at:a.seq-b.seq)).slice(0,k==='done'?30:200);
+    return '<section class="kcol" data-status="'+k+'"><h3>'+label+' <span class="faint">'+col.length+'</span></h3><div class="kcards">'+col.map(card).join('')+'</div></section>'}).join('')}
+function card(t){const first=(t.text||'').split('\n').find(l=>l.trim())||'';
+  const who=t.assignee?(t.assignee_agent?t.assignee+"'s agent":t.assignee):'';
+  const hold=t.lease_holder?(t.lease_agent?t.lease_holder+"'s agent":t.lease_holder):'';
+  return '<article class="kcard" draggable="true" data-seq="'+t.seq+'">'+
+    '<div class="row" style="gap:6px"><a class="seq" href="#e'+t.seq+'" data-kopen="'+t.seq+'">#'+t.seq+'</a>'+(t.priority?'<span class="badge pri-'+t.priority+'">'+t.priority+'</span>':'')+(t.status==='stopped'?'<span class="badge pri-high">stopped</span>':'')+'<span class="grow"></span>'+(t.due?'<span class="xs faint">due '+new Date(t.due).toISOString().slice(5,10)+'</span>':'')+'</div>'+
+    '<div class="ktext">'+kesc(first.length>140?first.slice(0,140)+'…':first)+'</div>'+
+    ((who||hold||t.stop_reason)?'<div class="xs faint">'+[who&&('for '+kesc(who)),hold&&('🔒 '+kesc(hold)),t.stop_reason&&kesc(t.stop_reason)].filter(Boolean).join(' · ')+'</div>':'')+'</article>'}
+async function taskAct(seq,body){const r=await fetch('/api/boards/'+BOARD+'/tasks/'+seq,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
+  const j=await r.json().catch(()=>({}));if(!r.ok)toast(j.error||'Could not update');loadTasks();tick(false)}
+const kb=document.getElementById('kanban');let dragSeq=null;
+kb.addEventListener('dragstart',e=>{const c=e.target.closest('.kcard');if(!c)return;dragSeq=c.dataset.seq;e.dataTransfer.effectAllowed='move';c.classList.add('dragging')});
+kb.addEventListener('dragend',e=>{e.target.closest('.kcard')?.classList.remove('dragging');kb.querySelectorAll('.kcol.over').forEach(x=>x.classList.remove('over'))});
+kb.addEventListener('dragover',e=>{const col=e.target.closest('.kcol');if(!col||!dragSeq)return;e.preventDefault();kb.querySelectorAll('.kcol.over').forEach(x=>x!==col&&x.classList.remove('over'));col.classList.add('over')});
+kb.addEventListener('drop',e=>{const col=e.target.closest('.kcol');if(!col||!dragSeq)return;e.preventDefault();const s=dragSeq;dragSeq=null;taskAct(s,{action:'update',status:col.dataset.status})});
+kb.addEventListener('click',e=>{const a=e.target.closest('[data-kopen]');if(!a)return;e.preventDefault();tab(0);location.hash='#e'+a.dataset.kopen});
+document.getElementById('kb-new')?.addEventListener('submit',async e=>{e.preventDefault();const i=document.getElementById('kb-new-text');const text=i.value.trim();if(!text)return;
+  const r=await fetch('/api/boards/'+BOARD+'/entries',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({type:'task',text})});
+  const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||'Could not add');return}i.value='';loadTasks();tick(false)});
+if(location.hash==='#tasks')tab(3);
 let cur=-1;
 window.boardKeys=(e,k)=>{
-  if(k==='1'||k==='2'||k==='3'){tab(+k-1);return}
+  if(k==='1'||k==='2'||k==='3'||k==='4'){tab(+k-1);return}
   const inLog=!document.getElementById('panel-log').hidden;
   const els=[...document.querySelectorAll(inLog?'#log-body tr.ev':'#thread .entry')];
   if(k==='j'||k==='k'){e.preventDefault();cur=Math.max(0,Math.min(els.length-1,cur+(k==='j'?1:-1)));
@@ -666,7 +694,7 @@ window.boardKeys=(e,k)=>{
     <span class="row" style="min-width:0">${avatarStack(members.map((m) => m.user))}<span class="truncate bp-names">${members.map((m) => esc(m.user)).join(", ")}</span></span>
     <span class="bp-count"><span data-count>${info.entry_count}</span> entries</span>
   </div></div>
-  <div class="bp-tabs"><div class="tabs" role="tablist" id="board-tabs"><button role="tab" aria-selected="true">Conversation</button><button role="tab" aria-selected="false">Log <span class="faint" data-count>${info.entry_count}</span></button><button role="tab" aria-selected="false">Files</button></div>
+  <div class="bp-tabs"><div class="tabs" role="tablist" id="board-tabs"><button role="tab" aria-selected="true">Conversation</button><button role="tab" aria-selected="false">Log <span class="faint" data-count>${info.entry_count}</span></button><button role="tab" aria-selected="false">Files</button><button role="tab" aria-selected="false">Tasks <span class="faint" id="task-count"></span></button></div>
     <button class="btn ghost sm info-btn" type="button" id="info-btn" aria-expanded="false" aria-controls="board-info"><span class="lbl-wide">Board info</span><span class="lbl-narrow">Info</span> <span class="count" id="info-count" hidden></span></button></div>
 </div>
 <div role="tabpanel" id="panel-conv" class="bp-panel" data-board-panel><div class="layout" id="conv-layout">
@@ -699,6 +727,12 @@ window.boardKeys=(e,k)=>{
 <div role="tabpanel" id="panel-log" class="bp-panel" data-board-panel hidden><div class="list scroll-x"><table class="log"><thead><tr><th>Time (UTC)</th><th>#</th><th>Author</th><th>Type</th><th>To</th><th>Summary</th></tr></thead>
 <tbody id="log-body">${rows || `<tr id="log-empty"><td colspan="6" class="empty small">No events yet.</td></tr>`}</tbody></table></div>
 <p class="xs faint" style="margin-top:10px">Every entry, newest first. Click a row (or <kbd>J</kbd>/<kbd>K</kbd> then <kbd>↵</kbd>) for its raw payload.</p></div>
+<div role="tabpanel" id="panel-tasks" class="bp-panel" data-board-panel hidden>
+  <div class="kanban-head row"><span class="small muted grow">Drag a card to change its status. Agents see the same board through the <code>task</code> tool.</span>${
+    info.archived ? "" : `<form class="row kb-new" id="kb-new"><input class="input sm" id="kb-new-text" placeholder="New task…" aria-label="New task"><button class="btn sm">Add</button></form>`
+  }</div>
+  <div class="kanban" id="kanban"><p class="muted small">Loading…</p></div>
+</div>
 <div role="tabpanel" id="panel-docs" class="bp-panel" data-board-panel hidden>
   <div class="docs">
     <div class="doc-list"><div class="row" style="justify-content:space-between;margin-bottom:8px"><span class="small muted">Files</span>${info.archived ? "" : `<button class="btn sm" type="button" id="doc-new">New</button>`}</div><div id="doc-items" class="small muted">Loading…</div></div>

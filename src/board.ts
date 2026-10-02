@@ -20,6 +20,8 @@ export const REVIEW_VERDICTS = ["approve", "request_changes", "comment"] as cons
 export type ReviewVerdict = (typeof REVIEW_VERDICTS)[number];
 export const TASK_STATUSES = ["todo", "doing", "blocked", "done", "stopped"] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
+export const TASK_PRIORITIES = ["high", "medium", "low"] as const;
+export type TaskPriority = (typeof TASK_PRIORITIES)[number];
 export interface TaskView {
   seq: number;
   text: string;
@@ -33,6 +35,7 @@ export interface TaskView {
   lease_agent: boolean;
   lease_until: number | null;
   stop_reason: string | null;
+  priority: TaskPriority | null;
   reply_to: number | null;
   updated_at: number;
 }
@@ -41,6 +44,7 @@ export interface TaskChange {
   assignee?: string | null;
   assignee_agent?: boolean;
   due?: number | null;
+  priority?: TaskPriority | null;
   note?: string | null;
 }
 export interface TaskActOpts {
@@ -196,6 +200,7 @@ export class Board extends DurableObject<Env> {
         lease_agent INTEGER,
         lease_until INTEGER,
         stop_reason TEXT,
+        priority TEXT,
         updated_at INTEGER NOT NULL
       );
       CREATE TABLE IF NOT EXISTS docs (
@@ -276,6 +281,8 @@ export class Board extends DurableObject<Env> {
     if (!cols.has("artifact_version")) this.sql.exec("ALTER TABLE entries ADD COLUMN artifact_version INTEGER");
     if (!cols.has("card")) this.sql.exec("ALTER TABLE entries ADD COLUMN card TEXT");
     if (!cols.has("card_diff")) this.sql.exec("ALTER TABLE entries ADD COLUMN card_diff TEXT");
+    const taskCols = new Set(this.sql.exec("PRAGMA table_info(tasks)").toArray().map((r) => r.name as string));
+    if (!taskCols.has("priority")) this.sql.exec("ALTER TABLE tasks ADD COLUMN priority TEXT");
     // Files posted before files became documents: each becomes the next version of the doc with its (cleaned) name.
     if (this.meta("files_backfilled") !== "1") {
       for (const r of this.sql.exec("SELECT seq, ts, author, via, client, text, artifact_name, artifact_content FROM entries WHERE type = 'artifact' AND artifact_version IS NULL AND artifact_content IS NOT NULL ORDER BY seq").toArray()) {
@@ -853,18 +860,20 @@ export class Board extends DurableObject<Env> {
   }
 
   /** Add your reaction, or remove it if it's already there. Returns the entry's reactions. */
-  async react(user: string, seq: number, emoji: string): Promise<{ on: boolean; reactions: Reactions }> {
+  /** An agent's reaction is shown (and toggled) as "<name>'s agent", separately from its person's. */
+  async react(user: string, seq: number, emoji: string, opts: { via?: "agent" | "person" | null } = {}): Promise<{ on: boolean; reactions: Reactions }> {
     const info = this.info();
     if (info.archived) throw new BoardError(`"${info.title}" is archived, so it's read-only. Its creator can restore it.`);
     const e = (emoji ?? "").trim();
     if (!EMOJI_RE.test(e)) throw new BoardError("Give one emoji, like 👍, or a :shortcode:.");
     if (!Number.isInteger(seq) || seq < 1 || seq > info.last_seq) throw new BoardError(`Entry #${seq} does not exist on this board.`);
-    const had = this.sql.exec("DELETE FROM reactions WHERE seq = ? AND user = ? AND emoji = ? RETURNING seq", seq, user, e).toArray().length > 0;
+    const who = opts.via === "agent" ? `${user}'s agent` : user;
+    const had = this.sql.exec("DELETE FROM reactions WHERE seq = ? AND user = ? AND emoji = ? RETURNING seq", seq, who, e).toArray().length > 0;
     if (!had) {
       this.rateLimit(user);
-      const n = this.sql.exec("SELECT COUNT(*) AS n FROM reactions WHERE seq = ? AND user = ?", seq, user).one().n as number;
+      const n = this.sql.exec("SELECT COUNT(*) AS n FROM reactions WHERE seq = ? AND user = ?", seq, who).one().n as number;
       if (n >= MAX_REACTIONS_PER_PERSON) throw new BoardError(`At most ${MAX_REACTIONS_PER_PERSON} different reactions per person on one entry.`);
-      this.sql.exec("INSERT INTO reactions (seq, user, emoji, ts) VALUES (?, ?, ?, ?)", seq, user, e, Date.now());
+      this.sql.exec("INSERT INTO reactions (seq, user, emoji, ts) VALUES (?, ?, ?, ?)", seq, who, e, Date.now());
     }
     const reactions = this.reactionsFor([seq])[seq] ?? [];
     this.broadcast({ type: "reaction", seq, reactions });
@@ -894,6 +903,7 @@ export class Board extends DurableObject<Env> {
         lease_agent: r.lease_agent === 1,
         lease_until: (r.lease_until as number | null) && (r.lease_until as number) > now ? (r.lease_until as number) : null,
         stop_reason: (r.stop_reason as string | null) ?? null,
+        priority: (r.priority as TaskPriority | null) ?? null,
         reply_to: (r.reply_to as number | null) ?? null,
         updated_at: r.updated_at as number,
       }));
@@ -965,6 +975,7 @@ export class Board extends DurableObject<Env> {
     for (const [seq, bits] of byChange) m.set(seq, bits.join(" · "));
     for (const t of this.taskRows()) {
       const bits: string[] = [t.status];
+      if (t.priority) bits.push(`${t.priority} priority`);
       if (t.assignee) bits.push(`for ${t.assignee_agent ? `${t.assignee}'s agent` : t.assignee}`);
       if (t.lease_holder) bits.push(`${t.lease_agent ? `${t.lease_holder}'s agent` : t.lease_holder} holds it until ${iso(t.lease_until!)}`);
       if (t.stop_reason) bits.push(t.stop_reason);
@@ -1022,6 +1033,11 @@ export class Board extends DurableObject<Env> {
       if (who && !this.sql.exec("SELECT 1 AS x FROM members WHERE name = ?", who).toArray().length) throw new BoardError(`${who} isn't a member of this board.`);
       this.sql.exec("UPDATE tasks SET assignee = ?, assignee_agent = ? WHERE seq = ?", who, change.assignee_agent === false ? 0 : 1, seq);
       parts.push(who ? `assigned to ${change.assignee_agent === false ? who : `${who}'s agent`}` : "unassigned");
+    }
+    if (change.priority !== undefined && change.priority !== t.priority) {
+      if (change.priority !== null && !TASK_PRIORITIES.includes(change.priority)) throw new BoardError(`priority must be one of: ${TASK_PRIORITIES.join(", ")}`);
+      this.sql.exec("UPDATE tasks SET priority = ? WHERE seq = ?", change.priority, seq);
+      parts.push(change.priority ? `${change.priority} priority` : "no priority");
     }
     if (change.due !== undefined) {
       this.sql.exec("UPDATE tasks SET due = ? WHERE seq = ?", change.due, seq);

@@ -152,7 +152,7 @@ await step("MCP initialize, tools/list, notifications, protocol errors", async (
   assert(r.protocolVersion === "2025-06-18" && r.serverInfo.name === "agent-soup", JSON.stringify(r));
   has(r.instructions, "Agent Soup");
   const names = (await rpcRaw(auth(A), null, "tools/list", {})).tools.map((t) => t.name).sort();
-  assert(JSON.stringify(names) === JSON.stringify(["create_board", "doc", "get", "invite", "join_board", "leave_board", "list_boards", "post", "read", "retract", "review", "search", "task", "wait"]), names.join());
+  assert(JSON.stringify(names) === JSON.stringify(["create_board", "doc", "get", "invite", "join_board", "leave_board", "list_boards", "post", "react", "read", "retract", "review", "search", "task", "wait"]), names.join());
   assert((await rpcRaw({}, null, "notifications/initialized", {}, { notification: true })).status === 202, "notification status");
   assert((await fetch(`${BASE}/mcp`)).status === 405, "GET /mcp should be 405");
   const p = await fetch(`${BASE}/mcp`, { method: "POST", headers: { "content-type": "application/json" }, body: "{" });
@@ -770,6 +770,8 @@ await step("reactions: toggle per person, shown to agents, validated, members on
   assert(r.reactions[0].users.length === 2, JSON.stringify(r));
   await react(B, ":shipit:");
   has(await ok(B, fb, "get", { seq }), `Reactions: 👍 ${A}, ${B} · :shipit: ${B}`);
+  has(await ok(B, fb, "react", { seq, emoji: "✅" }), `✅ ${B}'s agent`); // agents react as "<name>'s agent"
+  has(await ok(B, fb, "react", { seq, emoji: "✅" }), "Removed your reaction");
   r = await (await react(A, "👍")).json(); // again = take it back
   assert(!r.on && r.reactions[0].users.join() === B, JSON.stringify(r));
   assert((await react(A, "not an emoji")).status === 400, "invalid emoji");
@@ -919,6 +921,24 @@ await step("tasks: claim leases, conflicts, release, assign, done closes it, sto
   await err(A, fb, "task", { action: "fly", seq: t3 }, "action must be");
   const out = await tool(OUT, fb, "task", { action: "list" });
   assert(out.isError, "outsiders can't see tasks");
+});
+
+await step("tasks board (web): list, move between columns, priority, claim conflicts, members only", async () => {
+  await ok(A, fb, "read");
+  const t = seqOf(await ok(A, fb, "post", { type: "task", text: `kanban card ${run}` }));
+  const act = (who, body) => web(`/api/boards/${fb}/tasks/${t}`, who, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  let list = (await (await web(`/api/boards/${fb}/tasks`, B)).json()).tasks;
+  assert(list.some((x) => x.seq === t && x.status === "todo"), JSON.stringify(list).slice(0, 300));
+  let r = await (await act(B, { action: "update", status: "blocked", priority: "high", note: "waiting on keys" })).json();
+  assert(r.task.status === "blocked" && r.task.priority === "high", JSON.stringify(r));
+  has(await ok(A, fb, "task", { action: "list", status: "blocked" }), `#${t} [blocked · high]`);
+  await ok(A, fb, "task", { action: "claim", seq: t });
+  const res = await act(B, { action: "update", status: "done" });
+  assert(res.status === 400 && (await res.json()).error.includes("claimed by"), "someone else's claimed task can't be moved");
+  r = await (await act(A, { action: "update", status: "done" })).json();
+  assert(r.task.status === "done", JSON.stringify(r));
+  assert((await web(`/api/boards/${fb}/tasks`, OUT)).status === 404, "outsiders");
+  has(await (await web(`/b/${fb}`, B)).text(), 'id="panel-tasks"');
 });
 
 await step("rename and archive: creator only; archived boards are read-only and listed separately; restore works", async () => {

@@ -238,6 +238,22 @@ dialog[open]{animation:pop .16s ease-out}
 .side-link .count{margin-left:auto;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--accent);color:#fff;font-size:11px;font-weight:600;display:inline-flex;align-items:center;justify-content:center}
 .side-link .count[hidden]{display:none}
 .inbox{list-style:none;margin:0;padding:4px}
+/* Tasks board */
+.kanban-head{gap:10px;margin-bottom:12px;align-items:center}
+.kb-new{gap:6px;margin:0}.kb-new .input{width:240px}
+.kanban{display:grid;grid-template-columns:repeat(4,minmax(220px,1fr));gap:12px;overflow-x:auto;align-items:start;padding-bottom:6px}
+.kcol{background:var(--bg-subtle,var(--bg-hover));border:1px solid var(--line);border-radius:10px;padding:8px;min-height:120px;transition:border-color .1s,background .1s}
+.kcol.over{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 6%,var(--bg))}
+.kcol h3{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin:2px 4px 8px}
+.kcards{display:flex;flex-direction:column;gap:6px}
+.kcard{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;cursor:grab;display:flex;flex-direction:column;gap:4px}
+.kcard:hover{border-color:color-mix(in srgb,var(--ink) 25%,var(--line))}
+.kcard.dragging{opacity:.5}
+.kcard .seq{font-size:12px;color:var(--faint)}
+.kcard .ktext{font-size:13px;color:var(--ink);line-height:1.35}
+.badge.pri-high{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 45%,var(--line))}
+.badge.pri-medium{color:var(--accent)}
+.badge.pri-low{color:var(--faint)}
 .inbox-item a{display:flex;gap:10px;align-items:flex-start;padding:10px;border-radius:8px;color:inherit}
 .inbox-item a:hover{background:var(--bg-hover)}
 .inbox-item.unread b{color:var(--ink)}
@@ -674,7 +690,7 @@ export function appPage(
 <dt><kbd>⌘K</kbd> <kbd>/</kbd></dt><dd>Search or jump to a board</dd>
 <dt><kbd>C</kbd></dt><dd>New board, or write on the current board</dd>
 <dt><kbd>I</kbd></dt><dd>Invite someone to the current board</dd>
-<dt><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd></dt><dd>Conversation / Log / Files</dd>
+<dt><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> <kbd>4</kbd></dt><dd>Conversation / Log / Files / Tasks</dd>
 <dt><kbd>J</kbd> <kbd>K</kbd></dt><dd>Move down / up through entries</dd>
 <dt><kbd>↵</kbd></dt><dd>Open the selected entry's details</dd>
 <dt><kbd>G</kbd> then <kbd>B</kbd> <kbd>M</kbd></dt><dd>Go to Boards / Account</dd>
