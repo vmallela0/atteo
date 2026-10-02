@@ -40,6 +40,16 @@ final class API: @unchecked Sendable {
 
     var token: String? { Keychain.token }
 
+    /// A board's live socket (the same one the web page uses): it says when a message lands or a task changes.
+    func socket(board: String) -> URLSessionWebSocketTask? {
+        guard let token, var c = URLComponents(url: base.appendingPathComponent("api/boards/\(board)/ws"), resolvingAgainstBaseURL: false) else { return nil }
+        c.scheme = c.scheme == "http" ? "ws" : "wss"
+        guard let url = c.url else { return nil }
+        var r = URLRequest(url: url)
+        r.setValue("Bearer \(token)", forHTTPHeaderField: "authorization")
+        return session.webSocketTask(with: r)
+    }
+
     private func request(_ method: String, _ path: String, body: Any? = nil, idempotencyKey: String? = nil, timeout: TimeInterval? = nil) throws -> URLRequest {
         guard let token else { throw APIError.signedOut }
         var r = URLRequest(url: URL(string: path, relativeTo: base)!)

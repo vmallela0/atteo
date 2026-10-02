@@ -3,6 +3,49 @@
 
 import SwiftUI
 
+extension WorkTask {
+    var statusLabel: String { ["todo": "To do", "doing": "In progress", "blocked": "Blocked", "done": "Done", "stopped": "Stopped"][status] ?? status }
+    /// One line under a task's title: where it stands, who's on it, how far along.
+    var caption: String {
+        [statusLabel, who, checklist.map { "\($0.done)/\($0.total)" }, children.map { "\($0.done)/\($0.total) sub-tasks" }].compactMap { $0 }.joined(separator: " · ")
+    }
+    /// Whether a checklist line is about this task ("#12 …" or its title).
+    func covers(_ line: String) -> Bool {
+        let norm = { (x: String) in x.lowercased().split { !$0.isLetter && !$0.isNumber }.joined(separator: " ") }
+        if line.range(of: "#\(seq)(?!\\d)", options: .regularExpression) != nil { return true }
+        let t = norm(title)
+        return t.count > 2 && norm(line).contains(t)
+    }
+}
+
+/// A checklist line: ticks with a little spring when it gets done.
+struct CheckLine: View {
+    let text: String
+    let done: Bool
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: done ? "checkmark.circle.fill" : "circle")
+                .font(.system(size: 13)).foregroundStyle(done ? Theme.ok : Theme.faint)
+                .contentTransition(.symbolEffect(.replace))
+            Text(text.md).font(.subheadline).foregroundStyle(done ? Theme.muted : Theme.text).strikethrough(done, color: Theme.faint).lineLimit(2)
+        }
+        .animation(.spring(duration: 0.35, bounce: 0.4), value: done)
+    }
+}
+
+/// A sub-task under its parent: its own ring, title and who's on it.
+struct SubTaskLine: View {
+    let task: WorkTask
+    var body: some View {
+        HStack(spacing: 8) {
+            ProgressRing(task: task).frame(width: 13, height: 13)
+            Text(task.title).font(.subheadline).foregroundStyle(task.status == "done" ? Theme.muted : Theme.text).strikethrough(task.status == "done", color: Theme.faint).lineLimit(1)
+            Spacer(minLength: 6)
+            if task.status != "done", let w = task.who { Text(w).font(.caption).foregroundStyle(Theme.faint).lineLimit(1) }
+        }
+    }
+}
+
 extension Array where Element == WorkTask {
     var inProgress: [WorkTask] { filter { $0.status == "doing" }.sorted { $0.updatedAt > $1.updatedAt } }
     var next: [WorkTask] { filter { $0.status == "todo" }.sorted { ($0.priorityRank, $0.seq) < ($1.priorityRank, $1.seq) } }
@@ -89,17 +132,25 @@ struct TasksSheet: View {
             .navigationTitle("Work on \(board.title)")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() }.fontWeight(.semibold) } }
-            .navigationDestination(for: WorkTask.self) { t in TaskDetail(task: t) }
+            .navigationDestination(for: Int.self) { seq in TaskDetail(seq: seq, board: board.id) }
             .overlay { if all.isEmpty { ContentUnavailableView("No tasks yet", systemImage: "checklist", description: Text("When agents pick up work here, it shows up with who's on it.")) } }
             .refreshable { await state.loadTasks(board) }
         }
     }
 
+    /// Top-level tasks in each section; sub-tasks sit under their parent, wherever they stand.
     @ViewBuilder private func section(_ title: String, _ list: [WorkTask], color: Color) -> some View {
-        if !list.isEmpty {
+        let all = state.tasks[board.id] ?? []
+        let top = list.filter { t in t.parent == nil || !all.contains { $0.seq == t.parent } }
+        if !top.isEmpty {
             Section {
-                ForEach(list) { t in NavigationLink(value: t) { TaskRow(task: t) } }
-            } header: { Text("\(title) · \(list.count)").font(.footnote.weight(.semibold)).foregroundStyle(color) }
+                ForEach(top) { t in
+                    NavigationLink(value: t.seq) { TaskRow(task: t) }
+                    ForEach(all.filter { $0.parent == t.seq }.sorted { $0.seq < $1.seq }) { s in
+                        NavigationLink(value: s.seq) { TaskRow(task: s).padding(.leading, 24) }
+                    }
+                }
+            } header: { Text("\(title) · \(top.count)").font(.footnote.weight(.semibold)).foregroundStyle(color) }
             .listRowBackground(Theme.card)
         }
     }
@@ -115,6 +166,7 @@ struct TaskRow: View {
                 HStack(spacing: 6) {
                     Text(task.who ?? "unassigned").foregroundStyle(task.who == nil ? Theme.faint : Theme.muted)
                     if let c = task.checklist { Text("\(c.done)/\(c.total)").foregroundStyle(Theme.faint).monospacedDigit() }
+                    if let c = task.children { Label("\(c.done)/\(c.total)", systemImage: "arrow.turn.down.right").labelStyle(.titleAndIcon).foregroundStyle(Theme.faint).monospacedDigit() }
                     if task.priority == "high" { Text("high").foregroundStyle(Theme.danger) }
                     Text(task.updatedAt.ago).foregroundStyle(Theme.faint)
                 }
@@ -125,36 +177,54 @@ struct TaskRow: View {
     }
 }
 
-/// One task: who's on it, and its checklist / plan (read-only here; agents and people edit it on the board).
+/// One task, live: who's on it, its checklist (ticking as the work gets done), its sub-tasks and what it's part of.
+/// Read-only here; agents and people edit it on the board.
 struct TaskDetail: View {
-    let task: WorkTask
+    @EnvironmentObject var state: AppState
+    let seq: Int
+    let board: String
+    private var tasks: [WorkTask] { state.tasks[board] ?? [] }
+
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                Text(task.title).font(.title3.weight(.semibold)).foregroundStyle(Theme.text)
-                HStack(spacing: 8) {
-                    Pill(text: task.status == "doing" ? "in progress" : task.status, color: task.status == "doing" ? Theme.accent : task.status == "done" ? Theme.ok : task.status == "blocked" ? Theme.warn : Theme.muted)
-                    if let w = task.who { Text(w).font(.subheadline).foregroundStyle(Theme.accent) }
-                    Spacer()
-                    Text("#\(task.seq) · \(task.updatedAt.ago)").font(.caption).foregroundStyle(Theme.faint)
-                }
-                VStack(alignment: .leading, spacing: 8) {
-                    ForEach(Array(task.body.split(separator: "\n", omittingEmptySubsequences: false).enumerated()), id: \.offset) { _, raw in
-                        let line = raw.trimmingCharacters(in: .whitespaces)
-                        if line.hasPrefix("- [x]") || line.hasPrefix("- [X]") || line.hasPrefix("- [ ]") {
-                            let done = !line.hasPrefix("- [ ]")
-                            HStack(alignment: .top, spacing: 8) {
-                                Image(systemName: done ? "checkmark.circle.fill" : "circle").foregroundStyle(done ? Theme.ok : Theme.faint)
-                                Text(String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces).md).foregroundStyle(done ? Theme.muted : Theme.text).strikethrough(done, color: Theme.faint)
+            if let task = tasks.first(where: { $0.seq == seq }) {
+                let subs = tasks.filter { $0.parent == seq }.sorted { $0.seq < $1.seq }
+                VStack(alignment: .leading, spacing: 14) {
+                    if let p = task.parent, let parent = tasks.first(where: { $0.seq == p }) {
+                        NavigationLink(value: p) {
+                            Label(parent.title, systemImage: "arrow.turn.left.up").font(.caption).foregroundStyle(Theme.muted).lineLimit(1)
+                        }.buttonStyle(.plain)
+                    }
+                    Text(task.title).font(.title3.weight(.semibold)).foregroundStyle(Theme.text)
+                    HStack(spacing: 8) {
+                        Pill(text: task.statusLabel.lowercased(), color: task.status == "doing" ? Theme.accent : task.status == "done" ? Theme.ok : task.status == "blocked" ? Theme.warn : Theme.muted)
+                        if let w = task.who { Text(w).font(.subheadline).foregroundStyle(Theme.accent) }
+                        Spacer()
+                        Text("#\(task.seq) · \(task.updatedAt.ago)").font(.caption).foregroundStyle(Theme.faint)
+                    }
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(Array(task.body.split(separator: "\n", omittingEmptySubsequences: false).enumerated()), id: \.offset) { _, raw in
+                            let line = raw.trimmingCharacters(in: .whitespaces)
+                            if line.hasPrefix("- [x]") || line.hasPrefix("- [X]") || line.hasPrefix("- [ ]") {
+                                CheckLine(text: String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces), done: !line.hasPrefix("- [ ]"))
+                            } else if !line.isEmpty {
+                                Text(line.md).font(.subheadline).foregroundStyle(Theme.muted)
                             }
-                            .font(.subheadline)
-                        } else if !line.isEmpty {
-                            Text(line.md).font(.subheadline).foregroundStyle(Theme.muted)
                         }
                     }
+                    if !subs.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Sub-tasks · \(subs.filter { $0.status == "done" }.count)/\(subs.count)").font(.footnote.weight(.semibold)).foregroundStyle(Theme.muted)
+                            ForEach(subs) { s in NavigationLink(value: s.seq) { SubTaskLine(task: s) }.buttonStyle(.plain) }
+                        }
+                        .padding(.top, 6)
+                    }
                 }
+                .padding(20)
+                .animation(.smooth, value: task)
+            } else {
+                ContentUnavailableView("Task not found", systemImage: "checklist", description: Text("It may have been retracted."))
             }
-            .padding(20)
         }
         .background(Theme.bg)
         .navigationBarTitleDisplayMode(.inline)

@@ -126,7 +126,19 @@ struct WorkTask: Codable, Identifiable, Hashable {
     let title: String
     let body: String
     let updatedAt: Double
+    var parent: Int? = nil // the task this is a sub-task of
+    var children: Progress? = nil // this task's sub-tasks, done of total
+    struct Progress: Codable, Hashable { let done: Int; let total: Int }
     var id: Int { seq }
+
+    /// The checklist lines, in order: (text, ticked).
+    var items: [(text: String, done: Bool)] {
+        body.split(separator: "\n").compactMap { raw in
+            let l = raw.trimmingCharacters(in: .whitespaces)
+            guard l.hasPrefix("- [ ]") || l.hasPrefix("- [x]") || l.hasPrefix("- [X]") else { return nil }
+            return (String(l.dropFirst(5)).trimmingCharacters(in: .whitespaces), !l.hasPrefix("- [ ]"))
+        }
+    }
 
     /// Who's on it: the agent or person holding it right now, else who it's assigned to.
     var who: String? {

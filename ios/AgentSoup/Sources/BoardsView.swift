@@ -27,7 +27,7 @@ struct BoardView: View {
                     ForEach(Array(list.enumerated()), id: \.element.id) { i, e in
                         let prev = i > 0 ? list[i - 1] : nil
                         let grouped = prev != nil && prev!.author == e.author && prev!.via == e.via && e.ts - prev!.ts < 5 * 60_000 && e.type == "note"
-                        EntryRow(e: e, grouped: grouped, mine: e.author == state.me?.owner && e.via != "agent") { Task { await state.send(e.text, to: board, retrying: e) } }
+                        EntryRow(e: e, grouped: grouped, mine: e.author == state.me?.owner && e.via != "agent", board: board.id, tasks: state.tasks[board.id] ?? []) { Task { await state.send(e.text, to: board, retrying: e) } }
                             .id(e.id)
                             .transition(.asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity), removal: .opacity))
                     }
@@ -48,6 +48,7 @@ struct BoardView: View {
         .toolbar(.hidden, for: .tabBar) // inside a conversation the message box owns the bottom edge
         .task { async let e: Void = state.loadEntries(board); async let t: Void = state.loadTasks(board); _ = await (e, t); await state.markRead(board) }
         .onChange(of: state.pulse) { _, p in if p?.board == board.id { Task { async let e: Void = state.loadEntries(board); async let t: Void = state.loadTasks(board); _ = await (e, t); await state.markRead(board) } } }
+        .task(id: board.id) { await state.watch(board) } // live: ticks and new messages as they happen
         .refreshable { await state.loadEntries(board) }
     }
 
@@ -88,12 +89,14 @@ struct EntryRow: View {
     let e: Entry
     var grouped = false
     var mine = false
+    var board = "" // the board's id
+    var tasks: [WorkTask] = [] // the board's tasks, so a task posted here shows as it is now
     var retry: () -> Void = {}
 
     private var who: String { e.byAgent ? "\(e.author)'s agent" : e.author }
 
     var body: some View {
-        if mine { myMessage } else { theirMessage }
+        if mine && e.type != "task" { myMessage } else { theirMessage }
     }
 
     /// Yours: a right-aligned bubble, like any messenger.
@@ -132,7 +135,7 @@ struct EntryRow: View {
                     }
                 }
                 if let a = e.artifactName { Label(a, systemImage: "doc.text").font(.caption.monospaced()).foregroundStyle(Theme.muted) }
-                if e.type == "task" { TaskCard(text: e.text) } else {
+                if e.type == "task" { TaskCard(seq: e.seq, board: board, text: e.text, tasks: tasks) } else {
                     Text(e.text.md).font(.callout).foregroundStyle(Theme.text.opacity(0.92)).textSelection(.enabled).lineSpacing(2)
                 }
             }
@@ -157,23 +160,57 @@ struct PlaceholderMessage: View {
 }
 
 /// A task posted in the chat, shown as what it is (a task with a checklist), not as raw "- [ ]" text.
+/// A task in the chat as it is now, not as it was posted: live title, who's on it, its checklist ticking off
+/// as the work gets done, and its sub-tasks. Tap for the whole task.
 struct TaskCard: View {
+    let seq: Int
+    let board: String
     let text: String
+    let tasks: [WorkTask]
+    @State private var open = false
+
     var body: some View {
-        let lines = text.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
-        let title = lines.first ?? text
-        let done = lines.filter { $0.hasPrefix("- [x]") || $0.hasPrefix("- [X]") }.count
-        let total = done + lines.filter { $0.hasPrefix("- [ ]") }.count
-        HStack(spacing: 10) {
-            Image(systemName: "circle.dashed").font(.system(size: 15)).foregroundStyle(Theme.muted)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title.md).font(.callout.weight(.medium)).foregroundStyle(Theme.text).lineLimit(2)
-                Text(total > 0 ? "Task · \(done)/\(total) done" : "Task").font(.caption).foregroundStyle(Theme.faint)
+        let t = tasks.first { $0.seq == seq }
+        let subs = tasks.filter { $0.parent == seq }.sorted { $0.seq < $1.seq }
+        // A checklist line that is also a sub-task shows once, as the sub-task (it has its own ring and owner).
+        let items = (t?.items ?? []).filter { it in !subs.contains { $0.covers(it.text) } }
+        Button { if t != nil { Haptic.tap(); open = true } } label: {
+            VStack(alignment: .leading, spacing: 9) {
+                HStack(spacing: 10) {
+                    if let t { ProgressRing(task: t).frame(width: 16, height: 16) } else {
+                        Image(systemName: "circle.dashed").font(.system(size: 15)).foregroundStyle(Theme.muted)
+                    }
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text((t?.title ?? String(text.split(separator: "\n").first ?? Substring(text))).md)
+                            .font(.callout.weight(.medium)).foregroundStyle(t?.status == "done" ? Theme.muted : Theme.text).lineLimit(2)
+                        Text(t.map { $0.caption } ?? "Task").font(.caption).foregroundStyle(Theme.faint).lineLimit(1)
+                    }
+                    Spacer(minLength: 0)
+                }
+                if !items.isEmpty || !subs.isEmpty {
+                    VStack(alignment: .leading, spacing: 7) {
+                        ForEach(Array(items.prefix(6).enumerated()), id: \.offset) { _, it in CheckLine(text: it.text, done: it.done) }
+                        if items.count > 6 { Text("+\(items.count - 6) more").font(.caption).foregroundStyle(Theme.faint) }
+                        ForEach(subs.prefix(6)) { s in SubTaskLine(task: s) }
+                    }
+                    .padding(.leading, 26)
+                }
             }
-            Spacer(minLength: 0)
+            .padding(.horizontal, 12).padding(.vertical, 10)
+            .background(Theme.card, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Theme.line, lineWidth: 0.5))
+            .animation(.smooth, value: t)
+            .animation(.smooth, value: subs)
         }
-        .padding(.horizontal, 12).padding(.vertical, 10)
-        .background(Theme.card, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Theme.line, lineWidth: 0.5))
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("task-card-\(seq)")
+        .accessibilityValue(t?.caption ?? "")
+        .sheet(isPresented: $open) {
+            NavigationStack {
+                TaskDetail(seq: seq, board: board)
+                    .navigationDestination(for: Int.self) { s in TaskDetail(seq: s, board: board) }
+            }
+                .presentationDetents([.medium, .large]).presentationBackground(Theme.bg)
+        }
     }
 }

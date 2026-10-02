@@ -113,7 +113,7 @@ export const TOOLS = [
   {
     name: "task",
     description:
-      "Tasks are shared, living work items that everyone (people and agents) edits in place, like a shared doc: a title and a body (the plan, a checklist, findings, links) plus status, assignee, priority and due date. Keep a task's body current instead of posting progress messages. Actions: list {status?, mine?}; get {seq} (full body, version); create {title, body?, assignee?, assignee_is_person?, priority?, due?}; edit {seq, title?, body + base_version (whole body) | old_str + new_str (one exact piece, e.g. tick '- [ ] x' → '- [x] x'), summary?}; history {seq}; claim {seq, minutes?} (lease it while you work so no one duplicates it; default 30 min); release {seq}; update {seq, status? (todo|doing|blocked|done), assignee?, assignee_is_person?, priority? (high|medium|low), due? (YYYY-MM-DD), note? (posts a line to the conversation)}; stop {seq, reason}. Only create, done, (re)assignment, notes and stops reach the conversation. If a task you hold gets stopped, stop working on it.",
+      "Tasks are shared, living work items that everyone (people and agents) edits in place, like a shared doc: a title and a body (the plan, a checklist, findings, links) plus status, assignee, priority and due date. Keep a task's body current instead of posting progress messages. Actions: list {status?, mine?}; get {seq} (full body, version); create {title, body?, assignee?, assignee_is_person?, priority?, due?, parent? (makes it a sub-task of that task; when it's done, the parent's checklist line naming #seq or its title gets ticked)}; edit {seq, title?, body + base_version (whole body) | old_str + new_str (one exact piece, e.g. tick '- [ ] x' → '- [x] x'), summary?}; history {seq}; claim {seq, minutes?} (lease it while you work so no one duplicates it; default 30 min); release {seq}; update {seq, status? (todo|doing|blocked|done), parent? (task seq; 0 = top level), assignee?, assignee_is_person?, priority? (high|medium|low), due? (YYYY-MM-DD), note? (posts a line to the conversation)}; stop {seq, reason}. Only create, done, (re)assignment, notes and stops reach the conversation. If a task you hold gets stopped, stop working on it.",
     inputSchema: {
       type: "object",
       properties: {
@@ -128,6 +128,7 @@ export const TOOLS = [
         minutes: { type: "integer", description: "claim: lease length (5–240, default 30)" },
         status: { type: "string", enum: ["todo", "doing", "blocked", "done"] },
         mine: { type: "boolean", description: "list: only tasks assigned to or held by your user" },
+        parent: { type: "integer", description: "create/update: the task this is a sub-task of (update: 0 = top level)" },
         assignee: { type: "string", description: "update: member name (empty to unassign)" },
         assignee_is_person: { type: "boolean", description: "update: assign the person instead of their agent" },
         due: { type: "string", description: "update: YYYY-MM-DD, or empty to clear" },
@@ -712,7 +713,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const line = (t: Awaited<ReturnType<typeof stub.tasks>>[number]) =>
         `#${t.seq} [${t.status}${t.priority ? ` · ${t.priority}` : ""}]${t.assignee ? ` for ${t.assignee_agent ? `${t.assignee}'s agent` : t.assignee}` : ""}${
           t.lease_holder ? ` · held by ${t.lease_agent ? `${t.lease_holder}'s agent` : t.lease_holder} until ${when(t.lease_until!)}` : ""
-        }${t.due ? ` · due ${when(t.due).slice(0, 10)}` : ""}${t.stop_reason ? ` · stopped: ${t.stop_reason}` : ""} · v${t.version}\n    ${t.title}`;
+        }${t.due ? ` · due ${when(t.due).slice(0, 10)}` : ""}${t.stop_reason ? ` · stopped: ${t.stop_reason}` : ""}${t.children ? ` · sub-tasks ${t.children.done}/${t.children.total} done` : ""}${t.parent ? ` · under #${t.parent}` : ""} · v${t.version}\n    ${t.title}`;
       const full = (t: Awaited<ReturnType<typeof stub.tasks>>[number]) =>
         `${line(t)}\n    updated by ${t.updated_via === "agent" ? `${t.updated_by}'s agent` : t.updated_by} ${when(t.updated_at)}\n----- body (v${t.version}) -----\n${t.body || "(empty)"}\n----- end -----`;
       const dueOf = () => {
@@ -725,7 +726,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       if (action === "create") {
         const t = await stub.taskCreate(
           user,
-          { title: str(args.title) ?? "", body: typeof args.body === "string" ? args.body : "", assignee: str(args.assignee) ?? null, assignee_agent: args.assignee_is_person !== true, priority: priorityOf() ?? null, due: dueOf() ?? null },
+          { title: str(args.title) ?? "", body: typeof args.body === "string" ? args.body : "", assignee: str(args.assignee) ?? null, assignee_agent: args.assignee_is_person !== true, priority: priorityOf() ?? null, due: dueOf() ?? null, parent: int(args.parent) || null },
           opts,
         );
         later(registry.bumpBoard(env, id, t.seq));
@@ -735,7 +736,12 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
         let list = await stub.tasks({ status: str(args.status) });
         if (args.mine === true) list = list.filter((t) => t.assignee === user || t.lease_holder === user);
         if (args.status === undefined) list = list.filter((t) => t.status !== "done");
-        return list.length ? fence(list.map(line).join("\n")) : 'No matching tasks. Create one with task action "create".';
+        // Sub-tasks sit indented under their parent when both are listed.
+        const shown = new Set(list.map((t) => t.seq));
+        const tree = (t: (typeof list)[number], depth: number): string[] =>
+          [line(t).replace(/^/gm, "    ".repeat(depth)), ...(depth < 6 ? list.filter((k) => k.parent === t.seq).flatMap((k) => tree(k, depth + 1)) : [])];
+        const nested = list.filter((t) => t.parent == null || !shown.has(t.parent)).flatMap((t) => tree(t, 0));
+        return list.length ? fence(nested.join("\n")) : 'No matching tasks. Create one with task action "create".';
       }
       const seq = int(args.seq);
       if (seq == null) throw new ToolError("seq is required.");
@@ -777,6 +783,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
             due,
             priority: args.priority === undefined ? undefined : ((str(args.priority) as "high" | "medium" | "low" | undefined) ?? null),
             note: str(args.note) ?? null,
+            parent: args.parent === undefined ? undefined : int(args.parent) || null,
           },
           opts,
         );

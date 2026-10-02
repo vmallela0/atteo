@@ -1186,6 +1186,31 @@ await step("tasks are shared items: create, get, edit in place (versions, confli
   assert(nt.status === 201, "web create");
 });
 
+await step("sub-tasks: parent, nested list, children done/total, a finished sub-task ticks the parent's checklist", async () => {
+  const pc = await ok(A, fb, "task", { action: "create", title: `Launch the app ${run}`, body: "- [ ] write the store copy\n- [ ] screenshots" });
+  const p = Number(pc.match(/Created task #(\d+)/)[1]);
+  const c1 = Number((await ok(A, fb, "task", { action: "create", title: "Write the store copy", parent: p })).match(/Created task #(\d+)/)[1]);
+  const c2 = Number((await ok(A, fb, "task", { action: "create", title: `Take screenshots ${run}` })).match(/Created task #(\d+)/)[1]);
+  has(await ok(A, fb, "task", { action: "update", seq: c2, parent: p }), `under #${p}`);
+  await err(A, fb, "task", { action: "update", seq: p, parent: c1 }, "own sub-task");
+  await err(A, fb, "task", { action: "update", seq: p, parent: p }, "own sub-task");
+  await err(A, fb, "task", { action: "create", title: "orphan", parent: 999999 }, "isn't an open task");
+  const list = await ok(B, fb, "task", { action: "list" });
+  has(list, "sub-tasks 0/2 done");
+  assert(new RegExp(`\\n    #${c1} \\[todo\\]`).test(list), "sub-tasks indent under their parent:\n" + list);
+  await ok(A, fb, "task", { action: "update", seq: c1, status: "done" });
+  const g = await ok(B, fb, "task", { action: "get", seq: p });
+  has(g, "- [x] write the store copy"); // matched by title
+  has(g, "- [ ] screenshots");
+  has(g, "sub-tasks 1/2 done");
+  const w = await (await web(`/api/boards/${fb}/tasks`, A)).json();
+  const pt = w.tasks.find((t) => t.seq === p), ct = w.tasks.find((t) => t.seq === c2);
+  assert(pt.children.done === 1 && pt.children.total === 2 && ct.parent === p, JSON.stringify({ pt, ct }).slice(0, 300));
+  // Web: un-nest and re-nest.
+  const r = await web(`/api/boards/${fb}/tasks/${c2}`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "update", parent: null }) });
+  assert(r.status === 200 && (await r.json()).task.parent === null, "web un-nest");
+});
+
 await step("plans: Free caps boards you create; a signed Stripe webhook upgrades to Pro and back; checkout opens", async () => {
   const whsec = process.env.STRIPE_WEBHOOK_SECRET ?? (() => { try { return readFileSync(new URL("../.dev.vars", import.meta.url), "utf8").match(/^STRIPE_WEBHOOK_SECRET=(.*)$/m)?.[1]; } catch { return undefined; } })();
   const C = `e2e-cap-${run}`;

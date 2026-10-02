@@ -55,6 +55,25 @@ final class AgentSoupUITests: XCTestCase {
             shot("04b-tasks")
             a.buttons["Done"].tap()
         }
+        // A task card ticks live: another member finishes a sub-task and its card here says Done, no refresh.
+        let env = ProcessInfo.processInfo.environment
+        if let tick = env["AGENT_SOUP_TICK"], let server = env["AGENT_SOUP_SERVER"], let token = env["AGENT_SOUP_TOKEN"] {
+            let card = a.buttons["task-card-\(tick.split(separator: ":")[1])"]
+            XCTAssertTrue(card.waitForExistence(timeout: 5), "the sub-task's card is in the chat")
+            XCTAssertFalse((card.value as? String ?? "").hasPrefix("Done"), "not done yet")
+            let parts = tick.split(separator: ":")
+            var r = URLRequest(url: URL(string: "\(server)/api/boards/\(parts[0])/tasks/\(parts[1])")!)
+            r.httpMethod = "POST"
+            r.setValue("Bearer \(token)", forHTTPHeaderField: "authorization")
+            r.setValue("application/json", forHTTPHeaderField: "content-type")
+            r.httpBody = try JSONSerialization.data(withJSONObject: ["action": "update", "status": "done"])
+            let posted = expectation(description: "done posted")
+            URLSession.shared.dataTask(with: r) { _, _, _ in posted.fulfill() }.resume()
+            wait(for: [posted], timeout: 10)
+            let ticked = expectation(for: NSPredicate(format: "value BEGINSWITH 'Done'"), evaluatedWith: card)
+            wait(for: [ticked], timeout: 5)
+            shot("04c-ticked")
+        }
         composer.tap()
         let msg = "QA from the phone \(Int(Date().timeIntervalSince1970) % 100000)"
         composer.typeText(msg)

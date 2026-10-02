@@ -1530,7 +1530,7 @@ const handler = {
           try {
             const t = await stub.taskCreate(
               viewer.name,
-              { title: String(b.title ?? ""), body: typeof b.body === "string" ? b.body : "", priority: (["high", "medium", "low"] as const).find((p) => p === b.priority) ?? null },
+              { title: String(b.title ?? ""), body: typeof b.body === "string" ? b.body : "", priority: (["high", "medium", "low"] as const).find((p) => p === b.priority) ?? null, parent: typeof b.parent === "number" && b.parent > 0 ? b.parent : null },
               { via: pv(), session: await asid() },
             );
             ctx.waitUntil(registry.bumpBoard(env, m[1], t.seq).catch(() => {}));
@@ -1573,6 +1573,7 @@ const handler = {
                   due: due === undefined ? undefined : due === "" ? null : Date.parse(due + "T23:59:00Z") || undefined,
                   priority: b.priority === undefined ? undefined : ((s("priority") as "high" | "medium" | "low") || null),
                   note: s("note") ?? null,
+                  parent: b.parent === undefined ? undefined : typeof b.parent === "number" && b.parent > 0 ? b.parent : null,
                 },
                 opts,
               );

@@ -151,6 +151,42 @@ final class AppState: ObservableObject {
 
     func stopFeed() { feedTask?.cancel(); feedTask = nil }
 
+    /// While a chat is open: its live socket, so checklists tick and messages land the moment they change.
+    /// Runs until the chat closes (the caller's task is cancelled); reconnects after a dropped connection.
+    func watch(_ b: Board) async {
+        struct Event: Decodable { let type: String }
+        var backoff: UInt64 = 1
+        while !Task.isCancelled {
+            guard let ws = API.shared.socket(board: b.id) else { return }
+            ws.resume()
+            var pending: Task<Void, Never>?
+            do {
+                // Leaving the chat cancels this task; closing the socket ends the receive that's waiting on it.
+                try await withTaskCancellationHandler {
+                while !Task.isCancelled {
+                    let msg = try await ws.receive()
+                    backoff = 1
+                    guard case .string(let s) = msg, let e = try? JSONDecoder().decode(Event.self, from: Data(s.utf8)) else { continue }
+                    guard e.type == "task" || e.type == "entry" else { continue }
+                    // Bursts (a done that ticks a parent and posts a line) refresh once.
+                    pending?.cancel()
+                    pending = Task { [weak self] in
+                        try? await Task.sleep(nanoseconds: 150_000_000)
+                        guard let self, !Task.isCancelled else { return }
+                        async let t: Void = self.loadTasks(b)
+                        async let n: Void = e.type == "entry" ? self.loadEntries(b) : ()
+                        _ = await (t, n)
+                    }
+                }
+                } onCancel: { ws.cancel(with: .goingAway, reason: nil) }
+            } catch {}
+            ws.cancel(with: .goingAway, reason: nil)
+            if Task.isCancelled { return }
+            try? await Task.sleep(nanoseconds: backoff * 1_000_000_000)
+            backoff = min(backoff * 2, 30)
+        }
+    }
+
     // MARK: - Actions (optimistic: the screen changes first)
 
     /// Sends a message: it shows at once (sending…), then becomes the real entry, or "not sent, tap to retry".

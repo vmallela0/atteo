@@ -46,6 +46,8 @@ export const TASK_PRIORITIES = ["high", "medium", "low"] as const;
 export type TaskPriority = (typeof TASK_PRIORITIES)[number];
 export interface TaskView {
   seq: number;
+  parent: number | null; // the task this is a sub-task of
+  children: { done: number; total: number } | null; // this task's sub-tasks, if any
   text: string;
   author: string;
   via: string | null;
@@ -68,6 +70,7 @@ export interface TaskView {
 }
 export interface TaskChange {
   status?: TaskStatus;
+  parent?: number | null; // make it a sub-task of another task (null: top level)
   assignee?: string | null;
   assignee_agent?: boolean;
   due?: number | null;
@@ -555,6 +558,7 @@ export class Board extends DurableObject<Env> {
     if (!claimCols.has("check_json")) this.sql.exec("ALTER TABLE claim_state ADD COLUMN check_json TEXT");
     const taskCols = new Set(this.sql.exec("PRAGMA table_info(tasks)").toArray().map((r) => r.name as string));
     if (!taskCols.has("priority")) this.sql.exec("ALTER TABLE tasks ADD COLUMN priority TEXT");
+    if (!taskCols.has("parent")) this.sql.exec("ALTER TABLE tasks ADD COLUMN parent INTEGER"); // a sub-task's parent task
     for (const [col, def] of [["title", "TEXT"], ["body", "TEXT"], ["version", "INTEGER NOT NULL DEFAULT 1"], ["updated_by", "TEXT"], ["updated_via", "TEXT"]]) {
       if (!taskCols.has(col)) this.sql.exec(`ALTER TABLE tasks ADD COLUMN ${col} ${def}`);
     }
@@ -1374,6 +1378,8 @@ export class Board extends DurableObject<Env> {
       .toArray()
       .map((r) => ({
         seq: r.seq as number,
+        parent: (r.parent as number | null) ?? null,
+        children: null as { done: number; total: number } | null,
         text: r.text as string,
         author: r.author as string,
         via: (r.via as string | null) ?? null,
@@ -1394,6 +1400,15 @@ export class Board extends DurableObject<Env> {
         reply_to: (r.reply_to as number | null) ?? null,
         updated_at: r.updated_at as number,
       }));
+    // Each parent counts its sub-tasks (done/total), so a list can show "2/3" next to it.
+    for (const t of rows) {
+      if (t.parent == null) continue;
+      const p = rows.find((x) => x.seq === t.parent);
+      if (!p) continue;
+      p.children ??= { done: 0, total: 0 };
+      p.children.total++;
+      if (t.status === "done") p.children.done++;
+    }
     return rows.filter((t) => (!filter.status || t.status === filter.status) && (!filter.assignee || t.assignee === filter.assignee));
   }
 
@@ -1694,6 +1709,18 @@ export class Board extends DurableObject<Env> {
       throw new BoardError(`#${seq} is claimed by ${t.lease_holder} until ${iso(t.lease_until!)}; post on the board instead of changing it.`);
     }
     const parts: string[] = [];
+    if (change.parent !== undefined && change.parent !== t.parent) {
+      if (change.parent != null) {
+        if (change.parent === seq) throw new BoardError("A task can't be its own sub-task.");
+        this.task(change.parent);
+        for (let p: number | null = change.parent, hops = 0; p != null && hops < 50; hops++) {
+          if (p === seq) throw new BoardError(`#${change.parent} is already under #${seq}; a task can't be under its own sub-task.`);
+          p = (this.sql.exec("SELECT parent FROM tasks WHERE seq = ?", p).toArray()[0]?.parent as number | null) ?? null;
+        }
+      }
+      this.sql.exec("UPDATE tasks SET parent = ? WHERE seq = ?", change.parent, seq);
+      parts.push(change.parent != null ? `under #${change.parent}` : "top level");
+    }
     if (change.status && change.status !== t.status) {
       if (!TASK_STATUSES.includes(change.status)) throw new BoardError(`status must be one of: ${TASK_STATUSES.join(", ")}`);
       this.sql.exec("UPDATE tasks SET status = ?, stop_reason = CASE WHEN ? = 'stopped' THEN stop_reason ELSE NULL END WHERE seq = ?", change.status, change.status, seq);
@@ -1724,6 +1751,8 @@ export class Board extends DurableObject<Env> {
     const done = change.status === "done" && t.status !== "done";
     if (done) this.trackRecord(seq, "task", { author: user, via: opts.via }, "done");
     const assigned = change.assignee !== undefined && !!change.assignee && change.assignee.toLowerCase() !== t.assignee;
+    // A sub-task finishing ticks its line in the parent's checklist ("- [ ] #12 …" or a line with its title).
+    if (done && after.parent != null) await this.tickInParent(user, after.parent, after, opts);
     if (done || assigned || change.note) {
       await this.post(user, {
         type: "note",
@@ -1751,7 +1780,24 @@ export class Board extends DurableObject<Env> {
   }
 
   /** Create a task as a shared item: a title, a body (plan, checklist, notes), and optional fields. */
-  async taskCreate(user: string, input: { title: string; body?: string; assignee?: string | null; assignee_agent?: boolean; priority?: TaskPriority | null; due?: number | null }, opts: TaskActOpts): Promise<TaskView> {
+  /** Ticks the parent's checklist line for a finished sub-task: the line naming "#seq", else the one with its title. */
+  private async tickInParent(user: string, parentSeq: number, child: TaskView, opts: TaskActOpts) {
+    const p = this.taskRows().find((x) => x.seq === parentSeq);
+    if (!p) return;
+    const lines = p.body.split("\n");
+    const open = (l: string) => /^\s*- \[ \]/.test(l);
+    const norm = (x: string) => x.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    const want = norm(child.title);
+    let i = lines.findIndex((l) => open(l) && new RegExp(`#${child.seq}(?!\\d)`).test(l));
+    if (i < 0 && want.length > 2) i = lines.findIndex((l) => open(l) && norm(l.replace(/^\s*- \[ \]/, "")).includes(want));
+    if (i < 0) return;
+    lines[i] = lines[i].replace("- [ ]", "- [x]");
+    // A normal edit (versioned, searchable, live), so the tick shows up in the parent's history like anyone's.
+    await this.taskEdit(user, parentSeq, { body: lines.join("\n"), base_version: p.version, summary: `#${child.seq} done` }, opts).catch(() => {});
+  }
+
+  async taskCreate(user: string, input: { title: string; body?: string; assignee?: string | null; assignee_agent?: boolean; priority?: TaskPriority | null; due?: number | null; parent?: number | null }, opts: TaskActOpts): Promise<TaskView> {
+    if (input.parent != null) this.task(input.parent); // must be an open task on this board
     const title = (input.title ?? "").replace(/\s+/g, " ").trim().slice(0, 120);
     if (!title) throw new BoardError("A task needs a title.");
     const body = (input.body ?? "").trim();
@@ -1763,6 +1809,10 @@ export class Board extends DurableObject<Env> {
         "UPDATE tasks SET assignee = ?, assignee_agent = ?, priority = ?, due = ? WHERE seq = ?",
         who, input.assignee_agent === false ? 0 : 1, input.priority ?? null, input.due ?? null, e.seq,
       );
+    }
+    if (input.parent != null) {
+      this.sql.exec("UPDATE tasks SET parent = ? WHERE seq = ?", input.parent, e.seq);
+      this.broadcast({ type: "task", seq: input.parent });
     }
     return this.task(e.seq);
   }
