@@ -40,7 +40,7 @@ describe("board page", () => {
   it("regexes in the page script keep their escapes (a single \\s in the server template turns into a plain s)", async () => {
     const res = boardPage({ name: "jxn", email: "jxn@example.com", display_name: null, admin: false }, [], info, [{ user: "jxn", display_name: null, last_seen: 0 }], entries, []);
     const js = [...(await res.text()).matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]).join("\n");
-    for (const re of ["/^#e\\d+$/", "(^|[^A-Za-z0-9_.@\\/-])@([A-Za-z0-9_.-]{0,32}(?:\\/[A-Za-z0-9_.-]{0,32})?)$/", "s\\s+agent\\b|\\/[A-Za-z0-9]", "/^(diff |index |\\+\\+\\+ |--- )/"]) expect(js).toContain(re);
+    for (const re of ["/^#e\\d+$/", "(^|[^A-Za-z0-9_.@\\/-])@([A-Za-z0-9_.-]{0,32}(?:\\/[A-Za-z0-9_.-]{0,32})?)$/", "s\\s+agent\\b|\\/[A-Za-z0-9]", "/^(diff |index |\\+\\+\\+ |--- )/", "/^\\s*(?:[-*]|\\d+[.)])\\s+\\[( |x|X)\\]\\s+.+$/", "/\\x60\\x60\\x60[^\\n]*\\n?[\\s\\S]*?\\x60\\x60\\x60/g"]) expect(js).toContain(re);
     expect(js).not.toMatch(/\(\^\|s\)/); // "(^|s)" is what a lost \s looks like
   });
 
@@ -51,6 +51,19 @@ describe("board page", () => {
     const controls = [...tabs.matchAll(/aria-controls="([^"]+)"/g)].map((m) => m[1]);
     expect(controls).toEqual(["panel-conv", "panel-log", "panel-docs", "panel-tasks"]);
     for (const id of controls) expect(html).toContain(`id="${id}"`);
+  });
+});
+
+describe("checklists", () => {
+  it("render as numbered checkboxes (read-only until a task card enables them); code blocks don't count", async () => {
+    const { renderText } = await import("../src/ui");
+    const html = renderText("Plan\n\n- [ ] one\n- [x] **two**\n- plain\n\n```\n- [ ] code\n```\n\n1. [X] three");
+    expect(html.match(/<li class="ck/g)?.length).toBe(3);
+    expect(html).toContain('<li class="ck" data-ck="0"><input type="checkbox" disabled><span>one</span></li>');
+    expect(html).toContain('<li class="ck done" data-ck="1"><input type="checkbox" disabled checked><span><strong>two</strong></span></li>');
+    expect(html).toContain('<li class="ck done" data-ck="2">');
+    expect(html).toContain("<li>plain</li>");
+    expect(html).toContain("- [ ] code");
   });
 });
 

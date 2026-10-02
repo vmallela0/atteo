@@ -171,6 +171,9 @@ dialog[open]{animation:pop .16s ease-out}dialog:focus{outline:none}
 .entry .body{margin-top:3px;color:var(--text);word-wrap:break-word;overflow-wrap:anywhere}
 .entry .body p+p{margin-top:8px}
 .body ul,.body ol{margin:6px 0;padding-left:20px}.body li{margin:2px 0}
+.body li.ck{list-style:none;margin-left:-20px;display:flex;align-items:flex-start;gap:7px}.body li.ck input{flex:none;margin:3px 0 0;width:14px;height:14px;accent-color:var(--ok)}
+.body li.ck.done>span{color:var(--muted);text-decoration:line-through;text-decoration-color:color-mix(in srgb,var(--muted) 60%,transparent)}
+.body li.ck input:enabled{cursor:pointer}.body li.ck input:disabled{opacity:1}
 .body .md-h{margin:12px 0 4px;font-size:14px;color:var(--ink)}.body .md-h:first-child{margin-top:0}
 .entry .body pre{background:var(--bg-subtle);border:1px solid var(--line);border-radius:8px;padding:10px 12px;overflow-x:auto;margin:8px 0;white-space:pre}
 .entry .body code{background:var(--bg-hover);padding:1px 5px;border-radius:4px}
@@ -284,6 +287,12 @@ dialog.access-dlg{width:min(640px,calc(100vw - 24px))}
 .cl-f{display:flex;gap:6px;flex-basis:100%}.cl-f[hidden]{display:none}.cl-f .input{flex:1;height:28px;font-size:12.5px}
 .badge.stale{height:18px;font-size:11px;color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,var(--line))}
 .st-done{color:var(--muted)}.tk-who{color:var(--muted)}
+.tk-prog{display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-variant-numeric:tabular-nums}
+.tk-bar{display:inline-block;width:56px;height:4px;border-radius:2px;background:var(--line);overflow:hidden}.tk-bar i{display:block;height:100%;background:var(--ok);border-radius:2px;transition:width .2s}
+.tk-subs{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:1px;font-size:12.5px}
+.tk-subs li{display:flex;align-items:center;gap:8px;min-width:0;padding:3px 8px;border-left:2px solid var(--line)}.tk-subs .seq{flex:none}.tk-subs .grow{color:var(--text)}
+.tk-subs li.st-done .grow{color:var(--muted);text-decoration:line-through;text-decoration-color:color-mix(in srgb,var(--muted) 60%,transparent)}
+.kcard .ksub{color:var(--muted)}
 /* reactions: chips under a message; the add button shows on hover (always on touch screens) */
 .rx{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .rx.has{margin-top:6px}
@@ -791,6 +800,7 @@ export function relTime(ts: number, now = Date.now()): string {
 /** Markdown-ish text to HTML. `mentions` (the entry's stored mentions) are highlighted; other "@x" stays plain. */
 export function renderText(text: string, mentions?: Mention[] | null): string {
   const out: string[] = [];
+  const ck = { n: 0 }; // checklist items ("- [ ] …") are numbered in order, so a page can tick the n-th one
   const parts = text.split(/```[^\n]*\n?([\s\S]*?)```/g);
   parts.forEach((part, i) => {
     if (i % 2 === 1) {
@@ -798,13 +808,13 @@ export function renderText(text: string, mentions?: Mention[] | null): string {
       return;
     }
     const paras = part.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
-    for (const p of paras) out.push(block(p, mentions));
+    for (const p of paras) out.push(block(p, mentions, ck));
   });
   return out.join("");
 }
 
 /** One paragraph-sized block: headings (#–###), bullet and numbered lists, or a paragraph. */
-function block(p: string, mentions?: Mention[] | null): string {
+function block(p: string, mentions?: Mention[] | null, ck = { n: 0 }): string {
   const lines = p.split("\n");
   const out: string[] = [];
   let list: { kind: "ul" | "ol"; items: string[] } | null = null;
@@ -814,7 +824,13 @@ function block(p: string, mentions?: Mention[] | null): string {
     para = [];
   };
   const flushList = () => {
-    if (list) out.push(`<${list.kind}>${list.items.map((i) => `<li>${inline(i, mentions)}</li>`).join("")}</${list.kind}>`);
+    const item = (i: string) => {
+      const c = i.match(/^\[( |x|X)\]\s+(.+)$/);
+      if (!c) return `<li>${inline(i, mentions)}</li>`;
+      const done = c[1] !== " ";
+      return `<li class="ck${done ? " done" : ""}" data-ck="${ck.n++}"><input type="checkbox" disabled${done ? " checked" : ""}><span>${inline(c[2], mentions)}</span></li>`;
+    };
+    if (list) out.push(`<${list.kind}>${list.items.map(item).join("")}</${list.kind}>`);
     list = null;
   };
   let quote: string[] | null = null;

@@ -1608,7 +1608,8 @@ const handler = {
           try {
             const seq = parseInt(m[2], 10);
             const [task, history] = await Promise.all([stub.taskGet(seq), stub.taskHistory(seq)]);
-            return json({ task, history });
+            // html: the task as it is now, rendered like its entry (title, then body), for the live card in the chat
+            return json({ task: { ...task, html: renderText(task.body ? `${task.title}\n\n${task.body}` : task.title) }, history });
           } catch (e) {
             return json({ error: e instanceof Error ? e.message : String(e) }, 404);
           }
@@ -1642,6 +1643,8 @@ const handler = {
                   title: typeof b.title === "string" ? b.title : undefined,
                   body: typeof b.body === "string" ? b.body : undefined,
                   base_version: typeof b.base_version === "number" ? b.base_version : undefined,
+                  old_str: typeof b.old_str === "string" ? b.old_str : undefined,
+                  new_str: typeof b.new_str === "string" ? b.new_str : undefined,
                   summary: s("summary"),
                 },
                 opts,

@@ -1113,23 +1113,56 @@ document.addEventListener('mouseover',e=>{const c=e.target.closest('.rx-chip');i
   rxTip.innerHTML='<span class="big">'+esc(emoji)+'</span><span><b>'+names.map(esc).join(', ')+'</b><span class="faint"> reacted with '+esc(emoji)+'</span></span>';
   rxTip.hidden=false;const r=c.getBoundingClientRect();rxTip.style.left=Math.max(8,Math.min(innerWidth-rxTip.offsetWidth-8,r.left+r.width/2-rxTip.offsetWidth/2))+'px';rxTip.style.top=(r.top-rxTip.offsetHeight-8)+'px'});
 fetch('/api/boards/'+BOARD+'/reactions').then(r=>r.json()).then(j=>{for(const [seq,list] of Object.entries(j.reactions||{}))renderRx(+seq,list)}).catch(()=>{});
-// ---- tasks in the conversation: a live strip under each task (status, priority, who it's for, who holds it) ----
+// ---- tasks in the conversation: each task's card shows the task as it is now (its checklist as boxes people can tick,
+// n/m done, its sub-tasks), with a live strip under it (status, priority, who it's for, who holds it) ----
 const TSTATUS={todo:'To do',doing:'In progress',blocked:'Blocked',done:'Done',stopped:'Stopped'};
 const whoName=(u,agent)=>u===ME?(agent?'your agent':'you'):(agent?u+"'s agent":u);
-function renderTask(t){const el=document.querySelector('[data-task="'+t.seq+'"]');if(!el)return;
+const TASKS={};
+const CK_RE=/^\\s*(?:[-*]|\\d+[.)])\\s+\\[( |x|X)\\]\\s+.+$/;
+/** A task's checklist lines (and where each starts), numbered the way the page numbers its boxes: code blocks don't count. */
+function ckLines(text){const out=[],re=/\\x60\\x60\\x60[^\\n]*\\n?[\\s\\S]*?\\x60\\x60\\x60/g;let at=0,m;
+  const scan=(a,b)=>{let p=a;for(const l of text.slice(a,b).split('\\n')){if(CK_RE.test(l))out.push({line:l,at:p,done:!/\\[ \\]/.test(l.slice(0,l.indexOf(']')+1))});p+=l.length+1}};
+  while((m=re.exec(text))){scan(at,m.index);at=m.index+m[0].length}scan(at,text.length);return out}
+const taskText=t=>t.body?t.title+'\\n\\n'+t.body:t.title;
+const bar=(n,m,what)=>'<span class="tk-prog" title="'+n+' of '+m+' '+what+'"><span class="tk-bar"><i style="width:'+Math.round(100*n/m)+'%"></i></span>'+n+'/'+m+'</span>';
+// Edited tasks get their current text when they scroll into view (one fetch each, not one per task on the board).
+const tkIO='IntersectionObserver' in window?new IntersectionObserver(es=>es.forEach(x=>{if(x.isIntersecting){tkIO.unobserve(x.target);refreshTask(+x.target.dataset.seq)}}),{rootMargin:'600px 0px'}):null;
+function renderTask(t){const old=TASKS[t.seq];if(!t.html&&old&&old.html&&old.version===t.version)t={...t,html:old.html};TASKS[t.seq]=t;
+  if(t.parent!=null)renderSubs(t.parent);if(old&&old.parent!=null&&old.parent!==t.parent)renderSubs(old.parent);
+  const el=document.querySelector('[data-task="'+t.seq+'"]');if(!el)return;
+  const art=el.closest('.entry'),body=art.querySelector(':scope>.grow>.body');
+  if(body&&(t.version>1||body.dataset.v)&&body.dataset.v!==String(t.version)){if(t.html){body.innerHTML=t.html;body.dataset.v=t.version}else if(tkIO)tkIO.observe(art)}
+  if(body)body.querySelectorAll('li.ck>input').forEach(i=>{i.disabled=READONLY||art.classList.contains('retracted');i.title=i.disabled?'':i.checked?'Untick':'Tick'});
+  const cks=ckLines(taskText(t)),ticked=cks.filter(c=>c.done).length;
   const mine=t.lease_holder===ME&&!t.lease_agent,left=t.lease_until?Math.max(0,Math.round((t.lease_until-Date.now())/60000)):null;
   const bits=[t.assignee?'for '+esc(whoName(t.assignee,t.assignee_agent)):'',t.lease_holder?'🔒 '+esc(whoName(t.lease_holder,t.lease_agent))+(left!=null?' · '+left+'m left':''):'',t.stop_reason?esc(t.stop_reason):''].filter(Boolean);
   el.innerHTML='<span class="tk-st st-'+t.status+'"><span class="dot"></span>'+TSTATUS[t.status]+'</span>'+(t.priority?'<span class="badge pri-'+t.priority+'">'+t.priority+'</span>':'')+
+    (cks.length?bar(ticked,cks.length,'ticked'):t.children?bar(t.children.done,t.children.total,'sub-tasks done'):'')+
     '<span class="tk-who">'+bits.join(' · ')+'</span><span class="grow"></span>'+
     (READONLY?'':(t.status==='done'?'<button class="btn ghost sm" type="button" data-tk="reopen">Reopen</button>':
       (t.lease_holder&&!mine?'':'<button class="btn ghost sm" type="button" data-tk="'+(mine?'release':'claim')+'">'+(mine?'Release':'Claim')+'</button>')+'<button class="btn ghost sm" type="button" data-tk="done">Done</button>'))+
     '<button class="btn ghost sm" type="button" data-tk="open">Open</button>';
-  el.hidden=false}
+  el.hidden=false;renderSubs(t.seq)}
+/** A task's sub-tasks, listed on its card with their state (they keep their own cards where they were posted). */
+function renderSubs(seq){const el=document.querySelector('[data-task="'+seq+'"]');if(!el)return;let box=el.parentNode.querySelector(':scope>.tk-subs');
+  const kids=Object.values(TASKS).filter(k=>k.parent===seq).sort((a,b)=>a.seq-b.seq);if(!kids.length){box?.remove();return}
+  if(!box){box=document.createElement('ul');box.className='tk-subs';el.before(box)}box.setAttribute('aria-label','Sub-tasks');
+  box.innerHTML=kids.map(k=>'<li class="st-'+k.status+'"><span class="tk-st st-'+k.status+'" title="'+TSTATUS[k.status]+'"><span class="dot"></span></span><a class="seq" href="#e'+k.seq+'">#'+k.seq+'</a><span class="grow truncate">'+esc(k.title)+'</span><span class="xs faint">'+TSTATUS[k.status]+'</span></li>').join('')}
 async function refreshTask(seq){try{const r=await fetch('/api/boards/'+BOARD+'/tasks/'+seq);const j=await r.json();if(r.ok&&j.task)renderTask(j.task)}catch(e){}}
 document.addEventListener('click',async e=>{const b=e.target.closest('[data-tk]');if(!b)return;const seq=+b.closest('[data-task]').dataset.task,a=b.dataset.tk;
   if(a==='open'){openTask(seq);return}b.disabled=true;
   await taskAct(seq,a==='claim'||a==='release'?{action:a}:{action:'update',status:a==='done'?'done':'todo'});b.disabled=false;refreshTask(seq)});
-fetch('/api/boards/'+BOARD+'/tasks').then(r=>r.json()).then(j=>(j.tasks||[]).forEach(renderTask)).catch(()=>{});
+// Ticking a box is a normal, versioned edit of that one line (so an agent ticking another line at the same time is fine).
+document.addEventListener('change',async e=>{const i=e.target;if(!i.matches||!i.matches('.body li.ck>input'))return;const art=i.closest('.entry'),hold=art?.querySelector(':scope>.grow>[data-task]');
+  if(!hold||READONLY||i.closest('.body')!==art.querySelector(':scope>.grow>.body'))return;const seq=+hold.dataset.task,t=TASKS[seq],li=i.closest('li'),on=i.checked;
+  const text=t&&taskText(t),c=t&&ckLines(text)[+li.dataset.ck],undo=m=>{i.checked=!on;li.classList.toggle('done',!on);if(m)toast(m)};
+  if(!c||c.at<text.length-t.body.length)return undo('That box has changed. Try again.');
+  const nl=c.line.replace(/\\[( |x|X)\\]/,on?'[x]':'[ ]'),what=c.line.replace(/^[^\\]]*\\]\\s*/,'').slice(0,80),summary=(on?'ticked: ':'unticked: ')+what;li.classList.toggle('done',on);i.disabled=true;
+  const save=b=>fetch('/api/boards/'+BOARD+'/tasks/'+seq,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'edit',summary,...b})}).then(async r=>({ok:r.ok,j:await r.json().catch(()=>({}))}));
+  let r=await save({old_str:c.line,new_str:nl});
+  if(!r.ok&&/more than once/.test(r.j.error||'')){const p=c.at-(text.length-t.body.length);r=await save({body:t.body.slice(0,p)+nl+t.body.slice(p+c.line.length),base_version:t.version})}
+  if(!r.ok)undo(r.j.error||"Couldn't save");i.disabled=false;refreshTask(seq)});
+fetch('/api/boards/'+BOARD+'/tasks').then(r=>r.json()).then(j=>{const ts=j.tasks||[];ts.forEach(t=>TASKS[t.seq]=t);ts.forEach(renderTask)}).catch(()=>{});
 // ---- "on it" / "done": which agent took a message, and who finished it. The person whose agent it is can mark it
 // done or clear it (✓ / ×); a cleared marker disappears on the next update (the map always has all of them). ----
 function renderHandling(map){const seen=new Set();
@@ -1363,17 +1396,18 @@ if(location.hash==='#log')tab(1);if(location.hash==='#files'||location.hash==='#
 const KCOLS=[['todo','To do'],['doing','In progress'],['blocked','Blocked'],['done','Done']];
 const PRI={high:0,medium:1,low:2};
 async function loadTasks(){const r=await fetch('/api/boards/'+BOARD+'/tasks');const j=await r.json().catch(()=>({}));if(!r.ok){document.getElementById('kanban').innerHTML='<p class="muted small">'+esc(j.error||'Could not load tasks')+'</p>';return}
-  const ts=j.tasks||[];const open=ts.filter(t=>t.status!=='done').length;document.getElementById('task-count').textContent=open||'';
+  const ts=j.tasks||[];ts.forEach(t=>TASKS[t.seq]={...TASKS[t.seq],...t});const open=ts.filter(t=>t.status!=='done').length;document.getElementById('task-count').textContent=open||'';
   document.getElementById('kanban').innerHTML=KCOLS.map(([k,label])=>{const col=ts.filter(t=>(k==='blocked'?(t.status==='blocked'||t.status==='stopped'):t.status===k))
       .sort((a,b)=>(PRI[a.priority]??3)-(PRI[b.priority]??3)||(k==='done'?b.updated_at-a.updated_at:a.seq-b.seq)).slice(0,k==='done'?30:200);
     return '<section class="kcol" data-status="'+k+'"><h3>'+label+' <span class="faint">'+col.length+'</span></h3><div class="kcards">'+col.map(card).join('')+'</div></section>'}).join('')}
-function card(t){const first=t.title||'';const boxes=(t.body||'').match(/^\s*[-*] \[( |x|X)\]/gm)||[];const ticked=boxes.filter(b=>/x/i.test(b)).length;
+function card(t){const first=t.title||'';const boxes=ckLines(t.body||'');const ticked=boxes.filter(b=>b.done).length;const par=t.parent!=null&&TASKS[t.parent];
   const who=t.assignee?(t.assignee_agent?t.assignee+"'s agent":t.assignee):'';
   const hold=t.lease_holder?(t.lease_agent?t.lease_holder+"'s agent":t.lease_holder):'';
   // Title first; one quiet line under it: number, priority, checklist, due date, and who it's for / who holds it.
   return '<article class="kcard" draggable="true" data-seq="'+t.seq+'"><div class="ktext">'+esc(first)+'</div>'+
     '<div class="kmeta"><a class="seq" href="#e'+t.seq+'" data-kopen="'+t.seq+'">#'+t.seq+'</a>'+(t.priority?'<span class="badge pri-'+t.priority+'">'+t.priority+'</span>':'')+(t.status==='stopped'?'<span class="badge pri-high">stopped</span>':'')+
-    (boxes.length?'<span>☑ '+ticked+'/'+boxes.length+'</span>':'')+(t.due?'<span>due '+new Date(t.due).toISOString().slice(5,10)+'</span>':'')+'<span class="grow"></span>'+
+    (t.parent!=null?'<span class="ksub" title="Sub-task of #'+t.parent+(par?': '+esc(par.title):'')+'">↳ #'+t.parent+'</span>':'')+
+    (boxes.length?'<span title="Checklist">☑ '+ticked+'/'+boxes.length+'</span>':'')+(t.children?'<span title="Sub-tasks done">'+t.children.done+'/'+t.children.total+' sub-tasks</span>':'')+(t.due?'<span>due '+new Date(t.due).toISOString().slice(5,10)+'</span>':'')+'<span class="grow"></span>'+
     (hold?'<span title="'+esc(hold)+' is working on it">🔒</span>':'')+(who?'<span title="For '+esc(who)+'">'+avatar16(t.assignee,t.assignee_agent)+'</span>':'')+'</div>'+
     (t.stop_reason?'<div class="xs faint">'+esc(t.stop_reason)+'</div>':'')+'</article>'}
 async function taskAct(seq,body){const r=await fetch('/api/boards/'+BOARD+'/tasks/'+seq,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
