@@ -161,5 +161,41 @@ await step("watch --respond: starts your agent when a question is addressed to y
   assert(out.includes(`${B} posted a question to you`), out);
 });
 
+await step("watch: '@you' notifies you; '@you's agent' starts your agent, even when you wrote it on the web", async () => {
+  const marker = join(dir, "claude-mention.txt");
+  const stub = join(dir, "fake-claude-mention.sh");
+  writeFileSync(stub, `#!/bin/sh\nprintf '%s\\n' "$@" > "${marker}"\necho "answered"\n`);
+  chmodSync(stub, 0o755);
+  const w = spawn("node", [CLI, "watch", "--respond", "--quiet", "--dir", dir, "--server", BASE], {
+    // Own config folder: never collide with a real background watcher on this machine (one watcher per config).
+    env: { ...process.env, AGENT_BOARD_CREDENTIALS_FILE: credA, AGENT_BOARD_CLAUDE_BIN: stub, XDG_CONFIG_HOME: join(dir, "cfg-mentions") },
+  });
+  let out = "";
+  w.stdout.on("data", (d) => (out += d));
+  w.stderr.on("data", (d) => (out += d));
+  for (let t = 0; t < 60 && !out.includes("Watching"); t++) await sleep(100);
+  await sleep(800);
+  await tool(tokB, board, "read", {});
+  await tool(tokB, board, "post", { type: "question", text: `@${A} can you approve the deploy?` });
+  for (let t = 0; t < 60 && !out.includes(`${B} posted a question mentioning you`); t++) await sleep(100);
+  await sleep(1000);
+  assert(out.includes(`${B} posted a question mentioning you`), out);
+  assert(!existsSync(marker), "a mention of the person must not start their agent");
+  const cookieA = (await ops("sessions", { user: A })).cookie;
+  const r = await fetch(`${BASE}/api/boards/${board}/entries`, {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie: cookieA },
+    body: JSON.stringify({ type: "task", text: `@${A}'s agent rerun the flaky test` }),
+  });
+  assert(r.status === 201, `web post ${r.status}`);
+  const seq = (await r.json()).entry.seq;
+  for (let t = 0; t < 100 && !existsSync(marker); t++) await sleep(100);
+  w.kill();
+  assert(existsSync(marker), `agent was not started. watch output:\n${out}`);
+  const argv = readFileSync(marker, "utf8");
+  assert(argv.includes(`your user (${A}) handed you a task`) && argv.includes(`entry #${seq}`), argv);
+  assert(out.includes(`You posted a task mentioning your agent`), out);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

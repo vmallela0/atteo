@@ -1,3 +1,5 @@
+import type { Mention } from "./mentions";
+
 export const ENTRY_TYPES = ["claim", "question", "decision", "task", "artifact", "note"] as const;
 export type EntryType = (typeof ENTRY_TYPES)[number];
 
@@ -9,6 +11,7 @@ export interface Entry {
   type: EntryType;
   text: string;
   to: string | null; // addressed member, or null for everyone
+  mentions?: Mention[]; // people and agents @mentioned in the text; also addressed to them. Empty on older entries.
   reply_to: number | null; // a reply to a question also answers it
   resolves: number[]; // questions answered / tasks completed by this entry
   supersedes: number | null; // replaces an earlier entry (drops it from the summary)
@@ -23,6 +26,7 @@ export interface NewEntry {
   type: EntryType;
   text: string;
   to?: string | null;
+  mentions?: Mention[] | null; // resolved against the board's members by the Worker
   reply_to?: number | null;
   resolves?: number[];
   supersedes?: number | null;

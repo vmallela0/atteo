@@ -2,6 +2,7 @@
 // Minimal and quiet (in the spirit of Vercel Geist / Linear): neutral grays, one ink color for primary actions,
 // hairline borders, Geist type, light + dark, works down to phone width.
 
+import { highlightMentions, type Mention } from "./mentions";
 import { esc } from "./util";
 
 export const CSS = `
@@ -186,7 +187,15 @@ dialog[open]{animation:pop .16s ease-out}
 .sum li .n{color:var(--faint);flex:none;font-variant-numeric:tabular-nums}
 .sum .none{font-size:13px;color:var(--faint)}
 .waiting{border:1px solid color-mix(in srgb,var(--q) 40%,var(--line));background:color-mix(in srgb,var(--q) 6%,var(--bg));border-radius:var(--r-sm);padding:10px 12px;margin-bottom:6px}
-.composer{margin-top:20px}
+.composer{margin-top:20px;position:relative}
+.mention{color:var(--accent);font-weight:500;background:color-mix(in srgb,var(--accent) 9%,transparent);padding:0 3px;border-radius:4px;white-space:nowrap}
+.mention.agent{border:1px dashed color-mix(in srgb,var(--accent) 45%,transparent);padding:0 3px}
+.mention-menu{position:absolute;left:12px;bottom:calc(100% - 6px);z-index:5;width:min(280px,calc(100% - 24px));list-style:none;margin:0;padding:6px;
+  border:1px solid var(--line);border-radius:10px;background:var(--bg);box-shadow:var(--shadow-lg)}
+.mention-menu li{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:7px;cursor:pointer;font-size:13px;color:var(--text)}
+.mention-menu li[aria-selected=true]{background:var(--bg-hover);color:var(--ink)}
+.mention-menu li .k{margin-left:auto;color:var(--faint);font-size:12px}
+.mention-menu .hint{padding:4px 8px 2px;font-size:11.5px;color:var(--faint);cursor:default}
 .composer .bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 12px;border-top:1px solid var(--line)}
 .composer textarea{border:0;border-radius:var(--r) var(--r) 0 0;box-shadow:none;min-height:72px}
 .composer textarea:focus{box-shadow:none}
@@ -394,7 +403,8 @@ export function relTime(ts: number, now = Date.now()): string {
  * Small, safe markdown subset for entry bodies: fenced code, inline code, **bold**, http(s) links, paragraphs.
  * Everything is escaped first; only these constructs are turned back into tags.
  */
-export function renderText(text: string): string {
+/** Markdown-ish text to HTML. `mentions` (the entry's stored mentions) are highlighted; other "@x" stays plain. */
+export function renderText(text: string, mentions?: Mention[] | null): string {
   const out: string[] = [];
   const parts = text.split(/```[^\n]*\n?([\s\S]*?)```/g);
   parts.forEach((part, i) => {
@@ -403,23 +413,23 @@ export function renderText(text: string): string {
       return;
     }
     const paras = part.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
-    for (const p of paras) out.push(block(p));
+    for (const p of paras) out.push(block(p, mentions));
   });
   return out.join("");
 }
 
 /** One paragraph-sized block: headings (#–###), bullet and numbered lists, or a paragraph. */
-function block(p: string): string {
+function block(p: string, mentions?: Mention[] | null): string {
   const lines = p.split("\n");
   const out: string[] = [];
   let list: { kind: "ul" | "ol"; items: string[] } | null = null;
   let para: string[] = [];
   const flushPara = () => {
-    if (para.length) out.push(`<p>${inline(para.join("\n"))}</p>`);
+    if (para.length) out.push(`<p>${inline(para.join("\n"), mentions)}</p>`);
     para = [];
   };
   const flushList = () => {
-    if (list) out.push(`<${list.kind}>${list.items.map((i) => `<li>${inline(i)}</li>`).join("")}</${list.kind}>`);
+    if (list) out.push(`<${list.kind}>${list.items.map((i) => `<li>${inline(i, mentions)}</li>`).join("")}</${list.kind}>`);
     list = null;
   };
   for (const line of lines) {
@@ -430,7 +440,7 @@ function block(p: string): string {
       flushPara();
       flushList();
       const level = h[1].length + 2; // # → h3, ## → h4, ### → h5 (stay below page headings)
-      out.push(`<h${level} class="md-h">${inline(h[2])}</h${level}>`);
+      out.push(`<h${level} class="md-h">${inline(h[2], mentions)}</h${level}>`);
     } else if (ul || ol) {
       flushPara();
       const kind = ul ? "ul" : "ol";
@@ -449,14 +459,21 @@ function block(p: string): string {
   return out.join("");
 }
 
-function inline(s: string): string {
+const URL_RE = /\bhttps?:\/\/[^\s<>"')]+[^\s<>"').,;:!?]/g;
+
+function inline(s: string, mentions?: Mention[] | null): string {
   const chunks = s.split(/(`[^`\n]+`)/g);
   return chunks
     .map((c, i) => {
       if (i % 2 === 1) return `<code>${esc(c.slice(1, -1))}</code>`;
       let h = esc(c);
       h = h.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
-      h = h.replace(/\bhttps?:\/\/[^\s<>"')]+[^\s<>"').,;:!?]/g, (u) => `<a href="${u}" target="_blank" rel="noopener noreferrer">${u}</a>`);
+      // Links and mentions are found in separate pieces, so a mention is never wrapped inside a link's href.
+      const urls = h.match(URL_RE) ?? [];
+      h = h
+        .split(URL_RE)
+        .map((t, j) => highlightMentions(t, mentions) + (j < urls.length ? `<a href="${urls[j]}" target="_blank" rel="noopener noreferrer">${urls[j]}</a>` : ""))
+        .join("");
       return h.replace(/\n/g, "<br>");
     })
     .join("");
