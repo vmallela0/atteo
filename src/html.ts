@@ -548,7 +548,7 @@ ${connectDialog(viewer)}
 <dialog id="new-board"><div class="hd"><div><h2>New board</h2><p class="muted small" style="margin-top:4px">You can invite people right after.</p></div><button class="btn ghost sm" data-close aria-label="Close">✕</button></div>
 <form class="bd" method="post" action="/boards"><label class="lbl" for="title">Title</label>
 <input class="input" id="title" name="title" required maxlength="120" placeholder="Debug the payments integration" autofocus>
-<label class="pf-check" style="margin-top:14px"><input type="checkbox" name="encrypted" value="1"><span><span class="small" style="color:var(--ink)">End-to-end encrypted</span><span class="xs muted">Members read and write through the agent-soup CLI; the server and this site only see ciphertext.</span></span></label>
+<label class="pf-check" style="margin-top:14px"><input type="checkbox" name="encrypted" value="1" checked><span><span class="small" style="color:var(--ink)">End-to-end encrypted</span><span class="xs muted">Members read and write through the agent-soup CLI; the server and this site only see ciphertext. Untick to use this board from the web, the app or one-click agents (claude.ai, Cursor, Grok).</span></span></label>
 <div class="row" style="justify-content:flex-end;margin-top:18px"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary">Create board</button></div></form></dialog>
 <dialog id="edit-board"><div class="hd"><div><h2>Board details</h2><p class="muted small" style="margin-top:4px" id="eb-title"></p></div><button class="btn ghost sm" data-close aria-label="Close">✕</button></div>
 <form class="bd" id="eb-form">
@@ -1248,7 +1248,7 @@ async function accLoad(){const [m,a,l]=await Promise.all([fetch('/api/boards/'+B
   if(IS_OWNER)document.getElementById('acc-links').innerHTML=(l.links||[]).filter(x=>!x.revoked_at&&(!x.expires_at||x.expires_at>Date.now())).map(x=>'<li class="acc-row xs"><span class="grow">'+(x.role==='viewer'?'View only':'Can post')+' link · until '+accFmt(x.expires_at)+' · used '+x.uses+(x.max_uses?' of '+x.max_uses:'')+'</span><button class="btn ghost sm" type="button" data-link-revoke="'+esc(x.id)+'">Revoke</button></li>').join('');
   const verb={invited:'invited',joined:'joined',removed:'removed',left:'left',access_changed:'changed access for',link_created:'created an invite link',link_revoked:'revoked an invite link',renamed:'renamed the board',archived:'archived the board',restored:'restored the board',expired:'access ended for'};
   document.getElementById('acc-audit').innerHTML=(a.audit||[]).slice(0,50).map(x=>'<li class="xs"><b>'+esc(x.actor)+'</b> '+(verb[x.action]||esc(x.action))+(x.target?' <b>'+esc(x.target)+'</b>':'')+(x.detail?' <span class="faint">· '+esc(x.detail)+'</span>':'')+' <span class="faint">· '+new Date(x.ts).toLocaleString([],{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})+'</span></li>').join('')||'<li class="xs faint">Nothing yet</li>'}
-document.addEventListener('click',e=>{if(e.target.closest('[data-open="invite"]'))accLoad()});
+document.addEventListener('click',e=>{const o=e.target.closest('[data-open="invite"]');if(!o)return;accLoad();const g=o.dataset.goto&&document.getElementById(o.dataset.goto);if(g)setTimeout(()=>g.scrollIntoView({block:'nearest'}),60)});
 // Invite: suggest friends who aren't on the board yet, as you type (arrow keys and Enter pick one).
 let accFriends=null,accSel=0;const invIn=document.getElementById('inv-email'),invSug=document.getElementById('inv-sug');
 async function invSuggest(){if(!invIn)return;if(!accFriends)accFriends=(await fetch('/api/friends').then(r=>r.json()).catch(()=>({}))).friends||[];
@@ -1525,7 +1525,7 @@ ${connectDialog(viewer, { id: info.id, title: info.title })}
   <details class="acc-sec"><summary class="small muted">Activity</summary><ul class="acc-list" id="acc-audit"></ul></details>
   ${
     isCreator
-      ? `<section class="acc-sec"><h3>This board</h3><div class="acc-row">${
+      ? `<section class="acc-sec" id="acc-board"><h3>This board</h3><div class="acc-row">${
           info.archived
             ? ""
             : `<form method="post" action="/api/boards/${esc(info.id)}/archive" data-api data-done="archiveDone" style="margin:0"><input type="hidden" name="archived" value="true"><button class="btn sm" title="Read-only until you restore it">Archive board</button></form>`
@@ -1538,7 +1538,10 @@ ${connectDialog(viewer, { id: info.id, title: info.title })}
     boards: side,
     active: info.id,
     crumbs: `<a class="muted" href="/">Boards</a><span class="faint">/</span><span class="cur truncate">${esc(info.title)}</span>`,
-    actions: `${agent.connected ? "" : `<button class="btn sm" data-open="connect">Connect an agent</button>`}${readOnly ? "" : `<button class="btn sm" data-open="invite">Invite<kbd class="hide-sm">I</kbd></button>`}`,
+    actions: `${agent.connected ? "" : `<button class="btn sm" data-open="connect">Connect an agent</button>`}${readOnly ? "" : `<button class="btn sm" data-open="invite">Invite<kbd class="hide-sm">I</kbd></button>`}${
+      // Rename/archive/delete live at the bottom of Members & access; a visible way in, so they aren't hidden behind Invite.
+      isCreator ? `<button class="btn ghost sm" type="button" data-open="invite" data-goto="acc-board" title="Archive or delete this board" aria-label="Board settings"><svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="8" r="1.4"/><circle cx="8" cy="8" r="1.4"/><circle cx="13" cy="8" r="1.4"/></svg></button>` : ""
+    }`,
     body,
     script: script + (voice && !info.archived ? `window.VOICE_VIEWER=${readOnly};` + VOICE_JS : ""),
     full: true,
