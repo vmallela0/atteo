@@ -33,7 +33,9 @@ export const VOICE_BUTTON = `<button class="btn ghost sm vbtn" type="button" id=
 
 export const VOICE_JS = `
 const V={on:false,joining:false,pid:null,stream:null,pcs:{},s:{peers:[],floor:null,queue:[]},open:false};
-const VICE=[{urls:'stun:stun.cloudflare.com:3478'},{urls:'stun:stun.l.google.com:19302'}];
+let VICE=[{urls:'stun:stun.cloudflare.com:3478'},{urls:'stun:stun.l.google.com:19302'}],viceAt=0;
+// Relay (TURN) credentials from the server, so calls connect on networks that block peer-to-peer; refreshed hourly.
+async function vice(){if(Date.now()-viceAt<3600e3)return;try{const r=await fetch('/api/boards/'+BOARD+'/voice/ice');if(r.ok){const d=await r.json();if(Array.isArray(d.iceServers)&&d.iceServers.length){VICE=d.iceServers;viceAt=Date.now()}}}catch(e){}}
 const vbar=document.getElementById('voice-bar');
 function vsend(o){try{if(ws&&ws.readyState===1){ws.send(JSON.stringify(o));return true}}catch(e){}return false}
 function vpc(pid,user){
@@ -59,7 +61,7 @@ async function vjoin(){if(V.on||V.joining)return;V.joining=true;vrender();
   try{if(!V.stream){V.stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}})}}
   catch(e){V.joining=false;vrender();toast('Microphone blocked: allow it in the address bar to join voice');return}
   for(const t of V.stream.getAudioTracks())t.enabled=false;
-  V.joining=false;if(!vsend({op:'voice_join'})){toast('Not connected; try again in a moment');vrender();return}V.on=true;V.open=true;vrender()}
+  await vice();V.joining=false;if(!vsend({op:'voice_join'})){toast('Not connected; try again in a moment');vrender();return}V.on=true;V.open=true;vrender()}
 function vleave(stop){vsend({op:'voice_leave'});for(const pid of Object.keys(V.pcs))vdrop(pid);V.on=false;
   if(stop!==false&&V.stream){for(const t of V.stream.getTracks())t.stop();V.stream=null}vrender()}
 function vtalk(){if(!V.on)return;const mine=V.s.floor===V.pid||V.s.queue.includes(V.pid);vsend({op:mine?'voice_release':'voice_talk'})}

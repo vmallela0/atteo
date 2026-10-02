@@ -1120,6 +1120,14 @@ export default {
         return json({ claims: await boardStub(env, m[1]).claims() }, 200, { "cache-control": "no-store" });
       }
 
+      // ---- voice: short-lived relay (TURN) credentials so calls connect on networks that block peer-to-peer ----
+      m = path.match(/^\/api\/boards\/([^/]+)\/voice\/ice$/);
+      if (m && method === "GET") {
+        if (!viewer) return needLogin();
+        if (!(await registry.isMember(env, m[1], viewer.name))) return json({ error: "board not found" }, 404);
+        return json({ iceServers: await voiceIceServers(env) }, 200, { "cache-control": "no-store" });
+      }
+
       // ---- claims (web): verify, dispute or add evidence as a person (status arrives with updates) ----
       m = path.match(/^\/api\/boards\/([^/]+)\/claims\/(\d+)$/);
       if (m) {
@@ -1550,3 +1558,23 @@ export default {
     }
   },
 } satisfies ExportedHandler<Env>;
+
+const STUN_ONLY = [{ urls: "stun:stun.cloudflare.com:3478" }, { urls: "stun:stun.l.google.com:19302" }];
+
+/** ICE servers for a voice call: Cloudflare's TURN relay (credentials good for 4 hours) when configured, else STUN only. */
+async function voiceIceServers(env: Env): Promise<unknown[]> {
+  if (!env.TURN_KEY_ID || !env.TURN_KEY_API_TOKEN) return STUN_ONLY;
+  try {
+    const r = await fetch(`https://rtc.live.cloudflare.com/v1/turn/keys/${env.TURN_KEY_ID}/credentials/generate-ice-servers`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${env.TURN_KEY_API_TOKEN}`, "content-type": "application/json" },
+      body: JSON.stringify({ ttl: 4 * 3600 }),
+    });
+    if (!r.ok) return STUN_ONLY;
+    const d = (await r.json()) as { iceServers?: unknown };
+    const list = Array.isArray(d.iceServers) ? d.iceServers : d.iceServers ? [d.iceServers] : [];
+    return list.length ? list : STUN_ONLY;
+  } catch {
+    return STUN_ONLY;
+  }
+}

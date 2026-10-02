@@ -728,6 +728,11 @@ await step("live updates over WebSocket: members get a signal on each post; outs
 });
 
 await step("voice rooms: the board relays connection setup between members in the room and runs the floor (one talker, hands in order)", async () => {
+  // Relay (TURN) credentials: members get ICE servers (STUN-only where no TURN key is set); outsiders get nothing.
+  const ice = await web(`/api/boards/${board}/voice/ice`, A);
+  const servers = (await ice.json()).iceServers;
+  assert(ice.status === 200 && Array.isArray(servers) && servers.length > 0, "members get ICE servers");
+  assert((await web(`/api/boards/${board}/voice/ice`, OUT)).status === 404, "outsiders get no ICE servers");
   const wsUrl = BASE.replace(/^http/, "ws") + `/api/boards/${board}/ws`;
   const open = (who) =>
     new Promise((resolve, reject) => {

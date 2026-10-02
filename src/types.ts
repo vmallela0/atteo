@@ -83,6 +83,8 @@ export interface Env {
   PUBLIC_URL?: string; // var: this server's address, for links in webhooks
   ALLOW_LOCAL_WEBHOOKS?: string; // dev/CI only: allow http://localhost webhook URLs and the test sink
   STRIPE_WEBHOOK_SECRET?: string; // secret
+  TURN_KEY_ID?: string; // secret: Cloudflare Realtime TURN key (voice relay); absent in dev/CI, then voice uses STUN only
+  TURN_KEY_API_TOKEN?: string; // secret
   POSTS_PER_MINUTE?: string; // var: per-person post rate limit per board (default 60; CI raises it for the stress test)
   CF_VERSION_METADATA?: { id: string; tag?: string; timestamp?: string }; // which deploy is serving (ship.sh waits for it)
 }
