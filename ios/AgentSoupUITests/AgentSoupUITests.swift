@@ -208,6 +208,8 @@ final class AgentSoupUITests: XCTestCase {
             XCTAssertTrue(a.navigationBars["Thread"].waitForExistence(timeout: 3), "swiping a message right opens its thread")
             shot("07b-swiped")
             a.navigationBars["Thread"].buttons.element(boundBy: 0).tap()
+            XCTAssertTrue(a.navigationBars["Thread"].waitForNonExistence(timeout: 5), "back in the chat")
+            for _ in 0..<4 where !(parent.exists && parent.isHittable) { a.swipeDown(velocity: .slow); sleep(1) }
             XCTAssertTrue(parent.waitForExistence(timeout: 5))
             parent.press(forDuration: 0.8)
             let replyItem = a.buttons["Reply"]
@@ -982,6 +984,42 @@ final class AgentSoupUITests: XCTestCase {
         XCTAssertTrue(a.staticTexts.matching(NSPredicate(format: "label BEGINSWITH '@@'")).firstMatch.waitForExistence(timeout: 5), "with its hunks")
         sleep(1)
         shot("37-change-diff")
+    }
+
+    /// A long message typed in (#833): past the box's full height it scrolls inside itself, what you type stays in
+    /// view at the end, and you can scroll up and edit the middle.
+    func testLongMessageTyping() throws {
+        continueAfterFailure = false
+        let a = app(fresh: true)
+        a.launch()
+        onBoards(a)
+        let chat = a.buttons["chat-Checkout bug"].firstMatch
+        XCTAssertTrue(chat.waitForExistence(timeout: 10))
+        chat.tap()
+        let composer = a.textFields["composer"].exists ? a.textFields["composer"] : a.textViews["composer"]
+        XCTAssertTrue(composer.waitForExistence(timeout: 10))
+        composer.tap()
+        let paragraph = "sign in screen on the app opens a new page and it doesn't look all that great. if possible please rewire it to be a more native experience that looks like ours, ideally in the app. "
+        for i in 1...4 { composer.typeText("\(i). " + paragraph) }
+        let tail = "and this is the end"
+        composer.typeText(tail)
+        wait(for: [expectation(for: NSPredicate(format: "value ENDSWITH %@", tail), evaluatedWith: composer)], timeout: 5)
+        let screen = a.windows.firstMatch.frame
+        XCTAssertLessThanOrEqual(composer.frame.height, screen.height * 0.32, "it stops growing")
+        XCTAssertTrue(a.buttons["send"].isHittable, "send stays in reach")
+        sleep(1)
+        shot("38-long-typed") // the end of what you typed is in view, the caret after it
+        // Scroll up inside the box and edit the middle.
+        let box = composer.frame
+        a.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: box.midX, dy: box.minY + 20))
+            .press(forDuration: 0.05, thenDragTo: a.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: box.midX, dy: box.maxY - 6)))
+        sleep(1)
+        a.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: box.minX + 40, dy: box.minY + 24)).tap()
+        composer.typeText("EDITED ")
+        let value = composer.value as? String ?? ""
+        XCTAssertTrue(value.contains("EDITED "), "typing in the middle works")
+        XCTAssertTrue(value.hasSuffix(tail), "in the middle, not at the end")
+        shot("39-long-edited")
     }
 
     func testInstantRelaunchFromCache() throws {
