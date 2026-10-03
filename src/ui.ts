@@ -836,6 +836,32 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
 a.ref{display:inline-flex;align-items:center;max-width:22em;padding:0 6px;border-radius:5px;background:var(--bg-hover);color:var(--text);font-size:.92em;text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom}
 a.ref:hover{color:var(--ink);background:color-mix(in srgb,var(--accent) 12%,var(--bg-hover))}
 .sum li .n,.kmeta .seq,#td-seq{display:none}
+/* The pinned doc (vedu #977): a slim bar on top of the conversation and the side panel's first section */
+.pin-bar{flex:none;margin:8px 0;min-width:0}
+@media(max-width:959px){.pin-bar{margin-right:38px}}.layout.info-collapsed .pin-bar{margin-right:38px} /* clear of the board-info toggle in the corner */
+.pin-open{display:flex;align-items:center;gap:8px;width:100%;min-width:0;height:32px;padding:0 10px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--bg-subtle);color:var(--text);font:inherit;font-size:13px;text-align:left;cursor:pointer}
+.pin-open:hover{border-color:var(--line-strong);background:var(--bg-hover)}.pin-open svg,.pin-card svg{flex:none;color:var(--muted)}
+.pin-name{flex:0 1 auto;color:var(--ink);font-size:12.5px;font-weight:500}.pin-peek{flex:1 1 0;min-width:0;color:var(--muted)}
+.pin-card{display:flex;flex-direction:column;align-items:stretch;gap:4px;width:100%;min-width:0;padding:8px 10px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--bg);color:var(--text);font:inherit;text-align:left;cursor:pointer}
+.pin-card:hover{border-color:var(--line-strong)}.pin-card b{font-size:12.5px;color:var(--ink)}
+.pin-prev{position:relative;max-height:150px;overflow:hidden;font-size:12.5px;line-height:1.5;margin-top:2px}
+.pin-prev::after{content:"";position:absolute;left:0;right:0;bottom:0;height:36px;background:linear-gradient(transparent,var(--bg))}
+.pin-prev h1,.pin-prev h2,.pin-prev h3{font-size:13px;margin:4px 0;color:var(--ink);text-transform:none}.pin-prev p,.pin-prev ul,.pin-prev ol{margin:4px 0}
+.pin-img{display:block;max-width:100%;max-height:150px;border-radius:6px;margin-top:4px}
+#doc-pin svg{margin-right:2px}#doc-pin.on{color:var(--accent)}
+/* Recap: a header button and a sheet (bottom sheet on phones) */
+.recap-btn{position:relative;gap:5px;align-self:center;color:var(--muted)}.recap-btn:hover{color:var(--ink)}
+.recap-dot{flex:none;width:6px;height:6px;border-radius:50%;background:var(--accent);align-self:flex-start;margin:5px 0 0 -2px}
+dialog.recap-dlg{width:min(560px,calc(100vw - 32px));max-height:min(80vh,720px)}
+.recap-dlg .bd{overflow-y:auto;max-height:calc(min(80vh,720px) - 80px)}
+.rc-sec+.rc-sec{margin-top:18px}.rc-sec h3{font-size:12px;font-weight:600;color:var(--muted);margin:0 0 6px;text-transform:none}
+.rc-sec ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
+.rc-sec li a{display:flex;flex-direction:column;gap:1px;padding:6px 8px;margin:0 -8px;border-radius:6px;color:var(--text);text-decoration:none;min-width:0}
+.rc-sec li a:hover{background:var(--bg-hover)}.rc-t{font-size:13.5px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rc-owe+.rc-owe{margin-top:10px}.rc-owe-h{display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:2px}.rc-owe-h b{color:var(--ink);font-weight:500}
+.rc-none{margin:4px 0}
+@media(max-width:359px){.recap-l{display:none}.recap-btn{width:30px;padding:0;justify-content:center}.recap-dot{position:absolute;top:4px;right:4px;margin:0;box-shadow:0 0 0 2px var(--bg)}}
+@media(max-width:640px){dialog.recap-dlg{margin:auto 0 0;width:100vw;max-width:100vw;max-height:85vh;border-radius:14px 14px 0 0;border-width:1px 0 0}.recap-dlg .bd{max-height:calc(85vh - 80px)}}
 `;
 
 // The Pebble: the app mark. One soft pebble split by a slanted seam; the clay half is you, the ink half your agent,
