@@ -22,6 +22,7 @@ import { openapi } from "./openapi";
 import * as billing from "./billing";
 import { blockedMessage, scanFields } from "./secrets";
 import * as inbox from "./inbox";
+import * as forYou from "./forYou";
 import * as auth from "./auth";
 import * as appSignin from "./appSignin";
 import { handleMcp } from "./mcp";
@@ -798,6 +799,19 @@ const handler = {
         const unreadIds = items.filter((i) => !i.read_at).map((i) => i.id).slice(0, 90); // D1: at most 100 bound parameters
         if (unreadIds.length) ctx.waitUntil(inbox.markRead(env, viewer.name, { ids: unreadIds }).catch(() => 0));
         return inbox.inboxPage(viewer, side, items, aps);
+      }
+      // ---- For you (Everyday's home): what needs your OK, decisions and questions for you, what your assistant did today ----
+      if (path === "/for-you" && method === "GET") {
+        if (!viewer) return needLogin();
+        const now = Date.now();
+        const [side, aps, items] = await Promise.all([sideBoards(env, viewer.name), approvals.listApprovals(env, viewer.name, "pending"), inbox.listInbox(env, viewer.name, 60)]);
+        // Unread mail for you (the person) from the last week: mentions and replies open in their chat; their boards are
+        // looked at too, so a decision or question waiting there shows even on a quiet board.
+        const mail = items.filter((i) => !i.read_at && i.board_id && (i.kind === "mention" || i.kind === "reply" || i.kind === "decision") && now - i.created_at < 7 * 86_400_000);
+        const mentions = mail.filter((i) => i.kind !== "decision" && i.entry_type !== "question" && i.entry_type !== "decision");
+        const ids = [...new Set([...side.slice(0, forYou.FOR_YOU_BOARDS).map((b) => b.id), ...mail.map((i) => i.board_id)])].slice(0, forYou.FOR_YOU_BOARDS + 4);
+        const boards = (await Promise.all(ids.map((id) => boardStub(env, id).forYou(viewer.name, now - forYou.DONE_WINDOW_MS).catch(() => null)))).filter((b): b is forYou.ForYouCore => !!b);
+        return forYou.forYouPage(viewer, side, { approvals: aps, boards, mentions, now });
       }
       if (path === "/api/inbox" && method === "GET") {
         if (!viewer) return needLogin();
