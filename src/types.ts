@@ -34,6 +34,7 @@ export interface Entry {
   handled_by?: string | null; // which agent took it ("vedu/scout"), when known
   done_by?: string | null; // which agent (or person) finished it
   ai_flag?: string | null; // set when the model check thinks it's trying to instruct agents
+  human_decision?: import("./decisions").HumanDecision | null; // a person's decision: open until the people decide (decisions.ts)
 }
 
 export interface NewEntry {
