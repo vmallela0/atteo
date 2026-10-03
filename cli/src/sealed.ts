@@ -3,6 +3,7 @@
 // (and you) have: X25519 → HKDF-SHA256 → AES-256-GCM. The server stores the envelope and never sees the plaintext.
 
 import { createPrivateKey, createPublicKey, diffieHellman, generateKeyPairSync, hkdfSync, randomBytes, createCipheriv, createDecipheriv, type KeyObject } from "node:crypto";
+import { env } from "./env";
 import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir, platform } from "node:os";
@@ -16,7 +17,7 @@ export interface Envelope {
   ct: string;
 }
 
-const SERVICE = "agent-board-seal-key";
+const SERVICE = "agent-board-seal-key"; // keychain item name from before the rename: keep it, or existing keys are lost
 const b64u2b64 = (s: string) => s.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (s.length % 4)) % 4);
 const b642b64u = (s: string) => s.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 
@@ -31,7 +32,7 @@ function has(cmd: string): boolean {
 
 /** Where this machine's private key lives: next to a test credentials file, the keychain, or a 0600 file. */
 function keyFile(): string | null {
-  const cred = process.env.AGENT_BOARD_CREDENTIALS_FILE;
+  const cred = env("CREDENTIALS_FILE");
   if (cred) return `${cred}.sealkey`;
   if ((platform() === "darwin" && has("security")) || (platform() === "linux" && has("secret-tool"))) return null;
   return join(process.env.XDG_CONFIG_HOME || join(homedir(), ".config"), "agent-board", "seal-key.json");
@@ -57,7 +58,7 @@ function saveJwk(jwk: { d: string; x: string }) {
     writeFileSync(f, json, { mode: 0o600 });
     chmodSync(f, 0o600);
   } else if (platform() === "darwin") execFileSync("security", ["add-generic-password", "-U", "-s", SERVICE, "-a", "default", "-w", json], { stdio: "ignore" });
-  else execFileSync("secret-tool", ["store", "--label=Agent Soup sealing key", "service", SERVICE, "account", "default"], { input: json, stdio: ["pipe", "ignore", "ignore"] });
+  else execFileSync("secret-tool", ["store", "--label=Atteo sealing key", "service", SERVICE, "account", "default"], { input: json, stdio: ["pipe", "ignore", "ignore"] });
 }
 
 /** This machine's keypair (created the first time). Returns the private key and the public key as base64. */
@@ -74,6 +75,8 @@ export function myKey(): { priv: KeyObject; pub: string } {
 
 const pubKey = (b64: string) => createPublicKey({ key: { kty: "OKP", crv: "X25519", x: b642b64u(b64) }, format: "jwk" });
 
+// The HKDF info labels ("agent-soup seal v1", "agent-soup board key v2") are historical: they are part of every
+// sealed secret and wrapped board key already stored, so they must never change (the product is Atteo now).
 function kek(shared: Buffer, epk: string, rpk: string, info = "agent-soup seal v1"): Buffer {
   return Buffer.from(hkdfSync("sha256", shared, Buffer.concat([Buffer.from(epk, "base64"), Buffer.from(rpk, "base64")]), info, 32));
 }
@@ -124,7 +127,7 @@ export function unseal(env: Envelope, myKid: string | null): Buffer {
 
 // ---- encryption v2: one key per board epoch, wrapped once per member device (the server stores the wrapped copies) ----
 
-const V2_INFO = "agent-soup board key v2";
+const V2_INFO = "agent-soup board key v2"; // historical label, never change (see kek)
 export interface WrappedKey {
   epk: string;
   iv: string;

@@ -14,7 +14,7 @@ export type Relation = "self" | "friend" | "pending_out" | "pending_in" | "block
 export interface Presence {
   web: number | null; // last seen on the web
   agent: { client: string; seen: number } | null; // the most recent live agent session
-  watcher: { seen: number; respond: boolean } | null; // agent-soup watch running for them
+  watcher: { seen: number; respond: boolean } | null; // atteo watch running for them
 }
 
 export interface Person {
@@ -223,7 +223,7 @@ export async function directBoard(env: Env, me: string, other: string, initBoard
   const who = other.toLowerCase().replace(/^@/, "");
   const { rel } = await relationOf(env, me, who);
   if (rel !== "friend") {
-    throw new SocialError(rel === "pending_out" ? `${who} hasn't accepted your friend request yet.` : `You and ${who} aren't friends yet. Send a request first: agent-soup add ${who}`);
+    throw new SocialError(rel === "pending_out" ? `${who} hasn't accepted your friend request yet.` : `You and ${who} aren't friends yet. Send a request first: atteo add ${who}`);
   }
   return openDirect(env, me, who, initBoard);
 }

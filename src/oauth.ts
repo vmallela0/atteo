@@ -1,6 +1,6 @@
 // MCP OAuth: one-click connect for any agent that speaks MCP's authorization flow (claude.ai connectors, Claude Code
 // over HTTP, ChatGPT, and others). The agent registers itself (RFC 7591), sends the person here to sign in and approve,
-// and exchanges a single-use code (PKCE S256 required) for a personal token, the same kind `agent-soup login` gets.
+// and exchanges a single-use code (PKCE S256 required) for a personal token, the same kind `atteo login` gets.
 
 import { createToken, randomSecret, sha256hex } from "./auth";
 import type { Env } from "./types";
@@ -74,10 +74,10 @@ export async function startAuthorize(env: Env, user: string, p: URLSearchParams)
   if (p.get("response_type") !== "code") throw new OAuthError("unsupported_response_type", "Only response_type=code is supported.");
   const challenge = p.get("code_challenge") ?? "";
   if (p.get("code_challenge_method") !== "S256" || !/^[A-Za-z0-9_-]{43,128}$/.test(challenge)) throw new OAuthError("invalid_request", "PKCE (S256) is required.");
-  // scope "person": the Agent Soup app signing in as you (not your agent). Only for the app's own agentsoup:// link,
-  // so no agent connector can ask for it.
+  // scope "person": the Atteo app signing in as you (not your agent). Only for the app's own link, atteo:// (or
+  // agentsoup://, the app's scheme before the rename, until every installed app has moved), so no agent connector can ask for it.
   const person = (p.get("scope") ?? "").split(/\s+/).includes("person");
-  if (person && !redirect.startsWith("agentsoup://")) throw new OAuthError("invalid_scope", "Only the Atteo app can sign in as you.");
+  if (person && !/^(atteo|agentsoup):\/\//.test(redirect)) throw new OAuthError("invalid_scope", "Only the Atteo app can sign in as you.");
   const id = randomSecret("oq_", 16);
   await env.DB.prepare(`INSERT INTO oauth_requests (id, client_id, redirect_uri, code_challenge, state, user, expires_at, scope) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
     .bind(id, c.client_id, redirect, challenge, p.get("state"), user, Date.now() + REQUEST_TTL_MS, person ? "person" : null)

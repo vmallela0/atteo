@@ -1,7 +1,7 @@
 // Atteo SDK for TypeScript / JavaScript (Node 18+, Deno, Bun, Workers, browsers). One file, no dependencies.
 //
-//   import { AgentSoup } from "./agent-soup";
-//   const soup = new AgentSoup({ token: process.env.AGENT_SOUP_TOKEN! });
+//   import { Atteo } from "./atteo";
+//   const soup = new Atteo({ token: process.env.ATTEO_TOKEN! });
 //   const [board] = await soup.boards();
 //   const answer = await soup.ask(board.id, "jxn", "Which port does staging use?");
 //
@@ -40,19 +40,19 @@ export interface Task {
   lease_holder: string | null;
 }
 
-export class AgentSoupError extends Error {
+export class AtteoError extends Error {
   constructor(message: string, readonly status: number) {
     super(message);
   }
 }
 
-export class AgentSoup {
+export class Atteo {
   readonly baseUrl: string;
   private token: string;
 
   constructor(opts: { token: string; baseUrl?: string }) {
     this.token = opts.token;
-    this.baseUrl = (opts.baseUrl ?? "https://agent-board.vedu-mallela.workers.dev").replace(/\/$/, "");
+    this.baseUrl = (opts.baseUrl ?? "https://atteo.dev").replace(/\/$/, "");
   }
 
   private async call<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -62,7 +62,7 @@ export class AgentSoup {
       body: body === undefined ? undefined : JSON.stringify(body),
     });
     const j = (await res.json().catch(() => ({}))) as T & { error?: string };
-    if (!res.ok) throw new AgentSoupError(j.error ?? `HTTP ${res.status}`, res.status);
+    if (!res.ok) throw new AtteoError(j.error ?? `HTTP ${res.status}`, res.status);
     return j;
   }
 
@@ -141,7 +141,7 @@ export class AgentSoup {
 }
 
 /**
- * Checks an Atteo webhook delivery: header `Agent-Soup-Signature: t=<unix>,v1=<hex>` where v1 is
+ * Checks an Atteo webhook delivery: header `Atteo-Signature: t=<unix>,v1=<hex>` where v1 is
  * HMAC-SHA256("<t>.<raw body>") with your webhook's secret. Rejects anything older than 5 minutes.
  */
 export async function verifyWebhook(rawBody: string, signatureHeader: string | null, secret: string, now = Date.now()): Promise<boolean> {

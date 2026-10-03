@@ -2,6 +2,7 @@
 // Never inside a project folder, so it can't end up in git.
 
 import { execFileSync } from "node:child_process";
+import { env } from "./env";
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { join } from "node:path";
@@ -13,7 +14,7 @@ export interface Credentials {
   expires_at: number;
 }
 
-const SERVICE = "agent-board";
+const SERVICE = "agent-board"; // keychain item name from before the rename: keep it, or everyone is signed out
 
 function configDir(): string {
   const base = process.env.XDG_CONFIG_HOME || join(homedir(), ".config");
@@ -32,7 +33,7 @@ function has(cmd: string): boolean {
 }
 
 export function storeName(): string {
-  if (process.env.AGENT_BOARD_CREDENTIALS_FILE) return `file ${process.env.AGENT_BOARD_CREDENTIALS_FILE}`;
+  if (env("CREDENTIALS_FILE")) return `file ${env("CREDENTIALS_FILE")}`;
   if (platform() === "darwin" && has("security")) return "macOS Keychain";
   if (platform() === "linux" && has("secret-tool")) return "the system keyring (secret-tool)";
   return `${FILE()} (readable only by you)`;
@@ -40,13 +41,13 @@ export function storeName(): string {
 
 export function save(c: Credentials): void {
   const json = JSON.stringify(c);
-  const file = process.env.AGENT_BOARD_CREDENTIALS_FILE;
+  const file = env("CREDENTIALS_FILE");
   if (!file && platform() === "darwin" && has("security")) {
     execFileSync("security", ["add-generic-password", "-U", "-s", SERVICE, "-a", "default", "-w", json], { stdio: "ignore" });
     return;
   }
   if (!file && platform() === "linux" && has("secret-tool")) {
-    execFileSync("secret-tool", ["store", "--label=Agent Soup", "service", SERVICE, "account", "default"], { input: json, stdio: ["pipe", "ignore", "ignore"] });
+    execFileSync("secret-tool", ["store", "--label=Atteo", "service", SERVICE, "account", "default"], { input: json, stdio: ["pipe", "ignore", "ignore"] });
     return;
   }
   const path = file || FILE();
@@ -56,7 +57,7 @@ export function save(c: Credentials): void {
 }
 
 export function load(): Credentials | null {
-  const file = process.env.AGENT_BOARD_CREDENTIALS_FILE;
+  const file = env("CREDENTIALS_FILE");
   try {
     if (!file && platform() === "darwin" && has("security")) {
       return JSON.parse(execFileSync("security", ["find-generic-password", "-s", SERVICE, "-a", "default", "-w"], { stdio: ["ignore", "pipe", "ignore"] }).toString());
@@ -73,7 +74,7 @@ export function load(): Credentials | null {
 }
 
 export function remove(): void {
-  const file = process.env.AGENT_BOARD_CREDENTIALS_FILE;
+  const file = env("CREDENTIALS_FILE");
   try {
     if (!file && platform() === "darwin" && has("security")) execFileSync("security", ["delete-generic-password", "-s", SERVICE, "-a", "default"], { stdio: "ignore" });
     else if (!file && platform() === "linux" && has("secret-tool")) execFileSync("secret-tool", ["clear", "service", SERVICE, "account", "default"], { stdio: "ignore" });

@@ -42,7 +42,7 @@ export async function sendInvite(
         return { ok: true, added: true, emailed: false, signInUrl, message: `${existing.name} joined "${title}" right away (they accept invites from friends automatically).` };
       }
     }
-    // Has an account: no email needed. The invitation waits in their Agent Soup until they accept it.
+    // Has an account: no email needed. The invitation waits in their Atteo until they accept it.
     await registry.recordInvite(env, { ...base, email_status: "pending: has an account" });
     return {
       ok: true,

@@ -215,7 +215,7 @@ export async function resolveToken(env: Env, token: string, ctx?: ExecutionConte
   return { user: row.user, expired: false };
 }
 
-/** A bearer token's user and kind ("app": the Agent Soup app, acting as the person), or null. */
+/** A bearer token's user and kind ("app": the Atteo app, acting as the person), or null. */
 export async function tokenIdentity(env: Env, token: string, fresh = false): Promise<{ user: string; kind: string | null } | null> {
   if (!token.startsWith("ab_")) return null;
   const row = await lookupToken(env, token, undefined, fresh);

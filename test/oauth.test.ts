@@ -9,7 +9,7 @@ describe("okRedirect", () => {
       "http://localhost:33418/callback",
       "http://127.0.0.1:6274/oauth/callback",
       "http://[::1]:8080/cb",
-      "cursor://anysphere.cursor-retrieval/oauth/user-agent-soup/callback",
+      "cursor://anysphere.cursor-retrieval/oauth/user-atteo/callback",
       "vscode://vscode.github-authentication/did-authenticate",
       "vscode-insiders://ms-vscode.mcp/callback",
     ])

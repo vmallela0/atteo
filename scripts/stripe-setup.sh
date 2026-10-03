@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# One-time (idempotent) Stripe setup for Agent Soup: the Pro product and its prices (found at runtime by lookup key),
+# One-time (idempotent) Stripe setup for Atteo: the Pro product and its prices (found at runtime by lookup key),
 # the customer portal, and the webhook endpoint. Prints nothing secret except the new webhook secret's destination.
 # Usage: scripts/stripe-setup.sh [base_url]   (key from secrets.txt: "stripe secret key (test)")
 set -euo pipefail
@@ -18,7 +18,7 @@ api() { curl -sS -u "$SK:" -H "Stripe-Version: 2024-06-20" "$@"; }  # pinned: th
 have_price() { api -G https://api.stripe.com/v1/prices --data-urlencode "lookup_keys[]=$1" | python3 -c "import json,sys;d=json.load(sys.stdin)['data'];print(d[0]['id'] if d else '')"; }
 prod=$(api -G https://api.stripe.com/v1/products/search --data-urlencode "query=metadata['app']:'agent-soup'" | python3 -c "import json,sys;d=json.load(sys.stdin)['data'];print(d[0]['id'] if d else '')")
 if [ -z "$prod" ]; then
-  prod=$(api https://api.stripe.com/v1/products -d name="Agent Soup Pro" -d "description=Unlimited boards, up to 50 members per board" -d "metadata[app]=agent-soup" | python3 -c "import json,sys;print(json.load(sys.stdin)['id'])")
+  prod=$(api https://api.stripe.com/v1/products -d name="Atteo Pro" -d "description=Unlimited boards, up to 50 members per board" -d "metadata[app]=agent-soup" | python3 -c "import json,sys;print(json.load(sys.stdin)['id'])")
 fi
 echo "product $prod"
 # Pro: $10/month or $100/year. A changed amount creates a new price and moves the lookup key to it (old subscribers keep theirs).
@@ -33,7 +33,7 @@ echo "prices pro_monthly=$(have_price pro_monthly) pro_yearly=$(have_price pro_y
 portal=$(api -G https://api.stripe.com/v1/billing_portal/configurations -d active=true -d limit=1 | python3 -c "import json,sys;d=json.load(sys.stdin)['data'];print(d[0]['id'] if d else '')")
 if [ -z "$portal" ]; then
   api https://api.stripe.com/v1/billing_portal/configurations \
-    -d "business_profile[headline]=Agent Soup" \
+    -d "business_profile[headline]=Atteo" \
     -d "features[invoice_history][enabled]=true" -d "features[payment_method_update][enabled]=true" \
     -d "features[subscription_cancel][enabled]=true" -d "features[subscription_cancel][mode]=at_period_end" \
     -d "default_return_url=$BASE/me" >/dev/null

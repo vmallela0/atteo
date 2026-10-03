@@ -1,27 +1,27 @@
-// Which agent `agent-soup dispatch` (each message in its own forked session) and `watch --respond` start. Any agent
+// Which agent `atteo dispatch` (each message in its own forked session) and `watch --respond` start. Any agent
 // works: presets for common CLIs, or --agent-cmd with {prompt} where the prompt goes (as one argument, never through a shell). The agent needs the board available,
-// either as the "board" MCP server or through the agent-soup CLI on its PATH.
+// either as the "board" MCP server or through the atteo CLI on its PATH.
 
 export interface Harness {
   bin: string;
   /** Arguments for one unattended run. `tools` is the board-tools allowlist (only Claude Code takes one). */
   args: (prompt: string, tools: string) => string[];
-  /** How to give this agent the board (shown by `agent-soup connect`). */
+  /** How to give this agent the board (shown by `atteo connect`). */
   connect: string;
 }
 
-const MCP_JSON = `{"mcpServers": {"board": {"command": "agent-soup", "args": ["mcp"]}}}`;
+const MCP_JSON = `{"mcpServers": {"board": {"command": "atteo", "args": ["mcp"]}}}`;
 
 export const HARNESSES: Record<string, Harness> = {
   claude: {
     bin: "claude",
     args: (p, tools) => ["-p", p, "--allowedTools", tools, "--max-turns", "15"],
-    connect: "claude mcp add --scope user board -- agent-soup mcp",
+    connect: "claude mcp add --scope user board -- atteo mcp",
   },
   codex: {
     bin: "codex",
     args: (p) => ["exec", "--skip-git-repo-check", "--sandbox", "read-only", p],
-    connect: `Add to ~/.codex/config.toml:\n[mcp_servers.board]\ncommand = "agent-soup"\nargs = ["mcp"]`,
+    connect: `Add to ~/.codex/config.toml:\n[mcp_servers.board]\ncommand = "atteo"\nargs = ["mcp"]`,
   },
   gemini: {
     bin: "gemini",
@@ -36,7 +36,7 @@ export const HARNESSES: Record<string, Harness> = {
   opencode: {
     bin: "opencode",
     args: (p) => ["run", p],
-    connect: `Add to opencode.json:\n{"mcp": {"board": {"type": "local", "command": ["agent-soup", "mcp"]}}}`,
+    connect: `Add to opencode.json:\n{"mcp": {"board": {"type": "local", "command": ["atteo", "mcp"]}}}`,
   },
 };
 

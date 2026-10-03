@@ -14,9 +14,9 @@ import * as agents from "./agents";
 import * as dm from "./dm";
 import { waitForBoard } from "./waits";
 import { isRetriable, messageId, retryingReads, withRetry } from "./retry";
-import CLI_BUNDLE from "../cli/dist/agent-soup.mjs";
+import CLI_BUNDLE from "../cli/dist/atteo.mjs";
 import { installScript } from "./install";
-import SKILL_MD from "../skills/agent-soup/SKILL.md";
+import SKILL_MD from "../skills/atteo/SKILL.md";
 import { openapi } from "./openapi";
 import * as billing from "./billing";
 import { blockedMessage, scanFields } from "./secrets";
@@ -52,7 +52,7 @@ import {
 import type { Entry, Env } from "./types";
 import { FAVICON_SVG, page, renderText } from "./ui";
 import { APPLE_TOUCH_PNG_B64 } from "./appleIcon";
-import { BOARD_RE, connectCommand, esc, newBoardId, normalizeUser, parseBoardMeta } from "./util";
+import { atteoHeader, BOARD_RE, connectCommand, esc, newBoardId, normalizeUser, parseBoardMeta } from "./util";
 
 import * as Sentry from "@sentry/cloudflare";
 import { scrubForSentry } from "./sentry";
@@ -105,7 +105,7 @@ async function loadViewer(env: Env, session: auth.Session | null, request?: Requ
   const bearer = request?.headers.get("authorization")?.match(/^Bearer\s+(\S+)$/i)?.[1];
   // Account-level actions (tokens, billing, ops) stay browser-only, so a leaked token can't mint more or change plans.
   const accountOnly = /^\/api\/(ops|tokens|billing|webhooks)(\/|$)/.test(path);
-  // The Agent Soup app (a token of kind "app") acts as the person, and may also see and revoke agent connections.
+  // The Atteo app (a token of kind "app") acts as the person, and may also see and revoke agent connections.
   // (list connections, revoke one, or pull the kill switch; never mint new tokens).
   const appAllowed = request?.method === "POST" ? /^\/api\/tokens(\/revoke-all|\/[^/]+\/revoke)$/.test(path) : path === "/api/tokens";
   if (!session?.user && bearer && path.startsWith("/api/") && (!accountOnly || appAllowed)) {
@@ -451,16 +451,16 @@ const handler = {
       const session = await auth.getSession(request, env);
       const viewer = await loadViewer(env, session, request, path);
       const pv = (): "agent" | "person" => viewer?.via ?? "person"; // who wrote it: a person on the web, or an agent via token
-      // The agent session making the call (the CLI sends X-Agent-Soup-Session): what it causes counts as its own posts.
+      // The agent session making the call (the CLI sends X-Atteo-Session): what it causes counts as its own posts.
       let sessionMemo: Promise<string | null> | null = null;
       const asid = () =>
         (sessionMemo ??= (async () => {
-          const h = request.headers.get("x-agent-soup-session");
+          const h = atteoHeader(request, "session");
           return h && viewer?.via === "agent" ? ((await sessions.get(env, viewer.name, h))?.id ?? null) : null;
         })());
       // A read-only agent session (scope "read") can read and wait, mark things seen, and manage its own session,
       // but nothing it sends may change a board or anyone's account.
-      if (viewer?.via === "agent" && method !== "GET" && method !== "HEAD" && request.headers.get("x-agent-soup-session")) {
+      if (viewer?.via === "agent" && method !== "GET" && method !== "HEAD" && atteoHeader(request, "session")) {
         const sid = await asid();
         const s = sid ? await sessions.get(env, viewer.name, sid) : null;
         if (s?.scope === "read" && !/^\/api\/(sessions(\/|$)|boards\/[^/]+\/seen$)/.test(path))
@@ -548,7 +548,7 @@ const handler = {
         const approve = body.approve === true || body.approve === "true";
         const r = await device.decideDeviceLogin(env, code, viewer.name, approve);
         if (r === "not_found") return json({ error: "No sign-in is waiting for that code." }, 404);
-        if (r === "expired") return json({ error: "That code expired. Run agent-soup login again." }, 410);
+        if (r === "expired") return json({ error: "That code expired. Run atteo login again." }, 410);
         if (r === "already") return json({ error: "That code was already used." }, 409);
         return json({ ok: true, approved: approve, message: approve ? "Approved. You can go back to your terminal." : "Denied. Nothing was signed in." });
       }
@@ -792,7 +792,7 @@ const handler = {
           if (method === "POST") {
             if ((await registry.memberRole(env, km[1], viewer.name)) === "viewer") return json({ error: "Your role on this board is viewer." }, 403);
             const b = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-            const opts = { via: pv(), client: viewer.via === "agent" ? "agent-soup CLI" : null, session: await asid() };
+            const opts = { via: pv(), client: viewer.via === "agent" ? "atteo CLI" : null, session: await asid() };
             const stub = boardStub(env, km[1]);
             if (km[2] === "epochs") {
               const r = await boardkeys.openEpoch(env, km[1], viewer.name, b);
@@ -825,10 +825,10 @@ const handler = {
             const v2 = (() => { try { return (JSON.parse(String(b.payload ?? "")) as { v?: number; epoch?: number }).v === 2 ? JSON.parse(String(b.payload)) as { epoch?: number } : null; } catch { return null; } })();
             if (v2) {
               const k = await boardkeys.state(env, km[1], viewer.name);
-              if (k.rotate_needed) return json({ error: "Someone left or a device was removed: open a new epoch first (agent-soup does this for you).", rotate_needed: true }, 409);
+              if (k.rotate_needed) return json({ error: "Someone left or a device was removed: open a new epoch first (atteo does this for you).", rotate_needed: true }, 409);
               if (v2.epoch !== k.current) return json({ error: `This board's key is at epoch ${k.current}; encrypt with that.`, current: k.current }, 409);
             }
-            const e = await stub.postSealed(viewer.name, { to: b.to ? String(b.to) : null, note, payload: String(b.payload ?? ""), type: b.type, reply_to: Number(b.reply_to) || null }, { via: pv(), client: viewer.via === "agent" ? "agent-soup CLI" : null, session: await asid() });
+            const e = await stub.postSealed(viewer.name, { to: b.to ? String(b.to) : null, note, payload: String(b.payload ?? ""), type: b.type, reply_to: Number(b.reply_to) || null }, { via: pv(), client: viewer.via === "agent" ? "atteo CLI" : null, session: await asid() });
             ctx.waitUntil(registry.bumpBoard(env, km[1], e.seq).catch(() => {}));
             return json({ ok: true, entry: e }, 201);
           }
@@ -1036,11 +1036,12 @@ const handler = {
 
       // ---- the CLI, one file, and a readable installer: curl -fsSL <server>/install.sh | sh ----
       if (path === "/install.sh" && method === "GET") return new Response(installScript(url.origin), { headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "public, max-age=300" } });
-      // The CLI checks itself against this once a day and says when it's out of date (agent-soup update).
+      // The CLI checks itself against this once a day and says when it's out of date (atteo update).
       if (path === "/cli/version" && method === "GET") return json({ hash: await cliHash() }, 200, { "cache-control": "public, max-age=300" });
-      if (path === "/cli/agent-soup.mjs" && method === "GET") return new Response(CLI_BUNDLE, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": "public, max-age=300", "x-content-type-options": "nosniff" } });
+      // /cli/agent-soup.mjs is the path from before the rename: older CLIs update themselves from it.
+      if ((path === "/cli/atteo.mjs" || path === "/cli/agent-soup.mjs") && method === "GET") return new Response(CLI_BUNDLE, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": "public, max-age=300", "x-content-type-options": "nosniff" } });
 
-      // ---- phones for push notifications (the Agent Soup app registers its APNs device token) ----
+      // ---- phones for push notifications (the Atteo app registers its APNs device token) ----
       if (path === "/api/me/devices" && (method === "POST" || method === "DELETE")) {
         if (!viewer || viewer.via === "agent") return json({ error: "Only the Atteo app (signed in as you) registers devices." }, 401);
         const b = (await request.json().catch(() => ({}))) as { token?: string; platform?: string };
@@ -1233,7 +1234,7 @@ const handler = {
         const who = viewer?.name ?? (tok ? (await auth.resolveToken(env, tok, ctx)).user : null);
         if (!who) return json({ error: "sign in required" }, 401);
         // The watcher checks in here every few minutes: that's how friends see "answers in the background".
-        const watching = request.headers.get("x-agent-soup-watch");
+        const watching = atteoHeader(request, "watch");
         if (watching) ctx.waitUntil(Promise.resolve(social.markSeen(env, who, "watch", watching === "respond")).catch(() => {}));
         const [boards, live] = await Promise.all([registry.boardsForUser(env, who), sessions.liveByBoard(env).catch(() => new Map<string, number>())]);
         const row = (b: (typeof boards)[number]) => ({
@@ -1317,7 +1318,7 @@ const handler = {
             return json({ error: "method not allowed" }, 405);
           }
           const s = await sessions.get(env, viewer.name, decodeURIComponent(sid));
-          if (!s) return json({ error: "No live session of yours by that id or name. Start one: agent-soup session new" }, 404);
+          if (!s) return json({ error: "No live session of yours by that id or name. Start one: atteo session new" }, 404);
           ctx.waitUntil(Promise.resolve(sessions.touch(env, s.id)).catch(() => {}));
           // Boards the person lost access to drop out of the session quietly.
           const live = async () => {
@@ -1362,7 +1363,7 @@ const handler = {
               let hits = options.filter((o) => o.id === want);
               if (!hits.length) hits = options.filter((o) => o.title.toLowerCase() === q);
               if (!hits.length) hits = options.filter((o) => o.title.toLowerCase().includes(q));
-              if (!hits.length) return json({ error: `No board of yours or invitation matches "${want}". List them: agent-soup get boards` }, 404);
+              if (!hits.length) return json({ error: `No board of yours or invitation matches "${want}". List them: atteo get boards` }, 404);
               if (hits.length > 1) return json({ error: `"${want}" matches more than one board; use its id.`, matches: hits.map((h) => ({ id: h.id, title: h.title, status: h.invite ? "invited" : "member" })) }, 409);
               const target = hits[0];
               if (target.invite && !(me && (await registry.acceptInvitation(env, me, target.id, url.origin)))) return json({ error: `Couldn't accept the invitation to "${target.title}".` }, 400);
@@ -1382,7 +1383,7 @@ const handler = {
           const cur = await live();
           // DMs (your direct boards) reach every session without joining them.
           const directs = (await dm.directBoardsOf(env, viewer.name)).map((d) => d.id).filter((id) => !cur.boards.includes(id));
-          if (!cur.boards.length && !directs.length) return json({ error: "This session hasn't joined a board. Join one: agent-soup join <board>  (agent-soup get boards lists them)" }, 409);
+          if (!cur.boards.length && !directs.length) return json({ error: "This session hasn't joined a board. Join one: atteo join <board>  (atteo get boards lists them)" }, 409);
           const only = url.searchParams.get("board");
           const ids = only ? [...cur.boards, ...directs].filter((b) => b === only) : [...cur.boards, ...directs];
           if (only && !ids.length) return json({ error: `This session isn't on ${only}.` }, 404);
@@ -1873,7 +1874,7 @@ const handler = {
         }
         // Read receipts: the board page reports the newest entry its person has had on screen.
         if (what === "handle" && method === "POST" && seqStr) {
-          // "I'm on it" (agent-soup handle N): the calling agent session, or the person on the web.
+          // "I'm on it" (atteo handle N): the calling agent session, or the person on the web.
           if (!viewer || !(await registry.isMember(env, id, viewer.name))) return json({ error: "Only members can do that." }, 403);
           const sid = await asid();
           const sess = sid ? await sessions.get(env, viewer.name, sid) : null;
@@ -1958,7 +1959,7 @@ const handler = {
         if (!viewer) return needLogin();
         const [tokens, ended] = await Promise.all([auth.revokeAllTokens(env, viewer.name), sessions.endAll(env, viewer.name)]);
         await env.DB.prepare(`DELETE FROM mcp_sessions WHERE user = ?`).bind(viewer.name).run();
-        return json({ ok: true, tokens, sessions: ended, message: `Disconnected: ${tokens} sign-in${tokens === 1 ? "" : "s"} revoked and ${ended} agent session${ended === 1 ? "" : "s"} ended. Run agent-soup login to connect again.` });
+        return json({ ok: true, tokens, sessions: ended, message: `Disconnected: ${tokens} sign-in${tokens === 1 ? "" : "s"} revoked and ${ended} agent session${ended === 1 ? "" : "s"} ended. Run atteo login to connect again.` });
       }
       m = path.match(/^\/api\/tokens\/([^/]+)\/revoke$/);
       if (m && method === "POST") {
@@ -1991,7 +1992,7 @@ const handler = {
           const u = normalizeUser(body.user);
           if (!u || !(await registry.userByName(env, u))) return json({ error: "user not found" }, 404);
           const ttl = Number(body.expires_in_s);
-          // kind "app": a token as the Agent Soup app would get (tests and simulator runs only; people get theirs by signing in).
+          // kind "app": a token as the Atteo app would get (tests and simulator runs only; people get theirs by signing in).
           const t = await auth.createToken(env, u, body.label || "ops-issued", { ...(Number.isFinite(ttl) ? { expiresAt: Date.now() + ttl * 1000 } : {}), ...(body.kind === "app" ? { kind: "app" as const } : {}) });
           return json({ token: t.token, command: connectCommand(url.origin, body.board ?? null, t.token) }, 201);
         }

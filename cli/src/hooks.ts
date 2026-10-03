@@ -1,19 +1,23 @@
-// `agent-soup hooks install [--off]`: a git pre-push hook that posts a change card for the commits you push, to the
+// `atteo hooks install [--off]`: a git pre-push hook that posts a change card for the commits you push, to the
 // board this folder uses, so landed work shows up on the board without anyone remembering to post it.
 // It never blocks a push: it always exits 0 and gives up after a few seconds. A pre-push hook that was already there
 // is kept: it's renamed, still runs first with the same input, and can still stop the push (that's its job, not ours).
-// `agent-soup use` (and `create`) install it by default; AGENT_SOUP_NO_HOOK=1 skips it for one push. Cards carry the
+// `atteo use` (and `create`) install it by default; ATTEO_NO_HOOK=1 skips it for one push. Cards carry the
 // commits and the files changed; the diff itself (your code) only with `hooks install --diff`, since boards are shared.
 
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { env } from "./env";
 import { isAbsolute, join, resolve } from "node:path";
 import { buildCard, EMPTY_TREE, runner } from "./card";
 import { cardLine } from "../../src/card";
 import { CliError, folderBoard, isEncrypted, optStr, parseArgs, say, tool } from "./commands";
 
-const MARK = "# agent-soup pre-push hook";
+const MARK = "# atteo pre-push hook";
+// Hooks installed before the rename carry the old mark and keep the earlier hook under the old file name: both stay
+// recognized (and the file name stays), so refreshing or removing an existing install never chains our own hook.
+const OLD_MARK = "# agent-soup pre-push hook";
 const CHAINED = "pre-push.before-agent-soup";
-const OFF = "agent-soup hooks install --off";
+const OFF = "atteo hooks install --off";
 const ZERO = /^0+$/;
 
 const q = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
@@ -29,7 +33,8 @@ function hooksDir(cwd: string): { dir: string; custom: boolean } | null {
 
 const ours = (file: string) => {
   try {
-    return readFileSync(file, "utf8").includes(MARK);
+    const s = readFileSync(file, "utf8");
+    return s.includes(MARK) || s.includes(OLD_MARK);
   } catch {
     return false; // missing, or a dangling link: not ours
   }
@@ -45,20 +50,22 @@ const present = (file: string) => {
 
 /** The hook: the earlier hook first (its verdict stands), then the card, then exit 0 whatever happened. */
 function script(folder: string, diff: boolean): string {
-  // The CLI that installed it runs it (a test build stays a test build); `agent-soup` on PATH if that file is gone.
+  // The CLI that installed it runs it (a test build stays a test build); `atteo` on PATH if that file is gone.
   const node = process.execPath;
   const cli = process.argv[1] ? realpathSync(process.argv[1]) : "";
   return `#!/bin/sh
 ${MARK}: posts a change card for the commits you push to this folder's Atteo board.
-# It never blocks a push. Turn it off: ${OFF}   (or AGENT_SOUP_NO_HOOK=1 git push, for one push)
+# It never blocks a push. Turn it off: ${OFF}   (or ATTEO_NO_HOOK=1 git push, for one push)
 refs=$(cat)
 chained="$(dirname "$0")/${CHAINED}"
 if [ -x "$chained" ]; then
   printf '%s\\n' "$refs" | "$chained" "$@" || exit $?
 fi
-[ -n "$AGENT_SOUP_NO_HOOK" ] && exit 0
+[ -n "$ATTEO_NO_HOOK$AGENT_SOUP_NO_HOOK" ] && exit 0
 if [ -f ${q(cli)} ] && [ -x ${q(node)} ]; then
   printf '%s\\n' "$refs" | ${q(node)} ${q(cli)} hooks pre-push "$1" --folder ${q(folder)}${diff ? " --diff" : ""} || true
+elif command -v atteo >/dev/null 2>&1; then
+  printf '%s\\n' "$refs" | atteo hooks pre-push "$1" --folder ${q(folder)}${diff ? " --diff" : ""} || true
 elif command -v agent-soup >/dev/null 2>&1; then
   printf '%s\\n' "$refs" | agent-soup hooks pre-push "$1" --folder ${q(folder)}${diff ? " --diff" : ""} || true
 fi
@@ -71,19 +78,19 @@ export function installHook(cwd: string, o: { auto?: boolean; diff?: boolean } =
   const h = hooksDir(cwd);
   if (!h) return null;
   // A shared hooks folder (husky's .husky/, often committed) is the project's business: only on request.
-  if (o.auto && h.custom) return `Change cards on push: this repo keeps its hooks in ${h.dir} (core.hooksPath); add ours with agent-soup hooks install.`;
+  if (o.auto && h.custom) return `Change cards on push: this repo keeps its hooks in ${h.dir} (core.hooksPath); add ours with atteo hooks install.`;
   mkdirSync(h.dir, { recursive: true });
   const file = join(h.dir, "pre-push");
   const chained = join(h.dir, CHAINED);
   let kept = present(chained);
   if (present(file) && !ours(file)) {
-    if (kept) throw new CliError(`There's a pre-push hook in ${h.dir} and an older ${CHAINED} next to it. Merge them by hand, then run agent-soup hooks install again.`);
+    if (kept) throw new CliError(`There's a pre-push hook in ${h.dir} and an older ${CHAINED} next to it. Merge them by hand, then run atteo hooks install again.`);
     renameSync(file, chained);
     kept = true;
   }
   writeFileSync(file, script(resolve(cwd), !!o.diff), { mode: 0o755 });
   chmodSync(file, 0o755);
-  return `Change cards on push: each git push from this repo posts a card of its commits and changed files to this folder's board${o.diff ? ", with the diff" : " (not the diff: add it with agent-soup hooks install --diff)"}${kept ? "; your pre-push hook still runs first" : ""}. Turn it off: ${OFF}`;
+  return `Change cards on push: each git push from this repo posts a card of its commits and changed files to this folder's board${o.diff ? ", with the diff" : " (not the diff: add it with atteo hooks install --diff)"}${kept ? "; your pre-push hook still runs first" : ""}. Turn it off: ${OFF}`;
 }
 
 /** Removes the hook and puts back the one it chained, if any. */
@@ -92,13 +99,13 @@ export function removeHook(cwd: string): string {
   if (!h) throw new CliError("Not in a git repository.");
   const file = join(h.dir, "pre-push");
   const chained = join(h.dir, CHAINED);
-  if (!ours(file)) return "No agent-soup pre-push hook in this repo.";
+  if (!ours(file)) return "No atteo pre-push hook in this repo.";
   rmSync(file);
   if (present(chained)) {
     renameSync(chained, file);
-    return "Removed the agent-soup pre-push hook; your earlier pre-push hook is back in place.";
+    return "Removed the atteo pre-push hook; your earlier pre-push hook is back in place.";
   }
-  return "Removed the agent-soup pre-push hook: pushes no longer post change cards.";
+  return "Removed the atteo pre-push hook: pushes no longer post change cards.";
 }
 
 /**
@@ -129,21 +136,21 @@ export function pushedRanges(cwd: string, input: string): { branch: string; from
 /** Run by the hook: post a card per pushed branch. Never fails, never takes long: the push goes on regardless. */
 async function prePush(args: string[]) {
   const { opt } = parseArgs(args, ["diff"]);
-  const note = (s: string) => process.stderr.write(`agent-soup: ${s}\n`);
-  const ms = Number(process.env.AGENT_SOUP_HOOK_TIMEOUT_MS ?? 8000);
+  const note = (s: string) => process.stderr.write(`atteo: ${s}\n`);
+  const ms = Number(env("HOOK_TIMEOUT_MS") ?? 8000);
   const timer = setTimeout(() => {
     note(`no change card: the board didn't answer within ${Math.round(ms / 1000)}s (the push goes on).`);
     process.exit(0);
   }, ms);
   try {
-    if (process.env.AGENT_SOUP_NO_HOOK) return;
+    if (env("NO_HOOK")) return;
     let input = "";
     try {
       input = readFileSync(0, "utf8");
     } catch {}
     const cwd = process.cwd();
     const folder = optStr(opt, "folder");
-    const board = optStr(opt, "board") ?? process.env.AGENT_SOUP_BOARD ?? (folder && existsSync(folder) ? folderBoard(folder) : null) ?? folderBoard(cwd);
+    const board = optStr(opt, "board") ?? env("BOARD") ?? (folder && existsSync(folder) ? folderBoard(folder) : null) ?? folderBoard(cwd);
     if (!board) return;
     const ranges = pushedRanges(cwd, input);
     if (!ranges.length) return;
@@ -188,9 +195,9 @@ export async function hooksCmd(args: string[]) {
     const h = hooksDir(process.cwd());
     if (!h) throw new CliError("Not in a git repository.");
     const f = join(h.dir, "pre-push");
-    if (!ours(f)) return say("Off: pushes don't post change cards. Turn it on: agent-soup hooks install");
+    if (!ours(f)) return say("Off: pushes don't post change cards. Turn it on: atteo hooks install");
     const withDiff = readFileSync(f, "utf8").includes(" --diff");
     return say(`On: pushes from this repo post change cards (${withDiff ? "commits, files and the diff" : "commits and files, not the diff"}; ${f}). Turn it off: ${OFF}`);
   }
-  throw new CliError("Usage: agent-soup hooks install [--diff | --off]   (a git pre-push hook that posts a change card for each push; --diff includes the code)");
+  throw new CliError("Usage: atteo hooks install [--diff | --off]   (a git pre-push hook that posts a change card for each push; --diff includes the code)");
 }

@@ -20,6 +20,11 @@ export function newBoardId(): string {
  * Claude Code command for a personal token. Default: once per machine (user scope, no board; each session joins a board by name).
  * With a board: a project-scoped install that pins every session in that folder to the board.
  */
+/** An Atteo request header (x-atteo-<name>), or its name from before the rename (x-agent-soup-<name>), which older CLIs still send. */
+export function atteoHeader(request: Request, name: "session" | "watch"): string | null {
+  return request.headers.get(`x-atteo-${name}`) ?? request.headers.get(`x-agent-soup-${name}`);
+}
+
 export function connectCommand(origin: string, boardId: string | null, token: string): string {
   return boardId
     ? `claude mcp add --scope project --transport http board "${origin}/mcp?board=${boardId}" --header "Authorization: Bearer ${token}"`
