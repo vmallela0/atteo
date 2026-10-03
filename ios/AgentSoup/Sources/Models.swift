@@ -120,6 +120,7 @@ struct Entry: Codable, Identifiable, Hashable {
     var retracts: Int? = nil // this one unsends that one (the retraction itself isn't shown; its target reads "Unsent")
     var resolves: [Int]? = nil // questions answered / tasks completed by this one
     var supersedes: Int? = nil // replaces an earlier entry
+    var card: ChangeCardData? = nil // type "change": the git change card (branch, commits, files)
     var id: Int { seq }
     var byAgent: Bool { via == "agent" }
     /// A picture shown inline (PNG, JPEG, GIF or WebP, as the server sniffed it).
@@ -254,6 +255,20 @@ struct ReactResponse: Decodable { let on: Bool; let reactions: [Reaction] }
 
 /// The answer to "On it": whether you have it now, and who does.
 struct HandleResponse: Decodable { let ok: Bool; let by: String?; let done: Bool?; let message: String? }
+
+/// Someone's card to open: the person, or their agent.
+struct ProfileTarget: Identifiable, Hashable { let name: String; let agent: Bool; var id: String { "\(name)/\(agent)" } }
+
+/// Search across your boards (the Chats list): boards whose name matches, and messages in them.
+struct CrossSearchResponse: Decodable {
+    struct Hit: Decodable, Hashable, Identifiable {
+        let board: String; let title: String; let kind: String
+        var seq: Int? = nil; var author: String? = nil; var via: String? = nil; let snippet: String
+        var id: String { "\(board)#\(seq ?? 0)#\(snippet.hashValue)" }
+    }
+    let boards: [String]
+    let hits: [Hit]
+}
 
 /// Search in one chat: messages (with a «highlighted» snippet) and files.
 struct ChatSearchResponse: Decodable {
