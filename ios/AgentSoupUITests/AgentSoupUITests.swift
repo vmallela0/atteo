@@ -2,6 +2,8 @@
 // screenshot of every step. Run: TEST_RUNNER_AGENT_SOUP_SERVER=… TEST_RUNNER_AGENT_SOUP_TOKEN=… [TEST_RUNNER_AGENT_SOUP_TICK=board:seq
 // TEST_RUNNER_AGENT_SOUP_OTHER_TOKEN=another member] xcodebuild test …
 
+import UIKit
+import UniformTypeIdentifiers
 import XCTest
 
 final class AgentSoupUITests: XCTestCase {
@@ -637,12 +639,8 @@ final class AgentSoupUITests: XCTestCase {
         let task = any["task-row-Write the incident note"].firstMatch
         XCTAssertTrue(task.waitForExistence(timeout: 5), "the task is in the list")
         task.tap()
-        let claim = a.buttons["task-claim"]
-        XCTAssertTrue(claim.waitForExistence(timeout: 5))
-        XCTAssertEqual(claim.label, "Claim")
-        claim.tap()
-        let held = expectation(for: NSPredicate(format: "label == 'Release'"), evaluatedWith: claim)
-        wait(for: [held], timeout: 5)
+        // Who's on it shows in the task (read-only now: there's no Claim).
+        XCTAssertTrue(any["task-owner"].firstMatch.waitForExistence(timeout: 5), "the task says who's on it")
         // Tick a checklist line by tapping it; the server has the tick.
         let line = a.buttons["check-timeline of the outage"]
         XCTAssertTrue(line.exists)
@@ -786,6 +784,65 @@ final class AgentSoupUITests: XCTestCase {
         let opened = expectation(for: NSPredicate(format: "label BEGINSWITH %@", boardTitle), evaluatedWith: a.buttons["presence"])
         wait(for: [opened], timeout: 10)
         shot("p13-new-board-open")
+    }
+
+    /// POSTs a message to a board as theo, from his phone (a person: it stays where it's posted).
+    func postAsTheo(board: String, _ body: [String: Any]) throws {
+        guard let server = env["AGENT_SOUP_SERVER"], let theo = env["AGENT_SOUP_OTHER_APP"], !theo.isEmpty else { throw XCTSkip("needs theo's phone token") }
+        var r = URLRequest(url: URL(string: "\(server)/api/boards/\(board)/entries")!)
+        r.httpMethod = "POST"
+        r.setValue("Bearer \(theo)", forHTTPHeaderField: "authorization")
+        r.setValue("application/json", forHTTPHeaderField: "content-type")
+        r.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let done = expectation(description: "posted")
+        URLSession.shared.dataTask(with: r) { _, _, _ in done.fulfill() }.resume()
+        wait(for: [done], timeout: 10)
+    }
+
+    /// Mentions in blue boxes (#538 b): theo's "@maya" (you: solid) and "@theo's agent" (others: soft). Paste (#538 c):
+    /// a picture and words on the clipboard; long-press the message box → Paste: the picture waits as an attachment
+    /// and the words go in the box.
+    func testPasteAndMentions() throws {
+        continueAfterFailure = false
+        guard let boards = serverJSON("/api/me/boards")?["boards"] as? [[String: Any]],
+              let b1 = boards.filter({ $0["title"] as? String == "Checkout bug" }).max(by: { ($0["last_activity"] as? Double ?? 0) < ($1["last_activity"] as? Double ?? 0) }),
+              let id = b1["id"] as? String else { return XCTFail("seed") }
+        let n = Int(Date().timeIntervalSince1970) % 100000
+        try postAsTheo(board: id, ["type": "note", "text": "@maya can you check the rollout plan? @theo's agent has the numbers \(n)"])
+        let a = app(fresh: true)
+        a.launch()
+        onBoards(a)
+        let chat = a.buttons["chat-Checkout bug"].firstMatch
+        XCTAssertTrue(chat.waitForExistence(timeout: 10))
+        chat.tap()
+        let composer = a.textFields["composer"].exists ? a.textFields["composer"] : a.textViews["composer"]
+        XCTAssertTrue(composer.waitForExistence(timeout: 10), "board opens")
+        let theirs = a.staticTexts.matching(NSPredicate(format: "label ENDSWITH %@", "has the numbers \(n)")).firstMatch
+        XCTAssertTrue(theirs.waitForExistence(timeout: 8), "theo's message")
+        wait(for: [expectation(for: NSPredicate(format: "value CONTAINS '@maya' AND value CONTAINS %@", "@theo's agent"), evaluatedWith: theirs)], timeout: 5) // both boxed
+        sleep(1)
+        shot("30-mention-boxes")
+
+        // A picture and words on the clipboard; Paste from the message box's menu.
+        let size = CGSize(width: 160, height: 100)
+        let png = UIGraphicsImageRenderer(size: size).image { c in
+            UIColor(red: 0.85, green: 0.47, blue: 0.34, alpha: 1).setFill(); c.fill(CGRect(origin: .zero, size: size))
+        }.pngData()!
+        UIPasteboard.general.items = [[UTType.png.identifier: png, UTType.utf8PlainText.identifier: "pasted words \(n)"]]
+        composer.tap()
+        sleep(1)
+        composer.press(forDuration: 1.0)
+        let paste = a.descendants(matching: .any).matching(NSPredicate(format: "label == 'Paste' AND (elementType == %d OR elementType == %d)",
+                                                                        XCUIElement.ElementType.menuItem.rawValue, XCUIElement.ElementType.button.rawValue)).firstMatch
+        XCTAssertTrue(paste.waitForExistence(timeout: 5), "Paste is offered with a picture on the clipboard")
+        paste.tap()
+        XCTAssertTrue(a.descendants(matching: .any)["attachment-chip"].waitForExistence(timeout: 10), "the picture waits as an attachment")
+        wait(for: [expectation(for: NSPredicate(format: "value CONTAINS %@", "pasted words \(n)"), evaluatedWith: composer)], timeout: 5) // and the words
+        shot("31-pasted")
+        a.buttons["send"].tap()
+        wait(for: [expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: a.staticTexts["Sending…"])], timeout: 20)
+        XCTAssertTrue(a.staticTexts["pasted words \(n)"].waitForExistence(timeout: 5), "sent with the picture")
+        shot("32-pasted-sent")
     }
 
     func testInstantRelaunchFromCache() throws {
