@@ -74,6 +74,27 @@ await tool(tm, b1, "read", {});
 await tool(tm, b1, "doc", { action: "write", name: "rollout-plan.md", base_version: 0, content: "# Rollout plan\n\nShip **PAYMENTS_V2** in two steps.\n\n## Steps\n- Deploy behind the flag\n- Turn it on for 5%\n", summary: "first draft" });
 await tool(tm, b1, "read", {});
 await tool(tm, b1, "doc", { action: "write", name: "rollout-plan.md", base_version: 1, content: "# Rollout plan\n\nShip **PAYMENTS_V2** in three steps.\n\n## Steps\n- [x] Deploy behind the flag\n- [ ] Turn it on for 5%\n- [ ] Then 100%, if errors stay flat\n\n## Rollback\nFlip `PAYMENTS_V2` off. No migration to undo.\n", summary: "added rollback" });
+// Work and Files views: a blocked task of maya's own (her agent wants her OK on it), a code file, and a picture.
+await tool(tm, b1, "read", {});
+const t4 = await tool(tm, b1, "task", { action: "create", title: "Rotate the Stripe webhook secret", assignee: "maya", assignee_is_person: true, priority: "high", body: "Waiting on Stripe support to unlock the endpoint.\n\n- [x] find the endpoint id\n- [ ] rotate the secret\n- [ ] redeploy checkout-service" });
+const s4n = Number((t4.match(/#(\d+)/) || [])[1]);
+if (s4n) {
+  await tool(tm, b1, "task", { action: "update", seq: s4n, status: "blocked" });
+  await tool(tm, b1, "request_approval", { title: "Redeploy checkout-service with the new secret", details: "kubectl rollout restart deploy/checkout-service -n payments", risk: "medium", seq: s4n, wait_seconds: 0 });
+}
+await tool(tm, b1, "read", {});
+await tool(tm, b1, "doc", { action: "write", name: "charge.ts", base_version: 0, summary: "the guard", content: "export async function charge(cart: Cart, payment?: Payment): Promise<Receipt> {\n  // Empty carts never reach Stripe: the old code read payment.amount and crashed.\n  if (!payment || cart.items.length === 0) throw new CheckoutError(\"empty_cart\", \"There's nothing in the cart to pay for.\");\n  const intent = await stripe.paymentIntents.create({ amount: payment.amount, currency: cart.currency, metadata: { cart: cart.id } });\n  return { id: intent.id, amount: payment.amount };\n}\n" });
+{
+  // A small PNG (a soft gradient), uploaded the way the web composer does.
+  const { deflateSync } = await import("node:zlib");
+  const W = 480, H = 300, raw = Buffer.alloc((W * 3 + 1) * H);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const o = y * (W * 3 + 1) + 1 + x * 3; raw[o] = 40 + (x * 170) / W; raw[o + 1] = 60 + (y * 120) / H; raw[o + 2] = 140; }
+  const crc = (b) => { let c = ~0; for (const v of b) { c ^= v; for (let k = 0; k < 8; k++) c = (c >>> 1) ^ (0xedb88320 & -(c & 1)); } return ~c >>> 0; };
+  const chunk = (t, d) => { const len = Buffer.alloc(4); len.writeUInt32BE(d.length); const td = Buffer.concat([Buffer.from(t), d]); const c = Buffer.alloc(4); c.writeUInt32BE(crc(td)); return Buffer.concat([len, td, c]); };
+  const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(W, 0); ihdr.writeUInt32BE(H, 4); ihdr[8] = 8; ihdr[9] = 2;
+  const png = Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk("IHDR", ihdr), chunk("IDAT", deflateSync(raw)), chunk("IEND", Buffer.alloc(0))]);
+  await fetch(`${BASE}/api/boards/${b1}/upload?name=checkout-flow.png&w=${W}&h=${H}&text=${encodeURIComponent("Where the empty cart slips through")}`, { method: "POST", headers: { authorization: `Bearer ${app}`, "content-type": "image/png" }, body: png });
+}
 // Two sub-tasks under the one in progress (the app's live checklist: finishing one ticks the parent).
 await tool(tt, b1, "read", {});
 const sub = await tool(tt, b1, "task", { action: "create", title: "Test behind PAYMENTS_V2", parent: s1n, assignee: "theo" });
@@ -94,4 +115,6 @@ await call(tt, "POST", `/api/sessions/${ts.id}`, { status: "fixing the empty-car
 // An end-to-end encrypted board (maya + theo): the phone and theo's client (enc-peer.mjs) must read each other.
 const enc = (await ops("boards", { user: "maya", title: "Secret plans", encrypted: true })).board.id;
 await ops("members", { board: enc, user: "theo" });
-console.log(JSON.stringify({ app, other: tt, enc, b1, sub: Number((sub.match(/#(\d+)/) || [])[1]) }));
+// theo as a person, from his phone (QA posts "from someone else" with it: an agent's post would be threaded).
+const otherApp = (await ops("tokens", { user: "theo", kind: "app", label: "theo's phone" })).token;
+console.log(JSON.stringify({ app, otherApp, other: tt, enc, b1, sub: Number((sub.match(/#(\d+)/) || [])[1]) }));
