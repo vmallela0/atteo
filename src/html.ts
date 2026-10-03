@@ -862,7 +862,7 @@ window.posted=(j)=>{const was=+rpTo.value;draftSave(sentKey,'');replyClear(true)
   if(j&&j.update&&addEntry(j.update)){if(!was){railBuild();toBottom()}}else stickNext=!was;
   tick(false);setTimeout(()=>{if(was){replyShown(was);ta.value=draftLoad('')}ta.style.height='';ta.style.height=ta.value?ta.scrollHeight+2+'px':'';msync()},0)}; // after the form's reset
 let sentKey='';
-document.querySelector('form.composer')?.addEventListener('submit',()=>{sentKey=draftNow();const t=ta.value.trim();if(!t||!rpTo||rpTo.value)return; // replies go in their thread, after the real post
+document.querySelector('form.composer')?.addEventListener('submit',()=>{sentKey=draftNow();const t=ta.value.trim();if(!t||!rpTo||rpTo.value||pending.length)return; // files get their own copy (below); replies go in their thread, after the real post
   const el=document.createElement('article');el.className='entry pending';el.innerHTML='<div class="grow"><div class="meta"><span class="who"></span><span class="xs faint">sending…</span></div><div class="body"></div></div>';
   el.querySelector('.who').textContent=ME;el.querySelector('.body').textContent=t;document.getElementById('thread').appendChild(el);toBottom();
 },true);
@@ -1076,11 +1076,16 @@ convEl.addEventListener('drop',e=>{convEl.classList.remove('drop');const fs=[...
 // With files attached, posting uploads each one (the text goes with the first) instead of a plain post.
 cform.addEventListener('submit',async e=>{if(!pending.length)return;e.preventDefault();e.stopPropagation();
   const btn=cform.querySelector('.bar .btn.primary');btn.disabled=true;let text=ta.value.trim();
-  try{while(pending.length){const x=pending[0];
+  const mk=(x,t)=>{if(rpTo.value)return null;const el=document.createElement('article');el.className='entry pending';el.innerHTML='<div class="grow"><div class="meta"><span class="who"></span><span class="xs faint">sending…</span></div><div class="body"></div></div>';
+    el.querySelector('.who').textContent=ME;el.querySelector('.body').textContent=(t?t+' ':'')+'📎 '+x.name;document.getElementById('thread').appendChild(el);toBottom();return el};
+  let ph=null;
+  try{while(pending.length){const x=pending[0];ph=mk(x,text);
       const r=await fetch('/api/boards/'+BOARD+'/upload?name='+encodeURIComponent(x.name)+(x.image?'&w='+x.w+'&h='+x.h:'')+(rpTo.value?'&reply_to='+rpTo.value:'')+'&text='+encodeURIComponent(text),{method:'POST',headers:{'content-type':x.blob.type||'application/octet-stream'},body:x.blob});
-      const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||"Couldn't post "+x.name);return}
+      const j=await r.json().catch(()=>({}));if(!r.ok){if(ph){ph.classList.add('failed');ph.querySelector('.faint').textContent="Couldn't send";setTimeout(()=>ph&&ph.remove(),6000)}toast(j.error||"Couldn't post "+x.name);return}
+      if(ph){ph.remove();ph=null}if(j.update&&addEntry(j.update)&&!rpTo.value){railBuild();toBottom()}
       if(x.url)URL.revokeObjectURL(x.url);pending.shift();renderAtt();text='';ta.value='';msync()}
     const was=+rpTo.value;cform.reset();draftSave(draftNow(),'');replyClear(true);if(was){ta.value=draftLoad('');replyShown(was)}taFit();stickNext=!was;tick(false)}
+  catch(err){if(ph){ph.classList.add('failed');ph.querySelector('.faint').textContent="Couldn't send";setTimeout(()=>ph&&ph.remove(),6000)}toast("Couldn't post that. Your file is still attached.")}
   finally{btn.disabled=false}});
 const lb=document.getElementById('lightbox');
 document.addEventListener('click',e=>{const b=e.target.closest('[data-img]');if(!b)return;document.getElementById('lightbox-img').src=b.dataset.img;lb.showModal()});
