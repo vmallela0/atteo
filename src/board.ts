@@ -8,7 +8,7 @@ import { computeSummary, formatSummary, tasksFor, DEFAULT_SUMMARY_CHARS, type Su
 import { blockedMessage, scanFields, scanText, type SecretHit } from "./secrets";
 import { recordOutcome } from "./agents";
 import { forAgent, forPerson, keep, MAX_MENTIONS, mentionsOwnAgent, SESSION_NAME_RE, type Mention } from "./mentions";
-import { ENTRY_TYPES, type Attachment, type BoardInfo, type Entry, type Env, type Media, type Member, type NewEntry } from "./types";
+import { ENTRY_TYPES, type ApprovalRef, type Attachment, type BoardInfo, type Entry, type Env, type Media, type Member, type NewEntry } from "./types";
 import { cleanTitle, EMOJI_RE, ftsQuery, USER_RE } from "./util";
 import { cardText, parseCard, type ChangeCard } from "./card";
 import { deliver } from "./webhooks";
@@ -206,13 +206,19 @@ function toEntry(r: Row): Entry {
     title: (r.title as string | null) ?? null,
     card: r.card ? (JSON.parse(r.card as string) as ChangeCard) : null,
     ai_flag: (r.ai_flag as string | null) ?? null,
+    ...(r.approval ? { approval: liveApproval(JSON.parse(r.approval as string) as ApprovalRef) } : {}),
   };
+}
+
+/** An approval entry's request as it stands now: pending past its expiry is expired (denied). */
+function liveApproval(a: ApprovalRef): ApprovalRef {
+  return a.status === "pending" && a.expires_at < Date.now() ? { ...a, status: "expired" } : a;
 }
 
 /** For a session's reads: skip posts addressed to another session of the same person (binds: user, session). */
 const FOR_SESSION_OK = "(for_session IS NULL OR for_user != ? OR for_session = ?)";
 
-const ENTRY_COLS = "seq, ts, author, type, text, title, to_user, mentions, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, card, media, ai_flag, attachments";
+const ENTRY_COLS = "seq, ts, author, type, text, title, to_user, mentions, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, card, media, ai_flag, attachments, approval";
 
 export class Board extends DurableObject<Env> {
   private sql: SqlStorage;
@@ -371,6 +377,8 @@ export class Board extends DurableObject<Env> {
         version INTEGER NOT NULL,
         PRIMARY KEY (user, session)
       );
+      -- Approval requests posted on this board (type=approval entries), by approval id.
+      CREATE TABLE IF NOT EXISTS approval_entries (id TEXT PRIMARY KEY, seq INTEGER NOT NULL, user TEXT NOT NULL);
       -- Which version of the board's pinned doc each agent reader has been told about ("📌 SPEC.md updated to v4"):
       -- once per version per member+session, like rules_seen. session is '' for a member with no agent session.
       CREATE TABLE IF NOT EXISTS pin_seen (
@@ -492,6 +500,7 @@ export class Board extends DurableObject<Env> {
     if (!cols.has("artifact_version")) this.sql.exec("ALTER TABLE entries ADD COLUMN artifact_version INTEGER");
     if (!cols.has("card")) this.sql.exec("ALTER TABLE entries ADD COLUMN card TEXT");
     if (!cols.has("attachments")) this.sql.exec("ALTER TABLE entries ADD COLUMN attachments TEXT"); // a message with several files: JSON Attachment[]
+    if (!cols.has("approval")) this.sql.exec("ALTER TABLE entries ADD COLUMN approval TEXT"); // type=approval: JSON ApprovalRef (its status is kept current)
     // "Was this retracted / replied to?" lookups run for every task and claim on every summary rebuild.
     this.sql.exec("CREATE INDEX IF NOT EXISTS entries_retracts ON entries (retracts) WHERE retracts IS NOT NULL");
     this.sql.exec("CREATE INDEX IF NOT EXISTS entries_reply_to ON entries (reply_to) WHERE reply_to IS NOT NULL");
@@ -815,7 +824,7 @@ export class Board extends DurableObject<Env> {
     return r.length ? toEntry(r[0]) : null;
   }
 
-  async post(user: string, input: NewEntry, internal: { docVersion?: number; media?: Media; attachments?: { list: Attachment[]; text: string }; seeding?: boolean; sealed?: boolean; notice?: boolean; system?: boolean } = {}): Promise<Entry> {
+  async post(user: string, input: NewEntry, internal: { docVersion?: number; media?: Media; attachments?: { list: Attachment[]; text: string }; seeding?: boolean; sealed?: boolean; notice?: boolean; system?: boolean; approval?: ApprovalRef } = {}): Promise<Entry> {
     // D1 lookups first, so nothing below waits between the duplicate check and the insert.
     const boardKind = await this.kindOf(this.meta("id") ?? "");
     const forSession = await this.sessionRoute(input.mentions ?? []);
@@ -835,7 +844,7 @@ export class Board extends DurableObject<Env> {
     else if (info.encrypted && !internal.sealed && !internal.notice) throw new BoardError(encryptedOnly(info.title));
     this.touch(user);
 
-    if (!ENTRY_TYPES.includes(input.type)) {
+    if (!(ENTRY_TYPES as readonly string[]).includes(input.type) && !(input.type === "approval" && internal.approval)) {
       throw new BoardError(`type must be one of: ${ENTRY_TYPES.join(", ")}`);
     }
     const text = (input.text ?? "").trim();
@@ -908,8 +917,8 @@ export class Board extends DurableObject<Env> {
 
     const row = this.sql
       .exec(
-        `INSERT INTO entries (ts, author, type, text, to_user, mentions, self_agent, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, artifact_content, card, card_diff, media, title, session, idem, for_user, for_session, attachments)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING ${ENTRY_COLS}`,
+        `INSERT INTO entries (ts, author, type, text, to_user, mentions, self_agent, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, artifact_content, card, card_diff, media, title, session, idem, for_user, for_session, attachments, approval)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING ${ENTRY_COLS}`,
         Date.now(),
         user,
         input.type,
@@ -936,6 +945,7 @@ export class Board extends DurableObject<Env> {
         forSession?.user ?? null,
         forSession?.session ?? null,
         internal.attachments ? JSON.stringify(internal.attachments.list) : null,
+        internal.approval ? JSON.stringify(internal.approval) : null,
       )
       .one();
     if (artifactVersion != null) this.broadcast({ type: "doc", name: artifactName, version: artifactVersion, by: user });
@@ -1102,6 +1112,55 @@ export class Board extends DurableObject<Env> {
       remaining,
       rules,
     };
+  }
+
+  // ---- approvals (approvals.ts) on a board: an "approval" entry everyone sees; its status is kept current ----
+
+  /**
+   * An agent asked its person for approval about work on this board: a quiet "approval" entry carrying the request
+   * (not its details), and {type: "approval"} to open tabs. On an end-to-end encrypted board no entry is posted (the
+   * title and command would be plaintext): only its person's own tabs hear about it.
+   */
+  async approvalRequested(ref: ApprovalRef, opts: TaskActOpts): Promise<number | null> {
+    const info = this.info();
+    if (info.encrypted || info.archived) {
+      this.toUserTabs(ref.user, { type: "approval", id: ref.id, status: ref.status, seq: null, approval: ref });
+      return null;
+    }
+    const e = await this.post(
+      ref.user,
+      { type: "approval", title: "Approval request", text: `Approval requested: ${ref.title} (waiting for ${ref.user} to decide)`, reply_to: 0, via: "agent", client: opts.client, session: opts.session },
+      { approval: ref, notice: true },
+    );
+    this.sql.exec("INSERT OR REPLACE INTO approval_entries (id, seq, user) VALUES (?, ?, ?)", ref.id, e.seq, ref.user);
+    this.broadcast({ type: "approval", id: ref.id, status: ref.status, seq: e.seq, approval: ref });
+    return e.seq;
+  }
+
+  /** The person decided: the entry's status changes in place and tabs hear {type: "approval", id, status}. */
+  async approvalDecided(ref: ApprovalRef): Promise<number | null> {
+    this.info();
+    const row = this.sql.exec("SELECT seq FROM approval_entries WHERE id = ?", ref.id).toArray()[0];
+    if (!row) {
+      this.toUserTabs(ref.user, { type: "approval", id: ref.id, status: ref.status, seq: null, approval: ref });
+      return null;
+    }
+    const seq = row.seq as number;
+    this.sql.exec("UPDATE entries SET approval = ? WHERE seq = ?", JSON.stringify(ref), seq);
+    this.entryMemo = this.entryMemo.map((e) => (e.seq === seq ? { ...e, approval: ref } : e));
+    this.broadcast({ type: "approval", id: ref.id, status: ref.status, seq, approval: ref });
+    return seq;
+  }
+
+  /** One member's open tabs only (what isn't for everyone on the board). */
+  private toUserTabs(user: string, msg: object) {
+    const data = JSON.stringify(msg);
+    for (const ws of this.ctx.getWebSockets(user)) {
+      if (this.isWait(ws)) continue;
+      try {
+        ws.send(data);
+      } catch {}
+    }
   }
 
   // ---- recaps (recap.ts): what happened since an entry, or since this reader last read; nothing here moves a cursor ----

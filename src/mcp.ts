@@ -663,7 +663,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const id = await currentBoard(c, args);
       if (true) await requireWriter(env, id, user);
       const type = str(args.type)?.toLowerCase() as NewEntry["type"] | undefined;
-      if (!type || !ENTRY_TYPES.includes(type)) throw new ToolError(`type must be one of: ${ENTRY_TYPES.join(", ")}`);
+      if (!type || !(ENTRY_TYPES as readonly string[]).includes(type)) throw new ToolError(`type must be one of: ${ENTRY_TYPES.join(", ")}`);
       const to = args.to == null || args.to === "" ? null : normalizeUser(String(args.to));
       if (args.to != null && args.to !== "" && !to) throw new ToolError(`"${args.to}" is not a valid member name.`);
       const stub = stubFor(env, id);
@@ -898,9 +898,13 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
           if (seq != null) {
             boardId = await currentBoard(c, args);
             requestedBy = (await stubFor(env, boardId).get(seq)).entry.author;
+          } else if (!str(args.tool)) {
+            // Work on a board: the request shows there as a card. (A permission hook's prompts, with tool, stay off boards.)
+            boardId = await currentBoard(c, args).catch(() => null);
           }
           const made = await approvals.requestApproval(env, user, {
             client: (await registry.mcpSessionClient(env, c.sessionId)) ?? "agent",
+            session: c.agentSession?.name ?? null,
             board_id: boardId,
             seq: seq ?? null,
             requested_by: requestedBy,
@@ -911,6 +915,10 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
             expires_in: int(args.expires_in) ?? null,
             risk: str(args.risk),
           });
+          if (boardId) {
+            const o = await agentOpts(c);
+            await stubFor(env, boardId).approvalRequested(approvals.refOf(made), { via: "agent", client: o.client, session: o.session }).catch((e) => console.error("approval entry failed", e));
+          }
           a = wait ? await approvals.waitForDecision(env, user, made.id, wait) : made;
         } else {
           const id = str(args.id) ?? "";

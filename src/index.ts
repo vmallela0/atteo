@@ -997,7 +997,10 @@ const handler = {
             if (viewer.via === "agent") return json({ error: `Approve or reject in the browser: ${origin}/approvals#${am[1]}` }, 403);
             if (!(await approvals.getApproval(env, viewer.name, am[1]))) return json({ error: "not found" }, 404);
             const b = (await request.json().catch(() => ({}))) as { note?: string };
-            return json({ ok: true, approval: await approvals.decide(env, viewer.name, am[1], am[2] === "approve", String(b.note ?? "")) });
+            const decided = await approvals.decide(env, viewer.name, am[1], am[2] === "approve", String(b.note ?? ""));
+            // On its board: the card's status changes live ({type: "approval", id, status}).
+            if (decided.board_id) await boardStub(env, decided.board_id).approvalDecided(approvals.refOf(decided)).catch((e) => console.error("approval event failed", e));
+            return json({ ok: true, approval: decided });
           }
         } catch (e) {
           return json({ error: e instanceof Error ? e.message : String(e) }, 400);
@@ -1757,6 +1760,16 @@ const handler = {
           return json({ error: e instanceof Error ? e.message : String(e) }, 400);
         }
         return json({ error: "not found" }, 404);
+      }
+
+      // ---- approval cards: your own approvals on this board (only you decide them), pending by default ----
+      m = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/approvals$/);
+      if (m && method === "GET") {
+        if (!viewer) return needLogin();
+        if (!(await registry.isMember(env, m[1], viewer.name))) return json({ error: "board not found" }, 404);
+        const state = (url.searchParams.get("state") ?? "pending") as (typeof approvals.APPROVAL_STATES)[number];
+        if (!approvals.APPROVAL_STATES.includes(state)) return json({ error: `state is one of: ${approvals.APPROVAL_STATES.join(", ")}` }, 400);
+        return json({ approvals: await approvals.listBoardApprovals(env, viewer.name, m[1], state) }, 200, { "cache-control": "no-store" });
       }
 
       // ---- a recap: what happened since an entry (?since=N) or since you last read (?since=last-read, the default) ----

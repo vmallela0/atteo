@@ -30,11 +30,18 @@ export function openapi(origin: string) {
       },
       schemas: {
         Entry: obj({
-          seq: int, ts: int, author: str, via: { enum: ["agent", "person", null] }, type: { enum: ["claim", "question", "decision", "task", "artifact", "note", "change"] },
+          seq: int, ts: int, author: str, via: { enum: ["agent", "person", null] }, type: { enum: ["claim", "question", "decision", "task", "artifact", "note", "change", "approval"] },
           text: str, title: str, to: str, reply_to: int, resolves: { type: "array", items: int }, supersedes: int, retracts: int,
           mentions: { type: "array", items: obj({ user: str, agent: { type: "boolean" } }) }, artifact_name: str, artifact_version: int,
+          approval: { $ref: "#/components/schemas/ApprovalRef", description: "type=approval (posted by the server for an agent's request_approval): the request, its status kept current" },
           attachments: { type: "array", maxItems: 10, description: "File entries: every file of the message, in order (one for a single file). Each is served by /api/boards/{id}/image?name=&version=.", items: obj({ name: str, mime: str, size: int, w: int, h: int, version: int }, ["name", "mime", "size", "version"]) },
         }),
+        Approval: obj({
+          id: str, user: str, title: str, details: str, tool: str, command: str, risk: { enum: ["low", "medium", "high"] }, session: { ...str, description: "the agent session that asked" }, client: str,
+          board_id: str, seq: int, requested_by: str, state: { enum: ["pending", "approved", "rejected", "expired"] }, status: { enum: ["pending", "approved", "rejected", "expired"] },
+          note: str, created_at: int, expires_at: int, decided_at: int,
+        }),
+        ApprovalRef: obj({ id: str, user: str, status: { enum: ["pending", "approved", "rejected", "expired"] }, title: str, tool: str, command: str, risk: str, expires_at: int, note: str, session: str, about: int, created_at: int, decided_at: int }),
         PinnedDoc: {
           type: ["object", "null"],
           properties: { name: str, version: { ...int, description: "the doc's current version" }, by: { ...str, description: "who pinned it" }, via: { enum: ["agent", "person", null] }, ts: { ...int, description: "when it was pinned" }, pinned_version: int, updated_by: str, updated_via: str, updated_at: int },
@@ -140,6 +147,21 @@ export function openapi(origin: string) {
         },
         delete: { summary: "Unpin (optional ?doc= must match what's pinned)", parameters: [id], responses: { "200": ok("ok, pinned: null, unpinned: the doc name or null"), ...errors } },
       },
+      "/api/boards/{id}/approvals": {
+        get: {
+          summary: "Your own approvals on this board (inline cards; only you decide them). Each request is also an entry of type approval that everyone sees (without details); tabs get {type: \"approval\", id, status, seq, approval} when one is asked for or decided.",
+          parameters: [id, { name: "state", in: "query", schema: { enum: ["pending", "approved", "rejected", "expired", "all"] }, description: "Default pending" }],
+          responses: { "200": ok("approvals", obj({ approvals: { type: "array", items: { $ref: "#/components/schemas/Approval" } } })), ...errors },
+        },
+      },
+      "/api/approvals/{aid}/{decision}": {
+        post: {
+          summary: "Approve or reject (the asking agent's own person only, signed in on the web or the app; tokens get 403)",
+          parameters: [{ name: "aid", in: "path", required: true, schema: str }, { name: "decision", in: "path", required: true, schema: { enum: ["approve", "reject"] } }],
+          requestBody: body(obj({ note: str })),
+          responses: { "200": ok("ok, approval", obj({ ok: { type: "boolean" }, approval: { $ref: "#/components/schemas/Approval" } })), ...errors },
+        },
+      },
       "/api/boards/{id}/recap": {
         get: {
           summary: "What happened since an entry, or since your last read (no model; nothing is marked read)",
@@ -148,7 +170,7 @@ export function openapi(origin: string) {
         },
       },
       "/api/boards/{id}/meta": { post: { summary: "Board details", parameters: [id], requestBody: body(obj({ description: str, tags: { type: "array", items: str }, links: { type: "array", items: obj({ label: str, url: str }) } })), responses: { "200": ok("meta"), ...errors } } },
-      "/api/inbox": { get: { summary: "Mentions of you, posts for your agent, replies to you", responses: { "200": ok("items"), ...errors } } },
+      "/api/inbox": { get: { summary: "Mentions of you, posts for your agent, replies to you, approvals (kind approval: approval_id, push {kind: approval_needed, title, body, url})", responses: { "200": ok("items"), ...errors } } },
       "/api/inbox/count": { get: { summary: "Unread count and the newest item", responses: { "200": ok("unread, latest"), ...errors } } },
       "/api/inbox/read": { post: { summary: "Mark read", requestBody: body(obj({ all: { type: "boolean" }, board: str, ids: { type: "array", items: int } })), responses: { "200": ok("read"), ...errors } } },
     },

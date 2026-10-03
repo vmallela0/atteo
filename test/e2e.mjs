@@ -3097,7 +3097,7 @@ await step("Your agent: a private chat with your own agents, made on first open;
 });
 
 // ---- #977: pinned docs, recaps, approval cards, workflow triggers ----
-let fb; // a fresh board for these steps: A (creator) and B
+let fourBoard; // a fresh board for these steps: A (creator) and B
 const jpost = (path, who, body, method = "POST") => web(path, who, { method, headers: { "content-type": "application/json" }, body: body == null ? undefined : JSON.stringify(body) });
 const wsOpen = (bid, who) =>
   new Promise((resolve) => {
@@ -3114,69 +3114,69 @@ const until = async (f, ms = 5000) => {
 };
 
 await step("pinned doc: any member pins one doc; non-members can't; summary, GET board and a 📌 line once per version", async () => {
-  fb = (await ok(A, null, "create_board", { title: `e2e four ${run}` })).match(/\((b_[a-z0-9]+)\)/)[1];
-  assert((await ops("members", { board: fb, user: B })).status === 200, "add B");
-  await ok(A, fb, "read");
-  await ok(B, fb, "read");
-  has(await ok(A, fb, "doc", { action: "write", name: "SPEC.md", content: "# Spec\nv1", base_version: 0 }), "Saved SPEC.md v1");
+  fourBoard = (await ops("boards", { user: A, title: `e2e four ${run}` })).body.board.id; // (A is past the free plan's board count here)
+  assert((await ops("members", { board: fourBoard, user: B })).status === 200, "add B");
+  await ok(A, fourBoard, "read");
+  await ok(B, fourBoard, "read");
+  has(await ok(A, fourBoard, "doc", { action: "write", name: "SPEC.md", content: "# Spec\nv1", base_version: 0 }), "Saved SPEC.md v1");
   // Nothing to pin, and outsiders can't.
-  assert((await jpost(`/api/boards/${fb}/pin`, B, { name: "NOPE.md" })).status === 400, "unknown doc: 400");
-  assert((await jpost(`/api/boards/${fb}/pin`, OUT, { name: "SPEC.md" })).status === 404, "non-member: 404");
-  await err(OUT, fb, "doc", { action: "pin", name: "SPEC.md" }, "not a member");
-  const tab = await wsOpen(fb, A);
+  assert((await jpost(`/api/boards/${fourBoard}/pin`, B, { name: "NOPE.md" })).status === 400, "unknown doc: 400");
+  assert((await jpost(`/api/boards/${fourBoard}/pin`, OUT, { name: "SPEC.md" })).status === 404, "non-member: 404");
+  await err(OUT, fourBoard, "doc", { action: "pin", name: "SPEC.md" }, "not a member");
+  const tab = await wsOpen(fourBoard, A);
   assert(tab.ok, "A's tab connects");
   // B (a person, on the web) pins it.
-  const p = await (await jpost(`/api/boards/${fb}/pin`, B, { name: "SPEC.md" })).json();
+  const p = await (await jpost(`/api/boards/${fourBoard}/pin`, B, { name: "SPEC.md" })).json();
   assert(p.ok && p.pinned.name === "SPEC.md" && p.pinned.version === 1 && p.pinned.by === B && p.pinned.via === "person" && p.pinned.ts > 0, JSON.stringify(p));
   assert(await until(() => tab.msgs.some((x) => { const j = JSON.parse(x); return j.type === "pin" && j.pinned?.name === "SPEC.md"; })), `pin broadcast: ${tab.msgs.join(" | ")}`);
-  const g = await (await web(`/api/boards/${fb}/pin`, A)).json();
+  const g = await (await web(`/api/boards/${fourBoard}/pin`, A)).json();
   assert(g.pinned?.name === "SPEC.md" && g.pinned.version === 1, JSON.stringify(g));
-  const gb = await (await web(`/api/boards/${fb}`, A)).json();
-  assert(gb.board.id === fb && gb.board.pinned?.name === "SPEC.md" && gb.board.role === "owner", JSON.stringify(gb));
-  assert((await web(`/api/boards/${fb}`, OUT)).status === 404, "GET board: non-member 404");
+  const gb = await (await web(`/api/boards/${fourBoard}`, A)).json();
+  assert(gb.board.id === fourBoard && gb.board.pinned?.name === "SPEC.md" && gb.board.role === "owner", JSON.stringify(gb));
+  assert((await web(`/api/boards/${fourBoard}`, OUT)).status === 404, "GET board: non-member 404");
   // The notice is a quiet line; the summary names the pinned doc; no 📌 update line yet.
-  const r1 = await ok(A, fb, "read", { summary: true });
+  const r1 = await ok(A, fourBoard, "read", { summary: true });
   has(r1, "📌 Pinned SPEC.md (v1)");
   has(r1, "Pinned doc (source of truth): SPEC.md v1");
   assert(!r1.includes("updated to v"), r1);
   // B edits it: A's next read says so once.
-  await ok(B, fb, "doc", { action: "edit", name: "SPEC.md", old_str: "v1", new_str: "v2" });
-  const r2 = await ok(A, fb, "read");
+  await ok(B, fourBoard, "doc", { action: "edit", name: "SPEC.md", old_str: "v1", new_str: "v2" });
+  const r2 = await ok(A, fourBoard, "read");
   has(r2, "📌 SPEC.md updated to v2");
-  assert(!(await ok(A, fb, "read")).includes("📌 SPEC.md updated"), "only once per version");
-  assert(!(await ok(B, fb, "read")).includes("updated to v1"), "B: no line for the pinned version");
-  const sess = await session(A, fb);
+  assert(!(await ok(A, fourBoard, "read")).includes("📌 SPEC.md updated"), "only once per version");
+  assert(!(await ok(B, fourBoard, "read")).includes("updated to v1"), "B: no line for the pinned version");
+  const sess = await session(A, fourBoard);
   has(await sok(sess, "read"), "📌 SPEC.md updated to v2"); // another of A's agent sessions hears it once too
   assert(!(await sok(sess, "read")).includes("📌 SPEC.md updated"), "once per session");
   // MCP unpin (by name), then pin again via MCP; REST DELETE unpins.
-  await err(A, fb, "doc", { action: "unpin", name: "OTHER.md" }, "isn't pinned");
-  has(await ok(A, fb, "doc", { action: "unpin", name: "SPEC.md" }), "Unpinned SPEC.md");
+  await err(A, fourBoard, "doc", { action: "unpin", name: "OTHER.md" }, "isn't pinned");
+  has(await ok(A, fourBoard, "doc", { action: "unpin", name: "SPEC.md" }), "Unpinned SPEC.md");
   assert(await until(() => tab.msgs.some((x) => { const j = JSON.parse(x); return j.type === "pin" && j.pinned === null; })), "unpin broadcast");
-  assert((await (await web(`/api/boards/${fb}/pin`, A)).json()).pinned === null, "unpinned");
-  has(await ok(A, fb, "doc", { action: "pin", name: "SPEC.md" }), "SPEC.md v2 is this board's pinned doc");
-  const d = await (await jpost(`/api/boards/${fb}/pin`, B, null, "DELETE")).json();
+  assert((await (await web(`/api/boards/${fourBoard}/pin`, A)).json()).pinned === null, "unpinned");
+  has(await ok(A, fourBoard, "doc", { action: "pin", name: "SPEC.md" }), "SPEC.md v2 is this board's pinned doc");
+  const d = await (await jpost(`/api/boards/${fourBoard}/pin`, B, null, "DELETE")).json();
   assert(d.ok && d.unpinned === "SPEC.md" && d.pinned === null, JSON.stringify(d));
-  has(await ok(A, fb, "doc", { action: "pin", name: "SPEC.md" }), "pinned doc");
+  has(await ok(A, fourBoard, "doc", { action: "pin", name: "SPEC.md" }), "pinned doc");
   tab.ws.close();
 });
 
 await step("recap: decisions, open questions by who they wait on, tasks moved by who owes what, files, new members; last-read", async () => {
-  await ok(A, fb, "read");
-  await ok(B, fb, "read");
-  const s0 = (await (await web(`/api/boards/${fb}`, A)).json()).board.last_seq;
-  const dec = seqOf(await ok(A, fb, "post", { type: "decision", title: "Use Postgres", text: "We use Postgres for the store." }));
-  const tNew = seqOf(await ok(A, fb, "task", { action: "create", title: `Wire the API ${run}`, assignee: B }));
-  const tBlk = seqOf(await ok(B, fb, "task", { action: "create", title: "Deploy staging" }));
-  await ok(B, fb, "task", { action: "update", seq: tBlk, status: "blocked", assignee: B });
-  const tDone = seqOf(await ok(A, fb, "task", { action: "create", title: "Write the spec" }));
-  await ok(A, fb, "task", { action: "update", seq: tDone, status: "done" });
-  await ok(A, fb, "read");
-  await ok(A, fb, "doc", { action: "write", name: "NOTES.md", content: "notes", base_version: 0 });
-  await ok(B, fb, "doc", { action: "edit", name: "SPEC.md", old_str: "v2", new_str: "v3" });
+  await ok(A, fourBoard, "read");
+  await ok(B, fourBoard, "read");
+  const s0 = (await (await web(`/api/boards/${fourBoard}`, A)).json()).board.last_seq;
+  const dec = seqOf(await ok(A, fourBoard, "post", { type: "decision", title: "Use Postgres", text: "We use Postgres for the store." }));
+  const tNew = seqOf(await ok(A, fourBoard, "task", { action: "create", title: `Wire the API ${run}`, assignee: B }));
+  const tBlk = seqOf(await ok(B, fourBoard, "task", { action: "create", title: "Deploy staging" }));
+  await ok(B, fourBoard, "task", { action: "update", seq: tBlk, status: "blocked", assignee: B });
+  const tDone = seqOf(await ok(A, fourBoard, "task", { action: "create", title: "Write the spec" }));
+  await ok(A, fourBoard, "task", { action: "update", seq: tDone, status: "done" });
+  await ok(A, fourBoard, "read");
+  await ok(A, fourBoard, "doc", { action: "write", name: "NOTES.md", content: "notes", base_version: 0 });
+  await ok(B, fourBoard, "doc", { action: "edit", name: "SPEC.md", old_str: "v2", new_str: "v3" });
   // (Last: an agent's unthreaded post would be threaded under a question it read, and so answer it.)
-  const q = seqOf(await ok(B, fb, "post", { type: "question", to: A, title: "Which region", text: "Which region do we deploy to?" }));
-  assert((await ops("members", { board: fb, user: UNV })).status === 200, "a new member");
-  const r = await (await web(`/api/boards/${fb}/recap?since=${s0}`, A)).json();
+  const q = seqOf(await ok(B, fourBoard, "post", { type: "question", to: A, title: "Which region", text: "Which region do we deploy to?" }));
+  assert((await ops("members", { board: fourBoard, user: UNV })).status === 200, "a new member");
+  const r = await (await web(`/api/boards/${fourBoard}/recap?since=${s0}`, A)).json();
   assert(r.since === s0 && r.until > s0 && r.basis === "seq", JSON.stringify(r).slice(0, 300));
   assert(r.decisions.length === 1 && r.decisions[0].seq === dec && r.decisions[0].title === "Use Postgres" && r.decisions[0].author === A && r.decisions[0].via === "agent", JSON.stringify(r.decisions));
   const qq = r.questions.find((x) => x.seq === q);
@@ -3200,23 +3200,67 @@ await step("recap: decisions, open questions by who they wait on, tasks moved by
   has(r.text, "NOTES.md new v1");
   has(r.text, `New members: ${UNV}`);
   // The MCP tool: same recap, as text; a bad since is refused; outsiders get nothing.
-  const t = await ok(A, fb, "recap", { since: String(s0) });
+  const t = await ok(A, fourBoard, "recap", { since: String(s0) });
   has(t, `Recap of "e2e four ${run}"`);
   has(t, "SPEC.md v2→v3");
-  await err(A, fb, "recap", { since: "yesterday" }, "entry number");
-  assert((await web(`/api/boards/${fb}/recap`, OUT)).status === 404, "non-member: 404");
+  await err(A, fourBoard, "recap", { since: "yesterday" }, "entry number");
+  assert((await web(`/api/boards/${fourBoard}/recap`, OUT)).status === 404, "non-member: 404");
   // last-read (the default): since this agent's read position, and a recap doesn't move it.
-  await ok(A, fb, "read");
-  const last = (await (await web(`/api/boards/${fb}`, A)).json()).board.last_seq;
-  await ok(B, fb, "post", { type: "decision", title: "Ship Friday", text: "We ship Friday." });
-  const lr = await ok(A, fb, "recap");
+  await ok(A, fourBoard, "read");
+  const last = (await (await web(`/api/boards/${fourBoard}`, A)).json()).board.last_seq;
+  await ok(B, fourBoard, "post", { type: "decision", title: "Ship Friday", text: "We ship Friday." });
+  const lr = await ok(A, fourBoard, "recap");
   has(lr, `since #${last} (your last read) · 1 new entry`);
   has(lr, "Ship Friday");
-  has(await ok(A, fb, "recap"), `since #${last} (your last read)`);
-  has(await ok(A, fb, "read"), "We ship Friday.");
-  has(await ok(A, fb, "recap"), "Nothing new since then.");
-  const wr = await (await web(`/api/boards/${fb}/recap`, A)).json();
+  has(await ok(A, fourBoard, "recap"), `since #${last} (your last read)`);
+  has(await ok(A, fourBoard, "read"), "We ship Friday.");
+  has(await ok(A, fourBoard, "recap"), "Nothing new since then.");
+  const wr = await (await web(`/api/boards/${fourBoard}/recap`, A)).json();
   assert(wr.basis === "last-read" && typeof wr.since === "number", JSON.stringify(wr).slice(0, 200));
+});
+
+await step("approval cards: request_approval posts an approval entry; board list, live events, push-ready inbox item; only its person decides", async () => {
+  const sa = await session(A, fourBoard);
+  await sok(sa, "read");
+  const tabA = await wsOpen(fourBoard, A);
+  const tabB = await wsOpen(fourBoard, B);
+  assert(tabA.ok && tabB.ok, "tabs connect");
+  const t = await sok(sa, "request_approval", { title: `Deploy staging ${run}`, details: "npm run deploy -- --env staging (private details)", risk: "high", wait_seconds: 0 });
+  const id = t.match(/(ap_[A-Za-z0-9_-]+)/)[1];
+  // Everyone on the board sees the request as an entry (no details), and live.
+  const ents = (await (await web(`/api/boards/${fourBoard}/entries?after=0&limit=500`, B)).json()).entries;
+  const ae = ents.find((e) => e.type === "approval" && e.approval?.id === id);
+  assert(ae, `approval entry: ${JSON.stringify(ents.slice(-2))}`);
+  const ap = ae.approval;
+  assert(ap.user === A && ap.status === "pending" && ap.title === `Deploy staging ${run}` && ap.tool === null && ap.command === null && ap.risk === "high" && ap.expires_at > Date.now() && ap.note === null && !("details" in ap), JSON.stringify(ap));
+  assert(!JSON.stringify(ae).includes("private details"), "details stay private");
+  const ev = (tab, status) => tab.msgs.some((x) => { const j = JSON.parse(x); return j.type === "approval" && j.id === id && j.status === status; });
+  assert((await until(() => ev(tabA, "pending"))) && (await until(() => ev(tabB, "pending"))), `create event: ${tabB.msgs.slice(-3).join(" | ")}`);
+  has(await ok(B, fourBoard, "read"), `Approval requested: Deploy staging ${run} (waiting for ${A} to decide)`);
+  // The board list: your own, with what a card needs.
+  const mine = (await (await web(`/api/boards/${fourBoard}/approvals?state=pending`, A)).json()).approvals;
+  const card = mine.find((x) => x.id === id);
+  assert(card && card.title === `Deploy staging ${run}` && card.details.includes("private details") && card.risk === "high" && card.state === "pending" && card.status === "pending" && card.board_id === fourBoard && card.session && card.created_at > 0 && card.expires_at > card.created_at && "tool" in card && "command" in card, JSON.stringify(card));
+  assert((await (await web(`/api/boards/${fourBoard}/approvals`, B)).json()).approvals.length === 0, "B sees only B's own");
+  assert((await web(`/api/boards/${fourBoard}/approvals`, OUT)).status === 404, "non-member: 404");
+  assert((await web(`/api/boards/${fourBoard}/approvals?state=bogus`, A)).status === 400, "bad state: 400");
+  // The person's notification: kind approval, its id, and push-ready fields.
+  const item = (await (await web(`/api/inbox`, A)).json()).items.find((i) => i.kind === "approval" && i.approval_id === id);
+  assert(item && item.push?.kind === "approval_needed" && item.push.title === "Approval needed" && item.push.body.includes(`Deploy staging ${run}`) && item.push.url === `/approvals#${id}`, JSON.stringify(item));
+  // Only A decides; B can't. Deciding changes the entry in place and goes out live.
+  assert((await jpost(`/api/approvals/${id}/approve`, B, {})).status === 404, "not B's to decide");
+  assert((await jpost(`/api/approvals/${id}/approve`, A, { note: "go" })).status === 200, "A approves");
+  assert((await until(() => ev(tabA, "approved"))) && (await until(() => ev(tabB, "approved"))), `decide event: ${tabB.msgs.slice(-3).join(" | ")}`);
+  const after = (await (await web(`/api/boards/${fourBoard}/entries/${ae.seq}`, B)).json()).entry.approval;
+  assert(after.status === "approved" && after.note === "go" && after.decided_at > 0, JSON.stringify(after));
+  assert(!(await (await web(`/api/boards/${fourBoard}/approvals`, A)).json()).approvals.some((x) => x.id === id), "no longer pending");
+  assert((await (await web(`/api/boards/${fourBoard}/approvals?state=approved`, A)).json()).approvals.some((x) => x.id === id && x.state === "approved"), "listed as approved");
+  // A permission hook's request (tool set) stays off the board.
+  const n0 = (await (await web(`/api/boards/${fourBoard}`, A)).json()).board.last_seq;
+  await sok(sa, "request_approval", { tool: "Bash", command: `ls ${run}`, wait_seconds: 0 });
+  assert((await (await web(`/api/boards/${fourBoard}`, A)).json()).board.last_seq === n0, "hook prompts post nothing");
+  tabA.ws.close();
+  tabB.ws.close();
 });
 
 if (/localhost|127\.0\.0\.1/.test(BASE) && process.env.E2E_FULL) {

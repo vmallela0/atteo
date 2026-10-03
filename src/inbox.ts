@@ -17,35 +17,50 @@ export interface InboxItem {
   excerpt: string;
   created_at: number;
   read_at: number | null;
+  approval_id?: string; // kind approval: the request (GET /api/approvals/:id)
+  push?: { kind: "approval_needed"; title: string; body: string; url: string; approval: string; board: string | null; risk: string }; // ready for a phone notification
+}
+
+type InboxRow = InboxItem & { data?: string | null };
+/** Parses a row's data into its push-ready fields (approvals: "Approval needed"). */
+function withPush(r: InboxRow): InboxItem {
+  const { data, ...item } = r;
+  if (!data) return item;
+  try {
+    const d = JSON.parse(data) as { push?: InboxItem["push"] };
+    return d.push ? { ...item, approval_id: d.push.approval, push: d.push } : item;
+  } catch {
+    return item;
+  }
 }
 
 export async function listInbox(env: Env, user: string, limit = 100): Promise<InboxItem[]> {
   const r = await env.DB.prepare(
-    `SELECT n.id, n.board_id, b.title AS board_title, n.seq, n.kind, n.actor, n.actor_via, n.entry_type, n.excerpt, n.created_at, n.read_at
+    `SELECT n.id, n.board_id, b.title AS board_title, n.seq, n.kind, n.actor, n.actor_via, n.entry_type, n.excerpt, n.created_at, n.read_at, n.data
      FROM notifications n LEFT JOIN boards b ON b.id = n.board_id
-     WHERE n.user = ? AND (n.board_id = '' OR n.board_id IN (SELECT board_id FROM members WHERE user = ?))
+     WHERE n.user = ? AND n.kind != 'trigger' AND (n.board_id = '' OR n.board_id IN (SELECT board_id FROM members WHERE user = ?))
      ORDER BY n.created_at DESC LIMIT ?`,
   )
     .bind(user, user, limit)
-    .all<InboxItem>();
-  return r.results;
+    .all<InboxRow>();
+  return r.results.map(withPush);
 }
 
 /** Unread count plus the newest unread item (for a browser notification when the count goes up). */
 export async function inboxCount(env: Env, user: string): Promise<{ unread: number; latest: InboxItem | null; approvals: number }> {
   const [c, latest, ap] = await Promise.all([
-    env.DB.prepare(`SELECT COUNT(*) AS n FROM notifications WHERE user = ? AND read_at IS NULL AND (board_id = '' OR board_id IN (SELECT board_id FROM members WHERE user = ?))`)
+    env.DB.prepare(`SELECT COUNT(*) AS n FROM notifications WHERE user = ? AND read_at IS NULL AND kind != 'trigger' AND (board_id = '' OR board_id IN (SELECT board_id FROM members WHERE user = ?))`)
       .bind(user, user)
       .first<{ n: number }>(),
     env.DB.prepare(
-      `SELECT n.id, n.board_id, b.title AS board_title, n.seq, n.kind, n.actor, n.actor_via, n.entry_type, n.excerpt, n.created_at, n.read_at
-       FROM notifications n LEFT JOIN boards b ON b.id = n.board_id WHERE n.user = ? AND n.read_at IS NULL ORDER BY n.created_at DESC LIMIT 1`,
+      `SELECT n.id, n.board_id, b.title AS board_title, n.seq, n.kind, n.actor, n.actor_via, n.entry_type, n.excerpt, n.created_at, n.read_at, n.data
+       FROM notifications n LEFT JOIN boards b ON b.id = n.board_id WHERE n.user = ? AND n.read_at IS NULL AND n.kind != 'trigger' ORDER BY n.created_at DESC LIMIT 1`,
     )
       .bind(user)
-      .first<InboxItem>(),
+      .first<InboxRow>(),
     env.DB.prepare(`SELECT COUNT(*) AS n FROM approvals WHERE user = ? AND status = 'pending' AND expires_at > ?`).bind(user, Date.now()).first<{ n: number }>(),
   ]);
-  return { unread: c?.n ?? 0, latest: latest ?? null, approvals: ap?.n ?? 0 };
+  return { unread: c?.n ?? 0, latest: latest ? withPush(latest) : null, approvals: ap?.n ?? 0 };
 }
 
 /** Mark read: everything, one board's items (opening a board), or specific ids. */

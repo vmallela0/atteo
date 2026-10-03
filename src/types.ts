@@ -23,7 +23,25 @@ export interface Attachment {
 }
 
 export const ENTRY_TYPES = ["claim", "question", "decision", "task", "artifact", "note", "change"] as const;
-export type EntryType = (typeof ENTRY_TYPES)[number];
+// "approval" is posted by the server only (an agent's request_approval on a board), never by a client.
+export type EntryType = (typeof ENTRY_TYPES)[number] | "approval";
+
+/** What a board's approval entry carries (no details: those are the asking agent's person's alone). */
+export interface ApprovalRef {
+  id: string;
+  user: string; // whose agent asked; only they decide
+  status: "pending" | "approved" | "rejected" | "expired";
+  title: string;
+  tool: string | null;
+  command: string | null;
+  risk: "low" | "medium" | "high";
+  expires_at: number;
+  note: string | null;
+  session: string | null; // the agent session that asked
+  about: number | null; // the board message it's about (request_approval's seq), if any
+  created_at: number;
+  decided_at: number | null;
+}
 
 /** One immutable entry in a board's log. Entries change only by later entries that resolve or supersede them. */
 export interface Entry {
@@ -51,6 +69,7 @@ export interface Entry {
   done_by?: string | null; // which agent (or person) finished it
   ai_flag?: string | null; // set when the model check thinks it's trying to instruct agents
   human_decision?: import("./decisions").HumanDecision | null; // a person's decision: open until the people decide (decisions.ts)
+  approval?: ApprovalRef | null; // type=approval: the request and its live status
 }
 
 export interface NewEntry {

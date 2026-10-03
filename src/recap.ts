@@ -85,7 +85,7 @@ type BoardStub = { recap(user: string, opts: { since: number | "last-read"; sess
 export async function buildRecap(env: Env, stub: BoardStub, user: string, opts: { since: number | "last-read"; session: string | null; as: "agent" | "person" }): Promise<Recap & { text: string }> {
   const core = await stub.recap(user, opts);
   const [ap, mem] = await Promise.all([
-    env.DB.prepare(`SELECT id, title, risk, tool, NULL AS session, created_at, expires_at FROM approvals WHERE user = ? AND board_id = ? AND status = 'pending' AND expires_at > ? ORDER BY created_at LIMIT 20`)
+    env.DB.prepare(`SELECT id, title, risk, tool, session, created_at, expires_at FROM approvals WHERE user = ? AND board_id = ? AND status = 'pending' AND expires_at > ? ORDER BY created_at LIMIT 20`)
       .bind(user, core.board.id, Date.now())
       .all<Recap["approvals"][number]>(),
     env.DB.prepare(`SELECT user AS name, joined_at FROM members WHERE board_id = ? AND joined_at > ? ORDER BY joined_at LIMIT 50`).bind(core.board.id, core.since_ts).all<{ name: string; joined_at: number }>(),
