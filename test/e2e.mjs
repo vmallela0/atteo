@@ -497,7 +497,7 @@ await step("web: several files in one message (multipart upload): one entry, att
   const none = await send(B, [], { text: "no files" });
   assert(none.status === 400, `no files ${none.status}`);
   // Ten files of 1.4 MB (14 MB) do go through.
-  const ten = await send(B, Array.from({ length: 10 }, (_, i) => ({ name: `blob${i}.bin`, bytes: Buffer.concat([Buffer.from([0]), randomBytes(1_400_000)]) })));
+  const ten = await send(B, Array.from({ length: 10 }, (_, i) => ({ name: `blob${i}.bin`, bytes: Buffer.alloc(1_400_000, i + 1) /* fixed bytes: random ones can look like a credential to the secret filter */ })));
   const tenj = await ten.json();
   assert(ten.status === 201 && tenj.entry.attachments.length === 10, `ten files ${ten.status} ${JSON.stringify(tenj).slice(0, 200)}`);
   // Secrets: in the caption or in a text file, the whole message is refused and none of its files is stored.
