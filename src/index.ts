@@ -1,6 +1,7 @@
 // Worker entry: MCP endpoint, sign-in, web pages, JSON API, and the operator console (/_ops).
 
 import * as a2a from "./a2a";
+import { runGrep } from "./grep";
 import * as usage from "./usage";
 import * as oauth from "./oauth";
 import { consentPage } from "./oauthPage";
@@ -158,6 +159,27 @@ async function canSee(c: Ctx, boardId: string): Promise<boolean> {
   const a = await registry.boardAccess(c.env, boardId, c.viewer?.name ?? null);
   if (!a.exists) return false;
   return isOps(c) || a.member;
+}
+
+/** GET …/grep?q=&regex=0|1&case=0|1&author=&type=&since=<seq or ISO>&context=0..2&max=&files=0|1 → GrepOutput (text + hits). */
+async function grepResponse(env: Env, user: string, url: URL, boardId: string | null): Promise<Response> {
+  const p = url.searchParams;
+  const flag = (k: string) => p.get(k) === "1" || p.get(k) === "true";
+  try {
+    const out = await runGrep(env, user, p.get("q") ?? "", {
+      regex: flag("regex"),
+      caseSensitive: flag("case"),
+      author: p.get("author")?.trim().toLowerCase() || undefined,
+      type: p.get("type") || undefined,
+      since: p.get("since") ?? undefined,
+      context: Number(p.get("context") ?? 0),
+      max: Number(p.get("max") ?? 0),
+      files: flag("files"),
+    }, boardId);
+    return json(out, 200, { "cache-control": "no-store" });
+  } catch (e) {
+    return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+  }
 }
 
 /** Plan limits apply to people (origin given); the ops API creates boards without them. */
@@ -2046,6 +2068,11 @@ const handler = {
           return json({ error: e instanceof Error ? e.message : String(e) }, 400);
         }
       }
+      // grep across all your boards (encrypted ones are skipped and counted).
+      if (path === "/api/grep" && method === "GET") {
+        if (!viewer) return needLogin();
+        return grepResponse(env, viewer.name, url, null);
+      }
       if (path === "/api/boards/search" && method === "GET") {
         if (!viewer) return needLogin();
         const q = (url.searchParams.get("q") ?? "").trim().slice(0, 200);
@@ -2240,7 +2267,7 @@ const handler = {
         }
       }
 
-      m = path.match(/^\/api\/boards\/([^/]+)\/(updates|entries|invites|seen|search|handle|typing)(?:\/(\d+))?$/);
+      m = path.match(/^\/api\/boards\/([^/]+)\/(updates|entries|invites|seen|search|grep|handle|typing)(?:\/(\d+))?$/);
       if (m) {
         const [, id, what, seqStr] = m;
         if (!viewer && !hasOpsKey(c)) return needLogin();
@@ -2384,6 +2411,8 @@ const handler = {
             files: scope === "chat" || from || type ? [] : r.files,
           }, 200, { "cache-control": "no-store" });
         }
+        // grep for agents: exact matching lines, one per hit (grep.ts). Members only (canSee above).
+        if (what === "grep" && method === "GET") return grepResponse(env, viewer?.name ?? "", url, id);
         // Read receipts: the board page reports the newest entry its person has had on screen.
         // "jxn is typing…": a person's composer says so every few seconds while they type; nothing is stored.
         if (what === "typing" && method === "POST") {
