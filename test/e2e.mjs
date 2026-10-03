@@ -318,9 +318,44 @@ await step("web: sign-in redirects to WorkOS AuthKit with our client and callbac
   assert(u.searchParams.get("provider") === "authkit" && u.searchParams.get("redirect_uri") === `${BASE}/auth/callback`, loc);
   assert(u.searchParams.get("client_id")?.startsWith("client_"), "client id");
   has(r.headers.get("set-cookie") ?? "", "ab_oauth=");
-  assert((await web("/auth/callback?code=x&state=forged")).status === 400, "forged state should 400");
+  const st = u.searchParams.get("state");
+  assert((await web("/auth/callback?code=x&state=forged", undefined, { headers: { cookie: `ab_oauth=${encodeURIComponent(`${st}|/me`)}` } })).status === 400, "forged state should 400");
+  // No ab_oauth cookie: sign-in started on another host (workers.dev), but the callback is on the public one (atteo.dev).
+  // Restart here once, keeping the return path; a restarted attempt that still has no cookie fails instead of looping.
+  const moved = await web(`/auth/callback?code=x&state=${encodeURIComponent(st)}`);
+  assert(moved.status === 303 && moved.headers.get("location") === "/auth/login?restart=1&return=%2Fme", `cookie-less callback should restart sign-in, got ${moved.status} ${moved.headers.get("location")}`);
+  const again = await web(moved.headers.get("location"));
+  const st2 = new URL(again.headers.get("location") ?? "").searchParams.get("state") ?? "";
+  assert(again.status === 303 && st2.split(".")[1] === "1", `restarted sign-in should be marked, got ${st2}`);
+  assert((await web(`/auth/callback?code=x&state=${encodeURIComponent(st2)}`)).status === 400, "a second cookie-less callback should stop, not loop");
   const noState = await web("/auth/callback?code=x");
   assert(noState.status === 303 && noState.headers.get("location") === "/auth/login", `WorkOS-initiated callback should restart sign-in, got ${noState.status} ${noState.headers.get("location")}`);
+});
+
+await step("public origin: a request for the workers.dev host links to PUBLIC_URL; localhost keeps its own", async () => {
+  if (!/localhost|127\.0\.0\.1/.test(BASE)) return; // needs a forged Host header, only against a local server
+  // atteo.dev proxies to workers.dev, so inside the Worker every public request looks like workers.dev. fetch() can't set Host.
+  const { request } = await import("node:http");
+  const get = (path) =>
+    new Promise((ok, no) => {
+      const r = request(new URL(path, BASE), { headers: { host: "agent-board.vedu-mallela.workers.dev" } }, (res) => {
+        let body = "";
+        res.on("data", (d) => (body += d)).on("end", () => ok({ status: res.statusCode, location: res.headers.location ?? "", body }));
+      });
+      r.on("error", no).end();
+    });
+  const pub = new URL((await get("/auth/login")).location).searchParams.get("redirect_uri") ?? "";
+  assert(pub.endsWith("/auth/callback") && !pub.startsWith("https://agent-board.vedu-mallela.workers.dev"), `redirect_uri ${pub}`);
+  const o = pub.slice(0, -"/auth/callback".length);
+  const as = JSON.parse((await get("/.well-known/oauth-authorization-server")).body);
+  assert(as.issuer === o && as.authorization_endpoint === `${o}/oauth/authorize` && as.token_endpoint === `${o}/oauth/token`, JSON.stringify(as));
+  assert(JSON.parse((await get("/.well-known/oauth-protected-resource")).body).resource === `${o}/mcp`, "protected resource");
+  assert(JSON.parse((await get("/openapi.json")).body).servers[0].url === o, "openapi servers");
+  assert(JSON.parse((await get("/.well-known/agent-card.json")).body).url === `${o}/a2a`, "agent card");
+  has((await get("/install.sh")).body, `:-${o}}"`); // SERVER="${…_SERVER:-<origin>}"
+  // The same server addressed as localhost keeps its own origin.
+  assert((await (await fetch(`${BASE}/.well-known/oauth-authorization-server`)).json()).issuer === BASE, "localhost issuer");
+  assert((await (await fetch(`${BASE}/.well-known/oauth-protected-resource`)).json()).resource === `${BASE}/mcp`, "localhost resource");
 });
 
 await step("web: members see the board; outsiders get 404", async () => {

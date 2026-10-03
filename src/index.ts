@@ -52,7 +52,7 @@ import {
 import type { Entry, Env } from "./types";
 import { FAVICON_SVG, page, renderText } from "./ui";
 import { APPLE_TOUCH_PNG_B64 } from "./appleIcon";
-import { atteoHeader, BOARD_RE, connectCommand, esc, newBoardId, normalizeUser, parseBoardMeta } from "./util";
+import { atteoHeader, BOARD_RE, connectCommand, esc, newBoardId, normalizeUser, parseBoardMeta, publicOrigin } from "./util";
 
 import * as Sentry from "@sentry/cloudflare";
 import { scrubForSentry } from "./sentry";
@@ -96,6 +96,8 @@ interface Ctx {
   env: Env;
   ctx: ExecutionContext;
   url: URL;
+  /** Where links back to the product point (publicOrigin): https://atteo.dev in production, the request's origin locally. */
+  origin: string;
   session: auth.Session | null;
   viewer: Viewer | null;
 }
@@ -186,10 +188,10 @@ async function authLogin(c: Ctx): Promise<Response> {
   if (!c.env.WORKOS_CLIENT_ID || !c.env.WORKOS_API_KEY) {
     return messagePage("Sign-in isn't configured", "WORKOS_CLIENT_ID / WORKOS_API_KEY are missing on this deployment.", { status: 500 });
   }
-  const state = auth.randomSecret("", 18);
   const ret = safeReturn(c.url.searchParams.get("return"));
+  const state = auth.loginState(ret, c.url.searchParams.get("restart") === "1");
   const hint = c.url.searchParams.get("login_hint") ?? undefined;
-  const to = auth.authorizeUrl(c.env, `${c.url.origin}/auth/callback`, state, {
+  const to = auth.authorizeUrl(c.env, `${c.origin}/auth/callback`, state, {
     loginHint: hint,
     screenHint: c.url.searchParams.get("signup") ? "sign-up" : undefined,
   });
@@ -222,9 +224,9 @@ async function authSso(c: Ctx): Promise<Response> {
   }
   const org = await auth.ssoOrganizationFor(c.env, email);
   if (!org) return messagePage("No SSO for that domain", `${email.split("@")[1]} hasn't set up single sign-on with Atteo. Sign in the usual way.`, { status: 404, action: { href: `/auth/login?login_hint=${encodeURIComponent(email)}`, label: "Sign in" } });
-  const state = auth.randomSecret("", 18);
   const ret = safeReturn(c.url.searchParams.get("return"));
-  const to = auth.authorizeUrl(c.env, `${c.url.origin}/auth/callback`, state, { organizationId: org.id, loginHint: email });
+  const state = auth.loginState(ret);
+  const to = auth.authorizeUrl(c.env, `${c.origin}/auth/callback`, state, { organizationId: org.id, loginHint: email });
   return redirect(to, { "Set-Cookie": auth.cookieHeader(c.url, auth.OAUTH_COOKIE, `${state}|${ret}`, 600) });
 }
 
@@ -237,7 +239,15 @@ async function authCallback(c: Ctx): Promise<Response> {
   // Flows that start on WorkOS's side (an invitation email, AuthKit's own pages) arrive without our state.
   // Restart from /auth/login: AuthKit already has a session, so it bounces straight back with a proper state.
   if (!sentState) return redirect("/auth/login");
-  const [state, ret] = (auth.readCookie(c.request, auth.OAUTH_COOKIE) ?? "").split("|");
+  const cookie = auth.readCookie(c.request, auth.OAUTH_COOKIE);
+  if (!cookie) {
+    // Sign-in started on another host (the old workers.dev address) set its cookie there, but the callback is always on
+    // the public address. Restart here, once, keeping the return path; AuthKit already has a session, so it bounces straight back.
+    const s = auth.readLoginState(sentState);
+    if (s.restarted) return fail("Your browser didn't keep the sign-in cookie. Allow cookies for this site and start again.");
+    return redirect(`/auth/login?restart=1&return=${encodeURIComponent(safeReturn(s.ret))}`);
+  }
+  const [state, ret] = cookie.split("|");
   if (!code || !state || state !== sentState) return fail("The sign-in link expired or was opened in a different browser. Start again.");
 
   let wu: auth.WorkosUser;
@@ -361,6 +371,9 @@ const handler = {
     // Database reads retry through dropped connections (a transient D1 error must never fail someone's post).
     const env: Env = { ...rawEnv, DB: retryingReads(rawEnv.DB) };
     const url = new URL(request.url);
+    // Links back to the product (sign-in callback, emails, OAuth/A2A/OpenAPI metadata, install.sh) use the public
+    // address: atteo.dev proxies to this workers.dev host, so url.origin is workers.dev even for atteo.dev visitors.
+    const origin = publicOrigin(env, url);
     const path = url.pathname.replace(/\/+$/, "") || "/";
     const method = request.method;
 
@@ -387,12 +400,12 @@ const handler = {
         return json({ ok, version: env.CF_VERSION_METADATA?.id ?? null, checks }, ok ? 200 : 503, { "cache-control": "no-store" });
       }
       // ---- A2A: an Agent Card and a JSON-RPC endpoint for agents that don't speak MCP ----
-      if (path === "/.well-known/agent-card.json" || path === "/.well-known/agent.json") return json(a2a.agentCard(url.origin), 200, { "access-control-allow-origin": "*" });
+      if (path === "/.well-known/agent-card.json" || path === "/.well-known/agent.json") return json(a2a.agentCard(origin), 200, { "access-control-allow-origin": "*" });
       if (path === "/a2a" && method === "POST") {
         const tok = auth.bearer(request);
         const who = tok ? (await auth.resolveToken(env, tok, ctx)).user : null;
         const rpcErr = (id: unknown, code: number, message: string, status = 200) => json({ jsonrpc: "2.0", id: id ?? null, error: { code, message } }, status);
-        if (!who) return new Response(JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32001, message: "Send a personal token: Authorization: Bearer <token>" } }), { status: 401, headers: { "content-type": "application/json", "WWW-Authenticate": `Bearer resource_metadata="${url.origin}/.well-known/oauth-protected-resource"` } });
+        if (!who) return new Response(JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32001, message: "Send a personal token: Authorization: Bearer <token>" } }), { status: 401, headers: { "content-type": "application/json", "WWW-Authenticate": `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource"` } });
         const rpc = (await request.json().catch(() => null)) as { id?: unknown; method?: string; params?: Record<string, any> } | null;
         if (!rpc?.method) return rpcErr(null, -32600, "Invalid request");
         const ok = (result: unknown) => json({ jsonrpc: "2.0", id: rpc.id ?? null, result });
@@ -412,7 +425,7 @@ const handler = {
             if (hit) return rpcErr(rpc.id, -32602, blockedMessage(hit));
             const e = await boardStub(env, board.id).post(who, { type: "question", to, text, via: "agent", client: "A2A agent" });
             ctx.waitUntil(registry.bumpBoard(env, board.id, e.seq).catch(() => {}));
-            return ok(a2a.task(a2a.taskId(board.id, e.seq), "working", undefined, { metadata: { board: board.id, seq: e.seq, url: `${url.origin}/b/${board.id}#e${e.seq}` } }));
+            return ok(a2a.task(a2a.taskId(board.id, e.seq), "working", undefined, { metadata: { board: board.id, seq: e.seq, url: `${origin}/b/${board.id}#e${e.seq}` } }));
           }
           if (rpc.method === "tasks/get" || rpc.method === "tasks/cancel") {
             const t = a2a.parseTaskId(rpc.params?.id);
@@ -439,7 +452,7 @@ const handler = {
       }
 
       if (path === "/terms" || path === "/privacy") return legalPage(path.slice(1) as "terms" | "privacy");
-      if (path === "/openapi.json") return json(openapi(url.origin), 200, { "access-control-allow-origin": "*", "cache-control": "public, max-age=300" });
+      if (path === "/openapi.json") return json(openapi(origin), 200, { "access-control-allow-origin": "*", "cache-control": "public, max-age=300" });
       if (path === "/skill.md") return new Response(SKILL_MD, { headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "public, max-age=300" } });
       if (path === "/apple-touch-icon.png" || path === "/apple-touch-icon-precomposed.png") {
         return new Response(Uint8Array.from(atob(APPLE_TOUCH_PNG_B64), (c) => c.charCodeAt(0)), { headers: { "content-type": "image/png", "cache-control": "public, max-age=86400" } });
@@ -468,15 +481,15 @@ const handler = {
       }
       if (viewer && viewer.via !== "agent") ctx.waitUntil(Promise.resolve(social.markSeen(env, viewer.name, "web")).catch(() => {}));
       if (viewer && viewer.via !== "agent" && !viewer.name.startsWith("e2e-")) ctx.waitUntil(Promise.resolve(usage.track(env, "active_person", viewer.name, true)).catch(() => {}));
-      const c: Ctx = { request, env, ctx, url, session, viewer };
+      const c: Ctx = { request, env, ctx, url, origin, session, viewer };
       const needLogin = () =>
         method === "GET" && !path.startsWith("/api/") ? redirect(`/auth/login?return=${encodeURIComponent(url.pathname + url.search)}`) : json({ error: "sign in required" }, 401);
 
       // ---- MCP OAuth: discovery, client registration, sign-in + approve, code → token ----
       const cors = { "access-control-allow-origin": "*", "access-control-allow-headers": "content-type, authorization, mcp-protocol-version", "access-control-allow-methods": "GET, POST, OPTIONS" };
       if ((path.startsWith("/.well-known/oauth-") || path.startsWith("/oauth/")) && method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
-      if (path === "/.well-known/oauth-protected-resource" || path === "/.well-known/oauth-protected-resource/mcp") return json(oauth.protectedResource(url.origin), 200, cors);
-      if (path === "/.well-known/oauth-authorization-server" || path === "/.well-known/openid-configuration") return json(oauth.authorizationServer(url.origin), 200, cors);
+      if (path === "/.well-known/oauth-protected-resource" || path === "/.well-known/oauth-protected-resource/mcp") return json(oauth.protectedResource(origin), 200, cors);
+      if (path === "/.well-known/oauth-authorization-server" || path === "/.well-known/openid-configuration") return json(oauth.authorizationServer(origin), 200, cors);
       if (path === "/oauth/register" && method === "POST") {
         try {
           return json(await oauth.register(env, (await request.json().catch(() => ({}))) as Record<string, unknown>), 201, cors);
@@ -525,7 +538,7 @@ const handler = {
       // ---- CLI login (device flow) ----
       if (path === "/api/device/start" && method === "POST") {
         const body = (await request.json().catch(() => ({}))) as { client?: string };
-        return json(await device.startDeviceLogin(env, url.origin, String(body.client ?? "Atteo CLI")));
+        return json(await device.startDeviceLogin(env, origin, String(body.client ?? "Atteo CLI")));
       }
       if (path === "/api/device/token" && method === "POST") {
         const body = (await request.json().catch(() => ({}))) as { device_code?: string };
@@ -583,7 +596,7 @@ const handler = {
           ctx.waitUntil(registry.audit(env, old.id, viewer.name, "archived", null, "to make room on the Free plan").catch(() => {}));
         }
         try {
-          const info = await createBoard(env, title, viewer.name, url.origin, { encrypted });
+          const info = await createBoard(env, title, viewer.name, origin, { encrypted });
           return redirect(`/b/${info.id}`);
         } catch (e) {
           const plan = e instanceof billing.BillingError;
@@ -701,8 +714,8 @@ const handler = {
         try {
           const to =
             path === "/api/billing/portal"
-              ? await billing.portalUrl(env, viewer.name, url.origin)
-              : await billing.checkoutUrl(env, viewer.name, body.interval === "year" ? "year" : "month", url.origin);
+              ? await billing.portalUrl(env, viewer.name, origin)
+              : await billing.checkoutUrl(env, viewer.name, body.interval === "year" ? "year" : "month", origin);
           return json({ url: to });
         } catch (e) {
           return json({ error: e instanceof Error ? e.message : String(e) }, 400);
@@ -859,7 +872,7 @@ const handler = {
           }
           if (method === "POST" && am[1] && am[2]) {
             // A token (an agent, or the CLI an agent could run) never decides: only the person in a browser.
-            if (viewer.via === "agent") return json({ error: `Approve or reject in the browser: ${url.origin}/approvals#${am[1]}` }, 403);
+            if (viewer.via === "agent") return json({ error: `Approve or reject in the browser: ${origin}/approvals#${am[1]}` }, 403);
             const b = (await request.json().catch(() => ({}))) as { note?: string };
             return json({ ok: true, approval: await approvals.decide(env, viewer.name, am[1], am[2] === "approve", String(b.note ?? "")) });
           }
@@ -1035,7 +1048,7 @@ const handler = {
       }
 
       // ---- the CLI, one file, and a readable installer: curl -fsSL <server>/install.sh | sh ----
-      if (path === "/install.sh" && method === "GET") return new Response(installScript(url.origin), { headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "public, max-age=300" } });
+      if (path === "/install.sh" && method === "GET") return new Response(installScript(origin), { headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "public, max-age=300" } });
       // The CLI checks itself against this once a day and says when it's out of date (atteo update).
       if (path === "/cli/version" && method === "GET") return json({ hash: await cliHash() }, 200, { "cache-control": "public, max-age=300" });
       // /cli/agent-soup.mjs is the path from before the rename: older CLIs update themselves from it.
@@ -1162,7 +1175,7 @@ const handler = {
             return json({ ok: true, members: await registry.boardMembers(env, id) });
           }
           if (what === "links" && method === "GET") return json({ links: await access.listLinks(env, id) });
-          if (what === "links" && method === "POST" && !arg) return json(await access.createLink(env, id, viewer.name, (await request.json().catch(() => ({}))) as Record<string, unknown>, url.origin), 201);
+          if (what === "links" && method === "POST" && !arg) return json(await access.createLink(env, id, viewer.name, (await request.json().catch(() => ({}))) as Record<string, unknown>, origin), 201);
           if (what === "links" && method === "DELETE" && arg) return (await access.revokeLink(env, id, arg, viewer.name)) ? json({ ok: true }) : json({ error: "not found" }, 404);
         } catch (e) {
           return json({ error: e instanceof Error ? e.message : String(e) }, 400);
@@ -1173,7 +1186,7 @@ const handler = {
       if (m && method === "GET") {
         if (!viewer) return needLogin();
         try {
-          return redirect(`/b/${await access.redeemLink(env, m[1], viewer.name, url.origin)}`);
+          return redirect(`/b/${await access.redeemLink(env, m[1], viewer.name, origin)}`);
         } catch (e) {
           return messagePage("Invite link", e instanceof Error ? e.message.replace(/: https?:\S+$/, ".") : String(e), { viewer, status: 410, action: { href: "/", label: "Your boards" } });
         }
@@ -1366,7 +1379,7 @@ const handler = {
               if (!hits.length) return json({ error: `No board of yours or invitation matches "${want}". List them: atteo get boards` }, 404);
               if (hits.length > 1) return json({ error: `"${want}" matches more than one board; use its id.`, matches: hits.map((h) => ({ id: h.id, title: h.title, status: h.invite ? "invited" : "member" })) }, 409);
               const target = hits[0];
-              if (target.invite && !(me && (await registry.acceptInvitation(env, me, target.id, url.origin)))) return json({ error: `Couldn't accept the invitation to "${target.title}".` }, 400);
+              if (target.invite && !(me && (await registry.acceptInvitation(env, me, target.id, origin)))) return json({ error: `Couldn't accept the invitation to "${target.title}".` }, 400);
               await boardStub(env, target.id).joinSession(viewer.name, s.id);
               const cur = await live();
               const next = await sessions.setBoards(env, cur, [...cur.boards.filter((b) => b !== target.id), target.id]);
@@ -1906,11 +1919,11 @@ const handler = {
             const friend = name && (await social.friendsOf(env, viewer.name)).friends.find((f) => f.name === name);
             const u = friend ? await registry.userByName(env, friend.name) : null;
             if (!u?.email) return json({ error: `You can invite friends by name; for anyone else, use their email.` }, 400);
-            const r = await sendInvite(env, url.origin, { boardId: id, email: u.email, invitedBy: viewer.name, role, expiresDays });
+            const r = await sendInvite(env, origin, { boardId: id, email: u.email, invitedBy: viewer.name, role, expiresDays });
             return json({ ok: r.ok, added: r.added, message: r.message.split(` (${u.email.toLowerCase()})`).join("").split(u.email.toLowerCase()).join(u.name) });
           }
           if (!EMAIL_RE.test(to)) return json({ error: "Enter a valid email address." }, 400);
-          return json(await sendInvite(env, url.origin, { boardId: id, email: to, invitedBy: viewer?.name ?? "ops", role, expiresDays }));
+          return json(await sendInvite(env, origin, { boardId: id, email: to, invitedBy: viewer?.name ?? "ops", role, expiresDays }));
         }
         return json({ error: "not found" }, 404);
       }
@@ -1923,7 +1936,7 @@ const handler = {
         if (!me) return needLogin();
         let ok: boolean;
         try {
-          ok = m[2] === "accept" ? await registry.acceptInvitation(env, me, m[1], url.origin) : await registry.declineInvitation(env, me, m[1]);
+          ok = m[2] === "accept" ? await registry.acceptInvitation(env, me, m[1], origin) : await registry.declineInvitation(env, me, m[1]);
         } catch (e) {
           return json({ error: e instanceof Error ? e.message : String(e) }, 402);
         }
@@ -1946,9 +1959,9 @@ const handler = {
           {
             id: t.id,
             token: t.token,
-            command: connectCommand(url.origin, null, t.token),
-            mcp_url: `${url.origin}/mcp`,
-            ...(board ? { project_command: connectCommand(url.origin, board, t.token), project_mcp_url: `${url.origin}/mcp?board=${board}` } : {}),
+            command: connectCommand(origin, null, t.token),
+            mcp_url: `${origin}/mcp`,
+            ...(board ? { project_command: connectCommand(origin, board, t.token), project_mcp_url: `${origin}/mcp?board=${board}` } : {}),
           },
           201,
         );
@@ -1994,7 +2007,7 @@ const handler = {
           const ttl = Number(body.expires_in_s);
           // kind "app": a token as the Atteo app would get (tests and simulator runs only; people get theirs by signing in).
           const t = await auth.createToken(env, u, body.label || "ops-issued", { ...(Number.isFinite(ttl) ? { expiresAt: Date.now() + ttl * 1000 } : {}), ...(body.kind === "app" ? { kind: "app" as const } : {}) });
-          return json({ token: t.token, command: connectCommand(url.origin, body.board ?? null, t.token) }, 201);
+          return json({ token: t.token, command: connectCommand(origin, body.board ?? null, t.token) }, 201);
         }
         if (path === "/api/ops/sessions" && method === "POST") {
           const u = normalizeUser(body.user);

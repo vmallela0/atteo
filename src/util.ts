@@ -16,6 +16,22 @@ export function newBoardId(): string {
   return "b_" + Array.from(bytes, (b) => alphabet[b % alphabet.length]).join("");
 }
 
+/** A request to this machine (wrangler dev, tests): its links must keep pointing at itself. */
+function isLocalHost(hostname: string): boolean {
+  return /^(localhost|.+\.localhost|127\.\d+\.\d+\.\d+|0\.0\.0\.0|\[::1?\])$/i.test(hostname);
+}
+
+/**
+ * The address people and agents should use: PUBLIC_URL (https://atteo.dev) when it's set, else the request's own origin.
+ * atteo.dev is a proxy in front of the workers.dev host, so inside the Worker every request looks like workers.dev and
+ * url.origin can't be trusted for anything that points back at the product (sign-in callback, emails, OAuth metadata,
+ * install script…). Local requests keep their own origin so dev and tests never send anyone to production.
+ */
+export function publicOrigin(env: { PUBLIC_URL?: string }, url: URL): string {
+  const pub = env.PUBLIC_URL?.trim().replace(/\/+$/, "");
+  return pub && !isLocalHost(url.hostname) ? pub : url.origin;
+}
+
 /**
  * Claude Code command for a personal token. Default: once per machine (user scope, no board; each session joins a board by name).
  * With a board: a project-scoped install that pins every session in that folder to the board.

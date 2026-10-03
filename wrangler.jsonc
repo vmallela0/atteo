@@ -27,7 +27,10 @@
   ],
   "vars": {
     "WORKOS_CLIENT_ID": "client_01M3XKJWX8TW7YAMPZVJZFJYHT",
-    "ADMIN_EMAIL": "vedu.mallela@gmail.com,jxn@blxmail.com"
+    "ADMIN_EMAIL": "vedu.mallela@gmail.com,jxn@blxmail.com",
+    // The public address (proxied to this workers.dev Worker from another account): sign-in callback, emails, OAuth/A2A
+    // metadata, install.sh and webhook links all point here. Requests to localhost keep their own origin (src/util.ts publicOrigin).
+    "PUBLIC_URL": "https://atteo.dev"
   }
   // Secrets (wrangler secret put): WORKOS_API_KEY, ADMIN_KEY, SENTRY_DSN. Locally they come from .dev.vars.
 }
