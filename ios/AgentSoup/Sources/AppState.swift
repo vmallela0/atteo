@@ -110,6 +110,9 @@ final class AppState: ObservableObject {
             let (ii, aa, cc) = try await (i, ap, co)
             withAnimation(.smooth) { inbox = ii.items; approvals = aa.approvals; contacts = cc.incoming }
             save()
+            // On screen: note what's here (no notifications), and keep the app icon's number right.
+            await Notifier.shared.check(inbox: ii.items, approvals: aa.approvals, notify: false)
+            await Notifier.shared.badge(needsYou)
         } catch { report(error, quiet: true) }
     }
 
@@ -430,6 +433,7 @@ final class AppState: ObservableObject {
                 real = try JSONDecoder.soup.decode(PostResponse.self, from: data).entry
             }
             withAnimation(.smooth) { entries[b.id] = (entries[b.id] ?? []).map { $0.seq == temp.seq ? real : $0 } }
+            Notifier.shared.askIfSensible() // your first message: you'll want to hear when it's answered
             save()
             Task { await refreshBoards() }
         } catch {
@@ -695,11 +699,13 @@ final class AppState: ObservableObject {
         let now = Date().timeIntervalSince1970 * 1000
         withAnimation(.smooth) { inbox = inbox.map { $0.boardId == b.id && $0.readAt == nil ? $0.read(at: now) : $0 } }
         save()
+        Task { await Notifier.shared.badge(needsYou) }
         do { try await API.shared.send("/api/inbox/read", body: ["board": b.id]) } catch { report(error, quiet: true) }
     }
 
     func decide(_ a: Approval, approve: Bool) async {
         Haptics.play(approve ? .approved : .denied)
+        Notifier.shared.askIfSensible() // you'll want to hear about the next one
         withAnimation(.smooth) { approvals.removeAll { $0.id == a.id } }
         save()
         do { try await API.shared.send("/api/approvals/\(a.id)/\(approve ? "approve" : "reject")", body: ["note": ""]) } catch { report(error); await refreshInbox() }

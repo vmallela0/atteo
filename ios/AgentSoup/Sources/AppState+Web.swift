@@ -147,6 +147,7 @@ extension AppState {
             try await API.shared.send("/api/approvals/\(a.id)/\(approve ? "approve" : "reject")", body: ["note": note], retries: false)
             withAnimation(.smooth) { approvals.removeAll { $0.id == a.id } }
             Haptics.play(approve ? .approved : .denied)
+            Notifier.shared.askIfSensible()
             return true
         } catch { report(error); await refreshInbox(); return false }
     }

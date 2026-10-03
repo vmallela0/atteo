@@ -17,13 +17,16 @@ struct AtteoApp: App {
             .environmentObject(state)
             .tint(Theme.accent)
             .task(id: state.signedIn) { if state.signedIn { await state.refreshAll() } }
+            .task { Notifier.shared.setUp() }
             .onChange(of: phase) { _, p in
                 guard state.signedIn else { return }
-                if p == .active { Task { await state.refreshAll() } } else if p == .background { state.stopFeed() }
+                if p == .active { Task { await state.refreshAll() } } else if p == .background { state.stopFeed(); Notifier.shared.schedule() }
             }
             .alert("Atteo", isPresented: Binding(get: { state.error != nil }, set: { if !$0 { state.error = nil } })) {
                 Button("OK", role: .cancel) {}
             } message: { Text(state.error ?? "") }
         }
+        // While Atteo is in the background, iOS wakes it now and then to look for what's new for you (Notifications.swift).
+        .backgroundTask(.appRefresh(Notifier.refreshTask)) { await Notifier.shared.backgroundCheck() }
     }
 }

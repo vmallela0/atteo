@@ -72,6 +72,7 @@ struct SettingsView: View {
                 } footer: { Text("The emoji you see first when you hold a message.") }
                 .listRowBackground(Theme.card)
 
+                NotificationsSection()
                 FeelSection()
                 VoiceSection()
 
