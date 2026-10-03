@@ -832,6 +832,32 @@ await step("task tick / untick / edit: tick the one checklist item matching the 
   assert(r.code === 1 && r.err.includes("Usage: atteo task edit"), r.err);
 });
 
+await step("task remove / retract: a task leaves the board (its author or the board's creator only), a note is unsent, a non-task isn't removed", async () => {
+  const n = Number((await tool(tokB, board, "task", { action: "create", title: `Drop me ${run}`, body: "- [ ] nothing" })).match(/#(\d+)/)[1]);
+  await tool(tokB, board, "read", {});
+  const note = Number((await tool(tokB, board, "post", { type: "note", text: `typo ${run}` })).match(/Posted #(\d+)/)[1]);
+  const listed = async () => (await (await fetch(`${BASE}/api/boards/${board}/tasks`, { headers: { authorization: `Bearer ${tokA}` } })).json()).tasks.some((t) => t.seq === n);
+  assert(await listed(), "the task is on the board first");
+  let r = await cli(["task", "remove", String(note), "--board", board], { cred: credB });
+  assert(r.code === 1 && !r.out.includes("Retracted"), "a note isn't a task: " + r.out + r.err);
+  r = await cli(["task", "remove", String(n), "--board", board], { cred: credB });
+  assert(r.code === 0 && r.out.includes(`Retracted #${n}`), r.out + r.err);
+  assert(!(await listed()), "the task left the board");
+  r = await cli(["task", "remove", String(n), "--board", board], { cred: credB });
+  assert(r.code === 1 && r.err.includes("retracted"), "twice: " + r.err);
+  // B didn't make the board, so B can't retract A's entries; A (the creator) can retract B's.
+  await tool(tokA, board, "read", {});
+  const mine = Number((await tool(tokA, board, "post", { type: "note", text: `A's note ${run}` })).match(/Posted #(\d+)/)[1]);
+  r = await cli(["retract", String(mine), "--board", board], { cred: credB });
+  assert(r.code === 1 && r.err.includes("can retract it"), "not B's to retract: " + r.err);
+  r = await cli(["retract", `#${note}`, "posted by mistake", "--board", board]);
+  assert(r.code === 0 && r.out.includes(`Retracted #${note}`), r.out + r.err);
+  const got = await tool(tokA, board, "get", { seq: note });
+  assert(got.includes(`retracts #${note}`) && got.includes("posted by mistake"), "kept in the log with its retraction: " + got);
+  r = await cli(["retract", "--board", board]);
+  assert(r.code === 1 && r.err.includes("Usage: atteo retract"), r.err);
+});
+
 await step("task edit / tick / done with unread board entries: the edit is saved once, 'Saved #N vX.' is printed (then the missed entries), exit 0", async () => {
   const made = await tool(tokA, board, "task", { action: "create", title: `Unread edit ${run}`, body: `Plan:\n- [ ] first step\n- [ ] second step\nline one` });
   const n = Number(made.match(/#(\d+)/)[1]);

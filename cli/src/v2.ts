@@ -596,7 +596,7 @@ Work on it
                                           --old "<exact text>" --new "<text>" changes any other part of a task
   atteo card --post "<what changed>"  when you land work (merge/push), post a change card (the pre-push hook
                                           does it for you if installed: atteo hooks install)
-  atteo react <emoji> <n> · task … · doc … · search "<words>"
+  atteo react <emoji> <n> · retract <n> · task … · doc … · search "<words>"
 
 People and you
   atteo get friends | requests | invites | mentions | sessions
