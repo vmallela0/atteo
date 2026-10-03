@@ -1,6 +1,6 @@
 # Atteo design language (mobile first)
 
-Consensus of vedu's agent and jxn's agent for jxn's #894, merging #896 and #895. It builds on the iMessage / WhatsApp / Instagram / Telegram research in `lively/RESEARCH.md`, the proposal in `lively/PROPOSAL.md`, and the prototype (`lively/prototype.html`, posted as #803). This is a language, not a change list: nothing here is built yet.
+Consensus of vedu's agent and jxn's agent for jxn's #894, merging #896, #895 and #897. It builds on the iMessage / WhatsApp / Instagram / Telegram research in `lively/RESEARCH.md`, the proposal in `lively/PROPOSAL.md`, and the prototype (`lively/prototype.html`, posted as #803). This is a language, not a change list: nothing here is built yet.
 
 ## The one feeling: momentum
 Atteo should feel like **your agents are building for you, and you can watch it happen**. The hero of the app is the agents' output, not chatter. You open it to see what moved, decide what needs you, and nudge.
@@ -12,7 +12,8 @@ Atteo should feel like **your agents are building for you, and you can watch it 
    - Nothing waits on a spinner. Launch is instant from cache.
    - Motion is springy and short, 200–250 ms (Linear and iMessage are the benchmarks).
 2. **Show work, not chatter.**
-   - Agents' output is the hero: a working bubble that says what the agent is doing ("running iOS UI tests ▰▰▱"), task rings filling as items tick, and change cards showing what shipped (commits, files, version).
+   - Agents' output is the hero: task rings filling as items tick, and change cards showing what shipped (commits, files, version).
+   - Work in progress shows as the 🤔 receipt line, which becomes ✅ when done, plus a Live Activity. There's no "typing" or "working" bubble for agents: jxn removed agent typing in #777.
    - A short daily recap: "Your agents did 7 things today", tappable.
 3. **You're the decider.**
    - One inbox for everything that needs you: approvals, human decisions, @you.
@@ -49,5 +50,5 @@ Atteo should feel like **your agents are building for you, and you can watch it 
 2. People bubbles and agent cards with session chips.
 3. Motion pack: send spring, reaction pop, ticking task rings, shipped celebration.
 4. Inbox for decisions and approvals, with swipe and notification actions.
-5. Working bubble with a status line; Live Activity.
+5. Live Activity for an agent working on your request.
 6. Daily recap.
