@@ -1359,6 +1359,71 @@ await step("recap: decided, open questions and who owes what since you last look
   assert(j.decisions.length === 1 && j.questions.length === 1 && j.owed.some((o) => o.items.some((i) => i.title.includes(`Fix login ${run}`))), "--json: " + r.out);
 });
 
+await step("soul / memory / remember / forget: the board's SOUL (people-only) and its MEMORY, from the CLI", async () => {
+  const mb = (await ops("boards", { user: B, title: `e2e cli memory ${run}` })).board.id;
+  await ops("members", { board: mb, user: A });
+  const cfg = { XDG_CONFIG_HOME: join(dir, "cfg-memory") };
+  const m = (...a) => cli([...a, "--board", mb], { env: cfg });
+  // SOUL: none yet; an agent's login can't write it (people only); a person's edit shows up.
+  let r = await m("soul");
+  assert(r.code === 0 && r.out.includes("no SOUL yet"), "no SOUL yet: " + r.out + r.err);
+  const soulFile = join(dir, "PROTOCOL.md");
+  writeFileSync(soulFile, `# How we work ${run}\n- small PRs\n`);
+  r = await m("soul", "set", soulFile);
+  assert(r.code === 1 && r.err.includes("Only people can edit a board's SOUL") && r.err.includes("on the web") && !r.err.includes(tokA), "people only: " + r.code + r.out + r.err);
+  r = await cli(["soul", "set", "-", "--board", mb], { env: cfg, input: "stdin soul" });
+  assert(r.code === 1 && r.err.includes("Only people can edit"), "stdin too: " + r.err);
+  const cookieB = (await ops("sessions", { user: B })).cookie;
+  const put = await fetch(`${BASE}/api/boards/${mb}/soul`, { method: "PUT", headers: { cookie: cookieB, "content-type": "application/json" }, body: JSON.stringify({ text: `# How we work ${run}\n- small PRs\n`, base_version: 0 }) });
+  assert(put.ok, "a person writes it: " + put.status);
+  r = await m("soul");
+  assert(r.code === 0 && r.out.includes("PROTOCOL.md v1 · saved by " + B) && r.out.includes(`How we work ${run}`) && /<<untrusted [0-9a-f]+:/.test(r.out), "soul: " + r.out + r.err);
+  r = await m("soul", "--json");
+  assert(JSON.parse(r.out).soul.version === 1, "--json: " + r.out);
+  // MEMORY: remember text, from an entry, the same fact again; the list shows them and the latest decisions.
+  r = await m("memory");
+  assert(r.code === 0 && r.out.includes("Memory is empty (0/50)"), "empty: " + r.out + r.err);
+  r = await m("remember", `Use pnpm, not npm ${run}`);
+  const id1 = r.out.match(/Remembered m(\d+) \(1\/50\)/)?.[1];
+  assert(r.code === 0 && id1, "remembered: " + r.out + r.err);
+  r = await m("remember", `use pnpm,  not npm ${run}.`);
+  assert(r.code === 0 && r.out.includes(`Already remembered as m${id1}.`), "duplicate: " + r.out + r.err);
+  const d = Number((await tool(tokB, mb, "post", { type: "decision", text: `Staging deploys on Fridays ${run}\nmore detail` })).match(/#(\d+)/)[1]);
+  r = await m("remember", "--from", String(d));
+  const id2 = r.out.match(/Remembered m(\d+) \(2\/50\)/)?.[1];
+  assert(r.code === 0 && id2, "from an entry: " + r.out + r.err);
+  r = await m("remember", "--from", "9999");
+  assert(r.code === 1 && r.err.includes("#9999 does not exist"), "no such entry: " + r.err);
+  r = await m("remember");
+  assert(r.code === 1 && r.err.includes("Usage: atteo remember"), "usage: " + r.err);
+  const theirs = await fetch(`${BASE}/api/boards/${mb}/memory`, { method: "POST", headers: { cookie: cookieB, "content-type": "application/json" }, body: JSON.stringify({ text: `Release notes go in CHANGES.md ${run}` }) });
+  const id3 = (await theirs.json()).item.id;
+  r = await m("memory");
+  assert(r.code === 0 && r.out.includes("Memory (3/50") && /<<untrusted [0-9a-f]+:/.test(r.out), "listed, fenced: " + r.out + r.err);
+  assert(r.out.includes(`m${id1} · ${A}'s agent`) && r.out.includes(`Use pnpm, not npm ${run}`) && r.out.includes("just now"), "who, via, age: " + r.out);
+  assert(r.out.includes(`m${id2} · ${A}'s agent`) && r.out.includes(`from #${d}`) && r.out.includes(`Staging deploys on Fridays ${run}`), "source entry: " + r.out);
+  assert(r.out.includes(`m${id3} · ${B} · `), "a person's item: " + r.out);
+  assert(r.out.includes("Latest decisions:") && r.out.includes(`#${d} · ${B}'s agent`), "decisions under their own heading: " + r.out);
+  r = await m("memory", "--json");
+  const j = JSON.parse(r.out);
+  assert(j.items.length === 3 && j.max === 50 && j.decisions.some((x) => x.seq === d), "--json: " + r.out);
+  // forget: your person's items (m3 or 3); not someone else's; not one that isn't there.
+  r = await m("forget", `m${id1}`);
+  assert(r.code === 0 && r.out.includes(`Struck m${id1}.`), "struck: " + r.out + r.err);
+  r = await m("forget", String(id3));
+  assert(r.code === 1 && r.err.includes(`added by ${B}`) && r.err.includes("its own person's"), "not theirs: " + r.err);
+  r = await m("forget", "m999");
+  assert(r.code === 1 && r.err.includes("No memory item m999"), "no such item: " + r.err);
+  r = await m("forget", "bogus");
+  assert(r.code === 1 && r.err.includes("Usage: atteo forget"), "usage: " + r.err);
+  r = await m("memory", "--json");
+  assert(JSON.parse(r.out).items.length === 2, "one fewer: " + r.out);
+  // Full (50 active items): a person needs to strike something.
+  for (let i = 0; i < 48; i++) await fetch(`${BASE}/api/boards/${mb}/memory`, { method: "POST", headers: { cookie: cookieB, "content-type": "application/json" }, body: JSON.stringify({ text: `filler fact ${i} ${run}` }) });
+  r = await m("remember", `One more fact ${run}`);
+  assert(r.code === 1 && r.err.includes("memory is full (50)") && r.err.includes("A person on the board needs to strike"), "full: " + r.code + r.out + r.err);
+});
+
 await step("trigger add / list / off / on / remove: wake your own agent when something happens", async () => {
   const tb = (await ops("boards", { user: A, title: `e2e cli triggers ${run}` })).board.id;
   const cfg = { XDG_CONFIG_HOME: join(dir, "cfg-trigger") };

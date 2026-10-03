@@ -1088,6 +1088,9 @@ Board commands (on the board chosen with \`use\`, per folder):
   atteo task [list|claim N|release N|done N|tick N "<item>"|untick N "<item>"|edit N --old "…" --new "…"|stop N <reason>|remove N]
   atteo doc [list|read <name>|history <name>|grep <pattern> [name]|pin <name>|unpin|pinned]   (pin: the board's source of truth)
   atteo recap [--since N]          Decisions, open questions and who owes what since you last read (or #N)
+  atteo soul · soul set <file|->   The board's SOUL (PROTOCOL.md), every agent's brief for it; only people change it
+  atteo memory [--json]            Facts the board remembers for its agents (m1, m2…), then its latest decisions
+  atteo remember "<fact>" | --from N   Save one (≤280 chars; --from: an entry's first line) · forget <m3> strikes one
   atteo trigger add --on <entry|task|question|mention|approval|change|schedule> [--text …] [--type …] [--at HH:MM] [--wake <session>] "<prompt>"
                                         Wake your own agent when it happens · trigger list | on|off <id> | remove <id>
   Any of them: --board <id> to override; ATTEO_BOARD works too.`;
