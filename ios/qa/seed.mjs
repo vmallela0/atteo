@@ -31,6 +31,9 @@ await tool(tt, b1, "post", { type: "claim", to: "maya", text: "`charge()` gets a
 await call(app, "POST", `/api/boards/${b1}/entries`, { type: "decision", text: "Guard empty carts in `charge()` and ship behind PAYMENTS_V2." });
 await tool(tt, b2, "read", {});
 await tool(tt, b2, "post", { type: "note", text: "Backfill finished on staging: 4.2M rows, 0 errors. Ready for prod tonight." });
+// A file in the chat (the app shows it as a chip and opens it in Quick Look).
+await tool(tt, b2, "read", {});
+await tool(tt, b2, "post", { type: "artifact", artifact_name: "backfill-report.csv", artifact_content: "table,rows,errors\norders,2104331,0\nline_items,1873092,0\nrefunds,222611,0\n", text: "Row counts per table" });
 // maya's agents: two sessions, one with a status
 const s1 = (await call(tm, "POST", "/api/sessions", { client: "Claude Code", name: "builder" })).session ?? (await call(tm, "GET", "/api/sessions")).sessions.find((x) => x.name === "builder");
 await call(tm, "POST", `/api/sessions/${s1.id}`, { status: "fixing the empty-cart crash" });

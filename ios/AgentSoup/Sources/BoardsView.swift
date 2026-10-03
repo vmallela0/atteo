@@ -1,6 +1,7 @@
 // One board or DM: opens on what you saw last (cached), refreshes in place, marks itself read, and sends instantly
 // (your message shows at once; if it can't be delivered it says so and you tap to retry).
 
+import PhotosUI
 import SwiftUI
 
 struct BoardView: View {
@@ -25,7 +26,17 @@ struct BoardView: View {
     @FocusState private var focused: Bool
 
     private var list: [Entry] { state.entries[board.id] ?? [] }
-    private var canSend: Bool { !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    private var canSend: Bool { (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty) && preparing == 0 }
+
+    // Pictures and files waiting in the message box (sent with the text, the way the web composer sends them).
+    @State private var attachments: [Attachment] = []
+    @State private var preparing = 0 // picked, still being made to fit
+    @State private var picked: [PhotosPickerItem] = []
+    @State private var showPhotos = false
+    @State private var showCamera = false
+    @State private var showFiles = false
+    @State private var showEncryptedNote = false
+    private let maxAttachments = 10
 
     @State private var atBottom = true
     @State private var stick = true // pinned to the latest until you scroll up yourself (like any messenger)
@@ -53,9 +64,9 @@ struct BoardView: View {
                             // A hairline between separate messages from others (bubbles are separate already).
                             else if !(mine && e.type != "task") && !prevMine { Rectangle().fill(Theme.line.opacity(grouped ? 0.45 : 0.8)).frame(height: 0.5).padding(.leading, 38).padding(.top, grouped ? Space.xs : Space.s) }
                             EntryRow(e: e, grouped: grouped, mine: mine, board: board.id, tasks: state.tasks[board.id] ?? [], reactions: state.reactions[board.id]?[e.seq] ?? [],
-                                     parent: e.replyTo.flatMap { bySeq[$0] }, me: state.me?.owner,
+                                     parent: e.replyTo.flatMap { bySeq[$0] }, me: state.me?.owner, members: state.members[board.id] ?? [], progress: state.uploads[e.seq],
                                      reply: e.pending == true || e.failed == true ? nil : { startReply(to: e) }) {
-                                Task { await state.send(e.text, to: board, retrying: e) }
+                                Task { if e.local != nil { await state.retryUpload(e, in: board) } else { await state.send(e.text, to: board, retrying: e) } }
                             }
                         }
                         .id(e.id)
@@ -125,6 +136,19 @@ struct BoardView: View {
                 .accessibilityIdentifier("presence")
             }
         }
+        .photosPicker(isPresented: $showPhotos, selection: $picked, maxSelectionCount: max(1, min(5, maxAttachments - attachments.count)), selectionBehavior: .ordered, matching: .images)
+        .onChange(of: picked) { _, items in
+            guard !items.isEmpty else { return }
+            picked = []
+            for item in items { add { guard let d = try await item.loadTransferable(type: Data.self) else { throw AttachError.unreadable("That picture") }; return try await Attachments.picture(d, name: nil) } }
+        }
+        .fileImporter(isPresented: $showFiles, allowedContentTypes: [.item], allowsMultipleSelection: true) { r in
+            switch r {
+            case .success(let urls): for u in urls.prefix(max(0, maxAttachments - attachments.count)) { add { try await Attachments.file(u) } }
+            case .failure(let e): state.report(e)
+            }
+        }
+        .fullScreenCover(isPresented: $showCamera) { CameraPicker { img in add { try await Attachments.photo(img) } }.ignoresSafeArea() }
         .sheet(isPresented: $showAgents) { AgentsHereSheet(board: board).presentationDetents([.medium]).presentationBackground(Theme.bg) }
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Theme.bg, for: .navigationBar)
@@ -189,11 +213,19 @@ struct BoardView: View {
                 .padding(.horizontal, Space.m).padding(.bottom, Space.xs)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
+            VStack(spacing: 0) {
+            if !attachments.isEmpty || preparing > 0 {
+                AttachmentTray(items: attachments, preparing: preparing) { a in
+                    withAnimation(.spring(duration: 0.28, bounce: 0.1)) { attachments.removeAll { $0.id == a.id } }
+                }
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
             HStack(alignment: .bottom, spacing: 0) {
-                TextField(board.kind == "direct" ? "Message \(board.displayName(me: state.me?.owner))" : "Message \(board.title)", text: $draft, axis: .vertical)
+                attachButton
+                TextField(attachments.isEmpty ? (board.kind == "direct" ? "Message \(board.displayName(me: state.me?.owner))" : "Message \(board.title)") : "Add a note", text: $draft, axis: .vertical)
                     .font(Typo.body)
                     .lineLimit(1...6).focused($focused)
-                    .padding(.leading, Space.l).padding(.trailing, Space.s).padding(.vertical, 10)
+                    .padding(.leading, Space.xs).padding(.trailing, Space.s).padding(.vertical, 10)
                     .accessibilityIdentifier("composer")
                 Button(action: send) {
                     Image(systemName: "arrow.up").font(.system(size: 14, weight: .bold))
@@ -210,22 +242,77 @@ struct BoardView: View {
                 .accessibilityIdentifier("send")
                 .accessibilityLabel("Send")
             }
+            }
             .background(Theme.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
             .padding(.horizontal, Space.m)
         }
         .padding(.top, Space.m).padding(.bottom, Space.s) // a little air between the last message and the box
         .background(Theme.bg)
         .animation(.spring(duration: 0.28, bounce: 0.1), value: suggestions.map(\.handle))
+        .animation(.spring(duration: 0.28, bounce: 0.1), value: attachments.map(\.id))
+        .animation(.spring(duration: 0.28, bounce: 0.1), value: preparing)
+    }
+
+    /// + at the leading edge of the message box: Photos, the camera (when there is one), Files. Encrypted boards
+    /// can't take attachments yet: the + is dimmed and says so.
+    @ViewBuilder private var attachButton: some View {
+        let label = Image(systemName: "plus").font(.system(size: 15, weight: .semibold))
+            .frame(width: 30, height: 30)
+            .background(Theme.raised, in: Circle())
+            .padding(5)
+            .contentShape(Rectangle())
+        if board.encrypted == true {
+            Button { Haptic.tap(); showEncryptedNote = true } label: { label.foregroundStyle(Theme.faint).opacity(0.55) }
+                .buttonStyle(PressStyle())
+                .popover(isPresented: $showEncryptedNote, arrowEdge: .bottom) {
+                    Label("Pictures and files can't be sent on encrypted boards yet.", systemImage: "lock.fill")
+                        .font(Typo.secondary).foregroundStyle(Theme.text)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(width: 260, alignment: .leading)
+                        .padding(.horizontal, Space.m).padding(.vertical, Space.s + 2)
+                        .presentationCompactAdaptation(.popover)
+                        .presentationBackground(Theme.raised)
+                        .accessibilityIdentifier("attach-unavailable")
+                }
+                .accessibilityIdentifier("attach")
+                .accessibilityLabel("Attach")
+                .accessibilityHint("Not available on encrypted boards yet")
+        } else {
+            Menu {
+                Button("Photos", systemImage: "photo.on.rectangle") { showPhotos = true }
+                if UIImagePickerController.isSourceTypeAvailable(.camera) { Button("Camera", systemImage: "camera") { showCamera = true } }
+                Button("Files", systemImage: "folder") { showFiles = true }
+            } label: { label.foregroundStyle(Theme.muted) }
+                .menuOrder(.fixed)
+                .disabled(attachments.count + preparing >= maxAttachments)
+                .accessibilityIdentifier("attach")
+                .accessibilityLabel("Attach")
+        }
+    }
+
+    /// Prepares something picked (made to fit the size limit) and puts it in the message box.
+    private func add(_ make: @escaping () async throws -> Attachment) {
+        preparing += 1
+        Task {
+            do {
+                let a = try await make()
+                withAnimation(.spring(duration: 0.28, bounce: 0.1)) { attachments.append(a) }
+            } catch { Haptic.warn(); state.report(error) }
+            preparing -= 1
+        }
     }
 
     private func send() {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
+        let files = attachments
+        guard canSend else { return }
         let reply = replyingTo?.seq
         draft = ""
-        withAnimation(.spring(duration: 0.3, bounce: 0.15)) { replyingTo = nil }
+        withAnimation(.spring(duration: 0.3, bounce: 0.15)) { replyingTo = nil; attachments = [] }
         Haptic.tap()
-        Task { await state.send(text, to: board, replyTo: reply) }
+        Task {
+            if files.isEmpty { await state.send(text, to: board, replyTo: reply) } else { await state.send(files: files, caption: text, to: board, replyTo: reply) }
+        }
     }
 }
 
@@ -334,6 +421,8 @@ struct EntryRow: View {
     var reactions: [Reaction] = [] // on this message (agents' 👀 / ✅: read and working / done)
     var parent: Entry? = nil // what this one answers
     var me: String? = nil
+    var members: [String] = [] // who's on the board (for @-mentions while a message is still sending)
+    var progress: Double? = nil // a picture or file going up: how far
     var reply: (() -> Void)? = nil // answer this message (nil: it can't be answered yet)
     var retry: () -> Void = {}
     @State private var drag: CGFloat = 0 // swipe right to reply
@@ -386,9 +475,21 @@ struct EntryRow: View {
     /// A question, a claim, a decision: said in words, not as a type tag.
     private var kind: String? {
         switch e.type {
-        case "note", "task": return nil
-        case "artifact": return "File"
+        case "note", "task", "artifact": return nil // a file shows as itself
         default: return e.type.prefix(1).uppercased() + e.type.dropFirst()
+        }
+    }
+
+    /// The words under a picture or file; nil when they'd only repeat its name ("Shared photo.jpg").
+    private var caption: String? {
+        if let a = e.artifactName, e.text == "Shared \(a)" || e.text.isEmpty { return nil }
+        return e.text
+    }
+
+    /// A picture inline, or a file as a chip.
+    @ViewBuilder private var attachment: some View {
+        if e.artifactName != nil {
+            if e.isImage { ChatImage(e: e, board: board, progress: progress) } else { FileChip(e: e, board: board, progress: progress) }
         }
     }
 
@@ -397,10 +498,15 @@ struct EntryRow: View {
         VStack(alignment: .trailing, spacing: Space.xs) {
             if let k = kind { Text(k).font(Typo.micro.weight(.medium)).foregroundStyle(Theme.faint) }
             quote
-            Text(e.text.md)
-                .font(Typo.body).foregroundStyle(Theme.text.opacity(e.pending == true ? 0.55 : 1))
-                .padding(.horizontal, Space.m + 1).padding(.vertical, Space.s)
-                .background(Theme.raised, in: RoundedRectangle(cornerRadius: Radius.bubble, style: .continuous))
+            attachment
+            if let caption {
+                let m = caption.mentioned(e.mentions, members: members, me: me)
+                Text(m.text)
+                    .font(Typo.body).foregroundStyle(Theme.text.opacity(e.pending == true ? 0.55 : 1))
+                    .accessibilityValue(m.handles.isEmpty ? "" : "Mentions " + m.handles.joined(separator: ", "))
+                    .padding(.horizontal, Space.m + 1).padding(.vertical, Space.s)
+                    .background(Theme.raised, in: RoundedRectangle(cornerRadius: Radius.bubble, style: .continuous))
+            }
             if !reactions.isEmpty { ReactionLine(reactions: reactions, trailing: true) }
             if e.pending == true {
                 Text("Sending…").font(.caption2).foregroundStyle(Theme.faint)
@@ -428,16 +534,12 @@ struct EntryRow: View {
                         Text(e.ts.ago).font(Typo.micro).foregroundStyle(Theme.faint).monospacedDigit()
                     }
                 }
-                if let a = e.artifactName {
-                    // A file: a quiet chip with its name (not a terminal line).
-                    Label(a, systemImage: "doc.text.fill").font(Typo.meta.weight(.medium)).foregroundStyle(Theme.muted)
-                        .padding(.horizontal, Space.s + 2).padding(.vertical, 6)
-                        .background(Theme.card, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                        .padding(.vertical, Space.xxs)
-                }
+                attachment.padding(.vertical, Space.xxs)
                 quote
-                if e.type == "task" { TaskCard(seq: e.seq, board: board, text: e.text, tasks: tasks).padding(.top, Space.xxs) } else {
-                    Text(e.text.md).font(Typo.body).foregroundStyle(Theme.text.opacity(0.92)).lineSpacing(1.5)
+                if e.type == "task" { TaskCard(seq: e.seq, board: board, text: e.text, tasks: tasks).padding(.top, Space.xxs) } else if let caption {
+                    let m = caption.mentioned(e.mentions, members: members, me: me)
+                    Text(m.text).font(Typo.body).foregroundStyle(Theme.text.opacity(0.92)).lineSpacing(1.5)
+                        .accessibilityValue(m.handles.isEmpty ? "" : "Mentions " + m.handles.joined(separator: ", "))
                 }
                 if !reactions.isEmpty { ReactionLine(reactions: reactions, trailing: false) }
             }

@@ -312,6 +312,81 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// How far each picture or file you're sending has gone up (by its stand-in's seq), 0…1.
+    @Published var uploads: [Int: Double] = [:]
+    private static let outbox = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("outbox", isDirectory: true)
+
+    /// Sends pictures and files the way the web composer does: one upload each, in order, what you typed going with
+    /// the first. Each shows at once (its own preview, a ring as it goes up), then becomes the real entry, or
+    /// "not sent, tap to retry" if the connection dropped. What the server won't take (too large, a secret) says why.
+    func send(files: [Attachment], caption: String, to b: Board, replyTo: Int? = nil) async {
+        let mine = self.me?.owner ?? ""
+        let now = Date().timeIntervalSince1970 * 1000
+        var queue: [(Entry, Data)] = []
+        for (i, f) in files.enumerated() {
+            // The bytes wait on disk (a retry after a relaunch still has them).
+            let dir = Self.outbox.appendingPathComponent(UUID().uuidString, isDirectory: true)
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let file = dir.appendingPathComponent(f.name.replacingOccurrences(of: "/", with: "_"))
+            try? f.data.write(to: file)
+            let text = i == 0 && !caption.isEmpty ? caption : "Shared \(f.name)"
+            let e = Entry(seq: -Int(now) - i, ts: now + Double(i), author: mine, type: "artifact", text: text, title: nil, to: nil, via: "person",
+                          artifactName: f.name, pending: true, replyTo: replyTo,
+                          media: Media(mime: f.mime, w: f.width, h: f.height, size: f.data.count), artifactSize: f.data.count, local: file.path)
+            queue.append((e, f.data))
+        }
+        withAnimation(.smooth) { entries[b.id] = (entries[b.id] ?? []) + queue.map(\.0) }
+        for (e, d) in queue { await upload(e, data: d, to: b) }
+    }
+
+    /// Tries a picture or file that didn't go up again.
+    func retryUpload(_ e: Entry, in b: Board) async {
+        guard let path = e.local, let d = try? Data(contentsOf: URL(fileURLWithPath: path)) else {
+            withAnimation(.smooth) { entries[b.id]?.removeAll { $0.seq == e.seq } }
+            return
+        }
+        withAnimation(.smooth) { entries[b.id] = (entries[b.id] ?? []).map { $0.seq == e.seq ? { var x = $0; x.pending = true; x.failed = nil; return x }($0) : $0 } }
+        await upload(e, data: d, to: b)
+    }
+
+    private func upload(_ temp: Entry, data: Data, to b: Board) async {
+        guard let name = temp.artifactName else { return }
+        let mime = temp.media?.mime ?? "application/octet-stream"
+        var q = "name=\(name.queryEscaped)"
+        if let w = temp.media?.w, let h = temp.media?.h { q += "&w=\(w)&h=\(h)" }
+        if let r = temp.replyTo { q += "&reply_to=\(r)" }
+        if temp.text != "Shared \(name)" { q += "&text=\(temp.text.queryEscaped)" }
+        uploads[temp.seq] = 0
+        defer { uploads[temp.seq] = nil }
+        do {
+            let d = try await API.shared.upload("/api/boards/\(b.id)/upload?\(q)", data: data, contentType: mime) { p in
+                Task { @MainActor in if AppState.shared.uploads[temp.seq] != nil { AppState.shared.uploads[temp.seq] = p } }
+            }
+            let real = try JSONDecoder.soup.decode(PostResponse.self, from: d).entry
+            // Already here: keep it under its real name and version so it doesn't download again.
+            MediaStore.shared.adopt(data, board: b.id, name: real.artifactName ?? name, version: real.artifactVersion, image: real.isImage)
+            if let path = temp.local { try? FileManager.default.removeItem(at: URL(fileURLWithPath: path).deletingLastPathComponent()) }
+            withAnimation(.smooth) { entries[b.id] = (entries[b.id] ?? []).map { $0.seq == temp.seq ? real : $0 } }
+            Haptic.done()
+            save()
+            Task { await refreshBoards() }
+        } catch APIError.offline {
+            withAnimation(.smooth) {
+                entries[b.id] = (entries[b.id] ?? []).map { e in
+                    guard e.seq == temp.seq else { return e }
+                    var f = e; f.pending = nil; f.failed = true; return f
+                }
+            }
+            Haptic.warn()
+        } catch {
+            // The server said no (too large, a secret in it, a read-only board): trying again won't help, so say why.
+            withAnimation(.smooth) { entries[b.id]?.removeAll { $0.seq == temp.seq } }
+            if let path = temp.local { try? FileManager.default.removeItem(at: URL(fileURLWithPath: path).deletingLastPathComponent()) }
+            Haptic.warn()
+            report(error)
+        }
+    }
+
     func markRead(_ b: Board) async {
         guard inbox.contains(where: { $0.boardId == b.id && $0.readAt == nil }) else { return }
         let now = Date().timeIntervalSince1970 * 1000

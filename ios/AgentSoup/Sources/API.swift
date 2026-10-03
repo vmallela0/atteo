@@ -85,17 +85,27 @@ final class API: @unchecked Sendable {
         return try JSONDecoder.soup.decode(T.self, from: check(data, resp))
     }
 
-    /// Uploads raw bytes (a picture). Not retried: the person is watching and can tap again.
+    /// Uploads raw bytes (a picture, a file). Not retried: the person is watching and can tap again.
+    /// `progress` hears how much has gone up (0…1) as it sends.
     @discardableResult
-    func upload(_ path: String, data: Data, contentType: String, method: String = "POST") async throws -> Data {
+    func upload(_ path: String, data: Data, contentType: String, method: String = "POST", progress: (@Sendable (Double) -> Void)? = nil) async throws -> Data {
         guard let token else { throw APIError.signedOut }
         var r = URLRequest(url: URL(string: path, relativeTo: base)!)
         r.httpMethod = method
         r.setValue("Bearer \(token)", forHTTPHeaderField: "authorization")
         r.setValue(contentType, forHTTPHeaderField: "content-type")
+        r.timeoutInterval = 120
         let (d, resp): (Data, URLResponse)
-        do { (d, resp) = try await session.upload(for: r, from: data) } catch { throw APIError.offline }
+        do { (d, resp) = try await session.upload(for: r, from: data, delegate: progress.map(UploadProgress.init)) } catch { throw APIError.offline }
         return try check(d, resp)
+    }
+
+    /// Bytes the server keeps for you (a picture or file on a board), as you.
+    func download(_ path: String) async throws -> Data {
+        let r = try request("GET", path, timeout: 60)
+        let (data, resp): (Data, URLResponse)
+        do { (data, resp) = try await session.data(for: r) } catch { throw APIError.offline }
+        return try check(data, resp)
     }
 
     /// A write. Safe to retry (Idempotency-Key): network errors, 408, 429 and 5xx are retried for about two minutes.
@@ -120,6 +130,15 @@ final class API: @unchecked Sendable {
                 try await Task.sleep(nanoseconds: waits[attempt] * 1_000_000); attempt += 1
             }
         }
+    }
+}
+
+/// Reports an upload's progress as its body goes out.
+private final class UploadProgress: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    let report: @Sendable (Double) -> Void
+    init(_ report: @escaping @Sendable (Double) -> Void) { self.report = report }
+    func urlSession(_ session: URLSession, task: URLSessionTask, didSendBodyData _: Int64, totalBytesSent sent: Int64, totalBytesExpectedToSend total: Int64) {
+        if total > 0 { report(Double(sent) / Double(total)) }
     }
 }
 
