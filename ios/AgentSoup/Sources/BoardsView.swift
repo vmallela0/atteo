@@ -462,16 +462,12 @@ struct BoardView: View {
                 ComposerField(text: $draft, focused: $focused,
                               placeholder: attachments.isEmpty ? (board.kind == "direct" ? "Message \(board.displayName(me: state.me?.owner))" : "Message \(board.title)") : "Add a note",
                               pasteImages: pasted)
-                    .padding(.leading, Space.xs).padding(.trailing, Space.s)
+                    .padding(.horizontal, Composer.gap)
                 Button(action: send) {
                     Image(systemName: "arrow.up").font(.system(size: 14, weight: .bold))
-                        .frame(width: 30, height: 30)
-                        .background(canSend ? Theme.accent : Theme.raised, in: Circle())
+                        .composerCircle(fill: canSend ? Theme.accent : Theme.raised)
                         .foregroundStyle(canSend ? .black : Theme.faint)
-                        .scaleEffect(canSend ? 1 : 0.9)
                         .animation(.spring(duration: 0.3, bounce: 0.35), value: canSend)
-                        .padding(5)
-                        .contentShape(Rectangle())
                 }
                 .buttonStyle(PressStyle())
                 .disabled(!canSend)
@@ -492,11 +488,8 @@ struct BoardView: View {
     /// + at the leading edge of the message box: Photos, the camera (when there is one), Files. Encrypted boards
     /// can't take attachments yet: the + is dimmed and says so.
     @ViewBuilder private var attachButton: some View {
-        let label = Image(systemName: "plus").font(.system(size: 15, weight: .semibold))
-            .frame(width: 30, height: 30)
-            .background(Theme.raised, in: Circle())
-            .padding(5)
-            .contentShape(Rectangle())
+        let label = Image(systemName: "plus").font(.system(size: 14, weight: .bold))
+            .composerCircle(fill: Theme.raised)
         if board.encrypted == true {
             Button { Haptic.tap(); showEncryptedNote = true } label: { label.foregroundStyle(Theme.faint).opacity(0.55) }
                 .buttonStyle(PressStyle())
@@ -520,6 +513,7 @@ struct BoardView: View {
                 Button("Files", systemImage: "folder") { showFiles = true }
             } label: { label.foregroundStyle(Theme.muted) }
                 .menuOrder(.fixed)
+                .menuStyle(.button).buttonStyle(.plain) // the bare circle, no system padding (it lines up with send)
                 .disabled(attachments.count + preparing >= maxAttachments)
                 .accessibilityIdentifier("attach")
                 .accessibilityLabel("Attach")
@@ -556,6 +550,25 @@ struct BoardView: View {
         Task {
             if files.isEmpty { await state.send(text, to: board) } else { await state.send(files: files, caption: text, to: board) }
         }
+    }
+}
+
+/// The message box's measures: its two round buttons the same size, the same distance in from each end, centred on
+/// a single line of text and pinned to the last line as it grows; even room between the text and each button.
+enum Composer {
+    static let button: CGFloat = 32
+    static let inset: CGFloat = 6 // from the box's inner edge to a button
+    static let line: CGFloat = button + 2 * inset // one line of text is this tall, so the buttons sit on its centre
+    static let gap: CGFloat = 6 // between the text and a button
+}
+
+extension View {
+    /// A message-box button: a 32 pt circle, inset evenly from the box's edge.
+    func composerCircle(fill: Color) -> some View {
+        frame(width: Composer.button, height: Composer.button)
+            .background(fill, in: Circle())
+            .padding(Composer.inset)
+            .contentShape(Rectangle())
     }
 }
 
