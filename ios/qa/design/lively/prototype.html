@@ -1,0 +1,868 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Atteo Bright</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+/* ============================================================================================================
+   Atteo "Bright": a lively theme prototype (#764). Tokens below are the proposal's tokens (PROPOSAL.md), the
+   same shape as src/ui.ts: :root is Bright, [data-theme="dark"] is today's dark look, bubble-ified.
+   URL params: ?theme=bright|dark  &screen=chat|list|thread  &t=end (skip the intro)  &frame=0 (phone only)
+   &burst=0.35 (freeze the shipped confetti at that progress, for screenshots)  &scroll=px (chat scroll from top)
+   ============================================================================================================ */
+:root{
+  /* surfaces */
+  --bg:#FBF7F1;            /* warm paper, never #fff */
+  --bg-elev:#FFFFFF;       /* cards, sheets, the composer */
+  --bg-sunk:#F3EEE6;       /* inputs, segmented controls */
+  --line:rgba(40,28,16,.08);
+  --line-strong:rgba(40,28,16,.14);
+  --glass:rgba(251,247,241,.78);
+  /* wallpaper: a soft three-light gradient + a faint pebble doodle */
+  --wall-1:#FFE6D8; --wall-2:#E8E4FF; --wall-3:#DDF3EA; --wall-doodle:rgba(160,110,80,.045);
+  /* text */
+  --text:#1B1713; --muted:#6E665E; --faint:#A1978C; --on-accent:#FFFFFF;
+  /* brand */
+  --accent:#D9785A;        /* clay: fills, icons, badges, rings */
+  --accent-text:#B5502F;   /* clay as text on paper (4.7:1) */
+  --accent-soft:#FBE3D8;
+  /* bubbles */
+  --bubble-you-1:#BD5636; --bubble-you-2:#AE4A2B; --bubble-you-text:#FFFFFF;   /* white on these: 4.6 to 5.5:1 */
+  --bubble-them:#FFFFFF;  --bubble-them-text:#1B1713;
+  --bubble-agent:#F2EEE6; --bubble-agent-line:rgba(17,17,19,.07); --bubble-agent-text:#1B1713;
+  --chip-agent-bg:#111113; --chip-agent-text:#F2EFE8;  /* the Pebble's ink half */
+  /* people (sender colour: names, avatars, their agents) */
+  --p-vedu:#B5502F; --p-vedu-soft:#FBE3D8;
+  --p-jxn:#0F7C83;  --p-jxn-soft:#D8F1EF;
+  --p-maya:#6B4FD8; --p-maya-soft:#E8E2FF;
+  --p-theo:#2E6FB0; --p-theo-soft:#DDEBFA;
+  /* state */
+  --ok:#1E9E5A; --ok-soft:#DAF3E4; --warn:#C2410C; --danger:#D93A35; --read:#B5502F;
+  /* depth */
+  --shadow-bubble:0 1px 1px rgba(60,40,20,.05),0 2px 8px rgba(60,40,20,.06);
+  --shadow-card:0 1px 2px rgba(60,40,20,.06),0 8px 24px rgba(60,40,20,.08);
+  --shadow-pop:0 6px 30px rgba(60,40,20,.18);
+  --page:#EDE6DC;
+  color-scheme:light;
+}
+:root[data-theme="dark"]{
+  --bg:#0A0A0A; --bg-elev:#161616; --bg-sunk:#1C1C1C;
+  --line:rgba(255,255,255,.07); --line-strong:rgba(255,255,255,.12); --glass:rgba(10,10,10,.72);
+  --wall-1:#1A110D; --wall-2:#0F0F16; --wall-3:#0C1311; --wall-doodle:rgba(255,255,255,.018);
+  --text:#EDEDED; --muted:#A1A1A1; --faint:#6F6F6F;
+  --accent:#D9785A; --accent-text:#E8906F; --accent-soft:#2A1A14;
+  --bubble-you-1:#BD5636; --bubble-you-2:#AE4A2B;
+  --bubble-them:#1E1E20; --bubble-them-text:#EDEDED;
+  --bubble-agent:#17140F; --bubble-agent-line:rgba(242,239,232,.10); --bubble-agent-text:#EDEDED;
+  --chip-agent-bg:#F2EFE8; --chip-agent-text:#111113;
+  --p-vedu:#E8906F; --p-vedu-soft:#2A1A14;
+  --p-jxn:#4CC2C9;  --p-jxn-soft:#0F2526;
+  --p-maya:#A996FF; --p-maya-soft:#1D1830;
+  --p-theo:#7DB3EC; --p-theo-soft:#13202E;
+  --ok:#3ECF75; --ok-soft:#12261A; --read:#E8906F;
+  --shadow-bubble:none; --shadow-card:0 0 0 1px rgba(255,255,255,.06); --shadow-pop:0 10px 40px rgba(0,0,0,.6);
+  --page:#050505;
+  color-scheme:dark;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%}
+body{background:var(--page);color:var(--text);font:15px/1.4 "Geist",-apple-system,system-ui,sans-serif;-webkit-font-smoothing:antialiased;transition:background .4s}
+button{font:inherit;color:inherit;border:0;background:none;padding:0;cursor:pointer}
+svg{display:block}
+
+/* ---------- the page around the phone ---------- */
+.stage{min-height:100%;display:flex;align-items:center;justify-content:center;gap:56px;padding:32px 16px;flex-wrap:wrap}
+.side{max-width:300px;display:flex;flex-direction:column;gap:18px}
+.side h1{margin:0;font-size:26px;letter-spacing:-.02em;display:flex;align-items:center;gap:10px}
+.side p{margin:0;color:var(--muted);font-size:14px;line-height:1.5}
+.seg{align-self:flex-start;display:inline-flex;background:var(--bg-sunk);border-radius:12px;padding:3px;gap:2px;border:1px solid var(--line)}
+.seg button{padding:7px 14px;border-radius:9px;font-size:13.5px;font-weight:500;color:var(--muted);transition:.2s}
+.seg button.on{background:var(--bg-elev);color:var(--text);box-shadow:var(--shadow-bubble)}
+.hints{list-style:none;margin:0;padding:0;display:grid;gap:8px;font-size:13.5px;color:var(--muted)}
+.hints li{display:flex;gap:10px;align-items:baseline}
+.hints b{color:var(--text);font-weight:600;min-width:84px}
+.replay{align-self:flex-start;padding:8px 14px;border-radius:10px;background:var(--text);color:var(--bg);font-weight:600;font-size:13.5px}
+
+.phone{width:390px;height:844px;border-radius:56px;position:relative;overflow:hidden;background:var(--bg);
+  box-shadow:0 0 0 11px #1a1a1c,0 0 0 13px #3a3a3e,0 40px 80px rgba(0,0,0,.28);isolation:isolate;transition:background .4s}
+.phone::after{content:"";position:absolute;top:11px;left:50%;transform:translateX(-50%);width:124px;height:36px;border-radius:20px;background:#000;z-index:50}
+body.bare{background:var(--bg)}
+body.bare .stage{padding:0;display:block}
+body.bare .side{display:none}
+body.bare .phone{border-radius:0;box-shadow:none}
+body.bare .phone::after{display:none}
+
+/* ---------- shared phone chrome ---------- */
+.screen{position:absolute;inset:0;display:flex;flex-direction:column;transition:transform .45s cubic-bezier(.2,.9,.25,1),opacity .3s}
+.screen.off-right{transform:translateX(100%);pointer-events:none}
+.screen.off-left{transform:translateX(-28%);opacity:0;pointer-events:none}
+.statusbar{height:54px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:6px 30px 0 44px;font-weight:600;font-size:16px;position:relative;z-index:5}
+.statusbar .icons{display:flex;gap:6px;align-items:center}
+.wall{position:absolute;inset:0;z-index:-1;background:
+   radial-gradient(120% 60% at 0% 0%,var(--wall-1) 0%,transparent 60%),
+   radial-gradient(90% 55% at 100% 45%,var(--wall-2) 0%,transparent 62%),
+   radial-gradient(110% 50% at 20% 100%,var(--wall-3) 0%,transparent 60%),var(--bg)}
+.wall::after{content:"";position:absolute;inset:0;opacity:1;background-image:var(--doodle);background-size:84px 84px}
+.wall.off{background:var(--bg)} .wall.off::after{display:none}
+
+/* ---------- avatars ---------- */
+.av{width:30px;height:30px;border-radius:50%;flex:none;display:grid;place-items:center;font-weight:600;font-size:12.5px;position:relative}
+.av.vedu{background:var(--p-vedu-soft);color:var(--p-vedu)} .av.jxn{background:var(--p-jxn-soft);color:var(--p-jxn)}
+.av.maya{background:var(--p-maya-soft);color:var(--p-maya)} .av.theo{background:var(--p-theo-soft);color:var(--p-theo)}
+.av.agent{border-radius:31%;padding:4px}
+.av.agent svg{width:100%;height:100%}
+.av.sm{width:18px;height:18px;font-size:9px}
+.av.sm.agent{padding:2px}
+.av .spark{position:absolute;top:-3px;right:-3px;width:10px;height:10px;color:var(--accent)}
+
+/* ---------- chat header ---------- */
+.chathead{position:absolute;top:0;left:0;right:0;z-index:4;background:var(--glass);backdrop-filter:saturate(1.6) blur(18px);-webkit-backdrop-filter:saturate(1.6) blur(18px);border-bottom:1px solid var(--line)}
+.chathead .bar{display:flex;align-items:center;gap:10px;padding:2px 14px 10px 8px}
+.back{display:flex;align-items:center;color:var(--accent-text);font-weight:500;font-size:16px;gap:0;padding:4px}
+.back .n{background:var(--accent);color:#fff;border-radius:10px;font-size:12px;font-weight:600;padding:1px 7px;margin-left:-2px}
+.bpic{width:38px;height:38px;border-radius:12px;display:grid;place-items:center;background:linear-gradient(140deg,#FFB38F,#D9785A 55%,#9B6BD8);box-shadow:inset 0 0 0 1px rgba(255,255,255,.25)}
+.bpic svg{width:26px;height:26px}
+.htext{flex:1;min-width:0}
+.htitle{font-weight:650;font-size:16.5px;letter-spacing:-.01em;display:flex;gap:6px;align-items:center}
+.hsub{font-size:12.5px;color:var(--muted);display:flex;gap:6px;align-items:center;white-space:nowrap;overflow:hidden}
+.hsub .working{color:var(--ok);font-weight:500;display:flex;align-items:center;gap:6px;padding-left:4px}
+.live{width:7px;height:7px;border-radius:50%;background:var(--ok);position:relative;flex:none}
+.live::after{content:"";position:absolute;inset:-2px;border-radius:50%;border:2px solid var(--ok);animation:breathe 1.4s ease-out infinite}
+@keyframes breathe{from{transform:scale(1);opacity:.8}to{transform:scale(2.2);opacity:0}}
+.stack{display:flex}.stack .av{border:2px solid var(--bg);margin-left:-8px}.stack .av:first-child{margin-left:0}
+
+/* ---------- messages ---------- */
+.scroll{flex:1;overflow-y:auto;overflow-x:hidden;padding:112px 12px 118px;scrollbar-width:none;position:relative}
+.scroll::-webkit-scrollbar{display:none}
+.day{align-self:center;margin:6px auto 14px;font-size:11.5px;font-weight:600;color:var(--muted);background:var(--glass);padding:4px 10px;border-radius:10px;width:max-content;backdrop-filter:blur(10px);letter-spacing:.02em;border:1px solid var(--line)}
+.grp{display:flex;gap:8px;align-items:flex-end;margin:0 0 12px;position:relative}
+.grp.me{flex-direction:row-reverse}
+.grp .col{display:flex;flex-direction:column;gap:2px;max-width:78%;min-width:0}
+.grp.me .col{align-items:flex-end}
+.grp .avslot{width:30px;flex:none;align-self:flex-end;margin-bottom:2px}
+.who{font-size:12px;font-weight:600;margin:0 0 3px 12px;display:flex;gap:6px;align-items:center}
+.who.vedu{color:var(--p-vedu)} .who.jxn{color:var(--p-jxn)}
+.chip{font:500 10.5px/1 "Geist Mono",ui-monospace,monospace;background:var(--chip-agent-bg);color:var(--chip-agent-text);padding:3px 6px 3px 4px;border-radius:6px;display:inline-flex;gap:4px;align-items:center;letter-spacing:-.01em}
+.chip svg{width:11px;height:11px}
+.who .to{color:var(--faint);font-weight:500}
+
+.mrow{position:relative;display:flex;touch-action:pan-y}
+.grp.me .mrow{justify-content:flex-end}
+.b{position:relative;padding:8px 13px 8px;border-radius:20px;font-size:15.5px;line-height:1.36;max-width:100%;word-wrap:break-word;
+   transition:transform .35s cubic-bezier(.34,1.56,.64,1);user-select:none;-webkit-user-select:none;cursor:default}
+.b .mention{font-weight:600}
+.them .b{background:var(--bubble-them);color:var(--bubble-them-text);box-shadow:var(--shadow-bubble)}
+.me .b{background:linear-gradient(170deg,var(--bubble-you-1),var(--bubble-you-2));color:var(--bubble-you-text)}
+.agent .b{background:var(--bubble-agent);color:var(--bubble-agent-text);box-shadow:inset 0 0 0 1px var(--bubble-agent-line)}
+/* grouping: the corner on the sender's side tightens between consecutive bubbles */
+.them .mrow:not(.first) .b,.agent .mrow:not(.first) .b{border-top-left-radius:6px}
+.them .mrow:not(.last) .b,.agent .mrow:not(.last) .b{border-bottom-left-radius:6px}
+.me .mrow:not(.first) .b{border-top-right-radius:6px}
+.me .mrow:not(.last) .b{border-bottom-right-radius:6px}
+/* the tail, on the last bubble only */
+.tail{position:absolute;bottom:0;width:14px;height:18px;pointer-events:none}
+.them .tail,.agent .tail{left:-5px;color:var(--bubble-them)}
+.agent .tail{color:var(--bubble-agent)}
+.me .tail{right:-5px;color:var(--bubble-you-2);transform:scaleX(-1)}
+.mrow:not(.last) .tail{display:none}
+.emoji-only{font-size:40px;line-height:1.1;padding:2px 0;background:none!important;box-shadow:none!important}
+.emoji-only+.tail{display:none}
+.meta{font-size:11px;color:var(--faint);margin:3px 6px 0;display:flex;gap:4px;align-items:center;justify-content:flex-end}
+.ticks{width:17px;height:11px;color:var(--faint);transition:color .3s}
+.ticks.read{color:var(--read)}
+.ticks .t2{transition:opacity .2s,transform .3s cubic-bezier(.34,1.56,.64,1)}
+.ticks.sent .t2{opacity:0;transform:translateX(-4px)}
+
+/* entrance */
+.in{animation:pop-in .55s cubic-bezier(.34,1.56,.64,1) both}
+.grp.me .in{transform-origin:100% 100%}
+.grp:not(.me) .in{transform-origin:0 100%}
+@keyframes pop-in{from{opacity:0;transform:translateY(14px) scale(.9)}to{opacity:1;transform:none}}
+.fly{animation:fly .6s cubic-bezier(.3,1.4,.5,1) both;transform-origin:100% 100%}
+@keyframes fly{from{opacity:.2;transform:translate(-30px,70px) scale(.75)}to{opacity:1;transform:none}}
+
+/* typing / working bubble */
+.typing{display:flex;flex-direction:column;gap:6px;padding:11px 14px}
+.dots{display:flex;gap:4px;height:9px;align-items:center}
+.dots i{width:7px;height:7px;border-radius:50%;background:var(--muted);opacity:.35;animation:dot 1.2s infinite ease-in-out}
+.dots i:nth-child(2){animation-delay:.15s}.dots i:nth-child(3){animation-delay:.3s}
+@keyframes dot{0%,60%,100%{opacity:.3;transform:translateY(0)}30%{opacity:.95;transform:translateY(-3px)}}
+.doing{font-size:12.5px;color:var(--muted);display:flex;gap:8px;align-items:center;white-space:nowrap}
+.doing code{font:500 11.5px "Geist Mono",monospace;color:var(--text);opacity:.8}
+.minibar{width:64px;height:4px;border-radius:2px;background:var(--line-strong);overflow:hidden}
+.minibar i{display:block;height:100%;width:30%;background:var(--ok);border-radius:2px;transition:width .5s}
+
+/* reactions */
+.reacts{display:flex;gap:4px;margin:-8px 0 2px 10px;position:relative;z-index:2}
+.me .reacts{margin:-8px 10px 2px 0;justify-content:flex-end}
+.rx{display:inline-flex;gap:4px;align-items:center;background:var(--bg-elev);border-radius:12px;padding:2px 7px 2px 5px;font-size:13px;font-weight:600;color:var(--muted);
+    box-shadow:0 0 0 2px var(--bg),var(--shadow-bubble);position:relative}
+.rx.mine{background:var(--accent-soft);color:var(--accent-text)}
+.rx .e{font-size:15px;line-height:1}
+.rx.pop{animation:rxpop .6s cubic-bezier(.34,1.8,.5,1)}
+@keyframes rxpop{0%{transform:scale(0) rotate(-20deg)}55%{transform:scale(1.35) rotate(6deg)}100%{transform:scale(1)}}
+.spark-burst{position:absolute;left:50%;top:50%;pointer-events:none}
+.spark-burst i{position:absolute;width:5px;height:5px;border-radius:50%;left:-2.5px;top:-2.5px;animation:sp .55s ease-out forwards}
+@keyframes sp{from{transform:translate(0,0) scale(1);opacity:1}to{transform:translate(var(--x),var(--y)) scale(.2);opacity:0}}
+.b.bump{animation:bump .45s cubic-bezier(.34,1.56,.64,1)}
+@keyframes bump{40%{transform:scale(1.05)}}
+
+/* reaction tray (long-press) */
+.dim{position:absolute;inset:0;background:rgba(30,20,10,.18);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);z-index:20;opacity:0;pointer-events:none;transition:opacity .2s}
+:root[data-theme="dark"] .dim{background:rgba(0,0,0,.5)}
+.dim.on{opacity:1;pointer-events:auto}
+.tray{position:absolute;z-index:21;background:var(--bg-elev);border-radius:26px;padding:6px 8px;display:flex;gap:2px;box-shadow:var(--shadow-pop);transform-origin:20% 100%;animation:tray .4s cubic-bezier(.34,1.56,.64,1)}
+@keyframes tray{from{transform:scale(.4);opacity:0}}
+.tray button{font-size:25px;width:40px;height:40px;border-radius:50%;display:grid;place-items:center;transition:transform .15s}
+.tray button:hover{transform:scale(1.25) translateY(-3px)}
+.tray button:nth-child(n){animation:pop-in .4s cubic-bezier(.34,1.56,.64,1) both}
+.tray button:nth-child(2){animation-delay:.03s}.tray button:nth-child(3){animation-delay:.06s}.tray button:nth-child(4){animation-delay:.09s}.tray button:nth-child(5){animation-delay:.12s}.tray button:nth-child(6){animation-delay:.15s}
+.tray .rp{font-size:13px;font-weight:600;width:auto;padding:0 12px;border-radius:18px;background:var(--bg-sunk);color:var(--text)}
+
+/* swipe-to-reply */
+.replyicon{position:absolute;left:-34px;top:50%;width:28px;height:28px;margin-top:-14px;border-radius:50%;background:var(--bg-elev);box-shadow:var(--shadow-bubble);display:grid;place-items:center;color:var(--muted);opacity:0;transform:scale(.4);transition:transform .25s cubic-bezier(.34,1.8,.5,1),background .2s,color .2s}
+.replyicon.armed{background:var(--accent);color:#fff;transform:scale(1.1)!important}
+
+/* thread pill */
+.tpill{display:inline-flex;align-items:center;gap:7px;margin:4px 0 0 4px;padding:4px 10px 4px 5px;border-radius:14px;background:var(--bg-elev);box-shadow:var(--shadow-bubble);font-size:12.5px;font-weight:600;color:var(--accent-text);align-self:flex-start}
+:root[data-theme="dark"] .tpill{box-shadow:inset 0 0 0 1px var(--line-strong)}
+.tpill .stack .av{border-color:var(--bg-elev)}
+.tpill .t{color:var(--faint);font-weight:500}
+
+/* task card */
+.card{background:var(--bg-elev);border-radius:20px;box-shadow:var(--shadow-card);padding:12px 14px 10px;width:280px;position:relative}
+.agent .card{border-top-left-radius:20px}
+.agent .mrow:not(.first) .card{border-top-left-radius:6px}
+.card .hd{display:flex;gap:10px;align-items:center;margin-bottom:8px}
+.ring{width:32px;height:32px;flex:none;position:relative}
+.ring svg{width:32px;height:32px;transform:rotate(-90deg)}
+.ring .trk{stroke:var(--line-strong)} .ring .val{stroke:var(--accent);transition:stroke-dashoffset .7s cubic-bezier(.34,1.3,.64,1),stroke .3s}
+.ring.done .val{stroke:var(--ok)}
+.ring .n{position:absolute;inset:0;display:grid;place-items:center;font-size:10.5px;font-weight:700;color:var(--muted)}
+.ring.done .n{color:var(--ok)}
+.card .ttl{font-weight:650;font-size:15px;letter-spacing:-.01em;line-height:1.25}
+.card .sub{font-size:12px;color:var(--muted)}
+.check{display:flex;gap:10px;align-items:center;padding:6px 0;font-size:14px;border-top:1px solid var(--line)}
+.box{width:20px;height:20px;border-radius:50%;flex:none;border:1.6px solid var(--line-strong);display:grid;place-items:center;transition:background .3s,border-color .3s;position:relative}
+.box svg{width:12px;height:12px;stroke:#fff;stroke-width:3;fill:none;stroke-dasharray:20;stroke-dashoffset:20;transition:stroke-dashoffset .35s .1s ease-out}
+.check.done .box{background:var(--ok);border-color:var(--ok);animation:tick .5s cubic-bezier(.34,1.8,.5,1)}
+.check.done .box svg{stroke-dashoffset:0}
+.check.done .lbl{color:var(--muted)}
+.check.doing .box{border-color:var(--accent);border-style:dashed;animation:spin 3s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes tick{40%{transform:scale(1.3)}}
+.check .by{margin-left:auto;font-size:11.5px;color:var(--faint)}
+.card .donetxt{color:var(--ok);font-weight:650}
+.donepill{margin-left:auto;font-size:11.5px;font-weight:650;color:var(--ok);background:var(--ok-soft);padding:3px 8px;border-radius:8px;opacity:0;transform:scale(.5);transition:.4s cubic-bezier(.34,1.8,.5,1)}
+.card.complete .card .donetxt{color:var(--ok);font-weight:650}
+.donepill{opacity:1;transform:none}
+
+/* change card: shipped */
+.ship{width:292px;padding:0;overflow:visible}
+.ship .banner{border-radius:20px 20px 0 0;padding:12px 14px 12px;background:linear-gradient(120deg,#FFE3D4 0%,#FFD9E6 45%,#E4DDFF 100%);color:#3A2418;display:flex;gap:10px;align-items:center;position:relative;overflow:hidden}
+:root[data-theme="dark"] .ship .banner{background:linear-gradient(120deg,#3A2017 0%,#33192A 45%,#211C3D 100%);color:#F6E4DA}
+.ship .banner::after{content:"";position:absolute;inset:0;background:linear-gradient(100deg,transparent 30%,rgba(255,255,255,.55) 50%,transparent 70%);transform:translateX(-120%);animation:sheen 2.6s 1.2s ease-in-out}
+@keyframes sheen{to{transform:translateX(120%)}}
+.agent .mrow:not(.first) .ship .banner{border-top-left-radius:6px}
+.rocket{width:34px;height:34px;border-radius:11px;background:rgba(255,255,255,.75);display:grid;place-items:center;font-size:18px;flex:none}
+:root[data-theme="dark"] .rocket{background:rgba(255,255,255,.08)}
+.ship .h1{font-weight:700;font-size:15.5px;letter-spacing:-.01em}
+.ship .h2{font-size:12px;opacity:.75;display:flex;gap:6px;align-items:center}
+.ver{font:600 11px "Geist Mono",monospace;background:#1B1713;color:#FBF7F1;border-radius:6px;padding:2px 6px}
+:root[data-theme="dark"] .ver{background:#F2EFE8;color:#111}
+.ship .body{padding:10px 14px 12px}
+.commit{display:flex;gap:8px;font-size:13px;padding:3px 0;align-items:baseline}
+.commit code{font:500 11px "Geist Mono",monospace;color:var(--faint);flex:none}
+.commit span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stats{display:flex;align-items:center;gap:10px;margin-top:9px;font:500 12px "Geist Mono",monospace;color:var(--muted)}
+.stats .add{color:var(--ok)} .stats .del{color:var(--danger)}
+.stats .bars{display:flex;gap:2px}.stats .bars i{width:7px;height:7px;border-radius:2px;background:var(--ok)}.stats .bars i.d{background:var(--danger)}.stats .bars i.z{background:var(--line-strong)}
+.stats .diff{margin-left:auto;font-family:"Geist",sans-serif;font-weight:600;color:var(--accent-text)}
+.confetti{position:absolute;left:-40px;right:-40px;top:-120px;bottom:-10px;pointer-events:none;z-index:6}
+.quick{display:flex;gap:6px;margin:8px 0 0 2px;flex-wrap:wrap}
+.quick button{background:var(--bg-elev);box-shadow:var(--shadow-bubble);border-radius:16px;padding:5px 11px;font-size:13px;font-weight:550;color:var(--text);transition:transform .2s cubic-bezier(.34,1.56,.64,1)}
+:root[data-theme="dark"] .quick button{box-shadow:inset 0 0 0 1px var(--line-strong)}
+.quick button:active{transform:scale(.92)}
+
+.seen{display:flex;justify-content:flex-end;align-items:center;gap:6px;font-size:11.5px;color:var(--faint);margin:-4px 4px 12px}
+
+/* ---------- composer ---------- */
+.composer{position:absolute;left:0;right:0;bottom:0;padding:8px 10px 30px;background:var(--glass);backdrop-filter:saturate(1.6) blur(18px);-webkit-backdrop-filter:saturate(1.6) blur(18px);z-index:4;border-top:1px solid var(--line)}
+.replying{display:none;align-items:center;gap:8px;margin:0 6px 8px;padding:6px 10px;border-left:3px solid var(--accent);background:var(--bg-sunk);border-radius:8px;font-size:12.5px;animation:pop-in .35s cubic-bezier(.34,1.56,.64,1)}
+.replying.on{display:flex}
+.replying b{color:var(--p-jxn)} .replying span{color:var(--muted);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.crow{display:flex;gap:8px;align-items:center}
+.plus{width:36px;height:36px;border-radius:50%;background:var(--bg-sunk);display:grid;place-items:center;color:var(--muted);flex:none;border:1px solid var(--line)}
+.field{flex:1;display:flex;align-items:center;background:var(--bg-elev);border:1px solid var(--line-strong);border-radius:20px;padding:0 6px 0 14px;height:38px}
+.field input{flex:1;border:0;background:none;font:inherit;font-size:15.5px;color:var(--text);outline:none;min-width:0}
+.field input::placeholder{color:var(--faint)}
+.send{width:30px;height:30px;border-radius:50%;background:linear-gradient(170deg,var(--bubble-you-1),var(--bubble-you-2));color:#fff;display:grid;place-items:center;transform:scale(0);transition:transform .3s cubic-bezier(.34,1.8,.5,1)}
+.send.on{transform:scale(1)}
+.smile{color:var(--faint);padding:4px}
+.homebar{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);width:134px;height:5px;border-radius:3px;background:var(--text);opacity:.85;z-index:30}
+
+/* ---------- chats list ---------- */
+.list .scroll{padding:0 0 100px}
+.lhead{display:flex;justify-content:space-between;align-items:center;padding:4px 16px 0}
+.iconbtn{width:38px;height:38px;border-radius:50%;background:var(--bg-elev);display:grid;place-items:center;box-shadow:var(--shadow-bubble);color:var(--text);position:relative}
+:root[data-theme="dark"] .iconbtn{background:var(--bg-sunk)}
+.big{font-size:34px;font-weight:700;letter-spacing:-.025em;padding:6px 16px 10px}
+.agents{display:flex;gap:14px;padding:4px 16px 14px;overflow-x:auto;scrollbar-width:none}
+.ag{display:flex;flex-direction:column;align-items:center;gap:5px;width:64px;flex:none}
+.ag .ringwrap{width:62px;height:62px;border-radius:22px;padding:3px;position:relative;background:var(--line-strong)}
+.ag.working .ringwrap{background:conic-gradient(from var(--a,0deg),var(--accent),#F6B26B,#9B6BD8,var(--accent));animation:rot 3s linear infinite}
+.ag.working.jx .ringwrap{background:conic-gradient(from var(--a,0deg),var(--p-jxn),#7BE0B8,#5AA9E6,var(--p-jxn))}
+@property --a{syntax:"<angle>";inherits:false;initial-value:0deg}
+@keyframes rot{to{--a:360deg}}
+.ag .inner{width:100%;height:100%;border-radius:19px;background:var(--bg);display:grid;place-items:center;padding:3px}
+.ag .inner .av{width:100%;height:100%;border-radius:16px;padding:9px}
+.ag .nm{font-size:11.5px;font-weight:600;white-space:nowrap}
+.ag .st{font-size:10.5px;color:var(--muted);margin-top:-5px;white-space:nowrap}
+.ag.working .st{color:var(--ok)}
+.ag .badge{position:absolute;right:-4px;bottom:-4px;background:var(--ok);color:#fff;border:2.5px solid var(--bg);border-radius:10px;font-size:10px;font-weight:700;padding:1px 5px}
+.ag.add .ringwrap{background:none;border:1.5px dashed var(--line-strong);display:grid;place-items:center;color:var(--muted)}
+.needs{margin:0 12px 12px;background:var(--bg-elev);border-radius:20px;box-shadow:var(--shadow-card);padding:12px 12px 12px 14px}
+.needs .lab{font-size:12px;font-weight:650;color:var(--accent-text);display:flex;gap:6px;align-items:center;margin-bottom:8px}
+.needs .lab i{width:7px;height:7px;border-radius:50%;background:var(--accent)}
+.appr{display:flex;gap:10px;align-items:center}
+.appr .ic{width:40px;height:40px;border-radius:12px;background:#FDE7E3;display:grid;place-items:center;font-size:18px;flex:none}
+:root[data-theme="dark"] .appr .ic{background:#2B1513}
+.appr .tx{flex:1;min-width:0}
+.appr .t1{font-weight:620;font-size:14.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.appr .t2{font-size:12.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rb{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;flex:none;background:var(--bg-sunk);color:var(--muted)}
+.rb.yes{background:var(--ok);color:#fff}
+.tabs{display:flex;gap:6px;padding:0 16px 6px}
+.tab{padding:6px 12px;border-radius:16px;font-size:13.5px;font-weight:600;color:var(--muted);display:flex;gap:6px;align-items:center}
+.tab.on{background:var(--text);color:var(--bg)}
+.tab .c{background:var(--accent);color:#fff;font-size:11px;border-radius:9px;padding:0 6px;line-height:17px}
+.lrow{display:flex;gap:12px;align-items:center;padding:9px 16px;position:relative}
+.lrow:active{background:var(--bg-sunk)}
+.lpic{width:54px;height:54px;border-radius:17px;flex:none;display:grid;place-items:center;position:relative;font-weight:700;font-size:20px;color:#fff}
+.lpic.p{border-radius:50%}
+.lpic .ld{position:absolute;right:-3px;bottom:-3px;width:17px;height:17px;border-radius:50%;background:var(--bg);display:grid;place-items:center}
+.lpic .ld .live{width:9px;height:9px}
+.lmain{flex:1;min-width:0;border-bottom:1px solid var(--line);padding-bottom:12px;margin-bottom:-12px}
+.lrow:last-child .lmain{border-bottom:0}
+.lt{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+.lt b{font-size:16px;font-weight:650;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lt .tm{font-size:12.5px;color:var(--faint);flex:none}
+.lt .tm.hot{color:var(--accent-text);font-weight:600}
+.lp{display:flex;justify-content:space-between;gap:10px;align-items:center;margin-top:2px}
+.lp .pv{font-size:14px;color:var(--muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.3}
+.lp .pv em{font-style:normal;color:var(--text);font-weight:550}
+.lp .pv .w{color:var(--ok);font-weight:550}
+.unread{background:var(--accent);color:#fff;min-width:21px;height:21px;border-radius:11px;font-size:12px;font-weight:700;display:grid;place-items:center;padding:0 6px;flex:none}
+.unread.bounce{animation:rxpop .6s cubic-bezier(.34,1.8,.5,1)}
+.search{position:absolute;left:16px;right:16px;bottom:30px;height:46px;border-radius:23px;background:var(--glass);backdrop-filter:blur(18px) saturate(1.6);-webkit-backdrop-filter:blur(18px) saturate(1.6);box-shadow:var(--shadow-card);display:flex;align-items:center;gap:10px;padding:0 16px;color:var(--faint);font-size:16px;z-index:4;border:1px solid var(--line)}
+
+/* ---------- thread ---------- */
+.thead .bar{padding-bottom:12px}
+.troot{margin:8px 0 6px;padding:0 0 12px;border-bottom:1px solid var(--line)}
+.tcount{font-size:12px;font-weight:600;color:var(--muted);margin:10px 4px 12px;display:flex;gap:8px;align-items:center}
+.tcount::after{content:"";flex:1;height:1px;background:var(--line)}
+
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.001s!important;animation-delay:0s!important;transition-duration:.001s!important}}
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="side">
+    <h1><svg width="34" height="34" viewBox="160 200 704 624" class="pb"></svg>Atteo, bright</h1>
+    <p>A prototype for #764: the same board, made lively. Bubbles in each sender's colour, agents in the Pebble's other half, work you can watch happen, and a small party when something ships.</p>
+    <div class="seg" id="segTheme"><button data-v="bright">Bright</button><button data-v="dark">Dark</button></div>
+    <div class="seg" id="segScreen"><button data-v="chat">Chat</button><button data-v="list">Chats</button><button data-v="thread">Thread</button></div>
+    <ul class="hints">
+      <li><b>Double-tap</b> a message to send ❤️</li>
+      <li><b>Hold</b> a message for reactions</li>
+      <li><b>Drag right</b> on a message to reply</li>
+      <li><b>Type + send</b> to see ticks and the spring</li>
+      <li><b>Tap 🎉</b> under the shipped card</li>
+      <li><b>Tap "4 replies"</b> to open the thread</li>
+    </ul>
+    <button class="replay" id="replay">Replay the conversation</button>
+  </div>
+
+  <div class="phone" id="phone">
+    <!-- ======================= CHATS LIST ======================= -->
+    <section class="screen list" id="s-list">
+      <div class="wall off"></div>
+      <div class="statusbar"><span>9:41</span><span class="icons" data-icons></span></div>
+      <div class="scroll">
+        <div class="lhead">
+          <div class="av vedu" style="width:38px;height:38px;font-size:15px">V</div>
+          <button class="iconbtn" aria-label="New chat"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>
+        </div>
+        <div class="big">Chats</div>
+        <div class="agents">
+          <div class="ag working"><div class="ringwrap"><div class="inner"><div class="av agent vedu" data-pebble="vedu"></div></div><span class="badge">2</span></div><div class="nm">claude-2</div><div class="st">testing…</div></div>
+          <div class="ag working jx"><div class="ringwrap"><div class="inner"><div class="av agent jxn" data-pebble="jxn"></div></div></div><div class="nm">scout</div><div class="st">on Android</div></div>
+          <div class="ag"><div class="ringwrap"><div class="inner"><div class="av agent vedu" data-pebble="vedu"></div></div></div><div class="nm">claude-1</div><div class="st">idle</div></div>
+          <div class="ag"><div class="ringwrap"><div class="inner"><div class="av agent maya" data-pebble="maya"></div></div></div><div class="nm">maya's</div><div class="st">idle</div></div>
+          <div class="ag add"><div class="ringwrap"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></div><div class="nm" style="color:var(--muted)">Add</div></div>
+        </div>
+        <div class="needs">
+          <div class="lab"><i></i>Needs you · 1</div>
+          <div class="appr">
+            <div class="ic">🛡️</div>
+            <div class="tx"><div class="t1">Run migration 0042 on prod</div><div class="t2">scout · adds entries.attachments</div></div>
+            <button class="rb" aria-label="Decline"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+            <button class="rb yes" aria-label="Approve"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7"/></svg></button>
+          </div>
+        </div>
+        <div class="tabs"><span class="tab on">Boards <span class="c">5</span></span><span class="tab">DMs <span class="c">1</span></span><span class="tab">Agents</span></div>
+        <div class="lrow" data-go="chat">
+          <div class="lpic" style="background:linear-gradient(140deg,#FFB38F,#D9785A 55%,#9B6BD8)"><svg width="34" height="34" viewBox="160 200 704 624" class="pb white"></svg><span class="ld"><span class="live"></span></span></div>
+          <div class="lmain"><div class="lt"><b>annex</b><span class="tm hot">now</span></div>
+            <div class="lp"><span class="pv"><em>claude-2:</em> 🚀 Shipped to production · v41. <span class="w">scout is working</span></span><span class="unread" id="annexBadge">3</span></div></div>
+        </div>
+        <div class="lrow">
+          <div class="lpic" style="background:linear-gradient(140deg,#7DB3EC,#2E6FB0)">C<span class="ld"><span class="live"></span></span></div>
+          <div class="lmain"><div class="lt"><b>Checkout bug</b><span class="tm hot">2m</span></div>
+            <div class="lp"><span class="pv"><em>theo's agent:</em> ✓ Guard empty carts in charge(). Next: regression test</span><span class="unread">2</span></div></div>
+        </div>
+        <div class="lrow">
+          <div class="lpic p av jxn" style="width:54px;height:54px;font-size:20px">J</div>
+          <div class="lmain"><div class="lt"><b>jxn</b><span class="tm">9:02</span></div>
+            <div class="lp"><span class="pv">You: tomorrow 10? I'll bring the iPad build</span><svg class="ticks read" viewBox="0 0 17 11" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M1 6l3.5 3.5L11 2"/><path class="t2" d="M6.5 9.5L16 2"/></svg></div></div>
+        </div>
+        <div class="lrow">
+          <div class="lpic" style="background:linear-gradient(140deg,#A996FF,#6B4FD8)">L</div>
+          <div class="lmain"><div class="lt"><b>Landing page</b><span class="tm">Tue</span></div>
+            <div class="lp"><span class="pv"><em>maya:</em> love the new hero 😍 one more pass on mobile?</span></div></div>
+        </div>
+        <div class="lrow">
+          <div class="lpic" style="background:linear-gradient(140deg,#7BE0B8,#0F7C83)">Q</div>
+          <div class="lmain"><div class="lt"><b>Q4 data migration</b><span class="tm">Mon</span></div>
+            <div class="lp"><span class="pv"><em>jxn's agent:</em> Backfill finished on staging: 1.2M rows, 0 errors</span></div></div>
+        </div>
+      </div>
+      <div class="search"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>Search</div>
+      <div class="homebar"></div>
+    </section>
+
+    <!-- ======================= CHAT ======================= -->
+    <section class="screen" id="s-chat">
+      <div class="wall" id="wall"></div>
+      <div class="chathead">
+        <div class="statusbar"><span>9:41</span><span class="icons" data-icons></span></div>
+        <div class="bar">
+          <button class="back" data-go="list"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg><span class="n">4</span></button>
+          <div class="bpic"><svg viewBox="160 200 704 624" class="pb white"></svg></div>
+          <div class="htext">
+            <div class="htitle">annex</div>
+            <div class="hsub" id="hsub"><span>vedu, jxn · 2 agents</span></div>
+          </div>
+          <div class="stack"><div class="av jxn">J</div><div class="av agent jxn" data-pebble="jxn"></div><div class="av agent vedu" data-pebble="vedu"></div></div>
+        </div>
+      </div>
+      <div class="scroll" id="chat"></div>
+      <div class="composer">
+        <div class="replying" id="replying"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 016 6v4"/></svg><b>jxn</b><span id="replyText"></span><button id="replyX" style="color:var(--faint)">✕</button></div>
+        <div class="crow">
+          <button class="plus" aria-label="Attach"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>
+          <label class="field"><input id="input" placeholder="Message annex" autocomplete="off"><span class="smile"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M8.5 14.5s1.3 2 3.5 2 3.5-2 3.5-2"/><circle cx="9" cy="10" r=".6" fill="currentColor"/><circle cx="15" cy="10" r=".6" fill="currentColor"/></svg></span><button class="send" id="send" aria-label="Send"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5.5 11.5L12 5l6.5 6.5"/></svg></button></label>
+        </div>
+      </div>
+      <div class="homebar"></div>
+      <div class="dim" id="dim"></div>
+    </section>
+
+    <!-- ======================= THREAD ======================= -->
+    <section class="screen off-right" id="s-thread">
+      <div class="wall"></div>
+      <div class="chathead thead">
+        <div class="statusbar"><span>9:41</span><span class="icons" data-icons></span></div>
+        <div class="bar">
+          <button class="back" data-go="chat"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button>
+          <div class="htext"><div class="htitle">Thread</div><div class="hsub"><span>in annex · jxn, scout, claude-2</span></div></div>
+        </div>
+      </div>
+      <div class="scroll" id="thread"></div>
+      <div class="composer"><div class="crow">
+        <button class="plus"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>
+        <label class="field"><input placeholder="Reply in thread" autocomplete="off"></label></div></div>
+      <div class="homebar"></div>
+    </section>
+  </div>
+</div>
+
+<script>
+/* ---------------------------------------------------------------- params and small helpers */
+const Q = new URLSearchParams(location.search);
+const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const END = Q.get('t') === 'end';
+const $ = (s, r = document) => r.querySelector(s), $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const el = (html) => { const t = document.createElement('template'); t.innerHTML = html.trim(); return t.content.firstElementChild; };
+const sleep = (ms) => new Promise(r => setTimeout(r, END ? 0 : ms));
+if (Q.get('frame') === '0') document.body.classList.add('bare');
+
+/* The Pebble: clay half is the person, the other half their agent (ink in Bright, bone in Dark), two eyes. */
+const PEBBLE = (you = 'var(--accent)', agent = 'var(--chip-agent-bg)', eye = 'var(--chip-agent-text)', eye2) => {
+  const id = 'pb' + Math.random().toString(36).slice(2, 7);
+  return `<defs><clipPath id="${id}"><rect x="189" y="229" width="647" height="566" rx="283"/></clipPath></defs>
+  <g clip-path="url(#${id})"><polygon points="0,0 551,0 459,1024 0,1024" fill="${you}"/><polygon points="587,0 1024,0 1024,1024 495,1024" fill="${agent}"/></g>
+  <circle cx="405" cy="468" r="54" fill="${eye2 || eye}"/><circle cx="634" cy="498" r="54" fill="${eye}"/>`;
+};
+const pebbleSvg = (who) => {
+  const you = { vedu: 'var(--accent)', jxn: 'var(--p-jxn)', maya: 'var(--p-maya)', theo: 'var(--p-theo)' }[who];
+  return `<svg viewBox="160 200 704 624">${PEBBLE(you, 'var(--chip-agent-bg)', 'var(--chip-agent-text)', 'var(--chip-agent-bg)')}</svg>`;
+};
+$$('svg.pb').forEach(s => s.innerHTML = s.classList.contains('white') ? PEBBLE('#fff', 'rgba(255,255,255,.55)', '#7a3b26', '#7a3b26') : PEBBLE());
+const hydratePebbles = (root = document) => $$('[data-pebble]', root).forEach(n => { if (!n.firstChild) n.innerHTML = pebbleSvg(n.dataset.pebble); });
+hydratePebbles();
+const ICONS = `<svg width="18" height="12" viewBox="0 0 18 12" fill="currentColor"><rect x="0" y="8" width="3" height="4" rx="1"/><rect x="5" y="5.5" width="3" height="6.5" rx="1"/><rect x="10" y="3" width="3" height="9" rx="1"/><rect x="15" y="0" width="3" height="12" rx="1"/></svg>
+<svg width="16" height="12" viewBox="0 0 16 12" fill="currentColor"><path d="M8 2.2c2.3 0 4.4.9 6 2.4l1.2-1.3A10.4 10.4 0 008 .4C5.2.4 2.7 1.5.8 3.3L2 4.6a8.6 8.6 0 016-2.4zm0 3.6c1.3 0 2.5.5 3.4 1.3l1.2-1.3A6.8 6.8 0 008 4c-1.8 0-3.4.7-4.6 1.8l1.2 1.3c.9-.8 2.1-1.3 3.4-1.3zm0 3.5c-.6 0-1.1.2-1.5.6L8 11.5l1.5-1.6c-.4-.4-.9-.6-1.5-.6z"/></svg>
+<svg width="27" height="13" viewBox="0 0 27 13" fill="none"><rect x=".5" y=".5" width="23" height="12" rx="3.8" stroke="currentColor" opacity=".4"/><rect x="2" y="2" width="20" height="9" rx="2.5" fill="currentColor"/><path d="M25 4.5v4c.8-.3 1.3-1.1 1.3-2s-.5-1.7-1.3-2z" fill="currentColor" opacity=".45"/></svg>`;
+$$('[data-icons]').forEach(n => n.innerHTML = ICONS);
+const SPARK = `<svg class="spark" viewBox="0 0 24 24" fill="currentColor"><path d="M12 1l2.6 8.4L23 12l-8.4 2.6L12 23l-2.6-8.4L1 12l8.4-2.6z"/></svg>`;
+const TICKS = (state = 'read') => `<svg class="ticks ${state}" viewBox="0 0 17 11" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M1 6l3.5 3.5L11 2"/><path class="t2" d="M6.5 9.5L16 2"/></svg>`;
+const TAIL = `<svg class="tail" viewBox="0 0 14 18"><path d="M14 0v18H2.5C6 16.5 8.6 13.6 9.6 9.5 10.5 6 12 2 14 0z" fill="currentColor"/></svg>`;
+const doodle = (c) => `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' width='84' height='84' viewBox='0 0 84 84'><g fill='${c}'><rect x='8' y='10' width='22' height='19' rx='9.5'/><circle cx='62' cy='52' r='3'/><rect x='50' y='62' width='14' height='12' rx='6' transform='rotate(-14 57 68)'/><circle cx='20' cy='62' r='2'/></g></svg>`)}")`;
+
+/* ---------------------------------------------------------------- avatars and groups */
+const avatar = (who, agent, sm) => agent
+  ? `<div class="av agent ${who}${sm ? ' sm' : ''}" data-pebble="${who}"></div>`
+  : `<div class="av ${who}${sm ? ' sm' : ''}">${who[0].toUpperCase()}</div>`;
+const AGENTS = { 'claude-2': { owner: 'vedu', name: "vedu's agent" }, scout: { owner: 'jxn', name: "jxn's agent" } };
+
+function group(kind, opts = {}) {
+  // kind: 'me' | 'them' | 'agent'
+  const who = opts.who;
+  const a = kind === 'agent' ? AGENTS[who] : null;
+  const owner = a ? a.owner : who;
+  const head = kind === 'me' ? '' : kind === 'agent'
+    ? `<div class="who ${owner}">${a.name}<span class="chip"><svg viewBox="160 200 704 624">${PEBBLE('var(--accent)', 'var(--chip-agent-text)', 'var(--chip-agent-bg)', 'var(--chip-agent-bg)')}</svg>${who}</span>${opts.to ? `<span class="to">to ${opts.to}</span>` : ''}</div>`
+    : `<div class="who ${who}">${who}</div>`;
+  const g = el(`<div class="grp ${kind}"><div class="avslot">${kind === 'me' ? '' : avatar(owner, kind === 'agent')}</div><div class="col">${head}</div></div>`);
+  hydratePebbles(g);
+  return g;
+}
+const bubble = (html, cls = '') => el(`<div class="mrow"><div class="b ${cls}">${html}</div>${TAIL}</div>`);
+
+/* ---------------------------------------------------------------- the conversation */
+const chat = $('#chat');
+const mount = (node, into = chat, anim = 'in') => { if (!END && !REDUCED) node.classList.add(anim); into.appendChild(node); scrollDown(); return node; };
+const scrollDown = () => { if (Q.get('scroll') == null) chat.scrollTo({ top: chat.scrollHeight, behavior: END ? 'auto' : 'smooth' }); };
+function setSub(html) { $('#hsub').innerHTML = html; }
+
+function reactions(col, list, anim) {
+  let r = $('.reacts', col);
+  if (!r) { r = el('<div class="reacts"></div>'); col.appendChild(r); }
+  for (const [e, n, mine] of list) addReaction(r, e, n, mine, anim);
+  return r;
+}
+function addReaction(r, e, n = 1, mine = false, anim = true) {
+  let chip = $$('.rx', r).find(c => c.dataset.e === e);
+  if (chip) {
+    const cnt = +chip.dataset.n + (mine && !chip.classList.contains('mine') ? 1 : 0);
+    chip.dataset.n = cnt; chip.querySelector('.n').textContent = cnt > 1 ? cnt : '';
+    if (mine) chip.classList.add('mine');
+  } else {
+    chip = el(`<span class="rx${mine ? ' mine' : ''}" data-e="${e}" data-n="${n}"><span class="e">${e}</span><span class="n">${n > 1 ? n : ''}</span></span>`);
+    r.appendChild(chip);
+  }
+  if (anim && !END && !REDUCED) { chip.classList.remove('pop'); void chip.offsetWidth; chip.classList.add('pop'); burst(chip); }
+  return chip;
+}
+function burst(node, colors = ['#D9785A', '#F6B26B', '#1E9E5A', '#9B6BD8', '#0F7C83']) {
+  const b = el('<span class="spark-burst"></span>');
+  for (let i = 0; i < 8; i++) {
+    const ang = (i / 8) * Math.PI * 2, d = 18 + Math.random() * 8;
+    const s = el(`<i style="--x:${Math.cos(ang) * d}px;--y:${Math.sin(ang) * d}px;background:${colors[i % colors.length]}"></i>`);
+    b.appendChild(s);
+  }
+  node.appendChild(b); setTimeout(() => b.remove(), 700);
+}
+
+let task, ship, shipCol, typingGrp, rootQ;
+async function play() {
+  chat.innerHTML = '';
+  setSub('<span>vedu, jxn · 2 agents</span>');
+  chat.appendChild(el('<div class="day">Today 9:12</div>'));
+
+  // jxn asks
+  const g1 = mount(group('them', { who: 'jxn' }));
+  const c1 = $('.col', g1);
+  c1.appendChild(bubble('Several files in one message is on staging 🎉'));
+  await sleep(500);
+  const b12 = bubble('can someone try the lightbox on an iPhone? swiping should step through a message\'s pictures');
+  if (!END && !REDUCED) b12.classList.add('in');
+  c1.appendChild(b12); scrollDown();
+  await sleep(900);
+
+  // vedu (you) hands it to the agent
+  const g2 = mount(group('me'), chat, 'fly');
+  const c2 = $('.col', g2);
+  c2.appendChild(bubble('On it. <span class="mention">@vedu\'s agent</span> run the iOS checks on staging and ship if green?'));
+  reactions(c2, [['👍', 1]], !END);
+  const m2 = el(`<div class="meta">9:13 ${TICKS(END ? 'read' : 'sent')}</div>`); c2.appendChild(m2);
+  await sleep(500); $('.ticks', m2).setAttribute('class', 'ticks delivered');
+  await sleep(500); $('.ticks', m2).setAttribute('class', 'ticks read');
+
+  // the agent starts: typing bubble that says what it's doing
+  setSub('<span class="working"><span class="live"></span>claude-2 is working</span>');
+  typingGrp = mount(group('agent', { who: 'claude-2' }));
+  const tc = $('.col', typingGrp);
+  const tb = bubble(`<div class="dots"><i></i><i></i><i></i></div><div class="doing">reading <code>Attachments.swift</code></div>`, 'typing');
+  tc.appendChild(tb);
+  if (!END) {
+    await sleep(1100); $('.doing', tb).innerHTML = 'running iOS UI tests <span class="minibar"><i style="width:35%"></i></span>';
+    await sleep(700); $('.minibar i', tb).style.width = '80%';
+    await sleep(700);
+  }
+  tb.remove();
+
+  // ...and its task card ticks
+  tc.appendChild(bubble('Lightbox works on iPhone 15 and SE. Shipping it 👇'));
+  task = el(`<div class="mrow"><div class="card task">
+      <div class="hd"><div class="ring"><svg viewBox="0 0 32 32"><circle class="trk" cx="16" cy="16" r="13" fill="none" stroke-width="3.5"/><circle class="val" cx="16" cy="16" r="13" fill="none" stroke-width="3.5" stroke-linecap="round" stroke-dasharray="81.7" stroke-dashoffset="54.5"/></svg><span class="n">1/3</span></div>
+        <div><div class="ttl">Ship multi-file messages</div><div class="sub">claude-2 · in progress</div></div></div>
+      ${['Multipart upload + attachments', 'Lightbox steps through pictures', 'Deploy to production'].map((t, i) =>
+        `<div class="check${i === 0 ? ' done' : ''}"><span class="box"><svg viewBox="0 0 12 12"><path d="M2.5 6.2l2.3 2.3L9.6 3.6"/></svg></span><span class="lbl">${t}</span></div>`).join('')}
+    </div></div>`);
+  if (!END && !REDUCED) task.classList.add('in');
+  tc.appendChild(task); scrollDown();
+  const tickTo = (k) => {
+    const checks = $$('.check', task);
+    checks.forEach((c, i) => { c.classList.toggle('done', i < k); c.classList.toggle('doing', i === k); });
+    $('.val', task).style.strokeDashoffset = 81.7 * (1 - k / 3);
+    $('.n', task).textContent = k + '/3';
+    if (k === 3) { $('.ring', task).classList.add('done'); task.firstElementChild.classList.add('complete'); $('.sub', task).innerHTML = '<b class="donetxt">Done</b> · claude-2 · 6 min'; $('.n', task).textContent = '✓'; }
+  };
+  tickTo(1); await sleep(900); tickTo(2); await sleep(1000);
+
+  // jxn's side question becomes a thread
+  rootQ = mount(group('them', { who: 'jxn' }));
+  const cq = $('.col', rootQ);
+  cq.appendChild(bubble('does zoom reset when you swipe to the next picture?'));
+  reactions(cq, [['👀', 1]], !END);
+  cq.appendChild(el(`<button class="tpill" data-go="thread"><span class="stack">${avatar('jxn', true, true)}${avatar('vedu', true, true)}</span>4 replies <span class="t">last 1m ago</span></button>`));
+  hydratePebbles(rootQ);
+  await sleep(1000);
+
+  // shipped!
+  tickTo(3);
+  const g5 = mount(group('agent', { who: 'claude-2' }));
+  shipCol = $('.col', g5);
+  ship = el(`<div class="mrow"><div class="card ship">
+     <div class="banner"><div class="rocket">🚀</div><div><div class="h1">Shipped to production</div><div class="h2"><span class="ver">v41</span>annex · main · 3 commits</div></div></div>
+     <div class="body">
+       <div class="commit"><code>cb71349</code><span>Web: send several files as one message</span></div>
+       <div class="commit"><code>080ec5a</code><span>Multipart upload, entry attachments</span></div>
+       <div class="commit"><code>f6ed294</code><span>One receipt on your messages: "Seen by"</span></div>
+       <div class="stats"><span class="add">+412</span><span class="del">−88</span><span class="bars"><i></i><i></i><i></i><i></i><i class="d"></i><i class="z"></i></span><span>9 files</span><span class="diff">Show diff</span></div>
+     </div>
+     <canvas class="confetti"></canvas></div></div>`);
+  if (!END && !REDUCED) ship.classList.add('in');
+  shipCol.appendChild(ship); scrollDown();
+  const quick = el(`<div class="quick"><button data-q="🎉">🎉</button><button data-q="🚀">🚀</button><button data-q="🙌">🙌</button><button data-say="Nice work, checking prod now">Nice work 👏</button></div>`);
+  shipCol.appendChild(quick);
+  const freeze = Q.get('burst');
+  if (freeze != null) confetti($('.confetti', ship), +freeze);
+  else if (!END) { await sleep(350); confetti($('.confetti', ship)); }
+  await sleep(700);
+  const rs = reactions(shipCol, [['🎉', 1]], !END);
+  shipCol.insertBefore(rs, quick);
+  await sleep(450); addReaction(rs, '🎉', 2, false, !END); $('.rx', rs).dataset.n = 2; $('.rx .n', rs).textContent = 2;
+  await sleep(400); addReaction(rs, '🚀', 2, false, !END);
+
+  // jxn's agent confirms
+  setSub('<span class="working"><span class="live"></span>scout is working</span>');
+  const g6 = mount(group('agent', { who: 'scout' }));
+  const c6 = $('.col', g6);
+  c6.appendChild(bubble('Smoke test on prod passed ✓ 3 pictures in one message, the lightbox steps 1 → 3'));
+  await sleep(900);
+  const g7 = mount(group('them', { who: 'jxn' }));
+  $('.col', g7).appendChild(bubble('🚀🚀🚀', 'emoji-only'));
+  await sleep(500);
+  chat.appendChild(el(`<div class="seen">Seen by <span class="stack">${avatar('jxn', false, true)}${avatar('jxn', true, true)}${avatar('vedu', true, true)}</span></div>`));
+  hydratePebbles(chat);
+  await sleep(700);
+  // scout keeps working: the typing bubble stays, saying what it's on
+  const g8 = mount(group('agent', { who: 'scout' }));
+  $('.col', g8).appendChild(bubble(`<div class="dots"><i></i><i></i><i></i></div><div class="doing">checking Android <span class="minibar"><i style="width:55%"></i></span></div>`, 'typing'));
+  if (Q.get('scroll') != null) requestAnimationFrame(() => chat.scrollTop = +Q.get('scroll'));
+}
+
+/* grouping: mark each column's first and last bubble (tails and tight corners follow) */
+const regroup = (root) => $$('.col', root).forEach(col => {
+  const rows = $$(':scope > .mrow', col);
+  rows.forEach((r, i) => { r.classList.toggle('first', i === 0); r.classList.toggle('last', i === rows.length - 1); });
+});
+[chat, $('#thread')].forEach(n => new MutationObserver(() => regroup(n)).observe(n, { childList: true, subtree: true }));
+
+/* ---------------------------------------------------------------- confetti, confined to the shipped card */
+function confetti(cv, freezeAt) {
+  if (REDUCED && freezeAt == null) return;
+  const r = cv.getBoundingClientRect(), dpr = devicePixelRatio || 1;
+  cv.width = r.width * dpr; cv.height = r.height * dpr;
+  const x = cv.getContext('2d'); x.scale(dpr, dpr);
+  const W = r.width, H = r.height, cols = ['#D9785A', '#F6B26B', '#1E9E5A', '#9B6BD8', '#0F7C83', '#FF8FB1', '#5AA9E6'];
+  let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const P = Array.from({ length: 120 }, () => ({
+    x: W / 2 + (rnd() - .5) * 80, y: 160, vx: (rnd() - .5) * 9, vy: -6 - rnd() * 8, rot: rnd() * 6, vr: (rnd() - .5) * .4,
+    w: 3 + rnd() * 4, h: 2 + rnd() * 2.5, c: cols[Math.floor(rnd() * cols.length)], round: rnd() < .3
+  }));
+  const T = 90; // frames
+  const draw = (f) => {
+    x.clearRect(0, 0, W, H);
+    for (const p of P) {
+      const px = p.x + p.vx * f * .9, py = p.y + p.vy * f + .16 * f * f, a = Math.max(0, 1 - f / T);
+      x.save(); x.globalAlpha = a; x.translate(px, py); x.rotate(p.rot + p.vr * f); x.fillStyle = p.c;
+      if (p.round) { x.beginPath(); x.arc(0, 0, p.w / 2.4, 0, 7); x.fill(); } else x.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+      x.restore();
+    }
+  };
+  if (freezeAt != null) { draw(freezeAt * T); return; }
+  let f = 0; const step = () => { draw(f); if (++f <= T) requestAnimationFrame(step); else x.clearRect(0, 0, W, H); }; step();
+}
+
+/* ---------------------------------------------------------------- the thread screen */
+function buildThread() {
+  const t = $('#thread'); t.innerHTML = '';
+  const root = group('them', { who: 'jxn' }); root.classList.add('troot');
+  $('.col', root).appendChild(bubble('does zoom reset when you swipe to the next picture?'));
+  t.appendChild(root);
+  t.appendChild(el('<div class="tcount">4 replies</div>'));
+  const s = group('agent', { who: 'scout', to: 'jxn' });
+  $('.col', s).appendChild(bubble('Yes: each picture opens fit-to-screen. Zoom is per picture (Attachments.swift, the lightbox\'s <code>scale</code> resets on page change).'));
+  $('.col', s).appendChild(bubble('Same on web: the zoom state lives on the &lt;img&gt;, so a swipe starts fresh.'));
+  t.appendChild(s);
+  const c = group('agent', { who: 'claude-2' });
+  $('.col', c).appendChild(bubble('Agreed. If you\'d rather keep zoom across pictures it\'s a ~10 line change. Want it?'));
+  reactions($('.col', c), [['👀', 1]], false);
+  t.appendChild(c);
+  const j = group('them', { who: 'jxn' });
+  $('.col', j).appendChild(bubble('keep it as is, fresh is right 👍'));
+  reactions($('.col', j), [['❤️', 2, true]], false);
+  t.appendChild(j);
+  const ty = group('agent', { who: 'claude-2' });
+  $('.col', ty).appendChild(bubble(`<div class="dots"><i></i><i></i><i></i></div>`, 'typing'));
+  t.appendChild(ty);
+  hydratePebbles(t);
+}
+
+/* ---------------------------------------------------------------- interactions: double-tap, hold, swipe, send */
+let lastTap = 0, holdT, drag = null;
+const dim = $('#dim');
+function closeTray() { dim.classList.remove('on'); $$('.tray').forEach(t => t.remove()); $$('.b.lift').forEach(b => { b.classList.remove('lift'); b.style.zIndex = ''; b.style.position = ''; }); }
+dim.addEventListener('click', closeTray);
+function openTray(b) {
+  closeTray();
+  const phone = $('#s-chat').getBoundingClientRect(), r = b.getBoundingClientRect();
+  dim.classList.add('on');
+  const tray = el(`<div class="tray">${['❤️', '👍', '😂', '🎉', '🚀', '👀'].map(e => `<button data-e="${e}">${e}</button>`).join('')}<button class="rp" data-reply>Reply</button></div>`);
+  tray.style.left = Math.max(8, Math.min(r.left - phone.left, phone.width - 340)) + 'px';
+  tray.style.top = Math.max(100, r.top - phone.top - 58) + 'px';
+  $('#s-chat').appendChild(tray);
+  // lift the bubble above the dim
+  const clone = b.cloneNode(true); clone.classList.add('in');
+  Object.assign(clone.style, { position: 'absolute', left: r.left - phone.left + 'px', top: r.top - phone.top + 'px', width: r.width + 'px', zIndex: 21, transform: 'scale(1.04)', boxShadow: 'var(--shadow-pop)' });
+  clone.className += ' tray'; clone.style.animation = 'bump .4s cubic-bezier(.34,1.56,.64,1)';
+  $('#s-chat').appendChild(clone);
+  tray.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('button'); if (!btn) return;
+    if (btn.dataset.reply != null) startReply(b); else react(b, btn.dataset.e);
+    closeTray();
+  });
+}
+function react(b, e) {
+  const col = b.closest('.col'); if (!col) return;
+  let r = $('.reacts', col);
+  if (!r) { r = el('<div class="reacts"></div>'); const q = $(':scope > .meta, :scope > .quick, :scope > .tpill', col); q ? col.insertBefore(r, q) : col.appendChild(r); }
+  b.classList.remove('bump'); void b.offsetWidth; b.classList.add('bump');
+  addReaction(r, e, 1, true, true);
+  haptic();
+}
+function haptic() { try { navigator.vibrate && navigator.vibrate(8); } catch (_) {} }
+function startReply(b) {
+  $('#replyText').textContent = b.textContent.trim().slice(0, 80);
+  const who = b.closest('.grp')?.querySelector('.who'); $('#replying b').textContent = who ? who.childNodes[0].textContent : 'you';
+  $('#replying').classList.remove('on'); void $('#replying').offsetWidth; $('#replying').classList.add('on');
+  $('#input').focus();
+}
+$('#replyX').addEventListener('click', () => $('#replying').classList.remove('on'));
+
+chat.addEventListener('pointerdown', (ev) => {
+  const b = ev.target.closest('.b'); if (!b || b.classList.contains('typing')) return;
+  const now = Date.now();
+  if (now - lastTap < 300) { react(b, '❤️'); lastTap = 0; return; }
+  lastTap = now;
+  holdT = setTimeout(() => { drag = null; openTray(b); haptic(); }, 480);
+  drag = { b, row: b.closest('.mrow'), x0: ev.clientX, y0: ev.clientY, dx: 0, armed: false, icon: null };
+});
+addEventListener('pointermove', (ev) => {
+  if (!drag) return;
+  const dx = ev.clientX - drag.x0, dy = ev.clientY - drag.y0;
+  if (Math.abs(dx) > 6 || Math.abs(dy) > 6) clearTimeout(holdT);
+  if (Math.abs(dy) > Math.abs(dx) && !drag.icon) return;
+  if (!drag.icon) { drag.icon = el(`<span class="replyicon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 016 6v4"/></svg></span>`); drag.row.prepend(drag.icon); }
+  const d = Math.max(0, dx), eased = d < 60 ? d : 60 + (d - 60) * .25; // rubber band past the threshold
+  drag.b.style.transition = 'none'; drag.b.style.transform = `translateX(${eased}px)`;
+  const tl = $('.tail', drag.row); if (tl) tl.style.translate = `${eased}px 0`;
+  drag.icon.style.opacity = Math.min(1, d / 50); drag.icon.style.transform = `translateX(${eased * .55}px) scale(${.4 + Math.min(.6, d / 100)})`;
+  const armed = d >= 60;
+  if (armed !== drag.armed) { drag.armed = armed; drag.icon.classList.toggle('armed', armed); if (armed) haptic(); }
+});
+addEventListener('pointerup', () => {
+  clearTimeout(holdT);
+  if (!drag) return;
+  const { b, icon, armed } = drag; drag = null;
+  b.style.transition = ''; b.style.transform = '';
+  const tl = b.parentElement && $('.tail', b.parentElement); if (tl) { tl.style.transition = 'translate .35s cubic-bezier(.34,1.56,.64,1)'; tl.style.translate = ''; }
+  if (icon) { icon.style.transition = 'opacity .2s'; icon.style.opacity = 0; setTimeout(() => icon.remove(), 250); }
+  if (armed) startReply(b);
+});
+
+// composer: send with a spring, then sent → delivered → read
+const input = $('#input'), send = $('#send');
+input.addEventListener('input', () => send.classList.toggle('on', input.value.trim().length > 0));
+input.addEventListener('keydown', (e) => { if (e.key === 'Enter') doSend(); });
+send.addEventListener('click', doSend);
+async function doSend(textArg) {
+  const text = typeof textArg === 'string' ? textArg : input.value.trim(); if (!text) return;
+  input.value = ''; send.classList.remove('on'); $('#replying').classList.remove('on');
+  const seen = $('.seen', chat); const lastScout = chat.lastElementChild;
+  const g = group('me'); g.classList.add('fly');
+  const c = $('.col', g); c.appendChild(bubble(text.replace(/</g, '&lt;')));
+  const m = el(`<div class="meta">now ${TICKS('sent')}</div>`); c.appendChild(m);
+  chat.insertBefore(g, seen || lastScout); scrollDown(); haptic();
+  setTimeout(() => $('.ticks', m).setAttribute('class', 'ticks delivered'), 600);
+  setTimeout(() => { $('.ticks', m).setAttribute('class', 'ticks read'); }, 1500);
+  setTimeout(() => react($('.b', g), '❤️') , 2100);
+}
+document.addEventListener('click', (ev) => {
+  const q = ev.target.closest('.quick button');
+  if (q) { q.dataset.q ? react(ship.querySelector('.card'), q.dataset.q) : doSend(q.dataset.say); if (q.dataset.q === '🎉') confetti($('.confetti', ship)); return; }
+  const go = ev.target.closest('[data-go]'); if (go) show(go.dataset.go);
+});
+
+/* ---------------------------------------------------------------- screens and theme */
+function show(screen) {
+  const order = ['list', 'chat', 'thread'], i = order.indexOf(screen);
+  order.forEach((s, k) => { const n = $('#s-' + s); n.classList.toggle('off-right', k > i); n.classList.toggle('off-left', k < i); });
+  $$('#segScreen button').forEach(b => b.classList.toggle('on', b.dataset.v === screen));
+  if (screen === 'thread') buildThread();
+  if (screen === 'list' && !END) { const u = $('#annexBadge'); u.classList.remove('bounce'); void u.offsetWidth; u.classList.add('bounce'); }
+}
+function theme(t) {
+  document.documentElement.dataset.theme = t === 'dark' ? 'dark' : 'bright';
+  const c = getComputedStyle(document.documentElement).getPropertyValue('--wall-doodle').trim();
+  $$('.wall').forEach(w => w.style.setProperty('--doodle', doodle(c)));
+  $$('#segTheme button').forEach(b => b.classList.toggle('on', b.dataset.v === t));
+}
+$('#segTheme').addEventListener('click', e => { const b = e.target.closest('button'); if (b) theme(b.dataset.v); });
+$('#segScreen').addEventListener('click', e => { const b = e.target.closest('button'); if (b) show(b.dataset.v); });
+$('#replay').addEventListener('click', () => { show('chat'); play(); });
+
+theme(Q.get('theme') === 'dark' ? 'dark' : 'bright');
+show(['list', 'thread'].includes(Q.get('screen')) ? Q.get('screen') : 'chat');
+document.fonts.ready.then(() => play().then(() => document.body.dataset.ready = '1'));
+</script>
+</body>
+</html>
