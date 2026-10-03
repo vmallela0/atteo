@@ -690,18 +690,20 @@ struct EntryRow: View {
     /// Agents' 👀 / ✅ are read receipts (the quiet line); everything else is a reaction chip.
     private var receipts: [Reaction] {
         reactions.compactMap { r in
-            guard r.emoji == "👀" || r.emoji == "✅" else { return nil }
+            guard Self.receiptEmoji.contains(r.emoji) else { return nil }
             let agents = r.users.filter(Self.isAgent)
             return agents.isEmpty ? nil : Reaction(emoji: r.emoji, users: agents)
         }
     }
     private var chips: [Reaction] {
         reactions.compactMap { r in
-            let people = r.emoji == "👀" || r.emoji == "✅" ? r.users.filter { !Self.isAgent($0) } : r.users
+            let people = Self.receiptEmoji.contains(r.emoji) ? r.users.filter { !Self.isAgent($0) } : r.users
             return people.isEmpty ? nil : Reaction(emoji: r.emoji, users: people)
         }
     }
     static func isAgent(_ u: String) -> Bool { u.hasSuffix("'s agent") || u.contains("/") }
+    /// An agent's 🤔 (picked it up; 👀 on older messages) and ✅ (answered): read receipts, not reactions.
+    static let receiptEmoji: Set<String> = ["🤔", "👀", "✅"]
 
     var body: some View {
         Group { if mine && e.type != "task" { myMessage } else { theirMessage } }
@@ -1029,13 +1031,13 @@ struct ReactionLine: View {
     var body: some View {
         HStack(spacing: 8) {
             ForEach(reactions, id: \.emoji) { r in
-                let receipt = r.emoji == "👀" || r.emoji == "✅"
+                let receipt = EntryRow.receiptEmoji.contains(r.emoji)
                 HStack(spacing: 3) {
                     Text(r.emoji).font(.caption2)
                     Text(receipt ? names(r.users) : "\(r.users.count)").font(.caption2).foregroundStyle(r.emoji == "✅" ? Theme.ok : Theme.faint).lineLimit(1)
                 }
                 .accessibilityElement(children: .combine)
-                .accessibilityLabel(receipt ? "\(r.emoji == "👀" ? "Seen, working" : "Done"): \(names(r.users))" : "\(r.emoji) \(r.users.count)")
+                .accessibilityLabel(receipt ? "\(r.emoji == "✅" ? "Done" : "Seen, working"): \(names(r.users))" : "\(r.emoji) \(r.users.count)")
             }
         }
         .frame(maxWidth: .infinity, alignment: trailing ? .trailing : .leading)
