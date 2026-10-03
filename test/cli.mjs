@@ -181,6 +181,45 @@ await step("mcp: agent-first notices: mentions and your threads at once, the res
   m.stop();
 });
 
+await step("hooks install --approvals: Claude Code's permission prompts become approvals the person decides; agents can't; no decision denies", async () => {
+  const cfg = join(dir, "claude-cfg");
+  (await import("node:fs")).mkdirSync(cfg, { recursive: true });
+  writeFileSync(join(cfg, "settings.json"), JSON.stringify({ model: "x", hooks: { Stop: [{ hooks: [{ type: "command", command: "true" }] }] } }));
+  const env = { CLAUDE_CONFIG_DIR: cfg };
+  let r = await cli(["hooks", "install", "--approvals"], { env });
+  r = await cli(["hooks", "install", "--approvals"], { env }); // twice: still one
+  let st = JSON.parse(readFileSync(join(cfg, "settings.json"), "utf8"));
+  assert(r.code === 0 && r.out.startsWith("On:") && st.model === "x" && st.hooks.Stop.length === 1, r.out + r.err + JSON.stringify(st));
+  const ours = st.hooks.PermissionRequest.filter((g) => g.hooks.some((h) => h.command.includes("hooks approve")));
+  assert(ours.length === 1 && ours[0].matcher === "*" && ours[0].hooks[0].timeout === 600, JSON.stringify(st.hooks.PermissionRequest));
+  // The hook itself: asks on Atteo, waits; A decides in the browser.
+  const ck = (await ops("sessions", { user: A })).cookie;
+  const decideNext = async (verdict) => {
+    let id = null;
+    for (let t = 0; t < 60 && !id; t++, await sleep(100)) {
+      const j = await (await fetch(`${BASE}/api/approvals`, { headers: { cookie: ck } })).json();
+      id = j.approvals?.find((a) => a.status === "pending" && a.title.includes("rm -rf build"))?.id ?? null;
+    }
+    assert(id, "no approval appeared");
+    // An agent's token can't decide it, only the person in a browser.
+    const byAgent = await fetch(`${BASE}/api/approvals/${id}/approve`, { method: "POST", headers: { authorization: `Bearer ${tokA}`, "content-type": "application/json" }, body: "{}" });
+    assert(byAgent.status === 403, `an agent approved: ${byAgent.status}`);
+    const ok = await fetch(`${BASE}/api/approvals/${id}/${verdict}`, { method: "POST", headers: { cookie: ck, "content-type": "application/json" }, body: JSON.stringify({ note: "checked" }) });
+    assert(ok.status === 200, `decide ${ok.status}`);
+  };
+  const ask = { tool_name: "Bash", tool_input: { command: "rm -rf build", description: "clean" }, cwd: "/tmp/proj" };
+  const decision = (out) => JSON.parse(out.trim().split("\n").pop()).hookSpecificOutput.decision;
+  let [h] = await Promise.all([cli(["hooks", "approve"], { input: JSON.stringify(ask) }), decideNext("approve")]);
+  assert(h.code === 0 && decision(h.out).behavior === "allow", h.out + h.err);
+  [h] = await Promise.all([cli(["hooks", "approve"], { input: JSON.stringify(ask) }), decideNext("reject")]);
+  assert(h.code === 0 && decision(h.out).behavior === "deny" && /Denied on Atteo/.test(decision(h.out).message), h.out + h.err);
+  h = await cli(["hooks", "approve"], { input: JSON.stringify(ask), env: { ATTEO_APPROVAL_WAIT_S: "2" } });
+  assert(h.code === 0 && decision(h.out).behavior === "deny" && /in time/.test(decision(h.out).message), `no decision denies: ${h.out}${h.err}`);
+  r = await cli(["hooks", "install", "--approvals", "--off"], { env });
+  st = JSON.parse(readFileSync(join(cfg, "settings.json"), "utf8"));
+  assert(r.out.startsWith("Off:") && !st.hooks.PermissionRequest && st.hooks.Stop.length === 1 && st.model === "x", JSON.stringify(st));
+});
+
 await step("mcp: an expired login hands the agent a sign-in link instead of failing silently", async () => {
   const expired = join(dir, "expired.json");
   writeFileSync(expired, JSON.stringify({ server: BASE, user: A, token: tokA, expires_at: Date.now() - 1000 }), { mode: 0o600 });
@@ -1086,6 +1125,7 @@ await step("dispatch: one fork per message, each its own session with the messag
   assert(/<<untrusted [0-9a-f]+:/.test(taskRun), "the message is fenced: " + taskRun);
   assert(taskRun.includes(`reply_to ${task}`) && taskRun.includes(`--board ${shared} --reply ${task}`) && taskRun.includes("in the thread") && taskRun.includes(`task claim ${task}`) && taskRun.includes("✅") && taskRun.includes("session end"), "claim, reply in the thread, ✅, end: " + taskRun);
   assert(dmRun.includes(`direct board with ${E}`) && dmRun.includes(dm) && !dmRun.includes("task claim"), dmRun);
+  assert(runs.every((x) => x.includes("Nobody reads this session's terminal")), "forks are told they're headless: " + log);
   // Acked, the forks' sessions ended, and a second run starts nothing.
   const left = await call(tokD, "GET", "/api/mailbox?peek=1");
   assert(left.mail.length === 0, "acked: " + JSON.stringify(left));

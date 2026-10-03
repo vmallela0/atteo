@@ -7,7 +7,8 @@
 
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { env } from "./env";
-import { isAbsolute, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
+import { homedir } from "node:os";
 import { buildCard, EMPTY_TREE, runner } from "./card";
 import { cardLine } from "../../src/card";
 import { CliError, folderBoard, isEncrypted, optStr, parseArgs, say, tool } from "./commands";
@@ -181,10 +182,76 @@ async function prePush(args: string[]) {
   }
 }
 
+// ---- `atteo hooks install --approvals`: Claude Code's permission prompts become Atteo approvals (jxn #871) ----
+// For agents nobody watches: instead of a terminal prompt no one sees, each tool permission request becomes an approval
+// the person decides on the web or phone. Only that person can decide (an agent's token never can, the server makes
+// sure); no decision in time is a deny. It changes this machine's Claude Code settings, so it's opt-in: only when run.
+const APPROVE_CMD = "hooks approve";
+const APPROVALS_OFF = "atteo hooks install --approvals --off";
+const claudeSettings = () => join(process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"), "settings.json");
+type HookGroup = { matcher?: string; hooks?: { type?: string; command?: string; timeout?: number }[] };
+
+function installApprovals(off: boolean): string {
+  const f = claudeSettings();
+  let s: { hooks?: Record<string, HookGroup[]> } & Record<string, unknown> = {};
+  if (existsSync(f)) {
+    try {
+      s = JSON.parse(readFileSync(f, "utf8"));
+    } catch {
+      throw new CliError(`${f} isn't valid JSON, so it was left alone. Fix it, then run this again.`);
+    }
+  }
+  const ours = (g: HookGroup) => (g.hooks ?? []).some((h) => String(h.command ?? "").includes(APPROVE_CMD));
+  const kept = (s.hooks?.PermissionRequest ?? []).filter((g) => !ours(g));
+  const hooks = { ...(s.hooks ?? {}) };
+  if (off) {
+    if (kept.length) hooks.PermissionRequest = kept;
+    else delete hooks.PermissionRequest;
+  } else {
+    const cli = process.argv[1] ? realpathSync(process.argv[1]) : "atteo";
+    hooks.PermissionRequest = [...kept, { matcher: "*", hooks: [{ type: "command", command: `${q(process.execPath)} ${q(cli)} ${APPROVE_CMD}`, timeout: 600 }] }];
+  }
+  s.hooks = hooks;
+  if (!Object.keys(hooks).length) delete s.hooks;
+  mkdirSync(dirname(f), { recursive: true });
+  writeFileSync(f, JSON.stringify(s, null, 2) + "\n");
+  return off
+    ? `Off: Claude Code asks for permission in its terminal again (${f}).`
+    : `On: Claude Code's permission prompts on this machine go to Atteo as approvals, for your person to decide on the web or phone; no decision in 9 minutes denies (${f}). Turn it off: ${APPROVALS_OFF}`;
+}
+
+/** The hook Claude Code runs (PermissionRequest): ask on Atteo, wait for the person, answer allow or deny. */
+async function approveHook(): Promise<void> {
+  const chunks: Buffer[] = [];
+  for await (const c of process.stdin) chunks.push(c as Buffer);
+  let req: { tool_name?: string; tool_input?: Record<string, unknown>; cwd?: string } = {};
+  try {
+    req = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  } catch {}
+  const name = String(req.tool_name ?? "a tool"), input = req.tool_input ?? {};
+  const what = typeof input.command === "string" ? input.command : typeof input.file_path === "string" ? input.file_path : JSON.stringify(input);
+  const title = `${name}: ${what.split("\n")[0].slice(0, 100)}`;
+  const details = `Claude Code wants to use ${name}${req.cwd ? ` in ${req.cwd}` : ""}:\n\n${JSON.stringify(input, null, 2).slice(0, 4000)}`;
+  const answer = (behavior: "allow" | "deny", message?: string) =>
+    process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "PermissionRequest", decision: { behavior, ...(message ? { message } : {}) } } }) + "\n");
+  const until = Date.now() + (Number(env("APPROVAL_WAIT_S")) || 540) * 1000;
+  // Any error (not signed in, offline, a credential in the command) exits non-zero: Claude Code then asks as usual.
+  let text = await tool({}, "request_approval", { title, details, risk: name === "Bash" ? "medium" : "low", wait_seconds: 45 }, null);
+  const id = text.match(/ap_[A-Za-z0-9_-]+/)?.[0];
+  for (;;) {
+    if (/^Approved/.test(text)) return answer("allow");
+    if (/^Rejected/.test(text)) return answer("deny", `Denied on Atteo. ${text.split("\n")[0]}`);
+    if (!id || /expired/.test(text) || Date.now() >= until) return answer("deny", "No decision on Atteo in time, so it's denied. Ask again if it's still needed.");
+    text = await tool({}, "approval", { id, wait_seconds: Math.max(1, Math.min(45, Math.round((until - Date.now()) / 1000))) }, null);
+  }
+}
+
 export async function hooksCmd(args: string[]) {
-  const { pos, opt } = parseArgs(args, ["off", "diff"]);
+  const { pos, opt } = parseArgs(args, ["off", "diff", "approvals"]);
   const verb = pos[0] ?? "status";
   if (verb === "pre-push") return prePush(args.slice(1));
+  if (verb === "approve") return approveHook();
+  if ((verb === "install" || verb === "uninstall" || verb === "remove") && opt.approvals) return say(installApprovals(opt.off === true || verb !== "install"));
   if (verb === "install" || verb === "uninstall" || verb === "remove") {
     if (opt.off || verb !== "install") return say(removeHook(process.cwd()));
     const msg = installHook(process.cwd(), { diff: opt.diff === true });
@@ -199,5 +266,5 @@ export async function hooksCmd(args: string[]) {
     const withDiff = readFileSync(f, "utf8").includes(" --diff");
     return say(`On: pushes from this repo post change cards (${withDiff ? "commits, files and the diff" : "commits and files, not the diff"}; ${f}). Turn it off: ${OFF}`);
   }
-  throw new CliError("Usage: atteo hooks install [--diff | --off]   (a git pre-push hook that posts a change card for each push; --diff includes the code)");
+  throw new CliError("Usage: atteo hooks install [--diff | --off]   (a git pre-push hook that posts a change card for each push; --diff includes the code)\n       atteo hooks install --approvals [--off]   (Claude Code's permission prompts go to Atteo, for your person to decide on the web or phone)");
 }
