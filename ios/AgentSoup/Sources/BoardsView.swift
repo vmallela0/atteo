@@ -288,6 +288,15 @@ struct BoardView: View {
         .task { async let e: Void = state.loadEntries(board); async let t: Void = state.loadTasks(board); async let a: Void = state.loadAgents(board); async let m: Void = state.loadMembers(board); _ = await (e, t, a, m); await state.markRead(board); await state.loadHandling(board); await state.markSeen(board) }
         .onChange(of: state.pulse) { _, p in if p?.board == board.id { Task { async let e: Void = state.loadEntries(board); async let t: Void = state.loadTasks(board); async let a: Void = state.loadAgents(board); _ = await (e, t, a); await state.markRead(board) } } }
         .onChange(of: list.last?.seq) { _, _ in Task { await state.markSeen(board) } } // you've seen what just landed
+        // A long chat is laid out lazily (row heights are guesses until rows are made), so "the latest" keeps moving for a
+        // moment after it opens: hold it there until it stops, unless you scroll up or a search hit sent you somewhere.
+        .task(id: board.id) {
+            for _ in 0..<12 {
+                try? await Task.sleep(for: .milliseconds(150))
+                guard stick, state.jumpRequest == nil, !Task.isCancelled else { return }
+                position.scrollTo(edge: .bottom)
+            }
+        }
         .task(id: board.id) { await state.watch(board) } // live: ticks and new messages as they happen
         .task(id: board.id) { if board.isAgentChat { _ = await state.openAgentChat() } } // its sessions, fresh
         .refreshable { await state.loadEntries(board) }

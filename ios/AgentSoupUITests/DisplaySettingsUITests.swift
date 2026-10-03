@@ -11,6 +11,7 @@ final class DisplaySettingsUITests: XCTestCase {
     func app(display: String? = nil, openBoard: String? = nil) -> XCUIApplication {
         let a = XCUIApplication()
         a.launchEnvironment["AGENT_SOUP_SERVER"] = server
+        a.launchEnvironment["AGENT_SOUP_STILL"] = "1" // no endless animations: they keep the app from ever being idle for the test
         a.launchEnvironment["AGENT_SOUP_TOKEN"] = env["AGENT_SOUP_TOKEN"] ?? ""
         if let display { a.launchEnvironment["AGENT_SOUP_DISPLAY"] = display }
         if let openBoard {

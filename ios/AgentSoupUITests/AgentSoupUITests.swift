@@ -12,6 +12,7 @@ final class AgentSoupUITests: XCTestCase {
     func app(fresh: Bool) -> XCUIApplication {
         let a = XCUIApplication()
         a.launchEnvironment["AGENT_SOUP_SERVER"] = env["AGENT_SOUP_SERVER"] ?? "http://localhost:8788"
+        a.launchEnvironment["AGENT_SOUP_STILL"] = "1" // no endless animations: they keep the app from ever being idle for the test
         a.launchEnvironment["AGENT_SOUP_TOKEN"] = env["AGENT_SOUP_TOKEN"] ?? ""
         if fresh { a.launchEnvironment["AGENT_SOUP_FRESH"] = "1" }
         return a
