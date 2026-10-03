@@ -116,6 +116,7 @@ struct TasksSheet: View {
     @EnvironmentObject var state: AppState
     @Environment(\.dismiss) private var dismiss
     let board: Board
+    @State private var newTask = false
 
     var body: some View {
         let all = state.tasks[board.id] ?? []
@@ -131,10 +132,22 @@ struct TasksSheet: View {
             .background(Theme.bg)
             .navigationTitle("Work on \(board.title)")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() }.fontWeight(.semibold) } }
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    // The board's files (every file is a versioned doc), read-only.
+                    NavigationLink { FilesList(board: board.id) } label: { Image(systemName: "doc.on.doc").font(.system(size: 15, weight: .semibold)) }
+                        .accessibilityLabel("Files")
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { Haptic.tap(); newTask = true } label: { Image(systemName: "plus").font(.system(size: 16, weight: .semibold)) }
+                        .accessibilityLabel("New task")
+                }
+                ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() }.fontWeight(.semibold) }
+            }
             .navigationDestination(for: Int.self) { seq in TaskDetail(seq: seq, board: board.id) }
-            .overlay { if all.isEmpty { ContentUnavailableView("No tasks yet", systemImage: "checklist", description: Text("When agents pick up work here, it shows up with who's on it.")) } }
+            .overlay { if all.isEmpty { ContentUnavailableView("No tasks yet", systemImage: "checklist", description: Text("Tap + to add one. When agents pick up work here, it shows up with who's on it.")) } }
             .refreshable { await state.loadTasks(board) }
+            .sheet(isPresented: $newTask) { NewTaskSheet(board: board.id).presentationDetents([.medium, .large]).presentationBackground(Theme.bg) }
         }
     }
 
@@ -145,14 +158,34 @@ struct TasksSheet: View {
         if !top.isEmpty {
             Section {
                 ForEach(top) { t in
-                    NavigationLink(value: t.seq) { TaskRow(task: t) }
+                    NavigationLink(value: t.seq) { TaskRow(task: t) }.accessibilityIdentifier("task-row-\(t.title)").modifier(TaskSwipes(task: t, board: board.id))
                     ForEach(all.filter { $0.parent == t.seq }.sorted { $0.seq < $1.seq }) { s in
-                        NavigationLink(value: s.seq) { TaskRow(task: s).padding(.leading, Space.xl) }
+                        NavigationLink(value: s.seq) { TaskRow(task: s).padding(.leading, Space.xl) }.accessibilityIdentifier("task-row-\(s.title)").modifier(TaskSwipes(task: s, board: board.id))
                     }
                 }
             } header: { Text("\(title) · \(top.count)").font(Typo.section).foregroundStyle(color).textCase(nil) }
             .listRowBackground(Theme.card)
         }
+    }
+}
+
+/// Swipe a task in the list: right to mark it done (or reopen it), left to remove it (if it's yours to remove).
+struct TaskSwipes: ViewModifier {
+    @EnvironmentObject var state: AppState
+    let task: WorkTask
+    let board: String
+    func body(content: Content) -> some View {
+        content
+            .swipeActions(edge: .leading) {
+                Button { Task { await state.setStatus(board, task, task.status == "done" ? "todo" : "done") } } label: {
+                    Label(task.status == "done" ? "Reopen" : "Done", systemImage: task.status == "done" ? "arrow.uturn.backward" : "checkmark")
+                }.tint(task.status == "done" ? Theme.muted : Theme.ok)
+            }
+            .swipeActions(edge: .trailing) {
+                if state.canRemove(task, board: board) {
+                    Button(role: .destructive) { Task { _ = await state.removeTask(board, task) } } label: { Label("Remove", systemImage: "trash") }
+                }
+            }
     }
 }
 
@@ -176,11 +209,14 @@ struct TaskRow: View {
 }
 
 /// One task, live: who's on it, its checklist (ticking as the work gets done), its sub-tasks and what it's part of.
-/// Read-only here; agents and people edit it on the board.
+/// You act on it here, like on the web: claim or release it, change where it stands, tick its checklist by tapping a
+/// line, or remove it (if you posted it or made the board). Every change shows at once and rolls back if refused.
 struct TaskDetail: View {
     @EnvironmentObject var state: AppState
+    @Environment(\.dismiss) private var dismiss
     let seq: Int
     let board: String
+    @State private var confirmRemove = false
     private var tasks: [WorkTask] { state.tasks[board] ?? [] }
 
     var body: some View {
@@ -194,23 +230,27 @@ struct TaskDetail: View {
                         }.buttonStyle(.plain)
                     }
                     Text(task.title).font(.title3.weight(.semibold)).foregroundStyle(Theme.text)
-                    HStack(spacing: Space.s) {
-                        Pill(text: task.statusLabel, color: task.status == "doing" ? Theme.accent : task.status == "done" ? Theme.ok : task.status == "blocked" ? Theme.warn : Theme.muted)
-                        if let w = task.who { Text(w).font(Typo.secondary).foregroundStyle(Theme.muted) }
-                        Spacer()
-                        Text(task.updatedAt.ago).font(Typo.micro).foregroundStyle(Theme.faint)
-                    }
-                    VStack(alignment: .leading, spacing: Space.s) {
-                        ForEach(Array(task.body.split(separator: "\n", omittingEmptySubsequences: false).enumerated()), id: \.offset) { _, raw in
+                    TaskActionBar(task: task, board: board)
+                    VStack(alignment: .leading, spacing: Space.xxs) {
+                        ForEach(Array(task.body.split(separator: "\n", omittingEmptySubsequences: false).enumerated()), id: \.offset) { i, raw in
                             let line = raw.trimmingCharacters(in: .whitespaces)
                             if line.hasPrefix("- [x]") || line.hasPrefix("- [X]") || line.hasPrefix("- [ ]") {
-                                CheckLine(text: String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces), done: !line.hasPrefix("- [ ]"))
+                                let text = String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces)
+                                // The whole line is the target (like Reminders): tap to tick, tap again to untick.
+                                Button { Task { await state.toggle(board, task, line: i) } } label: {
+                                    CheckLine(text: text, done: !line.hasPrefix("- [ ]"))
+                                        .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
+                                        .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityIdentifier("check-\(text)")
+                                .accessibilityValue(line.hasPrefix("- [ ]") ? "not done" : "done")
                             } else if !line.isEmpty {
-                                Text(line.md).font(Typo.secondary).foregroundStyle(Theme.muted)
+                                Text(line.md).font(Typo.secondary).foregroundStyle(Theme.muted).padding(.vertical, Space.xxs)
                             }
                         }
                     }
-                    .padding(.top, Space.xs)
+                    .padding(.top, Space.xxs)
                     if !subs.isEmpty {
                         VStack(alignment: .leading, spacing: 10) {
                             Text("Sub-tasks · \(subs.filter { $0.status == "done" }.count) of \(subs.count) done").font(Typo.section).foregroundStyle(Theme.muted)
@@ -222,10 +262,140 @@ struct TaskDetail: View {
                 .padding(.horizontal, Space.l).padding(.vertical, Space.l)
                 .animation(.smooth, value: task)
             } else {
-                ContentUnavailableView("Task not found", systemImage: "checklist", description: Text("It may have been retracted."))
+                ContentUnavailableView("Task not found", systemImage: "checklist", description: Text("It may have been removed."))
             }
         }
         .background(Theme.bg)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if let task = tasks.first(where: { $0.seq == seq }), state.canRemove(task, board: board) {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button("Remove task", systemImage: "trash", role: .destructive) { confirmRemove = true }
+                    } label: { Image(systemName: "ellipsis").font(.system(size: 15, weight: .semibold)).frame(width: 32, height: 32).contentShape(Rectangle()) }
+                    .accessibilityLabel("More")
+                }
+            }
+        }
+        .confirmationDialog("Remove this task?", isPresented: $confirmRemove, titleVisibility: .visible) {
+            Button("Remove task", role: .destructive) {
+                guard let task = tasks.first(where: { $0.seq == seq }) else { return }
+                Task { if await state.removeTask(board, task) { dismiss() } }
+            }
+        } message: { Text("It comes off the task board for everyone. The conversation keeps a note that it was removed.") }
+    }
+}
+
+/// Where a task stands and what you can do about it: a status you change from a compact menu, who's on it, and
+/// one button to take it (or let it go).
+struct TaskActionBar: View {
+    @EnvironmentObject var state: AppState
+    let task: WorkTask
+    let board: String
+    static let statuses: [(key: String, label: String, icon: String)] = [("todo", "To do", "circle"), ("doing", "In progress", "circle.lefthalf.filled"), ("blocked", "Blocked", "exclamationmark.circle"), ("done", "Done", "checkmark.circle")]
+
+    private var color: Color { task.status == "doing" ? Theme.accent : task.status == "done" ? Theme.ok : task.status == "blocked" || task.status == "stopped" ? Theme.warn : Theme.muted }
+
+    var body: some View {
+        let mine = state.holding(task)
+        HStack(spacing: Space.s) {
+            Menu {
+                ForEach(Self.statuses, id: \.key) { s in
+                    Button { Task { await state.setStatus(board, task, s.key) } } label: {
+                        Label(s.label, systemImage: (task.status == "stopped" ? "blocked" : task.status) == s.key ? "checkmark" : s.icon)
+                    }
+                }
+            } label: {
+                HStack(spacing: Space.xs) {
+                    Text(task.statusLabel).font(Typo.meta.weight(.semibold))
+                    Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold))
+                }
+                .foregroundStyle(color)
+                .padding(.horizontal, 10).frame(height: 28)
+                .background(color.opacity(0.14), in: Capsule())
+                .contentShape(Capsule())
+            }
+            .accessibilityIdentifier("task-status")
+            .accessibilityValue(task.statusLabel)
+            Text(task.who ?? "Unassigned").font(Typo.secondary).foregroundStyle(task.who == nil ? Theme.faint : Theme.muted).lineLimit(1)
+            Spacer(minLength: Space.s)
+            Text(task.updatedAt.ago).font(Typo.micro).foregroundStyle(Theme.faint)
+            if task.status != "done" {
+                Button { Task { if mine { await state.release(board, task) } else { await state.claim(board, task) } } } label: {
+                    Text(mine ? "Release" : "Claim").font(Typo.meta.weight(.semibold))
+                        .padding(.horizontal, Space.m).frame(height: 28)
+                        .background(mine ? Theme.raised : Theme.text, in: Capsule())
+                        .foregroundStyle(mine ? Theme.text : .black)
+                }
+                .buttonStyle(PressStyle())
+                .accessibilityIdentifier("task-claim")
+                .accessibilityHint(mine ? "Let someone else take it" : "Take it for the next hour")
+            }
+        }
+    }
+}
+
+/// A new task: a title, and (optionally) the steps as a checklist. One line per item; return adds the next.
+struct NewTaskSheet: View {
+    @EnvironmentObject var state: AppState
+    @Environment(\.dismiss) private var dismiss
+    let board: String
+    @State private var title = ""
+    @State private var items: [String] = [""]
+    @State private var busy = false
+    @FocusState private var focus: Int?
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    TextField("What needs doing?", text: $title)
+                        .font(Typo.body.weight(.medium))
+                        .focused($focus, equals: -1)
+                        .submitLabel(.next)
+                        .onSubmit { focus = 0 }
+                        .accessibilityIdentifier("new-task-title")
+                }
+                .listRowBackground(Theme.card)
+                Section {
+                    ForEach(items.indices, id: \.self) { i in
+                        HStack(spacing: Space.s) {
+                            Image(systemName: "circle").font(.system(size: 13)).foregroundStyle(Theme.faint)
+                            TextField(i == 0 ? "Add a step (optional)" : "Another step", text: $items[i])
+                                .font(Typo.secondary)
+                                .focused($focus, equals: i)
+                                .submitLabel(.next)
+                                .onSubmit {
+                                    if !items[i].trimmingCharacters(in: .whitespaces).isEmpty {
+                                        if i == items.count - 1 { items.append("") }
+                                        focus = i + 1
+                                    }
+                                }
+                        }
+                    }
+                } header: { SectionHeader("Checklist") }
+                .listRowBackground(Theme.card)
+            }
+            .listSectionSpacing(.compact)
+            .scrollContentBackground(.hidden)
+            .background(Theme.bg)
+            .navigationTitle("New task")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        busy = true
+                        Task {
+                            if await state.createTask(board, title: title.trimmingCharacters(in: .whitespacesAndNewlines), checklist: items) != nil { dismiss() }
+                            busy = false
+                        }
+                    } label: { if busy { ProgressView() } else { Text("Add").fontWeight(.semibold) } }
+                    .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || busy)
+                    .accessibilityIdentifier("new-task-add")
+                }
+            }
+            .onAppear { focus = -1 }
+        }
     }
 }

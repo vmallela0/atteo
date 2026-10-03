@@ -30,6 +30,9 @@ struct Approval: Codable, Identifiable, Hashable {
     let risk: String
     let status: String
     let createdAt: Double
+    var requestedBy: String? = nil // who asked (on a board), if someone else's request started it
+    var seq: Int? = nil // the message on the board it's about
+    var expiresAt: Double? = nil
 }
 
 struct ContactsResponse: Codable {
@@ -81,6 +84,8 @@ struct Board: Codable, Identifiable, Hashable {
     let encrypted: Bool?
     let last: Last?
     var liveAgents: Int? = nil // agent sessions working on it right now
+    var createdBy: String? = nil // its creator (renames, archives, removes anyone's task)
+    var archived: Bool? = nil
 }
 
 extension Board {
@@ -185,16 +190,18 @@ struct TasksResponse: Decodable { let tasks: [WorkTask] }
 /// A board task: who it's for, who's on it right now, how far along its checklist is.
 struct WorkTask: Codable, Identifiable, Hashable {
     let seq: Int
-    let status: String // todo | doing | blocked | done | stopped
+    var status: String // todo | doing | blocked | done | stopped
     let assignee: String?
     let assigneeAgent: Bool?
-    let leaseHolder: String?
-    let leaseAgent: Bool?
-    let leaseUntil: Double?
+    var leaseHolder: String?
+    var leaseAgent: Bool?
+    var leaseUntil: Double?
     let priority: String?
     let title: String
-    let body: String
-    let updatedAt: Double
+    var body: String
+    var updatedAt: Double
+    var version: Int? = nil // edits of the whole body say which version they started from
+    var author: String? = nil // who posted it (they, or the board's creator, can remove it)
     var parent: Int? = nil // the task this is a sub-task of
     var children: Progress? = nil // this task's sub-tasks, done of total
     struct Progress: Codable, Hashable { let done: Int; let total: Int }
@@ -224,3 +231,73 @@ struct WorkTask: Codable, Identifiable, Hashable {
     }
     var priorityRank: Int { priority == "high" ? 0 : priority == "medium" ? 1 : priority == "low" ? 3 : 2 }
 }
+
+// MARK: - The web's features in the app (#508): people, files, members, invites
+
+/// Someone you can find in People: their name, a line about them, and how you're connected.
+struct Person: Decodable, Identifiable, Hashable {
+    let name: String
+    let displayName: String?
+    let bio: String?
+    var relation: String // self | friend | pending_out | pending_in | blocked | none
+    let sharedBoards: Int?
+    var id: String { name }
+    var relationLabel: String? {
+        switch relation {
+        case "friend": return "Friend"
+        case "pending_out": return "Request sent"
+        case "pending_in": return "Wants to be friends"
+        case "blocked": return "Blocked"
+        case "self": return "You"
+        default:
+            let n = sharedBoards ?? 0
+            return n > 0 ? "\(n) shared board\(n == 1 ? "" : "s")" : nil
+        }
+    }
+}
+struct PeopleResponse: Decodable { let people: [Person] }
+struct PersonResponse: Decodable { let person: Person; let presence: String? }
+struct FriendsResponse: Decodable { let friends: [Person] }
+struct DirectResponse: Decodable { let board: String; let title: String }
+
+/// A file on a board: every file is a versioned document.
+struct DocMeta: Decodable, Identifiable, Hashable {
+    let name: String
+    let version: Int
+    let updatedBy: String
+    let updatedAt: Double
+    let via: String?
+    let size: Int
+    var mime: String? = nil
+    var id: String { name }
+}
+struct DocsResponse: Decodable { let docs: [DocMeta] }
+struct Doc: Decodable, Equatable {
+    let name: String
+    let version: Int
+    let latest: Int
+    let content: String
+    let updatedBy: String
+    let updatedAt: Double
+    let via: String?
+}
+struct DocVersion: Decodable, Identifiable, Hashable {
+    let version: Int
+    let author: String
+    let ts: Double
+    let via: String?
+    let summary: String?
+    var id: Int { version }
+}
+struct DocHistoryResponse: Decodable { let versions: [DocVersion] }
+
+/// A board's members with their roles, and yours.
+struct BoardMembersResponse: Decodable {
+    struct Member: Decodable, Identifiable, Hashable { let user: String; let displayName: String?; let role: String; let lastSeen: Double?; var id: String { user } }
+    let members: [Member]
+    let you: String?
+}
+struct InviteLinkResponse: Decodable { let url: String }
+struct InviteResponse: Decodable { let message: String? }
+struct NewBoardResponse: Decodable { struct B: Decodable { let id: String; let title: String }; let board: B }
+struct TaskResponse: Decodable { let task: WorkTask }
