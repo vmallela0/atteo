@@ -1150,6 +1150,8 @@ document.addEventListener('click',e=>{const b=e.target.closest('[data-reply]');i
   if(e.target.closest('#replying-go')&&rpTo.value)window.BOARD_CTX.jump(+rpTo.value)});
 ta.addEventListener('keydown',e=>{if(e.key==='Escape'&&!e.defaultPrevented&&rpTo.value){e.preventDefault();replyClear()}});
 {let t=0;try{t=+localStorage.getItem(draftKey('to'))||0}catch(e){}if(t)setTimeout(()=>{if(document.getElementById('e'+t))replyTo(t,false);else replyClear()},0)}
+// ↗ original: the search jump (loads back to it, opens its thread, flashes it).
+document.addEventListener('click',e=>{const a=e.target.closest('a[data-jump]');if(!a||!window.BOARD_CTX)return;e.preventDefault();e.stopPropagation();usr();BOARD_CTX.jump(+a.dataset.jump)},true);
 // Enter posts, Shift+Enter adds a line. An Enter that picked a mention (default prevented above) doesn't post. On a
 // phone or tablet (touch, no hover) Return adds a line, as in other chat apps there: Post sends.
 document.getElementById('composer-text')?.addEventListener('keydown',e=>{
