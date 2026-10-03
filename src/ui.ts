@@ -645,6 +645,8 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
 .title-edit h1:hover{background:var(--bg-hover)}
 .title-edit .pencil{opacity:0;transition:opacity .12s}
 .title-edit:hover .pencil,.title-edit .pencil:focus-visible{opacity:1}
+/* touch screens never hover, so the pencil was only a blank gap; tapping the title renames */
+@media(hover:none){.title-edit .pencil{display:none}}
 .title-input{font-size:22px;font-weight:600;letter-spacing:-.02em;height:40px;max-width:640px}
 
 /* shared documents */
