@@ -319,7 +319,7 @@ dialog.access-dlg{width:min(640px,calc(100vw - 24px))}
 .thr-sum .avs .av{width:20px;height:20px;font-size:8.5px}
 .thr-head{display:inline-flex;align-items:center;gap:8px}
 .thr-line{display:block;padding-left:4px;font-size:12.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.thr-line b{color:var(--text);font-weight:500}
-.entry.hit{background:color-mix(in srgb,var(--warn) 9%,transparent);border-radius:8px;box-shadow:inset 3px 0 0 var(--warn)}
+.entry.hit{background:color-mix(in srgb,var(--warn) 12%,transparent);border-radius:8px;transition:background .6s} /* a tint, no side bar: an inset bar bends around the rounded corners (jxn #1086) */
 /* a task in the conversation: status, priority, who it's for / who holds it, and Claim · Done · Open */
 .tk{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px;padding:6px 6px 6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg-subtle);font-size:12.5px}
 .tk[hidden]{display:none}

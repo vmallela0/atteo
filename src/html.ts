@@ -1577,7 +1577,7 @@ function openThread(root,o={}){const top=document.getElementById('e'+root);if(!t
 function closeThread(){thrOpen=0;if(thrDlg.open)thrDlg.close()}
 thrDlg.addEventListener('close',()=>{thrOpen=0});
 thrDlg.addEventListener('click',e=>{if(e.target===thrDlg||e.target.closest('[data-thr-close]'))closeThread();const s=e.target.closest('.thr-list [data-src]');
-  if(s&&e.target.closest('a.seq,.rq')){e.preventDefault();const n=s.dataset.src;closeThread();const el=document.getElementById('e'+n);if(el){pinned=false;el.scrollIntoView({block:'center'});el.classList.add('hit')}}});
+  if(s&&e.target.closest('a.seq,.rq')){e.preventDefault();const n=s.dataset.src;closeThread();const el=document.getElementById('e'+n);if(el){pinned=false;el.scrollIntoView({block:'center'});el.classList.add('hit');setTimeout(()=>el.classList.remove('hit'),4000)}}});
 document.getElementById('thr-form')?.addEventListener('submit',async e=>{e.preventDefault();const t=document.getElementById('thr-text'),v=t.value.trim();if(!v||!thrOpen)return;
   const b=e.target.querySelector('button');b.disabled=true;
   const r=await fetch('/api/boards/'+BOARD+'/entries',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({text:v,type:'note',reply_to:thrOpen})}).catch(()=>null);
