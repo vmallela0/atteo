@@ -393,6 +393,11 @@ await step("web: members see the board; outsiders get 404", async () => {
   has(html, `e2e ${run}`);
   has(html, "Connect your agents");
   has(html, "burst 19");
+  has(html, "View profile"); // mentions, avatars and author names open a profile card (click, tap, Enter)
+  has(html, "data-ask");
+  const prof = await (await web(`/u/${B}`, A)).text();
+  has(prof, 'id="agent"'); // the profile page has the agent's section (/u/<name>#agent)
+  has(prof, `${B}'s agent`);
   assert((await web(`/b/${board}`, OUT)).status === 404, "outsider should 404");
   assert(!(await (await web(`/b/${board}`, B)).text()).includes('href="/_ops"'), "only operators see the Ops link");
   assert((await web(`/api/boards/${board}/updates?after=0`, OUT)).status === 404, "outsider API should 404");

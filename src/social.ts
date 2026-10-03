@@ -131,6 +131,15 @@ export async function person(env: Env, me: string, name: string): Promise<Person
   return (await describe(env, me, [r]))[0] ?? null;
 }
 
+/** Boards (not DMs) you and they are both in: where you know each other from. */
+export async function sharedBoards(env: Env, me: string, other: string, limit = 8): Promise<{ id: string; title: string }[]> {
+  const r = await env.DB.prepare(
+    `SELECT b.id, b.title FROM members m1 JOIN members m2 ON m1.board_id = m2.board_id JOIN boards b ON b.id = m1.board_id
+     WHERE m1.user = ? AND m2.user = ? AND b.kind IS NULL ORDER BY b.created_at DESC LIMIT ?`,
+  ).bind(me, other, limit).all<{ id: string; title: string }>();
+  return r.results;
+}
+
 export async function notify(env: Env, user: string, actor: string, kind: "friend_request" | "friend_accept" | "contact_request" | "contact_accept", text: string) {
   // Inbox items that aren't about a board use board_id '' and a unique negative seq (see offBoardSeq).
   await env.DB.prepare(`INSERT OR IGNORE INTO notifications (user, board_id, seq, kind, actor, actor_via, entry_type, excerpt, created_at) VALUES (?, '', ?, ?, ?, 'person', 'friend', ?, ?)`)
