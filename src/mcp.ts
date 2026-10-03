@@ -176,7 +176,7 @@ export const TOOLS = [
         risk: { type: "string", enum: ["low", "medium", "high"] },
         seq: { type: "integer", description: "The board entry that asked for this, if any (on the joined board)" },
         wait_seconds: { type: "integer", description: "How long to wait for a decision now (0–50, default 45)" },
-        expires_in: { type: "integer", description: "Seconds until it's denied (timed out) if undecided (default 600)" },
+        expires_in: { type: "integer", description: "Seconds until it's denied (timed out) if undecided (default 86400; a permission hook should pass ~600)" },
       },
       required: ["title"],
     },

@@ -1930,7 +1930,7 @@ await step("approvals for a permission hook: exact command verbatim; only the ag
   const id1 = idOf(t1);
   const g = await get(id1);
   assert(g.approval.command === command && g.approval.tool === "Bash" && g.approval.title.startsWith("Bash: rm -rf") && g.decision === "pending", JSON.stringify(g));
-  assert(g.approval.expires_at - g.approval.created_at === 600_000, "default expiry 600s");
+  assert(g.approval.expires_at - g.approval.created_at === 86_400_000, "default expiry 24h (hooks pass a short expires_in)");
   has(await (await web(`/approvals`, A)).text(), `<pre class="mono ap-details ap-cmd"><span class="faint">Bash</span>\n  rm -rf ./build-${run} &amp;&amp; echo &quot;&lt;b&gt;&amp;done&lt;/b&gt;&quot;\n    # two lines  </pre>`);
   // Nobody else decides: not another member (it doesn't exist for them), not any agent token, theirs or the owner's.
   assert((await decide(B, id1, "approve")).status === 404, "another member: 404");

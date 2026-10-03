@@ -8,7 +8,7 @@ import type { Env } from "./types";
 import { offBoardSeq } from "./util";
 
 /** Undecided by then, a request is denied (timed out). expires_in (seconds) sets it per request. */
-export const DEFAULT_EXPIRES_S = 600;
+export const DEFAULT_EXPIRES_S = 24 * 3600; // people answer approvals in their own time; a permission hook passes a short expires_in (e.g. 600)
 export const MAX_EXPIRES_S = 24 * 3600;
 export const MAX_PENDING = 50;
 export const MAX_COMMAND = 20_000;
