@@ -6,6 +6,7 @@ import SwiftUI
 struct ChatsView: View {
     @EnvironmentObject var state: AppState
     @State private var query = ""
+    @State private var found: CrossSearchResponse? // messages across your boards that match the search
     @State private var path: [Board] = []
     @State private var showAll = false
     @State private var showSettings = false
@@ -92,6 +93,21 @@ struct ChatsView: View {
                     ChatsSwitch(tab: $tab, boards: unreadIn(direct: false), direct: unreadIn(direct: true))
                 }
                 .listSectionSeparator(.hidden)
+                // Searching: messages in every board you're in (the server's search, like the web's), tap to go there.
+                if !query.trimmingCharacters(in: .whitespaces).isEmpty, let hits = found?.hits.filter({ $0.kind == "entry" && $0.seq != nil }), !hits.isEmpty {
+                    Section {
+                        ForEach(hits) { h in
+                            SearchHitRow(hit: .init(seq: h.seq ?? 0, ts: 0, author: h.author ?? "", via: h.via, type: "note", title: nil, snippet: h.snippet), board: h.title) {
+                                guard let b = state.boards.first(where: { $0.id == h.board }) else { return }
+                                Haptic.tap()
+                                state.jumpRequest = AppState.JumpRequest(board: b.id, seq: h.seq ?? 0)
+                                path = [b]
+                            }
+                            .listRowInsets(rowInsets).listRowBackground(Theme.bg).listRowSeparator(.hidden)
+                        }
+                    } header: { SectionHeader("Messages").padding(.top, Space.s) }
+                    .listSectionSeparator(.hidden)
+                }
             }
             .listStyle(.plain)
             .environment(\.defaultMinListHeaderHeight, 0)
@@ -149,6 +165,14 @@ struct ChatsView: View {
             }
             .sheet(isPresented: $showAgents) { AgentsView().presentationDetents([.medium, .large]).presentationBackground(Theme.bg) }
             .searchable(text: $query, prompt: "Search")
+            .task(id: query) {
+                let q = query.trimmingCharacters(in: .whitespaces)
+                guard q.count >= 2 else { found = nil; return }
+                try? await Task.sleep(nanoseconds: 350_000_000)
+                guard !Task.isCancelled else { return }
+                let r = try? await API.shared.get("/api/boards/search?q=\(q.queryEscaped)", as: CrossSearchResponse.self)
+                if !Task.isCancelled { withAnimation(.smooth) { found = r } }
+            }
             .refreshable { await state.refreshAll() }
             .navigationDestination(for: Board.self) { b in BoardView(board: b) }
             .overlay {

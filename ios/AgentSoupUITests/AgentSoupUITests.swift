@@ -845,6 +845,49 @@ final class AgentSoupUITests: XCTestCase {
         shot("32-pasted-sent")
     }
 
+    /// Search (#538 d): from Chats, the server's search across your boards finds an old message the phone hasn't
+    /// loaded; tapping it opens that chat at the message (loading older ones). An encrypted board's Info search
+    /// says it only covers what's on the phone.
+    func testSearch() throws {
+        continueAfterFailure = false
+        let a = app(fresh: true)
+        a.launch()
+        onBoards(a)
+        XCTAssertTrue(a.navigationBars["Chats"].waitForExistence(timeout: 10))
+        let field = a.searchFields.firstMatch
+        if !field.exists { a.swipeDown() }
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.tap()
+        field.typeText("batch 7")
+        let hit = a.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'search-hit-' AND label CONTAINS 'batch 7'")).firstMatch
+        XCTAssertTrue(hit.waitForExistence(timeout: 10), "the whole board's messages are searched")
+        shot("33-search-chats")
+        hit.tap()
+        let old = a.staticTexts["Migration log: batch 7"]
+        XCTAssertTrue(old.waitForExistence(timeout: 15), "the chat opens at the old message")
+        wait(for: [expectation(for: NSPredicate(format: "hittable == true"), evaluatedWith: old)], timeout: 8)
+        sleep(1)
+        shot("34-search-jumped")
+        a.navigationBars.buttons.element(boundBy: 0).tap()
+
+        // An encrypted board: the server can't read it, so its search covers what's on this phone, and says so.
+        if a.buttons["Cancel"].exists { a.buttons["Cancel"].tap() }
+        let enc = a.buttons.matching(NSPredicate(format: "identifier == 'chat-Secret plans'")).firstMatch
+        if enc.waitForExistence(timeout: 5) {
+            enc.tap()
+            XCTAssertTrue(a.buttons["presence"].waitForExistence(timeout: 10))
+            a.buttons["presence"].tap()
+            XCTAssertTrue(a.navigationBars["Info"].waitForExistence(timeout: 5))
+            let s = a.searchFields.firstMatch
+            s.tap()
+            s.typeText("zzqx")
+            let empty = a.descendants(matching: .any)["search-empty"]
+            XCTAssertTrue(empty.waitForExistence(timeout: 5))
+            XCTAssertTrue(empty.label.contains("encrypted"), "says only what's on the phone is searched")
+            shot("35-search-encrypted")
+        }
+    }
+
     func testInstantRelaunchFromCache() throws {
         let a = app(fresh: false)
         a.launch()

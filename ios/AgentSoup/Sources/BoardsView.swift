@@ -112,6 +112,13 @@ struct BoardView: View {
             return .handled
         })
         .onChange(of: list.count) { _, _ in threadSeen.baseline(board.id, ThreadIndex.threads(list)) }
+        // Opened from a search hit in Chats: go to that message (its thread, if it's an answer) once it's here.
+        .task(id: state.jumpRequest) {
+            guard let j = state.jumpRequest, j.board == board.id else { return }
+            if state.entries[board.id] == nil { await state.loadEntries(board) }
+            state.jumpRequest = nil
+            jump(to: j.seq, after: 0.3)
+        }
     }
 
     @ViewBuilder private var chat: some View {

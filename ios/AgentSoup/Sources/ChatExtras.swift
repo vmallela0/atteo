@@ -383,7 +383,7 @@ struct SearchHitRow: View {
                         Text(hit.via == "agent" ? "\(hit.author)'s agent" : hit.author).font(Typo.meta.weight(.semibold)).foregroundStyle(Theme.text).lineLimit(1)
                         if let board { Text("in \(board)").font(Typo.micro).foregroundStyle(Theme.faint).lineLimit(1) }
                         Spacer(minLength: Space.s)
-                        Text(hit.ts.ago).font(Typo.micro).foregroundStyle(Theme.faint)
+                        if hit.ts > 0 { Text(hit.ts.ago).font(Typo.micro).foregroundStyle(Theme.faint) }
                     }
                     Text(SearchHitRow.highlighted(hit.snippet)).font(Typo.secondary).foregroundStyle(Theme.muted).lineLimit(3)
                 }

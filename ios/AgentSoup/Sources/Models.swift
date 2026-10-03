@@ -255,6 +255,17 @@ struct ReactResponse: Decodable { let on: Bool; let reactions: [Reaction] }
 /// The answer to "On it": whether you have it now, and who does.
 struct HandleResponse: Decodable { let ok: Bool; let by: String?; let done: Bool?; let message: String? }
 
+/// Search across your boards (the Chats list): boards whose name matches, and messages in them.
+struct CrossSearchResponse: Decodable {
+    struct Hit: Decodable, Hashable, Identifiable {
+        let board: String; let title: String; let kind: String
+        var seq: Int? = nil; var author: String? = nil; var via: String? = nil; let snippet: String
+        var id: String { "\(board)#\(seq ?? 0)#\(snippet.hashValue)" }
+    }
+    let boards: [String]
+    let hits: [Hit]
+}
+
 /// Search in one chat: messages (with a «highlighted» snippet) and files.
 struct ChatSearchResponse: Decodable {
     struct Hit: Decodable, Hashable, Identifiable { let seq: Int; let ts: Double; let author: String; let via: String?; let type: String; let title: String?; let snippet: String; var id: Int { seq } }
