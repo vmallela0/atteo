@@ -406,7 +406,7 @@ dialog.lightbox img{display:block;max-width:min(96vw,1600px);max-height:92vh;wid
 .rd-pop{visibility:hidden;opacity:0;position:absolute;right:24px;bottom:-6px;z-index:6;min-width:170px;max-width:320px;padding:8px 10px;border-radius:8px;background:var(--ink);color:var(--on-ink);text-align:left;
   font-size:12px;line-height:18px;box-shadow:var(--shadow-lg);display:flex;flex-direction:column;gap:2px;white-space:nowrap;pointer-events:none;transition:opacity .12s}
 .rd:focus-visible .rd-pop,.rd.open .rd-pop{visibility:visible;opacity:1}
-@media (hover:hover){.rd:hover .rd-pop{visibility:visible;opacity:1}.entry:hover:not(:has(.entry:hover))>.rd .rd-pop{visibility:visible;opacity:1;transition-delay:.35s}}
+@media (hover:hover){.rd:hover .rd-pop{visibility:visible;opacity:1}}
 .rd-hush .rd-pop{visibility:hidden!important}
 .rd.down .rd-pop{bottom:auto;top:-6px}
 /* An open thread nests its replies inside the root entry, so the root's ring would sit beside the last reply's: one ring there. */
