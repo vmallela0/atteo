@@ -1746,6 +1746,14 @@ export class Board extends DurableObject<Env> {
     if (done) this.trackRecord(seq, "task", { author: user, via: opts.via }, "done");
     // Taking a task yourself is silent (the task list shows it); assigning it to someone else still posts so they hear.
     const assigned = change.assignee !== undefined && !!change.assignee && change.assignee.toLowerCase() !== t.assignee && change.assignee.toLowerCase() !== user.toLowerCase();
+    // Closing a task ticks whatever is still open in its own checklist, so the body shows what was completed.
+    if (done) {
+      const me = this.taskRows().find((x) => x.seq === seq);
+      if (me && /^\s*- \[ \]/m.test(me.body)) {
+        const body = me.body.replace(/^(\s*- )\[ \]/gm, "$1[x]");
+        await this.taskEdit(user, seq, { body, base_version: me.version, summary: "done: ticked the remaining items" }, opts).catch(() => {});
+      }
+    }
     // A sub-task finishing ticks its line in the parent's checklist ("- [ ] #12 …" or a line with its title).
     if (done && after.parent != null) await this.tickInParent(user, after.parent, after, opts);
     if (done || assigned || change.note) {
