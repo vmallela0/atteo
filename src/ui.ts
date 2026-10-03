@@ -518,7 +518,7 @@ dialog.lightbox img{display:block;max-width:min(96vw,1600px);max-height:92vh;wid
 .prof-name{font-size:20px;line-height:1.25}.prof-pres{gap:6px;margin-top:8px}.prof-bio{margin:10px 0 0;font-size:13.5px;color:var(--text)}.prof-act{gap:6px;flex:none}
 /* hover cards */
 .hcard{position:fixed;z-index:60;width:280px;padding:14px;border:1px solid var(--line);border-radius:12px;background:var(--bg);box-shadow:var(--shadow-lg)}
-.hcard[hidden]{display:none}.hcard .av.lg{width:40px;height:40px;font-size:15px}
+.hcard[hidden]{display:none}.hcard .hc-list{list-style:none;margin:10px 0 0;padding:0;display:grid;gap:8px;max-height:50vh;overflow:auto}.hc-people li{display:flex;align-items:center;gap:8px;min-width:0}.hcard .av.lg{width:40px;height:40px;font-size:15px}
 .hc-name{font-weight:600;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.hc-pres{gap:6px;margin-top:10px}.hc-bio{margin:8px 0 0;font-size:12.5px;color:var(--muted)}.hc-act{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}.hc-agent{margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}.hc-caps{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px}.hc-live{margin-top:8px;color:var(--muted)}
 .hcard .link{text-decoration:underline;text-underline-offset:2px}
 .hc-back{position:fixed;inset:0;z-index:158;background:rgba(0,0,0,.4)}.hc-back[hidden]{display:none}

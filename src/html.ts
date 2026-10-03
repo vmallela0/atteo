@@ -1196,7 +1196,7 @@ document.addEventListener('click',e=>{const h=e.target.closest('#board-info .fol
 foldApply();
 // Touch screens have no hover: tapping a message shows its actions (Reply, react, …); tapping it again, or another one, moves them.
 if(matchMedia('(hover:none)').matches)document.addEventListener('click',e=>{if(document.documentElement.classList.contains('selecting'))return;
-  const en=e.target.closest('.entry');if(!en||en.classList.contains('pending')||e.target.closest('a,button,input,textarea,select,label,summary,details,.acts,.tk'))return;
+  const en=e.target.closest('.entry');if(!en||en.classList.contains('pending')||e.target.closest('a,button,input,textarea,select,label,summary,details,.acts,.tk,[data-hc],.rd'))return;
   const was=en.classList.contains('tap');document.querySelectorAll('.entry.tap').forEach(x=>x.classList.remove('tap'));if(!was)en.classList.add('tap')});
 function renderReads(){
   // @humans / @agents are seen once every person (or every member's agent) other than the author has read it.
@@ -1479,14 +1479,28 @@ const pfetch=u=>pcache[u]||(pcache[u]=fetch('/api/people/'+encodeURIComponent(u)
 const afetch=u=>acache[u]||(acache[u]=fetch('/api/agents/'+encodeURIComponent(u)).then(r=>r.ok?r.json():null).catch(()=>null));
 const hNarrow=matchMedia('(max-width:860px)'),hCanHover=matchMedia('(hover:hover)');
 function hClose(back){hcard.hidden=true;hback.hidden=true;const f=hFor;hFor=null;hPinned=false;if(back&&f&&f.isConnected)try{f.focus({preventScroll:true})}catch(e){}}
-function hTarget(el){const m=el.closest('.mention[data-user]');if(m){const u=m.dataset.user;if(u==='agents'||u==='humans')return null;return {u,agent:m.classList.contains('agent'),el:m}}
+function hTarget(el){const m=el.closest('.mention[data-user]');if(m){const u=m.dataset.user;if(u==='agents'||u==='humans')return {u,group:true,agent:u==='agents',el:m};return {u,agent:m.classList.contains('agent'),el:m}}
   const e=el.closest('.entry');const w=el.closest('.entry>.av, .entry>.grow>.meta>.who');if(e&&w)return {u:e.dataset.author,agent:e.classList.contains('by-agent'),el:w};
   const s=el.closest('.av-wrap');if(s){const n=s.parentElement.querySelector('.grow');return n?{u:n.textContent.trim().split(/ /)[0],agent:false,el:s}:null}return null}
 // Mentions, avatars and author names are keyboard-reachable buttons (including the ones that arrive later with live updates).
 function hEnhance(){document.querySelectorAll('.mention[data-user]:not([data-hc]),.entry>.av:not([data-hc]),.entry>.grow>.meta>.who:not([data-hc])').forEach(el=>{
-  const t=hTarget(el);el.dataset.hc='1';if(!t)return;el.tabIndex=0;el.setAttribute('role','button');el.setAttribute('aria-label','Open '+t.u+(t.agent?"'s agent":'')+(t.agent?' profile':"'s profile"));el.setAttribute('aria-haspopup','dialog')})}
+  const t=hTarget(el);el.dataset.hc='1';if(!t)return;el.tabIndex=0;el.setAttribute('role','button');el.setAttribute('aria-label',t.group?'Show the '+(t.agent?'agents':'people')+' on this board':'Open '+t.u+(t.agent?"'s agent":'')+(t.agent?' profile':"'s profile"));el.setAttribute('aria-haspopup','dialog')})}
 let hEnq=false;new MutationObserver(()=>{if(hEnq)return;hEnq=true;requestAnimationFrame(()=>{hEnq=false;hEnhance()})}).observe(document.body,{childList:true,subtree:true});hEnhance();
-async function hShow(t,pin){hFor=t.el;hPinned=!!pin;const [j,aj]=await Promise.all([pfetch(t.u),t.agent?afetch(t.u):null]);if(hFor!==t.el)return;if(!j||!j.person){hClose();return}const p=j.person,a=aj&&aj.agent;
+// @agents / @humans: who that is on this board right now (agents working first, then idle; people with their presence).
+async function hGroup(t,pin){hFor=t.el;hPinned=!!pin;let body;
+  if(t.agent){const r=await fetch('/api/boards/'+BOARD+'/agents').catch(()=>null);const ag=r&&r.ok?((await r.json()).agents||[]):[];if(hFor!==t.el)return;
+    const rank={live:0,idle:1,gone:2};ag.sort((a,b)=>(rank[a.state]??2)-(rank[b.state]??2));const live=ag.filter(a=>a.state==='live').length;
+    body='<div class="hc-name">Agents on this board</div><div class="xs faint">'+(ag.length?(live?live+' working now · ':'None working now · ')+ag.length+' in all':'None yet')+'</div>'+
+      (ag.length?'<ul class="ag-list hc-list">'+ag.slice(0,12).map(agRow).join('')+'</ul>':'')}
+  else{const js=await Promise.all(MEMBERS.map(u=>pfetch(u)));if(hFor!==t.el)return;
+    body='<div class="hc-name">People on this board</div><ul class="hc-list hc-people">'+MEMBERS.map((u,i)=>{const j=js[i]||{},p=j.person,on=p&&p.presence&&p.presence.web;
+      return '<li>'+avatar16(u,false)+'<span class="grow truncate">'+esc(p&&p.display_name||u)+'</span><span class="pres'+(on?' on':'')+'"></span><span class="xs faint">'+esc(j.presence||'')+'</span></li>'}).join('')+'</ul>'}
+  hcard.innerHTML=body;refreshTimes();hPlace(t,pin)}
+function hPlace(t,pin){const sheet=!!pin&&hNarrow.matches;hcard.classList.toggle('sheet',sheet);hback.hidden=!sheet;hcard.hidden=false;
+  if(sheet)hcard.style.left=hcard.style.top='';
+  else{const r=t.el.getBoundingClientRect(),w=hcard.offsetWidth,hh=hcard.offsetHeight;
+    hcard.style.left=Math.max(8,Math.min(innerWidth-w-8,r.left))+'px';hcard.style.top=(r.bottom+hh+8>innerHeight?Math.max(8,r.top-hh-6):r.bottom+6)+'px'}}
+async function hShow(t,pin){if(t.group)return hGroup(t,pin);hFor=t.el;hPinned=!!pin;const [j,aj]=await Promise.all([pfetch(t.u),t.agent?afetch(t.u):null]);if(hFor!==t.el)return;if(!j||!j.person){hClose();return}const p=j.person,a=aj&&aj.agent;
   const act=p.relation==='self'?'':p.relation==='friend'?'<button class="btn sm" data-direct="'+esc(p.name)+'">Message</button>':p.relation==='pending_in'?'<button class="btn sm" data-friend="accept" data-name="'+esc(p.name)+'">Accept</button>':p.relation==='none'?'<button class="btn sm" data-add="'+esc(p.name)+'">Add friend</button>':'<span class="xs faint">'+(p.relation==='pending_out'?'Request sent':'')+'</span>';
   const on=p.presence&&(p.presence.agent||p.presence.web||(p.presence.watcher&&p.presence.watcher.respond));
   const owner=esc(p.display_name||p.name);
@@ -1500,11 +1514,7 @@ async function hShow(t,pin){hFor=t.el;hPinned=!!pin;const [j,aj]=await Promise.a
   hcard.innerHTML='<div class="row" style="gap:12px;align-items:center">'+avatar16(p.name,t.agent).replace('av sm','av lg')+'<div class="grow" style="min-width:0"><div class="hc-name">'+esc(t.agent?p.name+"'s agent":(p.display_name||p.name))+'</div><div class="xs faint">@'+esc(p.name)+(p.shared_boards?' · '+p.shared_boards+' shared board'+(p.shared_boards===1?'':'s'):'')+'</div></div></div>'+
     '<div class="row hc-pres"><span class="pres'+(on?' on':'')+'"></span><span class="xs">'+esc(j.presence||'')+'</span></div>'+(p.bio&&!t.agent?'<p class="hc-bio">'+esc(p.bio)+'</p>':'')+ag+
     '<div class="hc-act"><a class="btn sm primary" href="/u/'+esc(p.name)+(t.agent?'#agent':'')+'">View profile</a>'+ask+act+'</div>';
-  const sheet=!!pin&&hNarrow.matches;hcard.classList.toggle('sheet',sheet);hback.hidden=!sheet;
-  hcard.hidden=false;
-  if(sheet)hcard.style.left=hcard.style.top='';
-  else{const r=t.el.getBoundingClientRect(),w=hcard.offsetWidth,hh=hcard.offsetHeight;
-    hcard.style.left=Math.max(8,Math.min(innerWidth-w-8,r.left))+'px';hcard.style.top=(r.bottom+hh+8>innerHeight?Math.max(8,r.top-hh-6):r.bottom+6)+'px'}
+  hPlace(t,pin);
   if(pin&&hKey)hcard.querySelector('a.btn')?.focus({preventScroll:true})}
 document.addEventListener('mouseover',e=>{if(!hCanHover.matches||hPinned)return;if(e.target.closest('.hcard')){clearTimeout(hTimer);return}const t=hTarget(e.target);clearTimeout(hTimer);
   if(!t){hTimer=setTimeout(()=>{if(!hPinned){hcard.hidden=true;hFor=null}},250);return}if(hFor===t.el&&!hcard.hidden)return;hTimer=setTimeout(()=>hShow(t,false),350)});
