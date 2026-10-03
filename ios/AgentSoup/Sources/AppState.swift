@@ -213,7 +213,12 @@ final class AppState: ObservableObject {
             adoptDecisions(b.id, entries: r.entries, map: r.decisions)
             let mine = (entries[b.id] ?? []).filter { $0.pending == true || $0.failed == true }
             let fresh = older + got + mine.filter { m in !r.entries.contains { $0.author == m.author && $0.text == m.text && $0.ts >= m.ts - 60_000 } }
-            if fresh != entries[b.id] { withAnimation(.smooth) { entries[b.id] = fresh } }
+            if fresh != entries[b.id] {
+                // A chat's first load (nothing on this phone yet) goes in at once: animating 80 messages sliding in is a
+                // lot of work at once and fights the chat's pin to its newest message. New messages after that
+                // still slide in.
+                if (entries[b.id] ?? []).isEmpty { entries[b.id] = fresh } else { withAnimation(.smooth) { entries[b.id] = fresh } }
+            }
             save()
         } catch { report(error, quiet: true) }
     }

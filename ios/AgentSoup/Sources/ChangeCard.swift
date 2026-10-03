@@ -20,6 +20,16 @@ struct ChangeCardData: Codable, Hashable {
 
     var added: Int { files.reduce(0) { $0 + $1.added } }
     var removed: Int { files.reduce(0) { $0 + $1.removed } }
+
+    /// Where tapping the card goes (vedu #1097): its pull request; else on GitHub, the one commit, or the compare view
+    /// over all of them (commits are newest first, as `git log` lists them: from the oldest's parent to the newest).
+    var link: URL? {
+        if let pr = prUrl, let u = URL(string: pr), u.scheme == "https" { return u }
+        guard let repo, repo.range(of: #"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"#, options: .regularExpression) != nil else { return nil }
+        let shas = commits.map(\.sha).filter { $0.range(of: "^[0-9a-fA-F]{4,40}$", options: .regularExpression) != nil }
+        guard let newest = shas.first, let oldest = shas.last else { return nil }
+        return URL(string: "https://github.com/\(repo)/" + (shas.count == 1 ? "commit/\(newest)" : "compare/\(oldest)~1...\(newest)"))
+    }
 }
 
 /// What a change entry shows: a headline, the card, and its diff when the text carried one.
@@ -99,6 +109,7 @@ struct ChangeCardView: View {
     @State private var allLines = false
     @State private var allCommits = false
     @State private var allFiles = false
+    @Environment(\.openURL) private var openURL
 
     private static let added = Color(light: UIColor(red: 0.13, green: 0.55, blue: 0.27, alpha: 1), dark: UIColor(red: 0.36, green: 0.78, blue: 0.47, alpha: 1))
     private static let removed = Color(light: UIColor(red: 0.78, green: 0.22, blue: 0.20, alpha: 1), dark: UIColor(red: 0.95, green: 0.42, blue: 0.40, alpha: 1))
@@ -114,8 +125,13 @@ struct ChangeCardView: View {
         .padding(Space.m)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Theme.card, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+        // Tap: the PR, or the commit(s) on GitHub (its own buttons, Show diff and "N more", still do their thing).
+        .contentShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+        .onTapGesture { if let u = v.card?.link { Haptic.tap(); openURL(u) } }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("change-card")
+        .accessibilityValue(v.card?.link?.absoluteString ?? "")
+        .accessibilityHint(v.card?.link == nil ? "" : "Opens it on GitHub")
     }
 
     private func header(_ v: ChangeView) -> some View {
