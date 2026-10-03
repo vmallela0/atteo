@@ -401,6 +401,7 @@ final class AgentSoupUITests: XCTestCase {
         image.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(forDuration: 0.1, thenDragTo: a.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.97)), withVelocity: .slow, thenHoldForDuration: 0.1)
         sleep(1)
         shot("16e-attachments") // the chat, keyboard down: the file someone shared, your picture and its note
+    }
 
     /// The web's features in the app (#508): an approval in full (approve with a note), act on tasks (claim, status,
     /// tick a checklist line, add one, remove it), read a file and an older version, the board's info, then New
