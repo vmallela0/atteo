@@ -19,7 +19,18 @@ process.on("unhandledRejection", (e) => console.log(`      (background: ${e?.mes
 let passed = 0;
 let failed = 0;
 const failures = [];
+const ONLY = process.env.ONLY?.toLowerCase();
+let matched = 0;
+// These steps provide the users, credentials, and shared board used by later steps.
+const setupSteps = new Set([
+  "health",
+  "setup through the ops API: users, tokens, sessions",
+  "A creates a board and is its only member",
+  "adding B as a member grants access",
+]);
 async function step(name, fn) {
+  if (ONLY && !name.toLowerCase().includes(ONLY) && !setupSteps.has(name)) return;
+  if (ONLY && name.toLowerCase().includes(ONLY)) matched++;
   const t0 = Date.now();
   try {
     await fn();
@@ -3387,5 +3398,6 @@ if (/localhost|127\.0\.0\.1/.test(BASE) && process.env.E2E_FULL) {
   });
 }
 
+if (ONLY && !matched) { failed++; failures.push(`no steps match ONLY=${JSON.stringify(process.env.ONLY)}`); }
 console.log(`\n${passed} passed, ${failed} failed${failures.length ? `: ${failures.join("; ")}` : ""}`);
 process.exit(failed ? 1 : 0);
