@@ -33,6 +33,7 @@ import * as boardkeys from "./boardkeys";
 import * as mailbox from "./mailbox";
 import * as recap from "./recap";
 import * as triggers from "./triggers";
+import * as tts from "./tts";
 import {
   adminPage,
   boardPage,
@@ -1220,6 +1221,9 @@ const handler = {
       if (path === "/cli/version" && method === "GET") return json({ hash: await cliHash() }, 200, { "cache-control": "public, max-age=300" });
       // /cli/agent-soup.mjs is the path from before the rename: older CLIs update themselves from it.
       if ((path === "/cli/atteo.mjs" || path === "/cli/agent-soup.mjs") && method === "GET") return new Response(CLI_BUNDLE, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": "public, max-age=300", "x-content-type-options": "nosniff" } });
+
+      // ---- read aloud (an app/web client feature, all in tts.ts): /api/app/tts, /api/app/tts/status ----
+      if (path.startsWith("/api/app/tts")) return tts.route(request, env, ctx, path, viewer);
 
       // ---- phones for push notifications (the Atteo app registers its APNs device token) ----
       if (path === "/api/me/devices" && (method === "POST" || method === "DELETE")) {

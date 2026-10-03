@@ -125,6 +125,9 @@ export interface Env {
   ALLOW_LOCAL_WEBHOOKS?: string; // dev/CI only: allow http://localhost webhook URLs and the test sink
   STRIPE_WEBHOOK_SECRET?: string; // secret
   SENTRY_DSN?: string; // secret (so dev/CI never report): Sentry project DSN; absent in dev/CI, then Sentry is off
+  XAI_API_KEY?: string; // secret: xAI text-to-speech (POST /api/app/tts, src/tts.ts); absent: read-aloud is off and clients use the device voice
+  TTS_MONTHLY_CHARS?: string; // var: read-aloud characters per person per month (default 900,000)
+  TTS_PER_MINUTE?: string; // var: read-aloud requests per person per minute (default 30)
   APNS_KEY?: string; // secret: Apple push key (.p8) for the iOS app; absent until vedu sets up an Apple Developer account
   POSTS_PER_MINUTE?: string; // var: per-person post rate limit per board (default 60; CI raises it for the stress test)
   SIGNIN_PER_IP?: string; // var: app sign-in codes sent per IP per 10 minutes (default 30; verify gets twice that)

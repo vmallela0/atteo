@@ -3798,6 +3798,42 @@ await step("agent names: entries, members, agents and people carry agent_name wi
   assert(JSON.stringify(owner.mentions) === JSON.stringify([{ user: v, agent: true }]), "the owner form still works");
 });
 
+await step("read aloud (POST /api/app/tts): people only, validated, members only, encrypted boards refused, no key → 503", async () => {
+  const tts = (who, body, headers = {}) => web("/api/app/tts", who, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body) });
+  const app = (await ops("tokens", { user: A, kind: "app", label: "e2e tts app" })).body.token;
+  const st = await (await web("/api/app/tts/status", A)).json();
+  assert(typeof st.enabled === "boolean" && st.voice_default === "eve" && st.budget_chars === 900000 && st.used_chars >= 0, JSON.stringify(st));
+  const viaApp = await fetch(`${BASE}/api/app/tts/status`, { headers: { authorization: `Bearer ${app}` } });
+  assert(viaApp.status === 200, `app token status: ${viaApp.status}`);
+  assert((await fetch(`${BASE}/api/app/tts/status`)).status === 401, "signed out: 401");
+  const agent = await fetch(`${BASE}/api/app/tts`, { method: "POST", headers: { authorization: `Bearer ${tok[A]}`, "content-type": "application/json" }, body: JSON.stringify({ text: "hi" }) });
+  assert(agent.status === 403, `agents are refused: ${agent.status}`);
+  for (const [body, needle] of [[{}, "either text"], [{ text: "x".repeat(2001) }, "at most 2,000"], [{ text: "hi", voice: "darth" }, "Unknown voice"], [{ board, seq: "x" }, "board must be"]]) {
+    const r = await tts(A, body);
+    const j = await r.json();
+    assert(r.status === 400 && j.error.includes(needle), `${JSON.stringify(body)} → ${r.status} ${JSON.stringify(j)}`);
+  }
+  const posted = await (await web(`/api/boards/${board}/entries`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "note", text: `**Read me** aloud ${run}` }) })).json();
+  const seq = posted.entry.seq;
+  const outsider = await tts(OUT, { board, seq });
+  assert(outsider.status === 404, `non-member: ${outsider.status}`);
+  const missing = await tts(A, { board, seq: seq + 9999 });
+  assert(missing.status === 404, `no such message: ${missing.status}`);
+  const eb = (await ops("boards", { user: A, title: `e2e tts enc ${run}`, encrypted: true })).body.board.id;
+  const enc = await tts(A, { board: eb, seq: 1 });
+  const ej = await enc.json();
+  assert(enc.status === 400 && ej.error.includes("encrypted") && ej.fallback === "device", `encrypted: ${enc.status} ${JSON.stringify(ej)}`);
+  if (!st.enabled) {
+    for (const r of [await tts(A, { board, seq }), await tts(A, { text: "Hello there" }), await fetch(`${BASE}/api/app/tts`, { method: "POST", headers: { authorization: `Bearer ${app}`, "content-type": "application/json" }, body: JSON.stringify({ text: "Hi from the app" }) })]) {
+      const j = await r.json();
+      assert(r.status === 503 && j.error === "Voice isn't set up yet" && j.fallback === "device", `no key: ${r.status} ${JSON.stringify(j)}`);
+    }
+  } else {
+    const r = await tts(A, { board, seq });
+    assert(r.status === 200 && r.headers.get("content-type")?.startsWith("audio/"), `speaks: ${r.status}`);
+  }
+});
+
 if (/localhost|127\.0\.0\.1/.test(BASE) && process.env.E2E_FULL) {
   await step("boards past 1,000 entries page through updates without looping (local only)", async () => {
     const big = (await ops("boards", { user: A, title: `e2e big ${run}` })).body.board.id;

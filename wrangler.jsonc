@@ -32,5 +32,5 @@
     // metadata, install.sh and webhook links all point here. Requests to localhost keep their own origin (src/util.ts publicOrigin).
     "PUBLIC_URL": "https://atteo.dev"
   }
-  // Secrets (wrangler secret put): WORKOS_API_KEY, ADMIN_KEY, SENTRY_DSN. Locally they come from .dev.vars.
+  // Secrets (wrangler secret put): WORKOS_API_KEY, ADMIN_KEY, SENTRY_DSN, XAI_API_KEY (read aloud; without it /api/app/tts answers 503). Locally they come from .dev.vars.
 }
