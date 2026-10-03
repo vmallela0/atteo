@@ -163,6 +163,8 @@ private struct PictureButton: View {
     let caption: String
     @State private var item: PhotosPickerItem?
     @State private var busy = false
+    @State private var cropping: CropRequest?
+    @State private var saving = false
 
     var body: some View {
         VStack(spacing: 8) {
@@ -185,9 +187,20 @@ private struct PictureButton: View {
             guard let it else { return }
             busy = true
             Task {
-                if let data = try? await it.loadTransferable(type: Data.self), let jpeg = squareJPEG(data) { await state.setAvatar(jpeg, agent: agent) }
-                busy = false; item = nil
+                // Crop and touch it up first (#1001), then save.
+                if let data = try? await it.loadTransferable(type: Data.self), let img = UIImage(data: data) { cropping = CropRequest(image: img.uprightAndSmall()) }
+                else { busy = false }
+                item = nil
             }
+        }
+        .sheet(item: $cropping, onDismiss: { if !saving { busy = false } }) { c in
+            PictureEditor(image: c.image, round: !agent, side: 320) { jpeg in
+                cropping = nil
+                guard let jpeg else { busy = false; return }
+                saving = true
+                Task { await state.setAvatar(jpeg, agent: agent); busy = false; saving = false }
+            }
+            .presentationBackground(Theme.bg)
         }
     }
 }
