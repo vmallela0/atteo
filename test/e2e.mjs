@@ -2424,6 +2424,8 @@ await step("app prefs: /api/app/prefs holds display + favourite reactions for pe
   tok[P] = agent;
   assert(!(await ok(P, fb, "read")).includes("🦄"), "MCP read carries no client prefs");
   assert(!JSON.stringify(await (await as(AG, "GET", "/api/me")).json()).includes("🦄"), "/api/me carries no client prefs");
+  const spec = await (await fetch(`${BASE}/openapi.json`)).json();
+  assert(spec.paths["/api/app/prefs"]?.get && spec.paths["/api/app/prefs"]?.post && spec.paths["/api/app/tts"]?.post, "openapi lists the app namespace");
 });
 
 await step("retention: owners set how long a board keeps messages; older ones are blanked, threads stay", async () => {
