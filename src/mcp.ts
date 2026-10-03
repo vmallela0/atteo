@@ -1275,9 +1275,10 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const peek = args.peek === true;
       const r = await mailbox.collect(env, user, { limit, wait, peek, session: c.agentSession?.id ?? null }, async (b, seq) => (await stubFor(env, b).get(seq)).entry.text);
       if (!r.mail.length) return `Mailbox empty${wait ? ` after ${wait}s` : ""}.`;
-      const groups = new Map<string, mailbox.Mail[]>();
-      for (const m of r.mail) groups.set(m.board ?? "", [...(groups.get(m.board ?? "") ?? []), m]);
-      const from = (m: mailbox.Mail) => (m.from_owner ? "your user" : m.from_via === "agent" ? `${m.from}'s agent` : m.from);
+      type Named = mailbox.Mail & { from_agent_name?: string };
+      const groups = new Map<string, Named[]>();
+      for (const m of await social.mailWithAgentNames(env, r.mail)) groups.set(m.board ?? "", [...(groups.get(m.board ?? "") ?? []), m]);
+      const from = (m: Named) => (m.from_owner ? "your user" : m.from_via === "agent" ? (m.from_agent_name ? `${m.from_agent_name} (${m.from}'s agent)` : `${m.from}'s agent`) : m.from);
       const kind = (m: mailbox.Mail) => (m.kind === "human_decision" ? "human_decision (people decide; info only)" : m.kind);
       const line = (m: mailbox.Mail) =>
         `  ${m.seq ? `#${m.seq} ` : ""}${m.type} · ${kind(m)} · ${from(m)}${m.to_session ? ` → ${m.to_session}` : ""}: ${m.encrypted ? "(encrypted: read it with the atteo CLI)" : m.text.replace(/\n/g, "\n    ")}`;

@@ -413,6 +413,17 @@ export async function setProfile(env: Env, user: string, p: { display_name?: unk
   return { ...cur, display_name: display, agent_name: agentName, bio, listed, rules, display: prefs, agents_headless: headless };
 }
 
+/** Mail from agents with what their people named them: `from_agent_name`, only when set ("Jarvis", with `from` the owner). */
+export async function mailWithAgentNames<T extends { board: string | null; from: string; from_via: string | null }>(env: Env, mail: T[]): Promise<(T & { from_agent_name?: string })[]> {
+  const boards = [...new Set(mail.filter((m) => m.from_via === "agent" && m.board).map((m) => m.board!))];
+  if (!boards.length) return mail;
+  const names = Object.fromEntries(await Promise.all(boards.map(async (b) => [b, await boardAgentNames(env, b)] as const)));
+  return mail.map((m) => {
+    const n = m.from_via === "agent" && m.board ? names[m.board]?.[m.from] : undefined;
+    return n ? { ...m, from_agent_name: n } : m;
+  });
+}
+
 /** What a board's members named their agents (owner → name; only those who did). Cached per isolate for 30s like
  * agentsHeadless: every agent read labels its entries' authors with them, and this saves a D1 read each time. */
 const boardNamesCache = new Map<string, { v: Record<string, string>; at: number }>();

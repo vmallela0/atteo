@@ -816,7 +816,8 @@ const handler = {
         const wait = Math.min(25, Math.max(0, parseInt(url.searchParams.get("wait") ?? "0", 10) || 0));
         const peek = url.searchParams.get("peek") === "1";
         // An agent session gets its own mail too (mail for one session, "@you/claude-2", only reaches that session).
-        const r = await mailbox.collect(env, viewer.name, { limit, wait, peek, session: await asid() }, async (b, seq) => (await boardStub(env, b).get(seq)).entry.text);
+        const r0 = await mailbox.collect(env, viewer.name, { limit, wait, peek, session: await asid() }, async (b, seq) => (await boardStub(env, b).get(seq)).entry.text);
+        const r = { ...r0, mail: await social.mailWithAgentNames(env, r0.mail) }; // from_agent_name: "Jarvis" (from: its owner)
         // headless: the person reads the board, not the agent's terminal (the CLI says so over the mail).
         return json((await social.agentsHeadless(env, viewer.name)) ? { ...r, headless: true } : r, 200, { "cache-control": "no-store" });
       }

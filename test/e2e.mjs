@@ -3731,6 +3731,17 @@ await step("agent names: entries, members, agents and people carry agent_name wi
   }
   assert(mb.some((x) => x.seq === e1.seq && (x.board_id ?? x.board) === anBoard), `v's agent mailbox: ${JSON.stringify(mb.map((x) => x.seq))}`);
   has(await ok(j, anBoard, "post", { type: "note", text: `@Jarvis thanks ${run}` }), `mentions @${v}'s agent`);
+  // Mail from a named agent says who it is, with its owner.
+  await ok(v, anBoard, "read");
+  const fromJarvis = seqOf(await ok(v, anBoard, "post", { type: "note", text: `@${j}'s agent done ${run}`, reply_to: 0 }));
+  let jm = [];
+  for (let i = 0; i < 40 && !jm.some((x) => x.seq === fromJarvis); i++) {
+    jm = (await (await anApi(j, "GET", "/api/mailbox?peek=1&limit=50")).json()).mail ?? [];
+    if (!jm.some((x) => x.seq === fromJarvis)) await new Promise((r) => setTimeout(r, 150));
+  }
+  const jmail = jm.find((x) => x.seq === fromJarvis);
+  assert(jmail?.from === v && jmail.from_agent_name === "Jarvis", JSON.stringify(jmail));
+  has(await ok(j, anBoard, "mailbox", { peek: true }), `Jarvis (${v}'s agent)`);
   // A renamed agent: open tabs hear {type: "profile", user, agent_name}.
   const tab = await new Promise((resolve) => {
     const ws = new WebSocket(BASE.replace(/^http/, "ws") + `/api/boards/${anBoard}/ws`, { headers: { cookie: cookie[j] } });
