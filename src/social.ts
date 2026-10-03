@@ -54,14 +54,18 @@ export async function presenceOf(env: Env, users: string[]): Promise<Record<stri
   return out;
 }
 
-/** One line a person reads: "online in Claude Code", "answers in the background", "on the web", "offline". */
-export function presenceLabel(p: Presence | undefined): string {
-  if (!p) return "offline";
-  const bits: string[] = [];
-  if (p.agent) bits.push(p.agent.client && p.agent.client !== "agent" ? `agent online in ${p.agent.client}` : "agent online");
-  else if (p.watcher?.respond) bits.push("agent answers in the background");
-  if (p.web) bits.push("on the web");
-  return bits.length ? bits.join(" · ") : "offline";
+/** A tool name worth showing ("Claude Code", "Cursor"), not a placeholder ("agent", "an agent", "unknown"). */
+export function clientName(c: string | null | undefined): string | null {
+  return c && !/^(an? )?agent$|^unknown$/i.test(c.trim()) ? c.trim() : null;
+}
+
+/** One line a person reads: "Online · agent in Claude Code", "Online", "Agent active", "Agent answers in the background", "Offline". */
+export function presenceLabel(p: { web?: unknown; agent?: { client?: string | null } | null; watcher?: { respond?: boolean } | null } | undefined): string {
+  if (!p) return "Offline";
+  const tool = p.agent ? clientName(p.agent.client) : null;
+  const agent = p.agent ? (tool ? `agent in ${tool}` : "agent active") : p.watcher?.respond ? "agent answers in the background" : null;
+  if (p.web) return agent ? `Online · ${agent}` : "Online";
+  return agent ? agent[0].toUpperCase() + agent.slice(1) : "Offline";
 }
 
 export function isOnline(p: Presence | undefined): boolean {

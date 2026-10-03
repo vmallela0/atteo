@@ -46,6 +46,7 @@ struct BoardView: View {
     @State private var flash: Int? // a message just jumped to, lit for a moment
     @State private var scrollRequest: ScrollRequest?
     @State private var thread: ThreadTarget? // the thread open, pushed full screen (its root)
+    @State private var profile: ProfileTarget? // someone's card (a picture, a name or an @mention tapped)
     @State private var reactingTo: SeqRef? // the message the full emoji picker is for
     @State private var unsending: Entry? // asking "Unsend?" first
     @State private var openReceipts: Set<Int> = [] // your older messages you tapped to see who's seen them
@@ -107,11 +108,31 @@ struct BoardView: View {
         }
         // A "#123" in a message: go to it (or open its thread, if it's an answer).
         .environment(\.openURL, OpenURLAction { url in
+            if let p = personLink(url) { Haptic.tap(); profile = p; return .handled }
             guard let n = entryLink(url) else { return .systemAction }
             jump(to: n)
             return .handled
         })
+        // Someone's card: Message opens your DM; "Ask theo's agent" starts a message to it here.
+        .sheet(item: $profile) { p in
+            NavigationStack {
+                PersonCard(name: p.name, open: { b in profile = nil; state.openRequest = b }, agentFirst: p.agent, ask: {
+                    profile = nil
+                    let handle = "@\(p.name)'s agent "
+                    if !draft.localizedCaseInsensitiveContains(handle.trimmingCharacters(in: .whitespaces)) { draft = handle + draft }
+                    focused = true
+                })
+            }
+            .presentationDetents([.fraction(0.8), .large]).presentationBackground(Theme.bg)
+        }
         .onChange(of: list.count) { _, _ in threadSeen.baseline(board.id, ThreadIndex.threads(list)) }
+        // Opened from a search hit in Chats: go to that message (its thread, if it's an answer) once it's here.
+        .task(id: state.jumpRequest) {
+            guard let j = state.jumpRequest, j.board == board.id else { return }
+            if state.entries[board.id] == nil { await state.loadEntries(board) }
+            state.jumpRequest = nil
+            jump(to: j.seq, after: 0.3)
+        }
     }
 
     @ViewBuilder private var chat: some View {
@@ -278,6 +299,7 @@ struct BoardView: View {
 
     private func actions(for e: Entry, mine: Bool, live: Bool, _ r: Rows) -> EntryActions {
         var a = EntryActions()
+        a.openProfile = { name, agent in Haptic.tap(); profile = ProfileTarget(name: name, agent: agent) }
         if live {
             a.react = { emoji in Task { await state.react(emoji, to: e.seq, in: board) } }
             a.moreReactions = { reactingTo = SeqRef(id: e.seq) }
@@ -613,6 +635,7 @@ struct EntryActions {
     var jumpToParent: (() -> Void)? = nil // tap the quote: go to what it answers
     var toggleReceipt: (() -> Void)? = nil // yours: show or hide who's seen it
     var takeOn: (() -> Void)? = nil // "On it", for a question or task for you
+    var openProfile: ((String, Bool) -> Void)? = nil // tap a picture or a name: their card (agent: their agent's)
 }
 
 struct EntryRow: View {
@@ -729,7 +752,7 @@ struct EntryRow: View {
     /// A question, a claim, a decision: said in words, not as a type tag.
     private var kind: String? {
         switch e.type {
-        case "note", "task", "artifact": return nil // a file shows as itself
+        case "note", "task", "artifact", "change": return nil // a file, a task, a change: each shows as itself
         default: return e.type.prefix(1).uppercased() + e.type.dropFirst()
         }
     }
@@ -779,7 +802,7 @@ struct EntryRow: View {
             if let k = kind { Text(k).font(Typo.micro.weight(.medium)).foregroundStyle(Theme.faint) }
             quote
             attachment
-            if unsent { unsentBody } else if let caption {
+            if unsent { unsentBody } else if e.type == "change" { ChangeCardView(e: e, board: board) } else if let caption {
                 let m = caption.mentioned(e.mentions, members: members, me: me)
                 m.text.textRenderer(MentionBoxes())
                     .font(Typo.body).foregroundStyle(Theme.text.opacity(e.pending == true ? 0.55 : 1))
@@ -808,11 +831,19 @@ struct EntryRow: View {
     /// Everyone else (people and agents): plain text under who said it.
     private var theirMessage: some View {
         HStack(alignment: .top, spacing: 10) {
-            if grouped { Color.clear.frame(width: 28, height: 1) } else { Avatar(name: e.author, agent: e.byAgent, size: 28) }
+            if grouped { Color.clear.frame(width: 28, height: 1) } else {
+                Avatar(name: e.author, agent: e.byAgent, size: 28)
+                    .contentShape(Rectangle())
+                    .onTapGesture { actions.openProfile?(e.author, e.byAgent) }
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityLabel(who)
+                    .accessibilityIdentifier("avatar-\(who)")
+            }
             VStack(alignment: .leading, spacing: Space.xxs) {
                 if !grouped {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Text(who).font(Typo.secondary.weight(.semibold)).foregroundStyle(Theme.text).lineLimit(1)
+                            .onTapGesture { actions.openProfile?(e.author, e.byAgent) }
                         if let k = kind { Text(k).font(Typo.micro.weight(.medium)).foregroundStyle(e.type == "question" ? Theme.warn : Theme.faint) }
                         if let to = e.to { Text("to \(to)").font(Typo.micro).foregroundStyle(Theme.faint).lineLimit(1) }
                         Spacer(minLength: Space.xs)
@@ -821,7 +852,7 @@ struct EntryRow: View {
                 }
                 attachment.padding(.vertical, Space.xxs)
                 quote
-                if unsent { unsentBody } else if e.type == "task" { TaskCard(seq: e.seq, board: board, text: e.text, tasks: tasks).padding(.top, Space.xxs) } else if let caption {
+                if unsent { unsentBody } else if e.type == "change" { ChangeCardView(e: e, board: board).padding(.top, Space.xxs) } else if e.type == "task" { TaskCard(seq: e.seq, board: board, text: e.text, tasks: tasks).padding(.top, Space.xxs) } else if let caption {
                     let m = caption.mentioned(e.mentions, members: members, me: me)
                     m.text.textRenderer(MentionBoxes()).font(Typo.body).foregroundStyle(Theme.text.opacity(0.92)).lineSpacing(1.5)
                         .accessibilityValue(m.handles.isEmpty ? "" : "Mentions " + m.handles.joined(separator: ", "))

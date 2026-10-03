@@ -823,6 +823,30 @@ final class AgentSoupUITests: XCTestCase {
         sleep(1)
         shot("30-mention-boxes")
 
+        // Profiles (#538 f): theo's picture opens his card; his agent's @mention opens it on his agent, and
+        // "Ask theo's agent" starts a message to it here.
+        let avatar = a.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'avatar-theo'")).element(boundBy: max(0, a.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'avatar-theo'")).count - 1))
+        XCTAssertTrue(avatar.waitForExistence(timeout: 5), "theo's picture")
+        avatar.tap()
+        XCTAssertTrue(a.staticTexts["@theo"].waitForExistence(timeout: 5), "theo's card")
+        sleep(1)
+        shot("30a-profile")
+        a.swipeDown(velocity: .fast)
+        XCTAssertTrue(a.staticTexts["@theo"].waitForNonExistence(timeout: 5))
+        let link = a.links.matching(NSPredicate(format: "label CONTAINS %@", "theo's agent")).allElementsBoundByIndex.last
+        XCTAssertNotNil(link, "the @mention is a link")
+        link?.tap()
+        let ask = a.buttons["profile-ask-agent"]
+        XCTAssertTrue(ask.waitForExistence(timeout: 8), "his agent's card")
+        sleep(1)
+        shot("30b-profile-agent")
+        ask.tap()
+        wait(for: [expectation(for: NSPredicate(format: "value BEGINSWITH %@", "@theo's agent"), evaluatedWith: composer)], timeout: 5)
+        composer.typeText("hello")
+        for _ in 0..<12 { composer.typeText(XCUIKeyboardKey.delete.rawValue) } // leave the box empty for the paste
+        let cleared = composer.value as? String ?? ""
+        if !cleared.isEmpty { composer.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: cleared.count + 2)) }
+
         // A picture and words on the clipboard; Paste from the message box's menu.
         let size = CGSize(width: 160, height: 100)
         let png = UIGraphicsImageRenderer(size: size).image { c in
@@ -843,6 +867,79 @@ final class AgentSoupUITests: XCTestCase {
         wait(for: [expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: a.staticTexts["Sending…"])], timeout: 20)
         XCTAssertTrue(a.staticTexts["pasted words \(n)"].waitForExistence(timeout: 5), "sent with the picture")
         shot("32-pasted-sent")
+    }
+
+    /// Search (#538 d): from Chats, the server's search across your boards finds an old message the phone hasn't
+    /// loaded; tapping it opens that chat at the message (loading older ones). An encrypted board's Info search
+    /// says it only covers what's on the phone.
+    func testSearch() throws {
+        continueAfterFailure = false
+        let a = app(fresh: true)
+        a.launch()
+        onBoards(a)
+        XCTAssertTrue(a.navigationBars["Chats"].waitForExistence(timeout: 10))
+        let field = a.searchFields.firstMatch
+        if !field.exists { a.swipeDown() }
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.tap()
+        field.typeText("batch 7")
+        let hit = a.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'search-hit-' AND label CONTAINS 'batch 7'")).firstMatch
+        XCTAssertTrue(hit.waitForExistence(timeout: 10), "the whole board's messages are searched")
+        shot("33-search-chats")
+        hit.tap()
+        let old = a.staticTexts["Migration log: batch 7"]
+        XCTAssertTrue(old.waitForExistence(timeout: 15), "the chat opens at the old message")
+        wait(for: [expectation(for: NSPredicate(format: "hittable == true"), evaluatedWith: old)], timeout: 8)
+        sleep(1)
+        shot("34-search-jumped")
+        // An encrypted board: the server can't read it, so its search covers what's on this phone, and says so.
+        a.terminate()
+        a.launch()
+        onBoards(a)
+        let enc = a.buttons.matching(NSPredicate(format: "identifier == 'chat-Secret plans'")).firstMatch
+        XCTAssertTrue(enc.waitForExistence(timeout: 10), "the encrypted board")
+        do {
+            enc.tap()
+            XCTAssertTrue(a.buttons["presence"].waitForExistence(timeout: 10))
+            a.buttons["presence"].tap()
+            XCTAssertTrue(a.navigationBars["Info"].waitForExistence(timeout: 5))
+            let s = a.searchFields.firstMatch
+            s.tap()
+            s.typeText("zzqx")
+            let empty = a.descendants(matching: .any)["search-empty"]
+            XCTAssertTrue(empty.waitForExistence(timeout: 5))
+            XCTAssertTrue(empty.label.contains("encrypted"), "says only what's on the phone is searched")
+            shot("35-search-encrypted")
+        }
+    }
+
+    /// A change card (#538 e): "Shipped to production (v42)" as a card (title, version chip, 3 commits · 3 files with
+    /// +/−, commits, files with bars), never the raw text; the diff opens behind "Show diff".
+    func testShippedChangeCard() throws {
+        continueAfterFailure = false
+        let a = app(fresh: true)
+        a.launch()
+        onBoards(a)
+        let chat = a.buttons["chat-Checkout bug"].firstMatch
+        XCTAssertTrue(chat.waitForExistence(timeout: 10))
+        chat.tap()
+        XCTAssertTrue(a.buttons["presence"].waitForExistence(timeout: 10))
+        let card = a.descendants(matching: .any)["change-card"].firstMatch
+        for _ in 0..<10 where !(card.exists && card.isHittable) { a.swipeDown(); usleep(500_000) }
+        XCTAssertTrue(card.waitForExistence(timeout: 5), "the change shows as a card")
+        XCTAssertTrue(a.staticTexts["Shipped to production"].exists, "its title")
+        XCTAssertTrue(a.staticTexts["v42"].exists, "the version chip")
+        XCTAssertTrue(a.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'change-stats' AND label CONTAINS '3 commits'")).firstMatch.exists, "commits · files")
+        XCTAssertFalse(a.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Shipped to production (v42)'")).firstMatch.exists, "not the raw text")
+        sleep(1)
+        shot("36-change-card")
+        let toggle = a.buttons["change-diff-toggle"].firstMatch
+        XCTAssertTrue(toggle.exists)
+        toggle.tap()
+        XCTAssertTrue(a.descendants(matching: .any)["change-diff"].firstMatch.waitForExistence(timeout: 8), "the diff opens")
+        XCTAssertTrue(a.staticTexts.matching(NSPredicate(format: "label BEGINSWITH '@@'")).firstMatch.waitForExistence(timeout: 5), "with its hunks")
+        sleep(1)
+        shot("37-change-diff")
     }
 
     func testInstantRelaunchFromCache() throws {

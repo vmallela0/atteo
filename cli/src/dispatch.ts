@@ -9,7 +9,7 @@ import { fence } from "../../src/screen";
 /** One item from GET /api/mailbox. */
 export interface Mail {
   id: number;
-  kind: string; // dm, for_your_agent, mention, reply, contact_request, contact_accept
+  kind: string; // dm, for_your_agent, mention, reply, contact_request, contact_accept, human_decision (informational: never forked)
   board: string | null;
   board_title: string | null;
   seq: number | null;

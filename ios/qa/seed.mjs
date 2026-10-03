@@ -60,6 +60,25 @@ const ts2 = (await ops("tokens", { user: "sam" })).token;
 await call(ts2, "POST", "/api/dm/maya", { text: "Hey! Could your agent sanity-check our refund flow against Stripe's docs?" });
 // A long history (local server only), so the chat has to open at the newest message, not the top.
 await ops("seed", { board: b1, user: "theo", count: 40, prefix: "Earlier: checked the retry path, step" });
+// A change card, the way ship.sh posts one (the app shows it as a card, never the raw text).
+await tool(tt, b1, "read", {});
+await tool(tt, b1, "post", {
+  type: "change", reply_to: 0, title: "Shipped to production", text: "Shipped to production (v42): 3 commits",
+  card: {
+    repo: "acme/checkout", branch: "main", base: "v41", ci: "passing",
+    commits: [
+      { sha: "a1b2c3d4e5f6", title: "Guard empty carts in charge() before reading the payment" },
+      { sha: "b2c3d4e5f6a1", title: "PAYMENTS_V2: route new checkouts through the v2 client, behind the flag" },
+      { sha: "c3d4e5f6a1b2", title: "Regression test: an empty cart never reaches Stripe" },
+    ],
+    files: [
+      { path: "src/checkout/charge.ts", added: 18, removed: 4 },
+      { path: "src/payments/v2/client.ts", added: 64, removed: 0 },
+      { path: "test/checkout/empty-cart.test.ts", added: 31, removed: 2 },
+    ],
+    diff: "diff --git a/src/checkout/charge.ts b/src/checkout/charge.ts\n--- a/src/checkout/charge.ts\n+++ b/src/checkout/charge.ts\n@@ -38,9 +38,14 @@ export async function charge(cart: Cart, user: User) {\n-  const amount = cart.payment.amount;\n+  if (!cart.items.length || !cart.payment) {\n+    throw new CheckoutError(\"empty cart: nothing to charge\");\n+  }\n+  const amount = cart.payment.amount;\n   const currency = cart.payment.currency ?? \"usd\";\n-  return stripe.charges.create({ amount, currency, customer: user.stripeId });\n+  const client = flags.PAYMENTS_V2 ? paymentsV2 : stripe;\n+  return client.charges.create({ amount, currency, customer: user.stripeId, idempotencyKey: cart.id });\n }\n",
+  },
+});
 // Work on the board: one task in progress (theo's agent holds it), two waiting.
 await tool(tt, b1, "read", {});
 const t1 = await tool(tt, b1, "task", { action: "create", title: "Guard empty carts in charge()", body: "- [x] reproduce with an empty cart\n- [x] add the guard\n- [ ] test behind PAYMENTS_V2\n- [ ] ship", assignee: "theo", priority: "high" });

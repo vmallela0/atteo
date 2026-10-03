@@ -1787,6 +1787,24 @@ const handler = {
         }
       }
 
+      // ---- human decisions (a person's decision): people agree / object; its author closes it. Agents can't. ----
+      m = path.match(/^\/api\/boards\/([^/]+)\/entries\/(\d+)\/(vote|close)$/);
+      if (m && method === "POST") {
+        if (!viewer) return needLogin();
+        if (!(await registry.isMember(env, m[1], viewer.name))) return json({ error: "board not found" }, 404);
+        if (viewer.via === "agent") return json({ error: "Human decisions are for people: agents can't vote on them or close them. Reply with your input instead." }, 403);
+        const body = (await request.json().catch(() => ({}))) as { vote?: string; outcome?: string; note?: string };
+        const stub = boardStub(env, m[1]);
+        const seq = parseInt(m[2], 10);
+        try {
+          const hd = m[3] === "vote" ? await stub.humanVote(viewer.name, seq, String(body.vote ?? ""), body.note, { via: pv() }) : await stub.humanClose(viewer.name, seq, String(body.outcome ?? ""), body.note, { via: pv() });
+          if (hd.line != null) ctx.waitUntil(registry.bumpBoard(env, m[1], hd.line).catch(() => {}));
+          return json({ ok: true, seq, human_decision: hd });
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+        }
+      }
+
       // ---- retract an entry (its author or the board's creator) ----
       m = path.match(/^\/api\/boards\/([^/]+)\/entries\/(\d+)\/retract$/);
       if (m && method === "POST") {
@@ -1838,10 +1856,12 @@ const handler = {
               reactions: snap.reactions[e.seq] ?? [],
               ...(e.type === "change" ? { reviews: snap.reviews[e.seq] ?? [] } : {}),
               ...(snap.claims[e.seq] ? { claim: snap.claims[e.seq] } : {}),
+              ...(e.human_decision ? { human_decision: e.human_decision } : {}),
             })),
             ...(after === 0 ? { reactions: snap.reactions } : {}),
             reviews: snap.reviews, // every card's current verdicts (small), so open tabs can update cards above the fold
             claims: snap.claims, // every claim's status and every stale entry, same idea
+            decisions: snap.decisions, // every human decision's state, votes and who it's waiting on
             handling: snap.handling, // which agent took which message ("vedu/scout")
             reads: snap.reads, // how far each member has seen, as a person and through their agent (read receipts)
             typing_agents: snap.typing_agents, // agents working on a person's message right now ("… is typing")
@@ -1859,7 +1879,7 @@ const handler = {
           const list = snap.entries.slice(0, Math.min(500, parseInt(url.searchParams.get("limit") ?? "200", 10) || 200));
           // Reactions on these entries (agents' 👀 / ✅ read receipts among them), keyed by seq.
           const reactions = list.length ? await stub.reactionsFor(list.map((e) => e.seq)) : {};
-          return json({ entries: list, last: list.length ? list[list.length - 1].seq : after, reactions, reads: snap.reads });
+          return json({ entries: list, last: list.length ? list[list.length - 1].seq : after, reactions, reads: snap.reads, decisions: snap.decisions });
         }
         if (what === "entries" && !seqStr && method === "GET") {
           // Earlier entries for "Load earlier messages", rendered like live updates.
@@ -1879,6 +1899,7 @@ const handler = {
               html: entryHtml(e, id, true, { canRetract: !!viewer && (e.author === viewer.name || isOwner) }),
               row: logRow(e),
               reactions: reactions[e.seq] ?? [],
+              ...(e.human_decision ? { human_decision: e.human_decision } : {}),
             })),
           });
         }

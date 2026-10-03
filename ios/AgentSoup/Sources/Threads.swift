@@ -88,6 +88,12 @@ extension String {
 /// The message number in an "atteo-entry://123" link.
 func entryLink(_ url: URL) -> Int? { url.scheme == "atteo-entry" ? Int(url.host ?? "") : nil }
 
+/// Who an "atteo-person://theo?agent=1" link (a tapped @mention) is.
+func personLink(_ url: URL) -> ProfileTarget? {
+    guard url.scheme == "atteo-person", let name = url.host, !name.isEmpty else { return nil }
+    return ProfileTarget(name: name, agent: url.query?.contains("agent=1") == true)
+}
+
 // MARK: - In the chat
 
 /// Under a message with answers: the latest one or two (who, a line of what they said) and "3 replies · 4m ›", with a
@@ -227,6 +233,7 @@ struct ThreadView: View {
     @State private var unsending: Entry?
     @State private var reactingTo: SeqRef?
     @State private var next: ThreadTarget? // another thread, pushed on top
+    @State private var profile: ProfileTarget? // someone's card
     @State private var flash: Int?
     @State private var scrollTo: Int?
     @FocusState private var focused: Bool
@@ -303,10 +310,23 @@ struct ThreadView: View {
         .navigationDestination(item: $next) { t in ThreadView(board: board, root: t.root) }
         // A "#123" in a message: in this thread, go to it; elsewhere, open its thread on top of this one.
         .environment(\.openURL, OpenURLAction { url in
+            if let p = personLink(url) { Haptic.tap(); profile = p; return .handled }
             guard let n = entryLink(url) else { return .systemAction }
             open(n, here: bySeq)
             return .handled
         })
+        .sheet(item: $profile) { p in
+            NavigationStack {
+                PersonCard(name: p.name, open: { b in profile = nil; state.openRequest = b }, agentFirst: p.agent, ask: {
+                    profile = nil
+                    let handle = "@\(p.name)'s agent "
+                    if !draft.localizedCaseInsensitiveContains(handle.trimmingCharacters(in: .whitespaces)) { draft = handle + draft }
+                    selection = TextSelection(insertionPoint: draft.endIndex)
+                    focused = true
+                })
+            }
+            .presentationDetents([.fraction(0.8), .large]).presentationBackground(Theme.bg)
+        }
         .sheet(item: $reactingTo) { r in
             EmojiPicker { emoji in reactingTo = nil; Task { await state.react(emoji, to: r.id, in: board) } }
                 .presentationDetents([.height(300)]).presentationBackground(Theme.card)
@@ -347,6 +367,7 @@ struct ThreadView: View {
         let mine = e.author == me && e.via != "agent"
         let live = e.seq > 0 && e.pending != true && e.failed != true && !unsent.contains(e.seq)
         var a = EntryActions()
+        a.openProfile = { name, agent in Haptic.tap(); profile = ProfileTarget(name: name, agent: agent) }
         if live {
             a.react = { emoji in Task { await state.react(emoji, to: e.seq, in: board) } }
             a.moreReactions = { reactingTo = SeqRef(id: e.seq) }

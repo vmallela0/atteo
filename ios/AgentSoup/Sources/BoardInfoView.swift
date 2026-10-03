@@ -110,6 +110,8 @@ struct BoardInfoView<Top: View, Files: View>: View {
 
             Section {
                 ForEach(members?.members ?? []) { m in
+                    // Tap: their card (picture, bio, Message / Add friend, and their agent).
+                    NavigationLink { PersonCard(name: m.user, open: { b in state.openRequest = b }) } label: {
                     HStack(spacing: Space.m) {
                         Avatar(name: m.user, size: 32)
                         VStack(alignment: .leading, spacing: Space.xxs) {
@@ -119,6 +121,8 @@ struct BoardInfoView<Top: View, Files: View>: View {
                         Spacer()
                         Text(m.role == "owner" ? "Owner" : m.role == "viewer" ? "Can view" : "Can post").font(Typo.micro).foregroundStyle(Theme.faint)
                     }
+                    }
+                    .accessibilityIdentifier("member-\(m.user)")
                 }
                 if members == nil { ProgressView().frame(maxWidth: .infinity) }
             } header: { SectionHeader("Members\(members.map { " · \($0.members.count)" } ?? "")") }
