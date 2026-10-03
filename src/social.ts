@@ -306,8 +306,8 @@ export async function isFriend(env: Env, x: string, y: string): Promise<boolean>
   return !!(await env.DB.prepare(`SELECT 1 AS k FROM friendships WHERE a = ? AND b = ? AND status = 'accepted'`).bind(a, b).first());
 }
 
-/** Display settings (Slack-like), saved per person so the web and the app both follow them. Private: only the
- * person's own profile (GET /api/me/profile) carries them. */
+/** Display settings (Slack-like), saved per person so the web and the app both follow them. A client pref: private,
+ * served by /api/app/prefs (and, as an alias for older clients, the person's own GET /api/me/profile). */
 export interface Display {
   text: "s" | "m" | "l";
   density: "comfortable" | "compact";
@@ -372,6 +372,7 @@ function readReactions(raw: string | null): string[] {
   return [...DEFAULT_REACTIONS];
 }
 
+/** Your own profile. display and reactions ride along as aliases of /api/app/prefs, for older web and app builds. */
 export async function profile(env: Env, user: string) {
   const r = await env.DB.prepare(`SELECT name, display_name, agent_name, bio, listed, rules, display, reactions, agents_headless FROM users WHERE name = ?`)
     .bind(user)
@@ -379,6 +380,30 @@ export async function profile(env: Env, user: string) {
   return r
     ? { name: r.name, display_name: r.display_name, agent_name: r.agent_name, bio: r.bio, listed: !!r.listed, rules: (r.rules ? JSON.parse(r.rules) : {}) as Rules, display: readDisplay(r.display), reactions: readReactions(r.reactions), agents_headless: !!r.agents_headless }
     : null;
+}
+
+/** Client-only prefs (the web and the app follow them; agents never see them): GET/POST /api/app/prefs. */
+export interface AppPrefs {
+  display: Display;
+  reactions: string[];
+}
+
+export async function appPrefs(env: Env, user: string): Promise<AppPrefs | null> {
+  const r = await env.DB.prepare(`SELECT display, reactions FROM users WHERE name = ?`).bind(user).first<{ display: string | null; reactions: string | null }>();
+  return r ? { display: readDisplay(r.display), reactions: readReactions(r.reactions) } : null;
+}
+
+/** A partial update: display merges, reactions replaces (null or [] back to the default). Anything bad is a 400 and nothing is saved. */
+export async function setAppPrefs(env: Env, user: string, p: Record<string, unknown>): Promise<AppPrefs> {
+  const cur = await appPrefs(env, user);
+  if (!cur) throw new SocialError("No such person.");
+  for (const k of Object.keys(p)) if (k !== "display" && k !== "reactions") throw new SocialError(`Unknown app setting "${k}": use display or reactions.`);
+  const display = p.display === undefined ? undefined : mergeDisplay(cur.display, p.display);
+  const favs = p.reactions === undefined ? undefined : checkReactionPrefs(p.reactions);
+  await env.DB.prepare(`UPDATE users SET display = COALESCE(?, display), reactions = CASE WHEN ? THEN ? ELSE reactions END WHERE name = ?`)
+    .bind(display ? JSON.stringify(display) : null, favs === undefined ? 0 : 1, favs ? JSON.stringify(favs) : null, user)
+    .run();
+  return { display: display ?? cur.display, reactions: favs === undefined ? cur.reactions : favs ?? [...DEFAULT_REACTIONS] };
 }
 
 /**

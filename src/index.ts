@@ -1071,6 +1071,20 @@ const handler = {
         if (!viewer) return needLogin();
         return json({ name: viewer.name, email: viewer.email, display_name: viewer.display_name, via: viewer.via ?? "person" }, 200, { "cache-control": "no-store" });
       }
+      // ---- client prefs (the web and the app; agents never need them): display settings, favourite reactions ----
+      if (path === "/api/app/prefs" && (method === "GET" || method === "POST")) {
+        if (!viewer) return needLogin();
+        if (viewer.via === "agent") return json({ error: "App settings are for people, in the web or the app." }, 403);
+        if (method === "GET") return json({ prefs: await social.appPrefs(env, viewer.name) }, 200, { "cache-control": "no-store" });
+        const b = await request.json().catch(() => null);
+        if (!b || typeof b !== "object" || Array.isArray(b)) return json({ error: 'Send an object, e.g. {"display":{"theme":"dark"}}.' }, 400);
+        try {
+          return json({ ok: true, prefs: await social.setAppPrefs(env, viewer.name, b as Record<string, unknown>) });
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+        }
+      }
+      // display and reactions still work here (aliases of /api/app/prefs) so older web and app builds keep working.
       if (path === "/api/me/profile" && (method === "GET" || method === "POST")) {
         if (!viewer) return needLogin();
         if (method === "GET") return json({ profile: await social.profile(env, viewer.name) });
