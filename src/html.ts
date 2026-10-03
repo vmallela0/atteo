@@ -941,6 +941,17 @@ window.posted=(j)=>{const was=+rpTo.value;draftSave(sentKey,'');replyClear(true)
   if(j&&j.update&&addEntry(j.update)){if(!was){railBuild();toBottom()}}else stickNext=!was;
   tick(false);setTimeout(()=>{if(was){replyShown(was);ta.value=draftLoad('')}ta.style.height='';ta.style.height=ta.value?ta.scrollHeight+2+'px':'';msync()},0)}; // after the form's reset
 let sentKey='';
+// People just write; a message is a note (jxn #928). For the rare typed post, a / command at the start: /task (a task, its
+// lines become the checklist), /decide (a decision people agree or object to), /ask (a question that stays open).
+const SLASH=[['task','A task: first line is the title, the next lines its checklist'],['decide','A decision for people to agree or object to'],['ask','A question that stays open until it’s answered']];
+const slashMenu=document.getElementById('slash-menu');let slashI=0;
+function slashShow(){const m=ta.value.match(/^\\/(\\w*)$/);const hits=m?SLASH.filter(([c])=>c.startsWith(m[1].toLowerCase())):[];if(!slashMenu)return;
+  if(!hits.length){slashMenu.hidden=true;return}slashI=Math.min(slashI,hits.length-1);
+  slashMenu.innerHTML=hits.map(([c,d],i)=>'<li role="option" data-cmd="'+c+'"'+(i===slashI?' aria-selected="true" class="on"':'')+'><b>/'+c+'</b> <span class="k">'+d+'</span></li>').join('');slashMenu.hidden=false}
+function slashPick(c){ta.value='/'+c+' ';slashMenu.hidden=true;ta.focus();ta.setSelectionRange(ta.value.length,ta.value.length);ta.dispatchEvent(new Event('input'))}
+slashMenu?.addEventListener('mousedown',e=>{const li=e.target.closest('[data-cmd]');if(li){e.preventDefault();slashPick(li.dataset.cmd)}});
+document.querySelector('form.composer')?.addEventListener('submit',()=>{const m=ta.value.match(/^\\/(task|decide|ask)\\b[ \\t]*/i),ty=document.getElementById('cmp-type');
+  if(ty)ty.value=m?{task:'task',decide:'decision',ask:'question'}[m[1].toLowerCase()]:'note';if(m)ta.value=ta.value.slice(m[0].length)},true);
 document.querySelector('form.composer')?.addEventListener('submit',()=>{sentKey=draftNow();const t=ta.value.trim();if(!t||!rpTo||rpTo.value||pending.length)return; // files get their own copy (below); replies go in their thread, after the real post
   const el=document.createElement('article');el.className='entry pending';el.innerHTML='<div class="grow"><div class="meta"><span class="who"></span><span class="xs faint">sending…</span></div><div class="body"></div></div>';
   el.querySelector('.who').textContent=ME;el.querySelector('.body').textContent=t;document.getElementById('thread').appendChild(el);toBottom();
@@ -1016,6 +1027,11 @@ document.addEventListener('click',e=>{const b=e.target.closest('[data-mention-fo
   t.focus();const a=t.selectionStart??t.value.length,pre=t.value.slice(0,a);const ins=(pre&&!/[ ]$/.test(pre)&&!pre.endsWith(String.fromCharCode(10))?' ':'')+'@';
   t.setRangeText(ins,a,t.selectionEnd??a,'end');t.dispatchEvent(new Event('input'))});
 const ta=document.getElementById('composer-text'),msync=mentionize(ta,document.getElementById('mention-menu'),document.getElementById('composer-mirror'));
+// The / command menu (defined above, with the composer's submit), wired once the box exists.
+ta?.addEventListener('input',slashShow);
+ta?.addEventListener('keydown',e=>{if(!slashMenu||slashMenu.hidden)return;const items=[...slashMenu.querySelectorAll('[data-cmd]')];
+  if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();slashI=(slashI+(e.key==='ArrowDown'?1:items.length-1))%items.length;slashShow()}
+  else if(e.key==='Enter'||e.key==='Tab'){e.preventDefault();slashPick(items[slashI].dataset.cmd)}else if(e.key==='Escape'){slashMenu.hidden=true}},true);
 // ---- "… is typing": people while they type (a ping every few seconds, heard over the socket). Agents don't show here
 // (jxn #777): an agent working on your message says so with 🤔 under it. ----
 const TYPERS=new Map();let typedAt=0,typingTimer=null;
@@ -1763,13 +1779,12 @@ window.boardKeys=(e,k)=>{
       <div class="cmp-field"><div class="cmp-mirror" id="composer-mirror" aria-hidden="true"></div><textarea class="input" id="composer-text" name="text" required placeholder="${agentChat ? "Message your agent…" : "Write a message…  @ to mention"}" aria-label="Message"
         role="combobox" aria-autocomplete="list" aria-controls="mention-menu" aria-expanded="false"></textarea></div>
       <ul class="mention-menu" id="mention-menu" role="listbox" aria-label="Mention" hidden></ul>
+      <ul class="mention-menu slash-menu" id="slash-menu" role="listbox" aria-label="Commands" hidden></ul>
       <div class="bar">
         <button class="btn ghost sm attach" type="button" id="attach-btn" aria-label="Attach files" title="Attach files or images (or paste or drop them)"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M13.5 7.6 8.3 12.8a3.2 3.2 0 0 1-4.5-4.5l5.6-5.6a2.1 2.1 0 0 1 3 3L6.8 11.3a1 1 0 0 1-1.5-1.5l4.9-4.9"/></svg></button>
         <input type="file" id="attach-input" multiple hidden>
         <button class="btn ghost sm at-btn" type="button" data-mention-for="composer-text" aria-label="Mention someone" title="Mention a person or their agent (or type @)">@</button>${agentChat ? sessionPicker(board.sessions ?? []) : ""}
-        <div class="seg" role="radiogroup" aria-label="Type">${["note", "question", "task", "decision"]
-          .map((t, i) => `<input type="radio" name="type" id="ty-${t}" value="${t}"${i === 0 ? " checked" : ""}><label for="ty-${t}">${t[0].toUpperCase() + t.slice(1)}</label>`)
-          .join("")}</div>
+        <input type="hidden" name="type" id="cmp-type" value="note">
         <span class="grow"></span><button class="btn primary sm">Post</button>
       </div>
     </form>
