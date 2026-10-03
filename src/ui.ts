@@ -208,7 +208,7 @@ dialog[open]{animation:pop .16s ease-out}dialog:focus{outline:none}
 /* The hover toolbar floats in the gap above the message (never over its text), like a small card. */
 @media(hover:hover){.entry .acts{position:absolute;top:-13px;right:6px;z-index:3;padding:1px;background:var(--bg);border:1px solid var(--line);border-radius:8px;box-shadow:var(--shadow)}
   .entry .acts .btn.sm{height:24px}.entry .acts .rx-q{width:26px}#thread>.entry:first-child .acts{top:2px}}
-@media(hover:none){.entry .acts{display:none}.entry:target>.grow>.meta .acts,.entry.sel>.grow>.meta .acts{display:inline-flex;opacity:1}}
+@media(hover:none){.entry .acts{display:none}.entry:target>.grow>.meta .acts,.entry.sel>.grow>.meta .acts,.entry.tap>.grow>.meta .acts{display:inline-flex;opacity:1}}
 /* "Replying to …" above the composer: the reply goes to that agent (or mentions that person). */
 /* replying: a slim line above the composer's text (who, and the first line of what you're answering) */
 .replying{display:flex;align-items:center;gap:6px;margin:0 0 8px;padding:2px 2px 2px 10px;border-left:2px solid var(--accent);font-size:12.5px;color:var(--muted)}
@@ -326,7 +326,9 @@ dialog.access-dlg{width:min(640px,calc(100vw - 24px))}
 /* agents' 🤔 / ✅ on a person's message: a quiet receipt line under it, like the app */
 .rx.has-rcpt{margin-top:4px}.rx.has.has-rcpt{margin-top:6px}
 .rx-rcpt{flex-basis:100%;display:flex;flex-wrap:wrap;align-items:center;gap:0 6px;font-size:12px;line-height:18px;color:var(--muted)}
-.rx-rcpt .e{font-size:11.5px}.rx-rcpt .sep{color:var(--faint)}
+.rx-rcpt .e{font-size:11.5px}.rx-rcpt{column-gap:12px}
+/* One marker each: the message's own "on it" / "done" pill wins over the agent's 🤔 / ✅ receipt. */
+.entry:has(>.grow>.meta>.hdl:not(.done))>.grow>.rx>.rx-rcpt>.think,.entry:has(>.grow>.meta>.hdl.done)>.grow>.rx>.rx-rcpt>.done{display:none}
 .rx-pick{position:fixed;z-index:50;display:flex;gap:2px;padding:4px;border-radius:999px;border:1px solid var(--line);background:var(--bg);box-shadow:var(--shadow-lg)}
 .rx-pick[hidden]{display:none}
 .rx-tip{position:fixed;z-index:50;display:flex;align-items:center;gap:10px;max-width:280px;padding:8px 12px;border-radius:10px;background:var(--ink);color:var(--on-ink);font-size:12.5px;line-height:1.35;box-shadow:var(--shadow-lg);pointer-events:none}
@@ -375,7 +377,6 @@ dialog.lightbox img{display:block;max-width:min(96vw,1600px);max-height:92vh;wid
 .conv.drop .composer{box-shadow:0 0 0 2px var(--accent)}
 .doc-img img{display:block;max-width:100%;height:auto;border-radius:8px;border:1px solid var(--line);background:var(--bg-subtle)}
 /* read receipts: a ring on your latest message, filling green as people and agents see it; a dot on each @mention */
-.rcpt-line{margin-top:2px}
 .entry .meta .when{cursor:pointer}
 .entry.has-rd>.grow{padding-right:24px}
 .rd{position:absolute;right:0;bottom:12px;width:16px;height:16px;display:grid;place-items:center;cursor:default;outline-offset:2px;padding:0;border:0;background:none;color:inherit;font:inherit;opacity:.55;transition:opacity .15s}

@@ -155,6 +155,32 @@ await step("mcp: announces Claude Code Channels, joins by name, pushes a notice 
   m.stop();
 });
 
+await step("mcp: agent-first notices: mentions and your threads at once, the rest as one digest", async () => {
+  const m = startMcp(credA, { ATTEO_DIGEST_MS: "1500" });
+  await m.call("initialize", { protocolVersion: "2025-06-18", capabilities: {} });
+  await m.call("tools/call", { name: "join_board", arguments: { board: `cli ${run}` } });
+  await sleep(SETTLE);
+  const notices = () => m.lines.filter((l) => l.method === "notifications/claude/channel").map((l) => l.params.content);
+  // Chatter not for A's agent: no notice now.
+  await tool(tokB, board, "read", {});
+  const c1 = Number((await tool(tokB, board, "post", { type: "note", text: `chatter one ${run}`, reply_to: 0 })).match(/#(\d+)/)[1]);
+  await tool(tokB, board, "read", {});
+  await tool(tokB, board, "post", { type: "note", text: `chatter two ${run}`, reply_to: 0 });
+  await sleep(600);
+  assert(notices().length === 0, `chatter pushed at once: ${JSON.stringify(notices())}`);
+  // …then one digest line for both.
+  for (let t = 0; t < 80 && !notices().length; t++) await sleep(50);
+  assert(notices().length === 1 && /^2 new on .*none addressed to you/.test(notices()[0]), JSON.stringify(notices()));
+  // A's agent replies in B's thread; B's next reply there is pushed at once, though it doesn't mention A.
+  await m.call("tools/call", { name: "read", arguments: {} });
+  await m.call("tools/call", { name: "post", arguments: { type: "note", text: `on it ${run}`, reply_to: c1 } });
+  await tool(tokB, board, "read", {});
+  await tool(tokB, board, "post", { type: "note", text: `thanks ${run}`, reply_to: c1 });
+  for (let t = 0; t < 80 && notices().length < 2; t++) await sleep(50);
+  assert(notices().length === 2 && notices()[1].includes("in a thread you're in"), JSON.stringify(notices()));
+  m.stop();
+});
+
 await step("mcp: an expired login hands the agent a sign-in link instead of failing silently", async () => {
   const expired = join(dir, "expired.json");
   writeFileSync(expired, JSON.stringify({ server: BASE, user: A, token: tokA, expires_at: Date.now() - 1000 }), { mode: 0o600 });
