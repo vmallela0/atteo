@@ -1,0 +1,713 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#0a0a0a">
+<title>Atteo Pulse</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ==========================================================================================================
+   Atteo "Pulse": the iPhone app's second mode. A demo, not production code.
+   Brief: jxn #917, refined by #919 (fixed spots, three delivery states), #922 (osu! feel, not gameplay),
+   #924 (Home = 3 recent boards as cards; tap = the others fly away + a composer), #926/#928 (haptics), and
+   "no message-type picker: everything is a message, types are / commands".
+   Tokens are the web UI's dark tokens (src/ui.ts) plus clay. Springs are <=150 ms on purpose: Pulse is the
+   muscle-memory mode, faster than Classic's 200-250 ms (DESIGN-LANGUAGE.md). Animations are transform/opacity only.
+   URL params: ?screen=home|focus|needs|boards|classic  &board=annex|ios|landing  &frame=0 (phone only)
+               &notes=0  &freeze=1 (stop the scripted timeline)  &motion=reduce
+   ========================================================================================================== */
+:root{
+  --bg:#0a0a0a;--bg-elev:#141414;--bg-elev-2:#1b1b1b;--line:rgba(255,255,255,.07);--line-strong:rgba(255,255,255,.12);
+  --text:#ededed;--muted:#a1a1a1;--faint:#6f6f6f;--on-ink:#0a0a0a;
+  --clay:#D9785A;--clay-deep:#BD5636;--clay-text:#E8906F;
+  --ok:#3ecf75;--amber:#fbbf24;--danger:#f87171;--decision:#a78bfa;
+  --pb-agent:#F2EFE8;--pb-eye:#111113;--bone:#F2EFE8;--page:#050505;
+  --spring:cubic-bezier(.2,1.3,.4,1);--out:cubic-bezier(.2,.8,.2,1);
+  --sbh:50px;--hib:30px;
+  color-scheme:dark;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:var(--page);color:var(--text);overflow:hidden;
+  font:15px/1.35 "Geist",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased;font-feature-settings:"ss01","cv11"}
+body{display:grid;place-items:center;touch-action:manipulation;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+.mono{font-family:"Geist Mono",ui-monospace,SFMono-Regular,Menlo,monospace}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;margin:0;cursor:pointer;text-align:inherit}
+input{font:inherit;color:inherit}
+
+/* ---------- stage: the phone + side notes ---------- */
+.stage{display:flex;align-items:center;gap:48px;transform-origin:center}
+.device{position:relative;flex:none;width:390px;height:844px;border-radius:56px;overflow:hidden;background:var(--bg);isolation:isolate;
+  box-shadow:0 0 0 11px #151515,0 0 0 12px #2b2b2b,0 50px 120px rgba(0,0,0,.7)}
+.notes{width:330px;color:#8d8d8d;font-size:12.5px;line-height:1.45}
+.notes h2{margin:0 0 4px;color:var(--text);font-size:17px;font-weight:600;letter-spacing:-.02em;display:flex;align-items:center;gap:8px}
+.notes h3{margin:14px 0 5px;color:#cfcfcf;font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase}
+.notes ul{margin:0;padding-left:16px}.notes li{margin:2px 0}
+.notes b{color:#d5d5d5;font-weight:550}
+.notes code{font:12px "Geist Mono",monospace;color:var(--clay-text)}
+.notes table{border-collapse:collapse;width:100%;font-size:12.5px}
+.notes td{padding:3px 0;border-top:1px solid #1c1c1c;vertical-align:top}.notes td:first-child{color:#d5d5d5;width:27%;padding-right:8px}
+.notes .k{font:11.5px "Geist Mono",monospace;color:#5d5d5d;margin-top:14px}
+.bare .device{width:100vw;height:100vh;height:100dvh;border-radius:0;box-shadow:none}
+.bare .notes,.nonotes .notes{display:none}
+.sb{position:absolute;top:0;left:0;right:0;height:var(--sbh);z-index:90;pointer-events:none;display:flex;align-items:center;justify-content:space-between;padding:4px 32px 0 40px;font-weight:600;font-size:15.5px;letter-spacing:-.01em}
+.sb .isl{position:absolute;left:50%;top:11px;width:124px;height:36px;margin-left:-62px;border-radius:20px;background:#000}
+.sb .ic{display:flex;gap:6px;align-items:center}
+.hi{position:absolute;left:50%;bottom:8px;width:134px;height:5px;margin-left:-67px;border-radius:3px;background:#e8e8e8;opacity:.85;z-index:90;pointer-events:none}
+.touch .sb>*,.touch .hi{display:none}
+.touch{--sbh:env(safe-area-inset-top,20px);--hib:env(safe-area-inset-bottom,10px)}
+.glowbg{position:absolute;inset:0;z-index:0;pointer-events:none;background:radial-gradient(80% 40% at 50% -6%,rgba(217,120,90,.10),rgba(217,120,90,0) 70%)}
+
+/* ---------- top bar ---------- */
+.top{position:absolute;z-index:40;top:var(--sbh);left:0;right:0;height:54px;display:flex;align-items:center;padding:0 14px 0 18px}
+.brand{position:relative;width:40px;height:40px;display:grid;place-items:center}
+.brand .pb,.brand .bk{position:absolute;inset:0;display:grid;place-items:center;transition:opacity .1s var(--out),transform .15s var(--spring)}
+.brand .bk{opacity:0;transform:rotate(-90deg) scale(.5);pointer-events:none;width:40px;height:40px;border-radius:20px;left:-8px}
+.focus-on .brand .pb{opacity:0;transform:scale(.4) rotate(40deg)}
+.focus-on .brand .bk{opacity:1;transform:none;pointer-events:auto}
+.toggles{margin-left:auto;display:flex;gap:7px;align-items:center;transition:opacity .1s var(--out),transform .15s var(--spring)}
+.focus-on .toggles{opacity:0;transform:translateX(16px);pointer-events:none}
+.icb{width:34px;height:34px;border-radius:17px;display:grid;place-items:center;color:#5f5f5f;background:rgba(255,255,255,.04);border:1px solid var(--line);transition:transform .08s var(--out),color .1s}
+.icb.on{color:var(--text)}
+.seg{position:relative;display:flex;height:34px;padding:3px;border-radius:17px;background:rgba(255,255,255,.04);border:1px solid var(--line)}
+.seg button{position:relative;z-index:1;height:26px;padding:0 11px;border-radius:13px;font-size:13px;font-weight:550;color:var(--muted);transition:color .1s}
+.seg button[aria-pressed="true"]{color:var(--on-ink)}
+.seg .knob{position:absolute;top:3px;left:3px;height:26px;border-radius:13px;background:var(--text);transition:transform .14s var(--spring),width .14s var(--spring)}
+.pr{transform:scale(.92)}
+
+/* ---------- HOME: the three most recent boards ---------- */
+.scr{position:absolute;inset:0;z-index:2;opacity:0;visibility:hidden;pointer-events:none}
+.scr.on{opacity:1;visibility:visible;pointer-events:auto}
+.cards{position:absolute;left:14px;right:14px;top:calc(var(--sbh) + 60px);display:flex;flex-direction:column;gap:14px;z-index:5}
+.bc{position:relative;will-change:transform;touch-action:manipulation}
+.bc .in{position:relative;border-radius:32px;padding:20px 20px 20px;background:var(--bgc);border:1px solid var(--line-strong);overflow:hidden;transition:transform .08s var(--out)}
+.bc.pr{transform:none}.bc.pr .in{transform:scale(.97)}
+.bc .wm{position:absolute;right:-38px;top:-30px;width:184px;height:164px;opacity:.075;pointer-events:none;transform:rotate(-8deg)}
+.bc .wm svg{width:100%;height:100%}
+.bc .row1{display:flex;align-items:center;gap:9px;padding-right:4px}
+.bc .bn{font-size:27px;font-weight:650;letter-spacing:-.035em;line-height:1.1}
+.bc .bn i{font-style:normal;color:var(--bcol);opacity:.85;margin-right:1px}
+.bc .unr{min-width:22px;height:22px;padding:0 7px;border-radius:11px;font:600 12px/22px "Geist";text-align:center;background:var(--clay-deep);color:#fff}
+.bc .nyou{margin-left:auto;display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border-radius:13px;background:rgba(251,191,36,.13);color:var(--amber);font-size:12.5px;font-weight:600;position:relative;z-index:2}
+.bc .nyou::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--amber)}
+.bc .when{margin-left:auto;font:12px "Geist Mono",monospace;color:var(--faint)}
+.bc .nyou+.when{display:none}
+.bc .sum{margin-top:6px;font-size:15.5px;color:#bdbdbd;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-right:20px}
+.bc .ags{margin-top:19px;display:grid;grid-template-columns:1fr 1fr;gap:15px 10px}
+.ac{display:flex;align-items:center;gap:10px;min-width:0}
+.ac .an{font-size:14.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#d8d8d8}
+.ac .as{font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+.ac .tx{min-width:0}
+.c-ok{color:var(--ok)}.c-amber{color:var(--amber)}.c-idle{color:var(--muted)}.c-off{color:var(--faint)}.c-flow{color:var(--clay-text)}
+.pills{position:absolute;z-index:6;left:0;right:0;bottom:calc(var(--hib) + 14px);display:flex;flex-direction:column;align-items:center;gap:10px;transition:opacity .1s var(--out),transform .15s var(--spring)}
+.focus-on .pills{opacity:0;transform:translateY(30px);pointer-events:none}
+.grab{width:36px;height:4px;border-radius:2px;background:#2c2c2c}
+.pills .row{display:flex;gap:8px}
+.pill{height:34px;padding:0 13px;border-radius:17px;display:inline-flex;align-items:center;gap:7px;font-size:13.5px;font-weight:550;color:var(--muted);background:rgba(255,255,255,.04);border:1px solid var(--line);transition:transform .08s var(--out)}
+.pill.amber{color:var(--amber);background:rgba(251,191,36,.08);border-color:rgba(251,191,36,.22)}
+.pill .d{width:7px;height:7px;border-radius:50%;background:var(--amber)}
+.pill b{font-weight:650;color:var(--text)}.pill.amber b{color:var(--amber)}
+
+/* short phones (SE): same cards, tighter (phone only, not a short desktop window) */
+@media (max-height:760px){
+  .bare .cards{gap:10px;top:calc(var(--sbh) + 52px)}
+  .bare .bc .in{padding:14px 16px 14px;border-radius:26px}
+  .bare .bc .bn{font-size:23px}.bare .bc .sum{font-size:14.5px;margin-top:3px}
+  .bare .bc .ags{margin-top:12px;gap:9px 10px}
+  .bare .ac .orb{--z:32px!important}
+  .bare .grab{display:none}.bare .pills{bottom:calc(var(--hib) + 10px)}
+}
+/* the state orb: a Pebble (owner colour = the "you" half) inside a ring whose look IS the state */
+.orb{position:relative;width:var(--z,32px);height:var(--z,32px);flex:none}
+.orb svg.r{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+.orb .trk{fill:none;stroke:#3a3a3a;stroke-width:8}
+.orb .arc{fill:none;stroke:var(--ok);stroke-width:8;stroke-linecap:round;stroke-dasharray:110 236;opacity:0}
+.orb .spin{transform-origin:60px 60px}
+.orb .halo{position:absolute;inset:0;border-radius:50%;border:1.5px solid var(--amber);opacity:0}
+.orb .pf{position:absolute;inset:20%}
+.orb .pf svg{width:100%;height:100%;display:block}
+.orb .fl{position:absolute;inset:-2px;border-radius:50%;border:2px solid var(--clay);opacity:0}
+.s-working .trk{stroke:rgba(62,207,117,.2)}
+.s-working .arc{opacity:1}
+.s-working .spin{animation:spin 1.05s linear infinite}
+.s-stuck .trk{stroke:var(--amber)}
+.s-stuck .halo{animation:halo 1.1s var(--out) infinite}
+.s-offline .trk{stroke:#4d4d4d;stroke-dasharray:6 10}
+.s-offline .pf{opacity:.38}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes halo{0%{transform:scale(1);opacity:.8}100%{transform:scale(1.45);opacity:0}}
+
+/* ---------- FOCUS: the board under the card, and the composer ---------- */
+.act{position:absolute;z-index:4;left:14px;right:14px;top:0;bottom:0;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column;gap:9px;padding:2px 4px 12px;
+  opacity:0;pointer-events:none;scrollbar-width:none;overscroll-behavior:contain}
+.act::-webkit-scrollbar{display:none}
+.focus-on .act{opacity:1;pointer-events:auto}
+.m{display:flex;gap:9px;align-items:flex-start;transform-origin:left top}
+.m .mpb{width:22px;height:20px;flex:none;margin-top:2px}
+.m .mpb svg{width:22px;height:20px;display:block}
+.m .mb2{min-width:0;flex:1}
+.m .mn{font-size:12px;color:var(--faint);display:flex;gap:6px;align-items:center}
+.m .mn b{font-weight:600;color:#bdbdbd}
+.m .mn .chip{font:500 11px "Geist Mono",monospace;color:var(--faint)}
+.m .mt{font-size:15px;line-height:1.38;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.m.long .mt{cursor:pointer}
+.m.open .mt{white-space:normal}
+.m.you{justify-content:flex-end;transform-origin:right bottom;align-items:flex-end;gap:6px}
+.m.you .bub{max-width:80%;padding:8px 13px;border-radius:19px 19px 6px 19px;background:linear-gradient(180deg,#BD5636,#AE4A2B);color:#fff;font-size:15px;line-height:1.36;overflow-wrap:anywhere}
+.m.you .bub .mn2{color:#ffe1d6;font-weight:600}
+.m.you .bub .cmd{font:500 13.5px "Geist Mono",monospace;color:#ffe1d6}
+.m.person .bub{max-width:82%;padding:7px 12px;border-radius:19px 19px 19px 6px;background:#1e1e20;font-size:15px;line-height:1.36}
+.m .pav{width:22px;height:22px;border-radius:11px;display:grid;place-items:center;font-size:10.5px;font-weight:650;color:#fff;flex:none;margin-top:1px}
+.rc{font-size:12px;color:var(--faint);min-width:14px;text-align:right;margin-bottom:2px;display:inline-block}
+.act .old{opacity:.55}
+.cmp{position:absolute;z-index:30;left:0;right:0;bottom:0;padding:8px 12px calc(var(--hib) + 8px);background:linear-gradient(to bottom,rgba(10,10,10,0),rgba(10,10,10,.96) 18px);
+  transform:translateY(110%);transition:transform .15s var(--spring)}
+.focus-on .cmp{transform:none}
+.chips{display:flex;gap:6px;height:0;overflow:hidden;transition:height .0s}
+.chips.on{height:40px;padding-bottom:6px}
+.chp{height:34px;padding:0 12px 0 6px;border-radius:17px;display:inline-flex;align-items:center;gap:7px;font-size:13.5px;font-weight:550;background:var(--bg-elev-2);border:1px solid var(--line-strong);white-space:nowrap;flex:none}
+.chp.cmdc{padding:0 12px}
+.chp .cn{font:500 13px "Geist Mono",monospace;color:var(--clay-text)}
+.chp small{font-size:12px;color:var(--faint);font-weight:450}
+.chp .dt{width:7px;height:7px;border-radius:50%}
+.truth{display:flex;align-items:center;gap:8px;height:28px;font-size:13.5px;color:var(--muted);padding:0 6px}
+.truth b{font-weight:600;color:var(--text)}
+.truth .ti{width:13px;height:13px;border-radius:50%;flex:none}
+.ti.live{background:var(--ok);box-shadow:0 0 0 3px rgba(62,207,117,.18)}
+.ti.busy{border:2px solid rgba(62,207,117,.25);border-top-color:var(--ok);animation:spin .9s linear infinite}
+.ti.off{border:1.5px dashed #6a6a6a}
+.truth .tx{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.inrow{display:flex;gap:8px;align-items:center;margin-top:4px}
+.field{position:relative;flex:1;min-width:0;height:46px;border-radius:23px;border:1px solid var(--line-strong);background:var(--bg-elev)}
+.field:focus-within{border-color:rgba(217,120,90,.5)}
+.field input,.field .mir{position:absolute;inset:0;padding:0 16px;font-size:16px;line-height:44px;white-space:pre;overflow:hidden;border:0;background:none;letter-spacing:normal}
+.field input{color:transparent;caret-color:var(--text);outline:none;width:100%}
+.field input::placeholder{color:#5c5c5c}
+.field .mir{pointer-events:none;color:var(--text)}
+.mir .mt2{color:var(--clay-text);background:rgba(217,120,90,.16);border-radius:6px;box-shadow:0 0 0 2px rgba(217,120,90,.16)}
+.mir .cm2{color:var(--clay-text);font-family:"Geist Mono",monospace;font-size:15px}
+.send{width:46px;height:46px;border-radius:23px;flex:none;display:grid;place-items:center;background:var(--clay-deep);color:#fff;transition:transform .08s var(--out),opacity .1s}
+.send.dim{opacity:.45}
+
+/* ---------- sheets: All boards, Needs you ---------- */
+.sheet{position:absolute;z-index:60;left:0;right:0;bottom:0;top:calc(var(--sbh) + 30px);border-radius:28px 28px 0 0;background:#111;border-top:1px solid var(--line-strong);
+  transform:translateY(105%);transition:transform .15s var(--spring);display:flex;flex-direction:column;padding-bottom:var(--hib)}
+.sheet.on{transform:none}
+.scrim{position:absolute;inset:0;z-index:55;background:rgba(0,0,0,.55);opacity:0;pointer-events:none;transition:opacity .12s}
+.scrim.on{opacity:1;pointer-events:auto}
+.sh-h{flex:none;display:flex;align-items:center;gap:8px;padding:10px 18px 6px;position:relative}
+.sh-h::before{content:"";position:absolute;left:50%;top:6px;width:36px;height:4px;margin-left:-18px;border-radius:2px;background:#333}
+.sh-h h2{margin:14px 0 0;font-size:21px;font-weight:650;letter-spacing:-.025em}
+.sh-h .cnt{margin:14px 0 0;color:var(--faint);font:500 14px "Geist Mono",monospace}
+.sh-h .x{margin:12px 0 0 auto;width:32px;height:32px;border-radius:16px;display:grid;place-items:center;background:rgba(255,255,255,.06);color:var(--muted)}
+.blist{flex:1;overflow:auto;padding:8px 12px}
+.br{display:flex;align-items:center;gap:12px;width:100%;padding:11px 8px;border-radius:16px;transition:transform .08s var(--out)}
+.br .tile{width:42px;height:42px;border-radius:13px;display:grid;place-items:center;font-weight:650;font-size:17px;color:#0a0a0a;flex:none}
+.br .bm{flex:1;min-width:0}.br .bn2{font-size:16px;font-weight:600}.br .bl{font-size:13.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.br .minis{display:flex;gap:3px}
+.br .rec{font:11px "Geist Mono",monospace;color:var(--faint)}
+.deck{position:relative;flex:1;touch-action:none}
+.card{position:absolute;left:50%;top:46%;width:322px;height:380px;margin:-190px 0 0 -161px;border-radius:30px;background:#181818;border:1px solid var(--line-strong);
+  box-shadow:0 24px 60px rgba(0,0,0,.5);transition:transform .14s var(--spring),opacity .12s;will-change:transform;touch-action:none;overflow:hidden}
+.card.drag{transition:none;cursor:grabbing}
+.card .ck{position:absolute;left:20px;top:20px}
+.chip2{height:26px;padding:0 10px;border-radius:13px;font:600 11.5px/26px "Geist Mono",monospace;letter-spacing:.04em;text-transform:uppercase;display:inline-block}
+.chip2.ap{background:rgba(251,191,36,.14);color:var(--amber)}
+.chip2.de{background:rgba(167,139,250,.15);color:var(--decision)}
+.card .ag{position:absolute;right:18px;top:22px;font-size:13px;color:var(--muted)}
+.card .face{position:absolute;inset:62px 24px 84px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;transition:opacity .1s}
+.card .face .orb{margin-bottom:20px}
+.card .tt{font-size:27px;font-weight:650;letter-spacing:-.025em;line-height:1.15}
+.card .st{margin-top:10px;font-size:15px;color:var(--muted)}
+.card .det{position:absolute;inset:62px 24px 84px;display:flex;flex-direction:column;justify-content:center;gap:9px;opacity:0;transition:opacity .1s;font:13.5px/1.5 "Geist Mono",monospace;color:var(--muted)}
+.card .det b{font-family:"Geist";font-size:18px;color:var(--text);font-weight:600}
+.card.peek .face{opacity:0}.card.peek .det{opacity:1}
+.card .foot{position:absolute;left:0;right:0;bottom:22px;display:flex;justify-content:space-between;padding:0 24px;font-size:13px;color:var(--faint)}
+.card .tint{position:absolute;inset:0;pointer-events:none;border-radius:30px}
+.card .tint.y{background:linear-gradient(120deg,transparent 30%,rgba(62,207,117,.22));box-shadow:inset 0 0 0 2px var(--ok);opacity:clamp(0,var(--p,0),1)}
+.card .tint.n{background:linear-gradient(240deg,transparent 30%,rgba(248,113,113,.2));box-shadow:inset 0 0 0 2px var(--danger);opacity:clamp(0,calc(var(--p,0) * -1),1)}
+.stamp{position:absolute;top:66px;padding:4px 12px;border-radius:10px;font:700 20px "Geist";letter-spacing:.02em;pointer-events:none}
+.stamp.y{right:22px;color:var(--ok);border:2.5px solid var(--ok);transform:rotate(10deg);opacity:clamp(0,calc(var(--p,0) * 1.4),1)}
+.stamp.n{left:22px;color:var(--danger);border:2.5px solid var(--danger);transform:rotate(-10deg);opacity:clamp(0,calc(var(--p,0) * -1.4),1)}
+.acts{flex:none;display:flex;align-items:center;justify-content:center;gap:34px;padding:0 0 18px}
+.acts .bb{width:66px;height:66px;border-radius:33px;display:grid;place-items:center;border:1.5px solid var(--line-strong);background:rgba(255,255,255,.03);transition:transform .08s var(--out)}
+.acts .bb.no{color:var(--danger)}.acts .bb.yes{color:#06210f;background:var(--ok);border-color:transparent}
+.acts .hd{font-size:12.5px;color:var(--faint);width:84px;text-align:center}
+.clear{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;pointer-events:none;opacity:0}
+.clear .ct1{font-size:30px;font-weight:650;letter-spacing:-.03em}
+.clear .ct2{font-size:15px;color:var(--muted)}
+
+/* ---------- CLASSIC: a static stand-in for "identical to the web app" ---------- */
+#classic{background:var(--bg);z-index:50;padding-top:calc(var(--sbh) + 54px);padding-bottom:var(--hib);display:flex;flex-direction:column}
+.cl-h{flex:none;height:50px;display:flex;align-items:center;gap:10px;padding:0 16px;border-bottom:1px solid var(--line)}
+.cl-h b{font-size:17px}.cl-h span{font-size:12.5px;color:var(--faint)}
+.cl-list{flex:1;overflow:hidden;padding:12px 14px;display:flex;flex-direction:column;gap:12px}
+.cl-day{align-self:center;font-size:12px;color:var(--faint)}
+.cl-card{border:1px solid var(--line);border-radius:14px;padding:10px 12px;background:var(--bg-elev)}
+.cl-top{display:flex;align-items:center;gap:7px;font-size:13px;margin-bottom:4px}
+.cl-top .nm{font-weight:600}.cl-top .t{margin-left:auto;font:11.5px "Geist Mono",monospace;color:var(--faint)}
+.schip{height:20px;padding:0 7px;border-radius:6px;background:var(--bone);color:#111113;font:500 11.5px/20px "Geist Mono",monospace}
+.cl-card p{margin:0;font-size:14px;line-height:1.45}
+.cl-card .mono{font-size:12px;color:var(--muted);margin-top:6px}
+.cl-btns{display:flex;gap:8px;margin-top:9px}.cl-btns span{height:30px;padding:0 14px;border-radius:8px;border:1px solid var(--line-strong);font-size:13px;line-height:30px}
+.cl-btns span:first-child{background:var(--text);color:var(--on-ink);border-color:transparent}
+.cl-cmp{flex:none;display:flex;gap:8px;padding:10px 12px 12px;border-top:1px solid var(--line)}
+.cl-cmp div{flex:1;height:40px;border-radius:10px;border:1px solid var(--line-strong);padding:0 12px;line-height:40px;color:var(--faint);font-size:14.5px}
+.cl-cmp span{height:40px;padding:0 16px;border-radius:10px;background:var(--text);color:var(--on-ink);line-height:40px;font-weight:550;font-size:14px}
+#classic .m.you{justify-content:flex-end}
+
+.fx{position:absolute;inset:0;pointer-events:none;z-index:86;overflow:hidden}
+.fxr{position:absolute;border-radius:50%;border:3px solid;pointer-events:none}
+.fxd{position:absolute;border-radius:50%;pointer-events:none}
+.fxt{position:absolute;font-weight:700;font-size:22px;white-space:nowrap;pointer-events:none}
+
+/* Reduce Motion: state still changes instantly; it just isn't animated */
+.rm *,.rm *::before,.rm *::after{animation:none!important;transition-duration:0s!important;transition-delay:0s!important}
+.rm .s-working .arc{stroke-dasharray:240 106}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><clipPath id="pbc" clipPathUnits="userSpaceOnUse"><rect x="189" y="229" width="647" height="566" rx="283" ry="283"/></clipPath></defs></svg>
+<div class="stage" id="stage">
+<div class="device" id="dev">
+  <div class="glowbg"></div>
+
+  <section class="scr on" id="home">
+    <div class="cards" id="cards"></div>
+    <div class="act" id="act"></div>
+    <div class="pills" id="pills">
+      <div class="grab"></div>
+      <div class="row"><button class="pill" id="pAll"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="2" width="5" height="5" rx="1.3"/><rect x="9" y="2" width="5" height="5" rx="1.3"/><rect x="2" y="9" width="5" height="5" rx="1.3"/><rect x="9" y="9" width="5" height="5" rx="1.3"/></svg>All boards <b id="pAllN"></b></button><button class="pill amber" id="pNeeds"><span class="d"></span><b id="pNeedsN"></b> need you</button></div>
+    </div>
+    <form class="cmp" id="cmp" autocomplete="off">
+      <div class="chips" id="chips"></div>
+      <div class="truth" id="truth"></div>
+      <div class="inrow"><div class="field"><div class="mir" id="mir"></div><input id="inp" placeholder="Message" enterkeyhint="send" spellcheck="false" autocapitalize="off"></div><button class="send dim" id="sendB" type="submit" aria-label="Send"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5.5 11.5L12 5l6.5 6.5"/></svg></button></div>
+    </form>
+  </section>
+
+  <div class="top" id="top">
+    <div class="brand"><span class="pb" id="brandPb"></span><button class="bk" id="back" aria-label="Back"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button></div>
+    <div class="toggles">
+      <button class="icb" id="snd" title="Sound (M)"></button>
+      <button class="icb on" id="hap" title="Haptics (H)"></button>
+      <div class="seg" id="seg"><span class="knob" id="knob"></span><button data-mode="pulse" aria-pressed="true">Pulse</button><button data-mode="classic" aria-pressed="false">Classic</button></div>
+    </div>
+  </div>
+
+  <div class="scrim" id="scrim"></div>
+  <section class="sheet" id="boards">
+    <div class="sh-h"><h2>All boards</h2><span class="cnt" id="allN"></span><button class="x" data-close aria-label="Close"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+    <div class="blist" id="blist"></div>
+  </section>
+  <section class="sheet" id="needs">
+    <div class="sh-h"><h2>Needs you</h2><span class="cnt" id="ndC"></span><button class="x" data-close aria-label="Close"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+    <div class="deck" id="deck"><div class="clear" id="clear"><span id="clrPb"></span><div class="ct1">All clear</div><div class="ct2" id="clrS"></div></div></div>
+    <div class="acts"><button class="bb no" id="bNo" aria-label="Deny"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button><span class="hd">hold a card<br>for details</span><button class="bb yes" id="bYes" aria-label="Approve"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></button></div>
+  </section>
+
+  <section class="scr" id="classic">
+    <div class="cl-h"><b>annex</b><span>4 agents · 3 people</span></div>
+    <div class="cl-list">
+      <div class="cl-day">Today</div>
+      <div class="m person"><span class="pav" style="background:#0F7C83">J</span><div class="bub">Pulse mode, can we try it on the 1.5 build?</div></div>
+      <div class="cl-card"><div class="cl-top"><span id="clpb1"></span><span class="nm">vedu's agent</span><span class="schip">claude-2</span><span class="t">9:44</span></div><p>Building 1.5 now. UI tests 14/16 green; two flaky ones on the share sheet, retrying with a longer timeout.</p><div class="mono">ios/Atteo · 3 files · +84 −12</div></div>
+      <div class="m you"><div class="bub">ship it when green</div></div>
+      <div class="cl-card"><div class="cl-top"><span id="clpb2"></span><span class="nm">jxn's agent</span><span class="schip">scout</span><span class="t">9:46</span></div><p>Needs approval: run migration 0042 on prod D1 (adds 2 columns).</p><div class="cl-btns"><span>Approve</span><span>Deny</span></div></div>
+      <div class="cl-card"><div class="cl-top"><span id="clpb3"></span><span class="nm">vedu's agent</span><span class="schip">deployer</span><span class="t">9:52</span></div><p>✅ Shipped v41 to production.</p><div class="mono">v41 · 6 commits · 0 errors</div></div>
+    </div>
+    <div class="cl-cmp"><div>Message annex</div><span>Post</span></div>
+  </section>
+
+  <div class="sb"><span>9:41</span><span class="isl"></span><span class="ic"><svg width="18" height="12" viewBox="0 0 18 12" fill="#fff"><rect x="0" y="8" width="3" height="4" rx="1"/><rect x="5" y="5.5" width="3" height="6.5" rx="1"/><rect x="10" y="3" width="3" height="9" rx="1"/><rect x="15" y="0" width="3" height="12" rx="1"/></svg><svg width="16" height="12" viewBox="0 0 16 12" fill="none" stroke="#fff" stroke-width="1.7" stroke-linecap="round"><path d="M1.5 4.2a9.5 9.5 0 0 1 13 0M4 7a6 6 0 0 1 8 0"/><circle cx="8" cy="10" r="1.2" fill="#fff" stroke="none"/></svg><svg width="27" height="13" viewBox="0 0 27 13"><rect x=".5" y=".5" width="23" height="12" rx="3.5" fill="none" stroke="#fff" stroke-opacity=".4"/><rect x="2" y="2" width="18" height="9" rx="2" fill="#fff"/><rect x="24.5" y="4.5" width="1.6" height="4" rx=".8" fill="#fff" fill-opacity=".4"/></svg></span></div>
+  <div class="hi"></div>
+  <div class="fx" id="fx"></div>
+</div>
+
+<aside class="notes">
+  <h2><span id="notePb"></span>Pulse</h2>
+  <div>The iPhone app's fast mode. Classic stays identical to the web app; the toggle is in the corner.</div>
+  <h3>Try it</h3>
+  <ul>
+    <li><b>Tap a board.</b> The other two fly away, it settles on top, the composer slides up.</li>
+    <li><b>Type @</b> for agent chips; mentions light up in clay. <b>Type /</b> for commands (<code>/task</code>, <code>/decide</code>). No type picker.</li>
+    <li><b>Send.</b> The message flies into the agent's Pebble; its ring blips, then read, then 🤔, then a one-line reply under the card.</li>
+    <li><b>Back</b> (or Esc): everything flies back into place.</li>
+    <li><b>Need you</b> pill: swipe right to approve, left to deny, hold for details.</li>
+  </ul>
+  <h3>Delivery truth (always shown before you send)</h3>
+  <table><tr><td>live</td><td>sees it in ~5 s</td></tr><tr><td>busy</td><td>on a task, reads after</td></tr><tr><td>offline</td><td>offline, gets it when back</td></tr></table>
+  <h3>Haptics → iOS (on by default)</h3>
+  <table>
+    <tr><td>send</td><td>little click · <code>UIImpactFeedbackGenerator(.rigid)</code>, 0.7</td></tr>
+    <tr><td>read</td><td>tiny buzz · <code>UIImpactFeedbackGenerator(.soft)</code>, 0.4</td></tr>
+    <tr><td>agent responding (🤔)</td><td>quick double · two <code>.light</code> impacts 70 ms apart</td></tr>
+    <tr><td>approve / deny</td><td>click · <code>.rigid</code>; clearing the stack · <code>UINotificationFeedbackGenerator(.success)</code></td></tr>
+  </table>
+  <div style="margin-top:6px">Web demo: <code>navigator.vibrate</code> where supported (Android). Sound is off by default.</div>
+  <h3>Motion</h3>
+  <div>Springs ≤150 ms, transform and opacity only. Reduce Motion keeps every state change, just without the flight.</div>
+  <div class="k">Esc back · 1–3 boards · M sound · H haptics · C classic</div>
+</aside>
+</div>
+
+<script>
+"use strict";
+/* ============================== setup ============================== */
+const Q=new URLSearchParams(location.search);
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+const H=document.documentElement, dev=$('#dev'), stage=$('#stage'), fx=$('#fx');
+const RM=Q.get('motion')==='reduce'||matchMedia('(prefers-reduced-motion: reduce)').matches;
+if(RM)H.classList.add('rm');
+const FREEZE=Q.get('freeze')==='1';
+const COARSE=matchMedia('(pointer:coarse)').matches;
+const BARE=Q.get('frame')==='0'||(Q.get('frame')!=='1'&&innerWidth<=500);
+if(BARE)H.classList.add('bare'); if(BARE&&COARSE)H.classList.add('touch');
+const NOTES=!BARE&&Q.get('notes')!=='0'&&innerWidth>=820; if(!NOTES)H.classList.add('nonotes');
+let S=1;
+function fit(){ if(BARE){S=1;stage.style.transform='';return;}
+  const w=NOTES?390+24+48+330:390+24, h=Math.max(844+24,stage.offsetHeight); S=Math.min(1,(innerHeight-30)/h,(innerWidth-30)/w); stage.style.transform=`scale(${S})`; }
+fit(); addEventListener('resize',fit);
+const SPRING='cubic-bezier(.2,1.3,.4,1)', OUT='cubic-bezier(.2,.8,.2,1)';
+const anim=(el,kf,o)=>RM?null:el.animate(kf,o);
+const T0=performance.now(); const now=()=>performance.now()-T0;
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]);
+
+/* The Pebble (src/ui.ts LOGO); the "you" half takes the owner's colour */
+function pebble(c='#D97857',w,h){return `<svg viewBox="150 190 726 646" ${w?`width="${w}" height="${h}"`:''} aria-hidden="true"><g clip-path="url(#pbc)"><polygon points="711,-1765 301,2785 -1691,2606 -1281,-1944" fill="${c}"/><polygon points="746,-1761 336,2789 2328,2968 2738,-1582" fill="var(--pb-agent)"/></g><circle cx="405" cy="468" r="54" fill="var(--pb-eye)"/><circle cx="634" cy="498" r="54" fill="var(--pb-eye)"/></svg>`;}
+$('#brandPb').innerHTML=pebble('#D97857',30,27); $('#notePb').innerHTML=pebble('#D97857',22,20); $('#clrPb').innerHTML=pebble('#D97857',64,58);
+['clpb1','clpb2','clpb3'].forEach((id,i)=>$('#'+id).innerHTML=pebble(i==1?'#4CC2C9':'#D97857',18,16));
+
+/* ============================== data ============================== */
+const PEOPLE={vedu:'#D9785A',jxn:'#4CC2C9',maya:'#a78bfa',theo:'#38bdf8'};
+// one agent per person per board, so "@vedu's agent" is never ambiguous; the session name is the chip
+const AG={
+ c2:{owner:'vedu',ses:'claude-2',st:'working',what:'testing iOS',since:-72e3},
+ sc:{owner:'jxn',ses:'scout',st:'stuck',what:'needs you',since:-40e3},
+ rv:{owner:'maya',ses:'reviewer',st:'idle',what:'idle',since:-300e3},
+ qa:{owner:'theo',ses:'ios-qa',st:'offline',what:'offline',since:-2*3600e3},
+ c1:{owner:'vedu',ses:'claude-1',st:'working',what:'writing PR',since:-95e3},
+ bl:{owner:'jxn',ses:'builder',st:'stuck',what:'needs you',since:-20e3},
+ cp:{owner:'maya',ses:'copy',st:'working',what:'drafting hero',since:-130e3},
+ dp:{owner:'vedu',ses:'deployer',st:'offline',what:'offline',since:-5*3600e3},
+ op:{owner:'jxn',ses:'ops',st:'idle',what:'idle',since:-900e3},
+ ds:{owner:'theo',ses:'design',st:'working',what:'icon pass',since:-40e3},
+};
+for(const id in AG)Object.assign(AG[id],{id,name:AG[id].owner+"'s agent",queue:[],flow:null});
+// fixed order on Home: the three most recent boards
+let BOARDS=[
+ {id:'annex',name:'annex',c:'#D9785A',ags:['c2','sc','rv','qa'],sum:'1.5 build: 14 of 16 UI tests green',unread:2,when:'now'},
+ {id:'ios',name:'atteo-ios',c:'#4CC2C9',ags:['c1','bl'],sum:'TestFlight 42 is up; jxn is trying it',unread:0,when:'2m'},
+ {id:'landing',name:'landing',c:'#a78bfa',ags:['cp','dp'],sum:'Hero copy v4 is in review',unread:1,when:'6m'},
+ {id:'ops',name:'ops',c:'#38bdf8',ags:['op','dp'],sum:'v41 shipped, p95 41 ms',unread:0,when:'1h'},
+ {id:'design',name:'design',c:'#f2c14e',ags:['ds','rv'],sum:'App icon, round 3',unread:0,when:'3h'},
+ {id:'dm-jxn',name:'jxn',c:'#0F7C83',ags:['sc','c2'],sum:'Pulse looks fun, ship a demo?',unread:0,when:'yday',person:true},
+];
+const B=id=>BOARDS.find(b=>b.id===id);
+const log={
+ annex:[['person','jxn','Pulse mode, can we try it on the 1.5 build?'],['agent','c2','On it. UI tests 14 of 16 green; two flaky ones on the share sheet, retrying with a longer timeout.']],
+ ios:[['agent','c1','Uploaded build 42 to TestFlight.'],['person','jxn','trying it now']],
+ landing:[['person','maya','hero copy v4 is up'],['agent','cp','Drafting two shorter variants.']],
+ ops:[['agent','op','v41 shipped. p95 41 ms.']], design:[['agent','ds','Round 3 of the icon is in Figma.']], 'dm-jxn':[['person','jxn','Pulse looks fun, ship a demo?']],
+};
+for(const k in log)log[k]=log[k].map(([from,who,text])=>({from,who,text,old:true}));
+let needs=[
+ {id:'n1',agent:'sc',board:'annex',kind:'approval',title:'Run migration 0042?',sub:'adds 2 columns · prod D1',det:['ALTER TABLE beats ADD 2 columns','backup taken 9:38','rollback: 0042_down.sql'],
+  yes:()=>work('sc','running migration',3800,'Migration 0042 done.'),no:()=>{setSt('sc','idle','idle');say('annex','sc','Okay, holding migration 0042.');}},
+ {id:'n2',agent:'bl',board:'ios',kind:'decision',title:'Ship 1.5 on Friday?',sub:'build 42 green · 3 PRs in',det:['PRs: #912 #915 #918','all checks green','no schema change'],
+  yes:()=>{work('bl','queuing release',3000,'Friday release queued.');},no:()=>{setSt('bl','idle','idle');say('ios','bl','Holding 1.5. I’ll ask again Monday.');}},
+];
+
+/* ============================== sound + haptics ============================== */
+let AC=null,soundOn=false,hapOn=true;
+const IC={snd0:'<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M16 9.5l5 5M21 9.5l-5 5"/></svg>',
+ snd1:'<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9a4.2 4.2 0 0 1 0 6M18.3 6.5a8 8 0 0 1 0 11"/></svg>',
+ hap:'<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="3.5" width="8" height="17" rx="2"/><path d="M4.5 9v6M19.5 9v6M2 11v2M22 11v2"/></svg>'};
+function paintToggles(){ const s=$('#snd'),h=$('#hap'); s.innerHTML=soundOn?IC.snd1:IC.snd0; s.classList.toggle('on',soundOn); s.setAttribute('aria-label','Sound '+(soundOn?'on':'off'));
+  h.innerHTML=IC.hap; h.classList.toggle('on',hapOn); h.setAttribute('aria-label','Haptics '+(hapOn?'on':'off')); h.style.opacity=hapOn?1:.5; }
+paintToggles();
+function toggleSound(){ soundOn=!soundOn; if(soundOn&&!AC){try{AC=new (window.AudioContext||window.webkitAudioContext)();}catch(e){}} if(AC&&AC.state==='suspended')AC.resume(); paintToggles(); sfx('open'); }
+function toggleHap(){ hapOn=!hapOn; paintToggles(); if(hapOn)hap('click'); }
+function tone(f,d=.07,type='triangle',g=.1,when=0,f2){ const t=AC.currentTime+when,o=AC.createOscillator(),v=AC.createGain();
+  o.type=type;o.frequency.setValueAtTime(f,t); if(f2)o.frequency.exponentialRampToValueAtTime(f2,t+d);
+  v.gain.setValueAtTime(0.0001,t);v.gain.exponentialRampToValueAtTime(g,t+.006);v.gain.exponentialRampToValueAtTime(0.0001,t+d);
+  o.connect(v).connect(AC.destination);o.start(t);o.stop(t+d+.03);}
+function sfx(k){ if(!soundOn||!AC)return; ({
+  tap:()=>tone(1500,.025,'sine',.035), whoosh:()=>tone(300,.12,'sine',.07,0,900), back:()=>tone(900,.1,'sine',.06,0,320),
+  open:()=>{tone(523,.06,'triangle',.08);tone(784,.08,'triangle',.08,.04);},
+  send:()=>tone(700,.06,'sine',.07,0,1150), deliv:()=>tone(1320,.03,'sine',.05), read:()=>tone(1050,.03,'sine',.04),
+  think:()=>{tone(620,.04,'sine',.05);tone(620,.04,'sine',.05,.07);}, reply:()=>{tone(880,.05,'triangle',.06);tone(1175,.07,'triangle',.05,.045);},
+  yes:()=>{tone(784,.06,'triangle',.1);tone(1175,.1,'triangle',.09,.045);}, no:()=>tone(330,.1,'triangle',.1,0,250),
+  chip:()=>tone(1900,.02,'sine',.03), clear:()=>[659,784,988,1319].forEach((f,i)=>tone(f,.13,'triangle',.08,i*.055))
+ })[k]?.(); }
+// jxn's mapping (#928): a little CLICK on send, a TINY buzz when read, a QUICK DOUBLE when the agent is responding
+const HAP={click:8,tiny:14,double:[12,60,12],success:[10,40,10,40,16]};
+function hap(k){ if(!hapOn)return; try{navigator.vibrate&&navigator.vibrate(HAP[k]);}catch(e){} }
+
+/* ============================== fx ============================== */
+function at(el){const r=el.getBoundingClientRect(),d=dev.getBoundingClientRect();return {x:(r.left+r.width/2-d.left)/S,y:(r.top+r.height/2-d.top)/S,w:r.width/S,h:r.height/S,top:(r.top-d.top)/S};}
+function ring(x,y,size,color,{dur=320,to=1.7,w=3,o=.9}={}){ if(RM)return; const e=document.createElement('i');e.className='fxr';
+  e.style.cssText=`left:${x-size/2}px;top:${y-size/2}px;width:${size}px;height:${size}px;border-width:${w}px;border-color:${color}`;fx.append(e);
+  e.animate([{transform:'scale(1)',opacity:o},{transform:`scale(${to})`,opacity:0}],{duration:dur,easing:'cubic-bezier(.1,.7,.2,1)'}).onfinish=()=>e.remove();}
+function sparks(x,y,colors,n=14,dist=90){ if(RM)return; for(let i=0;i<n;i++){ const e=document.createElement('i');e.className='fxd';const s=4+Math.random()*6;
+  e.style.cssText=`left:${x-s/2}px;top:${y-s/2}px;width:${s}px;height:${s}px;background:${colors[i%colors.length]}`;fx.append(e);
+  const a=(i/n)*Math.PI*2+Math.random()*.4,d=dist*(.6+Math.random()*.6);
+  e.animate([{transform:'translate(0,0) scale(1)',opacity:1},{transform:`translate(${Math.cos(a)*d}px,${Math.sin(a)*d}px) scale(.3)`,opacity:0}],{duration:420+Math.random()*200,easing:'cubic-bezier(.1,.8,.3,1)'}).onfinish=()=>e.remove();}}
+function judge(x,y,text,color){ if(RM)return; const e=document.createElement('i');e.className='fxt';e.textContent=text;e.style.cssText=`left:${x}px;top:${y}px;color:${color}`;fx.append(e);
+  e.animate([{transform:'translate(-50%,-50%) scale(.6)',opacity:0},{transform:'translate(-50%,-50%) scale(1.12)',opacity:1,offset:.22},{transform:'translate(-50%,-50%) scale(1)',opacity:1,offset:.4},{transform:'translate(-50%,-85%) scale(1)',opacity:0}],{duration:640,easing:'ease-out'}).onfinish=()=>e.remove();}
+const pop=el=>el&&anim(el,[{transform:'scale(.55)'},{transform:'scale(1.2)',offset:.6},{transform:'scale(1)'}],{duration:150,easing:'ease-out'});
+// a dot that flies from the send button into the agent's Pebble on the card
+function flyDot(from,to,cb){ if(RM){cb();return;} const e=document.createElement('i');e.className='fxd';e.style.cssText=`left:-6px;top:-6px;width:12px;height:12px;background:var(--clay);box-shadow:0 0 12px 3px rgba(217,120,90,.6)`;fx.append(e);
+  const mx=(from.x+to.x)/2+40, my=Math.min(from.y,to.y)+ (from.y-to.y)*.35;
+  e.animate([{transform:`translate(${from.x}px,${from.y}px) scale(1)`},{transform:`translate(${mx}px,${my}px) scale(1.15)`,offset:.5},{transform:`translate(${to.x}px,${to.y}px) scale(.5)`}],{duration:150,easing:'cubic-bezier(.4,0,.8,.6)'}).onfinish=()=>{e.remove();cb();}; }
+
+/* every press reacts on pointerdown; the action commits on click */
+document.addEventListener('pointerdown',e=>{const p=e.target.closest('button,.bc,.br,.chp');if(!p)return;p.classList.add('pr');sfx('tap');
+  const up=()=>{p.classList.remove('pr');removeEventListener('pointerup',up);removeEventListener('pointercancel',up);};addEventListener('pointerup',up);addEventListener('pointercancel',up);});
+
+/* ============================== state + words ============================== */
+function ago(ms){ms=Math.max(0,ms);const m=Math.floor(ms/60e3);if(m<1)return 'now';if(m<60)return m+'m';return Math.floor(m/60)+'h';}
+function stWords(a){ if(a.flow==='queued')return ['c-flow','queued']; if(a.flow==='read')return ['c-flow','read']; if(a.flow==='think')return ['c-flow','🤔 on it'];
+  if(a.st==='working')return ['c-ok',a.what]; if(a.st==='stuck')return ['c-amber','needs you']; if(a.st==='idle')return ['c-idle',a.paused?'paused':'idle']; return ['c-off','offline · '+ago(now()-a.since)]; }
+function orb(a,z=32){const s=a.flow==='think'?'working':a.st;return `<span class="orb s-${s}" data-orb="${a.id}" style="--z:${z}px"><svg class="r" viewBox="0 0 120 120"><circle class="trk" cx="60" cy="60" r="55"/><g class="spin"><circle class="arc" cx="60" cy="60" r="55"/></g></svg><span class="halo"></span><span class="pf">${pebble(PEOPLE[a.owner])}</span></span>`;}
+// The composer's delivery truth: exactly three honest states (#919)
+function truthOf(a){ if(a.st==='offline')return ['off','offline, gets it when back']; if(a.st==='working'&&a.flow!=='think')return ['busy','on a task, reads after']; return ['live','sees it in ~5 s']; }
+
+/* ============================== HOME: board cards ============================== */
+const cardsEl=$('#cards'); let cardEls=[];
+function cardHTML(b){ const nd=needs.filter(n=>n.board===b.id).length;
+  return `<div class="in" style="--bgc:radial-gradient(120% 90% at 0% 0%,${hexA(b.c,.16)},${hexA(b.c,0)} 60%),#131313;--bcol:${b.c}"><span class="wm">${pebble(b.c)}</span>
+   <div class="row1"><span class="bn">${b.person?esc(b.name):'<i>#</i>'+esc(b.name)}</span>${b.unread?`<span class="unr">${b.unread}</span>`:''}${nd?`<span class="nyou" data-needs="${b.id}">needs you</span>`:''}<span class="when">${b.when}</span></div>
+   <div class="sum">${esc(b.sum)}</div>
+   <div class="ags">${b.ags.map(id=>{const a=AG[id],[c,t]=stWords(a);return `<div class="ac" data-ac="${id}">${orb(a,38)}<div class="tx"><div class="an">${a.name}</div><div class="as ${c}">${esc(t)}</div></div></div>`;}).join('')}</div></div>`; }
+function hexA(c,a){const n=parseInt(c.slice(1),16);return `rgba(${n>>16&255},${n>>8&255},${n&255},${a})`;}
+function buildCards(){ cardsEl.innerHTML=''; cardEls=BOARDS.slice(0,3).map((b,i)=>{const d=document.createElement('div');d.className='bc';d.dataset.i=i;d.innerHTML=cardHTML(b);d._b=b;cardsEl.append(d);return d;}); }
+// live updates touch only what changed (a state line, a ring class, the summary)
+function patchCards(){ cardEls.forEach(el=>{ const b=el._b; b.ags.forEach(id=>{ const a=AG[id], cell=el.querySelector(`[data-ac="${id}"]`); if(!cell)return;
+    const [c,t]=stWords(a), s=cell.querySelector('.as'), o=cell.querySelector('.orb'), oc='orb s-'+(a.flow==='think'?'working':a.st);
+    if(o.className!==oc)o.className=oc;
+    if(s.textContent!==t||!s.classList.contains(c)){ s.className='as '+c; s.textContent=t; anim(s,[{transform:'translateY(7px)',opacity:0},{transform:'none',opacity:1}],{duration:140,easing:SPRING}); } });
+   const sum=el.querySelector('.sum'); if(sum.textContent!==b.sum){sum.textContent=b.sum;anim(sum,[{transform:'translateY(7px)',opacity:0},{transform:'none',opacity:1}],{duration:140,easing:SPRING});}
+   const r1=el.querySelector('.row1'), nd=needs.filter(n=>n.board===b.id).length, hasN=!!r1.querySelector('.nyou');
+   const u=r1.querySelector('.unr'); if(b.unread&&!u){const s=document.createElement('span');s.className='unr';s.textContent=b.unread;r1.querySelector('.bn').after(s);pop(s);} else if(u&&!b.unread)u.remove(); else if(u&&u.textContent!=b.unread){u.textContent=b.unread;pop(u);}
+   if(nd&&!hasN){const s=document.createElement('span');s.className='nyou';s.dataset.needs=b.id;s.textContent='needs you';r1.querySelector('.when').before(s);pop(s);} else if(!nd&&hasN)r1.querySelector('.nyou').remove();
+   r1.querySelector('.when').textContent=b.when; });
+  const n=needs.length; $('#pNeedsN').textContent=n; $('#pNeeds').style.display=n?'':'none'; $('#pAllN').textContent=BOARDS.length; $('#ndC').textContent=n||''; $('#allN').textContent=BOARDS.length;
+  if(focused>=0)renderTruth(); }
+cardsEl.addEventListener('click',e=>{ const nb=e.target.closest('[data-needs]'); if(nb){openSheet('needs');return;}
+  const c=e.target.closest('.bc'); if(!c)return; if(focused<0)focus(+c.dataset.i); });
+
+/* ============================== FOCUS: fly away, settle, compose ============================== */
+let focused=-1, flying=false;
+const act=$('#act');
+function flyFor(j,i){ const side=j%2===0?-1:1, dir=j<i?-1:1; return `translate(${side*470}px,${dir*70}px) rotate(${side*18}deg) scale(.9)`; }
+function focus(i){ if(focused>=0)return; focused=i; const f=cardEls[i]; const dy=cardEls[0].offsetTop-f.offsetTop;
+  H.classList.add('focus-on'); hap('click'); sfx('whoosh');
+  f.style.transform=`translateY(${dy}px)`; f.style.zIndex=3;
+  anim(f,[{transform:'none'},{transform:`translateY(${dy}px) scale(1.025)`,offset:.7},{transform:`translateY(${dy}px)`}],{duration:150,easing:'cubic-bezier(.25,.9,.3,1)'});
+  let k=0; cardEls.forEach((c,j)=>{ if(j===i)return; const t=flyFor(j,i); c.style.transform=t; c.style.opacity=0; c.style.pointerEvents='none';
+    anim(c,[{transform:'none',opacity:1},{transform:t,opacity:0}],{duration:170,delay:k++*24,easing:'cubic-bezier(.5,0,.85,.35)',fill:'backwards'}); });
+  const p=at(f); ring(p.x,p.y,Math.min(p.w,p.h),hexA(f._b.c,.55),{to:1.5,dur:300,w:2});
+  // the board under the card
+  const b=f._b; b.unread=0; patchCards();
+  act.style.top=(cardsEl.offsetTop+cardEls[0].offsetTop+f.offsetHeight+12)+'px'; act.style.bottom=(cmpH())+'px';
+  act.innerHTML=''; (log[b.id]||[]).slice(-4).forEach(m=>appendMsg(m,false)); act.scrollTop=act.scrollHeight;
+  anim(act,[{opacity:0,transform:'translateY(16px)'},{opacity:1,transform:'none'}],{duration:150,delay:60,easing:SPRING,fill:'backwards'});
+  $('#inp').placeholder='Message '+(b.person?b.name:'#'+b.name); $('#inp').value=''; onInput(); renderTruth();
+  if(!COARSE)setTimeout(()=>$('#inp').focus({preventScroll:true}),160); }
+function cmpH(){ return $('#cmp').offsetHeight; }
+function unfocus(){ if(focused<0)return; const i=focused; focused=-1; const f=cardEls[i]; $('#inp').blur(); H.classList.remove('focus-on'); sfx('back');
+  const from=f.style.transform; f.style.transform=''; anim(f,[{transform:from},{transform:'none'}],{duration:150,easing:SPRING}); setTimeout(()=>f.style.zIndex='',150);
+  let k=0; cardEls.forEach((c,j)=>{ if(j===i)return; const t=flyFor(j,i); c.style.transform=''; c.style.opacity=''; c.style.pointerEvents='';
+    anim(c,[{transform:t,opacity:0},{transform:'none',opacity:1}],{duration:160,delay:k++*24,easing:SPRING,fill:'backwards'}); });
+  setChips(''); }
+$('#back').addEventListener('click',unfocus);
+
+/* the board's thread under the card */
+function appendMsg(m,animate){ const d=document.createElement('div'); m.el=d;
+  if(m.from==='you'){d.className='m you';d.innerHTML=`<span class="rc">${m.rc||''}</span><div class="bub">${hl(m.text,true)}</div>`;}
+  else if(m.from==='person'){d.className='m person';d.innerHTML=`<span class="pav" style="background:${PEOPLE[m.who]||'#0F7C83'}">${m.who[0].toUpperCase()}</span><div class="bub">${esc(m.text)}</div>`;}
+  else { const a=AG[m.who], long=m.text.length>40; d.className='m'+(long?' long':''); d.innerHTML=`<span class="mpb">${pebble(PEOPLE[a.owner])}</span><div class="mb2"><div class="mn"><b>${a.name}</b><span class="chip">${a.ses}</span></div><div class="mt">${esc(m.text)}</div></div>`;
+    if(long)d.addEventListener('click',()=>{d.classList.toggle('open');sfx('tap');}); }
+  if(m.old&&!animate)d.classList.add('old');
+  act.append(d); if(animate){ anim(d,[{transform:'translateY(14px) scale(.94)',opacity:0},{transform:'none',opacity:1}],{duration:150,easing:SPRING}); act.scrollTop=act.scrollHeight; } }
+function setRc(m,v){ m.rc=v; const r=m.el?.querySelector('.rc'); if(r){r.textContent=v;pop(r);} }
+
+/* ============================== composer: @mentions, / commands, the delivery truth ============================== */
+const inp=$('#inp'), mir=$('#mir'), chips=$('#chips');
+const CMDS=[['/task','make it a task'],['/decide','ask for a decision']];
+function boardAgents(){ return focused>=0?cardEls[focused]._b.ags.map(id=>AG[id]):[]; }
+function mentionRe(){ const ns=boardAgents().map(a=>a.name.replace(/[.*+?^${}()|[\]\\']/g,'\\$&')); return ns.length?new RegExp('@('+ns.join('|')+')','g'):null; }
+function hl(text,inBubble){ let h=esc(text); const re=mentionRe(); if(re)h=h.replace(re,m=>`<span class="${inBubble?'mn2':'mt2'}">${m}</span>`);
+  h=h.replace(/^(\/(task|decide))\b/,`<span class="${inBubble?'cmd':'cm2'}">$1</span>`); return h; }
+function mentioned(text){ const re=mentionRe(); if(!re)return []; const out=[]; let m; while((m=re.exec(text)))out.push(boardAgents().find(a=>a.name===m[1])); return [...new Set(out)]; }
+function onInput(){ const v=inp.value; mir.innerHTML=hl(v,false)+'&#8203;'; mir.scrollLeft=inp.scrollLeft; $('#sendB').classList.toggle('dim',!v.trim());
+  const pre=v.slice(0,inp.selectionStart??v.length); let mm;
+  if((mm=pre.match(/(^|\s)@([\w']*)$/))){ const q=mm[2].toLowerCase(); setChips('@'+q); }
+  else if((mm=pre.match(/^\/(\w*)$/))){ setChips('/'+mm[1]); }
+  else setChips(''); renderTruth(); }
+let chipKey=null;
+function setChips(key){ if(key===chipKey)return; chipKey=key; if(!key){chips.classList.remove('on');chips.innerHTML='';return;}
+  let list=[];
+  if(key[0]==='@'){ const q=key.slice(1); list=boardAgents().filter(a=>a.name.toLowerCase().startsWith(q)||a.ses.startsWith(q)).map(a=>{const [c]=truthOf(a);
+    return `<button type="button" class="chp" data-ins="@${a.name} ">${orb(a,24)}${a.name}<small class="mono">${a.ses}</small></button>`;}); }
+  else { const q=key.slice(1); list=CMDS.filter(([c])=>c.slice(1).startsWith(q)).map(([c,d])=>`<button type="button" class="chp cmdc" data-ins="${c} " data-cmd="1"><span class="cn">${c}</span><small>${d}</small></button>`); }
+  if(!list.length){chips.classList.remove('on');chips.innerHTML='';return;}
+  chips.innerHTML=list.join(''); chips.classList.add('on'); [...chips.children].forEach((c,i)=>anim(c,[{transform:'translateY(10px) scale(.9)',opacity:0},{transform:'none',opacity:1}],{duration:130,delay:i*22,easing:SPRING,fill:'backwards'}));
+  act.style.bottom=cmpH()+'px'; }
+chips.addEventListener('pointerdown',e=>e.preventDefault()); // keep the keyboard up
+chips.addEventListener('click',e=>{ const c=e.target.closest('[data-ins]'); if(!c)return; const v=inp.value, pos=inp.selectionStart??v.length, pre=v.slice(0,pos);
+  const cut=c.dataset.cmd?pre.replace(/^\/\w*$/,''):pre.replace(/@[\w']*$/,''); inp.value=cut+c.dataset.ins+v.slice(pos); const np=(cut+c.dataset.ins).length; inp.setSelectionRange(np,np);
+  sfx('chip'); hap('click'); chipKey=null; onInput(); inp.focus({preventScroll:true}); const m=mir.querySelector('.mt2:last-of-type,.cm2'); if(m)pop(m); });
+inp.addEventListener('input',onInput); inp.addEventListener('keyup',e=>{if(e.key.startsWith('Arrow'))onInput();}); inp.addEventListener('scroll',()=>mir.scrollLeft=inp.scrollLeft);
+function targetsFor(text){ const b=cardEls[focused]._b, m=mentioned(text); if(m.length)return m; const ags=b.ags.map(id=>AG[id]); return [ags.find(a=>a.st==='idle'||a.st==='stuck')||ags.find(a=>a.st==='working')||ags[0]]; }
+let lastTruth='';
+function renderTruth(){ if(focused<0)return; const v=inp.value, m=mentioned(v), b=cardEls[focused]._b; const a=targetsFor(v)[0]; const [k,txt]=truthOf(a);
+  const who=m.length?a.name+(m.length>1?` +${m.length-1}`:''):(b.person?b.name:'#'+b.name);
+  const h=`<span class="ti ${k}"></span><span class="tx"><b>${esc(who)}</b> · ${txt}</span>`; if(h===lastTruth)return; const t=$('#truth'); const had=lastTruth; lastTruth=h; t.innerHTML=h;
+  if(had)anim(t.querySelector('.tx'),[{transform:'translateY(6px)',opacity:0},{transform:'none',opacity:1}],{duration:130,easing:SPRING}); }
+
+/* send: instant reaction, then delivered → read → 🤔 → a one-line reply under the card */
+$('#cmp').addEventListener('submit',e=>{e.preventDefault(); send(inp.value); });
+function send(text){ text=text.trim(); if(!text||focused<0)return; const f=cardEls[focused], b=f._b, tg=targetsFor(text);
+  const m={from:'you',text,rc:''}; (log[b.id]=log[b.id]||[]).push(m); appendMsg(m,true); inp.value=''; onInput();
+  hap('click'); sfx('send'); const sb=at($('#sendB')); ring(sb.x,sb.y,46,'rgba(217,120,90,.85)',{to:1.6,dur:220});
+  tg.forEach((a,ix)=>{ const o=f.querySelector(`[data-ac="${a.id}"] .orb`); const to=o?at(o):sb;
+    setTimeout(()=>flyDot(sb,to,()=>{ ring(to.x,to.y,to.w+2,'var(--clay)',{to:1.9,dur:280,w:2.5}); if(o)pop(o);
+      if(a.st==='offline'){ a.flow='queued'; a.queue.push({m,board:b.id}); setRc(m,'queued'); patchCards(); return; }
+      deliver(a,m,b.id); }), ix*40); }); }
+function deliver(a,m,board){ setRc(m,'✓'); sfx('deliv'); const busy=a.st==='working';
+  const tRead=busy?1500:380, tThink=busy?2000:900, tReply=busy?3300:2300;
+  setTimeout(()=>{ a.flow='read'; setRc(m,'✓✓'); hap('tiny'); sfx('read'); patchCards(); }, tRead);
+  setTimeout(()=>{ a.flow='think'; setRc(m,'🤔'); hap('double'); sfx('think'); patchCards(); renderTruth(); }, tThink);
+  setTimeout(()=>{ a.flow=null; setRc(m,'✅'); const r=replyFor(a,m.text); const msg={from:'agent',who:a.id,text:r}; log[board].push(msg);
+    const b=B(board); b.sum=a.ses+': '+(r.length>48?r.slice(0,47)+'…':r); b.when='now';
+    if(focused>=0&&cardEls[focused]._b.id===board){ appendMsg(msg,true); sfx('reply'); const o=cardEls[focused].querySelector(`[data-ac="${a.id}"] .orb`); if(o){const p=at(o);ring(p.x,p.y,p.w,'var(--ok)',{to:1.8,dur:300,w:2});} }
+    else b.unread++;
+    if(/^\/task/.test(m.text))TASKN++; if(/pause/i.test(m.text)){a.paused=true;setSt(a.id,'idle','idle');}
+    patchCards(); renderTruth(); }, tReply); }
+let TASKN=0;
+function replyFor(a,t){ const body=t.replace(/@[\w]+'s agent\s*/g,'').trim();
+  if(/^\/task/.test(t))return `Task added: “${body.replace(/^\/task\s*/,'')||'untitled'}”. I’ll tick it as I go.`;
+  if(/^\/decide/.test(t))return `Decision opened: “${body.replace(/^\/decide\s*/,'')||'?'}”. It’s in everyone’s Needs you.`;
+  if(/design/i.test(t))return 'Current design: Home is your 3 latest boards; tap one and the rest fly away; @ to talk, / for commands. Screens are in ios/qa/design/pulse.';
+  if(/status/i.test(t))return a.st==='working'?`${a.what[0].toUpperCase()+a.what.slice(1)}: 14 of 16 green; two flaky ones on the share sheet, retrying. About 4 min.`:'Free right now. Give me something to do.';
+  if(/ship/i.test(t))return 'Shipping. v42 goes out after the last check.';
+  if(/pause/i.test(t))return 'Paused. Say go when you want me back.';
+  return 'On it.'; }
+
+/* ============================== agents change on their own (scripted, so the demo feels alive) ============================== */
+function setSt(id,st,what){ const a=AG[id],was=a.st; a.st=st;a.what=what;a.since=now(); if(st!=='idle')a.paused=false;
+  if(was==='offline'&&st!=='offline'){ a.flow=null; a.queue.splice(0).forEach(q=>deliver(a,q.m,q.board)); }
+  patchCards(); }
+function say(board,id,text){ const msg={from:'agent',who:id,text}; (log[board]=log[board]||[]).push(msg); const b=B(board); b.sum=AG[id].ses+': '+text; b.when='now';
+  if(focused>=0&&cardEls[focused]._b.id===board)appendMsg(msg,true); else b.unread++; patchCards(); }
+function work(id,what,ms,done){ setSt(id,'working',what); const board=BOARDS.find(b=>b.ags.includes(id)).id; setTimeout(()=>{ if(AG[id].what===what){say(board,id,done);setSt(id,'idle','idle');} },ms); }
+function addNeed(n){ if(needs.some(x=>x.agent===n.agent))return; needs.push(n); setSt(n.agent,'stuck','needs you'); renderDeck(); }
+const CYCLE=34000; let cyc=0, si=0;
+const SCRIPT=[
+ [1600,()=>{ if(AG.c2.st==='working'){B('annex').sum='1.5 build: 15 of 16 UI tests green';B('annex').when='now';patchCards();} }],
+ [3600,()=>{ if(AG.cp.st==='working')say('landing','cp','Two shorter hero variants are up.'); }],
+ [5200,()=>{ if(AG.rv.st==='idle')setSt('rv','working','reviewing #912'); }],
+ [7000,()=>{ if(AG.c1.st==='working'){AG.c1.what='opening PR';patchCards();} }],
+ [8800,()=>{ if(AG.c2.st==='working'&&!AG.c2.flow){B('annex').sum='1.5 build: 16 of 16 green, uploading';B('annex').when='now';AG.c2.what='uploading build';patchCards();} }],
+ [10500,()=>{ if(AG.qa.st==='offline')setSt('qa','working','running UI tests'); }],
+ [12500,()=>{ if(AG.rv.what==='reviewing #912')say('annex','rv','#912 looks good: two small nits inline.'),setSt('rv','idle','idle'); }],
+ [14000,()=>{ if(AG.c1.st==='working'){say('ios','c1','Opened PR #918.');AG.c1.what='writing PR';patchCards();} }],
+ [16500,()=>{ if(AG.c2.what==='uploading build'){AG.c2.what='testing iOS';B('annex').sum='Build 43 is on TestFlight';patchCards();} }],
+ [18000,()=>{ if(AG.sc.st!=='stuck'&&!needs.some(n=>n.agent==='sc'))addNeed({id:'n3'+cyc,agent:'sc',board:'annex',kind:'approval',title:'Rotate staging keys?',sub:'3 keys · staging only',det:['STAGING_API, R2_KEY, RESEND','old keys revoked after 10 min','no prod impact'],
+     yes:()=>work('sc','rotating keys',3000,'Staging keys rotated.'),no:()=>setSt('sc','idle','idle')}); }],
+ [20500,()=>{ if(AG.cp.st==='working'){AG.cp.what='trimming copy';patchCards();} }],
+ [23000,()=>{ if(AG.qa.st==='working')say('annex','qa','UI tests 16 of 16 on 1.5.'); }],
+ [26000,()=>{ if(AG.qa.st!=='offline'&&!AG.qa.flow)setSt('qa','offline','offline'); }],
+ [28000,()=>{ if(AG.bl.st!=='stuck'&&!needs.some(n=>n.agent==='bl'))addNeed({id:'n4'+cyc,agent:'bl',board:'ios',kind:'approval',title:'Bump min iOS to 17?',sub:'drops 2% of devices',det:['iOS 16 share: 2.1%','unlocks the new ShareLink','reversible next release'],
+     yes:()=>work('bl','bumping target',2600,'Min iOS is 17 now.'),no:()=>setSt('bl','idle','idle')}); }],
+ [30500,()=>{ if(AG.cp.st==='working'){AG.cp.what='drafting hero';patchCards();} }],
+];
+function runScript(){ if(FREEZE)return; const t=now(); while(t>=cyc*CYCLE+SCRIPT[si][0]){ SCRIPT[si][1](); si++; if(si>=SCRIPT.length){si=0;cyc++;} } }
+let tick=0; (function loop(){ runScript(); if(++tick%30===0)patchCards(); requestAnimationFrame(loop); })();
+
+/* ============================== sheets: All boards, Needs you ============================== */
+let sheet=null;
+function openSheet(id){ if(sheet)closeSheet(true); sheet=id; if(id==='boards')renderBoards(); if(id==='needs')renderDeck(); $('#'+id).classList.add('on'); $('#scrim').classList.add('on'); sfx('open'); }
+function closeSheet(quiet){ if(!sheet)return; $('#'+sheet).classList.remove('on'); $('#scrim').classList.remove('on'); sheet=null; if(!quiet)sfx('back'); }
+$('#scrim').addEventListener('click',()=>closeSheet()); $$('[data-close]').forEach(b=>b.addEventListener('click',()=>closeSheet()));
+$('#pAll').addEventListener('click',()=>openSheet('boards')); $('#pNeeds').addEventListener('click',()=>openSheet('needs'));
+function renderBoards(){ $('#blist').innerHTML=BOARDS.map((b,i)=>`<button class="br" data-b="${b.id}"><span class="tile" style="background:${b.c}">${b.person?b.name[0].toUpperCase():'#'}</span><span class="bm"><div class="bn2">${b.person?esc(b.name):'#'+esc(b.name)}</div><div class="bl">${esc(b.sum)}</div></span><span class="minis">${b.ags.map(id=>orb(AG[id],20)).join('')}</span></button>`).join(''); }
+$('#blist').addEventListener('click',e=>{ const r=e.target.closest('[data-b]'); if(!r)return; const b=B(r.dataset.b); const i=BOARDS.indexOf(b);
+  closeSheet(true); if(i>2){ BOARDS.splice(i,1); BOARDS.unshift(b); buildCards(); patchCards(); setTimeout(()=>focus(0),60); } else setTimeout(()=>focus(i),60); });
+// swipe up on Home for All boards
+let sw=null; $('#home').addEventListener('pointerdown',e=>{ if(focused<0&&!sheet&&!e.target.closest('.cmp'))sw={y:e.clientY,t:performance.now()}; });
+addEventListener('pointerup',e=>{ if(sw&&(sw.y-e.clientY)/S>70&&performance.now()-sw.t<500)openSheet('boards'); sw=null; });
+
+const deck=$('#deck'); let deckEls=new Map(); let handled=0;
+function deckHTML(n){ const a=AG[n.agent]; return `<div class="ck"><span class="chip2 ${n.kind==='approval'?'ap':'de'}">${n.kind}</span></div><div class="ag">#${B(n.board).name}</div>
+  <div class="face">${orb(a,88)}<div class="tt">${esc(n.title)}</div><div class="st">${esc(a.name)} · ${esc(n.sub)}</div></div>
+  <div class="det"><b>${esc(n.title)}</b>${n.det.map(x=>`<span>· ${esc(x)}</span>`).join('')}</div>
+  <div class="tint y"></div><div class="tint n"></div><span class="stamp y">${n.kind==='approval'?'APPROVE':'YES'}</span><span class="stamp n">${n.kind==='approval'?'DENY':'NO'}</span>
+  <div class="foot"><span>← ${n.kind==='approval'?'deny':'no'}</span><span>${n.kind==='approval'?'approve':'yes'} →</span></div>`; }
+function renderDeck(){ const keep=new Set(); needs.slice(0,3).forEach((n,i)=>{ keep.add(n.id); let c=deckEls.get(n.id);
+    if(!c){c=document.createElement('div');c.className='card';c.innerHTML=deckHTML(n);c._n=n;bindCard(c);deck.insertBefore(c,deck.firstChild);deckEls.set(n.id,c);}
+    c.style.zIndex=10-i; c.style.transform=i?`translateY(${i*16}px) scale(${1-i*.06})`:''; c.style.opacity=i===2?.5:1; c.classList.toggle('top',i===0); });
+  for(const [id,c] of deckEls){ if(!keep.has(id)&&!c._leaving){c.remove();deckEls.delete(id);} }
+  $('#ndC').textContent=needs.length||''; }
+function topCard(){return [...deckEls.values()].find(c=>c.classList.contains('top')&&!c._leaving);}
+function bindCard(c){ let d=null,holdT;
+  c.addEventListener('pointerdown',e=>{ if(!c.classList.contains('top'))return; c.setPointerCapture(e.pointerId); d={x0:e.clientX,y0:e.clientY,dx:0,dy:0,lx:e.clientX,lt:performance.now(),v:0,held:false};
+    c.classList.add('drag'); holdT=setTimeout(()=>{if(d&&Math.hypot(d.dx,d.dy)<6){d.held=true;c.classList.add('peek');hap('tiny');}},340); });
+  c.addEventListener('pointermove',e=>{ if(!d)return; d.dx=(e.clientX-d.x0)/S; d.dy=(e.clientY-d.y0)/S; if(Math.hypot(d.dx,d.dy)>6)clearTimeout(holdT); if(d.held)return;
+    const t=performance.now(); d.v=.5*d.v+.5*((e.clientX-d.lx)/S/Math.max(1,t-d.lt)); d.lx=e.clientX; d.lt=t;
+    c.style.transform=`translate(${d.dx}px,${d.dy*.25}px) rotate(${d.dx/16}deg)`; c.style.setProperty('--p',clamp(d.dx/100,-1,1).toFixed(3)); });
+  const up=()=>{ if(!d)return; clearTimeout(holdT); const dd=d; d=null; c.classList.remove('drag');
+    if(dd.held){c.classList.remove('peek');c.style.transform='';return;}
+    if(Math.abs(dd.dx)>84||(Math.abs(dd.v)>.55&&Math.abs(dd.dx)>24))resolve(c._n,(dd.dx||dd.v)>0,dd);
+    else { c.style.transform=''; c.style.setProperty('--p',0); } };
+  c.addEventListener('pointerup',up); c.addEventListener('pointercancel',up); }
+function resolve(n,yes,dd){ if(!needs.includes(n))return; const c=deckEls.get(n.id); needs=needs.filter(x=>x!==n); handled++;
+  if(c){ c._leaving=true; c.classList.remove('top'); c.classList.add('drag'); const dir=yes?1:-1, from=c.style.transform||'none';
+    c.style.transform=`translate(${dir*520}px,${(dd?.dy??0)*.25+30}px) rotate(${dir*28}deg)`;
+    if(!RM)c.animate([{transform:from},{transform:c.style.transform}],{duration:150,easing:'cubic-bezier(.4,0,.9,.6)'}).onfinish=()=>{c.remove();deckEls.delete(n.id);}; else {c.remove();deckEls.delete(n.id);}
+    const p=at(deck), cy=p.top+p.h*.46;
+    ring(p.x,cy,150,yes?'var(--ok)':'var(--danger)',{to:1.7,dur:300,w:4}); ring(p.x,cy,150,yes?'rgba(62,207,117,.5)':'rgba(248,113,113,.4)',{to:2.4,dur:420,w:2});
+    sparks(p.x,cy,yes?['#3ecf75','#F2EFE8','#3ecf75']:['#f87171','#6f6f6f'],yes?16:10,yes?120:80);
+    judge(p.x,cy,yes?(n.kind==='approval'?'approved':'yes'):(n.kind==='approval'?'denied':'no'),yes?'var(--ok)':'var(--danger)'); }
+  sfx(yes?'yes':'no'); hap('click'); (yes?n.yes:n.no)(); renderDeck(); patchCards();
+  if(!needs.length&&sheet==='needs')celebrate(); }
+function celebrate(){ const cl=$('#clear'); $('#clrS').textContent=handled===1?'1 agent back to work':handled+' agents back to work'; sfx('clear'); hap('success');
+  if(RM)cl.style.opacity=1; else cl.animate([{opacity:0,transform:'scale(.8)'},{opacity:1,transform:'scale(1.06)',offset:.5},{opacity:1,transform:'scale(1)'}],{duration:150,easing:'ease-out',fill:'forwards'});
+  const p=at(cl); [0,90,180].forEach((d,i)=>setTimeout(()=>ring(p.x,p.y-30,120,['var(--ok)','var(--clay)','rgba(242,239,232,.7)'][i],{to:2.6,dur:520,w:3}),d));
+  sparks(p.x,p.y-30,['#D9785A','#3ecf75','#F2EFE8','#fbbf24','#4CC2C9'],26,160);
+  setTimeout(()=>{ if(sheet==='needs'&&!needs.length)closeSheet(); cl.getAnimations().forEach(a=>a.cancel()); cl.style.opacity=''; handled=0; },1400); }
+$('#bYes').addEventListener('click',()=>{const c=topCard();if(c)resolve(c._n,true);});
+$('#bNo').addEventListener('click',()=>{const c=topCard();if(c)resolve(c._n,false);});
+
+/* ============================== Pulse / Classic ============================== */
+function setMode(m){ $$('#seg button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.mode===m))); placeKnob(); const cl=$('#classic');
+  if(m==='classic'&&!cl.classList.contains('on')){cl.classList.add('on');anim(cl,[{opacity:0,transform:'scale(.97)'},{opacity:1,transform:'none'}],{duration:140,easing:SPRING});}
+  else if(m==='pulse'&&cl.classList.contains('on')){cl.classList.remove('on');cl.style.visibility='visible';const a=anim(cl,[{opacity:1},{opacity:0}],{duration:110});if(a)a.onfinish=()=>cl.style.visibility='';else cl.style.visibility='';}
+  sfx('tap'); }
+function placeKnob(){ const on=$('#seg button[aria-pressed="true"]'),k=$('#knob'); k.style.width=on.offsetWidth+'px'; k.style.transform=`translateX(${on.offsetLeft-3}px)`; }
+$$('#seg button').forEach(b=>b.addEventListener('click',()=>setMode(b.dataset.mode)));
+$('#snd').addEventListener('click',toggleSound); $('#hap').addEventListener('click',toggleHap);
+document.fonts?.ready.then(()=>{placeKnob();fit();});
+
+/* ============================== keyboard ============================== */
+addEventListener('keydown',e=>{ const k=e.key;
+  if(e.target===inp){ if(k==='Escape'){ if(chipKey){setChips('');} else unfocus(); } else if(k==='Tab'&&chipKey){e.preventDefault();chips.querySelector('.chp')?.click();} return; }
+  if(k==='Escape'){ if(sheet)closeSheet(); else unfocus(); return; }
+  if(sheet==='needs'){ if(k==='ArrowRight'){const c=topCard();if(c)resolve(c._n,true);} if(k==='ArrowLeft'){const c=topCard();if(c)resolve(c._n,false);} return; }
+  if(k==='m'||k==='M')toggleSound(); else if(k==='h'||k==='H')toggleHap(); else if(k==='c'||k==='C')setMode($('#classic').classList.contains('on')?'pulse':'classic');
+  else if('123'.includes(k)&&k&&focused<0&&!sheet)focus(+k-1);
+  else if((k==='/'||k==='Enter')&&focused>=0){e.preventDefault();inp.focus();}
+});
+
+/* ============================== boot ============================== */
+buildCards(); patchCards(); placeKnob();
+(function boot(){ const s=Q.get('screen'); if(!s)return; const bi=Math.max(0,BOARDS.findIndex(b=>b.id===Q.get('board')));
+  if(s==='focus')focus(bi); else if(s==='needs')openSheet('needs'); else if(s==='boards')openSheet('boards'); else if(s==='classic')setMode('classic'); })();
+</script>
+</body>
+</html>
