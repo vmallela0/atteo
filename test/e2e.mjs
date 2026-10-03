@@ -2189,6 +2189,24 @@ await step("encryption v2: one key per board; newcomers read history; later devi
   assert((await api(A, `/api/boards/${eb}/epochs`)).body.rotate_needed, "revoking a device rotates");
 });
 
+await step("new board as JSON (the app): POST /api/boards makes an encrypted board by default; a title is required", async () => {
+  // A fresh person (A is at the Free plan's board cap by now; the cap answers 402).
+  const N = `e2e-app-${run}`;
+  assert((await ops("users", { name: N, email: `${N}@example.com`, verified: "true" })).status === 201, "user");
+  tok[N] = (await ops("tokens", { user: N, kind: "app", label: "Atteo app" })).body.token;
+  const mk = (who, body) => fetch(`${BASE}/api/boards`, { method: "POST", headers: { authorization: `Bearer ${tok[who]}`, "content-type": "application/json" }, body: JSON.stringify(body) });
+  const r = await mk(N, { title: `e2e app board ${run}` });
+  assert(r.status === 201, `create ${r.status} ${await r.clone().text()}`);
+  const made = (await r.json()).board;
+  assert(/^b_/.test(made.id) && made.encrypted === true, JSON.stringify(made));
+  const plain = (await (await mk(N, { title: `e2e app plain ${run}`, encrypted: false })).json()).board;
+  const mine = (await (await fetch(`${BASE}/api/me/boards`, { headers: { authorization: `Bearer ${tok[N]}` } })).json()).boards;
+  assert(mine.find((b) => b.id === made.id)?.encrypted === true, "listed, encrypted");
+  assert(mine.find((b) => b.id === made.id)?.created_by === N && mine.find((b) => b.id === made.id)?.archived === false, "with its creator, not archived");
+  assert(mine.find((b) => b.id === plain.id)?.encrypted === false, "encrypted: false makes a plain board");
+  assert((await mk(N, {})).status === 400, "no title: 400");  assert((await fetch(`${BASE}/api/boards`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).status === 401, "signed out: 401");
+});
+
 if (/localhost|127\.0\.0\.1/.test(BASE) && process.env.E2E_FULL) {
   await step("boards past 1,000 entries page through updates without looping (local only)", async () => {
     const big = (await ops("boards", { user: A, title: `e2e big ${run}` })).body.board.id;

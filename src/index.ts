@@ -1206,6 +1206,23 @@ const handler = {
         return boardStub(env, m[1]).fetch(new Request(`https://board/ws?user=${encodeURIComponent(who)}&role=${role}`, request));
       }
 
+      // ---- a new board, as JSON (the app's "New board"; the web uses the POST /boards form). Encrypted unless asked not to. ----
+      if (path === "/api/boards" && method === "POST") {
+        if (!viewer) return needLogin();
+        const body = (await request.json().catch(() => ({}))) as { title?: unknown; encrypted?: unknown };
+        const title = String(body.title ?? "").trim().slice(0, 120);
+        if (!title) return json({ error: "Give the board a title." }, 400);
+        const hit = scanFields({ title });
+        if (hit) return json({ error: blockedMessage(hit) }, 400);
+        try {
+          const info = await createBoard(env, title, viewer.name, url.origin, { encrypted: body.encrypted !== false });
+          return json({ board: { ...info, encrypted: body.encrypted !== false } }, 201);
+        } catch (e) {
+          const msg = e instanceof Error ? e.message.replace(/: https?:\S+$/, ".") : String(e);
+          return json({ error: msg }, e instanceof billing.BillingError ? 402 : 400);
+        }
+      }
+
       // ---- the signed-in person's boards (CLI uses its bearer token) ----
       if (path === "/api/me/boards" && method === "GET") {
         const tok = auth.bearer(request);
@@ -1224,6 +1241,8 @@ const handler = {
           last_activity: b.last_activity,
           last: b.last_author ? { by: b.last_via === "agent" ? `${b.last_author}'s agent` : b.last_author, text: b.last_excerpt ?? "" } : null,
           encrypted: !!(b as { encrypted?: number }).encrypted,
+          created_by: b.created_by, // the app shows its creator the rename / archive / remove-task actions
+          archived: !!b.archived_at,
         });
         // ?with=<user>: only boards they're on (and invitations involving them); ?members=1 lists each board's members.
         // Pending invitations are always included, so an agent can tell "the board with vedu" apart from one waiting to be accepted.

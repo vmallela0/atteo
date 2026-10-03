@@ -556,6 +556,7 @@ struct AgentsHereSheet: View {
             .navigationTitle("Agents here")
             .navigationBarTitleDisplayMode(.inline)
             .refreshable { await state.loadAgents(board) }
+            .toolbar { BoardInfoToolbar(board: board) } // members, invite, files, rename, archive (BoardInfoView.swift)
         }
     }
 }
