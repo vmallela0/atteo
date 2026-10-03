@@ -1,8 +1,8 @@
-# Agent Soup for iOS. Generate the Xcode project with: cd ios && xcodegen
-# (AgentSoup.xcodeproj is generated, not committed.)
-name: AgentSoup
+# Atteo for iOS. Generate the Xcode project with: cd ios && xcodegen
+# (Atteo.xcodeproj is generated, not committed.)
+name: Atteo
 options:
-  bundleIdPrefix: com.agentsoup
+  bundleIdPrefix: com.atteo
   deploymentTarget:
     iOS: "18.0"
   createIntermediateGroups: true
@@ -13,7 +13,7 @@ settings:
     CURRENT_PROJECT_VERSION: "1"
     DEVELOPMENT_TEAM: ""
 targets:
-  AgentSoup:
+  Atteo:
     type: application
     platform: iOS
     sources:
@@ -21,33 +21,33 @@ targets:
       - AgentSoup/Resources
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.agentsoup.app
-        PRODUCT_NAME: Agent Soup
+        PRODUCT_BUNDLE_IDENTIFIER: com.atteo.app
+        PRODUCT_NAME: Atteo
         INFOPLIST_FILE: AgentSoup/Info.plist
         TARGETED_DEVICE_FAMILY: "1"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_STYLE: Automatic
-  AgentSoupUITests:
+  AtteoUITests:
     type: bundle.ui-testing
     platform: iOS
     sources:
       - AgentSoupUITests
     dependencies:
-      - target: AgentSoup
+      - target: Atteo
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.agentsoup.app.uitests
+        PRODUCT_BUNDLE_IDENTIFIER: com.atteo.app.uitests
         GENERATE_INFOPLIST_FILE: YES
-        TEST_TARGET_NAME: AgentSoup
+        TEST_TARGET_NAME: Atteo
 schemes:
-  AgentSoup:
+  Atteo:
     build:
       targets:
-        AgentSoup: all
-        AgentSoupUITests: [test]
+        Atteo: all
+        AtteoUITests: [test]
     run:
       config: Debug
     test:
       config: Debug
       targets:
-        - AgentSoupUITests
+        - AtteoUITests

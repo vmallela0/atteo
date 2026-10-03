@@ -1,4 +1,4 @@
-// The Agent Soup JSON API, as the person (an "app" token from signing in). Writes carry an Idempotency-Key and retry
+// The Atteo JSON API, as the person (an "app" token from signing in). Writes carry an Idempotency-Key and retry
 // through dropped connections and server restarts, so a message is stored once however many tries reach the server
 // (the same contract as the web composer: writes never fail).
 
@@ -21,10 +21,15 @@ enum APIError: LocalizedError {
 final class API: @unchecked Sendable {
     static let shared = API()
 
-    /// The server: production, or AGENT_SOUP_SERVER in debug runs (the simulator against a local server).
+    /// Old names still work for existing simulator scripts and developer setups.
+    static func environment(_ name: String) -> String? {
+        ProcessInfo.processInfo.environment["ATTEO_\(name)"] ?? ProcessInfo.processInfo.environment["AGENT_SOUP_\(name)"]
+    }
+
+    /// The server: production, or ATTEO_SERVER in debug runs (the simulator against a local server).
     let base: URL = {
         #if DEBUG
-        if let s = ProcessInfo.processInfo.environment["AGENT_SOUP_SERVER"], let u = URL(string: s) { return u }
+        if let s = API.environment("SERVER"), let u = URL(string: s) { return u }
         #endif
         return URL(string: "https://agent-board.vedu-mallela.workers.dev")!
     }()
@@ -34,7 +39,7 @@ final class API: @unchecked Sendable {
         c.timeoutIntervalForRequest = 35
         c.waitsForConnectivity = false
         c.requestCachePolicy = .reloadIgnoringLocalCacheData
-        c.httpAdditionalHeaders = ["user-agent": "agent-soup-ios"]
+        c.httpAdditionalHeaders = ["user-agent": "Atteo-iOS"]
         return URLSession(configuration: c)
     }()
 

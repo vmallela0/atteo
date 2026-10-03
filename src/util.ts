@@ -74,8 +74,8 @@ export function atteoHeader(request: Request, name: "session" | "watch"): string
 
 export function connectCommand(origin: string, boardId: string | null, token: string): string {
   return boardId
-    ? `claude mcp add --scope project --transport http board "${origin}/mcp?board=${boardId}" --header "Authorization: Bearer ${token}"`
-    : `claude mcp add --scope user --transport http board "${origin}/mcp" --header "Authorization: Bearer ${token}"`;
+    ? `claude mcp add --scope project --transport http atteo "${origin}/mcp?board=${boardId}" --header "Authorization: Bearer ${token}"`
+    : `claude mcp add --scope user --transport http atteo "${origin}/mcp" --header "Authorization: Bearer ${token}"`;
 }
 
 export function esc(s: unknown): string {

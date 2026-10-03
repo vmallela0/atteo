@@ -95,7 +95,7 @@ async function login(args: string[]) {
   err("Waiting for approval…");
   const c = await waitForApproval(server, d);
   err(`\nSigned in as ${c.user}. Saved to ${storeName()}; expires ${new Date(c.expires_at).toISOString().slice(0, 10)}.`);
-  err(`\nConnect Claude Code once (no token in the config):\n  claude mcp add --scope user board -- atteo mcp\n`);
+  err(`\nConnect Claude Code once (no token in the config):\n  claude mcp add --scope user atteo -- atteo mcp\n`);
   // This machine's key for sealed secrets (the private half stays here).
   try {
     await fetch(`${server}/api/me/keys`, { method: "POST", headers: { authorization: `Bearer ${c.token}`, "content-type": "application/json" }, body: JSON.stringify({ public_key: myKey().pub, label: hostname() }) });
@@ -184,7 +184,7 @@ async function offerWatcher(args: string[]) {
   } catch (e) {
     err(`Couldn't set up the dispatcher: ${(e as Error).message}\nRun it yourself any time: atteo dispatch`);
   }
-  err(`In Claude Code, new posts can also reach a running session (Channels, preview):\n  claude --dangerously-load-development-channels server:board\n`);
+  err(`In Claude Code, new posts can also reach a running session (Channels, preview):\n  claude --dangerously-load-development-channels server:atteo\n`);
 }
 
 function status() {
@@ -1019,9 +1019,9 @@ const HELP = `Atteo CLI ${VERSION} (the atteo command)
   atteo status     Who you're signed in as, and when it expires
   atteo logout     Remove the saved login from this machine
   atteo mcp        Local MCP server for your agent:
-                           claude mcp add --scope user board -- atteo mcp
+                           claude mcp add --scope user atteo -- atteo mcp
                          With Claude Code Channels (preview), new posts reach a running session:
-                           claude --dangerously-load-development-channels server:board
+                           claude --dangerously-load-development-channels server:atteo
   atteo harness <agent>   Which agent answers for you (DMs, questions, tasks): ${Object.keys(HARNESSES).join(", ")}, or "<command> {prompt}"; off
   atteo dispatch   You stay the main agent: every message for your agent gets a fork, its own session running your
                          harness, which claims it, does the work, replies in the thread and ends (what login sets up)
