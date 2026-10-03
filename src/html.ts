@@ -437,7 +437,7 @@ export function shortTitle(e: Pick<Entry, "text" | "title" | "artifact_name">, w
   if (e.title?.trim()) return clip(e.title, 48);
   const line = clip(e.artifact_name ?? firstLine(e.text), 400)
     .replace(/@[A-Za-z0-9][A-Za-z0-9_.-]*(?:['’]s\s+agent)?/gi, " ")
-    .replace(/^[\s,:;.\-–—]+/, "");
+    .replace(/^[\s,:;.\-–—>]+/, "");
   const w = line.split(/\s+/).filter(Boolean);
   return w.length ? w.slice(0, words).join(" ").replace(/[,:;.\-–—]+$/, "") + (w.length > words ? "…" : "") : `#entry`;
 }
@@ -1217,6 +1217,27 @@ document.addEventListener('click',e=>{const b=e.target.closest('[data-reply]');i
   if(e.target.closest('#replying-go')&&rpTo.value)window.BOARD_CTX.jump(+rpTo.value)});
 ta.addEventListener('keydown',e=>{if(e.key==='Escape'&&!e.defaultPrevented&&rpTo.value){e.preventDefault();if(cmpHome)closeThread();else replyClear()}}); // in a thread, Esc closes it
 {let t=0;try{t=+localStorage.getItem(draftKey('to'))||0}catch(e){}if(t)setTimeout(()=>{if(document.getElementById('e'+t))replyTo(t,false);else replyClear()},0)}
+// Quote (vedu #1022): select words in a message and Quote puts them in the composer as "> " lines ending "— who, #N".
+// The page shows that as a box with ↗ original; agents read the plain lines.
+const qBtn=document.createElement('button');qBtn.type='button';qBtn.className='btn sm quote-btn';qBtn.id='quote-btn';qBtn.hidden=true;qBtn.textContent='❝ Quote';document.body.appendChild(qBtn);
+let qSel=null,qT=0;
+function qPick(){const s=getSelection();if(READONLY||!s||s.isCollapsed||!s.rangeCount)return null;const r=s.getRangeAt(0),at=n=>(n.nodeType===1?n:n.parentElement)?.closest('.body');
+  const b=at(r.startContainer),el=b?.closest('.entry[data-seq]');if(!el||b!==at(r.endContainer))return null;
+  const text=s.toString().replace(/\\r/g,'').trim();return text?{seq:+el.dataset.seq,who:headName(el),text,r}:null}
+function qShow(){qSel=qPick();if(!qSel){qBtn.hidden=true;return}const box=qSel.r.getBoundingClientRect();
+  (qSel.r.startContainer.parentElement?.closest('dialog')||document.body).appendChild(qBtn);qBtn.hidden=false; // over a modal too
+  qBtn.style.left=Math.max(8,Math.min(innerWidth-qBtn.offsetWidth-8,box.left+box.width/2-qBtn.offsetWidth/2))+'px';
+  // phones put their own copy menu above a selection: Quote goes below it there
+  const up=box.top-qBtn.offsetHeight-8;qBtn.style.top=(matchMedia('(hover:none)').matches||up<8?Math.min(innerHeight-qBtn.offsetHeight-8,box.bottom+8):up)+'px'}
+document.addEventListener('selectionchange',()=>{clearTimeout(qT);qT=setTimeout(qShow,120)});
+scroller.addEventListener('scroll',()=>{if(!qBtn.hidden)qShow()},{passive:true});
+qBtn.addEventListener('pointerdown',e=>e.preventDefault()); // keeps the selection
+qBtn.addEventListener('click',()=>{const q=qSel||qPick();if(!q)return;
+  const block=q.text.replace(/\\n{3,}/g,'\\n\\n').split('\\n').map(l=>l.trim()?'> '+l.trimEnd():'>').join('\\n')+'\\n> — '+q.who+', #'+q.seq;
+  const pre=ta.value.trimEnd();ta.value=(pre?pre+'\\n\\n':'')+block+'\\n\\n';getSelection().removeAllRanges();qBtn.hidden=true;qSel=null;
+  ta.dispatchEvent(new Event('input'));taFit();ta.focus();ta.setSelectionRange(ta.value.length,ta.value.length)});
+// ↗ original: the search jump (loads back to it, opens its thread, flashes it).
+document.addEventListener('click',e=>{const a=e.target.closest('a[data-jump]');if(!a||!window.BOARD_CTX)return;e.preventDefault();e.stopPropagation();usr();BOARD_CTX.jump(+a.dataset.jump)},true);
 // Enter posts, Shift+Enter adds a line. An Enter that picked a mention (default prevented above) doesn't post. On a
 // phone or tablet (touch, no hover) Return adds a line, as in other chat apps there: Post sends.
 document.getElementById('composer-text')?.addEventListener('keydown',e=>{

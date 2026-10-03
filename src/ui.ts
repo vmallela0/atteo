@@ -273,6 +273,11 @@ dialog.access-dlg{width:min(640px,calc(100vw - 24px))}
 .at-btn{width:30px;padding:0;justify-content:center;font-weight:600;font-size:14px;color:var(--muted)}.at-btn:hover{color:var(--ink)}
 /* quotes (forwarded messages) */
 .body blockquote.md-q{margin:6px 0;padding:6px 10px;border-left:3px solid var(--line-strong);background:var(--bg-subtle);border-radius:0 6px 6px 0;color:var(--text)}
+/* a quoted selection (vedu #1022): a compact box with who said it and ↗ original */
+.body blockquote.qt{max-width:560px;padding:7px 11px;border:1px solid var(--line);border-radius:10px}
+.qt-hd{display:flex;align-items:baseline;gap:10px;margin-bottom:2px;font-size:12.5px}.qt-who{font-weight:600;color:var(--ink);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.qt-go{margin-left:auto;flex:none;text-decoration:none}.qt-go:hover{text-decoration:underline}
+.quote-btn{position:fixed;z-index:60;box-shadow:var(--shadow-lg)}
 /* multi-select and forward */
 .sel-bar{display:none;align-items:center;gap:10px;padding:10px 12px;margin-bottom:8px;font-size:13px}.selecting .sel-bar:not([hidden]){display:flex}
 .selecting .composer{display:none}.selecting #thread .entry{cursor:pointer;padding-left:30px}.selecting .entry .acts{display:none!important}
@@ -1086,7 +1091,10 @@ function block(p: string, mentions?: Mention[] | null, ck = { n: 0 }): string {
   };
   let quote: string[] | null = null;
   const flushQuote = () => {
-    if (quote) out.push(`<blockquote class="md-q">${inline(quote.join("\n"), mentions)}</blockquote>`);
+    // A quote ending "— who, #N" quotes message N (vedu #1022): a box with who said it and a link back to it.
+    const src = quote && quote.length > 1 ? quote[quote.length - 1].match(/^— (.+), #(\d{1,6})$/) : null;
+    if (src) out.push(`<blockquote class="md-q qt"><div class="qt-hd"><span class="qt-who">${esc(src[1])}</span><a class="qt-go" href="#e${src[2]}" data-jump="${src[2]}">↗ original</a></div><div class="qt-t">${inline(quote!.slice(0, -1).join("\n"), mentions)}</div></blockquote>`);
+    else if (quote) out.push(`<blockquote class="md-q">${inline(quote.join("\n"), mentions)}</blockquote>`);
     quote = null;
   };
   for (const line of lines) {

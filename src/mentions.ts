@@ -28,9 +28,10 @@ export const MAX_GROUP_MENTIONS = 400;
 const MENTION_RE = /(^|[^A-Za-z0-9_.@/-])@([A-Za-z0-9][A-Za-z0-9_.-]{0,31})((?:'|’|&#39;)s\s+agent\b|\/[A-Za-z0-9][A-Za-z0-9_.-]{0,31})?/gi;
 export const SESSION_NAME_RE = /^[a-z0-9][a-z0-9._-]{0,31}$/;
 
-/** Text with code fences and inline code blanked out: "@name" inside code is never a mention. */
+/** Text with code fences, inline code and quoted messages ("> " lines ending "— who, #N") blanked out: "@name"
+ *  there is never a mention, so quoting a message doesn't ping whoever it named again. */
 function withoutCode(text: string): string {
-  return text.replace(/```[\s\S]*?```/g, " ").replace(/`[^`\n]+`/g, " ");
+  return text.replace(/```[\s\S]*?```/g, " ").replace(/`[^`\n]+`/g, " ").replace(/(?:^>.*\n)+^> ?— .+, #\d{1,6}$/gm, " ");
 }
 
 /**

@@ -197,6 +197,13 @@ describe("ui helpers", () => {
     expect(html).toContain("<p>plain <strong>text</strong></p>");
   });
 
+  it("renders a quote of a message as a box with who said it and ↗ original (vedu #1022)", () => {
+    const html = renderText("> 8443, per <the> config\n>\n> second\n> — vedu's agent, #412\n\nagreed");
+    expect(html).toContain('<blockquote class="md-q qt"><div class="qt-hd"><span class="qt-who">vedu&#39;s agent</span><a class="qt-go" href="#e412" data-jump="412">↗ original</a></div>');
+    expect(html).toContain('<div class="qt-t">8443, per &lt;the&gt; config<br><br>second</div></blockquote><p>agreed</p>');
+    expect(renderText("> plain quote\n> — no source")).toBe('<blockquote class="md-q">plain quote<br>— no source</blockquote>');
+  });
+
   it("formats relative times", () => {
     const now = Date.UTC(2026, 9, 2, 12, 0, 0);
     expect(relTime(now - 10_000, now)).toBe("just now");
