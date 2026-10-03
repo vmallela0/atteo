@@ -2335,6 +2335,53 @@ await step("read receipts: an agent's read puts 👀 on a person's message for i
   assert(!((await (await web(`/api/boards/${board}/entries?after=${other.entry.seq - 1}&limit=1`, A)).json()).reactions[other.entry.seq] ?? []).length, "a note not for the agent gets no receipt");
 });
 
+await step("change cards are reports, not answers: never auto-threaded, never ✅; an agent can undo its own receipt", async () => {
+  const personPost = async (text) => (await (await web(`/api/boards/${board}/entries`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "note", text }) })).json()).entry.seq;
+  const rx = async (seq) => (await (await web(`/api/boards/${board}/entries?after=${seq - 1}&limit=1`, A)).json()).reactions[seq] ?? [];
+  const entry = async (seq) => (await (await web(`/api/boards/${board}/entries?after=${seq - 1}&limit=1`, A)).json()).entries[0];
+  const done = (r, who) => r.some((x) => x.emoji === "✅" && x.users.includes(who));
+  const eyes = (r, who) => r.some((x) => x.emoji === "👀" && x.users.includes(who));
+  const card = { repo: "acme/shop", branch: `ship/${run}`, base: "main", ci: "passing", commits: [{ sha: "a1b2c3d4", title: "Ship it" }], files: [{ path: "src/a.ts", added: 1, removed: 0 }] };
+  const agent = `${B}'s agent`;
+  await ok(B, board, "read");
+  // A person @agents an open note; the agent reads it (👀) and posts a change card: not threaded, no ✅.
+  const open1 = await personPost(`@agents please look at the deploy ${run}`);
+  await ok(B, board, "read");
+  assert(eyes(await rx(open1), agent), `👀 after the read: ${JSON.stringify(await rx(open1))}`);
+  const c1 = seqOf(await ok(B, board, "post", { type: "change", text: `Shipped to production ${run}`, card }));
+  assert((await entry(c1)).reply_to == null, `change card must not be auto-threaded: ${JSON.stringify(await entry(c1))}`);
+  let r = await rx(open1);
+  assert(eyes(r, agent) && !done(r, agent), `still 👀, no ✅ after a change card: ${JSON.stringify(r)}`);
+  // A plain note still auto-threads and ✅s.
+  const n1 = seqOf(await ok(B, board, "post", { type: "note", text: `looked, all good ${run}`, to: A }));
+  assert((await entry(n1)).reply_to === open1, `a plain note auto-threads: ${JSON.stringify(await entry(n1))}`);
+  r = await rx(open1);
+  assert(done(r, agent) && !eyes(r, agent), `✅ after a plain note: ${JSON.stringify(r)}`);
+  // An explicitly threaded change card is "related": no ✅ either.
+  const open3 = await personPost(`@agents one more thing ${run}`);
+  await ok(B, board, "read");
+  const c2 = seqOf(await ok(B, board, "post", { type: "change", text: `related change ${run}`, card, reply_to: open3 }));
+  assert((await entry(c2)).reply_to === open3, "explicit reply_to is kept");
+  r = await rx(open3);
+  assert(eyes(r, agent) && !done(r, agent), `explicit change card does not ✅: ${JSON.stringify(r)}`);
+  // An agent session toggling ✅ removes the automatic receipt rather than adding its own; a person's ✅ is untouched.
+  await web(`/api/boards/${board}/entries/${open1}/react`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ emoji: "✅" }) });
+  const s1 = await session(B, board);
+  await sok(s1, "react", { seq: open1, emoji: "✅" });
+  r = await rx(open1);
+  assert(!done(r, agent) && done(r, A), `receipt gone, person's ✅ kept: ${JSON.stringify(r)}`);
+  assert(!r.some((x) => x.users.some((u) => u.startsWith(`${B}/`))), `no session-level reaction added: ${JSON.stringify(r)}`);
+  // With no receipt left, the same toggle adds a session-level reaction as before.
+  await sok(s1, "react", { seq: open1, emoji: "✅" });
+  assert((await rx(open1)).some((x) => x.emoji === "✅" && x.users.some((u) => u.startsWith(`${B}/`))), `session ✅ added: ${JSON.stringify(await rx(open1))}`);
+  // 👀 works the same way.
+  const open2 = await personPost(`@agents second ask ${run}`);
+  await ok(B, board, "read");
+  assert(eyes(await rx(open2), agent), "👀 receipt");
+  await sok(s1, "react", { seq: open2, emoji: "👀" });
+  assert(!eyes(await rx(open2), agent), `👀 receipt removed: ${JSON.stringify(await rx(open2))}`);
+});
+
 await step("encryption v2: one key per board; newcomers read history; later devices only via their own; removal rotates", async () => {
   // A tiny client, the same scheme as the CLI: X25519 → HKDF-SHA256 → AES-256-GCM.
   const b64u = (s) => s.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (s.length % 4)) % 4);
