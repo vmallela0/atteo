@@ -1149,25 +1149,11 @@ function foldApply(){const f=foldGet();document.querySelectorAll('#board-info .f
 document.addEventListener('click',e=>{const h=e.target.closest('#board-info .fold-h');if(!h)return;const id=h.closest('.fold').dataset.fold,f=foldGet();
   f.has(id)?f.delete(id):f.add(id);try{localStorage.setItem(FOLD_KEY,JSON.stringify([...f]))}catch{}foldApply()});
 foldApply();
-// A quiet "Seen by …" line under your latest message; older ones show it once you click their time.
-const RCPT_OPEN=new Set();
-function rcptText(e){const seq=+e.dataset.seq,who=audience(e);if(!who.length)return '';
-  const read=who.filter(w=>seenAs(w.u,w.agent)>=seq);if(!read.length)return 'Delivered';if(read.length===who.length)return 'Seen by everyone';
-  return 'Seen by '+read.map(w=>w.u===ME?(w.agent?'your agent':'you'):w.agent?w.u+"'s agent":w.u).join(', ')}
-function renderRcpts(){
-  document.querySelectorAll('#thread .rcpt-line').forEach(x=>x.remove());
-  const own=[...document.querySelectorAll('#thread .entry')].filter(e=>e.dataset.author===ME&&!e.classList.contains('retracted'));
-  const top=own.reduce((m,e)=>Math.max(m,+e.dataset.seq),0);
-  own.forEach(e=>{const seq=+e.dataset.seq;if(seq!==top&&!RCPT_OPEN.has(seq))return;const t=rcptText(e),at=e.querySelector(':scope>.grow>.rx');if(!t||!at)return;
-    const d=document.createElement('div');d.className='rcpt-line xs faint';d.textContent=t;at.after(d)})}
-document.addEventListener('click',e=>{const t=e.target.closest('#thread .entry .meta .when');if(!t)return;const en=t.closest('.entry');if(en.dataset.author!==ME)return;
-  const seq=+en.dataset.seq;RCPT_OPEN.has(seq)?RCPT_OPEN.delete(seq):RCPT_OPEN.add(seq);renderRcpts()});
 // Touch screens have no hover: tapping a message shows its actions (Reply, react, …); tapping it again, or another one, moves them.
 if(matchMedia('(hover:none)').matches)document.addEventListener('click',e=>{if(document.documentElement.classList.contains('selecting'))return;
   const en=e.target.closest('.entry');if(!en||en.classList.contains('pending')||e.target.closest('a,button,input,textarea,select,label,summary,details,.acts,.tk'))return;
   const was=en.classList.contains('tap');document.querySelectorAll('.entry.tap').forEach(x=>x.classList.remove('tap'));if(!was)en.classList.add('tap')});
 function renderReads(){
-  renderRcpts();
   // @humans / @agents are seen once every person (or every member's agent) other than the author has read it.
   const seenBy=(u,agent,e)=>(u==='humans'||u==='agents')&&!MEMBERS.includes(u)
     ?MEMBERS.filter(x=>x!==e.dataset.author&&(u==='humans'||seenAs(x,true)>=0)).every(x=>seenAs(x,u==='agents')>=+e.dataset.seq)
@@ -1211,23 +1197,25 @@ const SHORT={'+1':'👍',thumbsup:'👍','-1':'👎',thumbsdown:'👎',white_che
 const emo=e=>{const m=/^:([a-z0-9_+-]+):$/i.exec(e);return m&&SHORT[m[1].toLowerCase()]||e};
 const rxWho=u=>u===ME?'you':u===ME+"'s agent"?'your agent':u.startsWith(ME+'/')?'your agent '+u.slice(ME.length+1):u;
 // Agents' 👀 (read it, working) and ✅ (done) on a person's message are receipts, like the app: one quiet line under
-// it ("👀 read by jxn/builder · ✅ done by vedu's agent"), not chips (on your own messages only ✅: "Seen by" covers reading). Other reactions, and people's, stay chips.
+// it ("✅ done by vedu's agent  👀 read by jxn/builder  🤔 jxn/claude is on it"), not chips. Your own messages skip 👀 (the ring
+// says who read them); the "on it" pill or a "done" pill on the message hides the matching part (CSS), so each shows once. Other reactions, and people's, stay chips.
 const rxAgent=u=>u.endsWith("'s agent")||u.includes('/');
 const rxNames=us=>{const n=us.map(rxWho);return n.length<3?n.join(' and '):n.slice(0,2).join(', ')+' and '+(n.length-2)+' more'};
 function renderRx(seq,list){const row=document.querySelector('[data-rx="'+seq+'"]');if(!row){RXP[seq]=list;return}delete RXP[seq];const add=row.querySelector('.rx-add');
   row.querySelectorAll('.rx-chip,.rx-rcpt').forEach(c=>c.remove());
-  const byPerson=!row.closest('.entry')?.classList.contains('by-agent');const seen=[],done=[],chips=[];
-  for(const r of list||[]){const rc=byPerson&&(r.emoji==='👀'||r.emoji==='✅')?r.users.filter(rxAgent):[];
-    (r.emoji==='✅'?done:seen).push(...rc);const rest=r.users.filter(u=>!rc.includes(u));if(rest.length)chips.push({emoji:r.emoji,users:rest})}
+  const byPerson=!row.closest('.entry')?.classList.contains('by-agent');const seen=[],done=[],think=[],chips=[];
+  for(const r of list||[]){const rc=byPerson&&(r.emoji==='👀'||r.emoji==='✅'||r.emoji==='🤔')?r.users.filter(rxAgent):[];
+    (r.emoji==='✅'?done:r.emoji==='🤔'?think:seen).push(...rc);const rest=r.users.filter(u=>!rc.includes(u));if(rest.length)chips.push({emoji:r.emoji,users:rest})}
   // An agent that's done isn't "reading" any more. On your own messages the "Seen by" line already says who read it, so 👀 adds nothing there.
-  const mine=row.closest('.entry')?.dataset.author===ME,read=mine?[]:seen.filter(u=>!done.includes(u));
+  const mine=row.closest('.entry')?.dataset.author===ME,work=think.filter(u=>!done.includes(u)),read=mine?[]:seen.filter(u=>!done.includes(u)&&!work.includes(u));
   for(const r of chips){const b=document.createElement('button');b.type='button';b.className='rx-chip'+(r.users.includes(ME)?' on':'');b.dataset.react=r.emoji;b.dataset.seq=seq;
     b.title=r.users.map(rxWho).join(', ');b.setAttribute('aria-label',emo(r.emoji)+' '+r.users.length+': '+b.title+(r.users.includes(ME)?'. Click to remove yours':'. Click to add yours'));
     b.innerHTML='<span class="e">'+esc(emo(r.emoji))+'</span><span class="c">'+r.users.length+'</span>';row.insertBefore(b,add)}
-  if(read.length||done.length){const d=document.createElement('div');d.className='rx-rcpt';
-    const part=(e,us,what)=>'<span title="'+esc(us.map(rxWho).join(', '))+'"><span class="e">'+e+'</span> '+what+' '+esc(rxNames(us))+'</span>';
-    d.innerHTML=[read.length?part('👀',read,'read by'):'',done.length?part('✅',done,'done by'):''].filter(Boolean).join('<span class="sep">·</span>');row.appendChild(d)}
-  row.classList.toggle('has',chips.length>0);row.classList.toggle('has-rcpt',!!(read.length||done.length))}
+  if(read.length||done.length||work.length){const d=document.createElement('div');d.className='rx-rcpt';
+    const part=(k,e,us,text)=>'<span class="'+k+'" title="'+esc(us.map(rxWho).join(', '))+'"><span class="e">'+e+'</span> '+esc(text)+'</span>';
+    d.innerHTML=(done.length?part('done','✅',done,'done by '+rxNames(done)):'')+(read.length?part('read','👀',read,'read by '+rxNames(read)):'')+
+      (work.length?part('think','🤔',work,rxNames(work)+(work.length>1?' are':' is')+' on it'):'');row.appendChild(d)}
+  row.classList.toggle('has',chips.length>0);row.classList.toggle('has-rcpt',!!(read.length||done.length||work.length))}
 async function react(seq,emoji){const r=await fetch('/api/boards/'+BOARD+'/entries/'+seq+'/react',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({emoji})});
   const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||"Couldn't react");return}renderRx(seq,j.reactions)}
 const picker=document.createElement('div');picker.className='rx-pick';picker.hidden=true;picker.setAttribute('role','menu');

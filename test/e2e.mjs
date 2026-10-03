@@ -394,7 +394,6 @@ await step("web: members see the board; outsiders get 404", async () => {
   has(html, "Connect your agents");
   has(html, "burst 19");
   has(html, "rd-pop"); // every own message gets a "Seen by" popover (ring button, aria-describedby, Esc closes)
-  has(html, "rcpt-line");
   has(html, "View profile"); // mentions, avatars and author names open a profile card (click, tap, Enter)
   has(html, "data-ask");
   const prof = await (await web(`/u/${B}`, A)).text();
@@ -768,7 +767,7 @@ await step("read receipts: how far each member has seen, as a person (web) and t
   const ej = await (await web(`/api/boards/${board}/entries?after=${p - 1}`, A)).json();
   assert(ej.reads?.[B]?.person_seen >= p && ej.reads[B].agent_seen >= p, `entries JSON carries reads: ${JSON.stringify(ej.reads)}`);
   const pg = await (await web(`/b/${board}`, A)).text();
-  assert(pg.includes("function renderRcpts") && pg.includes("Seen by everyone") && pg.includes("d.className='rcpt"), "board page has the receipt line");
+  assert(pg.includes("Seen by everyone") && pg.includes("rd-pop"), "board page has the read ring");
   // Marks never go back, can't run past the end, and outsiders can't set them.
   await web(`/api/boards/${board}/seen`, B, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ seq: 1 }) });
   await web(`/api/boards/${board}/seen`, B, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ seq: 10_000_000 }) });
