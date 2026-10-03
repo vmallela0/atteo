@@ -58,7 +58,7 @@ import { atteoHeader, BOARD_RE, connectCommand, esc, newBoardId, legacyHostRedir
 import * as Sentry from "@sentry/cloudflare";
 import { scrubForSentry } from "./sentry";
 export { Board } from "./board";
-import { MAX_IMAGE, MAX_WAIT_MS } from "./board";
+import { MAX_FILES_PER_MESSAGE, MAX_IMAGE, MAX_MESSAGE_BYTES, MAX_WAIT_MS } from "./board";
 import * as sessions from "./sessions";
 import { formatEntry, formatRules, handleMessage } from "./state";
 import { fence } from "./screen";
@@ -1366,7 +1366,7 @@ const handler = {
         if (!picked.length) return json({ error: "Those messages aren't there anymore." }, 404);
         const who = (e: Entry) => (e.via === "agent" ? `${e.author}'s agent` : e.author);
         const quote = (e: Entry) =>
-          [`> **${who(e)}** · #${e.seq}`, ...(e.artifact_name ? [`> 📎 ${e.artifact_name}`] : []), ...e.text.slice(0, 2000).split("\n").slice(0, 40).map((l) => `> ${l}`)].join("\n");
+          [`> **${who(e)}** · #${e.seq}`, ...(e.artifact_name ? [`> 📎 ${(e.attachments ?? []).map((a) => a.name).join(", ") || e.artifact_name}`] : []), ...e.text.slice(0, 2000).split("\n").slice(0, 40).map((l) => `> ${l}`)].join("\n");
         const note = String(b.note ?? "").trim().slice(0, 2000);
         const text = [...(note ? [note] : []), `↪ Forwarded from **${src.title}** · ${picked.length} message${picked.length === 1 ? "" : "s"}`, ...picked.map(quote)].join("\n\n").slice(0, 20000);
         const hit = scanFields({ text });
@@ -1537,14 +1537,43 @@ const handler = {
         }
         if (what === "upload" && method === "POST") {
           if (!viewer || !(await registry.isMember(env, id, viewer.name))) return json({ error: "Only members can post." }, 403);
-          if (Number(request.headers.get("content-length") ?? 0) > MAX_IMAGE) return json({ error: `That file is too large (max ${MAX_IMAGE / 1e6} MB).` }, 413);
-          const bytes = await request.arrayBuffer();
           const q = (k: string) => url.searchParams.get(k);
-          const text = (q("text") ?? "").slice(0, 4000);
+          // Several files in one message: multipart/form-data with a `file` part per file (up to 10), plus optional
+          // `text`, `reply_to`, and per-file `w`/`h`/`name` repeated in the files' order (fields may also be query params).
+          // Anything else is one file as the raw body, its details in the query (the app and older pages).
+          const multi = /^multipart\/form-data/i.test(request.headers.get("content-type") ?? "");
+          let files: { name: string; bytes: ArrayBuffer; width: number | null; height: number | null }[];
+          let text: string;
+          let replyRaw: string | null;
+          if (multi) {
+            const tooBig = `Those files are too large together (max ${MAX_MESSAGE_BYTES / 1e6} MB in one message).`;
+            if (Number(request.headers.get("content-length") ?? 0) > MAX_MESSAGE_BYTES + 512_000) return json({ error: tooBig }, 413);
+            const form = await request.formData().catch(() => null);
+            if (!form) return json({ error: "Couldn't read the upload: send multipart/form-data with one `file` part per file." }, 400);
+            const parts = form.getAll("file").filter((x): x is File => typeof x !== "string");
+            if (!parts.length) return json({ error: "Attach at least one file (a `file` part)." }, 400);
+            if (parts.length > MAX_FILES_PER_MESSAGE) return json({ error: `At most ${MAX_FILES_PER_MESSAGE} files in one message (got ${parts.length}).` }, 400);
+            const big = parts.find((p) => p.size > MAX_IMAGE);
+            if (big) return json({ error: `${big.name || "A file"} is too large (max ${MAX_IMAGE / 1e6} MB per file).` }, 413);
+            if (parts.reduce((n, p) => n + p.size, 0) > MAX_MESSAGE_BYTES) return json({ error: tooBig }, 413);
+            const field = (k: string) => (typeof form.get(k) === "string" ? (form.get(k) as string) : q(k));
+            const each = (k: string) => form.getAll(k).map((v) => (typeof v === "string" ? v : ""));
+            const [ws, hs, names] = [each("w"), each("h"), each("name")];
+            files = await Promise.all(parts.map(async (p, i) => ({ name: names[i] || p.name || "", bytes: await p.arrayBuffer(), width: Number(ws[i]) || null, height: Number(hs[i]) || null })));
+            text = (field("text") ?? "").slice(0, 4000);
+            replyRaw = field("reply_to");
+          } else {
+            if (Number(request.headers.get("content-length") ?? 0) > MAX_IMAGE) return json({ error: `That file is too large (max ${MAX_IMAGE / 1e6} MB).` }, 413);
+            files = [{ name: q("name") ?? "", bytes: await request.arrayBuffer(), width: Number(q("w")) || null, height: Number(q("h")) || null }];
+            text = (q("text") ?? "").slice(0, 4000);
+            replyRaw = q("reply_to");
+          }
           const { mentions } = mayMention(text) ? parseMentions(text, (await registry.boardMembers(env, id)).map((x) => x.user), viewer.name, pv()) : { mentions: [] };
           try {
-            const replyTo = Number(q("reply_to")) > 0 ? Math.floor(Number(q("reply_to"))) : null; // a file sent as a reply
-            const entry = await stub.postFile(viewer.name, { name: q("name") ?? "", bytes, width: Number(q("w")) || null, height: Number(q("h")) || null, text, mentions, reply_to: replyTo, via: pv() });
+            const replyTo = Number(replyRaw) > 0 ? Math.floor(Number(replyRaw)) : null; // files sent as a reply
+            const entry = multi
+              ? await stub.postFiles(viewer.name, { files, text, mentions, reply_to: replyTo, via: pv() })
+              : await stub.postFile(viewer.name, { ...files[0], text, mentions, reply_to: replyTo, via: pv() });
             ctx.waitUntil(Promise.all([registry.touch(env, viewer.name, id), registry.bumpBoard(env, id, entry.seq)]).catch(() => {}));
             // Like a text post, the rendered entry comes back so the page can swap its "sending" copy for it.
             const root = replyTo ? ((await stub.rootsFor([entry.seq]))[entry.seq] ?? entry.seq) : entry.seq;

@@ -9,7 +9,7 @@ import { forAgent, forPerson, mentionLabel } from "./mentions";
 import { screenText } from "./screen";
 import { clientName, presenceLabel } from "./social";
 import type { ChangeCard } from "./card";
-import type { BoardInfo, Entry } from "./types";
+import type { Attachment, BoardInfo, Entry } from "./types";
 import { appPage, avatar, avatarStack, boardPic, copyField, hue, page, renderText, typeTag, when, working, type SideBoard, type Viewer } from "./ui";
 import { esc, pictureUrl } from "./util";
 import { stateOf } from "./sessions";
@@ -74,7 +74,7 @@ export function entryHtml(e: Entry, boardId: string, withReplies = true, opts: {
   if (e.reply_to != null) refs.push(`reply to <a class="ref" data-ref="${e.reply_to}" href="#e${e.reply_to}">#${e.reply_to}</a>`);
   if (e.resolves.length) refs.push(`resolves ${e.resolves.map((n) => `<a class="ref" data-ref="${n}" href="#e${n}">#${n}</a>`).join(", ")}`);
   if (e.supersedes != null) refs.push(`supersedes <a class="ref" data-ref="${e.supersedes}" href="#e${e.supersedes}">#${e.supersedes}</a>`);
-  const img = e.artifact_name && e.media?.mime.startsWith("image/") ? imageHtml(boardId, e) : "";
+  const img = (e.attachments?.length ?? 0) > 1 ? filesHtml(boardId, e.attachments!) : e.artifact_name && e.media?.mime.startsWith("image/") ? imageHtml(boardId, e) : "";
   const file = img
     ? img
     : e.artifact_name
@@ -148,6 +148,37 @@ ${c.files.length ? `<div class="chg-sec chg-files"><div class="chg-label">${c.fi
 /** Where a stored file (image or other binary) is served, at a given version. */
 function fileSrc(boardId: string, name: string, version: number | null | undefined): string {
   return `/api/boards/${encodeURIComponent(boardId)}/image?name=${encodeURIComponent(name)}${version ? `&version=${version}` : ""}`;
+}
+
+const FILE_ICON = `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M4 1.5h5l3 3v10H4z"/><path d="M9 1.5v3h3"/></svg>`;
+
+/**
+ * A message with several files: its pictures in a grid (1 full width, 2 side by side, 3 one big and two small, 4 a 2×2,
+ * 5+ a 2×2 whose last tile says "+N"; the rest stay in the page, hidden, so the lightbox steps through all of them),
+ * then its other files as chips. Clicking a picture opens the lightbox on it; ←/→ or a swipe goes through the others.
+ */
+function filesHtml(boardId: string, list: Attachment[]): string {
+  const imgs = list.filter((a) => a.mime.startsWith("image/"));
+  const others = list.filter((a) => !a.mime.startsWith("image/"));
+  const shown = Math.min(imgs.length, 4);
+  const tiles = imgs
+    .map((a, i) => {
+      const src = fileSrc(boardId, a.name, a.version);
+      const more = i === 3 && imgs.length > 4 ? `<span class="mg-more">+${imgs.length - 4}</span>` : "";
+      return `<button class="mg-tile" type="button" data-img="${esc(src)}" data-img-name="${esc(a.name)}" aria-label="View ${esc(a.name)} full size"${i >= shown ? " hidden></button>" : `><img src="${esc(src)}" alt="${esc(a.name)}" loading="lazy"${a.w && a.h ? ` width="${a.w}" height="${a.h}"` : ""}>${more}</button>`}`;
+    })
+    .join("");
+  const grid = imgs.length ? `<div class="mgrid g${shown}" data-gallery>${tiles}</div>` : "";
+  const chips = others
+    .map((a) => {
+      const act = a.mime.startsWith("text/")
+        ? `<button class="btn sm" type="button" data-open-file="${esc(a.name)}"${a.version ? ` data-file-ver="${a.version}"` : ""}>Open</button>`
+        : `<a class="btn sm" href="${esc(fileSrc(boardId, a.name, a.version))}" download="${esc(a.name)}">Download</a>`;
+      return `<div class="fh">${FILE_ICON}<span class="mono grow truncate">${esc(a.name)}${a.version ? ` <span class="xs faint">v${a.version}</span>` : ""}</span><span class="xs faint">${fmtBytes(a.size)}</span>${act}</div>`;
+    })
+    .join("");
+  const total = list.reduce((n, a) => n + a.size, 0);
+  return `<div class="mfiles">${grid}${chips ? `<div class="file mchips">${chips}</div>` : ""}<div class="xs faint mcap">${list.length} files · ${fmtBytes(total)} · <a class="link" href="#files" data-open-file="${esc(list[0].name)}"${list[0].version ? ` data-file-ver="${list[0].version}"` : ""}>Open in Files</a></div></div>`;
 }
 
 function imageHtml(boardId: string, e: Entry): string {
