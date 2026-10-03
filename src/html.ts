@@ -793,6 +793,8 @@ async function tick1(wait){try{
   if(d.reviews)applyReviews(d.reviews);
   if(d.claims)renderClaims(d.claims);
   if(d.handling)renderHandling(d.handling);
+  if(d.entries.length){for(const e of d.entries)TYPERS.delete(e.author);typingSync()} // sent: no longer typing
+  if(d.typing_agents){AGT=d.typing_agents;typingSync()}
   if(d.reads){READS=d.reads;renderReads()}
   if(added){railBuild();if(stick)toBottom();else{unseen=true;pillSync()}if(window.e2eSync)e2eSync()}
   if(d.entries.length){document.getElementById('sum').innerHTML=d.summary;foldApply();document.querySelectorAll('[data-count]').forEach(x=>x.textContent=d.count);refreshTimes();infoCount()}
@@ -822,6 +824,8 @@ function connect(){
     if(d.type==='archived'){location.reload();return}
     if(d.type==='doc'){window.onDocChanged&&onDocChanged(d)}
     if(d.type==='reaction'){renderRx(d.seq,d.reactions);return}
+    if(d.type==='typing'){if(d.who!==ME){TYPERS.set(d.who,d.until);typingSync()}return}
+    if(d.type==='typing-agents'){AGT=d.agents||[];typingSync();return}
     if(d.type==='read'){READS[d.user]={person_seen:d.person_seen,agent_seen:d.agent_seen};renderReads();return}
     if(d.type==='task')refreshTask(d.seq);
     if(d.type==='claim'||d.type==='handling')tick(false);
@@ -925,6 +929,20 @@ document.addEventListener('click',e=>{const b=e.target.closest('[data-mention-fo
   t.focus();const a=t.selectionStart??t.value.length,pre=t.value.slice(0,a);const ins=(pre&&!/[ ]$/.test(pre)&&!pre.endsWith(String.fromCharCode(10))?' ':'')+'@';
   t.setRangeText(ins,a,t.selectionEnd??a,'end');t.dispatchEvent(new Event('input'))});
 const ta=document.getElementById('composer-text'),msync=mentionize(ta,document.getElementById('mention-menu'),document.getElementById('composer-mirror'));
+// ---- "… is typing": people while they type (a ping every few seconds, heard over the socket), agents while they're
+// on a person's message (they've 👀'd it and not answered yet; the board sends that list) ----
+const TYPERS=new Map();let AGT=[],typedAt=0,typingTimer=null;
+function typingSync(){const el=document.getElementById('typing');if(!el)return;const now=Date.now();
+  for(const [u,t] of TYPERS)if(t<now)TYPERS.delete(u);
+  const who=[...[...TYPERS.keys()].map(u=>({u,agent:false,label:u})),
+    ...[...new Set(AGT.map(a=>a.who))].map(w=>{const u=w.replace(/'s agent$/,'').split('/')[0],sess=w.includes('/')?w.split('/')[1]:'';
+      return {u,agent:true,label:u===ME?'your agent'+(sess?' '+sess:''):w}})];
+  if(!who.length){el.hidden=true;el.innerHTML='';return}
+  const names=who.map(w=>w.label),text=names.length===1?names[0]+' is typing':names.length===2?names[0]+' and '+names[1]+' are typing':names[0]+' and '+(names.length-1)+' others are typing';
+  el.innerHTML='<span class="ty-avs">'+who.slice(0,3).map(w=>avatar16(w.u,w.agent)).join('')+'</span><span class="ty-t">'+esc(text)+'</span><span class="ty-dots" aria-hidden="true"><i></i><i></i><i></i></span>';
+  el.hidden=false;clearTimeout(typingTimer);if(TYPERS.size)typingTimer=setTimeout(typingSync,1000)}
+ta.addEventListener('input',()=>{const now=Date.now();if(READONLY||!ta.value.trim()||now-typedAt<3000)return;typedAt=now;
+  fetch('/api/boards/'+BOARD+'/typing',{method:'POST',keepalive:true}).catch(()=>{})});
 // Drafts: what you were typing survives leaving the board (or the tab) and coming back; posting clears it.
 const draftKey=k=>'soup.draft.'+BOARD+(k?'.'+k:'');
 function draftSave(k,v){if(${info.encrypted ? "true" : "false"})return; // encrypted boards: no plaintext kept in the browser
@@ -1520,6 +1538,7 @@ window.boardKeys=(e,k)=>{
       <div class="rail" id="rail" aria-hidden="true"></div><div class="rail-tip" id="rail-tip" hidden></div>
       <button class="btn sm new-pill" type="button" id="new-pill" hidden>Jump to latest ↓</button></div>
     <div class="sel-bar card" id="sel-bar" hidden><span id="sel-n">0 selected</span><span class="xs faint hide-sm">Click messages to add or remove them</span><span class="grow"></span><button class="btn sm" type="button" id="sel-cancel">Cancel</button><button class="btn sm primary" type="button" id="sel-fwd" disabled>Forward</button></div>
+    <div class="typing" id="typing" aria-live="polite" hidden></div>
     <form class="card composer" method="post" action="/api/boards/${esc(info.id)}/entries" data-api data-reliable data-done="posted" data-failed="postFailed" data-retrying="postRetrying" data-reset${info.archived || readOnly || info.encrypted ? " hidden" : ""}>
       <div class="replying" id="replying" hidden><button class="rp-go" type="button" id="replying-go" title="Show the message">Replying to <b id="replying-who"></b><span class="rp-text" id="replying-text"></span></button><button class="btn ghost sm x" type="button" id="reply-cancel" aria-label="Cancel reply" title="Cancel reply (Esc)">✕</button></div>
       <input type="hidden" name="reply_to" id="reply-to" value="">

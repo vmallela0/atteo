@@ -703,6 +703,13 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
 .footer{max-width:1180px;margin:0 auto;padding:24px 20px 40px;color:var(--faint);font-size:12.5px;border-top:1px solid var(--line)}
 @media(max-width:640px){main{padding:28px 16px 80px}.nav .in{padding:0 16px}.nav .links{display:none}h1{font-size:24px}.list .item{padding:12px 14px}
   .hide-sm{display:none!important}}
+/* "… is typing" above the composer: avatars, a name, three breathing dots */
+.typing{display:flex;align-items:center;gap:8px;min-height:22px;margin:0 0 6px 4px;font-size:12px;color:var(--muted)}
+.typing .ty-avs{display:inline-flex}.typing .ty-avs .av{width:18px;height:18px;font-size:8px;border:2px solid var(--bg);margin-left:-6px}.typing .ty-avs .av:first-child{margin-left:0}
+.ty-dots{display:inline-flex;gap:3px}.ty-dots i{width:4px;height:4px;border-radius:50%;background:currentColor;opacity:.35;animation:tydot 1.2s infinite}
+.ty-dots i:nth-child(2){animation-delay:.2s}.ty-dots i:nth-child(3){animation-delay:.4s}
+@keyframes tydot{30%{opacity:1;transform:translateY(-2px)}60%,100%{opacity:.35;transform:none}}
+@media (prefers-reduced-motion:reduce){.ty-dots i{animation:none;opacity:.6}}
 `;
 
 // The Pebble: the app mark. One soft pebble split by a slanted seam; the clay half is you, the ink half your agent,

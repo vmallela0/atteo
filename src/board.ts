@@ -1279,7 +1279,23 @@ export class Board extends DurableObject<Env> {
       if (this.sql.exec("SELECT 1 AS x FROM reactions WHERE seq = ? AND user = ? AND emoji IN ('👀', '✅')", e.seq, who).toArray().length) continue;
       this.sql.exec("INSERT INTO reactions (seq, user, emoji, ts) VALUES (?, ?, '👀', ?)", e.seq, who, now);
       this.broadcast({ type: "reaction", seq: e.seq, reactions: this.reactionsFor([e.seq])[e.seq] ?? [] });
+      this.broadcast({ type: "typing-agents", agents: this.agentsTyping() });
     }
+  }
+
+  /** Agents working on a person's message right now ("… is typing"): they picked it up (👀) in the last 10 minutes and
+   *  haven't answered yet (answering turns their 👀 into ✅). */
+  agentsTyping(): { seq: number; who: string }[] {
+    return this.sql
+      .exec("SELECT seq, user FROM reactions WHERE emoji = '👀' AND (user LIKE '%''s agent' OR user LIKE '%/%') AND ts > ? ORDER BY ts", Date.now() - 600_000)
+      .toArray()
+      .map((r) => ({ seq: r.seq as number, who: r.user as string }));
+  }
+
+  /** A person is typing: everyone on the board hears it for a few seconds. Nothing is stored. */
+  typing(user: string) {
+    this.info();
+    this.broadcast({ type: "typing", who: user, until: Date.now() + 6000 });
   }
 
   /**
@@ -1311,6 +1327,7 @@ export class Board extends DurableObject<Env> {
     if (!this.sql.exec("DELETE FROM reactions WHERE seq = ? AND user = ? AND emoji = '👀' RETURNING seq", seq, who).toArray().length) return;
     this.sql.exec("INSERT OR IGNORE INTO reactions (seq, user, emoji, ts) VALUES (?, ?, '✅', ?)", seq, who, Date.now());
     this.broadcast({ type: "reaction", seq, reactions: this.reactionsFor([seq])[seq] ?? [] });
+    this.broadcast({ type: "typing-agents", agents: this.agentsTyping() });
   }
 
   // ---- reactions: toggled per person; don't create entries or wake agents ----
@@ -2289,6 +2306,7 @@ export class Board extends DurableObject<Env> {
       summary: this.summary(),
       entries: opts.latest ? await this.page(null, opts.latest) : this.entriesAfter(afterSeq, null, 1000),
       reactions: afterSeq === 0 ? this.reactionsFor() : {},
+      typing_agents: this.agentsTyping(),
       reviews: this.reviewsBySeq(),
       claims: this.claimStates(),
       handling: this.handlingMap(),

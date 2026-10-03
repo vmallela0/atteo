@@ -1758,7 +1758,7 @@ const handler = {
         }
       }
 
-      m = path.match(/^\/api\/boards\/([^/]+)\/(updates|entries|invites|seen|search|handle)(?:\/(\d+))?$/);
+      m = path.match(/^\/api\/boards\/([^/]+)\/(updates|entries|invites|seen|search|handle|typing)(?:\/(\d+))?$/);
       if (m) {
         const [, id, what, seqStr] = m;
         if (!viewer && !hasOpsKey(c)) return needLogin();
@@ -1779,6 +1779,7 @@ const handler = {
           return json({
             entries: fresh.map((e) => ({
               seq: e.seq,
+              author: e.author, // their "… is typing" ends when their message arrives
               root: roots[e.seq] ?? e.seq,
               retracts: e.retracts,
               html: entryHtml(e, id, true, { canRetract: canRetract(e) }),
@@ -1792,6 +1793,7 @@ const handler = {
             claims: snap.claims, // every claim's status and every stale entry, same idea
             handling: snap.handling, // which agent took which message ("vedu/scout")
             reads: snap.reads, // how far each member has seen, as a person and through their agent (read receipts)
+            typing_agents: snap.typing_agents, // agents working on a person's message right now ("… is typing")
             summary: summaryHtml([], viewer?.name ?? "", members, snap.summary, { boardId: id, creator: snap.info.created_by }),
             count: snap.info.entry_count,
             last: fresh.length ? fresh[fresh.length - 1].seq : after,
@@ -1890,6 +1892,12 @@ const handler = {
           }, 200, { "cache-control": "no-store" });
         }
         // Read receipts: the board page reports the newest entry its person has had on screen.
+        // "jxn is typing…": a person's composer says so every few seconds while they type; nothing is stored.
+        if (what === "typing" && method === "POST") {
+          if (!viewer || viewer.via === "agent" || !(await registry.isMember(env, id, viewer.name))) return json({ error: "Only members can do that." }, 403);
+          await stub.typing(viewer.name);
+          return new Response(null, { status: 204 });
+        }
         if (what === "handle" && method === "POST" && seqStr) {
           // "I'm on it" (atteo handle N): the calling agent session, or the person on the web.
           if (!viewer || !(await registry.isMember(env, id, viewer.name))) return json({ error: "Only members can do that." }, 403);
