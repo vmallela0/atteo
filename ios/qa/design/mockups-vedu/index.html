@@ -1,0 +1,806 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Atteo Mobile Relaxed</title>
+<meta name="description" content="Static mockups of the Atteo phone app with today's tokens and a roomier, iMessage-like feel (vedu's set for jxn #911).">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* =============================================================================================================
+   Atteo mobile, "relaxed": vedu's mockup set for jxn (#911). Static; the only script is the Dark/Light toggle.
+   Same look as today, a calmer feel:
+   - Dark = the web's DARK tokens (src/ui.ts), which are also the app's dark (Theme.swift).
+   - Light = the app's light today (Theme.swift: bone #F2EEE6, card #FBF9F5, raised #E6E0D5, line #DCD6CB).
+     Not the rejected "Bright" paper/wallpaper theme. To try the web's white light instead, swap the 5 surface
+     values in the light block (--bg #fff, --card #fafafa, --raised #f4f4f5, --line #ebebeb, --page #f4f4f5).
+   - Clay is the accent in both (#D97857; #C9653F on bone). The web light theme's blue is not used.
+   - Radii from Theme.swift: card 12 (16 for the big agent cards), control 14, bubble 18-20.
+   ============================================================================================================= */
+:root{
+  /* dark (the default) */
+  --page:#050505;
+  --bg:#0a0a0a; --card:#151515; --card-2:#1b1b1b; --raised:#242424; --sunk:#111111;
+  --line:#232323; --line-strong:#2e2e2e;
+  --text:#ededed; --muted:#a1a1a1; --faint:#6f6f6f;
+  --accent:#D97857; --accent-text:#E8906F; --accent-soft:rgba(217,120,87,.14); --on-accent:#0a0a0a;
+  --you-1:#C8623E; --you-2:#B4532F; --you-text:#fff;      /* your bubbles: clay, a touch deeper so white text reads */
+  --them:#1f1f21; --them-text:#ededed;
+  --ok:#3ecf75; --ok-soft:rgba(62,207,117,.12); --warn:#F2B861; --warn-soft:rgba(242,184,97,.12);
+  --danger:#f87171; --decision:#a78bfa; --decision-soft:rgba(167,139,250,.13);
+  --p-vedu:#E8906F; --p-vedu-soft:#2A1A14;
+  --p-jxn:#5CC8C4;  --p-jxn-soft:#0F2526;
+  --p-maya:#A996FF; --p-maya-soft:#1D1830;
+  --pb-agent:#F2EFE8; --pb-eye:#111113;
+  --glass:rgba(10,10,10,.74);
+  --mention-bg:rgba(217,120,87,.18);
+  --shadow-card:none; --shadow-soft:none; --hair:inset 0 0 0 1px var(--line);
+  --device:#1c1c1e; --device-edge:#38383c;
+  color-scheme:dark;
+}
+:root[data-theme="light"]{
+  --page:#E7E2D8;
+  --bg:#F2EEE6; --card:#FBF9F5; --card-2:#F6F2EB; --raised:#E6E0D5; --sunk:#EAE5DB;
+  --line:#DCD6CB; --line-strong:#CEC7BA;
+  --text:#1A1917; --muted:#625E57; --faint:#8E897F;
+  --accent:#C9653F; --accent-text:#B5502F; --accent-soft:rgba(201,101,63,.12); --on-accent:#0a0a0a;
+  --them:#FBF9F5; --them-text:#1A1917;
+  --ok:#2E8A4E; --ok-soft:rgba(46,138,78,.11); --warn:#B0701A; --warn-soft:rgba(176,112,26,.11);
+  --danger:#C63F3B; --decision:#7c3aed; --decision-soft:rgba(124,58,237,.09);
+  --p-vedu:#B5502F; --p-vedu-soft:#F6DCCF;
+  --p-jxn:#0F7C83;  --p-jxn-soft:#D3ECEA;
+  --p-maya:#6B4FD8; --p-maya-soft:#E5DFFB;
+  --pb-agent:#111113; --pb-eye:#F2EFE8;
+  --glass:rgba(242,238,230,.8);
+  --mention-bg:rgba(201,101,63,.14);
+  --shadow-card:0 1px 2px rgba(60,40,20,.05),0 6px 18px rgba(60,40,20,.05);
+  --shadow-soft:0 1px 1px rgba(60,40,20,.05),0 1px 6px rgba(60,40,20,.05);
+  --hair:inset 0 0 0 1px var(--line);
+  --device:#1c1c1e; --device-edge:#3a3a3e;
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--page);color:var(--text);font:15px/1.4 "Geist",ui-sans-serif,system-ui,-apple-system,sans-serif;-webkit-font-smoothing:antialiased}
+.mono,code{font-family:"Geist Mono",ui-monospace,SFMono-Regular,Menlo,monospace}
+svg{display:block}
+
+/* ---------- the page ---------- */
+.top{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap;padding:36px 48px 8px;max-width:1500px}
+.top h1{margin:0;font-size:26px;letter-spacing:-.02em;display:flex;align-items:center;gap:12px;font-weight:650}
+.top h1 svg{width:34px;height:30px}
+.top p{margin:8px 0 0;color:var(--muted);max-width:760px;font-size:14.5px;line-height:1.55}
+.seg{display:inline-flex;background:var(--card);border-radius:14px;padding:3px;gap:2px;box-shadow:var(--hair)}
+.seg button{font:500 14px "Geist",sans-serif;border:0;background:none;color:var(--muted);padding:8px 16px;border-radius:11px;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--raised);color:var(--text)}
+.strip{display:flex;gap:44px;overflow-x:auto;padding:30px 48px 56px;align-items:flex-start}
+.slot{flex:none;display:flex;flex-direction:column;gap:14px}
+.cap{display:flex;gap:10px;align-items:baseline;padding-left:8px;font-size:14px;color:var(--muted)}
+.cap b{font:500 12px "Geist Mono",monospace;color:var(--accent-text)}
+.cap span{color:var(--text);font-weight:600}
+.device{padding:11px;background:var(--device);border-radius:64px;box-shadow:0 0 0 1.5px var(--device-edge),0 30px 70px rgba(0,0,0,.28)}
+@media (max-width:600px){
+  .top{padding:24px 16px 4px}
+  .strip{flex-direction:column;align-items:center;padding:20px 16px 40px;gap:36px;overflow-x:hidden}
+}
+@media (max-width:440px){ .device{zoom:.86} }
+@media (max-width:380px){ .device{zoom:.78} }
+
+/* ---------- the phone ---------- */
+.phone{width:390px;height:844px;border-radius:53px;position:relative;overflow:hidden;background:var(--bg);isolation:isolate}
+.phone::after{content:"";position:absolute;top:11px;left:50%;transform:translateX(-50%);width:124px;height:36px;border-radius:20px;background:#000;z-index:60}
+.sb{position:absolute;top:0;left:0;right:0;height:54px;display:flex;align-items:center;justify-content:space-between;padding:4px 32px 0 50px;font-weight:600;font-size:16.5px;z-index:50;letter-spacing:-.01em}
+.sb .ic{display:flex;gap:6px;align-items:center}
+.home{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);width:136px;height:5px;border-radius:3px;background:var(--text);z-index:55;opacity:.92}
+.body{position:absolute;inset:0;overflow:hidden}
+
+/* ---------- small pieces ---------- */
+.i{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.i.s{width:17px;height:17px}.i.xs{width:14px;height:14px;stroke-width:2.2}
+.btn-c{width:44px;height:44px;border-radius:50%;display:grid;place-items:center;background:var(--glass);box-shadow:var(--hair),var(--shadow-soft);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);color:var(--text);flex:none}
+.caps{display:flex;align-items:center;height:44px;border-radius:22px;background:var(--glass);box-shadow:var(--hair),var(--shadow-soft);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);padding:0 6px}
+.caps>span{width:40px;height:40px;display:grid;place-items:center;position:relative}
+.dot-live{width:8px;height:8px;border-radius:50%;background:var(--ok);flex:none;box-shadow:0 0 0 3px var(--ok-soft)}
+.count{min-width:20px;height:20px;border-radius:10px;background:var(--accent);color:var(--on-accent);font:600 12px/20px "Geist",sans-serif;text-align:center;padding:0 6px}
+.mention{color:var(--accent-text);font-weight:600}
+.me .mention{color:#fff;background:rgba(255,255,255,.18);border-radius:6px;padding:0 3px;margin:0 -1px}
+.chip{font:500 11.5px/1 "Geist Mono",monospace;background:var(--raised);color:var(--muted);padding:4px 7px;border-radius:7px;display:inline-flex;gap:5px;align-items:center;letter-spacing:-.01em;white-space:nowrap}
+.chip .dot-live{width:6px;height:6px;box-shadow:none}
+
+/* avatars: people are round, agents are a rounded tile with the Pebble in their person's colour */
+.av{width:32px;height:32px;border-radius:50%;flex:none;display:grid;place-items:center;font-weight:600;font-size:13px;position:relative}
+.av.jxn{background:var(--p-jxn-soft);color:var(--p-jxn)}
+.av.maya{background:var(--p-maya-soft);color:var(--p-maya)}
+.av.vedu{background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Cdefs%3E%3CradialGradient id='a' cx='.3' cy='.25' r='.9'%3E%3Cstop offset='0' stop-color='%23ffd1a8'/%3E%3Cstop offset='.45' stop-color='%23e0785a'/%3E%3Cstop offset='1' stop-color='%23542a6e'/%3E%3C/radialGradient%3E%3C/defs%3E%3Crect width='40' height='40' fill='url(%23a)'/%3E%3Ccircle cx='27' cy='29' r='9' fill='%23ffb27a' opacity='.55'/%3E%3Ccircle cx='12' cy='30' r='5' fill='%23ff6fa0' opacity='.5'/%3E%3C/svg%3E") center/cover}
+.av.jxnpic{background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Cdefs%3E%3ClinearGradient id='s' x1='0' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%2387c9d8'/%3E%3Cstop offset='.55' stop-color='%23f0c9a0'/%3E%3Cstop offset='1' stop-color='%23e89a6a'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='40' height='40' fill='url(%23s)'/%3E%3Ccircle cx='26' cy='22' r='5' fill='%23fff3dc'/%3E%3Cpath d='M0 30 L10 22 L18 28 L27 19 L40 29 L40 40 L0 40Z' fill='%231d5e63'/%3E%3Cpath d='M0 34 L12 29 L22 33 L32 28 L40 32 L40 40 L0 40Z' fill='%230f3d42'/%3E%3C/svg%3E") center/cover}
+.av.sm{width:20px;height:20px;font-size:10px}
+.av.xs{width:16px;height:16px;font-size:8.5px}
+.ag{width:32px;height:32px;border-radius:10px;background:var(--raised);display:grid;place-items:center;flex:none;position:relative}
+.ag svg{width:72%;height:72%}
+.ag.sm{width:20px;height:20px;border-radius:6px}
+.ag.lg{width:52px;height:52px;border-radius:16px}
+.ag.xl{width:56px;height:56px;border-radius:18px}
+.ag.vedu{--me:#D97857}.ag.jxn{--me:var(--p-jxn)}.ag.maya{--me:var(--p-maya)}
+.stack{display:flex}.stack>*{box-shadow:0 0 0 2px var(--bg);margin-left:-6px}.stack>*:first-child{margin-left:0}
+
+/* rings */
+.ring{flex:none;transform:rotate(-90deg)}
+.ring .trk{stroke:var(--line-strong);fill:none}
+.ring .val{stroke:var(--accent);fill:none;stroke-linecap:round}
+.ring.ok .val{stroke:var(--ok)}
+.tick{width:22px;height:22px;border-radius:50%;background:var(--ok);display:grid;place-items:center;flex:none;color:#fff}
+.tick svg{width:13px;height:13px;stroke-width:3}
+.open{width:22px;height:22px;border-radius:50%;border:1.8px solid var(--line-strong);flex:none}
+.open.dash{border-style:dashed}
+
+/* ---------- nav headers ---------- */
+.nav{position:absolute;top:0;left:0;right:0;z-index:20;padding:56px 14px 10px;display:flex;align-items:center;gap:10px;background:linear-gradient(var(--bg) 62%,transparent)}
+.nav.glass{background:var(--glass);backdrop-filter:saturate(1.5) blur(20px);-webkit-backdrop-filter:saturate(1.5) blur(20px);box-shadow:0 1px 0 var(--line)}
+.nav .mid{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:2px}
+.nav .ttl{display:flex;align-items:center;gap:8px;font-weight:600;font-size:17px;letter-spacing:-.01em}
+.nav .sub{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:6px}
+.nav .sub.ok{color:var(--ok)}
+.nav .sub .dot-live{width:7px;height:7px}
+.backn{display:flex;align-items:center;gap:2px;padding:0 12px 0 8px;width:auto;border-radius:22px}
+.backn .count{margin-left:2px}
+
+/* ---------- board pictures (art, not theme) ---------- */
+.pic{width:56px;height:56px;border-radius:17px;flex:none;display:grid;place-items:center;position:relative;overflow:hidden;box-shadow:inset 0 0 0 1px rgba(255,255,255,.06)}
+.pic.atteo{background:radial-gradient(120% 90% at 20% 10%,#3a2a24,#141214 70%)}
+.pic.atteo svg{width:34px;height:30px;--pb-agent:#F2EFE8;--pb-eye:#111113;--me:#D97857}
+.pic.checkout{background:linear-gradient(140deg,#30418f 0%,#8b4a8f 45%,#c9708a 70%,#d7b08c 100%)}
+.pic.checkout::after{content:"";position:absolute;left:-10%;bottom:-30%;width:90%;height:70%;background:radial-gradient(closest-side,#2fb48d,transparent);opacity:.9}
+.pic .cart{width:52%;height:52%;position:relative;z-index:1;fill:none;stroke:#fff;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;filter:drop-shadow(0 1px 2px rgba(0,0,0,.3))}
+.pic.sm .cart{stroke-width:2.4;width:60%;height:60%}
+.pic.q4{background:var(--raised);color:var(--muted);font-weight:600;font-size:20px}
+.pic.landing{background:linear-gradient(180deg,#ffcf9a 0%,#f08a6a 48%,#5b3a7a 100%)}
+.pic.landing::before{content:"";position:absolute;left:50%;top:44%;width:26px;height:26px;margin-left:-13px;border-radius:50%;background:#fff1cf}
+.pic.landing::after{content:"";position:absolute;left:0;right:0;bottom:0;height:42%;background:#2a2346}
+.pic.sm{width:30px;height:30px;border-radius:9px}
+.pic.sm.atteo svg{width:19px;height:17px}
+.pic.sm.checkout i{font-size:14px}
+.pic.md{width:40px;height:40px;border-radius:12px}
+.pic.md.atteo svg{width:25px;height:22px}
+.pic.md.checkout i{font-size:18px}
+
+/* ---------- tab bar ---------- */
+.tabs{position:absolute;left:16px;right:16px;bottom:24px;z-index:30;display:flex;gap:10px;align-items:center}
+.tabbar{flex:1;height:62px;border-radius:31px;background:var(--glass);backdrop-filter:saturate(1.6) blur(22px);-webkit-backdrop-filter:saturate(1.6) blur(22px);box-shadow:var(--hair),0 8px 30px rgba(0,0,0,.18);display:flex;padding:5px}
+.tabbar span{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:11px;font-weight:600;color:var(--muted);border-radius:26px;position:relative}
+.tabbar span.on{background:var(--raised);color:var(--text)}
+.tabbar span.on .i{color:var(--accent)}
+.tabbar .count{position:absolute;top:3px;left:calc(50% + 6px);min-width:18px;height:18px;line-height:18px;font-size:11px;padding:0 5px}
+.tabs .btn-c{width:62px;height:62px;box-shadow:var(--hair),0 8px 30px rgba(0,0,0,.18)}
+
+/* =========================================== 1. chats =========================================== */
+.lt{position:absolute;top:56px;left:16px;right:16px;display:flex;justify-content:space-between;align-items:center}
+.big{font-size:34px;font-weight:700;letter-spacing:-.03em;margin:0}
+.chats{position:absolute;top:112px;left:0;right:0;bottom:0}
+.needs{margin:14px 16px 0;display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:18px;background:var(--accent-soft);color:var(--text)}
+.needs .ic{width:34px;height:34px;border-radius:11px;background:var(--accent);color:var(--on-accent);display:grid;place-items:center;flex:none}
+.needs .t{flex:1;min-width:0}
+.needs b{display:block;font-size:15px;font-weight:600}
+.needs small{display:block;font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.needs .chev{color:var(--accent-text)}
+.segs{display:flex;gap:6px;margin:18px 16px 6px;padding:3px;border-radius:16px;background:var(--card);box-shadow:var(--hair);width:max-content}
+.segs span{display:flex;align-items:center;gap:7px;padding:7px 14px;border-radius:13px;font-size:14.5px;font-weight:600;color:var(--muted)}
+.segs span.on{background:var(--raised);color:var(--text)}
+.segs .count{height:18px;min-width:18px;line-height:18px;font-size:11px;padding:0 5px}
+.row{display:flex;gap:14px;align-items:center;padding:11px 16px;position:relative}
+.row .t{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.row .l1{display:flex;align-items:center;gap:8px}
+.row .nm{font-weight:600;font-size:16.5px;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .when{margin-left:auto;font-size:13px;color:var(--faint);flex:none}
+.row.unread .when{color:var(--accent-text)}
+.row .l2{display:flex;align-items:center;gap:8px}
+.row .pv{font-size:14.5px;color:var(--muted);flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .pv b{font-weight:500;color:var(--text)}
+.row.read .nm{font-weight:500}
+.row .at{width:20px;height:20px;border-radius:50%;background:var(--accent-soft);color:var(--accent-text);font:600 12px/20px "Geist",sans-serif;text-align:center}
+.pin{margin:10px 12px 0;border-radius:20px;background:var(--card);box-shadow:var(--hair),var(--shadow-card);padding:12px 14px}
+.pin .row{padding:0}
+.pin .pv{color:var(--muted)}
+.pin .sess{display:flex;gap:6px;margin-top:8px}
+.pin .pinmark{color:var(--faint)}
+.lbl{font-size:12.5px;font-weight:600;color:var(--faint);letter-spacing:.04em;text-transform:uppercase;margin:16px 16px 2px}
+
+/* =========================================== 2. chat =========================================== */
+.feed{position:absolute;top:0;left:0;right:0;bottom:0;padding:120px 14px 92px;display:flex;flex-direction:column;justify-content:flex-end;gap:12px}
+.feed.fromtop{justify-content:flex-start}
+.day{align-self:center;font-size:12px;font-weight:600;color:var(--faint);letter-spacing:.02em}
+.grp{display:flex;gap:8px;align-items:flex-end}
+.grp .col{display:flex;flex-direction:column;gap:3px;max-width:80%;min-width:0}
+.grp.me{justify-content:flex-end}
+.grp.me .col{align-items:flex-end}
+.who{font-size:13px;font-weight:600;margin:0 0 3px 14px}
+.who.jxn{color:var(--p-jxn)}.who.maya{color:var(--p-maya)}
+.b{position:relative;padding:8px 14px 9px;border-radius:20px;font-size:16px;line-height:1.38;max-width:100%;letter-spacing:-.005em}
+.them .b{background:var(--them);color:var(--them-text);box-shadow:var(--shadow-soft)}
+.me .b{background:linear-gradient(175deg,var(--you-1),var(--you-2));color:var(--you-text)}
+.them .b:not(.last){border-bottom-left-radius:7px}
+.them .b:not(.first){border-top-left-radius:7px}
+.me .b:not(.last){border-bottom-right-radius:7px}
+.me .b:not(.first){border-top-right-radius:7px}
+/* tails (last bubble of a group) */
+.b.last::before,.b.last::after{content:"";position:absolute;bottom:0;height:20px}
+.them .b.last::before{left:-7px;width:20px;background:var(--them);border-bottom-right-radius:15px}
+.them .b.last::after{left:-10px;width:10px;background:var(--bg);border-bottom-right-radius:10px}
+.me .b.last::before{right:-7px;width:20px;background:var(--you-2);border-bottom-left-radius:15px}
+.me .b.last::after{right:-10px;width:10px;background:var(--bg);border-bottom-left-radius:10px}
+.avslot{width:32px;flex:none;margin-bottom:23px} /* level with the last bubble, above its receipt line */
+.rcpt{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--faint);margin:3px 6px 0}
+.me .rcpt{justify-content:flex-end}
+.rcpt .e{font-size:13px}
+.rcpt b{font-weight:500;color:var(--muted)}
+.seen{width:16px;height:16px;border-radius:50%;box-shadow:0 0 0 1.5px var(--bg),0 0 0 3px var(--p-jxn);display:inline-grid;place-items:center;margin-left:4px}
+
+/* agent cards */
+.acard{background:var(--card);border-radius:20px;box-shadow:var(--hair),var(--shadow-card);padding:12px 14px 14px;position:relative}
+.ahead{display:flex;align-items:center;gap:9px;margin-bottom:6px}
+.ahead .an{font-weight:600;font-size:14.5px;white-space:nowrap}
+.ahead .an.vedu{color:var(--p-vedu)}.ahead .an.jxn{color:var(--p-jxn)}
+.ahead .tm{margin-left:auto;font-size:12.5px;color:var(--faint)}
+.acard .txt{font-size:15.5px;line-height:1.45}
+.change{margin-top:10px;border-radius:14px;background:var(--card-2);box-shadow:var(--hair);padding:11px 13px 10px}
+.change .h{display:flex;align-items:center;gap:9px;font-weight:600;font-size:15px}
+.change .h .pk{width:26px;height:26px;border-radius:8px;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center}
+.ver{font:600 12px/1 "Geist Mono",monospace;background:var(--raised);color:var(--text);border-radius:6px;padding:4px 6px}
+.change .h .dot-live{margin-left:auto}
+.stats{display:flex;align-items:center;gap:8px;margin:9px 0 5px;font-size:13.5px;color:var(--muted)}
+.stats .add,.stats .del{font:500 13px "Geist Mono",monospace}
+.add{color:var(--ok)}.del{color:var(--danger)}
+.bars{display:flex;gap:2px;margin-left:auto}.bars i{width:7px;height:7px;border-radius:2px;background:var(--ok)}.bars i.d{background:var(--danger)}.bars i.z{background:var(--line-strong)}
+.commit{display:flex;gap:10px;font-size:14px;padding:2px 0;align-items:baseline;min-width:0}
+.commit code{font-size:12.5px;color:var(--faint);flex:none}
+.commit span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.diff{display:flex;align-items:center;gap:4px;margin-top:6px;font-size:13.5px;font-weight:600;color:var(--accent-text)}
+.under{display:flex;align-items:center;gap:8px;margin-top:-6px;padding-left:4px;flex-wrap:wrap}
+.rx{display:inline-flex;gap:5px;align-items:center;background:var(--card);border-radius:14px;padding:4px 10px 4px 7px;font-size:13.5px;font-weight:600;color:var(--muted);box-shadow:0 0 0 2.5px var(--bg),var(--hair)}
+.rx.mine{background:var(--accent-soft);color:var(--accent-text);box-shadow:0 0 0 2.5px var(--bg),inset 0 0 0 1px color-mix(in srgb,var(--accent) 45%,transparent)}
+.rx .e{font-size:15px;line-height:1}
+.rx.add{padding:4px 8px;color:var(--faint)}
+.tprev{display:flex;align-items:center;gap:8px;padding:2px 4px;font-size:14px}
+.tprev .stack>*{margin-left:-4px}
+.tprev .n{font-weight:600;color:var(--accent-text)}
+.tprev .w{color:var(--faint)}
+.task .th{display:flex;gap:11px;align-items:center}
+.task .tt{font-weight:600;font-size:16px;letter-spacing:-.01em}
+.task .ts{font-size:13px;color:var(--muted);margin-top:1px}
+.task .ts .mono{font-size:12px}
+.cl{margin-top:8px;display:flex;flex-direction:column}
+.ci{display:flex;align-items:center;gap:11px;padding:5px 0 5px 2px;font-size:14.5px;border-top:1px solid var(--line)}
+.ci .tick,.ci .open{width:19px;height:19px}
+.ci .tick svg{width:12px;height:12px;stroke-width:3.2}
+.ci.done span{color:var(--muted);text-decoration:line-through;text-decoration-color:color-mix(in srgb,var(--muted) 60%,transparent)}
+.ci .by{margin-left:auto;font-size:12.5px;color:var(--faint)}
+.ci .doing{width:19px;height:19px;flex:none}
+
+/* composer */
+.composer{position:absolute;left:0;right:0;bottom:0;z-index:20;padding:10px 12px 30px;background:var(--glass);backdrop-filter:saturate(1.6) blur(20px);-webkit-backdrop-filter:saturate(1.6) blur(20px);box-shadow:0 -1px 0 var(--line)}
+.crow{display:flex;gap:8px;align-items:flex-end}
+.plus{width:42px;height:42px;border-radius:50%;background:var(--card);box-shadow:var(--hair);display:grid;place-items:center;color:var(--muted);flex:none}
+.field{flex:1;min-height:42px;display:flex;align-items:center;gap:6px;background:var(--card);box-shadow:inset 0 0 0 1px var(--line-strong);border-radius:21px;padding:4px 4px 4px 15px;font-size:16px}
+.field .tx{flex:1;min-width:0;line-height:1.35}
+.field .tx .m{background:var(--mention-bg);color:var(--accent-text);font-weight:600;border-radius:6px;padding:1px 4px;margin-left:-3px}
+.field .caret{display:inline-block;width:2px;height:19px;background:var(--accent);vertical-align:-4px;margin-left:1px;border-radius:1px}
+.field .ph{color:var(--faint);flex:1}
+.send{width:34px;height:34px;border-radius:50%;background:var(--accent);color:var(--on-accent);display:grid;place-items:center;flex:none}
+.send.off{background:var(--raised);color:var(--faint)}
+.suggest{margin:0 4px 10px 52px;background:var(--card);border-radius:16px;box-shadow:var(--hair),0 10px 30px rgba(0,0,0,.18);padding:5px}
+.suggest .s{display:flex;align-items:center;gap:10px;padding:7px 9px;border-radius:11px;font-size:15px}
+.suggest .s.on{background:var(--raised)}
+.suggest .s small{margin-left:auto}
+
+/* =========================================== 3. thread =========================================== */
+.divider{display:flex;align-items:center;gap:12px;font-size:13px;font-weight:600;color:var(--muted);margin:2px 2px}
+.divider::after{content:"";flex:1;height:1px;background:var(--line)}
+.also{display:flex;align-items:center;gap:8px;font-size:13.5px;color:var(--muted);margin:10px 4px 0 6px}
+.also i{width:18px;height:18px;border-radius:6px;box-shadow:inset 0 0 0 1.5px var(--line-strong)}
+.mini{display:flex;flex-direction:column;gap:3px;margin-top:9px;font:400 12.5px/1.5 "Geist Mono",monospace;color:var(--muted);background:var(--card-2);border-radius:12px;padding:9px 11px;box-shadow:var(--hair)}
+.mini b{color:var(--text);font-weight:500}
+
+/* =========================================== 4. tasks =========================================== */
+.chips{display:flex;gap:8px;padding:0 16px;margin-top:16px}
+.chips span{display:flex;align-items:center;gap:6px;padding:8px 13px;border-radius:18px;background:var(--card);box-shadow:var(--hair);font-size:14px;font-weight:500;color:var(--muted);white-space:nowrap}
+.chips span em{font-style:normal;color:var(--faint)}
+.chips span.on{background:var(--text);color:var(--bg);box-shadow:none}
+.chips span.on em{color:var(--bg);opacity:.6}
+.sec{display:flex;align-items:center;gap:9px;margin:22px 16px 6px;font-size:14.5px;font-weight:600}
+.sec .n{color:var(--faint);font-weight:500}
+.sec .chev{color:var(--faint);margin-left:auto}
+.trow{display:flex;gap:13px;align-items:center;padding:10px 16px}
+.trow .t{flex:1;min-width:0}
+.trow .tt{font-size:16px;font-weight:500;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.trow .tm{display:flex;align-items:center;gap:7px;margin-top:3px;font-size:13px;color:var(--faint);white-space:nowrap}
+.trow .tm .mono{font-size:12px}
+.trow .tm .board{display:inline-flex;align-items:center;gap:5px;color:var(--muted)}
+.trow .tm .tag{color:var(--warn);font-weight:500;display:inline-flex;gap:4px;align-items:center}
+.trow .frac{font:500 12.5px "Geist Mono",monospace;color:var(--muted);display:flex;align-items:center;gap:6px}
+.trow.done .tt{color:var(--muted)}
+.tcard{margin:0 12px;border-radius:20px;background:var(--card);box-shadow:var(--hair),var(--shadow-card);padding:4px 0}
+.tcard .trow+.trow{box-shadow:0 -1px 0 var(--line)}
+.sub-row{padding-left:30px}
+
+/* =========================================== 5. inbox =========================================== */
+.icard{margin:0 12px 12px;border-radius:22px;background:var(--card);box-shadow:var(--hair),var(--shadow-card);padding:14px 15px 15px}
+.kind{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600}
+.kind .k{width:26px;height:26px;border-radius:8px;display:grid;place-items:center}
+.kind.ap{color:var(--warn)}.kind.ap .k{background:var(--warn-soft)}
+.kind.dc{color:var(--decision)}.kind.dc .k{background:var(--decision-soft)}
+.kind.mt{color:var(--accent-text)}.kind.mt .k{background:var(--accent-soft)}
+.kind .where{margin-left:auto;color:var(--faint);font-weight:500;display:flex;align-items:center;gap:6px}
+.icard h3{margin:11px 0 4px;font-size:19px;letter-spacing:-.02em;font-weight:650}
+.from{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--muted)}
+.from b{color:var(--p-jxn);font-weight:600}
+.cmd{margin-top:11px;font:400 12.5px/1.6 "Geist Mono",monospace;background:var(--sunk);border-radius:12px;padding:10px 12px;box-shadow:var(--hair);color:var(--text)}
+.cmd .dim{color:var(--faint)}
+.acts{display:flex;gap:10px;margin-top:13px}
+.acts span{flex:1;height:46px;border-radius:15px;display:flex;align-items:center;justify-content:center;gap:7px;font-weight:600;font-size:15.5px}
+.acts .no{background:var(--raised);color:var(--text)}
+.acts .yes{background:var(--accent);color:var(--on-accent)}
+.acts .agree{background:var(--text);color:var(--bg)}
+.hint{display:flex;justify-content:center;align-items:center;gap:6px;font-size:12.5px;color:var(--faint);margin-top:10px}
+.votes{margin-top:12px;display:flex;flex-direction:column;gap:8px}
+.vote{display:flex;align-items:center;gap:10px;font-size:14px}
+.vote .lb{width:56px;color:var(--muted)}
+.vote .bar{flex:1;height:8px;border-radius:4px;background:var(--raised);overflow:hidden}
+.vote .bar i{display:block;height:100%;border-radius:4px;background:var(--ok)}
+.vote .bar i.x{background:var(--danger)}
+.vote .stack{min-width:52px;justify-content:flex-end}
+.vote .stack>*{box-shadow:0 0 0 2px var(--card)}
+.voters{display:flex;align-items:center;gap:10px;margin-top:10px;font-size:14px;color:var(--muted)}
+.voters b{color:var(--text);font-weight:600}
+.voters .stack>*{box-shadow:0 0 0 2px var(--card)}
+.qt{font-size:15px;line-height:1.45;color:var(--text);margin-top:2px}
+
+/* =========================================== 6. profile =========================================== */
+.prof{position:absolute;top:104px;left:0;right:0;bottom:0;display:flex;flex-direction:column;align-items:center;padding:0 16px}
+.bigav{width:100px;height:100px;border-radius:50%;box-shadow:0 0 0 4px var(--bg),0 0 0 5.5px var(--line-strong);position:relative}
+.bigav .on{position:absolute;right:5px;bottom:5px;width:20px;height:20px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 4px var(--bg)}
+.pname{font-size:28px;font-weight:700;letter-spacing:-.03em;margin-top:14px}
+.phandle{font-size:14.5px;color:var(--muted);margin-top:2px;display:flex;gap:6px;align-items:center}
+.pbio{font-size:15.5px;line-height:1.5;text-align:center;color:var(--text);margin:12px 18px 0;max-width:320px}
+.pacts{display:flex;gap:10px;margin-top:18px;width:100%}
+.pacts span{flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;padding:11px 0 10px;border-radius:16px;background:var(--card);box-shadow:var(--hair);font-size:13px;font-weight:600;color:var(--text)}
+.pacts span .i{color:var(--accent)}
+.agentcard{width:100%;margin-top:16px;border-radius:22px;background:var(--card);box-shadow:var(--hair),var(--shadow-card);padding:14px 14px 14px}
+.agentcard .hd{display:flex;gap:12px;align-items:center}
+.agentcard .hd b{font-size:17px;font-weight:650;letter-spacing:-.01em;display:block}
+.agentcard .hd small{font-size:13.5px;color:var(--muted)}
+.sess{display:flex;flex-direction:column;margin-top:12px;border-radius:14px;background:var(--card-2);box-shadow:var(--hair)}
+.srow{display:flex;align-items:center;gap:11px;padding:11px 12px}
+.srow+.srow{box-shadow:0 -1px 0 var(--line)}
+.srow .st{flex:1;min-width:0}
+.srow .sn{font:500 14px "Geist Mono",monospace;display:flex;align-items:center;gap:8px}
+.srow .sd{font-size:13.5px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.srow .state{font-size:12.5px;font-weight:600}
+.srow .state.live{color:var(--ok)}.srow .state.idle{color:var(--faint)}
+.idle-dot{width:8px;height:8px;border-radius:50%;background:var(--line-strong);flex:none}
+.ask{margin-top:12px;height:48px;border-radius:15px;background:var(--accent);color:var(--on-accent);display:flex;align-items:center;justify-content:center;gap:8px;font-weight:600;font-size:16px}
+.shared{width:100%;margin-top:14px;display:flex;align-items:center;gap:10px;font-size:13.5px;color:var(--muted)}
+.shared .boards{display:flex;gap:8px;margin-left:auto;flex:none}
+.shared .bp{display:flex;align-items:center;gap:7px;padding:5px 10px 5px 5px;border-radius:13px;background:var(--card);box-shadow:var(--hair);color:var(--text);font-weight:500;font-size:13.5px}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <clipPath id="pbc"><rect x="189" y="229" width="647" height="566" rx="283" ry="283"/></clipPath>
+    <symbol id="pebble" viewBox="150 190 726 646"><g clip-path="url(#pbc)"><polygon points="711,-1765 301,2785 -1691,2606 -1281,-1944" style="fill:var(--me,#D97857)"/><polygon points="746,-1761 336,2789 2328,2968 2738,-1582" style="fill:var(--pb-agent)"/></g><circle cx="405" cy="468" r="54" style="fill:var(--pb-eye)"/><circle cx="634" cy="498" r="54" style="fill:var(--pb-eye)"/></symbol>
+    <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></symbol>
+    <symbol id="i-compose" viewBox="0 0 24 24"><path d="M12 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6"/><path d="M18.4 2.6a2 2 0 0 1 3 3L12 15l-4 1 1-4z"/></symbol>
+    <symbol id="i-spark" viewBox="0 0 24 24"><path d="M10 3l1.6 4.4L16 9l-4.4 1.6L10 15l-1.6-4.4L4 9l4.4-1.6z"/><path d="M18 14l.8 2.2L21 17l-2.2.8L18 20l-.8-2.2L15 17l2.2-.8z"/><path d="M18 3v4M16 5h4"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></symbol>
+    <symbol id="i-chat" viewBox="0 0 24 24"><path d="M21 11.5a8.4 8.4 0 0 1-12.2 7.5L3 21l2-5.5A8.5 8.5 0 1 1 21 11.5z"/></symbol>
+    <symbol id="i-inbox" viewBox="0 0 24 24"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5.1L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.5-6.9A2 2 0 0 0 16.8 4H7.2a2 2 0 0 0-1.7 1.1z"/></symbol>
+    <symbol id="i-tasks" viewBox="0 0 24 24"><path d="M3 6l1.5 1.5L7 5"/><path d="M3 12.5L4.5 14 7 11.5"/><path d="M3 19l1.5 1.5L7 18"/><path d="M11 6h10M11 12.5h10M11 19h10"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+    <symbol id="i-chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></symbol>
+    <symbol id="i-down" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
+    <symbol id="i-box" viewBox="0 0 24 24"><path d="M21 8l-9-5-9 5 9 5z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/></symbol>
+    <symbol id="i-threads" viewBox="0 0 24 24"><path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z"/><path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></symbol>
+    <symbol id="i-scale" viewBox="0 0 24 24"><path d="M12 3v18M7 21h10"/><path d="M5 7h14"/><path d="M5 7l-3 7a3.5 3.5 0 0 0 6 0z"/><path d="M19 7l-3 7a3.5 3.5 0 0 0 6 0z"/></symbol>
+    <symbol id="i-at" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/></symbol>
+    <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 17v5"/><path d="M9 3h6l-1 6 3 3v2H7v-2l3-3z"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></symbol>
+    <symbol id="i-flag" viewBox="0 0 24 24"><path d="M4 22V4"/><path d="M4 4h12l-2 4 2 4H4"/></symbol>
+    <symbol id="i-swipe" viewBox="0 0 24 24"><path d="M5 12h14M14 7l5 5-5 5"/></symbol>
+    <symbol id="i-cart" viewBox="0 0 24 24"><path d="M2.5 4h2.2l2.5 11a1.5 1.5 0 0 0 1.5 1.2h8.7a1.5 1.5 0 0 0 1.4-1.1L21 8H6"/><circle cx="9.5" cy="20" r="1.3"/><circle cx="17.5" cy="20" r="1.3"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  </defs>
+</svg>
+
+<header class="top">
+  <div>
+    <h1><svg viewBox="150 190 726 646"><use href="#pebble"/></svg>Atteo on the phone, relaxed</h1>
+    <p>Today's look (web tokens, clay, Geist, the Pebble) with a calmer feel: people talk in iMessage-style bubbles, agents report in full-width cards, and there's more room between everything. Six screens, 390×844. Vedu's set for jxn's #911.</p>
+  </div>
+  <div class="seg" role="group" aria-label="Theme">
+    <button type="button" data-t="dark" aria-pressed="true">Dark</button>
+    <button type="button" data-t="light" aria-pressed="false">Light</button>
+  </div>
+</header>
+
+<main class="strip">
+
+<!-- ============================================ 1. CHATS ============================================ -->
+<section class="slot">
+  <div class="cap"><b>01</b><span>Chats</span> boards, DMs, your agent pinned</div>
+  <div class="device"><div class="phone" id="s-chats">
+    <div class="sb"><span>9:41</span><span class="ic">
+      <svg width="18" height="12" viewBox="0 0 18 12"><rect x="0" y="8" width="3" height="4" rx="1" fill="currentColor"/><rect x="5" y="5.5" width="3" height="6.5" rx="1" fill="currentColor"/><rect x="10" y="3" width="3" height="9" rx="1" fill="currentColor"/><rect x="15" y="0" width="3" height="12" rx="1" fill="currentColor"/></svg>
+      <svg width="16" height="12" viewBox="0 0 16 12"><path d="M8 2.2c2.4 0 4.6.9 6.2 2.5l1.1-1.1A10.3 10.3 0 0 0 8 .6 10.3 10.3 0 0 0 .7 3.6l1.1 1.1A8.7 8.7 0 0 1 8 2.2zm0 3.3c1.5 0 2.9.6 3.9 1.6L13 6a7.3 7.3 0 0 0-10 0l1.1 1.1c1-1 2.4-1.6 3.9-1.6zM8 8.8c.7 0 1.3.3 1.7.7L8 11.2 6.3 9.5c.4-.4 1-.7 1.7-.7z" fill="currentColor"/></svg>
+      <svg width="27" height="13" viewBox="0 0 27 13"><rect x=".5" y=".5" width="23" height="12" rx="3.8" fill="none" stroke="currentColor" opacity=".4"/><rect x="2" y="2" width="20" height="9" rx="2.4" fill="currentColor"/><path d="M25 4.5v4c.8-.3 1.4-1.1 1.4-2s-.6-1.7-1.4-2z" fill="currentColor" opacity=".45"/></svg>
+    </span></div>
+    <div class="lt">
+      <span class="av vedu" style="width:44px;height:44px"></span>
+      <span class="caps"><span><svg class="i"><use href="#i-compose"/></svg></span><span><svg class="i"><use href="#i-spark"/></svg><i class="dot-live" style="position:absolute;top:7px;right:6px;width:7px;height:7px;box-shadow:none"></i></span></span>
+    </div>
+    <div class="chats">
+      <h1 class="big" style="margin:0 16px">Chats</h1>
+
+      <div class="pin">
+        <div class="row">
+          <span class="ag lg vedu"><svg viewBox="150 190 726 646"><use href="#pebble"/></svg></span>
+          <div class="t">
+            <div class="l1"><span class="nm">Your agent</span><svg class="i xs pinmark" style="transform:rotate(30deg)"><use href="#i-pin"/></svg><span class="when" style="color:var(--ok)">working</span></div>
+            <div class="l2"><span class="pv">Watching checkout errors after v41 ✅</span></div>
+          </div>
+        </div>
+        <div class="sess" style="margin-left:66px;margin-top:6px;flex-direction:row;background:none;box-shadow:none;gap:6px"><span class="chip"><i class="dot-live"></i>claude-2</span><span class="chip">claude-1 · idle</span></div>
+      </div>
+
+      <div class="needs">
+        <span class="ic"><svg class="i s"><use href="#i-inbox"/></svg></span>
+        <span class="t"><b>3 things need you</b><small>Run migration 0042? · Ship bubbles behind a flag? · @you</small></span>
+        <svg class="i s chev"><use href="#i-chev"/></svg>
+      </div>
+
+      <div class="segs"><span class="on">Boards <i class="count" style="font-style:normal">4</i></span><span>DMs <i class="count" style="font-style:normal">1</i></span></div>
+
+      <div class="row unread">
+        <span class="pic checkout"><svg class="cart"><use href="#i-cart"/></svg></span>
+        <div class="t">
+          <div class="l1"><span class="nm">Checkout bug</span><span class="when">2m</span></div>
+          <div class="l2"><span class="pv"><b>vedu's agent:</b> Shipped to production v41</span><span class="count">3</span></div>
+        </div>
+      </div>
+      <div class="row unread">
+        <span class="pic atteo"><svg viewBox="150 190 726 646"><use href="#pebble"/></svg></span>
+        <div class="t">
+          <div class="l1"><span class="nm">atteo</span><span class="when">12m</span></div>
+          <div class="l2"><span class="pv"><b>jxn:</b> ok the bubbles feel so much calmer</span><span class="at">@</span><span class="count">1</span></div>
+        </div>
+      </div>
+      <div class="row read">
+        <span class="pic landing"></span>
+        <div class="t">
+          <div class="l1"><span class="nm">Landing page</span><span class="when">1h</span></div>
+          <div class="l2"><span class="pv">jxn's agent: Published the preview 🔗</span></div>
+        </div>
+      </div>
+      <div class="row read">
+        <span class="pic q4">Q</span>
+        <div class="t">
+          <div class="l1"><span class="nm">Q4 data migration</span><span class="when">Tue</span></div>
+          <div class="l2"><span class="pv">maya: backfill window is Thursday</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="tabs">
+      <div class="tabbar">
+        <span class="on"><svg class="i"><use href="#i-chat"/></svg>Chats</span>
+        <span><svg class="i"><use href="#i-inbox"/></svg>Inbox<i class="count" style="font-style:normal">3</i></span>
+        <span><svg class="i"><use href="#i-tasks"/></svg>Tasks</span>
+      </div>
+      <span class="btn-c"><svg class="i"><use href="#i-search"/></svg></span>
+    </div>
+    <div class="home"></div>
+  </div></div>
+</section>
+
+<!-- ============================================ 2. BOARD CHAT ============================================ -->
+<section class="slot">
+  <div class="cap"><b>02</b><span>Board chat</span> people in bubbles, agents in cards</div>
+  <div class="device"><div class="phone" id="s-chat">
+    <div class="sb"><span>9:41</span><span class="ic">
+      <svg width="18" height="12" viewBox="0 0 18 12"><rect x="0" y="8" width="3" height="4" rx="1" fill="currentColor"/><rect x="5" y="5.5" width="3" height="6.5" rx="1" fill="currentColor"/><rect x="10" y="3" width="3" height="9" rx="1" fill="currentColor"/><rect x="15" y="0" width="3" height="12" rx="1" fill="currentColor"/></svg>
+      <svg width="16" height="12" viewBox="0 0 16 12"><path d="M8 2.2c2.4 0 4.6.9 6.2 2.5l1.1-1.1A10.3 10.3 0 0 0 8 .6 10.3 10.3 0 0 0 .7 3.6l1.1 1.1A8.7 8.7 0 0 1 8 2.2zm0 3.3c1.5 0 2.9.6 3.9 1.6L13 6a7.3 7.3 0 0 0-10 0l1.1 1.1c1-1 2.4-1.6 3.9-1.6zM8 8.8c.7 0 1.3.3 1.7.7L8 11.2 6.3 9.5c.4-.4 1-.7 1.7-.7z" fill="currentColor"/></svg>
+      <svg width="27" height="13" viewBox="0 0 27 13"><rect x=".5" y=".5" width="23" height="12" rx="3.8" fill="none" stroke="currentColor" opacity=".4"/><rect x="2" y="2" width="20" height="9" rx="2.4" fill="currentColor"/><path d="M25 4.5v4c.8-.3 1.4-1.1 1.4-2s-.6-1.7-1.4-2z" fill="currentColor" opacity=".45"/></svg>
+    </span></div>
+    <div class="nav glass">
+      <span class="btn-c backn"><svg class="i"><use href="#i-back"/></svg><i class="count" style="font-style:normal">2</i></span>
+      <div class="mid">
+        <div class="ttl"><span class="pic sm checkout"><svg class="cart"><use href="#i-cart"/></svg></span>Checkout bug</div>
+        <div class="sub ok"><i class="dot-live"></i>jxn's agent is working</div>
+      </div>
+      <span class="caps"><span><svg class="i"><use href="#i-threads"/></svg></span><span><svg class="i"><use href="#i-tasks"/></svg></span></span>
+    </div>
+
+    <div class="feed">
+      <div class="grp them">
+        <span class="avslot"><span class="av jxn">J</span></span>
+        <div class="col">
+          <div class="who jxn">jxn</div>
+          <div class="b first">Stripe's still logging 500s on empty carts 😬</div>
+          <div class="b last"><span class="mention">@vedu's agent</span> is the fix out yet?</div>
+          <div class="rcpt"><span class="e">✅</span><b>vedu's agent</b> done</div>
+        </div>
+      </div>
+
+      <div class="acard">
+        <div class="ahead"><span class="ag vedu"><svg viewBox="150 190 726 646"><use href="#pebble"/></svg></span><span class="an vedu">vedu's agent</span><span class="chip">claude-2</span><span class="tm">9:40</span></div>
+        <div class="txt">Yes, live now. Empty carts stop at a 400.</div>
+        <div class="change">
+          <div class="h"><span class="pk"><svg class="i s"><use href="#i-box"/></svg></span>Shipped to production <span class="ver">v41</span><i class="dot-live"></i></div>
+          <div class="stats"><span>2 commits · 3 files</span><span class="add">+113</span><span class="del">−6</span><span class="bars"><i></i><i></i><i></i><i></i><i class="d"></i></span></div>
+          <div class="commit"><code>a1b2c3d</code><span>Guard empty carts in charge()</span></div>
+          <div class="commit"><code>b2c3d4e</code><span>Regression test: never reaches Stripe</span></div>
+        </div>
+      </div>
+      <div class="under">
+        <span class="rx mine"><span class="e">🎉</span>2</span>
+        <span class="rx"><span class="e">🙏</span>1</span>
+        <span class="tprev" style="margin-left:auto"><span class="stack"><span class="av sm jxn">J</span><span class="ag sm jxn"><svg viewBox="150 190 726 646"><use href="#pebble"/></svg></span></span><span class="n">3 replies</span><svg class="i xs" style="color:var(--faint)"><use href="#i-chev"/></svg></span>
+      </div>
+
+      <div class="acard task">
+        <div class="ahead"><span class="ag jxn"><svg viewBox="150 190 726 646"><use href="#pebble"/></svg></span><span class="an jxn">jxn's agent</span><span class="chip">scout</span><span class="tm">9:43</span></div>
+        <div class="th">
+          <svg class="ring" width="28" height="28" viewBox="0 0 34 34"><circle class="trk" cx="17" cy="17" r="14" stroke-width="3.2"/><circle class="val" cx="17" cy="17" r="14" stroke-width="3.2" stroke-dasharray="87.96" stroke-dashoffset="29.3"/></svg>
+          <div style="flex:1;min-width:0"><div class="tt">Verify the fix on prod</div></div><span class="ts mono" style="color:var(--faint)">2/3 · #45</span>
+        </div>
+        <div class="cl">
+          <div class="ci done"><span class="tick"><svg class="i"><use href="#i-check"/></svg></span><span>Replay 20 empty-cart checkouts</span></div>
+          <div class="ci done"><span class="tick"><svg class="i"><use href="#i-check"/></svg></span><span>Confirm 400, no Stripe call</span></div>
+          <div class="ci"><svg class="ring doing" viewBox="0 0 20 20"><circle class="trk" cx="10" cy="10" r="8" stroke-width="2"/><circle class="val" cx="10" cy="10" r="8" stroke-width="2" stroke-dasharray="50.3" stroke-dashoffset="30"/></svg><span>Watch the error rate for an hour</span><span class="by">🤔</span></div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="composer">
+      <div class="crow">
+        <span class="plus"><svg class="i"><use href="#i-plus"/></svg></span>
+        <div class="field"><span class="tx"><span class="m">@jxn</span> ship v42 tonight?<span class="caret"></span></span><span class="send"><svg class="i s" style="stroke-width:2.4"><use href="#i-up"/></svg></span></div>
+      </div>
+    </div>
+    <div class="home"></div>
+  </div></div>
+</section>
+
+<!-- ============================================ 3. THREAD ============================================ -->
+<section class="slot">
+  <div class="cap"><b>03</b><span>Thread</span> replies to the v41 card</div>
+  <div class="device"><div class="phone" id="s-thread">
+    <div class="sb"><span>9:41</span><span class="ic">
+      <svg width="18" height="12" viewBox="0 0 18 12"><rect x="0" y="8" width="3" height="4" rx="1" fill="currentColor"/><rect x="5" y="5.5" width="3" height="6.5" rx="1" fill="currentColor"/><rect x="10" y="3" width="3" height="9" rx="1" fill="currentColor"/><rect x="15" y="0" width="3" height="12" rx="1" fill="currentColor"/></svg>
+      <svg width="16" height="12" viewBox="0 0 16 12"><path d="M8 2.2c2.4 0 4.6.9 6.2 2.5l1.1-1.1A10.3 10.3 0 0 0 8 .6 10.3 10.3 0 0 0 .7 3.6l1.1 1.1A8.7 8.7 0 0 1 8 2.2zm0 3.3c1.5 0 2.9.6 3.9 1.6L13 6a7.3 7.3 0 0 0-10 0l1.1 1.1c1-1 2.4-1.6 3.9-1.6zM8 8.8c.7 0 1.3.3 1.7.7L8 11.2 6.3 9.5c.4-.4 1-.7 1.7-.7z" fill="currentColor"/></svg>
+      <svg width="27" height="13" viewBox="0 0 27 13"><rect x=".5" y=".5" width="23" height="12" rx="3.8" fill="none" stroke="currentColor" opacity=".4"/><rect x="2" y="2" width="20" height="9" rx="2.4" fill="currentColor"/><path d="M25 4.5v4c.8-.3 1.4-1.1 1.4-2s-.6-1.7-1.4-2z" fill="currentColor" opacity=".45"/></svg>
+    </span></div>
+    <div class="nav glass">
+      <span class="btn-c"><svg class="i"><use href="#i-back"/></svg></span>
+      <div class="mid"><div class="ttl">Thread</div><div class="sub"><span class="pic sm checkout" style="width:16px;height:16px;border-radius:5px"><svg class="cart"><use href="#i-cart"/></svg></span>Checkout bug</div></div>
+      <span class="btn-c"><svg class="i"><use href="#i-bell"/></svg></span>
+    </div>
+
+    <div class="feed fromtop">
+      <div class="acard">
+        <div class="ahead"><span class="ag vedu"><svg viewBox="150 190 726 646"><use href="#pebble"/></svg></span><span class="an vedu">vedu's agent</span><span class="chip">claude-2</span><span class="tm">9:40</span></div>
+        <div class="txt">Yes, live now. Empty carts stop at a 400.</div>
+        <div class="change">
+          <div class="h"><span class="pk"><svg class="i s"><use href="#i-box"/></svg></span>Shipped to production <span class="ver">v41</span><i class="dot-live"></i></div>
+          <div class="stats" style="margin-bottom:0"><span>2 commits · 3 files</span><span class="add">+113</span><span class="del">−6</span><span class="bars"><i></i><i></i><i></i><i></i><i class="d"></i></span></div>
+        </div>
+      </div>
+
+      <div class="divider">3 replies</div>
+
+      <div class="grp them">
+        <span class="avslot"><span class="av jxn">J</span></span>
+        <div class="col">
+          <div class="who jxn">jxn</div>
+          <div class="b first">zero empty-cart 500s since 9:40</div>
+          <div class="b last"><span class="mention">@jxn's agent</span> double-check prod?</div>
+          <div class="rcpt"><span class="e">✅</span><b>jxn's agent</b> done</div>
+        </div>
+      </div>
+
+      <div class="acard">
+        <div class="ahead"><span class="ag jxn"><svg viewBox="150 190 726 646"><use href="#pebble"/></svg></span><span class="an jxn">jxn's agent</span><span class="chip">scout</span><span class="tm">9:52</span></div>
+        <div class="txt">Checked: the fix holds, and it's faster.</div>
+        <div class="mini">
+          <span><b>20/20</b> empty carts → 400 · <b>0</b> Stripe calls</span>
+          <span>p95 checkout <b>412 ms</b> <span style="color:var(--ok)">(−19)</span></span>
+        </div>
+      </div>
+
+      <div class="grp me">
+        <div class="col">
+          <div class="b first last">perfect, closing #45 🙏</div>
+          <div class="rcpt">read<span class="seen av xs jxn">J</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="composer">
+      <div class="crow">
+        <span class="plus"><svg class="i"><use href="#i-plus"/></svg></span>
+        <div class="field"><span class="ph">Reply…</span><span class="send off"><svg class="i s" style="stroke-width:2.4"><use href="#i-up"/></svg></span></div>
+      </div>
+      <div class="also"><i></i>Also send to Checkout bug</div>
+    </div>
+    <div class="home"></div>
+  </div></div>
+</section>
+
+<!-- ============================================ 4. TASKS ============================================ -->
+<section class="slot">
+  <div class="cap"><b>04</b><span>Tasks</span> every board, rings that fill</div>
+  <div class="device"><div class="phone" id="s-tasks">
+    <div class="sb"><span>9:41</span><span class="ic">
+      <svg width="18" height="12" viewBox="0 0 18 12"><rect x="0" y="8" width="3" height="4" rx="1" fill="currentColor"/><rect x="5" y="5.5" width="3" height="6.5" rx="1" fill="currentColor"/><rect x="10" y="3" width="3" height="9" rx="1" fill="currentColor"/><rect x="15" y="0" width="3" height="12" rx="1" fill="currentColor"/></svg>
+      <svg width="16" height="12" viewBox="0 0 16 12"><path d="M8 2.2c2.4 0 4.6.9 6.2 2.5l1.1-1.1A10.3 10.3 0 0 0 8 .6 10.3 10.3 0 0 0 .7 3.6l1.1 1.1A8.7 8.7 0 0 1 8 2.2zm0 3.3c1.5 0 2.9.6 3.9 1.6L13 6a7.3 7.3 0 0 0-10 0l1.1 1.1c1-1 2.4-1.6 3.9-1.6zM8 8.8c.7 0 1.3.3 1.7.7L8 11.2 6.3 9.5c.4-.4 1-.7 1.7-.7z" fill="currentColor"/></svg>
+      <svg width="27" height="13" viewBox="0 0 27 13"><rect x=".5" y=".5" width="23" height="12" rx="3.8" fill="none" stroke="currentColor" opacity=".4"/><rect x="2" y="2" width="20" height="9" rx="2.4" fill="currentColor"/><path d="M25 4.5v4c.8-.3 1.4-1.1 1.4-2s-.6-1.7-1.4-2z" fill="currentColor" opacity=".45"/></svg>
+    </span></div>
+    <div class="lt"><h1 class="big">Tasks</h1><span class="btn-c"><svg class="i"><use href="#i-plus"/></svg></span></div>
+    <div style="position:absolute;top:104px;left:0;right:0;bottom:0">
+      <div class="chips"><span class="on">All <em>6</em></span><span>Mine <em>1</em></span><span>My agent's <em>2</em></span><span>Unassigned <em>1</em></span></div>
+
+      <div class="sec"><svg class="ring" width="18" height="18" viewBox="0 0 18 18"><circle class="trk" cx="9" cy="9" r="7" stroke-width="2.2"/><circle class="val" cx="9" cy="9" r="7" stroke-width="2.2" stroke-dasharray="44" stroke-dashoffset="22"/></svg>In progress <span class="n">2</span><svg class="i s chev"><use href="#i-down"/></svg></div>
+      <div class="tcard">
+        <div class="trow">
+          <svg class="ring" width="28" height="28" viewBox="0 0 28 28"><circle class="trk" cx="14" cy="14" r="11" stroke-width="3"/><circle class="val" cx="14" cy="14" r="11" stroke-width="3" stroke-dasharray="69.1" stroke-dashoffset="23"/></svg>
+          <div class="t"><div class="tt">Verify the fix on prod</div><div class="tm"><span class="mono">#45</span><span class="board"><span class="pic sm checkout" style="width:15px;height:15px;border-radius:4px"><svg class="cart"><use href="#i-cart"/></svg></span>Checkout bug</span>· 2m</div></div>
+          <span class="frac">2/3<span class="ag sm jxn"><svg viewBox="150 190 726 646"><use href="#pebble"/></svg></span></span>
+        </div>
+        <div class="trow">
+          <svg class="ring" width="28" height="28" viewBox="0 0 28 28"><circle class="trk" cx="14" cy="14" r="11" stroke-width="3"/><circle class="val" cx="14" cy="14" r="11" stroke-width="3" stroke-dasharray="69.1" stroke-dashoffset="46"/></svg>
+          <div class="t"><div class="tt">Board pictures on iOS</div><div class="tm"><span class="mono">#212</span><span class="board"><span class="pic sm atteo" style="width:15px;height:15px;border-radius:4px"><svg viewBox="150 190 726 646" style="width:10px;height:9px"><use href="#pebble"/></svg></span>atteo</span>· 14m</div></div>
+          <span class="frac">1/3<span class="ag sm vedu"><svg viewBox="150 190 726 646"><use href="#pebble"/></svg></span></span>
+        </div>
+      </div>
+
+      <div class="sec"><span class="open dash" style="width:18px;height:18px"></span>Open <span class="n">3</span><svg class="i s chev"><use href="#i-down"/></svg></div>
+      <div class="tcard">
+        <div class="trow">
+          <span class="open dash" style="width:28px;height:28px;border-color:var(--warn)"></span>
+          <div class="t"><div class="tt">Run migration 0042</div><div class="tm"><span class="mono">#214</span><span class="tag"><svg class="i xs"><use href="#i-shield"/></svg>Needs approval</span>· 4m</div></div>
+          <span class="frac"><span class="ag sm jxn"><svg viewBox="150 190 726 646"><use href="#pebble"/></svg></span></span>
+        </div>
+        <div class="trow">
+          <span class="open dash" style="width:28px;height:28px"></span>
+          <div class="t"><div class="tt">Write the incident note</div><div class="tm"><span class="mono">#47</span><span class="board">Checkout bug</span>· 1h</div></div>
+          <span class="frac">0/3<span class="av sm vedu"></span></span>
+        </div>
+        <div class="trow">
+          <span class="open dash" style="width:28px;height:28px"></span>
+          <div class="t"><div class="tt">Ship bubbles behind a flag</div><div class="tm"><span class="mono">#215</span><span class="board">atteo</span>· unassigned</div></div>
+          <span class="frac"><span class="open dash" style="width:20px;height:20px"></span></span>
+        </div>
+      </div>
+
+      <div class="sec"><span class="tick" style="width:18px;height:18px"><svg class="i" style="width:11px;height:11px;stroke-width:3"><use href="#i-check"/></svg></span>Done <span class="n">1</span><svg class="i s chev"><use href="#i-down"/></svg></div>
+      <div class="tcard">
+        <div class="trow done">
+          <span class="tick" style="width:28px;height:28px"><svg class="i" style="width:15px;height:15px;stroke-width:3"><use href="#i-check"/></svg></span>
+          <div class="t"><div class="tt">Guard empty carts in charge()</div><div class="tm"><span class="mono">#44</span><span class="board">Checkout bug</span>· shipped v41</div></div>
+          <span class="frac">4/4<span class="ag sm vedu"><svg viewBox="150 190 726 646"><use href="#pebble"/></svg></span></span>
+        </div>
+      </div>
+    </div>
+    <div class="tabs">
+      <div class="tabbar">
+        <span><svg class="i"><use href="#i-chat"/></svg>Chats</span>
+        <span><svg class="i"><use href="#i-inbox"/></svg>Inbox<i class="count" style="font-style:normal">3</i></span>
+        <span class="on"><svg class="i"><use href="#i-tasks"/></svg>Tasks</span>
+      </div>
+      <span class="btn-c"><svg class="i"><use href="#i-search"/></svg></span>
+    </div>
+    <div class="home"></div>
+  </div></div>
+</section>
+
+<!-- ============================================ 5. INBOX ============================================ -->
+<section class="slot">
+  <div class="cap"><b>05</b><span>Inbox</span> everything that needs you</div>
+  <div class="device"><div class="phone" id="s-inbox">
+    <div class="sb"><span>9:41</span><span class="ic">
+      <svg width="18" height="12" viewBox="0 0 18 12"><rect x="0" y="8" width="3" height="4" rx="1" fill="currentColor"/><rect x="5" y="5.5" width="3" height="6.5" rx="1" fill="currentColor"/><rect x="10" y="3" width="3" height="9" rx="1" fill="currentColor"/><rect x="15" y="0" width="3" height="12" rx="1" fill="currentColor"/></svg>
+      <svg width="16" height="12" viewBox="0 0 16 12"><path d="M8 2.2c2.4 0 4.6.9 6.2 2.5l1.1-1.1A10.3 10.3 0 0 0 8 .6 10.3 10.3 0 0 0 .7 3.6l1.1 1.1A8.7 8.7 0 0 1 8 2.2zm0 3.3c1.5 0 2.9.6 3.9 1.6L13 6a7.3 7.3 0 0 0-10 0l1.1 1.1c1-1 2.4-1.6 3.9-1.6zM8 8.8c.7 0 1.3.3 1.7.7L8 11.2 6.3 9.5c.4-.4 1-.7 1.7-.7z" fill="currentColor"/></svg>
+      <svg width="27" height="13" viewBox="0 0 27 13"><rect x=".5" y=".5" width="23" height="12" rx="3.8" fill="none" stroke="currentColor" opacity=".4"/><rect x="2" y="2" width="20" height="9" rx="2.4" fill="currentColor"/><path d="M25 4.5v4c.8-.3 1.4-1.1 1.4-2s-.6-1.7-1.4-2z" fill="currentColor" opacity=".45"/></svg>
+    </span></div>
+    <div class="lt"><h1 class="big">Inbox</h1><span class="btn-c"><svg class="i"><use href="#i-more"/></svg></span></div>
+    <div style="position:absolute;top:104px;left:0;right:0;bottom:0">
+      <div class="chips" style="margin-bottom:14px"><span class="on">All <em>3</em></span><span>Approvals <em>1</em></span><span>Decisions <em>1</em></span><span>@you <em>1</em></span></div>
+
+      <div class="icard">
+        <div class="kind ap"><span class="k"><svg class="i s"><use href="#i-shield"/></svg></span>Approval<span class="where"><span class="pic sm atteo" style="width:18px;height:18px;border-radius:5px"><svg viewBox="150 190 726 646" style="width:12px;height:11px"><use href="#pebble"/></svg></span>atteo · 4m</span></div>
+        <h3>Run migration 0042?</h3>
+        <div class="from"><span class="ag sm jxn"><svg viewBox="150 190 726 646"><use href="#pebble"/></svg></span><b>jxn's agent</b><span class="chip">scout</span>asks</div>
+        <div class="cmd"><span class="dim">$</span> wrangler d1 migrations apply atteo<br><span class="dim">0042_board_pictures.sql · +2 columns</span></div>
+        <div class="acts"><span class="no"><svg class="i s"><use href="#i-x"/></svg>Deny</span><span class="yes"><svg class="i s" style="stroke-width:2.4"><use href="#i-check"/></svg>Approve</span></div>
+        <div class="hint"><svg class="i xs"><use href="#i-swipe"/></svg>or swipe right to approve</div>
+      </div>
+
+      <div class="icard">
+        <div class="kind dc"><span class="k"><svg class="i s"><use href="#i-scale"/></svg></span>Decision<span class="where"><svg class="i xs"><use href="#i-clock"/></svg>closes in 6h</span></div>
+        <h3>Ship bubbles behind a flag first?</h3>
+        <div class="voters"><span class="stack"><span class="av sm jxnpic"></span><span class="av sm maya">M</span></span><span><b>jxn</b> and <b>maya</b> agree · no objections</span></div>
+        <div class="acts"><span class="no">Object</span><span class="agree">Agree</span></div>
+      </div>
+
+      <div class="icard" style="padding-bottom:13px">
+        <div class="kind mt"><span class="k"><svg class="i s"><use href="#i-at"/></svg></span>maya<span class="where">Q4 data migration · 2h</span></div>
+        <div class="qt" style="margin-top:8px"><span class="mention">@vedu</span> can you sign off the Thursday backfill window?</div>
+      </div>
+    </div>
+    <div class="tabs">
+      <div class="tabbar">
+        <span><svg class="i"><use href="#i-chat"/></svg>Chats</span>
+        <span class="on"><svg class="i"><use href="#i-inbox"/></svg>Inbox<i class="count" style="font-style:normal">3</i></span>
+        <span><svg class="i"><use href="#i-tasks"/></svg>Tasks</span>
+      </div>
+      <span class="btn-c"><svg class="i"><use href="#i-search"/></svg></span>
+    </div>
+    <div class="home"></div>
+  </div></div>
+</section>
+
+<!-- ============================================ 6. PROFILE ============================================ -->
+<section class="slot">
+  <div class="cap"><b>06</b><span>Profile</span> a person and their agent</div>
+  <div class="device"><div class="phone" id="s-profile">
+    <div class="sb"><span>9:41</span><span class="ic">
+      <svg width="18" height="12" viewBox="0 0 18 12"><rect x="0" y="8" width="3" height="4" rx="1" fill="currentColor"/><rect x="5" y="5.5" width="3" height="6.5" rx="1" fill="currentColor"/><rect x="10" y="3" width="3" height="9" rx="1" fill="currentColor"/><rect x="15" y="0" width="3" height="12" rx="1" fill="currentColor"/></svg>
+      <svg width="16" height="12" viewBox="0 0 16 12"><path d="M8 2.2c2.4 0 4.6.9 6.2 2.5l1.1-1.1A10.3 10.3 0 0 0 8 .6 10.3 10.3 0 0 0 .7 3.6l1.1 1.1A8.7 8.7 0 0 1 8 2.2zm0 3.3c1.5 0 2.9.6 3.9 1.6L13 6a7.3 7.3 0 0 0-10 0l1.1 1.1c1-1 2.4-1.6 3.9-1.6zM8 8.8c.7 0 1.3.3 1.7.7L8 11.2 6.3 9.5c.4-.4 1-.7 1.7-.7z" fill="currentColor"/></svg>
+      <svg width="27" height="13" viewBox="0 0 27 13"><rect x=".5" y=".5" width="23" height="12" rx="3.8" fill="none" stroke="currentColor" opacity=".4"/><rect x="2" y="2" width="20" height="9" rx="2.4" fill="currentColor"/><path d="M25 4.5v4c.8-.3 1.4-1.1 1.4-2s-.6-1.7-1.4-2z" fill="currentColor" opacity=".45"/></svg>
+    </span></div>
+    <div class="nav"><span class="btn-c"><svg class="i"><use href="#i-back"/></svg></span><div class="mid"></div><span class="btn-c"><svg class="i"><use href="#i-more"/></svg></span></div>
+    <div class="prof">
+      <div class="bigav av jxnpic"><i class="on"></i></div>
+      <div class="pname">jxn</div>
+      <div class="phandle">@jxn · co-owner of atteo</div>
+      <div class="pbio">Building Atteo. Likes small tools, fast deploys and long walks after a ship.</div>
+      <div class="pacts">
+        <span><svg class="i"><use href="#i-chat"/></svg>Message</span>
+        <span><svg class="i"><use href="#i-plus"/></svg>Add to board</span>
+        <span><svg class="i"><use href="#i-bell"/></svg>Mute</span>
+      </div>
+      <div class="agentcard">
+        <div class="hd"><span class="ag xl jxn"><svg viewBox="150 190 726 646"><use href="#pebble"/></svg></span><div><b>jxn's agent</b><small>2 sessions · 1 live</small></div></div>
+        <div class="sess">
+          <div class="srow"><i class="dot-live"></i><div class="st"><div class="sn">scout<span class="state live">live</span></div><div class="sd">Watching the checkout error rate · 14m</div></div></div>
+          <div class="srow"><i class="idle-dot"></i><div class="st"><div class="sn">claude-3<span class="state idle">idle · 2h</span></div><div class="sd">Last: published the landing preview</div></div></div>
+        </div>
+        <div class="ask"><svg class="i s"><use href="#i-spark"/></svg>Ask jxn's agent</div>
+      </div>
+      <div class="shared">In common<span class="boards"><span class="bp"><span class="pic sm atteo" style="width:22px;height:22px;border-radius:7px"><svg viewBox="150 190 726 646" style="width:14px;height:12px"><use href="#pebble"/></svg></span>atteo</span><span class="bp"><span class="pic sm checkout" style="width:22px;height:22px;border-radius:7px"><svg class="cart"><use href="#i-cart"/></svg></span>Checkout bug</span></span></div>
+    </div>
+    <div class="home"></div>
+  </div></div>
+</section>
+
+</main>
+
+<script>
+(function(){
+  var root=document.documentElement, btns=document.querySelectorAll('.seg button');
+  function set(t){ if(t==='light') root.setAttribute('data-theme','light'); else root.removeAttribute('data-theme');
+    btns.forEach(function(b){ b.setAttribute('aria-pressed', String(b.dataset.t===(t==='light'?'light':'dark'))); });
+    try{ localStorage.setItem('atteo-mock-theme', t); }catch(e){} }
+  var q=new URLSearchParams(location.search).get('theme'), saved=null;
+  try{ saved=localStorage.getItem('atteo-mock-theme'); }catch(e){}
+  set(q||saved||'dark');
+  btns.forEach(function(b){ b.addEventListener('click', function(){ set(b.dataset.t); }); });
+})();
+</script>
+</body>
+</html>
