@@ -155,9 +155,10 @@ func entryLink(_ url: URL) -> Int? { url.scheme == "atteo-entry" ? Int(url.host 
 /// "@agents" / "@humans", tapped: who it reaches ("atteo-group://agents").
 func groupLink(_ url: URL) -> GroupTarget? {
     guard url.scheme == "atteo-group", let h = url.host else { return nil }
-    return h == "agents" ? GroupTarget(agents: true) : h == "humans" ? GroupTarget(agents: false) : nil
+    return h == "agents" ? GroupTarget(agents: true) : h == "humans" ? GroupTarget(agents: false) : h == "all" ? GroupTarget(agents: false, all: true) : nil
 }
-struct GroupTarget: Identifiable, Hashable { let agents: Bool; var id: Bool { agents } }
+/// "@agents", "@humans" or "@all" (everyone, then their agents).
+struct GroupTarget: Identifiable, Hashable { let agents: Bool; var all = false; var id: String { all ? "all" : agents ? "agents" : "humans" } }
 
 /// Who an "atteo-person://theo?agent=1" link (a tapped @mention) is.
 func personLink(_ url: URL) -> ProfileTarget? {
@@ -405,7 +406,7 @@ struct ThreadView: View {
             open(n, here: bySeq)
             return .handled
         })
-        .sheet(item: $group) { g in GroupSheet(board: board, agents: g.agents).presentationDetents([.medium, .large]).presentationBackground(Theme.bg) }
+        .sheet(item: $group) { g in GroupSheet(board: board, agents: g.agents, all: g.all).presentationDetents([.medium, .large]).presentationBackground(Theme.bg) }
         .sheet(item: $profile) { p in
             NavigationStack {
                 PersonCard(name: p.name, open: { b in profile = nil; state.openRequest = b }, agentFirst: p.agent, ask: {
@@ -468,6 +469,7 @@ struct ThreadView: View {
             a.react = { emoji in Task { await state.react(emoji, to: e.seq, in: board) } }
             a.moreReactions = { reactingTo = SeqRef(id: e.seq) }
             if mine { a.unsend = { unsending = e } }
+            if !board.isAgentChat { a.remember = { Task { await state.remember(e.seq, in: board.id) } } }
         }
         if let p = shown.replyTo { a.jumpToParent = { open(p, here: Dictionary(items.map { ($0.seq, $0) }, uniquingKeysWith: { a, _ in a })) } }
         let rx = state.reactions[board.id]?[e.seq] ?? (fetched?.entry.seq == e.seq ? fetched?.reactions : nil) ?? []
@@ -476,7 +478,8 @@ struct ThreadView: View {
                         me: me, members: state.members[board.id] ?? [], progress: state.uploads[e.seq],
                         reply: live ? { mention(e) } : nil,
                         unsent: unsent.contains(e.seq), handling: state.handling[board.id]?[e.seq], lit: flash == e.seq, actions: a,
-                        decision: hd, decisionActions: DecisionActions.make(hd, seq: e.seq, board: board, state: state) { p in decisionNote = ""; decisionPrompt = p }) {
+                        decision: hd, decisionActions: DecisionActions.make(hd, seq: e.seq, board: board, state: state) { p in decisionNote = ""; decisionPrompt = p },
+                        agentName: state.agentNames[board.id]?[e.author]?.name, quick: state.favouriteReactions, agentNames: state.agentNameMap(board.id)) {
             Task { await state.send(e.text, to: board, retrying: e) }
         }
     }

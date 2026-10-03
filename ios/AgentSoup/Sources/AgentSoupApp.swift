@@ -13,6 +13,7 @@ struct AtteoApp: App {
                     if state.signedIn { ChatsView() } else { SignInView() }
                 }
             }
+            .modifier(ToastOverlay(state: state))
             .environmentObject(state)
             .tint(Theme.accent)
             .task(id: state.signedIn) { if state.signedIn { await state.refreshAll() } }

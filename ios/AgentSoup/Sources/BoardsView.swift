@@ -128,7 +128,7 @@ struct BoardView: View {
             jump(to: n)
             return .handled
         })
-        .sheet(item: $group) { g in GroupSheet(board: board, agents: g.agents).presentationDetents([.medium, .large]).presentationBackground(Theme.bg) }
+        .sheet(item: $group) { g in GroupSheet(board: board, agents: g.agents, all: g.all).presentationDetents([.medium, .large]).presentationBackground(Theme.bg) }
         .sheet(item: $seenBy) { r in SeenBySheet(receipt: r).environment(\.chatDensity, density).presentationDetents([.medium, .large]).presentationBackground(Theme.bg) }
         // Someone's card: Message opens your DM; "Ask theo's agent" starts a message to it here.
         .sheet(item: $profile) { p in
@@ -323,7 +323,8 @@ struct BoardView: View {
                         receipt: showReceipt ? receipt(for: e) : nil,
                         openReceipt: mine && live ? { if let r = receipt(for: e) { seenBy = r } } : nil,
                         actions: actions(for: e, mine: mine, live: live, r),
-                        decision: hd, decisionActions: DecisionActions.make(hd, seq: e.seq, board: board, state: state) { p in decisionNote = ""; decisionPrompt = p }) {
+                        decision: hd, decisionActions: DecisionActions.make(hd, seq: e.seq, board: board, state: state) { p in decisionNote = ""; decisionPrompt = p },
+                        agentName: state.agentNames[board.id]?[e.author]?.name, quick: state.favouriteReactions, agentNames: state.agentNameMap(board.id)) {
             Task { if e.local != nil || e.isMultiFile { await state.retryUpload(e, in: board) } else { await state.send(e.text, to: board, retrying: e) } }
         }
     }
@@ -341,6 +342,7 @@ struct BoardView: View {
                 a.toggleReceipt = { withAnimation(.snappy) { if openReceipts.contains(e.seq) { openReceipts.remove(e.seq) } else { openReceipts.insert(e.seq) } } }
             }
             if forMe(e) { a.takeOn = { Task { await state.takeOn(e.seq, in: board) } } }
+            if !board.isAgentChat { a.remember = { Task { await state.remember(e.seq, in: board.id) } } }
         }
         // A reply's quote bar: its thread, over the chat, on this reply (jxn #1040).
         if e.replyTo != nil, e.seq > 0 { let root = rootOf(e, in: r.bySeq); a.jumpToParent = { focused = false; thread = ThreadTarget(root: root, focus: e.seq) } }
@@ -517,6 +519,7 @@ struct Mentionable: Hashable {
     let handle: String // what goes after the "@"
     let user: String? // nil: a group
     let agent: Bool
+    var note: String? = nil // what it is, on the right ("vedu's agent" for "@Jarvis", "everyone and their agents")
 }
 
 /// What "@" suggests, just above the message box: a compact list, one tap to insert.
@@ -529,12 +532,12 @@ struct MentionList: View {
                 Button { pick(m) } label: {
                     HStack(spacing: 10) {
                         if let u = m.user { Avatar(name: u, agent: m.agent, size: 24) } else {
-                            Image(systemName: m.agent ? "sparkles" : "person.2.fill").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
+                            Image(systemName: m.agent ? "sparkles" : m.handle == "all" ? "person.3.fill" : "person.2.fill").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
                                 .frame(width: 24, height: 24).background(Theme.raised, in: Circle())
                         }
                         Text("@" + m.handle).font(Typo.secondary.weight(.medium)).foregroundStyle(Theme.text)
                         Spacer(minLength: Space.s)
-                        Text(m.user == nil ? (m.agent ? "every agent here" : "everyone here") : (m.agent ? "agent" : "person")).font(Typo.micro).foregroundStyle(Theme.faint)
+                        Text(m.note ?? (m.user == nil ? (m.agent ? "every agent here" : "everyone here") : (m.agent ? "agent" : "person"))).font(Typo.micro).foregroundStyle(Theme.faint).lineLimit(1)
                     }
                     .padding(.horizontal, Space.m).frame(minHeight: 40)
                     .contentShape(Rectangle())
@@ -590,6 +593,7 @@ struct EntryActions {
     var toggleReceipt: (() -> Void)? = nil // yours: show or hide who's seen it
     var takeOn: (() -> Void)? = nil // "On it", for a question or task for you
     var openProfile: ((String, Bool) -> Void)? = nil // tap a picture or a name: their card (agent: their agent's)
+    var remember: (() -> Void)? = nil // add it to the board's MEMORY (people)
 }
 
 struct EntryRow: View {
@@ -614,6 +618,9 @@ struct EntryRow: View {
     var actions = EntryActions()
     var decision: HumanDecision? = nil // a person's decision: where it stands, and your vote / close
     var decisionActions = DecisionActions()
+    var agentName: String? = nil // what its owner named this agent ("Jarvis"), if they did
+    var quick: [String] = defaultReactions // your favourite reactions, the row on top of the long-press menu (#1163)
+    var agentNames: [String: String] = [:] // named agents here, lowercased name → owner ("@Jarvis" in a message)
     var retry: () -> Void = {}
     @State var drag: CGFloat = 0 // swipe right to reply
     @Environment(\.chatDensity) private var density
@@ -623,10 +630,9 @@ struct EntryRow: View {
         density == .compact ? (grouped ? Space.xxs : Space.gap(density)) : (grouped ? Space.xs : comfortable)
     }
 
-    private var who: String { e.byAgent ? "\(e.author)'s agent" : e.author }
+    private var who: String { e.byAgent ? agentLabel(e.author, agentName ?? e.agentName) : e.author }
     private static let replyAt: CGFloat = 56
     private var replyAt: CGFloat { Self.replyAt }
-    static let quick = ["👍", "❤️", "😂", "🎉", "👀", "✅"]
 
     /// Agents' 👀 / ✅ are read receipts (the quiet line); everything else is a reaction chip.
     private var receipts: [Reaction] {
@@ -667,13 +673,16 @@ struct EntryRow: View {
             .contextMenu {
                 if let react = actions.react {
                     // A quick-reaction row, like any messenger (the palette holds six); every other emoji just under it.
+                    // Your favourites (up to 8) and "+" for every other emoji.
                     ControlGroup {
-                        ForEach(Self.quick, id: \.self) { q in Button { react(q) } label: { Text(q) } }
+                        ForEach(quick, id: \.self) { q in Button { react(q) } label: { Text(q) } }
+                        if let more = actions.moreReactions { Button(action: more) { Image(systemName: "plus") }.accessibilityLabel("More reactions") }
                     }
                     .controlGroupStyle(.palette)
                     .menuActionDismissBehavior(.enabled) // a palette stays open by default; picking one closes it
                 }
                 if let more = actions.moreReactions { Button("More reactions", systemImage: "face.smiling", action: more) }
+                if let remember = actions.remember { Button("Remember this", systemImage: "bookmark", action: remember) }
                 if let reply { Button("Reply", systemImage: "arrowshape.turn.up.left", action: reply) }
                 if let open = actions.openThread, !replies.isEmpty || e.replyTo != nil { Button("View thread", systemImage: "bubble.left.and.bubble.right", action: open) }
                 if let take = actions.takeOn, handling == nil { Button("On it", systemImage: "hand.raised", action: take) }
@@ -781,7 +790,7 @@ struct EntryRow: View {
             quote
             attachment
             if unsent { unsentBody } else if e.type == "change" { ChangeCardView(e: e, board: board) } else if let caption {
-                let m = caption.mentioned(e.mentions, members: members, me: me, refTitle: refTitle.callAsFunction)
+                let m = caption.mentioned(e.mentions, members: members, me: me, agentNames: agentNames, refTitle: refTitle.callAsFunction)
                 m.text.textRenderer(MentionBoxes())
                     .font(Typo.body).foregroundStyle(Theme.text.opacity(e.pending == true ? 0.55 : 1))
                     .accessibilityValue(m.handles.isEmpty ? "" : "Mentions " + m.handles.joined(separator: ", "))
@@ -844,7 +853,7 @@ struct EntryRow: View {
                 attachment.padding(.vertical, Space.xxs)
                 quote
                 if unsent { unsentBody } else if e.type == "change" { ChangeCardView(e: e, board: board).padding(.top, Space.xxs) } else if e.type == "task" { TaskCard(seq: e.seq, board: board, text: e.text, tasks: tasks).padding(.top, Space.xxs) } else if let caption {
-                    let m = caption.mentioned(e.mentions, members: members, me: me, refTitle: refTitle.callAsFunction)
+                    let m = caption.mentioned(e.mentions, members: members, me: me, agentNames: agentNames, refTitle: refTitle.callAsFunction)
                     m.text.textRenderer(MentionBoxes()).font(Typo.body).foregroundStyle(Theme.text.opacity(0.92)).lineSpacing(1.5)
                         .accessibilityValue(m.handles.isEmpty ? "" : "Mentions " + m.handles.joined(separator: ", "))
                 }

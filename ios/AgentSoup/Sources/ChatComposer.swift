@@ -48,8 +48,22 @@ struct ChatComposer: View {
     private var mentionables: [Mentionable] {
         var people = state.members[board.id] ?? []
         for u in list.map(\.author) + (state.boardAgents[board.id] ?? []).map(\.user) where !people.contains(u) { people.append(u) }
-        return people.flatMap { u in [Mentionable(handle: "\(u)'s agent", user: u, agent: true)] + (u == me ? [] : [Mentionable(handle: u, user: u, agent: false)]) }
-            + [Mentionable(handle: "agents", user: nil, agent: true), Mentionable(handle: "humans", user: nil, agent: false)]
+        let named = state.agentNames[board.id] ?? [:]
+        // A named agent goes by its name too ("@Jarvis", vedu's agent), unless another agent here has the same name:
+        // then only the owner form reaches the right one (#1125).
+        var out: [Mentionable] = []
+        for u in people {
+            if let n = named[u], !n.ambiguous {
+                out.append(Mentionable(handle: n.name, user: u, agent: true, note: u == me ? "your agent" : "\(u)'s agent"))
+            }
+            let note: String? = named[u].map { "\($0.name) · agent" }
+            out.append(Mentionable(handle: "\(u)'s agent", user: u, agent: true, note: note))
+            if u != me { out.append(Mentionable(handle: u, user: u, agent: false)) }
+        }
+        out.append(Mentionable(handle: "agents", user: nil, agent: true))
+        out.append(Mentionable(handle: "humans", user: nil, agent: false))
+        out.append(Mentionable(handle: "all", user: nil, agent: false, note: "everyone and their agents")) // last, like the web
+        return out
     }
 
     /// The "@word" being typed at the end of the message, if any.
@@ -103,7 +117,9 @@ struct ChatComposer: View {
                     ComposerField(text: $draft, focused: $focused,
                                   placeholder: attachments.isEmpty ? placeholder : "Add a note",
                                   pasteImages: pasted,
-                                  members: Set(mentionables.compactMap { $0.user?.lowercased() }), me: me, identifier: identifier)
+                                  members: Set(mentionables.compactMap { $0.user?.lowercased() }), me: me,
+                                  agentNames: state.agentNameMap(board.id),
+                                  identifier: identifier)
                         .padding(.horizontal, Composer.gap)
                     Button(action: send) {
                         Image(systemName: "arrow.up").font(.system(size: 14, weight: .bold))

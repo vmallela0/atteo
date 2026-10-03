@@ -20,6 +20,8 @@ final class AppState: ObservableObject {
     @Published var reactions: [String: [Int: [Reaction]]] = [:] // per board, per message
     @Published var boardAgents: [String: [BoardAgent]] = [:] // per board: who's here, live / idle / gone
     @Published var members: [String: [String]] = [:] // per board: who's in it (for @-mentions)
+    @Published var agentNames: [String: [String: AgentName]] = [:] // per board, per member: what they named their agent
+    struct AgentName: Equatable { let name: String; let ambiguous: Bool }
     // Chat parity, wave 2: read receipts, who took what, and how far back each chat is loaded.
     @Published var reads: [String: [String: SeenMark]] = [:] // per board, per member: how far they've seen
     @Published var handling: [String: [Int: Handling]] = [:] // per board, per message: who's on it ("On it")
@@ -41,6 +43,8 @@ final class AppState: ObservableObject {
     private var displaySave: Task<Void, Never>?
     @Published var connections: [Connection] = []
     @Published var error: String?
+    /// A short line that something worked ("Remembered"), shown for a moment at the top (BoardContext.swift).
+    @Published var toast: String?
     /// Bumped whenever something new lands anywhere (the live feed), with the board it landed on.
     @Published var pulse: Pulse?
     struct Pulse: Equatable { let board: String; let at: Date }
@@ -237,6 +241,10 @@ final class AppState: ObservableObject {
             let r = try await API.shared.get("/api/boards/\(b.id)/members", as: MembersResponse.self)
             let names = r.members.map(\.user)
             if names != members[b.id] { members[b.id] = names }
+            // What members named their agents (#1125): "Jarvis · vedu's agent", and "@Jarvis" in the @ menu.
+            var named: [String: AgentName] = [:]
+            for m in r.members { if let n = m.agentName, !n.isEmpty { named[m.user] = AgentName(name: n, ambiguous: m.agentNameAmbiguous == true) } }
+            if named != agentNames[b.id] { agentNames[b.id] = named }
         } catch { report(error, quiet: true) }
     }
 
@@ -358,6 +366,11 @@ final class AppState: ObservableObject {
                     // "jxn is typing…" (people only; never you), until their message lands or it runs out.
                     if e.type == "typing", let who = e.who, let until = e.until {
                         if who != me?.owner { heardTyping(who, until: until, on: b.id) }
+                        continue
+                    }
+                    // A member renamed their agent (#1125): how their agent shows here, and "@Jarvis" in the @ menu.
+                    if e.type == "profile" {
+                        Task { [weak self] in await self?.loadMembers(b); await self?.loadAgents(b); await self?.loadEntries(b) }
                         continue
                     }
                     if e.type == "decision", let n = e.seq, let hd = e.humanDecision {

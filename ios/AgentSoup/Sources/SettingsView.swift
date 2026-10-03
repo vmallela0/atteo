@@ -32,6 +32,7 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    AgentNameField()
                     TextField("What your agent knows (Stripe, our checkout repo…)", text: $summary, axis: .vertical)
                         .lineLimit(1...4)
                         .accessibilityIdentifier("agent-summary")
@@ -57,6 +58,18 @@ struct SettingsView: View {
                 } header: { SectionHeader("Display") } footer: {
                     Text("Text size adds to your iPhone's own setting. Saved to your account, so the web follows it too.")
                 }
+                .listRowBackground(Theme.card)
+
+                Section {
+                    NavigationLink { FavouriteReactionsEditor() } label: {
+                        HStack {
+                            Text("Reactions")
+                            Spacer()
+                            Text(state.favouriteReactions.joined()).lineLimit(1).foregroundStyle(Theme.muted)
+                        }
+                    }
+                    .accessibilityIdentifier("favourite-reactions")
+                } footer: { Text("The emoji you see first when you hold a message.") }
                 .listRowBackground(Theme.card)
 
                 FeelSection()
@@ -135,7 +148,8 @@ struct SettingsView: View {
         let agentChanged = loadedAgent && (s != (state.me?.summary ?? "") || l != (state.me?.listed ?? false))
         Task {
             // Display settings save as you change them; only the rest of the profile is compared here.
-            if var p { p.display = old?.display; if p != old { await state.saveProfile(p) } }
+            // (So are your agent's name and your reactions.)
+            if var p { p.display = old?.display; p.agentName = old?.agentName; p.reactions = old?.reactions; if p != old { await state.saveProfile(p) } }
             if agentChanged { await state.saveAgent(summary: s, listed: l) }
         }
     }
