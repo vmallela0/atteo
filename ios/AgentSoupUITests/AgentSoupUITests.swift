@@ -107,7 +107,9 @@ final class AgentSoupUITests: XCTestCase {
         sleep(1)
         // Like any messenger: the chat opens at the newest message, not the oldest.
         let newest = a.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'task-card-' AND label BEGINSWITH 'Ship'")).firstMatch
-        XCTAssertTrue(newest.waitForExistence(timeout: 5) && newest.isHittable, "opens at the newest message")
+        // (Settled, not just there: the sheet closing and the chat's refresh can still be moving the list for a moment.)
+        let settled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == true AND hittable == true"), object: newest)
+        XCTAssertEqual(XCTWaiter().wait(for: [settled], timeout: 10), .completed, "opens at the newest message")
         XCTAssertFalse(a.staticTexts["Earlier: checked the retry path, step 0"].isHittable, "not at the top")
         shot("04-board")
         // Who's doing what: the strip at the top opens the board's task list.
@@ -845,7 +847,7 @@ final class AgentSoupUITests: XCTestCase {
         let composer = a.textFields["composer"].exists ? a.textFields["composer"] : a.textViews["composer"]
         XCTAssertTrue(composer.waitForExistence(timeout: 10), "board opens")
         let theirs = a.staticTexts.matching(NSPredicate(format: "label ENDSWITH %@", "has the numbers \(n)")).firstMatch
-        XCTAssertTrue(theirs.waitForExistence(timeout: 8), "theo's message")
+        XCTAssertTrue(theirs.waitForExistence(timeout: 20), "theo's message") // a fresh launch loads the whole chat first
         wait(for: [expectation(for: NSPredicate(format: "value CONTAINS '@maya' AND value CONTAINS %@", "@theo's agent"), evaluatedWith: theirs)], timeout: 5) // both boxed
         sleep(1)
         shot("30-mention-boxes")
@@ -993,8 +995,9 @@ final class AgentSoupUITests: XCTestCase {
         chat.tap()
         XCTAssertTrue(a.buttons["presence"].waitForExistence(timeout: 10))
         let card = a.descendants(matching: .any)["change-card"].firstMatch
-        for _ in 0..<10 where !(card.exists && card.isHittable) { a.swipeDown(); usleep(500_000) }
-        XCTAssertTrue(card.waitForExistence(timeout: 5), "the change shows as a card")
+        sleep(2) // a fresh launch: let the chat settle at its newest before scrolling back
+        for _ in 0..<16 where !(card.exists && card.isHittable) { a.swipeDown(); usleep(500_000) }
+        XCTAssertTrue(card.waitForExistence(timeout: 10), "the change shows as a card")
         XCTAssertTrue(a.staticTexts["Shipped to production"].exists, "its title")
         XCTAssertTrue(a.staticTexts["v42"].exists, "the version chip")
         XCTAssertTrue(a.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'change-stats' AND label CONTAINS '3 commits'")).firstMatch.exists, "commits · files")

@@ -114,10 +114,24 @@ extension EnvironmentValues {
 extension View {
     /// "#123" in messages and checklists here reads as that message's title (from these entries and tasks).
     func refTitles(_ entries: [Entry], tasks: [WorkTask]) -> some View {
-        var titles: [Int: String] = [:]
-        for e in entries where e.seq > 0 && e.retracts == nil { titles[e.seq] = ChatSummary.short(e, words: 6) }
-        for t in tasks { titles[t.seq] = t.title }
-        return environment(\.refTitle, RefTitles(map: titles))
+        environment(\.refTitle, RefTitles.cached(entries, tasks))
+    }
+}
+
+extension RefTitles {
+    /// The chat redraws on every change anywhere in the app: build the titles (a regex or two per message) only when
+    /// the messages or tasks they come from change. (An older message decrypted later on an encrypted board keeps its
+    /// old chip title until the list next changes.)
+    @MainActor private static var last: (key: String, titles: RefTitles)?
+    @MainActor static func cached(_ entries: [Entry], _ tasks: [WorkTask]) -> RefTitles {
+        let key = "\(entries.count)|\(entries.first?.seq ?? 0)|\(entries.last?.seq ?? 0)|\(entries.last?.ts ?? 0)|\(entries.last?.text.count ?? 0)|\(tasks.count)|\(tasks.map(\.updatedAt).max() ?? 0)"
+        if let last, last.key == key { return last.titles }
+        var map: [Int: String] = [:]
+        for e in entries where e.seq > 0 && e.retracts == nil { map[e.seq] = ChatSummary.short(e, words: 6) }
+        for t in tasks { map[t.seq] = t.title }
+        let titles = RefTitles(map: map)
+        last = (key, titles)
+        return titles
     }
 }
 
