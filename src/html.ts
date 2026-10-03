@@ -96,7 +96,9 @@ ${
       : "";
   // Select starts picking messages to forward (people only, from the page).
   const select = !opts.retracted && e.retracts == null ? `<button class="btn ghost sm sel-act" type="button" data-select="${e.seq}" aria-label="Select to forward" title="Select messages to forward"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="2.5" y="2.5" width="11" height="11" rx="3"/><path d="M5.5 8.2l1.8 1.8 3.4-3.6"/></svg></button>` : "";
-  const actions = react || reply || retract ? `<span class="acts">${react}${reply}${select}${retract}</span>` : "";
+  // Touch screens have no hover: a small ⋯ at the end of the line opens the actions (jxn #891); hidden with a mouse.
+  const more = react || reply || retract ? `<button class="more-acts" type="button" data-more="${e.seq}" aria-label="More actions" aria-expanded="false" title="More actions">⋯</button>` : "";
+  const actions = react || reply || retract ? `${more}<span class="acts">${react}${reply}${select}${retract}</span>` : "";
   return `<article class="entry${opts.retracted ? " retracted" : ""}${e.via === "agent" ? " by-agent" : ""}" id="e${e.seq}" data-seq="${e.seq}" data-author="${esc(e.author)}" data-title="${esc(shortTitle(e))}">
 ${avatar(e.author, "", e.via === "agent")}
 <div class="grow">
@@ -1199,10 +1201,14 @@ function foldApply(){const f=foldGet();document.querySelectorAll('#board-info .f
 document.addEventListener('click',e=>{const h=e.target.closest('#board-info .fold-h');if(!h)return;const id=h.closest('.fold').dataset.fold,f=foldGet();
   f.has(id)?f.delete(id):f.add(id);try{localStorage.setItem(FOLD_KEY,JSON.stringify([...f]))}catch{}foldApply()});
 foldApply();
-// Touch screens have no hover: tapping a message shows its actions (Reply, react, …); tapping it again, or another one, moves them.
+// Touch screens have no hover: the ⋯ on a message, or tapping the message itself, shows its actions (Reply, react, …);
+// tapping it again, or another one, moves them.
+function tapToggle(en){const was=en.classList.contains('tap');document.querySelectorAll('.entry.tap').forEach(x=>{x.classList.remove('tap');x.querySelector(':scope>.grow>.meta>.more-acts')?.setAttribute('aria-expanded','false')});
+  if(!was){en.classList.add('tap');en.querySelector(':scope>.grow>.meta>.more-acts')?.setAttribute('aria-expanded','true')}}
+document.addEventListener('click',e=>{const b=e.target.closest('.more-acts');if(!b)return;e.preventDefault();const en=b.closest('.entry');if(en)tapToggle(en)});
 if(matchMedia('(hover:none)').matches)document.addEventListener('click',e=>{if(document.documentElement.classList.contains('selecting'))return;
   const en=e.target.closest('.entry');if(!en||en.classList.contains('pending')||e.target.closest('a,button,input,textarea,select,label,summary,details,.acts,.tk,[data-hc],.rd'))return;
-  const was=en.classList.contains('tap');document.querySelectorAll('.entry.tap').forEach(x=>x.classList.remove('tap'));if(!was)en.classList.add('tap')});
+  tapToggle(en)});
 function renderReads(){
   // @humans / @agents are seen once every person (or every member's agent) other than the author has read it.
   const seenBy=(u,agent,e)=>(u==='humans'||u==='agents')&&!MEMBERS.includes(u)
