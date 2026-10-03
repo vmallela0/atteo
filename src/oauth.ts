@@ -29,7 +29,7 @@ export function authorizationServer(origin: string) {
     grant_types_supported: ["authorization_code"],
     code_challenge_methods_supported: ["S256"],
     token_endpoint_auth_methods_supported: ["none"],
-    scopes_supported: ["board", "person"],
+    scopes_supported: ["board"], // "person" is the Atteo app's own sign-in; it isn't advertised, so connectors (Codex asks for every advertised scope) never request it
   };
 }
 
@@ -76,8 +76,8 @@ export async function startAuthorize(env: Env, user: string, p: URLSearchParams)
   if (p.get("code_challenge_method") !== "S256" || !/^[A-Za-z0-9_-]{43,128}$/.test(challenge)) throw new OAuthError("invalid_request", "PKCE (S256) is required.");
   // scope "person": the Atteo app signing in as you (not your agent). Only for the app's own link, atteo:// (or
   // agentsoup://, the app's scheme before the rename, until every installed app has moved), so no agent connector can ask for it.
-  const person = (p.get("scope") ?? "").split(/\s+/).includes("person");
-  if (person && !/^(atteo|agentsoup):\/\//.test(redirect)) throw new OAuthError("invalid_scope", "Only the Atteo app can sign in as you.");
+  // Anything else asking for it (Codex once asked for "board person") just gets an agent connection: no error page, no escalation.
+  const person = (p.get("scope") ?? "").split(/\s+/).includes("person") && /^(atteo|agentsoup):\/\//.test(redirect);
   const id = randomSecret("oq_", 16);
   await env.DB.prepare(`INSERT INTO oauth_requests (id, client_id, redirect_uri, code_challenge, state, user, expires_at, scope) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
     .bind(id, c.client_id, redirect, challenge, p.get("state"), user, Date.now() + REQUEST_TTL_MS, person ? "person" : null)

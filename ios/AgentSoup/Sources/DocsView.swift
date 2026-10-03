@@ -83,13 +83,11 @@ enum FileSort: String, CaseIterable, Identifiable {
 /// A board's files as their own screen (Board info → Files).
 struct FilesList: View {
     let board: String
-    @State private var sort: FileSort = .recent
     var body: some View {
-        FilesPane(board: board, sort: $sort)
+        FilesPane(board: board)
             .background(Theme.bg)
             .navigationTitle("Files")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .topBarTrailing) { FileSortMenu(sort: $sort) } }
     }
 }
 
@@ -102,7 +100,8 @@ struct FileSortMenu: View {
                 ForEach(FileSort.allCases) { s in Text(s.rawValue).tag(s) }
             }
         } label: {
-            Image(systemName: "arrow.up.arrow.down").font(.system(size: 14, weight: .semibold)).foregroundStyle(sort == .recent ? Theme.text : Theme.accent)
+            Image(systemName: "arrow.up.arrow.down").font(.system(size: 13, weight: .semibold)).foregroundStyle(sort == .recent ? Theme.muted : Theme.accent)
+                .frame(width: 34, height: 34).background(Theme.card, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
         .accessibilityLabel("Sort")
         .accessibilityValue(sort.rawValue)
@@ -116,7 +115,7 @@ struct FilesPane: View {
     @EnvironmentObject var state: AppState
     @ObservedObject private var index = FileIndex.shared
     let board: String
-    @Binding var sort: FileSort
+    @State private var sort: FileSort = .recent
     @State private var query = ""
     @State private var reading: DocMeta?
     @State private var preview: URL?
@@ -178,8 +177,9 @@ struct FilesPane: View {
         .quickLookPreview($preview)
         .sheet(item: $sharing) { s in ShareSheet(items: [s.url]).presentationDetents([.medium, .large]).ignoresSafeArea() }
         .task { await index.load(board) }
-        // Live: a file shared or a doc edited posts a line to the board (the chat's socket brings it in).
-        .onChange(of: state.entries[board]?.last?.seq) { _, _ in Task { await index.load(board) } }
+        // Live: a file shared or a doc written posts an artifact line to the board (the chat's socket brings it in);
+        // only those reload the list, not every message.
+        .onChange(of: state.entries[board]?.last(where: { $0.type == "artifact" && $0.pending != true })?.seq) { _, _ in Task { await index.load(board) } }
         .refreshable { await index.load(board) }
     }
 
@@ -202,6 +202,8 @@ struct FilesPane: View {
             }
             .padding(.horizontal, 10).frame(height: 34)
             .background(Theme.card, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            // In the content, not the navigation bar: the bar stays Tasks | Files … Done.
+            FileSortMenu(sort: $sort)
         }
         .padding(.horizontal, Space.l).padding(.top, Space.s).padding(.bottom, Space.xs)
         .background(Theme.bg)

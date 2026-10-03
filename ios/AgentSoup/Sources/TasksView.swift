@@ -150,7 +150,6 @@ struct TasksSheet: View {
     @State private var pane: WorkPane
     @State private var path = NavigationPath()
     @State private var newTask = false
-    @State private var fileSort: FileSort = .recent
 
     init(board: Board, initial: WorkPane = .tasks) {
         self.board = board
@@ -162,15 +161,16 @@ struct TasksSheet: View {
             Group {
                 switch pane {
                 case .tasks: TasksPane(board: board.id, open: { path.append($0) }, add: { newTask = true })
-                case .files: FilesPane(board: board.id, sort: $fileSort)
+                case .files: FilesPane(board: board.id)
                 }
             }
             .background(Theme.bg)
             .navigationTitle("Work on \(board.title)")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                // Leading, not principal: the control is the bar's first element (a UI test's "back" taps the bar's
-                // first button; here that lands on the Tasks segment, harmlessly, rather than on a menu).
+                // Leading, so it stays put whichever half is showing (in the middle it shifted with the buttons
+                // beside Done); the title is hidden (it still names the screen for VoiceOver and the back button).
+                ToolbarItem(placement: .principal) { Color.clear.frame(width: 1, height: 1).accessibilityHidden(true) }
                 ToolbarItem(placement: .topBarLeading) {
                     Picker("Show", selection: $pane.animation(.snappy(duration: 0.22))) {
                         ForEach(WorkPane.allCases) { p in Text(p.rawValue).tag(p) }
@@ -180,13 +180,10 @@ struct TasksSheet: View {
                     .accessibilityIdentifier("work-pane")
                     .onChange(of: pane) { _, _ in Haptic.tap() }
                 }
-                // One button beside Done in either half (so the control doesn't jump): + for tasks, sort for files.
                 ToolbarItem(placement: .topBarTrailing) {
                     if pane == .tasks {
                         Button { Haptic.tap(); newTask = true } label: { Image(systemName: "plus").font(.system(size: 15, weight: .semibold)) }
                             .accessibilityLabel("New task")
-                    } else {
-                        FileSortMenu(sort: $fileSort)
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() }.fontWeight(.semibold) }
@@ -832,7 +829,6 @@ struct TaskActionBar: View {
                 OwnerAvatar(task: task, size: 18)
                 if task.holder != nil, !task.isDone {
                     (Text(task.who ?? "") + Text(" is on it").foregroundStyle(Theme.muted)).font(Typo.meta.weight(.medium)).foregroundStyle(Theme.text).lineLimit(1)
-                    LiveDot(size: 6)
                 } else {
                     Text(task.who ?? "Unassigned").font(Typo.meta.weight(.medium)).foregroundStyle(task.who == nil ? Theme.faint : Theme.text).lineLimit(1)
                 }

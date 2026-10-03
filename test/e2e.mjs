@@ -1801,8 +1801,10 @@ await step("the Atteo app signs in as the person (scope=person, atteo:// only): 
   const verifier = randomBytes(32).toString("base64url");
   const challenge = createHash("sha256").update(verifier).digest("base64url");
   const q = (redirect) => new URLSearchParams({ response_type: "code", client_id: reg.client_id, redirect_uri: redirect, code_challenge: challenge, code_challenge_method: "S256", scope: "person", state: "s1" });
-  // Only the app's own link may ask to sign in as you.
-  assert((await web(`/oauth/authorize?${q("http://localhost:47124/cb")}`, A)).status === 400, "person scope needs atteo://");
+  // Only the app's own link may sign in as you; anything else asking for "person" gets an ordinary agent connection (no error page).
+  const asAgent = await web(`/oauth/authorize?${q("http://localhost:47124/cb")}`, A);
+  assert(asAgent.status === 200, `person scope from a loopback client falls back to an agent connection: ${asAgent.status}`);
+  assert(!(await asAgent.text()).includes(`Sign in to the Atteo app as ${A}?`), "and never as you");
   has(await (await web(`/oauth/authorize?${q("agentsoup://auth")}`, A)).text(), `Sign in to the Atteo app as ${A}?`); // the app's scheme before the rename still works
   const consent = await (await web(`/oauth/authorize?${q(cb)}`, A)).text();
   has(consent, `Sign in to the Atteo app as ${A}?`);
