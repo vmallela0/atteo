@@ -32,6 +32,7 @@ import * as registry from "./registry";
 import * as boardkeys from "./boardkeys";
 import * as mailbox from "./mailbox";
 import * as recap from "./recap";
+import * as triggers from "./triggers";
 import {
   adminPage,
   boardPage,
@@ -454,23 +455,40 @@ async function opsData(env: Env): Promise<AdminData> {
 
 // ---------- router ----------
 
+/** Every 5 minutes (the cron; tests call it through POST /api/ops/cron): retention, sweeps, expired memberships, and
+ *  workflow triggers on a daily schedule (`now` lets a test pick the time those see). */
+async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): Promise<{ schedules: number }> {
+  // Boards with a retention period: blank what's older.
+  const keep = (await env.DB.prepare(`SELECT id, retention_days FROM boards WHERE retention_days IS NOT NULL`).all<{ id: string; retention_days: number }>()).results;
+  for (const b of keep) ctx.waitUntil(boardStub(env, b.id).prune(Date.now() - b.retention_days * 86_400_000).catch(() => 0));
+  ctx.waitUntil(env.DB.prepare(`DELETE FROM tape WHERE ts < ?`).bind(Date.now() - 7 * 86_400_000).run().catch(() => {}));
+  ctx.waitUntil(appSignin.sweep(env).catch(() => {}));
+  for (const m of await registry.expiredMembers(env)) {
+    ctx.waitUntil(
+      (async () => {
+        await registry.removeMember(env, m.board_id, m.user);
+        await boardStub(env, m.board_id).removeMember(m.user).catch(() => {});
+        await registry.audit(env, m.board_id, "system", "expired", m.user);
+      })().catch(() => {}),
+    );
+  }
+  // Workflow triggers on a schedule: only boards with one due in the last 20 minutes are woken (each fires once a day).
+  const minute = Math.floor((now % 86_400_000) / 60_000);
+  const lo = minute - 20;
+  const due = (
+    await env.DB.prepare(`SELECT DISTINCT board_id FROM trigger_schedules WHERE (minute BETWEEN ? AND ?) OR minute >= ?`)
+      .bind(Math.max(0, lo), minute, lo < 0 ? 1440 + lo : 1440)
+      .all<{ board_id: string }>()
+      .catch(() => ({ results: [] as { board_id: string }[] }))
+  ).results;
+  const fired = await Promise.all(due.map((b) => boardStub(env, b.board_id).runSchedules(now).catch(() => 0)));
+  return { schedules: fired.reduce((a, b) => a + b, 0) };
+}
+
 const handler = {
-  /** Every 5 minutes: memberships whose time ran out are removed (access checks already ignore them). */
+  /** Every 5 minutes (wrangler.jsonc triggers.crons). */
   async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    // Boards with a retention period: blank what's older.
-    const keep = (await env.DB.prepare(`SELECT id, retention_days FROM boards WHERE retention_days IS NOT NULL`).all<{ id: string; retention_days: number }>()).results;
-    for (const b of keep) ctx.waitUntil(boardStub(env, b.id).prune(Date.now() - b.retention_days * 86_400_000).catch(() => 0));
-    ctx.waitUntil(env.DB.prepare(`DELETE FROM tape WHERE ts < ?`).bind(Date.now() - 7 * 86_400_000).run().catch(() => {}));
-    ctx.waitUntil(appSignin.sweep(env).catch(() => {}));
-    for (const m of await registry.expiredMembers(env)) {
-      ctx.waitUntil(
-        (async () => {
-          await registry.removeMember(env, m.board_id, m.user);
-          await boardStub(env, m.board_id).removeMember(m.user).catch(() => {});
-          await registry.audit(env, m.board_id, "system", "expired", m.user);
-        })().catch(() => {}),
-      );
-    }
+    await runScheduled(env, ctx);
   },
 
   async fetch(request: Request, rawEnv: Env, ctx: ExecutionContext): Promise<Response> {
@@ -1772,6 +1790,33 @@ const handler = {
         return json({ approvals: await approvals.listBoardApprovals(env, viewer.name, m[1], state) }, 200, { "cache-control": "no-store" });
       }
 
+      // ---- workflow triggers: "when X happens on this board, wake my agent with P" (any member; only their own agent) ----
+      m = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/triggers(?:\/(tr_[a-z0-9]+))?$/);
+      if (m) {
+        if (!viewer) return needLogin();
+        if (!(await registry.isMember(env, m[1], viewer.name))) return json({ error: "board not found" }, 404);
+        const stub = boardStub(env, m[1]);
+        const fail = (e: unknown) => {
+          const msg = e instanceof Error ? e.message : String(e);
+          return json({ error: msg }, /^Only /.test(msg) ? 403 : /^No trigger /.test(msg) ? 404 : 400);
+        };
+        try {
+          if (method === "GET" && !m[2]) return json({ triggers: await stub.triggers(), limit: triggers.MAX_TRIGGERS }, 200, { "cache-control": "no-store" });
+          const b = (await request.json().catch(() => ({}))) as { on?: unknown; match?: unknown; prompt?: unknown; enabled?: unknown; wake?: { user?: unknown; session?: unknown } };
+          const wake = await triggers.wakeFor(env, viewer.name, b.wake);
+          if ("error" in wake) return json({ error: wake.error }, wake.status);
+          if (method === "POST" && !m[2]) return json({ trigger: await stub.triggerAdd(viewer.name, { on: b.on, match: b.match, prompt: b.prompt, session: wake.session, enabled: b.enabled !== false }) }, 201);
+          if (method === "PATCH" && m[2]) return json({ trigger: await stub.triggerUpdate(viewer.name, m[2], { enabled: b.enabled, prompt: b.prompt, match: b.match }) });
+          if (method === "DELETE" && m[2]) {
+            await stub.triggerRemove(viewer.name, m[2]);
+            return json({ ok: true });
+          }
+        } catch (e) {
+          return fail(e);
+        }
+        return json({ error: "method not allowed" }, 405);
+      }
+
       // ---- a recap: what happened since an entry (?since=N) or since you last read (?since=last-read, the default) ----
       m = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/recap$/);
       if (m && method === "GET") {
@@ -2368,6 +2413,11 @@ const handler = {
         if (path === "/api/ops/prune" && method === "POST") {
           if (!body.board || !(await registry.getBoard(env, body.board))) return json({ error: "board required" }, 400);
           return json({ ok: true, pruned: await boardStub(env, body.board).prune(Number(body.before) || Date.now()) });
+        }
+        // Tests: run the cron now (as the 5-minute schedule would), at `now` (ms) for scheduled triggers.
+        if (path === "/api/ops/cron" && method === "POST") {
+          const at = Number((body as { now?: unknown }).now);
+          return json({ ok: true, ...(await runScheduled(env, ctx, Number.isFinite(at) && at > 0 ? at : Date.now())) });
         }
         if (path === "/api/ops/seed" && method === "POST") {
           const u = normalizeUser(body.user);

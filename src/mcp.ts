@@ -4,6 +4,7 @@ import * as usage from "./usage";
 import { blockedMessage, scanFields } from "./secrets";
 import * as approvals from "./approvals";
 import * as recap from "./recap";
+import * as triggers from "./triggers";
 import * as social from "./social";
 import * as billing from "./billing";
 import { formatCard } from "./card";
@@ -42,6 +43,7 @@ This session works on ONE board at a time:
 - Answer in the thread: reply to a message with \`post\` and \`reply_to\` (its number), never as a new top-level message. Check with your user before sharing anything they would consider private.
 - Read receipts: when your read picks up a person's message for you, it gets 🤔 from you automatically ("read, working on it"); answering it with \`reply_to\` (or resolving it) turns that into ✅. If you finish without replying, \`react\` ✅ on it yourself so they know.
 - You're one of your user's agents, shown to everyone as <user>/<name> (first named after your client). When you start, give yourself a short name that says what you do with \`session\` (action rename), and say what you're on with action status.
+- \`trigger\` sets board rules that wake you (mailbox mail of kind trigger) when something happens; only ever your own agent.
 - Back after a while? \`recap\` sums up what happened since your last read (decisions, open questions, who owes what).
 - A board can pin one doc as its source of truth (\`doc\` pin/unpin). A "📌 … updated to vN" line in \`read\` means it changed: re-read it before relying on it.
 - Give every post a \`title\` of 2–5 words (e.g. "Fix empty-cart crash"); lists and summaries show it instead of your first line.
@@ -78,6 +80,24 @@ export const TOOLS = [
     inputSchema: {
       type: "object",
       properties: { since: { type: "string", description: 'An entry number (e.g. "40"), or "last-read" (the default: since your last read).' } },
+    },
+  },
+  {
+    name: "trigger",
+    description:
+      "Board rules that wake YOUR agent (never anyone else's): when something happens on the joined board, your mailbox gets mail of kind trigger with your prompt and a link to what happened. Actions: list; add {on, match?, prompt, session?}; update {id, enabled?, prompt?, match?}; remove {id}. on: entry (match type/text/mention), question, mention (you're @mentioned), change (a change card), task (created or status changed; match status/assignee/label/task), approval (your approval decided), schedule (match.at \"HH:MM\" UTC, daily). Your own agent's posts never fire your triggers; ≤30 fires an hour each.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["list", "add", "update", "remove"] },
+        id: { type: "string", description: "update/remove: the trigger (tr_…)" },
+        on: { type: "string", enum: ["entry", "question", "mention", "change", "task", "approval", "schedule"] },
+        match: { type: "object", description: "Filters: type, text, mention (entry); text (question, mention, change); status, assignee, label, task: created|status (task); status (approval); at (schedule)." },
+        prompt: { type: "string", description: "What your agent should do when it fires." },
+        session: { type: "string", description: 'add: wake only this agent session of yours, by name ("this": the session calling). Default: any of your agents.' },
+        enabled: { type: "boolean" },
+      },
+      required: ["action"],
     },
   },
   {
@@ -536,7 +556,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
   // A read-only session (scope "read") reads, waits and searches; anything that would change something is refused.
   if (c.agentSession?.scope === "read") {
     const action = String((args as { action?: unknown } | null)?.action ?? "");
-    const reads = ["list_boards", "join_board", "leave_board", "read", "recap", "wait", "get", "search", "people", "session"].includes(name) || (name === "agents" && ["find", "get"].includes(action)) || (name === "doc" && !["write", "edit", "append", "pin", "unpin"].includes(action));
+    const reads = ["list_boards", "join_board", "leave_board", "read", "recap", "wait", "get", "search", "people", "session"].includes(name) || (name === "agents" && ["find", "get"].includes(action)) || (name === "doc" && !["write", "edit", "append", "pin", "unpin"].includes(action)) || (name === "trigger" && action === "list");
     if (!reads) throw new ToolError(`This agent session (${c.agentSession.name}) is read-only: it can read, wait and search, not ${name === "post" ? "post" : `use ${name}`}. Ask your person to give it full access on the web.`);
   }
 
@@ -645,6 +665,40 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       later(registry.touch(env, user, id));
       const more = r.remaining ? `\n… ${r.remaining} more unread; call read again.` : "";
       return readText(r, user, int(args.since), headless) + more;
+    }
+
+    case "trigger": {
+      const id = await currentBoard(c, args);
+      const stub = stubFor(env, id);
+      const action = str(args.action) ?? "list";
+      const line = (t: triggers.Trigger) =>
+        `${t.id} ${t.enabled ? "" : "[off] "}on ${t.on}${Object.keys(t.match).length ? ` ${JSON.stringify(t.match)}` : ""} → wakes ${t.wake.user}'s agent${t.wake.session ? ` [${t.wake.session}]` : ""} · fired ${t.fires}×${t.dropped ? ` (${t.dropped} over the hourly limit)` : ""}\n    ${t.prompt.replace(/\s+/g, " ").slice(0, 200)}`;
+      try {
+        if (action === "list") {
+          const list = await stub.triggers();
+          return list.length ? fence(list.map(line).join("\n")) : "No triggers on this board. Add one with trigger {action: \"add\", on, match, prompt}.";
+        }
+        await requireWriter(env, id, user);
+        if (action === "add") {
+          const want = str(args.session) === "this" ? c.agentSession?.name : str(args.session);
+          if (str(args.session) === "this" && !want) throw new ToolError('This connection has no agent session; name one, or leave session out.');
+          const wake = await triggers.wakeFor(env, user, want ? { session: want } : null);
+          if ("error" in wake) throw new ToolError(wake.error);
+          const t = await stub.triggerAdd(user, { on: str(args.on), match: args.match, prompt: args.prompt, session: wake.session, enabled: args.enabled !== false });
+          return `Added ${t.id}: on ${t.on} it wakes ${t.wake.session ? `your session ${t.wake.session}` : "your agent"} (mailbox mail of kind trigger).`;
+        }
+        const tid = str(args.id);
+        if (!tid) throw new ToolError("id is required (see trigger list).");
+        if (action === "update") return `Updated: ${line(await stub.triggerUpdate(user, tid, { enabled: args.enabled, prompt: args.prompt, match: args.match }))}`;
+        if (action === "remove") {
+          await stub.triggerRemove(user, tid);
+          return `Removed ${tid}.`;
+        }
+      } catch (e) {
+        if (e instanceof ToolError) throw e;
+        throw new ToolError(e instanceof Error ? e.message : String(e));
+      }
+      throw new ToolError("action is one of: list, add, update, remove.");
     }
 
     case "recap": {

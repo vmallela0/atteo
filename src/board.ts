@@ -14,6 +14,8 @@ import { cardText, parseCard, type ChangeCard } from "./card";
 import { deliver } from "./webhooks";
 import { HumanDecisions, isHumanDecisionPost, type HumanDecision } from "./decisions";
 import type { RecapCore, RecapOwner, RecapTask } from "./recap";
+import { cleanMatch, cleanTrigger, eventLine, lastOccurrence, matches, MAX_FIRES_PER_HOUR, MAX_TRIGGERS, minuteOf, SCHEDULE_GRACE_MS, type Trigger, type TriggerEvent, type TriggerMatch } from "./triggers";
+import { offBoardSeq } from "./util";
 
 export const MAX_TEXT = 32_000;
 export const MAX_ARTIFACT = 256_000;
@@ -215,6 +217,9 @@ function liveApproval(a: ApprovalRef): ApprovalRef {
   return a.status === "pending" && a.expires_at < Date.now() ? { ...a, status: "expired" } : a;
 }
 
+/** A post's actor options, as task events take them. */
+const opts0 = (input: NewEntry): TaskActOpts => ({ via: input.via ?? null, client: input.client ?? null, session: input.session ?? null });
+
 /** For a session's reads: skip posts addressed to another session of the same person (binds: user, session). */
 const FOR_SESSION_OK = "(for_session IS NULL OR for_user != ? OR for_session = ?)";
 
@@ -376,6 +381,23 @@ export class Board extends DurableObject<Env> {
         session TEXT NOT NULL DEFAULT '',
         version INTEGER NOT NULL,
         PRIMARY KEY (user, session)
+      );
+      -- Workflow triggers (triggers.ts): "when X happens here, wake my agent with P". win_*: the hourly fire limit's window.
+      CREATE TABLE IF NOT EXISTS triggers (
+        id TEXT PRIMARY KEY,
+        created_by TEXT NOT NULL,
+        session TEXT,
+        on_event TEXT NOT NULL,
+        match TEXT NOT NULL DEFAULT '{}',
+        prompt TEXT NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        created_at INTEGER NOT NULL,
+        fires INTEGER NOT NULL DEFAULT 0,
+        last_fired_at INTEGER,
+        dropped INTEGER NOT NULL DEFAULT 0,
+        win_start INTEGER NOT NULL DEFAULT 0,
+        win_count INTEGER NOT NULL DEFAULT 0,
+        last_occurrence INTEGER NOT NULL DEFAULT 0
       );
       -- Approval requests posted on this board (type=approval entries), by approval id.
       CREATE TABLE IF NOT EXISTS approval_entries (id TEXT PRIMARY KEY, seq INTEGER NOT NULL, user TEXT NOT NULL);
@@ -824,7 +846,7 @@ export class Board extends DurableObject<Env> {
     return r.length ? toEntry(r[0]) : null;
   }
 
-  async post(user: string, input: NewEntry, internal: { docVersion?: number; media?: Media; attachments?: { list: Attachment[]; text: string }; seeding?: boolean; sealed?: boolean; notice?: boolean; system?: boolean; approval?: ApprovalRef } = {}): Promise<Entry> {
+  async post(user: string, input: NewEntry, internal: { docVersion?: number; media?: Media; attachments?: { list: Attachment[]; text: string }; seeding?: boolean; sealed?: boolean; notice?: boolean; system?: boolean; approval?: ApprovalRef; taskCreate?: boolean } = {}): Promise<Entry> {
     // D1 lookups first, so nothing below waits between the duplicate check and the insert.
     const boardKind = await this.kindOf(this.meta("id") ?? "");
     const forSession = await this.sessionRoute(input.mentions ?? []);
@@ -996,6 +1018,11 @@ export class Board extends DurableObject<Env> {
     }
 
     this.ctx.waitUntil(this.notify(info, entry, forSession).catch(() => {}));
+    // Workflow triggers: a post (not a notice, a system line, a seed or an unsend); a task post is also a new task.
+    if (!internal.seeding && !internal.notice && !internal.system && entry.retracts == null) {
+      this.fireTriggers({ on: "entry", actor: user, via: entry.via ?? null, seq: entry.seq, entry });
+      if (entry.type === "task" && !internal.taskCreate) this.taskEvent(entry.seq, user, opts0(input), "created");
+    }
     // Lists show who spoke last and what they said (sealed and encrypted posts show only that something was posted).
     // A notice about the board itself (its picture) is quiet: lists and the tape keep showing the last real message.
     if (!internal.seeding && !internal.notice) {
@@ -1114,6 +1141,188 @@ export class Board extends DurableObject<Env> {
     };
   }
 
+  // ---- workflow triggers (triggers.ts): kept in memory (this object is their only writer), so a board without any
+  // costs nothing per post ----
+
+  private triggerMemo: (Trigger & { win_start: number; win_count: number; last_occurrence: number; session: string | null })[] | null = null;
+  private triggerRows() {
+    return (this.triggerMemo ??= this.sql
+      .exec("SELECT * FROM triggers ORDER BY created_at")
+      .toArray()
+      .map((r) => ({
+        id: r.id as string,
+        on: r.on_event as Trigger["on"],
+        match: JSON.parse(r.match as string) as TriggerMatch,
+        wake: { user: r.created_by as string, ...(r.session ? { session: r.session as string } : {}) },
+        prompt: r.prompt as string,
+        enabled: r.enabled === 1,
+        created_by: r.created_by as string,
+        created_at: r.created_at as number,
+        fires: r.fires as number,
+        last_fired_at: (r.last_fired_at as number | null) ?? null,
+        dropped: r.dropped as number,
+        session: (r.session as string | null) ?? null,
+        win_start: r.win_start as number,
+        win_count: r.win_count as number,
+        last_occurrence: r.last_occurrence as number,
+      })));
+  }
+  private publicTrigger(t: ReturnType<Board["triggerRows"]>[number]): Trigger {
+    const { win_start, win_count, last_occurrence, session, ...pub } = t;
+    void win_start; void win_count; void last_occurrence; void session;
+    return { ...pub, wake: { ...pub.wake }, match: { ...pub.match } };
+  }
+
+  async triggers(): Promise<Trigger[]> {
+    this.info();
+    return this.triggerRows().map((t) => this.publicTrigger(t));
+  }
+
+  /** A new trigger that wakes `user`'s own agent (the Worker has checked the session name is theirs). */
+  async triggerAdd(user: string, input: { on: unknown; match?: unknown; prompt: unknown; session?: string | null; enabled?: boolean }): Promise<Trigger> {
+    const info = this.info();
+    if (info.archived) throw new BoardError(`"${info.title}" is archived, so it's read-only. Its creator can restore it.`);
+    let t;
+    try {
+      t = cleanTrigger(input);
+    } catch (e) {
+      throw new BoardError(e instanceof Error ? e.message : String(e));
+    }
+    if (this.triggerRows().length >= MAX_TRIGGERS) throw new BoardError(`This board has ${MAX_TRIGGERS} triggers, the most it can have. Remove one first.`);
+    const id = "tr_" + crypto.randomUUID().replace(/-/g, "").slice(0, 12);
+    const now = Date.now();
+    // A schedule doesn't fire for a time that has already passed today.
+    const occ = t.on === "schedule" ? lastOccurrence(t.match.at!, now) : 0;
+    this.sql.exec(
+      "INSERT INTO triggers (id, created_by, session, on_event, match, prompt, enabled, created_at, last_occurrence) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      id, user, input.session ?? null, t.on, JSON.stringify(t.match), t.prompt, input.enabled === false ? 0 : 1, now, occ,
+    );
+    this.triggerMemo = null;
+    if (t.on === "schedule") await this.scheduleIndex(id, t.match.at!);
+    this.broadcast({ type: "triggers" });
+    return this.publicTrigger(this.triggerRows().find((x) => x.id === id)!);
+  }
+
+  /** Change a trigger (its creator only): enabled, prompt, match. */
+  async triggerUpdate(user: string, id: string, patch: { enabled?: unknown; prompt?: unknown; match?: unknown }): Promise<Trigger> {
+    this.info();
+    const t = this.triggerRows().find((x) => x.id === id);
+    if (!t) throw new BoardError(`No trigger ${id} on this board.`);
+    if (t.created_by !== user) throw new BoardError(`Only ${t.created_by}, who made ${id}, can change it.`);
+    let prompt = t.prompt;
+    let match = t.match;
+    try {
+      if (patch.prompt !== undefined) prompt = cleanTrigger({ on: t.on, match: t.match, prompt: patch.prompt }).prompt;
+      if (patch.match !== undefined) match = cleanMatch(t.on, patch.match);
+    } catch (e) {
+      throw new BoardError(e instanceof Error ? e.message : String(e));
+    }
+    const enabled = typeof patch.enabled === "boolean" ? patch.enabled : t.enabled;
+    this.sql.exec("UPDATE triggers SET prompt = ?, match = ?, enabled = ? WHERE id = ?", prompt, JSON.stringify(match), enabled ? 1 : 0, id);
+    if (t.on === "schedule" && match.at !== t.match.at) {
+      this.sql.exec("UPDATE triggers SET last_occurrence = ? WHERE id = ?", lastOccurrence(match.at!, Date.now()), id);
+      await this.scheduleIndex(id, match.at!);
+    }
+    this.triggerMemo = null;
+    this.broadcast({ type: "triggers" });
+    return this.publicTrigger(this.triggerRows().find((x) => x.id === id)!);
+  }
+
+  /** Remove a trigger: its creator, or the board's creator. */
+  async triggerRemove(user: string, id: string): Promise<void> {
+    const info = this.info();
+    const t = this.triggerRows().find((x) => x.id === id);
+    if (!t) throw new BoardError(`No trigger ${id} on this board.`);
+    if (t.created_by !== user && info.created_by !== user) throw new BoardError(`Only ${t.created_by}, who made ${id}, or the board's creator can remove it.`);
+    await this.dropTrigger(t);
+    this.broadcast({ type: "triggers" });
+  }
+
+  private async dropTrigger(t: { id: string; on: string }) {
+    this.sql.exec("DELETE FROM triggers WHERE id = ?", t.id);
+    this.triggerMemo = null;
+    if (t.on === "schedule") await this.env.DB.prepare("DELETE FROM trigger_schedules WHERE board_id = ? AND trigger_id = ?").bind(this.meta("id"), t.id).run().catch(() => {});
+  }
+
+  /** The cron finds boards with a schedule due through this D1 index (board, trigger, minute of the day). */
+  private async scheduleIndex(id: string, at: string) {
+    await this.env.DB.prepare("INSERT OR REPLACE INTO trigger_schedules (board_id, trigger_id, minute) VALUES (?, ?, ?)").bind(this.meta("id"), id, minuteOf(at)).run();
+  }
+
+  /** The cron: every schedule whose daily time has come (within the grace period) and hasn't fired for it yet. */
+  async runSchedules(now = Date.now()): Promise<number> {
+    if (!this.meta("id")) return 0;
+    let n = 0;
+    for (const t of this.triggerRows()) {
+      if (t.on !== "schedule" || !t.enabled || !t.match.at) continue;
+      const occ = lastOccurrence(t.match.at, now);
+      if (occ <= t.last_occurrence || now - occ > SCHEDULE_GRACE_MS) continue;
+      this.sql.exec("UPDATE triggers SET last_occurrence = ? WHERE id = ?", occ, t.id);
+      t.last_occurrence = occ;
+      if (this.fireOne(t, { on: "schedule", actor: t.created_by, via: null, seq: null }, now)) n++;
+    }
+    return n;
+  }
+
+  private taskEvent(seq: number, user: string, opts: TaskActOpts, change: "created" | "status", from?: string | null) {
+    if (!this.triggerRows().length) return;
+    const t = this.taskRows().find((x) => x.seq === seq);
+    if (!t) return;
+    this.fireTriggers({ on: "task", actor: user, via: opts.via ?? null, seq, task: { seq, title: t.title, status: t.status, assignee: t.assignee, priority: t.priority, change, from: from ?? null } });
+  }
+
+  /** Checks an event against every trigger; each match wakes its creator's agent (never from their own agent's doing). */
+  private fireTriggers(ev: TriggerEvent) {
+    const list = this.triggerRows();
+    if (!list.length) return;
+    const now = Date.now();
+    for (const t of list) {
+      if (!t.enabled || !matches(t, ev)) continue;
+      // Loop protection: what the woken agent itself does never wakes it again.
+      if (ev.actor === t.created_by && ev.via === "agent") continue;
+      this.fireOne(t, ev, now);
+    }
+  }
+
+  /** Rate-limited (MAX_FIRES_PER_HOUR per trigger, fixed hourly window): counts it, then delivers the mail. */
+  private fireOne(t: ReturnType<Board["triggerRows"]>[number], ev: TriggerEvent, now: number): boolean {
+    if (now - t.win_start >= 3_600_000) {
+      t.win_start = now;
+      t.win_count = 0;
+    }
+    if (t.win_count >= MAX_FIRES_PER_HOUR) {
+      t.dropped++;
+      this.sql.exec("UPDATE triggers SET dropped = dropped + 1 WHERE id = ?", t.id);
+      return false;
+    }
+    t.win_count++;
+    t.fires++;
+    t.last_fired_at = now;
+    this.sql.exec("UPDATE triggers SET win_start = ?, win_count = ?, fires = fires + 1, last_fired_at = ? WHERE id = ?", t.win_start, t.win_count, now, t.id);
+    this.ctx.waitUntil(this.deliverTrigger(t, ev, now).catch((e) => console.error("trigger delivery failed", e)));
+    return true;
+  }
+
+  /** The mail: kind "trigger" in the creator's agent's mailbox (one session's, when the trigger names a live one). */
+  private async deliverTrigger(t: ReturnType<Board["triggerRows"]>[number], ev: TriggerEvent, now: number) {
+    const info = this.info();
+    const base = (this.env.PUBLIC_URL ?? "https://agent-board.vedu-mallela.workers.dev").replace(/\/$/, "");
+    const toSession = t.session
+      ? ((await this.env.DB.prepare("SELECT id FROM agent_sessions WHERE user = ? AND name = ? AND ended_at IS NULL ORDER BY last_seen DESC LIMIT 1").bind(t.created_by, t.session).first<{ id: string }>())?.id ?? null)
+      : null;
+    const data = {
+      trigger: { id: t.id, on: t.on },
+      prompt: t.prompt,
+      event: { on: ev.on, seq: ev.seq, by: ev.actor, via: ev.via, line: eventLine(ev), url: ev.seq != null ? `${base}/b/${info.id}#e${ev.seq}` : `${base}/b/${info.id}` },
+      ...(t.session && !toSession ? { session_missing: t.session } : {}),
+    };
+    await this.env.DB.prepare(
+      "INSERT INTO notifications (user, board_id, seq, kind, actor, actor_via, entry_type, excerpt, created_at, to_session, read_at, data) VALUES (?, ?, ?, 'trigger', ?, 'person', 'trigger', ?, ?, ?, ?, ?)",
+    )
+      .bind(t.created_by, info.id, offBoardSeq(), t.created_by, t.prompt.replace(/\s+/g, " ").slice(0, 160), now, toSession, now, JSON.stringify(data))
+      .run();
+  }
+
   // ---- approvals (approvals.ts) on a board: an "approval" entry everyone sees; its status is kept current ----
 
   /**
@@ -1143,12 +1352,14 @@ export class Board extends DurableObject<Env> {
     const row = this.sql.exec("SELECT seq FROM approval_entries WHERE id = ?", ref.id).toArray()[0];
     if (!row) {
       this.toUserTabs(ref.user, { type: "approval", id: ref.id, status: ref.status, seq: null, approval: ref });
+      this.fireTriggers({ on: "approval", actor: ref.user, via: "person", seq: null, approval: ref });
       return null;
     }
     const seq = row.seq as number;
     this.sql.exec("UPDATE entries SET approval = ? WHERE seq = ?", JSON.stringify(ref), seq);
     this.entryMemo = this.entryMemo.map((e) => (e.seq === seq ? { ...e, approval: ref } : e));
     this.broadcast({ type: "approval", id: ref.id, status: ref.status, seq, approval: ref });
+    this.fireTriggers({ on: "approval", actor: ref.user, via: "person", seq, approval: ref });
     return seq;
   }
 
@@ -1368,6 +1579,9 @@ export class Board extends DurableObject<Env> {
 
   /** Drops a member's cursor and ends any wait they have in progress. Access itself is enforced by the Worker. */
   async removeMember(user: string): Promise<void> {
+    // Their triggers go with them (they could only ever wake their own agent).
+    const theirs = this.triggerRows().filter((t) => t.created_by === user);
+    for (const t of theirs) await this.dropTrigger(t);
     this.sql.exec("DELETE FROM members WHERE name = ?", user);
     this.sql.exec("DELETE FROM session_cursors WHERE user = ?", user);
     this.touched.delete(user);
@@ -2131,7 +2345,7 @@ export class Board extends DurableObject<Env> {
       user, opts.via === "agent" ? 1 : 0, until, Date.now(), seq,
     );
     void info;
-    void opts;
+    if (t.status !== "doing" && (t.status === "todo" || t.status === "stopped")) this.taskEvent(seq, user, opts, "status", t.status);
     this.broadcast({ type: "task", seq });
     return this.task(seq);
   }
@@ -2141,7 +2355,7 @@ export class Board extends DurableObject<Env> {
     const t = this.task(seq);
     if (t.lease_holder && t.lease_holder !== user && info.created_by !== user) throw new BoardError(`Only ${t.lease_holder} (or the board's creator) can release #${seq}.`);
     this.sql.exec("UPDATE tasks SET lease_holder = NULL, lease_agent = NULL, lease_until = NULL, status = CASE WHEN status = 'doing' THEN 'todo' ELSE status END, updated_at = ? WHERE seq = ?", Date.now(), seq);
-    void opts;
+    if (t.status === "doing") this.taskEvent(seq, user, opts, "status", t.status);
     this.broadcast({ type: "task", seq });
     return this.task(seq);
   }
@@ -2193,6 +2407,7 @@ export class Board extends DurableObject<Env> {
     if (doneNote) this.sql.exec("UPDATE tasks SET done_note = ? WHERE seq = ?", doneNote, seq);
     this.sql.exec("UPDATE tasks SET updated_at = ? WHERE seq = ?", Date.now(), seq);
     const after = this.task(seq);
+    if (after.status !== t.status) this.taskEvent(seq, user, opts, "status", t.status);
     const done = change.status === "done" && t.status !== "done";
     this.broadcast({ type: "task", seq, ...(done ? { done: true } : {}) });
     // The conversation only hears about a task when it's newly assigned or someone adds a note; everything else,
@@ -2240,6 +2455,7 @@ export class Board extends DurableObject<Env> {
     const why = reason.trim().slice(0, 300) || "stopped";
     this.sql.exec("UPDATE tasks SET status = 'stopped', stop_reason = ?, lease_holder = NULL, lease_until = NULL, updated_at = ? WHERE seq = ?", why, Date.now(), seq);
     await this.post(user, { type: "note", reply_to: seq, to: t.lease_holder ?? t.assignee, text: `Stop task #${seq}: ${why}`, via: opts.via, client: opts.client, session: opts.session });
+    if (t.status !== "stopped") this.taskEvent(seq, user, opts, "status", t.status);
     this.broadcast({ type: "task", seq });
     return this.task(seq);
   }
@@ -2297,7 +2513,7 @@ export class Board extends DurableObject<Env> {
     const body = (input.body ?? "").trim();
     const who = input.assignee ? input.assignee.toLowerCase() : null;
     if (who && !this.sql.exec("SELECT 1 AS x FROM members WHERE name = ?", who).toArray().length) throw new BoardError(`${who} isn't a member of this board.`);
-    const e = await this.post(user, { type: "task", text: body ? `${title}\n\n${body}` : title, to: who, via: opts.via, client: opts.client, session: opts.session });
+    const e = await this.post(user, { type: "task", text: body ? `${title}\n\n${body}` : title, to: who, via: opts.via, client: opts.client, session: opts.session }, { taskCreate: true });
     if (who || input.priority || input.due || input.assignee_agent === false) {
       this.sql.exec(
         "UPDATE tasks SET assignee = ?, assignee_agent = ?, priority = ?, due = ? WHERE seq = ?",
@@ -2308,6 +2524,7 @@ export class Board extends DurableObject<Env> {
       this.sql.exec("UPDATE tasks SET parent = ? WHERE seq = ?", input.parent, e.seq);
       this.broadcast({ type: "task", seq: input.parent });
     }
+    this.taskEvent(e.seq, user, opts, "created"); // after its assignee and priority are set, so triggers can match them
     return this.task(e.seq);
   }
 
@@ -2647,6 +2864,9 @@ export class Board extends DurableObject<Env> {
 
   /** Permanently erases this board: tells open tabs, ends waits, and deletes all storage. Access is checked by the Worker. */
   async destroy(): Promise<void> {
+    const id = this.meta("id");
+    if (id) await this.env.DB.prepare("DELETE FROM trigger_schedules WHERE board_id = ?").bind(id).run().catch(() => {});
+    this.triggerMemo = null;
     for (const ws of this.ctx.getWebSockets()) {
       try {
         ws.send(JSON.stringify({ type: "deleted" }));

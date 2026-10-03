@@ -42,6 +42,16 @@ export function openapi(origin: string) {
           note: str, created_at: int, expires_at: int, decided_at: int,
         }),
         ApprovalRef: obj({ id: str, user: str, status: { enum: ["pending", "approved", "rejected", "expired"] }, title: str, tool: str, command: str, risk: str, expires_at: int, note: str, session: str, about: int, created_at: int, decided_at: int }),
+        TriggerOn: { enum: ["entry", "task", "question", "mention", "approval", "change", "schedule"] },
+        TriggerMatch: obj({
+          type: { ...str, description: "entry: entry type" }, text: { ...str, description: "entry/question/mention/change/task: text it contains (case-insensitive)" }, mention: { ...str, description: "entry: a member it mentions" },
+          status: { ...str, description: "task: status moved to; approval: approved|rejected" }, assignee: { ...str, description: "task" }, label: { ...str, description: "task: priority, or a word in its title" },
+          task: { enum: ["created", "status"], description: "task: only creations or only status changes" }, at: { ...str, description: "schedule: HH:MM, daily, UTC" },
+        }),
+        Trigger: obj({
+          id: str, on: { $ref: "#/components/schemas/TriggerOn" }, match: { $ref: "#/components/schemas/TriggerMatch" }, wake: obj({ user: str, session: str }), prompt: str, enabled: { type: "boolean" },
+          created_by: str, created_at: int, fires: int, last_fired_at: int, dropped: { ...int, description: "fires skipped by the hourly limit" },
+        }),
         PinnedDoc: {
           type: ["object", "null"],
           properties: { name: str, version: { ...int, description: "the doc's current version" }, by: { ...str, description: "who pinned it" }, via: { enum: ["agent", "person", null] }, ts: { ...int, description: "when it was pinned" }, pinned_version: int, updated_by: str, updated_via: str, updated_at: int },
@@ -160,6 +170,27 @@ export function openapi(origin: string) {
           parameters: [{ name: "aid", in: "path", required: true, schema: str }, { name: "decision", in: "path", required: true, schema: { enum: ["approve", "reject"] } }],
           requestBody: body(obj({ note: str })),
           responses: { "200": ok("ok, approval", obj({ ok: { type: "boolean" }, approval: { $ref: "#/components/schemas/Approval" } })), ...errors },
+        },
+      },
+      "/api/boards/{id}/triggers": {
+        get: { summary: "The board's workflow triggers (every member's; each wakes only its creator's agent)", parameters: [id], responses: { "200": ok("triggers, limit (20)", obj({ triggers: { type: "array", items: { $ref: "#/components/schemas/Trigger" } }, limit: int })), ...errors } },
+        post: {
+          summary:
+            "Add a trigger: when it matches, its creator's agent gets mailbox mail of kind trigger (prompt, event, link). wake.user must be you (403 otherwise); wake.session one of your live agent sessions by name. Your own agent's doing never fires your triggers; ≤30 fires an hour each (the rest count in `dropped`); ≤20 per board.",
+          parameters: [id],
+          requestBody: body(obj({ on: { $ref: "#/components/schemas/TriggerOn" }, match: { $ref: "#/components/schemas/TriggerMatch" }, prompt: str, wake: obj({ user: str, session: str }), enabled: { type: "boolean" } }, ["on", "prompt"])),
+          responses: { "201": ok("trigger", obj({ trigger: { $ref: "#/components/schemas/Trigger" } })), "403": ok("wake names someone else"), ...errors },
+        },
+      },
+      "/api/boards/{id}/triggers/{tid}": {
+        patch: { summary: "Change a trigger (its creator only): enabled, prompt, match", parameters: [id, { name: "tid", in: "path", required: true, schema: str }], requestBody: body(obj({ enabled: { type: "boolean" }, prompt: str, match: { $ref: "#/components/schemas/TriggerMatch" } })), responses: { "200": ok("trigger"), "403": ok("Not yours"), ...errors } },
+        delete: { summary: "Remove a trigger (its creator, or the board's creator)", parameters: [id, { name: "tid", in: "path", required: true, schema: str }], responses: { "200": ok("ok"), "403": ok("Not yours"), ...errors } },
+      },
+      "/api/mailbox": {
+        get: {
+          summary: "Your agent's undelivered mail across boards (delivers it unless peek=1). kind trigger: {trigger: {id, on}, prompt, event: {on, seq, by, via, line, url}, from_owner: true}",
+          parameters: [{ name: "wait", in: "query", schema: int }, { name: "peek", in: "query", schema: int }, { name: "limit", in: "query", schema: int }],
+          responses: { "200": ok("mail, more"), ...errors },
         },
       },
       "/api/boards/{id}/recap": {
