@@ -54,6 +54,44 @@ enum Space {
     static func gap(_ d: ChatDensity) -> CGFloat { d == .compact ? xs : s }
 }
 
+/// The alignment grid (#722): every screen's content starts 16 pt in (Space.l); avatars and tiles centre on their
+/// row, small glyphs (status rings, icons ≤ 22 pt) sit on the first line of the text beside them; one toolbar icon
+/// size; list rows follow Display → Density.
+enum Metrics {
+    static let toolbarIcon: CGFloat = 16 // every symbol button in a top bar
+    static let glyph: CGFloat = 16 // a row's leading status ring / symbol
+    static func rowHeight(_ d: ChatDensity) -> CGFloat { d == .compact ? 36 : 44 } // a list row's minimum height
+}
+
+/// A symbol button's image in a top bar: one size and weight everywhere, in ink.
+struct ToolbarIcon: View {
+    let name: String
+    init(_ name: String) { self.name = name }
+    var body: some View { Image(systemName: name).font(.system(size: Metrics.toolbarIcon, weight: .semibold)).foregroundStyle(Theme.text) }
+}
+
+extension View {
+    /// A text button in a top bar (Done, Cancel, Create): ink like every other (clay is for what needs you); the one
+    /// that finishes the sheet is semibold.
+    func toolbarText(primary: Bool = false) -> some View { fontWeight(primary ? .semibold : .regular).tint(Theme.text) }
+
+    /// A small leading glyph lined up with the first line of the text beside it (its centre on the line's capitals),
+    /// in an HStack(alignment: .firstTextBaseline).
+    func onFirstLine(_ lift: CGFloat = 5) -> some View { alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + lift } }
+
+    /// A list's rows at the person's density (Display → Density).
+    func listDensity(_ d: ChatDensity) -> some View { environment(\.defaultMinListRowHeight, Metrics.rowHeight(d)) }
+
+}
+
+extension Color {
+    /// This color as it looks in `scheme`, fixed: the top bar re-tints what's in it to suit whatever is scrolled under
+    /// its glass (a dark picture turned a chat's title white on bone), so a chat's title is drawn in the app's own ink.
+    func fixed(_ scheme: ColorScheme) -> Color {
+        Color(uiColor: UIColor(self).resolvedColor(with: UITraitCollection(userInterfaceStyle: scheme == .dark ? .dark : .light)))
+    }
+}
+
 /// Three radii: small surfaces (cards, tiles), controls (buttons, fields), bubbles.
 enum Radius {
     static let card: CGFloat = 12

@@ -97,10 +97,15 @@ extension String {
 }
 
 /// What a "#123" in text is called here (its title, a few words), for the chips mdLinked makes. The chat and its
-/// threads set it from what's loaded; elsewhere a number reads "an earlier message".
-private struct RefTitleKey: EnvironmentKey { static let defaultValue: @Sendable (Int) -> String? = { _ in nil } }
+/// threads set it from what's loaded; elsewhere a number reads "an earlier message". Equatable, so rows only redraw
+/// when a title actually changes.
+struct RefTitles: Equatable, Sendable {
+    var map: [Int: String] = [:]
+    func callAsFunction(_ n: Int) -> String? { map[n] }
+}
+private struct RefTitleKey: EnvironmentKey { static let defaultValue = RefTitles() }
 extension EnvironmentValues {
-    var refTitle: @Sendable (Int) -> String? {
+    var refTitle: RefTitles {
         get { self[RefTitleKey.self] }
         set { self[RefTitleKey.self] = newValue }
     }
@@ -112,8 +117,7 @@ extension View {
         var titles: [Int: String] = [:]
         for e in entries where e.seq > 0 && e.retracts == nil { titles[e.seq] = ChatSummary.short(e, words: 6) }
         for t in tasks { titles[t.seq] = t.title }
-        let frozen = titles
-        return environment(\.refTitle, { frozen[$0] })
+        return environment(\.refTitle, RefTitles(map: titles))
     }
 }
 
@@ -191,6 +195,7 @@ struct ThreadPreview: View {
 struct ThreadsList: View {
     @EnvironmentObject var state: AppState
     @ObservedObject private var seen = ThreadSeen.shared
+    @Environment(\.chatDensity) private var density
     let board: Board
 
     var body: some View {
@@ -205,6 +210,7 @@ struct ThreadsList: View {
             .listRowBackground(Theme.card)
         }
         .listSectionSpacing(.compact)
+        .listDensity(density)
         .scrollContentBackground(.hidden)
         .background(Theme.bg)
         .overlay {
@@ -250,7 +256,7 @@ struct ThreadsList: View {
                 }
             }
         }
-        .padding(.vertical, Space.xxs)
+        .padding(.vertical, density == .compact ? 0 : Space.xxs)
     }
 }
 
@@ -439,10 +445,14 @@ struct ThreadView: View {
     }
 
     private var composer: some View {
-        let canSend = !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let slash = SlashCommand.parse(draft, on: board)
+        let canSend = slash.map { !$0.1.isEmpty } ?? !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let fits = SlashCommand.suggestions(draft, on: board)
         return VStack(alignment: .leading, spacing: Space.xs) {
             // Who's typing on this board (the ping says nothing about where, so the thread shows its chat's).
             TypingRow(board: board.id).padding(.horizontal, -Space.m)
+            if !fits.isEmpty { SlashChips(commands: fits) { c in Haptic.tap(); draft = c.word + " " }.padding(.horizontal, -Space.m) }
+            else if let (c, _) = slash { SlashChips(commands: [c], active: c) { _ in }.padding(.horizontal, -Space.m) }
             HStack(alignment: .bottom, spacing: 0) {
                 ComposerField(text: $draft, focused: $focused, placeholder: "Reply…",
                               members: Set((state.members[board.id] ?? []).map { $0.lowercased() }), me: me, identifier: "thread-composer")
@@ -462,7 +472,7 @@ struct ThreadView: View {
             Button { Haptic.tap(); alsoToChat.toggle() } label: {
                 Label("Also send to chat", systemImage: alsoToChat ? "checkmark.square.fill" : "square")
                     .font(Typo.micro.weight(.medium)).foregroundStyle(alsoToChat ? Theme.text : Theme.faint)
-                    .padding(.leading, Space.s).frame(minHeight: 28).contentShape(Rectangle())
+                    .padding(.leading, Space.m).frame(minHeight: 28).contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("also-to-chat")
@@ -475,15 +485,17 @@ struct ThreadView: View {
     }
 
     private func send() {
-        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        var text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        var type = "note"
+        if let (c, rest) = SlashCommand.parse(text, on: board) { text = c.body(rest); type = c.type }
         guard !text.isEmpty else { return }
         let echo = alsoToChat
         let r = rootSeq
         draft = ""
         Haptic.tap()
         Task {
-            await state.send(text, to: board, replyTo: r)
-            if echo { await state.send(text, to: board) }
+            await state.send(text, to: board, replyTo: r, type: type)
+            if echo { await state.send(text, to: board, type: type) }
             await load()
         }
     }

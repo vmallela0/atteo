@@ -43,7 +43,7 @@ struct NewMessageSheet: View {
             }
             .navigationTitle("New message")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() } } }
+            .toolbar { ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() }.toolbarText() } }
             .navigationDestination(for: Person.self) { p in PersonCard(name: p.name, initial: p, open: open) }
             .task { focused = true; friends = await state.friends() }
             .task(id: query) {
@@ -149,7 +149,7 @@ struct PersonCard: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         Button("Block \(name)", systemImage: "hand.raised", role: .destructive) { confirmBlock = true }
-                    } label: { Image(systemName: "ellipsis").font(.system(size: 15, weight: .semibold)).frame(width: 32, height: 32).contentShape(Rectangle()) }
+                    } label: { ToolbarIcon("ellipsis").frame(width: 32, height: 32).contentShape(Rectangle()) }
                     .accessibilityLabel("More")
                 }
             }

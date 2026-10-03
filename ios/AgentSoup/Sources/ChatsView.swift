@@ -153,14 +153,14 @@ struct ChatsView: View {
                         Button("New message", systemImage: "bubble.left") { compose = .message }
                         Button("New board", systemImage: "square.grid.2x2") { compose = .board }
                     } label: {
-                        Image(systemName: "square.and.pencil").font(.system(size: 16, weight: .semibold)).foregroundStyle(Theme.text)
+                        ToolbarIcon("square.and.pencil")
                     }
                     .accessibilityLabel("New")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     // Your agents live behind one button (green dot: one is working right now).
                     Button { Haptic.tap(); showAgents = true } label: {
-                        Image(systemName: "sparkles").font(.system(size: 16, weight: .semibold)).foregroundStyle(Theme.text)
+                        ToolbarIcon("sparkles")
                             .overlay(alignment: .topTrailing) {
                                 if state.sessions.contains(where: { $0.active == true }) { Circle().fill(Theme.ok).frame(width: 7, height: 7).offset(x: 4, y: -3) }
                             }

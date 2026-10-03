@@ -211,7 +211,7 @@ struct BoardInfoSheet: View {
             .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: board.encrypted == true ? "Search what's on this phone" : "Search this chat")
             .navigationTitle("Info")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() }.fontWeight(.semibold).foregroundStyle(Theme.text) } }
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() }.toolbarText(primary: true) } }
             .toolbarBackground(Theme.bg, for: .navigationBar)
             .quickLookPreview($preview)
             .task { await load() }
@@ -267,8 +267,8 @@ struct BoardInfoSheet: View {
     /// A question or decision: a few words, who and when (no number: those are for agents). Tap: go to it in the chat.
     private func jumpRow(_ e: Entry, icon: String, tint: Color) -> some View {
         Button { Haptic.tap(); jump(e.seq) } label: {
-            HStack(spacing: Space.m) {
-                Image(systemName: icon).font(.system(size: 15)).foregroundStyle(tint).frame(width: 22)
+            HStack(alignment: .firstTextBaseline, spacing: Space.m) {
+                Image(systemName: icon).font(.system(size: 15)).foregroundStyle(tint).frame(width: 22).onFirstLine()
                 VStack(alignment: .leading, spacing: 1) {
                     Text(ChatSummary.short(e)).font(Typo.secondary.weight(.medium)).foregroundStyle(Theme.text).lineLimit(1)
                     Text((e.byAgent ? "\(e.author)'s agent" : e.author) + (e.to.map { " → \($0)" } ?? "") + " · " + e.ts.ago)
