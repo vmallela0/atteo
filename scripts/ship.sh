@@ -14,7 +14,8 @@ before=$(git rev-parse origin/main 2>/dev/null || git rev-parse HEAD~1)
 dev=""
 if ! curl -s -o /dev/null "$LOCAL/health"; then
   npx wrangler dev --port "${LOCAL##*:}" >/tmp/ship-dev.log 2>&1 & dev=$!
-  trap '[ -n "$dev" ] && kill $dev 2>/dev/null; true' EXIT
+  # (A kill that fails, e.g. the server already exited, must not turn a good ship into exit 1 under set -e.)
+  trap 'if [ -n "$dev" ]; then kill "$dev" 2>/dev/null || true; fi' EXIT
   for i in $(seq 1 120); do curl -s -o /dev/null "$LOCAL/health" && break; sleep 0.5; done
 fi
 CI=1 npx wrangler d1 migrations apply agent-board --local >/tmp/ship-migrate-local.log 2>&1 || { cat /tmp/ship-migrate-local.log; exit 1; }
