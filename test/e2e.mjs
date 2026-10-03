@@ -422,6 +422,11 @@ await step("web: live updates (incl. long-poll), entry detail and posting from t
   has(await ok(A, board, "read"), "Posted from the web");
   const outsiderPost = await web(`/api/boards/${board}/entries`, OUT, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "x" }) });
   assert(outsiderPost.status === 404, `outsider post ${outsiderPost.status}`);
+  // An upload comes back with its rendered entry, like a text post, so the page can swap its "sending" copy for it.
+  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAYAAACNMs+9AAAAFUlEQVR42mP8z8BQz0AEYBxVSF+FABJADveWkH6oAAAAAElFTkSuQmCC", "base64");
+  const up = await web(`/api/boards/${board}/upload?name=pic.png&w=10&h=10&text=${encodeURIComponent("with a caption")}`, B, { method: "POST", headers: { "content-type": "image/png" }, body: png });
+  const upj = await up.json();
+  assert(up.status === 201 && upj.update && upj.update.seq === upj.entry.seq && upj.update.html.includes("with a caption") && upj.update.row, `upload ${up.status} ${JSON.stringify(upj).slice(0, 200)}`);
 });
 
 await step("brand: the Pebble is the favicon, apple-touch icon and header mark", async () => {

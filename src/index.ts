@@ -1532,7 +1532,9 @@ const handler = {
             const replyTo = Number(q("reply_to")) > 0 ? Math.floor(Number(q("reply_to"))) : null; // a file sent as a reply
             const entry = await stub.postFile(viewer.name, { name: q("name") ?? "", bytes, width: Number(q("w")) || null, height: Number(q("h")) || null, text, mentions, reply_to: replyTo, via: pv() });
             ctx.waitUntil(Promise.all([registry.touch(env, viewer.name, id), registry.bumpBoard(env, id, entry.seq)]).catch(() => {}));
-            return json({ ok: true, entry }, 201);
+            // Like a text post, the rendered entry comes back so the page can swap its "sending" copy for it.
+            const root = replyTo ? ((await stub.rootsFor([entry.seq]))[entry.seq] ?? entry.seq) : entry.seq;
+            return json({ ok: true, entry, update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(entry, id, true, { canRetract: true }), row: logRow(entry), reactions: [] } }, 201);
           } catch (e) {
             return json({ error: e instanceof Error ? e.message : String(e) }, 400);
           }
