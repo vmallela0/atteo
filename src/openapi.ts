@@ -37,7 +37,7 @@ export function openapi(origin: string) {
         }),
         Task: obj({
           seq: int, title: str, body: str, version: int, status: { enum: ["todo", "doing", "blocked", "done", "stopped"] }, priority: { enum: ["high", "medium", "low", null] },
-          assignee: str, assignee_agent: { type: "boolean" }, due: int, lease_holder: str, lease_until: int, stop_reason: str,
+          assignee: str, assignee_agent: { type: "boolean" }, due: int, lease_holder: str, lease_until: int, stop_reason: str, done_note: str,
         }),
       },
     },

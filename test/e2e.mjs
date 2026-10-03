@@ -237,7 +237,7 @@ await step("waits: your own post doesn't end your wait; the time limit holds", a
 });
 
 await step("summary, get, search, resolves and supersedes", async () => {
-  const s = await ok(A, board, "read");
+  const s = await ok(A, board, "read", { summary: true });
   has(s, "Open questions:\n  none");
   has(s, "trace.log");
   has(await ok(A, board, "get", { seq: q1 }), "Related entries:");
@@ -249,7 +249,7 @@ await step("summary, get, search, resolves and supersedes", async () => {
   await ok(B, board, "post", { type: "note", text: "Guard added", resolves: [t] });
   await ok(A, board, "read");
   await ok(A, board, "post", { type: "decision", text: "Ship without a flag", supersedes: d });
-  const s2 = await ok(B, board, "read");
+  const s2 = await ok(B, board, "read", { summary: true });
   has(s2, "Open tasks:\n  none");
   has(s2, "without a flag");
   assert(!s2.includes(`#${d} (${A}) Ship behind`), "superseded decision still listed");
@@ -276,24 +276,66 @@ await step("20 concurrent posts get unique, contiguous sequence numbers", async 
   assert(new Set(seqs).size === 20 && seqs[19] - seqs[0] === 19, seqs.join());
 });
 
-await step("stale-read rejection: an agent that hasn't read new entries can't post over them", async () => {
+await step("stale-read rejection: only unread entries that bear on a post stop it (compact, no summary); others are listed after it", async () => {
   await ok(A, board, "read");
   await ok(B, board, "read");
+  // Addressed to you (to): refused, with that entry in one line and never the summary.
   const bq = seqOf(await ok(B, board, "post", { type: "question", to: A, text: `Did you see my update? ${run}` }));
-  const blind = await err(A, board, "post", { type: "note", text: `Talking past you ${run}` }, "Not posted: 1 new entry");
-  has(blind, `#${bq} question`);
+  const blind = await err(A, board, "post", { type: "note", text: `Talking past you ${run}` }, "Not posted: 1 new entry arrived since you last read");
+  has(blind, `#${bq} question · ${B}'s agent → ${A}: Did you see my update? ${run}`);
   has(blind, "<<untrusted ");
+  assert(!/Open questions|Members:|Decisions:/.test(blind), "a refusal never carries the summary: " + blind);
   has(await ok(A, board, "search", { query: `Talking past you ${run}` }), "Nothing matches"); // nothing stored
   seqOf(await ok(A, board, "post", { type: "claim", reply_to: bq, text: `Yes, saw it ${run}` })); // now caught up
-  // Two agents that are both caught up post at the same moment: one lands, the other is told what it missed.
+  // Not about your post: it lands, and what you missed follows "Posted #N", one line each, now read.
+  await ok(B, board, "read");
+  const bn = seqOf(await ok(B, board, "post", { type: "note", text: `Lunch at noon ${run}`, reply_to: 0 }));
+  const landed = await ok(A, board, "post", { type: "note", text: `Unrelated update ${run}`, reply_to: 0 });
+  assert(/^Posted #\d+/.test(landed), landed);
+  has(landed, "You missed");
+  has(landed, `#${bn} note · ${B}'s agent: Lunch at noon ${run}`);
+  has(await ok(A, board, "read"), "(nothing new)");
+  // Mentions you: refused.
+  await ok(B, board, "read");
+  const bm = seqOf(await ok(B, board, "post", { type: "note", text: `@${A}'s agent heads up ${run}`, reply_to: 0 }));
+  has(await err(A, board, "post", { type: "note", text: `Another thing ${run}`, reply_to: 0 }, "since you last read"), `#${bm} note`);
+  // The same thread as your reply: refused. A reply elsewhere isn't.
+  const root = seqOf(await ok(A, board, "post", { type: "question", text: `Which port ${run}?`, reply_to: 0 }));
+  await ok(B, board, "read");
+  const r1 = seqOf(await ok(B, board, "post", { type: "note", text: `8080 ${run}`, reply_to: root }));
+  const r2 = seqOf(await ok(B, board, "post", { type: "note", text: `or 8081 ${run}`, reply_to: root }));
+  const same = await err(A, board, "post", { type: "note", text: `which one? ${run}`, reply_to: r1 }, "since you last read");
+  has(same, `#${r2} note · ${B}'s agent · re #${root}: or 8081 ${run}`);
+  assert(!same.includes(`#${r1} note`), "the entry you reply to isn't a miss: " + same);
+  // Resolving what you reply to: refused.
+  await ok(B, board, "read");
+  const rs = seqOf(await ok(B, board, "post", { type: "note", text: `settled: 8081 ${run}`, resolves: [root], reply_to: 0 }));
+  has(await err(A, board, "post", { type: "note", text: `8080 it is ${run}`, reply_to: root }, "since you last read"), `#${rs} note`);
+  // Two agents that are both caught up post unrelated things at the same moment: both land; the second lists the first.
+  await ok(A, board, "read");
   await ok(B, board, "read");
   const [ra, rb] = await Promise.all([
-    tool(A, board, "post", { type: "note", text: `race A ${run}` }),
-    tool(B, board, "post", { type: "note", text: `race B ${run}` }),
+    tool(A, board, "post", { type: "note", text: `race A ${run}`, reply_to: 0 }),
+    tool(B, board, "post", { type: "note", text: `race B ${run}`, reply_to: 0 }),
   ]);
-  assert(ra.isError !== rb.isError, `exactly one should be refused: A ${ra.isError} B ${rb.isError}`);
-  const loser = ra.isError ? ra : rb;
-  has(loser.text, ra.isError ? `race B ${run}` : `race A ${run}`);
+  assert(!ra.isError && !rb.isError, `both land: A ${ra.text} B ${rb.text}`);
+  assert(ra.text.includes(`race B ${run}`) !== rb.text.includes(`race A ${run}`), `exactly one lists the other: ${ra.text}\n${rb.text}`);
+});
+
+await step("read: only what's new under a one-line header; the summary on the first read, then only when asked", async () => {
+  await ok(B, board, "read");
+  await ok(A, board, "post", { type: "note", text: `fresh ${run}`, reply_to: 0 });
+  const r = await ok(B, board, "read");
+  assert(/== "e2e [^"]+" \(b_[a-z0-9]+\) · 1 new since your last read · \d+ open tasks? for you ==/.test(r), r);
+  has(r, `fresh ${run}`);
+  assert(!r.includes("Members:") && !r.includes("Open questions"), "no summary on a later read: " + r);
+  const s = await ok(B, board, "read", { summary: true });
+  has(s, `Members: ${A}, ${B}`);
+  has(s, "(nothing new)");
+  assert(!(await ok(B, board, "read", { summary: false })).includes("Members:"), "summary: false");
+  // CLIs from before this change parse the summary out of every read: they still get it.
+  const legacy = await rpcRaw({ ...auth(B), "user-agent": "atteo-cli" }, board, "tools/call", { name: "read", arguments: {} });
+  has(legacy.content[0].text, "Members:");
 });
 
 await step("list_boards shows only your boards", async () => {
@@ -548,7 +590,7 @@ await step("web: home lists my boards; tokens can be created and revoked", async
   assert(r.status === 201 && t.command.includes(`Authorization: Bearer ${t.token}`) && t.command.includes("--scope user") && !t.command.includes("board="), JSON.stringify(t));
   assert(t.mcp_url === `${BASE}/mcp`, `mcp_url ${t.mcp_url}`);
   assert(t.project_command.includes("--scope project") && t.project_command.includes(`/mcp?board=${board}`), t.project_command);
-  has(await ok(t.token, board, "read"), `Board "e2e ${run}"`);
+  has(await ok(t.token, board, "read"), `== "e2e ${run}" (`);
   has(await (await web("/me", A)).text(), "e2e web");
   assert((await web(`/api/tokens/${t.id}/revoke`, B, { method: "POST" })).status === 404, "cannot revoke someone else's token");
   assert((await web(`/api/tokens/${t.id}/revoke`, A, { method: "POST" })).status === 200, "revoke");
@@ -593,9 +635,9 @@ await step("an unpinned session must join a board first; the error lists the use
 await step("join_board by id and by name; read/post act on the joined board only", async () => {
   const s1 = await session(A);
   has(await sok(s1, "join_board", { board }), `Joined "e2e ${run}"`);
-  has(await sok(s1, "read"), `Board "e2e ${run}"`);
+  has(await sok(s1, "read"), `== "e2e ${run}" (`);
   has(await sok(s1, "join_board", { board: `SECOND ${run}` }), `Joined "e2e second ${run}"`);
-  has(await sok(s1, "read"), `Board "e2e second ${run}"`);
+  has(await sok(s1, "read"), `== "e2e second ${run}" (`);
   await serr(s1, "read", { board }, "This session is on board");
   has(await sok(s1, "list_boards"), `${board2}  "e2e second ${run}"`);
   has(await sok(s1, "list_boards"), "← this session");
@@ -624,8 +666,8 @@ await step("two sessions on one token stay on different boards", async () => {
   const s2 = await session(A);
   await sok(s1, "join_board", { board });
   await sok(s2, "join_board", { board: board2 });
-  has(await sok(s1, "read"), `Board "e2e ${run}"`);
-  has(await sok(s2, "read"), `Board "e2e second ${run}"`);
+  has(await sok(s1, "read"), `== "e2e ${run}" (`);
+  has(await sok(s2, "read"), `== "e2e second ${run}" (`);
   const p = await sok(s2, "post", { type: "note", text: `only on second ${run}` });
   has(p, board2);
   assert(!(await ok(A, board, "search", { query: `only on second ${run}` })).includes("match(es)"), "post leaked to the other board");
@@ -641,7 +683,7 @@ await step("ending a session (DELETE /mcp) forgets its board", async () => {
 
 await step("a pinned connection can't switch boards", async () => {
   const p = await session(A, board);
-  has(await sok(p, "read"), `Board "e2e ${run}"`);
+  has(await sok(p, "read"), `== "e2e ${run}" (`);
   await serr(p, "join_board", { board: board2 }, "pinned to board");
 });
 
@@ -654,7 +696,7 @@ await step("invites wait for an answer; joining by name accepts", async () => {
   const sb = await session(B);
   has(await sok(sb, "list_boards"), `"e2e second ${run}"  from ${A}`);
   has(await sok(sb, "join_board", { board: "second" }), `Accepted ${A}'s invitation`);
-  has(await sok(sb, "read"), `Board "e2e second ${run}"`);
+  has(await sok(sb, "read"), `== "e2e second ${run}" (`);
   has(await sok(sa, "invite", { email: `${B}@example.com` }), "already a member");
 });
 
@@ -764,7 +806,7 @@ await step("@mentions: people vs agents, unknown handles, and handing work to yo
   const q = seqOf(r1);
   const p = await ok(A, board, "post", { type: "question", text: `@${B} can you approve the deploy?` });
   const pq = seqOf(p);
-  const rb = await ok(B, board, "read");
+  const rb = await ok(B, board, "read", { summary: true });
   has(rb, `#${q} question · ${A}'s agent · mentions you, your user`);
   has(section(rb, "Questions waiting for YOU"), `#${q} (`);
   has(section(rb, `Questions for your user (${B})`), `#${pq} (`);
@@ -782,7 +824,7 @@ await step("@mentions: people vs agents, unknown handles, and handing work to yo
   // A later post of B's doesn't skip the agent past an unread hand-off.
   const h2 = (await (await post(`@${B}'s agent then update the changelog ${run}`)).json()).entry.seq;
   assert((await post(`just a note ${run}`, "note")).status === 201, "note");
-  const rb2 = await ok(B, board, "read");
+  const rb2 = await ok(B, board, "read", { summary: true });
   has(rb2, `#${h2} task · ${B} (person) · mentions you`);
   assert(!rb2.includes(`just a note ${run}`), "B's own plain note is not news to B's agent");
   has(section(rb2, "Tasks for YOU"), `#${h2} (`);
@@ -877,7 +919,7 @@ await step("read receipts: how far each member has seen, as a person (web) and t
 await step("titles: an agent's 2–5 word title shows in the summary and the web sidebar; secrets in titles are blocked", async () => {
   await ok(A, board, "read");
   const q = seqOf(await ok(A, board, "post", { type: "question", to: B, title: `Retry limit ${run}`, text: "Can you check what the retry limit is in the payments client and whether it backs off?" }));
-  const r = await ok(B, board, "read");
+  const r = await ok(B, board, "read", { summary: true });
   has(r, `#${q} (${A}'s agent → ${B}) Retry limit ${run}`);
   const page = await (await web(`/b/${board}`, B)).text();
   has(page, `<span class="one">Retry limit ${run}</span><span class="n">#${q}</span>`);
@@ -1127,7 +1169,7 @@ await step("change cards: agents post a git card; summary, get and the secret fi
   await ok(A, fb, "read");
   const card = { repo: "acme/shop", branch: `fix/cart-${run}`, base: "main", ci: "pending", commits: [{ sha: "a1b2c3d4", title: "Guard empty carts" }], files: [{ path: "src/cart.ts", added: 9, removed: 2 }], diff: "+ if (!cart.items.length) return;" };
   const seq = seqOf(await ok(A, fb, "post", { type: "change", text: "Empty-cart guard, ready for review", card }));
-  has(await ok(B, fb, "read"), `[change: fix/cart-${run} → main · 1 commit · 1 file +9 −2 · CI pending]`);
+  has(await ok(B, fb, "read", { summary: true }), `[change: fix/cart-${run} → main · 1 commit · 1 file +9 −2 · CI pending]`);
   const got = await ok(B, fb, "get", { seq });
   has(got, "Guard empty carts");
   has(got, "+ if (!cart.items.length) return;");
@@ -1141,7 +1183,7 @@ await step("reviews: a change addressed to someone is a review request; verdicts
   await ok(A, fb, "read");
   const card = { branch: `feat/x-${run}`, base: "main", pr_url: "https://github.com/acme/shop/pull/7", files: [{ path: "a.ts", added: 1, removed: 0 }], diff: "+ x" };
   const seq = seqOf(await ok(A, fb, "post", { type: "change", to: B, text: "please review", card }));
-  const sumB = await ok(B, fb, "read");
+  const sumB = await ok(B, fb, "read", { summary: true });
   has(sumB, "Changes waiting for YOUR review");
   await err(A, fb, "review", { seq, verdict: "approve" }, "your own change");
   await err(B, fb, "review", { seq, verdict: "request_changes" }, "Say what to change");
@@ -1153,7 +1195,7 @@ await step("reviews: a change addressed to someone is a review request; verdicts
   const r2 = await ok(B, fb, "review", { seq, verdict: "approve", note: "LGTM" });
   has(r2, `approved by ${B}'s agent`);
   assert(!r2.includes("changes requested"), "the latest verdict replaces the earlier one");
-  const sumB2 = await ok(B, fb, "read");
+  const sumB2 = await ok(B, fb, "read", { summary: true });
   assert(!sumB2.includes("Changes waiting for YOUR review"), "reviewed changes leave your queue");
   has(sumB2, `[approved by ${B}'s agent]`);
   // People review from the web.
@@ -1233,7 +1275,7 @@ await step("tasks: claim leases, conflicts, release, assign, done closes it, sto
   has(await ok(A, fb, "task", { action: "claim", seq: t1, minutes: 20 }), `held by ${A}'s agent`);
   await err(B, fb, "task", { action: "claim", seq: t1 }, `claimed by ${A}'s agent`);
   await err(B, fb, "task", { action: "update", seq: t1, status: "done" }, "is claimed by");
-  has(await ok(A, fb, "read"), `[doing · `); // summary shows live task state
+  has(await ok(A, fb, "read", { summary: true }), `[doing · `); // summary shows live task state
   has(await ok(A, fb, "task", { action: "release", seq: t1 }), `#${t1} [todo]`);
   has(await ok(B, fb, "task", { action: "claim", seq: t1 }), `held by ${B}'s agent`);
   has(await ok(B, fb, "task", { action: "update", seq: t1, assignee: B, due: "2030-01-31", note: "drafting" }), `for ${B}'s agent`);
@@ -1270,7 +1312,7 @@ await step("@agents reaches every member's agent, from the web and from an agent
   const j = await (await web(`/api/boards/${fb}/entries`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "question", text: `@agents status check ${run}?` }) })).json();
   const users = j.entry.mentions.filter((m) => m.agent).map((m) => m.user).sort();
   assert(JSON.stringify(users) === JSON.stringify([A, B].sort()), JSON.stringify(j.entry.mentions));
-  has(await ok(B, fb, "read"), "Questions waiting for YOU");
+  has(await ok(B, fb, "read", { summary: true }), "Questions waiting for YOU");
   await ok(B, fb, "read");
   const p = await ok(B, fb, "post", { type: "note", text: `@agents done here ${run}` });
   const e = await ok(A, fb, "get", { seq: seqOf(p) });
@@ -1342,7 +1384,7 @@ await step("tasks are shared items: create, get, edit in place (versions, confli
   const created = await ok(A, fb, "task", { action: "create", title: `Ship the soup ${run}`, body: "- [ ] stock\n- [ ] noodles", assignee: B, priority: "high" });
   const t = Number(created.match(/Created task #(\d+)/)[1]);
   has(created, `for ${B}'s agent`);
-  has(await ok(B, fb, "read"), `[todo · high priority · for ${B}'s agent] Ship the soup ${run}`);
+  has(await ok(B, fb, "read", { summary: true }), `[todo · high priority · for ${B}'s agent] Ship the soup ${run}`);
   // Tick a checklist item in place; the summary keeps the title, not the creating post.
   has(await ok(B, fb, "task", { action: "edit", seq: t, old_str: "- [ ] stock", new_str: "- [x] stock", summary: "stock done" }), "v2");
   await err(A, fb, "task", { action: "edit", seq: t, body: "rewrite", base_version: 1 }, "is at v2, not v1");
@@ -1351,7 +1393,7 @@ await step("tasks are shared items: create, get, edit in place (versions, confli
   has(g, "- [x] noodles");
   has(g, `Ship the soup now ${run}`);
   has(await ok(B, fb, "task", { action: "history", seq: t }), "stock done");
-  // Claims, releases and edits don't post to the conversation; done does, once.
+  // Claims, releases, edits and done don't post to the conversation (done is the status change itself).
   const before = (await (await web(`/api/boards/${fb}/updates?after=0`, A)).json()).count;
   await ok(B, fb, "task", { action: "claim", seq: t });
   await ok(B, fb, "task", { action: "release", seq: t });
@@ -1360,10 +1402,27 @@ await step("tasks are shared items: create, get, edit in place (versions, confli
   // Taking a task yourself is silent too (the task list shows it).
   has(await ok(A, fb, "task", { action: "update", seq: t, assignee: A }), `for ${A}'s agent`);
   assert((await (await web(`/api/boards/${fb}/updates?after=0`, A)).json()).count === before, "self-assignment is quiet");
+  await ok(A, fb, "read", { summary: true });
   await ok(B, fb, "task", { action: "update", seq: t, status: "done" });
-  has(await ok(A, fb, "read"), `✅ Done #${t} (Ship the soup now ${run})`);
+  assert((await (await web(`/api/boards/${fb}/updates?after=0`, A)).json()).count === before, "done posts nothing");
+  const afterDone = await ok(A, fb, "read", { summary: true });
+  assert(!afterDone.includes("✅ Done") && !afterDone.includes(`#${t} (`), `a done task leaves the summary's open tasks, with no note: ${afterDone}`);
+  has(await ok(A, fb, "task", { action: "list", status: "done" }), `#${t} [done`);
   has(await ok(A, fb, "search", { query: "noodles" }), `#${t}`); // task bodies are searchable
-  // Closing a task ticks what is still open in its checklist, as a normal versioned edit, before the done post.
+  // A person's task for an agent: the agent's read puts 🤔 on it; done (no note posted) turns it ✅ and shows "done by";
+  // a note given with done stays on the task.
+  const pt = (await (await web(`/api/boards/${fb}/entries`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "task", text: `@${B}'s agent tidy the cellar ${run}` }) })).json()).entry.seq;
+  await ok(B, fb, "read");
+  const ptRx = async () => (await (await web(`/api/boards/${fb}/entries?after=${pt - 1}&limit=1`, A)).json()).reactions[pt] ?? [];
+  assert((await ptRx()).some((x) => x.emoji === "🤔" && x.users.includes(`${B}'s agent`)), `🤔: ${JSON.stringify(await ptRx())}`);
+  const n0 = (await (await web(`/api/boards/${fb}/updates?after=0`, A)).json()).count;
+  has(await ok(B, fb, "task", { action: "update", seq: pt, status: "done", note: `swept and labelled ${run}` }), `done: swept and labelled ${run}`);
+  assert((await (await web(`/api/boards/${fb}/updates?after=0`, A)).json()).count === n0, "done with a note posts nothing either");
+  const ptr = await ptRx();
+  assert(ptr.some((x) => x.emoji === "✅" && x.users.includes(`${B}'s agent`)) && !ptr.some((x) => x.emoji === "🤔"), `✅ after done: ${JSON.stringify(ptr)}`);
+  const ptTask = (await (await web(`/api/boards/${fb}/tasks/${pt}`, A)).json()).task;
+  assert(ptTask.status === "done" && ptTask.done_note === `swept and labelled ${run}`, JSON.stringify(ptTask));
+  // Closing a task ticks what is still open in its checklist, as a normal versioned edit.
   const ct = Number((await ok(A, fb, "task", { action: "create", title: `Close ticks ${run}`, body: "- [ ] a\n- [ ] b" })).match(/Created task #(\d+)/)[1]);
   await ok(A, fb, "task", { action: "edit", seq: ct, old_str: "- [ ] a", new_str: "- [x] a" });
   await ok(A, fb, "task", { action: "update", seq: ct, status: "done" });
@@ -1731,7 +1790,7 @@ await step("claims: evidence, verify (never your own), dispute flags everything 
   await err(A, fb, "claim", { action: "verify", seq: c1 }, "can't verify your own claim");
   await ok(B, fb, "read");
   has(await ok(B, fb, "claim", { action: "verify", seq: c1, note: "reproduced" }), "verified");
-  has(await ok(A, fb, "read"), `[verified by ${B}'s agent]`);
+  has(await ok(A, fb, "read", { summary: true }), `[verified by ${B}'s agent]`);
   // Checks: the author says how to prove a claim; it shows to everyone; nobody else can change it.
   const c0 = seqOf(await ok(A, fb, "post", { type: "claim", text: `Login works without cookies ${run}` }));
   has(await ok(A, fb, "claim", { action: "check", seq: c0, command: "npm test -- login", commit: "abc1234" }), `atteo verify ${c0}`);
@@ -1747,7 +1806,7 @@ await step("claims: evidence, verify (never your own), dispute flags everything 
   await ok(B, fb, "read");
   await err(B, fb, "claim", { action: "dispute", seq: c1 }, "Say why");
   has(await ok(B, fb, "claim", { action: "dispute", seq: c1, reason: "the leak is in the font cache" }), `stale: #${d1}`);
-  const sum = await ok(A, fb, "read");
+  const sum = await ok(A, fb, "read", { summary: true });
   has(sum, `stale: premise #${c1} disputed`);
   has(await ok(A, fb, "claim", { action: "list" }), `#${c1} [disputed]`);
   await err(A, fb, "claim", { action: "verify", seq: log }, "isn't a claim");
@@ -2111,7 +2170,7 @@ await step("CLI login: device code, approve in the browser, token works once; de
   assert(ok1.status === 200, `approve ${ok1.status}`);
   const got = await (await poll()).json();
   assert(got.status === "ok" && got.user === A && got.token.startsWith("ab_") && got.expires_at > Date.now() + 29 * 86400e3, JSON.stringify(got));
-  has(await ok(got.token, board, "read"), `Board "e2e ${run}"`);
+  has(await ok(got.token, board, "read"), `== "e2e ${run}" (`);
   assert((await (await poll()).json()).status === "used", "a code issues a token only once");
   // deny
   const s2 = await (await fetch(`${BASE}/api/device/start`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).json();
@@ -2174,11 +2233,14 @@ await step("agent sessions: several per person, each with its own boards and rea
   has(oldHeader.content[0].text, "Posted #");
   const seen3 = (await api(B, "GET", `/api/sessions/${s2.id}/read?board=${b1}`)).body.boards[0];
   assert(seen3.entries.length === 1 && seen3.entries[0].client === "codex · Codex" && seen3.entries[0].text.includes("old header name"), JSON.stringify(seen3.entries));
-  // Stale-post check per session
+  // Stale-post check per session: an unread post for this agent stops it; one that isn't doesn't.
   await ok(A, b1, "read", {});
-  await ok(A, b1, "post", { type: "note", text: `one more ${run}` });
+  await ok(A, b1, "post", { type: "note", text: `@${B}'s agent one more ${run}` });
   const refused = await rpcRaw(sh(s2), b1, "tools/call", { name: "post", arguments: { type: "note", text: "hi" } });
   assert(refused.isError && /Not posted/.test(refused.content[0].text), refused.content[0].text.slice(0, 200));
+  await ok(A, b1, "post", { type: "note", text: `lunch ${run}`, reply_to: 0 });
+  const landed = await rpcRaw(sh(s2), b1, "tools/call", { name: "post", arguments: { type: "note", text: "hi again", reply_to: 0 } });
+  assert(!landed.isError && landed.content[0].text.includes(`lunch ${run}`), landed.content[0].text.slice(0, 400));
   // Waiting covers every board of the session: a post on b3 wakes it
   await api(B, "GET", `/api/sessions/${s1.id}/read`);
   const waiting = api(B, "GET", `/api/sessions/${s1.id}/wait?timeout=20`);
@@ -2751,7 +2813,7 @@ await step("Your agent: a private chat with your own agents, made on first open;
   // Every session hears it without joining, as its person's post (fenced, like everything on a board), and 🤔 shows it was read.
   const r1 = (await api(Y, "GET", `/api/sessions/${s1.id}/read?board=${chat}`)).body.boards[0];
   assert(r1.entries.some((e) => e.seq === p1), JSON.stringify(r1).slice(0, 300));
-  has(r1.text, `== Your agent (${chat})`);
+  has(r1.text, `== "Your agent" (${chat})`);
   has(r1.text, `#${p1} question · ${Y} (person)`);
   has(r1.text, "<<untrusted");
   assert((await api(Y, "GET", `/api/sessions/${s2.id}/read?board=${chat}`)).body.boards[0].entries.some((e) => e.seq === p1), "the other session too");

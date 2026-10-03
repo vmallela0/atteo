@@ -285,16 +285,24 @@ await step("board commands: use, post, read, ask (waits for the answer), search,
   r = await cli(["use"], { cwd: join(proj, "sub") }); // inherited by subfolders
   assert(r.out.includes(board), r.out);
   r = await cli(["read"], { cwd: proj });
+  assert(r.code === 0 && /== "e2e cli [^"]+" \(b_[a-z0-9]+\) · \d+ new since your last read · \d+ open tasks? for you ==/.test(r.out), r.out + r.err);
+  assert(!r.out.includes("Members:"), "A had the summary already: a later read is only what's new: " + r.out);
+  r = await cli(["read", "--summary"], { cwd: proj });
   assert(r.code === 0 && r.out.includes("Members:"), r.out + r.err);
   r = await cli(["post", "hello from the cli", run], { cwd: proj });
   assert(r.code === 0 && /Posted #\d+/.test(r.out), r.out + r.err);
   r = await cli(["post", "-"], { cwd: proj, input: `piped text ${run}` });
   assert(r.code === 0, r.out + r.err);
-  // B posts; A's stale post is refused with exit code 2 and what was missed.
+  // B posts something not about A's post: A's post lands (exit 0) and lists it as missed.
   await tool(tokB, board, "read", {});
-  await tool(tokB, board, "post", { type: "note", text: `B was here ${run}` });
+  await tool(tokB, board, "post", { type: "note", text: `B was here ${run}`, reply_to: 0 });
+  r = await cli(["post", "not about B"], { cwd: proj });
+  assert(r.code === 0 && /Posted #\d+/.test(r.out) && r.out.includes("You missed") && r.out.includes(`B was here ${run}`), `${r.code} ${r.out} ${r.err}`);
+  // B posts to A: A's stale post is refused with exit code 2 and just that entry.
+  await tool(tokB, board, "read", {});
+  await tool(tokB, board, "post", { type: "note", to: A, text: `B asks A ${run}`, reply_to: 0 });
   r = await cli(["post", "talking over B"], { cwd: proj });
-  assert(r.code === 2 && r.err.includes(`B was here ${run}`), `${r.code} ${r.err}`);
+  assert(r.code === 2 && r.err.includes(`B asks A ${run}`) && !r.err.includes("Members:"), `${r.code} ${r.err}`);
   // ask: B's agent answers while A waits.
   const asking = cli(["ask", B, `which port ${run}?`, "--wait", "40"], { cwd: proj });
   let q = 0;
@@ -322,7 +330,10 @@ await step("board commands: use, post, read, ask (waits for the answer), search,
   r = await cli(["task", "claim", t], { cwd: proj });
   assert(r.out.includes(`#${t} [doing]`), r.out + r.err);
   r = await cli(["task", "done", t, "shipped"], { cwd: proj });
-  assert(r.out.includes(`#${t} [done]`), r.out + r.err);
+  assert(r.out.includes(`#${t} [done]`) && r.out.includes("done: shipped"), "done keeps its note on the task: " + r.out + r.err);
+  // Done is the status change: no "✅ Done" message reaches the conversation.
+  const seen = await tool(tokB, board, "read", { since: Number(t) });
+  assert(!seen.includes("✅ Done") && !seen.includes("shipped"), "no done note posted: " + seen);
   // Secrets never leave the machine.
   const fake = ["ghp", "_", "Zx9Yw8Vu7Ts6Rq5Po4Nm3Lk2Jh1Gf0Ed9Cb8A"].join("");
   r = await cli(["post", `token ${fake}`], { cwd: proj });
@@ -743,8 +754,14 @@ await step("sessions: each agent is its own session (found from its process), jo
     assert(r.code === 0 && /Posted #\d+/.test(r.out), r.out);
     r = await claude.run(`post note "talking over codex"`);
     assert(r.code !== 0 && r.out.includes("boards"), "claude is on two boards: it has to say which: " + r.out);
+    // codex's post isn't about claude's: claude's lands and lists it, labelled.
+    r = await claude.run(`post note "noted" --board ${board}`);
+    assert(r.code === 0 && r.out.includes("You missed") && r.out.includes(`three, with backoff ${run}`) && r.out.includes("[codex]"), "lands, listing codex's post: " + r.out);
+    // One for claude's session: refused (exit 2) until claude has it.
+    r = await codex.run(`post note "@${A}/claude check the backoff ${run}" --board ${board}`);
+    assert(r.code === 0, r.out);
     r = await claude.run(`post note "agreed" --board ${board}`);
-    assert(r.code === 2 && r.out.includes(`three, with backoff ${run}`) && r.out.includes("[codex]"), "refused until it reads codex's post: " + r.out);
+    assert(r.code === 2 && r.out.includes(`check the backoff ${run}`) && r.out.includes("[codex]"), "refused until it reads codex's post for it: " + r.out);
     r = await claude.run(`post note "agreed ${run}" --board ${board}`);
     assert(r.code === 0, r.out);
     r = await codex.run(`wait --timeout 5`);
