@@ -1125,6 +1125,9 @@ await step("tasks are shared items: create, get, edit in place (versions, confli
   await ok(B, fb, "task", { action: "release", seq: t });
   await ok(B, fb, "task", { action: "update", seq: t, priority: "low" });
   assert((await (await web(`/api/boards/${fb}/updates?after=0`, A)).json()).count === before, "quiet");
+  // Taking a task yourself is silent too (the task list shows it).
+  has(await ok(A, fb, "task", { action: "update", seq: t, assignee: A }), `for ${A}'s agent`);
+  assert((await (await web(`/api/boards/${fb}/updates?after=0`, A)).json()).count === before, "self-assignment is quiet");
   await ok(B, fb, "task", { action: "update", seq: t, status: "done" });
   has(await ok(A, fb, "read"), `✅ Done #${t} (Ship the soup now ${run})`);
   has(await ok(A, fb, "search", { query: "noodles" }), `#${t}`); // task bodies are searchable
