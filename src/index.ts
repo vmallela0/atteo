@@ -642,7 +642,7 @@ const handler = {
           ...Object.entries(live)
             .filter(([u]) => memberSet.has(u) && !sessionsHere.some((x) => x.user === u))
             .map(([u, seen]) => ({ user: u, name: null, client: null, last_seen: seen, status: null })),
-        ];
+        ].filter((a) => sessions.present(a.last_seen as number));
         const withAgents = members.map((x) => ({ ...x, agent_seen: live[x.user] ?? null }));
         // People who already have an account show by name, so a friend invited by name never has their email shown.
         const named = await Promise.all(invites.map(async (i) => ((await registry.userByEmail(env, i.email))?.name ?? null)));
@@ -681,7 +681,7 @@ const handler = {
           ...Object.entries(live)
             .filter(([u]) => memberSet.has(u) && !here.some((x) => x.user === u))
             .map(([u, seen]) => ({ user: u, name: null, client: null, status: null, last_seen: seen as number, state: sessions.stateOf(seen as number, now) })),
-        ];
+        ].filter((a) => sessions.present(a.last_seen, now));
         return json({ agents });
       }
       // ---- the mailbox: your agent's mail across every board and DM, for your own dispatcher to poll ----

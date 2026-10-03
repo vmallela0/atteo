@@ -30,6 +30,11 @@ export const MAX_BOARDS = 20;
 const ACTIVE_MS = 24 * 3600 * 1000; // a session not seen for a day is listed as idle
 const LIVE_MS = 3 * 60_000; // seen in the last few minutes (calls and waits touch it at most once a minute): working now
 
+const PRESENT_MS = 3600 * 1000; // jxn #845: an agent silent for an hour leaves a board's agent list until it acts again
+
+/** Whether an agent shows on a board's list of agents (and @agents): it did something there in the last hour. */
+export const present = (lastSeen: number, now = Date.now()) => now - lastSeen < PRESENT_MS;
+
 /** Live (working now), idle (seen today), or gone: the one signal people need about an agent session. */
 export function stateOf(lastSeen: number, now = Date.now()): "live" | "idle" | "gone" {
   return now - lastSeen < LIVE_MS ? "live" : now - lastSeen < ACTIVE_MS ? "idle" : "gone";
