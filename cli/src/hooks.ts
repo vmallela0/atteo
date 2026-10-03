@@ -11,7 +11,7 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { buildCard, EMPTY_TREE, runner } from "./card";
 import { cardLine } from "../../src/card";
-import { CliError, folderBoard, isEncrypted, optStr, parseArgs, say, tool } from "./commands";
+import { api, CliError, folderBoard, isEncrypted, optStr, parseArgs, say, tool } from "./commands";
 
 const MARK = "# atteo pre-push hook";
 // Hooks installed before the rename carry the old mark and keep the earlier hook under the old file name: both stay
@@ -234,15 +234,19 @@ async function approveHook(): Promise<void> {
   const details = `Claude Code wants to use ${name}${req.cwd ? ` in ${req.cwd}` : ""}:\n\n${JSON.stringify(input, null, 2).slice(0, 4000)}`;
   const answer = (behavior: "allow" | "deny", message?: string) =>
     process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "PermissionRequest", decision: { behavior, ...(message ? { message } : {}) } } }) + "\n");
-  const until = Date.now() + (Number(env("APPROVAL_WAIT_S")) || 540) * 1000;
-  // Any error (not signed in, offline, a credential in the command) exits non-zero: Claude Code then asks as usual.
-  let text = await tool({}, "request_approval", { title, details, risk: name === "Bash" ? "medium" : "low", wait_seconds: 45 }, null);
+  const waitS = Number(env("APPROVAL_WAIT_S")) || 540;
+  const until = Date.now() + waitS * 1000;
+  // Any error (not signed in, offline) exits non-zero: Claude Code then asks in its terminal as usual. So does a
+  // request the server blocks (a secret in the command): it can't be shown on the board.
+  const text = await tool({}, "request_approval", { title, details, tool: name, command: what.slice(0, 2000), risk: name === "Bash" ? "medium" : "low", expires_in: waitS + 30, wait_seconds: 0 }, null);
   const id = text.match(/ap_[A-Za-z0-9_-]+/)?.[0];
+  if (!id || /^Blocked/i.test(text)) throw new CliError(`Atteo couldn't take this one (${text.split("\n")[0]}); asking in the terminal.`);
   for (;;) {
-    if (/^Approved/.test(text)) return answer("allow");
-    if (/^Rejected/.test(text)) return answer("deny", `Denied on Atteo. ${text.split("\n")[0]}`);
-    if (!id || /expired/.test(text) || Date.now() >= until) return answer("deny", "No decision on Atteo in time, so it's denied. Ask again if it's still needed.");
-    text = await tool({}, "approval", { id, wait_seconds: Math.max(1, Math.min(45, Math.round((until - Date.now()) / 1000))) }, null);
+    const left = Math.round((until - Date.now()) / 1000);
+    if (left <= 0) return answer("deny", "No decision on Atteo in time, so it's denied. Ask again if it's still needed.");
+    const j = await api({}, "GET", `/api/approvals/${id}?wait=${Math.max(1, Math.min(25, left))}`);
+    if (j.decision === "approved") return answer("allow");
+    if (j.decision === "denied") return answer("deny", j.reason === "timed out" ? "No decision on Atteo in time, so it's denied. Ask again if it's still needed." : `Denied on Atteo${j.approval?.note ? `: "${j.approval.note}"` : ""}.`);
   }
 }
 
