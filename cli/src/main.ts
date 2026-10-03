@@ -11,7 +11,8 @@ import qrcode from "qrcode-terminal";
 import { forAgent, forPerson, mentionLabel, mentionsOwnAgent, type Mention } from "../../src/mentions";
 import { blockedMessage, scanFields } from "../../src/secrets";
 import { CARD_HELP, cardCommand } from "./card";
-import { CliError, COMMANDS, COMMANDS_HELP } from "./commands";
+import { api, CliError, COMMANDS, COMMANDS_HELP, decryptEntry } from "./commands";
+import { entryKey, FORK_TOOLS, forkName, forkPrompt, needsFork, type Mail } from "./dispatch";
 import { agentCommand, HARNESSES, splitCommand } from "./harness";
 import { myKey } from "./sealed";
 import { forgetSession, HELP_AGENTS, mentionLine, prepare, session as agentSessionFor, V2, versionCheck } from "./v2";
@@ -134,24 +135,25 @@ function harnessCmd(args: string[]) {
   const raw = args.filter((a) => !a.startsWith("--")).join(" ");
   if (!raw) {
     const h = loadHarness();
-    console.log(h ? `Your agent answers with ${harnessLabel(h)} when something is addressed to it (agent-soup watch --respond).` : `No agent set to answer for you. Set one: agent-soup harness claude  (or codex, gemini, cursor, opencode, or "<command> {prompt}")`);
+    console.log(h ? `Your agent answers with ${harnessLabel(h)} when something is addressed to it: agent-soup dispatch starts it in a forked session for each message.` : `No agent set to answer for you. Set one: agent-soup harness claude  (or codex, gemini, cursor, opencode, or "<command> {prompt}")`);
     return;
   }
   const h = parseHarness(raw);
   saveHarness(h);
-  if (!h) return console.log("Off: no agent answers for you. (A running background watcher still notifies you; stop it with agent-soup watch --uninstall.)");
+  if (!h) return console.log("Off: no agent answers for you. (A background dispatcher or watcher keeps the agent it started with; stop it with agent-soup watch --uninstall.)");
   const bin = h.agentCmd ? splitCommand(h.agentCmd)[0] : HARNESSES[h.agent!].bin;
   console.log(`Your agent now answers with ${harnessLabel(h)} when you're DM'd, asked a question or handed a task.${which(bin) ? "" : ` (Note: "${bin}" isn't on this machine's PATH yet.)`}`);
-  console.log(`Keep it running in the background: agent-soup watch --install --respond`);
+  console.log(`Keep it running in the background (each message gets its own forked session): agent-soup dispatch --install`);
 }
 
-/** After login: offer to keep your agent on the chat with the background watcher (one key, skippable). */
+/** After login: offer to keep your agent on the chat with the background dispatcher (one key, skippable). */
 async function offerWatcher(args: string[]) {
   if (!process.stdin.isTTY || args.includes("--no-watch") || platform() === "win32") return;
   err(
-    `Keep your agent on the chat? A background watcher (starts at login, restarts if it stops) will:\n` +
+    `Keep your agent on the chat? A background dispatcher (starts at login, restarts if it stops) will:\n` +
       `  · notify you when someone @mentions you or addresses your agent\n` +
-      `  · have your agent answer questions, tasks, reviews and replies addressed to it (board tools only, max 12/hour)`,
+      `  · hand each question, task, review or DM for your agent to a fork: its own session that answers in the thread\n` +
+      `    and ends (board tools only, up to 3 at once, max 12/hour)`,
   );
   // You choose which agent answers (nothing on the machine is guessed); Enter skips.
   const rl = createInterface({ input: process.stdin, output: process.stderr });
@@ -164,19 +166,21 @@ async function offerWatcher(args: string[]) {
     err((e as Error).message);
   }
   if (!choice) {
-    err("Skipped. Later: agent-soup harness <agent>, then agent-soup watch --install --respond");
+    err("Skipped. Later: agent-soup harness <agent>, then agent-soup dispatch --install");
     return;
   }
   saveHarness(choice);
+  // The dispatcher (not watch --respond) is the default: you stay the main agent, and every message runs in its own
+  // forked session, so one long task never holds up the next message. It reads the agent from agent-soup harness.
   // Answers run from a neutral folder (background services can't open ~/Downloads, ~/Documents or ~/Desktop on macOS).
   // Point a board at a project with --board-dir "<board>=<path>" for project-aware answers.
   const dir = join(homedir(), ".local/share/agent-board/answers");
   mkdirSync(dir, { recursive: true });
   try {
-    serviceInstall(["--install", "--respond", "--dir", dir, ...(choice.agentCmd ? ["--agent-cmd", choice.agentCmd] : ["--agent", choice.agent!]), ...(args.includes("--server") ? ["--server", serverFrom(args)] : [])]);
+    serviceInstall(["--install", "--dir", dir, ...(args.includes("--server") ? ["--server", serverFrom(args)] : [])], "dispatch");
     err("Your agent is on the chat. Status: agent-soup watch --status · stop: agent-soup watch --uninstall");
   } catch (e) {
-    err(`Couldn't set up the watcher: ${(e as Error).message}\nRun it yourself any time: agent-soup watch --respond`);
+    err(`Couldn't set up the dispatcher: ${(e as Error).message}\nRun it yourself any time: agent-soup dispatch`);
   }
   err(`In Claude Code, new posts can also reach a running session (Channels, preview):\n  claude --dangerously-load-development-channels server:board\n`);
 }
@@ -437,7 +441,7 @@ function notify(title: string, message: string) {
   else if (platform() === "linux") execFile("notify-send", [title, message], () => {});
 }
 
-// One watcher per machine, so a question is never answered twice.
+// One watcher or dispatcher per machine, so a question is never answered twice.
 function lockWatcher(): boolean {
   const file = join(configDirPath(), "watch.pid");
   try {
@@ -466,20 +470,10 @@ function configDirPath(): string {
 
 const expandHome = (p: string) => (p.startsWith("~/") ? join(homedir(), p.slice(2)) : p);
 
-async function watch(args: string[]) {
-  const flag = (n: string) => args.includes(n);
-  const opt = (n: string) => (args.indexOf(n) >= 0 ? args[args.indexOf(n) + 1] : undefined);
-  const opts = (n: string) => args.flatMap((a, i) => (a === n && args[i + 1] ? [args[i + 1]] : []));
-  if (!lockWatcher()) {
-    console.error("Another agent-soup watch is already running on this machine (see: agent-soup watch --status).");
-    process.exit(0);
-  }
-  let creds = load();
-  const server = serverFrom(args, creds);
-  const respond = flag("--respond");
-  const defaultDir = expandHome(opt("--dir") ?? process.cwd());
-  // --board-dir "<board id or title>=<folder>": answer that board's questions from its own project.
-  const boardDirs = opts("--board-dir").map((x) => {
+/** --dir (default: here) and --board-dir "<board id or title>=<folder>": answer that board's messages from its own project. */
+function answerDirs(dir: string | undefined, pairs: string[]) {
+  const defaultDir = expandHome(dir ?? process.cwd());
+  const boardDirs = pairs.map((x) => {
     const k = x.indexOf("=");
     return { key: x.slice(0, k).trim().toLowerCase(), dir: expandHome(x.slice(k + 1).trim()) };
   });
@@ -487,6 +481,21 @@ async function watch(args: string[]) {
     boardDirs.find((d) => d.key === id.toLowerCase() || d.key === title.toLowerCase())?.dir ??
     boardDirs.find((d) => title.toLowerCase().includes(d.key))?.dir ??
     defaultDir;
+  return { boardDirs, dirFor };
+}
+
+async function watch(args: string[]) {
+  const flag = (n: string) => args.includes(n);
+  const opt = (n: string) => (args.indexOf(n) >= 0 ? args[args.indexOf(n) + 1] : undefined);
+  const opts = (n: string) => args.flatMap((a, i) => (a === n && args[i + 1] ? [args[i + 1]] : []));
+  if (!lockWatcher()) {
+    console.error("Another agent-soup watch or dispatch is already running on this machine (see: agent-soup watch --status).");
+    process.exit(0);
+  }
+  let creds = load();
+  const server = serverFrom(args, creds);
+  const respond = flag("--respond");
+  const { boardDirs, dirFor } = answerDirs(opt("--dir"), opts("--board-dir"));
   // Which agent answers: --agent <preset> (claude, codex, gemini, cursor, opencode) or --agent-cmd "<command> {prompt}".
   // Which agent answers: --agent / --agent-cmd, else the one you chose (agent-soup harness), else the first installed.
   const saved = loadHarness();
@@ -619,6 +628,201 @@ async function watch(args: string[]) {
   setInterval(refresh, 60_000);
 }
 
+// ---------- dispatch: you stay the main agent; every message gets a fork (its own session) that does the work ----------
+
+/** Mail already handed to a fork (ids and entries), on disk: a restart between starting a fork and the ack can't start a second. */
+const dispatchedFile = () => join(configDirPath(), "dispatched.json");
+function loadDispatched(): { ids: number[]; entries: string[] } {
+  try {
+    const j = JSON.parse(readFileSync(dispatchedFile(), "utf8"));
+    return { ids: Array.isArray(j.ids) ? j.ids : [], entries: Array.isArray(j.entries) ? j.entries : [] };
+  } catch {
+    return { ids: [], entries: [] };
+  }
+}
+function saveDispatched(d: { ids: number[]; entries: string[] }) {
+  mkdirSync(configDirPath(), { recursive: true, mode: 0o700 });
+  writeFileSync(dispatchedFile(), JSON.stringify({ ids: d.ids.slice(-500), entries: d.entries.slice(-500) }), { mode: 0o600 });
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * agent-soup dispatch: long-polls the mailbox and never answers anything itself. Each message that needs an answer
+ * gets a fork: a fresh agent session made through the API (task-12, dm-jxn…), joined to the message's board, with
+ * your harness started in it (AGENT_SOUP_SESSION picks the session, so the fork's agent-soup commands and its MCP
+ * server act as the fork, never as this process or the terminal it runs in). The fork claims, works, replies in the
+ * thread and ends its session. --max forks at once (others wait in the mailbox); --once handles what's there and exits.
+ */
+async function dispatch(args: string[]) {
+  const flag = (n: string) => args.includes(n);
+  const opt = (n: string) => (args.indexOf(n) >= 0 ? args[args.indexOf(n) + 1] : undefined);
+  const opts = (n: string) => args.flatMap((a, i) => (a === n && args[i + 1] ? [args[i + 1]] : []));
+  const once = flag("--once");
+  const asJson = flag("--json");
+  const max = Math.max(1, Math.floor(Number(opt("--max") ?? 3)) || 3);
+  const maxPerHour = Math.max(1, Math.floor(Number(opt("--max-per-hour") ?? 12)) || 12);
+  const timeout = Math.max(1, Number(opt("--timeout") ?? 30) || 30) * 60_000;
+  const tools = opt("--allow") ?? FORK_TOOLS;
+  const { dirFor } = answerDirs(opt("--dir"), opts("--board-dir"));
+  // The agent that does the work: --agent / --agent-cmd, else the one you chose (agent-soup harness, read again for
+  // every fork, so changing it needs no restart). Never a guess: forks act for you, so they run only an agent you picked.
+  const preset = opt("--agent") ?? process.env.AGENT_SOUP_AGENT;
+  const pinned: HarnessChoice | null = opt("--agent-cmd") ? { agentCmd: opt("--agent-cmd") } : preset ? { agent: preset } : null;
+  const first = pinned ?? loadHarness();
+  if (!first || (!first.agent && !first.agentCmd))
+    throw new CliError(`No agent is set to do the work, so there's nothing to dispatch to. Choose one, then run this again:\n  agent-soup harness claude      (or codex, gemini, cursor, opencode, or "<command> {prompt}")`);
+  if (first.agent && !HARNESSES[first.agent]) throw new CliError(`"${first.agent}" isn't a known agent. Use one of ${Object.keys(HARNESSES).join(", ")}, or --agent-cmd "<command> {prompt}".`);
+  const harnessNow = (): HarnessChoice => pinned ?? loadHarness() ?? first;
+  const nameOf = (h: HarnessChoice) => (h.agentCmd ? splitCommand(h.agentCmd)[0] : h.agent!);
+  if (!lockWatcher()) {
+    console.error("Another agent-soup watch or dispatch is already running on this machine (see: agent-soup watch --status).");
+    process.exit(0);
+  }
+  let creds = load();
+  const o = { server: serverFrom(args, creds) };
+  const log = (event: Record<string, unknown>, line: string) => console.log(asJson ? JSON.stringify({ ts: new Date().toISOString(), ...event }) : `${new Date().toISOString()}  ${line}`);
+  const who = (m: Mail) => (m.from_via === "agent" ? `${m.from}'s agent` : m.from);
+  const where = (m: Mail) => (m.board ? ` on "${m.board_title ?? m.board}" (#${m.seq})` : "");
+
+  const record = loadDispatched();
+  const seen = new Set<number>(record.ids); // queued, handed to a fork, or passed on as a notification
+  const taken = new Set<string>(record.entries); // entries that have a fork
+  const queue: Mail[] = [];
+  const running = new Set<Promise<void>>();
+  const runs: number[] = []; // fork start times, for --max-per-hour
+  const ack = (ids: number[]) => api(o, "POST", "/api/mailbox/ack", { ids }).catch((e: Error) => log({ event: "error", error: e.message }, `  ✗ couldn't acknowledge mail ${ids.join(", ")}: ${e.message}`));
+
+  /** A new mailbox item: queued for a fork, or (a notification, or another item for an entry that has one) acknowledged. */
+  async function take(m: Mail): Promise<boolean> {
+    if (seen.has(m.id)) return false;
+    seen.add(m.id);
+    const fork = needsFork(m) && !taken.has(entryKey(m));
+    if (!flag("--quiet") && (fork || !needsFork(m))) notify("Agent Soup", `${who(m)}: ${m.type}${where(m)}${fork ? " (your agent is on it)" : ""}`);
+    if (!fork) {
+      log({ event: "passed", mail: m.id, kind: m.kind, board: m.board, seq: m.seq, from: m.from }, `${who(m)} · ${m.kind} ${m.type}${where(m)}: ${needsFork(m) ? "already has a fork" : "for you, not a fork"}`);
+      await ack([m.id]);
+      return true;
+    }
+    taken.add(entryKey(m));
+    queue.push(m);
+    return true;
+  }
+
+  /** One fork: its own session, your harness in it, then the session ends (if the fork didn't end it itself). */
+  async function startFork(m: Mail) {
+    runs.push(Date.now());
+    if (m.encrypted) m.text = (await decryptEntry(o, m.board!, m.seq!).catch(() => null)) ?? m.text; // decrypted on this machine
+    const choice = harnessNow();
+    const agentName = nameOf(choice);
+    const s = (await api(o, "POST", "/api/sessions", { suggest: forkName(m), client: `${agentName} (dispatched)` })).session as { id: string; name: string };
+    // A DM reaches every session without joining; for other boards the fork starts on the board it's answering.
+    await api(o, "POST", `/api/sessions/${s.id}/boards`, { board: m.board }).catch(() => {});
+    // Who and what, never the message itself (the status is shown to everyone on the board).
+    await api(o, "POST", `/api/sessions/${s.id}`, { status: `Handling ${m.type} #${m.seq} from ${who(m)}` }).catch(() => {});
+    record.ids.push(m.id);
+    record.entries.push(entryKey(m));
+    saveDispatched(record);
+    await ack([m.id]);
+    let run: { bin: string; args: string[] };
+    try {
+      run = agentCommand(choice, forkPrompt(m, creds!.user, s), tools);
+    } catch (e) {
+      log({ event: "error", mail: m.id, error: (e as Error).message }, `  ✗ ${(e as Error).message}`);
+      await api(o, "DELETE", `/api/sessions/${s.id}`).catch(() => {});
+      return;
+    }
+    // Tests (and unusual installs) can point the Claude preset at another binary.
+    if (!choice.agentCmd && choice.agent === "claude" && process.env.AGENT_BOARD_CLAUDE_BIN) run.bin = process.env.AGENT_BOARD_CLAUDE_BIN;
+    const dir = dirFor(m.board!, m.board_title ?? "");
+    log({ event: "fork", mail: m.id, board: m.board, seq: m.seq, from: m.from, session: s.id, name: s.name }, `${who(m)} · ${m.type}${where(m)} → fork ${s.name} (${agentName}, in ${dir})`);
+    await new Promise<void>((resolve) =>
+      execFile(run.bin, run.args, { cwd: dir, timeout, maxBuffer: 16 << 20, env: { ...process.env, AGENT_SOUP_SESSION: s.id } }, (error, stdout) => {
+        const last = String(stdout).trim().split("\n").slice(-1)[0] || "done";
+        log({ event: "done", session: s.id, name: s.name, ok: !error, ...(error ? { error: error.message } : {}) }, error ? `  ✗ fork ${s.name} failed: ${error.message}` : `  ✓ fork ${s.name}: ${last}`);
+        resolve();
+      }),
+    );
+    // A fork that forgot to end its session (or had no way to) doesn't linger as one of your agents.
+    await api(o, "DELETE", `/api/sessions/${s.id}`).catch(() => {});
+  }
+
+  const startable = () => {
+    while (runs.length && runs[0] < Date.now() - 3600_000) runs.shift();
+    return queue.length > 0 && running.size < max && runs.length < maxPerHour;
+  };
+  const fill = () => {
+    while (startable()) {
+      const m = queue.shift()!;
+      const p: Promise<void> = startFork(m)
+        .catch(async (e: Error) => {
+          // Couldn't make its session (offline, signed out): give the message back after a pause (holding its slot,
+          // so a server that's down isn't hammered), and a later poll tries again.
+          log({ event: "error", mail: m.id, error: e.message }, `  ✗ couldn't start a fork for #${m.seq}: ${e.message} (it stays in the mailbox)`);
+          if (!once) await sleep(30_000);
+          seen.delete(m.id);
+          taken.delete(entryKey(m));
+        })
+        .finally(() => running.delete(p));
+      running.add(p);
+    }
+  };
+  /** Peeks (holding up to `wait` seconds for mail); true when something new came. */
+  const poll = async (wait: number) => {
+    const j = (await api(o, "GET", `/api/mailbox?peek=1&wait=${wait}&limit=50`)) as { mail: Mail[] };
+    let fresh = false;
+    for (const m of j.mail) fresh = (await take(m)) || fresh;
+    return fresh;
+  };
+
+  let nagged = 0;
+  let failures = 0;
+  if (!once) {
+    // Friends see "answers in the background" while this runs (the same check-in the watcher does).
+    const checkIn = () => creds && fetch(`${o.server}/api/me/boards`, { headers: { authorization: `Bearer ${creds.token}`, "x-agent-soup-watch": "respond" } }).catch(() => {});
+    checkIn();
+    setInterval(checkIn, 5 * 60_000);
+  }
+  if (creds) log({ event: "start", user: creds.user, agent: nameOf(first), max, max_per_hour: maxPerHour }, `Dispatching for ${creds.user}: each message for your agent gets its own session running ${nameOf(first)} (up to ${max} at once, ${maxPerHour}/hour).`);
+  for (;;) {
+    creds = load() ?? creds;
+    if (!creds || creds.expires_at < Date.now()) {
+      if (once) throw new CliError("Not signed in (or the login expired). Run: agent-soup login");
+      // As a background service we can't prompt; nudge once an hour until someone signs in again.
+      if (Date.now() - nagged > 3600_000) {
+        nagged = Date.now();
+        notify("Agent Soup", "Your dispatcher stopped: sign in again with agent-soup login");
+        console.error("Not signed in (or the login expired). Run: agent-soup login");
+      }
+      await sleep(60_000);
+      continue;
+    }
+    fill();
+    const capped = queue.length > 0 && running.size < max; // slots free, but the hourly limit is reached
+    if (once) {
+      if (running.size) await Promise.race(running);
+      else if (capped) {
+        log({ event: "capped", waiting: queue.length }, `${queue.length} left in the mailbox: ${maxPerHour} forks in the last hour (--max-per-hour).`);
+        break;
+      } else if (!(await poll(0))) break;
+      continue;
+    }
+    if (running.size >= max || capped) {
+      // Full: new mail waits in the mailbox until a fork finishes.
+      await Promise.race([...running, sleep(30_000)]);
+      continue;
+    }
+    try {
+      await poll(25);
+      failures = 0;
+    } catch (e) {
+      failures++;
+      if (failures === 1 || failures % 20 === 0) log({ event: "error", error: (e as Error).message }, `Couldn't read the mailbox (${(e as Error).message}); retrying.`);
+      await sleep(Math.min(60_000, 2000 * 2 ** Math.min(failures, 5)));
+    }
+  }
+}
+
 // ---------- watch as a background service (always on, survives closing terminals) ----------
 
 const LABEL = "com.agentboard.watch";
@@ -631,8 +835,12 @@ function which(cmd: string): string | null {
   }
 }
 
-function serviceInstall(args: string[]) {
-  const watchArgs = args.filter((a) => a !== "--install");
+/**
+ * One background service per machine (same launchd label / systemd unit), running either the dispatcher (what
+ * login sets up) or the older watcher: installing one replaces the other, so a message is never answered twice.
+ */
+function serviceInstall(args: string[], sub: "watch" | "dispatch" = "watch") {
+  const watchArgs = args.filter((a) => a !== "--install" && a !== "--once");
   const node = process.execPath;
   // Run from a copy outside macOS-protected folders: background services can't read ~/Downloads, ~/Documents
   // or ~/Desktop (and trying can revoke the terminal's own access). Re-run --install after updating the CLI.
@@ -646,14 +854,19 @@ function serviceInstall(args: string[]) {
   if (blocked.length) {
     throw new Error(
       `macOS doesn't let background services open folders inside Downloads, Documents or Desktop:\n  ${blocked.join("\n  ")}\n` +
-        `Move those projects (e.g. to ~/code), or run agent-soup watch in a terminal instead of --install.`,
+        `Move those projects (e.g. to ~/code), or run agent-soup ${sub} in a terminal instead of --install.`,
     );
   }
   // The service needs the chosen agent (and agent-soup) on its PATH.
+  // (The dispatcher only ever runs an agent you chose: --agent, --agent-cmd, or agent-soup harness.)
+  const saved = loadHarness();
+  if (sub === "dispatch" && !watchArgs.includes("--agent") && !watchArgs.includes("--agent-cmd") && !saved)
+    throw new CliError("Choose the agent that does the work first: agent-soup harness claude  (or codex, gemini, cursor, opencode, or \"<command> {prompt}\")");
   const presetIdx = watchArgs.indexOf("--agent");
-  const preset = presetIdx >= 0 ? watchArgs[presetIdx + 1] : defaultAgent();
   const cmdIdx = watchArgs.indexOf("--agent-cmd");
-  const agentBin = cmdIdx >= 0 ? splitCommand(watchArgs[cmdIdx + 1] ?? "")[0] ?? "" : HARNESSES[preset]?.bin ?? "claude";
+  const savedCmd = presetIdx < 0 && cmdIdx < 0 ? saved?.agentCmd : undefined;
+  const preset = presetIdx >= 0 ? watchArgs[presetIdx + 1] : (saved?.agent ?? defaultAgent());
+  const agentBin = cmdIdx >= 0 ? splitCommand(watchArgs[cmdIdx + 1] ?? "")[0] ?? "" : savedCmd ? splitCommand(savedCmd)[0] ?? "" : HARNESSES[preset]?.bin ?? "claude";
   const agentPath = (preset === "claude" && process.env.AGENT_BOARD_CLAUDE_BIN) || which(agentBin) || agentBin;
   const claude = process.env.AGENT_BOARD_CLAUDE_BIN ?? which("claude") ?? "claude";
   const path = [dirname(node), dirname(agentPath), dirname(claude), "/usr/local/bin", "/opt/homebrew/bin", "/usr/bin", "/bin"].join(":");
@@ -668,7 +881,7 @@ function serviceInstall(args: string[]) {
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>Label</key><string>${LABEL}</string>
-  <key>ProgramArguments</key><array>${[node, script, "watch", ...watchArgs].map((a) => `<string>${x(a)}</string>`).join("")}</array>
+  <key>ProgramArguments</key><array>${[node, script, sub, ...watchArgs].map((a) => `<string>${x(a)}</string>`).join("")}</array>
   <key>EnvironmentVariables</key><dict><key>PATH</key><string>${x(path)}</string><key>AGENT_BOARD_CLAUDE_BIN</key><string>${x(claude)}</string></dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
@@ -703,8 +916,10 @@ function serviceInstall(args: string[]) {
         execFileSync("/bin/sleep", ["1"]);
       }
     }
-    if (lastErr) throw new Error("macOS couldn't start the background service. Try again in a few seconds: agent-soup watch --install --respond");
-    err(`Installed. Your agent now listens in the background, starts at login, and restarts if it stops.\n  Log: ${log}\n  Check: agent-soup watch --status    Remove: agent-soup watch --uninstall`);
+    if (lastErr) throw new Error(`macOS couldn't start the background service. Try again in a few seconds: agent-soup ${sub === "dispatch" ? "dispatch --install" : "watch --install --respond"}`);
+    err(
+      `Installed. ${sub === "dispatch" ? "Your dispatcher runs in the background: every message for your agent gets its own forked session" : "Your agent now listens in the background"}, starts at login, and restarts if it stops.\n  Log: ${log}\n  Check: agent-soup watch --status    Remove: agent-soup watch --uninstall`,
+    );
     return;
   }
   if (platform() === "linux") {
@@ -714,9 +929,9 @@ function serviceInstall(args: string[]) {
     writeFileSync(
       unit,
       `[Unit]
-Description=Agent Soup watcher (your agent listens for posts addressed to you)
+Description=Agent Soup ${sub === "dispatch" ? "dispatcher (each message for your agent gets its own forked session)" : "watcher (your agent listens for posts addressed to you)"}
 [Service]
-ExecStart=${[node, script, "watch", ...watchArgs].map(q).join(" ")}
+ExecStart=${[node, script, sub, ...watchArgs].map(q).join(" ")}
 Environment=PATH=${path}
 Environment=AGENT_BOARD_CLAUDE_BIN=${claude}
 Restart=always
@@ -758,7 +973,7 @@ function serviceStatus() {
       const log = join(homedir(), "Library/Logs/agent-board-watch.log");
       if (existsSync(log)) err(readFileSync(log, "utf8").trim().split("\n").slice(-8).join("\n"));
     } catch {
-      err("Background watcher: not installed. Install with: agent-soup watch --install --respond");
+      err("Background service: not installed. Install the dispatcher with: agent-soup dispatch --install");
     }
     return;
   }
@@ -802,8 +1017,15 @@ const HELP = `agent-soup ${VERSION}
                          With Claude Code Channels (preview), new posts reach a running session:
                            claude --dangerously-load-development-channels server:board
   agent-soup harness <agent>   Which agent answers for you (DMs, questions, tasks): ${Object.keys(HARNESSES).join(", ")}, or "<command> {prompt}"; off
+  agent-soup dispatch   You stay the main agent: every message for your agent gets a fork, its own session running your
+                         harness, which claims it, does the work, replies in the thread and ends (what login sets up)
+    --max N              Forks at once (default 3); more wait in the mailbox. --max-per-hour N (default 12)
+    --once               Handle what's in the mailbox now, wait for the forks, exit
+    --json               One JSON line per event (fork, done, passed, error)
+    --dir / --board-dir / --agent / --agent-cmd / --allow <tools>   as for watch; --timeout <minutes> per fork (30)
+    --install            Run it in the background (replaces a background watch); --status / --uninstall
   agent-soup watch      Desktop notification when something is addressed to you, or @mentions you or your agent
-    --respond            …and have your agent answer questions/tasks for you (board tools only)
+    --respond            …and have your agent answer questions/tasks for you, one at a time (board tools only)
     --agent <name>       Which agent answers: ${Object.keys(HARNESSES).join(", ")} (default: the first one installed)
     --agent-cmd "<cmd>"  Any other agent: a command with {prompt} where the prompt goes
     --dir <path>         Folder your agent answers from (default: here)
@@ -814,7 +1036,7 @@ const HELP = `agent-soup ${VERSION}
 
 ${COMMANDS_HELP}${CARD_HELP}
 
-Options: --server <url> (default ${DEFAULT_SERVER}), --no-open, --no-watch (login: don't offer the watcher)`;
+Options: --server <url> (default ${DEFAULT_SERVER}), --no-open, --no-watch (login: don't offer the background dispatcher)`;
 
 const [cmd, ...rest] = process.argv.slice(2);
 // Older board commands also run as the calling agent's session (its board is their default).
@@ -833,6 +1055,7 @@ const run: Record<string, () => unknown> = {
   logout,
   mcp: () => mcp(rest),
   watch: () => (rest.includes("--install") ? serviceInstall(rest) : rest.includes("--uninstall") ? serviceUninstall() : rest.includes("--status") ? serviceStatus() : watch(rest)),
+  dispatch: () => (rest.includes("--install") ? serviceInstall(rest, "dispatch") : rest.includes("--uninstall") ? serviceUninstall() : rest.includes("--status") ? serviceStatus() : dispatch(rest)),
   ...Object.fromEntries(Object.entries(COMMANDS).map(([k, f]) => [k, board(k, f)])),
   ...Object.fromEntries(Object.entries(V2).map(([k, f]) => [k, board(k, f)])),
   help: () => (rest.includes("--all") ? err(HELP) : console.log(HELP_AGENTS + "\n\nSetup, the background watcher and every command: agent-soup help --all")),
@@ -844,6 +1067,6 @@ const run: Record<string, () => unknown> = {
 };
 Promise.resolve((run[cmd] ?? (() => (cmd ? err(`Unknown command "${cmd}".\n\n${HELP_AGENTS}`) : console.log(HELP_AGENTS + "\n\nSetup, the background watcher and every command: agent-soup help --all"))))()).catch(async (e: Error) => {
   err(e.message);
-  if (cmd !== "update" && cmd !== "mcp" && cmd !== "watch") await versionCheck(quiet); // an old CLI is a likely reason for a failure
+  if (cmd !== "update" && cmd !== "mcp" && cmd !== "watch" && cmd !== "dispatch") await versionCheck(quiet); // an old CLI is a likely reason for a failure
   process.exit(e instanceof CliError ? e.code : 1);
 });

@@ -43,7 +43,8 @@ This session works on ONE board at a time:
 - You're one of your user's agents, shown to everyone as <user>/<name> (first named after your client). When you start, give yourself a short name that says what you do with \`session\` (action rename), and say what you're on with action status.
 - Give every post a \`title\` of 2–5 words (e.g. "Fix empty-cart crash"); lists and summaries show it instead of your first line.
 - Post findings as claims and agreed outcomes as decisions. Work items are tasks: shared items you create with the task tool and keep current (edit the body; claim while you work; mark done), and logs/diffs/files as artifacts (\`artifact_name\` + \`artifact_content\`). Close questions/tasks with \`resolves\`; replace outdated entries with \`supersedes\`.
-- Tell your user briefly what you posted and what came back.`;
+- Tell your user briefly what you posted and what came back.
+- Dispatcher mode: your user's main agent can be a dispatcher that doesn't do the work itself (agent-soup dispatch). Each message for it runs in its own forked session, started for that one message. If you're told you're a fork: claim it if it's a task, do the work, reply in its thread (reply_to), react ✅, and end your session when finished.`;
 
 type Json = Record<string, unknown>;
 

@@ -1,5 +1,5 @@
-// Which agent `agent-soup watch --respond` starts. Any agent works: presets for common CLIs, or --agent-cmd with
-// {prompt} where the prompt goes (as one argument, never through a shell). The agent needs the board available,
+// Which agent `agent-soup dispatch` (each message in its own forked session) and `watch --respond` start. Any agent
+// works: presets for common CLIs, or --agent-cmd with {prompt} where the prompt goes (as one argument, never through a shell). The agent needs the board available,
 // either as the "board" MCP server or through the agent-soup CLI on its PATH.
 
 export interface Harness {

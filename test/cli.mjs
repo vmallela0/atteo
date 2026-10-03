@@ -2,7 +2,7 @@
 // Usage: npm run build:cli && BASE=http://localhost:8787 ADMIN_KEY=... node test/cli.mjs
 
 import { execFileSync, spawn } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync, chmodSync, existsSync, realpathSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, writeFileSync, chmodSync, existsSync, mkdirSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -779,6 +779,94 @@ await step("mailbox: another person's DM and @mention of your agent show up in f
   assert(m.kind === "dm" && m.board === dm && m.from === N && m.type === "question" && m.text === `quick one ${run}` && typeof m.id === "number" && typeof m.seq === "number" && typeof m.ts === "number", r.out);
   r = await mb(["--wait", "2"]);
   assert(r.out.includes("Nothing new in 2s."), "--json without --peek delivered it too: " + r.out);
+});
+
+await step("dispatch: without a harness it says how to set one and exits non-zero", async () => {
+  const r = await cli(["dispatch", "--once"], { env: { XDG_CONFIG_HOME: join(dir, "cfg-dispatch-none"), AGENT_SOUP_AGENT: "" } });
+  assert(r.code !== 0 && r.err.includes("agent-soup harness claude"), r.out + r.err);
+});
+
+await step("dispatch: one fork per message, each its own session with the message and how to answer it in the thread; acked; a second run does nothing; an agent's plain note gets no fork", async () => {
+  // Fresh people, so earlier steps' mail doesn't get in the way.
+  const D = `e2e-cli-d-${run}`, E = `e2e-cli-e-${run}`;
+  for (const u of [D, E]) await ops("users", { name: u, email: `${u}@example.com`, verified: "true" });
+  const tokD = (await ops("tokens", { user: D })).token;
+  const tokE = (await ops("tokens", { user: E })).token;
+  const credD = join(dir, "d.json");
+  writeFileSync(credD, JSON.stringify({ server: BASE, user: D, token: tokD, expires_at: Date.now() + 86400e3 }), { mode: 0o600 });
+  const call = async (tok, method, path, body) => (await fetch(`${BASE}${path}`, { method, headers: { authorization: `Bearer ${tok}`, "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined })).json();
+  await call(tokE, "POST", "/api/friends/request", { user: D });
+  await call(tokD, "POST", `/api/friends/${E}/accept`);
+  const dm = (await call(tokE, "POST", `/api/direct/${D}`)).board;
+  const shared = (await ops("boards", { user: E, title: `e2e cli dispatch ${run}` })).board.id;
+  await ops("members", { board: shared, user: D });
+  const cfg = join(dir, "cfg-dispatch");
+  await cli(["mailbox"], { cred: credD, env: { XDG_CONFIG_HOME: cfg } }); // drain contact requests and the like
+  // The fake harness records the session it runs as (via the CLI, so AGENT_SOUP_SESSION is what selects it) and its prompt.
+  // (One file per fork: forks run at the same time.)
+  const forkDir = join(dir, "dispatch-forks");
+  mkdirSync(forkDir, { recursive: true });
+  const stub = join(dir, "fake-fork.sh");
+  writeFileSync(stub, `#!/bin/sh\n{ echo "START $AGENT_SOUP_SESSION"; node "${CLI}" session show --quiet; printf '%s\\n' "$@"; } > "${forkDir}/$AGENT_SOUP_SESSION.txt"\necho "answered"\n`);
+  chmodSync(stub, 0o755);
+  const task = Number((await tool(tokE, shared, "post", { type: "task", text: `@${D}'s agent please bump the version to 2.4 ${run}` })).match(/#(\d+)/)[1]);
+  const cookieE = (await ops("sessions", { user: E })).cookie;
+  const r0 = await fetch(`${BASE}/api/boards/${dm}/entries`, { method: "POST", headers: { "content-type": "application/json", cookie: cookieE }, body: JSON.stringify({ text: `are you around for the release? ${run}` }) });
+  assert(r0.status === 201, "E's DM");
+  await tool(tokE, shared, "read", {});
+  await tool(tokE, shared, "post", { type: "note", text: `@${D}'s agent fyi, CI is green ${run}` }); // another agent's plain note: no fork
+  const dispatch = (...args) => cli(["dispatch", "--once", "--quiet", "--json", "--agent-cmd", `${stub} {prompt}`, "--dir", dir, ...args], { cred: credD, env: { XDG_CONFIG_HOME: cfg } });
+  let r = await dispatch();
+  assert(r.code === 0, r.out + r.err);
+  const events = r.out.trim().split("\n").map((l) => JSON.parse(l));
+  const forks = events.filter((e) => e.event === "fork");
+  assert(forks.length === 2, `two forks: ${r.out}${r.err}`);
+  assert(forks[0].session !== forks[1].session && forks.every((f) => /^as_/.test(f.session)), `each fork has its own session: ${r.out}`);
+  const names = forks.map((f) => f.name).sort();
+  assert(names.includes(`task-${task}`) && names.includes(`dm-${E}`), `named after the message: ${names}`);
+  assert(events.filter((e) => e.event === "done" && e.ok).length === 2, `both forks ran: ${r.out}`);
+  assert(events.some((e) => e.event === "passed" && e.from === E && e.board === shared), `the agent's note was passed on, not forked: ${r.out}`);
+  const forkLogs = () => (readdirSync(forkDir).sort().map((f) => readFileSync(join(forkDir, f), "utf8")));
+  const runs = forkLogs().map((x) => x.replace(/^START /, ""));
+  const log = runs.join("\n");
+  assert(runs.length === 2, log);
+  const taskRun = runs.find((x) => x.includes("bump the version")), dmRun = runs.find((x) => x.includes("around for the release"));
+  assert(taskRun && dmRun, `each fork gets its message in full: ${log}`);
+  const taskFork = forks.find((f) => f.seq === task);
+  assert(taskRun.startsWith(taskFork.session) && taskRun.includes(`(${taskFork.session})`) && taskRun.includes(`Doing: Handling task #${task}`) && taskRun.includes(shared), `the fork runs as its own session, on the board, with a status: ${taskRun}`);
+  assert(/<<untrusted [0-9a-f]+:/.test(taskRun), "the message is fenced: " + taskRun);
+  assert(taskRun.includes(`reply_to ${task}`) && taskRun.includes(`--board ${shared} --reply ${task}`) && taskRun.includes("in the thread") && taskRun.includes(`task claim ${task}`) && taskRun.includes("✅") && taskRun.includes("session end"), "claim, reply in the thread, ✅, end: " + taskRun);
+  assert(dmRun.includes(`direct board with ${E}`) && dmRun.includes(dm) && !dmRun.includes("task claim"), dmRun);
+  // Acked, the forks' sessions ended, and a second run starts nothing.
+  const left = await call(tokD, "GET", "/api/mailbox?peek=1");
+  assert(left.mail.length === 0, "acked: " + JSON.stringify(left));
+  const live = (await call(tokD, "GET", "/api/sessions")).sessions.map((s) => s.id);
+  assert(forks.every((f) => !live.includes(f.session)), "fork sessions end when the fork exits: " + live);
+  r = await dispatch();
+  assert(r.code === 0 && !r.out.includes('"event":"fork"') && forkLogs().length === 2, "a second run doesn't redo it: " + r.out + r.err);
+
+  // --max: one fork at a time with --max 1 (the next waits), two together with --max 2.
+  const order = join(dir, "dispatch-order.txt");
+  const slow = join(dir, "slow-fork.sh");
+  writeFileSync(slow, `#!/bin/sh\necho "START $AGENT_SOUP_SESSION" >> "${order}"\nsleep 2\necho "END $AGENT_SOUP_SESSION" >> "${order}"\n`);
+  chmodSync(slow, 0o755);
+  const ask = async (n) => {
+    await tool(tokE, shared, "read", {});
+    return tool(tokE, shared, "post", { type: "question", text: `@${D}'s agent question ${n} ${run}` });
+  };
+  const slowRun = (max) => cli(["dispatch", "--once", "--quiet", "--max", String(max), "--agent-cmd", `${slow} {prompt}`, "--dir", dir], { cred: credD, env: { XDG_CONFIG_HOME: cfg } });
+  await ask(1);
+  await ask(2);
+  r = await slowRun(1);
+  let lines = readFileSync(order, "utf8").trim().split("\n");
+  assert(r.code === 0 && lines.length === 4, r.out + r.err + lines);
+  assert(lines[0].startsWith("START") && lines[1] === lines[0].replace("START", "END") && lines[2].startsWith("START") && lines[3] === lines[2].replace("START", "END") && lines[0] !== lines[2], `--max 1 runs them one after the other: ${lines}`);
+  await ask(3);
+  await ask(4);
+  writeFileSync(order, "");
+  r = await slowRun(2);
+  lines = readFileSync(order, "utf8").trim().split("\n");
+  assert(r.code === 0 && lines.length === 4 && lines[0].startsWith("START") && lines[1].startsWith("START"), `--max 2 runs two at once: ${lines}`);
 });
 
 await step("staying current: an older CLI says so (once, then hourly) and agent-soup update replaces it with the server's", async () => {
