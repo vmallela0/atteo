@@ -233,6 +233,9 @@ dialog.access-dlg{width:min(640px,calc(100vw - 24px))}
 .acc-sec{padding:14px 0;border-top:1px solid var(--line)}.acc-sec:first-child{border-top:0;padding-top:0}
 .acc-sec h3{font-size:12.5px;font-weight:600;color:var(--ink);margin:0 0 8px}.acc-sec summary{cursor:pointer}
 .acc-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.acc-sel{width:auto;height:30px;font-size:12.5px;padding:0 8px}
+/* phones: a member's name on one line, role and end date side by side under it, lined up with the name */
+@media(max-width:640px){#acc-members{gap:12px}#acc-members .acc-row{display:grid;grid-template-columns:auto auto minmax(0,1fr);gap:6px 8px}#acc-members .acc-row>.grow{grid-column:2/4}#acc-members .acc-sel{grid-row:2;width:100%;min-width:0;padding-right:26px;background-position:right 9px center}#acc-members .acc-sel:first-of-type{grid-column:2}#acc-members .acc-sel:last-of-type{grid-column:3}}
+@media(max-width:360px){#acc-members .acc-sel:first-of-type{grid-column:1/3}} /* the narrowest phones: the role starts under the picture so the end date fits */
 .add-agent{margin:0 0 22px}.add-agent>summary{cursor:pointer;list-style:none}.add-agent>summary::-webkit-details-marker{display:none}.add-agent .cn-grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
 .cn-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}@media (max-width:560px){.cn-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .cn-tile{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r);background:var(--bg);color:var(--ink);font:inherit;text-align:left;cursor:pointer;text-decoration:none}.cn-tile:hover{border-color:var(--line-strong);background:var(--bg-subtle)}.cn-tile b{font-size:13.5px;font-weight:600}.cn-tile span{font-size:12px;color:var(--muted)}
