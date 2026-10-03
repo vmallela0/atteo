@@ -5,6 +5,15 @@
 import { highlightMentions, type Mention } from "./mentions";
 import { esc } from "./util";
 
+// Dark tokens: the system setting picks them unless Display says light; Display can also force them.
+const DARK = `  --bg:#0a0a0a;--bg-subtle:#111111;--bg-hover:#1a1a1a;--line:#232323;--line-strong:#2e2e2e;
+  --ink:#ededed;--text:#ededed;--muted:#a1a1a1;--faint:#6f6f6f;--on-ink:#0a0a0a;--pb-agent:#F2EFE8;--pb-eye:#111113;
+  --accent:#4ea1ff;--ok:#3ecf75;--warn:#fb923c;--danger:#f87171;
+  --q:#fbbf24;--claim:#4ade80;--decision:#a78bfa;--task:#38bdf8;--artifact:#a3a3a3;--note:#737373;
+  --shadow:0 1px 2px rgba(0,0,0,.4);--shadow-lg:0 12px 48px rgba(0,0,0,.6);
+  --av-l:22%;--av-c:78%;--av-s:40%;
+  color-scheme:dark;`;
+
 export const CSS = `
 :root{
   --bg:#ffffff;--bg-subtle:#fafafa;--bg-hover:#f4f4f5;--line:#ebebeb;--line-strong:#dcdcdc;
@@ -16,15 +25,8 @@ export const CSS = `
   --r:10px;--r-sm:7px;
   color-scheme:light;
 }
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
-  --bg:#0a0a0a;--bg-subtle:#111111;--bg-hover:#1a1a1a;--line:#232323;--line-strong:#2e2e2e;
-  --ink:#ededed;--text:#ededed;--muted:#a1a1a1;--faint:#6f6f6f;--on-ink:#0a0a0a;--pb-agent:#F2EFE8;--pb-eye:#111113;
-  --accent:#4ea1ff;--ok:#3ecf75;--warn:#fb923c;--danger:#f87171;
-  --q:#fbbf24;--claim:#4ade80;--decision:#a78bfa;--task:#38bdf8;--artifact:#a3a3a3;--note:#737373;
-  --shadow:0 1px 2px rgba(0,0,0,.4);--shadow-lg:0 12px 48px rgba(0,0,0,.6);
-  --av-l:22%;--av-c:78%;--av-s:40%;
-  color-scheme:dark;
-}}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){${DARK}}}
+:root[data-theme="dark"]{${DARK}}
 *{box-sizing:border-box}
 [hidden]{display:none!important} /* the hidden attribute always wins over a component display (e.g. .btn is inline-flex) */
 /* Scrollbars: thin and quiet (Linear/Slack-like), one per scrolling pane. Chrome and Safari use the ::-webkit
@@ -143,6 +145,7 @@ dialog{border:1px solid var(--line);border-radius:14px;padding:0;background:var(
   width:min(560px,calc(100vw - 32px));max-height:calc(100vh - 64px)}
 dialog::backdrop{background:rgba(0,0,0,.45)}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]) dialog{background:#141414;border-color:var(--line-strong)}}
+:root[data-theme="dark"] dialog{background:#141414;border-color:var(--line-strong)}
 dialog .hd{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:20px 22px 0}
 dialog .bd{padding:16px 22px 22px}
 dialog[open]{animation:pop .16s ease-out}dialog:focus{outline:none}
@@ -186,6 +189,17 @@ dialog[open]{animation:pop .16s ease-out}dialog:focus{outline:none}
 .entry .fbadge{height:18px;font-size:11px;color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,var(--line))}
 .entry.retracted>.grow>.body,.entry.retracted>.grow>.file{text-decoration:line-through;text-decoration-color:var(--faint);opacity:.55}
 .entry.retracted>.grow>.meta .rbadge{display:inline-flex}
+/* Display (Account → Display): text size and density for the chat; saved per person so web and app match. */
+:root[data-text="s"] .entry .body{font-size:12.5px}:root[data-text="s"] .entry .meta{font-size:12px}
+:root[data-text="l"] .entry .body{font-size:15.5px;line-height:1.55}:root[data-text="l"] .entry .meta{font-size:14px}
+:root[data-text="l"] .entry .body code,:root[data-text="l"] .entry .body pre{font-size:14px}
+:root[data-text="l"] .composer textarea{font-size:15.5px}
+:root[data-density="compact"] .entry{padding:7px 0;gap:10px}:root[data-density="compact"] .thread>.entry:first-child{padding-top:4px}:root[data-density="compact"] .replies .entry{padding:4px 0 0}
+:root[data-density="compact"] .entry .body{margin-top:0}:root[data-density="compact"] .entry .body p+p{margin-top:4px}
+.dp-grid{display:grid;grid-template-columns:110px 1fr;gap:12px 14px;align-items:center}.dp-grid .lbl{margin:0}
+.dp-grid .seg{flex-wrap:wrap}.dp-grid .seg input{display:inline;position:absolute;opacity:0;width:1px;height:1px;pointer-events:none}
+.dp-grid .seg input:focus-visible+label{outline:2px solid var(--accent);outline-offset:1px}
+@media (max-width:640px){.dp-grid{grid-template-columns:1fr;gap:6px}}
 .entry .acts{margin-left:auto;display:inline-flex;gap:2px;opacity:0;transition:opacity .12s}
 .entry:hover>.grow>.meta>.acts,.entry .acts:focus-within,.entry .acts:has(.danger){opacity:1} /* only the message under the pointer, not its whole thread */
 /* Retract takes no room in the header line, so narrow screens don't get a blank line under every entry. Touch
@@ -799,7 +813,7 @@ ${v ? `<nav class="links">${link("/", "Boards", "boards")}</nav>` : ""}
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
-<style>${CSS}</style></head><body>${nav}
+<style>${CSS}</style>${DISPLAY_HEAD}</head><body>${nav}
 <main${opts.narrow ? ' class="narrow"' : ""}>${body}</main>
 <div id="toast" role="status" aria-live="polite"></div>
 <script>${CLIENT_JS}${opts.script ?? ""}</script></body></html>`;
@@ -962,11 +976,23 @@ function inline(s: string, mentions?: Mention[] | null): string {
 
 // ---------- client script (shared by every page) ----------
 
+// Applies the saved Display settings before first paint, so the page never flashes the wrong size or theme.
+const DISPLAY_HEAD = `<script>try{const d=JSON.parse(localStorage.getItem('atteo-display')||'{}'),r=document.documentElement;
+if(d.text==='s'||d.text==='l')r.dataset.text=d.text;if(d.density==='compact')r.dataset.density='compact';if(d.theme==='light'||d.theme==='dark')r.dataset.theme=d.theme}catch{}</script>`;
+
 const CLIENT_JS = `
 /** The one HTML escaper for every page script. */
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c])}
 (()=>{
 const $=(s,r=document)=>r.querySelector(s),$$=(s,r=document)=>[...r.querySelectorAll(s)];
+// Display settings: applied now, remembered here for the next first paint, and picked up from the account once per tab (so a change on the phone reaches the web).
+window.applyDisplay=d=>{const r=document.documentElement;d=d||{};
+  if(d.text==='s'||d.text==='l')r.dataset.text=d.text;else delete r.dataset.text;
+  if(d.density==='compact')r.dataset.density='compact';else delete r.dataset.density;
+  if(d.theme==='light'||d.theme==='dark')r.dataset.theme=d.theme;else delete r.dataset.theme;
+  try{localStorage.setItem('atteo-display',JSON.stringify({text:d.text||'m',density:d.density||'comfortable',theme:d.theme||'system'}))}catch{}};
+if($('a[href="/me"]')){let fresh=false;try{fresh=!!sessionStorage.getItem('atteo-display-sync');sessionStorage.setItem('atteo-display-sync','1')}catch{}
+  if(!fresh)fetch('/api/me/profile').then(r=>r.ok?r.json():null).then(j=>{const d=j&&j.profile&&j.profile.display;if(d&&typeof d==='object')applyDisplay(d)}).catch(()=>{})}
 window.toast=(m)=>{const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),1800)};
 document.addEventListener('click',e=>{
   const c=e.target.closest('[data-copy]');
@@ -1158,7 +1184,7 @@ function rawPage(title: string, body: string, script: string, status = 200): Res
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
-<style>${CSS}</style></head><body>${body}
+<style>${CSS}</style>${DISPLAY_HEAD}</head><body>${body}
 <div id="toast" role="status" aria-live="polite"></div>
 <script>${CLIENT_JS}${script}</script></body></html>`;
   return new Response(html, { status, headers: { "content-type": "text/html; charset=utf-8" } });

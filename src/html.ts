@@ -2033,6 +2033,27 @@ export interface ProfileView {
   bio: string | null;
   listed: boolean;
   rules: { auto_accept_invites?: "friends" | null; auto_accept_friends?: "coworkers" | null };
+  display?: Display | null;
+}
+
+export interface Display {
+  text?: "s" | "m" | "l";
+  density?: "comfortable" | "compact";
+  theme?: "system" | "light" | "dark";
+}
+
+/** Account → Display: how the chat looks to you (Slack-style). Saved to your profile, so the web and the app match. */
+function displaySection(d: Display | null | undefined): string {
+  const seg = (name: string, label: string, opts: [string, string][]) =>
+    `<span class="lbl" id="dp-${name}">${label}</span><div class="seg" role="radiogroup" aria-labelledby="dp-${name}">${opts
+      .map(([v, l]) => `<input type="radio" name="${name}" id="dp-${name}-${v}" value="${v}"><label for="dp-${name}-${v}">${l}</label>`)
+      .join("")}</div>`;
+  return `<div class="section-title" style="margin-top:32px"><div><h2>Display</h2><p class="small muted" style="margin-top:4px">How the chat looks to you. Your phone follows it too.</p></div></div>
+<form class="card pad" id="dp-form" data-saved="${esc(JSON.stringify(d ?? null))}"><div class="dp-grid">
+${seg("text", "Text size", [["s", "Small"], ["m", "Medium"], ["l", "Large"]])}
+${seg("density", "Density", [["comfortable", "Comfortable"], ["compact", "Compact"]])}
+${seg("theme", "Theme", [["system", "System"], ["light", "Light"], ["dark", "Dark"]])}
+</div></form>`;
 }
 
 /** Account → Profile: how you show up to others (name, bio, the directory) and what your account accepts on its own. */
@@ -2050,6 +2071,17 @@ function profileSection(p: ProfileView | null): string {
   <div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn primary sm">Save profile</button></div>
 </form>`;
 }
+
+// Display: the account's setting wins, else what this browser remembers; each change applies at once and saves.
+const DISPLAY_JS = `
+(()=>{const f=document.getElementById('dp-form');if(!f)return;let saved=null,local={};
+  try{saved=JSON.parse(f.dataset.saved)}catch{}try{local=JSON.parse(localStorage.getItem('atteo-display')||'{}')}catch{}
+  const cur=Object.assign({text:'m',density:'comfortable',theme:'system'},local,saved||{});
+  for(const k of ['text','density','theme']){const i=f.querySelector('input[name="'+k+'"][value="'+cur[k]+'"]');if(i)i.checked=true}
+  if(saved)applyDisplay(cur);
+  f.addEventListener('change',async()=>{const d={text:f.text.value,density:f.density.value,theme:f.theme.value};applyDisplay(d);
+    const r=await fetch('/api/me/profile',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({display:d})}).catch(()=>null);
+    toast(r&&r.ok?'Display saved':'Saved on this device only')})})();`;
 
 const PROFILE_JS = `
 document.getElementById('pf-form')?.addEventListener('submit',async e=>{e.preventDefault();const f=e.target,b=f.querySelector('button');b.disabled=true;
@@ -2097,6 +2129,7 @@ export function mePage(viewer: Viewer, side: SideBoard[], tokens: TokenRow[], pl
       )
       .join("")}</div>
 ${profileSection(prof)}
+${displaySection(prof?.display)}
 <div class="section-title" style="margin-top:32px"><div><h2>Agent connections</h2><p class="small muted" style="margin-top:4px">Each connected agent has its own sign-in. Revoke one to disconnect that agent immediately.</p></div><button class="btn sm" data-open="connect">Connect an agent</button></div>
 <div class="list scroll-x"><table class="tbl"><thead><tr><th>Connection</th><th>Last used</th><th>Status</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
 <div class="kill"><div class="grow"><b>Disconnect all agents</b><p class="xs muted">Stops every agent of yours at once: all sign-ins revoked, all sessions ended. Reconnect with <span class="mono">atteo login</span>.</p></div><button class="btn sm danger" type="button" id="kill-all">Disconnect all</button></div>
@@ -2109,7 +2142,7 @@ ${
 ${webhooksSection(hooks)}
 ${billingSection(plan, billingEnabled)}
 ${connectDialog(viewer)}`,
-    script: CONNECT_JS + `window.revoked=()=>location.reload();` + BILLING_JS + PFP_JS + HOOKS_JS + PROFILE_JS + KILL_JS,
+    script: CONNECT_JS + `window.revoked=()=>location.reload();` + BILLING_JS + PFP_JS + HOOKS_JS + PROFILE_JS + DISPLAY_JS + KILL_JS,
   });
 }
 
