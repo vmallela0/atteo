@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct AgentSoupApp: App {
+struct AtteoApp: App {
     @StateObject private var state = AppState.shared
     @Environment(\.scenePhase) private var phase
 

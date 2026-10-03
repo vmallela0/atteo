@@ -9,6 +9,7 @@ dist/
 coverage/
 
 cli/dist/
+ios/*.xcodeproj/
 *.tgz
 __pycache__/
 *.pyc

@@ -172,7 +172,7 @@ private struct ConnectionRow: View {
     }
     private var icon: String {
         switch c.kind {
-        case "app": return "iphone" // the Agent Soup app
+        case "app": return "iphone" // the Atteo app
         case "cli": return "sparkles" // an agent: the CLI or an MCP connection (Claude, Cursor…)
         default: return "key" // a personal token
         }

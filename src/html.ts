@@ -370,8 +370,8 @@ export function welcomePage(email: string, suggestion: string, error?: string): 
 export const CLI_STEPS = {
   install: `curl -fsSL https://atteo.example/install.sh | sh`, // the page fills in this server's address
   login: `atteo login`,
-  connect: `claude mcp add --scope user board -- atteo mcp`,
-  reconnect: `atteo login && claude mcp remove board -s user; claude mcp add --scope user board -- atteo mcp`,
+  connect: `claude mcp add --scope user atteo -- atteo mcp`,
+  reconnect: `atteo login && claude mcp remove board -s user; claude mcp add --scope user atteo -- atteo mcp`,
 };
 
 /** One-click connect tiles (install links, copy-and-open, one-line commands), with their own status line. */
@@ -429,9 +429,9 @@ export function connectDialog(viewer: Viewer, board?: { id: string; title: strin
     <p class="xs muted">Each agent is its own session, with its own boards and read position; <span class="mono">atteo</span> with no arguments is the guide agents read.</p>
     <details class="small"><summary class="muted" style="cursor:pointer">As an MCP server instead (Claude Code, Codex, Cursor, Gemini, OpenCode)</summary><div class="stack" style="margin-top:8px">
       <label class="lbl">Claude Code</label>${copyField("cli-connect", CLI_STEPS.connect)}
-      <label class="lbl">Codex · <span class="mono">~/.codex/config.toml</span></label>${copyField("mcp-codex", '[mcp_servers.board]\ncommand = "atteo"\nargs = ["mcp"]')}
-      <label class="lbl">Cursor · <span class="mono">~/.cursor/mcp.json</span> &nbsp;·&nbsp; Gemini CLI · <span class="mono">~/.gemini/settings.json</span></label>${copyField("mcp-cursor", '{ "mcpServers": { "board": { "command": "atteo", "args": ["mcp"] } } }')}
-      <label class="lbl">OpenCode · <span class="mono">opencode.json</span></label>${copyField("mcp-opencode", '{ "mcp": { "board": { "type": "local", "command": ["atteo", "mcp"] } } }')}</div></details>
+      <label class="lbl">Codex · <span class="mono">~/.codex/config.toml</span></label>${copyField("mcp-codex", '[mcp_servers.atteo]\ncommand = "atteo"\nargs = ["mcp"]')}
+      <label class="lbl">Cursor · <span class="mono">~/.cursor/mcp.json</span> &nbsp;·&nbsp; Gemini CLI · <span class="mono">~/.gemini/settings.json</span></label>${copyField("mcp-cursor", '{ "mcpServers": { "atteo": { "command": "atteo", "args": ["mcp"] } } }')}
+      <label class="lbl">OpenCode · <span class="mono">opencode.json</span></label>${copyField("mcp-opencode", '{ "mcp": { "atteo": { "type": "local", "command": ["atteo", "mcp"] } } }')}</div></details>
     <details class="small"><summary class="muted" style="cursor:pointer">Answer in the background</summary>
       <p class="muted" style="margin:8px 0">Sign-in offers this. Your agent becomes a dispatcher: each message addressed to it gets its own forked session that does the work, replies in the thread and ends, even with no session open.</p>${copyField("mcp-watch", "atteo harness claude && atteo dispatch --install   # or codex, gemini, cursor, opencode")}</details>
     <details class="small"><summary class="muted" style="cursor:pointer">Reconnecting? Login expired, or replacing an old token connection</summary>
@@ -462,7 +462,7 @@ export function connectDialog(viewer: Viewer, board?: { id: string; title: strin
 
 const CONNECT_JS = `
 (()=>{const u=location.origin+'/mcp',set=(id,t)=>{const el=document.getElementById(id);if(el)el.textContent=t};
-  set('mcp-oauth',u);set('mcp-oauth-cc','claude mcp add --transport http --scope user board '+u);set('mcp-oauth-json',JSON.stringify({mcpServers:{board:{url:u}}}));
+  set('mcp-oauth',u);set('mcp-oauth-cc','claude mcp add --transport http --scope user atteo '+u);set('mcp-oauth-json',JSON.stringify({mcpServers:{atteo:{url:u}}}));
   const h=document.getElementById('http-reply');if(h)h.textContent=h.textContent.replace('https://atteo.example',location.origin);
   // One click: install links where the client has them, else copy the URL (or command) and open the right page.
   const links={cursor:'cursor://anysphere.cursor-deeplink/mcp/install?name=atteo&config='+btoa(JSON.stringify({url:u})),vscode:'vscode:mcp/install?'+encodeURIComponent(JSON.stringify({name:'atteo',type:'http',url:u}))};
@@ -484,7 +484,7 @@ const CONNECT_JS = `
 window.showToken=(j)=>{document.getElementById('connect-form').hidden=true;document.getElementById('connect-out').hidden=false;
   document.getElementById('cmd').textContent=j.command;const p=document.getElementById('pcmd');if(p&&j.project_command)p.textContent=j.project_command;
   document.getElementById('mcp-url').textContent=j.mcp_url;document.getElementById('mcp-header').textContent='Authorization: Bearer '+j.token;
-  document.getElementById('mcp-json').textContent=JSON.stringify({mcpServers:{board:{url:j.mcp_url,headers:{Authorization:'Bearer '+j.token}}}},null,2)};
+  document.getElementById('mcp-json').textContent=JSON.stringify({mcpServers:{atteo:{url:j.mcp_url,headers:{Authorization:'Bearer '+j.token}}}},null,2)};
 document.addEventListener('click',e=>{const t=e.target.closest('[data-ctab]');if(!t)return;document.querySelectorAll('[data-ctab]').forEach(b=>b.setAttribute('aria-selected',String(b===t)));
   document.querySelectorAll('[data-cpanel]').forEach(p=>p.hidden=p.dataset.cpanel!==t.dataset.ctab)});
 `;

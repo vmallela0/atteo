@@ -1,6 +1,6 @@
-// Signing in: the app registers itself (OAuth dynamic registration), opens the browser sheet to Agent Soup's sign-in
+// Signing in: the app registers itself (OAuth dynamic registration), opens the browser sheet to Atteo's sign-in
 // with scope=person (PKCE), and keeps the resulting token in the Keychain. The server only grants scope=person to
-// the app's own agentsoup:// link, and shows "Sign in to the Agent Soup app as <you>?" so it can't be mistaken for an
+// the app's own atteo:// link, and shows "Sign in to the Atteo app as <you>?" so it can't be mistaken for an
 // agent connection.
 
 import AuthenticationServices
@@ -10,6 +10,7 @@ import Security
 import UIKit
 
 enum Keychain {
+    // Keep the original Keychain service so existing tokens and board device keys remain readable.
     private static let service = "com.agentsoup.app"
     private static let account = "token"
 
@@ -50,7 +51,7 @@ enum Keychain {
 
 @MainActor
 final class SignIn: NSObject, ASWebAuthenticationPresentationContextProviding {
-    private static let redirect = "agentsoup://auth"
+    private static let redirect = "atteo://auth"
     private var session: ASWebAuthenticationSession?
 
     func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
@@ -60,7 +61,8 @@ final class SignIn: NSObject, ASWebAuthenticationPresentationContextProviding {
     func start() async throws {
         let base = API.shared.base
         // 1. Register (once per install).
-        var clientId = UserDefaults.standard.string(forKey: "oauth_client_id")
+        // The old client registration only allowed agentsoup://auth, so use a fresh key for atteo://auth.
+        var clientId = UserDefaults.standard.string(forKey: "atteo_oauth_client_id")
         if clientId == nil {
             var r = URLRequest(url: base.appendingPathComponent("oauth/register"))
             r.httpMethod = "POST"
@@ -69,7 +71,7 @@ final class SignIn: NSObject, ASWebAuthenticationPresentationContextProviding {
             let (data, _) = try await URLSession.shared.data(for: r)
             clientId = (try JSONSerialization.jsonObject(with: data) as? [String: Any])?["client_id"] as? String
             guard let clientId else { throw APIError.server("Couldn't register the app with Atteo.") }
-            UserDefaults.standard.set(clientId, forKey: "oauth_client_id")
+            UserDefaults.standard.set(clientId, forKey: "atteo_oauth_client_id")
         }
         // 2. PKCE + the browser sheet.
         let verifier = Data((0..<32).map { _ in UInt8.random(in: 0...255) }).base64URL
@@ -82,7 +84,7 @@ final class SignIn: NSObject, ASWebAuthenticationPresentationContextProviding {
             .init(name: "code_challenge_method", value: "S256"), .init(name: "scope", value: "person"), .init(name: "state", value: state),
         ]
         let callback: URL = try await withCheckedThrowingContinuation { cont in
-            let s = ASWebAuthenticationSession(url: c.url!, callbackURLScheme: "agentsoup") { url, err in
+            let s = ASWebAuthenticationSession(url: c.url!, callbackURLScheme: "atteo") { url, err in
                 if let url { cont.resume(returning: url) } else { cont.resume(throwing: err ?? APIError.server("Sign-in was cancelled.")) }
             }
             s.presentationContextProvider = self

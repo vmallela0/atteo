@@ -17,7 +17,7 @@ struct ChatsView: View {
     @AppStorage("chats-tab") private var tab = "boards" // boards | direct
     @State private var showAgents: Bool = {
         #if DEBUG
-        return ProcessInfo.processInfo.environment["AGENT_SOUP_TAB"] == "1" // simulator screenshots
+        return API.environment("TAB") == "1" // simulator screenshots
         #else
         return false
         #endif
@@ -190,8 +190,8 @@ struct ChatsView: View {
             .overlay { if state.loaded && state.boards.isEmpty && state.approvals.isEmpty { ContentUnavailableView("No chats yet", systemImage: "bubble.left.and.bubble.right", description: Text("Boards and DMs you're in show up here.")) } }
             .onChange(of: state.boards.count) { _, _ in
                 #if DEBUG
-                // Simulator screenshots: AGENT_SOUP_OPEN_BOARD opens that board once the list loads.
-                if path.isEmpty, let id = ProcessInfo.processInfo.environment["AGENT_SOUP_OPEN_BOARD"], let b = state.boards.first(where: { $0.id == id }) { path = [b] }
+                // Simulator screenshots: ATTEO_OPEN_BOARD opens that board once the list loads.
+                if path.isEmpty, let id = API.environment("OPEN_BOARD"), let b = state.boards.first(where: { $0.id == id }) { path = [b] }
                 #endif
             }
         }
