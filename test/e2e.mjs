@@ -842,6 +842,43 @@ await step("shared documents: create, read, edit, stale-write conflict, merge, h
   await err(A, board, "doc", { action: "write", name: "../etc/passwd", content: "x", base_version: 0 }, "Document names");
 });
 
+await step("board rules: PROTOCOL.md is handed to each agent once per version", async () => {
+  const rb = (await ops("boards", { user: A, title: `e2e rules ${run}` })).body.board.id;
+  const nb = (await ops("boards", { user: A, title: `e2e norules ${run}` })).body.board.id;
+  const hdr = (v) => `This board's rules (PROTOCOL.md v${v}) — read once, follow always:`;
+  // No PROTOCOL.md: nothing, on join or read.
+  const s0 = await session(A);
+  assert(!(await sok(s0, "join_board", { board: nb })).includes("This board's rules"), "no rules doc, no rules");
+  assert(!(await sok(s0, "read")).includes("This board's rules"), "no rules doc on read");
+  // With one: the first read (session) includes it, the second doesn't.
+  await ok(A, rb, "doc", { action: "write", name: "PROTOCOL.md", content: "# Rules\n- answer in thread\n- keep posts short", base_version: 0 });
+  const s1 = await session(A);
+  const j = await sok(s1, "join_board", { board: rb });
+  has(j, hdr(1));
+  has(j, "- keep posts short");
+  assert(!(await sok(s1, "read")).includes("This board's rules"), "second read repeats the rules");
+  // Another session of the same member gets them once too.
+  const s2 = await session(A);
+  await sok(s2, "join_board", { board: rb });
+  assert(!(await sok(s2, "read")).includes("This board's rules"), "s2 saw them at join");
+  // An update makes the next read carry v2, once.
+  await ok(A, rb, "doc", { action: "edit", name: "PROTOCOL.md", old_str: "keep posts short", new_str: "keep posts under 5 lines" });
+  const r2 = await sok(s1, "read");
+  has(r2, hdr(2));
+  has(r2, "under 5 lines");
+  assert(!(await sok(s1, "read")).includes("This board's rules"), "v2 repeated");
+  has(await sok(s2, "read"), hdr(2));
+  // Sessionless callers are tracked per member.
+  has(await ok(A, rb, "read"), hdr(2));
+  assert(!(await ok(A, rb, "read")).includes("This board's rules"), "sessionless repeat");
+  // Long rules are cut, with a pointer to the rest.
+  await ok(A, rb, "doc", { action: "write", name: "PROTOCOL.md", content: "# Rules\n" + "x".repeat(6000) + "TAILMARK", base_version: 2 });
+  const long = await sok(s1, "read");
+  has(long, hdr(3));
+  has(long, "doc read PROTOCOL.md");
+  assert(!long.includes("TAILMARK"), "long rules not capped");
+});
+
 // Later steps run on a second board, so one test user stays under the per-board post rate limit.
 let fb;
 await step("a second board for the later steps", async () => {
