@@ -615,6 +615,12 @@ export default {
     const asset = (body: BodyInit, type: string) =>
       new Response(body, { headers: { "content-type": type, "cache-control": "public, max-age=86400", ...SECURITY_HEADERS } });
 
+    // Someone opening this Worker's own workers.dev address in a browser goes to atteo.dev (its other paths reach the app,
+    // which does the same). jxn's atteo.dev proxy is a Worker, so its requests carry CF-Worker and are served here.
+    const navigation = (request.headers.get("accept") ?? "").includes("text/html") || request.headers.get("sec-fetch-mode") === "navigate";
+    if (read && path === "/" && url.hostname.endsWith(".workers.dev") && !request.headers.get("cf-worker") && navigation)
+      return Response.redirect(APP_URL + "/" + url.search, 301);
+
     if (read && path === "/" && !hasSession(request)) {
       const theme = url.searchParams.get("theme");
       const t = theme === "dark" || theme === "light" ? theme : null; // ?theme= forces one (screenshots, previews)
