@@ -1,7 +1,9 @@
-// A board's info: who's in it, invite someone (a friend by name, anyone by email) or share a link, its files, and,
-// for its owners, rename and archive. The chat's Info sheet (BoardInfoSheet, from the title) hosts it, with what's
-// open and who's here above and the files in their place. Also the "New board" sheet from Chats.
+// A board's info: its picture (any member who can post changes or removes it), who's in it, invite someone (a
+// friend by name, anyone by email) or share a link, its files, and, for its owners, rename and archive. The chat's
+// Info sheet (BoardInfoSheet, from the title) hosts it, with what's open and who's here above and the files in their
+// place. Also the "New board" sheet from Chats.
 
+import PhotosUI
 import SwiftUI
 
 struct BoardInfoView<Top: View, Files: View>: View {
@@ -23,12 +25,20 @@ struct BoardInfoView<Top: View, Files: View>: View {
     @State private var renaming = false
     @State private var newTitle = ""
     @State private var confirmArchive = false
+    @State private var pickedPicture: PhotosPickerItem?
+    @State private var pictureBusy = false
+    @State private var pictureError: String?
+    @State private var confirmRemovePicture = false
+    @ObservedObject private var pictures = BoardPictureStore.shared
     @FocusState private var typing: Bool
 
     /// The board as it is now (a rename shows at once), else what we were handed.
     private var board: Board { state.boards.first { $0.id == boardId } ?? fallback }
     private var direct: Bool { board.kind == "direct" }
     private var owner: Bool { members?.you == "owner" || board.createdBy == state.me?.owner }
+    /// Any member who can post changes the picture: not on a DM, an archived board, or as a viewer. Shown once your
+    /// role is known, so a viewer never sees a control that would only say no.
+    private var canChangePicture: Bool { !direct && board.archived != true && members != nil && members?.you != "viewer" }
     private var suggestions: [Person] {
         let here = Set((members?.members ?? []).map(\.user))
         let q = to.trimmingCharacters(in: .whitespaces).lowercased().replacingOccurrences(of: "@", with: "")
@@ -39,18 +49,31 @@ struct BoardInfoView<Top: View, Files: View>: View {
     var body: some View {
         List {
             Section {
-                HStack(spacing: Space.m) {
-                    if direct { Avatar(name: board.displayName(me: state.me?.owner), size: 52) } else { BoardTile(title: board.title, size: 52) }
-                    VStack(alignment: .leading, spacing: Space.xxs) {
-                        Text(board.displayName(me: state.me?.owner)).font(.title3.weight(.semibold)).foregroundStyle(Theme.text).lineLimit(2)
-                            .accessibilityIdentifier("board-info-title")
-                        HStack(spacing: Space.xs) {
-                            if board.encrypted == true { Image(systemName: "lock.fill").font(.system(size: 10)) }
-                            Text([board.encrypted == true ? "End-to-end encrypted" : nil, members.map { "\($0.members.count) member\($0.members.count == 1 ? "" : "s")" }].compactMap { $0 }.joined(separator: " · "))
+                VStack(spacing: Space.s) {
+                    // The board's picture, large (a DM: the other person's).
+                    BoardPicture(board: board, size: 96)
+                        .overlay {
+                            if pictureBusy {
+                                RoundedRectangle(cornerRadius: 96 * 0.3, style: .continuous).fill(.black.opacity(0.4))
+                                ProgressView().tint(.white)
+                            }
                         }
-                        .font(Typo.meta).foregroundStyle(Theme.muted)
+                        .accessibilityElement()
+                        .accessibilityLabel(direct ? "\(board.displayName(me: state.me?.owner))'s picture" : "Board picture")
+                        .accessibilityValue(pictures.look(of: board))
+                        .accessibilityIdentifier("board-picture")
+                        .padding(.bottom, Space.xs)
+                    Text(board.displayName(me: state.me?.owner)).font(.title3.weight(.semibold)).foregroundStyle(Theme.text).lineLimit(2)
+                        .multilineTextAlignment(.center)
+                        .accessibilityIdentifier("board-info-title")
+                    HStack(spacing: Space.xs) {
+                        if board.encrypted == true { Image(systemName: "lock.fill").font(.system(size: 10)) }
+                        Text([board.encrypted == true ? "End-to-end encrypted" : nil, members.map { "\($0.members.count) member\($0.members.count == 1 ? "" : "s")" }].compactMap { $0 }.joined(separator: " · "))
                     }
+                    .font(Typo.meta).foregroundStyle(Theme.muted)
+                    if canChangePicture { pictureControls }
                 }
+                .frame(maxWidth: .infinity)
                 .padding(.vertical, Space.xs)
             }
             .listRowBackground(Color.clear)
@@ -154,6 +177,24 @@ struct BoardInfoView<Top: View, Files: View>: View {
                 Task { _ = await state.renameBoard(boardId, to: t) }
             }
         }
+        .confirmationDialog("Remove the board picture?", isPresented: $confirmRemovePicture, titleVisibility: .visible) {
+            Button("Remove picture", role: .destructive) { changePicture(nil) }
+        } message: { Text("Everyone sees its initial again, and the board gets a line saying you removed it.") }
+        .onChange(of: pickedPicture) { _, item in
+            guard let item else { return }
+            pickedPicture = nil
+            pictureBusy = true
+            pictureError = nil
+            Task {
+                let data = try? await item.loadTransferable(type: Data.self)
+                guard let jpeg = data.flatMap({ squareJPEG($0, side: 256) }) else {
+                    pictureBusy = false
+                    withAnimation(.smooth) { pictureError = "That picture couldn't be read. Try another one." }
+                    return
+                }
+                changePicture(jpeg)
+            }
+        }
         .confirmationDialog("Archive \(board.title)?", isPresented: $confirmArchive, titleVisibility: .visible) {
             Button("Archive", role: .destructive) { Task { _ = await state.archiveBoard(boardId) } }
         } message: { Text("It becomes read-only for everyone. You can restore it on the web.") }
@@ -164,6 +205,43 @@ struct BoardInfoView<Top: View, Files: View>: View {
             withAnimation(.smooth) { members = mm; friends = ff }
         }
         .refreshable { members = await state.boardMembers(boardId) }
+    }
+
+    /// Change picture (from Photos) and Remove picture, under the board's name; what went wrong says so right here.
+    @ViewBuilder private var pictureControls: some View {
+        HStack(spacing: Space.s) {
+            PhotosPicker(selection: $pickedPicture, matching: .images) {
+                PictureControl(title: "Change picture", icon: "photo", color: Theme.text)
+            }
+            .accessibilityIdentifier("board-picture-change")
+            if board.picture != nil {
+                Button(role: .destructive) { confirmRemovePicture = true } label: {
+                    PictureControl(title: "Remove picture", icon: "trash", color: Theme.danger)
+                }
+                .accessibilityIdentifier("board-picture-remove")
+            }
+        }
+        .buttonStyle(.borderless)
+        .disabled(pictureBusy)
+        .padding(.top, Space.xs)
+        if let pictureError {
+            Text(pictureError).font(Typo.meta).foregroundStyle(Theme.danger).multilineTextAlignment(.center)
+                .accessibilityIdentifier("board-picture-error")
+        }
+        if board.encrypted == true {
+            Text("Visible to the server, like the board name.").font(Typo.micro).foregroundStyle(Theme.faint)
+                .accessibilityIdentifier("board-picture-caption")
+        }
+    }
+
+    private func changePicture(_ jpeg: Data?) {
+        pictureBusy = true
+        pictureError = nil
+        Task {
+            let failed = await state.setBoardPicture(boardId, jpeg: jpeg)
+            pictureBusy = false
+            withAnimation(.smooth) { pictureError = failed }
+        }
     }
 
     private func send(_ who: String) {
@@ -177,6 +255,23 @@ struct BoardInfoView<Top: View, Files: View>: View {
             }
             inviting = false
         }
+    }
+}
+
+/// A small capsule button under the board's picture: a quiet icon and its words.
+private struct PictureControl: View {
+    let title: String
+    let icon: String
+    let color: Color
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon).font(.system(size: 12, weight: .semibold)).accessibilityHidden(true)
+            Text(title)
+        }
+        .font(Typo.meta.weight(.semibold)).foregroundStyle(color)
+        .padding(.horizontal, Space.m).frame(minHeight: 32)
+        .background(Theme.card, in: Capsule())
+        .contentShape(Capsule())
     }
 }
 

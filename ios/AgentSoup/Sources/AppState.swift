@@ -113,7 +113,9 @@ final class AppState: ObservableObject {
     func refreshBoards() async {
         do {
             let r = try await API.shared.get("/api/me/boards", as: BoardsResponse.self)
-            withAnimation(.smooth) { boards = r.boards.sorted { $0.lastActivity > $1.lastActivity } }
+            // A picture changing right now keeps showing what it's changing to (BoardPicture.swift).
+            let list = r.boards.map(BoardPictureStore.shared.applyPending)
+            withAnimation(.smooth) { boards = list.sorted { $0.lastActivity > $1.lastActivity } }
             save()
         } catch { report(error, quiet: true) }
     }
