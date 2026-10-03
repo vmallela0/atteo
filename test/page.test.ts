@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { boardPage, changeCardHtml, refLinks } from "../src/html";
+import { boardPage, changeCardHtml, changeLink, refLinks } from "../src/html";
 import type { BoardInfo, Entry } from "../src/types";
 
 const info: BoardInfo = { id: "b_test1234", title: "Checkout </script> bug", created_by: "jxn", created_at: 0, entry_count: 3, last_seq: 3 };
@@ -75,7 +75,7 @@ describe("change card", () => {
     expect(html).toContain(`<span class="chg-br mono">fix/&lt;empty&gt;-cart</span><span class="faint">→</span><span class="chg-br mono">main</span>`);
     expect(html).toContain(`<span class="ci ci-passing"><span class="dot"></span>CI passing</span>`);
     expect(html).toContain(`href="https://github.com/vmallela0/agent-soup/pull/7" target="_blank" rel="noopener noreferrer">PR #7 ↗</a>`);
-    expect(html).toContain(`<code class="sha">abc1234</code><span class="truncate">Guard &lt;b&gt;empty&lt;/b&gt; carts</span>`);
+    expect(html).toContain(`<a class="sha" href="https://github.com/vmallela0/agent-soup/commit/abc1234" target="_blank" rel="noopener noreferrer"><code>abc1234</code></a><span class="truncate">Guard &lt;b&gt;empty&lt;/b&gt; carts</span>`);
     expect(html).toContain(`1 file changed <span class="add">+12</span> <span class="del">−3</span>`);
     expect(html).toContain(`<span class="bar" aria-hidden="true"><i class="a"></i><i class="a"></i><i class="a"></i><i class="a"></i><i class="d"></i></span>`);
   });
@@ -91,6 +91,28 @@ describe("change card", () => {
     expect(many).toContain(`<details><summary>4 more files</summary>`);
     expect(many).not.toContain("ci-");
     expect(many).toContain(`<span class="bar" aria-hidden="true"><i class="a"></i><i></i><i></i><i></i><i></i></span>`);
+  });
+});
+
+describe("change card links (vedu #1097)", () => {
+  const base = { branch: "main", base: null, ci: "none" as const, files: [], diff: null };
+  it("goes to the PR when there is one", () => {
+    expect(changeLink({ ...base, repo: "a/b", pr_url: "https://github.com/a/b/pull/9", commits: [{ sha: "abc1234", title: "x" }] })).toBe("https://github.com/a/b/pull/9");
+  });
+  it("else to the commit, or the range of commits (newest first)", () => {
+    expect(changeLink({ ...base, repo: "vmallela0/agent-soup", pr_url: null, commits: [{ sha: "abc1234", title: "x" }] })).toBe("https://github.com/vmallela0/agent-soup/commit/abc1234");
+    expect(changeLink({ ...base, repo: "git@github.com:a/b.git", pr_url: null, commits: [{ sha: "ccc3333", title: "new" }, { sha: "aaa1111", title: "old" }] })).toBe("https://github.com/a/b/compare/aaa1111%5E...ccc3333");
+  });
+  it("is null without a GitHub repo or commits", () => {
+    expect(changeLink({ ...base, repo: null, pr_url: null, commits: [{ sha: "abc1234", title: "x" }] })).toBeNull();
+    expect(changeLink({ ...base, repo: "https://gitlab.com/a/b", pr_url: null, commits: [{ sha: "abc1234", title: "x" }] })).toBeNull();
+    expect(changeLink({ ...base, repo: "a/b", pr_url: null, commits: [] })).toBeNull();
+  });
+  it("makes the card and its shas links", () => {
+    const html = changeCardHtml(5, { ...base, repo: "a/b", pr_url: null, commits: [{ sha: "abc1234", title: "x" }] });
+    expect(html).toContain(`class="chg chg-go" data-change="5" data-href="https://github.com/a/b/commit/abc1234"`);
+    expect(html).toContain(`<a class="sha" href="https://github.com/a/b/commit/abc1234" target="_blank" rel="noopener noreferrer"><code>abc1234</code></a>`);
+    expect(html).toContain(`>Commit on GitHub ↗</a>`);
   });
 });
 

@@ -452,6 +452,8 @@ dialog.lightbox img{display:block;max-width:min(96vw,1600px);max-height:92vh;wid
 .chg-h{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 12px;background:var(--bg-subtle);color:var(--muted);font-size:13px}
 .chg-br{color:var(--ink);font-size:12px;padding:1px 6px;border-radius:5px;background:var(--bg-hover);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .chg-pr{color:var(--accent);font-weight:500;font-size:12.5px}.chg-pr:hover{text-decoration:underline}
+.chg-go{cursor:pointer;transition:border-color .15s}.chg-go:hover{border-color:var(--line-strong)}.chg-go .chg-diff,.chg-go details>ul{cursor:auto}
+.chg-commits a.sha{flex:none;color:var(--muted);font-size:11.5px}.chg-commits a.sha code{background:none;padding:0;font-size:inherit;color:inherit}.chg-commits a.sha:hover{color:var(--accent);text-decoration:underline}
 .ci{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:500}.ci .dot{width:7px;height:7px;border-radius:50%;background:currentColor}
 .ci-passing{color:var(--ok)}.ci-failing{color:var(--danger)}.ci-pending{color:var(--warn)}
 .chg-sec{padding:8px 12px;border-top:1px solid var(--line)}

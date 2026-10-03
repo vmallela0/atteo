@@ -129,19 +129,38 @@ function diffBar(added: number, removed: number): string {
  * A change entry as a git card: branch → base, CI, PR link, commits, files with +/− bars, and a footer with any reviews
  * (filled in by the page from the live `reviews` map; agents review with the review tool) and the diff on demand.
  */
+/** "owner/name" of a GitHub repo, from "owner/name", a github.com URL or an SSH remote; null otherwise. */
+function githubRepo(r: string | null | undefined): string | null {
+  const m = r ? /^(?:(?:https?:\/\/|git@)?github\.com[/:])?([\w.-]+)\/([\w.-]+?)(?:\.git)?\/?$/i.exec(r.trim()) : null;
+  return m ? `${m[1]}/${m[2]}` : null;
+}
+
+/** Where a change card goes on GitHub (vedu #1097): its PR, else its commit, else the range of its commits (listed newest first). */
+export function changeLink(c: ChangeCard): string | null {
+  if (c.pr_url) return c.pr_url;
+  const repo = githubRepo(c.repo), shas = c.commits.map((x) => x.sha).filter((x) => /^[0-9a-f]{7,40}$/i.test(x));
+  if (!repo || !shas.length) return null;
+  return shas.length === 1 ? `https://github.com/${repo}/commit/${shas[0]}` : `https://github.com/${repo}/compare/${shas[shas.length - 1]}%5E...${shas[0]}`;
+}
+
 export function changeCardHtml(seq: number, c: ChangeCard): string {
   const added = c.files.reduce((n, f) => n + f.added, 0);
   const removed = c.files.reduce((n, f) => n + f.removed, 0);
-  const pr = c.pr_url ? `<a class="chg-pr" href="${esc(c.pr_url)}" target="_blank" rel="noopener noreferrer">${esc(/\/pull\/(\d+)/.exec(c.pr_url)?.[1] ? `PR #${/\/pull\/(\d+)/.exec(c.pr_url)![1]}` : "Pull request")} ↗</a>` : "";
+  const link = changeLink(c);
+  const pr = c.pr_url
+    ? `<a class="chg-pr" href="${esc(c.pr_url)}" target="_blank" rel="noopener noreferrer">${esc(/\/pull\/(\d+)/.exec(c.pr_url)?.[1] ? `PR #${/\/pull\/(\d+)/.exec(c.pr_url)![1]}` : "Pull request")} ↗</a>`
+    : link ? `<a class="chg-pr" href="${esc(link)}" target="_blank" rel="noopener noreferrer">${c.commits.length > 1 ? "Compare" : "Commit"} on GitHub ↗</a>` : "";
+  const repo = githubRepo(c.repo);
   const ci = c.ci !== "none" ? `<span class="ci ci-${esc(c.ci)}"><span class="dot"></span>CI ${esc(c.ci)}</span>` : "";
-  const commit = (x: ChangeCard["commits"][number]) => `<li><code class="sha">${esc(x.sha)}</code><span class="truncate">${esc(x.title)}</span></li>`;
+  const commit = (x: ChangeCard["commits"][number]) =>
+    `<li>${repo && /^[0-9a-f]{7,40}$/i.test(x.sha) ? `<a class="sha" href="https://github.com/${esc(repo)}/commit/${esc(x.sha)}" target="_blank" rel="noopener noreferrer"><code>${esc(x.sha)}</code></a>` : `<code class="sha">${esc(x.sha)}</code>`}<span class="truncate">${esc(x.title)}</span></li>`;
   const file = (f: ChangeCard["files"][number]) =>
     `<li><span class="path mono" title="${esc(f.path)}">${esc(f.path)}</span><span class="n"><span class="add">+${f.added}</span> <span class="del">−${f.removed}</span></span>${diffBar(f.added, f.removed)}</li>`;
   const list = <T,>(items: T[], show: number, render: (x: T) => string, more: string) =>
     items.length <= show + 1
       ? `<ul>${items.map(render).join("")}</ul>`
       : `<ul>${items.slice(0, show).map(render).join("")}</ul><details><summary>${items.length - show} more ${more}</summary><ul>${items.slice(show).map(render).join("")}</ul></details>`;
-  return `<div class="chg" data-change="${seq}">
+  return `<div class="chg${link ? " chg-go" : ""}" data-change="${seq}"${link ? ` data-href="${esc(link)}"` : ""}>
 <div class="chg-h">${BRANCH_ICON}${c.repo ? `<span class="xs faint">${esc(c.repo)}</span>` : ""}<span class="chg-br mono">${esc(c.branch)}</span>${c.base ? `<span class="faint">→</span><span class="chg-br mono">${esc(c.base)}</span>` : ""}${ci}<span class="grow"></span>${pr}</div>
 ${c.commits.length ? `<div class="chg-sec chg-commits"><div class="chg-label">${c.commits.length} commit${c.commits.length === 1 ? "" : "s"}</div>${list(c.commits, 4, commit, "commits")}</div>` : ""}
 ${c.files.length ? `<div class="chg-sec chg-files"><div class="chg-label">${c.files.length} file${c.files.length === 1 ? "" : "s"} changed <span class="add">+${added}</span> <span class="del">−${removed}</span></div>${list(c.files, 6, file, "files")}</div>` : ""}
@@ -234,18 +253,27 @@ const voiceJs = (agentChat: boolean) => `
     document.getElementById('vp-go').textContent=speaking?'🔊 Reading'+(q.length?' · '+q.length+' more':'')+' · tap to stop':'🔊 '+(q.length>1?q.length+' for you, first from ':'For you from ')+(el?who(el):'')+' · tap or say “go ahead”'}
   function speakNext(){stopGo();const s=q.shift(),el=s&&document.getElementById('e'+s);if(!el){speaking=false;pillUpd();return}
     const body=((el.querySelector(':scope>.grow>.body')||{}).innerText||'').replace(/https?:[^\\s]+/g,'a link').slice(0,700);
-    const u=new SpeechSynthesisUtterance(el.dataset.author+(el.classList.contains('by-agent')?"'s agent":'')+'. '+body);u.lang=LANG;u.onend=u.onerror=()=>{if(u.done)return;u.done=1;speaking=false;if(q.length)speakNext();else pillUpd()};
-    speaking=true;pillUpd();syn.cancel();syn.speak(u)}
+    const u=new SpeechSynthesisUtterance(el.dataset.author+(el.classList.contains('by-agent')?"'s agent":'')+'. '+body);u.lang=LANG;let started=false;u.onstart=()=>{started=true};
+    u.onend=u.onerror=()=>{if(u.done)return;u.done=1;window.__utt=null;speaking=false;if(q.length)speakNext();else pillUpd()};
+    window.__utt=u; // Chrome drops an utterance nothing holds on to, and its end event with it
+    speaking=true;pillUpd();if(syn.speaking||syn.pending)syn.cancel();
+    // Speaking straight after cancel(), or while the mic still holds the audio, can come out silent (jxn #1101):
+    // start a beat later, retry once if it never starts, then say so instead of showing "Reading" forever.
+    const never=()=>!started&&!u.done&&!syn.speaking;
+    setTimeout(()=>{if(u.done)return;if(syn.resume)syn.resume();syn.speak(u);
+      setTimeout(()=>{if(!never())return;syn.cancel();syn.speak(u);
+        setTimeout(()=>{if(!never())return;u.done=1;speaking=false;q.length=0;pillUpd();toast("The browser didn't play it: check the volume, or that this page may play sound")},2000)},1500)},200)}
   function hush(){q.length=0;speaking=false;syn.cancel();pillUpd()}
   // After the blip, listen briefly for "go ahead" (only once the mic is already allowed, so nothing asks for it out of nowhere).
   async function listenGo(){if(!SR||rec||gl||speaking)return;try{if((await navigator.permissions.query({name:'microphone'})).state!=='granted')return}catch(e){return}
     const g=gl=new SR();g.lang=LANG;g.interimResults=true;g.continuous=true;const end=setTimeout(()=>{try{g.stop()}catch(e){}},12000);
-    g.onresult=ev=>{for(let i=ev.resultIndex;i<ev.results.length;i++)if(/go ahead|read it|play it/i.test(ev.results[i][0].transcript)){clearTimeout(end);try{g.stop()}catch(e){}if(!speaking&&q.length)speakNext();return}};
-    g.onend=()=>{clearTimeout(end);if(gl===g)gl=null};try{g.start()}catch(e){gl=null}}
+    g.onresult=ev=>{for(let i=ev.resultIndex;i<ev.results.length;i++)if(/go ahead|read it|play it/i.test(ev.results[i][0].transcript)){clearTimeout(end);g.go=1;try{g.stop()}catch(e){}return}};
+    g.onend=()=>{clearTimeout(end);if(gl===g)gl=null;if(g.go&&!speaking&&q.length)setTimeout(speakNext,250)}; /* speak once the mic has let go of the audio */try{g.start()}catch(e){gl=null}}
   function setOn(v){on=v;vb.setAttribute('aria-pressed',String(v));vb.classList.toggle('on',v);try{localStorage.setItem('atteo.voice',v?'1':'0')}catch(e){}if(!v){stopGo();hush()}}
   try{on=localStorage.getItem('atteo.voice')==='1'}catch(e){}
   vb.hidden=false;setOn(on);
-  vb.addEventListener('click',()=>{setOn(!on);if(on){blip();toast('Messages for you will blip: tap the bar or say “go ahead” to hear them')}});
+  // Turning it on is a tap, which is when browsers (Safari above all) let a page start speaking: say a blank there so later reads are allowed.
+  vb.addEventListener('click',()=>{setOn(!on);if(on){try{const w=new SpeechSynthesisUtterance(' ');w.volume=0;syn.speak(w)}catch(e){}blip();toast('Messages for you will blip: tap the bar or say “go ahead” to hear them')}});
   document.getElementById('vp-go').addEventListener('click',()=>{if(speaking)hush();else speakNext()});
   document.getElementById('vp-x').addEventListener('click',hush);
   document.addEventListener('keydown',e=>{if(e.key==='Escape'&&speaking)hush()});
@@ -1291,6 +1319,9 @@ foldApply();
 function tapToggle(en){const was=en.classList.contains('tap');document.querySelectorAll('.entry.tap').forEach(x=>{x.classList.remove('tap');x.querySelector(':scope>.grow>.meta>.more-acts')?.setAttribute('aria-expanded','false')});
   if(!was){en.classList.add('tap');en.querySelector(':scope>.grow>.meta>.more-acts')?.setAttribute('aria-expanded','true')}}
 document.addEventListener('click',e=>{const b=e.target.closest('.more-acts');if(!b)return;e.preventDefault();const en=b.closest('.entry');if(en)tapToggle(en)});
+// A change card opens its PR / commit on GitHub when you tap it anywhere that isn't its own control (vedu #1097).
+document.addEventListener('click',e=>{const c=e.target.closest('.chg[data-href]');if(!c||document.documentElement.classList.contains('selecting')||e.target.closest('a,button,summary,details>ul,.chg-diff,.chg-reviews'))return;
+  if(getSelection&&String(getSelection()).trim())return;e.preventDefault();e.stopPropagation();window.open(c.dataset.href,'_blank','noopener')},true);
 if(matchMedia('(hover:none)').matches)document.addEventListener('click',e=>{if(document.documentElement.classList.contains('selecting'))return;
   const en=e.target.closest('.entry');if(!en||en.classList.contains('pending')||e.target.closest('a,button,input,textarea,select,label,summary,details,.acts,.tk,[data-hc],.rd'))return;
   tapToggle(en)});
