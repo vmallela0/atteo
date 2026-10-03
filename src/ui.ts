@@ -324,6 +324,9 @@ dialog.access-dlg{width:min(640px,calc(100vw - 24px))}
 .st-done{color:var(--muted)}.tk-who{color:var(--muted)}
 .tk-prog{display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-variant-numeric:tabular-nums}
 .tk-bar{display:inline-block;width:56px;height:4px;border-radius:2px;background:var(--line);overflow:hidden}.tk-bar i{display:block;height:100%;background:var(--ok);border-radius:2px;transition:width .2s}
+/* phones: the card's buttons stay together on its one line: the progress bar gets shorter, empty bits take no room */
+@media(max-width:640px){.tk{flex-wrap:nowrap}.tk>.tk-st,.tk>.btn{flex:none}.tk>.tk-prog{min-width:0}.tk-bar{width:28px}.tk>.tk-who:empty{display:none}.tk>.btn.sm{padding:0 7px}}
+@media(max-width:360px){.tk-bar{display:none}}
 .tk-subs{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:1px;font-size:12.5px}
 .tk-subs li{display:flex;align-items:center;gap:8px;min-width:0;padding:3px 8px;border-left:2px solid var(--line)}.tk-subs .grow{color:var(--text);text-decoration:none}.tk-subs a.grow:hover{text-decoration:underline}
 .tk-subs li.st-done .grow{color:var(--muted);text-decoration:line-through;text-decoration-color:color-mix(in srgb,var(--muted) 60%,transparent)}
