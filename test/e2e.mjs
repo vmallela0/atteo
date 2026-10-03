@@ -1171,6 +1171,15 @@ await step("tasks are shared items: create, get, edit in place (versions, confli
   await ok(B, fb, "task", { action: "update", seq: t, status: "done" });
   has(await ok(A, fb, "read"), `✅ Done #${t} (Ship the soup now ${run})`);
   has(await ok(A, fb, "search", { query: "noodles" }), `#${t}`); // task bodies are searchable
+  // Closing a task ticks what is still open in its checklist, as a normal versioned edit, before the done post.
+  const ct = Number((await ok(A, fb, "task", { action: "create", title: `Close ticks ${run}`, body: "- [ ] a\n- [ ] b" })).match(/Created task #(\d+)/)[1]);
+  await ok(A, fb, "task", { action: "edit", seq: ct, old_str: "- [ ] a", new_str: "- [x] a" });
+  await ok(A, fb, "task", { action: "update", seq: ct, status: "done" });
+  const cg = await ok(A, fb, "task", { action: "get", seq: ct });
+  has(cg, "- [x] a");
+  has(cg, "- [x] b");
+  assert(!cg.includes("- [ ]"), "nothing left unticked:\n" + cg);
+  has(await ok(A, fb, "task", { action: "history", seq: ct }), "ticked the remaining items");
   // Web: open and edit a task as a person.
   const w = await (await web(`/api/boards/${fb}/tasks/${t}`, B)).json();
   assert(w.task.version === 3 && w.history.length >= 3, JSON.stringify(w).slice(0, 200));
