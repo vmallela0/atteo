@@ -514,7 +514,14 @@ final class AgentSoupUITests: XCTestCase {
         XCTAssertTrue(theirs.waitForExistence(timeout: 5))
         let screen = a.windows.firstMatch.frame
         func onScreen(_ e: XCUIElement) -> Bool { e.exists && e.frame.minY > screen.minY + 140 && e.frame.maxY < screen.maxY - 140 }
-        for _ in 0..<8 where !onScreen(theirs) { a.swipeDown(velocity: .slow); sleep(1) }
+        /// Scrolls the chat until it's well on screen: down to reveal what's above, up for what's below.
+        func bringIntoView(_ e: XCUIElement) {
+            for _ in 0..<8 where !onScreen(e) {
+                if e.exists && e.frame.maxY >= screen.maxY - 140 { a.swipeUp(velocity: .slow) } else { a.swipeDown(velocity: .slow) }
+                sleep(1)
+            }
+        }
+        bringIntoView(theirs)
         theirs.press(forDuration: 0.8)
         let thumbs = a.buttons["👍"].firstMatch
         XCTAssertTrue(thumbs.waitForExistence(timeout: 3), "the quick reactions")
@@ -577,7 +584,7 @@ final class AgentSoupUITests: XCTestCase {
         let onIt = a.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'on-it-'")).firstMatch
         if onIt.waitForExistence(timeout: 3) {
             if a.keyboards.count > 0 { a.swipeDown(velocity: .slow); sleep(1) } // keyboard down
-            for _ in 0..<8 where !onScreen(onIt) { a.swipeDown(velocity: .slow); sleep(1) }
+            bringIntoView(onIt)
             onIt.tap()
             XCTAssertTrue(a.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'handling' AND label CONTAINS 'on it'")).firstMatch.waitForExistence(timeout: 5), "who's on it")
             shot("24-on-it")

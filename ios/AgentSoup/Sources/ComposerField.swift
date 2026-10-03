@@ -51,7 +51,7 @@ struct ComposerField: UIViewRepresentable {
         v.textContainerInset = Self.insets(for: v.font)
         v.textContainer.lineFragmentPadding = 0
         v.isScrollEnabled = false
-        v.keyboardAppearance = .dark
+        v.keyboardAppearance = .default // follows light / dark
         v.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         v.accessibilityIdentifier = "composer"
         v.placeholderLabel.font = v.font

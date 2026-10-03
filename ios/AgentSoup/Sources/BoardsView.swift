@@ -54,6 +54,7 @@ struct BoardView: View {
     @State private var holdBottom = false // older messages going in above: keep what you're reading where it is
 
     @ObservedObject private var threadSeen = ThreadSeen.shared
+    @Environment(\.chatDensity) private var density
     private var me: String? { state.me?.owner }
     private func isMine(_ e: Entry) -> Bool { e.author == me && e.via != "agent" }
 
@@ -114,7 +115,7 @@ struct BoardView: View {
             jump(to: n)
             return .handled
         })
-        .sheet(item: $seenBy) { r in SeenBySheet(receipt: r).presentationDetents([.medium, .large]).presentationBackground(Theme.bg) }
+        .sheet(item: $seenBy) { r in SeenBySheet(receipt: r).environment(\.chatDensity, density).presentationDetents([.medium, .large]).presentationBackground(Theme.bg) }
         // Someone's card: Message opens your DM; "Ask theo's agent" starts a message to it here.
         .sheet(item: $profile) { p in
             NavigationStack {
@@ -212,8 +213,8 @@ struct BoardView: View {
         }
         .safeAreaInset(edge: .top, spacing: 0) { WorkStrip(tasks: state.tasks[board.id] ?? []) { Haptic.tap(); showTasks = true } }
         .safeAreaInset(edge: .bottom, spacing: 0) { composer }
-        .sheet(isPresented: $showTasks) { TasksSheet(board: board).presentationDetents([.large]).presentationBackground(Theme.bg) }
-        .sheet(item: $workPane) { p in TasksSheet(board: board, initial: p).presentationDetents([.large]).presentationBackground(Theme.bg) }
+        .sheet(isPresented: $showTasks) { TasksSheet(board: board).environment(\.chatDensity, density).presentationDetents([.large]).presentationBackground(Theme.bg) }
+        .sheet(item: $workPane) { p in TasksSheet(board: board, initial: p).environment(\.chatDensity, density).presentationDetents([.large]).presentationBackground(Theme.bg) }
         .navigationTitle(board.displayName(me: state.me?.owner))
         .toolbar {
             // The title, and under it who's working here right now (tap for everyone, live / idle / gone).
@@ -250,6 +251,7 @@ struct BoardView: View {
         // The title opens the board's info: what's open, who's here, files, search.
         .sheet(isPresented: $showAgents) {
             BoardInfoSheet(board: board) { seq in showAgents = false; jump(to: seq, after: 0.35) }
+                .environment(\.chatDensity, density)
                 .presentationDetents([.large]).presentationBackground(Theme.bg)
         }
         .sheet(item: $reactingTo) { r in
@@ -280,7 +282,7 @@ struct BoardView: View {
         VStack(alignment: .leading, spacing: 0) {
             if newDay { DaySeparator(ts: e.ts) }
             // A hairline between separate messages from others (bubbles are separate already).
-            else if !(mine && e.type != "task") && !prevMine { Rectangle().fill(Theme.line.opacity(grouped ? 0.45 : 0.8)).frame(height: 0.5).padding(.leading, 38).padding(.top, grouped ? Space.xs : Space.s) }
+            else if !(mine && e.type != "task") && !prevMine { Rectangle().fill(Theme.line.opacity(grouped ? 0.45 : 0.8)).frame(height: 0.5).padding(.leading, 38).padding(.top, grouped ? (density == .compact ? Space.xxs : Space.xs) : Space.gap(density)) }
             entryRow(e, grouped: grouped, mine: mine, r)
         }
     }
@@ -681,6 +683,11 @@ struct EntryRow: View {
     var actions = EntryActions()
     var retry: () -> Void = {}
     @State var drag: CGFloat = 0 // swipe right to reply
+    @Environment(\.chatDensity) private var density
+    /// Room above a message: tight under the one before when grouped, a little more otherwise (less when compact).
+    private func gapAbove(_ comfortable: CGFloat) -> CGFloat {
+        density == .compact ? (grouped ? Space.xxs : Space.gap(density)) : (grouped ? Space.xs : comfortable)
+    }
 
     private var who: String { e.byAgent ? "\(e.author)'s agent" : e.author }
     private static let replyAt: CGFloat = 56
@@ -831,7 +838,7 @@ struct EntryRow: View {
                 m.text.textRenderer(MentionBoxes())
                     .font(Typo.body).foregroundStyle(Theme.text.opacity(e.pending == true ? 0.55 : 1))
                     .accessibilityValue(m.handles.isEmpty ? "" : "Mentions " + m.handles.joined(separator: ", "))
-                    .padding(.horizontal, Space.m + 1).padding(.vertical, Space.s)
+                    .padding(.horizontal, Space.m + 1).padding(.vertical, Space.row(density))
                     .background(Theme.raised, in: RoundedRectangle(cornerRadius: Radius.bubble, style: .continuous))
                     .onTapGesture { actions.toggleReceipt?() }
             }
@@ -861,7 +868,7 @@ struct EntryRow: View {
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
         .padding(.leading, 56)
-        .padding(.top, grouped ? Space.xs : Space.m)
+        .padding(.top, gapAbove(Space.m))
     }
 
     /// Everyone else (people and agents): plain text under who said it.
@@ -896,7 +903,7 @@ struct EntryRow: View {
                 footer
             }
         }
-        .padding(.top, grouped ? Space.xs : Space.s + 2)
+        .padding(.top, gapAbove(Space.s + 2))
     }
 }
 

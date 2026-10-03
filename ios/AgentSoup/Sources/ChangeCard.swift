@@ -100,8 +100,8 @@ struct ChangeCardView: View {
     @State private var allCommits = false
     @State private var allFiles = false
 
-    private static let added = Color(red: 0.36, green: 0.78, blue: 0.47)
-    private static let removed = Color(red: 0.95, green: 0.42, blue: 0.40)
+    private static let added = Color(light: UIColor(red: 0.13, green: 0.55, blue: 0.27, alpha: 1), dark: UIColor(red: 0.36, green: 0.78, blue: 0.47, alpha: 1))
+    private static let removed = Color(light: UIColor(red: 0.78, green: 0.22, blue: 0.20, alpha: 1), dark: UIColor(red: 0.95, green: 0.42, blue: 0.40, alpha: 1))
 
     var body: some View {
         let v = ChangeView(e)
