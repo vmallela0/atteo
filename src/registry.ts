@@ -115,10 +115,12 @@ export const ROLES: Role[] = ["owner", "contributor", "viewer"];
 
 export async function addMember(env: Env, boardId: string, user: string, opts: { role?: Role; expires_at?: number | null; added_by?: string | null } = {}) {
   const now = Date.now();
+  // A person's own agent board ("Your agent", kind 'agent') never takes anyone else, whatever the way in.
   await env.DB.prepare(
-    `INSERT INTO members (board_id, user, joined_at, last_seen, role, expires_at, added_by) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(board_id, user) DO NOTHING`,
+    `INSERT INTO members (board_id, user, joined_at, last_seen, role, expires_at, added_by) SELECT ?, ?, ?, ?, ?, ?, ?
+     WHERE NOT EXISTS (SELECT 1 FROM boards WHERE id = ? AND kind = 'agent' AND created_by != ?) ON CONFLICT(board_id, user) DO NOTHING`,
   )
-    .bind(boardId, user, now, now, opts.role ?? "contributor", opts.expires_at ?? null, opts.added_by ?? null)
+    .bind(boardId, user, now, now, opts.role ?? "contributor", opts.expires_at ?? null, opts.added_by ?? null, boardId, user)
     .run();
 }
 

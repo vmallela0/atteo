@@ -436,6 +436,9 @@ dialog.lightbox img{display:block;max-width:min(96vw,1600px);max-height:92vh;wid
 .mention-menu li.sub .av{width:18px;height:18px;font-size:8.5px}
 .mention-menu .hint{padding:4px 8px 2px;font-size:11.5px;color:var(--faint);cursor:default}
 .composer .bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 12px;border-top:1px solid var(--line)}
+.composer .to-pick{display:inline-flex;align-items:center;gap:6px;min-width:0}
+.composer .to-pick select{height:30px;padding-top:0;padding-bottom:0;font-size:13px;max-width:190px}
+@media(max-width:480px){.composer .to-pick .xs{display:none}.composer .to-pick select{max-width:120px}}
 .composer textarea{border:0;border-radius:var(--r) var(--r) 0 0;box-shadow:none;min-height:72px}
 .composer textarea:focus{box-shadow:none}
 /* iOS Safari zooms into any field under 16px and leaves the page zoomed (wider than the screen); !important beats the 12.5px/15px field rules and inline sizes. */
@@ -998,7 +1001,7 @@ const ICON = {
 export interface SideBoard {
   id: string;
   title: string;
-  kind?: string | null; // "direct": a private board between two friends (title "a ↔ b")
+  kind?: string | null; // "direct": a private board between two friends (title "a ↔ b"); "agent": "Your agent", you and your own agents
   live?: number; // agent sessions working on it right now
   picture?: string | null; // the board picture's URL (members only, versioned), or null
 }
@@ -1046,8 +1049,9 @@ export function appPage(
 ): Response {
   const v = opts.viewer;
   const cur = (k: string) => (opts.active === k ? ' aria-current="page"' : "");
-  const shared = opts.boards.filter((b) => b.kind !== "direct"),
-    direct = opts.boards.filter((b) => b.kind === "direct");
+  const shared = opts.boards.filter((b) => b.kind !== "direct" && b.kind !== "agent"),
+    direct = opts.boards.filter((b) => b.kind === "direct"),
+    own = opts.boards.find((b) => b.kind === "agent");
   const sideBoards = shared
     .map((b) => `<a class="side-link side-board" href="/b/${esc(b.id)}"${cur(b.id)}>${boardPic(b, "xs", `<span class="bdot" style="--h:${hue(b.id)}"></span>`)}<span class="truncate">${esc(b.title)}</span>${working(b.live ?? 0, b.id)}</a>`)
     .join("");
@@ -1055,8 +1059,11 @@ export function appPage(
   const sideDirect = direct
     .map((b) => `<a class="side-link side-board" href="/b/${esc(b.id)}"${cur(b.id)}>${avatar(directPeer(b, v.name), "xs")}<span class="truncate">${esc(directPeer(b, v.name))}</span>${working(b.live ?? 0, b.id)}</a>`)
     .join("");
+  // "Your agent", pinned first under DMs: your private chat with your own agents (/agent makes it the first time).
+  const sideOwn = `<a class="side-link side-board" href="${own ? `/b/${esc(own.id)}` : "/agent"}"${own ? cur(own.id) : ""} data-agent-chat>${avatar(v.name, "xs", true)}<span class="truncate">Your agent</span>${own ? working(own.live ?? 0, own.id) : ""}</a>`;
   const paletteItems = [
-    ...opts.boards.map((b) => ({ label: b.kind === "direct" ? `${directPeer(b, v.name)} (direct)` : b.title, hint: "Board", href: `/b/${b.id}` })),
+    { label: "Your agent", hint: "Chat", href: own ? `/b/${own.id}` : "/agent" },
+    ...opts.boards.filter((b) => b.kind !== "agent").map((b) => ({ label: b.kind === "direct" ? `${directPeer(b, v.name)} (direct)` : b.title, hint: "Board", href: `/b/${b.id}` })),
     { label: "Inbox", hint: "G I", href: "/inbox" },
     { label: "Approvals", hint: "G A", href: "/approvals" },
     { label: "People and friends", hint: "G P", href: "/people" },
@@ -1077,7 +1084,7 @@ export function appPage(
   ${v.admin ? `<a class="side-link" href="/_ops"${cur("admin")}>${ICON.admin}<span>Ops</span></a>` : ""}
   <div class="side-label"><span>Your boards</span><a href="/?new=1" title="New board (C)" aria-label="New board">${ICON.plus}</a></div>
   ${sideBoards || `<p class="xs faint" style="padding:2px 9px">No boards yet</p>`}
-  ${sideDirect ? `<div class="side-label"><span>DMs</span></div>${sideDirect}` : ""}
+  <div class="side-label"><span>DMs</span></div>${sideOwn}${sideDirect}
   <div class="me"><a class="side-link" href="/me">${avatar(v.name, "sm")}<span class="truncate">${esc(v.name)}</span></a>
 </div>
 </aside>

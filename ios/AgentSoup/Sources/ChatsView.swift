@@ -244,17 +244,17 @@ struct ChatRow: View {
     /// A DM is titled "maya ↔ priya": show the other person.
     private var other: String? { b.kind == "direct" ? b.displayName(me: me) : nil }
     private var working: Int { b.liveAgents ?? 0 }
+    @ObservedObject private var pictures = BoardPictureStore.shared
 
     var body: some View {
         HStack(alignment: .center, spacing: Space.m) {
-            Group {
-                if let o = other { Avatar(name: o, size: 44) } else { BoardTile(title: b.title, size: 44) }
-            }
-            // Agents working on it right now: a green status dot on the tile, like someone online.
-            .overlay(alignment: .bottomTrailing) {
-                if working > 0 { LiveDot(size: 9).padding(2.5).background(Theme.bg, in: Circle()).offset(x: 3, y: 3) }
-            }
-            .accessibilityHidden(true)
+            // The board's picture (its initial until it has one); a DM, the other person's.
+            BoardPicture(board: b, size: 44)
+                // Agents working on it right now: a green status dot on the tile, like someone online.
+                .overlay(alignment: .bottomTrailing) {
+                    if working > 0 { LiveDot(size: 9).padding(2.5).background(Theme.bg, in: Circle()).offset(x: 3, y: 3) }
+                }
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: Space.xxs) {
                 HStack(alignment: .firstTextBaseline, spacing: Space.xs) {
                     Text(other ?? b.title).font(unread > 0 ? Typo.rowTitle : Typo.rowTitleRead).foregroundStyle(Theme.text).lineLimit(1)
@@ -282,6 +282,9 @@ struct ChatRow: View {
             }
         }
         .accessibilityElement(children: .combine) // one element: the whole row (its tile is decoration)
+        #if DEBUG
+        .accessibilityValue(pictures.look(of: b)) // UI tests: what the tile shows (picture / initial / person)
+        #endif
     }
 }
 

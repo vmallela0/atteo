@@ -19,6 +19,8 @@ export interface Mail {
   text: string;
   ts: number;
   encrypted?: boolean;
+  from_owner?: boolean; // your own person wrote it on "Your agent" (their private chat with their agents)
+  to_session?: string; // for one session of yours by name (only that session's own mailbox has it)
 }
 
 /**
@@ -35,6 +37,7 @@ export function needsFork(m: Mail): boolean {
 
 /** The fork's session name, after what it's for: task-12, question-40, review-7, dm-jxn. The server numbers repeats. */
 export function forkName(m: Mail): string {
+  if (m.from_owner) return `you-${m.seq}`;
   if (m.kind === "dm") return `dm-${m.from}`.slice(0, 32);
   if (m.type === "change") return `review-${m.seq}`;
   if (m.type === "task" || m.type === "question") return `${m.type}-${m.seq}`;
@@ -50,7 +53,7 @@ export function forkPrompt(m: Mail, me: string, fork: { id: string; name: string
   const n = m.seq!;
   const own = m.from === me;
   const who = own ? `your user (${me})` : m.from_via === "agent" ? `${m.from}'s agent` : m.from;
-  const where = m.kind === "dm" ? `your direct board with ${m.from} ("${m.board_title ?? b}", ${b})` : `the board "${m.board_title ?? b}" (${b})`;
+  const where = m.from_owner ? `"Your agent", their private chat with their agents (${b})` : m.kind === "dm" ? `your direct board with ${m.from} ("${m.board_title ?? b}", ${b})` : `the board "${m.board_title ?? b}" (${b})`;
   const what = m.kind === "reply" ? `replied to you with a ${m.type}` : m.kind === "dm" ? `sent you a direct ${m.type}` : `addressed a ${m.type} to you`;
   return [
     `You're a fork: Atteo session ${fork.name} (${fork.id}), started by ${me}'s dispatcher for this one message. Handle it, then end. Every atteo command you run already acts as this session (ATTEO_SESSION is set).`,

@@ -16,16 +16,25 @@ struct AgentsView: View {
                             .font(.subheadline).foregroundStyle(Theme.muted)
                     }
                     ForEach(state.sessions) { s in SessionRow(s: s) }
+                } header: {
+                    Text("Every agent running as you: Claude Code, Cursor, Codex… Green means it's working right now.")
+                        .font(.caption).foregroundStyle(Theme.muted).textCase(nil)
                 } footer: {
-                    if let me = state.me {
-                        Text("Track record: \(me.record.claimsVerified) claims verified · \(me.record.tasksDone) tasks done\(me.record.claimsDisputed > 0 ? " · \(me.record.claimsDisputed) disputed" : "")")
-                            .font(.caption).foregroundStyle(Theme.faint)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Read-only: that agent can still read your boards but can't post, claim or change anything.")
+                        if let me = state.me, me.record.tasksDone + me.record.claimsVerified + me.record.claimsDisputed > 0 {
+                            Text([me.record.tasksDone > 0 ? "\(me.record.tasksDone) tasks done" : nil,
+                                  me.record.claimsVerified > 0 ? "\(me.record.claimsVerified) claims verified" : nil,
+                                  me.record.claimsDisputed > 0 ? "\(me.record.claimsDisputed) disputed" : nil].compactMap { $0 }.joined(separator: " · "))
+                                .foregroundStyle(Theme.faint)
+                        }
                     }
+                    .font(.caption)
                 }
                 .listRowBackground(Theme.card)
                 Section {
-                    Button(role: .destructive) { confirmKill = true } label: { Label("Disconnect all agents", systemImage: "power").foregroundStyle(Theme.danger) }
-                } footer: { Text("Stops every agent at once: revokes every sign-in (this phone's too) and ends every session.").font(.caption) }
+                    Button(role: .destructive) { confirmKill = true } label: { Label("Stop all my agents", systemImage: "power").foregroundStyle(Theme.danger) }
+                } footer: { Text("The emergency stop: signs out every agent and this phone, and ends every session. You can reconnect any time.").font(.caption) }
                 .listRowBackground(Theme.card)
             }
             .listSectionSpacing(.compact)
@@ -58,9 +67,12 @@ struct SessionRow: View {
                     .font(Typo.secondary).foregroundStyle(s.state == "live" ? Theme.ok : Theme.muted).lineLimit(2)
             }
             Spacer(minLength: 8)
-            Toggle("Read-only", isOn: Binding(get: { s.scope == "read" }, set: { ro in Haptic.tap(); Task { await state.setScope(s, readOnly: ro) } }))
-                .labelsHidden().tint(Theme.accent)
-                .accessibilityLabel("Read-only")
+            VStack(spacing: 3) {
+                Toggle("Read-only", isOn: Binding(get: { s.scope == "read" }, set: { ro in Haptic.tap(); Task { await state.setScope(s, readOnly: ro) } }))
+                    .labelsHidden().tint(Theme.accent)
+                    .accessibilityLabel("Read-only")
+                Text("Read-only").font(.caption2).foregroundStyle(Theme.faint)
+            }
         }
         .padding(.vertical, 2)
     }
