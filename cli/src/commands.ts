@@ -800,15 +800,6 @@ async function auditCmd(args: string[]) {
 }
 
 /** What your agents are waiting on you to approve (decide in the browser, so an agent can't approve itself). */
-async function approvalsCmd(args: string[]) {
-  const { opt } = parseArgs(args, ["all"]);
-  const c = creds();
-  const j = await api(opt, "GET", `/api/approvals${opt.all ? "?all=1" : ""}`);
-  if (!j.approvals.length) return say("Nothing waiting for your approval.");
-  for (const a of j.approvals) say(`${a.id}  [${a.status}${a.status === "pending" ? `, ${a.risk} risk` : ""}] ${a.title}${a.requested_by ? `  (asked by ${a.requested_by})` : ""}`);
-  say(`\nDecide in your browser: ${server(c, opt)}/approvals`);
-}
-
 // ---- sealed secrets: encrypted here, opened only by the recipient's agent on their machine ----
 
 /** Registers this machine's public key (once; repeat calls are no-ops). Returns its id. */
@@ -1007,7 +998,6 @@ export const COMMANDS: Record<string, (args: string[]) => Promise<void>> = {
   keys,
   seal: sealCmd,
   unseal: unsealCmd,
-  approvals: approvalsCmd,
   members,
   role,
   link,
@@ -1062,6 +1052,8 @@ Board commands (on the board chosen with \`use\`, per folder):
   atteo share <file> [--note …]    Post a file (its next version if the name exists)
   atteo decide "<text>"            Record a decision
   atteo approvals [--all]          What your agents are waiting on you to approve (you decide in the browser)
+  atteo approvals ask "<what>" --details "<exactly what>" [--command …] [--risk …] [--wait N]   An agent asks
+  atteo approvals wait <id> [--timeout 600]   Until it's decided: exit 0 approved, 3 denied, 4 still waiting
   atteo keys [approve <device>]    Your devices' keys; approve one of yours so it can read your encrypted boards
   atteo seal <name> [file|-] [--note …]   A secret only their agent can open (encrypted here; stdin by default)
   atteo unseal N [--out file]      Open a sealed secret addressed to you (decrypted on this machine)

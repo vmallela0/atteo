@@ -645,6 +645,8 @@ Work on it
                                           --old "<exact text>" --new "<text>" changes any other part of a task
   atteo card --post "<what changed>"  when you land work (merge/push), post a change card (the pre-push hook
                                           does it for you if installed: atteo hooks install)
+  atteo approvals ask "<what>" --details "<exactly what>"   ask your person before side effects, then
+                                          atteo approvals wait <id> (exit 0 approved, 3 denied, 4 still waiting)
   atteo react <emoji> <n> · retract <n> · task … · doc … · search "<words>"
 
 People and you
@@ -683,7 +685,73 @@ async function handleCmd(args: string[]) {
   });
 }
 
+
+// ---- approvals: your person says yes or no before you do something with side effects ----
+
+type ApprovalRow = { id: string; status: string; risk: string; title: string; details: string; tool: string | null; command: string | null; requested_by: string | null; board_id: string | null; seq: number | null; note: string | null; created_at: number; expires_at: number };
+const until = (ts: number) => {
+  const m = Math.round((ts - Date.now()) / 60000);
+  return m <= 0 ? "now" : m < 60 ? `${m}m` : m < 2880 ? `${Math.round(m / 60)}h` : `${Math.round(m / 1440)}d`;
+};
+
+/**
+ * atteo approvals [--all]: what's waiting on your person · approvals ask "<what>" --details "…" [--command …]: ask ·
+ * approvals wait <id>: block until it's decided (exit 0 approved, 3 denied, 4 still waiting).
+ */
+async function approvalsCmd(args: string[]) {
+  const { pos, opt } = parseArgs(args, BOOLS);
+  const [sub, ...more] = pos;
+  if (sub === "ask") return approvalAsk(more, opt);
+  if (sub === "wait" || sub === "get") return approvalWait(more[0], opt, sub === "get" ? 0 : Math.max(1, Number(optStr(opt, "timeout") ?? 600) || 600));
+  if (sub && /^ap_/.test(sub)) return approvalWait(sub, opt, 0);
+  if (sub) throw new CliError(`Unknown: approvals ${sub}. Try: approvals [--all], approvals ask "<what>" --details "…", approvals wait <id>.`);
+  const j = (await api(opt, "GET", `/api/approvals${opt.all ? "?all=1" : ""}`)) as { approvals: ApprovalRow[] };
+  if (asJson(opt)) return print(opt, j, "");
+  if (!j.approvals.length) return say(opt.all ? "No approvals yet." : "Nothing waiting for a decision.");
+  const line = (a: ApprovalRow) =>
+    `${a.id} · ${a.status === "pending" ? `${a.risk} risk · expires in ${until(a.expires_at)}` : a.status}${a.requested_by ? ` · asked by ${a.requested_by}` : ""}${a.board_id && a.seq ? ` (${a.board_id} #${a.seq})` : ""} · ${ago(a.created_at)}\n    ${clip(a.title.replace(/\s+/g, " "), 160)}${a.note ? `\n    note: ${clip(a.note.replace(/\s+/g, " "), 160)}` : ""}`;
+  const n = j.approvals.filter((a) => a.status === "pending").length;
+  say(`${opt.all ? `${j.approvals.length} approvals, ${n} waiting` : `${n} waiting for your person`} (they decide in the browser or the app, at ${serverBase()}/approvals):\n${fence(j.approvals.map(line).join("\n"))}`);
+}
+
+async function approvalAsk(words: string[], opt: Opt) {
+  const title = words.join(" ").trim();
+  const details = optStr(opt, "details");
+  const command = optStr(opt, "command");
+  if (!title || (!details && !command)) throw new CliError('Usage: atteo approvals ask "<what you want to do>" --details "<exactly what will happen>" [--command "<exact command>"] [--risk low|medium|high] [--expires <seconds>] [--reply <n>] [--wait <seconds>]');
+  await prepare(opt);
+  const reply = optStr(opt, "reply");
+  const text = await tool(
+    opt,
+    "request_approval",
+    { title, details: details ?? "", command, tool: optStr(opt, "tool"), risk: optStr(opt, "risk"), expires_in: optStr(opt, "expires") ? Number(optStr(opt, "expires")) : undefined, seq: reply ? Number(reply.replace(/^#/, "")) : undefined, wait_seconds: 0 },
+    reply ? currentBoard(opt) : null,
+  );
+  const id = text.match(/\bap_[A-Za-z0-9_-]+/)?.[0];
+  if (!id) throw new CliError(text);
+  if (optStr(opt, "wait")) return approvalWait(id, opt, Math.max(1, Number(optStr(opt, "wait")) || 600));
+  print(opt, { id, decision: "pending" }, `Asked: ${id}. Don't act yet. Wait for the decision: atteo approvals wait ${id}`);
+}
+
+async function approvalWait(id: string | undefined, opt: Opt, secs: number) {
+  if (!id) throw new CliError("Usage: atteo approvals wait <ap_…> [--timeout <seconds>]   (exit 0 approved, 3 denied, 4 still waiting)");
+  const end = Date.now() + secs * 1000;
+  let j: { approval: ApprovalRow; decision: "pending" | "approved" | "denied"; reason?: string };
+  for (;;) {
+    const left = Math.ceil((end - Date.now()) / 1000);
+    j = await api(opt, "GET", `/api/approvals/${encodeURIComponent(id)}${left > 0 ? `?wait=${Math.min(25, left)}` : ""}`);
+    if (j.decision !== "pending" || Date.now() >= end - 500) break;
+  }
+  const note = j.approval.note ? ` Note: "${clip(j.approval.note.replace(/\s+/g, " "), 300)}"` : "";
+  if (asJson(opt)) say(JSON.stringify({ id, decision: j.decision, reason: j.reason ?? null, note: j.approval.note }, null, 2));
+  if (j.decision === "approved") return asJson(opt) ? undefined : say(`Approved: ${id}. Go ahead, exactly as asked.${note}`);
+  if (j.decision === "denied") throw new CliError(`Denied (${j.reason ?? "rejected"}): ${id}. Don't do it.${note}`, 3);
+  throw new CliError(`Still waiting on ${id} after ${secs}s (expires in ${until(j.approval.expires_at)}). Don't act yet; wait again.`, 4);
+}
+
 export const V2: Record<string, (args: string[]) => Promise<unknown>> = {
+  approvals: approvalsCmd,
+  approval: approvalsCmd,
   get: getCmd,
   join: joinCmd,
   leave: leaveCmd,

@@ -1282,6 +1282,36 @@ await step("agent-first output: one fence per read, a quiet board is one line, m
   assert(r.code === 0 && r.out.includes(`(${b3}):\n── #${q} question · for your agent · from ${B}'s agent · `) && r.out.includes(`(${b4}):\n── #`) && !r.out.includes("(agent)"), "mail grouped by board, compact headers: " + r.out);
 });
 
+await step("approvals: an agent asks, lists them, and waits on one (exit 0 approved, 3 denied, 4 still waiting); only the person decides", async () => {
+  const cfg = { XDG_CONFIG_HOME: join(dir, "cfg-approvals") };
+  let r = await cli(["approvals", "ask", `Deploy staging ${run}`, "--details", "wrangler deploy --env staging", "--risk", "high"], { env: cfg });
+  const id = r.out.match(/ap_[A-Za-z0-9_-]+/)?.[0];
+  assert(r.code === 0 && id && r.out.includes(`atteo approvals wait ${id}`), "asked: " + r.out + r.err);
+  r = await cli(["approvals"], { env: cfg });
+  assert(r.code === 0 && r.out.includes(`${id} · high risk · expires in `) && r.out.includes(`Deploy staging ${run}`) && /<<untrusted [0-9a-f]+:/.test(r.out), "listed, fenced: " + r.out);
+  r = await cli(["approvals", "--json"], { env: cfg });
+  assert(JSON.parse(r.out).approvals.some((a) => a.id === id && a.status === "pending"), "--json: " + r.out);
+  r = await cli(["approvals", "wait", id, "--timeout", "1"], { env: cfg });
+  assert(r.code === 4 && r.err.includes("Still waiting"), "undecided: exit 4: " + r.code + r.out + r.err);
+  // The CLI's own token can't decide; the person in a browser can.
+  const no = await fetch(`${BASE}/api/approvals/${id}/approve`, { method: "POST", headers: { authorization: `Bearer ${tokA}` } });
+  assert(no.status === 403, "a token can't approve: " + no.status);
+  const cookieA = (await ops("sessions", { user: A })).cookie;
+  const waiting = cli(["approvals", "wait", id, "--timeout", "30"], { env: cfg });
+  await sleep(1500);
+  const yes = await fetch(`${BASE}/api/approvals/${id}/approve`, { method: "POST", headers: { cookie: cookieA, "content-type": "application/json" }, body: JSON.stringify({ note: "ok, staging only" }) });
+  assert(yes.ok, "the person approves: " + yes.status);
+  r = await waiting;
+  assert(r.code === 0 && r.out.includes(`Approved: ${id}`) && r.out.includes("ok, staging only"), "approved: exit 0: " + r.out + r.err);
+  r = await cli(["approvals", "ask", `Drop the table ${run}`, "--details", "DROP TABLE users", "--json"], { env: cfg });
+  const id2 = JSON.parse(r.out).id;
+  await fetch(`${BASE}/api/approvals/${id2}/reject`, { method: "POST", headers: { cookie: cookieA, "content-type": "application/json" }, body: JSON.stringify({ note: "no" }) });
+  r = await cli(["approvals", "wait", id2], { env: cfg });
+  assert(r.code === 3 && r.err.includes("Denied (rejected)"), "denied: exit 3: " + r.code + r.err);
+  r = await cli(["approvals", "ask", "Nothing shown"], { env: cfg });
+  assert(r.code === 1 && r.err.includes("--details"), "has to say exactly what: " + r.err);
+});
+
 if (ONLY && !matched) { failed++; console.log(`  ✗ no steps match ONLY=${JSON.stringify(process.env.ONLY)}`); }
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
