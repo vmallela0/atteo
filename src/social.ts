@@ -2,7 +2,7 @@
 // on a private board for two friends. Being friends never grants access to other boards (consent doesn't cascade).
 
 import { addMember, recordBoard } from "./registry";
-import { newBoardId, offBoardSeq } from "./util";
+import { EMOJI_RE, newBoardId, offBoardSeq } from "./util";
 import { AgentNameError, cleanAgentName, handleLookalikes, skeleton } from "./agentName";
 import type { Env } from "./types";
 
@@ -345,12 +345,39 @@ export function mergeDisplay(cur: Display, patch: unknown): Display {
   return out as unknown as Display;
 }
 
+/** The reaction picker's default (what the web shows today); a person's own list replaces it. */
+export const DEFAULT_REACTIONS: readonly string[] = ["👍", "✅", "🤔", "🎉", "❤️", "🔥", "😂", "🙏"];
+export const MAX_REACTION_PREFS = 8;
+
+/** Up to 8 distinct emoji (one grapheme each, <=16 bytes, no :shortcodes:). null or [] clears back to the default. */
+export function checkReactionPrefs(v: unknown): string[] | null {
+  if (v === null || (Array.isArray(v) && v.length === 0)) return null;
+  if (!Array.isArray(v)) throw new SocialError('reactions must be a list of emoji, e.g. ["👍","🎉"].');
+  if (v.length > MAX_REACTION_PREFS) throw new SocialError(`reactions holds at most ${MAX_REACTION_PREFS} emoji.`);
+  const seen = new Set<string>();
+  for (const x of v) {
+    const e = typeof x === "string" ? x.trim() : "";
+    if (!e || e.startsWith(":") || !EMOJI_RE.test(e) || new TextEncoder().encode(e).length > 16) throw new SocialError(`"${typeof x === "string" ? x.slice(0, 20) : x}" isn't a single emoji.`);
+    if (seen.has(e)) throw new SocialError(`reactions has ${e} twice.`);
+    seen.add(e);
+  }
+  return [...seen];
+}
+
+function readReactions(raw: string | null): string[] {
+  try {
+    const a: unknown = raw ? JSON.parse(raw) : null;
+    if (Array.isArray(a) && a.length && a.every((x) => typeof x === "string")) return a as string[];
+  } catch {}
+  return [...DEFAULT_REACTIONS];
+}
+
 export async function profile(env: Env, user: string) {
-  const r = await env.DB.prepare(`SELECT name, display_name, agent_name, bio, listed, rules, display, agents_headless FROM users WHERE name = ?`)
+  const r = await env.DB.prepare(`SELECT name, display_name, agent_name, bio, listed, rules, display, reactions, agents_headless FROM users WHERE name = ?`)
     .bind(user)
-    .first<{ name: string; display_name: string | null; agent_name: string | null; bio: string | null; listed: number; rules: string | null; display: string | null; agents_headless: number | null }>();
+    .first<{ name: string; display_name: string | null; agent_name: string | null; bio: string | null; listed: number; rules: string | null; display: string | null; reactions: string | null; agents_headless: number | null }>();
   return r
-    ? { name: r.name, display_name: r.display_name, agent_name: r.agent_name, bio: r.bio, listed: !!r.listed, rules: (r.rules ? JSON.parse(r.rules) : {}) as Rules, display: readDisplay(r.display), agents_headless: !!r.agents_headless }
+    ? { name: r.name, display_name: r.display_name, agent_name: r.agent_name, bio: r.bio, listed: !!r.listed, rules: (r.rules ? JSON.parse(r.rules) : {}) as Rules, display: readDisplay(r.display), reactions: readReactions(r.reactions), agents_headless: !!r.agents_headless }
     : null;
 }
 
@@ -383,13 +410,14 @@ async function checkAgentName(env: Env, user: string, raw: unknown): Promise<str
   return name;
 }
 
-export async function setProfile(env: Env, user: string, p: { display_name?: unknown; agent_name?: unknown; bio?: unknown; listed?: unknown; rules?: unknown; display?: unknown; agents_headless?: unknown }, onAgentRenamed?: (name: string | null) => void) {
+export async function setProfile(env: Env, user: string, p: { display_name?: unknown; agent_name?: unknown; bio?: unknown; listed?: unknown; rules?: unknown; display?: unknown; agents_headless?: unknown; reactions?: unknown }, onAgentRenamed?: (name: string | null) => void) {
   const cur = await profile(env, user);
   if (!cur) throw new SocialError("No such person.");
   // Checked first too: a refused name is a 400 and nothing else is saved.
   const agentName = p.agent_name === undefined ? cur.agent_name : await checkAgentName(env, user, p.agent_name);
   // Checked first: a bad display value is a 400 and nothing else in the request is saved either.
   const prefs = p.display === undefined ? cur.display : mergeDisplay(cur.display, p.display);
+  const favs = p.reactions === undefined ? undefined : checkReactionPrefs(p.reactions);
   if (p.agents_headless !== undefined && typeof p.agents_headless !== "boolean") throw new SocialError("agents_headless must be true or false.");
   const headless = p.agents_headless === undefined ? cur.agents_headless : p.agents_headless;
   const text = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/[\u0000-\u001f]/g, " ").trim().slice(0, max) || null : undefined);
@@ -402,15 +430,16 @@ export async function setProfile(env: Env, user: string, p: { display_name?: unk
     auto_accept_friends: "auto_accept_friends" in r ? (r.auto_accept_friends === "coworkers" ? "coworkers" : null) : cur.rules.auto_accept_friends ?? null,
     auto_accept_agents: "auto_accept_agents" in r ? (r.auto_accept_agents === "coworkers" ? "coworkers" : null) : cur.rules.auto_accept_agents ?? null,
   };
-  await env.DB.prepare(`UPDATE users SET display_name = ?, agent_name = ?, bio = ?, listed = ?, rules = ?, display = COALESCE(?, display), agents_headless = ? WHERE name = ?`)
-    .bind(display, agentName, bio, listed ? 1 : 0, JSON.stringify(rules), p.display === undefined ? null : JSON.stringify(prefs), headless ? 1 : 0, user)
+  await env.DB.prepare(`UPDATE users SET display_name = ?, agent_name = ?, bio = ?, listed = ?, rules = ?, display = COALESCE(?, display), reactions = COALESCE(?, reactions), agents_headless = ? WHERE name = ?`)
+    .bind(display, agentName, bio, listed ? 1 : 0, JSON.stringify(rules), p.display === undefined ? null : JSON.stringify(prefs), favs ? JSON.stringify(favs) : null, headless ? 1 : 0, user)
     .run();
+  if (favs === null) await env.DB.prepare(`UPDATE users SET reactions = NULL WHERE name = ?`).bind(user).run();
   headlessCache.set(user, { v: headless, at: Date.now() });
   if (agentName !== cur.agent_name) {
     boardNamesCache.clear(); // this isolate shows the new name right away; others within 30s
     onAgentRenamed?.(agentName);
   }
-  return { ...cur, display_name: display, agent_name: agentName, bio, listed, rules, display: prefs, agents_headless: headless };
+  return { ...cur, display_name: display, agent_name: agentName, bio, listed, rules, display: prefs, reactions: favs === undefined ? cur.reactions : favs ?? [...DEFAULT_REACTIONS], agents_headless: headless };
 }
 
 /** Mail from agents with what their people named them: `from_agent_name`, only when set ("Jarvis", with `from` the owner). */

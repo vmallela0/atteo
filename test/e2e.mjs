@@ -2342,6 +2342,40 @@ await step("display settings: text size, density and theme per person (defaults,
   assert((await fetch(`${BASE}/api/me/profile`)).status === 401, "signed out: 401");
 });
 
+await step("reaction favourites: an ordered list of up to 8 emoji per person (default preset, set/get/clear, validation, private)", async () => {
+  const api = (who, method, path, body) => fetch(`${BASE}${path}`, { method, headers: { authorization: `Bearer ${tok[who]}`, "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+  const P = `e2e-rxp-${run}`;
+  await ops("users", { name: P, email: `${P}@example.com`, verified: "true" });
+  tok[P] = (await ops("tokens", { user: P })).body.token;
+  const get = async (who) => (await (await api(who, "GET", "/api/me/profile")).json()).profile;
+  const DEF = ["👍", "✅", "🤔", "🎉", "❤️", "🔥", "😂", "🙏"];
+  assert(JSON.stringify((await get(P)).reactions) === JSON.stringify(DEF), "default: " + JSON.stringify((await get(P)).reactions));
+  let r = await (await api(P, "POST", "/api/me/profile", { reactions: ["🚀", "👀", "👍🏽", "🇯🇵"] })).json();
+  assert(r.ok && JSON.stringify(r.profile.reactions) === JSON.stringify(["🚀", "👀", "👍🏽", "🇯🇵"]), "set: " + JSON.stringify(r));
+  // Other saves leave it alone; display saves too.
+  await api(P, "POST", "/api/me/profile", { bio: "x" });
+  await api(P, "POST", "/api/me/profile", { display: { text: "l" } });
+  assert(JSON.stringify((await get(P)).reactions) === JSON.stringify(["🚀", "👀", "👍🏽", "🇯🇵"]), "kept");
+  // Bad: 400 and nothing saved.
+  for (const bad of [["hi"], ["👍", "x"], [":fire:"], ["👍", "👍"], DEF.concat(["🚀"]), "👍", [1], ["👍👍"], [""]]) {
+    const res = await api(P, "POST", "/api/me/profile", { bio: "nope", reactions: bad });
+    assert(res.status === 400, `bad reactions ${JSON.stringify(bad)}: ${res.status}`);
+  }
+  const after = await get(P);
+  assert(after.bio === "x" && after.reactions.length === 4, "unchanged after bad");
+  // Exactly 8 is fine; clearing (null or []) returns the default.
+  r = await (await api(P, "POST", "/api/me/profile", { reactions: ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣"] })).json();
+  assert(r.ok && r.profile.reactions.length === 8, "eight: " + JSON.stringify(r));
+  r = await (await api(P, "POST", "/api/me/profile", { reactions: null })).json();
+  assert(JSON.stringify(r.profile.reactions) === JSON.stringify(DEF), "cleared null");
+  await api(P, "POST", "/api/me/profile", { reactions: ["🚀"] });
+  r = await (await api(P, "POST", "/api/me/profile", { reactions: [] })).json();
+  assert(JSON.stringify(r.profile.reactions) === JSON.stringify(DEF), "cleared []");
+  await api(P, "POST", "/api/me/profile", { reactions: ["🚀"] });
+  const card = await (await api(B, "GET", `/api/people/${P}`)).json();
+  assert(!JSON.stringify(card).includes("🚀"), "person card leaks reactions");
+});
+
 await step("retention: owners set how long a board keeps messages; older ones are blanked, threads stay", async () => {
   const id = (await ops("boards", { user: A, title: `e2e retention ${run}` })).body.board.id;
   await ops("members", { board: id, user: A }).catch(() => {});
