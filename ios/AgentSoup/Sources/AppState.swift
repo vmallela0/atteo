@@ -317,7 +317,7 @@ final class AppState: ObservableObject {
             let path = "/api/me/avatar?kind=\(agent ? "agent" : "person")"
             if let jpeg { try await API.shared.upload(path, data: jpeg, contentType: "image/jpeg") } else { try await API.shared.send(path, method: "DELETE", body: nil) }
             if let mine = me?.owner { AvatarCache.shared.bump(mine, agent: agent) }
-            Haptic.done()
+            Haptics.play(.completed)
         } catch { report(error) }
     }
 
@@ -417,7 +417,6 @@ final class AppState: ObservableObject {
                 real = try JSONDecoder.soup.decode(PostResponse.self, from: data).entry
             }
             withAnimation(.smooth) { entries[b.id] = (entries[b.id] ?? []).map { $0.seq == temp.seq ? real : $0 } }
-            Haptic.done()
             save()
             Task { await refreshBoards() }
         } catch {
@@ -427,7 +426,7 @@ final class AppState: ObservableObject {
                     var f = e; f.pending = nil; f.failed = true; return f
                 }
             }
-            Haptic.warn()
+            Haptics.play(.failed)
         }
     }
 
@@ -498,7 +497,6 @@ final class AppState: ObservableObject {
             }
             for f in files { if let path = f.local { try? FileManager.default.removeItem(at: URL(fileURLWithPath: path).deletingLastPathComponent()) } }
             withAnimation(.smooth) { entries[b.id] = (entries[b.id] ?? []).map { $0.seq == temp.seq ? real : $0 } }
-            Haptic.done()
             save()
             Task { await refreshBoards() }
         } catch APIError.offline {
@@ -508,11 +506,11 @@ final class AppState: ObservableObject {
                     var f = e; f.pending = nil; f.failed = true; return f
                 }
             }
-            Haptic.warn()
+            Haptics.play(.failed)
         } catch {
             withAnimation(.smooth) { entries[b.id]?.removeAll { $0.seq == temp.seq } }
             for f in files { if let path = f.local { try? FileManager.default.removeItem(at: URL(fileURLWithPath: path).deletingLastPathComponent()) } }
-            Haptic.warn()
+            Haptics.play(.failed)
             report(error)
         }
     }
@@ -552,7 +550,6 @@ final class AppState: ObservableObject {
             MediaStore.shared.adopt(data, board: b.id, name: real.artifactName ?? name, version: real.artifactVersion, image: real.isImage)
             if let path = temp.local { try? FileManager.default.removeItem(at: URL(fileURLWithPath: path).deletingLastPathComponent()) }
             withAnimation(.smooth) { entries[b.id] = (entries[b.id] ?? []).map { $0.seq == temp.seq ? real : $0 } }
-            Haptic.done()
             save()
             Task { await refreshBoards() }
         } catch APIError.offline {
@@ -562,12 +559,12 @@ final class AppState: ObservableObject {
                     var f = e; f.pending = nil; f.failed = true; return f
                 }
             }
-            Haptic.warn()
+            Haptics.play(.failed)
         } catch {
             // The server said no (too large, a secret in it, a read-only board): trying again won't help, so say why.
             withAnimation(.smooth) { entries[b.id]?.removeAll { $0.seq == temp.seq } }
             if let path = temp.local { try? FileManager.default.removeItem(at: URL(fileURLWithPath: path).deletingLastPathComponent()) }
-            Haptic.warn()
+            Haptics.play(.failed)
             report(error)
         }
     }
@@ -639,7 +636,7 @@ final class AppState: ObservableObject {
             if users.contains(me) { users.removeAll { $0 == me } } else { users.append(me) }
             if users.isEmpty { next.remove(at: i) } else { next[i] = Reaction(emoji: emoji, users: users) }
         } else { next.append(Reaction(emoji: emoji, users: [me])) }
-        Haptic.tap()
+        Haptics.play(.reacted)
         withAnimation(.spring(duration: 0.3, bounce: 0.3)) { reactions[b.id, default: [:]][seq] = next }
         do {
             let d = try await API.shared.send("/api/boards/\(b.id)/entries/\(seq)/react", body: ["emoji": emoji], retries: false)
@@ -657,15 +654,15 @@ final class AppState: ObservableObject {
             let d = try await API.shared.send("/api/boards/\(b.id)/entries/\(seq)/retract", body: [String: Any](), retries: false)
             let r = try JSONDecoder.soup.decode(PostResponse.self, from: d).entry
             withAnimation(.smooth) { if !(entries[b.id] ?? []).contains(where: { $0.seq == r.seq }) { entries[b.id, default: []].append(r) } }
-            Haptic.done()
+            Haptics.play(.completed)
             save()
-        } catch { Haptic.warn(); report(error) }
+        } catch { Haptics.play(.failed); report(error) }
     }
 
     /// "On it": you take a message addressed to you (people and agents see who has it).
     func takeOn(_ seq: Int, in b: Board) async {
         let me = me?.owner ?? ""
-        Haptic.tap()
+        Haptics.play(.touch)
         withAnimation(.smooth) { handling[b.id, default: [:]][seq] = Handling(by: me, user: me, done: false) }
         do {
             let d = try await API.shared.send("/api/boards/\(b.id)/handle/\(seq)", body: ["action": "take"], retries: false)
@@ -689,6 +686,7 @@ final class AppState: ObservableObject {
     }
 
     func decide(_ a: Approval, approve: Bool) async {
+        Haptics.play(approve ? .approved : .denied)
         withAnimation(.smooth) { approvals.removeAll { $0.id == a.id } }
         save()
         do { try await API.shared.send("/api/approvals/\(a.id)/\(approve ? "approve" : "reject")", body: ["note": ""]) } catch { report(error); await refreshInbox() }

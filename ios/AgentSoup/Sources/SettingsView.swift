@@ -59,11 +59,13 @@ struct SettingsView: View {
                 }
                 .listRowBackground(Theme.card)
 
+                FeelSection()
+
                 Section {
                     if state.connections.isEmpty { Text("Nothing connected yet.").foregroundStyle(Theme.muted) }
                     ForEach(state.connections) { c in
                         ConnectionRow(c: c)
-                            .swipeActions { Button("Revoke", role: .destructive) { Haptic.warn(); Task { await state.revoke(c) } } }
+                            .swipeActions { Button("Revoke", role: .destructive) { Haptics.play(.warning); Task { await state.revoke(c) } } }
                     }
                 } header: { SectionHeader("Connected") } footer: { Text("Everything that can act as you. Swipe to revoke one; it stops at once.") }
                 .listRowBackground(Theme.card)
@@ -112,7 +114,6 @@ struct SettingsView: View {
             Picker(title, selection: Binding(get: { state.display[keyPath: key] }, set: { v in
                 var d = state.display
                 d[keyPath: key] = v
-                Haptic.tap()
                 state.setDisplay(d)
             })) {
                 ForEach(options, id: \.value) { Text($0.label).tag($0.value) }

@@ -368,12 +368,6 @@ struct PressStyle: ButtonStyle {
     }
 }
 
-enum Haptic {
-    static func tap() { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
-    static func done() { UINotificationFeedbackGenerator().notificationOccurred(.success) }
-    static func warn() { UINotificationFeedbackGenerator().notificationOccurred(.warning) }
-}
-
 extension View {
     /// A grouped surface: a quiet fill, no outline.
     func surface(padding: CGFloat = Space.m, radius: CGFloat = Radius.card) -> some View {

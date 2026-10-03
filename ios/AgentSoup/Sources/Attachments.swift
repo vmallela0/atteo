@@ -223,7 +223,7 @@ struct AttachmentTray: View {
                 ForEach(items) { a in
                     chip(a)
                         .overlay(alignment: .topTrailing) {
-                            Button { Haptic.tap(); remove(a) } label: {
+                            Button { remove(a) } label: {
                                 Image(systemName: "xmark").font(.system(size: 8, weight: .bold)).foregroundStyle(Theme.text)
                                     .frame(width: 18, height: 18).background(Color.black.opacity(0.65), in: Circle())
                                     .frame(width: 30, height: 30).contentShape(Rectangle())
@@ -310,7 +310,7 @@ struct ChatImage: View {
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
-        Button { if image != nil, !sending { Haptic.tap(); open = true } } label: {
+        Button { if image != nil, !sending { open = true } } label: {
             ZStack {
                 shape.fill(Theme.card)
                 if let image { Image(uiImage: image).resizable().scaledToFill().frame(width: size.width, height: size.height).transition(.opacity) }
@@ -398,11 +398,10 @@ struct FileChip: View {
 
     private func open() {
         guard !opening, e.pending != true else { return }
-        Haptic.tap()
         opening = true
         Task {
             defer { opening = false }
-            do { preview = try await MediaStore.shared.file(for: e, board: board) } catch { Haptic.warn(); AppState.shared.report(error) }
+            do { preview = try await MediaStore.shared.file(for: e, board: board) } catch { Haptics.play(.failed); AppState.shared.report(error) }
         }
     }
 }

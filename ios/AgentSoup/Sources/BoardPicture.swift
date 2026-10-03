@@ -167,13 +167,13 @@ extension AppState {
             if let url, let jpeg { store.adopt(jpeg, at: url) }
             store.pending[boardId] = nil
             showPicture(boardId, url)
-            Haptic.done()
+            Haptics.play(.completed)
             Task { await refreshBoards() } // keeps it on this phone for next launch
             return nil
         } catch {
             store.pending[boardId] = nil
             showPicture(boardId, old)
-            Haptic.warn()
+            Haptics.play(.failed)
             if case APIError.signedOut = error { report(error) }
             return error.localizedDescription
         }

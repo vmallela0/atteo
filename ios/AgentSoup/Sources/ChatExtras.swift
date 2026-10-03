@@ -266,7 +266,7 @@ struct BoardInfoSheet: View {
 
     /// A question or decision: a few words, who and when (no number: those are for agents). Tap: go to it in the chat.
     private func jumpRow(_ e: Entry, icon: String, tint: Color) -> some View {
-        Button { Haptic.tap(); jump(e.seq) } label: {
+        Button { jump(e.seq) } label: {
             HStack(alignment: .firstTextBaseline, spacing: Space.m) {
                 Image(systemName: icon).font(.system(size: 15)).foregroundStyle(tint).frame(width: 22).onFirstLine()
                 VStack(alignment: .leading, spacing: 1) {
@@ -316,7 +316,7 @@ struct BoardInfoSheet: View {
             }
             if !hits.entries.isEmpty {
                 Section {
-                    ForEach(hits.entries) { h in SearchHitRow(hit: h) { Haptic.tap(); jump(h.seq) } }
+                    ForEach(hits.entries) { h in SearchHitRow(hit: h) { jump(h.seq) } }
                 } header: { SectionHeader(board.encrypted == true ? "On this phone" : "Messages") }
             }
             if let fs = hits.files, !fs.isEmpty {
@@ -362,11 +362,10 @@ struct BoardInfoSheet: View {
 
     private func openFile(_ f: DocMeta) {
         guard opening == nil else { return }
-        Haptic.tap()
         opening = f.name
         Task {
             defer { opening = nil }
-            do { preview = try await MediaStore.shared.file(for: f.entry, board: board.id) } catch { Haptic.warn(); state.report(error) }
+            do { preview = try await MediaStore.shared.file(for: f.entry, board: board.id) } catch { Haptics.play(.failed); state.report(error) }
         }
     }
 }

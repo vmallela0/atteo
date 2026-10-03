@@ -390,7 +390,7 @@ struct ThreadView: View {
         .toolbar {
             if closes {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button { Haptic.tap(); dismiss() } label: { ToolbarIcon("xmark") }
+                    Button { dismiss() } label: { ToolbarIcon("xmark") }
                         .accessibilityIdentifier("thread-close")
                         .accessibilityLabel("Close")
                 }
@@ -399,8 +399,8 @@ struct ThreadView: View {
         .navigationDestination(item: $next) { t in ThreadView(board: board, root: t.root, overChat: overChat) }
         // A "#123" in a message: in this thread, go to it; elsewhere, open its thread on top of this one.
         .environment(\.openURL, OpenURLAction { url in
-            if let p = personLink(url) { Haptic.tap(); profile = p; return .handled }
-            if let g = groupLink(url) { Haptic.tap(); group = g; return .handled }
+            if let p = personLink(url) { profile = p; return .handled }
+            if let g = groupLink(url) { group = g; return .handled }
             guard let n = entryLink(url) else { return .systemAction }
             open(n, here: bySeq)
             return .handled
@@ -446,7 +446,6 @@ struct ThreadView: View {
     }
 
     private func open(_ n: Int, here: [Int: Entry]) {
-        Haptic.tap()
         if here[n] != nil {
             scrollTo = n
             withAnimation(.smooth(duration: 0.25)) { flash = n }
@@ -464,7 +463,7 @@ struct ThreadView: View {
         let mine = e.author == me && e.via != "agent"
         let live = e.seq > 0 && e.pending != true && e.failed != true && !unsent.contains(e.seq)
         var a = EntryActions()
-        a.openProfile = { name, agent in Haptic.tap(); profile = ProfileTarget(name: name, agent: agent) }
+        a.openProfile = { name, agent in profile = ProfileTarget(name: name, agent: agent) }
         if live {
             a.react = { emoji in Task { await state.react(emoji, to: e.seq, in: board) } }
             a.moreReactions = { reactingTo = SeqRef(id: e.seq) }

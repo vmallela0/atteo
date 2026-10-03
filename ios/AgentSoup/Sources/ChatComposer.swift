@@ -68,7 +68,6 @@ struct ChatComposer: View {
 
     private func insert(_ m: Mentionable) {
         guard let at = draft.lastIndex(of: "@") else { return }
-        Haptic.tap()
         draft = String(draft[..<at]) + "@\(m.handle) "
     }
 
@@ -83,7 +82,7 @@ struct ChatComposer: View {
             // "/": what a message can be besides a note (a task, a decision, a question).
             if attachments.isEmpty {
                 let fits = SlashCommand.suggestions(draft, on: board)
-                if !fits.isEmpty { SlashChips(commands: fits) { c in Haptic.tap(); draft = c.word + " " } }
+                if !fits.isEmpty { SlashChips(commands: fits) { c in draft = c.word + " " } }
                 else if let (c, _) = SlashCommand.parse(draft, on: board) { SlashChips(commands: [c], active: c) { _ in } }
             }
             if !suggestions.isEmpty {
@@ -150,7 +149,7 @@ struct ChatComposer: View {
         let label = Image(systemName: "plus").font(.system(size: 14, weight: .bold))
             .composerCircle(fill: Theme.raised)
         if board.encrypted == true {
-            Button { Haptic.tap(); showEncryptedNote = true } label: { label.foregroundStyle(Theme.faint).opacity(0.55) }
+            Button { showEncryptedNote = true } label: { label.foregroundStyle(Theme.faint).opacity(0.55) }
                 .buttonStyle(PressStyle())
                 .popover(isPresented: $showEncryptedNote, arrowEdge: .bottom) {
                     Label("Pictures and files can't be sent on encrypted boards yet.", systemImage: "lock.fill")
@@ -182,8 +181,7 @@ struct ChatComposer: View {
     /// Pictures pasted into the message box: attached like ones picked from Photos (not on encrypted boards, which
     /// can't take attachments yet: the + says why).
     private func pasted(_ images: [UIImage]) {
-        guard board.encrypted != true else { Haptic.warn(); showEncryptedNote = true; return }
-        Haptic.tap()
+        guard board.encrypted != true else { Haptics.play(.warning); showEncryptedNote = true; return }
         for img in images.prefix(max(0, maxAttachments - attachments.count - preparing)) { add { try await Attachments.photo(img) } }
     }
 
@@ -194,7 +192,7 @@ struct ChatComposer: View {
             do {
                 let a = try await make()
                 withAnimation(.spring(duration: 0.28, bounce: 0.1)) { attachments.append(a) }
-            } catch { Haptic.warn(); state.report(error) }
+            } catch { Haptics.play(.failed); state.report(error) }
             preparing -= 1
         }
     }
@@ -205,7 +203,7 @@ struct ChatComposer: View {
         guard canSend else { return }
         draft = ""
         withAnimation(.spring(duration: 0.3, bounce: 0.15)) { attachments = [] }
-        Haptic.tap()
+        Haptics.play(.sent)
         let session = board.isAgentChat ? toSession?.wrappedValue : nil
         let replyTo = replyTo
         Task {

@@ -38,7 +38,7 @@ extension AppState {
             return true
         } catch {
             withAnimation(.smooth) { tasks[board] = before }
-            Haptic.warn()
+            Haptics.play(.failed)
             report(error)
             return false
         }
@@ -52,18 +52,18 @@ extension AppState {
 
     func claim(_ board: String, _ t: WorkTask) async {
         let me = self.me?.owner
-        Haptic.tap()
+        Haptics.play(.touch)
         await act(board, t.seq, ["action": "claim", "minutes": 60]) { $0.leaseHolder = me; $0.leaseAgent = false; $0.leaseUntil = Date().timeIntervalSince1970 * 1000 + 3_600_000 }
     }
 
     func release(_ board: String, _ t: WorkTask) async {
-        Haptic.tap()
+        Haptics.play(.touch)
         await act(board, t.seq, ["action": "release"]) { $0.leaseHolder = nil; $0.leaseUntil = nil }
     }
 
     func setStatus(_ board: String, _ t: WorkTask, _ status: String) async {
         guard status != t.status else { return }
-        if status == "done" { Haptic.done() } else { Haptic.tap() }
+        Haptics.play(status == "done" ? .completed : .touch)
         await act(board, t.seq, ["action": "update", "status": status]) { $0.status = status; $0.updatedAt = Date().timeIntervalSince1970 * 1000 }
     }
 
@@ -79,7 +79,9 @@ extension AppState {
         lines[line] = flipped
         let what = String(raw.drop { $0 != "]" }.dropFirst().trimmingCharacters(in: .whitespaces).prefix(80))
         let summary = (done ? "unticked: " : "ticked: ") + what
-        if done { Haptic.tap() } else { Haptic.done() }
+        // A tick is a selection; the tick that finishes the checklist is the task completing.
+        let finishes = !done && (t.checklist.map { $0.done + 1 == $0.total } ?? false)
+        Haptics.play(finishes ? .completed : .ticked)
         let before = tasks[board]
         change(board, t.seq) { $0.body = lines.joined(separator: "\n") }
         do {
@@ -96,7 +98,7 @@ extension AppState {
             await loadTasks(id: board)
         } catch {
             withAnimation(.smooth) { tasks[board] = before }
-            Haptic.warn()
+            Haptics.play(.failed)
             report(error)
         }
     }
@@ -109,7 +111,7 @@ extension AppState {
             let d = try await API.shared.send("/api/boards/\(board)/tasks", body: ["title": title, "body": body])
             let t = try JSONDecoder.soup.decode(TaskResponse.self, from: d).task
             withAnimation(.smooth) { tasks[board] = (tasks[board] ?? []).filter { $0.seq != t.seq } + [t] }
-            Haptic.done()
+            Haptics.play(.completed)
             Task { await loadTasks(id: board) }
             return t
         } catch { report(error); return nil }
@@ -127,7 +129,7 @@ extension AppState {
         withAnimation(.smooth) { tasks[board] = (tasks[board] ?? []).filter { $0.seq != t.seq } }
         do {
             try await API.shared.send("/api/boards/\(board)/entries/\(t.seq)/retract", body: ["reason": "Removed \"\(t.title)\" from the task board."])
-            Haptic.done()
+            Haptics.play(.completed)
             await loadTasks(id: board)
             return true
         } catch {
@@ -144,7 +146,7 @@ extension AppState {
         do {
             try await API.shared.send("/api/approvals/\(a.id)/\(approve ? "approve" : "reject")", body: ["note": note], retries: false)
             withAnimation(.smooth) { approvals.removeAll { $0.id == a.id } }
-            if approve { Haptic.done() } else { Haptic.warn() }
+            Haptics.play(approve ? .approved : .denied)
             return true
         } catch { report(error); await refreshInbox(); return false }
     }
@@ -170,13 +172,13 @@ extension AppState {
         struct R: Decodable { let relation: String? }
         do {
             let d = try await API.shared.send("/api/friends/request", body: ["user": name])
-            Haptic.done()
+            Haptics.play(.completed)
             return (try? JSONDecoder.soup.decode(R.self, from: d))?.relation ?? "pending_out"
         } catch { report(error); return nil }
     }
 
     func block(_ name: String) async -> Bool {
-        do { try await API.shared.send("/api/friends/\(name)/block"); Haptic.warn(); return true } catch { report(error); return false }
+        do { try await API.shared.send("/api/friends/\(name)/block"); Haptics.play(.warning); return true } catch { report(error); return false }
     }
 
     /// Your DM with a friend (made the first time), ready to open.
@@ -199,7 +201,7 @@ extension AppState {
     func invite(_ board: String, _ to: String) async -> String? {
         do {
             let d = try await API.shared.send("/api/boards/\(board)/invites", body: ["to": to.trimmingCharacters(in: .whitespaces)], retries: false)
-            Haptic.done()
+            Haptics.play(.completed)
             return (try? JSONDecoder.soup.decode(InviteResponse.self, from: d))?.message ?? "Invited \(to)."
         } catch { report(error); return nil }
     }
@@ -223,7 +225,7 @@ extension AppState {
     func archiveBoard(_ board: String) async -> Bool {
         do {
             try await API.shared.send("/api/boards/\(board)/archive", body: ["archived": true], retries: false)
-            Haptic.done()
+            Haptics.play(.completed)
             NotificationCenter.default.post(name: .boardArchived, object: board)
             await refreshBoards()
             return true
@@ -235,7 +237,7 @@ extension AppState {
         do {
             let d = try await API.shared.send("/api/boards", body: ["title": title, "encrypted": encrypted], retries: false)
             let r = try JSONDecoder.soup.decode(NewBoardResponse.self, from: d)
-            Haptic.done()
+            Haptics.play(.completed)
             await refreshBoards()
             return boards.first { $0.id == r.board.id } ?? Board(id: r.board.id, title: r.board.title, kind: "board", entryCount: 0, lastActivity: Date().timeIntervalSince1970 * 1000, encrypted: encrypted, last: nil, createdBy: me?.owner)
         } catch { report(error); return nil }

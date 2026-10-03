@@ -52,7 +52,6 @@ extension AppState {
         var mine = old
         mine.votes = old.votes.filter { $0.user != me } + [HumanDecision.Vote(user: me, vote: agree ? "agree" : "object", note: agree ? nil : note)]
         if agree { mine.waitingOn.removeAll { $0 == me } } else if old.open, !mine.waitingOn.contains(me) { mine.waitingOn.append(me) }
-        Haptic.tap()
         withAnimation(.smooth) { decisions[b.id, default: [:]][seq] = mine }
         var body: [String: Any] = ["vote": agree ? "agree" : "object"]
         if let note, !note.isEmpty { body["note"] = note }
@@ -60,10 +59,10 @@ extension AppState {
             let d = try await API.shared.send("/api/boards/\(b.id)/entries/\(seq)/vote", body: body, retries: false)
             let hd = try JSONDecoder.soup.decode(DecisionResponse.self, from: d).humanDecision
             withAnimation(.smooth) { decisions[b.id, default: [:]][seq] = hd }
-            if agree { Haptic.done() }
+            Haptics.play(agree ? .approved : .denied)
         } catch {
             withAnimation(.smooth) { decisions[b.id, default: [:]][seq] = old }
-            Haptic.warn()
+            Haptics.play(.failed)
             report(error)
         }
     }
@@ -76,8 +75,8 @@ extension AppState {
             let d = try await API.shared.send("/api/boards/\(b.id)/entries/\(seq)/close", body: body, retries: false)
             let hd = try JSONDecoder.soup.decode(DecisionResponse.self, from: d).humanDecision
             withAnimation(.smooth) { decisions[b.id, default: [:]][seq] = hd }
-            if decided { Haptic.done() } else { Haptic.warn() }
-        } catch { Haptic.warn(); report(error) }
+            Haptics.play(decided ? .completed : .warning)
+        } catch { Haptics.play(.failed); report(error) }
     }
 }
 
