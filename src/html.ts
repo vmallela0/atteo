@@ -1003,7 +1003,7 @@ setInterval(agentsRefresh,30000);document.addEventListener('visibilitychange',()
 // Your post shows up the moment you send it (a "sending" copy), then the real one from the post's own response.
 window.posted=(j)=>{const was=+rpTo.value;draftSave(sentKey,'');replyClear(true);document.querySelectorAll('#thread .entry.pending').forEach(x=>x.remove());
   if(j&&j.update&&addEntry(j.update)){if(!was){railBuild();toBottom()}}else stickNext=!was;
-  tick(false);setTimeout(()=>{if(was){replyShown(was);ta.value=draftLoad('')}ta.style.height='';ta.style.height=ta.value?ta.scrollHeight+2+'px':'';msync()},0)}; // after the form's reset
+  tick(false);setTimeout(()=>{if(was&&!(window.thrRearm&&thrRearm())){replyShown(was);ta.value=draftLoad('')}ta.style.height='';ta.style.height=ta.value?ta.scrollHeight+2+'px':'';msync()},0)}; // after the form's reset
 let sentKey='';
 // People just write; a message is a note (jxn #928). For the rare typed post, a / command at the start: /task (a task, its
 // lines become the checklist), /decide (a decision people agree or object to), /ask (a question that stays open).
@@ -1147,7 +1147,7 @@ function replyShown(){toBottom(true)}
 document.addEventListener('click',e=>{const b=e.target.closest('[data-reply]');if(b){e.preventDefault();replyTo(+b.dataset.reply);return}
   if(e.target.closest('#reply-cancel')){replyClear();ta.focus();return}
   if(e.target.closest('#replying-go')&&rpTo.value)window.BOARD_CTX.jump(+rpTo.value)});
-ta.addEventListener('keydown',e=>{if(e.key==='Escape'&&!e.defaultPrevented&&rpTo.value){e.preventDefault();replyClear()}});
+ta.addEventListener('keydown',e=>{if(e.key==='Escape'&&!e.defaultPrevented&&rpTo.value){e.preventDefault();if(cmpHome)closeThread();else replyClear()}}); // in a thread, Esc closes it
 {let t=0;try{t=+localStorage.getItem(draftKey('to'))||0}catch(e){}if(t)setTimeout(()=>{if(document.getElementById('e'+t))replyTo(t,false);else replyClear()},0)}
 // Enter posts, Shift+Enter adds a line. An Enter that picked a mention (default prevented above) doesn't post. On a
 // phone or tablet (touch, no hover) Return adds a line, as in other chat apps there: Post sends.
@@ -1563,8 +1563,14 @@ function thrSum(root){const top=document.getElementById('e'+root);if(!top)return
   b.innerHTML='<span class="thr-head"><span class="avs">'+who.slice(0,3).map(w=>avatar16(w.split('/')[0],w.endsWith('/a'))).join('')+'</span><b>'+kids.length+' repl'+(kids.length===1?'y':'ies')+'</b><span class="faint">'+(lastT?'last '+lastT.textContent:'')+'</span></span>';
   b.setAttribute('aria-label','Open the thread: '+kids.length+' repl'+(kids.length===1?'y':'ies'))}
 var thrOpen=0;const thrDlg=document.createElement('dialog');thrDlg.className='thr-dlg';thrDlg.setAttribute('aria-label','Thread');
-thrDlg.innerHTML='<div class="thr-hd"><b>Thread</b><button type="button" class="btn ghost sm" data-thr-close aria-label="Close the thread">✕</button></div><div class="thr-list" id="thr-list"></div>'+
-  (READONLY?'':'<form class="thr-form" id="thr-form"><textarea class="input" id="thr-text" rows="1" placeholder="Reply in thread" aria-label="Reply in thread"></textarea><button class="btn primary sm">Reply</button></form>');
+thrDlg.innerHTML='<div class="thr-hd"><b>Thread</b><button type="button" class="btn ghost sm" data-thr-close aria-label="Close the thread">✕</button></div><div class="thr-list" id="thr-list"></div>';
+// The thread's reply box is the conversation's own composer (jxn #1094), moved in while the thread is open: the same @ menu,
+// attachments, / commands, mic, drafts and encryption, replying to the thread's first message. Closing puts it back.
+const cmpForm=document.querySelector('form.composer');var cmpHome=null;
+function cmpIn(root){if(!cmpForm||READONLY||cmpForm.hidden)return;if(!cmpHome){cmpHome={p:cmpForm.parentNode,n:cmpForm.nextSibling};thrDlg.appendChild(cmpForm);cmpForm.classList.add('in-thr')}replyTo(root,false)}
+function cmpBack(){if(!cmpHome)return;const h=cmpHome;cmpHome=null;h.p.insertBefore(cmpForm,h.n);cmpForm.classList.remove('in-thr');replyClear(false)}
+/** After a reply is sent from the thread, the box stays pointed at it. */
+window.thrRearm=()=>{if(!cmpHome||!thrOpen)return false;rpTo.value=String(thrOpen);rpAt='';return true};
 document.body.appendChild(thrDlg);
 function thrRender(focus){const list=document.getElementById('thr-list'),top=document.getElementById('e'+thrOpen);if(!top)return;list.innerHTML='';
   for(const src of [top,...kidsOf(thrOpen)]){const c=src.cloneNode(true);c.removeAttribute('id');c.classList.remove('flash-in','tap','sel','hit');c.dataset.src=src.dataset.seq;
@@ -1573,17 +1579,11 @@ function thrRender(focus){const list=document.getElementById('thr-list'),top=doc
     list.appendChild(c)}
   const f=focus&&list.querySelector('[data-src="'+focus+'"]');(f||list.lastElementChild)?.scrollIntoView({block:f?'center':'end'});if(f)f.classList.add('hit')}
 function openThread(root,o={}){const top=document.getElementById('e'+root);if(!top)return;thrOpen=root;thrRender(o.focus);if(!thrDlg.open)thrDlg.showModal();
-  const t=document.getElementById('thr-text');if(t){const who=top.classList.contains('by-agent')?top.dataset.author+"'s agent":top.dataset.author;if(!t.value)t.value=who===ME?'':'@'+who+' ';if(!o.focus&&matchMedia('(hover:hover)').matches)t.focus()}}
-function closeThread(){thrOpen=0;if(thrDlg.open)thrDlg.close()}
-thrDlg.addEventListener('close',()=>{thrOpen=0});
+  cmpIn(root);if(cmpHome&&!o.focus&&matchMedia('(hover:hover)').matches){ta.focus();ta.setSelectionRange(ta.value.length,ta.value.length)}}
+function closeThread(){if(thrDlg.open)thrDlg.close();else{thrOpen=0;cmpBack()}}
+thrDlg.addEventListener('close',()=>{thrOpen=0;cmpBack()});
 thrDlg.addEventListener('click',e=>{if(e.target===thrDlg||e.target.closest('[data-thr-close]'))closeThread();const s=e.target.closest('.thr-list [data-src]');
   if(s&&e.target.closest('a.seq,.rq')){e.preventDefault();const n=s.dataset.src;closeThread();const el=document.getElementById('e'+n);if(el){pinned=false;el.scrollIntoView({block:'center'});el.classList.add('hit');setTimeout(()=>el.classList.remove('hit'),4000)}}});
-document.getElementById('thr-form')?.addEventListener('submit',async e=>{e.preventDefault();const t=document.getElementById('thr-text'),v=t.value.trim();if(!v||!thrOpen)return;
-  const b=e.target.querySelector('button');b.disabled=true;
-  const r=await fetch('/api/boards/'+BOARD+'/entries',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({text:v,type:'note',reply_to:thrOpen})}).catch(()=>null);
-  b.disabled=false;const j=r?await r.json().catch(()=>({})):{};if(!r||!r.ok){toast(j.error||'Could not send. Your reply is still in the box.');return}
-  t.value='';if(j.update)addEntry(j.update);tick(false);thrRender()});
-document.getElementById('thr-text')?.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing&&!matchMedia('(hover:none) and (pointer:coarse)').matches){e.preventDefault();document.getElementById('thr-form').requestSubmit()}});
 document.addEventListener('click',e=>{const s=e.target.closest('#thread [data-thread]');if(!s)return;e.preventDefault();openThread(+s.dataset.thread,{focus:+(s.dataset.focus||0)||undefined})});
 document.querySelectorAll('#thread>.entry[data-reply]').forEach(quotify);
 document.querySelectorAll('#thread>.entry:not([data-root])').forEach(x=>thrSum(+x.dataset.seq));
