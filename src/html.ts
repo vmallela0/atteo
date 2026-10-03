@@ -860,9 +860,9 @@ window.addEventListener('hashchange',()=>{const t={'#log':1,'#files':2,'#docs':2
 if(!linked)toBottom();
 window.addEventListener('load',()=>{if(!linked&&!moved)toBottom()});
 // One update fetch at a time (a post's own refresh and the live signal used to race and add the entry twice).
-let ticking=null,again=false;
+let ticking=null,again=false,sumNext=false; // sumNext: a task was finished, so the sidebar's open tasks changed
 function tick(wait){if(ticking){if(!wait)again=true;return ticking}ticking=tick1(wait).finally(()=>{ticking=null;if(again){again=false;tick(false)}});return ticking}
-async function tick1(wait){try{
+async function tick1(wait){const sumNow=sumNext;sumNext=false;try{
   const r=await fetch('/api/boards/'+BOARD+'/updates?after='+last+(wait?'&wait=25':''));if(!r.ok){await new Promise(r=>setTimeout(r,5000));return}const d=await r.json();
   const stick=stickNext||pinned;stickNext=false;let added=0;
   for(const e of d.entries){if(addEntry(e))added++}
@@ -874,7 +874,7 @@ async function tick1(wait){try{
   if(d.entries.length){for(const e of d.entries)TYPERS.delete(e.author);typingSync()} // sent: no longer typing
   if(d.reads){READS=d.reads;renderReads()}
   if(added){railBuild();if(stick)toBottom();else{unseen=true;pillSync()}if(window.e2eSync)e2eSync()}
-  if(d.entries.length){document.getElementById('sum').innerHTML=d.summary;foldApply();document.querySelectorAll('[data-count]').forEach(x=>x.textContent=d.count);refreshTimes();infoCount()}
+  if(d.entries.length||sumNow){document.getElementById('sum').innerHTML=d.summary;foldApply();document.querySelectorAll('[data-count]').forEach(x=>x.textContent=d.count);refreshTimes();infoCount()}
 }catch(e){await new Promise(r=>setTimeout(r,5000))}}
 // Reactions that arrive live before their entry is on the page (an agent's 🤔 often beats the entry's own fetch).
 const RXP={};
@@ -912,6 +912,7 @@ function connect(){
     if(d.type==='decision'){HDS[d.seq]=d.human_decision;renderHD(d.seq);return}
     if(d.type==='read'){READS[d.user]={person_seen:d.person_seen,agent_seen:d.agent_seen};renderReads();return}
     if(d.type==='task')refreshTask(d.seq);
+    if(d.type==='task'&&d.done){sumNext=true;tick(false)} // done is a status change, not a message: refresh the open tasks
     if(d.type==='claim'||d.type==='handling')tick(false);
     if(d.type==='task'){if(!document.getElementById('panel-tasks').hidden)loadTasks();if(td&&td.open&&tcur&&tcur.seq===d.seq&&!tdirty)openTask(d.seq)}
     if(d.type==='entry'||(d.type==='hello'&&d.last>last)){tick(false);if(!document.getElementById('panel-tasks').hidden)loadTasks()}};
@@ -1303,7 +1304,7 @@ function renderTask(t){const old=TASKS[t.seq];if(!t.html&&old&&old.html&&old.ver
   if(body)body.querySelectorAll('li.ck>input').forEach(i=>{i.disabled=READONLY||art.classList.contains('retracted');i.title=i.disabled?'':i.checked?'Untick':'Tick'});
   const cks=ckLines(taskText(t)),ticked=cks.filter(c=>c.done).length;
   const left=t.lease_until?Math.max(0,Math.round((t.lease_until-Date.now())/60000)):null;
-  const bits=[t.assignee?'for '+esc(whoName(t.assignee,t.assignee_agent)):'',t.lease_holder?'🔒 '+esc(whoName(t.lease_holder,t.lease_agent))+(left!=null?' · '+left+'m left':''):'',t.stop_reason?esc(t.stop_reason):''].filter(Boolean);
+  const bits=[t.assignee?'for '+esc(whoName(t.assignee,t.assignee_agent)):'',t.lease_holder?'🔒 '+esc(whoName(t.lease_holder,t.lease_agent))+(left!=null?' · '+left+'m left':''):'',t.stop_reason?esc(t.stop_reason):'',t.done_note?'✓ '+esc(t.done_note):''].filter(Boolean);
   el.innerHTML='<span class="tk-st st-'+t.status+'"><span class="dot"></span>'+TSTATUS[t.status]+'</span>'+(t.priority?'<span class="badge pri-'+t.priority+'">'+t.priority+'</span>':'')+
     (cks.length?bar(ticked,cks.length,'ticked'):t.children?bar(t.children.done,t.children.total,'sub-tasks done'):'')+
     '<span class="tk-who">'+bits.join(' · ')+'</span><span class="grow"></span>'+
@@ -1623,7 +1624,7 @@ function card(t){const first=t.title||'';const boxes=ckLines(t.body||'');const t
     (t.parent!=null?'<span class="ksub" title="Sub-task of #'+t.parent+(par?': '+esc(par.title):'')+'">↳ #'+t.parent+'</span>':'')+
     (boxes.length?'<span title="Checklist">☑ '+ticked+'/'+boxes.length+'</span>':'')+(t.children?'<span title="Sub-tasks done">'+t.children.done+'/'+t.children.total+' sub-tasks</span>':'')+(t.due?'<span>due '+new Date(t.due).toISOString().slice(5,10)+'</span>':'')+'<span class="grow"></span>'+
     (hold?'<span title="'+esc(hold)+' is working on it">🔒</span>':'')+(who?'<span title="For '+esc(who)+'">'+avatar16(t.assignee,t.assignee_agent)+'</span>':'')+'</div>'+
-    (t.stop_reason?'<div class="xs faint">'+esc(t.stop_reason)+'</div>':'')+'</article>'}
+    (t.stop_reason?'<div class="xs faint">'+esc(t.stop_reason)+'</div>':'')+(t.done_note?'<div class="xs faint">✓ '+esc(t.done_note)+'</div>':'')+'</article>'}
 async function taskAct(seq,body){const r=await fetch('/api/boards/'+BOARD+'/tasks/'+seq,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
   const j=await r.json().catch(()=>({}));if(!r.ok)toast(j.error||'Could not update');loadTasks();tick(false)}
 const kb=document.getElementById('kanban');let dragSeq=null;
@@ -1645,7 +1646,7 @@ async function openTask(seq){const r=await fetch('/api/boards/'+BOARD+'/tasks/'+
   document.getElementById('td-status').value=t.status==='stopped'?'blocked':t.status;document.getElementById('td-pri').value=t.priority||'';
   document.getElementById('td-assignee').value=t.assignee?(t.assignee_agent?t.assignee+"'s agent":t.assignee):'';
   const by=t.updated_via==='agent'?t.updated_by+"'s agent":t.updated_by;
-  document.getElementById('td-meta').textContent='v'+t.version+' · edited by '+by+' '+tdate(t.updated_at)+(t.lease_holder?' · 🔒 '+(t.lease_agent?t.lease_holder+"'s agent":t.lease_holder)+' until '+tdate(t.lease_until):'')+(t.stop_reason?' · stopped: '+t.stop_reason:'');
+  document.getElementById('td-meta').textContent='v'+t.version+' · edited by '+by+' '+tdate(t.updated_at)+(t.lease_holder?' · 🔒 '+(t.lease_agent?t.lease_holder+"'s agent":t.lease_holder)+' until '+tdate(t.lease_until):'')+(t.stop_reason?' · stopped: '+t.stop_reason:'')+(t.done_note?' · done: '+t.done_note:'');
   document.getElementById('td-hist').innerHTML=(j.history||[]).map(v=>'<li>v'+v.version+' · '+esc(v.via==='agent'?v.author+"'s agent":v.author)+' · '+tdate(v.ts)+(v.summary?' — '+esc(v.summary):'')+'</li>').join('')||'<li>No edits yet</li>';
   document.getElementById('td-err').hidden=true;
   document.getElementById('td-remove').hidden=!(t.author===ME||ME===CREATOR);

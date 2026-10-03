@@ -4,10 +4,10 @@
 import { track } from "./usage";
 import { screenText } from "./screen";
 import { DurableObject } from "cloudflare:workers";
-import { computeSummary, formatSummary, DEFAULT_SUMMARY_CHARS, type Summary } from "./state";
+import { computeSummary, formatSummary, tasksFor, DEFAULT_SUMMARY_CHARS, type Summary } from "./state";
 import { blockedMessage, scanFields, scanText, type SecretHit } from "./secrets";
 import { recordOutcome } from "./agents";
-import { forAgent, keep, MAX_MENTIONS, mentionsOwnAgent, SESSION_NAME_RE, type Mention } from "./mentions";
+import { forAgent, forPerson, keep, MAX_MENTIONS, mentionsOwnAgent, SESSION_NAME_RE, type Mention } from "./mentions";
 import { ENTRY_TYPES, type Attachment, type BoardInfo, type Entry, type Env, type Media, type Member, type NewEntry } from "./types";
 import { cleanTitle, EMOJI_RE, ftsQuery, USER_RE } from "./util";
 import { cardText, parseCard, type ChangeCard } from "./card";
@@ -26,6 +26,7 @@ export interface ClaimCheck {
 
 const RULES_DOC = "PROTOCOL.md"; // a board's house rules: every agent is handed the current version once
 const RULES_MAX_CHARS = 4000;
+const MISSED_SCAN = 200; // entries a post checks for anything that bears on it; more unread than this and it's refused
 
 export class BoardError extends Error {}
 
@@ -51,6 +52,7 @@ export interface TaskView {
   lease_agent: boolean;
   lease_until: number | null;
   stop_reason: string | null;
+  done_note: string | null; // what the one who finished it said (shown on the task, not posted)
   priority: TaskPriority | null;
   title: string;
   body: string;
@@ -478,12 +480,15 @@ export class Board extends DurableObject<Env> {
     const memberCols = new Set(this.sql.exec("PRAGMA table_info(members)").toArray().map((r) => r.name as string));
     if (!memberCols.has("person_seen")) this.sql.exec("ALTER TABLE members ADD COLUMN person_seen INTEGER NOT NULL DEFAULT 0");
     if (!memberCols.has("agent_seen")) this.sql.exec("ALTER TABLE members ADD COLUMN agent_seen INTEGER NOT NULL DEFAULT -1"); // -1: never here
+    // Whether this member's agent has been given the board's summary (its first read does; later ones only on request).
+    if (!memberCols.has("summarized")) this.sql.exec("ALTER TABLE members ADD COLUMN summarized INTEGER NOT NULL DEFAULT 0");
     // A claim's reproducible check: {command, commit?}, run by other members in a sandbox (atteo verify N).
     const claimCols = new Set(this.sql.exec("PRAGMA table_info(claim_state)").toArray().map((r) => r.name as string));
     if (!claimCols.has("check_json")) this.sql.exec("ALTER TABLE claim_state ADD COLUMN check_json TEXT");
     const taskCols = new Set(this.sql.exec("PRAGMA table_info(tasks)").toArray().map((r) => r.name as string));
     if (!taskCols.has("priority")) this.sql.exec("ALTER TABLE tasks ADD COLUMN priority TEXT");
     if (!taskCols.has("parent")) this.sql.exec("ALTER TABLE tasks ADD COLUMN parent INTEGER"); // a sub-task's parent task
+    if (!taskCols.has("done_note")) this.sql.exec("ALTER TABLE tasks ADD COLUMN done_note TEXT"); // "done" with a note: kept on the task
     for (const [col, def] of [["title", "TEXT"], ["body", "TEXT"], ["version", "INTEGER NOT NULL DEFAULT 1"], ["updated_by", "TEXT"], ["updated_via", "TEXT"]]) {
       if (!taskCols.has(col)) this.sql.exec(`ALTER TABLE tasks ADD COLUMN ${col} ${def}`);
     }
@@ -695,24 +700,81 @@ export class Board extends DurableObject<Env> {
   // ---- writes ----
 
   /**
-   * Agent posts go through here: stale-read rejection. If other members posted since this agent last read,
-   * nothing is posted; the agent gets what it missed (now marked read) and decides whether to post again.
-   * The object handles one request at a time, so two simultaneous posts are ordered and the second is bounced.
+   * Agent posts go through here: stale-read rejection, only where it matters. If something others posted since this
+   * agent last read bears on this post (see relevantMisses), nothing is posted: the agent gets those entries (all it
+   * missed is now marked read) and decides whether to post again. Anything else it missed doesn't stop the post: it
+   * lands, and the agent is told what it missed. The object handles one request at a time, so two simultaneous posts
+   * are ordered and the second sees the first.
    */
-  async postFresh(user: string, input: NewEntry, session?: string | null): Promise<{ entry: Entry } | { missed: Entry[]; remaining: number }> {
+  async postFresh(
+    user: string,
+    input: NewEntry,
+    session?: string | null,
+  ): Promise<{ entry: Entry; missed: Entry[] } | { refused: true; relevant: Entry[]; others: number[]; remaining: number }> {
     const again = this.sentBefore(user, input.idem);
-    if (again) return { entry: again }; // a retry of a post that already landed
+    if (again) return { entry: again, missed: [] }; // a retry of a post that already landed
     this.info();
     const cursor = this.readCursor(user, session);
-    const unread = this.countAfter(cursor, user, session);
-    if (unread > 0) {
-      const missed = this.entriesAfter(cursor, user, 20, session);
-      await this.receipts(user, missed);
-      this.advance(user, missed[missed.length - 1].seq, session);
-      this.markSeen(user, "agent", missed[missed.length - 1].seq);
-      return { missed: this.decisions.attach(missed), remaining: unread - missed.length };
+    const missed = this.entriesAfter(cursor, user, MISSED_SCAN, session);
+    if (!missed.length) return { entry: await this.post(user, session ? { ...input, session } : input), missed: [] };
+    // More than we check at once: refuse, as before, so nothing unchecked is skipped by the post.
+    const remaining = missed.length < MISSED_SCAN ? 0 : this.countAfter(cursor, user, session) - missed.length;
+    const relevant = await this.relevantMisses(user, input, missed);
+    await this.receipts(user, missed);
+    const last = missed[missed.length - 1].seq;
+    if (relevant.size || remaining > 0) {
+      this.advance(user, last, session);
+      this.markSeen(user, "agent", last);
+      return { refused: true, relevant: this.decisions.attach(missed.filter((e) => relevant.has(e.seq))), others: missed.filter((e) => !relevant.has(e.seq)).map((e) => e.seq), remaining };
     }
-    return { entry: await this.post(user, session ? { ...input, session } : input) };
+    // The post moves this reader past everything it missed.
+    return { entry: await this.post(user, session ? { ...input, session } : input), missed: this.decisions.attach(missed) };
+  }
+
+  /**
+   * Which entries an agent missed bear on what it's posting: addressed to it (to, an @mention of it or its person, a
+   * hand-off from its own person, a post for its session); in the thread it's posting in; or resolving, superseding or
+   * retracting what it's answering. In a DM, everything. An entry it names (reply_to, resolves, …) doesn't count: it
+   * has that one. (One it would be threaded under without naming it does: it may not have seen it.)
+   */
+  private async relevantMisses(user: string, input: NewEntry, missed: Entry[]): Promise<Set<number>> {
+    if ((await this.kindOf(this.info().id)) === "direct") return new Set(missed.map((e) => e.seq));
+    const named = new Set([input.reply_to, input.supersedes, input.retracts, ...(input.resolves ?? [])].filter((n): n is number => Number.isInteger(n) && (n as number) > 0));
+    // The thread the post will land in: its reply_to, or the message an unthreaded answer gets threaded under.
+    const thread = input.reply_to === 0 ? null : (input.reply_to ?? (input.via === "agent" && input.retracts == null ? this.autoThread(user, input) : null));
+    const targets = new Set([...named, ...(thread != null ? [thread] : [])]);
+    const forMe = new Set(
+      this.sql
+        .exec("SELECT seq FROM entries WHERE seq BETWEEN ? AND ? AND ((self_agent = 1 AND author = ?) OR for_user = ?)", missed[0].seq, missed[missed.length - 1].seq, user, user)
+        .toArray()
+        .map((r) => r.seq as number),
+    );
+    const parent = new Map(missed.map((e) => [e.seq, e.reply_to]));
+    const roots = new Map<number, number>();
+    const rootOf = (seq: number): number => {
+      const path: number[] = [];
+      let cur = seq;
+      for (let hops = 0; hops < 50 && !roots.has(cur); hops++) {
+        path.push(cur);
+        const up = parent.has(cur) ? parent.get(cur) : ((this.sql.exec("SELECT reply_to FROM entries WHERE seq = ?", cur).toArray()[0]?.reply_to as number | null | undefined) ?? null);
+        if (up == null) break;
+        cur = up;
+      }
+      const root = roots.get(cur) ?? cur;
+      for (const p of path) roots.set(p, root);
+      return root;
+    };
+    const root = thread != null ? rootOf(thread) : null;
+    const out = new Set<number>();
+    for (const e of missed) {
+      if (named.has(e.seq)) continue;
+      const about =
+        forAgent(e, user) || forPerson(e, user) || forMe.has(e.seq) ||
+        (root != null && rootOf(e.seq) === root) ||
+        e.resolves.some((r) => targets.has(r)) || (e.supersedes != null && targets.has(e.supersedes)) || (e.retracts != null && targets.has(e.retracts));
+      if (about) out.add(e.seq);
+    }
+    return out;
   }
 
   /** The entry this author already posted with this message id (a retry), if any. */
@@ -958,17 +1020,20 @@ export class Board extends DurableObject<Env> {
   }
 
   private computeSummaryNow(): Summary {
-    const s = computeSummary(this.allEntries());
+    // A task is closed by its status (marking it done posts nothing), or, as before, by an entry that resolves it.
+    const done = new Set(this.sql.exec("SELECT seq FROM tasks WHERE status = 'done'").toArray().map((r) => r.seq as number));
+    const s = computeSummary(this.allEntries(), done);
     const titles = new Map(this.sql.exec("SELECT seq, title FROM tasks WHERE title IS NOT NULL").toArray().map((r) => [r.seq as number, r.title as string]));
     s.openTasks = s.openTasks.map((e) => (titles.has(e.seq) ? { ...e, text: titles.get(e.seq)! } : e));
     return s;
   }
 
   /**
-   * Returns the summary plus entries from other members that this user has not read yet (oldest first),
-   * and advances the user's cursor past what was returned.
+   * Returns entries from other members that this user has not read yet (oldest first), and advances the user's cursor
+   * past what was returned. The board's summary comes with a member's first read of the board, then only when asked
+   * for (`summary: true`); `summary: false` never.
    */
-  async read(user: string, opts: { limit?: number; since?: number } = {}, session?: string | null) {
+  async read(user: string, opts: { limit?: number; since?: number; summary?: boolean } = {}, session?: string | null) {
     const info = this.info();
     const rules = this.rulesFor(user, session);
     const cursor = this.readCursor(user, session);
@@ -983,16 +1048,22 @@ export class Board extends DurableObject<Env> {
     if (fresh.length) this.markSeen(user, "agent", fresh[fresh.length - 1].seq);
     else if (opts.since == null) this.markSeen(user, "agent", info.last_seq);
     const members = this.members();
+    const given = this.sql.exec("SELECT summarized FROM members WHERE name = ?", user).toArray()[0]?.summarized === 1;
+    const withSummary = opts.summary ?? !given;
+    if (withSummary && !given) this.sql.exec("UPDATE members SET summarized = 1 WHERE name = ?", user);
+    const c = this.cached();
     return {
       info,
       members,
-      summaryText: (() => {
-        const c = this.cached();
-        const text = formatSummary(info, members, c.summary, user, DEFAULT_SUMMARY_CHARS, this.decisions.tags(c.tags), c.reviewers);
-        return info.encrypted
-          ? `This board is END-TO-END ENCRYPTED: messages are ciphertext here. Read and write it with the atteo CLI (atteo read / post / ask), which decrypts and encrypts on this machine.\n\n${text}`
-          : text;
-      })(),
+      summaryText: withSummary
+        ? (() => {
+            const text = formatSummary(info, members, c.summary, user, DEFAULT_SUMMARY_CHARS, this.decisions.tags(c.tags), c.reviewers);
+            return info.encrypted
+              ? `This board is END-TO-END ENCRYPTED: messages are ciphertext here. Read and write it with the atteo CLI (atteo read / post / ask), which decrypts and encrypts on this machine.\n\n${text}`
+              : text;
+          })()
+        : null,
+      tasksForYou: tasksFor(c.summary, user, c.tags).length,
       entries: this.decisions.attach(this.withHandling(fresh)),
       remaining,
       rules,
@@ -1502,6 +1573,7 @@ export class Board extends DurableObject<Env> {
         lease_agent: r.lease_agent === 1,
         lease_until: (r.lease_until as number | null) && (r.lease_until as number) > now ? (r.lease_until as number) : null,
         stop_reason: (r.stop_reason as string | null) ?? null,
+        done_note: r.status === "done" ? ((r.done_note as string | null) ?? null) : null,
         priority: (r.priority as TaskPriority | null) ?? null,
         title: (r.title as string | null) ?? splitTask(r.text as string).title,
         body: (r.body as string | null) ?? "",
@@ -1834,7 +1906,7 @@ export class Board extends DurableObject<Env> {
     }
     if (change.status && change.status !== t.status) {
       if (!TASK_STATUSES.includes(change.status)) throw new BoardError(`status must be one of: ${TASK_STATUSES.join(", ")}`);
-      this.sql.exec("UPDATE tasks SET status = ?, stop_reason = CASE WHEN ? = 'stopped' THEN stop_reason ELSE NULL END WHERE seq = ?", change.status, change.status, seq);
+      this.sql.exec("UPDATE tasks SET status = ?, stop_reason = CASE WHEN ? = 'stopped' THEN stop_reason ELSE NULL END, done_note = NULL WHERE seq = ?", change.status, change.status, seq);
       if (change.status === "done") this.sql.exec("UPDATE tasks SET lease_holder = NULL, lease_until = NULL WHERE seq = ?", seq);
       parts.push(`status → ${change.status}`);
     }
@@ -1854,13 +1926,23 @@ export class Board extends DurableObject<Env> {
       parts.push(change.due ? `due ${iso(change.due).slice(0, 10)}` : "no due date");
     }
     if (!parts.length && !change.note) throw new BoardError("Nothing to update: give a status, assignee, due date or note.");
+    // "Done" with a note: the note stays on the task (its card shows it); the conversation isn't told.
+    const doneNote = change.status === "done" && change.note?.trim() ? change.note.trim().slice(0, 500) : null;
+    if (doneNote) this.sql.exec("UPDATE tasks SET done_note = ? WHERE seq = ?", doneNote, seq);
     this.sql.exec("UPDATE tasks SET updated_at = ? WHERE seq = ?", Date.now(), seq);
     const after = this.task(seq);
-    this.broadcast({ type: "task", seq });
-    // The conversation only hears about a task when it's finished, newly assigned, or someone adds a note;
-    // everything else is visible on the task itself (Tasks tab, `task get`).
     const done = change.status === "done" && t.status !== "done";
+    this.broadcast({ type: "task", seq, ...(done ? { done: true } : {}) });
+    // The conversation only hears about a task when it's newly assigned or someone adds a note; everything else,
+    // finishing it included, is visible on the task itself (Tasks tab, `task get`) and goes out live.
     if (done) this.trackRecord(seq, "task", { author: user, via: opts.via }, "done");
+    if (done) {
+      // What a "✅ Done" note used to do, without the note: the agent's 🤔 on the task turns ✅, and "on it" turns "done".
+      if (opts.via === "agent") this.receiptDone(user, seq);
+      const h = this.sql.exec("SELECT user, session, label, done FROM handling WHERE seq = ?", seq).toArray()[0];
+      if (h && h.user === user && !h.done) this.markDone(seq, user, (h.session as string | null) ?? null, h.label as string);
+      else if (!h && opts.session) this.markDone(seq, user, opts.session, `${user}/${(opts.client ?? "agent").split(" · ")[0]}`);
+    }
     // Taking a task yourself is silent (the task list shows it); assigning it to someone else still posts so they hear.
     const assigned = change.assignee !== undefined && !!change.assignee && change.assignee.toLowerCase() !== t.assignee && change.assignee.toLowerCase() !== user.toLowerCase();
     // Closing a task ticks whatever is still open in its own checklist, so the body shows what was completed.
@@ -1872,15 +1954,15 @@ export class Board extends DurableObject<Env> {
       }
     }
     // Finishing #N ticks every open checklist line naming it in the other open tasks (a sub-task's parent also matches by
-    // title). Before the done note: that note resolves #N, and by then there's nothing left for it to tick.
+    // title).
     if (done) await this.tickMentions(user, seq, "done", opts, after);
-    if (done || assigned || change.note) {
+    const note = doneNote ? null : change.note;
+    if (assigned || note) {
       await this.post(user, {
         type: "note",
         reply_to: seq,
         to: change.assignee ? change.assignee.toLowerCase() : after.assignee,
-        resolves: done ? [seq] : undefined,
-        text: `${done ? "✅ Done" : "Task"} #${seq} (${after.title}): ${[...parts.filter((p) => !(done && p === "status → done")), change.note ?? ""].filter(Boolean).join("; ") || "finished"}`,
+        text: `Task #${seq} (${after.title}): ${[...parts, note ?? ""].filter(Boolean).join("; ")}`,
         via: opts.via,
         client: opts.client,
         session: opts.session,
