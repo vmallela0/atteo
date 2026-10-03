@@ -58,9 +58,17 @@ struct BoardAgent: Codable, Hashable, Identifiable {
     let lastSeen: Double
     let state: String // live | idle | gone
     var id: String { "\(user)/\(name ?? "")" }
-    var label: String { name.map { "\(user)/\($0)" } ?? "\(user)'s agent" }
+    /// What people call it: "theo's agent" (the session's slug and client are details, not its name).
+    var label: String { "\(user)'s agent" }
+    /// "Claude Code · claude-code-3": which tool and which session, when there's more than one.
+    var detail: String? { let d = [client, name].compactMap { $0 }.filter { !$0.isEmpty }; return d.isEmpty ? nil : d.joined(separator: " · ") }
 }
 struct BoardAgentsResponse: Decodable { let agents: [BoardAgent] }
+/// A board's members (for @-mentions in the message box).
+struct MembersResponse: Decodable {
+    struct Member: Decodable { let user: String; let displayName: String? }
+    let members: [Member]
+}
 
 struct BoardsResponse: Decodable { let boards: [Board] }
 struct Board: Codable, Identifiable, Hashable {
@@ -98,6 +106,7 @@ struct Entry: Codable, Identifiable, Hashable {
     let artifactName: String?
     var pending: Bool? = nil // sent from this phone, not confirmed yet
     var failed: Bool? = nil
+    var replyTo: Int? = nil // the message this one answers
     var id: Int { seq }
     var byAgent: Bool { via == "agent" }
 }
