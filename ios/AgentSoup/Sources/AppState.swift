@@ -28,6 +28,7 @@ final class AppState: ObservableObject {
     // Who's typing (Typing.swift).
     @Published var typing: [String: [String: Double]] = [:] // per board, per person: typing until (ms epoch)
     var typingSent: [String: Date] = [:] // per board: when this phone last said you're typing
+    @Published var decisions: [String: [Int: HumanDecision]] = [:] // per board, per message: human decisions (HumanDecisions.swift)
     @Published var jumpRequest: JumpRequest? // a message to show once its chat opens (a search hit in Chats)
     @Published var openRequest: Board? // a chat to open from anywhere (Message on someone's card)
     struct JumpRequest: Equatable { let board: String; let seq: Int }
@@ -208,6 +209,7 @@ final class AppState: ObservableObject {
             for (k, v) in r.reactions ?? [:] { if let n = Int(k) { rx[n] = v } }
             if rx != reactions[b.id] { withAnimation(.smooth) { reactions[b.id] = rx } }
             if let rd = r.reads, rd != reads[b.id] { withAnimation(.smooth) { reads[b.id] = rd } }
+            adoptDecisions(b.id, entries: r.entries, map: r.decisions)
             let mine = (entries[b.id] ?? []).filter { $0.pending == true || $0.failed == true }
             let fresh = older + got + mine.filter { m in !r.entries.contains { $0.author == m.author && $0.text == m.text && $0.ts >= m.ts - 60_000 } }
             if fresh != entries[b.id] { withAnimation(.smooth) { entries[b.id] = fresh } }
@@ -324,6 +326,7 @@ final class AppState: ObservableObject {
         struct Event: Decodable {
             let type: String; var user: String?; var personSeen: Int?; var agentSeen: Int?; var seq: Int?; var by: String?; var done: Bool?
             var who: String?; var until: Double?; var author: String?; var via: String? // typing; an entry's author
+            var humanDecision: HumanDecision? // a human decision's new state
         }
         var backoff: UInt64 = 1
         while !Task.isCancelled {
@@ -349,6 +352,10 @@ final class AppState: ObservableObject {
                     // "jxn is typing…" (people only; never you), until their message lands or it runs out.
                     if e.type == "typing", let who = e.who, let until = e.until {
                         if who != me?.owner { withAnimation(.smooth(duration: 0.25)) { typing[b.id, default: [:]][who] = until } }
+                        continue
+                    }
+                    if e.type == "decision", let n = e.seq, let hd = e.humanDecision {
+                        withAnimation(.smooth) { decisions[b.id, default: [:]][n] = hd }
                         continue
                     }
                     if e.type == "entry", let a = e.author, e.via != "agent", typing[b.id]?[a] != nil {
@@ -522,6 +529,7 @@ final class AppState: ObservableObject {
             var rx = reactions[b.id] ?? [:]
             for (k, v) in r.reactions ?? [:] { if let n = Int(k), n < first { rx[n] = v } }
             reactions[b.id] = rx
+            adoptDecisions(b.id, entries: r.entries, map: nil)
             let have = Set((entries[b.id] ?? []).map(\.seq))
             entries[b.id] = got.filter { !have.contains($0.seq) } + (entries[b.id] ?? [])
             return after > 0

@@ -53,6 +53,8 @@ struct BoardView: View {
     @State private var unsending: Entry? // asking "Unsend?" first
     @State private var openReceipts: Set<Int> = [] // your older messages you tapped to see who's seen them
     @State private var holdBottom = false // older messages going in above: keep what you're reading where it is
+    @State private var decisionPrompt: DecisionPrompt? // objecting (why?) or closing a human decision
+    @State private var decisionNote = ""
 
     @ObservedObject private var threadSeen = ThreadSeen.shared
     @Environment(\.chatDensity) private var density
@@ -271,6 +273,7 @@ struct BoardView: View {
         .confirmationDialog("Unsend this message?", isPresented: Binding(get: { unsending != nil }, set: { if !$0 { unsending = nil } }), titleVisibility: .visible, presenting: unsending) { e in
             Button("Unsend", role: .destructive) { Task { await state.retract(e.seq, in: board) } }
         } message: { _ in Text("Everyone here will see it as unsent.") }
+        .decisionPrompts($decisionPrompt, note: $decisionNote, board: board, state: state)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Theme.bg, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar) // inside a conversation the message box owns the bottom edge
@@ -301,13 +304,15 @@ struct BoardView: View {
         let unsent = r.gone.contains(e.seq)
         let live = e.seq > 0 && e.pending != true && e.failed != true && !unsent
         let showReceipt = mine && live && (e.seq == r.latestMine || openReceipts.contains(e.seq))
+        let hd = e.type == "decision" && !unsent ? state.decisions[board.id]?[e.seq] ?? e.humanDecision : nil
         return EntryRow(e: e, grouped: grouped, mine: mine, board: board.id, tasks: state.tasks[board.id] ?? [], reactions: state.reactions[board.id]?[e.seq] ?? [],
                         parent: e.replyTo.flatMap { r.bySeq[$0] }, me: me, members: state.members[board.id] ?? [], progress: state.uploads[e.seq],
                         reply: live ? { startReply(to: e) } : nil,
                         unsent: unsent, replies: r.replies[e.seq] ?? [], threadUnread: threadUnread(e.seq, r), handling: state.handling[board.id]?[e.seq], lit: flash == e.seq,
                         receipt: showReceipt ? receipt(for: e) : nil,
                         openReceipt: mine && live ? { if let r = receipt(for: e) { Haptic.tap(); seenBy = r } } : nil,
-                        actions: actions(for: e, mine: mine, live: live, r)) {
+                        actions: actions(for: e, mine: mine, live: live, r),
+                        decision: hd, decisionActions: DecisionActions.make(hd, seq: e.seq, board: board, state: state) { p in decisionNote = ""; decisionPrompt = p }) {
             Task { if e.local != nil { await state.retryUpload(e, in: board) } else { await state.send(e.text, to: board, retrying: e) } }
         }
     }
@@ -695,6 +700,8 @@ struct EntryRow: View {
     var receipt: Receipt? = nil // yours: "Seen by …" / "Delivered", with its check
     var openReceipt: (() -> Void)? = nil // tap it: who's seen it, as a list
     var actions = EntryActions()
+    var decision: HumanDecision? = nil // a person's decision: where it stands, and your vote / close
+    var decisionActions = DecisionActions()
     var retry: () -> Void = {}
     @State var drag: CGFloat = 0 // swipe right to reply
     @Environment(\.chatDensity) private var density
@@ -856,6 +863,7 @@ struct EntryRow: View {
                     .background(Theme.raised, in: RoundedRectangle(cornerRadius: Radius.bubble, style: .continuous))
                     .onTapGesture { actions.toggleReceipt?() }
             }
+            if let decision, !unsent { HumanDecisionCard(hd: decision, me: me, trailing: true, actions: decisionActions) }
             footer
             if e.pending == true {
                 Text("Sending…").font(.caption2).foregroundStyle(Theme.faint)
@@ -914,6 +922,7 @@ struct EntryRow: View {
                     m.text.textRenderer(MentionBoxes()).font(Typo.body).foregroundStyle(Theme.text.opacity(0.92)).lineSpacing(1.5)
                         .accessibilityValue(m.handles.isEmpty ? "" : "Mentions " + m.handles.joined(separator: ", "))
                 }
+                if let decision, !unsent { HumanDecisionCard(hd: decision, me: me, actions: decisionActions).padding(.top, Space.xs) }
                 footer
             }
         }

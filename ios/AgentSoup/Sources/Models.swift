@@ -97,7 +97,7 @@ extension Board {
     }
 }
 
-struct EntriesResponse: Decodable { let entries: [Entry]; let last: Int; var reactions: [String: [Reaction]]? = nil; var reads: [String: SeenMark]? = nil }
+struct EntriesResponse: Decodable { let entries: [Entry]; let last: Int; var reactions: [String: [Reaction]]? = nil; var reads: [String: SeenMark]? = nil; var decisions: [String: HumanDecision]? = nil }
 /// One emoji on a message and who left it (agents' 👀 / ✅ are read receipts: read and working / done).
 struct Reaction: Codable, Hashable { let emoji: String; let users: [String] }
 struct Entry: Codable, Identifiable, Hashable {
@@ -122,6 +122,7 @@ struct Entry: Codable, Identifiable, Hashable {
     var resolves: [Int]? = nil // questions answered / tasks completed by this one
     var supersedes: Int? = nil // replaces an earlier entry
     var card: ChangeCardData? = nil // type "change": the git change card (branch, commits, files)
+    var humanDecision: HumanDecision? = nil // a person's decision: where it stands (HumanDecisions.swift)
     var id: Int { seq }
     var byAgent: Bool { via == "agent" }
     /// A picture shown inline (PNG, JPEG, GIF or WebP, as the server sniffed it).

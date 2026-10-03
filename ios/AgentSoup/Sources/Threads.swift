@@ -244,6 +244,8 @@ struct ThreadView: View {
     @State private var flash: Int?
     @State private var scrollTo: Int?
     @State private var focused = false
+    @State private var decisionPrompt: DecisionPrompt? // objecting (why?) or closing a human decision
+    @State private var decisionNote = ""
 
     private var me: String? { state.me?.owner }
     private var rootSeq: Int { top ?? root }
@@ -342,6 +344,7 @@ struct ThreadView: View {
         .confirmationDialog("Unsend this message?", isPresented: Binding(get: { unsending != nil }, set: { if !$0 { unsending = nil } }), titleVisibility: .visible, presenting: unsending) { e in
             Button("Unsend", role: .destructive) { Task { await state.retract(e.seq, in: board) } }
         } message: { _ in Text("Everyone here will see it as unsent.") }
+        .decisionPrompts($decisionPrompt, note: $decisionNote, board: board, state: state)
         .task {
             if let prefill, draft.isEmpty { draft = prefill; focused = true }
             await load()
@@ -383,10 +386,12 @@ struct ThreadView: View {
         }
         if let p = shown.replyTo { a.jumpToParent = { open(p, here: Dictionary(items.map { ($0.seq, $0) }, uniquingKeysWith: { a, _ in a })) } }
         let rx = state.reactions[board.id]?[e.seq] ?? (fetched?.entry.seq == e.seq ? fetched?.reactions : nil) ?? []
+        let hd = e.type == "decision" && !unsent.contains(e.seq) ? state.decisions[board.id]?[e.seq] ?? e.humanDecision : nil
         return EntryRow(e: shown, mine: mine, board: board.id, tasks: state.tasks[board.id] ?? [], reactions: rx, parent: parent,
                         me: me, members: state.members[board.id] ?? [], progress: state.uploads[e.seq],
                         reply: live ? { mention(e) } : nil,
-                        unsent: unsent.contains(e.seq), handling: state.handling[board.id]?[e.seq], lit: flash == e.seq, actions: a) {
+                        unsent: unsent.contains(e.seq), handling: state.handling[board.id]?[e.seq], lit: flash == e.seq, actions: a,
+                        decision: hd, decisionActions: DecisionActions.make(hd, seq: e.seq, board: board, state: state) { p in decisionNote = ""; decisionPrompt = p }) {
             Task { await state.send(e.text, to: board, retrying: e) }
         }
     }
