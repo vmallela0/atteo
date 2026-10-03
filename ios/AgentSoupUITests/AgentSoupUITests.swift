@@ -81,10 +81,11 @@ final class AgentSoupUITests: XCTestCase {
         let live = expectation(for: NSPredicate(format: "label CONTAINS 'working' AND NOT (label CONTAINS 'No agents')"), evaluatedWith: presence)
         wait(for: [live], timeout: 8)
         presence.tap()
-        XCTAssertTrue(a.navigationBars["Agents here"].waitForExistence(timeout: 5), "who's here")
+        XCTAssertTrue(a.navigationBars["Info"].waitForExistence(timeout: 5), "the board's info, with who's here")
         XCTAssertTrue(a.staticTexts["fixing the empty-cart guard"].waitForExistence(timeout: 5), "what the live session is doing")
         shot("04a-agents-here")
-        a.swipeDown(velocity: .fast)
+        a.navigationBars["Info"].buttons["Done"].tap()
+        XCTAssertTrue(a.navigationBars["Info"].waitForNonExistence(timeout: 5), "the sheet closes")
         sleep(1)
         // Like any messenger: the chat opens at the newest message, not the oldest.
         let newest = a.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'task-card-' AND label BEGINSWITH 'Ship'")).firstMatch
@@ -194,11 +195,13 @@ final class AgentSoupUITests: XCTestCase {
             XCTAssertTrue(replyItem.waitForExistence(timeout: 3), "long-press offers Reply")
             replyItem.tap()
             XCTAssertTrue(a.descendants(matching: .any)["replying-to"].waitForExistence(timeout: 3), "a Replying-to line above the message box")
+            // The reply starts by naming who you're answering (#538).
+            XCTAssertTrue((composer.value as? String ?? "").hasPrefix("@theo"), "the reply is prefilled with @theo…")
             shot("07b-replying")
             let answer = "On it \(Int(Date().timeIntervalSince1970) % 100000)"
             composer.typeText(answer)
             a.buttons["send"].tap()
-            XCTAssertTrue(a.staticTexts[answer].waitForExistence(timeout: 3), "the reply shows at once")
+            XCTAssertTrue(a.staticTexts.matching(NSPredicate(format: "label ENDSWITH %@", answer)).firstMatch.waitForExistence(timeout: 3), "the reply shows at once")
             let quote = a.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'reply-quote' AND label CONTAINS 'posted while you read history'")).firstMatch
             XCTAssertTrue(quote.waitForExistence(timeout: 5), "the reply quotes what it answers")
             let sent = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: a.staticTexts["Sending…"])
@@ -394,6 +397,135 @@ final class AgentSoupUITests: XCTestCase {
         image.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(forDuration: 0.1, thenDragTo: a.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.97)), withVelocity: .slow, thenHoldForDuration: 0.1)
         sleep(1)
         shot("16e-attachments") // the chat, keyboard down: the file someone shared, your picture and its note
+    }
+
+    /// The chat's second layer (#508/#538), on the Q4 board: a reply starts with the @mention, "1 reply" opens the
+    /// thread, 👍 from the long-press row shows as a chip, "Seen by" under your latest, unsending shows "Unsent",
+    /// "On it" on a question for you, older messages load at the top, and the title opens the board's info (search).
+    func testThreadsReactionsAndInfo() throws {
+        continueAfterFailure = false
+        let a = app(fresh: true)
+        a.launch()
+        onBoards(a)
+        let chat = a.buttons.matching(NSPredicate(format: "identifier == 'chat-Q4 data migration'")).firstMatch
+        XCTAssertTrue(chat.waitForExistence(timeout: 10), "the board is in Chats")
+        chat.tap()
+        let composer = a.textFields["composer"].exists ? a.textFields["composer"] : a.textViews["composer"]
+        XCTAssertTrue(composer.waitForExistence(timeout: 10), "board opens")
+        let n = Int(Date().timeIntervalSince1970) % 100000
+        func sent() { wait(for: [expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: a.staticTexts["Sending…"])], timeout: 10) }
+
+        // Reply: long-press theo's agent's message → Reply; the box starts with "@theo's agent ".
+        let theirs = a.staticTexts["Backfill finished on staging: 4.2M rows, 0 errors. Ready for prod tonight."]
+        XCTAssertTrue(theirs.waitForExistence(timeout: 5))
+        theirs.press(forDuration: 0.8)
+        XCTAssertTrue(a.buttons["Reply"].waitForExistence(timeout: 3), "long-press offers Reply")
+        shot("20a-long-press")
+        a.buttons["Reply"].tap()
+        wait(for: [expectation(for: NSPredicate(format: "value BEGINSWITH %@", "@theo's agent "), evaluatedWith: composer)], timeout: 3)
+        shot("20b-reply-prefilled")
+        let answer = "after the freeze \(n)"
+        composer.typeText(answer)
+        a.buttons["send"].tap()
+        sent()
+        // The reply quotes it; tapping the quote goes back to it.
+        let quote = a.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'reply-quote' AND label CONTAINS 'Backfill finished'")).firstMatch
+        XCTAssertTrue(quote.waitForExistence(timeout: 5), "the reply quotes what it answers")
+        quote.tap()
+        wait(for: [expectation(for: NSPredicate(format: "hittable == true"), evaluatedWith: theirs)], timeout: 4) // the quote goes to what it answers
+        shot("20c-quote-tapped")
+
+        // The message it answers says "1 reply"; tap: the thread, root first, then the reply.
+        let replies = a.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'replies-'")).firstMatch
+        XCTAssertTrue(replies.waitForExistence(timeout: 5), "the parent shows its replies")
+        replies.tap()
+        XCTAssertTrue(a.navigationBars["Thread"].waitForExistence(timeout: 5), "the thread opens")
+        XCTAssertTrue(a.staticTexts.matching(NSPredicate(format: "label ENDSWITH %@", answer)).firstMatch.waitForExistence(timeout: 5), "with the reply in it")
+        sleep(1)
+        shot("21-thread")
+        a.navigationBars["Thread"].buttons["Done"].tap()
+
+        // React: long-press → 👍 in the quick row; a chip shows under the message, yours.
+        XCTAssertTrue(theirs.waitForExistence(timeout: 5))
+        theirs.press(forDuration: 0.8)
+        let thumbs = a.buttons["👍"].firstMatch
+        XCTAssertTrue(thumbs.waitForExistence(timeout: 3), "the quick reactions")
+        thumbs.tap()
+        let chip = a.buttons["reaction-👍"]
+        XCTAssertTrue(chip.waitForExistence(timeout: 5), "👍 shows as a chip")
+        wait(for: [expectation(for: NSPredicate(format: "value == 'yours'"), evaluatedWith: chip)], timeout: 5)
+        wait(for: [expectation(for: NSPredicate(format: "hittable == true"), evaluatedWith: chip)], timeout: 5) // the menu has gone
+        sleep(1)
+        shot("22-reaction")
+        // Long-press the chip: who reacted.
+        chip.press(forDuration: 0.8)
+        XCTAssertTrue(a.descendants(matching: .any).matching(NSPredicate(format: "label == 'You'")).firstMatch.waitForExistence(timeout: 3), "who reacted")
+        shot("22a-who-reacted")
+        a.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.12)).tap() // close it
+        // Any other emoji: long-press → More reactions → the picker.
+        theirs.press(forDuration: 0.8)
+        XCTAssertTrue(a.buttons["More reactions"].waitForExistence(timeout: 3))
+        a.buttons["More reactions"].tap()
+        let rocket = a.buttons["emoji-🚀"]
+        XCTAssertTrue(rocket.waitForExistence(timeout: 3), "the emoji picker")
+        shot("22b-emoji-picker")
+        rocket.tap()
+        XCTAssertTrue(a.buttons["reaction-🚀"].waitForExistence(timeout: 5), "🚀 shows as a chip too")
+
+        // Your latest message says who's seen it.
+        XCTAssertTrue(a.descendants(matching: .any)["seen-by"].waitForExistence(timeout: 5), "Seen by / Delivered under your latest")
+
+        // Unsend: long-press your message → Unsend → confirm; it reads "Unsent".
+        let oops = "wrong chat, sorry \(n)"
+        composer.tap()
+        composer.typeText(oops)
+        a.buttons["send"].tap()
+        sent()
+        let mineMsg = a.staticTexts[oops]
+        XCTAssertTrue(mineMsg.waitForExistence(timeout: 5))
+        shot("23a-seen-by")
+        mineMsg.press(forDuration: 0.8)
+        XCTAssertTrue(a.buttons["Unsend"].waitForExistence(timeout: 3), "yours can be unsent")
+        a.buttons["Unsend"].tap()
+        let confirm = a.buttons["Unsend"].firstMatch
+        XCTAssertTrue(confirm.waitForExistence(timeout: 3), "asks first")
+        confirm.tap()
+        XCTAssertTrue(a.descendants(matching: .any)["unsent"].waitForExistence(timeout: 5), "it reads Unsent")
+        shot("23-unsent")
+
+        // "On it": theo's agent asked maya a question; one tap says she's handling it.
+        let onIt = a.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'on-it-'")).firstMatch
+        if onIt.waitForExistence(timeout: 3) {
+            if !onIt.isHittable { a.swipeDown(); sleep(1) }
+            onIt.tap()
+            XCTAssertTrue(a.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'handling' AND label CONTAINS 'on it'")).firstMatch.waitForExistence(timeout: 5), "who's on it")
+            shot("24-on-it")
+        }
+
+        // Older messages: scroll up past what's loaded and the earlier ones come in above.
+        let oldest = a.staticTexts["Migration log: batch 1"]
+        for _ in 0..<16 where !oldest.exists { a.swipeDown(velocity: .fast); usleep(400_000) }
+        XCTAssertTrue(oldest.waitForExistence(timeout: 5), "the start of the chat loaded")
+        shot("25-earlier")
+
+        // The title: the board's info (open questions, agents, members, files) and search.
+        a.buttons["presence"].tap()
+        XCTAssertTrue(a.navigationBars["Info"].waitForExistence(timeout: 5), "the board's info opens")
+        XCTAssertTrue(a.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Members'")).firstMatch.waitForExistence(timeout: 5), "with its members")
+        XCTAssertTrue(a.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Open questions'")).firstMatch.exists, "and what's open")
+        sleep(1)
+        shot("26-info")
+        let search = a.searchFields.firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 3))
+        search.tap()
+        search.typeText("backfill")
+        let hit = a.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'search-hit-'")).firstMatch
+        XCTAssertTrue(hit.waitForExistence(timeout: 8), "search finds it")
+        shot("27-search")
+        hit.tap()
+        XCTAssertTrue(composer.waitForExistence(timeout: 5), "back in the chat, at the hit")
+        sleep(2)
+        shot("28-jumped")
     }
 
     func testInstantRelaunchFromCache() throws {
