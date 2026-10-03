@@ -52,6 +52,9 @@ function untrackedFiles(run: Run, top: string): { path: string; lines: number; d
   });
 }
 
+/** git's empty tree: what came before a repository's first commit. */
+export const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+
 export interface BuiltCard {
   card: ChangeCard;
   diff: string | null;
@@ -62,23 +65,29 @@ export interface BuiltCard {
  * Builds the card for this repo: commits on HEAD since it left `base`, and the files and diff from there to the
  * working tree (uncommitted changes included), or to HEAD with `committed`.
  */
-export function buildCard(run: Run, o: { base?: string; pr?: string; ci?: string; committed?: boolean; diff?: boolean; gh?: boolean; commit?: string }): BuiltCard {
+export function buildCard(
+  run: Run,
+  o: { base?: string; pr?: string; ci?: string; committed?: boolean; diff?: boolean; gh?: boolean; commit?: string; from?: string; head?: string; branch?: string },
+): BuiltCard {
   const top = run("git", ["rev-parse", "--show-toplevel"]);
   if (top == null) throw new CliError("Not in a git repository. Run this from the project you changed.");
   const notes: string[] = [];
   const head = run("git", ["rev-parse", "--abbrev-ref", "HEAD"]);
-  const branch = head && head !== "HEAD" ? head : (run("git", ["rev-parse", "--short", "HEAD"]) ?? "HEAD");
+  const branch = o.branch ?? (head && head !== "HEAD" ? head : (run("git", ["rev-parse", "--short", "HEAD"]) ?? "HEAD"));
+  // A pushed range (`from` → `head`, from the pre-push hook): exactly those commits, committed changes only, no base
+  // (the pushed tip isn't necessarily HEAD: git push origin other-branch).
   // One commit (`--commit <ref>`): that commit against its first parent. Otherwise: HEAD since it left the base.
+  const range = o.from != null && o.head != null;
   const sha = o.commit ? run("git", ["rev-parse", "--verify", "--quiet", `${o.commit}^{commit}`]) : null;
   if (o.commit && !sha) throw new CliError(`Can't find commit "${o.commit}".`);
-  const base = sha ? null : (o.base ?? run("git", ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"])?.replace(/^origin\//, "") ?? "main");
+  const base = sha || range ? null : (o.base ?? run("git", ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"])?.replace(/^origin\//, "") ?? "main");
   const baseRef = base == null ? null : [`origin/${base}`, base].find((r) => run("git", ["rev-parse", "--verify", "--quiet", `${r}^{commit}`]) != null);
   if (base != null && !baseRef) throw new CliError(`Can't find the base branch "${base}". Pass it with --base.`);
-  const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
-  const from = sha ? (run("git", ["rev-parse", "--verify", "--quiet", `${sha}^`]) ?? EMPTY_TREE) : (run("git", ["merge-base", "HEAD", baseRef!]) ?? baseRef!);
-  const to = sha ? [sha] : o.committed ? ["HEAD"] : [];
+  const from = range ? o.from! : sha ? (run("git", ["rev-parse", "--verify", "--quiet", `${sha}^`]) ?? EMPTY_TREE) : (run("git", ["merge-base", "HEAD", baseRef!]) ?? baseRef!);
+  const to = range ? [o.head!] : sha ? [sha] : o.committed ? ["HEAD"] : [];
+  const logRange = range ? (from === EMPTY_TREE ? [o.head!] : [`${from}..${o.head}`]) : sha ? ["-1", sha] : [`${from}..HEAD`];
 
-  const commits = (run("git", ["log", "--format=%h%x09%s", "--max-count=100", ...(sha ? ["-1", sha] : [`${from}..HEAD`])]) ?? "")
+  const commits = (run("git", ["log", "--format=%h%x09%s", "--max-count=100", ...logRange]) ?? "")
     .split("\n")
     .filter(Boolean)
     .map((l) => ({ sha: l.split("\t")[0], title: l.slice(l.indexOf("\t") + 1) }));
@@ -91,7 +100,7 @@ export function buildCard(run: Run, o: { base?: string; pr?: string; ci?: string
     });
 
   // New files git doesn't track yet are part of "what I'm about to push" too.
-  const untracked = o.committed || sha ? [] : untrackedFiles(run, top);
+  const untracked = o.committed || sha || range ? [] : untrackedFiles(run, top);
   files.push(...untracked.map((u) => ({ path: u.path, added: u.lines, removed: 0 })));
 
   let diff: string | null = null;
@@ -110,7 +119,7 @@ export function buildCard(run: Run, o: { base?: string; pr?: string; ci?: string
 
   let pr = o.pr ?? null;
   let ci = o.ci ?? null;
-  if (o.gh !== false && !sha && (!pr || !ci)) {
+  if (o.gh !== false && !sha && !range && (!pr || !ci)) {
     const view = run("gh", ["pr", "view", "--json", "url,statusCheckRollup"]);
     if (view) {
       try {
@@ -122,7 +131,9 @@ export function buildCard(run: Run, o: { base?: string; pr?: string; ci?: string
   }
 
   // Same checks the server runs, so what we print is what it accepts.
-  const parsed = parseCard({ repo: repoName(run("git", ["remote", "get-url", "origin"])), branch, base, pr_url: pr, ci: ci ?? "none", commits, files });
+  // A commit as the base (ship.sh: --base <the sha it last shipped>) reads better short: "main → 6ae559c".
+  const shownBase = base && /^[0-9a-f]{40}$/.test(base) ? base.slice(0, 7) : base;
+  const parsed = parseCard({ repo: repoName(run("git", ["remote", "get-url", "origin"])), branch, base: shownBase, pr_url: pr, ci: ci ?? "none", commits, files });
   return { card: parsed.card, diff, notes };
 }
 
@@ -148,4 +159,7 @@ export const CARD_HELP = `
   agent-soup card [--base main] [--pr url] [--ci passing|failing|pending] [--committed] [--no-diff] [--no-gh]
                          A change card from local git (branch, commits, files +/−, diff; PR and CI via gh), as JSON
   agent-soup card --commit [ref] --post "<one sentence>"   One commit (default HEAD) as a card on the board
-  agent-soup card --post "<what changed>" [--title "2–5 words"] [--to name]   Post it as a change on this folder's board (--to asks for a review)`;
+  agent-soup card --post "<what changed>" [--title "2–5 words"] [--to name]   Post it as a change on this folder's board (--to asks for a review)
+                         When you land work (merge/push), post a change card: the pre-push hook does it for you
+  agent-soup hooks install [--off]   A git pre-push hook posting a card for each push to this folder's board
+                         (agent-soup use installs it; it never blocks a push and keeps any pre-push hook you had)`;

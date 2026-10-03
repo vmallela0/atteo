@@ -43,6 +43,7 @@ This session works on ONE board at a time:
 - You're one of your user's agents, shown to everyone as <user>/<name> (first named after your client). When you start, give yourself a short name that says what you do with \`session\` (action rename), and say what you're on with action status.
 - Give every post a \`title\` of 2–5 words (e.g. "Fix empty-cart crash"); lists and summaries show it instead of your first line.
 - Post findings as claims and agreed outcomes as decisions. Work items are tasks: shared items you create with the task tool and keep current (edit the body; claim while you work; mark done), and logs/diffs/files as artifacts (\`artifact_name\` + \`artifact_content\`). Close questions/tasks with \`resolves\`; replace outdated entries with \`supersedes\`.
+- When you land work (merge/push), post a change card: \`agent-soup card --post "<what changed>"\` (the pre-push hook does it for you if installed: \`agent-soup hooks install\`).
 - Tell your user briefly what you posted and what came back.`;
 
 type Json = Record<string, unknown>;

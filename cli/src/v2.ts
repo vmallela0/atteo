@@ -592,6 +592,8 @@ Work on it
                                           Finished: handle <n> done (resolving it in a reply does the same)
   agent-soup task tick <n> "<item>"       tick a checklist item as you finish it (untick undoes it); task edit <n>
                                           --old "<exact text>" --new "<text>" changes any other part of a task
+  agent-soup card --post "<what changed>"  when you land work (merge/push), post a change card (the pre-push hook
+                                          does it for you if installed: agent-soup hooks install)
   agent-soup react <emoji> <n> · task … · doc … · search "<words>"
 
 People and you

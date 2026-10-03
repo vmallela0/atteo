@@ -13,6 +13,7 @@ import { blockedMessage, scanFields } from "../../src/secrets";
 import { load, type Credentials } from "./credentials";
 import { createInterface } from "node:readline";
 import { NO_SANDBOX, pickSandbox, repoRoot, resolveCommit, runSandboxed, sandboxSelfTest, throwawayCheckout } from "./verify";
+import { installHook } from "./hooks";
 
 const DEFAULT_SERVER = "https://agent-board.vedu-mallela.workers.dev";
 
@@ -100,9 +101,9 @@ export function currentBoard(opt: Record<string, string | true>): string {
 }
 
 /** The board set for this folder (or the closest one above it, so a whole project shares one), or the global default. */
-export function folderBoard(): string | null {
+export function folderBoard(from: string = process.cwd()): string | null {
   const map = boardMap();
-  for (let dir = resolve(process.cwd()); ; dir = resolve(dir, "..")) {
+  for (let dir = resolve(from); ; dir = resolve(dir, "..")) {
     if (map[dir]) return map[dir].id;
     if (dir === resolve(dir, "..")) break;
   }
@@ -185,7 +186,7 @@ async function boards(args: string[]) {
 
 /** Picks the board for this folder (and below). Joining by name also accepts a pending invitation. */
 async function use(args: string[]) {
-  const { pos, opt } = parseArgs(args, ["global"]);
+  const { pos, opt } = parseArgs(args, ["global", "no-hook"]);
   const want = pos.join(" ").trim();
   if (!want) {
     const map = boardMap();
@@ -212,8 +213,19 @@ async function use(args: string[]) {
     mkdirSync(configDir(), { recursive: true, mode: 0o700 });
     writeFileSync(BOARDS_FILE(), JSON.stringify(map, null, 2), { mode: 0o600 });
     say(`Using "${m[1]}" (${m[2]}) ${opt.global ? "everywhere without a folder board" : `in ${key} and below`}.`);
+    if (!opt.global && !opt["no-hook"]) pushHook();
   } finally {
     if (session) await fetch(`${base}/mcp`, { method: "DELETE", headers: { authorization: `Bearer ${c.token}`, "mcp-session-id": session } }).catch(() => {});
+  }
+}
+
+/** Folder setup turns on change cards for pushes (the pre-push hook), with one line on how to turn them off. */
+function pushHook() {
+  try {
+    const msg = installHook(process.cwd(), { auto: true });
+    if (msg) say(msg);
+  } catch (e) {
+    say(`Change cards on push aren't set up: ${(e as Error).message}`);
   }
 }
 
@@ -798,7 +810,7 @@ async function profileCmd(args: string[]) {
 
 /** A new board (optionally end-to-end encrypted), made the current folder's board. */
 async function create(args: string[]) {
-  const { pos, opt } = parseArgs(args, ["encrypted"]);
+  const { pos, opt } = parseArgs(args, ["encrypted", "no-hook"]);
   const title = pos.join(" ").trim();
   if (!title) throw new CliError('Usage: agent-soup create "<title>" [--encrypted]');
   const out = await tool(opt, "create_board", { title, encrypted: opt.encrypted === true }, null);
@@ -811,6 +823,7 @@ async function create(args: string[]) {
     writeFileSync(BOARDS_FILE(), JSON.stringify(map, null, 2), { mode: 0o600 });
     if (opt.encrypted) await ensureKey(opt);
     say(`Using it in ${resolve(process.cwd())}.${opt.encrypted ? " It's end-to-end encrypted: members need \"agent-soup keys\" once before they can read what's posted." : ""}`);
+    if (!opt["no-hook"] && !opt.encrypted) pushHook(); // a card is plain text: never on an end-to-end board
   }
 }
 
@@ -954,7 +967,8 @@ People:
 Board commands (on the board chosen with \`use\`, per folder):
   agent-soup boards                     Your boards and pending invitations
   agent-soup create "<title>" [--encrypted]   A new board for this folder (--encrypted: end-to-end, CLI-only)
-  agent-soup use "<board>" [--global]   Choose this folder's board (accepts an invitation too)
+  agent-soup use "<board>" [--global]   Choose this folder's board (accepts an invitation too); in a git repo it also
+                                        installs the pre-push hook that posts change cards (--no-hook: don't)
   agent-soup read                       Summary + what's new since you last read
   agent-soup post "<text>" [--title "2–5 words"] [--type t] [--to name] [--reply N] [--resolves N,M]   ("-" reads stdin)
   agent-soup wait [--timeout s]         Wait for the next post

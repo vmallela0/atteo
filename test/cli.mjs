@@ -2,7 +2,7 @@
 // Usage: npm run build:cli && BASE=http://localhost:8787 ADMIN_KEY=... node test/cli.mjs
 
 import { execFileSync, spawn } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync, chmodSync, existsSync, realpathSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, chmodSync, existsSync, realpathSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -367,6 +367,76 @@ await step("card: a change card from local git (commits, files incl. new ones, d
   const one = JSON.parse(r.out);
   assert(r.code === 0 && one.commits.length === 1 && one.commits[0].title === "Guard empty carts" && one.base === null, r.out);
   assert(one.files.length === 1 && one.files[0].path === "checkout.js" && one.files[0].added === 1, JSON.stringify(one.files)); // no untracked files
+});
+
+await step("hooks: use installs a pre-push hook that chains the old one; a push posts a card of just the pushed commits; deletes and nothing-new are skipped; --off puts the old hook back", async () => {
+  const repo = mkdtempSync(join(tmpdir(), "agent-board-hook-"));
+  const genv = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.com" };
+  const g = (...a) => execFileSync("git", a, { cwd: repo, env: genv, stdio: "pipe" }).toString().trim();
+  g("init", "-q", "-b", "main");
+  writeFileSync(join(repo, "a.txt"), "one\n");
+  g("add", "."); g("commit", "-qm", "Already pushed");
+  const first = g("rev-parse", "HEAD");
+  // Another tool's pre-push hook is already there: it must keep running, first, with git's input.
+  const hooks = join(repo, ".git", "hooks");
+  const hook = join(hooks, "pre-push");
+  const marker = join(repo, "old-hook-ran");
+  const oldHook = `#!/bin/sh\ncat > '${marker}'\n`;
+  mkdirSync(hooks, { recursive: true });
+  writeFileSync(hook, oldHook, { mode: 0o755 });
+  let r = await cli(["use", board], { cwd: repo });
+  assert(r.code === 0 && r.out.includes("agent-soup hooks install --off") && r.out.includes("your pre-push hook still runs first"), r.out + r.err);
+  assert(statSync(hook).mode & 0o100 && readFileSync(hook, "utf8").includes("# agent-soup pre-push hook"), "an executable agent-soup hook");
+  assert(readFileSync(join(hooks, "pre-push.before-agent-soup"), "utf8") === oldHook, "the old hook is kept next to it");
+  writeFileSync(join(repo, "b.txt"), "two\n");
+  g("add", "b.txt"); g("commit", "-qm", "Add the b file");
+  writeFileSync(join(repo, "a.txt"), "one\nmore\n");
+  g("commit", "-qam", "Tweak a");
+  const head = g("rev-parse", "HEAD");
+  // Git runs the hook from the repo with <remote> <url> and one line per ref on stdin. Someone else posted meanwhile,
+  // so the first try bounces ("since you last read"); the hook posts again.
+  await tool(tokB, board, "read", {});
+  await tool(tokB, board, "post", { type: "note", text: `meanwhile ${run}` });
+  const push = (input) =>
+    new Promise((resolve) => {
+      const p = spawn(hook, ["origin", "https://example.com/proj.git"], { cwd: repo, env: { ...process.env, AGENT_BOARD_CREDENTIALS_FILE: credA, AGENT_BOARD_SERVER: BASE, XDG_CONFIG_HOME: join(dir, "cfg-cmds") } });
+      let err = "";
+      p.stdout.on("data", (d) => (err += d));
+      p.stderr.on("data", (d) => (err += d));
+      p.stdin.end(input);
+      p.on("close", (code) => resolve({ code, err }));
+    });
+  r = await push(`refs/heads/main ${head} refs/heads/main ${first}\n`);
+  assert(r.code === 0 && /posted change card #\d+/.test(r.err), r.err);
+  assert(readFileSync(marker, "utf8").includes(`refs/heads/main ${head} refs/heads/main ${first}`), "the old hook ran with git's input");
+  const seq = Number(r.err.match(/change card #(\d+)/)[1]);
+  const got = await tool(tokB, board, "get", { seq });
+  assert(got.includes("Change: main · 2 commits · 2 files +2 −0") && got.includes("Add the b file") && got.includes("Tweak a") && !got.includes("Already pushed"), got);
+  assert(got.includes("+++ b/b.txt"), "the diff of the pushed commits: " + got);
+  // A delete and a ref with nothing new: no card, and the push still goes on.
+  const zero = "0".repeat(40);
+  r = await push(`(delete) ${zero} refs/heads/old ${first}\nrefs/heads/main ${head} refs/heads/main ${head}\n`);
+  assert(r.code === 0 && !r.err.includes("posted"), r.err);
+  // The old hook still decides whether the push happens.
+  writeFileSync(join(hooks, "pre-push.before-agent-soup"), "#!/bin/sh\nexit 3\n", { mode: 0o755 });
+  r = await push(`refs/heads/main ${head} refs/heads/main ${first}\n`);
+  assert(r.code === 3 && !r.err.includes("posted"), `${r.code} ${r.err}`);
+  writeFileSync(join(hooks, "pre-push.before-agent-soup"), oldHook, { mode: 0o755 });
+  // The board unreachable: still exit 0, quickly.
+  const t0 = Date.now();
+  const down = await new Promise((resolve) => {
+    const p = spawn(hook, ["origin", "x"], { cwd: repo, env: { ...process.env, AGENT_BOARD_CREDENTIALS_FILE: credA, AGENT_BOARD_SERVER: "http://127.0.0.1:9", XDG_CONFIG_HOME: join(dir, "cfg-cmds"), AGENT_SOUP_HOOK_TIMEOUT_MS: "1500" } });
+    p.stdin.end(`refs/heads/main ${head} refs/heads/main ${first}\n`);
+    p.on("close", (code) => resolve(code));
+  });
+  assert(down === 0 && Date.now() - t0 < 10_000, `exit ${down} after ${Date.now() - t0}ms`);
+  // --off removes it and puts the old hook back.
+  r = await cli(["hooks", "install", "--off"], { cwd: repo });
+  assert(r.code === 0 && readFileSync(hook, "utf8") === oldHook && !existsSync(join(hooks, "pre-push.before-agent-soup")), r.out + r.err);
+  r = await cli(["hooks", "install"], { cwd: repo }); // explicit install works too, and --off again
+  assert(r.code === 0 && readFileSync(hook, "utf8").includes("# agent-soup pre-push hook"), r.out + r.err);
+  r = await cli(["hooks", "install", "--off"], { cwd: repo });
+  assert(r.code === 0 && readFileSync(hook, "utf8") === oldHook, r.out + r.err);
 });
 
 await step("people: find, add, accept, friends with presence, ask a friend's agent on your direct board", async () => {
