@@ -45,11 +45,11 @@ final class AgentSoupUITests: XCTestCase {
         onBoards(a)
         let chat = a.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'chat-'")).firstMatch
         XCTAssertTrue(chat.waitForExistence(timeout: 10), "chats load")
-        // Boards and DMs are separate: switch to Direct, the DM shows the other person; open it, come back.
+        // Boards and DMs are separate: switch to DMs, the DM shows the other person; open it, come back.
         a.buttons["tab-direct"].tap()
         let dm = a.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'chat-' AND identifier CONTAINS 'priya'")).firstMatch
-        XCTAssertTrue(dm.waitForExistence(timeout: 5), "the DM with priya is under Direct")
-        XCTAssertFalse(a.buttons.matching(NSPredicate(format: "identifier == 'chat-Checkout bug'")).firstMatch.exists, "boards aren't under Direct")
+        XCTAssertTrue(dm.waitForExistence(timeout: 5), "the DM with priya is under DMs")
+        XCTAssertFalse(a.buttons.matching(NSPredicate(format: "identifier == 'chat-Checkout bug'")).firstMatch.exists, "boards aren't under DMs")
         shot("02a-direct")
         dm.tap()
         XCTAssertTrue(a.navigationBars.matching(NSPredicate(format: "identifier == 'priya'")).firstMatch.waitForExistence(timeout: 5) || a.buttons["presence"].label.hasPrefix("priya"), "the DM is titled with the other person")
@@ -141,8 +141,16 @@ final class AgentSoupUITests: XCTestCase {
             sleep(1)
         }
         composer.tap()
-        let msg = "@theo's agent QA from the phone \(Int(Date().timeIntervalSince1970) % 100000)"
-        composer.typeText(msg)
+        // @ suggests who's here (people and their agents); one tap puts the mention in the message.
+        composer.typeText("@th")
+        let mention = a.buttons["mention-theo's agent"]
+        XCTAssertTrue(mention.waitForExistence(timeout: 5), "@ suggests theo's agent")
+        shot("05a-mention")
+        mention.tap()
+        XCTAssertEqual(composer.value as? String, "@theo's agent ", "the mention is in the message box")
+        let tail = "QA from the phone \(Int(Date().timeIntervalSince1970) % 100000)"
+        composer.typeText(tail)
+        let msg = "@theo's agent " + tail
         shot("05-typing")
         a.buttons["send"].tap()
         XCTAssertTrue(a.staticTexts[msg].waitForExistence(timeout: 3), "the message shows at once")
@@ -167,6 +175,34 @@ final class AgentSoupUITests: XCTestCase {
             let visible = expectation(for: NSPredicate(format: "hittable == true"), evaluatedWith: seen)
             wait(for: [visible], timeout: 3) // on screen, not tucked under the message box
             shot("07a-seen")
+        }
+        // Reply to a specific message: swipe it right (like any messenger) or long-press → Reply; a slim
+        // "Replying to" line (✕ cancels), and the reply quotes what it answers.
+        let parent = a.staticTexts["posted while you read history"]
+        if parent.exists && parent.isHittable {
+            let from = parent.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5))
+            from.press(forDuration: 0.05, thenDragTo: from.withOffset(CGVector(dx: 140, dy: 0)), withVelocity: .fast, thenHoldForDuration: 0)
+            XCTAssertTrue(a.descendants(matching: .any)["replying-to"].waitForExistence(timeout: 3), "swiping a message right starts a reply")
+            shot("07b-swiped")
+            a.buttons["Cancel reply"].tap()
+            XCTAssertFalse(a.descendants(matching: .any)["replying-to"].waitForExistence(timeout: 1), "✕ cancels it")
+            parent.press(forDuration: 0.8)
+            let replyItem = a.buttons["Reply"]
+            XCTAssertTrue(replyItem.waitForExistence(timeout: 3), "long-press offers Reply")
+            replyItem.tap()
+            XCTAssertTrue(a.descendants(matching: .any)["replying-to"].waitForExistence(timeout: 3), "a Replying-to line above the message box")
+            shot("07b-replying")
+            let answer = "On it \(Int(Date().timeIntervalSince1970) % 100000)"
+            composer.typeText(answer)
+            a.buttons["send"].tap()
+            XCTAssertTrue(a.staticTexts[answer].waitForExistence(timeout: 3), "the reply shows at once")
+            let quote = a.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'reply-quote' AND label CONTAINS 'posted while you read history'")).firstMatch
+            XCTAssertTrue(quote.waitForExistence(timeout: 5), "the reply quotes what it answers")
+            let sent = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: a.staticTexts["Sending…"])
+            wait(for: [sent], timeout: 10)
+            XCTAssertTrue(quote.exists, "and keeps the quote once it's sent")
+            XCTAssertFalse(a.descendants(matching: .any)["replying-to"].exists, "the Replying-to line is gone")
+            shot("07c-replied")
         }
 
         // Back to the list, then Agents: flip a session to read-only.

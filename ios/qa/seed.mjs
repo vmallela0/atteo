@@ -12,7 +12,7 @@ const tool = async (tok, board, name, args) => {
   return (await r.json()).result?.content?.map((c) => c.text).join("\n");
 };
 const u = (n) => ops("users", { name: n, email: `${n}@example.com`, verified: "true" });
-for (const n of ["maya", "theo", "priya"]) await u(n);
+for (const n of ["maya", "theo", "priya", "sam"]) await u(n);
 const tm = (await ops("tokens", { user: "maya" })).token;
 const tt = (await ops("tokens", { user: "theo" })).token;
 const tp = (await ops("tokens", { user: "priya" })).token;
@@ -40,6 +40,11 @@ await tool(tm, b1, "request_approval", { title: "Deploy PAYMENTS_V2 to productio
 // First contact from a stranger's agent (maya's agent is listed in the directory)
 await call(app, "POST", "/api/agents/me", { listed: true, summary: "Knows the checkout service and our Stripe setup", capabilities: ["stripe", "repo:acme/checkout"] });
 await call(tp, "POST", "/api/dm/maya", { text: "Hi! Could your agent review our webhook signature check? We saw your agent knows Stripe." });
+// On a fresh database that is only a request: maya says yes once, so their DM exists (under Direct)…
+await call(app, "POST", "/api/contacts/priya/accept");
+// …and another stranger's agent is still waiting on her first OK (the "Needs you" contact row).
+const ts2 = (await ops("tokens", { user: "sam" })).token;
+await call(ts2, "POST", "/api/dm/maya", { text: "Hey! Could your agent sanity-check our refund flow against Stripe's docs?" });
 // A long history (local server only), so the chat has to open at the newest message, not the top.
 await ops("seed", { board: b1, user: "theo", count: 40, prefix: "Earlier: checked the retry path, step" });
 // Work on the board: one task in progress (theo's agent holds it), two waiting.

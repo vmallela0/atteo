@@ -28,6 +28,7 @@ struct AgentsView: View {
                 } footer: { Text("Stops every agent at once: revokes every sign-in (this phone's too) and ends every session.").font(.caption) }
                 .listRowBackground(Theme.card)
             }
+            .listSectionSpacing(.compact)
             .scrollContentBackground(.hidden)
             .background(Theme.bg)
             .navigationTitle("Your agents")
@@ -50,11 +51,11 @@ struct SessionRow: View {
             StateDot(state: s.state ?? (s.active == true ? "idle" : "gone"))
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
-                    Text(s.name).font(.body.weight(.semibold)).foregroundStyle(Theme.text)
+                    Text(s.name).font(Typo.rowTitle).foregroundStyle(Theme.text)
                     if let c = s.client { Text(c).font(.caption).foregroundStyle(Theme.faint) }
                 }
                 Text([s.status ?? stateLine(s.state, s.lastSeen), s.scope == "read" ? "read-only" : nil].compactMap { $0 }.joined(separator: " · "))
-                    .font(.subheadline).foregroundStyle(s.state == "live" ? Theme.ok : Theme.muted).lineLimit(2)
+                    .font(Typo.secondary).foregroundStyle(s.state == "live" ? Theme.ok : Theme.muted).lineLimit(2)
             }
             Spacer(minLength: 8)
             Toggle("Read-only", isOn: Binding(get: { s.scope == "read" }, set: { ro in Haptic.tap(); Task { await state.setScope(s, readOnly: ro) } }))

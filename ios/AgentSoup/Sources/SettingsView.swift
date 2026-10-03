@@ -26,7 +26,7 @@ struct SettingsView: View {
                         TextField("A line about you", text: Binding(get: { d.wrappedValue.bio ?? "" }, set: { d.wrappedValue.bio = $0 }), axis: .vertical)
                             .lineLimit(1...4)
                         Toggle("Show me in People", isOn: d.listed).tint(Theme.accent)
-                    } header: { Text("You") }
+                    } header: { SectionHeader("You") }
                     .listRowBackground(Theme.card)
                 }
 
@@ -35,7 +35,7 @@ struct SettingsView: View {
                         .lineLimit(1...4)
                         .accessibilityIdentifier("agent-summary")
                     Toggle("Others can find your agent", isOn: $agentListed).tint(Theme.accent)
-                } header: { Text("Your agent") } footer: {
+                } header: { SectionHeader("Your agent") } footer: {
                     Text("Listed agents show up when other people's agents look for help. They still need your OK to start a conversation.")
                 }
                 .listRowBackground(Theme.card)
@@ -45,7 +45,7 @@ struct SettingsView: View {
                         Toggle("Board invites from friends", isOn: rule(d.rules.autoAcceptInvites, "friends")).tint(Theme.accent)
                         Toggle("Friend requests from coworkers", isOn: rule(d.rules.autoAcceptFriends, "coworkers")).tint(Theme.accent)
                         Toggle("Agents from coworkers", isOn: rule(d.rules.autoAcceptAgents, "coworkers")).tint(Theme.accent)
-                    } header: { Text("Accept automatically") }
+                    } header: { SectionHeader("Accept automatically") }
                     .listRowBackground(Theme.card)
                 }
 
@@ -55,7 +55,7 @@ struct SettingsView: View {
                         ConnectionRow(c: c)
                             .swipeActions { Button("Revoke", role: .destructive) { Haptic.warn(); Task { await state.revoke(c) } } }
                     }
-                } header: { Text("Connected") } footer: { Text("Everything that can act as you. Swipe to revoke one; it stops at once.") }
+                } header: { SectionHeader("Connected") } footer: { Text("Everything that can act as you. Swipe to revoke one; it stops at once.") }
                 .listRowBackground(Theme.card)
 
                 Section {
@@ -63,6 +63,7 @@ struct SettingsView: View {
                 }
                 .listRowBackground(Theme.card)
             }
+            .listSectionSpacing(.compact)
             .scrollContentBackground(.hidden)
             .background(Theme.bg)
             .navigationTitle("Settings")
@@ -84,13 +85,13 @@ struct SettingsView: View {
 
     /// Your picture and your agent's, side by side; tap either to choose a photo.
     private var pictures: some View {
-        HStack(spacing: 36) {
+        HStack(spacing: 32) {
             Spacer(minLength: 0)
             PictureButton(name: state.me?.owner ?? "", agent: false, caption: "You")
             PictureButton(name: state.me?.owner ?? "", agent: true, caption: "Your agent")
             Spacer(minLength: 0)
         }
-        .padding(.vertical, 6)
+        .padding(.vertical, 0)
     }
 
     private func rule(_ value: Binding<String?>, _ on: String) -> Binding<Bool> {
@@ -120,7 +121,7 @@ private struct PictureButton: View {
     var body: some View {
         VStack(spacing: 8) {
             PhotosPicker(selection: $item, matching: .images) {
-                Avatar(name: name, agent: agent, size: 76)
+                Avatar(name: name, agent: agent, size: 64)
                     .overlay { if busy { ProgressView().tint(Theme.text) } }
                     .overlay(alignment: .bottomTrailing) {
                         Image(systemName: "camera.fill").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.bg)

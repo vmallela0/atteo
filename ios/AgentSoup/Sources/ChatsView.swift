@@ -29,6 +29,9 @@ struct ChatsView: View {
         return all.filter { $0.title.localizedCaseInsensitiveContains(query) || ($0.last?.text.localizedCaseInsensitiveContains(query) ?? false) || ($0.last?.by.localizedCaseInsensitiveContains(query) ?? false) }
     }
 
+    /// Rows sit on the page edge to edge, 16 pt in, with the text column lined up across every row.
+    private let rowInsets = EdgeInsets(top: Space.s, leading: Space.l, bottom: Space.s, trailing: Space.l)
+
     var body: some View {
         NavigationStack(path: $path) {
             List {
@@ -37,17 +40,35 @@ struct ChatsView: View {
                         // Keyed by each item's own id, so answering one animates it out (instead of the next row's
                         // content swapping into its place).
                         let items: [(id: String, view: AnyView)] = state.approvals.map { ("a-" + $0.id, AnyView(ApprovalRow(a: $0))) } + state.contacts.map { ("c-" + $0.from, AnyView(ContactRow(c: $0))) }
-                        ForEach(showAll ? items : Array(items.prefix(2)), id: \.id) { $0.view.transition(.opacity.combined(with: .move(edge: .leading))) }
-                        if items.count > 2 {
-                            Button(showAll ? "Show less" : "Show \(items.count - 2) more") { withAnimation(.snappy) { showAll.toggle() } }
-                                .font(.footnote.weight(.semibold)).foregroundStyle(Theme.accent).listRowBackground(Theme.bg)
+                        ForEach(showAll ? items : Array(items.prefix(2)), id: \.id) {
+                            $0.view.transition(.opacity.combined(with: .move(edge: .leading)))
+                                .listRowInsets(rowInsets).listRowSeparator(.hidden).listRowBackground(Theme.bg)
                         }
-                    } header: { Text("Needs you · \(state.approvals.count + state.contacts.count)").font(.footnote.weight(.semibold)).foregroundStyle(Theme.accent).contentTransition(.numericText()).accessibilityIdentifier("needs-you") }
+                        if items.count > 2 {
+                            Button(showAll ? "Show less" : "Show \(items.count - 2) more") { Haptic.tap(); withAnimation(.snappy) { showAll.toggle() } }
+                                .font(Typo.meta.weight(.semibold)).foregroundStyle(Theme.muted)
+                                .padding(.leading, 44 + Space.m) // under the text column
+                                .frame(minHeight: 32)
+                                .listRowInsets(EdgeInsets(top: 0, leading: Space.l, bottom: 0, trailing: Space.l))
+                                .listRowSeparator(.hidden).listRowBackground(Theme.bg)
+                        }
+                    } header: {
+                        HStack(spacing: 6) {
+                            Circle().fill(Theme.accent).frame(width: 6, height: 6)
+                            Text("Needs you · \(state.approvals.count + state.contacts.count)")
+                                .contentTransition(.numericText())
+                                .accessibilityIdentifier("needs-you")
+                        }
+                        .font(Typo.section).foregroundStyle(Theme.accent).textCase(nil)
+                        .padding(.top, Space.xs)
+                    }
+                    .listSectionSeparator(.hidden)
                 }
                 Section {
                     if chats.isEmpty && query.isEmpty && state.loaded {
-                        Text(tab == "direct" ? "No direct messages yet. When someone's agent writes to yours, it lands here." : "No boards yet. Make one on the web, or ask your agent to.")
-                            .font(.subheadline).foregroundStyle(Theme.faint).listRowBackground(Theme.bg).listRowSeparator(.hidden)
+                        Text(tab == "direct" ? "No DMs yet. When someone's agent writes to yours, it lands here." : "No boards yet. Make one on the web, or ask your agent to.")
+                            .font(Typo.secondary).foregroundStyle(Theme.faint)
+                            .listRowInsets(rowInsets).listRowBackground(Theme.bg).listRowSeparator(.hidden)
                     }
                     ForEach(chats) { b in
                         // A row you tap (no disclosure arrow): the whole row opens the chat.
@@ -58,7 +79,7 @@ struct ChatsView: View {
                             .accessibilityIdentifier("chat-\(b.title)")
                             .listRowBackground(Theme.bg)
                             .listRowSeparator(.hidden)
-                            .listRowInsets(EdgeInsets(top: 8, leading: 14, bottom: 8, trailing: 16))
+                            .listRowInsets(rowInsets)
                             .swipeActions(edge: .leading) {
                                 if unread(b) > 0 { Button { Task { await state.markRead(b) } } label: { Label("Read", systemImage: "checkmark") }.tint(Theme.accent) }
                             }
@@ -66,8 +87,12 @@ struct ChatsView: View {
                 } header: {
                     ChatsSwitch(tab: $tab, boards: unreadIn(direct: false), direct: unreadIn(direct: true))
                 }
+                .listSectionSeparator(.hidden)
             }
             .listStyle(.plain)
+            .environment(\.defaultMinListHeaderHeight, 0)
+            .environment(\.defaultMinListRowHeight, 0)
+            .listSectionSpacing(0)
             .scrollContentBackground(.hidden)
             .background(Theme.bg)
             .navigationTitle("Chats")
@@ -96,7 +121,7 @@ struct ChatsView: View {
             .navigationDestination(for: Board.self) { b in BoardView(board: b) }
             .overlay {
                 if state.boards.isEmpty && !state.loaded {
-                    VStack(spacing: 0) { ForEach(0..<7, id: \.self) { _ in PlaceholderChat() } }.frame(maxHeight: .infinity, alignment: .top).padding(.top, 8)
+                    VStack(spacing: 0) { ForEach(0..<7, id: \.self) { _ in PlaceholderChat() } }.frame(maxHeight: .infinity, alignment: .top).padding(.top, Space.s)
                 }
             }
             .overlay { if state.loaded && state.boards.isEmpty && state.approvals.isEmpty { ContentUnavailableView("No chats yet", systemImage: "bubble.left.and.bubble.right", description: Text("Boards and DMs you're in show up here.")) } }
@@ -110,7 +135,7 @@ struct ChatsView: View {
     }
 }
 
-/// Boards or DMs: two quiet tabs, each with how many unread messages it holds.
+/// Boards or DMs: a small segmented switch, each side with how many unread messages it holds.
 struct ChatsSwitch: View {
     @Binding var tab: String
     let boards: Int
@@ -118,23 +143,27 @@ struct ChatsSwitch: View {
     @Namespace private var pill
 
     var body: some View {
-        HStack(spacing: 4) {
-            item("boards", "Boards", boards)
-            item("direct", "Direct", direct)
+        HStack(spacing: Space.xs) {
+            HStack(spacing: 0) {
+                item("boards", "Boards", boards)
+                item("direct", "DMs", direct)
+            }
+            .padding(3)
+            .background(Theme.card, in: Capsule())
             Spacer()
         }
-        .padding(.vertical, 6)
+        .padding(.top, Space.xs).padding(.bottom, Space.xs)
         .textCase(nil)
     }
 
     private func item(_ key: String, _ label: String, _ n: Int) -> some View {
-        Button { Haptic.tap(); withAnimation(.snappy) { tab = key } } label: {
+        Button { Haptic.tap(); withAnimation(.spring(duration: 0.3, bounce: 0.15)) { tab = key } } label: {
             HStack(spacing: 6) {
-                Text(label).font(.subheadline.weight(.semibold))
-                if n > 0 { Text("\(n)").font(.caption2.weight(.bold)).monospacedDigit().padding(.horizontal, 6).padding(.vertical, 1).background(Theme.accent, in: Capsule()).foregroundStyle(.black) }
+                Text(label).font(Typo.meta.weight(.semibold))
+                if n > 0 { CountBadge(n: n) }
             }
-            .foregroundStyle(tab == key ? Theme.text : Theme.faint)
-            .padding(.horizontal, 12).padding(.vertical, 6)
+            .foregroundStyle(tab == key ? Theme.text : Theme.muted)
+            .padding(.horizontal, Space.m).frame(minHeight: 30)
             .background { if tab == key { Capsule().fill(Theme.raised).matchedGeometryEffect(id: "pill", in: pill) } }
             .contentShape(Capsule())
         }
@@ -151,51 +180,80 @@ struct ChatRow: View {
     var me: String? = nil
     /// A DM is titled "maya ↔ priya": show the other person.
     private var other: String? { b.kind == "direct" ? b.displayName(me: me) : nil }
+    private var working: Int { b.liveAgents ?? 0 }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Circle().fill(unread > 0 ? Theme.accent : .clear).frame(width: 7, height: 7).padding(.top, 7)
-            if let o = other { Avatar(name: o, size: 34).padding(.top, 1) }
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text(other ?? b.title).font(.body.weight(unread > 0 ? .semibold : .regular)).foregroundStyle(Theme.text).lineLimit(1)
-                    if b.encrypted == true { Image(systemName: "lock").font(.caption2).foregroundStyle(Theme.faint) }
-                    Spacer(minLength: 8)
-                    if let n = b.liveAgents, n > 0 {
-                        // Agents working on it right now: the one signal that matters at a glance.
-                        HStack(spacing: 5) { LiveDot(size: 6); Text("\(n) working").font(.footnote).foregroundStyle(Theme.ok) }
-                            .accessibilityLabel("\(n) agent\(n == 1 ? "" : "s") working now")
+        HStack(alignment: .center, spacing: Space.m) {
+            Group {
+                if let o = other { Avatar(name: o, size: 44) } else { BoardTile(title: b.title, size: 44) }
+            }
+            // Agents working on it right now: a green status dot on the tile, like someone online.
+            .overlay(alignment: .bottomTrailing) {
+                if working > 0 { LiveDot(size: 9).padding(2.5).background(Theme.bg, in: Circle()).offset(x: 3, y: 3) }
+            }
+            .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: Space.xxs) {
+                HStack(alignment: .firstTextBaseline, spacing: Space.xs) {
+                    Text(other ?? b.title).font(unread > 0 ? Typo.rowTitle : Typo.rowTitleRead).foregroundStyle(Theme.text).lineLimit(1)
+                    if b.encrypted == true { Image(systemName: "lock.fill").font(.system(size: 10)).foregroundStyle(Theme.faint) }
+                    Spacer(minLength: Space.s)
+                    if working > 0 {
+                        Text("\(working) working").font(Typo.meta.weight(.medium)).foregroundStyle(Theme.ok)
+                            .accessibilityLabel("\(working) agent\(working == 1 ? "" : "s") working now")
                     } else {
-                        Text(b.lastActivity.ago).font(.footnote).foregroundStyle(Theme.faint).monospacedDigit()
+                        Text(b.lastActivity.ago).font(Typo.meta).foregroundStyle(unread > 0 ? Theme.accent : Theme.faint).monospacedDigit()
                     }
                 }
-                Group {
-                    if let l = b.last {
-                        Text(l.by).foregroundStyle(Theme.muted) + Text(": ").foregroundStyle(Theme.faint) + Text(l.text.md).foregroundStyle(Theme.faint)
-                    } else {
-                        Text(b.entryCount == 1 ? "1 message" : "\(b.entryCount) messages").foregroundStyle(Theme.faint)
+                HStack(alignment: .center, spacing: Space.s) {
+                    Group {
+                        if let l = b.last {
+                            Text(l.by + ": ").foregroundStyle(Theme.muted) + Text(l.text.md).foregroundStyle(unread > 0 ? Theme.muted : Theme.faint)
+                        } else {
+                            Text(b.entryCount == 1 ? "1 message" : "\(b.entryCount) messages").foregroundStyle(Theme.faint)
+                        }
                     }
+                    .font(Typo.secondary).lineLimit(1)
+                    Spacer(minLength: 0)
+                    if unread > 0 { CountBadge(n: unread).accessibilityLabel("\(unread) unread") }
                 }
-                .font(.subheadline).lineLimit(1)
             }
         }
-        .padding(.vertical, 2)
+        .accessibilityElement(children: .combine) // one element: the whole row (its tile is decoration)
     }
 }
 
-/// Round one-tap answer buttons for "Needs you" rows.
+/// One-tap answers for "Needs you" rows: a quiet no, a bright yes (each a 44-pt target).
 struct AnswerButtons: View {
     let yes: () -> Void
     let no: () -> Void
     var yesColor: Color = Theme.ok
 
     var body: some View {
-        HStack(spacing: 8) {
-            Button(action: no) { Image(systemName: "xmark").font(.system(size: 13, weight: .semibold)).frame(width: 34, height: 34).overlay(Circle().stroke(Theme.line, lineWidth: 1)).foregroundStyle(Theme.muted) }
-                .buttonStyle(.plain).accessibilityLabel("No")
-            Button(action: yes) { Image(systemName: "checkmark").font(.system(size: 13, weight: .bold)).frame(width: 34, height: 34).background(Theme.text, in: Circle()).foregroundStyle(.black) }
-                .buttonStyle(.plain).accessibilityLabel("Yes")
+        HStack(spacing: Space.xs) {
+            Button(action: no) {
+                Image(systemName: "xmark").font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.muted)
+                    .frame(width: 32, height: 32).background(Theme.raised, in: Circle())
+                    .frame(width: 40, height: 44).contentShape(Rectangle())
+            }
+            .buttonStyle(PressStyle()).accessibilityLabel("No")
+            Button(action: yes) {
+                Image(systemName: "checkmark").font(.system(size: 12, weight: .bold)).foregroundStyle(.black)
+                    .frame(width: 32, height: 32).background(Theme.text, in: Circle())
+                    .frame(width: 40, height: 44).contentShape(Rectangle())
+            }
+            .buttonStyle(PressStyle()).accessibilityLabel("Yes")
         }
+    }
+}
+
+/// The leading tile of a "Needs you" row: a symbol on a tinted square, lined up with the chats' tiles.
+private struct NeedTile: View {
+    let symbol: String
+    let color: Color
+    var body: some View {
+        RoundedRectangle(cornerRadius: 44 * 0.3, style: .continuous).fill(color.opacity(0.15)).frame(width: 44, height: 44)
+            .overlay(Image(systemName: symbol).font(.system(size: 17, weight: .semibold)).foregroundStyle(color))
+            .accessibilityHidden(true)
     }
 }
 
@@ -206,17 +264,15 @@ struct ApprovalRow: View {
     var riskColor: Color { a.risk == "high" ? Theme.danger : a.risk == "medium" ? Theme.warn : Theme.ok }
 
     var body: some View {
-        HStack(spacing: 10) {
-            Circle().fill(riskColor).frame(width: 7, height: 7).frame(width: 14)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(a.title).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.text).lineLimit(1)
-                Text(a.details.isEmpty ? "\(a.risk) risk · \(a.createdAt.ago)" : a.details).font(.caption).foregroundStyle(Theme.muted).lineLimit(1)
+        HStack(spacing: Space.m) {
+            NeedTile(symbol: a.risk == "high" ? "exclamationmark.shield.fill" : "checkmark.shield.fill", color: riskColor)
+            VStack(alignment: .leading, spacing: Space.xxs) {
+                Text(a.title).font(Typo.rowTitle).foregroundStyle(Theme.text).lineLimit(1)
+                Text(a.details.isEmpty ? "\(a.risk) risk · \(a.createdAt.ago)" : a.details).font(Typo.secondary).foregroundStyle(Theme.muted).lineLimit(1)
             }
-            Spacer(minLength: 6)
+            Spacer(minLength: 0)
             AnswerButtons(yes: { Haptic.done(); Task { await state.decide(a, approve: true) } }, no: { Haptic.warn(); Task { await state.decide(a, approve: false) } })
         }
-        .padding(.vertical, 2)
-        .listRowBackground(Theme.bg)
         .swipeActions(edge: .leading) { Button { Haptic.done(); Task { await state.decide(a, approve: true) } } label: { Label("Approve", systemImage: "checkmark") }.tint(Theme.ok) }
         .swipeActions(edge: .trailing) { Button(role: .destructive) { Haptic.warn(); Task { await state.decide(a, approve: false) } } label: { Label("Reject", systemImage: "xmark") } }
     }
@@ -228,32 +284,30 @@ struct ContactRow: View {
     let c: ContactsResponse.Incoming
 
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "sparkle").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.accent).frame(width: 14)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("\(c.from)'s agent wants to talk").font(.subheadline.weight(.semibold)).foregroundStyle(Theme.text).lineLimit(1)
-                Text(c.text ?? "first contact · \(c.createdAt.ago)").font(.caption).foregroundStyle(Theme.muted).lineLimit(1)
+        HStack(spacing: Space.m) {
+            Avatar(name: c.from, agent: true, size: 44).accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: Space.xxs) {
+                Text("\(c.from)'s agent wants to talk").font(Typo.rowTitle).foregroundStyle(Theme.text).lineLimit(1)
+                Text(c.text ?? "first contact · \(c.createdAt.ago)").font(Typo.secondary).foregroundStyle(Theme.muted).lineLimit(1)
             }
-            Spacer(minLength: 6)
+            Spacer(minLength: 0)
             AnswerButtons(yes: { Haptic.done(); Task { await state.answer(c, accept: true) } }, no: { Haptic.warn(); Task { await state.answer(c, accept: false) } }, yesColor: Theme.accent)
         }
-        .padding(.vertical, 2)
-        .listRowBackground(Theme.bg)
         .swipeActions(edge: .leading) { Button { Task { await state.answer(c, accept: true) } } label: { Label("Allow", systemImage: "checkmark") }.tint(Theme.accent) }
         .swipeActions(edge: .trailing) { Button(role: .destructive) { Task { await state.answer(c, accept: false) } } label: { Label("Decline", systemImage: "xmark") } }
     }
 }
 
-/// A grey stand-in for a chat row while the first list loads (no blank flash).
+/// A grey stand-in for a chat row while the first list loads (no blank flash), shaped like the real row.
 struct PlaceholderChat: View {
     var body: some View {
-        HStack(spacing: 12) {
-            RoundedRectangle(cornerRadius: 11, style: .continuous).fill(Theme.card).frame(width: 44, height: 44)
-            VStack(alignment: .leading, spacing: 7) {
-                RoundedRectangle(cornerRadius: 4).fill(Theme.card).frame(width: 140, height: 12)
-                RoundedRectangle(cornerRadius: 4).fill(Theme.card).frame(maxWidth: .infinity).frame(height: 11)
+        HStack(spacing: Space.m) {
+            RoundedRectangle(cornerRadius: 13, style: .continuous).fill(Theme.card).frame(width: 44, height: 44)
+            VStack(alignment: .leading, spacing: Space.s) {
+                RoundedRectangle(cornerRadius: 4).fill(Theme.card).frame(width: 140, height: 11)
+                RoundedRectangle(cornerRadius: 4).fill(Theme.card).frame(maxWidth: .infinity).frame(height: 10)
             }
         }
-        .padding(.horizontal, 20).padding(.vertical, 10)
+        .padding(.horizontal, Space.l).padding(.vertical, Space.s)
     }
 }
