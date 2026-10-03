@@ -428,6 +428,103 @@ await step("web: live updates (incl. long-poll), entry detail and posting from t
   assert(up.status === 201 && upj.update && upj.update.seq === upj.entry.seq && upj.update.html.includes("with a caption") && upj.update.row, `upload ${up.status} ${JSON.stringify(upj).slice(0, 200)}`);
 });
 
+await step("web: several files in one message (multipart upload): one entry, attachments in order, limits, secrets, MCP get", async () => {
+  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAYAAACNMs+9AAAAFUlEQVR42mP8z8BQz0AEYBxVSF+FABJADveWkH6oAAAAAElFTkSuQmCC", "base64");
+  // One `file` part per file; per-file w/h in the same order ("" when unknown); text and reply_to once.
+  const send = (who, files, fields = {}, b = board) => {
+    const fd = new FormData();
+    for (const f of files) {
+      fd.append("file", new Blob([f.bytes], { type: f.type ?? "application/octet-stream" }), f.name);
+      fd.append("w", f.w ? String(f.w) : "");
+      fd.append("h", f.h ? String(f.h) : "");
+    }
+    for (const [k, v] of Object.entries(fields)) fd.append(k, String(v));
+    return web(`/api/boards/${b}/upload`, who, { method: "POST", body: fd });
+  };
+  const pic = (name) => ({ name, bytes: png, type: "image/png", w: 10, h: 10 });
+  const caption = `three pictures ${run}`;
+  const r = await send(B, [pic("shot.png"), pic("shot.png"), pic("chart.png")], { text: caption });
+  const j = await r.json();
+  assert(r.status === 201 && j.ok && j.entry && j.update?.seq === j.entry.seq, `multi ${r.status} ${JSON.stringify(j).slice(0, 300)}`);
+  const e = j.entry;
+  assert(e.type === "artifact" && e.text === caption && e.artifact_name === "shot.png" && e.media?.mime === "image/png", JSON.stringify(e).slice(0, 400));
+  assert(e.attachments?.map((a) => a.name).join() === "shot.png,shot-2.png,chart.png", `names in order, clashes renamed: ${JSON.stringify(e.attachments)}`);
+  assert(e.attachments.every((a) => a.mime === "image/png" && a.size === png.length && a.w === 10 && a.h === 10 && a.version >= 1), JSON.stringify(e.attachments));
+  for (const a of e.attachments) {
+    const f = await web(`/api/boards/${board}/image?name=${encodeURIComponent(a.name)}&version=${a.version}`, A);
+    assert(f.status === 200 && f.headers.get("content-type") === "image/png" && Buffer.from(await f.arrayBuffer()).equals(png), `fetch ${a.name}: ${f.status}`);
+  }
+  // The server-rendered entry: one entry, a grid of three, the caption; the entry API returns the same list.
+  has(j.update.html, 'class="mgrid g3"');
+  assert((j.update.html.match(/data-img="/g) ?? []).length === 3, "three tiles");
+  has(j.update.html, caption);
+  const got = (await (await web(`/api/boards/${board}/entries/${e.seq}`, A)).json()).entry;
+  assert(got.attachments.length === 3 && got.attachments[2].name === "chart.png", JSON.stringify(got).slice(0, 300));
+  // A single upload is unchanged, and lists its one file too.
+  const one = await (await web(`/api/boards/${board}/upload?name=solo.png&w=10&h=10&text=${encodeURIComponent("just one")}`, B, { method: "POST", headers: { "content-type": "image/png" }, body: png })).json();
+  assert(one.entry.artifact_name === "solo.png" && one.entry.media.mime === "image/png" && one.entry.text === "just one" && one.update.html.includes('class="img"'), JSON.stringify(one.entry).slice(0, 300));
+  assert(one.entry.attachments?.length === 1 && one.entry.attachments[0].name === "solo.png" && one.entry.attachments[0].version === one.entry.artifact_version && one.entry.attachments[0].w === 10, JSON.stringify(one.entry.attachments));
+  // Mixed: a picture, a text file and a binary, as a reply. Text files are fetchable at the same URL (as a download).
+  const notes = `notes for ${run}\nline two\n`;
+  const bin = Buffer.from([0, 1, 2, 3, 0, 255, 254, 0]);
+  const mx = await send(A, [pic("diagram.png"), { name: "notes.txt", bytes: Buffer.from(notes), type: "text/plain" }, { name: "dump.bin", bytes: bin }], { reply_to: e.seq });
+  const mj = await mx.json();
+  assert(mx.status === 201 && mj.entry.reply_to === e.seq && mj.entry.text === "Shared 3 files", `mixed ${mx.status} ${JSON.stringify(mj).slice(0, 300)}`);
+  assert(mj.entry.attachments.map((a) => a.mime).join() === "image/png,text/plain,application/octet-stream", JSON.stringify(mj.entry.attachments));
+  const tf = await web(`/api/boards/${board}/image?name=notes.txt&version=${mj.entry.attachments[1].version}`, B);
+  assert(tf.status === 200 && (await tf.text()) === notes && (tf.headers.get("content-disposition") ?? "").startsWith("attachment"), `text attachment ${tf.status}`);
+  has(mj.update.html, 'class="mgrid g1"');
+  has(mj.update.html, "notes.txt");
+  has(mj.update.html, "dump.bin");
+  // The text file is a document like any other (agents read it with doc).
+  has(await ok(B, board, "doc", { action: "read", name: "notes.txt" }), "line two");
+  // MCP get lists every file with its size and where to fetch it.
+  const g = await ok(B, board, "get", { seq: e.seq });
+  has(g, "Files (3):");
+  for (const a of e.attachments) has(g, `${a.name} · image/png · 10×10 · ${png.length} bytes · v${a.version}`);
+  has(g, `/api/boards/${board}/image?name=shot-2.png&version=`);
+  has(await ok(B, board, "get", { seq: mj.entry.seq }), `read with doc {action: "read", name: "notes.txt"`);
+  // Limits: 11 files is a 400; a file over 1.5 MB, or more than 15 MB together, is a 413. Nothing posted.
+  const before = (await (await web(`/api/boards/${board}/updates?after=0`, A)).json()).last;
+  const eleven = await send(B, Array.from({ length: 11 }, (_, i) => pic(`p${i}.png`)));
+  assert(eleven.status === 400 && (await eleven.json()).error.includes("At most 10 files"), `11 files ${eleven.status}`);
+  const big = await send(B, [pic("ok.png"), { name: "huge.bin", bytes: Buffer.alloc(1_500_001) }]);
+  const bigj = await big.json();
+  assert(big.status === 413 && bigj.error.includes("huge.bin") && bigj.error.includes("1.5 MB"), `too big ${big.status} ${JSON.stringify(bigj)}`);
+  const together = await send(B, Array.from({ length: 11 }, (_, i) => ({ name: `chunk${i}.bin`, bytes: Buffer.alloc(1_500_000) })));
+  assert(together.status === 413 && (await together.json()).error.includes("together"), `too big together ${together.status}`);
+  const none = await send(B, [], { text: "no files" });
+  assert(none.status === 400, `no files ${none.status}`);
+  // Ten files of 1.4 MB (14 MB) do go through.
+  const ten = await send(B, Array.from({ length: 10 }, (_, i) => ({ name: `blob${i}.bin`, bytes: Buffer.concat([Buffer.from([0]), randomBytes(1_400_000)]) })));
+  const tenj = await ten.json();
+  assert(ten.status === 201 && tenj.entry.attachments.length === 10, `ten files ${ten.status} ${JSON.stringify(tenj).slice(0, 200)}`);
+  // Secrets: in the caption or in a text file, the whole message is refused and none of its files is stored.
+  const fake = ["ghp", "_", "Zx9Yw8Vu7Ts6Rq5Po4Nm3Lk2Jh1Gf0Ed9Cb8A"].join("");
+  const s1 = await send(B, [pic(`leak1-${run}.png`), pic(`leak2-${run}.png`)], { text: `here GH_TOKEN=${fake}` });
+  const s1t = await s1.text();
+  assert(s1.status === 400 && s1t.includes("Blocked") && !s1t.includes(fake), `secret caption ${s1.status} ${s1t}`);
+  const s2 = await send(B, [pic(`leak3-${run}.png`), { name: `env-${run}.txt`, bytes: Buffer.from(`A=1\nTOKEN=${fake}\n`) }]);
+  const s2t = await s2.text();
+  assert(s2.status === 400 && s2t.includes("Blocked") && s2t.includes(`env-${run}.txt, line 2`) && !s2t.includes(fake), `secret file ${s2.status} ${s2t}`);
+  const docs = (await (await web(`/api/boards/${board}/files`, A)).json()).docs.map((d) => d.name);
+  assert(!docs.some((n) => n.includes(`leak`) || n.includes(`env-${run}`)), `refused files aren't stored: ${docs.join(", ")}`);
+  assert((await (await web(`/api/boards/${board}/updates?after=0`, A)).json()).last === before + 1, "only the ten-file message was posted");
+  // Outsiders: 404, as for the single upload.
+  const out = await send(OUT, [pic("x.png"), pic("y.png")]);
+  assert(out.status === 404, `outsider ${out.status}`);
+  // Encrypted boards refuse files as they refuse a single upload, with the same message, and store nothing.
+  const E = `e2e-encf-${run}`; // its own user, so the boards this makes don't count against A's plan
+  await ops("users", { name: E, email: `${E}@example.com`, verified: "true" });
+  cookie[E] = (await ops("sessions", { user: E })).body.cookie;
+  const eb = (await ops("boards", { user: E, title: `e2e enc files ${run}`, encrypted: true })).body.board.id;
+  const em = await send(E, [pic("a.png"), pic("b.png")], {}, eb);
+  const es = await web(`/api/boards/${eb}/upload?name=c.png`, E, { method: "POST", headers: { "content-type": "image/png" }, body: png });
+  const [emj, esj] = [await em.json(), await es.json()];
+  assert(em.status === 400 && es.status === 400 && emj.error === esj.error && emj.error.includes("end-to-end encrypted"), `encrypted ${em.status} ${emj.error} / ${es.status} ${esj.error}`);
+  assert(!(await (await web(`/api/boards/${eb}/files`, E)).json()).docs.some((d) => d.name === "a.png" || d.name === "b.png"), "nothing stored on the encrypted board");
+});
+
 await step("brand: the Pebble is the favicon, apple-touch icon and header mark", async () => {
   const f = await fetch(`${BASE}/favicon.svg`);
   assert((f.headers.get("content-type") ?? "").includes("image/svg+xml"), "favicon not svg");

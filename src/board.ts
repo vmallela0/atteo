@@ -8,7 +8,7 @@ import { computeSummary, formatSummary, DEFAULT_SUMMARY_CHARS, type Summary } fr
 import { blockedMessage, scanFields, scanText, type SecretHit } from "./secrets";
 import { recordOutcome } from "./agents";
 import { forAgent, keep, MAX_MENTIONS, mentionsOwnAgent, SESSION_NAME_RE, type Mention } from "./mentions";
-import { ENTRY_TYPES, type BoardInfo, type Entry, type Env, type Media, type Member, type NewEntry } from "./types";
+import { ENTRY_TYPES, type Attachment, type BoardInfo, type Entry, type Env, type Media, type Member, type NewEntry } from "./types";
 import { cleanTitle, EMOJI_RE, ftsQuery, USER_RE } from "./util";
 import { cardText, parseCard, type ChangeCard } from "./card";
 import { deliver } from "./webhooks";
@@ -148,7 +148,18 @@ type ForSession = { user: string; session: string } | null;
 
 type Row = Record<string, SqlStorageValue>;
 
+/** A file entry's files: the stored list for a message with several, else its one file (older entries too). */
+function attachmentsOf(r: Row, media: Media | null): Attachment[] | undefined {
+  if (r.attachments) return JSON.parse(r.attachments as string) as Attachment[];
+  if (!r.artifact_name) return undefined;
+  const a: Attachment = { name: r.artifact_name as string, mime: media?.mime ?? "text/plain", size: media?.size ?? ((r.artifact_size as number | null) ?? 0), version: (r.artifact_version as number | null) ?? null };
+  if (media?.w && media?.h) Object.assign(a, { w: media.w, h: media.h });
+  return [a];
+}
+
 function toEntry(r: Row): Entry {
+  const media = r.media ? (JSON.parse(r.media as string) as Media) : null;
+  const attachments = attachmentsOf(r, media);
   return {
     seq: r.seq as number,
     ts: r.ts as number,
@@ -166,7 +177,8 @@ function toEntry(r: Row): Entry {
     artifact_name: (r.artifact_name as string | null) ?? null,
     artifact_size: (r.artifact_size as number | null) ?? null,
     artifact_version: (r.artifact_version as number | null) ?? null,
-    media: r.media ? (JSON.parse(r.media as string) as Media) : null,
+    media,
+    ...(attachments ? { attachments } : {}),
     title: (r.title as string | null) ?? null,
     card: r.card ? (JSON.parse(r.card as string) as ChangeCard) : null,
     ai_flag: (r.ai_flag as string | null) ?? null,
@@ -176,7 +188,7 @@ function toEntry(r: Row): Entry {
 /** For a session's reads: skip posts addressed to another session of the same person (binds: user, session). */
 const FOR_SESSION_OK = "(for_session IS NULL OR for_user != ? OR for_session = ?)";
 
-const ENTRY_COLS = "seq, ts, author, type, text, title, to_user, mentions, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, card, media, ai_flag";
+const ENTRY_COLS = "seq, ts, author, type, text, title, to_user, mentions, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, card, media, ai_flag, attachments";
 
 export class Board extends DurableObject<Env> {
   private sql: SqlStorage;
@@ -446,6 +458,7 @@ export class Board extends DurableObject<Env> {
     }
     if (!cols.has("artifact_version")) this.sql.exec("ALTER TABLE entries ADD COLUMN artifact_version INTEGER");
     if (!cols.has("card")) this.sql.exec("ALTER TABLE entries ADD COLUMN card TEXT");
+    if (!cols.has("attachments")) this.sql.exec("ALTER TABLE entries ADD COLUMN attachments TEXT"); // a message with several files: JSON Attachment[]
     // "Was this retracted / replied to?" lookups run for every task and claim on every summary rebuild.
     this.sql.exec("CREATE INDEX IF NOT EXISTS entries_retracts ON entries (retracts) WHERE retracts IS NOT NULL");
     this.sql.exec("CREATE INDEX IF NOT EXISTS entries_reply_to ON entries (reply_to) WHERE reply_to IS NOT NULL");
@@ -709,7 +722,7 @@ export class Board extends DurableObject<Env> {
     return r.length ? toEntry(r[0]) : null;
   }
 
-  async post(user: string, input: NewEntry, internal: { docVersion?: number; media?: Media; seeding?: boolean; sealed?: boolean; notice?: boolean; system?: boolean } = {}): Promise<Entry> {
+  async post(user: string, input: NewEntry, internal: { docVersion?: number; media?: Media; attachments?: { list: Attachment[]; text: string }; seeding?: boolean; sealed?: boolean; notice?: boolean; system?: boolean } = {}): Promise<Entry> {
     // D1 lookups first, so nothing below waits between the duplicate check and the insert.
     const boardKind = await this.kindOf(this.meta("id") ?? "");
     const forSession = await this.sessionRoute(input.mentions ?? []);
@@ -726,9 +739,7 @@ export class Board extends DurableObject<Env> {
       if (t != null) input = { ...input, reply_to: t };
     }
     if (info.encrypted && !internal.sealed && !internal.notice && input.retracts != null) input = { ...input, text: "Unsent." }; // no plaintext reasons
-    else if (info.encrypted && !internal.sealed && !internal.notice) {
-      throw new BoardError(`"${info.title}" is end-to-end encrypted: the server only takes encrypted messages. Post with the atteo CLI (atteo post / ask), which encrypts on your machine.`);
-    }
+    else if (info.encrypted && !internal.sealed && !internal.notice) throw new BoardError(encryptedOnly(info.title));
     this.touch(user);
 
     if (!ENTRY_TYPES.includes(input.type)) {
@@ -804,8 +815,8 @@ export class Board extends DurableObject<Env> {
 
     const row = this.sql
       .exec(
-        `INSERT INTO entries (ts, author, type, text, to_user, mentions, self_agent, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, artifact_content, card, card_diff, media, title, session, idem, for_user, for_session)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING ${ENTRY_COLS}`,
+        `INSERT INTO entries (ts, author, type, text, to_user, mentions, self_agent, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, artifact_content, card, card_diff, media, title, session, idem, for_user, for_session, attachments)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING ${ENTRY_COLS}`,
         Date.now(),
         user,
         input.type,
@@ -831,11 +842,14 @@ export class Board extends DurableObject<Env> {
         input.idem ?? null,
         forSession?.user ?? null,
         forSession?.session ?? null,
+        internal.attachments ? JSON.stringify(internal.attachments.list) : null,
       )
       .one();
     if (artifactVersion != null) this.broadcast({ type: "doc", name: artifactName, version: artifactVersion, by: user });
+    for (const a of internal.attachments?.list.slice(1) ?? []) this.broadcast({ type: "doc", name: a.name, version: a.version, by: user });
     const entry = toEntry(row);
-    this.indexEntry(entry.seq, entry.text, entry.artifact_name, entry.card ?? null, artifactContent);
+    if (internal.attachments) this.indexEntry(entry.seq, entry.text, internal.attachments.list.map((a) => a.name).join(" "), null, internal.attachments.text || null);
+    else this.indexEntry(entry.seq, entry.text, entry.artifact_name, entry.card ?? null, artifactContent);
     if (entry.type === "task") {
       const { title, body } = splitTask(entry.text);
       this.sql.exec(
@@ -882,12 +896,12 @@ export class Board extends DurableObject<Env> {
     // Lists show who spoke last and what they said (sealed and encrypted posts show only that something was posted).
     // A notice about the board itself (its picture) is quiet: lists and the tape keep showing the last real message.
     if (!internal.seeding && !internal.notice) {
-      const excerpt = internal.sealed || info.encrypted ? "🔒 encrypted" : (entry.artifact_name ? `📎 ${entry.artifact_name}` : entry.text).replace(/\s+/g, " ").trim().slice(0, 140);
+      const excerpt = internal.sealed || info.encrypted ? "🔒 encrypted" : (internal.attachments ? `📎 ${filesLabel(internal.attachments.list)}` : entry.artifact_name ? `📎 ${entry.artifact_name}` : entry.text).replace(/\s+/g, " ").trim().slice(0, 140);
       this.ctx.waitUntil(this.env.DB.prepare(`UPDATE boards SET last_author = ?, last_via = ?, last_excerpt = ?, last_activity = ? WHERE id = ?`).bind(user, entry.via ?? null, excerpt, entry.ts, info.id).run().catch(() => {}));
     }
     // The tape (GET /api/tape): one line per post across every board, for agents following their whole network.
     if (!internal.seeding && !internal.notice) {
-      const excerpt = info.encrypted ? "🔒 encrypted" : (entry.title || entry.artifact_name || entry.text).replace(/\s+/g, " ").trim().slice(0, 160);
+      const excerpt = info.encrypted ? "🔒 encrypted" : (entry.title || (internal.attachments ? filesLabel(internal.attachments.list) : entry.artifact_name) || entry.text).replace(/\s+/g, " ").trim().slice(0, 160);
       this.ctx.waitUntil(
         this.env.DB.prepare(`INSERT INTO tape (board_id, seq, ts, author, via, type, to_user, excerpt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
           .bind(info.id, entry.seq, entry.ts, entry.author, entry.via ?? null, entry.type, entry.to ?? null, excerpt)
@@ -1161,7 +1175,7 @@ export class Board extends DurableObject<Env> {
     this.info();
     const q = `%${query.replace(/[\\%_]/g, (c) => "\\" + c)}%`;
     const clauses = [
-      `(text LIKE ?1 ESCAPE '\\' OR artifact_name LIKE ?1 ESCAPE '\\' OR artifact_content LIKE ?1 ESCAPE '\\'
+      `(text LIKE ?1 ESCAPE '\\' OR artifact_name LIKE ?1 ESCAPE '\\' OR artifact_content LIKE ?1 ESCAPE '\\' OR attachments LIKE ?1 ESCAPE '\\'
         OR EXISTS (SELECT 1 FROM doc_versions v WHERE v.name = entries.artifact_name AND v.version = entries.artifact_version AND v.content LIKE ?1 ESCAPE '\\'))`,
     ];
     const args: SqlStorageValue[] = [q];
@@ -1199,12 +1213,12 @@ export class Board extends DurableObject<Env> {
   // ---- per-person rate limit (abuse is bounded by budgets, not reputation: PRD) ----
 
   private rates = new Map<string, { minute: number; n: number }>();
-  private rateLimit(user: string) {
+  private rateLimit(user: string, peek = false) {
     const minute = Math.floor(Date.now() / 60_000);
     const r = this.rates.get(user);
-    if (!r || r.minute !== minute) return void this.rates.set(user, { minute, n: 1 });
+    if (!r || r.minute !== minute) return void (peek || this.rates.set(user, { minute, n: 1 }));
     const max = Number(this.env.POSTS_PER_MINUTE) || POSTS_PER_MINUTE;
-    if (++r.n > max) throw new BoardError(`Slow down: at most ${max} posts a minute per person on a board.`);
+    if ((peek ? r.n + 1 : ++r.n) > max) throw new BoardError(`Slow down: at most ${max} posts a minute per person on a board.`);
   }
 
   // ---- a model's second opinion on prompt injection (the regex screen runs first, at render time) ----
@@ -2065,26 +2079,91 @@ export class Board extends DurableObject<Env> {
       const hit = scanText(byteString(bytes), "file");
       if (hit) throw new BoardError(blockedMessage(hit));
     }
-    const mime = image ?? "application/octet-stream";
-    let name = cleanFileName((f.name || "").trim() || `${image ? "image" : "file"}-${Date.now()}${image ? "." + image.split("/")[1].replace("jpeg", "jpg") : ""}`);
-    if (image && !/\.(png|jpe?g|gif|webp)$/i.test(name)) name = `${name}.${image.split("/")[1].replace("jpeg", "jpg")}`;
-    const dim = (n: number | null | undefined) => (image && Number.isInteger(n) && (n as number) > 0 && (n as number) <= 20000 ? (n as number) : null);
-    const media: Media = { mime, w: dim(f.width), h: dim(f.height), size: bytes.byteLength };
-    const kb = `${Math.max(1, Math.round(media.size / 1024))} KB`;
-    const about = image ? `[image · ${mime}${media.w && media.h ? ` · ${media.w}×${media.h}` : ""} · ${kb}]` : `[binary file · ${kb}; download it from the Files tab]`;
-    const version = this.storeVersion(user, name, about, { via: f.via, client: f.client, summary: text || `Shared ${name}` });
-    this.sql.exec("INSERT OR REPLACE INTO blobs (name, version, mime, bytes, width, height) VALUES (?, ?, ?, ?, ?, ?)", name, version, mime, f.bytes, media.w, media.h);
-    this.sql.exec("DELETE FROM blobs WHERE name = ? AND version <= ?", name, version - 50); // same history depth as text versions
+    const name = binaryName(f.name, image);
+    const media = mediaFor(image, bytes.byteLength, f.width, f.height);
+    const about = aboutBinary(media);
+    const version = this.storeBlob(user, name, about, media, f.bytes, { via: f.via, client: f.client, summary: text || `Shared ${name}` });
     return this.post(user, { type: "artifact", text: text || `Shared ${name}`, artifact_name: name, artifact_content: about, mentions: f.mentions, reply_to: f.reply_to ?? null, via: f.via, client: f.client }, { docVersion: version, media });
   }
 
-  /** A stored file's bytes (latest version unless one is given). */
+  /** A binary file's next version: its description as the doc version's text, its bytes in `blobs`. */
+  private storeBlob(user: string, name: string, about: string, media: Media, bytes: ArrayBuffer, opts: DocEditOpts): number {
+    const version = this.storeVersion(user, name, about, opts);
+    this.sql.exec("INSERT OR REPLACE INTO blobs (name, version, mime, bytes, width, height) VALUES (?, ?, ?, ?, ?, ?)", name, version, media.mime, bytes, media.w, media.h);
+    this.sql.exec("DELETE FROM blobs WHERE name = ? AND version <= ?", name, version - 50); // same history depth as text versions
+    return version;
+  }
+
+  /**
+   * One message with several files (2–10; one goes through postFile): a single file entry whose `attachments` list
+   * them in order. Each file is stored exactly as postFile stores one (the next version of board file `name`; names
+   * clashing within the message become "name-2.ext", "name-3.ext"). Everything is checked before anything is stored:
+   * sizes, the caption and every file through the secret filter, the reply target. The entry's artifact_name,
+   * artifact_version and media are its first file's, so older clients still show that one.
+   */
+  async postFiles(user: string, f: { files: { name: string; bytes: ArrayBuffer; width?: number | null; height?: number | null }[]; text?: string; mentions?: Mention[]; reply_to?: number | null; via: "agent" | "person"; client?: string | null }): Promise<Entry> {
+    if (f.files.length === 1) return this.postFile(user, { ...f.files[0], text: f.text, mentions: f.mentions, reply_to: f.reply_to, via: f.via, client: f.client });
+    const info = this.info();
+    if (info.archived) throw new BoardError(`"${info.title}" is archived, so it's read-only. Its creator can restore it.`);
+    if (info.encrypted) throw new BoardError(encryptedOnly(info.title));
+    if (!f.files.length) throw new BoardError("Attach at least one file.");
+    if (f.files.length > MAX_FILES_PER_MESSAGE) throw new BoardError(`At most ${MAX_FILES_PER_MESSAGE} files in one message.`);
+    let total = 0;
+    for (const x of f.files) {
+      if (x.bytes.byteLength > MAX_IMAGE) throw new BoardError(`${x.name || "A file"} is too large (max ${MAX_IMAGE / 1e6} MB per file).`);
+      total += x.bytes.byteLength;
+    }
+    if (total > MAX_MESSAGE_BYTES) throw new BoardError(`Those files are too large together (max ${MAX_MESSAGE_BYTES / 1e6} MB in one message).`);
+    const text = (f.text ?? "").trim();
+    if (text.length > MAX_TEXT) throw new BoardError(`text is too long (max ${MAX_TEXT} characters); post the long part as an artifact.`);
+    if (f.reply_to != null && (!Number.isInteger(f.reply_to) || f.reply_to < 1 || f.reply_to > info.last_seq)) throw new BoardError(`Entry #${f.reply_to} does not exist on this board.`);
+    this.rateLimit(user, true); // counted once, by post() below
+    // Name, type and content of each, then the secret filter over all of them, before anything is written.
+    const taken = new Set<string>();
+    const files = f.files.map((x) => {
+      const bytes = new Uint8Array(x.bytes);
+      const image = sniffImage(bytes);
+      const asText = image ? null : utf8Text(bytes);
+      if (asText != null && asText.length <= MAX_ARTIFACT) {
+        return { name: uniqueName(cleanFileName((x.name || "").trim() || `file-${Date.now()}.txt`), taken), content: asText, raw: null, media: null, scan: null };
+      }
+      const media = mediaFor(image, bytes.byteLength, x.width, x.height);
+      return { name: uniqueName(binaryName(x.name, image), taken), content: aboutBinary(media), raw: x.bytes, media, scan: image ? null : byteString(bytes) };
+    });
+    const hit =
+      scanFields({ text }) ??
+      scanFields(Object.fromEntries(files.map((x, i) => [`file ${i + 1} name`, x.name]))) ??
+      files.reduce<SecretHit | null>((h, x) => h ?? (x.raw ? (x.scan ? scanText(x.scan, x.name) : null) : scanText(x.content, x.name)), null);
+    if (hit) throw new BoardError(blockedMessage(hit));
+    const caption = text || `Shared ${filesLabel(files.map((x) => ({ mime: x.media?.mime ?? "text/plain" })))}`;
+    const opts: DocEditOpts = { via: f.via, client: f.client, summary: caption };
+    const list: Attachment[] = files.map((x) => {
+      const version = x.raw && x.media ? this.storeBlob(user, x.name, x.content, x.media, x.raw, opts) : this.storeVersion(user, x.name, x.content, opts);
+      const a: Attachment = { name: x.name, mime: x.media?.mime ?? "text/plain", size: x.media?.size ?? new TextEncoder().encode(x.content).length, version };
+      if (x.media?.w && x.media?.h) Object.assign(a, { w: x.media.w, h: x.media.h });
+      return a;
+    });
+    const first = files[0];
+    const texts = files.filter((x) => !x.raw).map((x) => x.content).join("\n").slice(0, MAX_ARTIFACT);
+    return this.post(
+      user,
+      { type: "artifact", text: caption, artifact_name: first.name, artifact_content: first.content, mentions: f.mentions, reply_to: f.reply_to ?? null, via: f.via, client: f.client },
+      { docVersion: list[0].version!, ...(first.media ? { media: first.media } : {}), attachments: { list, text: texts } },
+    );
+  }
+
+  /**
+   * A stored file's bytes (latest version unless one is given). Text files have no bytes of their own: their text is
+   * served (the Worker sends anything that isn't an image as a download), so every attachment has one URL.
+   */
   async image(name: string, version?: number): Promise<{ mime: string; bytes: ArrayBuffer } | null> {
     this.info();
     const v = version ?? (this.sql.exec("SELECT version FROM docs WHERE name = ?", name).toArray()[0]?.version as number | undefined);
     if (v == null) return null;
     const r = this.sql.exec("SELECT mime, bytes FROM blobs WHERE name = ? AND version = ?", name, v).toArray()[0];
-    return r ? { mime: r.mime as string, bytes: r.bytes as ArrayBuffer } : null;
+    if (r) return { mime: r.mime as string, bytes: r.bytes as ArrayBuffer };
+    const t = this.sql.exec("SELECT content FROM doc_versions WHERE name = ? AND version = ?", name, v).toArray()[0];
+    return t ? { mime: "text/plain", bytes: new TextEncoder().encode(t.content as string).buffer as ArrayBuffer } : null;
   }
 
   // ---- shared documents: versioned files people and agents edit together ----
@@ -2472,6 +2551,28 @@ export class Board extends DurableObject<Env> {
 }
 
 export const MAX_IMAGE = 1_500_000; // any stored file (images and other binaries)
+export const MAX_FILES_PER_MESSAGE = 10; // files in one message (POST /upload, multipart)
+export const MAX_MESSAGE_BYTES = MAX_FILES_PER_MESSAGE * MAX_IMAGE; // all of one message's files together (15 MB)
+
+/** Why the server refuses a plaintext post on an end-to-end encrypted board. */
+function encryptedOnly(title: string): string {
+  return `"${title}" is end-to-end encrypted: the server only takes encrypted messages. Post with the atteo CLI (atteo post / ask), which encrypts on your machine.`;
+}
+
+/** "3 images" / "4 files", for list excerpts of a message with several files. */
+export function filesLabel(list: { mime: string }[]): string {
+  return `${list.length} ${list.every((a) => a.mime.startsWith("image/")) ? "images" : "files"}`;
+}
+
+/** `name` made unique among `taken` (which it joins): "a.png", "a-2.png", "a-3.png"… */
+export function uniqueName(name: string, taken: Set<string>): string {
+  const dot = name.lastIndexOf(".");
+  const [base, ext] = dot > 0 ? [name.slice(0, dot), name.slice(dot)] : [name, ""];
+  let n = name;
+  for (let i = 2; taken.has(n.toLowerCase()); i++) n = `${base.slice(0, 80 - ext.length - String(i).length - 1)}-${i}${ext}`;
+  taken.add(n.toLowerCase());
+  return n;
+}
 
 /** Bytes as a 1:1 string (each byte one char), so the secret filter can look for readable keys inside binaries. */
 function byteString(b: Uint8Array): string {
@@ -2488,6 +2589,25 @@ export function utf8Text(b: Uint8Array): string | null {
   } catch {
     return null;
   }
+}
+
+/** A stored binary's name: the one given (cleaned), or "image-<time>.png"; an image always ends in its type's extension. */
+function binaryName(raw: string, image: string | null): string {
+  const ext = image ? image.split("/")[1].replace("jpeg", "jpg") : "";
+  const name = cleanFileName((raw || "").trim() || `${image ? "image" : "file"}-${Date.now()}${image ? "." + ext : ""}`);
+  return image && !/\.(png|jpe?g|gif|webp)$/i.test(name) ? `${name}.${ext}` : name;
+}
+
+/** What's known about a stored binary: its type (sniffed images, else a download), size, and an image's pixel size if given. */
+function mediaFor(image: string | null, size: number, width?: number | null, height?: number | null): Media {
+  const dim = (n: number | null | undefined) => (image && Number.isInteger(n) && (n as number) > 0 && (n as number) <= 20000 ? (n as number) : null);
+  return { mime: image ?? "application/octet-stream", w: dim(width), h: dim(height), size };
+}
+
+/** A binary's doc version text (what agents read in place of the bytes). */
+function aboutBinary(media: Media): string {
+  const kb = `${Math.max(1, Math.round(media.size / 1024))} KB`;
+  return media.mime.startsWith("image/") ? `[image · ${media.mime}${media.w && media.h ? ` · ${media.w}×${media.h}` : ""} · ${kb}]` : `[binary file · ${kb}; download it from the Files tab]`;
 }
 
 /** The image type from its first bytes, or null: PNG, JPEG, GIF and WebP only. */
