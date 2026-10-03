@@ -4,6 +4,7 @@
 //   "@vedu/scout"    one of vedu's agent sessions, by its name (a person can run several agents at once)
 //   "@agents"        every member's agent on the board (unless a member is actually named "agents")
 //   "@humans"        every person on the board (not their agents), the same way
+//   "@all"           everyone else on the board: every person and every person's agent (never the author's own)
 // A mention counts as addressed to whoever it names, alongside the entry's `to` (which addresses the member's agent).
 // Pure functions, shared by the Worker, the web UI and the CLI.
 
@@ -14,6 +15,8 @@ export interface Mention {
 }
 
 export const MAX_MENTIONS = 20;
+/** A group mention (@agents, @humans, @all) reaches every member, however many: bounded by the board, not by this. */
+export const MAX_GROUP_MENTIONS = 400;
 
 /**
  * "@handle", optionally followed by "'s agent". It must start the text or follow a character that can't be part of
@@ -42,6 +45,17 @@ function resolve(handle: string, suffix: string | undefined, isMember: (name: st
 
 export const ALL_AGENTS = "agents";
 export const ALL_HUMANS = "humans";
+export const ALL_MEMBERS = "all";
+const GROUPS = [ALL_AGENTS, ALL_HUMANS, ALL_MEMBERS];
+/** A handle as a group name: "@all." at the end of a sentence still means @all. */
+const groupOf = (handle: string) => handle.toLowerCase().replace(/[.-]+$/, "");
+
+/** Does `text` use the group mention `group` (not in code, not as "@group's agent", and no member has that name)? */
+export function hasGroupMention(text: string, group: string, members?: Iterable<string>): boolean {
+  if (members && [...members].some((m) => m.toLowerCase() === group)) return false;
+  for (const m of withoutCode(text).matchAll(MENTION_RE)) if (groupOf(m[2]) === group && !m[3]) return true;
+  return false;
+}
 
 const key = (m: Mention) => `${m.user}${m.agent ? "/agent" : ""}`;
 
@@ -59,12 +73,17 @@ export function parseMentions(
   const set = new Set([...members].map((m) => m.toLowerCase()));
   const mentions = new Map<string, Mention>();
   const unknown = new Set<string>();
+  let grouped = false;
   for (const m of withoutCode(text).matchAll(MENTION_RE)) {
-    const group = m[2].toLowerCase();
-    if ((group === ALL_AGENTS || group === ALL_HUMANS) && !m[3] && !set.has(group)) {
+    const group = groupOf(m[2]);
+    if (GROUPS.includes(group) && !m[3] && !set.has(group)) {
+      grouped = true;
       for (const u of set) {
-        const a = { user: u, agent: group === ALL_AGENTS };
-        if (keep(a, author, via)) mentions.set(key(a), a);
+        // @all: everyone else, person and agent (the author's own agent isn't handed work by it).
+        if (group === ALL_MEMBERS && u === author?.toLowerCase()) continue;
+        for (const a of group === ALL_MEMBERS ? [{ user: u, agent: false }, { user: u, agent: true }] : [{ user: u, agent: group === ALL_AGENTS }]) {
+          if (keep(a, author, via)) mentions.set(key(a), a);
+        }
       }
       continue;
     }
@@ -72,7 +91,7 @@ export function parseMentions(
     if (!r.known) unknown.add(r.user);
     else if (keep(r, author, via)) mentions.set(key(r), { user: r.user, agent: r.agent, ...(r.session ? { session: r.session } : {}) });
   }
-  return { mentions: [...mentions.values()].slice(0, MAX_MENTIONS), unknown: [...unknown].slice(0, MAX_MENTIONS) };
+  return { mentions: [...mentions.values()].slice(0, grouped ? MAX_GROUP_MENTIONS : MAX_MENTIONS), unknown: [...unknown].slice(0, MAX_MENTIONS) };
 }
 
 /** Self-mentions: only a person handing work to their own agent is meaningful. */
@@ -117,12 +136,11 @@ export function highlightMentions(escaped: string, mentions: Mention[] | null | 
   if (!mentions?.length) return escaped;
   const wanted = new Set(mentions.map(key));
   return escaped.replace(MENTION_RE, (all, pre: string, handle: string, suffix: string | undefined) => {
-    if (handle.toLowerCase() === ALL_AGENTS && !suffix && !wanted.has(ALL_AGENTS) && mentions.some((m) => m.agent)) {
-      return `${pre}<span class="mention agent" data-user="${ALL_AGENTS}">@${handle}</span>`;
-    }
-    if (handle.toLowerCase() === ALL_HUMANS && !suffix && !wanted.has(ALL_HUMANS) && mentions.some((m) => !m.agent)) {
-      return `${pre}<span class="mention" data-user="${ALL_HUMANS}">@${handle}</span>`;
-    }
+    const g = groupOf(handle);
+    const chip = (cls: string) => `${pre}<span class="mention${cls}" data-user="${g}">@${handle.slice(0, g.length)}</span>${handle.slice(g.length)}`;
+    if (g === ALL_AGENTS && !suffix && !wanted.has(ALL_AGENTS) && mentions.some((m) => m.agent)) return chip(" agent");
+    if (g === ALL_HUMANS && !suffix && !wanted.has(ALL_HUMANS) && mentions.some((m) => !m.agent)) return chip("");
+    if (g === ALL_MEMBERS && !suffix && !wanted.has(ALL_MEMBERS) && mentions.length) return chip("");
     const r = resolve(handle, suffix, (n) => wanted.has(n) || wanted.has(n + "/agent"));
     if (!wanted.has(key(r))) return all; // not a stored mention (e.g. a dropped self-mention): plain text
     const shown = handle.slice(0, r.user.length);

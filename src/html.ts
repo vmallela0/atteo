@@ -49,6 +49,7 @@ export function mentionOptions(members: string[], viewer: string, sessions: { us
     ...sessionsOf(viewer),
     ...(others.includes("agents") ? [] : [{ u: "agents", ins: "agents", label: "agents", k: "every agent", av: avatar("agents", "sm", true) }]),
     ...(others.includes("humans") ? [] : [{ u: "humans", ins: "humans", label: "humans", k: "every person", av: avatar("humans", "sm") }]),
+    ...(others.includes("all") ? [] : [{ u: "all", ins: "all", label: "all", k: "everyone and their agents", av: avatar("all", "sm") }]),
   ];
 }
 
@@ -1295,8 +1296,8 @@ if(matchMedia('(hover:none)').matches)document.addEventListener('click',e=>{if(d
   const en=e.target.closest('.entry');if(!en||en.classList.contains('pending')||e.target.closest('a,button,input,textarea,select,label,summary,details,.acts,.tk,[data-hc],.rd'))return;
   tapToggle(en)});
 function renderReads(){
-  // @humans / @agents are seen once every person (or every member's agent) other than the author has read it.
-  const seenBy=(u,agent,e)=>(u==='humans'||u==='agents')&&!MEMBERS.includes(u)
+  // @humans / @agents / @all are seen once every person (or every member's agent) other than the author has read it.
+  const seenBy=(u,agent,e)=>(u==='humans'||u==='agents'||u==='all')&&!MEMBERS.includes(u)
     ?MEMBERS.filter(x=>x!==e.dataset.author&&(u==='humans'||seenAs(x,true)>=0)).every(x=>seenAs(x,u==='agents')>=+e.dataset.seq)
     :seenAs(u,agent)>=+e.dataset.seq;
   document.querySelectorAll('#thread .mention[data-user]').forEach(m=>{const e=m.closest('.entry');m.classList.toggle('seen',seenBy(m.dataset.user,m.classList.contains('agent'),e))});
@@ -1596,7 +1597,7 @@ const pfetch=u=>pcache[u]||(pcache[u]=fetch('/api/people/'+encodeURIComponent(u)
 const afetch=u=>acache[u]||(acache[u]=fetch('/api/agents/'+encodeURIComponent(u)).then(r=>r.ok?r.json():null).catch(()=>null));
 const hNarrow=matchMedia('(max-width:860px)'),hCanHover=matchMedia('(hover:hover)');
 function hClose(back){hcard.hidden=true;hback.hidden=true;const f=hFor;hFor=null;hPinned=false;if(back&&f&&f.isConnected)try{f.focus({preventScroll:true})}catch(e){}}
-function hTarget(el){const m=el.closest('.mention[data-user]');if(m){const u=m.dataset.user;if(u==='agents'||u==='humans')return {u,group:true,agent:u==='agents',el:m};return {u,agent:m.classList.contains('agent'),el:m}}
+function hTarget(el){const m=el.closest('.mention[data-user]');if(m){const u=m.dataset.user;if(u==='agents'||u==='humans'||u==='all')return {u,group:true,agent:u==='agents',el:m};return {u,agent:m.classList.contains('agent'),el:m}}
   const e=el.closest('.entry');const w=el.closest('.entry>.av, .entry>.grow>.meta>.who');if(e&&w)return {u:e.dataset.author,agent:e.classList.contains('by-agent'),el:w};
   const s=el.closest('.av-wrap');if(s){const n=s.parentElement.querySelector('.grow');return n?{u:n.textContent.trim().split(/ /)[0],agent:false,el:s}:null}return null}
 // Mentions, avatars and author names are keyboard-reachable buttons (including the ones that arrive later with live updates).

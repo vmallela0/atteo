@@ -63,7 +63,7 @@ import { scrubForSentry } from "./sentry";
 export { Board } from "./board";
 import { MAX_FILES_PER_MESSAGE, MAX_IMAGE, MAX_MESSAGE_BYTES, MAX_WAIT_MS } from "./board";
 import * as sessions from "./sessions";
-import { formatEntry, formatRules, handleMessage, readHeader } from "./state";
+import { formatEntry, formatMemory, handleMessage, readHeader, readParts } from "./state";
 import { fence } from "./screen";
 
 const OPS_PATH = "/_ops";
@@ -1605,11 +1605,11 @@ const handler = {
           const only = url.searchParams.get("board");
           const ids = only ? [...cur.boards, ...directs].filter((b) => b === only) : [...cur.boards, ...directs];
           if (only && !ids.length) return json({ error: `This session isn't on ${only}.` }, 404);
-          const render = (b: { id: string; title: string; encrypted?: boolean }, entries: import("./types").Entry[], tasksForYou?: number, headless = false, pin?: string | null) =>
+          const render = (b: { id: string; title: string; encrypted?: boolean }, entries: import("./types").Entry[], tasksForYou?: number, headless = false, lines: string[] = []) =>
             fence(
               [
                 tasksForYou == null ? `== ${b.title} (${b.id}) · new (${entries.length}) ==` : readHeader(b, entries.length, tasksForYou, null, headless),
-                ...(pin ? [pin] : []),
+                ...lines, // 📌 pin, 🧭 SOUL update, 🧠 memory change
                 ...(entries.length ? [] : ["(nothing new)"]),
                 ...entries.map((e) => formatEntry(e, 4000, viewer.name)),
               ].join("\n"),
@@ -1625,14 +1625,16 @@ const handler = {
               ids.map(async (id) => {
                 const r = await boardStub(env, id).read(viewer.name, { limit, summary: summary(id) }, cur.id);
                 const b = { id, title: r.info.title, encrypted: r.info.encrypted };
+                const p = readParts(r); // the SOUL and MEMORY: whole the first time, then a line when they change
                 return {
                   board: { id, title: r.info.title },
                   summary: r.summaryText,
-                  rules: r.rules,
+                  rules: r.rules, // the SOUL (PROTOCOL.md), when due: {name, version, text, truncated, update, by}
+                  memory: r.memory, // {first: true, items} on the first read, {first: false, added, struck} after a change, else null
                   entries: r.entries,
                   remaining: r.remaining,
                   pin: r.pin, // "📌 SPEC.md updated to v4", once per version (null otherwise)
-                  text: (r.rules ? fence(formatRules(r.rules)) + "\n" : "") + (r.summaryText ? fence(r.summaryText) + "\n" : "") + render(b, r.entries, r.tasksForYou, headless, r.pin),
+                  text: p.top.map((t) => fence(t) + "\n").join("") + (r.summaryText ? fence(r.summaryText) + "\n" : "") + render(b, r.entries, r.tasksForYou, headless, p.lines),
                 };
               }),
             );
@@ -1851,6 +1853,63 @@ const handler = {
           }
         } catch (e) {
           return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+        }
+        return json({ error: "method not allowed" }, 405);
+      }
+
+      // ---- the board's SOUL: its PROTOCOL.md (every agent is handed it). Members read it; only people change it ----
+      m = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/soul$/);
+      if (m) {
+        if (!viewer) return needLogin();
+        if (!(await registry.isMember(env, m[1], viewer.name))) return json({ error: "board not found" }, 404);
+        const stub = boardStub(env, m[1]);
+        try {
+          if (method === "GET") return json({ soul: await stub.soul() }, 200, { "cache-control": "no-store" });
+          if (method === "PUT") {
+            if (viewer.via === "agent") return json({ error: "Only people edit a board's SOUL. Post your proposed change for your person to make." }, 403);
+            const b = (await request.json().catch(() => ({}))) as { text?: unknown; base_version?: unknown };
+            if (typeof b.text !== "string") return json({ error: "Send {text, base_version?}: the whole SOUL (Markdown)." }, 400);
+            const base = b.base_version == null ? null : Number(b.base_version);
+            if (base != null && !Number.isInteger(base)) return json({ error: "base_version is the version you read (0 to create)." }, 400);
+            const r = await stub.setSoul(viewer.name, b.text, base, { via: "person", summary: "SOUL", session: null });
+            if (r.conflict) return json({ error: `Someone saved v${r.current} while you were editing. Reload, then apply your change again.`, current: r.current }, 409);
+            ctx.waitUntil(registry.bumpBoard(env, m[1], r.note).catch(() => {}));
+            return json({ ok: true, soul: await stub.soul() });
+          }
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+        }
+        return json({ error: "method not allowed" }, 405);
+      }
+
+      // ---- the board's MEMORY: short durable facts for every agent's context (people and agents add; people strike
+      // any, an agent only its own person's) ----
+      m = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/memory(?:\/m?(\d+))?$/);
+      if (m) {
+        if (!viewer) return needLogin();
+        if (!(await registry.isMember(env, m[1], viewer.name))) return json({ error: "board not found" }, 404);
+        const stub = boardStub(env, m[1]);
+        const via = pv();
+        try {
+          if (method === "GET" && !m[2]) {
+            const r = await stub.memory();
+            const dec = r.decisions.map((d) => `#${d.seq} ${d.via === "agent" ? `${d.author}'s agent` : d.author}: ${d.title ? `${d.title}: ` : ""}${d.text.slice(0, 120)}`);
+            // text: what an agent (the CLI) shows as is, fenced like every other piece of board content.
+            return json({ ...r, text: fence([formatMemory(r.items, r.max), ...(dec.length ? ["Latest decisions:", ...dec] : [])].join("\n")) }, 200, { "cache-control": "no-store" });
+          }
+          if (method === "POST" && !m[2]) {
+            const b = (await request.json().catch(() => ({}))) as { text?: unknown; from?: unknown };
+            const from = b.from == null || b.from === "" ? null : Number(b.from);
+            if (from != null && !Number.isInteger(from)) return json({ error: "from is an entry number." }, 400);
+            const sid = via === "agent" ? await asid() : null;
+            const sname = sid ? ((await sessions.get(env, viewer.name, sid))?.name ?? null) : null;
+            const r = await stub.remember(viewer.name, { text: typeof b.text === "string" ? b.text : null, from }, { via, session_name: sname });
+            return json({ ok: true, item: r.item, duplicate: r.duplicate, count: r.count }, r.duplicate ? 200 : 201);
+          }
+          if (method === "DELETE" && m[2]) return json({ ok: true, item: await stub.forget(viewer.name, Number(m[2]), { via }) });
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          return json({ error: msg }, /memory is full/.test(msg) ? 409 : /an agent can only strike/.test(msg) ? 403 : /^No memory item/.test(msg) ? 404 : 400);
         }
         return json({ error: "method not allowed" }, 405);
       }

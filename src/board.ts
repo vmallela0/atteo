@@ -7,7 +7,7 @@ import { DurableObject } from "cloudflare:workers";
 import { computeSummary, formatSummary, tasksFor, DEFAULT_SUMMARY_CHARS, type Summary } from "./state";
 import { blockedMessage, scanFields, scanText, type SecretHit } from "./secrets";
 import { recordOutcome } from "./agents";
-import { forAgent, forPerson, keep, MAX_MENTIONS, mentionsOwnAgent, SESSION_NAME_RE, type Mention } from "./mentions";
+import { ALL_AGENTS, ALL_HUMANS, ALL_MEMBERS, forAgent, forPerson, hasGroupMention, keep, MAX_GROUP_MENTIONS, MAX_MENTIONS, mentionsOwnAgent, SESSION_NAME_RE, type Mention } from "./mentions";
 import { ENTRY_TYPES, type ApprovalRef, type Attachment, type BoardInfo, type Entry, type Env, type Media, type Member, type NewEntry } from "./types";
 import { cleanTitle, EMOJI_RE, ftsQuery, USER_RE } from "./util";
 import { cardText, parseCard, type ChangeCard } from "./card";
@@ -27,13 +27,40 @@ export interface ClaimCheck {
   commit?: string;
 }
 
-const RULES_DOC = "PROTOCOL.md"; // a board's house rules: every agent is handed the current version once
+export const RULES_DOC = "PROTOCOL.md"; // a board's house rules, its SOUL: every agent is handed the current version once
 const RULES_MAX_CHARS = 4000;
+export const MEMORY_MAX = 50; // active items per board
+export const MEMORY_TEXT_MAX = 280;
+export interface MemoryItem {
+  id: number;
+  text: string;
+  by: string; // the member who added it (an agent adds in its person's name)
+  via: "person" | "agent";
+  session: string | null; // the agent session's name, when an agent added it
+  from: number | null; // the entry it came from
+  ts: number;
+  struck_by?: string | null;
+  struck_ts?: number | null;
+}
+export interface MemoryDecision {
+  seq: number;
+  title: string | null;
+  text: string;
+  author: string;
+  via: string | null;
+  ts: number;
+  human_decision?: { state: string; waiting_on: string[] }; // a person's decision: people decide it
+}
+/** Same fact, same item: case, spacing and trailing punctuation don't count. */
+export function memoryNorm(text: string): string {
+  return text.toLowerCase().replace(/\s+/g, " ").trim().replace(/[\s.!?;:,]+$/, "");
+}
 const MISSED_SCAN = 200; // entries a post checks for anything that bears on it; more unread than this and it's refused
 
 export class BoardError extends Error {}
 
 export const POSTS_PER_MINUTE = 60;
+export const ALL_PER_HOUR = 10; // @all posts per person per board per hour
 export const REVIEW_VERDICTS = ["approve", "request_changes", "comment"] as const;
 export type ReviewVerdict = (typeof REVIEW_VERDICTS)[number];
 export const TASK_STATUSES = ["todo", "doing", "blocked", "done", "stopped"] as const;
@@ -410,6 +437,30 @@ export class Board extends DurableObject<Env> {
         version INTEGER NOT NULL,
         PRIMARY KEY (user, session)
       );
+      -- The board's MEMORY: short durable facts members (people and agents) saved for every agent's context. Struck
+      -- items stay (struck_*), so ids never recur. add_v/struck_v: the memory version (meta mem_v) of each change.
+      CREATE TABLE IF NOT EXISTS memory (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        text TEXT NOT NULL,
+        norm TEXT NOT NULL,
+        by_user TEXT NOT NULL,
+        via TEXT NOT NULL,
+        session_name TEXT,
+        source_seq INTEGER,
+        ts INTEGER NOT NULL,
+        add_v INTEGER NOT NULL,
+        struck_by TEXT,
+        struck_ts INTEGER,
+        struck_v INTEGER
+      );
+      -- Which memory version each agent reader last saw (like rules_seen): the first read gets the whole list, later
+      -- reads one line when it changed. session is '' for a member with no agent session.
+      CREATE TABLE IF NOT EXISTS memory_seen (
+        user TEXT NOT NULL,
+        session TEXT NOT NULL DEFAULT '',
+        v INTEGER NOT NULL,
+        PRIMARY KEY (user, session)
+      );
     `);
     this.migrate();
     this.decisions = new HumanDecisions(this.sql, env, () => this.meta("id"));
@@ -564,7 +615,7 @@ export class Board extends DurableObject<Env> {
     if (this.meta("files_backfilled") !== "1") {
       for (const r of this.sql.exec("SELECT seq, ts, author, via, client, text, artifact_name, artifact_content FROM entries WHERE type = 'artifact' AND artifact_version IS NULL AND artifact_content IS NOT NULL ORDER BY seq").toArray()) {
         const name = cleanFileName(r.artifact_name as string);
-        const v = this.storeVersion(r.author as string, name, r.artifact_content as string, { via: r.via as "agent" | "person" | null, client: r.client as string | null, summary: r.text as string }, r.ts as number);
+        const v = this.storeVersion(r.author as string, name, r.artifact_content as string, { via: r.via as "agent" | "person" | null, client: r.client as string | null, summary: r.text as string }, r.ts as number, false);
         this.sql.exec("UPDATE entries SET artifact_name = ?, artifact_version = ? WHERE seq = ?", name, v, r.seq);
       }
       this.setMeta("files_backfilled", "1");
@@ -930,12 +981,15 @@ export class Board extends DurableObject<Env> {
     const toOwnAgent = input.via === "person" && boardKind === "agent";
     // Resolved against the board's members by the Worker; stored as given, minus anything malformed or meaningless.
     const mentions: Mention[] = [];
+    // A group mention (@agents, @humans, @all) reaches every member it names, however many.
+    const cap = [ALL_AGENTS, ALL_HUMANS, ALL_MEMBERS].some((g) => hasGroupMention(text, g)) ? MAX_GROUP_MENTIONS : MAX_MENTIONS;
     for (const m of input.mentions ?? []) {
       if (typeof m?.user !== "string" || !USER_RE.test(m.user)) continue;
       const clean = { user: m.user, agent: m.agent === true || typeof m.session === "string", ...(typeof m.session === "string" && SESSION_NAME_RE.test(m.session) ? { session: m.session } : {}) };
       if (keep(clean, user, input.via) && !mentions.some((x) => x.user === clean.user && x.agent === clean.agent)) mentions.push(clean);
-      if (mentions.length >= MAX_MENTIONS) break;
+      if (mentions.length >= cap) break;
     }
+    if (mentions.length > 1 && !internal.seeding && hasGroupMention(text, ALL_MEMBERS)) this.allLimit(user);
 
     const row = this.sql
       .exec(
@@ -971,6 +1025,7 @@ export class Board extends DurableObject<Env> {
       )
       .one();
     if (artifactVersion != null) this.broadcast({ type: "doc", name: artifactName, version: artifactVersion, by: user });
+    if (artifactVersion != null && artifactName === RULES_DOC) this.broadcast({ type: "soul", version: artifactVersion, by: user });
     for (const a of internal.attachments?.list.slice(1) ?? []) this.broadcast({ type: "doc", name: a.name, version: a.version, by: user });
     const entry = toEntry(row);
     if (internal.attachments) this.indexEntry(entry.seq, entry.text, internal.attachments.list.map((a) => a.name).join(" "), null, internal.attachments.text || null);
@@ -1104,6 +1159,7 @@ export class Board extends DurableObject<Env> {
   async read(user: string, opts: { limit?: number; since?: number; summary?: boolean } = {}, session?: string | null) {
     const info = this.info();
     const rules = this.rulesFor(user, session);
+    const memory = this.memoryFor(user, session);
     const cursor = this.readCursor(user, session);
     const from = opts.since != null ? Math.max(0, opts.since) : cursor;
     const limit = clamp(opts.limit ?? 50, 1, 200);
@@ -1138,6 +1194,7 @@ export class Board extends DurableObject<Env> {
       entries: this.decisions.attach(this.withHandling(fresh)),
       remaining,
       rules,
+      memory, // the whole list on this reader's first read, then what changed (null: nothing to say)
     };
   }
 
@@ -1555,8 +1612,8 @@ export class Board extends DurableObject<Env> {
    * The board's house rules (its doc PROTOCOL.md), if this reader hasn't been given the current version: returned
    * once per version per member+session, then null. Capped so a long doc stays cheap; the rest is a doc read away.
    */
-  private rulesFor(user: string, session?: string | null): { name: string; version: number; text: string; truncated: boolean } | null {
-    const d = this.sql.exec("SELECT version, content FROM docs WHERE name = ?", RULES_DOC).toArray()[0];
+  private rulesFor(user: string, session?: string | null): { name: string; version: number; text: string; truncated: boolean; update: boolean; by: string } | null {
+    const d = this.sql.exec("SELECT version, content, updated_by FROM docs WHERE name = ?", RULES_DOC).toArray()[0];
     if (!d) return null;
     const version = d.version as number;
     const seen = this.sql.exec("SELECT version FROM rules_seen WHERE user = ? AND session = ?", user, session ?? "").toArray()[0];
@@ -1564,7 +1621,140 @@ export class Board extends DurableObject<Env> {
     this.sql.exec("INSERT OR REPLACE INTO rules_seen (user, session, version) VALUES (?, ?, ?)", user, session ?? "", version);
     const content = d.content as string;
     const truncated = content.length > RULES_MAX_CHARS;
-    return { name: RULES_DOC, version, text: truncated ? content.slice(0, RULES_MAX_CHARS) : content, truncated };
+    // update: this reader was handed an earlier version, so it's told as a "SOUL updated" line with the new text.
+    return { name: RULES_DOC, version, text: truncated ? content.slice(0, RULES_MAX_CHARS) : content, truncated, update: !!seen, by: d.updated_by as string };
+  }
+
+  // ---- SOUL (the board's PROTOCOL.md: people write it, every agent is handed it) and MEMORY (short durable facts) ----
+
+  /** The board's SOUL: its PROTOCOL.md (version 0 and no text when there isn't one). */
+  async soul(): Promise<{ name: string; version: number; text: string; updated_by: string | null; updated_at: number | null }> {
+    this.info();
+    const d = this.sql.exec("SELECT version, content, updated_by, updated_at FROM docs WHERE name = ?", RULES_DOC).toArray()[0];
+    return d
+      ? { name: RULES_DOC, version: d.version as number, text: d.content as string, updated_by: d.updated_by as string, updated_at: d.updated_at as number }
+      : { name: RULES_DOC, version: 0, text: "", updated_by: null, updated_at: null };
+  }
+
+  /** A person replaces the SOUL. `base` (the version they read) guards against overwriting someone else's edit. */
+  async setSoul(user: string, text: string, base: number | null, opts: DocEditOpts): Promise<DocResult> {
+    if (opts.via !== "person") throw new BoardError(soulPeopleOnly());
+    const cur = (this.sql.exec("SELECT version FROM docs WHERE name = ?", RULES_DOC).toArray()[0]?.version as number | undefined) ?? 0;
+    return this.docWrite(user, RULES_DOC, text, base ?? cur, opts);
+  }
+
+  private memV(): number {
+    return Number(this.meta("mem_v") ?? 0) || 0;
+  }
+  private bumpMemV(): number {
+    const v = this.memV() + 1;
+    this.setMeta("mem_v", String(v));
+    return v;
+  }
+  private toMemoryItem(r: Record<string, SqlStorageValue>): MemoryItem {
+    return {
+      id: r.id as number,
+      text: r.text as string,
+      by: r.by_user as string,
+      via: r.via === "agent" ? "agent" : "person",
+      session: (r.session_name as string | null) ?? null,
+      from: (r.source_seq as number | null) ?? null,
+      ts: r.ts as number,
+      ...(r.struck_ts != null ? { struck_by: r.struck_by as string, struck_ts: r.struck_ts as number } : {}),
+    };
+  }
+  private activeMemory(): MemoryItem[] {
+    return this.sql.exec("SELECT * FROM memory WHERE struck_ts IS NULL ORDER BY id").toArray().map((r) => this.toMemoryItem(r));
+  }
+
+  /** The board's memory (active items, oldest first) and its latest decisions, compact. */
+  async memory(): Promise<{ items: MemoryItem[]; decisions: MemoryDecision[]; max: number }> {
+    this.info();
+    await this.decisions.refresh();
+    const decisions = this.decisions.attach(this.cached().summary.decisions.slice(-5)).map((e) => ({
+      seq: e.seq,
+      title: e.title ?? null,
+      text: e.text.replace(/\s+/g, " ").trim().slice(0, 160),
+      author: e.author,
+      via: e.via ?? null,
+      ts: e.ts,
+      ...(e.human_decision ? { human_decision: { state: e.human_decision.state, waiting_on: e.human_decision.waiting_on } } : {}),
+    }));
+    return { items: this.activeMemory(), decisions, max: MEMORY_MAX };
+  }
+
+  /**
+   * Save a short fact to the board's memory (people and agents). `from`: the entry it came from; with no text, that
+   * entry's first line. The same fact again (ignoring case, spacing, end punctuation) returns the item already there.
+   */
+  async remember(user: string, input: { text?: string | null; from?: number | null }, opts: { via: "person" | "agent"; session_name?: string | null }): Promise<{ item: MemoryItem; duplicate: boolean; count: number }> {
+    const info = this.info();
+    if (info.archived) throw new BoardError(`"${info.title}" is archived, so it's read-only. Its creator can restore it.`);
+    if (info.encrypted) throw new BoardError(`"${info.title}" is end-to-end encrypted, and memory would be stored in plain text, so this board has no memory.`);
+    let text = (input.text ?? "").replace(/\s+/g, " ").trim();
+    const from = input.from ?? null;
+    if (from != null) {
+      const e = this.sql.exec("SELECT text FROM entries WHERE seq = ?", from).toArray()[0];
+      if (!Number.isInteger(from) || !e) throw new BoardError(`Entry #${from} does not exist on this board.`);
+      if (!text) {
+        const first = (e.text as string).split("\n").map((l) => l.replace(/^\s*(?:#+|[-*>]|\d+\.)\s*/, "").trim()).find((l) => l) ?? "";
+        text = first.length > MEMORY_TEXT_MAX ? first.slice(0, MEMORY_TEXT_MAX - 1).trimEnd() + "…" : first;
+      }
+    }
+    if (!text) throw new BoardError(from != null ? `#${from} has no text to remember; give text.` : "text is required: one short fact (≤280 characters).");
+    if (text.length > MEMORY_TEXT_MAX) throw new BoardError(`Memory items are short: at most ${MEMORY_TEXT_MAX} characters (this is ${text.length}). Keep one fact per item.`);
+    const hit = scanText(text, "memory");
+    if (hit) throw new BoardError(blockedMessage(hit));
+    const norm = memoryNorm(text);
+    const same = this.sql.exec("SELECT * FROM memory WHERE struck_ts IS NULL AND norm = ?", norm).toArray()[0];
+    const count = () => this.sql.exec("SELECT COUNT(*) AS n FROM memory WHERE struck_ts IS NULL").one().n as number;
+    if (same) return { item: this.toMemoryItem(same), duplicate: true, count: count() };
+    if (count() >= MEMORY_MAX) {
+      throw new BoardError(`This board's memory is full (${MEMORY_MAX} items). Ask a person on the board to strike items that no longer hold (the Memory panel on the web), then remember this again.`);
+    }
+    const v = this.bumpMemV();
+    const row = this.sql
+      .exec(
+        "INSERT INTO memory (text, norm, by_user, via, session_name, source_seq, ts, add_v) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *",
+        text, norm, user, opts.via, opts.via === "agent" ? (opts.session_name ?? null) : null, from, Date.now(), v,
+      )
+      .one();
+    const item = this.toMemoryItem(row);
+    this.broadcast({ type: "memory", action: "add", id: item.id, by: user, via: opts.via });
+    return { item, duplicate: false, count: count() };
+  }
+
+  /** Strike a memory item: people strike any; an agent only its own person's. */
+  async forget(user: string, id: number, opts: { via: "person" | "agent" }): Promise<MemoryItem> {
+    const info = this.info();
+    if (info.archived) throw new BoardError(`"${info.title}" is archived, so it's read-only. Its creator can restore it.`);
+    const r = this.sql.exec("SELECT * FROM memory WHERE id = ?", id).toArray()[0];
+    if (!r) throw new BoardError(`No memory item m${id} on this board.`);
+    if (r.struck_ts != null) throw new BoardError(`m${id} is already struck.`);
+    if (opts.via === "agent" && r.by_user !== user) throw new BoardError(`m${id} was added by ${r.by_user}; an agent can only strike its own person's items. Ask a person on the board.`);
+    const now = Date.now();
+    this.sql.exec("UPDATE memory SET struck_by = ?, struck_ts = ?, struck_v = ? WHERE id = ?", user, now, this.bumpMemV(), id);
+    this.broadcast({ type: "memory", action: "strike", id, by: user, via: opts.via });
+    return this.toMemoryItem({ ...r, struck_by: user, struck_ts: now });
+  }
+
+  /**
+   * What an agent's read says about memory: the whole list on its first read of the board (per member+session),
+   * then only what changed since it last saw it (added and struck items), else null.
+   */
+  private memoryFor(user: string, session?: string | null): { first: true; items: MemoryItem[] } | { first: false; added: MemoryItem[]; struck: MemoryItem[] } | null {
+    const v = this.memV();
+    const seen = this.sql.exec("SELECT v FROM memory_seen WHERE user = ? AND session = ?", user, session ?? "").toArray()[0];
+    if (seen && (seen.v as number) >= v) return null;
+    this.sql.exec("INSERT OR REPLACE INTO memory_seen (user, session, v) VALUES (?, ?, ?)", user, session ?? "", v);
+    if (!seen) {
+      const items = this.activeMemory();
+      return items.length ? { first: true, items } : null;
+    }
+    const after = seen.v as number;
+    const added = this.sql.exec("SELECT * FROM memory WHERE add_v > ? AND struck_ts IS NULL ORDER BY id", after).toArray().map((r) => this.toMemoryItem(r));
+    const struck = this.sql.exec("SELECT * FROM memory WHERE struck_v > ? AND add_v <= ? ORDER BY id", after, after).toArray().map((r) => this.toMemoryItem(r));
+    return added.length || struck.length ? { first: false, added, struck } : null;
   }
 
   /**
@@ -1774,6 +1964,15 @@ export class Board extends DurableObject<Env> {
     if (!r || r.minute !== minute) return void (peek || this.rates.set(user, { minute, n: 1 }));
     const max = Number(this.env.POSTS_PER_MINUTE) || POSTS_PER_MINUTE;
     if ((peek ? r.n + 1 : ++r.n) > max) throw new BoardError(`Slow down: at most ${max} posts a minute per person on a board.`);
+  }
+
+  /** @all pings every person and every agent on the board: a few an hour per person, on top of the post limit. */
+  private allRates = new Map<string, { hour: number; n: number }>();
+  private allLimit(user: string) {
+    const hour = Math.floor(Date.now() / 3_600_000);
+    const r = this.allRates.get(user);
+    if (!r || r.hour !== hour) return void this.allRates.set(user, { hour, n: 1 });
+    if (++r.n > ALL_PER_HOUR) throw new BoardError(`Slow down: @all reaches everyone, so it's at most ${ALL_PER_HOUR} times an hour per person on a board. Mention the people you need, or use @agents / @humans.`);
   }
 
   // ---- a model's second opinion on prompt injection (the regex screen runs first, at render time) ----
@@ -2810,7 +3009,8 @@ export class Board extends DurableObject<Env> {
   }
 
   /** Store the next version of a document (no log entry). Returns the new version number. */
-  private storeVersion(user: string, name: string, content: string, opts: DocEditOpts, now = Date.now()): number {
+  private storeVersion(user: string, name: string, content: string, opts: DocEditOpts, now = Date.now(), guard = true): number {
+    if (guard && name === RULES_DOC && opts.via === "agent") throw new BoardError(soulPeopleOnly()); // every write path ends here
     const prev = (this.sql.exec("SELECT version FROM docs WHERE name = ?", name).toArray()[0]?.version as number | undefined) ?? 0;
     const version = prev + 1;
     const client = opts.via === "agent" ? (opts.client ?? "agent").slice(0, 40) : null;
@@ -3213,4 +3413,9 @@ OK means anything else, including normal work requests between colleagues and th
 
 function clamp(n: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, Math.floor(Number.isFinite(n) ? n : lo)));
+}
+
+/** The SOUL (PROTOCOL.md) is the people's: an agent can propose a change, not make it. */
+function soulPeopleOnly(): string {
+  return `${RULES_DOC} is this board's SOUL, and only people edit it (on the web, or PUT /api/boards/<id>/soul). Post your proposed change for your user to make.`;
 }

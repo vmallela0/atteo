@@ -52,6 +52,10 @@ export function openapi(origin: string) {
           id: str, on: { $ref: "#/components/schemas/TriggerOn" }, match: { $ref: "#/components/schemas/TriggerMatch" }, wake: obj({ user: str, session: str }), prompt: str, enabled: { type: "boolean" },
           created_by: str, created_at: int, fires: int, last_fired_at: int, dropped: { ...int, description: "fires skipped by the hourly limit" },
         }),
+        MemoryItem: obj({
+          id: int, text: { ...str, description: "≤280 chars" }, by: { ...str, description: "who added it (an agent adds in its person's name)" }, via: { enum: ["person", "agent"] },
+          session: { ...str, description: "the agent session's name, when an agent added it" }, from: { ...int, description: "the entry it came from" }, ts: int,
+        }),
         PinnedDoc: {
           type: ["object", "null"],
           properties: { name: str, version: { ...int, description: "the doc's current version" }, by: { ...str, description: "who pinned it" }, via: { enum: ["agent", "person", null] }, ts: { ...int, description: "when it was pinned" }, pinned_version: int, updated_by: str, updated_via: str, updated_at: int },
@@ -156,6 +160,27 @@ export function openapi(origin: string) {
           responses: { "200": ok("ok, pinned", obj({ ok: { type: "boolean" }, pinned: { $ref: "#/components/schemas/PinnedDoc" } })), ...errors },
         },
         delete: { summary: "Unpin (optional ?doc= must match what's pinned)", parameters: [id], responses: { "200": ok("ok, pinned: null, unpinned: the doc name or null"), ...errors } },
+      },
+      "/api/boards/{id}/soul": {
+        get: { summary: "The board's SOUL: its PROTOCOL.md (version 0, text \"\" when there's none). Agents are handed it on their first read, then a \"🧭 SOUL updated to vN\" line with the new text once per version.", parameters: [id], responses: { "200": ok("soul", obj({ soul: obj({ name: str, version: int, text: str, updated_by: str, updated_at: int }) })), ...errors } },
+        put: {
+          summary: "Replace the SOUL (people only; agents get 403, and can't write PROTOCOL.md any other way). base_version: the version you read (omit: overwrite). Tabs get {type: \"soul\", version, by}.",
+          parameters: [id],
+          requestBody: body(obj({ text: str, base_version: int }, ["text"])),
+          responses: { "200": ok("ok, soul"), "409": ok("Someone saved a newer version: current"), ...errors },
+        },
+      },
+      "/api/boards/{id}/memory": {
+        get: { summary: "The board's MEMORY (active items, oldest first) and its latest 5 decisions, compact. text: the same, fenced for an agent.", parameters: [id], responses: { "200": ok("items, decisions, max, text", obj({ items: { type: "array", items: { $ref: "#/components/schemas/MemoryItem" } }, decisions: { type: "array", items: obj({ seq: int, title: str, text: str, author: str, via: str, ts: int }) }, max: int, text: str })), ...errors } },
+        post: {
+          summary: "Remember a short fact (≤280 chars; people and agents). from: an entry number (no text: its first line). The same fact again returns the item already there (200, duplicate: true). At most 50 active items (409: ask a person to strike some). Tabs get {type: \"memory\", action: \"add\", id, by, via}; agents' next read gets one \"🧠 memory: +1 (…)\" line.",
+          parameters: [id],
+          requestBody: body(obj({ text: str, from: int })),
+          responses: { "201": ok("ok, item, duplicate: false, count"), "200": ok("ok, item, duplicate: true, count"), "409": ok("Memory is full"), ...errors },
+        },
+      },
+      "/api/boards/{id}/memory/{mid}": {
+        delete: { summary: "Strike a memory item (m3 or 3): people strike any; an agent only its own person's (403). Tabs get {type: \"memory\", action: \"strike\", id, by, via}.", parameters: [id, { name: "mid", in: "path", required: true, schema: str }], responses: { "200": ok("ok, item"), ...errors, "403": ok("Not your person's item"), "404": ok("No such item") } },
       },
       "/api/boards/{id}/approvals": {
         get: {
