@@ -277,6 +277,7 @@ dialog.access-dlg{width:min(640px,calc(100vw - 24px))}
 .body blockquote.qt{max-width:560px;padding:7px 11px;border:1px solid var(--line);border-radius:10px}
 .qt-hd{display:flex;align-items:baseline;gap:10px;margin-bottom:2px;font-size:12.5px}.qt-who{font-weight:600;color:var(--ink);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .qt-go{margin-left:auto;flex:none;text-decoration:none}.qt-go:hover{text-decoration:underline}
+.quote-btn{position:fixed;z-index:60;box-shadow:var(--shadow-lg)}
 /* multi-select and forward */
 .sel-bar{display:none;align-items:center;gap:10px;padding:10px 12px;margin-bottom:8px;font-size:13px}.selecting .sel-bar:not([hidden]){display:flex}
 .selecting .composer{display:none}.selecting #thread .entry{cursor:pointer;padding-left:30px}.selecting .entry .acts{display:none!important}
