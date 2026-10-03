@@ -1082,11 +1082,11 @@ function rcptText(e){const seq=+e.dataset.seq,who=audience(e).filter(w=>w.u!==ME
   const read=who.filter(w=>seenAs(w.u,w.agent)>=seq);if(!read.length)return 'Delivered';if(read.length===who.length)return 'Seen by everyone';
   return 'Seen by '+read.map(w=>w.agent?w.u+"'s agent":w.u).join(', ')}
 function renderRcpts(){
-  document.querySelectorAll('#thread .rcpt').forEach(x=>x.remove());
+  document.querySelectorAll('#thread .rcpt-line').forEach(x=>x.remove());
   const own=[...document.querySelectorAll('#thread .entry')].filter(e=>e.dataset.author===ME&&!e.classList.contains('retracted'));
   const top=own.reduce((m,e)=>Math.max(m,+e.dataset.seq),0);
   own.forEach(e=>{const seq=+e.dataset.seq;if(seq!==top&&!RCPT_OPEN.has(seq))return;const t=rcptText(e),at=e.querySelector(':scope>.grow>.rx');if(!t||!at)return;
-    const d=document.createElement('div');d.className='rcpt xs faint';d.textContent=t;at.after(d)})}
+    const d=document.createElement('div');d.className='rcpt-line xs faint';d.textContent=t;at.after(d)})}
 document.addEventListener('click',e=>{const t=e.target.closest('#thread .entry .meta .when');if(!t)return;const en=t.closest('.entry');if(en.dataset.author!==ME)return;
   const seq=+en.dataset.seq;RCPT_OPEN.has(seq)?RCPT_OPEN.delete(seq):RCPT_OPEN.add(seq);renderRcpts()});
 function renderReads(){
@@ -1097,17 +1097,27 @@ function renderReads(){
     :seenAs(u,agent)>=+e.dataset.seq;
   document.querySelectorAll('#thread .mention[data-user]').forEach(m=>{const e=m.closest('.entry');m.classList.toggle('seen',seenBy(m.dataset.user,m.classList.contains('agent'),e))});
   document.querySelectorAll('#thread .rd').forEach(x=>{x.closest('.entry')?.classList.remove('has-rd');x.remove()});
-  const mine=[...document.querySelectorAll('#thread>.entry')].filter(e=>e.dataset.author===ME&&!e.classList.contains('retracted')).pop();if(!mine)return;
-  const seq=+mine.dataset.seq,who=audience(mine),read=who.filter(w=>seenAs(w.u,w.agent)>=seq),all=who.length>0&&read.length===who.length;
-  const C=2*Math.PI*6,frac=who.length?read.length/who.length:0,name=w=>esc(w.agent?w.u+"'s agent":w.u);
-  const el=document.createElement('span');el.className='rd'+(all?' all':'');el.tabIndex=0;
-  el.setAttribute('aria-label',who.length?(all?'Seen by everyone':'Seen by '+read.length+' of '+who.length):'No one else here yet');
+  // Every message you (or your agent) wrote gets a small ring: hover/focus/tap it for who has seen THAT message, from READS.
+  [...document.querySelectorAll('#thread .entry')].filter(e=>e.dataset.author===ME&&!e.classList.contains('retracted')).forEach(mine=>{
+  const seq=+mine.dataset.seq,who=audience(mine).filter(w=>w.u!==ME),read=who.filter(w=>seenAs(w.u,w.agent)>=seq),all=who.length>0&&read.length===who.length;
+  const C=2*Math.PI*6,frac=who.length?read.length/who.length:0,name=w=>esc(w.agent?w.u+"'s agent":w.u),pid='rdp'+seq;
+  const head=!who.length?'No one else here yet':all?'Seen by everyone':read.length?'Seen by '+read.length+' of '+who.length:'Delivered · not seen yet';
+  const el=document.createElement('button');el.type='button';el.className='rd'+(all?' all':'')+(RD_OPEN===seq?' open':'');el.setAttribute('aria-describedby',pid);el.setAttribute('aria-expanded',String(RD_OPEN===seq));
+  el.setAttribute('aria-label',who.length?(read.length?'Seen by '+read.length:'Not seen yet'):'No one else here yet');
   el.innerHTML='<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6" class="t"/><circle cx="8" cy="8" r="6" class="p" stroke-dasharray="'+(C*frac).toFixed(2)+' '+C.toFixed(2)+'" transform="rotate(-90 8 8)"/>'+(all?'<path d="M5.2 8.2l1.9 1.9 3.7-4" class="ck"/>':'')+'</svg>'+
-    '<span class="rd-pop" role="tooltip"><b>'+(all?'Seen by everyone':'Seen by '+read.length+' of '+who.length)+'</b>'+who.map(w=>'<span class="'+(seenAs(w.u,w.agent)>=seq?'y':'n')+'">'+name(w)+'</span>').join('')+'</span>';
+    '<span class="rd-pop" role="tooltip" id="'+pid+'"><b>'+head+'</b>'+who.map(w=>{const y=seenAs(w.u,w.agent)>=seq;return '<span class="'+(y?'y':'n')+'">'+avatar16(w.u,w.agent)+'<span class="nm">'+name(w)+'</span><i>'+(y?'seen':'not yet')+'</i></span>'}).join('')+'</span>';
   // The list opens upward, or downward when the message is near the top of the thread.
-  const flip=()=>el.classList.toggle('down',el.getBoundingClientRect().top-scroller.getBoundingClientRect().top<40+22*who.length);
-  el.addEventListener('mouseenter',flip);el.addEventListener('focus',flip);
-  mine.classList.add('has-rd');mine.appendChild(el)}
+  const flip=()=>el.classList.toggle('down',el.getBoundingClientRect().top-scroller.getBoundingClientRect().top<40+26*who.length);
+  mine.addEventListener('mouseenter',flip);el.addEventListener('focus',flip);
+  mine.classList.add('has-rd');mine.appendChild(el)})}
+// Phones: tapping the ring toggles its list (it doesn't touch avatar/mention profiles or the reply/thread buttons); Esc or a tap elsewhere closes it.
+let RD_OPEN=0;
+function rdClose(){if(!RD_OPEN)return;RD_OPEN=0;document.querySelectorAll('#thread .rd.open').forEach(x=>{x.classList.remove('open');x.setAttribute('aria-expanded','false')})}
+document.addEventListener('click',e=>{const b=e.target.closest('#thread .rd');if(!b){rdClose();return}
+  const was=b.classList.contains('open');rdClose();if(!was){RD_OPEN=+b.closest('.entry').dataset.seq;b.classList.add('open');b.setAttribute('aria-expanded','true')}});
+document.addEventListener('keydown',e=>{if(e.key!=='Escape'||(!RD_OPEN&&!document.activeElement?.closest?.('.rd')&&!document.querySelector('#thread .entry:hover>.rd')))return;
+  rdClose();document.activeElement?.closest?.('.rd')?.blur();document.body.classList.add('rd-hush')});
+['mousemove','focusin','touchstart'].forEach(t=>document.addEventListener(t,()=>document.body.classList.remove('rd-hush'),{passive:true}));
 /** Tells the board how far its person has read: the newest entry on screen while this tab is visible. */
 function reportSeen(){if(document.visibilityState!=='visible'||document.getElementById('panel-conv').hidden)return;
   // Messages in view, and the replies of threads in view (a folded thread shows its latest replies).
