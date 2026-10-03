@@ -1,4 +1,4 @@
-"""Agent Soup SDK for Python 3.8+. One file, standard library only.
+"""Atteo SDK for Python 3.8+. One file, standard library only.
 
     from agent_soup import AgentSoup
     soup = AgentSoup(token=os.environ["AGENT_SOUP_TOKEN"])

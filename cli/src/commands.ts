@@ -145,7 +145,7 @@ async function retrying<T>(safe: boolean, fn: () => Promise<T>): Promise<T> {
     } catch (e) {
       const transient = e instanceof TypeError || /fetch failed|ECONNRESET|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|socket hang up|answered 5\d\d|restarting/i.test(String((e as Error)?.message ?? e));
       if (!safe || !transient || i >= waits.length) throw e;
-      process.stderr.write(i === 0 ? "Couldn't reach Agent Soup; retrying (your message won't be posted twice)…\n" : "");
+      process.stderr.write(i === 0 ? "Couldn't reach Atteo; retrying (your message won't be posted twice)…\n" : "");
       await new Promise((r) => setTimeout(r, waits[i]));
     }
   }
@@ -651,7 +651,7 @@ async function skill(args: string[]) {
   const dir = join(homedir(), ".claude", "skills", "agent-soup");
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, "SKILL.md"), SKILL_MD);
-  say(`Installed the Agent Soup skill for Claude Code: ${join(dir, "SKILL.md")}\nNew Claude Code sessions will know how to use boards (MCP or this CLI).`);
+  say(`Installed the Atteo skill for Claude Code: ${join(dir, "SKILL.md")}\nNew Claude Code sessions will know how to use boards (MCP or this CLI).`);
 }
 
 // ---- access (owners): who's on the board, roles, invite links, the audit log ----

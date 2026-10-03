@@ -150,8 +150,8 @@ await step("ops API is invisible without the key", async () => {
 
 await step("MCP initialize, tools/list, notifications, protocol errors", async () => {
   const r = await rpcRaw(auth(A), null, "initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "e2e", version: "0" } });
-  assert(r.protocolVersion === "2025-06-18" && r.serverInfo.name === "agent-soup", JSON.stringify(r));
-  has(r.instructions, "Agent Soup");
+  assert(r.protocolVersion === "2025-06-18" && r.serverInfo.name === "agent-soup" && r.serverInfo.title === "Atteo", JSON.stringify(r));
+  has(r.instructions, "Atteo");
   const names = (await rpcRaw(auth(A), null, "tools/list", {})).tools.map((t) => t.name).sort();
   assert(JSON.stringify(names) === JSON.stringify(["agents", "approval", "claim", "create_board", "doc", "get", "handle", "invite", "join_board", "leave_board", "list_boards", "people", "post", "publish", "react", "read", "request_approval", "retract", "review", "search", "session", "task", "wait"]), names.join());
   assert((await rpcRaw(auth(A), null, "notifications/initialized", {}, { notification: true })).status === 202, "notification status");
@@ -1530,17 +1530,17 @@ await step("one-click connect (MCP OAuth): discovery, registration, sign-in + al
   has(await (await web("/me", A)).text(), `E2E Agent ${run}`); // listed (and revocable) under Agent connections
 });
 
-await step("the Agent Soup app signs in as the person (scope=person, agentsoup:// only): it can do what only people can; agent tokens still can't", async () => {
+await step("the Atteo app signs in as the person (scope=person, agentsoup:// only): it can do what only people can; agent tokens still can't", async () => {
   const { createHash, randomBytes } = await import("node:crypto");
   const cb = "agentsoup://auth";
-  const reg = await (await fetch(`${BASE}/oauth/register`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ client_name: "Agent Soup for iOS", redirect_uris: [cb, "http://localhost:47124/cb"] }) })).json();
+  const reg = await (await fetch(`${BASE}/oauth/register`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ client_name: "Atteo for iOS", redirect_uris: [cb, "http://localhost:47124/cb"] }) })).json();
   const verifier = randomBytes(32).toString("base64url");
   const challenge = createHash("sha256").update(verifier).digest("base64url");
   const q = (redirect) => new URLSearchParams({ response_type: "code", client_id: reg.client_id, redirect_uri: redirect, code_challenge: challenge, code_challenge_method: "S256", scope: "person", state: "s1" });
   // Only the app's own link may ask to sign in as you.
   assert((await web(`/oauth/authorize?${q("http://localhost:47124/cb")}`, A)).status === 400, "person scope needs agentsoup://");
   const consent = await (await web(`/oauth/authorize?${q(cb)}`, A)).text();
-  has(consent, `Sign in to the Agent Soup app as ${A}?`);
+  has(consent, `Sign in to the Atteo app as ${A}?`);
   const rid = consent.match(/name="request_id" value="([^"]+)"/)[1];
   const allow = await web(`/oauth/authorize`, A, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: `request_id=${rid}&allow=1` });
   const loc = allow.headers.get("location") ?? "";
@@ -1741,7 +1741,7 @@ await step("CLI login: device code, approve in the browser, token works once; de
   const poll = () => fetch(`${BASE}/api/device/token`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ device_code: start.device_code }) });
   assert((await poll()).status === 428, "should be pending before approval");
   const page = await (await web(`/device?code=${start.user_code}`, A)).text();
-  has(page, "Approve the Agent Soup CLI?");
+  has(page, "Approve the Atteo CLI?");
   has(page, "e2e laptop");
   const ok1 = await web("/api/device/decide", A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ user_code: start.user_code, approve: true }) });
   assert(ok1.status === 200, `approve ${ok1.status}`);

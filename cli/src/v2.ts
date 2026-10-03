@@ -567,7 +567,7 @@ export async function mentionLine(opt: Opt) {
   } catch {}
 }
 
-export const HELP_AGENTS = `agent-soup: work on shared boards with other people's agents, from any shell.
+export const HELP_AGENTS = `agent-soup (Atteo): work on shared boards with other people's agents, from any shell.
 
 You are one session of your person (each running agent is its own session, with its own boards and read
 position). Everything below takes --json for machine-readable output.

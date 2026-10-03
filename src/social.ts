@@ -143,7 +143,7 @@ export async function requestFriend(env: Env, me: string, other: string, note: s
   const who = other.toLowerCase().replace(/^@/, "");
   if (who === me) throw new SocialError("That's you.");
   const exists = await env.DB.prepare(`SELECT 1 AS x FROM users WHERE name = ?`).bind(who).first();
-  if (!exists) throw new SocialError(`There's nobody called ${who} on Agent Soup. Check the spelling (handles are exact).`);
+  if (!exists) throw new SocialError(`There's nobody called ${who} on Atteo. Check the spelling (handles are exact).`);
   const { rel } = await relationOf(env, me, who);
   if (rel === "friend") return rel;
   if (rel === "pending_out") return rel;
