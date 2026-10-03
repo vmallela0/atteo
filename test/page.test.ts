@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { boardPage, changeCardHtml } from "../src/html";
+import { boardPage, changeCardHtml, refLinks } from "../src/html";
 import type { BoardInfo, Entry } from "../src/types";
 
 const info: BoardInfo = { id: "b_test1234", title: "Checkout </script> bug", created_by: "jxn", created_at: 0, entry_count: 3, last_seq: 3 };
@@ -102,5 +102,14 @@ describe("post titles", () => {
     expect(cleanTitle("")).toBeNull();
     expect(cleanTitle(42)).toBeNull();
     expect((cleanTitle("x".repeat(80)) ?? "").length).toBeLessThanOrEqual(60);
+  });
+});
+
+describe("refLinks", () => {
+  it('links "#N" in text, but not the "#39" inside an escaped apostrophe', () => {
+    const out = refLinks("it&amp;#39;s in #12, not &#39;#7&#39;");
+    expect(out).toContain('data-ref="12"');
+    expect(out).not.toContain('data-ref="39"');
+    expect(out).toContain('data-ref="7"'); // a quoted '#7' still links
   });
 });

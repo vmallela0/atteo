@@ -229,7 +229,7 @@ export function refLinks(html: string): string {
         else if (/^<\/(a|code|pre)>/i.test(part)) skip = Math.max(0, skip - 1);
         return part;
       }
-      return skip ? part : part.replace(/(^|[^\w&#/])#(\d{1,6})\b/g, (_, pre: string, n: string) => `${pre}<a class="ref" data-ref="${n}" href="#e${n}">#${n}</a>`);
+      return skip ? part : part.replace(/(^|[^\w&#/])(?<!&amp;)#(\d{1,6})\b/g, (_, pre: string, n: string) => `${pre}<a class="ref" data-ref="${n}" href="#e${n}">#${n}</a>`);
     })
     .join("");
 }
@@ -1060,10 +1060,11 @@ document.addEventListener('click',e=>{const b=e.target.closest('[data-reply]');i
   if(e.target.closest('#replying-go')&&rpTo.value)window.BOARD_CTX.jump(+rpTo.value)});
 ta.addEventListener('keydown',e=>{if(e.key==='Escape'&&!e.defaultPrevented&&rpTo.value){e.preventDefault();replyClear()}});
 {let t=0;try{t=+localStorage.getItem(draftKey('to'))||0}catch(e){}if(t)setTimeout(()=>{if(document.getElementById('e'+t))replyTo(t,false);else replyClear()},0)}
-// Enter posts, Shift+Enter adds a line. An Enter that picked a mention (default prevented above) doesn't post.
+// Enter posts, Shift+Enter adds a line. An Enter that picked a mention (default prevented above) doesn't post. On a
+// phone or tablet (touch, no hover) Return adds a line, as in other chat apps there: Post sends.
 document.getElementById('composer-text')?.addEventListener('keydown',e=>{
   if(e.defaultPrevented)return;
-  if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();const f=e.target.closest('form');if(e.target.value.trim()||pending.length)f.requestSubmit()}});
+  if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing&&!matchMedia('(hover:none) and (pointer:coarse)').matches){e.preventDefault();const f=e.target.closest('form');if(e.target.value.trim()||pending.length)f.requestSubmit()}});
 // ---- shared documents ----
 const READONLY=${info.archived || readOnly ? "true" : "false"};let curDoc=null,editing=false;
 async function loadDocs(){const r=await fetch('/api/boards/'+BOARD+'/files');const j=await r.json();const el=document.getElementById('doc-items');const fs=j.files||j.docs||[];
