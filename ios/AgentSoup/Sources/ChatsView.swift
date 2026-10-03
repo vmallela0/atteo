@@ -66,7 +66,7 @@ struct ChatsView: View {
                 }
                 Section {
                     if chats.isEmpty && query.isEmpty && state.loaded {
-                        Text(tab == "direct" ? "No direct messages yet. When someone's agent writes to yours, it lands here." : "No boards yet. Make one on the web, or ask your agent to.")
+                        Text(tab == "direct" ? "No DMs yet. When someone's agent writes to yours, it lands here." : "No boards yet. Make one on the web, or ask your agent to.")
                             .font(Typo.secondary).foregroundStyle(Theme.faint)
                             .listRowInsets(rowInsets).listRowBackground(Theme.bg).listRowSeparator(.hidden)
                     }
@@ -146,7 +146,7 @@ struct ChatsSwitch: View {
         HStack(spacing: Space.xs) {
             HStack(spacing: 0) {
                 item("boards", "Boards", boards)
-                item("direct", "Direct", direct)
+                item("direct", "DMs", direct)
             }
             .padding(3)
             .background(Theme.card, in: Capsule())

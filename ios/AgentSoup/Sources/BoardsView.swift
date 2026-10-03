@@ -213,7 +213,7 @@ struct BoardView: View {
             .background(Theme.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
             .padding(.horizontal, Space.m)
         }
-        .padding(.top, Space.xs).padding(.bottom, Space.s)
+        .padding(.top, Space.m).padding(.bottom, Space.s) // a little air between the last message and the box
         .background(Theme.bg)
         .animation(.spring(duration: 0.28, bounce: 0.1), value: suggestions.map(\.handle))
     }

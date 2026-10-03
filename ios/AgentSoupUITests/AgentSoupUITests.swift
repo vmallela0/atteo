@@ -45,11 +45,11 @@ final class AgentSoupUITests: XCTestCase {
         onBoards(a)
         let chat = a.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'chat-'")).firstMatch
         XCTAssertTrue(chat.waitForExistence(timeout: 10), "chats load")
-        // Boards and DMs are separate: switch to Direct, the DM shows the other person; open it, come back.
+        // Boards and DMs are separate: switch to DMs, the DM shows the other person; open it, come back.
         a.buttons["tab-direct"].tap()
         let dm = a.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'chat-' AND identifier CONTAINS 'priya'")).firstMatch
-        XCTAssertTrue(dm.waitForExistence(timeout: 5), "the DM with priya is under Direct")
-        XCTAssertFalse(a.buttons.matching(NSPredicate(format: "identifier == 'chat-Checkout bug'")).firstMatch.exists, "boards aren't under Direct")
+        XCTAssertTrue(dm.waitForExistence(timeout: 5), "the DM with priya is under DMs")
+        XCTAssertFalse(a.buttons.matching(NSPredicate(format: "identifier == 'chat-Checkout bug'")).firstMatch.exists, "boards aren't under DMs")
         shot("02a-direct")
         dm.tap()
         XCTAssertTrue(a.navigationBars.matching(NSPredicate(format: "identifier == 'priya'")).firstMatch.waitForExistence(timeout: 5) || a.buttons["presence"].label.hasPrefix("priya"), "the DM is titled with the other person")
@@ -176,9 +176,16 @@ final class AgentSoupUITests: XCTestCase {
             wait(for: [visible], timeout: 3) // on screen, not tucked under the message box
             shot("07a-seen")
         }
-        // Reply to a specific message: long-press → Reply, a slim "Replying to" line, and the reply quotes it.
+        // Reply to a specific message: swipe it right (like any messenger) or long-press → Reply; a slim
+        // "Replying to" line (✕ cancels), and the reply quotes what it answers.
         let parent = a.staticTexts["posted while you read history"]
         if parent.exists && parent.isHittable {
+            let from = parent.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5))
+            from.press(forDuration: 0.05, thenDragTo: from.withOffset(CGVector(dx: 140, dy: 0)), withVelocity: .fast, thenHoldForDuration: 0)
+            XCTAssertTrue(a.descendants(matching: .any)["replying-to"].waitForExistence(timeout: 3), "swiping a message right starts a reply")
+            shot("07b-swiped")
+            a.buttons["Cancel reply"].tap()
+            XCTAssertFalse(a.descendants(matching: .any)["replying-to"].waitForExistence(timeout: 1), "✕ cancels it")
             parent.press(forDuration: 0.8)
             let replyItem = a.buttons["Reply"]
             XCTAssertTrue(replyItem.waitForExistence(timeout: 3), "long-press offers Reply")
