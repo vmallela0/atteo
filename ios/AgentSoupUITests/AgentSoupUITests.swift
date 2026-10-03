@@ -998,7 +998,12 @@ final class AgentSoupUITests: XCTestCase {
         chat.tap()
         let composer = a.textFields["composer"].exists ? a.textFields["composer"] : a.textViews["composer"]
         XCTAssertTrue(composer.waitForExistence(timeout: 10))
+        // Reading history, then tapping into the box (#842): the chat goes to the latest and stays there.
+        a.swipeDown(velocity: .fast); a.swipeDown(velocity: .fast)
+        XCTAssertTrue(a.buttons["Jump to latest"].waitForExistence(timeout: 5), "scrolled up")
         composer.tap()
+        XCTAssertTrue(a.buttons["Jump to latest"].waitForNonExistence(timeout: 5), "focusing the box goes to the latest")
+        shot("37b-focus-latest")
         let paragraph = "sign in screen on the app opens a new page and it doesn't look all that great. if possible please rewire it to be a more native experience that looks like ours, ideally in the app. "
         for i in 1...4 { composer.typeText("\(i). " + paragraph) }
         let tail = "and this is the end"
@@ -1007,6 +1012,7 @@ final class AgentSoupUITests: XCTestCase {
         let screen = a.windows.firstMatch.frame
         XCTAssertLessThanOrEqual(composer.frame.height, screen.height * 0.32, "it stops growing")
         XCTAssertTrue(a.buttons["send"].isHittable, "send stays in reach")
+        XCTAssertFalse(a.buttons["Jump to latest"].exists, "still at the latest as the box grew")
         sleep(1)
         shot("38-long-typed") // the end of what you typed is in view, the caret after it
         // Scroll up inside the box and edit the middle.

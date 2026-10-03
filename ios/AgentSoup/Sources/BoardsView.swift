@@ -85,6 +85,13 @@ struct BoardView: View {
     /// Threads: pushed on this stack (a reply, a preview card, a "#123"), and the list of them in the top bar.
     private func threads(_ v: some View) -> some View {
         v
+        // Tapping into the message box (#842): to the latest, pinned there as the keyboard comes up and the box
+        // grows (the sizeChanges anchor), until you scroll up to read, which unpins it.
+        .onChange(of: focused) { _, on in
+            guard on else { return }
+            stick = true
+            withAnimation(.smooth(duration: 0.3)) { position.scrollTo(edge: .bottom) }
+        }
         .navigationDestination(item: $thread) { t in ThreadView(board: board, root: t.root, prefill: t.prefill) }
         .toolbar {
             // Every thread here, newest first (a dot when one has answers you haven't seen).
