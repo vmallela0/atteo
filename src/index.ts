@@ -897,7 +897,8 @@ const handler = {
         if (!viewer) return needLogin();
         const [side, p] = await Promise.all([sideBoards(env, viewer.name), social.person(env, viewer.name, um[1])]);
         if (!p) return notFound(viewer);
-        return profilePage(viewer, side, p, social.presenceLabel(p.presence));
+        const [shared, ag] = await Promise.all([p.relation === "self" || p.relation === "blocked" ? [] : social.sharedBoards(env, viewer.name, p.name).catch(() => []), agents.agent(env, viewer.name, p.name).catch(() => null)]);
+        return profilePage(viewer, side, p, social.presenceLabel(p.presence), { shared, agent: ag });
       }
       if (path === "/api/me/profile" && (method === "GET" || method === "POST")) {
         if (!viewer) return needLogin();

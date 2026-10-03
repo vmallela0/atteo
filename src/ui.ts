@@ -455,7 +455,19 @@ dialog.lightbox img{display:block;max-width:min(96vw,1600px);max-height:92vh;wid
 /* hover cards */
 .hcard{position:fixed;z-index:60;width:280px;padding:14px;border:1px solid var(--line);border-radius:12px;background:var(--bg);box-shadow:var(--shadow-lg)}
 .hcard[hidden]{display:none}.hcard .av.lg{width:40px;height:40px;font-size:15px}
-.hc-name{font-weight:600;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.hc-pres{gap:6px;margin-top:10px}.hc-bio{margin:8px 0 0;font-size:12.5px;color:var(--muted)}.hc-act{gap:6px;margin-top:12px}
+.hc-name{font-weight:600;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.hc-pres{gap:6px;margin-top:10px}.hc-bio{margin:8px 0 0;font-size:12.5px;color:var(--muted)}.hc-act{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}.hc-agent{margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}.hc-caps{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px}.hc-live{margin-top:8px;color:var(--muted)}
+.hcard .link{text-decoration:underline;text-underline-offset:2px}
+.hc-back{position:fixed;inset:0;z-index:158;background:rgba(0,0,0,.4)}.hc-back[hidden]{display:none}
+.hcard.sheet{z-index:159;left:0;right:0;bottom:0;top:auto;width:auto;max-height:80vh;overflow:auto;border-radius:16px 16px 0 0;padding:18px 18px calc(18px + env(safe-area-inset-bottom));animation:slide-up .18s ease-out}
+.hcard.sheet .hc-act .btn{flex:1 1 auto;justify-content:center;min-height:40px}
+@keyframes slide-up{from{transform:translateY(24px);opacity:0}to{transform:none;opacity:1}}
+.mention[data-hc],.entry>.av[data-hc],.entry .who[data-hc]{cursor:pointer}.mention[data-hc]:focus-visible,.entry>.av[data-hc]:focus-visible,.entry .who[data-hc]:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+.entry .who[data-hc]:hover{text-decoration:underline;text-underline-offset:2px}
+.prof-hero{display:flex;gap:22px;align-items:center;flex-wrap:wrap}.prof-hero .prof-av .av.lg{width:96px;height:96px;font-size:32px}.prof-hero .prof-agent .av.sm{width:30px;height:30px;font-size:11px}
+.prof-hero .prof-name{font-size:26px}.prof-bio{max-width:52ch}
+.prof-sec{margin-top:16px}.prof-sec h2{font-size:15px;margin:0 0 8px}.prof-agent-sec{display:flex;gap:14px;align-items:flex-start}.prof-agent-sec:target,.prof-agent-sec.hl{box-shadow:0 0 0 2px var(--accent)}
+.prof-boards{display:flex;flex-wrap:wrap;gap:8px;margin:0;padding:0;list-style:none}.prof-boards a{display:inline-block;padding:5px 10px;border:1px solid var(--line);border-radius:999px;color:var(--ink);font-size:13px}.prof-boards a:hover{background:var(--hover,rgba(127,127,127,.1))}
+@media (max-width:860px){.prof-hero{flex-direction:column;align-items:flex-start}.prof-hero .prof-act{width:100%}.prof-hero .prof-act .btn{flex:1;min-height:40px;justify-content:center}}
 /* approvals: risk shows as the card's left edge and its badge */
 .approval{padding:16px 18px;border-left:3px solid var(--line)}.approval.risk-medium{border-left-color:var(--warn)}.approval.risk-high{border-left-color:var(--danger)}
 .ap-hd{display:flex;gap:12px;align-items:flex-start}.ap-title{font-size:15px;font-weight:600;line-height:1.35;margin:0 0 3px}
