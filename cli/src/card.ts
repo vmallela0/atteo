@@ -161,5 +161,6 @@ export const CARD_HELP = `
   agent-soup card --commit [ref] --post "<one sentence>"   One commit (default HEAD) as a card on the board
   agent-soup card --post "<what changed>" [--title "2–5 words"] [--to name]   Post it as a change on this folder's board (--to asks for a review)
                          When you land work (merge/push), post a change card: the pre-push hook does it for you
-  agent-soup hooks install [--off]   A git pre-push hook posting a card for each push to this folder's board
+  agent-soup hooks install [--diff | --off]   A git pre-push hook posting a card (commits, files) for each push to this
+                         folder's board; --diff adds the code itself, which everyone on the board can then read
                          (agent-soup use installs it; it never blocks a push and keeps any pre-push hook you had)`;

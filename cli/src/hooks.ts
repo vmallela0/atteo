@@ -2,7 +2,8 @@
 // board this folder uses, so landed work shows up on the board without anyone remembering to post it.
 // It never blocks a push: it always exits 0 and gives up after a few seconds. A pre-push hook that was already there
 // is kept: it's renamed, still runs first with the same input, and can still stop the push (that's its job, not ours).
-// `agent-soup use` (and `create`) install it by default; AGENT_SOUP_NO_HOOK=1 skips it for one push.
+// `agent-soup use` (and `create`) install it by default; AGENT_SOUP_NO_HOOK=1 skips it for one push. Cards carry the
+// commits and the files changed; the diff itself (your code) only with `hooks install --diff`, since boards are shared.
 
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
@@ -43,7 +44,7 @@ const present = (file: string) => {
 };
 
 /** The hook: the earlier hook first (its verdict stands), then the card, then exit 0 whatever happened. */
-function script(folder: string): string {
+function script(folder: string, diff: boolean): string {
   // The CLI that installed it runs it (a test build stays a test build); `agent-soup` on PATH if that file is gone.
   const node = process.execPath;
   const cli = process.argv[1] ? realpathSync(process.argv[1]) : "";
@@ -57,16 +58,16 @@ if [ -x "$chained" ]; then
 fi
 [ -n "$AGENT_SOUP_NO_HOOK" ] && exit 0
 if [ -f ${q(cli)} ] && [ -x ${q(node)} ]; then
-  printf '%s\\n' "$refs" | ${q(node)} ${q(cli)} hooks pre-push "$1" --folder ${q(folder)} || true
+  printf '%s\\n' "$refs" | ${q(node)} ${q(cli)} hooks pre-push "$1" --folder ${q(folder)}${diff ? " --diff" : ""} || true
 elif command -v agent-soup >/dev/null 2>&1; then
-  printf '%s\\n' "$refs" | agent-soup hooks pre-push "$1" --folder ${q(folder)} || true
+  printf '%s\\n' "$refs" | agent-soup hooks pre-push "$1" --folder ${q(folder)}${diff ? " --diff" : ""} || true
 fi
 exit 0
 `;
 }
 
 /** Installs (or refreshes) the hook in the repo around `cwd`. Returns what happened, or null outside a git repo. */
-export function installHook(cwd: string, o: { auto?: boolean } = {}): string | null {
+export function installHook(cwd: string, o: { auto?: boolean; diff?: boolean } = {}): string | null {
   const h = hooksDir(cwd);
   if (!h) return null;
   // A shared hooks folder (husky's .husky/, often committed) is the project's business: only on request.
@@ -80,9 +81,9 @@ export function installHook(cwd: string, o: { auto?: boolean } = {}): string | n
     renameSync(file, chained);
     kept = true;
   }
-  writeFileSync(file, script(resolve(cwd)), { mode: 0o755 });
+  writeFileSync(file, script(resolve(cwd), !!o.diff), { mode: 0o755 });
   chmodSync(file, 0o755);
-  return `Change cards on push: each git push from this repo posts a card of its commits to this folder's board${kept ? " (your pre-push hook still runs first)" : ""}. Turn it off: ${OFF}`;
+  return `Change cards on push: each git push from this repo posts a card of its commits and changed files to this folder's board${o.diff ? ", with the diff" : " (not the diff: add it with agent-soup hooks install --diff)"}${kept ? "; your pre-push hook still runs first" : ""}. Turn it off: ${OFF}`;
 }
 
 /** Removes the hook and puts back the one it chained, if any. */
@@ -127,7 +128,7 @@ export function pushedRanges(cwd: string, input: string): { branch: string; from
 
 /** Run by the hook: post a card per pushed branch. Never fails, never takes long: the push goes on regardless. */
 async function prePush(args: string[]) {
-  const { opt } = parseArgs(args);
+  const { opt } = parseArgs(args, ["diff"]);
   const note = (s: string) => process.stderr.write(`agent-soup: ${s}\n`);
   const ms = Number(process.env.AGENT_SOUP_HOOK_TIMEOUT_MS ?? 8000);
   const timer = setTimeout(() => {
@@ -149,7 +150,7 @@ async function prePush(args: string[]) {
     // A card is plain text the server can read: never on an end-to-end encrypted board.
     if (await isEncrypted(opt, board)) return note("no change card: this folder's board is end-to-end encrypted.");
     for (const r of ranges) {
-      const built = buildCard(runner(cwd), { from: r.from, head: r.head, branch: r.branch, committed: true, gh: false });
+      const built = buildCard(runner(cwd), { from: r.from, head: r.head, branch: r.branch, committed: true, gh: false, diff: opt.diff === true });
       const payload = { ...built.card, ...(built.diff ? { diff: built.diff } : {}) };
       const first = built.card.commits[0]?.title ?? "";
       const title = r.count === 1 && first ? first.split(/\s+/).slice(0, 5).join(" ") : `Pushed to ${r.branch}`;
@@ -174,19 +175,22 @@ async function prePush(args: string[]) {
 }
 
 export async function hooksCmd(args: string[]) {
-  const { pos, opt } = parseArgs(args, ["off"]);
+  const { pos, opt } = parseArgs(args, ["off", "diff"]);
   const verb = pos[0] ?? "status";
   if (verb === "pre-push") return prePush(args.slice(1));
   if (verb === "install" || verb === "uninstall" || verb === "remove") {
     if (opt.off || verb !== "install") return say(removeHook(process.cwd()));
-    const msg = installHook(process.cwd());
+    const msg = installHook(process.cwd(), { diff: opt.diff === true });
     if (!msg) throw new CliError("Not in a git repository. Run this from the project you push.");
     return say(msg);
   }
   if (verb === "status") {
     const h = hooksDir(process.cwd());
     if (!h) throw new CliError("Not in a git repository.");
-    return say(ours(join(h.dir, "pre-push")) ? `On: pushes from this repo post change cards (${join(h.dir, "pre-push")}). Turn it off: ${OFF}` : "Off: pushes don't post change cards. Turn it on: agent-soup hooks install");
+    const f = join(h.dir, "pre-push");
+    if (!ours(f)) return say("Off: pushes don't post change cards. Turn it on: agent-soup hooks install");
+    const withDiff = readFileSync(f, "utf8").includes(" --diff");
+    return say(`On: pushes from this repo post change cards (${withDiff ? "commits, files and the diff" : "commits and files, not the diff"}; ${f}). Turn it off: ${OFF}`);
   }
-  throw new CliError("Usage: agent-soup hooks install [--off]   (a git pre-push hook that posts a change card for each push)");
+  throw new CliError("Usage: agent-soup hooks install [--diff | --off]   (a git pre-push hook that posts a change card for each push; --diff includes the code)");
 }

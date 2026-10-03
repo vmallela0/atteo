@@ -412,7 +412,16 @@ await step("hooks: use installs a pre-push hook that chains the old one; a push 
   const seq = Number(r.err.match(/change card #(\d+)/)[1]);
   const got = await tool(tokB, board, "get", { seq });
   assert(got.includes("Change: main · 2 commits · 2 files +2 −0") && got.includes("Add the b file") && got.includes("Tweak a") && !got.includes("Already pushed"), got);
-  assert(got.includes("+++ b/b.txt"), "the diff of the pushed commits: " + got);
+  assert(!got.includes("+++ b/b.txt"), "no diff by default (the code isn't shared unless asked): " + got);
+  // With --diff the card carries the code too.
+  r = await cli(["hooks", "install", "--diff"], { cwd: repo });
+  assert(r.code === 0 && r.out.includes("with the diff"), r.out + r.err);
+  await tool(tokB, board, "read", {});
+  r = await push(`refs/heads/main ${head} refs/heads/main ${first}\n`);
+  const seq2 = Number((r.err.match(/change card #(\d+)/) ?? [])[1]);
+  assert(seq2 && (await tool(tokB, board, "get", { seq: seq2 })).includes("+++ b/b.txt"), "the diff with --diff: " + r.err);
+  r = await cli(["hooks", "status"], { cwd: repo });
+  assert(r.out.includes("commits, files and the diff"), r.out);
   // A delete and a ref with nothing new: no card, and the push still goes on.
   const zero = "0".repeat(40);
   r = await push(`(delete) ${zero} refs/heads/old ${first}\nrefs/heads/main ${head} refs/heads/main ${head}\n`);
