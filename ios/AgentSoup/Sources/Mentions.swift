@@ -8,7 +8,7 @@ import SwiftUI
 extension String {
     /// The message as styled text with its mentions tinted, and the handles that were (for VoiceOver and the QA).
     func mentioned(_ mentions: [EntryMention]?, members: [String], me: String?) -> (text: AttributedString, handles: [String]) {
-        var out = md
+        var out = mdLinked // ("#123" opens that message)
         guard contains("@") else { return (out, []) }
         // What counts: the stored mentions, or (still sending) anyone on the board and their agent.
         let stored = mentions ?? members.flatMap { [EntryMention(user: $0.lowercased(), agent: false), EntryMention(user: $0.lowercased(), agent: true)] }

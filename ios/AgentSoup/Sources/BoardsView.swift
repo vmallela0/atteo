@@ -10,7 +10,6 @@ struct BoardView: View {
     @State private var draft = ""
     @State private var showTasks = false
     @State private var showAgents = false
-    @State private var replyingTo: Entry? // the message you're answering (swipe right or long-press → Reply)
     private var live: [BoardAgent] { (state.boardAgents[board.id] ?? []).filter { $0.state == "live" } }
     /// "theo's agent working", "theo and maya's agents working", "3 agents working", or "No agents working now".
     private var presence: String {
@@ -44,15 +43,15 @@ struct BoardView: View {
 
     // Wave 2: threads, reactions, unsend, receipts, board info, older messages.
     @State private var selection: TextSelection? // the caret in the message box (at the end after a reply's @mention)
-    @State private var replyMention: String? // the "@who " a reply started with (dropped again if that's all you typed)
     @State private var flash: Int? // a message just jumped to, lit for a moment
     @State private var scrollRequest: ScrollRequest?
-    @State private var thread: SeqRef? // the thread open in a sheet (its root)
+    @State private var thread: ThreadTarget? // the thread open, pushed full screen (its root)
     @State private var reactingTo: SeqRef? // the message the full emoji picker is for
     @State private var unsending: Entry? // asking "Unsend?" first
     @State private var openReceipts: Set<Int> = [] // your older messages you tapped to see who's seen them
     @State private var holdBottom = false // older messages going in above: keep what you're reading where it is
 
+    @ObservedObject private var threadSeen = ThreadSeen.shared
     private var me: String? { state.me?.owner }
     private func isMine(_ e: Entry) -> Bool { e.author == me && e.via != "agent" }
 
@@ -69,13 +68,45 @@ struct BoardView: View {
         let bySeq = Dictionary(list.map { ($0.seq, $0) }, uniquingKeysWith: { a, _ in a })
         // Retractions aren't messages: their targets read "Unsent" instead.
         let gone = Set(list.compactMap(\.retracts))
-        let shown = list.filter { $0.retracts == nil }
-        let replies = Dictionary(grouping: shown.filter { $0.replyTo != nil && $0.seq > 0 && !gone.contains($0.seq) }, by: { $0.replyTo ?? 0 })
+        // Like Slack: the chat is the top-level messages; answers live in their thread ("3 replies" under the root).
+        let shown = list.filter { $0.retracts == nil && $0.replyTo == nil }
+        let replies = Dictionary(grouping: list.filter { $0.replyTo != nil && $0.retracts == nil && $0.seq > 0 && !gone.contains($0.seq) }, by: { rootOf($0, in: bySeq) })
         let latestMine = shown.last { isMine($0) && $0.seq > 0 && $0.type != "task" && !gone.contains($0.seq) }?.seq
         return Rows(shown: shown, bySeq: bySeq, gone: gone, replies: replies, latestMine: latestMine)
     }
 
-    var body: some View {
+    private var anyUnreadThread: Bool { ThreadIndex.threads(list).contains { threadSeen.unread(board.id, $0, me: me) } }
+
+    var body: some View { threads(chat) }
+
+    /// Threads: pushed on this stack (a reply, a preview card, a "#123"), and the list of them in the top bar.
+    private func threads(_ v: some View) -> some View {
+        v
+        .navigationDestination(item: $thread) { t in ThreadView(board: board, root: t.root, prefill: t.prefill) }
+        .toolbar {
+            // Every thread here, newest first (a dot when one has answers you haven't seen).
+            ToolbarItem(placement: .topBarTrailing) {
+                NavigationLink { ThreadsList(board: board) } label: {
+                    Image(systemName: "bubble.left.and.text.bubble.right").font(.system(size: 15, weight: .semibold)).foregroundStyle(Theme.text)
+                        .overlay(alignment: .topTrailing) {
+                            if anyUnreadThread { Circle().fill(Theme.accent).frame(width: 7, height: 7).offset(x: 3, y: -2) }
+                        }
+                }
+                .accessibilityIdentifier("threads")
+                .accessibilityLabel("Threads")
+                .accessibilityValue(anyUnreadThread ? "new replies" : "")
+            }
+        }
+        // A "#123" in a message: go to it (or open its thread, if it's an answer).
+        .environment(\.openURL, OpenURLAction { url in
+            guard let n = entryLink(url) else { return .systemAction }
+            jump(to: n)
+            return .handled
+        })
+        .onChange(of: list.count) { _, _ in threadSeen.baseline(board.id, ThreadIndex.threads(list)) }
+    }
+
+    @ViewBuilder private var chat: some View {
         let r = rows()
         ScrollViewReader { proxy in
         ScrollView {
@@ -189,7 +220,6 @@ struct BoardView: View {
             BoardInfoSheet(board: board) { seq in showAgents = false; jump(to: seq, after: 0.35) }
                 .presentationDetents([.large]).presentationBackground(Theme.bg)
         }
-        .sheet(item: $thread) { t in ThreadSheet(board: board, root: t.id).presentationDetents([.medium, .large]).presentationBackground(Theme.bg) }
         .sheet(item: $reactingTo) { r in
             EmojiPicker { emoji in reactingTo = nil; Task { await state.react(emoji, to: r.id, in: board) } }
                 .presentationDetents([.height(300)]).presentationBackground(Theme.card)
@@ -230,7 +260,7 @@ struct BoardView: View {
         return EntryRow(e: e, grouped: grouped, mine: mine, board: board.id, tasks: state.tasks[board.id] ?? [], reactions: state.reactions[board.id]?[e.seq] ?? [],
                         parent: e.replyTo.flatMap { r.bySeq[$0] }, me: me, members: state.members[board.id] ?? [], progress: state.uploads[e.seq],
                         reply: live ? { startReply(to: e) } : nil,
-                        unsent: unsent, replies: r.replies[e.seq] ?? [], handling: state.handling[board.id]?[e.seq], lit: flash == e.seq,
+                        unsent: unsent, replies: r.replies[e.seq] ?? [], threadUnread: threadUnread(e.seq, r), handling: state.handling[board.id]?[e.seq], lit: flash == e.seq,
                         receipt: showReceipt ? receipt(for: e) : nil,
                         actions: actions(for: e, mine: mine, live: live, r)) {
             Task { if e.local != nil { await state.retryUpload(e, in: board) } else { await state.send(e.text, to: board, retrying: e) } }
@@ -243,7 +273,7 @@ struct BoardView: View {
             a.react = { emoji in Task { await state.react(emoji, to: e.seq, in: board) } }
             a.moreReactions = { reactingTo = SeqRef(id: e.seq) }
             let root = rootOf(e, in: r.bySeq)
-            a.openThread = { thread = SeqRef(id: root) }
+            a.openThread = { thread = ThreadTarget(root: root) }
             if mine {
                 a.unsend = { unsending = e }
                 a.toggleReceipt = { withAnimation(.snappy) { if openReceipts.contains(e.seq) { openReceipts.remove(e.seq) } else { openReceipts.insert(e.seq) } } }
@@ -254,42 +284,33 @@ struct BoardView: View {
         return a
     }
 
+    /// Reply (swipe right, or long-press → Reply): the message's thread opens, its box starting with who you're
+    /// answering, like the web: "@theo " or "@theo's agent " (not yourself).
     private func startReply(to e: Entry) {
         Haptic.tap()
-        // Replying names who you're answering, like the web: "@theo " or "@theo's agent " (not yourself).
-        if !isMine(e) {
-            let handle = "@" + (e.byAgent ? "\(e.author)'s agent" : e.author)
-            if !draft.localizedCaseInsensitiveContains(handle) {
-                if let old = replyMention, draft.hasPrefix(old) { draft.removeFirst(old.count) } // a switch of reply: swap the name
-                draft = handle + " " + draft
-                replyMention = handle + " "
-            }
-        }
-        selection = TextSelection(insertionPoint: draft.endIndex)
-        withAnimation(.spring(duration: 0.3, bounce: 0.15)) { replyingTo = e }
-        focused = true
-    }
-
-    private func cancelReply() {
-        // A reply's @mention on its own goes with it; anything you wrote stays.
-        if let m = replyMention, draft.trimmingCharacters(in: .whitespaces) == m.trimmingCharacters(in: .whitespaces) { draft = "" }
-        replyMention = nil
-        withAnimation(.spring(duration: 0.3, bounce: 0.15)) { replyingTo = nil }
+        focused = false
+        let handle = isMine(e) ? nil : "@" + (e.byAgent ? "\(e.author)'s agent" : e.author) + " "
+        thread = ThreadTarget(root: rootOf(e, in: Dictionary(list.map { ($0.seq, $0) }, uniquingKeysWith: { a, _ in a })), prefill: handle)
     }
 
     /// Scrolls to a message and lights it for a moment, loading older messages first if it's before what's here.
     private func jump(to seq: Int, after delay: Double = 0) {
         Task {
             if delay > 0 { try? await Task.sleep(nanoseconds: UInt64(delay * 1e9)) }
-            // Further back than what's loaded: bring it in (a page of up to 500 at a time, at most three).
+            // Further back than what's loaded: bring it in (pages of up to 500, until it's here).
             var tries = 0
-            while !list.contains(where: { $0.seq == seq }), tries < 3, (state.firstLoaded(board) ?? 0) > seq {
+            while !list.contains(where: { $0.seq == seq }), tries < 20, (state.firstLoaded(board) ?? 0) > seq {
                 holdBottom = true
                 guard await state.loadEarlier(board, through: seq) || list.contains(where: { $0.seq == seq }) else { break }
                 tries += 1
             }
             if holdBottom { try? await Task.sleep(nanoseconds: 250_000_000); holdBottom = false }
-            guard list.contains(where: { $0.seq == seq }) else { Haptic.warn(); return }
+            guard let target = list.first(where: { $0.seq == seq }) else { Haptic.warn(); return }
+            // An answer lives in its thread: open that.
+            if target.replyTo != nil {
+                thread = ThreadTarget(root: rootOf(target, in: Dictionary(list.map { ($0.seq, $0) }, uniquingKeysWith: { a, _ in a })), focus: seq)
+                return
+            }
             stick = false
             if focused { // the keyboard would cover it: let it go down first, then scroll
                 focused = false
@@ -316,14 +337,12 @@ struct BoardView: View {
     }
 
     /// The top of a reply chain (what its thread is about), as far as it's loaded.
-    private func rootOf(_ e: Entry, in bySeq: [Int: Entry]) -> Int {
-        var cur = e
-        var hops = 0
-        while let p = cur.replyTo, hops < 50 {
-            guard let up = bySeq[p] else { return p }
-            cur = up; hops += 1
-        }
-        return cur.seq
+    private func rootOf(_ e: Entry, in bySeq: [Int: Entry]) -> Int { ThreadIndex.root(of: e, in: bySeq) }
+
+    /// Answers in a message's thread you haven't seen yet.
+    private func threadUnread(_ seq: Int, _ r: Rows) -> Bool {
+        guard let replies = r.replies[seq], !replies.isEmpty else { return false }
+        return threadSeen.unread(board.id, ThreadSummary(root: seq, rootEntry: r.bySeq[seq], replies: replies), me: me)
     }
 
     /// A question or task for you or your agent (by `to` or an @mention), from someone else.
@@ -391,11 +410,6 @@ struct BoardView: View {
                 MentionList(items: suggestions, pick: insert)
                     .padding(.horizontal, Space.m).padding(.bottom, Space.xs)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-            if let r = replyingTo {
-                ReplyBar(who: r.byAgent ? "\(r.author)'s agent" : r.author, text: r.text) { cancelReply() }
-                .padding(.horizontal, Space.m).padding(.bottom, Space.xs)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
             }
             VStack(spacing: 0) {
             if !attachments.isEmpty || preparing > 0 {
@@ -490,14 +504,12 @@ struct BoardView: View {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         let files = attachments
         guard canSend else { return }
-        let reply = replyingTo?.seq
         draft = ""
         selection = nil
-        replyMention = nil
-        withAnimation(.spring(duration: 0.3, bounce: 0.15)) { replyingTo = nil; attachments = [] }
+        withAnimation(.spring(duration: 0.3, bounce: 0.15)) { attachments = [] }
         Haptic.tap()
         Task {
-            if files.isEmpty { await state.send(text, to: board, replyTo: reply) } else { await state.send(files: files, caption: text, to: board, replyTo: reply) }
+            if files.isEmpty { await state.send(text, to: board) } else { await state.send(files: files, caption: text, to: board) }
         }
     }
 }
@@ -506,6 +518,8 @@ struct BoardView: View {
 struct ScrollRequest: Equatable { let id: Int; let anchor: UnitPoint; let animated: Bool }
 /// A message, by number, for sheets that open on one.
 struct SeqRef: Identifiable { let id: Int }
+/// A thread to open: its root, what its box starts with (a reply's @mention), and an answer to show.
+struct ThreadTarget: Hashable { let root: Int; var prefill: String? = nil; var focus: Int? = nil }
 
 /// Someone "@" can name: a member's agent, a member, or everyone's agents / everyone.
 struct Mentionable: Hashable {
@@ -541,34 +555,6 @@ struct MentionList: View {
         .padding(.vertical, Space.xs)
         .background(Theme.card, in: RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
         .shadow(color: .black.opacity(0.35), radius: 12, y: 4)
-    }
-}
-
-/// "Replying to theo's agent: the first line…" above the message box, with ✕ to cancel.
-struct ReplyBar: View {
-    let who: String
-    let text: String
-    let cancel: () -> Void
-    var body: some View {
-        HStack(spacing: 10) {
-            Capsule().fill(Theme.accent).frame(width: 3, height: 30)
-            VStack(alignment: .leading, spacing: 1) {
-                Text("Replying to \(who)").font(Typo.micro.weight(.semibold)).foregroundStyle(Theme.accent)
-                Text(text.split(separator: "\n").first.map(String.init) ?? text).font(Typo.micro).foregroundStyle(Theme.muted).lineLimit(1)
-            }
-            Spacer(minLength: Space.s)
-            Button(action: cancel) {
-                Image(systemName: "xmark").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.muted)
-                    .frame(width: 24, height: 24).background(Theme.raised, in: Circle())
-                    .frame(width: 44, height: 40).contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Cancel reply")
-        }
-        .padding(.leading, Space.m)
-        .background(Theme.card, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("replying-to")
     }
 }
 
@@ -627,7 +613,8 @@ struct EntryRow: View {
     var progress: Double? = nil // a picture or file going up: how far
     var reply: (() -> Void)? = nil // answer this message (nil: it can't be answered yet)
     var unsent = false // its author took it back
-    var replies: [Entry] = [] // answers to it (in this chat)
+    var replies: [Entry] = [] // answers to it (its thread)
+    var threadUnread = false // answers in its thread you haven't seen
     var handling: Handling? = nil // who's on it
     var lit = false // just jumped to
     var receipt: String? = nil // yours: "Seen by …" / "Delivered"
@@ -765,7 +752,7 @@ struct EntryRow: View {
                     if !receipts.isEmpty { ReactionLine(reactions: receipts, trailing: mine) }
                 }
             }
-            if !replies.isEmpty, let open = actions.openThread { RepliesChip(seq: e.seq, replies: replies, open: open).padding(.top, Space.xxs) }
+            if !replies.isEmpty, let open = actions.openThread { ThreadPreview(seq: e.seq, replies: replies, unread: threadUnread, open: open).padding(.top, Space.xs) }
             if let h = handling { HandlingLine(h: h, me: me) }
             else if let take = actions.takeOn { OnItButton(seq: e.seq, take: take).padding(.top, Space.xxs) }
         }
