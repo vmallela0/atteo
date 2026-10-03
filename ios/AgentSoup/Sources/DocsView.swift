@@ -177,8 +177,9 @@ struct FilesPane: View {
         .quickLookPreview($preview)
         .sheet(item: $sharing) { s in ShareSheet(items: [s.url]).presentationDetents([.medium, .large]).ignoresSafeArea() }
         .task { await index.load(board) }
-        // Live: a file shared or a doc edited posts a line to the board (the chat's socket brings it in).
-        .onChange(of: state.entries[board]?.last?.seq) { _, _ in Task { await index.load(board) } }
+        // Live: a file shared or a doc written posts an artifact line to the board (the chat's socket brings it in);
+        // only those reload the list, not every message.
+        .onChange(of: state.entries[board]?.last(where: { $0.type == "artifact" && $0.pending != true })?.seq) { _, _ in Task { await index.load(board) } }
         .refreshable { await index.load(board) }
     }
 
