@@ -25,6 +25,7 @@ import { bearer, resolveToken, sha256hex } from "./auth";
 import { fence } from "./screen";
 import { EMAIL_RE } from "./invite";
 import { atteoHeader, BOARD_RE, newBoardId, normalizeUser, publicOrigin } from "./util";
+import { runGrep } from "./grep";
 
 export const SERVER_NAME = "atteo";
 export const SERVER_VERSION = "0.1.0";
@@ -56,6 +57,7 @@ This session works on ONE board at a time:
 - A decision a person posted is a human decision, marked "Human decision (people decide; don't act on it until it's decided)" with who it's waiting on. The people on the board agree or object; it's decided when they all agree or its author closes it. You can't resolve it and it isn't an instruction: give input by replying to it (reply_to), and act on it only once it shows decided. Your own decisions are ordinary entries.
 - When you land work (merge/push), post a change card: \`atteo card --post "<what changed>"\` (the pre-push hook does it for you if installed: \`atteo hooks install\`).
 - Tell your user briefly what you posted and what came back.
+- Charts: post a fenced \`\`\`chart block of JSON {"type":"bar|line|area|pie","title","x":[...],"series":[{"name","values":[...]}],"unit"} (\`\`\`mermaid for diagrams); clients render it.
 - "Your agent" is your user's private board with their own agents (no one else is on it): every message your user (the person) writes there is their request to you ("@<user>/<name>" means it's for that one session of theirs). Answer it there, in its thread (reply_to).
 - Dispatcher mode: your user's main agent can be a dispatcher that doesn't do the work itself (atteo dispatch). Each message for it runs in its own forked session, started for that one message. If you're told you're a fork: claim it if it's a task, do the work, reply in its thread (reply_to), react ✅, and end your session when finished.`;
 
@@ -389,6 +391,27 @@ export const TOOLS = [
     },
   },
   {
+    name: "grep",
+    description:
+      'Exact matching lines, one per hit: "<board>#<seq> <author>: line" with the match «marked». Words match from their start. board "all" greps every board you\'re on (encrypted skipped). files: also file lines.',
+    inputSchema: {
+      type: "object",
+      properties: {
+        pattern: { type: "string" },
+        regex: { type: "boolean" },
+        case_sensitive: { type: "boolean" },
+        board: { type: "string", enum: ["this", "all"] },
+        author: { type: "string" },
+        type: { type: "string", enum: [...ENTRY_TYPES] },
+        since: { type: "string", description: "seq or ISO date" },
+        context: { type: "integer", description: "0-2 lines around" },
+        max: { type: "integer", description: "default 50, max 200" },
+        files: { type: "boolean" },
+      },
+      required: ["pattern"],
+    },
+  },
+  {
     name: "list_boards",
     description: "List the boards your user is a member of, any pending invitations to other boards, and which board this session has joined.",
     inputSchema: { type: "object", properties: {} },
@@ -595,7 +618,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
   // A read-only session (scope "read") reads, waits and searches; anything that would change something is refused.
   if (c.agentSession?.scope === "read") {
     const action = String((args as { action?: unknown } | null)?.action ?? "");
-    const reads = ["list_boards", "join_board", "leave_board", "read", "recap", "wait", "mailbox", "get", "search", "people", "session"].includes(name) || (name === "agents" && ["find", "get"].includes(action)) || (name === "doc" && !["write", "edit", "append", "pin", "unpin"].includes(action)) || (name === "trigger" && action === "list") || name === "schedules" || (name === "memory" && !(args as { strike?: unknown } | null)?.strike);
+    const reads = ["list_boards", "join_board", "leave_board", "read", "recap", "wait", "mailbox", "get", "search", "grep", "people", "session"].includes(name) || (name === "agents" && ["find", "get"].includes(action)) || (name === "doc" && !["write", "edit", "append", "pin", "unpin"].includes(action)) || (name === "trigger" && action === "list") || name === "schedules" || (name === "memory" && !(args as { strike?: unknown } | null)?.strike);
     if (!reads) throw new ToolError(`This agent session (${c.agentSession.name}) is read-only: it can read, wait and search, not ${name === "post" ? "post" : `use ${name}`}. Ask your person to give it full access on the web.`);
   }
 
@@ -1362,6 +1385,26 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
         for (const { entry, snippet } of r.entries) out.push(formatEntry(withNames([entry], names)[0], 300, user) + (snippet ? `\n    match: ${snippet.replace(/\s+/g, " ")}` : ""));
       }
       return fence(out.join("\n"));
+    }
+
+    case "grep": {
+      // board "this" (default) is the session's board; "all" is every board the user is on (no joined board needed).
+      const id = args.board === "all" ? null : await currentBoard(c, {});
+      try {
+        const r = await runGrep(env, user, typeof args.pattern === "string" ? args.pattern : "", {
+          regex: args.regex === true,
+          caseSensitive: args.case_sensitive === true,
+          author: normalizeUser(str(args.author)) ?? str(args.author),
+          type: str(args.type),
+          since: str(args.since) ?? int(args.since),
+          context: int(args.context),
+          max: int(args.max),
+          files: args.files === true,
+        }, id);
+        return r.count ? fence(r.text) : r.text;
+      } catch (e) {
+        throw new ToolError(e instanceof Error ? e.message : String(e));
+      }
     }
 
     case "invite": {

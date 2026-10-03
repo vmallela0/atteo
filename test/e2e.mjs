@@ -164,7 +164,7 @@ await step("MCP initialize, tools/list, notifications, protocol errors", async (
   assert(r.protocolVersion === "2025-06-18" && r.serverInfo.name === "atteo" && r.serverInfo.title === "Atteo", JSON.stringify(r));
   has(r.instructions, "Atteo");
   const names = (await rpcRaw(auth(A), null, "tools/list", {})).tools.map((t) => t.name).sort();
-  assert(JSON.stringify(names) === JSON.stringify(["agents", "approval", "claim", "create_board", "doc", "get", "handle", "invite", "join_board", "leave_board", "list_boards", "mailbox", "memory", "people", "post", "publish", "react", "read", "recap", "remember", "request_approval", "retract", "review", "schedules", "search", "session", "task", "trigger", "wait"]), names.join());
+  assert(JSON.stringify(names) === JSON.stringify(["agents", "approval", "claim", "create_board", "doc", "get", "grep", "handle", "invite", "join_board", "leave_board", "list_boards", "mailbox", "memory", "people", "post", "publish", "react", "read", "recap", "remember", "request_approval", "retract", "review", "schedules", "search", "session", "task", "trigger", "wait"]), names.join());
   assert((await rpcRaw(auth(A), null, "notifications/initialized", {}, { notification: true })).status === 202, "notification status");
   assert((await rpcRaw({}, null, "notifications/initialized", {}, { notification: true })).status === 401, "no credentials: 401 so OAuth clients can sign in");
   assert((await fetch(`${BASE}/mcp`)).status === 405, "GET /mcp should be 405");
@@ -1062,6 +1062,81 @@ await step("chat search: ranked results, scoped to one person or one agent; memb
   assert(personOnly.entries.length === 1 && personOnly.entries[0].seq === w.entry.seq, JSON.stringify(personOnly));
   assert((await web(`/api/boards/${board}/search?q=${word}`, OUT)).status === 404, "outsider 404");
   await ok(B, board, "read"); // leave B caught up for the next steps
+});
+
+await step("grep: exact lines on one board (MCP and REST), case, regex, context, author, since, files", async () => {
+  const w = `grepword${run}`;
+  await ok(A, board, "read");
+  const s1 = seqOf(await ok(A, board, "post", { type: "note", text: `intro line\nthe ${w} sits here\noutro line` }));
+  await ok(B, board, "read");
+  const s2 = seqOf(await ok(B, board, "post", { type: "note", text: `B mentions ${w.toUpperCase()}-v2 too` }));
+  await ok(A, board, "read");
+  let t = await ok(A, board, "grep", { pattern: w });
+  has(t, "2 hits in e2e-");
+  has(t, `#${s1} ${A}: the «${w}» sits here`);
+  has(t, `#${s2} ${B}: B mentions «${w.toUpperCase()}»-v2 too`);
+  assert(t.indexOf(`#${s2} `) < t.indexOf(`#${s1} `), "newest first");
+  t = await ok(A, board, "grep", { pattern: w, case_sensitive: true });
+  has(t, "1 hit in");
+  assert(!t.includes(`#${s2} `), t);
+  t = await ok(A, board, "grep", { pattern: `${w}-v\\d`, regex: true });
+  has(t, "1 hit in");
+  has(t, `«${w.toUpperCase()}-v2»`);
+  t = await ok(A, board, "grep", { pattern: w, context: 1, author: A });
+  has(t, `#${s1} ${A}: intro line ⏎ the «${w}» sits here ⏎ outro line`);
+  assert(!t.includes(`#${s2} `), "author filter");
+  t = await ok(A, board, "grep", { pattern: w, since: String(s1) });
+  has(t, "1 hit in");
+  has(t, `#${s2} `);
+  const r = await (await web(`/api/boards/${board}/grep?q=${w}&author=${B}`, A)).json();
+  assert(r.count === 1 && r.hits[0].seq === s2 && r.hits[0].author === B && r.text.split("\n").length === 2, JSON.stringify(r));
+  const name = `grep-${run}.md`;
+  await ok(A, board, "doc", { action: "write", name, content: `# Plan\nline two ${w}\n`, base_version: 0, summary: "grep file" });
+  await ok(A, board, "read");
+  const s3 = seqOf(await ok(A, board, "post", { type: "note", text: `after the file: ${w}` }));
+  // The newest candidate is an entry, then the file: entries waiting for their lookup are read mid-scan, in order.
+  t = await ok(A, board, "grep", { pattern: w, files: true });
+  has(t, `/${name}:2: line two «${w}»`);
+  assert(t.indexOf(`#${s3} `) > 0 && t.indexOf(`#${s3} `) < t.indexOf(`/${name}:2:`) && t.indexOf(`/${name}:2:`) < t.indexOf(`#${s2} `), t);
+  assert(!(await ok(A, board, "grep", { pattern: w })).includes(`/${name}:`), "files only with files: true");
+  await err(A, board, "grep", { pattern: "(a+)+", regex: true }, "nested repetition");
+  assert((await web(`/api/boards/${board}/grep?q=(a%2B)%2B&regex=1`, A)).status === 400, "bad regex is a 400");
+  assert((await web(`/api/boards/${board}/grep?q=${w}`, OUT)).status === 404, "outsider 404");
+  has(await ok(A, board, "grep", { pattern: `nothingmatches${run}` }), "0 hits in");
+});
+
+await step("grep: a pattern without a 3+ char literal scans only recent entries and says so", async () => {
+  const t = await ok(A, board, "grep", { pattern: "\\w+-v2", regex: true });
+  has(t, "no 3+ char literal: newest 2,000 entries only");
+  has(t, `${B}: B mentions «GREPWORD${run.toUpperCase()}-v2» too`);
+});
+
+await step("grep: across all your boards, encrypted boards skipped, max and early stop", async () => {
+  const w = `xgrep${run}`;
+  const b2 = (await ops("boards", { user: A, title: `e2e grep two ${run}` })).body.board.id;
+  const eb = (await ops("boards", { user: A, title: `e2e grep enc ${run}`, encrypted: true })).body.board.id;
+  await ok(A, board, "read");
+  await ok(A, board, "post", { type: "note", text: `${w} on the main board` });
+  await ok(A, b2, "read");
+  for (let i = 0; i < 3; i++) await ok(A, b2, "post", { type: "note", text: `${w} number ${i}` });
+  // No joined board needed for "all".
+  let t = await ok(A, null, "grep", { pattern: w, board: "all" });
+  assert(/^4 hits in \d+ boards \(\d+ encrypted skipped/.test(t.split("\n").find((l) => /hits in/.test(l)) ?? ""), t);
+  has(t, `e2e-grep-two-`);
+  has(t, `: «${w}» number 2`);
+  has(t, `: «${w}» on the main board`);
+  t = await ok(A, board, "grep", { pattern: w, board: "all", max: 2 });
+  has(t, "2 hits in");
+  has(t, "stopped at max 2");
+  const r = await (await web(`/api/grep?q=${w}&max=3`, A)).json();
+  assert(r.count === 3 && r.hits.length === 3 && r.encrypted_skipped >= 1 && r.hits.every((h) => h.text.includes(`«${w}»`)), JSON.stringify(r).slice(0, 600));
+  const e = await (await web(`/api/boards/${eb}/grep?q=${w}`, A)).json();
+  assert(e.count === 0 && e.encrypted_skipped === 1 && e.text.includes("encrypted"), JSON.stringify(e));
+  const out = await (await web(`/api/grep?q=${w}`, OUT)).json();
+  assert(out.count === 0, `outsiders see nothing: ${JSON.stringify(out).slice(0, 300)}`);
+  assert((await web(`/api/grep?q=${w}`, null)).status !== 200, "needs sign-in");
+  // Archive them again so A stays within the Free plan's active boards for later steps.
+  for (const id of [b2, eb]) assert((await web(`/api/boards/${id}/archive`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ archived: true }) })).status === 200, "archive");
 });
 
 await step("secret filter: credentials are blocked everywhere they could be posted, and nothing is stored", async () => {

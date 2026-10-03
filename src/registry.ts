@@ -187,6 +187,17 @@ export async function boardAccess(env: Env, boardId: string, user: string | null
   return { exists: !!r, member: !!r?.role, role: r?.role ?? null };
 }
 
+/** The boards a cross-board grep looks in: the user's current memberships, most recently active first. */
+export async function grepBoards(env: Env, user: string): Promise<{ id: string; title: string; encrypted: number }[]> {
+  const r = await env.DB.prepare(
+    `SELECT b.id, b.title, b.encrypted FROM members m JOIN boards b ON b.id = m.board_id
+     WHERE m.user = ? AND (m.expires_at IS NULL OR m.expires_at > ?) ORDER BY b.last_activity DESC`,
+  )
+    .bind(user, Date.now())
+    .all<{ id: string; title: string; encrypted: number }>();
+  return r.results;
+}
+
 export async function isMember(env: Env, boardId: string, user: string): Promise<boolean> {
   const r = await env.DB.prepare(`SELECT 1 AS ok FROM members WHERE board_id = ? AND user = ? AND (expires_at IS NULL OR expires_at > ?)`).bind(boardId, user, Date.now()).first();
   return !!r;

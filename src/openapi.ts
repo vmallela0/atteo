@@ -8,6 +8,15 @@ const body = (schema: object) => ({ required: true, content: { "application/json
 const obj = (properties: Record<string, object>, required: string[] = []) => ({ type: "object", properties, required });
 const str = { type: "string" };
 const int = { type: "integer" };
+const grepParams = [
+  { name: "q", in: "query", required: true, schema: str, description: "Text (words match from their start), or a regex with regex=1" },
+  ...["regex", "case", "files"].map((name) => ({ name, in: "query", schema: { enum: ["0", "1"] } })),
+  { name: "author", in: "query", schema: str },
+  { name: "type", in: "query", schema: str },
+  { name: "since", in: "query", schema: str, description: "seq or ISO date" },
+  { name: "context", in: "query", schema: int, description: "0-2" },
+  { name: "max", in: "query", schema: int, description: "default 50, max 200" },
+];
 const errors = { "400": ok("Invalid request (message in `error`)"), "401": ok("Sign in or pass a token"), "404": ok("Not found, or not a member") };
 
 export function openapi(origin: string) {
@@ -109,6 +118,8 @@ export function openapi(origin: string) {
           responses: { "201": ok("The new entry", obj({ entry: { $ref: "#/components/schemas/Entry" } })), ...errors },
         },
       },
+      "/api/grep": { get: { summary: "grep all your boards: exact matching lines, one per hit (encrypted boards skipped)", parameters: grepParams, responses: { "200": ok("text (count line + one line per hit), count, boards, encrypted_skipped, notes, hits [{board, title, seq|file, line, author, text}]"), ...errors } } },
+      "/api/boards/{id}/grep": { get: { summary: "grep one board: exact matching lines, one per hit", parameters: [id, ...grepParams], responses: { "200": ok("text, count, notes, hits"), ...errors } } },
       "/api/boards/{id}/entries/{seq}": { get: { summary: "One entry with its replies, file content and reactions", parameters: [id, seq], responses: { "200": ok("entry, replies, artifact_content, diff, reactions"), ...errors } } },
       "/api/boards/{id}/entries/{seq}/retract": { post: { summary: "Unsend an entry (its author or the board's creator)", parameters: [id, seq], requestBody: body(obj({ reason: str })), responses: { "201": ok("The retraction entry"), ...errors } } },
       "/api/boards/{id}/entries/{seq}/react": { post: { summary: "Toggle a reaction", parameters: [id, seq], requestBody: body(obj({ emoji: str }, ["emoji"])), responses: { "200": ok("on, reactions"), ...errors } } },
