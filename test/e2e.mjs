@@ -393,16 +393,18 @@ let fakeOn = false;
 
 await step("app sign-in: start answers the same whether or not the email has an account; malformed is 400", async () => {
   assert((await ops("users", { name: APPU, email: `${APPU}@example.com`, verified: "true" })).status === 201, "ops user");
+  // Malformed addresses stop before anything is sent.
+  assert((await signin("start", { email: "not-an-email" })).status === 400, "malformed email");
+  assert((await signin("start", {})).status === 400, "missing email");
+  // Is the local fake path on? (000000 for a fresh test address.) Without it, start would ask WorkOS to email
+  // example.com addresses, so nothing below runs: this suite sends no email.
+  const probe = await signin("verify", { email: `e2e-probe-${run}@example.com`, code: "000000" });
+  fakeOn = probe.status === 200;
+  if (!fakeOn) return console.log(`      (fake code is off here: the app sign-in steps are skipped. Set DEV_FAKE_MAGIC=1 in .dev.vars to run them.)`);
   const known = await signin("start", { email: `${APPU}@Example.com ` });
   const unknown = await signin("start", { email: `e2e-nobody-${run}@example.com` });
   assert(known.status === 200 && unknown.status === 200, `${known.status} ${unknown.status}`);
   assert(known.text === unknown.text && known.text === JSON.stringify({ ok: true }), `same answer: ${known.text} vs ${unknown.text}`);
-  assert((await signin("start", { email: "not-an-email" })).status === 400, "malformed email");
-  assert((await signin("start", {})).status === 400, "missing email");
-  // Is the local fake path on? (000000 for a fresh test address.)
-  const probe = await signin("verify", { email: `e2e-probe-${run}@example.com`, code: "000000" });
-  fakeOn = probe.status === 200;
-  if (!fakeOn) console.log(`      (fake code is off here: the rest of the app sign-in steps are skipped. Set DEV_FAKE_MAGIC=1 in .dev.vars to run them.)`);
 });
 
 await step("app sign-in: a wrong or malformed code is one generic 400, for known and unknown emails alike", async () => {
@@ -412,9 +414,7 @@ await step("app sign-in: a wrong or malformed code is one generic 400, for known
   assert(a.status === 400 && b.status === 400 && a.text === b.text, `${a.status} ${a.text} / ${b.status} ${b.text}`);
   has(a.body.error, "didn't work");
   for (const code of ["12345", "abcdef", "", "0000000"]) assert((await signin("verify", { email: `${APPU}@example.com`, code })).status === 400, `code ${JSON.stringify(code)}`);
-  // Real addresses never take the fake code, even locally.
-  const real = await signin("verify", { email: `${APPU}@gmail.com`, code: "000000" });
-  assert(real.status === 400, `a real address must go to WorkOS: ${real.status} ${real.text}`);
+  // (Real addresses never take the fake code: test/appSignin.test.ts, without calling WorkOS from here.)
 });
 
 await step("app sign-in: the right code mints an app (person) token: /api/me works, Settings lists it as the app", async () => {

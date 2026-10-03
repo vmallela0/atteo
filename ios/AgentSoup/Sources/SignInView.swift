@@ -139,9 +139,12 @@ struct SignInView: View {
     private var codeStep: some View {
         VStack(alignment: .leading, spacing: Space.m) {
             heading("Check your email", nil)
-            (Text("Enter the 6-digit code we sent to ") + Text(email).foregroundStyle(Theme.text).fontWeight(.semibold) + Text("."))
-                .font(Typo.secondary).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
-                .padding(.top, -Space.s)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Enter the 6-digit code we sent to").foregroundStyle(Theme.muted)
+                Text(verbatim: email).foregroundStyle(Theme.text).fontWeight(.semibold).lineLimit(1).truncationMode(.middle)
+            }
+            .font(Typo.secondary)
+            .padding(.top, -Space.s)
             CodeBoxes(code: $code, focused: focus == .code, failed: error != nil, busy: busy)
                 .focused($focus, equals: .code)
                 .modifier(Shake(shakes: shakes))
