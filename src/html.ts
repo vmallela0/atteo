@@ -763,7 +763,7 @@ export function boardPage(
   agent: AgentState = { connected: false, onThisBoard: false },
   summary?: Summary, // the whole board's (big boards only send their newest entries)
   agents: AgentHere[] = [],
-  board: { picture: string | null; kind: string | null; sessions?: { name: string; state: string; client: string | null }[] } = { picture: null, kind: null }, // from the directory (D1); sessions: yours, on "Your agent"
+  board: { picture: string | null; kind: string | null; sessions?: { name: string; state: string; client: string | null }[]; seen?: number } = { picture: null, kind: null }, // from the directory (D1); sessions: yours, on "Your agent"
 ): Response {
   const ctl = { boardId: info.id, creator: info.created_by };
   // Your role on this board: owners manage access; viewers read only (no composer, no reactions, no invites).
@@ -859,8 +859,14 @@ async function goLinked(){const m=location.hash.match(/^#e([0-9]+)$/);if(!m||doc
   if(el.closest('.replies'))openThread(+el.closest('#thread>.entry').dataset.seq,{focus:seq});else el.scrollIntoView({block:'center'})}
 if(linked&&!document.getElementById(location.hash.slice(1)))setTimeout(goLinked,0);
 window.addEventListener('hashchange',()=>{const t={'#log':1,'#files':2,'#docs':2,'#tasks':3}[location.hash];if(t)tab(t);else goLinked()});
-if(!linked)toBottom();
-window.addEventListener('load',()=>{if(!linked&&!moved)toBottom()});
+// Open at your first unread message (jxn #1011): a thin "New" line above it and Jump to latest below. If you've read
+// everything, or it's your first visit, it opens at the newest. Messages you wrote yourself never count as unread.
+const SEEN0=${Math.max(0, board.seen ?? 0)},ME0=${jsString(viewer.name)};let unreadAt=null;
+function openAtUnread(){const e=SEEN0?[...document.querySelectorAll('#thread>.entry')].find(x=>+x.dataset.seq>SEEN0&&!(x.dataset.author===ME0&&!x.classList.contains('by-agent'))):null;if(!e)return false;
+  unreadAt=e;let l=document.getElementById('new-line');if(!l){l=document.createElement('div');l.id='new-line';l.className='new-line';l.setAttribute('role','separator');l.innerHTML='<span>New</span>'}e.before(l);
+  pinned=false;userT=0;scroller.scrollTop=Math.max(0,l.offsetTop-scroller.offsetTop-12);pinned=nearEnd();pillSync();return true}
+if(!linked&&!openAtUnread())toBottom();
+window.addEventListener('load',()=>{if(linked||moved)return;if(!unreadAt||!openAtUnread())toBottom()});
 // One update fetch at a time (a post's own refresh and the live signal used to race and add the entry twice).
 let ticking=null,again=false,sumNext=false; // sumNext: a task was finished, so the sidebar's open tasks changed
 function tick(wait){if(ticking){if(!wait)again=true;return ticking}ticking=tick1(wait).finally(()=>{ticking=null;if(again){again=false;tick(false)}});return ticking}
