@@ -25,6 +25,9 @@ final class AppState: ObservableObject {
     @Published var handling: [String: [Int: Handling]] = [:] // per board, per message: who's on it ("On it")
     @Published var loadingEarlier: Set<String> = [] // boards loading older messages right now
     private var seenSent: [String: Int] = [:] // per board: the last "seen up to" this phone reported
+    // Who's typing (Typing.swift).
+    @Published var typing: [String: [String: Double]] = [:] // per board, per person: typing until (ms epoch)
+    var typingSent: [String: Date] = [:] // per board: when this phone last said you're typing
     @Published var jumpRequest: JumpRequest? // a message to show once its chat opens (a search hit in Chats)
     @Published var openRequest: Board? // a chat to open from anywhere (Message on someone's card)
     struct JumpRequest: Equatable { let board: String; let seq: Int }
@@ -318,7 +321,10 @@ final class AppState: ObservableObject {
     /// While a chat is open: its live socket, so checklists tick and messages land the moment they change.
     /// Runs until the chat closes (the caller's task is cancelled); reconnects after a dropped connection.
     func watch(_ b: Board) async {
-        struct Event: Decodable { let type: String; var user: String?; var personSeen: Int?; var agentSeen: Int?; var seq: Int?; var by: String?; var done: Bool? }
+        struct Event: Decodable {
+            let type: String; var user: String?; var personSeen: Int?; var agentSeen: Int?; var seq: Int?; var by: String?; var done: Bool?
+            var who: String?; var until: Double?; var author: String?; var via: String? // typing; an entry's author
+        }
         var backoff: UInt64 = 1
         while !Task.isCancelled {
             guard let ws = API.shared.socket(board: b.id) else { return }
@@ -339,6 +345,14 @@ final class AppState: ObservableObject {
                     if e.type == "handling", let n = e.seq {
                         withAnimation(.smooth) { handling[b.id, default: [:]][n] = e.by.map { Handling(by: $0, user: nil, done: e.done) } }
                         continue
+                    }
+                    // "jxn is typing…" (people only; never you), until their message lands or it runs out.
+                    if e.type == "typing", let who = e.who, let until = e.until {
+                        if who != me?.owner { withAnimation(.smooth(duration: 0.25)) { typing[b.id, default: [:]][who] = until } }
+                        continue
+                    }
+                    if e.type == "entry", let a = e.author, e.via != "agent", typing[b.id]?[a] != nil {
+                        withAnimation(.smooth(duration: 0.25)) { typing[b.id]?[a] = nil } // sent: no longer typing
                     }
                     guard e.type == "task" || e.type == "entry" || e.type == "reaction" else { continue }
                     // Bursts (a done that ticks a parent and posts a line) refresh once.

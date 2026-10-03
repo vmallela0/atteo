@@ -402,6 +402,8 @@ struct ThreadView: View {
     private var composer: some View {
         let canSend = !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         return VStack(alignment: .leading, spacing: Space.xs) {
+            // Who's typing on this board (the ping says nothing about where, so the thread shows its chat's).
+            TypingRow(board: board.id).padding(.horizontal, -Space.m)
             HStack(alignment: .bottom, spacing: 0) {
                 ComposerField(text: $draft, focused: $focused, placeholder: "Reply…",
                               members: Set((state.members[board.id] ?? []).map { $0.lowercased() }), me: me, identifier: "thread-composer")
@@ -429,6 +431,8 @@ struct ThreadView: View {
         }
         .padding(.horizontal, Space.m).padding(.top, Space.s).padding(.bottom, Space.xs)
         .background(Theme.bg)
+        .animation(.smooth(duration: 0.25), value: state.typing[board.id])
+        .onChange(of: draft) { _, d in state.typed(d, in: board) }
     }
 
     private func send() {

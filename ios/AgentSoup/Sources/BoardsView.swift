@@ -456,6 +456,7 @@ struct BoardView: View {
     /// Above it, when they apply: who you're replying to, and who "@" can name.
     var composer: some View {
         VStack(spacing: 0) {
+            TypingRow(board: board.id)
             if !suggestions.isEmpty {
                 MentionList(items: suggestions, pick: insert)
                     .padding(.horizontal, Space.m).padding(.bottom, Space.xs)
@@ -496,6 +497,8 @@ struct BoardView: View {
         .animation(.spring(duration: 0.28, bounce: 0.1), value: suggestions.map(\.handle))
         .animation(.spring(duration: 0.28, bounce: 0.1), value: attachments.map(\.id))
         .animation(.spring(duration: 0.28, bounce: 0.1), value: preparing)
+        .animation(.smooth(duration: 0.25), value: state.typing[board.id])
+        .onChange(of: draft) { _, d in state.typed(d, in: board) } // "maya is typing…" for everyone else here
     }
 
     /// + at the leading edge of the message box: Photos, the camera (when there is one), Files. Encrypted boards
