@@ -386,9 +386,10 @@ final class AppState: ObservableObject {
 
     /// Sends a message: it shows at once (sending…), then becomes the real entry, or "not sent, tap to retry".
     /// `toSession`: on "Your agent", one of your sessions by name (nil: any of your agents).
-    func send(_ text: String, to b: Board, replyTo: Int? = nil, retrying old: Entry? = nil, toSession: String? = nil) async {
+    /// `type`: what a slash command makes it (SlashCommands.swift): note, task, decision or question.
+    func send(_ text: String, to b: Board, replyTo: Int? = nil, retrying old: Entry? = nil, toSession: String? = nil, type: String = "note") async {
         let mine = self.me?.owner ?? ""
-        let temp = old ?? Entry(seq: -Int(Date().timeIntervalSince1970 * 1000), ts: Date().timeIntervalSince1970 * 1000, author: mine, type: "note", text: text, title: nil, to: nil, via: "person", artifactName: nil, pending: true, replyTo: replyTo)
+        let temp = old ?? Entry(seq: -Int(Date().timeIntervalSince1970 * 1000), ts: Date().timeIntervalSince1970 * 1000, author: mine, type: type, text: text, title: nil, to: nil, via: "person", artifactName: nil, pending: true, replyTo: replyTo)
         var reply: [String: Any] = temp.replyTo.map { ["reply_to": $0] } ?? [:]
         if let toSession { reply["to_session"] = toSession }
         withAnimation(.smooth) {
@@ -403,11 +404,11 @@ final class AppState: ObservableObject {
             if b.encrypted == true {
                 // Encrypted here; the server stores and relays only the ciphertext.
                 let payload = try await BoardCrypto.shared.seal(text, board: b.id)
-                let data = try await API.shared.send("/api/boards/\(b.id)/sealed", body: (["type": "note", "payload": payload] as [String: Any]).merging(reply) { a, _ in a })
+                let data = try await API.shared.send("/api/boards/\(b.id)/sealed", body: (["type": temp.type, "payload": payload] as [String: Any]).merging(reply) { a, _ in a })
                 real = try JSONDecoder.soup.decode(PostResponse.self, from: data).entry
                 real.text = text
             } else {
-                let data = try await API.shared.send("/api/boards/\(b.id)/entries", body: (["type": "note", "text": text] as [String: Any]).merging(reply) { a, _ in a })
+                let data = try await API.shared.send("/api/boards/\(b.id)/entries", body: (["type": temp.type, "text": text] as [String: Any]).merging(reply) { a, _ in a })
                 real = try JSONDecoder.soup.decode(PostResponse.self, from: data).entry
             }
             withAnimation(.smooth) { entries[b.id] = (entries[b.id] ?? []).map { $0.seq == temp.seq ? real : $0 } }

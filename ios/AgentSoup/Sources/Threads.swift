@@ -445,10 +445,14 @@ struct ThreadView: View {
     }
 
     private var composer: some View {
-        let canSend = !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let slash = SlashCommand.parse(draft, on: board)
+        let canSend = slash.map { !$0.1.isEmpty } ?? !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let fits = SlashCommand.suggestions(draft, on: board)
         return VStack(alignment: .leading, spacing: Space.xs) {
             // Who's typing on this board (the ping says nothing about where, so the thread shows its chat's).
             TypingRow(board: board.id).padding(.horizontal, -Space.m)
+            if !fits.isEmpty { SlashChips(commands: fits) { c in Haptic.tap(); draft = c.word + " " }.padding(.horizontal, -Space.m) }
+            else if let (c, _) = slash { SlashChips(commands: [c], active: c) { _ in }.padding(.horizontal, -Space.m) }
             HStack(alignment: .bottom, spacing: 0) {
                 ComposerField(text: $draft, focused: $focused, placeholder: "Reply…",
                               members: Set((state.members[board.id] ?? []).map { $0.lowercased() }), me: me, identifier: "thread-composer")
@@ -481,15 +485,17 @@ struct ThreadView: View {
     }
 
     private func send() {
-        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        var text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        var type = "note"
+        if let (c, rest) = SlashCommand.parse(text, on: board) { text = c.body(rest); type = c.type }
         guard !text.isEmpty else { return }
         let echo = alsoToChat
         let r = rootSeq
         draft = ""
         Haptic.tap()
         Task {
-            await state.send(text, to: board, replyTo: r)
-            if echo { await state.send(text, to: board) }
+            await state.send(text, to: board, replyTo: r, type: type)
+            if echo { await state.send(text, to: board, type: type) }
             await load()
         }
     }

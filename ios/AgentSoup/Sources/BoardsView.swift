@@ -26,7 +26,12 @@ struct BoardView: View {
     @State private var focused = false // the message box has the keyboard
 
     private var list: [Entry] { state.entries[board.id] ?? [] }
-    private var canSend: Bool { (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty) && preparing == 0 }
+    private var canSend: Bool {
+        guard preparing == 0 else { return false }
+        if !attachments.isEmpty { return true }
+        if let (_, rest) = SlashCommand.parse(draft, on: board) { return !rest.isEmpty } // "/task" alone: nothing to send yet
+        return !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 
     // Pictures and files waiting in the message box (sent with the text, the way the web composer sends them).
     @State private var attachments: [Attachment] = []
@@ -467,6 +472,12 @@ struct BoardView: View {
         VStack(spacing: 0) {
             TypingRow(board: board.id)
             if board.isAgentChat { AgentToPicker(to: $toSession) }
+            // "/": what a message can be besides a note (a task, a decision, a question).
+            if attachments.isEmpty {
+                let fits = SlashCommand.suggestions(draft, on: board)
+                if !fits.isEmpty { SlashChips(commands: fits) { c in Haptic.tap(); draft = c.word + " " } }
+                else if let (c, _) = SlashCommand.parse(draft, on: board) { SlashChips(commands: [c], active: c) { _ in } }
+            }
             if !suggestions.isEmpty {
                 MentionList(items: suggestions, pick: insert)
                     .padding(.horizontal, Space.m).padding(.bottom, Space.xs)
@@ -508,6 +519,7 @@ struct BoardView: View {
         .animation(.spring(duration: 0.28, bounce: 0.1), value: attachments.map(\.id))
         .animation(.spring(duration: 0.28, bounce: 0.1), value: preparing)
         .animation(.smooth(duration: 0.25), value: state.typing[board.id])
+        .animation(.spring(duration: 0.28, bounce: 0.1), value: draft.hasPrefix("/"))
         .onChange(of: draft) { _, d in state.typed(d, in: board) } // "maya is typing…" for everyone else here
     }
 
@@ -580,7 +592,9 @@ struct BoardView: View {
         withAnimation(.spring(duration: 0.3, bounce: 0.15)) { attachments = [] }
         Haptic.tap()
         Task {
-            if files.isEmpty { await state.send(text, to: board, toSession: board.isAgentChat ? toSession : nil) } else { await state.send(files: files, caption: text, to: board) }
+            if files.isEmpty, let (c, rest) = SlashCommand.parse(text, on: board) {
+                await state.send(c.body(rest), to: board, toSession: board.isAgentChat ? toSession : nil, type: c.type)
+            } else if files.isEmpty { await state.send(text, to: board, toSession: board.isAgentChat ? toSession : nil) } else { await state.send(files: files, caption: text, to: board) }
         }
     }
 }
