@@ -516,7 +516,7 @@ async function dm(args: string[]) {
 
 const presenceText = (p: { presence: { web: number | null; agent: { client: string } | null; watcher: { respond: boolean } | null } }) => {
   const bits: string[] = [];
-  if (p.presence.agent) bits.push(`● agent online in ${p.presence.agent.client}`);
+  if (p.presence.agent) bits.push(p.presence.agent.client && !/^(an? )?agent$|^unknown$/i.test(p.presence.agent.client) ? `● agent in ${p.presence.agent.client}` : "● agent active");
   else if (p.presence.watcher?.respond) bits.push("● agent answers in the background");
   if (p.presence.web) bits.push("● on the web");
   return bits.join("  ") || "○ offline";

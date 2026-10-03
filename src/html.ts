@@ -7,6 +7,7 @@ import type { TokenRow } from "./auth";
 import { authorLabel, computeSummary, retractedSet, type Summary } from "./state";
 import { forAgent, forPerson, mentionLabel } from "./mentions";
 import { screenText } from "./screen";
+import { clientName, presenceLabel } from "./social";
 import type { ChangeCard } from "./card";
 import type { BoardInfo, Entry } from "./types";
 import { appPage, avatar, avatarStack, boardPic, copyField, hue, page, renderText, typeTag, when, working, type SideBoard, type Viewer } from "./ui";
@@ -1081,9 +1082,9 @@ document.addEventListener('click',e=>{const h=e.target.closest('#board-info .fol
 foldApply();
 // A quiet "Seen by …" line under your latest message; older ones show it once you click their time.
 const RCPT_OPEN=new Set();
-function rcptText(e){const seq=+e.dataset.seq,who=audience(e).filter(w=>w.u!==ME);if(!who.length)return '';
+function rcptText(e){const seq=+e.dataset.seq,who=audience(e);if(!who.length)return '';
   const read=who.filter(w=>seenAs(w.u,w.agent)>=seq);if(!read.length)return 'Delivered';if(read.length===who.length)return 'Seen by everyone';
-  return 'Seen by '+read.map(w=>w.agent?w.u+"'s agent":w.u).join(', ')}
+  return 'Seen by '+read.map(w=>w.u===ME?(w.agent?'your agent':'you'):w.agent?w.u+"'s agent":w.u).join(', ')}
 function renderRcpts(){
   document.querySelectorAll('#thread .rcpt-line').forEach(x=>x.remove());
   const own=[...document.querySelectorAll('#thread .entry')].filter(e=>e.dataset.author===ME&&!e.classList.contains('retracted'));
@@ -1102,8 +1103,8 @@ function renderReads(){
   document.querySelectorAll('#thread .rd').forEach(x=>{x.closest('.entry')?.classList.remove('has-rd');x.remove()});
   // Every message you (or your agent) wrote gets a small ring: hover/focus/tap it for who has seen THAT message, from READS.
   [...document.querySelectorAll('#thread .entry')].filter(e=>e.dataset.author===ME&&!e.classList.contains('retracted')).forEach(mine=>{
-  const seq=+mine.dataset.seq,who=audience(mine).filter(w=>w.u!==ME),read=who.filter(w=>seenAs(w.u,w.agent)>=seq),all=who.length>0&&read.length===who.length;
-  const C=2*Math.PI*6,frac=who.length?read.length/who.length:0,name=w=>esc(w.agent?w.u+"'s agent":w.u),pid='rdp'+seq;
+  const seq=+mine.dataset.seq,who=audience(mine),read=who.filter(w=>seenAs(w.u,w.agent)>=seq),all=who.length>0&&read.length===who.length;
+  const C=2*Math.PI*6,frac=who.length?read.length/who.length:0,name=w=>w.u===ME?(w.agent?'Your agent':'You'):esc(w.agent?w.u+"'s agent":w.u),pid='rdp'+seq;
   const head=!who.length?'No one else here yet':all?'Seen by everyone':read.length?'Seen by '+read.length+' of '+who.length:'Delivered · not seen yet';
   const el=document.createElement('button');el.type='button';el.className='rd'+(all?' all':'')+(RD_OPEN===seq?' open':'');el.setAttribute('aria-describedby',pid);el.setAttribute('aria-expanded',String(RD_OPEN===seq));
   el.setAttribute('aria-label',who.length?(read.length?'Seen by '+read.length:'Not seen yet'):'No one else here yet');
@@ -1383,10 +1384,10 @@ async function hShow(t,pin){hFor=t.el;hPinned=!!pin;const [j,aj]=await Promise.a
   const on=p.presence&&(p.presence.agent||p.presence.web||(p.presence.watcher&&p.presence.watcher.respond));
   const owner=esc(p.display_name||p.name);
   let ag='';if(t.agent){const live=(a&&a.sessions||[]).filter(s=>s.active);
-    ag='<div class="hc-agent"><div class="xs faint">Agent of <a class="link" href="/u/'+esc(p.name)+'">'+owner+'</a></div>'+
+    ag='<div class="hc-agent"><div class="xs faint"><a class="link" href="/u/'+esc(p.name)+'">'+owner+'</a>\u2019s agent</div>'+
       (a&&a.summary?'<p class="hc-bio">'+esc(a.summary)+'</p>':'')+
       (a&&a.capabilities&&a.capabilities.length?'<div class="hc-caps">'+a.capabilities.slice(0,6).map(c=>'<span class="badge">'+esc(c)+'</span>').join('')+'</div>':'')+
-      (live.length?'<div class="xs hc-live">'+live.slice(0,2).map(s=>'<span class="pres on"></span> '+esc(s.name||s.client||'agent')+(s.status?': '+esc(s.status):' is working')).join('<br>')+'</div>':'')+'</div>'}
+      (live.length?'<div class="xs hc-live">'+live.slice(0,2).map(s=>{const tool=s.client&&!/^(an? )?agent$|^unknown$/i.test(s.client)?s.client:'';return '<span class="pres on"></span> '+esc(s.name||tool||'session')+(tool&&tool!==s.name?' <span class="faint">· '+esc(tool)+'</span>':'')+(s.status?': '+esc(s.status):' <span class="faint">· active</span>')}).join('<br>')+'</div>':'')+'</div>'}
   const cta=document.getElementById('composer-text');
   const ask=t.agent&&p.relation!=='self'&&cta&&!cta.disabled?'<button class="btn sm" data-ask="'+esc(p.name)+'">Ask '+esc(p.name)+"'s agent</button>":'';
   hcard.innerHTML='<div class="row" style="gap:12px;align-items:center">'+avatar16(p.name,t.agent).replace('av sm','av lg')+'<div class="grow" style="min-width:0"><div class="hc-name">'+esc(t.agent?p.name+"'s agent":(p.display_name||p.name))+'</div><div class="xs faint">@'+esc(p.name)+(p.shared_boards?' · '+p.shared_boards+' shared board'+(p.shared_boards===1?'':'s'):'')+'</div></div></div>'+
@@ -1853,7 +1854,7 @@ if(new URLSearchParams(location.search).get('billing')==='done')toast('Thanks! Y
 type FriendsData = Awaited<ReturnType<typeof import("./social").friendsOf>>;
 function presenceDot(p: { presence: { web: number | null; agent: { client: string } | null; watcher: { respond: boolean } | null } }): string {
   const on = p.presence.agent || p.presence.web || p.presence.watcher?.respond;
-  const label = p.presence.agent ? (p.presence.agent.client && p.presence.agent.client !== "agent" ? `agent online in ${p.presence.agent.client}` : "agent online") : p.presence.watcher?.respond ? "agent answers in the background" : p.presence.web ? "on the web" : "offline";
+  const label = presenceLabel(p.presence);
   return `<span class="pres${on ? " on" : ""}"></span><span class="xs faint">${esc(label)}</span>`;
 }
 /** People: your friends (and whether they or their agents are around), requests, finding someone, and who you've blocked. */
@@ -1932,7 +1933,7 @@ export function profilePage(viewer: Viewer, side: SideBoard[], p: import("./soci
     <div class="xs faint">Works for ${esc(p.display_name ?? p.name)}${ag?.online ? ` · <span class="pres on"></span> online now` : ""}</div>
     ${ag?.summary ? `<p class="prof-bio">${esc(ag.summary)}</p>` : `<p class="prof-bio faint">No summary yet.</p>`}
     ${ag?.capabilities.length ? `<div class="hc-caps">${ag.capabilities.slice(0, 12).map((c) => `<span class="badge">${esc(c)}</span>`).join("")}</div>` : ""}
-    ${live.length ? `<div class="xs muted" style="margin-top:8px">${live.slice(0, 3).map((x) => `<span class="pres on"></span> ${esc(x.name || x.client || "agent")}${x.status ? `: ${esc(x.status)}` : " is working"}`).join("<br>")}</div>` : ""}
+    ${live.length ? `<div class="xs muted" style="margin-top:8px">${live.slice(0, 3).map((x) => `<span class="pres on"></span> ${esc(x.name || clientName(x.client) || "session")}${clientName(x.client) && clientName(x.client) !== x.name ? ` <span class="faint">· ${esc(clientName(x.client)!)}</span>` : ""}${x.status ? `: ${esc(x.status)}` : ` <span class="faint">· active</span>`}`).join("<br>")}</div>` : ""}
   </div>
 </section>`;
   const body = `<div class="card pad prof prof-hero">
