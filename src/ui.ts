@@ -323,7 +323,7 @@ dialog.access-dlg{width:min(640px,calc(100vw - 24px))}
 .rx-add{display:none;align-items:center;height:24px;padding:0 7px;border-radius:999px;border:1px dashed var(--line-strong);background:none;color:var(--muted);font:inherit;font-size:13px;cursor:pointer}
 .rx-add span{font-size:11px;margin-left:1px}.rx-add:hover{color:var(--ink);border-style:solid}
 .rx.has .rx-add{display:inline-flex} /* with no reactions yet, "☺+" lives in the message's hover actions */
-/* agents' 👀 / ✅ on a person's message: a quiet receipt line under it, like the app */
+/* agents' 🤔 / ✅ on a person's message: a quiet receipt line under it, like the app */
 .rx.has-rcpt{margin-top:4px}.rx.has.has-rcpt{margin-top:6px}
 .rx-rcpt{flex-basis:100%;display:flex;flex-wrap:wrap;align-items:center;gap:0 6px;font-size:12px;line-height:18px;color:var(--muted)}
 .rx-rcpt .e{font-size:11.5px}.rx-rcpt .sep{color:var(--faint)}
@@ -740,7 +740,9 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
 .new-pill{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);z-index:4;box-shadow:var(--shadow-lg);border-radius:999px}
 .new-pill[hidden],.info-btn .count[hidden],.info-btn[hidden]{display:none}
 .conv .composer{flex:none;margin:6px 0 max(12px,env(safe-area-inset-bottom))}
-.conv .composer textarea{min-height:48px;max-height:30vh;resize:none}
+.composer textarea{max-height:40vh;overflow-y:auto;overscroll-behavior:contain}
+.conv .composer textarea{min-height:48px;resize:none}
+@media(max-width:480px){.composer textarea{max-height:200px}}
 /* composer mention chips: the mirror draws the text (chips included) under a transparent textarea that keeps the caret */
 .cmp-field{position:relative}
 .cmp-mirror{position:absolute;box-sizing:border-box;margin:0;border:0;pointer-events:none;overflow:hidden;white-space:pre-wrap;overflow-wrap:break-word;color:var(--text)}

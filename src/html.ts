@@ -91,7 +91,7 @@ ${
   const retract = opts.canRetract && !opts.retracted && e.retracts == null ? `<button class="btn ghost sm retract" type="button" data-retract="${e.seq}">Unsend</button>` : "";
   const react =
     !opts.retracted && e.retracts == null
-      ? ["👍", "✅", "👀"].map((q) => `<button class="btn ghost sm rx-q" type="button" data-qr="${e.seq}" data-emo="${q}" aria-label="React ${q}" title="React ${q}">${q}</button>`).join("") +
+      ? ["👍", "✅", "🤔"].map((q) => `<button class="btn ghost sm rx-q" type="button" data-qr="${e.seq}" data-emo="${q}" aria-label="React ${q}" title="React ${q}">${q}</button>`).join("") +
         `<button class="btn ghost sm rx-act" type="button" data-rx-add="${e.seq}" aria-label="Add a reaction" title="Add a reaction">☺+</button>`
       : "";
   // Select starts picking messages to forward (people only, from the page).
@@ -877,7 +877,7 @@ async function tick1(wait){try{
   if(added){railBuild();if(stick)toBottom();else{unseen=true;pillSync()}if(window.e2eSync)e2eSync()}
   if(d.entries.length){document.getElementById('sum').innerHTML=d.summary;foldApply();document.querySelectorAll('[data-count]').forEach(x=>x.textContent=d.count);refreshTimes();infoCount()}
 }catch(e){await new Promise(r=>setTimeout(r,5000))}}
-// Reactions that arrive live before their entry is on the page (an agent's 👀 often beats the entry's own fetch).
+// Reactions that arrive live before their entry is on the page (an agent's 🤔 often beats the entry's own fetch).
 const RXP={};
 // "#412" links read as chips with that message's title, so people never have to think in numbers.
 function refChips(root){(root||document).querySelectorAll('a.ref:not([data-done])').forEach(a=>{const t=document.getElementById('e'+a.dataset.ref)?.dataset.title;
@@ -971,7 +971,7 @@ function mrender(){mq=mfind();ms=mq?MOPTS.filter(o=>mq.q.includes('/')?o.ins.toL
   mm.hidden=false;ta.setAttribute('aria-expanded','true');ta.setAttribute('aria-activedescendant',mm.id+'-'+mi)}
 function mpick(o){const end=ta.selectionStart,before=ta.value.slice(0,mq.start),after=ta.value.slice(end);const ins='@'+o.ins+(/^\\s/.test(after)?'':' ');
   ta.value=before+ins+after;const p=before.length+ins.length;ta.setSelectionRange(p,p);mclose();ta.focus();msync()}
-ta.addEventListener('input',()=>{mi=0;mrender();ta.style.height='';ta.style.height=ta.scrollHeight+2+'px';msync()});
+ta.addEventListener('input',()=>{mi=0;mrender();ta.style.height='';ta.style.height=ta.scrollHeight+2+'px';if(ta.selectionStart===ta.value.length)ta.scrollTop=ta.scrollHeight;msync()}); // past the max height it scrolls inside; typing at the end keeps the caret in view
 ta.addEventListener('keydown',e=>{if(mm.hidden)return;
   if(e.key==='ArrowDown'||e.key==='ArrowUp'){mi=(mi+(e.key==='ArrowDown'?1:ms.length-1))%ms.length;mrender();e.preventDefault()}
   else if(e.key==='Enter'||e.key==='Tab'){mpick(ms[mi]);e.preventDefault()}
@@ -1248,28 +1248,28 @@ function reportSeen(){if(document.visibilityState!=='visible'||document.getEleme
     try{await fetch('/api/boards/'+BOARD+'/seen',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({seq:m})})}catch(e){seenSent=0}},800)}
 document.addEventListener('visibilitychange',reportSeen);window.addEventListener('focus',reportSeen);window.reportSeen=reportSeen;
 // ---- reactions: chips under each message (who reacted on hover; yours highlighted; click to toggle) and a quick picker ----
-const QUICK=['👍','✅','👀','🎉','❤️','🔥','😂','🙏'];
+const QUICK=['👍','✅','🤔','🎉','❤️','🔥','😂','🙏'];
 const SHORT={'+1':'👍',thumbsup:'👍','-1':'👎',thumbsdown:'👎',white_check_mark:'✅',heavy_check_mark:'✔️',check:'✅',eyes:'👀',tada:'🎉',heart:'❤️',fire:'🔥',joy:'😂',pray:'🙏',rocket:'🚀',
   raised_hands:'🙌',clap:'👏',ok_hand:'👌',thinking:'🤔',warning:'⚠️',x:'❌',100:'💯',hourglass:'⏳',bug:'🐛',ship:'🚢',sparkles:'✨',wave:'👋',smile:'😄',sob:'😭',muscle:'💪',star:'⭐'};
 const emo=e=>{const m=/^:([a-z0-9_+-]+):$/i.exec(e);return m&&SHORT[m[1].toLowerCase()]||e};
 const rxWho=u=>u===ME?'you':u===ME+"'s agent"?'your agent':u.startsWith(ME+'/')?'your agent '+u.slice(ME.length+1):u;
-// Agents' 👀 (read it, working) and ✅ (done) on a person's message are receipts, like the app: one quiet line under
-// it ("👀 read by jxn/builder · ✅ done by vedu's agent"), not chips (on your own messages only ✅: "Seen by" covers reading). Other reactions, and people's, stay chips.
+// Agents' 🤔 (read it, working; older boards have 👀) and ✅ (done) on a person's message are receipts, like the app: one quiet line under
+// it ("🤔 read by jxn/builder · ✅ done by vedu's agent"), not chips (on your own messages only ✅: "Seen by" covers reading). Other reactions, and people's, stay chips.
 const rxAgent=u=>u.endsWith("'s agent")||u.includes('/');
 const rxNames=us=>{const n=us.map(rxWho);return n.length<3?n.join(' and '):n.slice(0,2).join(', ')+' and '+(n.length-2)+' more'};
 function renderRx(seq,list){const row=document.querySelector('[data-rx="'+seq+'"]');if(!row){RXP[seq]=list;return}delete RXP[seq];const add=row.querySelector('.rx-add');
   row.querySelectorAll('.rx-chip,.rx-rcpt').forEach(c=>c.remove());
   const byPerson=!row.closest('.entry')?.classList.contains('by-agent');const seen=[],done=[],chips=[];
-  for(const r of list||[]){const rc=byPerson&&(r.emoji==='👀'||r.emoji==='✅')?r.users.filter(rxAgent):[];
+  for(const r of list||[]){const rc=byPerson&&(r.emoji==='🤔'||r.emoji==='👀'||r.emoji==='✅')?r.users.filter(rxAgent):[];
     (r.emoji==='✅'?done:seen).push(...rc);const rest=r.users.filter(u=>!rc.includes(u));if(rest.length)chips.push({emoji:r.emoji,users:rest})}
-  // An agent that's done isn't "reading" any more. On your own messages the "Seen by" line already says who read it, so 👀 adds nothing there.
+  // An agent that's done isn't "reading" any more. On your own messages the "Seen by" line already says who read it, so 🤔 adds nothing there.
   const mine=row.closest('.entry')?.dataset.author===ME,read=mine?[]:seen.filter(u=>!done.includes(u));
   for(const r of chips){const b=document.createElement('button');b.type='button';b.className='rx-chip'+(r.users.includes(ME)?' on':'');b.dataset.react=r.emoji;b.dataset.seq=seq;
     b.title=r.users.map(rxWho).join(', ');b.setAttribute('aria-label',emo(r.emoji)+' '+r.users.length+': '+b.title+(r.users.includes(ME)?'. Click to remove yours':'. Click to add yours'));
     b.innerHTML='<span class="e">'+esc(emo(r.emoji))+'</span><span class="c">'+r.users.length+'</span>';row.insertBefore(b,add)}
   if(read.length||done.length){const d=document.createElement('div');d.className='rx-rcpt';
     const part=(e,us,what)=>'<span title="'+esc(us.map(rxWho).join(', '))+'"><span class="e">'+e+'</span> '+what+' '+esc(rxNames(us))+'</span>';
-    d.innerHTML=[read.length?part('👀',read,'read by'):'',done.length?part('✅',done,'done by'):''].filter(Boolean).join('<span class="sep">·</span>');row.appendChild(d)}
+    d.innerHTML=[read.length?part('🤔',read,'read by'):'',done.length?part('✅',done,'done by'):''].filter(Boolean).join('<span class="sep">·</span>');row.appendChild(d)}
   row.classList.toggle('has',chips.length>0);row.classList.toggle('has-rcpt',!!(read.length||done.length))}
 async function react(seq,emoji){const r=await fetch('/api/boards/'+BOARD+'/entries/'+seq+'/react',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({emoji})});
   const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||"Couldn't react");return}renderRx(seq,j.reactions)}
