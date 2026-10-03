@@ -413,9 +413,9 @@ dialog.lightbox img{display:block;max-width:min(96vw,1600px);max-height:92vh;wid
 .att-x:hover{color:var(--ink)}
 .att.file{display:flex;flex-direction:column;justify-content:center;gap:2px;height:64px;max-width:180px;padding:0 12px;border:1px solid var(--line);border-radius:7px;background:var(--bg-subtle)}
 .att-name{font-size:12px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.composer .mic-btn,.composer .voice-btn{width:30px;padding:0;justify-content:center;color:var(--muted)}.composer .mic-btn:hover,.composer .voice-btn:hover{color:var(--ink)}
+.composer .mic-btn,.composer .aloud-btn{width:30px;padding:0;justify-content:center;color:var(--muted)}.composer .mic-btn:hover,.composer .aloud-btn:hover{color:var(--ink)}
 .composer .mic-btn.on{color:var(--on-ink);background:var(--danger);border-radius:999px}.composer .mic-btn.on svg{animation:mic-pulse 1.2s ease-in-out infinite}@keyframes mic-pulse{50%{opacity:.5}}
-.composer .voice-btn .vw{opacity:.35}.composer .voice-btn.on{color:var(--accent)}.composer .voice-btn.on .vw{opacity:1}
+.composer .aloud-btn .vw{opacity:.35}.composer .aloud-btn.on{color:var(--accent)}.composer .aloud-btn.on .vw{opacity:1}
 .voice-pill{display:flex;align-items:center;gap:4px;margin:0 0 8px;padding:2px 2px 2px 10px;border-left:2px solid var(--accent);font-size:12.5px}.voice-pill[hidden]{display:none}
 .voice-pill .vp-t{flex:1;min-width:0;text-align:left;background:none;border:0;padding:4px 0;color:var(--ink);font:inherit;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .composer .attach{width:30px;padding:0;justify-content:center;color:var(--muted)}.composer .attach:hover{color:var(--ink)}
