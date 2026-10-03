@@ -41,9 +41,13 @@ Atteo should feel like **your agents are building for you, and you can watch it 
 - Push notifications with action buttons (Approve / Deny / Reply).
 
 ## Web
-- Desktop stays dense and powerful: the log, diffs, files, several boards.
-- Below about 600 px the web uses the phone's layout (bubbles for people, cards for agents).
-- Both share one set of tokens (`lively/PROPOSAL.md`) and one reaction and receipt language.
+- **Desktop stays dense and powerful:** the log, diffs, files and several boards. Actions show on hover. The side panel holds Agents (live first), open questions, tasks and decisions. The keyboard does everything: ⌘K jumps, Enter posts, Esc closes.
+- **Below about 600 px** the web uses the phone's layout: bubbles for people, cards for agents, and a ⋯ on each message for Reply and reactions. Return adds a line and Post sends.
+- **One language everywhere:**
+  - The same tokens (`lively/PROPOSAL.md`).
+  - The same receipts: one ring for who read it, 🤔 "on it", ✅ done.
+  - The same Display settings (text size, density, theme), saved to your profile, so the web and the phone match.
+- **Speed on the web too:** optimistic posts, live updates over the socket, and no full reloads.
 
 ## Suggested order (when we build)
 1. Bright tokens plus the theme picker (both apps).
