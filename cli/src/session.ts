@@ -10,6 +10,8 @@ import { join } from "node:path";
 
 /** Shells and launchers between an agent and this process: skipped when looking for the agent. */
 const PASS_THROUGH = new Set(["sh", "bash", "zsh", "fish", "dash", "ksh", "tcsh", "csh", "nu", "pwsh", "powershell", "env", "sudo", "doas", "timeout", "xargs", "nohup", "time", "npx", "npm", "pnpm", "yarn", "bunx", "uv", "uvx", "script", "stdbuf", "agent-soup"]);
+/** A shell script run directly (./ship.sh, a git hook): the kernel names the process after the script. Not an agent. */
+const SHELL_SCRIPT = /\.(sh|bash|zsh)$/;
 /** Where a person's terminal starts: the session is the shell just below one of these. */
 const TERMINAL_HOSTS = /^(tmux|screen|sshd|login|systemd|init|launchd|gnome-terminal|konsole|xterm|alacritty|kitty|wezterm|iterm2|terminal|code|cursor|zellij|ghostty|warp|hyper|tabby|conhost|windowsterminal|wt|explorer)(?![a-z0-9])/i; // whole names: "code" is VS Code, not codex
 
@@ -23,8 +25,9 @@ interface Proc {
   comm: string;
 }
 
-/** Interpreters that run an agent from a script (npm-installed Claude Code and Gemini CLI run as `node …/claude`). */
-const INTERPRETERS = new Set(["node", "bun", "deno", "python", "python3", "ruby", "perl", "sh", "bash", "zsh", "dash"]);
+/** Interpreters that run an agent from a script (npm-installed Claude Code and Gemini CLI run as `node …/claude`).
+ *  Shells aren't here: a shell script (ship.sh, a git hook) is never an agent, so it's passed through like the shell. */
+const INTERPRETERS = new Set(["node", "bun", "deno", "python", "python3", "ruby", "perl"]);
 
 /** "node /usr/local/bin/claude" → "claude": the script an interpreter runs, if any (not for interactive shells). */
 function scriptName(comm: string, argv: string[]): string {
@@ -76,7 +79,7 @@ export function caller(): Caller {
       const t = lastShell ?? p;
       return { key: `${t.pid}:${t.start}`, client: "terminal", name: "terminal" };
     }
-    if (!PASS_THROUGH.has(b)) return { key: `${p.pid}:${p.start}`, client: CLIENTS[b] ?? p.comm, name: b in CLIENTS ? b.replace("cursor-agent", "cursor") : b };
+    if (!PASS_THROUGH.has(b) && !SHELL_SCRIPT.test(b)) return { key: `${p.pid}:${p.start}`, client: CLIENTS[b] ?? p.comm, name: b in CLIENTS ? b.replace("cursor-agent", "cursor") : b };
     lastShell = p;
     p = proc(p.ppid);
   }

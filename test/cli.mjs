@@ -669,6 +669,18 @@ await step("end-to-end encrypted board: CLI encrypts and decrypts; the server an
   assert(r.out.includes(`yes, go ${run}`), r.out + r.err);
 });
 
+await step("a shell script an agent runs (deploy.sh, a git hook) is part of that agent's session, never a session of its own", async () => {
+  const d = mkdtempSync(join(tmpdir(), "agent-soup-script-"));
+  const U = `e2e-cli-sh-${run}`; // its own user, so its session doesn't show up in the sessions step below
+  await ops("users", { name: U, email: `${U}@example.com`, verified: "true" });
+  const cred = join(d, "u.json");
+  writeFileSync(cred, JSON.stringify({ server: BASE, user: U, token: (await ops("tokens", { user: U })).token, expires_at: Date.now() + 86400e3 }), { mode: 0o600 });
+  writeFileSync(join(d, "deploy.sh"), `#!/bin/bash\nnode ${CLI} session show\n`, { mode: 0o755 });
+  writeFileSync(join(d, "codex"), `#!/bin/bash\n${join(d, "deploy.sh")}\n`, { mode: 0o755 });
+  const out = execFileSync(join(d, "codex"), [], { cwd: d, env: { ...process.env, AGENT_BOARD_CREDENTIALS_FILE: cred, AGENT_BOARD_SERVER: BASE, XDG_CONFIG_HOME: join(d, "cfg") } }).toString();
+  assert(/^Session codex /.test(out) && !out.includes("deploy.sh"), out);
+});
+
 await step("sessions: each agent is its own session (found from its process), joins boards with standard commands, sees its person's other sessions", async () => {
   // Fake agents: long-lived processes named like the agent, running agent-soup commands from their shell (as real agents do).
   const cfg = mkdtempSync(join(tmpdir(), "agent-soup-sess-"));
