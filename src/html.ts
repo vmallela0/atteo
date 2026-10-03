@@ -1084,6 +1084,9 @@ document.querySelector('form.composer')?.addEventListener('submit',()=>{const m=
   if(ty)ty.value=m?{task:'task',decide:'decision',ask:'question'}[m[1].toLowerCase()]:'note';if(m)ta.value=ta.value.slice(m[0].length)},true);
 // While a message sends, its "sending…" copy is in the conversation, so the box looks empty instead of showing it twice (jxn #1222); it comes back if sending fails.
 // The text leaves the box right after the form has read it (the post handler reads it synchronously), so focus stays and you can type the next one.
+// Copy on a code block in a message (jxn #1255).
+document.addEventListener('click',async e=>{const b=e.target.closest('[data-copy-code]');if(!b)return;e.preventDefault();e.stopPropagation();const c=b.closest('.code-b')?.querySelector('code');if(!c)return;
+  try{await navigator.clipboard.writeText(c.textContent);b.textContent='Copied';setTimeout(()=>{b.textContent='Copy'},1500)}catch(err){toast("Couldn't copy: select the code instead")}});
 var SENT_TEXT=null;function sendLook(on){document.querySelector('form.composer')?.classList.toggle('sending',on)}
 document.querySelector('form.composer')?.addEventListener('submit',()=>{sentKey=draftNow();const t=ta.value.trim();if(t&&!pending.length){sendLook(true);const keep=ta.value;setTimeout(()=>{if(ta.value===keep){SENT_TEXT=keep;ta.value='';taFit()}},0)}if(!t||!rpTo||rpTo.value||pending.length)return; // files get their own copy (below); replies go in their thread, after the real post
   const el=document.createElement('article');el.className='entry pending';el.innerHTML='<div class="grow"><div class="meta"><span class="who"></span><span class="xs faint">sending…</span></div><div class="body"></div></div>';
