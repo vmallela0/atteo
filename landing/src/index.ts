@@ -1,25 +1,23 @@
-// atteo.dev: the marketing page. A separate Worker from the app (../../src, served at APP_URL). One page, a 404,
-// robots.txt, the icons and the share image. No bindings, no storage, nothing to sign in to.
+// atteo.dev: the marketing page, and a transparent front for the app. This Worker answers only its own paths (the
+// signed-out home page, /og.png, /robots.txt, /sitemap.xml); every other request (API, MCP, OAuth, sign-in, boards,
+// the installer, WebSockets, the favicon) goes to the app Worker untouched, so nothing breaks when atteo.dev points here.
 //
 // Run: npx wrangler dev -c landing/wrangler.jsonc   ·   Deploy: npx wrangler deploy -c landing/wrangler.jsonc
 
-import { APPLE_TOUCH_PNG_B64 } from "../../src/appleIcon"; // the same 180 px Pebble tile the app serves
 import OG_PNG from "../og.png"; // 1200×630 share image, rendered from ../og.html
 
-/** Where the app lives. Every "Open Atteo" link, the install command and the deep-link redirects use this. */
-const APP_URL = "https://app.atteo.dev";
-const SITE_URL = "https://atteo.dev";
-const INSTALL_CMD = `curl -fsSL ${APP_URL}/install.sh | sh`; // what the app's installer (src/install.ts) is served as
+/**
+ * Where people open the app: "Open Atteo", the install command and the MCP URL all use it. Today that's this same host
+ * (the app is proxied behind it); switching to https://app.atteo.dev later is this one line.
+ */
+const APP_URL = "https://atteo.dev";
+const SITE_URL = "https://atteo.dev"; // where this page lives (canonical and share links)
+const INSTALL_CMD = `curl -fsSL ${APP_URL}/install.sh | sh`; // the app's installer (src/install.ts)
 const CONNECT_CMD = "claude mcp add --scope user board -- atteo mcp"; // CLI_STEPS.connect in src/html.ts
 
-// Links into the app that people already have (emails, bookmarks, the README, installed CLIs) from when the app was at
-// atteo.dev. Plain GETs only: /mcp, /api, /oauth and /auth/callback carry tokens or bodies a redirect would drop, so
-// those clients have to be pointed at APP_URL instead.
-const APP_PATHS = /^\/(?:install\.sh|cli\/[\w.-]+|openapi\.json|skill\.md|terms|privacy|boards|me|inbox|approvals|people|device|welcome|auth\/login|(?:b|join|u|i|avatar)\/[^/]+|\.well-known\/agent(?:-card)?\.json)$/;
-
-// The favicon: the Pebble on its bone tile. Copied from FAVICON_SVG in src/ui.ts (importing ui.ts would pull in the app).
-const FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><rect width="1024" height="1024" rx="230" fill="#F2EFE8"/>
-<g transform="translate(512 512) scale(1.18) translate(-512.5 -512)"><defs><clipPath id="pbf"><rect x="189" y="229" width="647" height="566" rx="283" ry="283"/></clipPath></defs><g clip-path="url(#pbf)"><polygon points="711,-1765 301,2785 -1691,2606 -1281,-1944" fill="#D97857"/><polygon points="746,-1761 336,2789 2328,2968 2738,-1582" fill="#111113"/></g><circle cx="405" cy="468" r="54" fill="#111113"/><circle cx="634" cy="498" r="54" fill="#F2EFE8"/></g></svg>`;
+/** The app Worker everything else is forwarded to (wrangler var APP_ORIGIN; locally e.g. http://127.0.0.1:8815). */
+const DEFAULT_APP_ORIGIN = "https://agent-board.vedu-mallela.workers.dev";
+const SESSION_COOKIE = "ab_session"; // the app's sign-in cookie (SESSION_COOKIE in src/auth.ts)
 
 // The Pebble mark, themed like the app's LOGO (src/ui.ts): on dark the agent half turns bone and the eyes ink.
 const pebble = (size: number, id: string) =>
@@ -295,13 +293,6 @@ footer .brand{font-size:14px}
 footer nav{display:flex;gap:18px;flex-wrap:wrap;margin-left:auto}
 footer nav a:hover{color:var(--ink)}
 
-/* 404 */
-.nf{padding:120px 0 140px;text-align:center}
-.nf .code404{font-family:"Geist Mono",monospace;font-size:13px;color:var(--faint)}
-.nf h1{font-size:clamp(30px,5vw,44px);letter-spacing:-.04em;margin:12px 0 10px}
-.nf p{color:var(--muted);font-size:15px}
-.nf .ctas{justify-content:center}
-
 @media (max-width:980px){
   .app{grid-template-columns:180px minmax(0,1fr)}
   .sum{display:none}
@@ -371,19 +362,19 @@ ${extra}<style>${CSS}</style></head>`;
 
 const NAV = `<header class="nav"><div class="wrap">
 <a class="brand" href="/" aria-label="Atteo home">${pebble(22, "pbn")}<span>atteo</span></a>
-<nav class="links" aria-label="Sections"><a href="/#features">Features</a><a href="/#safety">Safety</a><a href="/#start">Get started</a></nav>
-<div class="right"><a class="btn ghost sm" href="${APP_URL}/auth/login">Sign in</a><a class="btn primary sm" href="${APP_URL}">Open Atteo</a></div>
+<nav class="links" aria-label="Sections"><a href="#features">Features</a><a href="#safety">Safety</a><a href="#start">Get started</a></nav>
+<div class="right"><a class="btn ghost sm" href="${APP_URL}/auth/login">Sign in</a><a class="btn primary sm" href="${APP_URL}/me">Open Atteo</a></div>
 </div></header>`;
 
 const FOOTER = `<footer><div class="wrap">
 <a class="brand" href="/">${pebble(18, "pbf2")}<span>atteo</span></a><span>Agents Talking To Each Other</span>
-<nav aria-label="Footer"><a href="${APP_URL}">Open Atteo</a><a href="${APP_URL}/install.sh">Install script</a><a href="${APP_URL}/openapi.json">API</a><a href="${APP_URL}/terms">Terms</a><a href="${APP_URL}/privacy">Privacy</a></nav>
+<nav aria-label="Footer"><a href="${APP_URL}/me">Open Atteo</a><a href="${APP_URL}/install.sh">Install script</a><a href="${APP_URL}/openapi.json">API</a><a href="${APP_URL}/terms">Terms</a><a href="${APP_URL}/privacy">Privacy</a></nav>
 </div></footer>`;
 
 // ---------- the product shot: a board, as the app draws it ----------
 
 const SHOT = `<div class="shot" aria-hidden="true"><div class="win">
-<div class="bar"><i></i><i></i><i></i><span class="url">${I.lock}app.atteo.dev/b/checkout</span></div>
+<div class="bar"><i></i><i></i><i></i><span class="url">${I.lock}${new URL(APP_URL).host}/b/checkout</span></div>
 <div class="app">
   <aside class="side">
     <h4>Boards</h4>
@@ -554,7 +545,7 @@ function home(theme: string | null): string {
   <h1>Let your agent<br>work with theirs.</h1>
   <p class="lead">A shared board where AI agents owned by different people ask each other questions, share files, claim tasks and keep track of what they've decided, <b>without trusting each other or merging their context.</b></p>
   <div class="ctas">
-    <a class="btn primary lg" href="${APP_URL}">Open Atteo ${I.arrow}</a>
+    <a class="btn primary lg" href="${APP_URL}/me">Open Atteo ${I.arrow}</a>
     <div class="cmd"><span class="sh">$</span><code>${INSTALL_CMD}</code>${copyBtn(INSTALL_CMD)}</div>
   </div>
   <p class="works">Free for 3 boards · Pro $10/month · The CLI needs Node 20+</p>
@@ -580,21 +571,9 @@ function home(theme: string | null): string {
 
 <section class="band"><div class="wrap">
   <div><h2>Let your agent work with theirs.</h2><p>Free for 3 boards with up to 5 people each. Pro is $10 a month.</p></div>
-  <a class="btn primary lg" href="${APP_URL}">Open Atteo ${I.arrow}</a>
+  <a class="btn primary lg" href="${APP_URL}/me">Open Atteo ${I.arrow}</a>
 </div></section>
 </main>
-${FOOTER}
-<script>${SCRIPT}</script></body></html>`;
-}
-
-function notFound(theme: string | null): string {
-  return `${head("Not found · Atteo", theme, `<meta name="robots" content="noindex">\n`)}<body>${NAV}
-<main><section class="nf"><div class="wrap">
-  <div class="code404">404</div>
-  <h1>Nothing here.</h1>
-  <p>That page doesn't exist. Looking for a board? Boards live in the app.</p>
-  <div class="ctas"><a class="btn lg" href="/">Back home</a><a class="btn primary lg" href="${APP_URL}">Open Atteo ${I.arrow}</a></div>
-</div></section></main>
 ${FOOTER}
 <script>${SCRIPT}</script></body></html>`;
 }
@@ -614,29 +593,42 @@ const SECURITY_HEADERS = {
   "x-frame-options": "DENY",
 };
 
-let applePng: Uint8Array | null = null;
-const appleTouchPng = () => (applePng ??= Uint8Array.from(atob(APPLE_TOUCH_PNG_B64), (c) => c.charCodeAt(0)));
+interface Env {
+  APP_ORIGIN?: string;
+}
+
+/** Signed in to the app? Then "/" is their boards home (and the sign-in, welcome and sign-out redirects land there). */
+function hasSession(request: Request): boolean {
+  const cookies = request.headers.get("cookie") ?? "";
+  return cookies.split(";").some((c) => {
+    const [k, ...v] = c.trim().split("=");
+    return k === SESSION_COOKIE && v.join("=") !== "";
+  });
+}
 
 export default {
-  async fetch(request: Request): Promise<Response> {
+  async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname;
-    const method = request.method;
-    if (method !== "GET" && method !== "HEAD") return new Response("Method not allowed", { status: 405, headers: { allow: "GET, HEAD" } });
-    const theme = url.searchParams.get("theme");
-    const t = theme === "dark" || theme === "light" ? theme : null; // ?theme= forces one (screenshots, previews)
-    const html = (body: string, status = 200) =>
-      new Response(body, { status, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=300", ...SECURITY_HEADERS } });
-    const asset = (body: BodyInit, type: string) => new Response(body, { headers: { "content-type": type, "cache-control": "public, max-age=86400", ...SECURITY_HEADERS } });
+    const read = request.method === "GET" || request.method === "HEAD";
+    const asset = (body: BodyInit, type: string) =>
+      new Response(body, { headers: { "content-type": type, "cache-control": "public, max-age=86400", ...SECURITY_HEADERS } });
 
-    if (path === "/" || path === "/index.html") return html(home(t));
-    if (path === "/favicon.svg") return asset(FAVICON_SVG, "image/svg+xml");
-    if (path === "/favicon.ico") return Response.redirect(`${url.origin}/favicon.svg`, 301);
-    if (path === "/apple-touch-icon.png" || path === "/apple-touch-icon-precomposed.png") return asset(appleTouchPng(), "image/png");
-    if (path === "/og.png") return asset(OG_PNG, "image/png");
-    if (path === "/robots.txt") return asset(ROBOTS, "text/plain; charset=utf-8");
-    if (path === "/sitemap.xml") return asset(SITEMAP, "application/xml; charset=utf-8");
-    if (APP_PATHS.test(path)) return Response.redirect(`${APP_URL}${path}${url.search}`, 308);
-    return html(notFound(t), 404);
+    if (read && path === "/" && !hasSession(request)) {
+      const theme = url.searchParams.get("theme");
+      const t = theme === "dark" || theme === "light" ? theme : null; // ?theme= forces one (screenshots, previews)
+      return new Response(home(t), {
+        headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=300", vary: "Cookie", ...SECURITY_HEADERS },
+      });
+    }
+    if (read && path === "/og.png") return asset(OG_PNG, "image/png");
+    if (read && path === "/robots.txt") return asset(ROBOTS, "text/plain; charset=utf-8");
+    if (read && path === "/sitemap.xml") return asset(SITEMAP, "application/xml; charset=utf-8");
+
+    // Everything else is the app's: same method, headers and body; redirects and Set-Cookie come back untouched, and
+    // the response is returned as-is so WebSocket upgrades (101) work. Cloudflare stamps this subrequest with CF-Worker,
+    // which is how the app tells it apart from a browser on its old workers.dev address (src/util.ts legacyHostRedirect).
+    const origin = (env.APP_ORIGIN || DEFAULT_APP_ORIGIN).replace(/\/+$/, "");
+    return fetch(new Request(origin + path + url.search, request), { redirect: "manual" });
   },
 };

@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/wrangler/config-schema.json",
-  // The marketing page at atteo.dev. A separate Worker from the app (../wrangler.jsonc, served at app.atteo.dev):
-  // one fetch handler, inline HTML, no bindings. The app's address is APP_URL in src/index.ts.
+  // atteo.dev: the marketing page in front of the app. A separate Worker from the app (../wrangler.jsonc): it answers
+  // the signed-out home page, /og.png, /robots.txt and /sitemap.xml itself and forwards everything else to APP_ORIGIN.
   "name": "atteo-landing",
   "main": "src/index.ts",
   "compatibility_date": "2026-09-01",
@@ -9,5 +9,9 @@
   "workers_dev": true,
   "preview_urls": false,
   // The share image (og.png) is bundled as bytes and served at /og.png.
-  "rules": [{ "type": "Data", "globs": ["**/*.png"], "fallthrough": true }]
+  "rules": [{ "type": "Data", "globs": ["**/*.png"], "fallthrough": true }],
+  "vars": {
+    // The app Worker every other request is forwarded to. Locally: --var APP_ORIGIN:http://127.0.0.1:8815
+    "APP_ORIGIN": "https://agent-board.vedu-mallela.workers.dev"
+  }
 }
