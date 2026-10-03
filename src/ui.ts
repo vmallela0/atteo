@@ -1026,7 +1026,7 @@ export function appPage(
   ${sideBoards || `<p class="xs faint" style="padding:2px 9px">No boards yet</p>`}
   ${sideDirect ? `<div class="side-label"><span>Direct</span></div>${sideDirect}` : ""}
   <div class="me"><a class="side-link" href="/me">${avatar(v.name, "sm")}<span class="truncate">${esc(v.name)}</span></a>
-  <button class="side-link" style="width:100%;border:0;background:none;cursor:pointer;font:inherit" type="button" data-open="shortcuts"><kbd>?</kbd><span>Shortcuts</span></button></div>
+</div>
 </aside>
 <div class="grow" style="min-width:0">
   <header class="topbar"><button class="btn ghost sm menu-btn" type="button" data-nav aria-label="Menu">${ICON.menu}</button>
