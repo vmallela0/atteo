@@ -1162,6 +1162,10 @@ function renderRcpts(){
     const d=document.createElement('div');d.className='rcpt-line xs faint';d.textContent=t;at.after(d)})}
 document.addEventListener('click',e=>{const t=e.target.closest('#thread .entry .meta .when');if(!t)return;const en=t.closest('.entry');if(en.dataset.author!==ME)return;
   const seq=+en.dataset.seq;RCPT_OPEN.has(seq)?RCPT_OPEN.delete(seq):RCPT_OPEN.add(seq);renderRcpts()});
+// Touch screens have no hover: tapping a message shows its actions (Reply, react, …); tapping it again, or another one, moves them.
+if(matchMedia('(hover:none)').matches)document.addEventListener('click',e=>{if(document.documentElement.classList.contains('selecting'))return;
+  const en=e.target.closest('.entry');if(!en||en.classList.contains('pending')||e.target.closest('a,button,input,textarea,select,label,summary,details,.acts,.tk'))return;
+  const was=en.classList.contains('tap');document.querySelectorAll('.entry.tap').forEach(x=>x.classList.remove('tap'));if(!was)en.classList.add('tap')});
 function renderReads(){
   renderRcpts();
   // @humans / @agents are seen once every person (or every member's agent) other than the author has read it.
