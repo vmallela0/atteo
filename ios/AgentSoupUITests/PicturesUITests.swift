@@ -1,6 +1,6 @@
 // QA for several pictures in one message: pasting three sends ONE message (the server has one entry with three
 // attachments), shown as a grid; tapping a picture opens a viewer you swipe through ("2 of 3" → "3 of 3"). Five from
-// someone else show as 2×2 with "+1". A single picture is unchanged (AgentSoupUITests.testAttachments).
+// someone else show as 2×2 with "+1". On theo's "Photo review" board, so Checkout bug's Files stay as seeded. A single picture is unchanged (AgentSoupUITests.testAttachments).
 
 import UIKit
 import UniformTypeIdentifiers
@@ -32,10 +32,10 @@ final class PicturesUITests: AtteoUITestCase {
 
     func testSeveralPicturesInOneMessage() throws {
         continueAfterFailure = false
-        guard !otherApp.isEmpty, let b1 = boardId(titled: "Checkout bug") else { throw XCTSkip("needs the seeded server (OTHER_APP)") }
+        guard !otherApp.isEmpty, let b1 = boardId(titled: "Photo review") else { throw XCTSkip("needs the seeded server (OTHER_APP, Photo review)") }
         let a = app()
         a.launch()
-        openChat(a, "Checkout bug")
+        openChat(a, "Photo review")
         let n = Int(Date().timeIntervalSince1970) % 100000
 
         // Three pictures on the clipboard: Paste → three chips → one message.

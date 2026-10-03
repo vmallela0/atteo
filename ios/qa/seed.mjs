@@ -58,6 +58,11 @@ await call(app, "POST", `/api/boards/${b1}/entries`, { type: "decision", text: "
 // theo, from his phone, asks one of his own: maya has a vote (Agree / Object in the app).
 const otherApp = (await ops("tokens", { user: "theo", kind: "app", label: "theo's phone" })).token;
 await call(otherApp, "POST", `/api/boards/${b1}/entries`, { type: "decision", text: "Freeze checkout deploys until the empty-cart fix is live." });
+// theo's board for pictures (PicturesUITests posts its several-pictures messages here, so Checkout bug's Files stay
+// as the work tests expect; it's theo's, so it doesn't count toward maya's Free plan boards).
+const pics = (await ops("boards", { user: "theo", title: "Photo review" })).board.id;
+await ops("members", { board: pics, user: "maya" });
+await call(otherApp, "POST", `/api/boards/${pics}/entries`, { type: "note", text: "Drop the staging screenshots here." });
 await tool(tt, b2, "read", {});
 await tool(tt, b2, "post", { type: "note", text: "Backfill finished on staging: 4.2M rows, 0 errors. Ready for prod tonight." });
 // A file in the chat (the app shows it as a chip and opens it in Quick Look).
@@ -134,7 +139,8 @@ await tool(tm, b1, "doc", { action: "write", name: "charge.ts", base_version: 0,
   const body = png(W, H, (x, y) => [40 + (x * 170) / W, 60 + (y * 120) / H, 140]);
   await fetch(`${BASE}/api/boards/${b1}/upload?name=checkout-flow.png&w=${W}&h=${H}&text=${encodeURIComponent("Where the empty cart slips through")}`, { method: "POST", headers: { authorization: `Bearer ${app}`, "content-type": "image/png" }, body });
 }
-// Several pictures in ONE message (multipart, a `file` part each with its w / h / name): the app shows a grid.
+// Several pictures in ONE message (multipart, a `file` part each with its w / h / name): the app shows a grid. On
+// theo's Photo review board, so Checkout bug's chat and Files stay as the older tests expect.
 {
   const form = new FormData();
   form.append("text", "Before and after the guard, on staging");
@@ -143,7 +149,7 @@ await tool(tm, b1, "doc", { action: "write", name: "charge.ts", base_version: 0,
     form.append("file", new Blob([png(320, 240, (x, y) => c.map((v) => Math.min(255, v + ((x + y) * 60) / 560)))], { type: "image/png" }), `staging-${i + 1}.png`);
     form.append("w", "320"); form.append("h", "240"); form.append("name", `staging-${i + 1}.png`);
   });
-  await fetch(`${BASE}/api/boards/${b1}/upload`, { method: "POST", headers: { authorization: `Bearer ${otherApp}` }, body: form });
+  await fetch(`${BASE}/api/boards/${pics}/upload`, { method: "POST", headers: { authorization: `Bearer ${otherApp}` }, body: form });
 }
 // Two sub-tasks under the one in progress (the app's live checklist: finishing one ticks the parent).
 await tool(tt, b1, "read", {});
@@ -172,4 +178,9 @@ const ask = await call(app, "POST", `/api/boards/${ac.board}/entries`, { type: "
 await tool(tm, ac.board, "read", {});
 await tool(tm, ac.board, "post", { type: "note", reply_to: ask.entry?.seq, text: "Two things: the regression test for empty carts, and rotating the Stripe webhook secret." });
 // theo as a person, from his phone (otherApp, above): QA posts "from someone else" with it (an agent's post would be threaded).
+// theo's QA "laptop" (enc-peer.mjs) registers a new device key every run and the server keeps at most 10: drop the
+// earlier runs' keys (as theo, from his phone: agents can't remove devices), or the 11th run's encrypted chat fails.
+for (const k of (await call(otherApp, "GET", "/api/me/keys")).keys ?? []) {
+  if (k.label === "theo's laptop") await call(otherApp, "DELETE", `/api/me/keys/${k.id}`);
+}
 console.log(JSON.stringify({ app, otherApp, other: tt, enc, b1, sub: Number((sub.match(/#(\d+)/) || [])[1]) }));
