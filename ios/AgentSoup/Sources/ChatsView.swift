@@ -27,10 +27,22 @@ struct ChatsView: View {
     private func unread(_ b: Board) -> Int { state.inbox.filter { $0.boardId == b.id && $0.readAt == nil }.count }
 
     private func isDirect(_ b: Board) -> Bool { b.kind == "direct" }
-    private func unreadIn(direct: Bool) -> Int { state.boards.filter { isDirect($0) == direct }.reduce(0) { $0 + unread($1) } }
+    /// Under DMs: your DMs, and "Your agent" (pinned on top).
+    private func inDMs(_ b: Board) -> Bool { isDirect(b) || b.isAgentChat }
+    private func unreadIn(direct: Bool) -> Int { state.boards.filter { inDMs($0) == direct && $0.archived != true }.reduce(0) { $0 + unread($1) } }
+
+    /// "Your agent", pinned atop DMs (unless a search leaves it out).
+    private var showAgentChat: Bool { tab == "direct" && (query.isEmpty || "your agent".localizedCaseInsensitiveContains(query) || "agent".localizedCaseInsensitiveContains(query)) }
+
+    /// Your agent's chat: open it (made the first time).
+    private func openAgentChat() {
+        Haptic.tap()
+        if let b = state.agentChat { path.append(b); return }
+        Task { if let b = await state.openAgentChat() { path.append(b) } }
+    }
 
     var chats: [Board] {
-        let all = state.boards.filter { isDirect($0) == (tab == "direct") && $0.archived != true }.sorted { (unread($0) > 0 ? 1 : 0, $0.lastActivity) > (unread($1) > 0 ? 1 : 0, $1.lastActivity) }
+        let all = state.boards.filter { !$0.isAgentChat && isDirect($0) == (tab == "direct") && $0.archived != true }.sorted { (unread($0) > 0 ? 1 : 0, $0.lastActivity) > (unread($1) > 0 ? 1 : 0, $1.lastActivity) }
         guard !query.isEmpty else { return all }
         return all.filter { $0.title.localizedCaseInsensitiveContains(query) || ($0.last?.text.localizedCaseInsensitiveContains(query) ?? false) || ($0.last?.by.localizedCaseInsensitiveContains(query) ?? false) }
     }
@@ -72,6 +84,16 @@ struct ChatsView: View {
                     .listSectionSeparator(.hidden)
                 }
                 Section {
+                    if showAgentChat {
+                        AgentChatRow(unread: state.agentChat.map(unread) ?? 0)
+                            .contentShape(Rectangle())
+                            .onTapGesture { openAgentChat() }
+                            .accessibilityAddTraits(.isButton)
+                            .accessibilityIdentifier("chat-your-agent")
+                            .listRowBackground(Theme.bg)
+                            .listRowSeparator(.hidden)
+                            .listRowInsets(rowInsets)
+                    }
                     if chats.isEmpty && query.isEmpty && state.loaded {
                         Text(tab == "direct" ? "No DMs yet. When someone's agent writes to yours, it lands here." : "No boards yet. Start one with the pencil up top, or ask your agent to.")
                             .font(Typo.secondary).foregroundStyle(Theme.faint)
@@ -151,7 +173,7 @@ struct ChatsView: View {
                 // Open what the sheet made (a DM, a new board) once it's down, on its side of the switch.
                 guard let b = pendingOpen else { return }
                 pendingOpen = nil
-                tab = isDirect(b) ? "direct" : "boards"
+                tab = inDMs(b) ? "direct" : "boards"
                 path = [b]
             }) { c in
                 Group {
@@ -182,7 +204,7 @@ struct ChatsView: View {
             .onChange(of: state.openRequest) { _, b in
                 guard let b else { return }
                 state.openRequest = nil
-                tab = isDirect(b) ? "direct" : "boards"
+                tab = inDMs(b) ? "direct" : "boards"
                 path = [b]
             }
             .overlay {

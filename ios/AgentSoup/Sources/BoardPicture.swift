@@ -131,6 +131,8 @@ struct BoardPicture: View {
         let b = live
         if b.kind == "direct" {
             Avatar(name: b.displayName(me: state.me?.owner), size: size)
+        } else if b.isAgentChat {
+            Avatar(name: state.me?.owner ?? "", agent: true, size: size) // "Your agent": your agent's picture
         } else {
             BoardTile(title: b.title, size: size)
                 .overlay {

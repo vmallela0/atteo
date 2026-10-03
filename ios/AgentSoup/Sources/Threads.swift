@@ -70,19 +70,51 @@ final class ThreadSeen: ObservableObject {
 }
 
 extension String {
-    /// The message as styled text, with "#123" (a message on this board) as a link that opens it.
-    var mdLinked: AttributedString {
-        var out = md
-        let plain = String(out.characters)
+    /// The message as styled text. "#123" (a message on this board; agents write and read the numbers) shows as a
+    /// small link with that message's title, "↗ Guard empty carts", that opens it: people never need the numbers
+    /// (#675, like the web). Never inside code or a link.
+    func mdLinked(_ title: (Int) -> String? = { _ in nil }) -> AttributedString {
+        let src = md
+        let plain = String(src.characters)
         let ns = plain as NSString
-        for m in Self.entryRE.matches(in: plain, range: NSRange(location: 0, length: ns.length)).reversed() {
-            guard let n = Int(ns.substring(with: m.range(at: 2))), let r = Range(m.range(at: 1), in: out) else { continue }
-            if out[r].runs.contains(where: { $0.link != nil || $0.inlinePresentationIntent?.contains(.code) == true }) { continue }
-            out[r].link = URL(string: "atteo-entry://\(n)")
+        var out = AttributedString()
+        var cursor = src.startIndex
+        for m in Self.entryRE.matches(in: plain, range: NSRange(location: 0, length: ns.length)) {
+            guard let n = Int(ns.substring(with: m.range(at: 2))), let r = Range(m.range(at: 1), in: src), r.lowerBound >= cursor else { continue }
+            if src[r].runs.contains(where: { $0.link != nil || $0.inlinePresentationIntent?.contains(.code) == true }) { continue }
+            out += src[cursor..<r.lowerBound]
+            var chip = AttributedString("↗ " + (title(n) ?? "an earlier message"))
+            chip.link = URL(string: "atteo-entry://\(n)")
+            chip.foregroundColor = Theme.text
+            chip.backgroundColor = Theme.raised
+            out += chip
+            cursor = r.upperBound
         }
+        out += src[cursor...]
         return out
     }
     private static let entryRE = try! NSRegularExpression(pattern: "(?<![\\w&/#])(#(\\d{1,7}))\\b")
+}
+
+/// What a "#123" in text is called here (its title, a few words), for the chips mdLinked makes. The chat and its
+/// threads set it from what's loaded; elsewhere a number reads "an earlier message".
+private struct RefTitleKey: EnvironmentKey { static let defaultValue: @Sendable (Int) -> String? = { _ in nil } }
+extension EnvironmentValues {
+    var refTitle: @Sendable (Int) -> String? {
+        get { self[RefTitleKey.self] }
+        set { self[RefTitleKey.self] = newValue }
+    }
+}
+
+extension View {
+    /// "#123" in messages and checklists here reads as that message's title (from these entries and tasks).
+    func refTitles(_ entries: [Entry], tasks: [WorkTask]) -> some View {
+        var titles: [Int: String] = [:]
+        for e in entries where e.seq > 0 && e.retracts == nil { titles[e.seq] = ChatSummary.short(e, words: 6) }
+        for t in tasks { titles[t.seq] = t.title }
+        let frozen = titles
+        return environment(\.refTitle, { frozen[$0] })
+    }
 }
 
 /// The message number in an "atteo-entry://123" link.
@@ -146,6 +178,7 @@ struct ThreadPreview: View {
     /// A reply's first line, without its leading @mention ("@theo's agent sure" → "sure").
     static func line(_ e: Entry) -> String {
         if let a = e.artifactName, e.text.isEmpty || e.text == "Shared \(a)" { return "📎 \(a)" }
+        if e.isMultiFile, e.text.hasPrefix("Shared ") { return "📎 " + e.text.dropFirst(7) }
         let first = e.text.split(separator: "\n").first.map(String.init) ?? e.text
         return first.replacingOccurrences(of: "^(@[A-Za-z0-9][A-Za-z0-9_.-]*(?:['’]s\\s+agent)?\\s*)+", with: "", options: .regularExpression)
     }
@@ -208,7 +241,7 @@ struct ThreadsList: View {
                     Spacer(minLength: Space.s)
                     Text(t.last.ago).font(Typo.micro).foregroundStyle(unread ? Theme.accent : Theme.faint).monospacedDigit()
                 }
-                Text(t.rootEntry.map { ThreadPreview.line($0) } ?? "#\(t.root)").font(Typo.secondary).foregroundStyle(Theme.muted).lineLimit(2)
+                Text(t.rootEntry.map { ThreadPreview.line($0) } ?? "An earlier message").font(Typo.secondary).foregroundStyle(Theme.muted).lineLimit(2)
                 HStack(spacing: 6) {
                     HStack(spacing: -5) {
                         ForEach(Array(people), id: \.seq) { p in Avatar(name: p.author, agent: p.byAgent, size: 16).padding(1).background(Theme.card, in: Circle()) }
@@ -244,6 +277,8 @@ struct ThreadView: View {
     @State private var flash: Int?
     @State private var scrollTo: Int?
     @State private var focused = false
+    @State private var decisionPrompt: DecisionPrompt? // objecting (why?) or closing a human decision
+    @State private var decisionNote = ""
 
     private var me: String? { state.me?.owner }
     private var rootSeq: Int { top ?? root }
@@ -309,6 +344,7 @@ struct ThreadView: View {
             }
         }
         .background(Theme.bg)
+        .refTitles(state.entries[board.id] ?? [], tasks: state.tasks[board.id] ?? [])
         .safeAreaInset(edge: .bottom, spacing: 0) { composer }
         .navigationTitle("Thread")
         .navigationBarTitleDisplayMode(.inline)
@@ -342,6 +378,7 @@ struct ThreadView: View {
         .confirmationDialog("Unsend this message?", isPresented: Binding(get: { unsending != nil }, set: { if !$0 { unsending = nil } }), titleVisibility: .visible, presenting: unsending) { e in
             Button("Unsend", role: .destructive) { Task { await state.retract(e.seq, in: board) } }
         } message: { _ in Text("Everyone here will see it as unsent.") }
+        .decisionPrompts($decisionPrompt, note: $decisionNote, board: board, state: state)
         .task {
             if let prefill, draft.isEmpty { draft = prefill; focused = true }
             await load()
@@ -383,10 +420,12 @@ struct ThreadView: View {
         }
         if let p = shown.replyTo { a.jumpToParent = { open(p, here: Dictionary(items.map { ($0.seq, $0) }, uniquingKeysWith: { a, _ in a })) } }
         let rx = state.reactions[board.id]?[e.seq] ?? (fetched?.entry.seq == e.seq ? fetched?.reactions : nil) ?? []
+        let hd = e.type == "decision" && !unsent.contains(e.seq) ? state.decisions[board.id]?[e.seq] ?? e.humanDecision : nil
         return EntryRow(e: shown, mine: mine, board: board.id, tasks: state.tasks[board.id] ?? [], reactions: rx, parent: parent,
                         me: me, members: state.members[board.id] ?? [], progress: state.uploads[e.seq],
                         reply: live ? { mention(e) } : nil,
-                        unsent: unsent.contains(e.seq), handling: state.handling[board.id]?[e.seq], lit: flash == e.seq, actions: a) {
+                        unsent: unsent.contains(e.seq), handling: state.handling[board.id]?[e.seq], lit: flash == e.seq, actions: a,
+                        decision: hd, decisionActions: DecisionActions.make(hd, seq: e.seq, board: board, state: state) { p in decisionNote = ""; decisionPrompt = p }) {
             Task { await state.send(e.text, to: board, retrying: e) }
         }
     }
@@ -402,6 +441,8 @@ struct ThreadView: View {
     private var composer: some View {
         let canSend = !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         return VStack(alignment: .leading, spacing: Space.xs) {
+            // Who's typing on this board (the ping says nothing about where, so the thread shows its chat's).
+            TypingRow(board: board.id).padding(.horizontal, -Space.m)
             HStack(alignment: .bottom, spacing: 0) {
                 ComposerField(text: $draft, focused: $focused, placeholder: "Reply…",
                               members: Set((state.members[board.id] ?? []).map { $0.lowercased() }), me: me, identifier: "thread-composer")
@@ -429,6 +470,8 @@ struct ThreadView: View {
         }
         .padding(.horizontal, Space.m).padding(.top, Space.s).padding(.bottom, Space.xs)
         .background(Theme.bg)
+        .animation(.smooth(duration: 0.25), value: state.typing[board.id])
+        .onChange(of: draft) { _, d in state.typed(d, in: board) }
     }
 
     private func send() {

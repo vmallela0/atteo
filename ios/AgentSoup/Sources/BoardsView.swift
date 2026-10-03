@@ -53,6 +53,9 @@ struct BoardView: View {
     @State private var unsending: Entry? // asking "Unsend?" first
     @State private var openReceipts: Set<Int> = [] // your older messages you tapped to see who's seen them
     @State private var holdBottom = false // older messages going in above: keep what you're reading where it is
+    @State private var decisionPrompt: DecisionPrompt? // objecting (why?) or closing a human decision
+    @State private var decisionNote = ""
+    @State private var toSession: String? // "Your agent": one of your sessions (nil: any of your agents)
 
     @ObservedObject private var threadSeen = ThreadSeen.shared
     @Environment(\.chatDensity) private var density
@@ -81,7 +84,8 @@ struct BoardView: View {
 
     private var anyUnreadThread: Bool { ThreadIndex.threads(list).contains { threadSeen.unread(board.id, $0, me: me) } }
 
-    var body: some View { threads(chat) }
+    // ("#123" in messages, checklists and the task sheets reads as that message's title.)
+    var body: some View { threads(chat).refTitles(list, tasks: state.tasks[board.id] ?? []) }
 
     /// Threads: pushed on this stack (a reply, a preview card, a "#123"), and the list of them in the top bar.
     private func threads(_ v: some View) -> some View {
@@ -245,7 +249,7 @@ struct BoardView: View {
                 .accessibilityIdentifier("presence")
             }
         }
-        .photosPicker(isPresented: $showPhotos, selection: $picked, maxSelectionCount: max(1, min(5, maxAttachments - attachments.count)), selectionBehavior: .ordered, matching: .images)
+        .photosPicker(isPresented: $showPhotos, selection: $picked, maxSelectionCount: max(1, maxAttachments - attachments.count - preparing), selectionBehavior: .ordered, matching: .images)
         .onChange(of: picked) { _, items in
             guard !items.isEmpty else { return }
             picked = []
@@ -271,6 +275,7 @@ struct BoardView: View {
         .confirmationDialog("Unsend this message?", isPresented: Binding(get: { unsending != nil }, set: { if !$0 { unsending = nil } }), titleVisibility: .visible, presenting: unsending) { e in
             Button("Unsend", role: .destructive) { Task { await state.retract(e.seq, in: board) } }
         } message: { _ in Text("Everyone here will see it as unsent.") }
+        .decisionPrompts($decisionPrompt, note: $decisionNote, board: board, state: state)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Theme.bg, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar) // inside a conversation the message box owns the bottom edge
@@ -278,6 +283,7 @@ struct BoardView: View {
         .onChange(of: state.pulse) { _, p in if p?.board == board.id { Task { async let e: Void = state.loadEntries(board); async let t: Void = state.loadTasks(board); async let a: Void = state.loadAgents(board); _ = await (e, t, a); await state.markRead(board) } } }
         .onChange(of: list.last?.seq) { _, _ in Task { await state.markSeen(board) } } // you've seen what just landed
         .task(id: board.id) { await state.watch(board) } // live: ticks and new messages as they happen
+        .task(id: board.id) { if board.isAgentChat { _ = await state.openAgentChat() } } // its sessions, fresh
         .refreshable { await state.loadEntries(board) }
     }
 
@@ -301,14 +307,16 @@ struct BoardView: View {
         let unsent = r.gone.contains(e.seq)
         let live = e.seq > 0 && e.pending != true && e.failed != true && !unsent
         let showReceipt = mine && live && (e.seq == r.latestMine || openReceipts.contains(e.seq))
+        let hd = e.type == "decision" && !unsent ? state.decisions[board.id]?[e.seq] ?? e.humanDecision : nil
         return EntryRow(e: e, grouped: grouped, mine: mine, board: board.id, tasks: state.tasks[board.id] ?? [], reactions: state.reactions[board.id]?[e.seq] ?? [],
                         parent: e.replyTo.flatMap { r.bySeq[$0] }, me: me, members: state.members[board.id] ?? [], progress: state.uploads[e.seq],
                         reply: live ? { startReply(to: e) } : nil,
                         unsent: unsent, replies: r.replies[e.seq] ?? [], threadUnread: threadUnread(e.seq, r), handling: state.handling[board.id]?[e.seq], lit: flash == e.seq,
                         receipt: showReceipt ? receipt(for: e) : nil,
                         openReceipt: mine && live ? { if let r = receipt(for: e) { Haptic.tap(); seenBy = r } } : nil,
-                        actions: actions(for: e, mine: mine, live: live, r)) {
-            Task { if e.local != nil { await state.retryUpload(e, in: board) } else { await state.send(e.text, to: board, retrying: e) } }
+                        actions: actions(for: e, mine: mine, live: live, r),
+                        decision: hd, decisionActions: DecisionActions.make(hd, seq: e.seq, board: board, state: state) { p in decisionNote = ""; decisionPrompt = p }) {
+            Task { if e.local != nil || e.isMultiFile { await state.retryUpload(e, in: board) } else { await state.send(e.text, to: board, retrying: e) } }
         }
     }
 
@@ -456,6 +464,8 @@ struct BoardView: View {
     /// Above it, when they apply: who you're replying to, and who "@" can name.
     var composer: some View {
         VStack(spacing: 0) {
+            TypingRow(board: board.id)
+            if board.isAgentChat { AgentToPicker(to: $toSession) }
             if !suggestions.isEmpty {
                 MentionList(items: suggestions, pick: insert)
                     .padding(.horizontal, Space.m).padding(.bottom, Space.xs)
@@ -472,7 +482,7 @@ struct BoardView: View {
                 attachButton
                 // A text view of its own, so Paste takes pictures too (ComposerField.swift).
                 ComposerField(text: $draft, focused: $focused,
-                              placeholder: attachments.isEmpty ? (board.kind == "direct" ? "Message \(board.displayName(me: state.me?.owner))" : "Message \(board.title)") : "Add a note",
+                              placeholder: attachments.isEmpty ? placeholder : "Add a note",
                               pasteImages: pasted,
                               members: Set(mentionables.compactMap { $0.user?.lowercased() }), me: me)
                     .padding(.horizontal, Composer.gap)
@@ -496,6 +506,14 @@ struct BoardView: View {
         .animation(.spring(duration: 0.28, bounce: 0.1), value: suggestions.map(\.handle))
         .animation(.spring(duration: 0.28, bounce: 0.1), value: attachments.map(\.id))
         .animation(.spring(duration: 0.28, bounce: 0.1), value: preparing)
+        .animation(.smooth(duration: 0.25), value: state.typing[board.id])
+        .onChange(of: draft) { _, d in state.typed(d, in: board) } // "maya is typing…" for everyone else here
+    }
+
+    /// "Message theo", "Message Checkout bug", "Message your agent…" / "Message builder…".
+    private var placeholder: String {
+        if board.isAgentChat { return toSession.map { "Message \($0)…" } ?? "Message your agent…" }
+        return board.kind == "direct" ? "Message \(board.displayName(me: state.me?.owner))" : "Message \(board.title)"
     }
 
     /// + at the leading edge of the message box: Photos, the camera (when there is one), Files. Encrypted boards
@@ -561,7 +579,7 @@ struct BoardView: View {
         withAnimation(.spring(duration: 0.3, bounce: 0.15)) { attachments = [] }
         Haptic.tap()
         Task {
-            if files.isEmpty { await state.send(text, to: board) } else { await state.send(files: files, caption: text, to: board) }
+            if files.isEmpty { await state.send(text, to: board, toSession: board.isAgentChat ? toSession : nil) } else { await state.send(files: files, caption: text, to: board) }
         }
     }
 }
@@ -692,9 +710,12 @@ struct EntryRow: View {
     var receipt: Receipt? = nil // yours: "Seen by …" / "Delivered", with its check
     var openReceipt: (() -> Void)? = nil // tap it: who's seen it, as a list
     var actions = EntryActions()
+    var decision: HumanDecision? = nil // a person's decision: where it stands, and your vote / close
+    var decisionActions = DecisionActions()
     var retry: () -> Void = {}
     @State var drag: CGFloat = 0 // swipe right to reply
     @Environment(\.chatDensity) private var density
+    @Environment(\.refTitle) private var refTitle
     /// Room above a message: tight under the one before when grouped, a little more otherwise (less when compact).
     private func gapAbove(_ comfortable: CGFloat) -> CGFloat {
         density == .compact ? (grouped ? Space.xxs : Space.gap(density)) : (grouped ? Space.xs : comfortable)
@@ -719,6 +740,9 @@ struct EntryRow: View {
             return people.isEmpty ? nil : Reaction(emoji: r.emoji, users: people)
         }
     }
+    /// A message's link, as the web addresses it.
+    static func link(board: String, seq: Int) -> String { API.shared.base.appendingPathComponent("b/\(board)").absoluteString + "#e\(seq)" }
+
     static func isAgent(_ u: String) -> Bool { u.hasSuffix("'s agent") || u.contains("/") }
     /// An agent's 🤔 (picked it up; 👀 on older messages) and ✅ (answered): read receipts, not reactions.
     static let receiptEmoji: Set<String> = ["🤔", "👀", "✅"]
@@ -752,6 +776,8 @@ struct EntryRow: View {
                 if let open = actions.openThread, !replies.isEmpty || e.replyTo != nil { Button("View thread", systemImage: "bubble.left.and.bubble.right", action: open) }
                 if let take = actions.takeOn, handling == nil { Button("On it", systemImage: "hand.raised", action: take) }
                 if !unsent { Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = e.text; Haptic.tap() } }
+                // The message's address (its number is in it, for agents and the web): /b/<board>#e<seq>.
+                if e.seq > 0, !board.isEmpty { Button("Copy link", systemImage: "link") { UIPasteboard.general.string = Self.link(board: board, seq: e.seq); Haptic.tap() } }
                 if e.failed == true { Button("Retry", systemImage: "arrow.clockwise", action: retry) }
                 if let unsend = actions.unsend { Button("Unsend", systemImage: "arrow.uturn.backward", role: .destructive, action: unsend) }
             }
@@ -799,16 +825,18 @@ struct EntryRow: View {
         }
     }
 
-    /// The words under a picture or file; nil when they'd only repeat its name ("Shared photo.jpg").
+    /// The words under a picture or file; nil when they'd only repeat its name ("Shared photo.jpg", "Shared 3 images").
     private var caption: String? {
         if let a = e.artifactName, e.text == "Shared \(a)" || e.text.isEmpty { return nil }
+        if e.isMultiFile, e.text.range(of: "^Shared \\d+ (images|files)$", options: .regularExpression) != nil { return nil }
         return e.text
     }
 
     /// A picture inline, or a file as a chip.
     @ViewBuilder private var attachment: some View {
         if e.artifactName != nil && !unsent {
-            if e.isImage { ChatImage(e: e, board: board, progress: progress) } else { FileChip(e: e, board: board, progress: progress) }
+            if e.isMultiFile { MultiAttachment(e: e, board: board, progress: progress) }
+            else if e.isImage { ChatImage(e: e, board: board, progress: progress) } else { FileChip(e: e, board: board, progress: progress) }
         }
     }
 
@@ -845,7 +873,7 @@ struct EntryRow: View {
             quote
             attachment
             if unsent { unsentBody } else if e.type == "change" { ChangeCardView(e: e, board: board) } else if let caption {
-                let m = caption.mentioned(e.mentions, members: members, me: me)
+                let m = caption.mentioned(e.mentions, members: members, me: me, refTitle: refTitle)
                 m.text.textRenderer(MentionBoxes())
                     .font(Typo.body).foregroundStyle(Theme.text.opacity(e.pending == true ? 0.55 : 1))
                     .accessibilityValue(m.handles.isEmpty ? "" : "Mentions " + m.handles.joined(separator: ", "))
@@ -853,6 +881,7 @@ struct EntryRow: View {
                     .background(Theme.raised, in: RoundedRectangle(cornerRadius: Radius.bubble, style: .continuous))
                     .onTapGesture { actions.toggleReceipt?() }
             }
+            if let decision, !unsent { HumanDecisionCard(hd: decision, me: me, trailing: true, actions: decisionActions) }
             footer
             if e.pending == true {
                 Text("Sending…").font(.caption2).foregroundStyle(Theme.faint)
@@ -907,10 +936,11 @@ struct EntryRow: View {
                 attachment.padding(.vertical, Space.xxs)
                 quote
                 if unsent { unsentBody } else if e.type == "change" { ChangeCardView(e: e, board: board).padding(.top, Space.xxs) } else if e.type == "task" { TaskCard(seq: e.seq, board: board, text: e.text, tasks: tasks).padding(.top, Space.xxs) } else if let caption {
-                    let m = caption.mentioned(e.mentions, members: members, me: me)
+                    let m = caption.mentioned(e.mentions, members: members, me: me, refTitle: refTitle)
                     m.text.textRenderer(MentionBoxes()).font(Typo.body).foregroundStyle(Theme.text.opacity(0.92)).lineSpacing(1.5)
                         .accessibilityValue(m.handles.isEmpty ? "" : "Mentions " + m.handles.joined(separator: ", "))
                 }
+                if let decision, !unsent { HumanDecisionCard(hd: decision, me: me, actions: decisionActions).padding(.top, Space.xs) }
                 footer
             }
         }

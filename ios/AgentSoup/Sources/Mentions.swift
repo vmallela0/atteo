@@ -47,8 +47,8 @@ struct MentionBoxes: TextRenderer {
 extension String {
     /// The message as Text with its mentions boxed (draw it with `.textRenderer(MentionBoxes())`), and the handles
     /// that were (for VoiceOver and the QA).
-    func mentioned(_ mentions: [EntryMention]?, members: [String], me: String?) -> (text: Text, handles: [String]) {
-        var out = mdLinked // ("#123" opens that message)
+    func mentioned(_ mentions: [EntryMention]?, members: [String], me: String?, refTitle: (Int) -> String? = { _ in nil }) -> (text: Text, handles: [String]) {
+        var out = mdLinked(refTitle) // ("#123": that message's title, opening it)
         guard contains("@") else { return (Text(out), []) }
         // What counts: the stored mentions, or (still sending) anyone on the board and their agent.
         let stored = mentions ?? members.flatMap { [EntryMention(user: $0.lowercased(), agent: false), EntryMention(user: $0.lowercased(), agent: true)] }

@@ -25,6 +25,11 @@ final class AppState: ObservableObject {
     @Published var handling: [String: [Int: Handling]] = [:] // per board, per message: who's on it ("On it")
     @Published var loadingEarlier: Set<String> = [] // boards loading older messages right now
     private var seenSent: [String: Int] = [:] // per board: the last "seen up to" this phone reported
+    // Who's typing (Typing.swift).
+    @Published var typing: [String: [String: Double]] = [:] // per board, per person: typing until (ms epoch)
+    var typingSent: [String: Date] = [:] // per board: when this phone last said you're typing
+    @Published var agentSessions: [AgentChatSession] = [] // "Your agent": the sessions you can send to (AgentChat.swift)
+    @Published var decisions: [String: [Int: HumanDecision]] = [:] // per board, per message: human decisions (HumanDecisions.swift)
     @Published var jumpRequest: JumpRequest? // a message to show once its chat opens (a search hit in Chats)
     @Published var openRequest: Board? // a chat to open from anywhere (Message on someone's card)
     struct JumpRequest: Equatable { let board: String; let seq: Int }
@@ -205,6 +210,7 @@ final class AppState: ObservableObject {
             for (k, v) in r.reactions ?? [:] { if let n = Int(k) { rx[n] = v } }
             if rx != reactions[b.id] { withAnimation(.smooth) { reactions[b.id] = rx } }
             if let rd = r.reads, rd != reads[b.id] { withAnimation(.smooth) { reads[b.id] = rd } }
+            adoptDecisions(b.id, entries: r.entries, map: r.decisions)
             let mine = (entries[b.id] ?? []).filter { $0.pending == true || $0.failed == true }
             let fresh = older + got + mine.filter { m in !r.entries.contains { $0.author == m.author && $0.text == m.text && $0.ts >= m.ts - 60_000 } }
             if fresh != entries[b.id] { withAnimation(.smooth) { entries[b.id] = fresh } }
@@ -318,7 +324,11 @@ final class AppState: ObservableObject {
     /// While a chat is open: its live socket, so checklists tick and messages land the moment they change.
     /// Runs until the chat closes (the caller's task is cancelled); reconnects after a dropped connection.
     func watch(_ b: Board) async {
-        struct Event: Decodable { let type: String; var user: String?; var personSeen: Int?; var agentSeen: Int?; var seq: Int?; var by: String?; var done: Bool? }
+        struct Event: Decodable {
+            let type: String; var user: String?; var personSeen: Int?; var agentSeen: Int?; var seq: Int?; var by: String?; var done: Bool?
+            var who: String?; var until: Double?; var author: String?; var via: String? // typing; an entry's author
+            var humanDecision: HumanDecision? // a human decision's new state
+        }
         var backoff: UInt64 = 1
         while !Task.isCancelled {
             guard let ws = API.shared.socket(board: b.id) else { return }
@@ -339,6 +349,18 @@ final class AppState: ObservableObject {
                     if e.type == "handling", let n = e.seq {
                         withAnimation(.smooth) { handling[b.id, default: [:]][n] = e.by.map { Handling(by: $0, user: nil, done: e.done) } }
                         continue
+                    }
+                    // "jxn is typing…" (people only; never you), until their message lands or it runs out.
+                    if e.type == "typing", let who = e.who, let until = e.until {
+                        if who != me?.owner { withAnimation(.smooth(duration: 0.25)) { typing[b.id, default: [:]][who] = until } }
+                        continue
+                    }
+                    if e.type == "decision", let n = e.seq, let hd = e.humanDecision {
+                        withAnimation(.smooth) { decisions[b.id, default: [:]][n] = hd }
+                        continue
+                    }
+                    if e.type == "entry", let a = e.author, e.via != "agent", typing[b.id]?[a] != nil {
+                        withAnimation(.smooth(duration: 0.25)) { typing[b.id]?[a] = nil } // sent: no longer typing
                     }
                     guard e.type == "task" || e.type == "entry" || e.type == "reaction" else { continue }
                     // Bursts (a done that ticks a parent and posts a line) refresh once.
@@ -363,10 +385,12 @@ final class AppState: ObservableObject {
     // MARK: - Actions (optimistic: the screen changes first)
 
     /// Sends a message: it shows at once (sending…), then becomes the real entry, or "not sent, tap to retry".
-    func send(_ text: String, to b: Board, replyTo: Int? = nil, retrying old: Entry? = nil) async {
+    /// `toSession`: on "Your agent", one of your sessions by name (nil: any of your agents).
+    func send(_ text: String, to b: Board, replyTo: Int? = nil, retrying old: Entry? = nil, toSession: String? = nil) async {
         let mine = self.me?.owner ?? ""
         let temp = old ?? Entry(seq: -Int(Date().timeIntervalSince1970 * 1000), ts: Date().timeIntervalSince1970 * 1000, author: mine, type: "note", text: text, title: nil, to: nil, via: "person", artifactName: nil, pending: true, replyTo: replyTo)
-        let reply: [String: Any] = temp.replyTo.map { ["reply_to": $0] } ?? [:]
+        var reply: [String: Any] = temp.replyTo.map { ["reply_to": $0] } ?? [:]
+        if let toSession { reply["to_session"] = toSession }
         withAnimation(.smooth) {
             var list = entries[b.id] ?? []
             list.removeAll { $0.seq == temp.seq }
@@ -424,12 +448,78 @@ final class AppState: ObservableObject {
                           media: Media(mime: f.mime, w: f.width, h: f.height, size: f.data.count), artifactSize: f.data.count, local: file.path)
             queue.append((e, f.data))
         }
+        // Several: ONE message (the web's multipart upload), its pictures in a grid.
+        if queue.count > 1 {
+            let first = queue[0].0
+            var e = first
+            e.text = caption.isEmpty ? Self.sharedLabel(files.map(\.mime)) : caption
+            e.attachments = queue.map { q in FileRef(name: q.0.artifactName ?? "file", mime: q.0.media?.mime ?? "application/octet-stream", size: q.1.count, w: q.0.media?.w, h: q.0.media?.h, local: q.0.local) }
+            withAnimation(.smooth) { entries[b.id] = (entries[b.id] ?? []) + [e] }
+            await uploadMany(e, datas: queue.map(\.1), to: b)
+            return
+        }
         withAnimation(.smooth) { entries[b.id] = (entries[b.id] ?? []) + queue.map(\.0) }
         for (e, d) in queue { await upload(e, data: d, to: b) }
     }
 
+    /// The server's caption for files sent without words: "Shared 3 images" / "Shared 3 files".
+    static func sharedLabel(_ mimes: [String]) -> String { "Shared \(mimes.count) \(mimes.allSatisfy { $0.hasPrefix("image/") } ? "images" : "files")" }
+
+    /// Several files as one message: POST /upload, multipart (a `file` part each, with its w / h / name after it,
+    /// in order, so the server pairs them up), plus the words and what it answers.
+    private func uploadMany(_ temp: Entry, datas: [Data], to b: Board) async {
+        let files = temp.attachments ?? []
+        var form = Multipart()
+        if temp.text != Self.sharedLabel(files.map(\.mime)) { form.field("text", temp.text) }
+        if let r = temp.replyTo { form.field("reply_to", String(r)) }
+        for (f, d) in zip(files, datas) {
+            form.file("file", filename: f.name, mime: f.mime, data: d)
+            form.field("w", f.w.map(String.init) ?? "")
+            form.field("h", f.h.map(String.init) ?? "")
+            form.field("name", f.name)
+        }
+        let body = form.finish()
+        uploads[temp.seq] = 0
+        defer { uploads[temp.seq] = nil }
+        do {
+            let d = try await API.shared.upload("/api/boards/\(b.id)/upload", data: body, contentType: form.contentType) { p in
+                Task { @MainActor in if AppState.shared.uploads[temp.seq] != nil { AppState.shared.uploads[temp.seq] = p } }
+            }
+            let real = try JSONDecoder.soup.decode(PostResponse.self, from: d).entry
+            // Already here: each kept under its real name and version, so none downloads again.
+            for (i, a) in (real.attachments ?? []).enumerated() where i < datas.count {
+                MediaStore.shared.adopt(datas[i], board: b.id, name: a.name, version: a.version, image: a.isImage)
+            }
+            for f in files { if let path = f.local { try? FileManager.default.removeItem(at: URL(fileURLWithPath: path).deletingLastPathComponent()) } }
+            withAnimation(.smooth) { entries[b.id] = (entries[b.id] ?? []).map { $0.seq == temp.seq ? real : $0 } }
+            Haptic.done()
+            save()
+            Task { await refreshBoards() }
+        } catch APIError.offline {
+            withAnimation(.smooth) {
+                entries[b.id] = (entries[b.id] ?? []).map { e in
+                    guard e.seq == temp.seq else { return e }
+                    var f = e; f.pending = nil; f.failed = true; return f
+                }
+            }
+            Haptic.warn()
+        } catch {
+            withAnimation(.smooth) { entries[b.id]?.removeAll { $0.seq == temp.seq } }
+            for f in files { if let path = f.local { try? FileManager.default.removeItem(at: URL(fileURLWithPath: path).deletingLastPathComponent()) } }
+            Haptic.warn()
+            report(error)
+        }
+    }
+
     /// Tries a picture or file that didn't go up again.
     func retryUpload(_ e: Entry, in b: Board) async {
+        if e.isMultiFile {
+            let datas = (e.attachments ?? []).compactMap { $0.local.flatMap { try? Data(contentsOf: URL(fileURLWithPath: $0)) } }
+            guard datas.count == e.attachments?.count else { withAnimation(.smooth) { entries[b.id]?.removeAll { $0.seq == e.seq } }; return }
+            withAnimation(.smooth) { entries[b.id] = (entries[b.id] ?? []).map { $0.seq == e.seq ? { var x = $0; x.pending = true; x.failed = nil; return x }($0) : $0 } }
+            await uploadMany(e, datas: datas, to: b)
+            return
+        }
         guard let path = e.local, let d = try? Data(contentsOf: URL(fileURLWithPath: path)) else {
             withAnimation(.smooth) { entries[b.id]?.removeAll { $0.seq == e.seq } }
             return
@@ -508,6 +598,7 @@ final class AppState: ObservableObject {
             var rx = reactions[b.id] ?? [:]
             for (k, v) in r.reactions ?? [:] { if let n = Int(k), n < first { rx[n] = v } }
             reactions[b.id] = rx
+            adoptDecisions(b.id, entries: r.entries, map: nil)
             let have = Set((entries[b.id] ?? []).map(\.seq))
             entries[b.id] = got.filter { !have.contains($0.seq) } + (entries[b.id] ?? [])
             return after > 0

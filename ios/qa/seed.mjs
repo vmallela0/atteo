@@ -36,7 +36,7 @@ const app = (await ops("tokens", { user: "maya", kind: "app", label: "Atteo app"
 // Seeding again: archive what an earlier run made, so the app shows one set of boards (and maya has room under the
 // Free plan's 3 boards once she archives one in the app).
 for (const b of (await call(app, "GET", "/api/me/boards")).boards ?? []) {
-  if (b.kind !== "direct" && !b.archived) await fetch(`${BASE}/api/boards/${b.id}/archive`, { method: "POST", headers: { "x-admin-key": KEY, "content-type": "application/json" }, body: JSON.stringify({ archived: true }) });
+  if (b.kind !== "direct" && b.kind !== "agent" && !b.archived) await fetch(`${BASE}/api/boards/${b.id}/archive`, { method: "POST", headers: { "x-admin-key": KEY, "content-type": "application/json" }, body: JSON.stringify({ archived: true }) });
 }
 const b1 = (await ops("boards", { user: "maya", title: "Checkout bug" })).board.id;
 await ops("members", { board: b1, user: "theo" });
@@ -53,7 +53,11 @@ await tool(tt, b1, "read", {});
 await tool(tt, b1, "post", { type: "artifact", artifact_name: "checkout-trace.log", artifact_content: "TypeError: cannot read 'amount' of undefined\n  at charge (checkout.js:42)", text: "Trace from checkout-service" });
 await tool(tt, b1, "read", {});
 await tool(tt, b1, "post", { type: "claim", to: "maya", text: "`charge()` gets an undefined payment when the cart is empty. Repro in the trace above." });
+// A person's decision is a human decision (#627): theo agrees or objects; maya, who asked, closes it.
 await call(app, "POST", `/api/boards/${b1}/entries`, { type: "decision", text: "Guard empty carts in `charge()` and ship behind PAYMENTS_V2." });
+// theo, from his phone, asks one of his own: maya has a vote (Agree / Object in the app).
+const otherApp = (await ops("tokens", { user: "theo", kind: "app", label: "theo's phone" })).token;
+await call(otherApp, "POST", `/api/boards/${b1}/entries`, { type: "decision", text: "Freeze checkout deploys until the empty-cart fix is live." });
 await tool(tt, b2, "read", {});
 await tool(tt, b2, "post", { type: "note", text: "Backfill finished on staging: 4.2M rows, 0 errors. Ready for prod tonight." });
 // A file in the chat (the app shows it as a chip and opens it in Quick Look).
@@ -130,6 +134,17 @@ await tool(tm, b1, "doc", { action: "write", name: "charge.ts", base_version: 0,
   const body = png(W, H, (x, y) => [40 + (x * 170) / W, 60 + (y * 120) / H, 140]);
   await fetch(`${BASE}/api/boards/${b1}/upload?name=checkout-flow.png&w=${W}&h=${H}&text=${encodeURIComponent("Where the empty cart slips through")}`, { method: "POST", headers: { authorization: `Bearer ${app}`, "content-type": "image/png" }, body });
 }
+// Several pictures in ONE message (multipart, a `file` part each with its w / h / name): the app shows a grid.
+{
+  const form = new FormData();
+  form.append("text", "Before and after the guard, on staging");
+  const tints = [[214, 120, 87], [70, 150, 120], [60, 90, 170]];
+  tints.forEach((c, i) => {
+    form.append("file", new Blob([png(320, 240, (x, y) => c.map((v) => Math.min(255, v + ((x + y) * 60) / 560)))], { type: "image/png" }), `staging-${i + 1}.png`);
+    form.append("w", "320"); form.append("h", "240"); form.append("name", `staging-${i + 1}.png`);
+  });
+  await fetch(`${BASE}/api/boards/${b1}/upload`, { method: "POST", headers: { authorization: `Bearer ${otherApp}` }, body: form });
+}
 // Two sub-tasks under the one in progress (the app's live checklist: finishing one ticks the parent).
 await tool(tt, b1, "read", {});
 const sub = await tool(tt, b1, "task", { action: "create", title: "Test behind PAYMENTS_V2", parent: s1n, assignee: "theo" });
@@ -150,6 +165,11 @@ await call(tt, "POST", `/api/sessions/${ts.id}`, { status: "fixing the empty-car
 // An end-to-end encrypted board (maya + theo): the phone and theo's client (enc-peer.mjs) must read each other.
 const enc = (await ops("boards", { user: "maya", title: "Secret plans", encrypted: true })).board.id;
 await ops("members", { board: enc, user: "theo" });
-// theo as a person, from his phone (QA posts "from someone else" with it: an agent's post would be threaded).
-const otherApp = (await ops("tokens", { user: "theo", kind: "app", label: "theo's phone" })).token;
+// "Your agent" (#720): maya's private chat with her own agents (pinned atop DMs), one question to her builder session
+// and its answer in the thread.
+const ac = await call(app, "POST", "/api/me/agent-chat");
+const ask = await call(app, "POST", `/api/boards/${ac.board}/entries`, { type: "note", text: "What's left before PAYMENTS_V2 can go to 5%?", to_session: "builder" });
+await tool(tm, ac.board, "read", {});
+await tool(tm, ac.board, "post", { type: "note", reply_to: ask.entry?.seq, text: "Two things: the regression test for empty carts, and rotating the Stripe webhook secret." });
+// theo as a person, from his phone (otherApp, above): QA posts "from someone else" with it (an agent's post would be threaded).
 console.log(JSON.stringify({ app, otherApp, other: tt, enc, b1, sub: Number((sub.match(/#(\d+)/) || [])[1]) }));
