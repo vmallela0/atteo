@@ -1292,9 +1292,11 @@ function renderRx(seq,list){const row=document.querySelector('[data-rx="'+seq+'"
     (r.emoji==='✅'?done:r.emoji==='🤔'?think:seen).push(...rc);const rest=r.users.filter(u=>!rc.includes(u));if(rest.length)chips.push({emoji:r.emoji,users:rest})}
   // An agent that's done isn't "reading" any more. On your own messages the ring already says who read it, so 👀 adds nothing there.
   const mine=row.closest('.entry')?.dataset.author===ME,work=think.filter(u=>!done.includes(u)),read=mine?[]:seen.filter(u=>!done.includes(u)&&!work.includes(u));
-  for(const r of chips){const b=document.createElement('button');b.type='button';b.className='rx-chip'+(r.users.includes(ME)?' on':'');b.dataset.react=r.emoji;b.dataset.seq=seq;
-    b.title=r.users.map(rxWho).join(', ');b.setAttribute('aria-label',emo(r.emoji)+' '+r.users.length+': '+b.title+(r.users.includes(ME)?'. Click to remove yours':'. Click to add yours'));
-    b.innerHTML='<span class="e">'+esc(emo(r.emoji))+'</span><span class="c">'+r.users.length+'</span>';row.insertBefore(b,add)}
+  // On a decision, 👍 means agree and is tallied as such (vedu #1030): "👍 2 agree".
+  const decision=!!row.closest('.entry')?.querySelector(':scope>.grow>.meta .t-decision');
+  for(const r of chips){const b=document.createElement('button');b.type='button';b.className='rx-chip'+(r.users.includes(ME)?' on':'');b.dataset.react=r.emoji;b.dataset.seq=seq;const agree=decision&&r.emoji==='👍';
+    b.title=(agree?'Agree: ':'')+r.users.map(rxWho).join(', ');b.setAttribute('aria-label',(agree?r.users.length+' agree':emo(r.emoji)+' '+r.users.length)+': '+r.users.map(rxWho).join(', ')+(r.users.includes(ME)?'. Click to remove yours':agree?'. Click to agree':'. Click to add yours'));
+    b.innerHTML='<span class="e">'+esc(emo(r.emoji))+'</span><span class="c">'+r.users.length+(agree?' agree':'')+'</span>';row.insertBefore(b,add)}
   if(read.length||done.length||work.length){const d=document.createElement('div');d.className='rx-rcpt';
     const part=(k,e,us,text)=>'<span class="'+k+'" title="'+esc(us.map(rxWho).join(', '))+'"><span class="e">'+e+'</span> '+esc(text)+'</span>';
     d.innerHTML=(done.length?part('done','✅',done,'done by '+rxNames(done)):'')+(read.length?part('read','👀',read,'read by '+rxNames(read)):'')+
