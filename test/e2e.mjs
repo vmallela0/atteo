@@ -393,6 +393,8 @@ await step("web: members see the board; outsiders get 404", async () => {
   has(html, `e2e ${run}`);
   has(html, "Connect your agents");
   has(html, "burst 19");
+  has(html, "rd-pop"); // every own message gets a "Seen by" popover (ring button, aria-describedby, Esc closes)
+  has(html, "rcpt-line");
   has(html, "View profile"); // mentions, avatars and author names open a profile card (click, tap, Enter)
   has(html, "data-ask");
   const prof = await (await web(`/u/${B}`, A)).text();
@@ -420,6 +422,11 @@ await step("web: live updates (incl. long-poll), entry detail and posting from t
   has(await ok(A, board, "read"), "Posted from the web");
   const outsiderPost = await web(`/api/boards/${board}/entries`, OUT, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "x" }) });
   assert(outsiderPost.status === 404, `outsider post ${outsiderPost.status}`);
+  // An upload comes back with its rendered entry, like a text post, so the page can swap its "sending" copy for it.
+  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAYAAACNMs+9AAAAFUlEQVR42mP8z8BQz0AEYBxVSF+FABJADveWkH6oAAAAAElFTkSuQmCC", "base64");
+  const up = await web(`/api/boards/${board}/upload?name=pic.png&w=10&h=10&text=${encodeURIComponent("with a caption")}`, B, { method: "POST", headers: { "content-type": "image/png" }, body: png });
+  const upj = await up.json();
+  assert(up.status === 201 && upj.update && upj.update.seq === upj.entry.seq && upj.update.html.includes("with a caption") && upj.update.row, `upload ${up.status} ${JSON.stringify(upj).slice(0, 200)}`);
 });
 
 await step("brand: the Pebble is the favicon, apple-touch icon and header mark", async () => {
@@ -1794,8 +1801,10 @@ await step("the Atteo app signs in as the person (scope=person, atteo:// only): 
   const verifier = randomBytes(32).toString("base64url");
   const challenge = createHash("sha256").update(verifier).digest("base64url");
   const q = (redirect) => new URLSearchParams({ response_type: "code", client_id: reg.client_id, redirect_uri: redirect, code_challenge: challenge, code_challenge_method: "S256", scope: "person", state: "s1" });
-  // Only the app's own link may ask to sign in as you.
-  assert((await web(`/oauth/authorize?${q("http://localhost:47124/cb")}`, A)).status === 400, "person scope needs atteo://");
+  // Only the app's own link may sign in as you; anything else asking for "person" gets an ordinary agent connection (no error page).
+  const asAgent = await web(`/oauth/authorize?${q("http://localhost:47124/cb")}`, A);
+  assert(asAgent.status === 200, `person scope from a loopback client falls back to an agent connection: ${asAgent.status}`);
+  assert(!(await asAgent.text()).includes(`Sign in to the Atteo app as ${A}?`), "and never as you");
   has(await (await web(`/oauth/authorize?${q("agentsoup://auth")}`, A)).text(), `Sign in to the Atteo app as ${A}?`); // the app's scheme before the rename still works
   const consent = await (await web(`/oauth/authorize?${q(cb)}`, A)).text();
   has(consent, `Sign in to the Atteo app as ${A}?`);
@@ -2333,6 +2342,170 @@ await step("read receipts: an agent's read puts 👀 on a person's message for i
   const other = await (await web(`/api/boards/${board}/entries`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "note", text: `just a note ${run}` }) })).json();
   await ok(B, board, "read");
   assert(!((await (await web(`/api/boards/${board}/entries?after=${other.entry.seq - 1}&limit=1`, A)).json()).reactions[other.entry.seq] ?? []).length, "a note not for the agent gets no receipt");
+});
+
+await step("change cards are reports, not answers: never auto-threaded, never ✅; an agent can undo its own receipt", async () => {
+  const personPost = async (text) => (await (await web(`/api/boards/${board}/entries`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "note", text }) })).json()).entry.seq;
+  const rx = async (seq) => (await (await web(`/api/boards/${board}/entries?after=${seq - 1}&limit=1`, A)).json()).reactions[seq] ?? [];
+  const entry = async (seq) => (await (await web(`/api/boards/${board}/entries?after=${seq - 1}&limit=1`, A)).json()).entries[0];
+  const done = (r, who) => r.some((x) => x.emoji === "✅" && x.users.includes(who));
+  const eyes = (r, who) => r.some((x) => x.emoji === "👀" && x.users.includes(who));
+  const card = { repo: "acme/shop", branch: `ship/${run}`, base: "main", ci: "passing", commits: [{ sha: "a1b2c3d4", title: "Ship it" }], files: [{ path: "src/a.ts", added: 1, removed: 0 }] };
+  const agent = `${B}'s agent`;
+  await ok(B, board, "read");
+  // A person @agents an open note; the agent reads it (👀) and posts a change card: not threaded, no ✅.
+  const open1 = await personPost(`@agents please look at the deploy ${run}`);
+  await ok(B, board, "read");
+  assert(eyes(await rx(open1), agent), `👀 after the read: ${JSON.stringify(await rx(open1))}`);
+  const c1 = seqOf(await ok(B, board, "post", { type: "change", text: `Shipped to production ${run}`, card }));
+  assert((await entry(c1)).reply_to == null, `change card must not be auto-threaded: ${JSON.stringify(await entry(c1))}`);
+  let r = await rx(open1);
+  assert(eyes(r, agent) && !done(r, agent), `still 👀, no ✅ after a change card: ${JSON.stringify(r)}`);
+  // A plain note still auto-threads and ✅s.
+  const n1 = seqOf(await ok(B, board, "post", { type: "note", text: `looked, all good ${run}`, to: A }));
+  assert((await entry(n1)).reply_to === open1, `a plain note auto-threads: ${JSON.stringify(await entry(n1))}`);
+  r = await rx(open1);
+  assert(done(r, agent) && !eyes(r, agent), `✅ after a plain note: ${JSON.stringify(r)}`);
+  // An explicitly threaded change card is "related": no ✅ either.
+  const open3 = await personPost(`@agents one more thing ${run}`);
+  await ok(B, board, "read");
+  const c2 = seqOf(await ok(B, board, "post", { type: "change", text: `related change ${run}`, card, reply_to: open3 }));
+  assert((await entry(c2)).reply_to === open3, "explicit reply_to is kept");
+  r = await rx(open3);
+  assert(eyes(r, agent) && !done(r, agent), `explicit change card does not ✅: ${JSON.stringify(r)}`);
+  // An agent session toggling ✅ removes the automatic receipt rather than adding its own; a person's ✅ is untouched.
+  await web(`/api/boards/${board}/entries/${open1}/react`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ emoji: "✅" }) });
+  const s1 = await session(B, board);
+  await sok(s1, "react", { seq: open1, emoji: "✅" });
+  r = await rx(open1);
+  assert(!done(r, agent) && done(r, A), `receipt gone, person's ✅ kept: ${JSON.stringify(r)}`);
+  assert(!r.some((x) => x.users.some((u) => u.startsWith(`${B}/`))), `no session-level reaction added: ${JSON.stringify(r)}`);
+  // With no receipt left, the same toggle adds a session-level reaction as before.
+  await sok(s1, "react", { seq: open1, emoji: "✅" });
+  assert((await rx(open1)).some((x) => x.emoji === "✅" && x.users.some((u) => u.startsWith(`${B}/`))), `session ✅ added: ${JSON.stringify(await rx(open1))}`);
+  // 👀 works the same way.
+  const open2 = await personPost(`@agents second ask ${run}`);
+  await ok(B, board, "read");
+  assert(eyes(await rx(open2), agent), "👀 receipt");
+  await sok(s1, "react", { seq: open2, emoji: "👀" });
+  assert(!eyes(await rx(open2), agent), `👀 receipt removed: ${JSON.stringify(await rx(open2))}`);
+});
+
+// ---- human decisions: a decision a person posts is the people's to make ----
+const HDC = `e2e-hdc-${run}`;
+let hdBoard;
+const hdPost = async (who, body) => (await web(`/api/boards/${hdBoard}/entries`, who, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })).json();
+const hdAct = (who, seq, what, body, headers = {}) =>
+  fetch(`${BASE}/api/boards/${hdBoard}/entries/${seq}/${what}`, { method: "POST", headers: { "content-type": "application/json", ...(headers.authorization ? {} : { cookie: cookie[who] }), ...headers }, body: JSON.stringify(body) });
+const hdGet = async (seq, who = A) => (await (await web(`/api/boards/${hdBoard}/entries/${seq}`, who)).json()).entry;
+
+await step("human decisions: a person's decision is open until the people decide; an agent can't resolve it and its reply doesn't ✅ it", async () => {
+  await ops("users", { name: HDC, email: `${HDC}@example.com`, verified: "true" });
+  tok[HDC] = (await ops("tokens", { user: HDC, label: "e2e" })).body.token;
+  cookie[HDC] = (await ops("sessions", { user: HDC })).body.cookie;
+  hdBoard = (await ops("boards", { user: A, title: `e2e decide ${run}` })).body.board.id;
+  for (const u of [B, HDC]) assert((await ops("members", { board: hdBoard, user: u })).status === 200, `add ${u}`);
+  const d = await hdPost(A, { type: "decision", text: `@${B}'s agent Ship the v2 billing page on Friday ${run}` });
+  const seq = d.entry.seq;
+  const hd = (await hdGet(seq)).human_decision;
+  assert(hd?.state === "open" && hd.author === A && hd.waiting_on.join() === [B, HDC].join() && !hd.votes.length, `open, waiting on both: ${JSON.stringify(hd)}`);
+  // Agents read it as a human decision, with who it's waiting on; the summary tags it too.
+  const t = await ok(B, hdBoard, "read");
+  has(t, "Human decision (people decide; don't act on it until it's decided)");
+  has(t, `waiting on: ${B}, ${HDC}`);
+  has(t, `[human decision · waiting on ${B}, ${HDC}`);
+  // Resolving it is refused, with a clear reason.
+  await err(B, hdBoard, "post", { type: "note", text: `done ${run}`, resolves: [seq] }, `#${seq} is a human decision`);
+  // A plain reply is input: threaded under it, but no ✅ (its 👀 stays), and it stays open.
+  has(await ok(B, hdBoard, "post", { type: "note", text: `Friday works for us; tests pass ${run}`, reply_to: seq }), `In reply to #${seq}`);
+  const rx = (await (await web(`/api/boards/${hdBoard}/entries?after=${seq - 1}&limit=1`, A)).json()).reactions[seq] ?? [];
+  assert(rx.some((x) => x.emoji === "👀") && !rx.some((x) => x.emoji === "✅"), `no ✅ from an agent's reply: ${JSON.stringify(rx)}`);
+  const after = await hdGet(seq);
+  assert(after.human_decision.state === "open" && !after.done_by && !after.handled_by, `still open: ${JSON.stringify(after)}`);
+  // Mail: the other people get "asks for a decision"; their agents get it as a human decision (never a fork).
+  const item = (await (await web("/api/inbox", HDC)).json()).items.find((i) => i.board_id === hdBoard && i.seq === seq);
+  assert(item?.kind === "decision", `inbox: ${JSON.stringify(item)}`);
+  const mail = (await (await fetch(`${BASE}/api/mailbox?peek=1`, { headers: auth(HDC) })).json()).mail.find((m) => m.board === hdBoard && m.seq === seq);
+  assert(mail?.kind === "human_decision" && mail.text.includes("Ship the v2 billing page"), `mailbox: ${JSON.stringify(mail)}`);
+  assert(!(await (await fetch(`${BASE}/api/mailbox?peek=1`, { headers: auth(A) })).json()).mail.some((m) => m.board === hdBoard && m.seq === seq), "not the author's own mail");
+});
+
+await step("human decisions: votes and waiting_on; everyone agreeing decides it with a quiet line that resolves it; a later objection reopens it", async () => {
+  const seq = (await hdPost(A, { type: "decision", text: `Move standup to 10:00 ${run}` })).entry.seq;
+  let r = await hdAct(B, seq, "vote", { vote: "agree" });
+  let j = await r.json();
+  assert(r.status === 200 && j.human_decision.state === "open" && j.human_decision.waiting_on.join() === HDC, `B agreed: ${r.status} ${JSON.stringify(j)}`);
+  has(await ok(B, hdBoard, "read"), `waiting on: ${HDC}`);
+  // An objection with a note, then a change of mind (one vote each, changeable).
+  j = await (await hdAct(HDC, seq, "vote", { vote: "object", note: `10:00 clashes with the design review ${run}` })).json();
+  assert(j.human_decision.state === "open" && j.human_decision.votes.some((v) => v.user === HDC && v.vote === "object" && v.note.includes("design review")), JSON.stringify(j));
+  j = await (await hdAct(HDC, seq, "vote", { vote: "agree" })).json();
+  assert(j.human_decision.state === "decided" && !j.human_decision.waiting_on.length && j.human_decision.closed_by === null && j.human_decision.votes.length === 2, `all agreed: ${JSON.stringify(j)}`);
+  const line = await hdGet(j.human_decision.line);
+  assert(line.text.startsWith("✅ Decided by the people:") && line.text.includes(`Move standup to 10:00 ${run}`) && line.resolves.includes(seq) && line.reply_to === seq && line.author === A, `the line: ${JSON.stringify(line)}`);
+  has(await ok(B, hdBoard, "get", { seq }), "Human decision · decided by the people");
+  // A later objection reopens it (nobody closed it): the line is unsent.
+  j = await (await hdAct(B, seq, "vote", { vote: "object" })).json();
+  assert(j.human_decision.state === "open" && j.human_decision.line === null && j.human_decision.waiting_on.join() === B, `reopened: ${JSON.stringify(j)}`);
+  const replies = (await (await web(`/api/boards/${hdBoard}/entries/${seq}`, A)).json()).replies;
+  assert(replies.some((e) => e.retracts === line.seq && e.text.includes(`Reopened: ${B} objected`)), `line unsent: ${JSON.stringify(replies.map((e) => [e.seq, e.text, e.retracts]))}`);
+  // The page's live updates carry every decision's state; the page has its strip.
+  const u = await (await web(`/api/boards/${hdBoard}/updates?after=0`, HDC)).json();
+  assert(u.decisions?.[seq]?.state === "open" && u.entries.find((e) => e.seq === seq)?.human_decision, "updates carry decisions");
+  has(await (await web(`/b/${hdBoard}`, HDC)).text(), `data-hd="${seq}"`);
+});
+
+await step("human decisions: its author closes it (dropped, with a note); only the author, once; objections after that don't reopen it", async () => {
+  const seq = (await hdPost(A, { type: "decision", text: `Rename the repo to atteo-core ${run}` })).entry.seq;
+  await hdAct(B, seq, "vote", { vote: "object", note: "breaks links" });
+  let r = await hdAct(B, seq, "close", { outcome: "dropped" });
+  assert(r.status === 400 && (await r.json()).error.includes(`Only ${A}`), "only the author closes");
+  r = await hdAct(A, seq, "close", { outcome: "dropped", note: `Not worth the churn ${run}` });
+  let j = await r.json();
+  assert(r.status === 200 && j.human_decision.state === "dropped" && j.human_decision.closed_by === A && j.human_decision.note === `Not worth the churn ${run}` && !j.human_decision.waiting_on.length, JSON.stringify(j));
+  const line = await hdGet(j.human_decision.line);
+  assert(line.text.startsWith(`✖ Dropped by ${A}:`) && line.reply_to === seq && !line.resolves.length, `a dropped line doesn't resolve it: ${JSON.stringify(line)}`);
+  assert((await hdAct(A, seq, "close", { outcome: "decided" })).status === 400, "closed once");
+  j = await (await hdAct(HDC, seq, "vote", { vote: "object" })).json();
+  assert(j.human_decision.state === "dropped", `stays dropped: ${JSON.stringify(j)}`);
+  has(await ok(B, hdBoard, "get", { seq }), `Human decision · dropped by ${A}`);
+  // Closing as decided while someone still objects: decided, in the author's name.
+  const s2 = (await hdPost(A, { type: "decision", text: `Freeze deploys over the weekend ${run}` })).entry.seq;
+  await hdAct(B, s2, "vote", { vote: "object" });
+  j = await (await hdAct(A, s2, "close", { outcome: "decided" })).json();
+  assert(j.human_decision.state === "decided" && j.human_decision.closed_by === A, JSON.stringify(j));
+  const l2 = await hdGet(j.human_decision.line);
+  assert(l2.text.startsWith(`✅ Decided by ${A}:`) && l2.resolves.includes(s2), JSON.stringify(l2));
+});
+
+await step("human decisions: agents, non-members, viewers and the author can't vote; an agent's own decision is an ordinary entry", async () => {
+  const seq = (await hdPost(A, { type: "decision", text: `Use Postgres for the ledger ${run}` })).entry.seq;
+  let r = await hdAct(B, seq, "vote", { vote: "agree" }, auth(B)); // B's agent token
+  assert(r.status === 403 && (await r.json()).error.includes("agents can't"), `agent vote: ${r.status}`);
+  r = await hdAct(A, seq, "close", { outcome: "decided" }, auth(A));
+  assert(r.status === 403, `agent close: ${r.status}`);
+  r = await hdAct(OUT, seq, "vote", { vote: "agree" });
+  assert(r.status === 404, `non-member vote: ${r.status}`);
+  r = await hdAct(A, seq, "vote", { vote: "agree" });
+  assert(r.status === 400 && (await r.json()).error.includes("close it"), `author vote: ${r.status}`);
+  assert((await hdAct(B, seq, "vote", { vote: "maybe" })).status === 400, "bad vote");
+  // A viewer neither votes nor is waited on.
+  assert((await web(`/api/boards/${hdBoard}/members/${HDC}`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ role: "viewer" }) })).status === 200, "make viewer");
+  r = await hdAct(HDC, seq, "vote", { vote: "agree" });
+  assert(r.status === 403 && (await r.json()).error.includes("view this board"), `viewer vote: ${r.status}`);
+  const hd = (await hdGet(seq)).human_decision;
+  assert(hd.waiting_on.join() === B && hd.voters.join() === B, `viewers aren't waited on: ${JSON.stringify(hd)}`);
+  // Not human decisions: a note, and a decision an agent posted (unchanged: no state, others can resolve it).
+  const note = (await hdPost(A, { type: "note", text: `just a note ${run}` })).entry.seq;
+  assert((await hdAct(B, note, "vote", { vote: "agree" })).status === 400, "notes take no votes");
+  await ok(A, hdBoard, "read");
+  const mine = seqOf(await ok(A, hdBoard, "post", { type: "decision", text: `Agents decided: cache for 60s ${run}` }));
+  const e = await hdGet(mine);
+  assert(e.type === "decision" && e.via === "agent" && !e.human_decision, `agent's decision: ${JSON.stringify(e)}`);
+  assert(!(await ok(A, hdBoard, "get", { seq: mine })).includes("Human decision"), "no human decision line");
+  assert((await hdAct(B, mine, "vote", { vote: "agree" })).status === 400, "an agent's decision takes no votes");
+  await ok(B, hdBoard, "read");
+  has(await ok(B, hdBoard, "post", { type: "note", text: `superseded by the new cache plan ${run}`, resolves: [mine] }), "Posted #");
 });
 
 await step("encryption v2: one key per board; newcomers read history; later devices only via their own; removal rotates", async () => {

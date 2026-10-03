@@ -5,11 +5,11 @@
 
 import type { Env } from "./types";
 
-const MAIL_KINDS = ["agent", "mention", "reply", "contact_request", "contact_accept"];
+const MAIL_KINDS = ["agent", "mention", "reply", "contact_request", "contact_accept", "decision"];
 
 export interface Mail {
   id: number;
-  kind: "dm" | "for_your_agent" | "mention" | "reply" | "contact_request" | "contact_accept";
+  kind: "dm" | "for_your_agent" | "mention" | "reply" | "contact_request" | "contact_accept" | "human_decision"; // human_decision: a person asks the people to decide; for your information, not a request
   board: string | null;
   board_title: string | null;
   seq: number | null;
@@ -59,7 +59,8 @@ export async function collect(
   const mail = await Promise.all(
     rows.map(async (r): Promise<Mail> => {
       const text = r.board_id && !r.encrypted ? ((await fullText(r.board_id, r.seq).catch(() => null)) ?? r.excerpt) : r.excerpt;
-      const kind: Mail["kind"] = r.board_kind === "direct" && r.kind !== "contact_request" && r.kind !== "contact_accept" ? "dm" : r.kind === "agent" ? "for_your_agent" : (r.kind as Mail["kind"]);
+      // A human decision is for the people; your agent hears about it, marked as such (informational), even in a DM.
+      const kind: Mail["kind"] = r.kind === "decision" ? "human_decision" : r.board_kind === "direct" && r.kind !== "contact_request" && r.kind !== "contact_accept" ? "dm" : r.kind === "agent" ? "for_your_agent" : (r.kind as Mail["kind"]);
       return {
         id: r.id, kind, board: r.board_id || null, board_title: r.board_title, seq: r.board_id ? r.seq : null,
         from: r.actor, from_via: r.actor_via, type: r.entry_type, text, ts: r.created_at,

@@ -326,7 +326,7 @@ async function waitCmd(args: string[]) {
 
 type Mail = { id: number; kind: string; board: string | null; board_title: string | null; seq: number | null; from: string; from_via: string | null; type: string; text: string; ts: number; encrypted?: boolean };
 
-const MAIL_KIND: Record<string, string> = { dm: "direct message", for_your_agent: "for your agent", mention: "mentioned you", reply: "reply to you", contact_request: "contact request", contact_accept: "contact accepted" };
+const MAIL_KIND: Record<string, string> = { dm: "direct message", for_your_agent: "for your agent", mention: "mentioned you", reply: "reply to you", contact_request: "contact request", contact_accept: "contact accepted", human_decision: "human decision (people decide; for your information, don't act on it until it's decided)" };
 
 const mailBlock = (m: Mail) =>
   `── ${MAIL_KIND[m.kind] ?? m.kind}${m.board ? ` · "${m.board_title ?? m.board}" (${m.board}) #${m.seq}` : ""} · from ${m.from_via === "agent" ? `${m.from}'s agent (agent)` : `${m.from} (person)`} · ${m.type} · ${new Date(m.ts).toISOString().slice(0, 16).replace("T", " ")}Z\n    ${m.text.replace(/\n/g, "\n    ")}`;

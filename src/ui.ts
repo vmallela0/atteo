@@ -284,6 +284,14 @@ dialog.access-dlg{width:min(640px,calc(100vw - 24px))}
 .cl-asserted{color:var(--muted);font-weight:400}.cl-evidenced .dot{background:var(--task)}.cl-verified{color:var(--ok)}.cl-verified .dot{background:var(--ok)}.cl-disputed{color:var(--danger)}.cl-disputed .dot{background:var(--danger)}
 .cl-ev a{color:var(--muted);text-decoration:underline;text-decoration-color:var(--line-strong);text-underline-offset:2px}.cl-ev a:hover{color:var(--ink)}
 .cl-f{display:flex;gap:6px;flex-basis:100%}.cl-f[hidden]{display:none}.cl-f .input{flex:1;height:28px;font-size:12.5px}
+/* Human decisions: a person's decision, decided by the people (pill · who's agreed · Agree / Object · Close for its author) */
+.hd-open .tk-st .dot{background:var(--decision)}.hd-decided .tk-st{color:var(--ok)}.hd-decided .tk-st .dot{background:var(--ok)}.hd-dropped .tk-st{color:var(--muted)}.hd-dropped .tk-st .dot{background:var(--muted)}
+.hd-ms{display:inline-flex;align-items:center;gap:5px}.hd-m{position:relative;display:inline-flex}.hd-m .av{width:20px;height:20px;font-size:8.5px}.hd-m.w .av{opacity:.45}
+.hd-m i{position:absolute;right:-4px;bottom:-3px;width:12px;height:12px;border-radius:50%;display:grid;place-items:center;font-size:8px;font-style:normal;font-weight:700;line-height:1;color:#fff;box-shadow:0 0 0 1.5px var(--bg-subtle)}
+.hd-m.y i{background:var(--ok)}.hd-m.n i{background:var(--danger)}
+.hd-b.on-y{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 40%,var(--line))}.hd-b.on-n{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 40%,var(--line))}
+.hd-note{flex-basis:100%;min-width:0;color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.hd-note b{color:var(--text);font-weight:500}
+.hd-out{display:inline-flex;gap:6px}.hd-out[hidden],.hd-f .btn[hidden]{display:none}
 .badge.stale{height:18px;font-size:11px;color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,var(--line))}
 .st-done{color:var(--muted)}.tk-who{color:var(--muted)}
 .tk-prog{display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-variant-numeric:tabular-nums}
@@ -331,17 +339,24 @@ dialog.lightbox img{display:block;max-width:min(96vw,1600px);max-height:92vh;wid
 .conv.drop .composer{box-shadow:0 0 0 2px var(--accent)}
 .doc-img img{display:block;max-width:100%;height:auto;border-radius:8px;border:1px solid var(--line);background:var(--bg-subtle)}
 /* read receipts: a ring on your latest message, filling green as people and agents see it; a dot on each @mention */
-.rcpt{margin-top:2px}
+.rcpt-line{margin-top:2px}
 .entry .meta .when{cursor:pointer}
 .entry.has-rd>.grow{padding-right:24px}
-.rd{position:absolute;right:0;bottom:12px;width:16px;height:16px;display:grid;place-items:center;cursor:default;outline-offset:2px}
+.rd{position:absolute;right:0;bottom:12px;width:16px;height:16px;display:grid;place-items:center;cursor:default;outline-offset:2px;padding:0;border:0;background:none;color:inherit;font:inherit;opacity:.55;transition:opacity .15s}
+.rd::before{content:"";position:absolute;inset:-6px}
+.entry:hover>.rd,.rd:focus-visible,.rd.open,.entry:focus-within>.rd{opacity:1}
+@media (hover:hover){.rd:hover{opacity:1}}
 .rd svg{display:block}.rd .t{fill:none;stroke:var(--line-strong);stroke-width:2}.rd .p{fill:none;stroke:var(--ok);stroke-width:2;stroke-linecap:round;transition:stroke-dasharray .3s}
 .rd.all .t{fill:var(--ok);stroke:var(--ok)}.rd .ck{fill:none;stroke:var(--bg);stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
-.rd-pop{display:none;position:absolute;right:0;bottom:22px;z-index:6;min-width:150px;max-width:240px;padding:8px 10px;border-radius:8px;background:var(--ink);color:var(--on-ink);
-  font-size:12px;line-height:18px;box-shadow:var(--shadow-lg);flex-direction:column;white-space:nowrap}
-.rd:hover .rd-pop,.rd:focus .rd-pop{display:flex}
+.rd-pop{visibility:hidden;opacity:0;position:absolute;right:0;bottom:22px;z-index:6;min-width:170px;max-width:320px;padding:8px 10px;border-radius:8px;background:var(--ink);color:var(--on-ink);text-align:left;
+  font-size:12px;line-height:18px;box-shadow:var(--shadow-lg);display:flex;flex-direction:column;gap:2px;white-space:nowrap;pointer-events:none;transition:opacity .12s}
+.rd:focus-visible .rd-pop,.rd.open .rd-pop{visibility:visible;opacity:1}
+@media (hover:hover){.rd:hover .rd-pop{visibility:visible;opacity:1}.entry:hover>.rd .rd-pop{visibility:visible;opacity:1;transition-delay:.35s}}
+.rd-hush .rd-pop{visibility:hidden!important}
 .rd.down .rd-pop{bottom:auto;top:22px}
-.rd-pop b{font-weight:600;margin-bottom:2px}.rd-pop .y::before{content:"✓ ";color:var(--ok)}.rd-pop .n{opacity:.6}.rd-pop .n::before{content:"○ "}
+.rd-pop b{font-weight:600;margin-bottom:2px}.rd-pop>span{display:flex;align-items:center;gap:6px}.rd-pop .av.sm{width:16px;height:16px;font-size:7px}
+.rd-pop .nm{flex:1;overflow:hidden;text-overflow:ellipsis}.rd-pop i{font-style:normal;font-size:11px;opacity:.65}.rd-pop .y i{color:var(--ok);opacity:1}.rd-pop .n{opacity:.6}
+@media (pointer:coarse){.rd{width:20px;height:20px;right:-2px}.rd::before{inset:-10px}}
 .entry .body .mention{position:relative}
 /* the dot takes the mention's own colour: an outline until they've seen it, filled once they have */
 .entry .body .mention{--dot:var(--accent)}.entry .body .mention.me{--dot:var(--warn)}
@@ -1102,7 +1117,7 @@ window.inboxRefresh=async()=>{try{const r=await fetch('/api/inbox/count');if(!r.
   const ap=document.getElementById('approvals-count');if(ap){ap.hidden=!j.approvals;ap.textContent=String(j.approvals||'')}
   const l=j.latest;if(l&&l.created_at>seen){if(seen&&'Notification' in window&&Notification.permission==='granted'&&!(document.visibilityState==='visible'&&location.pathname==='/b/'+l.board_id)){
     const ap=l.kind==='approval',who=ap?'Your agent':l.actor_via==='agent'?l.actor+"'s agent":l.actor;
-    const n=new Notification(who+(ap?' is asking for your approval':l.kind==='mention'?' mentioned you':l.kind==='reply'?' replied to you':l.kind==='friend_request'?' wants to be friends':l.kind==='friend_accept'?' accepted your request':' wrote to your agent'),{body:l.excerpt,tag:'inbox-'+l.id});
+    const n=new Notification(who+(ap?' is asking for your approval':l.kind==='mention'?' mentioned you':l.kind==='decision'?' asks for a decision':l.kind==='reply'?' replied to you':l.kind==='friend_request'?' wants to be friends':l.kind==='friend_accept'?' accepted your request':' wrote to your agent'),{body:l.excerpt,tag:'inbox-'+l.id});
     n.onclick=()=>{window.focus();location.href=ap?'/approvals':l.board_id?'/b/'+l.board_id+'#e'+l.seq:'/people'}}
   seen=l.created_at;try{localStorage.setItem('inbox-seen',String(seen))}catch{}}}catch{}};
 inboxRefresh();setInterval(inboxRefresh,60000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)inboxRefresh()})})();`;

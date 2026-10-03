@@ -7,6 +7,7 @@ import type { TokenRow } from "./auth";
 import { authorLabel, computeSummary, retractedSet, type Summary } from "./state";
 import { forAgent, forPerson, mentionLabel } from "./mentions";
 import { screenText } from "./screen";
+import { clientName, presenceLabel } from "./social";
 import type { ChangeCard } from "./card";
 import type { BoardInfo, Entry } from "./types";
 import { appPage, avatar, avatarStack, boardPic, copyField, hue, page, renderText, typeTag, when, working, type SideBoard, type Viewer } from "./ui";
@@ -100,7 +101,7 @@ ${
 ${avatar(e.author, "", e.via === "agent")}
 <div class="grow">
   <div class="meta">${whoHtml(e)}${e.to ? `<span class="to">→ ${esc(e.to)}</span>` : ""}${e.type === "note" ? "" : typeTag(e.type)}${when(e.ts)}<a class="seq" href="#e${e.seq}">#${e.seq}</a><span class="badge rbadge">Unsent</span>${flagBadge(e.text, e.ai_flag)}${actions}</div>
-  <div class="body">${renderText(e.text, e.mentions)}</div>${file}${e.card ? changeCardHtml(e.seq, e.card) : ""}${e.type === "task" ? `<div class="tk" data-task="${e.seq}" hidden></div>` : ""}${e.type === "claim" && !opts.retracted ? `<div class="tk cl" data-claim="${e.seq}" hidden></div>` : ""}
+  <div class="body">${renderText(e.text, e.mentions)}</div>${file}${e.card ? changeCardHtml(e.seq, e.card) : ""}${e.type === "task" ? `<div class="tk" data-task="${e.seq}" hidden></div>` : ""}${e.type === "claim" && !opts.retracted ? `<div class="tk cl" data-claim="${e.seq}" hidden></div>` : ""}${e.type === "decision" && e.via === "person" && !opts.retracted ? `<div class="tk hd" data-hd="${e.seq}" hidden></div>` : ""}
   ${refs.length ? `<div class="refs">${refs.join(" · ")}</div>` : ""}
   <div class="rx" data-rx="${e.seq}"><button class="rx-add" type="button" data-rx-add="${e.seq}" aria-label="Add a reaction" title="Add a reaction">☺<span>+</span></button></div>
   ${withReplies ? `<div class="replies" id="r${e.seq}"></div>` : ""}
@@ -723,7 +724,7 @@ async function loadEarlier(until){const b=document.getElementById('load-earlier'
     const box=x.root!==x.seq&&(document.getElementById('r'+x.root)||frag.querySelector('#r'+x.root));
     if(box){el.querySelector('.replies')?.remove();box.appendChild(el)}else frag.appendChild(el);later.push(x)}
   b.after(frag);
-  for(const x of later){if(x.reactions?.length)renderRx(x.seq,x.reactions);if(document.querySelector('#e'+x.seq+' [data-task]'))refreshTask(x.seq);if(x.root!==x.seq)thrSum(x.root)}
+  for(const x of later){if(x.human_decision){HDS[x.seq]=x.human_decision;renderHD(x.seq)}if(x.reactions?.length)renderRx(x.seq,x.reactions);if(document.querySelector('#e'+x.seq+' [data-task]'))refreshTask(x.seq);if(x.root!==x.seq)thrSum(x.root)}
   if(window.e2eSync&&later.length)e2eSync(later[0].seq-1);
   renderClaims(CLAIMS);
   if(j.first>1){b.dataset.before=j.first;b.disabled=false}else b.remove();sc.scrollTop+=sc.scrollHeight-h0;railBuild()}
@@ -796,6 +797,7 @@ async function tick1(wait){try{
   if(typeof d.last==='number')last=Math.max(last,d.last);
   if(d.reviews)applyReviews(d.reviews);
   if(d.claims)renderClaims(d.claims);
+  if(d.decisions)renderHDs(d.decisions);
   if(d.handling)renderHandling(d.handling);
   if(d.reads){READS=d.reads;renderReads()}
   if(added){railBuild();if(stick)toBottom();else{unseen=true;pillSync()}if(window.e2eSync)e2eSync()}
@@ -809,6 +811,7 @@ function addEntry(e){if(document.getElementById('e'+e.seq)){last=Math.max(last,e
     const tmp=document.createElement('div');tmp.innerHTML=e.html;const el=tmp.firstElementChild;el.classList.add('flash-in');
     if(box){el.querySelector('.replies')?.remove();box.appendChild(el)}else{document.getElementById('empty')?.remove();document.getElementById('thread').appendChild(el)}
     const rx=RXP[e.seq]||e.reactions;if(rx)renderRx(e.seq,rx);
+    if(e.human_decision){HDS[e.seq]=e.human_decision;renderHD(e.seq)}
     if(el.querySelector('[data-task]'))refreshTask(e.seq);
     if(box){thrSum(e.root);setTimeout(()=>window.reportSeen&&reportSeen(),0)}
     if(!document.querySelector('#log-body tr[data-seq="'+e.seq+'"]')){const lt=document.createElement('tbody');lt.innerHTML=e.row;document.getElementById('log-body').prepend(lt.firstElementChild);document.getElementById('log-empty')?.remove()}
@@ -826,6 +829,7 @@ function connect(){
     if(d.type==='archived'){location.reload();return}
     if(d.type==='doc'){window.onDocChanged&&onDocChanged(d)}
     if(d.type==='reaction'){renderRx(d.seq,d.reactions);return}
+    if(d.type==='decision'){HDS[d.seq]=d.human_decision;renderHD(d.seq);return}
     if(d.type==='read'){READS[d.user]={person_seen:d.person_seen,agent_seen:d.agent_seen};renderReads();return}
     if(d.type==='task')refreshTask(d.seq);
     if(d.type==='claim'||d.type==='handling')tick(false);
@@ -854,7 +858,7 @@ window.posted=(j)=>{const was=+rpTo.value;draftSave(sentKey,'');replyClear(true)
   if(j&&j.update&&addEntry(j.update)){if(!was){railBuild();toBottom()}}else stickNext=!was;
   tick(false);setTimeout(()=>{if(was){replyShown(was);ta.value=draftLoad('')}ta.style.height='';ta.style.height=ta.value?ta.scrollHeight+2+'px':'';msync()},0)}; // after the form's reset
 let sentKey='';
-document.querySelector('form.composer')?.addEventListener('submit',()=>{sentKey=draftNow();const t=ta.value.trim();if(!t||!rpTo||rpTo.value)return; // replies go in their thread, after the real post
+document.querySelector('form.composer')?.addEventListener('submit',()=>{sentKey=draftNow();const t=ta.value.trim();if(!t||!rpTo||rpTo.value||pending.length)return; // files get their own copy (below); replies go in their thread, after the real post
   const el=document.createElement('article');el.className='entry pending';el.innerHTML='<div class="grow"><div class="meta"><span class="who"></span><span class="xs faint">sending…</span></div><div class="body"></div></div>';
   el.querySelector('.who').textContent=ME;el.querySelector('.body').textContent=t;document.getElementById('thread').appendChild(el);toBottom();
 },true);
@@ -1054,11 +1058,16 @@ convEl.addEventListener('drop',e=>{convEl.classList.remove('drop');const fs=[...
 // With files attached, posting uploads each one (the text goes with the first) instead of a plain post.
 cform.addEventListener('submit',async e=>{if(!pending.length)return;e.preventDefault();e.stopPropagation();
   const btn=cform.querySelector('.bar .btn.primary');btn.disabled=true;let text=ta.value.trim();
-  try{while(pending.length){const x=pending[0];
+  const mk=(x,t)=>{if(rpTo.value)return null;const el=document.createElement('article');el.className='entry pending';el.innerHTML='<div class="grow"><div class="meta"><span class="who"></span><span class="xs faint">sending…</span></div><div class="body"></div></div>';
+    el.querySelector('.who').textContent=ME;el.querySelector('.body').textContent=(t?t+' ':'')+'📎 '+x.name;document.getElementById('thread').appendChild(el);toBottom();return el};
+  let ph=null;
+  try{while(pending.length){const x=pending[0];ph=mk(x,text);
       const r=await fetch('/api/boards/'+BOARD+'/upload?name='+encodeURIComponent(x.name)+(x.image?'&w='+x.w+'&h='+x.h:'')+(rpTo.value?'&reply_to='+rpTo.value:'')+'&text='+encodeURIComponent(text),{method:'POST',headers:{'content-type':x.blob.type||'application/octet-stream'},body:x.blob});
-      const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||"Couldn't post "+x.name);return}
+      const j=await r.json().catch(()=>({}));if(!r.ok){if(ph){ph.classList.add('failed');ph.querySelector('.faint').textContent="Couldn't send";setTimeout(()=>ph&&ph.remove(),6000)}toast(j.error||"Couldn't post "+x.name);return}
+      if(ph){ph.remove();ph=null}if(j.update&&addEntry(j.update)&&!rpTo.value){railBuild();toBottom()}
       if(x.url)URL.revokeObjectURL(x.url);pending.shift();renderAtt();text='';ta.value='';msync()}
     const was=+rpTo.value;cform.reset();draftSave(draftNow(),'');replyClear(true);if(was){ta.value=draftLoad('');replyShown(was)}taFit();stickNext=!was;tick(false)}
+  catch(err){if(ph){ph.classList.add('failed');ph.querySelector('.faint').textContent="Couldn't send";setTimeout(()=>ph&&ph.remove(),6000)}toast("Couldn't post that. Your file is still attached.")}
   finally{btn.disabled=false}});
 const lb=document.getElementById('lightbox');
 document.addEventListener('click',e=>{const b=e.target.closest('[data-img]');if(!b)return;document.getElementById('lightbox-img').src=b.dataset.img;lb.showModal()});
@@ -1078,15 +1087,15 @@ document.addEventListener('click',e=>{const h=e.target.closest('#board-info .fol
 foldApply();
 // A quiet "Seen by …" line under your latest message; older ones show it once you click their time.
 const RCPT_OPEN=new Set();
-function rcptText(e){const seq=+e.dataset.seq,who=audience(e).filter(w=>w.u!==ME);if(!who.length)return '';
+function rcptText(e){const seq=+e.dataset.seq,who=audience(e);if(!who.length)return '';
   const read=who.filter(w=>seenAs(w.u,w.agent)>=seq);if(!read.length)return 'Delivered';if(read.length===who.length)return 'Seen by everyone';
-  return 'Seen by '+read.map(w=>w.agent?w.u+"'s agent":w.u).join(', ')}
+  return 'Seen by '+read.map(w=>w.u===ME?(w.agent?'your agent':'you'):w.agent?w.u+"'s agent":w.u).join(', ')}
 function renderRcpts(){
-  document.querySelectorAll('#thread .rcpt').forEach(x=>x.remove());
+  document.querySelectorAll('#thread .rcpt-line').forEach(x=>x.remove());
   const own=[...document.querySelectorAll('#thread .entry')].filter(e=>e.dataset.author===ME&&!e.classList.contains('retracted'));
   const top=own.reduce((m,e)=>Math.max(m,+e.dataset.seq),0);
   own.forEach(e=>{const seq=+e.dataset.seq;if(seq!==top&&!RCPT_OPEN.has(seq))return;const t=rcptText(e),at=e.querySelector(':scope>.grow>.rx');if(!t||!at)return;
-    const d=document.createElement('div');d.className='rcpt xs faint';d.textContent=t;at.after(d)})}
+    const d=document.createElement('div');d.className='rcpt-line xs faint';d.textContent=t;at.after(d)})}
 document.addEventListener('click',e=>{const t=e.target.closest('#thread .entry .meta .when');if(!t)return;const en=t.closest('.entry');if(en.dataset.author!==ME)return;
   const seq=+en.dataset.seq;RCPT_OPEN.has(seq)?RCPT_OPEN.delete(seq):RCPT_OPEN.add(seq);renderRcpts()});
 function renderReads(){
@@ -1097,17 +1106,27 @@ function renderReads(){
     :seenAs(u,agent)>=+e.dataset.seq;
   document.querySelectorAll('#thread .mention[data-user]').forEach(m=>{const e=m.closest('.entry');m.classList.toggle('seen',seenBy(m.dataset.user,m.classList.contains('agent'),e))});
   document.querySelectorAll('#thread .rd').forEach(x=>{x.closest('.entry')?.classList.remove('has-rd');x.remove()});
-  const mine=[...document.querySelectorAll('#thread>.entry')].filter(e=>e.dataset.author===ME&&!e.classList.contains('retracted')).pop();if(!mine)return;
+  // Every message you (or your agent) wrote gets a small ring: hover/focus/tap it for who has seen THAT message, from READS.
+  [...document.querySelectorAll('#thread .entry')].filter(e=>e.dataset.author===ME&&!e.classList.contains('retracted')).forEach(mine=>{
   const seq=+mine.dataset.seq,who=audience(mine),read=who.filter(w=>seenAs(w.u,w.agent)>=seq),all=who.length>0&&read.length===who.length;
-  const C=2*Math.PI*6,frac=who.length?read.length/who.length:0,name=w=>esc(w.agent?w.u+"'s agent":w.u);
-  const el=document.createElement('span');el.className='rd'+(all?' all':'');el.tabIndex=0;
-  el.setAttribute('aria-label',who.length?(all?'Seen by everyone':'Seen by '+read.length+' of '+who.length):'No one else here yet');
+  const C=2*Math.PI*6,frac=who.length?read.length/who.length:0,name=w=>w.u===ME?(w.agent?'Your agent':'You'):esc(w.agent?w.u+"'s agent":w.u),pid='rdp'+seq;
+  const head=!who.length?'No one else here yet':all?'Seen by everyone':read.length?'Seen by '+read.length+' of '+who.length:'Delivered · not seen yet';
+  const el=document.createElement('button');el.type='button';el.className='rd'+(all?' all':'')+(RD_OPEN===seq?' open':'');el.setAttribute('aria-describedby',pid);el.setAttribute('aria-expanded',String(RD_OPEN===seq));
+  el.setAttribute('aria-label',who.length?(read.length?'Seen by '+read.length:'Not seen yet'):'No one else here yet');
   el.innerHTML='<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6" class="t"/><circle cx="8" cy="8" r="6" class="p" stroke-dasharray="'+(C*frac).toFixed(2)+' '+C.toFixed(2)+'" transform="rotate(-90 8 8)"/>'+(all?'<path d="M5.2 8.2l1.9 1.9 3.7-4" class="ck"/>':'')+'</svg>'+
-    '<span class="rd-pop" role="tooltip"><b>'+(all?'Seen by everyone':'Seen by '+read.length+' of '+who.length)+'</b>'+who.map(w=>'<span class="'+(seenAs(w.u,w.agent)>=seq?'y':'n')+'">'+name(w)+'</span>').join('')+'</span>';
+    '<span class="rd-pop" role="tooltip" id="'+pid+'"><b>'+head+'</b>'+who.map(w=>{const y=seenAs(w.u,w.agent)>=seq;return '<span class="'+(y?'y':'n')+'">'+avatar16(w.u,w.agent)+'<span class="nm">'+name(w)+'</span><i>'+(y?'seen':'not yet')+'</i></span>'}).join('')+'</span>';
   // The list opens upward, or downward when the message is near the top of the thread.
-  const flip=()=>el.classList.toggle('down',el.getBoundingClientRect().top-scroller.getBoundingClientRect().top<40+22*who.length);
-  el.addEventListener('mouseenter',flip);el.addEventListener('focus',flip);
-  mine.classList.add('has-rd');mine.appendChild(el)}
+  const flip=()=>el.classList.toggle('down',el.getBoundingClientRect().top-scroller.getBoundingClientRect().top<40+26*who.length);
+  mine.addEventListener('mouseenter',flip);el.addEventListener('focus',flip);
+  mine.classList.add('has-rd');mine.appendChild(el)})}
+// Phones: tapping the ring toggles its list (it doesn't touch avatar/mention profiles or the reply/thread buttons); Esc or a tap elsewhere closes it.
+let RD_OPEN=0;
+function rdClose(){if(!RD_OPEN)return;RD_OPEN=0;document.querySelectorAll('#thread .rd.open').forEach(x=>{x.classList.remove('open');x.setAttribute('aria-expanded','false')})}
+document.addEventListener('click',e=>{const b=e.target.closest('#thread .rd');if(!b){rdClose();return}
+  const was=b.classList.contains('open');rdClose();if(!was){RD_OPEN=+b.closest('.entry').dataset.seq;b.classList.add('open');b.setAttribute('aria-expanded','true')}});
+document.addEventListener('keydown',e=>{if(e.key!=='Escape'||(!RD_OPEN&&!document.activeElement?.closest?.('.rd')&&!document.querySelector('#thread .entry:hover>.rd')))return;
+  rdClose();document.activeElement?.closest?.('.rd')?.blur();document.body.classList.add('rd-hush')});
+['mousemove','focusin','touchstart'].forEach(t=>document.addEventListener(t,()=>document.body.classList.remove('rd-hush'),{passive:true}));
 /** Tells the board how far its person has read: the newest entry on screen while this tab is visible. */
 function reportSeen(){if(document.visibilityState!=='visible'||document.getElementById('panel-conv').hidden)return;
   // Messages in view, and the replies of threads in view (a folded thread shows its latest replies).
@@ -1254,6 +1273,40 @@ document.addEventListener('click',e=>{const c=e.target.closest('[data-cl-cancel]
 document.addEventListener('submit',async e=>{const f=e.target.closest('.cl-f');if(!f)return;e.preventDefault();const seq=+f.closest('[data-claim]').dataset.claim,v=f.v.value.trim();
   let body;if(f.dataset.mode==='dispute')body={action:'dispute',reason:v};else{const n=v.match(/^#?([0-9]+)$/);body=n?{action:'evidence',evidence_seq:+n[1]}:{action:'evidence',url:v}}
   if(await claimAct(seq,body))f.hidden=true});
+// ---- human decisions: a decision a person posts is the people's to make. Everyone else on the board agrees or objects (an
+// optional note on Object); it's decided when they all agree, or when its author closes it (decided or dropped). Agents only
+// comment. State comes with every update (d.decisions: seq → {state, author, votes, voters, waiting_on, closed_by, note}) and live.
+let HDS={};
+function renderHDs(map){HDS=Object.assign({},map||{});for(const seq of Object.keys(HDS))renderHD(+seq)}
+function renderHD(seq){const hd=HDS[seq],el=document.querySelector('[data-hd="'+seq+'"]');if(!hd||!el||el.querySelector('.hd-f:not([hidden])'))return;
+  const author=hd.author===ME,voter=hd.voters.includes(ME),mine=hd.votes.find(v=>v.user===ME),open=hd.state==='open',by=Object.fromEntries(hd.votes.map(v=>[v.user,v]));
+  const pill=open?'Human decision · '+(hd.waiting_on.length?'waiting on '+hd.waiting_on.map(u=>u===ME?'you':u).join(', '):'waiting on '+(author?'you':hd.author)+' to close it')
+    :hd.state==='decided'?'Decided'+(hd.closed_by?' by '+(hd.closed_by===ME?'you':hd.closed_by):' by the people'):'Dropped';
+  const marks=hd.voters.map(u=>{const v=by[u],k=v?(v.vote==='agree'?'y':'n'):'w';
+    return '<span class="hd-m '+k+'" title="'+esc(u+(k==='y'?' agreed':k==='n'?' objected'+(v.note?': '+v.note:''):' hasn\u2019t voted'))+'">'+avatar16(u,false)+(k==='w'?'':'<i aria-hidden="true">'+(k==='y'?'✓':'✕')+'</i>')+'</span>'}).join('');
+  const notes=hd.votes.filter(v=>v.vote==='object'&&v.note).map(v=>'<div class="hd-note" title="'+esc(v.note)+'"><b>'+esc(v.user)+'</b> objects: '+esc(v.note)+'</div>').join('')+
+    (hd.note?'<div class="hd-note" title="'+esc(hd.note)+'"><b>'+esc(hd.closed_by||hd.author)+'</b>: '+esc(hd.note)+'</div>':'');
+  // Votes stay open until its author closes it (an objection reopens one everyone had agreed to).
+  // Once everyone agreed, only Object is left (it reopens it).
+  const acts=READONLY?'':(voter&&!hd.closed_by?(open?'<button class="btn ghost sm hd-b'+(mine?.vote==='agree'?' on-y':'')+'" type="button" data-hdv="agree" aria-pressed="'+(mine?.vote==='agree')+'">Agree</button>':'')+
+      '<button class="btn ghost sm hd-b'+(mine?.vote==='object'?' on-n':'')+'" type="button" data-hdv="object" aria-pressed="'+(mine?.vote==='object')+'">Object</button>':'')+
+    (author&&!hd.closed_by?'<button class="btn ghost sm" type="button" data-hdc>Close</button>':'');
+  el.className='tk hd hd-'+hd.state;
+  el.innerHTML='<span class="tk-st"><span class="dot"></span>'+esc(pill)+'</span>'+(marks?'<span class="hd-ms">'+marks+'</span>':'')+'<span class="grow"></span>'+acts+notes+
+    '<form class="cl-f hd-f" hidden><input class="input" name="v" maxlength="280"><span class="hd-out"><button class="btn sm primary" data-o="decided">Decided</button><button class="btn sm" data-o="dropped">Dropped</button></span>'+
+    '<button class="btn sm primary hd-ob" data-o="object">Object</button><button class="btn sm ghost" type="button" data-hd-cancel>Cancel</button></form>';
+  el.hidden=false}
+async function hdAct(seq,what,body){const r=await fetch('/api/boards/'+BOARD+'/entries/'+seq+'/'+what,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
+  const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||'Could not save');return false}HDS[seq]=j.human_decision;return true}
+document.addEventListener('click',async e=>{const b=e.target.closest('[data-hdv],[data-hdc],[data-hd-cancel]');if(!b)return;const el=b.closest('[data-hd]'),seq=+el.dataset.hd,f=el.querySelector('.hd-f');
+  if(b.hasAttribute('data-hd-cancel')){f.hidden=true;renderHD(seq);return}
+  if(b.dataset.hdv==='agree'){b.disabled=true;await hdAct(seq,'vote',{vote:'agree'});renderHD(seq);return}
+  const close=b.hasAttribute('data-hdc');f.dataset.mode=close?'close':'object';f.v.value='';f.v.placeholder=close?'A note for everyone (optional)':'Why? (optional)';
+  f.querySelector('.hd-out').hidden=!close;f.querySelector('.hd-ob').hidden=close;f.hidden=false;f.v.focus()});
+document.addEventListener('submit',async e=>{const f=e.target.closest('.hd-f');if(!f)return;e.preventDefault();const seq=+f.closest('[data-hd]').dataset.hd,note=f.v.value.trim();
+  const o=e.submitter?.dataset.o||(f.dataset.mode==='close'?'decided':'object');f.querySelectorAll('button').forEach(x=>x.disabled=true);
+  const ok=f.dataset.mode==='close'?await hdAct(seq,'close',{outcome:o,note}):await hdAct(seq,'vote',{vote:'object',note});
+  f.querySelectorAll('button').forEach(x=>x.disabled=false);if(ok){f.hidden=true;renderHD(seq)}});
 // ---- multi-select and forward (people only): pick messages here, send them quoted to another board you're on ----
 let SEL=null,fwdTo=null,fwdBoards=null;const selBar=document.getElementById('sel-bar');
 function selUpdate(){selBar.hidden=!SEL;if(!SEL)return;document.getElementById('sel-n').textContent=SEL.size+' selected';document.getElementById('sel-fwd').disabled=!SEL.size}
@@ -1336,10 +1389,10 @@ async function hShow(t,pin){hFor=t.el;hPinned=!!pin;const [j,aj]=await Promise.a
   const on=p.presence&&(p.presence.agent||p.presence.web||(p.presence.watcher&&p.presence.watcher.respond));
   const owner=esc(p.display_name||p.name);
   let ag='';if(t.agent){const live=(a&&a.sessions||[]).filter(s=>s.active);
-    ag='<div class="hc-agent"><div class="xs faint">Agent of <a class="link" href="/u/'+esc(p.name)+'">'+owner+'</a></div>'+
+    ag='<div class="hc-agent"><div class="xs faint"><a class="link" href="/u/'+esc(p.name)+'">'+owner+'</a>\u2019s agent</div>'+
       (a&&a.summary?'<p class="hc-bio">'+esc(a.summary)+'</p>':'')+
       (a&&a.capabilities&&a.capabilities.length?'<div class="hc-caps">'+a.capabilities.slice(0,6).map(c=>'<span class="badge">'+esc(c)+'</span>').join('')+'</div>':'')+
-      (live.length?'<div class="xs hc-live">'+live.slice(0,2).map(s=>'<span class="pres on"></span> '+esc(s.name||s.client||'agent')+(s.status?': '+esc(s.status):' is working')).join('<br>')+'</div>':'')+'</div>'}
+      (live.length?'<div class="xs hc-live">'+live.slice(0,2).map(s=>{const tool=s.client&&!/^(an? )?agent$|^unknown$/i.test(s.client)?s.client:'';return '<span class="pres on"></span> '+esc(s.name||tool||'session')+(tool&&tool!==s.name?' <span class="faint">· '+esc(tool)+'</span>':'')+(s.status?': '+esc(s.status):' <span class="faint">· active</span>')}).join('<br>')+'</div>':'')+'</div>'}
   const cta=document.getElementById('composer-text');
   const ask=t.agent&&p.relation!=='self'&&cta&&!cta.disabled?'<button class="btn sm" data-ask="'+esc(p.name)+'">Ask '+esc(p.name)+"'s agent</button>":'';
   hcard.innerHTML='<div class="row" style="gap:12px;align-items:center">'+avatar16(p.name,t.agent).replace('av sm','av lg')+'<div class="grow" style="min-width:0"><div class="hc-name">'+esc(t.agent?p.name+"'s agent":(p.display_name||p.name))+'</div><div class="xs faint">@'+esc(p.name)+(p.shared_boards?' · '+p.shared_boards+' shared board'+(p.shared_boards===1?'':'s'):'')+'</div></div></div>'+
@@ -1806,7 +1859,7 @@ if(new URLSearchParams(location.search).get('billing')==='done')toast('Thanks! Y
 type FriendsData = Awaited<ReturnType<typeof import("./social").friendsOf>>;
 function presenceDot(p: { presence: { web: number | null; agent: { client: string } | null; watcher: { respond: boolean } | null } }): string {
   const on = p.presence.agent || p.presence.web || p.presence.watcher?.respond;
-  const label = p.presence.agent ? (p.presence.agent.client && p.presence.agent.client !== "agent" ? `agent online in ${p.presence.agent.client}` : "agent online") : p.presence.watcher?.respond ? "agent answers in the background" : p.presence.web ? "on the web" : "offline";
+  const label = presenceLabel(p.presence);
   return `<span class="pres${on ? " on" : ""}"></span><span class="xs faint">${esc(label)}</span>`;
 }
 /** People: your friends (and whether they or their agents are around), requests, finding someone, and who you've blocked. */
@@ -1885,7 +1938,7 @@ export function profilePage(viewer: Viewer, side: SideBoard[], p: import("./soci
     <div class="xs faint">Works for ${esc(p.display_name ?? p.name)}${ag?.online ? ` · <span class="pres on"></span> online now` : ""}</div>
     ${ag?.summary ? `<p class="prof-bio">${esc(ag.summary)}</p>` : `<p class="prof-bio faint">No summary yet.</p>`}
     ${ag?.capabilities.length ? `<div class="hc-caps">${ag.capabilities.slice(0, 12).map((c) => `<span class="badge">${esc(c)}</span>`).join("")}</div>` : ""}
-    ${live.length ? `<div class="xs muted" style="margin-top:8px">${live.slice(0, 3).map((x) => `<span class="pres on"></span> ${esc(x.name || x.client || "agent")}${x.status ? `: ${esc(x.status)}` : " is working"}`).join("<br>")}</div>` : ""}
+    ${live.length ? `<div class="xs muted" style="margin-top:8px">${live.slice(0, 3).map((x) => `<span class="pres on"></span> ${esc(x.name || clientName(x.client) || "session")}${clientName(x.client) && clientName(x.client) !== x.name ? ` <span class="faint">· ${esc(clientName(x.client)!)}</span>` : ""}${x.status ? `: ${esc(x.status)}` : ` <span class="faint">· active</span>`}`).join("<br>")}</div>` : ""}
   </div>
 </section>`;
   const body = `<div class="card pad prof prof-hero">

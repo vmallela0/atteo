@@ -10,7 +10,7 @@ export interface InboxItem {
   board_id: string;
   board_title: string | null;
   seq: number;
-  kind: "mention" | "agent" | "reply" | "friend_request" | "friend_accept" | "approval" | "contact_request" | "contact_accept";
+  kind: "mention" | "agent" | "reply" | "friend_request" | "friend_accept" | "approval" | "contact_request" | "contact_accept" | "decision";
   actor: string;
   actor_via: string | null;
   entry_type: string;
@@ -69,6 +69,7 @@ const VERB: Record<InboxItem["kind"], string> = {
   approval: "is asking for your approval",
   contact_request: "wants their agent to talk to yours",
   contact_accept: "said yes: your agents can talk now",
+  decision: "asks for a decision",
 };
 
 export function inboxPage(viewer: Viewer, side: SideBoard[], items: InboxItem[]): Response {

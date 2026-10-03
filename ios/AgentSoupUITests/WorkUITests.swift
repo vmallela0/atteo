@@ -99,8 +99,16 @@ final class WorkUITests: XCTestCase {
         XCTAssertTrue(blocked.label.contains("Blocked"), blocked.label)
         XCTAssertTrue(blocked.label.contains("1 of 3 checked"), "checklist progress: \(blocked.label)")
         // (The everyday-flow tests may have answered its approval already; then it's rightly gone.)
-        let pending = (call("GET", "/api/approvals")["approvals"] as? [[String: Any]] ?? []).contains { $0["title"] as? String == "Redeploy checkout-service with the new secret" }
-        XCTAssertEqual(blocked.label.contains("Needs approval"), pending, blocked.label)
+        // (Earlier seeds leave look-alikes on archived boards: match this board and this task.)
+        let blockedSeq = (call("GET", "/api/boards/\(board ?? "")/tasks")["tasks"] as? [[String: Any]] ?? []).first { $0["title"] as? String == "Rotate the Stripe webhook secret" }?["seq"] as? Int
+        let pending = (call("GET", "/api/approvals")["approvals"] as? [[String: Any]] ?? []).contains { $0["board_id"] as? String == board && $0["seq"] as? Int == blockedSeq }
+        if pending {
+            // Approvals load with the inbox, alongside the boards: give them a moment.
+            let tagged = expectation(for: NSPredicate(format: "label CONTAINS 'Needs approval'"), evaluatedWith: blocked)
+            wait(for: [tagged], timeout: 10)
+        } else {
+            XCTAssertFalse(blocked.label.contains("Needs approval"), blocked.label)
+        }
         XCTAssertTrue(parent.label.contains("theo's agent is on it"), "who's on it: \(parent.label)")
         shot("w01-tasks")
 
@@ -133,9 +141,11 @@ final class WorkUITests: XCTestCase {
         XCTAssertTrue(a.buttons["Remove"].firstMatch.waitForExistence(timeout: 3), "swipe offers Remove")
         XCTAssertFalse(a.buttons["Claim"].exists, "and no Claim")
         shot("w05-swipe")
-        any["group-doing"].firstMatch.tap() // closes the swipe (and folds In progress)…
-        sleep(1)
-        any["group-doing"].firstMatch.tap() // …and back
+        // Swipe it shut (an open swipe swallows the next touch on the list).
+        let regressionRow = row(a, "Add a regression test for empty carts")
+        regressionRow.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5)).press(forDuration: 0.05, thenDragTo: regressionRow.coordinate(withNormalizedOffset: CGVector(dx: 0.6, dy: 0.5)))
+        let shut = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: a.buttons["Remove"].firstMatch)
+        wait(for: [shut], timeout: 3)
         sleep(1)
 
         // Who's on it, read-only, in the detail: theo's agent holds the seeded task.
@@ -189,7 +199,7 @@ final class WorkUITests: XCTestCase {
         // Long-press: everything you can do to a task (status, done, remove), no Claim. (Settle first: a press while
         // the list is still animating the live change lands as a tap.)
         sleep(2)
-        parent.coordinate(withNormalizedOffset: CGVector(dx: 0.4, dy: 0.5)).press(forDuration: 1.5)
+        parent.press(forDuration: 1.0)
         XCTAssertTrue(a.buttons["Open"].waitForExistence(timeout: 3), "a context menu")
         XCTAssertTrue(a.buttons["Status"].exists)
         XCTAssertFalse(a.buttons["Claim"].exists)
@@ -250,9 +260,9 @@ final class WorkUITests: XCTestCase {
         shot("w15-quicklook")
     }
 
-    /// Back out the way AgentSoupUITests.testWebParity does (back from a doc, back again at the Files root, Done):
-    /// the sheet closes and the chat is there.
-    func testBackOutOfFiles() throws {
+    /// Out of a doc and closed: back from the doc lands on Files (still in the sheet), Done closes it, the chat is there.
+    /// (Files is a pane now, not a pushed screen, so there's no second back between the doc and Done.)
+    func testCloseFromFiles() throws {
         continueAfterFailure = false
         let a = app()
         openWork(a)
@@ -262,10 +272,11 @@ final class WorkUITests: XCTestCase {
         plan.tap()
         XCTAssertTrue(a.staticTexts["Rollout plan"].waitForExistence(timeout: 8))
         back(a)
-        back(a)
+        XCTAssertTrue(plan.waitForExistence(timeout: 5), "back on Files")
+        XCTAssertEqual(a.descendants(matching: .any)["work-pane"].firstMatch.exists, true, "still in the sheet")
         a.buttons["Done"].tap()
-        XCTAssertTrue(a.buttons["presence"].waitForExistence(timeout: 5), "back in the chat")
         sleep(1)
-        XCTAssertTrue(a.buttons["presence"].isHittable, "the sheet closed")
+        XCTAssertTrue(a.buttons["presence"].waitForExistence(timeout: 5), "back in the chat")
+        XCTAssertFalse(a.navigationBars.matching(NSPredicate(format: "identifier BEGINSWITH 'Work on'")).firstMatch.exists, "the sheet closed")
     }
 }

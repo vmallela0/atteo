@@ -12,6 +12,7 @@ import { ENTRY_TYPES, type BoardInfo, type Entry, type Env, type Media, type Mem
 import { cleanTitle, EMOJI_RE, ftsQuery, USER_RE } from "./util";
 import { cardText, parseCard, type ChangeCard } from "./card";
 import { deliver } from "./webhooks";
+import { HumanDecisions, isHumanDecisionPost, type HumanDecision } from "./decisions";
 
 export const MAX_TEXT = 32_000;
 export const MAX_ARTIFACT = 256_000;
@@ -174,6 +175,7 @@ const ENTRY_COLS = "seq, ts, author, type, text, title, to_user, mentions, reply
 export class Board extends DurableObject<Env> {
   private sql: SqlStorage;
   private touched = new Map<string, number>(); // when each member's last_seen was last written (it's rounded to a minute)
+  private decisions: HumanDecisions; // a person's decision is the people's to make (decisions.ts)
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -329,6 +331,7 @@ export class Board extends DurableObject<Env> {
       );
     `);
     this.migrate();
+    this.decisions = new HumanDecisions(this.sql, env, () => this.meta("id"));
     // Keep-alive pings from open board tabs are answered without waking this object (no duration billed).
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
   }
@@ -685,7 +688,7 @@ export class Board extends DurableObject<Env> {
       await this.receipts(user, missed);
       this.advance(user, missed[missed.length - 1].seq, session);
       this.markSeen(user, "agent", missed[missed.length - 1].seq);
-      return { missed, remaining: unread - missed.length };
+      return { missed: this.decisions.attach(missed), remaining: unread - missed.length };
     }
     return { entry: await this.post(user, session ? { ...input, session } : input) };
   }
@@ -697,7 +700,7 @@ export class Board extends DurableObject<Env> {
     return r.length ? toEntry(r[0]) : null;
   }
 
-  async post(user: string, input: NewEntry, internal: { docVersion?: number; media?: Media; seeding?: boolean; sealed?: boolean; notice?: boolean } = {}): Promise<Entry> {
+  async post(user: string, input: NewEntry, internal: { docVersion?: number; media?: Media; seeding?: boolean; sealed?: boolean; notice?: boolean; system?: boolean } = {}): Promise<Entry> {
     const again = this.sentBefore(user, input.idem);
     if (again) return again;
     const info = this.info();
@@ -734,6 +737,7 @@ export class Board extends DurableObject<Env> {
     for (const n of refs) {
       if (!Number.isInteger(n) || n < 1 || n > info.last_seq) throw new BoardError(`Entry #${n} does not exist on this board.`);
     }
+    if (input.via === "agent") this.decisions.guardResolves(input.resolves ?? []); // people decide human decisions
     if (input.retracts != null) {
       // Only the entry's author, or the board's creator, may withdraw it; once is enough.
       const target = this.sql.exec("SELECT author, retracts FROM entries WHERE seq = ?", input.retracts).one();
@@ -825,13 +829,14 @@ export class Board extends DurableObject<Env> {
     }
     if (entry.retracts != null) this.stopDependents(user, entry.retracts);
     if (entry.type === "claim") this.sql.exec("INSERT OR IGNORE INTO claim_state (seq, updated_at) VALUES (?, ?)", entry.seq, entry.ts);
+    if (isHumanDecisionPost(entry) && !internal.seeding) this.decisions.record(entry);
     for (const d of depends) this.sql.exec("INSERT OR IGNORE INTO depends (seq, on_seq) VALUES (?, ?)", entry.seq, d);
 
-    if (input.via === "agent" || input.via === "person") this.markSeen(user, input.via, entry.seq);
+    if (!internal.system && (input.via === "agent" || input.via === "person")) this.markSeen(user, input.via, entry.seq);
     // Your own post counts as read, unless you're handing it to your own agent: then it's new for your agent.
     // A later post doesn't skip the agent past a hand-off it hasn't read yet.
     const forOwnAgent = mentionsOwnAgent(entry);
-    if (!forOwnAgent) {
+    if (!forOwnAgent && !internal.system) { // a system line in someone's name (decisions.ts) doesn't move their read position
       const pending = this.sql
         .exec("SELECT MIN(e.seq) AS s FROM entries e, members m WHERE m.name = ? AND e.seq > m.cursor AND e.author = ? AND e.self_agent = 1", user, user)
         .one().s as number | null;
@@ -839,13 +844,14 @@ export class Board extends DurableObject<Env> {
     }
     if (input.session) this.advance(user, entry.seq, input.session); // its own post is read for the session that wrote it
     // An agent session answering a message takes it, unless another agent already has it.
-    if (input.session && input.reply_to != null && !this.sql.exec("SELECT 1 AS x FROM handling WHERE seq = ?", input.reply_to).toArray().length) {
+    if (input.session && input.reply_to != null && !this.decisions.isHuman(input.reply_to) && !this.sql.exec("SELECT 1 AS x FROM handling WHERE seq = ?", input.reply_to).toArray().length) {
       const label = `${user}/${(input.client ?? "agent").split(" · ")[0]}`;
       this.sql.exec("INSERT INTO handling (seq, user, session, label, ts) VALUES (?, ?, ?, ?, ?)", input.reply_to, user, input.session, label, Date.now());
       this.broadcast({ type: "handling", seq: input.reply_to, by: label });
     }
     // An agent answering (or resolving) a person's message turns its 👀 into ✅.
-    if (input.via === "agent") for (const r of new Set([...(input.reply_to != null ? [input.reply_to] : []), ...(input.resolves ?? [])])) this.receiptDone(user, r);
+    // (Not for a change card: threaded under a message it is "related", not "answered".)
+    if (input.via === "agent" && input.type !== "change" && !input.card) for (const r of new Set([...(input.reply_to != null ? [input.reply_to] : []), ...(input.resolves ?? [])])) this.receiptDone(user, r);
     // Resolving a message you (or another of your agents) were on turns "is on it" into "done".
     for (const r of new Set(input.resolves ?? [])) {
       const h = this.sql.exec("SELECT user, session, label, done FROM handling WHERE seq = ?", r).toArray()[0];
@@ -936,6 +942,7 @@ export class Board extends DurableObject<Env> {
     const limit = clamp(opts.limit ?? 50, 1, 200);
     const fresh = opts.since != null ? this.entriesAfter(from, null, limit) : this.entriesAfter(from, user, limit, session);
     if (opts.since == null) await this.receipts(user, fresh);
+    await this.decisions.refresh();
     const remaining = opts.since != null ? 0 : Math.max(0, this.countAfter(from, user, session) - fresh.length);
     if (fresh.length) this.advance(user, fresh[fresh.length - 1].seq, session);
     else if (opts.since == null) this.advance(user, info.last_seq, session);
@@ -947,12 +954,12 @@ export class Board extends DurableObject<Env> {
       members,
       summaryText: (() => {
         const c = this.cached();
-        const text = formatSummary(info, members, c.summary, user, DEFAULT_SUMMARY_CHARS, c.tags, c.reviewers);
+        const text = formatSummary(info, members, c.summary, user, DEFAULT_SUMMARY_CHARS, this.decisions.tags(c.tags), c.reviewers);
         return info.encrypted
           ? `This board is END-TO-END ENCRYPTED: messages are ciphertext here. Read and write it with the atteo CLI (atteo read / post / ask), which decrypts and encrypts on this machine.\n\n${text}`
           : text;
       })(),
-      entries: this.withHandling(fresh),
+      entries: this.decisions.attach(this.withHandling(fresh)),
       remaining,
       rules,
     };
@@ -989,7 +996,8 @@ export class Board extends DurableObject<Env> {
     if (fresh.length) this.advance(user, fresh[fresh.length - 1].seq, session);
     if (fresh.length) this.markSeen(user, "agent", fresh[fresh.length - 1].seq);
     this.touch(user);
-    return { info: this.info(), entries: this.withHandling(fresh), timedOut: fresh.length === 0 };
+    await this.decisions.refresh();
+    return { info: this.info(), entries: this.decisions.attach(this.withHandling(fresh)), timedOut: fresh.length === 0 };
   }
 
   /** Drops a member's cursor and ends any wait they have in progress. Access itself is enforced by the Worker. */
@@ -1017,7 +1025,8 @@ export class Board extends DurableObject<Env> {
       .toArray()
       .map(toEntry)
       .filter((e) => e.reply_to === seq || e.supersedes === seq || e.retracts === seq || e.resolves.includes(seq));
-    const entry = toEntry(rows[0]);
+    await this.decisions.refresh(this.decisions.isHuman(seq)); // one decision asked for: who's on the board now, not 30s ago
+    const [entry] = this.decisions.attach([toEntry(rows[0])]);
     let content = (rows[0].artifact_content as string | null) ?? null;
     if (content == null && entry.artifact_name && entry.artifact_version != null) {
       const v = this.sql.exec("SELECT content FROM doc_versions WHERE name = ? AND version = ?", entry.artifact_name, entry.artifact_version).toArray()[0];
@@ -1208,14 +1217,14 @@ export class Board extends DurableObject<Env> {
 
   private async notify(info: BoardInfo, e: Entry) {
     const members = new Set(this.members().map((m) => m.name));
-    const kinds = new Map<string, "mention" | "agent" | "reply">();
+    const kinds = new Map<string, "mention" | "agent" | "reply" | "decision">();
     const forAgents = new Set<string>(); // whose agents this is addressed to (their webhooks get it)
     // Mentions were resolved against the board's real member list (D1) when posted; a member who hasn't opened the
     // board yet isn't in this object's members table, but must still hear about it (e.g. "@humans" on a new board).
     const mentioned = new Set((e.mentions ?? []).map((m) => m.user));
     const add = (u: string | null | undefined, k: "mention" | "agent" | "reply") => {
       if (!u || !(members.has(u) || mentioned.has(u))) return;
-      const rank = { mention: 3, agent: 2, reply: 1 };
+      const rank = { decision: 4, mention: 3, agent: 2, reply: 1 };
       if (!kinds.has(u) || rank[k] > rank[kinds.get(u)!]) kinds.set(u, k);
     };
     for (const m of e.mentions ?? []) {
@@ -1240,6 +1249,12 @@ export class Board extends DurableObject<Env> {
         add(parent.author as string, "reply");
         if (parent.via === "agent") forAgents.add(parent.author as string); // a reply to what your agent posted
       }
+    }
+    // A person asking for a decision: every other person on the board hears "vedu asks for a decision" (their agents'
+    // mailboxes get it too, marked as a human decision: for their information).
+    if (isHumanDecisionPost(e) && this.decisions.isHuman(e.seq)) {
+      await this.decisions.refresh(true);
+      for (const u of this.decisions.voters(e.author)) kinds.set(u, "decision");
     }
     if (forAgents.size) this.ctx.waitUntil(this.deliverWebhooks(info, e, [...forAgents]).catch(() => {}));
     // People @mentioned by name: only their chat hooks (Slack, Discord) hear about it; agent runtimes don't need it.
@@ -1291,10 +1306,15 @@ export class Board extends DurableObject<Env> {
    * The message an agent's unthreaded post answers, if it's clear. Open for this agent: messages from the last two
    * hours addressed to it (to / @its agent) that it hasn't answered, plus people's messages it's on (its 👀, e.g. in a
    * DM). Among those, the newest from the person the post addresses (to / @person); or, if it addresses nobody, the
-   * only open one. Tasks, and posts to nobody in particular while several are open, stay at the top level.
+   * only open one. Tasks and change cards, and posts to nobody in particular while several are open, stay at the top level.
    */
   private autoThread(user: string, input: NewEntry): number | null {
-    if (input.type === "task") return null;
+    // Only conversational answers are threaded. A task is new work, and a change card (a shipped/ready-for-review
+    // report, e.g. scripts/ship.sh's "Shipped to production") is a report that happens to be posted while a request is
+    // open; threading it would also mark the request answered (✅). A change card can still say it is related with an
+    // explicit reply_to. Claims, decisions, artifacts, notes and questions stay auto-threaded: they are how an agent
+    // answers (a finding, an agreed outcome, a file it was asked for), and nothing marks them as non-answers.
+    if (input.type === "task" || input.type === "change" || input.card) return null;
     const since = Date.now() - 2 * 3600_000;
     const answered = (seq: number) => this.sql.exec("SELECT 1 AS x FROM entries WHERE reply_to = ? AND author = ? LIMIT 1", seq, user).toArray().length > 0;
     const open = new Map<number, string>();
@@ -1312,6 +1332,7 @@ export class Board extends DurableObject<Env> {
   }
 
   private receiptDone(user: string, seq: number) {
+    if (this.decisions.isHuman(seq)) return; // an agent's reply is input to a human decision, not its answer
     const who = `${user}'s agent`;
     if (!this.sql.exec("DELETE FROM reactions WHERE seq = ? AND user = ? AND emoji = '👀' RETURNING seq", seq, who).toArray().length) return;
     this.sql.exec("INSERT OR IGNORE INTO reactions (seq, user, emoji, ts) VALUES (?, ?, '✅', ?)", seq, who, Date.now());
@@ -1353,7 +1374,12 @@ export class Board extends DurableObject<Env> {
     if (!Number.isInteger(seq) || seq < 1 || seq > info.last_seq) throw new BoardError(`Entry #${seq} does not exist on this board.`);
     // A named agent reacts as itself ("vedu/scout"), so people can tell which of someone's agents it was.
     const who = opts.via === "agent" ? (opts.session ? `${user}/${opts.session}` : `${user}'s agent`) : user;
-    const had = this.sql.exec("DELETE FROM reactions WHERE seq = ? AND user = ? AND emoji = ? RETURNING seq", seq, who, e).toArray().length > 0;
+    let had = this.sql.exec("DELETE FROM reactions WHERE seq = ? AND user = ? AND emoji = ? RETURNING seq", seq, who, e).toArray().length > 0;
+    // The server adds "<user>'s agent" 👀/✅ receipts on its own. An agent session (it reacts as "<user>/<session>")
+    // toggling that emoji takes the automatic receipt back instead of adding a second, session-level one.
+    if (!had && opts.via === "agent" && (e === "✅" || e === "👀") && who !== `${user}'s agent`) {
+      had = this.sql.exec("DELETE FROM reactions WHERE seq = ? AND user = ? AND emoji = ? RETURNING seq", seq, `${user}'s agent`, e).toArray().length > 0;
+    }
     if (!had) {
       this.rateLimit(user);
       const n = this.sql.exec("SELECT COUNT(*) AS n FROM reactions WHERE seq = ? AND user = ?", seq, who).one().n as number;
@@ -2321,23 +2347,56 @@ export class Board extends DurableObject<Env> {
     const rows = before
       ? this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq < ? ORDER BY seq DESC LIMIT ?`, before, n)
       : this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries ORDER BY seq DESC LIMIT ?`, n);
-    return rows.toArray().map(toEntry).reverse();
+    await this.decisions.refresh();
+    return this.decisions.attach(rows.toArray().map(toEntry).reverse());
   }
 
   /** For pages: afterSeq 0 means "open the board", which shows the newest entries (big boards load earlier ones on demand). */
   async snapshot(afterSeq = 0, opts: { latest?: number } = {}) {
     const info = this.info();
+    await this.decisions.refresh();
     return {
       info,
       reads: this.reads(),
       members: this.members(),
       summary: this.summary(),
-      entries: opts.latest ? await this.page(null, opts.latest) : this.entriesAfter(afterSeq, null, 1000),
+      entries: opts.latest ? await this.page(null, opts.latest) : this.decisions.attach(this.entriesAfter(afterSeq, null, 1000)),
       reactions: afterSeq === 0 ? this.reactionsFor() : {},
       reviews: this.reviewsBySeq(),
       claims: this.claimStates(),
       handling: this.handlingMap(),
+      decisions: this.decisions.all(), // every human decision's state (small), like claims
     };
+  }
+
+  // ---- human decisions (decisions.ts): people agree or object; its author closes it ----
+
+  private async humanCtx(seq: number) {
+    const info = this.info();
+    if (info.archived) throw new BoardError(`"${info.title}" is archived, so it's read-only. Its creator can restore it.`);
+    const row = this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq = ?`, seq).toArray()[0];
+    if (!row) throw new BoardError(`Entry #${seq} does not exist on this board.`);
+    // Its outcome line is posted in its author's name, quietly: it doesn't move their read position.
+    return { entry: toEntry(row), encrypted: !!info.encrypted, post: (u: string, input: NewEntry) => this.post(u, input, { notice: true, system: true }) };
+  }
+
+  async humanVote(user: string, seq: number, vote: string, note: unknown, opts: { via?: "agent" | "person" | null } = {}): Promise<HumanDecision> {
+    const hd = await this.decisions.vote(user, opts.via, vote, note, await this.humanCtx(seq));
+    this.broadcast({ type: "decision", seq, human_decision: hd });
+    return hd;
+  }
+
+  async humanClose(user: string, seq: number, outcome: string, note: unknown, opts: { via?: "agent" | "person" | null } = {}): Promise<HumanDecision> {
+    const hd = await this.decisions.close(user, opts.via, outcome, note, await this.humanCtx(seq));
+    this.broadcast({ type: "decision", seq, human_decision: hd });
+    return hd;
+  }
+
+  /** Every human decision's state (for pages and the app). */
+  async humanDecisions(): Promise<Record<number, HumanDecision>> {
+    this.info();
+    await this.decisions.refresh();
+    return this.decisions.all();
   }
 }
 
