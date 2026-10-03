@@ -1031,6 +1031,41 @@ await step("dispatch: one fork per message, each its own session with the messag
   assert(r.code === 0 && lines.length === 4 && lines[0].startsWith("START") && lines[1].startsWith("START"), `--max 2 runs two at once: ${lines}`);
 });
 
+await step("Your agent: your own messages are mail from your user; dispatch forks one (you-N) that answers on \"Your agent\"; mail for one session is only in that session's mailbox", async () => {
+  const Y = `e2e-cli-y-${run}`;
+  await ops("users", { name: Y, email: `${Y}@example.com`, verified: "true" });
+  const tokY = (await ops("tokens", { user: Y })).token;
+  const credY = join(dir, "y.json");
+  writeFileSync(credY, JSON.stringify({ server: BASE, user: Y, token: tokY, expires_at: Date.now() + 86400e3 }), { mode: 0o600 });
+  const call = async (method, path, body) => (await fetch(`${BASE}${path}`, { method, headers: { authorization: `Bearer ${tokY}`, "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined })).json();
+  const chat = (await call("POST", "/api/me/agent-chat")).board;
+  assert(/^b_/.test(chat ?? ""), "the chat");
+  const S = (await call("POST", "/api/sessions", { suggest: "claude", client: "Claude Code" })).session;
+  const cookieY = (await ops("sessions", { user: Y })).cookie;
+  const say = async (body) => (await (await fetch(`${BASE}/api/boards/${chat}/entries`, { method: "POST", headers: { "content-type": "application/json", cookie: cookieY }, body: JSON.stringify(body) })).json()).entry.seq;
+  const p1 = await say({ type: "question", text: `what changed today? ${run}` });
+  const p2 = await say({ type: "note", text: `just you: rerun the build ${run}`, to_session: S.name });
+  const cfg = join(dir, "cfg-you");
+  const mb = (args) => cli(["mailbox", ...args], { cred: credY, env: { XDG_CONFIG_HOME: cfg } });
+  let r = await mb(["--peek"]);
+  assert(r.code === 0 && r.out.includes("direct message") && r.out.includes(`from your user (${Y})`) && r.out.includes(`what changed today? ${run}`), "from your user: " + r.out + r.err);
+  assert(!r.out.includes("rerun the build"), "mail for one session isn't in the mailbox without it: " + r.out);
+  r = await mb(["--peek", "--session", S.id]);
+  assert(r.code === 0 && r.out.includes(`rerun the build ${run}`) && r.out.includes(`for your session "${S.name}"`), "that session's own mailbox has it: " + r.out + r.err);
+  // The dispatcher (no session) forks the message for any of your agents, and leaves the one for S alone.
+  const forkDir = join(dir, "you-forks");
+  mkdirSync(forkDir, { recursive: true });
+  const stub = join(dir, "you-fork.sh");
+  writeFileSync(stub, `#!/bin/sh\nprintf '%s\\n' "$@" > "${forkDir}/$ATTEO_SESSION.txt"\necho "answered"\n`);
+  chmodSync(stub, 0o755);
+  r = await cli(["dispatch", "--once", "--quiet", "--json", "--agent-cmd", `${stub} {prompt}`, "--dir", dir], { cred: credY, env: { XDG_CONFIG_HOME: cfg } });
+  assert(r.code === 0, r.out + r.err);
+  const forks = r.out.trim().split("\n").map((l) => JSON.parse(l)).filter((e) => e.event === "fork");
+  assert(forks.length === 1 && forks[0].name === `you-${p1}` && forks[0].seq === p1, `one fork, for #${p1} (not #${p2}): ${r.out}`);
+  const prompt = readFileSync(join(forkDir, `${forks[0].session}.txt`), "utf8");
+  assert(prompt.includes(`your user (${Y})`) && prompt.includes(`"Your agent"`) && prompt.includes(`--board ${chat} --reply ${p1}`) && /<<untrusted [0-9a-f]+:/.test(prompt), "the fork answers on Your agent, in the thread: " + prompt);
+});
+
 await step("staying current: an older CLI says so (once, then hourly) and atteo update replaces it with the server's", async () => {
   const old = join(dir, "old-atteo.mjs");
   writeFileSync(old, readFileSync(CLI, "utf8") + "\n// an older build\n", { mode: 0o755 });

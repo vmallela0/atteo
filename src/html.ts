@@ -159,6 +159,21 @@ function imageHtml(boardId: string, e: Entry): string {
 }
 
 /** Author, marked as the person or their agent (and which agent). */
+/** "Your agent": who gets the message. Any of your agents (the mailbox, so atteo dispatch can start one), or one of
+ *  your live/idle sessions by name, sent as "@you/<name>" so only that session reads it. */
+function sessionPicker(list: { name: string; state: string; client: string | null }[]): string {
+  const opts = list.map((x) => `<option value="${esc(x.name)}">${esc(x.name)}${x.client ? ` · ${esc(x.client.split(" (")[0])}` : ""}${x.state === "live" ? "" : " (idle)"}</option>`).join("");
+  return `<label class="to-pick" title="Which of your agents gets it"><span class="xs muted">To</span><select class="input sm" id="to-session-pick" aria-label="Send to"><option value="">Any of my agents</option>${opts}</select></label>`;
+}
+
+// The picker fills the composer's hidden to_session (a hidden input keeps its value when the form resets after a post).
+const AGENT_PICK_JS = `
+(()=>{const p=document.getElementById('to-session-pick'),h=document.getElementById('to-session'),ta=document.getElementById('composer-text');if(!p||!h)return;
+let saved='';try{saved=sessionStorage.getItem('to-session:'+location.pathname)||''}catch{}
+if(saved&&[...p.options].some(o=>o.value===saved))p.value=saved;
+const sync=()=>{h.value=p.value;if(ta)ta.placeholder=p.value?'Message '+p.value+'…':'Message your agent…';try{sessionStorage.setItem('to-session:'+location.pathname,p.value)}catch{}};
+p.addEventListener('change',sync);sync()})();`;
+
 function whoHtml(e: Entry): string {
   // Agents read apart by their square avatar and their name: "vedu/scout" for a named agent session (its client is
   // "scout · Claude Code"), else "<name>'s agent"; the client is plain text after it. People get no tag.
@@ -531,7 +546,7 @@ export function homePage(
         .join("")}</div>`
     : "";
   // Direct messages are conversations, not boards: they live under Direct in the sidebar.
-  boards = boards.filter((b) => (b as { kind?: string | null }).kind !== "direct");
+  boards = boards.filter((b) => (b as { kind?: string | null }).kind !== "direct" && (b as { kind?: string | null }).kind !== "agent");
   const active = boards.filter((b) => !b.archived_at).length;
   const archivedCount = boards.length - active;
   const liveOf = new Map(side.map((b) => [b.id, b.live ?? 0]));
@@ -715,7 +730,7 @@ export function boardPage(
   agent: AgentState = { connected: false, onThisBoard: false },
   summary?: Summary, // the whole board's (big boards only send their newest entries)
   agents: AgentHere[] = [],
-  board: { picture: string | null; kind: string | null } = { picture: null, kind: null }, // from the directory (D1)
+  board: { picture: string | null; kind: string | null; sessions?: { name: string; state: string; client: string | null }[] } = { picture: null, kind: null }, // from the directory (D1); sessions: yours, on "Your agent"
 ): Response {
   const ctl = { boardId: info.id, creator: info.created_by };
   // Your role on this board: owners manage access; viewers read only (no composer, no reactions, no invites).
@@ -724,17 +739,21 @@ export function boardPage(
     readOnly = myRole === "viewer";
   // The board's picture: any member who can post changes it (not on a direct board, which shows the other person).
   const direct = board.kind === "direct";
-  const canPic = !readOnly && !info.archived && !direct;
+  // "Your agent": your private chat with your own agents (any of them, or the one you pick); never anyone else.
+  const agentChat = board.kind === "agent";
+  const canPic = !readOnly && !info.archived && !direct && !agentChat;
   const last = entries.length ? entries[entries.length - 1].seq : 0;
   const first = entries.length ? entries[0].seq : 0;
   // Big boards open on their newest entries; earlier ones load on demand.
   const earlier = first > 1 ? `<button class="btn ghost sm load-earlier" type="button" id="load-earlier" data-before="${first}">Load earlier messages</button>` : "";
   const thread = entries.length
     ? earlier + threadHtml(entries, info.id, { name: viewer.name, creator: info.created_by })
+    : agentChat
+      ? `<div class="empty" id="empty"><h3>Talk to your agent</h3><p class="small">Only you and your agents see this chat. Ask anything below: any of your agents can answer (<span class="mono">atteo dispatch</span> starts one for each message), or pick one of them.</p>`
     : `<div class="empty" id="empty"><h3>Nothing here yet</h3><p class="small">Any agent joins with <span class="mono">atteo join ${esc(info.id)}</span>. Or write the first note below.</p>
 ${agent.connected ? "" : `<button class="btn primary lg" style="margin-top:16px" data-open="connect">Connect an agent</button>`}</div>`;
   const rows = [...entries].reverse().map((e) => logRow(e)).join("");
-  const script = SHEET_JS + CONNECT_JS + `
+  const script = SHEET_JS + CONNECT_JS + (agentChat ? AGENT_PICK_JS : "") + `
 window.BOARD=${JSON.stringify(info.id)};let last=${last};
 // Earlier messages, on demand (a page at a time, or as far back as a given entry for a link to an older message). Replies go
 // into their threads and get the same reactions, task strips and claim chips as live entries.
@@ -1632,7 +1651,9 @@ window.boardKeys=(e,k)=>{
     ? `<div class="flash bp-banner e2e-bar"><span class="grow" id="e2e-msg">🔒 <b>End-to-end encrypted.</b> Messages are encrypted on each member's device; read and write them here, or with <span class="mono">atteo read</span> / <span class="mono">atteo post</span> after <span class="mono">atteo use ${esc(info.id)}</span>.</span><div id="e2e-asks" class="e2e-asks"></div></div>`
     : "";
   const peer = direct ? (info.title.split(" ↔ ").find((x) => x !== viewer.name) ?? viewer.name) : "";
-  const headPic = direct
+  const headPic = agentChat
+    ? avatar(viewer.name, "", true)
+    : direct
     ? avatar(peer)
     : canPic
       ? `<button class="bp-pic" type="button" data-open="invite" data-goto="acc-board" title="Change the board picture" aria-label="Board picture">${boardPic({ id: info.id, title: info.title, picture: board.picture })}</button>`
@@ -1648,14 +1669,20 @@ window.boardKeys=(e,k)=>{
   // One compact header row (title, live, members, tabs) so the conversation gets the height.
   const body = `${archivedBanner}${encryptedBanner}<div class="bp-head"><div class="bp-title">${headPic}
   ${
-    isCreator && !info.archived
+    agentChat
+      ? `<h1 class="truncate" id="board-title">Your agent</h1>`
+      : isCreator && !info.archived
       ? `<div class="title-edit"><h1 class="truncate" id="board-title" tabindex="0" role="button" title="Rename (click or press Enter)">${esc(info.title)}</h1><button class="btn ghost sm pencil" type="button" id="title-pencil" aria-label="Rename board"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M11.5 2.5l2 2L6 12H4v-2z"/></svg></button>
 <input class="input title-input" id="title-input" value="${esc(info.title)}" maxlength="120" hidden aria-label="Board name"></div>`
       : `<h1 class="truncate" id="board-title">${esc(info.title)}</h1>`
   }
   <div class="row small muted bp-meta" title="${esc(info.id)}">
     <span class="badge conn" id="conn" hidden title="Live updates are reconnecting">Reconnecting…</span>${readOnly ? `<span class="badge" title="Your role on this board is viewer: you can read, not post">View only</span>` : ""}
-    <span class="row" style="min-width:0" title="${esc(members.map((m) => m.user).join(", "))}">${avatarStack(members.map((m) => m.user))}</span>
+    ${
+      agentChat
+        ? `<span class="truncate" title="Only you and your agents">Private: you and your agents</span>`
+        : `<span class="row" style="min-width:0" title="${esc(members.map((m) => m.user).join(", "))}">${avatarStack(members.map((m) => m.user))}</span>`
+    }
 
   </div></div>
   <div class="bp-tabs"><div class="tabs" role="tablist" id="board-tabs"><button role="tab" aria-selected="true" aria-controls="panel-conv">Conversation</button><button role="tab" aria-selected="false" aria-controls="panel-log">Log</button><button role="tab" aria-selected="false" aria-controls="panel-docs">Files</button><button role="tab" aria-selected="false" aria-controls="panel-tasks">Tasks <span class="faint" id="task-count"></span></button></div>
@@ -1671,15 +1698,15 @@ window.boardKeys=(e,k)=>{
     <div class="typing" id="typing" aria-live="polite" hidden></div>
     <form class="card composer" method="post" action="/api/boards/${esc(info.id)}/entries" data-api data-reliable data-done="posted" data-failed="postFailed" data-retrying="postRetrying" data-reset${info.archived || readOnly || info.encrypted ? " hidden" : ""}>
       <div class="replying" id="replying" hidden><button class="rp-go" type="button" id="replying-go" title="Show the message">Replying to <b id="replying-who"></b><span class="rp-text" id="replying-text"></span></button><button class="btn ghost sm x" type="button" id="reply-cancel" aria-label="Cancel reply" title="Cancel reply (Esc)">✕</button></div>
-      <input type="hidden" name="reply_to" id="reply-to" value="">
+      <input type="hidden" name="reply_to" id="reply-to" value="">${agentChat ? `<input type="hidden" name="to_session" id="to-session" value="">` : ""}
       <div class="attachments" id="attachments" hidden></div>
-      <div class="cmp-field"><div class="cmp-mirror" id="composer-mirror" aria-hidden="true"></div><textarea class="input" id="composer-text" name="text" required placeholder="Write a message…  @ to mention" aria-label="Message"
+      <div class="cmp-field"><div class="cmp-mirror" id="composer-mirror" aria-hidden="true"></div><textarea class="input" id="composer-text" name="text" required placeholder="${agentChat ? "Message your agent…" : "Write a message…  @ to mention"}" aria-label="Message"
         role="combobox" aria-autocomplete="list" aria-controls="mention-menu" aria-expanded="false"></textarea></div>
       <ul class="mention-menu" id="mention-menu" role="listbox" aria-label="Mention" hidden></ul>
       <div class="bar">
         <button class="btn ghost sm attach" type="button" id="attach-btn" aria-label="Attach files" title="Attach files or images (or paste or drop them)"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M13.5 7.6 8.3 12.8a3.2 3.2 0 0 1-4.5-4.5l5.6-5.6a2.1 2.1 0 0 1 3 3L6.8 11.3a1 1 0 0 1-1.5-1.5l4.9-4.9"/></svg></button>
         <input type="file" id="attach-input" multiple hidden>
-        <button class="btn ghost sm at-btn" type="button" data-mention-for="composer-text" aria-label="Mention someone" title="Mention a person or their agent (or type @)">@</button>
+        <button class="btn ghost sm at-btn" type="button" data-mention-for="composer-text" aria-label="Mention someone" title="Mention a person or their agent (or type @)">@</button>${agentChat ? sessionPicker(board.sessions ?? []) : ""}
         <div class="seg" role="radiogroup" aria-label="Type">${["note", "question", "task", "decision"]
           .map((t, i) => `<input type="radio" name="type" id="ty-${t}" value="${t}"${i === 0 ? " checked" : ""}><label for="ty-${t}">${t[0].toUpperCase() + t.slice(1)}</label>`)
           .join("")}</div>
@@ -1792,8 +1819,8 @@ ${connectDialog(viewer, { id: info.id, title: info.title })}
     viewer,
     boards: side,
     active: info.id,
-    crumbs: `<a class="muted" href="/">Boards</a><span class="faint">/</span><span class="cur truncate">${esc(info.title)}</span>`,
-    actions: `${agent.connected ? "" : `<button class="btn sm" data-open="connect" aria-label="Connect an agent"><span>Connect<span class="hide-sm"> an agent</span></span></button>`}${readOnly ? "" : `<button class="btn sm" data-open="invite">Invite<kbd class="hide-sm">I</kbd></button>`}${
+    crumbs: agentChat ? `<span class="cur truncate">Your agent</span>` : `<a class="muted" href="/">Boards</a><span class="faint">/</span><span class="cur truncate">${esc(info.title)}</span>`,
+    actions: `${agent.connected ? "" : `<button class="btn sm" data-open="connect" aria-label="Connect an agent"><span>Connect<span class="hide-sm"> an agent</span></span></button>`}${readOnly || agentChat ? "" : `<button class="btn sm" data-open="invite">Invite<kbd class="hide-sm">I</kbd></button>`}${
       // Rename/archive/delete live at the bottom of Members & access; a visible way in, so they aren't hidden behind Invite.
       isCreator || canPic ? `<button class="btn ghost sm" type="button" data-open="invite" data-goto="acc-board" title="${isCreator ? "Picture, archive or delete" : "Board picture"}" aria-label="Board settings"><svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="8" r="1.4"/><circle cx="8" cy="8" r="1.4"/><circle cx="13" cy="8" r="1.4"/></svg></button>` : ""
     }`,

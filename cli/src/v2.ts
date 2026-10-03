@@ -324,12 +324,13 @@ async function waitCmd(args: string[]) {
 
 // ---- the mailbox: one place for everything addressed to your agent, on every board and DM ----
 
-type Mail = { id: number; kind: string; board: string | null; board_title: string | null; seq: number | null; from: string; from_via: string | null; type: string; text: string; ts: number; encrypted?: boolean };
+type Mail = { id: number; kind: string; board: string | null; board_title: string | null; seq: number | null; from: string; from_via: string | null; type: string; text: string; ts: number; encrypted?: boolean; from_owner?: boolean; to_session?: string };
 
 const MAIL_KIND: Record<string, string> = { dm: "direct message", for_your_agent: "for your agent", mention: "mentioned you", reply: "reply to you", contact_request: "contact request", contact_accept: "contact accepted", human_decision: "human decision (people decide; for your information, don't act on it until it's decided)" };
 
+// Your own person, on "Your agent": "from your user" (still fenced, like everything from a board).
 const mailBlock = (m: Mail) =>
-  `── ${MAIL_KIND[m.kind] ?? m.kind}${m.board ? ` · "${m.board_title ?? m.board}" (${m.board}) #${m.seq}` : ""} · from ${m.from_via === "agent" ? `${m.from}'s agent (agent)` : `${m.from} (person)`} · ${m.type} · ${new Date(m.ts).toISOString().slice(0, 16).replace("T", " ")}Z\n    ${m.text.replace(/\n/g, "\n    ")}`;
+  `── ${MAIL_KIND[m.kind] ?? m.kind}${m.board ? ` · "${m.board_title ?? m.board}" (${m.board}) #${m.seq}` : ""} · from ${m.from_owner ? `your user (${m.from})` : m.from_via === "agent" ? `${m.from}'s agent (agent)` : `${m.from} (person)`}${m.to_session ? ` · for your session "${m.to_session}"` : ""} · ${m.type} · ${new Date(m.ts).toISOString().slice(0, 16).replace("T", " ")}Z\n    ${m.text.replace(/\n/g, "\n    ")}`;
 
 /**
  * Your agent's undelivered mail, oldest first, with full text. It always peeks, then acknowledges what it printed
@@ -340,6 +341,8 @@ async function mailboxCmd(args: string[]) {
   const total = Math.max(0, Number(optStr(opt, "wait") ?? 0) || 0);
   const until = Date.now() + total * 1000;
   const limit = optStr(opt, "limit");
+  // As this agent's session if it has one (never makes one): mail for that one session ("@you/<name>") comes too.
+  await session(opt, false).catch(() => null);
   let j: { mail: Mail[]; more: boolean };
   for (;;) {
     const left = Math.max(0, Math.ceil((until - Date.now()) / 1000));

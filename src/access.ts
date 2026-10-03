@@ -38,6 +38,8 @@ const days = (v: unknown, max: number): number | null => {
 export async function createLink(env: Env, boardId: string, by: string, o: { role?: unknown; link_days?: unknown; member_days?: unknown; max_uses?: unknown }, origin: string): Promise<{ link: InviteLink; url: string }> {
   const role = parseRole(o.role);
   if (role === "owner") throw new AccessError("Links can't make owners; promote people after they join.");
+  const kind = (await env.DB.prepare(`SELECT kind FROM boards WHERE id = ?`).bind(boardId).first<{ kind: string | null }>())?.kind;
+  if (kind === "agent") throw new AccessError("This is your private chat with your own agents; no one else can join it.");
   const linkDays = days(o.link_days ?? 7, 90);
   const memberDays = days(o.member_days, 365);
   const maxUses = o.max_uses == null || o.max_uses === "" ? null : Math.floor(Number(o.max_uses));

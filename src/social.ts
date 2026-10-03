@@ -256,6 +256,32 @@ export async function openDirect(env: Env, me: string, who: string, initBoard: (
   return { id, title: info.title, created: true };
 }
 
+/** "Your agent": a person's private board with their own agent (any of their sessions), made the first time it's
+ *  opened. Its only member is the person; everything they write there is mail for their agent (src/mailbox.ts). Not
+ *  end-to-end encrypted, like DMs: an encrypted board takes no plaintext, so agents without the CLI's keys (an MCP
+ *  connection) couldn't read or answer it. Doesn't count toward plan limits. */
+export async function openAgentChat(env: Env, me: string, initBoard: (id: string, title: string, creator: string) => Promise<{ id: string; title: string; created_by: string; created_at: number }>): Promise<{ id: string; title: string; created: boolean }> {
+  const key = agentChatKey(me); // ":" is outside handles, so it never collides with a pair's "a|b"
+  const existing = await env.DB.prepare(`SELECT id, title FROM boards WHERE direct_key = ?`).bind(key).first<{ id: string; title: string }>();
+  if (existing) return { ...existing, created: false };
+  const id = newBoardId();
+  const info = await initBoard(id, AGENT_CHAT_TITLE, me);
+  await recordBoard(env, info);
+  // Two first opens at once: the unique direct_key keeps one; the other board row goes and its id isn't used.
+  const won = await env.DB.prepare(`UPDATE boards SET kind = 'agent', direct_key = ? WHERE id = ? AND NOT EXISTS (SELECT 1 FROM boards WHERE direct_key = ?)`).bind(key, id, key).run().catch(() => null);
+  if (!won?.meta.changes) {
+    await env.DB.prepare(`DELETE FROM boards WHERE id = ?`).bind(id).run();
+    const r = await env.DB.prepare(`SELECT id, title FROM boards WHERE direct_key = ?`).bind(key).first<{ id: string; title: string }>();
+    if (r) return { ...r, created: false };
+    throw new SocialError("Couldn't open your agent's chat. Try again.");
+  }
+  await addMember(env, id, me, { role: "owner" });
+  return { id, title: info.title, created: true };
+}
+
+export const AGENT_CHAT_TITLE = "Your agent";
+export const agentChatKey = (user: string) => `self:${user}`;
+
 // ---- profile and standing rules ----
 
 export interface Rules {

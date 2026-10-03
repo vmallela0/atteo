@@ -2591,6 +2591,98 @@ await step("new board as JSON (the app): POST /api/boards makes an encrypted boa
   assert((await mk(N, {})).status === 400, "no title: 400");  assert((await fetch(`${BASE}/api/boards`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).status === 401, "signed out: 401");
 });
 
+await step("Your agent: a private chat with your own agents, made on first open; only you; your posts are DMs from your user; @you/<session> reaches that one session; replies land in the thread", async () => {
+  const Y = `e2e-you-${run}`, Z = `e2e-zed-${run}`;
+  for (const n of [Y, Z]) {
+    assert((await ops("users", { name: n, email: `${n}@example.com`, verified: "true" })).status === 201, `user ${n}`);
+    tok[n] = (await ops("tokens", { user: n, label: "e2e" })).body.token;
+    cookie[n] = (await ops("sessions", { user: n })).body.cookie;
+  }
+  const api = async (who, method, path, body, headers = {}) => {
+    const r = await fetch(`${BASE}${path}`, { method, headers: { ...auth(who), "content-type": "application/json", ...headers }, body: body ? JSON.stringify(body) : undefined });
+    return { status: r.status, body: await r.json().catch(() => ({})) };
+  };
+  const say = async (who, body) => (await web(`/api/boards/${chat}/entries`, who, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })).json();
+  // Made the first time it's opened; opening it again (API or web) is the same board.
+  const first = await api(Y, "POST", "/api/me/agent-chat");
+  assert(first.status === 200 && /^b_/.test(first.body.board) && first.body.created === true && first.body.kind === "agent" && first.body.title === "Your agent", JSON.stringify(first));
+  const chat = first.body.board;
+  const again = await api(Y, "POST", "/api/me/agent-chat");
+  assert(again.body.board === chat && again.body.created === false, JSON.stringify(again.body));
+  const page = await web("/agent", Y);
+  assert([302, 303].includes(page.status) && page.headers.get("location")?.endsWith(`/b/${chat}`), `GET /agent: ${page.status} ${page.headers.get("location")}`);
+  const mine = (await api(Y, "GET", "/api/me/boards")).body.boards.find((b) => b.id === chat);
+  assert(mine?.kind === "agent" && mine.encrypted === false, JSON.stringify(mine));
+  // Only the person: no one else gets in, by invite, invite link or any other way; outsiders get 404.
+  assert((await api(Y, "GET", `/api/boards/${chat}/members`)).body.members.map((m) => m.user).join() === Y, "only member");
+  const inv = await web(`/api/boards/${chat}/invites`, Y, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: `${Z}@example.com` }) });
+  assert(inv.status === 400, `invite: ${inv.status}`);
+  await ops("members", { board: chat, user: Z });
+  assert((await api(Y, "GET", `/api/boards/${chat}/members`)).body.members.length === 1, "not even through ops");
+  assert((await web(`/b/${chat}`, Z)).status === 404, "page: 404 for someone else");
+  assert((await api(Z, "GET", `/api/boards/${chat}/updates?after=0`)).status === 404, "API: 404 for someone else");
+  assert((await api(Z, "POST", `/api/boards/${chat}/entries`, { text: "hi" })).status !== 201, "someone else can't post");
+  // The board page: "Your agent", with the session picker.
+  const s1 = (await api(Y, "POST", "/api/sessions", { suggest: "claude", client: "Claude Code" })).body.session;
+  const s2 = (await api(Y, "POST", "/api/sessions", { suggest: "cursor", client: "Cursor" })).body.session;
+  const html = await (await web(`/b/${chat}`, Y)).text();
+  has(html, `<h1 class="truncate" id="board-title">Your agent</h1>`);
+  has(html, `<option value="">Any of my agents</option>`);
+  has(html, `<option value="${s1.name}">`);
+  has(html, `data-agent-chat`);
+  // Both sessions are listening (a session's first read of the board starts its own read position).
+  for (const x of [s1, s2]) await api(Y, "GET", `/api/sessions/${x.id}/read?board=${chat}`);
+  // A message for any of your agents: mail from your user (a DM), for your dispatcher; already read in your own inbox.
+  const p1 = (await say(Y, { type: "question", text: `which branch are we on? ${run}` })).entry.seq;
+  const mb = (await api(Y, "GET", "/api/mailbox?peek=1")).body.mail.find((m) => m.board === chat && m.seq === p1);
+  assert(mb && mb.kind === "dm" && mb.from_owner === true && mb.from === Y && mb.from_via === "person" && !mb.to_session && mb.text === `which branch are we on? ${run}`, JSON.stringify(mb));
+  assert((await (await web("/api/inbox/count", Y)).json()).unread === 0, "your own message isn't unread for you");
+  // Every session hears it without joining, as its person's post (fenced, like everything on a board), and 👀 shows it was read.
+  const r1 = (await api(Y, "GET", `/api/sessions/${s1.id}/read?board=${chat}`)).body.boards[0];
+  assert(r1.entries.some((e) => e.seq === p1), JSON.stringify(r1).slice(0, 300));
+  has(r1.text, `== Your agent (${chat})`);
+  has(r1.text, `#${p1} question · ${Y} (person)`);
+  has(r1.text, "<<untrusted");
+  assert((await api(Y, "GET", `/api/sessions/${s2.id}/read?board=${chat}`)).body.boards[0].entries.some((e) => e.seq === p1), "the other session too");
+  const rx = async (seq) => (await (await web(`/api/boards/${chat}/entries?after=${seq - 1}&limit=1`, Y)).json()).reactions[seq] ?? [];
+  assert((await rx(p1)).some((x) => x.emoji === "👀" && x.users.includes(`${Y}'s agent`)), "👀 once an agent read it");
+  // For one session (the picker): sent as @you/<session>; only that session reads, waits and gets the mail.
+  const p2 = (await say(Y, { type: "note", text: `run the tests ${run}`, to_session: s1.name })).entry;
+  assert(p2.text === `@${Y}/${s1.name} run the tests ${run}` && p2.mentions.some((m) => m.user === Y && m.session === s1.name), JSON.stringify(p2));
+  assert((await api(Y, "GET", `/api/sessions/${s2.id}/read?board=${chat}`)).body.boards[0].entries.length === 0, "the other session skips it");
+  const r1b = (await api(Y, "GET", `/api/sessions/${s1.id}/read?board=${chat}`)).body.boards[0];
+  assert(r1b.entries.some((e) => e.seq === p2.seq), "the addressed session reads it");
+  has(r1b.text, `your session "${s1.name}"`);
+  assert(!(await api(Y, "GET", "/api/mailbox?peek=1")).body.mail.some((m) => m.seq === p2.seq && m.board === chat), "not in the dispatcher's mailbox (no session)");
+  assert(!(await api(Y, "GET", "/api/mailbox?peek=1", null, { "x-atteo-session": s2.id })).body.mail.some((m) => m.seq === p2.seq && m.board === chat), "not in the other session's mailbox");
+  const own = (await api(Y, "GET", "/api/mailbox?peek=1", null, { "x-atteo-session": s1.id })).body.mail.find((m) => m.seq === p2.seq && m.board === chat);
+  assert(own && own.to_session === s1.name && own.from_owner === true && own.kind === "dm", JSON.stringify(own));
+  // Waits: a post for s1 wakes s1's wait, not s2's.
+  const t0 = Date.now();
+  const w2 = api(Y, "GET", `/api/sessions/${s2.id}/wait?board=${chat}&timeout=4`);
+  const w1 = api(Y, "GET", `/api/sessions/${s1.id}/wait?board=${chat}&timeout=8`);
+  await new Promise((r) => setTimeout(r, 600));
+  const p3 = (await say(Y, { type: "note", text: `and lint ${run}`, to_session: s1.name })).entry.seq;
+  const [g1, g2] = await Promise.all([w1, w2]);
+  assert(g1.body.entries.some((x) => x.entry.seq === p3), `s1's wait gets it: ${JSON.stringify(g1.body).slice(0, 200)}`);
+  assert(g2.body.timed_out === true && Date.now() - t0 >= 3500, `s2's wait sleeps through it: ${JSON.stringify(g2.body).slice(0, 200)} after ${Date.now() - t0}ms`);
+  // A session that isn't live falls back to any of your agents (the dispatcher can start one).
+  const p4 = (await say(Y, { type: "note", text: `@${Y}/nobody-here ping ${run}` })).entry.seq;
+  assert((await api(Y, "GET", "/api/mailbox?peek=1")).body.mail.some((m) => m.seq === p4 && m.board === chat && !m.to_session), "unknown session: mail for any agent");
+  // The agent answers in the thread, as its session; the person gets it in their inbox; the agent doesn't get its own reply as mail.
+  const sh = { ...auth(Y), "x-atteo-session": s1.id };
+  await rpcRaw(sh, chat, "tools/call", { name: "read", arguments: {} });
+  const ans = await rpcRaw(sh, chat, "tools/call", { name: "post", arguments: { type: "note", text: `on main ${run}`, reply_to: p1 } });
+  has(ans.content[0].text, "Posted #");
+  const reply = (await api(Y, "GET", `/api/boards/${chat}/entries/${seqOf(ans.content[0].text)}`)).body.entry;
+  assert(reply && reply.text === `on main ${run}` && reply.reply_to === p1 && reply.via === "agent" && reply.client.startsWith(`${s1.name} · `), JSON.stringify(reply));
+  assert((await rx(p1)).some((x) => x.emoji === "✅"), "✅ once answered");
+  assert((await (await web("/api/inbox/count", Y)).json()).unread >= 1, "the person hears their agent's reply");
+  assert(!(await api(Y, "GET", "/api/mailbox?peek=1")).body.mail.some((m) => m.board === chat && m.from_via === "agent"), "the agent's own reply isn't its mail");
+  // Agents are told what this board is.
+  has((await rpcRaw(auth(Y), null, "initialize", { protocolVersion: "2025-06-18", capabilities: {} })).instructions, `"Your agent" is your user's private board with their own agents`);
+});
+
 if (/localhost|127\.0\.0\.1/.test(BASE) && process.env.E2E_FULL) {
   await step("boards past 1,000 entries page through updates without looping (local only)", async () => {
     const big = (await ops("boards", { user: A, title: `e2e big ${run}` })).body.board.id;

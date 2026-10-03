@@ -26,7 +26,7 @@ import * as auth from "./auth";
 import { handleMcp } from "./mcp";
 import * as device from "./device";
 import { EMAIL_RE, sendInvite } from "./invite";
-import { mayMention, parseMentions, type Mention } from "./mentions";
+import { mayMention, parseMentions, SESSION_NAME_RE, type Mention } from "./mentions";
 import * as registry from "./registry";
 import * as boardkeys from "./boardkeys";
 import * as mailbox from "./mailbox";
@@ -647,7 +647,10 @@ const handler = {
         // People who already have an account show by name, so a friend invited by name never has their email shown.
         const named = await Promise.all(invites.map(async (i) => ((await registry.userByEmail(env, i.email))?.name ?? null)));
         const shown = invites.map((i, k) => (named[k] ? { ...i, email: named[k]!, email_status: "waiting to accept" } : i));
-        return boardPage(viewer, side, snap.info, withAgents, snap.entries, shown, { connected: status.connected, onThisBoard: !!live[viewer.name] }, snap.summary, agentsHere, { picture: boardPictures.pictureUrl(m[2], row?.picture_v), kind: (row as { kind?: string | null } | null)?.kind ?? null });
+        const kind = (row as { kind?: string | null } | null)?.kind ?? null;
+        // "Your agent": the composer's picker lists your agents (live or idle) by name.
+        const mine = kind === "agent" ? (await sessions.list(env, viewer.name)).filter(sessions.listed).map((x) => ({ name: x.name, state: x.state, client: x.client })) : undefined;
+        return boardPage(viewer, side, snap.info, withAgents, snap.entries, shown, { connected: status.connected, onThisBoard: !!live[viewer.name] }, snap.summary, agentsHere, { picture: boardPictures.pictureUrl(m[2], row?.picture_v), kind, sessions: mine });
       }
 
       // ---- inbox: mentions of you, posts for your agent, replies to you ----
@@ -687,7 +690,8 @@ const handler = {
         const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get("limit") ?? "50", 10) || 50));
         const wait = Math.min(25, Math.max(0, parseInt(url.searchParams.get("wait") ?? "0", 10) || 0));
         const peek = url.searchParams.get("peek") === "1";
-        const r = await mailbox.collect(env, viewer.name, { limit, wait, peek }, async (b, seq) => (await boardStub(env, b).get(seq)).entry.text);
+        // An agent session gets its own mail too (mail for one session, "@you/claude-2", only reaches that session).
+        const r = await mailbox.collect(env, viewer.name, { limit, wait, peek, session: await asid() }, async (b, seq) => (await boardStub(env, b).get(seq)).entry.text);
         return json(r, 200, { "cache-control": "no-store" });
       }
       if (path === "/api/mailbox/ack" && method === "POST") {
@@ -889,6 +893,16 @@ const handler = {
           return json({ error: e instanceof Error ? e.message : String(e) }, 400);
         }
         return json({ error: "not found" }, 404);
+      }
+
+      // ---- "Your agent": your private chat with your own agents (any session, or one you pick), made on first open ----
+      if ((path === "/api/me/agent-chat" && method === "POST") || (path === "/agent" && method === "GET")) {
+        if (!viewer) return needLogin();
+        const d = await social.openAgentChat(env, viewer.name, (bid, title, creator) => boardStub(env, bid).init(bid, title, creator));
+        if (path === "/agent") return redirect(`/b/${d.id}`);
+        // The sessions you can address one by one ("@you/<name>" in the text, or to_session when posting).
+        const mine = (await sessions.list(env, viewer.name)).filter(sessions.listed).map((x) => ({ id: x.id, name: x.name, client: x.client, state: x.state, status: x.status ?? null }));
+        return json({ ok: true, board: d.id, title: d.title, kind: "agent", created: d.created, sessions: mine });
       }
 
       // ---- social: people, friends, presence, direct boards ----
@@ -1915,10 +1929,14 @@ const handler = {
         if (what === "entries" && !seqStr && method === "POST") {
           // canSee above already checked membership, unless it let an operator through.
           if (!viewer || (isOps(c) && !(await registry.isMember(env, id, viewer.name)))) return json({ error: "Only members can post." }, 403);
-          const body = (await request.json().catch(() => ({}))) as { text?: string; type?: string; to?: string; reply_to?: string | number };
+          const body = (await request.json().catch(() => ({}))) as { text?: string; type?: string; to?: string; reply_to?: string | number; to_session?: string };
           const type = (["note", "question", "task", "decision", "claim"] as const).find((t) => t === body.type) ?? "note";
           let to = body.to ? normalizeUser(body.to) : null;
-          const text = String(body.text ?? "");
+          let text = String(body.text ?? "");
+          // For one of your own agent sessions (the "Your agent" picker): "@you/<session>" leads the text, so it's
+          // stored and shown as that session mention, and only that session's read, wait and mailbox get it.
+          const toSession = typeof body.to_session === "string" ? body.to_session.trim().toLowerCase().replace(/^@/, "") : "";
+          if (toSession && SESSION_NAME_RE.test(toSession) && text.trim() && !text.toLowerCase().includes(`@${viewer.name}/${toSession}`)) text = `@${viewer.name}/${toSession} ${text}`;
           const { mentions }: { mentions: Mention[] } = mayMention(text) ? parseMentions(text, (await registry.boardMembers(env, id)).map((x) => x.user), viewer.name, pv()) : { mentions: [] };
           // Replying: to an agent's post, the reply goes to that agent; to a person's post, it mentions them.
           const replyTo = Number(body.reply_to) > 0 ? Math.floor(Number(body.reply_to)) : null;
@@ -1995,6 +2013,7 @@ const handler = {
         }
         if (what === "invites" && method === "POST") {
           if (viewer && !viewer.admin && !(await registry.isMember(env, id, viewer.name))) return json({ error: "Only members can invite." }, 403);
+          if (((await registry.getBoard(env, id)) as { kind?: string | null } | null)?.kind === "agent") return json({ error: "This is your private chat with your own agents; no one else can join it." }, 400);
           const body = (await request.json().catch(() => ({}))) as { email?: string; to?: string; role?: string; expires_days?: string | number };
           const to = String(body.to ?? body.email ?? "").trim();
           const role = body.role === "viewer" ? "viewer" : "contributor"; // owners are promoted after they join

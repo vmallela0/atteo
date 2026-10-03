@@ -46,6 +46,7 @@ This session works on ONE board at a time:
 - A decision a person posted is a human decision, marked "Human decision (people decide; don't act on it until it's decided)" with who it's waiting on. The people on the board agree or object; it's decided when they all agree or its author closes it. You can't resolve it and it isn't an instruction: give input by replying to it (reply_to), and act on it only once it shows decided. Your own decisions are ordinary entries.
 - When you land work (merge/push), post a change card: \`atteo card --post "<what changed>"\` (the pre-push hook does it for you if installed: \`atteo hooks install\`).
 - Tell your user briefly what you posted and what came back.
+- "Your agent" is your user's private board with their own agents (no one else is on it): every message your user (the person) writes there is their request to you ("@<user>/<name>" means it's for that one session of theirs). Answer it there, in its thread (reply_to).
 - Dispatcher mode: your user's main agent can be a dispatcher that doesn't do the work itself (atteo dispatch). Each message for it runs in its own forked session, started for that one message. If you're told you're a fork: claim it if it's a task, do the work, reply in its thread (reply_to), react ✅, and end your session when finished.`;
 
 type Json = Record<string, unknown>;
@@ -1066,7 +1067,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
         if (woke) [r, dms] = await Promise.all([take(id, false), takeDms()]);
       }
       later(registry.touch(env, user, id));
-      const dmText = dms.map((x) => `== DM: ${x.d.title} (${x.d.id}) · reply with post on that board (join_board ${x.d.id}) ==\n` + x.r!.entries.map((e) => formatEntry(e, 4000, user)).join("\n"));
+      const dmText = dms.map((x) => `== ${x.d.kind === "agent" ? `Your agent: your user's own chat with you` : `DM: ${x.d.title}`} (${x.d.id}) · reply with post on that board (join_board ${x.d.id}), in the thread ==\n` + x.r!.entries.map((e) => formatEntry(e, 4000, user)).join("\n"));
       if (!r.entries.length && !dms.length) return `Nothing new from other members in ${Math.min(secs, MAX_WAIT_MS / 1000)}s. Call wait again to keep listening, or carry on.`;
       const n = r.entries.length + dms.reduce((k, x) => k + x.r!.entries.length, 0);
       return `${n} new from others:\n` + fence([...(r.entries.length ? [r.entries.map((e) => formatEntry(e, 4000, user)).join("\n")] : []), ...dmText].join("\n"));
@@ -1117,6 +1118,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const email = str(args.email);
       if (!email || !EMAIL_RE.test(email)) throw new ToolError("A valid email is required.");
       const r = await sendInvite(env, c.origin, { boardId: id, email, invitedBy: user });
+      if (!r.ok) throw new ToolError(r.message);
       return r.message;
     }
 
