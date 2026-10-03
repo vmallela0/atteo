@@ -10,21 +10,39 @@ LOCAL="http://localhost:${LOCAL_PORT:-8788}"
 start=$(date +%s)
 before=$(git rev-parse origin/main 2>/dev/null || git rev-parse HEAD~1)
 
-# 1. The suites, locally (local D1 + Durable Objects; the ADMIN_KEY in .dev.vars). A fresh dev server each time: one
-# that has already run the suites flakes under the next run's parallel load. REUSE_DEV=1 reuses one that's up.
-dev=""
-if [ -z "${REUSE_DEV:-}" ] && curl -s -o /dev/null "$LOCAL/health"; then echo "port ${LOCAL##*:} is busy: stop that server or set LOCAL_PORT (REUSE_DEV=1 to reuse it)"; exit 1; fi
-if ! curl -s -o /dev/null "$LOCAL/health"; then
-  npx wrangler dev --port "${LOCAL##*:}" >/tmp/ship-dev.log 2>&1 & dev=$!
-  # (A kill that fails, e.g. the server already exited, must not turn a good ship into exit 1 under set -e.)
-  trap 'if [ -n "$dev" ]; then kill "$dev" 2>/dev/null || true; fi' EXIT
-  for i in $(seq 1 120); do curl -s -o /dev/null "$LOCAL/health" && break; sleep 0.5; done
+# 1. The suites, locally (local D1 + Durable Objects; the ADMIN_KEY in .dev.vars). Each suite gets its own fresh dev
+# server with its own local state (--persist-to), so they run in parallel without loading one server: sharing one made
+# whichever suite was slower flake ("Error: Network…"). REUSE_DEV=1 runs both against a server already up on LOCAL_PORT.
+# The CLI suite runs when CLI-facing code changed since the last ship from this checkout (not just since origin/main:
+# another agent may have pushed those commits already).
+last_ship=$(cat .git/atteo-last-ship 2>/dev/null || echo "$before")
+git cat-file -e "$last_ship" 2>/dev/null || last_ship="$before"
+need_cli=""
+if git diff --name-only "$last_ship" HEAD | grep -qE '^(cli/|src/(mcp|secrets|device|auth|index|board|mailbox|sessions)\.ts|test/cli\.mjs)'; then need_cli=1; fi
+devs=()
+# (A kill that fails, e.g. the server already exited, must not turn a good ship into exit 1 under set -e.)
+trap 'for p in "${devs[@]:-}"; do [ -n "$p" ] && kill "$p" 2>/dev/null || true; done' EXIT
+serve() { # serve <port> <state dir>: a fresh dev server with its own migrated local state
+  local port=$1 dir=$2
+  if curl -s -o /dev/null "http://localhost:$port/health"; then echo "port $port is busy: stop that server or set LOCAL_PORT (REUSE_DEV=1 to reuse it)"; exit 1; fi
+  rm -rf "$dir"
+  CI=1 npx wrangler d1 migrations apply agent-board --local --persist-to "$dir" >"$dir.migrate.log" 2>&1 || { cat "$dir.migrate.log"; exit 1; }
+  npx wrangler dev --port "$port" --persist-to "$dir" >"/tmp/ship-dev-$port.log" 2>&1 & devs+=($!)
+}
+up() { for i in $(seq 1 120); do curl -s -o /dev/null "http://localhost:$1/health" && return 0; sleep 0.5; done; echo "dev server on $1 didn't start"; exit 1; }
+E2E_PORT=${LOCAL##*:}; CLI_PORT=$((E2E_PORT + 1))
+if [ -n "${REUSE_DEV:-}" ]; then
+  CLI_PORT=$E2E_PORT
+  CI=1 npx wrangler d1 migrations apply agent-board --local >/tmp/ship-migrate-local.log 2>&1 || { cat /tmp/ship-migrate-local.log; exit 1; }
+else
+  serve "$E2E_PORT" /tmp/ship-state-e2e
+  if [ -n "$need_cli" ]; then serve "$CLI_PORT" /tmp/ship-state-cli; fi
+  up "$E2E_PORT"; if [ -n "$need_cli" ]; then up "$CLI_PORT"; fi
 fi
-CI=1 npx wrangler d1 migrations apply agent-board --local >/tmp/ship-migrate-local.log 2>&1 || { cat /tmp/ship-migrate-local.log; exit 1; }
-(unset ADMIN_KEY; BASE="$LOCAL" node test/e2e.mjs > /tmp/ship-e2e.log 2>&1) & e2e=$!
+(unset ADMIN_KEY; BASE="http://localhost:$E2E_PORT" node test/e2e.mjs > /tmp/ship-e2e.log 2>&1) & e2e=$!
 cli=""
-if git diff --name-only "$before" HEAD | grep -qE '^(cli/|src/(mcp|secrets|device|auth|index|board)\.ts|test/cli\.mjs)'; then
-  (npm run -s build:cli >/dev/null && unset ADMIN_KEY && BASE="$LOCAL" node test/cli.mjs > /tmp/ship-cli.log 2>&1) & cli=$!
+if [ -n "$need_cli" ]; then
+  (npm run -s build:cli >/dev/null && unset ADMIN_KEY && BASE="http://localhost:$CLI_PORT" node test/cli.mjs > /tmp/ship-cli.log 2>&1) & cli=$!
 fi
 status=0
 wait $e2e || status=1; tail -1 /tmp/ship-e2e.log; grep "✗" -A2 /tmp/ship-e2e.log || true
@@ -54,6 +72,7 @@ echo "live after $(( $(date +%s) - start ))s"
 deep=$(curl -s "$BASE/health/deep")
 echo "$deep" | grep -q '"ok":true' || { echo "deep health check failed: $deep"; exit 1; }
 echo "prod healthy; shipped in $(( $(date +%s) - start ))s"
+git rev-parse HEAD > .git/atteo-last-ship
 
 # 4. A change card of what just shipped (before..HEAD) on the build board, with the installed CLI (and its login).
 # Flags the CLI has had since change cards came in, so an atteo older than this repo still works (and agent-soup,
