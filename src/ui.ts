@@ -776,6 +776,14 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
 .cmp-mirror .chip.agent{outline:1px dashed color-mix(in srgb,var(--accent) 50%,transparent);outline-offset:1px}
 #panel-log .list{flex:1;min-height:0;overflow:auto;margin-top:16px}
 #panel-log .log th{position:sticky;top:0;z-index:1;background:var(--bg-subtle)}
+/* phones: each entry is two lines (who, #, time; then type and summary), so nothing sits off to the side */
+@media(max-width:640px){#panel-log .log thead{display:none}#panel-log .log,#panel-log .log tbody{display:block}
+  #panel-log .log tr.ev{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;grid-template-areas:"who who seq time" "type sum sum sum";align-items:center;gap:4px 8px;padding:9px 12px;border-top:1px solid var(--line)}
+  #panel-log .log tr.ev:first-child{border-top:0}#panel-log .log tr.ev:hover,#panel-log .log tr.ev.sel{background:var(--bg-hover)}
+  #panel-log .log tr.ev td{padding:0;border:0;min-width:0;background:none}
+  #panel-log .log td:nth-child(1){grid-area:time;font-size:11.5px}#panel-log .log td:nth-child(2){grid-area:seq;font-size:11.5px}
+  #panel-log .log td:nth-child(3){grid-area:who;overflow:hidden}#panel-log .log td:nth-child(3) .row{flex-wrap:nowrap;white-space:nowrap}
+  #panel-log .log td:nth-child(4){grid-area:type}#panel-log .log td:nth-child(5){display:none}#panel-log .log td.sum{grid-area:sum;max-width:none}}
 #panel-log>p{flex:none;margin:8px 0 14px}
 #panel-docs .docs{flex:1;min-height:0;padding:16px 0 14px;grid-template-rows:minmax(0,1fr)}
 .doc-list{min-height:0;overflow-y:auto;overflow-x:hidden;padding:0 8px;margin:0 -8px} /* room for the items' hover background */
