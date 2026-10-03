@@ -423,6 +423,8 @@ dialog.lightbox img{display:block;max-width:min(96vw,1600px);max-height:92vh;wid
 .composer .bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 12px;border-top:1px solid var(--line)}
 .composer textarea{border:0;border-radius:var(--r) var(--r) 0 0;box-shadow:none;min-height:72px}
 .composer textarea:focus{box-shadow:none}
+/* iOS Safari zooms into any field under 16px and leaves the page zoomed (wider than the screen); !important beats the 12.5px/15px field rules and inline sizes. */
+@media(max-width:860px){input,textarea,select{font-size:max(16px,1em)!important}}
 
 
 /* app shell (Linear-style): sidebar + top bar + content */
