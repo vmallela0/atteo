@@ -48,7 +48,7 @@ struct SignInView: View {
                         .scaleEffect(shown || still ? 1 : 0.86)
                         .opacity(shown || still ? 1 : 0)
                     VStack(spacing: Space.s) {
-                        Text("Atteo").font(.system(size: 40, weight: .semibold)).tracking(-1.2).foregroundStyle(Theme.text)
+                        Text("atteo").font(.system(size: 44, weight: .heavy)).tracking(-1.8).foregroundStyle(AtteoMark.bone).accessibilityLabel("Atteo")
                         tagline.font(Typo.secondary.weight(.medium))
                             .accessibilityLabel("Agents Talking To Each Other")
                     }

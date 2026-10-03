@@ -1,63 +1,86 @@
 // Renders Atteo's app icon (opaque PNG, 1024x1024 by default) with Core Graphics: no downloaded assets.
-// The mark: two speech bubbles facing each other, the space where they overlap cut away. Two voices (you, in bone;
-// the other side, in clay), one conversation; the gap between them is the "o". Same geometry as AtteoMark in
-// ios/AgentSoup/Sources/Theme.swift.
+// The mark, "the Pebble": one soft pebble split by a slightly slanted seam. The clay half is you, the ink half is
+// your agent; two round eyes meet across the seam. Same geometry as AtteoMark in ios/AgentSoup/Sources/Theme.swift.
 // Usage: swift ios/qa/design/icon.swift ios/AgentSoup/Resources/Assets.xcassets/AppIcon.appiconset/icon-1024.png
+//        swift ios/qa/design/icon.swift --sizes ios/qa/design/pebble-sizes.png   (180/60/29 px on dark and light)
 import CoreGraphics
 import Foundation
 import ImageIO
 import UniformTypeIdentifiers
 
-/// The two halves of the mark in a unit square (y down).
-func atteoMark() -> (CGPath, CGPath) {
-    let r = 0.205, dx = 0.112, cy = 0.475, gap = 0.034
-    func bubble(_ cx: Double, _ side: Double) -> CGPath {
-        // A circle with a short tail on its outer, lower edge.
+/// The Pebble in a unit square (y down): the two halves and the two eyes. Keep in step with AtteoMark.paths().
+func pebble() -> (left: CGPath, right: CGPath, leftEye: CGRect, rightEye: CGRect) {
+    let u = 1.0 / 1024
+    let body = CGRect(x: 189 * u, y: 229 * u, width: 647 * u, height: 566 * u)
+    let corner = 283 * u, gap = 36 * u, eye = 54 * u // corner: the full half-height (a CSS 300 radius, clamped); gap and eyes a touch past the design (27, 48) so they hold at 29 px
+    let shape = CGPath(roundedRect: body, cornerWidth: corner, cornerHeight: corner, transform: nil)
+    // The seam: from (549, 229) at the top to (498, 795) at the bottom, leaning left going down.
+    let top = CGPoint(x: 549 * u, y: body.minY), bottom = CGPoint(x: 498 * u, y: body.maxY)
+    let dx = bottom.x - top.x, dy = bottom.y - top.y, len = (dx * dx + dy * dy).squareRoot()
+    let n = CGPoint(x: dy / len, y: -dx / len) // unit normal, pointing right
+    func half(_ side: Double) -> CGPath {
+        let o = CGPoint(x: n.x * side * gap / 2, y: n.y * side * gap / 2)
+        let far = CGPoint(x: n.x * side * 4, y: n.y * side * 4)
+        let ext = CGPoint(x: dx / len * 4, y: dy / len * 4)
+        let a = CGPoint(x: top.x + o.x - ext.x, y: top.y + o.y - ext.y), b = CGPoint(x: bottom.x + o.x + ext.x, y: bottom.y + o.y + ext.y)
         let p = CGMutablePath()
-        p.addEllipse(in: CGRect(x: cx - r, y: cy - r, width: 2 * r, height: 2 * r))
-        let a1 = (side < 0 ? 180.0 - 48 : 48.0) * .pi / 180, a2 = (side < 0 ? 180.0 - 84 : 84.0) * .pi / 180
-        let tail = CGMutablePath()
-        tail.move(to: CGPoint(x: cx + r * cos(a1), y: cy + r * sin(a1)))
-        tail.addQuadCurve(to: CGPoint(x: cx + side * r * 0.86, y: cy + r * 1.13), control: CGPoint(x: cx + side * r * 0.82, y: cy + r * 0.98))
-        tail.addQuadCurve(to: CGPoint(x: cx + r * cos(a2), y: cy + r * sin(a2)), control: CGPoint(x: cx + side * r * 0.52, y: cy + r * 1.06))
-        tail.closeSubpath()
-        return p.union(tail)
+        p.addLines(between: [a, b, CGPoint(x: b.x + far.x, y: b.y + far.y), CGPoint(x: a.x + far.x, y: a.y + far.y)])
+        p.closeSubpath()
+        return shape.intersection(p)
     }
-    let lc = CGPath(ellipseIn: CGRect(x: 0.5 - dx - r, y: cy - r, width: 2 * r, height: 2 * r), transform: nil)
-    let rc = CGPath(ellipseIn: CGRect(x: 0.5 + dx - r, y: cy - r, width: 2 * r, height: 2 * r), transform: nil)
-    // A hair of space around the shared lens, so the two read as separate voices.
-    let core = lc.intersection(rc)
-    let lens = core.copy(strokingWithWidth: gap, lineCap: .round, lineJoin: .round, miterLimit: 1).union(core)
-    return (bubble(0.5 - dx, -1).subtracting(lens), bubble(0.5 + dx, 1).subtracting(lens))
+    func circle(_ x: Double, _ y: Double) -> CGRect { CGRect(x: x * u - eye, y: y * u - eye, width: 2 * eye, height: 2 * eye) }
+    return (half(-1), half(1), circle(405, 468), circle(634, 498))
+}
+
+let bone = (0.949, 0.937, 0.910) // #F2EFE8
+let clay = (0.851, 0.471, 0.341) // #D97857
+let ink = (0.067, 0.067, 0.075) // #111113
+let cs = CGColorSpace(name: CGColorSpace.sRGB)!
+func color(_ c: (Double, Double, Double)) -> CGColor { CGColor(srgbRed: c.0, green: c.1, blue: c.2, alpha: 1) }
+
+func render(_ size: Int) -> CGImage {
+    let s = CGFloat(size)
+    // Opaque (App Store icons have no alpha); full bleed (iOS rounds the corners).
+    let ctx = CGContext(data: nil, width: size, height: size, bitsPerComponent: 8, bytesPerRow: 0, space: cs, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)!
+    ctx.translateBy(x: 0, y: s); ctx.scaleBy(x: 1, y: -1) // y down, like the unit path
+    ctx.setFillColor(color(bone)); ctx.fill(CGRect(x: 0, y: 0, width: s, height: s))
+    var t = CGAffineTransform(scaleX: s, y: s)
+    let p = pebble()
+    ctx.setFillColor(color(clay)); ctx.addPath(p.left.copy(using: &t)!); ctx.fillPath()
+    ctx.setFillColor(color(ink)); ctx.addPath(p.right.copy(using: &t)!); ctx.fillPath()
+    ctx.setFillColor(color(ink)); ctx.fillEllipse(in: p.leftEye.applying(t))
+    ctx.setFillColor(color(bone)); ctx.fillEllipse(in: p.rightEye.applying(t))
+    return ctx.makeImage()!
+}
+
+func write(_ img: CGImage, _ out: String) {
+    let dest = CGImageDestinationCreateWithURL(URL(fileURLWithPath: out) as CFURL, UTType.png.identifier as CFString, 1, nil)!
+    CGImageDestinationAddImage(dest, img, nil)
+    CGImageDestinationFinalize(dest)
+    print("wrote \(out) \(img.width)x\(img.height)")
 }
 
 let args = CommandLine.arguments
-let out = args.count > 1 ? args[1] : "icon-1024.png"
-let size = args.count > 2 ? Int(args[2])! : 1024
-let s = CGFloat(size)
-let cs = CGColorSpace(name: CGColorSpace.sRGB)!
-// Opaque (App Store icons have no alpha); full bleed (iOS rounds the corners).
-let ctx = CGContext(data: nil, width: size, height: size, bitsPerComponent: 8, bytesPerRow: 0, space: cs, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)!
-ctx.translateBy(x: 0, y: s); ctx.scaleBy(x: 1, y: -1) // y down, like the unit path
-
-func gradient(_ a: (Double, Double, Double), _ b: (Double, Double, Double)) -> CGGradient {
-    CGGradient(colorsSpace: cs, colors: [CGColor(srgbRed: a.0, green: a.1, blue: a.2, alpha: 1), CGColor(srgbRed: b.0, green: b.1, blue: b.2, alpha: 1)] as CFArray, locations: [0, 1])!
+if args.count > 2, args[1] == "--sizes" {
+    // The 1024 icon downsampled (as iOS does) to 180, 60 and 29 px, squircle-masked, on a dark and a light strip.
+    let icon = render(1024), sizes: [CGFloat] = [180, 60, 29], pad: CGFloat = 24
+    let w = sizes.reduce(pad) { $0 + $1 + pad }, h = (180 + 2 * pad) * 2
+    let ctx = CGContext(data: nil, width: Int(w), height: Int(h), bitsPerComponent: 8, bytesPerRow: 0, space: cs, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)!
+    ctx.interpolationQuality = .high
+    for (row, bg) in [(0, (0.039, 0.039, 0.039)), (1, (0.96, 0.96, 0.97))] {
+        let y0 = CGFloat(row) * (180 + 2 * pad)
+        ctx.setFillColor(color(bg)); ctx.fill(CGRect(x: 0, y: y0, width: w, height: 180 + 2 * pad))
+        var x = pad
+        for s in sizes {
+            let r = CGRect(x: x, y: y0 + pad + (180 - s) / 2, width: s, height: s)
+            ctx.saveGState()
+            ctx.addPath(CGPath(roundedRect: r, cornerWidth: s * 0.225, cornerHeight: s * 0.225, transform: nil)); ctx.clip()
+            ctx.draw(icon, in: r)
+            ctx.restoreGState()
+            x += s + pad
+        }
+    }
+    write(ctx.makeImage()!, args[2])
+} else {
+    write(render(args.count > 2 ? Int(args[2])! : 1024), args.count > 1 ? args[1] : "icon-1024.png")
 }
-
-// Ground: the app's near-black, with the faintest lift toward the top.
-ctx.drawLinearGradient(gradient((0.105, 0.100, 0.098), (0.043, 0.041, 0.040)), start: .zero, end: CGPoint(x: 0, y: s), options: [])
-
-// The two voices, each gently lit from above.
-var t = CGAffineTransform(scaleX: s, y: s)
-let (left, right) = atteoMark()
-for (path, g) in [(left, gradient((0.97, 0.96, 0.94), (0.86, 0.85, 0.83))), (right, gradient((0.91, 0.53, 0.39), (0.80, 0.42, 0.30)))] {
-    ctx.saveGState()
-    ctx.addPath(path.copy(using: &t)!); ctx.clip()
-    ctx.drawLinearGradient(g, start: CGPoint(x: 0, y: s * 0.2), end: CGPoint(x: 0, y: s * 0.8), options: [])
-    ctx.restoreGState()
-}
-
-let dest = CGImageDestinationCreateWithURL(URL(fileURLWithPath: out) as CFURL, UTType.png.identifier as CFString, 1, nil)!
-CGImageDestinationAddImage(dest, ctx.makeImage()!, nil)
-CGImageDestinationFinalize(dest)
-print("wrote \(out) \(size)x\(size)")

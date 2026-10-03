@@ -52,42 +52,53 @@ enum Typo {
     static let section = Font.footnote.weight(.semibold) // section headers
 }
 
-/// Atteo's mark: two speech bubbles facing each other, the space where they overlap cut away. Two voices,
-/// one conversation; the gap between them is the "o". Same geometry as the app icon (ios/qa/design/icon.swift).
+/// Atteo's mark, "the Pebble": one soft pebble split by a slightly slanted seam. The clay half is you, the other
+/// half your agent; two round eyes meet across the seam. Same geometry as the app icon (ios/qa/design/icon.swift).
+/// The icon draws the agent half in ink on bone; on the app's near-black the defaults flip it to bone, eyes in ink.
 struct AtteoMark: View {
     var size: CGFloat = 64
-    var left: Color = Theme.text
-    var right: Color = Theme.accent
+    var you: Color = Theme.accent // clay, #D97857
+    var agent: Color = AtteoMark.bone
+    var youEye: Color = AtteoMark.ink
+    var agentEye: Color = AtteoMark.ink
+    static let bone = Color(red: 0.949, green: 0.937, blue: 0.910) // #F2EFE8
+    static let ink = Color(red: 0.067, green: 0.067, blue: 0.075) // #111113
+
     var body: some View {
-        let (l, r) = Self.paths()
+        let p = Self.paths()
         let t = CGAffineTransform(scaleX: size, y: size)
         ZStack(alignment: .topLeading) {
-            Path(l).applying(t).fill(left)
-            Path(r).applying(t).fill(right)
+            Path(p.left).applying(t).fill(you)
+            Path(p.right).applying(t).fill(agent)
+            Path(ellipseIn: p.leftEye).applying(t).fill(youEye)
+            Path(ellipseIn: p.rightEye).applying(t).fill(agentEye)
         }
         .frame(width: size, height: size)
         .accessibilityHidden(true)
     }
 
-    /// The two halves in a unit square (y down).
-    static func paths() -> (CGPath, CGPath) {
-        let r = 0.205, dx = 0.112, cy = 0.475, gap = 0.034
-        func bubble(_ cx: Double, _ side: Double) -> CGPath {
+    /// The Pebble in a unit square (y down): the two halves and the two eyes. Keep in step with icon.swift's pebble().
+    static func paths() -> (left: CGPath, right: CGPath, leftEye: CGRect, rightEye: CGRect) {
+        let u = 1.0 / 1024
+        let body = CGRect(x: 189 * u, y: 229 * u, width: 647 * u, height: 566 * u)
+        let corner = 283 * u, gap = 36 * u, eye = 54 * u
+        let shape = CGPath(roundedRect: body, cornerWidth: corner, cornerHeight: corner, transform: nil)
+        // The seam: from (549, 229) at the top to (498, 795) at the bottom, leaning left going down.
+        let top = CGPoint(x: 549 * u, y: body.minY), bottom = CGPoint(x: 498 * u, y: body.maxY)
+        let dx = bottom.x - top.x, dy = bottom.y - top.y, len = (dx * dx + dy * dy).squareRoot()
+        let n = CGPoint(x: dy / len, y: -dx / len) // unit normal, pointing right
+        func half(_ side: Double) -> CGPath {
+            let o = CGPoint(x: n.x * side * gap / 2, y: n.y * side * gap / 2)
+            let far = CGPoint(x: n.x * side * 4, y: n.y * side * 4)
+            let ext = CGPoint(x: dx / len * 4, y: dy / len * 4)
+            let a = CGPoint(x: top.x + o.x - ext.x, y: top.y + o.y - ext.y), b = CGPoint(x: bottom.x + o.x + ext.x, y: bottom.y + o.y + ext.y)
             let p = CGMutablePath()
-            p.addEllipse(in: CGRect(x: cx - r, y: cy - r, width: 2 * r, height: 2 * r))
-            let a1 = (side < 0 ? 180.0 - 48 : 48.0) * .pi / 180, a2 = (side < 0 ? 180.0 - 84 : 84.0) * .pi / 180
-            let tail = CGMutablePath()
-            tail.move(to: CGPoint(x: cx + r * cos(a1), y: cy + r * sin(a1)))
-            tail.addQuadCurve(to: CGPoint(x: cx + side * r * 0.86, y: cy + r * 1.13), control: CGPoint(x: cx + side * r * 0.82, y: cy + r * 0.98))
-            tail.addQuadCurve(to: CGPoint(x: cx + r * cos(a2), y: cy + r * sin(a2)), control: CGPoint(x: cx + side * r * 0.52, y: cy + r * 1.06))
-            tail.closeSubpath()
-            return p.union(tail)
+            p.addLines(between: [a, b, CGPoint(x: b.x + far.x, y: b.y + far.y), CGPoint(x: a.x + far.x, y: a.y + far.y)])
+            p.closeSubpath()
+            return shape.intersection(p)
         }
-        let lc = CGPath(ellipseIn: CGRect(x: 0.5 - dx - r, y: cy - r, width: 2 * r, height: 2 * r), transform: nil)
-        let rc = CGPath(ellipseIn: CGRect(x: 0.5 + dx - r, y: cy - r, width: 2 * r, height: 2 * r), transform: nil)
-        let lensCore = lc.intersection(rc)
-        let lens = lensCore.copy(strokingWithWidth: gap, lineCap: .round, lineJoin: .round, miterLimit: 1).union(lensCore)
-        return (bubble(0.5 - dx, -1).subtracting(lens), bubble(0.5 + dx, 1).subtracting(lens))
+        func circle(_ x: Double, _ y: Double) -> CGRect { CGRect(x: x * u - eye, y: y * u - eye, width: 2 * eye, height: 2 * eye) }
+        return (half(-1), half(1), circle(405, 468), circle(634, 498))
     }
 }
 
