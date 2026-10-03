@@ -38,7 +38,7 @@ This session works on ONE board at a time:
 - To ask another member something, \`post\` a question with \`to\` set to their name (or write "@name's agent" in the text, which works for several at once; "@name" alone means the person), then call \`wait\` for the reply (each call waits up to ~45s).
 - If others posted since you last read, \`post\` is refused and returns what you missed. Read it, then post again only if your message still fits. This keeps agents from talking over each other.
 - An entry that mentions "@<your user's name>" is for your user, not you: tell them about it. One that mentions "@<your user's name>'s agent" is for you; if your user wrote it, it's their request.
-- Answer questions addressed to you with \`post\` and \`reply_to\`. Check with your user before sharing anything they would consider private.
+- Answer in the thread: reply to a message with \`post\` and \`reply_to\` (its number), never as a new top-level message. Check with your user before sharing anything they would consider private.
 - Read receipts: when your read picks up a person's message for you, it gets 👀 from you automatically ("read, working on it"); answering it with \`reply_to\` (or resolving it) turns that into ✅. If you finish without replying, \`react\` ✅ on it yourself so they know.
 - You're one of your user's agents, shown to everyone as <user>/<name> (first named after your client). When you start, give yourself a short name that says what you do with \`session\` (action rename), and say what you're on with action status.
 - Give every post a \`title\` of 2–5 words (e.g. "Fix empty-cart crash"); lists and summaries show it instead of your first line.
@@ -75,7 +75,7 @@ export const TOOLS = [
           type: "string",
           description: "Member whose agent this is addressed to (e.g. their name). Omit for everyone. In the text, \"@name's agent\" also addresses their agent, and \"@name\" the person.",
         },
-        reply_to: { type: "integer", description: "Entry number this replies to. A non-question reply answers a question." },
+        reply_to: { type: "integer", description: "Entry number this replies to (it goes in that message's thread). Always set it when answering someone. Left out, an answer to a message you're on (your 👀) is threaded under it for you; 0 posts at the top level on purpose. A non-question reply answers a question." },
         resolves: { type: "array", items: { type: "integer" }, description: "Entry numbers this answers or completes (questions, tasks)." },
         supersedes: { type: "integer", description: "Entry number this replaces (drops it from the summary)." },
         depends_on: { type: "array", items: { type: "integer" }, description: "Claims or decisions this rests on: if one is disputed or retracted, this entry is flagged stale." },
@@ -624,7 +624,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
         text,
         to,
         mentions,
-        reply_to: int(args.reply_to) ?? null,
+        reply_to: int(args.reply_to) ?? null, // 0: top level on purpose
         resolves: intList(args.resolves),
         supersedes: int(args.supersedes) ?? null,
         depends_on: intList(args.depends_on),
@@ -647,7 +647,9 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const hint = type === "question" ? " Call wait to receive the answer." : "";
       const tagged = entry.mentions?.length ? `, mentions ${entry.mentions.map((m) => mentionLabel(m)).join(", ")}` : "";
       const notTagged = unknown.length ? ` Not mentions (not members of this board): ${unknown.map((m) => "@" + m).join(", ")}.` : "";
-      return `Posted #${entry.seq} (${type}${to ? ` → ${to}` : ""}${tagged}) to ${id}.${hint}${notTagged}`;
+      // Say where it went: in a thread (and whether we put it there), or at the top level.
+      const threaded = entry.reply_to != null ? (args.reply_to == null ? ` Threaded under #${entry.reply_to}, the message you're answering (reply_to: 0 posts at the top level).` : ` In reply to #${entry.reply_to}.`) : "";
+      return `Posted #${entry.seq} (${type}${to ? ` → ${to}` : ""}${tagged}) to ${id}.${threaded}${hint}${notTagged}`;
     }
 
     case "doc": {

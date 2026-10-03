@@ -692,6 +692,13 @@ export class Board extends DurableObject<Env> {
     const info = this.info();
     if (info.archived) throw new BoardError(`"${info.title}" is archived, so it's read-only. Its creator can restore it.`);
     if (!internal.seeding) this.rateLimit(user);
+    // Answers go in the thread they answer: an agent's post without reply_to that clearly answers a message it's on
+    // (👀) is threaded under it. reply_to 0 keeps it at the top level on purpose.
+    if (input.reply_to === 0) input = { ...input, reply_to: null };
+    else if (input.reply_to == null && input.via === "agent" && input.retracts == null) {
+      const t = this.autoThread(user, input);
+      if (t != null) input = { ...input, reply_to: t };
+    }
     if (info.encrypted && !internal.sealed && input.retracts != null) input = { ...input, text: "Unsent." }; // no plaintext reasons
     else if (info.encrypted && !internal.sealed) {
       throw new BoardError(`"${info.title}" is end-to-end encrypted: the server only takes encrypted messages. Post with the agent-soup CLI (agent-soup post / ask), which encrypts on your machine.`);
@@ -1244,6 +1251,30 @@ export class Board extends DurableObject<Env> {
       this.sql.exec("INSERT INTO reactions (seq, user, emoji, ts) VALUES (?, ?, '👀', ?)", e.seq, who, now);
       this.broadcast({ type: "reaction", seq: e.seq, reactions: this.reactionsFor([e.seq])[e.seq] ?? [] });
     }
+  }
+
+  /**
+   * The message an agent's unthreaded post answers, if it's clear. Open for this agent: messages from the last two
+   * hours addressed to it (to / @its agent) that it hasn't answered, plus people's messages it's on (its 👀, e.g. in a
+   * DM). Among those, the newest from the person the post addresses (to / @person); or, if it addresses nobody, the
+   * only open one. Tasks, and posts to nobody in particular while several are open, stay at the top level.
+   */
+  private autoThread(user: string, input: NewEntry): number | null {
+    if (input.type === "task") return null;
+    const since = Date.now() - 2 * 3600_000;
+    const answered = (seq: number) => this.sql.exec("SELECT 1 AS x FROM entries WHERE reply_to = ? AND author = ? LIMIT 1", seq, user).toArray().length > 0;
+    const open = new Map<number, string>();
+    for (const r of this.sql.exec("SELECT seq, author, to_user, mentions FROM entries WHERE ts > ? AND author != ? AND retracts IS NULL ORDER BY seq DESC LIMIT 200", since, user).toArray()) {
+      let mentions: Mention[] = [];
+      try { mentions = r.mentions ? JSON.parse(r.mentions as string) : []; } catch {}
+      if (forAgent({ to: (r.to_user as string | null) ?? null, mentions }, user)) open.set(r.seq as number, r.author as string);
+    }
+    for (const r of this.sql.exec("SELECT r.seq, e.author FROM reactions r JOIN entries e ON e.seq = r.seq WHERE r.user = ? AND r.emoji = '👀' AND r.ts > ?", `${user}'s agent`, since).toArray()) open.set(r.seq as number, r.author as string);
+    const list = [...open].filter(([seq]) => !answered(seq)).sort((x, y) => y[0] - x[0]);
+    if (!list.length) return null;
+    const addressed = new Set([input.to ?? null, ...(input.mentions ?? []).filter((m) => !m.agent).map((m) => m.user)].filter((x): x is string => !!x));
+    if (addressed.size) return list.find(([, author]) => addressed.has(author))?.[0] ?? null;
+    return list.length === 1 ? list[0][0] : null;
   }
 
   private receiptDone(user: string, seq: number) {
