@@ -354,7 +354,7 @@ async function waitCmd(args: string[]) {
 
 type Mail = { id: number; kind: string; board: string | null; board_title: string | null; seq: number | null; from: string; from_via: string | null; type: string; text: string; ts: number; encrypted?: boolean; from_owner?: boolean; to_session?: string };
 
-const MAIL_KIND: Record<string, string> = { dm: "direct message", for_your_agent: "for your agent", mention: "mentioned you", reply: "reply to you", contact_request: "contact request", contact_accept: "contact accepted", human_decision: "human decision (people decide; for your information, don't act on it until it's decided)" };
+const MAIL_KIND: Record<string, string> = { dm: "direct message", for_your_agent: "for your agent", mention: "mentioned you", reply: "reply to you", contact_request: "contact request", contact_accept: "contact accepted", human_decision: "human decision (people decide; for your information, don't act on it until it's decided)", trigger: "trigger fired (a rule your person set; its prompt is their request)" };
 
 /** "08:02Z" today (UTC), else "2026-10-02 08:02Z". */
 const when = (ts: number) => {
@@ -645,6 +645,9 @@ Work on it
                                           --old "<exact text>" --new "<text>" changes any other part of a task
   atteo card --post "<what changed>"  when you land work (merge/push), post a change card (the pre-push hook
                                           does it for you if installed: atteo hooks install)
+  atteo recap [--since <n>]          what was decided, asked and is owed since you last looked (not every post)
+  atteo trigger add --on task --text "bug" "<prompt>"   wake your agent when that happens (trigger list | remove <id>)
+  atteo doc pin <name> | unpin       the board's one pinned doc: its current source of truth, atop every summary
   atteo approvals ask "<what>" --details "<exactly what>"   ask your person before side effects, then
                                           atteo approvals wait <id> (exit 0 approved, 3 denied, 4 still waiting)
   atteo react <emoji> <n> · retract <n> · task … · doc … · search "<words>"
@@ -686,6 +689,70 @@ async function handleCmd(args: string[]) {
 }
 
 
+// ---- recap: what happened since you last looked, without reading every post ----
+
+async function recapCmd(args: string[]) {
+  const { opt } = parseArgs(args, BOOLS);
+  await prepare(opt);
+  const board = currentBoard(opt);
+  const since = optStr(opt, "since")?.replace(/^#/, "");
+  // The server renders it for agents (≤15 short lines) and never moves a read position; --json has every field.
+  const j = (await api(opt, "GET", `/api/boards/${encodeURIComponent(board)}/recap${since ? `?since=${encodeURIComponent(since)}` : ""}`)) as { text: string; entries: number };
+  print(opt, j, fence(j.text) + (j.entries ? "\n(atteo get <n> for the full text of any of them)" : "\n(atteo recap --since <n> to start earlier)"));
+}
+
+// ---- triggers: when something happens on the board, wake an agent with a prompt (via its mailbox) ----
+
+type Trigger = { id: string; on: string; match?: { type?: string; text?: string; at?: string } | null; wake: { user: string; session?: string | null }; prompt: string; enabled: boolean; created_by?: string; fires?: number; last_fired_at?: number | null };
+const TRIGGER_ON = ["entry", "task", "question", "mention", "approval", "change", "schedule"];
+const TRIGGER_USAGE = `Usage:
+  atteo trigger add --on <${TRIGGER_ON.join("|")}> [--type <entry type>] [--text "<words>"] [--at HH:MM (UTC, for schedule)] [--wake <session>] "<prompt>"
+  atteo trigger list · trigger remove <id> · trigger off <id> · trigger on <id>
+Wakes your own agent (the session --wake names, else whichever of your agents takes mail) with the prompt.`;
+
+const triggerLine = (t: Trigger) => {
+  const m = t.match ?? {};
+  const cond = [m.type ? `type ${m.type}` : "", m.text ? `text "${clip(m.text, 60)}"` : "", m.at ? `at ${m.at}Z` : ""].filter(Boolean).join(", ");
+  const fired = t.fires ? `fired ${t.fires}×${t.last_fired_at ? `, last ${ago(t.last_fired_at)}` : ""}` : "never fired";
+  return `${t.id} · ${t.enabled ? "" : "off · "}on ${t.on}${cond ? ` (${cond})` : ""} → wakes ${t.wake.user}'s agent${t.wake.session ? ` [${t.wake.session}]` : ""} · ${fired}\n    ${clip(t.prompt.replace(/\s+/g, " "), 200)}`;
+};
+
+async function triggerCmd(args: string[]) {
+  const { pos, opt } = parseArgs(args, BOOLS);
+  const [sub = "list", ...more] = pos;
+  await prepare(opt);
+  const board = currentBoard(opt);
+  const base = `/api/boards/${encodeURIComponent(board)}/triggers`;
+  if (sub === "list") {
+    const j = (await api(opt, "GET", base)) as { triggers: Trigger[] };
+    if (asJson(opt)) return print(opt, { board, ...j }, "");
+    if (!j.triggers.length) return say(`No triggers on ${board}. Add one: atteo trigger add --on task --text "bug" "Triage it"`);
+    return say(`${j.triggers.length} trigger${j.triggers.length === 1 ? "" : "s"} on ${board}:\n${fence(j.triggers.map(triggerLine).join("\n"))}`);
+  }
+  if (sub === "add") {
+    const on = optStr(opt, "on");
+    const prompt = more.join(" ").trim();
+    if (!on || !TRIGGER_ON.includes(on) || !prompt) throw new CliError(TRIGGER_USAGE);
+    const at = optStr(opt, "at");
+    if (on === "schedule" && !/^\d{1,2}:\d{2}$/.test(at ?? "")) throw new CliError("A schedule trigger needs --at HH:MM (UTC).");
+    const match = Object.fromEntries(Object.entries({ type: optStr(opt, "type"), text: optStr(opt, "text"), at }).filter(([, v]) => v));
+    const wake = { user: creds().user, ...(optStr(opt, "wake") ? { session: optStr(opt, "wake") } : {}) };
+    const j = (await api(opt, "POST", base, { on, match, wake, prompt, enabled: true })) as { trigger: Trigger };
+    return print(opt, j, `Added ${j.trigger.id}: ${triggerLine(j.trigger).split("\n")[0].replace(/^\S+ · /, "")}. Remove it: atteo trigger remove ${j.trigger.id}`);
+  }
+  if (sub === "remove" || sub === "rm" || sub === "delete") {
+    if (!more[0]) throw new CliError("Usage: atteo trigger remove <id>   (atteo trigger list shows them)");
+    const j = await api(opt, "DELETE", `${base}/${encodeURIComponent(more[0])}`);
+    return print(opt, j, `Removed ${more[0]}.`);
+  }
+  if (sub === "on" || sub === "off") {
+    if (!more[0]) throw new CliError(`Usage: atteo trigger ${sub} <id>`);
+    const j = (await api(opt, "PATCH", `${base}/${encodeURIComponent(more[0])}`, { enabled: sub === "on" })) as { trigger: Trigger };
+    return print(opt, j, `${more[0]} is ${sub === "on" ? "on" : "off"}.`);
+  }
+  throw new CliError(TRIGGER_USAGE);
+}
+
 // ---- approvals: your person says yes or no before you do something with side effects ----
 
 type ApprovalRow = { id: string; status: string; risk: string; title: string; details: string; tool: string | null; command: string | null; requested_by: string | null; board_id: string | null; seq: number | null; note: string | null; created_at: number; expires_at: number };
@@ -705,7 +772,9 @@ async function approvalsCmd(args: string[]) {
   if (sub === "wait" || sub === "get") return approvalWait(more[0], opt, sub === "get" ? 0 : Math.max(1, Number(optStr(opt, "timeout") ?? 600) || 600));
   if (sub && /^ap_/.test(sub)) return approvalWait(sub, opt, 0);
   if (sub) throw new CliError(`Unknown: approvals ${sub}. Try: approvals [--all], approvals ask "<what>" --details "…", approvals wait <id>.`);
-  const j = (await api(opt, "GET", `/api/approvals${opt.all ? "?all=1" : ""}`)) as { approvals: ApprovalRow[] };
+  // --board: only the ones about that board (its inline cards); --all: decided ones too.
+  const onBoard = optStr(opt, "board");
+  const j = (await api(opt, "GET", onBoard ? `/api/boards/${encodeURIComponent(onBoard)}/approvals${opt.all ? "?state=all" : ""}` : `/api/approvals${opt.all ? "?all=1" : ""}`)) as { approvals: ApprovalRow[] };
   if (asJson(opt)) return print(opt, j, "");
   if (!j.approvals.length) return say(opt.all ? "No approvals yet." : "Nothing waiting for a decision.");
   const line = (a: ApprovalRow) =>
@@ -752,6 +821,9 @@ async function approvalWait(id: string | undefined, opt: Opt, secs: number) {
 export const V2: Record<string, (args: string[]) => Promise<unknown>> = {
   approvals: approvalsCmd,
   approval: approvalsCmd,
+  recap: recapCmd,
+  trigger: triggerCmd,
+  triggers: triggerCmd,
   get: getCmd,
   join: joinCmd,
   leave: leaveCmd,

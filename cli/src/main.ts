@@ -744,13 +744,15 @@ async function dispatch(args: string[]) {
   async function startFork(m: Mail) {
     runs.push(Date.now());
     if (m.encrypted) m.text = (await decryptEntry(o, m.board!, m.seq!).catch(() => null)) ?? m.text; // decrypted on this machine
+    // A trigger names the entry that fired it: the fork gets its full text (fenced in the prompt).
+    if (m.kind === "trigger" && m.board && m.event?.seq != null) m.entry_text = (await api(o, "GET", `/api/boards/${m.board}/entries/${m.event.seq}`).then((j) => j.entry?.text as string | undefined).catch(() => undefined)) ?? undefined;
     const choice = harnessNow();
     const agentName = nameOf(choice);
     const s = (await api(o, "POST", "/api/sessions", { suggest: forkName(m), client: `${agentName} (dispatched)`, kind: "fork" })).session as { id: string; name: string };
     // A DM reaches every session without joining; for other boards the fork starts on the board it's answering.
     await api(o, "POST", `/api/sessions/${s.id}/boards`, { board: m.board }).catch(() => {});
     // Who and what, never the message itself (the status is shown to everyone on the board).
-    await api(o, "POST", `/api/sessions/${s.id}`, { status: `Handling ${m.type} #${m.seq} from ${who(m)}` }).catch(() => {});
+    await api(o, "POST", `/api/sessions/${s.id}`, { status: m.kind === "trigger" ? `Trigger ${m.trigger?.id ?? ""}${m.seq ? ` on #${m.seq}` : ""}` : `Handling ${m.type} #${m.seq} from ${who(m)}` }).catch(() => {});
     record.ids.push(m.id);
     record.entries.push(entryKey(m));
     saveDispatched(record);

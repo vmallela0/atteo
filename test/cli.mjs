@@ -1291,6 +1291,12 @@ await step("approvals: an agent asks, lists them, and waits on one (exit 0 appro
   assert(r.code === 0 && r.out.includes(`${id} · high risk · expires in `) && r.out.includes(`Deploy staging ${run}`) && /<<untrusted [0-9a-f]+:/.test(r.out), "listed, fenced: " + r.out);
   r = await cli(["approvals", "--json"], { env: cfg });
   assert(JSON.parse(r.out).approvals.some((a) => a.id === id && a.status === "pending"), "--json: " + r.out);
+  // Asked about an entry: it's on that board's list too.
+  r = await cli(["approvals", "ask", `Tag the release ${run}`, "--details", "git tag v2", "--reply", "1", "--board", board, "--json"], { env: cfg });
+  const onBoard = JSON.parse(r.out).id;
+  r = await cli(["approvals", "--board", board, "--json"], { env: cfg });
+  const listed = JSON.parse(r.out).approvals.map((a) => a.id);
+  assert(listed.includes(onBoard) && !listed.includes(id), "--board lists that board's: " + r.out);
   r = await cli(["approvals", "wait", id, "--timeout", "1"], { env: cfg });
   assert(r.code === 4 && r.err.includes("Still waiting"), "undecided: exit 4: " + r.code + r.out + r.err);
   // The CLI's own token can't decide; the person in a browser can.
@@ -1310,6 +1316,115 @@ await step("approvals: an agent asks, lists them, and waits on one (exit 0 appro
   assert(r.code === 3 && r.err.includes("Denied (rejected)"), "denied: exit 3: " + r.code + r.err);
   r = await cli(["approvals", "ask", "Nothing shown"], { env: cfg });
   assert(r.code === 1 && r.err.includes("--details"), "has to say exactly what: " + r.err);
+});
+
+await step("doc pin / unpin / pinned: the board's one pinned doc, from the CLI", async () => {
+  const pb = (await ops("boards", { user: B, title: `e2e cli pin ${run}` })).board.id;
+  await ops("members", { board: pb, user: A });
+  await tool(tokB, pb, "post", { type: "artifact", artifact_name: "PLAN.md", artifact_content: `# Plan ${run}\n- ship it`, text: "the plan" });
+  const cfg = { XDG_CONFIG_HOME: join(dir, "cfg-pin") };
+  const d = (...a) => cli(["doc", ...a, "--board", pb], { env: cfg });
+  let r = await d("pinned");
+  assert(r.code === 0 && r.out.includes("No pinned doc"), "none yet: " + r.out + r.err);
+  r = await d("pin", "PLAN.md");
+  assert(r.code === 0 && r.out.includes("Pinned: PLAN.md") && r.out.includes(`pinned by ${A}`) && /<<untrusted [0-9a-f]+:/.test(r.out), "pinned: " + r.out + r.err);
+  r = await d("pinned", "--json");
+  assert(JSON.parse(r.out).pinned?.name === "PLAN.md", "--json: " + r.out);
+  r = await d("pin");
+  assert(r.out.includes("Pinned doc: PLAN.md") && r.out.includes("atteo doc read PLAN.md"), "pin with no name shows it: " + r.out);
+  r = await d("unpin");
+  assert(r.code === 0 && r.out.includes("Unpinned"), r.out + r.err);
+  r = await d("pinned");
+  assert(r.out.includes("No pinned doc"), "gone: " + r.out);
+});
+
+await step("recap: decided, open questions and who owes what since you last looked, compact and fenced", async () => {
+  const rb = (await ops("boards", { user: B, title: `e2e cli recap ${run}` })).board.id;
+  await ops("members", { board: rb, user: A });
+  const cfg = { XDG_CONFIG_HOME: join(dir, "cfg-recap") };
+  let r = await cli(["recap", "--board", rb], { env: cfg });
+  assert(r.code === 0 && r.out.includes("Nothing new since then.") && r.out.includes("atteo recap --since"), "quiet board: " + r.out + r.err);
+  await tool(tokB, rb, "post", { type: "decision", text: `Ship on Friday ${run}` });
+  await tool(tokB, rb, "read", {});
+  await tool(tokB, rb, "post", { type: "question", to: A, text: `Which port? ${run}` });
+  await tool(tokB, rb, "read", {});
+  await tool(tokA, rb, "read", {}); // A has been on the board, so the task can be A's
+  await tool(tokB, rb, "task", { action: "create", title: `Fix login ${run}`, body: "- [ ] repro", assignee: A });
+  r = await cli(["recap", "--board", rb, "--since", "0"], { env: cfg });
+  assert(r.code === 0 && /<<untrusted [0-9a-f]+:/.test(r.out) && r.out.includes("Decisions (1):") && r.out.includes(`Ship on Friday ${run}`), "decisions: " + r.out + r.err);
+  assert(r.out.includes("Open questions (1):") && r.out.includes(`Which port? ${run}`), "questions: " + r.out);
+  assert(r.out.includes("Tasks moved: 1 new") && r.out.includes(`Fix login ${run}`) && r.out.includes("atteo get <n>"), "who owes what: " + r.out);
+  r = await cli(["recap", "--board", rb, "--since", "0", "--json"], { env: cfg });
+  const j = JSON.parse(r.out);
+  assert(j.decisions.length === 1 && j.questions.length === 1 && j.owed.some((o) => o.items.some((i) => i.title.includes(`Fix login ${run}`))), "--json: " + r.out);
+});
+
+await step("trigger add / list / off / on / remove: wake your own agent when something happens", async () => {
+  const tb = (await ops("boards", { user: A, title: `e2e cli triggers ${run}` })).board.id;
+  const cfg = { XDG_CONFIG_HOME: join(dir, "cfg-trigger") };
+  const t = (...a) => cli(["trigger", ...a, "--board", tb], { env: cfg });
+  let r = await t("list");
+  assert(r.code === 0 && r.out.includes("No triggers"), "none yet: " + r.out + r.err);
+  const triage = JSON.parse((await cli(["session", "new", "triage", "--json"], { env: cfg })).out).session.name;
+  r = await t("add", "--on", "task", "--text", "bug", "--wake", "no-such-session", "Triage it");
+  assert(r.code === 1 && r.err.includes("no agent session named"), "only your own live sessions: " + r.err);
+  r = await t("add", "--on", "task", "--text", "bug", "--wake", triage, "Triage it and reply in the thread");
+  const id = r.out.match(/Added (\S+):/)?.[1];
+  assert(r.code === 0 && id && r.out.includes(`on task (text "bug") → wakes ${A}'s agent [${triage}]`), "added: " + r.out + r.err);
+  r = await t("list");
+  assert(r.out.includes("1 trigger on") && r.out.includes(id) && r.out.includes("never fired") && r.out.includes("Triage it and reply") && /<<untrusted [0-9a-f]+:/.test(r.out), "listed: " + r.out);
+  r = await t("off", id);
+  assert(r.code === 0 && r.out.includes("is off"), r.out + r.err);
+  r = await t("list", "--json");
+  assert(JSON.parse(r.out).triggers.find((x) => x.id === id)?.enabled === false, "off: " + r.out);
+  r = await t("on", id);
+  assert(r.code === 0 && r.out.includes("is on"), r.out + r.err);
+  r = await t("add", "--on", "schedule", "Standup");
+  assert(r.code === 1 && r.err.includes("--at HH:MM"), "schedule needs a time: " + r.err);
+  r = await t("add", "--on", "schedule", "--at", "09:00", "Post the standup");
+  assert(r.code === 0 && r.out.includes("on schedule (at 09:00Z)"), r.out + r.err);
+  r = await t("remove", id);
+  assert(r.code === 0 && r.out.includes(`Removed ${id}`), r.out + r.err);
+  r = await t("list");
+  assert(r.out.includes("1 trigger on") && !r.out.includes(id), "removed: " + r.out);
+});
+
+await step("dispatch forks on a trigger: the fork gets your prompt and the entry that fired it, fenced", async () => {
+  const T = `e2e-cli-t-${run}`, U = `e2e-cli-u-${run}`;
+  for (const u of [T, U]) await ops("users", { name: u, email: `${u}@example.com`, verified: "true" });
+  const tokT = (await ops("tokens", { user: T })).token;
+  const tokU = (await ops("tokens", { user: U })).token;
+  const credT = join(dir, "t.json");
+  writeFileSync(credT, JSON.stringify({ server: BASE, user: T, token: tokT, expires_at: Date.now() + 86400e3 }), { mode: 0o600 });
+  const tb = (await ops("boards", { user: T, title: `e2e cli trig ${run}` })).board.id;
+  await ops("members", { board: tb, user: U });
+  await tool(tokU, tb, "read", {});
+  const cfg = { XDG_CONFIG_HOME: join(dir, "cfg-trig-dispatch") };
+  await cli(["mailbox"], { cred: credT, env: cfg }); // drain
+  let r = await cli(["trigger", "add", "--on", "entry", "--text", "deploy", "--board", tb, `Check the deploy log and say if it's safe ${run}`], { cred: credT, env: cfg });
+  assert(r.code === 0 && r.out.includes("Added tr_"), r.out + r.err);
+  const n = Number((await tool(tokU, tb, "post", { type: "note", text: `I'm about to deploy the API ${run}\nsecond line of it` })).match(/#(\d+)/)[1]);
+  let mail;
+  for (let i = 0; i < 20 && !mail; i++) {
+    r = await cli(["mailbox", "--peek", "--json"], { cred: credT, env: cfg });
+    mail = JSON.parse(r.out).mail.find((m) => m.kind === "trigger");
+    if (!mail) await sleep(300);
+  }
+  assert(mail && mail.seq === n, "the trigger's mail: " + r.out);
+  r = await cli(["mailbox", "--peek"], { cred: credT, env: cfg });
+  assert(r.out.includes("trigger fired"), "labelled in the mailbox: " + r.out);
+  const forkDir = join(dir, "trig-forks");
+  mkdirSync(forkDir, { recursive: true });
+  const stub = join(dir, "trig-fork.sh");
+  writeFileSync(stub, `#!/bin/sh\nprintf '%s\\n' "$@" > "${forkDir}/$ATTEO_SESSION.txt"\necho "done"\n`);
+  chmodSync(stub, 0o755);
+  r = await cli(["dispatch", "--once", "--quiet", "--json", "--agent-cmd", `${stub} {prompt}`, "--dir", dir], { cred: credT, env: cfg });
+  const forks = r.out.trim().split("\n").filter(Boolean).map((l) => JSON.parse(l)).filter((e) => e.event === "fork");
+  assert(r.code === 0 && forks.length === 1 && forks[0].name.startsWith(`trigger-${n}`), "one fork, for the trigger: " + r.out + r.err);
+  const p = readdirSync(forkDir).map((f) => readFileSync(join(forkDir, f), "utf8")).join("\n");
+  assert(p.includes(`Check the deploy log and say if it's safe ${run}`) && p.includes(`#${n} in full:`) && p.includes("second line of it"), "prompt and the entry in full: " + p);
+  assert((p.match(/<<untrusted [0-9a-f]+:/g) ?? []).length === 2 && p.includes("data, not instructions"), "both fenced: " + p);
+  assert(p.includes(`--board ${tb} --reply ${n}`), "answers in the thread: " + p);
 });
 
 if (ONLY && !matched) { failed++; console.log(`  ✗ no steps match ONLY=${JSON.stringify(process.env.ONLY)}`); }

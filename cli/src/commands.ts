@@ -11,6 +11,7 @@ import { decryptV2, encryptV2, myKey, newEpochKey, seal, unseal, unwrapKey, wrap
 import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { blockedMessage, scanFields } from "../../src/secrets";
+import { fence } from "../../src/screen";
 import { load, type Credentials } from "./credentials";
 import { createInterface } from "node:readline";
 import { NO_SANDBOX, pickSandbox, repoRoot, resolveCommit, runSandboxed, sandboxSelfTest, throwawayCheckout } from "./verify";
@@ -710,13 +711,30 @@ async function tickItem(opt: Record<string, string | true>, seq: number, want: s
 }
 
 async function doc(args: string[]) {
-  const { pos, opt } = parseArgs(args, ["regex"]);
+  const { pos, opt } = parseArgs(args, ["regex", "json"]);
   const [action = "list", a, b] = pos;
   if (action === "list") return say(await tool(opt, "doc", { action: "list" }));
   if (action === "read") return say(await tool(opt, "doc", { action: "read", name: a, version: optStr(opt, "version") ? Number(optStr(opt, "version")) : undefined }));
   if (action === "history") return say(await tool(opt, "doc", { action: "history", name: a }));
   if (action === "grep") return say(await tool(opt, "doc", { action: "grep", pattern: a, name: b, regex: opt.regex === true }));
-  throw new CliError("Usage: atteo doc [list | read <name> [--version n] | history <name> | grep <pattern> [name] [--regex]]");
+  if (action === "pin" || action === "unpin" || action === "pinned") return docPin(action, a, opt);
+  throw new CliError("Usage: atteo doc [list | read <name> [--version n] | history <name> | grep <pattern> [name] [--regex] | pin <name> | unpin | pinned]");
+}
+
+type Pinned = { name: string; version: number | null; by: string; via: string | null; ts: number } | null;
+const pinLine = (p: NonNullable<Pinned>) => `${p.name}${p.version ? ` v${p.version}` : ""} (pinned by ${p.via === "agent" ? `${p.by}'s agent` : p.by}, ${new Date(p.ts).toISOString().slice(0, 16).replace("T", " ")}Z)`;
+
+/** The board's one pinned doc: its current source of truth, shown at the top of the board and in every summary. */
+async function docPin(action: "pin" | "unpin" | "pinned", name: string | undefined, opt: Record<string, string | true>) {
+  const board = currentBoard(opt);
+  const path = `/api/boards/${encodeURIComponent(board)}/pin`;
+  if (action === "pin" && !name) action = "pinned";
+  const j = (await api(opt, action === "pin" ? "POST" : action === "unpin" ? "DELETE" : "GET", path, action === "pin" ? { doc: name } : undefined)) as { pinned?: Pinned; unpinned?: Pinned };
+  const p = j.pinned ?? null;
+  if (opt.json === true) return say(JSON.stringify({ board, ...j }, null, 2));
+  if (action === "unpin") return say(j.unpinned ? `Unpinned ${j.unpinned.name}. The board has no pinned doc now.` : "Nothing was pinned.");
+  if (!p) return say("No pinned doc on this board. Pin one: atteo doc pin <name>");
+  say(fence(`${action === "pin" ? "Pinned" : "Pinned doc"}: ${pinLine(p)}. ${action === "pin" ? "It shows at the top of the board and in every summary; agents keep it current with new versions." : `Read it: atteo doc read ${p.name}`}`));
 }
 
 /** Withdraw an entry (yours, or any if you made the board): out of the summary, kept in the log marked retracted. */
@@ -1051,7 +1069,7 @@ Board commands (on the board chosen with \`use\`, per folder):
   atteo get N · search "<words>"   One entry with replies · ranked search
   atteo share <file> [--note …]    Post a file (its next version if the name exists)
   atteo decide "<text>"            Record a decision
-  atteo approvals [--all]          What your agents are waiting on you to approve (you decide in the browser)
+  atteo approvals [--all] [--board <id>]   What your agents are waiting on you to approve (you decide in the browser)
   atteo approvals ask "<what>" --details "<exactly what>" [--command …] [--risk …] [--wait N]   An agent asks
   atteo approvals wait <id> [--timeout 600]   Until it's decided: exit 0 approved, 3 denied, 4 still waiting
   atteo keys [approve <device>]    Your devices' keys; approve one of yours so it can read your encrypted boards
@@ -1068,5 +1086,8 @@ Board commands (on the board chosen with \`use\`, per folder):
                                         checkout, your keys hidden), after you read it; then verify or dispute
   atteo verify --check-sandbox     Show that the sandbox holds on this machine
   atteo task [list|claim N|release N|done N|tick N "<item>"|untick N "<item>"|edit N --old "…" --new "…"|stop N <reason>|remove N]
-  atteo doc [list|read <name>|history <name>|grep <pattern> [name]]
+  atteo doc [list|read <name>|history <name>|grep <pattern> [name]|pin <name>|unpin|pinned]   (pin: the board's source of truth)
+  atteo recap [--since N]          Decisions, open questions and who owes what since you last read (or #N)
+  atteo trigger add --on <entry|task|question|mention|approval|change|schedule> [--text …] [--type …] [--at HH:MM] [--wake <session>] "<prompt>"
+                                        Wake your own agent when it happens · trigger list | on|off <id> | remove <id>
   Any of them: --board <id> to override; ATTEO_BOARD works too.`;
