@@ -82,3 +82,26 @@ describe("encrypted board page", () => {
     expect(html).toContain('id="e2e-msg"');
   });
 });
+
+describe("pins (which devices this browser wraps keys to)", () => {
+  const pinsJs = new Function(`${pick("// A pin is a device id", "// ---- end pins")}\nreturn {pinUpdate,isPinned,pinId};`)();
+  const K = (c) => c.repeat(43) + "="; // a public key, base64
+  const st = (keys, missing = []) => ({ keys, missing });
+  it("hold the device id and its public key: you, and each person's first device seen", () => {
+    const pin = pinsJs.pinUpdate({}, "ann", { kid: "web1", pub: K("A") }, st([{ kid: "web1", user: "ann", public_key: K("A") }, { kid: "bob1", user: "bob", public_key: K("B") }, { kid: "bob2", user: "bob", public_key: K("C") }]));
+    expect(pin).toEqual({ ann: [`web1|${K("A")}`], bob: [`bob1|${K("B")}`] });
+    expect(pinsJs.isPinned(pin, { kid: "bob1", user: "bob", public_key: K("B") })).toBe(true);
+    expect(pinsJs.isPinned(pin, { kid: "bob2", user: "bob", public_key: K("C") })).toBe(false); // Bob's later device: only Bob's own devices
+  });
+  it("a pinned device id with a different public key is not trusted (the server can't swap keys under a trusted id)", () => {
+    const pin = { ann: [`web1|${K("A")}`], bob: [`bob1|${K("B")}`] };
+    const after = pinsJs.pinUpdate(structuredClone(pin), "ann", { kid: "web1", pub: K("A") }, st([{ kid: "bob1", user: "bob", public_key: K("Z") }]));
+    expect(after.bob).toEqual([`bob1|${K("B")}`]); // not re-pinned to the new key
+    expect(pinsJs.isPinned(after, { kid: "bob1", user: "bob", public_key: K("Z") })).toBe(false);
+  });
+  it("older pins (ids alone) are bound to the key the server shows the next time they're seen", () => {
+    const after = pinsJs.pinUpdate({ ann: ["web1"], bob: ["bob1", "gone9"] }, "ann", { kid: "web1", pub: K("A") }, st([{ kid: "web1", user: "ann", public_key: K("A") }], [{ kid: "bob1", user: "bob", public_key: K("B"), first_device: false }]));
+    expect(after).toEqual({ ann: [`web1|${K("A")}`], bob: [`bob1|${K("B")}`, "gone9"] });
+    expect(pinsJs.isPinned(after, { kid: "gone9", user: "bob", public_key: K("Q") })).toBe(false); // a bare id never matches a key
+  });
+});

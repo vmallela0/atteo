@@ -7,7 +7,7 @@
 // to pinned devices; a person's later devices get keys only from their own devices, so your own new device waits for
 // your explicit Approve. The 🔑 lines on the board say which devices can read it.
 //
-// Runs inside the board page's script (it uses BOARD, ME, READONLY, esc, toast, tick, thrSum and the composers).
+// Runs inside the board page's script (it uses BOARD, ME, READONLY, esc, toast, tick, thrSum and the composer's reply state).
 
 export const E2E_JS = `
 (()=>{
@@ -54,6 +54,17 @@ async function device(){if(DEV)return DEV;const id='device:'+ME;let d=await idbD
 const PIN_KEY='soup.e2e.pins.'+ME;
 function pins(){try{return JSON.parse(localStorage.getItem(PIN_KEY)||'{}')}catch(e){return {}}}
 function savePins(p){try{localStorage.setItem(PIN_KEY,JSON.stringify(p))}catch(e){}}
+// A pin is a device id AND its public key, so the server can't keep a trusted id and swap in a key of its own.
+const pinId=(kid,pub)=>kid+'|'+pub;
+/** The CLI's pinning: older bare-id pins get bound to the key the server shows; you, and each person's first device seen. */
+function pinUpdate(pin,me,dev,st){const seen=new Map([...st.keys,...st.missing].map(k=>[k.kid,k.public_key]));
+  for(const u of Object.keys(pin))pin[u]=pin[u].map(e=>e.includes('|')||!seen.has(e)?e:pinId(e,seen.get(e))); // older pins were ids alone
+  if(!(pin[me]||[]).includes(pinId(dev.kid,dev.pub)))(pin[me]=pin[me]||[]).push(pinId(dev.kid,dev.pub));
+  for(const k of st.keys)if(k.user!==me&&!pin[k.user])(pin[k.user]=pin[k.user]||[]).push(pinId(k.kid,k.public_key)); // first sight: trust on first use
+  for(const m of st.missing)if(m.user!==me&&m.first_device&&!(pin[m.user]||[]).length)(pin[m.user]=pin[m.user]||[]).push(pinId(m.kid,m.public_key));
+  return pin}
+const isPinned=(pin,k)=>(pin[k.user]||[]).includes(pinId(k.kid,k.public_key));
+// ---- end pins ----
 
 // ---- the board's epoch keys, the CLI's loop: open the next epoch when there's none or after a removal, hand keys to
 // trusted devices that lack them, list your own new devices for Approve ----
@@ -61,12 +72,9 @@ const KEYS=new Map(); // "epoch:wrapped" → {raw, aes}
 let ST=null;
 async function epochKeys(tries){tries=tries||0;const dev=await device();const st=await api('GET','/api/boards/'+BOARD+'/epochs');const keys=new Map();
   for(const g of st.mine)if(g.kid===dev.kid){const c=g.epoch+':'+g.wrapped;if(!KEYS.has(c))try{const raw=await unwrapMine(g,dev);KEYS.set(c,{raw,aes:await aesKey(raw)})}catch(e){continue}keys.set(g.epoch,KEYS.get(c))}
-  const pin=pins(),before=JSON.stringify(pin);
-  if(!(pin[ME]||[]).includes(dev.kid))(pin[ME]=pin[ME]||[]).push(dev.kid);
-  for(const k of st.keys)if(k.user!==ME&&!pin[k.user])(pin[k.user]=pin[k.user]||[]).push(k.kid); // first sight: trust on first use
-  for(const m of st.missing)if(m.user!==ME&&m.first_device&&!(pin[m.user]||[]).length)(pin[m.user]=pin[m.user]||[]).push(m.kid);
+  const before=JSON.stringify(pins()),pin=pinUpdate(pins(),ME,dev,st);
   if(JSON.stringify(pin)!==before)savePins(pin);
-  const trusted=k=>(pin[k.user]||[]).includes(k.kid);
+  const trusted=k=>isPinned(pin,k);
   let current=st.current;
   if(!READONLY&&(current===0||st.rotate_needed)){const raw=crypto.getRandomValues(new Uint8Array(32));const to=st.keys.filter(trusted);
     try{await api('POST','/api/boards/'+BOARD+'/epochs',{epoch:current+1,grants:await Promise.all(to.map(async k=>({kid:k.kid,...await wrapFor(raw,k.public_key)})))})}
@@ -88,7 +96,7 @@ function renderBar(){if(!ST)return;const {dev,keys,current}=ST,kid='<span class=
 
 // Your own new device: only you, here, by clicking Approve. It's pinned, then handed the epochs this browser holds.
 document.addEventListener('click',async e=>{const b=e.target.closest('[data-e2e-approve]');if(!b||!ST)return;const kid=b.dataset.e2eApprove,m=ST.untrusted.find(x=>x.kid===kid&&x.user===ME);if(!m)return;
-  b.disabled=true;const p=pins();if(!(p[ME]||[]).includes(kid))(p[ME]=p[ME]||[]).push(kid);savePins(p);
+  b.disabled=true;const p=pins(),id=pinId(m.kid,m.public_key);if(!(p[ME]||[]).includes(id))(p[ME]=p[ME]||[]).push(id);savePins(p);
   try{await epochKeys();toast('Approved: that device can read this board now')}catch(err){toast(err.message)}finally{b.disabled=false}});
 
 // ---- reading: every envelope on the page is opened here; what can't be opened says why ----
@@ -111,17 +119,17 @@ window.e2eSync=from=>{if(busy){queued=true;if(from!=null)qFrom=qFrom==null?from:
   catch(e){if(!ST)say('🔒 <b>End-to-end encrypted.</b> '+esc(e.message||String(e)))}
   finally{busy=null;if(queued){const f=qFrom;queued=false;qFrom=null;e2eSync(f)}}})();return busy};
 
-// ---- writing: the composer and thread replies encrypt here and post the envelope (refetching keys on 409) ----
+// ---- writing: the composer (new messages and replies) encrypts here and posts the envelope (refetching keys on 409) ----
 async function encPost(text,type,reply_to,tries){tries=tries||0;const st=await epochKeys();const k=st.keys.get(st.current);
   if(!k)throw new Error("This browser doesn't hold the board's key yet.");
   const c=await gcm(k.aes,te.encode(text));const m=text.match(/^@([a-z0-9][a-z0-9_.-]{0,31})/i),to=m&&MEMBERS.includes(m[1].toLowerCase())?m[1].toLowerCase():undefined; // addressed, like the CLI's --to
   try{return await api('POST','/api/boards/'+BOARD+'/sealed',{payload:JSON.stringify({v:2,epoch:st.current,iv:c.iv,ct:c.ct}),type,to,reply_to:reply_to||undefined})}
   catch(e){if(tries<2&&e.status===409)return encPost(text,type,reply_to,tries+1);throw e}} // a removal or a newer epoch since we looked
-window.addEventListener('submit',async e=>{const f=e.target;if(!f.matches||!f.matches('form.composer,#thr-form'))return;e.preventDefault();e.stopImmediatePropagation();
-  const thr=f.id==='thr-form',box=thr?thrText:document.getElementById('composer-text'),text=box.value.trim();if(!text)return;
-  const type=thr?'note':(f.querySelector('input[name=type]:checked')?.value||'note'),reply_to=thr?(thrTarget||thrRoot):(+document.getElementById('reply-to').value||null);
+window.addEventListener('submit',async e=>{const f=e.target;if(!f.matches||!f.matches('form.composer'))return;e.preventDefault();e.stopImmediatePropagation();
+  const text=ta.value.trim();if(!text)return;const type=f.querySelector('input[name=type]:checked')?.value||'note',was=+rpTo.value||null;
   const btn=f.querySelector('button:not([type=button])');if(btn)btn.disabled=true;
-  try{await encPost(text,type,reply_to);box.value='';if(thr){thrSync();thrTarget=thrRoot;document.getElementById('thr-to').textContent=''}else{replyClear();box.style.height='';msync();stickNext=true}await tick(false)}
+  // A reply goes to the composer's reply target and lands in that message's thread, as on a plain board.
+  try{await encPost(text,type,was);ta.value='';replyClear(true);if(was)replyShown(was);taFit();stickNext=!was;await tick(false)}
   catch(err){toast((err.message||"Couldn't send")+' Your message is still in the box.')}finally{if(btn)btn.disabled=false}},true);
 
 if(!window.isSecureContext||!S||!window.indexedDB){say("🔒 <b>End-to-end encrypted.</b> This page can't hold an encryption key here (it needs a secure connection). Read and write with the agent-soup CLI.");return}
