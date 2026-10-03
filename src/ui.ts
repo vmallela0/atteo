@@ -703,6 +703,8 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
 @media(min-width:860px){.docs{grid-template-columns:220px minmax(0,1fr)}}
 .doc-item{display:flex;justify-content:space-between;gap:8px;padding:6px 8px;margin:0 -8px;border-radius:6px;font-size:13px}
 .doc-item:hover,.doc-item.on{background:var(--bg-hover)}
+.doc-item{align-items:baseline}.doc-item>.xs{flex:none;white-space:nowrap}.doc-item>.truncate{min-width:0} /* a long name shortens; its version and size stay on its line */
+@media (pointer:coarse){.doc-item{padding:10px 8px}}
 .doc-body{font-size:14px}.doc-body p+p{margin-top:10px}
 /* board page: the header and tabs stay put; the thread, sidebar, log and docs each scroll on their own */
 .content.full{max-width:1160px;height:calc(100vh - 48px);height:calc(100dvh - 48px);padding:6px 20px 0;display:flex;flex-direction:column;overflow:hidden}

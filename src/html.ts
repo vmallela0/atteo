@@ -1069,6 +1069,8 @@ const READONLY=${info.archived || readOnly ? "true" : "false"};let curDoc=null,e
 async function loadDocs(){const r=await fetch('/api/boards/'+BOARD+'/files');const j=await r.json();const el=document.getElementById('doc-items');const fs=j.files||j.docs||[];
   const kb=n=>n<1024?n+' B':(n/1024).toFixed(1)+' KB';
   el.innerHTML=fs.length?fs.map(d=>'<a href="#files" class="doc-item'+(curDoc&&curDoc.name===d.name?' on':'')+'" data-doc="'+esc(d.name)+'" title="'+esc(d.name+' · v'+d.version+(d.updated_by?' · '+(d.via==='agent'?d.updated_by+"'s agent":d.updated_by):''))+'"><span class="truncate mono">'+esc(d.name)+'</span><span class="xs faint">v'+d.version+(d.size!=null?' · '+kb(d.size):'')+'</span></a>').join(''):'<p class="xs faint">No files yet.</p>';
+  // Nothing open yet: the viewer says to pick a file, not that there are none.
+  const ph=document.getElementById('doc-empty');if(ph){ph.dataset.none=ph.dataset.none||ph.textContent;ph.textContent=fs.length?'Pick a file to open it.':ph.dataset.none}
   // On a wide screen, an empty viewer opens the most recently changed file (phones keep the list first).
   if(!curDoc&&!docAsked&&fs.length&&innerWidth>800&&!document.getElementById('panel-docs').hidden)openDoc(fs[0].name)}
 let docAsked=false;async function openDoc(name,version){docAsked=true;editing=false;const r=await fetch('/api/boards/'+BOARD+'/doc?name='+encodeURIComponent(name)+(version?'&version='+version:''));const d=await r.json();if(!r.ok){toast(d.error);return}curDoc=d;renderDoc();loadDocs()}
@@ -1771,7 +1773,7 @@ window.boardKeys=(e,k)=>{
 <div role="tabpanel" id="panel-docs" class="bp-panel" data-board-panel hidden>
   <div class="docs">
     <div class="doc-list"><div class="row" style="justify-content:space-between;margin-bottom:8px"><span class="small muted">Files</span>${info.archived ? "" : `<button class="btn sm" type="button" id="doc-new">New</button>`}</div><div id="doc-items" class="small muted">Loading…</div></div>
-    <div class="doc-view card pad" id="doc-view"><p class="muted small">No files yet. Create one (e.g. BACKLOG.md), post one from the conversation, or paste an image there. People and agents edit files together, and every save or post is a new version.</p></div>
+    <div class="doc-view card pad" id="doc-view"><p class="muted small" id="doc-empty">No files yet. Create one (e.g. BACKLOG.md), post one from the conversation, or paste an image there. People and agents edit files together, and every save or post is a new version.</p></div>
   </div>
 </div>
 
