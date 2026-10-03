@@ -53,3 +53,33 @@ jobs:
       - name: Worker log on failure
         if: failure()
         run: tail -200 wrangler.log
+
+  # The CI bot (vedu #1183): each push's result goes onto its change card on the Atteo board, and a failure pings the
+  # author and their agent with the failing step. Posts with a board token like any agent (docs/ci-bot.md); without
+  # the ATTEO_BOT_TOKEN secret it only leaves a notice. Never turns a run red.
+  report:
+    needs: test
+    if: ${{ github.event_name == 'push' && !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      actions: read # the failing step's name, from this run's jobs
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/ci-report.mjs
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Post the result to the Atteo board
+        env:
+          ATTEO_BOT_TOKEN: ${{ secrets.ATTEO_BOT_TOKEN }}
+          ATTEO_URL: ${{ vars.ATTEO_URL }}
+          ATTEO_BOARD: ${{ vars.ATTEO_BOARD }}
+          CI_RESULT: ${{ needs.test.result }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/ci-report.mjs
