@@ -2,7 +2,8 @@
 // on a private board for two friends. Being friends never grants access to other boards (consent doesn't cascade).
 
 import { addMember, recordBoard } from "./registry";
-import { newBoardId, offBoardSeq } from "./util";
+import { EMOJI_RE, newBoardId, offBoardSeq } from "./util";
+import { AgentNameError, cleanAgentName, handleLookalikes, skeleton } from "./agentName";
 import type { Env } from "./types";
 
 export const FRIEND_REQUESTS_PER_DAY = 20;
@@ -20,6 +21,7 @@ export interface Presence {
 export interface Person {
   name: string;
   display_name: string | null;
+  agent_name: string | null; // what they named their agent ("Jarvis"); it's theirs: show it with them as its owner
   bio: string | null;
   relation: Relation;
   presence: Presence;
@@ -92,7 +94,7 @@ export async function findPeople(env: Env, me: string, query: string): Promise<P
   const like = `%${q.replace(/[\\%_]/g, (c) => "\\" + c)}%`;
   const rows = (
     await env.DB.prepare(
-      `SELECT u.name, u.display_name, u.bio FROM users u
+      `SELECT u.name, u.display_name, u.bio, u.agent_name FROM users u
        WHERE u.name = ?1
           OR ((u.name LIKE ?2 ESCAPE '\\' OR lower(u.display_name) LIKE ?2 ESCAPE '\\') AND (
                 EXISTS (SELECT 1 FROM members m1 JOIN members m2 ON m1.board_id = m2.board_id WHERE m1.user = ?3 AND m2.user = u.name)
@@ -101,12 +103,12 @@ export async function findPeople(env: Env, me: string, query: string): Promise<P
        ORDER BY (u.name = ?1) DESC, u.name LIMIT 20`,
     )
       .bind(q, like, me)
-      .all<{ name: string; display_name: string | null; bio: string | null }>()
+      .all<{ name: string; display_name: string | null; bio: string | null; agent_name: string | null }>()
   ).results;
   return describe(env, me, rows);
 }
 
-async function describe(env: Env, me: string, rows: { name: string; display_name: string | null; bio: string | null }[]): Promise<Person[]> {
+async function describe(env: Env, me: string, rows: { name: string; display_name: string | null; bio: string | null; agent_name?: string | null }[]): Promise<Person[]> {
   const names = rows.map((r) => r.name);
   const [pres, shared] = await Promise.all([
     presenceOf(env, names),
@@ -124,13 +126,13 @@ async function describe(env: Env, me: string, rows: { name: string; display_name
   for (const r of rows) {
     const { rel } = await relationOf(env, me, r.name);
     if (rel === "blocked_you") continue;
-    out.push({ name: r.name, display_name: r.display_name, bio: rel === "friend" || sharedBy[r.name] || rel === "self" ? r.bio : null, relation: rel, presence: rel === "blocked" ? { web: null, agent: null, watcher: null } : pres[r.name], shared_boards: sharedBy[r.name] ?? 0 });
+    out.push({ name: r.name, display_name: r.display_name, agent_name: r.agent_name ?? null, bio: rel === "friend" || sharedBy[r.name] || rel === "self" ? r.bio : null, relation: rel, presence: rel === "blocked" ? { web: null, agent: null, watcher: null } : pres[r.name], shared_boards: sharedBy[r.name] ?? 0 });
   }
   return out;
 }
 
 export async function person(env: Env, me: string, name: string): Promise<Person | null> {
-  const r = await env.DB.prepare(`SELECT name, display_name, bio FROM users WHERE name = ?`).bind(name.toLowerCase().replace(/^@/, "")).first<{ name: string; display_name: string | null; bio: string | null }>();
+  const r = await env.DB.prepare(`SELECT name, display_name, bio, agent_name FROM users WHERE name = ?`).bind(name.toLowerCase().replace(/^@/, "")).first<{ name: string; display_name: string | null; bio: string | null; agent_name: string | null }>();
   if (!r) return null;
   return (await describe(env, me, [r]))[0] ?? null;
 }
@@ -214,7 +216,7 @@ export async function friendsOf(env: Env, me: string): Promise<{ friends: Person
   const other = (r: { a: string; b: string }) => (r.a === me ? r.b : r.a);
   const names = rows.filter((r) => r.status !== "blocked").map(other);
   const users = names.length
-    ? (await env.DB.prepare(`SELECT name, display_name, bio FROM users WHERE name IN (${names.map(() => "?").join(",")})`).bind(...names).all<{ name: string; display_name: string | null; bio: string | null }>()).results
+    ? (await env.DB.prepare(`SELECT name, display_name, bio, agent_name FROM users WHERE name IN (${names.map(() => "?").join(",")})`).bind(...names).all<{ name: string; display_name: string | null; bio: string | null; agent_name: string | null }>()).results
     : [];
   const people = Object.fromEntries((await describe(env, me, users)).map((p) => [p.name, p]));
   const notes = Object.fromEntries(rows.map((r) => [other(r), r.note]));
@@ -343,20 +345,79 @@ export function mergeDisplay(cur: Display, patch: unknown): Display {
   return out as unknown as Display;
 }
 
+/** The reaction picker's default (what the web shows today); a person's own list replaces it. */
+export const DEFAULT_REACTIONS: readonly string[] = ["👍", "✅", "🤔", "🎉", "❤️", "🔥", "😂", "🙏"];
+export const MAX_REACTION_PREFS = 8;
+
+/** Up to 8 distinct emoji (one grapheme each, <=16 bytes, no :shortcodes:). null or [] clears back to the default. */
+export function checkReactionPrefs(v: unknown): string[] | null {
+  if (v === null || (Array.isArray(v) && v.length === 0)) return null;
+  if (!Array.isArray(v)) throw new SocialError('reactions must be a list of emoji, e.g. ["👍","🎉"].');
+  if (v.length > MAX_REACTION_PREFS) throw new SocialError(`reactions holds at most ${MAX_REACTION_PREFS} emoji.`);
+  const seen = new Set<string>();
+  for (const x of v) {
+    const e = typeof x === "string" ? x.trim() : "";
+    if (!e || e.startsWith(":") || !EMOJI_RE.test(e) || new TextEncoder().encode(e).length > 16) throw new SocialError(`"${typeof x === "string" ? x.slice(0, 20) : x}" isn't a single emoji.`);
+    if (seen.has(e)) throw new SocialError(`reactions has ${e} twice.`);
+    seen.add(e);
+  }
+  return [...seen];
+}
+
+function readReactions(raw: string | null): string[] {
+  try {
+    const a: unknown = raw ? JSON.parse(raw) : null;
+    if (Array.isArray(a) && a.length && a.every((x) => typeof x === "string")) return a as string[];
+  } catch {}
+  return [...DEFAULT_REACTIONS];
+}
+
 export async function profile(env: Env, user: string) {
-  const r = await env.DB.prepare(`SELECT name, display_name, bio, listed, rules, display, agents_headless FROM users WHERE name = ?`)
+  const r = await env.DB.prepare(`SELECT name, display_name, agent_name, bio, listed, rules, display, reactions, agents_headless FROM users WHERE name = ?`)
     .bind(user)
-    .first<{ name: string; display_name: string | null; bio: string | null; listed: number; rules: string | null; display: string | null; agents_headless: number | null }>();
+    .first<{ name: string; display_name: string | null; agent_name: string | null; bio: string | null; listed: number; rules: string | null; display: string | null; reactions: string | null; agents_headless: number | null }>();
   return r
-    ? { name: r.name, display_name: r.display_name, bio: r.bio, listed: !!r.listed, rules: (r.rules ? JSON.parse(r.rules) : {}) as Rules, display: readDisplay(r.display), agents_headless: !!r.agents_headless }
+    ? { name: r.name, display_name: r.display_name, agent_name: r.agent_name, bio: r.bio, listed: !!r.listed, rules: (r.rules ? JSON.parse(r.rules) : {}) as Rules, display: readDisplay(r.display), reactions: readReactions(r.reactions), agents_headless: !!r.agents_headless }
     : null;
 }
 
-export async function setProfile(env: Env, user: string, p: { display_name?: unknown; bio?: unknown; listed?: unknown; rules?: unknown; display?: unknown; agents_headless?: unknown }) {
+/**
+ * A name for `user`'s agent, checked against people it could pass for: anyone's handle (look-alike letters too,
+ * e.g. a Cyrillic "х" in "jхn"), and the display name of anyone who shares a board with them (or their own).
+ */
+async function checkAgentName(env: Env, user: string, raw: unknown): Promise<string | null> {
+  let name: string | null;
+  try {
+    name = cleanAgentName(raw);
+  } catch (e) {
+    throw new SocialError(e instanceof AgentNameError ? e.message : String(e));
+  }
+  if (!name) return null;
+  const handles = handleLookalikes(name);
+  const taken = handles.length
+    ? await env.DB.prepare(`SELECT name FROM users WHERE name IN (${handles.map(() => "?").join(",")}) LIMIT 1`).bind(...handles).first<{ name: string }>()
+    : null;
+  if (taken) throw new SocialError(`"${name}" looks like ${taken.name === user ? "your own handle" : `@${taken.name}`}: an agent's name can't pass for a person.`);
+  const sk = skeleton(name);
+  const people = await env.DB.prepare(
+    `SELECT name, display_name FROM users WHERE display_name IS NOT NULL
+       AND (name = ?1 OR name IN (SELECT m2.user FROM members m1 JOIN members m2 ON m1.board_id = m2.board_id WHERE m1.user = ?1))`,
+  )
+    .bind(user)
+    .all<{ name: string; display_name: string }>();
+  const like = people.results.find((r) => skeleton(r.display_name) === sk);
+  if (like) throw new SocialError(`"${name}" looks like ${like.name === user ? "your own name" : `${like.display_name} (@${like.name})`}: an agent's name can't pass for a person.`);
+  return name;
+}
+
+export async function setProfile(env: Env, user: string, p: { display_name?: unknown; agent_name?: unknown; bio?: unknown; listed?: unknown; rules?: unknown; display?: unknown; agents_headless?: unknown; reactions?: unknown }, onAgentRenamed?: (name: string | null) => void) {
   const cur = await profile(env, user);
   if (!cur) throw new SocialError("No such person.");
+  // Checked first too: a refused name is a 400 and nothing else is saved.
+  const agentName = p.agent_name === undefined ? cur.agent_name : await checkAgentName(env, user, p.agent_name);
   // Checked first: a bad display value is a 400 and nothing else in the request is saved either.
   const prefs = p.display === undefined ? cur.display : mergeDisplay(cur.display, p.display);
+  const favs = p.reactions === undefined ? undefined : checkReactionPrefs(p.reactions);
   if (p.agents_headless !== undefined && typeof p.agents_headless !== "boolean") throw new SocialError("agents_headless must be true or false.");
   const headless = p.agents_headless === undefined ? cur.agents_headless : p.agents_headless;
   const text = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/[\u0000-\u001f]/g, " ").trim().slice(0, max) || null : undefined);
@@ -369,11 +430,44 @@ export async function setProfile(env: Env, user: string, p: { display_name?: unk
     auto_accept_friends: "auto_accept_friends" in r ? (r.auto_accept_friends === "coworkers" ? "coworkers" : null) : cur.rules.auto_accept_friends ?? null,
     auto_accept_agents: "auto_accept_agents" in r ? (r.auto_accept_agents === "coworkers" ? "coworkers" : null) : cur.rules.auto_accept_agents ?? null,
   };
-  await env.DB.prepare(`UPDATE users SET display_name = ?, bio = ?, listed = ?, rules = ?, display = COALESCE(?, display), agents_headless = ? WHERE name = ?`)
-    .bind(display, bio, listed ? 1 : 0, JSON.stringify(rules), p.display === undefined ? null : JSON.stringify(prefs), headless ? 1 : 0, user)
+  await env.DB.prepare(`UPDATE users SET display_name = ?, agent_name = ?, bio = ?, listed = ?, rules = ?, display = COALESCE(?, display), reactions = COALESCE(?, reactions), agents_headless = ? WHERE name = ?`)
+    .bind(display, agentName, bio, listed ? 1 : 0, JSON.stringify(rules), p.display === undefined ? null : JSON.stringify(prefs), favs ? JSON.stringify(favs) : null, headless ? 1 : 0, user)
     .run();
+  if (favs === null) await env.DB.prepare(`UPDATE users SET reactions = NULL WHERE name = ?`).bind(user).run();
   headlessCache.set(user, { v: headless, at: Date.now() });
-  return { ...cur, display_name: display, bio, listed, rules, display: prefs, agents_headless: headless };
+  if (agentName !== cur.agent_name) {
+    boardNamesCache.clear(); // this isolate shows the new name right away; others within 30s
+    onAgentRenamed?.(agentName);
+  }
+  return { ...cur, display_name: display, agent_name: agentName, bio, listed, rules, display: prefs, reactions: favs === undefined ? cur.reactions : favs ?? [...DEFAULT_REACTIONS], agents_headless: headless };
+}
+
+/** Mail from agents with what their people named them: `from_agent_name`, only when set ("Jarvis", with `from` the owner). */
+export async function mailWithAgentNames<T extends { board: string | null; from: string; from_via: string | null }>(env: Env, mail: T[]): Promise<(T & { from_agent_name?: string })[]> {
+  const boards = [...new Set(mail.filter((m) => m.from_via === "agent" && m.board).map((m) => m.board!))];
+  if (!boards.length) return mail;
+  const names = Object.fromEntries(await Promise.all(boards.map(async (b) => [b, await boardAgentNames(env, b)] as const)));
+  return mail.map((m) => {
+    const n = m.from_via === "agent" && m.board ? names[m.board]?.[m.from] : undefined;
+    return n ? { ...m, from_agent_name: n } : m;
+  });
+}
+
+/** What a board's members named their agents (owner → name; only those who did). Cached per isolate for 30s like
+ * agentsHeadless: every agent read labels its entries' authors with them, and this saves a D1 read each time. */
+const boardNamesCache = new Map<string, { v: Record<string, string>; at: number }>();
+export async function boardAgentNames(env: Env, boardId: string): Promise<Record<string, string>> {
+  const hit = boardNamesCache.get(boardId);
+  if (hit && Date.now() - hit.at < 30_000) return hit.v;
+  const r = await env.DB.prepare(`SELECT u.name, u.agent_name FROM members m JOIN users u ON u.name = m.user WHERE m.board_id = ? AND u.agent_name IS NOT NULL`)
+    .bind(boardId)
+    .all<{ name: string; agent_name: string }>()
+    .catch(() => null);
+  if (!r) return {}; // not cached: asked again next time
+  const v = Object.fromEntries(r.results.map((x) => [x.name, x.agent_name]));
+  if (boardNamesCache.size > 5000) boardNamesCache.clear();
+  boardNamesCache.set(boardId, { v, at: Date.now() });
+  return v;
 }
 
 /** Whether this person runs their agents headless (answers and approvals on the board, not the terminal). Cached
