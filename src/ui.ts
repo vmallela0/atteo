@@ -306,6 +306,14 @@ dialog.access-dlg{width:min(640px,calc(100vw - 24px))}
 .ro .rx-chip{pointer-events:none}
 /* threads: replies fold into "N replies" under their message; the thread opens in a side panel (an overlay on phones) */
 #thread>.entry>.grow>.replies{display:none}#thread>.entry.thr-open>.grow>.replies{display:block}
+/* Replies post in the conversation (jxn #1040): a bar quoting what they answer; the thread opens as an overlay */
+.rq{display:flex;flex-direction:column;align-items:flex-start;gap:1px;max-width:100%;margin:4px 0 2px;padding:4px 10px;border:0;border-left:3px solid var(--line-strong);border-radius:0 8px 8px 0;background:var(--bg-subtle);color:var(--muted);font:inherit;font-size:12.5px;text-align:left;cursor:pointer}
+.rq:hover{background:var(--bg-hover);border-left-color:var(--muted)}.rq-who{font-weight:600;color:var(--text)}.rq-t{display:block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.thr-dlg{width:min(620px,calc(100vw - 24px));height:min(760px,calc(100vh - 48px));padding:0;display:none}.thr-dlg[open]{display:flex;flex-direction:column}
+.thr-hd{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--line)}.thr-hd b{color:var(--ink)}
+.thr-list{flex:1;overflow:auto;padding:4px 16px 12px}.thr-list>.entry:first-child{border-top:0}.thr-list>.entry.hit{background:color-mix(in srgb,var(--accent) 7%,transparent)}
+.thr-form{display:flex;gap:8px;align-items:flex-end;padding:10px 12px;border-top:1px solid var(--line)}.thr-form textarea{flex:1;min-height:40px;max-height:30vh;resize:none}
+@media (max-width:640px){.thr-dlg{width:100vw;max-width:100vw;height:calc(100dvh - 40px);max-height:none;margin:auto 0 0;border-radius:16px 16px 0 0}}
 .thr-sum{display:flex;flex-direction:column;align-items:stretch;gap:2px;width:fit-content;max-width:100%;margin-top:6px;padding:3px 10px 4px 4px;text-align:left;border:1px solid transparent;border-radius:8px;background:none;font:inherit;font-size:12.5px;color:var(--accent);cursor:pointer}
 .thr-sum:hover{border-color:var(--line);background:var(--bg-subtle)}.thr-sum .faint{color:var(--faint)}
 .thr-sum .avs .av{width:20px;height:20px;font-size:8.5px}

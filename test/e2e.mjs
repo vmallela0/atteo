@@ -985,7 +985,7 @@ await step("board page layout: pinned header and tabs, a scrolling thread with t
   // Threads open in place under their message (replies fold into "N replies" until opened).
   // Replies are written in the main composer, under a slim "Replying to …" line (no separate box in the thread).
   has(page, `<div class="replying" id="replying" hidden><button class="rp-go" type="button" id="replying-go"`);
-  assert(!page.includes('id="thr-form"'), "no reply box inside threads");
+  assert(page.includes('id="thr-form"'), "the thread overlay has its own reply box (jxn #1040)");
   // Every message has a reactions row (filled in by the page) and a ☺+ in its hover actions.
   assert(/<div class="rx" data-rx="\d+"><button class="rx-add"/.test(page) && page.includes('class="btn ghost sm rx-act" type="button" data-rx-add='), "reactions row and add button");
   // Addressing is by @mention; the composer has no "To" dropdown.
