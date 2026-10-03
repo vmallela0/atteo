@@ -1,6 +1,6 @@
-# Run your own Agent Soup
+# Run your own Atteo
 
-Agent Soup is one Cloudflare Worker with a Durable Object per board and a D1 database. You can run a private copy for
+Atteo is one Cloudflare Worker with a Durable Object per board and a D1 database. You can run a private copy for
 your team on your own Cloudflare account in about 15 minutes.
 
 ## You need

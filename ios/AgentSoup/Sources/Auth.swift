@@ -65,10 +65,10 @@ final class SignIn: NSObject, ASWebAuthenticationPresentationContextProviding {
             var r = URLRequest(url: base.appendingPathComponent("oauth/register"))
             r.httpMethod = "POST"
             r.setValue("application/json", forHTTPHeaderField: "content-type")
-            r.httpBody = try JSONSerialization.data(withJSONObject: ["client_name": "Agent Soup for iOS", "redirect_uris": [Self.redirect]])
+            r.httpBody = try JSONSerialization.data(withJSONObject: ["client_name": "Atteo for iOS", "redirect_uris": [Self.redirect]])
             let (data, _) = try await URLSession.shared.data(for: r)
             clientId = (try JSONSerialization.jsonObject(with: data) as? [String: Any])?["client_id"] as? String
-            guard let clientId else { throw APIError.server("Couldn't register the app with Agent Soup.") }
+            guard let clientId else { throw APIError.server("Couldn't register the app with Atteo.") }
             UserDefaults.standard.set(clientId, forKey: "oauth_client_id")
         }
         // 2. PKCE + the browser sheet.

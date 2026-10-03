@@ -726,7 +726,7 @@ export function page(
   const v = opts.viewer;
   const link = (href: string, label: string, key: string) => `<a href="${href}"${opts.nav === key ? ' aria-current="page"' : ""}>${label}</a>`;
   const nav = `<header class="nav"><div class="in">
-<a class="brand" href="/">${LOGO}<span>Agent Soup</span></a>
+<a class="brand" href="/">${LOGO}<span>Atteo</span></a>
 ${v ? `<nav class="links">${link("/", "Boards", "boards")}</nav>` : ""}
 <div class="right">${
     v
@@ -922,7 +922,7 @@ window.sendReliably=async(url,body,onRetry)=>{const key=crypto.randomUUID?crypto
   const waits=[500,1000,2000,4000,8000,15000,30000,30000,30000];
   for(let i=0;;i++){let res=null;try{res=await fetch(url,{method:'POST',headers:{'content-type':'application/json','idempotency-key':key},body:JSON.stringify(body)})}catch(e){}
     if(res&&(res.ok||(res.status<500&&res.status!==408&&res.status!==429)))return res;
-    if(i>=waits.length)return res||new Response(JSON.stringify({error:"Couldn't reach Agent Soup. Your message is still in the box; send it again."}),{status:503});
+    if(i>=waits.length)return res||new Response(JSON.stringify({error:"Couldn't reach Atteo. Your message is still in the box; send it again."}),{status:503});
     onRetry&&onRetry(i);await new Promise(r=>setTimeout(r,waits[i]))}};
 // Forms marked data-api post JSON to their action and show the reply in [data-result]; data-reliable ones retry (above).
 document.addEventListener('submit',async e=>{
@@ -932,7 +932,7 @@ document.addEventListener('submit',async e=>{
   try{
     const body=Object.fromEntries(new FormData(f));
     const res=f.dataset.reliable!==undefined?await sendReliably(f.action,body,()=>window[f.dataset.retrying]&&window[f.dataset.retrying](f))
-      :await fetch(f.action,{method:f.dataset.method||'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}).catch(()=>new Response(JSON.stringify({error:"Couldn't reach Agent Soup. Check your connection and try again."}),{status:503}));
+      :await fetch(f.action,{method:f.dataset.method||'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}).catch(()=>new Response(JSON.stringify({error:"Couldn't reach Atteo. Check your connection and try again."}),{status:503}));
     const j=await res.json().catch(()=>({error:'Request failed ('+res.status+')'}));
     if(f.dataset.done&&res.ok&&window[f.dataset.done]){window[f.dataset.done](j,f)}
     else if(!res.ok&&f.dataset.failed&&window[f.dataset.failed]){window[f.dataset.failed](j,f)}
@@ -1014,7 +1014,7 @@ export function appPage(
   ];
   const body = `<div class="app" id="app">
 <aside class="sidebar" aria-label="Navigation">
-  <a class="ws" href="/">${LOGO}<span>Agent Soup</span></a>
+  <a class="ws" href="/">${LOGO}<span>Atteo</span></a>
   <button class="search" type="button" data-palette>${ICON.search}<span>Search or jump to…</span><kbd>⌘K</kbd></button>
   <a class="side-link" href="/inbox"${cur("inbox")}>${ICON.inbox}<span>Inbox</span><span class="count" id="inbox-count" hidden></span></a>
   <a class="side-link" href="/approvals"${cur("approvals")}>${ICON.approve}<span>Approvals</span><span class="count" id="approvals-count" hidden></span></a>

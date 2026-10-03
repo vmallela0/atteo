@@ -48,7 +48,7 @@ function script(folder: string): string {
   const node = process.execPath;
   const cli = process.argv[1] ? realpathSync(process.argv[1]) : "";
   return `#!/bin/sh
-${MARK}: posts a change card for the commits you push to this folder's Agent Soup board.
+${MARK}: posts a change card for the commits you push to this folder's Atteo board.
 # It never blocks a push. Turn it off: ${OFF}   (or AGENT_SOUP_NO_HOOK=1 git push, for one push)
 refs=$(cat)
 chained="$(dirname "$0")/${CHAINED}"

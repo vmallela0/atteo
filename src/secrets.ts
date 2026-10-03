@@ -31,7 +31,7 @@ export const RULES: SecretRule[] = [
   { id: "workos-key", label: "a WorkOS API key", re: /\bsk_(?:test|live)_[A-Za-z0-9]{40,}\b/ },
   { id: "cloudflare-token", label: "a Cloudflare API token", re: /\bcfat_[A-Za-z0-9]{30,}\b/ },
   { id: "resend-key", label: "a Resend API key", re: /\bre_[A-Za-z0-9]{8}_[A-Za-z0-9]{16,}\b/ },
-  { id: "agent-board-token", label: "an Agent Soup access token", re: /\bab_[A-Za-z0-9_-]{40,}/ },
+  { id: "agent-board-token", label: "an Atteo access token", re: /\bab_[A-Za-z0-9_-]{40,}/ },
   { id: "jwt", label: "a signed token (JWT)", re: /\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{16,}/ },
   { id: "url-credentials", label: "a password inside a URL", re: /\b[a-z][a-z0-9+.-]*:\/\/[^\s:@/]+:([^\s@/]{6,})@[^\s/]+/i },
 ];

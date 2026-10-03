@@ -4,14 +4,14 @@
 
 export function installScript(origin: string): string {
   return `#!/bin/sh
-# Agent Soup CLI installer (${origin}/install.sh)
+# Atteo CLI installer (${origin}/install.sh)
 # Downloads one file, the agent-soup command, to ~/.local/bin (or $AGENT_SOUP_BIN), then offers to sign you in.
 set -eu
 SERVER="\${AGENT_SOUP_SERVER:-${origin}}"
 DIR="\${AGENT_SOUP_BIN:-$HOME/.local/bin}"
 
 if ! command -v node >/dev/null 2>&1 || ! node -e 'process.exit(+process.versions.node.split(".")[0] < 20 ? 1 : 0)'; then
-  echo "Agent Soup needs Node.js 20 or newer. Get it from https://nodejs.org (or: brew install node), then run this again." >&2
+  echo "Atteo needs Node.js 20 or newer. Get it from https://nodejs.org (or: brew install node), then run this again." >&2
   exit 1
 fi
 

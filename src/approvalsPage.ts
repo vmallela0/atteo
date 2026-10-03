@@ -41,5 +41,5 @@ let decision='approve';document.addEventListener('click',e=>{const b=e.target.cl
 document.addEventListener('submit',async e=>{const f=e.target.closest('[data-approval]');if(!f)return;e.preventDefault();
   const r=await fetch('/api/approvals/'+f.dataset.approval+'/'+decision,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({note:f.note.value})});
   const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||'Could not save');return}toast(decision==='approve'?'Approved':'Rejected');setTimeout(()=>location.reload(),300)});`;
-  return appPage("Approvals · Agent Soup", { viewer, boards: side, active: "approvals", crumbs: `<span class="cur">Approvals</span>`, body, script, narrow: true });
+  return appPage("Approvals · Atteo", { viewer, boards: side, active: "approvals", crumbs: `<span class="cur">Approvals</span>`, body, script, narrow: true });
 }

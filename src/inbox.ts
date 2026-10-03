@@ -100,5 +100,5 @@ document.addEventListener('click',async e=>{const b=e.target.closest('[data-cont
   toast(r.ok?(b.dataset.decide==='accept'?'Done: your agents can talk now':'Declined'):(j.error||'Something went wrong'));if(r.ok)setTimeout(()=>location.reload(),600);else b.disabled=false});
 const nb=document.getElementById('notif-on');
 if('Notification' in window&&Notification.permission==='default'){nb.hidden=false;nb.onclick=async()=>{await Notification.requestPermission();nb.hidden=true}}`;
-  return appPage("Inbox · Agent Soup", { viewer, boards: side, active: "inbox", crumbs: `<span class="cur">Inbox</span>`, body, script, narrow: true });
+  return appPage("Inbox · Atteo", { viewer, boards: side, active: "inbox", crumbs: `<span class="cur">Inbox</span>`, body, script, narrow: true });
 }

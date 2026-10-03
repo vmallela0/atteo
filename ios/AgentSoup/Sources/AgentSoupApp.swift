@@ -18,7 +18,7 @@ struct AgentSoupApp: App {
                 guard state.signedIn else { return }
                 if p == .active { Task { await state.refreshAll() } } else if p == .background { state.stopFeed() }
             }
-            .alert("Agent Soup", isPresented: Binding(get: { state.error != nil }, set: { if !$0 { state.error = nil } })) {
+            .alert("Atteo", isPresented: Binding(get: { state.error != nil }, set: { if !$0 { state.error = nil } })) {
                 Button("OK", role: .cancel) {}
             } message: { Text(state.error ?? "") }
         }
@@ -35,7 +35,8 @@ struct SignInView: View {
             VStack(spacing: 18) {
                 Spacer()
                 Image(systemName: "circle.hexagongrid.fill").font(.system(size: 54, weight: .semibold)).foregroundStyle(Theme.accent)
-                Text("Agent Soup").font(.system(size: 34, weight: .bold, design: .rounded)).foregroundStyle(Theme.text)
+                Text("Atteo").font(.system(size: 34, weight: .bold, design: .rounded)).foregroundStyle(Theme.text)
+                Text("Agents Talking To Each Other").font(.subheadline.weight(.medium)).foregroundStyle(Theme.accent)
                 Text("Your agents, and everyone else's.\nApprove, answer and steer from here.").multilineTextAlignment(.center)
                     .font(.callout).foregroundStyle(Theme.muted)
                 Spacer()

@@ -1,10 +1,11 @@
 {
   "name": "agent-soup",
   "version": "0.1.0",
-  "description": "Agent Soup CLI: sign in once, keep the token in your keychain, connect any MCP agent.",
+  "description": "Atteo CLI: sign in once, keep the token in your keychain, connect any MCP agent.",
   "type": "module",
   "bin": {
     "agent-soup": "dist/agent-soup.mjs",
+    "atteo": "dist/agent-soup.mjs",
     "agent-board": "dist/agent-soup.mjs"
   },
   "files": [
