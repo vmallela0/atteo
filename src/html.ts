@@ -703,7 +703,7 @@ ${agent.connected ? "" : `<button class="btn primary lg" style="margin-top:16px"
 window.BOARD=${JSON.stringify(info.id)};let last=${last};
 // Earlier messages, on demand (a page at a time, or as far back as a given entry for a link to an older message). Replies go
 // into their threads and get the same reactions, task strips and claim chips as live entries.
-async function loadEarlier(until){const b=document.getElementById('load-earlier');if(!b||b.disabled)return;b.disabled=true;
+async function loadEarlier(until){const b=document.getElementById('load-earlier');if(!b||b.disabled)return;b.disabled=true;if(until)pinned=false;
   const sc=document.getElementById('thread-scroll'),h0=sc.scrollHeight,before=+b.dataset.before;
   const r=await fetch('/api/boards/'+BOARD+'/entries?before='+before+'&limit='+(until?Math.min(500,before-until+20):150));const j=await r.json().catch(()=>({}));if(!r.ok){b.disabled=false;return}
   const frag=document.createDocumentFragment(),later=[];
@@ -715,16 +715,18 @@ async function loadEarlier(until){const b=document.getElementById('load-earlier'
   renderClaims(CLAIMS);
   if(j.first>1){b.dataset.before=j.first;b.disabled=false}else b.remove();sc.scrollTop+=sc.scrollHeight-h0;railBuild()}
 document.getElementById('load-earlier')?.addEventListener('click',()=>loadEarlier());
-document.addEventListener('click',async e=>{const a=e.target.closest('a[href^="#e"]');if(!a||document.getElementById(a.getAttribute('href').slice(1)))return;e.preventDefault();
+document.addEventListener('click',async e=>{const a=e.target.closest('a[href^="#e"]');if(a)usr();if(!a||document.getElementById(a.getAttribute('href').slice(1)))return;e.preventDefault();
   const seq=+a.getAttribute('href').slice(2);if(await ensureEntry(seq))location.hash='#e'+seq;else toast('#'+seq+' was not found')});
 /** Makes sure #seq is on the page (loading earlier messages if needed); false if it doesn't exist. */
 window.ensureEntry=async seq=>{for(let i=0;i<20&&!document.getElementById('e'+seq)&&document.getElementById('load-earlier');i++)await loadEarlier(seq);return !!document.getElementById('e'+seq)};
-// The thread scrolls in its own area and opens at the latest entry. New entries keep you at the bottom only if you
-// were already there (or just posted); otherwise a "New messages" pill offers the jump.
-const scroller=document.getElementById('thread-scroll'),pill=document.getElementById('new-pill');let stickNext=false,moved=false;
+// The thread scrolls in its own area, opens at the latest entry and stays pinned to the bottom (new entries, images,
+// expanding cards, a growing composer) until you scroll up yourself; reaching the bottom again re-pins. While unpinned a
+// pill offers the jump ("New messages" if something arrived).
+const scroller=document.getElementById('thread-scroll'),pill=document.getElementById('new-pill');let stickNext=false,moved=false,userT=0,pinned=!/^#e\\d+$/.test(location.hash);
+const usr=()=>{userT=Date.now()},nearEnd=()=>scroller.scrollHeight-scroller.scrollTop-scroller.clientHeight<=24; // userT: the last wheel/touch/key/drag, so programmatic scrolls aren't mistaken for the user's
 const atBottom=()=>scroller.clientHeight===0||scroller.scrollHeight-scroller.scrollTop-scroller.clientHeight<80;
 function toBottom(smooth){const far=scroller.scrollHeight-scroller.scrollTop-scroller.clientHeight>1200; // long jumps are instant
-  scroller.scrollTo({top:scroller.scrollHeight,behavior:smooth&&!far?'smooth':'auto'});pill.hidden=true;unseen=false}
+  pinned=true;userT=0;scroller.scrollTo({top:scroller.scrollHeight,behavior:smooth&&!far?'smooth':'auto'});pill.hidden=true;unseen=false}
 // The rail: one tick per message at its place in the conversation (instead of a scrollbar). Ticks in view are darker,
 // so scrolling steps through them; hover previews a message, click jumps to it, drag scrubs.
 const rail=document.getElementById('rail'),tip=document.getElementById('rail-tip');let ticks=[];
@@ -736,30 +738,35 @@ function railMark(){setTimeout(reportSeen,0);const a=scroller.scrollTop,b=a+scro
 function railAt(ev){const r=rail.getBoundingClientRect();return Math.min(1,Math.max(0,(ev.clientY-r.top)/r.height))}
 function railNear(f){let best=-1,d=2;ticks.forEach((t,i)=>{const x=Math.abs(t.y-f);if(x<d){d=x;best=i}});return d<0.03?best:-1}
 let scrub=false;
-rail.addEventListener('pointerdown',ev=>{scrub=true;rail.setPointerCapture(ev.pointerId);railMove(ev)});
+rail.addEventListener('pointerdown',ev=>{usr();scrub=true;rail.setPointerCapture(ev.pointerId);railMove(ev)});
 rail.addEventListener('pointermove',ev=>{if(scrub){railMove(ev);return}const i=railNear(railAt(ev));if(i<0){tip.hidden=true;return}
   const el=ticks[i].el,m=el.querySelector(':scope>.grow>.meta'),who=m?.querySelector('.who')?.textContent||'',ty=m?.querySelector('.type')?.textContent||'',when=m?.querySelector('time')?.textContent||'';
   const body=(el.querySelector(':scope>.grow>.body')?.textContent||'').trim().split('\\n')[0];
   tip.textContent=who+' · '+ty+(when?' · '+when:'')+(body?' — '+body:'');tip.style.top=(ticks[i].y*rail.getBoundingClientRect().height+rail.offsetTop)+'px';tip.hidden=false});
 rail.addEventListener('pointerleave',()=>{tip.hidden=true});
-rail.addEventListener('pointerup',ev=>{if(!scrub)return;scrub=false;const i=railNear(railAt(ev));if(i>=0&&ev.pointerType!=='touch')ticks[i].el.scrollIntoView({block:'center'})});
-function railMove(ev){moved=true;scroller.scrollTop=railAt(ev)*scroller.scrollHeight-scroller.clientHeight/2}
+rail.addEventListener('pointerup',ev=>{if(!scrub)return;scrub=false;const i=railNear(railAt(ev));if(i>=0&&ev.pointerType!=='touch'){usr();ticks[i].el.scrollIntoView({block:'center'})}});
+function railMove(ev){moved=true;usr();scroller.scrollTop=railAt(ev)*scroller.scrollHeight-scroller.clientHeight/2}
 new ResizeObserver(()=>railBuild()).observe(document.getElementById('thread'));
 let unseen=false;
-function pillSync(){if(atBottom()){pill.hidden=true;unseen=false}else{pill.textContent=unseen?'New messages ↓':'Jump to latest ↓';pill.hidden=false}}
-scroller.addEventListener('scroll',()=>{pillSync();railMark()},{passive:true});
-['wheel','touchmove','keydown'].forEach(t=>scroller.addEventListener(t,()=>{moved=true},{passive:true}));
+function pillSync(){if(pinned){pill.hidden=true;unseen=false}else{pill.textContent=unseen?'New messages ↓':'Jump to latest ↓';pill.hidden=false}}
+scroller.addEventListener('scroll',()=>{if(scroller.clientHeight){if(Date.now()-userT<700)pinned=nearEnd();else if(nearEnd())pinned=true}pillSync();railMark()},{passive:true});
+['wheel','touchmove','keydown','pointerdown'].forEach(t=>scroller.addEventListener(t,()=>{moved=true;usr()},{passive:true}));
+document.addEventListener('keydown',e=>{if(/^(Page(Up|Down)|Home|End|Arrow(Up|Down)| )$/.test(e.key)&&!e.target.closest('textarea,input,select,[contenteditable]'))usr()},true);
+// Anything that grows the thread (or shrinks the view) while pinned keeps the latest in view.
+const stay=()=>{if(pinned&&scroller.clientHeight&&!nearEnd())scroller.scrollTop=scroller.scrollHeight};
+new ResizeObserver(stay).observe(document.getElementById('thread'));new ResizeObserver(stay).observe(scroller);
+scroller.addEventListener('load',stay,true); // images
 pill.addEventListener('click',()=>toBottom(true));
 // The wheel scrolls the conversation from anywhere around it (the margins, the header), not only over the thread;
 // panes that scroll on their own (sidebar, log, files, the composer, menus, the left nav) keep their wheel.
 document.addEventListener('wheel',e=>{if(e.ctrlKey||document.getElementById('panel-conv').hidden||document.querySelector('dialog[open]'))return;
   if(e.target.closest('.thread-scroll,.aside,.sidebar,textarea,.mention-menu,.rd-pop,.chg-diff,pre'))return;
   if(!e.target.closest('#app'))return; // the whole main column: margins, top bar and board header
-  scroller.scrollBy({top:e.deltaMode===1?e.deltaY*20:e.deltaY});e.preventDefault()},{passive:false});
+  usr();scroller.scrollBy({top:e.deltaMode===1?e.deltaY*20:e.deltaY});e.preventDefault()},{passive:false});
 railBuild();pillSync();
 const linked=/^#e\\d+$/.test(location.hash);
 // A link to a message further back than the page shows loads back to it (on open, or when the hash changes).
-async function goLinked(){const m=location.hash.match(/^#e([0-9]+)$/);if(!m||document.getElementById('e'+m[1]))return;const seq=+m[1];
+async function goLinked(){const m=location.hash.match(/^#e([0-9]+)$/);if(!m||document.getElementById('e'+m[1]))return;const seq=+m[1];pinned=false;
   if(!(await ensureEntry(seq))){toast('#'+seq+' was not found');return}const el=document.getElementById('e'+seq);
   if(el.closest('.replies'))openThread(+el.closest('#thread>.entry').dataset.seq,{focus:seq});else el.scrollIntoView({block:'center'})}
 if(linked&&!document.getElementById(location.hash.slice(1)))setTimeout(goLinked,0);
@@ -771,7 +778,7 @@ let ticking=null,again=false;
 function tick(wait){if(ticking){if(!wait)again=true;return ticking}ticking=tick1(wait).finally(()=>{ticking=null;if(again){again=false;tick(false)}});return ticking}
 async function tick1(wait){try{
   const r=await fetch('/api/boards/'+BOARD+'/updates?after='+last+(wait?'&wait=25':''));if(!r.ok){await new Promise(r=>setTimeout(r,5000));return}const d=await r.json();
-  const stick=stickNext||atBottom();stickNext=false;let added=0;
+  const stick=stickNext||pinned;stickNext=false;let added=0;
   for(const e of d.entries){if(addEntry(e))added++}
   if(typeof d.last==='number')last=Math.max(last,d.last);
   if(d.reviews)applyReviews(d.reviews);
@@ -1187,7 +1194,7 @@ document.getElementById('fwd-send').addEventListener('click',async e=>{const b=e
 window.BOARD_CTX={id:BOARD,me:ME,members:MEMBERS,
   async jump(seq){if(!(await ensureEntry(seq))){toast('#'+seq+' was not found');return}const el=document.getElementById('e'+seq);
     if(document.getElementById('panel-conv').hidden)tab(0);if(el.closest('.replies')){openThread(+el.closest('#thread>.entry').dataset.seq,{focus:seq});return}
-    document.querySelectorAll('#thread .entry.hit').forEach(x=>x.classList.remove('hit'));el.classList.add('hit');el.scrollIntoView({block:'center'});moved=true;setTimeout(()=>el.classList.remove('hit'),4000)},
+    document.querySelectorAll('#thread .entry.hit').forEach(x=>x.classList.remove('hit'));el.classList.add('hit');pinned=false;el.scrollIntoView({block:'center'});moved=true;setTimeout(()=>el.classList.remove('hit'),4000)},
   openFile(name,v){tab(2);openDoc(name,v)}};
 document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&!e.altKey&&!e.shiftKey&&e.key.toLowerCase()==='f'&&!document.querySelector('dialog[open]:not(#palette)')){e.preventDefault();window.openPalette([{k:'board'},{k:'kind',v:'messages'}])}},true);
 // ---- threads: replies fold into "N replies" under their message; clicking it opens the thread right there, in the chat ----
@@ -1213,7 +1220,7 @@ function openThread(root,o={}){const top=document.getElementById('e'+root);if(!t
     if(o.replyTo&&by&&by!==ME){const at='@'+by+(byAgent?"'s agent":'')+' ';if(!thrText.value.includes(at.trim()))thrText.value=at+thrText.value}setTimeout(thrSync,0);
     document.getElementById('thr-to').textContent=thrTarget!==root?'Replying to #'+thrTarget:''}
   thrSum(root);
-  const f=o.focus&&document.getElementById('e'+o.focus);if(f){f.classList.add('hit');f.scrollIntoView({block:'center'})}
+  const f=o.focus&&document.getElementById('e'+o.focus);if(f){f.classList.add('hit');pinned=false;f.scrollIntoView({block:'center'})}
   if(o.replyTo||o.compose){thrText.focus();thrText.setSelectionRange(thrText.value.length,thrText.value.length);thrForm.scrollIntoView({block:'nearest'})}}
 function closeThread(root){const top=document.getElementById('e'+root);if(!top)return;top.classList.remove('thr-open');
   if(thrRoot===root){thrRoot=null;thrForm.hidden=true;thrText.value='';document.getElementById('thread-scroll').appendChild(thrForm)}thrSum(root)}
