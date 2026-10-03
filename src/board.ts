@@ -13,6 +13,7 @@ import { cleanTitle, EMOJI_RE, ftsQuery, USER_RE } from "./util";
 import { cardText, parseCard, type ChangeCard } from "./card";
 import { deliver } from "./webhooks";
 import { HumanDecisions, isHumanDecisionPost, type HumanDecision } from "./decisions";
+import type { RecapCore, RecapOwner, RecapTask } from "./recap";
 
 export const MAX_TEXT = 32_000;
 export const MAX_ARTIFACT = 256_000;
@@ -118,6 +119,27 @@ export type DocResult = { conflict: false; version: number; note: number } | { c
 
 export const MAX_REACTIONS_PER_PERSON = 12; // distinct emoji one person can leave on one entry
 export type Reactions = { emoji: string; users: string[] }[];
+
+/** The board's pinned doc: its source of truth. version is the doc's current one; pinned_version, when it was pinned. */
+export interface PinnedDoc {
+  name: string;
+  version: number; // the doc's current version
+  by: string; // who pinned it
+  via: string | null; // "agent" | "person": how they pinned it
+  ts: number; // when it was pinned
+  pinned_version: number; // the doc's version when it was pinned
+  updated_by: string;
+  updated_via: string | null;
+  updated_at: number;
+}
+
+/** The summary names the pinned doc right under its members line. */
+export function withPinned(summary: string, p: PinnedDoc | null): string {
+  if (!p) return summary;
+  const lines = summary.split("\n");
+  lines.splice(Math.min(2, lines.length), 0, `Pinned doc (source of truth): ${p.name} v${p.version} (doc read ${p.name})`);
+  return lines.join("\n");
+}
 
 export const DOC_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9 ._\-/]{0,79}$/;
 /** Any artifact name becomes a valid document name, so every file posted on a board is also a versioned doc. */
@@ -346,6 +368,15 @@ export class Board extends DurableObject<Env> {
       CREATE TABLE IF NOT EXISTS rules_seen (
         user TEXT NOT NULL,
         session TEXT NOT NULL DEFAULT '',
+        version INTEGER NOT NULL,
+        PRIMARY KEY (user, session)
+      );
+      -- Which version of the board's pinned doc each agent reader has been told about ("📌 SPEC.md updated to v4"):
+      -- once per version per member+session, like rules_seen. session is '' for a member with no agent session.
+      CREATE TABLE IF NOT EXISTS pin_seen (
+        user TEXT NOT NULL,
+        session TEXT NOT NULL DEFAULT '',
+        name TEXT NOT NULL,
         version INTEGER NOT NULL,
         PRIMARY KEY (user, session)
       );
@@ -1052,12 +1083,15 @@ export class Board extends DurableObject<Env> {
     const withSummary = opts.summary ?? !given;
     if (withSummary && !given) this.sql.exec("UPDATE members SET summarized = 1 WHERE name = ?", user);
     const c = this.cached();
+    const pinned = this.pinnedNow();
     return {
       info,
       members,
+      pinned,
+      pin: this.pinLine(user, session, pinned), // "📌 SPEC.md updated to v4": once per version per reader, else null
       summaryText: withSummary
         ? (() => {
-            const text = formatSummary(info, members, c.summary, user, DEFAULT_SUMMARY_CHARS, this.decisions.tags(c.tags), c.reviewers);
+            const text = withPinned(formatSummary(info, members, c.summary, user, DEFAULT_SUMMARY_CHARS, this.decisions.tags(c.tags), c.reviewers), pinned);
             return info.encrypted
               ? `This board is END-TO-END ENCRYPTED: messages are ciphertext here. Read and write it with the atteo CLI (atteo read / post / ask), which decrypts and encrypts on this machine.\n\n${text}`
               : text;
@@ -1068,6 +1102,174 @@ export class Board extends DurableObject<Env> {
       remaining,
       rules,
     };
+  }
+
+  // ---- recaps (recap.ts): what happened since an entry, or since this reader last read; nothing here moves a cursor ----
+
+  /** Where a reader last read, without touching anything: an agent session's own position, the person's (web), or the agent's. */
+  private lastRead(user: string, session: string | null, as: "agent" | "person"): number {
+    if (session && as === "agent") {
+      const r = this.sql.exec("SELECT cursor FROM session_cursors WHERE session = ? AND user = ?", session, user).toArray()[0];
+      if (r) return r.cursor as number;
+    }
+    const m = this.sql.exec("SELECT cursor, person_seen FROM members WHERE name = ?", user).toArray()[0];
+    if (!m) return 0;
+    return as === "person" ? (m.person_seen as number) : (m.cursor as number);
+  }
+
+  async recap(user: string, opts: { since: number | "last-read"; session: string | null; as: "agent" | "person" }): Promise<RecapCore> {
+    const info = this.info();
+    const from = Math.min(info.last_seq, Math.max(0, opts.since === "last-read" ? this.lastRead(user, opts.session, opts.as) : opts.since));
+    const sinceTs = from > 0 ? ((this.sql.exec("SELECT ts FROM entries WHERE seq = ?", from).toArray()[0]?.ts as number | undefined) ?? 0) : 0;
+    await this.decisions.refresh();
+    const hds = this.decisions.all();
+    const firstLine = (r: Row) => ((r.title as string | null) || (r.text as string).split("\n").find((l) => l.trim()) || "").trim();
+    const live = "NOT EXISTS (SELECT 1 FROM entries x WHERE x.retracts = e.seq OR x.supersedes = e.seq)";
+    // Decisions: posted since, plus human decisions whose outcome was announced since.
+    const decided = Object.entries(hds).filter(([seq, h]) => Number(seq) <= from && h.line != null && h.line > from).map(([seq]) => Number(seq));
+    const decRows = this.sql
+      .exec(`SELECT e.seq, e.ts, e.author, e.via, e.text, e.title FROM entries e WHERE e.type = 'decision' AND e.retracts IS NULL AND (e.seq > ? OR e.seq IN (SELECT value FROM json_each(?))) AND ${live} ORDER BY e.seq`, from, JSON.stringify(decided))
+      .toArray();
+    const decisions = decRows.map((r) => {
+      const h = hds[r.seq as number];
+      return { seq: r.seq as number, title: firstLine(r), author: r.author as string, via: (r.via as string | null) ?? null, ts: r.ts as number, human: !!h, state: h ? h.state : null, waiting_on: h ? h.waiting_on : [] };
+    });
+    // Questions still open (now), newest first, with who they're waiting on.
+    const waitingOn = (e: Entry) => [...new Set([...(e.to ? [`${e.to}'s agent`] : []), ...(e.mentions ?? []).map((m) => (m.agent ? `${m.user}'s agent` : m.user))])];
+    const openQs = [...this.cached().summary.openQuestions].reverse().slice(0, 50);
+    const questions = openQs.map((e) => ({ seq: e.seq, title: (e.title || e.text.split("\n").find((l) => l.trim()) || "").trim(), author: e.author, via: e.via ?? null, to: e.to ?? null, ts: e.ts, waiting_on: waitingOn(e), new: e.seq > from }));
+    // Tasks that moved since: new ones, and ones finished or blocked since (one category each: done, then blocked, then new).
+    const lite = (t: TaskView, owner: string | null, agent: boolean): RecapTask => ({
+      seq: t.seq, title: t.title, status: t.status, priority: t.priority, owner, owner_label: owner ? (agent ? `${owner}'s agent` : owner) : "unassigned", updated_at: t.updated_at,
+    });
+    const tasks: RecapCore["tasks_moved"] = { new: [], done: [], blocked: [], by_owner: [] };
+    const owners = new Map<string, RecapOwner>();
+    const own = (t: RecapTask, k: "new" | "done" | "blocked") => {
+      tasks[k].push(t);
+      const o = owners.get(t.owner_label) ?? { owner: t.owner, label: t.owner_label, new: [], blocked: [], done: [] };
+      o[k].push(t.seq);
+      owners.set(t.owner_label, o);
+    };
+    for (const t of this.taskRows()) {
+      const moved = t.updated_at > sinceTs;
+      if (t.status === "done" && (moved || t.seq > from)) own(lite(t, t.assignee ?? t.updated_by, t.assignee ? t.assignee_agent : t.updated_via === "agent"), "done");
+      else if (t.status === "blocked" && (moved || t.seq > from)) own(lite(t, t.assignee ?? t.lease_holder, t.assignee ? t.assignee_agent : t.lease_agent), "blocked");
+      else if (t.seq > from && t.status !== "done") own(lite(t, t.assignee ?? t.lease_holder, t.assignee ? t.assignee_agent : t.lease_agent), "new");
+    }
+    // Whoever owes the most first; the unassigned last.
+    tasks.by_owner = [...owners.values()].sort((a, b) => (a.owner == null ? 1 : 0) - (b.owner == null ? 1 : 0) || b.blocked.length + b.new.length - (a.blocked.length + a.new.length) || a.label.localeCompare(b.label));
+    // Who owes what: the moved tasks still open, then the open questions naming someone.
+    const owed = new Map<string, RecapCore["owed"][number]>();
+    const owe = (who: string, agent: boolean, item: RecapCore["owed"][number]["items"][number]) => {
+      const k = `${who}\u0000${agent}`;
+      const o = owed.get(k) ?? { who, agent, items: [] };
+      if (!o.items.some((i) => i.seq === item.seq)) o.items.push(item);
+      owed.set(k, o);
+    };
+    for (const k of ["blocked", "new"] as const) for (const t of tasks[k]) if (t.owner) owe(t.owner, t.owner_label.endsWith("'s agent"), { seq: t.seq, title: t.title, kind: "task", state: k });
+    for (const e of openQs) {
+      const title = (e.title || e.text.split("\n").find((l) => l.trim()) || "").trim();
+      if (e.to) owe(e.to, true, { seq: e.seq, title, kind: "question", state: "open" });
+      for (const m of e.mentions ?? []) owe(m.user, !!m.agent, { seq: e.seq, title, kind: "question", state: "open" });
+    }
+    // Files: every version published since (a message with several files counts each).
+    const files = new Map<string, { name: string; from_version: number; to_version: number; versions: number; authors: string[] }>();
+    for (const r of this.sql.exec("SELECT author, via, artifact_name, artifact_version, attachments FROM entries WHERE seq > ? AND artifact_name IS NOT NULL AND retracts IS NULL ORDER BY seq", from).toArray()) {
+      const list: { name: string; version: number | null }[] = r.attachments ? (JSON.parse(r.attachments as string) as Attachment[]).map((a) => ({ name: a.name, version: a.version ?? null })) : [{ name: r.artifact_name as string, version: (r.artifact_version as number | null) ?? null }];
+      const who = r.via === "agent" ? `${r.author}'s agent` : (r.author as string);
+      for (const a of list) {
+        if (a.version == null) continue;
+        const f = files.get(a.name) ?? { name: a.name, from_version: a.version - 1, to_version: a.version, versions: 0, authors: [] };
+        f.from_version = Math.min(f.from_version, a.version - 1);
+        f.to_version = Math.max(f.to_version, a.version);
+        f.versions++;
+        if (!f.authors.includes(who)) f.authors.push(who);
+        files.set(a.name, f);
+      }
+    }
+    return {
+      board: { id: info.id, title: info.title, encrypted: !!info.encrypted },
+      since: from,
+      since_ts: sinceTs,
+      basis: opts.since === "last-read" ? "last-read" : "seq",
+      until: info.last_seq,
+      entries: info.last_seq - from,
+      decisions,
+      questions,
+      owed: [...owed.values()].sort((a, b) => b.items.length - a.items.length || a.who.localeCompare(b.who)),
+      tasks_moved: tasks,
+      files: [...files.values()],
+      pinned: this.pinnedNow(),
+    };
+  }
+
+  // ---- the pinned doc: one document a board pins as its source of truth ----
+
+  /** The pinned doc with its current version (null: nothing pinned, or the doc is gone). */
+  private pinnedNow(): PinnedDoc | null {
+    const name = this.meta("pin");
+    if (!name) return null;
+    const d = this.sql.exec("SELECT version, updated_by, updated_at, via FROM docs WHERE name = ?", name).toArray()[0];
+    if (!d) return null;
+    return {
+      name,
+      version: d.version as number,
+      by: this.meta("pin_by") ?? "",
+      via: this.meta("pin_via") || null,
+      ts: Number(this.meta("pin_at") ?? 0),
+      pinned_version: Number(this.meta("pin_v") ?? d.version),
+      updated_by: d.updated_by as string,
+      updated_via: (d.via as string | null) ?? null,
+      updated_at: d.updated_at as number,
+    };
+  }
+
+  async pinned(): Promise<PinnedDoc | null> {
+    this.info();
+    return this.pinnedNow();
+  }
+
+  /**
+   * "📌 SPEC.md updated to v4" for an agent's read, once per version per member+session, when the pinned doc has a
+   * version newer than when it was pinned and newer than what this reader was last told. Otherwise null (no line).
+   */
+  private pinLine(user: string, session: string | null | undefined, p: PinnedDoc | null): string | null {
+    if (!p || p.version <= p.pinned_version) return null;
+    const seen = this.sql.exec("SELECT name, version FROM pin_seen WHERE user = ? AND session = ?", user, session ?? "").toArray()[0];
+    if (seen && seen.name === p.name && (seen.version as number) >= p.version) return null;
+    this.sql.exec("INSERT OR REPLACE INTO pin_seen (user, session, name, version) VALUES (?, ?, ?, ?)", user, session ?? "", p.name, p.version);
+    return `📌 ${p.name} updated to v${p.version} (the board's pinned doc: doc read ${p.name})`;
+  }
+
+  /** Pin a document as the board's source of truth (any member who can post). Replaces any earlier pin. */
+  async pin(user: string, name: string, opts: TaskActOpts): Promise<PinnedDoc> {
+    const info = this.info();
+    if (info.archived) throw new BoardError(`"${info.title}" is archived, so it's read-only. Its creator can restore it.`);
+    const d = this.sql.exec("SELECT version FROM docs WHERE name = ?", name).toArray()[0];
+    if (!d) throw new BoardError(`There's no document named "${name}" on this board. Create it first (doc write), then pin it.`);
+    if (this.meta("pin") === name) return this.pinnedNow()!; // already pinned: nothing to announce
+    this.setMeta("pin", name);
+    this.setMeta("pin_v", String(d.version));
+    this.setMeta("pin_by", user);
+    this.setMeta("pin_via", opts.via ?? "");
+    this.setMeta("pin_at", String(Date.now()));
+    await this.notice(user, "Pinned doc", `📌 Pinned ${name} (v${d.version}) as this board's source of truth.`, opts);
+    const p = this.pinnedNow()!;
+    this.broadcast({ type: "pin", pinned: p });
+    return p;
+  }
+
+  /** Unpin (any member who can post). `name`, if given, must be what's pinned. Returns what was unpinned. */
+  async unpin(user: string, name: string | null, opts: TaskActOpts): Promise<{ unpinned: string | null }> {
+    const info = this.info();
+    if (info.archived) throw new BoardError(`"${info.title}" is archived, so it's read-only. Its creator can restore it.`);
+    const cur = this.meta("pin") || null;
+    if (!cur) return { unpinned: null };
+    if (name && name !== cur) throw new BoardError(`"${name}" isn't pinned; ${cur} is.`);
+    this.setMeta("pin", "");
+    await this.notice(user, "Unpinned doc", `📌 Unpinned ${cur}.`, opts);
+    this.broadcast({ type: "pin", pinned: null });
+    return { unpinned: cur };
   }
 
   /**
@@ -2601,6 +2803,7 @@ export class Board extends DurableObject<Env> {
       claims: this.claimStates(),
       handling: this.handlingMap(),
       decisions: this.decisions.all(), // every human decision's state (small), like claims
+      pinned: this.pinnedNow(),
     };
   }
 

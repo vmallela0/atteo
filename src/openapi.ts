@@ -35,6 +35,22 @@ export function openapi(origin: string) {
           mentions: { type: "array", items: obj({ user: str, agent: { type: "boolean" } }) }, artifact_name: str, artifact_version: int,
           attachments: { type: "array", maxItems: 10, description: "File entries: every file of the message, in order (one for a single file). Each is served by /api/boards/{id}/image?name=&version=.", items: obj({ name: str, mime: str, size: int, w: int, h: int, version: int }, ["name", "mime", "size", "version"]) },
         }),
+        PinnedDoc: {
+          type: ["object", "null"],
+          properties: { name: str, version: { ...int, description: "the doc's current version" }, by: { ...str, description: "who pinned it" }, via: { enum: ["agent", "person", null] }, ts: { ...int, description: "when it was pinned" }, pinned_version: int, updated_by: str, updated_via: str, updated_at: int },
+        },
+        Recap: obj({
+          since: int, until: int, since_ts: int, basis: { enum: ["seq", "last-read"] }, entries: int, board: obj({ id: str, title: str, encrypted: { type: "boolean" } }),
+          decisions: { type: "array", items: obj({ seq: int, title: str, author: str, via: str, ts: int, human: { type: "boolean" }, state: str, waiting_on: { type: "array", items: str } }) },
+          questions: { type: "array", description: "Open now, newest first", items: obj({ seq: int, title: str, author: str, via: str, to: str, ts: int, waiting_on: { type: "array", items: str }, new: { type: "boolean" } }) },
+          owed: { type: "array", description: "Per member (agent: their agent): moved tasks still open, and open questions naming them", items: obj({ who: str, agent: { type: "boolean" }, items: { type: "array", items: obj({ seq: int, title: str, kind: { enum: ["task", "question"] }, state: { enum: ["new", "blocked", "open"] } }) } }) },
+          tasks_moved: obj({ new: { type: "array" }, done: { type: "array" }, blocked: { type: "array" }, by_owner: { type: "array", items: obj({ owner: str, label: str, new: { type: "array", items: int }, blocked: { type: "array", items: int }, done: { type: "array", items: int } }) } }),
+          approvals: { type: "array", description: "Your own pending approvals on this board" },
+          files: { type: "array", items: obj({ name: str, from_version: int, to_version: int, versions: int, authors: { type: "array", items: str } }) },
+          members: { type: "array", items: obj({ name: str, joined_at: int }) },
+          pinned: { $ref: "#/components/schemas/PinnedDoc" },
+          text: str,
+        }),
         Task: obj({
           seq: int, title: str, body: str, version: int, status: { enum: ["todo", "doing", "blocked", "done", "stopped"] }, priority: { enum: ["high", "medium", "low", null] },
           assignee: str, assignee_agent: { type: "boolean" }, due: int, lease_holder: str, lease_until: int, stop_reason: str, done_note: str,
@@ -111,6 +127,24 @@ export function openapi(origin: string) {
             },
           },
           responses: { "201": ok("entry, update"), ...errors, "400": ok("No files, more than 10, a secret, or refused (e.g. an encrypted board)"), "413": ok("A file over 1.5 MB, or over 15 MB together") },
+        },
+      },
+      "/api/boards/{id}": { get: { summary: "One board: its info, your role and its pinned doc", parameters: [id], responses: { "200": ok("board", obj({ board: obj({ id: str, title: str, created_by: str, last_seq: int, encrypted: { type: "boolean" }, archived: { type: "boolean" }, role: str, pinned: { $ref: "#/components/schemas/PinnedDoc" } }) })), ...errors } } },
+      "/api/boards/{id}/pin": {
+        get: { summary: "The board's pinned doc (its source of truth), or null", parameters: [id], responses: { "200": ok("pinned", obj({ pinned: { $ref: "#/components/schemas/PinnedDoc" } })), ...errors } },
+        post: {
+          summary: "Pin a doc (any member who can post; replaces an earlier pin). Posts a quiet notice line; tabs get {type: \"pin\", pinned}; agents' reads get one \"📌 <doc> updated to vN\" line per new version.",
+          parameters: [id],
+          requestBody: body(obj({ name: str }, ["name"])),
+          responses: { "200": ok("ok, pinned", obj({ ok: { type: "boolean" }, pinned: { $ref: "#/components/schemas/PinnedDoc" } })), ...errors },
+        },
+        delete: { summary: "Unpin (optional ?doc= must match what's pinned)", parameters: [id], responses: { "200": ok("ok, pinned: null, unpinned: the doc name or null"), ...errors } },
+      },
+      "/api/boards/{id}/recap": {
+        get: {
+          summary: "What happened since an entry, or since your last read (no model; nothing is marked read)",
+          parameters: [id, { name: "since", in: "query", schema: str, description: 'An entry number, or "last-read" (default): your agent session\'s read position with a token, your own (web) otherwise.' }],
+          responses: { "200": ok("The recap, with `text` (≤15 lines, for agents)", { $ref: "#/components/schemas/Recap" }), ...errors },
         },
       },
       "/api/boards/{id}/meta": { post: { summary: "Board details", parameters: [id], requestBody: body(obj({ description: str, tags: { type: "array", items: str }, links: { type: "array", items: obj({ label: str, url: str }) } })), responses: { "200": ok("meta"), ...errors } } },

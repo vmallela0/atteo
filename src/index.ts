@@ -31,6 +31,7 @@ import { mayMention, parseMentions, SESSION_NAME_RE, type Mention } from "./ment
 import * as registry from "./registry";
 import * as boardkeys from "./boardkeys";
 import * as mailbox from "./mailbox";
+import * as recap from "./recap";
 import {
   adminPage,
   boardPage,
@@ -1583,10 +1584,11 @@ const handler = {
           const only = url.searchParams.get("board");
           const ids = only ? [...cur.boards, ...directs].filter((b) => b === only) : [...cur.boards, ...directs];
           if (only && !ids.length) return json({ error: `This session isn't on ${only}.` }, 404);
-          const render = (b: { id: string; title: string; encrypted?: boolean }, entries: import("./types").Entry[], tasksForYou?: number, headless = false) =>
+          const render = (b: { id: string; title: string; encrypted?: boolean }, entries: import("./types").Entry[], tasksForYou?: number, headless = false, pin?: string | null) =>
             fence(
               [
                 tasksForYou == null ? `== ${b.title} (${b.id}) · new (${entries.length}) ==` : readHeader(b, entries.length, tasksForYou, null, headless),
+                ...(pin ? [pin] : []),
                 ...(entries.length ? [] : ["(nothing new)"]),
                 ...entries.map((e) => formatEntry(e, 4000, viewer.name)),
               ].join("\n"),
@@ -1608,7 +1610,8 @@ const handler = {
                   rules: r.rules,
                   entries: r.entries,
                   remaining: r.remaining,
-                  text: (r.rules ? fence(formatRules(r.rules)) + "\n" : "") + (r.summaryText ? fence(r.summaryText) + "\n" : "") + render(b, r.entries, r.tasksForYou, headless),
+                  pin: r.pin, // "📌 SPEC.md updated to v4", once per version (null otherwise)
+                  text: (r.rules ? fence(formatRules(r.rules)) + "\n" : "") + (r.summaryText ? fence(r.summaryText) + "\n" : "") + render(b, r.entries, r.tasksForYou, headless, r.pin),
                 };
               }),
             );
@@ -1754,6 +1757,54 @@ const handler = {
           return json({ error: e instanceof Error ? e.message : String(e) }, 400);
         }
         return json({ error: "not found" }, 404);
+      }
+
+      // ---- a recap: what happened since an entry (?since=N) or since you last read (?since=last-read, the default) ----
+      m = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/recap$/);
+      if (m && method === "GET") {
+        if (!viewer) return needLogin();
+        if (!(await registry.isMember(env, m[1], viewer.name))) return json({ error: "board not found" }, 404);
+        try {
+          const since = recap.parseSince(url.searchParams.get("since"));
+          return json(await recap.buildRecap(env, boardStub(env, m[1]), viewer.name, { since, session: await asid(), as: viewer.via === "agent" ? "agent" : "person" }), 200, { "cache-control": "no-store" });
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+        }
+      }
+
+      // ---- the pinned doc: one document a board pins as its source of truth (any member who can post) ----
+      m = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/pin$/);
+      if (m) {
+        if (!viewer) return needLogin();
+        if (!(await registry.isMember(env, m[1], viewer.name))) return json({ error: "board not found" }, 404);
+        const stub = boardStub(env, m[1]);
+        try {
+          if (method === "GET") return json({ pinned: await stub.pinned() });
+          const opts = { via: pv(), client: viewer.via === "agent" ? "atteo CLI" : null, session: await asid() };
+          if (method === "POST") {
+            const b = (await request.json().catch(() => ({}))) as { doc?: unknown; name?: unknown };
+            const name = String(b.doc ?? b.name ?? "").trim();
+            if (!name) return json({ error: "Say which document to pin: {doc: \"SPEC.md\"}." }, 400);
+            return json({ ok: true, pinned: await stub.pin(viewer.name, name, opts) });
+          }
+          if (method === "DELETE") {
+            const r = await stub.unpin(viewer.name, url.searchParams.get("doc") || null, opts);
+            return json({ ok: true, pinned: null, unpinned: r.unpinned });
+          }
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+        }
+        return json({ error: "method not allowed" }, 405);
+      }
+
+      // ---- one board as JSON: its info, your role and its pinned doc ----
+      m = path.match(/^\/api\/boards\/(b_[a-z0-9]+)$/);
+      if (m && method === "GET") {
+        if (!viewer && !hasOpsKey(c)) return needLogin();
+        if (!(await canSee(c, m[1]))) return json({ error: "board not found" }, 404);
+        const stub = boardStub(env, m[1]);
+        const [info, pinned, role] = await Promise.all([stub.info(), stub.pinned(), viewer ? registry.memberRole(env, m[1], viewer.name) : null]);
+        return json({ board: { ...info, role, pinned } });
       }
 
       // ---- react to an entry (toggle); GET lists every reaction on the board ----
@@ -2038,6 +2089,7 @@ const handler = {
             reads: snap.reads, // how far each member has seen, as a person and through their agent (read receipts)
             typing_agents: snap.typing_agents, // agents working on a person's message right now ("… is typing")
             summary: summaryHtml([], viewer?.name ?? "", members, snap.summary, { boardId: id, creator: snap.info.created_by }),
+            pinned: snap.pinned, // the board's pinned doc {name, version, …} or null
             count: snap.info.entry_count,
             last: fresh.length ? fresh[fresh.length - 1].seq : after,
           });
