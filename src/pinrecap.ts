@@ -69,26 +69,38 @@ const rcTime=ts=>{if(!ts)return '';const s=(Date.now()-ts)/1000;return s<60?'jus
 function rcItem(x,line){return '<li><a href="#e'+x.seq+'" data-recap-go="'+x.seq+'"><span class="rc-t">'+esc(x.title||x.text||'(untitled)')+'</span><span class="rc-m xs faint">'+line+'</span></a></li>'}
 function rcSec(title,items,empty){return '<section class="rc-sec"><h3>'+title+(items.length?' <span class="faint">'+items.length+'</span>':'')+'</h3>'+(items.length?'<ul>'+items.join('')+'</ul>':'<p class="xs faint">'+empty+'</p>')+'</section>'}
 function rcRender(j,since){
-  const dec=(j.decisions||[]).map(x=>rcItem(x,esc(rcWho(x))+(x.ts?' · '+rcTime(x.ts):'')));
-  const qs=(j.questions||j.open_questions||[]).map(x=>rcItem(x,esc(rcWho(x))+(x.to?' → '+esc(x.to):'')+(x.ts?' · '+rcTime(x.ts):'')));
+  const dec=(j.decisions||[]).map(x=>rcItem(x,esc(rcWho(x))+(x.human?' · for people'+(x.state==='open'?(x.waiting_on&&x.waiting_on.length?', waiting on '+esc(x.waiting_on.join(', ')):', open'):x.state?', '+esc(x.state):''):'')+(x.ts?' · '+rcTime(x.ts):'')));
+  const waits=x=>x.waiting_on&&x.waiting_on.length?x.waiting_on:x.to?[x.to]:[];
+  const qs=(j.questions||j.open_questions||[]).map(x=>rcItem(x,esc(rcWho(x))+(waits(x).length?' → '+esc(waits(x).join(', ')):'')+(x.ts?' · '+rcTime(x.ts):'')));
   const owed=(j.owed||j.owes||[]).filter(o=>(o.items||[]).length);
   const KIND={task:'task',question:'question',review:'review',approval:'approval'};
   const ow=owed.length?'<section class="rc-sec"><h3>Who owes what</h3>'+owed.map(o=>{const nm=o.agent?(o.session?o.who+'/'+o.session:o.who+"'s agent"):o.who;
     return '<div class="rc-owe"><div class="rc-owe-h">'+(typeof avatar16==='function'?avatar16(o.who,!!o.agent):'')+'<b>'+esc(o.who===ME&&!o.agent?'You':nm)+'</b><span class="faint xs">'+o.items.length+'</span></div><ul>'+
-      o.items.map(x=>rcItem(x,esc(KIND[x.kind]||x.kind||'task')+(x.status?' · '+esc(x.status):''))).join('')+'</ul></div>'}).join('')+'</section>':rcSec('Who owes what',[],'Nobody owes anything open.');
-  const n=j.count!=null?j.count:j.new_count;
-  rcSub.textContent=since>0?(n!=null?n+' new message'+(n===1?'':'s')+' since you last looked':'Since you last looked'):'The whole board';
-  const nothing=!dec.length&&!qs.length&&!owed.length;
-  rcBody.innerHTML=(nothing&&since>0?'<p class="small muted rc-none">Nothing new since you last looked. <button class="linkish" type="button" data-recap-all>Recap the whole board</button></p>':'')+
-    (nothing&&since>0?'':rcSec('Decisions',dec,'No new decisions.')+rcSec('Open questions',qs,'No open questions.')+ow)}
+      o.items.map(x=>rcItem(x,esc(KIND[x.kind]||x.kind||'task')+((x.state||x.status)&&(x.state||x.status)!=='open'?' · '+esc(x.state||x.status):''))).join('')+'</ul></div>'}).join('')+'</section>':rcSec('Who owes what',[],'Nobody owes anything open.');
+  // Also, only when there is some: approvals waiting for you, tasks finished, files changed.
+  const ap=(j.approvals||[]).map(a=>'<li><a href="/approvals" class="rc-ext"><span class="rc-t">'+esc(a.title)+'</span><span class="rc-m xs faint">'+esc(a.risk||'')+' risk'+(a.tool?' · '+esc(a.tool):'')+'</span></a></li>');
+  // New or blocked tasks nobody owes yet (unassigned) aren't under "who owes what": list them, so nothing new is missed.
+  const owing=new Set(owed.flatMap(o=>o.items.map(x=>x.seq))),tm=j.tasks_moved||{};
+  const fresh=[...(tm.blocked||[]),...(tm.new||[])].filter((t,i,a)=>!owing.has(t.seq)&&a.findIndex(x=>x.seq===t.seq)===i).map(t=>rcItem(t,esc(t.owner_label||'unassigned')+(t.status==='blocked'?' · blocked':'')));
+  const done=(tm.done||[]).map(t=>rcItem(t,esc(t.owner_label||'')));
+  const files=(j.files||[]).map(f=>'<li><a href="#files" data-recap-file="'+esc(f.name)+'"><span class="rc-t mono">'+esc(f.name)+'</span><span class="rc-m xs faint">'+(f.from_version?'v'+f.from_version+' → v'+f.to_version:'new')+(f.authors&&f.authors.length?' · '+esc(f.authors.join(', ')):'')+'</span></a></li>');
+  const more=(ap.length?rcSec('Waiting for your approval',ap,''):'')+(fresh.length?rcSec('New tasks',fresh,''):'')+(done.length?rcSec('Done',done,''):'')+(files.length?rcSec('Files changed',files,''):'');
+  const n=j.entries!=null?j.entries:j.count!=null?j.count:j.new_count;
+  // Nothing posted since you last looked: say so, still show what's open and waiting, and offer the whole board.
+  const quiet=since>0&&(n!=null?n===0:!dec.length&&!qs.length&&!owed.length);
+  rcSub.textContent=quiet?'Nothing new since you last looked':since>0?(n!=null?n+' new message'+(n===1?'':'s')+' since you last looked':'Since you last looked'):'The whole board'+(n?' · '+n+' message'+(n===1?'':'s'):'');
+  const all='<p class="small muted rc-none">'+(quiet?'':'Want more? ')+'<button class="linkish" type="button" data-recap-all>Recap the whole board</button></p>';
+  rcBody.innerHTML=quiet?(qs.length?rcSec('Still open',qs,''):'')+(owed.length?ow:'')+more+all
+    :rcSec('Decisions',dec,'No new decisions.')+rcSec('Open questions',qs,'No open questions.')+ow+more+(since>0?all:'')}
 async function rcOpen(since){rcSub.textContent='Loading…';rcBody.innerHTML='<p class="small muted">Loading…</p>';if(!rcDlg.open)rcDlg.showModal();
-  let r;try{r=await fetch('/api/boards/'+BOARD+'/recap'+(since>0?'?since='+since:''))}catch(e){r=null}
+  let r;try{r=await fetch('/api/boards/'+BOARD+'/recap?since='+since)}catch(e){r=null}
   if(!r||r.status===404||r.status===405){rcSub.textContent='';rcBody.innerHTML='<p class="small muted">Recap isn\\'t available on this server yet.</p>';return}
   const j=await r.json().catch(()=>({}));if(!r.ok){rcSub.textContent='';rcBody.innerHTML='<p class="flash err">'+esc(j.error||"Couldn't load the recap")+'</p>';return}
   rcRender(j,since)}
 document.getElementById('recap-btn')?.addEventListener('click',()=>{const dot=document.getElementById('recap-dot');if(dot)dot.hidden=true;rcOpen(RECAP_SINCE)});
 rcDlg?.addEventListener('click',e=>{if(e.target===rcDlg||e.target.closest('[data-close]')){rcDlg.close();return}
   if(e.target.closest('[data-recap-all]')){rcOpen(0);return}
+  const f=e.target.closest('[data-recap-file]');if(f){e.preventDefault();rcDlg.close();window.BOARD_CTX.openFile(f.dataset.recapFile);return}
   const a=e.target.closest('[data-recap-go]');if(a){e.preventDefault();rcDlg.close();window.BOARD_CTX.jump(+a.dataset.recapGo)}});
 // A dot on Recap when there's something newer than where you'd read up to.
 {const dot=document.getElementById('recap-dot');if(dot)dot.hidden=!(RECAP_SINCE>0&&last>RECAP_SINCE)}
