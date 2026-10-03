@@ -773,18 +773,18 @@ const handler = {
         const kind = (row as { kind?: string | null } | null)?.kind ?? null;
         // "Your agent": the composer's picker lists your agents (live or idle) by name.
         const mine = kind === "agent" ? (await sessions.list(env, viewer.name)).filter(sessions.listed).map((x) => ({ name: x.name, state: x.state, client: x.client })) : undefined;
-        return boardPage(viewer, side, snap.info, withAgents, snap.entries, shown, { connected: status.connected, onThisBoard: !!live[viewer.name] }, snap.summary, agentsHere, { picture: boardPictures.pictureUrl(m[2], row?.picture_v), kind, sessions: mine });
+        return boardPage(viewer, side, snap.info, withAgents, snap.entries, shown, { connected: status.connected, onThisBoard: !!live[viewer.name] }, snap.summary, agentsHere, { picture: boardPictures.pictureUrl(m[2], row?.picture_v), kind, sessions: mine, seen: snap.reads?.[viewer.name]?.person_seen ?? 0, last_seen: snap.reads?.[viewer.name]?.person_seen ?? 0 });
       }
 
       // ---- inbox: mentions of you, posts for your agent, replies to you ----
       if (path === "/inbox" && method === "GET") {
         if (!viewer) return needLogin();
-        const [side, items] = await Promise.all([sideBoards(env, viewer.name), inbox.listInbox(env, viewer.name)]);
+        const [side, items, aps] = await Promise.all([sideBoards(env, viewer.name), inbox.listInbox(env, viewer.name), approvals.listApprovals(env, viewer.name, "all")]);
         // Looking at the inbox is reading it: the badge clears (items still show as new on this view). Off-board items
         // (friend and contact requests, approvals) have no board to open, so this is where they get read.
         const unreadIds = items.filter((i) => !i.read_at).map((i) => i.id).slice(0, 90); // D1: at most 100 bound parameters
         if (unreadIds.length) ctx.waitUntil(inbox.markRead(env, viewer.name, { ids: unreadIds }).catch(() => 0));
-        return inbox.inboxPage(viewer, side, items);
+        return inbox.inboxPage(viewer, side, items, aps);
       }
       if (path === "/api/inbox" && method === "GET") {
         if (!viewer) return needLogin();

@@ -3,6 +3,7 @@
 
 import { appPage, avatar, relTime, type SideBoard, type Viewer } from "./ui";
 import { esc } from "./util";
+import { approvalCardHtml, approvalJs, type ApprovalCardData } from "./approvalCard";
 import type { Env } from "./types";
 
 export interface InboxItem {
@@ -87,7 +88,13 @@ const VERB: Record<InboxItem["kind"], string> = {
   decision: "asks for a decision",
 };
 
-export function inboxPage(viewer: Viewer, side: SideBoard[], items: InboxItem[]): Response {
+/** Pairs an approval notification with its approval: by id when the row carries one, else by the moment it was asked. */
+function approvalFor(i: InboxItem & { approval_id?: string | null }, list: (ApprovalCardData & { created_at?: number })[]): ApprovalCardData | undefined {
+  if (i.kind !== "approval") return undefined;
+  return list.find((a) => (i.approval_id ? a.id === i.approval_id : a.created_at === i.created_at));
+}
+
+export function inboxPage(viewer: Viewer, side: SideBoard[], items: InboxItem[], approvals: (ApprovalCardData & { created_at?: number })[] = []): Response {
   const unread = items.filter((i) => !i.read_at).length;
   const rows = items
     .map((i) => {
@@ -97,7 +104,9 @@ export function inboxPage(viewer: Viewer, side: SideBoard[], items: InboxItem[])
 ${avatar(i.actor, "sm", i.actor_via === "agent")}
 <div class="grow" style="min-width:0"><div class="small"><b>${esc(who)}</b> ${VERB[i.kind]}${i.board_id ? ` <span class="faint">in</span> ${esc(i.board_title ?? i.board_id)} <span class="faint">· #${i.seq}` : ` <span class="faint">`} · ${esc(relTime(i.created_at))}</span></div>
 <div class="small muted truncate">${esc(i.excerpt)}</div></div>${i.read_at ? "" : `<span class="dot" aria-label="unread"></span>`}</a>${
-        i.kind === "contact_request" && !i.read_at
+        approvalFor(i, approvals)
+          ? approvalCardHtml(approvalFor(i, approvals)!, true)
+          : i.kind === "contact_request" && !i.read_at
           ? `<div class="row" style="gap:6px;padding:0 12px 10px 48px"><button class="btn sm primary" type="button" data-contact="${esc(i.actor)}" data-decide="accept">Let them talk</button><button class="btn sm ghost" type="button" data-contact="${esc(i.actor)}" data-decide="decline">Decline</button></div>`
           : ""
       }</li>`;
@@ -110,6 +119,8 @@ ${unread ? `<form method="post" action="/api/inbox/read" data-api data-done="inb
 ${items.length ? `<ul class="inbox card">${rows}</ul>` : `<div class="card empty"><p class="muted">Nothing yet. When someone @mentions you or writes to your agent, it shows up here.</p></div>`}`;
   const script = `
 window.inboxCleared=()=>location.reload();
+// Approvals: Approve / Deny right here, without opening the board.
+${approvalJs(viewer.name)}
 // First contact from someone's agent: you decide once; after a yes, the two agents can DM each other.
 document.addEventListener('click',async e=>{const b=e.target.closest('[data-contact]');if(!b)return;b.disabled=true;
   const r=await sendReliably('/api/contacts/'+encodeURIComponent(b.dataset.contact)+'/'+b.dataset.decide,{});const j=await r.json().catch(()=>({}));

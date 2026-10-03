@@ -106,7 +106,7 @@ label.lbl{display:block;font-size:13px;font-weight:500;color:var(--ink);margin:0
 @keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--ok) 45%,transparent)}70%{box-shadow:0 0 0 7px transparent}100%{box-shadow:0 0 0 0 transparent}}
 .type{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--muted)}
 .type .dot{width:6px;height:6px}
-.t-question{color:var(--q)}.t-claim{color:var(--claim)}.t-decision{color:var(--decision)}.t-task{color:var(--task)}.t-artifact{color:var(--artifact)}.t-note{color:var(--note)}
+.t-question{color:var(--q)}.t-claim{color:var(--claim)}.t-decision{color:var(--decision)}.t-task{color:var(--task)}.t-artifact{color:var(--artifact)}.t-note{color:var(--note)}.t-approval{color:var(--warn)}
 .type span:not(.dot){color:var(--muted)}
 
 /* avatars */
@@ -171,6 +171,7 @@ dialog[open]{animation:pop .16s ease-out}dialog:focus{outline:none}
 @media(min-width:960px){.layout{grid-template-columns:minmax(0,1fr) 300px}.aside{position:sticky;top:64px;align-self:start;max-height:calc(100vh - 84px);overflow-y:auto;overflow-x:hidden;padding-right:4px}}
 .thread{display:flex;flex-direction:column}
 .entry{display:flex;gap:12px;padding:16px 0;border-top:1px solid var(--line)}
+.new-line{display:flex;align-items:center;gap:8px;margin:6px 0 -4px;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--danger)}.new-line::before,.new-line::after{content:"";flex:1;height:1px;background:color-mix(in srgb,var(--danger) 45%,transparent)}.new-line::before{flex:0 0 0}
 .thread>.entry:first-child{border-top:0;padding-top:4px}
 .entry .meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px;line-height:20px}
 .entry .who{font-weight:600;color:var(--ink)}
@@ -287,6 +288,13 @@ dialog.access-dlg{width:min(640px,calc(100vw - 24px))}
 .badge.hdl button:hover{background:var(--bg-hover);color:var(--ink)}
 .badge.hdl button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .bc-last{margin:6px 0 0;font-size:13px;color:var(--muted);line-height:1.4}.bc-last b{color:var(--text);font-weight:500}
+/* board settings: triggers (a rule per line; yours have Pause / Delete) and the form to add one */
+.acc-sec[hidden]{display:none}.trg-row{display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-top:1px solid var(--line)}.trg-row:first-child{border-top:0;padding-top:0}.trg-row.off .small{color:var(--muted)}
+.trg-p{margin-top:2px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}.trg-acts{flex:none;gap:2px}
+.trg-new{display:flex;flex-direction:column;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
+.trg-when,.trg-wake{display:flex;align-items:center;gap:8px;min-width:0}.trg-when .acc-url{flex:1;min-width:0}.trg-when .acc-url[hidden]{display:none}.trg-wake .acc-sel{flex:1;min-width:0}
+.trg-new textarea.input{min-height:60px;font-size:13px}
+@media(max-width:640px){.trg-when{flex-wrap:wrap}.trg-when .acc-sel{flex:1 1 100%;min-width:0;width:100%}.trg-row{flex-wrap:wrap;row-gap:2px}.trg-row>.grow{flex-basis:100%}.trg-acts{margin-left:-9px}}
 .acc-url{font-size:12px;height:30px}.acc-to{position:relative;min-width:200px}.acc-to .input{width:100%}
 .acc-sug{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:5;list-style:none;margin:0;padding:4px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--bg);box-shadow:var(--shadow-lg)}
 .acc-sug[hidden]{display:none}.acc-sug li{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;font-size:13px;cursor:pointer;min-width:0}
@@ -298,6 +306,14 @@ dialog.access-dlg{width:min(640px,calc(100vw - 24px))}
 .ro .rx-chip{pointer-events:none}
 /* threads: replies fold into "N replies" under their message; the thread opens in a side panel (an overlay on phones) */
 #thread>.entry>.grow>.replies{display:none}#thread>.entry.thr-open>.grow>.replies{display:block}
+/* Replies post in the conversation (jxn #1040): a bar quoting what they answer; the thread opens as an overlay */
+.rq{display:flex;flex-direction:column;align-items:flex-start;gap:1px;max-width:100%;margin:4px 0 2px;padding:4px 10px;border:0;border-left:3px solid var(--line-strong);border-radius:0 8px 8px 0;background:var(--bg-subtle);color:var(--muted);font:inherit;font-size:12.5px;text-align:left;cursor:pointer}
+.rq:hover{background:var(--bg-hover);border-left-color:var(--muted)}.rq-who{font-weight:600;color:var(--text)}.rq-t{display:block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.thr-dlg{width:min(620px,calc(100vw - 24px));height:min(760px,calc(100vh - 48px));padding:0;display:none}.thr-dlg[open]{display:flex;flex-direction:column}
+.thr-hd{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--line)}.thr-hd b{color:var(--ink)}
+.thr-list{flex:1;overflow:auto;padding:4px 16px 12px}.thr-list>.entry:first-child{border-top:0}.thr-list>.entry.hit{background:color-mix(in srgb,var(--accent) 7%,transparent)}
+.thr-form{display:flex;gap:8px;align-items:flex-end;padding:10px 12px;border-top:1px solid var(--line)}.thr-form textarea{flex:1;min-height:40px;max-height:30vh;resize:none}
+@media (max-width:640px){.thr-dlg{width:100vw;max-width:100vw;height:calc(100dvh - 40px);max-height:none;margin:auto 0 0;border-radius:16px 16px 0 0}}
 .thr-sum{display:flex;flex-direction:column;align-items:stretch;gap:2px;width:fit-content;max-width:100%;margin-top:6px;padding:3px 10px 4px 4px;text-align:left;border:1px solid transparent;border-radius:8px;background:none;font:inherit;font-size:12.5px;color:var(--accent);cursor:pointer}
 .thr-sum:hover{border-color:var(--line);background:var(--bg-subtle)}.thr-sum .faint{color:var(--faint)}
 .thr-sum .avs .av{width:20px;height:20px;font-size:8.5px}
@@ -327,6 +343,12 @@ dialog.access-dlg{width:min(640px,calc(100vw - 24px))}
 /* phones: the card's buttons stay together on its one line: the progress bar gets shorter, empty bits take no room */
 @media(max-width:640px){.tk{flex-wrap:nowrap}.tk>.tk-st,.tk>.btn{flex:none}.tk>.tk-prog{min-width:0}.tk-bar{width:28px}.tk>.tk-who:empty{display:none}.tk>.btn.sm{padding:0 7px}}
 @media(max-width:360px){.tk-bar{display:none}}
+/* approval card (conversation and Inbox): the exact command, where it stands, Approve / Deny for the person asked */
+.apc{margin-top:8px;max-width:640px}.apc>.tk{margin-top:0}.apc-cmd{margin:0 0 6px;max-height:220px;overflow:auto;padding:8px 10px;border-radius:8px;background:var(--bg-subtle);border:1px solid var(--line);font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word}
+.apc .tk-st .dot{background:var(--warn)}.apc.st-approved .tk-st .dot{background:var(--ok)}.apc.st-rejected .tk-st .dot{background:var(--danger)}.apc.st-expired .tk-st .dot{background:var(--muted)}
+.apc.st-approved .tk-st{color:var(--ok)}.apc.st-rejected .tk-st,.apc.st-expired .tk-st{color:var(--muted)}
+.apc-acts{display:inline-flex;gap:6px;flex:none;margin-left:auto}.apc .tk{flex-wrap:wrap} /* too narrow for both: the buttons drop under the status, still on the right */.apc-acts[hidden]{display:none}.apc-risk{color:var(--danger);font-weight:500;white-space:nowrap}.apc-note{margin:6px 0 0}
+.inbox-item .apc{margin:0;padding:0 10px 12px 42px}.inbox-item .apc .dot{margin-top:0}
 .tk-subs{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:1px;font-size:12.5px}
 .tk-subs li{display:flex;align-items:center;gap:8px;min-width:0;padding:3px 8px;border-left:2px solid var(--line)}.tk-subs .grow{color:var(--text);text-decoration:none}.tk-subs a.grow:hover{text-decoration:underline}
 .tk-subs li.st-done .grow{color:var(--muted);text-decoration:line-through;text-decoration-color:color-mix(in srgb,var(--muted) 60%,transparent)}
@@ -835,6 +857,32 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
 a.ref{display:inline-flex;align-items:center;max-width:22em;padding:0 6px;border-radius:5px;background:var(--bg-hover);color:var(--text);font-size:.92em;text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom}
 a.ref:hover{color:var(--ink);background:color-mix(in srgb,var(--accent) 12%,var(--bg-hover))}
 .sum li .n,.kmeta .seq,#td-seq{display:none}
+/* The pinned doc (vedu #977): a slim bar on top of the conversation and the side panel's first section */
+.pin-bar{flex:none;margin:8px 0;min-width:0}
+@media(max-width:959px){.pin-bar{margin-right:38px}}.layout.info-collapsed .pin-bar{margin-right:38px} /* clear of the board-info toggle in the corner */
+.pin-open{display:flex;align-items:center;gap:8px;width:100%;min-width:0;height:32px;padding:0 10px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--bg-subtle);color:var(--text);font:inherit;font-size:13px;text-align:left;cursor:pointer}
+.pin-open:hover{border-color:var(--line-strong);background:var(--bg-hover)}.pin-open svg,.pin-card svg{flex:none;color:var(--muted)}
+.pin-name{flex:0 1 auto;color:var(--ink);font-size:12.5px;font-weight:500}.pin-peek{flex:1 1 0;min-width:0;color:var(--muted)}
+.pin-card{display:flex;flex-direction:column;align-items:stretch;gap:4px;width:100%;min-width:0;padding:8px 10px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--bg);color:var(--text);font:inherit;text-align:left;cursor:pointer}
+.pin-card:hover{border-color:var(--line-strong)}.pin-card b{font-size:12.5px;color:var(--ink)}
+.pin-prev{position:relative;max-height:150px;overflow:hidden;font-size:12.5px;line-height:1.5;margin-top:2px}
+.pin-prev::after{content:"";position:absolute;left:0;right:0;bottom:0;height:36px;background:linear-gradient(transparent,var(--bg))}
+.pin-prev h1,.pin-prev h2,.pin-prev h3{font-size:13px;margin:4px 0;color:var(--ink);text-transform:none}.pin-prev p,.pin-prev ul,.pin-prev ol{margin:4px 0}
+.pin-img{display:block;max-width:100%;max-height:150px;border-radius:6px;margin-top:4px}
+#doc-pin svg{margin-right:2px}#doc-pin.on{color:var(--accent)}
+/* Recap: a header button and a sheet (bottom sheet on phones) */
+.recap-btn{position:relative;gap:5px;align-self:center;color:var(--muted)}.recap-btn:hover{color:var(--ink)}
+.recap-dot{flex:none;width:6px;height:6px;border-radius:50%;background:var(--accent);align-self:flex-start;margin:5px 0 0 -2px}
+dialog.recap-dlg{width:min(560px,calc(100vw - 32px));max-height:min(80vh,720px)}
+.recap-dlg .bd{overflow-y:auto;max-height:calc(min(80vh,720px) - 80px)}
+.rc-sec+.rc-sec{margin-top:18px}.rc-sec h3{font-size:12px;font-weight:600;color:var(--muted);margin:0 0 6px;text-transform:none}
+.rc-sec ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
+.rc-sec li a{display:flex;flex-direction:column;gap:1px;padding:6px 8px;margin:0 -8px;border-radius:6px;color:var(--text);text-decoration:none;min-width:0}
+.rc-sec li a:hover{background:var(--bg-hover)}.rc-t{font-size:13.5px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rc-owe+.rc-owe{margin-top:10px}.rc-owe-h{display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:2px}.rc-owe-h b{color:var(--ink);font-weight:500}
+.rc-none{margin:4px 0}
+@media(max-width:359px){.recap-l{display:none}.recap-btn{width:30px;padding:0;justify-content:center}.recap-dot{position:absolute;top:4px;right:4px;margin:0;box-shadow:0 0 0 2px var(--bg)}}
+@media(max-width:640px){dialog.recap-dlg{margin:auto 0 0;width:100vw;max-width:100vw;max-height:85vh;border-radius:14px 14px 0 0;border-width:1px 0 0}.recap-dlg .bd{max-height:calc(85vh - 80px)}}
 `;
 
 // The Pebble: the app mark. One soft pebble split by a slanted seam; the clay half is you, the ink half your agent,

@@ -5,6 +5,7 @@ import { PLANS, PRICES, type PlanState } from "./billing";
 import { boardMeta, type BoardRow, type InviteRow, type Invitation, type UserRow } from "./registry";
 import type { TokenRow } from "./auth";
 import { authorLabel, computeSummary, retractedSet, type Summary } from "./state";
+import { PIN_BAR, PIN_SIDE, RECAP_BTN, RECAP_DLG, pinRecapJs } from "./pinrecap";
 import { forAgent, forPerson, mentionLabel } from "./mentions";
 import { screenText } from "./screen";
 import { clientName, presenceLabel } from "./social";
@@ -14,6 +15,7 @@ import { appPage, avatar, avatarStack, boardPic, copyField, hue, page, renderTex
 import { esc, pictureUrl } from "./util";
 import { stateOf } from "./sessions";
 import { E2E_JS } from "./e2eweb";
+import { approvalCardHtml, approvalJs, type ApprovalCardData } from "./approvalCard";
 
 export type { Viewer, SideBoard };
 
@@ -68,7 +70,7 @@ export function rootMap(entries: Entry[]): Map<number, number> {
   return roots;
 }
 
-export function entryHtml(e: Entry, boardId: string, withReplies = true, opts: { retracted?: boolean; canRetract?: boolean } = {}): string {
+export function entryHtml(e: Entry, boardId: string, withReplies = true, opts: { retracted?: boolean; canRetract?: boolean; root?: number } = {}): string {
   const refs: string[] = [];
   if (e.retracts != null) refs.push(`unsends <a class="ref" data-ref="${e.retracts}" href="#e${e.retracts}">#${e.retracts}</a>`);
   if (e.reply_to != null) refs.push(`reply to <a class="ref" data-ref="${e.reply_to}" href="#e${e.reply_to}">#${e.reply_to}</a>`);
@@ -99,11 +101,13 @@ ${
   // Touch screens have no hover: a small ⋯ at the end of the line opens the actions (jxn #891); hidden with a mouse.
   const more = react || reply || retract ? `<button class="more-acts" type="button" data-more="${e.seq}" aria-label="More actions" aria-expanded="false" title="More actions">⋯</button>` : "";
   const actions = react || reply || retract ? `${more}<span class="acts">${react}${reply}${select}${retract}</span>` : "";
-  return `<article class="entry${opts.retracted ? " retracted" : ""}${e.via === "agent" ? " by-agent" : ""}" id="e${e.seq}" data-seq="${e.seq}" data-author="${esc(e.author)}" data-title="${esc(shortTitle(e))}">
+  // An approval entry: the card says where it stands, so the message is just what's asked (its text, for agents, says "waiting").
+  const apr = (e as Entry & { approval?: ApprovalCardData & { title?: string } }).approval;
+  return `<article class="entry${opts.retracted ? " retracted" : ""}${e.via === "agent" ? " by-agent" : ""}" id="e${e.seq}" data-seq="${e.seq}" data-author="${esc(e.author)}" data-title="${esc(shortTitle(e))}"${e.reply_to != null ? ` data-reply="${e.reply_to}"` : ""}${opts.root != null && opts.root !== e.seq ? ` data-root="${opts.root}"` : ""}>
 ${avatar(e.author, "", e.via === "agent")}
 <div class="grow">
   <div class="meta">${whoHtml(e)}${e.to ? `<span class="to">→ ${esc(e.to)}</span>` : ""}${e.type === "note" ? "" : typeTag(e.type)}${when(e.ts)}<a class="seq" href="#e${e.seq}">#${e.seq}</a><span class="badge rbadge">Unsent</span>${flagBadge(e.text, e.ai_flag)}${actions}</div>
-  <div class="body">${refLinks(renderText(e.text, e.mentions))}</div>${file}${e.card ? changeCardHtml(e.seq, e.card) : ""}${e.type === "task" ? `<div class="tk" data-task="${e.seq}" hidden></div>` : ""}${e.type === "claim" && !opts.retracted ? `<div class="tk cl" data-claim="${e.seq}" hidden></div>` : ""}${e.type === "decision" && e.via === "person" && !opts.retracted ? `<div class="tk hd" data-hd="${e.seq}" hidden></div>` : ""}
+  <div class="body">${apr?.title ? `<p>${esc(apr.title)}</p>` : refLinks(renderText(e.text, e.mentions))}</div>${file}${e.card ? changeCardHtml(e.seq, e.card) : ""}${apr && !opts.retracted ? approvalCardHtml(apr) : ""}${e.type === "task" ? `<div class="tk" data-task="${e.seq}" hidden></div>` : ""}${e.type === "claim" && !opts.retracted ? `<div class="tk cl" data-claim="${e.seq}" hidden></div>` : ""}${e.type === "decision" && e.via === "person" && !opts.retracted ? `<div class="tk hd" data-hd="${e.seq}" hidden></div>` : ""}
   ${refs.length ? `<div class="refs">${refs.join(" · ")}</div>` : ""}
   <div class="rx" data-rx="${e.seq}"><button class="rx-add" type="button" data-rx-add="${e.seq}" aria-label="Add a reaction" title="Add a reaction">☺<span>+</span></button></div>
   ${withReplies ? `<div class="replies" id="r${e.seq}"></div>` : ""}
@@ -248,23 +252,12 @@ function fmtBytes(n: number): string {
 }
 
 export function threadHtml(entries: Entry[], boardId: string, viewer?: { name: string; creator: string }): string {
+  // Every message in order, replies included (jxn #1040): a reply posts like any message, with a bar quoting what it
+  // answers; its thread opens as an overlay. data-root ties a reply to its thread.
   const roots = rootMap(entries);
   const gone = retractedSet(entries);
-  const flags = (e: Entry) => ({ retracted: gone.has(e.seq), canRetract: !!viewer && (e.author === viewer.name || viewer.creator === viewer.name) });
-  const replies = new Map<number, Entry[]>();
-  const top: Entry[] = [];
-  for (const e of entries) {
-    const r = roots.get(e.seq)!;
-    if (r === e.seq) top.push(e);
-    else replies.set(r, [...(replies.get(r) ?? []), e]);
-  }
-  return top
-    .map((e) => {
-      const html = entryHtml(e, boardId, true, flags(e));
-      const kids = (replies.get(e.seq) ?? []).map((k) => entryHtml(k, boardId, false, flags(k))).join("");
-      return html.replace(`<div class="replies" id="r${e.seq}"></div>`, `<div class="replies" id="r${e.seq}">${kids}</div>`);
-    })
-    .join("");
+  const flags = (e: Entry) => ({ retracted: gone.has(e.seq), canRetract: !!viewer && (e.author === viewer.name || viewer.creator === viewer.name), root: roots.get(e.seq) });
+  return entries.map((e) => entryHtml(e, boardId, roots.get(e.seq) === e.seq, flags(e))).join("");
 }
 
 /** A board info section that folds: the heading is a button (chevron, title, count); folded, it keeps a one-line peek
@@ -539,10 +532,11 @@ const CONNECT_JS = `
   document.querySelectorAll('[data-cn-link]').forEach(a=>a.href=links[a.dataset.cnLink]);
   const cmds={claude:'claude mcp add --transport http --scope user atteo '+u,codex:'codex mcp add atteo --url '+u+' && codex mcp login atteo',gemini:'gemini mcp add --transport http atteo '+u,grok:'grok mcp add --transport http atteo '+u};
   // Agents that set themselves up from a message (Grok Bot runs in the cloud; Muse and others edit their own config).
-  const says={grokbot:'Add a custom MCP connector named "Atteo" with the URL '+u+' and sign in to it. It is how you work with agents owned by other people, on shared boards.',
+  // Grok Bot has no inbound channel: a Routine polling the mailbox is how it hears from other agents.
+  const says={grokbot:'Add a custom MCP connector named "Atteo" with the URL '+u+' and sign in to it. It is how you work with agents owned by other people, on shared boards.\\n\\nThen create a Routine that runs every 10 minutes: "Call the Atteo mailbox tool. For each item for you, answer it in its thread (join_board, then post with reply_to); ask me before doing anything with side effects. If the mailbox is empty, stay quiet."',
     muse:'Add an MCP server named "atteo" to your settings (~/.config/muse/settings.json), transport streamable_http, url '+u+', then sign in to it when it asks. It is how you work with agents owned by other people, on shared boards.',
     any:'Connect to the Atteo MCP server at '+u+' (streamable HTTP; it signs in with OAuth in the browser). If you can run shell commands, you can instead install its CLI with: curl -fsSL '+location.origin+'/install.sh | sh  then run: atteo login'};
-  const sayWhere={grokbot:'Paste it to Grok Bot (or add it yourself: Settings → Connectors → Custom).',muse:'Paste it into Muse.',any:'Paste it into your agent.'};
+  const sayWhere={grokbot:'Paste it to Grok Bot (or add it yourself: Settings → Connectors → Custom, plus the Routine).',muse:'Paste it into Muse.',any:'Paste it into your agent.'};
   document.querySelectorAll('#cli-install,[data-fill-origin]').forEach(x=>x.textContent=x.textContent.replace('https://atteo.example',location.origin));
   let box=null;const done=(t)=>{const d=box&&box.querySelector('.cn-done');if(d)d.textContent=t};
   const copy=(t)=>navigator.clipboard?.writeText(t).catch(()=>{});
@@ -763,7 +757,7 @@ export function boardPage(
   agent: AgentState = { connected: false, onThisBoard: false },
   summary?: Summary, // the whole board's (big boards only send their newest entries)
   agents: AgentHere[] = [],
-  board: { picture: string | null; kind: string | null; sessions?: { name: string; state: string; client: string | null }[] } = { picture: null, kind: null }, // from the directory (D1); sessions: yours, on "Your agent"
+  board: { picture: string | null; kind: string | null; sessions?: { name: string; state: string; client: string | null }[]; seen?: number; last_seen?: number } = { picture: null, kind: null }, // from the directory (D1); sessions: yours, on "Your agent"; last_seen: how far you had read (for Recap)
 ): Response {
   const ctl = { boardId: info.id, creator: info.created_by };
   // Your role on this board: owners manage access; viewers read only (no composer, no reactions, no invites).
@@ -775,6 +769,8 @@ export function boardPage(
   // "Your agent": your private chat with your own agents (any of them, or the one you pick); never anyone else.
   const agentChat = board.kind === "agent";
   const canPic = !readOnly && !info.archived && !direct && !agentChat;
+  // Triggers: any member who can post sets rules that wake their own agent (never anyone else's).
+  const canTrig = !readOnly && !info.archived && !agentChat;
   const last = entries.length ? entries[entries.length - 1].seq : 0;
   const first = entries.length ? entries[0].seq : 0;
   // Big boards open on their newest entries; earlier ones load on demand.
@@ -795,10 +791,10 @@ async function loadEarlier(until){const b=document.getElementById('load-earlier'
   const r=await fetch('/api/boards/'+BOARD+'/entries?before='+before+'&limit='+(until?Math.min(500,before-until+20):150));const j=await r.json().catch(()=>({}));if(!r.ok){b.disabled=false;return}
   const frag=document.createDocumentFragment(),later=[];
   for(const x of j.entries){if(document.getElementById('e'+x.seq))continue;const t=document.createElement('div');t.innerHTML=x.html;const el=t.firstElementChild;
-    const box=x.root!==x.seq&&(document.getElementById('r'+x.root)||frag.querySelector('#r'+x.root));
-    if(box){el.querySelector('.replies')?.remove();box.appendChild(el)}else frag.appendChild(el);later.push(x)}
+    if(x.root!==x.seq){el.dataset.root=String(x.root);el.querySelector(':scope>.grow>.replies')?.remove()}frag.appendChild(el);later.push(x)}
   const h0=sc.scrollHeight;b.after(frag); // measured now: the thread can grow while the fetch is out (keeps your place, never overshoots to the bottom)
   for(const x of later){if(x.human_decision){HDS[x.seq]=x.human_decision;renderHD(x.seq)}if(x.reactions?.length)renderRx(x.seq,x.reactions);if(document.querySelector('#e'+x.seq+' [data-task]'))refreshTask(x.seq);if(x.root!==x.seq)thrSum(x.root)}
+  document.querySelectorAll('#thread>.entry[data-reply]').forEach(quotify);
   if(window.e2eSync&&later.length)e2eSync(later[0].seq-1);
   renderClaims(CLAIMS);
   if(j.first>1){b.dataset.before=j.first;b.disabled=false}else b.remove();sc.scrollTop+=sc.scrollHeight-h0;railBuild()}
@@ -859,8 +855,14 @@ async function goLinked(){const m=location.hash.match(/^#e([0-9]+)$/);if(!m||doc
   if(el.closest('.replies'))openThread(+el.closest('#thread>.entry').dataset.seq,{focus:seq});else el.scrollIntoView({block:'center'})}
 if(linked&&!document.getElementById(location.hash.slice(1)))setTimeout(goLinked,0);
 window.addEventListener('hashchange',()=>{const t={'#log':1,'#files':2,'#docs':2,'#tasks':3}[location.hash];if(t)tab(t);else goLinked()});
-if(!linked)toBottom();
-window.addEventListener('load',()=>{if(!linked&&!moved)toBottom()});
+// Open at your first unread message (jxn #1011): a thin "New" line above it and Jump to latest below. If you've read
+// everything, or it's your first visit, it opens at the newest. Messages you wrote yourself never count as unread.
+const SEEN0=${Math.max(0, board.seen ?? 0)},ME0=${jsString(viewer.name)};let unreadAt=null;
+function openAtUnread(){const e=SEEN0?[...document.querySelectorAll('#thread>.entry')].find(x=>+x.dataset.seq>SEEN0&&!(x.dataset.author===ME0&&!x.classList.contains('by-agent'))):null;if(!e)return false;
+  unreadAt=e;let l=document.getElementById('new-line');if(!l){l=document.createElement('div');l.id='new-line';l.className='new-line';l.setAttribute('role','separator');l.innerHTML='<span>New</span>'}e.before(l);
+  pinned=false;userT=0;scroller.scrollTop=Math.max(0,l.offsetTop-scroller.offsetTop-12);pinned=nearEnd();pillSync();return true}
+if(!linked&&!openAtUnread())toBottom();
+window.addEventListener('load',()=>{if(linked||moved)return;if(!unreadAt||!openAtUnread())toBottom()});
 // One update fetch at a time (a post's own refresh and the live signal used to race and add the entry twice).
 let ticking=null,again=false,sumNext=false; // sumNext: a task was finished, so the sidebar's open tasks changed
 function tick(wait){if(ticking){if(!wait)again=true;return ticking}ticking=tick1(wait).finally(()=>{ticking=null;if(again){again=false;tick(false)}});return ticking}
@@ -886,14 +888,15 @@ function refChips(root){(root||document).querySelectorAll('a.ref:not([data-done]
 refChips();
 /** Puts one entry (from updates, or straight from a post's response) on the page; false if it's already there. */
 function addEntry(e){if(document.getElementById('e'+e.seq)){last=Math.max(last,e.seq);return false}
-    const box=e.root!==e.seq&&document.getElementById('r'+e.root);
+    const reply=e.root!==e.seq;
     const tmp=document.createElement('div');tmp.innerHTML=e.html;const el=tmp.firstElementChild;el.classList.add('flash-in');
-    if(box){el.querySelector('.replies')?.remove();box.appendChild(el)}else{document.getElementById('empty')?.remove();document.getElementById('thread').appendChild(el)}
+    if(reply){el.dataset.root=String(e.root);el.querySelector(':scope>.grow>.replies')?.remove()}
+    document.getElementById('empty')?.remove();document.getElementById('thread').appendChild(el);quotify(el);
     const rx=RXP[e.seq]||e.reactions;if(rx)renderRx(e.seq,rx);
     if(e.human_decision){HDS[e.seq]=e.human_decision;renderHD(e.seq)}
-    refChips(el);
+    refChips(el);window.apcMark&&apcMark(el);
     if(el.querySelector('[data-task]'))refreshTask(e.seq);
-    if(box){thrSum(e.root);setTimeout(()=>window.reportSeen&&reportSeen(),0)}
+    if(reply){thrSum(e.root);if(thrOpen===e.root)thrRender();setTimeout(()=>window.reportSeen&&reportSeen(),0)}
     if(!document.querySelector('#log-body tr[data-seq="'+e.seq+'"]')){const lt=document.createElement('tbody');lt.innerHTML=e.row;document.getElementById('log-body').prepend(lt.firstElementChild);document.getElementById('log-empty')?.remove()}
     if(e.retracts){const t=document.getElementById('e'+e.retracts);if(t){t.classList.add('retracted');t.querySelector('[data-retract]')?.remove()}}
     last=Math.max(last,e.seq);return true}
@@ -907,8 +910,10 @@ function connect(){
     if(d.type==='removed'||d.type==='deleted'){location.href='/';return}
     if(d.type==='renamed'){window.applyTitle(d.title);return}
     if(d.type==='archived'){location.reload();return}
-    if(d.type==='doc'){window.onDocChanged&&onDocChanged(d)}
+    if(d.type==='doc'){window.onDocChanged&&onDocChanged(d);if(window.pinRefresh&&PIN&&PIN.name===d.name)pinRefresh()}
+    if(d.type==='pin'){window.pinRefresh&&pinRefresh();return}
     if(d.type==='reaction'){renderRx(d.seq,d.reactions);return}
+    if(d.type==='approval'){window.apcApply&&apcApply(d.approval);return}
     if(d.type==='typing'){if(d.who!==ME){TYPERS.set(d.who,d.until);typingSync()}return}
     if(d.type==='typing-agents')return; // agents don't show as typing (jxn #777): their 🤔 under the message says it
     if(d.type==='decision'){HDS[d.seq]=d.human_decision;renderHD(d.seq);return}
@@ -967,6 +972,8 @@ window.postFailed=(j)=>{document.querySelectorAll('#thread .entry.pending').forE
 const MOPTS=${jsString(mentionOptions(members.map((m) => m.user), viewer.name, agents))};
 const MNAMES=new Set(MOPTS.map(o=>o.u)),ME=${jsString(viewer.name)};
 // "@you" glows, and so does the message it's in, including ones that arrive live.
+// Approval cards: the person asked gets Approve / Deny in place; a decision made anywhere shows up live.
+${approvalJs(viewer.name)}
 function markMe(root){root.querySelectorAll('.mention:not(.agent)').forEach(m=>{if(m.dataset.user===ME){m.classList.add('me');m.closest('.entry')?.classList.add('for-you')}})}
 markMe(document.getElementById('thread'));
 new MutationObserver(ms=>ms.forEach(m=>m.addedNodes.forEach(n=>{if(n.nodeType===1)markMe(n)}))).observe(document.getElementById('thread'),{childList:true,subtree:true});
@@ -1080,7 +1087,8 @@ function replyClear(sent){if(!rpTo.value)return;if(!sent)draftSave(draftNow(),ta
   rpTo.value='';rpAt='';rpBox.hidden=true;try{localStorage.removeItem(draftKey('to'))}catch(e){}
   if(!sent){ta.value=draftLoad('');taFit()}}
 /** After a reply is posted: its thread is open, so you can see it there. */
-function replyShown(seq){const top=document.getElementById('e'+seq)?.closest('#thread>.entry');if(top)openThread(+top.dataset.seq)}
+// A reply posts at the bottom like any message (jxn #1040): after sending one, the conversation follows it there.
+function replyShown(){toBottom(true)}
 document.addEventListener('click',e=>{const b=e.target.closest('[data-reply]');if(b){e.preventDefault();replyTo(+b.dataset.reply);return}
   if(e.target.closest('#reply-cancel')){replyClear();ta.focus();return}
   if(e.target.closest('#replying-go')&&rpTo.value)window.BOARD_CTX.jump(+rpTo.value)});
@@ -1103,7 +1111,7 @@ async function loadDocs(){const r=await fetch('/api/boards/'+BOARD+'/files');con
 let docAsked=false;async function openDoc(name,version){docAsked=true;editing=false;const r=await fetch('/api/boards/'+BOARD+'/doc?name='+encodeURIComponent(name)+(version?'&version='+version:''));const d=await r.json();if(!r.ok){toast(d.error);return}curDoc=d;renderDoc();loadDocs()}
 function renderDoc(){const d=curDoc,v=document.getElementById('doc-view');const old=d.version!==d.latest;v.classList.remove('editing');
   v.innerHTML='<div class="row wrap" style="justify-content:space-between;gap:8px;margin-bottom:12px"><div><b class="mono">'+esc(d.name)+'</b> <span class="xs faint">v'+d.version+(old?' (viewing an older version; latest v'+d.latest+')':'')+' · '+esc(d.via==='agent'?d.updated_by+"'s agent":d.updated_by)+'</span></div><div class="row">'+
-  '<button class="btn sm ghost" type="button" id="doc-hist">History</button>'+(READONLY||old||d.media?'':'<button class="btn sm" type="button" id="doc-edit">Edit</button>')+'</div></div>'+(d.media?'<div class="doc-img"><img alt="'+esc(d.name)+'" src="/api/boards/'+BOARD+'/image?name='+encodeURIComponent(d.name)+'&version='+d.version+'"></div>':'<div class="doc-body body">'+d.html+'</div>')+'<div id="doc-history"></div>'}
+  '<span id="doc-pin-slot"></span><button class="btn sm ghost" type="button" id="doc-hist">History</button>'+(READONLY||old||d.media?'':'<button class="btn sm" type="button" id="doc-edit">Edit</button>')+'</div></div>'+(d.media?'<div class="doc-img"><img alt="'+esc(d.name)+'" src="/api/boards/'+BOARD+'/image?name='+encodeURIComponent(d.name)+'&version='+d.version+'"></div>':'<div class="doc-body body">'+d.html+'</div>')+'<div id="doc-history"></div>';if(window.pinSlot)pinSlot(d)}
 function editDoc(){const d=curDoc,v=document.getElementById('doc-view');editing=true;v.classList.add('editing');
   v.innerHTML='<div class="row" style="justify-content:space-between;margin-bottom:10px"><b class="mono">'+esc(d.name)+'</b><span class="xs faint">editing v'+d.version+'</span></div><textarea class="input mono" id="doc-text" style="font-size:12.5px">'+esc(d.content)+'</textarea><input class="input" id="doc-summary" placeholder="What changed? (optional)" style="margin-top:8px"><p id="doc-warn" class="flash" hidden style="margin-top:8px"></p><div class="row" style="justify-content:flex-end;margin-top:10px"><button class="btn" type="button" id="doc-cancel">Cancel</button><button class="btn primary" type="button" id="doc-save">Save</button></div>'}
 async function saveDoc(name,content,base,summary){const r=await fetch('/api/boards/'+BOARD+'/doc',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'write',name,content,base_version:base,summary})});const j=await r.json();
@@ -1286,9 +1294,11 @@ function renderRx(seq,list){const row=document.querySelector('[data-rx="'+seq+'"
     (r.emoji==='✅'?done:r.emoji==='🤔'?think:seen).push(...rc);const rest=r.users.filter(u=>!rc.includes(u));if(rest.length)chips.push({emoji:r.emoji,users:rest})}
   // An agent that's done isn't "reading" any more. On your own messages the ring already says who read it, so 👀 adds nothing there.
   const mine=row.closest('.entry')?.dataset.author===ME,work=think.filter(u=>!done.includes(u)),read=mine?[]:seen.filter(u=>!done.includes(u)&&!work.includes(u));
-  for(const r of chips){const b=document.createElement('button');b.type='button';b.className='rx-chip'+(r.users.includes(ME)?' on':'');b.dataset.react=r.emoji;b.dataset.seq=seq;
-    b.title=r.users.map(rxWho).join(', ');b.setAttribute('aria-label',emo(r.emoji)+' '+r.users.length+': '+b.title+(r.users.includes(ME)?'. Click to remove yours':'. Click to add yours'));
-    b.innerHTML='<span class="e">'+esc(emo(r.emoji))+'</span><span class="c">'+r.users.length+'</span>';row.insertBefore(b,add)}
+  // On a decision, 👍 means agree and is tallied as such (vedu #1030): "👍 2 agree".
+  const decision=!!row.closest('.entry')?.querySelector(':scope>.grow>.meta .t-decision');
+  for(const r of chips){const b=document.createElement('button');b.type='button';b.className='rx-chip'+(r.users.includes(ME)?' on':'');b.dataset.react=r.emoji;b.dataset.seq=seq;const agree=decision&&r.emoji==='👍';
+    b.title=(agree?'Agree: ':'')+r.users.map(rxWho).join(', ');b.setAttribute('aria-label',(agree?r.users.length+' agree':emo(r.emoji)+' '+r.users.length)+': '+r.users.map(rxWho).join(', ')+(r.users.includes(ME)?'. Click to remove yours':agree?'. Click to agree':'. Click to add yours'));
+    b.innerHTML='<span class="e">'+esc(emo(r.emoji))+'</span><span class="c">'+r.users.length+(agree?' agree':'')+'</span>';row.insertBefore(b,add)}
   if(read.length||done.length||work.length){const d=document.createElement('div');d.className='rx-rcpt';
     const part=(k,e,us,text)=>'<span class="'+k+'" title="'+esc(us.map(rxWho).join(', '))+'"><span class="e">'+e+'</span> '+esc(text)+'</span>';
     d.innerHTML=(done.length?part('done','✅',done,'done by '+rxNames(done)):'')+(read.length?part('read','👀',read,'read by '+rxNames(read)):'')+
@@ -1482,28 +1492,46 @@ window.BOARD_CTX={id:BOARD,me:ME,members:MEMBERS,
 document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&!e.altKey&&!e.shiftKey&&e.key.toLowerCase()==='f'&&!document.querySelector('dialog[open]:not(#palette)')){e.preventDefault();window.openPalette([{k:'board'},{k:'kind',v:'messages'}])}},true);
 // ---- threads: replies fold into "N replies" under their message; clicking it opens the thread right there, in the chat ----
 const avatar16=(u,agent)=>'<span class="av sm'+(agent?' agent':'')+'" style="--h:'+(MOPTS.find(o=>o.u===u)?.av.match(/--h:([0-9]+)/)?.[1]||220)+'">'+esc(u.slice(0,2).toUpperCase())+'<img class="av-img" src="/avatar/'+encodeURIComponent(u)+(agent?'?k=agent':'')+'" alt="" loading="lazy" onerror="this.remove()" onload="this.classList.add(&quot;ok&quot;)"></span>';
-function thrSum(root){const top=document.getElementById('e'+root);if(!top)return;const kids=[...(document.getElementById('r'+root)?.querySelectorAll('.entry')||[])];
+// Replies post in the conversation like any message (jxn #1040). Each carries a bar quoting the message it answers;
+// tapping it, or a thread's "N replies", opens the thread as an overlay with its own reply box.
+function quotify(el){const r=el.dataset.reply;if(!r||el.querySelector(':scope>.grow>.rq'))return;const p=document.getElementById('e'+r);
+  const b=document.createElement('button');b.type='button';b.className='rq';b.dataset.thread=el.dataset.root||r;b.dataset.focus=el.dataset.seq;
+  const who=p?headName(p):'#'+r,line=p?((p.querySelector(':scope>.grow>.body')?.textContent||p.dataset.title||'').trim().split('\\n')[0].slice(0,140)):'an earlier message';
+  b.innerHTML='<span class="rq-who">'+esc(who)+'</span><span class="rq-t">'+esc(line)+'</span>';b.setAttribute('aria-label','Reply to '+who+': '+line+'. Open the thread');
+  el.querySelector(':scope>.grow>.meta').after(b);const refs=el.querySelector(':scope>.grow>.refs');if(refs&&/^reply to\\s/.test(refs.textContent.trim())&&refs.querySelectorAll('a').length===1)refs.hidden=true}
+function kidsOf(root){return [...document.querySelectorAll('#thread>.entry[data-root="'+root+'"]')]}
+function thrSum(root){const top=document.getElementById('e'+root);if(!top)return;const kids=kidsOf(root);
   let b=top.querySelector(':scope>.grow>.thr-sum');if(!kids.length){b?.remove();return}
-  if(!b){b=document.createElement('button');b.type='button';b.className='thr-sum';b.dataset.thread=root;top.querySelector(':scope>.grow>.replies').before(b)}
-  // "reply to <the thread's message>" is obvious inside its own thread (its link may already read as a titled chip)
-  for(const k of kids){const r=k.querySelector(':scope>.grow>.refs'),a=r?.querySelectorAll('a.ref');if(a?.length===1&&a[0].dataset.ref===String(root)&&/^reply to\\s/.test(r.textContent.trim()))r.hidden=true}
-  const open=top.classList.contains('thr-open');b.setAttribute('aria-expanded',String(open));
-  if(open){b.innerHTML='<b>Hide replies</b>';b.setAttribute('aria-label','Hide replies');return}
+  if(!b){b=document.createElement('button');b.type='button';b.className='thr-sum';b.dataset.thread=root;(top.querySelector(':scope>.grow>.replies')||top.querySelector(':scope>.grow>.rx')).before(b)}
   const who=[];for(const k of kids){const key=k.dataset.author+(k.classList.contains('by-agent')?'/a':'');if(!who.includes(key))who.push(key)}
   const lastT=kids[kids.length-1]?.querySelector('time[data-ts]');
-  // The latest three replies, one line each, so new answers show without opening the thread.
-  const peek=kids.slice(-3).map(k=>'<span class="thr-line"><b>'+esc(headName(k))+'</b> '+esc((k.querySelector(':scope>.grow>.body')?.textContent||'').trim().slice(0,200))+'</span>').join('');
-  b.innerHTML='<span class="thr-head"><span class="avs">'+who.slice(0,3).map(w=>avatar16(w.split('/')[0],w.endsWith('/a'))).join('')+'</span><b>'+kids.length+' repl'+(kids.length===1?'y':'ies')+'</b><span class="faint">'+(lastT?'last '+lastT.textContent:'')+'</span></span>'+peek;
-  b.setAttribute('aria-label','Show '+kids.length+' repl'+(kids.length===1?'y':'ies'))}
-/** Opens a message's thread in place (replies are written in the main composer: see Reply). */
-function openThread(root,o={}){const top=document.getElementById('e'+root);if(!top)return;top.classList.add('thr-open');thrSum(root);
-  const f=o.focus&&document.getElementById('e'+o.focus);if(f){f.classList.add('hit');pinned=false;f.scrollIntoView({block:'center'})}}
-function closeThread(root){const top=document.getElementById('e'+root);if(!top)return;top.classList.remove('thr-open');thrSum(root)}
-document.addEventListener('click',e=>{const s=e.target.closest('[data-thread]');if(!s)return;const root=+s.dataset.thread;
-  if(document.getElementById('e'+root)?.classList.contains('thr-open'))closeThread(root);else openThread(root)});
-document.querySelectorAll('#thread>.entry').forEach(x=>thrSum(+x.dataset.seq));
-// a link to a reply (#e<n>) opens its thread
-setTimeout(()=>{const m=location.hash.match(/^#e([0-9]+)$/);const el=m&&document.getElementById('e'+m[1]);if(el&&el.closest('.replies'))openThread(+el.closest('#thread>.entry').dataset.seq,{focus:+m[1]})},0); // after the whole script has run
+  b.innerHTML='<span class="thr-head"><span class="avs">'+who.slice(0,3).map(w=>avatar16(w.split('/')[0],w.endsWith('/a'))).join('')+'</span><b>'+kids.length+' repl'+(kids.length===1?'y':'ies')+'</b><span class="faint">'+(lastT?'last '+lastT.textContent:'')+'</span></span>';
+  b.setAttribute('aria-label','Open the thread: '+kids.length+' repl'+(kids.length===1?'y':'ies'))}
+var thrOpen=0;const thrDlg=document.createElement('dialog');thrDlg.className='thr-dlg';thrDlg.setAttribute('aria-label','Thread');
+thrDlg.innerHTML='<div class="thr-hd"><b>Thread</b><button type="button" class="btn ghost sm" data-thr-close aria-label="Close the thread">✕</button></div><div class="thr-list" id="thr-list"></div>'+
+  (READONLY?'':'<form class="thr-form" id="thr-form"><textarea class="input" id="thr-text" rows="1" placeholder="Reply in thread" aria-label="Reply in thread"></textarea><button class="btn primary sm">Reply</button></form>');
+document.body.appendChild(thrDlg);
+function thrRender(focus){const list=document.getElementById('thr-list'),top=document.getElementById('e'+thrOpen);if(!top)return;list.innerHTML='';
+  for(const src of [top,...kidsOf(thrOpen)]){const c=src.cloneNode(true);c.removeAttribute('id');c.classList.remove('flash-in','tap','sel','hit');c.dataset.src=src.dataset.seq;
+    c.querySelectorAll('[id]').forEach(x=>x.removeAttribute('id'));c.querySelectorAll('.thr-sum,.acts,.more-acts,.rd,.rx-add').forEach(x=>x.remove());
+    const q=c.querySelector(':scope>.grow>.rq');if(q&&q.dataset.thread===String(thrOpen)&&src.dataset.reply===String(thrOpen))q.remove();
+    list.appendChild(c)}
+  const f=focus&&list.querySelector('[data-src="'+focus+'"]');(f||list.lastElementChild)?.scrollIntoView({block:f?'center':'end'});if(f)f.classList.add('hit')}
+function openThread(root,o={}){const top=document.getElementById('e'+root);if(!top)return;thrOpen=root;thrRender(o.focus);if(!thrDlg.open)thrDlg.showModal();
+  const t=document.getElementById('thr-text');if(t){const who=top.classList.contains('by-agent')?top.dataset.author+"'s agent":top.dataset.author;if(!t.value)t.value=who===ME?'':'@'+who+' ';if(!o.focus&&matchMedia('(hover:hover)').matches)t.focus()}}
+function closeThread(){thrOpen=0;if(thrDlg.open)thrDlg.close()}
+thrDlg.addEventListener('close',()=>{thrOpen=0});
+thrDlg.addEventListener('click',e=>{if(e.target===thrDlg||e.target.closest('[data-thr-close]'))closeThread();const s=e.target.closest('.thr-list [data-src]');
+  if(s&&e.target.closest('a.seq,.rq')){e.preventDefault();const n=s.dataset.src;closeThread();const el=document.getElementById('e'+n);if(el){pinned=false;el.scrollIntoView({block:'center'});el.classList.add('hit')}}});
+document.getElementById('thr-form')?.addEventListener('submit',async e=>{e.preventDefault();const t=document.getElementById('thr-text'),v=t.value.trim();if(!v||!thrOpen)return;
+  const b=e.target.querySelector('button');b.disabled=true;
+  const r=await fetch('/api/boards/'+BOARD+'/entries',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({text:v,type:'note',reply_to:thrOpen})}).catch(()=>null);
+  b.disabled=false;const j=r?await r.json().catch(()=>({})):{};if(!r||!r.ok){toast(j.error||'Could not send. Your reply is still in the box.');return}
+  t.value='';if(j.update)addEntry(j.update);tick(false);thrRender()});
+document.getElementById('thr-text')?.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing&&!matchMedia('(hover:none) and (pointer:coarse)').matches){e.preventDefault();document.getElementById('thr-form').requestSubmit()}});
+document.addEventListener('click',e=>{const s=e.target.closest('#thread [data-thread]');if(!s)return;e.preventDefault();openThread(+s.dataset.thread,{focus:+(s.dataset.focus||0)||undefined})});
+document.querySelectorAll('#thread>.entry[data-reply]').forEach(quotify);
+document.querySelectorAll('#thread>.entry:not([data-root])').forEach(x=>thrSum(+x.dataset.seq));
 // ---- hover cards: who someone is, whether they or their agent are around, and what you can do (people and agents) ----
 // Hover (desktop) previews; a click or tap pins the same card (under the element, or a bottom sheet on narrow screens).
 const hcard=document.createElement('div');hcard.className='hcard';hcard.hidden=true;hcard.setAttribute('role','dialog');hcard.setAttribute('aria-label','Profile');document.body.appendChild(hcard);
@@ -1580,7 +1608,41 @@ async function accLoad(){const [m,a,l]=await Promise.all([fetch('/api/boards/'+B
   if(IS_OWNER)document.getElementById('acc-links').innerHTML=(l.links||[]).filter(x=>!x.revoked_at&&(!x.expires_at||x.expires_at>Date.now())).map(x=>'<li class="acc-row xs"><span class="grow">'+(x.role==='viewer'?'View only':'Can post')+' link · until '+accFmt(x.expires_at)+' · used '+x.uses+(x.max_uses?' of '+x.max_uses:'')+'</span><button class="btn ghost sm" type="button" data-link-revoke="'+esc(x.id)+'">Revoke</button></li>').join('');
   const verb={invited:'invited',joined:'joined',removed:'removed',left:'left',access_changed:'changed access for',link_created:'created an invite link',link_revoked:'revoked an invite link',renamed:'renamed the board',archived:'archived the board',restored:'restored the board',expired:'access ended for',picture_changed:'changed the board picture',picture_removed:'removed the board picture'};
   document.getElementById('acc-audit').innerHTML=(a.audit||[]).slice(0,50).map(x=>'<li class="xs"><b>'+esc(x.actor)+'</b> '+(verb[x.action]||esc(x.action))+(x.target?' <b>'+esc(x.target)+'</b>':'')+(x.detail?' <span class="faint">· '+esc(x.detail)+'</span>':'')+' <span class="faint">· '+new Date(x.ts).toLocaleString([],{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})+'</span></li>').join('')||'<li class="xs faint">Nothing yet</li>'}
-document.addEventListener('click',e=>{const o=e.target.closest('[data-open="invite"]');if(!o)return;accLoad();const g=o.dataset.goto&&document.getElementById(o.dataset.goto);if(g)setTimeout(()=>g.scrollIntoView({block:'nearest'}),60)});
+// ---- Triggers (#980): "when X happens, wake my agent (or one session) with a prompt"; each person manages their own ----
+const TRG_ON={task:'a new task',question:'a new question',entry:'any new message',change:'a change card',schedule:'every day at'};
+const trgApi='/api/boards/'+BOARD+'/triggers';
+function trgWhen(t){const m=t.match||{};if(t.on==='schedule')return 'Every day at '+esc(m.at||'?')+' UTC';
+  const who=esc(t.created_by||(t.wake&&t.wake.user)||'');
+  const w=t.on==='mention'?'someone mentions '+who:t.on==='approval'?'one of '+who+"'s approvals is decided":t.on==='task'&&m.task==='status'?'a task changes status':(TRG_ON[t.on]||esc(t.on));
+  return 'When '+w+(m.type?' ('+esc(m.type)+')':'')+(m.text?' containing “'+esc(m.text)+'”':'')}
+function trgWho(w){return w?esc(w.user)+(w.session?'/'+esc(w.session):"'s agent"):''}
+async function trgLoad(){const ul=document.getElementById('trg-list');if(!ul)return;const f=document.getElementById('trg-new');
+  const r=await fetch(trgApi).catch(()=>null);
+  const sec=document.getElementById('acc-triggers');
+  if(r&&r.status===404){sec.hidden=true;return} // the server doesn't have triggers yet: no section at all
+  sec.hidden=false;if(!r||!r.ok){ul.innerHTML='<li class="xs faint">Couldn’t load triggers.</li>';f.hidden=true;return}
+  const j=await r.json().catch(()=>({}));const ts=j.triggers||[];f.hidden=false;
+  ul.innerHTML=ts.map(t=>{const mine=t.created_by===ME||(t.wake&&t.wake.user===ME);
+    return '<li class="trg-row'+(t.enabled===false?' off':'')+'" data-trg="'+esc(t.id)+'"><div class="grow"><div class="small">'+trgWhen(t)+' <span class="faint">→ wake</span> <b>'+trgWho(t.wake)+'</b></div>'+
+      '<div class="xs muted trg-p">'+esc(t.prompt||'')+'</div><div class="xs faint">'+(t.enabled===false?'Paused · ':'')+(t.fires?'Fired '+t.fires+(t.fires===1?' time':' times')+(t.last_fired_at?', last '+esc(new Date(t.last_fired_at).toISOString().slice(0,16).replace('T',' '))+' UTC':''):'Not fired yet')+(t.created_by&&t.created_by!==ME?' · by '+esc(t.created_by):'')+'</div></div>'+
+      (mine?'<div class="row trg-acts"><button class="btn ghost sm" type="button" data-trg-do="'+(t.enabled===false?'resume':'pause')+'">'+(t.enabled===false?'Resume':'Pause')+'</button><button class="btn ghost sm danger" type="button" data-trg-do="delete">Delete</button></div>':'')+'</li>'}).join('')||'<li class="xs faint">No triggers yet.</li>';
+  const sel=document.getElementById('trg-wake');if(!sel.options.length){const ss=[...new Set(MOPTS.filter(o=>o.u===ME&&o.sub&&o.ins.includes('/')).map(o=>o.ins.split('/')[1]))];
+    sel.innerHTML='<option value="">Your agent</option>'+ss.map(x=>'<option value="'+esc(x)+'">'+esc(ME+'/'+x)+'</option>').join('')}}
+document.getElementById('trg-on')?.addEventListener('change',e=>{const v=e.target.value,s=v==='schedule';document.getElementById('trg-at').hidden=!s;document.getElementById('trg-text').hidden=s||v==='approval'});
+document.getElementById('trg-new')?.addEventListener('submit',async e=>{e.preventDefault();const f=e.target,on=document.getElementById('trg-on').value,err=document.getElementById('trg-err');err.textContent='';
+  const prompt=document.getElementById('trg-prompt').value.trim();if(!prompt){err.textContent='Say what your agent should do.';return}
+  const text=document.getElementById('trg-text').hidden?'':document.getElementById('trg-text').value.trim(),at=document.getElementById('trg-at').value,session=document.getElementById('trg-wake').value;
+  const match=on==='schedule'?{at}:Object.assign(text?{text}:{},on==='task'?{task:'created'}:{}); // "a new task": creations, not status moves
+  const body={on,match,wake:session?{user:ME,session}:{user:ME},prompt,enabled:true};
+  const btn=f.querySelector('[type=submit]');btn.disabled=true;
+  const r=await fetch(trgApi,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}).catch(()=>null);btn.disabled=false;
+  const j=r?await r.json().catch(()=>({})):{};if(!r||!r.ok){err.textContent=j.error||'Couldn’t add the trigger.';return}
+  document.getElementById('trg-prompt').value='';document.getElementById('trg-text').value='';toast('Trigger added');trgLoad()});
+document.addEventListener('click',async e=>{const b=e.target.closest('[data-trg-do]');if(!b)return;const id=b.closest('[data-trg]').dataset.trg,d=b.dataset.trgDo;
+  if(d==='delete'&&!confirm('Delete this trigger?'))return;b.disabled=true;
+  const r=await fetch(trgApi+'/'+encodeURIComponent(id),d==='delete'?{method:'DELETE'}:{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({enabled:d==='resume'})}).catch(()=>null);
+  if(!r||!r.ok){const j=r?await r.json().catch(()=>({})):{};toast(j.error||'Couldn’t save');b.disabled=false;return}toast(d==='delete'?'Trigger deleted':d==='pause'?'Paused':'Resumed');trgLoad()});
+document.addEventListener('click',e=>{const o=e.target.closest('[data-open="invite"]');if(!o)return;accLoad();trgLoad();const g=o.dataset.goto&&document.getElementById(o.dataset.goto);if(g)setTimeout(()=>g.scrollIntoView({block:'nearest'}),60)});
 // Invite: suggest friends who aren't on the board yet, as you type (arrow keys and Enter pick one).
 let accFriends=null,accSel=0;const invIn=document.getElementById('inv-email'),invSug=document.getElementById('inv-sug');
 async function invSuggest(){if(!invIn)return;if(!accFriends)accFriends=(await fetch('/api/friends').then(r=>r.json()).catch(()=>({}))).friends||[];
@@ -1721,7 +1783,7 @@ window.boardKeys=(e,k)=>{
     els.forEach(x=>x.classList.remove('sel'));const el=els[cur];if(el){el.classList.add('sel');el.scrollIntoView({block:'nearest'})}}
   if(e.key==='Enter'&&els[cur]){openEntry(BOARD,els[cur].dataset.seq)}
 };
-` + (canPic ? BOARD_PIC_JS : "") + (info.encrypted ? E2E_JS : "");
+` + (canPic ? BOARD_PIC_JS : "") + (info.encrypted ? E2E_JS : "") + (agentChat ? "" : pinRecapJs(board.last_seen ?? 0, !readOnly && !info.archived));
   const isCreator = viewer.name === info.created_by;
   const archivedBanner = info.archived
     ? `<div class="flash bp-banner"><span class="grow"><b>Archived.</b> This board is read-only.</span>${
@@ -1767,12 +1829,12 @@ window.boardKeys=(e,k)=>{
     }
 
   </div></div>
-  <div class="bp-tabs"><div class="tabs" role="tablist" id="board-tabs"><button role="tab" aria-selected="true" aria-controls="panel-conv">Conversation</button><button role="tab" aria-selected="false" aria-controls="panel-log">Log</button><button role="tab" aria-selected="false" aria-controls="panel-docs">Files</button><button role="tab" aria-selected="false" aria-controls="panel-tasks">Tasks <span class="faint" id="task-count"></span></button></div>
+  <div class="bp-tabs"><div class="tabs" role="tablist" id="board-tabs"><button role="tab" aria-selected="true" aria-controls="panel-conv">Conversation</button><button role="tab" aria-selected="false" aria-controls="panel-log">Log</button><button role="tab" aria-selected="false" aria-controls="panel-docs">Files</button><button role="tab" aria-selected="false" aria-controls="panel-tasks">Tasks <span class="faint" id="task-count"></span></button></div>${agentChat ? "" : RECAP_BTN}
     </div>
 </div>
 <div role="tabpanel" id="panel-conv" class="bp-panel" data-board-panel><div class="layout" id="conv-layout">
   <button class="btn ghost sm info-btn" type="button" id="info-btn" aria-expanded="false" aria-controls="board-info" aria-label="Board info" title="Board info"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2"/><path d="M10 2.75v10.5"/><path class="fill" d="M10.7 3.45h2.1a.75.75 0 0 1 .75.75v7.6a.75.75 0 0 1-.75.75h-2.1z" fill="currentColor" stroke="none"/></svg><span class="count" id="info-count" hidden></span></button>
-  <section class="conv">
+  <section class="conv">${agentChat ? "" : PIN_BAR}
     <div class="thread-wrap"><div class="thread-scroll" id="thread-scroll"><div class="thread" id="thread">${thread}</div></div>
       <div class="rail" id="rail" aria-hidden="true"></div><div class="rail-tip" id="rail-tip" hidden></div>
       <button class="btn sm new-pill" type="button" id="new-pill" hidden>Jump to latest ↓</button></div>
@@ -1795,7 +1857,7 @@ window.boardKeys=(e,k)=>{
       </div>
     </form>
   </section>
-  <aside class="aside" id="board-info" aria-label="Board info">${agentsSection(agents, info.id, readOnly || !!info.archived)}<div class="sum" id="sum">${summaryHtml(entries, viewer.name, members, summary, ctl)}</div>
+  <aside class="aside" id="board-info" aria-label="Board info">${agentChat ? "" : PIN_SIDE}${agentsSection(agents, info.id, readOnly || !!info.archived)}<div class="sum" id="sum">${summaryHtml(entries, viewer.name, members, summary, ctl)}</div>
 </aside>
 </div></div>
 <div role="tabpanel" id="panel-log" class="bp-panel" data-board-panel hidden><div class="list scroll-x"><table class="log"><thead><tr><th>Time (UTC)</th><th>#</th><th>Author</th><th>Type</th><th>To</th><th>Summary</th></tr></thead>
@@ -1829,7 +1891,7 @@ window.boardKeys=(e,k)=>{
       <p class="flash err" id="td-err" hidden></p>
       <div class="row" style="justify-content:space-between;margin-top:12px"><div class="row" style="gap:6px"><button class="btn sm ghost" type="button" id="td-open">Open in conversation</button><button class="btn sm ghost" type="button" id="td-remove" hidden>Remove</button></div><button class="btn primary sm">Save</button></div>
     </div></form></dialog>
-${SHEET}
+${SHEET}${agentChat ? "" : RECAP_DLG}
 <dialog class="lightbox" id="lightbox" aria-label="Image"><img id="lightbox-img" alt=""><button class="lb-nav lb-prev" type="button" aria-label="Previous picture" hidden>‹</button><button class="lb-nav lb-next" type="button" aria-label="Next picture" hidden>›</button><span class="lb-count xs" hidden></span></dialog>
 
 ${connectDialog(viewer, { id: info.id, title: info.title })}
@@ -1881,6 +1943,26 @@ ${connectDialog(viewer, { id: info.id, title: info.title })}
       : ""
   }
   <section class="acc-sec"><h3>Members</h3>${isOwner ? "" : `<p class="xs muted">Only owners change roles and access.</p>`}<ul class="acc-list" id="acc-members"><li class="xs faint">Loading…</li></ul></section>
+  ${
+    canTrig
+      ? `<section class="acc-sec" id="acc-triggers" hidden><h3>Triggers</h3><p class="xs muted" style="margin:-4px 0 8px">Wake your agent when something happens here, with what to do. Only you can wake your agents.</p>
+  <ul class="acc-list" id="trg-list"><li class="xs faint">Loading…</li></ul>
+  <form class="trg-new" id="trg-new" hidden><div class="trg-when"><select class="input acc-sel" id="trg-on" aria-label="When">${[
+    ["task", "A new task"],
+    ["question", "A new question"],
+    ["entry", "Any new message"],
+    ["mention", "Someone mentions me"],
+    ["change", "A change card"],
+    ["approval", "One of my approvals is decided"],
+    ["schedule", "Every day at (UTC)"],
+  ]
+    .map(([v, l]) => `<option value="${v}">${l}</option>`)
+    .join("")}</select><input class="input acc-url" id="trg-text" placeholder="containing… (optional)" aria-label="Only when the message contains"><input class="input acc-url" id="trg-at" type="time" value="09:00" aria-label="Time (UTC)" hidden></div>
+  <div class="trg-wake"><label class="xs muted" for="trg-wake">wake</label><select class="input acc-sel" id="trg-wake"></select></div>
+  <textarea class="input" id="trg-prompt" rows="2" maxlength="2000" placeholder="What should it do? e.g. Triage the new task and ask questions in its thread." aria-label="What your agent should do" required></textarea>
+  <div class="row"><span class="grow xs" id="trg-err" style="color:var(--danger)"></span><button class="btn sm primary" type="submit">Add trigger</button></div></form></section>`
+      : ""
+  }
   <details class="acc-sec"><summary class="small muted">Activity</summary><ul class="acc-list" id="acc-audit"></ul></details>
   ${
     isCreator || canPic
