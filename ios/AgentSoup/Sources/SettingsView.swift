@@ -73,6 +73,7 @@ struct SettingsView: View {
                 .listRowBackground(Theme.card)
 
                 FeelSection()
+                VoiceSection()
 
                 Section {
                     if state.connections.isEmpty { Text("Nothing connected yet.").foregroundStyle(Theme.muted) }

@@ -121,6 +121,9 @@ struct ChatComposer: View {
                                   agentNames: state.agentNameMap(board.id),
                                   identifier: identifier)
                         .padding(.horizontal, Composer.gap)
+                    // Hold to talk (Voice.swift): words go in the box; "send it" at the end sends.
+                    MicButton(draft: $draft, send: send, identifier: identifier == "composer" ? "mic" : "\(identifier)-mic")
+                        .padding(.trailing, -Composer.inset)
                     Button(action: send) {
                         Image(systemName: "arrow.up").font(.system(size: 14, weight: .bold))
                             .composerCircle(fill: canSend ? Theme.accent : Theme.raised)

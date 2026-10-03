@@ -369,9 +369,22 @@ struct BoardView: View {
         let top = list.lazy.filter { $0.seq > 0 }.map(\.seq).max() ?? 0
         guard let seen = newestSeen else { newestSeen = top; return }
         newestSeen = max(seen, top)
-        guard list.contains(where: { $0.seq > seen && $0.type == "change" && $0.text.localizedCaseInsensitiveContains("shipped") }) else { return }
+        let arrived = list.filter { $0.seq > seen && $0.pending != true && $0.retracts == nil }
+        // Read replies aloud (Voice.swift): a message for you blips and waits in the bar.
+        for e in arrived where forMeToHear(e) { ReadAloud.shared.heard(e, from: e.byAgent ? agentLabel(e.author, e.agentName ?? state.agentNames[board.id]?[e.author]?.name) : e.author, in: board) }
+        guard arrived.contains(where: { $0.type == "change" && $0.text.localizedCaseInsensitiveContains("shipped") }) else { return }
         Haptics.play(.shipped)
         confetti += 1
+    }
+
+    /// For you, to hear (the web's forMe): in "Your agent", anything your agent says; on a board, a mention of you or a
+    /// reply to something you wrote. Never your own.
+    private func forMeToHear(_ e: Entry) -> Bool {
+        guard let me = me?.lowercased(), !isMine(e) else { return false }
+        if board.isAgentChat { return e.byAgent }
+        if (e.mentions ?? []).contains(where: { $0.user.lowercased() == me && !$0.agent }) { return true }
+        if let p = e.replyTo, let parent = list.first(where: { $0.seq == p }) { return isMine(parent) }
+        return false
     }
 
     /// Scrolls to a message and lights it for a moment, loading older messages first if it's before what's here.
@@ -476,8 +489,14 @@ struct BoardView: View {
 
     /// The message box (ChatComposer.swift, the same one threads use).
     var composer: some View {
-        ChatComposer(board: board, draft: $draft, focused: $focused, placeholder: placeholder,
-                     toSession: board.isAgentChat ? $toSession : nil)
+        VStack(spacing: 0) {
+            ReadAloudBar(board: board.id) // a message for you, waiting to be read aloud (Voice.swift)
+            ChatComposer(board: board, draft: $draft, focused: $focused, placeholder: placeholder,
+                         toSession: board.isAgentChat ? $toSession : nil)
+        }
+        .background(Theme.bg)
+        .animation(.snappy, value: ReadAloud.shared.queue.count)
+        .onDisappear { ReadAloud.shared.leave(board.id) }
     }
 
     /// "Message theo", "Message Checkout bug", "Message your agent…" / "Message builder…".
