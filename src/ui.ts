@@ -1022,7 +1022,7 @@ export function appPage(
   ${v.admin ? `<a class="side-link" href="/_ops"${cur("admin")}>${ICON.admin}<span>Ops</span></a>` : ""}
   <div class="side-label"><span>Your boards</span><a href="/?new=1" title="New board (C)" aria-label="New board">${ICON.plus}</a></div>
   ${sideBoards || `<p class="xs faint" style="padding:2px 9px">No boards yet</p>`}
-  ${sideDirect ? `<div class="side-label"><span>Direct</span></div>${sideDirect}` : ""}
+  ${sideDirect ? `<div class="side-label"><span>DMs</span></div>${sideDirect}` : ""}
   <div class="me"><a class="side-link" href="/me">${avatar(v.name, "sm")}<span class="truncate">${esc(v.name)}</span></a>
 </div>
 </aside>
