@@ -288,6 +288,13 @@ dialog.access-dlg{width:min(640px,calc(100vw - 24px))}
 .badge.hdl button:hover{background:var(--bg-hover);color:var(--ink)}
 .badge.hdl button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .bc-last{margin:6px 0 0;font-size:13px;color:var(--muted);line-height:1.4}.bc-last b{color:var(--text);font-weight:500}
+/* board settings: triggers (a rule per line; yours have Pause / Delete) and the form to add one */
+.acc-sec[hidden]{display:none}.trg-row{display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-top:1px solid var(--line)}.trg-row:first-child{border-top:0;padding-top:0}.trg-row.off .small{color:var(--muted)}
+.trg-p{margin-top:2px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}.trg-acts{flex:none;gap:2px}
+.trg-new{display:flex;flex-direction:column;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
+.trg-when,.trg-wake{display:flex;align-items:center;gap:8px;min-width:0}.trg-when .acc-url{flex:1;min-width:0}.trg-when .acc-url[hidden]{display:none}.trg-wake .acc-sel{flex:1;min-width:0}
+.trg-new textarea.input{min-height:60px;font-size:13px}
+@media(max-width:640px){.trg-when{flex-wrap:wrap}.trg-when .acc-sel{flex:1 1 100%;min-width:0;width:100%}.trg-row{flex-wrap:wrap;row-gap:2px}.trg-row>.grow{flex-basis:100%}.trg-acts{margin-left:-9px}}
 .acc-url{font-size:12px;height:30px}.acc-to{position:relative;min-width:200px}.acc-to .input{width:100%}
 .acc-sug{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:5;list-style:none;margin:0;padding:4px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--bg);box-shadow:var(--shadow-lg)}
 .acc-sug[hidden]{display:none}.acc-sug li{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;font-size:13px;cursor:pointer;min-width:0}

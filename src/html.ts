@@ -779,6 +779,8 @@ export function boardPage(
   // "Your agent": your private chat with your own agents (any of them, or the one you pick); never anyone else.
   const agentChat = board.kind === "agent";
   const canPic = !readOnly && !info.archived && !direct && !agentChat;
+  // Triggers: any member who can post sets rules that wake their own agent (never anyone else's).
+  const canTrig = !readOnly && !info.archived && !agentChat;
   const last = entries.length ? entries[entries.length - 1].seq : 0;
   const first = entries.length ? entries[0].seq : 0;
   // Big boards open on their newest entries; earlier ones load on demand.
@@ -1596,7 +1598,41 @@ async function accLoad(){const [m,a,l]=await Promise.all([fetch('/api/boards/'+B
   if(IS_OWNER)document.getElementById('acc-links').innerHTML=(l.links||[]).filter(x=>!x.revoked_at&&(!x.expires_at||x.expires_at>Date.now())).map(x=>'<li class="acc-row xs"><span class="grow">'+(x.role==='viewer'?'View only':'Can post')+' link · until '+accFmt(x.expires_at)+' · used '+x.uses+(x.max_uses?' of '+x.max_uses:'')+'</span><button class="btn ghost sm" type="button" data-link-revoke="'+esc(x.id)+'">Revoke</button></li>').join('');
   const verb={invited:'invited',joined:'joined',removed:'removed',left:'left',access_changed:'changed access for',link_created:'created an invite link',link_revoked:'revoked an invite link',renamed:'renamed the board',archived:'archived the board',restored:'restored the board',expired:'access ended for',picture_changed:'changed the board picture',picture_removed:'removed the board picture'};
   document.getElementById('acc-audit').innerHTML=(a.audit||[]).slice(0,50).map(x=>'<li class="xs"><b>'+esc(x.actor)+'</b> '+(verb[x.action]||esc(x.action))+(x.target?' <b>'+esc(x.target)+'</b>':'')+(x.detail?' <span class="faint">· '+esc(x.detail)+'</span>':'')+' <span class="faint">· '+new Date(x.ts).toLocaleString([],{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})+'</span></li>').join('')||'<li class="xs faint">Nothing yet</li>'}
-document.addEventListener('click',e=>{const o=e.target.closest('[data-open="invite"]');if(!o)return;accLoad();const g=o.dataset.goto&&document.getElementById(o.dataset.goto);if(g)setTimeout(()=>g.scrollIntoView({block:'nearest'}),60)});
+// ---- Triggers (#980): "when X happens, wake my agent (or one session) with a prompt"; each person manages their own ----
+const TRG_ON={task:'a new task',question:'a new question',entry:'any new message',change:'a change card',schedule:'every day at'};
+const trgApi='/api/boards/'+BOARD+'/triggers';
+function trgWhen(t){const m=t.match||{};if(t.on==='schedule')return 'Every day at '+esc(m.at||'?')+' UTC';
+  const who=esc(t.created_by||(t.wake&&t.wake.user)||'');
+  const w=t.on==='mention'?'someone mentions '+who:t.on==='approval'?'one of '+who+"'s approvals is decided":t.on==='task'&&m.task==='status'?'a task changes status':(TRG_ON[t.on]||esc(t.on));
+  return 'When '+w+(m.type?' ('+esc(m.type)+')':'')+(m.text?' containing “'+esc(m.text)+'”':'')}
+function trgWho(w){return w?esc(w.user)+(w.session?'/'+esc(w.session):"'s agent"):''}
+async function trgLoad(){const ul=document.getElementById('trg-list');if(!ul)return;const f=document.getElementById('trg-new');
+  const r=await fetch(trgApi).catch(()=>null);
+  const sec=document.getElementById('acc-triggers');
+  if(r&&r.status===404){sec.hidden=true;return} // the server doesn't have triggers yet: no section at all
+  sec.hidden=false;if(!r||!r.ok){ul.innerHTML='<li class="xs faint">Couldn’t load triggers.</li>';f.hidden=true;return}
+  const j=await r.json().catch(()=>({}));const ts=j.triggers||[];f.hidden=false;
+  ul.innerHTML=ts.map(t=>{const mine=t.created_by===ME||(t.wake&&t.wake.user===ME);
+    return '<li class="trg-row'+(t.enabled===false?' off':'')+'" data-trg="'+esc(t.id)+'"><div class="grow"><div class="small">'+trgWhen(t)+' <span class="faint">→ wake</span> <b>'+trgWho(t.wake)+'</b></div>'+
+      '<div class="xs muted trg-p">'+esc(t.prompt||'')+'</div><div class="xs faint">'+(t.enabled===false?'Paused · ':'')+(t.fires?'Fired '+t.fires+(t.fires===1?' time':' times')+(t.last_fired_at?', last '+esc(new Date(t.last_fired_at).toISOString().slice(0,16).replace('T',' '))+' UTC':''):'Not fired yet')+(t.created_by&&t.created_by!==ME?' · by '+esc(t.created_by):'')+'</div></div>'+
+      (mine?'<div class="row trg-acts"><button class="btn ghost sm" type="button" data-trg-do="'+(t.enabled===false?'resume':'pause')+'">'+(t.enabled===false?'Resume':'Pause')+'</button><button class="btn ghost sm danger" type="button" data-trg-do="delete">Delete</button></div>':'')+'</li>'}).join('')||'<li class="xs faint">No triggers yet.</li>';
+  const sel=document.getElementById('trg-wake');if(!sel.options.length){const ss=[...new Set(MOPTS.filter(o=>o.u===ME&&o.sub&&o.ins.includes('/')).map(o=>o.ins.split('/')[1]))];
+    sel.innerHTML='<option value="">Your agent</option>'+ss.map(x=>'<option value="'+esc(x)+'">'+esc(ME+'/'+x)+'</option>').join('')}}
+document.getElementById('trg-on')?.addEventListener('change',e=>{const v=e.target.value,s=v==='schedule';document.getElementById('trg-at').hidden=!s;document.getElementById('trg-text').hidden=s||v==='approval'});
+document.getElementById('trg-new')?.addEventListener('submit',async e=>{e.preventDefault();const f=e.target,on=document.getElementById('trg-on').value,err=document.getElementById('trg-err');err.textContent='';
+  const prompt=document.getElementById('trg-prompt').value.trim();if(!prompt){err.textContent='Say what your agent should do.';return}
+  const text=document.getElementById('trg-text').hidden?'':document.getElementById('trg-text').value.trim(),at=document.getElementById('trg-at').value,session=document.getElementById('trg-wake').value;
+  const match=on==='schedule'?{at}:Object.assign(text?{text}:{},on==='task'?{task:'created'}:{}); // "a new task": creations, not status moves
+  const body={on,match,wake:session?{user:ME,session}:{user:ME},prompt,enabled:true};
+  const btn=f.querySelector('[type=submit]');btn.disabled=true;
+  const r=await fetch(trgApi,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}).catch(()=>null);btn.disabled=false;
+  const j=r?await r.json().catch(()=>({})):{};if(!r||!r.ok){err.textContent=j.error||'Couldn’t add the trigger.';return}
+  document.getElementById('trg-prompt').value='';document.getElementById('trg-text').value='';toast('Trigger added');trgLoad()});
+document.addEventListener('click',async e=>{const b=e.target.closest('[data-trg-do]');if(!b)return;const id=b.closest('[data-trg]').dataset.trg,d=b.dataset.trgDo;
+  if(d==='delete'&&!confirm('Delete this trigger?'))return;b.disabled=true;
+  const r=await fetch(trgApi+'/'+encodeURIComponent(id),d==='delete'?{method:'DELETE'}:{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({enabled:d==='resume'})}).catch(()=>null);
+  if(!r||!r.ok){const j=r?await r.json().catch(()=>({})):{};toast(j.error||'Couldn’t save');b.disabled=false;return}toast(d==='delete'?'Trigger deleted':d==='pause'?'Paused':'Resumed');trgLoad()});
+document.addEventListener('click',e=>{const o=e.target.closest('[data-open="invite"]');if(!o)return;accLoad();trgLoad();const g=o.dataset.goto&&document.getElementById(o.dataset.goto);if(g)setTimeout(()=>g.scrollIntoView({block:'nearest'}),60)});
 // Invite: suggest friends who aren't on the board yet, as you type (arrow keys and Enter pick one).
 let accFriends=null,accSel=0;const invIn=document.getElementById('inv-email'),invSug=document.getElementById('inv-sug');
 async function invSuggest(){if(!invIn)return;if(!accFriends)accFriends=(await fetch('/api/friends').then(r=>r.json()).catch(()=>({}))).friends||[];
@@ -1897,6 +1933,26 @@ ${connectDialog(viewer, { id: info.id, title: info.title })}
       : ""
   }
   <section class="acc-sec"><h3>Members</h3>${isOwner ? "" : `<p class="xs muted">Only owners change roles and access.</p>`}<ul class="acc-list" id="acc-members"><li class="xs faint">Loading…</li></ul></section>
+  ${
+    canTrig
+      ? `<section class="acc-sec" id="acc-triggers" hidden><h3>Triggers</h3><p class="xs muted" style="margin:-4px 0 8px">Wake your agent when something happens here, with what to do. Only you can wake your agents.</p>
+  <ul class="acc-list" id="trg-list"><li class="xs faint">Loading…</li></ul>
+  <form class="trg-new" id="trg-new" hidden><div class="trg-when"><select class="input acc-sel" id="trg-on" aria-label="When">${[
+    ["task", "A new task"],
+    ["question", "A new question"],
+    ["entry", "Any new message"],
+    ["mention", "Someone mentions me"],
+    ["change", "A change card"],
+    ["approval", "One of my approvals is decided"],
+    ["schedule", "Every day at (UTC)"],
+  ]
+    .map(([v, l]) => `<option value="${v}">${l}</option>`)
+    .join("")}</select><input class="input acc-url" id="trg-text" placeholder="containing… (optional)" aria-label="Only when the message contains"><input class="input acc-url" id="trg-at" type="time" value="09:00" aria-label="Time (UTC)" hidden></div>
+  <div class="trg-wake"><label class="xs muted" for="trg-wake">wake</label><select class="input acc-sel" id="trg-wake"></select></div>
+  <textarea class="input" id="trg-prompt" rows="2" maxlength="2000" placeholder="What should it do? e.g. Triage the new task and ask questions in its thread." aria-label="What your agent should do" required></textarea>
+  <div class="row"><span class="grow xs" id="trg-err" style="color:var(--danger)"></span><button class="btn sm primary" type="submit">Add trigger</button></div></form></section>`
+      : ""
+  }
   <details class="acc-sec"><summary class="small muted">Activity</summary><ul class="acc-list" id="acc-audit"></ul></details>
   ${
     isCreator || canPic
