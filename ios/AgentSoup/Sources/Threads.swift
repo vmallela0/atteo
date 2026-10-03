@@ -1,8 +1,7 @@
-// Threads, like Lark: answers live in their thread, not in the chat. A message with answers shows a small preview
-// card under it (the latest answers and "3 replies · 4m ›"); tapping it pushes the thread full screen (back, or swipe
-// back, returns to the chat where you were). The chat's top bar lists every thread here, newest first, with a dot on
-// those with answers you haven't seen. A "#123" in a message opens that message's thread, and threads stack: back
-// unwinds each step.
+// Threads, like iMessage (jxn #1040, vedu #1051): a reply lands in the chat like any message, under a small bar quoting
+// what it answers, and the message it answers says "3 replies · 4m ›". Tapping either slides the thread up over the
+// chat: the message, every answer under it, and the same message box as the chat (jxn #1094). The chat's top bar lists
+// every thread here, newest first, with a dot on those with answers you haven't seen.
 
 import SwiftUI
 
@@ -94,6 +93,21 @@ extension String {
         return out
     }
     private static let entryRE = try! NSRegularExpression(pattern: "(?<![\\w&/#])(#(\\d{1,7}))\\b")
+
+    /// A plain line (a quote bar, a thread's row) with each "#123" read as "↗ <its title>", like mdLinked's chips:
+    /// people never see message numbers (#675).
+    func plainRefs(_ title: (Int) -> String? = { _ in nil }) -> String {
+        guard contains("#") else { return self }
+        let ns = self as NSString
+        var out = "", cursor = 0
+        for m in Self.entryRE.matches(in: self, range: NSRange(location: 0, length: ns.length)) {
+            guard let n = Int(ns.substring(with: m.range(at: 2))) else { continue }
+            out += ns.substring(with: NSRange(location: cursor, length: m.range(at: 1).location - cursor))
+            out += "↗ " + (title(n) ?? "an earlier message")
+            cursor = m.range(at: 1).location + m.range(at: 1).length
+        }
+        return out + ns.substring(from: cursor)
+    }
 }
 
 /// What a "#123" in text is called here (its title, a few words), for the chips mdLinked makes. The chat and its
@@ -153,8 +167,8 @@ func personLink(_ url: URL) -> ProfileTarget? {
 
 // MARK: - In the chat
 
-/// Under a message with answers: the latest one or two (who, a line of what they said) and "3 replies · 4m ›", with a
-/// dot when there's something you haven't seen. Tap: the thread.
+/// Under a message with answers: who answered, "3 replies · 4m ›", and a dot when there's something you haven't seen.
+/// (The answers themselves are in the chat, each under its quote bar, jxn #1040.) Tap: the thread.
 struct ThreadPreview: View {
     let seq: Int
     let replies: [Entry]
@@ -163,27 +177,21 @@ struct ThreadPreview: View {
 
     var body: some View {
         let n = replies.count
+        var keys = Set<String>()
+        let who = replies.filter { keys.insert("\($0.author)/\($0.byAgent)").inserted }.prefix(3)
         Button(action: open) {
-            VStack(alignment: .leading, spacing: 6) {
-                ForEach(replies.suffix(2), id: \.seq) { r in
-                    HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        Avatar(name: r.author, agent: r.byAgent, size: 16).alignmentGuide(.firstTextBaseline) { $0[.bottom] - 3 }
-                        Text(r.byAgent ? "\(r.author)'s agent" : r.author).font(Typo.micro.weight(.semibold)).foregroundStyle(Theme.text.opacity(0.9)).lineLimit(1)
-                            .layoutPriority(1)
-                        Text(Self.line(r)).font(Typo.micro).foregroundStyle(Theme.muted).lineLimit(1)
-                    }
+            HStack(spacing: 6) {
+                HStack(spacing: -5) {
+                    ForEach(Array(who), id: \.seq) { r in Avatar(name: r.author, agent: r.byAgent, size: 18).padding(1).background(Theme.bg, in: Circle()) }
                 }
-                HStack(spacing: 5) {
-                    if unread { Circle().fill(Theme.accent).frame(width: 6, height: 6).accessibilityIdentifier("thread-unread") }
-                    Text(n == 1 ? "1 reply" : "\(n) replies").font(Typo.micro.weight(.semibold)).foregroundStyle(unread ? Theme.accent : Theme.text.opacity(0.85))
-                    if let last = replies.last { Text("· \(last.ts.ago)").font(Typo.micro).foregroundStyle(Theme.faint).monospacedDigit() }
-                    Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold)).foregroundStyle(Theme.faint)
-                }
+                if unread { Circle().fill(Theme.accent).frame(width: 6, height: 6).accessibilityIdentifier("thread-unread") }
+                Text(n == 1 ? "1 reply" : "\(n) replies").font(Typo.micro.weight(.semibold)).foregroundStyle(unread ? Theme.accent : Theme.text.opacity(0.85))
+                if let last = replies.last { Text("· \(last.ts.ago)").font(Typo.micro).foregroundStyle(Theme.faint).monospacedDigit() }
+                Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold)).foregroundStyle(Theme.faint)
             }
-            .padding(.horizontal, 10).padding(.vertical, Space.s)
-            .frame(maxWidth: 300, alignment: .leading)
-            .background(Theme.card, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
-            .contentShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+            .padding(.leading, 4).padding(.trailing, 10).padding(.vertical, 5)
+            .background(Theme.card, in: Capsule())
+            .contentShape(Capsule())
         }
         .buttonStyle(PressStyle())
         .accessibilityElement(children: .ignore)
@@ -210,6 +218,7 @@ struct ThreadsList: View {
     @EnvironmentObject var state: AppState
     @ObservedObject private var seen = ThreadSeen.shared
     @Environment(\.chatDensity) private var density
+    @Environment(\.refTitle) private var refTitle
     let board: Board
 
     var body: some View {
@@ -233,6 +242,7 @@ struct ThreadsList: View {
                                        description: Text("Reply to a message and its answers collect in a thread here."))
             }
         }
+        .refTitles(state.entries[board.id] ?? [], tasks: state.tasks[board.id] ?? [])
         .navigationTitle("Threads")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Theme.bg, for: .navigationBar)
@@ -261,7 +271,7 @@ struct ThreadsList: View {
                     Spacer(minLength: Space.s)
                     Text(t.last.ago).font(Typo.micro).foregroundStyle(unread ? Theme.accent : Theme.faint).monospacedDigit()
                 }
-                Text(t.rootEntry.map { ThreadPreview.line($0) } ?? "An earlier message").font(Typo.secondary).foregroundStyle(Theme.muted).lineLimit(2)
+                Text(t.rootEntry.map { ThreadPreview.line($0).plainRefs(refTitle.callAsFunction) } ?? "An earlier message").font(Typo.secondary).foregroundStyle(Theme.muted).lineLimit(2)
                 HStack(spacing: 6) {
                     HStack(spacing: -5) {
                         ForEach(Array(people), id: \.seq) { p in Avatar(name: p.author, agent: p.byAgent, size: 16).padding(1).background(Theme.card, in: Circle()) }
@@ -276,19 +286,24 @@ struct ThreadsList: View {
 
 // MARK: - A thread
 
-/// A thread, full screen: the message at the top, "N replies", every answer under it in order, and a "Reply…" box
-/// that answers the thread (and, if you like, also posts it to the chat). Pushed on the chat's stack, so back returns
-/// where you were; a "#123" link opens that message's thread on top of this one.
+/// A thread: the message at the top, "N replies", every answer under it in order, and the chat's own message box
+/// (ChatComposer) answering it. Over the chat as a sheet (iMessage-style; Close or a swipe down returns to it), or
+/// pushed from the Threads list; a "#123" link opens that message's thread on top of this one.
 struct ThreadView: View {
     @EnvironmentObject var state: AppState
     @ObservedObject private var seenMarks = ThreadSeen.shared
     let board: Board
     let root: Int
     var prefill: String? = nil // a reply's "@who " to start with
+    var focus: Int? = nil // an answer to show (lit for a moment)
+    var replyTo: Int? = nil // the message the box answers first (a reply started on one), else the root
+    var overChat = false // a sheet over the chat, which keeps its live socket (one per board is enough)
+    var closes = false // the sheet's first screen: a Close button
     @State private var top: Int? // the real root, once known (opened on an answer: its thread)
     @State private var fetched: ThreadResponse?
     @State private var draft = ""
-    @State private var alsoToChat = false
+    @State private var answering: Int? // what the next answer quotes (nil: the root)
+    @State private var started = false // the box's first words and what it answers are set, once
     @State private var unsending: Entry?
     @State private var reactingTo: SeqRef?
     @State private var next: ThreadTarget? // another thread, pushed on top
@@ -299,6 +314,7 @@ struct ThreadView: View {
     @State private var focused = false
     @State private var decisionPrompt: DecisionPrompt? // objecting (why?) or closing a human decision
     @State private var decisionNote = ""
+    @Environment(\.dismiss) private var dismiss
 
     private var me: String? { state.me?.owner }
     private var rootSeq: Int { top ?? root }
@@ -353,6 +369,7 @@ struct ThreadView: View {
             }
             // The message at the top, its answers under it; a new answer scrolls into view.
             .scrollDismissesKeyboard(.interactively)
+            .defaultScrollAnchor(.bottom, for: .initialOffset) // opens on the latest answers, like iMessage
             .onChange(of: list.last?.id) { old, new in
                 guard old != nil, let new else { return }
                 withAnimation(.smooth(duration: 0.3)) { proxy.scrollTo(new, anchor: .bottom) }
@@ -370,7 +387,16 @@ struct ThreadView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Theme.bg, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)
-        .navigationDestination(item: $next) { t in ThreadView(board: board, root: t.root) }
+        .toolbar {
+            if closes {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { Haptic.tap(); dismiss() } label: { ToolbarIcon("xmark") }
+                        .accessibilityIdentifier("thread-close")
+                        .accessibilityLabel("Close")
+                }
+            }
+        }
+        .navigationDestination(item: $next) { t in ThreadView(board: board, root: t.root, overChat: overChat) }
         // A "#123" in a message: in this thread, go to it; elsewhere, open its thread on top of this one.
         .environment(\.openURL, OpenURLAction { url in
             if let p = personLink(url) { Haptic.tap(); profile = p; return .handled }
@@ -400,10 +426,16 @@ struct ThreadView: View {
         } message: { _ in Text("Everyone here will see it as unsent.") }
         .decisionPrompts($decisionPrompt, note: $decisionNote, board: board, state: state)
         .task {
-            if let prefill, draft.isEmpty { draft = prefill; focused = true }
+            if !started, let prefill { started = true; answering = replyTo; draft = prefill; focused = true }
+            else if !started, replyTo != nil { started = true; answering = replyTo; focused = true }
             await load()
+            // Opened on the thread itself ("N replies", a quote bar): the box starts with who wrote the message, like
+            // the web (only your own start empty).
+            if !started { started = true; if draft.isEmpty, let r = items.first(where: { $0.seq == rootSeq }) { draft = BoardView.replyHandle(r, me: me) ?? "" } }
+            if let focus { try? await Task.sleep(nanoseconds: 250_000_000); open(focus, here: Dictionary(items.map { ($0.seq, $0) }, uniquingKeysWith: { a, _ in a })) }
         }
-        .task(id: board.id) { await state.watch(board) } // new answers arrive live
+        // New answers arrive live (over the chat, its socket already brings them).
+        .task(id: board.id) { if !overChat { await state.watch(board) } }
         .onAppear { markSeen() }
         .onChange(of: list.last?.seq) { _, _ in markSeen() }
     }
@@ -450,66 +482,18 @@ struct ThreadView: View {
         }
     }
 
-    /// Replying to someone in the thread names them in the box.
+    /// Replying to a message in the thread: the next answer quotes it, and names who wrote it (your agent too).
     private func mention(_ e: Entry) {
-        guard !(e.author == me && e.via != "agent") else { focused = true; return }
-        let handle = "@" + (e.byAgent ? "\(e.author)'s agent" : e.author)
-        if !draft.localizedCaseInsensitiveContains(handle) { draft = handle + " " + draft }
+        answering = e.seq == rootSeq ? nil : e.seq
+        if let handle = BoardView.replyHandle(e, me: me)?.trimmingCharacters(in: .whitespaces), !draft.localizedCaseInsensitiveContains(handle) { draft = handle + " " + draft }
         focused = true
     }
 
+    /// The chat's own message box (jxn #1094): typing, "/", "@", pictures and files, send.
     private var composer: some View {
-        let slash = SlashCommand.parse(draft, on: board)
-        let canSend = slash.map { !$0.1.isEmpty } ?? !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let fits = SlashCommand.suggestions(draft, on: board)
-        return VStack(alignment: .leading, spacing: Space.xs) {
-            // Who's typing on this board (the ping says nothing about where, so the thread shows its chat's).
-            TypingRow(board: board.id).padding(.horizontal, -Space.m)
-            if !fits.isEmpty { SlashChips(commands: fits) { c in Haptic.tap(); draft = c.word + " " }.padding(.horizontal, -Space.m) }
-            else if let (c, _) = slash { SlashChips(commands: [c], active: c) { _ in }.padding(.horizontal, -Space.m) }
-            HStack(alignment: .bottom, spacing: 0) {
-                ComposerField(text: $draft, focused: $focused, placeholder: "Reply…",
-                              members: Set((state.members[board.id] ?? []).map { $0.lowercased() }), me: me, identifier: "thread-composer")
-                    .padding(.leading, Space.m).padding(.trailing, Composer.gap)
-                Button(action: send) {
-                    Image(systemName: "arrow.up").font(.system(size: 14, weight: .bold))
-                        .composerCircle(fill: canSend ? Theme.accent : Theme.raised)
-                        .foregroundStyle(canSend ? .black : Theme.faint)
-                }
-                .buttonStyle(PressStyle())
-                .disabled(!canSend)
-                .accessibilityIdentifier("thread-send")
-                .accessibilityLabel("Send")
-            }
-            .background(Theme.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-            // Also post the answer to the chat, as its own message.
-            Button { Haptic.tap(); alsoToChat.toggle() } label: {
-                Label("Also send to chat", systemImage: alsoToChat ? "checkmark.square.fill" : "square")
-                    .font(Typo.micro.weight(.medium)).foregroundStyle(alsoToChat ? Theme.text : Theme.faint)
-                    .padding(.leading, Space.m).frame(minHeight: 28).contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("also-to-chat")
-            .accessibilityValue(alsoToChat ? "on" : "off")
-        }
-        .padding(.horizontal, Space.m).padding(.top, Space.s).padding(.bottom, Space.xs)
-        .background(Theme.bg)
-        .animation(.smooth(duration: 0.25), value: state.typing[board.id])
-        .onChange(of: draft) { _, d in state.typed(d, in: board) }
-    }
-
-    private func send() {
-        var text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        var type = "note"
-        if let (c, rest) = SlashCommand.parse(text, on: board) { text = c.body(rest); type = c.type }
-        guard !text.isEmpty else { return }
-        let echo = alsoToChat
-        let r = rootSeq
-        draft = ""
-        Haptic.tap()
-        Task {
-            await state.send(text, to: board, replyTo: r, type: type)
-            if echo { await state.send(text, to: board, type: type) }
+        ChatComposer(board: board, draft: $draft, focused: $focused, placeholder: "Reply…", replyTo: answering ?? rootSeq,
+                     identifier: "thread-composer", sendIdentifier: "thread-send", attachIdentifier: "thread-attach") {
+            answering = nil
             await load()
         }
     }

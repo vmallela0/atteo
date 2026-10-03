@@ -202,8 +202,8 @@ final class AgentSoupUITests: XCTestCase {
             wait(for: [visible], timeout: 3) // on screen, not tucked under the message box
             shot("07a-seen")
         }
-        // Reply to a specific message: swipe it right (like any messenger) or long-press → Reply; its thread opens
-        // (like Slack), the box starting with who you're answering; the answer stays in the thread.
+        // Reply to a specific message: swipe it right (like any messenger) or long-press → Reply; its thread opens over
+        // the chat (like iMessage), the box starting with who you're answering; the answer lands in the chat too.
         let parent = a.staticTexts["posted while you read history"]
         if parent.exists && parent.isHittable {
             let from = parent.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5))
@@ -438,7 +438,7 @@ final class AgentSoupUITests: XCTestCase {
         let n = Int(Date().timeIntervalSince1970) % 100000
         func sent() { wait(for: [expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: a.staticTexts["Sending…"])], timeout: 10) }
 
-        // Reply: long-press theo's agent's message → Reply; its thread opens full screen, the box starting
+        // Reply: long-press theo's agent's message → Reply; its thread opens over the chat, the box starting
         // with "@theo's agent " (#538).
         let theirs = a.staticTexts["Backfill finished on staging: 4.2M rows, 0 errors. Ready for prod tonight."]
         XCTAssertTrue(theirs.waitForExistence(timeout: 5))
@@ -462,26 +462,21 @@ final class AgentSoupUITests: XCTestCase {
         shot("21-thread")
         a.navigationBars["Thread"].buttons.element(boundBy: 0).tap()
 
-        // Back in the chat: the answer isn't in the chat (it lives in the thread); the message says "1 reply".
+        // Back in the chat: the answer is in the chat too, at the bottom under its quote bar (jxn #1040); the message
+        // it answers says "1 reply".
         XCTAssertTrue(a.navigationBars["Thread"].waitForNonExistence(timeout: 5), "back")
         XCTAssertTrue(composer.waitForExistence(timeout: 5))
         let replies = a.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'replies-'")).firstMatch
         XCTAssertTrue(replies.waitForExistence(timeout: 5), "the parent shows its replies")
-        // (the whole message, "@theo's agent after…", isn't in the chat; the preview card shows its line)
-        XCTAssertFalse(a.staticTexts.matching(NSPredicate(format: "label BEGINSWITH '@' AND label ENDSWITH %@", answer)).firstMatch.exists, "answers stay in their thread")
+        XCTAssertTrue(a.staticTexts.matching(NSPredicate(format: "label BEGINSWITH '@' AND label ENDSWITH %@", answer)).firstMatch.waitForExistence(timeout: 5), "the answer is in the chat")
+        XCTAssertTrue(a.buttons.matching(NSPredicate(format: "identifier == 'reply-quote' AND label CONTAINS 'Backfill finished'")).firstMatch.exists, "under a bar quoting what it answers")
         shot("21a-replies-chip")
+        for _ in 0..<4 where !replies.isHittable { a.swipeDown(velocity: .slow); sleep(1) }
         replies.tap()
         XCTAssertTrue(a.navigationBars["Thread"].waitForExistence(timeout: 5), "the thread opens again")
         XCTAssertTrue(inThread.waitForExistence(timeout: 5), "with the answer in it")
-        // "Also send to chat": a thread answer that's posted to the chat too.
-        let echo = "ship it tonight \(n)"
-        tbox.tap()
-        tbox.typeText(echo)
-        a.buttons["also-to-chat"].tap()
-        a.buttons["thread-send"].tap()
-        sent()
         a.navigationBars["Thread"].buttons.element(boundBy: 0).tap()
-        XCTAssertTrue(a.staticTexts[echo].waitForExistence(timeout: 8), "also sent to the chat")
+        XCTAssertTrue(a.navigationBars["Thread"].waitForNonExistence(timeout: 5), "closed")
 
         // Every thread here (the top bar's Threads, like Lark): theo answers in the thread while you look, and its
         // row gets a dot; open it (pushed), back to the list (the dot's gone), back to the chat.

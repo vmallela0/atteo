@@ -183,4 +183,5 @@ await tool(tm, ac.board, "post", { type: "note", reply_to: ask.entry?.seq, text:
 for (const k of (await call(otherApp, "GET", "/api/me/keys")).keys ?? []) {
   if (k.label === "theo's laptop") await call(otherApp, "DELETE", `/api/me/keys/${k.id}`);
 }
-console.log(JSON.stringify({ app, otherApp, other: tt, enc, b1, sub: Number((sub.match(/#(\d+)/) || [])[1]) }));
+// env: handed to the UI tests as AGENT_SOUP_<KEY> (maya's agent: replying to your own agent's post, #975).
+console.log(JSON.stringify({ app, otherApp, other: tt, enc, b1, sub: Number((sub.match(/#(\d+)/) || [])[1]), env: { maya_agent: tm } }));
