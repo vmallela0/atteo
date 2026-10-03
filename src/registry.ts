@@ -376,6 +376,17 @@ export async function agentStatus(env: Env, user: string): Promise<{ connected: 
   return { connected: !!r?.last, lastUsed: r?.last ?? null };
 }
 
+/** Whether this person has ever had an assistant connected: any agent session, or a sign-in an agent has used (the
+ *  Atteo app's own sign-in doesn't count). No: home offers the Everyday first-run screen (/welcome). */
+export async function everHadAgent(env: Env, user: string): Promise<boolean> {
+  const r = await env.DB.prepare(
+    `SELECT EXISTS(SELECT 1 FROM agent_sessions WHERE user = ?) OR EXISTS(SELECT 1 FROM tokens WHERE user = ? AND last_used IS NOT NULL AND kind != 'app') AS had`,
+  )
+    .bind(user, user)
+    .first<{ had: number }>();
+  return !!r?.had;
+}
+
 export async function setMcpSessionClient(env: Env, sessionId: string, user: string, client: string) {
   const now = Date.now();
   await env.DB.prepare(

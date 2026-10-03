@@ -60,6 +60,7 @@ import {
 import type { Entry, Env } from "./types";
 import { FAVICON_SVG, page, renderText } from "./ui";
 import { APPLE_TOUCH_PNG_B64 } from "./appleIcon";
+import { assistantWelcomePage } from "./welcome";
 import { atteoHeader, BOARD_RE, connectCommand, esc, newBoardId, legacyHostRedirect, normalizeUser, parseBoardMeta, publicOrigin } from "./util";
 
 import * as Sentry from "@sentry/cloudflare";
@@ -317,8 +318,13 @@ async function authCallback(c: Ctx): Promise<Response> {
 
 async function welcome(c: Ctx): Promise<Response> {
   const s = c.session;
-  if (!s) return redirect("/auth/login");
-  if (s.user) return redirect("/");
+  if (!s) return redirect("/auth/login?return=%2Fwelcome");
+  // Signed in: the Everyday first-run screen, "Bring your assistant" (board #1272). Before a name is picked, choose one.
+  if (s.user) {
+    if (c.request.method !== "GET" || !c.viewer) return redirect("/");
+    const [side, mine] = await Promise.all([sideBoards(c.env, c.viewer.name), sessions.list(c.env, c.viewer.name)]);
+    return assistantWelcomePage(c.viewer, side, c.origin, mine.filter(sessions.listed).map((x) => x.client || x.name));
+  }
   const suggestion = await freeName(c.env, suggestName(s.email, s.display_name));
   if (c.request.method === "GET") return welcomePage(s.email, suggestion);
   if (c.request.method !== "POST") return notFound();
@@ -714,13 +720,14 @@ const handler = {
         if (session && !session.user) return redirect("/welcome");
         if (!viewer) return landingPage();
         const me = await registry.userByName(env, viewer.name);
-        const [side, boards, invitations, status] = await Promise.all([
+        const [side, boards, invitations, status, had] = await Promise.all([
           sideBoards(env, viewer.name),
           registry.boardsOverview(env, viewer.name),
           me ? registry.invitationsFor(env, me) : [],
           registry.agentStatus(env, viewer.name),
+          registry.everHadAgent(env, viewer.name),
         ]);
-        return homePage(viewer, side, boards, invitations, { connected: status.connected, onThisBoard: false });
+        return homePage(viewer, side, boards, invitations, { connected: status.connected, onThisBoard: false }, undefined, !had);
       }
 
       if (path === "/boards" && method === "POST") {
@@ -1290,14 +1297,15 @@ const handler = {
 
       if (path === "/me" && method === "GET") {
         if (!viewer) return needLogin();
-        const [side, tokens, plan, hooks, prof] = await Promise.all([
+        const [side, tokens, plan, hooks, prof, mine] = await Promise.all([
           sideBoards(env, viewer.name),
           auth.listTokens(env, viewer.name),
           billing.planOf(env, viewer.name),
           webhooks.listWebhooks(env, viewer.name),
           social.profile(env, viewer.name),
+          sessions.list(env, viewer.name),
         ]);
-        return mePage(viewer, side, tokens, plan, !!env.STRIPE_SECRET_KEY, hooks, prof);
+        return mePage(viewer, side, tokens, plan, !!env.STRIPE_SECRET_KEY, hooks, prof, mine.filter(sessions.listed).map((x) => x.client || x.name));
       }
 
       if (path === OPS_PATH && method === "GET") {

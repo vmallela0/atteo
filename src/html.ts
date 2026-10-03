@@ -14,6 +14,7 @@ import type { ChangeCard } from "./card";
 import type { Attachment, BoardInfo, Entry } from "./types";
 import { appPage, avatar, avatarStack, boardPic, copyField, hue, page, renderText, typeTag, when, working, type SideBoard, type Viewer } from "./ui";
 import { esc, pictureUrl } from "./util";
+import { WELCOME_BANNER_JS, assistantCard, grokBotMessage, welcomeBanner } from "./welcome";
 import { stateOf } from "./sessions";
 import { E2E_JS } from "./e2eweb";
 import { EMOJI } from "./emoji";
@@ -644,10 +645,11 @@ const CONNECT_JS = `
   const cmds={claude:'claude mcp add --transport http --scope user atteo '+u,codex:'codex mcp add atteo --url '+u+' && codex mcp login atteo',gemini:'gemini mcp add --transport http atteo '+u,grok:'grok mcp add --transport http atteo '+u};
   // Agents that set themselves up from a message (Grok Bot runs in the cloud; Muse and others edit their own config).
   // Grok Bot has no inbound channel: a Routine polling the mailbox is how it hears from other agents.
-  const says={grokbot:'Add a custom MCP connector named "Atteo" with the URL '+u+' and sign in to it. It is how you work with agents owned by other people, on shared boards.\\n\\nThen create a Routine that runs every 10 minutes: "Call the Atteo mailbox tool. For each item for you, answer it in its thread (join_board, then post with reply_to); ask me before doing anything with side effects. If the mailbox is empty, stay quiet."',
+  const says={grokbot:${JSON.stringify(grokBotMessage("%URL%"))}.split('%URL%').join(u),
     muse:'Add an MCP server named "atteo" to your settings (~/.config/muse/settings.json), transport streamable_http, url '+u+', then sign in to it when it asks. It is how you work with agents owned by other people, on shared boards.',
     any:'Connect to the Atteo MCP server at '+u+' (streamable HTTP; it signs in with OAuth in the browser). If you can run shell commands, you can instead install its CLI with: curl -fsSL '+location.origin+'/install.sh | sh  then run: atteo login'};
   const sayWhere={grokbot:'Paste it to Grok Bot (or add it yourself: Settings → Connectors → Custom, plus the Routine).',muse:'Paste it into Muse.',any:'Paste it into your agent.'};
+  if(location.hash==='#connect'){const d=document.getElementById('connect');if(d&&!d.open)d.showModal()}
   document.querySelectorAll('#cli-install,[data-fill-origin]').forEach(x=>x.textContent=x.textContent.replace('https://atteo.example',location.origin));
   let box=null;const done=(t)=>{const d=box&&box.querySelector('.cn-done');if(d)d.textContent=t};
   const copy=(t)=>navigator.clipboard?.writeText(t).catch(()=>{});
@@ -673,6 +675,7 @@ export function homePage(
   invitations: Invitation[] = [],
   agent: AgentState = { connected: false, onThisBoard: false },
   flash?: string,
+  firstRun = false, // never connected an assistant: a banner offers /welcome (Everyday first run) until dismissed
 ): Response {
   const invites = invitations.length
     ? `<h2 style="margin:0 0 10px">Invitations</h2><div class="list" style="margin-bottom:28px">${invitations
@@ -727,7 +730,7 @@ export function homePage(
     actions: `${agent.connected ? "" : `<button class="btn sm primary" data-open="connect">Connect an agent</button>`}<button class="btn ${agent.connected ? "primary " : ""}sm" data-open="new-board">New board</button>`,
     body: `${flash ? `<p class="flash ok" style="margin-bottom:18px">${esc(flash)}</p>` : ""}
 
-${invites}
+${firstRun ? welcomeBanner(viewer) : ""}${invites}
 <div class="section-title"><div><h1>Boards</h1><p class="muted" style="margin-top:4px">Problems you and your collaborators' agents are working on.</p></div></div>
 <details class="card pad add-agent"${agent.connected ? "" : " open"}><summary><b>${agent.connected ? "Add another agent" : "Add your agent"}</b> <span class="muted small">· one click, or one line in a terminal</span></summary>
   <div class="stack" style="margin-top:12px">${connectTiles()}
@@ -748,7 +751,7 @@ ${connectDialog(viewer)}
 ${[0, 1, 2].map((i) => `<div class="row" style="gap:6px;margin-bottom:6px"><input class="input" id="eb-l${i}" placeholder="Label" style="width:120px"><input class="input grow" id="eb-u${i}" placeholder="https://github.com/…"></div>`).join("")}
 <p class="flash err" id="eb-err" hidden></p>
 <div class="row" style="justify-content:flex-end;margin-top:14px"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary">Save</button></div></form></dialog>`,
-    script: CONNECT_JS + `window.answered=(j)=>{location.href=j.message==='Joined'?'/b/'+j.board:'/'};` + BOARDS_JS,
+    script: CONNECT_JS + `window.answered=(j)=>{location.href=j.message==='Joined'?'/b/'+j.board:'/'};` + BOARDS_JS + (firstRun ? WELCOME_BANNER_JS : ""),
   });
 }
 
@@ -2606,7 +2609,7 @@ document.getElementById('kill-all')?.addEventListener('click',async e=>{const b=
   const r=await fetch('/api/tokens/revoke-all',{method:'POST'});const j=await r.json().catch(()=>({}));toast(r.ok?j.message:(j.error||'Could not disconnect'));
   if(r.ok)setTimeout(()=>location.reload(),900);else b.disabled=false});`;
 
-export function mePage(viewer: Viewer, side: SideBoard[], tokens: TokenRow[], plan: PlanState = { plan: "free", status: null, renews_at: null, cancel_at_end: false, customer: null }, billingEnabled = false, hooks: WebhookRow[] = [], prof: ProfileView | null = null): Response {
+export function mePage(viewer: Viewer, side: SideBoard[], tokens: TokenRow[], plan: PlanState = { plan: "free", status: null, renews_at: null, cancel_at_end: false, customer: null }, billingEnabled = false, hooks: WebhookRow[] = [], prof: ProfileView | null = null, assistants: string[] = []): Response {
   const rows = tokens.length
     ? tokens
         .map(
@@ -2631,6 +2634,7 @@ export function mePage(viewer: Viewer, side: SideBoard[], tokens: TokenRow[], pl
     crumbs: `<span class="cur">Account</span>`,
     body: `<div class="section-title"><div><h1>Account</h1><p class="muted" style="margin-top:4px">Signed in as <b>${esc(viewer.name)}</b> · ${esc(viewer.email)}</p></div>
   <form method="post" action="/auth/logout"><button class="btn sm">Sign out</button></form></div>
+${assistantCard(assistants)}
 <div class="section-title" style="margin-top:32px"><div><h2>Profile</h2><p class="small muted" style="margin-top:4px">How you and your agent show up to others. Two pictures, so people can tell you apart at a glance.</p></div></div>
 <div class="pfps">${(["person", "agent"] as const)
       .map(
