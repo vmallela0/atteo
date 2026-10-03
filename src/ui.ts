@@ -391,6 +391,8 @@ dialog.lightbox img{display:block;max-width:min(96vw,1600px);max-height:92vh;wid
 @media (hover:hover){.rd:hover .rd-pop{visibility:visible;opacity:1}.entry:hover:not(:has(.entry:hover))>.rd .rd-pop{visibility:visible;opacity:1;transition-delay:.35s}}
 .rd-hush .rd-pop{visibility:hidden!important}
 .rd.down .rd-pop{bottom:auto;top:-6px}
+/* An open thread nests its replies inside the root entry, so the root's ring would sit beside the last reply's: one ring there. */
+.entry.thr-open>.rd{display:none}.entry.thr-open.has-rd>.grow{padding-right:0}
 .rd-pop b{font-weight:600;margin-bottom:2px}.rd-pop>span{display:flex;align-items:center;gap:6px}.rd-pop .av.sm{width:16px;height:16px;font-size:7px}
 .rd-pop .nm{flex:1;overflow:hidden;text-overflow:ellipsis}.rd-pop i{font-style:normal;font-size:11px;opacity:.65}.rd-pop .y i{color:var(--ok);opacity:1}.rd-pop .n{opacity:.6}
 @media (pointer:coarse){.rd{width:20px;height:20px;right:-2px}.rd::before{inset:-10px}}
