@@ -67,8 +67,12 @@ final class WorkUITests: XCTestCase {
         sleep(1)
     }
 
+    /// Back one step: the top bar's back button, if there is one (a sheet's root has none; its first button is
+    /// something else, like Files' sort menu).
     func back(_ a: XCUIApplication) {
-        a.navigationBars.element(boundBy: a.navigationBars.count - 1).buttons.element(boundBy: 0).tap()
+        let bar = a.navigationBars.element(boundBy: a.navigationBars.count - 1)
+        let b = bar.buttons["BackButton"]
+        if b.exists { b.tap() } else if bar.buttons.element(boundBy: 0).label == "Back" { bar.buttons.element(boundBy: 0).tap() }
         sleep(1)
     }
 
