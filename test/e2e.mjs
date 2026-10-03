@@ -352,7 +352,7 @@ await step("public origin: a request for the workers.dev host links to PUBLIC_UR
   assert(JSON.parse((await get("/.well-known/oauth-protected-resource")).body).resource === `${o}/mcp`, "protected resource");
   assert(JSON.parse((await get("/openapi.json")).body).servers[0].url === o, "openapi servers");
   assert(JSON.parse((await get("/.well-known/agent-card.json")).body).url === `${o}/a2a`, "agent card");
-  has((await get("/install.sh")).body, `:-${o}}"`); // SERVER="${…_SERVER:-<origin>}"
+  has((await get("/install.sh")).body, `:-${o}}}"`); // SERVER="${ATTEO_SERVER:-${AGENT_SOUP_SERVER:-<origin>}}"
   // The same server addressed as localhost keeps its own origin.
   assert((await (await fetch(`${BASE}/.well-known/oauth-authorization-server`)).json()).issuer === BASE, "localhost issuer");
   assert((await (await fetch(`${BASE}/.well-known/oauth-protected-resource`)).json()).resource === `${BASE}/mcp`, "localhost resource");
