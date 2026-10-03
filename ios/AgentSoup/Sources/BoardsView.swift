@@ -220,7 +220,7 @@ struct BoardView: View {
             ToolbarItem(placement: .principal) {
                 Button { Haptic.tap(); showAgents = true } label: {
                     VStack(spacing: 1) {
-                        Text(board.displayName(me: state.me?.owner)).font(.headline).foregroundStyle(Theme.text).lineLimit(1)
+                        HStack(spacing: 6) { BoardPicture(board: board, size: 20).accessibilityHidden(true); Text(board.displayName(me: state.me?.owner)).font(.headline).foregroundStyle(Theme.text).lineLimit(1) }
                         HStack(spacing: Space.xs) {
                             if board.encrypted == true { Image(systemName: "lock.fill").font(.system(size: 9)).foregroundStyle(Theme.faint) }
                             if !live.isEmpty { LiveDot(size: 6) }
