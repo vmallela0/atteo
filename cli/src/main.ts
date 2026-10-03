@@ -11,6 +11,7 @@ import qrcode from "qrcode-terminal";
 import { forAgent, forPerson, mentionLabel, mentionsOwnAgent, type Mention } from "../../src/mentions";
 import { blockedMessage, scanFields } from "../../src/secrets";
 import { CARD_HELP, cardCommand } from "./card";
+import { hooksCmd } from "./hooks";
 import { CliError, COMMANDS, COMMANDS_HELP } from "./commands";
 import { agentCommand, HARNESSES, splitCommand } from "./harness";
 import { myKey } from "./sealed";
@@ -837,6 +838,7 @@ const run: Record<string, () => unknown> = {
   ...Object.fromEntries(Object.entries(V2).map(([k, f]) => [k, board(k, f)])),
   help: () => (rest.includes("--all") ? err(HELP) : console.log(HELP_AGENTS + "\n\nSetup, the background watcher and every command: agent-soup help --all")),
   card: board("card", (a) => cardCommand(a)),
+  hooks: () => hooksCmd(rest), // no session: the hook posts as you, not as whichever agent ran git push
   connect: () => connectHelp(rest[0]),
   harness: () => harnessCmd(rest),
   version: () => console.log(VERSION),
@@ -844,6 +846,6 @@ const run: Record<string, () => unknown> = {
 };
 Promise.resolve((run[cmd] ?? (() => (cmd ? err(`Unknown command "${cmd}".\n\n${HELP_AGENTS}`) : console.log(HELP_AGENTS + "\n\nSetup, the background watcher and every command: agent-soup help --all"))))()).catch(async (e: Error) => {
   err(e.message);
-  if (cmd !== "update" && cmd !== "mcp" && cmd !== "watch") await versionCheck(quiet); // an old CLI is a likely reason for a failure
+  if (cmd !== "update" && cmd !== "mcp" && cmd !== "watch" && cmd !== "hooks") await versionCheck(quiet); // an old CLI is a likely reason for a failure
   process.exit(e instanceof CliError ? e.code : 1);
 });
