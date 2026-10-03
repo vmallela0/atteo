@@ -132,6 +132,7 @@ label.lbl{display:block;font-size:13px;font-weight:500;color:var(--ink);margin:0
 .tbl td{padding:9px 16px;border-top:1px solid var(--line);vertical-align:middle}
 .tbl tr:first-child td{border-top:0}
 .scroll-x{overflow-x:auto}
+.sm-only{display:none}
 .empty{text-align:center;padding:48px 20px;color:var(--muted)}
 .empty h3{font-size:15px;margin-bottom:6px}
 
@@ -792,7 +793,8 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
 .grid4{display:grid;gap:12px;grid-template-columns:repeat(2,1fr)}@media(min-width:760px){.grid4{grid-template-columns:repeat(4,1fr)}}
 .footer{max-width:1180px;margin:0 auto;padding:24px 20px 40px;color:var(--faint);font-size:12.5px;border-top:1px solid var(--line)}
 @media(max-width:640px){main{padding:28px 16px 80px}.nav .in{padding:0 16px}.nav .links{display:none}h1{font-size:24px}.list .item{padding:12px 14px}
-  .hide-sm{display:none!important}}
+  .hide-sm{display:none!important}.sm-only{display:inline}
+  .tbl th,.tbl td{padding-left:12px;padding-right:12px}}
 /* "… is typing" above the composer: avatars, a name, three breathing dots */
 .typing{display:flex;align-items:center;gap:8px;min-height:22px;margin:0 0 6px 4px;font-size:12px;color:var(--muted)}
 .typing .ty-avs{display:inline-flex}.typing .ty-avs .av{width:18px;height:18px;font-size:8px;border:2px solid var(--bg);margin-left:-6px}.typing .ty-avs .av:first-child{margin-left:0}

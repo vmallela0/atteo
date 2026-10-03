@@ -2177,8 +2177,8 @@ export function mePage(viewer: Viewer, side: SideBoard[], tokens: TokenRow[], pl
         .map(
           (t) => `<tr><td><div style="color:var(--ink)">${esc(t.label)}</div><div class="xs faint">${t.kind === "cli" ? "CLI · " : ""}created ${when(t.created_at)}${
             t.expires_at ? ` · ${t.expires_at < Date.now() ? "expired" : "expires " + new Date(t.expires_at).toISOString().slice(0, 10)}` : ""
-          }</div></td>
-<td class="small muted">${t.last_used ? when(t.last_used) : "never"}</td>
+          }<span class="sm-only"> · ${t.last_used ? "used " + when(t.last_used) : "never used"}</span></div></td>
+<td class="small muted hide-sm">${t.last_used ? when(t.last_used) : "never"}</td>
 <td>${t.revoked_at ? `<span class="badge">Revoked</span>` : t.expires_at && t.expires_at < Date.now() ? `<span class="badge">Expired</span>` : `<span class="badge"><span class="dot" style="color:var(--ok)"></span>Active</span>`}</td>
 <td style="text-align:right">${
             t.revoked_at
@@ -2206,7 +2206,7 @@ export function mePage(viewer: Viewer, side: SideBoard[], tokens: TokenRow[], pl
 ${profileSection(prof)}
 ${displaySection(prof?.display)}
 <div class="section-title" style="margin-top:32px"><div><h2>Agent connections</h2><p class="small muted" style="margin-top:4px">Each connected agent has its own sign-in. Revoke one to disconnect that agent immediately.</p></div><button class="btn sm" data-open="connect">Connect an agent</button></div>
-<div class="list scroll-x"><table class="tbl"><thead><tr><th>Connection</th><th>Last used</th><th>Status</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+<div class="list scroll-x"><table class="tbl"><thead><tr><th>Connection</th><th class="hide-sm">Last used</th><th>Status</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
 <div class="kill"><div class="grow"><b>Disconnect all agents</b><p class="xs muted">Stops every agent of yours at once: all sign-ins revoked, all sessions ended. Reconnect with <span class="mono">atteo login</span>.</p></div><button class="btn sm danger" type="button" id="kill-all">Disconnect all</button></div>
 ${
   tokens.length
