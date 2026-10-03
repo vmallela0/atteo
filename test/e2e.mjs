@@ -393,6 +393,11 @@ await step("web: members see the board; outsiders get 404", async () => {
   has(html, `e2e ${run}`);
   has(html, "Connect your agents");
   has(html, "burst 19");
+  has(html, "View profile"); // mentions, avatars and author names open a profile card (click, tap, Enter)
+  has(html, "data-ask");
+  const prof = await (await web(`/u/${B}`, A)).text();
+  has(prof, 'id="agent"'); // the profile page has the agent's section (/u/<name>#agent)
+  has(prof, `${B}'s agent`);
   assert((await web(`/b/${board}`, OUT)).status === 404, "outsider should 404");
   assert(!(await (await web(`/b/${board}`, B)).text()).includes('href="/_ops"'), "only operators see the Ops link");
   assert((await web(`/api/boards/${board}/updates?after=0`, OUT)).status === 404, "outsider API should 404");
@@ -1307,6 +1312,38 @@ await step("sub-tasks: parent, nested list, children done/total, a finished sub-
   assert(r.status === 200 && (await r.json()).task.parent === null, "web un-nest");
 });
 
+await step("checklist lines that mention #N tick themselves when #N is done or a reply resolves it; done tasks are left alone", async () => {
+  const a = Number((await ok(A, fb, "task", { action: "create", title: `Fix the login bug ${run}` })).match(/Created task #(\d+)/)[1]);
+  await ok(A, fb, "read");
+  const b = seqOf(await ok(A, fb, "post", { type: "question", text: `Which region do we deploy to? ${run}` }));
+  const body = `- [ ] #${a} login fix\n- [ ] answer #${b}\n- [ ] #${a}0 not this one\n- [ ] write the release notes`;
+  const l = Number((await ok(A, fb, "task", { action: "create", title: `Release list ${run}`, body })).match(/Created task #(\d+)/)[1]);
+  // A finished list that still mentions #a: once done, its lines aren't touched again.
+  const d = Number((await ok(A, fb, "task", { action: "create", title: `Old list ${run}`, body: `- [ ] #${a} old` })).match(/Created task #(\d+)/)[1]);
+  await ok(A, fb, "task", { action: "update", seq: d, status: "done" });
+  await ok(A, fb, "task", { action: "edit", seq: d, old_str: `- [x] #${a} old`, new_str: `- [ ] #${a} old` });
+  const dv = (await (await web(`/api/boards/${fb}/tasks/${d}`, A)).json()).task.version;
+
+  await ok(B, fb, "task", { action: "update", seq: a, status: "done" });
+  let g = await ok(A, fb, "task", { action: "get", seq: l });
+  has(g, `- [x] #${a} login fix`);
+  has(g, `- [ ] answer #${b}`);
+  has(g, `- [ ] #${a}0 not this one`); // #a0 is another number
+  has(g, "- [ ] write the release notes");
+  has(await ok(A, fb, "task", { action: "history", seq: l }), `#${a} done`);
+  const dt = (await (await web(`/api/boards/${fb}/tasks/${d}`, A)).json()).task;
+  assert(dt.version === dv && dt.body.includes(`- [ ] #${a} old`), "a done task's lines aren't touched: " + JSON.stringify(dt).slice(0, 200));
+
+  await ok(A, fb, "read");
+  await ok(A, fb, "post", { type: "note", text: `✅ eu-west ${run}`, reply_to: b, resolves: [b] });
+  g = await ok(A, fb, "task", { action: "get", seq: l });
+  has(g, `- [x] answer #${b}`);
+  has(g, `- [ ] #${a}0 not this one`);
+  has(g, "- [ ] write the release notes");
+  has(await ok(A, fb, "task", { action: "history", seq: l }), `#${b} resolved`);
+  assert((await (await web(`/api/boards/${fb}/tasks/${l}`, A)).json()).task.status === "todo", "ticking lines doesn't finish the task");
+});
+
 await step("plans: Free caps boards you create; a signed Stripe webhook upgrades to Pro and back; checkout opens", async () => {
   const whsec = process.env.STRIPE_WEBHOOK_SECRET ?? (() => { try { return readFileSync(new URL("../.dev.vars", import.meta.url), "utf8").match(/^STRIPE_WEBHOOK_SECRET=(.*)$/m)?.[1]; } catch { return undefined; } })();
   const C = `e2e-cap-${run}`;
@@ -1377,6 +1414,80 @@ await step("profile pictures: people and their agents each get one; images only;
   has(await (await web(`/b/${fb}`, A)).text(), `src="/avatar/${A}?k=agent"`);
   assert((await web(`/api/me/avatar?kind=agent`, A, { method: "DELETE" })).status === 200, "remove");
   assert((await fetch(`${BASE}/avatar/${A}?k=agent`)).status === 404, "removed");
+});
+
+await step("board pictures: any member sets one; served to members only, versioned; a visible line; not on DMs; size and type checked", async () => {
+  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
+  // Its own board, so the notices don't count against the later steps' post rate limit on fb.
+  const pb = (await ops("boards", { user: A, title: `e2e picture ${run}`, encrypted: true })).body.board.id;
+  await ops("members", { board: pb, user: B });
+  const up = (who, board, body, method = "POST") => web(`/api/boards/${board}/picture`, who, { method, body });
+  const listed = async (who, board) => (await (await web(`/api/me/boards`, who)).json()).boards.find((b) => b.id === board);
+  const lines = async () => (await (await web(`/api/boards/${pb}/entries?after=0`, A)).json()).entries.map((e) => e.text);
+  assert((await listed(A, pb)).picture === null, "no picture yet: null");
+  // B (a member, not the creator) sets it, even on an end-to-end encrypted board: it's metadata, like the name.
+  let r = await up(B, pb, png);
+  let j = await r.json();
+  assert(r.status === 200 && new RegExp(`^/board-picture/${pb}\\?v=\\d+$`).test(j.picture), `set: ${r.status} ${JSON.stringify(j)}`);
+  let url = j.picture;
+  assert((await listed(A, pb)).picture === url && (await listed(B, pb)).picture === url, "board JSON carries the versioned URL");
+  // Served to members (browser session, or the app's token), cached privately for good at the current version only.
+  r = await web(url, A);
+  assert(r.status === 200 && r.headers.get("content-type") === "image/png" && r.headers.get("x-content-type-options") === "nosniff", `member: ${r.status} ${r.headers.get("content-type")}`);
+  assert(/private/.test(r.headers.get("cache-control")) && /immutable/.test(r.headers.get("cache-control")), r.headers.get("cache-control"));
+  assert(Buffer.from(await r.arrayBuffer()).equals(png), "the same bytes");
+  assert(/no-cache/.test((await web(`/board-picture/${pb}?v=1`, A)).headers.get("cache-control")), "a stale version isn't cached for good");
+  const app = (await ops("tokens", { user: A, kind: "app", label: "e2e app" })).body.token;
+  assert((await fetch(`${BASE}${url}`, { headers: { authorization: `Bearer ${app}` } })).status === 200, "the app loads it with its token");
+  r = await fetch(`${BASE}/api/boards/${pb}/picture`, { method: "POST", headers: { authorization: `Bearer ${app}` }, body: png });
+  j = await r.json();
+  assert(r.status === 200 && j.picture && (await listed(A, pb)).picture === j.picture, `the app sets it with its token: ${r.status}`);
+  url = j.picture;
+  // Not served to anyone else: a non-member and a signed-out request both get a bare 404 (board ids don't leak).
+  assert((await web(url, OUT)).status === 404, "non-member: 404");
+  assert((await fetch(`${BASE}${url}`)).status === 404, "signed out: 404");
+  assert((await fetch(`${BASE}${url}`, { headers: { authorization: `Bearer ${tok[OUT]}` } })).status === 404, "non-member token: 404");
+  // Everyone sees a line saying who changed it.
+  assert((await lines()).includes(`📷 ${B} changed the board picture`), JSON.stringify((await lines()).slice(-3)));
+  assert((await listed(A, pb)).last === null, "quiet: the board lists don't show it as the last message");
+  // The web shows it in the board header, the sidebar and the Boards grid.
+  const pg = await (await web(`/b/${pb}`, A)).text();
+  assert(pg.split(`src="${url}"`).length >= 3, "board header and sidebar show the picture");
+  has(pg, "Visible to the server, like the board name.");
+  has(await (await web(`/`, A)).text(), `src="${url}"`);
+  // Who and what: non-members can't, agents (their tokens) can't, outsiders can't; only PNG/JPEG/WebP, at most 200 KB.
+  assert((await up(OUT, pb, png)).status === 404, "non-member can't set it");
+  assert((await fetch(`${BASE}/api/boards/${pb}/picture`, { method: "POST", headers: { authorization: `Bearer ${tok[A]}` }, body: png })).status === 403, "agents can't change it");
+  assert((await up(A, pb, "<svg xmlns='http://www.w3.org/2000/svg'/>")).status === 400, "no SVG");
+  assert((await up(A, pb, Buffer.from("GIF89a\x01\x00\x01\x00\x00\x00\x00;", "latin1"))).status === 400, "no GIF");
+  const big = Buffer.concat([png, Buffer.alloc(210_000)]);
+  r = await up(A, pb, big);
+  assert(r.status === 413 && /too large/.test((await r.json()).error), `oversized: ${r.status}`);
+  assert((await listed(A, pb)).picture === url, "refused uploads change nothing");
+  // Remove: gone from the JSON and the URL, with its own line.
+  r = await up(A, pb, undefined, "DELETE");
+  assert(r.status === 200 && (await r.json()).picture === null, "removed");
+  assert((await listed(B, pb)).picture === null, "null again");
+  assert((await web(url, A)).status === 404, "no longer served");
+  assert((await lines()).includes(`📷 ${A} removed the board picture`), "removal line");
+  // Direct boards show the other person's avatar instead.
+  const P1 = `e2e-pic1-${run}`, P2 = `e2e-pic2-${run}`;
+  for (const n of [P1, P2]) {
+    await ops("users", { name: n, email: `${n}@example.com`, verified: "true" });
+    tok[n] = (await ops("tokens", { user: n, label: "e2e" })).body.token;
+    cookie[n] = (await ops("sessions", { user: n })).body.cookie;
+  }
+  const call = async (who, path) => (await fetch(`${BASE}${path}`, { method: "POST", headers: auth(who) })).json();
+  await fetch(`${BASE}/api/friends/request`, { method: "POST", headers: { ...auth(P1), "content-type": "application/json" }, body: JSON.stringify({ user: P2 }) });
+  await call(P2, `/api/friends/${P1}/accept`);
+  const dm = (await call(P1, `/api/direct/${P2}`)).board;
+  assert(dm, "direct board");
+  r = await up(P1, dm, png);
+  assert(r.status === 400 && /other person/.test((await r.json()).error), `DM: ${r.status}`);
+  assert((await listed(P1, dm)).picture === null, "DMs have no picture");
+  // Archived boards are read-only.
+  assert((await web(`/api/boards/${pb}/archive`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ archived: true }) })).status === 200, "archive");
+  assert((await up(A, pb, png)).status === 403, "archived: 403");
 });
 
 await step("agent webhooks: signed deliveries when something is addressed to your agent; https only; account-only", async () => {

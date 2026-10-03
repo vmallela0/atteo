@@ -140,6 +140,11 @@ export function cleanTitle(raw: unknown): string | null {
  * notifications are unique on (user, board_id, seq), so this must never repeat: a random negative 52-bit number.
  * (Time-based values collided: a friend request and an approval a few ms apart silently dropped the approval.)
  */
+/** A board picture's address (members only; ?v= is its version, for caching), or null when the board has none. */
+export function pictureUrl(boardId: string, v: number | null | undefined): string | null {
+  return v ? `/board-picture/${boardId}?v=${v}` : null;
+}
+
 export function offBoardSeq(): number {
   const [hi, lo] = crypto.getRandomValues(new Uint32Array(2));
   return -((hi & 0xfffff) * 2 ** 32 + lo) - 1;

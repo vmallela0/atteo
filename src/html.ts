@@ -9,8 +9,8 @@ import { forAgent, forPerson, mentionLabel } from "./mentions";
 import { screenText } from "./screen";
 import type { ChangeCard } from "./card";
 import type { BoardInfo, Entry } from "./types";
-import { appPage, avatar, avatarStack, copyField, hue, page, renderText, typeTag, when, working, type SideBoard, type Viewer } from "./ui";
-import { esc } from "./util";
+import { appPage, avatar, avatarStack, boardPic, copyField, hue, page, renderText, typeTag, when, working, type SideBoard, type Viewer } from "./ui";
+import { esc, pictureUrl } from "./util";
 import { stateOf } from "./sessions";
 import { E2E_JS } from "./e2eweb";
 
@@ -519,7 +519,7 @@ export function homePage(
       const text = [b.title, meta.description ?? "", ...meta.tags, ...names].join(" ").toLowerCase();
       return `<article class="bcard${b.archived_at ? " archived" : ""}" data-text="${esc(text)}" data-archived="${b.archived_at ? 1 : 0}" data-id="${esc(b.id)}" data-meta="${esc(JSON.stringify(meta))}" data-title="${esc(b.title)}">
   <a class="bcard-link" href="/b/${esc(b.id)}" aria-label="${esc(b.title)}"></a>
-  <div class="row bc-top"><span class="bc-dot" style="--h:${hue(b.id)}"></span>
+  <div class="row bc-top">${boardPic({ id: b.id, title: b.title, picture: pictureUrl(b.id, b.picture_v) }, "sm", `<span class="bc-dot" style="--h:${hue(b.id)}"></span>`)}
     <h3 class="grow truncate">${esc(b.title)}</h3>
     ${working(liveOf.get(b.id) ?? 0, b.id)}${b.unread ? `<span class="bc-unread" title="Waiting for you">${b.unread} for you</span>` : ""}
     <button class="btn ghost sm bc-edit" type="button" data-edit-board="${esc(b.id)}" aria-label="Edit details">Edit</button></div>
@@ -692,12 +692,16 @@ export function boardPage(
   agent: AgentState = { connected: false, onThisBoard: false },
   summary?: Summary, // the whole board's (big boards only send their newest entries)
   agents: AgentHere[] = [],
+  board: { picture: string | null; kind: string | null } = { picture: null, kind: null }, // from the directory (D1)
 ): Response {
   const ctl = { boardId: info.id, creator: info.created_by };
   // Your role on this board: owners manage access; viewers read only (no composer, no reactions, no invites).
   const myRole = members.find((m) => m.user === viewer.name)?.role ?? (viewer.name === info.created_by ? "owner" : "contributor");
   const isOwner = myRole === "owner" || viewer.name === info.created_by,
     readOnly = myRole === "viewer";
+  // The board's picture: any member who can post changes it (not on a direct board, which shows the other person).
+  const direct = board.kind === "direct";
+  const canPic = !readOnly && !info.archived && !direct;
   const last = entries.length ? entries[entries.length - 1].seq : 0;
   const first = entries.length ? entries[0].seq : 0;
   // Big boards open on their newest entries; earlier ones load on demand.
@@ -1283,7 +1287,7 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape'&&SEL&&!document.quer
 const fwdDlg=document.getElementById('fwd-dlg'),fwdList=document.getElementById('fwd-list'),fwdQ=document.getElementById('fwd-q');
 const peerOf=t=>{const p=t.split(' ↔ ');return p.length===2?(p[0]===ME?p[1]:p[0]):null};
 function fwdRender(){const q=fwdQ.value.trim().toLowerCase();const list=(fwdBoards||[]).filter(b=>!q||b.title.toLowerCase().includes(q));
-  fwdList.innerHTML=list.length?list.map(b=>{const peer=peerOf(b.title);return '<li role="option" data-to="'+esc(b.id)+'" aria-selected="'+(fwdTo===b.id)+'">'+(peer?avatar16(peer,false)+'<span class="truncate">'+esc(peer)+'</span><span class="xs faint">direct</span>':'<span class="fwd-dot"></span><span class="truncate">'+esc(b.title)+'</span>')+'</li>'}).join(''):'<li class="xs faint">No other boards'+(q?' match':'')+'.</li>';
+  fwdList.innerHTML=list.length?list.map(b=>{const peer=peerOf(b.title);return '<li role="option" data-to="'+esc(b.id)+'" aria-selected="'+(fwdTo===b.id)+'">'+(peer?avatar16(peer,false)+'<span class="truncate">'+esc(peer)+'</span><span class="xs faint">direct</span>':(b.picture?'<span class="bpic sm"><img class="ok" src="'+esc(b.picture)+'" alt=""></span>':'<span class="fwd-dot"></span>')+'<span class="truncate">'+esc(b.title)+'</span>')+'</li>'}).join(''):'<li class="xs faint">No other boards'+(q?' match':'')+'.</li>';
   document.getElementById('fwd-send').disabled=!fwdTo}
 fwdList.addEventListener('click',e=>{const li=e.target.closest('[data-to]');if(!li)return;fwdTo=li.dataset.to;fwdRender()});
 fwdQ.addEventListener('input',fwdRender);
@@ -1330,26 +1334,58 @@ document.querySelectorAll('#thread>.entry').forEach(x=>thrSum(+x.dataset.seq));
 // a link to a reply (#e<n>) opens its thread
 setTimeout(()=>{const m=location.hash.match(/^#e([0-9]+)$/);const el=m&&document.getElementById('e'+m[1]);if(el&&el.closest('.replies'))openThread(+el.closest('#thread>.entry').dataset.seq,{focus:+m[1]})},0); // after the whole script has run
 // ---- hover cards: who someone is, whether they or their agent are around, and what you can do (people and agents) ----
-const hcard=document.createElement('div');hcard.className='hcard';hcard.hidden=true;hcard.setAttribute('role','dialog');document.body.appendChild(hcard);
-const pcache={};let hTimer=null,hFor=null;
+// Hover (desktop) previews; a click or tap pins the same card (under the element, or a bottom sheet on narrow screens).
+const hcard=document.createElement('div');hcard.className='hcard';hcard.hidden=true;hcard.setAttribute('role','dialog');hcard.setAttribute('aria-label','Profile');document.body.appendChild(hcard);
+const hback=document.createElement('div');hback.className='hc-back';hback.hidden=true;document.body.appendChild(hback);
+const pcache={},acache={};let hTimer=null,hFor=null,hPinned=false,hKey=false;
 const pfetch=u=>pcache[u]||(pcache[u]=fetch('/api/people/'+encodeURIComponent(u)).then(r=>r.ok?r.json():null).catch(()=>null));
-function hTarget(el){const m=el.closest('.mention[data-user]');if(m)return {u:m.dataset.user,agent:m.classList.contains('agent'),el:m};
+const afetch=u=>acache[u]||(acache[u]=fetch('/api/agents/'+encodeURIComponent(u)).then(r=>r.ok?r.json():null).catch(()=>null));
+const hNarrow=matchMedia('(max-width:860px)'),hCanHover=matchMedia('(hover:hover)');
+function hClose(back){hcard.hidden=true;hback.hidden=true;const f=hFor;hFor=null;hPinned=false;if(back&&f&&f.isConnected)try{f.focus({preventScroll:true})}catch(e){}}
+function hTarget(el){const m=el.closest('.mention[data-user]');if(m){const u=m.dataset.user;if(u==='agents'||u==='humans')return null;return {u,agent:m.classList.contains('agent'),el:m}}
   const e=el.closest('.entry');const w=el.closest('.entry>.av, .entry>.grow>.meta>.who');if(e&&w)return {u:e.dataset.author,agent:e.classList.contains('by-agent'),el:w};
   const s=el.closest('.av-wrap');if(s){const n=s.parentElement.querySelector('.grow');return n?{u:n.textContent.trim().split(/ /)[0],agent:false,el:s}:null}return null}
-async function hShow(t){hFor=t.el;const j=await pfetch(t.u);if(hFor!==t.el)return;if(!j||!j.person){hcard.hidden=true;return}const p=j.person;
-  const act=p.relation==='self'?'':p.relation==='friend'?'<button class="btn sm primary" data-direct="'+esc(p.name)+'">Message agent</button>':p.relation==='pending_in'?'<button class="btn sm primary" data-friend="accept" data-name="'+esc(p.name)+'">Accept</button>':p.relation==='none'?'<button class="btn sm primary" data-add="'+esc(p.name)+'">Add friend</button>':'<span class="xs faint">'+(p.relation==='pending_out'?'Request sent':'')+'</span>';
+// Mentions, avatars and author names are keyboard-reachable buttons (including the ones that arrive later with live updates).
+function hEnhance(){document.querySelectorAll('.mention[data-user]:not([data-hc]),.entry>.av:not([data-hc]),.entry>.grow>.meta>.who:not([data-hc])').forEach(el=>{
+  const t=hTarget(el);el.dataset.hc='1';if(!t)return;el.tabIndex=0;el.setAttribute('role','button');el.setAttribute('aria-label','Open '+t.u+(t.agent?"'s agent":'')+(t.agent?' profile':"'s profile"));el.setAttribute('aria-haspopup','dialog')})}
+let hEnq=false;new MutationObserver(()=>{if(hEnq)return;hEnq=true;requestAnimationFrame(()=>{hEnq=false;hEnhance()})}).observe(document.body,{childList:true,subtree:true});hEnhance();
+async function hShow(t,pin){hFor=t.el;hPinned=!!pin;const [j,aj]=await Promise.all([pfetch(t.u),t.agent?afetch(t.u):null]);if(hFor!==t.el)return;if(!j||!j.person){hClose();return}const p=j.person,a=aj&&aj.agent;
+  const act=p.relation==='self'?'':p.relation==='friend'?'<button class="btn sm" data-direct="'+esc(p.name)+'">Message</button>':p.relation==='pending_in'?'<button class="btn sm" data-friend="accept" data-name="'+esc(p.name)+'">Accept</button>':p.relation==='none'?'<button class="btn sm" data-add="'+esc(p.name)+'">Add friend</button>':'<span class="xs faint">'+(p.relation==='pending_out'?'Request sent':'')+'</span>';
   const on=p.presence&&(p.presence.agent||p.presence.web||(p.presence.watcher&&p.presence.watcher.respond));
+  const owner=esc(p.display_name||p.name);
+  let ag='';if(t.agent){const live=(a&&a.sessions||[]).filter(s=>s.active);
+    ag='<div class="hc-agent"><div class="xs faint">Agent of <a class="link" href="/u/'+esc(p.name)+'">'+owner+'</a></div>'+
+      (a&&a.summary?'<p class="hc-bio">'+esc(a.summary)+'</p>':'')+
+      (a&&a.capabilities&&a.capabilities.length?'<div class="hc-caps">'+a.capabilities.slice(0,6).map(c=>'<span class="badge">'+esc(c)+'</span>').join('')+'</div>':'')+
+      (live.length?'<div class="xs hc-live">'+live.slice(0,2).map(s=>'<span class="pres on"></span> '+esc(s.name||s.client||'agent')+(s.status?': '+esc(s.status):' is working')).join('<br>')+'</div>':'')+'</div>'}
+  const cta=document.getElementById('composer-text');
+  const ask=t.agent&&p.relation!=='self'&&cta&&!cta.disabled?'<button class="btn sm" data-ask="'+esc(p.name)+'">Ask '+esc(p.name)+"'s agent</button>":'';
   hcard.innerHTML='<div class="row" style="gap:12px;align-items:center">'+avatar16(p.name,t.agent).replace('av sm','av lg')+'<div class="grow" style="min-width:0"><div class="hc-name">'+esc(t.agent?p.name+"'s agent":(p.display_name||p.name))+'</div><div class="xs faint">@'+esc(p.name)+(p.shared_boards?' · '+p.shared_boards+' shared board'+(p.shared_boards===1?'':'s'):'')+'</div></div></div>'+
-    '<div class="row hc-pres"><span class="pres'+(on?' on':'')+'"></span><span class="xs">'+esc(j.presence||'')+'</span></div>'+(p.bio&&!t.agent?'<p class="hc-bio">'+esc(p.bio)+'</p>':'')+
-    '<div class="row hc-act"><a class="btn sm ghost" href="/u/'+esc(p.name)+'">Profile</a><span class="grow"></span>'+act+'</div>';
-  hcard.hidden=false;const r=t.el.getBoundingClientRect(),w=hcard.offsetWidth,hh=hcard.offsetHeight;
-  hcard.style.left=Math.max(8,Math.min(innerWidth-w-8,r.left))+'px';hcard.style.top=(r.bottom+hh+8>innerHeight?r.top-hh-6:r.bottom+6)+'px'}
-document.addEventListener('mouseover',e=>{if(e.target.closest('.hcard')){clearTimeout(hTimer);return}const t=hTarget(e.target);clearTimeout(hTimer);
-  if(!t){hTimer=setTimeout(()=>{hcard.hidden=true;hFor=null},250);return}if(hFor===t.el&&!hcard.hidden)return;hTimer=setTimeout(()=>hShow(t),350)});
+    '<div class="row hc-pres"><span class="pres'+(on?' on':'')+'"></span><span class="xs">'+esc(j.presence||'')+'</span></div>'+(p.bio&&!t.agent?'<p class="hc-bio">'+esc(p.bio)+'</p>':'')+ag+
+    '<div class="hc-act"><a class="btn sm primary" href="/u/'+esc(p.name)+(t.agent?'#agent':'')+'">View profile</a>'+ask+act+'</div>';
+  const sheet=!!pin&&hNarrow.matches;hcard.classList.toggle('sheet',sheet);hback.hidden=!sheet;
+  hcard.hidden=false;
+  if(sheet)hcard.style.left=hcard.style.top='';
+  else{const r=t.el.getBoundingClientRect(),w=hcard.offsetWidth,hh=hcard.offsetHeight;
+    hcard.style.left=Math.max(8,Math.min(innerWidth-w-8,r.left))+'px';hcard.style.top=(r.bottom+hh+8>innerHeight?Math.max(8,r.top-hh-6):r.bottom+6)+'px'}
+  if(pin&&hKey)hcard.querySelector('a.btn')?.focus({preventScroll:true})}
+document.addEventListener('mouseover',e=>{if(!hCanHover.matches||hPinned)return;if(e.target.closest('.hcard')){clearTimeout(hTimer);return}const t=hTarget(e.target);clearTimeout(hTimer);
+  if(!t){hTimer=setTimeout(()=>{if(!hPinned){hcard.hidden=true;hFor=null}},250);return}if(hFor===t.el&&!hcard.hidden)return;hTimer=setTimeout(()=>hShow(t,false),350)});
+// click or tap pins the card (the same thing again closes it); anywhere else closes it
+document.addEventListener('click',e=>{if(e.target.closest('.hcard'))return;const t=hTarget(e.target);
+  if(!t){if(hPinned)hClose();return}
+  clearTimeout(hTimer);if(hPinned&&hFor===t.el&&!hcard.hidden){hClose();return}
+  hKey=false;hShow(t,true)});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!hcard.hidden){hClose(true);return}
+  if((e.key==='Enter'||e.key===' ')&&e.target.matches&&e.target.matches('[data-hc][role=button]')){const t=hTarget(e.target);if(!t)return;e.preventDefault();e.stopPropagation();clearTimeout(hTimer);
+    if(hPinned&&hFor===t.el&&!hcard.hidden){hClose(true);return}hKey=true;hShow(t,true)}},true);
+addEventListener('resize',()=>{if(hPinned)hClose()});
+document.addEventListener('click',e=>{const k=e.target.closest('.hcard [data-ask]');if(!k)return;e.stopPropagation();const c=document.getElementById('composer-text');if(!c)return;
+  const ins="@"+k.dataset.ask+"'s agent ";hClose();c.focus();const v=c.value;c.value=(v&&!/\\s$/.test(v)?v+' ':v)+ins;c.setSelectionRange(c.value.length,c.value.length);c.dispatchEvent(new Event('input'))},true);
 document.addEventListener('click',async e=>{const a=e.target.closest('.hcard [data-add]'),d=e.target.closest('.hcard [data-direct]');if(!a&&!d)return;e.stopPropagation();
-  if(a){const r=await fetch('/api/friends/request',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({user:a.dataset.add})});const j=await r.json().catch(()=>({}));toast(r.ok?(j.relation==='friend'?'You are friends now':'Request sent'):(j.error||'Could not send'));delete pcache[a.dataset.add];hcard.hidden=true;return}
+  if(a){const r=await fetch('/api/friends/request',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({user:a.dataset.add})});const j=await r.json().catch(()=>({}));toast(r.ok?(j.relation==='friend'?'You are friends now':'Request sent'):(j.error||'Could not send'));delete pcache[a.dataset.add];hClose();return}
   const r=await fetch('/api/direct/'+encodeURIComponent(d.dataset.direct),{method:'POST'});const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||'Could not open');return}location.href='/b/'+j.board},true);
-document.addEventListener('click',async e=>{const b=e.target.closest('.hcard [data-friend]');if(!b)return;e.stopPropagation();const r=await fetch('/api/friends/'+encodeURIComponent(b.dataset.name)+'/'+b.dataset.friend,{method:'POST'});toast(r.ok?'Friends now':'Could not update');delete pcache[b.dataset.name];hcard.hidden=true},true);
+document.addEventListener('click',async e=>{const b=e.target.closest('.hcard [data-friend]');if(!b)return;e.stopPropagation();const r=await fetch('/api/friends/'+encodeURIComponent(b.dataset.name)+'/'+b.dataset.friend,{method:'POST'});toast(r.ok?'Friends now':'Could not update');delete pcache[b.dataset.name];hClose()},true);
 // ---- Members & access (the Invite button and "Manage"): invite by email or link, roles and end dates, activity ----
 const IS_OWNER=${isOwner ? "true" : "false"},CREATOR=${jsString(info.created_by)};${readOnly ? "document.documentElement.classList.add('ro');" : ""}
 const accFmt=ts=>ts?new Date(ts).toISOString().slice(0,10):'';
@@ -1361,7 +1397,7 @@ async function accLoad(){const [m,a,l]=await Promise.all([fetch('/api/boards/'+B
       sel('role',x.role||'contributor',[['owner','Owner'],['contributor','Can post'],['viewer','View only']],fixed)+
       sel('days',x.expires_at?'keep':'0',(x.expires_at?[['keep','Until '+accFmt(x.expires_at)]]:[]).concat([['0','No end date'],['7','7 more days'],['30','30 more days'],['90','90 more days']]),!IS_OWNER||x.user===CREATOR)+'</li>'}).join('')||'<li class="xs faint">No members</li>';
   if(IS_OWNER)document.getElementById('acc-links').innerHTML=(l.links||[]).filter(x=>!x.revoked_at&&(!x.expires_at||x.expires_at>Date.now())).map(x=>'<li class="acc-row xs"><span class="grow">'+(x.role==='viewer'?'View only':'Can post')+' link · until '+accFmt(x.expires_at)+' · used '+x.uses+(x.max_uses?' of '+x.max_uses:'')+'</span><button class="btn ghost sm" type="button" data-link-revoke="'+esc(x.id)+'">Revoke</button></li>').join('');
-  const verb={invited:'invited',joined:'joined',removed:'removed',left:'left',access_changed:'changed access for',link_created:'created an invite link',link_revoked:'revoked an invite link',renamed:'renamed the board',archived:'archived the board',restored:'restored the board',expired:'access ended for'};
+  const verb={invited:'invited',joined:'joined',removed:'removed',left:'left',access_changed:'changed access for',link_created:'created an invite link',link_revoked:'revoked an invite link',renamed:'renamed the board',archived:'archived the board',restored:'restored the board',expired:'access ended for',picture_changed:'changed the board picture',picture_removed:'removed the board picture'};
   document.getElementById('acc-audit').innerHTML=(a.audit||[]).slice(0,50).map(x=>'<li class="xs"><b>'+esc(x.actor)+'</b> '+(verb[x.action]||esc(x.action))+(x.target?' <b>'+esc(x.target)+'</b>':'')+(x.detail?' <span class="faint">· '+esc(x.detail)+'</span>':'')+' <span class="faint">· '+new Date(x.ts).toLocaleString([],{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})+'</span></li>').join('')||'<li class="xs faint">Nothing yet</li>'}
 document.addEventListener('click',e=>{const o=e.target.closest('[data-open="invite"]');if(!o)return;accLoad();const g=o.dataset.goto&&document.getElementById(o.dataset.goto);if(g)setTimeout(()=>g.scrollIntoView({block:'nearest'}),60)});
 // Invite: suggest friends who aren't on the board yet, as you type (arrow keys and Enter pick one).
@@ -1504,7 +1540,7 @@ window.boardKeys=(e,k)=>{
     els.forEach(x=>x.classList.remove('sel'));const el=els[cur];if(el){el.classList.add('sel');el.scrollIntoView({block:'nearest'})}}
   if(e.key==='Enter'&&els[cur]){openEntry(BOARD,els[cur].dataset.seq)}
 };
-` + (info.encrypted ? E2E_JS : "");
+` + (canPic ? BOARD_PIC_JS : "") + (info.encrypted ? E2E_JS : "");
   const isCreator = viewer.name === info.created_by;
   const archivedBanner = info.archived
     ? `<div class="flash bp-banner"><span class="grow"><b>Archived.</b> This board is read-only.</span>${
@@ -1515,8 +1551,22 @@ window.boardKeys=(e,k)=>{
   const encryptedBanner = info.encrypted
     ? `<div class="flash bp-banner e2e-bar"><span class="grow" id="e2e-msg">🔒 <b>End-to-end encrypted.</b> Messages are encrypted on each member's device; read and write them here, or with <span class="mono">atteo read</span> / <span class="mono">atteo post</span> after <span class="mono">atteo use ${esc(info.id)}</span>.</span><div id="e2e-asks" class="e2e-asks"></div></div>`
     : "";
+  const peer = direct ? (info.title.split(" ↔ ").find((x) => x !== viewer.name) ?? viewer.name) : "";
+  const headPic = direct
+    ? avatar(peer)
+    : canPic
+      ? `<button class="bp-pic" type="button" data-open="invite" data-goto="acc-board" title="Change the board picture" aria-label="Board picture">${boardPic({ id: info.id, title: info.title, picture: board.picture })}</button>`
+      : boardPic({ id: info.id, title: info.title, picture: board.picture });
+  const picSec = canPic
+    ? `<div class="acc-row bpic-row">${boardPic({ id: info.id, title: info.title, picture: board.picture }, "lg")}<div class="grow"><div class="small" style="color:var(--ink)">Picture</div><div class="xs muted">${
+        info.encrypted ? "Visible to the server, like the board name." : "Everyone on the board sees it, and a line when it changes."
+      }</div></div>
+  <label class="btn sm">${board.picture ? "Change picture" : "Add picture"}<input type="file" accept="image/png,image/jpeg,image/webp" data-bpic-file hidden></label>${
+    board.picture ? `<button class="btn ghost sm" type="button" data-bpic-rm>Remove picture</button>` : ""
+  }</div>`
+    : "";
   // One compact header row (title, live, members, tabs) so the conversation gets the height.
-  const body = `${archivedBanner}${encryptedBanner}<div class="bp-head"><div class="bp-title">
+  const body = `${archivedBanner}${encryptedBanner}<div class="bp-head"><div class="bp-title">${headPic}
   ${
     isCreator && !info.archived
       ? `<div class="title-edit"><h1 class="truncate" id="board-title" tabindex="0" role="button" title="Rename (click or press Enter)">${esc(info.title)}</h1><button class="btn ghost sm pencil" type="button" id="title-pencil" aria-label="Rename board"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M11.5 2.5l2 2L6 12H4v-2z"/></svg></button>
@@ -1645,12 +1695,16 @@ ${connectDialog(viewer, { id: info.id, title: info.title })}
   <section class="acc-sec"><h3>Members</h3>${isOwner ? "" : `<p class="xs muted">Only owners change roles and access.</p>`}<ul class="acc-list" id="acc-members"><li class="xs faint">Loading…</li></ul></section>
   <details class="acc-sec"><summary class="small muted">Activity</summary><ul class="acc-list" id="acc-audit"></ul></details>
   ${
-    isCreator
-      ? `<section class="acc-sec" id="acc-board"><h3>This board</h3><div class="acc-row">${
-          info.archived
-            ? ""
-            : `<form method="post" action="/api/boards/${esc(info.id)}/archive" data-api data-done="archiveDone" style="margin:0"><input type="hidden" name="archived" value="true"><button class="btn sm" title="Read-only until you restore it">Archive board</button></form>`
-        }<button class="btn ghost sm danger" type="button" data-open="delete-board">Delete board…</button></div></section>`
+    isCreator || canPic
+      ? `<section class="acc-sec" id="acc-board"><h3>This board</h3>${picSec}${
+          isCreator
+            ? `<div class="acc-row">${
+                info.archived
+                  ? ""
+                  : `<form method="post" action="/api/boards/${esc(info.id)}/archive" data-api data-done="archiveDone" style="margin:0"><input type="hidden" name="archived" value="true"><button class="btn sm" title="Read-only until you restore it">Archive board</button></form>`
+              }<button class="btn ghost sm danger" type="button" data-open="delete-board">Delete board…</button></div>`
+            : ""
+        }</section>`
       : ""
   }
 </div></dialog>`;
@@ -1661,7 +1715,7 @@ ${connectDialog(viewer, { id: info.id, title: info.title })}
     crumbs: `<a class="muted" href="/">Boards</a><span class="faint">/</span><span class="cur truncate">${esc(info.title)}</span>`,
     actions: `${agent.connected ? "" : `<button class="btn sm" data-open="connect">Connect an agent</button>`}${readOnly ? "" : `<button class="btn sm" data-open="invite">Invite<kbd class="hide-sm">I</kbd></button>`}${
       // Rename/archive/delete live at the bottom of Members & access; a visible way in, so they aren't hidden behind Invite.
-      isCreator ? `<button class="btn ghost sm" type="button" data-open="invite" data-goto="acc-board" title="Archive or delete this board" aria-label="Board settings"><svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="8" r="1.4"/><circle cx="8" cy="8" r="1.4"/><circle cx="13" cy="8" r="1.4"/></svg></button>` : ""
+      isCreator || canPic ? `<button class="btn ghost sm" type="button" data-open="invite" data-goto="acc-board" title="${isCreator ? "Picture, archive or delete" : "Board picture"}" aria-label="Board settings"><svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="8" r="1.4"/><circle cx="8" cy="8" r="1.4"/><circle cx="13" cy="8" r="1.4"/></svg></button>` : ""
     }`,
     body,
     script,
@@ -1728,12 +1782,16 @@ ${pro && plan.customer ? `<button class="btn sm" data-portal>Manage billing</but
 ${tier("Pro", `$10<span class="small muted"> / month</span>`, ["Unlimited boards", `Up to ${PLANS.pro.members} people per board`, "Everything in Free"], pro, pro ? "" : upgrade)}</div>`;
 }
 
+// Pictures (profiles and boards) are cropped to a centered 256px square in the browser and sent as WebP (JPEG where the
+// browser can't encode WebP), well under the server's 200 KB.
+const SQUARE_JS = `function square(img){const c=document.createElement('canvas');c.width=c.height=256;const x=c.getContext('2d');const s=Math.min(img.width,img.height);x.drawImage(img,(img.width-s)/2,(img.height-s)/2,s,s,0,0,256,256);return c}
+const toBlob=async c=>{const w=await new Promise(r=>c.toBlob(r,'image/webp',.88));return w&&w.type==='image/webp'?w:new Promise(r=>c.toBlob(r,'image/jpeg',.9))};`;
+
 // Profile pictures: resize to a 256px square WebP in the browser (or generate one), then upload.
 const PFP_JS = `
 (()=>{const ME_NAME=document.querySelector('.pfp b')?.textContent||'';
 async function upload(kind,blob){const r=await fetch('/api/me/avatar?kind='+kind,{method:'POST',body:blob});const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||'Could not save');return}toast('Saved');setTimeout(()=>location.reload(),300)}
-function square(img){const c=document.createElement('canvas');c.width=c.height=256;const x=c.getContext('2d');const s=Math.min(img.width,img.height);x.drawImage(img,(img.width-s)/2,(img.height-s)/2,s,s,0,0,256,256);return c}
-const toBlob=c=>new Promise(r=>c.toBlob(r,'image/webp',.88));
+${SQUARE_JS}
 document.addEventListener('change',async e=>{const f=e.target.closest('[data-pfp-file]');if(!f||!f.files[0])return;const kind=f.closest('.pfp').dataset.kind;
   const img=await createImageBitmap(f.files[0]).catch(()=>null);if(!img){toast('That file isn’t an image');return}upload(kind,await toBlob(square(img)))});
 document.addEventListener('click',async e=>{const g=e.target.closest('[data-pfp-gen]'),rm=e.target.closest('[data-pfp-rm]');if(!g&&!rm)return;const box=(g||rm).closest('.pfp'),kind=box.dataset.kind;
@@ -1745,6 +1803,15 @@ document.addEventListener('click',async e=>{const g=e.target.closest('[data-pfp-
     x.beginPath();if(kind==='agent')x.roundRect(px-r/2,py-r/2,r,r,18);else x.arc(px,py,r/2,0,Math.PI*2);x.fill()}
   x.globalAlpha=1;x.fillStyle='rgba(255,255,255,.92)';x.font='600 92px system-ui,sans-serif';x.textAlign='center';x.textBaseline='middle';
   x.fillText((ME_NAME.replace(/'s agent$/,'').slice(0,2)||'?').toUpperCase(),128,136);upload(kind,await toBlob(c))});
+})();`;
+
+// The board's picture (Members & access → This board): crop like a profile picture, upload, reload.
+const BOARD_PIC_JS = `
+(()=>{${SQUARE_JS}
+const send=async(method,body)=>{const r=await fetch('/api/boards/'+BOARD+'/picture',{method,body});const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||'Could not save');return}toast(method==='DELETE'?'Removed':'Saved');setTimeout(()=>location.reload(),300)};
+document.addEventListener('change',async e=>{const f=e.target.closest('[data-bpic-file]');if(!f||!f.files[0])return;const img=await createImageBitmap(f.files[0]).catch(()=>null);f.value='';
+  if(!img){toast('That file isn’t an image');return}send('POST',await toBlob(square(img)))});
+document.addEventListener('click',e=>{if(e.target.closest('[data-bpic-rm]'))send('DELETE')});
 })();`;
 
 const BILLING_JS = `
@@ -1809,12 +1876,12 @@ document.addEventListener('click',async e=>{const b=e.target.closest('[data-frie
   if(!r.ok){toast(j.error||'Could not update');b.disabled=false;return}location.reload()});`;
 
 /** A person's page: who they are, whether they're around, and what you can do. */
-export function profilePage(viewer: Viewer, side: SideBoard[], p: import("./social").Person, presence: string): Response {
+export function profilePage(viewer: Viewer, side: SideBoard[], p: import("./social").Person, presence: string, extra: { shared?: { id: string; title: string }[]; agent?: import("./agents").AgentProfile | null } = {}): Response {
   const action =
     p.relation === "self"
       ? `<a class="btn sm" href="/me">Edit your account</a>`
       : p.relation === "friend"
-        ? `<button class="btn sm primary" data-direct="${esc(p.name)}">Message agent</button><button class="btn sm ghost" data-friend="remove" data-name="${esc(p.name)}">Unfriend</button>`
+        ? `<button class="btn sm primary" data-direct="${esc(p.name)}">Message ${esc(p.name)}</button><button class="btn sm ghost" data-friend="remove" data-name="${esc(p.name)}">Unfriend</button>`
         : p.relation === "pending_in"
           ? `<button class="btn sm primary" data-friend="accept" data-name="${esc(p.name)}">Accept friend request</button>`
           : p.relation === "pending_out"
@@ -1823,7 +1890,23 @@ export function profilePage(viewer: Viewer, side: SideBoard[], p: import("./soci
               ? `<button class="btn sm" data-friend="unblock" data-name="${esc(p.name)}">Unblock</button>`
               : `<button class="btn sm primary" data-add="${esc(p.name)}">Add friend</button>`;
   const on = p.presence.agent || p.presence.web || p.presence.watcher?.respond;
-  const body = `<div class="card pad prof">
+  const shared = extra.shared ?? [];
+  const sharedHtml = shared.length
+    ? `<section class="card pad prof-sec"><h2>Boards you share</h2><ul class="prof-boards">${shared.map((b) => `<li><a href="/b/${esc(b.id)}">${esc(b.title)}</a></li>`).join("")}</ul></section>`
+    : "";
+  const ag = extra.agent;
+  const live = (ag?.sessions ?? []).filter((x) => x.active);
+  const agentHtml = `<section class="card pad prof-sec prof-agent-sec" id="agent" aria-label="${esc(p.name)}'s agent">
+  ${avatar(p.name, "lg", true)}
+  <div class="grow" style="min-width:0">
+    <h2>${esc(p.name)}'s agent</h2>
+    <div class="xs faint">Works for ${esc(p.display_name ?? p.name)}${ag?.online ? ` · <span class="pres on"></span> online now` : ""}</div>
+    ${ag?.summary ? `<p class="prof-bio">${esc(ag.summary)}</p>` : `<p class="prof-bio faint">No summary yet.</p>`}
+    ${ag?.capabilities.length ? `<div class="hc-caps">${ag.capabilities.slice(0, 12).map((c) => `<span class="badge">${esc(c)}</span>`).join("")}</div>` : ""}
+    ${live.length ? `<div class="xs muted" style="margin-top:8px">${live.slice(0, 3).map((x) => `<span class="pres on"></span> ${esc(x.name || x.client || "agent")}${x.status ? `: ${esc(x.status)}` : " is working"}`).join("<br>")}</div>` : ""}
+  </div>
+</section>`;
+  const body = `<div class="card pad prof prof-hero">
   <div class="prof-av">${avatar(p.name, "lg")}<span class="prof-agent" title="${esc(p.name)}'s agent">${avatar(p.name, "sm", true)}</span></div>
   <div class="grow" style="min-width:0">
     <h1 class="prof-name">${esc(p.display_name ?? p.name)}</h1>
@@ -1832,11 +1915,12 @@ export function profilePage(viewer: Viewer, side: SideBoard[], p: import("./soci
     ${p.bio ? `<p class="prof-bio">${esc(p.bio)}</p>` : ""}
   </div>
   <div class="row prof-act">${action}</div>
-</div>`;
+</div>${sharedHtml}${agentHtml}`;
   const script = FRIENDS_JS + `
 document.addEventListener('click',async e=>{const a=e.target.closest('[data-add]'),d=e.target.closest('[data-direct]');if(!a&&!d)return;
   if(a){const r=await fetch('/api/friends/request',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({user:a.dataset.add})});const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||'Could not send');return}location.reload();return}
-  const r=await fetch('/api/direct/'+encodeURIComponent(d.dataset.direct),{method:'POST'});const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||'Could not open');return}location.href='/b/'+j.board});`;
+  const r=await fetch('/api/direct/'+encodeURIComponent(d.dataset.direct),{method:'POST'});const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||'Could not open');return}location.href='/b/'+j.board});
+(()=>{const a=document.getElementById('agent');if(!a)return;const go=()=>{if(location.hash==='#agent'){a.scrollIntoView({block:'center'});a.classList.add('hl');setTimeout(()=>a.classList.remove('hl'),2400)}};go();addEventListener('hashchange',go)})();`;
   return appPage(`${p.name} · Atteo`, { viewer, boards: side, active: "people", crumbs: `<a class="muted" href="/people">People</a><span class="faint">/</span><span class="cur">${esc(p.name)}</span>`, body, script, narrow: true });
 }
 

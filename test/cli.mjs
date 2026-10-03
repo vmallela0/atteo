@@ -832,6 +832,27 @@ await step("task tick / untick / edit: tick the one checklist item matching the 
   assert(r.code === 1 && r.err.includes("Usage: atteo task edit"), r.err);
 });
 
+await step("task edit / tick / done with unread board entries: the edit is saved once, 'Saved #N vX.' is printed (then the missed entries), exit 0", async () => {
+  const made = await tool(tokA, board, "task", { action: "create", title: `Unread edit ${run}`, body: `Plan:\n- [ ] first step\n- [ ] second step\nline one` });
+  const n = Number(made.match(/#(\d+)/)[1]);
+  const get = async () => (await (await fetch(`${BASE}/api/boards/${board}/tasks/${n}`, { headers: { authorization: `Bearer ${tokA}` } })).json()).task;
+  const t = (...args) => cli(["task", ...args, "--board", board]);
+  await cli(["read", "--board", board]); // the CLI session is caught up, so only what B posts next is unread
+  const v0 = (await get()).version;
+  await tool(tokB, board, "post", { type: "note", text: `unread from B ${run}` });
+  let r = await t("edit", String(n), "--old", "line one", "--new", "line two");
+  const t1 = await get();
+  assert(r.code === 0 && r.out.includes(`Saved #${n} v${v0 + 1}.`), `edit with unread entries prints Saved: ${r.out}${r.err}`);
+  assert(!r.out.includes(`unread from B ${run}`) || r.out.indexOf("Saved") < r.out.indexOf(`unread from B ${run}`), "Saved comes before the missed entries: " + r.out);
+  assert(t1.version === v0 + 1 && t1.body.split("line two").length === 2 && !t1.body.includes("line one"), `applied once: v${t1.version} ${t1.body}`);
+  await tool(tokB, board, "post", { type: "note", text: `second unread from B ${run}` });
+  r = await t("tick", String(n), "first step");
+  assert(r.code === 0 && r.out.includes(`Saved #${n} v${v0 + 2}.`), `tick with unread entries: ${r.out}${r.err}`);
+  await tool(tokB, board, "post", { type: "note", text: `third unread from B ${run}` });
+  r = await t("done", String(n), "finished");
+  assert(r.code === 0 && /OK\./.test(r.out) && (await get()).status === "done", `done with unread entries: ${r.out}${r.err}`);
+});
+
 await step("mailbox: another person's DM and @mention of your agent show up in full, fenced; --peek leaves them, a plain run delivers them; --json and --wait", async () => {
   // Fresh people, so earlier steps' mail doesn't get in the way.
   const M = `e2e-cli-m-${run}`, N = `e2e-cli-n-${run}`;

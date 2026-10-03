@@ -455,7 +455,19 @@ dialog.lightbox img{display:block;max-width:min(96vw,1600px);max-height:92vh;wid
 /* hover cards */
 .hcard{position:fixed;z-index:60;width:280px;padding:14px;border:1px solid var(--line);border-radius:12px;background:var(--bg);box-shadow:var(--shadow-lg)}
 .hcard[hidden]{display:none}.hcard .av.lg{width:40px;height:40px;font-size:15px}
-.hc-name{font-weight:600;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.hc-pres{gap:6px;margin-top:10px}.hc-bio{margin:8px 0 0;font-size:12.5px;color:var(--muted)}.hc-act{gap:6px;margin-top:12px}
+.hc-name{font-weight:600;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.hc-pres{gap:6px;margin-top:10px}.hc-bio{margin:8px 0 0;font-size:12.5px;color:var(--muted)}.hc-act{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}.hc-agent{margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}.hc-caps{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px}.hc-live{margin-top:8px;color:var(--muted)}
+.hcard .link{text-decoration:underline;text-underline-offset:2px}
+.hc-back{position:fixed;inset:0;z-index:158;background:rgba(0,0,0,.4)}.hc-back[hidden]{display:none}
+.hcard.sheet{z-index:159;left:0;right:0;bottom:0;top:auto;width:auto;max-height:80vh;overflow:auto;border-radius:16px 16px 0 0;padding:18px 18px calc(18px + env(safe-area-inset-bottom));animation:slide-up .18s ease-out}
+.hcard.sheet .hc-act .btn{flex:1 1 auto;justify-content:center;min-height:40px}
+@keyframes slide-up{from{transform:translateY(24px);opacity:0}to{transform:none;opacity:1}}
+.mention[data-hc],.entry>.av[data-hc],.entry .who[data-hc]{cursor:pointer}.mention[data-hc]:focus-visible,.entry>.av[data-hc]:focus-visible,.entry .who[data-hc]:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+.entry .who[data-hc]:hover{text-decoration:underline;text-underline-offset:2px}
+.prof-hero{display:flex;gap:22px;align-items:center;flex-wrap:wrap}.prof-hero .prof-av .av.lg{width:96px;height:96px;font-size:32px}.prof-hero .prof-agent .av.sm{width:30px;height:30px;font-size:11px}
+.prof-hero .prof-name{font-size:26px}.prof-bio{max-width:52ch}
+.prof-sec{margin-top:16px}.prof-sec h2{font-size:15px;margin:0 0 8px}.prof-agent-sec{display:flex;gap:14px;align-items:flex-start}.prof-agent-sec:target,.prof-agent-sec.hl{box-shadow:0 0 0 2px var(--accent)}
+.prof-boards{display:flex;flex-wrap:wrap;gap:8px;margin:0;padding:0;list-style:none}.prof-boards a{display:inline-block;padding:5px 10px;border:1px solid var(--line);border-radius:999px;color:var(--ink);font-size:13px}.prof-boards a:hover{background:var(--hover,rgba(127,127,127,.1))}
+@media (max-width:860px){.prof-hero{flex-direction:column;align-items:flex-start}.prof-hero .prof-act{width:100%}.prof-hero .prof-act .btn{flex:1;min-height:40px;justify-content:center}}
 /* approvals: risk shows as the card's left edge and its badge */
 .approval{padding:16px 18px;border-left:3px solid var(--line)}.approval.risk-medium{border-left-color:var(--warn)}.approval.risk-high{border-left-color:var(--danger)}
 .ap-hd{display:flex;gap:12px;align-items:flex-start}.ap-title{font-size:15px;font-weight:600;line-height:1.35;margin:0 0 3px}
@@ -535,7 +547,14 @@ mark{background:color-mix(in srgb,var(--warn) 30%,transparent);color:inherit;bor
 @keyframes breathe{0%,100%{box-shadow:0 0 0 0 color-mix(in srgb,var(--ok) 45%,transparent)}50%{box-shadow:0 0 0 3px color-mix(in srgb,var(--ok) 18%,transparent)}}
 .side-board .working{margin-left:auto;font-size:10.5px}.side-board .working .dot{width:6px;height:6px}
 @media (prefers-reduced-motion:reduce){.working .dot,.ag-dot.live{animation:none}}
-.side-board .bdot{width:8px;height:8px;border-radius:3px;flex:none;background:hsl(var(--h) 55% 55%)}
+.side-board .bdot{width:8px;height:8px;margin:0 5px;border-radius:3px;flex:none;background:hsl(var(--h) 55% 55%)}
+/* board pictures (like a group chat's photo): a rounded square, its initial underneath until the image loads */
+.bpic{--h:220;position:relative;overflow:hidden;flex:none;display:inline-grid;place-items:center;width:28px;height:28px;border-radius:7px;
+  background:hsl(var(--h) 55% 55%);color:#fff;font-size:13px;font-weight:600;line-height:1;user-select:none}
+.bpic.xs{width:18px;height:18px;border-radius:5px;font-size:9px}.bpic.sm{width:24px;height:24px;border-radius:6px;font-size:11px}.bpic.lg{width:40px;height:40px;border-radius:10px;font-size:17px}
+.bpic img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0}.bpic img.ok{opacity:1}
+.bp-pic{all:unset;cursor:pointer;display:inline-flex;flex:none;border-radius:7px}.bp-pic:hover .bpic{filter:brightness(.92)}.bp-pic:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.bpic-row{gap:12px;margin-bottom:12px}
 .sidebar .me{margin-top:auto;border-top:1px solid var(--line);padding-top:8px}
 .topbar{position:sticky;top:0;z-index:10;height:48px;display:flex;align-items:center;gap:12px;padding:0 20px;border-bottom:1px solid var(--line);
   background:color-mix(in srgb,var(--bg) 85%,transparent);backdrop-filter:saturate(180%) blur(10px);-webkit-backdrop-filter:saturate(180%) blur(10px)}
@@ -973,6 +992,22 @@ export interface SideBoard {
   title: string;
   kind?: string | null; // "direct": a private board between two friends (title "a ↔ b")
   live?: number; // agent sessions working on it right now
+  picture?: string | null; // the board picture's URL (members only, versioned), or null
+}
+
+/** The first letter of a board's title (or its first emoji), for a board without a picture. */
+export function boardInitial(title: string): string {
+  return (Array.from(title.trim())[0] ?? "?").toUpperCase();
+}
+
+/**
+ * A board's picture as a rounded square (its initial shows until the image loads, or if it fails). Without a picture:
+ * `fallback` if given (the sidebar's dot, the Boards grid's dot), else the initial on the board's color.
+ */
+export function boardPic(b: { id: string; title: string; picture?: string | null }, size: "" | "xs" | "sm" | "lg" = "", fallback?: string): string {
+  if (!b.picture && fallback !== undefined) return fallback;
+  const img = b.picture ? `<img src="${esc(b.picture)}" alt="" loading="lazy" onload="this.classList.add('ok')" onerror="this.remove()">` : "";
+  return `<span class="bpic${size ? ` ${size}` : ""}" style="--h:${hue(b.id)}" aria-hidden="true">${esc(boardInitial(b.title))}${img}</span>`;
 }
 
 /** "N working" with a breathing green dot: agents on a board right now. Always rendered (hidden at 0) so it can update live. */
@@ -1006,7 +1041,7 @@ export function appPage(
   const shared = opts.boards.filter((b) => b.kind !== "direct"),
     direct = opts.boards.filter((b) => b.kind === "direct");
   const sideBoards = shared
-    .map((b) => `<a class="side-link side-board" href="/b/${esc(b.id)}"${cur(b.id)}><span class="bdot" style="--h:${hue(b.id)}"></span><span class="truncate">${esc(b.title)}</span>${working(b.live ?? 0, b.id)}</a>`)
+    .map((b) => `<a class="side-link side-board" href="/b/${esc(b.id)}"${cur(b.id)}>${boardPic(b, "xs", `<span class="bdot" style="--h:${hue(b.id)}"></span>`)}<span class="truncate">${esc(b.title)}</span>${working(b.live ?? 0, b.id)}</a>`)
     .join("");
   // Direct boards read as the person you share them with.
   const sideDirect = direct

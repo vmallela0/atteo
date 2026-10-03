@@ -697,7 +697,7 @@ export class Board extends DurableObject<Env> {
     return r.length ? toEntry(r[0]) : null;
   }
 
-  async post(user: string, input: NewEntry, internal: { docVersion?: number; media?: Media; seeding?: boolean; sealed?: boolean } = {}): Promise<Entry> {
+  async post(user: string, input: NewEntry, internal: { docVersion?: number; media?: Media; seeding?: boolean; sealed?: boolean; notice?: boolean } = {}): Promise<Entry> {
     const again = this.sentBefore(user, input.idem);
     if (again) return again;
     const info = this.info();
@@ -710,8 +710,8 @@ export class Board extends DurableObject<Env> {
       const t = this.autoThread(user, input);
       if (t != null) input = { ...input, reply_to: t };
     }
-    if (info.encrypted && !internal.sealed && input.retracts != null) input = { ...input, text: "Unsent." }; // no plaintext reasons
-    else if (info.encrypted && !internal.sealed) {
+    if (info.encrypted && !internal.sealed && !internal.notice && input.retracts != null) input = { ...input, text: "Unsent." }; // no plaintext reasons
+    else if (info.encrypted && !internal.sealed && !internal.notice) {
       throw new BoardError(`"${info.title}" is end-to-end encrypted: the server only takes encrypted messages. Post with the atteo CLI (atteo post / ask), which encrypts on your machine.`);
     }
     this.touch(user);
@@ -851,15 +851,20 @@ export class Board extends DurableObject<Env> {
       const h = this.sql.exec("SELECT user, session, label, done FROM handling WHERE seq = ?", r).toArray()[0];
       if (h && h.user === user && !h.done) this.markDone(r, user, (h.session as string | null) ?? null, h.label as string);
     }
+    // Resolving #N ticks the open checklist lines that mention it in other tasks.
+    if (!internal.seeding) {
+      for (const r of new Set(input.resolves ?? [])) await this.tickMentions(user, r, "resolved", { via: input.via, client: input.client, session: input.session });
+    }
 
     this.ctx.waitUntil(this.notify(info, entry).catch(() => {}));
     // Lists show who spoke last and what they said (sealed and encrypted posts show only that something was posted).
-    if (!internal.seeding) {
+    // A notice about the board itself (its picture) is quiet: lists and the tape keep showing the last real message.
+    if (!internal.seeding && !internal.notice) {
       const excerpt = internal.sealed || info.encrypted ? "🔒 encrypted" : (entry.artifact_name ? `📎 ${entry.artifact_name}` : entry.text).replace(/\s+/g, " ").trim().slice(0, 140);
       this.ctx.waitUntil(this.env.DB.prepare(`UPDATE boards SET last_author = ?, last_via = ?, last_excerpt = ?, last_activity = ? WHERE id = ?`).bind(user, entry.via ?? null, excerpt, entry.ts, info.id).run().catch(() => {}));
     }
     // The tape (GET /api/tape): one line per post across every board, for agents following their whole network.
-    if (!internal.seeding) {
+    if (!internal.seeding && !internal.notice) {
       const excerpt = info.encrypted ? "🔒 encrypted" : (entry.title || entry.artifact_name || entry.text).replace(/\s+/g, " ").trim().slice(0, 160);
       this.ctx.waitUntil(
         this.env.DB.prepare(`INSERT INTO tape (board_id, seq, ts, author, via, type, to_user, excerpt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
@@ -1771,8 +1776,9 @@ export class Board extends DurableObject<Env> {
         await this.taskEdit(user, seq, { body, base_version: me.version, summary: "done: ticked the remaining items" }, opts).catch(() => {});
       }
     }
-    // A sub-task finishing ticks its line in the parent's checklist ("- [ ] #12 …" or a line with its title).
-    if (done && after.parent != null) await this.tickInParent(user, after.parent, after, opts);
+    // Finishing #N ticks every open checklist line naming it in the other open tasks (a sub-task's parent also matches by
+    // title). Before the done note: that note resolves #N, and by then there's nothing left for it to tick.
+    if (done) await this.tickMentions(user, seq, "done", opts, after);
     if (done || assigned || change.note) {
       await this.post(user, {
         type: "note",
@@ -1799,22 +1805,51 @@ export class Board extends DurableObject<Env> {
     return this.task(seq);
   }
 
-  /** Create a task as a shared item: a title, a body (plan, checklist, notes), and optional fields. */
-  /** Ticks the parent's checklist line for a finished sub-task: the line naming "#seq", else the one with its title. */
-  private async tickInParent(user: string, parentSeq: number, child: TaskView, opts: TaskActOpts) {
-    const p = this.taskRows().find((x) => x.seq === parentSeq);
-    if (!p) return;
-    const lines = p.body.split("\n");
-    const open = (l: string) => /^\s*- \[ \]/.test(l);
-    const norm = (x: string) => x.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-    const want = norm(child.title);
-    let i = lines.findIndex((l) => open(l) && new RegExp(`#${child.seq}(?!\\d)`).test(l));
-    if (i < 0 && want.length > 2) i = lines.findIndex((l) => open(l) && norm(l.replace(/^\s*- \[ \]/, "")).includes(want));
-    if (i < 0) return;
-    lines[i] = lines[i].replace("- [ ]", "- [x]");
-    // A normal edit (versioned, searchable, live), so the tick shows up in the parent's history like anyone's.
-    await this.taskEdit(user, parentSeq, { body: lines.join("\n"), base_version: p.version, summary: `#${child.seq} done` }, opts).catch(() => {});
+  /**
+   * "#N done" / "#N resolved": ticks every open checklist line ("- [ ] …") naming #N in each other task that isn't done,
+   * as one normal edit per task (versioned, searchable, live), so the tick shows in its history like anyone's. A finished
+   * sub-task's parent with no "#N" line gets the line with the sub-task's title instead. Ticks only edit bodies (no posts,
+   * no status changes), so they never set off more ticks. Best effort: never throws into the action that caused it.
+   */
+  private async tickMentions(user: string, n: number, why: "done" | "resolved", opts: TaskActOpts, child?: TaskView) {
+    try {
+      const ref = new RegExp(`#${n}(?!\\d)`);
+      const norm = (x: string) => x.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+      const tick = (l: string) => l.replace("- [ ]", "- [x]");
+      for (const t of this.taskRows()) {
+        if (t.seq === n || t.status === "done") continue;
+        const lines = t.body.split("\n");
+        // Open checklist lines, skipping code blocks (the page doesn't count those as boxes either).
+        const items: number[] = [];
+        let fenced = false;
+        lines.forEach((l, i) => {
+          if (/^\s*(```|~~~)/.test(l)) fenced = !fenced;
+          else if (!fenced && /^\s*- \[ \]/.test(l)) items.push(i);
+        });
+        let hit = false;
+        for (const i of items) {
+          if (ref.test(lines[i])) {
+            lines[i] = tick(lines[i]);
+            hit = true;
+          }
+        }
+        if (!hit && child && t.seq === child.parent) {
+          const want = norm(child.title);
+          const i = want.length > 2 ? items.find((i) => norm(lines[i].replace(/^\s*- \[ \]/, "")).includes(want)) : undefined;
+          if (i !== undefined) {
+            lines[i] = tick(lines[i]);
+            hit = true;
+          }
+        }
+        if (!hit) continue;
+        await this.taskEdit(user, t.seq, { body: lines.join("\n"), base_version: t.version, summary: `#${n} ${why}` }, opts, { auto: true }).catch(() => {});
+      }
+    } catch {
+      // A tick is a courtesy: the done or the reply has already happened.
+    }
   }
+
+  /** Create a task as a shared item: a title, a body (plan, checklist, notes), and optional fields. */
 
   async taskCreate(user: string, input: { title: string; body?: string; assignee?: string | null; assignee_agent?: boolean; priority?: TaskPriority | null; due?: number | null; parent?: number | null }, opts: TaskActOpts): Promise<TaskView> {
     if (input.parent != null) this.task(input.parent); // must be an open task on this board
@@ -1846,6 +1881,7 @@ export class Board extends DurableObject<Env> {
     seq: number,
     edit: { title?: string; body?: string; base_version?: number; old_str?: string; new_str?: string; summary?: string },
     opts: TaskActOpts,
+    internal: { auto?: boolean } = {},
   ): Promise<TaskView> {
     const info = this.info();
     if (info.archived) throw new BoardError(`"${info.title}" is archived, so it's read-only. Its creator can restore it.`);
@@ -1870,7 +1906,7 @@ export class Board extends DurableObject<Env> {
     if (title === t.title && body === t.body) throw new BoardError("Nothing changed.");
     const hit = scanFields({ title, body, summary: edit.summary ?? null });
     if (hit) throw new BoardError(blockedMessage(hit));
-    this.rateLimit(user);
+    if (!internal.auto) this.rateLimit(user); // automatic ticks don't spend the person's own posting budget
     const now = Date.now();
     const version = t.version + 1;
     if (!this.sql.exec("SELECT 1 AS x FROM task_versions WHERE seq = ?", seq).toArray().length) {
@@ -2229,6 +2265,15 @@ export class Board extends DurableObject<Env> {
   /** A plain line on an encrypted board about its keys (who can read it), so a new device never goes unnoticed. */
   async keyNotice(user: string, text: string, opts: TaskActOpts): Promise<Entry> {
     return this.post(user, { type: "note", title: "Board key", text, via: opts.via, client: opts.client, session: opts.session }, { sealed: true });
+  }
+
+  /**
+   * A quiet line about the board itself (e.g. its picture changed) that everyone on it sees. Taken on encrypted boards
+   * too, as plain text: it's metadata the server already knows, like the board's name. Nobody is notified, and the
+   * board lists keep showing the last real message.
+   */
+  async notice(user: string, title: string, text: string, opts: TaskActOpts): Promise<Entry> {
+    return this.post(user, { type: "note", title, text, via: opts.via, client: opts.client, session: opts.session }, { notice: true });
   }
 
   async sealedAfter(after: number, limit = 200): Promise<{ seq: number; ts: number; author: string; via: string | null; type: string; to: string | null; reply_to: number | null; payload: string }[]> {
