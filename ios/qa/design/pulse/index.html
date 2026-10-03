@@ -110,14 +110,14 @@ input{font:inherit;color:inherit}
 .pill .d{width:7px;height:7px;border-radius:50%;background:var(--amber)}
 .pill b{font-weight:650;color:var(--text)}.pill.amber b{color:var(--amber)}
 
-/* short phones (SE): same cards, tighter */
+/* short phones (SE): same cards, tighter (phone only, not a short desktop window) */
 @media (max-height:760px){
-  .cards{gap:10px;top:calc(var(--sbh) + 52px)}
-  .bc .in{padding:14px 16px 14px;border-radius:26px}
-  .bc .bn{font-size:23px}.bc .sum{font-size:14.5px;margin-top:3px}
-  .bc .ags{margin-top:12px;gap:9px 10px}
-  .ac .orb{--z:32px!important}
-  .grab{display:none}.pills{bottom:calc(var(--hib) + 10px)}
+  .bare .cards{gap:10px;top:calc(var(--sbh) + 52px)}
+  .bare .bc .in{padding:14px 16px 14px;border-radius:26px}
+  .bare .bc .bn{font-size:23px}.bare .bc .sum{font-size:14.5px;margin-top:3px}
+  .bare .bc .ags{margin-top:12px;gap:9px 10px}
+  .bare .ac .orb{--z:32px!important}
+  .bare .grab{display:none}.bare .pills{bottom:calc(var(--hib) + 10px)}
 }
 /* the state orb: a Pebble (owner colour = the "you" half) inside a ring whose look IS the state */
 .orb{position:relative;width:var(--z,32px);height:var(--z,32px);flex:none}
