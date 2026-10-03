@@ -317,9 +317,9 @@ dialog.access-dlg{width:min(640px,calc(100vw - 24px))}
 .tk-prog{display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-variant-numeric:tabular-nums}
 .tk-bar{display:inline-block;width:56px;height:4px;border-radius:2px;background:var(--line);overflow:hidden}.tk-bar i{display:block;height:100%;background:var(--ok);border-radius:2px;transition:width .2s}
 .tk-subs{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:1px;font-size:12.5px}
-.tk-subs li{display:flex;align-items:center;gap:8px;min-width:0;padding:3px 8px;border-left:2px solid var(--line)}.tk-subs .seq{flex:none}.tk-subs .grow{color:var(--text)}
+.tk-subs li{display:flex;align-items:center;gap:8px;min-width:0;padding:3px 8px;border-left:2px solid var(--line)}.tk-subs .grow{color:var(--text);text-decoration:none}.tk-subs a.grow:hover{text-decoration:underline}
 .tk-subs li.st-done .grow{color:var(--muted);text-decoration:line-through;text-decoration-color:color-mix(in srgb,var(--muted) 60%,transparent)}
-.kcard .ksub{color:var(--muted)}
+.kcard .ksub{color:var(--muted);min-width:0;flex:0 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* reactions: chips under a message; the add button shows on hover (always on touch screens) */
 .rx{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .rx.has{margin-top:6px}
@@ -815,7 +815,7 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
 @media (hover:none){.entry .meta .seq{display:none}}
 a.ref{display:inline-flex;align-items:center;max-width:22em;padding:0 6px;border-radius:5px;background:var(--bg-hover);color:var(--text);font-size:.92em;text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom}
 a.ref:hover{color:var(--ink);background:color-mix(in srgb,var(--accent) 12%,var(--bg-hover))}
-.sum li .n,.kmeta .seq{display:none}
+.sum li .n,.kmeta .seq,#td-seq{display:none}
 `;
 
 // The Pebble: the app mark. One soft pebble split by a slanted seam; the clay half is you, the ink half your agent,

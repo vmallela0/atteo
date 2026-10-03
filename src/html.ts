@@ -1319,7 +1319,7 @@ function renderTask(t){const old=TASKS[t.seq];if(!t.html&&old&&old.html&&old.ver
 function renderSubs(seq){const el=document.querySelector('[data-task="'+seq+'"]');if(!el)return;let box=el.parentNode.querySelector(':scope>.tk-subs');
   const kids=Object.values(TASKS).filter(k=>k.parent===seq).sort((a,b)=>a.seq-b.seq);if(!kids.length){box?.remove();return}
   if(!box){box=document.createElement('ul');box.className='tk-subs';el.before(box)}box.setAttribute('aria-label','Sub-tasks');
-  box.innerHTML=kids.map(k=>'<li class="st-'+k.status+'"><span class="tk-st st-'+k.status+'" title="'+TSTATUS[k.status]+'"><span class="dot"></span></span><a class="seq" href="#e'+k.seq+'">#'+k.seq+'</a><span class="grow truncate">'+esc(k.title)+'</span><span class="xs faint">'+TSTATUS[k.status]+'</span></li>').join('')}
+  box.innerHTML=kids.map(k=>'<li class="st-'+k.status+'"><span class="tk-st st-'+k.status+'" title="'+TSTATUS[k.status]+'"><span class="dot"></span></span><a class="grow truncate" href="#e'+k.seq+'">'+esc(k.title||'Sub-task')+'</a><span class="xs faint">'+TSTATUS[k.status]+'</span></li>').join('')}
 async function refreshTask(seq){try{const r=await fetch('/api/boards/'+BOARD+'/tasks/'+seq);const j=await r.json();if(r.ok&&j.task)renderTask(j.task)}catch(e){}}
 document.addEventListener('click',async e=>{const b=e.target.closest('[data-tk]');if(!b)return;const seq=+b.closest('[data-task]').dataset.task,a=b.dataset.tk;
   if(a==='open'){openTask(seq);return}b.disabled=true;
@@ -1634,7 +1634,7 @@ function card(t){const first=t.title||'';const boxes=ckLines(t.body||'');const t
   // Title first; one quiet line under it: number, priority, checklist, due date, and who it's for / who holds it.
   return '<article class="kcard" draggable="true" data-seq="'+t.seq+'"><div class="ktext">'+esc(first)+'</div>'+
     '<div class="kmeta"><a class="seq" href="#e'+t.seq+'" data-kopen="'+t.seq+'">#'+t.seq+'</a>'+(t.priority?'<span class="badge pri-'+t.priority+'">'+t.priority+'</span>':'')+(t.status==='stopped'?'<span class="badge pri-high">stopped</span>':'')+
-    (t.parent!=null?'<span class="ksub" title="Sub-task of #'+t.parent+(par?': '+esc(par.title):'')+'">↳ #'+t.parent+'</span>':'')+
+    (t.parent!=null?'<span class="ksub" title="'+(par?'Sub-task of '+esc(par.title):'A sub-task')+'">↳ '+(par?esc(par.title):'sub-task')+'</span>':'')+
     (boxes.length?'<span title="Checklist">☑ '+ticked+'/'+boxes.length+'</span>':'')+(t.children?'<span title="Sub-tasks done">'+t.children.done+'/'+t.children.total+' sub-tasks</span>':'')+(t.due?'<span>due '+new Date(t.due).toISOString().slice(5,10)+'</span>':'')+'<span class="grow"></span>'+
     (hold?'<span title="'+esc(hold)+' is working on it">🔒</span>':'')+(who?'<span title="For '+esc(who)+'">'+avatar16(t.assignee,t.assignee_agent)+'</span>':'')+'</div>'+
     (t.stop_reason?'<div class="xs faint">'+esc(t.stop_reason)+'</div>':'')+(t.done_note?'<div class="xs faint">✓ '+esc(t.done_note)+'</div>':'')+'</article>'}
