@@ -547,7 +547,14 @@ mark{background:color-mix(in srgb,var(--warn) 30%,transparent);color:inherit;bor
 @keyframes breathe{0%,100%{box-shadow:0 0 0 0 color-mix(in srgb,var(--ok) 45%,transparent)}50%{box-shadow:0 0 0 3px color-mix(in srgb,var(--ok) 18%,transparent)}}
 .side-board .working{margin-left:auto;font-size:10.5px}.side-board .working .dot{width:6px;height:6px}
 @media (prefers-reduced-motion:reduce){.working .dot,.ag-dot.live{animation:none}}
-.side-board .bdot{width:8px;height:8px;border-radius:3px;flex:none;background:hsl(var(--h) 55% 55%)}
+.side-board .bdot{width:8px;height:8px;margin:0 5px;border-radius:3px;flex:none;background:hsl(var(--h) 55% 55%)}
+/* board pictures (like a group chat's photo): a rounded square, its initial underneath until the image loads */
+.bpic{--h:220;position:relative;overflow:hidden;flex:none;display:inline-grid;place-items:center;width:28px;height:28px;border-radius:7px;
+  background:hsl(var(--h) 55% 55%);color:#fff;font-size:13px;font-weight:600;line-height:1;user-select:none}
+.bpic.xs{width:18px;height:18px;border-radius:5px;font-size:9px}.bpic.sm{width:24px;height:24px;border-radius:6px;font-size:11px}.bpic.lg{width:40px;height:40px;border-radius:10px;font-size:17px}
+.bpic img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0}.bpic img.ok{opacity:1}
+.bp-pic{all:unset;cursor:pointer;display:inline-flex;flex:none;border-radius:7px}.bp-pic:hover .bpic{filter:brightness(.92)}.bp-pic:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.bpic-row{gap:12px;margin-bottom:12px}
 .sidebar .me{margin-top:auto;border-top:1px solid var(--line);padding-top:8px}
 .topbar{position:sticky;top:0;z-index:10;height:48px;display:flex;align-items:center;gap:12px;padding:0 20px;border-bottom:1px solid var(--line);
   background:color-mix(in srgb,var(--bg) 85%,transparent);backdrop-filter:saturate(180%) blur(10px);-webkit-backdrop-filter:saturate(180%) blur(10px)}
@@ -978,6 +985,22 @@ export interface SideBoard {
   title: string;
   kind?: string | null; // "direct": a private board between two friends (title "a ↔ b")
   live?: number; // agent sessions working on it right now
+  picture?: string | null; // the board picture's URL (members only, versioned), or null
+}
+
+/** The first letter of a board's title (or its first emoji), for a board without a picture. */
+export function boardInitial(title: string): string {
+  return (Array.from(title.trim())[0] ?? "?").toUpperCase();
+}
+
+/**
+ * A board's picture as a rounded square (its initial shows until the image loads, or if it fails). Without a picture:
+ * `fallback` if given (the sidebar's dot, the Boards grid's dot), else the initial on the board's color.
+ */
+export function boardPic(b: { id: string; title: string; picture?: string | null }, size: "" | "xs" | "sm" | "lg" = "", fallback?: string): string {
+  if (!b.picture && fallback !== undefined) return fallback;
+  const img = b.picture ? `<img src="${esc(b.picture)}" alt="" loading="lazy" onload="this.classList.add('ok')" onerror="this.remove()">` : "";
+  return `<span class="bpic${size ? ` ${size}` : ""}" style="--h:${hue(b.id)}" aria-hidden="true">${esc(boardInitial(b.title))}${img}</span>`;
 }
 
 /** "N working" with a breathing green dot: agents on a board right now. Always rendered (hidden at 0) so it can update live. */
@@ -1011,7 +1034,7 @@ export function appPage(
   const shared = opts.boards.filter((b) => b.kind !== "direct"),
     direct = opts.boards.filter((b) => b.kind === "direct");
   const sideBoards = shared
-    .map((b) => `<a class="side-link side-board" href="/b/${esc(b.id)}"${cur(b.id)}><span class="bdot" style="--h:${hue(b.id)}"></span><span class="truncate">${esc(b.title)}</span>${working(b.live ?? 0, b.id)}</a>`)
+    .map((b) => `<a class="side-link side-board" href="/b/${esc(b.id)}"${cur(b.id)}>${boardPic(b, "xs", `<span class="bdot" style="--h:${hue(b.id)}"></span>`)}<span class="truncate">${esc(b.title)}</span>${working(b.live ?? 0, b.id)}</a>`)
     .join("");
   // Direct boards read as the person you share them with.
   const sideDirect = direct

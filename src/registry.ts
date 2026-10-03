@@ -19,6 +19,7 @@ export interface BoardRow {
   last_author?: string | null; // the latest post: who, how, and its first line (written by the board)
   last_via?: string | null;
   last_excerpt?: string | null;
+  picture_v?: number | null; // the board picture's version (when it was set), or null (boardPictures.ts)
 }
 
 export interface BoardMeta {
@@ -169,6 +170,7 @@ export async function deleteBoard(env: Env, boardId: string) {
   await env.DB.batch([
     env.DB.prepare(`DELETE FROM members WHERE board_id = ?`).bind(boardId),
     env.DB.prepare(`DELETE FROM invites WHERE board_id = ?`).bind(boardId),
+    env.DB.prepare(`DELETE FROM board_pictures WHERE board_id = ?`).bind(boardId),
     env.DB.prepare(`UPDATE mcp_sessions SET board_id = NULL WHERE board_id = ?`).bind(boardId),
     env.DB.prepare(`DELETE FROM boards WHERE id = ?`).bind(boardId),
   ]);
