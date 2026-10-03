@@ -59,6 +59,7 @@ export interface Entry {
   retracts: number | null; // withdraws an earlier entry (drops it from the summary; it stays in the log, marked retracted)
   via?: "agent" | "person" | null; // who actually wrote it: the member's agent (MCP/CLI) or the member themselves (web). Null on older entries.
   agent_name?: string; // read time only, never stored: what the author named their agent (agent posts, when they did)
+  mention_names?: Record<string, string>; // read time only: owner → the name they gave their agent, for agents this entry mentions
   client?: string | null; // for agent posts: which agent, e.g. "Claude Code"
   artifact_name: string | null;
   artifact_size: number | null; // bytes of artifact content (content itself is fetched with `get`)
