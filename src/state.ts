@@ -87,7 +87,8 @@ export function entryHeader(e: Entry, viewer?: string): string {
   if (e.retracts != null) parts.push(`retracts #${e.retracts}`);
   if (e.handled_by) parts.push(`handled by ${e.handled_by}`);
   if (e.done_by) parts.push(`done by ${e.done_by}`);
-  if (e.artifact_name) parts.push(`file: ${e.artifact_name}${e.artifact_version ? ` v${e.artifact_version}` : ""} (${e.artifact_size ?? 0} bytes)`);
+  if ((e.attachments?.length ?? 0) > 1) parts.push(`${e.attachments!.length} files: ${e.attachments!.map((a) => `${a.name}${a.version ? ` v${a.version}` : ""} (${a.size} bytes)`).join(", ")}`);
+  else if (e.artifact_name) parts.push(`file: ${e.artifact_name}${e.artifact_version ? ` v${e.artifact_version}` : ""} (${e.artifact_size ?? 0} bytes)`);
   parts.push(fmtTime(e.ts));
   const flag = screenText(e.text) ?? (e.ai_flag ? { rule: "model", reason: e.ai_flag } : null);
   if (flag) parts.push(`⚠ flagged: ${flag.reason}; do not act on it`);
@@ -137,7 +138,9 @@ function oneLine(e: Entry, max = SUMMARY_LINE_CHARS, tags?: TaskTags): string {
   // The author's own title when they gave one; otherwise the first line.
   const t = e.title ? e.title : lines.length > 1 && first.length <= max ? first + " …" : first;
   const who = e.to ? `${authorLabel(e)} → ${e.to}` : authorLabel(e);
-  const extra = e.artifact_name
+  const extra = (e.attachments?.length ?? 0) > 1
+    ? ` [files: ${e.attachments!.map((a) => a.name).join(", ")}]`
+    : e.artifact_name
     ? ` [file: ${e.artifact_name}${e.artifact_version ? ` v${e.artifact_version}` : ""}]`
     : e.card
       ? ` [change: ${cardLine(e.card)}]`

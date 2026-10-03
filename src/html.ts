@@ -9,7 +9,7 @@ import { forAgent, forPerson, mentionLabel } from "./mentions";
 import { screenText } from "./screen";
 import { clientName, presenceLabel } from "./social";
 import type { ChangeCard } from "./card";
-import type { BoardInfo, Entry } from "./types";
+import type { Attachment, BoardInfo, Entry } from "./types";
 import { appPage, avatar, avatarStack, boardPic, copyField, hue, page, renderText, typeTag, when, working, type SideBoard, type Viewer } from "./ui";
 import { esc, pictureUrl } from "./util";
 import { stateOf } from "./sessions";
@@ -74,7 +74,7 @@ export function entryHtml(e: Entry, boardId: string, withReplies = true, opts: {
   if (e.reply_to != null) refs.push(`reply to <a class="ref" data-ref="${e.reply_to}" href="#e${e.reply_to}">#${e.reply_to}</a>`);
   if (e.resolves.length) refs.push(`resolves ${e.resolves.map((n) => `<a class="ref" data-ref="${n}" href="#e${n}">#${n}</a>`).join(", ")}`);
   if (e.supersedes != null) refs.push(`supersedes <a class="ref" data-ref="${e.supersedes}" href="#e${e.supersedes}">#${e.supersedes}</a>`);
-  const img = e.artifact_name && e.media?.mime.startsWith("image/") ? imageHtml(boardId, e) : "";
+  const img = (e.attachments?.length ?? 0) > 1 ? filesHtml(boardId, e.attachments!) : e.artifact_name && e.media?.mime.startsWith("image/") ? imageHtml(boardId, e) : "";
   const file = img
     ? img
     : e.artifact_name
@@ -148,6 +148,37 @@ ${c.files.length ? `<div class="chg-sec chg-files"><div class="chg-label">${c.fi
 /** Where a stored file (image or other binary) is served, at a given version. */
 function fileSrc(boardId: string, name: string, version: number | null | undefined): string {
   return `/api/boards/${encodeURIComponent(boardId)}/image?name=${encodeURIComponent(name)}${version ? `&version=${version}` : ""}`;
+}
+
+const FILE_ICON = `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M4 1.5h5l3 3v10H4z"/><path d="M9 1.5v3h3"/></svg>`;
+
+/**
+ * A message with several files: its pictures in a grid (1 full width, 2 side by side, 3 one big and two small, 4 a 2×2,
+ * 5+ a 2×2 whose last tile says "+N"; the rest stay in the page, hidden, so the lightbox steps through all of them),
+ * then its other files as chips. Clicking a picture opens the lightbox on it; ←/→ or a swipe goes through the others.
+ */
+function filesHtml(boardId: string, list: Attachment[]): string {
+  const imgs = list.filter((a) => a.mime.startsWith("image/"));
+  const others = list.filter((a) => !a.mime.startsWith("image/"));
+  const shown = Math.min(imgs.length, 4);
+  const tiles = imgs
+    .map((a, i) => {
+      const src = fileSrc(boardId, a.name, a.version);
+      const more = i === 3 && imgs.length > 4 ? `<span class="mg-more">+${imgs.length - 4}</span>` : "";
+      return `<button class="mg-tile" type="button" data-img="${esc(src)}" data-img-name="${esc(a.name)}" aria-label="View ${esc(a.name)} full size"${i >= shown ? " hidden></button>" : `><img src="${esc(src)}" alt="${esc(a.name)}" loading="lazy"${a.w && a.h ? ` width="${a.w}" height="${a.h}"` : ""}>${more}</button>`}`;
+    })
+    .join("");
+  const grid = imgs.length ? `<div class="mgrid g${shown}" data-gallery>${tiles}</div>` : "";
+  const chips = others
+    .map((a) => {
+      const act = a.mime.startsWith("text/")
+        ? `<button class="btn sm" type="button" data-open-file="${esc(a.name)}"${a.version ? ` data-file-ver="${a.version}"` : ""}>Open</button>`
+        : `<a class="btn sm" href="${esc(fileSrc(boardId, a.name, a.version))}" download="${esc(a.name)}">Download</a>`;
+      return `<div class="fh">${FILE_ICON}<span class="mono grow truncate">${esc(a.name)}${a.version ? ` <span class="xs faint">v${a.version}</span>` : ""}</span><span class="xs faint">${fmtBytes(a.size)}</span>${act}</div>`;
+    })
+    .join("");
+  const total = list.reduce((n, a) => n + a.size, 0);
+  return `<div class="mfiles">${grid}${chips ? `<div class="file mchips">${chips}</div>` : ""}<div class="xs faint mcap">${list.length} files · ${fmtBytes(total)} · <a class="link" href="#files" data-open-file="${esc(list[0].name)}"${list[0].version ? ` data-file-ver="${list[0].version}"` : ""}>Open in Files</a></div></div>`;
 }
 
 function imageHtml(boardId: string, e: Entry): string {
@@ -1077,7 +1108,7 @@ document.addEventListener('click',async e=>{
       pre.innerHTML=j.diff?diffHtml(j.diff):'<span class="faint">No diff was attached to this change.</span>';pre.dataset.loaded='1'}
     pre.hidden=false;dv.textContent='Hide diff'}});
 applyReviews({});tick(false); // the first update brings every card's verdicts
-// ---- files and images: paste, drop or attach; previewed above the text; each becomes a file post when you post ----
+// ---- files and images: paste, drop or attach (up to 10); previewed above the text; posted together as one message ----
 const attIn=document.getElementById('attach-input'),attBox=document.getElementById('attachments'),cform=ta.closest('form');let pending=[];
 const IMG_TYPES=['image/png','image/jpeg','image/gif','image/webp'],FILE_MAX=1500000;
 const kbs=n=>n<1024?n+' B':n<1048576?(n/1024).toFixed(1)+' KB':(n/1048576).toFixed(1)+' MB';
@@ -1102,7 +1133,9 @@ async function pack(file){if(file.size<=FILE_MAX)return {blob:file,name:file.nam
   if(typeof CompressionStream==='undefined')return null;
   const gz=await new Response(file.stream().pipeThrough(new CompressionStream('gzip'))).blob();
   return gz.size<=FILE_MAX?{blob:gz,name:(file.name||'file')+'.gz',packed:file.size}:null}
+const MAX_FILES=10; // files in one message (the server's limit too)
 async function addFiles(files){for(const f of files){
+  if(pending.length>=MAX_FILES){toast('At most '+MAX_FILES+' files in one message');break}
   try{const x=IMG_TYPES.includes(f.type)?await shrink(f):await pack(f);
     if(!x||!x.blob||x.blob.size>FILE_MAX){toast((f.name||'That file')+' is too large, even compressed (max 1.5 MB)');continue}
     if(x.packed)toast(f.name+' compressed to '+kbs(x.blob.size));
@@ -1119,23 +1152,37 @@ const convEl=document.querySelector('.conv');
 convEl.addEventListener('dragover',e=>{if([...(e.dataTransfer?.types||[])].includes('Files')){e.preventDefault();convEl.classList.add('drop')}});
 convEl.addEventListener('dragleave',e=>{if(!convEl.contains(e.relatedTarget))convEl.classList.remove('drop')});
 convEl.addEventListener('drop',e=>{convEl.classList.remove('drop');const fs=[...(e.dataTransfer?.files||[])];if(fs.length){e.preventDefault();addFiles(fs)}});
-// With files attached, posting uploads each one (the text goes with the first) instead of a plain post.
+// With files attached, posting sends them all, with the text, as ONE message (multipart: a "file" part per file, w/h in
+// the same order). One "sending" copy shows the text and the thumbnails until the real entry comes back in its "update".
 cform.addEventListener('submit',async e=>{if(!pending.length)return;e.preventDefault();e.stopPropagation();
-  const btn=cform.querySelector('.bar .btn.primary');btn.disabled=true;let text=ta.value.trim();
-  const mk=(x,t)=>{if(rpTo.value)return null;const el=document.createElement('article');el.className='entry pending';el.innerHTML='<div class="grow"><div class="meta"><span class="who"></span><span class="xs faint">sending…</span></div><div class="body"></div></div>';
-    el.querySelector('.who').textContent=ME;el.querySelector('.body').textContent=(t?t+' ':'')+'📎 '+x.name;document.getElementById('thread').appendChild(el);toBottom();return el};
+  const btn=cform.querySelector('.bar .btn.primary');btn.disabled=true;const text=ta.value.trim(),files=pending.slice();
   let ph=null;
-  try{while(pending.length){const x=pending[0];ph=mk(x,text);
-      const r=await fetch('/api/boards/'+BOARD+'/upload?name='+encodeURIComponent(x.name)+(x.image?'&w='+x.w+'&h='+x.h:'')+(rpTo.value?'&reply_to='+rpTo.value:'')+'&text='+encodeURIComponent(text),{method:'POST',headers:{'content-type':x.blob.type||'application/octet-stream'},body:x.blob});
-      const j=await r.json().catch(()=>({}));if(!r.ok){if(ph){ph.classList.add('failed');ph.querySelector('.faint').textContent="Couldn't send";setTimeout(()=>ph&&ph.remove(),6000)}toast(j.error||"Couldn't post "+x.name);return}
-      if(ph){ph.remove();ph=null}if(j.update&&addEntry(j.update)&&!rpTo.value){railBuild();toBottom()}
-      if(x.url)URL.revokeObjectURL(x.url);pending.shift();renderAtt();text='';ta.value='';msync()}
+  if(!rpTo.value){ph=document.createElement('article');ph.className='entry pending';ph.innerHTML='<div class="grow"><div class="meta"><span class="who"></span><span class="xs faint">sending…</span></div><div class="body"></div><div class="attachments ph-att"></div></div>';
+    ph.querySelector('.who').textContent=ME;ph.querySelector('.body').textContent=text;
+    ph.querySelector('.ph-att').innerHTML=files.map(x=>x.image?'<span class="att"><img src="'+x.url+'" alt="'+esc(x.name)+'"></span>':'<span class="att file"><span class="att-name mono">'+esc(x.name)+'</span><span class="xs faint">'+kbs(x.blob.size)+'</span></span>').join('');
+    document.getElementById('thread').appendChild(ph);toBottom()}
+  const fail=m=>{if(ph){ph.classList.add('failed');ph.querySelector('.faint').textContent="Couldn't send";const p=ph;setTimeout(()=>p.remove(),6000)}toast(m)};
+  try{const fd=new FormData();
+    for(const x of files){fd.append('file',x.blob,x.name);fd.append('w',x.image&&x.w?String(x.w):'');fd.append('h',x.image&&x.h?String(x.h):'')}
+    if(text)fd.append('text',text);if(rpTo.value)fd.append('reply_to',rpTo.value);
+    const r=await fetch('/api/boards/'+BOARD+'/upload',{method:'POST',body:fd});
+    const j=await r.json().catch(()=>({}));if(!r.ok){fail(j.error||"Couldn't post "+(files.length>1?'those files':files[0].name)+'. They are still attached.');return}
+    if(ph){ph.remove();ph=null}if(j.update&&addEntry(j.update)&&!rpTo.value){railBuild();toBottom()}
+    files.forEach(x=>{if(x.url)URL.revokeObjectURL(x.url)});pending=pending.filter(x=>!files.includes(x));renderAtt();ta.value='';msync();
     const was=+rpTo.value;cform.reset();draftSave(draftNow(),'');replyClear(true);if(was){ta.value=draftLoad('');replyShown(was)}taFit();stickNext=!was;tick(false)}
-  catch(err){if(ph){ph.classList.add('failed');ph.querySelector('.faint').textContent="Couldn't send";setTimeout(()=>ph&&ph.remove(),6000)}toast("Couldn't post that. Your file is still attached.")}
+  catch(err){fail("Couldn't post that. Your files are still attached.")}
   finally{btn.disabled=false}});
-const lb=document.getElementById('lightbox');
-document.addEventListener('click',e=>{const b=e.target.closest('[data-img]');if(!b)return;document.getElementById('lightbox-img').src=b.dataset.img;lb.showModal()});
-lb.addEventListener('click',()=>lb.close());
+// The lightbox: a picture full size; for a message with several, the arrows, ←/→ or a swipe go through them.
+const lb=document.getElementById('lightbox'),lbImg=document.getElementById('lightbox-img'),lbCount=lb.querySelector('.lb-count');let lbSet=[],lbI=0,lbSwiped=0;
+function lbShow(i){lbI=(i+lbSet.length)%lbSet.length;const b=lbSet[lbI];lbImg.src=b.dataset.img;lbImg.alt=b.dataset.imgName||'';
+  const many=lbSet.length>1;lb.querySelectorAll('.lb-nav').forEach(x=>x.hidden=!many);lbCount.hidden=!many;lbCount.textContent=(lbI+1)+' / '+lbSet.length}
+document.addEventListener('click',e=>{const b=e.target.closest('[data-img]');if(!b)return;const g=b.closest('[data-gallery]');lbSet=g?[...g.querySelectorAll('[data-img]')]:[b];lbShow(lbSet.indexOf(b));if(!lb.open){lb.showModal();lb.querySelector('.lb-nav:focus')?.blur()}});
+lb.addEventListener('click',e=>{if(Date.now()-lbSwiped<400)return;const n=e.target.closest('.lb-nav');if(n){lbShow(lbI+(n.classList.contains('lb-prev')?-1:1));return}lb.close()});
+document.addEventListener('keydown',e=>{if(!lb.open||lbSet.length<2)return;if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();lbShow(lbI+(e.key==='ArrowLeft'?-1:1))}});
+let lbX=null,lbY=0;
+lb.addEventListener('touchstart',e=>{if(e.touches.length===1){lbX=e.touches[0].clientX;lbY=e.touches[0].clientY}else lbX=null},{passive:true});
+lb.addEventListener('touchend',e=>{if(lbX==null)return;const dx=e.changedTouches[0].clientX-lbX,dy=e.changedTouches[0].clientY-lbY;lbX=null;
+  if(lbSet.length>1&&Math.abs(dx)>40&&Math.abs(dx)>Math.abs(dy)*1.5){lbSwiped=Date.now();lbShow(lbI+(dx<0?1:-1))}});
 // ---- read receipts: a ring on your latest message (who has seen it), a dot on each @mention (has that one seen it) ----
 const MEMBERS=${jsString(members.map((m) => m.user))};let READS={},seenSent=0,seenTimer=null;
 const seenAs=(u,agent)=>{const r=READS[u];return r?(agent?r.agent_seen:r.person_seen):(agent?-1:0)}; // agent -1: never on this board
@@ -1750,7 +1797,7 @@ window.boardKeys=(e,k)=>{
       <div class="row" style="justify-content:space-between;margin-top:12px"><div class="row" style="gap:6px"><button class="btn sm ghost" type="button" id="td-open">Open in conversation</button><button class="btn sm ghost" type="button" id="td-remove" hidden>Remove</button></div><button class="btn primary sm">Save</button></div>
     </div></form></dialog>
 ${SHEET}
-<dialog class="lightbox" id="lightbox" aria-label="Image"><img id="lightbox-img" alt=""></dialog>
+<dialog class="lightbox" id="lightbox" aria-label="Image"><img id="lightbox-img" alt=""><button class="lb-nav lb-prev" type="button" aria-label="Previous picture" hidden>‹</button><button class="lb-nav lb-next" type="button" aria-label="Next picture" hidden>›</button><span class="lb-count xs" hidden></span></dialog>
 
 ${connectDialog(viewer, { id: info.id, title: info.title })}
 

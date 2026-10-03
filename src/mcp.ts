@@ -1088,6 +1088,16 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
         const line = seenByLine(r.entry, members.map((m) => m.user), reads);
         if (line) out.push(line);
       }
+      // A message with several files lists each (the first one's text follows, as for a single file).
+      const files = r.entry.attachments ?? [];
+      if (files.length > 1) {
+        out.push("", `Files (${files.length}):`);
+        files.forEach((a, i) => {
+          const at = `${c.origin}/api/boards/${id}/image?name=${encodeURIComponent(a.name)}${a.version ? `&version=${a.version}` : ""}`;
+          const how = a.mime.startsWith("text/") ? `read with doc {action: "read", name: "${a.name}"${a.version ? `, version: ${a.version}` : ""}}, or download ${at}` : `download ${at} (signed in as a member)`;
+          out.push(`  ${i + 1}. ${a.name} · ${a.mime}${a.w && a.h ? ` · ${a.w}×${a.h}` : ""} · ${a.size} bytes${a.version ? ` · v${a.version}` : ""} · ${how}`);
+        });
+      }
       if (r.artifact_content != null) out.push("", `----- ${r.entry.artifact_name} -----`, r.artifact_content, `----- end -----`);
       if (r.replies.length) out.push("", "Related entries:", ...r.replies.map((e) => formatEntry(e, 1000, user)));
       return fence(out.join("\n"));
