@@ -1,0 +1,1755 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Atteo Simple Mode</title>
+<meta name="description" content="Design mockups for the Atteo iPhone app's simple mode (jxn #934, #941, #944): Home needs-you stack, Chats with a tick wheel, Chat, and the settings drawer, built from the web UI's own components. No production changes.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ===== Verbatim from src/ui.ts (export const CSS, with DARK inlined). Only change: --accent is clay, not blue. ===== */
+
+:root{
+  --bg:#ffffff;--bg-subtle:#fafafa;--bg-hover:#f4f4f5;--line:#ebebeb;--line-strong:#dcdcdc;
+  --ink:#0a0a0a;--text:#171717;--muted:#6b6b6b;--faint:#9a9a9a;--on-ink:#ffffff;--pb-agent:#111113;--pb-eye:#F2EFE8;
+  --accent:#C9653F;--ok:#16a34a;--warn:#c2410c;--danger:#dc2626;
+  --q:#d97706;--claim:#16a34a;--decision:#7c3aed;--task:#0284c7;--artifact:#737373;--note:#a3a3a3;
+  --shadow:0 1px 2px rgba(0,0,0,.04),0 4px 16px rgba(0,0,0,.04);--shadow-lg:0 12px 48px rgba(0,0,0,.12);
+  --av-l:92%;--av-c:32%;--av-s:65%;
+  --r:10px;--r-sm:7px;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){  --bg:#0a0a0a;--bg-subtle:#111111;--bg-hover:#1a1a1a;--line:#232323;--line-strong:#2e2e2e;
+  --ink:#ededed;--text:#ededed;--muted:#a1a1a1;--faint:#6f6f6f;--on-ink:#0a0a0a;--pb-agent:#F2EFE8;--pb-eye:#111113;
+  --accent:#D9785A;--ok:#3ecf75;--warn:#fb923c;--danger:#f87171;
+  --q:#fbbf24;--claim:#4ade80;--decision:#a78bfa;--task:#38bdf8;--artifact:#a3a3a3;--note:#737373;
+  --shadow:0 1px 2px rgba(0,0,0,.4);--shadow-lg:0 12px 48px rgba(0,0,0,.6);
+  --av-l:22%;--av-c:78%;--av-s:40%;
+  color-scheme:dark;}}
+:root[data-theme="dark"]{  --bg:#0a0a0a;--bg-subtle:#111111;--bg-hover:#1a1a1a;--line:#232323;--line-strong:#2e2e2e;
+  --ink:#ededed;--text:#ededed;--muted:#a1a1a1;--faint:#6f6f6f;--on-ink:#0a0a0a;--pb-agent:#F2EFE8;--pb-eye:#111113;
+  --accent:#D9785A;--ok:#3ecf75;--warn:#fb923c;--danger:#f87171;
+  --q:#fbbf24;--claim:#4ade80;--decision:#a78bfa;--task:#38bdf8;--artifact:#a3a3a3;--note:#737373;
+  --shadow:0 1px 2px rgba(0,0,0,.4);--shadow-lg:0 12px 48px rgba(0,0,0,.6);
+  --av-l:22%;--av-c:78%;--av-s:40%;
+  color-scheme:dark;}
+*{box-sizing:border-box}
+[hidden]{display:none!important} /* the hidden attribute always wins over a component display (e.g. .btn is inline-flex) */
+/* Scrollbars: thin and quiet (Linear/Slack-like), one per scrolling pane. Chrome and Safari use the ::-webkit
+   rules (Chrome ignores them once scrollbar-width is set, so that's Firefox-only); darker while the pane is hovered. */
+:root{--sb:color-mix(in srgb,var(--muted) 35%,transparent);--sb-hover:color-mix(in srgb,var(--muted) 70%,transparent)}
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track,::-webkit-scrollbar-corner{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--sb);border-radius:6px}
+:hover::-webkit-scrollbar-thumb{background:var(--sb-hover)}
+@supports not selector(::-webkit-scrollbar){*{scrollbar-width:thin;scrollbar-color:var(--sb) transparent}*:hover{scrollbar-color:var(--sb-hover) transparent}}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--text);font:13.5px/1.5 "Geist",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+  -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;font-feature-settings:"ss01","cv11"}
+a{color:inherit;text-decoration:none}
+a.link{color:var(--accent)}a.link:hover{text-decoration:underline}
+code,pre,.mono{font-family:"Geist Mono",ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px}
+h1,h2,h3{color:var(--ink);font-weight:600;letter-spacing:-.02em;margin:0}
+h1{font-size:22px;line-height:1.25}h2{font-size:15px}h3{font-size:13px}
+p{margin:0}
+.muted{color:var(--muted)}.faint{color:var(--faint)}.small{font-size:13px}.xs{font-size:12px}
+.row{display:flex;align-items:center;gap:8px}.row.wrap{flex-wrap:wrap}.grow{flex:1;min-width:0}
+.stack>*+*{margin-top:12px}
+.truncate{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* header */
+.nav{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 82%,transparent);backdrop-filter:saturate(180%) blur(12px);
+  -webkit-backdrop-filter:saturate(180%) blur(12px);border-bottom:1px solid var(--line)}
+.nav .in{max-width:1180px;margin:0 auto;height:56px;padding:0 20px;display:flex;align-items:center;gap:16px}
+.brand{display:flex;align-items:center;gap:9px;font-weight:600;letter-spacing:-.01em;color:var(--ink)}
+.brand svg{display:block}
+.wm{font-weight:800;letter-spacing:-.03em}
+.nav .links{display:flex;gap:4px;margin-left:8px}
+.nav .links a{color:var(--muted);padding:6px 10px;border-radius:6px}
+.nav .links a:hover,.nav .links a[aria-current]{color:var(--ink);background:var(--bg-hover)}
+.nav .right{margin-left:auto;display:flex;align-items:center;gap:10px}
+main{max-width:1180px;margin:0 auto;padding:40px 20px 96px}
+main.narrow{max-width:720px}
+
+/* controls */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;height:30px;padding:0 12px;border-radius:var(--r-sm);
+  border:1px solid var(--line-strong);background:var(--bg);color:var(--ink);font:inherit;font-weight:500;cursor:pointer;white-space:nowrap;
+  transition:background .15s,border-color .15s,opacity .15s}
+.btn:hover{background:var(--bg-hover)}
+.btn.primary{background:var(--ink);border-color:var(--ink);color:var(--on-ink)}
+.btn.primary:hover{opacity:.88}
+.btn.ghost{border-color:transparent;background:transparent;color:var(--muted)}.btn.ghost:hover{color:var(--ink);background:var(--bg-hover)}
+.btn.danger{color:var(--danger)}
+.btn.sm{height:26px;padding:0 9px;font-size:12.5px}.btn.lg{height:40px;padding:0 18px;font-size:14.5px}
+.btn[disabled]{opacity:.5;cursor:default}
+/* touch: small buttons keep their look but take a 40px-tall tap (an invisible margin above and below); the composer bar and message actions keep theirs, so a tap meant for the message lands on it */
+@media (pointer:coarse){.btn{position:relative}.btn::after{content:"";position:absolute;inset:-6px 0}.btn.sm::after{inset:-8px 0}.composer .btn::after,.entry .acts .btn::after{content:none}
+  .side-link{height:40px}}
+.btn:focus-visible,.input:focus-visible,a:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.input{height:32px;width:100%;padding:0 12px;border:1px solid var(--line-strong);border-radius:var(--r-sm);background:var(--bg);color:var(--text);font:inherit;
+  transition:border-color .15s,box-shadow .15s}
+.input:focus{outline:none;border-color:var(--faint);box-shadow:0 0 0 3px color-mix(in srgb,var(--faint) 22%,transparent)}
+textarea.input{height:auto;min-height:84px;padding:10px 12px;resize:vertical;line-height:1.5}
+select.input{appearance:none;padding-right:30px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23888' fill='none' stroke-width='1.4'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 11px center}
+label.lbl{display:block;font-size:13px;font-weight:500;color:var(--ink);margin:0 0 6px}
+.hint{font-size:12.5px;color:var(--muted);margin-top:6px}
+.field+.field{margin-top:16px}
+.seg{display:inline-flex;padding:2px;border:1px solid var(--line);border-radius:8px;background:var(--bg-subtle)}
+.seg input{display:none}.seg label{padding:4px 10px;border-radius:6px;font-size:13px;color:var(--muted);cursor:pointer}
+.seg input:checked+label{background:var(--bg);color:var(--ink);box-shadow:var(--shadow);font-weight:500}
+
+/* surfaces */
+.card{border:1px solid var(--line);border-radius:var(--r);background:var(--bg);box-shadow:var(--shadow)}
+.card.pad{padding:20px}
+.section-title{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 14px}
+@media (max-width:640px){.section-title{flex-wrap:wrap;align-items:flex-start}.section-title>div:first-child{flex-basis:100%}}
+.divider{height:1px;background:var(--line);margin:20px 0}
+.badge{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 8px;border-radius:999px;border:1px solid var(--line);
+  font-size:12px;color:var(--muted);background:var(--bg)}
+.dot{width:7px;height:7px;border-radius:50%;background:currentColor;display:inline-block;flex:none}
+.live .dot{color:var(--ok);box-shadow:0 0 0 0 color-mix(in srgb,var(--ok) 50%,transparent);animation:pulse 2.4s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--ok) 45%,transparent)}70%{box-shadow:0 0 0 7px transparent}100%{box-shadow:0 0 0 0 transparent}}
+.type{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--muted)}
+.type .dot{width:6px;height:6px}
+.t-question{color:var(--q)}.t-claim{color:var(--claim)}.t-decision{color:var(--decision)}.t-task{color:var(--task)}.t-artifact{color:var(--artifact)}.t-note{color:var(--note)}
+.type span:not(.dot){color:var(--muted)}
+
+/* avatars */
+.av{--h:220;width:28px;height:28px;flex:none;border-radius:50%;display:inline-grid;place-items:center;font-size:11.5px;font-weight:600;letter-spacing:.01em;
+  background:hsl(var(--h) var(--av-s) var(--av-l));color:hsl(var(--h) 55% var(--av-c));user-select:none;position:relative;overflow:hidden}
+.av.sm{width:22px;height:22px;font-size:10px}.av.xs{width:18px;height:18px;font-size:8px;flex:none}.av.lg{width:40px;height:40px;font-size:15px}
+.av.agent{border-radius:7px}
+.av-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:inherit;opacity:0}
+.av-img.ok{opacity:1}
+.av.sm.agent{border-radius:5px}
+.av-wrap{position:relative;display:inline-flex}
+.av-wrap.live::after{content:"";position:absolute;right:-2px;bottom:-2px;width:8px;height:8px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 2px var(--bg)}
+.badge.kind{height:18px;font-size:11px;padding:0 6px}
+.entry .meta .via{font-size:12px;color:var(--faint)}
+.badge.conn{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,var(--line))}.badge.conn[hidden]{display:none}
+.badge.kind.agent{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 35%,var(--line))}
+.avs{display:inline-flex}.avs .av{border:2px solid var(--bg);margin-left:-7px}.avs .av:first-child{margin-left:0}
+
+/* lists & tables */
+.list{border:1px solid var(--line);border-radius:var(--r);overflow:hidden;background:var(--bg)}
+.list .item{display:flex;align-items:center;gap:14px;padding:10px 16px;border-top:1px solid var(--line);transition:background .12s}
+.list .item:first-child{border-top:0}
+.list a.item:hover{background:var(--bg-subtle)}
+.tbl{width:100%;border-collapse:collapse;font-size:13.5px}
+.tbl th{text-align:left;font-weight:500;color:var(--muted);font-size:12px;padding:8px 16px;border-bottom:1px solid var(--line);background:var(--bg-subtle);white-space:nowrap}
+.tbl td{padding:9px 16px;border-top:1px solid var(--line);vertical-align:middle}
+.tbl tr:first-child td{border-top:0}
+.scroll-x{overflow-x:auto}
+.sm-only{display:none}
+.empty{text-align:center;padding:48px 20px;color:var(--muted)}
+.empty h3{font-size:15px;margin-bottom:6px}
+
+/* copy field */
+.copy{position:relative;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--bg-subtle)}
+.copy pre{margin:0;padding:12px 84px 12px 14px;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.55;color:var(--ink)}
+.copy .btn{position:absolute;top:7px;right:7px}
+
+/* dialog */
+dialog{border:1px solid var(--line);border-radius:14px;padding:0;background:var(--bg);color:var(--text);box-shadow:var(--shadow-lg);
+  width:min(560px,calc(100vw - 32px));max-height:calc(100vh - 64px)}
+dialog::backdrop{background:rgba(0,0,0,.45)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) dialog{background:#141414;border-color:var(--line-strong)}}
+:root[data-theme="dark"] dialog{background:#141414;border-color:var(--line-strong)}
+dialog .hd{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:20px 22px 0}
+dialog .bd{padding:16px 22px 22px}
+dialog[open]{animation:pop .16s ease-out}dialog:focus{outline:none}
+@keyframes pop{from{opacity:0;transform:translateY(6px) scale(.985)}to{opacity:1;transform:none}}
+
+/* flash / toast */
+.flash{padding:12px 14px;border-radius:var(--r-sm);border:1px solid var(--line);background:var(--bg-subtle);font-size:13.5px}
+.flash.ok{border-color:color-mix(in srgb,var(--ok) 35%,var(--line))}
+.flash.err{border-color:color-mix(in srgb,var(--danger) 40%,var(--line));color:var(--danger)}
+#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);opacity:0;pointer-events:none;
+  background:var(--ink);color:var(--on-ink);padding:9px 14px;border-radius:8px;font-size:13px;transition:all .2s;z-index:50}
+#toast.show{opacity:1;transform:translateX(-50%)}
+
+/* board */
+.crumbs{font-size:13px;color:var(--muted);margin-bottom:8px}.crumbs a:hover{color:var(--ink)}
+.layout{display:grid;gap:28px;grid-template-columns:minmax(0,1fr)}
+@media(min-width:960px){.layout{grid-template-columns:minmax(0,1fr) 300px}.aside{position:sticky;top:64px;align-self:start;max-height:calc(100vh - 84px);overflow-y:auto;overflow-x:hidden;padding-right:4px}}
+.thread{display:flex;flex-direction:column}
+.entry{display:flex;gap:12px;padding:16px 0;border-top:1px solid var(--line)}
+.thread>.entry:first-child{border-top:0;padding-top:4px}
+.entry .meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px;line-height:20px}
+.entry .who{font-weight:600;color:var(--ink)}
+.entry .to{color:var(--muted)}
+.entry .when,.entry .seq{color:var(--faint);font-size:12.5px}
+.entry .seq:hover{color:var(--ink)}
+.entry .body{margin-top:3px;color:var(--text);word-wrap:break-word;overflow-wrap:anywhere}
+.entry .body p+p{margin-top:8px}
+.body ul,.body ol{margin:6px 0;padding-left:20px}.body li{margin:2px 0}
+.body li.ck{list-style:none;margin-left:-20px;display:flex;align-items:flex-start;gap:7px}.body li.ck input{flex:none;margin:3px 0 0;width:14px;height:14px;accent-color:var(--ok)}
+.body li.ck.done>span{color:var(--muted);text-decoration:line-through;text-decoration-color:color-mix(in srgb,var(--muted) 60%,transparent)}
+.body li.ck input:enabled{cursor:pointer}.body li.ck input:disabled{opacity:1}
+.body .md-h{margin:12px 0 4px;font-size:14px;color:var(--ink)}.body .md-h:first-child{margin-top:0}
+.entry .body pre{background:var(--bg-subtle);border:1px solid var(--line);border-radius:8px;padding:10px 12px;overflow-x:auto;margin:8px 0;white-space:pre}
+.entry .body code{background:var(--bg-hover);padding:1px 5px;border-radius:4px}
+.entry .body pre code{background:none;padding:0}
+.entry .body a{color:var(--accent)}
+.entry .refs{margin-top:6px;font-size:12.5px;color:var(--faint)}
+.entry .refs a:hover{color:var(--ink)}
+.entry.flash-in{animation:flashin 1.6s ease-out}
+.entry .rbadge{display:none;height:18px;font-size:11px}
+.entry .fbadge{height:18px;font-size:11px;color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,var(--line))}
+.entry.retracted>.grow>.body,.entry.retracted>.grow>.file{text-decoration:line-through;text-decoration-color:var(--faint);opacity:.55}
+.entry.retracted>.grow>.meta .rbadge{display:inline-flex}
+/* Display (Account → Display): text size and density for the chat; saved per person so web and app match. */
+:root[data-text="s"] .entry .body{font-size:12.5px}:root[data-text="s"] .entry .meta{font-size:12px}
+:root[data-text="l"] .entry .body{font-size:15.5px;line-height:1.55}:root[data-text="l"] .entry .meta{font-size:14px}
+:root[data-text="l"] .entry .body code,:root[data-text="l"] .entry .body pre{font-size:14px}
+:root[data-text="l"] .composer textarea{font-size:15.5px}
+:root[data-density="compact"] .entry{padding:7px 0;gap:10px}:root[data-density="compact"] .thread>.entry:first-child{padding-top:4px}:root[data-density="compact"] .replies .entry{padding:4px 0 0}
+:root[data-density="compact"] .entry .body{margin-top:0}:root[data-density="compact"] .entry .body p+p{margin-top:4px}
+.dp-grid{display:grid;grid-template-columns:110px 1fr;gap:12px 14px;align-items:center}.dp-grid .lbl{margin:0}
+.dp-grid .seg{flex-wrap:wrap}.dp-grid .seg input{display:inline;position:absolute;opacity:0;width:1px;height:1px;pointer-events:none}
+.dp-grid .seg input:focus-visible+label{outline:2px solid var(--accent);outline-offset:1px}
+@media (max-width:640px){.dp-grid{grid-template-columns:1fr;gap:6px}}
+.entry .acts{margin-left:auto;display:inline-flex;gap:2px;opacity:0;transition:opacity .12s}
+.entry:hover>.grow>.meta>.acts,.entry .acts:focus-within,.entry .acts:has(.danger){opacity:1} /* only the message under the pointer, not its whole thread */
+/* Retract takes no room in the header line, so narrow screens don't get a blank line under every entry. Touch
+   screens have no hover: there it appears on the entry you opened (tap its #number). */
+.entry{position:relative}
+/* The hover toolbar floats in the gap above the message (never over its text), like a small card. */
+@media(hover:hover){.entry .acts{position:absolute;top:-13px;right:6px;z-index:3;padding:1px;background:var(--bg);border:1px solid var(--line);border-radius:8px;box-shadow:var(--shadow)}
+  .entry .acts .btn.sm{height:24px}.entry .acts .rx-q{width:26px}#thread>.entry:first-child .acts{top:2px}}
+.more-acts{display:none}
+@media(hover:none){.entry .meta>.more-acts{display:inline-flex;align-items:center;justify-content:center;margin-left:auto;width:32px;height:24px;padding:0;border:0;border-radius:6px;background:none;color:var(--muted);font-size:18px;line-height:1;letter-spacing:1px;cursor:pointer}
+  .entry .meta>.more-acts[aria-expanded="true"]{background:var(--bg-hover);color:var(--ink)}
+  .entry.tap>.grow>.meta>.acts,.entry:target>.grow>.meta>.acts{flex-basis:100%;margin-left:0}}
+/* iOS Safari only sends a tap on plain content to a page-level click handler when it looks clickable: without this, tapping a message to reply did nothing on iPhones (jxn #888) */
+@media(hover:none){#thread .entry{cursor:pointer;-webkit-tap-highlight-color:transparent}}
+@media(hover:none){.entry .acts{display:none;flex-wrap:wrap;max-width:100%;row-gap:4px} /* narrow phones and threads: the actions wrap instead of running off screen */.entry:target>.grow>.meta .acts,.entry.sel>.grow>.meta .acts,.entry.tap>.grow>.meta .acts{display:inline-flex;opacity:1}}
+/* "Replying to …" above the composer: the reply goes to that agent (or mentions that person). */
+/* replying: a slim line above the composer's text (who, and the first line of what you're answering) */
+.replying{display:flex;align-items:center;gap:6px;margin:0 0 8px;padding:2px 2px 2px 10px;border-left:2px solid var(--accent);font-size:12.5px;color:var(--muted)}
+.replying[hidden]{display:none}
+.replying .rp-go{all:unset;flex:1;min-width:0;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:22px}
+.replying .rp-go:focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-radius:4px}
+.replying b{color:var(--text);font-weight:550}.replying .rp-go:hover b{text-decoration:underline}
+.replying .rp-text{color:var(--faint)}.replying .rp-text:empty{display:none}.replying .rp-text::before{content:": "}
+.replying .x{flex:none;height:22px;width:22px;padding:0;justify-content:center}
+@keyframes flashin{from{background:color-mix(in srgb,var(--accent) 9%,transparent)}to{background:transparent}}
+.entry:target{background:color-mix(in srgb,var(--accent) 6%,transparent);border-radius:8px}
+.replies{margin:10px 0 0;padding-left:14px;border-left:2px solid var(--line)}
+.replies:empty{display:none}
+.replies .entry{border-top:0;padding:10px 0 0}
+.file{margin-top:8px;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.file .fh{display:flex;align-items:center;gap:10px;padding:9px 12px;background:var(--bg-subtle)}
+.file pre{margin:0;max-height:420px;overflow:auto;padding:12px;border-top:1px solid var(--line);white-space:pre;font-size:12px}
+.t-change{color:var(--accent)}
+/* Members & access */
+dialog.access-dlg{width:min(640px,calc(100vw - 24px))}
+.acc-sec{padding:14px 0;border-top:1px solid var(--line)}.acc-sec:first-child{border-top:0;padding-top:0}
+.acc-sec h3{font-size:12.5px;font-weight:600;color:var(--ink);margin:0 0 8px}.acc-sec summary{cursor:pointer}
+.acc-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.acc-sel{width:auto;height:30px;font-size:12.5px;padding:0 8px}
+/* phones: a member's name on one line, role and end date side by side under it, lined up with the name */
+@media(max-width:640px){#acc-members{gap:12px}#acc-members .acc-row{display:grid;grid-template-columns:auto auto minmax(0,1fr);gap:6px 8px}#acc-members .acc-row>.grow{grid-column:2/4}#acc-members .acc-sel{grid-row:2;width:100%;min-width:0;padding-right:26px;background-position:right 9px center}#acc-members .acc-sel:first-of-type{grid-column:2}#acc-members .acc-sel:last-of-type{grid-column:3}}
+@media(max-width:360px){#acc-members .acc-sel:first-of-type{grid-column:1/3}} /* the narrowest phones: the role starts under the picture so the end date fits */
+.add-agent{margin:0 0 22px}.add-agent>summary{cursor:pointer;list-style:none}.add-agent>summary::-webkit-details-marker{display:none}.add-agent .cn-grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
+.cn-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}@media (max-width:560px){.cn-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.cn-tile{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r);background:var(--bg);color:var(--ink);font:inherit;text-align:left;cursor:pointer;text-decoration:none}.cn-tile:hover{border-color:var(--line-strong);background:var(--bg-subtle)}.cn-tile b{font-size:13.5px;font-weight:600}.cn-tile span{font-size:12px;color:var(--muted)}
+.cn-list{list-style:none;margin:4px 0 0;padding:0;display:flex;flex-direction:column;gap:10px}.cn-list li>.copy{margin-top:5px}
+.doc-code{margin:0;font-size:12.5px;line-height:1.55;white-space:pre-wrap;word-break:break-word}
+@media (max-width:640px){.pfp{flex-wrap:wrap}.pfp>.row:last-child{flex-basis:100%;justify-content:flex-start}}
+.pf-grid{display:grid;grid-template-columns:110px 1fr;gap:10px 14px;align-items:center}.pf-grid .lbl{margin:0}.pf-grid textarea{resize:vertical;min-height:56px}
+.pf-check{display:flex;gap:10px;align-items:flex-start;cursor:pointer}.pf-check input{margin-top:3px}.pf-check>span{display:flex;flex-direction:column;gap:1px}
+@media (max-width:640px){.pf-grid{grid-template-columns:1fr;gap:6px}}
+@media (max-width:640px){.boards-bar{flex-wrap:wrap}.boards-bar .bsearch{flex-basis:100%}}
+.tk.cl:not(:has(.cl-f:not([hidden]))){flex-wrap:nowrap}.tk.cl>.tk-who,.tk.cl>.cl-cmd{flex:0 1 auto;min-width:0}.tk.cl>.tk-st,.tk.cl>.btn{flex:none}
+.cl-cmd{display:inline-flex;align-items:center;gap:4px;max-width:260px;min-width:0;height:22px;padding:0 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--text);font-size:11.5px;cursor:pointer}.cl-cmd:hover:not([disabled]){border-color:var(--line-strong);color:var(--ink)}.cl-cmd[disabled]{cursor:default;color:var(--muted)}.cl-cmd>span:first-child{color:var(--faint)}
+/* Board info → Agents */
+.ag h3{margin-top:0}.ag-list{list-style:none;margin:0 0 6px;padding:0}.ag-row{display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px;min-width:0}
+.ag-name{color:var(--ink);font-weight:500}.ag-main{display:flex;flex-direction:column;min-width:0}.ag-status{font-size:12px;color:var(--muted)}.ag-row time{font-size:11.5px;color:var(--faint);flex:none}.ag-hint{margin:8px 0 4px}.ag .copy pre{font-size:11.5px}
+.ag-dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;vertical-align:1px;box-sizing:border-box}.ag-dot.idle{background:var(--muted);opacity:.7}.ag-dot.gone{border:1.5px solid var(--faint)}
+.ag-row[data-state="gone"] .ag-name{color:var(--muted)}
+.ag{padding-bottom:14px;margin-bottom:14px;border-bottom:1px solid var(--line)}
+.kill{display:flex;align-items:center;gap:14px;margin-top:12px;padding:12px 14px;border:1px solid color-mix(in srgb,var(--danger) 30%,var(--line));border-radius:var(--r)}.kill b{color:var(--ink);font-size:13px}.kill p{margin:2px 0 0}
+.at-btn{width:30px;padding:0;justify-content:center;font-weight:600;font-size:14px;color:var(--muted)}.at-btn:hover{color:var(--ink)}
+/* quotes (forwarded messages) */
+.body blockquote.md-q{margin:6px 0;padding:6px 10px;border-left:3px solid var(--line-strong);background:var(--bg-subtle);border-radius:0 6px 6px 0;color:var(--text)}
+/* multi-select and forward */
+.sel-bar{display:none;align-items:center;gap:10px;padding:10px 12px;margin-bottom:8px;font-size:13px}.selecting .sel-bar:not([hidden]){display:flex}
+.selecting .composer{display:none}.selecting #thread .entry{cursor:pointer;padding-left:30px}.selecting .entry .acts{display:none!important}
+.selecting #thread .entry::before{content:"";position:absolute;left:4px;top:18px;width:16px;height:16px;border:1.5px solid var(--line-strong);border-radius:50%;background:var(--bg)}
+.selecting #thread .entry.picked::before{border-color:var(--accent);background:var(--accent);box-shadow:inset 0 0 0 3px var(--bg)}
+.selecting #thread .entry.picked{background:color-mix(in srgb,var(--accent) 5%,transparent)}
+.selecting #thread .entry.for-you{padding-left:42px}.selecting #thread .entry.for-you::before{left:16px} /* its highlight bleeds 12px left */
+.fwd-dlg{width:min(520px,calc(100vw - 24px))}.fwd-list{list-style:none;margin:0;padding:0;max-height:220px;overflow:auto;border:1px solid var(--line);border-radius:var(--r-sm)}
+.fwd-list li{display:flex;align-items:center;gap:8px;padding:8px 10px;cursor:pointer;font-size:13px;min-width:0}.fwd-list li+li{border-top:1px solid var(--line)}
+.fwd-list li:hover{background:var(--bg-hover)}.fwd-list li[aria-selected="true"]{background:color-mix(in srgb,var(--accent) 9%,var(--bg));color:var(--ink)}
+.fwd-dot{width:8px;height:8px;border-radius:2px;background:var(--faint);flex:none}
+.fwd-prev{max-height:160px;overflow:auto;display:flex;flex-direction:column;gap:6px}.fwd-q{padding:6px 10px;border-left:3px solid var(--line-strong);background:var(--bg-subtle);border-radius:0 6px 6px 0;font-size:12.5px;min-width:0}
+.badge.hdl{height:18px;font-size:11px;color:var(--accent);border-color:color-mix(in srgb,var(--accent) 35%,var(--line))}
+.badge.hdl.done{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 35%,var(--line))}
+.badge.hdl button{all:unset;cursor:pointer;margin-left:5px;padding:0 3px;border-radius:4px;color:var(--faint);font-size:11px;line-height:14px}
+.badge.hdl button:hover{background:var(--bg-hover);color:var(--ink)}
+.badge.hdl button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.bc-last{margin:6px 0 0;font-size:13px;color:var(--muted);line-height:1.4}.bc-last b{color:var(--text);font-weight:500}
+.acc-url{font-size:12px;height:30px}.acc-to{position:relative;min-width:200px}.acc-to .input{width:100%}
+.acc-sug{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:5;list-style:none;margin:0;padding:4px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--bg);box-shadow:var(--shadow-lg)}
+.acc-sug[hidden]{display:none}.acc-sug li{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;font-size:13px;cursor:pointer;min-width:0}
+.acc-sug li[aria-selected="true"],.acc-sug li:hover{background:var(--bg-hover)}
+.acc-list{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:8px}
+.sum h3 .linkish,.linkish{border:0;background:none;padding:0;font:inherit;font-size:12px;color:var(--accent);cursor:pointer}.linkish:hover{text-decoration:underline}
+/* view-only members: nothing that writes */
+.ro .composer,.ro [data-qr],.ro [data-rx-add],.ro [data-reply],.ro .rx-add,.ro [data-tk],.ro .kb-new,.ro #doc-new,.ro #doc-edit{display:none!important}
+.ro .rx-chip{pointer-events:none}
+/* threads: replies fold into "N replies" under their message; the thread opens in a side panel (an overlay on phones) */
+#thread>.entry>.grow>.replies{display:none}#thread>.entry.thr-open>.grow>.replies{display:block}
+.thr-sum{display:flex;flex-direction:column;align-items:stretch;gap:2px;width:fit-content;max-width:100%;margin-top:6px;padding:3px 10px 4px 4px;text-align:left;border:1px solid transparent;border-radius:8px;background:none;font:inherit;font-size:12.5px;color:var(--accent);cursor:pointer}
+.thr-sum:hover{border-color:var(--line);background:var(--bg-subtle)}.thr-sum .faint{color:var(--faint)}
+.thr-sum .avs .av{width:20px;height:20px;font-size:8.5px}
+.thr-head{display:inline-flex;align-items:center;gap:8px}
+.thr-line{display:block;padding-left:4px;font-size:12.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.thr-line b{color:var(--text);font-weight:500}
+.entry.hit{background:color-mix(in srgb,var(--warn) 9%,transparent);border-radius:8px;box-shadow:inset 3px 0 0 var(--warn)}
+/* a task in the conversation: status, priority, who it's for / who holds it, and Claim · Done · Open */
+.tk{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px;padding:6px 6px 6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg-subtle);font-size:12.5px}
+.tk[hidden]{display:none}
+.tk-st{display:inline-flex;align-items:center;gap:6px;font-weight:500;color:var(--ink)}.tk-st .dot{width:8px;height:8px;border-radius:50%;background:var(--muted)}
+.st-doing .dot{background:var(--accent)}.st-blocked .dot,.st-stopped .dot{background:var(--warn)}.st-done .dot{background:var(--ok)}
+.cl-asserted{color:var(--muted);font-weight:400}.cl-evidenced .dot{background:var(--task)}.cl-verified{color:var(--ok)}.cl-verified .dot{background:var(--ok)}.cl-disputed{color:var(--danger)}.cl-disputed .dot{background:var(--danger)}
+.cl-ev a{color:var(--muted);text-decoration:underline;text-decoration-color:var(--line-strong);text-underline-offset:2px}.cl-ev a:hover{color:var(--ink)}
+.cl-f{display:flex;gap:6px;flex-basis:100%}.cl-f[hidden]{display:none}.cl-f .input{flex:1;height:28px;font-size:12.5px}
+/* Human decisions: a person's decision, decided by the people (pill · who's agreed · Agree / Object · Close for its author) */
+.hd-open .tk-st .dot{background:var(--decision)}.hd-decided .tk-st{color:var(--ok)}.hd-decided .tk-st .dot{background:var(--ok)}.hd-dropped .tk-st{color:var(--muted)}.hd-dropped .tk-st .dot{background:var(--muted)}
+.hd-ms{display:inline-flex;align-items:center;gap:5px}.hd-m{position:relative;display:inline-flex}.hd-m .av{width:20px;height:20px;font-size:8.5px}.hd-m.w .av{opacity:.45}
+.hd-m i{position:absolute;right:-4px;bottom:-3px;width:12px;height:12px;border-radius:50%;display:grid;place-items:center;font-size:8px;font-style:normal;font-weight:700;line-height:1;color:#fff;box-shadow:0 0 0 1.5px var(--bg-subtle)}
+.hd-m.y i{background:var(--ok)}.hd-m.n i{background:var(--danger)}
+.hd-b.on-y{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 40%,var(--line))}.hd-b.on-n{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 40%,var(--line))}
+.hd-note{flex-basis:100%;min-width:0;color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.hd-note b{color:var(--text);font-weight:500}
+.hd-out{display:inline-flex;gap:6px}.hd-out[hidden],.hd-f .btn[hidden]{display:none}
+.badge.stale{height:18px;font-size:11px;color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,var(--line))}
+.st-done{color:var(--muted)}.tk-who{color:var(--muted)}
+.tk-prog{display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-variant-numeric:tabular-nums}
+.tk-bar{display:inline-block;width:56px;height:4px;border-radius:2px;background:var(--line);overflow:hidden}.tk-bar i{display:block;height:100%;background:var(--ok);border-radius:2px;transition:width .2s}
+.tk-subs{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:1px;font-size:12.5px}
+.tk-subs li{display:flex;align-items:center;gap:8px;min-width:0;padding:3px 8px;border-left:2px solid var(--line)}.tk-subs .grow{color:var(--text);text-decoration:none}.tk-subs a.grow:hover{text-decoration:underline}
+.tk-subs li.st-done .grow{color:var(--muted);text-decoration:line-through;text-decoration-color:color-mix(in srgb,var(--muted) 60%,transparent)}
+.kcard .ksub{color:var(--muted);min-width:0;flex:0 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* reactions: chips under a message; the add button shows on hover (always on touch screens) */
+.rx{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.rx.has{margin-top:6px}
+.rx-chip{display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 8px;border-radius:999px;border:1px solid var(--line);background:var(--bg-subtle);color:var(--text);font:inherit;font-size:12.5px;cursor:pointer}
+.rx-chip:hover{border-color:var(--line-strong)}
+.rx-chip.on{border-color:color-mix(in srgb,var(--accent) 55%,var(--line));background:color-mix(in srgb,var(--accent) 10%,var(--bg))}
+.rx-chip .e{font-size:14px;line-height:1}.rx-chip .c{font-variant-numeric:tabular-nums;color:var(--muted)}.rx-chip.on .c{color:var(--accent)}
+.rx-add{display:none;align-items:center;height:24px;padding:0 7px;border-radius:999px;border:1px dashed var(--line-strong);background:none;color:var(--muted);font:inherit;font-size:13px;cursor:pointer}
+.rx-add span{font-size:11px;margin-left:1px}.rx-add:hover{color:var(--ink);border-style:solid}
+.rx.has .rx-add{display:inline-flex} /* with no reactions yet, "☺+" lives in the message's hover actions */
+/* agents' 🤔 / ✅ on a person's message: a quiet receipt line under it, like the app */
+.rx.has-rcpt{margin-top:4px}.rx.has.has-rcpt{margin-top:6px}
+.rx-rcpt{flex-basis:100%;display:flex;flex-wrap:wrap;align-items:center;gap:0 6px;font-size:12px;line-height:18px;color:var(--muted)}
+.rx-rcpt .e{font-size:11.5px}.rx-rcpt{column-gap:12px}
+/* One marker each: the message's own "on it" / "done" pill wins over the agent's 🤔 / ✅ receipt. */
+.entry:has(>.grow>.meta>.hdl:not(.done))>.grow>.rx>.rx-rcpt>.think,.entry:has(>.grow>.meta>.hdl.done)>.grow>.rx>.rx-rcpt>.done{display:none}
+.rx-pick{position:fixed;z-index:50;display:flex;gap:2px;padding:4px;border-radius:999px;border:1px solid var(--line);background:var(--bg);box-shadow:var(--shadow-lg)}
+.rx-pick[hidden]{display:none}
+.rx-tip{position:fixed;z-index:50;display:flex;align-items:center;gap:10px;max-width:280px;padding:8px 12px;border-radius:10px;background:var(--ink);color:var(--on-ink);font-size:12.5px;line-height:1.35;box-shadow:var(--shadow-lg);pointer-events:none}
+.rx-tip[hidden]{display:none}.rx-tip .big{font-size:24px;line-height:1}.rx-tip .faint{color:color-mix(in srgb,var(--on-ink) 65%,transparent)}
+.entry .acts .rx-q{width:28px;padding:0;justify-content:center;font-size:14px}
+.rx-pick button{width:32px;height:32px;border:0;border-radius:50%;background:none;font-size:18px;cursor:pointer;line-height:1}.rx-pick button:hover{background:var(--bg-hover)}
+/* images: inline in the conversation (real proportions, capped), full size in a lightbox; attachments in the composer */
+.img{margin:8px 0 0}.img-open{display:block;padding:0;border:0;background:none;cursor:zoom-in;max-width:100%}
+.img img{display:block;max-width:min(100%,440px);max-height:340px;width:auto;height:auto;border-radius:8px;border:1px solid var(--line);background:var(--bg-subtle)}
+.img figcaption{margin-top:4px}
+/* a message with several files: pictures in a grid (1, 2, 1+2, 2×2; "+N" on the last), other files as chips below */
+.mfiles{margin-top:8px;width:min(100%,440px)}
+.mgrid{display:grid;gap:3px;border-radius:8px;overflow:hidden;border:1px solid var(--line);background:var(--line)}
+.mgrid.g2{grid-template-columns:1fr 1fr;aspect-ratio:2/1}
+.mgrid.g3{grid-template-columns:2fr 1fr;grid-template-rows:1fr 1fr;aspect-ratio:3/2}
+.mgrid.g3 .mg-tile:first-child{grid-row:span 2}
+.mgrid.g4{grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;aspect-ratio:4/3}
+.mg-tile{position:relative;display:block;padding:0;border:0;background:var(--bg-subtle);cursor:zoom-in;min-width:0;min-height:0;overflow:hidden}
+.mg-tile[hidden]{display:none}
+.mg-tile img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.mgrid.g1{display:block;border:0;background:none;border-radius:0}
+.mgrid.g1 .mg-tile{background:none;max-width:100%}
+.mgrid.g1 .mg-tile img{position:static;display:block;max-width:100%;max-height:340px;width:auto;height:auto;object-fit:contain;border-radius:8px;border:1px solid var(--line);background:var(--bg-subtle)}
+.mg-more{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.48);color:#fff;font-size:22px;font-weight:600}
+.mchips .fh+.fh{border-top:1px solid var(--line)}
+.mfiles .mchips{margin-top:6px}
+.mcap{margin-top:4px}
+.entry.retracted>.grow>.mfiles{opacity:.55}
+dialog.lightbox{padding:0;border:0;background:transparent;box-shadow:none;max-width:min(96vw,1600px);max-height:92vh;cursor:zoom-out}
+dialog.lightbox::backdrop{background:rgba(0,0,0,.78)}
+dialog.lightbox img{display:block;max-width:min(96vw,1600px);max-height:92vh;width:auto;height:auto;border-radius:8px}
+.lb-nav{position:fixed;top:50%;transform:translateY(-50%);width:44px;height:44px;border-radius:50%;border:0;background:rgba(0,0,0,.55);color:#fff;font-size:28px;line-height:1;cursor:pointer;display:grid;place-items:center;padding:0 0 3px}
+.lb-nav:hover{background:rgba(0,0,0,.75)}.lb-nav[hidden],.lb-count[hidden]{display:none}
+.lb-prev{left:max(8px,env(safe-area-inset-left))}.lb-next{right:max(8px,env(safe-area-inset-right))}
+.lb-count{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);color:#fff;background:rgba(0,0,0,.55);padding:3px 10px;border-radius:12px;font-variant-numeric:tabular-nums}
+.entry.pending .ph-att{padding:8px 0 0}
+.attachments{display:flex;gap:8px;flex-wrap:wrap;padding:10px 12px 0}
+.attachments[hidden]{display:none}
+.att{position:relative;display:block}
+.att img{display:block;height:64px;width:auto;max-width:140px;object-fit:cover;border-radius:7px;border:1px solid var(--line)}
+.att-x{position:absolute;top:-6px;right:-6px;width:18px;height:18px;border-radius:50%;border:1px solid var(--line-strong);background:var(--bg);color:var(--muted);font-size:10px;line-height:1;cursor:pointer;display:grid;place-items:center;padding:0}
+.att-x:hover{color:var(--ink)}
+.att.file{display:flex;flex-direction:column;justify-content:center;gap:2px;height:64px;max-width:180px;padding:0 12px;border:1px solid var(--line);border-radius:7px;background:var(--bg-subtle)}
+.att-name{font-size:12px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.composer .attach{width:30px;padding:0;justify-content:center;color:var(--muted)}.composer .attach:hover{color:var(--ink)}
+.conv.drop .composer{box-shadow:0 0 0 2px var(--accent)}
+.doc-img img{display:block;max-width:100%;height:auto;border-radius:8px;border:1px solid var(--line);background:var(--bg-subtle)}
+/* read receipts: a ring on your latest message, filling green as people and agents see it; a dot on each @mention */
+.entry .meta .when{cursor:pointer}
+.entry.has-rd>.grow{padding-right:24px}
+.rd{position:absolute;right:0;bottom:12px;width:16px;height:16px;display:grid;place-items:center;cursor:default;outline-offset:2px;padding:0;border:0;background:none;color:inherit;font:inherit;opacity:.55;transition:opacity .15s}
+.rd::before{content:"";position:absolute;inset:-6px}
+.entry:hover>.rd,.rd:focus-visible,.rd.open,.entry:focus-within>.rd{opacity:1}
+@media (hover:hover){.rd:hover{opacity:1}}
+.rd svg{display:block}.rd .t{fill:none;stroke:var(--line-strong);stroke-width:2}.rd .p{fill:none;stroke:var(--ok);stroke-width:2;stroke-linecap:round;transition:stroke-dasharray .3s}
+.rd.all .t{fill:var(--ok);stroke:var(--ok)}.rd .ck{fill:none;stroke:var(--bg);stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.rd-pop{visibility:hidden;opacity:0;position:absolute;right:24px;bottom:-6px;z-index:6;min-width:170px;max-width:320px;padding:8px 10px;border-radius:8px;background:var(--ink);color:var(--on-ink);text-align:left;
+  font-size:12px;line-height:18px;box-shadow:var(--shadow-lg);display:flex;flex-direction:column;gap:2px;white-space:nowrap;pointer-events:none;transition:opacity .12s}
+.rd:focus-visible .rd-pop,.rd.open .rd-pop{visibility:visible;opacity:1}
+@media (hover:hover){.rd:hover .rd-pop{visibility:visible;opacity:1}.entry:hover:not(:has(.entry:hover))>.rd .rd-pop{visibility:visible;opacity:1;transition-delay:.35s}}
+.rd-hush .rd-pop{visibility:hidden!important}
+.rd.down .rd-pop{bottom:auto;top:-6px}
+/* An open thread nests its replies inside the root entry, so the root's ring would sit beside the last reply's: one ring there. */
+.entry.thr-open>.rd{display:none}.entry.thr-open.has-rd>.grow{padding-right:0}
+.rd-pop b{font-weight:600;margin-bottom:2px}.rd-pop>span{display:flex;align-items:center;gap:6px}.rd-pop .av.sm{width:16px;height:16px;font-size:7px}
+.rd-pop .nm{flex:1;overflow:hidden;text-overflow:ellipsis}.rd-pop i{font-style:normal;font-size:11px;opacity:.65}.rd-pop .y i{color:var(--ok);opacity:1}.rd-pop .n{opacity:.6}
+@media (pointer:coarse){.rd{width:20px;height:20px;right:-2px}.rd::before{inset:-10px}}
+.entry .body .mention{position:relative}
+/* the dot takes the mention's own colour: an outline until they've seen it, filled once they have */
+.entry .body .mention{--dot:var(--accent)}.entry .body .mention.me{--dot:var(--warn)}
+.entry .body .mention::after{content:"";position:absolute;top:-3px;right:-3px;width:6px;height:6px;border-radius:50%;box-shadow:0 0 0 1.5px var(--bg);
+  border:1.5px solid var(--dot);background:var(--bg);box-sizing:border-box}
+.entry .body .mention.seen::after{background:var(--dot)}
+/* change cards: a git change as a card (branch → base, CI, PR, commits, files, reviews, diff on demand) */
+.chg{margin-top:8px;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--bg)}
+.chg-h{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 12px;background:var(--bg-subtle);color:var(--muted);font-size:13px}
+.chg-br{color:var(--ink);font-size:12px;padding:1px 6px;border-radius:5px;background:var(--bg-hover);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chg-pr{color:var(--accent);font-weight:500;font-size:12.5px}.chg-pr:hover{text-decoration:underline}
+.ci{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:500}.ci .dot{width:7px;height:7px;border-radius:50%;background:currentColor}
+.ci-passing{color:var(--ok)}.ci-failing{color:var(--danger)}.ci-pending{color:var(--warn)}
+.chg-sec{padding:8px 12px;border-top:1px solid var(--line)}
+.chg-label{font-size:12px;color:var(--muted);margin-bottom:4px}
+.chg ul{list-style:none;margin:0;padding:0}
+.chg-commits li{display:flex;gap:8px;align-items:baseline;font-size:13px;line-height:20px;min-width:0}
+.chg-commits .sha{flex:none;font-size:11.5px;color:var(--muted);background:none;padding:0}
+.chg-files li{display:flex;align-items:center;gap:10px;font-size:12.5px;line-height:22px;min-width:0}
+.chg-files .path{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;direction:rtl;text-align:left} /* long paths keep their file name */
+.chg-files .n{flex:none;font-variant-numeric:tabular-nums}
+.chg .add{color:var(--ok)}.chg .del{color:var(--danger)}
+.chg .bar{display:inline-flex;gap:2px;flex:none}.chg .bar i{width:7px;height:7px;border-radius:2px;background:var(--line-strong)}
+.chg .bar i.a{background:var(--ok)}.chg .bar i.d{background:var(--danger)}
+.chg details>summary{cursor:pointer;font-size:12px;color:var(--muted);padding:2px 0;list-style:none}.chg details>summary:hover{color:var(--ink)}
+.chg details>summary::-webkit-details-marker{display:none}
+.chg-foot{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 12px;border-top:1px solid var(--line)}
+.chg-reviews{font-size:12.5px;color:var(--muted);display:flex;gap:12px;flex-wrap:wrap}.rv b{color:var(--ink);font-weight:500}
+.chg-diff[hidden]{display:none}
+.chg-diff{margin:0;padding:8px 0;border-top:1px solid var(--line);background:var(--bg-subtle);font-size:12px;line-height:1.5;overflow-x:auto;white-space:pre}
+.chg-diff span{display:block;padding:0 12px;min-width:max-content;min-height:1.5em}
+.chg-diff .da{background:color-mix(in srgb,var(--ok) 13%,transparent)}.chg-diff .dd{background:color-mix(in srgb,var(--danger) 12%,transparent)}
+.chg-diff .dk{color:var(--accent)}.chg-diff .dh{color:var(--ink);font-weight:600}
+.sum h3{font-size:12px;font-weight:500;color:var(--muted);text-transform:none;margin:22px 0 8px;display:flex;justify-content:space-between}
+.sum h3:first-child{margin-top:0}
+/* Board info sections fold: the heading is the toggle (chevron, title, count); folded, a one-line peek of the newest item */
+.fold h3{display:flex;align-items:flex-start;gap:8px}.fold h3 .linkish{line-height:20px}
+.sum .fold h3{margin-top:22px}.sum>.fold:first-child h3,.sum>.waiting+.fold h3{margin-top:12px}.sum>.fold:first-child h3{margin-top:0}
+.fold-h{all:unset;box-sizing:border-box;flex:1;min-width:0;display:grid;grid-template-columns:12px auto 1fr;align-items:center;column-gap:6px;cursor:pointer;border-radius:5px;margin:-3px -4px;padding:3px 4px;color:var(--muted)}
+.fold-h:hover{color:var(--ink);background:var(--bg-hover)}
+.fold-h:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.fold-c{transform:rotate(90deg);transition:transform .15s;opacity:.7}
+.fold.folded .fold-c{transform:none}
+.fold-t{white-space:nowrap}.fold-n{justify-self:end}
+.fold-peek{display:none;grid-column:2/4;font-size:12px;color:var(--faint);font-weight:400}
+.fold.folded .fold-peek{display:block}
+.fold.folded .fold-b{display:none}
+.fold.folded h3{margin-bottom:0}
+.sum .fold.folded+.fold h3{margin-top:14px}
+@media (prefers-reduced-motion:reduce){.fold-c{transition:none}}
+.sum ul{list-style:none;margin:0;padding:0}
+.sum li a{display:flex;align-items:center;gap:8px;padding:6px 8px;margin:0 -8px;border-radius:6px;font-size:13px;line-height:1.45}
+.sum li a:hover{background:var(--bg-hover)}
+.sum li .n{color:var(--faint);flex:none;font-variant-numeric:tabular-nums}
+.sum li .one{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sum li .avs{flex:none;width:50px}.sum li .avs .av{width:18px;height:18px;font-size:8px;margin-left:-6px}.sum li .avs .av:first-child{margin-left:0}
+/* a stacked avatar without a picture shows initials, which the next one would cover ("MO" read as "MC"): overlap it by the ring only. Pictures keep the tight stack. */
+.avs .av:not(:has(.av-img))+.av{margin-left:-2px}
+
+.sum .none{font-size:13px;color:var(--faint)}
+.waiting{border:1px solid color-mix(in srgb,var(--q) 40%,var(--line));background:color-mix(in srgb,var(--q) 6%,var(--bg));border-radius:var(--r-sm);padding:10px 12px;margin-bottom:6px}
+.composer{margin-top:20px;position:relative}
+.mention{color:var(--accent);font-weight:500;background:color-mix(in srgb,var(--accent) 9%,transparent);padding:0 3px;border-radius:4px;white-space:nowrap}
+.mention.agent{border:1px dashed color-mix(in srgb,var(--accent) 45%,transparent);padding:0 3px}
+/* Takes real space (border, not an outline ring), so it never overlaps the text or the mention next to it. */
+.mention.me{color:var(--ink);background:color-mix(in srgb,var(--warn) 22%,transparent);border:1px solid color-mix(in srgb,var(--warn) 45%,transparent);padding:0 3px;margin:0 1px}
+/* The highlight extends 12px beyond the entry on both sides (content stays put), so its bar never sits on the avatar. */
+.entry.for-you{margin-left:-12px;margin-right:-12px;padding-left:12px;padding-right:12px;background:color-mix(in srgb,var(--warn) 6%,transparent);box-shadow:inset 3px 0 0 color-mix(in srgb,var(--warn) 70%,transparent);border-radius:8px;animation:foryou 1.6s ease-out 1}
+.entry.for-you .rd{right:12px}
+@keyframes foryou{from{background:color-mix(in srgb,var(--warn) 18%,transparent)}}
+.mention-menu{position:absolute;left:12px;bottom:calc(100% - 6px);z-index:5;width:min(280px,calc(100% - 24px));list-style:none;margin:0;padding:6px;
+  border:1px solid var(--line);border-radius:10px;background:var(--bg);box-shadow:var(--shadow-lg)}
+.mention-menu li{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:7px;cursor:pointer;font-size:13px;color:var(--text)}
+.mention-menu li[aria-selected=true]{background:var(--bg-hover);color:var(--ink)}
+.mention-menu li .k{margin-left:auto;color:var(--faint);font-size:12px}
+/* A person's agents sit under them, joined by a small elbow line */
+.mention-menu li.sub{position:relative;padding-left:26px}
+.mention-menu li.sub::before{content:"";position:absolute;left:15px;top:-2px;height:calc(50% + 2px);width:7px;border-left:1.5px solid var(--line-strong,var(--line));border-bottom:1.5px solid var(--line-strong,var(--line));border-bottom-left-radius:5px}
+.mention-menu li.sub .av{width:18px;height:18px;font-size:8.5px}
+.mention-menu .hint{padding:4px 8px 2px;font-size:11.5px;color:var(--faint);cursor:default}
+.composer .bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 12px;border-top:1px solid var(--line)}
+/* phones: one row, Post on the right; the type picker scrolls sideways when it can't fit (it comes after the rule above so it wins) */
+@media(max-width:480px){.composer .bar{flex-wrap:nowrap;gap:6px;padding:8px 10px}.composer .bar>*{flex:none}.composer .bar .grow{display:none}.composer .bar>.primary{margin-left:auto}
+  .composer .bar>.seg{flex:0 1 auto;min-width:0;overflow-x:auto;scrollbar-width:none}.composer .seg::-webkit-scrollbar{display:none}.composer .seg label{flex:none;padding:4px 7px;font-size:12.5px;white-space:nowrap}}
+@media(max-width:387px){.composer .bar{gap:4px}.composer .seg label{padding:4px 5px;font-size:12px}}
+@media(max-width:359px){.composer .bar>.seg{-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 18px),transparent);mask-image:linear-gradient(90deg,#000 calc(100% - 18px),transparent)}}
+.composer .to-pick{display:inline-flex;align-items:center;gap:6px;min-width:0}
+.composer .to-pick select{height:30px;padding-top:0;padding-bottom:0;font-size:13px;max-width:190px}
+@media(max-width:480px){.composer .to-pick .xs{display:none}.composer .to-pick select{max-width:120px}}
+.composer textarea{border:0;border-radius:var(--r) var(--r) 0 0;box-shadow:none;min-height:72px}
+.composer textarea:focus{box-shadow:none}
+/* iOS Safari zooms into any field under 16px and leaves the page zoomed (wider than the screen); !important beats the 12.5px/15px field rules and inline sizes. */
+@media(max-width:860px){input,textarea,select{font-size:max(16px,1em)!important}}
+
+
+/* app shell (Linear-style): sidebar + top bar + content */
+.app{display:grid;grid-template-columns:232px minmax(0,1fr);min-height:100vh}
+.sidebar{position:sticky;top:0;height:100vh;display:flex;flex-direction:column;gap:2px;padding:10px 8px;border-right:1px solid var(--line);background:var(--bg-subtle);overflow:auto}
+.sidebar .ws{display:flex;align-items:center;gap:9px;padding:6px 8px 10px;font-weight:600;color:var(--ink)}
+.sidebar .search{display:flex;align-items:center;gap:8px;height:30px;margin:0 0 8px;padding:0 9px;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--faint);cursor:pointer;font:inherit;font-size:13px;text-align:left}
+.sidebar .search:hover{border-color:var(--line-strong);color:var(--muted)}
+.sidebar .search kbd{margin-left:auto}
+.side-link{display:flex;align-items:center;gap:9px;height:30px;padding:0 9px;border-radius:6px;color:var(--muted);font-size:13px}
+.side-link:hover{background:var(--bg-hover);color:var(--ink)}
+.side-link[aria-current]{background:var(--bg-hover);color:var(--ink);font-weight:500}
+.side-link svg{flex:none;opacity:.85}
+.side-link .count{margin-left:auto;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--accent);color:#fff;font-size:11px;font-weight:600;display:inline-flex;align-items:center;justify-content:center}
+.side-link .count[hidden]{display:none}
+.inbox{list-style:none;margin:0;padding:4px}
+.legal h2{font-size:15px;margin:18px 0 6px}.legal p{font-size:13.5px;line-height:1.6;color:var(--text)}
+.entry.pending{opacity:.6}.entry.pending .body{white-space:pre-wrap}.entry.pending.failed .faint{color:var(--danger)}
+.pres{width:8px;height:8px;border-radius:50%;background:var(--line-strong,var(--line));display:inline-block}.pres.on{background:var(--ok)}
+/* People and profiles */
+.ppl-h{font-size:13px;font-weight:600;color:var(--ink);margin:28px 0 8px}.ppl-h .faint{font-weight:400}
+.ppl-find{position:relative;margin-top:16px}.ppl-res{position:absolute;left:0;right:0;top:38px;z-index:5;box-shadow:var(--shadow-lg);margin:0;padding:0;list-style:none}.ppl-res[hidden]{display:none}
+.ppl-pres{gap:6px}.ppl-note{margin-top:10px}.ppl-blocked{margin-top:20px}.ppl-blocked summary{cursor:pointer}.ppl-blocked .list{margin-top:8px}
+.prof{display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap}
+.prof-av{position:relative;flex:none}.prof-av .av.lg{width:64px;height:64px;font-size:22px}
+.prof-agent{position:absolute;right:-6px;bottom:-6px;border-radius:7px;box-shadow:0 0 0 3px var(--bg)}
+.prof-name{font-size:20px;line-height:1.25}.prof-pres{gap:6px;margin-top:8px}.prof-bio{margin:10px 0 0;font-size:13.5px;color:var(--text)}.prof-act{gap:6px;flex:none}
+/* hover cards */
+.hcard{position:fixed;z-index:60;width:280px;padding:14px;border:1px solid var(--line);border-radius:12px;background:var(--bg);box-shadow:var(--shadow-lg)}
+.hcard[hidden]{display:none}.hcard .hc-list{list-style:none;margin:10px 0 0;padding:0;display:grid;gap:8px;max-height:50vh;overflow:auto}.hc-people li{display:flex;align-items:center;gap:8px;min-width:0}.hcard .av.lg{width:40px;height:40px;font-size:15px}
+.hc-name{font-weight:600;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.hc-pres{gap:6px;margin-top:10px}.hc-bio{margin:8px 0 0;font-size:12.5px;color:var(--muted)}.hc-act{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}.hc-agent{margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}.hc-caps{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px}.hc-live{margin-top:8px;color:var(--muted)}
+.hcard .link{text-decoration:underline;text-underline-offset:2px}
+.hc-back{position:fixed;inset:0;z-index:158;background:rgba(0,0,0,.4)}.hc-back[hidden]{display:none}
+.hcard.sheet{z-index:159;left:0;right:0;bottom:0;top:auto;width:auto;max-height:80vh;overflow:auto;border-radius:16px 16px 0 0;padding:18px 18px calc(18px + env(safe-area-inset-bottom));animation:slide-up .18s ease-out}
+.hcard.sheet .hc-act .btn{flex:1 1 auto;justify-content:center;min-height:40px}
+@keyframes slide-up{from{transform:translateY(24px);opacity:0}to{transform:none;opacity:1}}
+.mention[data-hc],.entry>.av[data-hc],.entry .who[data-hc]{cursor:pointer}.mention[data-hc]:focus-visible,.entry>.av[data-hc]:focus-visible,.entry .who[data-hc]:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+.entry .who[data-hc]:hover{text-decoration:underline;text-underline-offset:2px}
+.prof-hero{display:flex;gap:22px;align-items:center;flex-wrap:wrap}.prof-hero .prof-av .av.lg{width:96px;height:96px;font-size:32px}.prof-hero .prof-agent .av.sm{width:30px;height:30px;font-size:11px}
+.prof-hero .prof-name{font-size:26px}.prof-bio{max-width:52ch}
+.prof-sec{margin-top:16px}.prof-sec h2{font-size:15px;margin:0 0 8px}.prof-agent-sec{display:flex;gap:14px;align-items:flex-start}.prof-agent-sec:target,.prof-agent-sec.hl{box-shadow:0 0 0 2px var(--accent)}
+.prof-boards{display:flex;flex-wrap:wrap;gap:8px;margin:0;padding:0;list-style:none}.prof-boards a{display:inline-block;padding:5px 10px;border:1px solid var(--line);border-radius:999px;color:var(--ink);font-size:13px}.prof-boards a:hover{background:var(--hover,rgba(127,127,127,.1))}
+@media (max-width:860px){.prof-hero{flex-direction:column;align-items:flex-start}.prof-hero .prof-act{width:100%}.prof-hero .prof-act .btn{flex:1;min-height:40px;justify-content:center}}
+/* approvals: risk shows as the card's left edge and its badge */
+.approval{padding:16px 18px;border-left:3px solid var(--line)}.approval.risk-medium{border-left-color:var(--warn)}.approval.risk-high{border-left-color:var(--danger)}
+.ap-hd{display:flex;gap:12px;align-items:flex-start}.ap-title{font-size:15px;font-weight:600;line-height:1.35;margin:0 0 3px}
+.approval.risk-medium .ap-risk{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,var(--line))}.approval.risk-high .ap-risk{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 40%,var(--line))}
+.ap-details{max-height:280px;overflow:auto;margin:12px 0 0;padding:10px 12px;border-radius:8px;background:var(--bg-subtle);border:1px solid var(--line);font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word}
+.ap-form{display:flex;gap:6px;margin-top:12px}
+.ap-sub{font-size:13px;font-weight:600;margin:28px 0 8px}
+.ap-done{padding:0;list-style:none;margin:0}.ap-done>li+li{border-top:1px solid var(--line)}
+.ap-row summary{display:flex;gap:10px;align-items:center;padding:9px 14px;cursor:pointer;list-style:none;font-size:13px}.ap-row summary::-webkit-details-marker{display:none}
+.ap-row summary:hover{background:var(--bg-hover)}.ap-row>p,.ap-row>pre{margin:0 14px 12px}
+.ap-st{flex:none;width:64px;font-size:11.5px;font-weight:600;color:var(--muted)}.ap-st.st-approved{color:var(--ok)}.ap-st.st-rejected{color:var(--danger)}
+@media (max-width:640px){.ap-form{flex-wrap:wrap}.ap-form .input{flex-basis:100%}.ap-form .btn{flex:1}}
+.load-earlier{display:block;margin:6px auto 12px}
+/* Profile pictures */
+.pfps{display:grid;gap:10px}
+.pfp{gap:14px;align-items:center}
+/* Plans */
+.plans{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+.plan{border:1px solid var(--line);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:10px}
+.plan.cur{border-color:var(--accent)}
+.plan-price{font-size:24px;font-weight:600;color:var(--ink)}
+.plan ul{margin:0;padding-left:18px;font-size:13px;color:var(--muted);display:flex;flex-direction:column;gap:4px}
+/* Boards page */
+.boards-bar{gap:10px;margin:4px 0 16px;flex-wrap:wrap}
+.bsearch .input{width:100%}
+.bgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
+.bcard{position:relative;display:flex;flex-direction:column;gap:8px;padding:14px 14px 12px;border:1px solid var(--line);border-radius:12px;background:var(--bg);transition:border-color .12s,box-shadow .12s}
+.bcard:hover{border-color:color-mix(in srgb,var(--ink) 22%,var(--line));box-shadow:0 1px 0 var(--line),0 6px 18px -12px rgba(0,0,0,.25)}
+.bcard[hidden]{display:none}
+.bcard.archived{opacity:.7}
+.bcard-link{position:absolute;inset:0;border-radius:12px;z-index:0}
+.bcard .bc-edit,.bcard .bc-links a{position:relative;z-index:1}
+.bc-top{gap:8px;align-items:center}
+.bc-top h3{margin:0;font-size:14.5px;font-weight:600;color:var(--ink)}
+.bc-dot{width:10px;height:10px;border-radius:3px;background:hsl(var(--h) 55% 55%);flex:none}
+.bc-unread{font-size:11px;font-weight:600;color:#fff;background:var(--accent);border-radius:9px;padding:1px 7px;white-space:nowrap}
+.bc-edit{opacity:0;transition:opacity .12s}
+.bcard:hover .bc-edit,.bc-edit:focus-visible{opacity:1}
+@media(hover:none){.bc-edit{opacity:1}}
+.bc-desc{margin:0;font-size:13px;color:var(--muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:2.6em}
+.bc-tags{display:flex;flex-wrap:wrap;gap:4px}
+.tag{font-size:11.5px;color:var(--muted);background:var(--bg-hover);border-radius:5px;padding:1px 6px}
+.bc-links{display:flex;flex-wrap:wrap;gap:10px;font-size:12px}
+.bc-foot{gap:8px;align-items:center;margin-top:auto}
+mark{background:color-mix(in srgb,var(--warn) 30%,transparent);color:inherit;border-radius:2px;padding:0 1px}
+/* Tasks board */
+.task-dlg{width:min(720px,calc(100vw - 32px))}
+.task-dlg .td-title{font-size:15px;font-weight:600}
+.td-fields{gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.td-fields label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}
+.td-body{width:100%;min-height:220px;font-size:12.5px;line-height:1.5}
+.td-hist{margin:6px 0 0;padding-left:16px}
+.kanban-head{gap:10px;padding:12px 0;align-items:center;flex:none}
+.kb-new{gap:6px;margin:0}.kb-new .input{width:240px}.kb-new .btn{height:32px} /* as tall as the box beside it */
+.kanban{display:grid;grid-template-columns:repeat(4,minmax(220px,1fr));gap:12px;overflow-x:auto;align-items:start;padding-bottom:6px}
+.kcol{background:var(--bg-subtle,var(--bg-hover));border:1px solid var(--line);border-radius:10px;padding:8px;min-height:120px;transition:border-color .1s,background .1s}
+.kcol.over{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 6%,var(--bg))}
+.kcol h3{font-size:12.5px;font-weight:600;color:var(--ink);margin:2px 4px 8px}
+.kcards{display:flex;flex-direction:column;gap:6px}
+.kcard{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;cursor:grab;display:flex;flex-direction:column;gap:4px}
+.kcard:hover{border-color:color-mix(in srgb,var(--ink) 25%,var(--line))}
+.kcard.dragging{opacity:.5}
+.kcard .ktext{font-size:13px;color:var(--ink);line-height:1.4}
+.kmeta{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--faint);min-height:18px}.kmeta .seq{color:var(--faint)}.kmeta .badge{height:17px;font-size:10.5px}
+@media (max-width:640px){.kb-hint{display:none}.kb-new{flex:1}.kb-new .input{width:auto;flex:1}}
+.badge.pri-high{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 45%,var(--line))}
+.badge.pri-medium{color:var(--accent)}
+.badge.pri-low{color:var(--faint)}
+.inbox-item a{display:flex;gap:10px;align-items:flex-start;padding:10px;border-radius:8px;color:inherit}
+.inbox-item a:hover{background:var(--bg-hover)}
+.inbox-item.unread b{color:var(--ink)}
+.inbox-item .dot{width:8px;height:8px;border-radius:50%;background:var(--accent);flex:none;margin-top:6px}
+.side-label{font-size:11.5px;font-weight:500;color:var(--faint);padding:14px 9px 4px;display:flex;justify-content:space-between;align-items:center}
+.side-label a{color:var(--faint)}.side-label a:hover{color:var(--ink)}
+.working{display:inline-flex;align-items:center;gap:5px;flex:none;font-size:11px;font-weight:500;color:var(--muted);white-space:nowrap}.working[hidden]{display:none}
+.working .dot,.ag-dot.live{background:var(--ok);animation:breathe 2.4s ease-in-out infinite}
+@keyframes breathe{0%,100%{box-shadow:0 0 0 0 color-mix(in srgb,var(--ok) 45%,transparent)}50%{box-shadow:0 0 0 3px color-mix(in srgb,var(--ok) 18%,transparent)}}
+.side-board .working{margin-left:auto;font-size:10.5px}.side-board .working .dot{width:6px;height:6px}
+@media (prefers-reduced-motion:reduce){.working .dot,.ag-dot.live{animation:none}}
+.side-board .bdot{width:8px;height:8px;margin:0 5px;border-radius:3px;flex:none;background:hsl(var(--h) 55% 55%)}
+/* board pictures (like a group chat's photo): a rounded square, its initial underneath until the image loads */
+.bpic{--h:220;position:relative;overflow:hidden;flex:none;display:inline-grid;place-items:center;width:28px;height:28px;border-radius:7px;
+  background:hsl(var(--h) 55% 55%);color:#fff;font-size:13px;font-weight:600;line-height:1;user-select:none}
+.bpic.xs{width:18px;height:18px;border-radius:5px;font-size:9px}.bpic.sm{width:24px;height:24px;border-radius:6px;font-size:11px}.bpic.lg{width:40px;height:40px;border-radius:10px;font-size:17px}
+.bpic img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0}.bpic img.ok{opacity:1}
+.bp-pic{all:unset;cursor:pointer;display:inline-flex;flex:none;border-radius:7px}.bp-pic:hover .bpic{filter:brightness(.92)}.bp-pic:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.bpic-row{gap:12px;margin-bottom:12px}
+.sidebar .me{margin-top:auto;border-top:1px solid var(--line);padding-top:8px}
+.topbar{position:sticky;top:0;z-index:10;height:48px;display:flex;align-items:center;gap:12px;padding:0 20px;border-bottom:1px solid var(--line);
+  background:color-mix(in srgb,var(--bg) 85%,transparent);backdrop-filter:saturate(180%) blur(10px);-webkit-backdrop-filter:saturate(180%) blur(10px)}
+.topbar .crumbs{margin:0;display:flex;align-items:center;gap:8px;min-width:0;font-size:13px}
+.topbar .crumbs .cur{color:var(--ink);font-weight:500}
+.topbar .actions{margin-left:auto;display:flex;gap:8px;align-items:center}
+/* phones: just the current page's name (the menu button leads back to Boards/People), so a long board name still shows */
+@media(max-width:480px){.topbar .crumbs>:not(.cur){display:none}.topbar .crumbs .cur{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
+.content{max-width:1120px;margin:0 auto;padding:28px 24px 96px}
+.content.narrow{max-width:760px}
+.menu-btn{display:none}
+@media(max-width:860px){.app{grid-template-columns:1fr}.sidebar{position:fixed;inset:0 auto 0 0;width:260px;z-index:40;transform:translateX(-100%);transition:transform .2s,box-shadow .2s}
+  .app.nav-open .sidebar{transform:none;box-shadow:var(--shadow-lg)}.menu-btn{display:inline-flex}.content{padding:20px 16px 80px}.topbar{padding:0 12px}}
+kbd{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 4px;border:1px solid var(--line-strong);border-bottom-width:2px;
+  border-radius:4px;font:500 10.5px/1 "Geist Mono",ui-monospace,monospace;color:var(--muted);background:var(--bg)}
+
+/* tabs */
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin-bottom:18px}
+.tabs button{font:inherit;font-size:13px;background:none;border:0;border-bottom:2px solid transparent;margin-bottom:-1px;padding:8px 10px;color:var(--muted);cursor:pointer}
+.tabs button:hover{color:var(--ink)}.tabs button[aria-selected=true]{color:var(--ink);border-bottom-color:var(--ink);font-weight:500}
+/* phones: tabs stay one line each and the row scrolls sideways when it can't fit (the line under them is a shadow so the scroll box doesn't clip the selected tab's underline) */
+@media(max-width:640px){.tabs{overflow-x:auto;scrollbar-width:none;border-bottom:0;box-shadow:inset 0 -1px var(--line)}.tabs::-webkit-scrollbar{display:none}.tabs button{flex:none;white-space:nowrap;margin-bottom:0;padding:8px 9px}.bp-tabs .tabs{box-shadow:none;overflow:visible}.bp-tabs .tabs button{margin-bottom:-1px}}
+[role=tabpanel][hidden]{display:none}
+
+/* event log (Stripe-style) */
+.log{width:100%;border-collapse:collapse;font-size:13px}
+.log th{text-align:left;font-weight:500;font-size:12px;color:var(--muted);padding:7px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
+.log td{padding:8px 12px;border-top:1px solid var(--line);white-space:nowrap}
+.log tr.ev{cursor:pointer}.log tr.ev:hover td{background:var(--bg-subtle)}
+.log tr.ev.sel td{background:var(--bg-hover)}
+.log td.sum{white-space:normal;color:var(--text);max-width:420px}
+.log td.sum span{display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
+.log .mono{color:var(--muted)}
+
+/* side sheet (raw payload) */
+dialog.sheet{margin:0 0 0 auto;height:100vh;max-height:100vh;width:min(520px,100vw);border-radius:0;border-width:0 0 0 1px}
+dialog.sheet[open]{animation:slide .18s ease-out}
+@keyframes slide{from{transform:translateX(24px);opacity:0}to{transform:none;opacity:1}}
+.kv{display:grid;grid-template-columns:110px minmax(0,1fr);gap:8px 12px;font-size:13px}
+.kv dt{color:var(--muted)}.kv dd{margin:0;color:var(--ink);overflow-wrap:anywhere}
+pre.json{background:var(--bg-subtle);border:1px solid var(--line);border-radius:8px;padding:12px;margin:0;overflow:auto;font-size:12px;line-height:1.55;max-height:50vh}
+.json .k{color:var(--accent)}.json .s{color:var(--claim)}.json .n{color:var(--decision)}
+
+/* command palette */
+dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius:12px}
+.palette input{border:0;border-radius:0;height:48px;padding:0 4px;font-size:15px;background:transparent;box-shadow:none!important}
+.palette ul{list-style:none;margin:0;padding:6px;max-height:50vh;overflow:auto}
+.pal-in{display:flex;align-items:center;gap:8px;padding:0 12px;border-bottom:1px solid var(--line);color:var(--muted)}
+.pal-in input{flex:1;min-width:120px;box-shadow:none!important}
+.pal-chips{display:inline-flex;gap:6px;flex-wrap:wrap}
+.pal-chip{display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 4px 0 8px;border-radius:6px;font-size:12.5px;font-weight:500;color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,transparent);white-space:nowrap}
+.pal-chip button{border:0;background:none;color:inherit;opacity:.6;cursor:pointer;font-size:10px;padding:2px 3px}.pal-chip button:hover{opacity:1}
+.pal-filters{display:flex;gap:6px;flex-wrap:wrap;padding:8px 12px;border-bottom:1px solid var(--line)}.pal-filters[hidden]{display:none}
+.pal-opt{height:24px;padding:0 9px;border-radius:999px;border:1px solid var(--line);background:var(--bg-subtle);color:var(--muted);font:inherit;font-size:12px;cursor:pointer}
+.pal-opt:hover{color:var(--ink);border-color:var(--line-strong)}
+.palette li.pal-g{padding:8px 10px 2px;font-size:11.5px;color:var(--faint);cursor:default;text-transform:uppercase;letter-spacing:.04em}
+.palette .pal-l{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.palette .pal-l mark{background:color-mix(in srgb,var(--warn) 28%,transparent);color:inherit;border-radius:3px;padding:0 1px}
+.palette li{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:7px;cursor:pointer;font-size:13.5px;color:var(--text)}
+.palette li[aria-selected=true]{background:var(--bg-hover);color:var(--ink)}
+.palette li .k{flex:none;white-space:nowrap;margin-left:auto;color:var(--faint);font-size:12px}
+.palette .foot{display:flex;gap:14px;padding:8px 14px;border-top:1px solid var(--line);font-size:12px;color:var(--faint)}
+@media (pointer:coarse){.palette .foot{display:none}}
+@media (max-width:640px){.palette li:not(.pal-g){flex-wrap:wrap;row-gap:1px}.palette li .pal-l{flex:1 1 100%}.palette li .k{margin-left:0;font-size:11.5px}}
+.entry.sel{background:var(--bg-subtle);box-shadow:-12px 0 0 var(--bg-subtle),12px 0 0 var(--bg-subtle)}
+
+/* inline board title rename */
+.title-edit{display:flex;align-items:center;gap:6px;min-width:0}
+.title-edit h1{cursor:text;border-radius:6px;padding:0 4px;margin-left:-4px}
+.title-edit h1:hover{background:var(--bg-hover)}
+.title-edit .pencil{opacity:0;transition:opacity .12s}
+.title-edit:hover .pencil,.title-edit .pencil:focus-visible{opacity:1}
+/* touch screens never hover, so the pencil was only a blank gap; tapping the title renames */
+@media(hover:none){.title-edit .pencil{display:none}}
+.title-input{font-size:22px;font-weight:600;letter-spacing:-.02em;height:40px;max-width:640px}
+
+/* shared documents */
+.docs{display:grid;gap:20px;grid-template-columns:minmax(0,1fr)}
+@media(min-width:860px){.docs{grid-template-columns:220px minmax(0,1fr)}}
+.doc-item{display:flex;justify-content:space-between;gap:8px;padding:6px 8px;margin:0 -8px;border-radius:6px;font-size:13px}
+.doc-item:hover,.doc-item.on{background:var(--bg-hover)}
+.doc-item{align-items:baseline}.doc-item>.xs{flex:none;white-space:nowrap}.doc-item>.truncate{min-width:0} /* a long name shortens; its version and size stay on its line */
+@media (pointer:coarse){.doc-item{padding:10px 8px}}
+.doc-body{font-size:14px}.doc-body p+p{margin-top:10px}
+/* board page: the header and tabs stay put; the thread, sidebar, log and docs each scroll on their own */
+.content.full{max-width:1160px;height:calc(100vh - 48px);height:calc(100dvh - 48px);padding:6px 20px 0;display:flex;flex-direction:column;overflow:hidden}
+.bp-banner{flex:none;display:flex;align-items:center;gap:12px;margin:6px 0;padding:8px 12px}
+.e2e-bar{flex-wrap:wrap}.e2e-asks{flex-basis:100%;display:flex;flex-direction:column;gap:6px}.e2e-asks:empty{display:none}
+.e2e-ask{display:flex;align-items:center;gap:10px;padding-top:6px;border-top:1px solid var(--line)}.e2e-ask.xs{display:block}
+.entry .body .e2e-text{white-space:pre-wrap}.e2e-none{color:var(--muted);font-style:italic}
+.bp-head{flex:none;display:flex;align-items:flex-end;flex-wrap:wrap;gap:0 20px;border-bottom:1px solid var(--line)}
+.bp-title{flex:1 1 320px;min-width:0;display:flex;align-items:center;gap:14px;padding:6px 0 7px}
+.bp-head h1{font-size:17px;line-height:26px;margin:0;min-width:0}
+.bp-head .title-edit{min-width:0;flex:0 1 auto}
+.bp-meta{gap:10px;flex-wrap:nowrap;min-width:0;white-space:nowrap}
+.bp-meta:has(.avs){flex:none} /* the board name gives way, not the members */
+.bp-tabs{display:flex;align-items:flex-end;gap:8px;flex:none}
+.bp-tabs .tabs{border-bottom:0;margin-bottom:0}
+.bp-tabs .tabs button{padding:7px 10px}
+/* the sidebar toggle sits in the board area, top right: over the sidebar's corner, or the thread's when it's hidden */
+.bp-panel .info-btn{display:inline-flex;position:absolute;top:8px;right:0;z-index:7;width:30px;padding:0;justify-content:center;color:var(--muted);background:var(--bg)}
+.info-btn svg{flex:none}
+.info-btn:hover,.info-btn[aria-expanded=true]{color:var(--ink)}
+.info-btn .fill{opacity:0;transition:opacity .12s}.info-btn[aria-expanded=true] .fill{opacity:.35}
+.info-btn .count{position:absolute;top:-3px;right:-4px;min-width:15px;height:15px;padding:0 4px;border-radius:999px;background:var(--q);color:var(--on-ink);font-size:10px;font-weight:600;display:inline-grid;place-items:center;line-height:1}
+.bp-panel{flex:1;min-height:0;display:flex;flex-direction:column}
+.bp-panel>.layout{flex:1;min-height:0;grid-template-rows:minmax(0,1fr);position:relative;gap:20px}
+@media(min-width:960px){.bp-panel>.layout{grid-template-columns:minmax(0,1fr) 280px}.bp-panel>.layout.info-collapsed{grid-template-columns:minmax(0,1fr)}.layout.info-collapsed>.aside{display:none}
+  .layout.info-collapsed>.conv{width:100%;max-width:820px;margin:0 auto} /* a readable measure even with the sidebar hidden */}
+.bp-panel .aside{position:static;align-self:stretch;max-height:none;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;margin:40px 0 0 -8px;padding:4px 8px 16px 8px}
+/* Board info scrolls below the panel toggle (nothing slides under it), with a thin, faint scrollbar. */
+.aside::-webkit-scrollbar{width:4px}
+.aside::-webkit-scrollbar-track{margin:4px 0 8px}
+.aside::-webkit-scrollbar-thumb{background:color-mix(in srgb,var(--muted) 22%,transparent)}
+.aside::-webkit-scrollbar-thumb:hover{background:var(--sb-hover)}
+.layout.info-collapsed .rail{top:44px} /* clear of the toggle when it sits over the thread */
+.conv{display:flex;flex-direction:column;min-height:0;min-width:0}
+.thread-wrap{flex:1;min-height:0;position:relative;display:flex}
+.thread-scroll{flex:1;min-width:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;padding:8px 22px 8px 0;scrollbar-width:none}
+.thread-scroll::-webkit-scrollbar{display:none} /* the rail stands in for its scrollbar */
+.rail{position:absolute;top:8px;bottom:8px;right:0;width:16px;cursor:pointer;touch-action:none}
+.rail i{position:absolute;right:3px;width:8px;height:2px;margin-top:-1px;border-radius:1px;background:color-mix(in srgb,var(--muted) 16%,transparent);transition:background .12s,width .12s}
+.rail i.on{background:var(--muted);width:10px}
+.rail:hover i{background:var(--sb)}.rail:hover i.on{background:var(--ink)}
+.rail-tip{position:absolute;right:22px;z-index:5;max-width:min(360px,70%);padding:5px 9px;margin-top:-13px;border-radius:7px;background:var(--ink);color:var(--on-ink);
+  font-size:12px;line-height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none;box-shadow:var(--shadow-lg)}
+.rail-tip[hidden]{display:none}
+.new-pill{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);z-index:4;box-shadow:var(--shadow-lg);border-radius:999px}
+.new-pill[hidden],.info-btn .count[hidden],.info-btn[hidden]{display:none}
+.conv .composer{flex:none;margin:6px 0 max(12px,env(safe-area-inset-bottom))}
+.composer textarea{max-height:40vh;overflow-y:auto;overscroll-behavior:contain}
+.conv .composer textarea{min-height:48px;resize:none}
+@media(max-width:480px){.composer textarea{max-height:200px}}
+/* composer mention chips: the mirror draws the text (chips included) under a transparent textarea that keeps the caret */
+.cmp-field{position:relative}
+.cmp-mirror{position:absolute;box-sizing:border-box;margin:0;border:0;pointer-events:none;overflow:hidden;white-space:pre-wrap;overflow-wrap:break-word;color:var(--text)}
+.cmp-field textarea{position:relative;background:transparent;color:transparent;caret-color:var(--text)}
+.cmp-field textarea::placeholder{color:var(--faint)}
+.cmp-field textarea::selection{color:transparent;background:color-mix(in srgb,var(--accent) 28%,transparent)}
+.cmp-mirror .chip{color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,transparent);border-radius:4px;box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 12%,transparent)}
+.cmp-mirror .chip.agent{outline:1px dashed color-mix(in srgb,var(--accent) 50%,transparent);outline-offset:1px}
+#panel-log .list{flex:1;min-height:0;overflow:auto;margin-top:16px}
+#panel-log .log th{position:sticky;top:0;z-index:1;background:var(--bg-subtle)}
+#panel-log>p{flex:none;margin:8px 0 14px}
+#panel-docs .docs{flex:1;min-height:0;padding:16px 0 14px;grid-template-rows:minmax(0,1fr)}
+.doc-list{min-height:0;overflow-y:auto;overflow-x:hidden;padding:0 8px;margin:0 -8px} /* room for the items' hover background */
+.doc-view{min-height:0;overflow-y:auto;overflow-x:hidden}
+.doc-view.editing{display:flex;flex-direction:column;overflow:hidden} /* only the editor scrolls */
+.doc-view.editing #doc-text{flex:1;min-height:200px;resize:none}
+@media(max-width:959px){
+  .bp-panel .aside{display:none}
+  .layout.info-open>.aside{display:block;position:absolute;inset:0;z-index:6;background:var(--bg);margin:0;padding:44px 2px 16px}
+  .bp-panel .rail{top:44px}
+  .layout.info-open>.conv{visibility:hidden} /* only the open panel's scrollbar shows */
+}
+@media(max-width:859px){
+  .content.full{padding:4px 12px 0}
+  .bp-head{flex-direction:column;align-items:stretch;flex-wrap:nowrap} /* one column: a wrapping one sizes to its widest row and pushes the members off a 320px screen */
+  .bp-title{flex:none;gap:10px;padding:4px 0 0}
+  .bp-tabs .tabs button{padding:7px 8px}
+  #panel-docs .docs{grid-template-rows:auto minmax(0,1fr)}
+  .doc-list{max-height:22vh}
+}
+
+/* landing */
+.hero{text-align:center;padding:64px 0 40px}
+.hero h1{font-size:clamp(34px,6vw,56px);letter-spacing:-.045em;line-height:1.05;margin:18px auto 16px;max-width:760px}
+.hero p.lead{font-size:17px;color:var(--muted);max-width:560px;margin:0 auto 28px}
+.preview{max-width:760px;margin:24px auto 0;text-align:left;padding:8px 24px 16px}
+.steps{display:grid;gap:16px;margin-top:32px}
+@media(min-width:760px){.steps{grid-template-columns:repeat(3,1fr)}}
+.steps .card{padding:20px}.steps .k{font-size:12px;color:var(--faint);margin-bottom:10px}
+.stat{font-size:28px;font-weight:600;letter-spacing:-.03em;color:var(--ink)}
+.grid4{display:grid;gap:12px;grid-template-columns:repeat(2,1fr)}@media(min-width:760px){.grid4{grid-template-columns:repeat(4,1fr)}}
+.footer{max-width:1180px;margin:0 auto;padding:24px 20px 40px;color:var(--faint);font-size:12.5px;border-top:1px solid var(--line)}
+@media(max-width:640px){main{padding:28px 16px 80px}.nav .in{padding:0 16px}.nav .links{display:none}h1{font-size:24px}.list .item{padding:12px 14px}
+  .hide-sm{display:none!important}.sm-only{display:inline}
+  .tbl th,.tbl td{padding-left:12px;padding-right:12px}}
+/* "… is typing" above the composer: avatars, a name, three breathing dots */
+.typing{display:flex;align-items:center;gap:8px;min-height:22px;margin:0 0 6px 4px;font-size:12px;color:var(--muted)}
+.typing .ty-avs{display:inline-flex}.typing .ty-avs .av{width:18px;height:18px;font-size:8px;border:2px solid var(--bg);margin-left:-6px}.typing .ty-avs .av:first-child{margin-left:0}
+.ty-dots{display:inline-flex;gap:3px}.ty-dots i{width:4px;height:4px;border-radius:50%;background:currentColor;opacity:.35;animation:tydot 1.2s infinite}
+.ty-dots i:nth-child(2){animation-delay:.2s}.ty-dots i:nth-child(3){animation-delay:.4s}
+@keyframes tydot{30%{opacity:1;transform:translateY(-2px)}60%,100%{opacity:.35;transform:none}}
+@media (prefers-reduced-motion:reduce){.ty-dots i{animation:none;opacity:.6}}
+/* Message numbers stay out of people's way: the header's #N shows on hover/focus; "#N" in text is a titled chip */
+.entry .meta .seq{opacity:0;transition:opacity .12s}.entry:hover>.grow>.meta .seq,.entry .meta .seq:focus-visible{opacity:1}
+@media (hover:none){.entry .meta .seq{display:none}}
+a.ref{display:inline-flex;align-items:center;max-width:22em;padding:0 6px;border-radius:5px;background:var(--bg-hover);color:var(--text);font-size:.92em;text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom}
+a.ref:hover{color:var(--ink);background:color-mix(in srgb,var(--accent) 12%,var(--bg-hover))}
+.sum li .n,.kmeta .seq,#td-seq{display:none}
+
+/* ===== end of src/ui.ts ===== */
+/* ===== Simple mode mockup: the phone shell and the three panels. Everything inside the phones is the web's components
+   above (.entry, .av, .btn, .badge, .card.approval, .ap-*, .bcard, .bpic, .ag-*, .rd, .rx-rcpt, .tk, .mention, .composer,
+   .cmp-*, .mention-menu, .hcard, .sidebar, .side-*, .seg, .pf-check, .rail ticks, .rail-tip). This block only lays them out
+   on a 390×844 phone and adds the motion. ===== */
+:root{--page:#f4f4f5;--accent-text:#B5502F;--device:#1c1c1e;--device-edge:#3a3a3e;
+  --k-approval:var(--warn);--k-decision:var(--decision);--k-invite:var(--task);--k-ask:var(--q);
+  --spring:cubic-bezier(.2,1.3,.4,1);--out:cubic-bezier(.2,.8,.2,1)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--page:#050505;--accent-text:#E8906F;--device-edge:#38383c}}
+:root[data-theme="dark"]{--page:#050505;--accent-text:#E8906F;--device-edge:#38383c}
+html,body{background:var(--page)}
+body{min-height:100vh}
+
+/* ---------- the page around the phones ---------- */
+.pg-top{display:flex;align-items:flex-end;justify-content:space-between;gap:20px 32px;flex-wrap:wrap;max-width:1440px;margin:0 auto;padding:32px 40px 4px}
+.pg-top h1{font-size:24px;display:flex;align-items:center;gap:12px;letter-spacing:-.025em}
+.pg-top h1 .pebble{width:30px;height:27px}
+.pg-top p{margin-top:8px;color:var(--muted);max-width:760px;font-size:14px;line-height:1.55}
+.pg-ctl{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.pg-ctl .xs{color:var(--faint)}
+.pg-nav{display:flex;gap:4px;max-width:1440px;margin:14px auto 0;padding:0 40px;flex-wrap:wrap}
+.pg-nav a{color:var(--muted);padding:6px 10px;border-radius:6px;font-size:13px}
+.pg-nav a:hover{color:var(--ink);background:var(--bg-hover)}
+.sec{max-width:1440px;margin:0 auto;padding:30px 40px 18px}
+.sec+.sec{border-top:1px solid var(--line)}
+.sec-h{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+.sec-h h2{font-size:19px;letter-spacing:-.02em}
+.sec-h .n{font:500 12px "Geist Mono",monospace;color:var(--accent-text)}
+.sec-h p{color:var(--muted);font-size:13.5px;max-width:900px}
+.slots{display:flex;gap:40px;padding:22px 0 8px;overflow-x:auto;align-items:flex-start}
+.slot{flex:none;display:flex;flex-direction:column;gap:8px;width:412px}
+.cap{display:flex;gap:9px;align-items:baseline;padding-left:6px;font-size:14px}
+.cap b{font:500 12px "Geist Mono",monospace;color:var(--accent-text)}
+.cap span{color:var(--ink);font-weight:600}
+.why{padding:0 6px;font-size:12.5px;line-height:1.45;color:var(--muted);min-height:36px}
+.device{padding:11px;background:var(--device);border-radius:64px;box-shadow:0 0 0 1.5px var(--device-edge),0 30px 70px rgba(0,0,0,.22);width:max-content}
+.hud{display:flex;align-items:center;gap:8px;height:24px;padding:0 10px;font:500 11.5px "Geist Mono",monospace;color:var(--faint)}
+.hud .bars{display:flex;align-items:flex-end;gap:2px;height:16px;width:96px;overflow:hidden}
+.hud .bars i{width:3px;border-radius:1px;background:var(--accent);flex:none;animation:hudfade 1.1s ease-out forwards}
+.hud .bars i.l{height:5px;opacity:.75}.hud .bars i.m{height:9px}.hud .bars i.h{height:15px}
+@keyframes hudfade{0%{opacity:1}100%{opacity:.18}}
+.hud .lb{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hud .hk{margin-left:auto;white-space:nowrap}
+.map{flex:none;width:380px;align-self:center;display:flex;flex-direction:column;gap:12px;font-size:13px;color:var(--muted)}
+.map .mp{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.map .mp div{height:120px;border:1px solid var(--line);border-radius:10px;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font-size:12px;color:var(--ink);font-weight:500;text-align:center;padding:4px}
+.map .mp div small{color:var(--faint);font-weight:400;font-size:11px}
+.map .mp div.dr{background:var(--bg-subtle);border-style:dashed}
+.map table{border-collapse:collapse;width:100%}.map td{padding:5px 0;border-top:1px solid var(--line);vertical-align:top}.map td:first-child{color:var(--ink);width:38%;padding-right:8px}
+
+/* ---------- the phone ---------- */
+.phone{width:390px;height:844px;border-radius:53px;position:relative;overflow:hidden;background:var(--bg);isolation:isolate;touch-action:none;user-select:none;-webkit-user-select:none;
+  font-size:14px;--ts:1}
+.phone[data-text="s"]{--ts:.92}.phone[data-text="l"]{--ts:1.12}
+.phone::after{content:"";position:absolute;top:11px;left:50%;transform:translateX(-50%);width:124px;height:36px;border-radius:20px;background:#000;z-index:95;pointer-events:none}
+.sbar{position:absolute;top:0;left:0;right:0;height:52px;display:flex;align-items:center;justify-content:space-between;padding:4px 32px 0 48px;font-weight:600;font-size:16px;z-index:90;color:var(--ink);pointer-events:none}
+.sbar .ic{display:flex;gap:6px;align-items:center}
+.hbar{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);width:134px;height:5px;border-radius:3px;background:var(--ink);z-index:90;opacity:.9;pointer-events:none}
+.pdots{position:absolute;bottom:20px;left:50%;transform:translateX(-50%);display:flex;gap:5px;z-index:89;pointer-events:none}
+.pdots i{width:5px;height:5px;border-radius:3px;background:var(--line-strong);transition:width .2s var(--spring),background .2s}
+.pdots i.on{width:16px;background:var(--muted)}
+.pager{position:absolute;top:0;bottom:0;left:0;width:1170px;display:flex;will-change:transform}
+.pnl{position:relative;width:390px;height:100%;flex:none;overflow:hidden;background:var(--bg)}
+.ph-hd{position:absolute;top:52px;left:0;right:0;height:52px;display:flex;align-items:center;gap:10px;padding:0 14px 0 10px;z-index:20}
+.ph-hd h1{font-size:22px;letter-spacing:-.025em}
+.ph-hd .menu{width:38px;height:38px;padding:0;border-radius:10px}
+.ph-hd .menu .pebble{width:24px;height:22px}
+.ph-hd .right{margin-left:auto;display:flex;gap:6px;align-items:center}
+.pn-ct{font:500 13px "Geist Mono",monospace;color:var(--faint);padding-top:4px}
+.fx{position:absolute;inset:0;pointer-events:none;z-index:80;overflow:hidden}
+.fxr{position:absolute;border-radius:50%;border:3px solid;pointer-events:none}
+.fxd{position:absolute;border-radius:50%;pointer-events:none}
+.fxt{position:absolute;font-weight:600;font-size:20px;letter-spacing:-.02em;white-space:nowrap;pointer-events:none}
+.ptoast{position:absolute;left:50%;bottom:44px;z-index:70;transform:translateX(-50%) translateY(16px);opacity:0;pointer-events:none;display:flex;align-items:center;gap:12px;
+  background:var(--ink);color:var(--on-ink);padding:9px 10px 9px 14px;border-radius:8px;font-size:13px;white-space:nowrap;box-shadow:var(--shadow-lg);transition:transform .2s var(--spring),opacity .15s}
+.ptoast.show{opacity:1;transform:translateX(-50%);pointer-events:auto}
+.ptoast button{all:unset;cursor:pointer;font-weight:600;color:var(--on-ink);opacity:.75;padding:2px 4px;border-radius:4px}.ptoast button:hover{opacity:1}
+.pr{transform:scale(.96);transition:transform .08s var(--out)}
+
+/* the agent ring: the web's agent avatar (a rounded square) inside a ring that IS its state */
+.agr{position:relative;display:inline-flex;flex:none;border-radius:9px}
+.agr::after{content:"";position:absolute;inset:-3px;border-radius:10px;border:1.5px solid var(--line-strong);pointer-events:none}
+.entry>.agr{align-self:flex-start}
+.agr.sm::after{inset:-2.5px;border-radius:7.5px}
+.agr.lg::after{inset:-3.5px;border-radius:11px;border-width:2px}
+.agr.st-live::after{border-color:var(--ok);animation:breathe 2.4s ease-in-out infinite}
+.agr.st-wait::after{border-color:var(--q);animation:waitp 1.2s ease-in-out infinite}
+.agr.st-gone::after{border-color:var(--faint);border-style:dashed}
+.agr.st-gone .av{opacity:.5}
+@keyframes waitp{0%,100%{box-shadow:0 0 0 0 color-mix(in srgb,var(--q) 45%,transparent)}50%{box-shadow:0 0 0 4px color-mix(in srgb,var(--q) 12%,transparent)}}
+.ag-dot.live{background:var(--ok)}.ag-dot.wait{background:var(--q)}
+.st-w-live{color:var(--ok)}.st-w-wait{color:var(--q)}.st-w-idle{color:var(--muted)}.st-w-gone{color:var(--faint)}
+.t-approval{color:var(--k-approval)}.t-ask{color:var(--k-ask)}.t-invite{color:var(--k-invite)}
+
+/* ================= HOME · A  Stacked deck ================= */
+.kstrip{position:absolute;top:104px;left:16px;right:16px;display:flex;align-items:center;gap:10px;z-index:15}
+.kstrip .segs{flex:1;display:flex;gap:4px}
+.kstrip .segs i{flex:1;height:4px;border-radius:2px;background:color-mix(in srgb,var(--k) 30%,var(--line));transition:background .2s}
+.kstrip .segs i.cur{background:var(--k)}
+.kstrip .segs i.y{background:var(--ok)}.kstrip .segs i.n{background:var(--danger)}
+.kstrip .of{font:500 12px "Geist Mono",monospace;color:var(--faint);white-space:nowrap}
+.deck{position:absolute;top:128px;left:0;right:0;bottom:70px}
+.nd{position:absolute;left:14px;right:14px;top:8px;height:484px;display:flex;flex-direction:column;gap:12px;padding:16px 16px 14px;border-left:3px solid var(--k);
+  will-change:transform;transform-origin:50% 0;touch-action:none;overflow:hidden;font-size:calc(13.5px*var(--ts))}
+:root[data-theme="dark"] .nd{background:#141414;border-color:var(--line-strong);border-left-color:var(--k)}
+.nd.k-approval{--k:var(--k-approval)}.nd.k-decision{--k:var(--k-decision)}.nd.k-invite{--k:var(--k-invite)}.nd.k-ask{--k:var(--k-ask)}
+.nd .nd-top{display:flex;align-items:center;gap:8px}
+.nd .nd-top .type{font-weight:500}
+.nd .ap-hd{align-items:center}
+.nd .ap-title{font-size:calc(19px*var(--ts));letter-spacing:-.02em;line-height:1.25;margin:0 0 3px}
+.nd .ap-hd .xs{font-size:12.5px}
+.nd .ap-hd .xs b{color:var(--text);font-weight:500}
+.nd .ap-details{margin:0;font-size:12px}
+.nd .ap-details .ok{color:var(--ok)}
+.nd-why{border:1px solid color-mix(in srgb,var(--k) 40%,var(--line));background:color-mix(in srgb,var(--k) 6%,var(--bg));border-radius:var(--r-sm);padding:10px 12px;font-size:calc(13.5px*var(--ts));line-height:1.5;color:var(--text)}
+:root[data-theme="dark"] .nd-why{background:color-mix(in srgb,var(--k) 7%,#141414)}
+.nd-lbl{font-size:11.5px;font-weight:600;color:var(--k);margin-bottom:2px;display:flex;align-items:center;gap:6px}
+.nd .tk{margin-top:0}
+.nd .facts{display:flex;flex-wrap:wrap;gap:6px}
+.nd .ap-risk.r-medium{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,var(--line))}
+.nd .ap-risk.r-high{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 40%,var(--line))}
+.nd .ap-form{margin-top:auto;gap:8px}
+.nd .ap-form .btn{flex:1;height:44px;font-size:15px;border-radius:9px}
+.nd .flick{font-size:12px;color:var(--faint);text-align:center;margin-top:-2px}
+.nd-stamp{position:absolute;left:50%;top:44%;padding:6px 16px;border-radius:10px;font-size:26px;font-weight:700;letter-spacing:-.02em;pointer-events:none;opacity:0;
+  transform:translate(-50%,-50%) rotate(-8deg);border:2.5px solid;background:var(--bg)}
+.nd-stamp.y{color:var(--ok);border-color:var(--ok)}
+.nd-stamp.n{color:var(--danger);border-color:var(--danger);transform:translate(-50%,-50%) rotate(7deg)}
+.nd.drag{transition:none!important}
+.deck-hint{position:absolute;left:0;right:0;bottom:40px;text-align:center;font-size:12px;color:var(--faint)}
+.allclear{position:absolute;inset:128px 0 70px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;text-align:center;opacity:0;pointer-events:none}
+.allclear .pebble{width:72px;height:64px;margin-bottom:6px}
+.allclear h3{font-size:20px}
+.allclear.on{opacity:1;pointer-events:auto}
+
+/* ================= CHATS · A  Rolodex ================= */
+.cstack{position:absolute;top:104px;left:0;right:0;bottom:44px;touch-action:none}
+.chc{position:absolute;left:16px;right:52px;top:0;height:244px;will-change:transform;cursor:pointer;gap:10px;padding:14px 14px 12px;font-size:calc(13.5px*var(--ts));transform-origin:50% 50%}
+:root[data-theme="dark"] .chc{background:#141414;border-color:var(--line-strong)}
+.chc::after{content:"";position:absolute;inset:-1px;border-radius:12px;background:var(--page);opacity:var(--dim,0);pointer-events:none}
+.chc .bc-top h3{font-size:calc(16px*var(--ts));letter-spacing:-.015em}
+.chc .bc-top .xs{line-height:16px}
+.chc .bc-last{margin:0;font-size:calc(13.5px*var(--ts));display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:2.8em}
+.chc .ag-list{margin:0}
+.chc .ag-row{padding:2px 0}
+.chc .ag-row .agr{margin-right:2px}
+.chc .ag-status{font-size:12px}
+.chc .bc-foot{display:flex;gap:8px}
+.chc .bc-foot .type{font-weight:500}
+.chc.focus{box-shadow:0 1px 0 var(--line),0 18px 40px -18px rgba(0,0,0,.45)}
+/* the tick wheel: the web thread's .rail (ticks + .rail-tip), made a thumb-sized control */
+.wheel{position:absolute;right:0;top:0;width:44px;height:100%;cursor:grab;touch-action:none;z-index:120}
+.wheel i{position:absolute;right:8px;height:2px;margin-top:-1px;border-radius:1px;background:color-mix(in srgb,var(--muted) 30%,transparent);width:7px;transition:width .12s,background .12s}
+.wheel i.L{width:18px;height:2px;background:color-mix(in srgb,var(--muted) 60%,transparent)}
+.wheel i.L.un::before{content:"";position:absolute;left:-7px;top:-2px;width:5px;height:5px;border-radius:50%;background:var(--accent)}
+.wheel i.L.ndk::before{content:"";position:absolute;left:-7px;top:-2px;width:5px;height:5px;border-radius:50%;background:var(--q)}
+.wheel i.L.on{background:var(--ink)}
+.wheel .thumb{position:absolute;right:4px;width:30px;height:12px;margin-top:-6px;border-radius:6px;background:var(--ink);box-shadow:0 0 0 3px var(--bg),var(--shadow);pointer-events:none;transition:transform .1s var(--out)}
+.wheel.drag .thumb{transform:scaleX(1.18) scaleY(1.25)}
+.wheel.drag{cursor:grabbing}
+.wtip{position:absolute;right:46px;z-index:130;margin-top:-15px;height:30px;display:flex;align-items:center;gap:7px;padding:0 10px 0 6px;font-size:13.5px;font-weight:500;line-height:16px;max-width:240px;opacity:0;transform:translateX(8px) scale(.9);transform-origin:right center;transition:opacity .1s,transform .15s var(--spring)}
+.wtip.on{opacity:1;transform:none}
+.wtip .bpic,.wtip .av{flex:none}
+.wtip .u{min-width:16px;height:16px;padding:0 5px;border-radius:8px;background:var(--accent);color:#fff;font-size:10.5px;font-weight:600;display:inline-grid;place-items:center}
+.chats-hint{position:absolute;left:0;right:44px;bottom:38px;text-align:center;font-size:12px;color:var(--faint)}
+
+/* ================= CHAT · A  Thread + agent chips ================= */
+.ch-hd{gap:6px;padding-right:12px}
+.ch-hd .back{width:34px;height:34px;padding:0;font-size:20px;border-radius:9px}
+.ch-hd .ttl{display:flex;flex-direction:column;min-width:0;gap:0}
+.ch-hd .ttl b{font-size:16px;font-weight:600;color:var(--ink);letter-spacing:-.01em;line-height:20px}
+.ch-hd .ttl span{font-size:12px;color:var(--muted);line-height:16px}
+.ch-chips{position:absolute;top:104px;left:0;right:0;display:flex;gap:6px;overflow-x:auto;padding:2px 14px 10px;scrollbar-width:none;z-index:19;border-bottom:1px solid var(--line);background:var(--bg)}
+.ch-chips::-webkit-scrollbar{display:none}
+.ch-chips .badge{height:28px;padding:0 10px 0 6px;flex:none;gap:7px;font-size:12.5px;color:var(--text);cursor:pointer}
+.ch-chips .badge .s{color:var(--muted)}
+.ch-chips .badge.tgt{border-color:color-mix(in srgb,var(--accent) 55%,var(--line));background:color-mix(in srgb,var(--accent) 8%,var(--bg))}
+.ph-thread{position:absolute;top:146px;left:0;right:0;bottom:var(--cmp-h,150px);overflow-y:auto;overflow-x:hidden;padding:0 16px 10px;scrollbar-width:none;touch-action:pan-y;overscroll-behavior:contain}
+.ph-thread::-webkit-scrollbar{display:none}
+.ph-thread .thread{min-height:100%;justify-content:flex-end}
+.ph-thread .entry .body{font-size:calc(14px*var(--ts))}
+.ph-thread .entry .meta{font-size:calc(13px*var(--ts))}
+.phone[data-density="compact"] .ph-thread .entry{padding:7px 0;gap:10px}
+.phone[data-density="compact"] .ph-thread .entry .body{margin-top:0}
+.ph-thread .entry.has-rd>.grow{padding-right:24px}
+.ph-thread .entry .rd{opacity:1}
+.ph-thread .entry .rd .p{transition:stroke-dasharray .25s var(--out)}
+.ph-thread .day{align-self:center;font-size:12px;color:var(--faint);padding:10px 0 2px}
+.entry.landed{animation:flashin 1.6s ease-out}
+.ph-cmp{position:absolute;left:10px;right:10px;bottom:30px;z-index:30;margin:0}
+.ph-cmp .cmp-field textarea,.ph-cmp .cmp-mirror{font:400 16px/22px "Geist",ui-sans-serif,system-ui,sans-serif;padding:11px 12px 6px;min-height:40px;height:40px;letter-spacing:normal}
+.ph-cmp .cmp-mirror{inset:0}
+.ph-cmp .cmp-mirror .chip.cmd{font-family:"Geist Mono",monospace;font-size:14.5px}
+.ph-cmp .bar{flex-wrap:nowrap;gap:6px;padding:6px 8px 8px 6px;border-top:0}
+.ph-cmp .cmp-field textarea{resize:none;overflow:hidden}
+.ph-cmp .bar>.dl{flex:1 1 auto}
+.dl{display:flex;align-items:center;gap:6px;min-width:0;flex:1;font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden}
+.dl .ag-dot{margin:0;flex:none}
+.dl b{color:var(--text);font-weight:500}
+.dl .tx{overflow:hidden;text-overflow:ellipsis}
+.ph-cmp .mention-menu{left:6px;width:calc(100% - 12px);bottom:calc(100% + 6px)}
+.ph-cmp .mention-menu li{font-size:14px;padding:8px}
+.ph-cmp .mention-menu li .k{font-size:12px}
+.ph-cmp .mention-menu .cmdn{font:500 13.5px "Geist Mono",monospace;color:var(--accent)}
+.entry .body .mention.cmd{font-family:"Geist Mono",monospace;font-size:.93em}
+
+/* hover / profile card: the web's .hcard.sheet, inside the phone */
+.phone .hc-back{position:absolute;z-index:84}
+.phone .hcard.sheet{position:absolute;z-index:85;padding-bottom:34px}
+
+/* ================= the drawer: the web's mobile sidebar, from the left edge ================= */
+.scrim{position:absolute;inset:0;z-index:60;background:rgba(0,0,0,.45);opacity:0;pointer-events:none}
+.scrim.on{pointer-events:auto}
+.drawer.sidebar{position:absolute;top:0;bottom:0;left:0;height:auto;width:312px;z-index:61;transform:translateX(-102%);padding:56px 12px 30px;gap:2px;box-shadow:var(--shadow-lg);will-change:transform;touch-action:pan-y;overflow-y:auto;scrollbar-width:none}
+.drawer::-webkit-scrollbar{display:none}
+.drawer .ws{padding:6px 8px 12px}
+.drawer .ws .pebble{width:24px;height:22px}
+.drawer .me-row{display:flex;align-items:center;gap:10px;padding:4px 8px 6px}
+.drawer .me-row .hc-name{font-size:14px}
+.drawer .dp-grid{grid-template-columns:1fr;gap:6px;padding:4px 8px 6px}
+.drawer .dp-grid .lbl{font-size:12.5px;margin-top:4px}
+.drawer .dp-grid .seg{width:max-content}
+.drawer .dp-grid .seg label{padding:5px 11px}
+.drawer .pf-check{padding:6px 8px;font-size:13px}
+.drawer .pf-check .xs{line-height:1.4}
+.drawer .side-link{height:36px}
+.drawer .side-label{padding-top:16px}
+.drawer .edge-hint{font-size:11.5px;color:var(--faint);padding:14px 9px 0}
+
+/* Reduce Motion: every state still changes; nothing flies */
+.rm *,.rm *::before,.rm *::after{animation:none!important;transition-duration:0s!important}
+@media (max-width:600px){.pg-top,.sec{padding-left:16px;padding-right:16px}.pg-nav{padding:0 16px}.slots{flex-direction:column;align-items:center;overflow-x:hidden}.slot{width:auto}.device{zoom:.86}}
+@media (max-width:380px){.device{zoom:.78}}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><clipPath id="pbc" clipPathUnits="userSpaceOnUse"><rect x="189" y="229" width="647" height="566" rx="283" ry="283"/></clipPath></defs></svg>
+<header class="pg-top">
+  <div>
+    <h1><span id="pgPb"></span>Atteo simple mode</h1>
+    <p>jxn's brief (#934, #941), rebuilt per #944 from the web's own components: the same CSS as the live site (copied verbatim from <code>src/ui.ts</code>, clay as the accent), laid out as three horizontal panels plus a drawer. Swipe sideways between panels, swipe in from a phone's left edge for Settings. Under each phone, the haptics it just played (your phone vibrates where the browser allows it).</p>
+  </div>
+  <div class="pg-ctl">
+    <div class="seg" role="radiogroup" aria-label="Theme"><input type="radio" name="pgtheme" id="pgt-dark" value="dark"><label for="pgt-dark">Dark</label><input type="radio" name="pgtheme" id="pgt-light" value="light"><label for="pgt-light">Light</label></div>
+    <div class="seg" role="radiogroup" aria-label="Haptics"><input type="radio" name="pghap" id="pgh-on" value="on" checked><label for="pgh-on">Haptics on</label><input type="radio" name="pghap" id="pgh-off" value="off"><label for="pgh-off">Off</label></div>
+    <div class="seg" role="radiogroup" aria-label="Motion"><input type="radio" name="pgmo" id="pgm-full" value="full" checked><label for="pgm-full">Motion</label><input type="radio" name="pgmo" id="pgm-rm" value="reduce"><label for="pgm-rm">Reduced</label></div>
+    <button class="btn" type="button" id="pgReset">Reset phones</button>
+  </div>
+</header>
+<nav class="pg-nav" id="pgNav"></nav>
+<main id="secs" style="max-width:none;padding:0"></main>
+<script>
+"use strict";
+/* =====================================================================================================================
+   Atteo simple mode: design mockups (jxn #934, #941, #944). A demo, not production code.
+   Every phone is one little app: three horizontal panels (Home · Chats · Chat) plus a drawer from the left edge.
+   The UI inside is the web's markup patterns (src/html.ts: .entry rows, .av avatars, agent .av.agent squares, .rd read
+   rings, .rx-rcpt receipts, .tk task rows, .card.approval with .ap-*, .bcard, .hcard, .composer with .cmp-mirror and
+   .mention-menu, the mobile .sidebar) styled by the web's CSS (src/ui.ts, verbatim above).
+   URL: ?theme=dark|light  &only=home|chats|chat|drawer  &shot=1 (stage each phone in its richest pose)  &motion=reduce
+   ===================================================================================================================== */
+const Q = new URLSearchParams(location.search);
+const $ = (s, r = document) => r.querySelector(s), $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const H = document.documentElement;
+const SHOT = Q.get('shot') === '1';
+let RM = Q.get('motion') === 'reduce' || matchMedia('(prefers-reduced-motion: reduce)').matches;
+let HAP_ON = true;
+const SPRING = 'cubic-bezier(.2,1.3,.4,1)', OUT = 'cubic-bezier(.2,.8,.2,1)';
+const anim = (el, kf, o) => (RM || !el) ? null : el.animate(kf, o);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+const ME = 'vedu';
+
+/* ---------- the web's helpers (src/ui.ts: hue, initials, avatar) ---------- */
+function hue(name) { let h = 0x811c9dc5; for (const c of name) h = Math.imul(h ^ c.charCodeAt(0), 0x01000193) >>> 0; const hs = [8, 28, 46, 140, 168, 192, 214, 248, 280, 322]; return hs[h % hs.length]; }
+function initials(name) { const p = name.split(/[._\-\s]+/).filter(Boolean); return ((p[0]?.[0] ?? '?') + (p[1]?.[0] ?? p[0]?.[1] ?? '')).toUpperCase(); }
+const av = (name, size = '', agent = false) => `<span class="av ${size}${agent ? ' agent' : ''}" style="--h:${hue(name)}" title="${esc(agent ? name + "'s agent" : name)}">${esc(initials(name))}</span>`;
+const bpic = (name, size = '') => `<span class="bpic ${size}" style="--h:${hue(name)}">${esc(name[0].toUpperCase())}</span>`;
+const pebble = (w, h) => `<svg class="pebble" width="${w}" height="${h}" viewBox="150 190 726 646" aria-hidden="true"><g clip-path="url(#pbc)"><polygon points="711,-1765 301,2785 -1691,2606 -1281,-1944" fill="#D97857"/><polygon points="746,-1761 336,2789 2328,2968 2738,-1582" fill="var(--pb-agent)"/></g><circle cx="405" cy="468" r="54" fill="var(--pb-eye)"/><circle cx="634" cy="498" r="54" fill="var(--pb-eye)"/></svg>`;
+const handle = a => a.user + '/' + a.ses;
+/* the agent ring: the web's agent avatar inside a ring whose look is its state (live, waiting on you, idle, offline) */
+const agr = (a, size = '') => `<span class="agr ${size} st-${a.st}" data-agr="${a.id}">${av(a.user, size, true)}</span>`;
+const DOT = { live: 'live', wait: 'wait', idle: 'idle', gone: 'gone' };
+const agDot = a => `<span class="ag-dot ${DOT[a.st]}"></span>`;
+// The delivery line under the composer: exactly three honest states (jxn #919)
+const truth = a => a.st === 'gone' ? 'offline, gets it when back' : a.st === 'live' ? 'on a task, reads after' : 'sees it in ~5 s';
+const KIND = { approval: 'Approval', decision: 'Decision', invite: 'Invite', ask: 'Ask' };
+const PRI = { approval: 0, decision: 1, invite: 2, ask: 3 };
+
+/* ---------- seed data (every phone gets its own copy) ---------- */
+function seed() {
+  const agents = {
+    c2: { user: 'vedu', ses: 'claude-2', st: 'live', what: 'testing iOS 1.5' },
+    sc: { user: 'jxn', ses: 'scout', st: 'wait', what: 'waiting on you' },
+    rv: { user: 'maya', ses: 'reviewer', st: 'idle', what: 'idle' },
+    qa: { user: 'theo', ses: 'ios-qa', st: 'gone', what: 'offline · 2h' },
+    c1: { user: 'vedu', ses: 'claude-1', st: 'live', what: 'writing PR #918' },
+    bl: { user: 'jxn', ses: 'builder', st: 'wait', what: 'waiting on a decision' },
+    cp: { user: 'maya', ses: 'copy', st: 'live', what: 'drafting hero v5' },
+    dp: { user: 'vedu', ses: 'deployer', st: 'wait', what: 'waiting on you' },
+    op: { user: 'jxn', ses: 'ops', st: 'idle', what: 'idle' },
+    ds: { user: 'theo', ses: 'design', st: 'live', what: 'icon round 3' },
+  };
+  for (const id in agents) agents[id].id = id;
+  const chats = [
+    { id: 'annex', name: 'annex', ags: ['c2', 'sc', 'rv', 'qa'], ppl: ['jxn', 'maya', 'theo'], last: ['jxn/scout', 'Migration 0042 is ready. It needs your approval.'], un: 3, when: 'now' },
+    { id: 'dm-jxn', name: 'jxn', dm: true, ags: ['sc'], ppl: ['jxn'], last: ['jxn', 'Pulse looks fun. Ship a demo?'], un: 1, when: '2m' },
+    { id: 'ios', name: 'atteo-ios', ags: ['c1', 'bl', 'qa'], ppl: ['jxn', 'theo'], last: ['theo', '@vedu which TestFlight group gets 1.5 first?'], un: 2, when: '6m' },
+    { id: 'landing', name: 'landing', ags: ['cp', 'rv'], ppl: ['maya'], last: ['maya', 'hero copy v4 is up, can someone review?'], un: 2, when: '14m' },
+    { id: 'ops', name: 'ops', ags: ['dp', 'op'], ppl: ['jxn'], last: ['vedu/deployer', 'v42 is ready to deploy. Waiting on you.'], un: 0, when: '22m' },
+    { id: 'design', name: 'design', ags: ['ds'], ppl: ['theo', 'maya'], last: ['theo', 'App icon round 3 is in Figma'], un: 0, when: '1h' },
+    { id: 'dm-maya', name: 'maya', dm: true, ags: ['rv'], ppl: ['maya'], last: ['maya', 'can you look at the hero tonight?'], un: 0, when: '3h' },
+    { id: 'checkout', name: 'checkout-bug', ags: ['op'], ppl: ['jxn'], last: ['jxn/ops', '✅ The empty-cart guard shipped in v41'], un: 0, when: 'yday' },
+    { id: 'q4', name: 'q4-data', ags: ['rv'], ppl: ['maya', 'theo'], last: ['maya', 'the backfill window is Thursday'], un: 0, when: 'Tue' },
+    { id: 'dm-theo', name: 'theo', dm: true, ags: ['qa'], ppl: ['theo'], last: ['theo', 'the 1.5 build is on my phone'], un: 0, when: 'Mon' },
+  ];
+  const needs = [
+    { id: 'n1', kind: 'approval', chat: 'annex', ag: 'sc', asker: 'jxn', seq: 412, when: '4m', risk: 'Medium risk',
+      title: 'Run migration 0042 on prod D1', tool: 'Bash', cmd: 'wrangler d1 migrations apply --remote\n# 0042_board_pictures.sql: adds 2 columns', risky: 'medium',
+      why: 'The 1.5 release can’t tag until board pictures have their columns. scout is paused until you answer.', facts: ['backup taken 9:38', 'rollback: 0042_down.sql'],
+      no: 'Reject', yes: 'Approve', ok: 'Approved · jxn/scout is running it', nok: 'Rejected · scout holds 0042', run: 'running migration 0042', say: 'Running migration 0042 now. I’ll post when it’s done.' },
+    { id: 'n2', kind: 'approval', chat: 'ops', ag: 'dp', asker: null, seq: 88, when: '2m', risk: 'High risk',
+      title: 'Deploy v42 to production', tool: 'Bash', cmd: 'npm run deploy -- --env production\n# 6 commits · checks 16 of 16 green', risky: 'high',
+      why: 'Ships the empty-cart fix and the receipt tweaks. Your agents are headless, so they ask you here instead of in a terminal.', facts: ['6 commits', 'checks green'],
+      no: 'Reject', yes: 'Approve', ok: 'Approved · vedu/deployer is deploying v42', nok: 'Rejected · v42 stays queued', run: 'deploying v42', say: 'Deploying v42.' },
+    { id: 'n3', kind: 'decision', chat: 'ios', ag: 'bl', asker: 'jxn', seq: 131, when: '9m',
+      title: 'Ship 1.5 on Friday?', votes: [['jxn', 'y'], ['maya', 'y'], ['vedu', 'w'], ['theo', 'w']],
+      why: 'Tagging waits on this. Three PRs are in (#912, #915, #918) and build 42 is green; jxn wants your call before builder tags it.',
+      no: 'Object', yes: 'Agree', ok: 'Agreed · 3 of 4 say Friday', nok: 'Objected · jxn sees why', run: 'tagging 1.5', say: 'Tagging 1.5 for Friday.' },
+    { id: 'n4', kind: 'invite', chat: 'pricing', asker: 'maya', when: '20m', title: 'Join pricing',
+      why: 'maya wants a second reviewer on the new plans page before Friday. 2 people and 2 agents are on it.',
+      no: 'Not now', yes: 'Join', ok: 'Joined pricing · it’s at the top of Chats', nok: 'Declined · maya gets a note' },
+    { id: 'n5', kind: 'ask', chat: 'ios', asker: 'theo', ag: 'qa', seq: 140, when: '31m', title: 'Which TestFlight group gets 1.5 first?',
+      quote: '@vedu which group should get 1.5 first? Internal, or everyone on TestFlight?',
+      why: 'theo/ios-qa holds the upload until you answer. It’s offline now and picks your answer up when it’s back.',
+      no: 'Internal', yes: 'Everyone', ok: 'Answered “Everyone” · theo is told', nok: 'Answered “Internal” · theo is told' },
+  ].sort((a, b) => PRI[a.kind] - PRI[b.kind]);
+  const logs = {
+    annex: [
+      { day: 'Today' },
+      { u: 'jxn', text: 'Can we get 1.5 out Friday? @vedu', when: '9:31' },
+      { ag: 'c2', client: 'Claude Code', text: 'Building 1.5. UI tests are 14 of 16 green; two flaky ones on the share sheet, retrying with a longer timeout.', when: '9:38',
+        task: { st: 'doing', who: 'vedu/claude-2', done: 2, of: 3, subs: [['Fix the share sheet flake', 'done'], ['Upload build 43', 'done'], ['Release notes', 'doing']] } },
+      { u: 'vedu', text: '@jxn/scout get migration 0042 ready, I’ll approve it from my phone', when: '9:40', rd: [2, 2], readers: ['jxn/scout', 'jxn'], rcpt: { done: ['jxn/scout'] } },
+      { ag: 'sc', client: 'Claude Code', type: 'question', text: 'Ready: migration 0042 adds 2 columns on prod D1. It’s on top of your Needs you.', when: '9:44' },
+      { u: 'maya', text: 'release notes copy is in landing, @jxn/scout can you pull it in?', when: '9:47' },
+    ],
+  };
+  return { agents, chats, needs, logs, done: [] };
+}
+
+/* ---------- haptics: navigator.vibrate where the browser allows it, and a visible trace under each phone ---------- */
+const HAPTIC = {
+  light: { v: [5], bars: 'l', ios: '.light 0.5' },
+  heavy: { v: [16], bars: 'h', ios: '.rigid 1.0' },
+  click: { v: [9], bars: 'm', ios: '.rigid 0.7' },
+  double: { v: [10, 60, 10], bars: 'mm', ios: '2 × .light, 70 ms' },
+  success: { v: [10, 40, 10, 40, 22], bars: 'mmh', ios: 'notification .success' },
+  warn: { v: [22, 60, 22], bars: 'hh', ios: 'notification .warning' },
+};
+
+/* ---------- small fx (inside a phone; transform/opacity only) ---------- */
+function fxRing(app, x, y, size, color, { dur = 320, to = 1.7, w = 3, o = .9 } = {}) { if (RM) return; const e = document.createElement('i'); e.className = 'fxr';
+  e.style.cssText = `left:${x - size / 2}px;top:${y - size / 2}px;width:${size}px;height:${size}px;border-width:${w}px;border-color:${color}`; app.fx.append(e);
+  e.animate([{ transform: 'scale(1)', opacity: o }, { transform: `scale(${to})`, opacity: 0 }], { duration: dur, easing: 'cubic-bezier(.1,.7,.2,1)' }).onfinish = () => e.remove(); }
+function fxSparks(app, x, y, colors, n = 14, dist = 90) { if (RM) return; for (let i = 0; i < n; i++) { const e = document.createElement('i'); e.className = 'fxd'; const s = 4 + Math.random() * 5;
+  e.style.cssText = `left:${x - s / 2}px;top:${y - s / 2}px;width:${s}px;height:${s}px;background:${colors[i % colors.length]}`; app.fx.append(e);
+  const a = (i / n) * Math.PI * 2 + Math.random() * .4, d = dist * (.6 + Math.random() * .6);
+  e.animate([{ transform: 'translate(0,0) scale(1)', opacity: 1 }, { transform: `translate(${Math.cos(a) * d}px,${Math.sin(a) * d}px) scale(.3)`, opacity: 0 }], { duration: 380 + Math.random() * 180, easing: 'cubic-bezier(.1,.8,.3,1)' }).onfinish = () => e.remove(); } }
+function fxWord(app, x, y, text, color) { if (RM) return; const e = document.createElement('i'); e.className = 'fxt'; e.textContent = text; e.style.cssText = `left:${x}px;top:${y}px;color:${color}`; app.fx.append(e);
+  e.animate([{ transform: 'translate(-50%,-50%) scale(.6)', opacity: 0 }, { transform: 'translate(-50%,-50%) scale(1.12)', opacity: 1, offset: .22 }, { transform: 'translate(-50%,-50%) scale(1)', opacity: 1, offset: .45 }, { transform: 'translate(-50%,-90%)', opacity: 0 }], { duration: 640, easing: 'ease-out' }).onfinish = () => e.remove(); }
+const pop = el => anim(el, [{ transform: 'scale(.6)' }, { transform: 'scale(1.18)', offset: .6 }, { transform: 'scale(1)' }], { duration: 180, easing: 'ease-out' });
+// a tween with a little overshoot, for snapping things into place
+function tween(from, to, dur, step, done) { if (RM || from === to) { step(to); done?.(); return () => {}; } const t0 = performance.now(); let raf, live = true;
+  const ease = t => { const c = 1.25; return 1 + (c + 1) * Math.pow(t - 1, 3) + c * Math.pow(t - 1, 2); };
+  const f = now => { if (!live) return; const p = Math.min(1, (now - t0) / dur); step(from + (to - from) * ease(p)); if (p < 1) raf = requestAnimationFrame(f); else done?.(); };
+  raf = requestAnimationFrame(f); return () => { live = false; cancelAnimationFrame(raf); }; }
+
+/* =====================================================================================================================
+   The phone app
+   ===================================================================================================================== */
+let UID = 0;
+const HOME = {}, CHATS = {}, CHAT = {};
+class Phone {
+  constructor(slot, cfg) {
+    this.cfg = Object.assign({ home: 'A', chats: 'A', chat: 'A', start: 0, open: 'annex' }, cfg);
+    this.uid = 'p' + (++UID); this.slot = slot; this.D = seed(); this.panel = this.cfg.start; this.hapScale = 1; this.hapOn = true;
+    const el = this.el = document.createElement('div'); el.className = 'phone'; el._app = this; el.dataset.text = 'm'; el.dataset.density = 'comfortable';
+    el.innerHTML = `<div class="pager"><section class="pnl" data-p="0"></section><section class="pnl" data-p="1"></section><section class="pnl" data-p="2"></section></div>
+      <div class="sbar"><span>9:41</span><span class="ic"><svg width="18" height="12" viewBox="0 0 18 12" fill="currentColor"><rect x="0" y="8" width="3" height="4" rx="1"/><rect x="5" y="5.5" width="3" height="6.5" rx="1"/><rect x="10" y="3" width="3" height="9" rx="1"/><rect x="15" y="0" width="3" height="12" rx="1"/></svg><svg width="16" height="12" viewBox="0 0 16 12" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M1.5 4.2a9.5 9.5 0 0 1 13 0M4 7a6 6 0 0 1 8 0"/><circle cx="8" cy="10" r="1.2" fill="currentColor" stroke="none"/></svg><svg width="27" height="13" viewBox="0 0 27 13"><rect x=".5" y=".5" width="23" height="12" rx="3.5" fill="none" stroke="currentColor" stroke-opacity=".4"/><rect x="2" y="2" width="18" height="9" rx="2" fill="currentColor"/><rect x="24.5" y="4.5" width="1.6" height="4" rx=".8" fill="currentColor" fill-opacity=".4"/></svg></span></div>
+      <div class="pdots"><i></i><i></i><i></i></div>
+      <div class="ptoast" role="status"><span class="tt"></span><button type="button" hidden>Undo</button></div>
+      <div class="scrim"></div>${this.drawerHTML()}
+      <div class="hc-back" hidden></div><div class="hcard sheet" hidden></div>
+      <div class="fx"></div><div class="hbar"></div>`;
+    slot.querySelector('.device').append(el);
+    this.pager = $('.pager', el); this.fx = $('.fx', el); this.hud = $('.hud', slot);
+    const p = $$('.pnl', el);
+    this.home = HOME[this.cfg.home](this, p[0]);
+    this.chats = CHATS[this.cfg.chats](this, p[1]);
+    this.chat = CHAT[this.cfg.chat](this, p[2]);
+    this.chat.open(this.cfg.open, true);
+    this.go(this.panel, false);
+    this.bindGestures(); this.bindDrawer(); this.bindCommon();
+  }
+  scale() { return this.el.getBoundingClientRect().width / 390 || 1; }
+  local(e) { const r = this.el.getBoundingClientRect(), s = r.width / 390 || 1; return { x: (e.clientX - r.left) / s, y: (e.clientY - r.top) / s }; }
+  at(node) { const r = node.getBoundingClientRect(), d = this.el.getBoundingClientRect(), s = d.width / 390 || 1;
+    return { x: (r.left + r.width / 2 - d.left) / s, y: (r.top + r.height / 2 - d.top) / s, w: r.width / s, h: r.height / s }; }
+  hap(kind, label) {
+    const k = HAPTIC[kind]; if (!k) return;
+    if (HAP_ON && this.hapOn && navigator.userActivation?.hasBeenActive !== false) { try { navigator.vibrate && navigator.vibrate(k.v.map((v, i) => i % 2 ? v : Math.round(v * this.hapScale))); } catch (e) {} }
+    if (!this.hud) return; const bars = $('.bars', this.hud);
+    for (const b of k.bars) { const i = document.createElement('i'); i.className = b; bars.append(i); }
+    while (bars.children.length > 26) bars.firstChild.remove();
+    $('.lb', this.hud).textContent = (HAP_ON && this.hapOn ? '' : '(off) ') + label; $('.hk', this.hud).textContent = k.ios;
+  }
+  toast(text, undo) {
+    const t = $('.ptoast', this.el), b = $('button', t); $('.tt', t).textContent = text; b.hidden = !undo; b.onclick = () => { undo(); t.classList.remove('show'); };
+    t.classList.add('show'); clearTimeout(this._tt); this._tt = setTimeout(() => t.classList.remove('show'), undo ? 3200 : 2200);
+  }
+  /* ---- panels ---- */
+  go(i, animate = true) {
+    i = clamp(i, 0, 2); const was = this.panel; this.panel = i;
+    this.pager.style.transition = animate && !RM ? 'transform .24s cubic-bezier(.2,.9,.25,1.04)' : 'none';
+    this.pager.style.transform = `translateX(${-i * 390}px)`;
+    $$('.pdots i', this.el).forEach((d, j) => d.classList.toggle('on', j === i));
+    if (animate && was !== i) this.hap('light', ['Home', 'Chats', 'Chat'][i]);
+    if (i === 2) this.chat.seen?.();
+  }
+  pagerDrag(dx) { let x = -this.panel * 390 + dx; if (x > 0) x = x * .3; if (x < -780) x = -780 + (x + 780) * .3; this.pager.style.transition = 'none'; this.pager.style.transform = `translateX(${x}px)`; }
+  pagerEnd(dx, vx) { let i = this.panel; if (dx < -70 || vx < -.45) i++; else if (dx > 70 || vx > .45) i--; this.go(i); }
+  openChat(id) { this.chat.open(id); this.go(2); }
+  refresh() { this.home.refresh?.(); this.chats.refresh?.(); this.chat.refresh?.(); }
+  /* ---- the one gesture arbiter: left edge = drawer, sideways = panels, up/down = whatever's under the finger ---- */
+  bindGestures() {
+    const ph = this.el; let g = null;
+    ph.addEventListener('pointerdown', e => {
+      if (e.button > 0) return; this.moved = false;
+      if (e.target.closest('[data-own]')) return;
+      const p = this.local(e);
+      g = { x0: e.clientX, y0: e.clientY, lx: e.clientX, ly: e.clientY, t: performance.now(), vx: 0, vy: 0, mode: null, id: e.pointerId, tgt: e.target };
+      if (this.drawerP > 0) g.closing = true;
+      else if (p.x < 22 && !e.target.closest('.hcard')) { g.mode = 'edge'; try { ph.setPointerCapture(e.pointerId); } catch (_) {} }
+    });
+    ph.addEventListener('pointermove', e => {
+      if (!g || e.pointerId !== g.id) return;
+      const s = this.scale(), dx = (e.clientX - g.x0) / s, dy = (e.clientY - g.y0) / s, t = performance.now(), dt = Math.max(1, t - g.t);
+      g.vx = .6 * g.vx + .4 * ((e.clientX - g.lx) / s / dt); g.vy = .6 * g.vy + .4 * ((e.clientY - g.ly) / s / dt); g.lx = e.clientX; g.ly = e.clientY; g.t = t;
+      if (Math.hypot(dx, dy) > 8) this.moved = true;
+      if (!g.mode) {
+        if (Math.hypot(dx, dy) < 8) return;
+        if (g.closing) g.mode = Math.abs(dx) > Math.abs(dy) && dx < 0 ? 'dclose' : 'none';
+        else if (!$('.hcard', ph).hidden) g.mode = 'none';
+        else if (Math.abs(dx) > Math.abs(dy)) g.mode = 'pager';
+        else { const v = g.tgt.closest('[data-vy]'); g.mode = v && v._vy ? 'vy' : 'none'; g.v = v; if (g.mode === 'vy') v._vy.start?.(g); }
+        if (g.mode !== 'none') { try { ph.setPointerCapture(e.pointerId); } catch (_) {} }
+      }
+      if (g.mode === 'pager') this.pagerDrag(dx);
+      else if (g.mode === 'edge') this.drawerDrag(dx / 312, true);
+      else if (g.mode === 'dclose') this.drawerDrag(1 + dx / 312);
+      else if (g.mode === 'vy') g.v._vy.move(dx, dy, g);
+    });
+    const up = e => {
+      if (!g || e.pointerId !== g.id) return; const s = this.scale(), dx = (e.clientX - g.x0) / s, dy = (e.clientY - g.y0) / s;
+      if (g.mode === 'pager') this.pagerEnd(dx, g.vx);
+      else if (g.mode === 'edge') this.drawerEnd(this.moved ? dx / 312 : 0, g.vx);
+      else if (g.mode === 'dclose') this.drawerEnd(1 + dx / 312, g.vx);
+      else if (g.mode === 'vy') g.v._vy.end(dx, dy, g.vx, g.vy);
+      g = null;
+    };
+    ph.addEventListener('pointerup', up); ph.addEventListener('pointercancel', up);
+    ph.addEventListener('click', e => { if (this.moved) { e.stopPropagation(); e.preventDefault(); this.moved = false; } }, true);
+    // every press reacts on pointerdown (scale), the action commits on click
+    ph.addEventListener('pointerdown', e => { const b = e.target.closest('.btn,.badge[data-ag],.side-link'); if (!b) return; b.classList.add('pr');
+      const off = () => { b.classList.remove('pr'); removeEventListener('pointerup', off); removeEventListener('pointercancel', off); }; addEventListener('pointerup', off); addEventListener('pointercancel', off); });
+  }
+  bindCommon() {
+    this.el.addEventListener('click', e => {
+      const a = e.target.closest('[data-act]'); if (!a) return;
+      const k = a.dataset.act;
+      if (k === 'drawer') this.drawerEnd(1, 1); else if (k === 'home') this.go(0); else if (k === 'chats') this.go(1); else if (k === 'chat') this.go(2);
+    });
+    $('.hc-back', this.el).addEventListener('click', () => this.hcard(null));
+  }
+  /* ---- the drawer: the web's mobile sidebar ---- */
+  drawerHTML() {
+    const u = this.uid, seg = (name, opts, on) => `<div class="seg" role="radiogroup">${opts.map(([v, l]) => `<input type="radio" name="${u}-${name}" id="${u}-${name}-${v}" value="${v}"${v === on ? ' checked' : ''} data-set="${name}"><label for="${u}-${name}-${v}">${l}</label>`).join('')}</div>`;
+    const chk = (k, on, l, h) => `<label class="pf-check"><input type="checkbox" data-set="${k}"${on ? ' checked' : ''}><span><span class="small" style="color:var(--ink)">${l}</span><span class="xs muted">${h}</span></span></label>`;
+    return `<aside class="sidebar drawer" aria-label="Settings">
+      <div class="ws">${pebble(24, 22)}Atteo<span class="badge kind" style="margin-left:auto">Simple</span></div>
+      <div class="me-row">${av('vedu', 'lg')}<div class="grow"><div class="hc-name">vedu</div><div class="xs faint">@vedu · 10 chats · 4 agents</div></div></div>
+      <div class="side-label">Display</div>
+      <div class="dp-grid"><span class="lbl">Text size</span>${seg('text', [['s', 'Small'], ['m', 'Medium'], ['l', 'Large']], 'm')}
+        <span class="lbl">Density</span>${seg('density', [['comfortable', 'Comfortable'], ['compact', 'Compact']], 'comfortable')}
+        <span class="lbl">Theme</span>${seg('theme', [['system', 'System'], ['light', 'Light'], ['dark', 'Dark']], H.dataset.theme)}</div>
+      <div class="side-label">Haptics</div>
+      ${chk('hap', true, 'Haptics', 'A light tick per wheel notch, a firmer one per chat, a click when you send.')}
+      <div class="dp-grid"><span class="lbl">Strength</span>${seg('str', [['.6', 'Subtle'], ['1', 'Normal'], ['1.6', 'Strong']], '1')}</div>
+      <div class="side-label">Agents</div>
+      ${chk('headless', true, 'My agents are headless', 'They answer and ask for approval on the board, not in their terminal.')}
+      <div class="side-label">Account</div>
+      <a class="side-link" href="#" data-nolink>Profile</a><a class="side-link" href="#" data-nolink>Approvals<span class="count">2</span></a><a class="side-link" href="#" data-nolink>Notifications</a><a class="side-link" href="#" data-nolink>Classic layout</a><a class="side-link" href="#" data-nolink>Sign out</a>
+      <div class="edge-hint">Swipe in from the left edge on any panel to open this. Swipe it back to close.</div>
+    </aside>`;
+  }
+  bindDrawer() {
+    this.drawer = $('.drawer', this.el); this.scrim = $('.scrim', this.el); this.drawerP = 0;
+    this.scrim.addEventListener('click', () => this.drawerEnd(0, -1));
+    this.drawer.addEventListener('click', e => { if (e.target.closest('[data-nolink]')) { e.preventDefault(); this.hap('light', 'tap'); } });
+    this.drawer.addEventListener('change', e => {
+      const t = e.target, k = t.dataset.set; if (!k) return;
+      if (k === 'text') { this.el.dataset.text = t.value; this.chats.layout?.(); }
+      else if (k === 'density') this.el.dataset.density = t.value;
+      else if (k === 'theme') setTheme(t.value === 'system' ? (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark') : t.value, t.value);
+      else if (k === 'hap') { this.hapOn = t.checked; }
+      else if (k === 'str') this.hapScale = +t.value;
+      else if (k === 'headless') this.toast(t.checked ? 'Your agents are headless' : 'Your agents answer in their terminal');
+      this.hap('click', k === 'hap' ? (t.checked ? 'haptics on' : 'haptics off') : k);
+    });
+  }
+  syncTheme(pref) { const v = pref || H.dataset.theme; const r = $(`#${this.uid}-theme-${v}`); if (r) r.checked = true; }
+  drawerDrag(p, edge) {
+    p = clamp(p, 0, 1); const was = this.drawerP; this.drawerP = p;
+    this.drawer.style.transition = this.scrim.style.transition = 'none';
+    this.drawer.style.transform = `translateX(${(p - 1) * 102}%)`; this.scrim.style.opacity = p; this.scrim.classList.toggle('on', p > 0);
+    if (edge && was < .4 && p >= .4) this.hap('light', 'drawer: past the line');
+  }
+  drawerEnd(p, v) {
+    const open = p > .4 || v > .35; const to = open && !(v < -.35) ? 1 : 0;
+    const tr = RM ? 'none' : 'transform .22s cubic-bezier(.2,.9,.25,1.04),opacity .18s';
+    this.drawer.style.transition = tr; this.scrim.style.transition = RM ? 'none' : 'opacity .18s';
+    this.drawer.style.transform = `translateX(${(to - 1) * 102}%)`; this.scrim.style.opacity = to; this.scrim.classList.toggle('on', to > 0);
+    if ((this.drawerP > 0) !== (to > 0) || to) this.hap(to ? 'click' : 'light', to ? 'drawer open' : 'drawer closed');
+    this.drawerP = to;
+  }
+  /* ---- the web's hover card, as a bottom sheet (tap an avatar) ---- */
+  hcard(who) {
+    const c = $('.hcard', this.el), b = $('.hc-back', this.el);
+    if (!who) { c.hidden = true; b.hidden = true; return; }
+    const D = this.D, a = who.agent ? D.agents[who.agent] : null, user = a ? a.user : who.user;
+    const mine = Object.values(D.agents).filter(x => x.user === user);
+    c.innerHTML = `<div class="row" style="gap:12px;align-items:center">${av(user, 'lg', !!a)}<div class="grow" style="min-width:0"><div class="hc-name">${esc(a ? user + "'s agent" : user)}</div><div class="xs faint">@${esc(user)} · ${user === ME ? 'you' : '4 shared boards'}</div></div></div>
+      ${a ? '' : `<div class="row hc-pres xs"><span class="pres ${user === 'theo' ? '' : 'on'}"></span> ${user === 'theo' ? 'Last seen 2h ago' : 'On the web now'}</div>`}
+      <div class="hc-agent"><div class="xs faint"><a class="link" href="#" data-nolink>${esc(user)}</a>’s agent · headless</div><div class="xs hc-live">${mine.map(x => `<span class="pres ${x.st === 'gone' ? '' : 'on'}"></span> ${esc(x.ses)}: ${esc(x.what)}`).join('<br>')}</div></div>
+      <div class="hc-act"><button class="btn sm" type="button" data-hc-x>Profile</button><button class="btn sm" type="button" data-hc-x>Message</button><button class="btn sm primary" type="button" data-hc-m="${esc(a ? handle(a) : user)}">Mention</button></div>`;
+    c.hidden = false; b.hidden = false; anim(c, [{ transform: 'translateY(40px)', opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 200, easing: SPRING });
+    c.onclick = e => { const m = e.target.closest('[data-hc-m]'); if (m) { this.hcard(null); this.chat.mention?.(m.dataset.hcM); } else if (e.target.closest('[data-hc-x]')) this.hcard(null); };
+    this.hap('light', 'profile card');
+  }
+  /* ---- one place that changes the world when a needs-you card resolves ---- */
+  resolve(n, yes) {
+    const D = this.D, i = D.needs.indexOf(n); if (i < 0) return;
+    const snap = { i, agents: JSON.parse(JSON.stringify(D.agents)), chats: JSON.parse(JSON.stringify(D.chats)) };
+    D.needs.splice(i, 1); D.done.push({ n, yes });
+    const a = n.ag ? D.agents[n.ag] : null, c = D.chats.find(x => x.id === n.chat);
+    if (a) { if (yes && n.run) { a.st = 'live'; a.what = n.run; } else if (a.st === 'wait') { a.st = 'idle'; a.what = 'idle'; } }
+    if (n.kind === 'invite' && yes) D.chats.unshift({ id: 'pricing', name: 'pricing', ags: ['cp', 'op'], ppl: ['maya', 'jxn'], last: ['maya', 'welcome! the plans page is in the doc'], un: 1, when: 'now' });
+    if (c) { c.last = a && yes && n.say ? [handle(a), n.say] : [ME, (yes ? n.yes : n.no) + (n.kind === 'ask' ? '' : ': ' + n.title)]; c.when = 'now'; }
+    this.refresh();
+    return () => { D.needs.splice(snap.i, 0, n); D.done.pop(); D.agents = snap.agents; D.chats = snap.chats; this.refresh(); this.home.undo?.(n); };
+  }
+}
+
+/* =====================================================================================================================
+   HOME · A  Stacked deck. The approval card from /approvals, one at a time, flicked up or down.
+   Vertical flicks keep sideways swipes free for the panels.
+   ===================================================================================================================== */
+function needHTML(n, D) {
+  const a = n.ag ? D.agents[n.ag] : null, c = D.chats.find(x => x.id === n.chat) || { name: n.chat };
+  const face = n.kind === 'ask' || n.kind === 'invite' || n.kind === 'decision' && n.asker ? av(n.asker, 'lg') : agr(a, 'lg');
+  let meta;
+  if (n.kind === 'approval') meta = `<b>${esc(handle(a))}</b> · ${n.asker ? `asked by <b>${esc(n.asker)}</b> in ${esc(c.name)} #${n.seq}` : `on its own in ${esc(c.name)}`} · ${n.when}`;
+  else if (n.kind === 'decision') meta = `<b>${esc(n.asker)}</b> asks the people · ${esc(c.name)} #${n.seq} · ${n.when}`;
+  else if (n.kind === 'invite') meta = `<b>${esc(n.asker)}</b> invited you · ${n.when}`;
+  else meta = `<b>${esc(n.asker)}</b> asked you in ${esc(c.name)} #${n.seq} · ${n.when}`;
+  let mid = '';
+  if (n.cmd) mid = `<pre class="mono ap-details ap-cmd"><span class="faint">${esc(n.tool)}</span>\n${esc(n.cmd)}</pre>`;
+  if (n.votes) mid = `<div class="tk hd hd-open"><span class="tk-st"><span class="dot"></span>Open</span><span class="hd-ms">${n.votes.map(([u, v]) => `<span class="hd-m ${v}">${av(u, 'sm')}${v === 'y' ? '<i>✓</i>' : v === 'n' ? '<i>✕</i>' : ''}</span>`).join('')}</span><span class="hd-note"><b>jxn</b> and <b>maya</b> agree · waiting on you and theo</span></div>`;
+  if (n.kind === 'invite') mid = `<div class="tk">${bpic('pricing', 'sm')}<span class="tk-st">pricing</span><span class="tk-who">2 people · 2 agents · 41 messages</span><span class="avs" style="margin-left:auto">${av('maya', 'sm')}${av('jxn', 'sm')}</span></div>`;
+  if (n.quote) mid = `<div class="entry" style="border:0;padding:0"><div class="grow"><div class="body"><blockquote class="md-q">${fmtText(n.quote)}</blockquote></div></div></div>`;
+  const facts = n.facts ? `<div class="facts">${n.risk ? `<span class="badge ap-risk r-${n.risky}">${n.risk}</span>` : ''}${n.facts.map(f => `<span class="badge">${esc(f)}</span>`).join('')}</div>` : '';
+  return `<div class="nd-top"><span class="type t-${n.kind}"><span class="dot"></span><span>${KIND[n.kind]}</span></span><span class="grow"></span><span class="xs faint">${esc(c.name)}</span></div>
+    <div class="ap-hd">${face}<div class="grow"><h2 class="ap-title">${esc(n.title)}</h2><p class="xs muted">${meta}</p></div></div>
+    ${mid}<div class="nd-why"><div class="nd-lbl">Why it’s waiting on you</div>${esc(n.why)}</div>${facts}
+    <div class="ap-form"><button class="btn" type="button" data-no>${esc(n.no)}</button><button class="btn primary" type="button" data-yes>${esc(n.yes)}</button></div>
+    <div class="flick">Flick up to ${esc(n.yes.toLowerCase())} · down to ${esc(n.no.toLowerCase())}</div>
+    <div class="nd-stamp y">${n.kind === 'approval' ? 'Approved' : esc(n.yes)}</div><div class="nd-stamp n">${n.kind === 'approval' ? 'Rejected' : esc(n.no)}</div>`;
+}
+function homeHeader(title) {
+  return `<div class="ph-hd"><button class="btn ghost menu" type="button" data-act="drawer" aria-label="Settings">${pebble(24, 22)}</button><h1>${title}</h1><span class="pn-ct" data-ct></span>
+    <div class="right"><button class="btn sm" type="button" data-act="chats">Chats <span class="bc-unread" data-un></span> ›</button></div></div>`;
+}
+HOME.A = (app, root) => {
+  root.innerHTML = homeHeader('Needs you') + `<div class="kstrip"><div class="segs"></div><span class="of"></span></div><div class="deck" data-vy></div>
+    <div class="allclear">${pebble(72, 64)}<h3>All clear</h3><p class="muted"></p></div><div class="deck-hint">Swipe left for Chats · in from the edge for Settings</div>`;
+  const deck = $('.deck', root), els = new Map(); let total = app.D.needs.length, results = [];
+  function cardFor(n) { let c = els.get(n.id); if (c) return c;
+    c = document.createElement('article'); c.className = `card approval nd k-${n.kind}`; c._n = n; c.innerHTML = needHTML(n, app.D); deck.append(c); els.set(n.id, c);
+    c.addEventListener('click', e => { if (c !== top()) return; if (e.target.closest('[data-yes]')) fling(c, true); else if (e.target.closest('[data-no]')) fling(c, false); });
+    return c; }
+  const top = () => { const n = app.D.needs[0]; return n ? els.get(n.id) : null; };
+  function layout(animate = true) {
+    app.D.needs.forEach((n, i) => { const c = cardFor(n); c.classList.remove('drag'); c.style.zIndex = 20 - i; c.style.visibility = i > 2 ? 'hidden' : '';
+      c.style.transition = animate && !RM ? 'transform .22s cubic-bezier(.2,1.25,.4,1),opacity .15s' : 'none';
+      c.style.transform = i ? `translateY(${i * 13}px) scale(${1 - i * .045})` : 'none'; c.style.opacity = i > 2 ? 0 : 1;
+      c.style.transformOrigin = '50% 100%'; c.style.pointerEvents = i ? 'none' : ''; $$('.nd-stamp', c).forEach(s => s.style.opacity = 0); });
+    const segs = $('.segs', root), all = [...results.map(r => r), ...app.D.needs.map(n => ({ n }))];
+    segs.innerHTML = all.map((r, i) => `<i style="--k:var(--k-${r.n.kind})" class="${r.yes === true ? 'y' : r.yes === false ? 'n' : i === results.length ? 'cur' : ''}"></i>`).join('');
+    $('.of', root).textContent = app.D.needs.length ? `${results.length + 1} of ${all.length}` : `${all.length} of ${all.length}`;
+    $('[data-ct]', root).textContent = app.D.needs.length || '';
+    const clear = $('.allclear', root), was = clear.classList.contains('on'); clear.classList.toggle('on', !app.D.needs.length);
+    $('p', clear).textContent = `${results.filter(r => r.n.ag).length} agents back to work · ${results.length} answered`;
+    if (!was && !app.D.needs.length && results.length) celebrate();
+    deck._vy = app.D.needs.length ? vy : null;
+  }
+  function celebrate() { const p = app.at($('.allclear .pebble', root)); app.hap('success', 'all clear');
+    anim($('.allclear', root), [{ opacity: 0, transform: 'scale(.85)' }, { opacity: 1, transform: 'scale(1.05)', offset: .6 }, { opacity: 1, transform: 'none' }], { duration: 240, easing: 'ease-out' });
+    [0, 90, 180].forEach((d, i) => setTimeout(() => fxRing(app, p.x, p.y, 90, ['var(--ok)', 'var(--accent)', 'var(--decision)'][i], { to: 2.6, dur: 520 }), d));
+    fxSparks(app, p.x, p.y, ['#D9785A', '#3ecf75', '#a78bfa', '#fbbf24', '#38bdf8'], 26, 150); }
+  // vertical gesture on the top card: up = yes, down = no; past the line it "arms" with a light tick
+  const vy = {
+    start() { const c = top(); if (c) { c.classList.add('drag'); c.style.transition = 'none'; this.armed = 0; } },
+    move(dx, dy) { const c = top(); if (!c) return; const d = dy < 0 ? dy : dy * .8;
+      c.style.transform = `translate(${dx * .15}px,${d}px) rotate(${-dy / 60}deg)`; const s = $$('.nd-stamp', c);
+      s[0].style.opacity = clamp(-dy / 120, 0, 1); s[1].style.opacity = clamp(dy / 120, 0, 1);
+      const arm = dy < -110 ? 1 : dy > 110 ? -1 : 0; if (arm && arm !== this.armed) app.hap('light', arm > 0 ? 'armed: ' + c._n.yes : 'armed: ' + c._n.no); this.armed = arm; },
+    end(dx, dy, vx, vyy) { const c = top(); if (!c) return; if (dy < -110 || (vyy < -.6 && dy < -30)) fling(c, true, dy); else if (dy > 110 || (vyy > .6 && dy > 30)) fling(c, false, dy); else { layout(true); app.hap('light', 'back in the stack'); } },
+  };
+  function fling(c, yes, dy = 0) {
+    const n = c._n; if (!app.D.needs.includes(n)) return;
+    const s = $$('.nd-stamp', c); s[yes ? 0 : 1].style.opacity = 1; s[yes ? 1 : 0].style.opacity = 0;
+    const p = app.at(deck); const cy = p.y - 40;
+    c.style.transition = RM ? 'none' : 'transform .24s cubic-bezier(.4,0,.9,.6),opacity .24s'; c.style.pointerEvents = 'none'; c.style.zIndex = 30;
+    c.style.transform = yes ? `translateY(-760px) rotate(-7deg)` : `translateY(${Math.max(dy, 0) + 620}px) rotate(5deg)`; c.style.opacity = yes ? 1 : 0;
+    els.delete(n.id); setTimeout(() => c.remove(), RM ? 0 : 260);
+    fxRing(app, 195, cy, 150, yes ? 'var(--ok)' : 'var(--danger)', { to: 1.7, dur: 300, w: 4 });
+    fxSparks(app, 195, cy, yes ? ['#3ecf75', '#D9785A', '#3ecf75'] : ['#f87171', '#6f6f6f'], yes ? 16 : 9, yes ? 120 : 70);
+    fxWord(app, 195, cy, yes ? (n.kind === 'approval' ? 'approved' : n.yes.toLowerCase()) : (n.kind === 'approval' ? 'rejected' : n.no.toLowerCase()), yes ? 'var(--ok)' : 'var(--danger)');
+    app.hap(yes ? 'click' : 'warn', (yes ? n.yes : n.no) + ': ' + n.title);
+    results.push({ n, yes }); const undo = app.resolve(n, yes);
+    app.toast(yes ? n.ok : n.nok, () => { undo(); });
+  }
+  return {
+    refresh() { layout(true); const un = app.D.chats.reduce((s, c) => s + c.un, 0); const u = $('[data-un]', root); u.textContent = un; u.hidden = !un; },
+    undo(n) { results = results.filter(r => r.n !== n); layout(true); const c = els.get(n.id); if (c) anim(c, [{ transform: 'translateY(-200px)', opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 220, easing: SPRING }); app.hap('light', 'undo'); },
+    init: (layout(false), $('[data-un]', root).textContent = app.D.chats.reduce((s, c) => s + c.un, 0)),
+  };
+};
+
+/* =====================================================================================================================
+   CHATS · A  Rolodex. Same-size, opaque board cards (the /boards .bcard) stacked; neighbours peek above and below.
+   The tick wheel on the right is the web thread's rail (.rail ticks + .rail-tip), made a thumb-sized control.
+   ===================================================================================================================== */
+function chatCardHTML(c, D) {
+  const ags = c.ags.map(id => D.agents[id]); const nd = D.needs.filter(n => n.chat === c.id);
+  const sub = c.dm ? 'direct message' : `${c.ppl.length + 1} people · ${c.ags.length} agent${c.ags.length > 1 ? 's' : ''}`;
+  return `<div class="row bc-top">${c.dm ? av(c.name, 'lg') : bpic(c.name, 'lg')}<div class="grow" style="min-width:0"><h3 class="truncate">${esc(c.name)}</h3><div class="xs faint">${sub}</div></div>
+    ${c.un ? `<span class="bc-unread">${c.un}</span>` : ''}<span class="xs faint">${esc(c.when)}</span></div>
+    <p class="bc-last"><b>${esc(c.last[0])}</b>: ${fmtText(c.last[1], true)}</p>
+    <ul class="ag-list">${ags.slice(0, 3).map(a => `<li class="ag-row">${agr(a, 'sm')}<span class="grow ag-main"><span class="truncate"><span class="ag-name">${esc(handle(a))}</span></span></span><span class="ag-status st-w-${a.st}">${esc(a.what)}</span></li>`).join('')}</ul>
+    <div class="bc-foot">${nd.length ? `<span class="type t-${nd[0].kind}"><span class="dot"></span><span>${nd.length} need${nd.length > 1 ? '' : 's'} you</span></span>` : ''}<span class="grow"></span><span class="avs">${c.ppl.map(p => av(p, 'sm')).join('')}</span></div>`;
+}
+CHATS.A = (app, root) => {
+  root.innerHTML = `<div class="ph-hd"><button class="btn ghost menu" type="button" data-act="drawer" aria-label="Settings">${pebble(24, 22)}</button><h1>Chats</h1><span class="pn-ct" data-ct></span>
+    <div class="right"><button class="btn sm" type="button" data-act="home">‹ Needs you <span class="badge kind t-approval" data-nd style="height:18px"></span></button></div></div>
+    <div class="cstack" data-vy><div class="wheel" data-own aria-label="Chats wheel"></div><div class="rail-tip wtip"></div></div><div class="chats-hint">Drag the wheel · tap a card to open it</div>`;
+  const st = $('.cstack', root), wheel = $('.wheel', st), tip = $('.wtip', st);
+  let cards = [], f = 0, stopT = null, lastC = 0, lastQ = 0, wheelOn = false;
+  const H_ = 244, YC = 348;
+  const G = () => Math.min(46, 520 / Math.max(1, app.D.chats.length - 1));
+  const top0 = () => YC - (app.D.chats.length - 1) * G() / 2;
+  function build() {
+    $$('.chc', st).forEach(c => c.remove()); cards = app.D.chats.map((c, i) => { const el = document.createElement('article'); el.className = 'bcard chc'; el._c = c; el.innerHTML = chatCardHTML(c, app.D);
+      el.addEventListener('click', () => { const fi = Math.round(f); if (i === fi) { app.hap('click', 'open ' + c.name); app.openChat(c.id); } else snap(i); }); st.insertBefore(el, wheel); return el; });
+    const N = cards.length, g = G(), t0 = top0();
+    let h = ''; for (let i = 0; i < N; i++) { h += `<i class="L${app.D.chats[i].un ? ' un' : ''}${app.D.needs.some(n => n.chat === app.D.chats[i].id) ? ' ndk' : ''}" style="top:${t0 + i * g}px"></i>`;
+      if (i < N - 1) for (let k = 1; k < 4; k++) h += `<i style="top:${t0 + (i + k / 4) * g}px"></i>`; }
+    wheel.innerHTML = h + '<span class="thumb"></span>';
+    $('[data-ct]', root).textContent = N; const nd = $('[data-nd]', root); nd.textContent = app.D.needs.length; nd.hidden = !app.D.needs.length;
+    layout();
+  }
+  function pose(r) { const a = Math.abs(r), sg = Math.sign(r); const off = a <= 1 ? 108 * a : 108 + 50 * Math.min(a - 1, 1.4);
+    return { y: YC + sg * off - H_ / 2, s: 1 - .06 * Math.min(a, 2), dim: Math.min(a, 1.6) * .3, z: 100 - Math.round(a * 10), o: a > 2.6 ? 0 : a > 2.1 ? (2.6 - a) / .5 : 1 }; }
+  function layout() {
+    const fi = Math.round(f);
+    cards.forEach((el, i) => { const p = pose(i - f); el.style.transform = `translateY(${p.y}px) scale(${p.s})`; el.style.zIndex = p.z; el.style.opacity = p.o; el.style.setProperty('--dim', p.dim.toFixed(3));
+      el.style.visibility = p.o <= 0 ? 'hidden' : ''; el.classList.toggle('focus', i === fi); });
+    const ty = top0() + f * G(); const th = $('.thumb', wheel); if (th) th.style.top = ty + 'px';
+    $$('i.L', wheel).forEach((t, i) => t.classList.toggle('on', i === fi)); tip.style.top = ty + 'px';
+  }
+  // detents: a light tick per short tick, a firmer one per chat
+  function feel() { const c = clamp(Math.round(f), 0, cards.length - 1), q = Math.round(f * 4);
+    if (c !== lastC) { lastC = c; lastQ = q; app.hap('heavy', 'chat: ' + app.D.chats[c].name); if (wheelOn) showTip(true); }
+    else if (q !== lastQ) { lastQ = q; app.hap('light', 'tick'); } }
+  function setF(v) { f = clamp(v, 0, cards.length - 1); layout(); feel(); }
+  function snap(i) { stopT?.(); i = clamp(i, 0, cards.length - 1); const from = f; stopT = tween(from, i, 230, v => { f = v; layout(); feel(); }, () => { f = i; layout(); }); }
+  function showTip(change) { const c = app.D.chats[Math.round(f)]; tip.innerHTML = `${c.dm ? av(c.name, 'xs') : bpic(c.name, 'xs')}<span class="truncate">${esc(c.name)}</span>${c.un ? `<span class="u">${c.un}</span>` : ''}`;
+    tip.classList.add('on'); if (change) pop(tip); }
+  // the wheel: drag the thumb (or anywhere on the rail); it snaps to each chat with a little magnet
+  wheel.addEventListener('pointerdown', e => { e.preventDefault(); stopT?.(); wheel.setPointerCapture(e.pointerId); wheel.classList.add('drag'); wheelOn = true;
+    const at = e2 => { const y = app.local(e2).y - st.offsetTop, raw = (y - top0()) / G(), near = Math.round(raw); setF(Math.abs(raw - near) < .18 ? near : raw); };
+    at(e); showTip(false); app.hap('click', 'wheel: grab');
+    const mv = e2 => at(e2), up = () => { wheel.releasePointerCapture?.(e.pointerId); wheel.removeEventListener('pointermove', mv); wheel.removeEventListener('pointerup', up); wheel.removeEventListener('pointercancel', up);
+      wheel.classList.remove('drag'); wheelOn = false; snap(Math.round(f)); setTimeout(() => { if (!wheelOn) tip.classList.remove('on'); }, 450); };
+    wheel.addEventListener('pointermove', mv); wheel.addEventListener('pointerup', up); wheel.addEventListener('pointercancel', up); });
+  // or drag the stack itself
+  let f0 = 0;
+  st._vy = { start() { stopT?.(); f0 = f; }, move(dx, dy) { let v = f0 - dy / 108; const N = cards.length - 1; if (v < 0) v = v * .3; if (v > N) v = N + (v - N) * .3; f = v; layout(); feel(); },
+    end(dx, dy, vx, vy) { snap(Math.round(f - vy * 2.2)); } };
+  build();
+  return {
+    refresh() { const id = app.D.chats[Math.round(f)]?.id; build(); },
+    layout, stage(i) { f = i; lastC = i; lastQ = i * 4; layout(); wheelOn = true; wheel.classList.add('drag'); showTip(false); },
+    focusOn(i) { snap(i); },
+  };
+};
+
+/* =====================================================================================================================
+   CHAT · A  The web thread on a phone: .entry rows, agent chips with their rings, the read ring + receipts, and the
+   composer (@ highlighted, / commands, no type picker) with the delivery line.
+   ===================================================================================================================== */
+const HANDLES = D => { const hs = new Set(); for (const a of Object.values(D.agents)) hs.add(handle(a)); ['vedu', 'jxn', 'maya', 'theo'].forEach(p => hs.add(p)); return [...hs].sort((a, b) => b.length - a.length); };
+function fmtText(t, plain) {
+  let h = esc(t);
+  h = h.replace(/@([a-z]+(?:\/[a-z0-9-]+)?)/g, (m, x) => { const ag = x.includes('/'); const me = x === ME; return plain ? `<b>${m}</b>`.replace('<b>', '<span style="color:var(--accent);font-weight:500">').replace('</b>', '</span>') : `<span class="mention${ag ? ' agent' : ''}${me ? ' me' : ''}">${m}</span>`; });
+  return h;
+}
+function taskHTML(t) {
+  const lab = { doing: 'Doing', done: 'Done', open: 'Open' };
+  return `<div class="tk"><span class="tk-st st-${t.st}"><span class="dot"></span>${lab[t.st]}</span><span class="tk-who">for ${esc(t.who)}</span><span class="tk-prog" style="margin-left:auto"><span class="tk-bar"><i style="width:${Math.round(t.done / t.of * 100)}%"></i></span>${t.done}/${t.of}</span>
+    ${t.subs ? `<ul class="tk-subs" style="flex-basis:100%;margin:2px 0 0">${t.subs.map(([x, s]) => `<li class="st-${s}"><span class="tk-st st-${s}"><span class="dot"></span></span><span class="grow">${esc(x)}</span></li>`).join('')}</ul>` : ''}</div>`;
+}
+function rdHTML(m) {
+  const [n, of] = m.rd, C = 2 * Math.PI * 6, all = of > 0 && n === of, fr = of ? n / of : 0;
+  const head = all ? 'Seen by everyone' : n ? `Seen by ${n} of ${of}` : 'Delivered · not seen yet';
+  return `<button class="rd${all ? ' all' : ''}" type="button" aria-label="${head}"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6" class="t"/><circle cx="8" cy="8" r="6" class="p" stroke-dasharray="${(C * fr).toFixed(2)} ${C.toFixed(2)}" transform="rotate(-90 8 8)"/>${all ? '<path d="M5.2 8.2l1.9 1.9 3.7-4" class="ck"/>' : ''}</svg>
+    <span class="rd-pop" role="tooltip"><b>${head}</b>${(m.readers || []).map((w, i) => `<span class="${i < n ? 'y' : 'n'}"><span class="nm">${esc(w)}</span><i>${i < n ? 'seen' : 'not yet'}</i></span>`).join('')}</span></button>`;
+}
+function rcptHTML(r) {
+  if (!r) return ''; const parts = [];
+  if (r.done?.length) parts.push(`<span class="done"><span class="e">✅</span> done by ${esc(r.done.join(' and '))}</span>`);
+  if (r.think?.length) parts.push(`<span class="think"><span class="e">🤔</span> ${esc(r.think.join(' and '))} is on it</span>`);
+  if (r.queued) parts.push(`<span><span class="e">⏳</span> ${esc(r.queued)}</span>`);
+  return parts.length ? `<div class="rx-rcpt">${parts.join('')}</div>` : '';
+}
+function entryHTML(m, D) {
+  if (m.day) return `<div class="day">${esc(m.day)}</div>`;
+  const a = m.ag ? D.agents[m.ag] : null, mine = !a && m.u === ME;
+  const who = a ? `<span class="who">${esc(handle(a))}</span>${m.client ? `<span class="via">${esc(m.client)}</span>` : ''}` : `<span class="who">${esc(m.u)}</span>`;
+  const type = m.type ? `<span class="type t-${m.type}"><span class="dot"></span><span>${m.type}</span></span>` : '';
+  const rc = rcptHTML(m.rcpt);
+  return `<article class="entry${a ? ' by-agent' : ''}${mine ? ' has-rd' : ''}${m.forMe ? ' for-you' : ''}" data-author="${esc(a ? a.user : m.u)}">${a ? agr(a) : av(m.u)}
+    <div class="grow"><div class="meta">${who}${type}<time class="when">${esc(m.when || 'now')}</time></div><div class="body">${fmtText(m.text)}</div>${m.task ? taskHTML(m.task) : ''}
+    <div class="rx${rc ? ' has-rcpt' : ''}">${rc}</div></div>${mine ? rdHTML(m) : ''}</article>`;
+}
+CHAT.A = (app, root) => {
+  root.innerHTML = `<div class="ph-hd ch-hd"><button class="btn ghost back" type="button" data-act="chats" aria-label="Back to Chats">‹</button><span class="ch-pic"></span><div class="ttl"><b></b><span></span></div><div class="right"><span class="avs"></span></div></div>
+    <div class="ch-chips"></div><div class="ph-thread"><div class="thread"></div></div>
+    <form class="card composer ph-cmp" autocomplete="off">
+      <div class="cmp-field"><div class="cmp-mirror" aria-hidden="true"></div><textarea class="input" rows="1" placeholder="Write a message…  @ to mention, / for commands" aria-label="Message" spellcheck="false"></textarea></div>
+      <ul class="mention-menu" role="listbox" hidden></ul>
+      <div class="bar"><button class="btn ghost sm attach" type="button" aria-label="Attach"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M13.5 7.6 8.3 12.8a3.2 3.2 0 0 1-4.5-4.5l5.6-5.6a2.1 2.1 0 0 1 3 3L6.8 11.3a1 1 0 0 1-1.5-1.5l4.9-4.9"/></svg></button><button class="btn ghost sm at-btn" type="button" data-at aria-label="Mention">@</button><span class="dl"></span><button class="btn primary sm" type="submit">Post</button></div>
+    </form>`;
+  const thr = $('.ph-thread', root), list = $('.thread', root), form = $('form', root), ta = $('textarea', form), mir = $('.cmp-mirror', form), menu = $('.mention-menu', form), dl = $('.dl', form);
+  let cid = null, menuItems = [], sel = 0;
+  const C = () => app.D.chats.find(c => c.id === cid);
+  const log = () => (app.D.logs[cid] ||= genLog(C()));
+  function genLog(c) { if (!c) return []; const [w, t] = c.last; const ag = Object.values(app.D.agents).find(a => handle(a) === w);
+    const prev = c.ppl[0] && c.ppl[0] !== w ? [{ u: c.ppl[0], text: c.dm ? 'hey, got a sec?' : 'morning, picking this up again', when: '9:12' }] : [];
+    return [{ day: 'Today' }, ...prev, ag ? { ag: ag.id, client: 'Claude Code', text: t, when: '9:20' } : { u: w, text: t, when: '9:20' }]; }
+  function open(id, quiet) {
+    cid = id; const c = C(); if (!c) return; c.un = 0;
+    $('.ch-pic', root).innerHTML = c.dm ? av(c.name, 'sm') : bpic(c.name, 'sm'); $('.ttl b', root).textContent = c.name;
+    $('.ttl span', root).textContent = c.dm ? 'direct message' : `${c.ppl.length + 1} people · ${c.ags.length} agents`;
+    $('.right .avs', root).innerHTML = c.ppl.map(p => av(p, 'sm')).join('');
+    chips(); render(); ta.value = ''; onInput(); if (!quiet) { app.chats.refresh?.(); app.home.refresh?.(); }
+  }
+  function chips() { const c = C(), tg = target(ta.value); $('.ch-chips', root).innerHTML = c.ags.map(id => { const a = app.D.agents[id];
+    return `<span class="badge${tg && tg.id === id ? ' tgt' : ''}" data-ag="${id}">${agr(a, 'xs')}<span>${esc(handle(a))}</span><span class="s st-w-${a.st}">${esc(a.what)}</span></span>`; }).join(''); }
+  function render() { list.innerHTML = ''; log().forEach(m => { const d = document.createElement('div'); d.innerHTML = entryHTML(m, app.D); const el = d.firstElementChild; m.el = el; list.append(el); }); requestAnimationFrame(() => thr.scrollTop = thr.scrollHeight); fitCmp(); }
+  function patch(m) { if (!m.el || !m.el.isConnected) return; const d = document.createElement('div'); d.innerHTML = entryHTML(m, app.D); const n = d.firstElementChild; m.el.replaceWith(n); m.el = n; }
+  // composer: the web's mirror trick (a transparent textarea over a mirror that draws the chips)
+  function hl(v) { let h = esc(v); const hs = HANDLES(app.D);
+    h = h.replace(/^(\/(?:task|decide|ask))(?=\s|$)/, '<span class="chip cmd">$1</span>');
+    h = h.replace(new RegExp('@(' + hs.map(x => x.replace(/[.*+?^${}()|[\]\\/-]/g, '\\$&')).join('|') + ')(?![\\w/-])', 'g'), (m, x) => `<span class="chip${x.includes('/') ? ' agent' : ''}">${m}</span>`);
+    return h + '​'; }
+  function mentioned(v) { const out = []; const re = /@([a-z]+\/[a-z0-9-]+)/g; let m; while ((m = re.exec(v))) { const a = Object.values(app.D.agents).find(x => handle(x) === m[1]); if (a) out.push(a); } return out; }
+  function lead() { const ags = C().ags.map(id => app.D.agents[id]); return ags.find(a => a.st === 'wait') || ags.find(a => a.st === 'idle') || ags.find(a => a.st === 'live') || ags[0]; }
+  function target(v) { const m = mentioned(v); if (m.length) return m[0]; const p = (v.match(/@(jxn|maya|theo)(?![\w/])/) || [])[1]; if (p) return { person: p }; return lead(); }
+  function fitCmp() { ta.style.height = 'auto'; const h = Math.min(ta.scrollHeight, 110); ta.style.height = h + 'px'; mir.style.height = h + 'px'; root.style.setProperty('--cmp-h', (form.offsetHeight + 40) + 'px'); }
+  function renderDl() { const t = target(ta.value); if (!t) { dl.innerHTML = ''; return; }
+    dl.innerHTML = t.person ? `<span class="pres on"></span><span class="tx"><b>${esc(t.person)}</b> · gets a notification</span>` : `${agDot(t)}<span class="tx"><b>${esc(handle(t))}</b> · ${truth(t)}</span>`;
+    $$('.ch-chips .badge', root).forEach(b => b.classList.toggle('tgt', !t.person && b.dataset.ag === t.id)); }
+  let lastDl = '';
+  function onInput() { const v = ta.value; mir.innerHTML = hl(v); fitCmp(); mir.scrollTop = ta.scrollTop;
+    const pre = v.slice(0, ta.selectionStart ?? v.length); let mm;
+    if ((mm = pre.match(/(^|\s)@([\w\/'-]*)$/))) openMenu('@', mm[2].toLowerCase()); else if ((mm = pre.match(/^\/(\w*)$/))) openMenu('/', mm[1].toLowerCase()); else closeMenu();
+    const before = dl.textContent; renderDl(); if (lastDl && dl.textContent !== before) anim($('.tx', dl), [{ transform: 'translateY(5px)', opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 160, easing: SPRING }); lastDl = dl.textContent; }
+  function openMenu(k, q) {
+    const c = C(); let items = [];
+    if (k === '@') { for (const p of c.ppl) { const mine = c.ags.map(id => app.D.agents[id]).filter(a => a.user === p);
+        if (p.startsWith(q) || mine.some(a => handle(a).startsWith(q) || a.ses.startsWith(q))) { items.push({ ins: '@' + p + ' ', html: `${av(p, 'sm')}<span>${esc(p)}</span><span class="k">person</span>` });
+          mine.forEach(a => items.push({ sub: 1, ins: '@' + handle(a) + ' ', html: `${av(a.user, 'sm', true)}<span>${esc(handle(a))}</span><span class="k st-w-${a.st}">${esc(truth(a).split(',')[0])}</span>` })); } }
+      c.ags.map(id => app.D.agents[id]).filter(a => a.user === ME && (handle(a).startsWith(q) || a.ses.startsWith(q) || !q)).forEach(a => items.push({ ins: '@' + handle(a) + ' ', html: `${av(a.user, 'sm', true)}<span>${esc(handle(a))}</span><span class="k">your agent</span>` })); }
+    else items = [['task', 'make it a task'], ['decide', 'ask the people to decide'], ['ask', 'ask someone a question']].filter(([x]) => x.startsWith(q)).map(([x, d]) => ({ cmd: 1, ins: '/' + x + ' ', html: `<span class="cmdn">/${x}</span><span class="k">${d}</span>` }));
+    if (!items.length) return closeMenu();
+    const was = !menu.hidden, key = k + q; menuItems = items; sel = 0;
+    menu.innerHTML = items.map((it, i) => `<li role="option" class="${it.sub ? 'sub' : ''}" aria-selected="${i === 0}" data-i="${i}">${it.html}</li>`).join('') + `<li class="hint">${k === '@' ? 'Tab or tap to mention · a person’s agents sit under them' : 'Tab or tap · everything else is just a message'}</li>`;
+    menu.hidden = false; if (!was) { anim(menu, [{ transform: 'translateY(8px) scale(.97)', opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 160, easing: SPRING }); app.hap('light', k === '@' ? 'mention menu' : 'commands'); } }
+  function closeMenu() { menu.hidden = true; menuItems = []; }
+  function pick(i) { const it = menuItems[i]; if (!it) return; const v = ta.value, pos = ta.selectionStart ?? v.length, pre = v.slice(0, pos);
+    const cut = it.cmd ? '' : pre.replace(/@[\w\/'-]*$/, ''); ta.value = cut + it.ins + v.slice(pos); const np = (cut + it.ins).length; ta.setSelectionRange(np, np);
+    closeMenu(); onInput(); ta.focus({ preventScroll: true }); app.hap('click', it.cmd ? 'command' : 'mention'); const ch = $$('.chip', mir).pop(); if (ch) pop(ch); }
+  menu.addEventListener('pointerdown', e => e.preventDefault());
+  menu.addEventListener('click', e => { const li = e.target.closest('li[data-i]'); if (li) pick(+li.dataset.i); });
+  ta.addEventListener('input', onInput); ta.addEventListener('scroll', () => mir.scrollTop = ta.scrollTop);
+  ta.addEventListener('keydown', e => {
+    if (!menu.hidden && menuItems.length) { if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); sel = (sel + (e.key === 'ArrowDown' ? 1 : -1) + menuItems.length) % menuItems.length; $$('li[data-i]', menu).forEach((l, i) => l.setAttribute('aria-selected', String(i === sel))); return; }
+      if (e.key === 'Tab' || e.key === 'Enter') { e.preventDefault(); pick(sel); return; } if (e.key === 'Escape') { closeMenu(); return; } }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
+  $('[data-at]', form).addEventListener('click', () => { const v = ta.value; ta.value = v + (v && !v.endsWith(' ') ? ' @' : '@'); ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); onInput(); });
+  form.addEventListener('submit', e => { e.preventDefault(); send(); });
+  root.addEventListener('click', e => { const b = e.target.closest('.ch-chips .badge'); if (b) { mention(handle(app.D.agents[b.dataset.ag])); return; }
+    const a = e.target.closest('.entry>.av,.entry>.agr'); if (a) { const en = a.closest('.entry'); const ag = a.dataset.agr; app.hcard(ag ? { agent: ag } : { user: en.dataset.author }); } });
+  function mention(h) { const v = ta.value.replace(/\s*$/, ''); ta.value = (v ? v + ' ' : '') + '@' + h + ' '; ta.focus({ preventScroll: true }); ta.setSelectionRange(ta.value.length, ta.value.length); onInput(); app.hap('click', 'mention ' + h); const ch = $$('.chip', mir).pop(); if (ch) pop(ch); }
+  /* send: optimistic (pending → posted), then the read ring fills, 🤔 on it, the reply lands and the receipt turns ✅ */
+  function send(raw = ta.value, stage) {
+    let text = raw.trim(); if (!text) return; const c = C(), tg = target(text); let type = null;
+    const cm = text.match(/^\/(task|decide|ask)\b\s*/); if (cm) { type = { task: 'task', decide: 'decision', ask: 'question' }[cm[1]]; text = text.slice(cm[0].length) || 'untitled'; }
+    const other = c.ppl.find(p => !tg.person || p !== tg.person);
+    const readers = tg.person ? [tg.person] : [handle(tg), ...(other ? [other] : [])];
+    const m = { u: ME, text, type, when: 'now', rd: [0, readers.length], readers, rcpt: {} };
+    if (type === 'task' && !tg.person) m.task = { st: 'open', who: handle(tg), done: 0, of: 1 };
+    log().push(m); const d = document.createElement('div'); d.innerHTML = entryHTML(m, app.D); m.el = d.firstElementChild; m.el.classList.add('pending'); list.append(m.el);
+    if (!stage) { ta.value = ''; onInput(); }
+    anim(m.el, [{ transform: 'translateY(14px) scale(.97)', opacity: 0 }, { transform: 'none', opacity: .6 }], { duration: 200, easing: SPRING });
+    thr.scrollTo({ top: thr.scrollHeight, behavior: RM ? 'auto' : 'smooth' });
+    c.last = [ME, raw.trim()]; c.when = 'now';
+    if (stage) return m;
+    app.hap('click', 'sent');
+    const T = [], at = (ms, fn) => T.push(setTimeout(fn, ms));
+    at(170, () => { m.el?.classList.remove('pending'); });
+    if (tg.person) { at(900, () => { m.rd = [1, 1]; patch(m); app.hap('light', tg.person + ' read it'); }); app.chats.refresh?.(); return; }
+    const a = tg; if (a.st === 'gone') { at(400, () => { m.rcpt = { queued: `queued for ${handle(a)} · gets it when it’s back` }; patch(m); app.hap('light', 'queued'); }); app.chats.refresh?.(); return; }
+    const busy = a.st === 'live', tRead = busy ? 1700 : 520, keep = { st: a.st, what: a.what };
+    at(tRead, () => { m.rd = [1, readers.length]; patch(m); app.hap('light', handle(a) + ' read it'); });
+    if (readers.length > 1) at(tRead + 420, () => { m.rd = [2, readers.length]; patch(m); app.hap('light', 'everyone read it'); });
+    at(tRead + 650, () => { m.rcpt = { think: [handle(a)] }; patch(m); a.st = 'live'; a.what = 'on your message'; chips(); renderDl(); app.hap('double', '🤔 ' + handle(a) + ' is on it'); });
+    at(tRead + 2100, () => { const r = { ag: a.id, client: 'Claude Code', text: replyFor(keep, raw), when: 'now', landed: true }; if (m.task) { m.task = { ...m.task, st: 'doing' }; }
+      m.rcpt = { done: [handle(a)] }; Object.assign(a, keep.st === 'wait' ? { st: 'idle', what: 'idle' } : keep); patch(m); log().push(r); c.last = [handle(a), r.text]; c.when = 'now';
+      if (cid === c.id) { const d2 = document.createElement('div'); d2.innerHTML = entryHTML(r, app.D); r.el = d2.firstElementChild; r.el.classList.add('landed'); list.append(r.el);
+        anim(r.el, [{ transform: 'translateY(16px) scale(.97)', opacity: 0 }, { transform: 'translateY(-2px) scale(1.01)', opacity: 1, offset: .7 }, { transform: 'none', opacity: 1 }], { duration: 240, easing: 'ease-out' });
+        thr.scrollTo({ top: thr.scrollHeight, behavior: RM ? 'auto' : 'smooth' });
+        setTimeout(() => { const ring = r.el && $('.agr', r.el); if (ring) { const p = app.at(ring); fxRing(app, p.x, p.y, 34, 'var(--ok)', { to: 1.9, dur: 320, w: 2 }); } const rc = m.el && $('.rx-rcpt .e', m.el); if (rc) pop(rc); }, 60); }
+      chips(); renderDl(); app.chats.refresh?.(); app.hap('success', '✅ ' + handle(a) + ' replied'); });
+    app.chats.refresh?.();
+  }
+  function replyFor(a, t) { const body = t.replace(/@[\w\/'-]+\s*/g, '').trim();
+    if (/^\/task/.test(t)) return `Claimed: “${body.replace(/^\/task\s*/, '') || 'untitled'}”. I’ll tick it as I go.`;
+    if (/^\/decide/.test(t)) return `Decision opened: “${body.replace(/^\/decide\s*/, '')}”. It’s in everyone’s Needs you.`;
+    if (/migrat|0042/i.test(t)) return 'Holding 0042 until build 43 is green, then I’ll run it and post the result here.';
+    if (/status|how/i.test(t)) return a.st === 'live' ? `Still ${a.what}: 15 of 16 green, the last share-sheet test is retrying. About 4 min.` : a.st === 'wait' ? `Waiting on you: ${a.what === 'waiting on you' ? 'the approval on top of your Needs you' : a.what}. Everything else is done.` : 'Free right now. Give me something to do.';
+    if (/notes|copy/i.test(t)) return 'Pulled the release notes from landing into the 1.5 draft.';
+    if (/ship|deploy/i.test(t)) return 'Shipping after the last check. I’ll ask here before prod.';
+    return 'On it.'; }
+  return {
+    open, mention, refresh() { if (!cid) return; chips(); renderDl(); }, seen() { const c = C(); if (c && c.un) { c.un = 0; app.chats.refresh?.(); app.home.refresh?.(); } },
+    stage() { // a finished exchange, a draft with a highlighted mention, and the delivery line for it
+      const m = send('@jxn/scout hold 0042 until build 43 is green', true); m.el.classList.remove('pending'); m.rd = [2, 2]; m.rcpt = { done: ['jxn/scout'] }; patch(m);
+      const r = { ag: 'sc', client: 'Claude Code', text: 'Holding 0042 until build 43 is green, then I’ll run it and post the result here.', when: 'now' }; log().push(r);
+      const d2 = document.createElement('div'); d2.innerHTML = entryHTML(r, app.D); r.el = d2.firstElementChild; list.append(r.el);
+      ta.value = '@maya/reviewer can you check the 1.5 notes before Friday?'; onInput(); closeMenu(); requestAnimationFrame(() => thr.scrollTop = thr.scrollHeight); },
+  };
+};
+
+/* =====================================================================================================================
+   The page: sections of phones, a global theme, haptics and motion switch
+   ===================================================================================================================== */
+const SECS = [
+  { id: 'home', n: '01', title: 'Home · Needs you', desc: 'One card on top, most important first (approvals, then decisions, invites, asks), each kind in its web type colour. The card is the web’s approval card: what will run, why it blocks, who’s asking, and the two buttons.',
+    slots: [{ k: 'A', name: 'Stacked deck', why: 'The /approvals card, one at a time, with the rest stacked behind. Flick up to approve, down to reject (sideways stays the panel swipe); it flies off, the next springs up, Undo in the toast.', cfg: { home: 'A', start: 0 } }] },
+  { id: 'chats', n: '02', title: 'Chats + tick wheel', desc: 'Every chat as a same-size, opaque /boards card, newest first: latest line, agent states with their rings, unread. The wheel on the right is the thread rail from the web: a long tick per chat, short ticks between, the name in a rail tip while you drag.',
+    slots: [{ k: 'A', name: 'Rolodex', why: 'The focused card sits in the middle with its neighbours tucked above and below. Drag the wheel or the stack: a light tick per notch, a firmer one per chat, and it snaps to each card. Tap to open.', cfg: { chats: 'A', start: 1 } }] },
+  { id: 'chat', n: '03', title: 'Chat', desc: 'The web thread on a phone: entry rows, agent chips with their rings, the read ring and the 🤔 / ✅ receipt line, and the composer with @ chips, / commands (no type picker) and the delivery line.',
+    slots: [{ k: 'A', name: 'Thread + agent chips', why: 'The web board as is, plus a row of agent chips under the title so you see who’s working before you write. Tap a chip to @ it; the delivery line says when it will see your message.', cfg: { chat: 'A', start: 2, open: 'annex' } }] },
+  { id: 'drawer', n: '04', title: 'Settings drawer', desc: 'Swipe in from the left edge on any panel. It’s the web’s mobile sidebar with Account → Display (text size, density, theme), haptics, and the headless-agents switch from your profile.',
+    slots: [{ k: 'A', name: 'Edge drawer', why: 'Opens over whatever panel you’re on, follows your finger, and closes with a swipe back or a tap outside. Changes apply live to that phone.', cfg: { start: 0, drawer: true } }], map: true },
+];
+function setTheme(t, pref) { H.dataset.theme = t; const r = $('#pgt-' + t); if (r) r.checked = true; $$('.phone').forEach(p => p._app?.syncTheme(pref)); const m = $('meta[name=theme-color]'); }
+function buildPage() {
+  const only = Q.get('only'); if (only) { $('.pg-top').style.display = 'none'; $('#pgNav').style.display = 'none'; }
+  $('#pgPb').innerHTML = pebble(30, 27);
+  $('#pgNav').innerHTML = SECS.map(s => `<a href="#s-${s.id}">${s.n} ${esc(s.title)}</a>`).join('');
+  const host = $('#secs'); host.innerHTML = ''; UID = 0;
+  for (const s of SECS) { if (only && only !== s.id) continue;
+    const sec = document.createElement('section'); sec.className = 'sec'; sec.id = 's-' + s.id;
+    sec.innerHTML = `<div class="sec-h"><span class="n">${s.n}</span><h2>${esc(s.title)}</h2><p>${esc(s.desc)}</p></div><div class="slots"></div>`; host.append(sec);
+    for (const sl of s.slots) { const el = document.createElement('div'); el.className = 'slot';
+      el.innerHTML = `<div class="cap"><b>${esc(s.title.split(' ')[0])} · ${sl.k}</b><span>${esc(sl.name)}</span></div><p class="why">${esc(sl.why)}</p><div class="device"></div><div class="hud"><span class="bars"></span><span class="lb">haptics</span><span class="hk"></span></div>`;
+      $('.slots', sec).append(el); const app = new Phone(el, sl.cfg); el._app = app;
+      if (sl.cfg.drawer) { app.drawerEnd(1, 1); }
+      if (SHOT) { if (s.id === 'chats') app.chats.stage?.(3); if (s.id === 'chat') app.chat.stage?.(); }
+    }
+    if (s.map) { const m = document.createElement('div'); m.className = 'map';
+      m.innerHTML = `<div class="mp"><div class="dr">Settings<small>edge drawer</small></div><div>Needs you<small>Home</small></div><div>Chats<small>wheel</small></div><div>Chat<small>thread</small></div></div>
+        <table><tr><td>Swipe in from the left edge</td><td>Settings, on any panel</td></tr><tr><td>Swipe left / right</td><td>Home ⇄ Chats ⇄ Chat</td></tr><tr><td>Flick a card up / down</td><td>approve / reject (Home)</td></tr><tr><td>Drag the wheel</td><td>scrub chats: light tick per notch, firm one per chat</td></tr><tr><td>Tap a chat</td><td>opens it in the Chat panel</td></tr><tr><td>Tap an avatar</td><td>the profile card (the web’s hover card)</td></tr></table>`;
+      $('.slots', sec).append(m); }
+  }
+}
+// page controls
+$$('input[name=pgtheme]').forEach(r => r.addEventListener('change', () => setTheme(r.value)));
+$$('input[name=pghap]').forEach(r => r.addEventListener('change', () => { HAP_ON = r.value === 'on'; }));
+$$('input[name=pgmo]').forEach(r => r.addEventListener('change', () => { RM = r.value === 'reduce'; H.classList.toggle('rm', RM); }));
+$('#pgReset').addEventListener('click', buildPage);
+if (RM) { H.classList.add('rm'); $('#pgm-rm').checked = true; }
+setTheme(Q.get('theme') || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'));
+buildPage();
+addEventListener('keydown', e => { if (e.key === 'Escape') $$('.phone').forEach(p => { const a = p._app; if (a.drawerP) a.drawerEnd(0, -1); a.hcard(null); }); });
+</script>
+</body>
+</html>
