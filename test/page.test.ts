@@ -116,6 +116,18 @@ describe("change card links (vedu #1097)", () => {
   });
 });
 
+describe("markdown tables", () => {
+  it("renders a header row, alignment and body rows; a lone | line stays text", async () => {
+    const { renderText } = await import("../src/ui");
+    const html = renderText("Status\n\n| | Change | When |\n|---|---|--:|\n| `28ce59c` | **emoji** | 36 min |\n| `967ab7f` | receipts | 42 min |");
+    expect(html).toContain('<div class="md-tw"><table class="md-t"><thead><tr><th></th><th>Change</th><th style="text-align:right">When</th></tr></thead>');
+    expect(html).toContain("<td><code>28ce59c</code></td><td><strong>emoji</strong></td>");
+    expect(html.match(/<tr>/g)?.length).toBe(3);
+    expect(renderText("a | b |")).not.toContain("<table");
+    expect(renderText("| just a pipe line |")).not.toContain("<table");
+  });
+});
+
 describe("post titles", () => {
   it("cleanTitle keeps one short line", async () => {
     const { cleanTitle } = await import("../src/util");

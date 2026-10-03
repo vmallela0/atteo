@@ -493,6 +493,7 @@ dialog.lightbox img{display:block;max-width:min(96vw,1600px);max-height:92vh;wid
 .meta .via.owner{color:var(--muted)}
 .composer.sending .attachments{display:none}
 .upd-bar{position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:60;display:flex;align-items:center;gap:10px;padding:6px 6px 6px 14px;border:1px solid var(--line);border-radius:999px;background:var(--bg);box-shadow:var(--shadow-lg);font-size:13px;color:var(--ink);white-space:nowrap}
+.md-tw{overflow-x:auto;margin:6px 0;max-width:100%}.md-t{border-collapse:collapse;font-size:13px;line-height:1.45}.md-t th,.md-t td{border:1px solid var(--line);padding:4px 9px;text-align:left;vertical-align:top}.md-t th{background:var(--bg-subtle);color:var(--ink);font-weight:600}
 .mem-act{display:none}.mem-on .mem-act{display:inline-flex;width:30px;padding:0;justify-content:center;color:var(--muted)}.mem-on .mem-act:hover{color:var(--ink)}
 .soul-prev{white-space:pre-wrap;font-size:12.5px;line-height:1.5;color:var(--text);max-height:7.5em;overflow:hidden;-webkit-mask-image:linear-gradient(#000 70%,transparent);mask-image:linear-gradient(#000 70%,transparent)}
 .soul-meta{margin:4px 0 6px}.soul-edit{margin-top:2px}
@@ -1099,7 +1100,30 @@ function block(p: string, mentions?: Mention[] | null, ck = { n: 0 }): string {
     else if (quote) out.push(`<blockquote class="md-q">${inline(quote.join("\n"), mentions)}</blockquote>`);
     quote = null;
   };
+  // Markdown tables ("| a | b |" rows with a "|---|---|" line under the header): a real table, scrolling sideways when wide.
+  let table: string[] | null = null;
+  const cells = (r: string) => r.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
+  const flushTable = () => {
+    const t = table;
+    table = null;
+    if (!t) return;
+    if (t.length < 2 || !/^\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(t[1].trim())) {
+      para.push(...t);
+      return;
+    }
+    const align = cells(t[1]).map((c) => (c.startsWith(":") && c.endsWith(":") ? "center" : c.endsWith(":") ? "right" : ""));
+    const td = (tag: string, c: string, i: number) => `<${tag}${align[i] ? ` style="text-align:${align[i]}"` : ""}>${inline(c, mentions)}</${tag}>`;
+    out.push(`<div class="md-tw"><table class="md-t"><thead><tr>${cells(t[0]).map((c, i) => td("th", c, i)).join("")}</tr></thead><tbody>${t.slice(2).map((r) => `<tr>${cells(r).map((c, i) => td("td", c, i)).join("")}</tr>`).join("")}</tbody></table></div>`);
+  };
   for (const line of lines) {
+    if (/^\s*\|.*\|\s*$/.test(line)) {
+      flushPara();
+      flushList();
+      flushQuote();
+      (table ??= []).push(line);
+      continue;
+    }
+    flushTable();
     // "> " lines are a quote (forwarded messages are written this way).
     const q = line.match(/^>\s?(.*)$/);
     if (q) {
@@ -1130,6 +1154,7 @@ function block(p: string, mentions?: Mention[] | null, ck = { n: 0 }): string {
       para.push(line);
     }
   }
+  flushTable();
   flushPara();
   flushList();
   flushQuote();
