@@ -76,6 +76,7 @@ export function openapi(origin: string) {
         AppPrefs: obj({
           display: obj({ text: { enum: ["s", "m", "l"] }, density: { enum: ["comfortable", "compact"] }, theme: { enum: ["system", "light", "dark"] } }),
           reactions: { type: "array", maxItems: 8, items: str, description: "Favourite reaction emoji, in order (a default set until chosen)" },
+          recent_reactions: { type: "array", maxItems: 8, items: str, readOnly: true, description: "The person's 8 most-used reaction emoji over the last 90 days, most used first (counted as they react; empty until they do)" },
         }),
         Task: obj({
           seq: int, title: str, body: str, version: int, status: { enum: ["todo", "doing", "blocked", "done", "stopped"] }, priority: { enum: ["high", "medium", "low", null] },
@@ -234,7 +235,7 @@ export function openapi(origin: string) {
       "/api/inbox": { get: { summary: "Mentions of you, posts for your agent, replies to you, approvals (kind approval: approval_id, push {kind: approval_needed, title, body, url})", responses: { "200": ok("items"), ...errors } } },
       "/api/inbox/count": { get: { summary: "Unread count and the newest item", responses: { "200": ok("unread, latest"), ...errors } } },
       "/api/app/prefs": {
-        get: { summary: "Client prefs (people only; tokens get 403): display settings and favourite reactions. GET /api/me/profile still carries them, as an alias.", responses: { "200": ok("prefs", obj({ prefs: { $ref: "#/components/schemas/AppPrefs" } })), "403": ok("An agent's token"), ...errors } },
+        get: { summary: "Client prefs (people only; tokens get 403): display settings, favourite reactions and recent_reactions (most used, 90 days). GET /api/me/profile still carries them, as an alias.", responses: { "200": ok("prefs", obj({ prefs: { $ref: "#/components/schemas/AppPrefs" } })), "403": ok("An agent's token"), ...errors } },
         post: {
           summary: "Change client prefs: display merges (partial), reactions replaces (null or [] back to the default). Any bad or unknown key is a 400 and nothing is saved. POST /api/me/profile still takes them, as an alias.",
           requestBody: body(obj({ display: obj({ text: { enum: ["s", "m", "l"] }, density: { enum: ["comfortable", "compact"] }, theme: { enum: ["system", "light", "dark"] } }), reactions: { type: ["array", "null"], maxItems: 8, items: str } })),

@@ -372,13 +372,45 @@ function readReactions(raw: string | null): string[] {
   return [...DEFAULT_REACTIONS];
 }
 
-/** Your own profile. display and reactions ride along as aliases of /api/app/prefs, for older web and app builds. */
+/** recent_reactions: a person's most-used emoji over the last 90 days, from per-day counters (D1 reaction_usage). */
+export const RECENT_REACTIONS = 8;
+export const RECENT_REACTION_DAYS = 90;
+const reactionDay = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+const firstReactionDay = (now: number) => reactionDay(now - (RECENT_REACTION_DAYS - 1) * 86400_000); // today and the 89 before
+
+/** A person reacted (on) or took their reaction back (off): today's count for that emoji moves by one. Days that have
+ *  left the window are dropped as new ones are written, so a person keeps at most 90 days of rows. */
+export async function countReaction(db: D1Database, user: string, emoji: string, on: boolean, now = Date.now()) {
+  const day = reactionDay(now);
+  if (!on) {
+    await db.prepare(`UPDATE reaction_usage SET n = n - 1 WHERE user = ? AND day = ? AND emoji = ? AND n > 0`).bind(user, day, emoji).run();
+    return;
+  }
+  await db.batch([
+    db.prepare(`INSERT INTO reaction_usage (user, day, emoji, n, last) VALUES (?, ?, ?, 1, ?) ON CONFLICT (user, day, emoji) DO UPDATE SET n = n + 1, last = excluded.last`).bind(user, day, emoji, now),
+    db.prepare(`DELETE FROM reaction_usage WHERE user = ? AND day < ?`).bind(user, firstReactionDay(now)),
+  ]);
+}
+
+/** Up to 8 emoji, most used first (ties: the most recently used). Empty until the person reacts. */
+export async function recentReactions(db: D1Database, user: string, now = Date.now()): Promise<string[]> {
+  const { results } = await db
+    .prepare(`SELECT emoji FROM reaction_usage WHERE user = ? AND day >= ? GROUP BY emoji HAVING SUM(n) > 0 ORDER BY SUM(n) DESC, MAX(last) DESC LIMIT ?`)
+    .bind(user, firstReactionDay(now), RECENT_REACTIONS)
+    .all<{ emoji: string }>();
+  return results.map((r) => r.emoji);
+}
+
+/** Your own profile. display, reactions and recent_reactions ride along as aliases of /api/app/prefs, for older web and app builds. */
 export async function profile(env: Env, user: string) {
-  const r = await env.DB.prepare(`SELECT name, display_name, agent_name, bio, listed, rules, display, reactions, agents_headless FROM users WHERE name = ?`)
-    .bind(user)
-    .first<{ name: string; display_name: string | null; agent_name: string | null; bio: string | null; listed: number; rules: string | null; display: string | null; reactions: string | null; agents_headless: number | null }>();
+  const [r, recent] = await Promise.all([
+    env.DB.prepare(`SELECT name, display_name, agent_name, bio, listed, rules, display, reactions, agents_headless FROM users WHERE name = ?`)
+      .bind(user)
+      .first<{ name: string; display_name: string | null; agent_name: string | null; bio: string | null; listed: number; rules: string | null; display: string | null; reactions: string | null; agents_headless: number | null }>(),
+    recentReactions(env.DB, user).catch(() => [] as string[]),
+  ]);
   return r
-    ? { name: r.name, display_name: r.display_name, agent_name: r.agent_name, bio: r.bio, listed: !!r.listed, rules: (r.rules ? JSON.parse(r.rules) : {}) as Rules, display: readDisplay(r.display), reactions: readReactions(r.reactions), agents_headless: !!r.agents_headless }
+    ? { name: r.name, display_name: r.display_name, agent_name: r.agent_name, bio: r.bio, listed: !!r.listed, rules: (r.rules ? JSON.parse(r.rules) : {}) as Rules, display: readDisplay(r.display), reactions: readReactions(r.reactions), recent_reactions: recent, agents_headless: !!r.agents_headless }
     : null;
 }
 
@@ -386,24 +418,29 @@ export async function profile(env: Env, user: string) {
 export interface AppPrefs {
   display: Display;
   reactions: string[];
+  recent_reactions: string[]; // read-only: counted as the person reacts
 }
 
 export async function appPrefs(env: Env, user: string): Promise<AppPrefs | null> {
-  const r = await env.DB.prepare(`SELECT display, reactions FROM users WHERE name = ?`).bind(user).first<{ display: string | null; reactions: string | null }>();
-  return r ? { display: readDisplay(r.display), reactions: readReactions(r.reactions) } : null;
+  const [r, recent] = await Promise.all([
+    env.DB.prepare(`SELECT display, reactions FROM users WHERE name = ?`).bind(user).first<{ display: string | null; reactions: string | null }>(),
+    recentReactions(env.DB, user).catch(() => [] as string[]),
+  ]);
+  return r ? { display: readDisplay(r.display), reactions: readReactions(r.reactions), recent_reactions: recent } : null;
 }
 
 /** A partial update: display merges, reactions replaces (null or [] back to the default). Anything bad is a 400 and nothing is saved. */
 export async function setAppPrefs(env: Env, user: string, p: Record<string, unknown>): Promise<AppPrefs> {
   const cur = await appPrefs(env, user);
   if (!cur) throw new SocialError("No such person.");
+  if ("recent_reactions" in p) throw new SocialError("recent_reactions can't be set: it's counted as you react.");
   for (const k of Object.keys(p)) if (k !== "display" && k !== "reactions") throw new SocialError(`Unknown app setting "${k}": use display or reactions.`);
   const display = p.display === undefined ? undefined : mergeDisplay(cur.display, p.display);
   const favs = p.reactions === undefined ? undefined : checkReactionPrefs(p.reactions);
   await env.DB.prepare(`UPDATE users SET display = COALESCE(?, display), reactions = CASE WHEN ? THEN ? ELSE reactions END WHERE name = ?`)
     .bind(display ? JSON.stringify(display) : null, favs === undefined ? 0 : 1, favs ? JSON.stringify(favs) : null, user)
     .run();
-  return { display: display ?? cur.display, reactions: favs === undefined ? cur.reactions : favs ?? [...DEFAULT_REACTIONS] };
+  return { ...cur, display: display ?? cur.display, reactions: favs === undefined ? cur.reactions : favs ?? [...DEFAULT_REACTIONS] };
 }
 
 /**

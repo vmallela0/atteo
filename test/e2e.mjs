@@ -2388,13 +2388,13 @@ await step("app prefs: /api/app/prefs holds display + favourite reactions for pe
   const prefs = async (h = W) => (await (await as(h, "GET", "/api/app/prefs")).json()).prefs;
   const profile = async () => (await (await as(W, "GET", "/api/me/profile")).json()).profile;
   // Defaults; signed out 401; an agent's token 403 (client prefs aren't part of the network).
-  assert(JSON.stringify(await prefs()) === JSON.stringify({ display: { text: "m", density: "comfortable", theme: "system" }, reactions: DEF }), "defaults: " + JSON.stringify(await prefs()));
+  assert(JSON.stringify(await prefs()) === JSON.stringify({ display: { text: "m", density: "comfortable", theme: "system" }, reactions: DEF, recent_reactions: [] }), "defaults: " + JSON.stringify(await prefs()));
   assert((await fetch(`${BASE}/api/app/prefs`)).status === 401, "signed out: 401");
   assert((await as(AG, "GET", "/api/app/prefs")).status === 403 && (await as(AG, "POST", "/api/app/prefs", { display: { theme: "dark" } })).status === 403, "agent token: 403");
   assert((await prefs()).display.theme === "system", "the agent's 403 saved nothing");
   // Web: display merges, reactions replace; the app token sees the same.
   let r = await (await as(W, "POST", "/api/app/prefs", { display: { theme: "dark" }, reactions: ["🚀", "👀"] })).json();
-  assert(r.ok && JSON.stringify(r.prefs) === JSON.stringify({ display: { text: "m", density: "comfortable", theme: "dark" }, reactions: ["🚀", "👀"] }), "set: " + JSON.stringify(r));
+  assert(r.ok && JSON.stringify(r.prefs) === JSON.stringify({ display: { text: "m", density: "comfortable", theme: "dark" }, reactions: ["🚀", "👀"], recent_reactions: [] }), "set: " + JSON.stringify(r));
   r = await (await as(APP, "POST", "/api/app/prefs", { display: { text: "l" } })).json();
   assert(r.ok && r.prefs.display.theme === "dark" && r.prefs.display.text === "l" && r.prefs.reactions.length === 2, "app token, partial: " + JSON.stringify(r));
   assert(JSON.stringify(await prefs(APP)) === JSON.stringify(await prefs()), "web and app agree");
@@ -2409,7 +2409,7 @@ await step("app prefs: /api/app/prefs holds display + favourite reactions for pe
   let p = await profile();
   assert(JSON.stringify(p.display) === JSON.stringify(kept.display) && JSON.stringify(p.reactions) === JSON.stringify(kept.reactions), "old GET: " + JSON.stringify(p));
   await as(W, "POST", "/api/me/profile", { display: { density: "compact" }, reactions: ["🎯"] });
-  assert(JSON.stringify(await prefs()) === JSON.stringify({ display: { text: "l", density: "compact", theme: "dark" }, reactions: ["🎯"] }), "old POST lands: " + JSON.stringify(await prefs()));
+  assert(JSON.stringify(await prefs()) === JSON.stringify({ display: { text: "l", density: "compact", theme: "dark" }, reactions: ["🎯"], recent_reactions: [] }), "old POST lands: " + JSON.stringify(await prefs()));
   assert((await (await as(AG, "GET", "/api/me/profile")).json()).profile.reactions[0] === "🎯", "the old path still answers tokens");
   // Clearing returns the default; other profile saves leave prefs alone.
   await as(W, "POST", "/api/me/profile", { bio: `prefs ${run}` });
@@ -2426,6 +2426,52 @@ await step("app prefs: /api/app/prefs holds display + favourite reactions for pe
   assert(!JSON.stringify(await (await as(AG, "GET", "/api/me")).json()).includes("🦄"), "/api/me carries no client prefs");
   const spec = await (await fetch(`${BASE}/openapi.json`)).json();
   assert(spec.paths["/api/app/prefs"]?.get && spec.paths["/api/app/prefs"]?.post && spec.paths["/api/app/tts"]?.post, "openapi lists the app namespace");
+});
+
+await step("recent_reactions: a person's most-used emoji, counted as they react (not their agents), next to reactions, private", async () => {
+  const P = `e2e-rr-${run}`;
+  await ops("users", { name: P, email: `${P}@example.com`, verified: "true" });
+  tok[P] = (await ops("tokens", { user: P })).body.token;
+  cookie[P] = (await ops("sessions", { user: P })).body.cookie;
+  await ops("members", { board, user: P });
+  const recent = async () => (await (await web("/api/me/profile", P)).json()).profile.recent_reactions;
+  assert(JSON.stringify(await recent()) === "[]", "empty at first");
+  const seqs = [];
+  await ok(A, board, "read");
+  for (let i = 0; i < 3; i++) seqs.push(seqOf(await ok(A, board, "post", { type: "note", text: `rr ${i} ${run}` })));
+  const react = (seq, emoji) => web(`/api/boards/${board}/entries/${seq}/react`, P, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ emoji }) });
+  for (const s of seqs) await react(s, "🚀");
+  await react(seqs[0], "🐙");
+  await react(seqs[1], "🐙");
+  await react(seqs[0], "🦄");
+  await react(seqs[0], "🍕");
+  await react(seqs[0], "🍕"); // taken back: uncounted
+  // Counted in the background (waitUntil): poll briefly.
+  let r = [];
+  for (let i = 0; i < 20 && JSON.stringify(r) !== JSON.stringify(["🚀", "🐙", "🦄"]); i++) {
+    r = await recent();
+    await new Promise((res) => setTimeout(res, 100));
+  }
+  assert(JSON.stringify(r) === JSON.stringify(["🚀", "🐙", "🦄"]), `most used first: ${JSON.stringify(r)}`);
+  // Their agent's reactions aren't the person's picks.
+  await ok(P, board, "read");
+  for (const s of seqs) await ok(P, board, "react", { seq: s, emoji: "🤖" });
+  const me = (await (await web("/api/me/profile", P)).json()).profile;
+  assert(!me.recent_reactions.includes("🤖"), `agent reactions not counted: ${JSON.stringify(me.recent_reactions)}`);
+  assert(Array.isArray(me.reactions) && me.reactions.length === 8, "favourites still there beside it");
+  // Saving the profile returns it too; nobody else sees it.
+  const saved = await (await web("/api/me/profile", P, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ bio: "rr" }) })).json();
+  assert(JSON.stringify(saved.profile.recent_reactions) === JSON.stringify(["🚀", "🐙", "🦄"]), "on save: " + JSON.stringify(saved));
+  // The client namespace carries it beside reactions; it's read-only there.
+  const prefs = await (await web("/api/app/prefs", P)).json();
+  assert(JSON.stringify(prefs.prefs.recent_reactions) === JSON.stringify(["🚀", "🐙", "🦄"]) && prefs.prefs.reactions.length === 8, "app prefs: " + JSON.stringify(prefs));
+  const set = await web("/api/app/prefs", P, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ recent_reactions: ["🐢"] }) });
+  assert(set.status === 400, `recent_reactions can't be set: ${set.status}`);
+  const saved2 = await (await web("/api/app/prefs", P, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ reactions: ["🐢"] }) })).json();
+  assert(JSON.stringify(saved2.prefs) === JSON.stringify({ ...prefs.prefs, reactions: ["🐢"] }), "app prefs save returns it: " + JSON.stringify(saved2));
+  assert((await fetch(`${BASE}/api/app/prefs`, { headers: { authorization: `Bearer ${tok[P]}` } })).status === 403, "agents' tokens don't get it");
+  const card = await (await web(`/api/people/${P}`, B)).json();
+  assert(!JSON.stringify(card).includes("🐙"), "person card leaks recent_reactions");
 });
 
 await step("retention: owners set how long a board keeps messages; older ones are blanked, threads stay", async () => {
