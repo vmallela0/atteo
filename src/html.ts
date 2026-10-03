@@ -16,6 +16,7 @@ import { appPage, avatar, avatarStack, boardPic, copyField, hue, page, renderTex
 import { esc, pictureUrl } from "./util";
 import { stateOf } from "./sessions";
 import { E2E_JS } from "./e2eweb";
+import { EMOJI } from "./emoji";
 import { approvalCardHtml, approvalJs, type ApprovalCardData } from "./approvalCard";
 
 export type { Viewer, SideBoard };
@@ -1427,18 +1428,102 @@ function renderRx(seq,list){const row=document.querySelector('[data-rx="'+seq+'"
       (work.length?part('think','🤔',work,rxNames(work)+(work.length>1?' are':' is')+' on it'):'');row.appendChild(d)}
   row.classList.toggle('has',chips.length>0);row.classList.toggle('has-rcpt',!!(read.length||done.length||work.length))}
 async function react(seq,emoji){const r=await fetch('/api/boards/'+BOARD+'/entries/'+seq+'/react',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({emoji})});
-  const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||"Couldn't react");return}renderRx(seq,j.reactions)}
-const picker=document.createElement('div');picker.className='rx-pick';picker.hidden=true;picker.setAttribute('role','menu');
-picker.innerHTML=QUICK.map(q=>'<button type="button" role="menuitem" data-pick="'+q+'" aria-label="React '+q+'">'+q+'</button>').join('');document.body.appendChild(picker);
-function closePicker(){picker.hidden=true;picker.dataset.seq=''}
+  const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||"Couldn't react");return}
+  if(j.on){const e=emo(emoji);if(e[0]!==':'){freqAdd(e);quickApply()}}renderRx(seq,j.reactions)}
+// The emoji picker (vedu: "let me pick what emojis i will use, similar to slack"): your row on top (up to 8 you choose and
+// order, your most-used filling the rest; its first 3 are the one-click buttons on every message), search, then Frequently used
+// and the categories. A popover by the button; a bottom sheet on phones. Typing searches, arrows move, Enter picks, Esc closes.
+const EMO=${jsString(EMOJI)}.map(([t,i,s])=>[t,i,s.split('|').map(x=>{const w=x.split(' ');return {e:w[0],n:w[1],k:w.slice(1)}})]);
+const EMN={};EMO.forEach(c=>c[2].forEach(x=>{EMN[x.e]=x.n}));for(const k in SHORT)if(!EMN[SHORT[k]])EMN[SHORT[k]]=k;
+// Your row and your counts live in this browser for now (the profile will hold the row later): only quickGet/quickSet touch it.
+function rxKey(k){return 'atteo.rx.'+k+'.'+ME}
+function quickGet(){try{const v=JSON.parse(localStorage.getItem(rxKey('quick'))||'[]');return Array.isArray(v)?v.filter(x=>typeof x==='string'&&x&&x.length<16).slice(0,8):[]}catch(e){return []}}
+function quickSet(list){try{list&&list.length?localStorage.setItem(rxKey('quick'),JSON.stringify(list.slice(0,8))):localStorage.removeItem(rxKey('quick'))}catch(e){}quickApply()}
+function freqGet(){try{const v=JSON.parse(localStorage.getItem(rxKey('freq'))||'{}');return v&&typeof v==='object'&&!Array.isArray(v)?v:{}}catch(e){return {}}}
+function freqTop(n){const f=freqGet(),c=k=>Array.isArray(f[k])?+f[k][0]||0:0,t=k=>Array.isArray(f[k])?+f[k][1]||0:0;
+  return Object.keys(f).filter(k=>c(k)>0&&k.length<16).sort((a,b)=>c(b)-c(a)||t(b)-t(a)).slice(0,n)}
+function freqAdd(e){const f=freqGet(),o=Array.isArray(f[e])?f[e]:[0,0];f[e]=[(+o[0]||0)+1,Date.now()];
+  const ks=Object.keys(f);if(ks.length>60)for(const k of freqTop(ks.length).slice(60))delete f[k]; // keep it small
+  try{localStorage.setItem(rxKey('freq'),JSON.stringify(f))}catch(x){}}
+/** Your row of 8: the ones you chose, in your order; then your most-used; then the defaults. */
+function quickRow(){const out=[];for(const e of [...quickGet(),...freqTop(8),...QUICK])if(!out.includes(e)&&out.length<8)out.push(e);return out}
+/** The 3 one-click buttons on each message (server-rendered 👍 ✅ 🤔) become the first 3 of your row. */
+function quickApply(root){const q=quickRow().slice(0,3);root=root||document;
+  (root.matches&&root.matches('.acts')?[root]:root.querySelectorAll('.acts')).forEach(a=>a.querySelectorAll('.rx-q').forEach((b,i)=>{const e=q[i];if(!e||b.dataset.emo===e)return;
+    b.dataset.emo=e;b.textContent=e;b.setAttribute('aria-label','React '+e);b.title='React '+e+(EMN[e]?' :'+EMN[e]+':':'')}));if(!picker.hidden)rpQuick()}
+const picker=document.createElement('div');picker.className='rx-pick';picker.hidden=true;picker.setAttribute('role','dialog');picker.setAttribute('aria-label','Add a reaction');
+picker.innerHTML='<div class="rp-quick" role="group" aria-label="Your reactions"></div>'+
+  '<div class="rp-cz" hidden><p>Tap emoji below to add or remove them (up to 8); select one to move it. The first 3 are your one-click reactions on every message.</p>'+
+  '<div class="rp-czb"><button type="button" class="btn ghost sm" data-rp-mv="-1" aria-label="Move left" disabled>◀</button><button type="button" class="btn ghost sm" data-rp-mv="1" aria-label="Move right" disabled>▶</button>'+
+  '<button type="button" class="btn ghost sm" data-rp-rm aria-label="Remove from your row" disabled>✕</button><span class="grow"></span><button type="button" class="btn ghost sm" data-rp-reset>Reset</button><button type="button" class="btn primary sm" data-rp-done>Done</button></div></div>'+
+  '<div class="rp-search"><input class="input" type="search" placeholder="Search emoji (fire, ship, :tada:)" aria-label="Search emoji" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="done"></div>'+
+  '<div class="rp-tabs">'+['🕘',...EMO.map(c=>c[1])].map((ic,i)=>'<button type="button" data-rp-tab="'+i+'" aria-label="'+(i?EMO[i-1][0]:'Frequently used')+'" title="'+(i?EMO[i-1][0]:'Frequently used')+'">'+ic+'</button>').join('')+'</div>'+
+  '<div class="rp-body"></div><div class="rp-foot"><span class="rp-big" aria-hidden="true"></span><span class="rp-nm"></span><button type="button" class="linkish" data-rp-cz>Customize</button></div>';
+document.body.appendChild(picker);
+const rpScrim=document.createElement('div');rpScrim.className='rp-scrim';rpScrim.hidden=true;document.body.appendChild(rpScrim);
+const rpQ=picker.querySelector('.rp-search input'),rpBody=picker.querySelector('.rp-body'),rpQEl=picker.querySelector('.rp-quick');
+let rpMine=new Set(),rpCur=null,rpRect=null,czSel=-1;
+const rpCell=e=>'<button type="button" class="rp-e'+(rpMine.has(e)?' on':'')+'" data-ep="'+esc(e)+'" aria-label="'+esc((EMN[e]||e).replace(/_/g,' '))+'">'+esc(e)+'</button>';
+const rpSec=(t,list,i)=>'<div class="rp-sec"'+(i!=null?' data-rp-sec="'+i+'"':'')+'><div class="rp-h">'+esc(t)+'</div><div class="rp-grid">'+list.map(rpCell).join('')+'</div></div>';
+function rpFind(q){q=q.toLowerCase().trim().replace(/^:+|:+$/g,'').replace(/ +/g,'_');if(!q)return null;const al=SHORT[q],hits=[];
+  for(const c of EMO)for(const x of c[2]){const s=x.e===al?-1:x.n===q?0:x.n.startsWith(q)?1:x.k.some(w=>w.startsWith(q)||w.split('_').some(p=>p.startsWith(q)))?2:x.n.includes(q)?3:9;if(s<9)hits.push([s,x.e])}
+  if(al&&!hits.some(h=>h[1]===al))hits.unshift([-1,al]);return hits.sort((a,b)=>a[0]-b[0]).map(h=>h[1])}
+function rpRender(){const q=rpQ.value,hits=rpFind(q);rpCur=null;picker.classList.toggle('searching',!!hits);
+  if(hits){rpBody.innerHTML=hits.length?rpSec('Search results',hits.slice(0,72)):'<div class="rp-none">No emoji match “'+esc(q.trim())+'”</div>';const f=rpBody.querySelector('[data-ep]');if(f)rpHi(f,true);else rpShow('');return}
+  const fr=freqTop(16);rpBody.innerHTML=rpSec('Frequently used',[...new Set([...fr,...QUICK])].slice(0,Math.max(8,fr.length)),0)+EMO.map((c,i)=>rpSec(c[0],c[2].map(x=>x.e),i+1)).join('');rpBody.scrollTop=0;rpShow('')}
+function rpQuick(){const mine=quickGet(),row=quickRow(),cz=picker.classList.contains('cz');
+  rpQEl.innerHTML=row.map((e,i)=>cz?'<button type="button" class="rp-e rp-slot '+(i<mine.length?'pin':'auto')+(i===czSel?' sel':'')+'" data-slot="'+i+'" draggable="'+(i<mine.length)+'" aria-pressed="'+(i===czSel)+'" aria-label="'+(i<mine.length?(i+1)+': '+esc(e):'Most used '+esc(e)+', tap to keep it')+'">'+esc(e)+'</button>'
+    :'<button type="button" class="rp-e'+(rpMine.has(e)?' on':'')+'" data-pick="'+esc(e)+'" aria-label="React '+esc(e)+'">'+esc(e)+'</button>').join('');
+  picker.querySelectorAll('[data-rp-mv],[data-rp-rm]').forEach(b=>{b.disabled=czSel<0});
+  if(czSel>=0){picker.querySelector('[data-rp-mv="-1"]').disabled=czSel===0;picker.querySelector('[data-rp-mv="1"]').disabled=czSel>=mine.length-1}}
+function rpShow(e){picker.querySelector('.rp-big').textContent=e||'';picker.querySelector('.rp-nm').textContent=e?(EMN[e]?':'+EMN[e]+':':''):(picker.classList.contains('cz')?'Customizing your reactions':'Pick a reaction')}
+function rpHi(b,quiet){rpCur?.classList.remove('kb');rpCur=b;b.classList.add('kb');if(!quiet)b.scrollIntoView({block:'nearest'});rpShow(b.dataset.ep)}
+function rpMove(dx,dy){const bs=[...rpBody.querySelectorAll('[data-ep]')];if(!bs.length)return;if(!rpCur||!rpBody.contains(rpCur))return rpHi(bs[0]);
+  const i=bs.indexOf(rpCur);if(dx){const t=bs[i+dx];if(t)rpHi(t);return}
+  const r=rpCur.getBoundingClientRect(),cx=r.left+r.width/2,rs=bs.map(b=>[b,b.getBoundingClientRect()]).filter(([,q])=>dy>0?q.top>r.top+4:q.top<r.top-4);if(!rs.length)return;
+  const y=dy>0?Math.min(...rs.map(x=>x[1].top)):Math.max(...rs.map(x=>x[1].top));let best=null,bd=1e9;
+  for(const [b,q] of rs){if(Math.abs(q.top-y)>4)continue;const d=Math.abs(q.left+q.width/2-cx);if(d<bd){bd=d;best=b}}if(best)rpHi(best)}
+function czOn(v){picker.classList.toggle('cz',v);picker.querySelector('.rp-cz').hidden=!v;picker.querySelector('[data-rp-cz]').hidden=v;czSel=-1;rpQuick();rpShow('');rpFit()}
+function czToggle(e){const m=quickGet(),i=m.indexOf(e);if(i>=0)m.splice(i,1);else if(m.length>=8){toast('Your row holds 8: remove one first');return}else m.push(e);czSel=-1;quickSet(m)}
+function czMove(from,to){const m=quickGet();if(from<0||from>=m.length||to<0||to>=m.length||from===to)return;const [x]=m.splice(from,1);m.splice(to,0,x);czSel=to;quickSet(m)}
+function rpPick(e){if(picker.classList.contains('cz')){czToggle(e);return}const s=+picker.dataset.seq;closePicker();if(s)react(s,e)}
+function rpFit(){if(picker.hidden)return;const sheet=innerWidth<=600;picker.classList.toggle('sheet',sheet);rpScrim.hidden=!sheet;
+  if(sheet){picker.style.left=picker.style.top='';const vv=window.visualViewport;picker.style.bottom=vv?Math.max(0,innerHeight-vv.height-vv.offsetTop)+'px':'0';return}
+  picker.style.bottom='';const r=rpRect||{left:8,top:8,bottom:8},w=picker.offsetWidth,h=picker.offsetHeight;let top=r.top-h-6;
+  if(top<8)top=r.bottom+6;if(top+h>innerHeight-8)top=Math.max(8,innerHeight-8-h);picker.style.left=Math.max(8,Math.min(innerWidth-w-8,r.left))+'px';picker.style.top=top+'px'}
+function openPicker(btn){const seq=btn.dataset.rxAdd;rpRect=btn.getBoundingClientRect();picker.dataset.seq=seq;
+  rpMine=new Set([...document.querySelectorAll('[data-rx="'+seq+'"] .rx-chip.on')].map(c=>emo(c.dataset.react)));
+  rpQ.value='';picker.hidden=false;czOn(false);rpRender();rpFit();if(!picker.classList.contains('sheet'))rpQ.focus({preventScroll:true})}
+function closePicker(){if(picker.contains(document.activeElement))document.activeElement.blur();picker.hidden=true;rpScrim.hidden=true;picker.dataset.seq='';picker.classList.remove('cz')}
+rpQ.addEventListener('input',rpRender);
+picker.addEventListener('click',e=>{e.stopPropagation();const t=e.target.closest('button');if(!t)return;
+  if(t.dataset.ep||t.dataset.pick){rpPick(t.dataset.ep||t.dataset.pick);return}
+  if(t.dataset.slot){const i=+t.dataset.slot;if(t.classList.contains('auto'))czToggle(t.textContent);else{czSel=czSel===i?-1:i;rpQuick()}return}
+  if(t.dataset.rpMv){czMove(czSel,czSel+(+t.dataset.rpMv));return}
+  if(t.hasAttribute('data-rp-rm')){const m=quickGet();if(czSel>=0){m.splice(czSel,1);czSel=-1;quickSet(m)}return}
+  if(t.hasAttribute('data-rp-reset')){czSel=-1;quickSet([]);return}
+  if(t.hasAttribute('data-rp-done')){czOn(false);return}
+  if(t.hasAttribute('data-rp-cz')){czOn(true);return}
+  if(t.dataset.rpTab){rpQ.value='';rpRender();const s=rpBody.querySelector('[data-rp-sec="'+t.dataset.rpTab+'"]');if(s)rpBody.scrollTop=s.offsetTop-4}});
+picker.addEventListener('mouseover',e=>{const b=e.target.closest('[data-ep],[data-pick],[data-slot]');if(b)rpShow(b.dataset.ep||b.dataset.pick||b.textContent)});
+// Drag to reorder your row (mouse); the ◀ ▶ buttons do the same on touch and keyboard.
+picker.addEventListener('dragstart',e=>{const s=e.target.closest?.('.rp-slot.pin');if(!s)return;e.dataTransfer.setData('text/plain',s.dataset.slot);e.dataTransfer.effectAllowed='move'});
+picker.addEventListener('dragover',e=>{if(e.target.closest?.('.rp-slot.pin'))e.preventDefault()});
+picker.addEventListener('drop',e=>{const s=e.target.closest?.('.rp-slot.pin');if(!s)return;e.preventDefault();czMove(+e.dataTransfer.getData('text/plain'),+s.dataset.slot)});
+rpScrim.addEventListener('click',closePicker);
 document.addEventListener('click',e=>{
   const chip=e.target.closest('.rx-chip');if(chip){react(+chip.dataset.seq,chip.dataset.react);return}
-  const add=e.target.closest('[data-rx-add]');if(add){const r=add.getBoundingClientRect();picker.dataset.seq=add.dataset.rxAdd;picker.hidden=false;
-    picker.style.left=Math.max(8,Math.min(innerWidth-picker.offsetWidth-8,r.left))+'px';picker.style.top=(r.top-picker.offsetHeight-6<8?r.bottom+6:r.top-picker.offsetHeight-6)+'px';return}
-  const pk=e.target.closest('[data-pick]');if(pk&&picker.dataset.seq){react(+picker.dataset.seq,pk.dataset.pick);closePicker();return}
-  if(!picker.hidden&&!e.target.closest('.rx-pick'))closePicker()});
-document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!picker.hidden)closePicker()});
-scroller.addEventListener('scroll',()=>{if(!picker.hidden)closePicker()},{passive:true});
+  const add=e.target.closest('[data-rx-add]');if(add){if(!picker.hidden&&picker.dataset.seq===add.dataset.rxAdd)closePicker();else openPicker(add);return}
+  if(!picker.hidden)closePicker()});
+window.addEventListener('keydown',e=>{if(picker.hidden||e.isComposing)return;const k=e.key;
+  if(k==='Escape'){e.preventDefault();e.stopPropagation();closePicker();return}
+  if(k==='ArrowDown'||k==='ArrowUp'||((k==='ArrowLeft'||k==='ArrowRight')&&(rpCur||!rpQ.value))){e.preventDefault();rpMove(k==='ArrowLeft'?-1:k==='ArrowRight'?1:0,k==='ArrowDown'?1:k==='ArrowUp'?-1:0);return}
+  if(k==='Enter'&&(document.activeElement===rpQ||!picker.contains(document.activeElement))){const b=rpCur&&rpBody.contains(rpCur)?rpCur:rpQ.value?rpBody.querySelector('[data-ep]'):null;
+    if(b){e.preventDefault();e.stopPropagation();rpPick(b.dataset.ep)}return}
+  if((k.length===1||k==='Backspace')&&!e.ctrlKey&&!e.metaKey&&!e.altKey&&document.activeElement!==rpQ)rpQ.focus({preventScroll:true})},true);
+addEventListener('resize',rpFit);window.visualViewport?.addEventListener('resize',rpFit);
+scroller.addEventListener('scroll',()=>{if(!picker.hidden&&!picker.classList.contains('sheet'))closePicker()},{passive:true});
+quickApply();new MutationObserver(ms=>{for(const m of ms)for(const n of m.addedNodes)if(n.nodeType===1&&n.querySelector&&n.querySelector('.rx-q'))quickApply(n)}).observe(document.body,{childList:true,subtree:true});
 // quick reactions from the hover actions; and who reacted, in a small card over a chip
 document.addEventListener('click',e=>{const q=e.target.closest('[data-qr]');if(q){react(+q.dataset.qr,q.dataset.emo);q.blur()}});
 const rxTip=document.createElement('div');rxTip.className='rx-tip';rxTip.hidden=true;rxTip.setAttribute('role','tooltip');document.body.appendChild(rxTip);

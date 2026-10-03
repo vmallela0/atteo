@@ -372,12 +372,35 @@ dialog.access-dlg{width:min(640px,calc(100vw - 24px))}
 .rx-rcpt .e{font-size:11.5px}.rx-rcpt{column-gap:12px}
 /* One marker each: the message's own "on it" / "done" pill wins over the agent's 🤔 / ✅ receipt. */
 .entry:has(>.grow>.meta>.hdl:not(.done))>.grow>.rx>.rx-rcpt>.think,.entry:has(>.grow>.meta>.hdl.done)>.grow>.rx>.rx-rcpt>.done{display:none}
-.rx-pick{position:fixed;z-index:50;display:flex;gap:2px;padding:4px;border-radius:999px;border:1px solid var(--line);background:var(--bg);box-shadow:var(--shadow-lg)}
-.rx-pick[hidden]{display:none}
+/* The emoji picker: a popover by the button on desktop, a bottom sheet on phones (the .sheet class, set from the width). */
+.rx-pick{position:fixed;z-index:50;display:flex;flex-direction:column;width:352px;max-width:calc(100vw - 16px);height:min(420px,calc(100vh - 16px));overflow:hidden;
+  border-radius:12px;border:1px solid var(--line);background:var(--bg);color:var(--text);box-shadow:var(--shadow-lg)}
+.rx-pick[hidden],.rp-scrim[hidden]{display:none}
+.rx-pick.sheet{left:0;right:0;top:auto;width:auto;max-width:none;height:min(72vh,480px);border-radius:14px 14px 0 0;border-width:1px 0 0;padding-bottom:env(safe-area-inset-bottom)}
+.rp-scrim{position:fixed;inset:0;z-index:49;background:rgba(0,0,0,.32)}
+.rp-quick{display:flex;flex-wrap:wrap;gap:2px;padding:8px 8px 6px;border-bottom:1px solid var(--line)}
+.rp-e{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;padding:0;border:0;border-radius:8px;background:none;color:inherit;font-size:22px;line-height:1;cursor:pointer}
+.rp-e:hover{background:var(--bg-hover)}.rp-e.kb{background:var(--bg-hover);box-shadow:inset 0 0 0 2px var(--accent)}
+.rp-e.on{background:color-mix(in srgb,var(--accent) 12%,var(--bg))}
+.rp-quick .rp-e{width:34px;height:34px;font-size:20px}
+.rp-slot{border:1px solid var(--line-strong);background:var(--bg-subtle)}.rp-slot.auto{border-style:dashed;background:none;opacity:.55}
+.rp-slot.sel{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.rx-pick.cz .rp-quick>:nth-child(3){margin-right:9px} /* the first 3 are the one-click ones */
+.rp-cz{padding:6px 10px 8px;border-bottom:1px solid var(--line);font-size:12px;line-height:1.4;color:var(--muted)}.rp-cz[hidden]{display:none}.rp-cz p{margin:0}
+.rp-czb{display:flex;align-items:center;gap:4px;margin-top:6px}.rp-czb .btn.ghost{min-width:28px;justify-content:center}
+.rp-search{padding:8px 8px 4px}.rp-search .input{height:32px}
+.rp-tabs{display:flex;gap:2px;padding:0 6px 4px;border-bottom:1px solid var(--line)}.rx-pick.searching .rp-tabs{display:none}
+.rp-tabs button{flex:1;min-width:0;height:28px;padding:0;border:0;border-radius:6px;background:none;font-size:15px;line-height:1;cursor:pointer;opacity:.7}
+.rp-tabs button:hover{background:var(--bg-hover);opacity:1}
+.rp-body{position:relative;flex:1;min-height:0;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;padding:0 8px 8px}
+.rp-h{position:sticky;top:0;z-index:1;padding:8px 2px 4px;background:var(--bg);font-size:11.5px;font-weight:600;color:var(--muted)}
+.rp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(36px,1fr));gap:1px}
+.rp-none{padding:28px 8px;text-align:center;font-size:13px;color:var(--muted)}
+.rp-foot{display:flex;align-items:center;gap:8px;min-height:40px;padding:4px 10px;border-top:1px solid var(--line);font-size:12.5px;color:var(--muted)}
+.rp-big{font-size:22px;line-height:1}.rp-nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.rp-foot .linkish[hidden]{display:none}
 .rx-tip{position:fixed;z-index:50;display:flex;align-items:center;gap:10px;max-width:280px;padding:8px 12px;border-radius:10px;background:var(--ink);color:var(--on-ink);font-size:12.5px;line-height:1.35;box-shadow:var(--shadow-lg);pointer-events:none}
 .rx-tip[hidden]{display:none}.rx-tip .big{font-size:24px;line-height:1}.rx-tip .faint{color:color-mix(in srgb,var(--on-ink) 65%,transparent)}
 .entry .acts .rx-q{width:28px;padding:0;justify-content:center;font-size:14px}
-.rx-pick button{width:32px;height:32px;border:0;border-radius:50%;background:none;font-size:18px;cursor:pointer;line-height:1}.rx-pick button:hover{background:var(--bg-hover)}
 /* images: inline in the conversation (real proportions, capped), full size in a lightbox; attachments in the composer */
 .img{margin:8px 0 0}.img-open{display:block;padding:0;border:0;background:none;cursor:zoom-in;max-width:100%}
 .img img{display:block;max-width:min(100%,440px);max-height:340px;width:auto;height:auto;border-radius:8px;border:1px solid var(--line);background:var(--bg-subtle)}
