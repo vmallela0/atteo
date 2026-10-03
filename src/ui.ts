@@ -709,6 +709,7 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
 .bp-head h1{font-size:17px;line-height:26px;margin:0;min-width:0}
 .bp-head .title-edit{min-width:0;flex:0 1 auto}
 .bp-meta{gap:10px;flex-wrap:nowrap;min-width:0;white-space:nowrap}
+.bp-meta:has(.avs){flex:none} /* the board name gives way, not the members */
 .bp-tabs{display:flex;align-items:flex-end;gap:8px;flex:none}
 .bp-tabs .tabs{border-bottom:0;margin-bottom:0}
 .bp-tabs .tabs button{padding:7px 10px}
@@ -770,7 +771,7 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
 }
 @media(max-width:859px){
   .content.full{padding:4px 12px 0}
-  .bp-head{flex-direction:column;align-items:stretch}
+  .bp-head{flex-direction:column;align-items:stretch;flex-wrap:nowrap} /* one column: a wrapping one sizes to its widest row and pushes the members off a 320px screen */
   .bp-title{flex:none;gap:10px;padding:4px 0 0}
   .bp-tabs .tabs button{padding:7px 8px}
   #panel-docs .docs{grid-template-rows:auto minmax(0,1fr)}
