@@ -204,6 +204,61 @@ function sessionPicker(list: { name: string; state: string; client: string | nul
 }
 
 // The picker fills the composer's hidden to_session (a hidden input keeps its value when the form resets after a post).
+// Voice (jxn #1069, a web prototype): a mic button that turns speech into the message ("send it" at the end posts it),
+// and a "read replies aloud" toggle: a blip when a new message is for you, then tap the bar (or say "go ahead") to hear it.
+// Browser-only (Web Speech); each button shows only where the browser supports it.
+const VOICE_BTNS = `<button class="btn ghost sm mic-btn" type="button" id="mic-btn" aria-label="Talk" aria-pressed="false" title="Talk instead of typing (say “send it” at the end to post)" hidden><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><rect x="5.5" y="1.8" width="5" height="8.2" rx="2.5"/><path d="M3.2 7.6a4.8 4.8 0 0 0 9.6 0M8 12.4v2"/></svg></button><button class="btn ghost sm voice-btn" type="button" id="voice-btn" aria-label="Read replies aloud" aria-pressed="false" title="Read replies aloud: a blip when a message is for you, then tap the bar or say “go ahead”" hidden><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 6h2.2L8 3.2v9.6L4.7 10H2.5z"/><path class="vw" d="M10.6 5.6a3.4 3.4 0 0 1 0 4.8M12.4 3.8a6 6 0 0 1 0 8.4"/></svg></button>`;
+const voiceJs = (agentChat: boolean) => `
+(()=>{const SR=window.SpeechRecognition||window.webkitSpeechRecognition,syn=window.speechSynthesis,ta=document.getElementById('composer-text'),th=document.getElementById('thread'),
+  mic=document.getElementById('mic-btn'),vb=document.getElementById('voice-btn'),pill=document.getElementById('voice-pill');
+  if(!ta||!th)return;
+  var rec=null,gl=null,on=false,speaking=false,ac=null;const q=[],LANG=navigator.language||'en-US';
+  function blip(){try{ac=ac||new (window.AudioContext||window.webkitAudioContext)();const t=ac.currentTime;
+    [[660,0],[880,.09]].forEach(([f,d])=>{const o=ac.createOscillator(),g=ac.createGain();o.frequency.value=f;g.gain.setValueAtTime(0,t+d);g.gain.linearRampToValueAtTime(.15,t+d+.015);g.gain.exponentialRampToValueAtTime(.0001,t+d+.16);o.connect(g);g.connect(ac.destination);o.start(t+d);o.stop(t+d+.18)})}catch(e){}}
+  function stopGo(){if(gl){try{gl.abort()}catch(e){}gl=null}}
+  // Talk: what you say goes into the box after what's there; "send it" at the end posts it.
+  if(SR&&mic){mic.hidden=false;mic.addEventListener('click',()=>{if(rec){try{rec.stop()}catch(e){}return}
+    stopGo();if(syn)syn.cancel();const base=ta.value.trim()?ta.value.replace(/[ ]+$/,'')+' ':'';let fin='';
+    rec=new SR();rec.lang=LANG;rec.interimResults=true;rec.continuous=true;mic.setAttribute('aria-pressed','true');mic.classList.add('on');
+    rec.onresult=ev=>{let mid='';for(let i=ev.resultIndex;i<ev.results.length;i++){const r=ev.results[i];if(r.isFinal)fin+=r[0].transcript;else mid+=r[0].transcript}
+      const send=/(^|[ ,.])send it[.!]?$/i.test(fin.trim());
+      ta.value=base+(send?fin.trim().replace(/[ ,.]*send it[.!]?$/i,''):(fin+mid).trim());ta.dispatchEvent(new Event('input',{bubbles:true}));
+      if(send){try{rec.stop()}catch(e){}if(ta.value.trim())ta.form.requestSubmit()}};
+    rec.onerror=ev=>{if(ev.error==='not-allowed'||ev.error==='service-not-allowed')toast('The microphone is blocked: allow it for this site to talk')};
+    rec.onend=()=>{rec=null;mic.setAttribute('aria-pressed','false');mic.classList.remove('on')};
+    try{rec.start()}catch(e){rec=null}})}
+  if(!syn||!vb)return;
+  // Read aloud: new messages for you queue up behind a blip; the bar under them plays them in order.
+  function who(el){return ((el.querySelector('.who')||{}).innerText||el.dataset.author||'').trim()}
+  function pillUpd(){if(!q.length&&!speaking){pill.hidden=true;return}pill.hidden=false;const el=document.getElementById('e'+q[0]);
+    document.getElementById('vp-go').textContent=speaking?'🔊 Reading'+(q.length?' · '+q.length+' more':'')+' · tap to stop':'🔊 '+(q.length>1?q.length+' for you, first from ':'For you from ')+(el?who(el):'')+' · tap or say “go ahead”'}
+  function speakNext(){stopGo();const s=q.shift(),el=s&&document.getElementById('e'+s);if(!el){speaking=false;pillUpd();return}
+    const body=((el.querySelector(':scope>.grow>.body')||{}).innerText||'').replace(/https?:[^\\s]+/g,'a link').slice(0,700);
+    const u=new SpeechSynthesisUtterance(el.dataset.author+(el.classList.contains('by-agent')?"'s agent":'')+'. '+body);u.lang=LANG;u.onend=u.onerror=()=>{if(u.done)return;u.done=1;speaking=false;if(q.length)speakNext();else pillUpd()};
+    speaking=true;pillUpd();syn.cancel();syn.speak(u)}
+  function hush(){q.length=0;speaking=false;syn.cancel();pillUpd()}
+  // After the blip, listen briefly for "go ahead" (only once the mic is already allowed, so nothing asks for it out of nowhere).
+  async function listenGo(){if(!SR||rec||gl||speaking)return;try{if((await navigator.permissions.query({name:'microphone'})).state!=='granted')return}catch(e){return}
+    const g=gl=new SR();g.lang=LANG;g.interimResults=true;g.continuous=true;const end=setTimeout(()=>{try{g.stop()}catch(e){}},12000);
+    g.onresult=ev=>{for(let i=ev.resultIndex;i<ev.results.length;i++)if(/go ahead|read it|play it/i.test(ev.results[i][0].transcript)){clearTimeout(end);try{g.stop()}catch(e){}if(!speaking&&q.length)speakNext();return}};
+    g.onend=()=>{clearTimeout(end);if(gl===g)gl=null};try{g.start()}catch(e){gl=null}}
+  function setOn(v){on=v;vb.setAttribute('aria-pressed',String(v));vb.classList.toggle('on',v);try{localStorage.setItem('atteo.voice',v?'1':'0')}catch(e){}if(!v){stopGo();hush()}}
+  try{on=localStorage.getItem('atteo.voice')==='1'}catch(e){}
+  vb.hidden=false;setOn(on);
+  vb.addEventListener('click',()=>{setOn(!on);if(on){blip();toast('Messages for you will blip: tap the bar or say “go ahead” to hear them')}});
+  document.getElementById('vp-go').addEventListener('click',()=>{if(speaking)hush();else speakNext()});
+  document.getElementById('vp-x').addEventListener('click',hush);
+  document.addEventListener('keydown',e=>{if(e.key==='Escape'&&speaking)hush()});
+  const ME_SEL='.mention:not(.agent)[data-user="'+CSS.escape(ME)+'"]';
+  // For you: in Your agent, anything your agent says; on a board, a mention of you or a reply to your message.
+  function forMe(el){if(el.classList.contains('pending'))return false;const mine=el.dataset.author===ME,ag=el.classList.contains('by-agent');if(mine&&!ag)return false;
+    if(${agentChat})return ag;if(el.querySelector(':scope>.grow>.body '+ME_SEL))return true;
+    const r=el.dataset.reply&&document.getElementById('e'+el.dataset.reply);return !!(r&&r.dataset.author===ME&&!r.classList.contains('by-agent'))}
+  let top=0;th.querySelectorAll(':scope>.entry[data-seq]').forEach(x=>{top=Math.max(top,+x.dataset.seq)});
+  new MutationObserver(ms=>{for(const m of ms)for(const n of m.addedNodes){if(!(n instanceof HTMLElement)||!n.classList.contains('entry'))continue;
+    const s=+n.dataset.seq;if(!s||s<=top)continue;top=s;if(on&&forMe(n)){q.push(s);blip();pillUpd();listenGo()}}}).observe(th,{childList:true});
+})();
+`;
 const AGENT_PICK_JS = `
 (()=>{const p=document.getElementById('to-session-pick'),h=document.getElementById('to-session'),ta=document.getElementById('composer-text');if(!p||!h)return;
 let saved='';try{saved=sessionStorage.getItem('to-session:'+location.pathname)||''}catch{}
@@ -1783,7 +1838,7 @@ window.boardKeys=(e,k)=>{
     els.forEach(x=>x.classList.remove('sel'));const el=els[cur];if(el){el.classList.add('sel');el.scrollIntoView({block:'nearest'})}}
   if(e.key==='Enter'&&els[cur]){openEntry(BOARD,els[cur].dataset.seq)}
 };
-` + (canPic ? BOARD_PIC_JS : "") + (info.encrypted ? E2E_JS : "") + (agentChat ? "" : pinRecapJs(board.last_seen ?? 0, !readOnly && !info.archived));
+` + (canPic ? BOARD_PIC_JS : "") + (info.encrypted ? E2E_JS : "") + voiceJs(agentChat) + (agentChat ? "" : pinRecapJs(board.last_seen ?? 0, !readOnly && !info.archived));
   const isCreator = viewer.name === info.created_by;
   const archivedBanner = info.archived
     ? `<div class="flash bp-banner"><span class="grow"><b>Archived.</b> This board is read-only.</span>${
@@ -1843,6 +1898,7 @@ window.boardKeys=(e,k)=>{
     <form class="card composer" method="post" action="/api/boards/${esc(info.id)}/entries" data-api data-reliable data-done="posted" data-failed="postFailed" data-retrying="postRetrying" data-reset${info.archived || readOnly || info.encrypted ? " hidden" : ""}>
       <div class="replying" id="replying" hidden><button class="rp-go" type="button" id="replying-go" title="Show the message">Replying to <b id="replying-who"></b><span class="rp-text" id="replying-text"></span></button><button class="btn ghost sm x" type="button" id="reply-cancel" aria-label="Cancel reply" title="Cancel reply (Esc)">✕</button></div>
       <input type="hidden" name="reply_to" id="reply-to" value="">${agentChat ? `<input type="hidden" name="to_session" id="to-session" value="">` : ""}
+      <div class="voice-pill" id="voice-pill" hidden><button class="vp-t" type="button" id="vp-go"></button><button class="btn ghost sm x" type="button" id="vp-x" aria-label="Dismiss" title="Dismiss">✕</button></div>
       <div class="attachments" id="attachments" hidden></div>
       <div class="cmp-field"><div class="cmp-mirror" id="composer-mirror" aria-hidden="true"></div><textarea class="input" id="composer-text" name="text" required placeholder="${agentChat ? "Message your agent…" : "Write a message…  @ to mention"}" aria-label="Message"
         role="combobox" aria-autocomplete="list" aria-controls="mention-menu" aria-expanded="false"></textarea></div>
@@ -1851,7 +1907,7 @@ window.boardKeys=(e,k)=>{
       <div class="bar">
         <button class="btn ghost sm attach" type="button" id="attach-btn" aria-label="Attach files" title="Attach files or images (or paste or drop them)"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M13.5 7.6 8.3 12.8a3.2 3.2 0 0 1-4.5-4.5l5.6-5.6a2.1 2.1 0 0 1 3 3L6.8 11.3a1 1 0 0 1-1.5-1.5l4.9-4.9"/></svg></button>
         <input type="file" id="attach-input" multiple hidden>
-        <button class="btn ghost sm at-btn" type="button" data-mention-for="composer-text" aria-label="Mention someone" title="Mention a person or their agent (or type @)">@</button>${agentChat ? sessionPicker(board.sessions ?? []) : ""}
+        <button class="btn ghost sm at-btn" type="button" data-mention-for="composer-text" aria-label="Mention someone" title="Mention a person or their agent (or type @)">@</button>${agentChat ? sessionPicker(board.sessions ?? []) : ""}${VOICE_BTNS}
         <input type="hidden" name="type" id="cmp-type" value="note">
         <span class="grow"></span><button class="btn primary sm">Post</button>
       </div>
