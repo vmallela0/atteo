@@ -508,6 +508,19 @@ rect.ch-s0,rect.ch-s1,rect.ch-s2,rect.ch-s3,rect.ch-s4,rect.ch-s5,rect.ch-s6,rec
 .ch-pie{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.ch-pie .ch-svg{width:170px;flex:none}.ch-pie .ch-legend{flex-direction:column;gap:4px}
 .ch-data{margin-top:4px}.ch-data summary{cursor:pointer;font-size:11.5px;color:var(--faint);list-style:none}.ch-data summary::-webkit-details-marker{display:none}.ch-data summary:hover{color:var(--ink)}
 .code-b{position:relative;margin:6px 0;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--bg-subtle)}.code-b>pre{margin:0;border:0;border-radius:0}.code-h{display:flex;align-items:center;justify-content:space-between;padding:3px 6px 3px 10px;border-bottom:1px solid var(--line);font-size:11.5px;color:var(--muted)}.code-copy{all:unset;cursor:pointer;padding:2px 8px;border-radius:6px;font-size:11.5px;color:var(--muted)}.code-copy:hover{background:var(--bg-hover);color:var(--ink)}
+.dev-mode{display:flex;align-items:center;gap:12px;border-style:dashed;cursor:pointer}.dev-ic{font-family:var(--mono,monospace);color:var(--muted);font-size:13px}
+input.switch{appearance:none;-webkit-appearance:none;flex:none;width:42px;height:24px;margin:0;border-radius:999px;background:var(--line-strong,var(--line));position:relative;cursor:pointer;transition:background .15s}
+input.switch::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:var(--bg);box-shadow:0 1px 2px rgba(0,0,0,.25);transition:left .15s}input.switch:checked{background:var(--ok)}input.switch:checked::after{left:21px}
+/* Everyday (#1272): the same entries in plainer clothes; Developer mode is today's page unchanged. */
+:root[data-mode="everyday"] .entry .seq,:root[data-mode="everyday"] .meta .via:not(.owner),:root[data-mode="everyday"] [aria-controls="panel-log"],
+:root[data-mode="everyday"] .entry .chg,:root[data-mode="everyday"] .apc-cmd,:root[data-mode="everyday"] .apc-risk,:root[data-mode="everyday"] .ag-hint,
+:root[data-mode="everyday"] .ag-hint+.copy,:root[data-mode="everyday"] #soul-side,:root[data-mode="everyday"] .meta .t-change,:root[data-mode="everyday"] .side-link .count.dev{display:none!important}
+:root:not([data-mode="everyday"]) .ev-res{display:none}
+:root[data-mode="everyday"] #board-tabs [aria-controls="panel-tasks"]{order:1}:root[data-mode="everyday"] #board-tabs [aria-controls="panel-docs"]{order:2}:root[data-mode="everyday"] #board-tabs>*:not([role=tab]){order:3}
+.ev-res{display:flex;align-items:center;gap:10px;margin-top:8px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--bg)}.ev-res b{font-size:16px;color:var(--ink);font-weight:600;line-height:1.35}
+.ev-ok{flex:none;width:22px;height:22px;border-radius:50%;background:var(--ok);color:var(--bg);display:inline-flex;align-items:center;justify-content:center;font-size:13px;font-weight:700}
+:root[data-mode="everyday"] .bp-title h1{font-size:26px;letter-spacing:-.01em}:root[data-mode="everyday"] .section-title h1{font-size:26px}
+@media(max-width:640px){:root[data-mode="everyday"] .bp-title h1{font-size:22px}}
 .mem-act{display:none}.mem-on .mem-act{display:inline-flex;width:30px;padding:0;justify-content:center;color:var(--muted)}.mem-on .mem-act:hover{color:var(--ink)}
 .soul-prev{white-space:pre-wrap;font-size:12.5px;line-height:1.5;color:var(--text);max-height:7.5em;overflow:hidden;-webkit-mask-image:linear-gradient(#000 70%,transparent);mask-image:linear-gradient(#000 70%,transparent)}
 .soul-meta{margin:4px 0 6px}.soul-edit{margin-top:2px}
@@ -1204,7 +1217,7 @@ function inline(s: string, mentions?: Mention[] | null): string {
 
 // Applies the saved Display settings before first paint, so the page never flashes the wrong size or theme.
 const DISPLAY_HEAD = `<script>try{const d=JSON.parse(localStorage.getItem('atteo-display')||'{}'),r=document.documentElement;
-if(d.text==='s'||d.text==='l')r.dataset.text=d.text;if(d.density==='compact')r.dataset.density='compact';if(d.theme==='light'||d.theme==='dark')r.dataset.theme=d.theme}catch{}</script>`;
+if(d.text==='s'||d.text==='l')r.dataset.text=d.text;if(d.density==='compact')r.dataset.density='compact';if(d.theme==='light'||d.theme==='dark')r.dataset.theme=d.theme;if(d.ev===true)r.dataset.mode='everyday'}catch{}</script>`; // mode: what the account said last time (set on the first sync)
 
 const CLIENT_JS = `
 /** The one HTML escaper for every page script. */
@@ -1216,15 +1229,21 @@ window.applyDisplay=d=>{const r=document.documentElement;d=d||{};
   if(d.text==='s'||d.text==='l')r.dataset.text=d.text;else delete r.dataset.text;
   if(d.density==='compact')r.dataset.density='compact';else delete r.dataset.density;
   if(d.theme==='light'||d.theme==='dark')r.dataset.theme=d.theme;else delete r.dataset.theme;
-  try{localStorage.setItem('atteo-display',JSON.stringify({text:d.text||'m',density:d.density||'comfortable',theme:d.theme||'system'}))}catch{}};
+  // Everyday (the default) or Developer (#1272): the server says which, from your choice or (auto) whether you've connected a coding agent.
+  let ev=r.dataset.mode==='everyday';if(typeof d.developer==='boolean')ev=!d.developer;if(ev)r.dataset.mode='everyday';else delete r.dataset.mode;
+  try{localStorage.setItem('atteo-display',JSON.stringify({text:d.text||'m',density:d.density||'comfortable',theme:d.theme||'system',ev}))}catch{}
+  document.dispatchEvent(new CustomEvent('atteo-mode',{detail:{everyday:ev}}))};
 if($('a[href="/me"]')){let fresh=false;try{fresh=!!sessionStorage.getItem('atteo-display-sync');sessionStorage.setItem('atteo-display-sync','1')}catch{}
-  if(!fresh)fetch('/api/me/profile').then(r=>r.ok?r.json():null).then(j=>{const d=j&&j.profile&&j.profile.display;if(d&&typeof d==='object')applyDisplay(d)}).catch(()=>{})}
+  if(!fresh)fetch('/api/me/profile').then(r=>r.ok?r.json():null).then(j=>{const d=j&&j.profile&&j.profile.display;if(d&&typeof d==='object')applyDisplay({...d,developer:j.profile.developer})}).catch(()=>{})}
 // A new version shipped while this page was open (jxn #1221): offer a reload rather than keep running old code. Checked on
 // coming back to the tab and every 10 minutes; drafts are saved as you type, so reloading loses nothing.
 (()=>{let v0=null;const chk=async()=>{try{const j=await (await fetch('/health',{cache:'no-store'})).json();if(!j||!j.version)return;if(v0===null){v0=j.version;return}
   if(j.version===v0||document.getElementById('upd-bar'))return;const b=document.createElement('div');b.id='upd-bar';b.className='upd-bar';b.setAttribute('role','status');
   b.innerHTML='<span>Atteo was updated</span><button class="btn sm primary" type="button">Reload</button>';b.querySelector('button').addEventListener('click',()=>location.reload());document.body.appendChild(b)}catch(e){}};
   chk();document.addEventListener('visibilitychange',()=>{if(!document.hidden)chk()});setInterval(chk,600000)})();
+// Everyday words in the sidebar (#1272): Boards are "Chats". Developer mode keeps today's words.
+(()=>{const words=()=>{const ev=document.documentElement.dataset.mode==='everyday';document.querySelectorAll('.side-link[href="/"] span:not(.count)').forEach(x=>{x.textContent=ev?'Chats':'Boards'})};
+  words();document.addEventListener('atteo-mode',words)})();
 window.toast=(m)=>{const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),1800)};
 document.addEventListener('click',e=>{
   const c=e.target.closest('[data-copy]');

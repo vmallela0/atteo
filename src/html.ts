@@ -235,6 +235,27 @@ function sessionPicker(list: { name: string; state: string; client: string | nul
 // and a "read replies aloud" toggle: a blip when a new message is for you, then tap the bar (or say "go ahead") to hear it.
 // Browser-only (Web Speech); each button shows only where the browser supports it.
 const VOICE_BTNS = `<button class="btn ghost sm mic-btn" type="button" id="mic-btn" aria-label="Talk" aria-pressed="false" title="Talk instead of typing (say “send it” at the end to post)" hidden><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><rect x="5.5" y="1.8" width="5" height="8.2" rx="2.5"/><path d="M3.2 7.6a4.8 4.8 0 0 0 9.6 0M8 12.4v2"/></svg></button><button class="btn ghost sm aloud-btn" type="button" id="aloud-btn" aria-label="Read replies aloud" aria-pressed="false" title="Read replies aloud: a blip when a message is for you, then tap the bar or say “go ahead”" hidden><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 6h2.2L8 3.2v9.6L4.7 10H2.5z"/><path class="vw" d="M10.6 5.6a3.4 3.4 0 0 1 0 4.8M12.4 3.8a6 6 0 0 1 0 8.4"/></svg></button>`;
+// Everyday on a board (#1272): plainer words over the same page. Developer mode is today's page; switching back restores it.
+const evJs = (agentChat: boolean) => `
+(()=>{const cap=x=>x?x[0].toUpperCase()+x.slice(1):x,EV=()=>document.documentElement.dataset.mode==='everyday';
+  const asst=u=>u===ME?'Your assistant':cap(u)+"'s assistant";
+  // Swap a text node's words, remembering the developer ones.
+  function say(el,ev,every){if(!el)return;if(el.dataset.dev===undefined)el.dataset.dev=el.textContent;el.textContent=ev?every:el.dataset.dev}
+  function first(el){return el&&[...el.childNodes].find(n=>n.nodeType===3&&n.textContent.trim())}
+  function sayNode(n,ev,every){if(!n)return;if(n._dev===undefined)n._dev=n.textContent;n.textContent=ev?every:n._dev}
+  function evEntry(el,ev){if(el.classList.contains('by-agent')){const m=el.querySelector(':scope>.grow>.meta');const o=m&&m.querySelector(':scope>.via.owner');
+      if(o)say(o,ev,asst(el.dataset.author));else say(m&&m.querySelector(':scope>.who'),ev,asst(el.dataset.author))}
+    const t=el.querySelector(':scope>.grow>.meta .t-task>span:last-child');if(t)say(t,ev,'to-do');
+    const c=el.querySelector(':scope>.grow>.chg');if(c&&ev&&!el.querySelector(':scope>.grow>.ev-res')){const r=document.createElement('div');r.className='ev-res';r.innerHTML='<span class="ev-ok" aria-hidden="true">✓</span><b></b>';r.querySelector('b').textContent=el.dataset.title||'Done';c.before(r)}}
+  function evPage(){const ev=EV();document.querySelectorAll('#thread>.entry').forEach(el=>evEntry(el,ev));
+    const tabs=document.querySelectorAll('#board-tabs [role=tab]');if(tabs[0])sayNode(first(tabs[0]),ev,'Chat');if(tabs[3])sayNode(first(tabs[3]),ev,'To-dos ');
+    const inv=document.querySelector('.bp-actions [data-open="invite"]:not([data-goto]), [data-open="invite"]:not([data-goto])');if(inv)sayNode(first(inv),ev,'Add');
+    const ta=document.getElementById('composer-text');if(ta){if(ta.dataset.dev===undefined)ta.dataset.dev=ta.placeholder;ta.placeholder=ev?(${agentChat}?'Ask your assistant…':'Message the group…'):ta.dataset.dev}
+    document.querySelectorAll('.fold[data-fold="memory"] .fold-t').forEach(x=>say(x,ev,'What assistants remember'))}
+  evPage();document.addEventListener('atteo-mode',evPage);
+  new MutationObserver(ms=>{if(!EV())return;for(const m of ms)for(const n of m.addedNodes)if(n.nodeType===1){if(n.matches&&n.matches('#thread>.entry'))evEntry(n,true);else if(n.querySelectorAll)n.querySelectorAll('.fold[data-fold="memory"] .fold-t').forEach(x=>say(x,true,'What assistants remember'))}}).observe(document.body,{childList:true,subtree:true});
+})();
+`;
 const voiceJs = (agentChat: boolean) => `
 (()=>{const SR=window.SpeechRecognition||window.webkitSpeechRecognition,syn=window.speechSynthesis,ta=document.getElementById('composer-text'),th=document.getElementById('thread'),
   mic=document.getElementById('mic-btn'),vb=document.getElementById('aloud-btn'),pill=document.getElementById('voice-pill');
@@ -2057,7 +2078,7 @@ window.boardKeys=(e,k)=>{
     els.forEach(x=>x.classList.remove('sel'));const el=els[cur];if(el){el.classList.add('sel');el.scrollIntoView({block:'nearest'})}}
   if(e.key==='Enter'&&els[cur]){openEntry(BOARD,els[cur].dataset.seq)}
 };
-` + (canPic ? BOARD_PIC_JS : "") + (info.encrypted ? E2E_JS : "") + voiceJs(agentChat) + (agentChat ? "" : pinRecapJs(board.last_seen ?? 0, !readOnly && !info.archived) + soulMemoryJs(!readOnly && !info.archived));
+` + (canPic ? BOARD_PIC_JS : "") + (info.encrypted ? E2E_JS : "") + voiceJs(agentChat) + evJs(agentChat) + (agentChat ? "" : pinRecapJs(board.last_seen ?? 0, !readOnly && !info.archived) + soulMemoryJs(!readOnly && !info.archived));
   const isCreator = viewer.name === info.created_by;
   const archivedBanner = info.archived
     ? `<div class="flash bp-banner"><span class="grow"><b>Archived.</b> This board is read-only.</span>${
@@ -2546,6 +2567,7 @@ export interface Display {
   text?: "s" | "m" | "l";
   density?: "comfortable" | "compact";
   theme?: "system" | "light" | "dark";
+  mode?: "auto" | "everyday" | "developer";
 }
 
 /** Account → Display: how the chat looks to you (Slack-style). Saved to your profile, so the web and the app match. */
@@ -2559,7 +2581,9 @@ function displaySection(d: Display | null | undefined): string {
 ${seg("text", "Text size", [["s", "Small"], ["m", "Medium"], ["l", "Large"]])}
 ${seg("density", "Density", [["comfortable", "Comfortable"], ["compact", "Compact"]])}
 ${seg("theme", "Theme", [["system", "System"], ["light", "Light"], ["dark", "Dark"]])}
-</div></form>`;
+</div></form>
+<div class="section-title" style="margin-top:24px"><div><h2 class="small" style="font-size:13px;color:var(--muted)">Advanced (for developers)</h2></div></div>
+<label class="card pad dev-mode" for="dev-mode"><span class="dev-ic" aria-hidden="true">&lt;&gt;</span><span class="grow"><span class="small" style="color:var(--ink);font-weight:600">Developer mode</span><span class="xs muted" id="dev-mode-hint" style="display:block;margin-top:2px">Tasks, change cards, #numbers, sessions. Turns on by itself if you connect Claude Code or Codex.</span></span><input type="checkbox" class="switch" id="dev-mode" role="switch"></label>`;
 }
 
 /** Account → Profile: how you show up to others (name, bio, the directory) and what your account accepts on its own. */
@@ -2588,7 +2612,14 @@ const DISPLAY_JS = `
   if(saved)applyDisplay(cur);
   f.addEventListener('change',async()=>{const d={text:f.text.value,density:f.density.value,theme:f.theme.value};applyDisplay(d);
     const r=await fetch('/api/me/profile',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({display:d})}).catch(()=>null);
-    toast(r&&r.ok?'Display saved':'Saved on this device only')})})();`;
+    toast(r&&r.ok?'Display saved':'Saved on this device only')})})();
+// Developer mode (#1272): one switch; the server works out "auto" (on once you've connected a coding agent).
+(()=>{const c=document.getElementById('dev-mode'),h=document.getElementById('dev-mode-hint');if(!c)return;c.checked=document.documentElement.dataset.mode!=='everyday';
+  fetch('/api/app/prefs').then(r=>r.ok?r.json():null).then(j=>{const p=j&&j.prefs;if(!p)return;c.checked=!!p.developer;
+    if(p.display&&p.display.mode==='auto'&&p.developer)h.textContent='On because you connected a coding agent. Turn it off for the simpler Everyday view.'}).catch(()=>{});
+  c.addEventListener('change',async()=>{const on=c.checked;applyDisplay(Object.assign({},JSON.parse(localStorage.getItem('atteo-display')||'{}'),{developer:on}));
+    const r=await fetch('/api/app/prefs',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({display:{mode:on?'developer':'everyday'}})}).catch(()=>null);
+    toast(r&&r.ok?(on?'Developer mode on':'Everyday view on'):'Saved on this device only')})})();`;
 
 const PROFILE_JS = `
 document.getElementById('pf-form')?.addEventListener('submit',async e=>{e.preventDefault();const f=e.target,b=f.querySelector('button');b.disabled=true;

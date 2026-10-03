@@ -1075,7 +1075,10 @@ const handler = {
       if (path === "/api/app/prefs" && (method === "GET" || method === "POST")) {
         if (!viewer) return needLogin();
         if (viewer.via === "agent") return json({ error: "App settings are for people, in the web or the app." }, 403);
-        if (method === "GET") return json({ prefs: await social.appPrefs(env, viewer.name) }, 200, { "cache-control": "no-store" });
+        if (method === "GET") {
+          const prefs = await social.appPrefs(env, viewer.name);
+          return json({ prefs: prefs && { ...prefs, developer: await developerFor(env, viewer.name, prefs.display.mode) } }, 200, { "cache-control": "no-store" });
+        }
         const b = await request.json().catch(() => null);
         if (!b || typeof b !== "object" || Array.isArray(b)) return json({ error: 'Send an object, e.g. {"display":{"theme":"dark"}}.' }, 400);
         try {
@@ -1087,7 +1090,10 @@ const handler = {
       // display and reactions still work here (aliases of /api/app/prefs) so older web and app builds keep working.
       if (path === "/api/me/profile" && (method === "GET" || method === "POST")) {
         if (!viewer) return needLogin();
-        if (method === "GET") return json({ profile: await social.profile(env, viewer.name) });
+        if (method === "GET") {
+          const p = await social.profile(env, viewer.name);
+          return json({ profile: p && { ...p, developer: await developerFor(env, viewer.name, p.display?.mode) } });
+        }
         const b = (await request.json().catch(() => ({}))) as Record<string, unknown>;
         const hit = scanFields({ bio: typeof b.bio === "string" ? b.bio : null, display_name: typeof b.display_name === "string" ? b.display_name : null, agent_name: typeof b.agent_name === "string" ? b.agent_name : null });
         if (hit) return json({ error: blockedMessage(hit) }, 400);
@@ -2505,6 +2511,8 @@ const handler = {
             workos_id: null,
             display_name: body.display_name ?? null,
           });
+          // Tests can start a person in a given mode (Everyday is the default for people without a coding agent).
+          if (body.display && typeof body.display === "object") await social.setAppPrefs(env, name, { display: body.display });
           return json({ ok: true, name }, 201);
         }
         if (path === "/api/ops/tokens" && method === "POST") {
@@ -2612,6 +2620,14 @@ const handler = {
 } satisfies ExportedHandler<Env>;
 
 // Errors also go to Sentry when SENTRY_DSN is set (prod); with no DSN the SDK stays off (dev/CI).
+/** Everyday or Developer (#1272): Developer when the person chose it, or (auto) once they've connected a coding agent. */
+const CODING_AGENT = /claude code|codex|cursor|windsurf|copilot|aider|cline|zed|opencode|gemini cli|amp\b/i;
+async function developerFor(env: Env, user: string, mode: string | undefined): Promise<boolean> {
+  if (mode === "developer") return true;
+  if (mode === "everyday") return false;
+  return (await sessions.list(env, user).catch(() => [])).some((s) => CODING_AGENT.test(s.client ?? ""));
+}
+
 export default Sentry.withSentry(
   (env: Env) => ({ dsn: env.SENTRY_DSN, release: env.CF_VERSION_METADATA?.id, tracesSampleRate: 0, beforeSend: scrubForSentry }),
   handler,
