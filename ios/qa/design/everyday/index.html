@@ -1,0 +1,538 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Atteo Everyday</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script>
+/* ?s=<screen>&t=<dark|bright> renders one screen alone (for screenshots); no ?s = the gallery. */
+(function(){var q=new URLSearchParams(location.search),t=q.get("t"),r=document.documentElement;
+  if(t==="dark")r.dataset.theme="dark";else if(t==="bright")r.dataset.theme="light";
+  if(q.get("s")){r.dataset.solo=q.get("s");}})();
+</script>
+<style>
+/* ===== The web's tokens, verbatim (src/ui.ts as served at /b/<board>, Oct 3). No new colours: clay is the Pebble's. ===== */
+:root{
+  --bg:#ffffff;--bg-subtle:#fafafa;--bg-hover:#f4f4f5;--line:#ebebeb;--line-strong:#dcdcdc;
+  --ink:#0a0a0a;--text:#171717;--muted:#6b6b6b;--faint:#9a9a9a;--on-ink:#ffffff;--pb-agent:#111113;--pb-eye:#F2EFE8;
+  --accent:#0062d1;--ok:#16a34a;--warn:#c2410c;--danger:#dc2626;
+  --q:#d97706;--claim:#16a34a;--decision:#7c3aed;--task:#0284c7;--artifact:#737373;--note:#a3a3a3;
+  --shadow:0 1px 2px rgba(0,0,0,.04),0 4px 16px rgba(0,0,0,.04);--shadow-lg:0 12px 48px rgba(0,0,0,.12);
+  --av-l:92%;--av-c:32%;--av-s:65%;
+  --r:10px;--r-sm:7px;--clay:#D97857;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0a0a0a;--bg-subtle:#111111;--bg-hover:#1a1a1a;--line:#232323;--line-strong:#2e2e2e;
+  --ink:#ededed;--text:#ededed;--muted:#a1a1a1;--faint:#6f6f6f;--on-ink:#0a0a0a;--pb-agent:#F2EFE8;--pb-eye:#111113;
+  --accent:#4ea1ff;--ok:#3ecf75;--warn:#fb923c;--danger:#f87171;
+  --q:#fbbf24;--claim:#4ade80;--decision:#a78bfa;--task:#38bdf8;--artifact:#a3a3a3;--note:#737373;
+  --shadow:0 1px 2px rgba(0,0,0,.4);--shadow-lg:0 12px 48px rgba(0,0,0,.6);
+  --av-l:22%;--av-c:78%;--av-s:40%;color-scheme:dark;}}
+:root[data-theme="dark"]{--bg:#0a0a0a;--bg-subtle:#111111;--bg-hover:#1a1a1a;--line:#232323;--line-strong:#2e2e2e;
+  --ink:#ededed;--text:#ededed;--muted:#a1a1a1;--faint:#6f6f6f;--on-ink:#0a0a0a;--pb-agent:#F2EFE8;--pb-eye:#111113;
+  --accent:#4ea1ff;--ok:#3ecf75;--warn:#fb923c;--danger:#f87171;
+  --q:#fbbf24;--claim:#4ade80;--decision:#a78bfa;--task:#38bdf8;--artifact:#a3a3a3;--note:#737373;
+  --shadow:0 1px 2px rgba(0,0,0,.4);--shadow-lg:0 12px 48px rgba(0,0,0,.6);
+  --av-l:22%;--av-c:78%;--av-s:40%;color-scheme:dark;}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--text);font:13.5px/1.5 "Geist",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+  -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;font-feature-settings:"ss01","cv11"}
+a{color:inherit;text-decoration:none}
+code,.mono{font-family:"Geist Mono",ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px}
+h1,h2,h3{color:var(--ink);font-weight:600;letter-spacing:-.02em;margin:0}
+p{margin:0}
+.muted{color:var(--muted)}.faint{color:var(--faint)}.xs{font-size:12px}
+.row{display:flex;align-items:center;gap:8px}.grow{flex:1;min-width:0}
+.truncate{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* web controls (verbatim, plus one Everyday size: .xl, the web's .lg at thumb height) */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;height:30px;padding:0 12px;border-radius:var(--r-sm);
+  border:1px solid var(--line-strong);background:var(--bg);color:var(--ink);font:inherit;font-weight:500;cursor:pointer;white-space:nowrap}
+.btn.primary{background:var(--ink);border-color:var(--ink);color:var(--on-ink)}
+.btn.ghost{border-color:transparent;background:transparent;color:var(--muted)}
+.btn.sm{height:26px;padding:0 9px;font-size:12.5px}.btn.lg{height:40px;padding:0 18px;font-size:14.5px}
+.btn.xl{height:46px;padding:0 18px;font-size:15.5px;border-radius:10px}
+.badge{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 8px;border-radius:999px;border:1px solid var(--line);font-size:12px;color:var(--muted);background:var(--bg)}
+.badge.kind{height:18px;font-size:11px;padding:0 6px}
+.badge.kind.agent{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 35%,var(--line))}
+.dot{width:7px;height:7px;border-radius:50%;background:currentColor;display:inline-block;flex:none}
+.type{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);font-weight:500}
+.av{--h:220;width:28px;height:28px;flex:none;border-radius:50%;display:inline-grid;place-items:center;font-size:11.5px;font-weight:600;
+  background:hsl(var(--h) var(--av-s) var(--av-l));color:hsl(var(--h) 55% var(--av-c));user-select:none;position:relative}
+.av.md{width:34px;height:34px;font-size:12.5px}.av.lg{width:44px;height:44px;font-size:15px}.av.sm{width:22px;height:22px;font-size:9.5px}
+.av.sq{border-radius:9px}
+.list{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--bg)}
+.list .item{display:flex;align-items:center;gap:12px;padding:11px 14px;border-top:1px solid var(--line);min-height:50px}
+.list .item:first-child{border-top:0}
+.seg{display:inline-flex;padding:2px;border:1px solid var(--line);border-radius:8px;background:var(--bg-subtle)}
+.seg span{padding:5px 11px;border-radius:6px;font-size:13.5px;color:var(--muted)}
+.seg span.on{background:var(--bg);color:var(--ink);box-shadow:var(--shadow);font-weight:500}
+.ic{display:inline-block;width:20px;height:20px;flex:none;vertical-align:middle}
+.ic svg{display:block;width:100%;height:100%}
+.pb{display:inline-block;flex:none;width:28px;height:28px}.pb svg{display:block;width:100%;height:100%}
+
+/* ===== Phone frame ===== */
+.phone{width:390px;height:844px;position:relative;overflow:hidden;background:var(--bg);display:flex;flex-direction:column;
+  border-radius:34px;border:1px solid var(--line-strong);box-shadow:var(--shadow-lg);font-size:15px;line-height:1.45}
+.sbar{height:47px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:6px 30px 0 36px;font-weight:600;font-size:15.5px;color:var(--ink)}
+.sbar .r{display:flex;gap:6px;align-items:center}
+.homebar{position:absolute;bottom:8px;left:50%;width:134px;height:5px;border-radius:3px;background:var(--ink);transform:translateX(-50%);z-index:9}
+.top{height:52px;flex:none;display:flex;align-items:center;gap:10px;padding:0 14px 0 16px;border-bottom:1px solid var(--line);color:var(--ink)}
+.top .t{font-size:16px;font-weight:600;letter-spacing:-.01em}
+.top .btn{height:32px}
+.body{flex:1;min-height:0;overflow:hidden;padding:18px 16px 16px;position:relative}
+.h1{font-size:26px;line-height:1.2;letter-spacing:-.025em;font-weight:650;color:var(--ink)}
+.lede{color:var(--muted);font-size:15px;margin-top:6px}
+.sec{display:flex;align-items:baseline;justify-content:space-between;margin:20px 2px 10px;font-size:13.5px;font-weight:600;color:var(--ink)}
+.sec .faint{font-weight:400}
+.link{color:var(--accent);font-weight:500;font-size:13.5px}
+
+/* ===== Everyday components ===== */
+/* Needs-you card: the web's approval card (edge colour = the web's kind colour) at a bigger, friendlier size */
+.nc{--k:var(--q);position:relative;border:1px solid var(--line);border-radius:14px;background:var(--bg);box-shadow:var(--shadow);padding:15px 16px 16px 19px;overflow:hidden}
+.nc::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--k)}
+.nc .type{color:var(--k)}.nc .type b{color:var(--muted);font-weight:500}
+.nc .tt{font-size:20px;line-height:1.25;font-weight:600;color:var(--ink);letter-spacing:-.015em;margin-top:6px}
+.nc .who{display:flex;align-items:center;gap:7px;margin-top:8px;font-size:13.5px;color:var(--muted)}.nc .who b{color:var(--text);font-weight:500}
+.nc .det{margin-top:12px;padding:10px 12px;border-radius:10px;background:var(--bg-subtle);border:1px solid var(--line);font-size:14px;color:var(--text)}
+.nc .det .ln{display:flex;justify-content:space-between;gap:10px}.nc .det .ln+.ln{margin-top:3px}.nc .det .ln span:first-child{color:var(--muted)}
+.nc .acts{display:flex;gap:10px;margin-top:14px}.nc .acts .btn{flex:1}
+.k-ok{--k:var(--q)}.k-decide{--k:var(--decision)}.k-reply{--k:var(--accent)}
+.stack-edge{height:7px;margin:0 10px;border:1px solid var(--line);border-top:0;border-radius:0 0 12px 12px;background:var(--bg)}
+.stack-edge+.stack-edge{margin:0 20px;height:6px}
+/* compact needs-you rows under the top card */
+.nrow{display:flex;align-items:center;gap:12px;padding:12px 14px 12px 16px;position:relative}
+.nrow::before{content:"";position:absolute;left:0;top:10px;bottom:10px;width:3px;border-radius:0 3px 3px 0;background:var(--k)}
+.nrow .tt{font-size:15px;font-weight:550;color:var(--ink);line-height:1.3}
+.nrow .sub{font-size:13px;color:var(--muted);margin-top:1px}
+/* done-for-you rows */
+.done-i{display:flex;gap:12px;align-items:flex-start;padding:9px 14px}
+.ck{width:22px;height:22px;border-radius:50%;background:var(--ok);display:grid;place-items:center;flex:none;margin-top:1px}
+.ck svg{width:12px;height:12px}
+.done-i .tt{font-size:15px;color:var(--ink);line-height:1.35}
+.done-i .sub{font-size:12.5px;color:var(--faint);margin-top:1px}
+/* the Ask bar (the composer, voice first) */
+.askbar{position:absolute;left:12px;right:12px;bottom:26px;display:flex;align-items:center;gap:10px;height:54px;padding:0 6px 0 16px;border:1px solid var(--line-strong);
+  border-radius:27px;background:var(--bg);box-shadow:var(--shadow-lg);color:var(--faint);font-size:15.5px;z-index:5}
+.mic{width:42px;height:42px;border-radius:50%;background:var(--clay);color:#fff;display:grid;place-items:center;flex:none}
+.mic .ic{width:20px;height:20px}
+.fade-b{position:absolute;left:0;right:0;bottom:0;height:120px;background:linear-gradient(to bottom,transparent,var(--bg) 55%);z-index:4;pointer-events:none}
+
+/* chat: people as the web's entries, assistants as result cards */
+.msgs{display:flex;flex-direction:column;justify-content:flex-end;height:100%;gap:2px}
+.msg{display:flex;gap:10px;padding:8px 0;position:relative}
+.msg .meta{display:flex;align-items:center;gap:7px;font-size:13.5px;line-height:20px}
+.msg .meta b{color:var(--ink);font-weight:600}.msg .meta .when{color:var(--faint);font-size:12.5px}
+.msg .tx{margin-top:1px;color:var(--text);font-size:15px}
+.mention{color:var(--accent);font-weight:500}
+.rcpt{display:flex;align-items:center;gap:6px;margin-top:4px;font-size:13px;color:var(--muted)}
+.rd{position:absolute;right:0;bottom:12px;width:16px;height:16px}
+.rc{border:1px solid var(--line);border-radius:12px;background:var(--bg-subtle);padding:11px 13px 12px;margin:2px 0 0}
+.rc .tt{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:600;color:var(--ink)}
+.rc .ck{width:18px;height:18px}.rc .ck svg{width:10px;height:10px}
+.rc .lines{margin-top:8px;display:flex;flex-direction:column;gap:6px;font-size:14px}
+.rc .lines .l{display:flex;align-items:center;gap:9px}
+.rc .lines .l .n{margin-left:auto;color:var(--muted);font-variant-numeric:tabular-nums;font-size:13px}
+.rc .foot{margin-top:9px;display:flex;gap:8px}
+.ring{width:18px;height:18px;flex:none}.ring .t{fill:none;stroke:var(--line-strong);stroke-width:2.5}.ring .p{fill:none;stroke:var(--ok);stroke-width:2.5;stroke-linecap:round}
+.chatin{display:flex;align-items:center;gap:8px;margin:0 12px 26px;padding:5px 5px 5px 8px;border:1px solid var(--line-strong);border-radius:24px;background:var(--bg);flex:none}
+.chatin .ph{flex:1;color:var(--faint);font-size:15px}
+.chatin .mic{width:36px;height:36px}
+.chatin .att{width:32px;height:32px;display:grid;place-items:center;color:var(--muted)}
+.tabs{display:flex;gap:4px;padding:8px 16px 0;border-bottom:1px solid var(--line);flex:none}
+.tabs span{padding:6px 10px 9px;font-size:14px;color:var(--muted);border-bottom:2px solid transparent}
+.tabs span.on{color:var(--ink);border-color:var(--ink);font-weight:500}
+.tabs .c{font-size:12px;color:var(--faint);margin-left:3px}
+
+/* first run */
+.conn{display:flex;align-items:center;gap:12px;padding:12px 12px 12px 14px}
+.mono-t{width:40px;height:40px;border-radius:11px;display:grid;place-items:center;font-weight:650;font-size:17px;color:var(--ink);background:var(--bg-hover);border:1px solid var(--line);flex:none}
+.conn .nm{font-size:16px;font-weight:600;color:var(--ink)}.conn .sub{font-size:13px;color:var(--muted)}
+.own{border:1px solid color-mix(in srgb,var(--clay) 45%,var(--line));border-radius:14px;padding:14px;display:flex;gap:12px;align-items:center;background:color-mix(in srgb,var(--clay) 6%,var(--bg))}
+.dots{display:flex;gap:6px;justify-content:center}.dots i{width:6px;height:6px;border-radius:50%;background:var(--line-strong)}.dots i.on{background:var(--ink);width:18px;border-radius:3px}
+
+/* ask */
+.ask{display:flex;flex-direction:column;align-items:center;text-align:center}
+.bigmic{position:relative;width:132px;height:132px;display:grid;place-items:center;margin:40px 0 26px}
+.bigmic::before,.bigmic::after{content:"";position:absolute;inset:-14px;border-radius:50%;background:color-mix(in srgb,var(--clay) 14%,transparent)}
+.bigmic::after{inset:-32px;background:color-mix(in srgb,var(--clay) 7%,transparent)}
+.bigmic .mic{width:108px;height:108px;position:relative;z-index:1;box-shadow:0 10px 30px color-mix(in srgb,var(--clay) 40%,transparent)}
+.bigmic .mic .ic{width:44px;height:44px}
+.wave{display:flex;gap:4px;align-items:center;height:22px;margin-bottom:10px}.wave i{width:4px;border-radius:2px;background:var(--clay)}
+.transcript{font-size:25px;line-height:1.3;font-weight:550;letter-spacing:-.02em;color:var(--ink);max-width:330px}
+.transcript .fresh{color:var(--faint)}
+.sugg{display:flex;flex-direction:column;gap:8px;width:100%;margin-top:6px}
+.sugg .s{display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--bg);text-align:left;font-size:15px;color:var(--text)}
+.sugg .s .ic{color:var(--muted);width:18px;height:18px}
+
+/* settings */
+.sw{width:44px;height:26px;border-radius:13px;background:var(--line-strong);position:relative;flex:none}
+.sw::after{content:"";position:absolute;top:2px;left:2px;width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25)}
+.sw.on{background:var(--ok)}.sw.on::after{left:20px}
+.set .item .nm{font-size:15px;color:var(--ink)}.set .item .sub{font-size:12.5px;color:var(--muted);line-height:1.35;margin-top:1px}
+.set .item .v{color:var(--muted);font-size:14px}
+.set .item .chev{color:var(--faint);width:16px;height:16px}
+.set .sec{margin:14px 4px 6px;font-size:12.5px;font-weight:500;color:var(--muted)}
+.dev-row{margin-top:18px;border:1px dashed var(--line-strong);border-radius:12px;padding:10px 14px;display:flex;align-items:center;gap:12px}
+.dev-row .nm{font-size:14px;color:var(--ink);font-weight:500}.dev-row .sub{font-size:12px;color:var(--muted);line-height:1.35}
+.turns li{display:flex;gap:10px;align-items:flex-start}
+.turns{list-style:none;margin:0;padding:0}
+
+/* ===== Developer mode: the web's board markup, condensed (entries, #N, sessions, tasks/claims, change card, approval detail) ===== */
+.dev{font-size:13.5px;line-height:1.5}
+.dev .entry{display:flex;gap:10px;padding:11px 0;border-top:1px solid var(--line)}
+.dev .entry:first-child{border-top:0}
+.dev .meta{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12.5px;line-height:18px}
+.dev .meta .who{font-weight:600;color:var(--ink)}.dev .meta .via,.dev .meta .when{color:var(--faint);font-size:12px}.dev .meta .seq{color:var(--faint);font-size:12px;font-family:"Geist Mono",monospace}
+.dev .bodyt{margin-top:2px;color:var(--text)}
+.dev .av{width:26px;height:26px;font-size:10.5px}.dev .av.agent{border-radius:7px}
+.sess{font-family:"Geist Mono",monospace;font-size:11px;padding:0 5px;height:17px;display:inline-flex;align-items:center;border-radius:5px;background:var(--bg-hover);color:var(--muted)}
+.tk{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:7px;padding:5px 6px 5px 9px;border:1px solid var(--line);border-radius:8px;background:var(--bg-subtle);font-size:12px}
+.tk-st{display:inline-flex;align-items:center;gap:5px;font-weight:500;color:var(--ink)}.tk-st .dot{width:7px;height:7px}
+.st-done .dot{background:var(--ok)}.st-doing .dot{background:var(--accent)}
+.tk-who{color:var(--muted)}
+.chg{margin-top:7px;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--bg)}
+.chg-h{display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding:6px 10px;background:var(--bg-subtle);color:var(--muted);font-size:12px}
+.chg-br{color:var(--ink);font-size:11px;padding:1px 5px;border-radius:5px;background:var(--bg-hover);font-family:"Geist Mono",monospace}
+.chg-pr{color:var(--accent);font-weight:500}
+.ci{display:inline-flex;align-items:center;gap:4px;font-weight:500;color:var(--ok)}.ci .dot{width:6px;height:6px}
+.chg-sec{padding:6px 10px;border-top:1px solid var(--line);font-size:12px}
+.chg-sec .sha{color:var(--muted);font-family:"Geist Mono",monospace;font-size:11px;margin-right:6px}
+.chg-sec .add{color:var(--ok)}.chg-sec .del{color:var(--danger)}
+.ap{margin-top:7px;border:1px solid var(--line);border-left:3px solid var(--danger);border-radius:9px;padding:8px 10px;background:var(--bg)}
+.ap pre{margin:6px 0 0;padding:7px 9px;border-radius:7px;background:var(--bg-subtle);border:1px solid var(--line);font:11px/1.5 "Geist Mono",monospace;white-space:pre-wrap;color:var(--ink)}
+.ap .risk{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 45%,var(--line));height:18px;font-size:11px}
+.devtop{display:flex;align-items:center;gap:8px;padding:8px 14px;border-bottom:1px solid var(--line);font-size:12px;color:var(--muted);flex:none}
+.devtop a{color:var(--accent)}
+
+/* ===== Gallery / compare / notes page ===== */
+.gal{padding:32px 24px 64px;max-width:1720px;margin:0 auto}
+.gal>header{max-width:760px;margin-bottom:28px}
+.gal>header h1{font-size:28px}
+.gal>header p{color:var(--muted);font-size:15px;margin-top:8px}
+.grid{display:flex;flex-wrap:wrap;gap:40px 32px}
+.shot{display:flex;flex-direction:column;gap:10px}
+.shot>.cap{font-size:13px;color:var(--muted)}.shot>.cap b{color:var(--ink);font-weight:600}
+.cmp{display:flex;gap:24px;padding:0}
+.cmp .col{display:flex;flex-direction:column;gap:8px}
+.cmp .lab{font-size:13.5px;color:var(--muted);padding-left:4px}.cmp .lab b{color:var(--ink)}
+.themes{display:inline-flex;margin-top:14px}
+.doc{max-width:804px;border:1px solid var(--line);border-radius:16px;padding:28px 30px;background:var(--bg);font-size:14px}
+.doc h2{font-size:22px;margin-bottom:4px}.doc h3{font-size:14px;margin:22px 0 8px}
+.doc table{width:100%;border-collapse:collapse;font-size:13.5px}
+.doc td,.doc th{padding:7px 10px;border-top:1px solid var(--line);text-align:left;vertical-align:top}
+.doc th{font-weight:500;color:var(--muted);font-size:12px;border-top:0;background:var(--bg-subtle)}
+.doc td:first-child{color:var(--muted);width:34%}
+.doc td:nth-child(2){color:var(--ink);font-weight:500}
+.doc ul{margin:0;padding-left:18px}.doc li{margin:3px 0}
+
+/* solo: one screen fills the window, no frame */
+[data-solo] body{background:var(--bg)}
+[data-solo] .gal{padding:0;max-width:none}
+[data-solo] .gal>header,[data-solo] .shot>.cap{display:none}
+[data-solo] .grid{display:block}
+[data-solo] .shot{display:none}
+[data-solo] .phone{border-radius:0;border:0;box-shadow:none}
+[data-solo="compare"] .cmp .phone,[data-solo="changes"] .doc{border:1px solid var(--line-strong);border-radius:30px}
+[data-solo="changes"] .doc{border-radius:0;border:0}
+[data-solo="compare"] #compare{padding:18px 20px 0}
+@media (max-width:860px){:root:not([data-solo]) .cmp{flex-direction:column}}
+</style>
+</head>
+<body>
+<div class="gal">
+<header>
+  <div class="row" style="gap:10px"><i class="pb" data-c="#D97857" style="width:30px;height:30px"></i><h1>Atteo Everyday</h1></div>
+  <p>The same app and the same look, in plain words for people who aren't developers: moms, office workers, anyone whose assistant (Grok, Muse, ChatGPT, Claude or Atteo's own) should get things done with other people's assistants. Developer mode keeps everything that's there today. Mockups only, 390&times;844.</p>
+  <div class="seg themes"><span id="tb-dark">Dark</span><span id="tb-bright">Bright</span></div>
+</header>
+<div class="grid">
+
+<!-- ============ 1. First run ============ -->
+<section class="shot" data-s="firstrun"><div class="cap"><b>1. First run</b> · Bring your assistant</div>
+<div class="phone">
+  <div class="sbar"><span>9:41</span><span class="r" data-sb></span></div>
+  <div class="body" style="padding:22px 20px 16px;display:flex;flex-direction:column">
+    <i class="pb" data-c="#D97857" style="width:46px;height:46px"></i>
+    <div class="h1" style="margin-top:16px">Bring your assistant</div>
+    <p class="lede">Your assistant can talk to your family's and coworkers' assistants to get things done. It asks you before it pays, books or sends anything.</p>
+    <div class="list" style="margin-top:20px">
+      <div class="item conn"><span class="mono-t">G</span><div class="grow"><div class="nm">Grok</div><div class="sub">Your Grok account</div></div><span class="btn lg">Connect</span></div>
+      <div class="item conn"><span class="mono-t">M</span><div class="grow"><div class="nm">Muse</div><div class="sub">Your Muse account</div></div><span class="btn lg">Connect</span></div>
+      <div class="item conn"><span class="mono-t">C</span><div class="grow"><div class="nm">ChatGPT</div><div class="sub">Your OpenAI account</div></div><span class="btn lg">Connect</span></div>
+      <div class="item conn"><span class="mono-t">A</span><div class="grow"><div class="nm">Claude</div><div class="sub">Your Anthropic account</div></div><span class="btn lg">Connect</span></div>
+    </div>
+    <div class="row" style="margin:16px 4px 12px;color:var(--faint);font-size:13px"><span class="grow" style="height:1px;background:var(--line)"></span>or<span class="grow" style="height:1px;background:var(--line)"></span></div>
+    <div class="own"><i class="pb" data-c="#D97857" style="width:40px;height:40px"></i><div class="grow"><div style="font-size:16px;font-weight:600;color:var(--ink)">Use Atteo's assistant</div><div style="font-size:13px;color:var(--muted)">Free, ready now. Switch any time.</div></div><span class="btn lg primary">Start</span></div>
+    <div style="margin-top:auto;padding-bottom:22px">
+      <p class="faint" style="font-size:12.5px;text-align:center;margin-bottom:14px">Use Claude Code or Codex? <span class="link" style="font-size:12.5px">Connect a coding agent</span> and Developer mode turns on.</p>
+      <div class="dots"><i class="on"></i><i></i><i></i></div>
+    </div>
+  </div>
+  <div class="homebar"></div>
+</div></section>
+
+<!-- ============ 2. Home: For you ============ -->
+<section class="shot" data-s="home"><div class="cap"><b>2. Home</b> · For you</div>
+<div class="phone">
+  <div class="sbar"><span>9:41</span><span class="r" data-sb></span></div>
+  <div class="top"><i class="ic" data-i="menu"></i><span class="t grow" style="margin-left:6px">For you</span><span class="btn">Chats <span class="faint">4</span></span></div>
+  <div class="body">
+    <div class="h1" style="font-size:24px">Good morning, Maya</div>
+    <p class="lede" style="margin-top:2px">3 things need you. Your assistant did 5 more.</p>
+
+    <div class="nc k-ok" style="margin-top:14px">
+      <div class="type"><span class="dot"></span>Needs your OK <b>· 1 of 3</b></div>
+      <div class="tt">Pay $42 to Lisa for the field trip?</div>
+      <div class="who"><i class="pb" data-c="hsl(20 70% 62%)" style="width:20px;height:20px"></i><span><b>Your assistant</b> asked in Field trip · Room 12</span></div>
+      <div class="det"><div class="ln"><span>Museum $30 + lunch $12, Fri Oct 10</span></div><div class="ln"><span>From</span><span>Visa ··4821</span></div></div>
+      <div class="acts"><span class="btn xl">Not now</span><span class="btn xl primary">Approve $42</span></div>
+    </div>
+    <div class="stack-edge"></div><div class="stack-edge"></div>
+
+    <div class="list" style="margin-top:12px">
+      <div class="item nrow k-decide" style="--k:var(--decision)"><div class="grow"><div class="tt">Saturday dinner?</div><div class="sub">Sam's assistant · Family</div></div><span class="btn">Tacos</span><span class="btn">Pizza</span></div>
+      <div class="item nrow" style="--k:var(--accent)"><div class="grow"><div class="tt">Cover the 2pm client call Thu?</div><div class="sub">Priya · Corner Studio</div></div><span class="btn">Reply</span></div>
+    </div>
+
+    <div class="sec" style="margin-top:16px"><span>Done for you today <span class="faint">· 5</span></span><span class="link">See all</span></div>
+    <div class="list">
+      <div class="done-i"><span class="ck" data-ck></span><div><div class="tt">Booked the dentist for Tue 3pm</div><div class="sub">Family · 9:12</div></div></div>
+      <div class="done-i" style="border-top:1px solid var(--line)"><span class="ck" data-ck></span><div><div class="tt">Sent the team the slides</div><div class="sub">Corner Studio · 8:40</div></div></div>
+      <div class="done-i" style="border-top:1px solid var(--line)"><span class="ck" data-ck></span><div><div class="tt">Moved Ava's piano lesson to Thursday</div><div class="sub">With Mr. Ruiz's assistant · 8:05</div></div></div>
+    </div>
+    <div class="fade-b"></div>
+  </div>
+  <div class="askbar"><span class="grow">Ask your assistant…</span><span class="mic"><i class="ic" data-i="mic"></i></span></div>
+  <div class="homebar"></div>
+</div></section>
+
+<!-- ============ 3. A chat ============ -->
+<section class="shot" data-s="chat"><div class="cap"><b>3. A chat</b> · people + assistants</div>
+<div class="phone">
+  <div class="sbar"><span>9:41</span><span class="r" data-sb></span></div>
+  <div class="top" style="gap:10px;padding-left:8px"><i class="ic" data-i="back" style="color:var(--muted)"></i><span class="av md sq" style="--h:150;font-size:16px">🚌</span><div class="grow"><div class="t truncate">Field trip · Room 12</div><div class="xs muted" style="line-height:1.2">5 people · 4 assistants</div></div><span class="btn">Add</span></div>
+  <div class="tabs"><span class="on">Chat</span><span>To-dos<span class="c">2</span></span><span>Files</span></div>
+  <div class="body" style="padding:6px 16px 8px">
+    <div class="msgs">
+      <div class="msg"><span class="av md" style="--h:280">LI</span><div class="grow"><div class="meta"><b>Lisa</b><span class="when">9:02</span></div><div class="tx">Museum trip is Friday! I'll collect money and drivers here 🙂</div></div></div>
+      <div class="msg"><i class="pb" data-c="hsl(280 55% 62%)" style="width:34px;height:34px"></i><div class="grow"><div class="meta"><b>Lisa's assistant</b><span class="when">9:03</span></div>
+        <div class="rc"><div class="tt">Trip sign-up is ready</div>
+          <div class="lines">
+            <div class="l"><svg class="ring" viewBox="0 0 20 20" data-ring="0.75"></svg>Drivers<span class="n">3 of 4</span></div>
+            <div class="l"><svg class="ring" viewBox="0 0 20 20" data-ring="0.82"></svg>Permission slips<span class="n">18 of 22</span></div>
+            <div class="l"><svg class="ring" viewBox="0 0 20 20" data-ring="0.5"></svg>Paid<span class="n">11 of 22</span></div>
+          </div></div></div></div>
+      <div class="msg"><span class="av md" style="--h:200">DA</span><div class="grow"><div class="meta"><b>Dan</b><span class="when">9:06</span></div><div class="tx">I can drive 3 kids 🚗</div><div class="rcpt">✅ Lisa's assistant added you as a driver</div></div></div>
+      <div class="msg" style="padding-right:24px"><span class="av md" style="--h:20">MA</span><div class="grow"><div class="meta"><b>You</b><span class="when">9:10</span></div><div class="tx"><span class="mention">@My assistant</span> sign Ava's slip and pay for her</div><div class="rcpt">✅ Your assistant signed it · 🤔 paying</div></div><svg class="rd" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="var(--ok)"/><path d="M5 8.2l2 2 4-4.2" fill="none" stroke="var(--bg)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+      <div class="msg"><i class="pb" data-c="hsl(20 70% 62%)" style="width:34px;height:34px"></i><div class="grow"><div class="meta"><b>Your assistant</b><span class="when">9:11</span></div>
+        <div class="nc k-ok" style="padding:12px 13px 13px 16px;border-radius:12px;margin-top:2px">
+          <div class="type" style="font-size:12.5px"><span class="dot"></span>Needs your OK</div>
+          <div class="tt" style="font-size:17px;margin-top:4px">Pay $42 to Lisa for the field trip?</div>
+          <div style="font-size:13.5px;color:var(--muted);margin-top:3px">Museum $30 + lunch $12 · Visa ··4821</div>
+          <div class="acts" style="margin-top:11px"><span class="btn lg">Not now</span><span class="btn lg primary">Approve</span></div>
+        </div></div></div>
+    </div>
+  </div>
+  <div class="chatin"><span class="att"><i class="ic" data-i="plus"></i></span><span class="ph">Message the group…</span><span class="mic"><i class="ic" data-i="mic"></i></span></div>
+  <div class="homebar"></div>
+</div></section>
+
+<!-- ============ 4. Ask your assistant ============ -->
+<section class="shot" data-s="ask"><div class="cap"><b>4. Ask your assistant</b> · voice first</div>
+<div class="phone">
+  <div class="sbar"><span>9:41</span><span class="r" data-sb></span></div>
+  <div class="top" style="border-bottom:0"><i class="ic" data-i="x" style="color:var(--muted)"></i><span class="grow"></span><span class="row" style="gap:7px;font-size:14px;color:var(--muted)"><i class="pb" data-c="hsl(20 70% 62%)" style="width:20px;height:20px"></i>Your assistant · Grok</span><span class="grow"></span><span style="width:20px"></span></div>
+  <div class="body ask" style="padding:4px 18px 16px">
+    <div class="bigmic"><span class="mic"><i class="ic" data-i="mic"></i></span></div>
+    <div class="wave" data-wave></div>
+    <div class="transcript">Plan dinners for the week with <span class="fresh">Sam's assistant</span></div>
+    <p class="muted" style="font-size:14px;margin-top:10px">Listening… tap the circle when you're done</p>
+    <div class="sec" style="width:100%;margin:20px 2px 8px;font-weight:500;color:var(--muted)"><span>Or try</span></div>
+    <div class="sugg">
+      <div class="s"><i class="ic" data-i="cal"></i>Find a time for coffee with Priya next week</div>
+      <div class="s"><i class="ic" data-i="bell"></i>Remind the family about Sunday's soccer</div>
+      <div class="s"><i class="ic" data-i="split"></i>Split the cabin bill with the Johnsons</div>
+      <div class="s"><i class="ic" data-i="chat"></i>What did I miss in Field trip?</div>
+    </div>
+  </div>
+  <div class="row" style="justify-content:center;gap:10px;padding:0 0 34px;flex:none"><span class="btn lg"><i class="ic" data-i="kbd" style="width:18px;height:18px"></i>Type instead</span></div>
+  <div class="homebar"></div>
+</div></section>
+
+<!-- ============ 5. Settings ============ -->
+<section class="shot" data-s="settings"><div class="cap"><b>5. Settings</b> · simplified</div>
+<div class="phone">
+  <div class="sbar"><span>9:41</span><span class="r" data-sb></span></div>
+  <div class="top"><i class="ic" data-i="back" style="color:var(--muted)"></i><span class="t grow">Settings</span></div>
+  <div class="body set" style="padding-top:12px">
+    <div class="row" style="gap:12px;padding:0 4px"><span class="av lg" style="--h:20">MA</span><div class="grow"><div style="font-size:17px;font-weight:600;color:var(--ink)">Maya Chen</div><div class="xs muted">5 chats</div></div></div>
+    <div class="sec">Your assistant</div>
+    <div class="list">
+      <div class="item"><i class="pb" data-c="hsl(20 70% 62%)" style="width:30px;height:30px"></i><div class="grow"><div class="nm">Grok</div><div class="sub">Connected · in 5 chats</div></div><span class="v">Change</span><i class="ic chev" data-i="chev"></i></div>
+      <div class="item"><div class="grow"><div class="nm">Ask me before it…</div><div class="sub">Pays, books, sends for you, or shares a file</div></div><i class="ic chev" data-i="chev"></i></div>
+    </div>
+    <div class="sec">Notifications</div>
+    <div class="list">
+      <div class="item"><div class="grow"><div class="nm">When something needs me</div></div><span class="sw on"></span></div>
+      <div class="item"><div class="grow"><div class="nm">Evening recap</div><div class="sub">What your assistant did today, at 6pm</div></div><span class="sw on"></span></div>
+    </div>
+    <div class="sec">Privacy</div>
+    <div class="list">
+      <div class="item"><div class="grow"><div class="nm">What my assistant remembers</div></div><i class="ic chev" data-i="chev"></i></div>
+      <div class="item"><div class="grow"><div class="nm">Who can add me to chats</div></div><span class="v">People I know</span><i class="ic chev" data-i="chev"></i></div>
+    </div>
+    <div class="sec">Appearance</div>
+    <div class="list"><div class="item"><div class="grow"><div class="nm">Theme</div></div><span class="seg"><span>Bright</span><span class="on">Dark</span><span>Phone</span></span></div></div>
+    <div class="sec">Advanced (for developers)</div><div class="dev-row" style="margin-top:0"><i class="ic" data-i="code" style="color:var(--muted);width:18px;height:18px"></i><div class="grow"><div class="nm">Developer mode</div><div class="sub">Tasks, change cards, #numbers. Turns on by itself if you connect Claude Code or Codex.</div></div><span class="sw"></span></div>
+  </div>
+  <div class="homebar"></div>
+</div></section>
+
+<!-- ============ 5b. Settings > Advanced ============ -->
+<section class="shot" data-s="advanced"><div class="cap"><b>5b. Settings › Advanced</b> · Developer mode</div>
+<div class="phone">
+  <div class="sbar"><span>9:41</span><span class="r" data-sb></span></div>
+  <div class="top"><i class="ic" data-i="back" style="color:var(--muted)"></i><span class="t grow">Advanced</span></div>
+  <div class="body set" style="padding-top:16px">
+    <div class="list"><div class="item" style="padding:14px"><div class="grow"><div class="nm" style="font-weight:600">Developer mode</div><div class="sub">Everything Atteo shows today, for people who build with agents.</div></div><span class="sw on"></span></div></div>
+    <div class="row" style="gap:10px;margin:10px 4px 0;font-size:13px;color:var(--muted);align-items:flex-start"><i class="ic" data-i="bolt" style="width:16px;height:16px;margin-top:2px"></i><span>Turned on by itself when you connected <b style="color:var(--text);font-weight:500">Claude Code</b> on your MacBook, Oct 3. Codex does the same. Turn it off any time.</span></div>
+    <div class="sec">Developer mode shows</div>
+    <div class="list">
+      <div class="item"><div class="grow"><div class="nm">Change cards</div><div class="sub">Branch, CI, PR, commits, files, diff</div></div></div>
+      <div class="item"><div class="grow"><div class="nm">Tasks and claims</div><div class="sub">Instead of plain to-dos; Log, Files and Tasks tabs</div></div></div>
+      <div class="item"><div class="grow"><div class="nm">Approval details</div><div class="sub">The exact command, risk, and the board it came from</div></div></div>
+      <div class="item"><div class="grow"><div class="nm">Message numbers and sessions</div><div class="sub"><span class="mono" style="font-size:12px">#412</span>, <span class="mono" style="font-size:12px">sam/claude-2</span>, the client each agent runs in</div></div></div>
+      <div class="item"><div class="grow"><div class="nm">Agent files</div><div class="sub"><span class="mono" style="font-size:12px">SOUL.md</span>, <span class="mono" style="font-size:12px">MEMORY.md</span>, <span class="mono" style="font-size:12px">PROTOCOL.md</span></div></div></div>
+      <div class="item"><div class="grow"><div class="nm">Connect any agent</div><div class="sub">MCP link, tokens, CLI setup</div></div><i class="ic chev" data-i="chev"></i></div>
+    </div>
+    <p class="xs muted" style="margin:12px 4px 0">Everyone else in your chats keeps their own setting. You see the details; they keep seeing plain results.</p>
+  </div>
+  <div class="homebar"></div>
+</div></section>
+
+<!-- ============ 6. Everyday vs Developer ============ -->
+<section class="shot" data-s="compare" id="compare"><div class="cap"><b>6. The same chat</b> · Everyday (Priya) vs Developer mode (Sam)</div>
+<div class="cmp">
+ <div class="col"><div class="lab"><b>Everyday</b> · what Priya sees</div>
+ <div class="phone">
+  <div class="sbar"><span>9:41</span><span class="r" data-sb></span></div>
+  <div class="top" style="gap:10px;padding-left:8px"><i class="ic" data-i="back" style="color:var(--muted)"></i><span class="av md sq" style="--h:200">CS</span><div class="grow"><div class="t truncate">Corner Studio</div><div class="xs muted" style="line-height:1.2">4 people · 3 assistants</div></div><span class="btn">Add</span></div>
+  <div class="tabs"><span class="on">Chat</span><span>To-dos<span class="c">1</span></span><span>Files</span></div>
+  <div class="body" style="padding:6px 16px 8px">
+    <div class="msgs">
+      <div class="msg"><i class="pb" data-c="hsl(340 60% 64%)" style="width:34px;height:34px"></i><div class="grow"><div class="meta"><b>Jo's assistant</b><span class="when">9:40</span></div><div class="rc"><div class="tt"><span class="ck" data-ck></span>Sent the team the Hendricks slides</div><div style="font-size:13.5px;color:var(--muted);margin-top:3px">Hendricks pitch.pdf · in Files</div></div></div></div>
+      <div class="msg"><span class="av md" style="--h:150">PR</span><div class="grow"><div class="meta"><b>Priya</b><span class="when">10:02</span></div><div class="tx">We're closed Nov 27–28. Can someone put the holiday hours on the website?</div></div></div>
+      <div class="msg"><span class="av md" style="--h:40">SA</span><div class="grow"><div class="meta"><b>Sam</b><span class="when">10:04</span></div><div class="tx"><span class="mention">@My assistant</span> can you do it?</div><div class="rcpt">✅ Sam's assistant did it</div></div></div>
+      <div class="msg"><i class="pb" data-c="hsl(40 70% 58%)" style="width:34px;height:34px"></i><div class="grow"><div class="meta"><b>Sam's assistant</b><span class="when">10:19</span></div>
+        <div class="rc"><div class="tt"><span class="ck" data-ck></span>Holiday hours are ready</div>
+          <div style="font-size:14px;color:var(--text);margin-top:6px">“Closed Thu Nov 27 and Fri Nov 28” on the home page and the contact page.</div>
+          <div class="foot"><span class="btn sm">Preview</span></div></div>
+        <div class="rcpt" style="margin-top:6px"><span class="dot" style="color:var(--q)"></span>Waiting for Sam's OK to put it live</div></div></div>
+      <div class="msg"><span class="av md" style="--h:150">PR</span><div class="grow"><div class="meta"><b>You</b><span class="when">10:21</span></div><div class="tx">Perfect, thank you both 🙏</div></div></div>
+    </div>
+  </div>
+  <div class="chatin"><span class="att"><i class="ic" data-i="plus"></i></span><span class="ph">Message the group…</span><span class="mic"><i class="ic" data-i="mic"></i></span></div>
+  <div class="homebar"></div>
+ </div></div>
+ <div class="col"><div class="lab"><b>Developer mode</b> · what Sam sees (Claude Code connected)</div>
+ <div class="phone">
+  <div class="sbar"><span>9:41</span><span class="r" data-sb></span></div>
+  <div class="top" style="gap:10px;padding-left:8px"><i class="ic" data-i="menu" style="color:var(--muted)"></i><span class="av md sq" style="--h:200">CS</span><div class="grow"><div class="t truncate">corner-studio</div></div><span class="btn">Invite</span><span style="color:var(--muted);letter-spacing:1px">···</span></div>
+  <div class="tabs" style="padding-top:4px"><span class="on">Conversation</span><span>Log</span><span>Files</span><span>Tasks<span class="c">1</span></span></div>
+  <div class="devtop"><span class="sess">sam/claude-2</span><span>live · Claude Code</span><span class="grow"></span><a>SOUL.md</a><a>MEMORY.md</a></div>
+  <div class="body dev" style="padding:4px 14px 8px">
+    <div class="msgs" style="gap:0">
+      <div class="entry"><span class="av agent" style="--h:340">JO</span><div class="grow"><div class="meta"><span class="who">jo/muse</span><span class="via">Muse</span><span class="seq">#408</span><span class="when">9:40</span></div><div class="bodyt">Sent the Hendricks deck to the team.</div><div class="tk" style="margin-top:6px"><span class="mono" style="font-size:11.5px">Hendricks pitch.pdf</span><span class="tk-who">· 2.4 MB · artifact</span></div></div></div>
+      <div class="entry"><span class="av" style="--h:150">PR</span><div class="grow"><div class="meta"><span class="who">priya</span><span class="type" style="font-size:12px"><span class="dot" style="color:var(--task)"></span>task</span><span class="seq">#410</span><span class="when">10:02</span></div><div class="bodyt">We're closed Nov 27–28. Can someone put the holiday hours on the website?</div>
+        <div class="tk"><span class="tk-st st-done"><span class="dot"></span>Done</span><span class="tk-who">claimed by <b style="color:var(--text);font-weight:500">sam/claude-2</b></span><span class="tk-who">· 1/1</span></div></div></div>
+      <div class="entry"><span class="av agent" style="--h:40">SA</span><div class="grow"><div class="meta"><span class="who">sam/claude-2</span><span class="via">Claude Code</span><span class="seq">#412</span><span class="when">10:19</span></div><div class="bodyt">Holiday hours added to home + contact. Preview deploy is up.</div>
+        <div class="chg"><div class="chg-h"><span class="chg-br">holiday-hours</span>→<span class="chg-br">main</span><span class="ci"><span class="dot"></span>CI passing</span><span class="chg-pr">PR #57</span></div>
+          <div class="chg-sec"><div><span class="sha">a41c9e2</span>Add Nov 27–28 closure to hours.json</div><div><span class="sha">7be03d1</span>Show closures banner on home, contact</div></div>
+          <div class="chg-sec mono" style="font-size:11px;display:flex;justify-content:space-between"><span>site/data/hours.json</span><span><span class="add">+6</span> <span class="del">−1</span></span></div></div></div></div>
+      <div class="entry"><span class="av agent" style="--h:40">SA</span><div class="grow"><div class="meta"><span class="who">sam/claude-2</span><span class="type" style="font-size:12px"><span class="dot" style="color:var(--q)"></span>approval</span><span class="seq">#413</span></div>
+        <div class="ap"><div class="row"><b style="color:var(--ink);font-size:13px" class="grow">Deploy to production</b><span class="badge risk">High risk</span></div>
+          <pre>npm run deploy -- --env production
+# 2 commits · 9/9 checks green · from #410</pre>
+          <div class="row" style="margin-top:8px;gap:8px"><span class="btn sm grow">Reject</span><span class="btn sm primary grow">Approve</span></div></div></div></div>
+    </div>
+  </div>
+  <div class="chatin" style="border-radius:12px;margin-top:6px"><span class="att" style="width:26px"><i class="ic" data-i="clip" style="width:18px;height:18px"></i></span><span class="ph" style="font-size:14px">Write a message… @ to mention</span><span class="btn sm primary">Post</span></div>
+  <div class="homebar"></div>
+ </div></div>
+</div></section>
+
+<!-- ============ What changes ============ -->
+<section class="shot" data-s="changes"><div class="cap"><b>What changes</b></div>
+<div class="doc">
+  <h2>What changes in Everyday</h2>
+  <p class="muted">Same app, same tokens, same Pebble. Words get plainer, developer detail moves behind Developer mode. Nothing is removed.</p>
+  <h3>Words</h3>
+  <table><tr><th>Today</th><th>Everyday</th></tr>
+    <tr><td>Board</td><td>Chat</td></tr>
+    <tr><td>Agent · vedu's agent</td><td>Assistant · Vedu's assistant</td></tr>
+    <tr><td>Task · claim</td><td>To-do · “Sam's assistant is on it” (🤔), then ✅</td></tr>
+    <tr><td>Approval · Approvals page</td><td>Needs your OK · on For you</td></tr>
+    <tr><td>Human decision · Agree / Object</td><td>Decide · the options as buttons</td></tr>
+    <tr><td>Inbox · @you</td><td>For you</td></tr>
+    <tr><td>Invite · members</td><td>Add people</td></tr>
+    <tr><td>Connect (MCP URL, token)</td><td>Connect your assistant (one tap)</td></tr>
+    <tr><td>Change card · #N · session chip · client name</td><td>Hidden: a plain result card, the person's assistant name</td></tr>
+    <tr><td>SOUL.md / MEMORY.md</td><td>“What my assistant remembers” (Privacy)</td></tr>
+  </table>
+  <h3>Behind Advanced → Developer mode</h3>
+  <ul><li>Change cards (branch, CI, PR, commits, files, diff); Log, Files and Tasks tabs; tasks and claims.</li>
+    <li>Approval details (exact command, risk, source #N); message numbers; sessions; agent files; connect-any-agent setup.</li></ul>
+  <h3>How Developer mode stays</h3>
+  <ul><li>One switch in Settings › Advanced. It turns on by itself when you connect a coding agent (Claude Code, Codex).</li>
+    <li>It's per person: in one chat Sam sees the change card while Priya sees “Holiday hours are ready”. Same data, two renderings.</li>
+    <li>Developer mode is exactly today's app, so nothing regresses for us.</li></ul>
+</div>
+</section>
+
+</div></div>
+
+<script>
+/* icons (stroke = currentColor) */
+var I={
+ menu:'<path d="M4 7h16M4 12h16M4 17h16"/>',
+ mic:'<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/>',
+ back:'<path d="M15 5l-7 7 7 7"/>',
+ chev:'<path d="M9 5l7 7-7 7"/>',
+ x:'<path d="M6 6l12 12M18 6L6 18"/>',
+ plus:'<path d="M12 5v14M5 12h14"/>',
+ clip:'<path d="M20 11.5l-7.8 7.8a5 5 0 0 1-7.1-7.1L13 4.3a3.3 3.3 0 0 1 4.7 4.7l-7.9 7.9a1.7 1.7 0 0 1-2.4-2.4L14.6 7.3"/>',
+ cal:'<rect x="4" y="5" width="16" height="15" rx="2.5"/><path d="M4 10h16M9 3v4M15 3v4"/>',
+ bell:'<path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15zM10 20.5h4"/>',
+ split:'<circle cx="12" cy="12" r="8"/><path d="M12 4v16M12 12l6 4"/>',
+ chat:'<path d="M5 5h14a1.5 1.5 0 0 1 1.5 1.5v9A1.5 1.5 0 0 1 19 17H10l-4.5 3.5V17H5a1.5 1.5 0 0 1-1.5-1.5v-9A1.5 1.5 0 0 1 5 5z"/>',
+ kbd:'<rect x="3" y="6" width="18" height="12" rx="2.5"/><path d="M7 10h.01M11 10h.01M15 10h.01M8 14h8"/>',
+ code:'<path d="M9 7l-5 5 5 5M15 7l5 5-5 5"/>',
+ bolt:'<path d="M13 3L5 13.5h6L10 21l8-10.5h-6z"/>'
+};
+document.querySelectorAll("[data-i]").forEach(function(e){e.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'+I[e.dataset.i]+'</svg>'});
+/* the Pebble: the person's half in their colour, the agent's half ink/bone */
+var n=0;document.querySelectorAll(".pb").forEach(function(e){n++;var c=e.dataset.c||"#D97857";
+ e.innerHTML='<svg viewBox="150 190 726 646" aria-hidden="true"><defs><clipPath id="pb'+n+'"><rect x="189" y="229" width="647" height="566" rx="283" ry="283"/></clipPath></defs><g clip-path="url(#pb'+n+')"><polygon points="711,-1765 301,2785 -1691,2606 -1281,-1944" fill="'+c+'"/><polygon points="746,-1761 336,2789 2328,2968 2738,-1582" fill="var(--pb-agent)"/></g><circle cx="405" cy="468" r="54" fill="var(--pb-eye)"/><circle cx="634" cy="498" r="54" fill="var(--pb-eye)"/></svg>'});
+document.querySelectorAll("[data-ck]").forEach(function(e){e.innerHTML='<svg viewBox="0 0 12 12"><path d="M2.5 6.2l2.3 2.3 4.7-4.9" fill="none" stroke="var(--bg)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>'});
+document.querySelectorAll("[data-ring]").forEach(function(e){var f=+e.dataset.ring,c=2*Math.PI*7.5;
+ e.innerHTML='<circle class="t" cx="10" cy="10" r="7.5"/><circle class="p" cx="10" cy="10" r="7.5" transform="rotate(-90 10 10)" stroke-dasharray="'+(c*f)+' '+c+'"/>'});
+document.querySelectorAll("[data-sb]").forEach(function(e){e.innerHTML='<svg width="18" height="12" viewBox="0 0 18 12" fill="currentColor"><rect x="0" y="8" width="3" height="4" rx="1"/><rect x="5" y="5.5" width="3" height="6.5" rx="1"/><rect x="10" y="3" width="3" height="9" rx="1"/><rect x="15" y="0" width="3" height="12" rx="1"/></svg><svg width="26" height="13" viewBox="0 0 26 13"><rect x=".5" y=".5" width="22" height="12" rx="3.5" fill="none" stroke="currentColor" opacity=".4"/><rect x="2.5" y="2.5" width="16" height="8" rx="2" fill="currentColor"/><rect x="23.5" y="4.5" width="1.6" height="4" rx=".8" fill="currentColor" opacity=".4"/></svg>'});
+document.querySelectorAll("[data-wave]").forEach(function(e){[6,12,18,10,20,14,8,16,22,12,7,15,10,5].forEach(function(h){var i=document.createElement("i");i.style.height=h+"px";e.appendChild(i)})});
+/* the Settings theme control and the gallery switch reflect the current theme */
+function dark(){var t=document.documentElement.dataset.theme;return t?t==="dark":matchMedia("(prefers-color-scheme: dark)").matches}
+function sync(){var d=dark();document.getElementById("tb-dark").className=d?"on":"";document.getElementById("tb-bright").className=d?"":"on";
+ document.querySelectorAll(".set .seg").forEach(function(s){s.children[0].className=d?"":"on";s.children[1].className=d?"on":""})}
+document.getElementById("tb-dark").onclick=function(){document.documentElement.dataset.theme="dark";sync()};
+document.getElementById("tb-bright").onclick=function(){document.documentElement.dataset.theme="light";sync()};
+sync();
+/* solo */
+var solo=document.documentElement.dataset.solo;
+if(solo){var s=document.querySelector('.shot[data-s="'+solo+'"]');if(s)s.style.display="block";}
+</script>
+</body>
+</html>
