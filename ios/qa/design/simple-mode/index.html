@@ -1064,6 +1064,102 @@ body{min-height:100vh}
 .rm *,.rm *::before,.rm *::after{animation:none!important;transition-duration:0s!important}
 @media (max-width:600px){.pg-top,.sec{padding-left:16px;padding-right:16px}.pg-nav{padding:0 16px}.slots{flex-direction:column;align-items:center;overflow-x:hidden}.slot{width:auto}.device{zoom:.86}}
 @media (max-width:380px){.device{zoom:.78}}
+/* ===== directions B and C ===== */
+.k-approval{--k:var(--k-approval)}.k-decision{--k:var(--k-decision)}.k-invite{--k:var(--k-invite)}.k-ask{--k:var(--k-ask)}
+.ap-risk.r-medium{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,var(--line))}
+.ap-risk.r-high{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 40%,var(--line))}
+.ph-thread{top:var(--th-top,146px)}
+
+/* HOME · B  focus card + queue peek */
+.fq-top{position:absolute;top:104px;left:16px;right:16px;display:flex;align-items:center;gap:10px;z-index:15}
+.fq-tally{height:24px;color:var(--text);gap:5px}.fq-tally b{font-weight:600;font-variant-numeric:tabular-nums}
+.fq-mix{display:flex;gap:10px;margin-left:auto}
+.fq-mix .type span:not(.dot){color:var(--muted)}
+.nd.fq-card{top:138px;height:478px;transform-origin:50% 50%}
+.btn.hold{position:relative;overflow:hidden;isolation:isolate;transition:transform .12s var(--out),opacity .15s}
+.btn.hold .fill{position:absolute;inset:0;background:var(--ok);transform:scaleX(0);transform-origin:left center;z-index:-1;border-radius:inherit}
+.btn.hold span{position:relative}
+.btn.hold.holding{transform:scale(.97)}
+.fq-q{position:absolute;left:16px;right:16px;top:630px}
+.fq-lbl{font-size:12px;color:var(--faint);margin:0 2px 6px}
+.fq-row{display:flex;gap:8px;align-items:stretch}
+.kcard.fq-m{flex:1;min-width:0;text-align:left;font:inherit;color:inherit;cursor:pointer;border-left:3px solid var(--k);padding:8px 10px}
+:root[data-theme="dark"] .kcard.fq-m{background:#141414;border-color:var(--line-strong);border-left-color:var(--k)}
+.fq-m .ktext{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-weight:500}
+.fq-m .kmeta .type{font-size:11.5px}
+.fq-more{align-self:center;font:500 12px "Geist Mono",monospace;color:var(--faint);padding:0 4px}
+
+/* HOME · C  priority lanes */
+.ln-scroll{position:absolute;top:104px;left:0;right:0;bottom:30px;overflow-y:auto;overflow-x:hidden;padding:0 14px 40px;touch-action:pan-y;scrollbar-width:none;overscroll-behavior:contain}
+.ln-scroll::-webkit-scrollbar{display:none}
+.ln-h{display:flex;align-items:center;justify-content:space-between;padding:12px 4px 6px;font-size:12px}
+.ln-h .type{font-weight:500;font-size:12px}.ln-h .n{font:500 12px "Geist Mono",monospace;color:var(--faint)}
+.ln-it{border:1px solid var(--line);border-left:3px solid var(--k);border-radius:10px;background:var(--bg);margin-bottom:6px;overflow:hidden;transition:box-shadow .2s,background .2s}
+:root[data-theme="dark"] .ln-it{background:#141414;border-color:var(--line-strong);border-left-color:var(--k)}
+.ln-it.open{box-shadow:var(--shadow)}
+.ln-row{all:unset;box-sizing:border-box;display:flex;align-items:center;gap:10px;width:100%;padding:10px 12px;cursor:pointer}
+.ln-row .one{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+.ln-row .one b{font-weight:600;color:var(--ink);font-size:calc(14px*var(--ts));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ln-row .one .xs{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ln-row .chev{color:var(--faint);font-size:18px;line-height:1;transition:transform .2s var(--out)}
+.ln-it.open .chev{transform:rotate(90deg)}
+.ln-x{display:grid;grid-template-rows:0fr;transition:grid-template-rows .22s cubic-bezier(.2,.9,.3,1)}
+.ln-it.open .ln-x{grid-template-rows:1fr}
+.ln-in{min-height:0;overflow:hidden}
+.ln-pad{padding:0 12px 12px;display:flex;flex-direction:column;gap:10px;font-size:calc(13px*var(--ts))}
+.ln-it .ap-details{margin:0;font-size:12px}
+.ln-it .nd-why{font-size:calc(13px*var(--ts));padding:8px 10px}
+.ln-it .facts{display:flex;flex-wrap:wrap;gap:6px}
+.ln-it .ap-form{margin-top:0;gap:8px}.ln-it .ap-form .btn{flex:1;height:38px;font-size:14px}
+.ln-it .tk{margin-top:0}
+.ln-it.ok{background:color-mix(in srgb,var(--ok) 9%,var(--bg))!important}
+.ln-it.no{background:color-mix(in srgb,var(--danger) 8%,var(--bg))!important}
+.ln-res{width:auto!important;flex:none}
+.ln-done{margin-top:6px}.ln-done .ap-done{overflow:hidden;padding:0}
+:root[data-theme="dark"] .ln-done .ap-done{background:#141414;border-color:var(--line-strong)}
+.ln-done .ap-row summary{padding:9px 12px}
+.ln-scroll .empty{padding:60px 20px}.ln-scroll .empty .pebble{display:block;margin:0 auto 12px}
+
+/* CHATS · B  drum */
+.cs-B{perspective:900px;perspective-origin:50% 348px}
+.cs-B .chc{backface-visibility:hidden}
+.wh-B i{transition:background .12s}
+.wh-B .thumb{width:22px;height:22px;margin-top:-11px;border-radius:50%;right:6px}
+.wt-B{height:46px;margin-top:-23px;max-width:262px;gap:9px;padding:0 10px 0 7px}
+.wt-B .tcol{display:flex;flex-direction:column;min-width:0;line-height:17px}
+.wt-B .tcol b{font-weight:600}.wt-B .tcol span{font-size:11.5px;opacity:.7;font-weight:400}
+/* CHATS · C  cascade */
+.wh-C i.L.ndk{background:var(--kc);width:24px;height:3px;margin-top:-1.5px}
+.wh-C i.L.ndk::before{display:none}
+.wh-C i.L.on{width:26px}
+.wh-C .thumb{width:38px;height:6px;margin-top:-3px;border-radius:3px}
+.wt-C .tk-k{font-size:11px;font-weight:600;padding:1px 7px;border-radius:999px;background:var(--kc);color:#fff;white-space:nowrap}
+
+/* CHAT · B  agent dock */
+.dock{position:absolute;top:104px;left:0;right:0;display:flex;justify-content:space-around;padding:2px 8px 8px;border-bottom:1px solid var(--line);background:var(--bg);z-index:19}
+.dk{all:unset;box-sizing:border-box;cursor:pointer;position:relative;display:flex;flex-direction:column;align-items:center;gap:2px;width:84px;padding:7px 0 5px;border-radius:10px;text-align:center;transition:background .15s}
+.dk .agr{margin:2px 0 5px}
+.dk b{font-size:12.5px;font-weight:600;color:var(--ink);line-height:16px}
+.dk span:not(.agr):not(.av){font-size:11.5px;line-height:15px;max-width:80px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dk.tgt{background:color-mix(in srgb,var(--accent) 10%,transparent)}
+.dk-b{position:absolute;top:1px;right:12px;min-width:24px;height:24px;border-radius:12px;display:grid;place-items:center;font-size:12.5px;font-style:normal;background:var(--bg);border:1px solid var(--line-strong);box-shadow:var(--shadow)}
+
+/* CHAT · C  now card */
+.nowc{position:absolute;top:106px;left:12px;right:12px;z-index:19;padding:10px 12px 6px;display:flex;flex-direction:column;gap:1px}
+:root[data-theme="dark"] .nowc{background:#141414;border-color:var(--line-strong)}
+.now-h{display:flex;align-items:center;gap:8px;margin-bottom:3px}
+.now-h b{font-size:13px;color:var(--ink);font-weight:600}
+.now-r{display:flex;align-items:center;gap:9px;min-height:32px;padding:2px 6px;margin:0 -6px;border-radius:7px;font-size:12.5px;cursor:pointer;color:var(--muted)}
+.now-r b{font-weight:500;color:var(--ink)}
+.now-r.tgt{background:color-mix(in srgb,var(--accent) 9%,transparent)}
+.now-r .btn.sm{height:24px}
+.now-r .tk-prog{font-size:12px}
+.tk-bar.ind i{width:40%;animation:ind 1.1s ease-in-out infinite}
+@keyframes ind{0%{transform:translateX(-110%)}100%{transform:translateX(260%)}}
+.cv-C .thr-sum{margin:8px 0 2px}
+.slots{padding:22px 40px 70px;margin:0 -40px}
+.cv-C .ph-thread .thread{justify-content:flex-start}
+.device{box-shadow:0 0 0 1.5px var(--device-edge),0 24px 50px rgba(0,0,0,.18)}
 </style>
 </head>
 <body>
@@ -1399,7 +1495,7 @@ class Phone {
    HOME · A  Stacked deck. The approval card from /approvals, one at a time, flicked up or down.
    Vertical flicks keep sideways swipes free for the panels.
    ===================================================================================================================== */
-function needHTML(n, D) {
+function needHTML(n, D, opt = {}) {
   const a = n.ag ? D.agents[n.ag] : null, c = D.chats.find(x => x.id === n.chat) || { name: n.chat };
   const face = n.kind === 'ask' || n.kind === 'invite' || n.kind === 'decision' && n.asker ? av(n.asker, 'lg') : agr(a, 'lg');
   let meta;
@@ -1413,6 +1509,12 @@ function needHTML(n, D) {
   if (n.kind === 'invite') mid = `<div class="tk">${bpic('pricing', 'sm')}<span class="tk-st">pricing</span><span class="tk-who">2 people · 2 agents · 41 messages</span><span class="avs" style="margin-left:auto">${av('maya', 'sm')}${av('jxn', 'sm')}</span></div>`;
   if (n.quote) mid = `<div class="entry" style="border:0;padding:0"><div class="grow"><div class="body"><blockquote class="md-q">${fmtText(n.quote)}</blockquote></div></div></div>`;
   const facts = n.facts ? `<div class="facts">${n.risk ? `<span class="badge ap-risk r-${n.risky}">${n.risk}</span>` : ''}${n.facts.map(f => `<span class="badge">${esc(f)}</span>`).join('')}</div>` : '';
+  if (opt.lane) return `${mid}<div class="nd-why"><div class="nd-lbl">Why it’s waiting on you</div>${esc(n.why)}</div>${facts}
+    <div class="ap-form"><button class="btn" type="button" data-no>${esc(n.no)}</button><button class="btn primary" type="button" data-yes>${esc(n.yes)}</button></div>`;
+  if (opt.hold) return `<div class="nd-top"><span class="type t-${n.kind}"><span class="dot"></span><span>${KIND[n.kind]}</span></span><span class="grow"></span><span class="xs faint">${esc(c.name)}</span></div>
+    <div class="ap-hd">${face}<div class="grow"><h2 class="ap-title">${esc(n.title)}</h2><p class="xs muted">${meta}</p></div></div>
+    ${mid}<div class="nd-why"><div class="nd-lbl">Why it’s waiting on you</div>${esc(n.why)}</div>${facts}
+    <div class="ap-form"><button class="btn" type="button" data-no>${esc(n.no)}</button><button class="btn primary hold" type="button" data-hold data-own><i class="fill"></i><span>Hold to ${esc(n.yes.toLowerCase())}</span></button></div>`;
   return `<div class="nd-top"><span class="type t-${n.kind}"><span class="dot"></span><span>${KIND[n.kind]}</span></span><span class="grow"></span><span class="xs faint">${esc(c.name)}</span></div>
     <div class="ap-hd">${face}<div class="grow"><h2 class="ap-title">${esc(n.title)}</h2><p class="xs muted">${meta}</p></div></div>
     ${mid}<div class="nd-why"><div class="nd-lbl">Why it’s waiting on you</div>${esc(n.why)}</div>${facts}
@@ -1481,9 +1583,119 @@ HOME.A = (app, root) => {
   };
 };
 
+function celebrateAt(app, el) { if (!el) return; const p = app.at(el); app.hap('success', 'all clear');
+  [0, 90, 180].forEach((d, i) => setTimeout(() => fxRing(app, p.x, p.y, 90, ['var(--ok)', 'var(--accent)', 'var(--decision)'][i], { to: 2.6, dur: 520 }), d));
+  fxSparks(app, p.x, p.y, ['#D9785A', '#3ecf75', '#a78bfa', '#fbbf24', '#38bdf8'], 26, 150); }
+function setUnread(app, root) { const un = app.D.chats.reduce((s, c) => s + c.un, 0), u = $('[data-un]', root); if (u) { u.textContent = un; u.hidden = !un; } }
+
 /* =====================================================================================================================
-   CHATS · A  Rolodex. Same-size, opaque board cards (the /boards .bcard) stacked; neighbours peek above and below.
-   The tick wheel on the right is the web thread's rail (.rail ticks + .rail-tip), made a thumb-sized control.
+   HOME · B  Focus card + queue peek. One card fills the screen; what's next waits underneath as the web's kanban cards.
+   Approve is a press-and-hold that charges (a light tick every 20%, a firm one when it goes): a deliberate yes for
+   things with side effects, a tap for no. Cleared cards shrink into the tally.
+   ===================================================================================================================== */
+HOME.B = (app, root) => {
+  root.innerHTML = homeHeader('Needs you') + `<div class="fq-top"><span class="badge fq-tally"><span class="dot" style="color:var(--ok)"></span><b data-tally>0</b> cleared</span><span class="fq-mix"></span></div>
+    <article class="card approval nd fq-card"></article>
+    <div class="fq-q"><div class="fq-lbl">Next up</div><div class="fq-row"></div></div>
+    <div class="allclear">${pebble(72, 64)}<h3>All clear</h3><p class="muted"></p></div>`;
+  const card = $('.fq-card', root), row = $('.fq-row', root); let cleared = 0, busy = false, cur = null, hold = null;
+  function paint(enter) {
+    const N = app.D.needs, clear = $('.allclear', root); $('[data-ct]', root).textContent = N.length || ''; setUnread(app, root);
+    $('.fq-mix', root).innerHTML = Object.keys(KIND).map(k => [k, N.filter(n => n.kind === k).length]).filter(x => x[1]).map(([k, c]) => `<span class="type t-${k}" title="${KIND[k]}"><span class="dot"></span><span>${c} ${KIND[k].toLowerCase()}${c > 1 ? 's' : ''}</span></span>`).join('');
+    if (!N.length) { cur = null; card.style.visibility = 'hidden'; $('.fq-q', root).style.visibility = 'hidden';
+      if (!clear.classList.contains('on')) { clear.classList.add('on'); $('p', clear).textContent = `${cleared} cleared · your agents are back to work`; if (cleared) celebrateAt(app, $('.allclear .pebble', root)); } return; }
+    clear.classList.remove('on'); card.style.visibility = ''; $('.fq-q', root).style.visibility = '';
+    const n = N[0]; cur = n; card.className = `card approval nd fq-card k-${n.kind}`; card.innerHTML = needHTML(n, app.D, { hold: true });
+    const rest = N.slice(1);
+    row.innerHTML = rest.slice(0, 2).map(m => `<button type="button" class="kcard fq-m k-${m.kind}" data-id="${m.id}"><span class="kmeta"><span class="type t-${m.kind}"><span class="dot"></span><span>${KIND[m.kind]}</span></span><span class="grow"></span>${esc(m.when)}</span><span class="ktext">${esc(m.title)}</span></button>`).join('')
+      + (rest.length > 2 ? `<span class="fq-more">+${rest.length - 2}</span>` : '') + (!rest.length ? `<span class="xs faint" style="padding:8px 2px">Nothing after this one.</span>` : '');
+    if (enter) anim(card, [{ transform: 'translateY(240px) scale(.5)', opacity: 0 }, { transform: 'translateY(-6px) scale(1.01)', opacity: 1, offset: .7 }, { transform: 'none', opacity: 1 }], { duration: 260, easing: 'cubic-bezier(.3,.9,.4,1)' });
+  }
+  // press and hold to approve: the button fills; let go early and it springs back
+  card.addEventListener('pointerdown', e => {
+    const b = e.target.closest('[data-hold]'); if (!b || busy || !cur) return; e.preventDefault(); const fill = $('.fill', b), t0 = performance.now(); let last = 0; b.classList.add('holding'); app.hap('light', 'charging');
+    const step = now => { if (!hold) return; const p = Math.min(1, (now - t0) / 650); fill.style.transform = `scaleX(${p})`; const q = Math.floor(p * 5);
+      if (q > last && p < 1) { last = q; app.hap('light', 'charging ' + q * 20 + '%'); }
+      if (p >= 1) { hold = null; b.classList.remove('holding'); resolve(true); return; } hold.raf = requestAnimationFrame(step); };
+    hold = { raf: requestAnimationFrame(step), t0 };
+    const up = () => { removeEventListener('pointerup', up); removeEventListener('pointercancel', up); if (!hold) return; cancelAnimationFrame(hold.raf); const dt = performance.now() - hold.t0; hold = null;
+      b.classList.remove('holding'); anim(fill, [{ transform: fill.style.transform || 'scaleX(0)' }, { transform: 'scaleX(0)' }], { duration: 180, easing: SPRING }); fill.style.transform = 'scaleX(0)';
+      if (dt < 260) { anim(b, [{ transform: 'none' }, { transform: 'translateX(-6px)' }, { transform: 'translateX(5px)' }, { transform: 'none' }], { duration: 200 }); app.toast(`Hold to ${cur.yes.toLowerCase()}: it fills, then it goes`); app.hap('warn', 'let go too soon'); } };
+    addEventListener('pointerup', up); addEventListener('pointercancel', up);
+  });
+  root.addEventListener('click', e => { if (busy) return; if (e.target.closest('.fq-card [data-no]')) { resolve(false); return; }
+    const m = e.target.closest('.fq-m'); if (m) { const i = app.D.needs.findIndex(x => x.id === m.dataset.id); const [n] = app.D.needs.splice(i, 1); app.D.needs.unshift(n); app.hap('click', 'brought forward'); paint(true); } });
+  function resolve(yes) {
+    const n = cur; if (!n || busy) return; busy = true; const tally = $('.fq-tally', root), p = app.at(card), q = app.at(tally);
+    app.hap(yes ? 'heavy' : 'warn', (yes ? n.yes : n.no) + ': ' + n.title);
+    fxRing(app, p.x, p.y - 60, 140, yes ? 'var(--ok)' : 'var(--danger)', { to: 1.6, dur: 300, w: 4 });
+    fxWord(app, p.x, p.y - 60, yes ? (n.kind === 'approval' ? 'approved' : n.yes.toLowerCase()) : (n.kind === 'approval' ? 'rejected' : n.no.toLowerCase()), yes ? 'var(--ok)' : 'var(--danger)');
+    const a = anim(card, [{ transform: 'none', opacity: 1 }, { transform: `translate(${q.x - p.x}px,${q.y - p.y}px) scale(.06)`, opacity: .15 }], { duration: 280, easing: 'cubic-bezier(.5,0,.75,.4)' });
+    const done = () => { cleared++; $('[data-tally]', root).textContent = cleared; pop(tally); fxRing(app, q.x, q.y, 30, 'var(--ok)', { to: 2, dur: 300, w: 2 });
+      const undo = app.resolve(n, yes); busy = false;
+      app.toast(yes ? n.ok : n.nok, () => { undo(); cleared = Math.max(0, cleared - 1); $('[data-tally]', root).textContent = cleared; }); };
+    if (a) { card.style.opacity = 0; a.onfinish = () => { card.style.opacity = ''; done(); }; } else done();
+  }
+  paint(false);
+  return {
+    refresh() { paint(app.D.needs[0] !== cur); }, undo() { paint(true); app.hap('light', 'undo'); },
+    stage() { const b = $('[data-hold]', card); b.classList.add('holding'); $('.fill', b).style.transform = 'scaleX(.45)'; },
+  };
+};
+
+/* =====================================================================================================================
+   HOME · C  Priority lanes. Everything at once, grouped by kind in priority order (the board sidebar's folds); the top
+   one is open with its full context and buttons, tap any other to open it. Decided ones collect at the bottom as the
+   /approvals history (the web's .ap-row details).
+   ===================================================================================================================== */
+HOME.C = (app, root) => {
+  root.innerHTML = homeHeader('Needs you') + `<div class="ln-scroll"><div class="ln"></div><div class="ln-done"></div></div>`;
+  const box = $('.ln', root), dbox = $('.ln-done', root); let openId = null; const decided = [];
+  const LBL = { approval: 'Approvals', decision: 'Decisions', invite: 'Invites', ask: 'Asks' };
+  function rowHTML(n) { const a = n.ag ? app.D.agents[n.ag] : null, c = app.D.chats.find(x => x.id === n.chat) || { name: n.chat };
+    const face = n.kind === 'approval' && a ? agr(a, 'sm') : av(n.asker, 'sm'), who = n.kind === 'approval' ? handle(a) : n.asker;
+    return `<div class="ln-it k-${n.kind}${n.id === openId ? ' open' : ''}" data-id="${n.id}"><button type="button" class="ln-row">${face}<span class="one"><b>${esc(n.title)}</b><span class="xs faint">${esc(who)} · ${esc(c.name)} · ${esc(n.when)}</span></span><span class="chev">›</span></button>
+      <div class="ln-x"><div class="ln-in"><div class="ln-pad">${needHTML(n, app.D, { lane: true })}</div></div></div></div>`; }
+  function paint() {
+    const N = app.D.needs; if (!N.find(n => n.id === openId)) openId = N[0]?.id || null;
+    box.innerHTML = Object.keys(KIND).map(k => { const L = N.filter(n => n.kind === k); if (!L.length) return '';
+      return `<div class="ln-g"><div class="ln-h"><span class="type t-${k}"><span class="dot"></span><span>${LBL[k]}</span></span><span class="n">${L.length}</span></div>${L.map(rowHTML).join('')}</div>`; }).join('')
+      || `<div class="empty">${pebble(64, 57)}<h3>All clear</h3><p>Nothing needs you. Your agents are back to work.</p></div>`;
+    dbox.innerHTML = decided.length ? `<div class="ln-h"><span class="faint">Decided today</span><span class="n">${decided.length}</span></div><ul class="ap-done card">${decided.map(d => {
+      const lab = d.yes ? (d.n.kind === 'approval' ? 'Approved' : d.n.yes) : (d.n.kind === 'approval' ? 'Denied' : d.n.no);
+      return `<li><details class="ap-row"><summary><span class="ap-st st-${d.yes ? 'approved' : 'rejected'}">${esc(lab)}</span><span class="grow truncate">${esc(d.n.title)}</span><span class="xs faint">now</span></summary><p class="xs muted">${esc(d.yes ? d.n.ok : d.n.nok)}</p></details></li>`; }).join('')}</ul>` : '';
+    $('[data-ct]', root).textContent = N.length || ''; setUnread(app, root);
+  }
+  box.addEventListener('click', e => { const it = e.target.closest('.ln-it'); if (!it) return; const n = app.D.needs.find(x => x.id === it.dataset.id); if (!n) return;
+    if (e.target.closest('[data-yes]')) return decide(it, n, true); if (e.target.closest('[data-no]')) return decide(it, n, false);
+    if (e.target.closest('.ln-row')) { openId = openId === n.id ? null : n.id; $$('.ln-it', box).forEach(x => x.classList.toggle('open', x.dataset.id === openId)); app.hap('light', openId ? 'open: ' + n.title : 'folded'); } });
+  function decide(it, n, yes) {
+    if (it._busy) return; it._busy = true; app.hap(yes ? 'click' : 'warn', (yes ? n.yes : n.no) + ': ' + n.title);
+    const lab = yes ? (n.kind === 'approval' ? 'Approved' : n.yes) : (n.kind === 'approval' ? 'Denied' : n.no);
+    it.classList.add(yes ? 'ok' : 'no'); $('.chev', it).outerHTML = `<span class="ap-st st-${yes ? 'approved' : 'rejected'} ln-res">${esc(lab)}</span>`; pop($('.ln-res', it)); it.classList.remove('open');
+    setTimeout(() => {
+      const fin = () => { decided.unshift({ n, yes }); openId = null; const undo = app.resolve(n, yes);
+        const li = $('.ap-done li', dbox); anim(li, [{ transform: 'translateY(-10px)', opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 220, easing: SPRING });
+        const nx = $('.ln-it.open', box); if (nx) { anim(nx, [{ background: 'color-mix(in srgb,var(--accent) 9%,transparent)' }, { background: 'transparent' }], { duration: 700 }); app.hap('light', 'next: ' + app.D.needs[0].title); }
+        if (!app.D.needs.length) celebrateAt(app, $('.empty .pebble', box));
+        app.toast(yes ? n.ok : n.nok, () => { const i = decided.findIndex(d => d.n === n); if (i >= 0) decided.splice(i, 1); undo(); }); };
+      const a = anim(it, [{ height: it.offsetHeight + 'px', opacity: 1 }, { height: '0px', opacity: 0 }], { duration: 200, easing: 'cubic-bezier(.5,0,.8,.5)' });
+      if (a) { it.style.overflow = 'hidden'; a.onfinish = () => { it.style.height = '0px'; fin(); }; } else fin();
+    }, 340);
+  }
+  paint();
+  return { refresh: paint, undo(n) { openId = n.id; paint(); app.hap('light', 'undo'); },
+    stage() { const n = app.D.needs[0]; decided.unshift({ n, yes: true }); openId = null; app.resolve(n, true); } };
+};
+
+/* =====================================================================================================================
+   CHATS. Same-size, opaque board cards (the /boards .bcard), newest first, and the tick wheel on the right: the web
+   thread's .rail (ticks + .rail-tip) made a thumb-sized control. Three directions share the engine and differ in how
+   the stack is posed (pose), how the wheel draws, and what its tip says.
+     A Rolodex  — focused card in the middle, neighbours tucked above and below
+     B Drum     — the cards sit on a cylinder (like the iOS picker); ticks swell under the thumb like a dock
+     C Cascade  — earlier chats stack as tabs above (just their header shows), the next one waits below; the wheel's
+                  ticks carry each chat's colour of trouble (needs-you kind, unread)
    ===================================================================================================================== */
 function chatCardHTML(c, D) {
   const ags = c.ags.map(id => D.agents[id]); const nd = D.needs.filter(n => n.chat === c.id);
@@ -1494,60 +1706,84 @@ function chatCardHTML(c, D) {
     <ul class="ag-list">${ags.slice(0, 3).map(a => `<li class="ag-row">${agr(a, 'sm')}<span class="grow ag-main"><span class="truncate"><span class="ag-name">${esc(handle(a))}</span></span></span><span class="ag-status st-w-${a.st}">${esc(a.what)}</span></li>`).join('')}</ul>
     <div class="bc-foot">${nd.length ? `<span class="type t-${nd[0].kind}"><span class="dot"></span><span>${nd.length} need${nd.length > 1 ? '' : 's'} you</span></span>` : ''}<span class="grow"></span><span class="avs">${c.ppl.map(p => av(p, 'sm')).join('')}</span></div>`;
 }
-CHATS.A = (app, root) => {
-  root.innerHTML = `<div class="ph-hd"><button class="btn ghost menu" type="button" data-act="drawer" aria-label="Settings">${pebble(24, 22)}</button><h1>Chats</h1><span class="pn-ct" data-ct></span>
-    <div class="right"><button class="btn sm" type="button" data-act="home">‹ Needs you <span class="badge kind t-approval" data-nd style="height:18px"></span></button></div></div>
-    <div class="cstack" data-vy><div class="wheel" data-own aria-label="Chats wheel"></div><div class="rail-tip wtip"></div></div><div class="chats-hint">Drag the wheel · tap a card to open it</div>`;
-  const st = $('.cstack', root), wheel = $('.wheel', st), tip = $('.wtip', st);
-  let cards = [], f = 0, stopT = null, lastC = 0, lastQ = 0, wheelOn = false;
-  const H_ = 244, YC = 348;
-  const G = () => Math.min(46, 520 / Math.max(1, app.D.chats.length - 1));
-  const top0 = () => YC - (app.D.chats.length - 1) * G() / 2;
-  function build() {
-    $$('.chc', st).forEach(c => c.remove()); cards = app.D.chats.map((c, i) => { const el = document.createElement('article'); el.className = 'bcard chc'; el._c = c; el.innerHTML = chatCardHTML(c, app.D);
-      el.addEventListener('click', () => { const fi = Math.round(f); if (i === fi) { app.hap('click', 'open ' + c.name); app.openChat(c.id); } else snap(i); }); st.insertBefore(el, wheel); return el; });
-    const N = cards.length, g = G(), t0 = top0();
-    let h = ''; for (let i = 0; i < N; i++) { h += `<i class="L${app.D.chats[i].un ? ' un' : ''}${app.D.needs.some(n => n.chat === app.D.chats[i].id) ? ' ndk' : ''}" style="top:${t0 + i * g}px"></i>`;
-      if (i < N - 1) for (let k = 1; k < 4; k++) h += `<i style="top:${t0 + (i + k / 4) * g}px"></i>`; }
-    wheel.innerHTML = h + '<span class="thumb"></span>';
-    $('[data-ct]', root).textContent = N; const nd = $('[data-nd]', root); nd.textContent = app.D.needs.length; nd.hidden = !app.D.needs.length;
-    layout();
-  }
-  function pose(r) { const a = Math.abs(r), sg = Math.sign(r); const off = a <= 1 ? 108 * a : 108 + 50 * Math.min(a - 1, 1.4);
-    return { y: YC + sg * off - H_ / 2, s: 1 - .06 * Math.min(a, 2), dim: Math.min(a, 1.6) * .3, z: 100 - Math.round(a * 10), o: a > 2.6 ? 0 : a > 2.1 ? (2.6 - a) / .5 : 1 }; }
-  function layout() {
-    const fi = Math.round(f);
-    cards.forEach((el, i) => { const p = pose(i - f); el.style.transform = `translateY(${p.y}px) scale(${p.s})`; el.style.zIndex = p.z; el.style.opacity = p.o; el.style.setProperty('--dim', p.dim.toFixed(3));
-      el.style.visibility = p.o <= 0 ? 'hidden' : ''; el.classList.toggle('focus', i === fi); });
-    const ty = top0() + f * G(); const th = $('.thumb', wheel); if (th) th.style.top = ty + 'px';
-    $$('i.L', wheel).forEach((t, i) => t.classList.toggle('on', i === fi)); tip.style.top = ty + 'px';
-  }
-  // detents: a light tick per short tick, a firmer one per chat
-  function feel() { const c = clamp(Math.round(f), 0, cards.length - 1), q = Math.round(f * 4);
-    if (c !== lastC) { lastC = c; lastQ = q; app.hap('heavy', 'chat: ' + app.D.chats[c].name); if (wheelOn) showTip(true); }
-    else if (q !== lastQ) { lastQ = q; app.hap('light', 'tick'); } }
-  function setF(v) { f = clamp(v, 0, cards.length - 1); layout(); feel(); }
-  function snap(i) { stopT?.(); i = clamp(i, 0, cards.length - 1); const from = f; stopT = tween(from, i, 230, v => { f = v; layout(); feel(); }, () => { f = i; layout(); }); }
-  function showTip(change) { const c = app.D.chats[Math.round(f)]; tip.innerHTML = `${c.dm ? av(c.name, 'xs') : bpic(c.name, 'xs')}<span class="truncate">${esc(c.name)}</span>${c.un ? `<span class="u">${c.un}</span>` : ''}`;
-    tip.classList.add('on'); if (change) pop(tip); }
-  // the wheel: drag the thumb (or anywhere on the rail); it snaps to each chat with a little magnet
-  wheel.addEventListener('pointerdown', e => { e.preventDefault(); stopT?.(); wheel.setPointerCapture(e.pointerId); wheel.classList.add('drag'); wheelOn = true;
-    const at = e2 => { const y = app.local(e2).y - st.offsetTop, raw = (y - top0()) / G(), near = Math.round(raw); setF(Math.abs(raw - near) < .18 ? near : raw); };
-    at(e); showTip(false); app.hap('click', 'wheel: grab');
-    const mv = e2 => at(e2), up = () => { wheel.releasePointerCapture?.(e.pointerId); wheel.removeEventListener('pointermove', mv); wheel.removeEventListener('pointerup', up); wheel.removeEventListener('pointercancel', up);
-      wheel.classList.remove('drag'); wheelOn = false; snap(Math.round(f)); setTimeout(() => { if (!wheelOn) tip.classList.remove('on'); }, 450); };
-    wheel.addEventListener('pointermove', mv); wheel.addEventListener('pointerup', up); wheel.addEventListener('pointercancel', up); });
-  // or drag the stack itself
-  let f0 = 0;
-  st._vy = { start() { stopT?.(); f0 = f; }, move(dx, dy) { let v = f0 - dy / 108; const N = cards.length - 1; if (v < 0) v = v * .3; if (v > N) v = N + (v - N) * .3; f = v; layout(); feel(); },
-    end(dx, dy, vx, vy) { snap(Math.round(f - vy * 2.2)); } };
-  build();
-  return {
-    refresh() { const id = app.D.chats[Math.round(f)]?.id; build(); },
-    layout, stage(i) { f = i; lastC = i; lastQ = i * 4; layout(); wheelOn = true; wheel.classList.add('drag'); showTip(false); },
-    focusOn(i) { snap(i); },
-  };
+const CH_H = 244, CH_YC = 348;
+const POSE = {
+  A(r) { const a = Math.abs(r), sg = Math.sign(r), off = a <= 1 ? 108 * a : 108 + 50 * Math.min(a - 1, 1.4), s = 1 - .06 * Math.min(a, 2);
+    return { t: `translateY(${CH_YC + sg * off - CH_H / 2}px) scale(${s})`, z: 100 - Math.round(a * 10), o: a > 2.6 ? 0 : a > 2.1 ? (2.6 - a) / .5 : 1, dim: Math.min(a, 1.6) * .3 }; },
+  B(r) { const R = 330, th = clamp(r * 27, -95, 95), rad = th * Math.PI / 180, a = Math.abs(th);
+    return { t: `translateY(${CH_YC + R * Math.sin(rad) - CH_H / 2}px) translateZ(${R * Math.cos(rad) - R}px) rotateX(${-th}deg)`, z: 100 - Math.round(a), o: a > 80 ? 0 : a > 62 ? (80 - a) / 18 : 1, dim: Math.min(a / 60, 1) * .45 }; },
+  C(r) { const Y0 = 150; let y, s, z, dim;
+    if (r <= 0) { const a = Math.min(-r, 3.6); y = Y0 - 42 * a; s = 1 - .035 * a; z = 100 - Math.round(a * 10); dim = Math.min(a, 1) * .22 + a * .06; }
+    else if (r <= 1) { y = Y0 + r * (CH_H + 18); s = 1; z = 100 - Math.round(r * 10); dim = r * .12; }
+    else { const a = Math.min(r - 1, 3); y = Y0 + CH_H + 18 + a * 22; s = 1 - .04 * a; z = 90 - Math.round(a * 10); dim = .12 + a * .1; }
+    const o = r < -3 ? clamp(3.6 + r, 0, 1) / .6 : r > 3 ? 0 : 1;
+    return { t: `translateY(${y}px) scale(${s})`, z, o: clamp(o, 0, 1), dim }; },
 };
+const CHATS_HINT = { A: 'Drag the wheel · tap a card to open it', B: 'Spin the drum or drag the wheel · tap to open', C: 'Pull the stack or drag the wheel · tap to open' };
+function makeChats(v) {
+  return (app, root) => {
+    root.innerHTML = `<div class="ph-hd"><button class="btn ghost menu" type="button" data-act="drawer" aria-label="Settings">${pebble(24, 22)}</button><h1>Chats</h1><span class="pn-ct" data-ct></span>
+      <div class="right"><button class="btn sm" type="button" data-act="home">‹ Needs you <span class="badge kind t-approval" data-nd style="height:18px"></span></button></div></div>
+      <div class="cstack cs-${v}" data-vy><div class="wheel wh-${v}" data-own aria-label="Chats wheel"></div><div class="rail-tip wtip wt-${v}"></div></div><div class="chats-hint">${CHATS_HINT[v]}</div>`;
+    const st = $('.cstack', root), wheel = $('.wheel', st), tip = $('.wtip', st);
+    let cards = [], ticks = [], f = 0, stopT = null, lastC = 0, lastQ = 0, wheelOn = false;
+    const N = () => app.D.chats.length;
+    const G = () => Math.min(46, 520 / Math.max(1, N() - 1));
+    const top0 = () => CH_YC - (N() - 1) * G() / 2;
+    function build() {
+      $$('.chc', st).forEach(c => c.remove());
+      cards = app.D.chats.map((c, i) => { const el = document.createElement('article'); el.className = 'bcard chc'; el._c = c; el.innerHTML = chatCardHTML(c, app.D);
+        el.addEventListener('click', () => { const fi = Math.round(f); if (i === fi) { app.hap('click', 'open ' + c.name); app.openChat(c.id); } else snap(i); }); st.insertBefore(el, wheel); return el; });
+      const g = G(), t0 = top0(); let h = ''; ticks = [];
+      app.D.chats.forEach((c, i) => { const nd = app.D.needs.find(n => n.chat === c.id);
+        h += `<i class="L${c.un ? ' un' : ''}${nd ? ' ndk' : ''}" style="top:${t0 + i * g}px${nd ? `;--kc:var(--k-${nd.kind})` : ''}"></i>`; ticks.push(i);
+        if (i < N() - 1) for (let k = 1; k < 4; k++) { h += `<i style="top:${t0 + (i + k / 4) * g}px"></i>`; ticks.push(i + k / 4); } });
+      wheel.innerHTML = h + `<span class="thumb"></span>`;
+      $('[data-ct]', root).textContent = N(); const nd = $('[data-nd]', root); nd.textContent = app.D.needs.length; nd.hidden = !app.D.needs.length;
+      layout();
+    }
+    function layout() {
+      const fi = Math.round(f);
+      cards.forEach((el, i) => { const p = POSE[v](i - f); el.style.transform = p.t; el.style.zIndex = p.z; el.style.opacity = p.o; el.style.setProperty('--dim', p.dim.toFixed(3));
+        el.style.visibility = p.o <= 0.01 ? 'hidden' : ''; el.classList.toggle('focus', i === fi); });
+      const ty = top0() + f * G(), th = $('.thumb', wheel); if (th) th.style.top = ty + 'px';
+      const is = wheel.children;
+      for (let k = 0; k < ticks.length; k++) { const t = is[k], pos = ticks[k], L = pos % 1 === 0;
+        if (L) t.classList.toggle('on', pos === fi);
+        if (v === 'B') { const d = Math.abs(pos - f), m = 1 + (wheelOn ? 1.5 : .7) * Math.exp(-(d * d) / 1.1); t.style.width = ((L ? 16 : 6) * m).toFixed(1) + 'px'; } }
+      tip.style.top = ty + 'px';
+    }
+    // detents: a light tick per short tick, a firmer one per chat
+    function feel() { const c = clamp(Math.round(f), 0, N() - 1), q = Math.round(f * 4);
+      if (c !== lastC) { lastC = c; lastQ = q; app.hap('heavy', 'chat: ' + app.D.chats[c].name); if (wheelOn) showTip(true); }
+      else if (q !== lastQ) { lastQ = q; app.hap('light', 'tick'); } }
+    function setF(x) { f = clamp(x, 0, N() - 1); layout(); feel(); }
+    function snap(i) { stopT?.(); i = clamp(i, 0, N() - 1); stopT = tween(f, i, 230, x => { f = x; layout(); feel(); }, () => { f = i; layout(); }); }
+    function showTip(change) {
+      const c = app.D.chats[clamp(Math.round(f), 0, N() - 1)], nd = app.D.needs.filter(n => n.chat === c.id), pic = c.dm ? av(c.name, 'xs') : bpic(c.name, 'xs');
+      if (v === 'B') tip.innerHTML = `${c.dm ? av(c.name, 'sm') : bpic(c.name, 'sm')}<span class="tcol"><b class="truncate">${esc(c.name)}</b><span class="truncate">${esc(c.last[0])}: ${esc(c.last[1])}</span></span>${c.un ? `<span class="u">${c.un}</span>` : ''}`;
+      else if (v === 'C') tip.innerHTML = `${pic}<span class="truncate">${esc(c.name)}</span>${nd.length ? `<span class="tk-k" style="--kc:var(--k-${nd[0].kind})">${nd.length} need${nd.length > 1 ? '' : 's'} you</span>` : c.un ? `<span class="u">${c.un}</span>` : ''}`;
+      else tip.innerHTML = `${pic}<span class="truncate">${esc(c.name)}</span>${c.un ? `<span class="u">${c.un}</span>` : ''}`;
+      tip.classList.add('on'); if (change) pop(tip); }
+    // the wheel: drag the thumb (or anywhere on the rail); it snaps to each chat with a little magnet
+    wheel.addEventListener('pointerdown', e => { e.preventDefault(); stopT?.(); wheel.setPointerCapture(e.pointerId); wheel.classList.add('drag'); wheelOn = true;
+      const at = e2 => { const y = app.local(e2).y - st.offsetTop, raw = (y - top0()) / G(), near = Math.round(raw); setF(Math.abs(raw - near) < .18 ? near : raw); };
+      at(e); showTip(false); app.hap('click', 'wheel: grab');
+      const mv = e2 => at(e2), up = () => { wheel.removeEventListener('pointermove', mv); wheel.removeEventListener('pointerup', up); wheel.removeEventListener('pointercancel', up);
+        wheel.classList.remove('drag'); wheelOn = false; snap(Math.round(f)); setTimeout(() => { if (!wheelOn) { tip.classList.remove('on'); layout(); } }, 450); };
+      wheel.addEventListener('pointermove', mv); wheel.addEventListener('pointerup', up); wheel.addEventListener('pointercancel', up); });
+    // or drag the stack itself (B: the drum spins a little further per pixel)
+    let f0 = 0; const per = v === 'B' ? 120 : v === 'C' ? 96 : 108;
+    st._vy = { start() { stopT?.(); f0 = f; }, move(dx, dy) { let x = f0 - dy / per; const M = N() - 1; if (x < 0) x *= .3; if (x > M) x = M + (x - M) * .3; f = x; layout(); feel(); },
+      end(dx, dy, vx, vy) { snap(Math.round(f - vy * (v === 'B' ? 3.2 : 2.2))); } };
+    build();
+    return {
+      refresh() { build(); }, layout,
+      stage(i, drag = true) { f = i; lastC = Math.round(i); lastQ = Math.round(i * 4); wheelOn = drag; if (drag) { wheel.classList.add('drag'); showTip(false); } layout(); },
+    };
+  };
+}
+CHATS.A = makeChats('A'); CHATS.B = makeChats('B'); CHATS.C = makeChats('C');
 
 /* =====================================================================================================================
    CHAT · A  The web thread on a phone: .entry rows, agent chips with their rings, the read ring + receipts, and the
@@ -1587,9 +1823,18 @@ function entryHTML(m, D) {
     <div class="grow"><div class="meta">${who}${type}<time class="when">${esc(m.when || 'now')}</time></div><div class="body">${fmtText(m.text)}</div>${m.task ? taskHTML(m.task) : ''}
     <div class="rx${rc ? ' has-rcpt' : ''}">${rc}</div></div>${mine ? rdHTML(m) : ''}</article>`;
 }
-CHAT.A = (app, root) => {
+/* Three directions, one engine:
+     A Thread + agent chips — the web board as is, a row of agent chips (ring + state) under the title
+     B Agent dock           — the agents are the header: big rings you aim at; your message flies into one, its
+                              receipt (👀 → 🤔 → ✅) lives on the ring, and the reply drops out of it into the thread
+     C Now card             — work over chatter: a pinned "Now" card of what each agent is doing (task bars, Review
+                              for the ones waiting on you); older messages fold into the web's "N earlier" summary */
+const PROG = { c2: [14, 16], c1: [2, 3], cp: [1, 2], ds: [3, 5] };
+const shortSt = a => a.st === 'gone' ? 'offline' : a.st === 'wait' ? 'needs you' : a.st === 'idle' ? 'idle' : a.what === 'on your message' ? 'on it' : a.what.split(' ').slice(0, 2).join(' ');
+function makeChat(v) { return (app, root) => {
+  root.classList.add('cv-' + v);
   root.innerHTML = `<div class="ph-hd ch-hd"><button class="btn ghost back" type="button" data-act="chats" aria-label="Back to Chats">‹</button><span class="ch-pic"></span><div class="ttl"><b></b><span></span></div><div class="right"><span class="avs"></span></div></div>
-    <div class="ch-chips"></div><div class="ph-thread"><div class="thread"></div></div>
+    ${v === 'A' ? '<div class="ch-chips"></div>' : v === 'B' ? '<div class="dock"></div>' : '<div class="nowc card"></div>'}<div class="ph-thread"><div class="thread"></div></div>
     <form class="card composer ph-cmp" autocomplete="off">
       <div class="cmp-field"><div class="cmp-mirror" aria-hidden="true"></div><textarea class="input" rows="1" placeholder="Write a message…  @ to mention, / for commands" aria-label="Message" spellcheck="false"></textarea></div>
       <ul class="mention-menu" role="listbox" hidden></ul>
@@ -1603,15 +1848,47 @@ CHAT.A = (app, root) => {
     const prev = c.ppl[0] && c.ppl[0] !== w ? [{ u: c.ppl[0], text: c.dm ? 'hey, got a sec?' : 'morning, picking this up again', when: '9:12' }] : [];
     return [{ day: 'Today' }, ...prev, ag ? { ag: ag.id, client: 'Claude Code', text: t, when: '9:20' } : { u: w, text: t, when: '9:20' }]; }
   function open(id, quiet) {
-    cid = id; const c = C(); if (!c) return; c.un = 0;
+    cid = id; const c = C(); if (!c) return; c.un = 0; unfold = false; for (const k in badge) delete badge[k];
     $('.ch-pic', root).innerHTML = c.dm ? av(c.name, 'sm') : bpic(c.name, 'sm'); $('.ttl b', root).textContent = c.name;
     $('.ttl span', root).textContent = c.dm ? 'direct message' : `${c.ppl.length + 1} people · ${c.ags.length} agents`;
     $('.right .avs', root).innerHTML = c.ppl.map(p => av(p, 'sm')).join('');
     chips(); render(); ta.value = ''; onInput(); if (!quiet) { app.chats.refresh?.(); app.home.refresh?.(); }
   }
-  function chips() { const c = C(), tg = target(ta.value); $('.ch-chips', root).innerHTML = c.ags.map(id => { const a = app.D.agents[id];
-    return `<span class="badge${tg && tg.id === id ? ' tgt' : ''}" data-ag="${id}">${agr(a, 'xs')}<span>${esc(handle(a))}</span><span class="s st-w-${a.st}">${esc(a.what)}</span></span>`; }).join(''); }
-  function render() { list.innerHTML = ''; log().forEach(m => { const d = document.createElement('div'); d.innerHTML = entryHTML(m, app.D); const el = d.firstElementChild; m.el = el; list.append(el); }); requestAnimationFrame(() => thr.scrollTop = thr.scrollHeight); fitCmp(); }
+  const badge = {}; let unfold = false;
+  function chips() { const c = C(), tg = target(ta.value), ags = c.ags.map(id => app.D.agents[id]), on = a => tg && tg.id === a.id ? ' tgt' : '';
+    if (v === 'A') $('.ch-chips', root).innerHTML = ags.map(a => `<span class="badge${on(a)}" data-ag="${a.id}">${agr(a, 'xs')}<span>${esc(handle(a))}</span><span class="s st-w-${a.st}">${esc(a.what)}</span></span>`).join('');
+    else if (v === 'B') $('.dock', root).innerHTML = ags.map(a => `<button type="button" class="dk${on(a)}" data-ag="${a.id}">${agr(a, 'lg')}<b>${esc(a.ses)}</b><span class="st-w-${a.st}">${esc(shortSt(a))}</span>${badge[a.id] ? `<i class="dk-b">${badge[a.id]}</i>` : ''}</button>`).join('');
+    else $('.nowc', root).innerHTML = `<div class="now-h"><b>Now</b><span class="working"><span class="dot"></span>${ags.filter(a => a.st === 'live').length} working</span><span class="grow"></span><span class="xs faint">${ags.filter(a => a.st === 'wait').length ? ags.filter(a => a.st === 'wait').length + ' waiting on you' : ''}</span></div>` + ags.map(a => nowRow(a, on(a))).join('');
+    fitTop(); }
+  function nowRow(a, cls) { const p = PROG[a.id], b = badge[a.id]; let right;
+    if (b === '🤔') right = `<span class="tk-prog"><span class="tk-bar ind"><i></i></span>🤔</span>`;
+    else if (b === '✅') right = `<span class="tk-st st-done"><span class="dot"></span>replied</span>`;
+    else if (b === '👀') right = `<span class="xs muted">👀 read it</span>`;
+    else if (b === '⏳') right = `<span class="xs muted">⏳ queued</span>`;
+    else if (a.st === 'live' && p) right = `<span class="tk-prog"><span class="tk-bar"><i style="width:${Math.round(p[0] / p[1] * 100)}%"></i></span>${p[0]}/${p[1]}</span>`;
+    else if (a.st === 'wait') right = `<button class="btn sm" type="button" data-act="home">Review</button>`;
+    else right = '';
+    return `<div class="now-r${cls}" data-ag="${a.id}">${agr(a, 'sm')}<span class="grow truncate"><b>${esc(handle(a))}</b> <span class="st-w-${a.st}">${esc(a.what)}</span></span>${right}</div>`; }
+  function fitTop() { const t = v === 'A' ? 146 : v === 'B' ? 104 + $('.dock', root).offsetHeight : 110 + $('.nowc', root).offsetHeight + 6; root.style.setProperty('--th-top', t + 'px'); }
+  function render() { list.innerHTML = ''; const L = log(); const cut = v === 'C' && !unfold ? Math.max(0, L.length - 3) : 0;
+    if (cut > 1) { const older = L.slice(0, cut).filter(m => !m.day), last = older[older.length - 1], wh = m => m.ag ? handle(app.D.agents[m.ag]) : m.u;
+      const who = [...new Set(older.map(m => m.ag ? app.D.agents[m.ag].user : m.u))];
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'thr-sum';
+      b.innerHTML = `<span class="thr-head"><span class="avs">${who.slice(0, 3).map(u => av(u, 'sm')).join('')}</span>${older.length} earlier message${older.length > 1 ? 's' : ''}<span class="faint">· tap to show</span></span><span class="thr-line"><b>${esc(wh(last))}</b>: ${esc(last.text)}</span>`;
+      b.onclick = () => { unfold = true; render(); app.hap('light', 'earlier messages'); }; list.append(b); }
+    L.slice(cut).forEach(m => { const d = document.createElement('div'); d.innerHTML = entryHTML(m, app.D); const el = d.firstElementChild; m.el = el; list.append(el); }); requestAnimationFrame(() => thr.scrollTop = thr.scrollHeight); fitCmp(); }
+  // what each direction adds to the send sequence
+  function beat(k, a, m, r) {
+    if (v === 'A') return;
+    badge[a.id] = { sent: undefined, read: '👀', think: '🤔', done: '✅', queued: '⏳' }[k]; chips();
+    const tile = $(`[data-ag="${a.id}"]`, root), ring = tile && $('.agr', tile);
+    if (k === 'sent' && v === 'B' && ring) { const from = app.at($('[type=submit]', form)), to = app.at(ring);
+      flyDot(app, from, to, () => { const t = $(`[data-ag="${a.id}"]`, root); pop(t && $('.agr', t)); fxRing(app, to.x, to.y, to.w + 6, 'var(--accent)', { to: 1.9, dur: 280, w: 2.5 }); app.hap('light', 'landed on ' + a.ses); }); }
+    if (k !== 'sent') { const b = $('.dk-b', tile) || $('.now-r[data-ag="' + a.id + '"] .tk-prog,.now-r[data-ag="' + a.id + '"] .tk-st,.now-r[data-ag="' + a.id + '"] .xs', root); pop(b); }
+    if (k === 'done') { if (v === 'C' && tile) anim(tile, [{ background: 'color-mix(in srgb,var(--ok) 16%,transparent)' }, { background: 'transparent' }], { duration: 900, easing: 'ease-out' });
+      if (v === 'B' && r?.el && ring) { const p = app.at(ring), q = app.at(r.el); anim(r.el, [{ transform: `translate(${p.x - q.x}px,${p.y - q.y}px) scale(.2)`, opacity: 0 }, { transform: 'translateY(-3px) scale(1.01)', opacity: 1, offset: .75 }, { transform: 'none', opacity: 1 }], { duration: 280, easing: 'cubic-bezier(.3,.9,.4,1)' }); }
+      setTimeout(() => { if (badge[a.id] === '✅') { delete badge[a.id]; chips(); } }, 1800); }
+  }
   function patch(m) { if (!m.el || !m.el.isConnected) return; const d = document.createElement('div'); d.innerHTML = entryHTML(m, app.D); const n = d.firstElementChild; m.el.replaceWith(n); m.el = n; }
   // composer: the web's mirror trick (a transparent textarea over a mirror that draws the chips)
   function hl(v) { let h = esc(v); const hs = HANDLES(app.D);
@@ -1624,7 +1901,7 @@ CHAT.A = (app, root) => {
   function fitCmp() { ta.style.height = 'auto'; const h = Math.min(ta.scrollHeight, 110); ta.style.height = h + 'px'; mir.style.height = h + 'px'; root.style.setProperty('--cmp-h', (form.offsetHeight + 40) + 'px'); }
   function renderDl() { const t = target(ta.value); if (!t) { dl.innerHTML = ''; return; }
     dl.innerHTML = t.person ? `<span class="pres on"></span><span class="tx"><b>${esc(t.person)}</b> · gets a notification</span>` : `${agDot(t)}<span class="tx"><b>${esc(handle(t))}</b> · ${truth(t)}</span>`;
-    $$('.ch-chips .badge', root).forEach(b => b.classList.toggle('tgt', !t.person && b.dataset.ag === t.id)); }
+    $$('.ch-chips .badge,.dk,.now-r', root).forEach(b => b.classList.toggle('tgt', !t.person && b.dataset.ag === t.id)); }
   let lastDl = '';
   function onInput() { const v = ta.value; mir.innerHTML = hl(v); fitCmp(); mir.scrollTop = ta.scrollTop;
     const pre = v.slice(0, ta.selectionStart ?? v.length); let mm;
@@ -1654,7 +1931,7 @@ CHAT.A = (app, root) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
   $('[data-at]', form).addEventListener('click', () => { const v = ta.value; ta.value = v + (v && !v.endsWith(' ') ? ' @' : '@'); ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); onInput(); });
   form.addEventListener('submit', e => { e.preventDefault(); send(); });
-  root.addEventListener('click', e => { const b = e.target.closest('.ch-chips .badge'); if (b) { mention(handle(app.D.agents[b.dataset.ag])); return; }
+  root.addEventListener('click', e => { if (e.target.closest('[data-act]')) return; const b = e.target.closest('.ch-chips .badge,.dk,.now-r'); if (b) { mention(handle(app.D.agents[b.dataset.ag])); return; }
     const a = e.target.closest('.entry>.av,.entry>.agr'); if (a) { const en = a.closest('.entry'); const ag = a.dataset.agr; app.hcard(ag ? { agent: ag } : { user: en.dataset.author }); } });
   function mention(h) { const v = ta.value.replace(/\s*$/, ''); ta.value = (v ? v + ' ' : '') + '@' + h + ' '; ta.focus({ preventScroll: true }); ta.setSelectionRange(ta.value.length, ta.value.length); onInput(); app.hap('click', 'mention ' + h); const ch = $$('.chip', mir).pop(); if (ch) pop(ch); }
   /* send: optimistic (pending → posted), then the read ring fills, 🤔 on it, the reply lands and the receipt turns ✅ */
@@ -1675,18 +1952,19 @@ CHAT.A = (app, root) => {
     const T = [], at = (ms, fn) => T.push(setTimeout(fn, ms));
     at(170, () => { m.el?.classList.remove('pending'); });
     if (tg.person) { at(900, () => { m.rd = [1, 1]; patch(m); app.hap('light', tg.person + ' read it'); }); app.chats.refresh?.(); return; }
-    const a = tg; if (a.st === 'gone') { at(400, () => { m.rcpt = { queued: `queued for ${handle(a)} · gets it when it’s back` }; patch(m); app.hap('light', 'queued'); }); app.chats.refresh?.(); return; }
+    const a = tg; beat('sent', a, m);
+    if (a.st === 'gone') { at(400, () => { m.rcpt = { queued: `queued for ${handle(a)} · gets it when it’s back` }; patch(m); beat('queued', a, m); app.hap('light', 'queued'); }); app.chats.refresh?.(); return; }
     const busy = a.st === 'live', tRead = busy ? 1700 : 520, keep = { st: a.st, what: a.what };
-    at(tRead, () => { m.rd = [1, readers.length]; patch(m); app.hap('light', handle(a) + ' read it'); });
+    at(tRead, () => { m.rd = [1, readers.length]; patch(m); beat('read', a, m); app.hap('light', handle(a) + ' read it'); });
     if (readers.length > 1) at(tRead + 420, () => { m.rd = [2, readers.length]; patch(m); app.hap('light', 'everyone read it'); });
-    at(tRead + 650, () => { m.rcpt = { think: [handle(a)] }; patch(m); a.st = 'live'; a.what = 'on your message'; chips(); renderDl(); app.hap('double', '🤔 ' + handle(a) + ' is on it'); });
+    at(tRead + 650, () => { m.rcpt = { think: [handle(a)] }; patch(m); a.st = 'live'; a.what = 'on your message'; beat('think', a, m); chips(); renderDl(); app.hap('double', '🤔 ' + handle(a) + ' is on it'); });
     at(tRead + 2100, () => { const r = { ag: a.id, client: 'Claude Code', text: replyFor(keep, raw), when: 'now', landed: true }; if (m.task) { m.task = { ...m.task, st: 'doing' }; }
-      m.rcpt = { done: [handle(a)] }; Object.assign(a, keep.st === 'wait' ? { st: 'idle', what: 'idle' } : keep); patch(m); log().push(r); c.last = [handle(a), r.text]; c.when = 'now';
+      m.rcpt = { done: [handle(a)] }; Object.assign(a, keep); patch(m); log().push(r); c.last = [handle(a), r.text]; c.when = 'now';
       if (cid === c.id) { const d2 = document.createElement('div'); d2.innerHTML = entryHTML(r, app.D); r.el = d2.firstElementChild; r.el.classList.add('landed'); list.append(r.el);
-        anim(r.el, [{ transform: 'translateY(16px) scale(.97)', opacity: 0 }, { transform: 'translateY(-2px) scale(1.01)', opacity: 1, offset: .7 }, { transform: 'none', opacity: 1 }], { duration: 240, easing: 'ease-out' });
+        if (v !== 'B') anim(r.el, [{ transform: 'translateY(16px) scale(.97)', opacity: 0 }, { transform: 'translateY(-2px) scale(1.01)', opacity: 1, offset: .7 }, { transform: 'none', opacity: 1 }], { duration: 240, easing: 'ease-out' });
         thr.scrollTo({ top: thr.scrollHeight, behavior: RM ? 'auto' : 'smooth' });
         setTimeout(() => { const ring = r.el && $('.agr', r.el); if (ring) { const p = app.at(ring); fxRing(app, p.x, p.y, 34, 'var(--ok)', { to: 1.9, dur: 320, w: 2 }); } const rc = m.el && $('.rx-rcpt .e', m.el); if (rc) pop(rc); }, 60); }
-      chips(); renderDl(); app.chats.refresh?.(); app.hap('success', '✅ ' + handle(a) + ' replied'); });
+      beat('done', a, m, r); renderDl(); app.chats.refresh?.(); app.hap('success', '✅ ' + handle(a) + ' replied'); });
     app.chats.refresh?.();
   }
   function replyFor(a, t) { const body = t.replace(/@[\w\/'-]+\s*/g, '').trim();
@@ -1700,26 +1978,52 @@ CHAT.A = (app, root) => {
   return {
     open, mention, refresh() { if (!cid) return; chips(); renderDl(); }, seen() { const c = C(); if (c && c.un) { c.un = 0; app.chats.refresh?.(); app.home.refresh?.(); } },
     stage() { // a finished exchange, a draft with a highlighted mention, and the delivery line for it
+      if (v === 'B') { const a = app.D.agents.sc, m = send('@jxn/scout status? is 0042 ready to run?', true); m.el.classList.remove('pending'); m.rd = [2, 2]; m.rcpt = { think: ['jxn/scout'] }; patch(m);
+        a.st = 'live'; a.what = 'on your message'; badge.sc = '🤔'; chips(); ta.value = ''; onInput(); requestAnimationFrame(() => thr.scrollTop = thr.scrollHeight); return; }
+      if (v === 'C') { badge.sc = '👀'; chips(); ta.value = '/'; ta.setSelectionRange(1, 1); onInput(); return; }
       const m = send('@jxn/scout hold 0042 until build 43 is green', true); m.el.classList.remove('pending'); m.rd = [2, 2]; m.rcpt = { done: ['jxn/scout'] }; patch(m);
       const r = { ag: 'sc', client: 'Claude Code', text: 'Holding 0042 until build 43 is green, then I’ll run it and post the result here.', when: 'now' }; log().push(r);
       const d2 = document.createElement('div'); d2.innerHTML = entryHTML(r, app.D); r.el = d2.firstElementChild; list.append(r.el);
       ta.value = '@maya/reviewer can you check the 1.5 notes before Friday?'; onInput(); closeMenu(); requestAnimationFrame(() => thr.scrollTop = thr.scrollHeight); },
   };
-};
+}; }
+// a clay dot from the Post button into the agent's ring (Chat B)
+function flyDot(app, from, to, cb) { if (RM) { cb(); return; } const e = document.createElement('i'); e.className = 'fxd'; e.style.cssText = 'left:-6px;top:-6px;width:12px;height:12px;background:var(--accent);box-shadow:0 0 12px 3px color-mix(in srgb,var(--accent) 55%,transparent)'; app.fx.append(e);
+  const mx = (from.x + to.x) / 2 - 60, my = Math.min(from.y, to.y) + (from.y - to.y) * .45;
+  e.animate([{ transform: `translate(${from.x}px,${from.y}px)` }, { transform: `translate(${mx}px,${my}px) scale(1.2)`, offset: .5 }, { transform: `translate(${to.x}px,${to.y}px) scale(.5)` }], { duration: 230, easing: 'cubic-bezier(.4,0,.8,.6)' }).onfinish = () => { e.remove(); cb(); }; }
+CHAT.A = makeChat('A'); CHAT.B = makeChat('B'); CHAT.C = makeChat('C');
 
+/* =====================================================================================================================
+   The page: for each panel, its directions side by side; each phone is fully live (the other panels use direction A)
+   ===================================================================================================================== */
+const SECS = [
+  { id: 'home', n: '01', title: 'Home · Needs you', desc: 'One card on top, most important first (approvals, then decisions, invites, asks), each kind in its web type colour. The card is the web’s /approvals card: what will run, why it blocks, who’s asking, and the two buttons.',
+    slots: [
+      { k: 'A', name: 'Stacked deck', why: 'One card at a time, the rest stacked behind it. Flick up to approve, down to reject (so sideways stays the panel swipe). It flies off, the next springs up, and Undo waits in the toast.', cfg: { home: 'A', start: 0 } },
+      { k: 'B', name: 'Focus card + queue peek', why: 'One card fills the screen, and what’s next waits underneath as kanban cards you can pull forward. Approve is press-and-hold: it charges with ticks, then goes into the tally. A tap is for no.', cfg: { home: 'B', start: 0 }, stage: a => a.home.stage() },
+      { k: 'C', name: 'Priority lanes', why: 'See everything at once, grouped by kind in priority order. The top one is open with its full context, and you tap another to open it. Decided ones collect at the bottom as the /approvals history.', cfg: { home: 'C', start: 0 }, stage: a => a.home.stage() },
+    ] },
+  { id: 'chats', n: '02', title: 'Chats + tick wheel', desc: 'Every chat is a same-size, opaque /boards card, newest first: the latest line, agent states with their rings, and unread. The wheel on the right is the web thread’s rail: a long tick per chat, short ticks between, and the name in a rail tip while you drag. Light haptic per tick, firmer per chat.',
+    slots: [
+      { k: 'A', name: 'Rolodex', why: 'The focused card sits in the middle with its neighbours tucked above and below. Drag the wheel or the stack and it snaps to each card. Tap to open.', cfg: { chats: 'A', start: 1 }, stage: a => a.chats.stage(3) },
+      { k: 'B', name: 'Drum', why: 'The cards sit on a cylinder like the iOS picker, so a flick spins through many. The ticks swell under your thumb like the Dock, and the tip previews the latest line.', cfg: { chats: 'B', start: 1 }, stage: a => a.chats.stage(4.35) },
+      { k: 'C', name: 'Cascade', why: 'Earlier chats stack as tabs above (only their header shows) and the next one waits below. The wheel’s long ticks wear each chat’s trouble: the colour of what needs you, or a dot for unread.', cfg: { chats: 'C', start: 1 }, stage: a => a.chats.stage(3, false) },
+    ] },
+  { id: 'chat', n: '03', title: 'Chat', desc: 'The web thread on a phone: entry rows, agents with their rings, the read ring and the 🤔 / ✅ receipt line, and the composer with @ chips, / commands (no type picker) and the delivery line (“sees it in ~5 s” / “on a task, reads after” / “offline, gets it when back”).',
+    slots: [
+      { k: 'A', name: 'Thread + agent chips', why: 'The web board as it is, plus a row of agent chips under the title so you see who’s working before you write. Tap a chip to @ it, and the delivery line says when it will read.', cfg: { chat: 'A', start: 2, open: 'annex' }, stage: a => a.chat.stage() },
+      { k: 'B', name: 'Agent dock', why: 'The agents are the header: big rings you aim at. Your message flies into one, its receipt (👀, 🤔, ✅) sits on the ring, and the reply drops out of it into the thread.', cfg: { chat: 'B', start: 2, open: 'annex' }, stage: a => a.chat.stage() },
+      { k: 'C', name: 'Now card', why: 'Work over chatter. A pinned Now card shows what each agent is doing (task bars, and Review for the ones waiting on you). Older messages fold into the web’s “N earlier” summary.', cfg: { chat: 'C', start: 2, open: 'annex' }, stage: a => a.chat.stage() },
+    ] },
+  { id: 'drawer', n: '04', title: 'Settings drawer', desc: 'Swipe in from the left edge on any panel. It’s the web’s mobile sidebar with Account → Display (text size, density, theme), haptics with a strength setting, and the headless-agents switch from your profile. It follows your finger and gives a light tick when it passes the halfway line.',
+    slots: [
+      { k: 'open', name: 'Over Home', why: 'Fully open: every setting applies live to this phone, and Theme switches the whole page.', cfg: { start: 0 }, stage: a => a.drawerEnd(1, 1), always: true },
+      { k: 'mid-swipe', name: 'Over a chat (Chat · B)', why: 'Halfway in from the edge, following the finger. Past the line it opens on release, before it it snaps back.', cfg: { start: 2, chat: 'B' }, stage: a => a.drawerDrag(.62), always: true },
+    ], map: true },
+];
 /* =====================================================================================================================
    The page: sections of phones, a global theme, haptics and motion switch
    ===================================================================================================================== */
-const SECS = [
-  { id: 'home', n: '01', title: 'Home · Needs you', desc: 'One card on top, most important first (approvals, then decisions, invites, asks), each kind in its web type colour. The card is the web’s approval card: what will run, why it blocks, who’s asking, and the two buttons.',
-    slots: [{ k: 'A', name: 'Stacked deck', why: 'The /approvals card, one at a time, with the rest stacked behind. Flick up to approve, down to reject (sideways stays the panel swipe); it flies off, the next springs up, Undo in the toast.', cfg: { home: 'A', start: 0 } }] },
-  { id: 'chats', n: '02', title: 'Chats + tick wheel', desc: 'Every chat as a same-size, opaque /boards card, newest first: latest line, agent states with their rings, unread. The wheel on the right is the thread rail from the web: a long tick per chat, short ticks between, the name in a rail tip while you drag.',
-    slots: [{ k: 'A', name: 'Rolodex', why: 'The focused card sits in the middle with its neighbours tucked above and below. Drag the wheel or the stack: a light tick per notch, a firmer one per chat, and it snaps to each card. Tap to open.', cfg: { chats: 'A', start: 1 } }] },
-  { id: 'chat', n: '03', title: 'Chat', desc: 'The web thread on a phone: entry rows, agent chips with their rings, the read ring and the 🤔 / ✅ receipt line, and the composer with @ chips, / commands (no type picker) and the delivery line.',
-    slots: [{ k: 'A', name: 'Thread + agent chips', why: 'The web board as is, plus a row of agent chips under the title so you see who’s working before you write. Tap a chip to @ it; the delivery line says when it will see your message.', cfg: { chat: 'A', start: 2, open: 'annex' } }] },
-  { id: 'drawer', n: '04', title: 'Settings drawer', desc: 'Swipe in from the left edge on any panel. It’s the web’s mobile sidebar with Account → Display (text size, density, theme), haptics, and the headless-agents switch from your profile.',
-    slots: [{ k: 'A', name: 'Edge drawer', why: 'Opens over whatever panel you’re on, follows your finger, and closes with a swipe back or a tap outside. Changes apply live to that phone.', cfg: { start: 0, drawer: true } }], map: true },
-];
 function setTheme(t, pref) { H.dataset.theme = t; const r = $('#pgt-' + t); if (r) r.checked = true; $$('.phone').forEach(p => p._app?.syncTheme(pref)); const m = $('meta[name=theme-color]'); }
 function buildPage() {
   const only = Q.get('only'); if (only) { $('.pg-top').style.display = 'none'; $('#pgNav').style.display = 'none'; }
@@ -1733,7 +2037,7 @@ function buildPage() {
       el.innerHTML = `<div class="cap"><b>${esc(s.title.split(' ')[0])} · ${sl.k}</b><span>${esc(sl.name)}</span></div><p class="why">${esc(sl.why)}</p><div class="device"></div><div class="hud"><span class="bars"></span><span class="lb">haptics</span><span class="hk"></span></div>`;
       $('.slots', sec).append(el); const app = new Phone(el, sl.cfg); el._app = app;
       if (sl.cfg.drawer) { app.drawerEnd(1, 1); }
-      if (SHOT) { if (s.id === 'chats') app.chats.stage?.(3); if (s.id === 'chat') app.chat.stage?.(); }
+      if ((SHOT || sl.always) && sl.stage) sl.stage(app);
     }
     if (s.map) { const m = document.createElement('div'); m.className = 'map';
       m.innerHTML = `<div class="mp"><div class="dr">Settings<small>edge drawer</small></div><div>Needs you<small>Home</small></div><div>Chats<small>wheel</small></div><div>Chat<small>thread</small></div></div>
