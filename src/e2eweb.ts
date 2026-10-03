@@ -45,11 +45,19 @@ function label(){const u=navigator.userAgent;const b=u.includes('Edg/')?'Edge':u
   const o=u.includes('iPhone')||u.includes('iPad')?'iPhone':u.includes('Android')?'Android':u.includes('Mac OS X')?'Mac':u.includes('Windows')?'Windows':u.includes('Linux')?'Linux':'';return b+(o?' on '+o:'')+' (web)'}
 let DEV=null;
 async function device(){if(DEV)return DEV;const id='device:'+ME;let d=await idbDo('readonly',s=>s.get(id));
-  if(!d){const k=await S.generateKey({name:'X25519'},false,['deriveBits']);const fresh={priv:k.privateKey,pub:b64(await S.exportKey('raw',k.publicKey)),created:Date.now()};
-    try{await idbDo('readwrite',s=>s.add(fresh,id));d=fresh}catch(e){d=await idbDo('readonly',s=>s.get(id))}} // another tab made one first: use that
+  // Keep it, unless another tab made one first (then use that one).
+  const keep=async v=>{try{await idbDo('readwrite',s=>s.add(v,id));return v}catch(e){const other=await idbDo('readonly',s=>s.get(id)).catch(()=>null);if(other)return other;throw e}};
+  if(!d){const k=await S.generateKey({name:'X25519'},false,['deriveBits']);
+    try{d=await keep({priv:k.privateKey,pub:b64(await S.exportKey('raw',k.publicKey)),created:Date.now()})}
+    catch(e){ // Some browsers (Safari) can't store this kind of key object (jxn #1226): keep it as JWK instead, still only on this device.
+      const k2=await S.generateKey({name:'X25519'},true,['deriveBits']);
+      try{d=await keep({jwk:await S.exportKey('jwk',k2.privateKey),pub:b64(await S.exportKey('raw',k2.publicKey)),created:Date.now()})}
+      catch(e2){throw new Error("This browser can't keep a key (private browsing, or site data blocked), so it can't read encrypted boards. Open it in a normal window.")}}}
+  if(d.jwk&&!d.priv)d={...d,priv:await S.importKey('jwk',d.jwk,{name:'X25519'},false,['deriveBits'])};
+  const stored=x=>x.jwk?{jwk:x.jwk,pub:x.pub,created:x.created,kid:x.kid}:x;
   // Registered once. A key that's no longer on the account was removed there (a lost device): never register it again, make a new one.
   if(d.kid){const live=(await api('GET','/api/me/keys')).keys||[];if(!live.some(k=>k.id===d.kid&&k.public_key===d.pub)){await idbDo('readwrite',s=>s.delete(id));return device()}}
-  else{const j=await api('POST','/api/me/keys',{public_key:d.pub,label:label()});d={...d,kid:j.id};await idbDo('readwrite',s=>s.put(d,id))}
+  else{const j=await api('POST','/api/me/keys',{public_key:d.pub,label:label()});d={...d,kid:j.id};await idbDo('readwrite',s=>s.put(stored(d),id))}
   DEV={priv:d.priv,pub:d.pub,kid:d.kid};return DEV}
 
 // ---- pins: devices this browser trusts, per person (first device seen; your own only when you approve) ----

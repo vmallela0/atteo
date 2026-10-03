@@ -1066,9 +1066,10 @@ let agentsAt=0;window.agentsRefresh=async()=>{if(document.hidden)return;const bo
   if(!pk&&peek){pk=document.createElement('span');pk.className='fold-peek truncate';box.querySelector('.fold-h').appendChild(pk)}if(pk)pk.textContent=peek;refreshTimes()};
 setInterval(agentsRefresh,30000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)agentsRefresh()});
 // Your post shows up the moment you send it (a "sending" copy), then the real one from the post's own response.
-window.posted=(j)=>{sendLook(false);const was=+rpTo.value;draftSave(sentKey,'');replyClear(true);document.querySelectorAll('#thread .entry.pending').forEach(x=>x.remove());
+window.posted=(j)=>{sendLook(false);const typed=SENT_TEXT!=null?ta.value:'';SENT_TEXT=null; // what you started typing while it sent survives the form's reset
+const was=+rpTo.value;draftSave(sentKey,'');replyClear(true);document.querySelectorAll('#thread .entry.pending').forEach(x=>x.remove());
   if(j&&j.update&&addEntry(j.update)){if(!was){railBuild();toBottom()}}else stickNext=!was;
-  tick(false);setTimeout(()=>{if(was&&!(window.thrRearm&&thrRearm())){replyShown(was);ta.value=draftLoad('')}ta.style.height='';ta.style.height=ta.value?ta.scrollHeight+2+'px':'';msync()},0)}; // after the form's reset
+  tick(false);setTimeout(()=>{if(was&&!(window.thrRearm&&thrRearm())){replyShown(was);ta.value=draftLoad('')}if(typed&&!ta.value)ta.value=typed;ta.style.height='';ta.style.height=ta.value?ta.scrollHeight+2+'px':'';msync()},0)}; // after the form's reset
 let sentKey='';
 // People just write; a message is a note (jxn #928). For the rare typed post, a / command at the start: /task (a task, its
 // lines become the checklist), /decide (a decision people agree or object to), /ask (a question that stays open).
@@ -1082,14 +1083,15 @@ slashMenu?.addEventListener('mousedown',e=>{const li=e.target.closest('[data-cmd
 document.querySelector('form.composer')?.addEventListener('submit',()=>{const m=ta.value.match(/^\\/(task|decide|ask)\\b[ \\t]*/i),ty=document.getElementById('cmp-type');
   if(ty)ty.value=m?{task:'task',decide:'decision',ask:'question'}[m[1].toLowerCase()]:'note';if(m)ta.value=ta.value.slice(m[0].length)},true);
 // While a message sends, its "sending…" copy is in the conversation, so the box looks empty instead of showing it twice (jxn #1222); it comes back if sending fails.
-function sendLook(on){document.querySelector('form.composer')?.classList.toggle('sending',on)}
-document.querySelector('form.composer')?.addEventListener('submit',()=>{sentKey=draftNow();const t=ta.value.trim();if(t&&!pending.length)sendLook(true);if(!t||!rpTo||rpTo.value||pending.length)return; // files get their own copy (below); replies go in their thread, after the real post
+// The text leaves the box right after the form has read it (the post handler reads it synchronously), so focus stays and you can type the next one.
+var SENT_TEXT=null;function sendLook(on){document.querySelector('form.composer')?.classList.toggle('sending',on)}
+document.querySelector('form.composer')?.addEventListener('submit',()=>{sentKey=draftNow();const t=ta.value.trim();if(t&&!pending.length){sendLook(true);const keep=ta.value;setTimeout(()=>{if(ta.value===keep){SENT_TEXT=keep;ta.value='';taFit()}},0)}if(!t||!rpTo||rpTo.value||pending.length)return; // files get their own copy (below); replies go in their thread, after the real post
   const el=document.createElement('article');el.className='entry pending';el.innerHTML='<div class="grow"><div class="meta"><span class="who"></span><span class="xs faint">sending…</span></div><div class="body"></div></div>';
   el.querySelector('.who').textContent=ME;el.querySelector('.body').textContent=t;document.getElementById('thread').appendChild(el);toBottom();
 },true);
 // While a post is retrying it says so; if it really can't be sent, your text is still in the box (the form only resets on success).
 window.postRetrying=()=>document.querySelectorAll('#thread .entry.pending .faint').forEach(x=>x.textContent='connection lost, retrying…');
-window.postFailed=(j)=>{sendLook(false);document.querySelectorAll('#thread .entry.pending').forEach(x=>x.remove());toast(j.error||"Couldn't send. Your message is still in the box.")};
+window.postFailed=(j)=>{sendLook(false);if(SENT_TEXT!=null&&!ta.value.trim()){ta.value=SENT_TEXT;taFit()}SENT_TEXT=null;document.querySelectorAll('#thread .entry.pending').forEach(x=>x.remove());toast(j.error||"Couldn't send. Your message is still in the box.")};
 // @mention autocomplete: people ("@vedu") and agents ("@vedu's agent", including your own).
 const MOPTS=${jsString(mentionOptions(members.map((m) => m.user), viewer.name, agents, agentNames(members), new Set(members.filter((m) => m.agent_name_ambiguous).map((m) => m.user))))};
 const MNAMES=new Set(MOPTS.map(o=>o.u)),ME=${jsString(viewer.name)};
@@ -1336,13 +1338,13 @@ convEl.addEventListener('drop',e=>{convEl.classList.remove('drop');const fs=[...
 // With files attached, posting sends them all, with the text, as ONE message (multipart: a "file" part per file, w/h in
 // the same order). One "sending" copy shows the text and the thumbnails until the real entry comes back in its "update".
 cform.addEventListener('submit',async e=>{if(!pending.length)return;e.preventDefault();e.stopPropagation();
-  const btn=cform.querySelector('.bar .btn.primary');btn.disabled=true;const text=ta.value.trim(),files=pending.slice();sendLook(true);
+  const btn=cform.querySelector('.bar .btn.primary');btn.disabled=true;const text=ta.value.trim(),files=pending.slice();sendLook(true);ta.value='';taFit();
   let ph=null;
   if(!rpTo.value){ph=document.createElement('article');ph.className='entry pending';ph.innerHTML='<div class="grow"><div class="meta"><span class="who"></span><span class="xs faint">sending…</span></div><div class="body"></div><div class="attachments ph-att"></div></div>';
     ph.querySelector('.who').textContent=ME;ph.querySelector('.body').textContent=text;
     ph.querySelector('.ph-att').innerHTML=files.map(x=>x.image?'<span class="att"><img src="'+x.url+'" alt="'+esc(x.name)+'"></span>':'<span class="att file"><span class="att-name mono">'+esc(x.name)+'</span><span class="xs faint">'+kbs(x.blob.size)+'</span></span>').join('');
     document.getElementById('thread').appendChild(ph);toBottom()}
-  const fail=m=>{sendLook(false);if(ph){ph.classList.add('failed');ph.querySelector('.faint').textContent="Couldn't send";const p=ph;setTimeout(()=>p.remove(),6000)}toast(m)};
+  const fail=m=>{sendLook(false);if(text&&!ta.value.trim()){ta.value=text;taFit()}if(ph){ph.classList.add('failed');ph.querySelector('.faint').textContent="Couldn't send";const p=ph;setTimeout(()=>p.remove(),6000)}toast(m)};
   try{const fd=new FormData();
     for(const x of files){fd.append('file',x.blob,x.name);fd.append('w',x.image&&x.w?String(x.w):'');fd.append('h',x.image&&x.h?String(x.h):'')}
     if(text)fd.append('text',text);if(rpTo.value)fd.append('reply_to',rpTo.value);
