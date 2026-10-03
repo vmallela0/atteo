@@ -6,7 +6,7 @@ import { randomUUID } from "node:crypto";
 import { env } from "./env";
 import SKILL_MD from "../../skills/atteo/SKILL.md";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { hostname } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import { decryptV2, encryptV2, myKey, newEpochKey, seal, unseal, unwrapKey, wrapKey, type WrappedKey } from "./sealed";
 import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
@@ -124,6 +124,7 @@ function server(c: Credentials, opt: Record<string, string | true>): string {
   return (optStr(opt, "server") ?? env("SERVER") ?? c.server ?? DEFAULT_SERVER).replace(/\/$/, "");
 }
 
+type McpContent = { type?: string; text?: string; data?: string; mimeType?: string };
 let rpcId = 0;
 async function rpc(base: string, token: string, board: string | null, method: string, params: unknown, session?: string) {
   const res = await fetch(`${base}/mcp${board ? `?board=${encodeURIComponent(board)}` : ""}`, {
@@ -132,10 +133,13 @@ async function rpc(base: string, token: string, board: string | null, method: st
     body: JSON.stringify({ jsonrpc: "2.0", id: ++rpcId, method, params }),
   });
   if (res.status === 401) throw new CliError("Your login isn't valid anymore. Run: atteo login");
-  const body = (await res.json().catch(() => null)) as { result?: { content?: { text: string }[]; isError?: boolean }; error?: { message: string } } | null;
+  const body = (await res.json().catch(() => null)) as { result?: { content?: McpContent[]; isError?: boolean }; error?: { message: string } } | null;
   if (!body) throw new CliError(`The server answered ${res.status}.`);
   if (body.error) throw new CliError(body.error.message);
-  return { res, text: (body.result?.content ?? []).map((x) => x.text).join("\n"), isError: !!body.result?.isError };
+  const content = body.result?.content ?? [];
+  const text = content.filter((x) => x.type === "text" || (x.type == null && typeof x.text === "string")).map((x) => x.text).join("\n");
+  const images = content.filter((x) => x.type === "image" && typeof x.data === "string").map((x) => ({ data: x.data!, mime: x.mimeType ?? "image/png" }));
+  return { res, text, images, isError: !!body.result?.isError };
 }
 
 /** Retries a call that never got an answer (network down, server restarting) for about 30 seconds, when it's safe to. */
@@ -154,6 +158,11 @@ async function retrying<T>(safe: boolean, fn: () => Promise<T>): Promise<T> {
 }
 
 export async function tool(opt: Record<string, string | true>, name: string, args: Record<string, unknown>, board: string | null = currentBoard(opt)): Promise<string> {
+  return (await toolFull(opt, name, args, board)).text;
+}
+
+/** A tool call with any pictures the server handed back alongside the text. */
+async function toolFull(opt: Record<string, string | true>, name: string, args: Record<string, unknown>, board: string | null = currentBoard(opt)): Promise<{ text: string; images: { data: string; mime: string }[] }> {
   // Same local Gateway as `atteo mcp`: nothing that looks like a credential leaves this machine.
   const hit = scanFields(
     Object.fromEntries(
@@ -168,8 +177,54 @@ export async function tool(opt: Record<string, string | true>, name: string, arg
   if (name === "post" && args.idempotency_key == null) args = { ...args, idempotency_key: randomUUID() };
   const r = await retrying(name === "post", () => rpc(server(c, opt), c.token, board, "tools/call", { name, arguments: args }));
   if (r.isError) throw new CliError(r.text, /since you last read|arrived since/.test(r.text) ? 2 : 1);
-  return r.text;
+  return { text: r.text, images: r.images };
 }
+
+// ---- pictures: an agent in a shell can't look at a URL that needs a login, so get saves them as files it can open ----
+
+const PIC_EXT: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif", "image/heic": "heic", "image/avif": "avif" };
+const MAX_PIC = 20_000_000;
+const isPicName = (n: string | null | undefined) => !!n && /\.(png|jpe?g|webp|gif|heic|avif)$/i.test(n);
+
+/**
+ * Entry #seq with its pictures saved to temp files (named by board and entry, never by the poster's file name).
+ * Uses the pictures the server sent with the text when they're all there, else fetches each with this login.
+ */
+export async function getEntry(opt: Record<string, string | true>, seq: number, board: string = currentBoard(opt)): Promise<{ text: string; pictures: string[] }> {
+  const { text, images } = await toolFull(opt, "get", { seq }, board);
+  // Only picture posts cost the extra lookup: a single picture shows as "[image · …]", several as a Files list.
+  if (!/\[image · |^\s+\d+\. .+ · image\//m.test(text)) return { text, pictures: [] };
+  let pics: { bytes: Buffer; mime: string }[] = [];
+  try {
+    const r = await api(opt, "GET", `/api/boards/${encodeURIComponent(board)}/entries/${seq}`);
+    const e = r.entry ?? {};
+    const want: { name: string; version: number | null }[] = (e.attachments?.length ? e.attachments.filter((a: { mime?: string }) => a.mime?.startsWith("image/")) : isPicName(e.artifact_name) ? [{ name: e.artifact_name, version: e.artifact_version ?? null }] : []).map((a: { name: string; version?: number | null }) => ({ name: a.name, version: a.version ?? null }));
+    if (images.length && images.length >= want.length) pics = images.map((i) => ({ bytes: Buffer.from(i.data, "base64"), mime: i.mime }));
+    else {
+      const c = creds();
+      for (const a of want) {
+        const res = await fetch(`${server(c, opt)}/api/boards/${encodeURIComponent(board)}/image?name=${encodeURIComponent(a.name)}${a.version ? `&version=${a.version}` : ""}`, { headers: { authorization: `Bearer ${c.token}`, "user-agent": "atteo-cli/2" } });
+        const mime = (res.headers.get("content-type") ?? "").split(";")[0].trim();
+        if (!res.ok || !mime.startsWith("image/") || Number(res.headers.get("content-length") ?? 0) > MAX_PIC) continue;
+        const bytes = Buffer.from(await res.arrayBuffer());
+        if (bytes.length <= MAX_PIC) pics.push({ bytes, mime });
+      }
+    }
+  } catch {
+    return { text, pictures: [] }; // the text still says what's there
+  }
+  const dir = join(tmpdir(), "atteo", board.replace(/[^\w-]/g, "_"));
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const pictures = pics.map((p, i) => {
+    const file = join(dir, `${seq}${pics.length > 1 ? `-${i + 1}` : ""}.${PIC_EXT[p.mime] ?? "img"}`);
+    writeFileSync(file, p.bytes, { mode: 0o600 });
+    return file;
+  });
+  return { text, pictures };
+}
+
+/** The lines get adds after the entry: where its pictures are, to open with any image viewer or file-reading tool. */
+export const picturesNote = (paths: string[]) => (paths.length ? `${paths.length === 1 ? "Picture saved (open it to see it)" : `${paths.length} pictures saved (open them to see them)`}:\n${paths.map((p) => `  ${p}`).join("\n")}` : "");
 
 export const say = (s: string) => process.stdout.write(s.endsWith("\n") ? s : s + "\n");
 const int = (v: string | undefined, what: string): number => {
@@ -578,7 +633,8 @@ async function wait(args: string[]) {
 
 async function get(args: string[]) {
   const { pos, opt } = parseArgs(args);
-  say(await tool(opt, "get", { seq: int(pos[0]?.replace(/^#/, ""), "The entry") }));
+  const { text, pictures } = await getEntry(opt, int(pos[0]?.replace(/^#/, ""), "The entry"));
+  say([text, picturesNote(pictures)].filter(Boolean).join("\n"));
 }
 
 async function search(args: string[]) {

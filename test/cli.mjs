@@ -917,6 +917,35 @@ await step("get N on your own entry says who has seen it (people, and agents tha
   assert(r.code === 0 && r.out.includes(`seen check ${run}`) && !seen(r.out), "not on someone else's entry: " + r.out);
 });
 
+await step("get entry N on a picture post saves each picture to a temp file and prints the paths (no token handling for the agent)", async () => {
+  const png1 = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAYAAACNMs+9AAAAFUlEQVR42mP8z8BQz0AEYBxVSF+FABJADveWkH6oAAAAAElFTkSuQmCC", "base64");
+  const png2 = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
+  const tmp = mkdtempSync(join(dir, "pics-"));
+  const up = async (path, init) => (await (await fetch(`${BASE}/api/boards/${board}/${path}`, { method: "POST", headers: { authorization: `Bearer ${tokB}`, ...(init.headers ?? {}) }, body: init.body })).json()).entry.seq;
+  const one = await up(`upload?name=${encodeURIComponent("../../evil name.png")}&w=10&h=10&text=${encodeURIComponent(`one shot ${run}`)}`, { headers: { "content-type": "image/png" }, body: png1 });
+  const fd = new FormData();
+  fd.append("text", `two shots ${run}`);
+  fd.append("file", new Blob([png1], { type: "image/png" }), "a.png");
+  fd.append("file", new Blob([png2], { type: "image/png" }), "b.png");
+  const two = await up("upload", { body: fd });
+  let r = await cli(["get", "entry", String(one), "--board", board], { env: { TMPDIR: tmp } });
+  const paths = (out) => out.split("\n").filter((l) => l.startsWith("  /")).map((l) => l.trim());
+  let p = paths(r.out);
+  assert(r.code === 0 && r.out.includes("Picture saved (open it to see it):") && p.length === 1, r.out + r.err);
+  assert(p[0] === join(tmp, "atteo", board, `${one}.png`) && readFileSync(p[0]).equals(png1), `named by board and entry, not the poster's file name: ${p[0]}`);
+  assert(r.out.indexOf("Picture saved") > r.out.lastIndexOf("<<end untrusted"), "the paths come after the fenced board content");
+  r = await cli(["get", String(two), "--board", board, "--json"], { env: { TMPDIR: tmp } }); // the short form too
+  assert(r.code === 0 && r.out.includes("2 pictures saved"), "atteo get N: " + r.out + r.err);
+  r = await cli(["get", "entry", String(two), "--board", board, "--json"], { env: { TMPDIR: tmp } });
+  const j = JSON.parse(r.out);
+  assert(j.pictures.length === 2 && readFileSync(j.pictures[0]).equals(png1) && readFileSync(j.pictures[1]).equals(png2) && j.pictures[1].endsWith(`${two}-2.png`), `--json lists them in order: ${r.out}`);
+  // A plain note costs no extra lookups and saves nothing.
+  await tool(tokA, board, "read", {});
+  const note = Number((await tool(tokA, board, "post", { type: "note", text: `[image · image/png] not a picture ${run}` })).match(/Posted #(\d+)/)[1]);
+  r = await cli(["get", "entry", String(note), "--board", board], { env: { TMPDIR: tmp } });
+  assert(r.code === 0 && !r.out.includes("saved"), "a note that only looks like one: " + r.out);
+});
+
 await step("task edit / tick / done with unread board entries: the edit is saved once, 'Saved #N vX.' is printed (then the missed entries), exit 0", async () => {
   const made = await tool(tokA, board, "task", { action: "create", title: `Unread edit ${run}`, body: `Plan:\n- [ ] first step\n- [ ] second step\nline one` });
   const n = Number(made.match(/#(\d+)/)[1]);

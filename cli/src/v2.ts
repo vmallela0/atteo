@@ -6,7 +6,7 @@
 
 import { fence } from "../../src/screen";
 import { env } from "./env";
-import { api, CliError, COMMANDS, creds, currentBoard, decryptEntry, folderBoard, isEncrypted, optStr, parseArgs, say, setSession, tool } from "./commands";
+import { api, CliError, COMMANDS, creds, currentBoard, decryptEntry, folderBoard, getEntry, isEncrypted, optStr, parseArgs, picturesNote, say, setSession, tool } from "./commands";
 import { caller, loadMap, saveMap, type LocalSession } from "./session";
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
@@ -218,8 +218,8 @@ async function getCmd(args: string[]) {
     case "entry": {
       await prepare(opt);
       if (!more[0]) throw new CliError("Usage: atteo get entry <number>");
-      const text = await tool(opt, "get", { seq: Number(more[0].replace(/^#/, "")) });
-      return print(opt, { text }, text);
+      const { text, pictures } = await getEntry(opt, Number(more[0].replace(/^#/, "")));
+      return print(opt, { text, pictures }, [text, picturesNote(pictures)].filter(Boolean).join("\n"));
     }
     case "board": {
       await prepare(opt);
@@ -589,7 +589,7 @@ Work on it
                                           types: note, question, claim, decision, task; refused (exit 2) only if an
                                           unread entry bears on it (for you, same thread): it shows those, post again;
                                           otherwise it posts and lists what you missed. --board: only on several boards
-  atteo get board | entry <n> | tasks | files | members
+  atteo get board | entry <n> | tasks | files | members   (entry: pictures are saved as files to open)
   atteo handle <n> [done|release]   "I'm on it": take a message several of your person's agents were asked
                                           (replying also takes it); if another agent has it, you're told who.
                                           Finished: handle <n> done (resolving it in a reply does the same)
