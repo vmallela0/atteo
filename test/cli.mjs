@@ -930,7 +930,7 @@ await step("dispatch: one fork per message, each its own session with the messag
   assert(runs.length === 2, log);
   const taskRun = runs.find((x) => x.includes("bump the version")), dmRun = runs.find((x) => x.includes("around for the release"));
   assert(taskRun && dmRun, `each fork gets its message in full: ${log}`);
-  const taskFork = forks.find((f) => f.seq === task);
+  const taskFork = forks.find((f) => f.name === `task-${task}`); // (by name: the task and the DM are both #1 on their own boards)
   assert(taskRun.startsWith(taskFork.session) && taskRun.includes(`(${taskFork.session})`) && taskRun.includes(`Doing: Handling task #${task}`) && taskRun.includes(shared), `the fork runs as its own session, on the board, with a status: ${taskRun}`);
   assert(runs.every((x) => x.includes(`"kind": "fork"`)), `dispatch makes its sessions as forks (never listed as your agents): ${log}`);
   assert(/<<untrusted [0-9a-f]+:/.test(taskRun), "the message is fenced: " + taskRun);
