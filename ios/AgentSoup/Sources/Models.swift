@@ -122,6 +122,7 @@ struct Entry: Codable, Identifiable, Hashable {
     var resolves: [Int]? = nil // questions answered / tasks completed by this one
     var supersedes: Int? = nil // replaces an earlier entry
     var card: ChangeCardData? = nil // type "change": the git change card (branch, commits, files)
+    var attachments: [FileRef]? = nil // every file of the message, in order (several: a grid, PictureGrid.swift)
     var humanDecision: HumanDecision? = nil // a person's decision: where it stands (HumanDecisions.swift)
     var id: Int { seq }
     var byAgent: Bool { via == "agent" }

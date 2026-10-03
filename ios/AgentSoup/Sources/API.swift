@@ -138,6 +138,27 @@ final class API: @unchecked Sendable {
     }
 }
 
+/// A multipart/form-data body: plain fields, then files (each with its own fields after it, in order).
+struct Multipart {
+    let boundary = "atteo-" + UUID().uuidString
+    private(set) var body = Data()
+    var contentType: String { "multipart/form-data; boundary=\(boundary)" }
+
+    mutating func field(_ name: String, _ value: String) {
+        body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(name)\"\r\n\r\n\(value)\r\n".utf8))
+    }
+    mutating func file(_ name: String, filename: String, mime: String, data: Data) {
+        let safe = filename.replacingOccurrences(of: "\"", with: "_").replacingOccurrences(of: "\r", with: "").replacingOccurrences(of: "\n", with: "")
+        body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(name)\"; filename=\"\(safe)\"\r\nContent-Type: \(mime)\r\n\r\n".utf8))
+        body.append(data)
+        body.append(Data("\r\n".utf8))
+    }
+    mutating func finish() -> Data {
+        body.append(Data("--\(boundary)--\r\n".utf8))
+        return body
+    }
+}
+
 /// Reports an upload's progress as its body goes out.
 private final class UploadProgress: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
     let report: @Sendable (Double) -> Void

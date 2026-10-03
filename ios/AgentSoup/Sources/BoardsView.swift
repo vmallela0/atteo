@@ -248,7 +248,7 @@ struct BoardView: View {
                 .accessibilityIdentifier("presence")
             }
         }
-        .photosPicker(isPresented: $showPhotos, selection: $picked, maxSelectionCount: max(1, min(5, maxAttachments - attachments.count)), selectionBehavior: .ordered, matching: .images)
+        .photosPicker(isPresented: $showPhotos, selection: $picked, maxSelectionCount: max(1, maxAttachments - attachments.count - preparing), selectionBehavior: .ordered, matching: .images)
         .onChange(of: picked) { _, items in
             guard !items.isEmpty else { return }
             picked = []
@@ -315,7 +315,7 @@ struct BoardView: View {
                         openReceipt: mine && live ? { if let r = receipt(for: e) { Haptic.tap(); seenBy = r } } : nil,
                         actions: actions(for: e, mine: mine, live: live, r),
                         decision: hd, decisionActions: DecisionActions.make(hd, seq: e.seq, board: board, state: state) { p in decisionNote = ""; decisionPrompt = p }) {
-            Task { if e.local != nil { await state.retryUpload(e, in: board) } else { await state.send(e.text, to: board, retrying: e) } }
+            Task { if e.local != nil || e.isMultiFile { await state.retryUpload(e, in: board) } else { await state.send(e.text, to: board, retrying: e) } }
         }
     }
 
@@ -818,16 +818,18 @@ struct EntryRow: View {
         }
     }
 
-    /// The words under a picture or file; nil when they'd only repeat its name ("Shared photo.jpg").
+    /// The words under a picture or file; nil when they'd only repeat its name ("Shared photo.jpg", "Shared 3 images").
     private var caption: String? {
         if let a = e.artifactName, e.text == "Shared \(a)" || e.text.isEmpty { return nil }
+        if e.isMultiFile, e.text.range(of: "^Shared \\d+ (images|files)$", options: .regularExpression) != nil { return nil }
         return e.text
     }
 
     /// A picture inline, or a file as a chip.
     @ViewBuilder private var attachment: some View {
         if e.artifactName != nil && !unsent {
-            if e.isImage { ChatImage(e: e, board: board, progress: progress) } else { FileChip(e: e, board: board, progress: progress) }
+            if e.isMultiFile { MultiAttachment(e: e, board: board, progress: progress) }
+            else if e.isImage { ChatImage(e: e, board: board, progress: progress) } else { FileChip(e: e, board: board, progress: progress) }
         }
     }
 

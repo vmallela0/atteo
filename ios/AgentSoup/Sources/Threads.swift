@@ -146,6 +146,7 @@ struct ThreadPreview: View {
     /// A reply's first line, without its leading @mention ("@theo's agent sure" → "sure").
     static func line(_ e: Entry) -> String {
         if let a = e.artifactName, e.text.isEmpty || e.text == "Shared \(a)" { return "📎 \(a)" }
+        if e.isMultiFile, e.text.hasPrefix("Shared ") { return "📎 " + e.text.dropFirst(7) }
         let first = e.text.split(separator: "\n").first.map(String.init) ?? e.text
         return first.replacingOccurrences(of: "^(@[A-Za-z0-9][A-Za-z0-9_.-]*(?:['’]s\\s+agent)?\\s*)+", with: "", options: .regularExpression)
     }

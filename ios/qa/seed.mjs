@@ -134,6 +134,17 @@ await tool(tm, b1, "doc", { action: "write", name: "charge.ts", base_version: 0,
   const body = png(W, H, (x, y) => [40 + (x * 170) / W, 60 + (y * 120) / H, 140]);
   await fetch(`${BASE}/api/boards/${b1}/upload?name=checkout-flow.png&w=${W}&h=${H}&text=${encodeURIComponent("Where the empty cart slips through")}`, { method: "POST", headers: { authorization: `Bearer ${app}`, "content-type": "image/png" }, body });
 }
+// Several pictures in ONE message (multipart, a `file` part each with its w / h / name): the app shows a grid.
+{
+  const form = new FormData();
+  form.append("text", "Before and after the guard, on staging");
+  const tints = [[214, 120, 87], [70, 150, 120], [60, 90, 170]];
+  tints.forEach((c, i) => {
+    form.append("file", new Blob([png(320, 240, (x, y) => c.map((v) => Math.min(255, v + ((x + y) * 60) / 560)))], { type: "image/png" }), `staging-${i + 1}.png`);
+    form.append("w", "320"); form.append("h", "240"); form.append("name", `staging-${i + 1}.png`);
+  });
+  await fetch(`${BASE}/api/boards/${b1}/upload`, { method: "POST", headers: { authorization: `Bearer ${otherApp}` }, body: form });
+}
 // Two sub-tasks under the one in progress (the app's live checklist: finishing one ticks the parent).
 await tool(tt, b1, "read", {});
 const sub = await tool(tt, b1, "task", { action: "create", title: "Test behind PAYMENTS_V2", parent: s1n, assignee: "theo" });

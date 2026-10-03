@@ -448,12 +448,78 @@ final class AppState: ObservableObject {
                           media: Media(mime: f.mime, w: f.width, h: f.height, size: f.data.count), artifactSize: f.data.count, local: file.path)
             queue.append((e, f.data))
         }
+        // Several: ONE message (the web's multipart upload), its pictures in a grid.
+        if queue.count > 1 {
+            let first = queue[0].0
+            var e = first
+            e.text = caption.isEmpty ? Self.sharedLabel(files.map(\.mime)) : caption
+            e.attachments = queue.map { q in FileRef(name: q.0.artifactName ?? "file", mime: q.0.media?.mime ?? "application/octet-stream", size: q.1.count, w: q.0.media?.w, h: q.0.media?.h, local: q.0.local) }
+            withAnimation(.smooth) { entries[b.id] = (entries[b.id] ?? []) + [e] }
+            await uploadMany(e, datas: queue.map(\.1), to: b)
+            return
+        }
         withAnimation(.smooth) { entries[b.id] = (entries[b.id] ?? []) + queue.map(\.0) }
         for (e, d) in queue { await upload(e, data: d, to: b) }
     }
 
+    /// The server's caption for files sent without words: "Shared 3 images" / "Shared 3 files".
+    static func sharedLabel(_ mimes: [String]) -> String { "Shared \(mimes.count) \(mimes.allSatisfy { $0.hasPrefix("image/") } ? "images" : "files")" }
+
+    /// Several files as one message: POST /upload, multipart (a `file` part each, with its w / h / name after it,
+    /// in order, so the server pairs them up), plus the words and what it answers.
+    private func uploadMany(_ temp: Entry, datas: [Data], to b: Board) async {
+        let files = temp.attachments ?? []
+        var form = Multipart()
+        if temp.text != Self.sharedLabel(files.map(\.mime)) { form.field("text", temp.text) }
+        if let r = temp.replyTo { form.field("reply_to", String(r)) }
+        for (f, d) in zip(files, datas) {
+            form.file("file", filename: f.name, mime: f.mime, data: d)
+            form.field("w", f.w.map(String.init) ?? "")
+            form.field("h", f.h.map(String.init) ?? "")
+            form.field("name", f.name)
+        }
+        let body = form.finish()
+        uploads[temp.seq] = 0
+        defer { uploads[temp.seq] = nil }
+        do {
+            let d = try await API.shared.upload("/api/boards/\(b.id)/upload", data: body, contentType: form.contentType) { p in
+                Task { @MainActor in if AppState.shared.uploads[temp.seq] != nil { AppState.shared.uploads[temp.seq] = p } }
+            }
+            let real = try JSONDecoder.soup.decode(PostResponse.self, from: d).entry
+            // Already here: each kept under its real name and version, so none downloads again.
+            for (i, a) in (real.attachments ?? []).enumerated() where i < datas.count {
+                MediaStore.shared.adopt(datas[i], board: b.id, name: a.name, version: a.version, image: a.isImage)
+            }
+            for f in files { if let path = f.local { try? FileManager.default.removeItem(at: URL(fileURLWithPath: path).deletingLastPathComponent()) } }
+            withAnimation(.smooth) { entries[b.id] = (entries[b.id] ?? []).map { $0.seq == temp.seq ? real : $0 } }
+            Haptic.done()
+            save()
+            Task { await refreshBoards() }
+        } catch APIError.offline {
+            withAnimation(.smooth) {
+                entries[b.id] = (entries[b.id] ?? []).map { e in
+                    guard e.seq == temp.seq else { return e }
+                    var f = e; f.pending = nil; f.failed = true; return f
+                }
+            }
+            Haptic.warn()
+        } catch {
+            withAnimation(.smooth) { entries[b.id]?.removeAll { $0.seq == temp.seq } }
+            for f in files { if let path = f.local { try? FileManager.default.removeItem(at: URL(fileURLWithPath: path).deletingLastPathComponent()) } }
+            Haptic.warn()
+            report(error)
+        }
+    }
+
     /// Tries a picture or file that didn't go up again.
     func retryUpload(_ e: Entry, in b: Board) async {
+        if e.isMultiFile {
+            let datas = (e.attachments ?? []).compactMap { $0.local.flatMap { try? Data(contentsOf: URL(fileURLWithPath: $0)) } }
+            guard datas.count == e.attachments?.count else { withAnimation(.smooth) { entries[b.id]?.removeAll { $0.seq == e.seq } }; return }
+            withAnimation(.smooth) { entries[b.id] = (entries[b.id] ?? []).map { $0.seq == e.seq ? { var x = $0; x.pending = true; x.failed = nil; return x }($0) : $0 } }
+            await uploadMany(e, datas: datas, to: b)
+            return
+        }
         guard let path = e.local, let d = try? Data(contentsOf: URL(fileURLWithPath: path)) else {
             withAnimation(.smooth) { entries[b.id]?.removeAll { $0.seq == e.seq } }
             return
