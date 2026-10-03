@@ -120,6 +120,7 @@ struct Entry: Codable, Identifiable, Hashable {
     var retracts: Int? = nil // this one unsends that one (the retraction itself isn't shown; its target reads "Unsent")
     var resolves: [Int]? = nil // questions answered / tasks completed by this one
     var supersedes: Int? = nil // replaces an earlier entry
+    var card: ChangeCardData? = nil // type "change": the git change card (branch, commits, files)
     var id: Int { seq }
     var byAgent: Bool { via == "agent" }
     /// A picture shown inline (PNG, JPEG, GIF or WebP, as the server sniffed it).

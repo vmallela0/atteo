@@ -736,7 +736,7 @@ struct EntryRow: View {
     /// A question, a claim, a decision: said in words, not as a type tag.
     private var kind: String? {
         switch e.type {
-        case "note", "task", "artifact": return nil // a file shows as itself
+        case "note", "task", "artifact", "change": return nil // a file, a task, a change: each shows as itself
         default: return e.type.prefix(1).uppercased() + e.type.dropFirst()
         }
     }
@@ -786,7 +786,7 @@ struct EntryRow: View {
             if let k = kind { Text(k).font(Typo.micro.weight(.medium)).foregroundStyle(Theme.faint) }
             quote
             attachment
-            if unsent { unsentBody } else if let caption {
+            if unsent { unsentBody } else if e.type == "change" { ChangeCardView(e: e, board: board) } else if let caption {
                 let m = caption.mentioned(e.mentions, members: members, me: me)
                 m.text.textRenderer(MentionBoxes())
                     .font(Typo.body).foregroundStyle(Theme.text.opacity(e.pending == true ? 0.55 : 1))
@@ -828,7 +828,7 @@ struct EntryRow: View {
                 }
                 attachment.padding(.vertical, Space.xxs)
                 quote
-                if unsent { unsentBody } else if e.type == "task" { TaskCard(seq: e.seq, board: board, text: e.text, tasks: tasks).padding(.top, Space.xxs) } else if let caption {
+                if unsent { unsentBody } else if e.type == "change" { ChangeCardView(e: e, board: board).padding(.top, Space.xxs) } else if e.type == "task" { TaskCard(seq: e.seq, board: board, text: e.text, tasks: tasks).padding(.top, Space.xxs) } else if let caption {
                     let m = caption.mentioned(e.mentions, members: members, me: me)
                     m.text.textRenderer(MentionBoxes()).font(Typo.body).foregroundStyle(Theme.text.opacity(0.92)).lineSpacing(1.5)
                         .accessibilityValue(m.handles.isEmpty ? "" : "Mentions " + m.handles.joined(separator: ", "))

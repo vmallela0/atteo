@@ -889,6 +889,35 @@ final class AgentSoupUITests: XCTestCase {
         }
     }
 
+    /// A change card (#538 e): "Shipped to production (v42)" as a card (title, version chip, 3 commits · 3 files with
+    /// +/−, commits, files with bars), never the raw text; the diff opens behind "Show diff".
+    func testShippedChangeCard() throws {
+        continueAfterFailure = false
+        let a = app(fresh: true)
+        a.launch()
+        onBoards(a)
+        let chat = a.buttons["chat-Checkout bug"].firstMatch
+        XCTAssertTrue(chat.waitForExistence(timeout: 10))
+        chat.tap()
+        XCTAssertTrue(a.buttons["presence"].waitForExistence(timeout: 10))
+        let card = a.descendants(matching: .any)["change-card"].firstMatch
+        for _ in 0..<10 where !(card.exists && card.isHittable) { a.swipeDown(); usleep(500_000) }
+        XCTAssertTrue(card.waitForExistence(timeout: 5), "the change shows as a card")
+        XCTAssertTrue(a.staticTexts["Shipped to production"].exists, "its title")
+        XCTAssertTrue(a.staticTexts["v42"].exists, "the version chip")
+        XCTAssertTrue(a.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'change-stats' AND label CONTAINS '3 commits'")).firstMatch.exists, "commits · files")
+        XCTAssertFalse(a.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Shipped to production (v42)'")).firstMatch.exists, "not the raw text")
+        sleep(1)
+        shot("36-change-card")
+        let toggle = a.buttons["change-diff-toggle"].firstMatch
+        XCTAssertTrue(toggle.exists)
+        toggle.tap()
+        XCTAssertTrue(a.descendants(matching: .any)["change-diff"].firstMatch.waitForExistence(timeout: 8), "the diff opens")
+        XCTAssertTrue(a.staticTexts.matching(NSPredicate(format: "label BEGINSWITH '@@'")).firstMatch.waitForExistence(timeout: 5), "with its hunks")
+        sleep(1)
+        shot("37-change-diff")
+    }
+
     func testInstantRelaunchFromCache() throws {
         let a = app(fresh: false)
         a.launch()
