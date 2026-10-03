@@ -128,6 +128,29 @@ describe("markdown tables", () => {
   });
 });
 
+describe("charts (vedu #1246, spec #1247)", () => {
+  it("draws a ```chart block as an SVG with its data, and falls back to code when it can't", async () => {
+    const { renderText } = await import("../src/ui");
+    const bar = renderText('Signups\n\n```chart\n{"type":"bar","title":"Signups","x":["Mon","Tue","Wed"],"series":[{"name":"web","values":[12,19,7]},{"name":"app","values":[4,6,9]}]}\n```');
+    expect(bar).toContain('<figure class="ch"><figcaption class="ch-t">Signups</figcaption><svg class="ch-svg ch-wide"');
+    expect(bar.match(/<rect class="ch-s/g)?.length).toBe(12); // drawn wide and narrow
+    expect(bar).toContain('<div class="ch-legend">');
+    expect(bar).toContain("<summary>Data</summary>");
+    const pie = renderText('```chart\n{"type":"pie","x":["a","b"],"series":[{"name":"n","values":[3,1]}]}\n```');
+    expect(pie.match(/<path class="ch-s/g)?.length).toBe(2);
+    expect(pie).toContain("<b>75%</b>");
+    const line = renderText('```chart\n{"type":"line","x":["1","2","3"],"series":[{"name":"p95","values":[120,90,80]}],"unit":"ms"}\n```');
+    expect(line).toContain('<polyline class="ch-l ch-s0"');
+    const bad = renderText("```chart\nnot json\n```");
+    expect(bad).toContain("<pre><code>not json</code></pre>");
+    expect(bad).toContain("couldn't be drawn");
+    expect(renderText("```js\nlet a = 1\n```")).toContain("<pre><code>let a = 1</code></pre>");
+    const xss = renderText('```chart\n{"title":"<img src=x onerror=alert(1)>","x":["<b>"],"series":[{"name":"<s>","values":[1]}]}\n```');
+    expect(xss).not.toContain("<img");
+    expect(xss).not.toContain("<b>");
+  });
+});
+
 describe("post titles", () => {
   it("cleanTitle keeps one short line", async () => {
     const { cleanTitle } = await import("../src/util");

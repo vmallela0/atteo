@@ -2,6 +2,7 @@
 // Minimal and quiet (in the spirit of Vercel Geist / Linear): neutral grays, one ink color for primary actions,
 // hairline borders, Geist type, light + dark, works down to phone width.
 
+import { chartHtml } from "./chart";
 import { highlightMentions, type Mention } from "./mentions";
 import { esc } from "./util";
 
@@ -494,6 +495,18 @@ dialog.lightbox img{display:block;max-width:min(96vw,1600px);max-height:92vh;wid
 .composer.sending .attachments{display:none}
 .upd-bar{position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:60;display:flex;align-items:center;gap:10px;padding:6px 6px 6px 14px;border:1px solid var(--line);border-radius:999px;background:var(--bg);box-shadow:var(--shadow-lg);font-size:13px;color:var(--ink);white-space:nowrap}
 .md-tw{overflow-x:auto;margin:6px 0;max-width:100%}.md-t{border-collapse:collapse;font-size:13px;line-height:1.45}.md-t th,.md-t td{border:1px solid var(--line);padding:4px 9px;text-align:left;vertical-align:top}.md-t th{background:var(--bg-subtle);color:var(--ink);font-weight:600}
+.ch{margin:8px 0;padding:10px 12px 6px;border:1px solid var(--line);border-radius:10px;background:var(--bg);max-width:620px}.ch-t{font-size:13px;font-weight:600;color:var(--ink);margin-bottom:4px}
+.ch{container-type:inline-size}.ch-svg{display:block;width:100%;height:auto;overflow:visible}.ch-narrow{display:none}@container (max-width:420px){.ch-wide{display:none}.ch-narrow{display:block}}.ch-grid{stroke:var(--line);stroke-width:1}.ch-axis{stroke:var(--line-strong,var(--line));stroke-width:1}
+.ch-y,.ch-x{fill:var(--muted);font-size:11px;font-family:inherit}.ch-y{text-anchor:end}.ch-x{text-anchor:middle}
+.ch-l{fill:none;stroke-width:2.2;stroke-linejoin:round;stroke-linecap:round}.ch-a{stroke:none;opacity:.16}.ch-p{stroke:var(--bg);stroke-width:1.5}
+.ch-s0{fill:var(--accent);stroke:var(--accent)}.ch-s1{fill:var(--ok);stroke:var(--ok)}.ch-s2{fill:var(--warn);stroke:var(--warn)}.ch-s3{fill:var(--decision);stroke:var(--decision)}
+.ch-s4{fill:var(--danger);stroke:var(--danger)}.ch-s5{fill:var(--claim);stroke:var(--claim)}.ch-s6{fill:var(--task);stroke:var(--task)}.ch-s7{fill:var(--muted);stroke:var(--muted)}
+.ch-l.ch-s0,.ch-l.ch-s1,.ch-l.ch-s2,.ch-l.ch-s3,.ch-l.ch-s4,.ch-l.ch-s5,.ch-l.ch-s6,.ch-l.ch-s7{fill:none}
+rect.ch-s0,rect.ch-s1,rect.ch-s2,rect.ch-s3,rect.ch-s4,rect.ch-s5,rect.ch-s6,rect.ch-s7,path.ch-s0,path.ch-s1,path.ch-s2,path.ch-s3,path.ch-s4,path.ch-s5,path.ch-s6,path.ch-s7{stroke:var(--bg);stroke-width:1}
+.ch-legend{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:6px;font-size:12px;color:var(--text)}.ch-legend span{display:inline-flex;align-items:center;gap:5px}.ch-legend b{color:var(--muted);font-weight:500}
+.ch-k{width:10px;height:10px;border-radius:3px;display:inline-block;border:0}.ch-k.ch-s0{background:var(--accent)}.ch-k.ch-s1{background:var(--ok)}.ch-k.ch-s2{background:var(--warn)}.ch-k.ch-s3{background:var(--decision)}.ch-k.ch-s4{background:var(--danger)}.ch-k.ch-s5{background:var(--claim)}.ch-k.ch-s6{background:var(--task)}.ch-k.ch-s7{background:var(--muted)}
+.ch-pie{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.ch-pie .ch-svg{width:170px;flex:none}.ch-pie .ch-legend{flex-direction:column;gap:4px}
+.ch-data{margin-top:4px}.ch-data summary{cursor:pointer;font-size:11.5px;color:var(--faint);list-style:none}.ch-data summary::-webkit-details-marker{display:none}.ch-data summary:hover{color:var(--ink)}
 .mem-act{display:none}.mem-on .mem-act{display:inline-flex;width:30px;padding:0;justify-content:center;color:var(--muted)}.mem-on .mem-act:hover{color:var(--ink)}
 .soul-prev{white-space:pre-wrap;font-size:12.5px;line-height:1.5;color:var(--text);max-height:7.5em;overflow:hidden;-webkit-mask-image:linear-gradient(#000 70%,transparent);mask-image:linear-gradient(#000 70%,transparent)}
 .soul-meta{margin:4px 0 6px}.soul-edit{margin-top:2px}
@@ -1060,10 +1073,13 @@ export function renderText(text: string, mentions?: Mention[] | null, names?: Re
 function renderTextInner(text: string, mentions?: Mention[] | null): string {
   const out: string[] = [];
   const ck = { n: 0 }; // checklist items ("- [ ] …") are numbered in order, so a page can tick the n-th one
-  const parts = text.split(/```[^\n]*\n?([\s\S]*?)```/g);
+  // ```lang blocks: [text, lang, code, text, …]; ```chart draws a chart (vedu #1246).
+  const parts = text.split(/```([^\n`]*)\n?([\s\S]*?)```/g);
   parts.forEach((part, i) => {
-    if (i % 2 === 1) {
-      out.push(`<pre><code>${esc(part.replace(/\n$/, ""))}</code></pre>`);
+    if (i % 3 === 1) return;
+    if (i % 3 === 2) {
+      const lang = parts[i - 1].trim().toLowerCase();
+      out.push(lang === "chart" ? chartHtml(part) : `<pre><code>${esc(part.replace(/\n$/, ""))}</code></pre>`);
       return;
     }
     const paras = part.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
