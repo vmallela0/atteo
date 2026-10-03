@@ -297,6 +297,17 @@ dialog.access-dlg{width:min(640px,calc(100vw - 24px))}
 .trg-new{display:flex;flex-direction:column;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
 .trg-when,.trg-wake{display:flex;align-items:center;gap:8px;min-width:0}.trg-when .acc-url{flex:1;min-width:0}.trg-when .acc-url[hidden]{display:none}.trg-wake .acc-sel{flex:1;min-width:0}
 .trg-new textarea.input{min-height:60px;font-size:13px}
+/* board settings: schedules (shared crons): a row each with an on/off switch, and the add form (time, zone, day chips) */
+.sch-new .acc-url{width:100%}.sch-when{display:flex;align-items:center;gap:8px;min-width:0}.sch-when #sch-at{flex:none;width:auto}.sch-when .acc-sel{flex:1;min-width:0}
+.sch-days{display:flex;flex-wrap:wrap;gap:6px}
+.sch-day{height:28px;min-width:44px;padding:0 10px;border-radius:999px;border:1px solid var(--line);background:var(--bg-subtle);color:var(--muted);font:inherit;font-size:12.5px;cursor:pointer}
+.sch-day:hover{border-color:var(--line-strong)}.sch-day[aria-pressed="true"]{border-color:color-mix(in srgb,var(--accent) 55%,var(--line));background:color-mix(in srgb,var(--accent) 10%,var(--bg));color:var(--accent)}
+.sch-day:focus-visible,.sch-tog:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.sch-tog{position:relative;flex:none;width:34px;height:20px;margin:4px 6px 0 0;padding:0;border:0;border-radius:999px;background:var(--line-strong);cursor:pointer}
+.sch-tog span{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--bg);box-shadow:0 1px 2px rgba(0,0,0,.25);transition:transform .15s}
+.sch-tog[aria-checked="true"]{background:var(--accent)}.sch-tog[aria-checked="true"] span{transform:translateX(14px)}
+.sch-row .trg-acts{align-items:flex-start}.sch-row.off .small b{color:var(--muted)}
+@media(max-width:640px){.sch-row .trg-acts{margin-left:0;gap:10px;align-items:center}.sch-row .sch-tog{margin:0}}
 @media(max-width:640px){.trg-when{flex-wrap:wrap}.trg-when .acc-sel{flex:1 1 100%;min-width:0;width:100%}.trg-row{flex-wrap:wrap;row-gap:2px}.trg-row>.grow{flex-basis:100%}.trg-acts{margin-left:-9px}}
 .acc-url{font-size:12px;height:30px}.acc-to{position:relative;min-width:200px}.acc-to .input{width:100%}
 .acc-sug{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:5;list-style:none;margin:0;padding:4px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--bg);box-shadow:var(--shadow-lg)}

@@ -164,7 +164,7 @@ await step("MCP initialize, tools/list, notifications, protocol errors", async (
   assert(r.protocolVersion === "2025-06-18" && r.serverInfo.name === "atteo" && r.serverInfo.title === "Atteo", JSON.stringify(r));
   has(r.instructions, "Atteo");
   const names = (await rpcRaw(auth(A), null, "tools/list", {})).tools.map((t) => t.name).sort();
-  assert(JSON.stringify(names) === JSON.stringify(["agents", "approval", "claim", "create_board", "doc", "get", "handle", "invite", "join_board", "leave_board", "list_boards", "mailbox", "memory", "people", "post", "publish", "react", "read", "recap", "remember", "request_approval", "retract", "review", "search", "session", "task", "trigger", "wait"]), names.join());
+  assert(JSON.stringify(names) === JSON.stringify(["agents", "approval", "claim", "create_board", "doc", "get", "handle", "invite", "join_board", "leave_board", "list_boards", "mailbox", "memory", "people", "post", "publish", "react", "read", "recap", "remember", "request_approval", "retract", "review", "schedules", "search", "session", "task", "trigger", "wait"]), names.join());
   assert((await rpcRaw(auth(A), null, "notifications/initialized", {}, { notification: true })).status === 202, "notification status");
   assert((await rpcRaw({}, null, "notifications/initialized", {}, { notification: true })).status === 401, "no credentials: 401 so OAuth clients can sign in");
   assert((await fetch(`${BASE}/mcp`)).status === 405, "GET /mcp should be 405");
@@ -3513,6 +3513,113 @@ await step("workflow triggers: CRUD, fire into the right mailbox, only your own 
   const full = await tapi(A, "POST", T, { on: "change", prompt: "one too many" });
   assert(full.status === 400 && full.body.error.includes("20"), JSON.stringify(full));
   for (const t of (await tapi(A, "GET", T)).body.triggers.filter((x) => x.created_by === A)) await tapi(A, "DELETE", `${T}/${t.id}`);
+});
+
+await step("schedules (shared crons): people add them, agents only list; each due time posts one task (any number of ticks); off, delete, viewers, limits", async () => {
+  const sapi = async (who, method, path, body, asAgent = false) => {
+    const r = await fetch(`${BASE}${path}`, { method, headers: { ...(asAgent ? { authorization: `Bearer ${tok[who]}` } : { cookie: cookie[who] }), "content-type": "application/json" }, body: body == null ? undefined : JSON.stringify(body) });
+    return { status: r.status, body: await r.json().catch(() => ({})) };
+  };
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const sb = (await ops("boards", { user: A, title: `e2e schedules ${run}` })).body.board.id;
+  await ops("members", { board: sb, user: B });
+  const S = `/api/boards/${sb}/schedules`;
+  const lastSeq = async () => (await (await web(`/api/boards/${sb}`, A)).json()).board.last_seq;
+  const one = async (id) => (await sapi(A, "GET", S)).body.schedules.find((x) => x.id === id);
+  const LA = new Intl.DateTimeFormat("en-US", { timeZone: "America/Los_Angeles", weekday: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+  // Agents list but never add, change or remove; outsiders see nothing.
+  const ag = await sapi(A, "POST", S, { title: "x", at: "09:00" }, true);
+  assert(ag.status === 403 && /^Only people can add/.test(ag.body.error), "agent token can't add: " + JSON.stringify(ag));
+  const al = await sapi(B, "GET", S, null, true);
+  assert(al.status === 200 && al.body.limit === 10 && al.body.schedules.length === 0, JSON.stringify(al));
+  assert((await sapi(OUT, "GET", S)).status === 404, "non-member: 404");
+  // Bad input.
+  for (const [bad, why] of [[{ at: "09:00" }, "title"], [{ title: "x", at: "25:00" }, "HH:MM"], [{ title: "x", at: "09:00", tz: "Mars/Olympus" }, "time zone"], [{ title: "x", at: "09:00", days: ["funday"] }, "isn't a day"], [{ title: "x".repeat(121), at: "09:00" }, "120"], [{ title: "x", at: "09:00", body: "y".repeat(2001) }, "2000"]]) {
+    const r = await sapi(A, "POST", S, bad);
+    assert(r.status === 400 && r.body.error.includes(why), `${JSON.stringify(bad).slice(0, 80)}: ${JSON.stringify(r)}`);
+  }
+  // A person adds one: weekdays 09:00 in Los Angeles. Open tabs hear about it.
+  const tab = await wsOpen(sb, B);
+  const c = await sapi(A, "POST", S, { title: `Standup ${run}`, body: "- [ ] Yesterday\n- [ ] Today", at: "9:00", tz: "America/Los_Angeles", days: "weekdays" });
+  const s1 = c.body.schedule;
+  assert(c.status === 201 && /^sc_[a-z0-9]{12}$/.test(s1.id) && s1.title === `Standup ${run}` && s1.at === "09:00" && s1.tz === "America/Los_Angeles" && s1.days.join() === "mon,tue,wed,thu,fri" && s1.when === "weekdays 09:00 America/Los_Angeles" && s1.enabled === true && s1.created_by === A && s1.fires === 0 && s1.last_seq === null, JSON.stringify(c));
+  assert(s1.next_run > Date.now() && /^(Mon|Tue|Wed|Thu|Fri) 09:00$/.test(LA.format(s1.next_run)), "next run is a weekday 09:00 in LA: " + LA.format(s1.next_run));
+  assert(await until(() => tab.msgs.some((x) => x.includes('"type":"schedule"') && x.includes('"action":"add"') && x.includes(s1.id))), "socket: " + tab.msgs.join(" | "));
+  // Agents list it (MCP, read-only, fenced: it's someone's writing).
+  const ml = await ok(B, sb, "schedules", {});
+  has(ml, s1.id);
+  has(ml, `weekdays 09:00 America/Los_Angeles: Standup ${run}`);
+  has(ml, "<<untrusted ");
+  // The cron at the due time (plus a minute) posts exactly one task, in A's name, marked as the schedule's.
+  const n0 = await lastSeq();
+  const due = s1.next_run;
+  const c1 = await ops("cron", { now: due + 60_000 });
+  assert(c1.status === 200 && c1.body.scheduled_tasks >= 1, JSON.stringify(c1));
+  const n1 = await lastSeq();
+  assert(n1 === n0 + 1, `one task posted: ${n0} → ${n1}`);
+  const e = (await (await web(`/api/boards/${sb}/entries/${n1}`, B)).json()).entry;
+  assert(e.type === "task" && e.author === A && e.via === "person" && e.text.startsWith(`🔁 Standup ${run}`) && e.text.includes("- [ ] Today") && e.text.includes(`board schedule ${s1.id}`) && e.title === `🔁 Standup ${run}`, JSON.stringify(e));
+  let now1 = await one(s1.id);
+  assert(now1.fires === 1 && now1.last_seq === n1 && now1.last_fired_at > 0 && now1.next_run > due, JSON.stringify(now1));
+  assert(await until(() => tab.msgs.some((x) => x.includes('"action":"fire"') && x.includes(s1.id))), "socket hears the fire");
+  // More ticks at the same due time (every 5 minutes, and the same one again) post nothing.
+  for (const t of [due + 60_000, due + 5 * 60_000, due + 10 * 60_000, due + 29 * 60_000]) await ops("cron", { now: t });
+  assert((await lastSeq()) === n1 && (await one(s1.id)).fires === 1, "a due time posts once");
+  // It's an ordinary task: B's agent claims it.
+  has(await ok(B, sb, "task", { action: "claim", seq: n1 }), `#${n1}`);
+  // Only its creator or an owner changes it; agents never do.
+  assert((await sapi(B, "PATCH", `${S}/${s1.id}`, { enabled: false })).status === 403, "B (contributor) can't switch A's off");
+  assert((await sapi(A, "PATCH", `${S}/${s1.id}`, { enabled: false }, true)).status === 403, "an agent can't either");
+  assert((await sapi(B, "DELETE", `${S}/${s1.id}`)).status === 403, "B can't delete A's");
+  // Off: the next due time posts nothing.
+  const next = now1.next_run;
+  const off = await sapi(A, "PATCH", `${S}/${s1.id}`, { enabled: false });
+  assert(off.status === 200 && off.body.schedule.enabled === false && off.body.schedule.next_run === null, JSON.stringify(off));
+  await ops("cron", { now: next + 60_000 });
+  assert((await lastSeq()) === n1 && (await one(s1.id)).fires === 1, "off: nothing posted");
+  const on = await sapi(A, "PATCH", `${S}/${s1.id}`, { enabled: true, title: `Standup v2 ${run}` });
+  assert(on.status === 200 && on.body.schedule.enabled === true && on.body.schedule.title === `Standup v2 ${run}` && on.body.schedule.next_run >= next, JSON.stringify(on));
+  // A viewer sees schedules but can't add them.
+  const V = `e2e-sv-${run}`;
+  await ops("users", { name: V, email: `${V}@example.com`, verified: "true" });
+  cookie[V] = (await ops("sessions", { user: V })).body.cookie;
+  await ops("members", { board: sb, user: V });
+  assert((await jpost(`/api/boards/${sb}/members/${V}`, A, { role: "viewer" })).status === 200, "make V a viewer");
+  assert((await sapi(V, "GET", S)).body.schedules.length === 1, "a viewer lists them");
+  const vp = await sapi(V, "POST", S, { title: "x", at: "09:00" });
+  assert(vp.status === 403 && vp.body.error.includes("viewer"), JSON.stringify(vp));
+  // Delete: gone from the list, and the cron no longer posts for it.
+  assert((await sapi(A, "DELETE", `${S}/${s1.id}`)).status === 200, "A deletes it");
+  assert((await sapi(A, "GET", S)).body.schedules.length === 0, "deleted");
+  assert(await until(() => tab.msgs.some((x) => x.includes('"action":"remove"') && x.includes(s1.id))), "socket hears the delete");
+  tab.ws.close();
+  await ops("cron", { now: on.body.schedule.next_run + 60_000 });
+  assert((await lastSeq()) === n1, "deleted: nothing posted");
+  assert((await sapi(A, "DELETE", `${S}/${s1.id}`)).status === 404, "already gone");
+  // Limits: 10 per board; at most 30 scheduled tasks an hour per board (the rest are dropped and counted).
+  const cb = (await ops("boards", { user: A, title: `e2e schedule caps ${run}` })).body.board.id;
+  const C = `/api/boards/${cb}/schedules`;
+  const ids = [];
+  for (let i = 0; i < 10; i++) {
+    const r = await sapi(A, "POST", C, { title: `Cap ${i} ${run}`, at: "00:00", tz: "UTC", days: "daily" });
+    assert(r.status === 201, `add #${i + 1}: ${JSON.stringify(r)}`);
+    ids.push(r.body.schedule);
+  }
+  const full = await sapi(A, "POST", C, { title: "one too many", at: "00:00" });
+  assert(full.status === 400 && full.body.error.includes("10 schedules"), JSON.stringify(full));
+  const d0 = ids[0].next_run;
+  assert(ids.every((x) => x.next_run === d0) && new Date(d0).toISOString().endsWith("T00:00:00.000Z"), "all due at the next 00:00Z");
+  const k0 = (await (await web(`/api/boards/${cb}`, A)).json()).board.last_seq;
+  for (let day = 0; day < 4; day++) await ops("cron", { now: d0 + day * 86_400_000 + 60_000 });
+  const capped = (await sapi(A, "GET", C)).body.schedules;
+  const fires = capped.reduce((n, x) => n + x.fires, 0), dropped = capped.reduce((n, x) => n + x.dropped, 0);
+  const k1 = (await (await web(`/api/boards/${cb}`, A)).json()).board.last_seq;
+  assert(fires === 30 && dropped === 10 && k1 - k0 === 30, `30 posted, 10 dropped: fires ${fires}, dropped ${dropped}, posts ${k1 - k0}`);
+  // Encrypted boards can't have schedules (their tasks would be plaintext).
+  const eb = (await ops("boards", { user: A, title: `e2e schedule enc ${run}`, encrypted: true })).body.board.id;
+  const enc = await sapi(A, "POST", `/api/boards/${eb}/schedules`, { title: "x", at: "09:00" });
+  assert(enc.status === 400 && enc.body.error.includes("encrypted"), JSON.stringify(enc));
+  await sleep(10);
 });
 
 // ---- #1090: a board's MEMORY (short durable facts for every agent) and @all ----

@@ -1093,4 +1093,6 @@ Board commands (on the board chosen with \`use\`, per folder):
   atteo remember "<fact>" | --from N   Save one (≤280 chars; --from: an entry's first line) · forget <m3> strikes one
   atteo trigger add --on <entry|task|question|mention|approval|change|schedule> [--text …] [--type …] [--at HH:MM] [--wake <session>] "<prompt>"
                                         Wake your own agent when it happens · trigger list | on|off <id> | remove <id>
+  atteo schedules [--json]         The board's schedules (shared crons people set on the web): each posts a 🔁 task
+                                        at its times (e.g. weekdays 09:00 America/Los_Angeles) for agents to claim
   Any of them: --board <id> to override; ATTEO_BOARD works too.`;

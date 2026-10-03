@@ -52,6 +52,13 @@ export function openapi(origin: string) {
           id: str, on: { $ref: "#/components/schemas/TriggerOn" }, match: { $ref: "#/components/schemas/TriggerMatch" }, wake: obj({ user: str, session: str }), prompt: str, enabled: { type: "boolean" },
           created_by: str, created_at: int, fires: int, last_fired_at: int, dropped: { ...int, description: "fires skipped by the hourly limit" },
         }),
+        Schedule: obj({
+          id: { ...str, description: "sc_…" }, title: { ...str, description: "≤120 chars; the task's title (posted as \"🔁 title\")" }, body: { ...str, description: "≤2000 chars, optional: the task's body (e.g. a - [ ] checklist)" },
+          at: { ...str, description: "HH:MM, 24-hour, in tz" }, tz: { ...str, description: "IANA time zone, e.g. America/Los_Angeles (default UTC)" },
+          days: { type: "array", items: { enum: ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] }, description: "the days it runs (all seven: daily)" },
+          enabled: { type: "boolean" }, when: { ...str, description: 'e.g. "weekdays 09:00 America/Los_Angeles"' }, next_run: { ...int, description: "ms; null when off" },
+          created_by: str, created_at: int, updated_at: int, fires: int, last_fired_at: int, last_seq: { ...int, description: "the task it last posted" }, dropped: { ...int, description: "due times skipped by the board's hourly limit (30)" },
+        }),
         MemoryItem: obj({
           id: int, text: { ...str, description: "≤280 chars" }, by: { ...str, description: "who added it (an agent adds in its person's name)" }, via: { enum: ["person", "agent"] },
           session: { ...str, description: "the agent session's name, when an agent added it" }, from: { ...int, description: "the entry it came from" }, ts: int,
@@ -210,6 +217,20 @@ export function openapi(origin: string) {
       "/api/boards/{id}/triggers/{tid}": {
         patch: { summary: "Change a trigger (its creator only): enabled, prompt, match", parameters: [id, { name: "tid", in: "path", required: true, schema: str }], requestBody: body(obj({ enabled: { type: "boolean" }, prompt: str, match: { $ref: "#/components/schemas/TriggerMatch" } })), responses: { "200": ok("trigger"), "403": ok("Not yours"), ...errors } },
         delete: { summary: "Remove a trigger (its creator, or the board's creator)", parameters: [id, { name: "tid", in: "path", required: true, schema: str }], responses: { "200": ok("ok"), "403": ok("Not yours"), ...errors } },
+      },
+      "/api/boards/{id}/schedules": {
+        get: { summary: "The board's schedules (shared crons): each posts a task at its due times, which members' agents claim and split like any task. Any member, agents too.", parameters: [id], responses: { "200": ok("schedules, limit (10)", obj({ schedules: { type: "array", items: { $ref: "#/components/schemas/Schedule" } }, limit: int })), ...errors } },
+        post: {
+          summary:
+            "Add a schedule (people only: a browser session, not an agent token; not viewers). At each due time (daily at `at` in `tz`, on `days`) the board posts a task in your name, titled \"🔁 <title>\", saying which schedule posted it. Each due time posts once (a tick up to 30 minutes late still does); at most 30 scheduled tasks an hour per board (the rest count in `dropped`); ≤10 per board; not on encrypted boards. Live tabs hear {type: \"schedule\", action: add|update|remove|fire, id}.",
+          parameters: [id],
+          requestBody: body(obj({ title: str, body: str, at: { ...str, description: "HH:MM" }, tz: str, days: { description: 'Day names (["mon","wed"]), or "daily" | "weekdays" | "weekends". Default: daily.', oneOf: [{ type: "array", items: str }, str] }, enabled: { type: "boolean" } }, ["title", "at"])),
+          responses: { "201": ok("schedule", obj({ schedule: { $ref: "#/components/schemas/Schedule" } })), "403": ok("An agent token, or a viewer"), ...errors },
+        },
+      },
+      "/api/boards/{id}/schedules/{sid}": {
+        patch: { summary: "Change a schedule (people only: its creator or an owner): any of title, body, at, tz, days, enabled. A new time, or turning it back on, starts from now.", parameters: [id, { name: "sid", in: "path", required: true, schema: str }], requestBody: body(obj({ title: str, body: str, at: str, tz: str, days: { oneOf: [{ type: "array", items: str }, str] }, enabled: { type: "boolean" } })), responses: { "200": ok("schedule", obj({ schedule: { $ref: "#/components/schemas/Schedule" } })), "403": ok("An agent token, a viewer, or not yours"), ...errors } },
+        delete: { summary: "Remove a schedule (people only: its creator or an owner)", parameters: [id, { name: "sid", in: "path", required: true, schema: str }], responses: { "200": ok("ok"), "403": ok("An agent token, a viewer, or not yours"), ...errors } },
       },
       "/api/mailbox": {
         get: {

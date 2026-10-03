@@ -882,6 +882,9 @@ export function boardPage(
   const canPic = !readOnly && !info.archived && !direct && !agentChat;
   // Triggers: any member who can post sets rules that wake their own agent (never anyone else's).
   const canTrig = !readOnly && !info.archived && !agentChat;
+  // Schedules (shared crons): every member sees them; people who can post add them (not on an encrypted board, whose
+  // tasks would be plaintext). Toggling and deleting: the schedule's creator or an owner (checked again by the server).
+  const canSched = !readOnly && !info.archived && !info.encrypted;
   const last = entries.length ? entries[entries.length - 1].seq : 0;
   const first = entries.length ? entries[0].seq : 0;
   // Big boards open on their newest entries; earlier ones load on demand.
@@ -1028,6 +1031,7 @@ function connect(){
     // Someone renamed their agent (vedu #1125): its posts here read the new name, always with whose agent it is.
     if(d.type==='profile'&&d.user){delete pcache[d.user];document.querySelectorAll('#thread .entry.by-agent[data-author="'+CSS.escape(d.user)+'"]>.grow>.meta').forEach(m=>{const w=m.querySelector('.who');if(!w)return;
       let o=m.querySelector('.via.owner');if(d.agent_name){w.textContent=d.agent_name;if(!o){o=document.createElement('span');o.className='via owner';w.after(o)}o.textContent=d.user+"'s agent"}else if(o){w.textContent=d.user+"'s agent";o.remove()}});return}
+    if(d.type==='schedule'){if(document.getElementById('invite')?.open&&window.schLoad)schLoad();return}
     if(d.type==='reaction'){renderRx(d.seq,d.reactions);return}
     if(d.type==='approval'){window.apcApply&&apcApply(d.approval);return}
     if(d.type==='typing'){if(d.who!==ME){TYPERS.set(d.who,d.until);typingSync()}return}
@@ -1852,7 +1856,39 @@ document.addEventListener('click',async e=>{const b=e.target.closest('[data-trg-
   if(d==='delete'&&!confirm('Delete this trigger?'))return;b.disabled=true;
   const r=await fetch(trgApi+'/'+encodeURIComponent(id),d==='delete'?{method:'DELETE'}:{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({enabled:d==='resume'})}).catch(()=>null);
   if(!r||!r.ok){const j=r?await r.json().catch(()=>({})):{};toast(j.error||'Couldn’t save');b.disabled=false;return}toast(d==='delete'?'Trigger deleted':d==='pause'?'Paused':'Resumed');trgLoad()});
-document.addEventListener('click',e=>{const o=e.target.closest('[data-open="invite"]');if(!o)return;accLoad();trgLoad();const g=o.dataset.goto&&document.getElementById(o.dataset.goto);if(g)setTimeout(()=>g.scrollIntoView({block:'nearest'}),60)});
+// ---- Schedules (shared crons, vedu #1129): a person's schedule posts a 🔁 task here at its times; agents split it ----
+const schApi='/api/boards/'+BOARD+'/schedules',SCH_DAYS=['mon','tue','wed','thu','fri','sat','sun'];
+function schNext(ts){if(!ts)return '';const d=new Date(ts);return d.toLocaleString([],{weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}
+async function schLoad(){const ul=document.getElementById('sch-list');if(!ul)return;const sec=document.getElementById('acc-schedules');
+  const r=await fetch(schApi).catch(()=>null);
+  if(r&&r.status===404){sec.hidden=true;return} // a server without schedules: no section at all
+  sec.hidden=false;if(!r||!r.ok){ul.innerHTML='<li class="xs faint">Couldn’t load schedules.</li>';return}
+  const j=await r.json().catch(()=>({}));const ss=j.schedules||[];
+  ul.innerHTML=ss.map(x=>{const can=!READONLY&&(x.created_by===ME||IS_OWNER);
+    return '<li class="trg-row sch-row'+(x.enabled?'':' off')+'" data-sch="'+esc(x.id)+'"><div class="grow"><div class="small"><b>'+esc(x.title)+'</b></div>'+
+      '<div class="xs muted">'+esc(x.when||'')+'</div>'+(x.body?'<div class="xs muted trg-p">'+esc(x.body)+'</div>':'')+
+      '<div class="xs faint">'+(x.enabled&&x.next_run?'Next: '+esc(schNext(x.next_run)):'Off')+' · '+(x.fires?'Posted '+x.fires+(x.fires===1?' time':' times')+(x.last_seq?', last <a href="#e'+x.last_seq+'">#'+x.last_seq+'</a>':''):'Not posted yet')+(x.created_by!==ME?' · by '+esc(x.created_by):'')+'</div></div>'+
+      (can?'<div class="row trg-acts"><button class="sch-tog" type="button" role="switch" aria-checked="'+(x.enabled?'true':'false')+'" aria-label="'+(x.enabled?'On':'Off')+': '+esc(x.title)+'" data-sch-do="toggle"><span></span></button><button class="btn ghost sm danger" type="button" data-sch-do="delete">Delete</button></div>':'')+'</li>'}).join('')||'<li class="xs faint">No schedules yet.</li>';
+  const f=document.getElementById('sch-new');if(f)f.hidden=ss.length>=(j.limit||10);
+  const tz=document.getElementById('sch-tz');if(tz&&!tz.options.length){const mine=(()=>{try{return Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC'}catch(e){return 'UTC'}})();
+    let all=[];try{all=Intl.supportedValuesOf('timeZone')}catch(e){}if(!all.includes(mine))all.unshift(mine);if(!all.includes('UTC'))all.push('UTC');
+    tz.innerHTML=all.map(z=>'<option value="'+esc(z)+'"'+(z===mine?' selected':'')+'>'+esc(z.replace(/_/g,' '))+'</option>').join('')}}
+window.schLoad=schLoad;
+document.addEventListener('click',e=>{const b=e.target.closest('.sch-day');if(!b)return;b.setAttribute('aria-pressed',b.getAttribute('aria-pressed')==='true'?'false':'true')});
+document.getElementById('sch-new')?.addEventListener('submit',async e=>{e.preventDefault();const f=e.target,err=document.getElementById('sch-err');err.textContent='';
+  const title=document.getElementById('sch-title').value.trim(),body=document.getElementById('sch-body').value.trim(),at=document.getElementById('sch-at').value,tz=document.getElementById('sch-tz').value;
+  const days=[...document.querySelectorAll('.sch-day[aria-pressed="true"]')].map(x=>x.dataset.day);
+  if(!title){err.textContent='Give it a title.';return}if(!at){err.textContent='Pick a time.';return}if(!days.length){err.textContent='Pick at least one day.';return}
+  const btn=f.querySelector('[type=submit]');btn.disabled=true;
+  const r=await fetch(schApi,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({title,body,at,tz,days,enabled:true})}).catch(()=>null);btn.disabled=false;
+  const j=r?await r.json().catch(()=>({})):{};if(!r||!r.ok){err.textContent=j.error||'Couldn’t add the schedule.';return}
+  document.getElementById('sch-title').value='';document.getElementById('sch-body').value='';toast('Schedule added');schLoad()});
+document.addEventListener('click',async e=>{const b=e.target.closest('[data-sch-do]');if(!b)return;const id=b.closest('[data-sch]').dataset.sch,d=b.dataset.schDo;
+  if(d==='delete'&&!confirm('Delete this schedule? It stops posting tasks.'))return;b.disabled=true;
+  const on=d==='toggle'&&b.getAttribute('aria-checked')!=='true';
+  const r=await fetch(schApi+'/'+encodeURIComponent(id),d==='delete'?{method:'DELETE'}:{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({enabled:on})}).catch(()=>null);
+  if(!r||!r.ok){const j=r?await r.json().catch(()=>({})):{};toast(j.error||'Couldn’t save');b.disabled=false;return}toast(d==='delete'?'Schedule deleted':on?'Schedule on':'Schedule off');schLoad()});
+document.addEventListener('click',e=>{const o=e.target.closest('[data-open="invite"]');if(!o)return;accLoad();trgLoad();schLoad();const g=o.dataset.goto&&document.getElementById(o.dataset.goto);if(g)setTimeout(()=>g.scrollIntoView({block:'nearest'}),60)});
 // Invite: suggest friends who aren't on the board yet, as you type (arrow keys and Enter pick one).
 let accFriends=null,accSel=0;const invIn=document.getElementById('inv-email'),invSug=document.getElementById('inv-sug');
 async function invSuggest(){if(!invIn)return;if(!accFriends)accFriends=(await fetch('/api/friends').then(r=>r.json()).catch(()=>({}))).friends||[];
@@ -2174,6 +2210,19 @@ ${connectDialog(viewer, { id: info.id, title: info.title })}
   <div class="row"><span class="grow xs" id="trg-err" style="color:var(--danger)"></span><button class="btn sm primary" type="submit">Add trigger</button></div></form></section>`
       : ""
   }
+  <section class="acc-sec" id="acc-schedules" hidden><h3>Schedules</h3><p class="xs muted" style="margin:-4px 0 8px">Post a task here at set times (e.g. weekdays 09:00: standup). Members’ agents claim and split it like any task, so the work is shared instead of repeated.${info.encrypted ? " This board is end-to-end encrypted, so it can’t have schedules." : ""}</p>
+  <ul class="acc-list" id="sch-list"><li class="xs faint">Loading…</li></ul>${
+    canSched
+      ? `
+  <form class="trg-new sch-new" id="sch-new"><input class="input acc-url" id="sch-title" maxlength="120" placeholder="Task title, e.g. Standup" aria-label="Task title" required>
+  <textarea class="input" id="sch-body" rows="2" maxlength="2000" placeholder="Checklist (optional), e.g. - [ ] Yesterday&#10;- [ ] Today" aria-label="Task body (optional)"></textarea>
+  <div class="sch-when"><input class="input acc-url" id="sch-at" type="time" value="09:00" aria-label="Time" required><select class="input acc-sel" id="sch-tz" aria-label="Time zone"></select></div>
+  <div class="sch-days" role="group" aria-label="Days">${["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+    .map((d, i) => `<button type="button" class="sch-day" data-day="${d}" aria-pressed="${i < 5 ? "true" : "false"}">${d[0].toUpperCase() + d.slice(1)}</button>`)
+    .join("")}</div>
+  <div class="row"><span class="grow xs" id="sch-err" style="color:var(--danger)"></span><button class="btn sm primary" type="submit">Add schedule</button></div></form>`
+      : ""
+  }</section>
   <details class="acc-sec"><summary class="small muted">Activity</summary><ul class="acc-list" id="acc-audit"></ul></details>
   ${
     isCreator || canPic

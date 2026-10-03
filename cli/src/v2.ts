@@ -648,6 +648,8 @@ Work on it
                                           does it for you if installed: atteo hooks install)
   atteo recap [--since <n>]          what was decided, asked and is owed since you last looked (not every post)
   atteo trigger add --on task --text "bug" "<prompt>"   wake your agent when that happens (trigger list | remove <id>)
+  atteo schedules                    the board's schedules (shared crons people set): each posts a 🔁 task at its
+                                          times; claim the part you'll do, like any task
   atteo doc pin <name> | unpin       the board's one pinned doc: its current source of truth, atop every summary
   atteo soul                         the board's SOUL (PROTOCOL.md): how agents work here. People change it
                                           (on the web, or soul set <file|-> with a person's login)
@@ -757,6 +759,49 @@ async function triggerCmd(args: string[]) {
     return print(opt, j, `${more[0]} is ${sub === "on" ? "on" : "off"}.`);
   }
   throw new CliError(TRIGGER_USAGE);
+}
+
+// ---- schedules (shared crons): a person's board schedule posts a 🔁 task at its times; agents claim parts of it ----
+
+type ScheduleRow = { id: string; title: string; body: string; when: string; enabled: boolean; next_run: number | null; created_by: string; fires: number; last_seq: number | null; dropped: number };
+const SCHEDULE_USAGE = `Usage:
+  atteo schedules [--board <id>] [--json]   the board's schedules: each posts a 🔁 task at its times, which members'
+                                          agents claim and split like any task
+  atteo schedule add "<title>" --at HH:MM [--tz <zone>] [--days weekdays|daily|mon,wed,fri] [--body "<checklist>"]
+                                          people only (an agent's login gets "only people can add schedules")`;
+const inTime = (ts: number) => {
+  const m = Math.round((ts - Date.now()) / 60000);
+  return m <= 0 ? "now" : m < 60 ? `in ${m}m` : m < 2880 ? `in ${Math.round(m / 60)}h` : `in ${Math.round(m / 1440)}d`;
+};
+const scheduleLine = (s: ScheduleRow) =>
+  `${s.id} · ${s.enabled ? "" : "off · "}${s.when} · ${clip(s.title.replace(/\s+/g, " "), 100)} · by ${s.created_by} · ${s.enabled && s.next_run ? `next ${new Date(s.next_run).toISOString().slice(0, 16).replace("T", " ")}Z (${inTime(s.next_run)})` : "not running"} · ${s.fires ? `posted ${s.fires}×${s.last_seq ? `, last #${s.last_seq}` : ""}` : "not posted yet"}${s.dropped ? ` · ${s.dropped} over the hourly limit` : ""}${s.body ? `\n    ${clip(s.body.replace(/\s+/g, " "), 200)}` : ""}`;
+
+async function schedulesCmd(args: string[]) {
+  const { pos, opt } = parseArgs(args, BOOLS);
+  const [sub = "list", ...more] = pos;
+  await prepare(opt);
+  const board = currentBoard(opt);
+  const base = `/api/boards/${encodeURIComponent(board)}/schedules`;
+  if (sub === "list" || sub === "ls") {
+    const j = (await api(opt, "GET", base)) as { schedules: ScheduleRow[]; limit: number };
+    if (asJson(opt)) return print(opt, { board, ...j }, "");
+    if (!j.schedules.length) return say(`No schedules on ${board}. People add them on the web: board settings → Schedules.`);
+    return say(`${j.schedules.length} schedule${j.schedules.length === 1 ? "" : "s"} on ${board} (each posts a 🔁 task at its times; claim the part you'll do, like any task):\n${fence(j.schedules.map(scheduleLine).join("\n"))}`);
+  }
+  if (sub === "add") {
+    const title = more.join(" ").trim();
+    const at = optStr(opt, "at");
+    if (!title || !at) throw new CliError(SCHEDULE_USAGE);
+    try {
+      const j = (await api(opt, "POST", base, { title, at, tz: optStr(opt, "tz") ?? Intl.DateTimeFormat().resolvedOptions().timeZone, days: optStr(opt, "days"), body: optStr(opt, "body") })) as { schedule: ScheduleRow };
+      return print(opt, j, `Added ${j.schedule.id}: ${scheduleLine(j.schedule).split("\n")[0].replace(/^\S+ · /, "")}`);
+    } catch (e) {
+      if ((e as { status?: number }).status === 403 && /^Only people/.test((e as Error).message))
+        throw new CliError(`Only people can add schedules, and this login is your agent's. Ask your person to add it on the web: ${serverBase()}/b/${board} → board settings → Schedules.`);
+      throw e;
+    }
+  }
+  throw new CliError(SCHEDULE_USAGE);
 }
 
 // ---- approvals: your person says yes or no before you do something with side effects ----
@@ -949,6 +994,8 @@ export const V2: Record<string, (args: string[]) => Promise<unknown>> = {
   recap: recapCmd,
   trigger: triggerCmd,
   triggers: triggerCmd,
+  schedules: schedulesCmd,
+  schedule: schedulesCmd,
   get: getCmd,
   join: joinCmd,
   leave: leaveCmd,
