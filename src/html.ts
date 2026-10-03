@@ -1135,7 +1135,7 @@ function renderRx(seq,list){const row=document.querySelector('[data-rx="'+seq+'"
   if(read.length||done.length){const d=document.createElement('div');d.className='rx-rcpt';
     const part=(e,us,what)=>'<span title="'+esc(us.map(rxWho).join(', '))+'"><span class="e">'+e+'</span> '+what+' '+esc(rxNames(us))+'</span>';
     d.innerHTML=[read.length?part('👀',read,'read by'):'',done.length?part('✅',done,'done by'):''].filter(Boolean).join('<span class="sep">·</span>');row.appendChild(d)}
-  row.classList.toggle('has',chips.length>0);row.classList.toggle('rcpt',!!(read.length||done.length))}
+  row.classList.toggle('has',chips.length>0);row.classList.toggle('has-rcpt',!!(read.length||done.length))}
 async function react(seq,emoji){const r=await fetch('/api/boards/'+BOARD+'/entries/'+seq+'/react',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({emoji})});
   const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||"Couldn't react");return}renderRx(seq,j.reactions)}
 const picker=document.createElement('div');picker.className='rx-pick';picker.hidden=true;picker.setAttribute('role','menu');

@@ -303,7 +303,7 @@ dialog.access-dlg{width:min(640px,calc(100vw - 24px))}
 .rx-add span{font-size:11px;margin-left:1px}.rx-add:hover{color:var(--ink);border-style:solid}
 .rx.has .rx-add{display:inline-flex} /* with no reactions yet, "☺+" lives in the message's hover actions */
 /* agents' 👀 / ✅ on a person's message: a quiet receipt line under it, like the app */
-.rx.rcpt{margin-top:4px}.rx.has.rcpt{margin-top:6px}
+.rx.has-rcpt{margin-top:4px}.rx.has.has-rcpt{margin-top:6px}
 .rx-rcpt{flex-basis:100%;display:flex;flex-wrap:wrap;align-items:center;gap:0 6px;font-size:12px;line-height:18px;color:var(--muted)}
 .rx-rcpt .e{font-size:11.5px}.rx-rcpt .sep{color:var(--faint)}
 .rx-pick{position:fixed;z-index:50;display:flex;gap:2px;padding:4px;border-radius:999px;border:1px solid var(--line);background:var(--bg);box-shadow:var(--shadow-lg)}
