@@ -58,7 +58,7 @@ import { scrubForSentry } from "./sentry";
 export { Board } from "./board";
 import { MAX_IMAGE, MAX_WAIT_MS } from "./board";
 import * as sessions from "./sessions";
-import { formatEntry, handleMessage } from "./state";
+import { formatEntry, formatRules, handleMessage } from "./state";
 import { fence } from "./screen";
 
 const OPS_PATH = "/_ops";
@@ -1375,7 +1375,7 @@ const handler = {
                 const r = await boardStub(env, id).read(viewer.name, { limit }, cur.id);
                 const b = { id, title: r.info.title };
                 const sum = withSummary(id);
-                return { board: b, summary: sum ? r.summaryText : null, entries: r.entries, remaining: r.remaining, text: (sum ? fence(r.summaryText) + "\n" : "") + render(b, r.entries, "new since this session last read") };
+                return { board: b, summary: sum ? r.summaryText : null, rules: r.rules, entries: r.entries, remaining: r.remaining, text: (r.rules ? fence(formatRules(r.rules)) + "\n" : "") + (sum ? fence(r.summaryText) + "\n" : "") + render(b, r.entries, "new since this session last read") };
               }),
             );
             return json({ session: { id: cur.id, name: cur.name }, boards: out });

@@ -23,6 +23,9 @@ export interface ClaimCheck {
   commit?: string;
 }
 
+const RULES_DOC = "PROTOCOL.md"; // a board's house rules: every agent is handed the current version once
+const RULES_MAX_CHARS = 4000;
+
 export class BoardError extends Error {}
 
 export const POSTS_PER_MINUTE = 60;
@@ -315,6 +318,14 @@ export class Board extends DurableObject<Env> {
         session TEXT PRIMARY KEY,
         user TEXT NOT NULL,
         cursor INTEGER NOT NULL DEFAULT 0
+      );
+      -- Which version of the board's rules (the doc PROTOCOL.md) each reader has been handed: once per version.
+      -- session is '' for a member with no agent session.
+      CREATE TABLE IF NOT EXISTS rules_seen (
+        user TEXT NOT NULL,
+        session TEXT NOT NULL DEFAULT '',
+        version INTEGER NOT NULL,
+        PRIMARY KEY (user, session)
       );
     `);
     this.migrate();
@@ -914,6 +925,7 @@ export class Board extends DurableObject<Env> {
    */
   async read(user: string, opts: { limit?: number; since?: number } = {}, session?: string | null) {
     const info = this.info();
+    const rules = this.rulesFor(user, session);
     const cursor = this.readCursor(user, session);
     const from = opts.since != null ? Math.max(0, opts.since) : cursor;
     const limit = clamp(opts.limit ?? 50, 1, 200);
@@ -937,7 +949,24 @@ export class Board extends DurableObject<Env> {
       })(),
       entries: this.withHandling(fresh),
       remaining,
+      rules,
     };
+  }
+
+  /**
+   * The board's house rules (its doc PROTOCOL.md), if this reader hasn't been given the current version: returned
+   * once per version per member+session, then null. Capped so a long doc stays cheap; the rest is a doc read away.
+   */
+  private rulesFor(user: string, session?: string | null): { name: string; version: number; text: string; truncated: boolean } | null {
+    const d = this.sql.exec("SELECT version, content FROM docs WHERE name = ?", RULES_DOC).toArray()[0];
+    if (!d) return null;
+    const version = d.version as number;
+    const seen = this.sql.exec("SELECT version FROM rules_seen WHERE user = ? AND session = ?", user, session ?? "").toArray()[0];
+    if (seen && seen.version === version) return null;
+    this.sql.exec("INSERT OR REPLACE INTO rules_seen (user, session, version) VALUES (?, ?, ?)", user, session ?? "", version);
+    const content = d.content as string;
+    const truncated = content.length > RULES_MAX_CHARS;
+    return { name: RULES_DOC, version, text: truncated ? content.slice(0, RULES_MAX_CHARS) : content, truncated };
   }
 
   /**

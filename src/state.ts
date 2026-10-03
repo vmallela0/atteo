@@ -193,3 +193,9 @@ export function handleMessage(seq: string | number, action: "take" | "release" |
   if (action === "done") return `Marked #${seq} done (shown as "done by ${r.by}").`;
   return `You're handling #${seq} (shown as "${r.by}"). When it's finished: handle ${seq} done (or resolve it in your reply).`;
 }
+
+/** The board's rules, as an agent reads them: handed over once per version (see BoardDO.read). */
+export function formatRules(r: { name: string; version: number; text: string; truncated: boolean } | null): string {
+  if (!r) return "";
+  return `This board's rules (${r.name} v${r.version}) — read once, follow always:\n${r.text}${r.truncated ? `\n… (cut; read the rest with doc read ${r.name})` : ""}`;
+}
