@@ -143,6 +143,9 @@ interface WaitAtt {
   session?: string; // an agent session's wait: woken by anything but its own posts, including its person's other sessions
 }
 
+/** Entry columns that route a post to one agent session ("@vedu/claude-2"): its person and the session's id. */
+type ForSession = { user: string; session: string } | null;
+
 type Row = Record<string, SqlStorageValue>;
 
 function toEntry(r: Row): Entry {
@@ -169,6 +172,9 @@ function toEntry(r: Row): Entry {
     ai_flag: (r.ai_flag as string | null) ?? null,
   };
 }
+
+/** For a session's reads: skip posts addressed to another session of the same person (binds: user, session). */
+const FOR_SESSION_OK = "(for_session IS NULL OR for_user != ? OR for_session = ?)";
 
 const ENTRY_COLS = "seq, ts, author, type, text, title, to_user, mentions, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, card, media, ai_flag";
 
@@ -450,6 +456,9 @@ export class Board extends DurableObject<Env> {
     if (!cols.has("sealed_to")) this.sql.exec("ALTER TABLE entries ADD COLUMN sealed_to TEXT");
     if (!cols.has("media")) this.sql.exec("ALTER TABLE entries ADD COLUMN media TEXT"); // images: {mime, w, h, size}
     if (!cols.has("title")) this.sql.exec("ALTER TABLE entries ADD COLUMN title TEXT"); // the author's 2–5 word summary
+    // Addressed to one agent session ("@vedu/claude-2"): only that session of the person reads it; their others skip it.
+    if (!cols.has("for_user")) this.sql.exec("ALTER TABLE entries ADD COLUMN for_user TEXT");
+    if (!cols.has("for_session")) this.sql.exec("ALTER TABLE entries ADD COLUMN for_session TEXT");
     // Read receipts: how far each member has seen, as a person (web) and through their agent (read/wait/post).
     const handlingCols = new Set(this.sql.exec("PRAGMA table_info(handling)").toArray().map((r) => r.name as string));
     if (handlingCols.size && !handlingCols.has("done")) this.sql.exec("ALTER TABLE handling ADD COLUMN done INTEGER NOT NULL DEFAULT 0");
@@ -701,6 +710,9 @@ export class Board extends DurableObject<Env> {
   }
 
   async post(user: string, input: NewEntry, internal: { docVersion?: number; media?: Media; seeding?: boolean; sealed?: boolean; notice?: boolean; system?: boolean } = {}): Promise<Entry> {
+    // D1 lookups first, so nothing below waits between the duplicate check and the insert.
+    const boardKind = await this.kindOf(this.meta("id") ?? "");
+    const forSession = await this.sessionRoute(input.mentions ?? []);
     const again = this.sentBefore(user, input.idem);
     if (again) return again;
     const info = this.info();
@@ -779,6 +791,8 @@ export class Board extends DurableObject<Env> {
       if (hit) throw new BoardError(blockedMessage(hit));
     }
 
+    // Your agent's board ("Your agent"): everything its person writes there is for their agent.
+    const toOwnAgent = input.via === "person" && boardKind === "agent";
     // Resolved against the board's members by the Worker; stored as given, minus anything malformed or meaningless.
     const mentions: Mention[] = [];
     for (const m of input.mentions ?? []) {
@@ -790,15 +804,15 @@ export class Board extends DurableObject<Env> {
 
     const row = this.sql
       .exec(
-        `INSERT INTO entries (ts, author, type, text, to_user, mentions, self_agent, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, artifact_content, card, card_diff, media, title, session, idem)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING ${ENTRY_COLS}`,
+        `INSERT INTO entries (ts, author, type, text, to_user, mentions, self_agent, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, artifact_content, card, card_diff, media, title, session, idem, for_user, for_session)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING ${ENTRY_COLS}`,
         Date.now(),
         user,
         input.type,
         text,
         input.to ?? null,
         mentions.length ? JSON.stringify(mentions) : null,
-        mentionsOwnAgent({ author: user, mentions }) ? 1 : 0,
+        toOwnAgent || mentionsOwnAgent({ author: user, mentions }) ? 1 : 0,
         input.reply_to ?? null,
         JSON.stringify([...new Set(input.resolves ?? [])]),
         input.supersedes ?? null,
@@ -815,6 +829,8 @@ export class Board extends DurableObject<Env> {
         title,
         input.session ?? null,
         input.idem ?? null,
+        forSession?.user ?? null,
+        forSession?.session ?? null,
       )
       .one();
     if (artifactVersion != null) this.broadcast({ type: "doc", name: artifactName, version: artifactVersion, by: user });
@@ -835,7 +851,7 @@ export class Board extends DurableObject<Env> {
     if (!internal.system && (input.via === "agent" || input.via === "person")) this.markSeen(user, input.via, entry.seq);
     // Your own post counts as read, unless you're handing it to your own agent: then it's new for your agent.
     // A later post doesn't skip the agent past a hand-off it hasn't read yet.
-    const forOwnAgent = mentionsOwnAgent(entry);
+    const forOwnAgent = toOwnAgent || mentionsOwnAgent(entry);
     if (!forOwnAgent && !internal.system) { // a system line in someone's name (decisions.ts) doesn't move their read position
       const pending = this.sql
         .exec("SELECT MIN(e.seq) AS s FROM entries e, members m WHERE m.name = ? AND e.seq > m.cursor AND e.author = ? AND e.self_agent = 1", user, user)
@@ -862,7 +878,7 @@ export class Board extends DurableObject<Env> {
       for (const r of new Set(input.resolves ?? [])) await this.tickMentions(user, r, "resolved", { via: input.via, client: input.client, session: input.session });
     }
 
-    this.ctx.waitUntil(this.notify(info, entry).catch(() => {}));
+    this.ctx.waitUntil(this.notify(info, entry, forSession).catch(() => {}));
     // Lists show who spoke last and what they said (sealed and encrypted posts show only that something was posted).
     // A notice about the board itself (its picture) is quiet: lists and the tape keep showing the last real message.
     if (!internal.seeding && !internal.notice) {
@@ -883,7 +899,11 @@ export class Board extends DurableObject<Env> {
     if (this.env.AI_TOKEN && !internal.seeding && text.length >= 25 && !screenText(text)) this.ctx.waitUntil(this.screenWithModel(entry.seq, text).catch(() => {}));
 
     // Wake everyone else's waits, and this person's other agent sessions (they see each other's posts).
-    this.wakeWaits((a) => a.wait === "any" || a.user !== user || forOwnAgent || (!!a.session && a.session !== input.session));
+    // A post for one agent session doesn't wake its person's other sessions (they'd find nothing to read).
+    this.wakeWaits((a) => {
+      if (forSession && a.session && a.user === forSession.user && a.session !== forSession.session) return false;
+      return a.wait === "any" || a.user !== user || forOwnAgent || (!!a.session && a.session !== input.session);
+    });
     // Who posted what to whom (no text): enough for tabs to refresh and for a member's CLI to decide whether to wake its agent.
     this.broadcast({ type: "entry", seq: entry.seq, retracts: entry.retracts, author: entry.author, via: entry.via ?? null, kind: entry.type, to: entry.to, mentions: entry.mentions, reply_to: entry.reply_to, board: info.id, title: info.title });
     return entry;
@@ -896,7 +916,7 @@ export class Board extends DurableObject<Env> {
   // otherwise a reader gets other members' entries plus hand-offs to their own agent.
   private entriesAfter(seq: number, excludeAuthor: string | null, limit: number, session?: string | null): Entry[] {
     const rows = session
-      ? this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq > ? AND (session IS NULL OR session != ?) ORDER BY seq LIMIT ?`, seq, session, limit)
+      ? this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq > ? AND (session IS NULL OR session != ?) AND ${FOR_SESSION_OK} ORDER BY seq LIMIT ?`, seq, session, excludeAuthor ?? "", session, limit)
       : excludeAuthor
         ? this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq > ? AND (author != ? OR self_agent = 1) ORDER BY seq LIMIT ?`, seq, excludeAuthor, limit)
         : this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq > ? ORDER BY seq LIMIT ?`, seq, limit);
@@ -905,7 +925,7 @@ export class Board extends DurableObject<Env> {
 
   private countAfter(seq: number, excludeAuthor: string, session?: string | null): number {
     return session
-      ? (this.sql.exec("SELECT COUNT(*) AS n FROM entries WHERE seq > ? AND (session IS NULL OR session != ?)", seq, session).one().n as number)
+      ? (this.sql.exec(`SELECT COUNT(*) AS n FROM entries WHERE seq > ? AND (session IS NULL OR session != ?) AND ${FOR_SESSION_OK}`, seq, session, excludeAuthor, session).one().n as number)
       : (this.sql.exec("SELECT COUNT(*) AS n FROM entries WHERE seq > ? AND (author != ? OR self_agent = 1)", seq, excludeAuthor).one().n as number);
   }
 
@@ -1206,16 +1226,33 @@ export class Board extends DurableObject<Env> {
 
   // ---- inbox: who should hear about a post (stored in D1 so every page can show an unread count) ----
 
-  /** Whether this board is a DM (two people's agents). Asked of D1 once, then remembered. */
-  private async isDirect(id: string): Promise<boolean> {
+  /** What kind of board this is: "direct" (a DM between two people's agents), "agent" (a person and their own agent,
+   *  "Your agent"), or "board". Asked of D1 once, then remembered. */
+  private async kindOf(id: string): Promise<string> {
     const known = this.meta("kind");
-    if (known != null) return known === "direct";
+    if (known != null) return known;
     const r = await this.env.DB.prepare("SELECT kind FROM boards WHERE id = ?").bind(id).first<{ kind: string | null }>().catch(() => null);
     if (r) this.setMeta("kind", r.kind ?? "board");
-    return r?.kind === "direct";
+    return r?.kind ?? "board";
   }
 
-  private async notify(info: BoardInfo, e: Entry) {
+  private async isDirect(id: string): Promise<boolean> {
+    return (await this.kindOf(id)) === "direct";
+  }
+
+  /** A post for exactly one agent session ("@vedu/claude-2") is routed to it, if that session is live; otherwise (or
+   *  addressed to several) it's for any of the person's agents, as before. */
+  private async sessionRoute(mentions: Mention[]): Promise<ForSession> {
+    const one = mentions.filter((m) => typeof m?.user === "string" && USER_RE.test(m.user) && typeof m.session === "string" && SESSION_NAME_RE.test(m.session));
+    if (one.length !== 1) return null;
+    const r = await this.env.DB.prepare("SELECT id FROM agent_sessions WHERE user = ? AND name = ? AND ended_at IS NULL ORDER BY last_seen DESC LIMIT 1")
+      .bind(one[0].user, one[0].session)
+      .first<{ id: string }>()
+      .catch(() => null);
+    return r ? { user: one[0].user, session: r.id } : null;
+  }
+
+  private async notify(info: BoardInfo, e: Entry, forSession: ForSession = null) {
     const members = new Set(this.members().map((m) => m.name));
     const kinds = new Map<string, "mention" | "agent" | "reply" | "decision">();
     const forAgents = new Set<string>(); // whose agents this is addressed to (their webhooks get it)
@@ -1243,6 +1280,20 @@ export class Board extends DurableObject<Env> {
       const both = (await this.env.DB.prepare("SELECT user FROM members WHERE board_id = ?").bind(info.id).all<{ user: string }>()).results.map((r) => r.user);
       for (const u of both) if (u !== e.author) { mentioned.add(u); add(u, "agent"); forAgents.add(u); }
     }
+    // "Your agent": what the person writes on their own agent's board is mail for that agent, like a DM. They wrote it,
+    // so it's already read in their own inbox (only their agent's mailbox has it as new).
+    // And what their agent writes back reaches the person (their inbox, like a reply), never the agent's own mailbox.
+    let ownMail = false, ownReply = false;
+    if ((await this.kindOf(info.id)) === "agent") {
+      if (e.via === "person") {
+        ownMail = true;
+        kinds.set(e.author, "agent");
+        forAgents.add(e.author);
+      } else if (e.via === "agent" && e.retracts == null) {
+        ownReply = true;
+        kinds.set(e.author, "reply");
+      }
+    }
     if (e.reply_to != null) {
       const parent = this.sql.exec("SELECT author, via FROM entries WHERE seq = ?", e.reply_to).toArray()[0];
       if (parent && parent.author !== e.author) {
@@ -1265,8 +1316,8 @@ export class Board extends DurableObject<Env> {
     await this.env.DB.batch(
       [...kinds].map(([u, k]) =>
         this.env.DB.prepare(
-          "INSERT OR IGNORE INTO notifications (user, board_id, seq, kind, actor, actor_via, entry_type, excerpt, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        ).bind(u, info.id, e.seq, k, e.author, e.via ?? null, e.type, excerpt, e.ts),
+          "INSERT OR IGNORE INTO notifications (user, board_id, seq, kind, actor, actor_via, entry_type, excerpt, created_at, to_session, read_at, agent_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        ).bind(u, info.id, e.seq, k, e.author, e.via ?? null, e.type, excerpt, e.ts, forSession && forSession.user === u ? forSession.session : null, ownMail && u === e.author ? e.ts : null, ownReply && u === e.author ? e.ts : null),
       ),
     );
   }
@@ -1290,12 +1341,14 @@ export class Board extends DurableObject<Env> {
   private async receipts(user: string, fresh: Entry[]) {
     const asks = fresh.filter((e) => e.via === "person" && e.retracts == null);
     if (!asks.length) return;
-    const direct = await this.isDirect(this.info().id);
+    const kind = await this.kindOf(this.info().id);
+    const direct = kind === "direct";
     const who = `${user}'s agent`;
     const now = Date.now();
     for (const e of asks) {
       // For this agent: addressed to it, "@user's agent" or "@agents", or a DM from the other person.
-      if (!(forAgent(e, user) || (direct && e.author !== user))) continue;
+      // (On "Your agent", everything its person writes.)
+      if (!(forAgent(e, user) || (direct && e.author !== user) || (kind === "agent" && e.author === user))) continue;
       if (this.sql.exec("SELECT 1 AS x FROM reactions WHERE seq = ? AND user = ? AND emoji IN ('👀', '✅')", e.seq, who).toArray().length) continue;
       this.sql.exec("INSERT INTO reactions (seq, user, emoji, ts) VALUES (?, ?, '👀', ?)", e.seq, who, now);
       this.broadcast({ type: "reaction", seq: e.seq, reactions: this.reactionsFor([e.seq])[e.seq] ?? [] });
