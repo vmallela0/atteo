@@ -8,7 +8,7 @@ import { esc } from "./util";
 export const CSS = `
 :root{
   --bg:#ffffff;--bg-subtle:#fafafa;--bg-hover:#f4f4f5;--line:#ebebeb;--line-strong:#dcdcdc;
-  --ink:#0a0a0a;--text:#171717;--muted:#6b6b6b;--faint:#9a9a9a;--on-ink:#ffffff;
+  --ink:#0a0a0a;--text:#171717;--muted:#6b6b6b;--faint:#9a9a9a;--on-ink:#ffffff;--pb-agent:#111113;--pb-eye:#F2EFE8;
   --accent:#0062d1;--ok:#16a34a;--warn:#c2410c;--danger:#dc2626;
   --q:#d97706;--claim:#16a34a;--decision:#7c3aed;--task:#0284c7;--artifact:#737373;--note:#a3a3a3;
   --shadow:0 1px 2px rgba(0,0,0,.04),0 4px 16px rgba(0,0,0,.04);--shadow-lg:0 12px 48px rgba(0,0,0,.12);
@@ -18,7 +18,7 @@ export const CSS = `
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
   --bg:#0a0a0a;--bg-subtle:#111111;--bg-hover:#1a1a1a;--line:#232323;--line-strong:#2e2e2e;
-  --ink:#ededed;--text:#ededed;--muted:#a1a1a1;--faint:#6f6f6f;--on-ink:#0a0a0a;
+  --ink:#ededed;--text:#ededed;--muted:#a1a1a1;--faint:#6f6f6f;--on-ink:#0a0a0a;--pb-agent:#F2EFE8;--pb-eye:#111113;
   --accent:#4ea1ff;--ok:#3ecf75;--warn:#fb923c;--danger:#f87171;
   --q:#fbbf24;--claim:#4ade80;--decision:#a78bfa;--task:#38bdf8;--artifact:#a3a3a3;--note:#737373;
   --shadow:0 1px 2px rgba(0,0,0,.4);--shadow-lg:0 12px 48px rgba(0,0,0,.6);
@@ -55,6 +55,7 @@ p{margin:0}
 .nav .in{max-width:1180px;margin:0 auto;height:56px;padding:0 20px;display:flex;align-items:center;gap:16px}
 .brand{display:flex;align-items:center;gap:9px;font-weight:600;letter-spacing:-.01em;color:var(--ink)}
 .brand svg{display:block}
+.wm{font-weight:800;letter-spacing:-.03em}
 .nav .links{display:flex;gap:4px;margin-left:8px}
 .nav .links a{color:var(--muted);padding:6px 10px;border-radius:6px}
 .nav .links a:hover,.nav .links a[aria-current]{color:var(--ink);background:var(--bg-hover)}
@@ -702,14 +703,14 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
   .hide-sm{display:none!important}}
 `;
 
-// Soup bowl with steam: the app mark (themed) and the favicon (fixed colors).
-const LOGO = `<svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><rect x="1" y="1" width="18" height="18" rx="5" fill="var(--ink)"/>
-<path d="M4.2 10.4h11.6a5.8 5.8 0 0 1-11.6 0z" fill="var(--on-ink)"/>
-<path d="M7.9 8.3c-1-1 1-1.8 0-3M12.1 8.3c-1-1 1-1.8 0-3" stroke="var(--on-ink)" stroke-width="1.3" fill="none" stroke-linecap="round" opacity=".7"/></svg>`;
+// The Pebble: the app mark. One soft pebble split by a slanted seam; the clay half is you, the ink half your agent,
+// eyes meeting across the seam. Same geometry as ios/qa/design/icon.swift and AtteoMark (1024 canvas, y down).
+// Themed: on dark the agent half is bone and both eyes ink so it doesn't vanish (--pb-agent / --pb-eye in CSS).
+const LOGO = `<svg class="pebble" width="22" height="22" viewBox="150 190 726 646" aria-hidden="true"><defs><clipPath id="pbc"><rect x="189" y="229" width="647" height="566" rx="283" ry="283"/></clipPath></defs><g clip-path="url(#pbc)"><polygon points="711,-1765 301,2785 -1691,2606 -1281,-1944" fill="#D97857"/><polygon points="746,-1761 336,2789 2328,2968 2738,-1582" fill="var(--pb-agent)"/></g><circle cx="405" cy="468" r="54" fill="var(--pb-eye)"/><circle cx="634" cy="498" r="54" fill="var(--pb-eye)"/></svg>`;
 
-export const FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#0a0a0a"/>
-<path d="M6.5 16.5h19a9.5 9.5 0 0 1-19 0z" fill="#fafafa"/>
-<path d="M12.5 13.2c-1.6-1.6 1.6-2.9 0-4.8M19.5 13.2c-1.6-1.6 1.6-2.9 0-4.8" stroke="#f59e0b" stroke-width="2" fill="none" stroke-linecap="round"/></svg>`;
+// The favicon: the Pebble on its bone tile (fixed colors), enlarged a little so it reads at 16 px.
+export const FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><rect width="1024" height="1024" rx="230" fill="#F2EFE8"/>
+<g transform="translate(512 512) scale(1.18) translate(-512.5 -512)"><defs><clipPath id="pbf"><rect x="189" y="229" width="647" height="566" rx="283" ry="283"/></clipPath></defs><g clip-path="url(#pbf)"><polygon points="711,-1765 301,2785 -1691,2606 -1281,-1944" fill="#D97857"/><polygon points="746,-1761 336,2789 2328,2968 2738,-1582" fill="#111113"/></g><circle cx="405" cy="468" r="54" fill="#111113"/><circle cx="634" cy="498" r="54" fill="#F2EFE8"/></g></svg>`;
 
 export interface Viewer {
   name: string;
@@ -727,7 +728,7 @@ export function page(
   const v = opts.viewer;
   const link = (href: string, label: string, key: string) => `<a href="${href}"${opts.nav === key ? ' aria-current="page"' : ""}>${label}</a>`;
   const nav = `<header class="nav"><div class="in">
-<a class="brand" href="/">${LOGO}<span>Atteo</span></a>
+<a class="brand" href="/">${LOGO}<span class="wm">atteo</span></a>
 ${v ? `<nav class="links">${link("/", "Boards", "boards")}</nav>` : ""}
 <div class="right">${
     v
@@ -738,7 +739,7 @@ ${v ? `<nav class="links">${link("/", "Boards", "boards")}</nav>` : ""}
 <title>${esc(title)}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/favicon.svg">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <style>${CSS}</style></head><body>${nav}
 <main${opts.narrow ? ' class="narrow"' : ""}>${body}</main>
 <div id="toast" role="status" aria-live="polite"></div>
@@ -1015,7 +1016,7 @@ export function appPage(
   ];
   const body = `<div class="app" id="app">
 <aside class="sidebar" aria-label="Navigation">
-  <a class="ws" href="/">${LOGO}<span>Atteo</span></a>
+  <a class="ws" href="/">${LOGO}<span class="wm">atteo</span></a>
   <button class="search" type="button" data-palette>${ICON.search}<span>Search or jump to…</span><kbd>⌘K</kbd></button>
   <a class="side-link" href="/inbox"${cur("inbox")}>${ICON.inbox}<span>Inbox</span><span class="count" id="inbox-count" hidden></span></a>
   <a class="side-link" href="/approvals"${cur("approvals")}>${ICON.approve}<span>Approvals</span><span class="count" id="approvals-count" hidden></span></a>
@@ -1081,7 +1082,7 @@ function rawPage(title: string, body: string, script: string, status = 200): Res
 <title>${esc(title)}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/favicon.svg">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <style>${CSS}</style></head><body>${body}
 <div id="toast" role="status" aria-live="polite"></div>
 <script>${CLIENT_JS}${script}</script></body></html>`;

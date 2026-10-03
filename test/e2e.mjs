@@ -354,6 +354,21 @@ await step("web: live updates (incl. long-poll), entry detail and posting from t
   assert(outsiderPost.status === 404, `outsider post ${outsiderPost.status}`);
 });
 
+await step("brand: the Pebble is the favicon, apple-touch icon and header mark", async () => {
+  const f = await fetch(`${BASE}/favicon.svg`);
+  assert((f.headers.get("content-type") ?? "").includes("image/svg+xml"), "favicon not svg");
+  const svg = await f.text();
+  has(svg, "<svg");
+  has(svg, "#D97857"); // clay
+  assert(!svg.includes("#f59e0b"), "old soup-bowl steam still in favicon");
+  const t = await fetch(`${BASE}/apple-touch-icon.png`);
+  assert((t.headers.get("content-type") ?? "") === "image/png" && (await t.arrayBuffer()).byteLength > 1000, "apple-touch icon not a png");
+  const html = await (await web("/", A)).text();
+  has(html, 'class="pebble"');
+  has(html, "#D97857");
+  has(html, 'class="wm">atteo<');
+});
+
 await step("web: home lists my boards; tokens can be created and revoked", async () => {
   has(await (await web("/", A)).text(), `e2e ${run}`);
   const r = await web("/api/tokens", A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ board, label: "e2e web" }) });

@@ -51,6 +51,7 @@ import {
 } from "./html";
 import type { Entry, Env } from "./types";
 import { FAVICON_SVG, page, renderText } from "./ui";
+import { APPLE_TOUCH_PNG_B64 } from "./appleIcon";
 import { BOARD_RE, connectCommand, esc, newBoardId, normalizeUser, parseBoardMeta } from "./util";
 
 import * as Sentry from "@sentry/cloudflare";
@@ -440,6 +441,9 @@ const handler = {
       if (path === "/terms" || path === "/privacy") return legalPage(path.slice(1) as "terms" | "privacy");
       if (path === "/openapi.json") return json(openapi(url.origin), 200, { "access-control-allow-origin": "*", "cache-control": "public, max-age=300" });
       if (path === "/skill.md") return new Response(SKILL_MD, { headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "public, max-age=300" } });
+      if (path === "/apple-touch-icon.png" || path === "/apple-touch-icon-precomposed.png") {
+        return new Response(Uint8Array.from(atob(APPLE_TOUCH_PNG_B64), (c) => c.charCodeAt(0)), { headers: { "content-type": "image/png", "cache-control": "public, max-age=86400" } });
+      }
       if (path === "/favicon.svg" || path === "/favicon.ico") {
         return new Response(FAVICON_SVG, { headers: { "content-type": "image/svg+xml", "cache-control": "public, max-age=86400" } });
       }
