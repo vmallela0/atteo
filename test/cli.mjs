@@ -1271,7 +1271,7 @@ await step("agent-first output: one fence per read, a quiet board is one line, m
   // Something new elsewhere: told once, not on every command after.
   await tool(tokB, b4, "post", { type: "note", text: `@${A}'s agent fyi ${run}` });
   r = await as(["get", "entry", String(q), "--board", b3], "b");
-  assert(r.err.includes("📣") && r.err.includes(`fyi ${run}`), "told once: " + r.err);
+  assert(r.err.includes("📣") && r.err.includes(`--board ${b4}`) && !r.err.includes(`fyi ${run}`), "told once, with where to read it, never its words outside the fence: " + r.err);
   r = await as(["get", "entry", String(q), "--board", b3], "b");
   assert(!r.err.includes("📣"), "…and not again: " + r.err);
   r = await as(["mailbox", "--peek"]);

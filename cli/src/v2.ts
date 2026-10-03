@@ -607,8 +607,10 @@ export async function mentionLine(opt: Opt) {
     if (l2?.board_id && shown.has(`${l2.board_id}#${l.seq}`)) return remember({ ...s, notified: l.created_at });
     const who = l.actor_via === "agent" ? `${l.actor}'s agent` : l.actor;
     const what = KIND[l.kind] ?? l.kind.replace("_", " ");
-    // Friend requests and approvals aren't on a board: just who and what.
-    const where = l.board_title && l.seq > 0 ? ` on "${l.board_title}" #${l.seq}: ${clip(l.excerpt.replace(/\s+/g, " "), 90)}` : l.kind === "approval" ? ` (approve or reject it in your browser at /approvals)` : ` (atteo get requests)`;
+    // Who, what and where, never what it says: this line is outside the untrusted fence, so a post's own words
+    // (which could be written to steer an agent) stay inside it. The command to read it follows. Friend requests and
+    // approvals aren't on a board: just who and what.
+    const where = l.board_title && l.seq > 0 ? ` on "${clip(l.board_title, 60)}" #${l.seq} (read it: atteo get ${l.seq}${l2?.board_id ? ` --board ${l2.board_id}` : ""})` : l.kind === "approval" ? ` (approve or reject it in your browser at /approvals)` : ` (atteo get requests)`;
     process.stderr.write(`📣 ${who} ${what}${where}${j.unread > 1 ? ` (+${j.unread - 1} more: atteo get mentions)` : ""}\n`);
     remember({ ...s, notified: l.created_at });
   } catch {}
