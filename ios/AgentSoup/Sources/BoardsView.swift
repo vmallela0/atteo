@@ -47,6 +47,7 @@ struct BoardView: View {
     @State private var scrollRequest: ScrollRequest?
     @State private var thread: ThreadTarget? // the thread open, pushed full screen (its root)
     @State private var profile: ProfileTarget? // someone's card (a picture, a name or an @mention tapped)
+    @State private var seenBy: Receipt? // who's seen one of your messages, as a list
     @State private var reactingTo: SeqRef? // the message the full emoji picker is for
     @State private var unsending: Entry? // asking "Unsend?" first
     @State private var openReceipts: Set<Int> = [] // your older messages you tapped to see who's seen them
@@ -113,6 +114,7 @@ struct BoardView: View {
             jump(to: n)
             return .handled
         })
+        .sheet(item: $seenBy) { r in SeenBySheet(receipt: r).presentationDetents([.medium, .large]).presentationBackground(Theme.bg) }
         // Someone's card: Message opens your DM; "Ask theo's agent" starts a message to it here.
         .sheet(item: $profile) { p in
             NavigationStack {
@@ -292,6 +294,7 @@ struct BoardView: View {
                         reply: live ? { startReply(to: e) } : nil,
                         unsent: unsent, replies: r.replies[e.seq] ?? [], threadUnread: threadUnread(e.seq, r), handling: state.handling[board.id]?[e.seq], lit: flash == e.seq,
                         receipt: showReceipt ? receipt(for: e) : nil,
+                        openReceipt: mine && live ? { if let r = receipt(for: e) { Haptic.tap(); seenBy = r } } : nil,
                         actions: actions(for: e, mine: mine, live: live, r)) {
             Task { if e.local != nil { await state.retryUpload(e, in: board) } else { await state.send(e.text, to: board, retrying: e) } }
         }
@@ -382,22 +385,27 @@ struct BoardView: View {
         return e.to?.lowercased() == me || (e.mentions ?? []).contains { $0.user.lowercased() == me }
     }
 
-    /// "Seen by jxn, jxn's agent" / "Seen by everyone" / "Delivered", for one of your messages: each member as a
-    /// person, and each member's agent once it has been on the board (not you, not your own agent).
-    private func receipt(for e: Entry) -> String? {
+    /// Everyone who should see one of your messages, and whether they have (the web's ring): each member as a
+    /// person, and each member's agent once it has been on the board, your own agent included ("Your agent").
+    private func readers(for e: Entry) -> [Reader]? {
         guard let reads = state.reads[board.id], let me else { return nil }
         var names = state.members[board.id] ?? []
         for u in reads.keys.sorted() where !names.contains(u) { names.append(u) }
-        var who: [(user: String, agent: Bool)] = []
-        for u in names where u != me {
-            who.append((u, false))
-            if (reads[u]?.agentSeen ?? -1) >= 0 { who.append((u, true)) }
+        var out: [Reader] = []
+        for u in names {
+            if u != me { out.append(Reader(user: u, agent: false, mine: false, seen: (reads[u]?.personSeen ?? 0) >= e.seq)) }
+            if let a = reads[u]?.agentSeen, a >= 0 { out.append(Reader(user: u, agent: true, mine: u == me, seen: a >= e.seq)) }
         }
-        guard !who.isEmpty else { return nil }
-        let seen = who.filter { w in ((w.agent ? reads[w.user]?.agentSeen : reads[w.user]?.personSeen) ?? -1) >= e.seq }
-        if seen.isEmpty { return "Delivered" }
-        if seen.count == who.count { return "Seen by everyone" }
-        return "Seen by " + seen.map { $0.agent ? "\($0.user)'s agent" : $0.user }.joined(separator: ", ")
+        return out.isEmpty ? nil : out
+    }
+
+    /// "Seen by jxn, your agent" / "Seen by everyone" / "Delivered", with its check.
+    private func receipt(for e: Entry) -> Receipt? {
+        guard let who = readers(for: e) else { return nil }
+        let seen = who.filter(\.seen)
+        if seen.isEmpty { return Receipt(text: "Delivered", level: 0, readers: who) }
+        if seen.count == who.count { return Receipt(text: "Seen by everyone", level: 2, readers: who) }
+        return Receipt(text: "Seen by " + seen.map(\.label).joined(separator: ", "), level: 1, readers: who)
     }
 
     // MARK: - The message box
@@ -655,7 +663,8 @@ struct EntryRow: View {
     var threadUnread = false // answers in its thread you haven't seen
     var handling: Handling? = nil // who's on it
     var lit = false // just jumped to
-    var receipt: String? = nil // yours: "Seen by …" / "Delivered"
+    var receipt: Receipt? = nil // yours: "Seen by …" / "Delivered", with its check
+    var openReceipt: (() -> Void)? = nil // tap it: who's seen it, as a list
     var actions = EntryActions()
     var retry: () -> Void = {}
     @State var drag: CGFloat = 0 // swipe right to reply
@@ -818,9 +827,21 @@ struct EntryRow: View {
                 Button(action: retry) { Label("Not sent. Tap to retry", systemImage: "exclamationmark.circle").font(.caption2.weight(.semibold)) }
                     .buttonStyle(.plain).foregroundStyle(Theme.danger)
             } else if let receipt {
-                Text(receipt).font(.caption2).foregroundStyle(Theme.faint).lineLimit(2).multilineTextAlignment(.trailing)
-                    .transition(.opacity)
-                    .accessibilityIdentifier("seen-by")
+                Button { openReceipt?() } label: {
+                    HStack(spacing: 3) {
+                        ReceiptCheck(level: receipt.level)
+                        Text(receipt.text).lineLimit(2).multilineTextAlignment(.trailing)
+                    }
+                    .font(.caption2).foregroundStyle(receipt.level == 2 ? Theme.accent : Theme.faint)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .transition(.opacity)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(receipt.text)
+                .accessibilityHint("Shows who's seen it")
+                .accessibilityAddTraits(.isButton)
+                .accessibilityIdentifier("seen-by")
             }
         }
         .frame(maxWidth: .infinity, alignment: .trailing)

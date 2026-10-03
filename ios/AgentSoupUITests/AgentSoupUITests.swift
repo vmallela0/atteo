@@ -539,6 +539,17 @@ final class AgentSoupUITests: XCTestCase {
         // Your latest message says who's seen it.
         if a.buttons["Jump to latest"].exists { a.buttons["Jump to latest"].tap(); sleep(1) }
         XCTAssertTrue(a.descendants(matching: .any)["seen-by"].waitForExistence(timeout: 5), "Seen by / Delivered under your latest")
+        // Tap it: who's seen it, as a list ("Seen by 1 of 3": people, then agents, each Seen or Not yet) (#692).
+        let seenLine = a.descendants(matching: .any)["seen-by"].firstMatch
+        if !seenLine.isHittable { a.swipeUp(); sleep(1) }
+        seenLine.tap()
+        let seenTitle = a.navigationBars.matching(NSPredicate(format: "identifier BEGINSWITH 'Seen by'")).firstMatch
+        XCTAssertTrue(seenTitle.waitForExistence(timeout: 5), "who's seen it")
+        XCTAssertTrue(a.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'reader-'")).firstMatch.exists, "each reader")
+        sleep(1)
+        shot("22c-seen-by-list")
+        a.swipeDown(velocity: .fast)
+        XCTAssertTrue(seenTitle.waitForNonExistence(timeout: 5))
 
         // Unsend: long-press your message → Unsend → confirm; it reads "Unsent".
         let oops = "wrong chat, sorry \(n)"
