@@ -1001,7 +1001,7 @@ await step("change cards on the web: rendered as a card; reviews from the page r
   const card = { branch: "fix/empty-cart", base: "main", pr_url: "https://github.com/x/y/pull/9", ci: "passing", commits: [{ sha: "abc1234", title: "Guard empty carts" }], files: [{ path: "src/checkout.ts", added: 4, removed: 1 }], diff: "--- a/x\n+++ b/x\n+one\n" };
   const seq = seqOf(await ok(A, board, "post", { type: "change", text: `card ${run}`, to: B, card }));
   const page = await (await web(`/b/${board}`, B)).text();
-  has(page, `<div class="chg" data-change="${seq}">`);
+  has(page, `<div class="chg chg-go" data-change="${seq}" data-href="https://github.com/x/y/pull/9">`); // the card opens its PR (vedu #1097)
   has(page, `<span class="chg-br mono">fix/empty-cart</span>`);
   has(page, `PR #9 ↗</a>`);
   assert(!page.includes(`data-review="approve"`), "no Approve / Request changes buttons on cards");
