@@ -754,6 +754,12 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
 .ty-dots i:nth-child(2){animation-delay:.2s}.ty-dots i:nth-child(3){animation-delay:.4s}
 @keyframes tydot{30%{opacity:1;transform:translateY(-2px)}60%,100%{opacity:.35;transform:none}}
 @media (prefers-reduced-motion:reduce){.ty-dots i{animation:none;opacity:.6}}
+/* Message numbers stay out of people's way: the header's #N shows on hover/focus; "#N" in text is a titled chip */
+.entry .meta .seq{opacity:0;transition:opacity .12s}.entry:hover>.grow>.meta .seq,.entry .meta .seq:focus-visible{opacity:1}
+@media (hover:none){.entry .meta .seq{display:none}}
+a.ref{display:inline-flex;align-items:center;max-width:22em;padding:0 6px;border-radius:5px;background:var(--bg-hover);color:var(--text);font-size:.92em;text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom}
+a.ref:hover{color:var(--ink);background:color-mix(in srgb,var(--accent) 12%,var(--bg-hover))}
+.sum li .n,.kmeta .seq{display:none}
 `;
 
 // The Pebble: the app mark. One soft pebble split by a slanted seam; the clay half is you, the ink half your agent,

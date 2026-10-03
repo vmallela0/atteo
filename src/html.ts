@@ -70,10 +70,10 @@ export function rootMap(entries: Entry[]): Map<number, number> {
 
 export function entryHtml(e: Entry, boardId: string, withReplies = true, opts: { retracted?: boolean; canRetract?: boolean } = {}): string {
   const refs: string[] = [];
-  if (e.retracts != null) refs.push(`unsends <a href="#e${e.retracts}">#${e.retracts}</a>`);
-  if (e.reply_to != null) refs.push(`reply to <a href="#e${e.reply_to}">#${e.reply_to}</a>`);
-  if (e.resolves.length) refs.push(`resolves ${e.resolves.map((n) => `<a href="#e${n}">#${n}</a>`).join(", ")}`);
-  if (e.supersedes != null) refs.push(`supersedes <a href="#e${e.supersedes}">#${e.supersedes}</a>`);
+  if (e.retracts != null) refs.push(`unsends <a class="ref" data-ref="${e.retracts}" href="#e${e.retracts}">#${e.retracts}</a>`);
+  if (e.reply_to != null) refs.push(`reply to <a class="ref" data-ref="${e.reply_to}" href="#e${e.reply_to}">#${e.reply_to}</a>`);
+  if (e.resolves.length) refs.push(`resolves ${e.resolves.map((n) => `<a class="ref" data-ref="${n}" href="#e${n}">#${n}</a>`).join(", ")}`);
+  if (e.supersedes != null) refs.push(`supersedes <a class="ref" data-ref="${e.supersedes}" href="#e${e.supersedes}">#${e.supersedes}</a>`);
   const img = e.artifact_name && e.media?.mime.startsWith("image/") ? imageHtml(boardId, e) : "";
   const file = img
     ? img
@@ -97,11 +97,11 @@ ${
   // Select starts picking messages to forward (people only, from the page).
   const select = !opts.retracted && e.retracts == null ? `<button class="btn ghost sm sel-act" type="button" data-select="${e.seq}" aria-label="Select to forward" title="Select messages to forward"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="2.5" y="2.5" width="11" height="11" rx="3"/><path d="M5.5 8.2l1.8 1.8 3.4-3.6"/></svg></button>` : "";
   const actions = react || reply || retract ? `<span class="acts">${react}${reply}${select}${retract}</span>` : "";
-  return `<article class="entry${opts.retracted ? " retracted" : ""}${e.via === "agent" ? " by-agent" : ""}" id="e${e.seq}" data-seq="${e.seq}" data-author="${esc(e.author)}">
+  return `<article class="entry${opts.retracted ? " retracted" : ""}${e.via === "agent" ? " by-agent" : ""}" id="e${e.seq}" data-seq="${e.seq}" data-author="${esc(e.author)}" data-title="${esc(shortTitle(e))}">
 ${avatar(e.author, "", e.via === "agent")}
 <div class="grow">
   <div class="meta">${whoHtml(e)}${e.to ? `<span class="to">→ ${esc(e.to)}</span>` : ""}${e.type === "note" ? "" : typeTag(e.type)}${when(e.ts)}<a class="seq" href="#e${e.seq}">#${e.seq}</a><span class="badge rbadge">Unsent</span>${flagBadge(e.text, e.ai_flag)}${actions}</div>
-  <div class="body">${renderText(e.text, e.mentions)}</div>${file}${e.card ? changeCardHtml(e.seq, e.card) : ""}${e.type === "task" ? `<div class="tk" data-task="${e.seq}" hidden></div>` : ""}${e.type === "claim" && !opts.retracted ? `<div class="tk cl" data-claim="${e.seq}" hidden></div>` : ""}${e.type === "decision" && e.via === "person" && !opts.retracted ? `<div class="tk hd" data-hd="${e.seq}" hidden></div>` : ""}
+  <div class="body">${refLinks(renderText(e.text, e.mentions))}</div>${file}${e.card ? changeCardHtml(e.seq, e.card) : ""}${e.type === "task" ? `<div class="tk" data-task="${e.seq}" hidden></div>` : ""}${e.type === "claim" && !opts.retracted ? `<div class="tk cl" data-claim="${e.seq}" hidden></div>` : ""}${e.type === "decision" && e.via === "person" && !opts.retracted ? `<div class="tk hd" data-hd="${e.seq}" hidden></div>` : ""}
   ${refs.length ? `<div class="refs">${refs.join(" · ")}</div>` : ""}
   <div class="rx" data-rx="${e.seq}"><button class="rx-add" type="button" data-rx-add="${e.seq}" aria-label="Add a reaction" title="Add a reaction">☺<span>+</span></button></div>
   ${withReplies ? `<div class="replies" id="r${e.seq}"></div>` : ""}
@@ -169,6 +169,23 @@ function whoHtml(e: Entry): string {
   }
   if (e.via === "person") return `<span class="who" title="Written by ${esc(e.author)} on the web">${esc(e.author)}</span>`;
   return `<span class="who">${esc(e.author)}</span>`;
+}
+
+/** "#412" in a message becomes a link to that message; the page shows it as a chip with its title (people don't need
+ *  the numbers; agents still write and read them). Not inside links or code. */
+export function refLinks(html: string): string {
+  let skip = 0;
+  return html
+    .split(/(<[^>]+>)/)
+    .map((part) => {
+      if (part.startsWith("<")) {
+        if (/^<(a|code|pre)\b/i.test(part)) skip++;
+        else if (/^<\/(a|code|pre)>/i.test(part)) skip = Math.max(0, skip - 1);
+        return part;
+      }
+      return skip ? part : part.replace(/(^|[^\w&#/])#(\d{1,6})\b/g, (_, pre: string, n: string) => `${pre}<a class="ref" data-ref="${n}" href="#e${n}">#${n}</a>`);
+    })
+    .join("");
 }
 
 function flagBadge(text: string, aiFlag?: string | null): string {
@@ -812,6 +829,10 @@ async function tick1(wait){try{
 }catch(e){await new Promise(r=>setTimeout(r,5000))}}
 // Reactions that arrive live before their entry is on the page (an agent's 👀 often beats the entry's own fetch).
 const RXP={};
+// "#412" links read as chips with that message's title, so people never have to think in numbers.
+function refChips(root){(root||document).querySelectorAll('a.ref:not([data-done])').forEach(a=>{const t=document.getElementById('e'+a.dataset.ref)?.dataset.title;
+  a.textContent='↗ '+(t||'an earlier message');a.title='Go to that message';a.dataset.done='1'})}
+refChips();
 /** Puts one entry (from updates, or straight from a post's response) on the page; false if it's already there. */
 function addEntry(e){if(document.getElementById('e'+e.seq)){last=Math.max(last,e.seq);return false}
     const box=e.root!==e.seq&&document.getElementById('r'+e.root);
@@ -819,6 +840,7 @@ function addEntry(e){if(document.getElementById('e'+e.seq)){last=Math.max(last,e
     if(box){el.querySelector('.replies')?.remove();box.appendChild(el)}else{document.getElementById('empty')?.remove();document.getElementById('thread').appendChild(el)}
     const rx=RXP[e.seq]||e.reactions;if(rx)renderRx(e.seq,rx);
     if(e.human_decision){HDS[e.seq]=e.human_decision;renderHD(e.seq)}
+    refChips(el);
     if(el.querySelector('[data-task]'))refreshTask(e.seq);
     if(box){thrSum(e.root);setTimeout(()=>window.reportSeen&&reportSeen(),0)}
     if(!document.querySelector('#log-body tr[data-seq="'+e.seq+'"]')){const lt=document.createElement('tbody');lt.innerHTML=e.row;document.getElementById('log-body').prepend(lt.firstElementChild);document.getElementById('log-empty')?.remove()}
@@ -1636,7 +1658,7 @@ window.boardKeys=(e,k)=>{
     <span class="row" style="min-width:0" title="${esc(members.map((m) => m.user).join(", "))}">${avatarStack(members.map((m) => m.user))}</span>
 
   </div></div>
-  <div class="bp-tabs"><div class="tabs" role="tablist" id="board-tabs"><button role="tab" aria-selected="true" aria-controls="panel-conv">Conversation</button><button role="tab" aria-selected="false" aria-controls="panel-log">Log <span class="faint" data-count>${info.entry_count}</span></button><button role="tab" aria-selected="false" aria-controls="panel-docs">Files</button><button role="tab" aria-selected="false" aria-controls="panel-tasks">Tasks <span class="faint" id="task-count"></span></button></div>
+  <div class="bp-tabs"><div class="tabs" role="tablist" id="board-tabs"><button role="tab" aria-selected="true" aria-controls="panel-conv">Conversation</button><button role="tab" aria-selected="false" aria-controls="panel-log">Log</button><button role="tab" aria-selected="false" aria-controls="panel-docs">Files</button><button role="tab" aria-selected="false" aria-controls="panel-tasks">Tasks <span class="faint" id="task-count"></span></button></div>
     </div>
 </div>
 <div role="tabpanel" id="panel-conv" class="bp-panel" data-board-panel><div class="layout" id="conv-layout">
