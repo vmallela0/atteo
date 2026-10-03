@@ -732,7 +732,7 @@ export class Board extends DurableObject<Env> {
     if (info.archived) throw new BoardError(`"${info.title}" is archived, so it's read-only. Its creator can restore it.`);
     if (!internal.seeding) this.rateLimit(user);
     // Answers go in the thread they answer: an agent's post without reply_to that clearly answers a message it's on
-    // (👀) is threaded under it. reply_to 0 keeps it at the top level on purpose.
+    // (🤔) is threaded under it. reply_to 0 keeps it at the top level on purpose.
     if (input.reply_to === 0) input = { ...input, reply_to: null };
     else if (input.reply_to == null && input.via === "agent" && input.retracts == null) {
       const t = this.autoThread(user, input);
@@ -879,7 +879,7 @@ export class Board extends DurableObject<Env> {
       this.sql.exec("INSERT INTO handling (seq, user, session, label, ts) VALUES (?, ?, ?, ?, ?)", input.reply_to, user, input.session, label, Date.now());
       this.broadcast({ type: "handling", seq: input.reply_to, by: label });
     }
-    // An agent answering (or resolving) a person's message turns its 👀 into ✅.
+    // An agent answering (or resolving) a person's message turns its 🤔 into ✅.
     // (Not for a change card: threaded under a message it is "related", not "answered".)
     if (input.via === "agent" && input.type !== "change" && !input.card) for (const r of new Set([...(input.reply_to != null ? [input.reply_to] : []), ...(input.resolves ?? [])])) this.receiptDone(user, r);
     // Resolving a message you (or another of your agents) were on turns "is on it" into "done".
@@ -1349,7 +1349,7 @@ export class Board extends DurableObject<Env> {
     }), undefined, event === "mention_for_you");
   }
 
-  // ---- read receipts from agents: a person's message for an agent gets 👀 the moment that agent picks it up (read,
+  // ---- read receipts from agents: a person's message for an agent gets 🤔 the moment that agent picks it up (read,
   // wait, or a bounced post), and ✅ once the agent answers or resolves it. Automatic, so every agent does it. ----
 
   private async receipts(user: string, fresh: Entry[]) {
@@ -1363,8 +1363,8 @@ export class Board extends DurableObject<Env> {
       // For this agent: addressed to it, "@user's agent" or "@agents", or a DM from the other person.
       // (On "Your agent", everything its person writes.)
       if (!(forAgent(e, user) || (direct && e.author !== user) || (kind === "agent" && e.author === user))) continue;
-      if (this.sql.exec("SELECT 1 AS x FROM reactions WHERE seq = ? AND user = ? AND emoji IN ('👀', '✅')", e.seq, who).toArray().length) continue;
-      this.sql.exec("INSERT INTO reactions (seq, user, emoji, ts) VALUES (?, ?, '👀', ?)", e.seq, who, now);
+      if (this.sql.exec("SELECT 1 AS x FROM reactions WHERE seq = ? AND user = ? AND emoji IN ('🤔', '👀', '✅')", e.seq, who).toArray().length) continue;
+      this.sql.exec("INSERT INTO reactions (seq, user, emoji, ts) VALUES (?, ?, '🤔', ?)", e.seq, who, now);
       this.broadcast({ type: "reaction", seq: e.seq, reactions: this.reactionsFor([e.seq])[e.seq] ?? [] });
       this.broadcast({ type: "typing-agents", agents: this.agentsTyping() });
     }
@@ -1387,7 +1387,7 @@ export class Board extends DurableObject<Env> {
 
   /**
    * The message an agent's unthreaded post answers, if it's clear. Open for this agent: messages from the last two
-   * hours addressed to it (to / @its agent) that it hasn't answered, plus people's messages it's on (its 👀, e.g. in a
+   * hours addressed to it (to / @its agent) that it hasn't answered, plus people's messages it's on (its 🤔, e.g. in a
    * DM). Among those, the newest from the person the post addresses (to / @person); or, if it addresses nobody, the
    * only open one. Tasks and change cards, and posts to nobody in particular while several are open, stay at the top level.
    */
@@ -1406,7 +1406,7 @@ export class Board extends DurableObject<Env> {
       try { mentions = r.mentions ? JSON.parse(r.mentions as string) : []; } catch {}
       if (forAgent({ to: (r.to_user as string | null) ?? null, mentions }, user)) open.set(r.seq as number, r.author as string);
     }
-    for (const r of this.sql.exec("SELECT r.seq, e.author FROM reactions r JOIN entries e ON e.seq = r.seq WHERE r.user = ? AND r.emoji = '👀' AND r.ts > ?", `${user}'s agent`, since).toArray()) open.set(r.seq as number, r.author as string);
+    for (const r of this.sql.exec("SELECT r.seq, e.author FROM reactions r JOIN entries e ON e.seq = r.seq WHERE r.user = ? AND r.emoji IN ('🤔', '👀') AND r.ts > ?", `${user}'s agent`, since).toArray()) open.set(r.seq as number, r.author as string);
     const list = [...open].filter(([seq]) => !answered(seq)).sort((x, y) => y[0] - x[0]);
     if (!list.length) return null;
     const addressed = new Set([input.to ?? null, ...(input.mentions ?? []).filter((m) => !m.agent).map((m) => m.user)].filter((x): x is string => !!x));
@@ -1417,7 +1417,7 @@ export class Board extends DurableObject<Env> {
   private receiptDone(user: string, seq: number) {
     if (this.decisions.isHuman(seq)) return; // an agent's reply is input to a human decision, not its answer
     const who = `${user}'s agent`;
-    if (!this.sql.exec("DELETE FROM reactions WHERE seq = ? AND user = ? AND emoji = '👀' RETURNING seq", seq, who).toArray().length) return;
+    if (!this.sql.exec("DELETE FROM reactions WHERE seq = ? AND user = ? AND emoji IN ('🤔', '👀') RETURNING seq", seq, who).toArray().length) return;
     this.sql.exec("INSERT OR IGNORE INTO reactions (seq, user, emoji, ts) VALUES (?, ?, '✅', ?)", seq, who, Date.now());
     this.broadcast({ type: "reaction", seq, reactions: this.reactionsFor([seq])[seq] ?? [] });
     this.broadcast({ type: "typing-agents", agents: this.agentsTyping() });
@@ -1459,10 +1459,12 @@ export class Board extends DurableObject<Env> {
     // A named agent reacts as itself ("vedu/scout"), so people can tell which of someone's agents it was.
     const who = opts.via === "agent" ? (opts.session ? `${user}/${opts.session}` : `${user}'s agent`) : user;
     let had = this.sql.exec("DELETE FROM reactions WHERE seq = ? AND user = ? AND emoji = ? RETURNING seq", seq, who, e).toArray().length > 0;
-    // The server adds "<user>'s agent" 👀/✅ receipts on its own. An agent session (it reacts as "<user>/<session>")
+    // The server adds "<user>'s agent" 🤔/✅ receipts on its own. An agent session (it reacts as "<user>/<session>")
     // toggling that emoji takes the automatic receipt back instead of adding a second, session-level one.
-    if (!had && opts.via === "agent" && (e === "✅" || e === "👀") && who !== `${user}'s agent`) {
-      had = this.sql.exec("DELETE FROM reactions WHERE seq = ? AND user = ? AND emoji = ? RETURNING seq", seq, `${user}'s agent`, e).toArray().length > 0;
+    if (!had && opts.via === "agent" && (e === "✅" || e === "🤔" || e === "👀") && who !== `${user}'s agent`) {
+      // 🤔 and the older 👀 are the same "picked it up" receipt.
+      const same = e === "✅" ? ["✅"] : ["🤔", "👀"];
+      had = this.sql.exec(`DELETE FROM reactions WHERE seq = ? AND user = ? AND emoji IN (${same.map(() => "?").join(", ")}) RETURNING seq`, seq, `${user}'s agent`, ...same).toArray().length > 0;
     }
     if (!had) {
       this.rateLimit(user);

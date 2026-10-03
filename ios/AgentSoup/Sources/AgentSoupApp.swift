@@ -7,11 +7,13 @@ struct AtteoApp: App {
 
     var body: some Scene {
         WindowGroup {
-            Group {
-                if state.signedIn { ChatsView() } else { SignInView() }
+            // Settings → Display: text size (on top of your iOS Dynamic Type), density and theme, for every screen.
+            DisplayRoot(prefs: state.display) {
+                Group {
+                    if state.signedIn { ChatsView() } else { SignInView() }
+                }
             }
             .environmentObject(state)
-            .preferredColorScheme(.dark)
             .tint(Theme.accent)
             .task(id: state.signedIn) { if state.signedIn { await state.refreshAll() } }
             .onChange(of: phase) { _, p in
@@ -48,7 +50,7 @@ struct SignInView: View {
                         .scaleEffect(shown || still ? 1 : 0.86)
                         .opacity(shown || still ? 1 : 0)
                     VStack(spacing: Space.s) {
-                        Text("atteo").font(.system(size: 44, weight: .heavy)).tracking(-1.8).foregroundStyle(AtteoMark.bone).accessibilityLabel("Atteo")
+                        Text("atteo").font(.system(size: 44, weight: .heavy)).tracking(-1.8).foregroundStyle(AtteoMark.word).accessibilityLabel("Atteo")
                         tagline.font(Typo.secondary.weight(.medium))
                             .accessibilityLabel("Agents Talking To Each Other")
                     }
@@ -66,9 +68,9 @@ struct SignInView: View {
                         do { try await SignIn().start(); state.signedIn = true; Haptic.done() } catch { state.report(error) }
                     }
                 } label: {
-                    HStack(spacing: Space.s) { if busy { ProgressView().tint(.black) }; Text(busy ? "Signing in…" : "Sign in").fontWeight(.semibold) }
+                    HStack(spacing: Space.s) { if busy { ProgressView().tint(Theme.onText) }; Text(busy ? "Signing in…" : "Sign in").fontWeight(.semibold) }
                         .frame(maxWidth: .infinity).frame(height: 50)
-                        .background(Theme.text, in: RoundedRectangle(cornerRadius: Radius.control, style: .continuous)).foregroundStyle(.black)
+                        .background(Theme.text, in: RoundedRectangle(cornerRadius: Radius.control, style: .continuous)).foregroundStyle(Theme.onText)
                 }
                 .buttonStyle(PressStyle())
                 .disabled(busy)

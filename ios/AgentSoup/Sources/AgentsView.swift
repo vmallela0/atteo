@@ -5,6 +5,7 @@ import SwiftUI
 struct AgentsView: View {
     @EnvironmentObject var state: AppState
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.chatDensity) private var density
     @State private var confirmKill = false
 
     var body: some View {
@@ -38,6 +39,7 @@ struct AgentsView: View {
                 .listRowBackground(Theme.card)
             }
             .listSectionSpacing(.compact)
+            .environment(\.defaultMinListRowHeight, density == .compact ? 36 : 44)
             .scrollContentBackground(.hidden)
             .background(Theme.bg)
             .navigationTitle("Your agents")
@@ -53,6 +55,7 @@ struct AgentsView: View {
 
 struct SessionRow: View {
     @EnvironmentObject var state: AppState
+    @Environment(\.chatDensity) private var density
     let s: AgentSession
 
     var body: some View {
@@ -74,6 +77,6 @@ struct SessionRow: View {
                 Text("Read-only").font(.caption2).foregroundStyle(Theme.faint)
             }
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, density == .compact ? 0 : 2)
     }
 }

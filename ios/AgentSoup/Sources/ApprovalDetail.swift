@@ -75,9 +75,9 @@ struct ApprovalDetail: View {
             }
             .accessibilityIdentifier("approval-decline")
             Button { decide(true) } label: {
-                HStack(spacing: Space.s) { if busy == true { ProgressView().tint(.black) }; Text("Approve") }
+                HStack(spacing: Space.s) { if busy == true { ProgressView().tint(Theme.onText) }; Text("Approve") }
                     .font(Typo.body.weight(.semibold)).frame(maxWidth: .infinity).frame(height: 50)
-                    .background(Theme.text, in: RoundedRectangle(cornerRadius: Radius.control, style: .continuous)).foregroundStyle(.black)
+                    .background(Theme.text, in: RoundedRectangle(cornerRadius: Radius.control, style: .continuous)).foregroundStyle(Theme.onText)
             }
             .accessibilityIdentifier("approval-approve")
         }

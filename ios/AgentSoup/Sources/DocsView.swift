@@ -233,6 +233,7 @@ struct FilesPane: View {
 struct FileRow: View {
     let doc: DocMeta
     var loading = false
+    @Environment(\.chatDensity) private var density
     var body: some View {
         HStack(spacing: Space.m) {
             FileKindIcon(kind: doc.kind)
@@ -253,7 +254,7 @@ struct FileRow: View {
                 }
             }
         }
-        .frame(minHeight: 56)
+        .frame(minHeight: density == .compact ? 44 : 56)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
     }

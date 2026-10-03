@@ -5,6 +5,7 @@ import SwiftUI
 
 struct NewMessageSheet: View {
     @EnvironmentObject var state: AppState
+    @Environment(\.chatDensity) private var density
     @Environment(\.dismiss) private var dismiss
     /// Opens a conversation (the sheet closes first).
     let open: (Board) -> Void
@@ -76,7 +77,7 @@ struct NewMessageSheet: View {
 
     private func link(_ p: Person) -> some View {
         NavigationLink(value: p) { PersonRow(p: p) }
-            .listRowInsets(EdgeInsets(top: Space.s, leading: Space.l, bottom: Space.s, trailing: Space.l))
+            .listRowInsets(EdgeInsets(top: Space.row(density), leading: Space.l, bottom: Space.row(density), trailing: Space.l))
             .listRowSeparator(.hidden)
             .accessibilityIdentifier("person-\(p.name)")
     }
@@ -242,12 +243,12 @@ struct PersonCard: View {
     private func big(_ title: String, _ icon: String, primary: Bool, id: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: Space.s) {
-                if busy && primary { ProgressView().tint(.black) } else { Image(systemName: icon).font(.system(size: 14, weight: .semibold)) }
+                if busy && primary { ProgressView().tint(Theme.onText) } else { Image(systemName: icon).font(.system(size: 14, weight: .semibold)) }
                 Text(title).font(Typo.body.weight(.semibold))
             }
             .frame(maxWidth: .infinity).frame(height: 48)
             .background(primary ? Theme.text : Theme.raised, in: RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
-            .foregroundStyle(primary ? .black : Theme.muted)
+            .foregroundStyle(primary ? Theme.onText : Theme.muted)
         }
         .buttonStyle(PressStyle())
         .disabled(busy)

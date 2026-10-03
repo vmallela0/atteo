@@ -104,7 +104,7 @@ await step("replies go in the thread: --reply-to works like --reply, unknown opt
     p.stderr.on("data", (d) => (s += d));
     p.on("close", (code) => resolve({ code, out: s }));
   });
-  // A asks B's agent; B's agent reads it (👀) and answers.
+  // A asks B's agent; B's agent reads it (🤔) and answers.
   const q = Number((await tool(tokA, board, "post", { type: "question", text: `@${B}'s agent which branch ${run}?` })).match(/#(\d+)/)[1]);
   await cli(credB, "read");
   let r = await cli(credB, "post", `main, as usual ${run}`, "--reply-to", String(q));

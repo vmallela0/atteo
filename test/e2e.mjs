@@ -496,7 +496,7 @@ await step("web: several files in one message (multipart upload): one entry, att
   const none = await send(B, [], { text: "no files" });
   assert(none.status === 400, `no files ${none.status}`);
   // Ten files of 1.4 MB (14 MB) do go through.
-  const ten = await send(B, Array.from({ length: 10 }, (_, i) => ({ name: `blob${i}.bin`, bytes: Buffer.concat([Buffer.from([0]), randomBytes(1_400_000)]) })));
+  const ten = await send(B, Array.from({ length: 10 }, (_, i) => ({ name: `blob${i}.bin`, bytes: Buffer.alloc(1_400_000, i + 1) /* fixed bytes: random ones can look like a credential to the secret filter */ })));
   const tenj = await ten.json();
   assert(ten.status === 201 && tenj.entry.attachments.length === 10, `ten files ${ten.status} ${JSON.stringify(tenj).slice(0, 200)}`);
   // Secrets: in the caption or in a text file, the whole message is refused and none of its files is stored.
@@ -1982,6 +1982,41 @@ await step("network: an opt-in directory, and standing rules (invites from frien
   await api(B, "POST", "/api/me/profile", { listed: false, rules: { auto_accept_invites: null, auto_accept_friends: null } });
 });
 
+await step("display settings: text size, density and theme per person (defaults, partial updates merge, bad values 400, private)", async () => {
+  const api = (who, method, path, body) => fetch(`${BASE}${path}`, { method, headers: { authorization: `Bearer ${tok[who]}`, "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+  const P = `e2e-disp-${run}`;
+  await ops("users", { name: P, email: `${P}@example.com`, verified: "true" });
+  tok[P] = (await ops("tokens", { user: P })).body.token;
+  const get = async (who) => (await (await api(who, "GET", "/api/me/profile")).json()).profile;
+  // Defaults: medium text, comfortable, follow the system.
+  const d0 = (await get(P)).display;
+  assert(JSON.stringify(d0) === JSON.stringify({ text: "m", density: "comfortable", theme: "system" }), "defaults: " + JSON.stringify(d0));
+  // A partial update merges with what's there; other profile fields are untouched.
+  await api(P, "POST", "/api/me/profile", { bio: `display ${run}` });
+  let r = await (await api(P, "POST", "/api/me/profile", { display: { text: "l" } })).json();
+  assert(r.ok && r.profile.display.text === "l" && r.profile.display.density === "comfortable" && r.profile.display.theme === "system", "partial: " + JSON.stringify(r));
+  r = await (await api(P, "POST", "/api/me/profile", { display: { density: "compact", theme: "dark" } })).json();
+  assert(JSON.stringify(r.profile.display) === JSON.stringify({ text: "l", density: "compact", theme: "dark" }), "merged: " + JSON.stringify(r.profile.display));
+  const saved = await get(P);
+  assert(saved.display.text === "l" && saved.display.density === "compact" && saved.display.theme === "dark" && saved.bio === `display ${run}`, "persisted: " + JSON.stringify(saved));
+  // Other profile saves (no display key) leave it alone.
+  await api(P, "POST", "/api/me/profile", { listed: false });
+  assert((await get(P)).display.theme === "dark", "kept across other profile saves");
+  // Bad values: 400, and nothing in that request is saved.
+  for (const bad of [{ text: "xl" }, { density: "cozy" }, { theme: "sepia" }, { text: 2 }, { font: "serif" }, "dark", ["l"], null]) {
+    const res = await api(P, "POST", "/api/me/profile", { bio: "should not save", display: bad });
+    assert(res.status === 400, `bad display ${JSON.stringify(bad)}: ${res.status}`);
+  }
+  const after = await get(P);
+  assert(JSON.stringify(after.display) === JSON.stringify({ text: "l", density: "compact", theme: "dark" }) && after.bio === `display ${run}`, "unchanged after bad: " + JSON.stringify(after));
+  // Private: someone else sees their own settings (defaults), never P's, and P's person card doesn't carry them.
+  const other = await get(B);
+  assert(other.name === B && other.display && other.display.theme !== undefined, "B gets B's own profile");
+  const card = await (await api(B, "GET", `/api/people/${P}`)).json();
+  assert(card.person && !("display" in card.person) && !JSON.stringify(card).includes('"density"'), "person card leaks display: " + JSON.stringify(card).slice(0, 300));
+  assert((await fetch(`${BASE}/api/me/profile`)).status === 401, "signed out: 401");
+});
+
 await step("retention: owners set how long a board keeps messages; older ones are blanked, threads stay", async () => {
   const id = (await ops("boards", { user: A, title: `e2e retention ${run}` })).body.board.id;
   await ops("members", { board: id, user: A }).catch(() => {});
@@ -2420,7 +2455,21 @@ await step("mailbox: DMs and mail for your agent wait until your agent polls; fu
   assert(!(await call(M2, "GET", "/api/mailbox?peek=1")).mail.some((x) => x.text === `ack me ${run}`), "acked mail is gone");
 });
 
-await step("read receipts: an agent's read puts 👀 on a person's message for it; answering turns it into ✅", async () => {
+await step("read receipts: an old 👀 receipt still counts as picked up, and answering swaps it to ✅", async () => {
+  const asked = await (await web(`/api/boards/${board}/entries`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "question", text: `@${B}'s agent legacy receipt ${run}?` }) })).json();
+  const seq = asked.entry.seq;
+  const rx = async () => (await (await web(`/api/boards/${board}/entries?after=${seq - 1}&limit=1`, A)).json()).reactions[seq] ?? [];
+  await ok(B, board, "read"); // picks it up: 🤔. Swap it for the old-style 👀 receipt.
+  await ok(B, board, "react", { seq, emoji: "🤔" });
+  await ok(B, board, "react", { seq, emoji: "👀" });
+  assert((await rx()).some((x) => x.emoji === "👀" && x.users.includes(`${B}'s agent`)), "👀 receipt in place");
+  // Answering swaps the old 👀 for ✅.
+  await ok(B, board, "post", { type: "note", text: `legacy answer ${run}`, reply_to: seq });
+  const r = await rx();
+  assert(r.some((x) => x.emoji === "✅" && x.users.includes(`${B}'s agent`)) && !r.some((x) => x.emoji === "👀" || x.emoji === "🤔"), `✅ replaces the old 👀: ${JSON.stringify(r)}`);
+});
+
+await step("read receipts: an agent's read puts 🤔 on a person's message for it; answering turns it into ✅", async () => {
   await ok(B, board, "read");
   const asked = await (await web(`/api/boards/${board}/entries`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "question", text: `@${B}'s agent can you check the logs ${run}?` }) })).json();
   const seq = asked.entry.seq;
@@ -2428,12 +2477,12 @@ await step("read receipts: an agent's read puts 👀 on a person's message for i
   assert(!(await rx()).length, "nothing before the agent reads");
   has(await ok(B, board, "read"), `can you check the logs ${run}`);
   let r = await rx();
-  assert(r.some((x) => x.emoji === "👀" && x.users.includes(`${B}'s agent`)), `👀 after the read: ${JSON.stringify(r)}`);
+  assert(r.some((x) => x.emoji === "🤔" && x.users.includes(`${B}'s agent`)), `🤔 after the read: ${JSON.stringify(r)}`);
   await ok(B, board, "read");
-  assert((await rx()).filter((x) => x.emoji === "👀").length === 1, "once, not per read");
+  assert((await rx()).filter((x) => x.emoji === "🤔").length === 1, "once, not per read");
   await ok(B, board, "post", { type: "note", text: `logs are clean ${run}`, reply_to: seq });
   r = await rx();
-  assert(r.some((x) => x.emoji === "✅" && x.users.includes(`${B}'s agent`)) && !r.some((x) => x.emoji === "👀"), `✅ after answering: ${JSON.stringify(r)}`);
+  assert(r.some((x) => x.emoji === "✅" && x.users.includes(`${B}'s agent`)) && !r.some((x) => x.emoji === "🤔"), `✅ after answering: ${JSON.stringify(r)}`);
   // Agents' own posts and messages not for this agent get nothing.
   const other = await (await web(`/api/boards/${board}/entries`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "note", text: `just a note ${run}` }) })).json();
   await ok(B, board, "read");
@@ -2445,18 +2494,18 @@ await step("change cards are reports, not answers: never auto-threaded, never �
   const rx = async (seq) => (await (await web(`/api/boards/${board}/entries?after=${seq - 1}&limit=1`, A)).json()).reactions[seq] ?? [];
   const entry = async (seq) => (await (await web(`/api/boards/${board}/entries?after=${seq - 1}&limit=1`, A)).json()).entries[0];
   const done = (r, who) => r.some((x) => x.emoji === "✅" && x.users.includes(who));
-  const eyes = (r, who) => r.some((x) => x.emoji === "👀" && x.users.includes(who));
+  const eyes = (r, who) => r.some((x) => x.emoji === "🤔" && x.users.includes(who));
   const card = { repo: "acme/shop", branch: `ship/${run}`, base: "main", ci: "passing", commits: [{ sha: "a1b2c3d4", title: "Ship it" }], files: [{ path: "src/a.ts", added: 1, removed: 0 }] };
   const agent = `${B}'s agent`;
   await ok(B, board, "read");
-  // A person @agents an open note; the agent reads it (👀) and posts a change card: not threaded, no ✅.
+  // A person @agents an open note; the agent reads it (🤔) and posts a change card: not threaded, no ✅.
   const open1 = await personPost(`@agents please look at the deploy ${run}`);
   await ok(B, board, "read");
-  assert(eyes(await rx(open1), agent), `👀 after the read: ${JSON.stringify(await rx(open1))}`);
+  assert(eyes(await rx(open1), agent), `🤔 after the read: ${JSON.stringify(await rx(open1))}`);
   const c1 = seqOf(await ok(B, board, "post", { type: "change", text: `Shipped to production ${run}`, card }));
   assert((await entry(c1)).reply_to == null, `change card must not be auto-threaded: ${JSON.stringify(await entry(c1))}`);
   let r = await rx(open1);
-  assert(eyes(r, agent) && !done(r, agent), `still 👀, no ✅ after a change card: ${JSON.stringify(r)}`);
+  assert(eyes(r, agent) && !done(r, agent), `still 🤔, no ✅ after a change card: ${JSON.stringify(r)}`);
   // A plain note still auto-threads and ✅s.
   const n1 = seqOf(await ok(B, board, "post", { type: "note", text: `looked, all good ${run}`, to: A }));
   assert((await entry(n1)).reply_to === open1, `a plain note auto-threads: ${JSON.stringify(await entry(n1))}`);
@@ -2479,12 +2528,12 @@ await step("change cards are reports, not answers: never auto-threaded, never �
   // With no receipt left, the same toggle adds a session-level reaction as before.
   await sok(s1, "react", { seq: open1, emoji: "✅" });
   assert((await rx(open1)).some((x) => x.emoji === "✅" && x.users.some((u) => u.startsWith(`${B}/`))), `session ✅ added: ${JSON.stringify(await rx(open1))}`);
-  // 👀 works the same way.
+  // 🤔 works the same way.
   const open2 = await personPost(`@agents second ask ${run}`);
   await ok(B, board, "read");
-  assert(eyes(await rx(open2), agent), "👀 receipt");
-  await sok(s1, "react", { seq: open2, emoji: "👀" });
-  assert(!eyes(await rx(open2), agent), `👀 receipt removed: ${JSON.stringify(await rx(open2))}`);
+  assert(eyes(await rx(open2), agent), "🤔 receipt");
+  await sok(s1, "react", { seq: open2, emoji: "🤔" });
+  assert(!eyes(await rx(open2), agent), `🤔 receipt removed: ${JSON.stringify(await rx(open2))}`);
 });
 
 // ---- human decisions: a decision a person posts is the people's to make ----
@@ -2512,10 +2561,10 @@ await step("human decisions: a person's decision is open until the people decide
   has(t, `[human decision · waiting on ${B}, ${HDC}`);
   // Resolving it is refused, with a clear reason.
   await err(B, hdBoard, "post", { type: "note", text: `done ${run}`, resolves: [seq] }, `#${seq} is a human decision`);
-  // A plain reply is input: threaded under it, but no ✅ (its 👀 stays), and it stays open.
+  // A plain reply is input: threaded under it, but no ✅ (its 🤔 stays), and it stays open.
   has(await ok(B, hdBoard, "post", { type: "note", text: `Friday works for us; tests pass ${run}`, reply_to: seq }), `In reply to #${seq}`);
   const rx = (await (await web(`/api/boards/${hdBoard}/entries?after=${seq - 1}&limit=1`, A)).json()).reactions[seq] ?? [];
-  assert(rx.some((x) => x.emoji === "👀") && !rx.some((x) => x.emoji === "✅"), `no ✅ from an agent's reply: ${JSON.stringify(rx)}`);
+  assert(rx.some((x) => x.emoji === "🤔") && !rx.some((x) => x.emoji === "✅"), `no ✅ from an agent's reply: ${JSON.stringify(rx)}`);
   const after = await hdGet(seq);
   assert(after.human_decision.state === "open" && !after.done_by && !after.handled_by, `still open: ${JSON.stringify(after)}`);
   // Mail: the other people get "asks for a decision"; their agents get it as a human decision (never a fork).
@@ -2733,7 +2782,7 @@ await step("Your agent: a private chat with your own agents, made on first open;
   const mb = (await api(Y, "GET", "/api/mailbox?peek=1")).body.mail.find((m) => m.board === chat && m.seq === p1);
   assert(mb && mb.kind === "dm" && mb.from_owner === true && mb.from === Y && mb.from_via === "person" && !mb.to_session && mb.text === `which branch are we on? ${run}`, JSON.stringify(mb));
   assert((await (await web("/api/inbox/count", Y)).json()).unread === 0, "your own message isn't unread for you");
-  // Every session hears it without joining, as its person's post (fenced, like everything on a board), and 👀 shows it was read.
+  // Every session hears it without joining, as its person's post (fenced, like everything on a board), and 🤔 shows it was read.
   const r1 = (await api(Y, "GET", `/api/sessions/${s1.id}/read?board=${chat}`)).body.boards[0];
   assert(r1.entries.some((e) => e.seq === p1), JSON.stringify(r1).slice(0, 300));
   has(r1.text, `== Your agent (${chat})`);
@@ -2741,7 +2790,7 @@ await step("Your agent: a private chat with your own agents, made on first open;
   has(r1.text, "<<untrusted");
   assert((await api(Y, "GET", `/api/sessions/${s2.id}/read?board=${chat}`)).body.boards[0].entries.some((e) => e.seq === p1), "the other session too");
   const rx = async (seq) => (await (await web(`/api/boards/${chat}/entries?after=${seq - 1}&limit=1`, Y)).json()).reactions[seq] ?? [];
-  assert((await rx(p1)).some((x) => x.emoji === "👀" && x.users.includes(`${Y}'s agent`)), "👀 once an agent read it");
+  assert((await rx(p1)).some((x) => x.emoji === "🤔" && x.users.includes(`${Y}'s agent`)), "🤔 once an agent read it");
   // For one session (the picker): sent as @you/<session>; only that session reads, waits and gets the mail.
   const p2 = (await say(Y, { type: "note", text: `run the tests ${run}`, to_session: s1.name })).entry;
   assert(p2.text === `@${Y}/${s1.name} run the tests ${run}` && p2.mentions.some((m) => m.user === Y && m.session === s1.name), JSON.stringify(p2));
