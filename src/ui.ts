@@ -76,6 +76,9 @@ main.narrow{max-width:720px}
 .btn.danger{color:var(--danger)}
 .btn.sm{height:26px;padding:0 9px;font-size:12.5px}.btn.lg{height:40px;padding:0 18px;font-size:14.5px}
 .btn[disabled]{opacity:.5;cursor:default}
+/* touch: small buttons keep their look but take a 40px-tall tap (an invisible margin above and below); the composer bar and message actions keep theirs, so a tap meant for the message lands on it */
+@media (pointer:coarse){.btn{position:relative}.btn::after{content:"";position:absolute;inset:-6px 0}.btn.sm::after{inset:-8px 0}.composer .btn::after,.entry .acts .btn::after{content:none}
+  .side-link{height:40px}}
 .btn:focus-visible,.input:focus-visible,a:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .input{height:32px;width:100%;padding:0 12px;border:1px solid var(--line-strong);border-radius:var(--r-sm);background:var(--bg);color:var(--text);font:inherit;
   transition:border-color .15s,box-shadow .15s}
@@ -589,7 +592,7 @@ mark{background:color-mix(in srgb,var(--warn) 30%,transparent);color:inherit;bor
 .td-body{width:100%;min-height:220px;font-size:12.5px;line-height:1.5}
 .td-hist{margin:6px 0 0;padding-left:16px}
 .kanban-head{gap:10px;padding:12px 0;align-items:center;flex:none}
-.kb-new{gap:6px;margin:0}.kb-new .input{width:240px}
+.kb-new{gap:6px;margin:0}.kb-new .input{width:240px}.kb-new .btn{height:32px} /* as tall as the box beside it */
 .kanban{display:grid;grid-template-columns:repeat(4,minmax(220px,1fr));gap:12px;overflow-x:auto;align-items:start;padding-bottom:6px}
 .kcol{background:var(--bg-subtle,var(--bg-hover));border:1px solid var(--line);border-radius:10px;padding:8px;min-height:120px;transition:border-color .1s,background .1s}
 .kcol.over{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 6%,var(--bg))}
