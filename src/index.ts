@@ -33,6 +33,7 @@ import * as boardkeys from "./boardkeys";
 import * as mailbox from "./mailbox";
 import * as recap from "./recap";
 import * as triggers from "./triggers";
+import { MAX_SCHEDULES } from "./schedules";
 import {
   adminPage,
   boardPage,
@@ -457,7 +458,7 @@ async function opsData(env: Env): Promise<AdminData> {
 
 /** Every 5 minutes (the cron; tests call it through POST /api/ops/cron): retention, sweeps, expired memberships, and
  *  workflow triggers on a daily schedule (`now` lets a test pick the time those see). */
-async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): Promise<{ schedules: number }> {
+async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): Promise<{ schedules: number; scheduled_tasks: number }> {
   // Boards with a retention period: blank what's older.
   const keep = (await env.DB.prepare(`SELECT id, retention_days FROM boards WHERE retention_days IS NOT NULL`).all<{ id: string; retention_days: number }>()).results;
   for (const b of keep) ctx.waitUntil(boardStub(env, b.id).prune(Date.now() - b.retention_days * 86_400_000).catch(() => 0));
@@ -482,7 +483,15 @@ async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): 
       .catch(() => ({ results: [] as { board_id: string }[] }))
   ).results;
   const fired = await Promise.all(due.map((b) => boardStub(env, b.board_id).runSchedules(now).catch(() => 0)));
-  return { schedules: fired.reduce((a, b) => a + b, 0) };
+  // Shared crons (board schedules): boards with one due by now post its task (each due time once; the board knows).
+  const dueBoards = (
+    await env.DB.prepare(`SELECT DISTINCT board_id FROM board_schedules WHERE next_at <= ?`)
+      .bind(now)
+      .all<{ board_id: string }>()
+      .catch(() => ({ results: [] as { board_id: string }[] }))
+  ).results;
+  const posted = await Promise.all(dueBoards.map((b) => boardStub(env, b.board_id).runBoardSchedules(now).catch((e) => (console.error("board schedules failed", b.board_id, e), 0))));
+  return { schedules: fired.reduce((a, b) => a + b, 0), scheduled_tasks: posted.reduce((a, b) => a + b, 0) };
 }
 
 const handler = {
@@ -1830,6 +1839,33 @@ const handler = {
           return fail(e);
         }
         return json({ error: "method not allowed" }, 405);
+      }
+
+      // ---- shared crons: board schedules that post a task at each due time (people set them; agents may list) ----
+      m = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/schedules(?:\/(sc_[a-z0-9]+))?$/);
+      if (m) {
+        if (!viewer) return needLogin();
+        const role = await registry.memberRole(env, m[1], viewer.name);
+        if (!role) return json({ error: "board not found" }, 404);
+        const stub = boardStub(env, m[1]);
+        try {
+          if (method === "GET" && !m[2]) return json({ schedules: await stub.schedules(), limit: MAX_SCHEDULES }, 200, { "cache-control": "no-store" });
+          if (!["POST", "PATCH", "DELETE"].includes(method) || (method === "POST") === !!m[2]) return json({ error: "method not allowed" }, 405);
+          if (viewer.via === "agent") return json({ error: "Only people can add, change or remove schedules (on the web, in board settings). Agents can list them: atteo schedules." }, 403);
+          if (role === "viewer") return json({ error: "You can view this board but not change it (your role is viewer). Ask an owner for contributor access." }, 403);
+          const manager = role === "owner";
+          if (method === "DELETE") {
+            await stub.scheduleRemove(viewer.name, m[2]!, manager);
+            return json({ ok: true });
+          }
+          const b = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+          const fields = { title: b.title, body: b.body, at: b.at, tz: b.tz, days: b.days, enabled: b.enabled };
+          if (method === "POST") return json({ schedule: await stub.scheduleAdd(viewer.name, fields) }, 201);
+          return json({ schedule: await stub.scheduleUpdate(viewer.name, m[2]!, fields, manager) });
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          return json({ error: msg }, /^Only /.test(msg) ? 403 : /^No schedule /.test(msg) ? 404 : 400);
+        }
       }
 
       // ---- a recap: what happened since an entry (?since=N) or since you last read (?since=last-read, the default) ----

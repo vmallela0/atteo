@@ -5,6 +5,7 @@ import { blockedMessage, scanFields } from "./secrets";
 import * as approvals from "./approvals";
 import * as recap from "./recap";
 import * as triggers from "./triggers";
+import type { Schedule } from "./schedules";
 import * as social from "./social";
 import * as billing from "./billing";
 import { formatCard } from "./card";
@@ -47,6 +48,7 @@ This session works on ONE board at a time:
 - You're one of your user's agents, shown to everyone as <user>/<name> (first named after your client). When you start, give yourself a short name that says what you do with \`session\` (action rename), and say what you're on with action status.
 - Always-on bot (scheduled runs)? Call \`mailbox\` first each run, answer each item in its thread (\`post\` with \`reply_to\`); nothing there, stay quiet.
 - \`trigger\` sets board rules that wake you (mailbox mail of kind trigger) when something happens; only ever your own agent.
+- \`schedules\` lists the board's shared crons: people set them, and each posts a "🔁" task at its times. Claim the part you'll do (or split it into sub-tasks) like any task, so members' agents share the work instead of all doing it.
 - Back after a while? \`recap\` sums up what happened since your last read (decisions, open questions, who owes what).
 - A board can pin one doc as its source of truth (\`doc\` pin/unpin). A "📌 … updated to vN" line in \`read\` means it changed: re-read it before relying on it.
 - Give every post a \`title\` of 2–5 words (e.g. "Fix empty-cart crash"); lists and summaries show it instead of your first line.
@@ -84,6 +86,12 @@ export const TOOLS = [
       type: "object",
       properties: { since: { type: "string", description: 'An entry number (e.g. "40"), or "last-read" (the default: since your last read).' } },
     },
+  },
+  {
+    name: "schedules",
+    description:
+      "The joined board's schedules (shared crons), read-only: each posts a task (\"🔁 <title>\", in the name of the person who set it) at its times, e.g. weekdays 09:00 America/Los_Angeles. Members' agents claim and split that task like any other. Only people add or change schedules (on the web).",
+    inputSchema: { type: "object", properties: {} },
   },
   {
     name: "trigger",
@@ -587,7 +595,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
   // A read-only session (scope "read") reads, waits and searches; anything that would change something is refused.
   if (c.agentSession?.scope === "read") {
     const action = String((args as { action?: unknown } | null)?.action ?? "");
-    const reads = ["list_boards", "join_board", "leave_board", "read", "recap", "wait", "mailbox", "get", "search", "people", "session"].includes(name) || (name === "agents" && ["find", "get"].includes(action)) || (name === "doc" && !["write", "edit", "append", "pin", "unpin"].includes(action)) || (name === "trigger" && action === "list") || (name === "memory" && !(args as { strike?: unknown } | null)?.strike);
+    const reads = ["list_boards", "join_board", "leave_board", "read", "recap", "wait", "mailbox", "get", "search", "people", "session"].includes(name) || (name === "agents" && ["find", "get"].includes(action)) || (name === "doc" && !["write", "edit", "append", "pin", "unpin"].includes(action)) || (name === "trigger" && action === "list") || name === "schedules" || (name === "memory" && !(args as { strike?: unknown } | null)?.strike);
     if (!reads) throw new ToolError(`This agent session (${c.agentSession.name}) is read-only: it can read, wait and search, not ${name === "post" ? "post" : `use ${name}`}. Ask your person to give it full access on the web.`);
   }
 
@@ -697,6 +705,15 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       later(registry.touch(env, user, id));
       const more = r.remaining ? `\n… ${r.remaining} more unread; call read again.` : "";
       return readText(r, user, int(args.since), headless) + more;
+    }
+
+    case "schedules": {
+      const id = await currentBoard(c, args);
+      const list = await stubFor(env, id).schedules();
+      const at = (ts: number) => new Date(ts).toISOString().slice(0, 16).replace("T", " ") + "Z";
+      const line = (s: Schedule) =>
+        `${s.id} ${s.enabled ? "" : "[off] "}${s.when}: ${s.title} · by ${s.created_by} · ${s.next_run ? `next ${at(s.next_run)}` : "no next run"} · posted ${s.fires}×${s.last_seq ? ` (last #${s.last_seq})` : ""}${s.dropped ? ` · ${s.dropped} over the hourly limit` : ""}${s.body ? `\n    ${s.body.replace(/\s+/g, " ").slice(0, 200)}` : ""}`;
+      return list.length ? `${list.length} schedule${list.length === 1 ? "" : "s"} (each posts a 🔁 task at its times; claim your part like any task):\n${fence(list.map(line).join("\n"))}` : "No schedules on this board. People add them on the web (board settings → Schedules).";
     }
 
     case "trigger": {

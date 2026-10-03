@@ -16,6 +16,7 @@ import { HumanDecisions, isHumanDecisionPost, type HumanDecision } from "./decis
 import type { RecapCore, RecapOwner, RecapTask } from "./recap";
 import { cleanMatch, cleanTrigger, eventLine, lastOccurrence, matches, MAX_FIRES_PER_HOUR, MAX_TRIGGERS, minuteOf, SCHEDULE_GRACE_MS, type Trigger, type TriggerEvent, type TriggerMatch } from "./triggers";
 import { offBoardSeq } from "./util";
+import { cleanSchedule, MAX_SCHEDULES, nextDue, lastDue, scheduleLabel, SCHEDULE_FIRES_PER_HOUR, taskText, tickAction, type Day, type Schedule } from "./schedules";
 
 export const MAX_TEXT = 32_000;
 export const MAX_ARTIFACT = 256_000;
@@ -426,6 +427,27 @@ export class Board extends DurableObject<Env> {
         win_count INTEGER NOT NULL DEFAULT 0,
         last_occurrence INTEGER NOT NULL DEFAULT 0
       );
+      -- Shared crons (schedules.ts): a person's board schedule that posts a task at each due time (days, at, tz).
+      -- handled: the last due time dealt with (fired, skipped or dropped), so each one fires at most once.
+      CREATE TABLE IF NOT EXISTS schedules (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        body TEXT NOT NULL DEFAULT '',
+        at TEXT NOT NULL,
+        tz TEXT NOT NULL,
+        days TEXT NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        created_by TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        fires INTEGER NOT NULL DEFAULT 0,
+        last_fired_at INTEGER,
+        last_seq INTEGER,
+        dropped INTEGER NOT NULL DEFAULT 0,
+        handled INTEGER NOT NULL DEFAULT 0
+      );
+      -- When schedules posted (the board's hourly limit counts these; older than a day is pruned).
+      CREATE TABLE IF NOT EXISTS schedule_fires (ts INTEGER NOT NULL);
       -- Approval requests posted on this board (type=approval entries), by approval id.
       CREATE TABLE IF NOT EXISTS approval_entries (id TEXT PRIMARY KEY, seq INTEGER NOT NULL, user TEXT NOT NULL);
       -- Which version of the board's pinned doc each agent reader has been told about ("📌 SPEC.md updated to v4"):
@@ -897,7 +919,7 @@ export class Board extends DurableObject<Env> {
     return r.length ? toEntry(r[0]) : null;
   }
 
-  async post(user: string, input: NewEntry, internal: { docVersion?: number; media?: Media; attachments?: { list: Attachment[]; text: string }; seeding?: boolean; sealed?: boolean; notice?: boolean; system?: boolean; approval?: ApprovalRef; taskCreate?: boolean } = {}): Promise<Entry> {
+  async post(user: string, input: NewEntry, internal: { docVersion?: number; media?: Media; attachments?: { list: Attachment[]; text: string }; seeding?: boolean; sealed?: boolean; notice?: boolean; system?: boolean; approval?: ApprovalRef; taskCreate?: boolean; scheduled?: boolean } = {}): Promise<Entry> {
     // D1 lookups first, so nothing below waits between the duplicate check and the insert.
     const boardKind = await this.kindOf(this.meta("id") ?? "");
     const forSession = await this.sessionRoute(input.mentions ?? []);
@@ -915,7 +937,7 @@ export class Board extends DurableObject<Env> {
     }
     if (info.encrypted && !internal.sealed && !internal.notice && input.retracts != null) input = { ...input, text: "Unsent." }; // no plaintext reasons
     else if (info.encrypted && !internal.sealed && !internal.notice) throw new BoardError(encryptedOnly(info.title));
-    this.touch(user);
+    if (!internal.scheduled) this.touch(user); // a schedule posting at 09:00 isn't its creator being here
 
     if (!(ENTRY_TYPES as readonly string[]).includes(input.type) && !(input.type === "approval" && internal.approval)) {
       throw new BoardError(`type must be one of: ${ENTRY_TYPES.join(", ")}`);
@@ -1042,11 +1064,12 @@ export class Board extends DurableObject<Env> {
     if (isHumanDecisionPost(entry) && !internal.seeding) this.decisions.record(entry);
     for (const d of depends) this.sql.exec("INSERT OR IGNORE INTO depends (seq, on_seq) VALUES (?, ?)", entry.seq, d);
 
-    if (!internal.system && (input.via === "agent" || input.via === "person")) this.markSeen(user, input.via, entry.seq);
+    // A schedule's task (internal.scheduled) is posted in its creator's name but isn't something they just read.
+    if (!internal.system && !internal.scheduled && (input.via === "agent" || input.via === "person")) this.markSeen(user, input.via, entry.seq);
     // Your own post counts as read, unless you're handing it to your own agent: then it's new for your agent.
     // A later post doesn't skip the agent past a hand-off it hasn't read yet.
     const forOwnAgent = toOwnAgent || mentionsOwnAgent(entry);
-    if (!forOwnAgent && !internal.system) { // a system line in someone's name (decisions.ts) doesn't move their read position
+    if (!forOwnAgent && !internal.system && !internal.scheduled) { // a system line in someone's name (decisions.ts) doesn't move their read position
       const pending = this.sql
         .exec("SELECT MIN(e.seq) AS s FROM entries e, members m WHERE m.name = ? AND e.seq > m.cursor AND e.author = ? AND e.self_agent = 1", user, user)
         .one().s as number | null;
@@ -1387,6 +1410,168 @@ export class Board extends DurableObject<Env> {
     )
       .bind(t.created_by, info.id, offBoardSeq(), t.created_by, t.prompt.replace(/\s+/g, " ").slice(0, 160), now, toSession, now, JSON.stringify(data))
       .run();
+  }
+
+  // ---- shared crons (schedules.ts): a person's board schedule posts a task at each due time; members' agents claim
+  // and split it like any task. Time is their only cause: nothing posted on the board (their own tasks included)
+  // makes one fire. Few rows (≤ MAX_SCHEDULES), so they're read from storage each time (no cache to go stale). ----
+
+  private scheduleRows() {
+    return this.sql
+      .exec("SELECT * FROM schedules ORDER BY created_at")
+      .toArray()
+      .map((r) => ({
+        id: r.id as string,
+        title: r.title as string,
+        body: r.body as string,
+        at: r.at as string,
+        tz: r.tz as string,
+        days: JSON.parse(r.days as string) as Day[],
+        enabled: r.enabled === 1,
+        created_by: r.created_by as string,
+        created_at: r.created_at as number,
+        updated_at: r.updated_at as number,
+        fires: r.fires as number,
+        last_fired_at: (r.last_fired_at as number | null) ?? null,
+        last_seq: (r.last_seq as number | null) ?? null,
+        dropped: r.dropped as number,
+        handled: r.handled as number,
+      }));
+  }
+  private publicSchedule(s: ReturnType<Board["scheduleRows"]>[number], now = Date.now()): Schedule {
+    const { handled, ...pub } = s;
+    return { ...pub, days: [...s.days], when: scheduleLabel(s), next_run: s.enabled ? nextDue(s, Math.max(now, handled)) : null };
+  }
+
+  async schedules(): Promise<Schedule[]> {
+    this.info();
+    return this.scheduleRows().map((s) => this.publicSchedule(s));
+  }
+
+  /** A person's new schedule (the Worker has checked it's a person who can post here). */
+  async scheduleAdd(user: string, input: { title?: unknown; body?: unknown; at?: unknown; tz?: unknown; days?: unknown; enabled?: unknown }): Promise<Schedule> {
+    const info = this.info();
+    if (info.archived) throw new BoardError(`"${info.title}" is archived, so it's read-only. Its creator can restore it.`);
+    if (info.encrypted) throw new BoardError(`"${info.title}" is end-to-end encrypted, and a schedule's tasks would be posted in plain text, so it can't have schedules.`);
+    let c;
+    try {
+      c = cleanSchedule(input);
+    } catch (e) {
+      throw new BoardError(e instanceof Error ? e.message : String(e));
+    }
+    if (this.scheduleRows().length >= MAX_SCHEDULES) throw new BoardError(`This board has ${MAX_SCHEDULES} schedules, the most it can have. Remove one first.`);
+    const id = "sc_" + crypto.randomUUID().replace(/-/g, "").slice(0, 12);
+    const now = Date.now();
+    // A due time that has already passed (earlier today) doesn't fire: the first is the next one.
+    this.sql.exec(
+      "INSERT INTO schedules (id, title, body, at, tz, days, enabled, created_by, created_at, updated_at, handled) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      id, c.title, c.body, c.at, c.tz, JSON.stringify(c.days), input.enabled === false ? 0 : 1, user, now, now, lastDue(c, now) ?? 0,
+    );
+    try {
+      await this.boardScheduleIndex(now);
+    } catch {
+      // Not indexed means the cron would never find it: don't keep a schedule that can't fire.
+      this.sql.exec("DELETE FROM schedules WHERE id = ?", id);
+      throw new BoardError("Couldn't save the schedule just now. Try again.");
+    }
+    this.broadcast({ type: "schedule", action: "add", id });
+    return this.publicSchedule(this.scheduleRows().find((x) => x.id === id)!, now);
+  }
+
+  /** Change a schedule: its creator, or an owner (manager). Any of title, body, at, tz, days, enabled. */
+  async scheduleUpdate(user: string, id: string, patch: { title?: unknown; body?: unknown; at?: unknown; tz?: unknown; days?: unknown; enabled?: unknown }, manager = false): Promise<Schedule> {
+    const info = this.info();
+    const s = this.scheduleRows().find((x) => x.id === id);
+    if (!s) throw new BoardError(`No schedule ${id} on this board.`);
+    if (s.created_by !== user && info.created_by !== user && !manager) throw new BoardError(`Only ${s.created_by}, who made ${id}, or an owner of this board can change it.`);
+    if (info.archived) throw new BoardError(`"${info.title}" is archived, so it's read-only. Its creator can restore it.`);
+    if (patch.enabled !== undefined && typeof patch.enabled !== "boolean") throw new BoardError("enabled is true or false.");
+    let c;
+    try {
+      c = cleanSchedule({
+        title: patch.title !== undefined ? patch.title : s.title,
+        body: patch.body !== undefined ? patch.body : s.body,
+        at: patch.at !== undefined ? patch.at : s.at,
+        tz: patch.tz !== undefined ? patch.tz : s.tz,
+        days: patch.days !== undefined ? patch.days : s.days,
+      });
+    } catch (e) {
+      throw new BoardError(e instanceof Error ? e.message : String(e));
+    }
+    const enabled = typeof patch.enabled === "boolean" ? patch.enabled : s.enabled;
+    const now = Date.now();
+    // A new time, or switching it back on, starts from now: a due time that passed meanwhile doesn't fire late.
+    const restart = c.at !== s.at || c.tz !== s.tz || c.days.join() !== s.days.join() || (enabled && !s.enabled);
+    const handled = restart ? Math.max(s.handled, lastDue(c, now) ?? 0) : s.handled;
+    this.sql.exec(
+      "UPDATE schedules SET title = ?, body = ?, at = ?, tz = ?, days = ?, enabled = ?, updated_at = ?, handled = ? WHERE id = ?",
+      c.title, c.body, c.at, c.tz, JSON.stringify(c.days), enabled ? 1 : 0, now, handled, id,
+    );
+    await this.boardScheduleIndex(now).catch((e) => console.error("schedule index failed", e));
+    this.broadcast({ type: "schedule", action: "update", id });
+    return this.publicSchedule(this.scheduleRows().find((x) => x.id === id)!, now);
+  }
+
+  /** Remove a schedule: its creator, or an owner (manager). */
+  async scheduleRemove(user: string, id: string, manager = false): Promise<void> {
+    const info = this.info();
+    const s = this.scheduleRows().find((x) => x.id === id);
+    if (!s) throw new BoardError(`No schedule ${id} on this board.`);
+    if (s.created_by !== user && info.created_by !== user && !manager) throw new BoardError(`Only ${s.created_by}, who made ${id}, or an owner of this board can remove it.`);
+    this.sql.exec("DELETE FROM schedules WHERE id = ?", id);
+    await this.env.DB.prepare("DELETE FROM board_schedules WHERE board_id = ? AND schedule_id = ?").bind(this.meta("id"), id).run().catch(() => {});
+    this.broadcast({ type: "schedule", action: "remove", id });
+  }
+
+  /** The cron's D1 index: each enabled schedule's next due time, so the cron wakes only boards with one due. */
+  private async boardScheduleIndex(now: number) {
+    const board = this.meta("id");
+    if (!board) return;
+    const rows = this.scheduleRows();
+    const stmts = [this.env.DB.prepare("DELETE FROM board_schedules WHERE board_id = ?").bind(board)];
+    for (const s of rows) {
+      const next = s.enabled ? nextDue(s, Math.max(now, s.handled)) : null;
+      if (next != null) stmts.push(this.env.DB.prepare("INSERT OR REPLACE INTO board_schedules (board_id, schedule_id, next_at) VALUES (?, ?, ?)").bind(board, s.id, next));
+    }
+    await this.env.DB.batch(stmts);
+  }
+
+  /**
+   * The cron at `now`: each enabled schedule whose latest due time hasn't been handled posts its task (once: the
+   * due time is marked handled before anything else). A due time more than SCHEDULE_LATE_MS ago is skipped; past the
+   * board's hourly limit (real time) it's dropped and counted. Returns how many tasks it posted.
+   */
+  async runBoardSchedules(now = Date.now()): Promise<number> {
+    if (!this.meta("id")) return 0;
+    const info = this.info();
+    let n = 0;
+    for (const s of this.scheduleRows()) {
+      if (!s.enabled) continue;
+      const a = tickAction(s, s.handled, now);
+      if (!a) continue;
+      this.sql.exec("UPDATE schedules SET handled = ? WHERE id = ?", a.due, s.id);
+      if (a.act !== "fire" || info.archived || info.encrypted) continue;
+      const real = Date.now();
+      this.sql.exec("DELETE FROM schedule_fires WHERE ts < ?", real - 86_400_000);
+      const recent = this.sql.exec("SELECT COUNT(*) AS n FROM schedule_fires WHERE ts > ?", real - 3_600_000).one().n as number;
+      if (recent >= SCHEDULE_FIRES_PER_HOUR) {
+        this.sql.exec("UPDATE schedules SET dropped = dropped + 1 WHERE id = ?", s.id);
+        continue;
+      }
+      this.sql.exec("INSERT INTO schedule_fires (ts) VALUES (?)", real);
+      try {
+        const e = await this.post(s.created_by, { type: "task", title: `🔁 ${s.title}`, text: taskText(s), reply_to: 0, via: "person" }, { scheduled: true });
+        this.sql.exec("UPDATE schedules SET fires = fires + 1, last_fired_at = ?, last_seq = ? WHERE id = ?", Date.now(), e.seq, s.id);
+        this.broadcast({ type: "schedule", action: "fire", id: s.id, seq: e.seq });
+        n++;
+      } catch (e) {
+        console.error("schedule post failed", s.id, e);
+        this.sql.exec("UPDATE schedules SET dropped = dropped + 1 WHERE id = ?", s.id);
+      }
+    }
+    await this.boardScheduleIndex(now).catch((e) => console.error("schedule index failed", e));
+    if (n) await this.env.DB.prepare("UPDATE boards SET entry_count = MAX(entry_count, ?), last_activity = ? WHERE id = ?").bind(this.info().last_seq, Date.now(), info.id).run().catch(() => {});
+    return n;
   }
 
   // ---- approvals (approvals.ts) on a board: an "approval" entry everyone sees; its status is kept current ----
@@ -1778,9 +1963,16 @@ export class Board extends DurableObject<Env> {
 
   /** Drops a member's cursor and ends any wait they have in progress. Access itself is enforced by the Worker. */
   async removeMember(user: string): Promise<void> {
-    // Their triggers go with them (they could only ever wake their own agent).
+    // Their triggers go with them (they could only ever wake their own agent), and so do their schedules (which post
+    // in their name).
     const theirs = this.triggerRows().filter((t) => t.created_by === user);
     for (const t of theirs) await this.dropTrigger(t);
+    const sched = this.scheduleRows().filter((x) => x.created_by === user);
+    if (sched.length) {
+      for (const x of sched) this.sql.exec("DELETE FROM schedules WHERE id = ?", x.id);
+      await this.boardScheduleIndex(Date.now()).catch(() => {});
+      for (const x of sched) this.broadcast({ type: "schedule", action: "remove", id: x.id });
+    }
     this.sql.exec("DELETE FROM members WHERE name = ?", user);
     this.sql.exec("DELETE FROM session_cursors WHERE user = ?", user);
     this.touched.delete(user);
@@ -3080,6 +3272,7 @@ export class Board extends DurableObject<Env> {
   async destroy(): Promise<void> {
     const id = this.meta("id");
     if (id) await this.env.DB.prepare("DELETE FROM trigger_schedules WHERE board_id = ?").bind(id).run().catch(() => {});
+    if (id) await this.env.DB.prepare("DELETE FROM board_schedules WHERE board_id = ?").bind(id).run().catch(() => {});
     this.triggerMemo = null;
     for (const ws of this.ctx.getWebSockets()) {
       try {

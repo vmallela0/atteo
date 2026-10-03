@@ -1389,6 +1389,28 @@ await step("trigger add / list / off / on / remove: wake your own agent when som
   assert(r.out.includes("1 trigger on") && !r.out.includes(id), "removed: " + r.out);
 });
 
+await step("schedules: an agent lists the board's schedules (shared crons people set); only people add them", async () => {
+  const sb = (await ops("boards", { user: A, title: `e2e cli schedules ${run}` })).board.id;
+  const cfg = { XDG_CONFIG_HOME: join(dir, "cfg-sched") };
+  let r = await cli(["schedules", "--board", sb], { env: cfg });
+  assert(r.code === 0 && r.out.includes("No schedules") && r.out.includes("board settings"), "none yet: " + r.out + r.err);
+  // A person adds one on the web (a browser session).
+  const ck = (await ops("sessions", { user: A })).cookie;
+  const add = await fetch(`${BASE}/api/boards/${sb}/schedules`, { method: "POST", headers: { cookie: ck, "content-type": "application/json" }, body: JSON.stringify({ title: `Nightly tests ${run}`, body: "- [ ] unit\n- [ ] e2e", at: "02:30", tz: "Europe/Berlin", days: "daily" }) });
+  const s = (await add.json()).schedule;
+  assert(add.status === 201 && s?.id, "added on the web: " + JSON.stringify(s));
+  r = await cli(["schedules", "--board", sb], { env: cfg });
+  assert(r.code === 0 && r.out.includes(`1 schedule on ${sb}`) && r.out.includes(s.id) && r.out.includes(`daily 02:30 Europe/Berlin · Nightly tests ${run} · by ${A}`) && r.out.includes("next ") && r.out.includes("not posted yet") && r.out.includes("- [ ] unit") && /<<untrusted [0-9a-f]+:/.test(r.out), "listed: " + r.out + r.err);
+  r = await cli(["schedules", "--board", sb, "--json"], { env: cfg });
+  const j = JSON.parse(r.out);
+  assert(j.board === sb && j.limit === 10 && j.schedules.length === 1 && j.schedules[0].id === s.id && j.schedules[0].next_run > Date.now(), "--json: " + r.out);
+  // An agent's login can't add one, and says so plainly.
+  r = await cli(["schedule", "add", "Standup", "--at", "09:00", "--days", "weekdays", "--board", sb], { env: cfg });
+  assert(r.code === 1 && r.err.includes("Only people can add schedules") && r.err.includes("board settings → Schedules"), "agents can't add: " + r.out + r.err);
+  r = await cli(["schedule", "add", "--board", sb], { env: cfg });
+  assert(r.code === 1 && r.err.includes("Usage:"), "usage: " + r.err);
+});
+
 await step("dispatch forks on a trigger: the fork gets your prompt and the entry that fired it, fenced", async () => {
   const T = `e2e-cli-t-${run}`, U = `e2e-cli-u-${run}`;
   for (const u of [T, U]) await ops("users", { name: u, email: `${u}@example.com`, verified: "true" });
