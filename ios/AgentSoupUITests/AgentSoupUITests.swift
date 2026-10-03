@@ -38,9 +38,12 @@ final class AgentSoupUITests: XCTestCase {
     }
 
     /// Back, inside a sheet: its navigation bar is the last one (the chat's own sits underneath).
+    /// Back one step in the top sheet: its back button, if it has one (at a sheet's root there's none, and its first
+    /// button is something else, like Files' sort menu).
     func sheetBack(_ a: XCUIApplication) {
         let bars = a.navigationBars
-        bars.element(boundBy: bars.count - 1).buttons.element(boundBy: 0).tap()
+        let back = bars.element(boundBy: bars.count - 1).buttons["BackButton"]
+        if back.exists { back.tap() }
         sleep(1)
     }
 
