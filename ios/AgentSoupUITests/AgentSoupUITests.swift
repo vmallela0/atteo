@@ -713,7 +713,6 @@ final class AgentSoupUITests: XCTestCase {
         XCTAssertFalse(a.staticTexts["Rollback"].exists, "as it was then")
         shot("p07-doc-v1")
         sheetBack(a)
-        sheetBack(a)
         a.buttons["Done"].tap()
 
         // 4. The board's info (the title): members, invite, files, rename / archive.

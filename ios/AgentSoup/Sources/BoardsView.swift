@@ -210,7 +210,7 @@ struct BoardView: View {
         }
         .safeAreaInset(edge: .top, spacing: 0) { WorkStrip(tasks: state.tasks[board.id] ?? []) { Haptic.tap(); showTasks = true } }
         .safeAreaInset(edge: .bottom, spacing: 0) { composer }
-        .sheet(isPresented: $showTasks) { TasksSheet(board: board).presentationDetents([.medium, .large]).presentationBackground(Theme.bg) }
+        .sheet(isPresented: $showTasks) { TasksSheet(board: board).presentationDetents([.large]).presentationBackground(Theme.bg) }
         .sheet(item: $workPane) { p in TasksSheet(board: board, initial: p).presentationDetents([.large]).presentationBackground(Theme.bg) }
         .navigationTitle(board.displayName(me: state.me?.owner))
         .toolbar {
