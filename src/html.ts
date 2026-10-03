@@ -1037,13 +1037,15 @@ if(!ta.value){const d=draftLoad('');if(d){ta.value=d;setTimeout(()=>{msync();ta.
 // Reply: points the main composer at a message, with a slim "Replying to …" line above it (✕ or Esc cancels; clicking
 // it shows the message). The reply lands in that message's thread. Each reply keeps its own draft, and an unsent reply
 // is still a reply after a reload.
+/** The name a message's header shows: "vedu/scout" for a named agent session, else "vedu's agent" or the person. */
+const headName=el=>el.querySelector(':scope>.grow>.meta>.who')?.textContent||(el.dataset.author+(el.classList.contains('by-agent')?"'s agent":''));
 const rpBox=document.getElementById('replying'),rpTo=document.getElementById('reply-to');let rpAt='';
 const draftNow=()=>rpTo.value?'r'+rpTo.value:'';
 const taFit=()=>{ta.style.height='';if(ta.value)ta.style.height=ta.scrollHeight+2+'px';msync()};
 function replyTo(seq,focus=true){const el=document.getElementById('e'+seq);if(!el||READONLY)return;
   if(+rpTo.value!==seq){draftSave(draftNow(),ta.value);rpTo.value=String(seq);ta.value=draftLoad('r'+seq)}
   const by=el.dataset.author,who=el.classList.contains('by-agent')?by+"'s agent":by;
-  document.getElementById('replying-who').textContent=who===ME?'yourself':who===ME+"'s agent"?'your agent':who;
+  const named=headName(el);document.getElementById('replying-who').textContent=who===ME?'yourself':named.includes('/')?named:who===ME+"'s agent"?'your agent':who;
   const body=el.querySelector(':scope>.grow>.body');document.getElementById('replying-text').textContent=((body?.innerText||body?.textContent||'').trim().split('\\n')[0]||'').slice(0,160);
   rpBox.hidden=false;try{localStorage.setItem(draftKey('to'),String(seq))}catch(e){}
   // Replying to someone else mentions them, like Slack, so their agent sees it's for them.
@@ -1455,13 +1457,14 @@ const avatar16=(u,agent)=>'<span class="av sm'+(agent?' agent':'')+'" style="--h
 function thrSum(root){const top=document.getElementById('e'+root);if(!top)return;const kids=[...(document.getElementById('r'+root)?.querySelectorAll('.entry')||[])];
   let b=top.querySelector(':scope>.grow>.thr-sum');if(!kids.length){b?.remove();return}
   if(!b){b=document.createElement('button');b.type='button';b.className='thr-sum';b.dataset.thread=root;top.querySelector(':scope>.grow>.replies').before(b)}
-  for(const k of kids){const r=k.querySelector(':scope>.grow>.refs');if(r&&r.textContent.trim()==='reply to #'+root)r.hidden=true} // obvious inside its own thread
+  // "reply to <the thread's message>" is obvious inside its own thread (its link may already read as a titled chip)
+  for(const k of kids){const r=k.querySelector(':scope>.grow>.refs'),a=r?.querySelectorAll('a.ref');if(a?.length===1&&a[0].dataset.ref===String(root)&&/^reply to\\s/.test(r.textContent.trim()))r.hidden=true}
   const open=top.classList.contains('thr-open');b.setAttribute('aria-expanded',String(open));
   if(open){b.innerHTML='<b>Hide replies</b>';b.setAttribute('aria-label','Hide replies');return}
   const who=[];for(const k of kids){const key=k.dataset.author+(k.classList.contains('by-agent')?'/a':'');if(!who.includes(key))who.push(key)}
   const lastT=kids[kids.length-1]?.querySelector('time[data-ts]');
   // The latest three replies, one line each, so new answers show without opening the thread.
-  const peek=kids.slice(-3).map(k=>'<span class="thr-line"><b>'+esc(k.dataset.author+(k.classList.contains('by-agent')?"'s agent":''))+'</b> '+esc((k.querySelector(':scope>.grow>.body')?.textContent||'').trim().slice(0,200))+'</span>').join('');
+  const peek=kids.slice(-3).map(k=>'<span class="thr-line"><b>'+esc(headName(k))+'</b> '+esc((k.querySelector(':scope>.grow>.body')?.textContent||'').trim().slice(0,200))+'</span>').join('');
   b.innerHTML='<span class="thr-head"><span class="avs">'+who.slice(0,3).map(w=>avatar16(w.split('/')[0],w.endsWith('/a'))).join('')+'</span><b>'+kids.length+' repl'+(kids.length===1?'y':'ies')+'</b><span class="faint">'+(lastT?'last '+lastT.textContent:'')+'</span></span>'+peek;
   b.setAttribute('aria-label','Show '+kids.length+' repl'+(kids.length===1?'y':'ies'))}
 /** Opens a message's thread in place (replies are written in the main composer: see Reply). */
