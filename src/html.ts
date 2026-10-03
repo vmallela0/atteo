@@ -928,8 +928,12 @@ const AG_LABEL={live:'working now',idle:'idle',gone:'gone'};
 function agRow(a){const nm=a.name?a.user+'/'+a.name:a.user+"'s agent",st=AG_LABEL[a.state]?a.state:'gone';
   const tip=a.name?a.user+"'s agent session \\""+a.name+'"'+(a.client?' ('+a.client+')':'')+'. Mention it as @'+a.user+'/'+a.name:a.user+"'s agent";
   return '<li class="ag-row" data-k="'+esc(a.user+'/'+(a.name||''))+'" data-state="'+st+'" title="'+esc(tip)+'">'+avatar16(a.user,true)+'<span class="grow ag-main"><span class="truncate"><span class="ag-dot '+st+'" role="img" aria-label="'+AG_LABEL[st]+'" title="'+AG_LABEL[st]+'"></span><span class="ag-name">'+esc(nm)+'</span>'+(a.client?' <span class="xs faint">'+esc(a.client)+'</span>':'')+'</span>'+(a.status?'<span class="ag-status truncate">'+esc(a.status)+'</span>':'')+'</span><time class="when" datetime="'+new Date(a.last_seen).toISOString()+'" data-ts="'+a.last_seen+'" title="'+new Date(a.last_seen).toUTCString()+'"></time></li>'}
-window.agentsRefresh=async()=>{if(document.hidden)return;const box=document.getElementById('agents');if(!box)return;
-  const r=await fetch('/api/boards/'+BOARD+'/agents').catch(()=>null);if(!r||!r.ok)return;const ag=(await r.json()).agents||[];
+let agentsAt=0;window.agentsRefresh=async()=>{if(document.hidden)return;const box=document.getElementById('agents');if(!box)return;
+  const r=await fetch('/api/boards/'+BOARD+'/agents').catch(()=>null);if(!r||!r.ok)return;const ag=(await r.json()).agents||[];agentsAt=Date.now();
+  // The @ menu's sessions follow too, so a renamed or new session is mentionable without a reload (jxn #986).
+  for(let i=MOPTS.length-1;i>=0;i--)if(MOPTS[i].ins.includes('/'))MOPTS.splice(i,1);
+  for(const a of ag){if(!a.name)continue;const at=MOPTS.findIndex(o=>o.ins===a.user+"'s agent");if(at<0)continue;
+    MOPTS.splice(at+1,0,{u:a.user,ins:a.user+'/'+a.name,label:'<span class="faint">'+esc(a.user)+'/</span>'+esc(a.name),k:a.client||'agent',av:avatar16(a.user,true),sub:true})}
   const cur=box.querySelector('.ag-list')||box.querySelector('.fold-b>.none'),old={};box.querySelectorAll('.ag-row').forEach(li=>old[li.dataset.k]=li.querySelector('.av'));
   const t=document.createElement('div');t.innerHTML=ag.length?'<ul class="ag-list">'+ag.map(agRow).join('')+'</ul>':'<p class="none">No agents on this board yet.</p>';
   t.querySelectorAll('.ag-row').forEach(li=>{const av=old[li.dataset.k];if(av)li.querySelector('.av').replaceWith(av)});cur.replaceWith(t.firstElementChild);
@@ -979,7 +983,7 @@ let mi=0,ms=[],mq=null;
 function mfind(){if(ta.selectionStart!==ta.selectionEnd)return null;const v=ta.value.slice(0,ta.selectionStart);
   const m=v.match(/(^|[^A-Za-z0-9_.@\\/-])@([A-Za-z0-9_.-]{0,32}(?:\\/[A-Za-z0-9_.-]{0,32})?)$/);return m?{start:v.length-m[2].length-1,q:m[2].toLowerCase()}:null}
 function mclose(){mm.hidden=true;ms=[];ta.setAttribute('aria-expanded','false');ta.removeAttribute('aria-activedescendant')}
-function mrender(){mq=mfind();ms=mq?MOPTS.filter(o=>mq.q.includes('/')?o.ins.toLowerCase().startsWith(mq.q):o.u.startsWith(mq.q)):[];if(!ms.length)return mclose();mi=Math.min(mi,ms.length-1);
+function mrender(){mq=mfind();if(mq&&window.agentsRefresh&&Date.now()-agentsAt>10000){agentsAt=Date.now();agentsRefresh().then(()=>{if(!mm.hidden||mfind())mrender()})}ms=mq?MOPTS.filter(o=>mq.q.includes('/')?o.ins.toLowerCase().startsWith(mq.q):o.u.startsWith(mq.q)):[];if(!ms.length)return mclose();mi=Math.min(mi,ms.length-1);
   mm.innerHTML='<li class="hint" aria-hidden="true">Mention a person or their agent</li>'+ms.map((o,i)=>'<li role="option"'+(o.sub?' class="sub"':'')+' id="'+mm.id+'-'+i+'" data-i="'+i+'" aria-selected="'+(i===mi)+'">'+o.av+'<span class="truncate">'+o.label+'</span><span class="k">'+o.k+'</span></li>').join('');
   mm.hidden=false;ta.setAttribute('aria-expanded','true');ta.setAttribute('aria-activedescendant',mm.id+'-'+mi)}
 function mpick(o){const end=ta.selectionStart,before=ta.value.slice(0,mq.start),after=ta.value.slice(end);const ins='@'+o.ins+(/^\\s/.test(after)?'':' ');
