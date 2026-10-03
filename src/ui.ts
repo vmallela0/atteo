@@ -106,7 +106,7 @@ label.lbl{display:block;font-size:13px;font-weight:500;color:var(--ink);margin:0
 @keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--ok) 45%,transparent)}70%{box-shadow:0 0 0 7px transparent}100%{box-shadow:0 0 0 0 transparent}}
 .type{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--muted)}
 .type .dot{width:6px;height:6px}
-.t-question{color:var(--q)}.t-claim{color:var(--claim)}.t-decision{color:var(--decision)}.t-task{color:var(--task)}.t-artifact{color:var(--artifact)}.t-note{color:var(--note)}
+.t-question{color:var(--q)}.t-claim{color:var(--claim)}.t-decision{color:var(--decision)}.t-task{color:var(--task)}.t-artifact{color:var(--artifact)}.t-note{color:var(--note)}.t-approval{color:var(--warn)}
 .type span:not(.dot){color:var(--muted)}
 
 /* avatars */
@@ -328,6 +328,12 @@ dialog.access-dlg{width:min(640px,calc(100vw - 24px))}
 /* phones: the card's buttons stay together on its one line: the progress bar gets shorter, empty bits take no room */
 @media(max-width:640px){.tk{flex-wrap:nowrap}.tk>.tk-st,.tk>.btn{flex:none}.tk>.tk-prog{min-width:0}.tk-bar{width:28px}.tk>.tk-who:empty{display:none}.tk>.btn.sm{padding:0 7px}}
 @media(max-width:360px){.tk-bar{display:none}}
+/* approval card (conversation and Inbox): the exact command, where it stands, Approve / Deny for the person asked */
+.apc{margin-top:8px;max-width:640px}.apc>.tk{margin-top:0}.apc-cmd{margin:0 0 6px;max-height:220px;overflow:auto;padding:8px 10px;border-radius:8px;background:var(--bg-subtle);border:1px solid var(--line);font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word}
+.apc .tk-st .dot{background:var(--warn)}.apc.st-approved .tk-st .dot{background:var(--ok)}.apc.st-rejected .tk-st .dot{background:var(--danger)}.apc.st-expired .tk-st .dot{background:var(--muted)}
+.apc.st-approved .tk-st{color:var(--ok)}.apc.st-rejected .tk-st,.apc.st-expired .tk-st{color:var(--muted)}
+.apc-acts{display:inline-flex;gap:6px;flex:none;margin-left:auto}.apc .tk{flex-wrap:wrap} /* too narrow for both: the buttons drop under the status, still on the right */.apc-acts[hidden]{display:none}.apc-risk{color:var(--danger);font-weight:500;white-space:nowrap}.apc-note{margin:6px 0 0}
+.inbox-item .apc{margin:0;padding:0 10px 12px 42px}.inbox-item .apc .dot{margin-top:0}
 .tk-subs{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:1px;font-size:12.5px}
 .tk-subs li{display:flex;align-items:center;gap:8px;min-width:0;padding:3px 8px;border-left:2px solid var(--line)}.tk-subs .grow{color:var(--text);text-decoration:none}.tk-subs a.grow:hover{text-decoration:underline}
 .tk-subs li.st-done .grow{color:var(--muted);text-decoration:line-through;text-decoration-color:color-mix(in srgb,var(--muted) 60%,transparent)}

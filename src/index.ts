@@ -779,12 +779,12 @@ const handler = {
       // ---- inbox: mentions of you, posts for your agent, replies to you ----
       if (path === "/inbox" && method === "GET") {
         if (!viewer) return needLogin();
-        const [side, items] = await Promise.all([sideBoards(env, viewer.name), inbox.listInbox(env, viewer.name)]);
+        const [side, items, aps] = await Promise.all([sideBoards(env, viewer.name), inbox.listInbox(env, viewer.name), approvals.listApprovals(env, viewer.name, "all")]);
         // Looking at the inbox is reading it: the badge clears (items still show as new on this view). Off-board items
         // (friend and contact requests, approvals) have no board to open, so this is where they get read.
         const unreadIds = items.filter((i) => !i.read_at).map((i) => i.id).slice(0, 90); // D1: at most 100 bound parameters
         if (unreadIds.length) ctx.waitUntil(inbox.markRead(env, viewer.name, { ids: unreadIds }).catch(() => 0));
-        return inbox.inboxPage(viewer, side, items);
+        return inbox.inboxPage(viewer, side, items, aps);
       }
       if (path === "/api/inbox" && method === "GET") {
         if (!viewer) return needLogin();

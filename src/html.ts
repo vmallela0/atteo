@@ -15,6 +15,7 @@ import { appPage, avatar, avatarStack, boardPic, copyField, hue, page, renderTex
 import { esc, pictureUrl } from "./util";
 import { stateOf } from "./sessions";
 import { E2E_JS } from "./e2eweb";
+import { approvalCardHtml, approvalJs, type ApprovalCardData } from "./approvalCard";
 
 export type { Viewer, SideBoard };
 
@@ -100,11 +101,13 @@ ${
   // Touch screens have no hover: a small ⋯ at the end of the line opens the actions (jxn #891); hidden with a mouse.
   const more = react || reply || retract ? `<button class="more-acts" type="button" data-more="${e.seq}" aria-label="More actions" aria-expanded="false" title="More actions">⋯</button>` : "";
   const actions = react || reply || retract ? `${more}<span class="acts">${react}${reply}${select}${retract}</span>` : "";
+  // An approval entry: the card says where it stands, so the message is just what's asked (its text, for agents, says "waiting").
+  const apr = (e as Entry & { approval?: ApprovalCardData & { title?: string } }).approval;
   return `<article class="entry${opts.retracted ? " retracted" : ""}${e.via === "agent" ? " by-agent" : ""}" id="e${e.seq}" data-seq="${e.seq}" data-author="${esc(e.author)}" data-title="${esc(shortTitle(e))}">
 ${avatar(e.author, "", e.via === "agent")}
 <div class="grow">
   <div class="meta">${whoHtml(e)}${e.to ? `<span class="to">→ ${esc(e.to)}</span>` : ""}${e.type === "note" ? "" : typeTag(e.type)}${when(e.ts)}<a class="seq" href="#e${e.seq}">#${e.seq}</a><span class="badge rbadge">Unsent</span>${flagBadge(e.text, e.ai_flag)}${actions}</div>
-  <div class="body">${refLinks(renderText(e.text, e.mentions))}</div>${file}${e.card ? changeCardHtml(e.seq, e.card) : ""}${e.type === "task" ? `<div class="tk" data-task="${e.seq}" hidden></div>` : ""}${e.type === "claim" && !opts.retracted ? `<div class="tk cl" data-claim="${e.seq}" hidden></div>` : ""}${e.type === "decision" && e.via === "person" && !opts.retracted ? `<div class="tk hd" data-hd="${e.seq}" hidden></div>` : ""}
+  <div class="body">${apr?.title ? `<p>${esc(apr.title)}</p>` : refLinks(renderText(e.text, e.mentions))}</div>${file}${e.card ? changeCardHtml(e.seq, e.card) : ""}${apr && !opts.retracted ? approvalCardHtml(apr) : ""}${e.type === "task" ? `<div class="tk" data-task="${e.seq}" hidden></div>` : ""}${e.type === "claim" && !opts.retracted ? `<div class="tk cl" data-claim="${e.seq}" hidden></div>` : ""}${e.type === "decision" && e.via === "person" && !opts.retracted ? `<div class="tk hd" data-hd="${e.seq}" hidden></div>` : ""}
   ${refs.length ? `<div class="refs">${refs.join(" · ")}</div>` : ""}
   <div class="rx" data-rx="${e.seq}"><button class="rx-add" type="button" data-rx-add="${e.seq}" aria-label="Add a reaction" title="Add a reaction">☺<span>+</span></button></div>
   ${withReplies ? `<div class="replies" id="r${e.seq}"></div>` : ""}
@@ -898,7 +901,7 @@ function addEntry(e){if(document.getElementById('e'+e.seq)){last=Math.max(last,e
     if(box){el.querySelector('.replies')?.remove();box.appendChild(el)}else{document.getElementById('empty')?.remove();document.getElementById('thread').appendChild(el)}
     const rx=RXP[e.seq]||e.reactions;if(rx)renderRx(e.seq,rx);
     if(e.human_decision){HDS[e.seq]=e.human_decision;renderHD(e.seq)}
-    refChips(el);
+    refChips(el);window.apcMark&&apcMark(el);
     if(el.querySelector('[data-task]'))refreshTask(e.seq);
     if(box){thrSum(e.root);setTimeout(()=>window.reportSeen&&reportSeen(),0)}
     if(!document.querySelector('#log-body tr[data-seq="'+e.seq+'"]')){const lt=document.createElement('tbody');lt.innerHTML=e.row;document.getElementById('log-body').prepend(lt.firstElementChild);document.getElementById('log-empty')?.remove()}
@@ -917,6 +920,7 @@ function connect(){
     if(d.type==='doc'){window.onDocChanged&&onDocChanged(d);if(window.pinRefresh&&PIN&&PIN.name===d.name)pinRefresh()}
     if(d.type==='pin'){window.pinRefresh&&pinRefresh();return}
     if(d.type==='reaction'){renderRx(d.seq,d.reactions);return}
+    if(d.type==='approval'){window.apcApply&&apcApply(d.approval);return}
     if(d.type==='typing'){if(d.who!==ME){TYPERS.set(d.who,d.until);typingSync()}return}
     if(d.type==='typing-agents')return; // agents don't show as typing (jxn #777): their 🤔 under the message says it
     if(d.type==='decision'){HDS[d.seq]=d.human_decision;renderHD(d.seq);return}
@@ -975,6 +979,8 @@ window.postFailed=(j)=>{document.querySelectorAll('#thread .entry.pending').forE
 const MOPTS=${jsString(mentionOptions(members.map((m) => m.user), viewer.name, agents))};
 const MNAMES=new Set(MOPTS.map(o=>o.u)),ME=${jsString(viewer.name)};
 // "@you" glows, and so does the message it's in, including ones that arrive live.
+// Approval cards: the person asked gets Approve / Deny in place; a decision made anywhere shows up live.
+${approvalJs(viewer.name)}
 function markMe(root){root.querySelectorAll('.mention:not(.agent)').forEach(m=>{if(m.dataset.user===ME){m.classList.add('me');m.closest('.entry')?.classList.add('for-you')}})}
 markMe(document.getElementById('thread'));
 new MutationObserver(ms=>ms.forEach(m=>m.addedNodes.forEach(n=>{if(n.nodeType===1)markMe(n)}))).observe(document.getElementById('thread'),{childList:true,subtree:true});
