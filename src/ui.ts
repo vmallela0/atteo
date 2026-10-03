@@ -152,8 +152,11 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
 :root[data-theme="dark"] dialog{background:#141414;border-color:var(--line-strong)}
 dialog .hd{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:20px 22px 0}
 dialog .bd{padding:16px 22px 22px}
-.crop-dlg{width:min(340px,calc(100vw - 24px))}.crop-dlg .bd{display:grid;gap:12px;padding:16px}.crop-dlg canvas{width:100%;aspect-ratio:1;border-radius:12px;background:var(--bg-subtle);touch-action:none;cursor:grab}
-.crop-dlg canvas:active{cursor:grabbing}.crop-row{display:flex;align-items:center;gap:10px}.crop-row input[type=range]{flex:1;min-width:0;accent-color:var(--ink)}
+.crop-dlg{width:min(360px,calc(100vw - 24px));max-height:calc(100dvh - 24px);margin:auto;overflow:hidden}
+.crop-dlg[open]{display:flex;flex-direction:column}.crop-dlg .bd{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;padding:16px;min-height:0;overflow-y:auto}
+.crop-dlg canvas{display:block;width:100%;height:auto;min-width:0;aspect-ratio:1;border-radius:12px;background:var(--bg-subtle);touch-action:none;cursor:grab}
+.crop-dlg canvas:active{cursor:grabbing}.crop-row{display:flex;align-items:center;gap:10px;min-width:0}.crop-row .xs{flex:0 0 56px}.crop-row input[type=range]{flex:1 1 0;min-width:0;accent-color:var(--ink)}
+.crop-foot{display:flex;justify-content:space-between;gap:12px;padding:0 16px 16px}
 dialog[open]{animation:pop .16s ease-out}dialog:focus{outline:none}
 @keyframes pop{from{opacity:0;transform:translateY(6px) scale(.985)}to{opacity:1;transform:none}}
 
