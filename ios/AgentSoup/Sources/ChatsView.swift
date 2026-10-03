@@ -5,6 +5,7 @@ import SwiftUI
 
 struct ChatsView: View {
     @EnvironmentObject var state: AppState
+    @Environment(\.chatDensity) private var density
     @State private var query = ""
     @State private var found: CrossSearchResponse? // messages across your boards that match the search
     @State private var path: [Board] = []
@@ -34,8 +35,9 @@ struct ChatsView: View {
         return all.filter { $0.title.localizedCaseInsensitiveContains(query) || ($0.last?.text.localizedCaseInsensitiveContains(query) ?? false) || ($0.last?.by.localizedCaseInsensitiveContains(query) ?? false) }
     }
 
-    /// Rows sit on the page edge to edge, 16 pt in, with the text column lined up across every row.
-    private let rowInsets = EdgeInsets(top: Space.s, leading: Space.l, bottom: Space.s, trailing: Space.l)
+    /// Rows sit on the page edge to edge, 16 pt in, with the text column lined up across every row (closer together
+    /// when Display → Density is Compact).
+    private var rowInsets: EdgeInsets { EdgeInsets(top: Space.row(density), leading: Space.l, bottom: Space.row(density), trailing: Space.l) }
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -144,7 +146,7 @@ struct ChatsView: View {
                     .accessibilityLabel("Your agents")
                 }
             }
-            .sheet(isPresented: $showSettings) { SettingsView().presentationBackground(Theme.bg) }
+            .sheet(isPresented: $showSettings) { SettingsView().presentationBackground(Theme.bg).environment(\.chatDensity, density) }
             .sheet(item: $compose, onDismiss: {
                 // Open what the sheet made (a DM, a new board) once it's down, on its side of the switch.
                 guard let b = pendingOpen else { return }
@@ -157,13 +159,14 @@ struct ChatsView: View {
                     else { NewBoardSheet { b in pendingOpen = b; compose = nil }.presentationDetents([.medium]) }
                 }
                 .presentationBackground(Theme.bg)
+                .environment(\.chatDensity, density)
             }
-            .sheet(item: $openApproval) { a in ApprovalDetail(a: a).presentationBackground(Theme.bg) }
+            .sheet(item: $openApproval) { a in ApprovalDetail(a: a).presentationBackground(Theme.bg).environment(\.chatDensity, density) }
             .onReceive(NotificationCenter.default.publisher(for: .boardArchived)) { n in
                 // An archived board closes (it's read-only now) and leaves the list.
                 if let id = n.object as? String { path.removeAll { $0.id == id } }
             }
-            .sheet(isPresented: $showAgents) { AgentsView().presentationDetents([.medium, .large]).presentationBackground(Theme.bg) }
+            .sheet(isPresented: $showAgents) { AgentsView().presentationDetents([.medium, .large]).presentationBackground(Theme.bg).environment(\.chatDensity, density) }
             .searchable(text: $query, prompt: "Search")
             .task(id: query) {
                 let q = query.trimmingCharacters(in: .whitespaces)
@@ -300,7 +303,7 @@ struct AnswerButtons: View {
             }
             .buttonStyle(PressStyle()).accessibilityLabel("No")
             Button(action: yes) {
-                Image(systemName: "checkmark").font(.system(size: 12, weight: .bold)).foregroundStyle(.black)
+                Image(systemName: "checkmark").font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.onText)
                     .frame(width: 32, height: 32).background(Theme.text, in: Circle())
                     .frame(width: 40, height: 44).contentShape(Rectangle())
             }

@@ -30,6 +30,10 @@ final class AppState: ObservableObject {
     struct JumpRequest: Equatable { let board: String; let seq: Int }
     @Published var me: MeAgentResponse.Agent?
     @Published var profile: Profile?
+    /// Text size, density and theme (Settings → Display). Cached on the phone so launch is instant; saved per person
+    /// on the server so the web follows them too (and the app follows the web).
+    @Published private(set) var display: DisplayPrefs = AppState.cachedDisplay
+    private var displaySave: Task<Void, Never>?
     @Published var connections: [Connection] = []
     @Published var error: String?
     /// Bumped whenever something new lands anywhere (the live feed), with the board it landed on.
@@ -104,10 +108,78 @@ final class AppState: ObservableObject {
         do {
             async let s = API.shared.get("/api/sessions", as: SessionsResponse.self)
             async let m = API.shared.get("/api/agents/me", as: MeAgentResponse.self)
+            async let p = try? API.shared.get("/api/me/profile", as: ProfileResponse.self)
             let (ss, mm) = try await (s, m)
             withAnimation(.smooth) { sessions = ss.sessions; me = mm.agent }
+            if let pp = await p { profile = pp.profile; adoptDisplay(pp.profile.display) }
             save()
         } catch { report(error, quiet: true) }
+    }
+
+    // MARK: - Display settings
+
+    private static let displayKey = "display-prefs", displayDirtyKey = "display-prefs-unsaved"
+
+    private static var cachedDisplay: DisplayPrefs {
+        #if DEBUG
+        // Simulator screenshots: ATTEO_DISPLAY=l,compact,light pins the settings for the run.
+        if let s = API.environment("DISPLAY"), let d = DisplayPrefs(spec: s) { return d }
+        #endif
+        guard let d = UserDefaults.standard.data(forKey: displayKey), let p = try? JSONDecoder().decode(DisplayPrefs.self, from: d) else { return .default }
+        return p
+    }
+
+    private var displayPinned: Bool {
+        #if DEBUG
+        return API.environment("DISPLAY") != nil
+        #else
+        return false
+        #endif
+    }
+
+    private func cacheDisplay(_ d: DisplayPrefs, unsaved: Bool) {
+        if let data = try? JSONEncoder().encode(d) { UserDefaults.standard.set(data, forKey: Self.displayKey) }
+        UserDefaults.standard.set(unsaved, forKey: Self.displayDirtyKey)
+    }
+
+    /// A change from Settings: applies at once, is cached, and is saved to your profile a moment later (taps in a
+    /// row make one save). Until the server has it, a refresh doesn't undo it.
+    func setDisplay(_ d: DisplayPrefs) {
+        guard d != display else { return }
+        withAnimation(.smooth) { display = d }
+        guard !displayPinned else { return }
+        cacheDisplay(d, unsaved: true)
+        displaySave?.cancel()
+        displaySave = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            guard !Task.isCancelled else { return }
+            await self?.saveDisplay()
+        }
+    }
+
+    /// Sends the cached display settings with the profile save (POST /api/me/profile, a partial `display`).
+    private func saveDisplay() async {
+        let d = display
+        do {
+            let data = try await API.shared.send("/api/me/profile", body: ["display": d.body])
+            if let r = try? JSONDecoder.soup.decode(ProfileResponse.self, from: data) { profile = r.profile }
+            if display == d { cacheDisplay(d, unsaved: false) }
+        } catch { report(error, quiet: true) } // stays cached and unsaved: the next refresh sends it again
+    }
+
+    /// What the server has (set here or on the web). A change made on this phone that hasn't reached the server yet
+    /// wins and is sent again instead.
+    private func adoptDisplay(_ server: DisplayPrefs?) {
+        guard !displayPinned, let server else { return }
+        if UserDefaults.standard.bool(forKey: Self.displayDirtyKey) {
+            if server == display { cacheDisplay(display, unsaved: false) } else {
+                displaySave?.cancel()
+                displaySave = Task { [weak self] in await self?.saveDisplay() }
+            }
+            return
+        }
+        if server != display { withAnimation(.smooth) { display = server } }
+        cacheDisplay(server, unsaved: false)
     }
 
     func refreshBoards() async {
@@ -198,6 +270,7 @@ final class AppState: ObservableObject {
             async let p = API.shared.get("/api/me/profile", as: ProfileResponse.self)
             async let c = API.shared.get("/api/tokens", as: ConnectionsResponse.self)
             let (pp, cc) = try await (p, c)
+            adoptDisplay(pp.profile.display)
             withAnimation(.smooth) { profile = pp.profile; connections = cc.tokens.filter { $0.revokedAt == nil && ($0.expiresAt ?? .infinity) > Date().timeIntervalSince1970 * 1000 } }
         } catch { report(error, quiet: true) }
     }
@@ -206,8 +279,10 @@ final class AppState: ObservableObject {
         let old = profile
         profile = p
         let rules: [String: Any] = ["auto_accept_invites": p.rules.autoAcceptInvites ?? NSNull(), "auto_accept_friends": p.rules.autoAcceptFriends ?? NSNull(), "auto_accept_agents": p.rules.autoAcceptAgents ?? NSNull()]
+        var body: [String: Any] = ["display_name": p.displayName ?? "", "bio": p.bio ?? "", "listed": p.listed, "rules": rules]
+        if !displayPinned { body["display"] = display.body } // always the phone's current display settings
         do {
-            let d = try await API.shared.send("/api/me/profile", body: ["display_name": p.displayName ?? "", "bio": p.bio ?? "", "listed": p.listed, "rules": rules])
+            let d = try await API.shared.send("/api/me/profile", body: body)
             if let r = try? JSONDecoder.soup.decode(ProfileResponse.self, from: d) { profile = r.profile }
         } catch { profile = old; report(error) }
     }
@@ -544,6 +619,12 @@ final class AppState: ObservableObject {
         BoardCrypto.shared.forget()
         Keychain.token = nil
         try? FileManager.default.removeItem(at: Self.cacheURL)
+        // Display settings are the person's: the next one to sign in starts from the defaults (then their own).
+        displaySave?.cancel()
+        UserDefaults.standard.removeObject(forKey: Self.displayKey)
+        UserDefaults.standard.removeObject(forKey: Self.displayDirtyKey)
+        if !displayPinned { display = .default }
+        profile = nil
         withAnimation(.smooth) {
             signedIn = false; loaded = false
             inbox = []; approvals = []; contacts = []; sessions = []; boards = []; entries = [:]; tasks = [:]; me = nil; feedCursor = nil

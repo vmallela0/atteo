@@ -278,14 +278,57 @@ export async function isFriend(env: Env, x: string, y: string): Promise<boolean>
   return !!(await env.DB.prepare(`SELECT 1 AS k FROM friendships WHERE a = ? AND b = ? AND status = 'accepted'`).bind(a, b).first());
 }
 
-export async function profile(env: Env, user: string) {
-  const r = await env.DB.prepare(`SELECT name, display_name, bio, listed, rules FROM users WHERE name = ?`).bind(user).first<{ name: string; display_name: string | null; bio: string | null; listed: number; rules: string | null }>();
-  return r ? { name: r.name, display_name: r.display_name, bio: r.bio, listed: !!r.listed, rules: (r.rules ? JSON.parse(r.rules) : {}) as Rules } : null;
+/** Display settings (Slack-like), saved per person so the web and the app both follow them. Private: only the
+ * person's own profile (GET /api/me/profile) carries them. */
+export interface Display {
+  text: "s" | "m" | "l";
+  density: "comfortable" | "compact";
+  theme: "system" | "light" | "dark";
+}
+export const DISPLAY_DEFAULTS: Display = { text: "m", density: "comfortable", theme: "system" };
+const DISPLAY_VALUES: Record<keyof Display, readonly string[]> = {
+  text: ["s", "m", "l"],
+  density: ["comfortable", "compact"],
+  theme: ["system", "light", "dark"],
+};
+const isDisplayKey = (k: string): k is keyof Display => Object.prototype.hasOwnProperty.call(DISPLAY_VALUES, k);
+
+/** The stored JSON as a full Display: a missing (or unrecognised) value is the default. */
+function readDisplay(raw: string | null): Display {
+  let v: Record<string, unknown> = {};
+  try {
+    const parsed: unknown = raw ? JSON.parse(raw) : {};
+    if (parsed && typeof parsed === "object") v = parsed as Record<string, unknown>;
+  } catch {}
+  const out: Record<string, string> = { ...DISPLAY_DEFAULTS };
+  for (const k of Object.keys(DISPLAY_VALUES) as (keyof Display)[]) if (typeof v[k] === "string" && DISPLAY_VALUES[k].includes(v[k] as string)) out[k] = v[k] as string;
+  return out as unknown as Display;
 }
 
-export async function setProfile(env: Env, user: string, p: { display_name?: unknown; bio?: unknown; listed?: unknown; rules?: unknown }) {
+/** A partial update merged onto the current settings. A bad key or value throws (a 400; nothing is saved). */
+export function mergeDisplay(cur: Display, patch: unknown): Display {
+  if (!patch || typeof patch !== "object" || Array.isArray(patch)) throw new SocialError('display must be an object, e.g. {"text":"l"}.');
+  const out: Record<string, string> = { ...cur };
+  for (const [k, v] of Object.entries(patch as Record<string, unknown>)) {
+    if (!isDisplayKey(k)) throw new SocialError(`Unknown display setting "${k}": use text, density or theme.`);
+    if (typeof v !== "string" || !DISPLAY_VALUES[k].includes(v)) throw new SocialError(`display.${k} must be one of: ${DISPLAY_VALUES[k].join(", ")}.`);
+    out[k] = v;
+  }
+  return out as unknown as Display;
+}
+
+export async function profile(env: Env, user: string) {
+  const r = await env.DB.prepare(`SELECT name, display_name, bio, listed, rules, display FROM users WHERE name = ?`)
+    .bind(user)
+    .first<{ name: string; display_name: string | null; bio: string | null; listed: number; rules: string | null; display: string | null }>();
+  return r ? { name: r.name, display_name: r.display_name, bio: r.bio, listed: !!r.listed, rules: (r.rules ? JSON.parse(r.rules) : {}) as Rules, display: readDisplay(r.display) } : null;
+}
+
+export async function setProfile(env: Env, user: string, p: { display_name?: unknown; bio?: unknown; listed?: unknown; rules?: unknown; display?: unknown }) {
   const cur = await profile(env, user);
   if (!cur) throw new SocialError("No such person.");
+  // Checked first: a bad display value is a 400 and nothing else in the request is saved either.
+  const prefs = p.display === undefined ? cur.display : mergeDisplay(cur.display, p.display);
   const text = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/[\u0000-\u001f]/g, " ").trim().slice(0, max) || null : undefined);
   const display = p.display_name === undefined ? cur.display_name : text(p.display_name, 60) ?? null;
   const bio = p.bio === undefined ? cur.bio : text(p.bio, 280) ?? null;
@@ -296,8 +339,10 @@ export async function setProfile(env: Env, user: string, p: { display_name?: unk
     auto_accept_friends: "auto_accept_friends" in r ? (r.auto_accept_friends === "coworkers" ? "coworkers" : null) : cur.rules.auto_accept_friends ?? null,
     auto_accept_agents: "auto_accept_agents" in r ? (r.auto_accept_agents === "coworkers" ? "coworkers" : null) : cur.rules.auto_accept_agents ?? null,
   };
-  await env.DB.prepare(`UPDATE users SET display_name = ?, bio = ?, listed = ?, rules = ? WHERE name = ?`).bind(display, bio, listed ? 1 : 0, JSON.stringify(rules), user).run();
-  return { ...cur, display_name: display, bio, listed, rules };
+  await env.DB.prepare(`UPDATE users SET display_name = ?, bio = ?, listed = ?, rules = ?, display = COALESCE(?, display) WHERE name = ?`)
+    .bind(display, bio, listed ? 1 : 0, JSON.stringify(rules), p.display === undefined ? null : JSON.stringify(prefs), user)
+    .run();
+  return { ...cur, display_name: display, bio, listed, rules, display: prefs };
 }
 
 /** Throttled "last seen" for presence: at most one write a minute per person per isolate. */
