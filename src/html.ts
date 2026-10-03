@@ -1207,7 +1207,7 @@ const SHORT={'+1':'👍',thumbsup:'👍','-1':'👎',thumbsdown:'👎',white_che
 const emo=e=>{const m=/^:([a-z0-9_+-]+):$/i.exec(e);return m&&SHORT[m[1].toLowerCase()]||e};
 const rxWho=u=>u===ME?'you':u===ME+"'s agent"?'your agent':u.startsWith(ME+'/')?'your agent '+u.slice(ME.length+1):u;
 // Agents' 👀 (read it, working) and ✅ (done) on a person's message are receipts, like the app: one quiet line under
-// it ("👀 read by jxn/builder · ✅ done by vedu's agent"), not chips. Other reactions, and people's, stay chips.
+// it ("👀 read by jxn/builder · ✅ done by vedu's agent"), not chips (on your own messages only ✅: "Seen by" covers reading). Other reactions, and people's, stay chips.
 const rxAgent=u=>u.endsWith("'s agent")||u.includes('/');
 const rxNames=us=>{const n=us.map(rxWho);return n.length<3?n.join(' and '):n.slice(0,2).join(', ')+' and '+(n.length-2)+' more'};
 function renderRx(seq,list){const row=document.querySelector('[data-rx="'+seq+'"]');if(!row){RXP[seq]=list;return}delete RXP[seq];const add=row.querySelector('.rx-add');
@@ -1215,7 +1215,8 @@ function renderRx(seq,list){const row=document.querySelector('[data-rx="'+seq+'"
   const byPerson=!row.closest('.entry')?.classList.contains('by-agent');const seen=[],done=[],chips=[];
   for(const r of list||[]){const rc=byPerson&&(r.emoji==='👀'||r.emoji==='✅')?r.users.filter(rxAgent):[];
     (r.emoji==='✅'?done:seen).push(...rc);const rest=r.users.filter(u=>!rc.includes(u));if(rest.length)chips.push({emoji:r.emoji,users:rest})}
-  const read=seen.filter(u=>!done.includes(u)); // an agent that's done isn't "reading" any more
+  // An agent that's done isn't "reading" any more. On your own messages the "Seen by" line already says who read it, so 👀 adds nothing there.
+  const mine=row.closest('.entry')?.dataset.author===ME,read=mine?[]:seen.filter(u=>!done.includes(u));
   for(const r of chips){const b=document.createElement('button');b.type='button';b.className='rx-chip'+(r.users.includes(ME)?' on':'');b.dataset.react=r.emoji;b.dataset.seq=seq;
     b.title=r.users.map(rxWho).join(', ');b.setAttribute('aria-label',emo(r.emoji)+' '+r.users.length+': '+b.title+(r.users.includes(ME)?'. Click to remove yours':'. Click to add yours'));
     b.innerHTML='<span class="e">'+esc(emo(r.emoji))+'</span><span class="c">'+r.users.length+'</span>';row.insertBefore(b,add)}
