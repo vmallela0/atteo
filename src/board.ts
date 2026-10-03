@@ -16,6 +16,7 @@ import { HumanDecisions, isHumanDecisionPost, type HumanDecision } from "./decis
 import type { RecapCore, RecapOwner, RecapTask } from "./recap";
 import { cleanMatch, cleanTrigger, eventLine, lastOccurrence, matches, MAX_FIRES_PER_HOUR, MAX_TRIGGERS, minuteOf, SCHEDULE_GRACE_MS, type Trigger, type TriggerEvent, type TriggerMatch } from "./triggers";
 import { offBoardSeq } from "./util";
+import { compileGrep, grepFtsQuery, grepText, newBudget, GREP_CANDIDATES, GREP_DEFAULT_MAX, GREP_HARD_MAX, GREP_RECENT, type BoardGrepOpts, type BoardGrepResult } from "./grep";
 import { cleanSchedule, MAX_SCHEDULES, nextDue, lastDue, scheduleLabel, SCHEDULE_FIRES_PER_HOUR, taskText, tickAction, type Day, type Schedule } from "./schedules";
 
 export const MAX_TEXT = 32_000;
@@ -2105,6 +2106,110 @@ export class Board extends DurableObject<Env> {
       if (out.length >= limit) break;
     }
     return out;
+  }
+
+  /**
+   * grep for agents (grep.ts): exact matching lines in messages (and the latest file versions with files), newest first.
+   * The FTS index picks up to GREP_CANDIDATES candidates from the pattern's literal words; only those are read and
+   * matched line by line. A pattern without a 3+ character literal scans just the newest GREP_RECENT entries.
+   */
+  async grepLines(pattern: string, o: BoardGrepOpts = {}): Promise<BoardGrepResult> {
+    const info = this.info();
+    const res: BoardGrepResult = { title: info.title, hits: [], encrypted: false, fallback: false, capped: false, budget: false };
+    if (info.encrypted) return { ...res, encrypted: true };
+    let m: ReturnType<typeof compileGrep>;
+    try {
+      m = compileGrep(pattern, o);
+    } catch (e) {
+      throw new BoardError(e instanceof Error ? e.message : String(e));
+    }
+    const max = clamp(o.max ?? GREP_DEFAULT_MAX, 1, GREP_HARD_MAX);
+    const context = clamp(o.context ?? 0, 0, 2);
+    const budget = newBudget();
+    const sinceSeq = Math.max(0, o.sinceSeq ?? 0);
+    const sinceTs = o.sinceTs ?? 0;
+    const files = !!o.files && !o.author && !o.type;
+    const done = () => res.hits.length >= max || budget.hit;
+    const keep = (e: Row) => (!o.author || e.author === o.author) && (!o.type || e.type === o.type) && (!sinceTs || (e.ts as number) >= sinceTs);
+    const fromEntry = (seq: number, author: string, text: string) => {
+      for (const h of grepText(text, m, { context, max: max - res.hits.length, budget })) res.hits.push({ seq, author, text: h.text });
+    };
+    const fromFile = (name: string, content: string) => {
+      for (const h of grepText(content, m, { context, max: max - res.hits.length, budget })) res.hits.push({ file: name, line: h.line, text: h.text });
+    };
+    const fts = grepFtsQuery(pattern, !!o.regex);
+    let rows: Iterable<Row> | null = null;
+    if (fts) {
+      try {
+        rows = this.sql.exec("SELECT kind, ref, body FROM search_idx WHERE search_idx MATCH ? ORDER BY rowid DESC LIMIT ?", fts, GREP_CANDIDATES);
+      } catch {
+        rows = null; // FTS couldn't take it: scan recent entries instead
+      }
+    }
+    if (rows) {
+      let n = 0;
+      const seen = new Set<number>();
+      let batch: number[] = [];
+      // Candidates' entries (and live task text) 90 at a time: a Durable Object statement takes at most 100 bound values.
+      const flush = () => {
+        const seqs = batch;
+        batch = [];
+        if (!seqs.length || done()) return;
+        const marks = seqs.map(() => "?").join(",");
+        const ents = new Map<number, Row>();
+        const tasks = new Map<number, Row>();
+        for (const r of this.sql.exec(`SELECT seq, ts, author, type, text FROM entries WHERE seq IN (${marks})`, ...seqs)) ents.set(r.seq as number, r);
+        for (const r of this.sql.exec(`SELECT seq, title, body FROM tasks WHERE seq IN (${marks})`, ...seqs)) tasks.set(r.seq as number, r);
+        for (const seq of seqs) {
+          if (done()) return;
+          const e = ents.get(seq);
+          if (!e || !keep(e)) continue;
+          const t = tasks.get(seq);
+          fromEntry(seq, e.author as string, t ? [t.title, t.body].filter(Boolean).join("\n") : (e.text as string));
+        }
+      };
+      try {
+        for (const r of rows) {
+          n++;
+          if (r.kind === "doc") {
+            if (!files) continue;
+            flush(); // keep newest-first order
+            if (done()) break;
+            if (sinceTs && !this.sql.exec("SELECT 1 FROM docs WHERE name = ? AND updated_at >= ?", r.ref, sinceTs).toArray().length) continue;
+            fromFile(r.ref as string, r.body as string);
+          } else {
+            const seq = Number(r.ref);
+            if (!(seq > sinceSeq) || seen.has(seq)) continue;
+            // An entry's indexed body starts with its text: words that matched without a matching line cost no entry read.
+            if (r.kind === "entry" && !grepText(String(r.body ?? "").slice(0, MAX_TEXT), m, { max: 1, budget }).length) continue;
+            seen.add(seq);
+            batch.push(seq);
+            if (batch.length >= 90) flush();
+          }
+          if (done()) break;
+        }
+      } catch {
+        // keep what was found
+      }
+      flush();
+      res.capped = n >= GREP_CANDIDATES && !done();
+      res.budget = budget.hit;
+      return res;
+    }
+    res.fallback = true;
+    for (const e of this.sql.exec("SELECT seq, ts, author, type, text FROM entries WHERE seq > ? ORDER BY seq DESC LIMIT ?", sinceSeq, GREP_RECENT)) {
+      if (sinceTs && (e.ts as number) < sinceTs) break;
+      if (keep(e)) fromEntry(e.seq as number, e.author as string, e.text as string);
+      if (done()) break;
+    }
+    if (files && !done()) {
+      for (const d of this.sql.exec("SELECT name, content FROM docs WHERE updated_at >= ? ORDER BY updated_at DESC LIMIT 50", sinceTs)) {
+        fromFile(d.name as string, d.content as string);
+        if (done()) break;
+      }
+    }
+    res.budget = budget.hit;
+    return res;
   }
 
   /** Case-insensitive substring search over text and artifact names/content, with optional filters. */
