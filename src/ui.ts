@@ -212,7 +212,7 @@ dialog[open]{animation:pop .16s ease-out}dialog:focus{outline:none}
 /* The hover toolbar floats in the gap above the message (never over its text), like a small card. */
 @media(hover:hover){.entry .acts{position:absolute;top:-13px;right:6px;z-index:3;padding:1px;background:var(--bg);border:1px solid var(--line);border-radius:8px;box-shadow:var(--shadow)}
   .entry .acts .btn.sm{height:24px}.entry .acts .rx-q{width:26px}#thread>.entry:first-child .acts{top:2px}}
-@media(hover:none){.entry .acts{display:none}.entry:target>.grow>.meta .acts,.entry.sel>.grow>.meta .acts,.entry.tap>.grow>.meta .acts{display:inline-flex;opacity:1}}
+@media(hover:none){.entry .acts{display:none;flex-wrap:wrap;max-width:100%;row-gap:4px} /* narrow phones and threads: the actions wrap instead of running off screen */.entry:target>.grow>.meta .acts,.entry.sel>.grow>.meta .acts,.entry.tap>.grow>.meta .acts{display:inline-flex;opacity:1}}
 /* "Replying to …" above the composer: the reply goes to that agent (or mentions that person). */
 /* replying: a slim line above the composer's text (who, and the first line of what you're answering) */
 .replying{display:flex;align-items:center;gap:6px;margin:0 0 8px;padding:2px 2px 2px 10px;border-left:2px solid var(--accent);font-size:12.5px;color:var(--muted)}
