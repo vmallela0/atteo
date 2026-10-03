@@ -164,7 +164,7 @@ await step("MCP initialize, tools/list, notifications, protocol errors", async (
   assert(r.protocolVersion === "2025-06-18" && r.serverInfo.name === "atteo" && r.serverInfo.title === "Atteo", JSON.stringify(r));
   has(r.instructions, "Atteo");
   const names = (await rpcRaw(auth(A), null, "tools/list", {})).tools.map((t) => t.name).sort();
-  assert(JSON.stringify(names) === JSON.stringify(["agents", "approval", "claim", "create_board", "doc", "get", "handle", "invite", "join_board", "leave_board", "list_boards", "people", "post", "publish", "react", "read", "recap", "request_approval", "retract", "review", "search", "session", "task", "trigger", "wait"]), names.join());
+  assert(JSON.stringify(names) === JSON.stringify(["agents", "approval", "claim", "create_board", "doc", "get", "handle", "invite", "join_board", "leave_board", "list_boards", "mailbox", "people", "post", "publish", "react", "read", "recap", "request_approval", "retract", "review", "search", "session", "task", "trigger", "wait"]), names.join());
   assert((await rpcRaw(auth(A), null, "notifications/initialized", {}, { notification: true })).status === 202, "notification status");
   assert((await rpcRaw({}, null, "notifications/initialized", {}, { notification: true })).status === 401, "no credentials: 401 so OAuth clients can sign in");
   assert((await fetch(`${BASE}/mcp`)).status === 405, "GET /mcp should be 405");
@@ -2150,6 +2150,43 @@ await step("one-click connect (MCP OAuth): discovery, registration, sign-in + al
   has(await (await web("/me", A)).text(), `E2E Agent ${run}`); // listed (and revocable) under Agent connections
 });
 
+await step("OAuth refresh tokens: rotate on use (old one rejected), same scope and connection; revoking the connection ends refresh", async () => {
+  const { createHash, randomBytes } = await import("node:crypto");
+  const as = await (await fetch(`${BASE}/.well-known/oauth-authorization-server`)).json();
+  assert(as.grant_types_supported.includes("refresh_token"), JSON.stringify(as.grant_types_supported));
+  const cb = "http://localhost:47125/callback";
+  const label = `E2E Refresh ${run}`;
+  const reg = await (await fetch(`${BASE}/oauth/register`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ client_name: label, redirect_uris: [cb] }) })).json();
+  assert(reg.grant_types.includes("refresh_token"), JSON.stringify(reg));
+  const verifier = randomBytes(32).toString("base64url");
+  const q = new URLSearchParams({ response_type: "code", client_id: reg.client_id, redirect_uri: cb, code_challenge: createHash("sha256").update(verifier).digest("base64url"), code_challenge_method: "S256" });
+  const rid = (await (await web(`/oauth/authorize?${q}`, A)).text()).match(/name="request_id" value="([^"]+)"/)[1];
+  const allow = await web(`/oauth/authorize`, A, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: `request_id=${rid}&allow=1` });
+  const code = new URL(allow.headers.get("location")).searchParams.get("code");
+  const token = (f) => fetch(`${BASE}/oauth/token`, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(f) });
+  const t1 = await (await token({ grant_type: "authorization_code", code, redirect_uri: cb, client_id: reg.client_id, code_verifier: verifier })).json();
+  assert(t1.access_token?.startsWith("ab_") && t1.refresh_token && t1.scope === "board", JSON.stringify(t1));
+  // Another app can't use it; that attempt doesn't burn it.
+  const wrong = await token({ grant_type: "refresh_token", refresh_token: t1.refresh_token, client_id: "oc_someone_else" });
+  assert(wrong.status === 400 && (await wrong.json()).error === "invalid_grant", "wrong client_id");
+  const t2 = await (await token({ grant_type: "refresh_token", refresh_token: t1.refresh_token, client_id: reg.client_id })).json();
+  assert(t2.access_token?.startsWith("ab_") && t2.refresh_token && t2.access_token !== t1.access_token && t2.refresh_token !== t1.refresh_token, JSON.stringify(t2));
+  assert(t2.scope === "board" && t2.token_type === "Bearer" && t2.expires_in > 0, `scope preserved: ${JSON.stringify(t2)}`);
+  has((await tool(t2.access_token, null, "list_boards")).text, `e2e ${run}`);
+  // Rotation: the old refresh token is used up, and the old access token is revoked.
+  const again = await token({ grant_type: "refresh_token", refresh_token: t1.refresh_token });
+  assert(again.status === 400 && (await again.json()).error === "invalid_grant", "old refresh token rejected after rotation");
+  has((await tool(t1.access_token, null, "list_boards")).text, "not valid");
+  assert((await token({ grant_type: "refresh_token", refresh_token: "ort_nope" })).status === 400, "unknown refresh token");
+  // One live connection under Agent connections, same name.
+  const live = (await (await web("/api/tokens", A)).json()).tokens.filter((x) => x.label === label && !x.revoked_at);
+  assert(live.length === 1 && live[0].kind === "cli", JSON.stringify(live));
+  // Revoking the connection (Disconnect) ends its refresh too.
+  assert((await web(`/api/tokens/${live[0].id}/revoke`, A, { method: "POST" })).status === 200, "revoke");
+  const dead = await token({ grant_type: "refresh_token", refresh_token: t2.refresh_token });
+  assert(dead.status === 400 && (await dead.json()).error === "invalid_grant", "refresh after revoke is refused");
+});
+
 await step("the Atteo app signs in as the person (scope=person, atteo:// only): it can do what only people can; agent tokens still can't", async () => {
   const { createHash, randomBytes } = await import("node:crypto");
   const cb = "atteo://auth";
@@ -2716,6 +2753,44 @@ await step("mailbox: DMs and mail for your agent wait until your agent polls; fu
   const p = (await call(M2, "GET", "/api/mailbox?peek=1")).mail.filter((x) => x.text === `ack me ${run}`);
   assert(p.length === 1 && (await call(M2, "POST", "/api/mailbox/ack", { ids: p.map((x) => x.id) })).delivered === 1, "ack");
   assert(!(await call(M2, "GET", "/api/mailbox?peek=1")).mail.some((x) => x.text === `ack me ${run}`), "acked mail is gone");
+});
+
+await step("mailbox tool (MCP): new mail as compact fenced lines under one header, then nothing; peek keeps it; wait returns when mail lands", async () => {
+  const M1 = `e2e-mt1-${run}`, M2 = `e2e-mt2-${run}`;
+  for (const n of [M1, M2]) {
+    await ops("users", { name: n, email: `${n}@example.com`, verified: "true" });
+    tok[n] = (await ops("tokens", { user: n, label: "e2e" })).body.token;
+  }
+  const call = async (who, method, path, body) => (await fetch(`${BASE}${path}`, { method, headers: { ...auth(who), "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined })).json();
+  await call(M1, "POST", "/api/friends/request", { user: M2 });
+  await call(M2, "POST", `/api/friends/${M1}/accept`);
+  const dm = (await call(M1, "POST", `/api/direct/${M2}`)).board;
+  const bot = await session(M2); // a URL connection with no board joined, like a Grok Bot routine
+  await sok(bot, "mailbox"); // drain anything from setup (friend request)
+  const seq = (await call(M1, "POST", `/api/boards/${dm}/entries`, { type: "question", text: `line one ${run}\nline two` })).entry.seq;
+  // peek: shown, still waiting.
+  const pk = await sok(bot, "mailbox", { peek: true });
+  has(pk, "peeked");
+  has(pk, `line one ${run}`);
+  const t = await sok(bot, "mailbox");
+  const [head, ...rest] = t.split("\n");
+  assert(/^1 mail, oldest first\. Answer in its thread/.test(head), `one-line header: ${head}`);
+  has(rest[0], "<<untrusted ");
+  has(t, `(${dm}):\n  #${seq} question · dm · ${M1}'s agent: line one ${run}\n    line two`);
+  has(rest.at(-1), "<<end untrusted ");
+  has(await sok(bot, "mailbox"), "Mailbox empty.");
+  // wait: holds until mail arrives.
+  const t0 = Date.now();
+  const waiting = sok(bot, "mailbox", { wait_seconds: 15 });
+  await new Promise((r) => setTimeout(r, 1000));
+  await call(M1, "POST", `/api/boards/${dm}/entries`, { type: "note", text: `later ${run}` });
+  has(await waiting, `later ${run}`);
+  assert(Date.now() - t0 < 12000, `wait returned after ${Date.now() - t0}ms`);
+  has(await sok(bot, "mailbox"), "Mailbox empty.");
+  // Bots are told to check it first.
+  const init = await rpcRaw(auth(M2), null, "initialize", { protocolVersion: "2025-06-18", capabilities: {} });
+  has(init.instructions, "Call `mailbox` first each run");
+  assert((await rpcRaw(auth(M2), null, "tools/list", {})).tools.some((x) => x.name === "mailbox"), "mailbox is listed");
 });
 
 await step("read receipts: an old 👀 receipt still counts as picked up, and answering swaps it to ✅", async () => {
