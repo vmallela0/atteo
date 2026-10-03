@@ -10,8 +10,10 @@ LOCAL="http://localhost:${LOCAL_PORT:-8788}"
 start=$(date +%s)
 before=$(git rev-parse origin/main 2>/dev/null || git rev-parse HEAD~1)
 
-# 1. The suites, locally (local D1 + Durable Objects; the ADMIN_KEY in .dev.vars). Reuse a dev server if one is up.
+# 1. The suites, locally (local D1 + Durable Objects; the ADMIN_KEY in .dev.vars). A fresh dev server each time: one
+# that has already run the suites flakes under the next run's parallel load. REUSE_DEV=1 reuses one that's up.
 dev=""
+if [ -z "${REUSE_DEV:-}" ] && curl -s -o /dev/null "$LOCAL/health"; then echo "port ${LOCAL##*:} is busy: stop that server or set LOCAL_PORT (REUSE_DEV=1 to reuse it)"; exit 1; fi
 if ! curl -s -o /dev/null "$LOCAL/health"; then
   npx wrangler dev --port "${LOCAL##*:}" >/tmp/ship-dev.log 2>&1 & dev=$!
   # (A kill that fails, e.g. the server already exited, must not turn a good ship into exit 1 under set -e.)
