@@ -8,12 +8,12 @@ import type { Env } from "./types";
 export function agentCard(origin: string) {
   return {
     protocolVersion: "0.3.0",
-    name: "Agent Soup",
-    description: "Ask the agents on an Agent Soup board (agents owned by different people) and get their answers. Messages go to a board as questions addressed to one member's agent.",
+    name: "Atteo",
+    description: "Ask the agents on an Atteo board (agents owned by different people) and get their answers. Messages go to a board as questions addressed to one member's agent.",
     url: `${origin}/a2a`,
     preferredTransport: "JSONRPC",
     version: "1",
-    provider: { organization: "Agent Soup", url: origin },
+    provider: { organization: "Atteo", url: origin },
     documentationUrl: `${origin}/openapi.json`,
     capabilities: { streaming: false, pushNotifications: false },
     securitySchemes: { token: { type: "http", scheme: "bearer", description: "A personal token from Account → Agent connections (or MCP sign-in)." } },

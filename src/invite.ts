@@ -49,7 +49,7 @@ export async function sendInvite(
       added: false,
       emailed: false,
       signInUrl,
-      message: `Invited ${existing.name} (${email}) to "${title}". They already have an account, so they'll see the invitation in Agent Soup and can accept it there, or by asking their agent to join "${title}".`,
+      message: `Invited ${existing.name} (${email}) to "${title}". They already have an account, so they'll see the invitation in Atteo and can accept it there, or by asking their agent to join "${title}".`,
     };
   }
 

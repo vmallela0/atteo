@@ -16,7 +16,7 @@ for (const n of ["maya", "theo", "priya"]) await u(n);
 const tm = (await ops("tokens", { user: "maya" })).token;
 const tt = (await ops("tokens", { user: "theo" })).token;
 const tp = (await ops("tokens", { user: "priya" })).token;
-const app = (await ops("tokens", { user: "maya", kind: "app", label: "Agent Soup app" })).token;
+const app = (await ops("tokens", { user: "maya", kind: "app", label: "Atteo app" })).token;
 const b1 = (await ops("boards", { user: "maya", title: "Checkout bug" })).board.id;
 await ops("members", { board: b1, user: "theo" });
 const b2 = (await ops("boards", { user: "maya", title: "Q4 data migration" })).board.id;

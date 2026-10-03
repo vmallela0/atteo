@@ -211,7 +211,7 @@ async function authSso(c: Ctx): Promise<Response> {
   const email = (c.url.searchParams.get("email") ?? "").trim().toLowerCase();
   if (!email) {
     return page(
-      "Sign in with SSO · Agent Soup",
+      "Sign in with SSO · Atteo",
       `<div class="card pad" style="max-width:420px;margin:48px auto 0"><h1 style="font-size:18px">Sign in with SSO</h1><p class="small muted">Use your work email; we'll send you to your company's sign-in.</p>
 <form method="get" action="/auth/sso" class="stack" style="--gap:10px;margin-top:12px"><input class="input" type="email" name="email" required placeholder="you@company.com" autofocus><button class="btn primary">Continue</button></form>
 <p class="xs faint" style="margin-top:12px"><a href="/auth/login">Other ways to sign in</a></p></div>`,
@@ -219,7 +219,7 @@ async function authSso(c: Ctx): Promise<Response> {
     );
   }
   const org = await auth.ssoOrganizationFor(c.env, email);
-  if (!org) return messagePage("No SSO for that domain", `${email.split("@")[1]} hasn't set up single sign-on with Agent Soup. Sign in the usual way.`, { status: 404, action: { href: `/auth/login?login_hint=${encodeURIComponent(email)}`, label: "Sign in" } });
+  if (!org) return messagePage("No SSO for that domain", `${email.split("@")[1]} hasn't set up single sign-on with Atteo. Sign in the usual way.`, { status: 404, action: { href: `/auth/login?login_hint=${encodeURIComponent(email)}`, label: "Sign in" } });
   const state = auth.randomSecret("", 18);
   const ret = safeReturn(c.url.searchParams.get("return"));
   const to = auth.authorizeUrl(c.env, `${c.url.origin}/auth/callback`, state, { organizationId: org.id, loginHint: email });
@@ -520,7 +520,7 @@ const handler = {
       // ---- CLI login (device flow) ----
       if (path === "/api/device/start" && method === "POST") {
         const body = (await request.json().catch(() => ({}))) as { client?: string };
-        return json(await device.startDeviceLogin(env, url.origin, String(body.client ?? "Agent Soup CLI")));
+        return json(await device.startDeviceLogin(env, url.origin, String(body.client ?? "Atteo CLI")));
       }
       if (path === "/api/device/token" && method === "POST") {
         const body = (await request.json().catch(() => ({}))) as { device_code?: string };
@@ -730,7 +730,7 @@ const handler = {
         if (method === "DELETE") return (await webhooks.removeWebhook(env, viewer.name, hid)) ? json({ ok: true }) : json({ error: "not found" }, 404);
         const mine = (await webhooks.listWebhooks(env, viewer.name)).find((w) => w.id === hid);
         if (!mine) return json({ error: "not found" }, 404);
-        await webhooks.deliver(env, [viewer.name], (u) => ({ event: "ping", note: "A test delivery from Agent Soup.", you: u }), hid);
+        await webhooks.deliver(env, [viewer.name], (u) => ({ event: "ping", note: "A test delivery from Atteo.", you: u }), hid);
         return json({ ok: true, webhook: (await webhooks.listWebhooks(env, viewer.name)).find((w) => w.id === hid) });
       }
 
@@ -1037,7 +1037,7 @@ const handler = {
 
       // ---- phones for push notifications (the Agent Soup app registers its APNs device token) ----
       if (path === "/api/me/devices" && (method === "POST" || method === "DELETE")) {
-        if (!viewer || viewer.via === "agent") return json({ error: "Only the Agent Soup app (signed in as you) registers devices." }, 401);
+        if (!viewer || viewer.via === "agent") return json({ error: "Only the Atteo app (signed in as you) registers devices." }, 401);
         const b = (await request.json().catch(() => ({}))) as { token?: string; platform?: string };
         const tok = String(b.token ?? "");
         if (!/^[0-9a-fA-F]{32,200}$/.test(tok)) return json({ error: "token must be an APNs device token (hex)." }, 400);
@@ -1821,7 +1821,7 @@ const handler = {
             // Still restarting after our retries: say "try again" (the page retries with the same message id).
             if (isRetriable(e)) {
               ctx.waitUntil(usage.recordError(env, `${method} ${path}`, e).catch(() => {}));
-              return json({ error: "Agent Soup is restarting; your message wasn't lost. Retrying…", retry: true }, 503, { "retry-after": "2" });
+              return json({ error: "Atteo is restarting; your message wasn't lost. Retrying…", retry: true }, 503, { "retry-after": "2" });
             }
             return json({ error: e instanceof Error ? e.message : String(e) }, 400);
           }
@@ -2041,7 +2041,7 @@ const handler = {
       const msg = e instanceof Error ? e.message : String(e);
       // Cloudflare's daily storage allowance ran out: say so plainly, and when it comes back.
       if (/Exceeded allowed (rows|.*) in Durable Objects|exceeded.*free tier/i.test(msg)) {
-        const back = "Boards are paused: Agent Soup hit its daily storage limit. They're back at 00:00 UTC (your data is safe).";
+        const back = "Boards are paused: Atteo hit its daily storage limit. They're back at 00:00 UTC (your data is safe).";
         if (method === "GET" && !path.startsWith("/api/")) return messagePage("Back soon", back, { status: 503 });
         return json({ error: back }, 503, { "retry-after": "3600" });
       }

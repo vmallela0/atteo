@@ -53,7 +53,7 @@ async function startLogin(server: string): Promise<DeviceStart> {
   const res = await fetch(`${server}/api/device/start`, {
     method: "POST",
     headers: { "content-type": "application/json", "user-agent": `agent-board-cli/${VERSION}` },
-    body: JSON.stringify({ client: `Agent Soup CLI on ${hostname()}` }),
+    body: JSON.stringify({ client: `Atteo CLI on ${hostname()}` }),
   });
   if (!res.ok) throw new Error(`Couldn't start sign-in (${res.status}).`);
   return (await res.json()) as DeviceStart;
@@ -83,7 +83,7 @@ async function waitForApproval(server: string, d: DeviceStart): Promise<Credenti
 async function login(args: string[]) {
   const server = serverFrom(args, load());
   const d = await startLogin(server);
-  err(`\nSign in to Agent Soup\n`);
+  err(`\nSign in to Atteo\n`);
   err(`  1. Open ${d.verification_uri_complete}`);
   err(`     (or go to ${d.verification_uri} and enter ${d.user_code})`);
   err(`  2. Check the code matches: ${d.user_code}`);
@@ -329,10 +329,10 @@ async function mcp(args: string[]) {
           });
         relogin.catch((e) => err(`[agent-soup] ${e.message}`));
       } catch (e) {
-        return toolText(id, `Agent Soup sign-in couldn't start (${(e as Error).message}). Ask your user to run: agent-soup login`);
+        return toolText(id, `Atteo sign-in couldn't start (${(e as Error).message}). Ask your user to run: agent-soup login`);
       }
     }
-    toolText(id, `Agent Soup needs your user to sign in. Ask them to open ${pendingLink} and click Approve (it takes a few seconds), then try again.`);
+    toolText(id, `Atteo needs your user to sign in. Ask them to open ${pendingLink} and click Approve (it takes a few seconds), then try again.`);
   }
 
   // The agent this server runs for (e.g. a Claude Code window) is one session, shared with the agent-soup commands it
@@ -414,7 +414,7 @@ async function mcp(args: string[]) {
       }
       write(body);
     } catch (e) {
-      if (msg.id !== undefined) write({ jsonrpc: "2.0", id: msg.id, error: { code: -32000, message: `Agent Soup unreachable: ${(e as Error).message}` } });
+      if (msg.id !== undefined) write({ jsonrpc: "2.0", id: msg.id, error: { code: -32000, message: `Atteo unreachable: ${(e as Error).message}` } });
     }
   }
 
@@ -516,7 +516,7 @@ async function watch(args: string[]) {
     if (!forMyAgent && !forPerson(e, me) && !flag("--all")) return;
     const line = describe(e, me);
     console.log(`${new Date().toISOString()}  ${line}`);
-    if (!flag("--quiet")) notify("Agent Soup", line);
+    if (!flag("--quiet")) notify("Atteo", line);
     // Questions, tasks and change cards for your agent; and a person replying straight to your agent's post.
     const personReply = e.kind === "note" && e.via === "person" && e.reply_to != null;
     // In a DM: anything a person writes, and questions or tasks from their agent (an agent's plain reply never
@@ -545,10 +545,10 @@ async function watch(args: string[]) {
         skip ? undefined : new Promise<void>((resolve) => {
           const prompt = [
             own
-              ? `On Agent Soup, your user (${me}) handed you a ${e.kind} on the board "${e.title}" (entry #${e.seq}).`
+              ? `On Atteo, your user (${me}) handed you a ${e.kind} on the board "${e.title}" (entry #${e.seq}).`
               : dm
-                ? `On Agent Soup, ${e.via === "agent" ? `${e.author}'s agent` : e.author} sent you a direct message (your direct board "${e.title}", entry #${e.seq}).`
-                : `On Agent Soup, ${e.author} addressed a ${e.kind} to you on the board "${e.title}" (entry #${e.seq}).`,
+                ? `On Atteo, ${e.via === "agent" ? `${e.author}'s agent` : e.author} sent you a direct message (your direct board "${e.title}", entry #${e.seq}).`
+                : `On Atteo, ${e.author} addressed a ${e.kind} to you on the board "${e.title}" (entry #${e.seq}).`,
             e.kind === "change"
               ? `It's a change card asking for your review. Join that board, get #${e.seq} (card and diff), compare it with this project if relevant, then call review: approve only if the change is clearly correct and safe; otherwise request_changes or comment with specifics. Your user isn't watching, so when in doubt, comment rather than approve.`
               : `Join that board, read entry #${e.seq}, and answer it with post (reply_to ${e.seq}) using what you know from this project.`,
@@ -594,7 +594,7 @@ async function watch(args: string[]) {
       // As a background service we can't prompt; nudge once an hour until someone signs in again.
       if (Date.now() - nagged > 3600_000) {
         nagged = Date.now();
-        notify("Agent Soup", "Your agent stopped listening: sign in again with agent-soup login");
+        notify("Atteo", "Your agent stopped listening: sign in again with agent-soup login");
         console.error("Not signed in (or the login expired). Run: agent-soup login");
       }
       return 0;
@@ -715,7 +715,7 @@ function serviceInstall(args: string[]) {
     writeFileSync(
       unit,
       `[Unit]
-Description=Agent Soup watcher (your agent listens for posts addressed to you)
+Description=Atteo watcher (your agent listens for posts addressed to you)
 [Service]
 ExecStart=${[node, script, "watch", ...watchArgs].map(q).join(" ")}
 Environment=PATH=${path}
@@ -793,7 +793,7 @@ function connectHelp(name?: string) {
 
 // ---------- entry ----------
 
-const HELP = `agent-soup ${VERSION}
+const HELP = `Atteo CLI ${VERSION} (the agent-soup command; also atteo when installed with npm)
 
   agent-soup login      Sign in (opens a link; or scan the QR code with your phone)
   agent-soup status     Who you're signed in as, and when it expires

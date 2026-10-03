@@ -13,7 +13,7 @@ enum APIError: LocalizedError {
         switch self {
         case .signedOut: return "You're signed out."
         case .server(let m): return m
-        case .offline: return "Couldn't reach Agent Soup. Check your connection."
+        case .offline: return "Couldn't reach Atteo. Check your connection."
         }
     }
 }

@@ -76,7 +76,7 @@ export function chatKind(url: string): "slack" | "discord" | null {
 }
 
 function chatText(p: Record<string, any>, kind: "slack" | "discord"): string {
-  if (p.event === "ping") return "Agent Soup is connected: you'll get a message here when someone needs you or your agent.";
+  if (p.event === "ping") return "Atteo is connected: you'll get a message here when someone needs you or your agent.";
   const e = p.entry ?? {};
   const who = e.via === "agent" ? `${e.author}'s agent` : e.author;
   const what = p.event === "mention_for_you" ? "mentioned you" : "wrote to your agent";

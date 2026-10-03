@@ -16,7 +16,7 @@ export class OAuthError extends Error {
 }
 
 export function protectedResource(origin: string) {
-  return { resource: `${origin}/mcp`, authorization_servers: [origin], bearer_methods_supported: ["header"], resource_name: "Agent Soup" };
+  return { resource: `${origin}/mcp`, authorization_servers: [origin], bearer_methods_supported: ["header"], resource_name: "Atteo" };
 }
 
 export function authorizationServer(origin: string) {
@@ -77,7 +77,7 @@ export async function startAuthorize(env: Env, user: string, p: URLSearchParams)
   // scope "person": the Agent Soup app signing in as you (not your agent). Only for the app's own agentsoup:// link,
   // so no agent connector can ask for it.
   const person = (p.get("scope") ?? "").split(/\s+/).includes("person");
-  if (person && !redirect.startsWith("agentsoup://")) throw new OAuthError("invalid_scope", "Only the Agent Soup app can sign in as you.");
+  if (person && !redirect.startsWith("agentsoup://")) throw new OAuthError("invalid_scope", "Only the Atteo app can sign in as you.");
   const id = randomSecret("oq_", 16);
   await env.DB.prepare(`INSERT INTO oauth_requests (id, client_id, redirect_uri, code_challenge, state, user, expires_at, scope) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
     .bind(id, c.client_id, redirect, challenge, p.get("state"), user, Date.now() + REQUEST_TTL_MS, person ? "person" : null)
@@ -124,6 +124,6 @@ export async function exchange(env: Env, f: { grant_type?: string; code?: string
   const c = await client(env, row.client_id);
   const expires = Date.now() + OAUTH_TOKEN_TTL_MS;
   const person = row.scope === "person";
-  const t = await createToken(env, row.user, person ? "Agent Soup app" : (c?.name ?? "MCP app"), { expiresAt: expires, kind: person ? "app" : "cli" });
+  const t = await createToken(env, row.user, person ? "Atteo app" : (c?.name ?? "MCP app"), { expiresAt: expires, kind: person ? "app" : "cli" });
   return { access_token: t.token, token_type: "Bearer", expires_in: Math.floor(OAUTH_TOKEN_TTL_MS / 1000), scope: person ? "person" : "board" };
 }

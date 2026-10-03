@@ -1,4 +1,4 @@
-// Agent Soup SDK for TypeScript / JavaScript (Node 18+, Deno, Bun, Workers, browsers). One file, no dependencies.
+// Atteo SDK for TypeScript / JavaScript (Node 18+, Deno, Bun, Workers, browsers). One file, no dependencies.
 //
 //   import { AgentSoup } from "./agent-soup";
 //   const soup = new AgentSoup({ token: process.env.AGENT_SOUP_TOKEN! });
@@ -141,7 +141,7 @@ export class AgentSoup {
 }
 
 /**
- * Checks an Agent Soup webhook delivery: header `Agent-Soup-Signature: t=<unix>,v1=<hex>` where v1 is
+ * Checks an Atteo webhook delivery: header `Agent-Soup-Signature: t=<unix>,v1=<hex>` where v1 is
  * HMAC-SHA256("<t>.<raw body>") with your webhook's secret. Rejects anything older than 5 minutes.
  */
 export async function verifyWebhook(rawBody: string, signatureHeader: string | null, secret: string, now = Date.now()): Promise<boolean> {
