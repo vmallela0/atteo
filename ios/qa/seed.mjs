@@ -11,6 +11,22 @@ const tool = async (tok, board, name, args) => {
   const r = await fetch(`${BASE}/mcp${board ? `?board=${board}` : ""}`, { method: "POST", headers: { authorization: `Bearer ${tok}`, "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: ++rpc, method: "tools/call", params: { name, arguments: args } }) });
   return (await r.json()).result?.content?.map((c) => c.text).join("\n");
 };
+// A small PNG, each pixel from px(x, y) → [r, g, b].
+const { deflateSync } = await import("node:zlib");
+const png = (W, H, px) => {
+  const raw = Buffer.alloc((W * 3 + 1) * H);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const o = y * (W * 3 + 1) + 1 + x * 3; const [r, g, b] = px(x, y); raw[o] = r; raw[o + 1] = g; raw[o + 2] = b; }
+  const crc = (b) => { let c = ~0; for (const v of b) { c ^= v; for (let k = 0; k < 8; k++) c = (c >>> 1) ^ (0xedb88320 & -(c & 1)); } return ~c >>> 0; };
+  const chunk = (t, d) => { const len = Buffer.alloc(4); len.writeUInt32BE(d.length); const td = Buffer.concat([Buffer.from(t), d]); const c = Buffer.alloc(4); c.writeUInt32BE(crc(td)); return Buffer.concat([len, td, c]); };
+  const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(W, 0); ihdr.writeUInt32BE(H, 4); ihdr[8] = 8; ihdr[9] = 2;
+  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk("IHDR", ihdr), chunk("IDAT", deflateSync(raw)), chunk("IEND", Buffer.alloc(0))]);
+};
+// A picture for a board or a person: a soft diagonal gradient with a pale disc in the middle.
+const picture = (from, to) => png(256, 256, (x, y) => {
+  const t = (x + y) / 510, d = Math.hypot(x - 128, y - 128);
+  const c = from.map((f, i) => f + (to[i] - f) * t);
+  return d < 64 ? c.map((v) => v + (255 - v) * 0.55) : c;
+});
 const u = (n) => ops("users", { name: n, email: `${n}@example.com`, verified: "true" });
 for (const n of ["maya", "theo", "priya", "sam", "jules"]) await u(n);
 const tm = (await ops("tokens", { user: "maya" })).token;
@@ -24,6 +40,8 @@ for (const b of (await call(app, "GET", "/api/me/boards")).boards ?? []) {
 }
 const b1 = (await ops("boards", { user: "maya", title: "Checkout bug" })).board.id;
 await ops("members", { board: b1, user: "theo" });
+// Its picture, set from maya's app (people only; the line it posts sits at the bottom of the log).
+await fetch(`${BASE}/api/boards/${b1}/picture`, { method: "POST", headers: { authorization: `Bearer ${app}`, "content-type": "image/png" }, body: picture([214, 120, 87], [92, 52, 120]) });
 const b2 = (await ops("boards", { user: "maya", title: "Q4 data migration" })).board.id;
 await ops("members", { board: b2, user: "theo" });
 // A long history before today's messages (the app loads older ones as you scroll up to them).
@@ -55,6 +73,9 @@ await call(app, "POST", "/api/agents/me", { listed: true, summary: "Knows the ch
 await call(tp, "POST", "/api/dm/maya", { text: "Hi! Could your agent review our webhook signature check? We saw your agent knows Stripe." });
 // On a fresh database that is only a request: maya says yes once, so their DM exists (under Direct)…
 await call(app, "POST", "/api/contacts/priya/accept");
+// priya has a picture of her own: her DM's row shows it (a DM has no board picture).
+const pa = (await ops("tokens", { user: "priya", kind: "app", label: "Atteo app" })).token;
+await fetch(`${BASE}/api/me/avatar?kind=person`, { method: "POST", headers: { authorization: `Bearer ${pa}`, "content-type": "image/png" }, body: picture([70, 150, 120], [30, 70, 130]) });
 // …and another stranger's agent is still waiting on her first OK (the "Needs you" contact row).
 const ts2 = (await ops("tokens", { user: "sam" })).token;
 await call(ts2, "POST", "/api/dm/maya", { text: "Hey! Could your agent sanity-check our refund flow against Stripe's docs?" });
@@ -105,14 +126,9 @@ await tool(tm, b1, "read", {});
 await tool(tm, b1, "doc", { action: "write", name: "charge.ts", base_version: 0, summary: "the guard", content: "export async function charge(cart: Cart, payment?: Payment): Promise<Receipt> {\n  // Empty carts never reach Stripe: the old code read payment.amount and crashed.\n  if (!payment || cart.items.length === 0) throw new CheckoutError(\"empty_cart\", \"There's nothing in the cart to pay for.\");\n  const intent = await stripe.paymentIntents.create({ amount: payment.amount, currency: cart.currency, metadata: { cart: cart.id } });\n  return { id: intent.id, amount: payment.amount };\n}\n" });
 {
   // A small PNG (a soft gradient), uploaded the way the web composer does.
-  const { deflateSync } = await import("node:zlib");
-  const W = 480, H = 300, raw = Buffer.alloc((W * 3 + 1) * H);
-  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const o = y * (W * 3 + 1) + 1 + x * 3; raw[o] = 40 + (x * 170) / W; raw[o + 1] = 60 + (y * 120) / H; raw[o + 2] = 140; }
-  const crc = (b) => { let c = ~0; for (const v of b) { c ^= v; for (let k = 0; k < 8; k++) c = (c >>> 1) ^ (0xedb88320 & -(c & 1)); } return ~c >>> 0; };
-  const chunk = (t, d) => { const len = Buffer.alloc(4); len.writeUInt32BE(d.length); const td = Buffer.concat([Buffer.from(t), d]); const c = Buffer.alloc(4); c.writeUInt32BE(crc(td)); return Buffer.concat([len, td, c]); };
-  const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(W, 0); ihdr.writeUInt32BE(H, 4); ihdr[8] = 8; ihdr[9] = 2;
-  const png = Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk("IHDR", ihdr), chunk("IDAT", deflateSync(raw)), chunk("IEND", Buffer.alloc(0))]);
-  await fetch(`${BASE}/api/boards/${b1}/upload?name=checkout-flow.png&w=${W}&h=${H}&text=${encodeURIComponent("Where the empty cart slips through")}`, { method: "POST", headers: { authorization: `Bearer ${app}`, "content-type": "image/png" }, body: png });
+  const W = 480, H = 300;
+  const body = png(W, H, (x, y) => [40 + (x * 170) / W, 60 + (y * 120) / H, 140]);
+  await fetch(`${BASE}/api/boards/${b1}/upload?name=checkout-flow.png&w=${W}&h=${H}&text=${encodeURIComponent("Where the empty cart slips through")}`, { method: "POST", headers: { authorization: `Bearer ${app}`, "content-type": "image/png" }, body });
 }
 // Two sub-tasks under the one in progress (the app's live checklist: finishing one ticks the parent).
 await tool(tt, b1, "read", {});
