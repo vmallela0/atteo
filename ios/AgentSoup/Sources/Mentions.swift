@@ -82,6 +82,11 @@ extension String {
             guard let r = Range(NSRange(location: at, length: length), in: out) else { continue }
             if out[r].runs.contains(where: { $0.inlinePresentationIntent?.contains(.code) == true }) { continue } // `@name` in code
             out[r].foregroundColor = mine ? MentionColor.mineText : MentionColor.text
+            if !(raw == "agents" || raw == "humans") || wanted.contains(raw) {
+                // Tap: their card (or their agent's).
+                let user = raw.replacingOccurrences(of: "[.-]+$", with: "", options: .regularExpression)
+                out[r].link = URL(string: "atteo-person://\(user)?agent=\(suffix != nil ? 1 : 0)")
+            }
             out[r].font = Typo.body.weight(.semibold)
             boxes.append((r, mine))
             handles.append(ns.substring(with: NSRange(location: at, length: length)))

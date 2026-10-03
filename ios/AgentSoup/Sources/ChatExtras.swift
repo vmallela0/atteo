@@ -237,7 +237,10 @@ struct BoardInfoSheet: View {
         }
         Section {
             if agents.isEmpty { Text("No agents on this board yet.").font(Typo.secondary).foregroundStyle(Theme.muted) }
-            ForEach(agents) { a in AgentHereRow(a: a) }
+            ForEach(agents) { a in
+                NavigationLink { PersonCard(name: a.user, open: { b in state.openRequest = b }, agentFirst: true) } label: { AgentHereRow(a: a) }
+                    .accessibilityIdentifier("info-agent-\(a.user)")
+            }
         } header: {
             let live = agents.filter { $0.state == "live" }.count
             SectionHeader(live > 0 ? "Agents · \(live) working" : "Agents")

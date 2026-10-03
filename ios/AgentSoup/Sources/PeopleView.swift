@@ -102,6 +102,9 @@ struct PersonCard: View {
     let name: String
     var initial: Person?
     let open: (Board) -> Void
+    var agentFirst = false // opened on their agent ("@theo's agent", an agent's picture): its section leads, lit
+    var ask: (() -> Void)? = nil // "Ask theo's agent" here (a chat's box); nil: in a DM
+    @State private var agent: MeAgentResponse.Agent?
     @State private var p: Person?
     @State private var presence: String?
     @State private var busy = false
@@ -109,6 +112,7 @@ struct PersonCard: View {
 
     var body: some View {
         let person = p ?? initial
+        ScrollViewReader { proxy in
         ScrollView {
             VStack(spacing: Space.l) {
                 VStack(spacing: Space.s) {
@@ -131,8 +135,11 @@ struct PersonCard: View {
                     Text("Friends can message each other directly. Being friends doesn't open any of your boards to them.")
                         .font(Typo.micro).foregroundStyle(Theme.faint).multilineTextAlignment(.center).padding(.horizontal, Space.xl)
                 }
+                agentSection.id("agent").padding(.horizontal, Space.l).padding(.bottom, Space.l)
             }
             .frame(maxWidth: .infinity)
+        }
+        .onChange(of: agent != nil) { _, has in if has && agentFirst { withAnimation(.smooth) { proxy.scrollTo("agent", anchor: .top) } } }
         }
         .background(Theme.bg)
         .navigationBarTitleDisplayMode(.inline)
@@ -150,9 +157,60 @@ struct PersonCard: View {
             Button("Block", role: .destructive) { Task { if await state.block(name) { p?.relation = "blocked"; if p == nil, var i = initial { i.relation = "blocked"; p = i } } } }
         } message: { Text("They can't message you, add you as a friend, or find you. You can unblock them on the web.") }
         .task {
-            if let r = await state.person(name) { withAnimation(.smooth) { p = r.person; presence = r.presence } }
+            async let r = state.person(name)
+            async let a = try? API.shared.get("/api/agents/\(name)", as: MeAgentResponse.self)
+            let (rr, aa) = await (r, a)
+            withAnimation(.smooth) {
+                if let rr { p = rr.person; presence = rr.presence }
+                agent = aa?.agent
+            }
         }
     }
+
+    /// Their agent: its picture, what it knows, whether it's working now (and on what), and a way to ask it something.
+    @ViewBuilder private var agentSection: some View {
+        let mine = (state.boardAgents.values.flatMap { $0 }).filter { $0.user == name }
+        let best = mine.min { rank($0.state) < rank($1.state) }
+        if agent != nil || !mine.isEmpty {
+            VStack(alignment: .leading, spacing: Space.m) {
+                HStack(spacing: Space.m) {
+                    Avatar(name: name, agent: true, size: 44)
+                        .overlay(alignment: .bottomTrailing) { if let best { StateDot(state: best.state).padding(2).background(Theme.card, in: Circle()).offset(x: 4, y: 4) } }
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("\(name)'s agent").font(Typo.rowTitle).foregroundStyle(Theme.text)
+                        Text(best.map { $0.status ?? stateLine($0.state, $0.lastSeen) } ?? (agent?.online == true ? "online" : "not on a board you share right now"))
+                            .font(Typo.meta).foregroundStyle(best?.state == "live" ? Theme.ok : Theme.muted).lineLimit(2)
+                    }
+                }
+                if let s = agent?.summary, !s.isEmpty {
+                    VStack(alignment: .leading, spacing: Space.xxs) {
+                        Text("What it knows").font(Typo.section).foregroundStyle(Theme.muted)
+                        Text(s).font(Typo.secondary).foregroundStyle(Theme.text)
+                    }
+                }
+                if let caps = agent?.capabilities, !caps.isEmpty {
+                    HStack(spacing: Space.xs) { ForEach(caps.prefix(4), id: \.self) { Pill(text: $0) } }
+                }
+                if let rec = agent?.record, rec.tasksDone + rec.claimsVerified > 0 {
+                    Text("\(rec.tasksDone) tasks done · \(rec.claimsVerified) claims verified").font(Typo.micro).foregroundStyle(Theme.faint)
+                }
+                if name != state.me?.owner || ask != nil {
+                    big("Ask \(name)'s agent", "sparkles", primary: false, id: "profile-ask-agent") {
+                        if let ask { ask(); return }
+                        busy = true
+                        Task { if let b = await state.openDirect(name) { open(b) }; busy = false }
+                    }
+                }
+            }
+            .padding(Space.m)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(agentFirst ? Theme.accent.opacity(0.08) : Theme.card, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("profile-agent-section")
+        }
+    }
+
+    private func rank(_ s: String) -> Int { s == "live" ? 0 : s == "idle" ? 1 : 2 }
 
     @ViewBuilder private func actions(_ person: Person?) -> some View {
         let rel = person?.relation ?? "none"

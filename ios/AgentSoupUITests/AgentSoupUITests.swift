@@ -823,6 +823,30 @@ final class AgentSoupUITests: XCTestCase {
         sleep(1)
         shot("30-mention-boxes")
 
+        // Profiles (#538 f): theo's picture opens his card; his agent's @mention opens it on his agent, and
+        // "Ask theo's agent" starts a message to it here.
+        let avatar = a.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'avatar-theo'")).element(boundBy: max(0, a.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'avatar-theo'")).count - 1))
+        XCTAssertTrue(avatar.waitForExistence(timeout: 5), "theo's picture")
+        avatar.tap()
+        XCTAssertTrue(a.staticTexts["@theo"].waitForExistence(timeout: 5), "theo's card")
+        sleep(1)
+        shot("30a-profile")
+        a.swipeDown(velocity: .fast)
+        XCTAssertTrue(a.staticTexts["@theo"].waitForNonExistence(timeout: 5))
+        let link = a.links.matching(NSPredicate(format: "label CONTAINS %@", "theo's agent")).allElementsBoundByIndex.last
+        XCTAssertNotNil(link, "the @mention is a link")
+        link?.tap()
+        let ask = a.buttons["profile-ask-agent"]
+        XCTAssertTrue(ask.waitForExistence(timeout: 8), "his agent's card")
+        sleep(1)
+        shot("30b-profile-agent")
+        ask.tap()
+        wait(for: [expectation(for: NSPredicate(format: "value BEGINSWITH %@", "@theo's agent"), evaluatedWith: composer)], timeout: 5)
+        composer.typeText("hello")
+        for _ in 0..<12 { composer.typeText(XCUIKeyboardKey.delete.rawValue) } // leave the box empty for the paste
+        let cleared = composer.value as? String ?? ""
+        if !cleared.isEmpty { composer.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: cleared.count + 2)) }
+
         // A picture and words on the clipboard; Paste from the message box's menu.
         let size = CGSize(width: 160, height: 100)
         let png = UIGraphicsImageRenderer(size: size).image { c in

@@ -175,6 +175,13 @@ struct ChatsView: View {
             }
             .refreshable { await state.refreshAll() }
             .navigationDestination(for: Board.self) { b in BoardView(board: b) }
+            // Opened from elsewhere (Message on someone's card in a chat): that chat, on its side of the switch.
+            .onChange(of: state.openRequest) { _, b in
+                guard let b else { return }
+                state.openRequest = nil
+                tab = isDirect(b) ? "direct" : "boards"
+                path = [b]
+            }
             .overlay {
                 if state.boards.isEmpty && !state.loaded {
                     VStack(spacing: 0) { ForEach(0..<7, id: \.self) { _ in PlaceholderChat() } }.frame(maxHeight: .infinity, alignment: .top).padding(.top, Space.s)

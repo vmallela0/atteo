@@ -26,6 +26,7 @@ final class AppState: ObservableObject {
     @Published var loadingEarlier: Set<String> = [] // boards loading older messages right now
     private var seenSent: [String: Int] = [:] // per board: the last "seen up to" this phone reported
     @Published var jumpRequest: JumpRequest? // a message to show once its chat opens (a search hit in Chats)
+    @Published var openRequest: Board? // a chat to open from anywhere (Message on someone's card)
     struct JumpRequest: Equatable { let board: String; let seq: Int }
     @Published var me: MeAgentResponse.Agent?
     @Published var profile: Profile?

@@ -256,6 +256,9 @@ struct ReactResponse: Decodable { let on: Bool; let reactions: [Reaction] }
 /// The answer to "On it": whether you have it now, and who does.
 struct HandleResponse: Decodable { let ok: Bool; let by: String?; let done: Bool?; let message: String? }
 
+/// Someone's card to open: the person, or their agent.
+struct ProfileTarget: Identifiable, Hashable { let name: String; let agent: Bool; var id: String { "\(name)/\(agent)" } }
+
 /// Search across your boards (the Chats list): boards whose name matches, and messages in them.
 struct CrossSearchResponse: Decodable {
     struct Hit: Decodable, Hashable, Identifiable {
