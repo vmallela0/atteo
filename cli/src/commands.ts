@@ -264,6 +264,7 @@ export function savePins(p: Record<string, string[]>) {
   mkdirSync(join(pinFile(), ".."), { recursive: true, mode: 0o700 });
   writeFileSync(pinFile(), JSON.stringify(p, null, 2), { mode: 0o600 });
 }
+const pinId = (kid: string, publicKey: string) => `${kid}|${publicKey}`;
 const warned = new Set<string>();
 const warnOnce = (k: string, line: string) => {
   if (!warned.has(k)) process.stderr.write(line + "\n");
@@ -282,13 +283,16 @@ async function boardKeys(opt: Record<string, string | true>, board: string, trie
       try {
         keys.set(g.epoch, unwrapKey(g));
       } catch {}
+  // A pin is a device id AND its public key, so the server can't keep a trusted id and swap in a key of its own.
   const pin = pins();
   const before = JSON.stringify(pin);
-  if (!pin[me]?.includes(kid)) (pin[me] ??= []).push(kid);
-  for (const k of st.keys) if (k.user !== me && !pin[k.user]) (pin[k.user] ??= []).push(k.kid); // first sight: trust on first use
-  for (const m of st.missing) if (m.user !== me && m.first_device && !pin[m.user]?.length) (pin[m.user] ??= []).push(m.kid);
+  const seen = new Map([...st.keys, ...st.missing].map((k) => [k.kid, k.public_key]));
+  for (const [u, list] of Object.entries(pin)) pin[u] = list.map((e) => (e.includes("|") || !seen.has(e) ? e : pinId(e, seen.get(e)!))); // older pins were ids alone
+  if (!pin[me]?.includes(pinId(kid, myKey().pub))) (pin[me] ??= []).push(pinId(kid, myKey().pub));
+  for (const k of st.keys) if (k.user !== me && !pin[k.user]) (pin[k.user] ??= []).push(pinId(k.kid, k.public_key)); // first sight: trust on first use
+  for (const m of st.missing) if (m.user !== me && m.first_device && !pin[m.user]?.length) (pin[m.user] ??= []).push(pinId(m.kid, m.public_key));
   if (JSON.stringify(pin) !== before) savePins(pin);
-  const trusted = (k: { kid: string; user: string }) => !!pin[k.user]?.includes(k.kid);
+  const trusted = (k: { kid: string; user: string; public_key: string }) => !!pin[k.user]?.includes(pinId(k.kid, k.public_key));
   const skip = (k: DeviceKey) =>
     k.user === me
       ? warnOnce(k.kid, `🔑 A new device of yours (${k.label ?? "unnamed"}, ${k.kid.slice(0, 8)}) is waiting for this board's key. If it's yours: agent-soup keys approve ${k.kid}`)
@@ -740,16 +744,16 @@ async function keys(args: string[]) {
   if (pos[0] === "approve") {
     // Your own new device (another machine, the web, the phone): this machine hands it the keys of your encrypted boards.
     const kid = pos[1];
-    const k = (j.keys as { id: string; label: string | null }[]).find((x) => x.id === kid || (kid && kid.length >= 6 && x.id.startsWith(kid)));
+    const k = (j.keys as { id: string; label: string | null; public_key: string }[]).find((x) => x.id === kid || (kid && kid.length >= 6 && x.id.startsWith(kid)));
     if (!k) throw new CliError(`Usage: agent-soup keys approve <device id>   (one of yours: ${(j.keys as { id: string }[]).map((x) => x.id.slice(0, 8)).join(", ")})`);
     const p = pins();
     const me = creds().user;
-    if (!p[me]?.includes(k.id)) (p[me] ??= []).push(k.id);
+    if (!p[me]?.includes(pinId(k.id, k.public_key))) (p[me] ??= []).push(pinId(k.id, k.public_key));
     savePins(p);
     return say(`Approved ${k.label ?? "that device"} (${k.id.slice(0, 8)}). It gets the keys of your encrypted boards the next time this machine reads or posts on them.`);
   }
   const ok = new Set(pins()[creds().user] ?? []);
-  for (const k of j.keys) say(`${k.id}  ${k.label ?? ""}${k.id === mine ? "  (this machine)" : ok.has(k.id) ? "  (approved here)" : ""}  ${new Date(k.created_at).toISOString().slice(0, 10)}`);
+  for (const k of j.keys) say(`${k.id}  ${k.label ?? ""}${k.id === mine ? "  (this machine)" : ok.has(pinId(k.id, k.public_key)) ? "  (approved here)" : ""}  ${new Date(k.created_at).toISOString().slice(0, 10)}`);
 }
 
 async function sealCmd(args: string[]) {

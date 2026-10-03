@@ -616,6 +616,9 @@ await step("encryption v2: one key per board epoch; a newcomer reads history; yo
   await cli(["read"], { cwd: pa });
   r = await cli(["read", "--all"], { cwd: pa2, cred: credA2 });
   assert(r.out.includes(`first v2 message ${run}`), "after approval, A's second machine reads: " + r.out + r.err);
+  // Pins bind a device id to its public key: a trusted id with a different key isn't trusted.
+  const pinsA = JSON.parse(readFileSync(`${credA}.pins`, "utf8"));
+  assert(Object.values(pinsA).flat().every((e) => e.includes("|")), "pins carry the public key: " + JSON.stringify(pinsA));
   // Removing C rotates: the next message is in epoch 2, which C can't open.
   const ck = (await ops("sessions", { user: A })).cookie;
   const rm = await fetch(`${BASE}/api/boards/${eb}/members/${C}/remove`, { method: "POST", headers: { cookie: ck } });
