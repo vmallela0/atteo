@@ -508,7 +508,7 @@ dialog.lightbox img{display:block;max-width:min(96vw,1600px);max-height:92vh;wid
 /* Takes real space (border, not an outline ring), so it never overlaps the text or the mention next to it. */
 .mention.me{color:var(--ink);background:color-mix(in srgb,var(--warn) 22%,transparent);border:1px solid color-mix(in srgb,var(--warn) 45%,transparent);padding:0 3px;margin:0 1px}
 /* The highlight extends 12px beyond the entry on both sides (content stays put), so its bar never sits on the avatar. */
-.entry.for-you{margin-left:-12px;margin-right:-12px;padding-left:12px;padding-right:12px;background:color-mix(in srgb,var(--warn) 6%,transparent);box-shadow:inset 3px 0 0 color-mix(in srgb,var(--warn) 70%,transparent);border-radius:8px;animation:foryou 1.6s ease-out 1}
+.entry.for-you{margin-left:-12px;margin-right:-12px;padding-left:12px;padding-right:12px;background:color-mix(in srgb,var(--warn) 8%,transparent);border-radius:8px;animation:foryou 1.6s ease-out 1}
 .entry.for-you .rd{right:12px}
 @keyframes foryou{from{background:color-mix(in srgb,var(--warn) 18%,transparent)}}
 .mention-menu{position:absolute;left:12px;bottom:calc(100% - 6px);z-index:5;width:min(280px,calc(100% - 24px));list-style:none;margin:0;padding:6px;
