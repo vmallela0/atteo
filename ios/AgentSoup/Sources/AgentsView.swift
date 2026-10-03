@@ -19,7 +19,7 @@ struct AgentsView: View {
                     ForEach(state.sessions) { s in SessionRow(s: s) }
                 } header: {
                     Text("Every agent running as you: Claude Code, Cursor, Codex… Green means it's working right now.")
-                        .font(.caption).foregroundStyle(Theme.muted).textCase(nil)
+                        .font(Typo.micro).foregroundStyle(Theme.muted).textCase(nil)
                 } footer: {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Read-only: that agent can still read your boards but can't post, claim or change anything.")
@@ -39,12 +39,12 @@ struct AgentsView: View {
                 .listRowBackground(Theme.card)
             }
             .listSectionSpacing(.compact)
-            .environment(\.defaultMinListRowHeight, density == .compact ? 36 : 44)
+            .listDensity(density)
             .scrollContentBackground(.hidden)
             .background(Theme.bg)
             .navigationTitle("Your agents")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() }.fontWeight(.semibold) } }
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() }.toolbarText(primary: true) } }
             .refreshable { await state.refreshAgents() }
             .confirmationDialog("Disconnect all your agents?", isPresented: $confirmKill, titleVisibility: .visible) {
                 Button("Disconnect all", role: .destructive) { Haptic.warn(); Task { await state.disconnectAll() } }
@@ -59,8 +59,8 @@ struct SessionRow: View {
     let s: AgentSession
 
     var body: some View {
-        HStack(spacing: 12) {
-            StateDot(state: s.state ?? (s.active == true ? "idle" : "gone"))
+        HStack(alignment: .firstTextBaseline, spacing: Space.m) {
+            StateDot(state: s.state ?? (s.active == true ? "idle" : "gone")).frame(width: 8, height: 8).onFirstLine()
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(s.name).font(Typo.rowTitle).foregroundStyle(Theme.text)
@@ -69,13 +69,14 @@ struct SessionRow: View {
                 Text([s.status ?? stateLine(s.state, s.lastSeen), s.scope == "read" ? "read-only" : nil].compactMap { $0 }.joined(separator: " · "))
                     .font(Typo.secondary).foregroundStyle(s.state == "live" ? Theme.ok : Theme.muted).lineLimit(2)
             }
-            Spacer(minLength: 8)
+            Spacer(minLength: Space.s)
             VStack(spacing: 3) {
                 Toggle("Read-only", isOn: Binding(get: { s.scope == "read" }, set: { ro in Haptic.tap(); Task { await state.setScope(s, readOnly: ro) } }))
                     .labelsHidden().tint(Theme.accent)
                     .accessibilityLabel("Read-only")
                 Text("Read-only").font(.caption2).foregroundStyle(Theme.faint)
             }
+            .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 5 } // the switch on the name's line too
         }
         .padding(.vertical, density == .compact ? 0 : 2)
     }

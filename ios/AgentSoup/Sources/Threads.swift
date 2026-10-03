@@ -97,10 +97,15 @@ extension String {
 }
 
 /// What a "#123" in text is called here (its title, a few words), for the chips mdLinked makes. The chat and its
-/// threads set it from what's loaded; elsewhere a number reads "an earlier message".
-private struct RefTitleKey: EnvironmentKey { static let defaultValue: @Sendable (Int) -> String? = { _ in nil } }
+/// threads set it from what's loaded; elsewhere a number reads "an earlier message". Equatable, so rows only redraw
+/// when a title actually changes.
+struct RefTitles: Equatable, Sendable {
+    var map: [Int: String] = [:]
+    func callAsFunction(_ n: Int) -> String? { map[n] }
+}
+private struct RefTitleKey: EnvironmentKey { static let defaultValue = RefTitles() }
 extension EnvironmentValues {
-    var refTitle: @Sendable (Int) -> String? {
+    var refTitle: RefTitles {
         get { self[RefTitleKey.self] }
         set { self[RefTitleKey.self] = newValue }
     }
@@ -112,8 +117,7 @@ extension View {
         var titles: [Int: String] = [:]
         for e in entries where e.seq > 0 && e.retracts == nil { titles[e.seq] = ChatSummary.short(e, words: 6) }
         for t in tasks { titles[t.seq] = t.title }
-        let frozen = titles
-        return environment(\.refTitle, { frozen[$0] })
+        return environment(\.refTitle, RefTitles(map: titles))
     }
 }
 
@@ -191,6 +195,7 @@ struct ThreadPreview: View {
 struct ThreadsList: View {
     @EnvironmentObject var state: AppState
     @ObservedObject private var seen = ThreadSeen.shared
+    @Environment(\.chatDensity) private var density
     let board: Board
 
     var body: some View {
@@ -205,6 +210,7 @@ struct ThreadsList: View {
             .listRowBackground(Theme.card)
         }
         .listSectionSpacing(.compact)
+        .listDensity(density)
         .scrollContentBackground(.hidden)
         .background(Theme.bg)
         .overlay {
@@ -250,7 +256,7 @@ struct ThreadsList: View {
                 }
             }
         }
-        .padding(.vertical, Space.xxs)
+        .padding(.vertical, density == .compact ? 0 : Space.xxs)
     }
 }
 
@@ -462,7 +468,7 @@ struct ThreadView: View {
             Button { Haptic.tap(); alsoToChat.toggle() } label: {
                 Label("Also send to chat", systemImage: alsoToChat ? "checkmark.square.fill" : "square")
                     .font(Typo.micro.weight(.medium)).foregroundStyle(alsoToChat ? Theme.text : Theme.faint)
-                    .padding(.leading, Space.s).frame(minHeight: 28).contentShape(Rectangle())
+                    .padding(.leading, Space.m).frame(minHeight: 28).contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("also-to-chat")

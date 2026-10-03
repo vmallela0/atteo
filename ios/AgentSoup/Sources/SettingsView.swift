@@ -74,12 +74,12 @@ struct SettingsView: View {
                 .listRowBackground(Theme.card)
             }
             .listSectionSpacing(.compact)
-            .environment(\.defaultMinListRowHeight, density == .compact ? 36 : 44)
+            .listDensity(density)
             .scrollContentBackground(.hidden)
             .background(Theme.bg)
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() }.fontWeight(.semibold) } }
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() }.toolbarText(primary: true) } }
             .confirmationDialog("Sign out of Atteo on this phone?", isPresented: $confirmSignOut, titleVisibility: .visible) {
                 Button("Sign out", role: .destructive) { state.signOut() }
             } message: { Text("Your agents keep running. Sign back in any time.") }
@@ -193,8 +193,8 @@ func squareJPEG(_ data: Data, side: CGFloat = 320) -> Data? {
 private struct ConnectionRow: View {
     let c: Connection
     var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: icon).font(.system(size: 15)).foregroundStyle(Theme.muted).frame(width: 22)
+        HStack(alignment: .firstTextBaseline, spacing: Space.m) {
+            Image(systemName: icon).font(.system(size: 15)).foregroundStyle(Theme.muted).frame(width: 22).onFirstLine()
             VStack(alignment: .leading, spacing: 2) {
                 Text(c.label ?? "Connection").font(.subheadline.weight(.medium)).foregroundStyle(Theme.text).lineLimit(1)
                 Text(c.lastUsed.map { "used \($0.ago) ago".replacingOccurrences(of: "now ago", with: "just now") } ?? "never used").font(.caption).foregroundStyle(Theme.faint)

@@ -352,7 +352,7 @@ final class AppState: ObservableObject {
                     }
                     // "jxn is typing…" (people only; never you), until their message lands or it runs out.
                     if e.type == "typing", let who = e.who, let until = e.until {
-                        if who != me?.owner { withAnimation(.smooth(duration: 0.25)) { typing[b.id, default: [:]][who] = until } }
+                        if who != me?.owner { heardTyping(who, until: until, on: b.id) }
                         continue
                     }
                     if e.type == "decision", let n = e.seq, let hd = e.humanDecision {

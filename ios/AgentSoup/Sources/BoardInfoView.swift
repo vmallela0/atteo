@@ -31,6 +31,7 @@ struct BoardInfoView<Top: View, Files: View>: View {
     @State private var confirmRemovePicture = false
     @ObservedObject private var pictures = BoardPictureStore.shared
     @FocusState private var typing: Bool
+    @Environment(\.chatDensity) private var density
 
     /// The board as it is now (a rename shows at once), else what we were handed.
     private var board: Board { state.boards.first { $0.id == boardId } ?? fallback }
@@ -168,6 +169,7 @@ struct BoardInfoView<Top: View, Files: View>: View {
             }
         }
         .listSectionSpacing(.compact)
+        .listDensity(density)
         .scrollContentBackground(.hidden)
         .background(Theme.bg)
         .navigationTitle("Info")
@@ -326,9 +328,9 @@ struct NewBoardSheet: View {
             .navigationTitle("New board")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() }.toolbarText() }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button(action: create) { if busy { ProgressView() } else { Text("Create").fontWeight(.semibold) } }
+                    Button(action: create) { if busy { ProgressView() } else { Text("Create") } }.toolbarText(primary: true)
                         .disabled(title.trimmingCharacters(in: .whitespaces).isEmpty || busy)
                         .accessibilityIdentifier("new-board-create")
                 }

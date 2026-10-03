@@ -59,6 +59,7 @@ struct BoardView: View {
 
     @ObservedObject private var threadSeen = ThreadSeen.shared
     @Environment(\.chatDensity) private var density
+    @Environment(\.colorScheme) private var scheme // the title's ink, fixed (Color.fixed)
     private var me: String? { state.me?.owner }
     private func isMine(_ e: Entry) -> Bool { e.author == me && e.via != "agent" }
 
@@ -102,7 +103,7 @@ struct BoardView: View {
             // Every thread here, newest first (a dot when one has answers you haven't seen).
             ToolbarItem(placement: .topBarTrailing) {
                 NavigationLink { ThreadsList(board: board) } label: {
-                    Image(systemName: "bubble.left.and.text.bubble.right").font(.system(size: 15, weight: .semibold)).foregroundStyle(Theme.text)
+                    ToolbarIcon("bubble.left.and.text.bubble.right")
                         .overlay(alignment: .topTrailing) {
                             if anyUnreadThread { Circle().fill(Theme.accent).frame(width: 7, height: 7).offset(x: 3, y: -2) }
                         }
@@ -115,7 +116,7 @@ struct BoardView: View {
                 Menu {
                     Button("Tasks", systemImage: "checklist") { workPane = .tasks }
                     Button("Files", systemImage: "doc.on.doc") { workPane = .files }
-                } label: { Image(systemName: "square.stack").font(.system(size: 15, weight: .semibold)).foregroundStyle(Theme.text) }
+                } label: { ToolbarIcon("square.stack") }
                 .accessibilityIdentifier("work-menu")
                 .accessibilityLabel("Tasks and files")
             }
@@ -235,11 +236,11 @@ struct BoardView: View {
             ToolbarItem(placement: .principal) {
                 Button { Haptic.tap(); showAgents = true } label: {
                     VStack(spacing: 1) {
-                        HStack(spacing: 6) { BoardPicture(board: board, size: 20).accessibilityHidden(true); Text(board.displayName(me: state.me?.owner)).font(.headline).foregroundStyle(Theme.text).lineLimit(1) }
+                        HStack(spacing: 6) { BoardPicture(board: board, size: 20).accessibilityHidden(true); Text(board.displayName(me: state.me?.owner)).font(.headline).foregroundStyle(Theme.text.fixed(scheme)).lineLimit(1) }
                         HStack(spacing: Space.xs) {
-                            if board.encrypted == true { Image(systemName: "lock.fill").font(.system(size: 9)).foregroundStyle(Theme.faint) }
+                            if board.encrypted == true { Image(systemName: "lock.fill").font(.system(size: 9)).foregroundStyle(Theme.faint.fixed(scheme)) }
                             if !live.isEmpty { LiveDot(size: 6) }
-                            Text(presence).font(Typo.micro.weight(.medium)).foregroundStyle(live.isEmpty ? Theme.faint : Theme.ok).lineLimit(1)
+                            Text(presence).font(Typo.micro.weight(.medium)).foregroundStyle((live.isEmpty ? Theme.faint : Theme.ok).fixed(scheme)).lineLimit(1)
                         }
                     }
                     .padding(.horizontal, Space.s)
@@ -873,7 +874,7 @@ struct EntryRow: View {
             quote
             attachment
             if unsent { unsentBody } else if e.type == "change" { ChangeCardView(e: e, board: board) } else if let caption {
-                let m = caption.mentioned(e.mentions, members: members, me: me, refTitle: refTitle)
+                let m = caption.mentioned(e.mentions, members: members, me: me, refTitle: refTitle.callAsFunction)
                 m.text.textRenderer(MentionBoxes())
                     .font(Typo.body).foregroundStyle(Theme.text.opacity(e.pending == true ? 0.55 : 1))
                     .accessibilityValue(m.handles.isEmpty ? "" : "Mentions " + m.handles.joined(separator: ", "))
@@ -936,7 +937,7 @@ struct EntryRow: View {
                 attachment.padding(.vertical, Space.xxs)
                 quote
                 if unsent { unsentBody } else if e.type == "change" { ChangeCardView(e: e, board: board).padding(.top, Space.xxs) } else if e.type == "task" { TaskCard(seq: e.seq, board: board, text: e.text, tasks: tasks).padding(.top, Space.xxs) } else if let caption {
-                    let m = caption.mentioned(e.mentions, members: members, me: me, refTitle: refTitle)
+                    let m = caption.mentioned(e.mentions, members: members, me: me, refTitle: refTitle.callAsFunction)
                     m.text.textRenderer(MentionBoxes()).font(Typo.body).foregroundStyle(Theme.text.opacity(0.92)).lineSpacing(1.5)
                         .accessibilityValue(m.handles.isEmpty ? "" : "Mentions " + m.handles.joined(separator: ", "))
                 }
@@ -991,13 +992,13 @@ struct TaskCard: View {
         let items = (t?.items ?? []).filter { it in !subs.contains { $0.covers(it.text) } }
         Button { if t != nil { Haptic.tap(); open = true } } label: {
             VStack(alignment: .leading, spacing: Space.s) {
-                HStack(alignment: .top, spacing: 10) {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
                     Group {
-                        if let t { ProgressRing(task: t).frame(width: 16, height: 16) } else {
-                            Image(systemName: "circle.dashed").font(.system(size: 15)).foregroundStyle(Theme.muted)
+                        if let t { ProgressRing(task: t).frame(width: Metrics.glyph, height: Metrics.glyph) } else {
+                            Image(systemName: "circle.dashed").font(.system(size: 15)).foregroundStyle(Theme.muted).frame(width: Metrics.glyph, height: Metrics.glyph)
                         }
                     }
-                    .padding(.top, 2)
+                    .onFirstLine()
                     VStack(alignment: .leading, spacing: Space.xxs) {
                         Text((t?.title ?? String(text.split(separator: "\n").first ?? Substring(text))).md)
                             .font(Typo.secondary.weight(.semibold)).foregroundStyle(t?.status == "done" ? Theme.muted : Theme.text).lineLimit(2)

@@ -62,7 +62,7 @@ struct ApprovalDetail: View {
             .safeAreaInset(edge: .bottom) { buttons }
             .navigationTitle("Approval")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Close") { dismiss() } } }
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Close") { dismiss() }.toolbarText(primary: true) } }
         }
     }
 

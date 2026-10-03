@@ -17,6 +17,17 @@ extension AppState {
         Task { try? await API.shared.send("/api/boards/\(b.id)/typing", body: [String: Any](), retries: false) }
     }
 
+    /// Someone's typing (from the socket): shown until `until`, then dropped (unless a newer ping came in).
+    func heardTyping(_ who: String, until: Double, on board: String) {
+        withAnimation(.smooth(duration: 0.25)) { typing[board, default: [:]][who] = until }
+        let wait = max(0, until - Date().timeIntervalSince1970 * 1000) + 250
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000))
+            guard let self, self.typing[board]?[who] == until else { return }
+            withAnimation(.smooth(duration: 0.25)) { self.typing[board]?[who] = nil }
+        }
+    }
+
     /// Who's typing on a board right now (oldest first), at `now` (ms epoch).
     func typers(_ board: String, at now: Double) -> [String] {
         (typing[board] ?? [:]).filter { $0.value > now }.sorted { $0.value < $1.value }.map(\.key)
@@ -30,7 +41,9 @@ struct TypingRow: View {
     let board: String
 
     var body: some View {
-        // Ticks while someone's typing, so a ping that runs out (they stopped, or left) clears on its own.
+        // Ticks only while someone's typing, so a ping that runs out (they stopped, or left) clears on its own; with
+        // nobody typing there's nothing here at all (no timer redrawing the chat).
+        if !(state.typing[board] ?? [:]).isEmpty {
         TimelineView(.periodic(from: .now, by: 1)) { ctx in
             let who = state.typers(board, at: ctx.date.timeIntervalSince1970 * 1000)
             if !who.isEmpty {
@@ -52,6 +65,7 @@ struct TypingRow: View {
                 .accessibilityLabel(Self.line(who))
                 .accessibilityIdentifier("typing")
             }
+        }
         }
     }
 

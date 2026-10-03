@@ -53,7 +53,7 @@ struct CheckLine: View {
             Image(systemName: done ? "checkmark.circle.fill" : "circle")
                 .font(.system(size: compact ? 12 : 13)).foregroundStyle(done ? Theme.ok : Theme.faint)
                 .contentTransition(.symbolEffect(.replace))
-            Text(text.mdLinked(refTitle)).font(compact ? Typo.meta : Typo.secondary).foregroundStyle(done ? Theme.faint : Theme.text).strikethrough(done, color: Theme.faint).lineLimit(2)
+            Text(text.mdLinked(refTitle.callAsFunction)).font(compact ? Typo.meta : Typo.secondary).foregroundStyle(done ? Theme.faint : Theme.text).strikethrough(done, color: Theme.faint).lineLimit(2)
         }
         .animation(.spring(duration: 0.35, bounce: 0.4), value: done)
     }
@@ -183,11 +183,11 @@ struct TasksSheet: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     if pane == .tasks {
-                        Button { Haptic.tap(); newTask = true } label: { Image(systemName: "plus").font(.system(size: 15, weight: .semibold)) }
+                        Button { Haptic.tap(); newTask = true } label: { ToolbarIcon("plus") }
                             .accessibilityLabel("New task")
                     }
                 }
-                ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() }.fontWeight(.semibold) }
+                ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() }.toolbarText(primary: true) }
             }
             .navigationDestination(for: Int.self) { seq in TaskDetail(seq: seq, board: board.id) }
             .sheet(isPresented: $newTask) { NewTaskSheet(board: board.id).presentationDetents([.medium, .large]).presentationBackground(Theme.bg) }
@@ -382,7 +382,8 @@ struct TaskListRow: View {
             if depth > 0 {
                 Rectangle().fill(Theme.line).frame(width: 1).padding(.leading, 7).padding(.trailing, 8)
             }
-            StatusGlyph(task: task).frame(width: 16, height: 16)
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+            StatusGlyph(task: task).frame(width: Metrics.glyph, height: Metrics.glyph).onFirstLine()
             VStack(alignment: .leading, spacing: 2) {
                 Text(task.title)
                     .font(Typo.secondary.weight(.medium))
@@ -396,6 +397,7 @@ struct TaskListRow: View {
                     Text(task.updatedAt.ago).foregroundStyle(Theme.faint)
                 }
                 .font(Typo.micro).lineLimit(1)
+            }
             }
             .layoutPriority(1)
             Spacer(minLength: Space.s)
@@ -695,7 +697,7 @@ struct TaskDetail: View {
                         if state.canRemove(task, board: board) {
                             Button("Remove task", systemImage: "trash", role: .destructive) { confirmRemove = true }
                         }
-                    } label: { Image(systemName: "ellipsis").font(.system(size: 15, weight: .semibold)).frame(width: 32, height: 32).contentShape(Rectangle()) }
+                    } label: { ToolbarIcon("ellipsis").frame(width: 32, height: 32).contentShape(Rectangle()) }
                     .accessibilityLabel("More")
                 }
             }
@@ -895,7 +897,7 @@ struct NewTaskSheet: View {
             .navigationTitle("New task")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() }.toolbarText() }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         busy = true
@@ -903,7 +905,8 @@ struct NewTaskSheet: View {
                             if await state.createTask(board, title: title.trimmingCharacters(in: .whitespacesAndNewlines), checklist: items) != nil { dismiss() }
                             busy = false
                         }
-                    } label: { if busy { ProgressView() } else { Text("Add").fontWeight(.semibold) } }
+                    } label: { if busy { ProgressView() } else { Text("Add") } }
+                    .toolbarText(primary: true)
                     .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || busy)
                     .accessibilityIdentifier("new-task-add")
                 }

@@ -368,7 +368,7 @@ struct DocViewer: View {
             }
             if let file {
                 ToolbarItem(placement: .topBarTrailing) {
-                    ShareLink(item: file) { Image(systemName: "square.and.arrow.up").font(.system(size: 14, weight: .semibold)) }
+                    ShareLink(item: file) { ToolbarIcon("square.and.arrow.up") }
                         .accessibilityLabel("Share")
                         .accessibilityIdentifier("doc-share")
                 }
