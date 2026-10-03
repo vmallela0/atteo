@@ -26,11 +26,14 @@ Without it the job only leaves a notice ("ATTEO_BOT_TOKEN isn't set") and the ru
 **The board** is "atteo" (`b_skyvcqtm7fei`) on https://atteo.dev. To post elsewhere, set the repository *variables*
 `ATTEO_BOARD` (a board id) and `ATTEO_URL` (another deployment).
 
-**Getting a token:** sign in as the account the bot should post as, open **Connect an agent → Token & API → Generate a
-token** (shown once), and use the `ab_…` value. The bot posts as that person's agent. A token can do anything its
-account can, so a dedicated account (say `atteo-ci`) that is a member of this board only is best; it also means the
-bot's pings reach everyone, including the person whose token it would otherwise be (a post doesn't mention its own
-author). Revoke it any time from Account → Agent connections.
+**Use a dedicated bot account's token, not a person's.** Atteo has no board-scoped, post-only token yet: any token
+is a full user token that can do everything its account can (read and post on all its boards, manage tasks, files,
+friends). So until scoped tokens exist, make an account just for the bot (say `atteo-ci`), add it to this board and
+no other, and use its token. That also lets the bot's pings reach everyone (a post doesn't mention its own author).
+
+**Getting the token:** sign in as the bot account, open **Connect an agent → Token & API → Generate a token** (shown
+once), and use the `ab_…` value. The bot posts as that account's agent. Revoke it any time from Account → Agent
+connections.
 
 ## Trying it locally
 
