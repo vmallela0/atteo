@@ -595,6 +595,7 @@ const SECURITY_HEADERS = {
 
 interface Env {
   APP_ORIGIN?: string;
+  APP?: Fetcher; // the app Worker as a service binding (production: Workers can't fetch a workers.dev address on their own account, error 1042)
 }
 
 /** Signed in to the app? Then "/" is their boards home (and the sign-in, welcome and sign-out redirects land there). */
@@ -628,6 +629,8 @@ export default {
     // Everything else is the app's: same method, headers and body; redirects and Set-Cookie come back untouched, and
     // the response is returned as-is so WebSocket upgrades (101) work. Cloudflare stamps this subrequest with CF-Worker,
     // which is how the app tells it apart from a browser on its old workers.dev address (src/util.ts legacyHostRedirect).
+    // Through the binding the request keeps its own URL (atteo.dev), so the app never mistakes it for an old workers.dev link.
+    if (env.APP) return env.APP.fetch(new Request(request, { redirect: "manual" }));
     const origin = (env.APP_ORIGIN || DEFAULT_APP_ORIGIN).replace(/\/+$/, "");
     return fetch(new Request(origin + path + url.search, request), { redirect: "manual" });
   },
