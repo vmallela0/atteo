@@ -47,12 +47,13 @@ struct CheckLine: View {
     let text: String
     let done: Bool
     var compact = false
+    @Environment(\.refTitle) private var refTitle
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: Space.s) {
             Image(systemName: done ? "checkmark.circle.fill" : "circle")
                 .font(.system(size: compact ? 12 : 13)).foregroundStyle(done ? Theme.ok : Theme.faint)
                 .contentTransition(.symbolEffect(.replace))
-            Text(text.md).font(compact ? Typo.meta : Typo.secondary).foregroundStyle(done ? Theme.faint : Theme.text).strikethrough(done, color: Theme.faint).lineLimit(2)
+            Text(text.mdLinked(refTitle)).font(compact ? Typo.meta : Typo.secondary).foregroundStyle(done ? Theme.faint : Theme.text).strikethrough(done, color: Theme.faint).lineLimit(2)
         }
         .animation(.spring(duration: 0.35, bounce: 0.4), value: done)
     }
@@ -367,7 +368,7 @@ struct TasksPane: View {
     }
 }
 
-/// One row in the task list: status, title, a quiet second line (#, blocked / needs approval, priority, when), then
+/// One row in the task list: status, title, a quiet second line (blocked / needs approval, priority, when), then
 /// checklist progress and whose it is. Sub-tasks sit indented under a thin guide.
 struct TaskListRow: View {
     let task: WorkTask
@@ -389,7 +390,6 @@ struct TaskListRow: View {
                     .strikethrough(task.isDone, color: Theme.faint)
                     .lineLimit(1)
                 HStack(spacing: 6) {
-                    Text("#\(task.seq)").monospacedDigit().foregroundStyle(Theme.faint)
                     if task.isBlocked { Tag(text: task.status == "stopped" ? "Stopped" : "Blocked", icon: "exclamationmark.octagon.fill", color: Theme.warn) }
                     if needsApproval { Tag(text: "Needs approval", icon: "hand.raised.fill", color: Theme.accent) }
                     if task.priority == "high" && !task.isDone { Image(systemName: "flag.fill").font(.system(size: 9)).foregroundStyle(Theme.accent).accessibilityLabel("High priority") }
@@ -674,7 +674,7 @@ struct TaskDetail: View {
                     }
                     checklist(task)
                     if !subs.isEmpty { subTasks(subs) }
-                    Text("#\(task.seq)\(task.author.map { " · added by \($0)" } ?? "") · updated \(task.updatedAt.ago == "now" ? "just now" : "\(task.updatedAt.ago) ago")")
+                    Text([task.author.map { "Added by \($0)" }, "updated \(task.updatedAt.ago == "now" ? "just now" : "\(task.updatedAt.ago) ago")"].compactMap { $0 }.joined(separator: " · ").capitalizedFirst)
                         .font(Typo.micro).foregroundStyle(Theme.faint)
                         .padding(.top, Space.xl)
                 }
@@ -911,4 +911,9 @@ struct NewTaskSheet: View {
             .onAppear { focus = -1 }
         }
     }
+}
+
+extension String {
+    /// "updated 4m ago" → "Updated 4m ago".
+    var capitalizedFirst: String { prefix(1).uppercased() + dropFirst() }
 }

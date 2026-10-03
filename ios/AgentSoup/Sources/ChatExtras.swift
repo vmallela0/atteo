@@ -175,7 +175,7 @@ enum ChatSummary {
             .replacingOccurrences(of: "@[A-Za-z0-9][A-Za-z0-9_.-]*(?:['’]s\\s+agent)?", with: " ", options: .regularExpression)
             .replacingOccurrences(of: "[*`_]", with: "", options: .regularExpression)
         let w = line.split(whereSeparator: \.isWhitespace)
-        return w.isEmpty ? "#\(e.seq)" : w.prefix(words).joined(separator: " ") + (w.count > words ? "…" : "")
+        return w.isEmpty ? (e.artifactName ?? "A message") : w.prefix(words).joined(separator: " ") + (w.count > words ? "…" : "")
     }
 }
 
@@ -264,7 +264,7 @@ struct BoardInfoSheet: View {
         .listRowBackground(Theme.card)
     }
 
-    /// A question or decision: who, a few words, its number. Tap: close and go to it in the chat.
+    /// A question or decision: a few words, who and when (no number: those are for agents). Tap: go to it in the chat.
     private func jumpRow(_ e: Entry, icon: String, tint: Color) -> some View {
         Button { Haptic.tap(); jump(e.seq) } label: {
             HStack(spacing: Space.m) {
@@ -274,8 +274,7 @@ struct BoardInfoSheet: View {
                     Text((e.byAgent ? "\(e.author)'s agent" : e.author) + (e.to.map { " → \($0)" } ?? "") + " · " + e.ts.ago)
                         .font(Typo.micro).foregroundStyle(Theme.faint).lineLimit(1)
                 }
-                Spacer(minLength: Space.s)
-                Text("#\(e.seq)").font(Typo.micro).foregroundStyle(Theme.faint).monospacedDigit()
+                Spacer(minLength: 0)
             }
             .contentShape(Rectangle())
         }

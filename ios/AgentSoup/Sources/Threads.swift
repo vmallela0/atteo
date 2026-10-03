@@ -70,19 +70,51 @@ final class ThreadSeen: ObservableObject {
 }
 
 extension String {
-    /// The message as styled text, with "#123" (a message on this board) as a link that opens it.
-    var mdLinked: AttributedString {
-        var out = md
-        let plain = String(out.characters)
+    /// The message as styled text. "#123" (a message on this board; agents write and read the numbers) shows as a
+    /// small link with that message's title, "↗ Guard empty carts", that opens it: people never need the numbers
+    /// (#675, like the web). Never inside code or a link.
+    func mdLinked(_ title: (Int) -> String? = { _ in nil }) -> AttributedString {
+        let src = md
+        let plain = String(src.characters)
         let ns = plain as NSString
-        for m in Self.entryRE.matches(in: plain, range: NSRange(location: 0, length: ns.length)).reversed() {
-            guard let n = Int(ns.substring(with: m.range(at: 2))), let r = Range(m.range(at: 1), in: out) else { continue }
-            if out[r].runs.contains(where: { $0.link != nil || $0.inlinePresentationIntent?.contains(.code) == true }) { continue }
-            out[r].link = URL(string: "atteo-entry://\(n)")
+        var out = AttributedString()
+        var cursor = src.startIndex
+        for m in Self.entryRE.matches(in: plain, range: NSRange(location: 0, length: ns.length)) {
+            guard let n = Int(ns.substring(with: m.range(at: 2))), let r = Range(m.range(at: 1), in: src), r.lowerBound >= cursor else { continue }
+            if src[r].runs.contains(where: { $0.link != nil || $0.inlinePresentationIntent?.contains(.code) == true }) { continue }
+            out += src[cursor..<r.lowerBound]
+            var chip = AttributedString("↗ " + (title(n) ?? "an earlier message"))
+            chip.link = URL(string: "atteo-entry://\(n)")
+            chip.foregroundColor = Theme.text
+            chip.backgroundColor = Theme.raised
+            out += chip
+            cursor = r.upperBound
         }
+        out += src[cursor...]
         return out
     }
     private static let entryRE = try! NSRegularExpression(pattern: "(?<![\\w&/#])(#(\\d{1,7}))\\b")
+}
+
+/// What a "#123" in text is called here (its title, a few words), for the chips mdLinked makes. The chat and its
+/// threads set it from what's loaded; elsewhere a number reads "an earlier message".
+private struct RefTitleKey: EnvironmentKey { static let defaultValue: @Sendable (Int) -> String? = { _ in nil } }
+extension EnvironmentValues {
+    var refTitle: @Sendable (Int) -> String? {
+        get { self[RefTitleKey.self] }
+        set { self[RefTitleKey.self] = newValue }
+    }
+}
+
+extension View {
+    /// "#123" in messages and checklists here reads as that message's title (from these entries and tasks).
+    func refTitles(_ entries: [Entry], tasks: [WorkTask]) -> some View {
+        var titles: [Int: String] = [:]
+        for e in entries where e.seq > 0 && e.retracts == nil { titles[e.seq] = ChatSummary.short(e, words: 6) }
+        for t in tasks { titles[t.seq] = t.title }
+        let frozen = titles
+        return environment(\.refTitle, { frozen[$0] })
+    }
 }
 
 /// The message number in an "atteo-entry://123" link.
@@ -209,7 +241,7 @@ struct ThreadsList: View {
                     Spacer(minLength: Space.s)
                     Text(t.last.ago).font(Typo.micro).foregroundStyle(unread ? Theme.accent : Theme.faint).monospacedDigit()
                 }
-                Text(t.rootEntry.map { ThreadPreview.line($0) } ?? "#\(t.root)").font(Typo.secondary).foregroundStyle(Theme.muted).lineLimit(2)
+                Text(t.rootEntry.map { ThreadPreview.line($0) } ?? "An earlier message").font(Typo.secondary).foregroundStyle(Theme.muted).lineLimit(2)
                 HStack(spacing: 6) {
                     HStack(spacing: -5) {
                         ForEach(Array(people), id: \.seq) { p in Avatar(name: p.author, agent: p.byAgent, size: 16).padding(1).background(Theme.card, in: Circle()) }
@@ -312,6 +344,7 @@ struct ThreadView: View {
             }
         }
         .background(Theme.bg)
+        .refTitles(state.entries[board.id] ?? [], tasks: state.tasks[board.id] ?? [])
         .safeAreaInset(edge: .bottom, spacing: 0) { composer }
         .navigationTitle("Thread")
         .navigationBarTitleDisplayMode(.inline)

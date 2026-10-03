@@ -84,7 +84,8 @@ struct BoardView: View {
 
     private var anyUnreadThread: Bool { ThreadIndex.threads(list).contains { threadSeen.unread(board.id, $0, me: me) } }
 
-    var body: some View { threads(chat) }
+    // ("#123" in messages, checklists and the task sheets reads as that message's title.)
+    var body: some View { threads(chat).refTitles(list, tasks: state.tasks[board.id] ?? []) }
 
     /// Threads: pushed on this stack (a reply, a preview card, a "#123"), and the list of them in the top bar.
     private func threads(_ v: some View) -> some View {
@@ -714,6 +715,7 @@ struct EntryRow: View {
     var retry: () -> Void = {}
     @State var drag: CGFloat = 0 // swipe right to reply
     @Environment(\.chatDensity) private var density
+    @Environment(\.refTitle) private var refTitle
     /// Room above a message: tight under the one before when grouped, a little more otherwise (less when compact).
     private func gapAbove(_ comfortable: CGFloat) -> CGFloat {
         density == .compact ? (grouped ? Space.xxs : Space.gap(density)) : (grouped ? Space.xs : comfortable)
@@ -738,6 +740,9 @@ struct EntryRow: View {
             return people.isEmpty ? nil : Reaction(emoji: r.emoji, users: people)
         }
     }
+    /// A message's link, as the web addresses it.
+    static func link(board: String, seq: Int) -> String { API.shared.base.appendingPathComponent("b/\(board)").absoluteString + "#e\(seq)" }
+
     static func isAgent(_ u: String) -> Bool { u.hasSuffix("'s agent") || u.contains("/") }
     /// An agent's 🤔 (picked it up; 👀 on older messages) and ✅ (answered): read receipts, not reactions.
     static let receiptEmoji: Set<String> = ["🤔", "👀", "✅"]
@@ -771,6 +776,8 @@ struct EntryRow: View {
                 if let open = actions.openThread, !replies.isEmpty || e.replyTo != nil { Button("View thread", systemImage: "bubble.left.and.bubble.right", action: open) }
                 if let take = actions.takeOn, handling == nil { Button("On it", systemImage: "hand.raised", action: take) }
                 if !unsent { Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = e.text; Haptic.tap() } }
+                // The message's address (its number is in it, for agents and the web): /b/<board>#e<seq>.
+                if e.seq > 0, !board.isEmpty { Button("Copy link", systemImage: "link") { UIPasteboard.general.string = Self.link(board: board, seq: e.seq); Haptic.tap() } }
                 if e.failed == true { Button("Retry", systemImage: "arrow.clockwise", action: retry) }
                 if let unsend = actions.unsend { Button("Unsend", systemImage: "arrow.uturn.backward", role: .destructive, action: unsend) }
             }
@@ -866,7 +873,7 @@ struct EntryRow: View {
             quote
             attachment
             if unsent { unsentBody } else if e.type == "change" { ChangeCardView(e: e, board: board) } else if let caption {
-                let m = caption.mentioned(e.mentions, members: members, me: me)
+                let m = caption.mentioned(e.mentions, members: members, me: me, refTitle: refTitle)
                 m.text.textRenderer(MentionBoxes())
                     .font(Typo.body).foregroundStyle(Theme.text.opacity(e.pending == true ? 0.55 : 1))
                     .accessibilityValue(m.handles.isEmpty ? "" : "Mentions " + m.handles.joined(separator: ", "))
@@ -929,7 +936,7 @@ struct EntryRow: View {
                 attachment.padding(.vertical, Space.xxs)
                 quote
                 if unsent { unsentBody } else if e.type == "change" { ChangeCardView(e: e, board: board).padding(.top, Space.xxs) } else if e.type == "task" { TaskCard(seq: e.seq, board: board, text: e.text, tasks: tasks).padding(.top, Space.xxs) } else if let caption {
-                    let m = caption.mentioned(e.mentions, members: members, me: me)
+                    let m = caption.mentioned(e.mentions, members: members, me: me, refTitle: refTitle)
                     m.text.textRenderer(MentionBoxes()).font(Typo.body).foregroundStyle(Theme.text.opacity(0.92)).lineSpacing(1.5)
                         .accessibilityValue(m.handles.isEmpty ? "" : "Mentions " + m.handles.joined(separator: ", "))
                 }
