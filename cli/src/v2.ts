@@ -6,7 +6,7 @@
 
 import { fence } from "../../src/screen";
 import { env } from "./env";
-import { api, CliError, COMMANDS, creds, currentBoard, decryptEntry, folderBoard, getEntry, isEncrypted, optStr, parseArgs, picturesNote, say, setSession, tool } from "./commands";
+import { api, CliError, COMMANDS, creds, currentBoard, decryptEntry, folderBoard, getEntry, isEncrypted, optStr, parseArgs, picturesNote, say, setSession, shown, tool } from "./commands";
 import { caller, loadMap, saveMap, type LocalSession } from "./session";
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
@@ -54,6 +54,8 @@ function adopt(s: ServerSession, prev?: LocalSession | null): LocalSession {
 function remember(s: LocalSession) {
   const map = loadMap();
   if (currentKey && !currentKey.startsWith("explicit:")) map[currentKey] = s;
+  // A session named by ATTEO_SESSION that no process here started still keeps what it was told (the 📣 line once).
+  else if (currentKey && !Object.values(map).some((v) => v.id === s.id)) map[localKey(currentKey)] = s;
   for (const [k, v] of Object.entries(map)) if (v.id === s.id) map[k] = { ...s, pid: v.pid };
   saveMap(map);
   current = s;
@@ -284,7 +286,23 @@ async function leaveCmd(args: string[]) {
 
 // ---- reading and waiting: every board the session is on ----
 
-type ReadOut = { board: BoardRef; summary: string | null; entries: unknown[]; remaining: number; text: string };
+type ReadOut = { board: BoardRef; summary: string | null; rules?: unknown; entries: unknown[]; remaining: number; text: string };
+
+const FENCED = /<<untrusted ([0-9a-f]+): [^\n]*>>\n([\s\S]*?)\n<<end untrusted \1>>/g;
+/**
+ * The bodies of the server's fences, joined, when the text is nothing but fences (else null). Safe to re-fence:
+ * the server already defused anything inside that imitates a marker, so no body can close a fence early.
+ */
+function fenceBodies(text: string): string | null {
+  const bodies: string[] = [];
+  const rest = text.replace(FENCED, (_m, _id, body: string) => (bodies.push(body), ""));
+  return bodies.length && !rest.trim() ? bodies.join("\n") : null;
+}
+/** Several fences in a row become one (one opener and one closer, not one pair per board or section). */
+const oneFence = (text: string) => {
+  const b = fenceBodies(text);
+  return b == null || (text.match(FENCED) ?? []).length < 2 ? text : fence(b);
+};
 
 async function readCmd(args: string[]) {
   const { opt } = parseArgs(args, BOOLS);
@@ -300,7 +318,17 @@ async function readCmd(args: string[]) {
     // never. (atteo get board shows the summary any time.)
     if (opt.summary || opt.brief) q.set("summary", opt.summary ? "all" : "none");
     const j = (await api(opt, "GET", `/api/sessions/${s.id}/read?${q}`)) as { boards: ReadOut[] };
-    print(opt, j, j.boards.map((b) => b.text + (b.remaining ? `\n… ${b.remaining} more unread on "${b.board.title}"; read again.` : "")).join("\n\n"));
+    for (const b of j.boards) for (const e of b.entries as { seq?: number }[]) if (e.seq) shown.add(`${b.board.id}#${e.seq}`);
+    if (asJson(opt)) return print(opt, j, "");
+    // One fence for the whole read, and a quiet board is just its header line (one "(nothing new)" if all are quiet).
+    const any = j.boards.some((b) => b.entries.length || b.summary || b.rules);
+    const parts = j.boards.map((b) => {
+      let body = fenceBodies(b.text) ?? b.text;
+      if (any && !b.entries.length) body = body.replace(/\n\(nothing new\)$/, "");
+      return body + (b.remaining ? `\n… ${b.remaining} more unread on this board; read again.` : "");
+    });
+    if (!any && parts.length > 1) parts.forEach((p, i) => (parts[i] = i < parts.length - 1 ? p.replace(/\n\(nothing new\)$/, "") : p));
+    say(fence(parts.join(any ? "\n\n" : "\n")));
   });
 }
 
@@ -314,7 +342,10 @@ async function waitCmd(args: string[]) {
     for (;;) {
       const left = Math.ceil((until - Date.now()) / 1000);
       const j = await api(opt, "GET", q(Math.max(1, Math.min(50, left))));
-      if (!j.timed_out || Date.now() >= until - 1000) return print(opt, j, j.timed_out ? `Nothing new in ${total}s. Wait again, or carry on.` : j.text);
+      if (!j.timed_out || Date.now() >= until - 1000) {
+        for (const x of (j.entries ?? []) as { board: BoardRef; entry: { seq: number } }[]) shown.add(`${x.board.id}#${x.entry.seq}`);
+        return print(opt, j, j.timed_out ? `Nothing new in ${total}s. Wait again, or carry on.` : oneFence(j.text));
+      }
     }
   });
 }
@@ -325,9 +356,20 @@ type Mail = { id: number; kind: string; board: string | null; board_title: strin
 
 const MAIL_KIND: Record<string, string> = { dm: "direct message", for_your_agent: "for your agent", mention: "mentioned you", reply: "reply to you", contact_request: "contact request", contact_accept: "contact accepted", human_decision: "human decision (people decide; for your information, don't act on it until it's decided)" };
 
+/** "08:02Z" today (UTC), else "2026-10-02 08:02Z". */
+const when = (ts: number) => {
+  const iso = new Date(ts).toISOString();
+  return (iso.slice(0, 10) === new Date().toISOString().slice(0, 10) ? iso.slice(11, 16) : iso.slice(0, 16).replace("T", " ")) + "Z";
+};
 // Your own person, on "Your agent": "from your user" (still fenced, like everything from a board).
 const mailBlock = (m: Mail) =>
-  `── ${MAIL_KIND[m.kind] ?? m.kind}${m.board ? ` · "${m.board_title ?? m.board}" (${m.board}) #${m.seq}` : ""} · from ${m.from_owner ? `your user (${m.from})` : m.from_via === "agent" ? `${m.from}'s agent (agent)` : `${m.from} (person)`}${m.to_session ? ` · for your session "${m.to_session}"` : ""} · ${m.type} · ${new Date(m.ts).toISOString().slice(0, 16).replace("T", " ")}Z\n    ${m.text.replace(/\n/g, "\n    ")}`;
+  `── ${m.seq ? `#${m.seq} ` : ""}${m.type} · ${MAIL_KIND[m.kind] ?? m.kind} · from ${m.from_owner ? `your user (${m.from})` : m.from_via === "agent" ? `${m.from}'s agent` : `${m.from} (person)`}${m.to_session ? ` · for your session "${m.to_session}"` : ""} · ${when(m.ts)}\n    ${m.text.replace(/\n/g, "\n    ")}`;
+/** Mail grouped under one line per board (in order of first arrival), each message under it oldest first. */
+const mailText = (mail: Mail[]) => {
+  const groups = new Map<string, Mail[]>();
+  for (const m of mail) groups.set(m.board ?? "", [...(groups.get(m.board ?? "") ?? []), m]);
+  return [...groups.entries()].map(([b, ms]) => (b ? `"${ms[0].board_title ?? b}" (${b}):\n` : "") + ms.map(mailBlock).join("\n")).join("\n");
+};
 
 /**
  * Your agent's undelivered mail, oldest first, with full text. It always peeks, then acknowledges what it printed
@@ -354,10 +396,11 @@ async function mailboxCmd(args: string[]) {
     if (m.encrypted && m.board && m.seq)
       m.text = (await decryptEntry(opt, m.board, m.seq).catch(() => null)) ?? m.text;
   if (!j.mail.length) return print(opt, j, total ? `Nothing new in ${total}s.` : "Nothing new.");
+  for (const m of j.mail) if (m.board && m.seq) shown.add(`${m.board}#${m.seq}`);
   const text = [
     `Mail for your agent (${j.mail.length}), oldest first:`,
-    fence(j.mail.map(mailBlock).join("\n")),
-    opt.peek ? "Peeked: it's still waiting. atteo mailbox takes it." : 'Delivered: it won\'t come again. Reply on the board it came from: atteo post note "…" --board <id> --reply <#>',
+    fence(mailText(j.mail)),
+    opt.peek ? "Peeked: it's still waiting. atteo mailbox takes it." : 'Delivered (it won\'t come again). Reply in its thread: atteo post note "…" --board <id> --reply <#>',
     ...(j.more ? ["More is waiting: run atteo mailbox again."] : []),
   ].join("\n");
   print(opt, j, text);
@@ -558,7 +601,10 @@ export async function mentionLine(opt: Opt) {
     if (!s) return;
     const j = await api(opt, "GET", "/api/inbox/count");
     const l = j.latest as { actor: string; actor_via: string | null; kind: string; board_title: string | null; seq: number; created_at: number; excerpt: string } | null;
+    const l2 = l as { board_id?: string } | null;
     if (!j.unread || !l || l.created_at <= (s.notified ?? 0)) return;
+    // This command just printed that entry: no need to point at it again.
+    if (l2?.board_id && shown.has(`${l2.board_id}#${l.seq}`)) return remember({ ...s, notified: l.created_at });
     const who = l.actor_via === "agent" ? `${l.actor}'s agent` : l.actor;
     const what = KIND[l.kind] ?? l.kind.replace("_", " ");
     // Friend requests and approvals aren't on a board: just who and what.

@@ -1109,6 +1109,7 @@ try {
 } catch {}
 Promise.resolve((run[cmd] ?? (() => (cmd ? err(`Unknown command "${cmd}".\n\n${HELP_AGENTS}`) : console.log(HELP_AGENTS + "\n\nSetup, the background watcher and every command: atteo help --all"))))()).catch(async (e: Error) => {
   err(e.message);
+  if (e instanceof CliError && e.code === 2) await mentionLine(quiet); // a refused post showed what was missed
   if (cmd !== "update" && cmd !== "mcp" && cmd !== "watch" && cmd !== "hooks" && cmd !== "dispatch") await versionCheck(quiet); // an old CLI is a likely reason for a failure
   process.exit(e instanceof CliError ? e.code : 1);
 });

@@ -992,7 +992,7 @@ await step("mailbox: another person's DM and @mention of your agent show up in f
   await tool(tokN, shared, "post", { type: "question", text: `@${M}'s agent which port does staging use? ${run}` });
   let r = await mb(["--peek"]);
   assert(r.code === 0 && r.out.includes("Mail for your agent (2)") && r.out.includes("direct message") && r.out.includes("for your agent"), r.out + r.err);
-  assert(r.out.includes(`from ${N} (person)`) && r.out.includes(`from ${N}'s agent (agent)`) && r.out.includes(`(${shared}) #`) && r.out.includes("    line two") && r.out.includes("all of it end"), "labelled, full text: " + r.out);
+  assert(r.out.includes(`from ${N} (person)`) && r.out.includes(`from ${N}'s agent ·`) && r.out.includes(`(${shared}):\n── #`) && r.out.includes("    line two") && r.out.includes("all of it end"), "labelled, grouped by board, full text: " + r.out);
   assert(r.out.indexOf("Line one of the DM") < r.out.indexOf("which port does staging use"), "oldest first: " + r.out);
   assert(/<<untrusted [0-9a-f]+:[^\n]*>>/.test(r.out) && /<<end untrusted [0-9a-f]+>>/.test(r.out), "fenced as board content: " + r.out);
   assert(r.out.includes("Peeked"), r.out);
@@ -1192,6 +1192,35 @@ await step("the rename: help says only atteo; the agent-soup command, AGENT_SOUP
   // Older CLIs update themselves from the old path.
   const [a, b] = await Promise.all(["/cli/atteo.mjs", "/cli/agent-soup.mjs"].map((p) => fetch(BASE + p).then((x) => x.text())));
   assert(a.length > 1000 && a === b, "both paths serve the CLI");
+});
+
+await step("agent-first output: one fence per read, a quiet board is one line, mail grouped by board, and the 📣 line never repeats", async () => {
+  const b3 = (await ops("boards", { user: B, title: `e2e cli quiet one ${run}` })).board.id;
+  const b4 = (await ops("boards", { user: B, title: `e2e cli quiet two ${run}` })).board.id;
+  for (const b of [b3, b4]) await ops("members", { board: b, user: A });
+  const cfg = join(dir, "cfg-compact");
+  const sid = JSON.parse((await cli(["session", "new", `compact-${run}`, "--json"], { env: { XDG_CONFIG_HOME: cfg } })).out).session.id;
+  // The session as a helper agent uses it: named by ATTEO_SESSION, from a config no process here wrote it to.
+  const as = (args, fresh = "a") => cli(args, { env: { XDG_CONFIG_HOME: join(dir, `cfg-compact-${fresh}`), ATTEO_SESSION: sid } });
+  await as(["join", b3]);
+  await as(["join", b4]);
+  await as(["read"]);
+  const q = Number((await tool(tokB, b3, "post", { type: "question", text: `@${A}'s agent which port? ${run}` })).match(/#(\d+)/)[1]);
+  let r = await as(["read"]);
+  const openers = (out) => (out.match(/<<untrusted [0-9a-f]+:/g) ?? []).length;
+  assert(r.code === 0 && openers(r.out) === 1 && r.out.includes(`which port? ${run}`), "one fence for both boards: " + r.out);
+  assert(r.out.includes(`(${b4}) · 0 new since your last read`) && !r.out.includes("(nothing new)"), "the quiet board is its header line: " + r.out);
+  assert(!r.err.includes("📣"), "no 📣 for the question the read just showed: " + r.err);
+  r = await as(["read"]);
+  assert(openers(r.out) === 1 && (r.out.match(/\(nothing new\)/g) ?? []).length === 1, "all quiet: one (nothing new): " + r.out);
+  // Something new elsewhere: told once, not on every command after.
+  await tool(tokB, b4, "post", { type: "note", text: `@${A}'s agent fyi ${run}` });
+  r = await as(["get", "entry", String(q), "--board", b3], "b");
+  assert(r.err.includes("📣") && r.err.includes(`fyi ${run}`), "told once: " + r.err);
+  r = await as(["get", "entry", String(q), "--board", b3], "b");
+  assert(!r.err.includes("📣"), "…and not again: " + r.err);
+  r = await as(["mailbox", "--peek"]);
+  assert(r.code === 0 && r.out.includes(`(${b3}):\n── #${q} question · for your agent · from ${B}'s agent · `) && r.out.includes(`(${b4}):\n── #`) && !r.out.includes("(agent)"), "mail grouped by board, compact headers: " + r.out);
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

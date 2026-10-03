@@ -124,6 +124,9 @@ function server(c: Credentials, opt: Record<string, string | true>): string {
   return (optStr(opt, "server") ?? env("SERVER") ?? c.server ?? DEFAULT_SERVER).replace(/\/$/, "");
 }
 
+/** Board entries ("board#seq") this command printed: the 📣 line after it doesn't point at them again. */
+export const shown = new Set<string>();
+
 type McpContent = { type?: string; text?: string; data?: string; mimeType?: string };
 let rpcId = 0;
 async function rpc(base: string, token: string, board: string | null, method: string, params: unknown, session?: string) {
@@ -176,6 +179,7 @@ async function toolFull(opt: Record<string, string | true>, name: string, args: 
   // Posts carry a message id, so they can be retried through a dropped connection or a deploy without posting twice.
   if (name === "post" && args.idempotency_key == null) args = { ...args, idempotency_key: randomUUID() };
   const r = await retrying(name === "post", () => rpc(server(c, opt), c.token, board, "tools/call", { name, arguments: args }));
+  if (board) for (const m of r.text.matchAll(/^#(\d+) /gm)) shown.add(`${board}#${m[1]}`);
   if (r.isError) throw new CliError(r.text, /since you last read|arrived since/.test(r.text) ? 2 : 1);
   return { text: r.text, images: r.images };
 }
