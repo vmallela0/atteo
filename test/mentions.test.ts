@@ -108,6 +108,11 @@ describe("agent names", () => {
     expect(p("@Jarvis").unknown).toEqual([]);
   });
 
+  it("a quoted message's @names don't ping again (vedu #1022)", () => {
+    expect(parse("> @jxn's agent rerun the tests\n> — vedu, #12\n\n@j.doe see this").mentions).toEqual([person("j.doe")]);
+    expect(parse("> @jxn a plain quote").mentions).toEqual([person("jxn")]);
+  });
+
   it("only whole names, never in code, and not someone else's name on another board", () => {
     expect(p("@Jarvisx hi").mentions).toEqual([]);
     expect(p("@Jarvisx hi").unknown).toEqual(["jarvisx"]);
