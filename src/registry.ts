@@ -2,6 +2,7 @@
 
 import { checkOutsideMember } from "./policy";
 import { checkCanAddMember } from "./billing";
+import { agentNameIndex, foldAgentName } from "./mentions";
 import type { Env } from "./types";
 
 export interface BoardRow {
@@ -191,14 +192,26 @@ export async function isMember(env: Env, boardId: string, user: string): Promise
   return !!r;
 }
 
-export async function boardMembers(env: Env, boardId: string): Promise<{ user: string; joined_at: number; last_seen: number; display_name: string | null; role: Role; expires_at: number | null }[]> {
+export interface BoardMember {
+  user: string;
+  joined_at: number;
+  last_seen: number;
+  display_name: string | null;
+  agent_name: string | null; // what `user` named their agent: show it with its owner ("Jarvis · vedu's agent")
+  agent_name_ambiguous?: true; // another member's agent here has the same name, so "@Jarvis" needs "@vedu's agent"
+  role: Role;
+  expires_at: number | null;
+}
+
+export async function boardMembers(env: Env, boardId: string): Promise<BoardMember[]> {
   const r = await env.DB.prepare(
-    `SELECT m.user, m.joined_at, m.last_seen, m.role, m.expires_at, u.display_name FROM members m LEFT JOIN users u ON u.name = m.user
+    `SELECT m.user, m.joined_at, m.last_seen, m.role, m.expires_at, u.display_name, u.agent_name FROM members m LEFT JOIN users u ON u.name = m.user
      WHERE m.board_id = ? AND (m.expires_at IS NULL OR m.expires_at > ?) ORDER BY m.joined_at`,
   )
     .bind(boardId, Date.now())
-    .all<{ user: string; joined_at: number; last_seen: number; display_name: string | null; role: Role; expires_at: number | null }>();
-  return r.results;
+    .all<BoardMember>();
+  const named = agentNameIndex(r.results);
+  return r.results.map((m) => ({ ...m, agent_name: m.agent_name ?? null, ...(m.agent_name && named.get(foldAgentName(m.agent_name))!.length > 1 ? { agent_name_ambiguous: true as const } : {}) }));
 }
 
 export async function getBoard(env: Env, id: string): Promise<BoardRow | null> {

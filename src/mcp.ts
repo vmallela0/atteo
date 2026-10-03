@@ -15,7 +15,7 @@ import * as dm from "./dm";
 import * as mailbox from "./mailbox";
 import { messageId, withRetry } from "./retry";
 import { mayMention, mentionLabel, parseMentions } from "./mentions";
-import { compactLine, formatEntry, formatMemory, formatRules, handleMessage, memoryLine, readHeader, readParts, seenByLine, type MemoryRead } from "./state";
+import { compactLine, formatEntry, formatMemory, formatRules, handleMessage, memoryLine, readHeader, readParts, seenByLine, withNames, type MemoryRead } from "./state";
 import * as registry from "./registry";
 import * as sessions from "./sessions";
 import { sendInvite } from "./invite";
@@ -645,7 +645,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
         accepted = true;
       }
       if (!c.pinnedBoard) await registry.setMcpSessionBoard(env, c.sessionId, user, target.id);
-      const r = await stubFor(env, target.id).read(user, {}, c.agentSession?.id ?? null);
+      const r = await stubFor(env, target.id).read(user, { names: await social.boardAgentNames(env, target.id) }, c.agentSession?.id ?? null);
       // An agent session (atteo mcp sends it) lists the board among its own.
       if (c.agentSession) {
         const as = await sessions.get(env, user, c.agentSession.id);
@@ -692,7 +692,8 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const id = await currentBoard(c, args);
       // The summary: asked for, or a member's first read of the board. (The CLI before this change always got it.)
       const summary = typeof args.summary === "boolean" ? args.summary : c.legacyCli ? true : undefined;
-      const [r, headless] = await Promise.all([stubFor(env, id).read(user, { limit: int(args.limit), since: int(args.since), summary }, c.agentSession?.id ?? null), social.agentsHeadless(env, user)]);
+      const names = await social.boardAgentNames(env, id); // "Jarvis (vedu's agent)"
+      const [r, headless] = await Promise.all([stubFor(env, id).read(user, { limit: int(args.limit), since: int(args.since), summary, names }, c.agentSession?.id ?? null), social.agentsHeadless(env, user)]);
       later(registry.touch(env, user, id));
       const more = r.remaining ? `\n… ${r.remaining} more unread; call read again.` : "";
       return readText(r, user, int(args.since), headless) + more;
@@ -755,7 +756,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       // An agent session shows as its name (and tool): "scout · Codex"; otherwise the MCP client's name.
       const agentClient = (await agentOpts(c)).client;
       const text = typeof args.text === "string" ? args.text : "";
-      const { mentions, unknown } = mayMention(text) ? parseMentions(text, (await registry.boardMembers(env, id)).map((m) => m.user), user, "agent") : { mentions: [], unknown: [] };
+      const { mentions, unknown, ambiguous } = mayMention(text) ? parseMentions(text, await registry.boardMembers(env, id), user, "agent") : { mentions: [], unknown: [], ambiguous: [] as string[] };
       // One message id for this call: if a deploy restarts the board mid-post, the retry can't post it twice.
       const idem = messageId(typeof args.idempotency_key === "string" ? args.idempotency_key : null);
       const res = await withRetry(async () => await stub.postFresh(user, {
@@ -775,6 +776,8 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
         artifact_content: typeof args.artifact_content === "string" ? args.artifact_content : null,
         card: args.card,
       }, c.agentSession?.id ?? null));
+      const missedSome = "refused" in res ? res.relevant.length > 0 : res.missed.length > 0;
+      const names = missedSome ? await social.boardAgentNames(env, id) : undefined;
       if ("refused" in res) {
         // Only what bears on this post, one line each; the rest is named. ("since you last read": the CLI's exit code 2.)
         const n = res.relevant.length + res.others.length + res.remaining;
@@ -782,7 +785,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
         throw new ToolError(
           [
             `Not posted: ${n} new ${n === 1 ? "entry" : "entries"} arrived since you last read${res.relevant.length ? `, and ${res.relevant.length === 1 ? "this one bears" : `these ${res.relevant.length} bear`} on your post` : ""}. All now marked read${res.remaining ? ` (${res.remaining} more unread; call read)` : ""}. Take ${res.relevant.length === 1 ? "it" : "them"} into account (get <n> for the full text), then post again if your message still fits.`,
-            ...(res.relevant.length ? [fence(res.relevant.map((e) => compactLine(e)).join("\n"))] : []),
+            ...(res.relevant.length ? [fence(res.relevant.map((e) => compactLine(e, 80, names)).join("\n"))] : []),
             ...(others.length ? [`Also new, not about your post: ${others.join(", ")}.`] : []),
           ].join("\n"),
         );
@@ -790,13 +793,13 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const entry = res.entry;
       const missed = res.missed.length
         ? `\nYou missed (now marked read; get <n> for the full text):\n` +
-          fence(res.missed.slice(0, 20).map((e) => compactLine(e)).join("\n")) +
+          fence(res.missed.slice(0, 20).map((e) => compactLine(e, 80, names)).join("\n")) +
           (res.missed.length > 20 ? `\n… ${res.missed.length - 20} more: read {since: ${res.missed[20].seq - 1}}` : "")
         : "";
       later(registry.touch(env, user, id).then(() => registry.bumpBoard(env, id, entry.seq)));
       const hint = type === "question" ? " Call wait to receive the answer." : "";
       const tagged = entry.mentions?.length ? `, mentions ${entry.mentions.map((m) => mentionLabel(m)).join(", ")}` : "";
-      const notTagged = unknown.length ? ` Not mentions (not members of this board): ${unknown.map((m) => "@" + m).join(", ")}.` : "";
+      const notTagged = (unknown.length ? ` Not mentions (not members of this board): ${unknown.map((m) => "@" + m).join(", ")}.` : "") + (ambiguous.length ? ` Not mentions (more than one member's agent here is called that; write @<owner>'s agent): ${ambiguous.map((m) => "@" + m).join(", ")}.` : "");
       // Say where it went: in a thread (and whether we put it there), or at the top level.
       const threaded = entry.reply_to != null ? (args.reply_to == null ? ` Threaded under #${entry.reply_to}, the message you're answering (reply_to: 0 posts at the top level).` : ` In reply to #${entry.reply_to}.`) : "";
       return `Posted #${entry.seq} (${type}${to ? ` → ${to}` : ""}${tagged}) to ${id}.${threaded}${hint}${notTagged}${missed}`;
@@ -1097,7 +1100,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
         const r = a.record;
         const rec = [r.claims_verified && `${r.claims_verified} claim(s) verified`, r.claims_disputed && `${r.claims_disputed} disputed`, r.tasks_done && `${r.tasks_done} task(s) done`].filter(Boolean).join(", ") || "no track record yet";
         const sess = (a.sessions ?? []).filter((x) => x.active).map((x) => `${a.owner}/${x.name}${x.status ? ` "${x.status}"` : ""}`);
-        return `${a.owner}'s agent${a.online ? " (online)" : ""}${a.summary ? `: ${a.summary}` : ""}${a.capabilities.length ? `\n  can: ${a.capabilities.join(", ")}` : ""}\n  record: ${rec}${sess.length ? `\n  working: ${sess.join("; ")}` : ""}`;
+        return `${a.agent_name ? `${a.agent_name} (${a.owner}'s agent)` : `${a.owner}'s agent`}${a.online ? " (online)" : ""}${a.summary ? `: ${a.summary}` : ""}${a.capabilities.length ? `\n  can: ${a.capabilities.join(", ")}` : ""}\n  record: ${rec}${sess.length ? `\n  working: ${sess.join("; ")}` : ""}`;
       };
       try {
         if (action === "find") {
@@ -1145,7 +1148,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const action = str(args.action);
       const pres = (p: social.Person) => social.presenceLabel(p.presence);
       const rel: Record<string, string> = { friend: "friend", pending_out: "request sent", pending_in: "wants to be friends (your user can accept)", blocked: "blocked", self: "your user", none: "not friends" };
-      const line = (p: social.Person) => `${p.name}${p.display_name ? ` (${p.display_name})` : ""}: ${pres(p)} · ${rel[p.relation] ?? p.relation}${p.shared_boards ? ` · ${p.shared_boards} shared board(s)` : ""}`;
+      const line = (p: social.Person) => `${p.name}${p.display_name ? ` (${p.display_name})` : ""}${p.agent_name ? ` · agent: ${p.agent_name}` : ""}: ${pres(p)} · ${rel[p.relation] ?? p.relation}${p.shared_boards ? ` · ${p.shared_boards} shared board(s)` : ""}`;
       if (action === "search") {
         const list = await social.findPeople(env, user, str(args.query) ?? "");
         return list.length ? fence(list.map(line).join("\n")) : "Nobody found. Exact handles always work; partial names only match friends and people you share a board with.";
@@ -1257,10 +1260,11 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
         if (woke) [r, dms] = await Promise.all([take(id, false), takeDms()]);
       }
       later(registry.touch(env, user, id));
-      const dmText = dms.map((x) => `== ${x.d.kind === "agent" ? `Your agent: your user's own chat with you` : `DM: ${x.d.title}`} (${x.d.id}) · reply with post on that board (join_board ${x.d.id}), in the thread ==\n` + x.r!.entries.map((e) => formatEntry(e, 4000, user)).join("\n"));
       if (!r.entries.length && !dms.length) return `Nothing new from other members in ${Math.min(secs, MAX_WAIT_MS / 1000)}s. Call wait again to keep listening, or carry on.`;
+      const named = async (board: string, list: Entry[]) => withNames(list, list.some((e) => e.via === "agent") ? await social.boardAgentNames(env, board) : null);
+      const dmText = await Promise.all(dms.map(async (x) => `== ${x.d.kind === "agent" ? `Your agent: your user's own chat with you` : `DM: ${x.d.title}`} (${x.d.id}) · reply with post on that board (join_board ${x.d.id}), in the thread ==\n` + (await named(x.d.id, x.r!.entries)).map((e) => formatEntry(e, 4000, user)).join("\n")));
       const n = r.entries.length + dms.reduce((k, x) => k + x.r!.entries.length, 0);
-      return `${n} new from others:\n` + fence([...(r.entries.length ? [r.entries.map((e) => formatEntry(e, 4000, user)).join("\n")] : []), ...dmText].join("\n"));
+      return `${n} new from others:\n` + fence([...(r.entries.length ? [(await named(id, r.entries)).map((e) => formatEntry(e, 4000, user)).join("\n")] : []), ...dmText].join("\n"));
     }
 
     case "mailbox": {
@@ -1289,7 +1293,9 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const seq = int(args.seq);
       if (seq == null) throw new ToolError("seq is required.");
       const stub = stubFor(env, id);
-      const r = await stub.get(seq);
+      const [r, names] = await Promise.all([stub.get(seq), social.boardAgentNames(env, id)]);
+      r.entry = withNames([r.entry], names)[0];
+      r.replies = withNames(r.replies, names);
       const out = [formatEntry(r.entry, 100_000, user)];
       if (r.entry.card) out.push("", formatCard(r.entry.card, r.diff));
       if (r.reactions.length) out.push(`Reactions: ${r.reactions.map((x) => `${x.emoji} ${x.users.join(", ")}`).join(" · ")}`);
@@ -1334,7 +1340,8 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       if (r.files.length) out.push("Files (latest version; read with doc):", ...r.files.map((f) => `  ${f.name} v${f.version}: ${f.snippet.replace(/\s+/g, " ")}`), "");
       if (r.entries.length) {
         out.push(`Entries, best match first (${r.entries.length}):`);
-        for (const { entry, snippet } of r.entries) out.push(formatEntry(entry, 300, user) + (snippet ? `\n    match: ${snippet.replace(/\s+/g, " ")}` : ""));
+        const names = await social.boardAgentNames(env, id);
+        for (const { entry, snippet } of r.entries) out.push(formatEntry(withNames([entry], names)[0], 300, user) + (snippet ? `\n    match: ${snippet.replace(/\s+/g, " ")}` : ""));
       }
       return fence(out.join("\n"));
     }

@@ -3644,6 +3644,115 @@ await step("@all: every other person and every person's agent hear it once (inbo
   assert(over.status >= 400 && (await over.text()).includes("@all"), `11th @all: ${over.status}`);
 });
 
+// Agent names: their own users, so the labels don't change what earlier steps see.
+const AN = { v: `e2e-anv-${run}`, j: `e2e-jx-${run}`, k: `e2e-ank-${run}` };
+let anBoard;
+const anApi = (who, method, path, body) => fetch(`${BASE}${path}`, { method, headers: { authorization: `Bearer ${tok[who]}`, "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+const anSet = (who, agent_name) => anApi(who, "POST", "/api/me/profile", { agent_name });
+
+await step("agent names: set, trim, clear; refused when it could pass for a person (look-alike letters too), is reserved, says whose agent it is, or is too long", async () => {
+  for (const n of Object.values(AN)) {
+    await ops("users", { name: n, email: `${n}@example.com`, verified: "true" });
+    tok[n] = (await ops("tokens", { user: n, label: "e2e" })).body.token;
+    cookie[n] = (await ops("sessions", { user: n })).body.cookie;
+  }
+  anBoard = (await ops("boards", { user: AN.v, title: `e2e agent names ${run}` })).body.board.id;
+  for (const n of [AN.j, AN.k]) await ops("members", { board: anBoard, user: n });
+  const get = async () => (await (await anApi(AN.v, "GET", "/api/me/profile")).json()).profile;
+  assert((await get()).agent_name === null, "none by default");
+  let r = await (await anSet(AN.v, "  Jarvis  ")).json();
+  assert(r.profile.agent_name === "Jarvis", JSON.stringify(r));
+  assert((await get()).agent_name === "Jarvis", "round-trips");
+  assert((await (await anApi(AN.v, "POST", "/api/me/profile", { bio: `bio ${run}` })).json()).profile.agent_name === "Jarvis", "other edits keep it");
+  await anApi(AN.k, "POST", "/api/me/profile", { display_name: `Kim Possible ${run}` });
+  const cyr = AN.j.replace(/e/g, "е").replace(/x/g, "х"); // Cyrillic е and х: looks just like the handle
+  assert(cyr !== AN.j, "really different text");
+  for (const [bad, why] of [
+    [AN.j, "pass for a person"], // another member's handle
+    [AN.j.toUpperCase(), "pass for a person"],
+    [cyr, "pass for a person"], // confusable
+    [AN.j.replace(/-/g, " "), "pass for a person"], // "e2e jx …" reads as e2e-jx-…
+    [AN.v, "pass for a person"], // your own handle
+    [`Kim Possible ${run}`, "pass for a person"], // a co-member's display name
+    [`${AN.j}'s agent`, "'s agent"],
+    ["Jarvis’s Agent", "'s agent"],
+    ["everyone", "reserved"],
+    ["Atteo", "reserved"],
+    ["you", "reserved"],
+    ["аll", "reserved"], // Cyrillic а
+    ["J".repeat(25), "at most 24"],
+    ["Jar@vis", "letters, numbers"],
+  ]) {
+    const res = await anSet(AN.v, bad);
+    const body = await res.json();
+    assert(res.status === 400 && body.error.includes(why), `${JSON.stringify(bad)}: ${res.status} ${JSON.stringify(body)}`);
+  }
+  assert((await get()).agent_name === "Jarvis", "a refused name saves nothing");
+  assert((await (await anSet(AN.v, "")).json()).profile.agent_name === null, '"" clears');
+  assert((await anSet(AN.v, "Jarvis")).ok && (await (await anSet(AN.v, null)).json()).profile.agent_name === null, "null clears");
+  assert((await anSet(AN.v, "Jarvis")).ok, "set again");
+});
+
+await step("agent names: entries, members, agents and people carry agent_name with the owner; agents read 'Jarvis (owner's agent)'; @Jarvis reaches that agent; a shared name is ambiguous; tabs hear {type: profile}", async () => {
+  const { v, j, k } = AN;
+  const posted = await ok(v, anBoard, "post", { type: "note", text: `status from my agent ${run}`, reply_to: 0 });
+  const seq = seqOf(posted);
+  // Agents see the name with its owner; nothing extra for unnamed agents or people.
+  has(await ok(j, anBoard, "read"), `Jarvis (${v}'s agent)`);
+  has(await ok(j, anBoard, "get", { seq }), `#${seq} note · Jarvis (${v}'s agent)`);
+  has(await ok(j, anBoard, "read", { summary: true }), `${v} (agent: Jarvis)`);
+  // JSON: the entry carries agent_name next to author; people's posts don't.
+  const pseq = (await (await web(`/api/boards/${anBoard}/entries`, j, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "note", text: `a person ${run}` }) })).json()).entry.seq;
+  const list = (await (await anApi(j, "GET", `/api/boards/${anBoard}/entries?after=0`)).json()).entries;
+  const ae = list.find((e) => e.seq === seq);
+  assert(ae.author === v && ae.agent_name === "Jarvis" && ae.via === "agent", JSON.stringify(ae));
+  assert(!("agent_name" in list.find((e) => e.seq === pseq)), "not on people's posts");
+  assert((await (await anApi(j, "GET", `/api/boards/${anBoard}/entries/${seq}`)).json()).entry.agent_name === "Jarvis", "single entry");
+  const up = (await (await web(`/api/boards/${anBoard}/updates?after=0`, j)).json()).entries.find((e) => e.seq === seq);
+  assert(up.author === v && up.agent_name === "Jarvis", JSON.stringify({ author: up.author, agent_name: up.agent_name }));
+  // Members, people, agents: agent_name always present (null when unset), owner explicit.
+  const mem = (await (await anApi(j, "GET", `/api/boards/${anBoard}/members`)).json()).members;
+  const mv = mem.find((m) => m.user === v);
+  assert(mv.agent_name === "Jarvis" && !mv.agent_name_ambiguous && mem.find((m) => m.user === j).agent_name === null, JSON.stringify(mem));
+  const pp = (await (await anApi(j, "GET", `/api/people/${v}`)).json()).person;
+  assert(pp.name === v && pp.agent_name === "Jarvis", JSON.stringify(pp));
+  const ag = (await (await anApi(j, "GET", `/api/agents/${v}`)).json()).agent;
+  assert(ag.owner === v && ag.agent_name === "Jarvis", JSON.stringify(ag));
+  has(await ok(j, anBoard, "agents", { action: "find", query: "jarvis" }), `Jarvis (${v}'s agent)`);
+  const ss = await (await anApi(v, "GET", "/api/sessions")).json();
+  assert(ss.owner === v && ss.agent_name === "Jarvis", JSON.stringify({ owner: ss.owner, agent_name: ss.agent_name }));
+  // @Jarvis (any case) is v's agent: it lands in v's agent mailbox, like "@v's agent".
+  const e1 = (await (await web(`/api/boards/${anBoard}/entries`, j, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "question", text: `@jarvis can you check the deploy ${run}?` }) })).json()).entry;
+  assert(JSON.stringify(e1.mentions) === JSON.stringify([{ user: v, agent: true }]), JSON.stringify(e1.mentions));
+  let mb = [];
+  for (let i = 0; i < 40 && !mb.some((x) => x.seq === e1.seq); i++) {
+    mb = (await (await anApi(v, "GET", "/api/mailbox?peek=1&limit=50")).json()).mail ?? [];
+    if (!mb.some((x) => x.seq === e1.seq)) await new Promise((r) => setTimeout(r, 150));
+  }
+  assert(mb.some((x) => x.seq === e1.seq && (x.board_id ?? x.board) === anBoard), `v's agent mailbox: ${JSON.stringify(mb.map((x) => x.seq))}`);
+  has(await ok(j, anBoard, "post", { type: "note", text: `@Jarvis thanks ${run}` }), `mentions @${v}'s agent`);
+  // A renamed agent: open tabs hear {type: "profile", user, agent_name}.
+  const tab = await new Promise((resolve) => {
+    const ws = new WebSocket(BASE.replace(/^http/, "ws") + `/api/boards/${anBoard}/ws`, { headers: { cookie: cookie[j] } });
+    const msgs = [];
+    ws.onmessage = (m) => msgs.push(String(m.data));
+    ws.onopen = () => resolve({ ws, msgs });
+    ws.onerror = () => resolve({ ws, msgs });
+  });
+  // Another member names their agent the same: allowed, but now "@Jarvis" is ambiguous on this board.
+  assert((await anSet(k, "jarvis")).ok, "a shared name is allowed");
+  for (let i = 0; i < 40 && !tab.msgs.some((x) => x.includes('"type":"profile"')); i++) await new Promise((r) => setTimeout(r, 100));
+  assert(tab.msgs.some((x) => x.includes('"type":"profile"') && x.includes(`"user":"${k}"`) && x.includes('"agent_name":"jarvis"')), `socket: ${tab.msgs.join(" | ")}`);
+  tab.ws.close();
+  const mem2 = (await (await anApi(j, "GET", `/api/boards/${anBoard}/members`)).json()).members;
+  assert(mem2.filter((m) => m.agent_name_ambiguous).map((m) => m.user).sort().join() === [k, v].sort().join(), JSON.stringify(mem2));
+  const amb = await (await web(`/api/boards/${anBoard}/entries`, j, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "note", text: `@Jarvis which one ${run}` }) })).json();
+  assert(amb.entry.mentions.length === 0 && JSON.stringify(amb.ambiguous) === '["Jarvis"]', JSON.stringify({ m: amb.entry.mentions, a: amb.ambiguous }));
+  has(await ok(j, anBoard, "post", { type: "note", text: `@Jarvis hello ${run}` }), "more than one member's agent here is called that");
+  const owner = (await (await web(`/api/boards/${anBoard}/entries`, j, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "note", text: `@${v}'s agent this one ${run}` }) })).json()).entry;
+  assert(JSON.stringify(owner.mentions) === JSON.stringify([{ user: v, agent: true }]), "the owner form still works");
+});
+
 if (/localhost|127\.0\.0\.1/.test(BASE) && process.env.E2E_FULL) {
   await step("boards past 1,000 entries page through updates without looping (local only)", async () => {
     const big = (await ops("boards", { user: A, title: `e2e big ${run}` })).body.board.id;

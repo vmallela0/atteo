@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { forAgent, forPerson, highlightMentions, mentionLabel, mentionsOwnAgent, parseMentions } from "../src/mentions";
 import { entryHeader, formatSummary, computeSummary } from "../src/state";
+import { cleanAgentName, handleLookalikes, skeleton } from "../src/agentName";
 import { renderText } from "../src/ui";
 import { firstLine, involved, mentionOptions, shortTitle, summaryHtml } from "../src/html";
 import type { BoardInfo, Entry } from "../src/types";
@@ -92,6 +93,78 @@ describe("parseMentions", () => {
   it("caps the number of mentions", () => {
     const many = Array.from({ length: 30 }, (_, i) => `m${i}`);
     expect(parseMentions(many.map((m) => "@" + m).join(" "), many).mentions).toHaveLength(20);
+  });
+});
+
+describe("agent names", () => {
+  const named = [{ user: "vedu", agent_name: "Jarvis" }, { user: "jxn", agent_name: "Big Friday" }, { user: "j.doe" }, { user: "ops-bot", agent_name: "O'Neil" }];
+  const p = (text: string, author = "jxn", via: "agent" | "person" = "person") => parseMentions(text, named, author, via);
+
+  it('"@Jarvis" is that member\'s agent: any case, with spaces and apostrophes, in order', () => {
+    expect(p("@Jarvis can you check").mentions).toEqual([agent("vedu")]);
+    expect(p("thanks @jarvis.").mentions).toEqual([agent("vedu")]);
+    expect(p("@big friday and @O’Neil").mentions).toEqual([agent("jxn"), agent("ops-bot")]);
+    expect(p("@j.doe then @JARVIS then @vedu").mentions).toEqual([person("j.doe"), agent("vedu"), person("vedu")]);
+    expect(p("@Jarvis").unknown).toEqual([]);
+  });
+
+  it("only whole names, never in code, and not someone else's name on another board", () => {
+    expect(p("@Jarvisx hi").mentions).toEqual([]);
+    expect(p("@Jarvisx hi").unknown).toEqual(["jarvisx"]);
+    expect(p("`@Jarvis` and x@Jarvis").mentions).toEqual([]);
+    expect(parseMentions("@Jarvis hi", ["vedu", "jxn"], "jxn").unknown).toEqual(["jarvis"]); // names unknown here
+  });
+
+  it("a member's own handle wins over an agent name", () => {
+    const withJarvis = [...named, { user: "jarvis" }];
+    expect(parseMentions("@Jarvis hi", withJarvis, "jxn", "person").mentions).toEqual([person("jarvis")]);
+    expect(parseMentions("@Jarvis's agent hi", withJarvis, "jxn", "person").mentions).toEqual([agent("jarvis")]);
+  });
+
+  it("two agents with one name don't resolve: the owner form is needed", () => {
+    const twice = [{ user: "vedu", agent_name: "Jarvis" }, { user: "jxn", agent_name: "jarvis" }, { user: "kim" }];
+    const r = parseMentions("@Jarvis ping, and @vedu's agent", twice, "kim", "person");
+    expect(r.mentions).toEqual([agent("vedu")]);
+    expect(r.ambiguous).toEqual(["Jarvis"]);
+    expect(r.unknown).toEqual([]);
+  });
+
+  it("agents see the name with its owner, only when set", () => {
+    expect(entryHeader(e({ author: "vedu", via: "agent", agent_name: "Jarvis" }))).toContain("Jarvis (vedu's agent)");
+    expect(entryHeader(e({ author: "vedu", via: "agent" }))).toMatch(/ vedu's agent/);
+    expect(entryHeader(e({ author: "vedu", via: "person", agent_name: "Jarvis" }))).not.toContain("Jarvis");
+  });
+
+  it("your own agent by name counts from you, not from it", () => {
+    expect(p("@Big Friday take this", "jxn", "person").mentions).toEqual([agent("jxn")]);
+    expect(p("@Big Friday take this", "jxn", "agent").mentions).toEqual([]);
+  });
+});
+
+describe("cleanAgentName", () => {
+  it("trims and clears", () => {
+    expect(cleanAgentName("  Jarvis   Two ")).toBe("Jarvis Two");
+    expect(cleanAgentName("O’Neil")).toBe("O'Neil");
+    expect(cleanAgentName("")).toBeNull();
+    expect(cleanAgentName(null)).toBeNull();
+    expect(cleanAgentName("Jörg")).toBe("Jörg");
+  });
+
+  it("refuses long names, odd characters, owner claims and reserved words", () => {
+    expect(() => cleanAgentName("x".repeat(25))).toThrow(/at most 24/);
+    expect(() => cleanAgentName("Jar@vis")).toThrow(/letters, numbers/);
+    expect(() => cleanAgentName(42)).toThrow(/text/);
+    for (const n of ["vedu's agent", "Vedu’s Agent", "my friend's  agent too"]) expect(() => cleanAgentName(n), n).toThrow(/'s agent/);
+    for (const n of ["all", "Everyone", "ATTEO", "you", "agents", "humans", "Every One", "аll"]) expect(() => cleanAgentName(n), n).toThrow(/reserved/);
+  });
+
+  it("sees through look-alike letters", () => {
+    expect(skeleton("jхn")).toBe("jxn"); // Cyrillic х
+    expect(skeleton("ВЕДУ")).not.toBe("vedu"); // not every Cyrillic capital: В, Д aren't mapped
+    expect(skeleton("ｖｅｄｕ")).toBe("vedu"); // fullwidth (NFKC)
+    expect(skeleton("vėdu")).toBe("vedu"); // accents
+    expect(handleLookalikes("jхn")).toContain("jxn");
+    expect(handleLookalikes("J Xn")).toEqual(expect.arrayContaining(["jxn", "j.xn", "j_xn", "j-xn"]));
   });
 });
 

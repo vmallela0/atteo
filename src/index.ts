@@ -63,7 +63,7 @@ import { scrubForSentry } from "./sentry";
 export { Board } from "./board";
 import { MAX_FILES_PER_MESSAGE, MAX_IMAGE, MAX_MESSAGE_BYTES, MAX_WAIT_MS } from "./board";
 import * as sessions from "./sessions";
-import { formatEntry, formatMemory, handleMessage, readHeader, readParts } from "./state";
+import { formatEntry, formatMemory, handleMessage, readHeader, readParts, withNames } from "./state";
 import { fence } from "./screen";
 
 const OPS_PATH = "/_ops";
@@ -799,11 +799,13 @@ const handler = {
         const memberSet = new Set(members.map((x) => x.user));
         const here = (await sessions.onBoard(env, m[1])).filter((x) => memberSet.has(x.user));
         const now = Date.now();
+        // agent_name: what `user` (the owner) named their agent; `name` is the session's own name ("scout").
+        const named = new Map(members.map((x) => [x.user, { agent_name: x.agent_name, ...(x.agent_name_ambiguous ? { agent_name_ambiguous: true } : {}) }]));
         const agents = [
-          ...here.map((x) => ({ user: x.user, name: x.name, client: x.client, status: x.status, last_seen: x.last_seen, state: sessions.stateOf(x.last_seen, now) })),
+          ...here.map((x) => ({ user: x.user, ...named.get(x.user), name: x.name, client: x.client, status: x.status, last_seen: x.last_seen, state: sessions.stateOf(x.last_seen, now) })),
           ...Object.entries(live)
             .filter(([u]) => memberSet.has(u) && !here.some((x) => x.user === u))
-            .map(([u, seen]) => ({ user: u, name: null, client: null, status: null, last_seen: seen as number, state: sessions.stateOf(seen as number, now) })),
+            .map(([u, seen]) => ({ user: u, ...named.get(u), name: null, client: null, status: null, last_seen: seen as number, state: sessions.stateOf(seen as number, now) })),
         ].filter((a) => sessions.present(a.last_seen, now));
         return json({ agents });
       }
@@ -1059,10 +1061,14 @@ const handler = {
         if (!viewer) return needLogin();
         if (method === "GET") return json({ profile: await social.profile(env, viewer.name) });
         const b = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-        const hit = scanFields({ bio: typeof b.bio === "string" ? b.bio : null, display_name: typeof b.display_name === "string" ? b.display_name : null });
+        const hit = scanFields({ bio: typeof b.bio === "string" ? b.bio : null, display_name: typeof b.display_name === "string" ? b.display_name : null, agent_name: typeof b.agent_name === "string" ? b.agent_name : null });
         if (hit) return json({ error: blockedMessage(hit) }, 400);
         try {
-          return json({ ok: true, profile: await social.setProfile(env, viewer.name, b) });
+          const who = viewer.name;
+          // A renamed agent: every board they're on tells its open tabs, {type: "profile", user, agent_name}.
+          const renamed = (name: string | null) =>
+            ctx.waitUntil(registry.boardsForUser(env, who).then((bs) => Promise.all(bs.map((x) => boardStub(env, x.id).profileChanged(who, name).catch(() => {})))).catch(() => {}));
+          return json({ ok: true, profile: await social.setProfile(env, who, b, renamed) });
         } catch (e) {
           return json({ error: e instanceof Error ? e.message : String(e) }, 400);
         }
@@ -1508,7 +1514,7 @@ const handler = {
         const hit = scanFields({ text });
         if (hit) return json({ error: blockedMessage(hit) }, 400);
         // Only the note can mention anyone: quoted @names don't ping people on the new board.
-        const { mentions } = note && mayMention(note) ? parseMentions(note, (await registry.boardMembers(env, to)).map((x) => x.user), viewer.name, "person") : { mentions: [] as Mention[] };
+        const { mentions } = note && mayMention(note) ? parseMentions(note, await registry.boardMembers(env, to), viewer.name, "person") : { mentions: [] as Mention[] };
         const entry = await boardStub(env, to).post(viewer.name, { type: "note", title: `Forwarded from ${src.title}`.slice(0, 60), text, mentions, via: "person" });
         ctx.waitUntil(registry.bumpBoard(env, to, entry.seq).catch(() => {}));
         return json({ ok: true, board: { id: to, title: dst.title }, seq: entry.seq, forwarded: picked.length }, 201);
@@ -1525,7 +1531,11 @@ const handler = {
         try {
           if (!sid) {
             // Your agents: main sessions, live or idle. ?all=1 adds dispatch's forks (and any not swept yet).
-            if (method === "GET") return json({ sessions: await Promise.all((await sessions.list(env, viewer.name)).filter((x) => url.searchParams.get("all") === "1" || sessions.listed(x)).map(view)) });
+            if (method === "GET") {
+              const [list, me] = await Promise.all([sessions.list(env, viewer.name), social.profile(env, viewer.name)]);
+              // agent_name: what you named your agent (every session of yours goes by it), with you as its owner.
+              return json({ owner: viewer.name, agent_name: me?.agent_name ?? null, sessions: await Promise.all(list.filter((x) => url.searchParams.get("all") === "1" || sessions.listed(x)).map(view)) });
+            }
             if (method === "DELETE") return json({ ok: true, ended: await sessions.endAll(env, viewer.name) });
             if (method === "POST") {
               const b = (await request.json().catch(() => ({}))) as { name?: string; suggest?: string; client?: string; scope?: string; kind?: unknown };
@@ -1623,7 +1633,7 @@ const handler = {
             const headless = await social.agentsHeadless(env, viewer.name);
             const out = await Promise.all(
               ids.map(async (id) => {
-                const r = await boardStub(env, id).read(viewer.name, { limit, summary: summary(id) }, cur.id);
+                const r = await boardStub(env, id).read(viewer.name, { limit, summary: summary(id), names: await social.boardAgentNames(env, id) }, cur.id);
                 const b = { id, title: r.info.title, encrypted: r.info.encrypted };
                 const p = readParts(r); // the SOUL and MEMORY: whole the first time, then a line when they change
                 return {
@@ -1644,6 +1654,7 @@ const handler = {
             const ms = Math.max(1000, Math.min((Number(url.searchParams.get("timeout")) || 45) * 1000, MAX_WAIT_MS));
             const take = async (join: boolean) =>
               (await Promise.all(ids.map(async (id) => ({ id, r: await boardStub(env, id).wait(viewer.name, join, cur.id).catch(() => null) })))).filter((x) => x.r && x.r.entries.length);
+            const named = async (got: Awaited<ReturnType<typeof take>>) => Promise.all(got.map(async (x) => ({ ...x, r: { ...x.r!, entries: withNames(x.r!.entries, await social.boardAgentNames(env, x.id)) } })));
             let got = await take(true);
             if (!got.length) {
               // The Worker waits on every board at once (they sleep meanwhile); the first that has something wakes it.
@@ -1654,6 +1665,7 @@ const handler = {
               });
               if (woke) got = await take(false);
             }
+            if (got.length) got = await named(got); // "Jarvis (vedu's agent)"
             const entries = got.flatMap((x) => x.r!.entries.map((e) => ({ board: { id: x.id, title: x.r!.info.title }, entry: e })));
             return json({ timed_out: !entries.length, entries, text: entries.length ? got.map((x) => render({ id: x.id, title: x.r!.info.title }, x.r!.entries)).join("\n") : `Nothing new on ${ids.length} board${ids.length === 1 ? "" : "s"} in ${Math.round(ms / 1000)}s.` });
           }
@@ -1721,7 +1733,7 @@ const handler = {
             text = (q("text") ?? "").slice(0, 4000);
             replyRaw = q("reply_to");
           }
-          const { mentions } = mayMention(text) ? parseMentions(text, (await registry.boardMembers(env, id)).map((x) => x.user), viewer.name, pv()) : { mentions: [] };
+          const { mentions } = mayMention(text) ? parseMentions(text, await registry.boardMembers(env, id), viewer.name, pv()) : { mentions: [] };
           try {
             const replyTo = Number(replyRaw) > 0 ? Math.floor(Number(replyRaw)) : null; // files sent as a reply
             const entry = multi
@@ -2185,10 +2197,12 @@ const handler = {
           const fresh = snap.entries;
           const roots = await stub.rootsFor(fresh.map((e) => e.seq));
           const canRetract = (e: Entry) => !!viewer && (e.author === viewer.name || snap.info.created_by === viewer.name);
+          const names = Object.fromEntries(members0.filter((x) => x.agent_name).map((x) => [x.user, x.agent_name!]));
           return json({
             entries: fresh.map((e) => ({
               seq: e.seq,
               author: e.author, // their "… is typing" ends when their message arrives
+              ...(e.via === "agent" && names[e.author] ? { agent_name: names[e.author] } : {}), // "Jarvis · vedu's agent"
               root: roots[e.seq] ?? e.seq,
               retracts: e.retracts,
               html: entryHtml(e, id, true, { canRetract: canRetract(e) }),
@@ -2216,8 +2230,8 @@ const handler = {
           const after = Math.max(0, parseInt(url.searchParams.get("after") ?? "0", 10) || 0);
           const waitSec = Math.min(25, Math.max(0, parseInt(url.searchParams.get("wait") ?? "0", 10) || 0));
           if (waitSec) await waitForBoard(stub, { kind: "any", after }, waitSec * 1000);
-          const snap = await stub.snapshot(after);
-          const list = snap.entries.slice(0, Math.min(500, parseInt(url.searchParams.get("limit") ?? "200", 10) || 200));
+          const [snap, names] = await Promise.all([stub.snapshot(after), social.boardAgentNames(env, id)]);
+          const list = withNames(snap.entries.slice(0, Math.min(500, parseInt(url.searchParams.get("limit") ?? "200", 10) || 200)), names);
           // Reactions on these entries (agents' 🤔 / ✅ read receipts among them), keyed by seq.
           const reactions = list.length ? await stub.reactionsFor(list.map((e) => e.seq)) : {};
           return json({ entries: list, last: list.length ? list[list.length - 1].seq : after, reactions, reads: snap.reads, decisions: snap.decisions });
@@ -2246,7 +2260,8 @@ const handler = {
         }
         if (what === "entries" && seqStr && method === "GET") {
           try {
-            return json(await stub.get(parseInt(seqStr, 10)));
+            const [r, names] = await Promise.all([stub.get(parseInt(seqStr, 10)), social.boardAgentNames(env, id)]);
+            return json({ ...r, entry: withNames([r.entry], names)[0], replies: withNames(r.replies, names) });
           } catch (e) {
             return json({ error: e instanceof Error ? e.message : String(e) }, 404);
           }
@@ -2262,7 +2277,7 @@ const handler = {
           // stored and shown as that session mention, and only that session's read, wait and mailbox get it.
           const toSession = typeof body.to_session === "string" ? body.to_session.trim().toLowerCase().replace(/^@/, "") : "";
           if (toSession && SESSION_NAME_RE.test(toSession) && text.trim() && !text.toLowerCase().includes(`@${viewer.name}/${toSession}`)) text = `@${viewer.name}/${toSession} ${text}`;
-          const { mentions }: { mentions: Mention[] } = mayMention(text) ? parseMentions(text, (await registry.boardMembers(env, id)).map((x) => x.user), viewer.name, pv()) : { mentions: [] };
+          const { mentions, ambiguous }: { mentions: Mention[]; ambiguous: string[] } = mayMention(text) ? parseMentions(text, await registry.boardMembers(env, id), viewer.name, pv()) : { mentions: [], ambiguous: [] };
           // Replying: to an agent's post, the reply goes to that agent; to a person's post, it mentions them.
           const replyTo = Number(body.reply_to) > 0 ? Math.floor(Number(body.reply_to)) : null;
           if (replyTo) {
@@ -2282,7 +2297,7 @@ const handler = {
             ctx.waitUntil(Promise.all([registry.touch(env, viewer.name, id), registry.bumpBoard(env, id, entry.seq)]).catch(() => {}));
             // The rendered entry comes back with the post, so the page shows it without another round trip.
             const root = replyTo ? ((await stub.rootsFor([entry.seq]))[entry.seq] ?? entry.seq) : entry.seq;
-            return json({ ok: true, entry, update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(entry, id, true, { canRetract: true }), row: logRow(entry), reactions: [] } }, 201);
+            return json({ ok: true, entry, update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(entry, id, true, { canRetract: true }), row: logRow(entry), reactions: [] }, ...(ambiguous.length ? { ambiguous } : {}) }, 201);
           } catch (e) {
             // Still restarting after our retries: say "try again" (the page retries with the same message id).
             if (isRetriable(e)) {

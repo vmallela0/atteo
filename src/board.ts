@@ -4,7 +4,7 @@
 import { track } from "./usage";
 import { screenText } from "./screen";
 import { DurableObject } from "cloudflare:workers";
-import { computeSummary, formatSummary, tasksFor, DEFAULT_SUMMARY_CHARS, type Summary } from "./state";
+import { computeSummary, formatSummary, summaryWithNames, tasksFor, withNames, DEFAULT_SUMMARY_CHARS, type Summary } from "./state";
 import { blockedMessage, scanFields, scanText, type SecretHit } from "./secrets";
 import { recordOutcome } from "./agents";
 import { ALL_AGENTS, ALL_HUMANS, ALL_MEMBERS, forAgent, forPerson, hasGroupMention, keep, MAX_GROUP_MENTIONS, MAX_MENTIONS, mentionsOwnAgent, SESSION_NAME_RE, type Mention } from "./mentions";
@@ -1156,7 +1156,7 @@ export class Board extends DurableObject<Env> {
    * past what was returned. The board's summary comes with a member's first read of the board, then only when asked
    * for (`summary: true`); `summary: false` never.
    */
-  async read(user: string, opts: { limit?: number; since?: number; summary?: boolean } = {}, session?: string | null) {
+  async read(user: string, opts: { limit?: number; since?: number; summary?: boolean; names?: Record<string, string> } = {}, session?: string | null) {
     const info = this.info();
     const rules = this.rulesFor(user, session);
     const memory = this.memoryFor(user, session);
@@ -1184,14 +1184,14 @@ export class Board extends DurableObject<Env> {
       pin: this.pinLine(user, session, pinned), // "📌 SPEC.md updated to v4": once per version per reader, else null
       summaryText: withSummary
         ? (() => {
-            const text = withPinned(formatSummary(info, members, c.summary, user, DEFAULT_SUMMARY_CHARS, this.decisions.tags(c.tags), c.reviewers), pinned);
+            const text = withPinned(formatSummary(info, members, summaryWithNames(c.summary, opts.names), user, DEFAULT_SUMMARY_CHARS, this.decisions.tags(c.tags), c.reviewers, opts.names), pinned);
             return info.encrypted
               ? `This board is END-TO-END ENCRYPTED: messages are ciphertext here. Read and write it with the atteo CLI (atteo read / post / ask), which decrypts and encrypts on this machine.\n\n${text}`
               : text;
           })()
         : null,
       tasksForYou: tasksFor(c.summary, user, c.tags).length,
-      entries: this.decisions.attach(this.withHandling(fresh)),
+      entries: withNames(this.decisions.attach(this.withHandling(fresh)), opts.names), // "Jarvis (vedu's agent)": names from the Worker
       remaining,
       rules,
       memory, // the whole list on this reader's first read, then what changed (null: nothing to say)
@@ -3050,6 +3050,11 @@ export class Board extends DurableObject<Env> {
       { docVersion: version },
     );
     return { conflict: false, version, note: entry.seq };
+  }
+
+  /** A member renamed their agent: open tabs hear {type: "profile", user, agent_name} and refresh how they show it. */
+  async profileChanged(user: string, agentName: string | null): Promise<void> {
+    this.broadcast({ type: "profile", user, agent_name: agentName });
   }
 
   /** New title (checked for secrets); open tabs update live. Access is checked by the Worker. */
