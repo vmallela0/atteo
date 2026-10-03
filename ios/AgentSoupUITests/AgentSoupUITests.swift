@@ -868,12 +868,13 @@ final class AgentSoupUITests: XCTestCase {
         wait(for: [expectation(for: NSPredicate(format: "hittable == true"), evaluatedWith: old)], timeout: 8)
         sleep(1)
         shot("34-search-jumped")
-        a.navigationBars.buttons.element(boundBy: 0).tap()
-
         // An encrypted board: the server can't read it, so its search covers what's on this phone, and says so.
-        if a.buttons["Cancel"].exists { a.buttons["Cancel"].tap() }
+        a.terminate()
+        a.launch()
+        onBoards(a)
         let enc = a.buttons.matching(NSPredicate(format: "identifier == 'chat-Secret plans'")).firstMatch
-        if enc.waitForExistence(timeout: 5) {
+        XCTAssertTrue(enc.waitForExistence(timeout: 10), "the encrypted board")
+        do {
             enc.tap()
             XCTAssertTrue(a.buttons["presence"].waitForExistence(timeout: 10))
             a.buttons["presence"].tap()
