@@ -2168,14 +2168,16 @@ export class Board extends DurableObject<Env> {
     return list.length === 1 ? list[0][0] : null;
   }
 
-  private receiptDone(user: string, seq: number) {
-    if (this.decisions.isHuman(seq)) return; // an agent's reply is input to a human decision, not its answer
+  /** The agent answered #seq: its 🤔/👀 turns ✅. False if it had none there (nothing changes). */
+  private receiptDone(user: string, seq: number): boolean {
+    if (this.decisions.isHuman(seq)) return false; // an agent's reply is input to a human decision, not its answer
     const who = `${user}'s agent`;
     // The automatic receipt ("user's agent") and any 🤔/👀 one of that user's agent sessions added by hand ("user/session").
-    if (!this.sql.exec("DELETE FROM reactions WHERE seq = ? AND (user = ? OR user LIKE ? ESCAPE '\\') AND emoji IN ('🤔', '👀') RETURNING seq", seq, who, `${user.replace(/[\\%_]/g, "\\$&")}/%`).toArray().length) return;
+    if (!this.sql.exec("DELETE FROM reactions WHERE seq = ? AND (user = ? OR user LIKE ? ESCAPE '\\') AND emoji IN ('🤔', '👀') RETURNING seq", seq, who, `${user.replace(/[\\%_]/g, "\\$&")}/%`).toArray().length) return false;
     this.sql.exec("INSERT OR IGNORE INTO reactions (seq, user, emoji, ts) VALUES (?, ?, '✅', ?)", seq, who, Date.now());
     this.broadcast({ type: "reaction", seq, reactions: this.reactionsFor([seq])[seq] ?? [] });
     this.broadcast({ type: "typing-agents", agents: this.agentsTyping() });
+    return true;
   }
 
   // ---- reactions: toggled per person; don't create entries or wake agents ----
@@ -2225,7 +2227,10 @@ export class Board extends DurableObject<Env> {
       this.rateLimit(user);
       const n = this.sql.exec("SELECT COUNT(*) AS n FROM reactions WHERE seq = ? AND user = ?", seq, who).one().n as number;
       if (n >= MAX_REACTIONS_PER_PERSON) throw new BoardError(`At most ${MAX_REACTIONS_PER_PERSON} different reactions per person on one entry.`);
-      this.sql.exec("INSERT INTO reactions (seq, user, emoji, ts) VALUES (?, ?, ?, ?)", seq, who, e, Date.now());
+      // An agent reacting (any of its sessions too) has responded, like a reply: its 🤔 turns ✅ (vedu #1152). A ✅ is
+      // that receipt itself, so it isn't added a second time as the session's. 🤔/👀 mean "on it", not an answer.
+      const answered = opts.via === "agent" && e !== "🤔" && e !== "👀" && this.receiptDone(user, seq);
+      if (!(answered && e === "✅")) this.sql.exec("INSERT INTO reactions (seq, user, emoji, ts) VALUES (?, ?, ?, ?)", seq, who, e, Date.now());
     }
     const reactions = this.reactionsFor([seq])[seq] ?? [];
     this.broadcast({ type: "reaction", seq, reactions });

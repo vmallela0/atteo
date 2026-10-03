@@ -3012,6 +3012,47 @@ await step("a 🤔 an agent session added by hand clears to ✅ when that agent 
   assert(!r.some((x) => (x.emoji === "🤔" || x.emoji === "👀") && x.users.some((u) => u.startsWith(`${B}/`) || u === `${B}'s agent`)), `no 🤔 left after the answer: ${JSON.stringify(r)}`);
 });
 
+await step("an agent session's own reaction answers its person's automatic 🤔 (vedu #1152)", async () => {
+  const personPost = async (text) => (await (await web(`/api/boards/${board}/entries`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "note", text }) })).json()).entry.seq;
+  const rx = async (seq) => (await (await web(`/api/boards/${board}/entries?after=${seq - 1}&limit=1`, A)).json()).reactions[seq] ?? [];
+  const users = (r, emoji) => r.find((x) => x.emoji === emoji)?.users ?? [];
+  const thinking = (r) => [...users(r, "🤔"), ...users(r, "👀")].filter((u) => u === `${B}'s agent` || u.startsWith(`${B}/`));
+  const s1 = await session(B, board);
+  // 👍 from a session: the 🤔 turns ✅ (as a reply would), and the 👍 stays as the session's.
+  await ok(B, board, "read");
+  const q1 = await personPost(`@${B}'s agent ok to leave this for now? ${run}`);
+  await ok(B, board, "read");
+  let r = await rx(q1);
+  assert(users(r, "🤔").includes(`${B}'s agent`), `automatic 🤔 first: ${JSON.stringify(r)}`);
+  await sok(s1, "react", { seq: q1, emoji: "👍" });
+  r = await rx(q1);
+  assert(!thinking(r).length, `👍 from a session leaves no 🤔: ${JSON.stringify(r)}`);
+  assert(users(r, "✅").includes(`${B}'s agent`) && users(r, "👍").some((u) => u.startsWith(`${B}/`)), `✅ for the agent, 👍 for the session: ${JSON.stringify(r)}`);
+  // ✅ from a session: one ✅ (the automatic one), not a second session-level one; toggling it again takes it back.
+  const q2 = await personPost(`@${B}'s agent and this one? ${run}`);
+  await ok(B, board, "read");
+  await sok(s1, "react", { seq: q2, emoji: "✅" });
+  r = await rx(q2);
+  assert(!thinking(r).length && JSON.stringify(users(r, "✅")) === JSON.stringify([`${B}'s agent`]), `session ✅ turns the 🤔 into the agent's ✅: ${JSON.stringify(r)}`);
+  await sok(s1, "react", { seq: q2, emoji: "✅" });
+  assert(!users(await rx(q2), "✅").length, "toggled off");
+  // The agent itself (no session name) reacting 👍 answers too.
+  const q3 = await personPost(`@${B}'s agent last one ${run}`);
+  await ok(B, board, "read");
+  await ok(B, board, "react", { seq: q3, emoji: "🎉" });
+  r = await rx(q3);
+  assert(!thinking(r).length && users(r, "✅").includes(`${B}'s agent`), `agent 🎉 answers: ${JSON.stringify(r)}`);
+  // Not answers: the person's own reaction, and an agent's 🤔/👀 ("on it").
+  const q4 = await personPost(`@${B}'s agent still thinking? ${run}`);
+  await ok(B, board, "read");
+  await web(`/api/boards/${board}/entries/${q4}/react`, B, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ emoji: "👍" }) });
+  r = await rx(q4);
+  assert(users(r, "🤔").includes(`${B}'s agent`) && !users(r, "✅").length, `the person's 👍 isn't the agent's answer: ${JSON.stringify(r)}`);
+  await sok(s1, "react", { seq: q4, emoji: "👀" });
+  r = await rx(q4);
+  assert(!users(r, "✅").length, `👀 isn't an answer: ${JSON.stringify(r)}`);
+});
+
 await step("human decisions: a person's decision is open until the people decide; an agent can't resolve it and its reply doesn't ✅ it", async () => {
   await ops("users", { name: HDC, email: `${HDC}@example.com`, verified: "true" });
   tok[HDC] = (await ops("tokens", { user: HDC, label: "e2e" })).body.token;
