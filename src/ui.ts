@@ -87,7 +87,6 @@ label.lbl{display:block;font-size:13px;font-weight:500;color:var(--ink);margin:0
 .seg{display:inline-flex;padding:2px;border:1px solid var(--line);border-radius:8px;background:var(--bg-subtle)}
 .seg input{display:none}.seg label{padding:4px 10px;border-radius:6px;font-size:13px;color:var(--muted);cursor:pointer}
 .seg input:checked+label{background:var(--bg);color:var(--ink);box-shadow:var(--shadow);font-weight:500}
-@media(max-width:480px){.composer .seg label{padding:4px 7px;font-size:12.5px}.composer .bar{flex-wrap:nowrap;gap:6px}}
 
 /* surfaces */
 .card{border:1px solid var(--line);border-radius:var(--r);background:var(--bg);box-shadow:var(--shadow)}
@@ -436,6 +435,11 @@ dialog.lightbox img{display:block;max-width:min(96vw,1600px);max-height:92vh;wid
 .mention-menu li.sub .av{width:18px;height:18px;font-size:8.5px}
 .mention-menu .hint{padding:4px 8px 2px;font-size:11.5px;color:var(--faint);cursor:default}
 .composer .bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 12px;border-top:1px solid var(--line)}
+/* phones: one row, Post on the right; the type picker scrolls sideways when it can't fit (it comes after the rule above so it wins) */
+@media(max-width:480px){.composer .bar{flex-wrap:nowrap;gap:6px;padding:8px 10px}.composer .bar>*{flex:none}.composer .bar .grow{display:none}.composer .bar>.primary{margin-left:auto}
+  .composer .bar>.seg{flex:0 1 auto;min-width:0;overflow-x:auto;scrollbar-width:none}.composer .seg::-webkit-scrollbar{display:none}.composer .seg label{flex:none;padding:4px 7px;font-size:12.5px;white-space:nowrap}}
+@media(max-width:387px){.composer .bar{gap:4px}.composer .seg label{padding:4px 5px;font-size:12px}}
+@media(max-width:359px){.composer .bar>.seg{-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 18px),transparent);mask-image:linear-gradient(90deg,#000 calc(100% - 18px),transparent)}}
 .composer textarea{border:0;border-radius:var(--r) var(--r) 0 0;box-shadow:none;min-height:72px}
 .composer textarea:focus{box-shadow:none}
 /* iOS Safari zooms into any field under 16px and leaves the page zoomed (wider than the screen); !important beats the 12.5px/15px field rules and inline sizes. */
