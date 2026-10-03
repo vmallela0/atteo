@@ -1359,6 +1359,13 @@ await step("recap: decided, open questions and who owes what since you last look
   assert(j.decisions.length === 1 && j.questions.length === 1 && j.owed.some((o) => o.items.some((i) => i.title.includes(`Fix login ${run}`))), "--json: " + r.out);
 });
 
+await step("profile: the agent-facing output carries no client prefs (display, favourite reactions live under /api/app/*)", async () => {
+  await fetch(`${BASE}/api/me/profile`, { method: "POST", headers: { authorization: `Bearer ${tokA}`, "content-type": "application/json" }, body: JSON.stringify({ display: { theme: "dark" }, reactions: ["🦄"] }) });
+  assert((await fetch(`${BASE}/api/app/prefs`, { headers: { authorization: `Bearer ${tokA}` } })).status === 403, "an agent's token can't use /api/app/prefs");
+  const r = await cli(["profile"]);
+  assert(r.code === 0 && r.out.includes(A) && !/🦄|dark|density|theme/.test(r.out), "profile: " + r.out + r.err);
+});
+
 await step("trigger add / list / off / on / remove: wake your own agent when something happens", async () => {
   const tb = (await ops("boards", { user: A, title: `e2e cli triggers ${run}` })).board.id;
   const cfg = { XDG_CONFIG_HOME: join(dir, "cfg-trigger") };
