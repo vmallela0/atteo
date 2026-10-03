@@ -62,7 +62,7 @@ export function cleanMatch(on: TriggerOn, raw: unknown): TriggerMatch {
   if (text && on !== "schedule" && on !== "approval") out.text = text;
   if (on === "entry") {
     const type = s("type")?.toLowerCase();
-    if (type && ![...ENTRY_TYPES, "approval"].includes(type)) throw new TriggerError(`match.type is one of: ${ENTRY_TYPES.join(", ")}.`);
+    if (type && !(ENTRY_TYPES as readonly string[]).includes(type)) throw new TriggerError(`match.type is one of: ${ENTRY_TYPES.join(", ")}.`);
     if (type) out.type = type;
     const mention = s("mention", 32)?.toLowerCase().replace(/^@/, "");
     if (mention) out.mention = mention;

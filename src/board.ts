@@ -1198,7 +1198,16 @@ export class Board extends DurableObject<Env> {
       id, user, input.session ?? null, t.on, JSON.stringify(t.match), t.prompt, input.enabled === false ? 0 : 1, now, occ,
     );
     this.triggerMemo = null;
-    if (t.on === "schedule") await this.scheduleIndex(id, t.match.at!);
+    if (t.on === "schedule") {
+      try {
+        await this.scheduleIndex(id, t.match.at!);
+      } catch {
+        // Not indexed means the cron would never find it: don't keep a schedule that can't fire.
+        this.sql.exec("DELETE FROM triggers WHERE id = ?", id);
+        this.triggerMemo = null;
+        throw new BoardError("Couldn't save the schedule just now. Try again.");
+      }
+    }
     this.broadcast({ type: "triggers" });
     return this.publicTrigger(this.triggerRows().find((x) => x.id === id)!);
   }
