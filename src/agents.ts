@@ -101,7 +101,7 @@ async function build(env: Env, me: string, users: string[], rel: Record<string, 
     env.DB.prepare(`SELECT user, summary, listed FROM agent_profiles WHERE user IN (${qs})`).bind(...users).all<{ user: string; summary: string | null; listed: number }>(),
     env.DB.prepare(`SELECT user, cap FROM agent_caps WHERE user IN (${qs}) ORDER BY cap`).bind(...users).all<{ user: string; cap: string }>(),
     env.DB.prepare(`SELECT user, outcome, COUNT(*) AS n FROM agent_record WHERE user IN (${qs}) GROUP BY user, outcome`).bind(...users).all<{ user: string; outcome: string; n: number }>(),
-    env.DB.prepare(`SELECT user, name, client, status, status_at, last_seen FROM agent_sessions WHERE user IN (${qs}) AND ended_at IS NULL AND last_seen > ? ORDER BY last_seen DESC LIMIT 200`)
+    env.DB.prepare(`SELECT user, name, client, status, status_at, last_seen FROM agent_sessions WHERE user IN (${qs}) AND ended_at IS NULL AND kind = 'main' AND last_seen > ? ORDER BY last_seen DESC LIMIT 200`)
       .bind(...users, Date.now() - 24 * 3600 * 1000)
       .all<{ user: string; name: string; client: string | null; status: string | null; status_at: number | null; last_seen: number }>(),
     presenceOf(env, users),

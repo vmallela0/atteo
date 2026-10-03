@@ -1881,6 +1881,49 @@ await step("agent sessions: several per person, each with its own boards and rea
   assert(gone.isError && /session has ended/.test(gone.content[0].text), gone.content[0].text);
 });
 
+await step("only manager agents are listed: forks, ended sessions and ones gone for a day stay off Board info → Agents, the @-menu, your sessions and agent profiles; a fork is still reachable by name", async () => {
+  const api = async (who, method, path, body) => {
+    const r = await fetch(`${BASE}${path}`, { method, headers: { ...auth(who), "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+    return { status: r.status, body: await r.json().catch(() => ({})) };
+  };
+  const lb = (await ops("boards", { user: A, title: `e2e listed ${run}` })).body.board.id;
+  await ops("members", { board: lb, user: B });
+  const mk = async (body) => (await api(B, "POST", "/api/sessions", body)).body.session;
+  const main = await mk({ name: `mgr-${run}`, client: "Claude Code" });
+  const fork = await mk({ suggest: `task-9-${run}`, client: "Claude Code (dispatched)", kind: "fork" });
+  const ended = await mk({ name: `ended-${run}`, client: "Codex" });
+  const old = await mk({ name: `old-${run}`, client: "Codex" });
+  assert(main.kind === "main" && fork.kind === "fork" && old.kind === "main", JSON.stringify([main, fork]));
+  const bad = await api(B, "POST", "/api/sessions", { client: "Codex", kind: "subagent" });
+  assert(bad.status === 400 && /kind/.test(bad.body.error), "kind is checked: " + JSON.stringify(bad));
+  for (const s of [main, fork, ended, old]) assert((await api(B, "POST", `/api/sessions/${s.id}/boards`, { board: lb })).status === 200, `${s.name} joins`);
+  assert((await api(B, "DELETE", `/api/sessions/${ended.id}`)).status === 200, "end one");
+  assert((await ops("session-seen", { session: old.id, last_seen: Date.now() - 25 * 3600e3 })).status === 200, "one last seen a day ago");
+  const others = [fork, ended, old].map((s) => `${B}/${s.name}`);
+  // Board info → Agents (and its 30s refresh)
+  const listed = (await api(A, "GET", `/api/boards/${lb}/agents`)).body.agents.map((x) => `${x.user}/${x.name}`);
+  assert(listed.includes(`${B}/${main.name}`) && !others.some((n) => listed.includes(n)), "the board lists its manager agents only: " + JSON.stringify(listed));
+  // The board page: Board info → Agents and the @-mention menu's data
+  const html = await (await web(`/b/${lb}`, A)).text();
+  has(html, `${B}/${main.name}`);
+  for (const n of others) assert(!html.includes(n), `${n} isn't on the board page`);
+  // Agent profiles (the agents tool, People): what B's agent's sessions are doing
+  const prof = (await (await web(`/api/agents/${B}`, A)).json()).agent;
+  const profNames = (prof.sessions ?? []).map((x) => x.name);
+  assert(profNames.includes(main.name) && ![fork, ended, old].some((s) => profNames.includes(s.name)), "profile sessions: " + JSON.stringify(profNames));
+  // Your own list (the app's agents sheet): main ones; ?all=1 adds forks. A day without being seen ends a session.
+  const mine = (await api(B, "GET", "/api/sessions")).body.sessions.map((x) => x.id);
+  assert(mine.includes(main.id) && ![fork, ended, old].some((s) => mine.includes(s.id)), "your sessions: " + JSON.stringify(mine));
+  const all = (await api(B, "GET", "/api/sessions?all=1")).body.sessions;
+  assert(all.some((x) => x.id === fork.id && x.kind === "fork") && !all.some((x) => x.id === old.id || x.id === ended.id), "?all=1: " + JSON.stringify(all.map((x) => [x.name, x.kind])));
+  assert((await api(B, "GET", `/api/sessions/${old.id}`)).status === 404, "a session gone for a day was ended");
+  // Named explicitly, a live fork is still reachable
+  assert((await api(B, "GET", `/api/sessions/${fork.name}`)).body.session?.id === fork.id, "a fork by name");
+  await ok(A, lb, "read", {});
+  const m = seqOf(await ok(A, lb, "post", { type: "note", text: `@${B}/${fork.name} can you rerun it? ${run}` }));
+  has(await ok(A, lb, "get", { seq: m }), `@${B}/${fork.name}`);
+});
+
 await step("read-only agent sessions: read and wait work; posting, through the API or a tool, is refused; only the person raises it back", async () => {
   const H = (sid) => ({ ...auth(B), "content-type": "application/json", "x-agent-soup-session": sid });
   const ro = (await (await fetch(`${BASE}/api/sessions`, { method: "POST", headers: { ...auth(B), "content-type": "application/json" }, body: JSON.stringify({ client: "Codex", scope: "read" }) })).json()).session;

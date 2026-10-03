@@ -901,7 +901,7 @@ await step("dispatch: one fork per message, each its own session with the messag
   const forkDir = join(dir, "dispatch-forks");
   mkdirSync(forkDir, { recursive: true });
   const stub = join(dir, "fake-fork.sh");
-  writeFileSync(stub, `#!/bin/sh\n{ echo "START $AGENT_SOUP_SESSION"; node "${CLI}" session show --quiet; printf '%s\\n' "$@"; } > "${forkDir}/$AGENT_SOUP_SESSION.txt"\necho "answered"\n`);
+  writeFileSync(stub, `#!/bin/sh\n{ echo "START $AGENT_SOUP_SESSION"; node "${CLI}" session show --quiet; node "${CLI}" session show --quiet --json | grep '"kind"'; printf '%s\\n' "$@"; } > "${forkDir}/$AGENT_SOUP_SESSION.txt"\necho "answered"\n`);
   chmodSync(stub, 0o755);
   const task = Number((await tool(tokE, shared, "post", { type: "task", text: `@${D}'s agent please bump the version to 2.4 ${run}` })).match(/#(\d+)/)[1]);
   const cookieE = (await ops("sessions", { user: E })).cookie;
@@ -928,13 +928,14 @@ await step("dispatch: one fork per message, each its own session with the messag
   assert(taskRun && dmRun, `each fork gets its message in full: ${log}`);
   const taskFork = forks.find((f) => f.seq === task);
   assert(taskRun.startsWith(taskFork.session) && taskRun.includes(`(${taskFork.session})`) && taskRun.includes(`Doing: Handling task #${task}`) && taskRun.includes(shared), `the fork runs as its own session, on the board, with a status: ${taskRun}`);
+  assert(runs.every((x) => x.includes(`"kind": "fork"`)), `dispatch makes its sessions as forks (never listed as your agents): ${log}`);
   assert(/<<untrusted [0-9a-f]+:/.test(taskRun), "the message is fenced: " + taskRun);
   assert(taskRun.includes(`reply_to ${task}`) && taskRun.includes(`--board ${shared} --reply ${task}`) && taskRun.includes("in the thread") && taskRun.includes(`task claim ${task}`) && taskRun.includes("✅") && taskRun.includes("session end"), "claim, reply in the thread, ✅, end: " + taskRun);
   assert(dmRun.includes(`direct board with ${E}`) && dmRun.includes(dm) && !dmRun.includes("task claim"), dmRun);
   // Acked, the forks' sessions ended, and a second run starts nothing.
   const left = await call(tokD, "GET", "/api/mailbox?peek=1");
   assert(left.mail.length === 0, "acked: " + JSON.stringify(left));
-  const live = (await call(tokD, "GET", "/api/sessions")).sessions.map((s) => s.id);
+  const live = (await call(tokD, "GET", "/api/sessions?all=1")).sessions.map((s) => s.id); // all=1: forks too
   assert(forks.every((f) => !live.includes(f.session)), "fork sessions end when the fork exits: " + live);
   r = await dispatch();
   assert(r.code === 0 && !r.out.includes('"event":"fork"') && forkLogs().length === 2, "a second run doesn't redo it: " + r.out + r.err);

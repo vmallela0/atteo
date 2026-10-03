@@ -716,7 +716,7 @@ async function dispatch(args: string[]) {
     if (m.encrypted) m.text = (await decryptEntry(o, m.board!, m.seq!).catch(() => null)) ?? m.text; // decrypted on this machine
     const choice = harnessNow();
     const agentName = nameOf(choice);
-    const s = (await api(o, "POST", "/api/sessions", { suggest: forkName(m), client: `${agentName} (dispatched)` })).session as { id: string; name: string };
+    const s = (await api(o, "POST", "/api/sessions", { suggest: forkName(m), client: `${agentName} (dispatched)`, kind: "fork" })).session as { id: string; name: string };
     // A DM reaches every session without joining; for other boards the fork starts on the board it's answering.
     await api(o, "POST", `/api/sessions/${s.id}/boards`, { board: m.board }).catch(() => {});
     // Who and what, never the message itself (the status is shown to everyone on the board).

@@ -16,7 +16,11 @@ export interface AgentSession {
   status?: string | null; // what it's doing, in its own words
   status_at?: number | null;
   scope?: "full" | "read"; // read: read and wait only (see 0028_session_scope.sql)
+  kind?: SessionKind; // fork: a one-message session from agent-soup dispatch, never listed (see 0034_session_kind.sql)
 }
+
+/** "main": a person's running agent, listed as one of their agents. "fork": one message's worth of work, not listed. */
+export type SessionKind = "main" | "fork";
 
 export class SessionError extends Error {}
 
@@ -53,7 +57,9 @@ export function cleanName(raw: string | null | undefined): string | null {
 }
 
 /** `name` is one the person chose (refused if taken); `suggest` is a default (numbered if taken: claude, claude-2…). */
-export async function create(env: Env, user: string, p: { name?: string | null; suggest?: string | null; client?: string | null }): Promise<AgentSession> {
+export async function create(env: Env, user: string, p: { name?: string | null; suggest?: string | null; client?: string | null; kind?: unknown }): Promise<AgentSession> {
+  const kind = p.kind ?? "main";
+  if (kind !== "main" && kind !== "fork") throw new SessionError('kind is "main" (a running agent) or "fork" (one message\'s work, from agent-soup dispatch).');
   const live = await list(env, user);
   const taken = new Set(live.map((s) => s.name));
   let name = cleanName(p.name) ?? cleanName(p.suggest) ?? cleanName(p.client) ?? "agent";
@@ -67,8 +73,8 @@ export async function create(env: Env, user: string, p: { name?: string | null; 
   const id = "as_" + btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
   const now = Date.now();
   const client = (p.client ?? "").trim().slice(0, 60) || null;
-  await env.DB.prepare(`INSERT INTO agent_sessions (id, user, name, client, boards, created_at, last_seen) VALUES (?, ?, ?, ?, '[]', ?, ?)`).bind(id, user, name, client, now, now).run();
-  return { id, user, name, client, boards: [], created_at: now, last_seen: now, ended_at: null };
+  await env.DB.prepare(`INSERT INTO agent_sessions (id, user, name, client, boards, created_at, last_seen, kind) VALUES (?, ?, ?, ?, '[]', ?, ?, ?)`).bind(id, user, name, client, now, now, kind).run();
+  return { id, user, name, client, boards: [], created_at: now, last_seen: now, ended_at: null, kind };
 }
 
 /** Your session by id or by name (live ones only). */
@@ -79,12 +85,19 @@ export async function get(env: Env, user: string, idOrName: string): Promise<Age
   return r ? toSession(r) : null;
 }
 
-/** Your live sessions, most recently active first. */
+/** Your live sessions (main and forks), most recently active first. Sessions not seen for a day are over: they're ended
+ *  on the way (no cron), so they stop being listed anywhere and their agent starts a fresh one if it ever comes back. */
 export async function list(env: Env, user: string): Promise<(AgentSession & { active: boolean; state: "live" | "idle" | "gone" })[]> {
-  const rows = (await env.DB.prepare(`SELECT * FROM agent_sessions WHERE user = ? AND ended_at IS NULL ORDER BY last_seen DESC LIMIT 100`).bind(user).all<Row>()).results;
   const now = Date.now();
-  return rows.map((r) => ({ ...toSession(r), active: now - r.last_seen < ACTIVE_MS, state: stateOf(r.last_seen, now) }));
+  const [, sel] = await env.DB.batch([
+    env.DB.prepare(`UPDATE agent_sessions SET ended_at = ? WHERE user = ? AND ended_at IS NULL AND last_seen < ?`).bind(now, user, now - ACTIVE_MS),
+    env.DB.prepare(`SELECT * FROM agent_sessions WHERE user = ? AND ended_at IS NULL ORDER BY last_seen DESC LIMIT 100`).bind(user),
+  ]);
+  return (sel.results as Row[]).map((r) => ({ ...toSession(r), active: now - r.last_seen < ACTIVE_MS, state: stateOf(r.last_seen, now) }));
 }
+
+/** What a person's agents list shows: main sessions that are live or idle (never forks, ended or gone ones). */
+export const listed = (s: AgentSession & { state: "live" | "idle" | "gone" }) => (s.kind ?? "main") === "main" && s.state !== "gone";
 
 /** Marks the session as active (at most one write a minute per session per isolate). */
 const seen = new Map<string, number>();
@@ -133,11 +146,12 @@ export async function dropBoard(env: Env, user: string, board: string): Promise<
   for (const s of await list(env, user)) if (s.boards.includes(board)) await setBoards(env, s, s.boards.filter((b) => b !== board));
 }
 
-/** Agent sessions working on a board lately (any of its members'), most recent first. */
+/** Main agent sessions working on a board lately (any of its members'), most recent first: what the board lists as its
+ *  agents (Board info, the @-mention menu, /api/boards/:id/agents). Forks, ended and gone sessions aren't listed. */
 export async function onBoard(env: Env, board: string): Promise<{ user: string; name: string; client: string | null; last_seen: number; status: string | null }[]> {
   if (!/^b_[a-z0-9]+$/.test(board)) return [];
   return (
-    await env.DB.prepare(`SELECT user, name, client, last_seen, status FROM agent_sessions WHERE ended_at IS NULL AND last_seen > ? AND boards LIKE ? ORDER BY last_seen DESC LIMIT 50`)
+    await env.DB.prepare(`SELECT user, name, client, last_seen, status FROM agent_sessions WHERE ended_at IS NULL AND kind = 'main' AND last_seen > ? AND boards LIKE ? ORDER BY last_seen DESC LIMIT 50`)
       .bind(Date.now() - ACTIVE_MS, `%"${board}"%`)
       .all<{ user: string; name: string; client: string | null; last_seen: number; status: string | null }>()
   ).results;

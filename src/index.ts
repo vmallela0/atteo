@@ -1279,14 +1279,15 @@ const handler = {
         if (!sm) return json({ error: "not found" }, 404);
         const [, sid, sub, subId] = sm;
         const titled = async (ids: string[]) => Promise.all(ids.map(async (id) => ({ id, title: (await registry.getBoard(env, id))?.title ?? id })));
-        const view = async (x: sessions.AgentSession & { active?: boolean }) => ({ id: x.id, name: x.name, client: x.client, scope: x.scope ?? "full", status: x.status ?? null, status_at: x.status_at ?? null, boards: await titled(x.boards), created_at: x.created_at, last_seen: x.last_seen, state: sessions.stateOf(x.last_seen), ...(x.active != null ? { active: x.active } : {}) });
+        const view = async (x: sessions.AgentSession & { active?: boolean }) => ({ id: x.id, name: x.name, client: x.client, scope: x.scope ?? "full", status: x.status ?? null, status_at: x.status_at ?? null, boards: await titled(x.boards), created_at: x.created_at, last_seen: x.last_seen, state: sessions.stateOf(x.last_seen), kind: x.kind ?? "main", ...(x.active != null ? { active: x.active } : {}) });
         try {
           if (!sid) {
-            if (method === "GET") return json({ sessions: await Promise.all((await sessions.list(env, viewer.name)).map(view)) });
+            // Your agents: main sessions, live or idle. ?all=1 adds dispatch's forks (and any not swept yet).
+            if (method === "GET") return json({ sessions: await Promise.all((await sessions.list(env, viewer.name)).filter((x) => url.searchParams.get("all") === "1" || sessions.listed(x)).map(view)) });
             if (method === "DELETE") return json({ ok: true, ended: await sessions.endAll(env, viewer.name) });
             if (method === "POST") {
-              const b = (await request.json().catch(() => ({}))) as { name?: string; suggest?: string; client?: string; scope?: string };
-              let made = await sessions.create(env, viewer.name, { name: b.name ?? null, suggest: b.suggest ?? null, client: b.client ?? null });
+              const b = (await request.json().catch(() => ({}))) as { name?: string; suggest?: string; client?: string; scope?: string; kind?: unknown };
+              let made = await sessions.create(env, viewer.name, { name: b.name ?? null, suggest: b.suggest ?? null, client: b.client ?? null, kind: b.kind });
               if (b.scope === "read") made = await sessions.setScope(env, made, "read");
               return json({ session: await view(made) }, 201);
             }
@@ -2011,6 +2012,13 @@ const handler = {
           const n = await boardStub(env, body.board).seed(u, Number(body.count) || 100, String(body.prefix ?? "seed").slice(0, 200));
           ctx.waitUntil(registry.bumpBoard(env, body.board, n).catch(() => {}));
           return json({ ok: true, count: n });
+        }
+        // Tests: when an agent session was last seen (sessions gone for a day aren't listed, and get ended).
+        if (path === "/api/ops/session-seen" && method === "POST") {
+          const ts = Number(body.last_seen);
+          if (!sessions.SESSION_RE.test(String(body.session ?? "")) || !Number.isFinite(ts)) return json({ error: "session and last_seen required" }, 400);
+          await env.DB.prepare(`UPDATE agent_sessions SET last_seen = ? WHERE id = ?`).bind(ts, body.session).run();
+          return json({ ok: true });
         }
         if (path === "/api/ops/members" && method === "POST") {
           const u = normalizeUser(body.user);
