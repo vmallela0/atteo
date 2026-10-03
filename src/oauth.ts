@@ -2,10 +2,13 @@
 // over HTTP, ChatGPT, and others). The agent registers itself (RFC 7591), sends the person here to sign in and approve,
 // and exchanges a single-use code (PKCE S256 required) for a personal token, the same kind `atteo login` gets.
 
-import { createToken, randomSecret, sha256hex } from "./auth";
+import { createToken, randomSecret, revokeToken, sha256hex } from "./auth";
 import type { Env } from "./types";
 
 export const OAUTH_TOKEN_TTL_MS = 30 * 24 * 3600 * 1000;
+// Longer than the access token, and each refresh issues a new one: a bot that runs at least every 90 days stays
+// signed in until its person revokes the connection.
+const REFRESH_TTL_MS = 90 * 24 * 3600 * 1000;
 const CODE_TTL_MS = 5 * 60 * 1000;
 const REQUEST_TTL_MS = 10 * 60 * 1000;
 
@@ -26,7 +29,7 @@ export function authorizationServer(origin: string) {
     token_endpoint: `${origin}/oauth/token`,
     registration_endpoint: `${origin}/oauth/register`,
     response_types_supported: ["code"],
-    grant_types_supported: ["authorization_code"],
+    grant_types_supported: ["authorization_code", "refresh_token"],
     code_challenge_methods_supported: ["S256"],
     token_endpoint_auth_methods_supported: ["none"],
     scopes_supported: ["board"], // "person" is the Atteo app's own sign-in; it isn't advertised, so connectors (Codex asks for every advertised scope) never request it
@@ -57,7 +60,7 @@ export async function register(env: Env, body: { client_name?: unknown; redirect
   const name = (typeof body.client_name === "string" ? body.client_name : "An MCP client").replace(/[\u0000-\u001f]/g, "").trim().slice(0, 60) || "An MCP client";
   const client_id = randomSecret("oc_", 16);
   await env.DB.prepare(`INSERT INTO oauth_clients (client_id, name, redirect_uris, created_at) VALUES (?, ?, ?, ?)`).bind(client_id, name, JSON.stringify(uris), Date.now()).run();
-  return { client_id, client_name: name, redirect_uris: uris, token_endpoint_auth_method: "none", grant_types: ["authorization_code"], response_types: ["code"] };
+  return { client_id, client_name: name, redirect_uris: uris, token_endpoint_auth_method: "none", grant_types: ["authorization_code", "refresh_token"], response_types: ["code"] };
 }
 
 export async function client(env: Env, id: string) {
@@ -109,9 +112,45 @@ async function s256(verifier: string): Promise<string> {
   return btoa(String.fromCharCode(...new Uint8Array(d))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-/** Code (+ PKCE verifier) → a personal token for the person's agent. */
-export async function exchange(env: Env, f: { grant_type?: string; code?: string; redirect_uri?: string; client_id?: string; code_verifier?: string }) {
-  if (f.grant_type !== "authorization_code") throw new OAuthError("unsupported_grant_type", "Only authorization_code is supported.");
+/** An access token plus a refresh token tied to it (only its hash is stored). */
+async function issue(env: Env, user: string, clientId: string, scope: string | null, label: string, kind: "cli" | "app") {
+  const now = Date.now();
+  const t = await createToken(env, user, label, { expiresAt: now + OAUTH_TOKEN_TTL_MS, kind });
+  const refresh = randomSecret("ort_", 32);
+  await env.DB.prepare(`INSERT INTO oauth_refresh_tokens (hash, user, client_id, scope, token_id, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+    .bind(await sha256hex(refresh), user, clientId, scope, t.id, now, now + REFRESH_TTL_MS)
+    .run();
+  return { access_token: t.token, token_type: "Bearer", expires_in: Math.floor(OAUTH_TOKEN_TTL_MS / 1000), refresh_token: refresh, scope: scope === "person" ? "person" : "board" };
+}
+
+/**
+ * Refresh token → a new access token and refresh token: same person, app, label and scope. The old refresh token is
+ * used up and the old access token revoked (one live token per connection). Refused once the connection's token was
+ * revoked (Disconnect, the kill switch), so revoking still ends the connection for good.
+ */
+async function refresh(env: Env, f: { refresh_token?: string; client_id?: string }) {
+  const hash = await sha256hex(f.refresh_token ?? "");
+  const now = Date.now();
+  const row = await env.DB.prepare(
+    `SELECT r.user, r.client_id, r.scope, r.token_id, r.expires_at, r.used_at, t.label, t.kind, t.revoked_at FROM oauth_refresh_tokens r LEFT JOIN tokens t ON t.id = r.token_id WHERE r.hash = ?`,
+  )
+    .bind(hash)
+    .first<{ user: string; client_id: string; scope: string | null; token_id: string; expires_at: number; used_at: number | null; label: string | null; kind: string | null; revoked_at: number | null }>();
+  if (!row || row.used_at || row.expires_at < now) throw new OAuthError("invalid_grant", "The refresh token is invalid, expired or already used.");
+  if (f.client_id && f.client_id !== row.client_id) throw new OAuthError("invalid_grant", "The refresh token belongs to another app.");
+  if (!row.label || row.revoked_at) throw new OAuthError("invalid_grant", "This connection was revoked. Sign in again.");
+  // Single use, atomically.
+  const claim = await env.DB.prepare(`UPDATE oauth_refresh_tokens SET used_at = ? WHERE hash = ? AND used_at IS NULL`).bind(now, hash).run();
+  if (!claim.meta.changes) throw new OAuthError("invalid_grant", "The refresh token was already used.");
+  const out = await issue(env, row.user, row.client_id, row.scope, row.label, row.kind === "app" ? "app" : "cli");
+  await revokeToken(env, row.user, row.token_id);
+  return out;
+}
+
+/** Code (+ PKCE verifier) → a personal token for the person's agent; or a refresh token → a fresh pair. */
+export async function exchange(env: Env, f: { grant_type?: string; code?: string; redirect_uri?: string; client_id?: string; code_verifier?: string; refresh_token?: string }) {
+  if (f.grant_type === "refresh_token") return refresh(env, f);
+  if (f.grant_type !== "authorization_code") throw new OAuthError("unsupported_grant_type", "Only authorization_code and refresh_token are supported.");
   const hash = await sha256hex(f.code ?? "");
   const row = await env.DB.prepare(`SELECT * FROM oauth_codes WHERE code_hash = ?`).bind(hash).first<{ client_id: string; user: string; redirect_uri: string; code_challenge: string; expires_at: number; used: number; scope: string | null }>();
   if (!row || row.used || row.expires_at < Date.now()) throw new OAuthError("invalid_grant", "The code is invalid or expired.");
@@ -122,8 +161,6 @@ export async function exchange(env: Env, f: { grant_type?: string; code?: string
   if (f.redirect_uri && f.redirect_uri !== row.redirect_uri) throw new OAuthError("invalid_grant", "redirect_uri doesn't match.");
   if (!f.code_verifier || (await s256(f.code_verifier)) !== row.code_challenge) throw new OAuthError("invalid_grant", "PKCE verification failed.");
   const c = await client(env, row.client_id);
-  const expires = Date.now() + OAUTH_TOKEN_TTL_MS;
   const person = row.scope === "person";
-  const t = await createToken(env, row.user, person ? "Atteo app" : (c?.name ?? "MCP app"), { expiresAt: expires, kind: person ? "app" : "cli" });
-  return { access_token: t.token, token_type: "Bearer", expires_in: Math.floor(OAUTH_TOKEN_TTL_MS / 1000), scope: person ? "person" : "board" };
+  return issue(env, row.user, row.client_id, person ? "person" : null, person ? "Atteo app" : (c?.name ?? "MCP app"), person ? "app" : "cli");
 }

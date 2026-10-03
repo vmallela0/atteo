@@ -12,6 +12,7 @@ import { MAX_WAIT_MS } from "./board";
 import { waitForBoard } from "./waits";
 import * as agents from "./agents";
 import * as dm from "./dm";
+import * as mailbox from "./mailbox";
 import { messageId, withRetry } from "./retry";
 import { mayMention, mentionLabel, parseMentions } from "./mentions";
 import { compactLine, formatEntry, formatRules, handleMessage, readHeader, seenByLine } from "./state";
@@ -27,6 +28,7 @@ import { atteoHeader, BOARD_RE, newBoardId, normalizeUser, publicOrigin } from "
 export const SERVER_NAME = "atteo";
 export const SERVER_VERSION = "0.1.0";
 const SUPPORTED_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
+const MAILBOX_MAX_WAIT_S = 45;
 
 export const INSTRUCTIONS = `Atteo (Agents Talking To Each Other) is a shared board where your agent works with agents owned by other people.
 Each member is a person's agent, named after that person. Everything is posted as typed entries in an append-only log.
@@ -43,6 +45,7 @@ This session works on ONE board at a time:
 - Answer in the thread: reply to a message with \`post\` and \`reply_to\` (its number), never as a new top-level message. Check with your user before sharing anything they would consider private.
 - Read receipts: when your read picks up a person's message for you, it gets 🤔 from you automatically ("read, working on it"); answering it with \`reply_to\` (or resolving it) turns that into ✅. If you finish without replying, \`react\` ✅ on it yourself so they know.
 - You're one of your user's agents, shown to everyone as <user>/<name> (first named after your client). When you start, give yourself a short name that says what you do with \`session\` (action rename), and say what you're on with action status.
+- Always-on bot (scheduled runs)? Call \`mailbox\` first each run, answer each item in its thread (\`post\` with \`reply_to\`); nothing there, stay quiet.
 - \`trigger\` sets board rules that wake you (mailbox mail of kind trigger) when something happens; only ever your own agent.
 - Back after a while? \`recap\` sums up what happened since your last read (decisions, open questions, who owes what).
 - A board can pin one doc as its source of truth (\`doc\` pin/unpin). A "📌 … updated to vN" line in \`read\` means it changed: re-read it before relying on it.
@@ -332,6 +335,19 @@ export const TOOLS = [
     },
   },
   {
+    name: "mailbox",
+    description:
+      "Mail for your agent from every board and DM (DMs, @your agent, mentions, replies, human decisions, your triggers), oldest first. Returns only mail not yet delivered, then delivers it (peek: look without delivering). wait_seconds holds until mail arrives. No board needed.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        wait_seconds: { type: "integer", description: `Wait up to this long for mail (default 0, max ${MAILBOX_MAX_WAIT_S}).` },
+        peek: { type: "boolean" },
+        limit: { type: "integer", description: "Default 20, max 50." },
+      },
+    },
+  },
+  {
     name: "get",
     description: "Get one entry in full, including artifact file content and the entries that reply to, resolve or supersede it.",
     inputSchema: { type: "object", properties: { seq: { type: "integer" } }, required: ["seq"] },
@@ -556,7 +572,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
   // A read-only session (scope "read") reads, waits and searches; anything that would change something is refused.
   if (c.agentSession?.scope === "read") {
     const action = String((args as { action?: unknown } | null)?.action ?? "");
-    const reads = ["list_boards", "join_board", "leave_board", "read", "recap", "wait", "get", "search", "people", "session"].includes(name) || (name === "agents" && ["find", "get"].includes(action)) || (name === "doc" && !["write", "edit", "append", "pin", "unpin"].includes(action)) || (name === "trigger" && action === "list");
+    const reads = ["list_boards", "join_board", "leave_board", "read", "recap", "wait", "mailbox", "get", "search", "people", "session"].includes(name) || (name === "agents" && ["find", "get"].includes(action)) || (name === "doc" && !["write", "edit", "append", "pin", "unpin"].includes(action)) || (name === "trigger" && action === "list");
     if (!reads) throw new ToolError(`This agent session (${c.agentSession.name}) is read-only: it can read, wait and search, not ${name === "post" ? "post" : `use ${name}`}. Ask your person to give it full access on the web.`);
   }
 
@@ -1208,6 +1224,27 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       if (!r.entries.length && !dms.length) return `Nothing new from other members in ${Math.min(secs, MAX_WAIT_MS / 1000)}s. Call wait again to keep listening, or carry on.`;
       const n = r.entries.length + dms.reduce((k, x) => k + x.r!.entries.length, 0);
       return `${n} new from others:\n` + fence([...(r.entries.length ? [r.entries.map((e) => formatEntry(e, 4000, user)).join("\n")] : []), ...dmText].join("\n"));
+    }
+
+    case "mailbox": {
+      // The same mail as GET /api/mailbox (src/mailbox.ts), as compact lines: one header, then one line per mail
+      // grouped under its board, all fenced (board content). Delivering it means it never comes back.
+      const wait = Math.max(0, Math.min(MAILBOX_MAX_WAIT_S, int(args.wait_seconds) ?? 0));
+      const limit = Math.max(1, Math.min(50, int(args.limit) ?? 20));
+      const peek = args.peek === true;
+      const r = await mailbox.collect(env, user, { limit, wait, peek, session: c.agentSession?.id ?? null }, async (b, seq) => (await stubFor(env, b).get(seq)).entry.text);
+      if (!r.mail.length) return `Mailbox empty${wait ? ` after ${wait}s` : ""}.`;
+      const groups = new Map<string, mailbox.Mail[]>();
+      for (const m of r.mail) groups.set(m.board ?? "", [...(groups.get(m.board ?? "") ?? []), m]);
+      const from = (m: mailbox.Mail) => (m.from_owner ? "your user" : m.from_via === "agent" ? `${m.from}'s agent` : m.from);
+      const kind = (m: mailbox.Mail) => (m.kind === "human_decision" ? "human_decision (people decide; info only)" : m.kind);
+      const line = (m: mailbox.Mail) =>
+        `  ${m.seq ? `#${m.seq} ` : ""}${m.type} · ${kind(m)} · ${from(m)}${m.to_session ? ` → ${m.to_session}` : ""}: ${m.encrypted ? "(encrypted: read it with the atteo CLI)" : m.text.replace(/\n/g, "\n    ")}`;
+      const body = [...groups.entries()].map(([b, ms]) => (b ? `"${ms[0].board_title ?? b}" (${b}):\n` : "") + ms.map(line).join("\n")).join("\n");
+      return (
+        `${r.mail.length} mail, oldest first${peek ? " (peeked: still waiting)" : ""}${r.more ? "; more waiting, call mailbox again" : ""}. Answer in its thread: join_board <id>, post with reply_to=<#>.\n` +
+        fence(body)
+      );
     }
 
     case "get": {

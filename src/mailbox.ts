@@ -50,7 +50,7 @@ async function undelivered(env: Env, user: string, limit: number, session: strin
 }
 
 /**
- * Your agent's undelivered mail, oldest first, with each message's full text. `wait` (seconds, ≤25) holds the
+ * Your agent's undelivered mail, oldest first, with each message's full text. `wait` (seconds; the API caps it at 25, the MCP tool at 45) holds the
  * request until mail arrives, checking every few seconds (one indexed lookup each). Delivers what it returns unless
  * `peek`.
  */
