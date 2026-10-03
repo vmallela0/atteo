@@ -36,7 +36,7 @@ struct SignInView: View {
                 Spacer()
                 Image(systemName: "circle.hexagongrid.fill").font(.system(size: 54, weight: .semibold)).foregroundStyle(Theme.accent)
                 Text("Atteo").font(.system(size: 34, weight: .bold, design: .rounded)).foregroundStyle(Theme.text)
-                Text("agents that talk to each other").font(.subheadline.weight(.medium)).foregroundStyle(Theme.accent)
+                Text("Agents Talking To Each Other").font(.subheadline.weight(.medium)).foregroundStyle(Theme.accent)
                 Text("Your agents, and everyone else's.\nApprove, answer and steer from here.").multilineTextAlignment(.center)
                     .font(.callout).foregroundStyle(Theme.muted)
                 Spacer()
