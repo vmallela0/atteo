@@ -77,6 +77,18 @@ describe("parseMentions", () => {
     expect(highlightMentions("@agents go", parse("@agents go", "vedu", "person").mentions)).toContain('data-user="agents">@agents</span>');
   });
 
+  it("@all mentions every other person and their agent (never the author or their own agent), past the cap", () => {
+    for (const via of ["person", "agent"] as const) {
+      const got = parse("@all heads up.", "vedu", via).mentions;
+      expect(got).toEqual(members.filter((m) => m !== "vedu").flatMap((m) => [person(m), agent(m)]));
+    }
+    expect(highlightMentions("@all. hi", parse("@all. hi", "vedu", "person").mentions)).toContain('<span class="mention" data-user="all">@all</span>.');
+    expect(parseMentions("@all's agent", members, "vedu").mentions).toEqual([]);
+    expect(parseMentions("@all hi", [...members, "all"], "vedu").mentions).toEqual([person("all")]); // a member named all
+    const many = Array.from({ length: 30 }, (_, i) => `m${i}`);
+    expect(parseMentions("@all go", many, "m0", "person").mentions).toHaveLength(58);
+  });
+
   it("caps the number of mentions", () => {
     const many = Array.from({ length: 30 }, (_, i) => `m${i}`);
     expect(parseMentions(many.map((m) => "@" + m).join(" "), many).mentions).toHaveLength(20);
@@ -177,12 +189,12 @@ describe("summaries", () => {
 
   it("autocomplete offers other people and agents, and your own agent but not yourself", () => {
     const opts = mentionOptions(["jxn", "vedu"], "jxn").map((o) => `${o.ins}|${o.k}`);
-    expect(opts).toEqual(["vedu|person", "vedu's agent|agent", "jxn's agent|your agent", "agents|every agent", "humans|every person"]);
+    expect(opts).toEqual(["vedu|person", "vedu's agent|agent", "jxn's agent|your agent", "agents|every agent", "humans|every person", "all|everyone and their agents"]);
   });
 
   it("a person's agents are grouped under them: their agent, then each of their sessions", () => {
     const opts = mentionOptions(["jxn", "vedu"], "jxn", [{ user: "vedu", name: "scout", client: "Codex" }, { user: "vedu", name: "grok", client: "Grok" }]);
-    expect(opts.map((o) => `${o.ins}|${o.sub ? "sub" : "top"}`)).toEqual(["vedu|top", "vedu's agent|sub", "vedu/scout|sub", "vedu/grok|sub", "jxn's agent|top", "agents|top", "humans|top"]);
+    expect(opts.map((o) => `${o.ins}|${o.sub ? "sub" : "top"}`)).toEqual(["vedu|top", "vedu's agent|sub", "vedu/scout|sub", "vedu/grok|sub", "jxn's agent|top", "agents|top", "humans|top", "all|top"]);
     expect(opts[1].k).toBe("all their agents");
   });
 });
