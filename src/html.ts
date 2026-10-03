@@ -119,8 +119,8 @@ function diffBar(added: number, removed: number): string {
 }
 
 /**
- * A change entry as a git card: branch → base, CI, PR link, commits, files with +/− bars, and a footer for reviews
- * (filled in by the page from the live `reviews` map), the diff (fetched on demand) and Approve / Request changes.
+ * A change entry as a git card: branch → base, CI, PR link, commits, files with +/− bars, and a footer with any reviews
+ * (filled in by the page from the live `reviews` map; agents review with the review tool) and the diff on demand.
  */
 export function changeCardHtml(seq: number, c: ChangeCard): string {
   const added = c.files.reduce((n, f) => n + f.added, 0);
@@ -139,8 +139,7 @@ export function changeCardHtml(seq: number, c: ChangeCard): string {
 ${c.commits.length ? `<div class="chg-sec chg-commits"><div class="chg-label">${c.commits.length} commit${c.commits.length === 1 ? "" : "s"}</div>${list(c.commits, 4, commit, "commits")}</div>` : ""}
 ${c.files.length ? `<div class="chg-sec chg-files"><div class="chg-label">${c.files.length} file${c.files.length === 1 ? "" : "s"} changed <span class="add">+${added}</span> <span class="del">−${removed}</span></div>${list(c.files, 6, file, "files")}</div>` : ""}
 <div class="chg-foot"><span class="chg-reviews" data-reviews="${seq}"></span><span class="grow"></span>
-<button class="btn ghost sm" type="button" data-diff="${seq}">View diff</button><button class="btn sm" type="button" data-review="request_changes" data-seq="${seq}">Request changes</button><button class="btn sm primary" type="button" data-review="approve" data-seq="${seq}">Approve</button></div>
-<form class="chg-rc" data-rc="${seq}" hidden><input class="input" name="note" maxlength="2000" placeholder="What should change?" aria-label="What should change?" required><button class="btn sm primary">Request changes</button><button class="btn sm ghost" type="button" data-rc-cancel>Cancel</button></form>
+<button class="btn ghost sm" type="button" data-diff="${seq}">View diff</button></div>
 <pre class="chg-diff mono" data-diff-for="${seq}" hidden></pre></div>`;
 }
 
@@ -993,28 +992,18 @@ document.addEventListener('click',async e=>{const t=e.target;
 document.addEventListener('click',e=>{const it=e.target.closest('[data-ver]');if(it){e.preventDefault();e.stopPropagation();openDoc(it.dataset.doc,+it.dataset.ver)}},true);
 document.addEventListener('click',e=>{const b=e.target.closest('[data-open-file]');if(!b)return;e.preventDefault();infoOpen(false);tab(2);openDoc(b.dataset.openFile,b.dataset.fileVer?+b.dataset.fileVer:undefined)});
 window.onDocChanged=(d)=>{loadDocs();if(curDoc&&curDoc.name===d.name){if(editing){const w=document.getElementById('doc-warn');if(w){w.hidden=false;w.className='flash';w.textContent=d.by+' saved v'+d.version+' while you were editing. Saving now will be refused; copy your changes, cancel, and edit the new version.'}}else openDoc(d.name)}};
-// ---- change cards: review verdicts (from the live reviews map), Approve / Request changes, the diff on demand ----
+// ---- change cards: review verdicts agents posted (from the live reviews map), the diff on demand ----
 let REVIEWS={};
 function applyReviews(map){REVIEWS=map||{};document.querySelectorAll('[data-reviews]').forEach(el=>{const seq=el.dataset.reviews,rs=REVIEWS[seq]||[];
-    el.innerHTML=rs.length?rs.map(r=>'<span class="rv '+(r.verdict==='approve'?'ok':'no')+'">'+(r.verdict==='approve'?'✅ Approved by ':'✋ Changes requested by ')+'<b>'+esc(r.via==='agent'?r.reviewer+"'s agent":r.reviewer)+'</b></span>').join(''):'<span class="faint">No reviews yet</span>';
-    const card=el.closest('.chg'),own=card.closest('.entry')?.dataset.author===ME,mine=rs.find(r=>r.reviewer===ME&&r.via!=='agent');
-    card.querySelectorAll('[data-review]').forEach(b=>{b.hidden=own||READONLY;b.setAttribute('aria-pressed',String(!!mine&&mine.verdict===b.dataset.review))})})}
+    el.innerHTML=rs.length?rs.map(r=>'<span class="rv '+(r.verdict==='approve'?'ok':'no')+'">'+(r.verdict==='approve'?'✅ Approved by ':'✋ Changes requested by ')+'<b>'+esc(r.via==='agent'?r.reviewer+"'s agent":r.reviewer)+'</b></span>').join(''):''})}
 function diffHtml(t){return t.split('\\n').map(l=>{const c=/^(diff |index |\\+\\+\\+ |--- )/.test(l)?'dh':l.startsWith('@@')?'dk':l.startsWith('+')?'da':l.startsWith('-')?'dd':'';
   return '<span'+(c?' class="'+c+'"':'')+'>'+esc(l)+'</span>'}).join('')}
-async function review(seq,verdict,note){const r=await fetch('/api/boards/'+BOARD+'/entries/'+seq+'/review',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({verdict,note})});
-  const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||'Could not review');return false}toast(verdict==='approve'?'Approved':'Changes requested');stickNext=true;tick(false);return true}
 document.addEventListener('click',async e=>{
   const dv=e.target.closest('[data-diff]');if(dv){const pre=document.querySelector('[data-diff-for="'+dv.dataset.diff+'"]');
     if(!pre.hidden){pre.hidden=true;dv.textContent='View diff';return}
     if(!pre.dataset.loaded){dv.disabled=true;const r=await fetch('/api/boards/'+BOARD+'/entries/'+dv.dataset.diff);const j=await r.json().catch(()=>({}));dv.disabled=false;
       pre.innerHTML=j.diff?diffHtml(j.diff):'<span class="faint">No diff was attached to this change.</span>';pre.dataset.loaded='1'}
-    pre.hidden=false;dv.textContent='Hide diff';return}
-  const rb=e.target.closest('[data-review]');if(rb){const seq=rb.dataset.seq;
-    if(rb.dataset.review==='approve'){rb.disabled=true;await review(seq,'approve','');rb.disabled=false;return}
-    const f=document.querySelector('[data-rc="'+seq+'"]');f.hidden=false;f.querySelector('input').focus();return}
-  if(e.target.closest('[data-rc-cancel]')){e.target.closest('form').hidden=true}});
-document.addEventListener('submit',async e=>{const f=e.target.closest('[data-rc]');if(!f)return;e.preventDefault();
-  const note=f.note.value.trim();if(!note)return;if(await review(f.dataset.rc,'request_changes',note)){f.reset();f.hidden=true}});
+    pre.hidden=false;dv.textContent='Hide diff'}});
 applyReviews({});tick(false); // the first update brings every card's verdicts
 // ---- files and images: paste, drop or attach; previewed above the text; each becomes a file post when you post ----
 const attIn=document.getElementById('attach-input'),attBox=document.getElementById('attachments'),cform=ta.closest('form');let pending=[];

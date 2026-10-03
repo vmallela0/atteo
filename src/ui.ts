@@ -265,7 +265,7 @@ dialog.access-dlg{width:min(640px,calc(100vw - 24px))}
 .acc-list{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:8px}
 .sum h3 .linkish,.linkish{border:0;background:none;padding:0;font:inherit;font-size:12px;color:var(--accent);cursor:pointer}.linkish:hover{text-decoration:underline}
 /* view-only members: nothing that writes */
-.ro .composer,.ro [data-qr],.ro [data-rx-add],.ro [data-reply],.ro .rx-add,.ro [data-tk],.ro [data-review],.ro .kb-new,.ro #doc-new,.ro #doc-edit{display:none!important}
+.ro .composer,.ro [data-qr],.ro [data-rx-add],.ro [data-reply],.ro .rx-add,.ro [data-tk],.ro .kb-new,.ro #doc-new,.ro #doc-edit{display:none!important}
 .ro .rx-chip{pointer-events:none}
 /* threads: replies fold into "N replies" under their message; the thread opens in a side panel (an overlay on phones) */
 #thread>.entry>.grow>.replies{display:none}#thread>.entry.thr-open>.grow>.replies{display:block}
@@ -367,9 +367,7 @@ dialog.lightbox img{display:block;max-width:min(96vw,1600px);max-height:92vh;wid
 .chg details>summary::-webkit-details-marker{display:none}
 .chg-foot{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 12px;border-top:1px solid var(--line)}
 .chg-reviews{font-size:12.5px;color:var(--muted);display:flex;gap:12px;flex-wrap:wrap}.rv b{color:var(--ink);font-weight:500}
-.chg [data-review][aria-pressed=true]{box-shadow:inset 0 0 0 1px var(--accent)}
-.chg [data-review][hidden],.chg-rc[hidden],.chg-diff[hidden]{display:none}
-.chg-rc{display:flex;gap:8px;padding:0 12px 10px}.chg-rc .input{height:30px}
+.chg-diff[hidden]{display:none}
 .chg-diff{margin:0;padding:8px 0;border-top:1px solid var(--line);background:var(--bg-subtle);font-size:12px;line-height:1.5;overflow-x:auto;white-space:pre}
 .chg-diff span{display:block;padding:0 12px;min-width:max-content;min-height:1.5em}
 .chg-diff .da{background:color-mix(in srgb,var(--ok) 13%,transparent)}.chg-diff .dd{background:color-mix(in srgb,var(--danger) 12%,transparent)}

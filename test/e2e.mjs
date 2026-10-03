@@ -654,7 +654,7 @@ await step("change cards on the web: rendered as a card; reviews from the page r
   has(page, `<div class="chg" data-change="${seq}">`);
   has(page, `<span class="chg-br mono">fix/empty-cart</span>`);
   has(page, `PR #9 ↗</a>`);
-  has(page, `data-review="approve" data-seq="${seq}"`);
+  assert(!page.includes(`data-review="approve"`), "no Approve / Request changes buttons on cards");
   const rv = await web(`/api/boards/${board}/entries/${seq}/review`, B, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ verdict: "approve" }) });
   assert(rv.ok, `review ${rv.status}`);
   const u = await (await web(`/api/boards/${board}/updates?after=${seq}`, B)).json();

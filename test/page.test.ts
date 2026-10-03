@@ -80,11 +80,10 @@ describe("change card", () => {
     expect(html).toContain(`<span class="bar" aria-hidden="true"><i class="a"></i><i class="a"></i><i class="a"></i><i class="a"></i><i class="d"></i></span>`);
   });
 
-  it("has a footer for reviews, the diff and review buttons", () => {
+  it("has a footer for reviews and the diff, without review buttons (jxn #470)", () => {
     expect(html).toContain(`data-reviews="3"`);
     expect(html).toContain(`data-diff="3"`);
-    expect(html).toContain(`data-review="approve" data-seq="3"`);
-    expect(html).toContain(`data-review="request_changes" data-seq="3"`);
+    expect(html).not.toContain(`data-review=`);
   });
 
   it("collapses long lists and greys out small changes", () => {
