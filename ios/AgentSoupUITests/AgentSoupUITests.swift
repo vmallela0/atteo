@@ -23,6 +23,12 @@ final class AgentSoupUITests: XCTestCase {
         field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count + 2) + text)
     }
 
+    /// A text box by its identifier, whichever kind it is (a one-line field, or a text view that grows).
+    func field(_ a: XCUIApplication, _ id: String) -> XCUIElement {
+        a.descendants(matching: .any).matching(NSPredicate(format: "identifier == %@ AND (elementType == %d OR elementType == %d)", id,
+                                                           XCUIElement.ElementType.textView.rawValue, XCUIElement.ElementType.textField.rawValue)).firstMatch
+    }
+
     /// Start on Boards, whatever tab the last run left selected.
     func onBoards(_ a: XCUIApplication) {
         let t = a.buttons["tab-boards"]
@@ -128,7 +134,8 @@ final class AgentSoupUITests: XCTestCase {
         }
         // Reading history: a new message doesn't pull you down; a jump-to-latest button appears instead.
         // (posted by another member: your own messages always scroll into view)
-        if let tick = env["AGENT_SOUP_TICK"], let server = env["AGENT_SOUP_SERVER"], let token = env["AGENT_SOUP_OTHER_TOKEN"] {
+        // (theo as a person, from his phone: an agent's post would go into the thread it answers)
+        if let tick = env["AGENT_SOUP_TICK"], let server = env["AGENT_SOUP_SERVER"], let token = env["AGENT_SOUP_OTHER_APP"].flatMap({ $0.isEmpty ? nil : $0 }) ?? env["AGENT_SOUP_OTHER_TOKEN"] {
             a.swipeDown(velocity: .fast); a.swipeDown(velocity: .fast)
             sleep(1)
             var r = URLRequest(url: URL(string: "\(server)/api/boards/\(tick.split(separator: ":")[0])/entries")!)
@@ -187,35 +194,34 @@ final class AgentSoupUITests: XCTestCase {
             wait(for: [visible], timeout: 3) // on screen, not tucked under the message box
             shot("07a-seen")
         }
-        // Reply to a specific message: swipe it right (like any messenger) or long-press → Reply; a slim
-        // "Replying to" line (✕ cancels), and the reply quotes what it answers.
+        // Reply to a specific message: swipe it right (like any messenger) or long-press → Reply; its thread opens
+        // (like Slack), the box starting with who you're answering; the answer stays in the thread.
         let parent = a.staticTexts["posted while you read history"]
         if parent.exists && parent.isHittable {
             let from = parent.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5))
             from.press(forDuration: 0.05, thenDragTo: from.withOffset(CGVector(dx: 140, dy: 0)), withVelocity: .fast, thenHoldForDuration: 0)
-            XCTAssertTrue(a.descendants(matching: .any)["replying-to"].waitForExistence(timeout: 3), "swiping a message right starts a reply")
+            XCTAssertTrue(a.navigationBars["Thread"].waitForExistence(timeout: 3), "swiping a message right opens its thread")
             shot("07b-swiped")
-            a.buttons["Cancel reply"].tap()
-            XCTAssertFalse(a.descendants(matching: .any)["replying-to"].waitForExistence(timeout: 1), "✕ cancels it")
+            a.navigationBars["Thread"].buttons.element(boundBy: 0).tap()
+            XCTAssertTrue(parent.waitForExistence(timeout: 5))
             parent.press(forDuration: 0.8)
             let replyItem = a.buttons["Reply"]
             XCTAssertTrue(replyItem.waitForExistence(timeout: 3), "long-press offers Reply")
             replyItem.tap()
-            XCTAssertTrue(a.descendants(matching: .any)["replying-to"].waitForExistence(timeout: 3), "a Replying-to line above the message box")
-            // The reply starts by naming who you're answering (#538).
-            XCTAssertTrue((composer.value as? String ?? "").hasPrefix("@theo"), "the reply is prefilled with @theo…")
+            XCTAssertTrue(a.navigationBars["Thread"].waitForExistence(timeout: 3), "Reply opens the thread")
+            let tbox = field(a, "thread-composer")
+            XCTAssertTrue(tbox.waitForExistence(timeout: 3))
+            wait(for: [expectation(for: NSPredicate(format: "value BEGINSWITH '@theo'"), evaluatedWith: tbox)], timeout: 3) // the reply names theo (#538)
             shot("07b-replying")
             let answer = "On it \(Int(Date().timeIntervalSince1970) % 100000)"
-            composer.typeText(answer)
-            a.buttons["send"].tap()
+            tbox.typeText(answer)
+            a.buttons["thread-send"].tap()
             XCTAssertTrue(a.staticTexts.matching(NSPredicate(format: "label ENDSWITH %@", answer)).firstMatch.waitForExistence(timeout: 3), "the reply shows at once")
-            let quote = a.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'reply-quote' AND label CONTAINS 'posted while you read history'")).firstMatch
-            XCTAssertTrue(quote.waitForExistence(timeout: 5), "the reply quotes what it answers")
             let sent = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: a.staticTexts["Sending…"])
             wait(for: [sent], timeout: 10)
-            XCTAssertTrue(quote.exists, "and keeps the quote once it's sent")
-            XCTAssertFalse(a.descendants(matching: .any)["replying-to"].exists, "the Replying-to line is gone")
             shot("07c-replied")
+            a.navigationBars["Thread"].buttons.element(boundBy: 0).tap()
+            XCTAssertTrue(a.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'replies-'")).firstMatch.waitForExistence(timeout: 5), "the message shows its reply")
         }
 
         // Back to the list, then Agents: flip a session to read-only.
@@ -422,35 +428,81 @@ final class AgentSoupUITests: XCTestCase {
         let n = Int(Date().timeIntervalSince1970) % 100000
         func sent() { wait(for: [expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: a.staticTexts["Sending…"])], timeout: 10) }
 
-        // Reply: long-press theo's agent's message → Reply; the box starts with "@theo's agent ".
+        // Reply: long-press theo's agent's message → Reply; its thread opens full screen, the box starting
+        // with "@theo's agent " (#538).
         let theirs = a.staticTexts["Backfill finished on staging: 4.2M rows, 0 errors. Ready for prod tonight."]
         XCTAssertTrue(theirs.waitForExistence(timeout: 5))
         theirs.press(forDuration: 0.8)
         XCTAssertTrue(a.buttons["Reply"].waitForExistence(timeout: 3), "long-press offers Reply")
         shot("20a-long-press")
         a.buttons["Reply"].tap()
-        wait(for: [expectation(for: NSPredicate(format: "value BEGINSWITH %@", "@theo's agent "), evaluatedWith: composer)], timeout: 3)
+        XCTAssertTrue(a.navigationBars["Thread"].waitForExistence(timeout: 5), "Reply opens the thread")
+        let tbox = field(a, "thread-composer")
+        XCTAssertTrue(tbox.waitForExistence(timeout: 5))
+        wait(for: [expectation(for: NSPredicate(format: "value BEGINSWITH %@", "@theo's agent "), evaluatedWith: tbox)], timeout: 3)
         shot("20b-reply-prefilled")
         let answer = "after the freeze \(n)"
-        composer.typeText(answer)
-        a.buttons["send"].tap()
+        tbox.typeText(answer)
+        a.buttons["thread-send"].tap()
+        let inThread = a.staticTexts.matching(NSPredicate(format: "label ENDSWITH %@", answer)).firstMatch
+        XCTAssertTrue(inThread.waitForExistence(timeout: 5), "the answer shows in the thread at once")
         sent()
-        // The reply quotes it; tapping the quote goes back to it.
-        let quote = a.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'reply-quote' AND label CONTAINS 'Backfill finished'")).firstMatch
-        XCTAssertTrue(quote.waitForExistence(timeout: 5), "the reply quotes what it answers")
-        quote.tap()
-        wait(for: [expectation(for: NSPredicate(format: "hittable == true"), evaluatedWith: theirs)], timeout: 4) // the quote goes to what it answers
-        shot("20c-quote-tapped")
-
-        // The message it answers says "1 reply"; tap: the thread, root first, then the reply.
-        let replies = a.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'replies-'")).firstMatch
-        XCTAssertTrue(replies.waitForExistence(timeout: 5), "the parent shows its replies")
-        replies.tap()
-        XCTAssertTrue(a.navigationBars["Thread"].waitForExistence(timeout: 5), "the thread opens")
-        XCTAssertTrue(a.staticTexts.matching(NSPredicate(format: "label ENDSWITH %@", answer)).firstMatch.waitForExistence(timeout: 5), "with the reply in it")
+        XCTAssertTrue(a.descendants(matching: .any)["thread-count"].waitForExistence(timeout: 5), "under a replies divider")
         sleep(1)
         shot("21-thread")
-        a.navigationBars["Thread"].buttons["Done"].tap()
+        a.navigationBars["Thread"].buttons.element(boundBy: 0).tap()
+
+        // Back in the chat: the answer isn't in the chat (it lives in the thread); the message says "1 reply".
+        XCTAssertTrue(a.navigationBars["Thread"].waitForNonExistence(timeout: 5), "back")
+        XCTAssertTrue(composer.waitForExistence(timeout: 5))
+        let replies = a.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'replies-'")).firstMatch
+        XCTAssertTrue(replies.waitForExistence(timeout: 5), "the parent shows its replies")
+        // (the whole message, "@theo's agent after…", isn't in the chat; the preview card shows its line)
+        XCTAssertFalse(a.staticTexts.matching(NSPredicate(format: "label BEGINSWITH '@' AND label ENDSWITH %@", answer)).firstMatch.exists, "answers stay in their thread")
+        shot("21a-replies-chip")
+        replies.tap()
+        XCTAssertTrue(a.navigationBars["Thread"].waitForExistence(timeout: 5), "the thread opens again")
+        XCTAssertTrue(inThread.waitForExistence(timeout: 5), "with the answer in it")
+        // "Also send to chat": a thread answer that's posted to the chat too.
+        let echo = "ship it tonight \(n)"
+        tbox.tap()
+        tbox.typeText(echo)
+        a.buttons["also-to-chat"].tap()
+        a.buttons["thread-send"].tap()
+        sent()
+        a.navigationBars["Thread"].buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(a.staticTexts[echo].waitForExistence(timeout: 8), "also sent to the chat")
+
+        // Every thread here (the top bar's Threads, like Lark): theo answers in the thread while you look, and its
+        // row gets a dot; open it (pushed), back to the list (the dot's gone), back to the chat.
+        let rootSeq = replies.identifier.replacingOccurrences(of: "replies-", with: "")
+        a.buttons["threads"].tap()
+        XCTAssertTrue(a.navigationBars["Threads"].waitForExistence(timeout: 5), "the threads list")
+        let threadRow = a.descendants(matching: .any).matching(NSPredicate(format: "identifier == %@", "thread-row-\(rootSeq)")).firstMatch
+        XCTAssertTrue(threadRow.waitForExistence(timeout: 5), "this thread is listed")
+        XCTAssertNotEqual(threadRow.value as? String, "new replies", "seen: no dot")
+        guard let boards = serverJSON("/api/me/boards")?["boards"] as? [[String: Any]],
+              let q4 = boards.filter({ $0["title"] as? String == "Q4 data migration" }).max(by: { ($0["last_activity"] as? Double ?? 0) < ($1["last_activity"] as? Double ?? 0) }),
+              let q4id = q4["id"] as? String, let server = env["AGENT_SOUP_SERVER"], let theo = env["AGENT_SOUP_OTHER_APP"], !theo.isEmpty else { return XCTFail("seed") }
+        var post = URLRequest(url: URL(string: "\(server)/api/boards/\(q4id)/entries")!)
+        post.httpMethod = "POST"
+        post.setValue("Bearer \(theo)", forHTTPHeaderField: "authorization")
+        post.setValue("application/json", forHTTPHeaderField: "content-type")
+        post.httpBody = try JSONSerialization.data(withJSONObject: ["type": "note", "text": "theo, in the thread \(n)", "reply_to": Int(rootSeq) ?? 0])
+        let posted = expectation(description: "theo answers")
+        URLSession.shared.dataTask(with: post) { _, _, _ in posted.fulfill() }.resume()
+        wait(for: [posted], timeout: 10)
+        wait(for: [expectation(for: NSPredicate(format: "value == 'new replies'"), evaluatedWith: threadRow)], timeout: 8) // live, with a dot
+        shot("21b-threads-unread")
+        threadRow.tap()
+        XCTAssertTrue(a.navigationBars["Thread"].waitForExistence(timeout: 5), "the thread, pushed")
+        XCTAssertTrue(a.staticTexts["theo, in the thread \(n)"].waitForExistence(timeout: 5), "with theo's answer")
+        a.navigationBars["Thread"].buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(a.navigationBars["Threads"].waitForExistence(timeout: 5), "back to the list")
+        wait(for: [expectation(for: NSPredicate(format: "value != 'new replies'"), evaluatedWith: threadRow)], timeout: 5) // read now
+        shot("21c-threads-read")
+        a.navigationBars["Threads"].buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(composer.waitForExistence(timeout: 5), "back to the chat")
 
         // React: long-press → 👍 in the quick row; a chip shows under the message, yours.
         XCTAssertTrue(theirs.waitForExistence(timeout: 5))

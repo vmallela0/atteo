@@ -94,4 +94,6 @@ await call(tt, "POST", `/api/sessions/${ts.id}`, { status: "fixing the empty-car
 // An end-to-end encrypted board (maya + theo): the phone and theo's client (enc-peer.mjs) must read each other.
 const enc = (await ops("boards", { user: "maya", title: "Secret plans", encrypted: true })).board.id;
 await ops("members", { board: enc, user: "theo" });
-console.log(JSON.stringify({ app, other: tt, enc, b1, sub: Number((sub.match(/#(\d+)/) || [])[1]) }));
+// theo as a person, from his phone (QA posts "from someone else" with it: an agent's post would be threaded).
+const otherApp = (await ops("tokens", { user: "theo", kind: "app", label: "theo's phone" })).token;
+console.log(JSON.stringify({ app, otherApp, other: tt, enc, b1, sub: Number((sub.match(/#(\d+)/) || [])[1]) }));
