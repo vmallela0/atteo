@@ -253,6 +253,58 @@ dialog.access-dlg{width:min(640px,calc(100vw - 24px))}
 @media(max-width:640px){#acc-members{gap:12px}#acc-members .acc-row{display:grid;grid-template-columns:auto auto minmax(0,1fr);gap:6px 8px}#acc-members .acc-row>.grow{grid-column:2/4}#acc-members .acc-sel{grid-row:2;width:100%;min-width:0;padding-right:26px;background-position:right 9px center}#acc-members .acc-sel:first-of-type{grid-column:2}#acc-members .acc-sel:last-of-type{grid-column:3}}
 @media(max-width:360px){#acc-members .acc-sel:first-of-type{grid-column:1/3}} /* the narrowest phones: the role starts under the picture so the end date fits */
 .add-agent{margin:0 0 22px}.add-agent>summary{cursor:pointer;list-style:none}.add-agent>summary::-webkit-details-marker{display:none}.add-agent .cn-grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
+/* Everyday: "Bring your assistant" (/welcome), the home banner that points to it, and Account's "Your assistant" card.
+   Plain words, big tiles; headings a step above the web's h1 like the Everyday mockups (ios/qa/design/everyday). */
+.ev{max-width:560px;margin:4px auto 0}
+.ev h1{font-size:26px;line-height:1.2;letter-spacing:-.03em;margin:16px 0 8px}
+.ev-lede{font-size:15px;line-height:1.55;color:var(--muted)}
+.ev-now{margin-top:12px;font-size:13.5px;color:var(--ok)}
+.ev-list{margin-top:22px}
+.ev-row{display:flex;align-items:center;gap:14px;padding:14px 16px;border-top:1px solid var(--line)}
+.ev-row:first-child{border-top:0}
+.ev-ic{flex:none;width:40px;height:40px;border-radius:10px;display:grid;place-items:center;background:var(--bg-subtle);border:1px solid var(--line-strong);color:var(--ink);font-weight:600;font-size:16px}
+.ev-ic .pebble{width:28px;height:28px}
+.ev-name{font-size:16px;font-weight:600;color:var(--ink);line-height:1.3}
+.ev-sub{font-size:13px;color:var(--muted);line-height:1.4}
+.ev-sub .ok{color:var(--ok)}
+.ev-row>.btn{flex:none;height:36px;padding:0 16px;font-size:14px}
+.ev-soon{flex:none;white-space:nowrap}
+.ev-or{display:flex;align-items:center;gap:12px;margin:18px 0;color:var(--faint);font-size:13px}
+.ev-or::before,.ev-or::after{content:"";flex:1;height:1px;background:var(--line)}
+.ev-own{border-color:color-mix(in srgb,#D97857 45%,var(--line));background:color-mix(in srgb,#D97857 6%,var(--bg))}
+.ev-own .ev-ic{background:transparent;border-color:transparent}
+.ev-foot-links{margin-top:28px;display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center;font-size:13.5px;color:var(--muted)}
+.ev-foot-links a{color:var(--accent)}.ev-foot-links a:hover{text-decoration:underline}
+dialog.ev-sheet{width:min(480px,calc(100vw - 32px))}
+.ev-sheet .hd h2{font-size:18px}
+.ev-intro{font-size:14px;color:var(--muted);line-height:1.5}
+.ev-steps{list-style:none;counter-reset:ev;margin:16px 0 0;padding:0}
+.ev-steps>li{counter-increment:ev;position:relative;padding:0 0 18px 38px;font-size:14.5px;line-height:1.5;color:var(--text)}
+.ev-steps>li::before{content:counter(ev);position:absolute;left:0;top:-1px;width:26px;height:26px;border-radius:50%;background:var(--bg-hover);border:1px solid var(--line);color:var(--ink);font-weight:600;font-size:13px;display:grid;place-items:center}
+.ev-steps b{color:var(--ink);font-weight:600}
+.ev-copy{display:flex;width:100%;margin-top:10px;height:46px;font-size:15.5px}
+.ev-link{margin-top:8px;padding:8px 10px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--bg-subtle);color:var(--muted);font-size:12.5px;overflow-wrap:anywhere;user-select:all}
+.ev-open{margin-top:10px;height:38px;font-size:14px}
+.ev-note{margin:0 0 14px;padding:10px 12px;border-radius:var(--r-sm);background:var(--bg-subtle);border:1px solid var(--line);font-size:13px;color:var(--muted);line-height:1.5}
+.ev-alt{margin:0 0 14px;font-size:13px;color:var(--muted);line-height:1.5}
+.ev-alt .btn{margin-top:6px}
+.ev-done{display:flex;align-items:center;gap:12px;flex-wrap:wrap;border-top:1px solid var(--line);padding-top:14px}
+.ev-done .btn{height:42px;padding:0 20px;font-size:15px}
+.ev-status{flex:1;min-width:160px;font-size:13.5px;color:var(--muted)}
+.ev-status.ok{color:var(--ok);font-size:16px;font-weight:600}
+.ev-banner{display:flex;align-items:center;gap:14px;margin:0 0 22px;padding:16px 18px}
+.ev-banner .pebble{flex:none;width:36px;height:36px}
+.ev-banner b{display:block;font-size:15px;color:var(--ink)}
+.ev-banner .ev-acts{display:flex;align-items:center;gap:6px;flex:none}
+.ev-acct{display:flex;align-items:center;gap:14px;padding:14px 16px;color:inherit}
+a.ev-acct:hover{background:var(--bg-subtle)}
+.ev-acct .ev-chg{flex:none;color:var(--muted);font-size:13.5px}
+@media (max-width:640px){
+  dialog.ev-sheet{width:100%;max-width:100%;margin:auto 0 0;border-radius:16px 16px 0 0;max-height:92dvh;border-bottom:0}
+  .ev h1{font-size:24px}
+  .ev-banner{flex-wrap:wrap}.ev-banner .grow{flex-basis:calc(100% - 50px)}.ev-banner .ev-acts{width:100%;justify-content:flex-end}
+}
+@media (max-width:360px){.ev-row{gap:10px;padding:12px}.ev-ic{width:34px;height:34px;font-size:14px}.ev-row>.btn{padding:0 12px}.ev-name{font-size:15px}}
 .cn-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}@media (max-width:560px){.cn-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .cn-tile{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r);background:var(--bg);color:var(--ink);font:inherit;text-align:left;cursor:pointer;text-decoration:none}.cn-tile:hover{border-color:var(--line-strong);background:var(--bg-subtle)}.cn-tile b{font-size:13.5px;font-weight:600}.cn-tile span{font-size:12px;color:var(--muted)}
 .cn-list{list-style:none;margin:4px 0 0;padding:0;display:flex;flex-direction:column;gap:10px}.cn-list li>.copy{margin-top:5px}
@@ -977,6 +1029,11 @@ dialog.recap-dlg{width:min(560px,calc(100vw - 32px));max-height:min(80vh,720px)}
 // eyes meeting across the seam. Same geometry as ios/qa/design/icon.swift and AtteoMark (1024 canvas, y down).
 // Themed: on dark the agent half is bone and both eyes ink so it doesn't vanish (--pb-agent / --pb-eye in CSS).
 const LOGO = `<svg class="pebble" width="22" height="22" viewBox="150 190 726 646" aria-hidden="true"><defs><clipPath id="pbc"><rect x="189" y="229" width="647" height="566" rx="283" ry="283"/></clipPath></defs><g clip-path="url(#pbc)"><polygon points="711,-1765 301,2785 -1691,2606 -1281,-1944" fill="#D97857"/><polygon points="746,-1761 336,2789 2328,2968 2738,-1582" fill="var(--pb-agent)"/></g><circle cx="405" cy="468" r="54" fill="var(--pb-eye)"/><circle cx="634" cy="498" r="54" fill="var(--pb-eye)"/></svg>`;
+
+/** The Pebble at another size (the first-run screen and Account's "Your assistant" card). */
+export function pebble(px: number): string {
+  return LOGO.replace('width="22" height="22"', `width="${px}" height="${px}"`);
+}
 
 // The favicon: the Pebble on its bone tile (fixed colors), enlarged a little so it reads at 16 px.
 export const FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><rect width="1024" height="1024" rx="230" fill="#F2EFE8"/>
