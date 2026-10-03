@@ -1436,7 +1436,8 @@ const handler = {
           const text = (q("text") ?? "").slice(0, 4000);
           const { mentions } = mayMention(text) ? parseMentions(text, (await registry.boardMembers(env, id)).map((x) => x.user), viewer.name, pv()) : { mentions: [] };
           try {
-            const entry = await stub.postFile(viewer.name, { name: q("name") ?? "", bytes, width: Number(q("w")) || null, height: Number(q("h")) || null, text, mentions, via: pv() });
+            const replyTo = Number(q("reply_to")) > 0 ? Math.floor(Number(q("reply_to"))) : null; // a file sent as a reply
+            const entry = await stub.postFile(viewer.name, { name: q("name") ?? "", bytes, width: Number(q("w")) || null, height: Number(q("h")) || null, text, mentions, reply_to: replyTo, via: pv() });
             ctx.waitUntil(Promise.all([registry.touch(env, viewer.name, id), registry.bumpBoard(env, id, entry.seq)]).catch(() => {}));
             return json({ ok: true, entry }, 201);
           } catch (e) {

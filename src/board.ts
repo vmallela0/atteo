@@ -1879,7 +1879,7 @@ export class Board extends DurableObject<Env> {
    * - UTF-8 text up to the text limit becomes an ordinary text version (agents read it; the secret filter checks it);
    * - anything else is kept as bytes and offered as a download. Its readable strings still go through the secret filter.
    */
-  async postFile(user: string, f: { name: string; bytes: ArrayBuffer; width?: number | null; height?: number | null; text?: string; mentions?: Mention[]; via: "agent" | "person"; client?: string | null }): Promise<Entry> {
+  async postFile(user: string, f: { name: string; bytes: ArrayBuffer; width?: number | null; height?: number | null; text?: string; mentions?: Mention[]; reply_to?: number | null; via: "agent" | "person"; client?: string | null }): Promise<Entry> {
     const info = this.info();
     if (info.archived) throw new BoardError(`"${info.title}" is archived, so it's read-only. Its creator can restore it.`);
     if (f.bytes.byteLength > MAX_IMAGE) throw new BoardError(`That file is too large (max ${MAX_IMAGE / 1e6} MB).`);
@@ -1890,7 +1890,7 @@ export class Board extends DurableObject<Env> {
       const asText = utf8Text(bytes);
       if (asText != null && asText.length <= MAX_ARTIFACT) {
         const name = cleanFileName((f.name || "").trim() || `file-${Date.now()}.txt`);
-        return this.post(user, { type: "artifact", text: text || `Shared ${name}`, artifact_name: name, artifact_content: asText, mentions: f.mentions, via: f.via, client: f.client });
+        return this.post(user, { type: "artifact", text: text || `Shared ${name}`, artifact_name: name, artifact_content: asText, mentions: f.mentions, reply_to: f.reply_to ?? null, via: f.via, client: f.client });
       }
       // Binary: no type of ours is trusted to render, so it's always served as a download.
       const hit = scanText(byteString(bytes), "file");
@@ -1906,7 +1906,7 @@ export class Board extends DurableObject<Env> {
     const version = this.storeVersion(user, name, about, { via: f.via, client: f.client, summary: text || `Shared ${name}` });
     this.sql.exec("INSERT OR REPLACE INTO blobs (name, version, mime, bytes, width, height) VALUES (?, ?, ?, ?, ?, ?)", name, version, mime, f.bytes, media.w, media.h);
     this.sql.exec("DELETE FROM blobs WHERE name = ? AND version <= ?", name, version - 50); // same history depth as text versions
-    return this.post(user, { type: "artifact", text: text || `Shared ${name}`, artifact_name: name, artifact_content: about, mentions: f.mentions, via: f.via, client: f.client }, { docVersion: version, media });
+    return this.post(user, { type: "artifact", text: text || `Shared ${name}`, artifact_name: name, artifact_content: about, mentions: f.mentions, reply_to: f.reply_to ?? null, via: f.via, client: f.client }, { docVersion: version, media });
   }
 
   /** A stored file's bytes (latest version unless one is given). */

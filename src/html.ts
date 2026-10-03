@@ -845,25 +845,17 @@ window.agentsRefresh=async()=>{if(document.hidden)return;const box=document.getE
   if(!pk&&peek){pk=document.createElement('span');pk.className='fold-peek truncate';box.querySelector('.fold-h').appendChild(pk)}if(pk)pk.textContent=peek;refreshTimes()};
 setInterval(agentsRefresh,30000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)agentsRefresh()});
 // Your post shows up the moment you send it (a "sending" copy), then the real one from the post's own response.
-window.posted=(j)=>{replyClear();document.querySelectorAll('#thread .entry.pending').forEach(x=>x.remove());
-  if(j&&j.update&&addEntry(j.update)){railBuild();toBottom()}else stickNext=true;
-  draftSave('','');tick(false);setTimeout(()=>{ta.style.height='';msync()},0)};
-document.querySelector('form.composer')?.addEventListener('submit',()=>{const t=ta.value.trim();if(!t||!rpTo||rpTo.value)return; // replies go in their thread, after the real post
+window.posted=(j)=>{const was=+rpTo.value;draftSave(sentKey,'');replyClear(true);document.querySelectorAll('#thread .entry.pending').forEach(x=>x.remove());
+  if(j&&j.update&&addEntry(j.update)){if(!was){railBuild();toBottom()}}else stickNext=!was;
+  tick(false);setTimeout(()=>{if(was){replyShown(was);ta.value=draftLoad('')}ta.style.height='';ta.style.height=ta.value?ta.scrollHeight+2+'px':'';msync()},0)}; // after the form's reset
+let sentKey='';
+document.querySelector('form.composer')?.addEventListener('submit',()=>{sentKey=draftNow();const t=ta.value.trim();if(!t||!rpTo||rpTo.value)return; // replies go in their thread, after the real post
   const el=document.createElement('article');el.className='entry pending';el.innerHTML='<div class="grow"><div class="meta"><span class="who"></span><span class="xs faint">sending…</span></div><div class="body"></div></div>';
   el.querySelector('.who').textContent=ME;el.querySelector('.body').textContent=t;document.getElementById('thread').appendChild(el);toBottom();
 },true);
 // While a post is retrying it says so; if it really can't be sent, your text is still in the box (the form only resets on success).
 window.postRetrying=()=>document.querySelectorAll('#thread .entry.pending .faint').forEach(x=>x.textContent='connection lost, retrying…');
 window.postFailed=(j)=>{document.querySelectorAll('#thread .entry.pending').forEach(x=>x.remove());toast(j.error||"Couldn't send. Your message is still in the box.")};
-// Reply: any entry's Reply button points the composer at it (Esc or ✕ cancels).
-const rpBox=document.getElementById('replying'),rpTo=document.getElementById('reply-to');
-function replyClear(){rpTo.value='';rpBox.hidden=true}
-document.addEventListener('click',e=>{const b=e.target.closest('[data-reply]');if(b){const n=b.dataset.reply;rpTo.value=n;
-  document.getElementById('replying-who').textContent=b.dataset.replyLabel;const a=document.getElementById('replying-seq');a.textContent='#'+n;a.href='#e'+n;
-  rpBox.hidden=false;const ta2=document.getElementById('composer-text');
-  ta2.focus();ta2.setSelectionRange(ta2.value.length,ta2.value.length);return}
-  if(e.target.closest('#reply-cancel'))replyClear()});
-document.getElementById('composer-text').addEventListener('keydown',e=>{if(e.key==='Escape'&&!rpBox.hidden&&document.getElementById('mention-menu').hidden)replyClear()});
 // @mention autocomplete: people ("@vedu") and agents ("@vedu's agent", including your own).
 const MOPTS=${jsString(mentionOptions(members.map((m) => m.user), viewer.name, agents))};
 const MNAMES=new Set(MOPTS.map(o=>o.u)),ME=${jsString(viewer.name)};
@@ -936,9 +928,35 @@ const ta=document.getElementById('composer-text'),msync=mentionize(ta,document.g
 const draftKey=k=>'soup.draft.'+BOARD+(k?'.'+k:'');
 function draftSave(k,v){try{v.trim()?localStorage.setItem(draftKey(k),v):localStorage.removeItem(draftKey(k))}catch(e){}}
 function draftLoad(k){try{return localStorage.getItem(draftKey(k))||''}catch(e){return ''}}
-let draftT=0;ta.addEventListener('input',()=>{clearTimeout(draftT);draftT=setTimeout(()=>draftSave('',ta.value),250)});
-window.addEventListener('pagehide',()=>draftSave('',ta.value));
+let draftT=0;ta.addEventListener('input',()=>{clearTimeout(draftT);draftT=setTimeout(()=>draftSave(draftNow(),ta.value),250)});
+window.addEventListener('pagehide',()=>draftSave(draftNow(),ta.value));
 if(!ta.value){const d=draftLoad('');if(d){ta.value=d;setTimeout(()=>{msync();ta.style.height=ta.scrollHeight+2+'px'},0)}}
+// Reply: points the main composer at a message, with a slim "Replying to …" line above it (✕ or Esc cancels; clicking
+// it shows the message). The reply lands in that message's thread. Each reply keeps its own draft, and an unsent reply
+// is still a reply after a reload.
+const rpBox=document.getElementById('replying'),rpTo=document.getElementById('reply-to');let rpAt='';
+const draftNow=()=>rpTo.value?'r'+rpTo.value:'';
+const taFit=()=>{ta.style.height='';if(ta.value)ta.style.height=ta.scrollHeight+2+'px';msync()};
+function replyTo(seq,focus=true){const el=document.getElementById('e'+seq);if(!el||READONLY)return;
+  if(+rpTo.value!==seq){draftSave(draftNow(),ta.value);rpTo.value=String(seq);ta.value=draftLoad('r'+seq)}
+  const by=el.dataset.author,who=el.classList.contains('by-agent')?by+"'s agent":by;
+  document.getElementById('replying-who').textContent=who===ME?'yourself':who===ME+"'s agent"?'your agent':who;
+  const body=el.querySelector(':scope>.grow>.body');document.getElementById('replying-text').textContent=((body?.innerText||body?.textContent||'').trim().split('\\n')[0]||'').slice(0,160);
+  rpBox.hidden=false;try{localStorage.setItem(draftKey('to'),String(seq))}catch(e){}
+  // Replying to someone else mentions them, like Slack, so their agent sees it's for them.
+  rpAt=by!==ME?'@'+who+' ':'';if(rpAt&&!ta.value.includes(rpAt.trim()))ta.value=rpAt+ta.value;
+  taFit();if(focus){ta.focus();ta.setSelectionRange(ta.value.length,ta.value.length)}}
+/** Leaves reply mode: the reply's draft is kept (unless it's only the @mention it started with) and your other draft comes back. */
+function replyClear(sent){if(!rpTo.value)return;if(!sent)draftSave(draftNow(),ta.value.trim()===rpAt.trim()?'':ta.value);
+  rpTo.value='';rpAt='';rpBox.hidden=true;try{localStorage.removeItem(draftKey('to'))}catch(e){}
+  if(!sent){ta.value=draftLoad('');taFit()}}
+/** After a reply is posted: its thread is open, so you can see it there. */
+function replyShown(seq){const top=document.getElementById('e'+seq)?.closest('#thread>.entry');if(top)openThread(+top.dataset.seq)}
+document.addEventListener('click',e=>{const b=e.target.closest('[data-reply]');if(b){e.preventDefault();replyTo(+b.dataset.reply);return}
+  if(e.target.closest('#reply-cancel')){replyClear();ta.focus();return}
+  if(e.target.closest('#replying-go')&&rpTo.value)window.BOARD_CTX.jump(+rpTo.value)});
+ta.addEventListener('keydown',e=>{if(e.key==='Escape'&&!e.defaultPrevented&&rpTo.value){e.preventDefault();replyClear()}});
+{let t=0;try{t=+localStorage.getItem(draftKey('to'))||0}catch(e){}if(t)setTimeout(()=>{if(document.getElementById('e'+t))replyTo(t,false);else replyClear()},0)}
 // Enter posts, Shift+Enter adds a line. An Enter that picked a mention (default prevented above) doesn't post.
 document.getElementById('composer-text')?.addEventListener('keydown',e=>{
   if(e.defaultPrevented)return;
@@ -1041,10 +1059,10 @@ convEl.addEventListener('drop',e=>{convEl.classList.remove('drop');const fs=[...
 cform.addEventListener('submit',async e=>{if(!pending.length)return;e.preventDefault();e.stopPropagation();
   const btn=cform.querySelector('.bar .btn.primary');btn.disabled=true;let text=ta.value.trim();
   try{while(pending.length){const x=pending[0];
-      const r=await fetch('/api/boards/'+BOARD+'/upload?name='+encodeURIComponent(x.name)+(x.image?'&w='+x.w+'&h='+x.h:'')+'&text='+encodeURIComponent(text),{method:'POST',headers:{'content-type':x.blob.type||'application/octet-stream'},body:x.blob});
+      const r=await fetch('/api/boards/'+BOARD+'/upload?name='+encodeURIComponent(x.name)+(x.image?'&w='+x.w+'&h='+x.h:'')+(rpTo.value?'&reply_to='+rpTo.value:'')+'&text='+encodeURIComponent(text),{method:'POST',headers:{'content-type':x.blob.type||'application/octet-stream'},body:x.blob});
       const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||"Couldn't post "+x.name);return}
       if(x.url)URL.revokeObjectURL(x.url);pending.shift();renderAtt();text='';ta.value='';msync()}
-    cform.reset();draftSave('','');ta.style.height='';msync();stickNext=true;tick(false)}
+    const was=+rpTo.value;cform.reset();draftSave(draftNow(),'');replyClear(true);if(was){ta.value=draftLoad('');replyShown(was)}taFit();stickNext=!was;tick(false)}
   finally{btn.disabled=false}});
 const lb=document.getElementById('lightbox');
 document.addEventListener('click',e=>{const b=e.target.closest('[data-img]');if(!b)return;document.getElementById('lightbox-img').src=b.dataset.img;lb.showModal()});
@@ -1266,9 +1284,8 @@ window.BOARD_CTX={id:BOARD,me:ME,members:MEMBERS,
 document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&!e.altKey&&!e.shiftKey&&e.key.toLowerCase()==='f'&&!document.querySelector('dialog[open]:not(#palette)')){e.preventDefault();window.openPalette([{k:'board'},{k:'kind',v:'messages'}])}},true);
 // ---- threads: replies fold into "N replies" under their message; clicking it opens the thread right there, in the chat ----
 const avatar16=(u,agent)=>'<span class="av sm'+(agent?' agent':'')+'" style="--h:'+(MOPTS.find(o=>o.u===u)?.av.match(/--h:([0-9]+)/)?.[1]||220)+'">'+esc(u.slice(0,2).toUpperCase())+'<img class="av-img" src="/avatar/'+encodeURIComponent(u)+(agent?'?k=agent':'')+'" alt="" loading="lazy" onerror="this.remove()" onload="this.classList.add(&quot;ok&quot;)"></span>';
-const thrForm=document.getElementById('thr-form'),thrText=document.getElementById('thr-text');let thrRoot=null,thrTarget=null;
 function thrSum(root){const top=document.getElementById('e'+root);if(!top)return;const kids=[...(document.getElementById('r'+root)?.querySelectorAll('.entry')||[])];
-  let b=top.querySelector(':scope>.grow>.thr-sum');if(!kids.length&&thrRoot!==root){b?.remove();return}
+  let b=top.querySelector(':scope>.grow>.thr-sum');if(!kids.length){b?.remove();return}
   if(!b){b=document.createElement('button');b.type='button';b.className='thr-sum';b.dataset.thread=root;top.querySelector(':scope>.grow>.replies').before(b)}
   for(const k of kids){const r=k.querySelector(':scope>.grow>.refs');if(r&&r.textContent.trim()==='reply to #'+root)r.hidden=true} // obvious inside its own thread
   const open=top.classList.contains('thr-open');b.setAttribute('aria-expanded',String(open));
@@ -1279,31 +1296,12 @@ function thrSum(root){const top=document.getElementById('e'+root);if(!top)return
   const peek=kids.slice(-3).map(k=>'<span class="thr-line"><b>'+esc(k.dataset.author+(k.classList.contains('by-agent')?"'s agent":''))+'</b> '+esc((k.querySelector(':scope>.grow>.body')?.textContent||'').trim().slice(0,200))+'</span>').join('');
   b.innerHTML='<span class="thr-head"><span class="avs">'+who.slice(0,3).map(w=>avatar16(w.split('/')[0],w.endsWith('/a'))).join('')+'</span><b>'+kids.length+' repl'+(kids.length===1?'y':'ies')+'</b><span class="faint">'+(lastT?'last '+lastT.textContent:'')+'</span></span>'+peek;
   b.setAttribute('aria-label','Show '+kids.length+' repl'+(kids.length===1?'y':'ies'))}
-/** Opens a message's thread in place. Replying to someone puts an @mention of them in the reply box, like Slack. */
-function openThread(root,o={}){const top=document.getElementById('e'+root);if(!top)return;top.classList.add('thr-open');
-  if(!READONLY&&(o.replyTo||o.compose||thrRoot===root||thrRoot==null)){if(thrRoot!==root){thrText.value=draftLoad('t'+root)};thrRoot=root;thrTarget=o.replyTo||root;
-    top.querySelector(':scope>.grow>.replies').after(thrForm);thrForm.hidden=false;
-    const tgt=document.getElementById('e'+thrTarget),by=tgt?.dataset.author,byAgent=tgt?.classList.contains('by-agent');
-    if(o.replyTo&&by&&by!==ME){const at='@'+by+(byAgent?"'s agent":'')+' ';if(!thrText.value.includes(at.trim()))thrText.value=at+thrText.value}setTimeout(thrSync,0);
-    document.getElementById('thr-to').textContent=thrTarget!==root?'Replying to #'+thrTarget:''}
-  thrSum(root);
-  const f=o.focus&&document.getElementById('e'+o.focus);if(f){f.classList.add('hit');pinned=false;f.scrollIntoView({block:'center'})}
-  if(o.replyTo||o.compose){thrText.focus();thrText.setSelectionRange(thrText.value.length,thrText.value.length);thrForm.scrollIntoView({block:'nearest'})}}
-function closeThread(root){const top=document.getElementById('e'+root);if(!top)return;top.classList.remove('thr-open');
-  if(thrRoot===root){thrRoot=null;thrForm.hidden=true;thrText.value='';document.getElementById('thread-scroll').appendChild(thrForm)}thrSum(root)}
+/** Opens a message's thread in place (replies are written in the main composer: see Reply). */
+function openThread(root,o={}){const top=document.getElementById('e'+root);if(!top)return;top.classList.add('thr-open');thrSum(root);
+  const f=o.focus&&document.getElementById('e'+o.focus);if(f){f.classList.add('hit');pinned=false;f.scrollIntoView({block:'center'})}}
+function closeThread(root){const top=document.getElementById('e'+root);if(!top)return;top.classList.remove('thr-open');thrSum(root)}
 document.addEventListener('click',e=>{const s=e.target.closest('[data-thread]');if(!s)return;const root=+s.dataset.thread;
-  if(document.getElementById('e'+root)?.classList.contains('thr-open'))closeThread(root);else openThread(root,{compose:false})});
-// Reply opens the message's thread in place, with the reply box focused
-document.addEventListener('click',e=>{const b=e.target.closest('[data-reply]');if(!b)return;e.stopImmediatePropagation();e.preventDefault();
-  const seq=+b.dataset.reply,top=document.getElementById('e'+seq)?.closest('#thread>.entry');openThread(top?+top.dataset.seq:seq,{replyTo:seq})},true);
-const thrSync=mentionize(thrText,document.getElementById('thr-menu'),document.getElementById('thr-mirror'));
-thrText.addEventListener('input',()=>{if(thrRoot)draftSave('t'+thrRoot,thrText.value)});
-thrText.addEventListener('keydown',e=>{if(e.defaultPrevented)return; // the mention menu took the key
-  if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();thrForm.requestSubmit()}if(e.key==='Escape'){e.preventDefault();e.stopPropagation();thrText.blur()}});
-thrForm.addEventListener('submit',async e=>{e.preventDefault();const text=thrText.value.trim();if(!text||!thrRoot)return;const btn=thrForm.querySelector('button');btn.disabled=true;
-  try{const r=await sendReliably('/api/boards/'+BOARD+'/entries',{type:'note',text,reply_to:thrTarget||thrRoot},()=>toast('Connection lost; retrying your reply…'));
-    const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||"Couldn't reply. Your reply is still in the box.");return}thrText.value='';draftSave('t'+thrRoot,'');thrSync();thrTarget=thrRoot;document.getElementById('thr-to').textContent='';await tick(false);thrForm.scrollIntoView({block:'nearest'})}
-  finally{btn.disabled=false}});
+  if(document.getElementById('e'+root)?.classList.contains('thr-open'))closeThread(root);else openThread(root)});
 document.querySelectorAll('#thread>.entry').forEach(x=>thrSum(+x.dataset.seq));
 // a link to a reply (#e<n>) opens its thread
 setTimeout(()=>{const m=location.hash.match(/^#e([0-9]+)$/);const el=m&&document.getElementById('e'+m[1]);if(el&&el.closest('.replies'))openThread(+el.closest('#thread>.entry').dataset.seq,{focus:+m[1]})},0); // after the whole script has run
@@ -1508,12 +1506,12 @@ window.boardKeys=(e,k)=>{
 <div role="tabpanel" id="panel-conv" class="bp-panel" data-board-panel><div class="layout" id="conv-layout">
   <button class="btn ghost sm info-btn" type="button" id="info-btn" aria-expanded="false" aria-controls="board-info" aria-label="Board info" title="Board info"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2"/><path d="M10 2.75v10.5"/><path class="fill" d="M10.7 3.45h2.1a.75.75 0 0 1 .75.75v7.6a.75.75 0 0 1-.75.75h-2.1z" fill="currentColor" stroke="none"/></svg><span class="count" id="info-count" hidden></span></button>
   <section class="conv">
-    <div class="thread-wrap"><div class="thread-scroll" id="thread-scroll"><div class="thread" id="thread">${thread}</div><form class="thr-form" id="thr-form" hidden><div class="cmp-field thr-field"><div class="cmp-mirror" id="thr-mirror" aria-hidden="true"></div><textarea class="input" id="thr-text" rows="1" placeholder="Reply…" aria-label="Reply in thread" role="combobox" aria-autocomplete="list" aria-controls="thr-menu" aria-expanded="false"></textarea></div><ul class="mention-menu" id="thr-menu" role="listbox" aria-label="Mention" hidden></ul><button class="btn ghost sm at-btn" type="button" data-mention-for="thr-text" aria-label="Mention someone" title="Mention a person or their agent (or type @)">@</button><span class="xs faint" id="thr-to"></span><button class="btn primary sm">Reply</button></form></div>
+    <div class="thread-wrap"><div class="thread-scroll" id="thread-scroll"><div class="thread" id="thread">${thread}</div></div>
       <div class="rail" id="rail" aria-hidden="true"></div><div class="rail-tip" id="rail-tip" hidden></div>
       <button class="btn sm new-pill" type="button" id="new-pill" hidden>Jump to latest ↓</button></div>
     <div class="sel-bar card" id="sel-bar" hidden><span id="sel-n">0 selected</span><span class="xs faint hide-sm">Click messages to add or remove them</span><span class="grow"></span><button class="btn sm" type="button" id="sel-cancel">Cancel</button><button class="btn sm primary" type="button" id="sel-fwd" disabled>Forward</button></div>
     <form class="card composer" method="post" action="/api/boards/${esc(info.id)}/entries" data-api data-reliable data-done="posted" data-failed="postFailed" data-retrying="postRetrying" data-reset${info.archived || readOnly || info.encrypted ? " hidden" : ""}>
-      <div class="replying" id="replying" hidden>Replying to <b id="replying-who"></b> <a id="replying-seq" href="#"></a><button class="btn ghost sm x" type="button" id="reply-cancel" aria-label="Cancel reply">✕</button></div>
+      <div class="replying" id="replying" hidden><button class="rp-go" type="button" id="replying-go" title="Show the message">Replying to <b id="replying-who"></b><span class="rp-text" id="replying-text"></span></button><button class="btn ghost sm x" type="button" id="reply-cancel" aria-label="Cancel reply" title="Cancel reply (Esc)">✕</button></div>
       <input type="hidden" name="reply_to" id="reply-to" value="">
       <div class="attachments" id="attachments" hidden></div>
       <div class="cmp-field"><div class="cmp-mirror" id="composer-mirror" aria-hidden="true"></div><textarea class="input" id="composer-text" name="text" required placeholder="Write a message…  @ to mention" aria-label="Message"

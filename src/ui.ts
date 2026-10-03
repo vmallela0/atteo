@@ -196,10 +196,14 @@ dialog[open]{animation:pop .16s ease-out}dialog:focus{outline:none}
   .entry .acts .btn.sm{height:24px}.entry .acts .rx-q{width:26px}#thread>.entry:first-child .acts{top:2px}}
 @media(hover:none){.entry .acts{display:none}.entry:target>.grow>.meta .acts,.entry.sel>.grow>.meta .acts{display:inline-flex;opacity:1}}
 /* "Replying to …" above the composer: the reply goes to that agent (or mentions that person). */
-.replying{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted);padding:2px 2px 8px}
+/* replying: a slim line above the composer's text (who, and the first line of what you're answering) */
+.replying{display:flex;align-items:center;gap:6px;margin:0 0 8px;padding:2px 2px 2px 10px;border-left:2px solid var(--accent);font-size:12.5px;color:var(--muted)}
 .replying[hidden]{display:none}
-.replying b{color:var(--text);font-weight:550}
-.replying .x{margin-left:auto}
+.replying .rp-go{all:unset;flex:1;min-width:0;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:22px}
+.replying .rp-go:focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-radius:4px}
+.replying b{color:var(--text);font-weight:550}.replying .rp-go:hover b{text-decoration:underline}
+.replying .rp-text{color:var(--faint)}.replying .rp-text:empty{display:none}.replying .rp-text::before{content:": "}
+.replying .x{flex:none;height:22px;width:22px;padding:0;justify-content:center}
 @keyframes flashin{from{background:color-mix(in srgb,var(--accent) 9%,transparent)}to{background:transparent}}
 .entry:target{background:color-mix(in srgb,var(--accent) 6%,transparent);border-radius:8px}
 .replies{margin:10px 0 0;padding-left:14px;border-left:2px solid var(--line)}
@@ -233,7 +237,7 @@ dialog.access-dlg{width:min(640px,calc(100vw - 24px))}
 .ag-row[data-state="gone"] .ag-name{color:var(--muted)}
 .ag{padding-bottom:14px;margin-bottom:14px;border-bottom:1px solid var(--line)}
 .kill{display:flex;align-items:center;gap:14px;margin-top:12px;padding:12px 14px;border:1px solid color-mix(in srgb,var(--danger) 30%,var(--line));border-radius:var(--r)}.kill b{color:var(--ink);font-size:13px}.kill p{margin:2px 0 0}
-.at-btn{width:30px;padding:0;justify-content:center;font-weight:600;font-size:14px;color:var(--muted)}.at-btn:hover{color:var(--ink)}.thr-form .at-btn{flex:none;align-self:center}
+.at-btn{width:30px;padding:0;justify-content:center;font-weight:600;font-size:14px;color:var(--muted)}.at-btn:hover{color:var(--ink)}
 /* quotes (forwarded messages) */
 .body blockquote.md-q{margin:6px 0;padding:6px 10px;border-left:3px solid var(--line-strong);background:var(--bg-subtle);border-radius:0 6px 6px 0;color:var(--text)}
 /* multi-select and forward */
@@ -270,12 +274,6 @@ dialog.access-dlg{width:min(640px,calc(100vw - 24px))}
 .thr-sum .avs .av{width:20px;height:20px;font-size:8.5px}
 .thr-head{display:inline-flex;align-items:center;gap:8px}
 .thr-line{display:block;padding-left:4px;font-size:12.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.thr-line b{color:var(--text);font-weight:500}
-.thr-form{display:flex;align-items:flex-end;gap:8px;margin:10px 0 0 16px;padding:6px 6px 6px 10px;border:1px solid var(--line);border-radius:10px;background:var(--bg)}
-.thr-form[hidden]{display:none}.thr-form:focus-within{border-color:var(--line-strong)}
-.thr-form{position:relative}.thr-field{flex:1;min-width:0}
-.thr-form textarea{width:100%;min-height:30px;max-height:160px;border:0;padding:5px 0;box-shadow:none!important;resize:none;field-sizing:content}
-.thr-form .mention-menu{left:0}
-.thr-form #thr-to:empty{display:none}.thr-form #thr-to{align-self:center;white-space:nowrap}
 .entry.hit{background:color-mix(in srgb,var(--warn) 9%,transparent);border-radius:8px;box-shadow:inset 3px 0 0 var(--warn)}
 /* a task in the conversation: status, priority, who it's for / who holds it, and Claim · Done · Open */
 .tk{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px;padding:6px 6px 6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg-subtle);font-size:12.5px}
