@@ -173,7 +173,7 @@ enum ChatSummary {
         if let t = e.title?.trimmingCharacters(in: .whitespaces), !t.isEmpty { return t }
         let line = (e.text.split(separator: "\n").first.map(String.init) ?? e.text)
             .replacingOccurrences(of: "@[A-Za-z0-9][A-Za-z0-9_.-]*(?:['’]s\\s+agent)?", with: " ", options: .regularExpression)
-            .replacingOccurrences(of: "[*`_]", with: "", options: .regularExpression)
+            .replacingOccurrences(of: "[*`]", with: "", options: .regularExpression)
         let w = line.split(whereSeparator: \.isWhitespace)
         return w.isEmpty ? (e.artifactName ?? "A message") : w.prefix(words).joined(separator: " ") + (w.count > words ? "…" : "")
     }

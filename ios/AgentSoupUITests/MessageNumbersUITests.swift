@@ -2,7 +2,6 @@
 // ("↗ Roll back plan…") and still opens it; nothing on screen shows "#<number>" (headers, quotes, Info, thread rows,
 // tasks); "Copy link" keeps the number in the link (/b/<board>#e<seq>), for agents and the web.
 
-import UIKit
 import XCTest
 
 final class MessageNumbersUITests: AtteoUITestCase {
@@ -36,8 +35,18 @@ final class MessageNumbersUITests: AtteoUITestCase {
         XCTAssertTrue(copy.waitForExistence(timeout: 5), "Copy link in the menu")
         copy.tap()
         sleep(1)
-        let link = UIPasteboard.general.string ?? ""
-        XCTAssertTrue(link.hasSuffix("/b/\(b1)#e\(refSeq)"), "the link has the board and the number (\(link))")
+        // Pasted into the message box (the app reads its own copy; the test runner reading it would ask permission).
+        let box = composer(a)
+        box.tap()
+        sleep(1)
+        box.press(forDuration: 1.0)
+        let paste = a.descendants(matching: .any).matching(NSPredicate(format: "label == 'Paste' AND (elementType == %d OR elementType == %d)",
+                                                                        XCUIElement.ElementType.menuItem.rawValue, XCUIElement.ElementType.button.rawValue)).firstMatch
+        XCTAssertTrue(paste.waitForExistence(timeout: 5), "Paste")
+        paste.tap()
+        XCTAssertTrue(eventually(box, "value ENDSWITH '/b/\(b1)#e\(refSeq)'"), "the link has the board and the number (\(box.value ?? ""))")
+        box.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: ((box.value as? String) ?? "").count + 2))
+        a.swipeDown()
 
         // Info: open questions and decisions without numbers.
         a.buttons["presence"].tap()
