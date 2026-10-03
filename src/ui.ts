@@ -331,17 +331,24 @@ dialog.lightbox img{display:block;max-width:min(96vw,1600px);max-height:92vh;wid
 .conv.drop .composer{box-shadow:0 0 0 2px var(--accent)}
 .doc-img img{display:block;max-width:100%;height:auto;border-radius:8px;border:1px solid var(--line);background:var(--bg-subtle)}
 /* read receipts: a ring on your latest message, filling green as people and agents see it; a dot on each @mention */
-.rcpt{margin-top:2px}
+.rcpt-line{margin-top:2px}
 .entry .meta .when{cursor:pointer}
 .entry.has-rd>.grow{padding-right:24px}
-.rd{position:absolute;right:0;bottom:12px;width:16px;height:16px;display:grid;place-items:center;cursor:default;outline-offset:2px}
+.rd{position:absolute;right:0;bottom:12px;width:16px;height:16px;display:grid;place-items:center;cursor:default;outline-offset:2px;padding:0;border:0;background:none;color:inherit;font:inherit;opacity:.55;transition:opacity .15s}
+.rd::before{content:"";position:absolute;inset:-6px}
+.entry:hover>.rd,.rd:focus-visible,.rd.open,.entry:focus-within>.rd{opacity:1}
+@media (hover:hover){.rd:hover{opacity:1}}
 .rd svg{display:block}.rd .t{fill:none;stroke:var(--line-strong);stroke-width:2}.rd .p{fill:none;stroke:var(--ok);stroke-width:2;stroke-linecap:round;transition:stroke-dasharray .3s}
 .rd.all .t{fill:var(--ok);stroke:var(--ok)}.rd .ck{fill:none;stroke:var(--bg);stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
-.rd-pop{display:none;position:absolute;right:0;bottom:22px;z-index:6;min-width:150px;max-width:240px;padding:8px 10px;border-radius:8px;background:var(--ink);color:var(--on-ink);
-  font-size:12px;line-height:18px;box-shadow:var(--shadow-lg);flex-direction:column;white-space:nowrap}
-.rd:hover .rd-pop,.rd:focus .rd-pop{display:flex}
+.rd-pop{visibility:hidden;opacity:0;position:absolute;right:0;bottom:22px;z-index:6;min-width:170px;max-width:320px;padding:8px 10px;border-radius:8px;background:var(--ink);color:var(--on-ink);text-align:left;
+  font-size:12px;line-height:18px;box-shadow:var(--shadow-lg);display:flex;flex-direction:column;gap:2px;white-space:nowrap;pointer-events:none;transition:opacity .12s}
+.rd:focus-visible .rd-pop,.rd.open .rd-pop{visibility:visible;opacity:1}
+@media (hover:hover){.rd:hover .rd-pop{visibility:visible;opacity:1}.entry:hover>.rd .rd-pop{visibility:visible;opacity:1;transition-delay:.35s}}
+.rd-hush .rd-pop{visibility:hidden!important}
 .rd.down .rd-pop{bottom:auto;top:22px}
-.rd-pop b{font-weight:600;margin-bottom:2px}.rd-pop .y::before{content:"✓ ";color:var(--ok)}.rd-pop .n{opacity:.6}.rd-pop .n::before{content:"○ "}
+.rd-pop b{font-weight:600;margin-bottom:2px}.rd-pop>span{display:flex;align-items:center;gap:6px}.rd-pop .av.sm{width:16px;height:16px;font-size:7px}
+.rd-pop .nm{flex:1;overflow:hidden;text-overflow:ellipsis}.rd-pop i{font-style:normal;font-size:11px;opacity:.65}.rd-pop .y i{color:var(--ok);opacity:1}.rd-pop .n{opacity:.6}
+@media (pointer:coarse){.rd{width:20px;height:20px;right:-2px}.rd::before{inset:-10px}}
 .entry .body .mention{position:relative}
 /* the dot takes the mention's own colour: an outline until they've seen it, filled once they have */
 .entry .body .mention{--dot:var(--accent)}.entry .body .mention.me{--dot:var(--warn)}

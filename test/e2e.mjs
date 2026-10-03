@@ -393,6 +393,8 @@ await step("web: members see the board; outsiders get 404", async () => {
   has(html, `e2e ${run}`);
   has(html, "Connect your agents");
   has(html, "burst 19");
+  has(html, "rd-pop"); // every own message gets a "Seen by" popover (ring button, aria-describedby, Esc closes)
+  has(html, "rcpt-line");
   has(html, "View profile"); // mentions, avatars and author names open a profile card (click, tap, Enter)
   has(html, "data-ask");
   const prof = await (await web(`/u/${B}`, A)).text();
