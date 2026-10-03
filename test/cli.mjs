@@ -983,6 +983,21 @@ await step("mailbox: another person's DM and @mention of your agent show up in f
   assert(m.kind === "dm" && m.board === dm && m.from === N && m.type === "question" && m.text === `quick one ${run}` && typeof m.id === "number" && typeof m.seq === "number" && typeof m.ts === "number", r.out);
   r = await mb(["--wait", "2"]);
   assert(r.out.includes("Nothing new in 2s."), "--json without --peek delivered it too: " + r.out);
+  // Headless: the mailbox and read say where to answer; turned off, they don't.
+  await call(tokM, "POST", "/api/me/profile", { agents_headless: true });
+  await call(tokN, "POST", `/api/boards/${dm}/entries`, { type: "question", text: `second one ${run}` });
+  r = await mb(["--peek"]);
+  assert(r.out.includes("Mail for your agent (1), oldest first · headless: answer here:"), "mailbox marker: " + r.out + r.err);
+  const rd = (env) => cli(["read", "--board", shared], { cred: credM, env: { XDG_CONFIG_HOME: join(dir, "cfg-mailbox"), ...env } });
+  r = await cli(["join", shared], { cred: credM, env: { XDG_CONFIG_HOME: join(dir, "cfg-mailbox") } });
+  assert(r.code === 0, "join: " + r.out + r.err);
+  r = await rd();
+  assert(r.code === 0 && r.out.includes(" · headless: answer here =="), "read marker: " + r.out + r.err);
+  await call(tokM, "POST", "/api/me/profile", { agents_headless: false });
+  r = await mb([]);
+  assert(r.out.includes("Mail for your agent (1), oldest first:") && !r.out.includes("headless: answer here"), "no marker when off: " + r.out);
+  r = await rd();
+  assert(r.code === 0 && !r.out.includes("headless: answer here"), "no read marker when off: " + r.out + r.err);
 });
 
 await step("dispatch: without a harness it says how to set one and exits non-zero", async () => {

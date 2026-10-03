@@ -6,7 +6,11 @@ import { appPage, relTime, type SideBoard, type Viewer } from "./ui";
 import { esc } from "./util";
 
 const RISK: Record<string, string> = { low: "Low risk", medium: "Medium risk", high: "High risk" };
-const STATUS: Record<string, string> = { approved: "Approved", rejected: "Rejected", expired: "Expired" };
+const STATUS: Record<string, string> = { approved: "Approved", rejected: "Denied", expired: "Denied (timed out)" };
+
+// From a permission hook: the tool and its exact command or file, verbatim (escaped, monospace).
+const cmd = (a: Approval): string => (a.command ? `<pre class="mono ap-details ap-cmd">${a.tool ? `<span class="faint">${esc(a.tool)}</span>\n` : ""}${esc(a.command)}</pre>` : "");
+const det = (a: Approval): string => (a.details ? `<pre class="mono ap-details">${esc(a.details)}</pre>` : "");
 
 function origin(a: Approval, titles: Record<string, string>): string {
   return a.board_id
@@ -19,7 +23,7 @@ function pendingCard(a: Approval, titles: Record<string, string>): string {
   return `<article class="card approval risk-${esc(a.risk)}" id="${esc(a.id)}">
 <div class="ap-hd"><div class="grow"><h2 class="ap-title">${esc(a.title)}</h2><p class="xs muted">${esc(a.client ?? "Your agent")} · ${origin(a, titles)} · ${esc(relTime(a.created_at))}</p></div>
 <span class="badge ap-risk">${RISK[a.risk] ?? esc(a.risk)}</span></div>
-<pre class="mono ap-details">${esc(a.details)}</pre>
+${cmd(a)}${det(a)}
 <form class="ap-form" data-approval="${esc(a.id)}"><input class="input grow" name="note" placeholder="Note for your agent (optional)" aria-label="Note for your agent"><button class="btn" type="submit" data-decision="reject">Reject</button><button class="btn primary" type="submit" data-decision="approve">Approve</button></form>
 </article>`;
 }
@@ -27,7 +31,7 @@ function pendingCard(a: Approval, titles: Record<string, string>): string {
 // A decided one: one line, with the details a click away.
 function decidedRow(a: Approval, titles: Record<string, string>): string {
   return `<li><details class="ap-row"><summary><span class="ap-st st-${esc(a.status)}">${STATUS[a.status] ?? esc(a.status)}</span><span class="grow truncate">${esc(a.title)}</span><span class="xs faint">${esc(relTime(a.decided_at ?? a.created_at))}</span></summary>
-<p class="xs muted">${esc(a.client ?? "Your agent")} · ${origin(a, titles)}${a.note ? ` · your note: "${esc(a.note)}"` : ""}</p><pre class="mono ap-details">${esc(a.details)}</pre></details></li>`;
+<p class="xs muted">${esc(a.client ?? "Your agent")} · ${origin(a, titles)}${a.note ? ` · your note: "${esc(a.note)}"` : ""}</p>${cmd(a)}${det(a)}</details></li>`;
 }
 
 export function approvalsPage(viewer: Viewer, side: SideBoard[], list: Approval[], titles: Record<string, string>): Response {

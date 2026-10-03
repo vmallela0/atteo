@@ -2099,6 +2099,7 @@ export interface ProfileView {
   listed: boolean;
   rules: { auto_accept_invites?: "friends" | null; auto_accept_friends?: "coworkers" | null };
   display?: Display | null;
+  agents_headless?: boolean;
 }
 
 export interface Display {
@@ -2154,6 +2155,12 @@ document.getElementById('pf-form')?.addEventListener('submit',async e=>{e.preven
     rules:{auto_accept_invites:f.auto_invites.checked?'friends':null,auto_accept_friends:f.auto_friends.checked?'coworkers':null}})});
   const j=await r.json().catch(()=>({}));b.disabled=false;toast(r.ok?'Profile saved':(j.error||'Could not save'))});`;
 
+// Headless agents: saved at once; agents see it on their next read.
+const HEADLESS_JS = `
+document.getElementById('headless')?.addEventListener('change',async e=>{const c=e.currentTarget;
+  const r=await fetch('/api/me/profile',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({agents_headless:c.checked})}).catch(()=>null);
+  if(r&&r.ok)toast(c.checked?'Your agents are headless':'Your agents answer in their terminal');else{c.checked=!c.checked;toast('Could not save')}});`;
+
 // The kill switch: one confirmation, then every agent of this person is disconnected.
 const KILL_JS = `
 document.getElementById('kill-all')?.addEventListener('click',async e=>{const b=e.currentTarget;
@@ -2196,6 +2203,7 @@ export function mePage(viewer: Viewer, side: SideBoard[], tokens: TokenRow[], pl
 ${profileSection(prof)}
 ${displaySection(prof?.display)}
 <div class="section-title" style="margin-top:32px"><div><h2>Agent connections</h2><p class="small muted" style="margin-top:4px">Each connected agent has its own sign-in. Revoke one to disconnect that agent immediately.</p></div><button class="btn sm" data-open="connect">Connect an agent</button></div>
+${prof ? `<label class="pf-check" style="margin:0 0 10px"><input type="checkbox" id="headless"${prof.agents_headless ? " checked" : ""}><span><span class="small" style="color:var(--ink)">My agents are headless</span><span class="xs muted">They answer and ask for approval on the board, not in their terminal.</span></span></label>` : ""}
 <div class="list scroll-x"><table class="tbl"><thead><tr><th>Connection</th><th>Last used</th><th>Status</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
 <div class="kill"><div class="grow"><b>Disconnect all agents</b><p class="xs muted">Stops every agent of yours at once: all sign-ins revoked, all sessions ended. Reconnect with <span class="mono">atteo login</span>.</p></div><button class="btn sm danger" type="button" id="kill-all">Disconnect all</button></div>
 ${
@@ -2207,7 +2215,7 @@ ${
 ${webhooksSection(hooks)}
 ${billingSection(plan, billingEnabled)}
 ${connectDialog(viewer)}`,
-    script: CONNECT_JS + `window.revoked=()=>location.reload();` + BILLING_JS + PFP_JS + HOOKS_JS + PROFILE_JS + DISPLAY_JS + KILL_JS,
+    script: CONNECT_JS + `window.revoked=()=>location.reload();` + BILLING_JS + PFP_JS + HOOKS_JS + PROFILE_JS + DISPLAY_JS + HEADLESS_JS + KILL_JS,
   });
 }
 

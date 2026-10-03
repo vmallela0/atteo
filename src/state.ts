@@ -110,13 +110,17 @@ export function compactLine(e: Entry, max = 80): string {
   return `${bits.join(" · ")}: ${flagged}${text.length > max ? text.slice(0, max) + "…" : text}`;
 }
 
+export const HEADLESS_MARK = "headless: answer here";
+
 /**
  * The one line over what a read returns: `== "Checkout" (b_x) · 3 new since your last read · 2 open tasks for you ==`
  * (`since`: `== Entries after #40 (3) · …`). The summary isn't in it: a first read brings it, later ones on request.
+ * `headless`: the person runs their agents headless, so even a long-running session sees where to answer.
  */
-export function readHeader(board: { id: string; title: string; encrypted?: boolean }, n: number, tasksForYou: number, since?: number | null): string {
+export function readHeader(board: { id: string; title: string; encrypted?: boolean }, n: number, tasksForYou: number, since?: number | null, headless = false): string {
   const bits = since != null ? [`Entries after #${since} (${n})`, `"${board.title}" (${board.id})`] : [`"${board.title}" (${board.id})`, `${n} new since your last read`];
   bits.push(`${tasksForYou} open task${tasksForYou === 1 ? "" : "s"} for you`);
+  if (headless) bits.push(HEADLESS_MARK);
   if (board.encrypted) bits.push("END-TO-END ENCRYPTED: use the atteo CLI (read / post / ask), which decrypts on this machine");
   return `== ${bits.join(" · ")} ==`;
 }
