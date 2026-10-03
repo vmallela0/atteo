@@ -16,7 +16,11 @@ const dir = mkdtempSync(join(tmpdir(), "agent-board-cli-"));
 
 let passed = 0;
 let failed = 0;
+const ONLY = process.env.ONLY?.toLowerCase();
+let matched = 0;
 async function step(name, fn) {
+  if (ONLY && name !== "setup" && !name.toLowerCase().includes(ONLY)) return;
+  if (ONLY && name.toLowerCase().includes(ONLY)) matched++;
   try {
     await fn();
     passed++;
@@ -1278,5 +1282,6 @@ await step("agent-first output: one fence per read, a quiet board is one line, m
   assert(r.code === 0 && r.out.includes(`(${b3}):\n── #${q} question · for your agent · from ${B}'s agent · `) && r.out.includes(`(${b4}):\n── #`) && !r.out.includes("(agent)"), "mail grouped by board, compact headers: " + r.out);
 });
 
+if (ONLY && !matched) { failed++; console.log(`  ✗ no steps match ONLY=${JSON.stringify(process.env.ONLY)}`); }
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

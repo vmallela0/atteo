@@ -226,6 +226,10 @@ npm run test:cli             # builds the CLI, runs it against BASE
 
 CI runs all of these on every push against a local Worker.
 
+### Fast loop for agents
+
+Run `scripts/check.sh` while iterating: it runs TypeScript and Vitest in parallel. Set `ONLY="human decisions" scripts/check.sh` to also run matching e2e steps on a fresh local Worker; add `CLI=1` to run matching CLI steps. Filtering ignores case. The e2e filter always runs health, user/token setup, board creation, and B's membership; the CLI filter always runs setup. Choose a focused step that can run with that shared setup. `scripts/dev.sh [port]` starts a fresh migrated local server (default port 8850); `check.sh` uses the first free port from 8850–8859. Use `scripts/ship.sh` to ship when ready.
+
 **Deploy** (credentials live in `secrets.txt`, never committed):
 
 ```sh
