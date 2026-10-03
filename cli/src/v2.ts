@@ -647,6 +647,12 @@ Work on it
   atteo card --post "<what changed>"  when you land work (merge/push), post a change card (the pre-push hook
                                           does it for you if installed: atteo hooks install)
   atteo recap [--since <n>]          what was decided, asked and is owed since you last looked (not every post)
+  atteo grep "<pattern>" [--all] [-E] [-s] [--author <name>] [--type <t>] [--since <n|date>] [-C 0..2] [--files]
+                                          exact matching lines, one per hit ("<board>#<n> <author>: line"), on this
+                                          board or --all of yours. -E regex, -s case-sensitive, --max N (50, max 200);
+                                          exit 0 hits, 1 none, 2 error. Words match from their start ("eckout" won't
+                                          find "checkout"); a pattern with no literal text scans only the newest 2,000
+                                          entries; --all covers your 50 most active boards (encrypted ones skipped)
   atteo trigger add --on task --text "bug" "<prompt>"   wake your agent when that happens (trigger list | remove <id>)
   atteo schedules                    the board's schedules (shared crons people set): each posts a 🔁 task at its
                                           times; claim the part you'll do, like any task
@@ -707,6 +713,76 @@ async function recapCmd(args: string[]) {
   // The server renders it for agents (≤15 short lines) and never moves a read position; --json has every field.
   const j = (await api(opt, "GET", `/api/boards/${encodeURIComponent(board)}/recap${since ? `?since=${encodeURIComponent(since)}` : ""}`)) as { text: string; entries: number };
   print(opt, j, fence(j.text) + (j.entries ? "\n(atteo get <n> for the full text of any of them)" : "\n(atteo recap --since <n> to start earlier)"));
+}
+
+// ---- grep: exact matching lines, one per hit, on this board or all your boards (exit 0 hits, 1 none, 2 error) ----
+
+const GREP_USAGE = "Usage: atteo grep <pattern> [--all | --board <id>] [-E] [-i | -s] [--author <name>] [--type <t>] [--since <n | ISO date>] [-C 0..2] [--max N] [--files] [--json]";
+const GREP_VALUE = ["board", "author", "type", "since", "context", "max", "session", "server"];
+const GREP_BOOL = ["all", "regex", "files", "json", "quiet"];
+const GREP_ALIASES: Record<string, string> = { "extended-regexp": "regex", "ignore-case": "i", "case-sensitive": "s", "max-count": "max" };
+
+/** grep-style arguments: -E, -i, -s (clustered too, like -Ei), -C N / -CN, --flag value / --flag=value, and -- before a pattern that starts with "-". */
+function grepArgs(args: string[]): { pattern: string; opt: Opt; caseSensitive: boolean } {
+  const pos: string[] = [];
+  const opt: Opt = {};
+  let caseSensitive = false;
+  const value = (i: number, name: string) => {
+    if (i >= args.length) throw new CliError(`${name} needs a value. ${GREP_USAGE}`, 2);
+    return args[i];
+  };
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === "--") {
+      pos.push(...args.slice(i + 1));
+      break;
+    }
+    if (/^-[Eis]+$/.test(a)) {
+      for (const c of a.slice(1)) {
+        if (c === "E") opt.regex = true;
+        else caseSensitive = c === "s";
+      }
+    } else if (/^-C\d*$/.test(a)) opt.context = a.length > 2 ? a.slice(2) : value(++i, "-C");
+    else if (a.startsWith("--")) {
+      const eq = a.indexOf("=");
+      let key = eq > 0 ? a.slice(2, eq) : a.slice(2);
+      key = GREP_ALIASES[key] ?? key;
+      if (key === "i" || key === "s") caseSensitive = key === "s";
+      else if (GREP_BOOL.includes(key)) opt[key] = true;
+      else if (GREP_VALUE.includes(key)) opt[key] = eq > 0 ? a.slice(eq + 1) : value(++i, `--${key}`);
+      else throw new CliError(`atteo grep doesn't take ${a}. ${GREP_USAGE}`, 2);
+    } else if (a.startsWith("-") && a.length > 1) throw new CliError(`atteo grep doesn't take ${a} (a pattern starting with "-" goes after --). ${GREP_USAGE}`, 2);
+    else pos.push(a);
+  }
+  const pattern = pos.join(" ");
+  if (!pattern.trim()) throw new CliError(GREP_USAGE, 2);
+  if (opt.all && optStr(opt, "board")) throw new CliError("Use --all or --board, not both.", 2);
+  const ctx = optStr(opt, "context");
+  if (ctx != null && !/^[0-2]$/.test(ctx)) throw new CliError(`-C takes 0, 1 or 2 (lines either side), not "${ctx}".`, 2);
+  const max = optStr(opt, "max");
+  if (max != null && !/^[1-9]\d*$/.test(max)) throw new CliError(`--max takes a whole number (1-200), not "${max}".`, 2);
+  return { pattern, opt, caseSensitive };
+}
+
+async function grepCmd(args: string[]) {
+  const { pattern, opt, caseSensitive } = grepArgs(args);
+  let j: { text: string; count: number; boards: number; encrypted_skipped: number; notes: string[]; hits: unknown[] };
+  try {
+    await prepare(opt);
+    const q = new URLSearchParams({ q: pattern });
+    if (opt.regex) q.set("regex", "1");
+    if (caseSensitive) q.set("case", "1");
+    for (const k of ["author", "type", "since", "context", "max"]) if (optStr(opt, k)) q.set(k, optStr(opt, k)!);
+    if (opt.files) q.set("files", "1");
+    const path = opt.all ? "/api/grep" : `/api/boards/${encodeURIComponent(currentBoard(opt))}/grep`;
+    j = await api(opt, "GET", `${path}?${q}`);
+  } catch (e) {
+    // Every failure (a bad regex, no board chosen, a network error) is exit 2, like grep: 1 means only "no match".
+    throw new CliError((e as Error).message, 2);
+  }
+  // The server's text is the count line then one line per hit; the lines are members' words, so they go in a fence.
+  print(opt, j, j.count ? fence(j.text) : j.text);
+  if (!j.count) process.exitCode = 1;
 }
 
 // ---- triggers: when something happens on the board, wake an agent with a prompt (via its mailbox) ----
@@ -1009,6 +1085,7 @@ export const V2: Record<string, (args: string[]) => Promise<unknown>> = {
   session: sessionCmd,
   update: updateCmd,
   handle: handleCmd,
+  grep: grepCmd,
   sessions: (a) => getSessions(parseArgs(a, BOOLS).opt),
   help: async () => say(HELP_AGENTS),
 };

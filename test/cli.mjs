@@ -1359,6 +1359,63 @@ await step("recap: decided, open questions and who owes what since you last look
   assert(j.decisions.length === 1 && j.questions.length === 1 && j.owed.some((o) => o.items.some((i) => i.title.includes(`Fix login ${run}`))), "--json: " + r.out);
 });
 
+await step("grep: exact matching lines on this folder's board or --all, -E, -s, --author, -C, --json; exit 1 on no match, 2 on a bad regex", async () => {
+  const gb = (await ops("boards", { user: A, title: `e2e cli grep ${run}` })).board.id;
+  await ops("members", { board: gb, user: B });
+  const gb2 = (await ops("boards", { user: B, title: `e2e cli grep two ${run}` })).board.id;
+  await ops("members", { board: gb2, user: A });
+  const word = `grepneedle${run}`;
+  const n1 = Number((await tool(tokA, gb, "post", { type: "note", text: `alpha line before\nthe ${word} is here\nafter line` })).match(/#(\d+)/)[1]);
+  await tool(tokB, gb, "read", {});
+  const n2 = Number((await tool(tokB, gb, "post", { type: "note", text: `${word} from B too` })).match(/#(\d+)/)[1]);
+  const n3 = Number((await tool(tokB, gb2, "post", { type: "note", text: `${word} on the second board` })).match(/#(\d+)/)[1]);
+  const gdir = join(dir, "grep-proj");
+  mkdirSync(gdir, { recursive: true });
+  const cfg = { XDG_CONFIG_HOME: join(dir, "cfg-grep") };
+  const g = (...a) => cli(["grep", ...a], { cwd: gdir, env: cfg });
+  let r = await cli(["use", gb], { cwd: gdir, env: cfg });
+  assert(r.code === 0, "use: " + r.out + r.err);
+  // This folder's board (no --board): both hits, fenced, one line each, nothing from the other board.
+  r = await g(word);
+  assert(r.code === 0 && /<<untrusted [0-9a-f]+:/.test(r.out) && r.out.includes("2 hits in e2e-cli-grep"), "this board: " + r.code + r.out + r.err);
+  assert(r.out.includes(`#${n1} ${A}: the «${word}» is here`) && r.out.includes(`#${n2} ${B}: «${word}» from B too`) && !r.out.includes("second board"), "hit lines: " + r.out);
+  assert(!r.out.includes(tokA) && !r.err.includes(tokA), "never prints the token");
+  // --all: every board A is on.
+  r = await g(word, "--all");
+  assert(r.code === 0 && r.out.includes("3 hits in") && r.out.includes(`#${n3} ${B}: «${word}» on the second board`) && r.out.includes(`#${n1} ${A}`), "--all: " + r.out + r.err);
+  // -E regex (across both boards): "is" or "on" after the word, not "from".
+  r = await g("-E", `${word} (is|on)`, "--all");
+  assert(r.code === 0 && r.out.includes("2 hits in") && r.out.includes(`«${word} is» here`) && r.out.includes(`«${word} on» the second board`) && !r.out.includes("from B"), "-E: " + r.out + r.err);
+  // Case: insensitive by default (-i), -s makes it exact.
+  r = await g("-i", word.toUpperCase());
+  assert(r.code === 0 && r.out.includes("2 hits"), "-i: " + r.out + r.err);
+  r = await g("-s", word.toUpperCase());
+  assert(r.code === 1 && r.out.includes("0 hits"), "-s: " + r.code + r.out + r.err);
+  // --author: only B's line.
+  r = await g(word, "--author", B);
+  assert(r.code === 0 && r.out.includes("1 hit in") && r.out.includes(`#${n2} ${B}`) && !r.out.includes(`#${n1} `), "--author: " + r.out + r.err);
+  // -C 1: a line either side, joined with ⏎ (and -C1 spelled together).
+  for (const c of [["-C", "1"], ["-C1"]]) {
+    r = await g(word, ...c, "--author", A);
+    assert(r.code === 0 && r.out.includes(`#${n1} ${A}: alpha line before ⏎ the «${word}» is here ⏎ after line`), "-C: " + r.out + r.err);
+  }
+  // --json: the server's JSON, same exit codes.
+  r = await g(word, "--json");
+  const j = JSON.parse(r.out);
+  assert(r.code === 0 && j.count === 2 && j.hits.every((h) => h.board === gb) && j.hits.some((h) => h.seq === n1 && h.author === A) && typeof j.text === "string", "--json: " + r.out);
+  // No match: exit 1, like grep. A bad regex or a bad option: a clear error, exit 2.
+  r = await g(`nomatch${run}`);
+  assert(r.code === 1 && r.out.includes("0 hits"), "no match: " + r.code + r.out + r.err);
+  r = await g(`nomatch${run}`, "--json");
+  assert(r.code === 1 && JSON.parse(r.out).count === 0, "no match --json: " + r.code + r.out);
+  r = await g("-E", `${word}(`);
+  assert(r.code === 2 && /regex|parenthes|\(/i.test(r.err) && !r.out.trim(), "bad regex: " + r.code + r.out + r.err);
+  r = await g(word, "-C", "5");
+  assert(r.code === 2 && r.err.includes("-C takes 0, 1 or 2"), "bad -C: " + r.code + r.err);
+  r = await g(word, "--nope");
+  assert(r.code === 2 && r.err.includes("doesn't take --nope"), "unknown option: " + r.code + r.err);
+});
+
 await step("soul / memory / remember / forget: the board's SOUL (people-only) and its MEMORY, from the CLI", async () => {
   const mb = (await ops("boards", { user: B, title: `e2e cli memory ${run}` })).board.id;
   await ops("members", { board: mb, user: A });
