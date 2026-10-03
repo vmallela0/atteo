@@ -96,7 +96,7 @@ extension Board {
     }
 }
 
-struct EntriesResponse: Decodable { let entries: [Entry]; let last: Int; var reactions: [String: [Reaction]]? = nil }
+struct EntriesResponse: Decodable { let entries: [Entry]; let last: Int; var reactions: [String: [Reaction]]? = nil; var reads: [String: SeenMark]? = nil }
 /// One emoji on a message and who left it (agents' 👀 / ✅ are read receipts: read and working / done).
 struct Reaction: Codable, Hashable { let emoji: String; let users: [String] }
 struct Entry: Codable, Identifiable, Hashable {
@@ -117,6 +117,9 @@ struct Entry: Codable, Identifiable, Hashable {
     var artifactVersion: Int? = nil
     var artifactSize: Int? = nil
     var local: String? = nil // a file sending from this phone: its bytes on disk (for the preview and a retry)
+    var retracts: Int? = nil // this one unsends that one (the retraction itself isn't shown; its target reads "Unsent")
+    var resolves: [Int]? = nil // questions answered / tasks completed by this one
+    var supersedes: Int? = nil // replaces an earlier entry
     var id: Int { seq }
     var byAgent: Bool { via == "agent" }
     /// A picture shown inline (PNG, JPEG, GIF or WebP, as the server sniffed it).
@@ -232,6 +235,34 @@ struct WorkTask: Codable, Identifiable, Hashable {
     var priorityRank: Int { priority == "high" ? 0 : priority == "medium" ? 1 : priority == "low" ? 3 : 2 }
 }
 
+// MARK: - Chat parity, wave 2 (threads, reactions, unsend, receipts, board info, search, "on it")
+
+/// How far a member has seen a board: as a person, and through their agent (-1: their agent has never been here).
+struct SeenMark: Codable, Hashable { let personSeen: Int; let agentSeen: Int }
+
+/// Which agent (or person) took a message ("theo/builder", "theo's agent"), and whether it's done.
+struct Handling: Codable, Hashable { let by: String; let user: String?; let done: Bool? }
+
+/// The board's live view (only what the app needs from it): who's on what, and how far everyone has read.
+struct UpdatesResponse: Decodable { var handling: [String: Handling]? = nil; var reads: [String: SeenMark]? = nil }
+
+/// One message with its replies (a thread).
+struct ThreadResponse: Decodable { let entry: Entry; let replies: [Entry]; var reactions: [Reaction]? = nil }
+
+/// A toggled reaction: whether yours is on now, and the message's reactions.
+struct ReactResponse: Decodable { let on: Bool; let reactions: [Reaction] }
+
+/// The answer to "On it": whether you have it now, and who does.
+struct HandleResponse: Decodable { let ok: Bool; let by: String?; let done: Bool?; let message: String? }
+
+/// Search in one chat: messages (with a «highlighted» snippet) and files.
+struct ChatSearchResponse: Decodable {
+    struct Hit: Decodable, Hashable, Identifiable { let seq: Int; let ts: Double; let author: String; let via: String?; let type: String; let title: String?; let snippet: String; var id: Int { seq } }
+    struct FileHit: Decodable, Hashable, Identifiable { let name: String; let version: Int; let snippet: String; var id: String { name } }
+    let entries: [Hit]
+    var files: [FileHit]? = nil
+}
+
 // MARK: - The web's features in the app (#508): people, files, members, invites
 
 /// Someone you can find in People: their name, a line about them, and how you're connected.
@@ -301,3 +332,11 @@ struct InviteLinkResponse: Decodable { let url: String }
 struct InviteResponse: Decodable { let message: String? }
 struct NewBoardResponse: Decodable { struct B: Decodable { let id: String; let title: String }; let board: B }
 struct TaskResponse: Decodable { let task: WorkTask }
+
+extension DocMeta {
+    /// As a chat entry, so it opens the way a file in the chat does (Quick Look).
+    var entry: Entry {
+        Entry(seq: 0, ts: updatedAt, author: updatedBy, type: "artifact", text: "", title: nil, to: nil, via: via, artifactName: name,
+              media: mime.map { Media(mime: $0, w: nil, h: nil, size: size) }, artifactVersion: version, artifactSize: size)
+    }
+}

@@ -20,6 +20,11 @@ final class AppState: ObservableObject {
     @Published var reactions: [String: [Int: [Reaction]]] = [:] // per board, per message
     @Published var boardAgents: [String: [BoardAgent]] = [:] // per board: who's here, live / idle / gone
     @Published var members: [String: [String]] = [:] // per board: who's in it (for @-mentions)
+    // Chat parity, wave 2: read receipts, who took what, and how far back each chat is loaded.
+    @Published var reads: [String: [String: SeenMark]] = [:] // per board, per member: how far they've seen
+    @Published var handling: [String: [Int: Handling]] = [:] // per board, per message: who's on it ("On it")
+    @Published var loadingEarlier: Set<String> = [] // boards loading older messages right now
+    private var seenSent: [String: Int] = [:] // per board: the last "seen up to" this phone reported
     @Published var me: MeAgentResponse.Agent?
     @Published var profile: Profile?
     @Published var connections: [Connection] = []
@@ -116,20 +121,15 @@ final class AppState: ObservableObject {
         do {
             let after = max(0, count - 80)
             let r = try await API.shared.get("/api/boards/\(b.id)/entries?after=\(after)&limit=200", as: EntriesResponse.self)
-            var got = r.entries
-            let rx = Dictionary(uniqueKeysWithValues: (r.reactions ?? [:]).compactMap { k, v in Int(k).map { ($0, v) } })
+            let got = await decrypted(r.entries, board: b, after: after)
+            // Older messages already loaded ("load earlier", a jump to a reply's parent) stay; their reactions too.
+            let older = (entries[b.id] ?? []).filter { $0.seq > 0 && $0.seq <= after && $0.pending != true && $0.failed != true }
+            var rx = (reactions[b.id] ?? [:]).filter { $0.key <= after }
+            for (k, v) in r.reactions ?? [:] { if let n = Int(k) { rx[n] = v } }
             if rx != reactions[b.id] { withAnimation(.smooth) { reactions[b.id] = rx } }
-            if b.encrypted == true {
-                // End-to-end encrypted: the server only has ciphertext; this phone decrypts what it holds the key for.
-                let plain = await BoardCrypto.shared.decrypt(b.id, after: after)
-                got = got.map { e in
-                    var e = e
-                    if let t = plain[e.seq] { e.text = t } else if e.text.hasPrefix("🔒 Encrypted message") { e.text = "🔒 Encrypted. This phone can't read it yet." }
-                    return e
-                }
-            }
+            if let rd = r.reads, rd != reads[b.id] { withAnimation(.smooth) { reads[b.id] = rd } }
             let mine = (entries[b.id] ?? []).filter { $0.pending == true || $0.failed == true }
-            let fresh = got + mine.filter { m in !r.entries.contains { $0.author == m.author && $0.text == m.text && $0.ts >= m.ts - 60_000 } }
+            let fresh = older + got + mine.filter { m in !r.entries.contains { $0.author == m.author && $0.text == m.text && $0.ts >= m.ts - 60_000 } }
             if fresh != entries[b.id] { withAnimation(.smooth) { entries[b.id] = fresh } }
             save()
         } catch { report(error, quiet: true) }
@@ -238,7 +238,7 @@ final class AppState: ObservableObject {
     /// While a chat is open: its live socket, so checklists tick and messages land the moment they change.
     /// Runs until the chat closes (the caller's task is cancelled); reconnects after a dropped connection.
     func watch(_ b: Board) async {
-        struct Event: Decodable { let type: String }
+        struct Event: Decodable { let type: String; var user: String?; var personSeen: Int?; var agentSeen: Int?; var seq: Int?; var by: String?; var done: Bool? }
         var backoff: UInt64 = 1
         while !Task.isCancelled {
             guard let ws = API.shared.socket(board: b.id) else { return }
@@ -250,7 +250,16 @@ final class AppState: ObservableObject {
                 while !Task.isCancelled {
                     let msg = try await ws.receive()
                     backoff = 1
-                    guard case .string(let s) = msg, let e = try? JSONDecoder().decode(Event.self, from: Data(s.utf8)) else { continue }
+                    guard case .string(let s) = msg, let e = try? JSONDecoder.soup.decode(Event.self, from: Data(s.utf8)) else { continue }
+                    // Read receipts and "on it" markers carry everything they change: no refetch.
+                    if e.type == "read", let u = e.user, let p = e.personSeen, let a = e.agentSeen {
+                        withAnimation(.smooth) { reads[b.id, default: [:]][u] = SeenMark(personSeen: p, agentSeen: a) }
+                        continue
+                    }
+                    if e.type == "handling", let n = e.seq {
+                        withAnimation(.smooth) { handling[b.id, default: [:]][n] = e.by.map { Handling(by: $0, user: nil, done: e.done) } }
+                        continue
+                    }
                     guard e.type == "task" || e.type == "entry" || e.type == "reaction" else { continue }
                     // Bursts (a done that ticks a parent and posts a line) refresh once.
                     pending?.cancel()
@@ -383,6 +392,113 @@ final class AppState: ObservableObject {
             withAnimation(.smooth) { entries[b.id]?.removeAll { $0.seq == temp.seq } }
             if let path = temp.local { try? FileManager.default.removeItem(at: URL(fileURLWithPath: path).deletingLastPathComponent()) }
             Haptic.warn()
+            report(error)
+        }
+    }
+
+    // MARK: - Chat parity, wave 2: older messages, reactions, unsend, receipts, "on it"
+
+    /// What this phone can read of an encrypted board's messages (others pass through).
+    private func decrypted(_ list: [Entry], board b: Board, after: Int) async -> [Entry] {
+        guard b.encrypted == true else { return list }
+        // End-to-end encrypted: the server only has ciphertext; this phone decrypts what it holds the key for.
+        let plain = await BoardCrypto.shared.decrypt(b.id, after: after)
+        return list.map { e in
+            var e = e
+            if let t = plain[e.seq] { e.text = t } else if e.text.hasPrefix("🔒 Encrypted message") { e.text = "🔒 Encrypted. This phone can't read it yet." }
+            return e
+        }
+    }
+
+    /// The oldest message loaded for a board (nil: none yet).
+    func firstLoaded(_ b: Board) -> Int? { (entries[b.id] ?? []).lazy.filter { $0.seq > 0 }.map(\.seq).min() }
+
+    /// Older messages, put in front of what's loaded: a page of 60, or back to `through` (a reply's parent, a search
+    /// hit) in one go (at most 500). Returns false when there's nothing older.
+    @discardableResult
+    func loadEarlier(_ b: Board, through target: Int? = nil) async -> Bool {
+        guard let first = firstLoaded(b), first > 1, !loadingEarlier.contains(b.id) else { return false }
+        loadingEarlier.insert(b.id)
+        defer { loadingEarlier.remove(b.id) }
+        var after = max(0, first - 1 - 60)
+        if let target { after = max(0, min(after, target - 6), first - 1 - 500) }
+        do {
+            let r = try await API.shared.get("/api/boards/\(b.id)/entries?after=\(after)&limit=\(first - 1 - after)", as: EntriesResponse.self)
+            let got = await decrypted(r.entries.filter { $0.seq < first }, board: b, after: after)
+            var rx = reactions[b.id] ?? [:]
+            for (k, v) in r.reactions ?? [:] { if let n = Int(k), n < first { rx[n] = v } }
+            reactions[b.id] = rx
+            let have = Set((entries[b.id] ?? []).map(\.seq))
+            entries[b.id] = got.filter { !have.contains($0.seq) } + (entries[b.id] ?? [])
+            return after > 0
+        } catch { report(error, quiet: true); return false }
+    }
+
+    /// Who's on what ("On it"), and everyone's read marks: the board's live view, asked for nothing new.
+    func loadHandling(_ b: Board) async {
+        let last = max(entries[b.id]?.map(\.seq).max() ?? 0, boards.first(where: { $0.id == b.id })?.entryCount ?? b.entryCount)
+        do {
+            let r = try await API.shared.get("/api/boards/\(b.id)/updates?after=\(last)", as: UpdatesResponse.self)
+            let h = Dictionary(uniqueKeysWithValues: (r.handling ?? [:]).compactMap { k, v in Int(k).map { ($0, v) } })
+            if h != handling[b.id] { withAnimation(.smooth) { handling[b.id] = h } }
+            if let rd = r.reads, rd != reads[b.id] { withAnimation(.smooth) { reads[b.id] = rd } }
+        } catch { report(error, quiet: true) }
+    }
+
+    /// Tells the board how far you've read here (others see "Seen by …" under their messages).
+    func markSeen(_ b: Board) async {
+        guard let last = entries[b.id]?.lazy.filter({ $0.seq > 0 }).map(\.seq).max(), last > (seenSent[b.id] ?? 0) else { return }
+        seenSent[b.id] = last
+        do { try await API.shared.send("/api/boards/\(b.id)/seen", body: ["seq": last], retries: false) } catch { report(error, quiet: true) }
+    }
+
+    /// Adds your reaction, or takes it back if it's there (shows at once; the server's answer settles it).
+    func react(_ emoji: String, to seq: Int, in b: Board) async {
+        guard let me = me?.owner else { return }
+        let old = reactions[b.id]?[seq] ?? []
+        var next = old
+        if let i = next.firstIndex(where: { $0.emoji == emoji }) {
+            var users = next[i].users
+            if users.contains(me) { users.removeAll { $0 == me } } else { users.append(me) }
+            if users.isEmpty { next.remove(at: i) } else { next[i] = Reaction(emoji: emoji, users: users) }
+        } else { next.append(Reaction(emoji: emoji, users: [me])) }
+        Haptic.tap()
+        withAnimation(.spring(duration: 0.3, bounce: 0.3)) { reactions[b.id, default: [:]][seq] = next }
+        do {
+            let d = try await API.shared.send("/api/boards/\(b.id)/entries/\(seq)/react", body: ["emoji": emoji], retries: false)
+            let r = try JSONDecoder.soup.decode(ReactResponse.self, from: d)
+            withAnimation(.smooth) { reactions[b.id, default: [:]][seq] = r.reactions }
+        } catch {
+            withAnimation(.smooth) { reactions[b.id, default: [:]][seq] = old }
+            report(error)
+        }
+    }
+
+    /// Unsends one of your messages: it stays in the log, marked "Unsent" (like the web).
+    func retract(_ seq: Int, in b: Board) async {
+        do {
+            let d = try await API.shared.send("/api/boards/\(b.id)/entries/\(seq)/retract", body: [String: Any](), retries: false)
+            let r = try JSONDecoder.soup.decode(PostResponse.self, from: d).entry
+            withAnimation(.smooth) { if !(entries[b.id] ?? []).contains(where: { $0.seq == r.seq }) { entries[b.id, default: []].append(r) } }
+            Haptic.done()
+            save()
+        } catch { Haptic.warn(); report(error) }
+    }
+
+    /// "On it": you take a message addressed to you (people and agents see who has it).
+    func takeOn(_ seq: Int, in b: Board) async {
+        let me = me?.owner ?? ""
+        Haptic.tap()
+        withAnimation(.smooth) { handling[b.id, default: [:]][seq] = Handling(by: me, user: me, done: false) }
+        do {
+            let d = try await API.shared.send("/api/boards/\(b.id)/handle/\(seq)", body: ["action": "take"], retries: false)
+            if let r = try? JSONDecoder.soup.decode(HandleResponse.self, from: d), let by = r.by {
+                withAnimation(.smooth) { handling[b.id, default: [:]][seq] = Handling(by: by, user: nil, done: r.done) }
+            }
+        } catch APIError.server {
+            await loadHandling(b) // someone else has it (409): their marker shows instead, which says who
+        } catch {
+            withAnimation(.smooth) { handling[b.id]?[seq] = nil }
             report(error)
         }
     }

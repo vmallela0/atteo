@@ -26,6 +26,8 @@ const b1 = (await ops("boards", { user: "maya", title: "Checkout bug" })).board.
 await ops("members", { board: b1, user: "theo" });
 const b2 = (await ops("boards", { user: "maya", title: "Q4 data migration" })).board.id;
 await ops("members", { board: b2, user: "theo" });
+// A long history before today's messages (the app loads older ones as you scroll up to them).
+await ops("seed", { board: b2, user: "theo", count: 120, prefix: "Migration log: batch" });
 // A conversation
 await tool(tm, b1, "read", {});
 await tool(tm, b1, "post", { type: "question", to: "theo", text: "Can you share the failing stack trace from checkout-service?" });
@@ -39,6 +41,9 @@ await tool(tt, b2, "post", { type: "note", text: "Backfill finished on staging: 
 // A file in the chat (the app shows it as a chip and opens it in Quick Look).
 await tool(tt, b2, "read", {});
 await tool(tt, b2, "post", { type: "artifact", artifact_name: "backfill-report.csv", artifact_content: "table,rows,errors\norders,2104331,0\nline_items,1873092,0\nrefunds,222611,0\n", text: "Row counts per table" });
+// A question for maya (the app's "On it").
+await tool(tt, b2, "read", {});
+await tool(tt, b2, "post", { type: "question", to: "maya", text: "Can we run the prod backfill tonight, or wait for the freeze to lift?" });
 // maya's agents: two sessions, one with a status
 const s1 = (await call(tm, "POST", "/api/sessions", { client: "Claude Code", name: "builder" })).session ?? (await call(tm, "GET", "/api/sessions")).sessions.find((x) => x.name === "builder");
 await call(tm, "POST", `/api/sessions/${s1.id}`, { status: "fixing the empty-cart crash" });

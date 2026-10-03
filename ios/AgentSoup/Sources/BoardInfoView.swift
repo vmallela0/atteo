@@ -1,37 +1,18 @@
 // A board's info: who's in it, invite someone (a friend by name, anyone by email) or share a link, its files, and,
-// for its owners, rename and archive. Opened from the board's "Agents here" sheet (the ⓘ in its corner). Also the
-// "New board" sheet from Chats.
+// for its owners, rename and archive. The chat's Info sheet (BoardInfoSheet, from the title) hosts it, with what's
+// open and who's here above and the files in their place. Also the "New board" sheet from Chats.
 
 import SwiftUI
 
-/// The ⓘ in "Agents here": the board's info, full height, over that half sheet.
-struct BoardInfoToolbar: ToolbarContent {
-    let board: Board
-    var body: some ToolbarContent {
-        ToolbarItem(placement: .topBarTrailing) { BoardInfoButton(board: board) }
-    }
-}
-
-private struct BoardInfoButton: View {
-    let board: Board
-    @State private var open = false
-    var body: some View {
-        Button { Haptic.tap(); open = true } label: { Image(systemName: "info.circle").font(.system(size: 16, weight: .semibold)) }
-            .accessibilityLabel("Board info")
-            .sheet(isPresented: $open) {
-                NavigationStack {
-                    BoardInfoView(boardId: board.id, fallback: board)
-                        .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { open = false }.fontWeight(.semibold) } }
-                }
-                .presentationBackground(Theme.bg)
-            }
-    }
-}
-
-struct BoardInfoView: View {
+struct BoardInfoView<Top: View, Files: View>: View {
     @EnvironmentObject var state: AppState
     let boardId: String
     let fallback: Board
+    let top: Top // what's open and who's here, under the header
+    let files: Files // the board's files
+    init(boardId: String, fallback: Board, @ViewBuilder top: () -> Top, @ViewBuilder files: () -> Files) {
+        self.boardId = boardId; self.fallback = fallback; self.top = top(); self.files = files()
+    }
     @State private var members: BoardMembersResponse?
     @State private var friends: [Person] = []
     @State private var to = ""
@@ -73,6 +54,8 @@ struct BoardInfoView: View {
                 .padding(.vertical, Space.xs)
             }
             .listRowBackground(Color.clear)
+
+            top
 
             if !direct {
                 Section {
@@ -141,11 +124,7 @@ struct BoardInfoView: View {
             } header: { SectionHeader("Members\(members.map { " · \($0.members.count)" } ?? "")") }
             .listRowBackground(Theme.card)
 
-            Section {
-                NavigationLink { FilesList(board: boardId) } label: { InfoLabel("Files", "doc.on.doc") }
-                    .accessibilityIdentifier("board-files")
-            }
-            .listRowBackground(Theme.card)
+            files
 
             if owner && !direct {
                 Section {
@@ -160,7 +139,7 @@ struct BoardInfoView: View {
         .listSectionSpacing(.compact)
         .scrollContentBackground(.hidden)
         .background(Theme.bg)
-        .navigationTitle(direct ? "Info" : "Board info")
+        .navigationTitle("Info")
         .navigationBarTitleDisplayMode(.inline)
         .alert("Rename board", isPresented: $renaming) {
             TextField("Title", text: $newTitle)
@@ -198,7 +177,7 @@ struct BoardInfoView: View {
 }
 
 /// A row's label in Board info: a quiet icon and plain text (clay is for what needs you, not every row).
-private struct InfoLabel: View {
+struct InfoLabel: View {
     let title: String
     let icon: String
     var color: Color = Theme.text
