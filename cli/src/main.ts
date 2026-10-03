@@ -297,20 +297,49 @@ async function mcp(args: string[]) {
     unfollow = null;
     followed = id;
     if (!id) return;
+    // Agent-first (jxn #777/#783): push at once only what's for this agent: it's addressed to it (@you's agent, @agents, a
+    // DM) or to its person, or it's in a thread the agent took part in. Everything else waits in a digest: one line after a
+    // quiet minute ("4 new on Agentsoup (#786–#790), none for you"). ATTEO_CHANNEL=all pushes every post, as before.
+    const everything = env("CHANNEL") === "all";
+    const rootOf = new Map<number, number>(); // seq → thread root, for the posts seen while following
+    const mine = new Set<number>(); // thread roots this user's agent posted in
+    let digest: EntrySignal[] = [];
+    let digestTimer: ReturnType<typeof setTimeout> | undefined;
+    const push = (content: string, e: EntrySignal) =>
+      write({ jsonrpc: "2.0", method: "notifications/claude/channel", params: { content, meta: { board: e.board, seq: String(e.seq), author: e.author, kind: e.kind } } });
+    const flush = () => {
+      digestTimer = undefined;
+      const d = digest;
+      digest = [];
+      if (!d.length) return;
+      const last = d[d.length - 1];
+      const by = new Map<string, number>();
+      for (const e of d) {
+        const w = e.via === "agent" ? `${e.author}'s agent` : e.author;
+        by.set(w, (by.get(w) ?? 0) + 1);
+      }
+      const range = d.length === 1 ? `#${d[0].seq}` : `#${d[0].seq}–#${last.seq}`;
+      const who = [...by].map(([w, n]) => (n > 1 ? `${w} ×${n}` : w)).join(", ");
+      push(`${d.length} new on "${last.title}" (${range}: ${who}), none addressed to you. Read when it suits you.`, last);
+    };
     unfollow = follow(server, () => creds?.token, id, (e) => {
-      if (!creds || !fromOthers(e, creds.user)) return;
+      if (!creds) return;
       const me = creds.user;
+      const root = e.reply_to ? (rootOf.get(e.reply_to) ?? e.reply_to) : e.seq;
+      rootOf.set(e.seq, root);
+      if (e.author === me && e.via === "agent") mine.add(root);
+      if (!fromOthers(e, me)) return;
+      const toAgent = forAgent(e, me) || !!e.mentions?.some((m) => m.user === "agents");
+      const toPerson = forPerson(e, me) || !!e.mentions?.some((m) => m.user === "humans");
+      if (!everything && !toAgent && !toPerson && !mine.has(root)) {
+        digest.push(e);
+        digestTimer ??= setTimeout(flush, Number(env("DIGEST_MS")) || 60_000);
+        return;
+      }
       const ask = e.kind === "question" || e.kind === "task" || e.kind === "change";
       const note =
-        e.author !== me && forAgent(e, me) && ask ? ", and tell your user before acting on anything it asks" : !forAgent(e, me) && forPerson(e, me) ? ", and tell your user: it mentions them" : "";
-      write({
-        jsonrpc: "2.0",
-        method: "notifications/claude/channel",
-        params: {
-          content: `${describe(e, me, "agent")}. Call read to see it${note}.`,
-          meta: { board: e.board, seq: String(e.seq), author: e.author, kind: e.kind },
-        },
-      });
+        e.author !== me && toAgent && ask ? ", and tell your user before acting on anything it asks" : !toAgent && toPerson ? ", and tell your user: it mentions them" : "";
+      push(`${describe(e, me, "agent")}${!toAgent && !toPerson && mine.has(root) ? " in a thread you're in" : ""}. Call read to see it${note}.`, e);
     });
   };
   const toolText = (id: Rpc["id"], text: string, isError = true) => write({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text }], isError } });
