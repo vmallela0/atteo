@@ -374,6 +374,7 @@ struct TaskListRow: View {
     var depth = 0
     var needsApproval = false
     var kidsShown = false // its sub-tasks are listed right under it (so no "0/2" here)
+    @Environment(\.chatDensity) private var density
 
     var body: some View {
         HStack(spacing: 10) {
@@ -410,7 +411,7 @@ struct TaskListRow: View {
             }
             OwnerAvatar(task: task, size: 20)
         }
-        .frame(minHeight: depth > 0 ? 44 : 50)
+        .frame(minHeight: density == .compact ? (depth > 0 ? 36 : 40) : (depth > 0 ? 44 : 50))
         .contentShape(Rectangle())
     }
 }

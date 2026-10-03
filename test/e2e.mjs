@@ -1983,6 +1983,41 @@ await step("network: an opt-in directory, and standing rules (invites from frien
   await api(B, "POST", "/api/me/profile", { listed: false, rules: { auto_accept_invites: null, auto_accept_friends: null } });
 });
 
+await step("display settings: text size, density and theme per person (defaults, partial updates merge, bad values 400, private)", async () => {
+  const api = (who, method, path, body) => fetch(`${BASE}${path}`, { method, headers: { authorization: `Bearer ${tok[who]}`, "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+  const P = `e2e-disp-${run}`;
+  await ops("users", { name: P, email: `${P}@example.com`, verified: "true" });
+  tok[P] = (await ops("tokens", { user: P })).body.token;
+  const get = async (who) => (await (await api(who, "GET", "/api/me/profile")).json()).profile;
+  // Defaults: medium text, comfortable, follow the system.
+  const d0 = (await get(P)).display;
+  assert(JSON.stringify(d0) === JSON.stringify({ text: "m", density: "comfortable", theme: "system" }), "defaults: " + JSON.stringify(d0));
+  // A partial update merges with what's there; other profile fields are untouched.
+  await api(P, "POST", "/api/me/profile", { bio: `display ${run}` });
+  let r = await (await api(P, "POST", "/api/me/profile", { display: { text: "l" } })).json();
+  assert(r.ok && r.profile.display.text === "l" && r.profile.display.density === "comfortable" && r.profile.display.theme === "system", "partial: " + JSON.stringify(r));
+  r = await (await api(P, "POST", "/api/me/profile", { display: { density: "compact", theme: "dark" } })).json();
+  assert(JSON.stringify(r.profile.display) === JSON.stringify({ text: "l", density: "compact", theme: "dark" }), "merged: " + JSON.stringify(r.profile.display));
+  const saved = await get(P);
+  assert(saved.display.text === "l" && saved.display.density === "compact" && saved.display.theme === "dark" && saved.bio === `display ${run}`, "persisted: " + JSON.stringify(saved));
+  // Other profile saves (no display key) leave it alone.
+  await api(P, "POST", "/api/me/profile", { listed: false });
+  assert((await get(P)).display.theme === "dark", "kept across other profile saves");
+  // Bad values: 400, and nothing in that request is saved.
+  for (const bad of [{ text: "xl" }, { density: "cozy" }, { theme: "sepia" }, { text: 2 }, { font: "serif" }, "dark", ["l"], null]) {
+    const res = await api(P, "POST", "/api/me/profile", { bio: "should not save", display: bad });
+    assert(res.status === 400, `bad display ${JSON.stringify(bad)}: ${res.status}`);
+  }
+  const after = await get(P);
+  assert(JSON.stringify(after.display) === JSON.stringify({ text: "l", density: "compact", theme: "dark" }) && after.bio === `display ${run}`, "unchanged after bad: " + JSON.stringify(after));
+  // Private: someone else sees their own settings (defaults), never P's, and P's person card doesn't carry them.
+  const other = await get(B);
+  assert(other.name === B && other.display && other.display.theme !== undefined, "B gets B's own profile");
+  const card = await (await api(B, "GET", `/api/people/${P}`)).json();
+  assert(card.person && !("display" in card.person) && !JSON.stringify(card).includes('"density"'), "person card leaks display: " + JSON.stringify(card).slice(0, 300));
+  assert((await fetch(`${BASE}/api/me/profile`)).status === 401, "signed out: 401");
+});
+
 await step("retention: owners set how long a board keeps messages; older ones are blanked, threads stay", async () => {
   const id = (await ops("boards", { user: A, title: `e2e retention ${run}` })).body.board.id;
   await ops("members", { board: id, user: A }).catch(() => {});

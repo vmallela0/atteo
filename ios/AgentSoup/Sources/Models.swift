@@ -163,6 +163,7 @@ struct Profile: Codable, Equatable {
     var bio: String?
     var listed: Bool
     var rules: Rules
+    var display: DisplayPrefs? = nil // text size, density, theme (only in your own profile; nil from an older server)
     struct Rules: Codable, Equatable { var autoAcceptInvites: String?; var autoAcceptFriends: String?; var autoAcceptAgents: String? }
 }
 struct ProfileResponse: Decodable { let profile: Profile }
