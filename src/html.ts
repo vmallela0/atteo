@@ -100,7 +100,7 @@ ${
 ${avatar(e.author, "", e.via === "agent")}
 <div class="grow">
   <div class="meta">${whoHtml(e)}${e.to ? `<span class="to">→ ${esc(e.to)}</span>` : ""}${e.type === "note" ? "" : typeTag(e.type)}${when(e.ts)}<a class="seq" href="#e${e.seq}">#${e.seq}</a><span class="badge rbadge">Unsent</span>${flagBadge(e.text, e.ai_flag)}${actions}</div>
-  <div class="body">${renderText(e.text, e.mentions)}</div>${file}${e.card ? changeCardHtml(e.seq, e.card) : ""}${e.type === "task" ? `<div class="tk" data-task="${e.seq}" hidden></div>` : ""}${e.type === "claim" && !opts.retracted ? `<div class="tk cl" data-claim="${e.seq}" hidden></div>` : ""}
+  <div class="body">${renderText(e.text, e.mentions)}</div>${file}${e.card ? changeCardHtml(e.seq, e.card) : ""}${e.type === "task" ? `<div class="tk" data-task="${e.seq}" hidden></div>` : ""}${e.type === "claim" && !opts.retracted ? `<div class="tk cl" data-claim="${e.seq}" hidden></div>` : ""}${e.type === "decision" && e.via === "person" && !opts.retracted ? `<div class="tk hd" data-hd="${e.seq}" hidden></div>` : ""}
   ${refs.length ? `<div class="refs">${refs.join(" · ")}</div>` : ""}
   <div class="rx" data-rx="${e.seq}"><button class="rx-add" type="button" data-rx-add="${e.seq}" aria-label="Add a reaction" title="Add a reaction">☺<span>+</span></button></div>
   ${withReplies ? `<div class="replies" id="r${e.seq}"></div>` : ""}
@@ -723,7 +723,7 @@ async function loadEarlier(until){const b=document.getElementById('load-earlier'
     const box=x.root!==x.seq&&(document.getElementById('r'+x.root)||frag.querySelector('#r'+x.root));
     if(box){el.querySelector('.replies')?.remove();box.appendChild(el)}else frag.appendChild(el);later.push(x)}
   b.after(frag);
-  for(const x of later){if(x.reactions?.length)renderRx(x.seq,x.reactions);if(document.querySelector('#e'+x.seq+' [data-task]'))refreshTask(x.seq);if(x.root!==x.seq)thrSum(x.root)}
+  for(const x of later){if(x.human_decision){HDS[x.seq]=x.human_decision;renderHD(x.seq)}if(x.reactions?.length)renderRx(x.seq,x.reactions);if(document.querySelector('#e'+x.seq+' [data-task]'))refreshTask(x.seq);if(x.root!==x.seq)thrSum(x.root)}
   if(window.e2eSync&&later.length)e2eSync(later[0].seq-1);
   renderClaims(CLAIMS);
   if(j.first>1){b.dataset.before=j.first;b.disabled=false}else b.remove();sc.scrollTop+=sc.scrollHeight-h0;railBuild()}
@@ -796,6 +796,7 @@ async function tick1(wait){try{
   if(typeof d.last==='number')last=Math.max(last,d.last);
   if(d.reviews)applyReviews(d.reviews);
   if(d.claims)renderClaims(d.claims);
+  if(d.decisions)renderHDs(d.decisions);
   if(d.handling)renderHandling(d.handling);
   if(d.reads){READS=d.reads;renderReads()}
   if(added){railBuild();if(stick)toBottom();else{unseen=true;pillSync()}if(window.e2eSync)e2eSync()}
@@ -809,6 +810,7 @@ function addEntry(e){if(document.getElementById('e'+e.seq)){last=Math.max(last,e
     const tmp=document.createElement('div');tmp.innerHTML=e.html;const el=tmp.firstElementChild;el.classList.add('flash-in');
     if(box){el.querySelector('.replies')?.remove();box.appendChild(el)}else{document.getElementById('empty')?.remove();document.getElementById('thread').appendChild(el)}
     const rx=RXP[e.seq]||e.reactions;if(rx)renderRx(e.seq,rx);
+    if(e.human_decision){HDS[e.seq]=e.human_decision;renderHD(e.seq)}
     if(el.querySelector('[data-task]'))refreshTask(e.seq);
     if(box){thrSum(e.root);setTimeout(()=>window.reportSeen&&reportSeen(),0)}
     if(!document.querySelector('#log-body tr[data-seq="'+e.seq+'"]')){const lt=document.createElement('tbody');lt.innerHTML=e.row;document.getElementById('log-body').prepend(lt.firstElementChild);document.getElementById('log-empty')?.remove()}
@@ -826,6 +828,7 @@ function connect(){
     if(d.type==='archived'){location.reload();return}
     if(d.type==='doc'){window.onDocChanged&&onDocChanged(d)}
     if(d.type==='reaction'){renderRx(d.seq,d.reactions);return}
+    if(d.type==='decision'){HDS[d.seq]=d.human_decision;renderHD(d.seq);return}
     if(d.type==='read'){READS[d.user]={person_seen:d.person_seen,agent_seen:d.agent_seen};renderReads();return}
     if(d.type==='task')refreshTask(d.seq);
     if(d.type==='claim'||d.type==='handling')tick(false);
@@ -1264,6 +1267,40 @@ document.addEventListener('click',e=>{const c=e.target.closest('[data-cl-cancel]
 document.addEventListener('submit',async e=>{const f=e.target.closest('.cl-f');if(!f)return;e.preventDefault();const seq=+f.closest('[data-claim]').dataset.claim,v=f.v.value.trim();
   let body;if(f.dataset.mode==='dispute')body={action:'dispute',reason:v};else{const n=v.match(/^#?([0-9]+)$/);body=n?{action:'evidence',evidence_seq:+n[1]}:{action:'evidence',url:v}}
   if(await claimAct(seq,body))f.hidden=true});
+// ---- human decisions: a decision a person posts is the people's to make. Everyone else on the board agrees or objects (an
+// optional note on Object); it's decided when they all agree, or when its author closes it (decided or dropped). Agents only
+// comment. State comes with every update (d.decisions: seq → {state, author, votes, voters, waiting_on, closed_by, note}) and live.
+let HDS={};
+function renderHDs(map){HDS=Object.assign({},map||{});for(const seq of Object.keys(HDS))renderHD(+seq)}
+function renderHD(seq){const hd=HDS[seq],el=document.querySelector('[data-hd="'+seq+'"]');if(!hd||!el||el.querySelector('.hd-f:not([hidden])'))return;
+  const author=hd.author===ME,voter=hd.voters.includes(ME),mine=hd.votes.find(v=>v.user===ME),open=hd.state==='open',by=Object.fromEntries(hd.votes.map(v=>[v.user,v]));
+  const pill=open?'Human decision · '+(hd.waiting_on.length?'waiting on '+hd.waiting_on.map(u=>u===ME?'you':u).join(', '):'waiting on '+(author?'you':hd.author)+' to close it')
+    :hd.state==='decided'?'Decided'+(hd.closed_by?' by '+(hd.closed_by===ME?'you':hd.closed_by):' by the people'):'Dropped';
+  const marks=hd.voters.map(u=>{const v=by[u],k=v?(v.vote==='agree'?'y':'n'):'w';
+    return '<span class="hd-m '+k+'" title="'+esc(u+(k==='y'?' agreed':k==='n'?' objected'+(v.note?': '+v.note:''):' hasn\u2019t voted'))+'">'+avatar16(u,false)+(k==='w'?'':'<i aria-hidden="true">'+(k==='y'?'✓':'✕')+'</i>')+'</span>'}).join('');
+  const notes=hd.votes.filter(v=>v.vote==='object'&&v.note).map(v=>'<div class="hd-note" title="'+esc(v.note)+'"><b>'+esc(v.user)+'</b> objects: '+esc(v.note)+'</div>').join('')+
+    (hd.note?'<div class="hd-note" title="'+esc(hd.note)+'"><b>'+esc(hd.closed_by||hd.author)+'</b>: '+esc(hd.note)+'</div>':'');
+  // Votes stay open until its author closes it (an objection reopens one everyone had agreed to).
+  // Once everyone agreed, only Object is left (it reopens it).
+  const acts=READONLY?'':(voter&&!hd.closed_by?(open?'<button class="btn ghost sm hd-b'+(mine?.vote==='agree'?' on-y':'')+'" type="button" data-hdv="agree" aria-pressed="'+(mine?.vote==='agree')+'">Agree</button>':'')+
+      '<button class="btn ghost sm hd-b'+(mine?.vote==='object'?' on-n':'')+'" type="button" data-hdv="object" aria-pressed="'+(mine?.vote==='object')+'">Object</button>':'')+
+    (author&&!hd.closed_by?'<button class="btn ghost sm" type="button" data-hdc>Close</button>':'');
+  el.className='tk hd hd-'+hd.state;
+  el.innerHTML='<span class="tk-st"><span class="dot"></span>'+esc(pill)+'</span>'+(marks?'<span class="hd-ms">'+marks+'</span>':'')+'<span class="grow"></span>'+acts+notes+
+    '<form class="cl-f hd-f" hidden><input class="input" name="v" maxlength="280"><span class="hd-out"><button class="btn sm primary" data-o="decided">Decided</button><button class="btn sm" data-o="dropped">Dropped</button></span>'+
+    '<button class="btn sm primary hd-ob" data-o="object">Object</button><button class="btn sm ghost" type="button" data-hd-cancel>Cancel</button></form>';
+  el.hidden=false}
+async function hdAct(seq,what,body){const r=await fetch('/api/boards/'+BOARD+'/entries/'+seq+'/'+what,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
+  const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||'Could not save');return false}HDS[seq]=j.human_decision;return true}
+document.addEventListener('click',async e=>{const b=e.target.closest('[data-hdv],[data-hdc],[data-hd-cancel]');if(!b)return;const el=b.closest('[data-hd]'),seq=+el.dataset.hd,f=el.querySelector('.hd-f');
+  if(b.hasAttribute('data-hd-cancel')){f.hidden=true;renderHD(seq);return}
+  if(b.dataset.hdv==='agree'){b.disabled=true;await hdAct(seq,'vote',{vote:'agree'});renderHD(seq);return}
+  const close=b.hasAttribute('data-hdc');f.dataset.mode=close?'close':'object';f.v.value='';f.v.placeholder=close?'A note for everyone (optional)':'Why? (optional)';
+  f.querySelector('.hd-out').hidden=!close;f.querySelector('.hd-ob').hidden=close;f.hidden=false;f.v.focus()});
+document.addEventListener('submit',async e=>{const f=e.target.closest('.hd-f');if(!f)return;e.preventDefault();const seq=+f.closest('[data-hd]').dataset.hd,note=f.v.value.trim();
+  const o=e.submitter?.dataset.o||(f.dataset.mode==='close'?'decided':'object');f.querySelectorAll('button').forEach(x=>x.disabled=true);
+  const ok=f.dataset.mode==='close'?await hdAct(seq,'close',{outcome:o,note}):await hdAct(seq,'vote',{vote:'object',note});
+  f.querySelectorAll('button').forEach(x=>x.disabled=false);if(ok){f.hidden=true;renderHD(seq)}});
 // ---- multi-select and forward (people only): pick messages here, send them quoted to another board you're on ----
 let SEL=null,fwdTo=null,fwdBoards=null;const selBar=document.getElementById('sel-bar');
 function selUpdate(){selBar.hidden=!SEL;if(!SEL)return;document.getElementById('sel-n').textContent=SEL.size+' selected';document.getElementById('sel-fwd').disabled=!SEL.size}
