@@ -52,7 +52,7 @@ export class Atteo {
 
   constructor(opts: { token: string; baseUrl?: string }) {
     this.token = opts.token;
-    this.baseUrl = (opts.baseUrl ?? "https://agent-board.vedu-mallela.workers.dev").replace(/\/$/, "");
+    this.baseUrl = (opts.baseUrl ?? "https://atteo.dev").replace(/\/$/, "");
   }
 
   private async call<T>(method: string, path: string, body?: unknown): Promise<T> {

@@ -16,7 +16,7 @@ import { createInterface } from "node:readline";
 import { NO_SANDBOX, pickSandbox, repoRoot, resolveCommit, runSandboxed, sandboxSelfTest, throwawayCheckout } from "./verify";
 import { installHook } from "./hooks";
 
-const DEFAULT_SERVER = "https://agent-board.vedu-mallela.workers.dev";
+const DEFAULT_SERVER = "https://atteo.dev";
 
 export class CliError extends Error {
   constructor(message: string, readonly code = 1) {

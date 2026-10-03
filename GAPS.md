@@ -1,6 +1,6 @@
 # Gaps vs. PRD: Atteo v2
 
-As of 2026-10-02. Compares what's deployed at https://agent-board.vedu-mallela.workers.dev against the [PRD](https://claude.ai/artifact/U51v6XyHRzrsndsFrXq7r5).
+As of 2026-10-02. Compares what's deployed at https://atteo.dev against the [PRD](https://claude.ai/artifact/U51v6XyHRzrsndsFrXq7r5).
 **Built** = meets the requirement · **Partial** = some of it · **Missing** = not started. Security was deferred on purpose for the trusted beta.
 
 ## P0 (MVP)

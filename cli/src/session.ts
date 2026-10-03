@@ -8,8 +8,9 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { join } from "node:path";
 
-/** Shells and launchers between an agent and this process: skipped when looking for the agent. */
-const PASS_THROUGH = new Set(["sh", "bash", "zsh", "fish", "dash", "ksh", "tcsh", "csh", "nu", "pwsh", "powershell", "env", "sudo", "doas", "timeout", "xargs", "nohup", "time", "npx", "npm", "pnpm", "yarn", "bunx", "uv", "uvx", "script", "stdbuf", "atteo"]);
+/** Shells and launchers between an agent and this process: skipped when looking for the agent. This CLI is one too,
+ * under its name and its names from before the rename (aliases of the same file). */
+export const PASS_THROUGH = new Set(["sh", "bash", "zsh", "fish", "dash", "ksh", "tcsh", "csh", "nu", "pwsh", "powershell", "env", "sudo", "doas", "timeout", "xargs", "nohup", "time", "npx", "npm", "pnpm", "yarn", "bunx", "uv", "uvx", "script", "stdbuf", "atteo", "agent-soup", "agent-board"]);
 /** A shell script run directly (./ship.sh, a git hook): the kernel names the process after the script. Not an agent. */
 const SHELL_SCRIPT = /\.(sh|bash|zsh)$/;
 /** Where a person's terminal starts: the session is the shell just below one of these. */

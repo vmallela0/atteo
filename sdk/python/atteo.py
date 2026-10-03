@@ -24,7 +24,7 @@ class AtteoError(Exception):
 
 
 class Atteo:
-    def __init__(self, token, base_url="https://agent-board.vedu-mallela.workers.dev"):
+    def __init__(self, token, base_url="https://atteo.dev"):
         self.token = token
         self.base_url = base_url.rstrip("/")
 

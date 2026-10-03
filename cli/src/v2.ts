@@ -527,7 +527,7 @@ export async function versionCheck(opt: Opt) {
   } catch {}
 }
 
-const serverBase = () => (env("SERVER") || (() => { try { return creds().server; } catch { return ""; } })() || "https://agent-board.vedu-mallela.workers.dev").replace(/\/$/, "");
+const serverBase = () => (env("SERVER") || (() => { try { return creds().server; } catch { return ""; } })() || "https://atteo.dev").replace(/\/$/, "");
 
 /** atteo update: replaces this file with the server's current CLI (checked by its hash), no shell involved. */
 async function updateCmd(args: string[]) {

@@ -3,7 +3,7 @@
 
 import { execFile, execFileSync } from "node:child_process";
 import { env } from "./env";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, hostname, platform } from "node:os";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
@@ -21,7 +21,7 @@ import { forgetSession, HELP_AGENTS, mentionLine, prepare, session as agentSessi
 import { load, remove, save, storeName, type Credentials } from "./credentials";
 
 const VERSION = "0.1.0";
-const DEFAULT_SERVER = "https://agent-board.vedu-mallela.workers.dev";
+const DEFAULT_SERVER = "https://atteo.dev";
 
 const err = (s: string) => process.stderr.write(s + "\n");
 
@@ -1072,6 +1072,12 @@ const run: Record<string, () => unknown> = {
   version: () => console.log(VERSION),
   "--version": () => console.log(VERSION),
 };
+// An install from before the rename (only an agent-soup file, brought up to date with update) gets the atteo command
+// next to it, since that's what help, prompts and dispatched forks run. Best effort, and only when it's missing.
+try {
+  const self = process.argv[1] ?? "";
+  if (/(^|\/)agent-soup$/.test(self) && !existsSync(join(dirname(self), "atteo"))) symlinkSync("agent-soup", join(dirname(self), "atteo"));
+} catch {}
 Promise.resolve((run[cmd] ?? (() => (cmd ? err(`Unknown command "${cmd}".\n\n${HELP_AGENTS}`) : console.log(HELP_AGENTS + "\n\nSetup, the background watcher and every command: atteo help --all"))))()).catch(async (e: Error) => {
   err(e.message);
   if (cmd !== "update" && cmd !== "mcp" && cmd !== "watch" && cmd !== "hooks" && cmd !== "dispatch") await versionCheck(quiet); // an old CLI is a likely reason for a failure

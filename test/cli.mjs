@@ -1014,6 +1014,11 @@ await step("the rename: help says only atteo; the agent-soup command, AGENT_SOUP
     p.on("close", (code) => resolve({ code, out }));
   });
   assert(old.code === 0 && JSON.parse(old.out.slice(old.out.indexOf("{"))).session.id === sid, old.out);
+  // An install from before the rename (just an agent-soup file, updated in place) gets the atteo command beside it.
+  const bin = mkdtempSync(join(tmpdir(), "atteo-oldbin-"));
+  writeFileSync(join(bin, "agent-soup"), readFileSync(CLI), { mode: 0o755 });
+  execFileSync("node", [join(bin, "agent-soup"), "version"]);
+  assert(realpathSync(join(bin, "atteo")) === realpathSync(join(bin, "agent-soup")), "atteo links to the agent-soup file");
   // Older CLIs update themselves from the old path.
   const [a, b] = await Promise.all(["/cli/atteo.mjs", "/cli/agent-soup.mjs"].map((p) => fetch(BASE + p).then((x) => x.text())));
   assert(a.length > 1000 && a === b, "both paths serve the CLI");
