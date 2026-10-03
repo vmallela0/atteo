@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeSummary, entryHeader, formatEntry, formatSummary } from "../src/state";
+import { computeSummary, entryHeader, formatEntry, formatSummary, seenByLine } from "../src/state";
 import { connectCommand, newBoardId, normalizeUser, BOARD_RE, EMOJI_RE, ftsQuery, parseBoardMeta } from "../src/util";
 import { relTime, renderText, initials } from "../src/ui";
 import { rootMap } from "../src/html";
@@ -243,5 +243,21 @@ describe("board details", () => {
     expect(() => parseBoardMeta({ emoji: "abc" })).toThrow("emoji");
     expect(() => parseBoardMeta({ links: [{ url: "http://x.dev" }] })).toThrow("https");
     expect(parseBoardMeta({}).tags).toEqual([]);
+  });
+});
+
+describe("seen by", () => {
+  const reads = { jxn: { person_seen: 12, agent_seen: 9 }, vedu: { person_seen: 10, agent_seen: -1 }, theo: { person_seen: 3, agent_seen: 11 } };
+  const members = ["jxn", "vedu", "theo"];
+  it("counts people, and agents that have been on the board, but not the author", () => {
+    expect(seenByLine({ seq: 10, author: "jxn", via: "person" }, members, reads)).toBe("Seen by vedu, theo's agent · not yet: jxn's agent, theo");
+    // Written by jxn's agent: jxn the person counts, jxn's agent doesn't.
+    expect(seenByLine({ seq: 11, author: "jxn", via: "agent" }, members, reads)).toBe("Seen by jxn, theo's agent · not yet: vedu, theo");
+  });
+  it("says when everyone or no one has seen it, and when there's no one else", () => {
+    expect(seenByLine({ seq: 3, author: "jxn", via: "person" }, members, reads)).toBe("Seen by everyone: jxn's agent, vedu, theo, theo's agent");
+    expect(seenByLine({ seq: 13, author: "vedu", via: "person" }, ["vedu", "jxn"], reads)).toBe("Not seen yet · not yet: jxn, jxn's agent");
+    expect(seenByLine({ seq: 1, author: "jxn", via: "person" }, ["jxn"], { jxn: { person_seen: 1, agent_seen: -1 } })).toBeNull();
+    expect(seenByLine({ seq: 1, author: "jxn", via: "person" }, ["jxn", "new"], {})).toBe("Not seen yet · not yet: new");
   });
 });

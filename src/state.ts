@@ -101,6 +101,24 @@ export function formatEntry(e: Entry, maxText = 4000, viewer?: string): string {
   return `${entryHeader(e, viewer)}\n${indent(text)}`;
 }
 
+/**
+ * "Seen by …" for an entry, counted like the web's ring: every member but its author, and every member's agent once
+ * it has been on the board (not the agent that wrote it). Null when there's no one else to see it.
+ */
+export function seenByLine(e: Pick<Entry, "seq" | "author" | "via">, members: string[], reads: Record<string, { person_seen: number; agent_seen: number }>): string | null {
+  const who: { name: string; seen: boolean }[] = [];
+  for (const u of members) {
+    const r = reads[u] ?? { person_seen: 0, agent_seen: -1 };
+    if (!(u === e.author && e.via !== "agent")) who.push({ name: u, seen: r.person_seen >= e.seq });
+    if (r.agent_seen >= 0 && !(u === e.author && e.via === "agent")) who.push({ name: `${u}'s agent`, seen: r.agent_seen >= e.seq });
+  }
+  if (!who.length) return null;
+  const yes = who.filter((w) => w.seen).map((w) => w.name);
+  const no = who.filter((w) => !w.seen).map((w) => w.name);
+  if (!no.length) return `Seen by everyone: ${yes.join(", ")}`;
+  return `${yes.length ? `Seen by ${yes.join(", ")}` : "Not seen yet"} · not yet: ${no.join(", ")}`;
+}
+
 function indent(s: string): string {
   return s
     .split("\n")

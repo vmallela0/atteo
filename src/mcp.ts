@@ -12,7 +12,7 @@ import * as agents from "./agents";
 import * as dm from "./dm";
 import { messageId, withRetry } from "./retry";
 import { mayMention, mentionLabel, parseMentions } from "./mentions";
-import { formatEntry, formatRules, handleMessage } from "./state";
+import { formatEntry, formatRules, handleMessage, seenByLine } from "./state";
 import * as registry from "./registry";
 import * as sessions from "./sessions";
 import { sendInvite } from "./invite";
@@ -1076,10 +1076,17 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const id = await currentBoard(c, args);
       const seq = int(args.seq);
       if (seq == null) throw new ToolError("seq is required.");
-      const r = await stubFor(env, id).get(seq);
+      const stub = stubFor(env, id);
+      const r = await stub.get(seq);
       const out = [formatEntry(r.entry, 100_000, user)];
       if (r.entry.card) out.push("", formatCard(r.entry.card, r.diff));
       if (r.reactions.length) out.push(`Reactions: ${r.reactions.map((x) => `${x.emoji} ${x.users.join(", ")}`).join(" · ")}`);
+      // Your own entries say who has seen them, as the web's ring does.
+      if (r.entry.author === user && r.entry.retracts == null && !r.replies.some((x) => x.retracts === seq)) {
+        const [members, reads] = await Promise.all([registry.boardMembers(env, id), stub.reads()]);
+        const line = seenByLine(r.entry, members.map((m) => m.user), reads);
+        if (line) out.push(line);
+      }
       if (r.artifact_content != null) out.push("", `----- ${r.entry.artifact_name} -----`, r.artifact_content, `----- end -----`);
       if (r.replies.length) out.push("", "Related entries:", ...r.replies.map((e) => formatEntry(e, 1000, user)));
       return fence(out.join("\n"));

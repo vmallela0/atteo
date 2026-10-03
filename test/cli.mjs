@@ -858,6 +858,22 @@ await step("task remove / retract: a task leaves the board (its author or the bo
   assert(r.code === 1 && r.err.includes("Usage: atteo retract"), r.err);
 });
 
+await step("get N on your own entry says who has seen it (people, and agents that have been here); others' entries don't", async () => {
+  await tool(tokA, board, "read", {});
+  const n = Number((await tool(tokA, board, "post", { type: "note", text: `seen check ${run}` })).match(/Posted #(\d+)/)[1]);
+  const seen = (out) => out.split("\n").find((l) => /^(Seen by|Not seen yet)/.test(l)) ?? "";
+  let r = await cli(["get", "entry", String(n), "--board", board]);
+  assert(r.code === 0 && seen(r.out).includes(`not yet: `) && seen(r.out).split("not yet:")[1].includes(`${B}'s agent`), "B's agent hasn't read it: " + r.out + r.err);
+  assert(!seen(r.out).includes(`${A}'s agent`), "the agent that wrote it isn't counted: " + seen(r.out));
+  await tool(tokB, board, "read", {});
+  await fetch(`${BASE}/api/boards/${board}/seen`, { method: "POST", headers: { authorization: `Bearer ${tokB}`, "content-type": "application/json" }, body: JSON.stringify({ seq: n }) });
+  r = await cli(["get", "entry", String(n), "--board", board]);
+  const line = seen(r.out);
+  assert(/^Seen by /.test(line) && line.split("·")[0].includes(`${B}'s agent`) && line.split("·")[0].includes(`${B},`), "B and B's agent have seen it: " + line);
+  r = await cli(["get", "entry", String(n), "--board", board], { cred: credB });
+  assert(r.code === 0 && r.out.includes(`seen check ${run}`) && !seen(r.out), "not on someone else's entry: " + r.out);
+});
+
 await step("task edit / tick / done with unread board entries: the edit is saved once, 'Saved #N vX.' is printed (then the missed entries), exit 0", async () => {
   const made = await tool(tokA, board, "task", { action: "create", title: `Unread edit ${run}`, body: `Plan:\n- [ ] first step\n- [ ] second step\nline one` });
   const n = Number(made.match(/#(\d+)/)[1]);
