@@ -845,7 +845,8 @@ export class Board extends DurableObject<Env> {
       this.broadcast({ type: "handling", seq: input.reply_to, by: label });
     }
     // An agent answering (or resolving) a person's message turns its 👀 into ✅.
-    if (input.via === "agent") for (const r of new Set([...(input.reply_to != null ? [input.reply_to] : []), ...(input.resolves ?? [])])) this.receiptDone(user, r);
+    // (Not for a change card: threaded under a message it is "related", not "answered".)
+    if (input.via === "agent" && input.type !== "change" && !input.card) for (const r of new Set([...(input.reply_to != null ? [input.reply_to] : []), ...(input.resolves ?? [])])) this.receiptDone(user, r);
     // Resolving a message you (or another of your agents) were on turns "is on it" into "done".
     for (const r of new Set(input.resolves ?? [])) {
       const h = this.sql.exec("SELECT user, session, label, done FROM handling WHERE seq = ?", r).toArray()[0];
@@ -1291,10 +1292,15 @@ export class Board extends DurableObject<Env> {
    * The message an agent's unthreaded post answers, if it's clear. Open for this agent: messages from the last two
    * hours addressed to it (to / @its agent) that it hasn't answered, plus people's messages it's on (its 👀, e.g. in a
    * DM). Among those, the newest from the person the post addresses (to / @person); or, if it addresses nobody, the
-   * only open one. Tasks, and posts to nobody in particular while several are open, stay at the top level.
+   * only open one. Tasks and change cards, and posts to nobody in particular while several are open, stay at the top level.
    */
   private autoThread(user: string, input: NewEntry): number | null {
-    if (input.type === "task") return null;
+    // Only conversational answers are threaded. A task is new work, and a change card (a shipped/ready-for-review
+    // report, e.g. scripts/ship.sh's "Shipped to production") is a report that happens to be posted while a request is
+    // open; threading it would also mark the request answered (✅). A change card can still say it is related with an
+    // explicit reply_to. Claims, decisions, artifacts, notes and questions stay auto-threaded: they are how an agent
+    // answers (a finding, an agreed outcome, a file it was asked for), and nothing marks them as non-answers.
+    if (input.type === "task" || input.type === "change" || input.card) return null;
     const since = Date.now() - 2 * 3600_000;
     const answered = (seq: number) => this.sql.exec("SELECT 1 AS x FROM entries WHERE reply_to = ? AND author = ? LIMIT 1", seq, user).toArray().length > 0;
     const open = new Map<number, string>();
@@ -1353,7 +1359,12 @@ export class Board extends DurableObject<Env> {
     if (!Number.isInteger(seq) || seq < 1 || seq > info.last_seq) throw new BoardError(`Entry #${seq} does not exist on this board.`);
     // A named agent reacts as itself ("vedu/scout"), so people can tell which of someone's agents it was.
     const who = opts.via === "agent" ? (opts.session ? `${user}/${opts.session}` : `${user}'s agent`) : user;
-    const had = this.sql.exec("DELETE FROM reactions WHERE seq = ? AND user = ? AND emoji = ? RETURNING seq", seq, who, e).toArray().length > 0;
+    let had = this.sql.exec("DELETE FROM reactions WHERE seq = ? AND user = ? AND emoji = ? RETURNING seq", seq, who, e).toArray().length > 0;
+    // The server adds "<user>'s agent" 👀/✅ receipts on its own. An agent session (it reacts as "<user>/<session>")
+    // toggling that emoji takes the automatic receipt back instead of adding a second, session-level one.
+    if (!had && opts.via === "agent" && (e === "✅" || e === "👀") && who !== `${user}'s agent`) {
+      had = this.sql.exec("DELETE FROM reactions WHERE seq = ? AND user = ? AND emoji = ? RETURNING seq", seq, `${user}'s agent`, e).toArray().length > 0;
+    }
     if (!had) {
       this.rateLimit(user);
       const n = this.sql.exec("SELECT COUNT(*) AS n FROM reactions WHERE seq = ? AND user = ?", seq, who).one().n as number;
