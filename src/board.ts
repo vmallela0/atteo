@@ -2181,7 +2181,7 @@ export class Board extends DurableObject<Env> {
             const seq = Number(r.ref);
             if (!(seq > sinceSeq) || seen.has(seq)) continue;
             // An entry's indexed body starts with its text: words that matched without a matching line cost no entry read.
-            if (r.kind === "entry" && !grepText(String(r.body ?? "").slice(0, 20_000), m, { max: 1, budget }).length) continue;
+            if (r.kind === "entry" && !grepText(String(r.body ?? "").slice(0, MAX_TEXT), m, { max: 1, budget }).length) continue;
             seen.add(seq);
             batch.push(seq);
             if (batch.length >= 90) flush();
