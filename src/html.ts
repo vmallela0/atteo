@@ -1178,13 +1178,13 @@ function renderTask(t){const old=TASKS[t.seq];if(!t.html&&old&&old.html&&old.ver
   if(body&&(t.version>1||body.dataset.v)&&body.dataset.v!==String(t.version)){if(t.html){body.innerHTML=t.html;body.dataset.v=t.version}else if(tkIO)tkIO.observe(art)}
   if(body)body.querySelectorAll('li.ck>input').forEach(i=>{i.disabled=READONLY||art.classList.contains('retracted');i.title=i.disabled?'':i.checked?'Untick':'Tick'});
   const cks=ckLines(taskText(t)),ticked=cks.filter(c=>c.done).length;
-  const mine=t.lease_holder===ME&&!t.lease_agent,left=t.lease_until?Math.max(0,Math.round((t.lease_until-Date.now())/60000)):null;
+  const left=t.lease_until?Math.max(0,Math.round((t.lease_until-Date.now())/60000)):null;
   const bits=[t.assignee?'for '+esc(whoName(t.assignee,t.assignee_agent)):'',t.lease_holder?'🔒 '+esc(whoName(t.lease_holder,t.lease_agent))+(left!=null?' · '+left+'m left':''):'',t.stop_reason?esc(t.stop_reason):''].filter(Boolean);
   el.innerHTML='<span class="tk-st st-'+t.status+'"><span class="dot"></span>'+TSTATUS[t.status]+'</span>'+(t.priority?'<span class="badge pri-'+t.priority+'">'+t.priority+'</span>':'')+
     (cks.length?bar(ticked,cks.length,'ticked'):t.children?bar(t.children.done,t.children.total,'sub-tasks done'):'')+
     '<span class="tk-who">'+bits.join(' · ')+'</span><span class="grow"></span>'+
     (READONLY?'':(t.status==='done'?'<button class="btn ghost sm" type="button" data-tk="reopen">Reopen</button>':
-      (t.lease_holder&&!mine?'':'<button class="btn ghost sm" type="button" data-tk="'+(mine?'release':'claim')+'">'+(mine?'Release':'Claim')+'</button>')+'<button class="btn ghost sm" type="button" data-tk="done">Done</button>'))+
+      '<button class="btn ghost sm" type="button" data-tk="done">Done</button>'))+
     '<button class="btn ghost sm" type="button" data-tk="open">Open</button>';
   el.hidden=false;renderSubs(t.seq)}
 /** A task's sub-tasks, listed on its card with their state (they keep their own cards where they were posted). */
@@ -1195,7 +1195,7 @@ function renderSubs(seq){const el=document.querySelector('[data-task="'+seq+'"]'
 async function refreshTask(seq){try{const r=await fetch('/api/boards/'+BOARD+'/tasks/'+seq);const j=await r.json();if(r.ok&&j.task)renderTask(j.task)}catch(e){}}
 document.addEventListener('click',async e=>{const b=e.target.closest('[data-tk]');if(!b)return;const seq=+b.closest('[data-task]').dataset.task,a=b.dataset.tk;
   if(a==='open'){openTask(seq);return}b.disabled=true;
-  await taskAct(seq,a==='claim'||a==='release'?{action:a}:{action:'update',status:a==='done'?'done':'todo'});b.disabled=false;refreshTask(seq)});
+  await taskAct(seq,{action:'update',status:a==='done'?'done':'todo'});b.disabled=false;refreshTask(seq)});
 // Ticking a box is a normal, versioned edit of that one line (so an agent ticking another line at the same time is fine).
 document.addEventListener('change',async e=>{const i=e.target;if(!i.matches||!i.matches('.body li.ck>input'))return;const art=i.closest('.entry'),hold=art?.querySelector(':scope>.grow>[data-task]');
   if(!hold||READONLY||i.closest('.body')!==art.querySelector(':scope>.grow>.body'))return;const seq=+hold.dataset.task,t=TASKS[seq],li=i.closest('li'),on=i.checked;
@@ -1457,7 +1457,7 @@ async function openTask(seq){const r=await fetch('/api/boards/'+BOARD+'/tasks/'+
   const by=t.updated_via==='agent'?t.updated_by+"'s agent":t.updated_by;
   document.getElementById('td-meta').textContent='v'+t.version+' · edited by '+by+' '+tdate(t.updated_at)+(t.lease_holder?' · 🔒 '+(t.lease_agent?t.lease_holder+"'s agent":t.lease_holder)+' until '+tdate(t.lease_until):'')+(t.stop_reason?' · stopped: '+t.stop_reason:'');
   document.getElementById('td-hist').innerHTML=(j.history||[]).map(v=>'<li>v'+v.version+' · '+esc(v.via==='agent'?v.author+"'s agent":v.author)+' · '+tdate(v.ts)+(v.summary?' — '+esc(v.summary):'')+'</li>').join('')||'<li>No edits yet</li>';
-  document.getElementById('td-claim').textContent=t.lease_holder===ME?'Release':'Claim';document.getElementById('td-err').hidden=true;
+  document.getElementById('td-err').hidden=true;
   document.getElementById('td-remove').hidden=!(t.author===ME||ME===CREATOR);
   if(!td.open){td.showModal();const ti=document.getElementById('td-title');ti.setSelectionRange(0,0);ti.scrollLeft=0;if(matchMedia('(pointer:coarse)').matches)ti.blur()}}
 ['td-title','td-body'].forEach(id=>document.getElementById(id).addEventListener('input',()=>tdirty=true));
@@ -1466,7 +1466,6 @@ document.getElementById('td-remove').addEventListener('click',async()=>{if(!conf
   const r=await fetch('/api/boards/'+BOARD+'/entries/'+tcur.seq+'/retract',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({reason:'removed from the task board'})});
   if(!r.ok){const j=await r.json().catch(()=>({}));toast(j.error||'Could not remove');return}
   td.close();loadTasks();tick(false)});
-document.getElementById('td-claim').addEventListener('click',()=>{taskAct(tcur.seq,{action:tcur.lease_holder===ME?'release':'claim'}).then(()=>openTask(tcur.seq))});
 document.getElementById('td-form').addEventListener('submit',async e=>{e.preventDefault();const t=tcur,err=document.getElementById('td-err');err.hidden=true;
   const title=document.getElementById('td-title').value,body=document.getElementById('td-body').value;
   const post=async b=>{const r=await fetch('/api/boards/'+BOARD+'/tasks/'+t.seq,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(b)});const j=await r.json().catch(()=>({}));if(!r.ok){err.hidden=false;err.textContent=j.error||'Could not save';throw 0}return j};
@@ -1571,7 +1570,7 @@ window.boardKeys=(e,k)=>{
       <p class="xs faint" id="td-meta" style="margin:8px 0 0"></p>
       <details style="margin-top:6px"><summary class="xs faint" style="cursor:pointer">History</summary><ul class="xs faint td-hist" id="td-hist"></ul></details>
       <p class="flash err" id="td-err" hidden></p>
-      <div class="row" style="justify-content:space-between;margin-top:12px"><div class="row" style="gap:6px"><button class="btn sm" type="button" id="td-claim">Claim</button><button class="btn sm ghost" type="button" id="td-open">Open in conversation</button><button class="btn sm ghost" type="button" id="td-remove" hidden>Remove</button></div><button class="btn primary sm">Save</button></div>
+      <div class="row" style="justify-content:space-between;margin-top:12px"><div class="row" style="gap:6px"><button class="btn sm ghost" type="button" id="td-open">Open in conversation</button><button class="btn sm ghost" type="button" id="td-remove" hidden>Remove</button></div><button class="btn primary sm">Save</button></div>
     </div></form></dialog>
 ${SHEET}
 <dialog class="lightbox" id="lightbox" aria-label="Image"><img id="lightbox-img" alt=""></dialog>
