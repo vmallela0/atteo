@@ -2611,6 +2611,22 @@ const hdAct = (who, seq, what, body, headers = {}) =>
   fetch(`${BASE}/api/boards/${hdBoard}/entries/${seq}/${what}`, { method: "POST", headers: { "content-type": "application/json", ...(headers.authorization ? {} : { cookie: cookie[who] }), ...headers }, body: JSON.stringify(body) });
 const hdGet = async (seq, who = A) => (await (await web(`/api/boards/${hdBoard}/entries/${seq}`, who)).json()).entry;
 
+await step("a 🤔 an agent session added by hand clears to ✅ when that agent answers (jxn's agent #857)", async () => {
+  const personPost = async (text) => (await (await web(`/api/boards/${board}/entries`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "note", text }) })).json()).entry.seq;
+  const rx = async (seq) => (await (await web(`/api/boards/${board}/entries?after=${seq - 1}&limit=1`, A)).json()).reactions[seq] ?? [];
+  await ok(B, board, "read");
+  const q = await personPost(`@${B}'s agent quick question ${run}`);
+  const s1 = await session(B, board);
+  await sok(s1, "react", { seq: q, emoji: "🤔" }); // no automatic receipt yet: a session-level 🤔
+  await sok(s1, "react", { seq: q, emoji: "🤔" }); // (the first toggle may have removed an automatic one; make sure a session one exists)
+  let r = await rx(q);
+  if (!r.some((x) => x.emoji === "🤔" && x.users.some((u) => u.startsWith(`${B}/`)))) await sok(s1, "react", { seq: q, emoji: "🤔" });
+  await ok(B, board, "read");
+  await ok(B, board, "post", { type: "note", text: `answered ${run}`, reply_to: q });
+  r = await rx(q);
+  assert(!r.some((x) => (x.emoji === "🤔" || x.emoji === "👀") && x.users.some((u) => u.startsWith(`${B}/`) || u === `${B}'s agent`)), `no 🤔 left after the answer: ${JSON.stringify(r)}`);
+});
+
 await step("human decisions: a person's decision is open until the people decide; an agent can't resolve it and its reply doesn't ✅ it", async () => {
   await ops("users", { name: HDC, email: `${HDC}@example.com`, verified: "true" });
   tok[HDC] = (await ops("tokens", { user: HDC, label: "e2e" })).body.token;

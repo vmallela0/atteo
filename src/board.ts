@@ -1488,7 +1488,8 @@ export class Board extends DurableObject<Env> {
   private receiptDone(user: string, seq: number) {
     if (this.decisions.isHuman(seq)) return; // an agent's reply is input to a human decision, not its answer
     const who = `${user}'s agent`;
-    if (!this.sql.exec("DELETE FROM reactions WHERE seq = ? AND user = ? AND emoji IN ('🤔', '👀') RETURNING seq", seq, who).toArray().length) return;
+    // The automatic receipt ("user's agent") and any 🤔/👀 one of that user's agent sessions added by hand ("user/session").
+    if (!this.sql.exec("DELETE FROM reactions WHERE seq = ? AND (user = ? OR user LIKE ? ESCAPE '\\') AND emoji IN ('🤔', '👀') RETURNING seq", seq, who, `${user.replace(/[\\%_]/g, "\\$&")}/%`).toArray().length) return;
     this.sql.exec("INSERT OR IGNORE INTO reactions (seq, user, emoji, ts) VALUES (?, ?, '✅', ?)", seq, who, Date.now());
     this.broadcast({ type: "reaction", seq, reactions: this.reactionsFor([seq])[seq] ?? [] });
     this.broadcast({ type: "typing-agents", agents: this.agentsTyping() });
