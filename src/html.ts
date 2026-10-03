@@ -48,9 +48,9 @@ export function mentionOptions(members: string[], viewer: string, sessions: { us
     ]),
     { u: viewer, ins: `${viewer}'s agent`, label: esc(`${viewer}'s agent`), k: sessionsOf(viewer).length > 1 ? "all your agents" : "your agent", av: avatar(viewer, "sm", true) },
     ...sessionsOf(viewer),
+    ...(others.includes("all") ? [] : [{ u: "all", ins: "all", label: "all", k: "everyone and their agents", av: avatar("all", "sm") }]),
     ...(others.includes("agents") ? [] : [{ u: "agents", ins: "agents", label: "agents", k: "every agent", av: avatar("agents", "sm", true) }]),
     ...(others.includes("humans") ? [] : [{ u: "humans", ins: "humans", label: "humans", k: "every person", av: avatar("humans", "sm") }]),
-    ...(others.includes("all") ? [] : [{ u: "all", ins: "all", label: "all", k: "everyone and their agents", av: avatar("all", "sm") }]),
   ];
 }
 
@@ -1337,8 +1337,9 @@ if(matchMedia('(hover:none)').matches)document.addEventListener('click',e=>{if(d
   const en=e.target.closest('.entry');if(!en||en.classList.contains('pending')||e.target.closest('a,button,input,textarea,select,label,summary,details,.acts,.tk,[data-hc],.rd'))return;
   tapToggle(en)});
 function renderReads(){
-  // @humans / @agents / @all are seen once every person (or every member's agent) other than the author has read it.
-  const seenBy=(u,agent,e)=>(u==='humans'||u==='agents'||u==='all')&&!MEMBERS.includes(u)
+  // @humans / @agents are seen once every person (or every member's agent) other than the author has read it; @all once both are.
+  const seenBy=(u,agent,e)=>u==='all'&&!MEMBERS.includes(u)?seenBy('humans',false,e)&&seenBy('agents',true,e)
+    :(u==='humans'||u==='agents')&&!MEMBERS.includes(u)
     ?MEMBERS.filter(x=>x!==e.dataset.author&&(u==='humans'||seenAs(x,true)>=0)).every(x=>seenAs(x,u==='agents')>=+e.dataset.seq)
     :seenAs(u,agent)>=+e.dataset.seq;
   document.querySelectorAll('#thread .mention[data-user]').forEach(m=>{const e=m.closest('.entry');m.classList.toggle('seen',seenBy(m.dataset.user,m.classList.contains('agent'),e))});
@@ -1638,22 +1639,25 @@ const pfetch=u=>pcache[u]||(pcache[u]=fetch('/api/people/'+encodeURIComponent(u)
 const afetch=u=>acache[u]||(acache[u]=fetch('/api/agents/'+encodeURIComponent(u)).then(r=>r.ok?r.json():null).catch(()=>null));
 const hNarrow=matchMedia('(max-width:860px)'),hCanHover=matchMedia('(hover:hover)');
 function hClose(back){hcard.hidden=true;hback.hidden=true;const f=hFor;hFor=null;hPinned=false;if(back&&f&&f.isConnected)try{f.focus({preventScroll:true})}catch(e){}}
-function hTarget(el){const m=el.closest('.mention[data-user]');if(m){const u=m.dataset.user;if(u==='agents'||u==='humans'||u==='all')return {u,group:true,agent:u==='agents',el:m};return {u,agent:m.classList.contains('agent'),el:m}}
+function hTarget(el){const m=el.closest('.mention[data-user]');if(m){const u=m.dataset.user;if(u==='agents'||u==='humans'||u==='all')return {u,group:true,agent:u==='agents',all:u==='all',el:m};return {u,agent:m.classList.contains('agent'),el:m}}
   const e=el.closest('.entry');const w=el.closest('.entry>.av, .entry>.grow>.meta>.who');if(e&&w)return {u:e.dataset.author,agent:e.classList.contains('by-agent'),el:w};
   const s=el.closest('.av-wrap');if(s){const n=s.parentElement.querySelector('.grow');return n?{u:n.textContent.trim().split(/ /)[0],agent:false,el:s}:null}return null}
 // Mentions, avatars and author names are keyboard-reachable buttons (including the ones that arrive later with live updates).
 function hEnhance(){document.querySelectorAll('.mention[data-user]:not([data-hc]),.entry>.av:not([data-hc]),.entry>.grow>.meta>.who:not([data-hc])').forEach(el=>{
   const t=hTarget(el);el.dataset.hc='1';if(!t)return;el.tabIndex=0;el.setAttribute('role','button');el.setAttribute('aria-label',t.group?'Show the '+(t.agent?'agents':'people')+' on this board':'Open '+t.u+(t.agent?"'s agent":'')+(t.agent?' profile':"'s profile"));el.setAttribute('aria-haspopup','dialog')})}
 let hEnq=false;new MutationObserver(()=>{if(hEnq)return;hEnq=true;requestAnimationFrame(()=>{hEnq=false;hEnhance()})}).observe(document.body,{childList:true,subtree:true});hEnhance();
-// @agents / @humans: who that is on this board right now (agents working first, then idle; people with their presence).
-async function hGroup(t,pin){hFor=t.el;hPinned=!!pin;let body;
-  if(t.agent){const r=await fetch('/api/boards/'+BOARD+'/agents').catch(()=>null);const ag=r&&r.ok?((await r.json()).agents||[]):[];if(hFor!==t.el)return;
+// @agents / @humans / @all: who that is on this board right now (agents working first, then idle; people with their presence).
+async function hGroup(t,pin){hFor=t.el;hPinned=!!pin;
+  const agentsHtml=async()=>{const r=await fetch('/api/boards/'+BOARD+'/agents').catch(()=>null);const ag=r&&r.ok?((await r.json()).agents||[]):[];
     const rank={live:0,idle:1,gone:2};ag.sort((a,b)=>(rank[a.state]??2)-(rank[b.state]??2));const live=ag.filter(a=>a.state==='live').length;
-    body='<div class="hc-name">Agents on this board</div><div class="xs faint">'+(ag.length?(live?live+' working now · ':'None working now · ')+ag.length+' in all':'None yet')+'</div>'+
-      (ag.length?'<ul class="ag-list hc-list">'+ag.slice(0,12).map(agRow).join('')+'</ul>':'')}
-  else{const js=await Promise.all(MEMBERS.map(u=>pfetch(u)));if(hFor!==t.el)return;
-    body='<div class="hc-name">People on this board</div><ul class="hc-list hc-people">'+MEMBERS.map((u,i)=>{const j=js[i]||{},p=j.person,on=p&&p.presence&&p.presence.web;
-      return '<li>'+avatar16(u,false)+'<span class="grow truncate">'+esc(p&&p.display_name||u)+'</span><span class="pres'+(on?' on':'')+'"></span><span class="xs faint">'+esc(j.presence||'')+'</span></li>'}).join('')+'</ul>'}
+    return '<div class="hc-name">Agents on this board</div><div class="xs faint">'+(ag.length?(live?live+' working now · ':'None working now · ')+ag.length+' in all':'None yet')+'</div>'+
+      (ag.length?'<ul class="ag-list hc-list">'+ag.slice(0,12).map(agRow).join('')+'</ul>':'')};
+  const peopleHtml=async()=>{const js=await Promise.all(MEMBERS.map(u=>pfetch(u)));
+    return '<div class="hc-name">People on this board</div><ul class="hc-list hc-people">'+MEMBERS.map((u,i)=>{const j=js[i]||{},p=j.person,on=p&&p.presence&&p.presence.web;
+      return '<li>'+avatar16(u,false)+'<span class="grow truncate">'+esc(p&&p.display_name||u)+'</span><span class="pres'+(on?' on':'')+'"></span><span class="xs faint">'+esc(j.presence||'')+'</span></li>'}).join('')+'</ul>'};
+  // @all: everyone, people first, then their agents
+  const parts=await Promise.all(t.all?[peopleHtml(),agentsHtml()]:[t.agent?agentsHtml():peopleHtml()]);if(hFor!==t.el)return;
+  const body=parts.join('<div class="hc-gap"></div>');
   hcard.innerHTML=body;refreshTimes();hPlace(t,pin)}
 function hPlace(t,pin){const sheet=!!pin&&hNarrow.matches;hcard.classList.toggle('sheet',sheet);hback.hidden=!sheet;hcard.hidden=false;
   if(sheet)hcard.style.left=hcard.style.top='';
