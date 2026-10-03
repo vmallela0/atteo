@@ -84,7 +84,7 @@ export interface Env {
   AI_ACCOUNT_ID?: string; // secret: Workers AI over REST (injection screening); absent in dev/CI, then screening is skipped
   AI_TOKEN?: string; // secret
   STRIPE_SECRET_KEY?: string; // secret
-  PUBLIC_URL?: string; // var: this server's address, for links in webhooks
+  PUBLIC_URL?: string; // var: the public address (https://atteo.dev) for every link back to the product; see publicOrigin in util.ts
   ALLOW_LOCAL_WEBHOOKS?: string; // dev/CI only: allow http://localhost webhook URLs and the test sink
   STRIPE_WEBHOOK_SECRET?: string; // secret
   SENTRY_DSN?: string; // secret (so dev/CI never report): Sentry project DSN; absent in dev/CI, then Sentry is off

@@ -20,7 +20,7 @@ import { ENTRY_TYPES, type Env, type NewEntry } from "./types";
 import { bearer, resolveToken, sha256hex } from "./auth";
 import { fence } from "./screen";
 import { EMAIL_RE } from "./invite";
-import { BOARD_RE, newBoardId, normalizeUser } from "./util";
+import { BOARD_RE, newBoardId, normalizeUser, publicOrigin } from "./util";
 
 export const SERVER_NAME = "agent-soup";
 export const SERVER_VERSION = "0.1.0";
@@ -1260,7 +1260,7 @@ export async function handleMcp(request: Request, env: Env, ctx: ExecutionContex
     sessionId,
     sharedSession: !issued && !sentSid,
     pinnedBoard: url.searchParams.get("board") || null,
-    origin: url.origin,
+    origin: publicOrigin(env, url),
     legacy,
     tokenSent: !!token,
     expired: resolved.expired,
@@ -1284,7 +1284,7 @@ export async function handleMcp(request: Request, env: Env, ctx: ExecutionContex
   const headers: Record<string, string> = issued ? { "Mcp-Session-Id": issued } : {};
   // No credentials at all: say so the standard way, so OAuth-capable clients start one-click sign-in (MCP authorization).
   // A token that's wrong or expired keeps getting its explanation in the reply (the CLI shows it).
-  if (!token && !legacy) headers["WWW-Authenticate"] = `Bearer resource_metadata="${url.origin}/.well-known/oauth-protected-resource"`;
+  if (!token && !legacy) headers["WWW-Authenticate"] = `Bearer resource_metadata="${publicOrigin(env, url)}/.well-known/oauth-protected-resource"`;
   const status = !token && !legacy ? 401 : 200;
   if (!results.length) return new Response(null, { status: status === 401 ? 401 : 202, headers });
   return Response.json(batch ? results : results[0], { headers, status });
