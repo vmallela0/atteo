@@ -448,6 +448,13 @@ dialog.lightbox img{display:block;max-width:min(96vw,1600px);max-height:92vh;wid
   border:1.5px solid var(--dot);background:var(--bg);box-sizing:border-box}
 .entry .body .mention.seen::after{background:var(--dot)}
 /* change cards: a git change as a card (branch → base, CI, PR, commits, files, reviews, diff on demand) */
+.mem-act{display:none}.mem-on .mem-act{display:inline-flex;width:30px;padding:0;justify-content:center;color:var(--muted)}.mem-on .mem-act:hover{color:var(--ink)}
+.soul-prev{white-space:pre-wrap;font-size:12.5px;line-height:1.5;color:var(--text);max-height:7.5em;overflow:hidden;-webkit-mask-image:linear-gradient(#000 70%,transparent);mask-image:linear-gradient(#000 70%,transparent)}
+.soul-meta{margin:4px 0 6px}.soul-edit{margin-top:2px}
+.mem-list{list-style:none;margin:0;padding:0}.mem-it{display:grid;grid-template-columns:1fr auto;gap:0 6px;padding:5px 0;border-top:1px solid var(--line)}.mem-it:first-child{border-top:0}
+.mem-t{font-size:12.5px;color:var(--ink);overflow-wrap:anywhere}.mem-m{grid-column:1}.mem-m a{color:inherit}.mem-x{grid-row:1/3;grid-column:2;align-self:center;width:26px;padding:0;justify-content:center;color:var(--faint)}.mem-x:hover{color:var(--danger)}
+.mem-add{display:flex;gap:6px;margin-top:8px}.mem-add .input{flex:1;min-width:0;height:30px;font-size:12.5px}
+.soul-dlg{width:min(640px,calc(100vw - 24px))}.soul-dlg form{padding:18px}.soul-dlg .hd{display:flex;justify-content:space-between;gap:12px;margin-bottom:12px}.soul-dlg textarea{width:100%;min-height:260px;font-size:13px;line-height:1.5;resize:vertical}
 .chg{margin-top:8px;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--bg)}
 .chg-h{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 12px;background:var(--bg-subtle);color:var(--muted);font-size:13px}
 .chg-br{color:var(--ink);font-size:12px;padding:1px 6px;border-radius:5px;background:var(--bg-hover);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

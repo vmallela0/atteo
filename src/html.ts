@@ -6,6 +6,7 @@ import { boardMeta, type BoardRow, type InviteRow, type Invitation, type UserRow
 import type { TokenRow } from "./auth";
 import { authorLabel, computeSummary, retractedSet, type Summary } from "./state";
 import { PIN_BAR, PIN_SIDE, RECAP_BTN, RECAP_DLG, pinRecapJs } from "./pinrecap";
+import { SOUL_DLG, SOUL_SIDE, rememberBtn, soulMemoryJs } from "./soulmemory";
 import { forAgent, forPerson, mentionLabel } from "./mentions";
 import { screenText } from "./screen";
 import { clientName, presenceLabel } from "./social";
@@ -101,7 +102,8 @@ ${
   const select = !opts.retracted && e.retracts == null ? `<button class="btn ghost sm sel-act" type="button" data-select="${e.seq}" aria-label="Select to forward" title="Select messages to forward"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="2.5" y="2.5" width="11" height="11" rx="3"/><path d="M5.5 8.2l1.8 1.8 3.4-3.6"/></svg></button>` : "";
   // Touch screens have no hover: a small ⋯ at the end of the line opens the actions (jxn #891); hidden with a mouse.
   const more = react || reply || retract ? `<button class="more-acts" type="button" data-more="${e.seq}" aria-label="More actions" aria-expanded="false" title="More actions">⋯</button>` : "";
-  const actions = react || reply || retract ? `${more}<span class="acts">${react}${reply}${select}${retract}</span>` : "";
+  const remember = !opts.retracted && e.retracts == null ? rememberBtn(e.seq) : ""; // shown once the board has a MEMORY
+  const actions = react || reply || retract ? `${more}<span class="acts">${react}${reply}${remember}${select}${retract}</span>` : "";
   // An approval entry: the card says where it stands, so the message is just what's asked (its text, for agents, says "waiting").
   const apr = (e as Entry & { approval?: ApprovalCardData & { title?: string } }).approval;
   return `<article class="entry${opts.retracted ? " retracted" : ""}${e.via === "agent" ? " by-agent" : ""}" id="e${e.seq}" data-seq="${e.seq}" data-author="${esc(e.author)}" data-title="${esc(shortTitle(e))}"${e.reply_to != null ? ` data-reply="${e.reply_to}"` : ""}${opts.root != null && opts.root !== e.seq ? ` data-root="${opts.root}"` : ""}>
@@ -1002,6 +1004,8 @@ function connect(){
     if(d.type==='archived'){location.reload();return}
     if(d.type==='doc'){window.onDocChanged&&onDocChanged(d);if(window.pinRefresh&&PIN&&PIN.name===d.name)pinRefresh()}
     if(d.type==='pin'){window.pinRefresh&&pinRefresh();return}
+    if(d.type==='soul'){window.onSoulEvent&&onSoulEvent();return}
+    if(d.type==='memory'){window.onMemoryEvent&&onMemoryEvent();return}
     if(d.type==='reaction'){renderRx(d.seq,d.reactions);return}
     if(d.type==='approval'){window.apcApply&&apcApply(d.approval);return}
     if(d.type==='typing'){if(d.who!==ME){TYPERS.set(d.who,d.until);typingSync()}return}
@@ -1876,7 +1880,7 @@ window.boardKeys=(e,k)=>{
     els.forEach(x=>x.classList.remove('sel'));const el=els[cur];if(el){el.classList.add('sel');el.scrollIntoView({block:'nearest'})}}
   if(e.key==='Enter'&&els[cur]){openEntry(BOARD,els[cur].dataset.seq)}
 };
-` + (canPic ? BOARD_PIC_JS : "") + (info.encrypted ? E2E_JS : "") + voiceJs(agentChat) + (agentChat ? "" : pinRecapJs(board.last_seen ?? 0, !readOnly && !info.archived));
+` + (canPic ? BOARD_PIC_JS : "") + (info.encrypted ? E2E_JS : "") + voiceJs(agentChat) + (agentChat ? "" : pinRecapJs(board.last_seen ?? 0, !readOnly && !info.archived) + soulMemoryJs(!readOnly && !info.archived));
   const isCreator = viewer.name === info.created_by;
   const archivedBanner = info.archived
     ? `<div class="flash bp-banner"><span class="grow"><b>Archived.</b> This board is read-only.</span>${
@@ -1951,7 +1955,7 @@ window.boardKeys=(e,k)=>{
       </div>
     </form>
   </section>
-  <aside class="aside" id="board-info" aria-label="Board info">${agentChat ? "" : PIN_SIDE}${agentsSection(agents, info.id, readOnly || !!info.archived)}<div class="sum" id="sum">${summaryHtml(entries, viewer.name, members, summary, ctl)}</div>
+  <aside class="aside" id="board-info" aria-label="Board info">${agentChat ? "" : PIN_SIDE + SOUL_SIDE}${agentsSection(agents, info.id, readOnly || !!info.archived)}<div class="sum" id="sum">${summaryHtml(entries, viewer.name, members, summary, ctl)}</div>
 </aside>
 </div></div>
 <div role="tabpanel" id="panel-log" class="bp-panel" data-board-panel hidden><div class="list scroll-x"><table class="log"><thead><tr><th>Time (UTC)</th><th>#</th><th>Author</th><th>Type</th><th>To</th><th>Summary</th></tr></thead>
@@ -1985,7 +1989,7 @@ window.boardKeys=(e,k)=>{
       <p class="flash err" id="td-err" hidden></p>
       <div class="row" style="justify-content:space-between;margin-top:12px"><div class="row" style="gap:6px"><button class="btn sm ghost" type="button" id="td-open">Open in conversation</button><button class="btn sm ghost" type="button" id="td-remove" hidden>Remove</button></div><button class="btn primary sm">Save</button></div>
     </div></form></dialog>
-${SHEET}${agentChat ? "" : RECAP_DLG}
+${SHEET}${agentChat ? "" : RECAP_DLG + SOUL_DLG}
 <dialog class="lightbox" id="lightbox" aria-label="Image"><img id="lightbox-img" alt=""><button class="lb-nav lb-prev" type="button" aria-label="Previous picture" hidden>‹</button><button class="lb-nav lb-next" type="button" aria-label="Next picture" hidden>›</button><span class="lb-count xs" hidden></span></dialog>
 
 ${connectDialog(viewer, { id: info.id, title: info.title })}
