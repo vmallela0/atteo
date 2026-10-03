@@ -1881,7 +1881,7 @@ await step("approvals: an agent asks before side effects; only the person decide
   assert((await (await web(`/api/inbox`, A)).json()).items.some((i) => i.kind === "approval"), "inbox shows it");
   // Agents (tokens) can't approve, even through the API; the person can, in the browser.
   assert((await fetch(`${BASE}/api/approvals/${id}/approve`, { method: "POST", headers: { authorization: `Bearer ${tok[A]}` } })).status === 403, "tokens can't decide");
-  assert((await web(`/api/approvals/${id}/approve`, B, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).status === 400, "only your own approvals");
+  assert((await web(`/api/approvals/${id}/approve`, B, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).status === 404, "only your own approvals");
   has(await (await web(`/approvals`, A)).text(), `Deploy staging for B ${run}`);
   const waiting = sok(sa, "approval", { id, wait_seconds: 10 });
   await new Promise((r) => setTimeout(r, 1500));
@@ -1890,6 +1890,85 @@ await step("approvals: an agent asks before side effects; only the person decide
   has(await sok(sa, "approval", { id, wait_seconds: 0 }), '"go"');
   assert((await web(`/api/approvals/${id}/reject`, A, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).status === 400, "decided once");
   await serr(sa, "request_approval", { title: "x", details: `key ${["ghp", "_", "Zx9Yw8Vu7Ts6Rq5Po4Nm3Lk2Jh1Gf0Ed9Cb8A"].join("")}` }, "Blocked");
+});
+
+await step("headless agents: the setting round-trips; on, agents see it in initialize, the read header and the mailbox; off, nowhere", async () => {
+  const post = (who, body) => web(`/api/me/profile`, who, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  const prof = async () => (await (await web(`/api/me/profile`, A)).json()).profile;
+  const init = async () => (await rpcRaw(auth(A), null, "initialize", { protocolVersion: "2025-06-18", capabilities: {} })).instructions;
+  const mail = async () => (await (await fetch(`${BASE}/api/mailbox?peek=1`, { headers: auth(A) })).json());
+  const sa = await session(A, fb);
+  assert((await prof()).agents_headless === false, "off by default");
+  assert((await post(A, { agents_headless: "yes" })).status === 400, "true or false only");
+  const saved = await (await post(A, { agents_headless: true })).json();
+  assert(saved.profile.agents_headless === true && saved.profile.display.text, JSON.stringify(saved));
+  assert((await prof()).agents_headless === true, "round-trips");
+  assert((await post(A, { bio: `headless bio ${run}` })).ok && (await prof()).agents_headless === true, "other profile edits keep it");
+  assert((await (await web(`/api/me/profile`, B)).json()).profile.agents_headless === false, "per person");
+  has(await (await web(`/me`, A)).text(), `id="headless" checked`);
+  has(await init(), "Your user runs you headless: they read the board, not your terminal. Answer on the board (in thread), ask for permission with request_approval and wait for it, and keep terminal output to a minimum.");
+  const r1 = await sok(sa, "read");
+  assert(/^== .* · headless: answer here ==$/m.test(r1), r1.slice(0, 400));
+  assert((await mail()).headless === true, "mailbox says so");
+  assert(!(await ok(B, fb, "read")).includes("headless"), "only for that person's agents");
+  await post(A, { agents_headless: false });
+  assert((await prof()).agents_headless === false, "turned off");
+  assert(!(await init()).includes("headless"), "no paragraph when off");
+  assert(!(await sok(sa, "read")).includes("headless"), "no suffix when off");
+  assert(!("headless" in (await mail())), "no mailbox flag when off");
+});
+
+await step("approvals for a permission hook: exact command verbatim; only the agent's own person decides; wait returns the decision; expiry denies", async () => {
+  const sa = await session(A, fb);
+  const idOf = (t) => t.match(/(ap_[A-Za-z0-9_-]+)/)[1];
+  const decide = (who, id, d, note) => web(`/api/approvals/${id}/${d}`, who, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ note }) });
+  const get = async (id, q = "") => (await fetch(`${BASE}/api/approvals/${id}${q}`, { headers: auth(A) })).json();
+  // A hook sends the tool and the exact command; it's stored and shown verbatim (escaped, monospace).
+  const command = `  rm -rf ./build-${run} && echo "<b>&done</b>"\n    # two lines  `;
+  const t1 = await sok(sa, "request_approval", { tool: "Bash", command, wait_seconds: 0 });
+  has(t1, "Don't act yet");
+  const id1 = idOf(t1);
+  const g = await get(id1);
+  assert(g.approval.command === command && g.approval.tool === "Bash" && g.approval.title.startsWith("Bash: rm -rf") && g.decision === "pending", JSON.stringify(g));
+  assert(g.approval.expires_at - g.approval.created_at === 86_400_000, "default expiry 24h (hooks pass a short expires_in)");
+  has(await (await web(`/approvals`, A)).text(), `<pre class="mono ap-details ap-cmd"><span class="faint">Bash</span>\n  rm -rf ./build-${run} &amp;&amp; echo &quot;&lt;b&gt;&amp;done&lt;/b&gt;&quot;\n    # two lines  </pre>`);
+  // Nobody else decides: not another member (it doesn't exist for them), not any agent token, theirs or the owner's.
+  assert((await decide(B, id1, "approve")).status === 404, "another member: 404");
+  assert((await fetch(`${BASE}/api/approvals/${id1}/approve`, { method: "POST", headers: auth(A) })).status === 403, "the owner's agent token: 403");
+  assert((await fetch(`${BASE}/api/approvals/${id1}/approve`, { method: "POST", headers: auth(B) })).status === 403, "another agent's token: 403");
+  assert((await fetch(`${BASE}/api/approvals/${id1}`, { headers: auth(B) })).status === 404, "another member can't see it");
+  await err(B, fb, "approval", { id: id1, action: "get" }, "No such approval");
+  assert((await get(id1)).decision === "pending", "still pending after the refusals");
+  // The owner denies while the agent waits (approval action wait), with a note.
+  const waiting = sok(sa, "approval", { id: id1, action: "wait" });
+  await new Promise((r) => setTimeout(r, 1200));
+  assert((await decide(A, id1, "reject", "not now")).status === 200, "owner denies");
+  const w1 = await waiting;
+  assert(w1.startsWith("Denied by") && w1.includes('"not now"'), w1);
+  assert((await get(id1)).decision === "denied", "REST says denied");
+  // The owner approves while a hook long-polls the REST API.
+  const id2 = idOf(await sok(sa, "request_approval", { title: "Edit a file", tool: "Edit", command: `src/x-${run}.ts`, wait_seconds: 0 }));
+  const polling = get(id2, "?wait=10");
+  await new Promise((r) => setTimeout(r, 1200));
+  assert((await decide(A, id2, "approve")).status === 200, "owner approves");
+  const p2 = await polling;
+  assert(p2.decision === "approved" && p2.approval.status === "approved", JSON.stringify(p2));
+  has(await sok(sa, "approval", { id: id2, action: "wait" }), "Approved by");
+  // Undecided past expires_in: denied (timed out), and it can't be approved after that.
+  const id3 = idOf(await sok(sa, "request_approval", { tool: "Bash", command: `npm publish ${run}`, expires_in: 2, wait_seconds: 0 }));
+  const t0 = Date.now();
+  const w3 = await sok(sa, "approval", { id: id3, action: "wait" });
+  assert(w3.startsWith("Denied (timed out)") && Date.now() - t0 < 6000, `${w3} after ${Date.now() - t0}ms`);
+  const g3 = await get(id3);
+  assert(g3.decision === "denied" && g3.reason === "timed out", JSON.stringify(g3));
+  const late = await decide(A, id3, "approve");
+  assert(late.status === 400 && (await late.json()).error.includes("timed out"), "can't approve after it timed out");
+  // A wait with nothing decided returns pending at its cap (get answers at once).
+  const id4 = idOf(await sok(sa, "request_approval", { tool: "Bash", command: `ls ${run}`, wait_seconds: 0 }));
+  has(await sok(sa, "approval", { id: id4, action: "get" }), "Waiting for");
+  await serr(sa, "approval", { id: id4, action: "nope" }, "get or wait");
+  await serr(sa, "request_approval", { tool: "Bash", command: "x".repeat(20_001) }, "verbatim");
+  await decide(A, id4, "reject");
 });
 
 await step("claims: evidence, verify (never your own), dispute flags everything built on it as stale", async () => {

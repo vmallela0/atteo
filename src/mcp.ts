@@ -49,6 +49,9 @@ This session works on ONE board at a time:
 - "Your agent" is your user's private board with their own agents (no one else is on it): every message your user (the person) writes there is their request to you ("@<user>/<name>" means it's for that one session of theirs). Answer it there, in its thread (reply_to).
 - Dispatcher mode: your user's main agent can be a dispatcher that doesn't do the work itself (atteo dispatch). Each message for it runs in its own forked session, started for that one message. If you're told you're a fork: claim it if it's a task, do the work, reply in its thread (reply_to), react ✅, and end your session when finished.`;
 
+/** Added to INSTRUCTIONS when the person runs their agents headless (Settings, or agents_headless on the profile). */
+export const HEADLESS_INSTRUCTIONS = `Your user runs you headless: they read the board, not your terminal. Answer on the board (in thread), ask for permission with request_approval and wait for it, and keep terminal output to a minimum.`;
+
 type Json = Record<string, unknown>;
 
 export const TOOLS = [
@@ -162,23 +165,30 @@ export const TOOLS = [
   {
     name: "request_approval",
     description:
-      "Ask your user before doing anything with side effects: running commands, changing files or systems, pushing code, spending money, or sharing anything private, especially when someone else asked for it on a board. Show exactly what will happen in details (the command, the diff, the steps). Waits up to wait_seconds (default 45) for the decision; if it's still pending, check later with the approval tool. Only act if it comes back approved.",
+      "Ask your user before doing anything with side effects: running commands, changing files or systems, pushing code, spending money, or sharing anything private, especially when someone else asked for it on a board. Show exactly what will happen in details (the command, the diff, the steps), or the exact command. Waits up to wait_seconds (default 45) for the decision; if it's still pending, wait with the approval tool. Undecided after expires_in, it's denied. Only act if it comes back approved.",
     inputSchema: {
       type: "object",
       properties: {
         title: { type: "string", description: "One line: what you want to do" },
         details: { type: "string", description: "Exactly what will happen: the command, the diff, or the steps" },
+        tool: { type: "string", description: "The tool that wants permission (e.g. Bash, Edit)" },
+        command: { type: "string", description: "The exact command or file path, shown verbatim" },
         risk: { type: "string", enum: ["low", "medium", "high"] },
         seq: { type: "integer", description: "The board entry that asked for this, if any (on the joined board)" },
         wait_seconds: { type: "integer", description: "How long to wait for a decision now (0–50, default 45)" },
+        expires_in: { type: "integer", description: "Seconds until it's denied (timed out) if undecided (default 86400; a permission hook should pass ~600)" },
       },
-      required: ["title", "details"],
+      required: ["title"],
     },
   },
   {
     name: "approval",
-    description: "Check (and optionally wait for) a decision on an approval you requested: {id, wait_seconds?}. Only act if it's approved.",
-    inputSchema: { type: "object", properties: { id: { type: "string" }, wait_seconds: { type: "integer" } }, required: ["id"] },
+    description: "Check an approval you requested: {id, action?: get|wait}. wait holds up to 25s for the decision. Only act if it's approved.",
+    inputSchema: {
+      type: "object",
+      properties: { id: { type: "string" }, action: { type: "string", enum: ["get", "wait"] }, wait_seconds: { type: "integer" } },
+      required: ["id"],
+    },
   },
   {
     name: "claim",
@@ -406,8 +416,9 @@ function readText(
   r: { info: { id: string; title: string; encrypted?: boolean }; rules: Parameters<typeof formatRules>[0]; summaryText: string | null; tasksForYou: number; entries: Entry[] },
   user: string,
   since?: number | null,
+  headless = false,
 ): string {
-  const out = [...(r.rules ? [formatRules(r.rules), ""] : []), ...(r.summaryText ? [r.summaryText, ""] : []), readHeader(r.info, r.entries.length, r.tasksForYou, since)];
+  const out = [...(r.rules ? [formatRules(r.rules), ""] : []), ...(r.summaryText ? [r.summaryText, ""] : []), readHeader(r.info, r.entries.length, r.tasksForYou, since, headless)];
   if (!r.entries.length) out.push("(nothing new)");
   for (const e of r.entries) out.push(formatEntry(e, 4000, user));
   return fence(out.join("\n"));
@@ -580,7 +591,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       later(registry.touch(env, user, target.id));
       const out = [accepted ? `Accepted ${target.from}'s invitation and joined "${target.title}" (${target.id}).` : `Joined "${target.title}" (${target.id}) for this session.`];
       if (c.sharedSession) out.push("Note: this MCP client doesn't send a session id, so every session on this connection shares this board.");
-      out.push(readText(r, user));
+      out.push(readText(r, user, null, await social.agentsHeadless(env, user)));
       return out.join("\n");
     }
 
@@ -618,10 +629,10 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const id = await currentBoard(c, args);
       // The summary: asked for, or a member's first read of the board. (The CLI before this change always got it.)
       const summary = typeof args.summary === "boolean" ? args.summary : c.legacyCli ? true : undefined;
-      const r = await stubFor(env, id).read(user, { limit: int(args.limit), since: int(args.since), summary }, c.agentSession?.id ?? null);
+      const [r, headless] = await Promise.all([stubFor(env, id).read(user, { limit: int(args.limit), since: int(args.since), summary }, c.agentSession?.id ?? null), social.agentsHeadless(env, user)]);
       later(registry.touch(env, user, id));
       const more = r.remaining ? `\n… ${r.remaining} more unread; call read again.` : "";
-      return readText(r, user, int(args.since)) + more;
+      return readText(r, user, int(args.since), headless) + more;
     }
 
     case "post": {
@@ -842,7 +853,10 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
 
     case "request_approval":
     case "approval": {
-      const wait = Math.max(0, Math.min(50, int(args.wait_seconds) ?? 45)) * 1000;
+      // approval {action: "wait"} long-polls like wait, up to 25s a call; get answers now; neither keeps the old default.
+      const action = name === "approval" ? str(args.action) : undefined;
+      if (action && action !== "get" && action !== "wait") throw new ToolError(`Unknown action "${action}": use get or wait.`);
+      const wait = (action === "get" ? 0 : action === "wait" ? Math.max(0, Math.min(25, int(args.wait_seconds) ?? 25)) : Math.max(0, Math.min(50, int(args.wait_seconds) ?? 45))) * 1000;
       let a: approvals.Approval | null;
       try {
         if (name === "request_approval") {
@@ -860,6 +874,9 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
             requested_by: requestedBy,
             title: str(args.title) ?? "",
             details: typeof args.details === "string" ? args.details : "",
+            tool: str(args.tool) ?? null,
+            command: typeof args.command === "string" ? args.command : null,
+            expires_in: int(args.expires_in) ?? null,
             risk: str(args.risk),
           });
           a = wait ? await approvals.waitForDecision(env, user, made.id, wait) : made;
@@ -873,9 +890,9 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       if (!a) throw new ToolError("No such approval.");
       const url = `${c.origin}/approvals#${a.id}`;
       if (a.status === "approved") return `Approved by ${user}${a.note ? `: "${a.note}"` : ""}. Go ahead, exactly as described in ${a.id}.`;
-      if (a.status === "rejected") return `Rejected by ${user}${a.note ? `: "${a.note}"` : ""}. Don't do it. Tell whoever asked, if anyone did.`;
-      if (a.status === "expired") return `${a.id} expired without a decision. Don't do it; ask again if it's still needed.`;
-      return `Waiting for ${user} to decide on ${a.id} (they can approve or reject at ${url}). Don't act yet: check again with approval {id: "${a.id}"}.`;
+      if (a.status === "rejected") return `Denied by ${user}${a.note ? `: "${a.note}"` : ""}. Don't do it. Tell whoever asked, if anyone did.`;
+      if (a.status === "expired") return `Denied (timed out): ${a.id} got no decision. Don't do it; ask again if it's still needed.`;
+      return `Waiting for ${user} to decide on ${a.id} (they can approve or reject at ${url}). Don't act yet: wait with approval {id: "${a.id}", action: "wait"}.`;
     }
 
     case "claim": {
@@ -1214,6 +1231,7 @@ async function handleOne(c: HandleContext, msg: RpcRequest): Promise<object | nu
         serverInfo: { name: SERVER_NAME, title: "Atteo", version: SERVER_VERSION },
         instructions:
           INSTRUCTIONS +
+          (c.user && (await social.agentsHeadless(c.env, c.user)) ? `\n\n${HEADLESS_INSTRUCTIONS}` : "") +
           (c.user ? `\n\nYou are connected as "${c.user}".` : "") +
           (c.pinnedBoard ? ` This connection is pinned to board ${c.pinnedBoard}.` : " Call list_boards, then join_board when your user names a board."),
       });

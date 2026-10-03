@@ -344,17 +344,21 @@ export function mergeDisplay(cur: Display, patch: unknown): Display {
 }
 
 export async function profile(env: Env, user: string) {
-  const r = await env.DB.prepare(`SELECT name, display_name, bio, listed, rules, display FROM users WHERE name = ?`)
+  const r = await env.DB.prepare(`SELECT name, display_name, bio, listed, rules, display, agents_headless FROM users WHERE name = ?`)
     .bind(user)
-    .first<{ name: string; display_name: string | null; bio: string | null; listed: number; rules: string | null; display: string | null }>();
-  return r ? { name: r.name, display_name: r.display_name, bio: r.bio, listed: !!r.listed, rules: (r.rules ? JSON.parse(r.rules) : {}) as Rules, display: readDisplay(r.display) } : null;
+    .first<{ name: string; display_name: string | null; bio: string | null; listed: number; rules: string | null; display: string | null; agents_headless: number | null }>();
+  return r
+    ? { name: r.name, display_name: r.display_name, bio: r.bio, listed: !!r.listed, rules: (r.rules ? JSON.parse(r.rules) : {}) as Rules, display: readDisplay(r.display), agents_headless: !!r.agents_headless }
+    : null;
 }
 
-export async function setProfile(env: Env, user: string, p: { display_name?: unknown; bio?: unknown; listed?: unknown; rules?: unknown; display?: unknown }) {
+export async function setProfile(env: Env, user: string, p: { display_name?: unknown; bio?: unknown; listed?: unknown; rules?: unknown; display?: unknown; agents_headless?: unknown }) {
   const cur = await profile(env, user);
   if (!cur) throw new SocialError("No such person.");
   // Checked first: a bad display value is a 400 and nothing else in the request is saved either.
   const prefs = p.display === undefined ? cur.display : mergeDisplay(cur.display, p.display);
+  if (p.agents_headless !== undefined && typeof p.agents_headless !== "boolean") throw new SocialError("agents_headless must be true or false.");
+  const headless = p.agents_headless === undefined ? cur.agents_headless : p.agents_headless;
   const text = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/[\u0000-\u001f]/g, " ").trim().slice(0, max) || null : undefined);
   const display = p.display_name === undefined ? cur.display_name : text(p.display_name, 60) ?? null;
   const bio = p.bio === undefined ? cur.bio : text(p.bio, 280) ?? null;
@@ -365,10 +369,24 @@ export async function setProfile(env: Env, user: string, p: { display_name?: unk
     auto_accept_friends: "auto_accept_friends" in r ? (r.auto_accept_friends === "coworkers" ? "coworkers" : null) : cur.rules.auto_accept_friends ?? null,
     auto_accept_agents: "auto_accept_agents" in r ? (r.auto_accept_agents === "coworkers" ? "coworkers" : null) : cur.rules.auto_accept_agents ?? null,
   };
-  await env.DB.prepare(`UPDATE users SET display_name = ?, bio = ?, listed = ?, rules = ?, display = COALESCE(?, display) WHERE name = ?`)
-    .bind(display, bio, listed ? 1 : 0, JSON.stringify(rules), p.display === undefined ? null : JSON.stringify(prefs), user)
+  await env.DB.prepare(`UPDATE users SET display_name = ?, bio = ?, listed = ?, rules = ?, display = COALESCE(?, display), agents_headless = ? WHERE name = ?`)
+    .bind(display, bio, listed ? 1 : 0, JSON.stringify(rules), p.display === undefined ? null : JSON.stringify(prefs), headless ? 1 : 0, user)
     .run();
-  return { ...cur, display_name: display, bio, listed, rules, display: prefs };
+  headlessCache.set(user, { v: headless, at: Date.now() });
+  return { ...cur, display_name: display, bio, listed, rules, display: prefs, agents_headless: headless };
+}
+
+/** Whether this person runs their agents headless (answers and approvals on the board, not the terminal). Cached
+ * per isolate for 30s: agents' reads ask on every call, and this saves a D1 read each time. */
+const headlessCache = new Map<string, { v: boolean; at: number }>();
+export async function agentsHeadless(env: Env, user: string): Promise<boolean> {
+  const hit = headlessCache.get(user);
+  if (hit && Date.now() - hit.at < 30_000) return hit.v;
+  const r = await env.DB.prepare(`SELECT agents_headless FROM users WHERE name = ?`).bind(user).first<{ agents_headless: number | null }>().catch(() => null);
+  const v = !!r?.agents_headless;
+  if (headlessCache.size > 5000) headlessCache.clear();
+  headlessCache.set(user, { v, at: Date.now() });
+  return v;
 }
 
 /** Throttled "last seen" for presence: at most one write a minute per person per isolate. */

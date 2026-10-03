@@ -835,7 +835,7 @@ final class AgentSoupUITests: XCTestCase {
               let b1 = boards.filter({ $0["title"] as? String == "Checkout bug" }).max(by: { ($0["last_activity"] as? Double ?? 0) < ($1["last_activity"] as? Double ?? 0) }),
               let id = b1["id"] as? String else { return XCTFail("seed") }
         let n = Int(Date().timeIntervalSince1970) % 100000
-        try postAsTheo(board: id, ["type": "note", "text": "@maya can you check the rollout plan? @theo's agent has the numbers \(n)"])
+        try postAsTheo(board: id, ["type": "note", "text": "Heads-up @agents and @humans: @maya can you check the rollout plan? @theo's agent has the numbers \(n)"])
         let a = app(fresh: true)
         a.launch()
         onBoards(a)
@@ -870,9 +870,33 @@ final class AgentSoupUITests: XCTestCase {
         ask.tap()
         wait(for: [expectation(for: NSPredicate(format: "value BEGINSWITH %@", "@theo's agent"), evaluatedWith: composer)], timeout: 5)
         composer.typeText("hello")
+        // As you type, a mention sits in its blue box already (#824).
+        let typed = a.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'composer-mention' AND label CONTAINS %@", "theo's agent")).firstMatch
+        XCTAssertTrue(typed.waitForExistence(timeout: 5), "the typed @mention is boxed")
+        shot("30c-composer-mention")
         for _ in 0..<12 { composer.typeText(XCUIKeyboardKey.delete.rawValue) } // leave the box empty for the paste
         let cleared = composer.value as? String ?? ""
         if !cleared.isEmpty { composer.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: cleared.count + 2)) }
+
+        // "@agents" and "@humans" (#828): who they reach, as lists.
+        let agentsLink = a.links.matching(NSPredicate(format: "label CONTAINS '@agents'")).allElementsBoundByIndex.last
+        XCTAssertNotNil(agentsLink, "@agents is a link")
+        agentsLink?.tap()
+        XCTAssertTrue(a.navigationBars["Agents on this board"].waitForExistence(timeout: 5), "the board's agents")
+        // (grouped: working now / idle; which, depends on how long ago the seeded sessions last checked in)
+        XCTAssertTrue(a.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Working now' OR label BEGINSWITH 'Idle'")).firstMatch.waitForExistence(timeout: 5), "grouped by what they're doing")
+        sleep(1)
+        shot("30d-agents-here")
+        a.swipeDown(velocity: .fast)
+        XCTAssertTrue(a.navigationBars["Agents on this board"].waitForNonExistence(timeout: 5))
+        let humansLink = a.links.matching(NSPredicate(format: "label CONTAINS '@humans'")).allElementsBoundByIndex.last
+        humansLink?.tap()
+        XCTAssertTrue(a.navigationBars["People on this board"].waitForExistence(timeout: 5), "the board's people")
+        XCTAssertTrue(a.descendants(matching: .any)["group-person-theo"].waitForExistence(timeout: 5), "theo is here")
+        sleep(1)
+        shot("30e-people-here")
+        a.swipeDown(velocity: .fast)
+        XCTAssertTrue(a.navigationBars["People on this board"].waitForNonExistence(timeout: 5))
 
         // A picture and words on the clipboard; Paste from the message box's menu.
         let size = CGSize(width: 160, height: 100)
@@ -998,7 +1022,12 @@ final class AgentSoupUITests: XCTestCase {
         chat.tap()
         let composer = a.textFields["composer"].exists ? a.textFields["composer"] : a.textViews["composer"]
         XCTAssertTrue(composer.waitForExistence(timeout: 10))
+        // Reading history, then tapping into the box (#842): the chat goes to the latest and stays there.
+        a.swipeDown(velocity: .fast); a.swipeDown(velocity: .fast)
+        XCTAssertTrue(a.buttons["Jump to latest"].waitForExistence(timeout: 5), "scrolled up")
         composer.tap()
+        XCTAssertTrue(a.buttons["Jump to latest"].waitForNonExistence(timeout: 5), "focusing the box goes to the latest")
+        shot("37b-focus-latest")
         let paragraph = "sign in screen on the app opens a new page and it doesn't look all that great. if possible please rewire it to be a more native experience that looks like ours, ideally in the app. "
         for i in 1...4 { composer.typeText("\(i). " + paragraph) }
         let tail = "and this is the end"
@@ -1007,6 +1036,7 @@ final class AgentSoupUITests: XCTestCase {
         let screen = a.windows.firstMatch.frame
         XCTAssertLessThanOrEqual(composer.frame.height, screen.height * 0.32, "it stops growing")
         XCTAssertTrue(a.buttons["send"].isHittable, "send stays in reach")
+        XCTAssertFalse(a.buttons["Jump to latest"].exists, "still at the latest as the box grew")
         sleep(1)
         shot("38-long-typed") // the end of what you typed is in view, the caret after it
         // Scroll up inside the box and edit the middle.

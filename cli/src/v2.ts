@@ -382,7 +382,7 @@ async function mailboxCmd(args: string[]) {
   const limit = optStr(opt, "limit");
   // As this agent's session if it has one (never makes one): mail for that one session ("@you/<name>") comes too.
   await session(opt, false).catch(() => null);
-  let j: { mail: Mail[]; more: boolean };
+  let j: { mail: Mail[]; more: boolean; headless?: boolean };
   for (;;) {
     const left = Math.max(0, Math.ceil((until - Date.now()) / 1000));
     j = await api(opt, "GET", `/api/mailbox?peek=1&wait=${Math.min(25, left)}${limit ? `&limit=${encodeURIComponent(limit)}` : ""}`);
@@ -398,9 +398,9 @@ async function mailboxCmd(args: string[]) {
   if (!j.mail.length) return print(opt, j, total ? `Nothing new in ${total}s.` : "Nothing new.");
   for (const m of j.mail) if (m.board && m.seq) shown.add(`${m.board}#${m.seq}`);
   const text = [
-    `Mail for your agent (${j.mail.length}), oldest first:`,
+    `Mail for your agent (${j.mail.length}), oldest first${j.headless ? " · headless: answer here" : ""}:`,
     fence(mailText(j.mail)),
-    opt.peek ? "Peeked: it's still waiting. atteo mailbox takes it." : 'Delivered (it won\'t come again). Reply in its thread: atteo post note "…" --board <id> --reply <#>',
+    opt.peek ? "Peeked: it's still waiting. atteo mailbox takes it." : 'Delivered: it won\'t come again. Reply on the board it came from: atteo post note "…" --board <id> --reply <#>',
     ...(j.more ? ["More is waiting: run atteo mailbox again."] : []),
   ].join("\n");
   print(opt, j, text);

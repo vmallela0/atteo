@@ -18,10 +18,67 @@ struct ComposerField: UIViewRepresentable {
     var maxLines: CGFloat = 6
     /// Pictures pasted in (nil: this box takes only text, and Paste behaves as usual).
     var pasteImages: (([UIImage]) -> Void)? = nil
+    /// Who "@" can name here (lowercased), and you: a mention typed in sits in its blue box at once, as when sent.
+    var members: Set<String> = []
+    var me: String? = nil
+    var identifier = "composer"
 
     final class Box: UITextView {
         var onImages: (([UIImage]) -> Void)?
         let placeholderLabel = UILabel()
+        var members: Set<String> = []
+        var me: String?
+        private var mentions: [(range: NSRange, mine: Bool, handle: String)] = []
+        private var boxes: [UIView] = []
+        private var boxesFor = "" // the text and width the boxes were placed for
+
+        /// Colors the mentions in what's typed (and leaves what you type next plain). Not while composing
+        /// (marked text from an input method): restyling then would break it.
+        func restyle() {
+            guard markedTextRange == nil, let font else { return }
+            let plain = text ?? ""
+            let found = ComposerField.mentions(in: plain, members: members, me: me)
+            let base: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: UIColor(Theme.text)]
+            let bold = UIFont.systemFont(ofSize: font.pointSize, weight: .semibold)
+            let sel = selectedRange
+            textStorage.beginEditing()
+            textStorage.setAttributes(base, range: NSRange(location: 0, length: (plain as NSString).length))
+            for m in found {
+                textStorage.addAttributes([.font: bold, .foregroundColor: UIColor(m.mine ? MentionColor.mineText : MentionColor.text)], range: m.range)
+            }
+            textStorage.endEditing()
+            selectedRange = sel
+            typingAttributes = base
+            mentions = found
+            boxesFor = ""
+            setNeedsLayout()
+        }
+
+        /// A rounded box behind each mention (one per line it spans), in the text's own coordinates so they scroll
+        /// with it; placed again only when the text or the width changes.
+        private func placeBoxes() {
+            let key = "\(text ?? "")|\(bounds.width)"
+            guard key != boxesFor else { return }
+            boxesFor = key
+            boxes.forEach { $0.removeFromSuperview() }
+            boxes = []
+            for m in mentions {
+                guard let start = position(from: beginningOfDocument, offset: m.range.location),
+                      let end = position(from: start, offset: m.range.length), let r = textRange(from: start, to: end) else { continue }
+                for sr in selectionRects(for: r) where sr.rect.width > 0 && sr.rect.origin.x.isFinite {
+                    let v = UIView(frame: sr.rect.insetBy(dx: -3, dy: 0))
+                    v.backgroundColor = UIColor(m.mine ? MentionColor.mineBox : MentionColor.box)
+                    v.layer.cornerRadius = 5
+                    v.layer.cornerCurve = .continuous
+                    v.isUserInteractionEnabled = false
+                    v.isAccessibilityElement = true
+                    v.accessibilityLabel = m.handle
+                    v.accessibilityIdentifier = "composer-mention"
+                    insertSubview(v, at: 0) // behind the text
+                    boxes.append(v)
+                }
+            }
+        }
 
         override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
             // A picture on the clipboard (checking doesn't read it): offer Paste even with no text there.
@@ -49,6 +106,7 @@ struct ComposerField: UIViewRepresentable {
                 lastHeight = bounds.height
                 if contentSize.height <= bounds.height + 0.5 { if contentOffset.y != 0 { contentOffset = .zero } } else { showCaret() }
             }
+            placeBoxes()
         }
 
         /// Scrolls just enough that the caret (and a little room under it) is visible.
@@ -74,7 +132,7 @@ struct ComposerField: UIViewRepresentable {
         v.alwaysBounceVertical = false
         v.keyboardAppearance = .default // follows light / dark
         v.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        v.accessibilityIdentifier = "composer"
+        v.accessibilityIdentifier = identifier
         v.placeholderLabel.font = v.font
         v.placeholderLabel.adjustsFontForContentSizeCategory = true
         v.placeholderLabel.textColor = UIColor(Theme.faint)
@@ -86,12 +144,14 @@ struct ComposerField: UIViewRepresentable {
     func updateUIView(_ v: Box, context: Context) {
         context.coordinator.parent = self
         v.onImages = pasteImages
+        if v.members != members || v.me != me { v.members = members; v.me = me; v.restyle() }
         v.placeholderLabel.text = placeholder
         v.accessibilityLabel = placeholder
         if v.text != text {
             // Put in from outside (a mention picked, a send): the caret goes to the end.
             v.text = text
             v.selectedRange = NSRange(location: (text as NSString).length, length: 0)
+            v.restyle()
             v.invalidateIntrinsicContentSize()
             DispatchQueue.main.async { v.showCaret() }
         }
@@ -99,6 +159,32 @@ struct ComposerField: UIViewRepresentable {
         if focused && !v.isFirstResponder { DispatchQueue.main.async { if v.window != nil { v.becomeFirstResponder() } } }
         if !focused && v.isFirstResponder { DispatchQueue.main.async { v.resignFirstResponder() } }
     }
+
+    /// The mentions in a draft, as the web's composer highlights them: "@theo", "@theo's agent", "@theo/scout" for
+    /// someone here, and "@agents" / "@humans". Yours (you, your agent) marked mine.
+    static func mentions(in text: String, members: Set<String>, me: String?) -> [(range: NSRange, mine: Bool, handle: String)] {
+        guard text.contains("@") else { return [] }
+        let ns = text as NSString
+        var out: [(NSRange, Bool, String)] = []
+        for m in draftRE.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
+            let handle = ns.substring(with: m.range(at: 2)).lowercased()
+            let suffix = m.range(at: 3).location == NSNotFound ? nil : ns.substring(with: m.range(at: 3))
+            let at = m.range(at: 2).location - 1
+            if (handle == "agents" || handle == "humans") && suffix == nil && !members.contains(handle) {
+                out.append((NSRange(location: at, length: 1 + m.range(at: 2).length), false, "@" + handle))
+                continue
+            }
+            let user = members.contains(handle) ? handle : handle.replacingOccurrences(of: "[.-]+$", with: "", options: .regularExpression)
+            guard members.contains(user) else { continue }
+            let length = 1 + (suffix != nil && user == handle ? m.range(at: 2).length + m.range(at: 3).length : (user as NSString).length)
+            let r = NSRange(location: at, length: length)
+            out.append((r, user == me?.lowercased(), ns.substring(with: r)))
+        }
+        return out
+    }
+    private static let draftRE = try! NSRegularExpression(
+        pattern: "(^|[^A-Za-z0-9_.@/-])@([A-Za-z0-9][A-Za-z0-9_.-]{0,31})((?:'|’)s\\s+agent\\b|/[A-Za-z0-9][A-Za-z0-9_.-]{0,31})?",
+        options: [.caseInsensitive])
 
     /// Top and bottom room so one line of text is exactly as tall as the buttons beside it (and centred on them).
     static func insets(for font: UIFont?) -> UIEdgeInsets {
@@ -123,6 +209,7 @@ struct ComposerField: UIViewRepresentable {
         var parent: ComposerField
         init(_ p: ComposerField) { parent = p }
         func textViewDidChange(_ v: UITextView) {
+            (v as? Box)?.restyle()
             parent.text = v.text
             (v as? Box)?.placeholderLabel.isHidden = !v.text.isEmpty
             v.invalidateIntrinsicContentSize()

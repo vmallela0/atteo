@@ -490,3 +490,76 @@ struct SeenBySheet: View {
         }
     }
 }
+
+// MARK: - @agents / @humans
+
+/// Who "@agents" or "@humans" reaches here: the board's agents (working now, idle), or its people (when each was last
+/// here). A row opens their card.
+struct GroupSheet: View {
+    @EnvironmentObject var state: AppState
+    let board: Board
+    let agents: Bool
+    @State private var members: BoardMembersResponse?
+
+    var body: some View {
+        let all = state.boardAgents[board.id] ?? []
+        NavigationStack {
+            List {
+                if agents {
+                    let groups = [("live", "Working now"), ("idle", "Idle")].map { k, t in (t, all.filter { $0.state == k }.sorted { $0.lastSeen > $1.lastSeen }) }
+                    if groups.allSatisfy({ $0.1.isEmpty }) { Text("No agents here right now.").font(Typo.secondary).foregroundStyle(Theme.muted).listRowBackground(Theme.card) }
+                    ForEach(groups, id: \.0) { title, list in
+                        if !list.isEmpty {
+                            Section {
+                                ForEach(list) { a in
+                                    NavigationLink { PersonCard(name: a.user, open: { b in state.openRequest = b }, agentFirst: true) } label: { agentRow(a) }
+                                        .accessibilityIdentifier("group-agent-\(a.user)")
+                                }
+                            } header: { SectionHeader("\(title) · \(list.count)") }
+                            .listRowBackground(Theme.card)
+                        }
+                    }
+                } else {
+                    Section {
+                        if members == nil { ProgressView().frame(maxWidth: .infinity) }
+                        ForEach(members?.members ?? []) { m in
+                            NavigationLink { PersonCard(name: m.user, open: { b in state.openRequest = b }) } label: {
+                                HStack(spacing: Space.m) {
+                                    Avatar(name: m.user, size: 30)
+                                    VStack(alignment: .leading, spacing: 1) {
+                                        Text(m.user == state.me?.owner ? "\(m.displayName ?? m.user) (you)" : m.displayName ?? m.user).font(Typo.rowTitleRead).foregroundStyle(Theme.text).lineLimit(1)
+                                        Text(m.lastSeen.map { "here \($0.ago == "now" ? "just now" : "\($0.ago) ago")" } ?? "@\(m.user)").font(Typo.micro).foregroundStyle(Theme.faint)
+                                    }
+                                }
+                            }
+                            .accessibilityIdentifier("group-person-\(m.user)")
+                        }
+                    }
+                    .listRowBackground(Theme.card)
+                }
+            }
+            .listSectionSpacing(.compact)
+            .scrollContentBackground(.hidden)
+            .background(Theme.bg)
+            .navigationTitle(agents ? "Agents on this board" : "People on this board")
+            .navigationBarTitleDisplayMode(.inline)
+            .task {
+                if agents { await state.loadAgents(board) } else { members = await state.boardMembers(board.id) }
+            }
+        }
+    }
+
+    private func agentRow(_ a: BoardAgent) -> some View {
+        HStack(spacing: Space.m) {
+            Avatar(name: a.user, agent: true, size: 30)
+                .overlay(alignment: .bottomTrailing) { StateDot(state: a.state).padding(2).background(Theme.card, in: Circle()).offset(x: 4, y: 4) }
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(spacing: 6) {
+                    Text(a.name.map { "\(a.user)/\($0)" } ?? a.label).font(Typo.rowTitleRead).foregroundStyle(Theme.text).lineLimit(1)
+                    if let c = a.client { Text(c).font(Typo.micro).foregroundStyle(Theme.faint).lineLimit(1) }
+                }
+                Text(a.status ?? stateLine(a.state, a.lastSeen)).font(Typo.micro).foregroundStyle(a.state == "live" ? Theme.ok : Theme.muted).lineLimit(2)
+            }
+        }
+    }
+}

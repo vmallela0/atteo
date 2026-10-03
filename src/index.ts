@@ -796,7 +796,8 @@ const handler = {
         const peek = url.searchParams.get("peek") === "1";
         // An agent session gets its own mail too (mail for one session, "@you/claude-2", only reaches that session).
         const r = await mailbox.collect(env, viewer.name, { limit, wait, peek, session: await asid() }, async (b, seq) => (await boardStub(env, b).get(seq)).entry.text);
-        return json(r, 200, { "cache-control": "no-store" });
+        // headless: the person reads the board, not the agent's terminal (the CLI says so over the mail).
+        return json((await social.agentsHeadless(env, viewer.name)) ? { ...r, headless: true } : r, 200, { "cache-control": "no-store" });
       }
       if (path === "/api/mailbox/ack" && method === "POST") {
         if (!viewer) return needLogin();
@@ -984,12 +985,16 @@ const handler = {
         try {
           if (method === "GET" && !am[1]) return json({ approvals: await approvals.listApprovals(env, viewer.name, url.searchParams.get("all") ? "all" : "pending") });
           if (method === "GET" && am[1] && !am[2]) {
-            const a = await approvals.getApproval(env, viewer.name, am[1]);
-            return a ? json({ approval: a }) : json({ error: "not found" }, 404);
+            // ?wait=N (≤25s) holds until it's decided or times out: a permission hook's blocking wait.
+            const wait = Math.min(25, Math.max(0, parseInt(url.searchParams.get("wait") ?? "0", 10) || 0));
+            const a = wait ? await approvals.waitForDecision(env, viewer.name, am[1], wait * 1000) : await approvals.getApproval(env, viewer.name, am[1]);
+            return a ? json({ approval: a, ...approvals.decision(a) }, 200, { "cache-control": "no-store" }) : json({ error: "not found" }, 404);
           }
           if (method === "POST" && am[1] && am[2]) {
-            // A token (an agent, or the CLI an agent could run) never decides: only the person in a browser.
+            // Only the agent's own person decides. A token (an agent, or the CLI an agent could run) never does: only
+            // the person in a browser or the Atteo app. Someone else's approval doesn't exist for you.
             if (viewer.via === "agent") return json({ error: `Approve or reject in the browser: ${origin}/approvals#${am[1]}` }, 403);
+            if (!(await approvals.getApproval(env, viewer.name, am[1]))) return json({ error: "not found" }, 404);
             const b = (await request.json().catch(() => ({}))) as { note?: string };
             return json({ ok: true, approval: await approvals.decide(env, viewer.name, am[1], am[2] === "approve", String(b.note ?? "")) });
           }
@@ -1578,10 +1583,10 @@ const handler = {
           const only = url.searchParams.get("board");
           const ids = only ? [...cur.boards, ...directs].filter((b) => b === only) : [...cur.boards, ...directs];
           if (only && !ids.length) return json({ error: `This session isn't on ${only}.` }, 404);
-          const render = (b: { id: string; title: string; encrypted?: boolean }, entries: import("./types").Entry[], tasksForYou?: number) =>
+          const render = (b: { id: string; title: string; encrypted?: boolean }, entries: import("./types").Entry[], tasksForYou?: number, headless = false) =>
             fence(
               [
-                tasksForYou == null ? `== ${b.title} (${b.id}) · new (${entries.length}) ==` : readHeader(b, entries.length, tasksForYou),
+                tasksForYou == null ? `== ${b.title} (${b.id}) · new (${entries.length}) ==` : readHeader(b, entries.length, tasksForYou, null, headless),
                 ...(entries.length ? [] : ["(nothing new)"]),
                 ...entries.map((e) => formatEntry(e, 4000, viewer.name)),
               ].join("\n"),
@@ -1592,6 +1597,7 @@ const handler = {
             // a board's summary comes with the member's first read of it, then only on request.
             const sumParam = url.searchParams.get("summary");
             const summary = (id: string) => (sumParam === "all" ? true : sumParam === "none" || (sumParam != null && !sumParam.split(",").includes(id)) ? false : undefined);
+            const headless = await social.agentsHeadless(env, viewer.name);
             const out = await Promise.all(
               ids.map(async (id) => {
                 const r = await boardStub(env, id).read(viewer.name, { limit, summary: summary(id) }, cur.id);
@@ -1602,7 +1608,7 @@ const handler = {
                   rules: r.rules,
                   entries: r.entries,
                   remaining: r.remaining,
-                  text: (r.rules ? fence(formatRules(r.rules)) + "\n" : "") + (r.summaryText ? fence(r.summaryText) + "\n" : "") + render(b, r.entries, r.tasksForYou),
+                  text: (r.rules ? fence(formatRules(r.rules)) + "\n" : "") + (r.summaryText ? fence(r.summaryText) + "\n" : "") + render(b, r.entries, r.tasksForYou, headless),
                 };
               }),
             );
