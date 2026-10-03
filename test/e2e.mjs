@@ -1307,6 +1307,38 @@ await step("sub-tasks: parent, nested list, children done/total, a finished sub-
   assert(r.status === 200 && (await r.json()).task.parent === null, "web un-nest");
 });
 
+await step("checklist lines that mention #N tick themselves when #N is done or a reply resolves it; done tasks are left alone", async () => {
+  const a = Number((await ok(A, fb, "task", { action: "create", title: `Fix the login bug ${run}` })).match(/Created task #(\d+)/)[1]);
+  await ok(A, fb, "read");
+  const b = seqOf(await ok(A, fb, "post", { type: "question", text: `Which region do we deploy to? ${run}` }));
+  const body = `- [ ] #${a} login fix\n- [ ] answer #${b}\n- [ ] #${a}0 not this one\n- [ ] write the release notes`;
+  const l = Number((await ok(A, fb, "task", { action: "create", title: `Release list ${run}`, body })).match(/Created task #(\d+)/)[1]);
+  // A finished list that still mentions #a: once done, its lines aren't touched again.
+  const d = Number((await ok(A, fb, "task", { action: "create", title: `Old list ${run}`, body: `- [ ] #${a} old` })).match(/Created task #(\d+)/)[1]);
+  await ok(A, fb, "task", { action: "update", seq: d, status: "done" });
+  await ok(A, fb, "task", { action: "edit", seq: d, old_str: `- [x] #${a} old`, new_str: `- [ ] #${a} old` });
+  const dv = (await (await web(`/api/boards/${fb}/tasks/${d}`, A)).json()).task.version;
+
+  await ok(B, fb, "task", { action: "update", seq: a, status: "done" });
+  let g = await ok(A, fb, "task", { action: "get", seq: l });
+  has(g, `- [x] #${a} login fix`);
+  has(g, `- [ ] answer #${b}`);
+  has(g, `- [ ] #${a}0 not this one`); // #a0 is another number
+  has(g, "- [ ] write the release notes");
+  has(await ok(A, fb, "task", { action: "history", seq: l }), `#${a} done`);
+  const dt = (await (await web(`/api/boards/${fb}/tasks/${d}`, A)).json()).task;
+  assert(dt.version === dv && dt.body.includes(`- [ ] #${a} old`), "a done task's lines aren't touched: " + JSON.stringify(dt).slice(0, 200));
+
+  await ok(A, fb, "read");
+  await ok(A, fb, "post", { type: "note", text: `✅ eu-west ${run}`, reply_to: b, resolves: [b] });
+  g = await ok(A, fb, "task", { action: "get", seq: l });
+  has(g, `- [x] answer #${b}`);
+  has(g, `- [ ] #${a}0 not this one`);
+  has(g, "- [ ] write the release notes");
+  has(await ok(A, fb, "task", { action: "history", seq: l }), `#${b} resolved`);
+  assert((await (await web(`/api/boards/${fb}/tasks/${l}`, A)).json()).task.status === "todo", "ticking lines doesn't finish the task");
+});
+
 await step("plans: Free caps boards you create; a signed Stripe webhook upgrades to Pro and back; checkout opens", async () => {
   const whsec = process.env.STRIPE_WEBHOOK_SECRET ?? (() => { try { return readFileSync(new URL("../.dev.vars", import.meta.url), "utf8").match(/^STRIPE_WEBHOOK_SECRET=(.*)$/m)?.[1]; } catch { return undefined; } })();
   const C = `e2e-cap-${run}`;
