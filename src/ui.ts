@@ -491,6 +491,8 @@ dialog.lightbox img{display:block;max-width:min(96vw,1600px);max-height:92vh;wid
 .entry .body .mention.seen::after{background:var(--dot)}
 /* change cards: a git change as a card (branch → base, CI, PR, commits, files, reviews, diff on demand) */
 .meta .via.owner{color:var(--muted)}
+.composer.sending .cmp-field{visibility:hidden}.composer.sending .attachments{display:none}
+.upd-bar{position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:60;display:flex;align-items:center;gap:10px;padding:6px 6px 6px 14px;border:1px solid var(--line);border-radius:999px;background:var(--bg);box-shadow:var(--shadow-lg);font-size:13px;color:var(--ink);white-space:nowrap}
 .mem-act{display:none}.mem-on .mem-act{display:inline-flex;width:30px;padding:0;justify-content:center;color:var(--muted)}.mem-on .mem-act:hover{color:var(--ink)}
 .soul-prev{white-space:pre-wrap;font-size:12.5px;line-height:1.5;color:var(--text);max-height:7.5em;overflow:hidden;-webkit-mask-image:linear-gradient(#000 70%,transparent);mask-image:linear-gradient(#000 70%,transparent)}
 .soul-meta{margin:4px 0 6px}.soul-edit{margin-top:2px}
@@ -1173,6 +1175,12 @@ window.applyDisplay=d=>{const r=document.documentElement;d=d||{};
   try{localStorage.setItem('atteo-display',JSON.stringify({text:d.text||'m',density:d.density||'comfortable',theme:d.theme||'system'}))}catch{}};
 if($('a[href="/me"]')){let fresh=false;try{fresh=!!sessionStorage.getItem('atteo-display-sync');sessionStorage.setItem('atteo-display-sync','1')}catch{}
   if(!fresh)fetch('/api/me/profile').then(r=>r.ok?r.json():null).then(j=>{const d=j&&j.profile&&j.profile.display;if(d&&typeof d==='object')applyDisplay(d)}).catch(()=>{})}
+// A new version shipped while this page was open (jxn #1221): offer a reload rather than keep running old code. Checked on
+// coming back to the tab and every 10 minutes; drafts are saved as you type, so reloading loses nothing.
+(()=>{let v0=null;const chk=async()=>{try{const j=await (await fetch('/health',{cache:'no-store'})).json();if(!j||!j.version)return;if(v0===null){v0=j.version;return}
+  if(j.version===v0||document.getElementById('upd-bar'))return;const b=document.createElement('div');b.id='upd-bar';b.className='upd-bar';b.setAttribute('role','status');
+  b.innerHTML='<span>Atteo was updated</span><button class="btn sm primary" type="button">Reload</button>';b.querySelector('button').addEventListener('click',()=>location.reload());document.body.appendChild(b)}catch(e){}};
+  chk();document.addEventListener('visibilitychange',()=>{if(!document.hidden)chk()});setInterval(chk,600000)})();
 window.toast=(m)=>{const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),1800)};
 document.addEventListener('click',e=>{
   const c=e.target.closest('[data-copy]');
