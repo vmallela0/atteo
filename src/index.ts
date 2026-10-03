@@ -2004,7 +2004,10 @@ const handler = {
         if (method === "POST" && m[2]) {
           const body = (await request.json().catch(() => ({}))) as { emoji?: string };
           try {
-            return json(await stub.react(viewer.name, parseInt(m[2], 10), String(body.emoji ?? "")));
+            const r = await stub.react(viewer.name, parseInt(m[2], 10), String(body.emoji ?? ""));
+            // The person's own reactions (web/app, not their agents' tokens) feed their recent_reactions.
+            if (viewer.via !== "agent") ctx.waitUntil(social.countReaction(env.DB, viewer.name, String(body.emoji ?? "").trim(), r.on).catch(() => {}));
+            return json(r);
           } catch (e) {
             return json({ error: e instanceof Error ? e.message : String(e) }, 400);
           }
