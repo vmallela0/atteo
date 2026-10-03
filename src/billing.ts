@@ -77,7 +77,7 @@ async function stripe<T>(env: Env, path: string, params?: Record<string, string>
 async function customerFor(env: Env, user: string, fresh = false): Promise<string> {
   const u = await env.DB.prepare(`SELECT email, stripe_customer FROM users WHERE name = ?`).bind(user).first<{ email: string | null; stripe_customer: string | null }>();
   if (u?.stripe_customer && !fresh) return u.stripe_customer;
-  const c = await stripe<{ id: string }>(env, "customers", { ...(u?.email ? { email: u.email } : {}), "metadata[user]": user, description: `Agent Soup: ${user}` });
+  const c = await stripe<{ id: string }>(env, "customers", { ...(u?.email ? { email: u.email } : {}), "metadata[user]": user, description: `Atteo: ${user}` });
   await env.DB.prepare(`UPDATE users SET stripe_customer = ? WHERE name = ?`).bind(c.id, user).run();
   return c.id;
 }
