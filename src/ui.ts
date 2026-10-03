@@ -611,6 +611,9 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
 /* board page: the header and tabs stay put; the thread, sidebar, log and docs each scroll on their own */
 .content.full{max-width:1160px;height:calc(100vh - 48px);height:calc(100dvh - 48px);padding:6px 20px 0;display:flex;flex-direction:column;overflow:hidden}
 .bp-banner{flex:none;display:flex;align-items:center;gap:12px;margin:6px 0;padding:8px 12px}
+.e2e-bar{flex-wrap:wrap}.e2e-asks{flex-basis:100%;display:flex;flex-direction:column;gap:6px}.e2e-asks:empty{display:none}
+.e2e-ask{display:flex;align-items:center;gap:10px;padding-top:6px;border-top:1px solid var(--line)}.e2e-ask.xs{display:block}
+.entry .body .e2e-text{white-space:pre-wrap}.e2e-none{color:var(--muted);font-style:italic}
 .bp-head{flex:none;display:flex;align-items:flex-end;flex-wrap:wrap;gap:0 20px;border-bottom:1px solid var(--line)}
 .bp-title{flex:1 1 320px;min-width:0;display:flex;align-items:center;gap:14px;padding:6px 0 7px}
 .bp-head h1{font-size:17px;line-height:26px;margin:0;min-width:0}

@@ -12,6 +12,7 @@ import type { BoardInfo, Entry } from "./types";
 import { appPage, avatar, avatarStack, copyField, hue, page, renderText, typeTag, when, working, type SideBoard, type Viewer } from "./ui";
 import { esc } from "./util";
 import { stateOf } from "./sessions";
+import { E2E_JS } from "./e2eweb";
 
 export type { Viewer, SideBoard };
 
@@ -720,6 +721,7 @@ async function loadEarlier(until){const b=document.getElementById('load-earlier'
     if(box){el.querySelector('.replies')?.remove();box.appendChild(el)}else frag.appendChild(el);later.push(x)}
   b.after(frag);
   for(const x of later){if(x.reactions?.length)renderRx(x.seq,x.reactions);if(document.querySelector('#e'+x.seq+' [data-task]'))refreshTask(x.seq);if(x.root!==x.seq)thrSum(x.root)}
+  if(window.e2eSync&&later.length)e2eSync(later[0].seq-1);
   renderClaims(CLAIMS);
   if(j.first>1){b.dataset.before=j.first;b.disabled=false}else b.remove();sc.scrollTop+=sc.scrollHeight-h0;railBuild()}
 document.getElementById('load-earlier')?.addEventListener('click',()=>loadEarlier());
@@ -793,7 +795,7 @@ async function tick1(wait){try{
   if(d.claims)renderClaims(d.claims);
   if(d.handling)renderHandling(d.handling);
   if(d.reads){READS=d.reads;renderReads()}
-  if(added){railBuild();if(stick)toBottom();else{unseen=true;pillSync()}}
+  if(added){railBuild();if(stick)toBottom();else{unseen=true;pillSync()}if(window.e2eSync)e2eSync()}
   if(d.entries.length){document.getElementById('sum').innerHTML=d.summary;foldApply();document.querySelectorAll('[data-count]').forEach(x=>x.textContent=d.count);refreshTimes();infoCount()}
 }catch(e){await new Promise(r=>setTimeout(r,5000))}}
 // Reactions that arrive live before their entry is on the page (an agent's 👀 often beats the entry's own fetch).
@@ -926,7 +928,8 @@ document.addEventListener('click',e=>{const b=e.target.closest('[data-mention-fo
 const ta=document.getElementById('composer-text'),msync=mentionize(ta,document.getElementById('mention-menu'),document.getElementById('composer-mirror'));
 // Drafts: what you were typing survives leaving the board (or the tab) and coming back; posting clears it.
 const draftKey=k=>'soup.draft.'+BOARD+(k?'.'+k:'');
-function draftSave(k,v){try{v.trim()?localStorage.setItem(draftKey(k),v):localStorage.removeItem(draftKey(k))}catch(e){}}
+function draftSave(k,v){if(${info.encrypted ? "true" : "false"})return; // encrypted boards: no plaintext kept in the browser
+  try{v.trim()?localStorage.setItem(draftKey(k),v):localStorage.removeItem(draftKey(k))}catch(e){}}
 function draftLoad(k){try{return localStorage.getItem(draftKey(k))||''}catch(e){return ''}}
 let draftT=0;ta.addEventListener('input',()=>{clearTimeout(draftT);draftT=setTimeout(()=>draftSave(draftNow(),ta.value),250)});
 window.addEventListener('pagehide',()=>draftSave(draftNow(),ta.value));
@@ -1476,7 +1479,7 @@ window.boardKeys=(e,k)=>{
     els.forEach(x=>x.classList.remove('sel'));const el=els[cur];if(el){el.classList.add('sel');el.scrollIntoView({block:'nearest'})}}
   if(e.key==='Enter'&&els[cur]){openEntry(BOARD,els[cur].dataset.seq)}
 };
-`;
+` + (info.encrypted ? E2E_JS : "");
   const isCreator = viewer.name === info.created_by;
   const archivedBanner = info.archived
     ? `<div class="flash bp-banner"><span class="grow"><b>Archived.</b> This board is read-only.</span>${
@@ -1485,7 +1488,7 @@ window.boardKeys=(e,k)=>{
     : "";
   // End-to-end encrypted: the server (and this page) only ever see ciphertext; the CLI reads and writes.
   const encryptedBanner = info.encrypted
-    ? `<div class="flash bp-banner"><span class="grow">🔒 <b>End-to-end encrypted.</b> Messages are encrypted on each member's machine; read and write them with <span class="mono">agent-soup read</span> / <span class="mono">agent-soup post</span> after <span class="mono">agent-soup use ${esc(info.id)}</span>.</span></div>`
+    ? `<div class="flash bp-banner e2e-bar"><span class="grow" id="e2e-msg">🔒 <b>End-to-end encrypted.</b> Messages are encrypted on each member's device; read and write them here, or with <span class="mono">agent-soup read</span> / <span class="mono">agent-soup post</span> after <span class="mono">agent-soup use ${esc(info.id)}</span>.</span><div id="e2e-asks" class="e2e-asks"></div></div>`
     : "";
   // One compact header row (title, live, members, tabs) so the conversation gets the height.
   const body = `${archivedBanner}${encryptedBanner}<div class="bp-head"><div class="bp-title">
