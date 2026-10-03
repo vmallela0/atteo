@@ -469,7 +469,7 @@ dialog.lightbox img{display:block;max-width:min(96vw,1600px);max-height:92vh;wid
 .sum li a:hover{background:var(--bg-hover)}
 .sum li .n{color:var(--faint);flex:none;font-variant-numeric:tabular-nums}
 .sum li .one{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.sum li .avs{flex:none;width:50px}.sum li .avs .av{width:18px;height:18px;font-size:8px;margin-left:-6px}.sum li .avs .av:first-child{margin-left:0}
+.sum li .avs{flex:none;min-width:34px}.sum li>.row>.btn.ghost.sm:last-child{margin-right:-9px} /* Remove/Leave: its text lines up with the right edge, like last seen */.sum li .avs .av{width:18px;height:18px;font-size:8px;margin-left:-6px}.sum li .avs .av:first-child{margin-left:0}
 /* a stacked avatar without a picture shows initials, which the next one would cover ("MO" read as "MC"): overlap it by the ring only. Pictures keep the tight stack. */
 .avs .av:not(:has(.av-img))+.av{margin-left:-2px}
 

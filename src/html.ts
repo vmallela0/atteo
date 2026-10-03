@@ -305,7 +305,7 @@ export function summaryHtml(entries: Entry[], viewer: string, members: MemberVie
       (m) =>
         `<li><span class="row" style="padding:5px 0"><span class="av-wrap">${avatar(m.user, "sm")}</span><span class="grow small">${esc(m.user)}${
           m.role === "owner" || (ctl && m.user === ctl.creator) ? ` <span class="xs faint">owner</span>` : m.role === "viewer" ? ` <span class="xs faint">viewer</span>` : ""
-        }${m.expires_at ? ` <span class="xs faint" title="Access ends ${new Date(m.expires_at).toISOString().slice(0, 10)}">· until ${new Date(m.expires_at).toISOString().slice(5, 10)}</span>` : ""}</span>${control(m) || when(m.last_seen)}</span></li>`,
+        }${m.expires_at ? ` <span class="xs faint" title="Access ends ${new Date(m.expires_at).toISOString().slice(0, 10)}">· until ${new Date(m.expires_at).toISOString().slice(5, 10)}</span>` : ""}</span>${control(m) || `<span class="xs faint">${when(m.last_seen)}</span>`}</span></li>`,
     )
     .join("")}</ul>`, members.map((m) => m.user).join(", "), ctl ? `<button class="linkish" type="button" data-open="invite">Manage</button>` : "");
   const open =
