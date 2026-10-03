@@ -8,11 +8,14 @@ import { computeSummary, formatSummary, tasksFor, DEFAULT_SUMMARY_CHARS, type Su
 import { blockedMessage, scanFields, scanText, type SecretHit } from "./secrets";
 import { recordOutcome } from "./agents";
 import { forAgent, forPerson, keep, MAX_MENTIONS, mentionsOwnAgent, SESSION_NAME_RE, type Mention } from "./mentions";
-import { ENTRY_TYPES, type Attachment, type BoardInfo, type Entry, type Env, type Media, type Member, type NewEntry } from "./types";
+import { ENTRY_TYPES, type ApprovalRef, type Attachment, type BoardInfo, type Entry, type Env, type Media, type Member, type NewEntry } from "./types";
 import { cleanTitle, EMOJI_RE, ftsQuery, USER_RE } from "./util";
 import { cardText, parseCard, type ChangeCard } from "./card";
 import { deliver } from "./webhooks";
 import { HumanDecisions, isHumanDecisionPost, type HumanDecision } from "./decisions";
+import type { RecapCore, RecapOwner, RecapTask } from "./recap";
+import { cleanMatch, cleanTrigger, eventLine, lastOccurrence, matches, MAX_FIRES_PER_HOUR, MAX_TRIGGERS, minuteOf, SCHEDULE_GRACE_MS, type Trigger, type TriggerEvent, type TriggerMatch } from "./triggers";
+import { offBoardSeq } from "./util";
 
 export const MAX_TEXT = 32_000;
 export const MAX_ARTIFACT = 256_000;
@@ -119,6 +122,27 @@ export type DocResult = { conflict: false; version: number; note: number } | { c
 export const MAX_REACTIONS_PER_PERSON = 12; // distinct emoji one person can leave on one entry
 export type Reactions = { emoji: string; users: string[] }[];
 
+/** The board's pinned doc: its source of truth. version is the doc's current one; pinned_version, when it was pinned. */
+export interface PinnedDoc {
+  name: string;
+  version: number; // the doc's current version
+  by: string; // who pinned it
+  via: string | null; // "agent" | "person": how they pinned it
+  ts: number; // when it was pinned
+  pinned_version: number; // the doc's version when it was pinned
+  updated_by: string;
+  updated_via: string | null;
+  updated_at: number;
+}
+
+/** The summary names the pinned doc right under its members line. */
+export function withPinned(summary: string, p: PinnedDoc | null): string {
+  if (!p) return summary;
+  const lines = summary.split("\n");
+  lines.splice(Math.min(2, lines.length), 0, `Pinned doc (source of truth): ${p.name} v${p.version} (doc read ${p.name})`);
+  return lines.join("\n");
+}
+
 export const DOC_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9 ._\-/]{0,79}$/;
 /** Any artifact name becomes a valid document name, so every file posted on a board is also a versioned doc. */
 export function cleanFileName(raw: string): string {
@@ -184,13 +208,22 @@ function toEntry(r: Row): Entry {
     title: (r.title as string | null) ?? null,
     card: r.card ? (JSON.parse(r.card as string) as ChangeCard) : null,
     ai_flag: (r.ai_flag as string | null) ?? null,
+    ...(r.approval ? { approval: liveApproval(JSON.parse(r.approval as string) as ApprovalRef) } : {}),
   };
 }
+
+/** An approval entry's request as it stands now: pending past its expiry is expired (denied). */
+function liveApproval(a: ApprovalRef): ApprovalRef {
+  return a.status === "pending" && a.expires_at < Date.now() ? { ...a, status: "expired" } : a;
+}
+
+/** A post's actor options, as task events take them. */
+const opts0 = (input: NewEntry): TaskActOpts => ({ via: input.via ?? null, client: input.client ?? null, session: input.session ?? null });
 
 /** For a session's reads: skip posts addressed to another session of the same person (binds: user, session). */
 const FOR_SESSION_OK = "(for_session IS NULL OR for_user != ? OR for_session = ?)";
 
-const ENTRY_COLS = "seq, ts, author, type, text, title, to_user, mentions, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, card, media, ai_flag, attachments";
+const ENTRY_COLS = "seq, ts, author, type, text, title, to_user, mentions, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, card, media, ai_flag, attachments, approval";
 
 export class Board extends DurableObject<Env> {
   private sql: SqlStorage;
@@ -349,6 +382,34 @@ export class Board extends DurableObject<Env> {
         version INTEGER NOT NULL,
         PRIMARY KEY (user, session)
       );
+      -- Workflow triggers (triggers.ts): "when X happens here, wake my agent with P". win_*: the hourly fire limit's window.
+      CREATE TABLE IF NOT EXISTS triggers (
+        id TEXT PRIMARY KEY,
+        created_by TEXT NOT NULL,
+        session TEXT,
+        on_event TEXT NOT NULL,
+        match TEXT NOT NULL DEFAULT '{}',
+        prompt TEXT NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        created_at INTEGER NOT NULL,
+        fires INTEGER NOT NULL DEFAULT 0,
+        last_fired_at INTEGER,
+        dropped INTEGER NOT NULL DEFAULT 0,
+        win_start INTEGER NOT NULL DEFAULT 0,
+        win_count INTEGER NOT NULL DEFAULT 0,
+        last_occurrence INTEGER NOT NULL DEFAULT 0
+      );
+      -- Approval requests posted on this board (type=approval entries), by approval id.
+      CREATE TABLE IF NOT EXISTS approval_entries (id TEXT PRIMARY KEY, seq INTEGER NOT NULL, user TEXT NOT NULL);
+      -- Which version of the board's pinned doc each agent reader has been told about ("📌 SPEC.md updated to v4"):
+      -- once per version per member+session, like rules_seen. session is '' for a member with no agent session.
+      CREATE TABLE IF NOT EXISTS pin_seen (
+        user TEXT NOT NULL,
+        session TEXT NOT NULL DEFAULT '',
+        name TEXT NOT NULL,
+        version INTEGER NOT NULL,
+        PRIMARY KEY (user, session)
+      );
     `);
     this.migrate();
     this.decisions = new HumanDecisions(this.sql, env, () => this.meta("id"));
@@ -461,6 +522,7 @@ export class Board extends DurableObject<Env> {
     if (!cols.has("artifact_version")) this.sql.exec("ALTER TABLE entries ADD COLUMN artifact_version INTEGER");
     if (!cols.has("card")) this.sql.exec("ALTER TABLE entries ADD COLUMN card TEXT");
     if (!cols.has("attachments")) this.sql.exec("ALTER TABLE entries ADD COLUMN attachments TEXT"); // a message with several files: JSON Attachment[]
+    if (!cols.has("approval")) this.sql.exec("ALTER TABLE entries ADD COLUMN approval TEXT"); // type=approval: JSON ApprovalRef (its status is kept current)
     // "Was this retracted / replied to?" lookups run for every task and claim on every summary rebuild.
     this.sql.exec("CREATE INDEX IF NOT EXISTS entries_retracts ON entries (retracts) WHERE retracts IS NOT NULL");
     this.sql.exec("CREATE INDEX IF NOT EXISTS entries_reply_to ON entries (reply_to) WHERE reply_to IS NOT NULL");
@@ -784,7 +846,7 @@ export class Board extends DurableObject<Env> {
     return r.length ? toEntry(r[0]) : null;
   }
 
-  async post(user: string, input: NewEntry, internal: { docVersion?: number; media?: Media; attachments?: { list: Attachment[]; text: string }; seeding?: boolean; sealed?: boolean; notice?: boolean; system?: boolean } = {}): Promise<Entry> {
+  async post(user: string, input: NewEntry, internal: { docVersion?: number; media?: Media; attachments?: { list: Attachment[]; text: string }; seeding?: boolean; sealed?: boolean; notice?: boolean; system?: boolean; approval?: ApprovalRef; taskCreate?: boolean } = {}): Promise<Entry> {
     // D1 lookups first, so nothing below waits between the duplicate check and the insert.
     const boardKind = await this.kindOf(this.meta("id") ?? "");
     const forSession = await this.sessionRoute(input.mentions ?? []);
@@ -804,7 +866,7 @@ export class Board extends DurableObject<Env> {
     else if (info.encrypted && !internal.sealed && !internal.notice) throw new BoardError(encryptedOnly(info.title));
     this.touch(user);
 
-    if (!ENTRY_TYPES.includes(input.type)) {
+    if (!(ENTRY_TYPES as readonly string[]).includes(input.type) && !(input.type === "approval" && internal.approval)) {
       throw new BoardError(`type must be one of: ${ENTRY_TYPES.join(", ")}`);
     }
     const text = (input.text ?? "").trim();
@@ -877,8 +939,8 @@ export class Board extends DurableObject<Env> {
 
     const row = this.sql
       .exec(
-        `INSERT INTO entries (ts, author, type, text, to_user, mentions, self_agent, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, artifact_content, card, card_diff, media, title, session, idem, for_user, for_session, attachments)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING ${ENTRY_COLS}`,
+        `INSERT INTO entries (ts, author, type, text, to_user, mentions, self_agent, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, artifact_content, card, card_diff, media, title, session, idem, for_user, for_session, attachments, approval)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING ${ENTRY_COLS}`,
         Date.now(),
         user,
         input.type,
@@ -905,6 +967,7 @@ export class Board extends DurableObject<Env> {
         forSession?.user ?? null,
         forSession?.session ?? null,
         internal.attachments ? JSON.stringify(internal.attachments.list) : null,
+        internal.approval ? JSON.stringify(internal.approval) : null,
       )
       .one();
     if (artifactVersion != null) this.broadcast({ type: "doc", name: artifactName, version: artifactVersion, by: user });
@@ -955,6 +1018,11 @@ export class Board extends DurableObject<Env> {
     }
 
     this.ctx.waitUntil(this.notify(info, entry, forSession).catch(() => {}));
+    // Workflow triggers: a post (not a notice, a system line, a seed or an unsend); a task post is also a new task.
+    if (!internal.seeding && !internal.notice && !internal.system && entry.retracts == null) {
+      this.fireTriggers({ on: "entry", actor: user, via: entry.via ?? null, seq: entry.seq, entry });
+      if (entry.type === "task" && !internal.taskCreate) this.taskEvent(entry.seq, user, opts0(input), "created");
+    }
     // Lists show who spoke last and what they said (sealed and encrypted posts show only that something was posted).
     // A notice about the board itself (its picture) is quiet: lists and the tape keep showing the last real message.
     if (!internal.seeding && !internal.notice) {
@@ -1052,12 +1120,15 @@ export class Board extends DurableObject<Env> {
     const withSummary = opts.summary ?? !given;
     if (withSummary && !given) this.sql.exec("UPDATE members SET summarized = 1 WHERE name = ?", user);
     const c = this.cached();
+    const pinned = this.pinnedNow();
     return {
       info,
       members,
+      pinned,
+      pin: this.pinLine(user, session, pinned), // "📌 SPEC.md updated to v4": once per version per reader, else null
       summaryText: withSummary
         ? (() => {
-            const text = formatSummary(info, members, c.summary, user, DEFAULT_SUMMARY_CHARS, this.decisions.tags(c.tags), c.reviewers);
+            const text = withPinned(formatSummary(info, members, c.summary, user, DEFAULT_SUMMARY_CHARS, this.decisions.tags(c.tags), c.reviewers), pinned);
             return info.encrypted
               ? `This board is END-TO-END ENCRYPTED: messages are ciphertext here. Read and write it with the atteo CLI (atteo read / post / ask), which decrypts and encrypts on this machine.\n\n${text}`
               : text;
@@ -1068,6 +1139,416 @@ export class Board extends DurableObject<Env> {
       remaining,
       rules,
     };
+  }
+
+  // ---- workflow triggers (triggers.ts): kept in memory (this object is their only writer), so a board without any
+  // costs nothing per post ----
+
+  private triggerMemo: (Trigger & { win_start: number; win_count: number; last_occurrence: number; session: string | null })[] | null = null;
+  private triggerRows() {
+    return (this.triggerMemo ??= this.sql
+      .exec("SELECT * FROM triggers ORDER BY created_at")
+      .toArray()
+      .map((r) => ({
+        id: r.id as string,
+        on: r.on_event as Trigger["on"],
+        match: JSON.parse(r.match as string) as TriggerMatch,
+        wake: { user: r.created_by as string, ...(r.session ? { session: r.session as string } : {}) },
+        prompt: r.prompt as string,
+        enabled: r.enabled === 1,
+        created_by: r.created_by as string,
+        created_at: r.created_at as number,
+        fires: r.fires as number,
+        last_fired_at: (r.last_fired_at as number | null) ?? null,
+        dropped: r.dropped as number,
+        session: (r.session as string | null) ?? null,
+        win_start: r.win_start as number,
+        win_count: r.win_count as number,
+        last_occurrence: r.last_occurrence as number,
+      })));
+  }
+  private publicTrigger(t: ReturnType<Board["triggerRows"]>[number]): Trigger {
+    const { win_start, win_count, last_occurrence, session, ...pub } = t;
+    void win_start; void win_count; void last_occurrence; void session;
+    return { ...pub, wake: { ...pub.wake }, match: { ...pub.match } };
+  }
+
+  async triggers(): Promise<Trigger[]> {
+    this.info();
+    return this.triggerRows().map((t) => this.publicTrigger(t));
+  }
+
+  /** A new trigger that wakes `user`'s own agent (the Worker has checked the session name is theirs). */
+  async triggerAdd(user: string, input: { on: unknown; match?: unknown; prompt: unknown; session?: string | null; enabled?: boolean }): Promise<Trigger> {
+    const info = this.info();
+    if (info.archived) throw new BoardError(`"${info.title}" is archived, so it's read-only. Its creator can restore it.`);
+    let t;
+    try {
+      t = cleanTrigger(input);
+    } catch (e) {
+      throw new BoardError(e instanceof Error ? e.message : String(e));
+    }
+    if (this.triggerRows().length >= MAX_TRIGGERS) throw new BoardError(`This board has ${MAX_TRIGGERS} triggers, the most it can have. Remove one first.`);
+    const id = "tr_" + crypto.randomUUID().replace(/-/g, "").slice(0, 12);
+    const now = Date.now();
+    // A schedule doesn't fire for a time that has already passed today.
+    const occ = t.on === "schedule" ? lastOccurrence(t.match.at!, now) : 0;
+    this.sql.exec(
+      "INSERT INTO triggers (id, created_by, session, on_event, match, prompt, enabled, created_at, last_occurrence) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      id, user, input.session ?? null, t.on, JSON.stringify(t.match), t.prompt, input.enabled === false ? 0 : 1, now, occ,
+    );
+    this.triggerMemo = null;
+    if (t.on === "schedule") {
+      try {
+        await this.scheduleIndex(id, t.match.at!);
+      } catch {
+        // Not indexed means the cron would never find it: don't keep a schedule that can't fire.
+        this.sql.exec("DELETE FROM triggers WHERE id = ?", id);
+        this.triggerMemo = null;
+        throw new BoardError("Couldn't save the schedule just now. Try again.");
+      }
+    }
+    this.broadcast({ type: "triggers" });
+    return this.publicTrigger(this.triggerRows().find((x) => x.id === id)!);
+  }
+
+  /** Change a trigger (its creator only): enabled, prompt, match. */
+  async triggerUpdate(user: string, id: string, patch: { enabled?: unknown; prompt?: unknown; match?: unknown }): Promise<Trigger> {
+    this.info();
+    const t = this.triggerRows().find((x) => x.id === id);
+    if (!t) throw new BoardError(`No trigger ${id} on this board.`);
+    if (t.created_by !== user) throw new BoardError(`Only ${t.created_by}, who made ${id}, can change it.`);
+    let prompt = t.prompt;
+    let match = t.match;
+    try {
+      if (patch.prompt !== undefined) prompt = cleanTrigger({ on: t.on, match: t.match, prompt: patch.prompt }).prompt;
+      if (patch.match !== undefined) match = cleanMatch(t.on, patch.match);
+    } catch (e) {
+      throw new BoardError(e instanceof Error ? e.message : String(e));
+    }
+    const enabled = typeof patch.enabled === "boolean" ? patch.enabled : t.enabled;
+    this.sql.exec("UPDATE triggers SET prompt = ?, match = ?, enabled = ? WHERE id = ?", prompt, JSON.stringify(match), enabled ? 1 : 0, id);
+    if (t.on === "schedule" && match.at !== t.match.at) {
+      this.sql.exec("UPDATE triggers SET last_occurrence = ? WHERE id = ?", lastOccurrence(match.at!, Date.now()), id);
+      await this.scheduleIndex(id, match.at!);
+    }
+    this.triggerMemo = null;
+    this.broadcast({ type: "triggers" });
+    return this.publicTrigger(this.triggerRows().find((x) => x.id === id)!);
+  }
+
+  /** Remove a trigger: its creator, or the board's creator. */
+  async triggerRemove(user: string, id: string): Promise<void> {
+    const info = this.info();
+    const t = this.triggerRows().find((x) => x.id === id);
+    if (!t) throw new BoardError(`No trigger ${id} on this board.`);
+    if (t.created_by !== user && info.created_by !== user) throw new BoardError(`Only ${t.created_by}, who made ${id}, or the board's creator can remove it.`);
+    await this.dropTrigger(t);
+    this.broadcast({ type: "triggers" });
+  }
+
+  private async dropTrigger(t: { id: string; on: string }) {
+    this.sql.exec("DELETE FROM triggers WHERE id = ?", t.id);
+    this.triggerMemo = null;
+    if (t.on === "schedule") await this.env.DB.prepare("DELETE FROM trigger_schedules WHERE board_id = ? AND trigger_id = ?").bind(this.meta("id"), t.id).run().catch(() => {});
+  }
+
+  /** The cron finds boards with a schedule due through this D1 index (board, trigger, minute of the day). */
+  private async scheduleIndex(id: string, at: string) {
+    await this.env.DB.prepare("INSERT OR REPLACE INTO trigger_schedules (board_id, trigger_id, minute) VALUES (?, ?, ?)").bind(this.meta("id"), id, minuteOf(at)).run();
+  }
+
+  /** The cron: every schedule whose daily time has come (within the grace period) and hasn't fired for it yet. */
+  async runSchedules(now = Date.now()): Promise<number> {
+    if (!this.meta("id")) return 0;
+    let n = 0;
+    for (const t of this.triggerRows()) {
+      if (t.on !== "schedule" || !t.enabled || !t.match.at) continue;
+      const occ = lastOccurrence(t.match.at, now);
+      if (occ <= t.last_occurrence || now - occ > SCHEDULE_GRACE_MS) continue;
+      this.sql.exec("UPDATE triggers SET last_occurrence = ? WHERE id = ?", occ, t.id);
+      t.last_occurrence = occ;
+      if (this.fireOne(t, { on: "schedule", actor: t.created_by, via: null, seq: null }, now)) n++;
+    }
+    return n;
+  }
+
+  private taskEvent(seq: number, user: string, opts: TaskActOpts, change: "created" | "status", from?: string | null) {
+    if (!this.triggerRows().length) return;
+    const t = this.taskRows().find((x) => x.seq === seq);
+    if (!t) return;
+    this.fireTriggers({ on: "task", actor: user, via: opts.via ?? null, seq, task: { seq, title: t.title, status: t.status, assignee: t.assignee, priority: t.priority, change, from: from ?? null } });
+  }
+
+  /** Checks an event against every trigger; each match wakes its creator's agent (never from their own agent's doing). */
+  private fireTriggers(ev: TriggerEvent) {
+    const list = this.triggerRows();
+    if (!list.length) return;
+    const now = Date.now();
+    for (const t of list) {
+      if (!t.enabled || !matches(t, ev)) continue;
+      // Loop protection: what the woken agent itself does never wakes it again.
+      if (ev.actor === t.created_by && ev.via === "agent") continue;
+      this.fireOne(t, ev, now);
+    }
+  }
+
+  /** Rate-limited (MAX_FIRES_PER_HOUR per trigger, fixed hourly window): counts it, then delivers the mail. */
+  private fireOne(t: ReturnType<Board["triggerRows"]>[number], ev: TriggerEvent, now: number): boolean {
+    if (now - t.win_start >= 3_600_000) {
+      t.win_start = now;
+      t.win_count = 0;
+    }
+    if (t.win_count >= MAX_FIRES_PER_HOUR) {
+      t.dropped++;
+      this.sql.exec("UPDATE triggers SET dropped = dropped + 1 WHERE id = ?", t.id);
+      return false;
+    }
+    t.win_count++;
+    t.fires++;
+    t.last_fired_at = now;
+    this.sql.exec("UPDATE triggers SET win_start = ?, win_count = ?, fires = fires + 1, last_fired_at = ? WHERE id = ?", t.win_start, t.win_count, now, t.id);
+    this.ctx.waitUntil(this.deliverTrigger(t, ev, now).catch((e) => console.error("trigger delivery failed", e)));
+    return true;
+  }
+
+  /** The mail: kind "trigger" in the creator's agent's mailbox (one session's, when the trigger names a live one). */
+  private async deliverTrigger(t: ReturnType<Board["triggerRows"]>[number], ev: TriggerEvent, now: number) {
+    const info = this.info();
+    const base = (this.env.PUBLIC_URL ?? "https://agent-board.vedu-mallela.workers.dev").replace(/\/$/, "");
+    const toSession = t.session
+      ? ((await this.env.DB.prepare("SELECT id FROM agent_sessions WHERE user = ? AND name = ? AND ended_at IS NULL ORDER BY last_seen DESC LIMIT 1").bind(t.created_by, t.session).first<{ id: string }>())?.id ?? null)
+      : null;
+    const data = {
+      trigger: { id: t.id, on: t.on },
+      prompt: t.prompt,
+      event: { on: ev.on, seq: ev.seq, by: ev.actor, via: ev.via, line: eventLine(ev), url: ev.seq != null ? `${base}/b/${info.id}#e${ev.seq}` : `${base}/b/${info.id}` },
+      ...(t.session && !toSession ? { session_missing: t.session } : {}),
+    };
+    await this.env.DB.prepare(
+      "INSERT INTO notifications (user, board_id, seq, kind, actor, actor_via, entry_type, excerpt, created_at, to_session, read_at, data) VALUES (?, ?, ?, 'trigger', ?, 'person', 'trigger', ?, ?, ?, ?, ?)",
+    )
+      .bind(t.created_by, info.id, offBoardSeq(), t.created_by, t.prompt.replace(/\s+/g, " ").slice(0, 160), now, toSession, now, JSON.stringify(data))
+      .run();
+  }
+
+  // ---- approvals (approvals.ts) on a board: an "approval" entry everyone sees; its status is kept current ----
+
+  /**
+   * An agent asked its person for approval about work on this board: a quiet "approval" entry carrying the request
+   * (not its details), and {type: "approval"} to open tabs. On an end-to-end encrypted board no entry is posted (the
+   * title and command would be plaintext): only its person's own tabs hear about it.
+   */
+  async approvalRequested(ref: ApprovalRef, opts: TaskActOpts): Promise<number | null> {
+    const info = this.info();
+    if (info.encrypted || info.archived) {
+      this.toUserTabs(ref.user, { type: "approval", id: ref.id, status: ref.status, seq: null, approval: ref });
+      return null;
+    }
+    const e = await this.post(
+      ref.user,
+      { type: "approval", title: "Approval request", text: `Approval requested: ${ref.title} (waiting for ${ref.user} to decide)`, reply_to: 0, via: "agent", client: opts.client, session: opts.session },
+      { approval: ref, notice: true },
+    );
+    this.sql.exec("INSERT OR REPLACE INTO approval_entries (id, seq, user) VALUES (?, ?, ?)", ref.id, e.seq, ref.user);
+    this.broadcast({ type: "approval", id: ref.id, status: ref.status, seq: e.seq, approval: ref });
+    return e.seq;
+  }
+
+  /** The person decided: the entry's status changes in place and tabs hear {type: "approval", id, status}. */
+  async approvalDecided(ref: ApprovalRef): Promise<number | null> {
+    this.info();
+    const row = this.sql.exec("SELECT seq FROM approval_entries WHERE id = ?", ref.id).toArray()[0];
+    if (!row) {
+      this.toUserTabs(ref.user, { type: "approval", id: ref.id, status: ref.status, seq: null, approval: ref });
+      this.fireTriggers({ on: "approval", actor: ref.user, via: "person", seq: null, approval: ref });
+      return null;
+    }
+    const seq = row.seq as number;
+    this.sql.exec("UPDATE entries SET approval = ? WHERE seq = ?", JSON.stringify(ref), seq);
+    this.entryMemo = this.entryMemo.map((e) => (e.seq === seq ? { ...e, approval: ref } : e));
+    this.broadcast({ type: "approval", id: ref.id, status: ref.status, seq, approval: ref });
+    this.fireTriggers({ on: "approval", actor: ref.user, via: "person", seq, approval: ref });
+    return seq;
+  }
+
+  /** One member's open tabs only (what isn't for everyone on the board). */
+  private toUserTabs(user: string, msg: object) {
+    const data = JSON.stringify(msg);
+    for (const ws of this.ctx.getWebSockets(user)) {
+      if (this.isWait(ws)) continue;
+      try {
+        ws.send(data);
+      } catch {}
+    }
+  }
+
+  // ---- recaps (recap.ts): what happened since an entry, or since this reader last read; nothing here moves a cursor ----
+
+  /** Where a reader last read, without touching anything: an agent session's own position, the person's (web), or the agent's. */
+  private lastRead(user: string, session: string | null, as: "agent" | "person"): number {
+    if (session && as === "agent") {
+      const r = this.sql.exec("SELECT cursor FROM session_cursors WHERE session = ? AND user = ?", session, user).toArray()[0];
+      if (r) return r.cursor as number;
+    }
+    const m = this.sql.exec("SELECT cursor, person_seen FROM members WHERE name = ?", user).toArray()[0];
+    if (!m) return 0;
+    return as === "person" ? (m.person_seen as number) : (m.cursor as number);
+  }
+
+  async recap(user: string, opts: { since: number | "last-read"; session: string | null; as: "agent" | "person" }): Promise<RecapCore> {
+    const info = this.info();
+    const from = Math.min(info.last_seq, Math.max(0, opts.since === "last-read" ? this.lastRead(user, opts.session, opts.as) : opts.since));
+    const sinceTs = from > 0 ? ((this.sql.exec("SELECT ts FROM entries WHERE seq = ?", from).toArray()[0]?.ts as number | undefined) ?? 0) : 0;
+    await this.decisions.refresh();
+    const hds = this.decisions.all();
+    const firstLine = (r: Row) => ((r.title as string | null) || (r.text as string).split("\n").find((l) => l.trim()) || "").trim();
+    const live = "NOT EXISTS (SELECT 1 FROM entries x WHERE x.retracts = e.seq OR x.supersedes = e.seq)";
+    // Decisions: posted since, plus human decisions whose outcome was announced since.
+    const decided = Object.entries(hds).filter(([seq, h]) => Number(seq) <= from && h.line != null && h.line > from).map(([seq]) => Number(seq));
+    const decRows = this.sql
+      .exec(`SELECT e.seq, e.ts, e.author, e.via, e.text, e.title FROM entries e WHERE e.type = 'decision' AND e.retracts IS NULL AND (e.seq > ? OR e.seq IN (SELECT value FROM json_each(?))) AND ${live} ORDER BY e.seq`, from, JSON.stringify(decided))
+      .toArray();
+    const decisions = decRows.map((r) => {
+      const h = hds[r.seq as number];
+      return { seq: r.seq as number, title: firstLine(r), author: r.author as string, via: (r.via as string | null) ?? null, ts: r.ts as number, human: !!h, state: h ? h.state : null, waiting_on: h ? h.waiting_on : [] };
+    });
+    // Questions still open (now), newest first, with who they're waiting on.
+    const waitingOn = (e: Entry) => [...new Set([...(e.to ? [`${e.to}'s agent`] : []), ...(e.mentions ?? []).map((m) => (m.agent ? `${m.user}'s agent` : m.user))])];
+    const openQs = [...this.cached().summary.openQuestions].reverse().slice(0, 50);
+    const questions = openQs.map((e) => ({ seq: e.seq, title: (e.title || e.text.split("\n").find((l) => l.trim()) || "").trim(), author: e.author, via: e.via ?? null, to: e.to ?? null, ts: e.ts, waiting_on: waitingOn(e), new: e.seq > from }));
+    // Tasks that moved since: new ones, and ones finished or blocked since (one category each: done, then blocked, then new).
+    const lite = (t: TaskView, owner: string | null, agent: boolean): RecapTask => ({
+      seq: t.seq, title: t.title, status: t.status, priority: t.priority, owner, owner_label: owner ? (agent ? `${owner}'s agent` : owner) : "unassigned", updated_at: t.updated_at,
+    });
+    const tasks: RecapCore["tasks_moved"] = { new: [], done: [], blocked: [], by_owner: [] };
+    const owners = new Map<string, RecapOwner>();
+    const own = (t: RecapTask, k: "new" | "done" | "blocked") => {
+      tasks[k].push(t);
+      const o = owners.get(t.owner_label) ?? { owner: t.owner, label: t.owner_label, new: [], blocked: [], done: [] };
+      o[k].push(t.seq);
+      owners.set(t.owner_label, o);
+    };
+    for (const t of this.taskRows()) {
+      const moved = t.updated_at > sinceTs;
+      if (t.status === "done" && (moved || t.seq > from)) own(lite(t, t.assignee ?? t.updated_by, t.assignee ? t.assignee_agent : t.updated_via === "agent"), "done");
+      else if (t.status === "blocked" && (moved || t.seq > from)) own(lite(t, t.assignee ?? t.lease_holder, t.assignee ? t.assignee_agent : t.lease_agent), "blocked");
+      else if (t.seq > from && t.status !== "done") own(lite(t, t.assignee ?? t.lease_holder, t.assignee ? t.assignee_agent : t.lease_agent), "new");
+    }
+    // Whoever owes the most first; the unassigned last.
+    tasks.by_owner = [...owners.values()].sort((a, b) => (a.owner == null ? 1 : 0) - (b.owner == null ? 1 : 0) || b.blocked.length + b.new.length - (a.blocked.length + a.new.length) || a.label.localeCompare(b.label));
+    // Who owes what: the moved tasks still open, then the open questions naming someone.
+    const owed = new Map<string, RecapCore["owed"][number]>();
+    const owe = (who: string, agent: boolean, item: RecapCore["owed"][number]["items"][number]) => {
+      const k = `${who}\u0000${agent}`;
+      const o = owed.get(k) ?? { who, agent, items: [] };
+      if (!o.items.some((i) => i.seq === item.seq)) o.items.push(item);
+      owed.set(k, o);
+    };
+    for (const k of ["blocked", "new"] as const) for (const t of tasks[k]) if (t.owner) owe(t.owner, t.owner_label.endsWith("'s agent"), { seq: t.seq, title: t.title, kind: "task", state: k });
+    for (const e of openQs) {
+      const title = (e.title || e.text.split("\n").find((l) => l.trim()) || "").trim();
+      if (e.to) owe(e.to, true, { seq: e.seq, title, kind: "question", state: "open" });
+      for (const m of e.mentions ?? []) owe(m.user, !!m.agent, { seq: e.seq, title, kind: "question", state: "open" });
+    }
+    // Files: every version published since (a message with several files counts each).
+    const files = new Map<string, { name: string; from_version: number; to_version: number; versions: number; authors: string[] }>();
+    for (const r of this.sql.exec("SELECT author, via, artifact_name, artifact_version, attachments FROM entries WHERE seq > ? AND artifact_name IS NOT NULL AND retracts IS NULL ORDER BY seq", from).toArray()) {
+      const list: { name: string; version: number | null }[] = r.attachments ? (JSON.parse(r.attachments as string) as Attachment[]).map((a) => ({ name: a.name, version: a.version ?? null })) : [{ name: r.artifact_name as string, version: (r.artifact_version as number | null) ?? null }];
+      const who = r.via === "agent" ? `${r.author}'s agent` : (r.author as string);
+      for (const a of list) {
+        if (a.version == null) continue;
+        const f = files.get(a.name) ?? { name: a.name, from_version: a.version - 1, to_version: a.version, versions: 0, authors: [] };
+        f.from_version = Math.min(f.from_version, a.version - 1);
+        f.to_version = Math.max(f.to_version, a.version);
+        f.versions++;
+        if (!f.authors.includes(who)) f.authors.push(who);
+        files.set(a.name, f);
+      }
+    }
+    return {
+      board: { id: info.id, title: info.title, encrypted: !!info.encrypted },
+      since: from,
+      since_ts: sinceTs,
+      basis: opts.since === "last-read" ? "last-read" : "seq",
+      until: info.last_seq,
+      entries: info.last_seq - from,
+      decisions,
+      questions,
+      owed: [...owed.values()].sort((a, b) => b.items.length - a.items.length || a.who.localeCompare(b.who)),
+      tasks_moved: tasks,
+      files: [...files.values()],
+      pinned: this.pinnedNow(),
+    };
+  }
+
+  // ---- the pinned doc: one document a board pins as its source of truth ----
+
+  /** The pinned doc with its current version (null: nothing pinned, or the doc is gone). */
+  private pinnedNow(): PinnedDoc | null {
+    const name = this.meta("pin");
+    if (!name) return null;
+    const d = this.sql.exec("SELECT version, updated_by, updated_at, via FROM docs WHERE name = ?", name).toArray()[0];
+    if (!d) return null;
+    return {
+      name,
+      version: d.version as number,
+      by: this.meta("pin_by") ?? "",
+      via: this.meta("pin_via") || null,
+      ts: Number(this.meta("pin_at") ?? 0),
+      pinned_version: Number(this.meta("pin_v") ?? d.version),
+      updated_by: d.updated_by as string,
+      updated_via: (d.via as string | null) ?? null,
+      updated_at: d.updated_at as number,
+    };
+  }
+
+  async pinned(): Promise<PinnedDoc | null> {
+    this.info();
+    return this.pinnedNow();
+  }
+
+  /**
+   * "📌 SPEC.md updated to v4" for an agent's read, once per version per member+session, when the pinned doc has a
+   * version newer than when it was pinned and newer than what this reader was last told. Otherwise null (no line).
+   */
+  private pinLine(user: string, session: string | null | undefined, p: PinnedDoc | null): string | null {
+    if (!p || p.version <= p.pinned_version) return null;
+    const seen = this.sql.exec("SELECT name, version FROM pin_seen WHERE user = ? AND session = ?", user, session ?? "").toArray()[0];
+    if (seen && seen.name === p.name && (seen.version as number) >= p.version) return null;
+    this.sql.exec("INSERT OR REPLACE INTO pin_seen (user, session, name, version) VALUES (?, ?, ?, ?)", user, session ?? "", p.name, p.version);
+    return `📌 ${p.name} updated to v${p.version} (the board's pinned doc: doc read ${p.name})`;
+  }
+
+  /** Pin a document as the board's source of truth (any member who can post). Replaces any earlier pin. */
+  async pin(user: string, name: string, opts: TaskActOpts): Promise<PinnedDoc> {
+    const info = this.info();
+    if (info.archived) throw new BoardError(`"${info.title}" is archived, so it's read-only. Its creator can restore it.`);
+    const d = this.sql.exec("SELECT version FROM docs WHERE name = ?", name).toArray()[0];
+    if (!d) throw new BoardError(`There's no document named "${name}" on this board. Create it first (doc write), then pin it.`);
+    if (this.meta("pin") === name) return this.pinnedNow()!; // already pinned: nothing to announce
+    this.setMeta("pin", name);
+    this.setMeta("pin_v", String(d.version));
+    this.setMeta("pin_by", user);
+    this.setMeta("pin_via", opts.via ?? "");
+    this.setMeta("pin_at", String(Date.now()));
+    await this.notice(user, "Pinned doc", `📌 Pinned ${name} (v${d.version}) as this board's source of truth.`, opts);
+    const p = this.pinnedNow()!;
+    this.broadcast({ type: "pin", pinned: p });
+    return p;
+  }
+
+  /** Unpin (any member who can post). `name`, if given, must be what's pinned. Returns what was unpinned. */
+  async unpin(user: string, name: string | null, opts: TaskActOpts): Promise<{ unpinned: string | null }> {
+    const info = this.info();
+    if (info.archived) throw new BoardError(`"${info.title}" is archived, so it's read-only. Its creator can restore it.`);
+    const cur = this.meta("pin") || null;
+    if (!cur) return { unpinned: null };
+    if (name && name !== cur) throw new BoardError(`"${name}" isn't pinned; ${cur} is.`);
+    this.setMeta("pin", "");
+    await this.notice(user, "Unpinned doc", `📌 Unpinned ${cur}.`, opts);
+    this.broadcast({ type: "pin", pinned: null });
+    return { unpinned: cur };
   }
 
   /**
@@ -1107,6 +1588,9 @@ export class Board extends DurableObject<Env> {
 
   /** Drops a member's cursor and ends any wait they have in progress. Access itself is enforced by the Worker. */
   async removeMember(user: string): Promise<void> {
+    // Their triggers go with them (they could only ever wake their own agent).
+    const theirs = this.triggerRows().filter((t) => t.created_by === user);
+    for (const t of theirs) await this.dropTrigger(t);
     this.sql.exec("DELETE FROM members WHERE name = ?", user);
     this.sql.exec("DELETE FROM session_cursors WHERE user = ?", user);
     this.touched.delete(user);
@@ -1870,7 +2354,7 @@ export class Board extends DurableObject<Env> {
       user, opts.via === "agent" ? 1 : 0, until, Date.now(), seq,
     );
     void info;
-    void opts;
+    if (t.status !== "doing" && (t.status === "todo" || t.status === "stopped")) this.taskEvent(seq, user, opts, "status", t.status);
     this.broadcast({ type: "task", seq });
     return this.task(seq);
   }
@@ -1880,7 +2364,7 @@ export class Board extends DurableObject<Env> {
     const t = this.task(seq);
     if (t.lease_holder && t.lease_holder !== user && info.created_by !== user) throw new BoardError(`Only ${t.lease_holder} (or the board's creator) can release #${seq}.`);
     this.sql.exec("UPDATE tasks SET lease_holder = NULL, lease_agent = NULL, lease_until = NULL, status = CASE WHEN status = 'doing' THEN 'todo' ELSE status END, updated_at = ? WHERE seq = ?", Date.now(), seq);
-    void opts;
+    if (t.status === "doing") this.taskEvent(seq, user, opts, "status", t.status);
     this.broadcast({ type: "task", seq });
     return this.task(seq);
   }
@@ -1932,6 +2416,7 @@ export class Board extends DurableObject<Env> {
     if (doneNote) this.sql.exec("UPDATE tasks SET done_note = ? WHERE seq = ?", doneNote, seq);
     this.sql.exec("UPDATE tasks SET updated_at = ? WHERE seq = ?", Date.now(), seq);
     const after = this.task(seq);
+    if (after.status !== t.status) this.taskEvent(seq, user, opts, "status", t.status);
     const done = change.status === "done" && t.status !== "done";
     this.broadcast({ type: "task", seq, ...(done ? { done: true } : {}) });
     // The conversation only hears about a task when it's newly assigned or someone adds a note; everything else,
@@ -1979,6 +2464,7 @@ export class Board extends DurableObject<Env> {
     const why = reason.trim().slice(0, 300) || "stopped";
     this.sql.exec("UPDATE tasks SET status = 'stopped', stop_reason = ?, lease_holder = NULL, lease_until = NULL, updated_at = ? WHERE seq = ?", why, Date.now(), seq);
     await this.post(user, { type: "note", reply_to: seq, to: t.lease_holder ?? t.assignee, text: `Stop task #${seq}: ${why}`, via: opts.via, client: opts.client, session: opts.session });
+    if (t.status !== "stopped") this.taskEvent(seq, user, opts, "status", t.status);
     this.broadcast({ type: "task", seq });
     return this.task(seq);
   }
@@ -2036,7 +2522,7 @@ export class Board extends DurableObject<Env> {
     const body = (input.body ?? "").trim();
     const who = input.assignee ? input.assignee.toLowerCase() : null;
     if (who && !this.sql.exec("SELECT 1 AS x FROM members WHERE name = ?", who).toArray().length) throw new BoardError(`${who} isn't a member of this board.`);
-    const e = await this.post(user, { type: "task", text: body ? `${title}\n\n${body}` : title, to: who, via: opts.via, client: opts.client, session: opts.session });
+    const e = await this.post(user, { type: "task", text: body ? `${title}\n\n${body}` : title, to: who, via: opts.via, client: opts.client, session: opts.session }, { taskCreate: true });
     if (who || input.priority || input.due || input.assignee_agent === false) {
       this.sql.exec(
         "UPDATE tasks SET assignee = ?, assignee_agent = ?, priority = ?, due = ? WHERE seq = ?",
@@ -2047,6 +2533,7 @@ export class Board extends DurableObject<Env> {
       this.sql.exec("UPDATE tasks SET parent = ? WHERE seq = ?", input.parent, e.seq);
       this.broadcast({ type: "task", seq: input.parent });
     }
+    this.taskEvent(e.seq, user, opts, "created"); // after its assignee and priority are set, so triggers can match them
     return this.task(e.seq);
   }
 
@@ -2386,6 +2873,9 @@ export class Board extends DurableObject<Env> {
 
   /** Permanently erases this board: tells open tabs, ends waits, and deletes all storage. Access is checked by the Worker. */
   async destroy(): Promise<void> {
+    const id = this.meta("id");
+    if (id) await this.env.DB.prepare("DELETE FROM trigger_schedules WHERE board_id = ?").bind(id).run().catch(() => {});
+    this.triggerMemo = null;
     for (const ws of this.ctx.getWebSockets()) {
       try {
         ws.send(JSON.stringify({ type: "deleted" }));
@@ -2601,6 +3091,7 @@ export class Board extends DurableObject<Env> {
       claims: this.claimStates(),
       handling: this.handlingMap(),
       decisions: this.decisions.all(), // every human decision's state (small), like claims
+      pinned: this.pinnedNow(),
     };
   }
 
