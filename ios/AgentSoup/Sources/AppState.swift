@@ -37,6 +37,8 @@ final class AppState: ObservableObject {
         // Simulator runs against a local server: AGENT_SOUP_TOKEN skips the browser sign-in.
         if let t = ProcessInfo.processInfo.environment["AGENT_SOUP_TOKEN"], !t.isEmpty { Keychain.token = t; signedIn = true }
         if ProcessInfo.processInfo.environment["AGENT_SOUP_FRESH"] != nil { try? FileManager.default.removeItem(at: Self.cacheURL) }
+        // Simulator screenshots of the sign-in screen (the token stays where it is).
+        if ProcessInfo.processInfo.environment["AGENT_SOUP_SIGNED_OUT"] != nil { signedIn = false }
         #endif
         if signedIn { restore() }
     }
