@@ -253,7 +253,7 @@ const voiceJs = (agentChat: boolean) => `
     document.getElementById('vp-go').textContent=speaking?'🔊 Reading'+(q.length?' · '+q.length+' more':'')+' · tap to stop':'🔊 '+(q.length>1?q.length+' for you, first from ':'For you from ')+(el?who(el):'')+' · tap or say “go ahead”'}
   function speakNext(){stopGo();const s=q.shift(),el=s&&document.getElementById('e'+s);if(!el){speaking=false;pillUpd();return}
     const body=((el.querySelector(':scope>.grow>.body')||{}).innerText||'').replace(/https?:[^\\s]+/g,'a link').slice(0,700);
-    const u=new SpeechSynthesisUtterance(el.dataset.author+(el.classList.contains('by-agent')?"'s agent":'')+'. '+body);u.lang=LANG;let started=false;u.onstart=()=>{started=true};
+    const u=new SpeechSynthesisUtterance(el.dataset.author+(el.classList.contains('by-agent')?"'s agent":'')+'. '+body);u.lang=LANG;const vo=bestVoice();if(vo)try{u.voice=vo}catch(e){}let started=false;u.onstart=()=>{started=true};
     u.onend=u.onerror=()=>{if(u.done)return;u.done=1;window.__utt=null;speaking=false;if(q.length)speakNext();else pillUpd()};
     window.__utt=u; // Chrome drops an utterance nothing holds on to, and its end event with it
     speaking=true;pillUpd();if(syn.speaking||syn.pending)syn.cancel();
@@ -263,6 +263,12 @@ const voiceJs = (agentChat: boolean) => `
     setTimeout(()=>{if(u.done)return;if(syn.resume)syn.resume();syn.speak(u);
       setTimeout(()=>{if(!never())return;syn.cancel();syn.speak(u);
         setTimeout(()=>{if(!never())return;u.done=1;speaking=false;q.length=0;pillUpd();toast("The browser didn't play it: check the volume, or that this page may play sound")},2000)},1500)},200)}
+  // The best voice this device has for the language: neural ones first (Edge "Natural", Apple "Premium"/"Enhanced", Google's), then local (jxn #1104)
+  function bestVoice(){const vs=(syn.getVoices&&syn.getVoices())||[],l=LANG.toLowerCase(),two=l.slice(0,2);
+    const score=v=>{const n=v.name||'',vl=(v.lang||'').toLowerCase().replace('_','-');if(!vl.startsWith(two))return -1;
+      return (vl===l?4:0)+(/natural|neural/i.test(n)?40:/premium/i.test(n)?30:/enhanced/i.test(n)?20:/^google/i.test(n)?15:0)+(v.default?1:0)};
+    let best=null,bs=-1;for(const v of vs){const sc=score(v);if(sc>bs){bs=sc;best=v}}return best}
+  if(syn.getVoices)syn.getVoices(); /* Chrome loads the list lazily */
   function hush(){q.length=0;speaking=false;syn.cancel();pillUpd()}
   // After the blip, listen briefly for "go ahead" (only once the mic is already allowed, so nothing asks for it out of nowhere).
   async function listenGo(){if(!SR||rec||gl||speaking)return;try{if((await navigator.permissions.query({name:'microphone'})).state!=='granted')return}catch(e){return}
