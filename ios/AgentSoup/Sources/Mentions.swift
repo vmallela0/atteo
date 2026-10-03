@@ -82,7 +82,9 @@ extension String {
             guard let r = Range(NSRange(location: at, length: length), in: out) else { continue }
             if out[r].runs.contains(where: { $0.inlinePresentationIntent?.contains(.code) == true }) { continue } // `@name` in code
             out[r].foregroundColor = mine ? MentionColor.mineText : MentionColor.text
-            if !(raw == "agents" || raw == "humans") || wanted.contains(raw) {
+            if (raw == "agents" || raw == "humans") && suffix == nil && !wanted.contains(raw) {
+                out[r].link = URL(string: "atteo-group://\(raw)") // everyone's agents / everyone: who that reaches
+            } else {
                 // Tap: their card (or their agent's).
                 let user = raw.replacingOccurrences(of: "[.-]+$", with: "", options: .regularExpression)
                 out[r].link = URL(string: "atteo-person://\(user)?agent=\(suffix != nil ? 1 : 0)")

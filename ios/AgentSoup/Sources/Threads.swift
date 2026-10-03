@@ -88,6 +88,13 @@ extension String {
 /// The message number in an "atteo-entry://123" link.
 func entryLink(_ url: URL) -> Int? { url.scheme == "atteo-entry" ? Int(url.host ?? "") : nil }
 
+/// "@agents" / "@humans", tapped: who it reaches ("atteo-group://agents").
+func groupLink(_ url: URL) -> GroupTarget? {
+    guard url.scheme == "atteo-group", let h = url.host else { return nil }
+    return h == "agents" ? GroupTarget(agents: true) : h == "humans" ? GroupTarget(agents: false) : nil
+}
+struct GroupTarget: Identifiable, Hashable { let agents: Bool; var id: Bool { agents } }
+
 /// Who an "atteo-person://theo?agent=1" link (a tapped @mention) is.
 func personLink(_ url: URL) -> ProfileTarget? {
     guard url.scheme == "atteo-person", let name = url.host, !name.isEmpty else { return nil }
@@ -228,15 +235,15 @@ struct ThreadView: View {
     @State private var top: Int? // the real root, once known (opened on an answer: its thread)
     @State private var fetched: ThreadResponse?
     @State private var draft = ""
-    @State private var selection: TextSelection?
     @State private var alsoToChat = false
     @State private var unsending: Entry?
     @State private var reactingTo: SeqRef?
     @State private var next: ThreadTarget? // another thread, pushed on top
     @State private var profile: ProfileTarget? // someone's card
+    @State private var group: GroupTarget? // "@agents" / "@humans" tapped
     @State private var flash: Int?
     @State private var scrollTo: Int?
-    @FocusState private var focused: Bool
+    @State private var focused = false
 
     private var me: String? { state.me?.owner }
     private var rootSeq: Int { top ?? root }
@@ -311,17 +318,18 @@ struct ThreadView: View {
         // A "#123" in a message: in this thread, go to it; elsewhere, open its thread on top of this one.
         .environment(\.openURL, OpenURLAction { url in
             if let p = personLink(url) { Haptic.tap(); profile = p; return .handled }
+            if let g = groupLink(url) { Haptic.tap(); group = g; return .handled }
             guard let n = entryLink(url) else { return .systemAction }
             open(n, here: bySeq)
             return .handled
         })
+        .sheet(item: $group) { g in GroupSheet(board: board, agents: g.agents).presentationDetents([.medium, .large]).presentationBackground(Theme.bg) }
         .sheet(item: $profile) { p in
             NavigationStack {
                 PersonCard(name: p.name, open: { b in profile = nil; state.openRequest = b }, agentFirst: p.agent, ask: {
                     profile = nil
                     let handle = "@\(p.name)'s agent "
                     if !draft.localizedCaseInsensitiveContains(handle.trimmingCharacters(in: .whitespaces)) { draft = handle + draft }
-                    selection = TextSelection(insertionPoint: draft.endIndex)
                     focused = true
                 })
             }
@@ -335,7 +343,7 @@ struct ThreadView: View {
             Button("Unsend", role: .destructive) { Task { await state.retract(e.seq, in: board) } }
         } message: { _ in Text("Everyone here will see it as unsent.") }
         .task {
-            if let prefill, draft.isEmpty { draft = prefill; selection = TextSelection(insertionPoint: draft.endIndex); focused = true }
+            if let prefill, draft.isEmpty { draft = prefill; focused = true }
             await load()
         }
         .task(id: board.id) { await state.watch(board) } // new answers arrive live
@@ -388,7 +396,6 @@ struct ThreadView: View {
         guard !(e.author == me && e.via != "agent") else { focused = true; return }
         let handle = "@" + (e.byAgent ? "\(e.author)'s agent" : e.author)
         if !draft.localizedCaseInsensitiveContains(handle) { draft = handle + " " + draft }
-        selection = TextSelection(insertionPoint: draft.endIndex)
         focused = true
     }
 
@@ -396,12 +403,9 @@ struct ThreadView: View {
         let canSend = !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         return VStack(alignment: .leading, spacing: Space.xs) {
             HStack(alignment: .bottom, spacing: 0) {
-                TextField("Reply…", text: $draft, selection: $selection, axis: .vertical)
-                    .font(Typo.body).lineLimit(1...5).focused($focused)
-                    .frame(minHeight: Composer.button, alignment: .leading)
-                    .padding(.vertical, Composer.inset)
+                ComposerField(text: $draft, focused: $focused, placeholder: "Reply…",
+                              members: Set((state.members[board.id] ?? []).map { $0.lowercased() }), me: me, identifier: "thread-composer")
                     .padding(.leading, Space.m).padding(.trailing, Composer.gap)
-                    .accessibilityIdentifier("thread-composer")
                 Button(action: send) {
                     Image(systemName: "arrow.up").font(.system(size: 14, weight: .bold))
                         .composerCircle(fill: canSend ? Theme.accent : Theme.raised)
@@ -433,7 +437,6 @@ struct ThreadView: View {
         let echo = alsoToChat
         let r = rootSeq
         draft = ""
-        selection = nil
         Haptic.tap()
         Task {
             await state.send(text, to: board, replyTo: r)
