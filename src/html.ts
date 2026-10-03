@@ -717,13 +717,13 @@ window.BOARD=${JSON.stringify(info.id)};let last=${last};
 // Earlier messages, on demand (a page at a time, or as far back as a given entry for a link to an older message). Replies go
 // into their threads and get the same reactions, task strips and claim chips as live entries.
 async function loadEarlier(until){const b=document.getElementById('load-earlier');if(!b||b.disabled)return;b.disabled=true;if(until)pinned=false;
-  const sc=document.getElementById('thread-scroll'),h0=sc.scrollHeight,before=+b.dataset.before;
+  const sc=document.getElementById('thread-scroll'),before=+b.dataset.before;
   const r=await fetch('/api/boards/'+BOARD+'/entries?before='+before+'&limit='+(until?Math.min(500,before-until+20):150));const j=await r.json().catch(()=>({}));if(!r.ok){b.disabled=false;return}
   const frag=document.createDocumentFragment(),later=[];
   for(const x of j.entries){if(document.getElementById('e'+x.seq))continue;const t=document.createElement('div');t.innerHTML=x.html;const el=t.firstElementChild;
     const box=x.root!==x.seq&&(document.getElementById('r'+x.root)||frag.querySelector('#r'+x.root));
     if(box){el.querySelector('.replies')?.remove();box.appendChild(el)}else frag.appendChild(el);later.push(x)}
-  b.after(frag);
+  const h0=sc.scrollHeight;b.after(frag); // measured now: the thread can grow while the fetch is out (keeps your place, never overshoots to the bottom)
   for(const x of later){if(x.human_decision){HDS[x.seq]=x.human_decision;renderHD(x.seq)}if(x.reactions?.length)renderRx(x.seq,x.reactions);if(document.querySelector('#e'+x.seq+' [data-task]'))refreshTask(x.seq);if(x.root!==x.seq)thrSum(x.root)}
   if(window.e2eSync&&later.length)e2eSync(later[0].seq-1);
   renderClaims(CLAIMS);
@@ -781,7 +781,7 @@ railBuild();pillSync();
 const linked=/^#e\\d+$/.test(location.hash);
 // A link to a message further back than the page shows loads back to it (on open, or when the hash changes).
 async function goLinked(){const m=location.hash.match(/^#e([0-9]+)$/);if(!m||document.getElementById('e'+m[1]))return;const seq=+m[1];pinned=false;
-  if(!(await ensureEntry(seq))){toast('#'+seq+' was not found');return}const el=document.getElementById('e'+seq);
+  if(!(await ensureEntry(seq))){toast('#'+seq+' was not found');return}const el=document.getElementById('e'+seq);pinned=false; // loading back may have passed the bottom and re-pinned
   if(el.closest('.replies'))openThread(+el.closest('#thread>.entry').dataset.seq,{focus:seq});else el.scrollIntoView({block:'center'})}
 if(linked&&!document.getElementById(location.hash.slice(1)))setTimeout(goLinked,0);
 window.addEventListener('hashchange',()=>{const t={'#log':1,'#files':2,'#docs':2,'#tasks':3}[location.hash];if(t)tab(t);else goLinked()});
