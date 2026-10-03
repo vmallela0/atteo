@@ -25,18 +25,20 @@ interface Proc {
   comm: string;
 }
 
-/** Interpreters that run an agent from a script (npm-installed Claude Code and Gemini CLI run as `node …/claude`).
- *  Shells aren't here: a shell script (ship.sh, a git hook) is never an agent, so it's passed through like the shell. */
-const INTERPRETERS = new Set(["node", "bun", "deno", "python", "python3", "ruby", "perl"]);
+/** Interpreters that run an agent from a script (npm-installed Claude Code and Gemini CLI run as `node …/claude`). A
+ *  shell running a shell script (ship.sh, a git hook) stays a shell, so it's passed through; one running anything else
+ *  (an agent that is a shell script) is that agent. macOS reports a shebang script as its shell, so we look either way. */
+const INTERPRETERS = new Set(["node", "bun", "deno", "python", "python3", "ruby", "perl", "sh", "bash", "zsh", "dash"]);
 
 /** "node /usr/local/bin/claude" → "claude": the script an interpreter runs, if any (not for interactive shells). */
-function scriptName(comm: string, argv: string[]): string {
+export function scriptName(comm: string, argv: string[]): string {
   if (!INTERPRETERS.has(base(comm))) return comm;
   const args = argv.slice(1);
   // `bash -c "…"` / `node -e "…"` run an inline command, not a script: the process is just a shell (passed through).
   if (args.some((a) => /^-[a-zA-Z]*[ce]$/.test(a))) return comm;
   const script = args.find((a) => !a.startsWith("-"));
-  return script && !/\s/.test(script) && !/^-/.test(argv[0] ?? "") ? (script.split("/").pop() ?? comm) : comm;
+  const name = script && !/\s/.test(script) && !/^-/.test(argv[0] ?? "") ? (script.split("/").pop() ?? comm) : comm;
+  return SHELL_SCRIPT.test(name) ? comm : name;
 }
 
 function proc(pid: number): Proc | null {
