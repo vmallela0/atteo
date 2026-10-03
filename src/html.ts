@@ -1973,7 +1973,32 @@ ${tier("Pro", `$10<span class="small muted"> / month</span>`, ["Unlimited boards
 // Pictures (profiles and boards) are cropped to a centered 256px square in the browser and sent as WebP (JPEG where the
 // browser can't encode WebP), well under the server's 200 KB.
 const SQUARE_JS = `function square(img){const c=document.createElement('canvas');c.width=c.height=256;const x=c.getContext('2d');const s=Math.min(img.width,img.height);x.drawImage(img,(img.width-s)/2,(img.height-s)/2,s,s,0,0,256,256);return c}
-const toBlob=async c=>{const w=await new Promise(r=>c.toBlob(r,'image/webp',.88));return w&&w.type==='image/webp'?w:new Promise(r=>c.toBlob(r,'image/jpeg',.9))};`;
+const toBlob=async c=>{const w=await new Promise(r=>c.toBlob(r,'image/webp',.88));return w&&w.type==='image/webp'?w:new Promise(r=>c.toBlob(r,'image/jpeg',.9))};
+// Crop before saving (vedu #1001): drag to move, pinch / wheel / slider to zoom, rotate; a circle (people) or rounded
+// square (agents, boards) shows what will be kept. Resolves to a 256px square canvas, or null if cancelled.
+function crop(img,round){return new Promise(done=>{const V=280,d=document.createElement('dialog');d.className='crop-dlg';
+  d.innerHTML='<div class="bd"><canvas width="'+V+'" height="'+V+'" aria-label="Drag to move the picture"></canvas><div class="crop-row"><span class="xs muted">Zoom</span><input type="range" min="1" max="4" step="0.01" value="1" aria-label="Zoom" data-z><button type="button" class="btn sm" data-rot aria-label="Rotate">↻</button></div><div class="crop-row"><span class="xs muted">Light</span><input type="range" min="0.6" max="1.4" step="0.01" value="1" aria-label="Brightness" data-br><span class="xs muted">Contrast</span><input type="range" min="0.6" max="1.4" step="0.01" value="1" aria-label="Contrast" data-ct></div><div class="crop-row"><button type="button" class="btn sm" data-no>Cancel</button><span class="grow"></span><button type="button" class="btn sm primary" data-ok>Save</button></div></div>';
+  document.body.appendChild(d);const cv=d.querySelector('canvas'),x=cv.getContext('2d'),zr=d.querySelector('[data-z]'),br=d.querySelector('[data-br]'),ct=d.querySelector('[data-ct]');
+  let z=1,ox=0,oy=0,rot=0;const dims=()=>rot%2?[img.height,img.width]:[img.width,img.height];
+  const base=()=>{const [w,h]=dims();return V/Math.min(w,h)};
+  const clamp=()=>{const [w,h]=dims(),k=base()*z,mx=Math.max(0,(w*k-V)/2),my=Math.max(0,(h*k-V)/2);ox=Math.max(-mx,Math.min(mx,ox));oy=Math.max(-my,Math.min(my,oy))};
+  const paint=(c,S,mask)=>{const g=c.getContext('2d'),f=S/V;g.clearRect(0,0,S,S);g.save();g.filter='brightness('+br.value+') contrast('+ct.value+')';g.translate(S/2+ox*f,S/2+oy*f);g.rotate(rot*Math.PI/2);const k=base()*z*f;g.scale(k,k);g.drawImage(img,-img.width/2,-img.height/2);g.restore();
+    if(mask){g.save();g.fillStyle='rgba(0,0,0,.5)';g.beginPath();g.rect(0,0,S,S);if(round)g.arc(S/2,S/2,S/2-2,0,Math.PI*2);else g.roundRect(2,2,S-4,S-4,S*.22);g.fill('evenodd');g.restore()}};
+  const draw=()=>{clamp();paint(cv,V,true)};
+  const zoom=v=>{z=Math.max(1,Math.min(4,v));zr.value=String(z);draw()};
+  const pts=new Map();let pd=0;
+  cv.addEventListener('pointerdown',e=>{cv.setPointerCapture(e.pointerId);pts.set(e.pointerId,{x:e.clientX,y:e.clientY});if(pts.size===2){const [a,b]=[...pts.values()];pd=Math.hypot(a.x-b.x,a.y-b.y)}});
+  cv.addEventListener('pointermove',e=>{const p=pts.get(e.pointerId);if(!p)return;if(pts.size===1){ox+=e.clientX-p.x;oy+=e.clientY-p.y}p.x=e.clientX;p.y=e.clientY;
+    if(pts.size===2){const [a,b]=[...pts.values()],nd=Math.hypot(a.x-b.x,a.y-b.y);if(pd)zoom(z*nd/pd);pd=nd}draw()});
+  const up=e=>{pts.delete(e.pointerId);pd=0};cv.addEventListener('pointerup',up);cv.addEventListener('pointercancel',up);
+  cv.addEventListener('wheel',e=>{e.preventDefault();zoom(z*(e.deltaY<0?1.08:1/1.08))},{passive:false});
+  zr.addEventListener('input',()=>zoom(+zr.value));br.addEventListener('input',draw);ct.addEventListener('input',draw);
+  d.querySelector('[data-rot]').addEventListener('click',()=>{rot=(rot+1)%4;ox=oy=0;draw()});
+  const finish=ok=>{let out=null;if(ok){out=document.createElement('canvas');out.width=out.height=256;paint(out,256,false)}d.close();d.remove();done(out)};
+  d.querySelector('[data-ok]').addEventListener('click',()=>finish(true));d.querySelector('[data-no]').addEventListener('click',()=>finish(false));
+  d.addEventListener('cancel',e=>{e.preventDefault();finish(false)});
+  d.addEventListener('keydown',e=>{const s=12;if(e.key==='ArrowLeft')ox+=s;else if(e.key==='ArrowRight')ox-=s;else if(e.key==='ArrowUp')oy+=s;else if(e.key==='ArrowDown')oy-=s;else if(e.key==='+'||e.key==='=')return zoom(z*1.1);else if(e.key==='-')return zoom(z/1.1);else return;e.preventDefault();draw()});
+  d.showModal();draw();d.querySelector('[data-ok]').focus()})}`;
 
 // Profile pictures: resize to a 256px square WebP in the browser (or generate one), then upload.
 const PFP_JS = `
@@ -1981,7 +2006,7 @@ const PFP_JS = `
 async function upload(kind,blob){const r=await fetch('/api/me/avatar?kind='+kind,{method:'POST',body:blob});const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||'Could not save');return}toast('Saved');setTimeout(()=>location.reload(),300)}
 ${SQUARE_JS}
 document.addEventListener('change',async e=>{const f=e.target.closest('[data-pfp-file]');if(!f||!f.files[0])return;const kind=f.closest('.pfp').dataset.kind;
-  const img=await createImageBitmap(f.files[0]).catch(()=>null);if(!img){toast('That file isn’t an image');return}upload(kind,await toBlob(square(img)))});
+  const img=await createImageBitmap(f.files[0]).catch(()=>null);f.value='';if(!img){toast('That file isn’t an image');return}const c=await crop(img,kind!=='agent');if(c)upload(kind,await toBlob(c))});
 document.addEventListener('click',async e=>{const g=e.target.closest('[data-pfp-gen]'),rm=e.target.closest('[data-pfp-rm]');if(!g&&!rm)return;const box=(g||rm).closest('.pfp'),kind=box.dataset.kind;
   if(rm){await fetch('/api/me/avatar?kind='+kind,{method:'DELETE'});toast('Removed');setTimeout(()=>location.reload(),300);return}
   // Generated: a soft two-color gradient with a few shapes; agents get a square-ish motif.
@@ -1998,7 +2023,7 @@ const BOARD_PIC_JS = `
 (()=>{${SQUARE_JS}
 const send=async(method,body)=>{const r=await fetch('/api/boards/'+BOARD+'/picture',{method,body});const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||'Could not save');return}toast(method==='DELETE'?'Removed':'Saved');setTimeout(()=>location.reload(),300)};
 document.addEventListener('change',async e=>{const f=e.target.closest('[data-bpic-file]');if(!f||!f.files[0])return;const img=await createImageBitmap(f.files[0]).catch(()=>null);f.value='';
-  if(!img){toast('That file isn’t an image');return}send('POST',await toBlob(square(img)))});
+  if(!img){toast('That file isn’t an image');return}const c=await crop(img,false);if(c)send('POST',await toBlob(c))});
 document.addEventListener('click',e=>{if(e.target.closest('[data-bpic-rm]'))send('DELETE')});
 })();`;
 
