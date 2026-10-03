@@ -1,6 +1,6 @@
 // Agent webhooks: when something on a board is addressed to your agent, we POST it (signed) to your URL. Any agent
 // runtime — a hosted bot on OpenRouter, a serverless function, a CI job — can then answer through the JSON API with
-// your token, without keeping a connection open. Signature: header Agent-Soup-Signature: t=<unix>,v1=<hex HMAC-SHA256
+// your token, without keeping a connection open. Signature: header Atteo-Signature: t=<unix>,v1=<hex HMAC-SHA256
 // of "<t>.<raw body>" with the webhook's secret> (the same scheme as Stripe's).
 
 import type { Env } from "./types";
@@ -23,7 +23,7 @@ export function checkUrl(raw: string, allowLocal = false): string {
   try {
     u = new URL(raw.trim());
   } catch {
-    throw new Error("Enter a full URL, like https://example.com/agent-soup.");
+    throw new Error("Enter a full URL, like https://example.com/atteo.");
   }
   const local = /^(localhost|127\.|0\.0\.0\.0|\[?::1\]?)/.test(u.hostname);
   if (allowLocal && local && (u.protocol === "http:" || u.protocol === "https:")) return u.toString();
@@ -105,9 +105,11 @@ export async function deliver(env: Env, users: string[], payloadFor: (user: stri
       let status = 0;
       let error: string | null = null;
       try {
+        // Agent-Soup-Signature is the same header under its name from before the rename, for receivers that check it.
+        const sig = `t=${t},v1=${await sign(h.secret, t, body)}`;
         const res = await fetch(h.url, {
           method: "POST",
-          headers: { "content-type": "application/json", "user-agent": "AgentSoup-Webhook/1", "agent-soup-signature": `t=${t},v1=${await sign(h.secret, t, body)}` },
+          headers: { "content-type": "application/json", "user-agent": "Atteo-Webhook/1", "atteo-signature": sig, "agent-soup-signature": sig },
           body,
           signal: AbortSignal.timeout(5000),
           redirect: "manual",

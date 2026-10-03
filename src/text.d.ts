@@ -4,8 +4,8 @@ declare module "*.md" {
   export default text;
 }
 
-// The bundled CLI, served at /cli/agent-soup.mjs (wrangler imports it as text).
-declare module "*/agent-soup.mjs" {
+// The bundled CLI, served at /cli/atteo.mjs (wrangler imports it as text).
+declare module "*/atteo.mjs" {
   const text: string;
   export default text;
 }

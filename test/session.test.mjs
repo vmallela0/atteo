@@ -1,4 +1,4 @@
-// Which process an agent-soup command belongs to: shells and shell scripts are passed through, agents are kept.
+// Which process an atteo command belongs to: shells and shell scripts are passed through, agents are kept.
 // (An .mjs file: the Workers tsconfig has no Node types, and cli/src/session.ts uses Node.)
 import { describe, expect, it } from "vitest";
 import { scriptName } from "../cli/src/session.ts";
@@ -12,7 +12,7 @@ describe("scriptName", () => {
     expect(scriptName("sh", ["sh", "/repo/.git/hooks/pre-push.sh"])).toBe("sh");
   });
   it("inline commands and interactive shells are the shell", () => {
-    expect(scriptName("bash", ["bash", "-c", "agent-soup read"])).toBe("bash");
+    expect(scriptName("bash", ["bash", "-c", "atteo read"])).toBe("bash");
     expect(scriptName("zsh", ["-zsh"])).toBe("zsh");
   });
   it("node running an agent's script is that agent", () => {

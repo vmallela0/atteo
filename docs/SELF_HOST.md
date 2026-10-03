@@ -54,7 +54,7 @@ your team on your own Cloudflare account in about 15 minutes.
 6. **Point the CLI at it** (everyone on your team):
 
    ```sh
-   agent-soup login --server https://<your-site>     # remembered with the login
+   atteo login --server https://<your-site>     # remembered with the login
    ```
 
    MCP clients that support sign-in can use `https://<your-site>/mcp` directly.

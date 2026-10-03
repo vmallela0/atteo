@@ -11,7 +11,7 @@ import { join } from "node:path";
 /** Paths under $HOME that commonly hold keys, tokens and logins; the sandbox can't read them. */
 const SENSITIVE = [
   ".ssh", ".aws", ".azure", ".gnupg", ".kube", ".docker", ".netrc", ".npmrc", ".pypirc", ".git-credentials",
-  ".config/gcloud", ".config/gh", ".config/agent-board", ".config/agent-soup", ".config/op", "Library/Keychains",
+  ".config/gcloud", ".config/gh", ".config/agent-board", ".config/agent-soup", ".config/atteo", ".config/op", "Library/Keychains",
 ];
 const DEP_DIRS = ["node_modules", ".venv", "venv", "vendor"]; // reused read-only from your checkout (installs need network)
 export const OUTPUT_LIMIT = 8000;
@@ -139,7 +139,7 @@ export function resolveCommit(repo: string, commit: string): string | null {
  * read-only. Returns the checkout, a scratch folder for HOME/TMPDIR, what may be written, and a cleanup.
  */
 export function throwawayCheckout(repo: string, commit: string): { dir: string; scratch: string; writable: string[]; cleanup: () => void } {
-  const base = realpathSync(mkdtempSync(join(tmpdir(), "agent-soup-verify-")));
+  const base = realpathSync(mkdtempSync(join(tmpdir(), "atteo-verify-")));
   const dir = join(base, "checkout"), scratch = join(base, "scratch");
   const add = git(repo, ["worktree", "add", "--detach", "--quiet", dir, commit]);
   if (add.status !== 0) {
@@ -167,10 +167,10 @@ export function throwawayCheckout(repo: string, commit: string): { dir: string; 
  * credentials unreadable, writes inside allowed. Returns one line per probe.
  */
 export async function sandboxSelfTest(sb: Sandbox): Promise<{ ok: boolean; lines: string[] }> {
-  const base = realpathSync(mkdtempSync(join(tmpdir(), "agent-soup-sbtest-")));
+  const base = realpathSync(mkdtempSync(join(tmpdir(), "atteo-sbtest-")));
   const dir = join(base, "checkout"), scratch = join(base, "scratch");
   mkdirSync(dir);
-  const outside = join(homedir(), `.agent-soup-sandbox-probe-${process.pid}`);
+  const outside = join(homedir(), `.atteo-sandbox-probe-${process.pid}`);
   const secretDir = join(homedir(), ".ssh");
   const probes: { what: string; cmd: string; expect: "fail" | "pass" }[] = [
     { what: "write inside the checkout", cmd: "echo ok > inside.txt && cat inside.txt", expect: "pass" },
@@ -179,9 +179,9 @@ export async function sandboxSelfTest(sb: Sandbox): Promise<{ ok: boolean; lines
     { what: "write to your home folder", cmd: `touch ${JSON.stringify(outside)}`, expect: "fail" },
     ...(existsSync(secretDir) ? [{ what: "read ~/.ssh", cmd: `ls ${JSON.stringify(secretDir)}`, expect: "fail" as const }] : []),
     ...(platform() === "darwin" ? [{ what: "read the login keychain", cmd: "security find-generic-password -s agent-board -w", expect: "fail" as const }] : []),
-    { what: "your shell's environment", cmd: 'test -z "$AGENT_SOUP_SBTEST"', expect: "pass" },
+    { what: "your shell's environment", cmd: 'test -z "$ATTEO_SBTEST"', expect: "pass" },
   ];
-  process.env.AGENT_SOUP_SBTEST = "leak";
+  process.env.ATTEO_SBTEST = "leak";
   const lines: string[] = [];
   let ok = true;
   try {
@@ -197,7 +197,7 @@ export async function sandboxSelfTest(sb: Sandbox): Promise<{ ok: boolean; lines
       rmSync(outside, { force: true });
     }
   } finally {
-    delete process.env.AGENT_SOUP_SBTEST;
+    delete process.env.ATTEO_SBTEST;
     rmSync(base, { recursive: true, force: true });
   }
   return { ok, lines };

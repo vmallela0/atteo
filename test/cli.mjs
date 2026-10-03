@@ -1,4 +1,4 @@
-// CLI integration test: runs the built CLI (cli/dist/agent-soup.mjs) against a server.
+// CLI integration test: runs the built CLI (cli/dist/atteo.mjs) against a server.
 // Usage: npm run build:cli && BASE=http://localhost:8787 ADMIN_KEY=... node test/cli.mjs
 
 import { execFileSync, spawn } from "node:child_process";
@@ -8,7 +8,7 @@ import { join } from "node:path";
 
 const BASE = (process.env.BASE ?? "http://localhost:8787").replace(/\/$/, "");
 const ADMIN_KEY = process.env.ADMIN_KEY ?? readFileSync(new URL("../.dev.vars", import.meta.url), "utf8").match(/^ADMIN_KEY=(.*)$/m)?.[1];
-const CLI = new URL("../cli/dist/agent-soup.mjs", import.meta.url).pathname;
+const CLI = new URL("../cli/dist/atteo.mjs", import.meta.url).pathname;
 const run = Date.now().toString(36).slice(-5);
 const A = `e2e-cli-a-${run}`;
 const B = `e2e-cli-b-${run}`;
@@ -49,9 +49,9 @@ async function tool(token, board, name, args) {
   return (await r.json()).result.content[0].text;
 }
 
-/** Runs `agent-soup mcp` and talks JSON-RPC to it over stdio. */
+/** Runs `atteo mcp` and talks JSON-RPC to it over stdio. */
 function startMcp(credFile, env = {}) {
-  const p = spawn("node", [CLI, "mcp", "--server", BASE], { env: { ...process.env, AGENT_BOARD_CREDENTIALS_FILE: credFile, ...env } });
+  const p = spawn("node", [CLI, "mcp", "--server", BASE], { env: { ...process.env, ATTEO_CREDENTIALS_FILE: credFile, ...env } });
   const lines = [];
   let buf = "";
   p.stdout.on("data", (d) => {
@@ -98,7 +98,7 @@ if (!credA || !tokA) {
 
 await step("replies go in the thread: --reply-to works like --reply, unknown options are refused, and the agent's answer is threaded under the message it's on", async () => {
   const cli = (cred, ...args) => new Promise((resolve) => {
-    const p = spawn("node", [CLI, ...args, "--board", board], { env: { ...process.env, AGENT_BOARD_CREDENTIALS_FILE: cred, XDG_CONFIG_HOME: join(dir, "cfg-thread") } });
+    const p = spawn("node", [CLI, ...args, "--board", board], { env: { ...process.env, ATTEO_CREDENTIALS_FILE: cred, XDG_CONFIG_HOME: join(dir, "cfg-thread") } });
     let s = "";
     p.stdout.on("data", (d) => (s += d));
     p.stderr.on("data", (d) => (s += d));
@@ -126,7 +126,7 @@ await step("replies go in the thread: --reply-to works like --reply, unknown opt
 
 await step("status reads the saved login", async () => {
   const out = await new Promise((resolve) => {
-    const p = spawn("node", [CLI, "status"], { env: { ...process.env, AGENT_BOARD_CREDENTIALS_FILE: credA } });
+    const p = spawn("node", [CLI, "status"], { env: { ...process.env, ATTEO_CREDENTIALS_FILE: credA } });
     let s = "";
     p.stderr.on("data", (d) => (s += d));
     p.on("close", () => resolve(s));
@@ -171,7 +171,7 @@ await step("watch --respond: starts your agent when a question is addressed to y
   writeFileSync(stub, `#!/bin/sh\n{ echo "CWD=$(pwd)"; printf '%s\\n' "$@"; } > "${marker}"\necho "answered"\n`);
   chmodSync(stub, 0o755);
   const projDir = mkdtempSync(join(tmpdir(), "agent-board-proj-"));
-  const env = { ...process.env, AGENT_BOARD_CREDENTIALS_FILE: credA, AGENT_BOARD_CLAUDE_BIN: stub, XDG_CONFIG_HOME: join(dir, "cfg") };
+  const env = { ...process.env, ATTEO_CREDENTIALS_FILE: credA, ATTEO_CLAUDE_BIN: stub, XDG_CONFIG_HOME: join(dir, "cfg") };
   const w = spawn("node", [CLI, "watch", "--respond", "--quiet", "--dir", dir, "--board-dir", `cli ${run}=${projDir}`, "--server", BASE], { env });
   let out = "";
   w.stdout.on("data", (d) => (out += d));
@@ -207,7 +207,7 @@ await step("watch: '@you' notifies you; '@you's agent' starts your agent, even w
   chmodSync(stub, 0o755);
   const w = spawn("node", [CLI, "watch", "--respond", "--quiet", "--dir", dir, "--server", BASE], {
     // Own config folder: never collide with a real background watcher on this machine (one watcher per config).
-    env: { ...process.env, AGENT_BOARD_CREDENTIALS_FILE: credA, AGENT_BOARD_CLAUDE_BIN: stub, XDG_CONFIG_HOME: join(dir, "cfg-mentions") },
+    env: { ...process.env, ATTEO_CREDENTIALS_FILE: credA, ATTEO_CLAUDE_BIN: stub, XDG_CONFIG_HOME: join(dir, "cfg-mentions") },
   });
   let out = "";
   w.stdout.on("data", (d) => (out += d));
@@ -241,8 +241,8 @@ await step("watch --respond --agent-cmd: any agent CLI can answer, with the prom
   const stub = join(dir, "my-agent.sh");
   writeFileSync(stub, `#!/bin/sh\n{ echo "ARGC=$#"; printf '%s\\n' "$@"; } > "${marker}"\necho "done"\n`);
   chmodSync(stub, 0o755);
-  const env = { ...process.env, AGENT_BOARD_CREDENTIALS_FILE: credA, XDG_CONFIG_HOME: join(dir, "cfg-custom") };
-  delete env.AGENT_BOARD_CLAUDE_BIN;
+  const env = { ...process.env, ATTEO_CREDENTIALS_FILE: credA, XDG_CONFIG_HOME: join(dir, "cfg-custom") };
+  delete env.ATTEO_CLAUDE_BIN;
   const w = spawn("node", [CLI, "watch", "--respond", "--quiet", "--dir", dir, "--agent-cmd", `${stub} --task {prompt} --fast`, "--server", BASE], { env });
   let out = "";
   w.stdout.on("data", (d) => (out += d));
@@ -258,13 +258,13 @@ await step("watch --respond --agent-cmd: any agent CLI can answer, with the prom
   assert(existsSync(marker), `custom agent was not started:\n${out}`);
   const got = readFileSync(marker, "utf8");
   assert(got.startsWith("ARGC=3\n--task\n") && got.includes(`entry #${seq}`) && got.trimEnd().endsWith("--fast"), got);
-  assert(got.includes(`agent-soup post --board ${board} --reply ${seq}`), "non-MCP agents are told how to answer with the CLI");
+  assert(got.includes(`atteo post --board ${board} --reply ${seq}`), "non-MCP agents are told how to answer with the CLI");
 });
 
 // Board commands: run the CLI like a person or a shell-only agent would.
 function cli(args, { cred = credA, cwd = dir, input, env = {} } = {}) {
   return new Promise((resolve) => {
-    const p = spawn("node", [CLI, ...args], { cwd, env: { ...process.env, AGENT_BOARD_CREDENTIALS_FILE: cred, AGENT_BOARD_SERVER: BASE, XDG_CONFIG_HOME: join(dir, "cfg-cmds"), ...env } });
+    const p = spawn("node", [CLI, ...args], { cwd, env: { ...process.env, ATTEO_CREDENTIALS_FILE: cred, ATTEO_SERVER: BASE, XDG_CONFIG_HOME: join(dir, "cfg-cmds"), ...env } });
     let out = "";
     let errOut = "";
     p.stdout.on("data", (d) => (out += d));
@@ -385,8 +385,8 @@ await step("hooks: use installs a pre-push hook that chains the old one; a push 
   mkdirSync(hooks, { recursive: true });
   writeFileSync(hook, oldHook, { mode: 0o755 });
   let r = await cli(["use", board], { cwd: repo });
-  assert(r.code === 0 && r.out.includes("agent-soup hooks install --off") && r.out.includes("your pre-push hook still runs first"), r.out + r.err);
-  assert(statSync(hook).mode & 0o100 && readFileSync(hook, "utf8").includes("# agent-soup pre-push hook"), "an executable agent-soup hook");
+  assert(r.code === 0 && r.out.includes("atteo hooks install --off") && r.out.includes("your pre-push hook still runs first"), r.out + r.err);
+  assert(statSync(hook).mode & 0o100 && readFileSync(hook, "utf8").includes("# atteo pre-push hook"), "an executable atteo hook");
   assert(readFileSync(join(hooks, "pre-push.before-agent-soup"), "utf8") === oldHook, "the old hook is kept next to it");
   writeFileSync(join(repo, "b.txt"), "two\n");
   g("add", "b.txt"); g("commit", "-qm", "Add the b file");
@@ -399,7 +399,7 @@ await step("hooks: use installs a pre-push hook that chains the old one; a push 
   await tool(tokB, board, "post", { type: "note", text: `meanwhile ${run}` });
   const push = (input) =>
     new Promise((resolve) => {
-      const p = spawn(hook, ["origin", "https://example.com/proj.git"], { cwd: repo, env: { ...process.env, AGENT_BOARD_CREDENTIALS_FILE: credA, AGENT_BOARD_SERVER: BASE, XDG_CONFIG_HOME: join(dir, "cfg-cmds") } });
+      const p = spawn(hook, ["origin", "https://example.com/proj.git"], { cwd: repo, env: { ...process.env, ATTEO_CREDENTIALS_FILE: credA, ATTEO_SERVER: BASE, XDG_CONFIG_HOME: join(dir, "cfg-cmds") } });
       let err = "";
       p.stdout.on("data", (d) => (err += d));
       p.stderr.on("data", (d) => (err += d));
@@ -434,7 +434,7 @@ await step("hooks: use installs a pre-push hook that chains the old one; a push 
   // The board unreachable: still exit 0, quickly.
   const t0 = Date.now();
   const down = await new Promise((resolve) => {
-    const p = spawn(hook, ["origin", "x"], { cwd: repo, env: { ...process.env, AGENT_BOARD_CREDENTIALS_FILE: credA, AGENT_BOARD_SERVER: "http://127.0.0.1:9", XDG_CONFIG_HOME: join(dir, "cfg-cmds"), AGENT_SOUP_HOOK_TIMEOUT_MS: "1500" } });
+    const p = spawn(hook, ["origin", "x"], { cwd: repo, env: { ...process.env, ATTEO_CREDENTIALS_FILE: credA, ATTEO_SERVER: "http://127.0.0.1:9", XDG_CONFIG_HOME: join(dir, "cfg-cmds"), ATTEO_HOOK_TIMEOUT_MS: "1500" } });
     p.stdin.end(`refs/heads/main ${head} refs/heads/main ${first}\n`);
     p.on("close", (code) => resolve(code));
   });
@@ -443,22 +443,26 @@ await step("hooks: use installs a pre-push hook that chains the old one; a push 
   r = await cli(["hooks", "install", "--off"], { cwd: repo });
   assert(r.code === 0 && readFileSync(hook, "utf8") === oldHook && !existsSync(join(hooks, "pre-push.before-agent-soup")), r.out + r.err);
   r = await cli(["hooks", "install"], { cwd: repo }); // explicit install works too, and --off again
-  assert(r.code === 0 && readFileSync(hook, "utf8").includes("# agent-soup pre-push hook"), r.out + r.err);
+  assert(r.code === 0 && readFileSync(hook, "utf8").includes("# atteo pre-push hook"), r.out + r.err);
+  // A hook installed before the rename (the old mark) is still ours: refreshed in place, never chained behind a new one.
+  writeFileSync(hook, readFileSync(hook, "utf8").replace("# atteo pre-push hook", "# agent-soup pre-push hook"));
+  r = await cli(["hooks", "install"], { cwd: repo });
+  assert(r.code === 0 && readFileSync(hook, "utf8").includes("# atteo pre-push hook") && readFileSync(join(hooks, "pre-push.before-agent-soup"), "utf8") === oldHook, r.out + r.err);
   r = await cli(["hooks", "install", "--off"], { cwd: repo });
   assert(r.code === 0 && readFileSync(hook, "utf8") === oldHook, r.out + r.err);
 });
 
 await step("people: find, add, accept, friends with presence, ask a friend's agent on your direct board", async () => {
-  const home = mkdtempSync(join(tmpdir(), "agent-soup-social-")); // no folder board here, so ask goes direct
+  const home = mkdtempSync(join(tmpdir(), "atteo-social-")); // no folder board here, so ask goes direct
   let r = await cli(["people", B], { cwd: home });
-  assert(r.code === 0 && r.out.includes(B) && r.out.includes(`agent-soup add ${B}`), r.out + r.err);
+  assert(r.code === 0 && r.out.includes(B) && r.out.includes(`atteo add ${B}`), r.out + r.err);
   // Not friends yet: the first DM waits for B's OK (once) instead of going through.
   r = await cli(["ask", B, "hello?", "--wait", "0", "--dm"], { cwd: home });
   assert(r.code === 0 && r.out.includes("OK it first"), r.out + r.err);
   r = await cli(["add", B, "it's", "me"], { cwd: home });
   assert(r.code === 0 && r.out.includes("Friend request sent"), r.out + r.err);
   r = await cli(["friends"], { cwd: home, cred: credB });
-  assert(r.out.includes(`${A} — "it's me"`) && r.out.includes(`agent-soup accept ${A}`), r.out);
+  assert(r.out.includes(`${A} — "it's me"`) && r.out.includes(`atteo accept ${A}`), r.out);
   r = await cli(["accept", A], { cwd: home, cred: credB });
   assert(r.out.includes("friends now"), r.out + r.err);
   // A asks B's agent; B's agent answers on the direct board.
@@ -484,7 +488,7 @@ await step("people: find, add, accept, friends with presence, ask a friend's age
 });
 
 await step("sealed secrets: only the recipient's agent can open them; the server only has ciphertext", async () => {
-  const proj = mkdtempSync(join(tmpdir(), "agent-soup-seal-"));
+  const proj = mkdtempSync(join(tmpdir(), "atteo-seal-"));
   for (const cred of [credA, credB]) await cli(["use", board], { cwd: proj, cred });
   let r = await cli(["keys"], { cwd: proj, cred: credB }); // B's machine gets a key
   assert(r.code === 0 && r.out.includes("(this machine)"), r.out + r.err);
@@ -530,7 +534,7 @@ sys.stdout.write(out.decode("utf8", "replace"))
 sys.exit(os.waitstatus_to_exitcode(status))
 `;
   return new Promise((resolve) => {
-    const p = spawn("python3", ["-c", py, JSON.stringify(["node", CLI, ...args])], { cwd, env: { ...process.env, AGENT_BOARD_CREDENTIALS_FILE: cred, AGENT_BOARD_SERVER: BASE, XDG_CONFIG_HOME: join(dir, "cfg-cmds") } });
+    const p = spawn("python3", ["-c", py, JSON.stringify(["node", CLI, ...args])], { cwd, env: { ...process.env, ATTEO_CREDENTIALS_FILE: cred, ATTEO_SERVER: BASE, XDG_CONFIG_HOME: join(dir, "cfg-cmds") } });
     let out = "";
     p.stdout.on("data", (d) => (out += d));
     p.stderr.on("data", (d) => (out += d));
@@ -549,7 +553,7 @@ await step("claim checks: the author attaches one; another member's person OKs i
   const c1 = Number((await tool(tokA, board, "post", { type: "claim", text: `ok.txt exists ${run}` })).match(/#(\d+)/)[1]);
   const c2 = Number((await tool(tokA, board, "post", { type: "claim", text: `the network is reachable ${run}` })).match(/#(\d+)/)[1]);
   let r = await cli(["check", String(c1), "sh check.sh", "--board", board], { cwd: repo });
-  assert(r.code === 0 && r.out.includes(`agent-soup verify ${c1}`), r.out + r.err);
+  assert(r.code === 0 && r.out.includes(`atteo verify ${c1}`), r.out + r.err);
   r = await cli(["check", String(c2), "curl -sS -m 5 -o /dev/null https://example.com", "--board", board], { cwd: repo });
   assert(r.code === 0, r.out + r.err);
   r = await cli(["check", String(c1), "true", "--board", board], { cwd: repo, cred: credB });
@@ -572,7 +576,7 @@ await step("claim checks: the author attaches one; another member's person OKs i
   const s1 = after.find((c) => c.seq === c1), s2 = after.find((c) => c.seq === c2);
   assert(s1.status === "verified" && s1.verified_by === B && s1.evidence.length === 1, JSON.stringify(s1));
   assert(s2.status === "disputed" && /check failed/.test(s2.dispute_reason), JSON.stringify(s2));
-  assert(!g("worktree", "list").includes("agent-soup-verify"), "throwaway checkouts are removed");
+  assert(!g("worktree", "list").includes("atteo-verify"), "throwaway checkouts are removed");
 });
 
 await step("encryption v2: one key per board epoch; a newcomer reads history; your new device needs your OK; removing someone rotates the key", async () => {
@@ -582,7 +586,7 @@ await step("encryption v2: one key per board epoch; a newcomer reads history; yo
   const credC = join(dir, "c.json"), credA2 = join(dir, "a2.json"); // a2: A's second machine (its own device key)
   writeFileSync(credC, JSON.stringify({ server: BASE, user: C, token: tokC, expires_at: Date.now() + 86400e3 }), { mode: 0o600 });
   writeFileSync(credA2, JSON.stringify({ server: BASE, user: A, token: tokA, expires_at: Date.now() + 86400e3 }), { mode: 0o600 });
-  const pa = mkdtempSync(join(tmpdir(), "agent-soup-v2-a-")), pa2 = mkdtempSync(join(tmpdir(), "agent-soup-v2-a2-")), pb = mkdtempSync(join(tmpdir(), "agent-soup-v2-b-")), pc = mkdtempSync(join(tmpdir(), "agent-soup-v2-c-"));
+  const pa = mkdtempSync(join(tmpdir(), "atteo-v2-a-")), pa2 = mkdtempSync(join(tmpdir(), "atteo-v2-a2-")), pb = mkdtempSync(join(tmpdir(), "atteo-v2-b-")), pc = mkdtempSync(join(tmpdir(), "atteo-v2-c-"));
   let r = await cli(["create", `e2e v2 ${run}`, "--encrypted"], { cwd: pa });
   const eb = r.out.match(/\((b_[a-z0-9]+)\)/)[1];
   await ops("members", { board: eb, user: B });
@@ -634,8 +638,8 @@ await step("encryption v2: one key per board epoch; a newcomer reads history; yo
 });
 
 await step("end-to-end encrypted board: CLI encrypts and decrypts; the server and plain agent tools only see ciphertext", async () => {
-  const projA = mkdtempSync(join(tmpdir(), "agent-soup-e2ee-a-"));
-  const projB = mkdtempSync(join(tmpdir(), "agent-soup-e2ee-b-"));
+  const projA = mkdtempSync(join(tmpdir(), "atteo-e2ee-a-"));
+  const projB = mkdtempSync(join(tmpdir(), "atteo-e2ee-b-"));
   let r = await cli(["create", `e2e cli enc ${run}`, "--encrypted"], { cwd: projA });
   assert(r.code === 0 && r.out.includes("end-to-end encrypted"), r.out + r.err);
   const eb = r.out.match(/\((b_[a-z0-9]+)\)/)[1];
@@ -670,25 +674,25 @@ await step("end-to-end encrypted board: CLI encrypts and decrypts; the server an
 });
 
 await step("a shell script an agent runs (deploy.sh, a git hook) is part of that agent's session, never a session of its own", async () => {
-  const d = mkdtempSync(join(tmpdir(), "agent-soup-script-"));
+  const d = mkdtempSync(join(tmpdir(), "atteo-script-"));
   const U = `e2e-cli-sh-${run}`; // its own user, so its session doesn't show up in the sessions step below
   await ops("users", { name: U, email: `${U}@example.com`, verified: "true" });
   const cred = join(d, "u.json");
   writeFileSync(cred, JSON.stringify({ server: BASE, user: U, token: (await ops("tokens", { user: U })).token, expires_at: Date.now() + 86400e3 }), { mode: 0o600 });
   writeFileSync(join(d, "deploy.sh"), `#!/bin/bash\nnode ${CLI} session show\n`, { mode: 0o755 });
   writeFileSync(join(d, "codex"), `#!/bin/bash\n${join(d, "deploy.sh")}\n`, { mode: 0o755 });
-  const out = execFileSync(join(d, "codex"), [], { cwd: d, env: { ...process.env, AGENT_BOARD_CREDENTIALS_FILE: cred, AGENT_BOARD_SERVER: BASE, XDG_CONFIG_HOME: join(d, "cfg") } }).toString();
+  const out = execFileSync(join(d, "codex"), [], { cwd: d, env: { ...process.env, ATTEO_CREDENTIALS_FILE: cred, ATTEO_SERVER: BASE, XDG_CONFIG_HOME: join(d, "cfg") } }).toString();
   assert(/^Session codex /.test(out) && !out.includes("deploy.sh"), out);
 });
 
 await step("sessions: each agent is its own session (found from its process), joins boards with standard commands, sees its person's other sessions", async () => {
-  // Fake agents: long-lived processes named like the agent, running agent-soup commands from their shell (as real agents do).
-  const cfg = mkdtempSync(join(tmpdir(), "agent-soup-sess-"));
+  // Fake agents: long-lived processes named like the agent, running atteo commands from their shell (as real agents do).
+  const cfg = mkdtempSync(join(tmpdir(), "atteo-sess-"));
   const agent = (name) => {
     const f = join(cfg, name);
     writeFileSync(f, `#!/bin/bash\nwhile IFS= read -r line; do eval "node ${CLI} $line"; echo "<<rc=$?>>"; done\n`);
     chmodSync(f, 0o755);
-    const p = spawn(f, [], { cwd: cfg, env: { ...process.env, AGENT_BOARD_CREDENTIALS_FILE: credA, AGENT_BOARD_SERVER: BASE, XDG_CONFIG_HOME: join(cfg, "cfg") } });
+    const p = spawn(f, [], { cwd: cfg, env: { ...process.env, ATTEO_CREDENTIALS_FILE: credA, ATTEO_SERVER: BASE, XDG_CONFIG_HOME: join(cfg, "cfg") } });
     let buf = "";
     p.stdout.on("data", (d) => (buf += d));
     p.stderr.on("data", (d) => (buf += d));
@@ -752,7 +756,7 @@ await step("sessions: each agent is its own session (found from its process), jo
     r = await codex.run(`read`);
     assert(r.code === 1 && r.out.includes("No board chosen"), r.out);
     r = await codex.run(`help`);
-    assert(r.out.includes("agent-soup get boards") && !/curl[^\n]*\|\s*sh/.test(r.out), "help is for agents, and never pipes a script into a shell");
+    assert(r.out.includes("atteo get boards") && !/curl[^\n]*\|\s*sh/.test(r.out), "help is for agents, and never pipes a script into a shell");
   } finally {
     codex.stop();
     claude.stop();
@@ -765,7 +769,7 @@ await step("harness: the agent you choose answers your DMs (a person's message s
   writeFileSync(stub, `#!/bin/sh\nprintf '%s\\n' "$@" >> "${marker}"\necho "answered"\n`);
   chmodSync(stub, 0o755);
   const cfg = join(dir, "cfg-harness");
-  const env = { ...process.env, AGENT_BOARD_CREDENTIALS_FILE: credA, AGENT_BOARD_SERVER: BASE, XDG_CONFIG_HOME: cfg, AGENT_SOUP_DM_GRACE_MS: "1500" };
+  const env = { ...process.env, ATTEO_CREDENTIALS_FILE: credA, ATTEO_SERVER: BASE, XDG_CONFIG_HOME: cfg, ATTEO_DM_GRACE_MS: "1500" };
   let r = await cli(["harness", `${stub} {prompt}`], { env: { XDG_CONFIG_HOME: cfg } });
   assert(r.code === 0 && r.out.includes("now answers with"), r.out + r.err);
   r = await cli(["harness"], { env: { XDG_CONFIG_HOME: cfg } });
@@ -825,7 +829,7 @@ await step("task tick / untick / edit: tick the one checklist item matching the 
   r = await t("edit", String(n), "--old", "not in the task", "--new", "x");
   assert(r.code === 1 && r.err.includes("wasn't found"), r.err);
   r = await t("edit", String(n), "--new", "x");
-  assert(r.code === 1 && r.err.includes("Usage: agent-soup task edit"), r.err);
+  assert(r.code === 1 && r.err.includes("Usage: atteo task edit"), r.err);
 });
 
 await step("mailbox: another person's DM and @mention of your agent show up in full, fenced; --peek leaves them, a plain run delivers them; --json and --wait", async () => {
@@ -876,8 +880,8 @@ await step("mailbox: another person's DM and @mention of your agent show up in f
 });
 
 await step("dispatch: without a harness it says how to set one and exits non-zero", async () => {
-  const r = await cli(["dispatch", "--once"], { env: { XDG_CONFIG_HOME: join(dir, "cfg-dispatch-none"), AGENT_SOUP_AGENT: "" } });
-  assert(r.code !== 0 && r.err.includes("agent-soup harness claude"), r.out + r.err);
+  const r = await cli(["dispatch", "--once"], { env: { XDG_CONFIG_HOME: join(dir, "cfg-dispatch-none"), ATTEO_AGENT: "" } });
+  assert(r.code !== 0 && r.err.includes("atteo harness claude"), r.out + r.err);
 });
 
 await step("dispatch: one fork per message, each its own session with the message and how to answer it in the thread; acked; a second run does nothing; an agent's plain note gets no fork", async () => {
@@ -896,12 +900,12 @@ await step("dispatch: one fork per message, each its own session with the messag
   await ops("members", { board: shared, user: D });
   const cfg = join(dir, "cfg-dispatch");
   await cli(["mailbox"], { cred: credD, env: { XDG_CONFIG_HOME: cfg } }); // drain contact requests and the like
-  // The fake harness records the session it runs as (via the CLI, so AGENT_SOUP_SESSION is what selects it) and its prompt.
+  // The fake harness records the session it runs as (via the CLI, so ATTEO_SESSION is what selects it) and its prompt.
   // (One file per fork: forks run at the same time.)
   const forkDir = join(dir, "dispatch-forks");
   mkdirSync(forkDir, { recursive: true });
   const stub = join(dir, "fake-fork.sh");
-  writeFileSync(stub, `#!/bin/sh\n{ echo "START $AGENT_SOUP_SESSION"; node "${CLI}" session show --quiet; node "${CLI}" session show --quiet --json | grep '"kind"'; printf '%s\\n' "$@"; } > "${forkDir}/$AGENT_SOUP_SESSION.txt"\necho "answered"\n`);
+  writeFileSync(stub, `#!/bin/sh\n{ echo "START $ATTEO_SESSION"; node "${CLI}" session show --quiet; node "${CLI}" session show --quiet --json | grep '"kind"'; printf '%s\\n' "$@"; } > "${forkDir}/$ATTEO_SESSION.txt"\necho "answered"\n`);
   chmodSync(stub, 0o755);
   const task = Number((await tool(tokE, shared, "post", { type: "task", text: `@${D}'s agent please bump the version to 2.4 ${run}` })).match(/#(\d+)/)[1]);
   const cookieE = (await ops("sessions", { user: E })).cookie;
@@ -943,7 +947,7 @@ await step("dispatch: one fork per message, each its own session with the messag
   // --max: one fork at a time with --max 1 (the next waits), two together with --max 2.
   const order = join(dir, "dispatch-order.txt");
   const slow = join(dir, "slow-fork.sh");
-  writeFileSync(slow, `#!/bin/sh\necho "START $AGENT_SOUP_SESSION" >> "${order}"\nsleep 2\necho "END $AGENT_SOUP_SESSION" >> "${order}"\n`);
+  writeFileSync(slow, `#!/bin/sh\necho "START $ATTEO_SESSION" >> "${order}"\nsleep 2\necho "END $ATTEO_SESSION" >> "${order}"\n`);
   chmodSync(slow, 0o755);
   const ask = async (n) => {
     await tool(tokE, shared, "read", {});
@@ -964,10 +968,10 @@ await step("dispatch: one fork per message, each its own session with the messag
   assert(r.code === 0 && lines.length === 4 && lines[0].startsWith("START") && lines[1].startsWith("START"), `--max 2 runs two at once: ${lines}`);
 });
 
-await step("staying current: an older CLI says so (once, then hourly) and agent-soup update replaces it with the server's", async () => {
-  const old = join(dir, "old-agent-soup.mjs");
+await step("staying current: an older CLI says so (once, then hourly) and atteo update replaces it with the server's", async () => {
+  const old = join(dir, "old-atteo.mjs");
   writeFileSync(old, readFileSync(CLI, "utf8") + "\n// an older build\n", { mode: 0o755 });
-  const env = { ...process.env, AGENT_BOARD_CREDENTIALS_FILE: credA, AGENT_BOARD_SERVER: BASE, XDG_CONFIG_HOME: join(dir, "cfg-version") };
+  const env = { ...process.env, ATTEO_CREDENTIALS_FILE: credA, ATTEO_SERVER: BASE, XDG_CONFIG_HOME: join(dir, "cfg-version") };
   const runOld = (...args) =>
     new Promise((resolve) => {
       const p = spawn("node", [old, ...args], { cwd: dir, env });
@@ -978,15 +982,41 @@ await step("staying current: an older CLI says so (once, then hourly) and agent-
       p.on("close", (code) => resolve({ code, out }));
     });
   let r = await runOld("get", "boards");
-  assert(r.code === 0 && r.out.includes("older than the server's") && r.out.includes("agent-soup update"), r.out);
+  assert(r.code === 0 && r.out.includes("older than the server's") && r.out.includes("atteo update"), r.out);
   assert(!r.out.includes("| sh") && !r.out.includes("install.sh"), "the notice must not tell agents to pipe a script into a shell: " + r.out);
   r = await runOld("get", "boards");
   assert(!r.out.includes("older than"), "the notice repeats at most hourly: " + r.out);
   r = await runOld("update");
-  assert(r.code === 0 && r.out.includes("Updated agent-soup"), r.out);
+  assert(r.code === 0 && r.out.includes("Updated atteo"), r.out);
   assert(readFileSync(old, "utf8") === readFileSync(CLI, "utf8"), "update installs the server's CLI");
   r = await runOld("update");
   assert(r.out.includes("already up to date"), r.out);
+});
+
+await step("the rename: help says only atteo; the agent-soup command, AGENT_SOUP_*/AGENT_BOARD_* env vars and /cli/agent-soup.mjs still work", async () => {
+  let r = await cli(["help", "--all"]);
+  assert(r.code === 0 && (r.out + r.err).includes("atteo login") && !/agent-soup|AGENT_SOUP|agent-board(?!\.vedu-mallela\.workers\.dev)/.test(r.out + r.err), r.out + r.err);
+  // agent-soup and agent-board are aliases of the same file (existing installs, hooks and services call them).
+  const pkg = JSON.parse(readFileSync(new URL("../cli/package.json", import.meta.url), "utf8"));
+  assert(pkg.name === "atteo" && pkg.bin.atteo === "dist/atteo.mjs" && pkg.bin["agent-soup"] === pkg.bin.atteo && pkg.bin["agent-board"] === pkg.bin.atteo, JSON.stringify(pkg));
+  const alias = new URL("../cli/dist/agent-soup.mjs", import.meta.url).pathname; // the file linked installs point at
+  assert(readFileSync(alias, "utf8") === readFileSync(CLI, "utf8"), "the build keeps dist/agent-soup.mjs identical to dist/atteo.mjs");
+  // The old env var names alone (no ATTEO_*): sign-in and server from AGENT_BOARD_*, the session from AGENT_SOUP_SESSION.
+  r = await cli(["session", "new", `old-names-${run}`, "--json"]);
+  const sid = JSON.parse(r.out).session.id;
+  const oldEnv = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("ATTEO_")));
+  const old = await new Promise((resolve) => {
+    const p = spawn("node", [alias, "session", "show", "--json", "--quiet"], { cwd: dir, env: { ...oldEnv, AGENT_BOARD_CREDENTIALS_FILE: credA, AGENT_BOARD_SERVER: BASE, AGENT_SOUP_SESSION: sid, XDG_CONFIG_HOME: join(dir, "cfg-old-names") } });
+    let out = "";
+    p.stdout.on("data", (d) => (out += d));
+    p.stderr.on("data", (d) => (out += d));
+    p.stdin.end();
+    p.on("close", (code) => resolve({ code, out }));
+  });
+  assert(old.code === 0 && JSON.parse(old.out.slice(old.out.indexOf("{"))).session.id === sid, old.out);
+  // Older CLIs update themselves from the old path.
+  const [a, b] = await Promise.all(["/cli/atteo.mjs", "/cli/agent-soup.mjs"].map((p) => fetch(BASE + p).then((x) => x.text())));
+  assert(a.length > 1000 && a === b, "both paths serve the CLI");
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

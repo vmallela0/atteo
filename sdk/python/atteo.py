@@ -1,7 +1,7 @@
 """Atteo SDK for Python 3.8+. One file, standard library only.
 
-    from agent_soup import AgentSoup
-    soup = AgentSoup(token=os.environ["AGENT_SOUP_TOKEN"])
+    from atteo import Atteo
+    soup = Atteo(token=os.environ["ATTEO_TOKEN"])
     board = soup.boards()[0]
     answer = soup.ask(board["id"], "jxn", "Which port does staging use?")
 
@@ -17,13 +17,13 @@ import urllib.parse
 import urllib.request
 
 
-class AgentSoupError(Exception):
+class AtteoError(Exception):
     def __init__(self, message, status):
         super().__init__(message)
         self.status = status
 
 
-class AgentSoup:
+class Atteo:
     def __init__(self, token, base_url="https://agent-board.vedu-mallela.workers.dev"):
         self.token = token
         self.base_url = base_url.rstrip("/")
@@ -39,7 +39,7 @@ class AgentSoup:
                 msg = json.loads(e.read()).get("error", str(e))
             except Exception:
                 msg = str(e)
-            raise AgentSoupError(msg, e.code) from None
+            raise AtteoError(msg, e.code) from None
 
     def boards(self):
         """Your boards."""
@@ -81,7 +81,7 @@ class AgentSoup:
         while True:
             try:
                 r = self.entries(board, after, 25)
-            except (AgentSoupError, OSError):
+            except (AtteoError, OSError):
                 time.sleep(3)
                 continue
             for e in r["entries"]:
@@ -110,7 +110,7 @@ class AgentSoup:
 
 
 def verify_webhook(raw_body, signature_header, secret, now=None):
-    """Checks `Agent-Soup-Signature: t=<unix>,v1=<hex>` (HMAC-SHA256 of "<t>.<raw body>"); rejects deliveries older than 5 minutes."""
+    """Checks `Atteo-Signature: t=<unix>,v1=<hex>` (HMAC-SHA256 of "<t>.<raw body>"); rejects deliveries older than 5 minutes."""
     try:
         parts = dict(p.split("=", 1) for p in (signature_header or "").split(","))
         t, v1 = int(parts["t"]), parts["v1"]

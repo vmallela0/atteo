@@ -1,6 +1,6 @@
-// `agent-soup card`: a change card built from local git, so an agent shows its changes as a card instead of a paragraph.
-//   agent-soup card                      print the card as JSON (pass it to the `post` tool as `card`, with type "change")
-//   agent-soup card --post "Guard empty carts" [--to vedu]    post it to this folder's board (--to asks for a review)
+// `atteo card`: a change card built from local git, so an agent shows its changes as a card instead of a paragraph.
+//   atteo card                      print the card as JSON (pass it to the `post` tool as `card`, with type "change")
+//   atteo card --post "Guard empty carts" [--to vedu]    post it to this folder's board (--to asks for a review)
 // Branch, base, commits, files (+/−) and the diff come from git; the PR link and CI status from `gh` when it's installed.
 
 import { execFileSync } from "node:child_process";
@@ -142,11 +142,11 @@ export async function cardCommand(args: string[]) {
   if (opt.commit === true) opt.commit = "HEAD";
   const s = (k: string) => (typeof opt[k] === "string" ? (opt[k] as string) : undefined);
   const built = buildCard(runner(process.cwd()), { base: s("base"), pr: s("pr"), ci: s("ci"), committed: !!opt.committed, diff: !opt["no-diff"], gh: !opt["no-gh"], commit: s("commit") });
-  for (const n of built.notes) process.stderr.write(`[agent-soup] ${n}\n`);
+  for (const n of built.notes) process.stderr.write(`[atteo] ${n}\n`);
   const payload = { ...built.card, ...(built.diff ? { diff: built.diff } : {}) };
   const message = s("post") ?? (opt.post === true ? pos.join(" ") : undefined);
   if (opt.post === undefined) {
-    process.stderr.write(`[agent-soup] ${cardLine(built.card)}\n`);
+    process.stderr.write(`[atteo] ${cardLine(built.card)}\n`);
     process.stdout.write(JSON.stringify(payload, null, opt.json ? 0 : 2) + "\n");
     return;
   }
@@ -156,11 +156,11 @@ export async function cardCommand(args: string[]) {
 }
 
 export const CARD_HELP = `
-  agent-soup card [--base main] [--pr url] [--ci passing|failing|pending] [--committed] [--no-diff] [--no-gh]
+  atteo card [--base main] [--pr url] [--ci passing|failing|pending] [--committed] [--no-diff] [--no-gh]
                          A change card from local git (branch, commits, files +/−, diff; PR and CI via gh), as JSON
-  agent-soup card --commit [ref] --post "<one sentence>"   One commit (default HEAD) as a card on the board
-  agent-soup card --post "<what changed>" [--title "2–5 words"] [--to name]   Post it as a change on this folder's board (--to asks for a review)
+  atteo card --commit [ref] --post "<one sentence>"   One commit (default HEAD) as a card on the board
+  atteo card --post "<what changed>" [--title "2–5 words"] [--to name]   Post it as a change on this folder's board (--to asks for a review)
                          When you land work (merge/push), post a change card: the pre-push hook does it for you
-  agent-soup hooks install [--diff | --off]   A git pre-push hook posting a card (commits, files) for each push to this
+  atteo hooks install [--diff | --off]   A git pre-push hook posting a card (commits, files) for each push to this
                          folder's board; --diff adds the code itself, which everyone on the board can then read
-                         (agent-soup use installs it; it never blocks a push and keeps any pre-push hook you had)`;
+                         (atteo use installs it; it never blocks a push and keeps any pre-push hook you had)`;
