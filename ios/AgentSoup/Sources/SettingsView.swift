@@ -7,6 +7,7 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject var state: AppState
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.chatDensity) private var density
     @State private var draft: Profile?
     @State private var summary = ""
     @State private var agentListed = false
@@ -50,6 +51,15 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    displayPicker("Text size", id: "display-text", \.text, [("s", "S"), ("m", "M"), ("l", "L")])
+                    displayPicker("Density", id: "display-density", \.density, [("comfortable", "Comfortable"), ("compact", "Compact")])
+                    displayPicker("Theme", id: "display-theme", \.theme, [("system", "System"), ("light", "Light"), ("dark", "Dark")])
+                } header: { SectionHeader("Display") } footer: {
+                    Text("Text size adds to your iPhone's own setting. Saved to your account, so the web follows it too.")
+                }
+                .listRowBackground(Theme.card)
+
+                Section {
                     if state.connections.isEmpty { Text("Nothing connected yet.").foregroundStyle(Theme.muted) }
                     ForEach(state.connections) { c in
                         ConnectionRow(c: c)
@@ -64,6 +74,7 @@ struct SettingsView: View {
                 .listRowBackground(Theme.card)
             }
             .listSectionSpacing(.compact)
+            .environment(\.defaultMinListRowHeight, density == .compact ? 36 : 44)
             .scrollContentBackground(.hidden)
             .background(Theme.bg)
             .navigationTitle("Settings")
@@ -94,6 +105,25 @@ struct SettingsView: View {
         .padding(.vertical, 0)
     }
 
+    /// One display setting: its name over a segmented control. A change applies at once and is saved to your profile.
+    private func displayPicker(_ title: String, id: String, _ key: WritableKeyPath<DisplayPrefs, String>, _ options: [(value: String, label: String)]) -> some View {
+        VStack(alignment: .leading, spacing: Space.s) {
+            Text(title).font(Typo.secondary).foregroundStyle(Theme.muted)
+            Picker(title, selection: Binding(get: { state.display[keyPath: key] }, set: { v in
+                var d = state.display
+                d[keyPath: key] = v
+                Haptic.tap()
+                state.setDisplay(d)
+            })) {
+                ForEach(options, id: \.value) { Text($0.label).tag($0.value) }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .accessibilityIdentifier(id)
+        }
+        .padding(.vertical, Space.row(density) / 2)
+    }
+
     private func rule(_ value: Binding<String?>, _ on: String) -> Binding<Bool> {
         Binding(get: { value.wrappedValue == on }, set: { value.wrappedValue = $0 ? on : nil })
     }
@@ -103,7 +133,8 @@ struct SettingsView: View {
         let s = summary.trimmingCharacters(in: .whitespacesAndNewlines), l = agentListed
         let agentChanged = loadedAgent && (s != (state.me?.summary ?? "") || l != (state.me?.listed ?? false))
         Task {
-            if let p, p != old { await state.saveProfile(p) }
+            // Display settings save as you change them; only the rest of the profile is compared here.
+            if var p { p.display = old?.display; if p != old { await state.saveProfile(p) } }
             if agentChanged { await state.saveAgent(summary: s, listed: l) }
         }
     }
