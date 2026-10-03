@@ -12,6 +12,7 @@ final class AgentSoupUITests: XCTestCase {
     func app(fresh: Bool) -> XCUIApplication {
         let a = XCUIApplication()
         a.launchEnvironment["AGENT_SOUP_SERVER"] = env["AGENT_SOUP_SERVER"] ?? "http://localhost:8788"
+        a.launchEnvironment["AGENT_SOUP_STILL"] = "1" // no endless animations: they keep the app from ever being idle for the test
         a.launchEnvironment["AGENT_SOUP_TOKEN"] = env["AGENT_SOUP_TOKEN"] ?? ""
         if fresh { a.launchEnvironment["AGENT_SOUP_FRESH"] = "1" }
         return a
@@ -107,7 +108,9 @@ final class AgentSoupUITests: XCTestCase {
         sleep(1)
         // Like any messenger: the chat opens at the newest message, not the oldest.
         let newest = a.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'task-card-' AND label BEGINSWITH 'Ship'")).firstMatch
-        XCTAssertTrue(newest.waitForExistence(timeout: 5) && newest.isHittable, "opens at the newest message")
+        // (Settled, not just there: the sheet closing and the chat's refresh can still be moving the list for a moment.)
+        let settled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == true AND hittable == true"), object: newest)
+        XCTAssertEqual(XCTWaiter().wait(for: [settled], timeout: 10), .completed, "opens at the newest message")
         XCTAssertFalse(a.staticTexts["Earlier: checked the retry path, step 0"].isHittable, "not at the top")
         shot("04-board")
         // Who's doing what: the strip at the top opens the board's task list.
@@ -199,8 +202,8 @@ final class AgentSoupUITests: XCTestCase {
             wait(for: [visible], timeout: 3) // on screen, not tucked under the message box
             shot("07a-seen")
         }
-        // Reply to a specific message: swipe it right (like any messenger) or long-press → Reply; its thread opens
-        // (like Slack), the box starting with who you're answering; the answer stays in the thread.
+        // Reply to a specific message: swipe it right (like any messenger) or long-press → Reply; its thread opens over
+        // the chat (like iMessage), the box starting with who you're answering; the answer lands in the chat too.
         let parent = a.staticTexts["posted while you read history"]
         if parent.exists && parent.isHittable {
             let from = parent.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5))
@@ -435,7 +438,7 @@ final class AgentSoupUITests: XCTestCase {
         let n = Int(Date().timeIntervalSince1970) % 100000
         func sent() { wait(for: [expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: a.staticTexts["Sending…"])], timeout: 10) }
 
-        // Reply: long-press theo's agent's message → Reply; its thread opens full screen, the box starting
+        // Reply: long-press theo's agent's message → Reply; its thread opens over the chat, the box starting
         // with "@theo's agent " (#538).
         let theirs = a.staticTexts["Backfill finished on staging: 4.2M rows, 0 errors. Ready for prod tonight."]
         XCTAssertTrue(theirs.waitForExistence(timeout: 5))
@@ -459,26 +462,21 @@ final class AgentSoupUITests: XCTestCase {
         shot("21-thread")
         a.navigationBars["Thread"].buttons.element(boundBy: 0).tap()
 
-        // Back in the chat: the answer isn't in the chat (it lives in the thread); the message says "1 reply".
+        // Back in the chat: the answer is in the chat too, at the bottom under its quote bar (jxn #1040); the message
+        // it answers says "1 reply".
         XCTAssertTrue(a.navigationBars["Thread"].waitForNonExistence(timeout: 5), "back")
         XCTAssertTrue(composer.waitForExistence(timeout: 5))
         let replies = a.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'replies-'")).firstMatch
         XCTAssertTrue(replies.waitForExistence(timeout: 5), "the parent shows its replies")
-        // (the whole message, "@theo's agent after…", isn't in the chat; the preview card shows its line)
-        XCTAssertFalse(a.staticTexts.matching(NSPredicate(format: "label BEGINSWITH '@' AND label ENDSWITH %@", answer)).firstMatch.exists, "answers stay in their thread")
+        XCTAssertTrue(a.staticTexts.matching(NSPredicate(format: "label BEGINSWITH '@' AND label ENDSWITH %@", answer)).firstMatch.waitForExistence(timeout: 5), "the answer is in the chat")
+        XCTAssertTrue(a.buttons.matching(NSPredicate(format: "identifier == 'reply-quote' AND label CONTAINS 'Backfill finished'")).firstMatch.exists, "under a bar quoting what it answers")
         shot("21a-replies-chip")
+        for _ in 0..<4 where !replies.isHittable { a.swipeDown(velocity: .slow); sleep(1) }
         replies.tap()
         XCTAssertTrue(a.navigationBars["Thread"].waitForExistence(timeout: 5), "the thread opens again")
         XCTAssertTrue(inThread.waitForExistence(timeout: 5), "with the answer in it")
-        // "Also send to chat": a thread answer that's posted to the chat too.
-        let echo = "ship it tonight \(n)"
-        tbox.tap()
-        tbox.typeText(echo)
-        a.buttons["also-to-chat"].tap()
-        a.buttons["thread-send"].tap()
-        sent()
         a.navigationBars["Thread"].buttons.element(boundBy: 0).tap()
-        XCTAssertTrue(a.staticTexts[echo].waitForExistence(timeout: 8), "also sent to the chat")
+        XCTAssertTrue(a.navigationBars["Thread"].waitForNonExistence(timeout: 5), "closed")
 
         // Every thread here (the top bar's Threads, like Lark): theo answers in the thread while you look, and its
         // row gets a dot; open it (pushed), back to the list (the dot's gone), back to the chat.
@@ -845,7 +843,7 @@ final class AgentSoupUITests: XCTestCase {
         let composer = a.textFields["composer"].exists ? a.textFields["composer"] : a.textViews["composer"]
         XCTAssertTrue(composer.waitForExistence(timeout: 10), "board opens")
         let theirs = a.staticTexts.matching(NSPredicate(format: "label ENDSWITH %@", "has the numbers \(n)")).firstMatch
-        XCTAssertTrue(theirs.waitForExistence(timeout: 8), "theo's message")
+        XCTAssertTrue(theirs.waitForExistence(timeout: 20), "theo's message") // a fresh launch loads the whole chat first
         wait(for: [expectation(for: NSPredicate(format: "value CONTAINS '@maya' AND value CONTAINS %@", "@theo's agent"), evaluatedWith: theirs)], timeout: 5) // both boxed
         sleep(1)
         shot("30-mention-boxes")
@@ -993,8 +991,9 @@ final class AgentSoupUITests: XCTestCase {
         chat.tap()
         XCTAssertTrue(a.buttons["presence"].waitForExistence(timeout: 10))
         let card = a.descendants(matching: .any)["change-card"].firstMatch
-        for _ in 0..<10 where !(card.exists && card.isHittable) { a.swipeDown(); usleep(500_000) }
-        XCTAssertTrue(card.waitForExistence(timeout: 5), "the change shows as a card")
+        sleep(2) // a fresh launch: let the chat settle at its newest before scrolling back
+        for _ in 0..<16 where !(card.exists && card.isHittable) { a.swipeDown(); usleep(500_000) }
+        XCTAssertTrue(card.waitForExistence(timeout: 10), "the change shows as a card")
         XCTAssertTrue(a.staticTexts["Shipped to production"].exists, "its title")
         XCTAssertTrue(a.staticTexts["v42"].exists, "the version chip")
         XCTAssertTrue(a.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'change-stats' AND label CONTAINS '3 commits'")).firstMatch.exists, "commits · files")

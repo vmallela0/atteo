@@ -11,6 +11,7 @@ final class DisplaySettingsUITests: XCTestCase {
     func app(display: String? = nil, openBoard: String? = nil) -> XCUIApplication {
         let a = XCUIApplication()
         a.launchEnvironment["AGENT_SOUP_SERVER"] = server
+        a.launchEnvironment["AGENT_SOUP_STILL"] = "1" // no endless animations: they keep the app from ever being idle for the test
         a.launchEnvironment["AGENT_SOUP_TOKEN"] = env["AGENT_SOUP_TOKEN"] ?? ""
         if let display { a.launchEnvironment["AGENT_SOUP_DISPLAY"] = display }
         if let openBoard {
@@ -187,7 +188,7 @@ final class DisplaySettingsUITests: XCTestCase {
             let spec = "\(text),comfortable,\(theme)"
             let a = app(display: spec)
             a.launch()
-            XCTAssertTrue(a.navigationBars["Chats"].waitForExistence(timeout: 15))
+            XCTAssertTrue(a.navigationBars["Chats"].waitForExistence(timeout: 30))
             a.buttons["tab-boards"].firstMatch.tap()
             sleep(2)
             shot("chats-\(theme)-\(text)")
@@ -195,16 +196,16 @@ final class DisplaySettingsUITests: XCTestCase {
             sleep(1)
             shot("settings-\(theme)-\(text)")
             a.buttons["Done"].tap()
-            a.terminate()
-            if let board {
-                let b = app(display: spec, openBoard: board)
-                b.launch()
-                // Fresh launch: give the board time to load its messages (not the loading placeholders). A query over
-                // a long chat's accessibility tree can itself time out, so this just waits.
-                sleep(10)
+            // The board, from the same launch (a relaunch per look made this test long enough to time out at the end
+            // of a full run): tap its row, give it time to settle, and look. A query over a long chat's accessibility
+            // tree can itself time out, so this just waits.
+            let row = a.buttons["chat-Checkout bug"].firstMatch
+            if board != nil, row.waitForExistence(timeout: 5) {
+                row.tap()
+                sleep(5)
                 shot("board-\(theme)-\(text)")
-                b.terminate()
             }
+            a.terminate()
         }
         for theme in ["light", "dark"] {
             let a = app(display: "m,compact,\(theme)")
@@ -221,13 +222,20 @@ final class DisplaySettingsUITests: XCTestCase {
             shot("signin-\(theme)")
             s.terminate()
         }
-        // Tasks (opened from a board) comfortable and compact.
-        if let board {
+        // Tasks (opened from a board) comfortable and compact. From Chats, like a person (a fresh launch straight into a
+        // long chat could keep the app too busy to answer the test's queries).
+        if board != nil {
             for density in ["comfortable", "compact"] {
-                let b = app(display: "m,\(density),light", openBoard: board)
+                let b = app(display: "m,\(density),light")
                 b.launch()
-                let strip = b.buttons["work-strip"]
-                if strip.waitForExistence(timeout: 20) { strip.tap(); sleep(2); shot("tasks-light-m-\(density)") }
+                let row = b.buttons["chat-Checkout bug"].firstMatch
+                if b.navigationBars["Chats"].waitForExistence(timeout: 30) { b.buttons["tab-boards"].firstMatch.tap() }
+                if row.waitForExistence(timeout: 10) {
+                    row.tap()
+                    sleep(4)
+                    let strip = b.buttons["work-strip"]
+                    if strip.waitForExistence(timeout: 20) { strip.tap(); sleep(2); shot("tasks-light-m-\(density)") }
+                }
                 b.terminate()
             }
         }

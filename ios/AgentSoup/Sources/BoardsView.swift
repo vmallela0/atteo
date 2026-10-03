@@ -1,7 +1,6 @@
 // One board or DM: opens on what you saw last (cached), refreshes in place, marks itself read, and sends instantly
 // (your message shows at once; if it can't be delivered it says so and you tap to retry).
 
-import PhotosUI
 import SwiftUI
 
 struct BoardView: View {
@@ -26,23 +25,6 @@ struct BoardView: View {
     @State private var focused = false // the message box has the keyboard
 
     private var list: [Entry] { state.entries[board.id] ?? [] }
-    private var canSend: Bool {
-        guard preparing == 0 else { return false }
-        if !attachments.isEmpty { return true }
-        if let (_, rest) = SlashCommand.parse(draft, on: board) { return !rest.isEmpty } // "/task" alone: nothing to send yet
-        return !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    // Pictures and files waiting in the message box (sent with the text, the way the web composer sends them).
-    @State private var attachments: [Attachment] = []
-    @State private var preparing = 0 // picked, still being made to fit
-    @State private var picked: [PhotosPickerItem] = []
-    @State private var showPhotos = false
-    @State private var showCamera = false
-    @State private var showFiles = false
-    @State private var showEncryptedNote = false
-    private let maxAttachments = 10
-
     @State private var atBottom = true
     @State private var stick = true // pinned to the latest until you scroll up yourself (like any messenger)
     @State private var position = ScrollPosition(edge: .bottom) // like any messenger: you start at the latest
@@ -50,7 +32,10 @@ struct BoardView: View {
     // Wave 2: threads, reactions, unsend, receipts, board info, older messages.
     @State private var flash: Int? // a message just jumped to, lit for a moment
     @State private var scrollRequest: ScrollRequest?
-    @State private var thread: ThreadTarget? // the thread open, pushed full screen (its root)
+    @State private var thread: ThreadTarget? // the thread open, over the chat (iMessage-style), with its own box
+    @State private var newAt: Int? // your first unread message when the chat opened: a thin "New" line above it
+    @State private var unreadResolved = false // where to open (first unread or the latest) is settled, once per visit
+    @State private var userScrolled = false // you've scrolled yourself since it opened (nothing moves you after)
     @State private var profile: ProfileTarget? // someone's card (a picture, a name or an @mention tapped)
     @State private var seenBy: Receipt? // who's seen one of your messages, as a list
     @State private var group: GroupTarget? // "@agents" / "@humans" tapped: who that reaches
@@ -81,8 +66,9 @@ struct BoardView: View {
         let bySeq = Dictionary(list.map { ($0.seq, $0) }, uniquingKeysWith: { a, _ in a })
         // Retractions aren't messages: their targets read "Unsent" instead.
         let gone = Set(list.compactMap(\.retracts))
-        // Like Slack: the chat is the top-level messages; answers live in their thread ("3 replies" under the root).
-        let shown = list.filter { $0.retracts == nil && $0.replyTo == nil }
+        // Every message in order, replies included (jxn #1040): a reply lands at the bottom like any message, under a
+        // bar quoting what it answers; the message it answers says "3 replies", which opens the thread.
+        let shown = list.filter { $0.retracts == nil }
         let replies = Dictionary(grouping: list.filter { $0.replyTo != nil && $0.retracts == nil && $0.seq > 0 && !gone.contains($0.seq) }, by: { rootOf($0, in: bySeq) })
         let latestMine = shown.last { isMine($0) && $0.seq > 0 && $0.type != "task" && !gone.contains($0.seq) }?.seq
         return Rows(shown: shown, bySeq: bySeq, gone: gone, replies: replies, latestMine: latestMine)
@@ -93,7 +79,7 @@ struct BoardView: View {
     // ("#123" in messages, checklists and the task sheets reads as that message's title.)
     var body: some View { threads(chat).refTitles(list, tasks: state.tasks[board.id] ?? []) }
 
-    /// Threads: pushed on this stack (a reply, a preview card, a "#123"), and the list of them in the top bar.
+    /// Threads: over the chat as a sheet (a reply, "N replies", a reply's quote bar), and the list of them in the top bar.
     private func threads(_ v: some View) -> some View {
         v
         // Tapping into the message box (#842): to the latest, pinned there as the keyboard comes up and the box
@@ -103,7 +89,13 @@ struct BoardView: View {
             stick = true
             withAnimation(.smooth(duration: 0.3)) { position.scrollTo(edge: .bottom) }
         }
-        .navigationDestination(item: $thread) { t in ThreadView(board: board, root: t.root, prefill: t.prefill) }
+        // iMessage-style: the thread slides up over the chat, with the same message box as the chat (jxn #1040, #1094).
+        .sheet(item: $thread) { t in
+            NavigationStack { ThreadView(board: board, root: t.root, prefill: t.prefill, focus: t.focus, replyTo: t.replyTo, overChat: true, closes: true) }
+                .environment(\.chatDensity, density)
+                .presentationDetents([.large]).presentationDragIndicator(.visible)
+                .presentationBackground(Theme.bg)
+        }
         .toolbar {
             // Every thread here, newest first (a dot when one has answers you haven't seen).
             ToolbarItem(placement: .topBarTrailing) {
@@ -208,7 +200,7 @@ struct BoardView: View {
             }
             // Only your own scrolling unpins it; coming back to the latest re-pins.
             .onScrollPhaseChange { old, phase in
-                if phase == .interacting { stick = false }
+                if phase == .interacting { stick = false; userScrolled = true }
                 else if phase == .idle && (old == .interacting || old == .decelerating) { stick = atBottom } // after a swipe, not our own scrolls
             }
             .onChange(of: list.last?.id) { _, _ in
@@ -255,19 +247,6 @@ struct BoardView: View {
                 .accessibilityIdentifier("presence")
             }
         }
-        .photosPicker(isPresented: $showPhotos, selection: $picked, maxSelectionCount: max(1, maxAttachments - attachments.count - preparing), selectionBehavior: .ordered, matching: .images)
-        .onChange(of: picked) { _, items in
-            guard !items.isEmpty else { return }
-            picked = []
-            for item in items { add { guard let d = try await item.loadTransferable(type: Data.self) else { throw AttachError.unreadable("That picture") }; return try await Attachments.picture(d, name: nil) } }
-        }
-        .fileImporter(isPresented: $showFiles, allowedContentTypes: [.item], allowsMultipleSelection: true) { r in
-            switch r {
-            case .success(let urls): for u in urls.prefix(max(0, maxAttachments - attachments.count)) { add { try await Attachments.file(u) } }
-            case .failure(let e): state.report(e)
-            }
-        }
-        .fullScreenCover(isPresented: $showCamera) { CameraPicker { img in add { try await Attachments.photo(img) } }.ignoresSafeArea() }
         // The title opens the board's info: what's open, who's here, files, search.
         .sheet(isPresented: $showAgents) {
             BoardInfoSheet(board: board) { seq in showAgents = false; jump(to: seq, after: 0.35) }
@@ -285,9 +264,24 @@ struct BoardView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Theme.bg, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar) // inside a conversation the message box owns the bottom edge
-        .task { async let e: Void = state.loadEntries(board); async let t: Void = state.loadTasks(board); async let a: Void = state.loadAgents(board); async let m: Void = state.loadMembers(board); _ = await (e, t, a, m); await state.markRead(board); await state.loadHandling(board); await state.markSeen(board) }
+        .task {
+            // Where to open is settled by the server's fresh "seen up to" for you, before anything marks it read.
+            await state.loadEntries(board)
+            openAtFirstUnread()
+            async let t: Void = state.loadTasks(board); async let a: Void = state.loadAgents(board); async let m: Void = state.loadMembers(board); _ = await (t, a, m)
+            await state.markRead(board); await state.loadHandling(board); await state.markSeen(board)
+        }
         .onChange(of: state.pulse) { _, p in if p?.board == board.id { Task { async let e: Void = state.loadEntries(board); async let t: Void = state.loadTasks(board); async let a: Void = state.loadAgents(board); _ = await (e, t, a); await state.markRead(board) } } }
         .onChange(of: list.last?.seq) { _, _ in Task { await state.markSeen(board) } } // you've seen what just landed
+        // A long chat is laid out lazily (row heights are guesses until rows are made), so "the latest" keeps moving for a
+        // moment after it opens: hold it there until it stops, unless you scroll up or a search hit sent you somewhere.
+        .task(id: board.id) {
+            for _ in 0..<12 {
+                try? await Task.sleep(for: .milliseconds(150))
+                guard stick, state.jumpRequest == nil, !Task.isCancelled else { return }
+                position.scrollTo(edge: .bottom)
+            }
+        }
         .task(id: board.id) { await state.watch(board) } // live: ticks and new messages as they happen
         .task(id: board.id) { if board.isAgentChat { _ = await state.openAgentChat() } } // its sessions, fresh
         .refreshable { await state.loadEntries(board) }
@@ -298,13 +292,15 @@ struct BoardView: View {
         let e = r.shown[i]
         let prev = i > 0 ? r.shown[i - 1] : nil
         let newDay = prev.map { !Calendar.current.isDate(Date(timeIntervalSince1970: $0.ts / 1000), inSameDayAs: Date(timeIntervalSince1970: e.ts / 1000)) } ?? true
-        let grouped = !newDay && prev != nil && prev!.author == e.author && prev!.via == e.via && e.ts - prev!.ts < 5 * 60_000 && e.type == "note" && e.replyTo == nil
+        let grouped = !newDay && prev != nil && prev!.author == e.author && prev!.via == e.via && e.ts - prev!.ts < 5 * 60_000 && e.type == "note" && e.replyTo == nil && e.seq != newAt
         let mine = isMine(e)
         let prevMine = prev.map { isMine($0) && $0.type != "task" } ?? false
         VStack(alignment: .leading, spacing: 0) {
             if newDay { DaySeparator(ts: e.ts) }
+            // Where you'd read up to when the chat opened (jxn #1011).
+            if e.seq == newAt { NewDivider() }
             // A hairline between separate messages from others (bubbles are separate already).
-            else if !(mine && e.type != "task") && !prevMine { Rectangle().fill(Theme.line.opacity(grouped ? 0.45 : 0.8)).frame(height: 0.5).padding(.leading, 38).padding(.top, grouped ? (density == .compact ? Space.xxs : Space.xs) : Space.gap(density)) }
+            else if !newDay, !(mine && e.type != "task") && !prevMine { Rectangle().fill(Theme.line.opacity(grouped ? 0.45 : 0.8)).frame(height: 0.5).padding(.leading, 38).padding(.top, grouped ? (density == .compact ? Space.xxs : Space.xs) : Space.gap(density)) }
             entryRow(e, grouped: grouped, mine: mine, r)
         }
     }
@@ -333,24 +329,32 @@ struct BoardView: View {
             a.react = { emoji in Task { await state.react(emoji, to: e.seq, in: board) } }
             a.moreReactions = { reactingTo = SeqRef(id: e.seq) }
             let root = rootOf(e, in: r.bySeq)
-            a.openThread = { thread = ThreadTarget(root: root) }
+            a.openThread = { focused = false; thread = ThreadTarget(root: root, focus: e.replyTo != nil ? e.seq : nil) }
             if mine {
                 a.unsend = { unsending = e }
                 a.toggleReceipt = { withAnimation(.snappy) { if openReceipts.contains(e.seq) { openReceipts.remove(e.seq) } else { openReceipts.insert(e.seq) } } }
             }
             if forMe(e) { a.takeOn = { Task { await state.takeOn(e.seq, in: board) } } }
         }
-        if let p = e.replyTo { a.jumpToParent = { jump(to: p) } }
+        // A reply's quote bar: its thread, over the chat, on this reply (jxn #1040).
+        if e.replyTo != nil, e.seq > 0 { let root = rootOf(e, in: r.bySeq); a.jumpToParent = { Haptic.tap(); focused = false; thread = ThreadTarget(root: root, focus: e.seq) } }
         return a
     }
 
-    /// Reply (swipe right, or long-press → Reply): the message's thread opens, its box starting with who you're
-    /// answering, like the web: "@theo " or "@theo's agent " (not yourself).
+    /// Reply (swipe right, or long-press → Reply): the message's thread opens over the chat, its box answering that
+    /// message and starting with who wrote it, like the web: "@theo ", "@theo's agent ", and your own agent's posts too
+    /// ("@maya's agent ", #975); only your own messages start empty.
     private func startReply(to e: Entry) {
         Haptic.tap()
         focused = false
-        let handle = isMine(e) ? nil : "@" + (e.byAgent ? "\(e.author)'s agent" : e.author) + " "
-        thread = ThreadTarget(root: rootOf(e, in: Dictionary(list.map { ($0.seq, $0) }, uniquingKeysWith: { a, _ in a })), prefill: handle)
+        thread = ThreadTarget(root: rootOf(e, in: Dictionary(list.map { ($0.seq, $0) }, uniquingKeysWith: { a, _ in a })),
+                              prefill: Self.replyHandle(e, me: me), replyTo: e.seq)
+    }
+
+    /// What a reply to this message starts with: "@who " (a person, or their agent: yours too), nil for your own.
+    static func replyHandle(_ e: Entry, me: String?) -> String? {
+        if e.author == me && e.via != "agent" { return nil }
+        return "@" + (e.byAgent ? "\(e.author)'s agent" : e.author) + " "
     }
 
     /// Scrolls to a message and lights it for a moment, loading older messages first if it's before what's here.
@@ -365,12 +369,8 @@ struct BoardView: View {
                 tries += 1
             }
             if holdBottom { try? await Task.sleep(nanoseconds: 250_000_000); holdBottom = false }
-            guard let target = list.first(where: { $0.seq == seq }) else { Haptic.warn(); return }
-            // An answer lives in its thread: open that.
-            if target.replyTo != nil {
-                thread = ThreadTarget(root: rootOf(target, in: Dictionary(list.map { ($0.seq, $0) }, uniquingKeysWith: { a, _ in a })), focus: seq)
-                return
-            }
+            // (A reply is in the chat like any message now, jxn #1040: it scrolls there too.)
+            guard list.contains(where: { $0.seq == seq && $0.retracts == nil }) else { Haptic.warn(); return }
             stick = false
             if focused { // the keyboard would cover it: let it go down first, then scroll
                 focused = false
@@ -382,6 +382,28 @@ struct BoardView: View {
             withAnimation(.smooth(duration: 0.25)) { flash = seq }
             try? await Task.sleep(nanoseconds: 1_300_000_000)
             withAnimation(.smooth(duration: 0.8)) { if flash == seq { flash = nil } }
+        }
+    }
+
+    /// Opens the chat at your first unread message (jxn #1011), like the web: a thin "New" line above it, and Jump to
+    /// latest below. Nothing unread (or your first visit): the latest, as it opened. Your own messages never count as
+    /// unread (your agent's do). Once per visit, from the server's "seen up to" for you; not when a search hit or a
+    /// link sent you somewhere, nor once you've scrolled yourself.
+    private func openAtFirstUnread() {
+        guard !unreadResolved else { return }
+        unreadResolved = true
+        guard state.jumpRequest == nil, !userScrolled, let me, let seen = state.reads[board.id]?[me]?.personSeen, seen > 0,
+              let first = list.first(where: { $0.seq > seen && $0.retracts == nil && !isMine($0) }) else { return }
+        newAt = first.seq
+        stick = false
+        // The lazy layout guesses row heights until rows are made: hold it there while it settles.
+        Task {
+            for _ in 0..<10 {
+                guard !userScrolled, newAt == first.seq, !Task.isCancelled else { break }
+                scrollRequest = ScrollRequest(id: first.seq, anchor: .top, animated: false)
+                try? await Task.sleep(nanoseconds: 150_000_000)
+            }
+            if atBottom { stick = true } // everything unread fits: stay with the latest
         }
     }
 
@@ -436,166 +458,16 @@ struct BoardView: View {
 
     // MARK: - The message box
 
-    /// What "@" can name here: each member's agent and each member (you can hand work to your own agent, but you
-    /// don't mention yourself), plus everyone's agents and everyone.
-    private var mentionables: [Mentionable] {
-        let me = state.me?.owner
-        var people = state.members[board.id] ?? []
-        for u in list.map(\.author) + (state.boardAgents[board.id] ?? []).map(\.user) where !people.contains(u) { people.append(u) }
-        return people.flatMap { u in [Mentionable(handle: "\(u)'s agent", user: u, agent: true)] + (u == me ? [] : [Mentionable(handle: u, user: u, agent: false)]) }
-            + [Mentionable(handle: "agents", user: nil, agent: true), Mentionable(handle: "humans", user: nil, agent: false)]
-    }
-
-    /// The "@word" being typed at the end of the message, if any.
-    private var mentionQuery: String? {
-        guard let at = draft.lastIndex(of: "@") else { return nil }
-        if at > draft.startIndex, let before = draft[draft.index(before: at)...].first, !before.isWhitespace { return nil }
-        let q = draft[draft.index(after: at)...]
-        return q.contains(where: { $0.isWhitespace && $0 != " " }) || q.count > 32 || q.contains("  ") ? nil : String(q)
-    }
-
-    private var suggestions: [Mentionable] {
-        guard focused, let q = mentionQuery?.lowercased() else { return [] }
-        // "theo", "theo's", "theo's ag": match the handle as typed so far (and don't offer what's already complete).
-        return Array(mentionables.filter { $0.handle.lowercased().hasPrefix(q) && $0.handle.lowercased() != q }.prefix(5))
-    }
-
-    private func insert(_ m: Mentionable) {
-        guard let at = draft.lastIndex(of: "@") else { return }
-        Haptic.tap()
-        draft = String(draft[..<at]) + "@\(m.handle) "
-    }
-
-    /// The message box: one soft field on the page (no bar, no outline), the send button inside its trailing edge.
-    /// Above it, when they apply: who you're replying to, and who "@" can name.
+    /// The message box (ChatComposer.swift, the same one threads use).
     var composer: some View {
-        VStack(spacing: 0) {
-            TypingRow(board: board.id)
-            if board.isAgentChat { AgentToPicker(to: $toSession) }
-            // "/": what a message can be besides a note (a task, a decision, a question).
-            if attachments.isEmpty {
-                let fits = SlashCommand.suggestions(draft, on: board)
-                if !fits.isEmpty { SlashChips(commands: fits) { c in Haptic.tap(); draft = c.word + " " } }
-                else if let (c, _) = SlashCommand.parse(draft, on: board) { SlashChips(commands: [c], active: c) { _ in } }
-            }
-            if !suggestions.isEmpty {
-                MentionList(items: suggestions, pick: insert)
-                    .padding(.horizontal, Space.m).padding(.bottom, Space.xs)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-            VStack(spacing: 0) {
-            if !attachments.isEmpty || preparing > 0 {
-                AttachmentTray(items: attachments, preparing: preparing) { a in
-                    withAnimation(.spring(duration: 0.28, bounce: 0.1)) { attachments.removeAll { $0.id == a.id } }
-                }
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-            HStack(alignment: .bottom, spacing: 0) {
-                attachButton
-                // A text view of its own, so Paste takes pictures too (ComposerField.swift).
-                ComposerField(text: $draft, focused: $focused,
-                              placeholder: attachments.isEmpty ? placeholder : "Add a note",
-                              pasteImages: pasted,
-                              members: Set(mentionables.compactMap { $0.user?.lowercased() }), me: me)
-                    .padding(.horizontal, Composer.gap)
-                Button(action: send) {
-                    Image(systemName: "arrow.up").font(.system(size: 14, weight: .bold))
-                        .composerCircle(fill: canSend ? Theme.accent : Theme.raised)
-                        .foregroundStyle(canSend ? .black : Theme.faint)
-                        .animation(.spring(duration: 0.3, bounce: 0.35), value: canSend)
-                }
-                .buttonStyle(PressStyle())
-                .disabled(!canSend)
-                .accessibilityIdentifier("send")
-                .accessibilityLabel("Send")
-            }
-            }
-            .background(Theme.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-            .padding(.horizontal, Space.m)
-        }
-        .padding(.top, Space.m).padding(.bottom, Space.s) // a little air between the last message and the box
-        .background(Theme.bg)
-        .animation(.spring(duration: 0.28, bounce: 0.1), value: suggestions.map(\.handle))
-        .animation(.spring(duration: 0.28, bounce: 0.1), value: attachments.map(\.id))
-        .animation(.spring(duration: 0.28, bounce: 0.1), value: preparing)
-        .animation(.smooth(duration: 0.25), value: state.typing[board.id])
-        .animation(.spring(duration: 0.28, bounce: 0.1), value: draft.hasPrefix("/"))
-        .onChange(of: draft) { _, d in state.typed(d, in: board) } // "maya is typing…" for everyone else here
+        ChatComposer(board: board, draft: $draft, focused: $focused, placeholder: placeholder,
+                     toSession: board.isAgentChat ? $toSession : nil)
     }
 
     /// "Message theo", "Message Checkout bug", "Message your agent…" / "Message builder…".
     private var placeholder: String {
         if board.isAgentChat { return toSession.map { "Message \($0)…" } ?? "Message your agent…" }
         return board.kind == "direct" ? "Message \(board.displayName(me: state.me?.owner))" : "Message \(board.title)"
-    }
-
-    /// + at the leading edge of the message box: Photos, the camera (when there is one), Files. Encrypted boards
-    /// can't take attachments yet: the + is dimmed and says so.
-    @ViewBuilder private var attachButton: some View {
-        let label = Image(systemName: "plus").font(.system(size: 14, weight: .bold))
-            .composerCircle(fill: Theme.raised)
-        if board.encrypted == true {
-            Button { Haptic.tap(); showEncryptedNote = true } label: { label.foregroundStyle(Theme.faint).opacity(0.55) }
-                .buttonStyle(PressStyle())
-                .popover(isPresented: $showEncryptedNote, arrowEdge: .bottom) {
-                    Label("Pictures and files can't be sent on encrypted boards yet.", systemImage: "lock.fill")
-                        .font(Typo.secondary).foregroundStyle(Theme.text)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(width: 260, alignment: .leading)
-                        .padding(.horizontal, Space.m).padding(.vertical, Space.s + 2)
-                        .presentationCompactAdaptation(.popover)
-                        .presentationBackground(Theme.raised)
-                        .accessibilityIdentifier("attach-unavailable")
-                }
-                .accessibilityIdentifier("attach")
-                .accessibilityLabel("Attach")
-                .accessibilityHint("Not available on encrypted boards yet")
-        } else {
-            Menu {
-                Button("Photos", systemImage: "photo.on.rectangle") { showPhotos = true }
-                if UIImagePickerController.isSourceTypeAvailable(.camera) { Button("Camera", systemImage: "camera") { showCamera = true } }
-                Button("Files", systemImage: "folder") { showFiles = true }
-            } label: { label.foregroundStyle(Theme.muted) }
-                .menuOrder(.fixed)
-                .menuStyle(.button).buttonStyle(.plain) // the bare circle, no system padding (it lines up with send)
-                .disabled(attachments.count + preparing >= maxAttachments)
-                .accessibilityIdentifier("attach")
-                .accessibilityLabel("Attach")
-        }
-    }
-
-    /// Pictures pasted into the message box: attached like ones picked from Photos (not on encrypted boards, which
-    /// can't take attachments yet: the + says why).
-    private func pasted(_ images: [UIImage]) {
-        guard board.encrypted != true else { Haptic.warn(); showEncryptedNote = true; return }
-        Haptic.tap()
-        for img in images.prefix(max(0, maxAttachments - attachments.count - preparing)) { add { try await Attachments.photo(img) } }
-    }
-
-    /// Prepares something picked (made to fit the size limit) and puts it in the message box.
-    private func add(_ make: @escaping () async throws -> Attachment) {
-        preparing += 1
-        Task {
-            do {
-                let a = try await make()
-                withAnimation(.spring(duration: 0.28, bounce: 0.1)) { attachments.append(a) }
-            } catch { Haptic.warn(); state.report(error) }
-            preparing -= 1
-        }
-    }
-
-    private func send() {
-        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        let files = attachments
-        guard canSend else { return }
-        draft = ""
-        withAnimation(.spring(duration: 0.3, bounce: 0.15)) { attachments = [] }
-        Haptic.tap()
-        Task {
-            if files.isEmpty, let (c, rest) = SlashCommand.parse(text, on: board) {
-                await state.send(c.body(rest), to: board, toSession: board.isAgentChat ? toSession : nil, type: c.type)
-            } else if files.isEmpty { await state.send(text, to: board, toSession: board.isAgentChat ? toSession : nil) } else { await state.send(files: files, caption: text, to: board) }
-        }
     }
 }
 
@@ -623,7 +495,8 @@ struct ScrollRequest: Equatable { let id: Int; let anchor: UnitPoint; let animat
 /// A message, by number, for sheets that open on one.
 struct SeqRef: Identifiable { let id: Int }
 /// A thread to open: its root, what its box starts with (a reply's @mention), and an answer to show.
-struct ThreadTarget: Hashable { let root: Int; var prefill: String? = nil; var focus: Int? = nil }
+/// `replyTo`: the message its box answers (a reply started on one message); nil: the thread's root.
+struct ThreadTarget: Hashable, Identifiable { let root: Int; var prefill: String? = nil; var focus: Int? = nil; var replyTo: Int? = nil; var id: Int { root } }
 
 /// Someone "@" can name: a member's agent, a member, or everyone's agents / everyone.
 struct Mentionable: Hashable {
@@ -807,28 +680,34 @@ struct EntryRow: View {
             }))
     }
 
-    /// What this message answers, as one light line above it. Tap: go there (loading it if it's further back).
+    /// What this message answers, as a small bar above it ("↩ theo: the first line…", like the web's, jxn #1040).
+    /// Tap: the thread, on this reply (in a thread: scrolls to what it answers). Numbers read as titles (#675).
     @ViewBuilder private var quote: some View {
         if e.replyTo != nil {
+            let name = parent.map { $0.byAgent ? "\($0.author)'s agent" : ($0.author == me && $0.via != "agent" ? "You" : $0.author) }
+            let line = parent.map { ThreadPreview.line($0).plainRefs(refTitle.callAsFunction) } ?? "an earlier message"
             Button { actions.jumpToParent?() } label: {
-                HStack(spacing: 6) {
-                    Capsule().fill(Theme.faint.opacity(0.6)).frame(width: 2)
-                    if let p = parent {
-                        (Text(p.byAgent ? "\(p.author)'s agent" : (p.author == me && p.via != "agent" ? "You" : p.author)).fontWeight(.semibold) + Text("  " + (p.text.split(separator: "\n").first.map(String.init) ?? p.text)))
+                HStack(spacing: 0) {
+                    RoundedRectangle(cornerRadius: 1.5, style: .continuous).fill(Theme.faint.opacity(0.7)).frame(width: 3)
+                    HStack(alignment: .firstTextBaseline, spacing: 5) {
+                        Image(systemName: "arrow.turn.up.left").font(.system(size: 9, weight: .bold)).foregroundStyle(Theme.faint)
+                        (Text(name ?? "An earlier message").fontWeight(.semibold).foregroundColor(Theme.text.opacity(0.9)) + Text(name == nil ? "" : ": " + line))
                             .font(Typo.micro).foregroundStyle(Theme.muted).lineLimit(1)
-                    } else {
-                        Text("An earlier message").font(Typo.micro.weight(.semibold)).foregroundStyle(Theme.muted).lineLimit(1)
                     }
+                    .padding(.leading, 7).padding(.trailing, 10).padding(.vertical, 4)
                 }
                 .fixedSize(horizontal: false, vertical: true)
-                .padding(.vertical, 1)
+                .background(Theme.card, in: UnevenRoundedRectangle(cornerRadii: .init(topLeading: 2, bottomLeading: 2, bottomTrailing: 8, topTrailing: 8), style: .continuous))
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(PressStyle())
             .disabled(actions.jumpToParent == nil)
-            .accessibilityElement(children: .combine)
+            .padding(.vertical, 1)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Reply to \(name ?? "an earlier message")" + (name == nil ? "" : ": " + line))
+            .accessibilityAddTraits(.isButton)
             .accessibilityIdentifier("reply-quote")
-            .accessibilityHint("Shows the message it answers")
+            .accessibilityHint("Opens the thread")
         }
     }
 
@@ -960,6 +839,20 @@ struct EntryRow: View {
             }
         }
         .padding(.top, gapAbove(Space.s + 2))
+    }
+}
+
+/// Where your unread messages start (jxn #1011): "NEW" and a thin line, in the web's red.
+struct NewDivider: View {
+    var body: some View {
+        HStack(spacing: Space.s) {
+            Text("New").textCase(.uppercase).font(Typo.micro.weight(.semibold)).tracking(0.7).foregroundStyle(Theme.danger)
+            Rectangle().fill(Theme.danger.opacity(0.45)).frame(height: 0.5)
+        }
+        .padding(.top, Space.m).padding(.bottom, Space.xxs)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("New messages")
+        .accessibilityIdentifier("new-divider")
     }
 }
 

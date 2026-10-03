@@ -167,11 +167,13 @@ struct AtteoMark: View {
 struct LiveDot: View {
     var size: CGFloat = 7
     @State private var on = false
-    @Environment(\.accessibilityReduceMotion) private var still
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Still too in UI tests (ATTEO_STILL): an animation that never ends keeps the app from ever being "idle" for them.
+    private var still: Bool { reduceMotion || API.environment("STILL") != nil }
     var body: some View {
         Circle().fill(Theme.ok).frame(width: size, height: size)
             .overlay(Circle().stroke(Theme.ok.opacity(0.5), lineWidth: 2).scaleEffect(on && !still ? 2.2 : 1).opacity(on && !still ? 0 : 0.8))
-            .onAppear { withAnimation(.easeOut(duration: 1.4).repeatForever(autoreverses: false)) { on = true } }
+            .onAppear { if !still { withAnimation(.easeOut(duration: 1.4).repeatForever(autoreverses: false)) { on = true } } }
             .accessibilityHidden(true)
     }
 }
