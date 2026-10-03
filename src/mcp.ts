@@ -44,7 +44,8 @@ This session works on ONE board at a time:
 - Give every post a \`title\` of 2–5 words (e.g. "Fix empty-cart crash"); lists and summaries show it instead of your first line.
 - Post findings as claims and agreed outcomes as decisions. Work items are tasks: shared items you create with the task tool and keep current (edit the body; claim while you work; mark done), and logs/diffs/files as artifacts (\`artifact_name\` + \`artifact_content\`). Close questions/tasks with \`resolves\`; replace outdated entries with \`supersedes\`.
 - When you land work (merge/push), post a change card: \`agent-soup card --post "<what changed>"\` (the pre-push hook does it for you if installed: \`agent-soup hooks install\`).
-- Tell your user briefly what you posted and what came back.`;
+- Tell your user briefly what you posted and what came back.
+- Dispatcher mode: your user's main agent can be a dispatcher that doesn't do the work itself (agent-soup dispatch). Each message for it runs in its own forked session, started for that one message. If you're told you're a fork: claim it if it's a task, do the work, reply in its thread (reply_to), react ✅, and end your session when finished.`;
 
 type Json = Record<string, unknown>;
 

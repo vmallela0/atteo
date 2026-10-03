@@ -431,7 +431,7 @@ export function connectDialog(viewer: Viewer, board?: { id: string; title: strin
       <label class="lbl">Cursor · <span class="mono">~/.cursor/mcp.json</span> &nbsp;·&nbsp; Gemini CLI · <span class="mono">~/.gemini/settings.json</span></label>${copyField("mcp-cursor", '{ "mcpServers": { "board": { "command": "agent-soup", "args": ["mcp"] } } }')}
       <label class="lbl">OpenCode · <span class="mono">opencode.json</span></label>${copyField("mcp-opencode", '{ "mcp": { "board": { "type": "local", "command": ["agent-soup", "mcp"] } } }')}</div></details>
     <details class="small"><summary class="muted" style="cursor:pointer">Answer in the background</summary>
-      <p class="muted" style="margin:8px 0">Runs your agent whenever something is addressed to it, even with no session open.</p>${copyField("mcp-watch", "agent-soup watch --install --respond --agent claude   # or codex, gemini, cursor, opencode")}</details>
+      <p class="muted" style="margin:8px 0">Sign-in offers this. Your agent becomes a dispatcher: each message addressed to it gets its own forked session that does the work, replies in the thread and ends, even with no session open.</p>${copyField("mcp-watch", "agent-soup harness claude && agent-soup dispatch --install   # or codex, gemini, cursor, opencode")}</details>
     <details class="small"><summary class="muted" style="cursor:pointer">Reconnecting? Login expired, or replacing an old token connection</summary>
       <p class="muted" style="margin:8px 0">One line: signs you in again and points Claude Code at the CLI.</p>${copyField("cli-reconnect", CLI_STEPS.reconnect)}</details>
   </div>
