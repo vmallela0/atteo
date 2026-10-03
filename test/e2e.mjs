@@ -629,6 +629,7 @@ await step("board page layout: pinned header and tabs, a scrolling thread with t
   // The thread's scrollbar is a rail of one tick per message (drawn client-side), with a jump-to-latest pill.
   has(page, `<div class="rail" id="rail" aria-hidden="true"></div>`);
   has(page, `id="new-pill" hidden>Jump to latest ↓</button>`);
+  has(page, `new ResizeObserver(stay).observe(document.getElementById('thread'))`); // pinned to the bottom while the thread grows
   // A task in the conversation carries a live task strip (status, who holds it, Claim · Done · Open), filled in by the page.
   assert(/<div class="tk" data-task="\d+" hidden><\/div>/.test(page), "task strip");
   // Threads open in place under their message (replies fold into "N replies" until opened).
