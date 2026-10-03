@@ -65,13 +65,30 @@ export function computeSummary(entries: Entry[], done?: Set<number>): Summary {
   };
 }
 
+/** Agent posts labelled with what their authors named their agents (`names`: owner → name). */
+export function withNames(entries: Entry[], names?: Record<string, string> | null): Entry[] {
+  if (!names || !Object.keys(names).length) return entries;
+  return entries.map((e) => (e.via === "agent" && names[e.author] && !e.agent_name ? { ...e, agent_name: names[e.author] } : e));
+}
+
+/** The summary with its agent posts labelled the same way. */
+export function summaryWithNames(s: Summary, names?: Record<string, string> | null): Summary {
+  if (!names || !Object.keys(names).length) return s;
+  const out = {} as Summary;
+  for (const k of Object.keys(s) as (keyof Summary)[]) out[k] = withNames(s[k], names);
+  return out;
+}
+
 export function fmtTime(ts: number): string {
   return new Date(ts).toISOString().slice(0, 16).replace("T", " ") + "Z";
 }
 
-/** "jxn's agent" for agent posts, "jxn (person)" for posts the member wrote themselves, plain name for older entries. */
-export function authorLabel(e: Entry): string {
-  return e.via === "agent" ? `${e.author}'s agent` : e.via === "person" ? `${e.author} (person)` : e.author;
+/** "jxn's agent" for agent posts ("Jarvis (jxn's agent)" when jxn named it), "jxn (person)" for posts the member
+ * wrote themselves, plain name for older entries. `names`: agent names by owner, for entries not yet labelled. */
+export function authorLabel(e: Entry, names?: Record<string, string>): string {
+  if (e.via !== "agent") return e.via === "person" ? `${e.author} (person)` : e.author;
+  const name = e.agent_name ?? names?.[e.author];
+  return name ? `${name} (${e.author}'s agent)` : `${e.author}'s agent`;
 }
 
 /** One-line header for an entry, e.g. `#12 question · jxn → vedu · re #9 · 2026-10-02 10:31Z`. */
@@ -98,9 +115,9 @@ export function entryHeader(e: Entry, viewer?: string): string {
 }
 
 /** One line for "what you missed": `#12 note · jxn's agent [scout] → vedu · re #9: first ~80 chars`. `get` has the rest. */
-export function compactLine(e: Entry, max = 80): string {
+export function compactLine(e: Entry, max = 80, names?: Record<string, string>): string {
   const sessionName = e.via === "agent" && e.client?.includes(" · ") ? e.client.split(" · ")[0] : null;
-  const bits = [`#${e.seq} ${e.type}`, authorLabel(e) + (sessionName ? ` [${sessionName}]` : "") + (e.to ? ` → ${e.to}` : "")];
+  const bits = [`#${e.seq} ${e.type}`, authorLabel(e, names) + (sessionName ? ` [${sessionName}]` : "") + (e.to ? ` → ${e.to}` : "")];
   if (e.reply_to != null) bits.push(`re #${e.reply_to}`);
   if (e.resolves.length) bits.push(`resolves ${e.resolves.map((n) => "#" + n).join(", ")}`);
   if (e.supersedes != null) bits.push(`supersedes #${e.supersedes}`);
@@ -192,6 +209,7 @@ export function formatSummary(
   maxChars = DEFAULT_SUMMARY_CHARS,
   tags?: TaskTags,
   reviewers?: Map<number, string[]>, // who has given a verdict on each change
+  names?: Record<string, string>, // what members named their agents: "vedu (agent: Jarvis)"
 ): string {
   const s = summary;
   // Each section shows its newest items up to a cap (big boards have thousands); the rest is a search away.
@@ -209,7 +227,7 @@ export function formatSummary(
   const render = () => {
     const lines: string[] = [];
     lines.push(`Board "${board.title}" (${board.id}) · you are ${you} · ${board.entry_count} entries`);
-    lines.push(`Members: ${members.map((m) => m.name).join(", ") || "(none yet)"}`);
+    lines.push(`Members: ${members.map((m) => (names?.[m.name] ? `${m.name} (agent: ${names[m.name]})` : m.name)).join(", ") || "(none yet)"}`);
     const section = (title: string, items: Entry[], empty: string, max: number, more = "search to find them") => {
       lines.push("", `${title}:`);
       if (!items.length) lines.push(`  ${empty}`);

@@ -26,6 +26,7 @@ export interface AgentSessionView {
 
 export interface AgentProfile {
   owner: string;
+  agent_name: string | null; // what the owner named it ("Jarvis"): show it with them, "Jarvis · vedu's agent"
   display_name: string | null;
   summary: string | null;
   capabilities: string[];
@@ -97,7 +98,7 @@ async function build(env: Env, me: string, users: string[], rel: Record<string, 
   if (!users.length) return [];
   const qs = users.map(() => "?").join(",");
   const [people, profiles, caps, rec, sess, pres] = await Promise.all([
-    env.DB.prepare(`SELECT name, display_name FROM users WHERE name IN (${qs})`).bind(...users).all<{ name: string; display_name: string | null }>(),
+    env.DB.prepare(`SELECT name, display_name, agent_name FROM users WHERE name IN (${qs})`).bind(...users).all<{ name: string; display_name: string | null; agent_name: string | null }>(),
     env.DB.prepare(`SELECT user, summary, listed FROM agent_profiles WHERE user IN (${qs})`).bind(...users).all<{ user: string; summary: string | null; listed: number }>(),
     env.DB.prepare(`SELECT user, cap FROM agent_caps WHERE user IN (${qs}) ORDER BY cap`).bind(...users).all<{ user: string; cap: string }>(),
     env.DB.prepare(`SELECT user, outcome, COUNT(*) AS n FROM agent_record WHERE user IN (${qs}) GROUP BY user, outcome`).bind(...users).all<{ user: string; outcome: string; n: number }>(),
@@ -121,6 +122,7 @@ async function build(env: Env, me: string, users: string[], rel: Record<string, 
     const ss = (sessBy.get(p.name) ?? []).map((s) => ({ name: s.name, client: s.client, status: s.status, status_at: s.status_at, last_seen: s.last_seen, active: now - s.last_seen < ACTIVE_MS }));
     out.push({
       owner: p.name,
+      agent_name: p.agent_name,
       display_name: p.display_name,
       summary: pr?.summary ?? null,
       capabilities: (capsBy.get(p.name) ?? []).map((c) => c.cap),
@@ -157,7 +159,7 @@ export async function findAgents(env: Env, me: string, opts: { can?: string | nu
   }
   if (q) {
     args.push(`%${esc(q)}%`);
-    where.push(`(u.name LIKE ?${args.length} ESCAPE '\\' OR lower(COALESCE(u.display_name, '')) LIKE ?${args.length} ESCAPE '\\' OR lower(COALESCE(p.summary, '')) LIKE ?${args.length} ESCAPE '\\')`);
+    where.push(`(u.name LIKE ?${args.length} ESCAPE '\\' OR lower(COALESCE(u.agent_name, '')) LIKE ?${args.length} ESCAPE '\\' OR lower(COALESCE(u.display_name, '')) LIKE ?${args.length} ESCAPE '\\' OR lower(COALESCE(p.summary, '')) LIKE ?${args.length} ESCAPE '\\')`);
   }
   const sql = `SELECT u.name FROM users u LEFT JOIN agent_profiles p ON p.user = u.name
     WHERE (u.name = ?1

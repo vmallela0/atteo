@@ -2,6 +2,8 @@
 //   "@vedu"          the person
 //   "@vedu's agent"  their agent (you can mention your own agent, e.g. from the web, to hand it work)
 //   "@vedu/scout"    one of vedu's agent sessions, by its name (a person can run several agents at once)
+//   "@Jarvis"        a member's agent by the name its person gave it (social.ts); a name two members' agents share
+//                    on the board doesn't resolve: "@vedu's agent" says which
 //   "@agents"        every member's agent on the board (unless a member is actually named "agents")
 //   "@humans"        every person on the board (not their agents), the same way
 //   "@all"           everyone else on the board: every person and every person's agent (never the author's own)
@@ -59,39 +61,112 @@ export function hasGroupMention(text: string, group: string, members?: Iterable<
 
 const key = (m: Mention) => `${m.user}${m.agent ? "/agent" : ""}`;
 
+/** A member of the board, by name, with the name they gave their agent (if any). */
+export type MemberRef = string | { user: string; agent_name?: string | null };
+
+/** An agent name as compared: NFKC, curly apostrophes straightened, spaces collapsed, lowercase. */
+export function foldAgentName(s: string): string {
+  return s.normalize("NFKC").replace(/[‘’ʼ`]/g, "'").replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+/** Agent names on a board: folded name → the members whose agent has it (more than one: ambiguous). */
+export function agentNameIndex(members: Iterable<MemberRef>): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  for (const m of members) {
+    if (typeof m === "string" || !m.agent_name) continue;
+    const k = foldAgentName(m.agent_name);
+    out.set(k, [...(out.get(k) ?? []), m.user.toLowerCase()]);
+  }
+  return out;
+}
+
+const HANDLE_AT = /^@([A-Za-z0-9][A-Za-z0-9_.-]{0,31})/;
+
+/**
+ * "@Jarvis": a member's agent by the name they gave it (case-insensitive, spaces and apostrophes included).
+ * Found before handles, longest name first; a member's own handle at the same spot wins (a person named like
+ * someone's agent is still the person).
+ */
+function agentNameHits(text: string, names: Map<string, string[]>, isMember: (n: string) => boolean): { at: number; owners: string[]; typed: string }[] {
+  const hits: { at: number; owners: string[]; typed: string }[] = [];
+  if (!names.size) return hits;
+  const sorted = [...names.keys()].filter((k) => !isMember(k)).sort((a, b) => b.length - a.length);
+  for (let i = text.indexOf("@"); i >= 0; i = text.indexOf("@", i + 1)) {
+    if (i > 0 && /[A-Za-z0-9_.@/-]/.test(text[i - 1])) continue;
+    const h = HANDLE_AT.exec(text.slice(i))?.[1].toLowerCase();
+    if (h && (isMember(h) || isMember(h.replace(/[.-]+$/, "")))) continue;
+    for (const k of sorted) {
+      const typed = text.slice(i + 1, i + 1 + k.length);
+      if (typed.length !== k.length || foldAgentName(typed) !== k) continue;
+      const after = text[i + 1 + k.length];
+      if (after !== undefined && /[\p{L}\p{N}_]/u.test(after)) continue;
+      hits.push({ at: i, owners: names.get(k)!, typed });
+      break;
+    }
+  }
+  return hits;
+}
+
 /**
  * Members (and members' agents) mentioned in `text`, in order of first appearance.
  * The author mentioning themselves doesn't count; the author mentioning their own agent does, unless the post
  * was written by that agent. Handles that aren't on the board come back in `unknown` so a caller can say so.
+ * "@<agent name>" is that member's agent; a name two members' agents share on the board comes back in `ambiguous`
+ * instead (the owner form, "@vedu's agent", is needed).
  */
 export function parseMentions(
   text: string,
-  members: Iterable<string>,
+  members: Iterable<MemberRef>,
   author?: string,
   via?: "agent" | "person" | null,
-): { mentions: Mention[]; unknown: string[] } {
-  const set = new Set([...members].map((m) => m.toLowerCase()));
+): { mentions: Mention[]; unknown: string[]; ambiguous: string[] } {
+  const list = [...members];
+  const set = new Set(list.map((m) => (typeof m === "string" ? m : m.user).toLowerCase()));
   const mentions = new Map<string, Mention>();
   const unknown = new Set<string>();
+  const ambiguous = new Set<string>();
   let grouped = false;
-  for (const m of withoutCode(text).matchAll(MENTION_RE)) {
-    const group = groupOf(m[2]);
-    if (GROUPS.includes(group) && !m[3] && !set.has(group)) {
-      grouped = true;
-      for (const u of set) {
-        // @all: everyone else, person and agent (the author's own agent isn't handed work by it).
-        if (group === ALL_MEMBERS && u === author?.toLowerCase()) continue;
-        for (const a of group === ALL_MEMBERS ? [{ user: u, agent: false }, { user: u, agent: true }] : [{ user: u, agent: group === ALL_AGENTS }]) {
-          if (keep(a, author, via)) mentions.set(key(a), a);
-        }
-      }
-      continue;
-    }
-    const r = resolve(m[2], m[3], (n) => set.has(n));
-    if (!r.known) unknown.add(r.user);
-    else if (keep(r, author, via)) mentions.set(key(r), { user: r.user, agent: r.agent, ...(r.session ? { session: r.session } : {}) });
+  let plain = withoutCode(text);
+  const events: { at: number; run: () => void }[] = [];
+  for (const h of agentNameHits(plain, agentNameIndex(list), (n) => set.has(n))) {
+    plain = plain.slice(0, h.at) + " ".repeat(h.typed.length + 1) + plain.slice(h.at + 1 + h.typed.length); // the handle pass skips it
+    events.push({
+      at: h.at,
+      run: () => {
+        if (h.owners.length > 1) return void ambiguous.add(h.typed);
+        const a = { user: h.owners[0], agent: true };
+        if (keep(a, author, via)) mentions.set(key(a), a);
+      },
+    });
   }
-  return { mentions: [...mentions.values()].slice(0, grouped ? MAX_GROUP_MENTIONS : MAX_MENTIONS), unknown: [...unknown].slice(0, MAX_MENTIONS) };
+  for (const m of plain.matchAll(MENTION_RE)) {
+    events.push({
+      at: m.index ?? 0,
+      run: () => {
+        const group = groupOf(m[2]);
+        if (GROUPS.includes(group) && !m[3] && !set.has(group)) {
+          grouped = true;
+          for (const u of set) {
+            // @all: everyone else, person and agent (the author's own agent isn't handed work by it).
+            if (group === ALL_MEMBERS && u === author?.toLowerCase()) continue;
+            for (const a of group === ALL_MEMBERS ? [{ user: u, agent: false }, { user: u, agent: true }] : [{ user: u, agent: group === ALL_AGENTS }]) {
+              if (keep(a, author, via)) mentions.set(key(a), a);
+            }
+          }
+          return;
+        }
+        const r = resolve(m[2], m[3], (n) => set.has(n));
+        if (!r.known) unknown.add(r.user);
+        else if (keep(r, author, via)) mentions.set(key(r), { user: r.user, agent: r.agent, ...(r.session ? { session: r.session } : {}) });
+      },
+    });
+  }
+  for (const ev of events.sort((a, b) => a.at - b.at)) ev.run();
+  return {
+    mentions: [...mentions.values()].slice(0, grouped ? MAX_GROUP_MENTIONS : MAX_MENTIONS),
+    unknown: [...unknown].slice(0, MAX_MENTIONS),
+    ambiguous: [...ambiguous].slice(0, MAX_MENTIONS),
+  };
 }
 
 /** Self-mentions: only a person handing work to their own agent is meaningful. */
