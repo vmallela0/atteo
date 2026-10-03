@@ -160,8 +160,13 @@ function imageHtml(boardId: string, e: Entry): string {
 
 /** Author, marked as the person or their agent (and which agent). */
 function whoHtml(e: Entry): string {
-  // Agents read apart by their square avatar and "<name>'s agent"; the client is plain text, people get no tag.
-  if (e.via === "agent") return `<span class="who">${esc(e.author)}'s agent</span>${e.client && e.client !== "agent" ? `<span class="via" title="Posted by ${esc(e.author)}'s agent with ${esc(e.client)}">${esc(e.client)}</span>` : ""}`;
+  // Agents read apart by their square avatar and their name: "vedu/scout" for a named agent session (its client is
+  // "scout · Claude Code"), else "<name>'s agent"; the client is plain text after it. People get no tag.
+  if (e.via === "agent") {
+    const [session, client] = e.client && e.client.includes(" · ") ? e.client.split(" · ", 2) : [null, e.client];
+    const name = session ? `${e.author}/${session}` : `${e.author}'s agent`;
+    return `<span class="who">${esc(name)}</span>${client && client !== "agent" ? `<span class="via" title="Posted by ${esc(name)} with ${esc(client)}">${esc(client)}</span>` : ""}`;
+  }
   if (e.via === "person") return `<span class="who" title="Written by ${esc(e.author)} on the web">${esc(e.author)}</span>`;
   return `<span class="who">${esc(e.author)}</span>`;
 }
