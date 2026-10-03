@@ -1187,6 +1187,16 @@ await step("tasks are shared items: create, get, edit in place (versions, confli
   assert(r.status === 200 && (await r.json()).task.updated_via === "person", "web edit");
   const nt = await web(`/api/boards/${fb}/tasks`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: `web task ${run}` }) });
   assert(nt.status === 201, "web create");
+  // Remove: the author (here the creator) drops it from the task list; a member who is neither author nor creator gets a 4xx; the page offers the control.
+  const rmSeq = (await nt.json()).task.seq;
+  const retractWeb = (who) => web(`/api/boards/${fb}/entries/${rmSeq}/retract`, who, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ reason: "removed from the task board" }) });
+  const bpage = await (await web(`/b/${fb}`, A)).text();
+  assert(bpage.includes('id="td-remove"') && bpage.includes("Remove this task from the board?"), "board page should carry the remove control");
+  const denied = await retractWeb(B);
+  assert(denied.status >= 400 && denied.status < 500, `non-author retract ${denied.status}`);
+  assert((await (await web(`/api/boards/${fb}/tasks`, A)).json()).tasks.some((x) => x.seq === rmSeq), "task should still be listed");
+  assert((await retractWeb(A)).status === 201, "author removes task");
+  assert(!(await (await web(`/api/boards/${fb}/tasks`, A)).json()).tasks.some((x) => x.seq === rmSeq), "removed task still listed");
 });
 
 await step("sub-tasks: parent, nested list, children done/total, a finished sub-task ticks the parent's checklist", async () => {

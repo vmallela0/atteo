@@ -1444,9 +1444,14 @@ async function openTask(seq){const r=await fetch('/api/boards/'+BOARD+'/tasks/'+
   document.getElementById('td-meta').textContent='v'+t.version+' · edited by '+by+' '+tdate(t.updated_at)+(t.lease_holder?' · 🔒 '+(t.lease_agent?t.lease_holder+"'s agent":t.lease_holder)+' until '+tdate(t.lease_until):'')+(t.stop_reason?' · stopped: '+t.stop_reason:'');
   document.getElementById('td-hist').innerHTML=(j.history||[]).map(v=>'<li>v'+v.version+' · '+esc(v.via==='agent'?v.author+"'s agent":v.author)+' · '+tdate(v.ts)+(v.summary?' — '+esc(v.summary):'')+'</li>').join('')||'<li>No edits yet</li>';
   document.getElementById('td-claim').textContent=t.lease_holder===ME?'Release':'Claim';document.getElementById('td-err').hidden=true;
+  document.getElementById('td-remove').hidden=!(t.author===ME||ME===CREATOR);
   if(!td.open){td.showModal();const ti=document.getElementById('td-title');ti.setSelectionRange(0,0);ti.scrollLeft=0;if(matchMedia('(pointer:coarse)').matches)ti.blur()}}
 ['td-title','td-body'].forEach(id=>document.getElementById(id).addEventListener('input',()=>tdirty=true));
 document.getElementById('td-open').addEventListener('click',()=>{td.close();tab(0);location.hash='#e'+tcur.seq});
+document.getElementById('td-remove').addEventListener('click',async()=>{if(!confirm('Remove this task from the board? It stays in the log as unsent.'))return;
+  const r=await fetch('/api/boards/'+BOARD+'/entries/'+tcur.seq+'/retract',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({reason:'removed from the task board'})});
+  if(!r.ok){const j=await r.json().catch(()=>({}));toast(j.error||'Could not remove');return}
+  td.close();loadTasks();tick(false)});
 document.getElementById('td-claim').addEventListener('click',()=>{taskAct(tcur.seq,{action:tcur.lease_holder===ME?'release':'claim'}).then(()=>openTask(tcur.seq))});
 document.getElementById('td-form').addEventListener('submit',async e=>{e.preventDefault();const t=tcur,err=document.getElementById('td-err');err.hidden=true;
   const title=document.getElementById('td-title').value,body=document.getElementById('td-body').value;
@@ -1552,7 +1557,7 @@ window.boardKeys=(e,k)=>{
       <p class="xs faint" id="td-meta" style="margin:8px 0 0"></p>
       <details style="margin-top:6px"><summary class="xs faint" style="cursor:pointer">History</summary><ul class="xs faint td-hist" id="td-hist"></ul></details>
       <p class="flash err" id="td-err" hidden></p>
-      <div class="row" style="justify-content:space-between;margin-top:12px"><div class="row" style="gap:6px"><button class="btn sm" type="button" id="td-claim">Claim</button><button class="btn sm ghost" type="button" id="td-open">Open in conversation</button></div><button class="btn primary sm">Save</button></div>
+      <div class="row" style="justify-content:space-between;margin-top:12px"><div class="row" style="gap:6px"><button class="btn sm" type="button" id="td-claim">Claim</button><button class="btn sm ghost" type="button" id="td-open">Open in conversation</button><button class="btn sm ghost" type="button" id="td-remove" hidden>Remove</button></div><button class="btn primary sm">Save</button></div>
     </div></form></dialog>
 ${SHEET}
 <dialog class="lightbox" id="lightbox" aria-label="Image"><img id="lightbox-img" alt=""></dialog>
