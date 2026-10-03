@@ -789,8 +789,6 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
   .doc-list{max-height:22vh}
 }
 
-/* agent connect card + presence */
-.aside .aside .aside .aside .aside 
 /* landing */
 .hero{text-align:center;padding:64px 0 40px}
 .hero h1{font-size:clamp(34px,6vw,56px);letter-spacing:-.045em;line-height:1.05;margin:18px auto 16px;max-width:760px}
