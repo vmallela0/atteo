@@ -640,6 +640,8 @@ kbd{display:inline-flex;align-items:center;justify-content:center;min-width:18px
 .tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin-bottom:18px}
 .tabs button{font:inherit;font-size:13px;background:none;border:0;border-bottom:2px solid transparent;margin-bottom:-1px;padding:8px 10px;color:var(--muted);cursor:pointer}
 .tabs button:hover{color:var(--ink)}.tabs button[aria-selected=true]{color:var(--ink);border-bottom-color:var(--ink);font-weight:500}
+/* phones: tabs stay one line each and the row scrolls sideways when it can't fit (the line under them is a shadow so the scroll box doesn't clip the selected tab's underline) */
+@media(max-width:640px){.tabs{overflow-x:auto;scrollbar-width:none;border-bottom:0;box-shadow:inset 0 -1px var(--line)}.tabs::-webkit-scrollbar{display:none}.tabs button{flex:none;white-space:nowrap;margin-bottom:0;padding:8px 9px}.bp-tabs .tabs{box-shadow:none;overflow:visible}.bp-tabs .tabs button{margin-bottom:-1px}}
 [role=tabpanel][hidden]{display:none}
 
 /* event log (Stripe-style) */
