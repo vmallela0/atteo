@@ -675,6 +675,10 @@ await step("read receipts: how far each member has seen, as a person (web) and t
   assert(r.ok, `seen ${r.status}`);
   u = await (await web(`/api/boards/${board}/updates?after=${p}`, A)).json();
   assert(u.reads[B].person_seen >= p, `B saw it on the web: ${JSON.stringify(u.reads[B])}`);
+  const ej = await (await web(`/api/boards/${board}/entries?after=${p - 1}`, A)).json();
+  assert(ej.reads?.[B]?.person_seen >= p && ej.reads[B].agent_seen >= p, `entries JSON carries reads: ${JSON.stringify(ej.reads)}`);
+  const pg = await (await web(`/b/${board}`, A)).text();
+  assert(pg.includes("function renderRcpts") && pg.includes("Seen by everyone") && pg.includes("d.className='rcpt"), "board page has the receipt line");
   // Marks never go back, can't run past the end, and outsiders can't set them.
   await web(`/api/boards/${board}/seen`, B, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ seq: 1 }) });
   await web(`/api/boards/${board}/seen`, B, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ seq: 10_000_000 }) });

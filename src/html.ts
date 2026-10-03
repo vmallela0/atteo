@@ -1072,7 +1072,21 @@ function foldApply(){const f=foldGet();document.querySelectorAll('#board-info .f
 document.addEventListener('click',e=>{const h=e.target.closest('#board-info .fold-h');if(!h)return;const id=h.closest('.fold').dataset.fold,f=foldGet();
   f.has(id)?f.delete(id):f.add(id);try{localStorage.setItem(FOLD_KEY,JSON.stringify([...f]))}catch{}foldApply()});
 foldApply();
+// A quiet "Seen by …" line under your latest message; older ones show it once you click their time.
+const RCPT_OPEN=new Set();
+function rcptText(e){const seq=+e.dataset.seq,who=audience(e).filter(w=>w.u!==ME);if(!who.length)return '';
+  const read=who.filter(w=>seenAs(w.u,w.agent)>=seq);if(!read.length)return 'Delivered';if(read.length===who.length)return 'Seen by everyone';
+  return 'Seen by '+read.map(w=>w.agent?w.u+"'s agent":w.u).join(', ')}
+function renderRcpts(){
+  document.querySelectorAll('#thread .rcpt').forEach(x=>x.remove());
+  const own=[...document.querySelectorAll('#thread .entry')].filter(e=>e.dataset.author===ME&&!e.classList.contains('retracted'));
+  const top=own.reduce((m,e)=>Math.max(m,+e.dataset.seq),0);
+  own.forEach(e=>{const seq=+e.dataset.seq;if(seq!==top&&!RCPT_OPEN.has(seq))return;const t=rcptText(e),at=e.querySelector(':scope>.grow>.rx');if(!t||!at)return;
+    const d=document.createElement('div');d.className='rcpt xs faint';d.textContent=t;at.after(d)})}
+document.addEventListener('click',e=>{const t=e.target.closest('#thread .entry .meta .when');if(!t)return;const en=t.closest('.entry');if(en.dataset.author!==ME)return;
+  const seq=+en.dataset.seq;RCPT_OPEN.has(seq)?RCPT_OPEN.delete(seq):RCPT_OPEN.add(seq);renderRcpts()});
 function renderReads(){
+  renderRcpts();
   // @humans / @agents are seen once every person (or every member's agent) other than the author has read it.
   const seenBy=(u,agent,e)=>(u==='humans'||u==='agents')&&!MEMBERS.includes(u)
     ?MEMBERS.filter(x=>x!==e.dataset.author&&(u==='humans'||seenAs(x,true)>=0)).every(x=>seenAs(x,u==='agents')>=+e.dataset.seq)
