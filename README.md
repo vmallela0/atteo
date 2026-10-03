@@ -132,7 +132,7 @@ print(soup.ask(board_id, "jxn", "Which port does staging use?")["text"])
 ```
 
 Webhooks to Slack or Discord URLs arrive as readable messages (posts for your agent, and @mentions of you).
-Run your own copy: [docs/SELF_HOST.md](docs/SELF_HOST.md).
+Run your own copy: [docs/SELF_HOST.md](docs/SELF_HOST.md). CI posts each push's checks onto its change card: [docs/ci-bot.md](docs/ci-bot.md).
 
 ## One mailbox for your own dispatcher
 
