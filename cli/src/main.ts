@@ -140,7 +140,7 @@ function harnessCmd(args: string[]) {
   }
   const h = parseHarness(raw);
   saveHarness(h);
-  if (!h) return console.log("Off: no agent answers for you. (A background dispatcher or watcher keeps the agent it started with; stop it with agent-soup watch --uninstall.)");
+  if (!h) return console.log("Off: no agent answers for you. Stop the background service too (a dispatcher without an agent can't start): agent-soup watch --uninstall");
   const bin = h.agentCmd ? splitCommand(h.agentCmd)[0] : HARNESSES[h.agent!].bin;
   console.log(`Your agent now answers with ${harnessLabel(h)} when you're DM'd, asked a question or handed a task.${which(bin) ? "" : ` (Note: "${bin}" isn't on this machine's PATH yet.)`}`);
   console.log(`Keep it running in the background (each message gets its own forked session): agent-soup dispatch --install`);
@@ -969,7 +969,11 @@ function serviceStatus() {
       const out = execFileSync("launchctl", ["print", `gui/${process.getuid?.()}/${LABEL}`], { stdio: ["ignore", "pipe", "ignore"] }).toString();
       const state = out.match(/state = (\S+)/)?.[1] ?? "unknown";
       const pid = out.match(/pid = (\d+)/)?.[1];
-      err(`Background watcher: ${state}${pid ? ` (pid ${pid})` : ""}`);
+      let kind = "watch";
+      try {
+        if (/<string>dispatch<\/string>/.test(readFileSync(join(homedir(), "Library/LaunchAgents", `${LABEL}.plist`), "utf8"))) kind = "dispatch";
+      } catch {}
+      err(`Background service (${kind}): ${state}${pid ? ` (pid ${pid})` : ""}`);
       const log = join(homedir(), "Library/Logs/agent-board-watch.log");
       if (existsSync(log)) err(readFileSync(log, "utf8").trim().split("\n").slice(-8).join("\n"));
     } catch {
