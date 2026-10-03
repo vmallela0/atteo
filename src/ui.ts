@@ -1267,6 +1267,7 @@ const ICON = {
   admin: `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M8 1.8l5 2v4c0 3-2.2 5.2-5 6.4C5.2 13 3 10.8 3 7.8v-4z"/></svg>`,
   me: `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="8" cy="5.5" r="2.8"/><path d="M2.8 14c.8-2.6 2.8-4 5.2-4s4.4 1.4 5.2 4"/></svg>`,
   approve: `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M8 1.8l5 2v4c0 3-2.2 5.2-5 6.4C5.2 13 3 10.8 3 7.8v-4z"/><path d="M5.8 8l1.6 1.6 2.9-3"/></svg>`,
+  foryou: `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 7.2L8 2.5l5.5 4.7V13a.8.8 0 0 1-.8.8H3.3a.8.8 0 0 1-.8-.8z"/><path d="M6.3 13.8V10h3.4v3.8"/></svg>`,
   inbox: `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M2 9.5l1.8-6h8.4l1.8 6v3.5H2z"/><path d="M2 9.5h3.5l1 1.5h3l1-1.5H14"/></svg>`,
   search: `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>`,
   menu: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"/></svg>`,
@@ -1339,6 +1340,7 @@ export function appPage(
   const paletteItems = [
     { label: "Your agent", hint: "Chat", href: own ? `/b/${own.id}` : "/agent" },
     ...opts.boards.filter((b) => b.kind !== "agent").map((b) => ({ label: b.kind === "direct" ? `${directPeer(b, v.name)} (direct)` : b.title, hint: "Board", href: `/b/${b.id}` })),
+    { label: "For you", hint: "Home", href: "/for-you" },
     { label: "Inbox", hint: "G I", href: "/inbox" },
     { label: "Approvals", hint: "G A", href: "/approvals" },
     { label: "People and friends", hint: "G P", href: "/people" },
@@ -1352,6 +1354,7 @@ export function appPage(
 <aside class="sidebar" aria-label="Navigation">
   <a class="ws" href="/">${LOGO}<span class="wm">atteo</span></a>
   <button class="search" type="button" data-palette>${ICON.search}<span>Search or jump to…</span><kbd>⌘K</kbd></button>
+  <a class="side-link" href="/for-you"${cur("foryou")}>${ICON.foryou}<span>For you</span></a>
   <a class="side-link" href="/inbox"${cur("inbox")}>${ICON.inbox}<span>Inbox</span><span class="count" id="inbox-count" hidden></span></a>
   <a class="side-link" href="/approvals"${cur("approvals")}>${ICON.approve}<span>Approvals</span><span class="count" id="approvals-count" hidden></span></a>
   <a class="side-link" href="/"${cur("boards")}>${ICON.boards}<span>Boards</span></a>
