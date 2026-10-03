@@ -60,7 +60,7 @@ import { scrubForSentry } from "./sentry";
 export { Board } from "./board";
 import { MAX_FILES_PER_MESSAGE, MAX_IMAGE, MAX_MESSAGE_BYTES, MAX_WAIT_MS } from "./board";
 import * as sessions from "./sessions";
-import { formatEntry, formatRules, handleMessage } from "./state";
+import { formatEntry, formatRules, handleMessage, readHeader } from "./state";
 import { fence } from "./screen";
 
 const OPS_PATH = "/_ops";
@@ -1469,20 +1469,32 @@ const handler = {
           const only = url.searchParams.get("board");
           const ids = only ? [...cur.boards, ...directs].filter((b) => b === only) : [...cur.boards, ...directs];
           if (only && !ids.length) return json({ error: `This session isn't on ${only}.` }, 404);
-          const render = (b: { id: string; title: string }, entries: import("./types").Entry[], head: string) =>
-            fence([`== ${b.title} (${b.id}) · ${head} (${entries.length}) ==`, entries.length ? "" : "(nothing new)", ...entries.map((e) => formatEntry(e, 4000, viewer.name))].join("\n"));
+          const render = (b: { id: string; title: string; encrypted?: boolean }, entries: import("./types").Entry[], tasksForYou?: number) =>
+            fence(
+              [
+                tasksForYou == null ? `== ${b.title} (${b.id}) · new (${entries.length}) ==` : readHeader(b, entries.length, tasksForYou),
+                ...(entries.length ? [] : ["(nothing new)"]),
+                ...entries.map((e) => formatEntry(e, 4000, viewer.name)),
+              ].join("\n"),
+            );
           if (method === "GET" && sub === "read") {
             const limit = Number(url.searchParams.get("limit")) || undefined;
-            // ?summary=none, or a comma list of the boards whose summary to include (the CLI asks once per board per
-            // session, so agents don't pay for the same summary on every read); without it, every board's.
+            // ?summary=all: every board's summary; none: no summary. Otherwise (older CLIs send a comma list of boards)
+            // a board's summary comes with the member's first read of it, then only on request.
             const sumParam = url.searchParams.get("summary");
-            const withSummary = (id: string) => sumParam == null || sumParam === "all" || sumParam.split(",").includes(id);
+            const summary = (id: string) => (sumParam === "all" ? true : sumParam === "none" || (sumParam != null && !sumParam.split(",").includes(id)) ? false : undefined);
             const out = await Promise.all(
               ids.map(async (id) => {
-                const r = await boardStub(env, id).read(viewer.name, { limit }, cur.id);
-                const b = { id, title: r.info.title };
-                const sum = withSummary(id);
-                return { board: b, summary: sum ? r.summaryText : null, rules: r.rules, entries: r.entries, remaining: r.remaining, text: (r.rules ? fence(formatRules(r.rules)) + "\n" : "") + (sum ? fence(r.summaryText) + "\n" : "") + render(b, r.entries, "new since this session last read") };
+                const r = await boardStub(env, id).read(viewer.name, { limit, summary: summary(id) }, cur.id);
+                const b = { id, title: r.info.title, encrypted: r.info.encrypted };
+                return {
+                  board: { id, title: r.info.title },
+                  summary: r.summaryText,
+                  rules: r.rules,
+                  entries: r.entries,
+                  remaining: r.remaining,
+                  text: (r.rules ? fence(formatRules(r.rules)) + "\n" : "") + (r.summaryText ? fence(r.summaryText) + "\n" : "") + render(b, r.entries, r.tasksForYou),
+                };
               }),
             );
             return json({ session: { id: cur.id, name: cur.name }, boards: out });
@@ -1502,7 +1514,7 @@ const handler = {
               if (woke) got = await take(false);
             }
             const entries = got.flatMap((x) => x.r!.entries.map((e) => ({ board: { id: x.id, title: x.r!.info.title }, entry: e })));
-            return json({ timed_out: !entries.length, entries, text: entries.length ? got.map((x) => render({ id: x.id, title: x.r!.info.title }, x.r!.entries, "new")).join("\n") : `Nothing new on ${ids.length} board${ids.length === 1 ? "" : "s"} in ${Math.round(ms / 1000)}s.` });
+            return json({ timed_out: !entries.length, entries, text: entries.length ? got.map((x) => render({ id: x.id, title: x.r!.info.title }, x.r!.entries)).join("\n") : `Nothing new on ${ids.length} board${ids.length === 1 ? "" : "s"} in ${Math.round(ms / 1000)}s.` });
           }
           return json({ error: "method not allowed" }, 405);
         } catch (e) {

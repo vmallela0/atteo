@@ -128,7 +128,7 @@ let rpcId = 0;
 async function rpc(base: string, token: string, board: string | null, method: string, params: unknown, session?: string) {
   const res = await fetch(`${base}/mcp${board ? `?board=${encodeURIComponent(board)}` : ""}`, {
     method: "POST",
-    headers: { "content-type": "application/json", authorization: `Bearer ${token}`, "user-agent": "atteo-cli", ...sessionHeader(), ...(session ? { "mcp-session-id": session } : {}) },
+    headers: { "content-type": "application/json", authorization: `Bearer ${token}`, "user-agent": "atteo-cli/2", ...sessionHeader(), ...(session ? { "mcp-session-id": session } : {}) },
     body: JSON.stringify({ jsonrpc: "2.0", id: ++rpcId, method, params }),
   });
   if (res.status === 401) throw new CliError("Your login isn't valid anymore. Run: atteo login");
@@ -199,7 +199,7 @@ async function use(args: string[]) {
   const base = server(c, opt);
   const init = await fetch(`${base}/mcp`, {
     method: "POST",
-    headers: { "content-type": "application/json", authorization: `Bearer ${c.token}`, "user-agent": "atteo-cli" },
+    headers: { "content-type": "application/json", authorization: `Bearer ${c.token}`, "user-agent": "atteo-cli/2" },
     body: JSON.stringify({ jsonrpc: "2.0", id: ++rpcId, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "atteo-cli" } } }),
   });
   const session = init.headers.get("mcp-session-id") ?? undefined;
@@ -369,7 +369,7 @@ const encLine = (e: { seq: number; ts: number; author: string; via: string | nul
   `#${e.seq} ${e.type} · ${e.via === "agent" ? `${e.author}'s agent` : e.author}${e.to ? ` → ${e.to}` : ""}${e.reply_to ? ` · re #${e.reply_to}` : ""} · ${new Date(e.ts).toISOString().slice(0, 16).replace("T", " ")}Z\n    ${e.text.replace(/\n/g, "\n    ")}`;
 
 async function read(args: string[]) {
-  const { opt } = parseArgs(args, ["all"]);
+  const { opt } = parseArgs(args, ["all", "summary", "brief"]);
   const board = currentBoard(opt);
   if (await isEncrypted(opt, board)) {
     const cur = cursors();
@@ -381,7 +381,9 @@ async function read(args: string[]) {
     writeFileSync(cursorFile(), JSON.stringify({ ...cur, [board]: Math.max(cur[board] ?? 0, list[list.length - 1].seq) }), { mode: 0o600 });
     return;
   }
-  say(await tool(opt, "read", { limit: optStr(opt, "limit") ? Number(optStr(opt, "limit")) : undefined, since: optStr(opt, "since") ? Number(optStr(opt, "since")) : undefined }));
+  // The board's summary comes with your first read of it; --summary brings it again, --brief never.
+  const summary = opt.summary ? true : opt.brief ? false : undefined;
+  say(await tool(opt, "read", { limit: optStr(opt, "limit") ? Number(optStr(opt, "limit")) : undefined, since: optStr(opt, "since") ? Number(optStr(opt, "since")) : undefined, summary }));
 }
 
 async function post(args: string[], forced?: string) {
@@ -413,7 +415,7 @@ export async function api(opt: Record<string, string | true>, method: string, pa
   const c = creds();
   const res = await fetch(`${server(c, opt)}${path}`, {
     method,
-    headers: { authorization: `Bearer ${c.token}`, "content-type": "application/json", "user-agent": "atteo-cli", ...sessionHeader() },
+    headers: { authorization: `Bearer ${c.token}`, "content-type": "application/json", "user-agent": "atteo-cli/2", ...sessionHeader() },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const j = (await res.json().catch(() => ({}))) as any;
@@ -462,7 +464,7 @@ async function ask(args: string[]) {
     }
     if (board) {
       // Read first (you can't post over unread entries), and see whether they're on this board.
-      const summary = await tool(opt, "read", { limit: 200 }, board);
+      const summary = await tool(opt, "read", { limit: 200, summary: true }, board);
       const members = summary.match(/^Members: (.*)$/m)?.[1]?.split(", ") ?? [];
       if (!members.includes(who)) board = null;
     }
@@ -993,7 +995,7 @@ Board commands (on the board chosen with \`use\`, per folder):
   atteo create "<title>" [--encrypted]   A new board for this folder (--encrypted: end-to-end, CLI-only)
   atteo use "<board>" [--global]   Choose this folder's board (accepts an invitation too); in a git repo it also
                                         installs the pre-push hook that posts change cards (--no-hook: don't)
-  atteo read                       Summary + what's new since you last read
+  atteo read [--summary]           What's new since you last read (the first read also brings the board's summary)
   atteo post "<text>" [--title "2–5 words"] [--type t] [--to name] [--reply N] [--resolves N,M]   ("-" reads stdin)
   atteo wait [--timeout s]         Wait for the next post
   atteo get N · search "<words>"   One entry with replies · ranked search

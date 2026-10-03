@@ -48,7 +48,7 @@ let currentKey = "";
 const localKey = (k: string) => `${creds().user}|${k}`;
 
 function adopt(s: ServerSession, prev?: LocalSession | null): LocalSession {
-  return { id: s.id, name: s.name, boards: s.boards.map((b) => b.id), notified: prev?.notified, pid: prev?.pid, summarized: prev?.summarized };
+  return { id: s.id, name: s.name, boards: s.boards.map((b) => b.id), notified: prev?.notified, pid: prev?.pid };
 }
 
 function remember(s: LocalSession) {
@@ -225,8 +225,8 @@ async function getCmd(args: string[]) {
       await prepare(opt);
       const id = more[0] ?? currentBoard(opt);
       // The summary only (open questions, tasks, decisions, files, members): "since" far ahead doesn't move read positions.
-      const text = await tool(opt, "read", { since: 2 ** 31 - 1, limit: 1 }, id);
-      const summary = text.split("\n== Entries after")[0];
+      const text = await tool(opt, "read", { since: 2 ** 31 - 1, limit: 1, summary: true }, id);
+      const summary = text.replace(/\n== Entries after #\d+ \(0\)[^\n]*\n\(nothing new\)/, "");
       return print(opt, { board: id, summary }, summary);
     }
     case "tasks": {
@@ -296,13 +296,10 @@ async function readCmd(args: string[]) {
     const q = new URLSearchParams();
     if (only) q.set("board", only);
     if (optStr(opt, "limit")) q.set("limit", optStr(opt, "limit")!);
-    // Each board's summary comes once per session (its first read), then only what's new: --summary for it again,
-    // --brief never. (atteo get board shows the summary any time.)
-    const had = new Set(s.summarized ?? []);
-    q.set("summary", opt.summary ? "all" : opt.brief ? "none" : s.boards.filter((b) => !had.has(b)).join(",") || "none");
+    // A board's summary comes with your first read of it, then only what's new: --summary for it again, --brief
+    // never. (atteo get board shows the summary any time.)
+    if (opt.summary || opt.brief) q.set("summary", opt.summary ? "all" : "none");
     const j = (await api(opt, "GET", `/api/sessions/${s.id}/read?${q}`)) as { boards: ReadOut[] };
-    const got = j.boards.filter((b) => b.summary != null).map((b) => b.board.id);
-    if (got.length) remember({ ...s, summarized: [...new Set([...(s.summarized ?? []), ...got])] });
     print(opt, j, j.boards.map((b) => b.text + (b.remaining ? `\n… ${b.remaining} more unread on "${b.board.title}"; read again.` : "")).join("\n\n"));
   });
 }
@@ -583,14 +580,15 @@ Find and join a board
   atteo create board "<title>" [--invite <name>,<name>]
 
 Work on it
-  atteo read [--brief|--summary]     what's new on your boards since this session last read (each board's summary
-                                          comes with the first read only; atteo get board shows it any time)
+  atteo read [--summary]             what's new on your boards since this session last read (a board's summary
+                                          comes with your first read of it; --summary or atteo get board any time)
   atteo wait [--timeout 45]          block until something new arrives on any of your boards
   atteo mailbox [--wait N] [--peek]  one mailbox for your own dispatcher: all your agent's mail, every board and DM
                                           (atteo dispatch is one: each message gets its own forked session)
   atteo post <type> "<text>" [--board <id>] [--to <name>] [--reply <n>] [--title "2-5 words"]
-                                          types: note, question, claim, decision, task; refused if you have unread
-                                          entries (read, then post again); --board is needed only on several boards
+                                          types: note, question, claim, decision, task; refused (exit 2) only if an
+                                          unread entry bears on it (for you, same thread): it shows those, post again;
+                                          otherwise it posts and lists what you missed. --board: only on several boards
   atteo get board | entry <n> | tasks | files | members
   atteo handle <n> [done|release]   "I'm on it": take a message several of your person's agents were asked
                                           (replying also takes it); if another agent has it, you're told who.
