@@ -32,6 +32,37 @@ export function publicOrigin(env: { PUBLIC_URL?: string }, url: URL): string {
   return pub && !isLocalHost(url.hostname) ? pub : url.origin;
 }
 
+/** Paths the old workers.dev host must keep serving itself: JSON/POST clients (app, CLIs, MCP), auth, health checks, downloads. */
+const STAYS_ON_WORKERS_DEV =
+  /^\/(api|mcp|\.well-known|oauth|health|upload|files|cli|a2a|stripe|avatar|demo-avatar|favicon|apple-touch-icon)(?:[/.-]|$)|^\/(auth\/callback|install\.sh|ws|openapi\.json|skill\.md|__webhook-sink)$/;
+
+/**
+ * Where an old workers.dev link should be sent (301 target), or null to serve the request normally.
+ * Only browser page navigations (GET/HEAD, Accept: text/html or Sec-Fetch-Mode: navigate) on a *.workers.dev host move.
+ * The cf-worker check is the loop guard: atteo.dev is a separate Worker that fetch()es this workers.dev host, and
+ * Cloudflare stamps every Worker subrequest with a CF-Worker header, so the proxy's requests (which look like browser
+ * navigations, headers and all) are never redirected back to atteo.dev. Everything that isn't a page (API, MCP, OAuth,
+ * health, downloads, WebSockets) stays on workers.dev because a redirect would break POSTs and auth.
+ */
+export function legacyHostRedirect(env: { PUBLIC_URL?: string }, request: Request, url: URL): string | null {
+  const pub = env.PUBLIC_URL?.trim().replace(/\/+$/, "");
+  if (!pub || !/\.workers\.dev$/i.test(url.hostname)) return null;
+  let pubHost: string;
+  try {
+    pubHost = new URL(pub).hostname;
+  } catch {
+    return null;
+  }
+  if (pubHost === url.hostname ||/\.workers\.dev$/i.test(pubHost)) return null;
+  if (request.headers.has("cf-worker") || request.headers.has("upgrade")) return null;
+  if (request.method !== "GET" && request.method !== "HEAD") return null;
+  const wantsPage = (request.headers.get("accept") ?? "").toLowerCase().includes("text/html") || request.headers.get("sec-fetch-mode") === "navigate";
+  if (!wantsPage) return null;
+  const path = url.pathname.replace(/\/+$/, "") || "/";
+  if (STAYS_ON_WORKERS_DEV.test(path)) return null;
+  return pub + url.pathname + url.search;
+}
+
 /**
  * Claude Code command for a personal token. Default: once per machine (user scope, no board; each session joins a board by name).
  * With a board: a project-scoped install that pins every session in that folder to the board.

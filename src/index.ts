@@ -52,7 +52,7 @@ import {
 import type { Entry, Env } from "./types";
 import { FAVICON_SVG, page, renderText } from "./ui";
 import { APPLE_TOUCH_PNG_B64 } from "./appleIcon";
-import { atteoHeader, BOARD_RE, connectCommand, esc, newBoardId, normalizeUser, parseBoardMeta, publicOrigin } from "./util";
+import { atteoHeader, BOARD_RE, connectCommand, esc, newBoardId, legacyHostRedirect, normalizeUser, parseBoardMeta, publicOrigin } from "./util";
 
 import * as Sentry from "@sentry/cloudflare";
 import { scrubForSentry } from "./sentry";
@@ -376,6 +376,10 @@ const handler = {
     const origin = publicOrigin(env, url);
     const path = url.pathname.replace(/\/+$/, "") || "/";
     const method = request.method;
+
+    // Old workers.dev page links move to the public site (legacyHostRedirect: what stays put, and the cf-worker loop guard).
+    const moved = legacyHostRedirect(env, request, url);
+    if (moved) return new Response(null, { status: 301, headers: { location: moved, "cache-control": "public, max-age=300" } });
 
     try {
       if (path === "/mcp") return await handleMcp(request, env, ctx);

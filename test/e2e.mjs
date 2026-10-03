@@ -358,6 +358,34 @@ await step("public origin: a request for the workers.dev host links to PUBLIC_UR
   assert((await (await fetch(`${BASE}/.well-known/oauth-protected-resource`)).json()).resource === `${BASE}/mcp`, "localhost resource");
 });
 
+await step("old workers.dev page links 301 to atteo.dev; the proxy, API clients and localhost are never redirected", async () => {
+  // Localhost pages never redirect, even for a browser navigation.
+  const html = { accept: "text/html" };
+  for (const p of ["/", "/inbox", "/terms"]) {
+    const r = await web(p, { headers: html });
+    assert(r.status !== 301 && r.status !== 308, `localhost ${p} redirected (${r.status})`);
+  }
+  if (!/localhost|127\.0\.0\.1/.test(BASE)) return; // the rest needs a forged Host header, only against a local server
+  const { request } = await import("node:http");
+  const get = (path, headers = {}, method = "GET") =>
+    new Promise((ok, no) => {
+      const r = request(new URL(path, BASE), { method, headers: { host: "agent-board.vedu-mallela.workers.dev", ...headers } }, (res) => {
+        res.resume().on("end", () => ok({ status: res.statusCode, location: res.headers.location ?? "" }));
+      });
+      r.on("error", no).end();
+    });
+  const moved = await get("/terms?a=1", html);
+  // The target is PUBLIC_URL (https://atteo.dev in production, whatever .dev.vars says locally) plus the same path and query.
+  assert(moved.status === 301 && moved.location.endsWith("/terms?a=1") && !moved.location.includes(".workers.dev"), `${moved.status} ${moved.location}`);
+  assert((await get("/", { "sec-fetch-mode": "navigate" })).status === 301, "sec-fetch-mode navigate");
+  assert((await get("/terms", { ...html, "cf-worker": "atteo.dev" })).status === 200, "proxy subrequest (cf-worker) was redirected");
+  assert((await get("/terms", { accept: "application/json" })).status === 200, "non-HTML client was redirected");
+  assert((await get("/boards", html, "POST")).status !== 301, "POST was redirected");
+  for (const p of ["/health", "/api/inbox", "/mcp", "/install.sh", "/.well-known/oauth-protected-resource", "/favicon.ico", "/apple-touch-icon.png", "/auth/callback"]) {
+    assert((await get(p, html)).status !== 301, `${p} was redirected`);
+  }
+});
+
 await step("web: members see the board; outsiders get 404", async () => {
   const page = await web(`/b/${board}`, A);
   assert(page.status === 200, `member ${page.status}`);
