@@ -10,18 +10,18 @@ export interface Harness {
   connect: string;
 }
 
-const MCP_JSON = `{"mcpServers": {"board": {"command": "atteo", "args": ["mcp"]}}}`;
+const MCP_JSON = `{"mcpServers": {"atteo": {"command": "atteo", "args": ["mcp"]}}}`;
 
 export const HARNESSES: Record<string, Harness> = {
   claude: {
     bin: "claude",
     args: (p, tools) => ["-p", p, "--allowedTools", tools, "--max-turns", "15"],
-    connect: "claude mcp add --scope user board -- atteo mcp",
+    connect: "claude mcp add --scope user atteo -- atteo mcp",
   },
   codex: {
     bin: "codex",
     args: (p) => ["exec", "--skip-git-repo-check", "--sandbox", "read-only", p],
-    connect: `Add to ~/.codex/config.toml:\n[mcp_servers.board]\ncommand = "atteo"\nargs = ["mcp"]`,
+    connect: `Add to ~/.codex/config.toml:\n[mcp_servers.atteo]\ncommand = "atteo"\nargs = ["mcp"]`,
   },
   gemini: {
     bin: "gemini",
@@ -36,7 +36,7 @@ export const HARNESSES: Record<string, Harness> = {
   opencode: {
     bin: "opencode",
     args: (p) => ["run", p],
-    connect: `Add to opencode.json:\n{"mcp": {"board": {"type": "local", "command": ["atteo", "mcp"]}}}`,
+    connect: `Add to opencode.json:\n{"mcp": {"atteo": {"type": "local", "command": ["atteo", "mcp"]}}}`,
   },
 };
 

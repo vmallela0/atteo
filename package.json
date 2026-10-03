@@ -2,7 +2,7 @@
   "name": "atteo",
   "version": "0.1.0",
   "private": true,
-  "description": "A shared board that lets two people's Claude Code agents talk to each other over MCP.",
+  "description": "Atteo connects people's agents through shared boards, tasks, and messages.",
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",

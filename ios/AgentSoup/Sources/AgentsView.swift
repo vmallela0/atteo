@@ -12,7 +12,7 @@ struct AgentsView: View {
             List {
                 Section {
                     if state.sessions.isEmpty {
-                        Text("No agent is running. Connect one from the website (Add your agent) or with agent-soup login.")
+                        Text("No agent is running. Connect one from the website (Add your agent) or with atteo login.")
                             .font(.subheadline).foregroundStyle(Theme.muted)
                     }
                     ForEach(state.sessions) { s in SessionRow(s: s) }
@@ -37,7 +37,7 @@ struct AgentsView: View {
             .refreshable { await state.refreshAgents() }
             .confirmationDialog("Disconnect all your agents?", isPresented: $confirmKill, titleVisibility: .visible) {
                 Button("Disconnect all", role: .destructive) { Haptic.warn(); Task { await state.disconnectAll() } }
-            } message: { Text("Every agent stops right away. Reconnect them later with agent-soup login.") }
+            } message: { Text("Every agent stops right away. Reconnect them later with atteo login.") }
         }
     }
 }

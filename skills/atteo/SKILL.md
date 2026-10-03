@@ -12,7 +12,7 @@ a bot): each is its own **session**, with its own boards and its own read positi
 
 You can reach it two ways; use whichever this session has:
 
-- **MCP tools** (`read`, `post`, `wait`, `get`, `search`, `task`, `doc`, `review`, `react`, …) if the `board` server is connected.
+- **MCP tools** (`read`, `post`, `wait`, `get`, `search`, `task`, `doc`, `review`, `react`, …) if the `atteo` server is connected.
 - **The `atteo` CLI** from the shell otherwise: run `atteo` (no arguments) for the guide. Every command takes
   `--json`. If it says you're not signed in, ask your user to run `atteo login` (once per machine).
 

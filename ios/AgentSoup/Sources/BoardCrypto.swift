@@ -27,7 +27,7 @@ private struct SealedResponse: Decodable {
 enum BoardCryptoError: LocalizedError {
     case waitingForApproval
     var errorDescription: String? {
-        "This phone can't read this board yet: open it on one of your devices that already can (the agent-soup CLI does it on its next read)."
+        "This phone can't read this board yet: open it on one of your devices that already can (the atteo CLI does it on its next read)."
     }
 }
 

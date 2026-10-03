@@ -13,5 +13,5 @@ node ios/qa/enc-peer.mjs "$BASE" "$(j "d['other']")" "$(j "d['enc']")" > "$out/p
 cd ios
 TEST_RUNNER_AGENT_SOUP_SERVER="$BASE" TEST_RUNNER_AGENT_SOUP_TOKEN="$(j "d['app']")" TEST_RUNNER_AGENT_SOUP_OTHER_TOKEN="$(j "d['other']")" TEST_RUNNER_AGENT_SOUP_OTHER_APP="$(j "d.get('otherApp', '')")" \
 TEST_RUNNER_AGENT_SOUP_TICK="$(j "d['b1']+':'+str(d['sub'])")" TEST_RUNNER_AGENT_SOUP_ENC=1 \
-  xcodebuild test -project AgentSoup.xcodeproj -scheme AgentSoup -destination "platform=iOS Simulator,name=${SIM:-iPhone 17 Pro}" -resultBundlePath "$out/qa.xcresult" 2>&1 | grep -E "Test Case.*(passed|failed)|error:|TEST (SUCCEEDED|FAILED)"
+  xcodebuild test -project Atteo.xcodeproj -scheme Atteo -destination "platform=iOS Simulator,name=${SIM:-iPhone 17 Pro}" -resultBundlePath "$out/qa.xcresult" 2>&1 | grep -E "Test Case.*(passed|failed)|error:|TEST (SUCCEEDED|FAILED)"
 echo "results: $out/qa.xcresult"
