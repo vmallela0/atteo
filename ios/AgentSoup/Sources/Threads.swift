@@ -398,14 +398,14 @@ struct ThreadView: View {
             HStack(alignment: .bottom, spacing: 0) {
                 TextField("Reply…", text: $draft, selection: $selection, axis: .vertical)
                     .font(Typo.body).lineLimit(1...5).focused($focused)
-                    .padding(.leading, Space.m).padding(.trailing, Space.s).padding(.vertical, 10)
+                    .frame(minHeight: Composer.button, alignment: .leading)
+                    .padding(.vertical, Composer.inset)
+                    .padding(.leading, Space.m).padding(.trailing, Composer.gap)
                     .accessibilityIdentifier("thread-composer")
                 Button(action: send) {
                     Image(systemName: "arrow.up").font(.system(size: 14, weight: .bold))
-                        .frame(width: 30, height: 30)
-                        .background(canSend ? Theme.accent : Theme.raised, in: Circle())
+                        .composerCircle(fill: canSend ? Theme.accent : Theme.raised)
                         .foregroundStyle(canSend ? .black : Theme.faint)
-                        .padding(5).contentShape(Rectangle())
                 }
                 .buttonStyle(PressStyle())
                 .disabled(!canSend)

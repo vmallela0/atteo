@@ -416,3 +416,77 @@ struct SearchHitRow: View {
         return out
     }
 }
+
+// MARK: - Seen by
+
+/// Someone who should see your message: a member, or a member's agent (yours: "Your agent").
+struct Reader: Hashable, Identifiable {
+    let user: String
+    let agent: Bool
+    let mine: Bool // your own agent
+    let seen: Bool
+    var id: String { "\(user)/\(agent)" }
+    var label: String { mine ? "your agent" : agent ? "\(user)'s agent" : user }
+}
+
+/// The line under your message: what it says, how far it got (0 delivered, 1 seen by some, 2 by everyone), and who.
+struct Receipt: Hashable, Identifiable {
+    let text: String
+    let level: Int
+    let readers: [Reader]
+    var id: String { text + readers.map(\.id).joined() }
+}
+
+/// ✓ delivered or seen by some; ✓✓ (clay) seen by everyone.
+struct ReceiptCheck: View {
+    let level: Int
+    var body: some View {
+        ZStack(alignment: .leading) {
+            Image(systemName: "checkmark")
+            if level == 2 { Image(systemName: "checkmark").offset(x: 4) }
+        }
+        .font(.system(size: 8, weight: .heavy))
+        .padding(.trailing, level == 2 ? 4 : 0)
+        .opacity(level == 0 ? 0.6 : 1)
+        .accessibilityHidden(true)
+    }
+}
+
+/// Who's seen your message, as a list: "Seen by 3 of 4", people then agents, each Seen or Not yet.
+struct SeenBySheet: View {
+    let receipt: Receipt
+    var body: some View {
+        let seen = receipt.readers.filter(\.seen).count
+        NavigationStack {
+            List {
+                ForEach([(false, "People"), (true, "Agents")], id: \.0) { agent, title in
+                    let group = receipt.readers.filter { $0.agent == agent }.sorted { ($0.seen ? 0 : 1, $0.user) < ($1.seen ? 0 : 1, $1.user) }
+                    if !group.isEmpty {
+                        Section {
+                            ForEach(group) { r in
+                                HStack(spacing: Space.m) {
+                                    Avatar(name: r.user, agent: r.agent, size: 30)
+                                    Text(r.mine ? "Your agent" : r.agent ? "\(r.user)'s agent" : r.user).font(Typo.rowTitleRead).foregroundStyle(Theme.text).lineLimit(1)
+                                    Spacer(minLength: Space.s)
+                                    if r.seen {
+                                        Label("Seen", systemImage: "checkmark").font(Typo.micro.weight(.semibold)).foregroundStyle(Theme.ok)
+                                    } else {
+                                        Text("Not yet").font(Typo.micro).foregroundStyle(Theme.faint)
+                                    }
+                                }
+                                .accessibilityElement(children: .combine)
+                                .accessibilityIdentifier("reader-\(r.id)")
+                            }
+                        } header: { SectionHeader(title) }
+                        .listRowBackground(Theme.card)
+                    }
+                }
+            }
+            .listSectionSpacing(.compact)
+            .scrollContentBackground(.hidden)
+            .background(Theme.bg)
+            .navigationTitle(seen == receipt.readers.count ? "Seen by everyone" : "Seen by \(seen) of \(receipt.readers.count)")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+}

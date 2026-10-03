@@ -38,9 +38,12 @@ final class AgentSoupUITests: XCTestCase {
     }
 
     /// Back, inside a sheet: its navigation bar is the last one (the chat's own sits underneath).
+    /// Back one step in the top sheet: its back button, if it has one (at a sheet's root there's none, and its first
+    /// button is something else, like Files' sort menu).
     func sheetBack(_ a: XCUIApplication) {
         let bars = a.navigationBars
-        bars.element(boundBy: bars.count - 1).buttons.element(boundBy: 0).tap()
+        let back = bars.element(boundBy: bars.count - 1).buttons["BackButton"]
+        if back.exists { back.tap() }
         sleep(1)
     }
 
@@ -506,8 +509,12 @@ final class AgentSoupUITests: XCTestCase {
         a.navigationBars["Threads"].buttons.element(boundBy: 0).tap()
         XCTAssertTrue(composer.waitForExistence(timeout: 5), "back to the chat")
 
-        // React: long-press → 👍 in the quick row; a chip shows under the message, yours.
+        // React: long-press → 👍 in the quick row; a chip shows under the message, yours. (Scroll it into view first:
+        // after the other tests the chat has more under it, like testAttachments' picture.)
         XCTAssertTrue(theirs.waitForExistence(timeout: 5))
+        let screen = a.windows.firstMatch.frame
+        func onScreen(_ e: XCUIElement) -> Bool { e.exists && e.frame.minY > screen.minY + 140 && e.frame.maxY < screen.maxY - 140 }
+        for _ in 0..<8 where !onScreen(theirs) { a.swipeDown(velocity: .slow); sleep(1) }
         theirs.press(forDuration: 0.8)
         let thumbs = a.buttons["👍"].firstMatch
         XCTAssertTrue(thumbs.waitForExistence(timeout: 3), "the quick reactions")
@@ -536,6 +543,17 @@ final class AgentSoupUITests: XCTestCase {
         // Your latest message says who's seen it.
         if a.buttons["Jump to latest"].exists { a.buttons["Jump to latest"].tap(); sleep(1) }
         XCTAssertTrue(a.descendants(matching: .any)["seen-by"].waitForExistence(timeout: 5), "Seen by / Delivered under your latest")
+        // Tap it: who's seen it, as a list ("Seen by 1 of 3": people, then agents, each Seen or Not yet) (#692).
+        let seenLine = a.descendants(matching: .any)["seen-by"].firstMatch
+        if !seenLine.isHittable { a.swipeUp(); sleep(1) }
+        seenLine.tap()
+        let seenTitle = a.navigationBars.matching(NSPredicate(format: "identifier BEGINSWITH 'Seen by'")).firstMatch
+        XCTAssertTrue(seenTitle.waitForExistence(timeout: 5), "who's seen it")
+        XCTAssertTrue(a.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'reader-'")).firstMatch.exists, "each reader")
+        sleep(1)
+        shot("22c-seen-by-list")
+        a.swipeDown(velocity: .fast)
+        XCTAssertTrue(seenTitle.waitForNonExistence(timeout: 5))
 
         // Unsend: long-press your message → Unsend → confirm; it reads "Unsent".
         let oops = "wrong chat, sorry \(n)"
@@ -558,7 +576,8 @@ final class AgentSoupUITests: XCTestCase {
         // "On it": theo's agent asked maya a question; one tap says she's handling it.
         let onIt = a.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'on-it-'")).firstMatch
         if onIt.waitForExistence(timeout: 3) {
-            if !onIt.isHittable { a.swipeDown(); sleep(1) }
+            if a.keyboards.count > 0 { a.swipeDown(velocity: .slow); sleep(1) } // keyboard down
+            for _ in 0..<8 where !onScreen(onIt) { a.swipeDown(velocity: .slow); sleep(1) }
             onIt.tap()
             XCTAssertTrue(a.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'handling' AND label CONTAINS 'on it'")).firstMatch.waitForExistence(timeout: 5), "who's on it")
             shot("24-on-it")
@@ -709,7 +728,6 @@ final class AgentSoupUITests: XCTestCase {
         XCTAssertTrue(a.staticTexts["Older version"].waitForExistence(timeout: 5), "an older version")
         XCTAssertFalse(a.staticTexts["Rollback"].exists, "as it was then")
         shot("p07-doc-v1")
-        sheetBack(a)
         sheetBack(a)
         a.buttons["Done"].tap()
 
@@ -867,6 +885,23 @@ final class AgentSoupUITests: XCTestCase {
         wait(for: [expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: a.staticTexts["Sending…"])], timeout: 20)
         XCTAssertTrue(a.staticTexts["pasted words \(n)"].waitForExistence(timeout: 5), "sent with the picture")
         shot("32-pasted-sent")
+
+        // A long message (#765): paste 60 lines; the box grows to about six lines, then scrolls inside itself, and
+        // typing at the end still lands (the caret stays in view, send stays in reach).
+        let long = (1...60).map { "line \($0) of a long note" }.joined(separator: "\n")
+        UIPasteboard.general.string = long
+        composer.tap()
+        sleep(1)
+        composer.press(forDuration: 1.0)
+        XCTAssertTrue(paste.waitForExistence(timeout: 5), "Paste")
+        paste.tap()
+        wait(for: [expectation(for: NSPredicate(format: "value CONTAINS 'line 60 of a long note'"), evaluatedWith: composer)], timeout: 5)
+        composer.typeText(" and the end \(n)")
+        wait(for: [expectation(for: NSPredicate(format: "value ENDSWITH %@", "and the end \(n)"), evaluatedWith: composer)], timeout: 5) // typing at the end works
+        let screen = a.windows.firstMatch.frame
+        XCTAssertLessThanOrEqual(composer.frame.height, screen.height * 0.32, "the box stops growing (about 6 lines)")
+        XCTAssertTrue(a.buttons["send"].isHittable, "send stays in reach")
+        shot("32a-long-message")
     }
 
     /// Search (#538 d): from Chats, the server's search across your boards finds an old message the phone hasn't

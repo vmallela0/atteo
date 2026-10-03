@@ -1,7 +1,8 @@
 // The chat's message box as a text view of its own, so it can take pictures as well as words: Paste (long-press, or
 // ⌘V on a keyboard) with a picture on the clipboard attaches it like one picked from Photos; a picture with text on
 // the clipboard attaches the picture and pastes the text. Otherwise it behaves like the multi-line field it replaces:
-// grows to six lines, then scrolls; a name put in for you (a mention) leaves the caret at the end.
+// grows to six lines (at most 30% of the screen), then scrolls inside itself with the caret always in view; a name
+// put in for you (a mention) leaves the caret at the end.
 
 import SwiftUI
 import UIKit
@@ -47,7 +48,7 @@ struct ComposerField: UIViewRepresentable {
         v.adjustsFontForContentSizeCategory = true
         v.textColor = UIColor(Theme.text)
         v.tintColor = UIColor(Theme.accent)
-        v.textContainerInset = UIEdgeInsets(top: 10, left: 0, bottom: 10, right: 0)
+        v.textContainerInset = Self.insets(for: v.font)
         v.textContainer.lineFragmentPadding = 0
         v.isScrollEnabled = false
         v.keyboardAppearance = .dark
@@ -77,14 +78,26 @@ struct ComposerField: UIViewRepresentable {
         if !focused && v.isFirstResponder { DispatchQueue.main.async { v.resignFirstResponder() } }
     }
 
+    /// Top and bottom room so one line of text is exactly as tall as the buttons beside it (and centred on them).
+    static func insets(for font: UIFont?) -> UIEdgeInsets {
+        let line = font?.lineHeight ?? 20
+        let pad = max(4, ((Composer.line - line) / 2).rounded(.down))
+        return UIEdgeInsets(top: pad, left: 0, bottom: pad, right: 0)
+    }
+
     func sizeThatFits(_ proposal: ProposedViewSize, uiView v: Box, context: Context) -> CGSize? {
+        if v.textContainerInset != Self.insets(for: v.font) { v.textContainerInset = Self.insets(for: v.font) }
         let width = proposal.width ?? 280
         let fit = v.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
         let line = v.font?.lineHeight ?? 20
-        let most = ceil(line * maxLines + v.textContainerInset.top + v.textContainerInset.bottom)
+        let screen = v.window?.windowScene?.screen.bounds.height ?? 800
+        let most = min(ceil(line * maxLines + v.textContainerInset.top + v.textContainerInset.bottom), (screen * 0.3).rounded(.down))
         let scrolls = fit.height > most
-        if v.isScrollEnabled != scrolls { DispatchQueue.main.async { v.isScrollEnabled = scrolls } }
-        return CGSize(width: width, height: min(fit.height, most))
+        if v.isScrollEnabled != scrolls {
+            v.isScrollEnabled = scrolls
+            if scrolls { DispatchQueue.main.async { v.scrollRangeToVisible(v.selectedRange) } }
+        }
+        return CGSize(width: width, height: max(Composer.line, min(fit.height, most)))
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -96,6 +109,11 @@ struct ComposerField: UIViewRepresentable {
             parent.text = v.text
             (v as? Box)?.placeholderLabel.isHidden = !v.text.isEmpty
             v.invalidateIntrinsicContentSize()
+            // Past its full height it scrolls inside itself: keep the caret (what you're typing) in view.
+            DispatchQueue.main.async { if v.isScrollEnabled { v.scrollRangeToVisible(v.selectedRange) } }
+        }
+        func textViewDidChangeSelection(_ v: UITextView) {
+            if v.isScrollEnabled, v.isFirstResponder { v.scrollRangeToVisible(v.selectedRange) }
         }
         func textViewDidBeginEditing(_ v: UITextView) { if !parent.focused { parent.focused = true } }
         func textViewDidEndEditing(_ v: UITextView) { if parent.focused { parent.focused = false } }
