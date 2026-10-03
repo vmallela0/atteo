@@ -55,6 +55,7 @@ struct BoardView: View {
     @State private var holdBottom = false // older messages going in above: keep what you're reading where it is
     @State private var decisionPrompt: DecisionPrompt? // objecting (why?) or closing a human decision
     @State private var decisionNote = ""
+    @State private var toSession: String? // "Your agent": one of your sessions (nil: any of your agents)
 
     @ObservedObject private var threadSeen = ThreadSeen.shared
     @Environment(\.chatDensity) private var density
@@ -281,6 +282,7 @@ struct BoardView: View {
         .onChange(of: state.pulse) { _, p in if p?.board == board.id { Task { async let e: Void = state.loadEntries(board); async let t: Void = state.loadTasks(board); async let a: Void = state.loadAgents(board); _ = await (e, t, a); await state.markRead(board) } } }
         .onChange(of: list.last?.seq) { _, _ in Task { await state.markSeen(board) } } // you've seen what just landed
         .task(id: board.id) { await state.watch(board) } // live: ticks and new messages as they happen
+        .task(id: board.id) { if board.isAgentChat { _ = await state.openAgentChat() } } // its sessions, fresh
         .refreshable { await state.loadEntries(board) }
     }
 
@@ -462,6 +464,7 @@ struct BoardView: View {
     var composer: some View {
         VStack(spacing: 0) {
             TypingRow(board: board.id)
+            if board.isAgentChat { AgentToPicker(to: $toSession) }
             if !suggestions.isEmpty {
                 MentionList(items: suggestions, pick: insert)
                     .padding(.horizontal, Space.m).padding(.bottom, Space.xs)
@@ -478,7 +481,7 @@ struct BoardView: View {
                 attachButton
                 // A text view of its own, so Paste takes pictures too (ComposerField.swift).
                 ComposerField(text: $draft, focused: $focused,
-                              placeholder: attachments.isEmpty ? (board.kind == "direct" ? "Message \(board.displayName(me: state.me?.owner))" : "Message \(board.title)") : "Add a note",
+                              placeholder: attachments.isEmpty ? placeholder : "Add a note",
                               pasteImages: pasted,
                               members: Set(mentionables.compactMap { $0.user?.lowercased() }), me: me)
                     .padding(.horizontal, Composer.gap)
@@ -504,6 +507,12 @@ struct BoardView: View {
         .animation(.spring(duration: 0.28, bounce: 0.1), value: preparing)
         .animation(.smooth(duration: 0.25), value: state.typing[board.id])
         .onChange(of: draft) { _, d in state.typed(d, in: board) } // "maya is typing…" for everyone else here
+    }
+
+    /// "Message theo", "Message Checkout bug", "Message your agent…" / "Message builder…".
+    private var placeholder: String {
+        if board.isAgentChat { return toSession.map { "Message \($0)…" } ?? "Message your agent…" }
+        return board.kind == "direct" ? "Message \(board.displayName(me: state.me?.owner))" : "Message \(board.title)"
     }
 
     /// + at the leading edge of the message box: Photos, the camera (when there is one), Files. Encrypted boards
@@ -569,7 +578,7 @@ struct BoardView: View {
         withAnimation(.spring(duration: 0.3, bounce: 0.15)) { attachments = [] }
         Haptic.tap()
         Task {
-            if files.isEmpty { await state.send(text, to: board) } else { await state.send(files: files, caption: text, to: board) }
+            if files.isEmpty { await state.send(text, to: board, toSession: board.isAgentChat ? toSession : nil) } else { await state.send(files: files, caption: text, to: board) }
         }
     }
 }

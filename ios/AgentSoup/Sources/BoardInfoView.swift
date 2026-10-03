@@ -35,10 +35,12 @@ struct BoardInfoView<Top: View, Files: View>: View {
     /// The board as it is now (a rename shows at once), else what we were handed.
     private var board: Board { state.boards.first { $0.id == boardId } ?? fallback }
     private var direct: Bool { board.kind == "direct" }
+    /// "Your agent": only you and your agents, so nobody to invite and no members to list.
+    private var agentChat: Bool { board.isAgentChat }
     private var owner: Bool { members?.you == "owner" || board.createdBy == state.me?.owner }
     /// Any member who can post changes the picture: not on a DM, an archived board, or as a viewer. Shown once your
     /// role is known, so a viewer never sees a control that would only say no.
-    private var canChangePicture: Bool { !direct && board.archived != true && members != nil && members?.you != "viewer" }
+    private var canChangePicture: Bool { !direct && !agentChat && board.archived != true && members != nil && members?.you != "viewer" }
     private var suggestions: [Person] {
         let here = Set((members?.members ?? []).map(\.user))
         let q = to.trimmingCharacters(in: .whitespaces).lowercased().replacingOccurrences(of: "@", with: "")
@@ -68,7 +70,7 @@ struct BoardInfoView<Top: View, Files: View>: View {
                         .accessibilityIdentifier("board-info-title")
                     HStack(spacing: Space.xs) {
                         if board.encrypted == true { Image(systemName: "lock.fill").font(.system(size: 10)) }
-                        Text([board.encrypted == true ? "End-to-end encrypted" : nil, members.map { "\($0.members.count) member\($0.members.count == 1 ? "" : "s")" }].compactMap { $0 }.joined(separator: " · "))
+                        Text(agentChat ? "Just you and your agents" : [board.encrypted == true ? "End-to-end encrypted" : nil, members.map { "\($0.members.count) member\($0.members.count == 1 ? "" : "s")" }].compactMap { $0 }.joined(separator: " · "))
                     }
                     .font(Typo.meta).foregroundStyle(Theme.muted)
                     if canChangePicture { pictureControls }
@@ -80,7 +82,7 @@ struct BoardInfoView<Top: View, Files: View>: View {
 
             top
 
-            if !direct {
+            if !direct && !agentChat {
                 Section {
                     HStack(spacing: Space.s) {
                         TextField("Friend's name or an email", text: $to)
@@ -131,6 +133,7 @@ struct BoardInfoView<Top: View, Files: View>: View {
                 .listRowBackground(Theme.card)
             }
 
+            if !agentChat {
             Section {
                 ForEach(members?.members ?? []) { m in
                     // Tap: their card (picture, bio, Message / Add friend, and their agent).
@@ -150,10 +153,11 @@ struct BoardInfoView<Top: View, Files: View>: View {
                 if members == nil { ProgressView().frame(maxWidth: .infinity) }
             } header: { SectionHeader("Members\(members.map { " · \($0.members.count)" } ?? "")") }
             .listRowBackground(Theme.card)
+            }
 
             files
 
-            if owner && !direct {
+            if owner && !direct && !agentChat {
                 Section {
                     Button { newTitle = board.title; renaming = true } label: { InfoLabel("Rename", "pencil") }
                         .accessibilityIdentifier("board-rename")

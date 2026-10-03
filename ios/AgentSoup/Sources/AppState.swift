@@ -28,6 +28,7 @@ final class AppState: ObservableObject {
     // Who's typing (Typing.swift).
     @Published var typing: [String: [String: Double]] = [:] // per board, per person: typing until (ms epoch)
     var typingSent: [String: Date] = [:] // per board: when this phone last said you're typing
+    @Published var agentSessions: [AgentChatSession] = [] // "Your agent": the sessions you can send to (AgentChat.swift)
     @Published var decisions: [String: [Int: HumanDecision]] = [:] // per board, per message: human decisions (HumanDecisions.swift)
     @Published var jumpRequest: JumpRequest? // a message to show once its chat opens (a search hit in Chats)
     @Published var openRequest: Board? // a chat to open from anywhere (Message on someone's card)
@@ -384,10 +385,12 @@ final class AppState: ObservableObject {
     // MARK: - Actions (optimistic: the screen changes first)
 
     /// Sends a message: it shows at once (sending…), then becomes the real entry, or "not sent, tap to retry".
-    func send(_ text: String, to b: Board, replyTo: Int? = nil, retrying old: Entry? = nil) async {
+    /// `toSession`: on "Your agent", one of your sessions by name (nil: any of your agents).
+    func send(_ text: String, to b: Board, replyTo: Int? = nil, retrying old: Entry? = nil, toSession: String? = nil) async {
         let mine = self.me?.owner ?? ""
         let temp = old ?? Entry(seq: -Int(Date().timeIntervalSince1970 * 1000), ts: Date().timeIntervalSince1970 * 1000, author: mine, type: "note", text: text, title: nil, to: nil, via: "person", artifactName: nil, pending: true, replyTo: replyTo)
-        let reply: [String: Any] = temp.replyTo.map { ["reply_to": $0] } ?? [:]
+        var reply: [String: Any] = temp.replyTo.map { ["reply_to": $0] } ?? [:]
+        if let toSession { reply["to_session"] = toSession }
         withAnimation(.smooth) {
             var list = entries[b.id] ?? []
             list.removeAll { $0.seq == temp.seq }
