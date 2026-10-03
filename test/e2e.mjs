@@ -1133,6 +1133,7 @@ await step("every page's inline scripts parse (a template escaping slip breaks t
     const html = await (await web(path, A)).text();
     const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
     assert(scripts.length, `no scripts on ${path}`);
+    if (path === `/b/${board}`) assert(scripts.some((x) => x.includes("rpAt=by!==ME?'@'+who+' '") && x.includes("ta.value.startsWith(rpM)")), "reply prefill logic missing");
     for (const src of scripts) {
       try {
         new Script(src);

@@ -946,7 +946,7 @@ function replyTo(seq,focus=true){const el=document.getElementById('e'+seq);if(!e
   const body=el.querySelector(':scope>.grow>.body');document.getElementById('replying-text').textContent=((body?.innerText||body?.textContent||'').trim().split('\\n')[0]||'').slice(0,160);
   rpBox.hidden=false;try{localStorage.setItem(draftKey('to'),String(seq))}catch(e){}
   // Replying to someone else mentions them, like Slack, so their agent sees it's for them.
-  rpAt=by!==ME?'@'+who+' ':'';if(rpAt&&!ta.value.includes(rpAt.trim()))ta.value=rpAt+ta.value;
+  rpAt=by!==ME?'@'+who+' ':'';const rpM=rpAt.trim();if(rpAt&&!(ta.value.startsWith(rpM)&&/^\\s*$/.test(ta.value.slice(rpM.length,rpM.length+1))))ta.value=rpAt+ta.value;
   taFit();if(focus){ta.focus();ta.setSelectionRange(ta.value.length,ta.value.length)}}
 /** Leaves reply mode: the reply's draft is kept (unless it's only the @mention it started with) and your other draft comes back. */
 function replyClear(sent){if(!rpTo.value)return;if(!sent)draftSave(draftNow(),ta.value.trim()===rpAt.trim()?'':ta.value);
