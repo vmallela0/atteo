@@ -3,6 +3,10 @@
 // the clipboard attaches the picture and pastes the text. Otherwise it behaves like the multi-line field it replaces:
 // grows to six lines (at most 30% of the screen), then scrolls inside itself with the caret always in view; a name
 // put in for you (a mention) leaves the caret at the end.
+//
+// It's always a scrolling text view, sized by SwiftUI to its text up to the cap. (Switching scrolling on and off at
+// the cap — what it used to do — reset the view's scroll position mid-layout: past the cap the caret sat above the
+// first visible line and typing went out of sight, #833.)
 
 import SwiftUI
 import UIKit
@@ -33,10 +37,26 @@ struct ComposerField: UIViewRepresentable {
             if pb.hasStrings, let s = pb.string, !s.isEmpty { insertText(s) }
         }
 
+        private var lastHeight: CGFloat = 0
+
         override func layoutSubviews() {
             super.layoutSubviews()
             placeholderLabel.frame = CGRect(x: textContainerInset.left + textContainer.lineFragmentPadding, y: textContainerInset.top,
                                             width: bounds.width - textContainerInset.left - textContainerInset.right, height: font?.lineHeight ?? 20)
+            // The box changed height (it grew a line, or reached its cap): all of it fits → from the top; otherwise
+            // keep the caret in view. (Scrolling yourself doesn't change the height, so it doesn't fight you.)
+            if abs(bounds.height - lastHeight) > 0.5 {
+                lastHeight = bounds.height
+                if contentSize.height <= bounds.height + 0.5 { if contentOffset.y != 0 { contentOffset = .zero } } else { showCaret() }
+            }
+        }
+
+        /// Scrolls just enough that the caret (and a little room under it) is visible.
+        func showCaret() {
+            guard contentSize.height > bounds.height + 0.5, let end = selectedTextRange?.end else { return }
+            let caret = caretRect(for: end)
+            guard caret.origin.y.isFinite else { return }
+            scrollRectToVisible(caret.insetBy(dx: 0, dy: -textContainerInset.bottom), animated: false)
         }
     }
 
@@ -50,8 +70,9 @@ struct ComposerField: UIViewRepresentable {
         v.tintColor = UIColor(Theme.accent)
         v.textContainerInset = Self.insets(for: v.font)
         v.textContainer.lineFragmentPadding = 0
-        v.isScrollEnabled = false
-        v.keyboardAppearance = .dark
+        v.isScrollEnabled = true // always (see the note at the top)
+        v.alwaysBounceVertical = false
+        v.keyboardAppearance = .default // follows light / dark
         v.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         v.accessibilityIdentifier = "composer"
         v.placeholderLabel.font = v.font
@@ -72,6 +93,7 @@ struct ComposerField: UIViewRepresentable {
             v.text = text
             v.selectedRange = NSRange(location: (text as NSString).length, length: 0)
             v.invalidateIntrinsicContentSize()
+            DispatchQueue.main.async { v.showCaret() }
         }
         v.placeholderLabel.isHidden = !text.isEmpty
         if focused && !v.isFirstResponder { DispatchQueue.main.async { if v.window != nil { v.becomeFirstResponder() } } }
@@ -92,11 +114,6 @@ struct ComposerField: UIViewRepresentable {
         let line = v.font?.lineHeight ?? 20
         let screen = v.window?.windowScene?.screen.bounds.height ?? 800
         let most = min(ceil(line * maxLines + v.textContainerInset.top + v.textContainerInset.bottom), (screen * 0.3).rounded(.down))
-        let scrolls = fit.height > most
-        if v.isScrollEnabled != scrolls {
-            v.isScrollEnabled = scrolls
-            if scrolls { DispatchQueue.main.async { v.scrollRangeToVisible(v.selectedRange) } }
-        }
         return CGSize(width: width, height: max(Composer.line, min(fit.height, most)))
     }
 
@@ -109,11 +126,9 @@ struct ComposerField: UIViewRepresentable {
             parent.text = v.text
             (v as? Box)?.placeholderLabel.isHidden = !v.text.isEmpty
             v.invalidateIntrinsicContentSize()
-            // Past its full height it scrolls inside itself: keep the caret (what you're typing) in view.
-            DispatchQueue.main.async { if v.isScrollEnabled { v.scrollRangeToVisible(v.selectedRange) } }
-        }
-        func textViewDidChangeSelection(_ v: UITextView) {
-            if v.isScrollEnabled, v.isFirstResponder { v.scrollRangeToVisible(v.selectedRange) }
+            // Past its full height it scrolls inside itself: keep the caret (what you're typing) in view, once the
+            // new layout is in.
+            DispatchQueue.main.async { (v as? Box)?.showCaret() }
         }
         func textViewDidBeginEditing(_ v: UITextView) { if !parent.focused { parent.focused = true } }
         func textViewDidEndEditing(_ v: UITextView) { if parent.focused { parent.focused = false } }
