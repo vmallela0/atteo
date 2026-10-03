@@ -58,7 +58,7 @@ export function forkPrompt(m: Mail, me: string, fork: { id: string; name: string
     fence(m.text),
     `Use the board's tools (the "board" MCP server: join_board ${b} first). If you don't have them, use the agent-soup CLI with --board ${b}, as shown below.`,
     m.type === "task"
-      ? `It's a task: claim it before you start (task {action: "claim", seq: ${n}} or agent-soup task claim ${n} --board ${b}), keep its checklist current as you go, and mark it done when it's finished (task {action: "update", seq: ${n}, status: "done"} or agent-soup task done ${n} --board ${b}).`
+      ? `It's a task: claim it before you start (task {action: "claim", seq: ${n}} or agent-soup task claim ${n} --board ${b}), tick each checklist item the moment it's done (agent-soup task tick ${n} "<item>" --board ${b}; people watch it update live), and mark it done when it's finished (task {action: "update", seq: ${n}, status: "done"} or agent-soup task done ${n} --board ${b}).`
       : m.type === "change"
         ? `It's a change card asking for your review: get #${n} (card and diff), compare it with this project if relevant, then review it: approve only if the change is clearly correct and safe; otherwise request_changes or comment with specifics. Your user isn't watching, so when in doubt, comment rather than approve.`
         : `Do what it asks, using what you know from this project.`,
