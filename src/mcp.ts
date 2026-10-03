@@ -387,6 +387,16 @@ export interface CallContext {
   // The agent session making the call (X-Atteo-Session, sent by the CLI): its own read positions and name.
   agentSession?: { id: string; name: string; client: string | null; scope?: "full" | "read"; boards?: string[] } | null;
   badSession?: boolean; // a session header that isn't one of this user's live sessions
+  images?: { data: string; mimeType: string }[]; // pictures a tool hands back with its text (get on an image post)
+}
+
+const MAX_IMAGE = 2_000_000; // bytes per picture handed to an agent; the web shrinks uploads to ≤1600px, so this is rare
+
+function base64(bytes: ArrayBuffer): string {
+  const u = new Uint8Array(bytes);
+  let s = "";
+  for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode(...u.subarray(i, i + 0x8000));
+  return btoa(s);
 }
 
 /** How an agent's actions are recorded: its session's name and tool when it has one, else its MCP client's name. */
@@ -1100,6 +1110,12 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       }
       if (r.artifact_content != null) out.push("", `----- ${r.entry.artifact_name} -----`, r.artifact_content, `----- end -----`);
       if (r.replies.length) out.push("", "Related entries:", ...r.replies.map((e) => formatEntry(e, 1000, user)));
+      // Pictures come back as images the agent can look at (up to 4), so it never has to download them itself.
+      const pics = (files.length ? files.filter((a) => a.mime.startsWith("image/")) : r.entry.artifact_name && /\.(png|jpe?g|webp|gif)$/i.test(r.entry.artifact_name) ? [{ name: r.entry.artifact_name, version: r.entry.artifact_version ?? null }] : []).slice(0, 4);
+      for (const a of pics) {
+        const img = await stub.image(a.name, a.version ?? undefined).catch(() => null);
+        if (img && img.mime.startsWith("image/") && img.bytes.byteLength <= MAX_IMAGE) (c.images ??= []).push({ data: base64(img.bytes), mimeType: img.mime });
+      }
       return fence(out.join("\n"));
     }
 
@@ -1211,8 +1227,9 @@ async function handleOne(c: HandleContext, msg: RpcRequest): Promise<object | nu
       }
       try {
         if (c.badSession) throw new ToolError("That agent session has ended or isn't yours. Start a new one: atteo session new");
-        const text = await callTool({ ...c, user: c.user }, name, args);
-        return rpcResult(msg.id, { content: [{ type: "text", text }] });
+        const cc: CallContext = { ...c, user: c.user, images: [] };
+        const text = await callTool(cc, name, args);
+        return rpcResult(msg.id, { content: [{ type: "text", text }, ...(cc.images ?? []).map((i) => ({ type: "image", data: i.data, mimeType: i.mimeType }))] });
       } catch (e) {
         // Errors from the board Durable Object arrive over RPC as plain Errors; their messages are written for the agent.
         let message = e instanceof Error ? e.message : String(e);

@@ -71,7 +71,7 @@ async function rpcRaw(headers, board, method, params, { notification = false } =
 const auth = (who) => (who ? { authorization: `Bearer ${tok[who] ?? who}` } : {});
 async function tool(who, board, name, args = {}) {
   const r = await rpcRaw(auth(who), board, "tools/call", { name, arguments: args });
-  return { text: r.content.map((c) => c.text).join("\n"), isError: !!r.isError };
+  return { text: r.content.filter((c) => c.type === "text").map((c) => c.text).join("\n"), isError: !!r.isError, images: r.content.filter((c) => c.type === "image") };
 }
 async function ok(who, board, name, args) {
   const r = await tool(who, board, name, args);
@@ -480,6 +480,11 @@ await step("web: several files in one message (multipart upload): one entry, att
   has(await ok(B, board, "doc", { action: "read", name: "notes.txt" }), "line two");
   // MCP get lists every file with its size and where to fetch it.
   const g = await ok(B, board, "get", { seq: e.seq });
+  // …and hands the pictures back as images the agent can look at (no download step).
+  const gi = await tool(B, board, "get", { seq: e.seq });
+  assert(gi.images.length === 3 && gi.images.every((i) => i.mimeType === "image/png" && Buffer.from(i.data, "base64").equals(png)), `get images: ${JSON.stringify(gi.images.map((i) => [i.mimeType, i.data.length]))}`);
+  const gs = await tool(B, board, "get", { seq: one.entry.seq });
+  assert(gs.images.length === 1, `a single picture comes back too: ${gs.images.length}`);
   has(g, "Files (3):");
   for (const a of e.attachments) has(g, `${a.name} · image/png · 10×10 · ${png.length} bytes · v${a.version}`);
   has(g, `/api/boards/${board}/image?name=shot-2.png&version=`);
