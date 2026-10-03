@@ -17,7 +17,7 @@ export function newBoardId(): string {
 }
 
 /** A request to this machine (wrangler dev, tests): its links must keep pointing at itself. */
-function isLocalHost(hostname: string): boolean {
+export function isLocalHost(hostname: string): boolean {
   return /^(localhost|.+\.localhost|127\.\d+\.\d+\.\d+|0\.0\.0\.0|\[::1?\])$/i.test(hostname);
 }
 

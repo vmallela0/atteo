@@ -23,6 +23,7 @@ import * as billing from "./billing";
 import { blockedMessage, scanFields } from "./secrets";
 import * as inbox from "./inbox";
 import * as auth from "./auth";
+import * as appSignin from "./appSignin";
 import { handleMcp } from "./mcp";
 import * as device from "./device";
 import { EMAIL_RE, sendInvite } from "./invite";
@@ -234,6 +235,29 @@ async function authSso(c: Ctx): Promise<Response> {
   return redirect(to, { "Set-Cookie": auth.cookieHeader(c.url, auth.OAUTH_COOKIE, `${state}|${ret}`, 600) });
 }
 
+/**
+ * Someone WorkOS just signed in (the web's AuthKit callback, or the app's email code): their Atteo member, or null if
+ * they have none yet (they pick a name next). Known account → by WorkOS id. Otherwise a pre-made user row with this
+ * *verified* email (e.g. a migrated beta user) is linked. A domain that requires SSO refuses every other way in.
+ */
+async function memberForWorkosUser(env: Env, wu: auth.WorkosUser): Promise<{ user: registry.FullUser | null; verified: boolean; display: string | null } | { ssoRequired: string }> {
+  const verified = !!wu.email_verified;
+  const display = [wu.first_name, wu.last_name].filter(Boolean).join(" ") || null;
+  // Organization policy: people from a domain that requires SSO must come in through their identity provider.
+  const policy = await orgPolicy(env, wu.email);
+  if (policy?.require_sso && wu.authentication_method !== "SSO") return { ssoRequired: wu.email.split("@")[1] };
+  let user = await registry.userByWorkosId(env, wu.id);
+  if (user) await registry.setEmailVerified(env, user.name, wu.email, verified);
+  if (!user && verified) {
+    const unlinked = await registry.unlinkedUserByEmail(env, wu.email);
+    if (unlinked) {
+      await registry.linkWorkos(env, unlinked.name, wu.id, wu.email, display, verified);
+      user = await registry.userByName(env, unlinked.name);
+    }
+  }
+  return { user, verified, display };
+}
+
 async function authCallback(c: Ctx): Promise<Response> {
   const fail = (text: string) => messagePage("Sign-in didn't complete", text, { status: 400, action: { href: "/auth/login", label: "Try again" } });
   const err = c.url.searchParams.get("error_description") ?? c.url.searchParams.get("error");
@@ -260,24 +284,11 @@ async function authCallback(c: Ctx): Promise<Response> {
   } catch (e) {
     return fail(e instanceof Error ? e.message : String(e));
   }
-  const verified = !!wu.email_verified;
-  const display = [wu.first_name, wu.last_name].filter(Boolean).join(" ") || null;
-  // Organization policy: people from a domain that requires SSO must come in through their identity provider.
-  const policy = await orgPolicy(c.env, wu.email);
-  if (policy?.require_sso && wu.authentication_method !== "SSO") {
-    return messagePage("Use your company's sign-in", `${wu.email.split("@")[1]} requires single sign-on. Sign in with SSO instead.`, { status: 403, action: { href: `/auth/sso?email=${encodeURIComponent(wu.email)}`, label: "Sign in with SSO" } });
+  const who = await memberForWorkosUser(c.env, wu);
+  if ("ssoRequired" in who) {
+    return messagePage("Use your company's sign-in", `${who.ssoRequired} requires single sign-on. Sign in with SSO instead.`, { status: 403, action: { href: `/auth/sso?email=${encodeURIComponent(wu.email)}`, label: "Sign in with SSO" } });
   }
-
-  // Known account → by WorkOS id. Otherwise a pre-made user row with this *verified* email (e.g. a migrated beta user).
-  let user = await registry.userByWorkosId(c.env, wu.id);
-  if (user) await registry.setEmailVerified(c.env, user.name, wu.email, verified);
-  if (!user && verified) {
-    const unlinked = await registry.unlinkedUserByEmail(c.env, wu.email);
-    if (unlinked) {
-      await registry.linkWorkos(c.env, unlinked.name, wu.id, wu.email, display, verified);
-      user = await registry.userByName(c.env, unlinked.name);
-    }
-  }
+  const { user, verified, display } = who;
   const session = await auth.createSession(c.env, {
     user: user?.name ?? null,
     workos_id: wu.id,
@@ -313,6 +324,95 @@ async function welcome(c: Ctx): Promise<Response> {
   await registry.createUser(c.env, { name, email: s.email, email_verified: !!s.email_verified, workos_id: s.workos_id, display_name: s.display_name });
   await auth.setSessionUser(c.env, s.id_hash, name);
   return redirect(safeReturn(c.url.searchParams.get("return")));
+}
+
+// ---------- the app's own sign-in: email → 6-digit code → (new people) a name; returns an app token ----------
+
+const NAME_RULES = "Use 1–32 lowercase letters, numbers, dot, dash or underscore, starting with a letter or number.";
+const tooMany = () => json({ error: "Too many tries. Wait a few minutes, then try again." }, 429, { "retry-after": "600" });
+
+/** The same token the OAuth sign-in gives the app (scope "person"): kind "app", 30 days, listed in Settings → Connected. */
+async function appToken(env: Env, user: registry.FullUser, device: string | null) {
+  const t = await auth.createToken(env, user.name, device ? `Atteo app · ${device}` : "Atteo app", { expiresAt: Date.now() + oauth.OAUTH_TOKEN_TTL_MS, kind: "app" });
+  return { token: t.token, token_type: "Bearer", expires_in: Math.floor(oauth.OAUTH_TOKEN_TTL_MS / 1000), user: { name: user.name, email: user.email, display_name: user.display_name } };
+}
+
+/** POST /api/app/signin/start {email}: emails a code. Always {ok: true}, whether or not the email has an account. */
+async function appSigninStart(c: Ctx): Promise<Response> {
+  const b = (await c.request.json().catch(() => ({}))) as { email?: unknown };
+  const email = appSignin.normalizeEmail(b.email);
+  if (!email) return json({ error: "Enter a valid email address." }, 400);
+  const ip = appSignin.clientIp(c.request);
+  const lim = appSignin.limits(c.env);
+  if (!(await appSignin.hit(c.env, `start:ip:${ip}`, lim.startPerIp)) || !(await appSignin.hit(c.env, await appSignin.emailKey("start", email), lim.startPerEmail))) return tooMany();
+  if (appSignin.fakeAllowed(c.env, c.url, email)) return json({ ok: true });
+  if (!appSignin.workosConfigured(c.env)) return json({ error: "Sign-in isn't configured on this server." }, 503);
+  const sent = await appSignin.sendCode(c.env, email, ip, c.request.headers.get("user-agent"));
+  // Never tell the person (that would say whether the address is known); the logs hear it.
+  if (!sent.ok) console.error(`app sign-in: WorkOS didn't send a code: ${sent.error}`);
+  return json({ ok: true });
+}
+
+/** POST /api/app/signin/verify {email, code, device_name?}: an app token, or (new people) a ticket to pick a name. */
+async function appSigninVerify(c: Ctx): Promise<Response> {
+  const b = (await c.request.json().catch(() => ({}))) as { email?: unknown; code?: unknown; device_name?: unknown };
+  const email = appSignin.normalizeEmail(b.email);
+  const code = String(b.code ?? "").replace(/\s+/g, "");
+  if (!email) return json({ error: "Enter a valid email address." }, 400);
+  const ip = appSignin.clientIp(c.request);
+  const lim = appSignin.limits(c.env);
+  if (!(await appSignin.hit(c.env, `verify:ip:${ip}`, lim.verifyPerIp)) || !(await appSignin.hit(c.env, await appSignin.emailKey("verify", email), lim.verifyPerEmail))) return tooMany();
+  if (!/^\d{6}$/.test(code)) return json({ error: appSignin.BAD_CODE }, 400);
+  let wu: auth.WorkosUser;
+  if (appSignin.fakeAllowed(c.env, c.url, email)) {
+    if (code !== appSignin.FAKE_CODE) return json({ error: appSignin.BAD_CODE }, 400);
+    wu = await appSignin.fakeWorkosUser(email);
+  } else {
+    if (!appSignin.workosConfigured(c.env)) return json({ error: "Sign-in isn't configured on this server." }, 503);
+    try {
+      wu = await appSignin.authenticateMagic(c.env, email, code, ip, c.request.headers.get("user-agent"));
+    } catch (e) {
+      if (e instanceof appSignin.CodeError) {
+        if (e.detail) console.error(`app sign-in: WorkOS refused a code: ${e.detail}`);
+        return json({ error: e.message }, e.status);
+      }
+      throw e;
+    }
+  }
+  const who = await memberForWorkosUser(c.env, wu);
+  if ("ssoRequired" in who) return json({ error: `${who.ssoRequired} requires single sign-on. Use “Continue with Google, GitHub or SSO” below.` }, 403);
+  const device = appSignin.deviceLabel(b.device_name);
+  if (who.user) return json(await appToken(c.env, who.user, device), 200, { "cache-control": "no-store" });
+  // New here: pick a name (the app's version of /welcome).
+  const ticket = await appSignin.createSignup(c.env, { workos_id: wu.id, email: wu.email, email_verified: who.verified ? 1 : 0, display_name: who.display, device_name: device });
+  const suggestion = await freeName(c.env, suggestName(wu.email, who.display));
+  return json({ needs_name: true, ticket, suggestion, email: wu.email, expires_in: Math.floor(appSignin.SIGNUP_TTL_MS / 1000) }, 200, { "cache-control": "no-store" });
+}
+
+/** POST /api/app/signin/name {ticket, name}: a new person picks their name (the same rules as /welcome); an app token. */
+async function appSigninName(c: Ctx): Promise<Response> {
+  const b = (await c.request.json().catch(() => ({}))) as { ticket?: unknown; name?: unknown };
+  const ticket = String(b.ticket ?? "");
+  const s = await appSignin.readSignup(c.env, ticket);
+  if (!s) return json({ error: "This sign-in expired. Start again with your email." }, 400);
+  // Already made (a double tap, or the web finished first): sign in as that member.
+  const existing = await registry.userByWorkosId(c.env, s.workos_id);
+  if (existing) {
+    await appSignin.useSignup(c.env, ticket);
+    return json(await appToken(c.env, existing, s.device_name), 200, { "cache-control": "no-store" });
+  }
+  const name = normalizeUser(String(b.name ?? "").trim().replace(/^@/, ""));
+  if (!name) return json({ error: NAME_RULES }, 400);
+  if (await registry.userByName(c.env, name)) return json({ error: `"${name}" is taken. Try another.`, suggestion: await freeName(c.env, name) }, 409);
+  try {
+    await registry.createUser(c.env, { name, email: s.email, email_verified: !!s.email_verified, workos_id: s.workos_id, display_name: s.display_name });
+  } catch {
+    return json({ error: `"${name}" is taken. Try another.` }, 409); // someone took it a moment ago
+  }
+  await appSignin.useSignup(c.env, ticket);
+  const user = await registry.userByName(c.env, name);
+  if (!user) return json({ error: "Couldn't finish signing up. Try again." }, 500);
+  return json(await appToken(c.env, user, s.device_name), 201, { "cache-control": "no-store" });
 }
 
 // ---------- ops data ----------
@@ -360,6 +460,7 @@ const handler = {
     const keep = (await env.DB.prepare(`SELECT id, retention_days FROM boards WHERE retention_days IS NOT NULL`).all<{ id: string; retention_days: number }>()).results;
     for (const b of keep) ctx.waitUntil(boardStub(env, b.id).prune(Date.now() - b.retention_days * 86_400_000).catch(() => 0));
     ctx.waitUntil(env.DB.prepare(`DELETE FROM tape WHERE ts < ?`).bind(Date.now() - 7 * 86_400_000).run().catch(() => {}));
+    ctx.waitUntil(appSignin.sweep(env).catch(() => {}));
     for (const m of await registry.expiredMembers(env)) {
       ctx.waitUntil(
         (async () => {
@@ -538,6 +639,9 @@ const handler = {
       if (path === "/auth/callback" && method === "GET") return authCallback(c);
       if (path === "/auth/sso" && method === "GET") return authSso(c);
       if (path === "/welcome") return welcome(c);
+      if (path === "/api/app/signin/start" && method === "POST") return appSigninStart(c);
+      if (path === "/api/app/signin/verify" && method === "POST") return appSigninVerify(c);
+      if (path === "/api/app/signin/name" && method === "POST") return appSigninName(c);
       if (path === "/auth/logout" && method === "POST") {
         await auth.deleteSession(request, env);
         return redirect("/", { "Set-Cookie": auth.cookieHeader(url, auth.SESSION_COOKIE, "", 0) });
@@ -918,6 +1022,11 @@ const handler = {
         if (!p) return notFound(viewer);
         const [shared, ag] = await Promise.all([p.relation === "self" || p.relation === "blocked" ? [] : social.sharedBoards(env, viewer.name, p.name).catch(() => []), agents.agent(env, viewer.name, p.name).catch(() => null)]);
         return profilePage(viewer, side, p, social.presenceLabel(p.presence), { shared, agent: ag });
+      }
+      // Who this is (the app checks its token here after signing in).
+      if (path === "/api/me" && method === "GET") {
+        if (!viewer) return needLogin();
+        return json({ name: viewer.name, email: viewer.email, display_name: viewer.display_name, via: viewer.via ?? "person" }, 200, { "cache-control": "no-store" });
       }
       if (path === "/api/me/profile" && (method === "GET" || method === "POST")) {
         if (!viewer) return needLogin();
