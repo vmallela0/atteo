@@ -158,6 +158,9 @@ final class AgentSoupUITests: XCTestCase {
         let sending = a.staticTexts["Sending…"]
         let gone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: sending)
         wait(for: [gone], timeout: 10)
+        // The @mention is highlighted, as the server resolved it.
+        let mentions = expectation(for: NSPredicate(format: "value CONTAINS %@", "@theo's agent"), evaluatedWith: a.staticTexts[msg])
+        wait(for: [mentions], timeout: 5)
         shot("07-sent")
         // theo's agent reads it: a 👀 receipt shows under your message, live.
         if let tick = env["AGENT_SOUP_TICK"], let server = env["AGENT_SOUP_SERVER"], let other = env["AGENT_SOUP_OTHER_TOKEN"] {
@@ -280,6 +283,12 @@ final class AgentSoupUITests: XCTestCase {
         chat.tap()
         let composer = a.textFields["composer"].exists ? a.textFields["composer"] : a.textViews["composer"]
         XCTAssertTrue(composer.waitForExistence(timeout: 10))
+        // Pictures and files aren't encrypted yet: the + is dimmed and says why.
+        a.buttons["attach"].tap()
+        XCTAssertTrue(a.descendants(matching: .any)["attach-unavailable"].waitForExistence(timeout: 5), "+ explains attachments aren't on encrypted boards yet")
+        XCTAssertFalse(a.buttons["Photos"].exists, "no picker here")
+        shot("15a-encrypted-attach")
+        a.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).tap() // dismiss
         let msg = "hello encrypted \(Int(Date().timeIntervalSince1970) % 100000)"
         composer.tap()
         composer.typeText(msg)
@@ -290,6 +299,101 @@ final class AgentSoupUITests: XCTestCase {
         // theo's client decrypts it and answers; the answer arrives over the live socket and is decrypted here.
         XCTAssertTrue(a.staticTexts["theo read: \(msg)"].waitForExistence(timeout: 20), "theo read it, and the phone read theo's answer")
         shot("15-encrypted")
+    }
+
+    /// GETs a JSON path on the local server as the person (to check what really landed).
+    func serverJSON(_ path: String) -> [String: Any]? {
+        guard let server = env["AGENT_SOUP_SERVER"], let token = env["AGENT_SOUP_TOKEN"] else { return nil }
+        var r = URLRequest(url: URL(string: server + path)!)
+        r.setValue("Bearer \(token)", forHTTPHeaderField: "authorization")
+        var out: [String: Any]?
+        let got = expectation(description: "GET \(path)")
+        URLSession.shared.dataTask(with: r) { d, _, _ in out = d.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }; got.fulfill() }.resume()
+        wait(for: [got], timeout: 10)
+        return out
+    }
+
+    /// Pictures from the phone (#501): + → Photos, pick one from the library; it waits as a chip in the message box,
+    /// goes with a note, shows in the chat at once (a ring while it uploads), then as the server's picture. Tap it:
+    /// full screen. (On a board no other test reads, so their "latest line" checks don't change.)
+    func testAttachments() throws {
+        continueAfterFailure = false
+        let a = app(fresh: true)
+        a.launch()
+        onBoards(a)
+        let chat = a.buttons.matching(NSPredicate(format: "identifier == 'chat-Q4 data migration'")).firstMatch
+        XCTAssertTrue(chat.waitForExistence(timeout: 10), "the board is in Chats")
+        chat.tap()
+        let composer = a.textFields["composer"].exists ? a.textFields["composer"] : a.textViews["composer"]
+        XCTAssertTrue(composer.waitForExistence(timeout: 10), "board opens")
+        // A file someone shared: a compact chip; tap opens it in Quick Look.
+        let file = a.buttons.matching(NSPredicate(format: "identifier == 'chat-file' AND label CONTAINS 'backfill-report.csv'")).firstMatch
+        XCTAssertTrue(file.waitForExistence(timeout: 5), "a shared file shows as a chip")
+        file.tap()
+        // Quick Look titles it without the extension.
+        XCTAssertTrue(a.descendants(matching: .any).matching(NSPredicate(format: "label == 'backfill-report'")).firstMatch.waitForExistence(timeout: 10), "it opens in Quick Look")
+        sleep(2)
+        shot("16-quick-look")
+        let close = a.buttons.matching(NSPredicate(format: "label IN {'Done', 'Close', 'Dismiss'} OR identifier IN {'Done', 'Close', 'QLOverlayDoneButtonAccessibilityIdentifier'}")).firstMatch
+        if close.waitForExistence(timeout: 3) { close.tap() } else { a.swipeDown(velocity: .fast) }
+        XCTAssertTrue(composer.waitForExistence(timeout: 5))
+        // + opens Photos / Files (no camera on the simulator).
+        a.buttons["attach"].tap()
+        let photos = a.buttons["Photos"]
+        XCTAssertTrue(photos.waitForExistence(timeout: 5), "+ offers Photos")
+        XCTAssertTrue(a.buttons["Files"].exists, "and Files")
+        shot("16a-attach-menu")
+        photos.tap()
+        // The picker runs in another process: wait for its grid, tap the first photo, then Add.
+        XCTAssertTrue(a.scrollViews.images.firstMatch.waitForExistence(timeout: 10), "the photo library opens")
+        sleep(1)
+        a.coordinate(withNormalizedOffset: CGVector(dx: 0.17, dy: 0.47)).tap()
+        sleep(1)
+        let add = a.buttons.matching(NSPredicate(format: "label == 'Add' OR identifier == 'Add' OR label == 'Done'")).firstMatch
+        if add.waitForExistence(timeout: 3) { add.tap() } else { a.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.08)).tap() }
+        let chip = a.descendants(matching: .any)["attachment-chip"]
+        XCTAssertTrue(chip.waitForExistence(timeout: 10), "the photo waits as a chip in the message box")
+        let caption = "@theo's agent staging after the backfill \(Int(Date().timeIntervalSince1970) % 100000)"
+        composer.tap()
+        composer.typeText(caption)
+        shot("16b-attached")
+        a.buttons["send"].tap()
+        // At once: the picture (sending) and the note under it.
+        XCTAssertTrue(a.staticTexts[caption].waitForExistence(timeout: 3), "the note shows at once")
+        XCTAssertFalse(chip.exists, "the message box is empty again")
+        let sent = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: a.staticTexts["Sending…"])
+        wait(for: [sent], timeout: 20)
+        // What landed on the server: a picture entry with the note, its bytes stored as an image.
+        guard let boards = serverJSON("/api/me/boards")?["boards"] as? [[String: Any]],
+              let board = boards.filter({ $0["title"] as? String == "Q4 data migration" }).max(by: { ($0["last_activity"] as? Double ?? 0) < ($1["last_activity"] as? Double ?? 0) }),
+              let id = board["id"] as? String,
+              let entries = serverJSON("/api/boards/\(id)/entries?after=0&limit=200")?["entries"] as? [[String: Any]],
+              let entry = entries.last(where: { $0["text"] as? String == caption }) else { return XCTFail("the picture reached the server") }
+        let media = entry["media"] as? [String: Any]
+        XCTAssertTrue((media?["mime"] as? String ?? "").hasPrefix("image/"), "stored as a picture, not a download")
+        XCTAssertLessThanOrEqual(media?["size"] as? Int ?? .max, 1_500_000, "within the server's limit")
+        let name = entry["artifact_name"] as? String ?? ""
+        // In the chat: the server's picture (by its stored name), shown.
+        let image = a.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'chat-image' AND label == %@", name)).firstMatch
+        XCTAssertTrue(image.waitForExistence(timeout: 5), "the picture is in the chat")
+        let shown = expectation(for: NSPredicate(format: "value == 'shown'"), evaluatedWith: image)
+        wait(for: [shown], timeout: 10)
+        XCTAssertTrue(image.isHittable, "on screen, above the message box")
+        let mention = expectation(for: NSPredicate(format: "value CONTAINS %@", "@theo's agent"), evaluatedWith: a.staticTexts[caption])
+        wait(for: [mention], timeout: 5) // the note's @mention is highlighted
+        shot("16c-attachment-sent")
+        // Tap: full screen, with Share; ✕ closes.
+        image.tap()
+        XCTAssertTrue(a.descendants(matching: .any)["image-viewer"].waitForExistence(timeout: 5), "tap opens it full screen")
+        XCTAssertTrue(a.buttons["Share"].waitForExistence(timeout: 5), "it can be shared")
+        shot("16d-full-screen")
+        a.buttons["Close"].tap()
+        XCTAssertTrue(composer.waitForExistence(timeout: 5), "back in the chat")
+        XCTAssertTrue(image.waitForExistence(timeout: 5), "the picture is still there")
+        // Keyboard down (drag the chat into it, like a person would), for a clean look at the chat.
+        image.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(forDuration: 0.1, thenDragTo: a.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.97)), withVelocity: .slow, thenHoldForDuration: 0.1)
+        sleep(1)
+        shot("16e-attachments") // the chat, keyboard down: the file someone shared, your picture and its note
     }
 
     func testInstantRelaunchFromCache() throws {

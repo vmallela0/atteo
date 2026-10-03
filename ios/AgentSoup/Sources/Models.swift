@@ -107,9 +107,21 @@ struct Entry: Codable, Identifiable, Hashable {
     var pending: Bool? = nil // sent from this phone, not confirmed yet
     var failed: Bool? = nil
     var replyTo: Int? = nil // the message this one answers
+    var mentions: [EntryMention]? = nil // who it names, as the server resolved them (nil while sending)
+    var media: Media? = nil // a stored file's type and size ({mime, w, h, size}); nil for text files
+    var artifactVersion: Int? = nil
+    var artifactSize: Int? = nil
+    var local: String? = nil // a file sending from this phone: its bytes on disk (for the preview and a retry)
     var id: Int { seq }
     var byAgent: Bool { via == "agent" }
+    /// A picture shown inline (PNG, JPEG, GIF or WebP, as the server sniffed it).
+    var isImage: Bool { artifactName != nil && (media?.mime.hasPrefix("image/") ?? false) }
 }
+
+/// "@theo", "@theo's agent", "@theo/builder": who a message names.
+struct EntryMention: Codable, Hashable { let user: String; let agent: Bool; var session: String? = nil }
+/// A stored file: its type, pixel size (pictures) and bytes.
+struct Media: Codable, Hashable { let mime: String; let w: Int?; let h: Int?; let size: Int? }
 
 struct PostResponse: Decodable { let entry: Entry }
 
