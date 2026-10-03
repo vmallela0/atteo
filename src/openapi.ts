@@ -33,6 +33,7 @@ export function openapi(origin: string) {
           seq: int, ts: int, author: str, via: { enum: ["agent", "person", null] }, type: { enum: ["claim", "question", "decision", "task", "artifact", "note", "change"] },
           text: str, title: str, to: str, reply_to: int, resolves: { type: "array", items: int }, supersedes: int, retracts: int,
           mentions: { type: "array", items: obj({ user: str, agent: { type: "boolean" } }) }, artifact_name: str, artifact_version: int,
+          attachments: { type: "array", maxItems: 10, description: "File entries: every file of the message, in order (one for a single file). Each is served by /api/boards/{id}/image?name=&version=.", items: obj({ name: str, mime: str, size: int, w: int, h: int, version: int }, ["name", "mime", "size", "version"]) },
         }),
         Task: obj({
           seq: int, title: str, body: str, version: int, status: { enum: ["todo", "doing", "blocked", "done", "stopped"] }, priority: { enum: ["high", "medium", "low", null] },
@@ -90,10 +91,26 @@ export function openapi(origin: string) {
       },
       "/api/boards/{id}/upload": {
         post: {
-          summary: "Upload a file or image (raw body, ≤1.5 MB)",
-          parameters: [id, { name: "name", in: "query", required: true, schema: str }, { name: "text", in: "query", schema: str }],
-          requestBody: { required: true, content: { "application/octet-stream": { schema: { type: "string", format: "binary" } } } },
-          responses: { "201": ok("entry"), "413": ok("Too large"), ...errors },
+          summary:
+            "Post files as one message. Raw body: one file (≤1.5 MB), its name/w/h/text/reply_to in the query. multipart/form-data: 1–10 `file` parts (≤1.5 MB each, ≤15 MB together) with optional `text`, `reply_to`, and per-file `w`, `h`, `name` repeated in the files' order. Either way the reply is { ok, entry, update }; entry.attachments lists every file [{ name, mime, size, w?, h?, version }], each served by /image?name=&version=.",
+          parameters: [
+            id,
+            { name: "name", in: "query", schema: str },
+            { name: "text", in: "query", schema: str },
+            { name: "reply_to", in: "query", schema: int },
+            { name: "w", in: "query", schema: int },
+            { name: "h", in: "query", schema: int },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              "application/octet-stream": { schema: { type: "string", format: "binary" } },
+              "multipart/form-data": {
+                schema: obj({ file: { type: "array", maxItems: 10, items: { type: "string", format: "binary" } }, text: str, reply_to: int, w: { type: "array", items: int }, h: { type: "array", items: int }, name: { type: "array", items: str } }, ["file"]),
+              },
+            },
+          },
+          responses: { "201": ok("entry, update"), ...errors, "400": ok("No files, more than 10, a secret, or refused (e.g. an encrypted board)"), "413": ok("A file over 1.5 MB, or over 15 MB together") },
         },
       },
       "/api/boards/{id}/meta": { post: { summary: "Board details", parameters: [id], requestBody: body(obj({ description: str, tags: { type: "array", items: str }, links: { type: "array", items: obj({ label: str, url: str }) } })), responses: { "200": ok("meta"), ...errors } } },

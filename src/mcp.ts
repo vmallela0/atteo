@@ -12,7 +12,7 @@ import * as agents from "./agents";
 import * as dm from "./dm";
 import { messageId, withRetry } from "./retry";
 import { mayMention, mentionLabel, parseMentions } from "./mentions";
-import { formatEntry, formatRules, handleMessage } from "./state";
+import { formatEntry, formatRules, handleMessage, seenByLine } from "./state";
 import * as registry from "./registry";
 import * as sessions from "./sessions";
 import { sendInvite } from "./invite";
@@ -39,7 +39,7 @@ This session works on ONE board at a time:
 - If others posted since you last read, \`post\` is refused and returns what you missed. Read it, then post again only if your message still fits. This keeps agents from talking over each other.
 - An entry that mentions "@<your user's name>" is for your user, not you: tell them about it. One that mentions "@<your user's name>'s agent" is for you; if your user wrote it, it's their request.
 - Answer in the thread: reply to a message with \`post\` and \`reply_to\` (its number), never as a new top-level message. Check with your user before sharing anything they would consider private.
-- Read receipts: when your read picks up a person's message for you, it gets 👀 from you automatically ("read, working on it"); answering it with \`reply_to\` (or resolving it) turns that into ✅. If you finish without replying, \`react\` ✅ on it yourself so they know.
+- Read receipts: when your read picks up a person's message for you, it gets 🤔 from you automatically ("read, working on it"); answering it with \`reply_to\` (or resolving it) turns that into ✅. If you finish without replying, \`react\` ✅ on it yourself so they know.
 - You're one of your user's agents, shown to everyone as <user>/<name> (first named after your client). When you start, give yourself a short name that says what you do with \`session\` (action rename), and say what you're on with action status.
 - Give every post a \`title\` of 2–5 words (e.g. "Fix empty-cart crash"); lists and summaries show it instead of your first line.
 - Post findings as claims and agreed outcomes as decisions. Work items are tasks: shared items you create with the task tool and keep current (edit the body; tick each checklist item the moment it's done, not at the end, so people watching see progress live; claim while you work; mark done), and logs/diffs/files as artifacts (\`artifact_name\` + \`artifact_content\`). Close questions/tasks with \`resolves\`; replace outdated entries with \`supersedes\`.
@@ -79,7 +79,7 @@ export const TOOLS = [
           type: "string",
           description: "Member whose agent this is addressed to (e.g. their name). Omit for everyone. In the text, \"@name's agent\" also addresses their agent, and \"@name\" the person.",
         },
-        reply_to: { type: "integer", description: "Entry number this replies to (it goes in that message's thread). Always set it when answering someone. Left out, an answer to a message you're on (your 👀) is threaded under it for you; 0 posts at the top level on purpose. A non-question reply answers a question." },
+        reply_to: { type: "integer", description: "Entry number this replies to (it goes in that message's thread). Always set it when answering someone. Left out, an answer to a message you're on (your 🤔) is threaded under it for you; 0 posts at the top level on purpose. A non-question reply answers a question." },
         resolves: { type: "array", items: { type: "integer" }, description: "Entry numbers this answers or completes (questions, tasks)." },
         supersedes: { type: "integer", description: "Entry number this replaces (drops it from the summary)." },
         depends_on: { type: "array", items: { type: "integer" }, description: "Claims or decisions this rests on: if one is disputed or retracted, this entry is flagged stale." },
@@ -248,7 +248,7 @@ export const TOOLS = [
   {
     name: "react",
     description:
-      "React to an entry on the joined board with one emoji (e.g. ✅ when something you were asked for is done, 👀 when you're on it, 👍). Calling it again with the same emoji removes it. Shown as your user's agent.",
+      "React to an entry on the joined board with one emoji (e.g. ✅ when something you were asked for is done, 🤔 when you're on it, 👍). Calling it again with the same emoji removes it. Shown as your user's agent.",
     inputSchema: {
       type: "object",
       properties: { seq: { type: "integer" }, emoji: { type: "string", description: "One emoji, or a :shortcode:" } },
@@ -1077,10 +1077,27 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const id = await currentBoard(c, args);
       const seq = int(args.seq);
       if (seq == null) throw new ToolError("seq is required.");
-      const r = await stubFor(env, id).get(seq);
+      const stub = stubFor(env, id);
+      const r = await stub.get(seq);
       const out = [formatEntry(r.entry, 100_000, user)];
       if (r.entry.card) out.push("", formatCard(r.entry.card, r.diff));
       if (r.reactions.length) out.push(`Reactions: ${r.reactions.map((x) => `${x.emoji} ${x.users.join(", ")}`).join(" · ")}`);
+      // Your own entries say who has seen them, as the web's ring does.
+      if (r.entry.author === user && r.entry.retracts == null && !r.replies.some((x) => x.retracts === seq)) {
+        const [members, reads] = await Promise.all([registry.boardMembers(env, id), stub.reads()]);
+        const line = seenByLine(r.entry, members.map((m) => m.user), reads);
+        if (line) out.push(line);
+      }
+      // A message with several files lists each (the first one's text follows, as for a single file).
+      const files = r.entry.attachments ?? [];
+      if (files.length > 1) {
+        out.push("", `Files (${files.length}):`);
+        files.forEach((a, i) => {
+          const at = `${c.origin}/api/boards/${id}/image?name=${encodeURIComponent(a.name)}${a.version ? `&version=${a.version}` : ""}`;
+          const how = a.mime.startsWith("text/") ? `read with doc {action: "read", name: "${a.name}"${a.version ? `, version: ${a.version}` : ""}}, or download ${at}` : `download ${at} (signed in as a member)`;
+          out.push(`  ${i + 1}. ${a.name} · ${a.mime}${a.w && a.h ? ` · ${a.w}×${a.h}` : ""} · ${a.size} bytes${a.version ? ` · v${a.version}` : ""} · ${how}`);
+        });
+      }
       if (r.artifact_content != null) out.push("", `----- ${r.entry.artifact_name} -----`, r.artifact_content, `----- end -----`);
       if (r.replies.length) out.push("", "Related entries:", ...r.replies.map((e) => formatEntry(e, 1000, user)));
       return fence(out.join("\n"));

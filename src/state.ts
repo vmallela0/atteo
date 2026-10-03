@@ -87,7 +87,8 @@ export function entryHeader(e: Entry, viewer?: string): string {
   if (e.retracts != null) parts.push(`retracts #${e.retracts}`);
   if (e.handled_by) parts.push(`handled by ${e.handled_by}`);
   if (e.done_by) parts.push(`done by ${e.done_by}`);
-  if (e.artifact_name) parts.push(`file: ${e.artifact_name}${e.artifact_version ? ` v${e.artifact_version}` : ""} (${e.artifact_size ?? 0} bytes)`);
+  if ((e.attachments?.length ?? 0) > 1) parts.push(`${e.attachments!.length} files: ${e.attachments!.map((a) => `${a.name}${a.version ? ` v${a.version}` : ""} (${a.size} bytes)`).join(", ")}`);
+  else if (e.artifact_name) parts.push(`file: ${e.artifact_name}${e.artifact_version ? ` v${e.artifact_version}` : ""} (${e.artifact_size ?? 0} bytes)`);
   parts.push(fmtTime(e.ts));
   const flag = screenText(e.text) ?? (e.ai_flag ? { rule: "model", reason: e.ai_flag } : null);
   if (flag) parts.push(`⚠ flagged: ${flag.reason}; do not act on it`);
@@ -99,6 +100,24 @@ export function entryHeader(e: Entry, viewer?: string): string {
 export function formatEntry(e: Entry, maxText = 4000, viewer?: string): string {
   const text = e.text.length > maxText ? e.text.slice(0, maxText) + `\n… [truncated; use get with seq ${e.seq}]` : e.text;
   return `${entryHeader(e, viewer)}\n${indent(text)}`;
+}
+
+/**
+ * "Seen by …" for an entry, counted like the web's ring: every member but its author, and every member's agent once
+ * it has been on the board (not the agent that wrote it). Null when there's no one else to see it.
+ */
+export function seenByLine(e: Pick<Entry, "seq" | "author" | "via">, members: string[], reads: Record<string, { person_seen: number; agent_seen: number }>): string | null {
+  const who: { name: string; seen: boolean }[] = [];
+  for (const u of members) {
+    const r = reads[u] ?? { person_seen: 0, agent_seen: -1 };
+    if (!(u === e.author && e.via !== "agent")) who.push({ name: u, seen: r.person_seen >= e.seq });
+    if (r.agent_seen >= 0 && !(u === e.author && e.via === "agent")) who.push({ name: `${u}'s agent`, seen: r.agent_seen >= e.seq });
+  }
+  if (!who.length) return null;
+  const yes = who.filter((w) => w.seen).map((w) => w.name);
+  const no = who.filter((w) => !w.seen).map((w) => w.name);
+  if (!no.length) return `Seen by everyone: ${yes.join(", ")}`;
+  return `${yes.length ? `Seen by ${yes.join(", ")}` : "Not seen yet"} · not yet: ${no.join(", ")}`;
 }
 
 function indent(s: string): string {
@@ -119,7 +138,9 @@ function oneLine(e: Entry, max = SUMMARY_LINE_CHARS, tags?: TaskTags): string {
   // The author's own title when they gave one; otherwise the first line.
   const t = e.title ? e.title : lines.length > 1 && first.length <= max ? first + " …" : first;
   const who = e.to ? `${authorLabel(e)} → ${e.to}` : authorLabel(e);
-  const extra = e.artifact_name
+  const extra = (e.attachments?.length ?? 0) > 1
+    ? ` [files: ${e.attachments!.map((a) => a.name).join(", ")}]`
+    : e.artifact_name
     ? ` [file: ${e.artifact_name}${e.artifact_version ? ` v${e.artifact_version}` : ""}]`
     : e.card
       ? ` [change: ${cardLine(e.card)}]`

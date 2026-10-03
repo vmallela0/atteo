@@ -104,7 +104,7 @@ await step("replies go in the thread: --reply-to works like --reply, unknown opt
     p.stderr.on("data", (d) => (s += d));
     p.on("close", (code) => resolve({ code, out: s }));
   });
-  // A asks B's agent; B's agent reads it (👀) and answers.
+  // A asks B's agent; B's agent reads it (🤔) and answers.
   const q = Number((await tool(tokA, board, "post", { type: "question", text: `@${B}'s agent which branch ${run}?` })).match(/#(\d+)/)[1]);
   await cli(credB, "read");
   let r = await cli(credB, "post", `main, as usual ${run}`, "--reply-to", String(q));
@@ -830,6 +830,48 @@ await step("task tick / untick / edit: tick the one checklist item matching the 
   assert(r.code === 1 && r.err.includes("wasn't found"), r.err);
   r = await t("edit", String(n), "--new", "x");
   assert(r.code === 1 && r.err.includes("Usage: atteo task edit"), r.err);
+});
+
+await step("task remove / retract: a task leaves the board (its author or the board's creator only), a note is unsent, a non-task isn't removed", async () => {
+  const n = Number((await tool(tokB, board, "task", { action: "create", title: `Drop me ${run}`, body: "- [ ] nothing" })).match(/#(\d+)/)[1]);
+  await tool(tokB, board, "read", {});
+  const note = Number((await tool(tokB, board, "post", { type: "note", text: `typo ${run}` })).match(/Posted #(\d+)/)[1]);
+  const listed = async () => (await (await fetch(`${BASE}/api/boards/${board}/tasks`, { headers: { authorization: `Bearer ${tokA}` } })).json()).tasks.some((t) => t.seq === n);
+  assert(await listed(), "the task is on the board first");
+  let r = await cli(["task", "remove", String(note), "--board", board], { cred: credB });
+  assert(r.code === 1 && !r.out.includes("Retracted"), "a note isn't a task: " + r.out + r.err);
+  r = await cli(["task", "remove", String(n), "--board", board], { cred: credB });
+  assert(r.code === 0 && r.out.includes(`Retracted #${n}`), r.out + r.err);
+  assert(!(await listed()), "the task left the board");
+  r = await cli(["task", "remove", String(n), "--board", board], { cred: credB });
+  assert(r.code === 1 && r.err.includes("retracted"), "twice: " + r.err);
+  // B didn't make the board, so B can't retract A's entries; A (the creator) can retract B's.
+  await tool(tokA, board, "read", {});
+  const mine = Number((await tool(tokA, board, "post", { type: "note", text: `A's note ${run}` })).match(/Posted #(\d+)/)[1]);
+  r = await cli(["retract", String(mine), "--board", board], { cred: credB });
+  assert(r.code === 1 && r.err.includes("can retract it"), "not B's to retract: " + r.err);
+  r = await cli(["retract", `#${note}`, "posted by mistake", "--board", board]);
+  assert(r.code === 0 && r.out.includes(`Retracted #${note}`), r.out + r.err);
+  const got = await tool(tokA, board, "get", { seq: note });
+  assert(got.includes(`retracts #${note}`) && got.includes("posted by mistake"), "kept in the log with its retraction: " + got);
+  r = await cli(["retract", "--board", board]);
+  assert(r.code === 1 && r.err.includes("Usage: atteo retract"), r.err);
+});
+
+await step("get N on your own entry says who has seen it (people, and agents that have been here); others' entries don't", async () => {
+  await tool(tokA, board, "read", {});
+  const n = Number((await tool(tokA, board, "post", { type: "note", text: `seen check ${run}` })).match(/Posted #(\d+)/)[1]);
+  const seen = (out) => out.split("\n").find((l) => /^(Seen by|Not seen yet)/.test(l)) ?? "";
+  let r = await cli(["get", "entry", String(n), "--board", board]);
+  assert(r.code === 0 && seen(r.out).includes(`not yet: `) && seen(r.out).split("not yet:")[1].includes(`${B}'s agent`), "B's agent hasn't read it: " + r.out + r.err);
+  assert(!seen(r.out).includes(`${A}'s agent`), "the agent that wrote it isn't counted: " + seen(r.out));
+  await tool(tokB, board, "read", {});
+  await fetch(`${BASE}/api/boards/${board}/seen`, { method: "POST", headers: { authorization: `Bearer ${tokB}`, "content-type": "application/json" }, body: JSON.stringify({ seq: n }) });
+  r = await cli(["get", "entry", String(n), "--board", board]);
+  const line = seen(r.out);
+  assert(/^Seen by /.test(line) && line.split("·")[0].includes(`${B}'s agent`) && line.split("·")[0].includes(`${B},`), "B and B's agent have seen it: " + line);
+  r = await cli(["get", "entry", String(n), "--board", board], { cred: credB });
+  assert(r.code === 0 && r.out.includes(`seen check ${run}`) && !seen(r.out), "not on someone else's entry: " + r.out);
 });
 
 await step("task edit / tick / done with unread board entries: the edit is saved once, 'Saved #N vX.' is printed (then the missed entries), exit 0", async () => {

@@ -5,6 +5,15 @@
 import { highlightMentions, type Mention } from "./mentions";
 import { esc } from "./util";
 
+// Dark tokens: the system setting picks them unless Display says light; Display can also force them.
+const DARK = `  --bg:#0a0a0a;--bg-subtle:#111111;--bg-hover:#1a1a1a;--line:#232323;--line-strong:#2e2e2e;
+  --ink:#ededed;--text:#ededed;--muted:#a1a1a1;--faint:#6f6f6f;--on-ink:#0a0a0a;--pb-agent:#F2EFE8;--pb-eye:#111113;
+  --accent:#4ea1ff;--ok:#3ecf75;--warn:#fb923c;--danger:#f87171;
+  --q:#fbbf24;--claim:#4ade80;--decision:#a78bfa;--task:#38bdf8;--artifact:#a3a3a3;--note:#737373;
+  --shadow:0 1px 2px rgba(0,0,0,.4);--shadow-lg:0 12px 48px rgba(0,0,0,.6);
+  --av-l:22%;--av-c:78%;--av-s:40%;
+  color-scheme:dark;`;
+
 export const CSS = `
 :root{
   --bg:#ffffff;--bg-subtle:#fafafa;--bg-hover:#f4f4f5;--line:#ebebeb;--line-strong:#dcdcdc;
@@ -16,15 +25,8 @@ export const CSS = `
   --r:10px;--r-sm:7px;
   color-scheme:light;
 }
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
-  --bg:#0a0a0a;--bg-subtle:#111111;--bg-hover:#1a1a1a;--line:#232323;--line-strong:#2e2e2e;
-  --ink:#ededed;--text:#ededed;--muted:#a1a1a1;--faint:#6f6f6f;--on-ink:#0a0a0a;--pb-agent:#F2EFE8;--pb-eye:#111113;
-  --accent:#4ea1ff;--ok:#3ecf75;--warn:#fb923c;--danger:#f87171;
-  --q:#fbbf24;--claim:#4ade80;--decision:#a78bfa;--task:#38bdf8;--artifact:#a3a3a3;--note:#737373;
-  --shadow:0 1px 2px rgba(0,0,0,.4);--shadow-lg:0 12px 48px rgba(0,0,0,.6);
-  --av-l:22%;--av-c:78%;--av-s:40%;
-  color-scheme:dark;
-}}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){${DARK}}}
+:root[data-theme="dark"]{${DARK}}
 *{box-sizing:border-box}
 [hidden]{display:none!important} /* the hidden attribute always wins over a component display (e.g. .btn is inline-flex) */
 /* Scrollbars: thin and quiet (Linear/Slack-like), one per scrolling pane. Chrome and Safari use the ::-webkit
@@ -87,7 +89,6 @@ label.lbl{display:block;font-size:13px;font-weight:500;color:var(--ink);margin:0
 .seg{display:inline-flex;padding:2px;border:1px solid var(--line);border-radius:8px;background:var(--bg-subtle)}
 .seg input{display:none}.seg label{padding:4px 10px;border-radius:6px;font-size:13px;color:var(--muted);cursor:pointer}
 .seg input:checked+label{background:var(--bg);color:var(--ink);box-shadow:var(--shadow);font-weight:500}
-@media(max-width:480px){.composer .seg label{padding:4px 7px;font-size:12.5px}.composer .bar{flex-wrap:nowrap;gap:6px}}
 
 /* surfaces */
 .card{border:1px solid var(--line);border-radius:var(--r);background:var(--bg);box-shadow:var(--shadow)}
@@ -144,6 +145,7 @@ dialog{border:1px solid var(--line);border-radius:14px;padding:0;background:var(
   width:min(560px,calc(100vw - 32px));max-height:calc(100vh - 64px)}
 dialog::backdrop{background:rgba(0,0,0,.45)}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]) dialog{background:#141414;border-color:var(--line-strong)}}
+:root[data-theme="dark"] dialog{background:#141414;border-color:var(--line-strong)}
 dialog .hd{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:20px 22px 0}
 dialog .bd{padding:16px 22px 22px}
 dialog[open]{animation:pop .16s ease-out}dialog:focus{outline:none}
@@ -187,6 +189,17 @@ dialog[open]{animation:pop .16s ease-out}dialog:focus{outline:none}
 .entry .fbadge{height:18px;font-size:11px;color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,var(--line))}
 .entry.retracted>.grow>.body,.entry.retracted>.grow>.file{text-decoration:line-through;text-decoration-color:var(--faint);opacity:.55}
 .entry.retracted>.grow>.meta .rbadge{display:inline-flex}
+/* Display (Account → Display): text size and density for the chat; saved per person so web and app match. */
+:root[data-text="s"] .entry .body{font-size:12.5px}:root[data-text="s"] .entry .meta{font-size:12px}
+:root[data-text="l"] .entry .body{font-size:15.5px;line-height:1.55}:root[data-text="l"] .entry .meta{font-size:14px}
+:root[data-text="l"] .entry .body code,:root[data-text="l"] .entry .body pre{font-size:14px}
+:root[data-text="l"] .composer textarea{font-size:15.5px}
+:root[data-density="compact"] .entry{padding:7px 0;gap:10px}:root[data-density="compact"] .thread>.entry:first-child{padding-top:4px}:root[data-density="compact"] .replies .entry{padding:4px 0 0}
+:root[data-density="compact"] .entry .body{margin-top:0}:root[data-density="compact"] .entry .body p+p{margin-top:4px}
+.dp-grid{display:grid;grid-template-columns:110px 1fr;gap:12px 14px;align-items:center}.dp-grid .lbl{margin:0}
+.dp-grid .seg{flex-wrap:wrap}.dp-grid .seg input{display:inline;position:absolute;opacity:0;width:1px;height:1px;pointer-events:none}
+.dp-grid .seg input:focus-visible+label{outline:2px solid var(--accent);outline-offset:1px}
+@media (max-width:640px){.dp-grid{grid-template-columns:1fr;gap:6px}}
 .entry .acts{margin-left:auto;display:inline-flex;gap:2px;opacity:0;transition:opacity .12s}
 .entry:hover>.grow>.meta>.acts,.entry .acts:focus-within,.entry .acts:has(.danger){opacity:1} /* only the message under the pointer, not its whole thread */
 /* Retract takes no room in the header line, so narrow screens don't get a blank line under every entry. Touch
@@ -310,8 +323,8 @@ dialog.access-dlg{width:min(640px,calc(100vw - 24px))}
 .rx-add{display:none;align-items:center;height:24px;padding:0 7px;border-radius:999px;border:1px dashed var(--line-strong);background:none;color:var(--muted);font:inherit;font-size:13px;cursor:pointer}
 .rx-add span{font-size:11px;margin-left:1px}.rx-add:hover{color:var(--ink);border-style:solid}
 .rx.has .rx-add{display:inline-flex} /* with no reactions yet, "☺+" lives in the message's hover actions */
-/* agents' 👀 / ✅ on a person's message: a quiet receipt line under it, like the app */
-.rx.rcpt{margin-top:4px}.rx.has.rcpt{margin-top:6px}
+/* agents' 🤔 / ✅ on a person's message: a quiet receipt line under it, like the app */
+.rx.has-rcpt{margin-top:4px}.rx.has.has-rcpt{margin-top:6px}
 .rx-rcpt{flex-basis:100%;display:flex;flex-wrap:wrap;align-items:center;gap:0 6px;font-size:12px;line-height:18px;color:var(--muted)}
 .rx-rcpt .e{font-size:11.5px}.rx-rcpt .sep{color:var(--faint)}
 .rx-pick{position:fixed;z-index:50;display:flex;gap:2px;padding:4px;border-radius:999px;border:1px solid var(--line);background:var(--bg);box-shadow:var(--shadow-lg)}
@@ -324,9 +337,32 @@ dialog.access-dlg{width:min(640px,calc(100vw - 24px))}
 .img{margin:8px 0 0}.img-open{display:block;padding:0;border:0;background:none;cursor:zoom-in;max-width:100%}
 .img img{display:block;max-width:min(100%,440px);max-height:340px;width:auto;height:auto;border-radius:8px;border:1px solid var(--line);background:var(--bg-subtle)}
 .img figcaption{margin-top:4px}
+/* a message with several files: pictures in a grid (1, 2, 1+2, 2×2; "+N" on the last), other files as chips below */
+.mfiles{margin-top:8px;width:min(100%,440px)}
+.mgrid{display:grid;gap:3px;border-radius:8px;overflow:hidden;border:1px solid var(--line);background:var(--line)}
+.mgrid.g2{grid-template-columns:1fr 1fr;aspect-ratio:2/1}
+.mgrid.g3{grid-template-columns:2fr 1fr;grid-template-rows:1fr 1fr;aspect-ratio:3/2}
+.mgrid.g3 .mg-tile:first-child{grid-row:span 2}
+.mgrid.g4{grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;aspect-ratio:4/3}
+.mg-tile{position:relative;display:block;padding:0;border:0;background:var(--bg-subtle);cursor:zoom-in;min-width:0;min-height:0;overflow:hidden}
+.mg-tile[hidden]{display:none}
+.mg-tile img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.mgrid.g1{display:block;border:0;background:none;border-radius:0}
+.mgrid.g1 .mg-tile{background:none;max-width:100%}
+.mgrid.g1 .mg-tile img{position:static;display:block;max-width:100%;max-height:340px;width:auto;height:auto;object-fit:contain;border-radius:8px;border:1px solid var(--line);background:var(--bg-subtle)}
+.mg-more{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.48);color:#fff;font-size:22px;font-weight:600}
+.mchips .fh+.fh{border-top:1px solid var(--line)}
+.mfiles .mchips{margin-top:6px}
+.mcap{margin-top:4px}
+.entry.retracted>.grow>.mfiles{opacity:.55}
 dialog.lightbox{padding:0;border:0;background:transparent;box-shadow:none;max-width:min(96vw,1600px);max-height:92vh;cursor:zoom-out}
 dialog.lightbox::backdrop{background:rgba(0,0,0,.78)}
 dialog.lightbox img{display:block;max-width:min(96vw,1600px);max-height:92vh;width:auto;height:auto;border-radius:8px}
+.lb-nav{position:fixed;top:50%;transform:translateY(-50%);width:44px;height:44px;border-radius:50%;border:0;background:rgba(0,0,0,.55);color:#fff;font-size:28px;line-height:1;cursor:pointer;display:grid;place-items:center;padding:0 0 3px}
+.lb-nav:hover{background:rgba(0,0,0,.75)}.lb-nav[hidden],.lb-count[hidden]{display:none}
+.lb-prev{left:max(8px,env(safe-area-inset-left))}.lb-next{right:max(8px,env(safe-area-inset-right))}
+.lb-count{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);color:#fff;background:rgba(0,0,0,.55);padding:3px 10px;border-radius:12px;font-variant-numeric:tabular-nums}
+.entry.pending .ph-att{padding:8px 0 0}
 .attachments{display:flex;gap:8px;flex-wrap:wrap;padding:10px 12px 0}
 .attachments[hidden]{display:none}
 .att{position:relative;display:block}
@@ -412,7 +448,9 @@ dialog.lightbox img{display:block;max-width:min(96vw,1600px);max-height:92vh;wid
 .sum li a:hover{background:var(--bg-hover)}
 .sum li .n{color:var(--faint);flex:none;font-variant-numeric:tabular-nums}
 .sum li .one{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.sum li .avs{flex:none;width:40px}.sum li .avs .av{width:18px;height:18px;font-size:8px;margin-left:-6px}.sum li .avs .av:first-child{margin-left:0}
+.sum li .avs{flex:none;width:50px}.sum li .avs .av{width:18px;height:18px;font-size:8px;margin-left:-6px}.sum li .avs .av:first-child{margin-left:0}
+/* a stacked avatar without a picture shows initials, which the next one would cover ("MO" read as "MC"): overlap it by the ring only. Pictures keep the tight stack. */
+.avs .av:not(:has(.av-img))+.av{margin-left:-2px}
 
 .sum .none{font-size:13px;color:var(--faint)}
 .waiting{border:1px solid color-mix(in srgb,var(--q) 40%,var(--line));background:color-mix(in srgb,var(--q) 6%,var(--bg));border-radius:var(--r-sm);padding:10px 12px;margin-bottom:6px}
@@ -436,6 +474,11 @@ dialog.lightbox img{display:block;max-width:min(96vw,1600px);max-height:92vh;wid
 .mention-menu li.sub .av{width:18px;height:18px;font-size:8.5px}
 .mention-menu .hint{padding:4px 8px 2px;font-size:11.5px;color:var(--faint);cursor:default}
 .composer .bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 12px;border-top:1px solid var(--line)}
+/* phones: one row, Post on the right; the type picker scrolls sideways when it can't fit (it comes after the rule above so it wins) */
+@media(max-width:480px){.composer .bar{flex-wrap:nowrap;gap:6px;padding:8px 10px}.composer .bar>*{flex:none}.composer .bar .grow{display:none}.composer .bar>.primary{margin-left:auto}
+  .composer .bar>.seg{flex:0 1 auto;min-width:0;overflow-x:auto;scrollbar-width:none}.composer .seg::-webkit-scrollbar{display:none}.composer .seg label{flex:none;padding:4px 7px;font-size:12.5px;white-space:nowrap}}
+@media(max-width:387px){.composer .bar{gap:4px}.composer .seg label{padding:4px 5px;font-size:12px}}
+@media(max-width:359px){.composer .bar>.seg{-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 18px),transparent);mask-image:linear-gradient(90deg,#000 calc(100% - 18px),transparent)}}
 .composer .to-pick{display:inline-flex;align-items:center;gap:6px;min-width:0}
 .composer .to-pick select{height:30px;padding-top:0;padding-bottom:0;font-size:13px;max-width:190px}
 @media(max-width:480px){.composer .to-pick .xs{display:none}.composer .to-pick select{max-width:120px}}
@@ -579,6 +622,8 @@ mark{background:color-mix(in srgb,var(--warn) 30%,transparent);color:inherit;bor
 .topbar .crumbs{margin:0;display:flex;align-items:center;gap:8px;min-width:0;font-size:13px}
 .topbar .crumbs .cur{color:var(--ink);font-weight:500}
 .topbar .actions{margin-left:auto;display:flex;gap:8px;align-items:center}
+/* phones: just the current page's name (the menu button leads back to Boards/People), so a long board name still shows */
+@media(max-width:480px){.topbar .crumbs>:not(.cur){display:none}.topbar .crumbs .cur{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
 .content{max-width:1120px;margin:0 auto;padding:28px 24px 96px}
 .content.narrow{max-width:760px}
 .menu-btn{display:none}
@@ -640,6 +685,8 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
 .title-edit h1:hover{background:var(--bg-hover)}
 .title-edit .pencil{opacity:0;transition:opacity .12s}
 .title-edit:hover .pencil,.title-edit .pencil:focus-visible{opacity:1}
+/* touch screens never hover, so the pencil was only a blank gap; tapping the title renames */
+@media(hover:none){.title-edit .pencil{display:none}}
 .title-input{font-size:22px;font-weight:600;letter-spacing:-.02em;height:40px;max-width:640px}
 
 /* shared documents */
@@ -693,7 +740,9 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
 .new-pill{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);z-index:4;box-shadow:var(--shadow-lg);border-radius:999px}
 .new-pill[hidden],.info-btn .count[hidden],.info-btn[hidden]{display:none}
 .conv .composer{flex:none;margin:6px 0 max(12px,env(safe-area-inset-bottom))}
-.conv .composer textarea{min-height:48px;max-height:30vh;resize:none}
+.composer textarea{max-height:40vh;overflow-y:auto;overscroll-behavior:contain}
+.conv .composer textarea{min-height:48px;resize:none}
+@media(max-width:480px){.composer textarea{max-height:200px}}
 /* composer mention chips: the mirror draws the text (chips included) under a transparent textarea that keeps the caret */
 .cmp-field{position:relative}
 .cmp-mirror{position:absolute;box-sizing:border-box;margin:0;border:0;pointer-events:none;overflow:hidden;white-space:pre-wrap;overflow-wrap:break-word;color:var(--text)}
@@ -740,6 +789,19 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
 .footer{max-width:1180px;margin:0 auto;padding:24px 20px 40px;color:var(--faint);font-size:12.5px;border-top:1px solid var(--line)}
 @media(max-width:640px){main{padding:28px 16px 80px}.nav .in{padding:0 16px}.nav .links{display:none}h1{font-size:24px}.list .item{padding:12px 14px}
   .hide-sm{display:none!important}}
+/* "… is typing" above the composer: avatars, a name, three breathing dots */
+.typing{display:flex;align-items:center;gap:8px;min-height:22px;margin:0 0 6px 4px;font-size:12px;color:var(--muted)}
+.typing .ty-avs{display:inline-flex}.typing .ty-avs .av{width:18px;height:18px;font-size:8px;border:2px solid var(--bg);margin-left:-6px}.typing .ty-avs .av:first-child{margin-left:0}
+.ty-dots{display:inline-flex;gap:3px}.ty-dots i{width:4px;height:4px;border-radius:50%;background:currentColor;opacity:.35;animation:tydot 1.2s infinite}
+.ty-dots i:nth-child(2){animation-delay:.2s}.ty-dots i:nth-child(3){animation-delay:.4s}
+@keyframes tydot{30%{opacity:1;transform:translateY(-2px)}60%,100%{opacity:.35;transform:none}}
+@media (prefers-reduced-motion:reduce){.ty-dots i{animation:none;opacity:.6}}
+/* Message numbers stay out of people's way: the header's #N shows on hover/focus; "#N" in text is a titled chip */
+.entry .meta .seq{opacity:0;transition:opacity .12s}.entry:hover>.grow>.meta .seq,.entry .meta .seq:focus-visible{opacity:1}
+@media (hover:none){.entry .meta .seq{display:none}}
+a.ref{display:inline-flex;align-items:center;max-width:22em;padding:0 6px;border-radius:5px;background:var(--bg-hover);color:var(--text);font-size:.92em;text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom}
+a.ref:hover{color:var(--ink);background:color-mix(in srgb,var(--accent) 12%,var(--bg-hover))}
+.sum li .n,.kmeta .seq{display:none}
 `;
 
 // The Pebble: the app mark. One soft pebble split by a slanted seam; the clay half is you, the ink half your agent,
@@ -779,7 +841,7 @@ ${v ? `<nav class="links">${link("/", "Boards", "boards")}</nav>` : ""}
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
-<style>${CSS}</style></head><body>${nav}
+<style>${CSS}</style>${DISPLAY_HEAD}</head><body>${nav}
 <main${opts.narrow ? ' class="narrow"' : ""}>${body}</main>
 <div id="toast" role="status" aria-live="polite"></div>
 <script>${CLIENT_JS}${opts.script ?? ""}</script></body></html>`;
@@ -942,11 +1004,23 @@ function inline(s: string, mentions?: Mention[] | null): string {
 
 // ---------- client script (shared by every page) ----------
 
+// Applies the saved Display settings before first paint, so the page never flashes the wrong size or theme.
+const DISPLAY_HEAD = `<script>try{const d=JSON.parse(localStorage.getItem('atteo-display')||'{}'),r=document.documentElement;
+if(d.text==='s'||d.text==='l')r.dataset.text=d.text;if(d.density==='compact')r.dataset.density='compact';if(d.theme==='light'||d.theme==='dark')r.dataset.theme=d.theme}catch{}</script>`;
+
 const CLIENT_JS = `
 /** The one HTML escaper for every page script. */
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c])}
 (()=>{
 const $=(s,r=document)=>r.querySelector(s),$$=(s,r=document)=>[...r.querySelectorAll(s)];
+// Display settings: applied now, remembered here for the next first paint, and picked up from the account once per tab (so a change on the phone reaches the web).
+window.applyDisplay=d=>{const r=document.documentElement;d=d||{};
+  if(d.text==='s'||d.text==='l')r.dataset.text=d.text;else delete r.dataset.text;
+  if(d.density==='compact')r.dataset.density='compact';else delete r.dataset.density;
+  if(d.theme==='light'||d.theme==='dark')r.dataset.theme=d.theme;else delete r.dataset.theme;
+  try{localStorage.setItem('atteo-display',JSON.stringify({text:d.text||'m',density:d.density||'comfortable',theme:d.theme||'system'}))}catch{}};
+if($('a[href="/me"]')){let fresh=false;try{fresh=!!sessionStorage.getItem('atteo-display-sync');sessionStorage.setItem('atteo-display-sync','1')}catch{}
+  if(!fresh)fetch('/api/me/profile').then(r=>r.ok?r.json():null).then(j=>{const d=j&&j.profile&&j.profile.display;if(d&&typeof d==='object')applyDisplay(d)}).catch(()=>{})}
 window.toast=(m)=>{const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),1800)};
 document.addEventListener('click',e=>{
   const c=e.target.closest('[data-copy]');
@@ -1142,7 +1216,7 @@ function rawPage(title: string, body: string, script: string, status = 200): Res
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
-<style>${CSS}</style></head><body>${body}
+<style>${CSS}</style>${DISPLAY_HEAD}</head><body>${body}
 <div id="toast" role="status" aria-live="polite"></div>
 <script>${CLIENT_JS}${script}</script></body></html>`;
   return new Response(html, { status, headers: { "content-type": "text/html; charset=utf-8" } });

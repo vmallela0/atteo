@@ -429,6 +429,103 @@ await step("web: live updates (incl. long-poll), entry detail and posting from t
   assert(up.status === 201 && upj.update && upj.update.seq === upj.entry.seq && upj.update.html.includes("with a caption") && upj.update.row, `upload ${up.status} ${JSON.stringify(upj).slice(0, 200)}`);
 });
 
+await step("web: several files in one message (multipart upload): one entry, attachments in order, limits, secrets, MCP get", async () => {
+  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAYAAACNMs+9AAAAFUlEQVR42mP8z8BQz0AEYBxVSF+FABJADveWkH6oAAAAAElFTkSuQmCC", "base64");
+  // One `file` part per file; per-file w/h in the same order ("" when unknown); text and reply_to once.
+  const send = (who, files, fields = {}, b = board) => {
+    const fd = new FormData();
+    for (const f of files) {
+      fd.append("file", new Blob([f.bytes], { type: f.type ?? "application/octet-stream" }), f.name);
+      fd.append("w", f.w ? String(f.w) : "");
+      fd.append("h", f.h ? String(f.h) : "");
+    }
+    for (const [k, v] of Object.entries(fields)) fd.append(k, String(v));
+    return web(`/api/boards/${b}/upload`, who, { method: "POST", body: fd });
+  };
+  const pic = (name) => ({ name, bytes: png, type: "image/png", w: 10, h: 10 });
+  const caption = `three pictures ${run}`;
+  const r = await send(B, [pic("shot.png"), pic("shot.png"), pic("chart.png")], { text: caption });
+  const j = await r.json();
+  assert(r.status === 201 && j.ok && j.entry && j.update?.seq === j.entry.seq, `multi ${r.status} ${JSON.stringify(j).slice(0, 300)}`);
+  const e = j.entry;
+  assert(e.type === "artifact" && e.text === caption && e.artifact_name === "shot.png" && e.media?.mime === "image/png", JSON.stringify(e).slice(0, 400));
+  assert(e.attachments?.map((a) => a.name).join() === "shot.png,shot-2.png,chart.png", `names in order, clashes renamed: ${JSON.stringify(e.attachments)}`);
+  assert(e.attachments.every((a) => a.mime === "image/png" && a.size === png.length && a.w === 10 && a.h === 10 && a.version >= 1), JSON.stringify(e.attachments));
+  for (const a of e.attachments) {
+    const f = await web(`/api/boards/${board}/image?name=${encodeURIComponent(a.name)}&version=${a.version}`, A);
+    assert(f.status === 200 && f.headers.get("content-type") === "image/png" && Buffer.from(await f.arrayBuffer()).equals(png), `fetch ${a.name}: ${f.status}`);
+  }
+  // The server-rendered entry: one entry, a grid of three, the caption; the entry API returns the same list.
+  has(j.update.html, 'class="mgrid g3"');
+  assert((j.update.html.match(/data-img="/g) ?? []).length === 3, "three tiles");
+  has(j.update.html, caption);
+  const got = (await (await web(`/api/boards/${board}/entries/${e.seq}`, A)).json()).entry;
+  assert(got.attachments.length === 3 && got.attachments[2].name === "chart.png", JSON.stringify(got).slice(0, 300));
+  // A single upload is unchanged, and lists its one file too.
+  const one = await (await web(`/api/boards/${board}/upload?name=solo.png&w=10&h=10&text=${encodeURIComponent("just one")}`, B, { method: "POST", headers: { "content-type": "image/png" }, body: png })).json();
+  assert(one.entry.artifact_name === "solo.png" && one.entry.media.mime === "image/png" && one.entry.text === "just one" && one.update.html.includes('class="img"'), JSON.stringify(one.entry).slice(0, 300));
+  assert(one.entry.attachments?.length === 1 && one.entry.attachments[0].name === "solo.png" && one.entry.attachments[0].version === one.entry.artifact_version && one.entry.attachments[0].w === 10, JSON.stringify(one.entry.attachments));
+  // Mixed: a picture, a text file and a binary, as a reply. Text files are fetchable at the same URL (as a download).
+  const notes = `notes for ${run}\nline two\n`;
+  const bin = Buffer.from([0, 1, 2, 3, 0, 255, 254, 0]);
+  const mx = await send(A, [pic("diagram.png"), { name: "notes.txt", bytes: Buffer.from(notes), type: "text/plain" }, { name: "dump.bin", bytes: bin }], { reply_to: e.seq });
+  const mj = await mx.json();
+  assert(mx.status === 201 && mj.entry.reply_to === e.seq && mj.entry.text === "Shared 3 files", `mixed ${mx.status} ${JSON.stringify(mj).slice(0, 300)}`);
+  assert(mj.entry.attachments.map((a) => a.mime).join() === "image/png,text/plain,application/octet-stream", JSON.stringify(mj.entry.attachments));
+  const tf = await web(`/api/boards/${board}/image?name=notes.txt&version=${mj.entry.attachments[1].version}`, B);
+  assert(tf.status === 200 && (await tf.text()) === notes && (tf.headers.get("content-disposition") ?? "").startsWith("attachment"), `text attachment ${tf.status}`);
+  has(mj.update.html, 'class="mgrid g1"');
+  has(mj.update.html, "notes.txt");
+  has(mj.update.html, "dump.bin");
+  // The text file is a document like any other (agents read it with doc).
+  has(await ok(B, board, "doc", { action: "read", name: "notes.txt" }), "line two");
+  // MCP get lists every file with its size and where to fetch it.
+  const g = await ok(B, board, "get", { seq: e.seq });
+  has(g, "Files (3):");
+  for (const a of e.attachments) has(g, `${a.name} · image/png · 10×10 · ${png.length} bytes · v${a.version}`);
+  has(g, `/api/boards/${board}/image?name=shot-2.png&version=`);
+  has(await ok(B, board, "get", { seq: mj.entry.seq }), `read with doc {action: "read", name: "notes.txt"`);
+  // Limits: 11 files is a 400; a file over 1.5 MB, or more than 15 MB together, is a 413. Nothing posted.
+  const before = (await (await web(`/api/boards/${board}/updates?after=0`, A)).json()).last;
+  const eleven = await send(B, Array.from({ length: 11 }, (_, i) => pic(`p${i}.png`)));
+  assert(eleven.status === 400 && (await eleven.json()).error.includes("At most 10 files"), `11 files ${eleven.status}`);
+  const big = await send(B, [pic("ok.png"), { name: "huge.bin", bytes: Buffer.alloc(1_500_001) }]);
+  const bigj = await big.json();
+  assert(big.status === 413 && bigj.error.includes("huge.bin") && bigj.error.includes("1.5 MB"), `too big ${big.status} ${JSON.stringify(bigj)}`);
+  const together = await send(B, Array.from({ length: 11 }, (_, i) => ({ name: `chunk${i}.bin`, bytes: Buffer.alloc(1_500_000) })));
+  assert(together.status === 413 && (await together.json()).error.includes("together"), `too big together ${together.status}`);
+  const none = await send(B, [], { text: "no files" });
+  assert(none.status === 400, `no files ${none.status}`);
+  // Ten files of 1.4 MB (14 MB) do go through.
+  const ten = await send(B, Array.from({ length: 10 }, (_, i) => ({ name: `blob${i}.bin`, bytes: Buffer.alloc(1_400_000, i + 1) /* fixed bytes: random ones can look like a credential to the secret filter */ })));
+  const tenj = await ten.json();
+  assert(ten.status === 201 && tenj.entry.attachments.length === 10, `ten files ${ten.status} ${JSON.stringify(tenj).slice(0, 200)}`);
+  // Secrets: in the caption or in a text file, the whole message is refused and none of its files is stored.
+  const fake = ["ghp", "_", "Zx9Yw8Vu7Ts6Rq5Po4Nm3Lk2Jh1Gf0Ed9Cb8A"].join("");
+  const s1 = await send(B, [pic(`leak1-${run}.png`), pic(`leak2-${run}.png`)], { text: `here GH_TOKEN=${fake}` });
+  const s1t = await s1.text();
+  assert(s1.status === 400 && s1t.includes("Blocked") && !s1t.includes(fake), `secret caption ${s1.status} ${s1t}`);
+  const s2 = await send(B, [pic(`leak3-${run}.png`), { name: `env-${run}.txt`, bytes: Buffer.from(`A=1\nTOKEN=${fake}\n`) }]);
+  const s2t = await s2.text();
+  assert(s2.status === 400 && s2t.includes("Blocked") && s2t.includes(`env-${run}.txt, line 2`) && !s2t.includes(fake), `secret file ${s2.status} ${s2t}`);
+  const docs = (await (await web(`/api/boards/${board}/files`, A)).json()).docs.map((d) => d.name);
+  assert(!docs.some((n) => n.includes(`leak`) || n.includes(`env-${run}`)), `refused files aren't stored: ${docs.join(", ")}`);
+  assert((await (await web(`/api/boards/${board}/updates?after=0`, A)).json()).last === before + 1, "only the ten-file message was posted");
+  // Outsiders: 404, as for the single upload.
+  const out = await send(OUT, [pic("x.png"), pic("y.png")]);
+  assert(out.status === 404, `outsider ${out.status}`);
+  // Encrypted boards refuse files as they refuse a single upload, with the same message, and store nothing.
+  const E = `e2e-encf-${run}`; // its own user, so the boards this makes don't count against A's plan
+  await ops("users", { name: E, email: `${E}@example.com`, verified: "true" });
+  cookie[E] = (await ops("sessions", { user: E })).body.cookie;
+  const eb = (await ops("boards", { user: E, title: `e2e enc files ${run}`, encrypted: true })).body.board.id;
+  const em = await send(E, [pic("a.png"), pic("b.png")], {}, eb);
+  const es = await web(`/api/boards/${eb}/upload?name=c.png`, E, { method: "POST", headers: { "content-type": "image/png" }, body: png });
+  const [emj, esj] = [await em.json(), await es.json()];
+  assert(em.status === 400 && es.status === 400 && emj.error === esj.error && emj.error.includes("end-to-end encrypted"), `encrypted ${em.status} ${emj.error} / ${es.status} ${esj.error}`);
+  assert(!(await (await web(`/api/boards/${eb}/files`, E)).json()).docs.some((d) => d.name === "a.png" || d.name === "b.png"), "nothing stored on the encrypted board");
+});
+
 await step("brand: the Pebble is the favicon, apple-touch icon and header mark", async () => {
   const f = await fetch(`${BASE}/favicon.svg`);
   assert((f.headers.get("content-type") ?? "").includes("image/svg+xml"), "favicon not svg");
@@ -653,7 +750,7 @@ await step("people and their agents are told apart: agent posts vs posts written
   has(r, `#${wseq} decision · ${A} (person)`);
   const page = await (await web(`/b/${board}`, B)).text();
   // On the page: agents read as "<name>'s agent" with their client as quiet text; people's posts carry just the name.
-  has(page, `${A}'s agent</span><span class="via" title="Posted by ${A}'s agent with claude · Claude Code">claude · Claude Code</span>`); // its session is named after the client
+  has(page, `<span class="who">${A}/claude</span><span class="via" title="Posted by ${A}/claude with Claude Code">Claude Code</span>`); // a named agent shows as <user>/<session>, its client after it
   has(page, `<span class="who" title="Written by ${A} on the web">${A}</span>`);
 });
 
@@ -2324,7 +2421,21 @@ await step("mailbox: DMs and mail for your agent wait until your agent polls; fu
   assert(!(await call(M2, "GET", "/api/mailbox?peek=1")).mail.some((x) => x.text === `ack me ${run}`), "acked mail is gone");
 });
 
-await step("read receipts: an agent's read puts 👀 on a person's message for it; answering turns it into ✅", async () => {
+await step("read receipts: an old 👀 receipt still counts as picked up, and answering swaps it to ✅", async () => {
+  const asked = await (await web(`/api/boards/${board}/entries`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "question", text: `@${B}'s agent legacy receipt ${run}?` }) })).json();
+  const seq = asked.entry.seq;
+  const rx = async () => (await (await web(`/api/boards/${board}/entries?after=${seq - 1}&limit=1`, A)).json()).reactions[seq] ?? [];
+  await ok(B, board, "read"); // picks it up: 🤔. Swap it for the old-style 👀 receipt.
+  await ok(B, board, "react", { seq, emoji: "🤔" });
+  await ok(B, board, "react", { seq, emoji: "👀" });
+  assert((await rx()).some((x) => x.emoji === "👀" && x.users.includes(`${B}'s agent`)), "👀 receipt in place");
+  // Answering swaps the old 👀 for ✅.
+  await ok(B, board, "post", { type: "note", text: `legacy answer ${run}`, reply_to: seq });
+  const r = await rx();
+  assert(r.some((x) => x.emoji === "✅" && x.users.includes(`${B}'s agent`)) && !r.some((x) => x.emoji === "👀" || x.emoji === "🤔"), `✅ replaces the old 👀: ${JSON.stringify(r)}`);
+});
+
+await step("read receipts: an agent's read puts 🤔 on a person's message for it; answering turns it into ✅", async () => {
   await ok(B, board, "read");
   const asked = await (await web(`/api/boards/${board}/entries`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "question", text: `@${B}'s agent can you check the logs ${run}?` }) })).json();
   const seq = asked.entry.seq;
@@ -2332,12 +2443,12 @@ await step("read receipts: an agent's read puts 👀 on a person's message for i
   assert(!(await rx()).length, "nothing before the agent reads");
   has(await ok(B, board, "read"), `can you check the logs ${run}`);
   let r = await rx();
-  assert(r.some((x) => x.emoji === "👀" && x.users.includes(`${B}'s agent`)), `👀 after the read: ${JSON.stringify(r)}`);
+  assert(r.some((x) => x.emoji === "🤔" && x.users.includes(`${B}'s agent`)), `🤔 after the read: ${JSON.stringify(r)}`);
   await ok(B, board, "read");
-  assert((await rx()).filter((x) => x.emoji === "👀").length === 1, "once, not per read");
+  assert((await rx()).filter((x) => x.emoji === "🤔").length === 1, "once, not per read");
   await ok(B, board, "post", { type: "note", text: `logs are clean ${run}`, reply_to: seq });
   r = await rx();
-  assert(r.some((x) => x.emoji === "✅" && x.users.includes(`${B}'s agent`)) && !r.some((x) => x.emoji === "👀"), `✅ after answering: ${JSON.stringify(r)}`);
+  assert(r.some((x) => x.emoji === "✅" && x.users.includes(`${B}'s agent`)) && !r.some((x) => x.emoji === "🤔"), `✅ after answering: ${JSON.stringify(r)}`);
   // Agents' own posts and messages not for this agent get nothing.
   const other = await (await web(`/api/boards/${board}/entries`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "note", text: `just a note ${run}` }) })).json();
   await ok(B, board, "read");
@@ -2349,18 +2460,18 @@ await step("change cards are reports, not answers: never auto-threaded, never �
   const rx = async (seq) => (await (await web(`/api/boards/${board}/entries?after=${seq - 1}&limit=1`, A)).json()).reactions[seq] ?? [];
   const entry = async (seq) => (await (await web(`/api/boards/${board}/entries?after=${seq - 1}&limit=1`, A)).json()).entries[0];
   const done = (r, who) => r.some((x) => x.emoji === "✅" && x.users.includes(who));
-  const eyes = (r, who) => r.some((x) => x.emoji === "👀" && x.users.includes(who));
+  const eyes = (r, who) => r.some((x) => x.emoji === "🤔" && x.users.includes(who));
   const card = { repo: "acme/shop", branch: `ship/${run}`, base: "main", ci: "passing", commits: [{ sha: "a1b2c3d4", title: "Ship it" }], files: [{ path: "src/a.ts", added: 1, removed: 0 }] };
   const agent = `${B}'s agent`;
   await ok(B, board, "read");
-  // A person @agents an open note; the agent reads it (👀) and posts a change card: not threaded, no ✅.
+  // A person @agents an open note; the agent reads it (🤔) and posts a change card: not threaded, no ✅.
   const open1 = await personPost(`@agents please look at the deploy ${run}`);
   await ok(B, board, "read");
-  assert(eyes(await rx(open1), agent), `👀 after the read: ${JSON.stringify(await rx(open1))}`);
+  assert(eyes(await rx(open1), agent), `🤔 after the read: ${JSON.stringify(await rx(open1))}`);
   const c1 = seqOf(await ok(B, board, "post", { type: "change", text: `Shipped to production ${run}`, card }));
   assert((await entry(c1)).reply_to == null, `change card must not be auto-threaded: ${JSON.stringify(await entry(c1))}`);
   let r = await rx(open1);
-  assert(eyes(r, agent) && !done(r, agent), `still 👀, no ✅ after a change card: ${JSON.stringify(r)}`);
+  assert(eyes(r, agent) && !done(r, agent), `still 🤔, no ✅ after a change card: ${JSON.stringify(r)}`);
   // A plain note still auto-threads and ✅s.
   const n1 = seqOf(await ok(B, board, "post", { type: "note", text: `looked, all good ${run}`, to: A }));
   assert((await entry(n1)).reply_to === open1, `a plain note auto-threads: ${JSON.stringify(await entry(n1))}`);
@@ -2383,12 +2494,12 @@ await step("change cards are reports, not answers: never auto-threaded, never �
   // With no receipt left, the same toggle adds a session-level reaction as before.
   await sok(s1, "react", { seq: open1, emoji: "✅" });
   assert((await rx(open1)).some((x) => x.emoji === "✅" && x.users.some((u) => u.startsWith(`${B}/`))), `session ✅ added: ${JSON.stringify(await rx(open1))}`);
-  // 👀 works the same way.
+  // 🤔 works the same way.
   const open2 = await personPost(`@agents second ask ${run}`);
   await ok(B, board, "read");
-  assert(eyes(await rx(open2), agent), "👀 receipt");
-  await sok(s1, "react", { seq: open2, emoji: "👀" });
-  assert(!eyes(await rx(open2), agent), `👀 receipt removed: ${JSON.stringify(await rx(open2))}`);
+  assert(eyes(await rx(open2), agent), "🤔 receipt");
+  await sok(s1, "react", { seq: open2, emoji: "🤔" });
+  assert(!eyes(await rx(open2), agent), `🤔 receipt removed: ${JSON.stringify(await rx(open2))}`);
 });
 
 // ---- human decisions: a decision a person posts is the people's to make ----
@@ -2416,10 +2527,10 @@ await step("human decisions: a person's decision is open until the people decide
   has(t, `[human decision · waiting on ${B}, ${HDC}`);
   // Resolving it is refused, with a clear reason.
   await err(B, hdBoard, "post", { type: "note", text: `done ${run}`, resolves: [seq] }, `#${seq} is a human decision`);
-  // A plain reply is input: threaded under it, but no ✅ (its 👀 stays), and it stays open.
+  // A plain reply is input: threaded under it, but no ✅ (its 🤔 stays), and it stays open.
   has(await ok(B, hdBoard, "post", { type: "note", text: `Friday works for us; tests pass ${run}`, reply_to: seq }), `In reply to #${seq}`);
   const rx = (await (await web(`/api/boards/${hdBoard}/entries?after=${seq - 1}&limit=1`, A)).json()).reactions[seq] ?? [];
-  assert(rx.some((x) => x.emoji === "👀") && !rx.some((x) => x.emoji === "✅"), `no ✅ from an agent's reply: ${JSON.stringify(rx)}`);
+  assert(rx.some((x) => x.emoji === "🤔") && !rx.some((x) => x.emoji === "✅"), `no ✅ from an agent's reply: ${JSON.stringify(rx)}`);
   const after = await hdGet(seq);
   assert(after.human_decision.state === "open" && !after.done_by && !after.handled_by, `still open: ${JSON.stringify(after)}`);
   // Mail: the other people get "asks for a decision"; their agents get it as a human decision (never a fork).
@@ -2637,7 +2748,7 @@ await step("Your agent: a private chat with your own agents, made on first open;
   const mb = (await api(Y, "GET", "/api/mailbox?peek=1")).body.mail.find((m) => m.board === chat && m.seq === p1);
   assert(mb && mb.kind === "dm" && mb.from_owner === true && mb.from === Y && mb.from_via === "person" && !mb.to_session && mb.text === `which branch are we on? ${run}`, JSON.stringify(mb));
   assert((await (await web("/api/inbox/count", Y)).json()).unread === 0, "your own message isn't unread for you");
-  // Every session hears it without joining, as its person's post (fenced, like everything on a board), and 👀 shows it was read.
+  // Every session hears it without joining, as its person's post (fenced, like everything on a board), and 🤔 shows it was read.
   const r1 = (await api(Y, "GET", `/api/sessions/${s1.id}/read?board=${chat}`)).body.boards[0];
   assert(r1.entries.some((e) => e.seq === p1), JSON.stringify(r1).slice(0, 300));
   has(r1.text, `== Your agent (${chat})`);
@@ -2645,7 +2756,7 @@ await step("Your agent: a private chat with your own agents, made on first open;
   has(r1.text, "<<untrusted");
   assert((await api(Y, "GET", `/api/sessions/${s2.id}/read?board=${chat}`)).body.boards[0].entries.some((e) => e.seq === p1), "the other session too");
   const rx = async (seq) => (await (await web(`/api/boards/${chat}/entries?after=${seq - 1}&limit=1`, Y)).json()).reactions[seq] ?? [];
-  assert((await rx(p1)).some((x) => x.emoji === "👀" && x.users.includes(`${Y}'s agent`)), "👀 once an agent read it");
+  assert((await rx(p1)).some((x) => x.emoji === "🤔" && x.users.includes(`${Y}'s agent`)), "🤔 once an agent read it");
   // For one session (the picker): sent as @you/<session>; only that session reads, waits and gets the mail.
   const p2 = (await say(Y, { type: "note", text: `run the tests ${run}`, to_session: s1.name })).entry;
   assert(p2.text === `@${Y}/${s1.name} run the tests ${run}` && p2.mentions.some((m) => m.user === Y && m.session === s1.name), JSON.stringify(p2));

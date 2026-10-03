@@ -602,6 +602,11 @@ async function task(args: string[]) {
   const [action = "list", n, ...more] = pos;
   const seq = () => int(n?.replace(/^#/, ""), "The task");
   if (action === "tick" || action === "untick") return tickItem(opt, seq(), more.join(" ").trim(), action === "tick");
+  if (action === "remove") {
+    // As the web's Remove: a retraction, so it leaves the task board and stays in the log. Only tasks, so a typo can't unsend a message.
+    await api(opt, "GET", `/api/boards/${currentBoard(opt)}/tasks/${seq()}`);
+    return say(await tool(opt, "retract", { seq: seq(), reason: more.join(" ") || optStr(opt, "reason") || `Removed task #${seq()} from the board.` }));
+  }
   if (action === "edit") {
     const old = optStr(opt, "old");
     const next = optStr(opt, "new");
@@ -616,7 +621,7 @@ async function task(args: string[]) {
     update: () => ({ action: "update", seq: seq(), status: optStr(opt, "status"), assignee: optStr(opt, "assign"), due: optStr(opt, "due"), note: more.join(" ") || optStr(opt, "note") }),
     stop: () => ({ action: "stop", seq: seq(), reason: more.join(" ") || optStr(opt, "reason") || "" }),
   };
-  if (!map[action]) throw new CliError('Usage: atteo task [list [--mine] | claim N [minutes] | release N | done N [note] | tick N "<item>" | untick N "<item>" | edit N --old "<text>" --new "<text>" | update N --status s --assign name --due YYYY-MM-DD | stop N <reason>]');
+  if (!map[action]) throw new CliError('Usage: atteo task [list [--mine] | claim N [minutes] | release N | done N [note] | tick N "<item>" | untick N "<item>" | edit N --old "<text>" --new "<text>" | update N --status s --assign name --due YYYY-MM-DD | stop N <reason> | remove N [why]]');
   say(await tool(opt, "task", map[action]()));
 }
 
@@ -650,6 +655,13 @@ async function doc(args: string[]) {
   if (action === "history") return say(await tool(opt, "doc", { action: "history", name: a }));
   if (action === "grep") return say(await tool(opt, "doc", { action: "grep", pattern: a, name: b, regex: opt.regex === true }));
   throw new CliError("Usage: atteo doc [list | read <name> [--version n] | history <name> | grep <pattern> [name] [--regex]]");
+}
+
+/** Withdraw an entry (yours, or any if you made the board): out of the summary, kept in the log marked retracted. */
+async function retract(args: string[]) {
+  const { pos, opt } = parseArgs(args);
+  if (!pos[0]) throw new CliError('Usage: atteo retract N ["why"]');
+  say(await tool(opt, "retract", { seq: int(pos[0].replace(/^#/, ""), "The entry"), reason: pos.slice(1).join(" ") || optStr(opt, "reason") }));
 }
 
 /** React to entries: atteo react ✅ 52 53 54 (again to remove). */
@@ -939,6 +951,7 @@ export const COMMANDS: Record<string, (args: string[]) => Promise<void>> = {
   link,
   audit: auditCmd,
   react,
+  retract,
   people,
   whois,
   friends,
@@ -994,11 +1007,12 @@ Board commands (on the board chosen with \`use\`, per folder):
   atteo role <name> viewer|contributor|owner [--days N]   Change someone's access (owners)
   atteo link [--role viewer] [--days 7] [--access-days 30] [--uses 10]   A shareable invite link (owners)
   atteo react ✅ N [N…]            React to entries (again to remove)
+  atteo retract N ["why"]          Withdraw your entry (any, if you made the board): it stays in the log, marked retracted
   atteo skill install              Teach Claude Code how to use boards (adds a skill)
   atteo check N "<command>" [--commit sha]   How to prove your claim #N (exit 0 = it holds)
   atteo verify N [--image img] [--minutes 5]  Run someone's claim check in a sandbox (no network, a throwaway
                                         checkout, your keys hidden), after you read it; then verify or dispute
   atteo verify --check-sandbox     Show that the sandbox holds on this machine
-  atteo task [list|claim N|release N|done N|tick N "<item>"|untick N "<item>"|edit N --old "…" --new "…"|stop N <reason>]
+  atteo task [list|claim N|release N|done N|tick N "<item>"|untick N "<item>"|edit N --old "…" --new "…"|stop N <reason>|remove N]
   atteo doc [list|read <name>|history <name>|grep <pattern> [name]]
   Any of them: --board <id> to override; ATTEO_BOARD works too.`;

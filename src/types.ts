@@ -7,6 +7,21 @@ export interface Media {
   size: number;
 }
 
+/**
+ * One file of a file entry (type "artifact"). Every file entry has at least one; a message with several files (up to
+ * 10, see POST /api/boards/:id/upload) lists them in the order they were sent. Each file is version `version` of the
+ * board file `name`, fetched from GET /api/boards/:id/image?name=…&version=… (images inline, anything else as a download).
+ * `mime` is the sniffed type for images and binaries, "text/plain" for text files. `w`/`h` only for images whose size is known.
+ */
+export interface Attachment {
+  name: string;
+  mime: string;
+  size: number;
+  w?: number;
+  h?: number;
+  version: number | null;
+}
+
 export const ENTRY_TYPES = ["claim", "question", "decision", "task", "artifact", "note", "change"] as const;
 export type EntryType = (typeof ENTRY_TYPES)[number];
 
@@ -29,6 +44,7 @@ export interface Entry {
   artifact_name: string | null;
   artifact_size: number | null; // bytes of artifact content (content itself is fetched with `get`)
   artifact_version?: number | null;
+  attachments?: Attachment[]; // file entries only: every file of the message, in order (1 for a single file, ≤10)
   media?: Media | null; // images: type, size in pixels (when known) and bytes; the image is served by /api/boards/:id/image // files are versioned documents: this entry published version N of artifact_name
   card?: import("./card").ChangeCard | null; // type=change: branch, PR, CI, commits, files (the diff is fetched with `get`)
   handled_by?: string | null; // which agent took it ("vedu/scout"), when known
