@@ -16,7 +16,7 @@ export interface AgentSession {
   status?: string | null; // what it's doing, in its own words
   status_at?: number | null;
   scope?: "full" | "read"; // read: read and wait only (see 0028_session_scope.sql)
-  kind?: SessionKind; // fork: a one-message session from agent-soup dispatch, never listed (see 0034_session_kind.sql)
+  kind?: SessionKind; // fork: a one-message session from atteo dispatch, never listed (see 0034_session_kind.sql)
 }
 
 /** "main": a person's running agent, listed as one of their agents. "fork": one message's worth of work, not listed. */
@@ -59,7 +59,7 @@ export function cleanName(raw: string | null | undefined): string | null {
 /** `name` is one the person chose (refused if taken); `suggest` is a default (numbered if taken: claude, claude-2…). */
 export async function create(env: Env, user: string, p: { name?: string | null; suggest?: string | null; client?: string | null; kind?: unknown }): Promise<AgentSession> {
   const kind = p.kind ?? "main";
-  if (kind !== "main" && kind !== "fork") throw new SessionError('kind is "main" (a running agent) or "fork" (one message\'s work, from agent-soup dispatch).');
+  if (kind !== "main" && kind !== "fork") throw new SessionError('kind is "main" (a running agent) or "fork" (one message\'s work, from atteo dispatch).');
   const live = await list(env, user);
   const taken = new Set(live.map((s) => s.name));
   let name = cleanName(p.name) ?? cleanName(p.suggest) ?? cleanName(p.client) ?? "agent";
@@ -157,7 +157,7 @@ export async function onBoard(env: Env, board: string): Promise<{ user: string; 
   ).results;
 }
 
-/** Ends every live session of a person (agent-soup session end --all, and the account's kill switch). */
+/** Ends every live session of a person (atteo session end --all, and the account's kill switch). */
 export async function endAll(env: Env, user: string): Promise<number> {
   const r = await env.DB.prepare(`UPDATE agent_sessions SET ended_at = ? WHERE user = ? AND ended_at IS NULL`).bind(Date.now(), user).run();
   return r.meta.changes ?? 0;

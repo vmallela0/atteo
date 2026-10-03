@@ -29,6 +29,13 @@ final class AgentSoupUITests: XCTestCase {
         if t.waitForExistence(timeout: 10) { t.tap() }
     }
 
+    /// Back, inside a sheet: its navigation bar is the last one (the chat's own sits underneath).
+    func sheetBack(_ a: XCUIApplication) {
+        let bars = a.navigationBars
+        bars.element(boundBy: bars.count - 1).buttons.element(boundBy: 0).tap()
+        sleep(1)
+    }
+
     func shot(_ name: String) {
         let s = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         s.name = name
@@ -473,6 +480,7 @@ final class AgentSoupUITests: XCTestCase {
         XCTAssertTrue(a.buttons["reaction-🚀"].waitForExistence(timeout: 5), "🚀 shows as a chip too")
 
         // Your latest message says who's seen it.
+        if a.buttons["Jump to latest"].exists { a.buttons["Jump to latest"].tap(); sleep(1) }
         XCTAssertTrue(a.descendants(matching: .any)["seen-by"].waitForExistence(timeout: 5), "Seen by / Delivered under your latest")
 
         // Unsend: long-press your message → Unsend → confirm; it reads "Unsent".
@@ -511,10 +519,13 @@ final class AgentSoupUITests: XCTestCase {
         // The title: the board's info (open questions, agents, members, files) and search.
         a.buttons["presence"].tap()
         XCTAssertTrue(a.navigationBars["Info"].waitForExistence(timeout: 5), "the board's info opens")
-        XCTAssertTrue(a.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Members'")).firstMatch.waitForExistence(timeout: 5), "with its members")
-        XCTAssertTrue(a.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Open questions'")).firstMatch.exists, "and what's open")
+        XCTAssertTrue(a.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Open questions'")).firstMatch.waitForExistence(timeout: 5), "what's open")
         sleep(1)
         shot("26-info")
+        let membersHeader = a.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Members'")).firstMatch
+        for _ in 0..<4 where !membersHeader.exists { a.swipeUp(); sleep(1) }
+        XCTAssertTrue(membersHeader.exists, "its members")
+        shot("26b-info-members")
         let search = a.searchFields.firstMatch
         XCTAssertTrue(search.waitForExistence(timeout: 3))
         search.tap()
@@ -526,6 +537,203 @@ final class AgentSoupUITests: XCTestCase {
         XCTAssertTrue(composer.waitForExistence(timeout: 5), "back in the chat, at the hit")
         sleep(2)
         shot("28-jumped")
+    }
+
+    /// The web's features in the app (#508): an approval in full (approve with a note), act on tasks (claim, status,
+    /// tick a checklist line, add one, remove it), read a file and an older version, the board's info, then New
+    /// message → a friend → Message opens your DM, and New board makes one and opens it.
+    func testWebParity() throws {
+        continueAfterFailure = false
+        let a = app(fresh: true)
+        a.launch()
+        XCTAssertTrue(a.navigationBars["Chats"].waitForExistence(timeout: 10))
+        onBoards(a)
+        let any = a.descendants(matching: .any)
+
+        // 1. An approval, in full: tap the row (not the quick ✓), read it, add a note, approve.
+        let row = any["approval-row"].firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 10), "an approval is waiting")
+        let neededBefore = a.staticTexts["needs-you"].label // "Needs you · 3"
+        row.tap()
+        let approve = a.buttons["approval-approve"]
+        XCTAssertTrue(approve.waitForExistence(timeout: 5), "the approval opens in full")
+        let title = any["approval-title"].firstMatch.label
+        XCTAssertTrue(a.staticTexts["What will happen"].exists)
+        shot("p01-approval")
+        let note = any["approval-note"].firstMatch
+        note.tap()
+        note.typeText("OK, after 6pm")
+        approve.tap()
+        let closed = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: approve)
+        wait(for: [closed], timeout: 8)
+        // Approved: it left Needs you ("· 3" → "· 2", or the section goes when it was the last thing).
+        XCTAssertFalse(title.isEmpty)
+        let before = Int(neededBefore.split(separator: " ").last ?? "") ?? 0
+        let header = a.staticTexts["needs-you"]
+        let answered = expectation(for: before > 1 ? NSPredicate(format: "label == %@", "Needs you · \(before - 1)") : NSPredicate(format: "exists == false"), evaluatedWith: header)
+        wait(for: [answered], timeout: 5)
+
+        // 2. Tasks you can act on.
+        let chat = a.buttons["chat-Checkout bug"].firstMatch
+        XCTAssertTrue(chat.waitForExistence(timeout: 5))
+        chat.tap()
+        let strip = a.buttons["work-strip"]
+        XCTAssertTrue(strip.waitForExistence(timeout: 10))
+        strip.tap()
+        XCTAssertTrue(a.navigationBars.matching(NSPredicate(format: "identifier BEGINSWITH 'Work on'")).firstMatch.waitForExistence(timeout: 5))
+        a.swipeUp() // the sheet to full height
+        let task = any["task-row-Write the incident note"].firstMatch
+        XCTAssertTrue(task.waitForExistence(timeout: 5), "the task is in the list")
+        task.tap()
+        let claim = a.buttons["task-claim"]
+        XCTAssertTrue(claim.waitForExistence(timeout: 5))
+        XCTAssertEqual(claim.label, "Claim")
+        claim.tap()
+        let held = expectation(for: NSPredicate(format: "label == 'Release'"), evaluatedWith: claim)
+        wait(for: [held], timeout: 5)
+        // Tick a checklist line by tapping it; the server has the tick.
+        let line = a.buttons["check-timeline of the outage"]
+        XCTAssertTrue(line.exists)
+        XCTAssertEqual(line.value as? String, "not done")
+        line.tap()
+        let ticked = expectation(for: NSPredicate(format: "value == 'done'"), evaluatedWith: line)
+        wait(for: [ticked], timeout: 5)
+        if let tick = env["AGENT_SOUP_TICK"], let server = env["AGENT_SOUP_SERVER"], let token = env["AGENT_SOUP_TOKEN"] {
+            let board = String(tick.split(separator: ":")[0])
+            var body = ""
+            for _ in 0..<10 {
+                var r = URLRequest(url: URL(string: "\(server)/api/boards/\(board)/tasks")!)
+                r.setValue("Bearer \(token)", forHTTPHeaderField: "authorization")
+                let got = expectation(description: "tasks")
+                URLSession.shared.dataTask(with: r) { d, _, _ in body = String(data: d ?? Data(), encoding: .utf8) ?? ""; got.fulfill() }.resume()
+                wait(for: [got], timeout: 10)
+                if body.contains("- [x] timeline of the outage") { break }
+                sleep(1)
+            }
+            XCTAssertTrue(body.contains("- [x] timeline of the outage"), "the tick reached the server")
+        }
+        // Where it stands, from a compact menu.
+        a.buttons["task-status"].tap()
+        a.buttons["In progress"].firstMatch.tap()
+        let moved = expectation(for: NSPredicate(format: "value == 'In progress'"), evaluatedWith: a.buttons["task-status"])
+        wait(for: [moved], timeout: 5)
+        shot("p02-task-acted")
+        sheetBack(a) // back to the list
+
+        // Add a task (with one checklist step), then remove it.
+        a.buttons["New task"].tap()
+        let newTitle = "Draft the postmortem \(Int(Date().timeIntervalSince1970) % 100000)"
+        let field = any["new-task-title"].firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.typeText(newTitle + "\n")
+        a.typeText("Collect the graphs")
+        shot("p03-new-task")
+        a.buttons["new-task-add"].tap()
+        let added = any["task-row-\(newTitle)"].firstMatch
+        XCTAssertTrue(added.waitForExistence(timeout: 8), "the new task is in the list")
+        added.tap()
+        XCTAssertTrue(a.buttons["check-Collect the graphs"].waitForExistence(timeout: 5), "with its checklist")
+        a.buttons["More"].tap()
+        a.buttons["Remove task"].firstMatch.tap()
+        let confirm = a.sheets.buttons["Remove task"].exists ? a.sheets.buttons["Remove task"] : a.buttons.matching(NSPredicate(format: "label == 'Remove task'")).element(boundBy: 0)
+        XCTAssertTrue(confirm.waitForExistence(timeout: 3), "asks first")
+        shot("p04-remove-task")
+        confirm.tap()
+        XCTAssertTrue(a.navigationBars.matching(NSPredicate(format: "identifier BEGINSWITH 'Work on'")).firstMatch.waitForExistence(timeout: 8), "back to the list")
+        let gone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: any["task-row-\(newTitle)"].firstMatch)
+        wait(for: [gone], timeout: 8)
+
+        // 3. Files: a doc, read; an older version from the picker.
+        a.buttons["Files"].tap()
+        let file = a.buttons["file-rollout-plan.md"].exists ? a.buttons["file-rollout-plan.md"] : any["file-rollout-plan.md"].firstMatch
+        XCTAssertTrue(file.waitForExistence(timeout: 8), "the board's files")
+        shot("p05-files")
+        file.tap()
+        XCTAssertTrue(a.staticTexts["Rollout plan"].waitForExistence(timeout: 8), "the doc, as text")
+        XCTAssertTrue(a.staticTexts["Rollback"].exists, "its latest version")
+        shot("p06-doc")
+        let picker = a.buttons["doc-version"]
+        XCTAssertTrue(picker.waitForExistence(timeout: 5))
+        picker.tap()
+        a.buttons.matching(NSPredicate(format: "label BEGINSWITH 'v1'")).firstMatch.tap()
+        XCTAssertTrue(a.staticTexts["Older version"].waitForExistence(timeout: 5), "an older version")
+        XCTAssertFalse(a.staticTexts["Rollback"].exists, "as it was then")
+        shot("p07-doc-v1")
+        sheetBack(a)
+        sheetBack(a)
+        a.buttons["Done"].tap()
+
+        // 4. The board's info (the title): members, invite, files, rename / archive.
+        let presence = a.buttons["presence"]
+        XCTAssertTrue(presence.waitForExistence(timeout: 5))
+        presence.tap()
+        XCTAssertTrue(a.navigationBars["Info"].waitForExistence(timeout: 5))
+        XCTAssertTrue(any["board-info-title"].firstMatch.waitForExistence(timeout: 5))
+        for _ in 0..<4 where !a.buttons["invite-link"].exists { a.swipeUp(); sleep(1) }
+        if a.buttons["invite-link"].exists {
+            a.buttons["invite-link"].tap()
+            XCTAssertTrue(a.buttons["Copy link"].waitForExistence(timeout: 5), "an invite link")
+        }
+        for _ in 0..<4 where !a.staticTexts["theo"].exists { a.swipeUp(); sleep(1) }
+        XCTAssertTrue(a.staticTexts["theo"].waitForExistence(timeout: 5), "members")
+        shot("p08-board-info")
+        a.navigationBars["Info"].buttons["Done"].tap()
+        XCTAssertTrue(a.navigationBars["Info"].waitForNonExistence(timeout: 5))
+        sleep(1)
+        a.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(a.navigationBars["Chats"].waitForExistence(timeout: 5))
+
+        // 5. New message → a friend → Message: your DM opens.
+        a.buttons["New"].tap()
+        a.buttons["New message"].tap()
+        let search = any["people-search"].firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 5))
+        search.typeText("jul")
+        let jules = any["person-jules"].firstMatch
+        XCTAssertTrue(jules.waitForExistence(timeout: 8), "search finds jules")
+        shot("p09-new-message")
+        jules.tap()
+        let message = a.buttons["person-message"]
+        XCTAssertTrue(message.waitForExistence(timeout: 5), "a friend: Message")
+        shot("p10-person")
+        message.tap()
+        let dm = expectation(for: NSPredicate(format: "label BEGINSWITH 'jules'"), evaluatedWith: a.buttons["presence"])
+        wait(for: [dm], timeout: 10)
+        shot("p11-dm")
+        a.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(a.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'chat-' AND identifier CONTAINS 'jules'")).firstMatch.waitForExistence(timeout: 5), "the DM is under DMs")
+
+        // 6. Archive a board from its info (it closes and leaves the list), which makes room on the Free plan for…
+        a.buttons["tab-boards"].tap()
+        let q4 = a.buttons["chat-Q4 data migration"].firstMatch
+        XCTAssertTrue(q4.waitForExistence(timeout: 5))
+        q4.tap()
+        XCTAssertTrue(a.buttons["presence"].waitForExistence(timeout: 5))
+        a.buttons["presence"].tap()
+        XCTAssertTrue(a.navigationBars["Info"].waitForExistence(timeout: 5))
+        let archive = a.buttons["board-archive"]
+        for _ in 0..<8 where !archive.exists || !archive.isHittable { a.swipeUp(); sleep(1) }
+        XCTAssertTrue(archive.waitForExistence(timeout: 5), "the board's owner can archive it")
+        archive.tap()
+        let sure = a.buttons.matching(NSPredicate(format: "label == 'Archive' AND identifier != 'board-archive'")).firstMatch
+        XCTAssertTrue(sure.waitForExistence(timeout: 3), "asks first")
+        sure.tap()
+        XCTAssertTrue(a.navigationBars["Chats"].waitForExistence(timeout: 10), "an archived board closes")
+        let left = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: a.buttons["chat-Q4 data migration"].firstMatch)
+        wait(for: [left], timeout: 8)
+
+        // 7. …a new board: a title, encrypted by default; it opens.
+        a.buttons["New"].tap()
+        a.buttons["New board"].tap()
+        let bt = any["new-board-title"].firstMatch
+        XCTAssertTrue(bt.waitForExistence(timeout: 5))
+        let boardTitle = "Launch week \(Int(Date().timeIntervalSince1970) % 100000)"
+        bt.typeText(boardTitle)
+        shot("p12-new-board")
+        a.buttons["new-board-create"].tap()
+        let opened = expectation(for: NSPredicate(format: "label BEGINSWITH %@", boardTitle), evaluatedWith: a.buttons["presence"])
+        wait(for: [opened], timeout: 10)
+        shot("p13-new-board-open")
     }
 
     func testInstantRelaunchFromCache() throws {

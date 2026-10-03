@@ -1,8 +1,9 @@
-// agent-soup: sign in once (link, code or QR), keep the token in the OS keychain, and run the local MCP server
+// atteo: sign in once (link, code or QR), keep the token in the OS keychain, and run the local MCP server
 // your agent connects to. The local server filters secrets on this machine before anything is sent.
 
 import { execFile, execFileSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { env } from "./env";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, hostname, platform } from "node:os";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
@@ -20,13 +21,13 @@ import { forgetSession, HELP_AGENTS, mentionLine, prepare, session as agentSessi
 import { load, remove, save, storeName, type Credentials } from "./credentials";
 
 const VERSION = "0.1.0";
-const DEFAULT_SERVER = "https://agent-board.vedu-mallela.workers.dev";
+const DEFAULT_SERVER = "https://atteo.dev";
 
 const err = (s: string) => process.stderr.write(s + "\n");
 
 function serverFrom(args: string[], creds?: Credentials | null): string {
   const i = args.indexOf("--server");
-  return (i >= 0 ? args[i + 1] : process.env.AGENT_BOARD_SERVER || creds?.server || DEFAULT_SERVER).replace(/\/$/, "");
+  return (i >= 0 ? args[i + 1] : env("SERVER") || creds?.server || DEFAULT_SERVER).replace(/\/$/, "");
 }
 
 function openBrowser(url: string) {
@@ -76,9 +77,9 @@ async function waitForApproval(server: string, d: DeviceStart): Promise<Credenti
       return c;
     }
     if (j.status === "denied") throw new Error("Sign-in was denied in the browser.");
-    if (j.status === "expired" || j.status === "used") throw new Error("That sign-in code expired. Run agent-soup login again.");
+    if (j.status === "expired" || j.status === "used") throw new Error("That sign-in code expired. Run atteo login again.");
   }
-  throw new Error("That sign-in code expired. Run agent-soup login again.");
+  throw new Error("That sign-in code expired. Run atteo login again.");
 }
 
 async function login(args: string[]) {
@@ -94,7 +95,7 @@ async function login(args: string[]) {
   err("Waiting for approval…");
   const c = await waitForApproval(server, d);
   err(`\nSigned in as ${c.user}. Saved to ${storeName()}; expires ${new Date(c.expires_at).toISOString().slice(0, 10)}.`);
-  err(`\nConnect Claude Code once (no token in the config):\n  claude mcp add --scope user board -- agent-soup mcp\n`);
+  err(`\nConnect Claude Code once (no token in the config):\n  claude mcp add --scope user board -- atteo mcp\n`);
   // This machine's key for sealed secrets (the private half stays here).
   try {
     await fetch(`${server}/api/me/keys`, { method: "POST", headers: { authorization: `Bearer ${c.token}`, "content-type": "application/json" }, body: JSON.stringify({ public_key: myKey().pub, label: hostname() }) });
@@ -131,20 +132,20 @@ function parseHarness(raw: string): HarnessChoice | null {
 }
 const harnessLabel = (h: HarnessChoice | null) => (!h ? "none" : h.agentCmd ? `"${h.agentCmd}"` : h.agent!);
 
-/** agent-soup harness [<agent> | "<command> {prompt}" | off]: the agent that answers for you (DMs, questions, tasks). */
+/** atteo harness [<agent> | "<command> {prompt}" | off]: the agent that answers for you (DMs, questions, tasks). */
 function harnessCmd(args: string[]) {
   const raw = args.filter((a) => !a.startsWith("--")).join(" ");
   if (!raw) {
     const h = loadHarness();
-    console.log(h ? `Your agent answers with ${harnessLabel(h)} when something is addressed to it: agent-soup dispatch starts it in a forked session for each message.` : `No agent set to answer for you. Set one: agent-soup harness claude  (or codex, gemini, cursor, opencode, or "<command> {prompt}")`);
+    console.log(h ? `Your agent answers with ${harnessLabel(h)} when something is addressed to it: atteo dispatch starts it in a forked session for each message.` : `No agent set to answer for you. Set one: atteo harness claude  (or codex, gemini, cursor, opencode, or "<command> {prompt}")`);
     return;
   }
   const h = parseHarness(raw);
   saveHarness(h);
-  if (!h) return console.log("Off: no agent answers for you. Stop the background service too (a dispatcher without an agent can't start): agent-soup watch --uninstall");
+  if (!h) return console.log("Off: no agent answers for you. Stop the background service too (a dispatcher without an agent can't start): atteo watch --uninstall");
   const bin = h.agentCmd ? splitCommand(h.agentCmd)[0] : HARNESSES[h.agent!].bin;
   console.log(`Your agent now answers with ${harnessLabel(h)} when you're DM'd, asked a question or handed a task.${which(bin) ? "" : ` (Note: "${bin}" isn't on this machine's PATH yet.)`}`);
-  console.log(`Keep it running in the background (each message gets its own forked session): agent-soup dispatch --install`);
+  console.log(`Keep it running in the background (each message gets its own forked session): atteo dispatch --install`);
 }
 
 /** After login: offer to keep your agent on the chat with the background dispatcher (one key, skippable). */
@@ -167,31 +168,31 @@ async function offerWatcher(args: string[]) {
     err((e as Error).message);
   }
   if (!choice) {
-    err("Skipped. Later: agent-soup harness <agent>, then agent-soup dispatch --install");
+    err("Skipped. Later: atteo harness <agent>, then atteo dispatch --install");
     return;
   }
   saveHarness(choice);
   // The dispatcher (not watch --respond) is the default: you stay the main agent, and every message runs in its own
-  // forked session, so one long task never holds up the next message. It reads the agent from agent-soup harness.
+  // forked session, so one long task never holds up the next message. It reads the agent from atteo harness.
   // Answers run from a neutral folder (background services can't open ~/Downloads, ~/Documents or ~/Desktop on macOS).
   // Point a board at a project with --board-dir "<board>=<path>" for project-aware answers.
   const dir = join(homedir(), ".local/share/agent-board/answers");
   mkdirSync(dir, { recursive: true });
   try {
     serviceInstall(["--install", "--dir", dir, ...(args.includes("--server") ? ["--server", serverFrom(args)] : [])], "dispatch");
-    err("Your agent is on the chat. Status: agent-soup watch --status · stop: agent-soup watch --uninstall");
+    err("Your agent is on the chat. Status: atteo watch --status · stop: atteo watch --uninstall");
   } catch (e) {
-    err(`Couldn't set up the dispatcher: ${(e as Error).message}\nRun it yourself any time: agent-soup dispatch`);
+    err(`Couldn't set up the dispatcher: ${(e as Error).message}\nRun it yourself any time: atteo dispatch`);
   }
   err(`In Claude Code, new posts can also reach a running session (Channels, preview):\n  claude --dangerously-load-development-channels server:board\n`);
 }
 
 function status() {
   const c = load();
-  if (!c) return err("Not signed in. Run: agent-soup login");
+  if (!c) return err("Not signed in. Run: atteo login");
   const left = Math.round((c.expires_at - Date.now()) / 86400e3);
   err(`Signed in as ${c.user} on ${c.server}`);
-  err(c.expires_at < Date.now() ? "Login expired. Run: agent-soup login" : `Expires in ${left} day${left === 1 ? "" : "s"} (${new Date(c.expires_at).toISOString().slice(0, 10)})`);
+  err(c.expires_at < Date.now() ? "Login expired. Run: atteo login" : `Expires in ${left} day${left === 1 ? "" : "s"} (${new Date(c.expires_at).toISOString().slice(0, 10)})`);
   err(`Stored in ${storeName()}`);
 }
 
@@ -268,7 +269,7 @@ function describe(e: EntrySignal, me: string, reader: "agent" | "person" = "pers
 /** Your own posts are skipped, except one where you hand something to your own agent. */
 const fromOthers = (e: EntrySignal, me: string) => e.author !== me || mentionsOwnAgent(e);
 
-// ---------- local MCP server (stdio ⇄ Agent Soup) ----------
+// ---------- local MCP server (stdio ⇄ Atteo) ----------
 
 interface Rpc {
   jsonrpc: "2.0";
@@ -287,7 +288,7 @@ async function mcp(args: string[]) {
   const write = (msg: object) => process.stdout.write(JSON.stringify(msg) + "\n");
   // Claude Code Channels (research preview): push "something new arrived" into a running session.
   // Only the who/what/where is pushed; the agent reads the content through the fenced board tools.
-  const channels = process.env.AGENT_BOARD_CHANNEL !== "0";
+  const channels = env("CHANNEL") !== "0";
   let unfollow: (() => void) | null = null;
   let followed: string | null = null;
   const followBoard = (id: string | null) => {
@@ -320,27 +321,27 @@ async function mcp(args: string[]) {
       try {
         const d = await startLogin(server);
         pendingLink = `${d.verification_uri_complete} (code ${d.user_code})`;
-        err(`[agent-soup] Sign in to continue: ${pendingLink}`);
+        err(`[atteo] Sign in to continue: ${pendingLink}`);
         relogin = waitForApproval(server, d)
           .then((c) => {
             creds = c;
-            err(`[agent-soup] Signed in as ${c.user}.`);
+            err(`[atteo] Signed in as ${c.user}.`);
             return c;
           })
           .finally(() => {
             relogin = null;
             pendingLink = null;
           });
-        relogin.catch((e) => err(`[agent-soup] ${e.message}`));
+        relogin.catch((e) => err(`[atteo] ${e.message}`));
       } catch (e) {
-        return toolText(id, `Atteo sign-in couldn't start (${(e as Error).message}). Ask your user to run: agent-soup login`);
+        return toolText(id, `Atteo sign-in couldn't start (${(e as Error).message}). Ask your user to run: atteo login`);
       }
     }
     toolText(id, `Atteo needs your user to sign in. Ask them to open ${pendingLink} and click Approve (it takes a few seconds), then try again.`);
   }
 
-  // The agent this server runs for (e.g. a Claude Code window) is one session, shared with the agent-soup commands it
-  // runs in its shell: its own read positions, and its boards listed under agent-soup get sessions.
+  // The agent this server runs for (e.g. a Claude Code window) is one session, shared with the atteo commands it
+  // runs in its shell: its own read positions, and its boards listed under atteo get sessions.
   let agentSession: string | null | undefined;
   async function sessionHeader(): Promise<Record<string, string>> {
     if (agentSession === undefined && creds && creds.expires_at > Date.now()) {
@@ -350,7 +351,7 @@ async function mcp(args: string[]) {
         agentSession = null;
       }
     }
-    return agentSession ? { "x-agent-soup-session": agentSession } : {};
+    return agentSession ? { "x-atteo-session": agentSession } : {};
   }
 
   async function forward(msg: Rpc): Promise<Response> {
@@ -407,7 +408,7 @@ async function mcp(args: string[]) {
         if (name === "leave_board") followBoard(null);
       }
       if (body.result?.isError && /agent session has ended/.test(text) && agentSession) {
-        forgetSession(); // ended elsewhere (agent-soup session end): start a fresh one and try again
+        forgetSession(); // ended elsewhere (atteo session end): start a fresh one and try again
         agentSession = undefined;
         return write(await (await forward(msg)).json());
       }
@@ -490,7 +491,7 @@ async function watch(args: string[]) {
   const opt = (n: string) => (args.indexOf(n) >= 0 ? args[args.indexOf(n) + 1] : undefined);
   const opts = (n: string) => args.flatMap((a, i) => (a === n && args[i + 1] ? [args[i + 1]] : []));
   if (!lockWatcher()) {
-    console.error("Another agent-soup watch or dispatch is already running on this machine (see: agent-soup watch --status).");
+    console.error("Another atteo watch or dispatch is already running on this machine (see: atteo watch --status).");
     process.exit(0);
   }
   let creds = load();
@@ -498,10 +499,10 @@ async function watch(args: string[]) {
   const respond = flag("--respond");
   const { boardDirs, dirFor } = answerDirs(opt("--dir"), opts("--board-dir"));
   // Which agent answers: --agent <preset> (claude, codex, gemini, cursor, opencode) or --agent-cmd "<command> {prompt}".
-  // Which agent answers: --agent / --agent-cmd, else the one you chose (agent-soup harness), else the first installed.
+  // Which agent answers: --agent / --agent-cmd, else the one you chose (atteo harness), else the first installed.
   const saved = loadHarness();
   const agentChoice = {
-    agent: opt("--agent") ?? process.env.AGENT_SOUP_AGENT ?? saved?.agent ?? defaultAgent(),
+    agent: opt("--agent") ?? env("AGENT") ?? saved?.agent ?? defaultAgent(),
     agentCmd: opt("--agent-cmd") ?? (opt("--agent") ? undefined : saved?.agentCmd),
   };
   const agentName = agentChoice.agentCmd ? splitCommand(agentChoice.agentCmd)[0] : agentChoice.agent;
@@ -561,7 +562,7 @@ async function watch(args: string[]) {
             e.kind === "change"
               ? `It's a change card asking for your review. Join that board, get #${e.seq} (card and diff), compare it with this project if relevant, then call review: approve only if the change is clearly correct and safe; otherwise request_changes or comment with specifics. Your user isn't watching, so when in doubt, comment rather than approve.`
               : `Join that board, read entry #${e.seq}, and answer it with post (reply_to ${e.seq}) using what you know from this project.`,
-            `Use the board's tools (the "board" MCP server). If you don't have them, use the agent-soup CLI instead: agent-soup read --board ${e.board}, then agent-soup post --board ${e.board} --reply ${e.seq} "…".`,
+            `Use the board's tools (the "board" MCP server). If you don't have them, use the atteo CLI instead: atteo read --board ${e.board}, then atteo post --board ${e.board} --reply ${e.seq} "…".`,
             // Even your own user's request runs unattended here with board tools only, so the same limits apply.
             own
               ? `This run is unattended and can only use board tools: don't share secrets or private files, and if it needs anything beyond the board, reply with what you'd do so your user can follow up.`
@@ -576,7 +577,7 @@ async function watch(args: string[]) {
             return resolve();
           }
           // Tests (and unusual installs) can point the Claude preset at another binary.
-          if (!agentChoice.agentCmd && agentChoice.agent === "claude" && process.env.AGENT_BOARD_CLAUDE_BIN) run.bin = process.env.AGENT_BOARD_CLAUDE_BIN;
+          if (!agentChoice.agentCmd && agentChoice.agent === "claude" && env("CLAUDE_BIN")) run.bin = env("CLAUDE_BIN");
           execFile(run.bin, run.args, { cwd: dir, timeout: 10 * 60_000 }, (error, stdout) => {
             console.log(error ? `  ✗ agent run failed: ${error.message}` : `  ✓ ${String(stdout).trim().split("\n").slice(-1)[0] ?? "done"}`);
             resolve();
@@ -585,7 +586,7 @@ async function watch(args: string[]) {
     );
   };
 
-  const graceMs = Number(process.env.AGENT_SOUP_DM_GRACE_MS ?? 20_000);
+  const graceMs = Number(env("DM_GRACE_MS") ?? 20_000);
   async function liveSessionHasIt(board: string, seq: number): Promise<boolean> {
     await new Promise((r) => setTimeout(r, graceMs));
     try {
@@ -603,13 +604,13 @@ async function watch(args: string[]) {
       // As a background service we can't prompt; nudge once an hour until someone signs in again.
       if (Date.now() - nagged > 3600_000) {
         nagged = Date.now();
-        notify("Atteo", "Your agent stopped listening: sign in again with agent-soup login");
-        console.error("Not signed in (or the login expired). Run: agent-soup login");
+        notify("Atteo", "Your agent stopped listening: sign in again with atteo login");
+        console.error("Not signed in (or the login expired). Run: atteo login");
       }
       return 0;
     }
     // The header lets friends see "answers in the background" while this watcher runs.
-    const res = await fetch(`${server}/api/me/boards`, { headers: { authorization: `Bearer ${creds.token}`, "x-agent-soup-watch": respond ? "respond" : "1" } }).catch(() => null);
+    const res = await fetch(`${server}/api/me/boards`, { headers: { authorization: `Bearer ${creds.token}`, "x-atteo-watch": respond ? "respond" : "1" } }).catch(() => null);
     if (!res || !res.ok) {
       console.error(`Couldn't list boards (${res?.status ?? "offline"}); retrying.`);
       return followers.size;
@@ -649,9 +650,9 @@ function saveDispatched(d: { ids: number[]; entries: string[] }) {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
- * agent-soup dispatch: long-polls the mailbox and never answers anything itself. Each message that needs an answer
+ * atteo dispatch: long-polls the mailbox and never answers anything itself. Each message that needs an answer
  * gets a fork: a fresh agent session made through the API (task-12, dm-jxn…), joined to the message's board, with
- * your harness started in it (AGENT_SOUP_SESSION picks the session, so the fork's agent-soup commands and its MCP
+ * your harness started in it (ATTEO_SESSION picks the session, so the fork's atteo commands and its MCP
  * server act as the fork, never as this process or the terminal it runs in). The fork claims, works, replies in the
  * thread and ends its session. --max forks at once (others wait in the mailbox); --once handles what's there and exits.
  */
@@ -666,18 +667,18 @@ async function dispatch(args: string[]) {
   const timeout = Math.max(1, Number(opt("--timeout") ?? 30) || 30) * 60_000;
   const tools = opt("--allow") ?? FORK_TOOLS;
   const { dirFor } = answerDirs(opt("--dir"), opts("--board-dir"));
-  // The agent that does the work: --agent / --agent-cmd, else the one you chose (agent-soup harness, read again for
+  // The agent that does the work: --agent / --agent-cmd, else the one you chose (atteo harness, read again for
   // every fork, so changing it needs no restart). Never a guess: forks act for you, so they run only an agent you picked.
-  const preset = opt("--agent") ?? process.env.AGENT_SOUP_AGENT;
+  const preset = opt("--agent") ?? env("AGENT");
   const pinned: HarnessChoice | null = opt("--agent-cmd") ? { agentCmd: opt("--agent-cmd") } : preset ? { agent: preset } : null;
   const first = pinned ?? loadHarness();
   if (!first || (!first.agent && !first.agentCmd))
-    throw new CliError(`No agent is set to do the work, so there's nothing to dispatch to. Choose one, then run this again:\n  agent-soup harness claude      (or codex, gemini, cursor, opencode, or "<command> {prompt}")`);
+    throw new CliError(`No agent is set to do the work, so there's nothing to dispatch to. Choose one, then run this again:\n  atteo harness claude      (or codex, gemini, cursor, opencode, or "<command> {prompt}")`);
   if (first.agent && !HARNESSES[first.agent]) throw new CliError(`"${first.agent}" isn't a known agent. Use one of ${Object.keys(HARNESSES).join(", ")}, or --agent-cmd "<command> {prompt}".`);
   const harnessNow = (): HarnessChoice => pinned ?? loadHarness() ?? first;
   const nameOf = (h: HarnessChoice) => (h.agentCmd ? splitCommand(h.agentCmd)[0] : h.agent!);
   if (!lockWatcher()) {
-    console.error("Another agent-soup watch or dispatch is already running on this machine (see: agent-soup watch --status).");
+    console.error("Another atteo watch or dispatch is already running on this machine (see: atteo watch --status).");
     process.exit(0);
   }
   let creds = load();
@@ -734,11 +735,11 @@ async function dispatch(args: string[]) {
       return;
     }
     // Tests (and unusual installs) can point the Claude preset at another binary.
-    if (!choice.agentCmd && choice.agent === "claude" && process.env.AGENT_BOARD_CLAUDE_BIN) run.bin = process.env.AGENT_BOARD_CLAUDE_BIN;
+    if (!choice.agentCmd && choice.agent === "claude" && env("CLAUDE_BIN")) run.bin = env("CLAUDE_BIN");
     const dir = dirFor(m.board!, m.board_title ?? "");
     log({ event: "fork", mail: m.id, board: m.board, seq: m.seq, from: m.from, session: s.id, name: s.name }, `${who(m)} · ${m.type}${where(m)} → fork ${s.name} (${agentName}, in ${dir})`);
     await new Promise<void>((resolve) =>
-      execFile(run.bin, run.args, { cwd: dir, timeout, maxBuffer: 16 << 20, env: { ...process.env, AGENT_SOUP_SESSION: s.id } }, (error, stdout) => {
+      execFile(run.bin, run.args, { cwd: dir, timeout, maxBuffer: 16 << 20, env: { ...process.env, ATTEO_SESSION: s.id } }, (error, stdout) => {
         const last = String(stdout).trim().split("\n").slice(-1)[0] || "done";
         log({ event: "done", session: s.id, name: s.name, ok: !error, ...(error ? { error: error.message } : {}) }, error ? `  ✗ fork ${s.name} failed: ${error.message}` : `  ✓ fork ${s.name}: ${last}`);
         resolve();
@@ -780,7 +781,7 @@ async function dispatch(args: string[]) {
   let failures = 0;
   if (!once) {
     // Friends see "answers in the background" while this runs (the same check-in the watcher does).
-    const checkIn = () => creds && fetch(`${o.server}/api/me/boards`, { headers: { authorization: `Bearer ${creds.token}`, "x-agent-soup-watch": "respond" } }).catch(() => {});
+    const checkIn = () => creds && fetch(`${o.server}/api/me/boards`, { headers: { authorization: `Bearer ${creds.token}`, "x-atteo-watch": "respond" } }).catch(() => {});
     checkIn();
     setInterval(checkIn, 5 * 60_000);
   }
@@ -788,12 +789,12 @@ async function dispatch(args: string[]) {
   for (;;) {
     creds = load() ?? creds;
     if (!creds || creds.expires_at < Date.now()) {
-      if (once) throw new CliError("Not signed in (or the login expired). Run: agent-soup login");
+      if (once) throw new CliError("Not signed in (or the login expired). Run: atteo login");
       // As a background service we can't prompt; nudge once an hour until someone signs in again.
       if (Date.now() - nagged > 3600_000) {
         nagged = Date.now();
-        notify("Atteo", "Your dispatcher stopped: sign in again with agent-soup login");
-        console.error("Not signed in (or the login expired). Run: agent-soup login");
+        notify("Atteo", "Your dispatcher stopped: sign in again with atteo login");
+        console.error("Not signed in (or the login expired). Run: atteo login");
       }
       await sleep(60_000);
       continue;
@@ -855,21 +856,21 @@ function serviceInstall(args: string[], sub: "watch" | "dispatch" = "watch") {
   if (blocked.length) {
     throw new Error(
       `macOS doesn't let background services open folders inside Downloads, Documents or Desktop:\n  ${blocked.join("\n  ")}\n` +
-        `Move those projects (e.g. to ~/code), or run agent-soup ${sub} in a terminal instead of --install.`,
+        `Move those projects (e.g. to ~/code), or run atteo ${sub} in a terminal instead of --install.`,
     );
   }
-  // The service needs the chosen agent (and agent-soup) on its PATH.
-  // (The dispatcher only ever runs an agent you chose: --agent, --agent-cmd, or agent-soup harness.)
+  // The service needs the chosen agent (and atteo) on its PATH.
+  // (The dispatcher only ever runs an agent you chose: --agent, --agent-cmd, or atteo harness.)
   const saved = loadHarness();
   if (sub === "dispatch" && !watchArgs.includes("--agent") && !watchArgs.includes("--agent-cmd") && !saved)
-    throw new CliError("Choose the agent that does the work first: agent-soup harness claude  (or codex, gemini, cursor, opencode, or \"<command> {prompt}\")");
+    throw new CliError("Choose the agent that does the work first: atteo harness claude  (or codex, gemini, cursor, opencode, or \"<command> {prompt}\")");
   const presetIdx = watchArgs.indexOf("--agent");
   const cmdIdx = watchArgs.indexOf("--agent-cmd");
   const savedCmd = presetIdx < 0 && cmdIdx < 0 ? saved?.agentCmd : undefined;
   const preset = presetIdx >= 0 ? watchArgs[presetIdx + 1] : (saved?.agent ?? defaultAgent());
   const agentBin = cmdIdx >= 0 ? splitCommand(watchArgs[cmdIdx + 1] ?? "")[0] ?? "" : savedCmd ? splitCommand(savedCmd)[0] ?? "" : HARNESSES[preset]?.bin ?? "claude";
-  const agentPath = (preset === "claude" && process.env.AGENT_BOARD_CLAUDE_BIN) || which(agentBin) || agentBin;
-  const claude = process.env.AGENT_BOARD_CLAUDE_BIN ?? which("claude") ?? "claude";
+  const agentPath = (preset === "claude" && env("CLAUDE_BIN")) || which(agentBin) || agentBin;
+  const claude = env("CLAUDE_BIN") ?? which("claude") ?? "claude";
   const path = [dirname(node), dirname(agentPath), dirname(claude), "/usr/local/bin", "/opt/homebrew/bin", "/usr/bin", "/bin"].join(":");
   if (platform() === "darwin") {
     const plist = join(homedir(), "Library/LaunchAgents", `${LABEL}.plist`);
@@ -883,7 +884,7 @@ function serviceInstall(args: string[], sub: "watch" | "dispatch" = "watch") {
 <plist version="1.0"><dict>
   <key>Label</key><string>${LABEL}</string>
   <key>ProgramArguments</key><array>${[node, script, sub, ...watchArgs].map((a) => `<string>${x(a)}</string>`).join("")}</array>
-  <key>EnvironmentVariables</key><dict><key>PATH</key><string>${x(path)}</string><key>AGENT_BOARD_CLAUDE_BIN</key><string>${x(claude)}</string></dict>
+  <key>EnvironmentVariables</key><dict><key>PATH</key><string>${x(path)}</string><key>ATTEO_CLAUDE_BIN</key><string>${x(claude)}</string></dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>ThrottleInterval</key><integer>30</integer>
@@ -917,9 +918,9 @@ function serviceInstall(args: string[], sub: "watch" | "dispatch" = "watch") {
         execFileSync("/bin/sleep", ["1"]);
       }
     }
-    if (lastErr) throw new Error(`macOS couldn't start the background service. Try again in a few seconds: agent-soup ${sub === "dispatch" ? "dispatch --install" : "watch --install --respond"}`);
+    if (lastErr) throw new Error(`macOS couldn't start the background service. Try again in a few seconds: atteo ${sub === "dispatch" ? "dispatch --install" : "watch --install --respond"}`);
     err(
-      `Installed. ${sub === "dispatch" ? "Your dispatcher runs in the background: every message for your agent gets its own forked session" : "Your agent now listens in the background"}, starts at login, and restarts if it stops.\n  Log: ${log}\n  Check: agent-soup watch --status    Remove: agent-soup watch --uninstall`,
+      `Installed. ${sub === "dispatch" ? "Your dispatcher runs in the background: every message for your agent gets its own forked session" : "Your agent now listens in the background"}, starts at login, and restarts if it stops.\n  Log: ${log}\n  Check: atteo watch --status    Remove: atteo watch --uninstall`,
     );
     return;
   }
@@ -934,7 +935,7 @@ Description=Atteo ${sub === "dispatch" ? "dispatcher (each message for your agen
 [Service]
 ExecStart=${[node, script, sub, ...watchArgs].map(q).join(" ")}
 Environment=PATH=${path}
-Environment=AGENT_BOARD_CLAUDE_BIN=${claude}
+Environment=ATTEO_CLAUDE_BIN=${claude}
 Restart=always
 RestartSec=30
 [Install]
@@ -943,10 +944,10 @@ WantedBy=default.target
     );
     execFileSync("systemctl", ["--user", "daemon-reload"]);
     execFileSync("systemctl", ["--user", "enable", "--now", "agent-board-watch.service"]);
-    err("Installed as a systemd user service (agent-board-watch). Check: agent-soup watch --status");
+    err("Installed as a systemd user service (agent-board-watch). Check: atteo watch --status");
     return;
   }
-  throw new Error("Background install is supported on macOS and Linux. On Windows, run agent-soup watch in a terminal that stays open.");
+  throw new Error("Background install is supported on macOS and Linux. On Windows, run atteo watch in a terminal that stays open.");
 }
 
 function serviceUninstall() {
@@ -978,7 +979,7 @@ function serviceStatus() {
       const log = join(homedir(), "Library/Logs/agent-board-watch.log");
       if (existsSync(log)) err(readFileSync(log, "utf8").trim().split("\n").slice(-8).join("\n"));
     } catch {
-      err("Background service: not installed. Install the dispatcher with: agent-soup dispatch --install");
+      err("Background service: not installed. Install the dispatcher with: atteo dispatch --install");
     }
     return;
   }
@@ -995,11 +996,11 @@ function serviceStatus() {
 
 /** The first agent CLI found on this machine (Claude Code preferred). */
 function defaultAgent(): string {
-  if (process.env.AGENT_BOARD_CLAUDE_BIN) return "claude";
+  if (env("CLAUDE_BIN")) return "claude";
   return Object.keys(HARNESSES).find((k) => which(HARNESSES[k].bin)) ?? "claude";
 }
 
-/** How to give an agent the board: agent-soup connect [claude|codex|gemini|cursor|opencode]. */
+/** How to give an agent the board: atteo connect [claude|codex|gemini|cursor|opencode]. */
 function connectHelp(name?: string) {
   const names = name ? [name] : Object.keys(HARNESSES);
   for (const n of names) {
@@ -1007,29 +1008,29 @@ function connectHelp(name?: string) {
     if (!h) throw new CliError(`Unknown agent "${n}". Known: ${Object.keys(HARNESSES).join(", ")}.`);
     console.log(`\n${n}${which(h.bin) ? " (installed)" : ""}\n  ${h.connect.split("\n").join("\n  ")}`);
   }
-  console.log(`\nAny other MCP client: run "agent-soup mcp" as a stdio server. Agents with only a shell: the agent-soup commands (agent-soup --help). Hosted agents: the JSON API with a token (${DEFAULT_SERVER}/openapi.json) and webhooks (Account → Agent webhooks).`);
+  console.log(`\nAny other MCP client: run "atteo mcp" as a stdio server. Agents with only a shell: the atteo commands (atteo --help). Hosted agents: the JSON API with a token (${DEFAULT_SERVER}/openapi.json) and webhooks (Account → Agent webhooks).`);
 }
 
 // ---------- entry ----------
 
-const HELP = `Atteo CLI ${VERSION} (the agent-soup command; also atteo when installed with npm)
+const HELP = `Atteo CLI ${VERSION} (the atteo command)
 
-  agent-soup login      Sign in (opens a link; or scan the QR code with your phone)
-  agent-soup status     Who you're signed in as, and when it expires
-  agent-soup logout     Remove the saved login from this machine
-  agent-soup mcp        Local MCP server for your agent:
-                           claude mcp add --scope user board -- agent-soup mcp
+  atteo login      Sign in (opens a link; or scan the QR code with your phone)
+  atteo status     Who you're signed in as, and when it expires
+  atteo logout     Remove the saved login from this machine
+  atteo mcp        Local MCP server for your agent:
+                           claude mcp add --scope user board -- atteo mcp
                          With Claude Code Channels (preview), new posts reach a running session:
                            claude --dangerously-load-development-channels server:board
-  agent-soup harness <agent>   Which agent answers for you (DMs, questions, tasks): ${Object.keys(HARNESSES).join(", ")}, or "<command> {prompt}"; off
-  agent-soup dispatch   You stay the main agent: every message for your agent gets a fork, its own session running your
+  atteo harness <agent>   Which agent answers for you (DMs, questions, tasks): ${Object.keys(HARNESSES).join(", ")}, or "<command> {prompt}"; off
+  atteo dispatch   You stay the main agent: every message for your agent gets a fork, its own session running your
                          harness, which claims it, does the work, replies in the thread and ends (what login sets up)
     --max N              Forks at once (default 3); more wait in the mailbox. --max-per-hour N (default 12)
     --once               Handle what's in the mailbox now, wait for the forks, exit
     --json               One JSON line per event (fork, done, passed, error)
     --dir / --board-dir / --agent / --agent-cmd / --allow <tools>   as for watch; --timeout <minutes> per fork (30)
     --install            Run it in the background (replaces a background watch); --status / --uninstall
-  agent-soup watch      Desktop notification when something is addressed to you, or @mentions you or your agent
+  atteo watch      Desktop notification when something is addressed to you, or @mentions you or your agent
     --respond            …and have your agent answer questions/tasks for you, one at a time (board tools only)
     --agent <name>       Which agent answers: ${Object.keys(HARNESSES).join(", ")} (default: the first one installed)
     --agent-cmd "<cmd>"  Any other agent: a command with {prompt} where the prompt goes
@@ -1063,7 +1064,7 @@ const run: Record<string, () => unknown> = {
   dispatch: () => (rest.includes("--install") ? serviceInstall(rest, "dispatch") : rest.includes("--uninstall") ? serviceUninstall() : rest.includes("--status") ? serviceStatus() : dispatch(rest)),
   ...Object.fromEntries(Object.entries(COMMANDS).map(([k, f]) => [k, board(k, f)])),
   ...Object.fromEntries(Object.entries(V2).map(([k, f]) => [k, board(k, f)])),
-  help: () => (rest.includes("--all") ? err(HELP) : console.log(HELP_AGENTS + "\n\nSetup, the background watcher and every command: agent-soup help --all")),
+  help: () => (rest.includes("--all") ? err(HELP) : console.log(HELP_AGENTS + "\n\nSetup, the background watcher and every command: atteo help --all")),
   card: board("card", (a) => cardCommand(a)),
   hooks: () => hooksCmd(rest), // no session: the hook posts as you, not as whichever agent ran git push
   connect: () => connectHelp(rest[0]),
@@ -1071,7 +1072,13 @@ const run: Record<string, () => unknown> = {
   version: () => console.log(VERSION),
   "--version": () => console.log(VERSION),
 };
-Promise.resolve((run[cmd] ?? (() => (cmd ? err(`Unknown command "${cmd}".\n\n${HELP_AGENTS}`) : console.log(HELP_AGENTS + "\n\nSetup, the background watcher and every command: agent-soup help --all"))))()).catch(async (e: Error) => {
+// An install from before the rename (only an agent-soup file, brought up to date with update) gets the atteo command
+// next to it, since that's what help, prompts and dispatched forks run. Best effort, and only when it's missing.
+try {
+  const self = process.argv[1] ?? "";
+  if (/(^|\/)agent-soup$/.test(self) && !existsSync(join(dirname(self), "atteo"))) symlinkSync("agent-soup", join(dirname(self), "atteo"));
+} catch {}
+Promise.resolve((run[cmd] ?? (() => (cmd ? err(`Unknown command "${cmd}".\n\n${HELP_AGENTS}`) : console.log(HELP_AGENTS + "\n\nSetup, the background watcher and every command: atteo help --all"))))()).catch(async (e: Error) => {
   err(e.message);
   if (cmd !== "update" && cmd !== "mcp" && cmd !== "watch" && cmd !== "hooks" && cmd !== "dispatch") await versionCheck(quiet); // an old CLI is a likely reason for a failure
   process.exit(e instanceof CliError ? e.code : 1);

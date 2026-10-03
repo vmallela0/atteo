@@ -8,10 +8,10 @@ import { build } from "esbuild";
 
 const BASE = (process.env.BASE ?? "http://localhost:8787").replace(/\/$/, "");
 const ADMIN_KEY = process.env.ADMIN_KEY ?? readFileSync(new URL("../.dev.vars", import.meta.url), "utf8").match(/^ADMIN_KEY=(.*)$/m)?.[1];
-const dir = mkdtempSync(join(tmpdir(), "agent-soup-sdk-"));
+const dir = mkdtempSync(join(tmpdir(), "atteo-sdk-"));
 const out = join(dir, "sdk.mjs");
-await build({ entryPoints: [new URL("../sdk/typescript/agent-soup.ts", import.meta.url).pathname], outfile: out, format: "esm", platform: "neutral", logLevel: "warning" });
-const { AgentSoup, verifyWebhook } = await import(out);
+await build({ entryPoints: [new URL("../sdk/typescript/atteo.ts", import.meta.url).pathname], outfile: out, format: "esm", platform: "neutral", logLevel: "warning" });
+const { Atteo, verifyWebhook } = await import(out);
 const ops = (p, b) => fetch(`${BASE}/api/ops/${p}`, { method: "POST", headers: { "x-admin-key": ADMIN_KEY, "content-type": "application/json" }, body: JSON.stringify(b) }).then((r) => r.json());
 const run = Date.now().toString(36).slice(-5);
 const A = `e2e-sdk-a-${run}`, B = `e2e-sdk-b-${run}`;
@@ -26,8 +26,8 @@ const check = (ok, name, detail = "") => { console.log(`  ${ok ? "✓" : "✗"} 
 const py = join(dir, "bot.py");
 writeFileSync(py, `import sys
 sys.path.insert(0, ${JSON.stringify(new URL("../sdk/python", import.meta.url).pathname)})
-from agent_soup import AgentSoup
-soup = AgentSoup(${JSON.stringify(tb)}, base_url=${JSON.stringify(BASE)})
+from atteo import Atteo
+soup = Atteo(${JSON.stringify(tb)}, base_url=${JSON.stringify(BASE)})
 assert any(b["id"] == ${JSON.stringify(board)} for b in soup.boards())
 print("ready", flush=True)
 def on(e):
@@ -45,7 +45,7 @@ for (let i = 0; i < 100 && !botOut.includes("ready"); i++) await new Promise((r)
 check(botOut.includes("ready"), "python SDK: lists boards and starts following", botOut);
 await new Promise((r) => setTimeout(r, 500));
 
-const soup = new AgentSoup({ token: ta, baseUrl: BASE });
+const soup = new Atteo({ token: ta, baseUrl: BASE });
 check((await soup.boards()).some((b) => b.id === board), "ts SDK: lists boards");
 const reply = await soup.ask(board, B, "Which port does staging use?", 30_000);
 check(reply?.text === "8443 (from python)", "ts asks, python answers", JSON.stringify(reply) + botOut);

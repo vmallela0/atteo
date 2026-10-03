@@ -329,15 +329,15 @@ enum ChatSummary {
     }
 }
 
-/// The board's info, from the chat's title: what's open (questions, decisions; tap to jump there), its agents,
-/// members and files, and a search of this chat.
+/// The board's info, from the chat's title: what's open (questions, decisions; tap to jump there) and its agents,
+/// then the board itself (BoardInfoView: invite, members, rename, archive) with its files, and a search of the
+/// whole chat.
 struct BoardInfoSheet: View {
     @EnvironmentObject var state: AppState
     @Environment(\.dismiss) private var dismiss
     let board: Board
     let jump: (Int) -> Void
-    @State private var members: [BoardMembersResponse.Member]?
-    @State private var files: [BoardFile]?
+    @State private var files: [DocMeta]?
     @State private var query = ""
     @State private var hits: ChatSearchResponse?
     @State private var searching = false
@@ -347,91 +347,68 @@ struct BoardInfoSheet: View {
     private var me: String? { state.me?.owner }
 
     var body: some View {
-        let entries = state.entries[board.id] ?? []
-        let open = ChatSummary.open(entries)
-        let agents = (state.boardAgents[board.id] ?? []).sorted { rank($0.state) == rank($1.state) ? $0.lastSeen > $1.lastSeen : rank($0.state) < rank($1.state) }
         NavigationStack {
-            List {
-                Group { if !query.trimmingCharacters(in: .whitespaces).isEmpty { results } else {
-                    header(agents: agents)
-                    if !open.questions.isEmpty {
-                        Section { ForEach(open.questions.suffix(8).reversed()) { e in jumpRow(e, icon: "questionmark.circle.fill", tint: Theme.warn) } }
-                            header: { SectionHeader("Open questions · \(open.questions.count)") }
-                    }
-                    if !open.decisions.isEmpty {
-                        Section { ForEach(open.decisions.suffix(5).reversed()) { e in jumpRow(e, icon: "checkmark.seal.fill", tint: Theme.ok) } }
-                            header: { SectionHeader("Recent decisions") }
-                    }
-                    Section {
-                        if agents.isEmpty { Text("No agents on this board yet.").font(Typo.secondary).foregroundStyle(Theme.muted) }
-                        ForEach(agents) { a in AgentHereRow(a: a) }
-                    } header: {
-                        let live = agents.filter { $0.state == "live" }.count
-                        SectionHeader(live > 0 ? "Agents · \(live) working" : "Agents")
-                    }
-                    Section {
-                        if let members {
-                            ForEach(members) { m in
-                                HStack(spacing: Space.m) {
-                                    Avatar(name: m.user, size: 28)
-                                    Text(m.user == me ? "\(m.user) (you)" : m.user).font(Typo.rowTitleRead).foregroundStyle(Theme.text).lineLimit(1)
-                                    Spacer(minLength: Space.s)
-                                    if let r = m.role, r != "member" { Text(r).font(Typo.micro).foregroundStyle(Theme.faint) }
-                                }
-                            }
-                        } else { ProgressView().tint(Theme.faint) }
-                    } header: { SectionHeader(members.map { "Members · \($0.count)" } ?? "Members") }
-                    Section {
-                        if let files {
-                            if files.isEmpty { Text("No files yet.").font(Typo.secondary).foregroundStyle(Theme.muted) }
-                            ForEach(files.prefix(30)) { f in fileRow(f) }
-                        } else { ProgressView().tint(Theme.faint) }
-                    } header: { SectionHeader(files.map { $0.isEmpty ? "Files" : "Files · \($0.count)" } ?? "Files") }
-                } }.listRowBackground(Theme.card) // (the Group hands it to every section)
+            Group {
+                if !query.trimmingCharacters(in: .whitespaces).isEmpty {
+                    List { results.listRowBackground(Theme.card) }
+                        .listSectionSpacing(.compact)
+                        .scrollContentBackground(.hidden)
+                        .background(Theme.bg)
+                } else {
+                    BoardInfoView(boardId: board.id, fallback: board, top: { openAndAgents }, files: { filesSection })
+                }
             }
-            .listSectionSpacing(.compact)
-            .scrollContentBackground(.hidden)
-            .background(Theme.bg)
-            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search this chat")
+            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: board.encrypted == true ? "Search what's on this phone" : "Search this chat")
             .navigationTitle("Info")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() }.foregroundStyle(Theme.text) } }
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() }.fontWeight(.semibold).foregroundStyle(Theme.text) } }
             .toolbarBackground(Theme.bg, for: .navigationBar)
             .quickLookPreview($preview)
             .task { await load() }
             .task(id: query) { await search() }
-            .refreshable { await load() }
         }
     }
 
     private func rank(_ s: String) -> Int { s == "live" ? 0 : s == "idle" ? 1 : 2 }
 
-    /// The board itself: its tile, its name, and what kind of place it is.
-    private func header(agents: [BoardAgent]) -> some View {
-        Section {
-            HStack(spacing: Space.m) {
-                BoardTile(title: board.displayName(me: me), size: 48)
-                VStack(alignment: .leading, spacing: Space.xxs) {
-                    Text(board.displayName(me: me)).font(.headline).foregroundStyle(Theme.text).lineLimit(2)
-                    HStack(spacing: Space.xs) {
-                        if board.encrypted == true { Image(systemName: "lock.fill").font(.system(size: 10)) }
-                        Text(subtitle(agents: agents)).lineLimit(1)
-                    }
-                    .font(Typo.meta).foregroundStyle(Theme.muted)
-                }
-            }
-            .padding(.vertical, Space.xs)
+    /// What's open in this chat (questions nobody answered, decisions made) and the agents here, live first.
+    @ViewBuilder private var openAndAgents: some View {
+        let open = ChatSummary.open(state.entries[board.id] ?? [])
+        let agents = (state.boardAgents[board.id] ?? []).sorted { rank($0.state) == rank($1.state) ? $0.lastSeen > $1.lastSeen : rank($0.state) < rank($1.state) }
+        if !open.questions.isEmpty {
+            Section { ForEach(open.questions.suffix(8).reversed()) { e in jumpRow(e, icon: "questionmark.circle.fill", tint: Theme.warn) } }
+                header: { SectionHeader("Open questions · \(open.questions.count)") }
+                .listRowBackground(Theme.card)
         }
+        if !open.decisions.isEmpty {
+            Section { ForEach(open.decisions.suffix(5).reversed()) { e in jumpRow(e, icon: "checkmark.seal.fill", tint: Theme.ok) } }
+                header: { SectionHeader("Recent decisions") }
+                .listRowBackground(Theme.card)
+        }
+        Section {
+            if agents.isEmpty { Text("No agents on this board yet.").font(Typo.secondary).foregroundStyle(Theme.muted) }
+            ForEach(agents) { a in AgentHereRow(a: a) }
+        } header: {
+            let live = agents.filter { $0.state == "live" }.count
+            SectionHeader(live > 0 ? "Agents · \(live) working" : "Agents")
+        }
+        .listRowBackground(Theme.card)
     }
 
-    private func subtitle(agents: [BoardAgent]) -> String {
-        var parts: [String] = []
-        if board.kind == "direct" { parts.append("Direct message") }
-        if let m = members { parts.append(m.count == 1 ? "1 member" : "\(m.count) members") }
-        let live = agents.filter { $0.state == "live" }.count
-        if live > 0 { parts.append("\(live) working now") }
-        if board.encrypted == true { parts.append("encrypted") }
-        return parts.joined(separator: " · ")
+    /// The most recent files, each opening where it reads best (documents in the reader, pictures and other files in
+    /// Quick Look), and all of them a tap away.
+    @ViewBuilder private var filesSection: some View {
+        Section {
+            if let files {
+                if files.isEmpty { Text("No files yet.").font(Typo.secondary).foregroundStyle(Theme.muted) }
+                ForEach(files.prefix(5)) { f in fileRow(f) }
+                if files.count > 5 {
+                    NavigationLink { FilesList(board: board.id) } label: { InfoLabel("All \(files.count) files", "doc.on.doc") }
+                        .accessibilityIdentifier("board-files")
+                }
+            } else { ProgressView().tint(Theme.faint) }
+        } header: { SectionHeader(files.map { $0.isEmpty ? "Files" : "Files · \($0.count)" } ?? "Files") }
+        .listRowBackground(Theme.card)
     }
 
     /// A question or decision: who, a few words, its number. Tap: close and go to it in the chat.
@@ -453,53 +430,42 @@ struct BoardInfoSheet: View {
         .accessibilityIdentifier("info-jump-\(e.seq)")
     }
 
-    private func fileRow(_ f: BoardFile) -> some View {
-        Button { openFile(f) } label: {
-            HStack(spacing: Space.m) {
-                ZStack {
-                    FileIcon(name: f.name, size: 28).opacity(opening == f.name ? 0.4 : 1)
-                    if opening == f.name { ProgressView().controlSize(.small).tint(Theme.muted) }
-                }
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(f.name).font(Typo.secondary.weight(.medium)).foregroundStyle(Theme.text).lineLimit(1).truncationMode(.middle)
-                    Text([f.size.map { $0.bytes }, f.version > 1 ? "v\(f.version)" : nil, f.updatedBy, f.updatedAt.ago].compactMap { $0 }.joined(separator: " · "))
-                        .font(Typo.micro).foregroundStyle(Theme.faint).lineLimit(1)
-                }
-                Spacer(minLength: 0)
+    @ViewBuilder private func fileRow(_ f: DocMeta) -> some View {
+        let label = HStack(spacing: Space.m) {
+            ZStack {
+                FileIcon(name: f.name, size: 28).opacity(opening == f.name ? 0.4 : 1)
+                if opening == f.name { ProgressView().controlSize(.small).tint(Theme.muted) }
             }
-            .contentShape(Rectangle())
+            VStack(alignment: .leading, spacing: 1) {
+                Text(f.name).font(Typo.secondary.weight(.medium)).foregroundStyle(Theme.text).lineLimit(1).truncationMode(.middle)
+                Text([f.size.bytes, f.version > 1 ? "v\(f.version)" : nil, f.via == "agent" ? "\(f.updatedBy)'s agent" : f.updatedBy, f.updatedAt.ago].compactMap { $0 }.joined(separator: " · "))
+                    .font(Typo.micro).foregroundStyle(Theme.faint).lineLimit(1)
+            }
+            Spacer(minLength: 0)
         }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("info-file")
+        .contentShape(Rectangle())
+        // Stored bytes (pictures, PDFs…) go to Quick Look; text documents to the reader, with their versions.
+        if f.mime != nil {
+            Button { openFile(f) } label: { label }.buttonStyle(.plain).accessibilityIdentifier("file-\(f.name)")
+        } else {
+            NavigationLink { DocViewer(board: board.id, name: f.name) } label: { label }.accessibilityIdentifier("file-\(f.name)")
+        }
     }
 
     /// Search results: messages (tap to jump there), then files.
     @ViewBuilder private var results: some View {
         if let hits {
             if hits.entries.isEmpty && (hits.files ?? []).isEmpty {
-                Text(searching ? "Searching…" : "Nothing matches “\(query)”.").font(Typo.secondary).foregroundStyle(Theme.muted)
+                Text(searching ? "Searching…" : board.encrypted == true
+                     ? "Nothing on this phone matches “\(query)”. This board is end-to-end encrypted, so only the messages this phone has loaded can be searched."
+                     : "Nothing in this chat matches “\(query)”.")
+                    .font(Typo.secondary).foregroundStyle(Theme.muted)
+                    .accessibilityIdentifier("search-empty")
             }
             if !hits.entries.isEmpty {
                 Section {
-                    ForEach(hits.entries) { h in
-                        Button { Haptic.tap(); jump(h.seq) } label: {
-                            HStack(alignment: .top, spacing: Space.m) {
-                                Avatar(name: h.author, agent: h.via == "agent", size: 28)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    HStack(spacing: Space.xs) {
-                                        Text(h.via == "agent" ? "\(h.author)'s agent" : h.author).font(Typo.meta.weight(.semibold)).foregroundStyle(Theme.text)
-                                        Spacer(minLength: Space.s)
-                                        Text(h.ts.ago).font(Typo.micro).foregroundStyle(Theme.faint)
-                                    }
-                                    Text(Self.highlighted(h.snippet)).font(Typo.secondary).foregroundStyle(Theme.muted).lineLimit(3)
-                                }
-                            }
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityIdentifier("search-hit-\(h.seq)")
-                    }
-                } header: { SectionHeader("Messages") }
+                    ForEach(hits.entries) { h in SearchHitRow(hit: h) { Haptic.tap(); jump(h.seq) } }
+                } header: { SectionHeader(board.encrypted == true ? "On this phone" : "Messages") }
             }
             if let fs = hits.files, !fs.isEmpty {
                 Section {
@@ -513,6 +479,69 @@ struct BoardInfoSheet: View {
         } else {
             HStack { Spacer(); ProgressView().tint(Theme.faint); Spacer() }
         }
+    }
+
+    private func load() async {
+        async let a: Void = state.loadAgents(board)
+        async let f = state.docs(board.id)
+        let (_, ff) = await (a, f)
+        withAnimation(.smooth) { files = ff.sorted { $0.updatedAt > $1.updatedAt } }
+    }
+
+    /// Searches the whole chat on the server as you type (a moment after you stop). On an encrypted board the
+    /// server can't read the messages, so it searches what this phone has (and says so).
+    private func search() async {
+        let q = query.trimmingCharacters(in: .whitespaces)
+        guard !q.isEmpty else { hits = nil; return }
+        try? await Task.sleep(nanoseconds: 300_000_000)
+        guard !Task.isCancelled else { return }
+        searching = true
+        defer { searching = false }
+        if board.encrypted == true {
+            let found = (state.entries[board.id] ?? []).filter { $0.seq > 0 && $0.retracts == nil && $0.text.localizedCaseInsensitiveContains(q) }.reversed().prefix(60)
+            hits = ChatSearchResponse(entries: found.map { .init(seq: $0.seq, ts: $0.ts, author: $0.author, via: $0.via, type: $0.type, title: $0.title, snippet: String($0.text.prefix(200))) }, files: [])
+            return
+        }
+        do {
+            let r = try await API.shared.get("/api/boards/\(board.id)/search?q=\(q.queryEscaped)", as: ChatSearchResponse.self)
+            if !Task.isCancelled { withAnimation(.smooth) { hits = r } }
+        } catch { if !Task.isCancelled { state.report(error, quiet: true) } }
+    }
+
+    private func openFile(_ f: DocMeta) {
+        guard opening == nil else { return }
+        Haptic.tap()
+        opening = f.name
+        Task {
+            defer { opening = nil }
+            do { preview = try await MediaStore.shared.file(for: f.entry, board: board.id) } catch { Haptic.warn(); state.report(error) }
+        }
+    }
+}
+
+/// One search hit: who said it, when, and the words around the match (matches in bold).
+struct SearchHitRow: View {
+    let hit: ChatSearchResponse.Hit
+    var board: String? = nil // across boards: which one
+    let open: () -> Void
+    var body: some View {
+        Button(action: open) {
+            HStack(alignment: .top, spacing: Space.m) {
+                Avatar(name: hit.author, agent: hit.via == "agent", size: 28)
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: Space.xs) {
+                        Text(hit.via == "agent" ? "\(hit.author)'s agent" : hit.author).font(Typo.meta.weight(.semibold)).foregroundStyle(Theme.text).lineLimit(1)
+                        if let board { Text("in \(board)").font(Typo.micro).foregroundStyle(Theme.faint).lineLimit(1) }
+                        Spacer(minLength: Space.s)
+                        Text(hit.ts.ago).font(Typo.micro).foregroundStyle(Theme.faint)
+                    }
+                    Text(SearchHitRow.highlighted(hit.snippet)).font(Typo.secondary).foregroundStyle(Theme.muted).lineLimit(3)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("search-hit-\(hit.seq)")
     }
 
     /// The server marks matches «like this»: shown in bold, in the text color.
@@ -532,46 +561,5 @@ struct BoardInfoSheet: View {
         }
         flush()
         return out
-    }
-
-    private func load() async {
-        async let a: Void = state.loadAgents(board)
-        async let m: BoardMembersResponse? = try? API.shared.get("/api/boards/\(board.id)/members", as: BoardMembersResponse.self)
-        async let f: BoardFilesResponse? = try? API.shared.get("/api/boards/\(board.id)/files", as: BoardFilesResponse.self)
-        let (_, mm, ff) = await (a, m, f)
-        withAnimation(.smooth) {
-            members = (mm?.members ?? members ?? []).sorted { ($0.user == me ? 0 : 1, $0.user) < ($1.user == me ? 0 : 1, $1.user) }
-            files = ff?.docs ?? files ?? []
-        }
-    }
-
-    /// Searches this chat as you type (a moment after you stop). On an encrypted board the server can't read the
-    /// messages, so it searches what this phone has.
-    private func search() async {
-        let q = query.trimmingCharacters(in: .whitespaces)
-        guard !q.isEmpty else { hits = nil; return }
-        try? await Task.sleep(nanoseconds: 300_000_000)
-        guard !Task.isCancelled else { return }
-        searching = true
-        defer { searching = false }
-        if board.encrypted == true {
-            let found = (state.entries[board.id] ?? []).filter { $0.seq > 0 && $0.retracts == nil && $0.text.localizedCaseInsensitiveContains(q) }.reversed().prefix(60)
-            hits = ChatSearchResponse(entries: found.map { .init(seq: $0.seq, ts: $0.ts, author: $0.author, via: $0.via, type: $0.type, title: $0.title, snippet: String($0.text.prefix(200))) }, files: [])
-            return
-        }
-        do {
-            let r = try await API.shared.get("/api/boards/\(board.id)/search?q=\(q.queryEscaped)", as: ChatSearchResponse.self)
-            if !Task.isCancelled { withAnimation(.smooth) { hits = r } }
-        } catch { if !Task.isCancelled { state.report(error, quiet: true) } }
-    }
-
-    private func openFile(_ f: BoardFile) {
-        guard opening == nil else { return }
-        Haptic.tap()
-        opening = f.name
-        Task {
-            defer { opening = nil }
-            do { preview = try await MediaStore.shared.file(for: f.entry, board: board.id) } catch { Haptic.warn(); state.report(error) }
-        }
     }
 }

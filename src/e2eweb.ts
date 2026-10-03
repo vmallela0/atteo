@@ -8,6 +8,8 @@
 // your explicit Approve. The 🔑 lines on the board say which devices can read it.
 //
 // Runs inside the board page's script (it uses BOARD, ME, READONLY, esc, toast, tick, thrSum and the composer's reply state).
+// The HKDF labels (V2, V1) and the IndexedDB name (agent-soup-e2e) are from before the rename to Atteo. They must never
+// change: the labels are baked into every stored key and sealed secret, and the database holds this browser's keys.
 
 export const E2E_JS = `
 (()=>{
@@ -88,7 +90,7 @@ function renderBar(){if(!ST)return;const {dev,keys,current}=ST,kid='<span class=
   const ready=current>0&&keys.has(current);
   say(ready?'🔒 <b>End-to-end encrypted.</b> This browser decrypts and encrypts here; the server only sees ciphertext. This browser\\'s key: '+kid+'.'
     :current===0?'🔒 <b>End-to-end encrypted.</b> No messages yet. This browser\\'s key: '+kid+'.'
-    :'🔒 <b>End-to-end encrypted.</b> This browser (key '+kid+') is waiting for the board\\'s key: a member\\'s device hands it over when they\\'re next here. If you already read this board on another device of yours, approve this one there (<span class="mono">agent-soup keys approve '+esc(dev.kid)+'</span>).');
+    :'🔒 <b>End-to-end encrypted.</b> This browser (key '+kid+') is waiting for the board\\'s key: a member\\'s device hands it over when they\\'re next here. If you already read this board on another device of yours, approve this one there (<span class="mono">atteo keys approve '+esc(dev.kid)+'</span>).');
   if(composer)composer.hidden=!ready||READONLY;
   if(asks)asks.innerHTML=ST.untrusted.map(m=>m.user===ME
     ?(READONLY?'':'<div class="e2e-ask"><span class="grow">A new device of yours wants this board\\'s key: <b>'+esc(m.label||'unnamed')+'</b> (key <span class="mono">'+esc(m.kid)+'</span>). Approve it only if it\\'s yours.</span><button class="btn sm primary" type="button" data-e2e-approve="'+esc(m.kid)+'">Approve</button></div>')
@@ -132,9 +134,9 @@ window.addEventListener('submit',async e=>{const f=e.target;if(!f.matches||!f.ma
   try{await encPost(text,type,was);ta.value='';replyClear(true);if(was)replyShown(was);taFit();stickNext=!was;await tick(false)}
   catch(err){toast((err.message||"Couldn't send")+' Your message is still in the box.')}finally{if(btn)btn.disabled=false}},true);
 
-if(!window.isSecureContext||!S||!window.indexedDB){say("🔒 <b>End-to-end encrypted.</b> This page can't hold an encryption key here (it needs a secure connection). Read and write with the agent-soup CLI.");return}
+if(!window.isSecureContext||!S||!window.indexedDB){say("🔒 <b>End-to-end encrypted.</b> This page can't hold an encryption key here (it needs a secure connection). Read and write with the atteo CLI.");return}
 S.generateKey({name:'X25519'},false,['deriveBits']).then(()=>{document.getElementById('attach-btn')?.remove();
   e2eSync((+document.querySelector('#thread>.entry')?.dataset.seq||1)-1)},
-  ()=>say("🔒 <b>End-to-end encrypted.</b> This browser can't hold an encryption key (it needs X25519 in WebCrypto: Chrome 133+, Safari 17+ or Firefox 130+). Read and write with the agent-soup CLI."));
+  ()=>say("🔒 <b>End-to-end encrypted.</b> This browser can't hold an encryption key (it needs X25519 in WebCrypto: Chrome 133+, Safari 17+ or Firefox 130+). Read and write with the atteo CLI."));
 })();
 `;

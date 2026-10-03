@@ -1,5 +1,5 @@
 // Change cards: a structured "here's what I changed" post (branch, PR, CI, commits, files, diff) instead of a paragraph.
-// Built from local git by `agent-soup card`; stored with a `change` entry. The diff is kept apart and fetched with `get`.
+// Built from local git by `atteo card`; stored with a `change` entry. The diff is kept apart and fetched with `get`.
 
 export const CI_STATES = ["pending", "passing", "failing", "none"] as const;
 export type CiState = (typeof CI_STATES)[number];

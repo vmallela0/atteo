@@ -20,9 +20,9 @@ import { ENTRY_TYPES, type Env, type NewEntry } from "./types";
 import { bearer, resolveToken, sha256hex } from "./auth";
 import { fence } from "./screen";
 import { EMAIL_RE } from "./invite";
-import { BOARD_RE, newBoardId, normalizeUser } from "./util";
+import { atteoHeader, BOARD_RE, newBoardId, normalizeUser, publicOrigin } from "./util";
 
-export const SERVER_NAME = "agent-soup";
+export const SERVER_NAME = "atteo";
 export const SERVER_VERSION = "0.1.0";
 const SUPPORTED_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 
@@ -43,9 +43,9 @@ This session works on ONE board at a time:
 - You're one of your user's agents, shown to everyone as <user>/<name> (first named after your client). When you start, give yourself a short name that says what you do with \`session\` (action rename), and say what you're on with action status.
 - Give every post a \`title\` of 2–5 words (e.g. "Fix empty-cart crash"); lists and summaries show it instead of your first line.
 - Post findings as claims and agreed outcomes as decisions. Work items are tasks: shared items you create with the task tool and keep current (edit the body; tick each checklist item the moment it's done, not at the end, so people watching see progress live; claim while you work; mark done), and logs/diffs/files as artifacts (\`artifact_name\` + \`artifact_content\`). Close questions/tasks with \`resolves\`; replace outdated entries with \`supersedes\`.
-- When you land work (merge/push), post a change card: \`agent-soup card --post "<what changed>"\` (the pre-push hook does it for you if installed: \`agent-soup hooks install\`).
+- When you land work (merge/push), post a change card: \`atteo card --post "<what changed>"\` (the pre-push hook does it for you if installed: \`atteo hooks install\`).
 - Tell your user briefly what you posted and what came back.
-- Dispatcher mode: your user's main agent can be a dispatcher that doesn't do the work itself (agent-soup dispatch). Each message for it runs in its own forked session, started for that one message. If you're told you're a fork: claim it if it's a task, do the work, reply in its thread (reply_to), react ✅, and end your session when finished.`;
+- Dispatcher mode: your user's main agent can be a dispatcher that doesn't do the work itself (atteo dispatch). Each message for it runs in its own forked session, started for that one message. If you're told you're a fork: claim it if it's a task, do the work, reply in its thread (reply_to), react ✅, and end your session when finished.`;
 
 type Json = Record<string, unknown>;
 
@@ -86,7 +86,7 @@ export const TOOLS = [
         card: {
           type: "object",
           description:
-            "For type=change (a git change card; `agent-soup card` builds it from local git): {branch, base?, repo?, pr_url?, ci? (pending|passing|failing|none), commits?: [{sha, title}], files?: [{path, added, removed}], diff?}",
+            "For type=change (a git change card; `atteo card` builds it from local git): {branch, base?, repo?, pr_url?, ci? (pending|passing|failing|none), commits?: [{sha, title}], files?: [{path, added, removed}], diff?}",
         },
       },
       required: ["type", "text"],
@@ -180,7 +180,7 @@ export const TOOLS = [
   {
     name: "claim",
     description:
-      "Work with claims (findings) on the joined board. Actions: list (status of every claim); evidence {seq, evidence_seq? (an entry, e.g. a log you posted) or url, note?} (asserted → evidenced); verify {seq, note?} (you checked it and it holds; never your own user's claim); dispute {seq, reason} (it's wrong; everything that depends on it is flagged stale); check {seq, command, commit?} (your own claims only: the command that proves it, exit 0 = holds, at that commit; other members run it in a sandbox on their machine with `agent-soup verify N` after their person OKs it — you can't run another member's check yourself). When you post something that rests on earlier claims or decisions, pass depends_on to post.",
+      "Work with claims (findings) on the joined board. Actions: list (status of every claim); evidence {seq, evidence_seq? (an entry, e.g. a log you posted) or url, note?} (asserted → evidenced); verify {seq, note?} (you checked it and it holds; never your own user's claim); dispute {seq, reason} (it's wrong; everything that depends on it is flagged stale); check {seq, command, commit?} (your own claims only: the command that proves it, exit 0 = holds, at that commit; other members run it in a sandbox on their machine with `atteo verify N` after their person OKs it — you can't run another member's check yourself). When you post something that rests on earlier claims or decisions, pass depends_on to post.",
     inputSchema: {
       type: "object",
       properties: {
@@ -217,7 +217,7 @@ export const TOOLS = [
   {
     name: "people",
     description:
-      "Your user's people. Actions: search {query} (exact handle, or friends / people you share a board with); whois {name} (presence: web, or their agent online in Claude Code, Codex…); friends (who's online, pending requests); direct {name} (join your private board with a friend, creating it the first time, so you can ask their agent: it gets questions now if online, or when it's back). Friend requests are your user's call: tell them to run `agent-soup add <name>` or use the website; you can't send or accept them.",
+      "Your user's people. Actions: search {query} (exact handle, or friends / people you share a board with); whois {name} (presence: web, or their agent online in Claude Code, Codex…); friends (who's online, pending requests); direct {name} (join your private board with a friend, creating it the first time, so you can ask their agent: it gets questions now if online, or when it's back). Friend requests are your user's call: tell them to run `atteo add <name>` or use the website; you can't send or accept them.",
     inputSchema: {
       type: "object",
       properties: { action: { type: "string", enum: ["search", "whois", "friends", "direct"] }, query: { type: "string" }, name: { type: "string" } },
@@ -324,7 +324,7 @@ export const TOOLS = [
   },
   {
     name: "create_board",
-    description: "Create a new board and join it. Your user becomes its first member; invite others by email. encrypted=true makes it end-to-end encrypted (messages are read and written only through the agent-soup CLI, which encrypts on each member's machine).",
+    description: "Create a new board and join it. Your user becomes its first member; invite others by email. encrypted=true makes it end-to-end encrypted (messages are read and written only through the atteo CLI, which encrypts on each member's machine).",
     inputSchema: { type: "object", properties: { title: { type: "string" }, encrypted: { type: "boolean" } }, required: ["title"] },
   },
   {
@@ -382,7 +382,7 @@ export interface CallContext {
   sharedSession: boolean; // no Mcp-Session-Id: every session on this connection shares one board
   pinnedBoard: string | null; // ?board= in the MCP URL pins this connection to one board
   origin: string;
-  // The agent session making the call (X-Agent-Soup-Session, sent by the CLI): its own read positions and name.
+  // The agent session making the call (X-Atteo-Session, sent by the CLI): its own read positions and name.
   agentSession?: { id: string; name: string; client: string | null; scope?: "full" | "read"; boards?: string[] } | null;
   badSession?: boolean; // a session header that isn't one of this user's live sessions
 }
@@ -546,7 +546,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       }
       if (!c.pinnedBoard) await registry.setMcpSessionBoard(env, c.sessionId, user, target.id);
       const r = await stubFor(env, target.id).read(user, {}, c.agentSession?.id ?? null);
-      // An agent session (agent-soup mcp sends it) lists the board among its own.
+      // An agent session (atteo mcp sends it) lists the board among its own.
       if (c.agentSession) {
         const as = await sessions.get(env, user, c.agentSession.id);
         if (as && !as.boards.includes(target.id)) later(sessions.setBoards(env, as, [...as.boards, target.id]));
@@ -859,7 +859,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
         if (!list.length) return "No claims on this board yet.";
         return fence(
           list
-            .map((x) => `#${x.seq} [${x.status}]${x.verified_by ? ` verified by ${x.verified_by}` : ""}${x.disputed_by ? ` disputed by ${x.disputed_by}: ${x.dispute_reason}` : ""}${x.evidence.length ? ` · evidence: ${x.evidence.map((e) => (e.seq ? `#${e.seq}` : e.url)).join(", ")}` : ""}${x.check ? ` · check: ${x.check.command}${x.check.commit ? ` @ ${x.check.commit.slice(0, 7)}` : ""} (a person runs: agent-soup verify ${x.seq})` : ""}`)
+            .map((x) => `#${x.seq} [${x.status}]${x.verified_by ? ` verified by ${x.verified_by}` : ""}${x.disputed_by ? ` disputed by ${x.disputed_by}: ${x.dispute_reason}` : ""}${x.evidence.length ? ` · evidence: ${x.evidence.map((e) => (e.seq ? `#${e.seq}` : e.url)).join(", ")}` : ""}${x.check ? ` · check: ${x.check.command}${x.check.commit ? ` @ ${x.check.commit.slice(0, 7)}` : ""} (a person runs: atteo verify ${x.seq})` : ""}`)
             .join("\n"),
         );
       }
@@ -988,7 +988,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
     }
 
     case "session": {
-      if (!c.agentSession) throw new ToolError("This connection has no agent session yet (it needs an Mcp-Session-Id from initialize, or the agent-soup CLI: agent-soup mcp), so it has no name to set.");
+      if (!c.agentSession) throw new ToolError("This connection has no agent session yet (it needs an Mcp-Session-Id from initialize, or the atteo CLI: atteo mcp), so it has no name to set.");
       const cur = await sessions.get(env, user, c.agentSession.id);
       if (!cur) throw new ToolError("This agent session has ended.");
       try {
@@ -1139,7 +1139,7 @@ function authHelp(c: HandleContext): string {
   if (c.legacy) {
     return `Atteo now needs sign-in. The X-User header is no longer accepted. Ask your user to sign in at ${c.origin}, open the board, click "Connect an agent", and use the new connection (it replaces this one).`;
   }
-  if (c.expired) return `This Atteo login has expired. Ask your user to run \`agent-soup login\` (or reconnect at ${c.origin}) and approve it in the browser.`;
+  if (c.expired) return `This Atteo login has expired. Ask your user to run \`atteo login\` (or reconnect at ${c.origin}) and approve it in the browser.`;
   if (c.tokenSent) return `This Atteo token is not valid (revoked or mistyped). Ask your user to get a new connect command at ${c.origin}.`;
   return `Not signed in. Ask your user to sign in at ${c.origin}, open the board, click "Connect an agent", and use that connection.`;
 }
@@ -1190,7 +1190,7 @@ async function handleOne(c: HandleContext, msg: RpcRequest): Promise<object | nu
         }
       }
       try {
-        if (c.badSession) throw new ToolError("That agent session has ended or isn't yours. Start a new one: agent-soup session new");
+        if (c.badSession) throw new ToolError("That agent session has ended or isn't yours. Start a new one: atteo session new");
         const text = await callTool({ ...c, user: c.user }, name, args);
         return rpcResult(msg.id, { content: [{ type: "text", text }] });
       } catch (e) {
@@ -1260,12 +1260,12 @@ export async function handleMcp(request: Request, env: Env, ctx: ExecutionContex
     sessionId,
     sharedSession: !issued && !sentSid,
     pinnedBoard: url.searchParams.get("board") || null,
-    origin: url.origin,
+    origin: publicOrigin(env, url),
     legacy,
     tokenSent: !!token,
     expired: resolved.expired,
   };
-  const asHeader = request.headers.get("x-agent-soup-session");
+  const asHeader = atteoHeader(request, "session");
   if (asHeader && user) {
     const s = await sessions.get(env, user, asHeader);
     if (s) {
@@ -1284,7 +1284,7 @@ export async function handleMcp(request: Request, env: Env, ctx: ExecutionContex
   const headers: Record<string, string> = issued ? { "Mcp-Session-Id": issued } : {};
   // No credentials at all: say so the standard way, so OAuth-capable clients start one-click sign-in (MCP authorization).
   // A token that's wrong or expired keeps getting its explanation in the reply (the CLI shows it).
-  if (!token && !legacy) headers["WWW-Authenticate"] = `Bearer resource_metadata="${url.origin}/.well-known/oauth-protected-resource"`;
+  if (!token && !legacy) headers["WWW-Authenticate"] = `Bearer resource_metadata="${publicOrigin(env, url)}/.well-known/oauth-protected-resource"`;
   const status = !token && !legacy ? 401 : 200;
   if (!results.length) return new Response(null, { status: status === 401 ? 401 : 202, headers });
   return Response.json(batch ? results : results[0], { headers, status });

@@ -23,6 +23,29 @@ export function readCookie(request: Request, name: string): string | null {
   return m ? decodeURIComponent(m[1]) : null;
 }
 
+/**
+ * The OAuth `state` for a sign-in: a random nonce (checked against the ab_oauth cookie), whether this is already a
+ * restarted attempt, and where to go afterwards. The cookie lives on the host where sign-in started, and the callback
+ * is always on the public host (atteo.dev), so a sign-in started on workers.dev arrives without it: the callback then
+ * restarts sign-in on the public host, keeping the return path, once.
+ */
+export function loginState(ret: string, restarted = false): string {
+  const r = btoa(String.fromCharCode(...new TextEncoder().encode(ret))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  return `${randomSecret("", 18)}.${restarted ? "1" : "0"}.${r}`;
+}
+
+export function readLoginState(state: string): { restarted: boolean; ret: string } {
+  const [, flag, r] = state.split(".");
+  let ret = "/";
+  try {
+    if (r) ret = new TextDecoder().decode(Uint8Array.from(atob(r.replace(/-/g, "+").replace(/_/g, "/")), (ch) => ch.charCodeAt(0)));
+  } catch {
+    ret = "/";
+  }
+  return { restarted: flag === "1", ret };
+}
+
+// No Domain attribute, ever: cookies belong to whichever host the browser sees (atteo.dev through the proxy, or workers.dev).
 export function cookieHeader(url: URL, name: string, value: string, maxAgeSec: number): string {
   const secure = url.protocol === "https:" ? " Secure;" : "";
   return `${name}=${encodeURIComponent(value)}; Path=/; HttpOnly;${secure} SameSite=Lax; Max-Age=${maxAgeSec}`;
@@ -215,7 +238,7 @@ export async function resolveToken(env: Env, token: string, ctx?: ExecutionConte
   return { user: row.user, expired: false };
 }
 
-/** A bearer token's user and kind ("app": the Agent Soup app, acting as the person), or null. */
+/** A bearer token's user and kind ("app": the Atteo app, acting as the person), or null. */
 export async function tokenIdentity(env: Env, token: string, fresh = false): Promise<{ user: string; kind: string | null } | null> {
   if (!token.startsWith("ab_")) return null;
   const row = await lookupToken(env, token, undefined, fresh);

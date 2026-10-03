@@ -9,6 +9,10 @@ struct ChatsView: View {
     @State private var path: [Board] = []
     @State private var showAll = false
     @State private var showSettings = false
+    @State private var compose: Compose? // New message / New board
+    @State private var pendingOpen: Board? // opened once the compose sheet is down
+    @State private var openApproval: Approval?
+    enum Compose: String, Identifiable { case message, board; var id: String { rawValue } }
     @AppStorage("chats-tab") private var tab = "boards" // boards | direct
     @State private var showAgents: Bool = {
         #if DEBUG
@@ -24,7 +28,7 @@ struct ChatsView: View {
     private func unreadIn(direct: Bool) -> Int { state.boards.filter { isDirect($0) == direct }.reduce(0) { $0 + unread($1) } }
 
     var chats: [Board] {
-        let all = state.boards.filter { isDirect($0) == (tab == "direct") }.sorted { (unread($0) > 0 ? 1 : 0, $0.lastActivity) > (unread($1) > 0 ? 1 : 0, $1.lastActivity) }
+        let all = state.boards.filter { isDirect($0) == (tab == "direct") && $0.archived != true }.sorted { (unread($0) > 0 ? 1 : 0, $0.lastActivity) > (unread($1) > 0 ? 1 : 0, $1.lastActivity) }
         guard !query.isEmpty else { return all }
         return all.filter { $0.title.localizedCaseInsensitiveContains(query) || ($0.last?.text.localizedCaseInsensitiveContains(query) ?? false) || ($0.last?.by.localizedCaseInsensitiveContains(query) ?? false) }
     }
@@ -39,7 +43,7 @@ struct ChatsView: View {
                     Section {
                         // Keyed by each item's own id, so answering one animates it out (instead of the next row's
                         // content swapping into its place).
-                        let items: [(id: String, view: AnyView)] = state.approvals.map { ("a-" + $0.id, AnyView(ApprovalRow(a: $0))) } + state.contacts.map { ("c-" + $0.from, AnyView(ContactRow(c: $0))) }
+                        let items: [(id: String, view: AnyView)] = state.approvals.map { ("a-" + $0.id, AnyView(ApprovalRow(a: $0) { a in Haptic.tap(); openApproval = a })) } + state.contacts.map { ("c-" + $0.from, AnyView(ContactRow(c: $0))) }
                         ForEach(showAll ? items : Array(items.prefix(2)), id: \.id) {
                             $0.view.transition(.opacity.combined(with: .move(edge: .leading)))
                                 .listRowInsets(rowInsets).listRowSeparator(.hidden).listRowBackground(Theme.bg)
@@ -66,7 +70,7 @@ struct ChatsView: View {
                 }
                 Section {
                     if chats.isEmpty && query.isEmpty && state.loaded {
-                        Text(tab == "direct" ? "No DMs yet. When someone's agent writes to yours, it lands here." : "No boards yet. Make one on the web, or ask your agent to.")
+                        Text(tab == "direct" ? "No DMs yet. When someone's agent writes to yours, it lands here." : "No boards yet. Start one with the pencil up top, or ask your agent to.")
                             .font(Typo.secondary).foregroundStyle(Theme.faint)
                             .listRowInsets(rowInsets).listRowBackground(Theme.bg).listRowSeparator(.hidden)
                     }
@@ -104,6 +108,16 @@ struct ChatsView: View {
                         .accessibilityLabel("Settings")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
+                    // Start something: a message to someone, or a new board.
+                    Menu {
+                        Button("New message", systemImage: "bubble.left") { compose = .message }
+                        Button("New board", systemImage: "square.grid.2x2") { compose = .board }
+                    } label: {
+                        Image(systemName: "square.and.pencil").font(.system(size: 16, weight: .semibold)).foregroundStyle(Theme.text)
+                    }
+                    .accessibilityLabel("New")
+                }
+                ToolbarItem(placement: .topBarTrailing) {
                     // Your agents live behind one button (green dot: one is working right now).
                     Button { Haptic.tap(); showAgents = true } label: {
                         Image(systemName: "sparkles").font(.system(size: 16, weight: .semibold)).foregroundStyle(Theme.text)
@@ -115,6 +129,24 @@ struct ChatsView: View {
                 }
             }
             .sheet(isPresented: $showSettings) { SettingsView().presentationBackground(Theme.bg) }
+            .sheet(item: $compose, onDismiss: {
+                // Open what the sheet made (a DM, a new board) once it's down, on its side of the switch.
+                guard let b = pendingOpen else { return }
+                pendingOpen = nil
+                tab = isDirect(b) ? "direct" : "boards"
+                path = [b]
+            }) { c in
+                Group {
+                    if c == .message { NewMessageSheet { b in pendingOpen = b; compose = nil } }
+                    else { NewBoardSheet { b in pendingOpen = b; compose = nil }.presentationDetents([.medium]) }
+                }
+                .presentationBackground(Theme.bg)
+            }
+            .sheet(item: $openApproval) { a in ApprovalDetail(a: a).presentationBackground(Theme.bg) }
+            .onReceive(NotificationCenter.default.publisher(for: .boardArchived)) { n in
+                // An archived board closes (it's read-only now) and leaves the list.
+                if let id = n.object as? String { path.removeAll { $0.id == id } }
+            }
             .sheet(isPresented: $showAgents) { AgentsView().presentationDetents([.medium, .large]).presentationBackground(Theme.bg) }
             .searchable(text: $query, prompt: "Search")
             .refreshable { await state.refreshAll() }
@@ -261,6 +293,7 @@ private struct NeedTile: View {
 struct ApprovalRow: View {
     @EnvironmentObject var state: AppState
     let a: Approval
+    var open: (Approval) -> Void = { _ in } // tap the row for everything it asks (and a note back)
     var riskColor: Color { a.risk == "high" ? Theme.danger : a.risk == "medium" ? Theme.warn : Theme.ok }
 
     var body: some View {
@@ -270,7 +303,13 @@ struct ApprovalRow: View {
                 Text(a.title).font(Typo.rowTitle).foregroundStyle(Theme.text).lineLimit(1)
                 Text(a.details.isEmpty ? "\(a.risk) risk · \(a.createdAt.ago)" : a.details).font(Typo.secondary).foregroundStyle(Theme.muted).lineLimit(1)
             }
-            Spacer(minLength: 0)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .onTapGesture { open(a) }
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityIdentifier("approval-row")
+            .accessibilityHint("Shows everything it asks")
             AnswerButtons(yes: { Haptic.done(); Task { await state.decide(a, approve: true) } }, no: { Haptic.warn(); Task { await state.decide(a, approve: false) } })
         }
         .swipeActions(edge: .leading) { Button { Haptic.done(); Task { await state.decide(a, approve: true) } } label: { Label("Approve", systemImage: "checkmark") }.tint(Theme.ok) }

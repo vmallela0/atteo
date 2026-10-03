@@ -1,10 +1,11 @@
 // Board actions as plain commands, for people in a terminal, scripts, and agents that only have a shell:
-//   agent-soup use checkout · read · post "…" · ask jxn "…" · wait · get 12 · search "…" · share log.txt · task … · doc …
-// They call the same tools as `agent-soup mcp`, on the board chosen with `use` (per folder), and filter secrets locally first.
+//   atteo use checkout · read · post "…" · ask jxn "…" · wait · get 12 · search "…" · share log.txt · task … · doc …
+// They call the same tools as `atteo mcp`, on the board chosen with `use` (per folder), and filter secrets locally first.
 
 import { randomUUID } from "node:crypto";
-import SKILL_MD from "../../skills/agent-soup/SKILL.md";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { env } from "./env";
+import SKILL_MD from "../../skills/atteo/SKILL.md";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
 import { decryptV2, encryptV2, myKey, newEpochKey, seal, unseal, unwrapKey, wrapKey, type WrappedKey } from "./sealed";
 import { homedir } from "node:os";
@@ -15,7 +16,7 @@ import { createInterface } from "node:readline";
 import { NO_SANDBOX, pickSandbox, repoRoot, resolveCommit, runSandboxed, sandboxSelfTest, throwawayCheckout } from "./verify";
 import { installHook } from "./hooks";
 
-const DEFAULT_SERVER = "https://agent-board.vedu-mallela.workers.dev";
+const DEFAULT_SERVER = "https://atteo.dev";
 
 export class CliError extends Error {
   constructor(message: string, readonly code = 1) {
@@ -32,7 +33,7 @@ const ALIASES: Record<string, string> = { "reply-to": "reply", reply_to: "reply"
 /** Refuses options a command doesn't know, instead of quietly ignoring them. */
 export function onlyOptions(cmd: string, opt: Record<string, string | true>, known: string[]) {
   const bad = Object.keys(opt).filter((k) => !known.includes(k));
-  if (bad.length) throw new CliError(`agent-soup ${cmd} doesn't take ${bad.map((k) => "--" + k).join(", ")}. Options: ${known.map((k) => "--" + k).join(" ")}`);
+  if (bad.length) throw new CliError(`atteo ${cmd} doesn't take ${bad.map((k) => "--" + k).join(", ")}. Options: ${known.map((k) => "--" + k).join(" ")}`);
 }
 
 export function parseArgs(args: string[], bools: string[] = []): { pos: string[]; opt: Record<string, string | true> } {
@@ -57,7 +58,7 @@ let SESSION: { id: string; boards: string[] } | null = null;
 export function setSession(s: { id: string; boards: string[] } | null) {
   SESSION = s;
 }
-const sessionHeader = (): Record<string, string> => (SESSION ? { "x-agent-soup-session": SESSION.id } : {});
+const sessionHeader = (): Record<string, string> => (SESSION ? { "x-atteo-session": SESSION.id } : {});
 
 function readStdin(): string {
   try {
@@ -67,7 +68,7 @@ function readStdin(): string {
   }
 }
 
-/** Text from the arguments, or from stdin when it's "-" (so `git diff | agent-soup post -` works). */
+/** Text from the arguments, or from stdin when it's "-" (so `git diff | atteo post -` works). */
 function textFrom(words: string[]): string {
   const t = words.length === 1 && words[0] === "-" ? readStdin() : words.join(" ");
   if (!t.trim()) throw new CliError("Nothing to post. Give the text as arguments, or - to read it from stdin.");
@@ -90,14 +91,14 @@ function boardMap(): Record<string, { id: string; title: string }> {
 }
 
 export function currentBoard(opt: Record<string, string | true>): string {
-  const explicit = optStr(opt, "board") ?? process.env.AGENT_SOUP_BOARD;
+  const explicit = optStr(opt, "board") ?? env("BOARD");
   if (explicit) return explicit;
-  // A folder's board (agent-soup use) is an explicit choice for that folder; otherwise the session's board.
+  // A folder's board (atteo use) is an explicit choice for that folder; otherwise the session's board.
   const folder = folderBoard();
   if (folder) return folder;
   if (SESSION?.boards.length === 1) return SESSION.boards[0];
   if (SESSION && SESSION.boards.length > 1) throw new CliError(`This session is on ${SESSION.boards.length} boards (${SESSION.boards.join(", ")}). Say which: --board <id>`);
-  throw new CliError('No board chosen for this folder. Run: agent-soup use "<board name or id>"  (agent-soup boards lists them)');
+  throw new CliError('No board chosen for this folder. Run: atteo use "<board name or id>"  (atteo boards lists them)');
 }
 
 /** The board set for this folder (or the closest one above it, so a whole project shares one), or the global default. */
@@ -114,23 +115,23 @@ export function folderBoard(from: string = process.cwd()): string | null {
 
 export function creds(): Credentials {
   const c = load();
-  if (!c) throw new CliError("Not signed in. Run: agent-soup login");
-  if (c.expires_at < Date.now()) throw new CliError("Your login expired. Run: agent-soup login");
+  if (!c) throw new CliError("Not signed in. Run: atteo login");
+  if (c.expires_at < Date.now()) throw new CliError("Your login expired. Run: atteo login");
   return c;
 }
 
 function server(c: Credentials, opt: Record<string, string | true>): string {
-  return (optStr(opt, "server") ?? process.env.AGENT_BOARD_SERVER ?? c.server ?? DEFAULT_SERVER).replace(/\/$/, "");
+  return (optStr(opt, "server") ?? env("SERVER") ?? c.server ?? DEFAULT_SERVER).replace(/\/$/, "");
 }
 
 let rpcId = 0;
 async function rpc(base: string, token: string, board: string | null, method: string, params: unknown, session?: string) {
   const res = await fetch(`${base}/mcp${board ? `?board=${encodeURIComponent(board)}` : ""}`, {
     method: "POST",
-    headers: { "content-type": "application/json", authorization: `Bearer ${token}`, "user-agent": "agent-soup-cli", ...sessionHeader(), ...(session ? { "mcp-session-id": session } : {}) },
+    headers: { "content-type": "application/json", authorization: `Bearer ${token}`, "user-agent": "atteo-cli", ...sessionHeader(), ...(session ? { "mcp-session-id": session } : {}) },
     body: JSON.stringify({ jsonrpc: "2.0", id: ++rpcId, method, params }),
   });
-  if (res.status === 401) throw new CliError("Your login isn't valid anymore. Run: agent-soup login");
+  if (res.status === 401) throw new CliError("Your login isn't valid anymore. Run: atteo login");
   const body = (await res.json().catch(() => null)) as { result?: { content?: { text: string }[]; isError?: boolean }; error?: { message: string } } | null;
   if (!body) throw new CliError(`The server answered ${res.status}.`);
   if (body.error) throw new CliError(body.error.message);
@@ -153,7 +154,7 @@ async function retrying<T>(safe: boolean, fn: () => Promise<T>): Promise<T> {
 }
 
 export async function tool(opt: Record<string, string | true>, name: string, args: Record<string, unknown>, board: string | null = currentBoard(opt)): Promise<string> {
-  // Same local Gateway as `agent-soup mcp`: nothing that looks like a credential leaves this machine.
+  // Same local Gateway as `atteo mcp`: nothing that looks like a credential leaves this machine.
   const hit = scanFields(
     Object.fromEntries(
       Object.entries(args)
@@ -198,8 +199,8 @@ async function use(args: string[]) {
   const base = server(c, opt);
   const init = await fetch(`${base}/mcp`, {
     method: "POST",
-    headers: { "content-type": "application/json", authorization: `Bearer ${c.token}`, "user-agent": "agent-soup-cli" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: ++rpcId, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "agent-soup-cli" } } }),
+    headers: { "content-type": "application/json", authorization: `Bearer ${c.token}`, "user-agent": "atteo-cli" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: ++rpcId, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "atteo-cli" } } }),
   });
   const session = init.headers.get("mcp-session-id") ?? undefined;
   try {
@@ -252,7 +253,7 @@ type EpochState = {
   keys: DeviceKey[];
 };
 
-const pinFile = () => (process.env.AGENT_BOARD_CREDENTIALS_FILE ? `${process.env.AGENT_BOARD_CREDENTIALS_FILE}.pins` : join(configDir(), "e2e-pins.json"));
+const pinFile = () => (env("CREDENTIALS_FILE") ? `${env("CREDENTIALS_FILE")}.pins` : join(configDir(), "e2e-pins.json"));
 export function pins(): Record<string, string[]> {
   try {
     return JSON.parse(readFileSync(pinFile(), "utf8"));
@@ -295,7 +296,7 @@ async function boardKeys(opt: Record<string, string | true>, board: string, trie
   const trusted = (k: { kid: string; user: string; public_key: string }) => !!pin[k.user]?.includes(pinId(k.kid, k.public_key));
   const skip = (k: DeviceKey) =>
     k.user === me
-      ? warnOnce(k.kid, `🔑 A new device of yours (${k.label ?? "unnamed"}, ${k.kid.slice(0, 8)}) is waiting for this board's key. If it's yours: agent-soup keys approve ${k.kid}`)
+      ? warnOnce(k.kid, `🔑 A new device of yours (${k.label ?? "unnamed"}, ${k.kid.slice(0, 8)}) is waiting for this board's key. If it's yours: atteo keys approve ${k.kid}`)
       : warnOnce(k.kid, `🔑 ${k.user} has a device this machine hasn't seen (${k.label ?? "unnamed"}, ${k.kid.slice(0, 8)}). It gets the key from one of ${k.user}'s own devices, not from here.`);
 
   let current = st.current;
@@ -412,11 +413,11 @@ export async function api(opt: Record<string, string | true>, method: string, pa
   const c = creds();
   const res = await fetch(`${server(c, opt)}${path}`, {
     method,
-    headers: { authorization: `Bearer ${c.token}`, "content-type": "application/json", "user-agent": "agent-soup-cli", ...sessionHeader() },
+    headers: { authorization: `Bearer ${c.token}`, "content-type": "application/json", "user-agent": "atteo-cli", ...sessionHeader() },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const j = (await res.json().catch(() => ({}))) as any;
-  if (res.status === 401) throw new CliError("Your login isn't valid anymore. Run: agent-soup login");
+  if (res.status === 401) throw new CliError("Your login isn't valid anymore. Run: atteo login");
   if (!res.ok) throw Object.assign(new CliError(j.error ?? `The server answered ${res.status}.`), { status: res.status, body: j });
   return j;
 }
@@ -428,7 +429,7 @@ async function waitForFrom(opt: Record<string, string | true>, board: string, wh
     const got = await tool(opt, "wait", { timeout_seconds: Math.max(1, Math.min(55, Math.ceil((until - Date.now()) / 1000))) }, board);
     if (new RegExp(`#(\\d+) [a-z]+ · ${who}(?:'s agent)?\\b`).test(got) && Number(got.match(new RegExp(`#(\\d+) [a-z]+ · ${who}`))?.[1]) > after) return say(got);
   }
-  say(`No answer from ${who} yet. It stays on your direct board; check later with: agent-soup read`);
+  say(`No answer from ${who} yet. It stays on your direct board; check later with: atteo read`);
 }
 
 /** Waits on a board for replies to entry `seq`, up to `limit` seconds. */
@@ -438,7 +439,7 @@ async function waitForReply(opt: Record<string, string | true>, board: string, s
     const got = await tool(opt, "wait", { timeout_seconds: Math.max(1, Math.min(55, Math.ceil((until - Date.now()) / 1000))) }, board);
     if (new RegExp(`re #${seq}\\b`).test(got)) return say(got);
   }
-  say(`No answer from ${who} yet. It stays on the board; check later with: agent-soup get ${seq} --board ${board}`);
+  say(`No answer from ${who} yet. It stays on the board; check later with: atteo get ${seq} --board ${board}`);
 }
 
 /**
@@ -448,7 +449,7 @@ async function waitForReply(opt: Record<string, string | true>, board: string, s
 async function ask(args: string[]) {
   const { pos, opt } = parseArgs(args, ["dm"]);
   const [whoRaw, ...q] = pos;
-  if (!whoRaw || !q.length) throw new CliError('Usage: agent-soup ask <name> "<question>" [--wait seconds] [--dm]');
+  if (!whoRaw || !q.length) throw new CliError('Usage: atteo ask <name> "<question>" [--wait seconds] [--dm]');
   const who = whoRaw.replace(/^@/, "").toLowerCase();
   const text = textFrom(q);
   const limit = Number(optStr(opt, "wait") ?? 300);
@@ -480,7 +481,7 @@ async function ask(args: string[]) {
       if (list.length) after = list[list.length - 1].seq;
       await new Promise((r) => setTimeout(r, 2000));
     }
-    return say(`No answer from ${who} yet. Check later with: agent-soup read`);
+    return say(`No answer from ${who} yet. Check later with: atteo read`);
   }
   if (!board) {
     // A DM: through /api/dm, so first-contact rules apply; then wait for their reply on your direct board.
@@ -508,7 +509,7 @@ async function sendDm(opt: Record<string, string | true>, target: string, text: 
 async function dm(args: string[]) {
   const { pos, opt } = parseArgs(args);
   const [whoRaw, ...rest] = pos;
-  if (!whoRaw || !rest.length) throw new CliError('Usage: agent-soup dm <name>[/<session>] "<message>"');
+  if (!whoRaw || !rest.length) throw new CliError('Usage: atteo dm <name>[/<session>] "<message>"');
   const r = await sendDm(opt, whoRaw, textFrom(rest));
   say(r.message);
 }
@@ -524,15 +525,15 @@ const RELATION: Record<string, string> = { friend: "friend", pending_out: "reque
 
 async function people(args: string[]) {
   const { pos, opt } = parseArgs(args);
-  if (!pos.length) throw new CliError("Usage: agent-soup people <name or part of one>");
+  if (!pos.length) throw new CliError("Usage: atteo people <name or part of one>");
   const j = await api(opt, "GET", `/api/people?q=${encodeURIComponent(pos.join(" "))}`);
-  if (!j.people.length) return say(`Nobody found. Exact handles always work (e.g. "agent-soup people jxn"); partial names only match friends and people you share a board with.`);
-  for (const p of j.people) say(`${p.name}${p.display_name ? ` (${p.display_name})` : ""}  ${presenceText(p)}  ${RELATION[p.relation] ? `· ${RELATION[p.relation]}` : `· add: agent-soup add ${p.name}`}${p.shared_boards ? ` · ${p.shared_boards} shared board${p.shared_boards === 1 ? "" : "s"}` : ""}`);
+  if (!j.people.length) return say(`Nobody found. Exact handles always work (e.g. "atteo people jxn"); partial names only match friends and people you share a board with.`);
+  for (const p of j.people) say(`${p.name}${p.display_name ? ` (${p.display_name})` : ""}  ${presenceText(p)}  ${RELATION[p.relation] ? `· ${RELATION[p.relation]}` : `· add: atteo add ${p.name}`}${p.shared_boards ? ` · ${p.shared_boards} shared board${p.shared_boards === 1 ? "" : "s"}` : ""}`);
 }
 
 async function whois(args: string[]) {
   const { pos, opt } = parseArgs(args);
-  if (!pos[0]) throw new CliError("Usage: agent-soup whois <name>");
+  if (!pos[0]) throw new CliError("Usage: atteo whois <name>");
   const j = await api(opt, "GET", `/api/people/${encodeURIComponent(pos[0].replace(/^@/, "").toLowerCase())}`);
   const p = j.person;
   say(`${p.name}${p.display_name ? ` (${p.display_name})` : ""}\n  ${presenceText(p)}\n  ${RELATION[p.relation] || "not friends"}${p.shared_boards ? ` · ${p.shared_boards} shared board${p.shared_boards === 1 ? "" : "s"}` : ""}${p.bio ? `\n  ${p.bio}` : ""}`);
@@ -543,26 +544,26 @@ async function friends(args: string[]) {
   const j = await api(opt, "GET", "/api/friends");
   if (j.incoming.length) {
     say("Friend requests:");
-    for (const p of j.incoming) say(`  ${p.name}${p.note ? ` — "${p.note}"` : ""}   accept: agent-soup accept ${p.name}   decline: agent-soup decline ${p.name}`);
+    for (const p of j.incoming) say(`  ${p.name}${p.note ? ` — "${p.note}"` : ""}   accept: atteo accept ${p.name}   decline: atteo decline ${p.name}`);
   }
-  say(j.friends.length ? "Friends:" : "No friends yet. Find someone: agent-soup people <name>, then agent-soup add <name>.");
+  say(j.friends.length ? "Friends:" : "No friends yet. Find someone: atteo people <name>, then atteo add <name>.");
   for (const p of j.friends) say(`  ${p.name.padEnd(16)} ${presenceText(p)}`);
   if (j.outgoing.length) say(`Waiting on: ${j.outgoing.map((p: { name: string }) => p.name).join(", ")}`);
-  if (j.friends.length) say(`\nAsk one: agent-soup ask <name> "…"  (their agent answers now if it's online, or when it's back)`);
+  if (j.friends.length) say(`\nAsk one: atteo ask <name> "…"  (their agent answers now if it's online, or when it's back)`);
 }
 
 async function addFriend(args: string[]) {
   const { pos, opt } = parseArgs(args);
   const [who, ...note] = pos;
-  if (!who) throw new CliError('Usage: agent-soup add <name> ["a note"]');
+  if (!who) throw new CliError('Usage: atteo add <name> ["a note"]');
   const j = await api(opt, "POST", "/api/friends/request", { user: who, note: note.join(" ") });
   const name = who.replace(/^@/, "").toLowerCase();
-  say(j.relation === "friend" ? `You and ${name} are friends now. Ask their agent: agent-soup ask ${name} "…"` : `Friend request sent to ${name}. They'll see it in their inbox; you'll be notified when they accept.`);
+  say(j.relation === "friend" ? `You and ${name} are friends now. Ask their agent: atteo ask ${name} "…"` : `Friend request sent to ${name}. They'll see it in their inbox; you'll be notified when they accept.`);
 }
 
 const friendAction = (action: "accept" | "decline" | "remove" | "block" | "unblock", done: (n: string) => string) => async (args: string[]) => {
   const { pos, opt } = parseArgs(args);
-  if (!pos[0]) throw new CliError(`Usage: agent-soup ${action === "remove" ? "unfriend" : action} <name>`);
+  if (!pos[0]) throw new CliError(`Usage: atteo ${action === "remove" ? "unfriend" : action} <name>`);
   const name = pos[0].replace(/^@/, "").toLowerCase();
   await api(opt, "POST", `/api/friends/${encodeURIComponent(name)}/${action}`);
   say(done(name));
@@ -580,7 +581,7 @@ async function get(args: string[]) {
 
 async function search(args: string[]) {
   const { pos, opt } = parseArgs(args);
-  if (!pos.length) throw new CliError('Usage: agent-soup search "<words>" [--author name] [--type t]');
+  if (!pos.length) throw new CliError('Usage: atteo search "<words>" [--author name] [--type t]');
   say(await tool(opt, "search", { query: pos.join(" "), author: optStr(opt, "author"), type: optStr(opt, "type"), limit: optStr(opt, "limit") ? Number(optStr(opt, "limit")) : undefined }));
 }
 
@@ -588,7 +589,7 @@ async function search(args: string[]) {
 async function share(args: string[]) {
   const { pos, opt } = parseArgs(args);
   const path = pos[0];
-  if (!path) throw new CliError('Usage: agent-soup share <file> [--name name] [--note "what it is"]');
+  if (!path) throw new CliError('Usage: atteo share <file> [--name name] [--note "what it is"]');
   if (!existsSync(path)) throw new CliError(`No such file: ${path}`);
   const content = readFileSync(path, "utf8");
   if (content.includes("\u0000")) throw new CliError("That looks like a binary file; only text files can be shared for now.");
@@ -604,7 +605,7 @@ async function task(args: string[]) {
   if (action === "edit") {
     const old = optStr(opt, "old");
     const next = optStr(opt, "new");
-    if (!old || next === undefined) throw new CliError('Usage: agent-soup task edit N --old "<exact text in the task>" --new "<replacement>" [--summary "<what changed>"]');
+    if (!old || next === undefined) throw new CliError('Usage: atteo task edit N --old "<exact text in the task>" --new "<replacement>" [--summary "<what changed>"]');
     return say(await tool(opt, "task", { action: "edit", seq: seq(), old_str: old, new_str: next, summary: optStr(opt, "summary") }));
   }
   const map: Record<string, () => Record<string, unknown>> = {
@@ -615,14 +616,14 @@ async function task(args: string[]) {
     update: () => ({ action: "update", seq: seq(), status: optStr(opt, "status"), assignee: optStr(opt, "assign"), due: optStr(opt, "due"), note: more.join(" ") || optStr(opt, "note") }),
     stop: () => ({ action: "stop", seq: seq(), reason: more.join(" ") || optStr(opt, "reason") || "" }),
   };
-  if (!map[action]) throw new CliError('Usage: agent-soup task [list [--mine] | claim N [minutes] | release N | done N [note] | tick N "<item>" | untick N "<item>" | edit N --old "<text>" --new "<text>" | update N --status s --assign name --due YYYY-MM-DD | stop N <reason>]');
+  if (!map[action]) throw new CliError('Usage: atteo task [list [--mine] | claim N [minutes] | release N | done N [note] | tick N "<item>" | untick N "<item>" | edit N --old "<text>" --new "<text>" | update N --status s --assign name --due YYYY-MM-DD | stop N <reason>]');
   say(await tool(opt, "task", map[action]()));
 }
 
 /** Ticks (or unticks) the one checklist item on a task whose text contains `want`, as a task edit (old_str → new_str). */
 async function tickItem(opt: Record<string, string | true>, seq: number, want: string, tick: boolean) {
   const verb = tick ? "tick" : "untick";
-  if (!want) throw new CliError(`Usage: agent-soup task ${verb} N "<words from the item>"`);
+  if (!want) throw new CliError(`Usage: atteo task ${verb} N "<words from the item>"`);
   const t = (await api(opt, "GET", `/api/boards/${currentBoard(opt)}/tasks/${seq}`)).task as { body: string };
   const lines = t.body.split("\n");
   // The whole line with its line breaks, so "- [ ] tests" can't also match inside "- [ ] tests pass".
@@ -633,7 +634,7 @@ async function tickItem(opt: Record<string, string | true>, seq: number, want: s
     .map(({ line, i, m }) => ({ line, done: m[2] !== " ", old: around(i, line), flipped: around(i, m[1] + (tick ? "x" : " ") + m[3]) }));
   const hits = items.filter((i) => i.line.toLowerCase().includes(want.toLowerCase()));
   const list = (l: typeof items) => l.map((i) => `  ${i.line.trim()}`).join("\n");
-  if (!hits.length) throw new CliError(items.length ? `No checklist item on #${seq} contains "${want}". Its items:\n${list(items)}` : `Task #${seq} has no checklist (- [ ] lines). Change its text with: agent-soup task edit ${seq} --old "…" --new "…"`);
+  if (!hits.length) throw new CliError(items.length ? `No checklist item on #${seq} contains "${want}". Its items:\n${list(items)}` : `Task #${seq} has no checklist (- [ ] lines). Change its text with: atteo task edit ${seq} --old "…" --new "…"`);
   const todo = hits.filter((i) => i.done !== tick);
   if (!todo.length) return say(`Already ${tick ? "ticked" : "unticked"} on #${seq}: ${hits[0].line.trim()}`);
   if (todo.length > 1) throw new CliError(`"${want}" matches ${todo.length} items on #${seq}; use more of the item's words:\n${list(todo)}`);
@@ -648,25 +649,31 @@ async function doc(args: string[]) {
   if (action === "read") return say(await tool(opt, "doc", { action: "read", name: a, version: optStr(opt, "version") ? Number(optStr(opt, "version")) : undefined }));
   if (action === "history") return say(await tool(opt, "doc", { action: "history", name: a }));
   if (action === "grep") return say(await tool(opt, "doc", { action: "grep", pattern: a, name: b, regex: opt.regex === true }));
-  throw new CliError("Usage: agent-soup doc [list | read <name> [--version n] | history <name> | grep <pattern> [name] [--regex]]");
+  throw new CliError("Usage: atteo doc [list | read <name> [--version n] | history <name> | grep <pattern> [name] [--regex]]");
 }
 
-/** React to entries: agent-soup react ✅ 52 53 54 (again to remove). */
+/** React to entries: atteo react ✅ 52 53 54 (again to remove). */
 async function react(args: string[]) {
   const { pos, opt } = parseArgs(args);
   const [emoji, ...seqs] = pos;
-  if (!emoji || !seqs.length) throw new CliError("Usage: agent-soup react <emoji> <entry> [entry…]");
+  if (!emoji || !seqs.length) throw new CliError("Usage: atteo react <emoji> <entry> [entry…]");
   for (const n of seqs) say(await tool(opt, "react", { seq: int(n.replace(/^#/, ""), "The entry"), emoji }));
 }
 
-/** Installs the Agent Soup skill for Claude Code (~/.claude/skills/agent-soup/SKILL.md), or prints it. */
+/** Installs the Atteo skill for Claude Code (~/.claude/skills/atteo/SKILL.md), or prints it. */
 async function skill(args: string[]) {
   const { pos } = parseArgs(args);
   if (pos[0] === "print") return say(SKILL_MD);
-  if (pos[0] !== "install") throw new CliError("Usage: agent-soup skill install   (or: agent-soup skill print)");
-  const dir = join(homedir(), ".claude", "skills", "agent-soup");
+  if (pos[0] !== "install") throw new CliError("Usage: atteo skill install   (or: atteo skill print)");
+  const skills = join(homedir(), ".claude", "skills");
+  const dir = join(skills, "atteo");
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, "SKILL.md"), SKILL_MD);
+  // The skill's folder before the rename: two copies would both load, so the old one goes (only if it's ours).
+  const old = join(skills, "agent-soup");
+  try {
+    if (/^name: agent-soup$/m.test(readFileSync(join(old, "SKILL.md"), "utf8"))) rmSync(old, { recursive: true, force: true });
+  } catch {}
   say(`Installed the Atteo skill for Claude Code: ${join(dir, "SKILL.md")}\nNew Claude Code sessions will know how to use boards (MCP or this CLI).`);
 }
 
@@ -679,13 +686,13 @@ async function members(args: string[]) {
   const b = currentBoard(opt);
   const j = await api(opt, "GET", `/api/boards/${b}/members`);
   for (const m of j.members) say(`${m.user.padEnd(16)} ${m.role.padEnd(12)}${m.expires_at ? `until ${day(m.expires_at)}` : ""}`);
-  say(`\nYou're ${j.you === "owner" ? "an owner" : `a ${j.you}`}.${j.you === "owner" ? " Change access: agent-soup role <name> viewer|contributor|owner [--days N]" : ""}`);
+  say(`\nYou're ${j.you === "owner" ? "an owner" : `a ${j.you}`}.${j.you === "owner" ? " Change access: atteo role <name> viewer|contributor|owner [--days N]" : ""}`);
 }
 
 async function role(args: string[]) {
   const { pos, opt } = parseArgs(args);
   const [who, r] = pos;
-  if (!who || (!r && optStr(opt, "days") === undefined)) throw new CliError("Usage: agent-soup role <name> [viewer|contributor|owner] [--days N | --days 0 for no end]");
+  if (!who || (!r && optStr(opt, "days") === undefined)) throw new CliError("Usage: atteo role <name> [viewer|contributor|owner] [--days N | --days 0 for no end]");
   const body: Record<string, unknown> = {};
   if (r) body.role = r;
   if (optStr(opt, "days") !== undefined) body.expires_days = Number(optStr(opt, "days"));
@@ -708,7 +715,7 @@ async function link(args: string[]) {
   }
   const j = await api(opt, "POST", `/api/boards/${b}/links`, { role: optStr(opt, "role"), link_days: optStr(opt, "days"), member_days: optStr(opt, "access-days"), max_uses: optStr(opt, "uses") });
   say(j.url);
-  process.stderr.write(`Anyone with this link who signs in joins as ${j.link.role}${j.link.member_days ? ` for ${j.link.member_days} days` : ""}. It works until ${j.link.expires_at ? day(j.link.expires_at) : "revoked"}${j.link.max_uses ? `, ${j.link.max_uses} times` : ""}. Revoke: agent-soup link revoke ${j.link.id}\n`);
+  process.stderr.write(`Anyone with this link who signs in joins as ${j.link.role}${j.link.member_days ? ` for ${j.link.member_days} days` : ""}. It works until ${j.link.expires_at ? day(j.link.expires_at) : "revoked"}${j.link.max_uses ? `, ${j.link.max_uses} times` : ""}. Revoke: atteo link revoke ${j.link.id}\n`);
 }
 
 async function auditCmd(args: string[]) {
@@ -745,7 +752,7 @@ async function keys(args: string[]) {
     // Your own new device (another machine, the web, the phone): this machine hands it the keys of your encrypted boards.
     const kid = pos[1];
     const k = (j.keys as { id: string; label: string | null; public_key: string }[]).find((x) => x.id === kid || (kid && kid.length >= 6 && x.id.startsWith(kid)));
-    if (!k) throw new CliError(`Usage: agent-soup keys approve <device id>   (one of yours: ${(j.keys as { id: string }[]).map((x) => x.id.slice(0, 8)).join(", ")})`);
+    if (!k) throw new CliError(`Usage: atteo keys approve <device id>   (one of yours: ${(j.keys as { id: string }[]).map((x) => x.id.slice(0, 8)).join(", ")})`);
     const p = pins();
     const me = creds().user;
     if (!p[me]?.includes(pinId(k.id, k.public_key))) (p[me] ??= []).push(pinId(k.id, k.public_key));
@@ -759,7 +766,7 @@ async function keys(args: string[]) {
 async function sealCmd(args: string[]) {
   const { pos, opt } = parseArgs(args);
   const [whoRaw, file] = pos;
-  if (!whoRaw) throw new CliError('Usage: agent-soup seal <name> [file | -] [--note "what it is"]   (reads stdin without a file; never pass secrets as arguments)');
+  if (!whoRaw) throw new CliError('Usage: atteo seal <name> [file | -] [--note "what it is"]   (reads stdin without a file; never pass secrets as arguments)');
   const who = whoRaw.replace(/^@/, "").toLowerCase();
   const secret = file && file !== "-" ? readFileSync(file) : Buffer.from(readStdin());
   if (!secret.length) throw new CliError("Nothing to seal (empty input).");
@@ -767,12 +774,12 @@ async function sealCmd(args: string[]) {
   const board = currentBoard(opt);
   await ensureKey(opt);
   const [theirs, mine] = await Promise.all([api(opt, "GET", `/api/keys/${encodeURIComponent(who)}`), api(opt, "GET", "/api/me/keys")]);
-  if (!theirs.keys.length) throw new CliError(`${who} can't receive sealed secrets yet: they need to run "agent-soup keys" once (any recent agent-soup login does it).`);
+  if (!theirs.keys.length) throw new CliError(`${who} can't receive sealed secrets yet: they need to run "atteo keys" once (any recent atteo login does it).`);
   // You can reopen what you sealed, too.
   const recipients = [...theirs.keys, ...(who === creds().user ? [] : mine.keys)];
   const env = seal(secret, recipients);
   const j = await api(opt, "POST", `/api/boards/${board}/sealed`, { to: who, note: optStr(opt, "note") ?? "", payload: JSON.stringify(env) });
-  say(`Sealed #${j.entry.seq} for ${who}'s agent (${theirs.keys.length} of their machine${theirs.keys.length === 1 ? "" : "s"}). The server only has ciphertext. They open it with: agent-soup unseal ${j.entry.seq}`);
+  say(`Sealed #${j.entry.seq} for ${who}'s agent (${theirs.keys.length} of their machine${theirs.keys.length === 1 ? "" : "s"}). The server only has ciphertext. They open it with: atteo unseal ${j.entry.seq}`);
 }
 
 async function unsealCmd(args: string[]) {
@@ -816,7 +823,7 @@ async function profileCmd(args: string[]) {
 async function create(args: string[]) {
   const { pos, opt } = parseArgs(args, ["encrypted", "no-hook"]);
   const title = pos.join(" ").trim();
-  if (!title) throw new CliError('Usage: agent-soup create "<title>" [--encrypted]');
+  if (!title) throw new CliError('Usage: atteo create "<title>" [--encrypted]');
   const out = await tool(opt, "create_board", { title, encrypted: opt.encrypted === true }, null);
   const id = out.match(/\((b_[a-z0-9]+)\)/)?.[1];
   say(out.split("\n")[0]);
@@ -826,19 +833,19 @@ async function create(args: string[]) {
     mkdirSync(configDir(), { recursive: true, mode: 0o700 });
     writeFileSync(BOARDS_FILE(), JSON.stringify(map, null, 2), { mode: 0o600 });
     if (opt.encrypted) await ensureKey(opt);
-    say(`Using it in ${resolve(process.cwd())}.${opt.encrypted ? " It's end-to-end encrypted: members need \"agent-soup keys\" once before they can read what's posted." : ""}`);
+    say(`Using it in ${resolve(process.cwd())}.${opt.encrypted ? " It's end-to-end encrypted: members need \"atteo keys\" once before they can read what's posted." : ""}`);
     if (!opt["no-hook"] && !opt.encrypted) pushHook(); // a card is plain text: never on an end-to-end board
   }
 }
 
 // ---- claim checks: the author says how to prove a claim; other members run it sandboxed after reading it ----
 
-/** Attach a check to your own claim: `agent-soup check 12 "npm test -- auth"` (at this folder's commit by default). */
+/** Attach a check to your own claim: `atteo check 12 "npm test -- auth"` (at this folder's commit by default). */
 async function checkCmd(args: string[]) {
   const { pos, opt } = parseArgs(args, ["any-commit"]);
   const seq = int(pos[0]?.replace(/^#/, ""), "The claim");
   const command = pos.slice(1).join(" ").trim();
-  if (!command) throw new CliError('Usage: agent-soup check <claim #> "<command that proves it>" [--commit <sha>]');
+  if (!command) throw new CliError('Usage: atteo check <claim #> "<command that proves it>" [--commit <sha>]');
   const repo = repoRoot(process.cwd());
   const commit = optStr(opt, "commit") ?? (repo && !opt["any-commit"] ? resolveCommit(repo, "HEAD") ?? undefined : undefined);
   say(await tool(opt, "claim", { action: "check", seq, command, commit }));
@@ -865,7 +872,7 @@ async function verifyCmd(args: string[]) {
     say(`Sandbox: ${sb.describe}`);
     const t = await sandboxSelfTest(sb);
     for (const l of t.lines) say("  " + l);
-    if (!t.ok) throw new CliError("The sandbox doesn't hold on this machine; agent-soup verify won't run checks here.");
+    if (!t.ok) throw new CliError("The sandbox doesn't hold on this machine; atteo verify won't run checks here.");
     return say("The sandbox holds.");
   }
   const seq = int(pos[0]?.replace(/^#/, ""), "The claim");
@@ -874,10 +881,10 @@ async function verifyCmd(args: string[]) {
   const { claims } = (await api(opt, "GET", `/api/boards/${board}/claims`)) as { claims: { seq: number; author: string; status: string; check: { command: string; commit?: string } | null }[] };
   const c = claims.find((x) => x.seq === seq);
   if (!c) throw new CliError(`#${seq} isn't a claim on this board (or it was retracted).`);
-  if (!c.check) throw new CliError(`#${seq} has no check attached. Its author can add one: agent-soup check ${seq} "<command>"`);
+  if (!c.check) throw new CliError(`#${seq} has no check attached. Its author can add one: atteo check ${seq} "<command>"`);
   // Someone else's command runs on this machine: a person reads it and says yes. Agents can't answer this prompt.
   if (!process.stdin.isTTY || !process.stdout.isTTY)
-    throw new CliError(`agent-soup verify runs a command another member wrote, so a person has to read it and say yes in a terminal. Ask your user to run: agent-soup verify ${seq}`);
+    throw new CliError(`atteo verify runs a command another member wrote, so a person has to read it and say yes in a terminal. Ask your user to run: atteo verify ${seq}`);
   const repo = repoRoot(process.cwd());
   if (!repo) throw new CliError("Run this inside the repository the claim is about (checks run in a throwaway checkout of it).");
   const commit = resolveCommit(repo, c.check.commit ?? "HEAD");
@@ -936,7 +943,7 @@ export const COMMANDS: Record<string, (args: string[]) => Promise<void>> = {
   whois,
   friends,
   add: addFriend,
-  accept: friendAction("accept", (n) => `You and ${n} are friends now. Ask their agent: agent-soup ask ${n} "…"`),
+  accept: friendAction("accept", (n) => `You and ${n} are friends now. Ask their agent: atteo ask ${n} "…"`),
   decline: friendAction("decline", (n) => `Declined ${n}'s request.`),
   unfriend: friendAction("remove", (n) => `You and ${n} aren't friends anymore. Shared boards stay as they are.`),
   block: friendAction("block", (n) => `Blocked ${n}: they can't find you or send you requests.`),
@@ -960,38 +967,38 @@ export const COMMANDS: Record<string, (args: string[]) => Promise<void>> = {
 
 export const COMMANDS_HELP = `
 People:
-  agent-soup people <name>              Find someone (exact handle, or friends / people you share boards with)
-  agent-soup add <name> ["note"]        Send a friend request · accept · decline · unfriend · block <name>
-  agent-soup friends                    Friends and who's online (web, or their agent in Claude Code, Codex…)
-  agent-soup ask <name> "<question>"    Ask their agent: on this folder's board if they're on it, otherwise on
+  atteo people <name>              Find someone (exact handle, or friends / people you share boards with)
+  atteo add <name> ["note"]        Send a friend request · accept · decline · unfriend · block <name>
+  atteo friends                    Friends and who's online (web, or their agent in Claude Code, Codex…)
+  atteo ask <name> "<question>"    Ask their agent: on this folder's board if they're on it, otherwise on
                                         your direct board (now if they're online, or when they're back)
-  agent-soup dm <name> "<message>"      A note on your direct board
-  agent-soup profile [--bio …] [--listed on|off] [--auto-invites friends|off] [--auto-friends coworkers|off]
+  atteo dm <name> "<message>"      A note on your direct board
+  atteo profile [--bio …] [--listed on|off] [--auto-invites friends|off] [--auto-friends coworkers|off]
 
 Board commands (on the board chosen with \`use\`, per folder):
-  agent-soup boards                     Your boards and pending invitations
-  agent-soup create "<title>" [--encrypted]   A new board for this folder (--encrypted: end-to-end, CLI-only)
-  agent-soup use "<board>" [--global]   Choose this folder's board (accepts an invitation too); in a git repo it also
+  atteo boards                     Your boards and pending invitations
+  atteo create "<title>" [--encrypted]   A new board for this folder (--encrypted: end-to-end, CLI-only)
+  atteo use "<board>" [--global]   Choose this folder's board (accepts an invitation too); in a git repo it also
                                         installs the pre-push hook that posts change cards (--no-hook: don't)
-  agent-soup read                       Summary + what's new since you last read
-  agent-soup post "<text>" [--title "2–5 words"] [--type t] [--to name] [--reply N] [--resolves N,M]   ("-" reads stdin)
-  agent-soup wait [--timeout s]         Wait for the next post
-  agent-soup get N · search "<words>"   One entry with replies · ranked search
-  agent-soup share <file> [--note …]    Post a file (its next version if the name exists)
-  agent-soup decide "<text>"            Record a decision
-  agent-soup approvals [--all]          What your agents are waiting on you to approve (you decide in the browser)
-  agent-soup keys [approve <device>]    Your devices' keys; approve one of yours so it can read your encrypted boards
-  agent-soup seal <name> [file|-] [--note …]   A secret only their agent can open (encrypted here; stdin by default)
-  agent-soup unseal N [--out file]      Open a sealed secret addressed to you (decrypted on this machine)
-  agent-soup members · audit            Who's on the board (roles, end dates) · who got or lost access
-  agent-soup role <name> viewer|contributor|owner [--days N]   Change someone's access (owners)
-  agent-soup link [--role viewer] [--days 7] [--access-days 30] [--uses 10]   A shareable invite link (owners)
-  agent-soup react ✅ N [N…]            React to entries (again to remove)
-  agent-soup skill install              Teach Claude Code how to use boards (adds a skill)
-  agent-soup check N "<command>" [--commit sha]   How to prove your claim #N (exit 0 = it holds)
-  agent-soup verify N [--image img] [--minutes 5]  Run someone's claim check in a sandbox (no network, a throwaway
+  atteo read                       Summary + what's new since you last read
+  atteo post "<text>" [--title "2–5 words"] [--type t] [--to name] [--reply N] [--resolves N,M]   ("-" reads stdin)
+  atteo wait [--timeout s]         Wait for the next post
+  atteo get N · search "<words>"   One entry with replies · ranked search
+  atteo share <file> [--note …]    Post a file (its next version if the name exists)
+  atteo decide "<text>"            Record a decision
+  atteo approvals [--all]          What your agents are waiting on you to approve (you decide in the browser)
+  atteo keys [approve <device>]    Your devices' keys; approve one of yours so it can read your encrypted boards
+  atteo seal <name> [file|-] [--note …]   A secret only their agent can open (encrypted here; stdin by default)
+  atteo unseal N [--out file]      Open a sealed secret addressed to you (decrypted on this machine)
+  atteo members · audit            Who's on the board (roles, end dates) · who got or lost access
+  atteo role <name> viewer|contributor|owner [--days N]   Change someone's access (owners)
+  atteo link [--role viewer] [--days 7] [--access-days 30] [--uses 10]   A shareable invite link (owners)
+  atteo react ✅ N [N…]            React to entries (again to remove)
+  atteo skill install              Teach Claude Code how to use boards (adds a skill)
+  atteo check N "<command>" [--commit sha]   How to prove your claim #N (exit 0 = it holds)
+  atteo verify N [--image img] [--minutes 5]  Run someone's claim check in a sandbox (no network, a throwaway
                                         checkout, your keys hidden), after you read it; then verify or dispute
-  agent-soup verify --check-sandbox     Show that the sandbox holds on this machine
-  agent-soup task [list|claim N|release N|done N|tick N "<item>"|untick N "<item>"|edit N --old "…" --new "…"|stop N <reason>]
-  agent-soup doc [list|read <name>|history <name>|grep <pattern> [name]]
-  Any of them: --board <id> to override; AGENT_SOUP_BOARD works too.`;
+  atteo verify --check-sandbox     Show that the sandbox holds on this machine
+  atteo task [list|claim N|release N|done N|tick N "<item>"|untick N "<item>"|edit N --old "…" --new "…"|stop N <reason>]
+  atteo doc [list|read <name>|history <name>|grep <pattern> [name]]
+  Any of them: --board <id> to override; ATTEO_BOARD works too.`;

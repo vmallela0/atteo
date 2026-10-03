@@ -453,7 +453,7 @@ export class Board extends DurableObject<Env> {
     const memberCols = new Set(this.sql.exec("PRAGMA table_info(members)").toArray().map((r) => r.name as string));
     if (!memberCols.has("person_seen")) this.sql.exec("ALTER TABLE members ADD COLUMN person_seen INTEGER NOT NULL DEFAULT 0");
     if (!memberCols.has("agent_seen")) this.sql.exec("ALTER TABLE members ADD COLUMN agent_seen INTEGER NOT NULL DEFAULT -1"); // -1: never here
-    // A claim's reproducible check: {command, commit?}, run by other members in a sandbox (agent-soup verify N).
+    // A claim's reproducible check: {command, commit?}, run by other members in a sandbox (atteo verify N).
     const claimCols = new Set(this.sql.exec("PRAGMA table_info(claim_state)").toArray().map((r) => r.name as string));
     if (!claimCols.has("check_json")) this.sql.exec("ALTER TABLE claim_state ADD COLUMN check_json TEXT");
     const taskCols = new Set(this.sql.exec("PRAGMA table_info(tasks)").toArray().map((r) => r.name as string));
@@ -712,7 +712,7 @@ export class Board extends DurableObject<Env> {
     }
     if (info.encrypted && !internal.sealed && input.retracts != null) input = { ...input, text: "Unsent." }; // no plaintext reasons
     else if (info.encrypted && !internal.sealed) {
-      throw new BoardError(`"${info.title}" is end-to-end encrypted: the server only takes encrypted messages. Post with the agent-soup CLI (agent-soup post / ask), which encrypts on your machine.`);
+      throw new BoardError(`"${info.title}" is end-to-end encrypted: the server only takes encrypted messages. Post with the atteo CLI (atteo post / ask), which encrypts on your machine.`);
     }
     this.touch(user);
 
@@ -944,7 +944,7 @@ export class Board extends DurableObject<Env> {
         const c = this.cached();
         const text = formatSummary(info, members, c.summary, user, DEFAULT_SUMMARY_CHARS, c.tags, c.reviewers);
         return info.encrypted
-          ? `This board is END-TO-END ENCRYPTED: messages are ciphertext here. Read and write it with the agent-soup CLI (agent-soup read / post / ask), which decrypts and encrypts on this machine.\n\n${text}`
+          ? `This board is END-TO-END ENCRYPTED: messages are ciphertext here. Read and write it with the atteo CLI (atteo read / post / ask), which decrypts and encrypts on this machine.\n\n${text}`
           : text;
       })(),
       entries: this.withHandling(fresh),
@@ -1493,7 +1493,7 @@ export class Board extends DurableObject<Env> {
     const who = opts.via === "agent" ? (opts.session ? `${user}/${opts.session}` : `${user}'s agent`) : user;
     if (act.action === "check") {
       // Only the claim's author says how to check it; anyone else runs it (sandboxed, on their own machine, after
-      // their person OKs the exact command) with agent-soup verify N.
+      // their person OKs the exact command) with atteo verify N.
       if (claim.author !== user) throw new BoardError("Only the claim's author attaches its check.");
       const command = (act.command ?? "").trim();
       if (!command) throw new BoardError("command is required: what to run to check the claim (e.g. npm test -- auth).");
@@ -1504,7 +1504,7 @@ export class Board extends DurableObject<Env> {
       if (hit) throw new BoardError(blockedMessage(hit));
       this.sql.exec("UPDATE claim_state SET check_json = ?, updated_at = ? WHERE seq = ?", JSON.stringify({ command, ...(commit ? { commit: commit.toLowerCase() } : {}) }), Date.now(), seq);
       this.broadcast({ type: "claim", seq });
-      return `Check attached to #${seq}. Other members can run it in a sandbox with: agent-soup verify ${seq}`;
+      return `Check attached to #${seq}. Other members can run it in a sandbox with: atteo verify ${seq}`;
     }
     if (act.action === "evidence") {
       const ev: { seq?: number; url?: string; note?: string; by: string } = { by: who };
@@ -1632,7 +1632,7 @@ export class Board extends DurableObject<Env> {
     }
     for (const r of this.sql.exec("SELECT seq, check_json FROM claim_state WHERE check_json IS NOT NULL AND status != 'verified'").toArray()) {
       const c = JSON.parse(r.check_json as string) as ClaimCheck;
-      add(r.seq as number, `check: ${c.command}${c.commit ? ` @ ${c.commit.slice(0, 7)}` : ""} (agent-soup verify ${r.seq})`);
+      add(r.seq as number, `check: ${c.command}${c.commit ? ` @ ${c.commit.slice(0, 7)}` : ""} (atteo verify ${r.seq})`);
     }
     for (const r of this.sql.exec("SELECT retracts FROM entries WHERE retracts IS NOT NULL").toArray()) bad.set(r.retracts as number, "retracted");
     if (!bad.size) return;
@@ -2201,8 +2201,8 @@ export class Board extends DurableObject<Env> {
     // On an encrypted board every message is an envelope for all members; elsewhere it's a secret for one member.
     const type = (["note", "question", "claim", "decision", "task"] as const).find((t) => t === s.type) ?? "note";
     const e = info.encrypted
-      ? await this.post(user, { type, to, reply_to: s.reply_to ?? null, title: "Encrypted", text: "🔒 Encrypted message (read it with agent-soup read)", via: opts.via, client: opts.client, session: opts.session }, { sealed: true })
-      : await this.post(user, { type: "note", to, title: "Sealed secret", text: `🔒 A sealed secret for ${to}'s agent${note ? `: ${note}` : "."} Only ${to}'s agent can open it: agent-soup unseal <this entry's number>.`, via: opts.via, client: opts.client, session: opts.session });
+      ? await this.post(user, { type, to, reply_to: s.reply_to ?? null, title: "Encrypted", text: "🔒 Encrypted message (read it with atteo read)", via: opts.via, client: opts.client, session: opts.session }, { sealed: true })
+      : await this.post(user, { type: "note", to, title: "Sealed secret", text: `🔒 A sealed secret for ${to}'s agent${note ? `: ${note}` : "."} Only ${to}'s agent can open it: atteo unseal <this entry's number>.`, via: opts.via, client: opts.client, session: opts.session });
     // On an encrypted board every envelope is for all members ("*"); `to` is just who it's addressed to.
     this.sql.exec("UPDATE entries SET sealed = ?, sealed_to = ? WHERE seq = ?", s.payload, info.encrypted ? "*" : to, e.seq);
     return e;

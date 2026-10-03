@@ -150,7 +150,7 @@ await step("ops API is invisible without the key", async () => {
 
 await step("MCP initialize, tools/list, notifications, protocol errors", async () => {
   const r = await rpcRaw(auth(A), null, "initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "e2e", version: "0" } });
-  assert(r.protocolVersion === "2025-06-18" && r.serverInfo.name === "agent-soup" && r.serverInfo.title === "Atteo", JSON.stringify(r));
+  assert(r.protocolVersion === "2025-06-18" && r.serverInfo.name === "atteo" && r.serverInfo.title === "Atteo", JSON.stringify(r));
   has(r.instructions, "Atteo");
   const names = (await rpcRaw(auth(A), null, "tools/list", {})).tools.map((t) => t.name).sort();
   assert(JSON.stringify(names) === JSON.stringify(["agents", "approval", "claim", "create_board", "doc", "get", "handle", "invite", "join_board", "leave_board", "list_boards", "people", "post", "publish", "react", "read", "request_approval", "retract", "review", "search", "session", "task", "wait"]), names.join());
@@ -318,9 +318,44 @@ await step("web: sign-in redirects to WorkOS AuthKit with our client and callbac
   assert(u.searchParams.get("provider") === "authkit" && u.searchParams.get("redirect_uri") === `${BASE}/auth/callback`, loc);
   assert(u.searchParams.get("client_id")?.startsWith("client_"), "client id");
   has(r.headers.get("set-cookie") ?? "", "ab_oauth=");
-  assert((await web("/auth/callback?code=x&state=forged")).status === 400, "forged state should 400");
+  const st = u.searchParams.get("state");
+  assert((await web("/auth/callback?code=x&state=forged", undefined, { headers: { cookie: `ab_oauth=${encodeURIComponent(`${st}|/me`)}` } })).status === 400, "forged state should 400");
+  // No ab_oauth cookie: sign-in started on another host (workers.dev), but the callback is on the public one (atteo.dev).
+  // Restart here once, keeping the return path; a restarted attempt that still has no cookie fails instead of looping.
+  const moved = await web(`/auth/callback?code=x&state=${encodeURIComponent(st)}`);
+  assert(moved.status === 303 && moved.headers.get("location") === "/auth/login?restart=1&return=%2Fme", `cookie-less callback should restart sign-in, got ${moved.status} ${moved.headers.get("location")}`);
+  const again = await web(moved.headers.get("location"));
+  const st2 = new URL(again.headers.get("location") ?? "").searchParams.get("state") ?? "";
+  assert(again.status === 303 && st2.split(".")[1] === "1", `restarted sign-in should be marked, got ${st2}`);
+  assert((await web(`/auth/callback?code=x&state=${encodeURIComponent(st2)}`)).status === 400, "a second cookie-less callback should stop, not loop");
   const noState = await web("/auth/callback?code=x");
   assert(noState.status === 303 && noState.headers.get("location") === "/auth/login", `WorkOS-initiated callback should restart sign-in, got ${noState.status} ${noState.headers.get("location")}`);
+});
+
+await step("public origin: a request for the workers.dev host links to PUBLIC_URL; localhost keeps its own", async () => {
+  if (!/localhost|127\.0\.0\.1/.test(BASE)) return; // needs a forged Host header, only against a local server
+  // atteo.dev proxies to workers.dev, so inside the Worker every public request looks like workers.dev. fetch() can't set Host.
+  const { request } = await import("node:http");
+  const get = (path) =>
+    new Promise((ok, no) => {
+      const r = request(new URL(path, BASE), { headers: { host: "agent-board.vedu-mallela.workers.dev" } }, (res) => {
+        let body = "";
+        res.on("data", (d) => (body += d)).on("end", () => ok({ status: res.statusCode, location: res.headers.location ?? "", body }));
+      });
+      r.on("error", no).end();
+    });
+  const pub = new URL((await get("/auth/login")).location).searchParams.get("redirect_uri") ?? "";
+  assert(pub.endsWith("/auth/callback") && !pub.startsWith("https://agent-board.vedu-mallela.workers.dev"), `redirect_uri ${pub}`);
+  const o = pub.slice(0, -"/auth/callback".length);
+  const as = JSON.parse((await get("/.well-known/oauth-authorization-server")).body);
+  assert(as.issuer === o && as.authorization_endpoint === `${o}/oauth/authorize` && as.token_endpoint === `${o}/oauth/token`, JSON.stringify(as));
+  assert(JSON.parse((await get("/.well-known/oauth-protected-resource")).body).resource === `${o}/mcp`, "protected resource");
+  assert(JSON.parse((await get("/openapi.json")).body).servers[0].url === o, "openapi servers");
+  assert(JSON.parse((await get("/.well-known/agent-card.json")).body).url === `${o}/a2a`, "agent card");
+  has((await get("/install.sh")).body, `:-${o}}}"`); // SERVER="${ATTEO_SERVER:-${AGENT_SOUP_SERVER:-<origin>}}"
+  // The same server addressed as localhost keeps its own origin.
+  assert((await (await fetch(`${BASE}/.well-known/oauth-authorization-server`)).json()).issuer === BASE, "localhost issuer");
+  assert((await (await fetch(`${BASE}/.well-known/oauth-protected-resource`)).json()).resource === `${BASE}/mcp`, "localhost resource");
 });
 
 await step("web: members see the board; outsiders get 404", async () => {
@@ -1133,6 +1168,7 @@ await step("every page's inline scripts parse (a template escaping slip breaks t
     const html = await (await web(path, A)).text();
     const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
     assert(scripts.length, `no scripts on ${path}`);
+    if (path === `/b/${board}`) assert(scripts.some((x) => x.includes("rpAt=by!==ME?'@'+who+' '") && x.includes("ta.value.startsWith(rpM)")), "reply prefill logic missing");
     for (const src of scripts) {
       try {
         new Script(src);
@@ -1296,7 +1332,7 @@ await step("REST API with a personal token acts as your agent; OpenAPI spec and 
   assert((await fetch(`${BASE}/b/${fb}`, { headers: { authorization: `Bearer ${tok[A]}` }, redirect: "manual" })).status !== 200, "pages need a browser session");
   const spec = await (await fetch(`${BASE}/openapi.json`)).json();
   assert(spec.openapi === "3.1.0" && spec.paths["/api/boards/{id}/tasks/{seq}"] && spec.servers[0].url === BASE, "openapi");
-  has(await (await fetch(`${BASE}/skill.md`)).text(), "name: agent-soup");
+  has(await (await fetch(`${BASE}/skill.md`)).text(), "name: atteo");
 });
 
 await step("profile pictures: people and their agents each get one; images only; served safely", async () => {
@@ -1334,7 +1370,8 @@ await step("agent webhooks: signed deliveries when something is addressed to you
   assert(d, "delivered");
   const body = JSON.parse(d.body);
   assert(body.event === "for_your_agent" && body.you === B && body.entry.seq === seq && body.reply.url.endsWith(`/api/boards/${fb}/entries`), d.body.slice(0, 300));
-  const [, t, v1] = d.headers["agent-soup-signature"].match(/^t=(\d+),v1=([0-9a-f]+)$/);
+  assert(d.headers["agent-soup-signature"] === d.headers["atteo-signature"], "the header under its old name too, for receivers set up before the rename");
+  const [, t, v1] = d.headers["atteo-signature"].match(/^t=(\d+),v1=([0-9a-f]+)$/);
   const { createHmac } = await import("node:crypto");
   assert(createHmac("sha256", r.secret).update(`${t}.${d.body}`).digest("hex") === v1, "signature verifies");
   const list = (await (await web(`/api/webhooks`, B)).json()).webhooks;
@@ -1454,7 +1491,7 @@ await step("claims: evidence, verify (never your own), dispute flags everything 
   has(await ok(A, fb, "read"), `[verified by ${B}'s agent]`);
   // Checks: the author says how to prove a claim; it shows to everyone; nobody else can change it.
   const c0 = seqOf(await ok(A, fb, "post", { type: "claim", text: `Login works without cookies ${run}` }));
-  has(await ok(A, fb, "claim", { action: "check", seq: c0, command: "npm test -- login", commit: "abc1234" }), `agent-soup verify ${c0}`);
+  has(await ok(A, fb, "claim", { action: "check", seq: c0, command: "npm test -- login", commit: "abc1234" }), `atteo verify ${c0}`);
   await err(B, fb, "claim", { action: "check", seq: c0, command: "true" }, "Only the claim's author");
   await err(A, fb, "claim", { action: "check", seq: c0, command: "x", commit: "not-a-sha" }, "commit must be");
   has(await ok(B, fb, "claim", { action: "list" }), "check: npm test -- login @ abc1234");
@@ -1611,21 +1648,22 @@ await step("one-click connect (MCP OAuth): discovery, registration, sign-in + al
   has(await (await web("/me", A)).text(), `E2E Agent ${run}`); // listed (and revocable) under Agent connections
 });
 
-await step("the Atteo app signs in as the person (scope=person, agentsoup:// only): it can do what only people can; agent tokens still can't", async () => {
+await step("the Atteo app signs in as the person (scope=person, atteo:// only): it can do what only people can; agent tokens still can't", async () => {
   const { createHash, randomBytes } = await import("node:crypto");
-  const cb = "agentsoup://auth";
-  const reg = await (await fetch(`${BASE}/oauth/register`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ client_name: "Atteo for iOS", redirect_uris: [cb, "http://localhost:47124/cb"] }) })).json();
+  const cb = "atteo://auth";
+  const reg = await (await fetch(`${BASE}/oauth/register`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ client_name: "Atteo for iOS", redirect_uris: [cb, "agentsoup://auth", "http://localhost:47124/cb"] }) })).json();
   const verifier = randomBytes(32).toString("base64url");
   const challenge = createHash("sha256").update(verifier).digest("base64url");
   const q = (redirect) => new URLSearchParams({ response_type: "code", client_id: reg.client_id, redirect_uri: redirect, code_challenge: challenge, code_challenge_method: "S256", scope: "person", state: "s1" });
   // Only the app's own link may ask to sign in as you.
-  assert((await web(`/oauth/authorize?${q("http://localhost:47124/cb")}`, A)).status === 400, "person scope needs agentsoup://");
+  assert((await web(`/oauth/authorize?${q("http://localhost:47124/cb")}`, A)).status === 400, "person scope needs atteo://");
+  has(await (await web(`/oauth/authorize?${q("agentsoup://auth")}`, A)).text(), `Sign in to the Atteo app as ${A}?`); // the app's scheme before the rename still works
   const consent = await (await web(`/oauth/authorize?${q(cb)}`, A)).text();
   has(consent, `Sign in to the Atteo app as ${A}?`);
   const rid = consent.match(/name="request_id" value="([^"]+)"/)[1];
   const allow = await web(`/oauth/authorize`, A, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: `request_id=${rid}&allow=1` });
   const loc = allow.headers.get("location") ?? "";
-  assert(loc.startsWith("agentsoup://auth?"), loc);
+  assert(loc.startsWith("atteo://auth?"), loc);
   const code = new URL(loc).searchParams.get("code");
   const t = await (await fetch(`${BASE}/oauth/token`, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ grant_type: "authorization_code", code, redirect_uri: cb, client_id: reg.client_id, code_verifier: verifier }) })).json();
   assert(t.access_token && t.scope === "person", JSON.stringify(t));
@@ -1878,7 +1916,7 @@ await step("agent sessions: several per person, each with its own boards and rea
   assert((await api(B, "GET", "/api/sessions")).body.sessions.find((x) => x.id === s1.id).state === "live", "your session is live");
   assert((await api(OUT, "GET", `/api/boards/${b1}/agents`)).status === 404, "outsiders can't see who's here");
   // A session posts (MCP + its header): the other session sees it, labelled; it doesn't come back to the poster
-  const sh = (s) => ({ ...auth(B), "x-agent-soup-session": s.id });
+  const sh = (s) => ({ ...auth(B), "x-atteo-session": s.id });
   const posted = await rpcRaw(sh(s1), b1, "tools/call", { name: "post", arguments: { type: "note", text: `8443 (${run}). @${B}/codex-2 take the tests` } });
   has(posted.content[0].text, "Posted #");
   const seen2 = (await api(B, "GET", `/api/sessions/${s2.id}/read?board=${b1}`)).body.boards[0];
@@ -1886,6 +1924,11 @@ await step("agent sessions: several per person, each with its own boards and rea
   has(seen2.text, `'s agent [codex]`);
   has(seen2.text, `your session "codex-2"`);
   assert((await api(B, "GET", `/api/sessions/${s1.id}/read?board=${b1}`)).body.boards[0].entries.length === 0, "a session doesn't get its own post back");
+  // The header under its name from before the rename (older CLIs send it) still picks the session.
+  const oldHeader = await rpcRaw({ ...auth(B), "x-agent-soup-session": s1.id }, b1, "tools/call", { name: "post", arguments: { type: "note", text: `old header name ${run}` } });
+  has(oldHeader.content[0].text, "Posted #");
+  const seen3 = (await api(B, "GET", `/api/sessions/${s2.id}/read?board=${b1}`)).body.boards[0];
+  assert(seen3.entries.length === 1 && seen3.entries[0].client === "codex · Codex" && seen3.entries[0].text.includes("old header name"), JSON.stringify(seen3.entries));
   // Stale-post check per session
   await ok(A, b1, "read", {});
   await ok(A, b1, "post", { type: "note", text: `one more ${run}` });
@@ -1954,7 +1997,7 @@ await step("only manager agents are listed: forks, ended sessions and ones gone 
 });
 
 await step("read-only agent sessions: read and wait work; posting, through the API or a tool, is refused; only the person raises it back", async () => {
-  const H = (sid) => ({ ...auth(B), "content-type": "application/json", "x-agent-soup-session": sid });
+  const H = (sid) => ({ ...auth(B), "content-type": "application/json", "x-atteo-session": sid });
   const ro = (await (await fetch(`${BASE}/api/sessions`, { method: "POST", headers: { ...auth(B), "content-type": "application/json" }, body: JSON.stringify({ client: "Codex", scope: "read" }) })).json()).session;
   assert(ro.scope === "read", JSON.stringify(ro));
   // API: posting is refused; marking seen and its own session are fine.
@@ -1989,7 +2032,7 @@ await step("handling: when several of a person's agents are asked, one takes it 
   for (const s of [s1, s2]) await api(B, "POST", `/api/sessions/${s.id}/boards`, { board: hb });
   await ok(A, hb, "read", {});
   const q = seqOf(await ok(A, hb, "post", { type: "question", text: `@${B}'s agent which region? ${run}` }));
-  const sh = (s) => ({ ...auth(B), "x-agent-soup-session": s.id });
+  const sh = (s) => ({ ...auth(B), "x-atteo-session": s.id });
   const t1 = await rpcRaw(sh(s1), hb, "tools/call", { name: "handle", arguments: { seq: q } });
   has(t1.content[0].text, `You're handling #${q}`);
   const t2 = await rpcRaw(sh(s2), hb, "tools/call", { name: "handle", arguments: { seq: q } });
@@ -2026,11 +2069,11 @@ await step("handling: when several of a person's agents are asked, one takes it 
   await api(A, "POST", `/api/sessions/${s3.id}/boards`, { board: hb });
   const clash = await api(A, "POST", `/api/sessions/${s3.id}`, { name: "scout" });
   assert(clash.status === 400 && /taken in one of your rooms/.test(clash.body.error), JSON.stringify(clash));
-  const named = await rpcRaw({ ...auth(A), "x-agent-soup-session": s3.id }, hb, "tools/call", { name: "session", arguments: { action: "rename", name: "reviewer" } });
+  const named = await rpcRaw({ ...auth(A), "x-atteo-session": s3.id }, hb, "tools/call", { name: "session", arguments: { action: "rename", name: "reviewer" } });
   has(named.content[0].text, `You're "reviewer" now: others reach you as @${A}/reviewer`);
   // A session that works on a board through MCP is on it (Agents list, @-menu), even without join_board
   const s4 = (await api(A, "POST", "/api/sessions", { suggest: "tester", client: "Claude Code" })).body.session;
-  await rpcRaw({ ...auth(A), "x-agent-soup-session": s4.id }, hb, "tools/call", { name: "read", arguments: {} });
+  await rpcRaw({ ...auth(A), "x-atteo-session": s4.id }, hb, "tools/call", { name: "read", arguments: {} });
   let s4b = [];
   for (let i = 0; i < 20 && !s4b.includes(hb); i++, await new Promise((r) => setTimeout(r, 100))) s4b = (await api(A, "GET", "/api/sessions")).body.sessions.find((x) => x.id === s4.id)?.boards?.map((b) => b.id ?? b) ?? [];
   assert(s4b.includes(hb), "reading a board through MCP puts the session on it: " + JSON.stringify(s4b));
@@ -2216,6 +2259,24 @@ await step("encryption v2: one key per board; newcomers read history; later devi
   // Revoking a device drops its copies and flags the board again.
   assert((await web(`/api/me/keys/${b2.kid}`, B, { method: "DELETE" })).status === 200, "revoke B's second device");
   assert((await api(A, `/api/boards/${eb}/epochs`)).body.rotate_needed, "revoking a device rotates");
+});
+
+await step("new board as JSON (the app): POST /api/boards makes an encrypted board by default; a title is required", async () => {
+  // A fresh person (A is at the Free plan's board cap by now; the cap answers 402).
+  const N = `e2e-app-${run}`;
+  assert((await ops("users", { name: N, email: `${N}@example.com`, verified: "true" })).status === 201, "user");
+  tok[N] = (await ops("tokens", { user: N, kind: "app", label: "Atteo app" })).body.token;
+  const mk = (who, body) => fetch(`${BASE}/api/boards`, { method: "POST", headers: { authorization: `Bearer ${tok[who]}`, "content-type": "application/json" }, body: JSON.stringify(body) });
+  const r = await mk(N, { title: `e2e app board ${run}` });
+  assert(r.status === 201, `create ${r.status} ${await r.clone().text()}`);
+  const made = (await r.json()).board;
+  assert(/^b_/.test(made.id) && made.encrypted === true, JSON.stringify(made));
+  const plain = (await (await mk(N, { title: `e2e app plain ${run}`, encrypted: false })).json()).board;
+  const mine = (await (await fetch(`${BASE}/api/me/boards`, { headers: { authorization: `Bearer ${tok[N]}` } })).json()).boards;
+  assert(mine.find((b) => b.id === made.id)?.encrypted === true, "listed, encrypted");
+  assert(mine.find((b) => b.id === made.id)?.created_by === N && mine.find((b) => b.id === made.id)?.archived === false, "with its creator, not archived");
+  assert(mine.find((b) => b.id === plain.id)?.encrypted === false, "encrypted: false makes a plain board");
+  assert((await mk(N, {})).status === 400, "no title: 400");  assert((await fetch(`${BASE}/api/boards`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).status === 401, "signed out: 401");
 });
 
 if (/localhost|127\.0\.0\.1/.test(BASE) && process.env.E2E_FULL) {

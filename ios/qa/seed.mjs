@@ -12,11 +12,16 @@ const tool = async (tok, board, name, args) => {
   return (await r.json()).result?.content?.map((c) => c.text).join("\n");
 };
 const u = (n) => ops("users", { name: n, email: `${n}@example.com`, verified: "true" });
-for (const n of ["maya", "theo", "priya", "sam"]) await u(n);
+for (const n of ["maya", "theo", "priya", "sam", "jules"]) await u(n);
 const tm = (await ops("tokens", { user: "maya" })).token;
 const tt = (await ops("tokens", { user: "theo" })).token;
 const tp = (await ops("tokens", { user: "priya" })).token;
 const app = (await ops("tokens", { user: "maya", kind: "app", label: "Atteo app" })).token;
+// Seeding again: archive what an earlier run made, so the app shows one set of boards (and maya has room under the
+// Free plan's 3 boards once she archives one in the app).
+for (const b of (await call(app, "GET", "/api/me/boards")).boards ?? []) {
+  if (b.kind !== "direct" && !b.archived) await fetch(`${BASE}/api/boards/${b.id}/archive`, { method: "POST", headers: { "x-admin-key": KEY, "content-type": "application/json" }, body: JSON.stringify({ archived: true }) });
+}
 const b1 = (await ops("boards", { user: "maya", title: "Checkout bug" })).board.id;
 await ops("members", { board: b1, user: "theo" });
 const b2 = (await ops("boards", { user: "maya", title: "Q4 data migration" })).board.id;
@@ -63,12 +68,25 @@ if (s1n) { await tool(tt, b1, "task", { action: "update", seq: s1n, status: "doi
 await tool(tm, b1, "read", {});
 await tool(tm, b1, "task", { action: "create", title: "Add a regression test for empty carts", assignee: "maya" });
 await tool(tm, b1, "read", {});
-await tool(tm, b1, "task", { action: "create", title: "Write the incident note", priority: "low" });
+await tool(tm, b1, "task", { action: "create", title: "Write the incident note", priority: "low", body: "- [ ] timeline of the outage\n- [ ] what we changed\n- [ ] follow-ups" });
+// A shared doc with two versions (the app's Files and its version picker).
+await tool(tm, b1, "read", {});
+await tool(tm, b1, "doc", { action: "write", name: "rollout-plan.md", base_version: 0, content: "# Rollout plan\n\nShip **PAYMENTS_V2** in two steps.\n\n## Steps\n- Deploy behind the flag\n- Turn it on for 5%\n", summary: "first draft" });
+await tool(tm, b1, "read", {});
+await tool(tm, b1, "doc", { action: "write", name: "rollout-plan.md", base_version: 1, content: "# Rollout plan\n\nShip **PAYMENTS_V2** in three steps.\n\n## Steps\n- [x] Deploy behind the flag\n- [ ] Turn it on for 5%\n- [ ] Then 100%, if errors stay flat\n\n## Rollback\nFlip `PAYMENTS_V2` off. No migration to undo.\n", summary: "added rollback" });
 // Two sub-tasks under the one in progress (the app's live checklist: finishing one ticks the parent).
 await tool(tt, b1, "read", {});
 const sub = await tool(tt, b1, "task", { action: "create", title: "Test behind PAYMENTS_V2", parent: s1n, assignee: "theo" });
 await tool(tt, b1, "read", {});
 await tool(tt, b1, "task", { action: "create", title: "Ship", parent: s1n });
+// jules is maya's friend (no DM yet): the app's New message → jules → Message opens their DM.
+const tj = (await ops("tokens", { user: "jules" })).token;
+await call(app, "POST", "/api/friends/request", { user: "jules" });
+await call(tj, "POST", "/api/friends/maya/accept");
+const ja = (await ops("tokens", { user: "jules", kind: "app", label: "Atteo app" })).token;
+await call(ja, "POST", "/api/me/profile", { display_name: "Jules Park", bio: "Payments infra. Ask me about Stripe webhooks.", listed: true });
+// A second thing her agent asks (the everyday flow answers one with a tap; the app's approval detail answers the other).
+await tool(tm, b1, "request_approval", { title: "Rotate the Stripe webhook secret", details: "stripe webhook_endpoints update we_123 --secret new\nThen redeploy checkout-service so it picks up the new secret.", risk: "medium" });
 // theo's Claude Code session is working on the board right now (the live signal in Chats and the chat header).
 const ts = (await call(tt, "POST", "/api/sessions", { client: "Claude Code" })).session;
 await call(tt, "POST", `/api/sessions/${ts.id}/boards`, { board: b1 });

@@ -34,7 +34,8 @@ echo "local suites passed after $(( $(date +%s) - start ))s"
 
 # 2. Push, migrate (new D1 migrations first, so new code never runs on an old schema), deploy.
 # (No pre-push change card: step 4 posts one for the whole ship, once it's live.)
-AGENT_SOUP_NO_HOOK=1 git push -q origin HEAD:main
+# (Both names: hooks installed before the rename only know AGENT_SOUP_NO_HOOK.)
+ATTEO_NO_HOOK=1 AGENT_SOUP_NO_HOOK=1 git push -q origin HEAD:main
 CI=1 npx wrangler d1 migrations apply agent-board --remote >/tmp/ship-migrate.log 2>&1 || { cat /tmp/ship-migrate.log; exit 1; }
 grep -q "No migrations to apply" /tmp/ship-migrate.log || grep -E "✅|applied" /tmp/ship-migrate.log | sed 's/^/migrated: /'
 out=$(npx wrangler deploy 2>&1) || { echo "$out"; exit 1; }
@@ -55,12 +56,14 @@ echo "$deep" | grep -q '"ok":true' || { echo "deep health check failed: $deep"; 
 echo "prod healthy; shipped in $(( $(date +%s) - start ))s"
 
 # 4. A change card of what just shipped (before..HEAD) on the build board, with the installed CLI (and its login).
-# Flags the CLI has had since change cards came in, so an agent-soup older than this repo still works. Never fails
-# the ship, and prints only the entry number: the CLI's other output can quote other people's board messages.
-if [ "$before" != "$(git rev-parse HEAD)" ] && command -v agent-soup >/dev/null 2>&1; then
+# Flags the CLI has had since change cards came in, so an atteo older than this repo still works (and agent-soup,
+# its name before the rename, when that's all that's installed). Never fails the ship, and prints only the entry
+# number: the CLI's other output can quote other people's board messages.
+atteo=$(command -v atteo || command -v agent-soup || true)
+if [ "$before" != "$(git rev-parse HEAD)" ] && [ -n "$atteo" ]; then
   n=$(git rev-list --count "$before"..HEAD 2>/dev/null || echo "?")
   ship_card() {
-    AGENT_SOUP_NO_UPDATE_CHECK=1 agent-soup card --base "$before" --committed --no-gh --board "${SHIP_BOARD:-b_skyvcqtm7fei}" \
+    ATTEO_NO_UPDATE_CHECK=1 AGENT_SOUP_NO_UPDATE_CHECK=1 "$atteo" card --base "$before" --committed --no-gh --board "${SHIP_BOARD:-b_skyvcqtm7fei}" \
       --title "Shipped to production" --post "Shipped to production ($ver): $n commit$([ "$n" = 1 ] || echo s)" 2>/dev/null
   }
   # Exit 2: others posted since this session last read (now marked read); the card still fits, so post it again.
