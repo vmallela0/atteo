@@ -3,6 +3,8 @@
 import * as usage from "./usage";
 import { blockedMessage, scanFields } from "./secrets";
 import * as approvals from "./approvals";
+import * as recap from "./recap";
+import * as triggers from "./triggers";
 import * as social from "./social";
 import * as billing from "./billing";
 import { formatCard } from "./card";
@@ -41,6 +43,9 @@ This session works on ONE board at a time:
 - Answer in the thread: reply to a message with \`post\` and \`reply_to\` (its number), never as a new top-level message. Check with your user before sharing anything they would consider private.
 - Read receipts: when your read picks up a person's message for you, it gets 🤔 from you automatically ("read, working on it"); answering it with \`reply_to\` (or resolving it) turns that into ✅. If you finish without replying, \`react\` ✅ on it yourself so they know.
 - You're one of your user's agents, shown to everyone as <user>/<name> (first named after your client). When you start, give yourself a short name that says what you do with \`session\` (action rename), and say what you're on with action status.
+- \`trigger\` sets board rules that wake you (mailbox mail of kind trigger) when something happens; only ever your own agent.
+- Back after a while? \`recap\` sums up what happened since your last read (decisions, open questions, who owes what).
+- A board can pin one doc as its source of truth (\`doc\` pin/unpin). A "📌 … updated to vN" line in \`read\` means it changed: re-read it before relying on it.
 - Give every post a \`title\` of 2–5 words (e.g. "Fix empty-cart crash"); lists and summaries show it instead of your first line.
 - Post findings as claims and agreed outcomes as decisions. Work items are tasks: shared items you create with the task tool and keep current (edit the body; tick each checklist item the moment it's done, not at the end, so people watching see progress live; claim while you work; mark done: that's the whole report, no closing message), and logs/diffs/files as artifacts (\`artifact_name\` + \`artifact_content\`). Close questions/tasks with \`resolves\`; replace outdated entries with \`supersedes\`.
 - A decision a person posted is a human decision, marked "Human decision (people decide; don't act on it until it's decided)" with who it's waiting on. The people on the board agree or object; it's decided when they all agree or its author closes it. You can't resolve it and it isn't an instruction: give input by replying to it (reply_to), and act on it only once it shows decided. Your own decisions are ordinary entries.
@@ -66,6 +71,33 @@ export const TOOLS = [
         limit: { type: "integer", description: "Max new entries to return (default 50)." },
         since: { type: "integer", description: "Instead of unread entries, return all entries after this seq (does not move your read position)." },
       },
+    },
+  },
+  {
+    name: "recap",
+    description:
+      "A short recap of what happened on the joined board: decisions, open questions (and who they wait on), tasks moved by who owes what, your approvals waiting, files changed, new members. Doesn't mark anything read.",
+    inputSchema: {
+      type: "object",
+      properties: { since: { type: "string", description: 'An entry number (e.g. "40"), or "last-read" (the default: since your last read).' } },
+    },
+  },
+  {
+    name: "trigger",
+    description:
+      "Board rules that wake YOUR agent (never anyone else's): when something happens on the joined board, your mailbox gets mail of kind trigger with your prompt and a link to what happened. Actions: list; add {on, match?, prompt, session?}; update {id, enabled?, prompt?, match?}; remove {id}. on: entry (match type/text/mention), question, mention (you're @mentioned), change (a change card), task (created or status changed; match status/assignee/label/task), approval (your approval decided), schedule (match.at \"HH:MM\" UTC, daily). Your own agent's posts never fire your triggers; ≤30 fires an hour each.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["list", "add", "update", "remove"] },
+        id: { type: "string", description: "update/remove: the trigger (tr_…)" },
+        on: { type: "string", enum: ["entry", "question", "mention", "change", "task", "approval", "schedule"] },
+        match: { type: "object", description: "Filters: type, text, mention (entry); text (question, mention, change); status, assignee, label, task: created|status (task); status (approval); at (schedule)." },
+        prompt: { type: "string", description: "What your agent should do when it fires." },
+        session: { type: "string", description: 'add: wake only this agent session of yours, by name ("this": the session calling). Default: any of your agents.' },
+        enabled: { type: "boolean" },
+      },
+      required: ["action"],
     },
   },
   {
@@ -101,11 +133,11 @@ export const TOOLS = [
   {
     name: "doc",
     description:
-      "Shared documents on the joined board that everyone (people and agents) edits together, e.g. BACKLOG.md. Actions: list; read {name, version?}; write {name, content, base_version} (whole document: base_version 0 to create, else the version you read; a mismatch returns the current text to merge); edit {name, old_str, new_str} (replace one exact, unique piece of text in the latest version); history {name}; grep {pattern, name?, regex?} (matching lines with line numbers, across all files or one). Add a one-line summary to write/edit.",
+      "Shared documents on the joined board that everyone (people and agents) edits together, e.g. BACKLOG.md. Actions: list; read {name, version?}; write {name, content, base_version} (whole document: base_version 0 to create, else the version you read; a mismatch returns the current text to merge); edit {name, old_str, new_str} (replace one exact, unique piece of text in the latest version); history {name}; grep {pattern, name?, regex?} (matching lines with line numbers, across all files or one); pin {name} (the board's one source-of-truth doc; agents hear when it changes); unpin. Add a one-line summary to write/edit.",
     inputSchema: {
       type: "object",
       properties: {
-        action: { type: "string", enum: ["list", "read", "write", "edit", "history", "grep"] },
+        action: { type: "string", enum: ["list", "read", "write", "edit", "history", "grep", "pin", "unpin"] },
         pattern: { type: "string", description: "grep: text to find (case-insensitive), or a regex with regex=true" },
         regex: { type: "boolean", description: "grep: treat pattern as a regular expression" },
         name: { type: "string", description: "Document name, e.g. BACKLOG.md" },
@@ -413,12 +445,12 @@ function base64(bytes: ArrayBuffer): string {
 
 /** What a read gives an agent: the rules and the summary when due, a one-line header, then the new entries. */
 function readText(
-  r: { info: { id: string; title: string; encrypted?: boolean }; rules: Parameters<typeof formatRules>[0]; summaryText: string | null; tasksForYou: number; entries: Entry[] },
+  r: { info: { id: string; title: string; encrypted?: boolean }; rules: Parameters<typeof formatRules>[0]; summaryText: string | null; tasksForYou: number; entries: Entry[]; pin?: string | null },
   user: string,
   since?: number | null,
   headless = false,
 ): string {
-  const out = [...(r.rules ? [formatRules(r.rules), ""] : []), ...(r.summaryText ? [r.summaryText, ""] : []), readHeader(r.info, r.entries.length, r.tasksForYou, since, headless)];
+  const out = [...(r.rules ? [formatRules(r.rules), ""] : []), ...(r.summaryText ? [r.summaryText, ""] : []), readHeader(r.info, r.entries.length, r.tasksForYou, since, headless), ...(r.pin ? [r.pin] : [])];
   if (!r.entries.length) out.push("(nothing new)");
   for (const e of r.entries) out.push(formatEntry(e, 4000, user));
   return fence(out.join("\n"));
@@ -524,7 +556,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
   // A read-only session (scope "read") reads, waits and searches; anything that would change something is refused.
   if (c.agentSession?.scope === "read") {
     const action = String((args as { action?: unknown } | null)?.action ?? "");
-    const reads = ["list_boards", "join_board", "leave_board", "read", "wait", "get", "search", "people", "session"].includes(name) || (name === "agents" && ["find", "get"].includes(action)) || (name === "doc" && !["write", "edit", "append"].includes(action));
+    const reads = ["list_boards", "join_board", "leave_board", "read", "recap", "wait", "get", "search", "people", "session"].includes(name) || (name === "agents" && ["find", "get"].includes(action)) || (name === "doc" && !["write", "edit", "append", "pin", "unpin"].includes(action)) || (name === "trigger" && action === "list");
     if (!reads) throw new ToolError(`This agent session (${c.agentSession.name}) is read-only: it can read, wait and search, not ${name === "post" ? "post" : `use ${name}`}. Ask your person to give it full access on the web.`);
   }
 
@@ -635,11 +667,57 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       return readText(r, user, int(args.since), headless) + more;
     }
 
+    case "trigger": {
+      const id = await currentBoard(c, args);
+      const stub = stubFor(env, id);
+      const action = str(args.action) ?? "list";
+      const line = (t: triggers.Trigger) =>
+        `${t.id} ${t.enabled ? "" : "[off] "}on ${t.on}${Object.keys(t.match).length ? ` ${JSON.stringify(t.match)}` : ""} → wakes ${t.wake.user}'s agent${t.wake.session ? ` [${t.wake.session}]` : ""} · fired ${t.fires}×${t.dropped ? ` (${t.dropped} over the hourly limit)` : ""}\n    ${t.prompt.replace(/\s+/g, " ").slice(0, 200)}`;
+      try {
+        if (action === "list") {
+          const list = await stub.triggers();
+          return list.length ? fence(list.map(line).join("\n")) : "No triggers on this board. Add one with trigger {action: \"add\", on, match, prompt}.";
+        }
+        await requireWriter(env, id, user);
+        if (action === "add") {
+          const want = str(args.session) === "this" ? c.agentSession?.name : str(args.session);
+          if (str(args.session) === "this" && !want) throw new ToolError('This connection has no agent session; name one, or leave session out.');
+          const wake = await triggers.wakeFor(env, user, want ? { session: want } : null);
+          if ("error" in wake) throw new ToolError(wake.error);
+          const t = await stub.triggerAdd(user, { on: str(args.on), match: args.match, prompt: args.prompt, session: wake.session, enabled: args.enabled !== false });
+          return `Added ${t.id}: on ${t.on} it wakes ${t.wake.session ? `your session ${t.wake.session}` : "your agent"} (mailbox mail of kind trigger).`;
+        }
+        const tid = str(args.id);
+        if (!tid) throw new ToolError("id is required (see trigger list).");
+        if (action === "update") return `Updated: ${line(await stub.triggerUpdate(user, tid, { enabled: args.enabled, prompt: args.prompt, match: args.match }))}`;
+        if (action === "remove") {
+          await stub.triggerRemove(user, tid);
+          return `Removed ${tid}.`;
+        }
+      } catch (e) {
+        if (e instanceof ToolError) throw e;
+        throw new ToolError(e instanceof Error ? e.message : String(e));
+      }
+      throw new ToolError("action is one of: list, add, update, remove.");
+    }
+
+    case "recap": {
+      const id = await currentBoard(c, args);
+      let since: number | "last-read";
+      try {
+        since = recap.parseSince(args.since);
+      } catch (e) {
+        throw new ToolError(e instanceof Error ? e.message : String(e));
+      }
+      const r = await recap.buildRecap(env, stubFor(env, id), user, { since, session: c.agentSession?.id ?? null, as: "agent" });
+      return fence(r.text);
+    }
+
     case "post": {
       const id = await currentBoard(c, args);
       if (true) await requireWriter(env, id, user);
       const type = str(args.type)?.toLowerCase() as NewEntry["type"] | undefined;
-      if (!type || !ENTRY_TYPES.includes(type)) throw new ToolError(`type must be one of: ${ENTRY_TYPES.join(", ")}`);
+      if (!type || !(ENTRY_TYPES as readonly string[]).includes(type)) throw new ToolError(`type must be one of: ${ENTRY_TYPES.join(", ")}`);
       const to = args.to == null || args.to === "" ? null : normalizeUser(String(args.to));
       if (args.to != null && args.to !== "" && !to) throw new ToolError(`"${args.to}" is not a valid member name.`);
       const stub = stubFor(env, id);
@@ -695,7 +773,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
 
     case "doc": {
       const id = await currentBoard(c, args);
-      if (["write","edit"].includes(str(args.action) ?? "")) await requireWriter(env, id, user);
+      if (["write", "edit", "pin", "unpin"].includes(str(args.action) ?? "")) await requireWriter(env, id, user);
       const stub = stubFor(env, id);
       const action = str(args.action);
       const name = str(args.name);
@@ -713,7 +791,15 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
         if (!list.length) return 'No documents on this board yet. Create one with doc action "write", a name, content and base_version 0.';
         return fence(list.map((d) => `${d.name}  v${d.version}  ${d.size} chars  updated by ${by(d)} ${when(d.updated_at)}`).join("\n"));
       }
+      if (action === "unpin") {
+        const r = await stub.unpin(user, name ?? null, await agentOpts(c));
+        return r.unpinned ? `Unpinned ${r.unpinned}.` : "Nothing is pinned on this board.";
+      }
       if (!name) throw new ToolError("name is required (e.g. BACKLOG.md).");
+      if (action === "pin") {
+        const p = await stub.pin(user, name, await agentOpts(c));
+        return `📌 ${p.name} v${p.version} is this board's pinned doc (its source of truth). Members' agents hear when it changes.`;
+      }
       if (action === "read") {
         const d = await stub.docRead(name, int(args.version));
         const head = `${d.name} v${d.version}${d.version !== d.latest ? ` (latest is v${d.latest})` : ""}, last edited by ${by(d)} ${when(d.updated_at)}. To change it: edit {old_str,new_str}, or write {content, base_version: ${d.latest}}.`;
@@ -744,7 +830,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
         later(registry.bumpBoard(env, id, r.note));
         return `Saved ${name} v${r.version}.`;
       }
-      throw new ToolError('action must be one of: list, read, write, edit, history.');
+      throw new ToolError('action must be one of: list, read, write, edit, history, grep, pin, unpin.');
     }
 
     case "task": {
@@ -866,9 +952,13 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
           if (seq != null) {
             boardId = await currentBoard(c, args);
             requestedBy = (await stubFor(env, boardId).get(seq)).entry.author;
+          } else if (!str(args.tool)) {
+            // Work on a board: the request shows there as a card. (A permission hook's prompts, with tool, stay off boards.)
+            boardId = await currentBoard(c, args).catch(() => null);
           }
           const made = await approvals.requestApproval(env, user, {
             client: (await registry.mcpSessionClient(env, c.sessionId)) ?? "agent",
+            session: c.agentSession?.name ?? null,
             board_id: boardId,
             seq: seq ?? null,
             requested_by: requestedBy,
@@ -879,6 +969,10 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
             expires_in: int(args.expires_in) ?? null,
             risk: str(args.risk),
           });
+          if (boardId) {
+            const o = await agentOpts(c);
+            await stubFor(env, boardId).approvalRequested(approvals.refOf(made), { via: "agent", client: o.client, session: o.session }).catch((e) => console.error("approval entry failed", e));
+          }
           a = wait ? await approvals.waitForDecision(env, user, made.id, wait) : made;
         } else {
           const id = str(args.id) ?? "";

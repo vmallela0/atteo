@@ -7,11 +7,11 @@
 
 import type { Env } from "./types";
 
-const MAIL_KINDS = ["agent", "mention", "reply", "contact_request", "contact_accept", "decision"];
+const MAIL_KINDS = ["agent", "mention", "reply", "contact_request", "contact_accept", "decision", "trigger"];
 
 export interface Mail {
   id: number;
-  kind: "dm" | "for_your_agent" | "mention" | "reply" | "contact_request" | "contact_accept" | "human_decision"; // human_decision: a person asks the people to decide; for your information, not a request
+  kind: "dm" | "for_your_agent" | "mention" | "reply" | "contact_request" | "contact_accept" | "human_decision" | "trigger"; // human_decision: a person asks the people to decide; for your information, not a request. trigger: a board rule your person set fired
   board: string | null;
   board_title: string | null;
   seq: number | null;
@@ -23,15 +23,21 @@ export interface Mail {
   encrypted?: boolean; // the text is ciphertext's placeholder: read it with the CLI
   from_owner?: boolean; // your own person wrote it, on their "Your agent" board: their request to you
   to_session?: string; // for this one agent session of yours (its name), not any of your agents
+  // kind trigger: which rule fired, your person's prompt (their request to you), and the event (other members' doing: data)
+  trigger?: { id: string; on: string };
+  prompt?: string;
+  event?: { on: string; seq: number | null; by: string; via: string | null; line: string; url: string };
 }
 
-type Row = { id: number; board_id: string; board_title: string | null; board_kind: string | null; encrypted: number | null; seq: number; kind: string; actor: string; actor_via: string | null; entry_type: string; excerpt: string; created_at: number; to_session: string | null; to_session_name: string | null };
+type TriggerData = { trigger: { id: string; on: string }; prompt: string; event: NonNullable<Mail["event"]>; session_missing?: string };
+
+type Row = { id: number; board_id: string; board_title: string | null; board_kind: string | null; encrypted: number | null; seq: number; kind: string; actor: string; actor_via: string | null; entry_type: string; excerpt: string; created_at: number; to_session: string | null; to_session_name: string | null; data: string | null };
 
 /** `session`: the agent session asking (its own mail plus everyone's); none: mail for any of your agents only. */
 async function undelivered(env: Env, user: string, limit: number, session: string | null): Promise<Row[]> {
   return (
     await env.DB.prepare(
-      `SELECT n.id, n.board_id, b.title AS board_title, b.kind AS board_kind, b.encrypted, n.seq, n.kind, n.actor, n.actor_via, n.entry_type, n.excerpt, n.created_at, n.to_session, s.name AS to_session_name
+      `SELECT n.id, n.board_id, b.title AS board_title, b.kind AS board_kind, b.encrypted, n.seq, n.kind, n.actor, n.actor_via, n.entry_type, n.excerpt, n.created_at, n.to_session, s.name AS to_session_name, n.data
        FROM notifications n LEFT JOIN boards b ON b.id = n.board_id LEFT JOIN agent_sessions s ON s.id = n.to_session
        WHERE n.user = ? AND n.agent_seen_at IS NULL AND n.kind IN (${MAIL_KINDS.map(() => "?").join(",")})
          AND (n.board_id = '' OR n.board_id IN (SELECT board_id FROM members WHERE user = ?))
@@ -65,6 +71,17 @@ export async function collect(
   rows = rows.slice(0, opts.limit);
   const mail = await Promise.all(
     rows.map(async (r): Promise<Mail> => {
+      if (r.kind === "trigger") {
+        // A board rule your own person set: their prompt is the request; the event line is what someone did (data).
+        const d = JSON.parse(r.data ?? "{}") as TriggerData;
+        return {
+          id: r.id, kind: "trigger", board: r.board_id, board_title: r.board_title, seq: d.event?.seq ?? null,
+          from: r.actor, from_via: "person", type: "trigger", ts: r.created_at, from_owner: true,
+          text: `${d.prompt}\n\n(Trigger ${d.trigger?.id} on ${d.trigger?.on}: ${d.event?.line} ${d.event?.url})`,
+          trigger: d.trigger, prompt: d.prompt, event: d.event,
+          ...(r.to_session ? { to_session: r.to_session_name ?? r.to_session } : {}),
+        };
+      }
       const text = r.board_id && !r.encrypted ? ((await fullText(r.board_id, r.seq).catch(() => null)) ?? r.excerpt) : r.excerpt;
       // A human decision is for the people; your agent hears about it, marked as such (informational), even in a DM.
       // Your own person on "Your agent" (board kind "agent"): a DM from them.

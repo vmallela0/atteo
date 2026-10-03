@@ -31,6 +31,8 @@ import { mayMention, parseMentions, SESSION_NAME_RE, type Mention } from "./ment
 import * as registry from "./registry";
 import * as boardkeys from "./boardkeys";
 import * as mailbox from "./mailbox";
+import * as recap from "./recap";
+import * as triggers from "./triggers";
 import {
   adminPage,
   boardPage,
@@ -453,23 +455,40 @@ async function opsData(env: Env): Promise<AdminData> {
 
 // ---------- router ----------
 
+/** Every 5 minutes (the cron; tests call it through POST /api/ops/cron): retention, sweeps, expired memberships, and
+ *  workflow triggers on a daily schedule (`now` lets a test pick the time those see). */
+async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): Promise<{ schedules: number }> {
+  // Boards with a retention period: blank what's older.
+  const keep = (await env.DB.prepare(`SELECT id, retention_days FROM boards WHERE retention_days IS NOT NULL`).all<{ id: string; retention_days: number }>()).results;
+  for (const b of keep) ctx.waitUntil(boardStub(env, b.id).prune(Date.now() - b.retention_days * 86_400_000).catch(() => 0));
+  ctx.waitUntil(env.DB.prepare(`DELETE FROM tape WHERE ts < ?`).bind(Date.now() - 7 * 86_400_000).run().catch(() => {}));
+  ctx.waitUntil(appSignin.sweep(env).catch(() => {}));
+  for (const m of await registry.expiredMembers(env)) {
+    ctx.waitUntil(
+      (async () => {
+        await registry.removeMember(env, m.board_id, m.user);
+        await boardStub(env, m.board_id).removeMember(m.user).catch(() => {});
+        await registry.audit(env, m.board_id, "system", "expired", m.user);
+      })().catch(() => {}),
+    );
+  }
+  // Workflow triggers on a schedule: only boards with one due in the last 20 minutes are woken (each fires once a day).
+  const minute = Math.floor((now % 86_400_000) / 60_000);
+  const lo = minute - 20;
+  const due = (
+    await env.DB.prepare(`SELECT DISTINCT board_id FROM trigger_schedules WHERE (minute BETWEEN ? AND ?) OR minute >= ?`)
+      .bind(Math.max(0, lo), minute, lo < 0 ? 1440 + lo : 1440)
+      .all<{ board_id: string }>()
+      .catch(() => ({ results: [] as { board_id: string }[] }))
+  ).results;
+  const fired = await Promise.all(due.map((b) => boardStub(env, b.board_id).runSchedules(now).catch(() => 0)));
+  return { schedules: fired.reduce((a, b) => a + b, 0) };
+}
+
 const handler = {
-  /** Every 5 minutes: memberships whose time ran out are removed (access checks already ignore them). */
+  /** Every 5 minutes (wrangler.jsonc triggers.crons). */
   async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    // Boards with a retention period: blank what's older.
-    const keep = (await env.DB.prepare(`SELECT id, retention_days FROM boards WHERE retention_days IS NOT NULL`).all<{ id: string; retention_days: number }>()).results;
-    for (const b of keep) ctx.waitUntil(boardStub(env, b.id).prune(Date.now() - b.retention_days * 86_400_000).catch(() => 0));
-    ctx.waitUntil(env.DB.prepare(`DELETE FROM tape WHERE ts < ?`).bind(Date.now() - 7 * 86_400_000).run().catch(() => {}));
-    ctx.waitUntil(appSignin.sweep(env).catch(() => {}));
-    for (const m of await registry.expiredMembers(env)) {
-      ctx.waitUntil(
-        (async () => {
-          await registry.removeMember(env, m.board_id, m.user);
-          await boardStub(env, m.board_id).removeMember(m.user).catch(() => {});
-          await registry.audit(env, m.board_id, "system", "expired", m.user);
-        })().catch(() => {}),
-      );
-    }
+    await runScheduled(env, ctx);
   },
 
   async fetch(request: Request, rawEnv: Env, ctx: ExecutionContext): Promise<Response> {
@@ -996,7 +1015,10 @@ const handler = {
             if (viewer.via === "agent") return json({ error: `Approve or reject in the browser: ${origin}/approvals#${am[1]}` }, 403);
             if (!(await approvals.getApproval(env, viewer.name, am[1]))) return json({ error: "not found" }, 404);
             const b = (await request.json().catch(() => ({}))) as { note?: string };
-            return json({ ok: true, approval: await approvals.decide(env, viewer.name, am[1], am[2] === "approve", String(b.note ?? "")) });
+            const decided = await approvals.decide(env, viewer.name, am[1], am[2] === "approve", String(b.note ?? ""));
+            // On its board: the card's status changes live ({type: "approval", id, status}).
+            if (decided.board_id) await boardStub(env, decided.board_id).approvalDecided(approvals.refOf(decided)).catch((e) => console.error("approval event failed", e));
+            return json({ ok: true, approval: decided });
           }
         } catch (e) {
           return json({ error: e instanceof Error ? e.message : String(e) }, 400);
@@ -1583,10 +1605,11 @@ const handler = {
           const only = url.searchParams.get("board");
           const ids = only ? [...cur.boards, ...directs].filter((b) => b === only) : [...cur.boards, ...directs];
           if (only && !ids.length) return json({ error: `This session isn't on ${only}.` }, 404);
-          const render = (b: { id: string; title: string; encrypted?: boolean }, entries: import("./types").Entry[], tasksForYou?: number, headless = false) =>
+          const render = (b: { id: string; title: string; encrypted?: boolean }, entries: import("./types").Entry[], tasksForYou?: number, headless = false, pin?: string | null) =>
             fence(
               [
                 tasksForYou == null ? `== ${b.title} (${b.id}) · new (${entries.length}) ==` : readHeader(b, entries.length, tasksForYou, null, headless),
+                ...(pin ? [pin] : []),
                 ...(entries.length ? [] : ["(nothing new)"]),
                 ...entries.map((e) => formatEntry(e, 4000, viewer.name)),
               ].join("\n"),
@@ -1608,7 +1631,8 @@ const handler = {
                   rules: r.rules,
                   entries: r.entries,
                   remaining: r.remaining,
-                  text: (r.rules ? fence(formatRules(r.rules)) + "\n" : "") + (r.summaryText ? fence(r.summaryText) + "\n" : "") + render(b, r.entries, r.tasksForYou, headless),
+                  pin: r.pin, // "📌 SPEC.md updated to v4", once per version (null otherwise)
+                  text: (r.rules ? fence(formatRules(r.rules)) + "\n" : "") + (r.summaryText ? fence(r.summaryText) + "\n" : "") + render(b, r.entries, r.tasksForYou, headless, r.pin),
                 };
               }),
             );
@@ -1754,6 +1778,91 @@ const handler = {
           return json({ error: e instanceof Error ? e.message : String(e) }, 400);
         }
         return json({ error: "not found" }, 404);
+      }
+
+      // ---- approval cards: your own approvals on this board (only you decide them), pending by default ----
+      m = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/approvals$/);
+      if (m && method === "GET") {
+        if (!viewer) return needLogin();
+        if (!(await registry.isMember(env, m[1], viewer.name))) return json({ error: "board not found" }, 404);
+        const state = (url.searchParams.get("state") ?? "pending") as (typeof approvals.APPROVAL_STATES)[number];
+        if (!approvals.APPROVAL_STATES.includes(state)) return json({ error: `state is one of: ${approvals.APPROVAL_STATES.join(", ")}` }, 400);
+        return json({ approvals: await approvals.listBoardApprovals(env, viewer.name, m[1], state) }, 200, { "cache-control": "no-store" });
+      }
+
+      // ---- workflow triggers: "when X happens on this board, wake my agent with P" (any member; only their own agent) ----
+      m = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/triggers(?:\/(tr_[a-z0-9]+))?$/);
+      if (m) {
+        if (!viewer) return needLogin();
+        if (!(await registry.isMember(env, m[1], viewer.name))) return json({ error: "board not found" }, 404);
+        const stub = boardStub(env, m[1]);
+        const fail = (e: unknown) => {
+          const msg = e instanceof Error ? e.message : String(e);
+          return json({ error: msg }, /^Only /.test(msg) ? 403 : /^No trigger /.test(msg) ? 404 : 400);
+        };
+        try {
+          if (method === "GET" && !m[2]) return json({ triggers: await stub.triggers(), limit: triggers.MAX_TRIGGERS }, 200, { "cache-control": "no-store" });
+          const b = (await request.json().catch(() => ({}))) as { on?: unknown; match?: unknown; prompt?: unknown; enabled?: unknown; wake?: { user?: unknown; session?: unknown } };
+          const wake = await triggers.wakeFor(env, viewer.name, b.wake);
+          if ("error" in wake) return json({ error: wake.error }, wake.status);
+          if (method === "POST" && !m[2]) return json({ trigger: await stub.triggerAdd(viewer.name, { on: b.on, match: b.match, prompt: b.prompt, session: wake.session, enabled: b.enabled !== false }) }, 201);
+          if (method === "PATCH" && m[2]) return json({ trigger: await stub.triggerUpdate(viewer.name, m[2], { enabled: b.enabled, prompt: b.prompt, match: b.match }) });
+          if (method === "DELETE" && m[2]) {
+            await stub.triggerRemove(viewer.name, m[2]);
+            return json({ ok: true });
+          }
+        } catch (e) {
+          return fail(e);
+        }
+        return json({ error: "method not allowed" }, 405);
+      }
+
+      // ---- a recap: what happened since an entry (?since=N) or since you last read (?since=last-read, the default) ----
+      m = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/recap$/);
+      if (m && method === "GET") {
+        if (!viewer) return needLogin();
+        if (!(await registry.isMember(env, m[1], viewer.name))) return json({ error: "board not found" }, 404);
+        try {
+          const since = recap.parseSince(url.searchParams.get("since"));
+          return json(await recap.buildRecap(env, boardStub(env, m[1]), viewer.name, { since, session: await asid(), as: viewer.via === "agent" ? "agent" : "person" }), 200, { "cache-control": "no-store" });
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+        }
+      }
+
+      // ---- the pinned doc: one document a board pins as its source of truth (any member who can post) ----
+      m = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/pin$/);
+      if (m) {
+        if (!viewer) return needLogin();
+        if (!(await registry.isMember(env, m[1], viewer.name))) return json({ error: "board not found" }, 404);
+        const stub = boardStub(env, m[1]);
+        try {
+          if (method === "GET") return json({ pinned: await stub.pinned() });
+          const opts = { via: pv(), client: viewer.via === "agent" ? "atteo CLI" : null, session: await asid() };
+          if (method === "POST") {
+            const b = (await request.json().catch(() => ({}))) as { doc?: unknown; name?: unknown };
+            const name = String(b.doc ?? b.name ?? "").trim();
+            if (!name) return json({ error: "Say which document to pin: {doc: \"SPEC.md\"}." }, 400);
+            return json({ ok: true, pinned: await stub.pin(viewer.name, name, opts) });
+          }
+          if (method === "DELETE") {
+            const r = await stub.unpin(viewer.name, url.searchParams.get("doc") || null, opts);
+            return json({ ok: true, pinned: null, unpinned: r.unpinned });
+          }
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+        }
+        return json({ error: "method not allowed" }, 405);
+      }
+
+      // ---- one board as JSON: its info, your role and its pinned doc ----
+      m = path.match(/^\/api\/boards\/(b_[a-z0-9]+)$/);
+      if (m && method === "GET") {
+        if (!viewer && !hasOpsKey(c)) return needLogin();
+        if (!(await canSee(c, m[1]))) return json({ error: "board not found" }, 404);
+        const stub = boardStub(env, m[1]);
+        const [info, pinned, role] = await Promise.all([stub.info(), stub.pinned(), viewer ? registry.memberRole(env, m[1], viewer.name) : null]);
+        return json({ board: { ...info, role, pinned } });
       }
 
       // ---- react to an entry (toggle); GET lists every reaction on the board ----
@@ -2038,6 +2147,7 @@ const handler = {
             reads: snap.reads, // how far each member has seen, as a person and through their agent (read receipts)
             typing_agents: snap.typing_agents, // agents working on a person's message right now ("… is typing")
             summary: summaryHtml([], viewer?.name ?? "", members, snap.summary, { boardId: id, creator: snap.info.created_by }),
+            pinned: snap.pinned, // the board's pinned doc {name, version, …} or null
             count: snap.info.entry_count,
             last: fresh.length ? fresh[fresh.length - 1].seq : after,
           });
@@ -2303,6 +2413,11 @@ const handler = {
         if (path === "/api/ops/prune" && method === "POST") {
           if (!body.board || !(await registry.getBoard(env, body.board))) return json({ error: "board required" }, 400);
           return json({ ok: true, pruned: await boardStub(env, body.board).prune(Number(body.before) || Date.now()) });
+        }
+        // Tests: run the cron now (as the 5-minute schedule would), at `now` (ms) for scheduled triggers.
+        if (path === "/api/ops/cron" && method === "POST") {
+          const at = Number((body as { now?: unknown }).now);
+          return json({ ok: true, ...(await runScheduled(env, ctx, Number.isFinite(at) && at > 0 ? at : Date.now())) });
         }
         if (path === "/api/ops/seed" && method === "POST") {
           const u = normalizeUser(body.user);
