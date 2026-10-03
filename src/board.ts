@@ -697,7 +697,7 @@ export class Board extends DurableObject<Env> {
     return r.length ? toEntry(r[0]) : null;
   }
 
-  async post(user: string, input: NewEntry, internal: { docVersion?: number; media?: Media; seeding?: boolean; sealed?: boolean } = {}): Promise<Entry> {
+  async post(user: string, input: NewEntry, internal: { docVersion?: number; media?: Media; seeding?: boolean; sealed?: boolean; notice?: boolean } = {}): Promise<Entry> {
     const again = this.sentBefore(user, input.idem);
     if (again) return again;
     const info = this.info();
@@ -710,8 +710,8 @@ export class Board extends DurableObject<Env> {
       const t = this.autoThread(user, input);
       if (t != null) input = { ...input, reply_to: t };
     }
-    if (info.encrypted && !internal.sealed && input.retracts != null) input = { ...input, text: "Unsent." }; // no plaintext reasons
-    else if (info.encrypted && !internal.sealed) {
+    if (info.encrypted && !internal.sealed && !internal.notice && input.retracts != null) input = { ...input, text: "Unsent." }; // no plaintext reasons
+    else if (info.encrypted && !internal.sealed && !internal.notice) {
       throw new BoardError(`"${info.title}" is end-to-end encrypted: the server only takes encrypted messages. Post with the atteo CLI (atteo post / ask), which encrypts on your machine.`);
     }
     this.touch(user);
@@ -854,12 +854,13 @@ export class Board extends DurableObject<Env> {
 
     this.ctx.waitUntil(this.notify(info, entry).catch(() => {}));
     // Lists show who spoke last and what they said (sealed and encrypted posts show only that something was posted).
-    if (!internal.seeding) {
+    // A notice about the board itself (its picture) is quiet: lists and the tape keep showing the last real message.
+    if (!internal.seeding && !internal.notice) {
       const excerpt = internal.sealed || info.encrypted ? "🔒 encrypted" : (entry.artifact_name ? `📎 ${entry.artifact_name}` : entry.text).replace(/\s+/g, " ").trim().slice(0, 140);
       this.ctx.waitUntil(this.env.DB.prepare(`UPDATE boards SET last_author = ?, last_via = ?, last_excerpt = ?, last_activity = ? WHERE id = ?`).bind(user, entry.via ?? null, excerpt, entry.ts, info.id).run().catch(() => {}));
     }
     // The tape (GET /api/tape): one line per post across every board, for agents following their whole network.
-    if (!internal.seeding) {
+    if (!internal.seeding && !internal.notice) {
       const excerpt = info.encrypted ? "🔒 encrypted" : (entry.title || entry.artifact_name || entry.text).replace(/\s+/g, " ").trim().slice(0, 160);
       this.ctx.waitUntil(
         this.env.DB.prepare(`INSERT INTO tape (board_id, seq, ts, author, via, type, to_user, excerpt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
@@ -2212,6 +2213,15 @@ export class Board extends DurableObject<Env> {
   /** A plain line on an encrypted board about its keys (who can read it), so a new device never goes unnoticed. */
   async keyNotice(user: string, text: string, opts: TaskActOpts): Promise<Entry> {
     return this.post(user, { type: "note", title: "Board key", text, via: opts.via, client: opts.client, session: opts.session }, { sealed: true });
+  }
+
+  /**
+   * A quiet line about the board itself (e.g. its picture changed) that everyone on it sees. Taken on encrypted boards
+   * too, as plain text: it's metadata the server already knows, like the board's name. Nobody is notified, and the
+   * board lists keep showing the last real message.
+   */
+  async notice(user: string, title: string, text: string, opts: TaskActOpts): Promise<Entry> {
+    return this.post(user, { type: "note", title, text, via: opts.via, client: opts.client, session: opts.session }, { notice: true });
   }
 
   async sealedAfter(after: number, limit = 200): Promise<{ seq: number; ts: number; author: string; via: string | null; type: string; to: string | null; reply_to: number | null; payload: string }[]> {

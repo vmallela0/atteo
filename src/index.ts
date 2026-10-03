@@ -10,6 +10,7 @@ import * as access from "./access";
 import * as social from "./social";
 import * as webhooks from "./webhooks";
 import * as avatars from "./avatars";
+import * as boardPictures from "./boardPictures";
 import * as agents from "./agents";
 import * as dm from "./dm";
 import { waitForBoard } from "./waits";
@@ -110,7 +111,8 @@ async function loadViewer(env: Env, session: auth.Session | null, request?: Requ
   // The Atteo app (a token of kind "app") acts as the person, and may also see and revoke agent connections.
   // (list connections, revoke one, or pull the kill switch; never mint new tokens).
   const appAllowed = request?.method === "POST" ? /^\/api\/tokens(\/revoke-all|\/[^/]+\/revoke)$/.test(path) : path === "/api/tokens";
-  if (!session?.user && bearer && path.startsWith("/api/") && (!accountOnly || appAllowed)) {
+  // Board pictures too: they're members-only images, and the app loads them with its token.
+  if (!session?.user && bearer && (path.startsWith("/api/") || path.startsWith("/board-picture/")) && (!accountOnly || appAllowed)) {
     // Writes look the token up fresh, so a revoked token can't change anything anywhere (the kill switch).
     const id = await auth.tokenIdentity(env, bearer, !!request && request.method !== "GET" && request.method !== "HEAD");
     if (!id || (accountOnly && id.kind !== "app")) return null;
@@ -138,7 +140,9 @@ const isOps = (c: Ctx) => !!c.viewer?.admin || hasOpsKey(c);
 
 async function sideBoards(env: Env, user: string): Promise<SideBoard[]> {
   const [boards, live] = await Promise.all([registry.boardsForUser(env, user), sessions.liveByBoard(env).catch(() => new Map<string, number>())]);
-  return boards.filter((b) => !b.archived_at).map((b) => ({ id: b.id, title: b.title, kind: (b as { kind?: string | null }).kind ?? null, live: live.get(b.id) ?? 0 }));
+  return boards
+    .filter((b) => !b.archived_at)
+    .map((b) => ({ id: b.id, title: b.title, kind: (b as { kind?: string | null }).kind ?? null, live: live.get(b.id) ?? 0, picture: boardPictures.pictureUrl(b.id, b.picture_v) }));
 }
 
 /** Members (and operators) can see a board; everyone else gets a 404 so board ids don't leak. */
@@ -621,13 +625,14 @@ const handler = {
         if (m[1] === "join") return redirect(`/b/${m[2]}`);
         if (!viewer) return needLogin();
         if (!(await canSee(c, m[2]))) return notFound(viewer);
-        const [snap, members, invites, side, live, status] = await Promise.all([
+        const [snap, members, invites, side, live, status, row] = await Promise.all([
           boardStub(env, m[2]).snapshot(0, { latest: 300 }),
           registry.boardMembers(env, m[2]),
           registry.pendingInvites(env, m[2]),
           sideBoards(env, viewer.name),
           registry.agentsOnBoard(env, m[2]),
           registry.agentStatus(env, viewer.name),
+          registry.getBoard(env, m[2]),
         ]);
         // Agents here: named sessions, plus members' agents connected without one (e.g. an MCP URL connection).
         const memberSet = new Set(members.map((x) => x.user));
@@ -642,7 +647,7 @@ const handler = {
         // People who already have an account show by name, so a friend invited by name never has their email shown.
         const named = await Promise.all(invites.map(async (i) => ((await registry.userByEmail(env, i.email))?.name ?? null)));
         const shown = invites.map((i, k) => (named[k] ? { ...i, email: named[k]!, email_status: "waiting to accept" } : i));
-        return boardPage(viewer, side, snap.info, withAgents, snap.entries, shown, { connected: status.connected, onThisBoard: !!live[viewer.name] }, snap.summary, agentsHere);
+        return boardPage(viewer, side, snap.info, withAgents, snap.entries, shown, { connected: status.connected, onThisBoard: !!live[viewer.name] }, snap.summary, agentsHere, { picture: boardPictures.pictureUrl(m[2], row?.picture_v), kind: (row as { kind?: string | null } | null)?.kind ?? null });
       }
 
       // ---- inbox: mentions of you, posts for your agent, replies to you ----
@@ -1075,6 +1080,12 @@ const handler = {
       // ---- profile pictures (people and their agents) ----
       m = path.match(/^\/avatar\/([a-z0-9][a-z0-9_.-]{0,31})$/);
       if (m && method === "GET") return avatars.avatarResponse(env, m[1], url.searchParams.get("k") === "agent" ? "agent" : "person");
+      // Board pictures: members only (a bare 404 for everyone else, so board ids don't leak), cached privately per version.
+      m = path.match(/^\/board-picture\/(b_[a-z0-9]+)$/);
+      if (m && method === "GET") {
+        if (!(viewer || hasOpsKey(c)) || !(await canSee(c, m[1]))) return new Response(null, { status: 404, headers: { "cache-control": "private, no-cache" } });
+        return boardPictures.boardPictureResponse(env, m[1], url.searchParams.get("v"));
+      }
       m = path.match(/^\/demo-avatar\/([a-z]{1,16})$/);
       if (m && method === "GET") return avatars.demoAvatarResponse(m[1], url.searchParams.get("k") === "agent" ? "agent" : "person");
       if (path === "/api/me/avatar" && (method === "POST" || method === "DELETE")) {
@@ -1149,6 +1160,44 @@ const handler = {
       m = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/(.+)$/);
       if (m && method !== "GET" && viewer && !hasOpsKey(c) && !/^members\/[^/]+\/remove$/.test(m[2]) && m[2] !== "ws" && m[2] !== "seen") { // read receipts aren't changes
         if ((await registry.memberRole(env, m[1], viewer.name)) === "viewer") return json({ error: "You can view this board but not change it (your role is viewer). Ask an owner for contributor access." }, 403);
+      }
+
+      // ---- the board's picture (like a group chat's photo): any member who can post sets or removes it, and everyone
+      // sees a line saying so. People only (the web or the app), like profile pictures. Direct boards show the other
+      // person's picture instead. ----
+      m = path.match(/^\/api\/boards\/([^/]+)\/picture$/);
+      if (m && (method === "POST" || method === "DELETE")) {
+        if (!viewer) return needLogin();
+        if (viewer.via === "agent") return json({ error: "Board pictures are changed by people, from the web or the Atteo app." }, 403);
+        const board = BOARD_RE.test(m[1]) ? await registry.getBoard(env, m[1]) : null;
+        if (!board || !(await registry.isMember(env, board.id, viewer.name))) return json({ error: "board not found" }, 404);
+        if ((board as { kind?: string | null }).kind === "direct") return json({ error: "Direct boards don't have their own picture: they show the other person's." }, 400);
+        if (board.archived_at) return json({ error: `"${board.title}" is archived, so it's read-only. Its creator can restore it.` }, 403);
+        let mime = "";
+        let bytes = new ArrayBuffer(0);
+        if (method === "POST") {
+          if (Number(request.headers.get("content-length") ?? 0) > boardPictures.MAX_BOARD_PICTURE) return json({ error: `That picture is too large (max ${boardPictures.MAX_BOARD_PICTURE / 1000} KB after resizing).` }, 413);
+          bytes = await request.arrayBuffer();
+          try {
+            mime = boardPictures.checkPicture(bytes);
+          } catch (e) {
+            return json({ error: e instanceof Error ? e.message : String(e) }, bytes.byteLength > boardPictures.MAX_BOARD_PICTURE ? 413 : 400);
+          }
+        } else if (!board.picture_v) return json({ ok: true, picture: null });
+        try {
+          // The line goes up first, so a change never happens without everyone seeing it.
+          await boardStub(env, board.id).notice(viewer.name, "Board picture", `📷 ${viewer.name} ${method === "POST" ? "changed" : "removed"} the board picture`, { via: pv(), client: null, session: null });
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+        }
+        if (method === "DELETE") {
+          await boardPictures.removeBoardPicture(env, board.id);
+          ctx.waitUntil(registry.audit(env, board.id, viewer.name, "picture_removed").catch(() => {}));
+          return json({ ok: true, picture: null });
+        }
+        const v = await boardPictures.setBoardPicture(env, board.id, mime, bytes);
+        ctx.waitUntil(registry.audit(env, board.id, viewer.name, "picture_changed").catch(() => {}));
+        return json({ ok: true, picture: boardPictures.pictureUrl(board.id, v) });
       }
 
       // ---- access management: roles, expiry, invite links, audit log ----
@@ -1238,7 +1287,7 @@ const handler = {
         if (hit) return json({ error: blockedMessage(hit) }, 400);
         try {
           const info = await createBoard(env, title, viewer.name, url.origin, { encrypted: body.encrypted !== false });
-          return json({ board: { ...info, encrypted: body.encrypted !== false } }, 201);
+          return json({ board: { ...info, encrypted: body.encrypted !== false, picture: null } }, 201);
         } catch (e) {
           const msg = e instanceof Error ? e.message.replace(/: https?:\S+$/, ".") : String(e);
           return json({ error: msg }, e instanceof billing.BillingError ? 402 : 400);
@@ -1265,6 +1314,7 @@ const handler = {
           encrypted: !!(b as { encrypted?: number }).encrypted,
           created_by: b.created_by, // the app shows its creator the rename / archive / remove-task actions
           archived: !!b.archived_at,
+          picture: boardPictures.pictureUrl(b.id, b.picture_v), // members-only, versioned; null: show the initial (or, for a DM, the other person's avatar)
         });
         // ?with=<user>: only boards they're on (and invitations involving them); ?members=1 lists each board's members.
         // Pending invitations are always included, so an agent can tell "the board with vedu" apart from one waiting to be accepted.

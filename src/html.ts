@@ -9,8 +9,8 @@ import { forAgent, forPerson, mentionLabel } from "./mentions";
 import { screenText } from "./screen";
 import type { ChangeCard } from "./card";
 import type { BoardInfo, Entry } from "./types";
-import { appPage, avatar, avatarStack, copyField, hue, page, renderText, typeTag, when, working, type SideBoard, type Viewer } from "./ui";
-import { esc } from "./util";
+import { appPage, avatar, avatarStack, boardPic, copyField, hue, page, renderText, typeTag, when, working, type SideBoard, type Viewer } from "./ui";
+import { esc, pictureUrl } from "./util";
 import { stateOf } from "./sessions";
 import { E2E_JS } from "./e2eweb";
 
@@ -519,7 +519,7 @@ export function homePage(
       const text = [b.title, meta.description ?? "", ...meta.tags, ...names].join(" ").toLowerCase();
       return `<article class="bcard${b.archived_at ? " archived" : ""}" data-text="${esc(text)}" data-archived="${b.archived_at ? 1 : 0}" data-id="${esc(b.id)}" data-meta="${esc(JSON.stringify(meta))}" data-title="${esc(b.title)}">
   <a class="bcard-link" href="/b/${esc(b.id)}" aria-label="${esc(b.title)}"></a>
-  <div class="row bc-top"><span class="bc-dot" style="--h:${hue(b.id)}"></span>
+  <div class="row bc-top">${boardPic({ id: b.id, title: b.title, picture: pictureUrl(b.id, b.picture_v) }, "sm", `<span class="bc-dot" style="--h:${hue(b.id)}"></span>`)}
     <h3 class="grow truncate">${esc(b.title)}</h3>
     ${working(liveOf.get(b.id) ?? 0, b.id)}${b.unread ? `<span class="bc-unread" title="Waiting for you">${b.unread} for you</span>` : ""}
     <button class="btn ghost sm bc-edit" type="button" data-edit-board="${esc(b.id)}" aria-label="Edit details">Edit</button></div>
@@ -692,12 +692,16 @@ export function boardPage(
   agent: AgentState = { connected: false, onThisBoard: false },
   summary?: Summary, // the whole board's (big boards only send their newest entries)
   agents: AgentHere[] = [],
+  board: { picture: string | null; kind: string | null } = { picture: null, kind: null }, // from the directory (D1)
 ): Response {
   const ctl = { boardId: info.id, creator: info.created_by };
   // Your role on this board: owners manage access; viewers read only (no composer, no reactions, no invites).
   const myRole = members.find((m) => m.user === viewer.name)?.role ?? (viewer.name === info.created_by ? "owner" : "contributor");
   const isOwner = myRole === "owner" || viewer.name === info.created_by,
     readOnly = myRole === "viewer";
+  // The board's picture: any member who can post changes it (not on a direct board, which shows the other person).
+  const direct = board.kind === "direct";
+  const canPic = !readOnly && !info.archived && !direct;
   const last = entries.length ? entries[entries.length - 1].seq : 0;
   const first = entries.length ? entries[0].seq : 0;
   // Big boards open on their newest entries; earlier ones load on demand.
@@ -1265,7 +1269,7 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape'&&SEL&&!document.quer
 const fwdDlg=document.getElementById('fwd-dlg'),fwdList=document.getElementById('fwd-list'),fwdQ=document.getElementById('fwd-q');
 const peerOf=t=>{const p=t.split(' ↔ ');return p.length===2?(p[0]===ME?p[1]:p[0]):null};
 function fwdRender(){const q=fwdQ.value.trim().toLowerCase();const list=(fwdBoards||[]).filter(b=>!q||b.title.toLowerCase().includes(q));
-  fwdList.innerHTML=list.length?list.map(b=>{const peer=peerOf(b.title);return '<li role="option" data-to="'+esc(b.id)+'" aria-selected="'+(fwdTo===b.id)+'">'+(peer?avatar16(peer,false)+'<span class="truncate">'+esc(peer)+'</span><span class="xs faint">direct</span>':'<span class="fwd-dot"></span><span class="truncate">'+esc(b.title)+'</span>')+'</li>'}).join(''):'<li class="xs faint">No other boards'+(q?' match':'')+'.</li>';
+  fwdList.innerHTML=list.length?list.map(b=>{const peer=peerOf(b.title);return '<li role="option" data-to="'+esc(b.id)+'" aria-selected="'+(fwdTo===b.id)+'">'+(peer?avatar16(peer,false)+'<span class="truncate">'+esc(peer)+'</span><span class="xs faint">direct</span>':(b.picture?'<span class="bpic sm"><img class="ok" src="'+esc(b.picture)+'" alt=""></span>':'<span class="fwd-dot"></span>')+'<span class="truncate">'+esc(b.title)+'</span>')+'</li>'}).join(''):'<li class="xs faint">No other boards'+(q?' match':'')+'.</li>';
   document.getElementById('fwd-send').disabled=!fwdTo}
 fwdList.addEventListener('click',e=>{const li=e.target.closest('[data-to]');if(!li)return;fwdTo=li.dataset.to;fwdRender()});
 fwdQ.addEventListener('input',fwdRender);
@@ -1343,7 +1347,7 @@ async function accLoad(){const [m,a,l]=await Promise.all([fetch('/api/boards/'+B
       sel('role',x.role||'contributor',[['owner','Owner'],['contributor','Can post'],['viewer','View only']],fixed)+
       sel('days',x.expires_at?'keep':'0',(x.expires_at?[['keep','Until '+accFmt(x.expires_at)]]:[]).concat([['0','No end date'],['7','7 more days'],['30','30 more days'],['90','90 more days']]),!IS_OWNER||x.user===CREATOR)+'</li>'}).join('')||'<li class="xs faint">No members</li>';
   if(IS_OWNER)document.getElementById('acc-links').innerHTML=(l.links||[]).filter(x=>!x.revoked_at&&(!x.expires_at||x.expires_at>Date.now())).map(x=>'<li class="acc-row xs"><span class="grow">'+(x.role==='viewer'?'View only':'Can post')+' link · until '+accFmt(x.expires_at)+' · used '+x.uses+(x.max_uses?' of '+x.max_uses:'')+'</span><button class="btn ghost sm" type="button" data-link-revoke="'+esc(x.id)+'">Revoke</button></li>').join('');
-  const verb={invited:'invited',joined:'joined',removed:'removed',left:'left',access_changed:'changed access for',link_created:'created an invite link',link_revoked:'revoked an invite link',renamed:'renamed the board',archived:'archived the board',restored:'restored the board',expired:'access ended for'};
+  const verb={invited:'invited',joined:'joined',removed:'removed',left:'left',access_changed:'changed access for',link_created:'created an invite link',link_revoked:'revoked an invite link',renamed:'renamed the board',archived:'archived the board',restored:'restored the board',expired:'access ended for',picture_changed:'changed the board picture',picture_removed:'removed the board picture'};
   document.getElementById('acc-audit').innerHTML=(a.audit||[]).slice(0,50).map(x=>'<li class="xs"><b>'+esc(x.actor)+'</b> '+(verb[x.action]||esc(x.action))+(x.target?' <b>'+esc(x.target)+'</b>':'')+(x.detail?' <span class="faint">· '+esc(x.detail)+'</span>':'')+' <span class="faint">· '+new Date(x.ts).toLocaleString([],{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})+'</span></li>').join('')||'<li class="xs faint">Nothing yet</li>'}
 document.addEventListener('click',e=>{const o=e.target.closest('[data-open="invite"]');if(!o)return;accLoad();const g=o.dataset.goto&&document.getElementById(o.dataset.goto);if(g)setTimeout(()=>g.scrollIntoView({block:'nearest'}),60)});
 // Invite: suggest friends who aren't on the board yet, as you type (arrow keys and Enter pick one).
@@ -1487,7 +1491,7 @@ window.boardKeys=(e,k)=>{
     els.forEach(x=>x.classList.remove('sel'));const el=els[cur];if(el){el.classList.add('sel');el.scrollIntoView({block:'nearest'})}}
   if(e.key==='Enter'&&els[cur]){openEntry(BOARD,els[cur].dataset.seq)}
 };
-` + (info.encrypted ? E2E_JS : "");
+` + (canPic ? BOARD_PIC_JS : "") + (info.encrypted ? E2E_JS : "");
   const isCreator = viewer.name === info.created_by;
   const archivedBanner = info.archived
     ? `<div class="flash bp-banner"><span class="grow"><b>Archived.</b> This board is read-only.</span>${
@@ -1498,8 +1502,22 @@ window.boardKeys=(e,k)=>{
   const encryptedBanner = info.encrypted
     ? `<div class="flash bp-banner e2e-bar"><span class="grow" id="e2e-msg">🔒 <b>End-to-end encrypted.</b> Messages are encrypted on each member's device; read and write them here, or with <span class="mono">atteo read</span> / <span class="mono">atteo post</span> after <span class="mono">atteo use ${esc(info.id)}</span>.</span><div id="e2e-asks" class="e2e-asks"></div></div>`
     : "";
+  const peer = direct ? (info.title.split(" ↔ ").find((x) => x !== viewer.name) ?? viewer.name) : "";
+  const headPic = direct
+    ? avatar(peer)
+    : canPic
+      ? `<button class="bp-pic" type="button" data-open="invite" data-goto="acc-board" title="Change the board picture" aria-label="Board picture">${boardPic({ id: info.id, title: info.title, picture: board.picture })}</button>`
+      : boardPic({ id: info.id, title: info.title, picture: board.picture });
+  const picSec = canPic
+    ? `<div class="acc-row bpic-row">${boardPic({ id: info.id, title: info.title, picture: board.picture }, "lg")}<div class="grow"><div class="small" style="color:var(--ink)">Picture</div><div class="xs muted">${
+        info.encrypted ? "Visible to the server, like the board name." : "Everyone on the board sees it, and a line when it changes."
+      }</div></div>
+  <label class="btn sm">${board.picture ? "Change picture" : "Add picture"}<input type="file" accept="image/png,image/jpeg,image/webp" data-bpic-file hidden></label>${
+    board.picture ? `<button class="btn ghost sm" type="button" data-bpic-rm>Remove picture</button>` : ""
+  }</div>`
+    : "";
   // One compact header row (title, live, members, tabs) so the conversation gets the height.
-  const body = `${archivedBanner}${encryptedBanner}<div class="bp-head"><div class="bp-title">
+  const body = `${archivedBanner}${encryptedBanner}<div class="bp-head"><div class="bp-title">${headPic}
   ${
     isCreator && !info.archived
       ? `<div class="title-edit"><h1 class="truncate" id="board-title" tabindex="0" role="button" title="Rename (click or press Enter)">${esc(info.title)}</h1><button class="btn ghost sm pencil" type="button" id="title-pencil" aria-label="Rename board"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M11.5 2.5l2 2L6 12H4v-2z"/></svg></button>
@@ -1627,12 +1645,16 @@ ${connectDialog(viewer, { id: info.id, title: info.title })}
   <section class="acc-sec"><h3>Members</h3>${isOwner ? "" : `<p class="xs muted">Only owners change roles and access.</p>`}<ul class="acc-list" id="acc-members"><li class="xs faint">Loading…</li></ul></section>
   <details class="acc-sec"><summary class="small muted">Activity</summary><ul class="acc-list" id="acc-audit"></ul></details>
   ${
-    isCreator
-      ? `<section class="acc-sec" id="acc-board"><h3>This board</h3><div class="acc-row">${
-          info.archived
-            ? ""
-            : `<form method="post" action="/api/boards/${esc(info.id)}/archive" data-api data-done="archiveDone" style="margin:0"><input type="hidden" name="archived" value="true"><button class="btn sm" title="Read-only until you restore it">Archive board</button></form>`
-        }<button class="btn ghost sm danger" type="button" data-open="delete-board">Delete board…</button></div></section>`
+    isCreator || canPic
+      ? `<section class="acc-sec" id="acc-board"><h3>This board</h3>${picSec}${
+          isCreator
+            ? `<div class="acc-row">${
+                info.archived
+                  ? ""
+                  : `<form method="post" action="/api/boards/${esc(info.id)}/archive" data-api data-done="archiveDone" style="margin:0"><input type="hidden" name="archived" value="true"><button class="btn sm" title="Read-only until you restore it">Archive board</button></form>`
+              }<button class="btn ghost sm danger" type="button" data-open="delete-board">Delete board…</button></div>`
+            : ""
+        }</section>`
       : ""
   }
 </div></dialog>`;
@@ -1643,7 +1665,7 @@ ${connectDialog(viewer, { id: info.id, title: info.title })}
     crumbs: `<a class="muted" href="/">Boards</a><span class="faint">/</span><span class="cur truncate">${esc(info.title)}</span>`,
     actions: `${agent.connected ? "" : `<button class="btn sm" data-open="connect">Connect an agent</button>`}${readOnly ? "" : `<button class="btn sm" data-open="invite">Invite<kbd class="hide-sm">I</kbd></button>`}${
       // Rename/archive/delete live at the bottom of Members & access; a visible way in, so they aren't hidden behind Invite.
-      isCreator ? `<button class="btn ghost sm" type="button" data-open="invite" data-goto="acc-board" title="Archive or delete this board" aria-label="Board settings"><svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="8" r="1.4"/><circle cx="8" cy="8" r="1.4"/><circle cx="13" cy="8" r="1.4"/></svg></button>` : ""
+      isCreator || canPic ? `<button class="btn ghost sm" type="button" data-open="invite" data-goto="acc-board" title="${isCreator ? "Picture, archive or delete" : "Board picture"}" aria-label="Board settings"><svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="8" r="1.4"/><circle cx="8" cy="8" r="1.4"/><circle cx="13" cy="8" r="1.4"/></svg></button>` : ""
     }`,
     body,
     script,
@@ -1710,12 +1732,16 @@ ${pro && plan.customer ? `<button class="btn sm" data-portal>Manage billing</but
 ${tier("Pro", `$10<span class="small muted"> / month</span>`, ["Unlimited boards", `Up to ${PLANS.pro.members} people per board`, "Everything in Free"], pro, pro ? "" : upgrade)}</div>`;
 }
 
+// Pictures (profiles and boards) are cropped to a centered 256px square in the browser and sent as WebP (JPEG where the
+// browser can't encode WebP), well under the server's 200 KB.
+const SQUARE_JS = `function square(img){const c=document.createElement('canvas');c.width=c.height=256;const x=c.getContext('2d');const s=Math.min(img.width,img.height);x.drawImage(img,(img.width-s)/2,(img.height-s)/2,s,s,0,0,256,256);return c}
+const toBlob=async c=>{const w=await new Promise(r=>c.toBlob(r,'image/webp',.88));return w&&w.type==='image/webp'?w:new Promise(r=>c.toBlob(r,'image/jpeg',.9))};`;
+
 // Profile pictures: resize to a 256px square WebP in the browser (or generate one), then upload.
 const PFP_JS = `
 (()=>{const ME_NAME=document.querySelector('.pfp b')?.textContent||'';
 async function upload(kind,blob){const r=await fetch('/api/me/avatar?kind='+kind,{method:'POST',body:blob});const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||'Could not save');return}toast('Saved');setTimeout(()=>location.reload(),300)}
-function square(img){const c=document.createElement('canvas');c.width=c.height=256;const x=c.getContext('2d');const s=Math.min(img.width,img.height);x.drawImage(img,(img.width-s)/2,(img.height-s)/2,s,s,0,0,256,256);return c}
-const toBlob=c=>new Promise(r=>c.toBlob(r,'image/webp',.88));
+${SQUARE_JS}
 document.addEventListener('change',async e=>{const f=e.target.closest('[data-pfp-file]');if(!f||!f.files[0])return;const kind=f.closest('.pfp').dataset.kind;
   const img=await createImageBitmap(f.files[0]).catch(()=>null);if(!img){toast('That file isn’t an image');return}upload(kind,await toBlob(square(img)))});
 document.addEventListener('click',async e=>{const g=e.target.closest('[data-pfp-gen]'),rm=e.target.closest('[data-pfp-rm]');if(!g&&!rm)return;const box=(g||rm).closest('.pfp'),kind=box.dataset.kind;
@@ -1727,6 +1753,15 @@ document.addEventListener('click',async e=>{const g=e.target.closest('[data-pfp-
     x.beginPath();if(kind==='agent')x.roundRect(px-r/2,py-r/2,r,r,18);else x.arc(px,py,r/2,0,Math.PI*2);x.fill()}
   x.globalAlpha=1;x.fillStyle='rgba(255,255,255,.92)';x.font='600 92px system-ui,sans-serif';x.textAlign='center';x.textBaseline='middle';
   x.fillText((ME_NAME.replace(/'s agent$/,'').slice(0,2)||'?').toUpperCase(),128,136);upload(kind,await toBlob(c))});
+})();`;
+
+// The board's picture (Members & access → This board): crop like a profile picture, upload, reload.
+const BOARD_PIC_JS = `
+(()=>{${SQUARE_JS}
+const send=async(method,body)=>{const r=await fetch('/api/boards/'+BOARD+'/picture',{method,body});const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||'Could not save');return}toast(method==='DELETE'?'Removed':'Saved');setTimeout(()=>location.reload(),300)};
+document.addEventListener('change',async e=>{const f=e.target.closest('[data-bpic-file]');if(!f||!f.files[0])return;const img=await createImageBitmap(f.files[0]).catch(()=>null);f.value='';
+  if(!img){toast('That file isn’t an image');return}send('POST',await toBlob(square(img)))});
+document.addEventListener('click',e=>{if(e.target.closest('[data-bpic-rm]'))send('DELETE')});
 })();`;
 
 const BILLING_JS = `
