@@ -580,6 +580,8 @@ mark{background:color-mix(in srgb,var(--warn) 30%,transparent);color:inherit;bor
 .topbar .crumbs{margin:0;display:flex;align-items:center;gap:8px;min-width:0;font-size:13px}
 .topbar .crumbs .cur{color:var(--ink);font-weight:500}
 .topbar .actions{margin-left:auto;display:flex;gap:8px;align-items:center}
+/* phones: just the current page's name (the menu button leads back to Boards/People), so a long board name still shows */
+@media(max-width:480px){.topbar .crumbs>:not(.cur){display:none}.topbar .crumbs .cur{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
 .content{max-width:1120px;margin:0 auto;padding:28px 24px 96px}
 .content.narrow{max-width:760px}
 .menu-btn{display:none}
