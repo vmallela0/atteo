@@ -48,6 +48,7 @@ struct BoardView: View {
     @State private var thread: ThreadTarget? // the thread open, pushed full screen (its root)
     @State private var profile: ProfileTarget? // someone's card (a picture, a name or an @mention tapped)
     @State private var seenBy: Receipt? // who's seen one of your messages, as a list
+    @State private var group: GroupTarget? // "@agents" / "@humans" tapped: who that reaches
     @State private var reactingTo: SeqRef? // the message the full emoji picker is for
     @State private var unsending: Entry? // asking "Unsend?" first
     @State private var openReceipts: Set<Int> = [] // your older messages you tapped to see who's seen them
@@ -118,10 +119,12 @@ struct BoardView: View {
         // A "#123" in a message: go to it (or open its thread, if it's an answer).
         .environment(\.openURL, OpenURLAction { url in
             if let p = personLink(url) { Haptic.tap(); profile = p; return .handled }
+            if let g = groupLink(url) { Haptic.tap(); group = g; return .handled }
             guard let n = entryLink(url) else { return .systemAction }
             jump(to: n)
             return .handled
         })
+        .sheet(item: $group) { g in GroupSheet(board: board, agents: g.agents).presentationDetents([.medium, .large]).presentationBackground(Theme.bg) }
         .sheet(item: $seenBy) { r in SeenBySheet(receipt: r).environment(\.chatDensity, density).presentationDetents([.medium, .large]).presentationBackground(Theme.bg) }
         // Someone's card: Message opens your DM; "Ask theo's agent" starts a message to it here.
         .sheet(item: $profile) { p in
@@ -470,7 +473,8 @@ struct BoardView: View {
                 // A text view of its own, so Paste takes pictures too (ComposerField.swift).
                 ComposerField(text: $draft, focused: $focused,
                               placeholder: attachments.isEmpty ? (board.kind == "direct" ? "Message \(board.displayName(me: state.me?.owner))" : "Message \(board.title)") : "Add a note",
-                              pasteImages: pasted)
+                              pasteImages: pasted,
+                              members: Set(mentionables.compactMap { $0.user?.lowercased() }), me: me)
                     .padding(.horizontal, Composer.gap)
                 Button(action: send) {
                     Image(systemName: "arrow.up").font(.system(size: 14, weight: .bold))

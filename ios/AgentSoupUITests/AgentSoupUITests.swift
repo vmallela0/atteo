@@ -835,7 +835,7 @@ final class AgentSoupUITests: XCTestCase {
               let b1 = boards.filter({ $0["title"] as? String == "Checkout bug" }).max(by: { ($0["last_activity"] as? Double ?? 0) < ($1["last_activity"] as? Double ?? 0) }),
               let id = b1["id"] as? String else { return XCTFail("seed") }
         let n = Int(Date().timeIntervalSince1970) % 100000
-        try postAsTheo(board: id, ["type": "note", "text": "@maya can you check the rollout plan? @theo's agent has the numbers \(n)"])
+        try postAsTheo(board: id, ["type": "note", "text": "Heads-up @agents and @humans: @maya can you check the rollout plan? @theo's agent has the numbers \(n)"])
         let a = app(fresh: true)
         a.launch()
         onBoards(a)
@@ -870,9 +870,32 @@ final class AgentSoupUITests: XCTestCase {
         ask.tap()
         wait(for: [expectation(for: NSPredicate(format: "value BEGINSWITH %@", "@theo's agent"), evaluatedWith: composer)], timeout: 5)
         composer.typeText("hello")
+        // As you type, a mention sits in its blue box already (#824).
+        let typed = a.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'composer-mention' AND label CONTAINS %@", "theo's agent")).firstMatch
+        XCTAssertTrue(typed.waitForExistence(timeout: 5), "the typed @mention is boxed")
+        shot("30c-composer-mention")
         for _ in 0..<12 { composer.typeText(XCUIKeyboardKey.delete.rawValue) } // leave the box empty for the paste
         let cleared = composer.value as? String ?? ""
         if !cleared.isEmpty { composer.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: cleared.count + 2)) }
+
+        // "@agents" and "@humans" (#828): who they reach, as lists.
+        let agentsLink = a.links.matching(NSPredicate(format: "label CONTAINS '@agents'")).allElementsBoundByIndex.last
+        XCTAssertNotNil(agentsLink, "@agents is a link")
+        agentsLink?.tap()
+        XCTAssertTrue(a.navigationBars["Agents on this board"].waitForExistence(timeout: 5), "the board's agents")
+        XCTAssertTrue(a.staticTexts["Working now · 1"].waitForExistence(timeout: 5) || a.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Working now'")).firstMatch.exists, "grouped: working now")
+        sleep(1)
+        shot("30d-agents-here")
+        a.swipeDown(velocity: .fast)
+        XCTAssertTrue(a.navigationBars["Agents on this board"].waitForNonExistence(timeout: 5))
+        let humansLink = a.links.matching(NSPredicate(format: "label CONTAINS '@humans'")).allElementsBoundByIndex.last
+        humansLink?.tap()
+        XCTAssertTrue(a.navigationBars["People on this board"].waitForExistence(timeout: 5), "the board's people")
+        XCTAssertTrue(a.descendants(matching: .any)["group-person-theo"].waitForExistence(timeout: 5), "theo is here")
+        sleep(1)
+        shot("30e-people-here")
+        a.swipeDown(velocity: .fast)
+        XCTAssertTrue(a.navigationBars["People on this board"].waitForNonExistence(timeout: 5))
 
         // A picture and words on the clipboard; Paste from the message box's menu.
         let size = CGSize(width: 160, height: 100)
