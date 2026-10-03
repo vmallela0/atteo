@@ -9,6 +9,7 @@ struct BoardView: View {
     let board: Board
     @State private var draft = ""
     @State private var showTasks = false
+    @State private var workPane: WorkPane? // Tasks or Files, from the top bar (always reachable)
     @State private var showAgents = false
     private var live: [BoardAgent] { (state.boardAgents[board.id] ?? []).filter { $0.state == "live" } }
     /// "theo's agent working", "theo and maya's agents working", "3 agents working", or "No agents working now".
@@ -22,7 +23,7 @@ struct BoardView: View {
         default: return "\(users.count) agents working"
         }
     }
-    @FocusState private var focused: Bool
+    @State private var focused = false // the message box has the keyboard
 
     private var list: [Entry] { state.entries[board.id] ?? [] }
     private var canSend: Bool { (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty) && preparing == 0 }
@@ -42,7 +43,6 @@ struct BoardView: View {
     @State private var position = ScrollPosition(edge: .bottom) // like any messenger: you start at the latest
 
     // Wave 2: threads, reactions, unsend, receipts, board info, older messages.
-    @State private var selection: TextSelection? // the caret in the message box (at the end after a reply's @mention)
     @State private var flash: Int? // a message just jumped to, lit for a moment
     @State private var scrollRequest: ScrollRequest?
     @State private var thread: ThreadTarget? // the thread open, pushed full screen (its root)
@@ -95,6 +95,14 @@ struct BoardView: View {
                 .accessibilityIdentifier("threads")
                 .accessibilityLabel("Threads")
                 .accessibilityValue(anyUnreadThread ? "new replies" : "")
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Button("Tasks", systemImage: "checklist") { workPane = .tasks }
+                    Button("Files", systemImage: "doc.on.doc") { workPane = .files }
+                } label: { Image(systemName: "square.stack").font(.system(size: 15, weight: .semibold)).foregroundStyle(Theme.text) }
+                .accessibilityIdentifier("work-menu")
+                .accessibilityLabel("Tasks and files")
             }
         }
         // A "#123" in a message: go to it (or open its thread, if it's an answer).
@@ -182,6 +190,7 @@ struct BoardView: View {
         .safeAreaInset(edge: .top, spacing: 0) { WorkStrip(tasks: state.tasks[board.id] ?? []) { Haptic.tap(); showTasks = true } }
         .safeAreaInset(edge: .bottom, spacing: 0) { composer }
         .sheet(isPresented: $showTasks) { TasksSheet(board: board).presentationDetents([.medium, .large]).presentationBackground(Theme.bg) }
+        .sheet(item: $workPane) { p in TasksSheet(board: board, initial: p).presentationDetents([.large]).presentationBackground(Theme.bg) }
         .navigationTitle(board.displayName(me: state.me?.owner))
         .toolbar {
             // The title, and under it who's working here right now (tap for everyone, live / idle / gone).
@@ -399,7 +408,6 @@ struct BoardView: View {
         guard let at = draft.lastIndex(of: "@") else { return }
         Haptic.tap()
         draft = String(draft[..<at]) + "@\(m.handle) "
-        selection = TextSelection(insertionPoint: draft.endIndex) // keep typing after the name
     }
 
     /// The message box: one soft field on the page (no bar, no outline), the send button inside its trailing edge.
@@ -420,11 +428,11 @@ struct BoardView: View {
             }
             HStack(alignment: .bottom, spacing: 0) {
                 attachButton
-                TextField(attachments.isEmpty ? (board.kind == "direct" ? "Message \(board.displayName(me: state.me?.owner))" : "Message \(board.title)") : "Add a note", text: $draft, selection: $selection, axis: .vertical)
-                    .font(Typo.body)
-                    .lineLimit(1...6).focused($focused)
-                    .padding(.leading, Space.xs).padding(.trailing, Space.s).padding(.vertical, 10)
-                    .accessibilityIdentifier("composer")
+                // A text view of its own, so Paste takes pictures too (ComposerField.swift).
+                ComposerField(text: $draft, focused: $focused,
+                              placeholder: attachments.isEmpty ? (board.kind == "direct" ? "Message \(board.displayName(me: state.me?.owner))" : "Message \(board.title)") : "Add a note",
+                              pasteImages: pasted)
+                    .padding(.leading, Space.xs).padding(.trailing, Space.s)
                 Button(action: send) {
                     Image(systemName: "arrow.up").font(.system(size: 14, weight: .bold))
                         .frame(width: 30, height: 30)
@@ -488,6 +496,14 @@ struct BoardView: View {
         }
     }
 
+    /// Pictures pasted into the message box: attached like ones picked from Photos (not on encrypted boards, which
+    /// can't take attachments yet: the + says why).
+    private func pasted(_ images: [UIImage]) {
+        guard board.encrypted != true else { Haptic.warn(); showEncryptedNote = true; return }
+        Haptic.tap()
+        for img in images.prefix(max(0, maxAttachments - attachments.count - preparing)) { add { try await Attachments.photo(img) } }
+    }
+
     /// Prepares something picked (made to fit the size limit) and puts it in the message box.
     private func add(_ make: @escaping () async throws -> Attachment) {
         preparing += 1
@@ -505,7 +521,6 @@ struct BoardView: View {
         let files = attachments
         guard canSend else { return }
         draft = ""
-        selection = nil
         withAnimation(.spring(duration: 0.3, bounce: 0.15)) { attachments = [] }
         Haptic.tap()
         Task {
@@ -766,7 +781,7 @@ struct EntryRow: View {
             attachment
             if unsent { unsentBody } else if let caption {
                 let m = caption.mentioned(e.mentions, members: members, me: me)
-                Text(m.text)
+                m.text.textRenderer(MentionBoxes())
                     .font(Typo.body).foregroundStyle(Theme.text.opacity(e.pending == true ? 0.55 : 1))
                     .accessibilityValue(m.handles.isEmpty ? "" : "Mentions " + m.handles.joined(separator: ", "))
                     .padding(.horizontal, Space.m + 1).padding(.vertical, Space.s)
@@ -808,7 +823,7 @@ struct EntryRow: View {
                 quote
                 if unsent { unsentBody } else if e.type == "task" { TaskCard(seq: e.seq, board: board, text: e.text, tasks: tasks).padding(.top, Space.xxs) } else if let caption {
                     let m = caption.mentioned(e.mentions, members: members, me: me)
-                    Text(m.text).font(Typo.body).foregroundStyle(Theme.text.opacity(0.92)).lineSpacing(1.5)
+                    m.text.textRenderer(MentionBoxes()).font(Typo.body).foregroundStyle(Theme.text.opacity(0.92)).lineSpacing(1.5)
                         .accessibilityValue(m.handles.isEmpty ? "" : "Mentions " + m.handles.joined(separator: ", "))
                 }
                 footer
