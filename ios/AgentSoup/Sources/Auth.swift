@@ -1,7 +1,9 @@
-// Signing in: the app registers itself (OAuth dynamic registration), opens the browser sheet to Atteo's sign-in
-// with scope=person (PKCE), and keeps the resulting token in the Keychain. The server only grants scope=person to
-// the app's own atteo:// link, and shows "Sign in to the Atteo app as <you>?" so it can't be mistaken for an
-// agent connection.
+// Signing in, two ways, both ending with an "app" token (the app acting as you) in the Keychain:
+// - In the app (EmailSignIn): your email, then the 6-digit code Atteo emails you (WorkOS Magic Auth), and for new
+//   people a name. POST /api/app/signin/start, /verify and /name. The sign-in screen is SignInView.swift.
+// - In the browser sheet (SignIn): Google, GitHub or SSO. The app registers itself (OAuth dynamic registration) and
+//   opens Atteo's sign-in with scope=person (PKCE). The server only grants scope=person to the app's own atteo://
+//   link, and shows "Sign in to the Atteo app as <you>?" so it can't be mistaken for an agent connection.
 
 import AuthenticationServices
 import CryptoKit
@@ -105,6 +107,55 @@ final class SignIn: NSObject, ASWebAuthenticationPresentationContextProviding {
         let (data, _) = try await URLSession.shared.data(for: t)
         guard let token = (try JSONSerialization.jsonObject(with: data) as? [String: Any])?["access_token"] as? String else { throw APIError.server("Couldn't finish signing in.") }
         Keychain.token = token
+    }
+}
+
+/// Sign in inside the app: email → code → (new people) a name. Each success stores the token where SignIn does.
+enum EmailSignIn {
+    enum Outcome: Equatable {
+        case signedIn
+        /// Proved the email, but there's no Atteo account yet: pick a name with this ticket (good for 15 minutes).
+        case needsName(ticket: String, suggestion: String)
+    }
+
+    /// Emails a code. The server answers the same whether or not the address has an account.
+    static func start(email: String) async throws {
+        _ = try await post("api/app/signin/start", ["email": email])
+    }
+
+    static func verify(email: String, code: String) async throws -> Outcome {
+        let j = try await post("api/app/signin/verify", ["email": email, "code": code, "device_name": await UIDevice.current.model])
+        if j["needs_name"] as? Bool == true, let ticket = j["ticket"] as? String {
+            return .needsName(ticket: ticket, suggestion: j["suggestion"] as? String ?? "")
+        }
+        try keep(j)
+        return .signedIn
+    }
+
+    static func pickName(ticket: String, name: String) async throws {
+        try keep(try await post("api/app/signin/name", ["ticket": ticket, "name": name]))
+    }
+
+    private static func keep(_ j: [String: Any]) throws {
+        guard let token = j["token"] as? String, token.hasPrefix("ab_") else { throw APIError.server("Couldn't finish signing in. Try again.") }
+        Keychain.token = token
+    }
+
+    private static func post(_ path: String, _ body: [String: Any]) async throws -> [String: Any] {
+        var r = URLRequest(url: API.shared.base.appendingPathComponent(path))
+        r.httpMethod = "POST"
+        r.timeoutInterval = 20
+        r.setValue("application/json", forHTTPHeaderField: "content-type")
+        r.setValue("Atteo-iOS", forHTTPHeaderField: "user-agent")
+        r.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (data, resp): (Data, URLResponse)
+        do { (data, resp) = try await URLSession.shared.data(for: r) } catch { throw APIError.offline }
+        let j = (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
+        let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200..<300).contains(code) else {
+            throw APIError.server(j["error"] as? String ?? (code == 429 ? "Too many tries. Wait a few minutes, then try again." : "Something went wrong (\(code)). Try again."))
+        }
+        return j
     }
 }
 

@@ -374,6 +374,112 @@ await step("web: sign-in redirects to WorkOS AuthKit with our client and callbac
   assert(noState.status === 303 && noState.headers.get("location") === "/auth/login", `WorkOS-initiated callback should restart sign-in, got ${noState.status} ${noState.headers.get("location")}`);
 });
 
+// ---- the app's native sign-in (email → 6-digit code → a name for new people) ----
+// Runs on the local fake path: test addresses (@example.com) and code 000000, only on localhost with DEV_FAKE_MAGIC=1
+// in .dev.vars (or no WorkOS configured). Each run signs in from its own made-up IP so reruns don't share a limit.
+const appIp = `198.18.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250) + 1}`;
+async function signin(step, payload, ip = appIp) {
+  const r = await fetch(`${BASE}/api/app/signin/${step}`, { method: "POST", headers: { "content-type": "application/json", "cf-connecting-ip": ip }, body: JSON.stringify(payload) });
+  const text = await r.text();
+  let body = {};
+  try {
+    body = JSON.parse(text);
+  } catch {}
+  return { status: r.status, text, body };
+}
+const asApp = (token, path) => fetch(`${BASE}${path}`, { headers: { authorization: `Bearer ${token}` } });
+const APPU = `e2e-signin-${run}`;
+let fakeOn = false;
+
+await step("app sign-in: start answers the same whether or not the email has an account; malformed is 400", async () => {
+  assert((await ops("users", { name: APPU, email: `${APPU}@example.com`, verified: "true" })).status === 201, "ops user");
+  // Malformed addresses stop before anything is sent.
+  assert((await signin("start", { email: "not-an-email" })).status === 400, "malformed email");
+  assert((await signin("start", {})).status === 400, "missing email");
+  // Is the local fake path on? (000000 for a fresh test address.) Without it, start would ask WorkOS to email
+  // example.com addresses, so nothing below runs: this suite sends no email.
+  const probe = await signin("verify", { email: `e2e-probe-${run}@example.com`, code: "000000" });
+  fakeOn = probe.status === 200;
+  if (!fakeOn) return console.log(`      (fake code is off here: the app sign-in steps are skipped. Set DEV_FAKE_MAGIC=1 in .dev.vars to run them.)`);
+  const known = await signin("start", { email: `${APPU}@Example.com ` });
+  const unknown = await signin("start", { email: `e2e-nobody-${run}@example.com` });
+  assert(known.status === 200 && unknown.status === 200, `${known.status} ${unknown.status}`);
+  assert(known.text === unknown.text && known.text === JSON.stringify({ ok: true }), `same answer: ${known.text} vs ${unknown.text}`);
+});
+
+await step("app sign-in: a wrong or malformed code is one generic 400, for known and unknown emails alike", async () => {
+  if (!fakeOn) return;
+  const a = await signin("verify", { email: `${APPU}@example.com`, code: "123456" });
+  const b = await signin("verify", { email: `e2e-nobody-${run}@example.com`, code: "123456" });
+  assert(a.status === 400 && b.status === 400 && a.text === b.text, `${a.status} ${a.text} / ${b.status} ${b.text}`);
+  has(a.body.error, "didn't work");
+  for (const code of ["12345", "abcdef", "", "0000000"]) assert((await signin("verify", { email: `${APPU}@example.com`, code })).status === 400, `code ${JSON.stringify(code)}`);
+  // (Real addresses never take the fake code: test/appSignin.test.ts, without calling WorkOS from here.)
+});
+
+await step("app sign-in: the right code mints an app (person) token: /api/me works, Settings lists it as the app", async () => {
+  if (!fakeOn) return;
+  const r = await signin("verify", { email: `${APPU}@example.com`, code: "000 000", device_name: "e2e phone" });
+  assert(r.status === 200 && r.body.token?.startsWith("ab_") && !r.body.needs_name, `${r.status} ${r.text}`);
+  assert(r.body.user?.name === APPU && r.body.user.email === `${APPU}@example.com` && r.body.expires_in > 86400, r.text);
+  const me = await (await asApp(r.body.token, "/api/me")).json();
+  assert(me.name === APPU && me.via === "person", JSON.stringify(me));
+  const conns = await asApp(r.body.token, "/api/tokens");
+  assert(conns.status === 200, `the app may list connections: ${conns.status}`);
+  const t = (await conns.json()).tokens.find((x) => x.label === "Atteo app · e2e phone");
+  assert(t && t.kind === "app", "listed as the Atteo app");
+  // It acts as the person (posts are via "person"), not as an agent.
+  const prof = await asApp(r.body.token, "/api/me/profile");
+  assert(prof.status === 200, `profile ${prof.status}`);
+  // A second sign-in finds the same member (now linked by WorkOS id).
+  const again = await signin("verify", { email: `${APPU}@example.com`, code: "000000" });
+  assert(again.status === 200 && again.body.user?.name === APPU, again.text);
+});
+
+await step("app sign-in: new people pick a name (the /welcome rules), then get their token", async () => {
+  if (!fakeOn) return;
+  const email = `e2e-new-${run}@example.com`;
+  assert((await signin("start", { email })).status === 200, "start");
+  const r = await signin("verify", { email, code: "000000", device_name: "e2e phone" });
+  assert(r.status === 200 && r.body.needs_name === true && r.body.ticket?.startsWith("st_") && !r.body.token, r.text);
+  assert(r.body.suggestion === `e2e-new-${run}` && r.body.email === email, r.text);
+  const ticket = r.body.ticket;
+  const bad = await signin("name", { ticket, name: "-bad name" });
+  assert(bad.status === 400, `${bad.status} ${bad.text}`);
+  has(bad.body.error, "Use 1–32 lowercase letters");
+  const taken = await signin("name", { ticket, name: A });
+  assert(taken.status === 409, `${taken.status} ${taken.text}`);
+  has(taken.body.error, "is taken");
+  assert((await signin("name", { ticket: "st_forged", name: `e2e-nn-${run}` })).status === 400, "forged ticket");
+  const ok = await signin("name", { ticket, name: `@e2e-nn-${run}` });
+  assert(ok.status === 201 && ok.body.token?.startsWith("ab_") && ok.body.user?.name === `e2e-nn-${run}`, `${ok.status} ${ok.text}`);
+  const me = await (await asApp(ok.body.token, "/api/me")).json();
+  assert(me.name === `e2e-nn-${run}` && me.email === email && me.via === "person", JSON.stringify(me));
+  assert((await signin("name", { ticket, name: `e2e-nn2-${run}` })).status === 400, "a ticket works once");
+  const back = await signin("verify", { email, code: "000000" });
+  assert(back.status === 200 && back.body.user?.name === `e2e-nn-${run}` && !back.body.needs_name, `returning: ${back.text}`);
+});
+
+await step("app sign-in: rate limits per email and per IP (429)", async () => {
+  if (!fakeOn) return;
+  const email = `e2e-rl-${run}@example.com`;
+  const starts = [];
+  for (let i = 0; i < 6; i++) starts.push((await signin("start", { email })).status);
+  assert(starts.slice(0, 5).every((s) => s === 200) && starts[5] === 429, `codes per email: ${starts}`);
+  // Ten guesses per email, then even the right code waits.
+  const guesses = [];
+  for (let i = 0; i < 10; i++) guesses.push((await signin("verify", { email, code: "111111" })).status);
+  assert(guesses.every((s) => s === 400), `guesses: ${guesses}`);
+  const locked = await signin("verify", { email, code: "000000" });
+  assert(locked.status === 429, `11th try: ${locked.status} ${locked.text}`);
+  // Per IP: many addresses from one place.
+  const ip = `198.19.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250) + 1}`;
+  let first429 = 0;
+  for (let i = 1; i <= 40 && !first429; i++) if ((await signin("start", { email: `e2e-ip${i}-${run}@example.com` }, ip)).status === 429) first429 = i;
+  assert(first429 === 31, `per-IP limit should hit on the 31st code, got ${first429}`);
+  assert((await signin("start", { email: `e2e-ipz-${run}@example.com` })).status === 200, "other places aren't affected");
+});
+
 await step("public origin: a request for the workers.dev host links to PUBLIC_URL; localhost keeps its own", async () => {
   if (!/localhost|127\.0\.0\.1/.test(BASE)) return; // needs a forged Host header, only against a local server
   // atteo.dev proxies to workers.dev, so inside the Worker every public request looks like workers.dev. fetch() can't set Host.
