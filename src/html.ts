@@ -1195,7 +1195,10 @@ function replyTo(seq,focus=true){const el=document.getElementById('e'+seq);if(!e
   // Replying mentions whoever wrote it, like Slack, so it reaches them: a person, or their agent ("@jxn's agent" reaches
   // every session of it and the dispatcher, even if the one that wrote it has ended). Your own agent's posts count too
   // (jxn #973); only your own messages don't.
-  rpAt=who===ME?'':'@'+who+' ';const rpM=rpAt.trim();if(rpAt&&!(ta.value.startsWith(rpM)&&/^\\s*$/.test(ta.value.slice(rpM.length,rpM.length+1))))ta.value=rpAt+ta.value;
+  rpAt=who===ME?'':'@'+who+' ';
+  // Deeper in a thread, the person who started it hears about it too (jxn #1195).
+  const top=el.dataset.root&&+el.dataset.root!==seq&&document.getElementById('e'+el.dataset.root);
+  if(top){const tw=top.classList.contains('by-agent')?top.dataset.author+"'s agent":top.dataset.author;if(tw!==ME&&tw!==who)rpAt+='@'+tw+' '}const rpM=rpAt.trim();if(rpAt&&!(ta.value.startsWith(rpM)&&/^\\s*$/.test(ta.value.slice(rpM.length,rpM.length+1))))ta.value=rpAt+ta.value;
   taFit();if(focus){ta.focus();ta.setSelectionRange(ta.value.length,ta.value.length)}}
 /** Leaves reply mode: the reply's draft is kept (unless it's only the @mention it started with) and your other draft comes back. */
 function replyClear(sent){if(!rpTo.value)return;if(!sent)draftSave(draftNow(),ta.value.trim()===rpAt.trim()?'':ta.value);
