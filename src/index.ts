@@ -38,6 +38,8 @@ import {
   boardPage,
   devicePage,
   entryHtml,
+  agentNames,
+  withAgentNames,
   homePage,
   landingPage,
   logRow,
@@ -773,7 +775,8 @@ const handler = {
         const kind = (row as { kind?: string | null } | null)?.kind ?? null;
         // "Your agent": the composer's picker lists your agents (live or idle) by name.
         const mine = kind === "agent" ? (await sessions.list(env, viewer.name)).filter(sessions.listed).map((x) => ({ name: x.name, state: x.state, client: x.client })) : undefined;
-        return boardPage(viewer, side, snap.info, withAgents, snap.entries, shown, { connected: status.connected, onThisBoard: !!live[viewer.name] }, snap.summary, agentsHere, { picture: boardPictures.pictureUrl(m[2], row?.picture_v), kind, sessions: mine, seen: snap.reads?.[viewer.name]?.person_seen ?? 0, last_seen: snap.reads?.[viewer.name]?.person_seen ?? 0 });
+        const agentNamed = agentNames(members);
+        return boardPage(viewer, side, snap.info, withAgents, snap.entries.map((e) => withAgentNames(e, agentNamed)), shown, { connected: status.connected, onThisBoard: !!live[viewer.name] }, snap.summary, agentsHere, { picture: boardPictures.pictureUrl(m[2], row?.picture_v), kind, sessions: mine, seen: snap.reads?.[viewer.name]?.person_seen ?? 0, last_seen: snap.reads?.[viewer.name]?.person_seen ?? 0 });
       }
 
       // ---- inbox: mentions of you, posts for your agent, replies to you ----
@@ -2206,7 +2209,7 @@ const handler = {
               ...(e.via === "agent" && names[e.author] ? { agent_name: names[e.author] } : {}), // "Jarvis · vedu's agent"
               root: roots[e.seq] ?? e.seq,
               retracts: e.retracts,
-              html: entryHtml(e, id, true, { canRetract: canRetract(e) }),
+              html: entryHtml(withAgentNames(e, names), id, true, { canRetract: canRetract(e) }),
               row: logRow(e),
               reactions: snap.reactions[e.seq] ?? [],
               ...(e.type === "change" ? { reviews: snap.reviews[e.seq] ?? [] } : {}),

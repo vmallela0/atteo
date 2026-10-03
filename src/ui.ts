@@ -451,6 +451,7 @@ dialog.lightbox img{display:block;max-width:min(96vw,1600px);max-height:92vh;wid
   border:1.5px solid var(--dot);background:var(--bg);box-sizing:border-box}
 .entry .body .mention.seen::after{background:var(--dot)}
 /* change cards: a git change as a card (branch → base, CI, PR, commits, files, reviews, diff on demand) */
+.meta .via.owner{color:var(--muted)}
 .mem-act{display:none}.mem-on .mem-act{display:inline-flex;width:30px;padding:0;justify-content:center;color:var(--muted)}.mem-on .mem-act:hover{color:var(--ink)}
 .soul-prev{white-space:pre-wrap;font-size:12.5px;line-height:1.5;color:var(--text);max-height:7.5em;overflow:hidden;-webkit-mask-image:linear-gradient(#000 70%,transparent);mask-image:linear-gradient(#000 70%,transparent)}
 .soul-meta{margin:4px 0 6px}.soul-edit{margin-top:2px}
@@ -1004,7 +1005,17 @@ export function relTime(ts: number, now = Date.now()): string {
  * Everything is escaped first; only these constructs are turned back into tags.
  */
 /** Markdown-ish text to HTML. `mentions` (the entry's stored mentions) are highlighted; other "@x" stays plain. */
-export function renderText(text: string, mentions?: Mention[] | null): string {
+/** Named agents for the text being rendered (owner → name), so "@Jarvis" draws as a chip; set only while renderText runs. */
+let NAMES: Record<string, string> | null = null;
+export function renderText(text: string, mentions?: Mention[] | null, names?: Record<string, string> | null): string {
+  NAMES = names ?? null;
+  try {
+    return renderTextInner(text, mentions);
+  } finally {
+    NAMES = null;
+  }
+}
+function renderTextInner(text: string, mentions?: Mention[] | null): string {
   const out: string[] = [];
   const ck = { n: 0 }; // checklist items ("- [ ] …") are numbered in order, so a page can tick the n-th one
   const parts = text.split(/```[^\n]*\n?([\s\S]*?)```/g);
@@ -1094,7 +1105,7 @@ function inline(s: string, mentions?: Mention[] | null): string {
       const urls = h.match(URL_RE) ?? [];
       h = h
         .split(URL_RE)
-        .map((t, j) => highlightMentions(t, mentions) + (j < urls.length ? `<a href="${urls[j]}" target="_blank" rel="noopener noreferrer">${urls[j]}</a>` : ""))
+        .map((t, j) => highlightMentions(t, mentions, NAMES) + (j < urls.length ? `<a href="${urls[j]}" target="_blank" rel="noopener noreferrer">${urls[j]}</a>` : ""))
         .join("");
       return h.replace(/\n/g, "<br>");
     })

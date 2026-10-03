@@ -207,10 +207,22 @@ export function mentionLabel(m: Mention, viewer?: string, viewerIs: "agent" | "p
 }
 
 /** Already-escaped HTML with each stored mention wrapped in `<span class="mention">` (plus `agent` for agents). */
-export function highlightMentions(escaped: string, mentions: Mention[] | null | undefined): string {
+export function highlightMentions(escaped: string, mentions: Mention[] | null | undefined, names?: Record<string, string> | null): string {
   if (!mentions?.length) return escaped;
+  // "@Jarvis": a mentioned agent by the name its person gave it (names: owner → name), drawn as that agent's chip.
+  const named: string[] = [];
+  if (names) {
+    for (const m of mentions) {
+      const n = m.agent && !m.session ? names[m.user] : undefined;
+      if (!n) continue;
+      const shown = n.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+      const re = new RegExp(`(^|[^\\w@/.-])@(${shown.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})(?![\\p{L}\\p{N}_])`, "giu");
+      escaped = escaped.replace(re, (_all, pre: string, typed: string) => `${pre}\u0000${named.push(`<span class="mention agent" data-user="${m.user}" title="${m.user}'s agent">@${typed}</span>`) - 1}\u0000`);
+    }
+  }
+  const back = (s: string) => (named.length ? s.replace(/\u0000(\d+)\u0000/g, (_x, i: string) => named[+i]) : s);
   const wanted = new Set(mentions.map(key));
-  return escaped.replace(MENTION_RE, (all, pre: string, handle: string, suffix: string | undefined) => {
+  return back(escaped.replace(MENTION_RE, (all, pre: string, handle: string, suffix: string | undefined) => {
     const g = groupOf(handle);
     const chip = (cls: string) => `${pre}<span class="mention${cls}" data-user="${g}">@${handle.slice(0, g.length)}</span>${handle.slice(g.length)}`;
     if (g === ALL_AGENTS && !suffix && !wanted.has(ALL_AGENTS) && mentions.some((m) => m.agent)) return chip(" agent");
@@ -222,5 +234,5 @@ export function highlightMentions(escaped: string, mentions: Mention[] | null | 
     const rest = handle.slice(r.user.length);
     const label = r.agent ? `@${shown}${suffix}` : `@${shown}`;
     return `${pre}<span class="mention${r.agent ? " agent" : ""}" data-user="${r.user}">${label}</span>${rest}${r.agent ? "" : (suffix ?? "")}`;
-  });
+  }));
 }

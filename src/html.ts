@@ -23,6 +23,8 @@ export type { Viewer, SideBoard };
 export interface MemberView {
   user: string;
   display_name: string | null;
+  agent_name?: string | null; // what they named their agent (vedu #1125)
+  agent_name_ambiguous?: boolean; // another member's agent has the same name here
   last_seen: number;
   role?: "owner" | "contributor" | "viewer";
   expires_at?: number | null;
@@ -35,7 +37,7 @@ function jsString(v: unknown): string {
 }
 
 /** Composer autocomplete choices: each other member with their agents indented under them (sub), then your own agents. */
-export function mentionOptions(members: string[], viewer: string, sessions: { user: string; name: string | null; client: string | null }[] = []): { u: string; ins: string; label: string; k: string; av: string; sub?: boolean }[] {
+export function mentionOptions(members: string[], viewer: string, sessions: { user: string; name: string | null; client: string | null }[] = [], names: Record<string, string> = {}, ambiguous: Set<string> = new Set()): { u: string; ins: string; label: string; k: string; av: string; sub?: boolean }[] {
   const others = [...new Set(members)].filter((m) => m !== viewer).sort();
   // Each live agent session can be addressed on its own ("@vedu/scout"); "@vedu's agent" reaches all of them.
   const sessionsOf = (u: string) =>
@@ -43,7 +45,9 @@ export function mentionOptions(members: string[], viewer: string, sessions: { us
   return [
     ...others.flatMap((m) => [
       { u: m, ins: m, label: esc(m), k: "person", av: avatar(m, "sm") },
-      { u: m, ins: `${m}'s agent`, label: esc(`${m}'s agent`), k: sessionsOf(m).length > 1 ? "all their agents" : "agent", av: avatar(m, "sm", true), sub: true },
+      names[m] && !ambiguous.has(m)
+        ? { u: m, ins: names[m], label: `${esc(names[m])} <span class="faint">· ${esc(m)}'s agent</span>`, k: sessionsOf(m).length > 1 ? "all their agents" : "agent", av: avatar(m, "sm", true), sub: true }
+        : { u: m, ins: `${m}'s agent`, label: esc(`${m}'s agent`) + (names[m] ? ` <span class="faint">· ${esc(names[m])}</span>` : ""), k: sessionsOf(m).length > 1 ? "all their agents" : "agent", av: avatar(m, "sm", true), sub: true },
       ...sessionsOf(m),
     ]),
     { u: viewer, ins: `${viewer}'s agent`, label: esc(`${viewer}'s agent`), k: sessionsOf(viewer).length > 1 ? "all your agents" : "your agent", av: avatar(viewer, "sm", true) },
@@ -110,7 +114,7 @@ ${
 ${avatar(e.author, "", e.via === "agent")}
 <div class="grow">
   <div class="meta">${whoHtml(e)}${e.to ? `<span class="to">→ ${esc(e.to)}</span>` : ""}${e.type === "note" ? "" : typeTag(e.type)}${when(e.ts)}<a class="seq" href="#e${e.seq}">#${e.seq}</a><span class="badge rbadge">Unsent</span>${flagBadge(e.text, e.ai_flag)}${actions}</div>
-  <div class="body">${apr?.title ? `<p>${esc(apr.title)}</p>` : refLinks(renderText(e.text, e.mentions))}</div>${file}${e.card ? changeCardHtml(e.seq, e.card) : ""}${apr && !opts.retracted ? approvalCardHtml(apr) : ""}${e.type === "task" ? `<div class="tk" data-task="${e.seq}" hidden></div>` : ""}${e.type === "claim" && !opts.retracted ? `<div class="tk cl" data-claim="${e.seq}" hidden></div>` : ""}${e.type === "decision" && e.via === "person" && !opts.retracted ? `<div class="tk hd" data-hd="${e.seq}" hidden></div>` : ""}
+  <div class="body">${apr?.title ? `<p>${esc(apr.title)}</p>` : refLinks(renderText(e.text, e.mentions, e.mention_names))}</div>${file}${e.card ? changeCardHtml(e.seq, e.card) : ""}${apr && !opts.retracted ? approvalCardHtml(apr) : ""}${e.type === "task" ? `<div class="tk" data-task="${e.seq}" hidden></div>` : ""}${e.type === "claim" && !opts.retracted ? `<div class="tk cl" data-claim="${e.seq}" hidden></div>` : ""}${e.type === "decision" && e.via === "person" && !opts.retracted ? `<div class="tk hd" data-hd="${e.seq}" hidden></div>` : ""}
   ${refs.length ? `<div class="refs">${refs.join(" · ")}</div>` : ""}
   <div class="rx" data-rx="${e.seq}"><button class="rx-add" type="button" data-rx-add="${e.seq}" aria-label="Add a reaction" title="Add a reaction">☺<span>+</span></button></div>
   ${withReplies ? `<div class="replies" id="r${e.seq}"></div>` : ""}
@@ -303,12 +307,26 @@ if(saved&&[...p.options].some(o=>o.value===saved))p.value=saved;
 const sync=()=>{h.value=p.value;if(ta)ta.placeholder=p.value?'Message '+p.value+'…':'Message your agent…';try{sessionStorage.setItem('to-session:'+location.pathname,p.value)}catch{}};
 p.addEventListener('change',sync);sync()})();`;
 
+/** Read-time agent names (vedu #1125): the author's ("Jarvis · vedu's agent") and those of agents it mentions. names: owner → name. */
+/** owner → the name they gave their agent, from a board's members. */
+export function agentNames(members: { user: string; agent_name?: string | null }[]): Record<string, string> {
+  return Object.fromEntries(members.filter((m) => m.agent_name).map((m) => [m.user, m.agent_name!]));
+}
+
+export function withAgentNames<T extends Entry>(e: T, names: Record<string, string>): T {
+  const own = e.via === "agent" && names[e.author] ? names[e.author] : undefined;
+  const ment = (e.mentions ?? []).filter((m) => m.agent && !m.session && names[m.user]).map((m) => [m.user, names[m.user]] as const);
+  return own || ment.length ? { ...e, ...(own ? { agent_name: own } : {}), ...(ment.length ? { mention_names: Object.fromEntries(ment) } : {}) } : e;
+}
+
 function whoHtml(e: Entry): string {
   // Agents read apart by their square avatar and their name: "vedu/scout" for a named agent session (its client is
   // "scout · Claude Code"), else "<name>'s agent"; the client is plain text after it. People get no tag.
   if (e.via === "agent") {
     const [session, client] = e.client && e.client.includes(" · ") ? e.client.split(" · ", 2) : [null, e.client];
     const name = session ? `${e.author}/${session}` : `${e.author}'s agent`;
+    // A named agent (vedu #1125): "Jarvis", with whose it is right next to it, always.
+    if (e.agent_name) return `<span class="who" title="${esc(`${e.author}'s agent, named ${e.agent_name}${session ? ` · session ${session}` : ""}${client && client !== "agent" ? ` · ${client}` : ""}`)}">${esc(e.agent_name)}</span><span class="via owner">${esc(`${e.author}'s agent`)}</span>`;
     return `<span class="who">${esc(name)}</span>${client && client !== "agent" ? `<span class="via" title="Posted by ${esc(name)} with ${esc(client)}">${esc(client)}</span>` : ""}`;
   }
   if (e.via === "person") return `<span class="who" title="Written by ${esc(e.author)} on the web">${esc(e.author)}</span>`;
@@ -1006,6 +1024,9 @@ function connect(){
     if(d.type==='pin'){window.pinRefresh&&pinRefresh();return}
     if(d.type==='soul'){window.onSoulEvent&&onSoulEvent();return}
     if(d.type==='memory'){window.onMemoryEvent&&onMemoryEvent();return}
+    // Someone renamed their agent (vedu #1125): its posts here read the new name, always with whose agent it is.
+    if(d.type==='profile'&&d.user){delete pcache[d.user];document.querySelectorAll('#thread .entry.by-agent[data-author="'+CSS.escape(d.user)+'"]>.grow>.meta').forEach(m=>{const w=m.querySelector('.who');if(!w)return;
+      let o=m.querySelector('.via.owner');if(d.agent_name){w.textContent=d.agent_name;if(!o){o=document.createElement('span');o.className='via owner';w.after(o)}o.textContent=d.user+"'s agent"}else if(o){w.textContent=d.user+"'s agent";o.remove()}});return}
     if(d.type==='reaction'){renderRx(d.seq,d.reactions);return}
     if(d.type==='approval'){window.apcApply&&apcApply(d.approval);return}
     if(d.type==='typing'){if(d.who!==ME){TYPERS.set(d.who,d.until);typingSync()}return}
@@ -1063,7 +1084,7 @@ document.querySelector('form.composer')?.addEventListener('submit',()=>{sentKey=
 window.postRetrying=()=>document.querySelectorAll('#thread .entry.pending .faint').forEach(x=>x.textContent='connection lost, retrying…');
 window.postFailed=(j)=>{document.querySelectorAll('#thread .entry.pending').forEach(x=>x.remove());toast(j.error||"Couldn't send. Your message is still in the box.")};
 // @mention autocomplete: people ("@vedu") and agents ("@vedu's agent", including your own).
-const MOPTS=${jsString(mentionOptions(members.map((m) => m.user), viewer.name, agents))};
+const MOPTS=${jsString(mentionOptions(members.map((m) => m.user), viewer.name, agents, agentNames(members), new Set(members.filter((m) => m.agent_name_ambiguous).map((m) => m.user))))};
 const MNAMES=new Set(MOPTS.map(o=>o.u)),ME=${jsString(viewer.name)};
 // "@you" glows, and so does the message it's in, including ones that arrive live.
 // Approval cards: the person asked gets Approve / Deny in place; a decision made anywhere shows up live.
@@ -1084,7 +1105,7 @@ let mi=0,ms=[],mq=null;
 function mfind(){if(ta.selectionStart!==ta.selectionEnd)return null;const v=ta.value.slice(0,ta.selectionStart);
   const m=v.match(/(^|[^A-Za-z0-9_.@\\/-])@([A-Za-z0-9_.-]{0,32}(?:\\/[A-Za-z0-9_.-]{0,32})?)$/);return m?{start:v.length-m[2].length-1,q:m[2].toLowerCase()}:null}
 function mclose(){mm.hidden=true;ms=[];ta.setAttribute('aria-expanded','false');ta.removeAttribute('aria-activedescendant')}
-function mrender(){mq=mfind();if(mq&&window.agentsRefresh&&Date.now()-agentsAt>10000){agentsAt=Date.now();agentsRefresh().then(()=>{if(!mm.hidden||mfind())mrender()})}ms=mq?MOPTS.filter(o=>mq.q.includes('/')?o.ins.toLowerCase().startsWith(mq.q):o.u.startsWith(mq.q)):[];if(!ms.length)return mclose();mi=Math.min(mi,ms.length-1);
+function mrender(){mq=mfind();if(mq&&window.agentsRefresh&&Date.now()-agentsAt>10000){agentsAt=Date.now();agentsRefresh().then(()=>{if(!mm.hidden||mfind())mrender()})}ms=mq?MOPTS.filter(o=>mq.q.includes('/')?o.ins.toLowerCase().startsWith(mq.q):o.u.startsWith(mq.q)||o.ins.toLowerCase().startsWith(mq.q)):[];if(!ms.length)return mclose();mi=Math.min(mi,ms.length-1);
   mm.innerHTML='<li class="hint" aria-hidden="true">Mention a person or their agent</li>'+ms.map((o,i)=>'<li role="option"'+(o.sub?' class="sub"':'')+' id="'+mm.id+'-'+i+'" data-i="'+i+'" aria-selected="'+(i===mi)+'">'+o.av+'<span class="truncate">'+o.label+'</span><span class="k">'+o.k+'</span></li>').join('');
   mm.hidden=false;ta.setAttribute('aria-expanded','true');ta.setAttribute('aria-activedescendant',mm.id+'-'+mi)}
 function mpick(o){const end=ta.selectionStart,before=ta.value.slice(0,mq.start),after=ta.value.slice(end);const ins='@'+o.ins+(/^\\s/.test(after)?'':' ');
@@ -1674,7 +1695,7 @@ async function hShow(t,pin){if(t.group)return hGroup(t,pin);hFor=t.el;hPinned=!!
       (live.length?'<div class="xs hc-live">'+live.slice(0,2).map(s=>{const tool=s.client&&!/^(an? )?agent$|^unknown$/i.test(s.client)?s.client:'';return '<span class="pres on"></span> '+esc(s.name||tool||'session')+(tool&&tool!==s.name?' <span class="faint">· '+esc(tool)+'</span>':'')+(s.status?': '+esc(s.status):' <span class="faint">· active</span>')}).join('<br>')+'</div>':'')+'</div>'}
   const cta=document.getElementById('composer-text');
   const ask=t.agent&&p.relation!=='self'&&cta&&!cta.disabled?'<button class="btn sm" data-ask="'+esc(p.name)+'">Ask '+esc(p.name)+"'s agent</button>":'';
-  hcard.innerHTML='<div class="row" style="gap:12px;align-items:center">'+avatar16(p.name,t.agent).replace('av sm','av lg')+'<div class="grow" style="min-width:0"><div class="hc-name">'+esc(t.agent?p.name+"'s agent":(p.display_name||p.name))+'</div><div class="xs faint">@'+esc(p.name)+(p.shared_boards?' · '+p.shared_boards+' shared board'+(p.shared_boards===1?'':'s'):'')+'</div></div></div>'+
+  hcard.innerHTML='<div class="row" style="gap:12px;align-items:center">'+avatar16(p.name,t.agent).replace('av sm','av lg')+'<div class="grow" style="min-width:0"><div class="hc-name">'+esc(t.agent?(p.agent_name||p.name+"'s agent"):(p.display_name||p.name))+'</div><div class="xs faint">@'+esc(p.name)+(p.shared_boards?' · '+p.shared_boards+' shared board'+(p.shared_boards===1?'':'s'):'')+'</div></div></div>'+
     '<div class="row hc-pres"><span class="pres'+(on?' on':'')+'"></span><span class="xs">'+esc(j.presence||'')+'</span></div>'+(p.bio&&!t.agent?'<p class="hc-bio">'+esc(p.bio)+'</p>':'')+ag+
     '<div class="hc-act"><a class="btn sm primary" href="/u/'+esc(p.name)+(t.agent?'#agent':'')+'">View profile</a>'+ask+act+'</div>';
   hPlace(t,pin);
@@ -2346,7 +2367,9 @@ document.addEventListener('click',async e=>{const t=e.target.closest('[data-hook
   const w=j.webhook;say(w&&!w.last_error?'Test delivered (HTTP '+w.last_status+').':'Test failed: '+((w&&w.last_error)||j.error||'unknown'),!!(w&&!w.last_error))});})();`;
 
 export interface ProfileView {
+  name?: string;
   display_name: string | null;
+  agent_name?: string | null;
   bio: string | null;
   listed: boolean;
   rules: { auto_accept_invites?: "friends" | null; auto_accept_friends?: "coworkers" | null };
@@ -2381,7 +2404,8 @@ function profileSection(p: ProfileView | null): string {
     `<label class="pf-check"><input type="checkbox" name="${name}"${on ? " checked" : ""}><span><span class="small" style="color:var(--ink)">${label}</span><span class="xs muted">${hint}</span></span></label>`;
   return `<form class="card pad pf-form" id="pf-form" style="margin-top:10px">
   <div class="pf-grid"><label class="lbl" for="pf-name">Display name</label><input class="input" id="pf-name" name="display_name" maxlength="60" value="${esc(p.display_name ?? "")}" placeholder="Your name">
-  <label class="lbl" for="pf-bio">Bio</label><textarea class="input" id="pf-bio" name="bio" maxlength="280" rows="2" placeholder="What you work on">${esc(p.bio ?? "")}</textarea></div>
+  <label class="lbl" for="pf-agent">Your agent's name</label><div><input class="input" id="pf-agent" name="agent_name" maxlength="24" value="${esc(p.agent_name ?? "")}" placeholder="e.g. Jarvis"><div class="xs muted" style="margin-top:4px">Shown on its posts with "your agent" next to it, and people can @ it by name. Leave empty for "${esc(p.name ?? "your")}'s agent".</div></div>
+    <label class="lbl" for="pf-bio">Bio</label><textarea class="input" id="pf-bio" name="bio" maxlength="280" rows="2" placeholder="What you work on">${esc(p.bio ?? "")}</textarea></div>
   <div class="stack" style="--gap:10px;margin-top:14px">
   ${box("listed", p.listed, "List me in the people directory", "Anyone signed in can find you by name, not only people you share a board with.")}
   ${box("auto_invites", p.rules.auto_accept_invites === "friends", "Join boards friends invite me to", "Skips accepting each invitation from a friend.")}
@@ -2403,7 +2427,7 @@ const DISPLAY_JS = `
 
 const PROFILE_JS = `
 document.getElementById('pf-form')?.addEventListener('submit',async e=>{e.preventDefault();const f=e.target,b=f.querySelector('button');b.disabled=true;
-  const r=await fetch('/api/me/profile',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({display_name:f.display_name.value,bio:f.bio.value,listed:f.listed.checked,
+  const r=await fetch('/api/me/profile',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({display_name:f.display_name.value,agent_name:f.agent_name.value.trim()||null,bio:f.bio.value,listed:f.listed.checked,
     rules:{auto_accept_invites:f.auto_invites.checked?'friends':null,auto_accept_friends:f.auto_friends.checked?'coworkers':null}})});
   const j=await r.json().catch(()=>({}));b.disabled=false;toast(r.ok?'Profile saved':(j.error||'Could not save'))});`;
 
