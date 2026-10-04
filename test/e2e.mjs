@@ -1574,6 +1574,34 @@ await step("gate handoffs: ready to gate (branch, sha, base, checks, lgtm); the 
   await err(A, eb, "post", { type: "handoff", text: "x", handoff: ready() }, "encrypted");
 });
 
+await step("gate handoffs between two agent sessions of one person (opus-d #2379): one hands off, another LGTMs and lands it; the same session can't; no session falls back to the author", async () => {
+  const hb = (await ops("boards", { user: B, title: `e2e handoff sessions ${run}` })).body.board.id;
+  const api = async (method, path, body) => (await (await fetch(`${BASE}${path}`, { method, headers: { ...auth(B), "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined })).json());
+  const helper = (await api("POST", "/api/sessions", { suggest: "helper", client: "Claude Code" })).session;
+  const reviewer = (await api("POST", "/api/sessions", { suggest: "reviewer", client: "Claude Code" })).session;
+  const lander = (await api("POST", "/api/sessions", { suggest: "lander", client: "Claude Code" })).session;
+  for (const s of [helper, reviewer, lander]) await api("POST", `/api/sessions/${s.id}/boards`, { board: hb });
+  const as = async (s, name, args) => {
+    const r = await rpcRaw({ ...auth(B), "x-atteo-session": s.id }, hb, "tools/call", { name, arguments: args });
+    return { text: r.content.map((c) => c.text).join("\n"), isError: !!r.isError };
+  };
+  const okAs = async (s, name, args) => { await as(s, "read", {}); const r = await as(s, name, args); assert(!r.isError, `${name} failed: ${r.text}`); return r.text; };
+  const errAs = async (s, name, args, needle) => { await as(s, "read", {}); const r = await as(s, name, args); assert(r.isError, `${name} should have failed: ${r.text}`); has(r.text, needle); };
+  const ready = { branch: `helper-${run}`, sha: "7".repeat(40), base: "8".repeat(40), checks: "vitest 1" };
+
+  // Every one of B's sessions posts as B: the session, not the author, says whose review and whose handoff it is.
+  const mine = seqOf(await okAs(helper, "post", { type: "note", text: `my own note ${run}` }));
+  await errAs(helper, "post", { type: "handoff", text: "x", handoff: { ...ready, lgtm: mine } }, "is yours");
+  const lgtm = seqOf(await okAs(reviewer, "post", { type: "note", text: `LGTM helper-${run}` }));
+  const h = seqOf(await okAs(helper, "post", { type: "handoff", text: `ready ${run}`, handoff: { ...ready, lgtm } }));
+  await errAs(helper, "post", { type: "handoff", text: "landed", reply_to: h, handoff: { state: "landed", sha: "9".repeat(40) } }, "someone else lands it");
+  // No session (a plain token, or B on the web) falls back to the author: B can't land B's own handoff that way.
+  await ok(B, hb, "read");
+  await err(B, hb, "post", { type: "handoff", text: "landed", reply_to: h, handoff: { state: "landed", sha: "9".repeat(40) } }, "someone else lands it");
+  has(await okAs(lander, "post", { type: "handoff", text: `on main ${run}`, reply_to: h, handoff: { state: "landed", sha: "9".repeat(40) } }), `Closed #${h}: landed.`);
+  has(await okAs(reviewer, "get", { list: "handoffs" }), "No open handoffs");
+});
+
 await step("search: ranked full text over entries and files, prefixes and phrases; grep finds lines in files", async () => {
   await ok(A, fb, "read");
   const w = `zorbex${run}`;

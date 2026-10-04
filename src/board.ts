@@ -1197,10 +1197,10 @@ export class Board extends DurableObject<Env> {
       if (aud) throw new BoardError("A handoff is for the board's gate, so it can't be people-only or just mine.");
       try {
         if (closes(input.handoff)) {
-          const c = this.handoffToClose(user, input.reply_to ?? null, input.handoff);
+          const c = this.handoffToClose({ user, session: input.session ?? null }, input.reply_to ?? null, input.handoff);
           closing = c.closing;
           handoff = c.result;
-        } else handoff = this.handoffReady(user, poster, input.handoff);
+        } else handoff = this.handoffReady({ user, session: input.session ?? null }, poster, input.handoff);
       } catch (e) {
         throw e instanceof HandoffError ? new BoardError(e.message) : e;
       }
@@ -3158,16 +3158,26 @@ export class Board extends DurableObject<Env> {
 
   // ---- gate handoffs (#2173 item 3, #2358): ready to gate → landed or failed, answered by someone else ----
 
+  /**
+   * Whether an entry was written by this poster. Every agent posts as its person, so two agent sessions of one person
+   * (jxn's opus-b and opus-d) are different reviewers and landers (opus-d #2379): when both sides are agent sessions,
+   * the session decides. A post without a session (a person on the web, a plain token) falls back to the author.
+   */
+  private sameActor(me: { user: string; session: string | null }, row: Record<string, unknown>): boolean {
+    const theirs = (row.session as string | null) ?? null;
+    return me.session && theirs ? me.session === theirs : row.author === me.user;
+  }
+
   /** A new handoff, checked: its lgtm is a public entry on this board by someone other than the poster. */
-  private handoffReady(user: string, poster: Viewer, raw: unknown): HandoffReady {
+  private handoffReady(me: { user: string; session: string | null }, poster: Viewer, raw: unknown): HandoffReady {
     const ready = parseReady(raw);
     const n = ready.lgtm;
     if (n != null) {
-      const row = this.sql.exec("SELECT author, audience FROM entries WHERE seq = ?", n).toArray()[0];
+      const row = this.sql.exec("SELECT author, session, audience FROM entries WHERE seq = ?", n).toArray()[0];
       if (!row || !this.visible(n, poster)) throw new BoardError(`Entry #${n} does not exist on this board.`);
       if (row.audience != null) throw new BoardError(`#${n} is private, so the gate can't see it: point lgtm at a review everyone on the board can read.`);
       if (this.sql.exec("SELECT 1 AS x FROM entries WHERE retracts = ?", n).toArray().length) throw new BoardError(`#${n} was unsent.`);
-      if (row.author === user) throw new BoardError(`#${n} is yours: lgtm points at someone else's review.`);
+      if (this.sameActor(me, row)) throw new BoardError(`#${n} is yours: lgtm points at someone else's review.`);
     }
     return ready;
   }
@@ -3176,14 +3186,14 @@ export class Board extends DurableObject<Env> {
    * The lander's reply closing handoff #of. Any member may close an open handoff, but never mark their own landed:
    * whoever handed it off can only withdraw it (failed). Unsent and already closed handoffs stay as they are.
    */
-  private handoffToClose(user: string, of: number | null, raw: unknown): { closing: { seq: number; ready: HandoffReady }; result: HandoffResult } {
-    const row = of != null ? this.sql.exec("SELECT author, handoff FROM entries WHERE seq = ?", of).toArray()[0] : undefined;
+  private handoffToClose(me: { user: string; session: string | null }, of: number | null, raw: unknown): { closing: { seq: number; ready: HandoffReady }; result: HandoffResult } {
+    const row = of != null ? this.sql.exec("SELECT author, session, handoff FROM entries WHERE seq = ?", of).toArray()[0] : undefined;
     const target = row?.handoff ? (JSON.parse(row.handoff as string) as Handoff) : null;
     if (of == null || !target || isResult(target)) throw new BoardError("To close a handoff, reply to it: reply_to is the handoff's number.");
     if (this.sql.exec("SELECT 1 AS x FROM entries WHERE retracts = ?", of).toArray().length) throw new BoardError(`#${of} was unsent.`);
     if (target.state !== "open") throw new BoardError(`#${of} is already ${target.state}${target.closed_seq ? ` (#${target.closed_seq})` : ""}.`);
     const result = parseResult(raw, of);
-    if (result.state === "landed" && row!.author === user) throw new BoardError(`You handed off #${of}, so someone else lands it and says so. To withdraw it, reply with state "failed".`);
+    if (result.state === "landed" && this.sameActor(me, row!)) throw new BoardError(`You handed off #${of}, so someone else lands it and says so. To withdraw it, reply with state "failed".`);
     return { closing: { seq: of, ready: target }, result };
   }
 
