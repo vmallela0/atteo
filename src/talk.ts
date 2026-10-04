@@ -39,6 +39,8 @@ dialog.talk::backdrop{background:rgba(0,0,0,.25)}
 .talk-caps{max-height:240px;overflow:auto;padding:8px 16px;display:flex;flex-direction:column;gap:6px;font-size:14px;line-height:1.45}
 .talk-caps p{margin:0;overflow-wrap:anywhere}.talk-caps .who{font-weight:600;margin-right:6px}.talk-caps .you .who{color:var(--accent)}.talk-caps .atteo .who{color:#D97857}
 .talk-caps .note{color:var(--faint);font-size:12.5px}.talk-caps .err{color:var(--danger)}
+.talk-caps .you{opacity:.6}.talk-caps .you.live{font-style:italic}.talk-caps p.old{opacity:.35}.talk-caps[data-mode="atteo"] .you{display:none}
+.talk-cc{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--muted)}.talk-cc select{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:2px 4px}
 .talk-ok{margin:6px 16px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;font-size:13.5px;display:flex;flex-direction:column;gap:8px}.talk-ok .row{display:flex;gap:8px}
 .talk-ft{display:flex;gap:8px;justify-content:center;padding:10px 16px 16px;flex-wrap:wrap}
 .talk-ft .btn[aria-pressed="true"]{background:var(--bg-hover);color:var(--danger)}
@@ -56,7 +58,7 @@ document.addEventListener('click',e=>{const b=e.target.closest('[data-talk]');if
 
 // ---- the sheet ----
 const dlg=document.createElement('dialog');dlg.className='talk';dlg.setAttribute('aria-label',T('Talk to Atteo'));
-dlg.innerHTML='<div class="talk-hd"><b>'+T('Talk to Atteo')+'</b><span class="grow"></span><span class="talk-left" id="talk-left"></span></div>'+
+dlg.innerHTML='<div class="talk-hd"><b>'+T('Talk to Atteo')+'</b><span class="grow"></span><label class="talk-cc">'+T('Captions')+' <select id="talk-cc"><option value="all">'+T('All')+'</option><option value="atteo">'+T('Atteo only')+'</option><option value="off">'+T('Off')+'</option></select></label><span class="talk-left" id="talk-left"></span></div>'+
   '<div class="talk-orb" aria-hidden="true">'+'<i></i>'.repeat(9)+'</div><p class="talk-st" id="talk-st" role="status" aria-live="polite"></p>'+
   '<div class="talk-caps" id="talk-caps" aria-live="polite"></div><div class="talk-ok" id="talk-ok" hidden></div>'+
   '<div class="talk-ft"><button class="btn" type="button" id="talk-mic" aria-pressed="false">'+T('Mute mic')+'</button><button class="btn" type="button" id="talk-quiet" aria-pressed="false">'+T('Mute Atteo')+'</button><button class="btn danger" type="button" id="talk-end">'+T('End')+'</button></div>';
@@ -66,7 +68,16 @@ function say(t){stEl.textContent=t}
 function cap(kind,text,id){let p=id&&caps.querySelector('[data-id="'+id+'"]');if(!p){p=document.createElement('p');p.className=kind;if(id)p.dataset.id=id;
     if(kind==='you'||kind==='atteo'){const w=document.createElement('span');w.className='who';w.textContent=kind==='you'?T('You'):'Atteo';p.append(w,document.createElement('span'))}caps.append(p)}
   (p.lastChild&&p.lastChild.nodeType===1&&p.children.length>1?p.lastChild:p).textContent=text;caps.scrollTop=caps.scrollHeight;return p}
-function capAdd(kind,id,delta){const p=caps.querySelector('[data-id="'+id+'"]');const cur=p?p.lastChild.textContent:'';cap(kind,(cur==='…'?'':cur)+delta,id)}
+// Captions, like the app's (#1797, #1799): your words show "Listening…" while you talk and then the final line once,
+// faded; Atteo's come a sentence at a time; older lines fade. All / Atteo only (the default) / Off, remembered here.
+let capMode='atteo';try{capMode=localStorage.getItem('atteo.captions')||'atteo'}catch(e){}
+const ccSel=$('talk-cc');ccSel.value=capMode;function capView(){caps.dataset.mode=capMode;caps.hidden=capMode==='off'}capView();
+ccSel.addEventListener('change',()=>{capMode=ccSel.value;try{localStorage.setItem('atteo.captions',capMode)}catch(e){}capView()});
+function fade(){const ps=[...caps.querySelectorAll('p:not(.note)')].filter(p=>capMode!=='atteo'||!p.classList.contains('you'));ps.forEach((p,i)=>p.classList.toggle('old',i<ps.length-2))}
+function line(kind,id){return caps.querySelector('[data-id="'+id+'"]')||cap(kind,'',id)}
+function atteoSays(s,id,d){s.abuf=(s.abuf||'')+d;let m;while((m=s.abuf.match(/^([\s\S]*?[.!?…])(\s+)([\s\S]*)$/))){const p=line('atteo',id),cur=p.lastChild.textContent;p.lastChild.textContent=(cur?cur+' ':'')+m[1].trim();s.abuf=m[3];fade()}caps.scrollTop=caps.scrollHeight}
+function atteoDone(s,id,full){const p=caps.querySelector('[data-id="'+id+'"]');if(full){line('atteo',id).lastChild.textContent=full}else if(s.abuf&&s.abuf.trim()){const p=line('atteo',id),cur=p.lastChild.textContent;p.lastChild.textContent=(cur?cur+' ':'')+s.abuf.trim()}
+  s.abuf='';const q=caps.querySelector('[data-id="'+id+'"]');if(q)q.lastChild.textContent=q.lastChild.textContent.trim();fade();caps.scrollTop=caps.scrollHeight}
 function look(){if(!st)return;dlg.classList.toggle('speaking',st.speaking);dlg.classList.toggle('hearing',st.hearing&&!st.micOff);
   say(st.ended?(st.problem||T('Ended.')):st.problem&&!st.ready?st.problem:!st.ready?T('Connecting…'):st.speaking?T('Atteo is speaking'):st.micOff?T('Mic is off'):st.thinking?T('Thinking…'):st.hearing?T('Listening…'):T('Listening: just talk'))}
 $('talk-mic').addEventListener('click',()=>{if(!st||st.ended)return;st.micOff=!st.micOff;$('talk-mic').setAttribute('aria-pressed',String(st.micOff));$('talk-mic').textContent=st.micOff?T('Unmute mic'):T('Mute mic');
@@ -131,7 +142,7 @@ function stopPlay(){const s=st;if(!s)return;s.srcs.forEach(x=>{try{x.stop()}catc
 function interrupt(s){const left=s.ac?Math.max(0,s.playUntil-s.ac.currentTime):0;stopPlay();if(s.ac)s.playUntil=s.ac.currentTime;s.speaking=false;
   if(s.active){s.cancelled.add(s.active);send({type:'response.cancel'},s)}
   if(s.item&&s.itemDur>0)send({type:'conversation.item.truncate',item_id:s.item,content_index:0,audio_end_ms:Math.floor(Math.max(0,s.itemDur-left)*1000)},s);
-  s.item=null;s.itemDur=0;const last=[...caps.querySelectorAll('.atteo')].pop();if(last&&!/ —$/.test(last.lastChild.textContent))last.lastChild.textContent+=' —';look()}
+  s.item=null;s.itemDur=0;const last=s.active&&(atteoDone(s,'a'+s.active),caps.querySelector('[data-id="a'+s.active+'"]'));if(last&&!/ —$/.test(last.lastChild.textContent))last.lastChild.textContent+=' —';look()}
 
 // ---- events from the voice service ----
 function respond(s){if(s.active)s.want=true;else send({type:'response.create'},s)}
@@ -139,15 +150,15 @@ function handle(s,e){if(s!==st||s.ended||!e||!e.type)return;const rid=e.response
   switch(e.type){
   case 'response.created':s.active=rid||('r'+Date.now());s.thinking=true;s.stoppedAt=0;break;
   case 'response.output_audio.delta':case 'response.audio.delta':if(e.delta){play(s,e.delta,e.item_id);if(!s.quiet&&!s.speaking){s.speaking=true}}break;
-  case 'input_audio_buffer.speech_started':if(s.confirm)s.confirm.armed=true;s.hearing=true;s.stoppedAt=0;if(s.speaking||s.active)interrupt(s);if(!s.you){s.you='y'+Date.now();cap('you','…',s.you)}break;
+  case 'input_audio_buffer.speech_started':if(s.confirm)s.confirm.armed=true;s.hearing=true;s.stoppedAt=0;if(s.speaking||s.active)interrupt(s);if(!s.you){s.you='y'+Date.now();cap('you',T('Listening…'),s.you).classList.add('live');fade()}break;
   case 'input_audio_buffer.speech_stopped':s.hearing=false;s.thinking=true;s.stoppedAt=Date.now();break;
-  case 'response.output_audio_transcript.delta':case 'response.audio_transcript.delta':case 'response.output_text.delta':case 'response.text.delta':if(e.delta)capAdd('atteo','a'+(rid||s.active),e.delta);break;
-  case 'response.output_audio_transcript.done':case 'response.audio_transcript.done':case 'response.output_text.done':case 'response.text.done':{const t=e.transcript||e.text;if(t)cap('atteo',t,'a'+(rid||s.active));break}
-  case 'conversation.item.input_audio_transcription.delta':case 'conversation.item.input_audio_transcription.updated':if(e.delta){if(!s.you){s.you='y'+Date.now();cap('you','…',s.you)}capAdd('you',s.you,e.delta)}break;
-  case 'conversation.item.input_audio_transcription.completed':{if(!s.you){s.you='y'+Date.now()}const t=(e.transcript||'').trim();cap('you',t||T('(spoke)'),s.you);s.you=null;if(s.confirm)heardYes(s,t);break}
+  case 'response.output_audio_transcript.delta':case 'response.audio_transcript.delta':case 'response.output_text.delta':case 'response.text.delta':if(e.delta)atteoSays(s,'a'+(rid||s.active),e.delta);break;
+  case 'response.output_audio_transcript.done':case 'response.audio_transcript.done':case 'response.output_text.done':case 'response.text.done':atteoDone(s,'a'+(rid||s.active),e.transcript||e.text);break;
+  case 'conversation.item.input_audio_transcription.delta':case 'conversation.item.input_audio_transcription.updated':break; // your words settle once, when final
+  case 'conversation.item.input_audio_transcription.completed':{const t=(e.transcript||'').trim(),id=s.you||('y'+Date.now());const p=cap('you',t||T('(spoke)'),id);p.classList.remove('live');s.you=null;fade();if(s.confirm)heardYes(s,t);break}
   case 'response.function_call_arguments.done':call(s,e.name,e.call_id,e.arguments);break;
   case 'response.output_item.done':if(e.item&&e.item.type==='function_call')call(s,e.item.name,e.item.call_id,e.item.arguments);break;
-  case 'response.done':if(rid)s.cancelled.delete(rid);s.active=null;s.thinking=s.tools>0;if(s.want){s.want=false;send({type:'response.create'},s)}break;
+  case 'response.done':if(rid||s.active)atteoDone(s,'a'+(rid||s.active));if(rid)s.cancelled.delete(rid);s.active=null;s.thinking=s.tools>0;if(s.want){s.want=false;send({type:'response.create'},s)}break;
   case 'error':{const m=(e.error&&e.error.message)||'';if(m&&!/cancel|truncat/i.test(m))cap('note err',m.replace(/grok/gi,'Atteo'));break} // nothing to cancel is harmless
   }look()}
 
