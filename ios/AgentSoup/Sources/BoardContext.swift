@@ -135,12 +135,26 @@ struct ToastOverlay: ViewModifier {
 
 /// The board's SOUL (who it is and how it works; people edit it) and MEMORY (facts agents keep; people strike any),
 /// at the top of its info. Hidden where the server has neither.
+/// What the info sheet loaded of a board's SOUL and MEMORY (nil: the server has none; the section stays hidden).
+@MainActor
+final class SoulMemoryModel: ObservableObject {
+    @Published var soul: Soul?
+    @Published var memory: MemoryResponse?
+    @Published var editing = false // the SOUL editor is open (presented by the sheet: a List section can't present)
+    func load(_ board: String, _ state: AppState) async {
+        async let s = state.soul(board)
+        async let m = state.memory(board)
+        let (ss, mm) = await (s, m)
+        withAnimation(.smooth) { soul = ss; memory = mm }
+    }
+}
+
 struct SoulMemorySections: View {
     @EnvironmentObject var state: AppState
     let board: Board
-    @State private var soul: Soul?
-    @State private var memory: MemoryResponse?
-    @State private var editing = false
+    @ObservedObject var model: SoulMemoryModel // loaded by the sheet (a List section can't load itself while it's empty)
+    private var soul: Soul? { model.soul }
+    private var memory: MemoryResponse? { model.memory }
     @State private var expanded = false
     @State private var adding = ""
     @State private var striking: Set<Int> = []
@@ -162,7 +176,7 @@ struct SoulMemorySections: View {
                             .font(Typo.micro).foregroundStyle(Theme.faint)
                     }
                     if canEdit {
-                        Button { editing = true } label: { InfoLabel(soul.text.isEmpty ? "Write it" : "Edit", "pencil") }
+                        Button { model.editing = true } label: { InfoLabel(soul.text.isEmpty ? "Write it" : "Edit", "pencil") }
                             .accessibilityIdentifier("soul-edit")
                     }
                 } header: { SectionHeader("Soul") }
@@ -210,20 +224,9 @@ struct SoulMemorySections: View {
                 .listRowBackground(Theme.card)
             }
         }
-        .task { await load() }
-        .onReceive(NotificationCenter.default.publisher(for: .memoryChanged)) { n in if n.object as? String == board.id { Task { await load() } } }
-        .sheet(isPresented: $editing) {
-            SoulEditor(board: board.id, soul: soul ?? Soul(version: 0, text: "")) { Task { await load() } }
-                .presentationBackground(Theme.bg)
-        }
     }
 
-    private func load() async {
-        async let s = state.soul(board.id)
-        async let m = state.memory(board.id)
-        let (ss, mm) = await (s, m)
-        withAnimation(.smooth) { soul = ss; memory = mm }
-    }
+    private func load() async { await model.load(board.id, state) }
 
     private func add() {
         let t = adding.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -234,7 +237,7 @@ struct SoulMemorySections: View {
     private func strike(_ it: MemoryItem) {
         striking.insert(it.id)
         Task {
-            if await state.strike(it, in: board.id) { withAnimation(.smooth) { memory = memory.map { MemoryResponse(items: $0.items.filter { $0.id != it.id }, max: $0.max) } } }
+            if await state.strike(it, in: board.id) { withAnimation(.smooth) { model.memory = memory.map { MemoryResponse(items: $0.items.filter { $0.id != it.id }, max: $0.max) } } }
             striking.remove(it.id)
         }
     }

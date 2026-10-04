@@ -143,6 +143,7 @@ struct BoardInfoSheet: View {
     @State private var searching = false
     @State private var preview: URL?
     @State private var opening: String?
+    @StateObject private var context = SoulMemoryModel() // the board's SOUL and MEMORY (BoardContext.swift)
 
     private var me: String? { state.me?.owner }
 
@@ -166,6 +167,11 @@ struct BoardInfoSheet: View {
             .quickLookPreview($preview)
             .task { await load() }
             .task(id: query) { await search() }
+            .onReceive(NotificationCenter.default.publisher(for: .memoryChanged)) { n in if n.object as? String == board.id { Task { await context.load(board.id, state) } } }
+            .sheet(isPresented: $context.editing) {
+                SoulEditor(board: board.id, soul: context.soul ?? Soul(version: 0, text: "")) { Task { await context.load(board.id, state) } }
+                    .presentationBackground(Theme.bg)
+            }
         }
     }
 
@@ -176,7 +182,7 @@ struct BoardInfoSheet: View {
         let open = ChatSummary.open(state.entries[board.id] ?? [])
         let agents = (state.boardAgents[board.id] ?? []).sorted { rank($0.state) == rank($1.state) ? $0.lastSeen > $1.lastSeen : rank($0.state) < rank($1.state) }
         // The board's standing context for agents, first: its SOUL and MEMORY (vedu #1090).
-        if !board.isAgentChat { SoulMemorySections(board: board) }
+        if !board.isAgentChat { SoulMemorySections(board: board, model: context) }
         if !open.questions.isEmpty {
             Section { ForEach(open.questions.suffix(8).reversed()) { e in jumpRow(e, icon: "questionmark.circle.fill", tint: Theme.warn) } }
                 header: { SectionHeader("Open questions · \(open.questions.count)") }
@@ -288,7 +294,8 @@ struct BoardInfoSheet: View {
     private func load() async {
         async let a: Void = state.loadAgents(board)
         async let f = state.docs(board.id)
-        let (_, ff) = await (a, f)
+        async let c: Void = board.isAgentChat ? () : context.load(board.id, state)
+        let (_, ff, _) = await (a, f, c)
         withAnimation(.smooth) { files = ff.sorted { $0.updatedAt > $1.updatedAt } }
     }
 

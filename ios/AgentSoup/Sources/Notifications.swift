@@ -141,7 +141,7 @@ struct NotificationsSection: View {
                     Button("Turn on") { Task { await notifier.ask() } }.buttonStyle(.borderless).fontWeight(.semibold)
                 }
             }
-            .accessibilityElement(children: .combine)
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier("notifications-row")
         } footer: {
             Text("A number on the app icon for what needs you, and a notification for mentions, replies and approvals while Atteo is in the background (iOS decides how often it checks).")

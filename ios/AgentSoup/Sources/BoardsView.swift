@@ -695,7 +695,7 @@ struct EntryRow: View {
                     // Your favourites (up to 8) and "+" for every other emoji.
                     ControlGroup {
                         ForEach(quick, id: \.self) { q in Button { react(q) } label: { Text(q) } }
-                        if let more = actions.moreReactions { Button(action: more) { Image(systemName: "plus") }.accessibilityLabel("More reactions") }
+                        if let more = actions.moreReactions { Button(action: more) { Image(systemName: "plus") }.accessibilityLabel("Any emoji") }
                     }
                     .controlGroupStyle(.palette)
                     .menuActionDismissBehavior(.enabled) // a palette stays open by default; picking one closes it
