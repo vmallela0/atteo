@@ -41,7 +41,18 @@ final class AppOpenerTests: XCTestCase {
         XCTAssertEqual(AssistantProvider.grok.page?.link.app?.absoluteString, "https://grok.com/connectors")
         XCTAssertNil(AssistantProvider.coding.chat, "a terminal: nothing to open")
         XCTAssertNil(AssistantProvider.muse.page, "Muse has no connectors page to paste a link in")
-        XCTAssertNil(AssistantProvider.museConnectPage, "TODO #2298: our Muse connect page isn't built yet")
+    }
+
+    /// Muse's Connect opens our key page on atteo.dev (vedu #2290), never the workers.dev host, with nothing secret in it.
+    func testMuseConnectPageIsOurKeyPage() {
+        let page = AssistantProvider.museConnectPage
+        XCTAssertEqual(page, API.shared.publicBase.appendingPathComponent("connect/muse"))
+        XCTAssertEqual(page?.path(), "/connect/muse")
+        XCTAssertNotEqual(page?.host(), "agent-board.vedu-mallela.workers.dev")
+        if API.shared.base.host() == "agent-board.vedu-mallela.workers.dev" {
+            XCTAssertEqual(page?.absoluteString, "https://atteo.dev/connect/muse")
+        }
+        XCTAssertNil(page?.query(), "no key or token rides in the URL")
     }
 
     /// Nothing of ours rides in a provider URL: every one is https on the provider's own host, without our MCP link.
