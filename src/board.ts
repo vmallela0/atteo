@@ -91,6 +91,7 @@ export interface TaskView {
   lease_until: number | null;
   stop_reason: string | null;
   done_note: string | null; // what the one who finished it said (shown on the task, not posted)
+  resolved_by: number | null; // an open task: the entry that says it resolves it, from someone who can't close it (#2221)
   priority: TaskPriority | null;
   title: string;
   body: string;
@@ -699,6 +700,7 @@ export class Board extends DurableObject<Env> {
     if (!taskCols.has("priority")) this.sql.exec("ALTER TABLE tasks ADD COLUMN priority TEXT");
     if (!taskCols.has("parent")) this.sql.exec("ALTER TABLE tasks ADD COLUMN parent INTEGER"); // a sub-task's parent task
     if (!taskCols.has("done_note")) this.sql.exec("ALTER TABLE tasks ADD COLUMN done_note TEXT"); // "done" with a note: kept on the task
+    if (!taskCols.has("resolved_by")) this.sql.exec("ALTER TABLE tasks ADD COLUMN resolved_by INTEGER"); // "#M says it resolves this" (#2221)
     for (const [col, def] of [["title", "TEXT"], ["body", "TEXT"], ["version", "INTEGER NOT NULL DEFAULT 1"], ["updated_by", "TEXT"], ["updated_via", "TEXT"]]) {
       if (!taskCols.has(col)) this.sql.exec(`ALTER TABLE tasks ADD COLUMN ${col} ${def}`);
     }
@@ -1220,6 +1222,10 @@ export class Board extends DurableObject<Env> {
       );
     }
     if (entry.retracts != null) this.stopDependents(user, entry.retracts);
+    // Resolving an open task finishes it (jxn #2172, opus-a #2175): a change card or a note saying "resolves #N" is the
+    // record that it's done, so the task list stops showing it as doing. Only from someone who could close it anyway;
+    // anyone else's leaves a hint on the task (#2221). A private message (People only, Just mine) leaves it alone.
+    if (entry.resolves.length && !aud && !internal.seeding) await this.closeResolvedTasks(user, entry, { via: input.via, client: input.client, session: input.session });
     if (entry.type === "claim") this.sql.exec("INSERT OR IGNORE INTO claim_state (seq, updated_at) VALUES (?, ?)", entry.seq, entry.ts);
     if (isHumanDecisionPost(entry) && !internal.seeding) this.decisions.record(entry);
     for (const d of depends) this.sql.exec("INSERT OR IGNORE INTO depends (seq, on_seq) VALUES (?, ?)", entry.seq, d);
@@ -3005,6 +3011,7 @@ export class Board extends DurableObject<Env> {
         lease_until: (r.lease_until as number | null) && (r.lease_until as number) > now ? (r.lease_until as number) : null,
         stop_reason: (r.stop_reason as string | null) ?? null,
         done_note: r.status === "done" ? ((r.done_note as string | null) ?? null) : null,
+        resolved_by: r.status === "done" || r.status === "stopped" ? null : ((r.resolved_by as number | null) ?? null),
         priority: (r.priority as TaskPriority | null) ?? null,
         title: (r.title as string | null) ?? splitTask(r.text as string).title,
         body: (r.body as string | null) ?? "",
@@ -3342,7 +3349,7 @@ export class Board extends DurableObject<Env> {
     }
     if (change.status && change.status !== t.status) {
       if (!TASK_STATUSES.includes(change.status)) throw new BoardError(`status must be one of: ${TASK_STATUSES.join(", ")}`);
-      this.sql.exec("UPDATE tasks SET status = ?, stop_reason = CASE WHEN ? = 'stopped' THEN stop_reason ELSE NULL END, done_note = NULL WHERE seq = ?", change.status, change.status, seq);
+      this.sql.exec("UPDATE tasks SET status = ?, stop_reason = CASE WHEN ? = 'stopped' THEN stop_reason ELSE NULL END, done_note = NULL, resolved_by = NULL WHERE seq = ?", change.status, change.status, seq);
       if (change.status === "done") this.sql.exec("UPDATE tasks SET lease_holder = NULL, lease_until = NULL WHERE seq = ?", seq);
       parts.push(`status → ${change.status}`);
     }
@@ -3372,27 +3379,9 @@ export class Board extends DurableObject<Env> {
     this.broadcast({ type: "task", seq, ...(done ? { done: true } : {}) });
     // The conversation only hears about a task when it's newly assigned or someone adds a note; everything else,
     // finishing it included, is visible on the task itself (Tasks tab, `task get`) and goes out live.
-    if (done) this.trackRecord(seq, "task", { author: user, via: opts.via }, "done");
-    if (done) {
-      // What a "✅ Done" note used to do, without the note: the agent's 🤔 on the task turns ✅, and "on it" turns "done".
-      if (opts.via === "agent") this.receiptDone(user, seq);
-      const h = this.sql.exec("SELECT user, session, label, done FROM handling WHERE seq = ?", seq).toArray()[0];
-      if (h && h.user === user && !h.done) this.markDone(seq, user, (h.session as string | null) ?? null, h.label as string);
-      else if (!h && opts.session) this.markDone(seq, user, opts.session, takerLabel(user, opts));
-    }
+    if (done) await this.finishTask(user, seq, opts, after);
     // Taking a task yourself is silent (the task list shows it); assigning it to someone else still posts so they hear.
     const assigned = change.assignee !== undefined && !!change.assignee && change.assignee.toLowerCase() !== t.assignee && change.assignee.toLowerCase() !== user.toLowerCase();
-    // Closing a task ticks whatever is still open in its own checklist, so the body shows what was completed.
-    if (done) {
-      const me = this.taskRows().find((x) => x.seq === seq);
-      if (me && /^\s*- \[ \]/m.test(me.body)) {
-        const body = me.body.replace(/^(\s*- )\[ \]/gm, "$1[x]");
-        await this.taskEdit(user, seq, { body, base_version: me.version, summary: "done: ticked the remaining items" }, opts).catch(() => {});
-      }
-    }
-    // Finishing #N ticks every open checklist line naming it in the other open tasks (a sub-task's parent also matches by
-    // title).
-    if (done) await this.tickMentions(user, seq, "done", opts, after);
     const note = doneNote ? null : change.note;
     if (assigned || note) {
       await this.post(user, {
@@ -3406,6 +3395,56 @@ export class Board extends DurableObject<Env> {
       });
     }
     return after;
+  }
+
+  /** What finishing a task does besides its status (marked done, or resolved by a message). */
+  private async finishTask(user: string, seq: number, opts: TaskActOpts, after: TaskView) {
+    this.trackRecord(seq, "task", { author: user, via: opts.via }, "done");
+    // What a "✅ Done" note used to do, without the note: the agent's 🤔 on the task turns ✅, and "on it" turns "done".
+    if (opts.via === "agent") this.receiptDone(user, seq);
+    const h = this.sql.exec("SELECT user, session, label, done FROM handling WHERE seq = ?", seq).toArray()[0];
+    if (h && h.user === user && !h.done) this.markDone(seq, user, (h.session as string | null) ?? null, h.label as string);
+    else if (!h && opts.session) this.markDone(seq, user, opts.session, takerLabel(user, opts));
+    // Closing a task ticks whatever is still open in its own checklist, so the body shows what was completed.
+    const me = this.taskRows().find((x) => x.seq === seq);
+    if (me && /^\s*- \[ \]/m.test(me.body)) {
+      const body = me.body.replace(/^(\s*- )\[ \]/gm, "$1[x]");
+      await this.taskEdit(user, seq, { body, base_version: me.version, summary: "done: ticked the remaining items" }, opts).catch(() => {});
+    }
+    // Finishing #N ticks every open checklist line naming it in the other open tasks (a sub-task's parent also matches by
+    // title).
+    await this.tickMentions(user, seq, "done", opts, after);
+  }
+
+  /**
+   * A message that resolves open tasks finishes the ones its author could close anyway: they hold it (an unexpired
+   * lease), it's assigned to them, they wrote it, or they made the board (vedu's agent #2221: posting "resolves #N"
+   * mustn't get around a lease). The task keeps "Resolved by #M" as its done note. Anyone else's resolve leaves
+   * "#M says it resolves this" on the task (resolved_by), for its people to close with one tap. Done or stopped tasks
+   * are left alone.
+   */
+  private async closeResolvedTasks(user: string, entry: Entry, opts: TaskActOpts) {
+    const creator = this.info().created_by;
+    for (const r of new Set(entry.resolves)) {
+      if (r === entry.seq) continue;
+      const t = this.sql
+        .exec("SELECT t.status, t.lease_holder, t.lease_until, t.assignee, e.author FROM tasks t JOIN entries e ON e.seq = t.seq WHERE t.seq = ?", r)
+        .toArray()[0];
+      if (!t || t.status === "done" || t.status === "stopped") continue;
+      const holder = (t.lease_until as number | null) && (t.lease_until as number) > Date.now() ? (t.lease_holder as string | null) : null;
+      if (![holder, t.assignee, t.author, creator].includes(user)) {
+        this.sql.exec("UPDATE tasks SET resolved_by = ?, updated_at = ? WHERE seq = ?", entry.seq, Date.now(), r);
+        this.broadcast({ type: "task", seq: r });
+        continue;
+      }
+      this.sql.exec(
+        "UPDATE tasks SET status = 'done', stop_reason = NULL, done_note = ?, resolved_by = NULL, lease_holder = NULL, lease_until = NULL, updated_at = ? WHERE seq = ?",
+        `Resolved by #${entry.seq}`, Date.now(), r,
+      );
+      this.taskEvent(r, user, opts, "status", t.status as string);
+      this.broadcast({ type: "task", seq: r, done: true });
+      await this.finishTask(user, r, opts, this.task(r));
+    }
   }
 
   /** Stop signal: any member can halt a task; whoever holds it hears about it on their next read. */

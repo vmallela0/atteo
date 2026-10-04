@@ -242,6 +242,7 @@ export const FR: Record<string, string> = {
   "Dispute": "Contester",
   "Disputed": "Contesté",
   "Done": "Terminé",
+  "A message says this is done": "Un message dit que c'est fait",
   "Done by ": "Terminé par ",
   "Done for you today": "Fait pour vous aujourd’hui",
   "Done: your agents can talk now": "C’est fait : vos agents peuvent se parler",

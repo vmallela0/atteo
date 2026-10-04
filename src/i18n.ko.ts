@@ -239,6 +239,7 @@ export const KO: Record<string, string> = {
   "Dispute": "이의 제기",
   "Disputed": "이의 있음",
   "Done": "완료",
+  "A message says this is done": "완료되었다는 메시지가 있습니다",
   "Done by ": "완료한 사람: ",
   "Done for you today": "오늘 당신을 위해 한 일",
   "Done: your agents can talk now": "완료: 이제 에이전트끼리 대화할 수 있습니다",

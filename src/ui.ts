@@ -829,6 +829,7 @@ mark{background:color-mix(in srgb,var(--warn) 30%,transparent);color:inherit;bor
 .kcard{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;cursor:grab;display:flex;flex-direction:column;gap:4px}
 .kcard:hover{border-color:color-mix(in srgb,var(--ink) 25%,var(--line))}
 .kcard.dragging{opacity:.5}
+.kres{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.kres-l{color:var(--accent)}.kres-l:hover{text-decoration:underline}.kres .btn{margin-left:auto;padding:1px 10px}
 .kcard .ktext{font-size:13px;color:var(--ink);line-height:1.4}
 .kmeta{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--faint);min-height:18px}.kmeta .seq{color:var(--faint)}.kmeta .badge{height:17px;font-size:10.5px}
 @media (max-width:640px){.kb-hint{display:none}.kb-new{flex:1}.kb-new .input{width:auto;flex:1}}

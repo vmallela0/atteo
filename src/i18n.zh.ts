@@ -240,6 +240,7 @@ export const ZH_CN: Record<string, string> = {
   "Dispute": "提出异议",
   "Disputed": "有异议",
   "Done": "完成",
+  "A message says this is done": "有消息说这已完成",
   "Done by ": "完成者：",
   "Done for you today": "今天为你完成的",
   "Done: your agents can talk now": "完成：你们的智能体现在可以交流了",

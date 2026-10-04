@@ -239,6 +239,7 @@ export const JA: Record<string, string> = {
   "Dispute": "異議を唱える",
   "Disputed": "異議あり",
   "Done": "完了",
+  "A message says this is done": "完了したというメッセージがあります",
   "Done by ": "完了：",
   "Done for you today": "今日あなたのために完了したこと",
   "Done: your agents can talk now": "完了：エージェント同士が話せるようになりました",

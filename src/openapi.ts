@@ -114,7 +114,7 @@ export function openapi(origin: string) {
         InboxItem: obj({ id: int, board_id: str, board_title: str, seq: int, kind: { enum: ["mention", "agent", "reply", "friend_request", "friend_accept", "approval", "contact_request", "contact_accept", "decision", "people_only"] }, actor: str, actor_via: str, entry_type: str, excerpt: str, created_at: int, read_at: int, approval_id: str, push: obj({ kind: str, title: str, body: str, url: str, approval: str, board: str, risk: str }) }),
         Task: obj({
           seq: int, title: str, body: str, version: int, status: { enum: ["todo", "doing", "blocked", "done", "stopped"] }, priority: { enum: ["high", "medium", "low", null] },
-          assignee: str, assignee_agent: { type: "boolean" }, due: int, lease_holder: str, lease_until: int, stop_reason: str, done_note: str,
+          assignee: str, assignee_agent: { type: "boolean" }, due: int, lease_holder: str, lease_until: int, stop_reason: str, done_note: str, resolved_by: int,
         }),
       },
     },

@@ -2627,7 +2627,7 @@ const handler = {
         if (what === "entries" && !seqStr && method === "POST") {
           // canSee above already checked membership, unless it let an operator through.
           if (!viewer || (isOps(c) && !(await registry.isMember(env, id, viewer.name)))) return json({ error: "Only members can post." }, 403);
-          const body = (await request.json().catch(() => ({}))) as { text?: string; type?: string; to?: string | string[]; reply_to?: string | number; to_session?: string; people_only?: unknown; own?: unknown };
+          const body = (await request.json().catch(() => ({}))) as { text?: string; type?: string; to?: string | string[]; reply_to?: string | number; to_session?: string; people_only?: unknown; own?: unknown; resolves?: unknown };
           const type = (["note", "question", "task", "decision", "claim"] as const).find((t) => t === body.type) ?? "note";
           // People-only (vedu #1264): for the people named in `to` (a list, or one name) and/or @named in the text.
           // Never from an agent's token: agents can't create them (or read them).
@@ -2661,6 +2661,8 @@ const handler = {
           }
           // Replying: to an agent's post, the reply goes to that agent; to a person's post, it mentions them.
           const replyTo = Number(body.reply_to) > 0 ? Math.floor(Number(body.reply_to)) : null;
+          // What it answers or completes, as over MCP (REST used to drop it, so a REST "resolves" did nothing).
+          const resolves = Array.isArray(body.resolves) ? [...new Set(body.resolves.map(Number).filter((n) => Number.isInteger(n) && n > 0))].slice(0, 50) : [];
           if (replyTo) {
             const parent = await stub.get(replyTo, seer()).catch(() => null);
             if (!parent) return json({ error: `Entry #${replyTo} does not exist on this board.` }, 400);
@@ -2674,7 +2676,7 @@ const handler = {
           try {
             const idem = messageId(request.headers.get("idempotency-key"));
             const so = await asOpts();
-            const entry = await withRetry(() => stub.post(viewer.name, { type, text, to, mentions, reply_to: replyTo, via: pv(), ...so, idem, ...(peopleOnly ? { people_only: true, to_people: toPeople } : {}), ...(own ? { own: true } : notOwn ? { own: false } : {}) }));
+            const entry = await withRetry(() => stub.post(viewer.name, { type, text, to, mentions, reply_to: replyTo, ...(resolves.length ? { resolves } : {}), via: pv(), ...so, idem, ...(peopleOnly ? { people_only: true, to_people: toPeople } : {}), ...(own ? { own: true } : notOwn ? { own: false } : {}) }));
             ctx.waitUntil(Promise.all([registry.touch(env, viewer.name, id), registry.bumpBoard(env, id, entry.seq)]).catch(() => {}));
             // The rendered entry comes back with the post, so the page shows it without another round trip.
             const root = replyTo ? ((await stub.rootsFor([entry.seq]))[entry.seq] ?? entry.seq) : entry.seq;

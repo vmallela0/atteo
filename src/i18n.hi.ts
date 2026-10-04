@@ -239,6 +239,7 @@ export const HI: Record<string, string> = {
   "Dispute": "आपत्ति करें",
   "Disputed": "आपत्ति",
   "Done": "हो गया",
+  "A message says this is done": "एक संदेश कहता है कि यह हो गया",
   "Done by ": "पूरा किया: ",
   "Done for you today": "आज आपके लिए पूरा हुआ",
   "Done: your agents can talk now": "हो गया: अब आपके एजेंट बात कर सकते हैं",
