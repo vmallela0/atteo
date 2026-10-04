@@ -105,6 +105,65 @@ final class PeopleOwnUITests: AtteoUITestCase {
         XCTAssertTrue(text(b, agentText2).waitForExistence(timeout: 5), "agents' posts are back")
     }
 
+    /// Show agents in a thread (jxn #2191): off, an agent's answer leaves the thread and a person's stays (the message
+    /// it's about too); the strip says so; it's remembered for the next time a thread opens; Show all brings agents back.
+    func testThreadShowAgentsHidesAgentAnswers() throws {
+        continueAfterFailure = false
+        guard !otherApp.isEmpty, !theoAgent.isEmpty, let b1 = boardId(titled: "Checkout bug") else { throw XCTSkip("needs the seeded server (OTHER_APP)") }
+        let n = n
+        let rootText = "Thread root \(n): which flag gates checkout?"
+        let root = seq(call("POST", "/api/boards/\(b1)/entries", json: ["type": "note", "text": rootText], token: otherApp))
+        XCTAssertGreaterThan(root, 0)
+        tool(theoAgent, board: b1, "read", [:])
+        let agentText = "Agent answer \(n): PAYMENTS_V2"
+        let r = tool(theoAgent, board: b1, "post", ["type": "note", "text": agentText, "reply_to": root])
+        XCTAssertNotNil(r["result"], "theo's agent answered (\(r))")
+        XCTAssertGreaterThan(seqOf(agentText, on: b1), 0, "the agent's answer is on the board")
+        let personText = "Person answer \(n): agreed, PAYMENTS_V2"
+        XCTAssertGreaterThan(seq(call("POST", "/api/boards/\(b1)/entries", json: ["type": "note", "text": personText, "reply_to": root], token: otherApp)), 0)
+
+        let a = app()
+        a.launch()
+        openChat(a, "Checkout bug")
+        if a.buttons["people-filter-show-all"].waitForExistence(timeout: 2) { a.buttons["people-filter-show-all"].tap() }
+        let replies = a.buttons["replies-\(root)"]
+        XCTAssertTrue(replies.waitForExistence(timeout: 10), "the message says it has replies")
+        replies.tap()
+        XCTAssertTrue(a.navigationBars["Thread"].waitForExistence(timeout: 5), "its thread opens")
+        // (an earlier run may have left agents hidden)
+        if a.buttons["thread-agents-show-all"].waitForExistence(timeout: 2) { a.buttons["thread-agents-show-all"].tap() }
+        let thread = a.scrollViews["thread-list"]
+        func inThread(_ s: String) -> XCUIElement { thread.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", s)).firstMatch }
+        XCTAssertTrue(inThread(agentText).waitForExistence(timeout: 10), "the agent's answer is in the thread")
+        XCTAssertTrue(inThread(personText).exists, "and the person's")
+
+        a.buttons["thread-menu"].tap()
+        let item = a.descendants(matching: .any).matching(identifier: "thread-show-agents").firstMatch
+        if item.waitForExistence(timeout: 3) { sleep(1); keep("thread-agents-00-menu"); item.tap() }
+        else { XCTAssertTrue(a.buttons["Show agents"].waitForExistence(timeout: 2), "Show agents is in the menu"); a.buttons["Show agents"].tap() }
+        let strip = a.descendants(matching: .any).matching(identifier: "thread-agents-strip").firstMatch
+        XCTAssertTrue(strip.waitForExistence(timeout: 5), "the strip says only people show")
+        XCTAssertTrue(inThread(agentText).waitForNonExistence(timeout: 5), "the agent's answer is hidden")
+        XCTAssertTrue(inThread(personText).exists, "the person's stays")
+        XCTAssertTrue(inThread(rootText).exists, "and the message it's about")
+        keep("thread-agents-01-people-only")
+
+        // Remembered: the next time the thread opens, agents are still hidden.
+        a.buttons["thread-close"].tap()
+        XCTAssertTrue(a.navigationBars["Thread"].waitForNonExistence(timeout: 5))
+        a.buttons["replies-\(root)"].tap()
+        XCTAssertTrue(a.navigationBars["Thread"].waitForExistence(timeout: 5))
+        XCTAssertTrue(a.descendants(matching: .any).matching(identifier: "thread-agents-strip").firstMatch.waitForExistence(timeout: 5), "still people only")
+        XCTAssertTrue(inThread(personText).waitForExistence(timeout: 5))
+        XCTAssertFalse(inThread(agentText).exists, "the agent's answer stays hidden")
+
+        // Show all: agents again.
+        a.buttons["thread-agents-show-all"].tap()
+        XCTAssertTrue(inThread(agentText).waitForExistence(timeout: 5), "the agent's answer is back")
+        XCTAssertFalse(a.descendants(matching: .any).matching(identifier: "thread-agents-strip").firstMatch.exists, "the strip goes")
+        a.buttons["thread-close"].tap()
+    }
+
     /// The lock: a tap turns it on at People only; Just mine is picked; the message is "own" on the server, wears the
     /// 🔒 Just mine note, and the lock is off again after sending.
     func testJustMinePostsOwnEntry() throws {

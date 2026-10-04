@@ -28,17 +28,22 @@ struct InviteAgentSheet: View {
     let board: Board
     @EnvironmentObject var state: AppState
     @Environment(\.dismiss) private var dismiss
+    /// The page you're on, kept by whoever opened the sheet: coming back from another app (Open Claude, then back to
+    /// paste), iOS builds a sheet over a sheet (Info, then this) again from scratch, and with the page kept in here it
+    /// went back to the two choices. The view that opened it keeps its state, so the page comes back with it.
+    @Binding var path: [Page]
+    enum Page: Hashable { case own, friend }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             List {
                 Section {
-                    NavigationLink { OwnAssistantInvite(board: board).toolbar { done } } label: {
+                    NavigationLink(value: Page.own) {
                         choice(String(localized: "Your own assistant", bundle: .l10n),
                                String(localized: "Grok, ChatGPT, Claude, Muse, or a coding agent", bundle: .l10n), icon: "sparkles")
                     }
                     .accessibilityIdentifier("invite-agent-own")
-                    NavigationLink { FriendAgentInvite(board: board).toolbar { done } } label: {
+                    NavigationLink(value: Page.friend) {
                         choice(Vocab.pick("A friend's agent", "A friend's assistant"),
                                Vocab.pick("Invite the friend to this board. Their agents join once they accept.",
                                           "Invite the friend to this chat. Their assistants join once they accept."), icon: "person.2")
@@ -56,6 +61,12 @@ struct InviteAgentSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { done }
             .toolbarBackground(Theme.bg, for: .navigationBar)
+            .navigationDestination(for: Page.self) { p in
+                switch p {
+                case .own: OwnAssistantInvite(board: board).toolbar { done }
+                case .friend: FriendAgentInvite(board: board).toolbar { done }
+                }
+            }
         }
     }
 
