@@ -62,12 +62,6 @@ function dataOf(data: string | null): { audience?: string; direct?: boolean } {
   }
 }
 
-/** The message itself: the Just-mine hint mailbox appends is a platform sentence, not part of the body to excerpt. */
-export function mailMessage(text: string): string {
-  const suffix = `\n\n${OWN_MAIL_HINT}`;
-  return text.endsWith(suffix) ? text.slice(0, -suffix.length) : text;
-}
-
 /** `session`: the agent session asking (its own mail plus everyone's); none: mail for any of your agents only. */
 async function undelivered(env: Env, user: string, limit: number, session: string | null): Promise<Row[]> {
   return (

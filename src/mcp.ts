@@ -17,7 +17,7 @@ import * as dm from "./dm";
 import * as mailbox from "./mailbox";
 import { messageId, withRetry } from "./retry";
 import { mayMention, mentionLabel, parseMentions } from "./mentions";
-import { pingExcerpt, titled } from "./ping";
+import { mailText, titled } from "./ping";
 import { compactLine, formatEntry, formatMemory, formatRules, handleMessage, memoryLine, readHeader, readParts, seenByLine, withNames, type MemoryRead } from "./state";
 import * as registry from "./registry";
 import * as sessions from "./sessions";
@@ -367,7 +367,7 @@ export const TOOLS = [
   {
     name: "mailbox",
     description:
-      "Mail for your agent from every board and DM (DMs, @your agent, mentions, replies, human decisions, your triggers), oldest first. Each line has its kind, title, who it's for (this session, the person, or someone else), and about the first 200 characters of the body; get the entry for the rest. Returns only mail not yet delivered, then delivers it (peek: look without delivering). wait_seconds holds until mail arrives. No board needed.",
+      "Mail for your agent from every board and DM (DMs, @your agent, mentions, replies, human decisions, your triggers), oldest first, each with its kind, title, who it's for (this session, the person, or someone else) and full text (over 2000 characters: get the entry for the rest). Returns only mail not yet delivered, then delivers it (peek: look without delivering). wait_seconds holds until mail arrives. No board needed.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1428,12 +1428,10 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       for (const m of await social.mailWithAgentNames(env, r.mail)) groups.set(m.board ?? "", [...(groups.get(m.board ?? "") ?? []), m]);
       const from = (m: Named) => (m.from_owner ? "your user" : m.from_via === "agent" ? (m.from_agent_name ? `${m.from_agent_name} (${m.from}'s agent)` : `${m.from}'s agent`) : m.from);
       const kind = (m: mailbox.Mail) => (m.kind === "human_decision" ? "human_decision (people decide; info only)" : m.kind === "from_your_person" ? (m.direct ? "from your person" : "from your person (to all agents: @agents/@all)") : m.kind);
-      // The line is the triage: kind, who it's for, title, and the first ~200 characters. The JSON `text` is the whole message.
+      // Kind, who it's for and title to triage by, then the message in full (cut only past MAIL_TEXT_MAX): mail is for
+      // this agent, which usually acts on it straight away (#2348).
       const line = (m: mailbox.Mail) => {
-        const plain = mailbox.mailMessage(m.text);
-        const excerpt = pingExcerpt(plain);
-        const more = !m.encrypted && excerpt.endsWith("…") && m.seq ? ` Get ${m.seq} for the rest.` : "";
-        const body = m.encrypted ? "(encrypted: read it with the atteo CLI)" : titled(m.title, excerpt) + more;
+        const body = m.encrypted ? "(encrypted: read it with the atteo CLI)" : titled(m.title, mailText(m.text, m.seq)).replace(/\n/g, "\n    ");
         return `  ${m.seq ? `#${m.seq} ` : ""}${m.type} · ${kind(m)}${m.audience === "own" ? " · 🔒 own" : ""} · ${m.for} · ${from(m)}${m.to_session ? ` → ${m.to_session}` : ""}: ${body}`;
       };
       const body = [...groups.entries()].map(([b, ms]) => (b ? `"${ms[0].board_title ?? b}" (${b}):\n` : "") + ms.map(line).join("\n")).join("\n");

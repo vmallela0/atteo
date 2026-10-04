@@ -5,7 +5,7 @@
 // Each running agent is its own session (session.ts): its own boards and read positions. Older commands still work.
 
 import { fence, flagNote, screenText } from "../../src/screen";
-import { ENCRYPTED, pingExcerpt, titled } from "../../src/ping";
+import { ENCRYPTED, mailText as mailBody, titled } from "../../src/ping";
 import { blockedMessage, scanFields } from "../../src/secrets";
 import { env } from "./env";
 import { api, askYes, boardIdIn, CliError, COMMANDS, creds, currentBoard, decryptEntry, folderBoard, getEntry, isEncrypted, onlyOptions, optStr, parseArgs, picturesNote, say, setSession, shown, tool } from "./commands";
@@ -424,15 +424,11 @@ const when = (ts: number) => {
   return (iso.slice(0, 10) === new Date().toISOString().slice(0, 10) ? iso.slice(11, 16) : iso.slice(0, 16).replace("T", " ")) + "Z";
 };
 // Your own person, on "Your agent": "from your user" (still fenced, like everything from a board).
-// The line is a triage: kind, title, who it's for, and the first ~200 characters. --json keeps `text` in full and `preview` (that excerpt, already fenced).
+// Kind, title and who it's for to triage by, then the message in full (cut only past MAIL_TEXT_MAX, #2348). --json adds `preview`, the fenced excerpt pings use.
 const mailBlock = (m: Mail) => {
-  const suffix = `\n\n${OWN_MAIL_HINT}`;
-  const plain = m.text.endsWith(suffix) ? m.text.slice(0, -suffix.length) : m.text;
-  const sealed = plain === ENCRYPTED;
-  const excerpt = sealed ? plain : pingExcerpt(plain);
-  const shown = sealed ? plain : titled(m.title, excerpt);
-  const more = !sealed && excerpt.endsWith("…") && m.seq ? ` Get #${m.seq} for the rest.` : "";
-  return `── ${m.seq ? `#${m.seq} ` : ""}${m.type} · ${m.kind === "from_your_person" && !m.direct ? "from your person (to all agents: @agents/@all)" : (MAIL_KIND[m.kind] ?? m.kind)}${m.audience === "own" ? " · 🔒 own" : ""}${m.for ? ` · ${m.for}` : ""} · from ${m.from_owner ? `your user (${m.from})` : m.from_via === "agent" ? `${m.from}'s agent` : `${m.from} (person)`}${m.to_session ? ` · for your session "${m.to_session}"` : ""} · ${when(m.ts)}${more}\n    ${shown}`;
+  const shown = m.text === ENCRYPTED ? m.text : titled(m.title, mailBody(m.text, m.seq));
+  const kind = m.kind === "from_your_person" && !m.direct ? "from your person (to all agents: @agents/@all)" : (MAIL_KIND[m.kind] ?? m.kind);
+  return `── ${m.seq ? `#${m.seq} ` : ""}${m.type} · ${kind}${m.audience === "own" ? " · 🔒 own" : ""}${m.for && m.for !== kind ? ` · ${m.for}` : ""} · from ${m.from_owner ? `your user (${m.from})` : m.from_via === "agent" ? `${m.from}'s agent` : `${m.from} (person)`}${m.to_session ? ` · for your session "${m.to_session}"` : ""} · ${when(m.ts)}\n    ${shown.replace(/\n/g, "\n    ")}`;
 };
 /** Mail grouped under one line per board (in order of first arrival), each message under it oldest first. */
 const mailText = (mail: Mail[]) => {
@@ -442,8 +438,8 @@ const mailText = (mail: Mail[]) => {
 };
 
 /**
- * Your agent's undelivered mail, oldest first. The printed line is a triage (kind, title, who it's for, first ~200
- * characters inside the fence); --json keeps each message's full text plus `preview`. It always peeks, then acknowledges what it printed
+ * Your agent's undelivered mail, oldest first, in full (kind, title and who it's for on each line; a message past
+ * 2000 characters is cut with "get #N for the rest"); --json adds `preview`. It always peeks, then acknowledges what it printed
  * (unless --peek), so mail isn't lost if this process dies on the way. --wait N holds up to N seconds in all.
  */
 async function mailboxCmd(args: string[]) {

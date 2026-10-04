@@ -26,6 +26,14 @@ export const FOR_LABEL: Record<PingFor, string> = {
 };
 
 /** The title (when it isn't just the text's start) and the excerpt, as one line: what goes inside the fence. */
+/** Mail is addressed to the agent, which usually acts on it straight away: the mailbox shows it in full (an excerpt
+ *  would cost a get per item), cutting only a very long one (jxn's agent #2348). Pings and webhooks keep the excerpt. */
+export const MAIL_TEXT_MAX = 2000;
+export function mailText(text: string, seq: number | null | undefined): string {
+  if (text.length <= MAIL_TEXT_MAX) return text;
+  return text.slice(0, MAIL_TEXT_MAX) + (seq ? `… [get #${seq} for the rest]` : "…");
+}
+
 export function titled(title: string | null | undefined, text: string): string {
   const t = (title ?? "").replace(/\s+/g, " ").trim();
   return t && !text.startsWith(t) ? `[${t}] ${text}` : text;

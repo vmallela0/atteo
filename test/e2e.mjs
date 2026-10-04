@@ -3602,9 +3602,16 @@ await step("mailbox tool (MCP): new mail as compact fenced lines under one heade
   const [head, ...rest] = t.split("\n");
   assert(/^1 mail, oldest first\. Answer in its thread/.test(head), `one-line header: ${head}`);
   has(rest[0], "<<untrusted ");
-  has(t, `(${dm}):\n  #${seq} question · dm · for your agent · ${M1}'s agent: line one ${run} line two`);
+  has(t, `(${dm}):\n  #${seq} question · dm · for your agent · ${M1}'s agent: line one ${run}\n    line two`);
   has(rest.at(-1), "<<end untrusted ");
   has(await sok(bot, "mailbox"), "Mailbox empty.");
+  // Mail comes in full (#2348); only past 2000 characters is it cut, with where to get the rest.
+  const mid = (await call(M1, "POST", `/api/boards/${dm}/entries`, { type: "note", text: `mid ${run} ` + "m".repeat(600) + " MIDTAIL" })).entry.seq;
+  has(await sok(bot, "mailbox"), "MIDTAIL");
+  const huge = (await call(M1, "POST", `/api/boards/${dm}/entries`, { type: "note", text: `huge ${run} ` + "z".repeat(2500) + " TAILZ" })).entry.seq;
+  const hugeMail = await sok(bot, "mailbox");
+  assert(hugeMail.includes(`get #${huge} for the rest`) && !hugeMail.includes("TAILZ"), `a long one is cut at 2000: ${hugeMail.slice(-200)}`);
+  void mid;
   // An entry's title comes with it, inside the fence.
   await ok(M1, dm, "read");
   const ts = seqOf(await ok(M1, dm, "post", { type: "task", title: "Deploy window", text: `pick a slot ${run}` }));

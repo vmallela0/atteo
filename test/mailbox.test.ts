@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { collect, mailMessage, pruneMail } from "../src/mailbox";
-import { ENCRYPTED } from "../src/ping";
+import { collect, pruneMail } from "../src/mailbox";
+import { ENCRYPTED, MAIL_TEXT_MAX, mailText } from "../src/ping";
 import type { Env } from "../src/types";
 
 const { DatabaseSync } = (await import("node:" + "sqlite")) as { DatabaseSync: new (p: string) => any };
@@ -68,9 +68,12 @@ describe("mailbox acked retention sweep", () => {
 });
 
 describe("mailbox triage", () => {
-  it("drops the just-mine hint before excerpting the message", () => {
-    expect(mailMessage("hello\n\nJust mine: only your person sees this; reply in its thread or with own: true.")).toBe("hello");
-    expect(mailMessage("hello")).toBe("hello");
+  it("shows mail in full, cutting only past MAIL_TEXT_MAX with where to get the rest (#2348)", () => {
+    expect(mailText("short and whole", 4)).toBe("short and whole");
+    const ok = "a".repeat(MAIL_TEXT_MAX);
+    expect(mailText(ok, 4)).toBe(ok);
+    const long = "b".repeat(MAIL_TEXT_MAX + 50) + "TAIL";
+    expect(mailText(long, 9)).toBe("b".repeat(MAIL_TEXT_MAX) + "… [get #9 for the rest]");
   });
 
   it("includes kind, title, a fenced excerpt, and whether it is for this session, the person, or someone else", async () => {
