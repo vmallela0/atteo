@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   createSession,
   DEFAULT_BUDGET_MINUTES,
+  DEFAULT_PER_MINUTE,
   finishSession,
   instructionsFor,
+  perMinuteFor,
   providerFor,
   REALTIME_URL,
   status,
@@ -164,6 +166,29 @@ describe("voice: POST /api/app/voice/session", () => {
     // A new month starts from zero.
     clock.t = Date.UTC(2026, 10, 1, 0, 1);
     expect((await status("vedu", deps)).minutes_used).toBe(0);
+  });
+
+  it("standby and resume (jxn #2071): many short sessions bill only their live seconds, and the default limit allows quick resumes", async () => {
+    const { deps, clock } = setup({ budgetMinutes: 60, sessionMinutes: 10, perMinute: perMinuteFor({}) });
+    expect(perMinuteFor({})).toBe(DEFAULT_PER_MINUTE);
+    // A call that stands by and resumes 11 times in one minute: each one a session of 4 s, settled to the second.
+    for (let i = 0; i < 11; i++) {
+      const s = await J(createSession(ME, { hands_free: true }, deps));
+      expect(s.session_id, `resume ${i + 1}`).toMatch(/^vs_/);
+      expect(s.max_seconds).toBe(600);
+      const end = await J(finishSession("vedu", { session_id: s.session_id, seconds: 4 }, deps));
+      expect(end.seconds_used).toBe(4);
+      clock.t += 4_000;
+    }
+    expect((await status("vedu", deps)).minutes_used).toBe(0.7); // 44 s, not 11 caps or 11 rounded-up minutes
+    // The 12th: a fraction of a second rounds up to that second only.
+    const s = await J(createSession(ME, {}, deps));
+    expect((await J(finishSession("vedu", { session_id: s.session_id, seconds: 0.2 }, deps))).seconds_used).toBe(1);
+    expect((await status("vedu", deps)).minutes_used).toBe(0.8); // 45 s
+    // Past the minute's limit it says so (the app stays standing by and shows the wait).
+    const over = await createSession(ME, {}, deps);
+    expect(over.status).toBe(429);
+    expect(Number(over.headers.get("retry-after"))).toBeGreaterThan(0);
   });
 
   it("the provider failing gives the session back and answers 502", async () => {

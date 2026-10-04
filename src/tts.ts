@@ -2,10 +2,13 @@
 // agent). The voice comes from a TtsProvider (xAI Grok voices today). Guardrails: a per-person monthly character
 // budget (D1 tts_usage), a per-person rate limit (D1 rate_limits) and a 7-day cache by hash(voice+text), so a replay
 // costs nothing. Without a provider key the route answers 503 and clients use the device's own voice.
+// {board, seq, from: true} reads "<author>: <text>" ("theo's agent: …" for an agent's post): the app's voice call reads
+// new messages aloud while it stands by (jxn #2071), and who said it is part of what's heard.
 
 import { savedVoice } from "./social";
 import type { Env } from "./types";
 import * as registry from "./registry";
+import { isLocalHost } from "./util";
 
 export const MAX_TEXT = 2000; // characters per request (raw `text`; a board message is cleaned, then cut to this)
 export const DEFAULT_BUDGET = 900_000; // characters per person per month ≈ 15 h of speech
@@ -68,9 +71,44 @@ export function xaiProvider(key: string, fetcher?: typeof fetch): TtsProvider {
   return { name: "xai", speak: (text, voice) => xaiSpeak(key, text, voice, fetcher) };
 }
 
-/** The configured provider, or null (no key: the feature is off and clients use the device voice). */
-export function providerFor(env: Env): TtsProvider | null {
-  return env.XAI_API_KEY ? xaiProvider(env.XAI_API_KEY) : null;
+/** No network: a short silent WAV. Only for local runs (see providerFor). */
+export const fakeProvider: TtsProvider = {
+  name: "fake",
+  speak: async () => ({ body: new Response(silentWav(0.2)).body!, contentType: "audio/wav" }),
+};
+
+/** `seconds` of 8 kHz mono PCM16 silence as a WAV file. */
+export function silentWav(seconds: number): Uint8Array {
+  const n = Math.round(8000 * seconds);
+  const out = new Uint8Array(44 + n * 2);
+  const v = new DataView(out.buffer);
+  const ascii = (o: number, s: string) => [...s].forEach((c, i) => (out[o + i] = c.charCodeAt(0)));
+  ascii(0, "RIFF");
+  v.setUint32(4, 36 + n * 2, true);
+  ascii(8, "WAVE");
+  ascii(12, "fmt ");
+  v.setUint32(16, 16, true); // fmt chunk size
+  v.setUint16(20, 1, true); // PCM
+  v.setUint16(22, 1, true); // mono
+  v.setUint32(24, 8000, true); // rate
+  v.setUint32(28, 16000, true); // bytes per second
+  v.setUint16(32, 2, true); // block align
+  v.setUint16(34, 16, true); // bits
+  ascii(36, "data");
+  v.setUint32(40, n * 2, true);
+  return out;
+}
+
+/**
+ * The configured provider, or null (no key: the feature is off and clients use the device voice). Like voice.ts: on
+ * localhost with DEV_FAKE_VOICE=1 in the local .dev.vars (never wrangler.jsonc) and no key, a request carrying
+ * x-dev-fake-voice: 1 gets the fake provider (the app's voice-call tests hear new messages read without xAI). A
+ * deployed Worker is never reached as localhost.
+ */
+export function providerFor(env: Pick<Env, "XAI_API_KEY" | "DEV_FAKE_VOICE">, request?: Request): TtsProvider | null {
+  if (env.XAI_API_KEY) return xaiProvider(env.XAI_API_KEY);
+  if (request && env.DEV_FAKE_VOICE === "1" && request.headers.get("x-dev-fake-voice") === "1" && isLocalHost(new URL(request.url).hostname)) return fakeProvider;
+  return null;
 }
 
 // ---------- text ----------
@@ -121,6 +159,9 @@ export function capLength(s: string, max = MAX_TEXT): string {
   const word = cut.lastIndexOf(" ");
   return (word >= max * 0.6 ? cut.slice(0, word) : cut).trim();
 }
+
+/** A name on one line, as it's said. */
+const oneLine = (s: string) => s.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 80);
 
 // ---------- guardrails ----------
 
@@ -193,7 +234,8 @@ export async function cacheKey(voice: Voice, text: string): Promise<string> {
 
 // ---------- the routes ----------
 
-export type EntryText = { text: string } | { error: string; status: number };
+/** A board message to read: its text, and who wrote it (author; via "agent" for an agent's post). */
+export type EntryText = { text: string; author?: string; via?: string | null } | { error: string; status: number };
 
 export interface TtsDeps {
   db: D1Database;
@@ -213,9 +255,9 @@ export interface TtsDeps {
 
 const err = (error: string, status: number, extra: Record<string, unknown> = {}, headers: HeadersInit = {}) => Response.json({ error, ...extra }, { status, headers });
 
-/** POST /api/app/tts {text, voice?} or {board, seq, voice?} → audio/mpeg. */
+/** POST /api/app/tts {text, voice?} or {board, seq, voice?, from?} → audio/mpeg. from: true reads "<author>: <text>". */
 export async function speak(user: string, raw: unknown, deps: TtsDeps): Promise<Response> {
-  const body = (raw && typeof raw === "object" ? raw : {}) as { text?: unknown; voice?: unknown; board?: unknown; seq?: unknown };
+  const body = (raw && typeof raw === "object" ? raw : {}) as { text?: unknown; voice?: unknown; board?: unknown; seq?: unknown; from?: unknown };
   const voice = (body.voice == null || body.voice === "" ? (deps.defaultVoice ?? DEFAULT_VOICE) : String(body.voice).toLowerCase()) as Voice;
   if (!VOICES.includes(voice)) return err(`Unknown voice. Pick one of: ${VOICES.join(", ")}.`, 400);
   const hasText = body.text != null && body.text !== "";
@@ -234,6 +276,10 @@ export async function speak(user: string, raw: unknown, deps: TtsDeps): Promise<
     const got = await deps.entryText(board, seq);
     if ("error" in got) return err(got.error, got.status, got.status === 400 ? { fallback: "device" } : {});
     text = capLength(cleanForSpeech(got.text));
+    if (body.from === true && got.author && text.replace(/\(code omitted\)/g, "").trim()) {
+      const who = oneLine(got.via === "agent" ? `${got.author}'s agent` : got.author);
+      text = capLength(`${who}: ${text}`);
+    }
   }
   if (!text.replace(/\(code omitted\)/g, "").trim()) return err("Nothing to read aloud there.", 400);
   if (!deps.provider) return err(NOT_SET_UP, 503, { fallback: "device" });
@@ -288,11 +334,12 @@ export async function route(request: Request, env: Env, ctx: ExecutionContext, p
   if (!viewer) return err("sign in required", 401);
   if (viewer.via === "agent") return err("Read aloud is for people, in the web or the app.", 403);
   const me = viewer.name;
+  const provider = providerFor(env, request);
   const deps: TtsDeps = {
     defaultVoice: await savedVoice(env, me),
     db: env.DB,
-    provider: providerFor(env),
-    cache: typeof caches !== "undefined" ? caches.default : null,
+    provider,
+    cache: typeof caches !== "undefined" && provider !== fakeProvider ? caches.default : null, // the fake's silence is never cached
     budget: isOperator(env, me) ? Number.MAX_SAFE_INTEGER : budgetFor(env),
     globalBudget: isOperator(env, me) ? Infinity : globalBudgetFor(env),
     perMinute: perMinuteFor(env),
@@ -304,7 +351,7 @@ export async function route(request: Request, env: Env, ctx: ExecutionContext, p
       if ((b as { encrypted?: number }).encrypted) return { error: "End-to-end encrypted boards can't be read aloud by the server: it can't read them. Use the device voice.", status: 400 };
       const g = await env.BOARD.get(env.BOARD.idFromName(bid)).get(seq, { user: me, person: true }).catch(() => null); // people only (checked above): their own people-only messages too
       if (!g || g.replies.some((r) => r.retracts === seq)) return { error: "That message isn't there.", status: 404 };
-      return { text: g.entry.text };
+      return { text: g.entry.text, author: g.entry.author, via: g.entry.via };
     },
   };
   if (path === "/api/app/tts/status") return Response.json({ ...(await status(me, deps)), operator: isOperator(env, me) }, { headers: { "cache-control": "no-store" } });

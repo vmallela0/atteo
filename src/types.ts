@@ -153,8 +153,8 @@ export interface Env {
   OPERATORS?: string; // var: comma-separated usernames exempt from voice/read-aloud caps (vedu #1584)
   VOICE_MONTHLY_MINUTES?: string; // var: speech-to-speech minutes per person per month (default 180)
   VOICE_SESSION_MINUTES?: string; // var: one voice session's cap, charged up front and settled at the end (default 10)
-  VOICE_PER_MINUTE?: string; // var: voice sessions a person may start per minute (default 6)
-  DEV_FAKE_VOICE?: string; // LOCAL .dev.vars ONLY, never wrangler.jsonc: "1" + no key + localhost + header x-dev-fake-voice: 1 → a fake voice provider (src/voice.ts)
+  VOICE_PER_MINUTE?: string; // var: voice sessions a person may start per minute (default 12: a call standing by and resuming starts a new one each time)
+  DEV_FAKE_VOICE?: string; // LOCAL .dev.vars ONLY, never wrangler.jsonc: "1" + no key + localhost + header x-dev-fake-voice: 1 → a fake voice provider (src/voice.ts) and a fake read-aloud one (src/tts.ts: silent WAV)
   APNS_KEY?: string; // secret: Apple push key (.p8) for the iOS app; absent until vedu sets up an Apple Developer account
   POSTS_PER_MINUTE?: string; // var: per-person post rate limit per board (default 60; CI raises it for the stress test)
   SIGNIN_PER_IP?: string; // var: app sign-in codes sent per IP per 10 minutes (default 30; verify gets twice that)
