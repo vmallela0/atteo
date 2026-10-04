@@ -62,6 +62,8 @@ export function normalizeForwardExcerpt(text: string): string {
   t = t.replace(/_([^_\n]+)_/g, "$1");
   t = t.replace(/`([^`]+)`/g, "$1");
   t = t.replace(/^>\s?/gm, "");
+  t = t.replace(/^[-*+]\s+/gm, "");
+  t = t.replace(/^\d+\.\s+/gm, "");
   return t.replace(/\s+/g, " ").trim();
 }
 
