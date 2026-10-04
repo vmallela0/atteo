@@ -1492,6 +1492,29 @@ await step("inbox: mentions, posts for your agent and replies reach the person; 
   assert([401, 302, 303].includes((await web(`/api/inbox/count`, null)).status), "sign-in required");
 });
 
+await step("inbox retention: cron deletes read notifications older than 30 days; unread and recent read stay", async () => {
+  const day = 86_400_000;
+  await web(`/api/inbox/read`, B, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ all: true }) });
+  await ok(A, fb, "read");
+  const oldSeq = seqOf(await ok(A, fb, "post", { type: "note", text: `@${B} prune me ${run}` }));
+  const oldItem = (await (await web(`/api/inbox`, B)).json()).items.find((i) => i.seq === oldSeq);
+  await web(`/api/inbox/read`, B, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ids: [oldItem.id] }) });
+  const markedAt = Date.now();
+  await ops("cron", { now: markedAt + 31 * day });
+  await new Promise((r) => setTimeout(r, 400));
+  assert(!(await (await web(`/api/inbox`, B)).json()).items.some((i) => i.seq === oldSeq), "old read pruned");
+  const recentSeq = seqOf(await ok(A, fb, "post", { type: "note", text: `@${B} keep recent ${run}` }));
+  const unreadSeq = seqOf(await ok(A, fb, "post", { type: "note", text: `@${B} keep unread ${run}` }));
+  const recentItem = (await (await web(`/api/inbox`, B)).json()).items.find((i) => i.seq === recentSeq);
+  await web(`/api/inbox/read`, B, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ids: [recentItem.id] }) });
+  await ops("cron", { now: Date.now() });
+  await new Promise((r) => setTimeout(r, 400));
+  const final = (await (await web(`/api/inbox`, B)).json()).items;
+  assert(final.some((i) => i.seq === recentSeq), "recent read kept");
+  assert(final.some((i) => i.seq === unreadSeq), "unread kept");
+  assert((await (await web(`/api/inbox/count`, B)).json()).unread >= 1, "unread count still reflects unread");
+});
+
 await step("tasks: claim leases, conflicts, release, assign, done closes it, stop signal, retracted premise stops it", async () => {
   await ok(A, fb, "read");
   const t1 = seqOf(await ok(A, fb, "post", { type: "task", text: `Write the release notes ${run}` }));
