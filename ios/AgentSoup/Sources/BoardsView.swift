@@ -248,6 +248,7 @@ struct BoardView: View {
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("presence")
             }
+            TalkToolbarItem(board: board) // Talk to Grok (TalkView.swift), when voice is set up
         }
         // The title opens the board's info: what's open, who's here, files, search.
         .sheet(isPresented: $showAgents) {

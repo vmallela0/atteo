@@ -75,6 +75,7 @@ struct SettingsView: View {
                 NotificationsSection()
                 FeelSection()
                 VoiceSection()
+                TalkSection() // Talk to Grok (TalkView.swift)
 
                 Section {
                     if state.connections.isEmpty { Text("Nothing connected yet.").foregroundStyle(Theme.muted) }
