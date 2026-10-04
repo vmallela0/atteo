@@ -960,7 +960,7 @@ export function boardPage(
   const thread = entries.length
     ? earlier + threadHtml(entries, info.id, { name: viewer.name, creator: info.created_by })
     : agentChat
-      ? `<div class="empty" id="empty"><h3>Talk to your agent</h3><p class="small">Only you and your agents see this chat. Ask anything below: any of your agents can answer (<span class="mono">atteo dispatch</span> starts one for each message), or pick one of them.</p>`
+      ? `<div class="empty" id="empty"><h3>Talk to your agent</h3><p class="small">Only you and your agents see this chat. Ask anything below: any of your agents can answer (<span class="mono">atteo dispatch</span> starts one for each message), or pick one of them.</p></div>`
     : `<div class="empty" id="empty"><h3>Nothing here yet</h3><p class="small">Any agent joins with <span class="mono">atteo join ${esc(info.id)}</span>. Or write the first note below.</p>
 ${agent.connected ? "" : `<button class="btn primary lg" style="margin-top:16px" data-open="connect">Connect an agent</button>`}</div>`;
   const rows = [...entries].reverse().map((e) => logRow(e)).join("");

@@ -1749,6 +1749,12 @@ await step("plans: Free caps boards you create; a signed Stripe webhook upgrades
   const old = await fetch(`${BASE}/b/${first}`, { headers: { cookie: cc } });
   const oldHtml = await old.text();
   assert(old.status === 200 && oldHtml.includes("Archived"), "the archived board is still readable");
+  // A deleted board doesn't count toward the cap either: at 3 active, delete one and a new board is allowed.
+  const five = await create(`e2e cap 5 ${run}`);
+  assert(five.status === 402, `at the cap again: ${five.status}`);
+  const victim = (await five.text()).match(/name="archive" value="(b_[a-z0-9]+)"/)[1];
+  assert((await fetch(`${BASE}/api/boards/${victim}`, { method: "DELETE", headers: { cookie: cc } })).status === 200, "delete frees a slot");
+  assert(made(await create(`e2e cap 5 ${run}`)), "a deleted board isn't counted");
   // Someone else's board can't be archived through this.
   const notMine = await fetch(`${BASE}/boards`, { method: "POST", redirect: "manual", headers: { cookie: cc, "content-type": "application/x-www-form-urlencoded" }, body: `title=x&archive=${board}` });
   assert(notMine.status === 400, `archiving a board you didn't make: ${notMine.status}`);
@@ -2635,6 +2641,59 @@ await step("rename and archive: creator only; archived boards are read-only and 
   assert((await call(A, "archive", { archived: false })).status === 200, "restore");
   await ok(B, id, "read");
   has(await ok(B, id, "post", { type: "note", text: `back ${run}` }), "Posted");
+});
+
+await step("soft delete: owner-only people action; gone for every member and agent, data intact, restore within 30 days; unarchive; not DMs or the agent chat; not counted in plan limits", async () => {
+  const id = (await ops("boards", { user: A, title: `e2e softdel ${run}` })).body.board.id;
+  await ops("members", { board: id, user: B });
+  const json = { "content-type": "application/json" };
+  const del = (who) => web(`/api/boards/${id}`, who, { method: "DELETE" });
+  const agentCall = (who, method, path) => fetch(`${BASE}${path}`, { method, headers: { authorization: `Bearer ${tok[who]}`, ...json }, body: method === "POST" ? "{}" : undefined });
+  has(await ok(B, id, "post", { type: "note", text: `before delete ${run}` }), "Posted");
+  // unarchive
+  assert((await web(`/api/boards/${id}/unarchive`, B, { method: "POST", headers: json, body: "{}" })).status === 403, "non-owner can't unarchive");
+  assert((await web(`/api/boards/${id}/archive`, A, { method: "POST", headers: json, body: JSON.stringify({ archived: true }) })).status === 200, "archive");
+  const un = await web(`/api/boards/${id}/unarchive`, A, { method: "POST", headers: json, body: "{}" });
+  assert(un.status === 200 && (await un.json()).archived === false, `unarchive ${un.status}`);
+  has(await ok(B, id, "post", { type: "note", text: `unarchived ${run}` }), "Posted");
+  // who can't delete
+  assert((await del(B)).status === 403, "a non-owner member can't delete");
+  assert((await agentCall(A, "DELETE", `/api/boards/${id}`)).status === 403, "an agent can't delete, even its owner's");
+  assert((await del(OUT)).status === 404, "a stranger can't even see it");
+  // delete
+  const d = await del(A);
+  const dj = await d.json();
+  assert(d.status === 200 && dj.deleted === true, `delete ${d.status} ${JSON.stringify(dj)}`);
+  const mine = async (who) => (await (await web("/api/me/boards", who)).json()).boards.some((b) => b.id === id);
+  assert(!(await mine(A)) && !(await mine(B)), "gone from everyone's list");
+  assert(!(await (await web("/", B)).text()).includes(id), "gone from the home page");
+  for (const who of [A, B]) {
+    for (const p of [`/api/boards/${id}/entries`, `/api/boards/${id}/snapshot`, `/api/boards/${id}/members`]) {
+      const r = await web(p, who);
+      assert(r.status === 404 && (await r.json()).error === "This chat was deleted", `${who} ${p}: ${r.status}`);
+    }
+    assert((await web(`/b/${id}`, who)).status === 404, "page is gone");
+    const ag = await agentCall(who, "GET", `/api/boards/${id}/entries`);
+    assert(ag.status === 404, `agent REST ${ag.status}`);
+    await err(who, id, "read", {}, "This chat was deleted");
+  }
+  assert(!(await ok(B, null, "list_boards")).includes(id), "not in the agent's board list");
+  assert((await web(`/api/boards/${id}/delete`, A, { method: "POST", headers: json, body: JSON.stringify({ confirm: "x" }) })).status === 404, "no other action on it");
+  // restore: owner only, people only
+  assert((await web(`/api/boards/${id}/restore`, B, { method: "POST" })).status === 404, "a member can't restore");
+  assert((await agentCall(A, "POST", `/api/boards/${id}/restore`)).status === 404, "an agent can't restore");
+  const rs = await web(`/api/boards/${id}/restore`, A, { method: "POST" });
+  assert(rs.status === 200, `restore ${rs.status}`);
+  assert((await mine(A)) && (await mine(B)), "back for everyone");
+  const back = await ok(B, id, "read");
+  has(back, "2 entries"); // its data was never touched
+  assert((await web(`/api/boards/${id}/restore`, A, { method: "POST" })).status === 404, "restoring a live board is a no-op 404");
+  const aud = await (await web(`/api/boards/${id}/audit`, A)).json();
+  assert(aud.audit.some((a) => a.action === "deleted") && aud.audit.some((a) => a.action === "restored_from_delete"), JSON.stringify(aud).slice(0, 300));
+  // DMs and the agent chat can't be deleted
+  const chat = (await (await agentCall(A, "POST", "/api/me/agent-chat")).json()).board;
+  const dc = await web(`/api/boards/${chat}`, A, { method: "DELETE" });
+  assert(dc.status === 400, `agent chat delete ${dc.status}`);
 });
 
 await step("delete a board: creator only, typed confirmation, everything goes", async () => {

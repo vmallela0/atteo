@@ -591,6 +591,10 @@ async function currentBoard(c: CallContext, args: Json): Promise<string> {
     throw new ToolError(`This session is on board ${id}. Call join_board to switch to "${asked}".`);
   }
   if (!BOARD_RE.test(id) || !(await registry.isMember(c.env, id, c.user))) {
+    if (BOARD_RE.test(id) && (await registry.deletedAt(c.env, id))) {
+      if (!c.pinnedBoard) await registry.setMcpSessionBoard(c.env, c.sessionId, c.user, null);
+      throw new ToolError("This chat was deleted");
+    }
     if (!c.pinnedBoard) await registry.setMcpSessionBoard(c.env, c.sessionId, c.user, null);
     throw new ToolError(`Board ${id} not found, or your user is not a member.\n${await optionsText(c)}`);
   }
