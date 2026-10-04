@@ -1572,6 +1572,8 @@ await step("inbox retention: cron deletes read notifications older than 30 days;
   const oldSeq = seqOf(await ok(A, fb, "post", { type: "note", text: `@${B} prune me ${run}` }));
   const oldItem = (await (await web(`/api/inbox`, B)).json()).items.find((i) => i.seq === oldSeq);
   await web(`/api/inbox/read`, B, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ids: [oldItem.id] }) });
+  // It's mail for B's agent too: pruned only once the agent collected it (prune-keep-mail).
+  await fetch(`${BASE}/api/mailbox/ack`, { method: "POST", headers: { ...auth(B), "content-type": "application/json" }, body: JSON.stringify({ ids: [oldItem.id] }) });
   const markedAt = Date.now();
   await ops("cron", { now: markedAt + 31 * day });
   await new Promise((r) => setTimeout(r, 400));
@@ -4566,8 +4568,8 @@ await step("@all: every other person and every person's agent hear it once (inbo
   await ops("members", { board: ab, user: B });
   await ops("members", { board: ab, user: H }); // H never opens the board
   const post = async (text) => (await (await web(`/api/boards/${ab}/entries`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "note", text }) })).json()).entry;
-  // (A's agents' mailbox is full from earlier steps: deliver it, so the author's own mail is checkable below.)
-  for (let i = 0; i < 30; i++) if (!(await (await fetch(`${BASE}/api/mailbox?limit=100`, { headers: auth(A) })).json()).more) break;
+  // (A's and B's agents' mailboxes are full from earlier steps: deliver them, so the new mail is checkable below.)
+  for (const who of [A, B]) for (let i = 0; i < 30; i++) if (!(await (await fetch(`${BASE}/api/mailbox?limit=100`, { headers: auth(who) })).json()).more) break;
   const e1 = await post(`@all heads up ${run}`);
   const want = [B, H].flatMap((u) => [`${u}/p`, `${u}/a`]).sort().join();
   assert(e1.mentions.map((m) => `${m.user}/${m.agent ? "a" : "p"}`).sort().join() === want, JSON.stringify(e1.mentions));
