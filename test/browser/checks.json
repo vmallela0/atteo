@@ -93,5 +93,17 @@
  "kbd-approve": 6,
  "pin-stay": 7,
  "everyday-leaks": 1,
- "readaloud": 8
+ "readaloud": 8,
+ "voice-chat": 36,
+ "voice-picker": 5,
+ "dictation-edit": 9,
+ "dictation-mentions": 5,
+ "railgap": 5,
+ "people-filter": 29,
+ "just-mine": 10,
+ "agentname-mention": 8,
+ "i18n-zh": 6,
+ "i18n-zh-2": 12,
+ "i18n-zh-3": 8,
+ "i18n-more": 21
 }
