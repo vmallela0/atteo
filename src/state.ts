@@ -2,6 +2,7 @@
 // No I/O here so it is unit-testable outside the Workers runtime.
 
 import { cardLine } from "./card";
+import { entryDataLine } from "./entryData";
 import type { BoardInfo, Entry, Member } from "./types";
 import { forAgent, forPerson, mentionLabel } from "./mentions";
 import { flagNote, flagOf, screenText } from "./screen";
@@ -164,7 +165,9 @@ export function tasksFor(s: Summary, you: string, tags?: TaskTags): Entry[] {
 
 export function formatEntry(e: Entry, maxText = 4000, viewer?: string): string {
   const text = e.text.length > maxText ? e.text.slice(0, maxText) + `\n… [truncated; use get with seq ${e.seq}]` : e.text;
-  return `${entryHeader(e, viewer)}\n${indent(text)}`;
+  // The object is its own line, after the message, so a long text cut doesn't change it.
+  const extra = e.data ? `\n${indent(entryDataLine(e.data))}` : "";
+  return `${entryHeader(e, viewer)}\n${indent(text)}${extra}`;
 }
 
 /**

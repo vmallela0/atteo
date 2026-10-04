@@ -22,6 +22,7 @@ import { compileGrep, grepFtsQuery, grepText, newBudget, GREP_CANDIDATES, GREP_D
 import { audienceOk, audienceWord, canSee, ownByDefault, OWN_DEFAULT_MS, OWN_MAIL_HINT, PEOPLE_ONLY_TYPES, type Audience } from "./audience";
 import { cleanSchedule, MAX_SCHEDULES, nextDue, lastDue, scheduleLabel, SCHEDULE_FIRES_PER_HOUR, taskText, tickAction, type Day, type Schedule } from "./schedules";
 import { LEASE_CAP_MS, RENEW_EVERY_MS, renewedUntil } from "./leases";
+import { prepareEntryData, readEntryData } from "./entryData";
 
 export const MAX_TEXT = 32_000;
 export const MAX_ARTIFACT = 256_000;
@@ -234,6 +235,7 @@ function attachmentsOf(r: Row, media: Media | null): Attachment[] | undefined {
 function toEntry(r: Row): Entry {
   const media = r.media ? (JSON.parse(r.media as string) as Media) : null;
   const attachments = attachmentsOf(r, media);
+  const data = readEntryData(r.data as string | null);
   return {
     seq: r.seq as number,
     ts: r.ts as number,
@@ -258,6 +260,7 @@ function toEntry(r: Row): Entry {
     ai_flag: (r.ai_flag as string | null) ?? null,
     ...(r.approval ? { approval: liveApproval(JSON.parse(r.approval as string) as ApprovalRef) } : {}),
     ...(r.audience === "people" || r.audience === "own" ? { audience: r.audience as Audience, to_people: JSON.parse((r.to_people as string | null) || "[]") as string[] } : {}),
+    ...(data ? { data } : {}),
   };
 }
 
@@ -272,7 +275,7 @@ const opts0 = (input: NewEntry): TaskActOpts => ({ via: input.via ?? null, clien
 /** For a session's reads: skip posts addressed to another session of the same person (binds: user, session). */
 const FOR_SESSION_OK = "(for_session IS NULL OR for_user != ? OR for_session = ?)";
 
-const ENTRY_COLS = "seq, ts, author, type, text, title, to_user, mentions, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, card, media, ai_flag, attachments, approval, audience, to_people";
+const ENTRY_COLS = "seq, ts, author, type, text, title, to_user, mentions, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, card, media, ai_flag, attachments, approval, audience, to_people, data";
 
 // ---- private entries (audience.ts): people-only (vedu #1264), only the people it names, never any agent; and just
 // mine (#1748), only one person and their own agents. Every read of entries filters through these, so a path that
@@ -320,7 +323,8 @@ export class Board extends DurableObject<Env> {
         artifact_version INTEGER,
         artifact_content TEXT,
         card TEXT,
-        card_diff TEXT
+        card_diff TEXT,
+        data TEXT
       );
       CREATE TABLE IF NOT EXISTS reactions (
         seq INTEGER NOT NULL,
@@ -682,6 +686,8 @@ export class Board extends DurableObject<Env> {
     // audience 'own' and [its person]; NULL otherwise.
     if (!cols.has("audience")) this.sql.exec("ALTER TABLE entries ADD COLUMN audience TEXT");
     if (!cols.has("to_people")) this.sql.exec("ALTER TABLE entries ADD COLUMN to_people TEXT");
+    // Optional JSON object attached at post time (entryData.ts). Null when the post had none.
+    if (!cols.has("data")) this.sql.exec("ALTER TABLE entries ADD COLUMN data TEXT");
     // Covering: hiddenFrom reads only the index (with the kind, since there are two).
     this.sql.exec("CREATE INDEX IF NOT EXISTS entries_audience2 ON entries (seq, audience, to_people) WHERE audience IS NOT NULL");
     this.sql.exec("DROP INDEX IF EXISTS entries_audience");
@@ -1123,7 +1129,8 @@ export class Board extends DurableObject<Env> {
     // Egress filter: nothing that looks like a credential is ever stored.
     // (A document save already checked its content; the log entry for it carries the same content.)
     const title = cleanTitle(input.title);
-    const hit = scanFields({ text, title, artifact_name: input.artifact_name, artifact_content: internal.docVersion != null ? null : input.artifact_content });
+    const dataJson = prepareEntryData(input.data);
+    const hit = scanFields({ text, title, artifact_name: input.artifact_name, artifact_content: internal.docVersion != null ? null : input.artifact_content, data: dataJson });
     if (hit) throw new BoardError(blockedMessage(hit));
 
     const depends = [...new Set((input.depends_on ?? []).filter((n) => Number.isInteger(n)))].slice(0, 20);
@@ -1200,8 +1207,8 @@ export class Board extends DurableObject<Env> {
 
     const row = this.sql
       .exec(
-        `INSERT INTO entries (ts, author, type, text, to_user, mentions, self_agent, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, artifact_content, card, card_diff, media, title, session, idem, for_user, for_session, attachments, approval, audience, to_people)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING ${ENTRY_COLS}`,
+        `INSERT INTO entries (ts, author, type, text, to_user, mentions, self_agent, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, artifact_content, card, card_diff, media, title, session, idem, for_user, for_session, attachments, approval, audience, to_people, data)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING ${ENTRY_COLS}`,
         Date.now(),
         user,
         input.type,
@@ -1231,6 +1238,7 @@ export class Board extends DurableObject<Env> {
         internal.approval ? JSON.stringify(internal.approval) : null,
         aud ? aud.audience : null,
         people ? JSON.stringify(people) : null,
+        dataJson,
       )
       .one();
     if (artifactVersion != null) this.broadcast({ type: "doc", name: artifactName, version: artifactVersion, by: user });

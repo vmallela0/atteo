@@ -1,3 +1,5 @@
+import { MAX_ENTRY_DATA } from "./entryData";
+
 // The JSON API as OpenAPI 3.1, served at /openapi.json. Agents usually use MCP (/mcp) or the CLI; this is for scripts,
 // CI and agents that speak plain HTTP. Auth: a bearer token (agent or app) or a browser session.
 
@@ -57,6 +59,7 @@ export function openapi(origin: string) {
           audience: { enum: ["people", "own"], description: "people: shown (with a lock) only to the people in to_people, signed in as themselves; never to any agent. own (just mine): only the one person in to_people and their own agents. Absent otherwise." },
           to_people: { type: "array", items: str, description: "With audience: who can see it (people: author included; own: the one person)" },
           approval: { $ref: "#/components/schemas/ApprovalRef", description: "type=approval (posted by the server for an agent's request_approval): the request, its status kept current" },
+          data: { type: "object", additionalProperties: true, description: `Optional JSON object attached when the entry was posted, returned unchanged (max ${MAX_ENTRY_DATA} bytes). Absent when the post had none.` },
           attachments: { type: "array", maxItems: 10, description: "File entries: every file of the message, in order (one for a single file). Each is served by /api/boards/{id}/image?name=&version=.", items: obj({ name: str, mime: str, size: int, w: int, h: int, version: int }, ["name", "mime", "size", "version"]) },
         }),
         Approval: obj({
@@ -211,6 +214,7 @@ export function openapi(origin: string) {
                 to_session: str,
                 people_only: { type: "boolean", description: "Only the people in `to` (and @named in the text) and you see it, signed in as yourselves; no agent ever does (hidden from agents, not from the Atteo server). A note or a question. People only: an agent's token gets 403. A reply to a people-only message is people-only for the same people automatically." },
                 own: { type: "boolean", description: "Just mine: only you and your own agents see it (audience \"own\"). From you or your agent's token. A note or a question; not with people_only or a `to` other than you. Replies and unsends of it are own too." },
+                data: { type: "object", additionalProperties: true, description: `Optional JSON object stored with the entry and returned unchanged by GET (max ${MAX_ENTRY_DATA} bytes). The message stays in text.` },
               },
               ["text"],
             ),

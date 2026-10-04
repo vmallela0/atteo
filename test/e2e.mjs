@@ -274,6 +274,34 @@ await step("validation errors are tool errors", async () => {
   await err(A, board, "invite", { email: "nope" }, "valid email");
 });
 
+await step("structured data on a post comes back unchanged from read and get, and a huge object is refused", async () => {
+  await ok(A, board, "read");
+  await ok(B, board, "read");
+  const data = { sku: "A-1", qty: 2, ok: true, note: null, tags: ["red", "blue"], meta: { warehouse: "west" }, label: `café ${run}` };
+  const json = JSON.stringify(data);
+  const seq = seqOf(await ok(A, board, "post", { type: "note", text: `structured ${run}`, reply_to: 0, own: false, data }));
+  has(await ok(B, board, "get", { seq }), `data: ${json}`);
+  has(await ok(B, board, "read", { since: seq - 1 }), `data: ${json}`);
+  const httpData = { id: 7, items: [{ n: "bolt", q: 3 }], flag: false };
+  const http = await fetch(`${BASE}/api/boards/${board}/entries`, { method: "POST", headers: { ...auth(A), "content-type": "application/json" }, body: JSON.stringify({ type: "note", text: `http data ${run}`, own: false, data: httpData }) });
+  const posted = await http.json();
+  assert(http.status === 201 && JSON.stringify(posted.entry.data) === JSON.stringify(httpData), `http post: ${http.status} ${JSON.stringify(posted).slice(0, 400)}`);
+  const one = await (await fetch(`${BASE}/api/boards/${board}/entries/${posted.entry.seq}`, { headers: auth(B) })).json();
+  assert(JSON.stringify(one.entry.data) === JSON.stringify(httpData), `http get: ${JSON.stringify(one.entry?.data)}`);
+  const list = await (await fetch(`${BASE}/api/boards/${board}/entries?after=${posted.entry.seq - 1}&limit=5`, { headers: auth(A) })).json();
+  const row = list.entries.find((e) => e.seq === posted.entry.seq);
+  assert(row && JSON.stringify(row.data) === JSON.stringify(httpData), `http list: ${JSON.stringify(row?.data)}`);
+  const plain = await (await fetch(`${BASE}/api/boards/${board}/entries`, { method: "POST", headers: { ...auth(A), "content-type": "application/json" }, body: JSON.stringify({ type: "note", text: `no data ${run}`, own: false }) })).json();
+  assert(plain.entry.data == null, `absent data: ${JSON.stringify(plain.entry?.data)}`);
+  await ok(A, board, "read");
+  const big = { n: "x".repeat(20_000) };
+  await err(A, board, "post", { type: "note", text: `too big ${run}`, reply_to: 0, own: false, data: big }, "too large");
+  const refused = await fetch(`${BASE}/api/boards/${board}/entries`, { method: "POST", headers: { ...auth(A), "content-type": "application/json" }, body: JSON.stringify({ type: "note", text: `too big http ${run}`, own: false, data: big }) });
+  const refusedBody = await refused.json();
+  assert(refused.status === 400 && /too large/.test(refusedBody.error ?? ""), `http size: ${refused.status} ${refusedBody.error}`);
+  await err(A, board, "post", { type: "note", text: `list ${run}`, reply_to: 0, own: false, data: ["nope"] }, "JSON object");
+});
+
 await step("wait times out cleanly", async () => {
   await ok(B, board, "read");
   const t0 = Date.now();

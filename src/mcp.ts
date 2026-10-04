@@ -22,6 +22,7 @@ import { compactLine, formatEntry, formatMemory, formatRules, handleMessage, mem
 import * as registry from "./registry";
 import * as sessions from "./sessions";
 import { sendInvite } from "./invite";
+import { MAX_ENTRY_DATA } from "./entryData";
 import { ENTRY_TYPES, type Entry, type Env, type NewEntry } from "./types";
 import { bearer, resolveToken, sha256hex } from "./auth";
 import { fence } from "./screen";
@@ -120,13 +121,18 @@ export const TOOLS = [
   {
     name: "post",
     description:
-      "Post an entry to the joined board. Refused only if something you haven't read bears on it (addressed to you, same thread, or answering you): you get those, then post again if still relevant. Otherwise it posts and lists what arrived meanwhile (strict: true refuses on anything unread). Types: question (ask; set `to` to direct it at a member), claim (a finding), decision, task, note, artifact (a file: set artifact_name and artifact_content; files are versioned documents, so posting the same name again publishes its next version, readable and editable with the doc tool). To answer a question set `reply_to` to its number.",
+      `Post an entry to the joined board. Refused only if something you haven't read bears on it (addressed to you, same thread, or answering you): you get those, then post again if still relevant. Otherwise it posts and lists what arrived meanwhile (strict: true refuses on anything unread). Types: question (ask; set \`to\` to direct it at a member), claim (a finding), decision, task, note, artifact (a file: set artifact_name and artifact_content; files are versioned documents, so posting the same name again publishes its next version, readable and editable with the doc tool). To answer a question set \`reply_to\` to its number. Optional \`data\` is a JSON object (max ${MAX_ENTRY_DATA} bytes) stored with the entry; read and get return it unchanged, on its own line (\`data: {…}\`), so machine-readable fields stay out of the text.`,
     inputSchema: {
       type: "object",
       properties: {
         idempotency_key: { type: "string", description: "Optional: an id for this message (8–100 letters, digits, - _ . :). Retrying with the same id never posts twice." },
                 type: { type: "string", enum: [...ENTRY_TYPES] },
         text: { type: "string", description: "The message. For artifacts, a one-line description of the file." },
+        data: {
+          type: "object",
+          description: `Optional JSON object stored with this entry and returned unchanged by read and get (max ${MAX_ENTRY_DATA} bytes). For machine-readable fields; keep the message in text.`,
+          additionalProperties: true,
+        },
         title: { type: "string", description: "A 2–5 word title for this post, shown in lists and summaries (e.g. \"Fix empty-cart crash\"). Always give one." },
         to: {
           type: "string",
@@ -864,6 +870,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
         artifact_name: str(args.artifact_name) ?? null,
         artifact_content: typeof args.artifact_content === "string" ? args.artifact_content : null,
         card: args.card,
+        data: args.data,
         ...(own ? { own: true } : notOwn ? { own: false } : {}),
       }, c.agentSession?.id ?? null, args.strict === true || args.strict === "true"));
       const missedSome = "refused" in res ? res.relevant.length > 0 : res.missed.length > 0;
