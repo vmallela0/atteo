@@ -3,6 +3,7 @@
 // hairline borders, Geist type, light + dark, works down to phone width.
 
 import { chartHtml } from "./chart";
+import { STATUS_CSS, statusHtml } from "./status";
 import { highlightMentions, type Mention } from "./mentions";
 import { esc } from "./util";
 
@@ -506,6 +507,7 @@ rect.ch-s0,rect.ch-s1,rect.ch-s2,rect.ch-s3,rect.ch-s4,rect.ch-s5,rect.ch-s6,rec
 .ch-legend{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:6px;font-size:12px;color:var(--text)}.ch-legend span{display:inline-flex;align-items:center;gap:5px}.ch-legend b{color:var(--muted);font-weight:500}
 .ch-k{width:10px;height:10px;border-radius:3px;display:inline-block;border:0}.ch-k.ch-s0{background:var(--accent)}.ch-k.ch-s1{background:var(--ok)}.ch-k.ch-s2{background:var(--warn)}.ch-k.ch-s3{background:var(--decision)}.ch-k.ch-s4{background:var(--danger)}.ch-k.ch-s5{background:var(--claim)}.ch-k.ch-s6{background:var(--task)}.ch-k.ch-s7{background:var(--muted)}
 .ch-pie{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.ch-pie .ch-svg{width:170px;flex:none}.ch-pie .ch-legend{flex-direction:column;gap:4px}
+${STATUS_CSS}
 .ch-data{margin-top:4px}.ch-data summary{cursor:pointer;font-size:11.5px;color:var(--faint);list-style:none}.ch-data summary::-webkit-details-marker{display:none}.ch-data summary:hover{color:var(--ink)}
 .code-b{position:relative;margin:6px 0;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--bg-subtle)}.code-b>pre{margin:0;border:0;border-radius:0}.code-h{display:flex;align-items:center;justify-content:space-between;padding:3px 6px 3px 10px;border-bottom:1px solid var(--line);font-size:11.5px;color:var(--muted)}.code-copy{all:unset;cursor:pointer;padding:2px 8px;border-radius:6px;font-size:11.5px;color:var(--muted)}.code-copy:hover{background:var(--bg-hover);color:var(--ink)}
 .mem-act{display:none}.mem-on .mem-act{display:inline-flex;width:30px;padding:0;justify-content:center;color:var(--muted)}.mem-on .mem-act:hover{color:var(--ink)}
@@ -1080,6 +1082,8 @@ function renderTextInner(text: string, mentions?: Mention[] | null): string {
     if (i % 3 === 1) return;
     if (i % 3 === 2) {
       const lang = parts[i - 1].trim().toLowerCase();
+      if (lang === "status") return void out.push(statusHtml(part)); // the status card (#1289), made live by the board page
+
       // Code gets a small header with its language and Copy (jxn #1255).
       const code = `<pre><code>${esc(part.replace(/\n$/, ""))}</code></pre>`;
       out.push(lang === "chart" ? chartHtml(part) : `<div class="code-b"><div class="code-h"><span class="mono">${esc(lang.replace(/[^\w+#.-]/g, "").slice(0, 20)) || "code"}</span><button type="button" class="code-copy" data-copy-code aria-label="Copy the code">Copy</button></div>${code}</div>`);
