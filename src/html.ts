@@ -1130,9 +1130,10 @@ function ghostSync(){const H=scroller.clientHeight;if(!ghOn||!H||document.getEle
   for(let i=lo;i<gs.length;i++){if(gs[i].getBoundingClientRect().top>top+H+GH_NEAR*H)break;near.push(+gs[i].dataset.seq)}
   if(near.length)Date.now()>ghPause?ghostFill(near).then(ghostSoon):setTimeout(ghostSoon,ghPause-Date.now()+50);
   // Going back loads older messages before you reach the top (the button stays for keyboards and screen readers).
-  const le=document.getElementById('load-earlier');if(le&&!le.disabled&&Date.now()-ghUser<2000&&le.getBoundingClientRect().bottom>top-H)loadEarlier()}
-// Only the person's own scrolling loads more (a script's scrollTop or synthetic wheel never does).
-let ghUser=0;['wheel','touchmove','pointerdown'].forEach(t=>document.addEventListener(t,e=>{if(e.isTrusted)ghUser=Date.now()},{passive:true,capture:true}));
+  const le=document.getElementById('load-earlier');if(le&&!le.disabled&&!scrub&&Date.now()-ghUser<2000&&le.getBoundingClientRect().bottom>top-H)loadEarlier()}
+// Only the person's own scrolling loads more (a script's scrollTop or synthetic wheel never does). The rail doesn't count:
+// it's the scrollbar of what's loaded, and a tick click must land on its message, not have older ones pushed in above it.
+let ghUser=0;['wheel','touchmove','pointerdown'].forEach(t=>document.addEventListener(t,e=>{if(e.isTrusted&&!e.target.closest?.('#rail'))ghUser=Date.now()},{passive:true,capture:true}));
 document.addEventListener('keydown',e=>{if(e.isTrusted&&/^(Page(Up|Down)|Home|End|Arrow(Up|Down)| )$/.test(e.key))ghUser=Date.now()},true);
 /** Brings these placeholders back as messages (waits for any already on their way). */
 async function ghostFill(seqs){const wait=[],todo=[];for(const s of seqs){const p=GH_BUSY.get(s);if(p)wait.push(p);else if(document.getElementById('g'+s))todo.push(s)}
