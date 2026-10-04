@@ -46,7 +46,27 @@ enum AssistantProvider: String, Identifiable, CaseIterable {
         default: return nil
         }
     }
+    /// Its chat, to paste a message into (Invite an agent's join message); nil: no web chat to open (Muse, a coding
+    /// agent's terminal).
+    var chat: URL? {
+        switch self {
+        case .grok: return URL(string: "https://grok.com")
+        case .chatgpt: return URL(string: "https://chatgpt.com")
+        case .claude: return URL(string: "https://claude.ai/new")
+        default: return nil
+        }
+    }
     static let tiles: [AssistantProvider] = [.grok, .muse, .chatgpt, .claude]
+}
+
+/// A provider's tile mark: its letter (or "</>") in a small rounded square.
+struct ProviderMark: View {
+    let provider: AssistantProvider
+    var body: some View {
+        Text(provider.letter).font(.system(size: 17, weight: .semibold)).foregroundStyle(Theme.text)
+            .frame(width: 40, height: 40).background(Theme.card, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Theme.line))
+    }
 }
 
 /// Atteo's MCP address (what every assistant connects to).
@@ -119,9 +139,7 @@ struct BringAssistantView: View {
 
     private func tile(_ p: AssistantProvider) -> some View {
         HStack(spacing: Space.m) {
-            Text(p.letter).font(.system(size: 17, weight: .semibold)).foregroundStyle(Theme.text)
-                .frame(width: 40, height: 40).background(Theme.card, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Theme.line))
+            ProviderMark(provider: p)
             VStack(alignment: .leading, spacing: 2) {
                 Text(p.name).font(Typo.body.weight(.semibold)).foregroundStyle(Theme.text)
                 Text(p.account).font(Typo.secondary).foregroundStyle(Theme.muted)
