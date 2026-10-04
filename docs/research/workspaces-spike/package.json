@@ -1,0 +1,8 @@
+{
+  "name": "atteo-workspaces-spike",
+  "private": true,
+  "type": "module",
+  "scripts": { "dev": "wrangler dev --port 8798 --inspector-port 9298" },
+  "dependencies": { "@cloudflare/sandbox": "1.0.0" },
+  "devDependencies": { "wrangler": "4.146.0" }
+}
