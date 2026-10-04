@@ -6,13 +6,14 @@
 // shared with the app), else the browser's Accept-Language; English when none of them names one we have.
 
 import { ZH_CN } from "./i18n.zh";
+import { ZH_HANT } from "./i18n.zh-hant";
 
-export type Lang = "en" | "zh-Hans";
-export const LANGS: readonly Lang[] = ["en", "zh-Hans"];
+export type Lang = "en" | "zh-Hans" | "zh-Hant";
+export const LANGS: readonly Lang[] = ["en", "zh-Hans", "zh-Hant"];
 /** Each language in its own words, for the picker. */
-export const LANG_NAMES: Record<Lang, string> = { en: "English", "zh-Hans": "简体中文" };
+export const LANG_NAMES: Record<Lang, string> = { en: "English", "zh-Hans": "简体中文", "zh-Hant": "繁體中文" };
 
-const TABLES: Record<Lang, Record<string, string>> = { en: {}, "zh-Hans": ZH_CN };
+const TABLES: Record<Lang, Record<string, string>> = { en: {}, "zh-Hans": ZH_CN, "zh-Hant": ZH_HANT };
 
 /** `s` in `lang`, with {name} placeholders filled from `vars`. */
 export function tr(lang: Lang | null | undefined, s: string, vars?: Record<string, string | number>): string {
@@ -21,10 +22,11 @@ export function tr(lang: Lang | null | undefined, s: string, vars?: Record<strin
   return out;
 }
 
-/** A supported language from a tag like "zh", "zh-Hans", "zh-Hans-CN" or "en-GB"; null if we don't have it. */
+/** A supported language from a tag like "zh", "zh-CN", "zh-Hans-CN", "zh-TW" or "en-GB"; null if we don't have it. */
 export function matchLang(tag: string | null | undefined): Lang | null {
   const t = (tag ?? "").trim().toLowerCase();
   if (!t) return null;
+  if (t.startsWith("zh-hant") || t.startsWith("zh-tw") || t.startsWith("zh-hk") || t.startsWith("zh-mo")) return "zh-Hant";
   if (t === "zh" || t.startsWith("zh-cn") || t.startsWith("zh-hans") || t.startsWith("zh-sg")) return "zh-Hans";
   if (t === "en" || t.startsWith("en-")) return "en";
   return null;

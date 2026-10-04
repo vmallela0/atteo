@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { fromAcceptLanguage, matchLang, pickLang, tr } from "../src/i18n";
 import { ZH_CN } from "../src/i18n.zh";
+import { ZH_HANT } from "../src/i18n.zh-hant";
 import { boardPage, homePage } from "../src/html";
 import type { BoardInfo, Entry } from "../src/types";
 
@@ -14,16 +15,23 @@ describe("languages (#1646)", () => {
     expect(pickLang("auto", "fr", "de-DE,fr;q=0.5")).toBe("en");
     expect(fromAcceptLanguage("fr-FR, zh-Hans-CN;q=0.7, en;q=0.5")).toBe("zh-Hans");
     expect(fromAcceptLanguage("en;q=0.9, zh;q=0.95")).toBe("zh-Hans");
-    expect(matchLang("zh-TW")).toBe(null); // Traditional isn't here yet: falls through to the next choice
+    expect(matchLang("zh-TW")).toBe("zh-Hant");
+    expect(matchLang("zh-Hant-HK")).toBe("zh-Hant");
+    expect(pickLang("zh-Hant", null, "zh-CN")).toBe("zh-Hant");
+    expect(pickLang("ja", null, "zh-TW")).toBe("zh-Hant"); // a language only the app has yet: the browser's next
+    expect(matchLang("fr")).toBe(null);
   });
 
   it("translates by the English string, fills {placeholders}, and falls back to the English", () => {
     expect(tr("zh-Hans", "Boards")).toBe("看板");
     expect(tr("zh-Hans", "{n}m ago", { n: 5 })).toBe("5 分钟前");
     expect(tr("zh-Hans", "Not in the table")).toBe("Not in the table");
+    expect(tr("zh-Hant", "Members & access")).toBe("成員與權限");
+    expect(tr("zh-Hant", "Your agent")).toBe("你的智能體");
     expect(tr("en", "{name}'s agent", { name: "vedu" })).toBe("vedu's agent");
     expect(tr(undefined, "Boards")).toBe("Boards");
-    for (const [k, v] of Object.entries(ZH_CN)) {
+    expect(Object.keys(ZH_HANT).sort()).toEqual(Object.keys(ZH_CN).sort()); // the two tables cover the same strings
+    for (const [k, v] of [...Object.entries(ZH_CN), ...Object.entries(ZH_HANT)]) {
       // Every {placeholder} in the English is kept in the Chinese.
       for (const ph of k.match(/\{\w+\}/g) ?? []) expect(v, k).toContain(ph);
       expect(v.trim(), k).not.toBe("");

@@ -1,4 +1,4 @@
-// Simplified Chinese (zh-CN) for the interface (i18n.ts): English as written in the code → 简体中文.
+// Simplified Chinese (zh-Hans) for the interface (i18n.ts): English as written in the code → 简体中文.
 // Brand and product names (Grok, Claude Code, Cursor…) stay as they are, so they aren't listed.
 export const ZH_CN: Record<string, string> = {
   "\"join <board>\"": "“加入 <看板>”",
