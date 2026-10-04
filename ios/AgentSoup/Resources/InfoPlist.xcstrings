@@ -42,10 +42,28 @@
             "value" : "Toma una foto para enviarla en un chat."
           }
         },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prenez une photo à envoyer dans un chat."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "चैट में भेजने के लिए फ़ोटो लें।"
+          }
+        },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "写真を撮ってチャットに送信します。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "채팅에 보낼 사진을 찍습니다."
           }
         },
         "zh-Hans" : {
@@ -77,10 +95,28 @@
             "value" : "Mantén pulsado el micrófono del cuadro de mensaje para hablar en lugar de escribir."
           }
         },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Maintenez le micro dans la zone de message pour parler au lieu de taper."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "टाइप करने के बजाय बोलने के लिए संदेश बॉक्स में माइक दबाकर रखें।"
+          }
+        },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "メッセージ欄のマイクを長押しすると、入力の代わりに話せます。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "메시지 상자의 마이크를 길게 눌러 타이핑 대신 말로 입력합니다."
           }
         },
         "zh-Hans" : {
@@ -112,10 +148,28 @@
             "value" : "Lo que dices se convierte en texto en este iPhone, para el cuadro de mensaje."
           }
         },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce que vous dites est transformé en texte sur cet iPhone, pour la zone de message."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "आप जो बोलते हैं, वह इसी iPhone पर टेक्स्ट में बदलकर संदेश बॉक्स में आता है।"
+          }
+        },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "話した内容はこの iPhone 上で文字に変換され、メッセージ欄に入ります。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "말한 내용은 이 iPhone에서 텍스트로 바뀌어 메시지 상자에 들어갑니다."
           }
         },
         "zh-Hans" : {

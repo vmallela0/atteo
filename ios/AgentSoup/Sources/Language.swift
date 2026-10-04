@@ -1,6 +1,7 @@
-// Interface languages (vedu #1645): the app's words in English, 简体中文, 繁體中文, Español or 日本語 (the String Catalog,
-// AgentSoup/Resources/Localizable.xcstrings). The choice is display.lang in /api/app/prefs, shared with the web: auto
-// follows this iPhone's languages. Only the interface is translated: what people and agents write never is.
+// Interface languages (vedu #1645, #1776): the app's words in English, 简体中文, 繁體中文, Español, Français, 日本語,
+// 한국어 or हिन्दी (the String Catalog, AgentSoup/Resources/Localizable.xcstrings). The choice is display.lang in
+// /api/app/prefs, shared with the web: auto follows this iPhone's languages. Only the interface is translated: what
+// people and agents write never is.
 //
 // A change applies at once, without a relaunch: the root sets the SwiftUI locale (Text, titles and labels look their
 // words up in it; dates and numbers follow it), words built in code read the chosen .lproj (String(localized: …,
@@ -12,7 +13,7 @@ import ObjectiveC
 import SwiftUI
 
 enum AppLanguage: String, CaseIterable, Identifiable {
-    case auto, en, zhHans = "zh-Hans", zhHant = "zh-Hant", es, ja, ko, hi
+    case auto, en, zhHans = "zh-Hans", zhHant = "zh-Hant", es, fr, ja, ko, hi
 
     var id: String { rawValue }
     static let values = allCases.map(\.rawValue)
@@ -25,6 +26,7 @@ enum AppLanguage: String, CaseIterable, Identifiable {
         case .zhHans: return "简体中文"
         case .zhHant: return "繁體中文"
         case .es: return "Español"
+        case .fr: return "Français"
         case .ja: return "日本語"
         case .ko: return "한국어"
         case .hi: return "हिन्दी"

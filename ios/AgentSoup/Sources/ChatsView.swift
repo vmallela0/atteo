@@ -329,9 +329,15 @@ struct ChatsSwitch: View {
             if let peopleFirst {
                 let on = peopleFirst.wrappedValue
                 Button { Haptics.play(.touch); withAnimation(.spring(duration: 0.3, bounce: 0.15)) { peopleFirst.wrappedValue.toggle() } } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: on ? "person.fill" : "person").font(.system(size: 10, weight: .semibold))
-                        Text("People first").font(Typo.meta.weight(.semibold))
+                    // One line; where the words don't fit beside the switch (French: « Les personnes d’abord » next to
+                    // « Messages directs »), just the person.
+                    let icon = Image(systemName: on ? "person.fill" : "person")
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 4) {
+                            icon.font(.system(size: 10, weight: .semibold))
+                            Text("People first").font(Typo.meta.weight(.semibold)).lineLimit(1)
+                        }
+                        icon.font(.system(size: 13, weight: .semibold))
                     }
                     .foregroundStyle(on ? Theme.onText : Theme.muted)
                     .padding(.horizontal, Space.m).frame(minHeight: 30)
@@ -340,6 +346,7 @@ struct ChatsSwitch: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("people-first")
+                .accessibilityLabel(Text("People first"))
                 .accessibilityHint(Text("Chats with other people, the ones where a person wrote last first"))
                 .accessibilityAddTraits(on ? .isSelected : [])
             }
@@ -351,7 +358,8 @@ struct ChatsSwitch: View {
     private func item(_ key: String, _ label: String, _ n: Int) -> some View {
         Button { withAnimation(.spring(duration: 0.3, bounce: 0.15)) { tab = key } } label: {
             HStack(spacing: 6) {
-                Text(label).font(Typo.meta.weight(.semibold))
+                // Never wraps (French « Messages directs » broke over three lines): the People first pill gives way.
+                Text(label).font(Typo.meta.weight(.semibold)).lineLimit(1).fixedSize()
                 if n > 0 { CountBadge(n: n) }
             }
             .foregroundStyle(tab == key ? Theme.text : Theme.muted)

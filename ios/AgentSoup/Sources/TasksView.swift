@@ -247,7 +247,15 @@ enum TaskFilter: String, CaseIterable, Identifiable {
 enum TaskGroup: String, CaseIterable, Identifiable {
     case doing, open, done
     var id: String { rawValue }
-    var title: String { self == .doing ? String(localized: "In progress", bundle: .l10n) : self == .open ? String(localized: "Open", bundle: .l10n) : String(localized: "Done", bundle: .l10n) }
+    var title: String {
+        switch self {
+        case .doing: return String(localized: "In progress", bundle: .l10n)
+        // Its own key: "Open" is the verb (Ouvrir, खोलें, 打开…), this is the state.
+        case .open: return String(localized: "task-group.open", defaultValue: "Open", bundle: .l10n,
+                                  comment: "A group in the task list: not started yet (to do, and blocked); not the verb")
+        case .done: return String(localized: "Done", bundle: .l10n)
+        }
+    }
     func holds(_ t: WorkTask) -> Bool { self == .doing ? t.status == "doing" : self == .done ? t.isDone : !(t.status == "doing" || t.isDone) }
     /// In progress: latest first. Open: blocked first, then by priority, oldest first. Done: latest first.
     func sort(_ a: WorkTask, _ b: WorkTask) -> Bool {
