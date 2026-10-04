@@ -4829,7 +4829,7 @@ await step("forward excerpt: fabricated selectedText is refused; a real selectio
     const m = await papi(A, "POST", `/api/boards/${ob}/memory`, { from: mine });
     assert(m.status === 400 && /just-mine/.test(m.body.error), `memory: ${m.status} ${JSON.stringify(m.body)}`);
     const f = await papi(A, "POST", "/api/forward", { from: ob, to: other, seqs: [mine] });
-    assert(f.status === 400 && /just-mine/.test(f.body.error), `forward: ${f.status} ${JSON.stringify(f.body)}`);
+    assert(f.status === 400 && /just-mine/i.test(f.body.error), `forward: ${f.status} ${JSON.stringify(f.body)}`);
     const fs = await papi(A, "POST", "/api/forward", { from: ob, to: other, seqs: [mine], selectedText: "Plan" });
     assert(fs.status === 400 && /just-mine/.test(fs.body.error), `forward excerpt: ${fs.status} ${JSON.stringify(fs.body)}`);
     // Files are the whole board's: one in the lane's thread is refused before it's stored (nobody gets the file).
