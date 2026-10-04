@@ -981,8 +981,9 @@ async function loadEarlier(until){const b=document.getElementById('load-earlier'
   renderClaims(CLAIMS);
   if(j.first>1){b.dataset.before=j.first;b.disabled=false}else b.remove();sc.scrollTop+=sc.scrollHeight-h0;railBuild()}
 document.getElementById('load-earlier')?.addEventListener('click',()=>loadEarlier());
-document.addEventListener('click',async e=>{const a=e.target.closest('a[href^="#e"]');if(a)usr();if(!a||document.getElementById(a.getAttribute('href').slice(1)))return;e.preventDefault();
-  const seq=+a.getAttribute('href').slice(2);if(await ensureEntry(seq))location.hash='#e'+seq;else toast('#'+seq+' was not found')});
+// A link to a message (a ↗ chip, #N, a summary row) goes there smoothly: centered on screen, with a brief tint (jxn #1326).
+document.addEventListener('click',async e=>{const a=e.target.closest('a[href^="#e"]');if(a)usr();if(!a||e.defaultPrevented||e.metaKey||e.ctrlKey||a.closest('.thr-dlg'))return;
+  const seq=+a.getAttribute('href').slice(2);if(!seq)return;e.preventDefault();await window.BOARD_CTX.jump(seq);try{history.replaceState(null,'','#e'+seq)}catch(err){}});
 /** Makes sure #seq is on the page (loading earlier messages if needed); false if it doesn't exist. */
 window.ensureEntry=async seq=>{for(let i=0;i<20&&!document.getElementById('e'+seq)&&document.getElementById('load-earlier');i++)await loadEarlier(seq);return !!document.getElementById('e'+seq)};
 // The thread scrolls in its own area, opens at the latest entry and stays pinned to the bottom (new entries, images,
@@ -1794,7 +1795,7 @@ document.getElementById('fwd-send').addEventListener('click',async e=>{const b=e
 window.BOARD_CTX={id:BOARD,me:ME,members:MEMBERS,
   async jump(seq){if(!(await ensureEntry(seq))){toast('#'+seq+' was not found');return}const el=document.getElementById('e'+seq);
     if(document.getElementById('panel-conv').hidden)tab(0);if(el.closest('.replies')){openThread(+el.closest('#thread>.entry').dataset.seq,{focus:seq});return}
-    document.querySelectorAll('#thread .entry.hit').forEach(x=>x.classList.remove('hit'));el.classList.add('hit');pinned=false;el.scrollIntoView({block:'center'});moved=true;setTimeout(()=>el.classList.remove('hit'),4000)},
+    document.querySelectorAll('#thread .entry.hit').forEach(x=>x.classList.remove('hit'));el.classList.add('hit');pinned=false;el.scrollIntoView({block:'center',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});moved=true;setTimeout(()=>el.classList.remove('hit'),2200)},
   openFile(name,v){tab(2);openDoc(name,v)}};
 document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&!e.altKey&&!e.shiftKey&&e.key.toLowerCase()==='f'&&!document.querySelector('dialog[open]:not(#palette)')){e.preventDefault();window.openPalette([{k:'board'},{k:'kind',v:'messages'}])}},true);
 // ---- threads: replies fold into "N replies" under their message; clicking it opens the thread right there, in the chat ----
