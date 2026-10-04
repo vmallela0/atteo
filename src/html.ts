@@ -1548,18 +1548,48 @@ async function react(seq,emoji){const r=await fetch('/api/boards/'+BOARD+'/entri
 // and the categories. A popover by the button; a bottom sheet on phones. Typing searches, arrows move, Enter picks, Esc closes.
 const EMO=${jsString(EMOJI)}.map(([t,i,s])=>[t,i,s.split('|').map(x=>{const w=x.split(' ');return {e:w[0],n:w[1],k:w.slice(1)}})]);
 const EMN={};EMO.forEach(c=>c[2].forEach(x=>{EMN[x.e]=x.n}));for(const k in SHORT)if(!EMN[SHORT[k]])EMN[SHORT[k]]=k;
-// Your row and your counts live in this browser for now (the profile will hold the row later): only quickGet/quickSet touch it.
+// Your row follows you (vedu #1163, #1166): the server holds it (GET/POST /api/app/prefs, reactions: the field the app reads too) and
+// this browser keeps a copy, so the row draws at once and works offline. Only quickGet/quickSet touch it. A change is written
+// through and retried quietly until it lands; a read-only page keeps it here alone (marked unsent, so the next page that syncs sends it).
+// Your counts (freq) stay in this browser; recent_reactions (your most-used on every device) comes with the prefs.
 function rxKey(k){return 'atteo.rx.'+k+'.'+ME}
-function quickGet(){try{const v=JSON.parse(localStorage.getItem(rxKey('quick'))||'[]');return Array.isArray(v)?v.filter(x=>typeof x==='string'&&x&&x.length<16).slice(0,8):[]}catch(e){return []}}
-function quickSet(list){try{list&&list.length?localStorage.setItem(rxKey('quick'),JSON.stringify(list.slice(0,8))):localStorage.removeItem(rxKey('quick'))}catch(e){}quickApply()}
+function rxLoad(k,d){try{const v=JSON.parse(localStorage.getItem(rxKey(k))||'null');return v==null?d:v}catch(e){return d}}
+function rxSave(k,v){try{v==null?localStorage.removeItem(rxKey(k)):localStorage.setItem(rxKey(k),JSON.stringify(v))}catch(e){}}
+const rxList=v=>Array.isArray(v)?[...new Set(v.filter(x=>typeof x==='string'&&x&&x.length<16))].slice(0,8):[];
+const rxSame=(a,b)=>a.length===b.length&&a.every((x,i)=>x===b[i]);
+function quickGet(){return rxList(rxLoad('quick',[]))}
+function recentGet(){return rxList(rxLoad('recent',[]))}
+function quickSet(list){list=rxList(list);rxSave('quick',list.length?list:null);rxSave('dirty',1);quickApply();rxPush()}
+let RX_SYNC=${readOnly ? "false" : "true"}&&!!ME,rxT=0,rxWait=0,rxBusy=false,rxGot=0;
+/** The server's prefs onto this browser. The server says the default preset until you choose (or after Reset): here that's "none
+ *  chosen", so your most-used fill the row. A row chosen here before it synced (and still unsent) goes up instead of being replaced. */
+function rxTake(p){if(!p)return;rxGot=Date.now();rxSave('recent',rxList(p.recent_reactions));
+  if(!rxLoad('dirty',0)){const srv=rxList(p.reactions),here=quickGet(),none=rxSame(srv,QUICK);
+    if(none&&here.length&&!rxLoad('synced',0))rxSave('dirty',1); // a row from before the server held it: send it up
+    else{rxSave('quick',none?(rxSame(here,QUICK)?here:null):srv);rxSave('synced',1)}}
+  quickApply();if(rxLoad('dirty',0))rxPush()}
+function rxOff(){RX_SYNC=false;clearTimeout(rxT)}
+async function rxPull(){if(!RX_SYNC||rxBusy)return;try{const r=await fetch('/api/app/prefs',{cache:'no-store'});
+  if(r.status===401||r.status===403){rxOff();return}if(r.ok)rxTake((await r.json()).prefs)}catch(e){}}
+function rxPush(wait){if(!RX_SYNC)return;clearTimeout(rxT);rxT=setTimeout(rxSend,wait==null?400:wait)}
+async function rxSend(leaving){if(!RX_SYNC||!rxLoad('dirty',0))return;if(rxBusy&&!leaving){rxPush();return}const list=quickGet();rxBusy=true;let r=null;
+  try{r=await fetch('/api/app/prefs',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({reactions:list.length?list:null}),keepalive:!!leaving})}catch(e){}
+  rxBusy=false;
+  if(r&&(r.status===401||r.status===403)){rxOff();return}
+  if(!r||r.status>=500||r.status===429){rxWait=Math.min(60000,rxWait?rxWait*2:2000);rxPush(rxWait);return} // offline or a hiccup: keep it, try again
+  rxWait=0;const j=await r.json().catch(()=>({}));
+  if(!rxSame(quickGet(),list)){rxPush(0);return} // changed while it was sending: send the newer one
+  rxSave('dirty',null);if(r.ok){rxSave('synced',1);rxTake(j.prefs)}} // a refusal (never expected: every picker emoji passes) keeps yours here
+addEventListener('online',()=>{if(rxLoad('dirty',0))rxPush(0)});addEventListener('pagehide',()=>{clearTimeout(rxT);rxSend(true)}); // leaving within the pause: send it now
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState!=='visible')return;if(rxLoad('dirty',0))rxPush(0);else if(Date.now()-rxGot>30000)rxPull()});
 function freqGet(){try{const v=JSON.parse(localStorage.getItem(rxKey('freq'))||'{}');return v&&typeof v==='object'&&!Array.isArray(v)?v:{}}catch(e){return {}}}
 function freqTop(n){const f=freqGet(),c=k=>Array.isArray(f[k])?+f[k][0]||0:0,t=k=>Array.isArray(f[k])?+f[k][1]||0:0;
   return Object.keys(f).filter(k=>c(k)>0&&k.length<16).sort((a,b)=>c(b)-c(a)||t(b)-t(a)).slice(0,n)}
 function freqAdd(e){const f=freqGet(),o=Array.isArray(f[e])?f[e]:[0,0];f[e]=[(+o[0]||0)+1,Date.now()];
   const ks=Object.keys(f);if(ks.length>60)for(const k of freqTop(ks.length).slice(60))delete f[k]; // keep it small
   try{localStorage.setItem(rxKey('freq'),JSON.stringify(f))}catch(x){}}
-/** Your row of 8: the ones you chose, in your order; then your most-used; then the defaults. */
-function quickRow(){const out=[];for(const e of [...quickGet(),...freqTop(8),...QUICK])if(!out.includes(e)&&out.length<8)out.push(e);return out}
+/** Your row of 8: the ones you chose, in your order; then your most-used (every device's, then this browser's); then the defaults. */
+function quickRow(){const out=[];for(const e of [...quickGet(),...recentGet(),...freqTop(8),...QUICK])if(!out.includes(e)&&out.length<8)out.push(e);return out}
 /** The 3 one-click buttons on each message (server-rendered 👍 ✅ 🤔) become the first 3 of your row. */
 function quickApply(root){const q=quickRow().slice(0,3);root=root||document;
   (root.matches&&root.matches('.acts')?[root]:root.querySelectorAll('.acts')).forEach(a=>a.querySelectorAll('.rx-q').forEach((b,i)=>{const e=q[i];if(!e||b.dataset.emo===e)return;
@@ -1583,7 +1613,7 @@ function rpFind(q){q=q.toLowerCase().trim().replace(/^:+|:+$/g,'').replace(/ +/g
   if(al&&!hits.some(h=>h[1]===al))hits.unshift([-1,al]);return hits.sort((a,b)=>a[0]-b[0]).map(h=>h[1])}
 function rpRender(){const q=rpQ.value,hits=rpFind(q);rpCur=null;picker.classList.toggle('searching',!!hits);
   if(hits){rpBody.innerHTML=hits.length?rpSec('Search results',hits.slice(0,72)):'<div class="rp-none">No emoji match “'+esc(q.trim())+'”</div>';const f=rpBody.querySelector('[data-ep]');if(f)rpHi(f,true);else rpShow('');return}
-  const fr=freqTop(16);rpBody.innerHTML=rpSec('Frequently used',[...new Set([...fr,...QUICK])].slice(0,Math.max(8,fr.length)),0)+EMO.map((c,i)=>rpSec(c[0],c[2].map(x=>x.e),i+1)).join('');rpBody.scrollTop=0;rpShow('')}
+  const fr=[...new Set([...recentGet(),...freqTop(16)])].slice(0,16);rpBody.innerHTML=rpSec('Frequently used',[...new Set([...fr,...QUICK])].slice(0,Math.max(8,fr.length)),0)+EMO.map((c,i)=>rpSec(c[0],c[2].map(x=>x.e),i+1)).join('');rpBody.scrollTop=0;rpShow('')}
 function rpQuick(){const mine=quickGet(),row=quickRow(),cz=picker.classList.contains('cz');
   rpQEl.innerHTML=row.map((e,i)=>cz?'<button type="button" class="rp-e rp-slot '+(i<mine.length?'pin':'auto')+(i===czSel?' sel':'')+'" data-slot="'+i+'" draggable="'+(i<mine.length)+'" aria-pressed="'+(i===czSel)+'" aria-label="'+(i<mine.length?(i+1)+': '+esc(e):'Most used '+esc(e)+', tap to keep it')+'">'+esc(e)+'</button>'
     :'<button type="button" class="rp-e'+(rpMine.has(e)?' on':'')+'" data-pick="'+esc(e)+'" aria-label="React '+esc(e)+'">'+esc(e)+'</button>').join('');
@@ -1636,7 +1666,7 @@ window.addEventListener('keydown',e=>{if(picker.hidden||e.isComposing)return;con
   if((k.length===1||k==='Backspace')&&!e.ctrlKey&&!e.metaKey&&!e.altKey&&document.activeElement!==rpQ)rpQ.focus({preventScroll:true})},true);
 addEventListener('resize',rpFit);window.visualViewport?.addEventListener('resize',rpFit);
 scroller.addEventListener('scroll',()=>{if(!picker.hidden&&!picker.classList.contains('sheet'))closePicker()},{passive:true});
-quickApply();new MutationObserver(ms=>{for(const m of ms)for(const n of m.addedNodes)if(n.nodeType===1&&n.querySelector&&n.querySelector('.rx-q'))quickApply(n)}).observe(document.body,{childList:true,subtree:true});
+quickApply();if(rxLoad('dirty',0))rxPush(0);else rxPull();new MutationObserver(ms=>{for(const m of ms)for(const n of m.addedNodes)if(n.nodeType===1&&n.querySelector&&n.querySelector('.rx-q'))quickApply(n)}).observe(document.body,{childList:true,subtree:true});
 // quick reactions from the hover actions; and who reacted, in a small card over a chip
 document.addEventListener('click',e=>{const q=e.target.closest('[data-qr]');if(q){react(+q.dataset.qr,q.dataset.emo);q.blur()}});
 const rxTip=document.createElement('div');rxTip.className='rx-tip';rxTip.hidden=true;rxTip.setAttribute('role','tooltip');document.body.appendChild(rxTip);
