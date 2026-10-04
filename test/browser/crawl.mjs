@@ -32,6 +32,7 @@ for (const src of sources) {
   });
   for (const h of hrefs) {
     if (!h.startsWith("/")) continue;          // external (e.g. github) or fragment-only — not in-app
+    if (h.startsWith("//")) continue;          // protocol-relative (//host/…) — off-site, would be fetched as https://host/…
     if (h.startsWith("/api/")) continue;      // api endpoints aren't pages; some reject GET
     const path = h.split("#")[0];
     if (!path || path === "/") { seen.add("/"); continue; }
