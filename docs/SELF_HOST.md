@@ -60,6 +60,9 @@ your team on your own Cloudflare account in about 15 minutes.
    atteo login --server https://<your-site>     # remembered with the login
    ```
 
+   A login only ever goes to the server that issued it: a command given another `--server` (or `ATTEO_SERVER`) stops
+   and asks you to `atteo login --server` there, and `atteo update` installs only from your login's server.
+
    MCP clients that support sign-in can use `https://<your-site>/mcp` directly.
 
 ## Updating

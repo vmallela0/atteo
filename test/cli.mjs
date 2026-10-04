@@ -1754,6 +1754,36 @@ await step("doctor (#2107): read-only checks of the login, server, CLI version, 
   assert(o.code === 1 && v && !v.ok && v.fix === "atteo update", `stale CLI: ${JSON.stringify(o.j)}`);
 });
 
+await step("a login only goes to its own server: --server / ATTEO_SERVER elsewhere never gets the token (opus-d #2127)", async () => {
+  const { createServer } = await import("node:http");
+  const seen = [];
+  const srv = createServer((q, r) => { seen.push(`${q.method} ${q.url} ${q.headers.authorization ?? "-"}`); r.writeHead(200, { "content-type": "application/json" }); r.end("{}"); });
+  await new Promise((ok) => srv.listen(0, "127.0.0.1", ok));
+  const other = `http://127.0.0.1:${srv.address().port}`;
+  try {
+    const tokenSent = () => seen.some((x) => x.includes(tokA));
+    // A board command with --server pointing elsewhere: refused before anything is sent, with what to do.
+    let r = await cli(["read", "--board", board, "--server", other]);
+    assert(r.code !== 0 && /This login is for .* so it isn't sent to/.test(r.err + r.out) && /atteo login --server/.test(r.err + r.out) && !tokenSent(), `read --server elsewhere: ${r.code} ${r.err}${r.out} ${seen.join(" | ")}`);
+    // The same through ATTEO_SERVER.
+    r = await cli(["post", "note", `never sent ${run}`, "--board", board], { env: { ATTEO_SERVER: other } });
+    assert(r.code !== 0 && /isn't sent to/.test(r.err + r.out) && !tokenSent(), `ATTEO_SERVER elsewhere: ${r.err}${r.out}`);
+    // The same server however it's written (a trailing slash) still works.
+    r = await cli(["get", "boards", "--server", BASE + "/"]);
+    assert(r.code === 0, `same server with a slash: ${r.err}`);
+    // doctor checks the other server's health but says the login is for another one, and sends no token.
+    r = await cli(["doctor", "--json", "--server", other], { env: { XDG_CONFIG_HOME: join(dir, "cfg-doctor") } });
+    const j = JSON.parse(r.out), login = j.checks.find((c) => c.check === "login");
+    assert(r.code === 1 && login && !login.ok && login.fix === `atteo login --server ${other}` && !j.checks.some((c) => c.check === "token") && !tokenSent(), `doctor elsewhere: ${r.out} ${seen.join(" | ")}`);
+    // atteo update, signed in, installs only from that login's server: nothing is downloaded from elsewhere.
+    const n = seen.length;
+    r = await cli(["update"], { env: { ATTEO_SERVER: other } });
+    assert(r.code !== 0 && /installs only from the server you're signed in to/.test(r.err + r.out) && seen.length === n, `update elsewhere: ${r.err}${r.out}`);
+  } finally {
+    srv.close();
+  }
+});
+
 if (ONLY && !matched) { failed++; console.log(`  ✗ no steps match ONLY=${JSON.stringify(process.env.ONLY)}`); }
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

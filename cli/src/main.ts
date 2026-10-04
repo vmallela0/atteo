@@ -18,7 +18,7 @@ import { entryKey, FORK_TOOLS, forkName, forkPrompt, needsFork, type Mail } from
 import { agentCommand, HARNESSES, splitCommand } from "./harness";
 import { myKey } from "./sealed";
 import { doctorCmd, forgetSession, HELP_AGENTS, mentionLine, prepare, session as agentSessionFor, V2, versionCheck } from "./v2";
-import { load, remove, save, storeName, type Credentials } from "./credentials";
+import { load, loadFor, remove, save, storeName, type Credentials } from "./credentials";
 
 const VERSION = "0.1.0";
 const DEFAULT_SERVER = "https://atteo.dev";
@@ -279,8 +279,8 @@ interface Rpc {
 }
 
 async function mcp(args: string[]) {
-  let creds = load();
-  const server = serverFrom(args, creds);
+  const server = serverFrom(args, load());
+  let creds = loadFor(server); // a login from another server never goes here (sameServer)
   let sessionId: string | null = null;
   let relogin: Promise<Credentials> | null = null;
   let pendingLink: string | null = null;
@@ -419,7 +419,7 @@ async function mcp(args: string[]) {
         });
         if (hit) return toolText(msg.id, blockedMessage(hit) + " (Caught on this machine; nothing was sent.)");
         if (!creds || creds.expires_at < Date.now()) {
-          creds = load(); // another terminal may have signed in
+          creds = loadFor(server); // another terminal may have signed in
           if (!creds || creds.expires_at < Date.now()) return needLogin(msg.id);
         }
       }
@@ -442,7 +442,7 @@ async function mcp(args: string[]) {
         return write(await (await forward(msg)).json());
       }
       if (body.result?.isError && /login has expired|not valid|Not signed in/.test(text)) {
-        creds = load();
+        creds = loadFor(server);
         if (creds && creds.expires_at > Date.now()) return write(await (await forward(msg)).json());
         return needLogin(msg.id);
       }
@@ -523,8 +523,8 @@ async function watch(args: string[]) {
     console.error("Another atteo watch or dispatch is already running on this machine (see: atteo watch --status).");
     process.exit(0);
   }
-  let creds = load();
-  const server = serverFrom(args, creds);
+  const server = serverFrom(args, load());
+  let creds = loadFor(server); // a login from another server never goes here (sameServer)
   const respond = flag("--respond");
   const { boardDirs, dirFor } = answerDirs(opt("--dir"), opts("--board-dir"));
   // Which agent answers: --agent <preset> (claude, codex, gemini, cursor, opencode) or --agent-cmd "<command> {prompt}".
@@ -628,7 +628,7 @@ async function watch(args: string[]) {
   }
 
   const refresh = async () => {
-    creds = load() ?? creds;
+    creds = loadFor(server) ?? creds;
     if (!creds || creds.expires_at < Date.now()) {
       // As a background service we can't prompt; nudge once an hour until someone signs in again.
       if (Date.now() - nagged > 3600_000) {
@@ -710,8 +710,8 @@ async function dispatch(args: string[]) {
     console.error("Another atteo watch or dispatch is already running on this machine (see: atteo watch --status).");
     process.exit(0);
   }
-  let creds = load();
-  const o = { server: serverFrom(args, creds) };
+  const o = { server: serverFrom(args, load()) };
+  let creds = loadFor(o.server); // a login from another server never goes there (sameServer)
   const log = (event: Record<string, unknown>, line: string) => console.log(asJson ? JSON.stringify({ ts: new Date().toISOString(), ...event }) : `${new Date().toISOString()}  ${line}`);
   const who = (m: Mail) => (m.from_via === "agent" ? `${m.from}'s agent` : m.from);
   const where = (m: Mail) => (m.board ? ` on "${m.board_title ?? m.board}" (#${m.seq})` : "");
@@ -818,7 +818,7 @@ async function dispatch(args: string[]) {
   }
   if (creds) log({ event: "start", user: creds.user, agent: nameOf(first), max, max_per_hour: maxPerHour }, `Dispatching for ${creds.user}: each message for your agent gets its own session running ${nameOf(first)} (up to ${max} at once, ${maxPerHour}/hour).`);
   for (;;) {
-    creds = load() ?? creds;
+    creds = loadFor(o.server) ?? creds;
     if (!creds || creds.expires_at < Date.now()) {
       if (once) throw new CliError("Not signed in (or the login expired). Run: atteo login");
       // As a background service we can't prompt; nudge once an hour until someone signs in again.
