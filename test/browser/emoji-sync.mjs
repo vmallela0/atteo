@@ -39,7 +39,8 @@ const errors = [];
 const open = async (c = ck, init) => {
   const ctx = await b.newContext({ viewport: { width: 1300, height: 900 } });
   await ctx.addCookies([cookieOf(c)]);
-  if (init) await ctx.addInitScript(init);
+  // Only in the page itself: the HTML preview's sandboxed iframe (no allow-same-origin) throws on any localStorage access.
+  if (init) await ctx.addInitScript(`if (window.top === window) { ${init} }`);
   const p = await ctx.newPage();
   p.on("pageerror", (e) => errors.push(e.message));
   return { ctx, p };
