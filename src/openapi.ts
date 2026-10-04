@@ -157,6 +157,8 @@ export function openapi(origin: string) {
       "/api/boards": { post: { summary: "Create a board", requestBody: body(obj({ title: str, encrypted: bool }, ["title"])), responses: { "201": ok("board", obj({ board: obj({ id: str, title: str, encrypted: bool, picture: str }) })), "402": ok("Plan limit"), ...errors } } },
       "/api/boards/{id}/rename": { post: { summary: "Rename a board (owner or creator)", parameters: [id], requestBody: body(obj({ title: str }, ["title"])), responses: { "200": ok("ok, title, message"), "403": ok("Owner required"), ...errors } } },
       "/api/boards/{id}/archive": { post: { summary: "Archive or restore a board (owner or creator)", parameters: [id], requestBody: body(obj({ archived: bool })), responses: { "200": ok("ok, archived, message"), "403": ok("Owner required"), ...errors } } },
+      "/api/boards/{id}/unarchive": { post: { summary: "Unarchive a board (owner or creator); same as archive with archived false", parameters: [id], responses: { "200": ok("ok, archived: false, message"), "403": ok("Owner required"), ...errors } } },
+      "/api/boards/{id}/restore": { post: { summary: "Restore a soft-deleted board (creator only, within 30 days)", parameters: [id], responses: { "200": ok("ok, deleted: false, message"), "403": ok("Only the creator can restore"), "404": errors["404"], "410": ok("Deleted more than 30 days ago") } } },
       "/api/boards/{id}/delete": { post: { summary: "Delete a board (creator only)", parameters: [id], requestBody: body(obj({ confirm: str }, ["confirm"])), responses: { "200": ok("ok, message"), "403": ok("Creator required"), ...errors } } },
       "/api/boards/{id}/picture": { post: { security: person, summary: "Set board picture from raw image bytes (people only; not direct boards)", parameters: [id], requestBody: { required: true, content: { "image/png": { schema: { type: "string", format: "binary" } }, "image/jpeg": { schema: { type: "string", format: "binary" } }, "image/webp": { schema: { type: "string", format: "binary" } } } }, responses: { "200": ok("ok, picture"), "403": ok("Agent token, viewer, or archived board"), "413": ok("Image too large"), ...errors } }, delete: { security: person, summary: "Remove board picture", parameters: [id], responses: { "200": ok("ok, picture: null"), "403": personErrors["403"], ...errors } } },
       "/api/boards/{id}/members": { get: { summary: "Board members and your role; each member includes agent_name", parameters: [id], responses: { "200": ok("members, you", obj({ members: arr(ref("BoardMember")), you: str })), ...errors } } },
@@ -269,7 +271,10 @@ export function openapi(origin: string) {
           responses: { "201": ok("entry, update"), ...errors, "400": ok("No files, more than 10, a secret, or refused (e.g. an encrypted board)"), "413": ok("A file over 1.5 MB, or over 15 MB together") },
         },
       },
-      "/api/boards/{id}": { get: { summary: "One board: its info, your role and its pinned doc", parameters: [id], responses: { "200": ok("board", obj({ board: obj({ id: str, title: str, created_by: str, last_seq: int, encrypted: { type: "boolean" }, archived: { type: "boolean" }, role: str, pinned: { $ref: "#/components/schemas/PinnedDoc" } }) })), ...errors } } },
+      "/api/boards/{id}": {
+        get: { summary: "One board: its info, your role and its pinned doc", parameters: [id], responses: { "200": ok("board", obj({ board: obj({ id: str, title: str, created_by: str, last_seq: int, encrypted: { type: "boolean" }, archived: { type: "boolean" }, role: str, pinned: { $ref: "#/components/schemas/PinnedDoc" } }) })), ...errors } },
+        delete: { summary: "Soft-delete a board (creator only; restorable for 30 days)", parameters: [id], responses: { "200": ok("ok, deleted, restorable_until, message"), "403": ok("Only the creator can delete"), ...errors, "400": ok("Direct or agent chat cannot be deleted") } },
+      },
       "/api/boards/{id}/pin": {
         get: { summary: "The board's pinned doc (its source of truth), or null", parameters: [id], responses: { "200": ok("pinned", obj({ pinned: { $ref: "#/components/schemas/PinnedDoc" } })), ...errors } },
         post: {
@@ -403,6 +408,10 @@ export function openapi(origin: string) {
       "/api/ops/sessions": { post: { security: operator, summary: "Issue an operator test browser session", requestBody: body(obj({ user: str, verified: bool }, ["user"])), responses: { "201": ok("cookie"), "404": errors["404"] } } },
       "/api/ops/policies": { get: { security: operator, summary: "Organization policies", responses: { "200": ok("policies"), "404": errors["404"] } }, post: { security: operator, summary: "Set or delete an organization policy", requestBody: body(obj({ domain: str, delete: bool, require_sso: bool, max_retention_days: int, allow_outside_members: bool }, ["domain"])), responses: { "200": ok("ok"), "400": errors["400"], "404": errors["404"] } } },
       "/api/ops/prune": { post: { security: operator, summary: "Prune a board before a timestamp", requestBody: body(obj({ board: str, before: int }, ["board"])), responses: { "200": ok("ok, pruned"), ...errors } } },
+      "/api/ops/limits": {
+        get: { security: operator, summary: "Free-plan guardrail limits and load-shed level for this isolate", responses: { "200": ok("limits, shed"), "404": errors["404"] } },
+        post: { security: operator, summary: "Override limits for tests ({reset: true} clears), or set shed 0–2", requestBody: body(obj({ reset: bool, shed: int })), responses: { "200": ok("limits, shed"), "404": errors["404"] } },
+      },
       "/api/ops/cron": { post: { security: operator, summary: "Run scheduled maintenance at an optional timestamp", requestBody: body(obj({ now: int })), responses: { "200": ok("ok and scheduled-run counts"), "404": errors["404"] } } },
       "/api/ops/seed": { post: { security: operator, summary: "Seed board entries for testing", requestBody: body(obj({ user: str, board: str, count: int, prefix: str }, ["user", "board"])), responses: { "200": ok("ok, count"), ...errors } } },
       "/api/ops/session-seen": { post: { security: operator, summary: "Set a test session's last_seen", requestBody: body(obj({ session: str, last_seen: int }, ["session", "last_seen"])), responses: { "200": ok("ok"), ...errors } } },
