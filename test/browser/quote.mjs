@@ -81,4 +81,28 @@ for(const [label,w,h,phone] of [["desktop",1280,800,false],["phone",390,844,true
   check(await p.locator(`#e${seq} blockquote.qt .qt-go[href="#e${src}"]`).count()===1,`${label}: the box renders the same after a reload`);
   check(errors.length===0,`${label}: no page errors ${errors.join(" | ")}`);await ctx.close();
 }
+// Ref chip in a selection quotes #N, not the visible title (board #1820, #1443).
+{const run2=Date.now().toString(36).slice(-4),C=`qc${run2}`;
+for(const u of [C])await ops("users",{name:u,email:`${u}@example.com`,verified:"true"});
+const tokC=(await ops("tokens",{user:C})).token;
+const board2=(await ops("boards",{user:C,title:`Quote ref ${run2}`})).board.id;
+const ckC=(await ops("sessions",{user:C})).cookie;
+const mcp2=async(name,args)=>(await (await fetch(`${BASE}/mcp?board=${board2}`,{method:"POST",headers:{"content-type":"application/json",accept:"application/json, text/event-stream",authorization:`Bearer ${tokC}`},body:JSON.stringify({jsonrpc:"2.0",id:1,method:"tools/call",params:{name,arguments:args}})})).json()).result.content[0].text;
+await mcp2("read",{});const tgt=+(await mcp2("post",{type:"decision",title:"Ship on Friday",text:"We ship on Friday."})).match(/#(\d+)/)[1];
+const refSeq=+(await mcp2("post",{type:"note",text:`Following up on #${tgt}: all set.`})).match(/#(\d+)/)[1];
+const chipTitle="↗ Ship on Friday";
+const ctx=await b.newContext({viewport:{width:1280,height:800}});const [k,...v]=ckC.split(";")[0].split("=");await ctx.addCookies([{name:k,value:v.join("="),url:BASE}]);
+const p=await ctx.newPage();const errors=[];p.on("pageerror",e=>errors.push(e.message));
+await p.goto(`${BASE}/b/${board2}`);await p.waitForTimeout(800);
+check((await p.evaluate(()=>[...document.querySelectorAll('#thread .body a.ref')].map(a=>a.textContent)))[0]===chipTitle,`ref chip shows the title (${chipTitle})`);
+await p.evaluate(s=>{const body=document.querySelector('#e'+s+'>.grow>.body'),r=document.createRange();r.selectNodeContents(body);getSelection().removeAllRanges();getSelection().addRange(r)},refSeq);
+await p.waitForTimeout(300);
+const qb=p.locator("#quote-btn");check(await qb.isVisible(),"selecting a message with a ref chip shows Quote");
+await qb.click();await p.waitForTimeout(250);
+await p.locator("#composer-text").pressSequentially("noted");await p.keyboard.press("Enter");await p.waitForTimeout(900);
+const posted=+(await p.locator("#thread>.entry").last().getAttribute("data-seq"));
+const got=await mcp2("get",{seq:posted});
+check(got.includes(`#${tgt}`)&&!got.includes(chipTitle),`posted quote has #${tgt}, not the chip title (${JSON.stringify(got.slice(0,120))})`);
+check(got.includes(`> Following up on #${tgt}: all set.`),"…with the #N in the quoted line");
+check(errors.length===0,`ref chip quote: no page errors ${errors.join(" | ")}`);await ctx.close()}
 await b.close();console.log(fails?`${fails} FAILED`:"all quote checks passed");process.exit(fails?1:0);

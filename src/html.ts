@@ -1559,9 +1559,11 @@ ta.addEventListener('keydown',e=>{if(e.key==='Escape'&&!e.defaultPrevented&&rpTo
 // The page shows that as a box with ↗ original; agents read the plain lines.
 const qBtn=document.createElement('button');qBtn.type='button';qBtn.className='btn sm quote-btn';qBtn.id='quote-btn';qBtn.hidden=true;qBtn.textContent='❝ Quote';document.body.appendChild(qBtn);
 let qSel=null,qT=0;
+/** Quoted text keeps "#N" for ref chips (agents and the quote box re-render them), not the on-screen "↗ title". */
+function qText(r){const f=r.cloneContents();f.querySelectorAll('a.ref').forEach(a=>a.replaceWith('#'+a.dataset.ref));return f.textContent.replace(/\\r/g,'').trim()}
 function qPick(){const s=getSelection();if(READONLY||!s||s.isCollapsed||!s.rangeCount)return null;const r=s.getRangeAt(0),at=n=>(n.nodeType===1?n:n.parentElement)?.closest('.body');
   const b=at(r.startContainer),el=b?.closest('.entry[data-seq]');if(!el||b!==at(r.endContainer))return null;
-  const text=s.toString().replace(/\\r/g,'').trim();return text?{seq:+el.dataset.seq,who:sentName(el),text,r}:null}
+  const text=qText(r);return text?{seq:+el.dataset.seq,who:sentName(el),text,r}:null}
 function qShow(){qSel=qPick();if(!qSel){qBtn.hidden=true;return}const box=qSel.r.getBoundingClientRect();
   (qSel.r.startContainer.parentElement?.closest('dialog')||document.body).appendChild(qBtn);qBtn.hidden=false; // over a modal too
   qBtn.style.left=Math.max(8,Math.min(innerWidth-qBtn.offsetWidth-8,box.left+box.width/2-qBtn.offsetWidth/2))+'px';
