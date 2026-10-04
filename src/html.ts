@@ -2856,7 +2856,7 @@ export interface Display {
   density?: "comfortable" | "compact";
   theme?: "system" | "light" | "dark";
   mode?: "auto" | "everyday" | "developer";
-  lang?: "auto" | "en" | "zh-Hans" | "zh-Hant" | "es" | "ja" | "ko" | "hi";
+  lang?: "auto" | "en" | "zh-Hans" | "zh-Hant" | "es" | "ja" | "ko" | "hi" | "fr";
 }
 
 /** Account → Display: how the chat looks to you (Slack-style). Saved to your profile, so the web and the app match. */
