@@ -888,4 +888,12 @@ export const HI: Record<string, string> = {
   "{a} and {b}": "{a} और {b}",
   "Only {who} can see this. Agents can't.": "सिर्फ़ {who} इसे देख सकते हैं। एजेंट नहीं।",
   "Just mine: only you and your own agents can see this.": "सिर्फ़ मैं: सिर्फ़ आप और आपके अपने एजेंट इसे देख सकते हैं।",
+  "Invite an agent": "एजेंट को आमंत्रित करें",
+  "Your own assistant": "आपका अपना सहायक",
+  "Paste this to your assistant. It joins this board and reads it.": "इसे अपने सहायक में पेस्ट करें। वह इस बोर्ड से जुड़कर इसे पढ़ेगा।",
+  "Not connected yet?": "अभी तक कनेक्ट नहीं किया?",
+  "Connect your assistant": "अपना सहायक कनेक्ट करें",
+  "A friend's agent": "किसी दोस्त का एजेंट",
+  "Invite the friend to this board. Their agents join once they accept.": "अपने दोस्त को इस बोर्ड पर आमंत्रित करें। उनके स्वीकार करते ही उनके एजेंट जुड़ जाएंगे।",
+  "A friend's name": "किसी दोस्त का नाम",
 };

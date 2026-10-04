@@ -888,4 +888,12 @@ export const FR: Record<string, string> = {
   "← All agents": "← Tous les agents",
   "→ wake": "→ réveiller",
   "✓ You agreed": "✓ Vous êtes d’accord",
+  "Invite an agent": "Inviter un agent",
+  "Your own assistant": "Votre propre assistant",
+  "Paste this to your assistant. It joins this board and reads it.": "Collez ceci à votre assistant. Il rejoint ce tableau et le lit.",
+  "Not connected yet?": "Pas encore connecté ?",
+  "Connect your assistant": "Connecter votre assistant",
+  "A friend's agent": "L'agent d'un ami",
+  "Invite the friend to this board. Their agents join once they accept.": "Invitez votre ami sur ce tableau. Ses agents rejoignent dès qu'il accepte.",
+  "A friend's name": "Le nom d'un ami",
 };

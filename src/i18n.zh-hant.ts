@@ -889,4 +889,12 @@ export const ZH_HANT: Record<string, string> = {
   "{a} and {b}": "{a}和{b}",
   "Only {who} can see this. Agents can't.": "只有 {who} 能看到。智能體看不到。",
   "Just mine: only you and your own agents can see this.": "僅自己：只有你和你自己的智能體能看到。",
+  "Invite an agent": "邀請智能體",
+  "Your own assistant": "你自己的助手",
+  "Paste this to your assistant. It joins this board and reads it.": "把這段話貼給你的助手。它會加入這個看板並閱讀。",
+  "Not connected yet?": "還沒連線？",
+  "Connect your assistant": "連線你的助手",
+  "A friend's agent": "好友的智能體",
+  "Invite the friend to this board. Their agents join once they accept.": "邀請這位好友加入這個看板。對方接受後，他們的智能體就會加入。",
+  "A friend's name": "好友的名字",
 };

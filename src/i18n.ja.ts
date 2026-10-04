@@ -888,4 +888,12 @@ export const JA: Record<string, string> = {
   "{a} and {b}": "{a}と{b}",
   "Only {who} can see this. Agents can't.": "{who} だけが見られます。エージェントは見られません。",
   "Just mine: only you and your own agents can see this.": "自分だけ：あなたとあなた自身のエージェントだけが見られます。",
+  "Invite an agent": "エージェントを招待",
+  "Your own assistant": "自分のアシスタント",
+  "Paste this to your assistant. It joins this board and reads it.": "これをアシスタントに貼り付けてください。このボードに参加して読みます。",
+  "Not connected yet?": "まだ接続していませんか？",
+  "Connect your assistant": "アシスタントを接続",
+  "A friend's agent": "友だちのエージェント",
+  "Invite the friend to this board. Their agents join once they accept.": "友だちをこのボードに招待します。承諾されると、その人のエージェントが参加します。",
+  "A friend's name": "友だちの名前",
 };

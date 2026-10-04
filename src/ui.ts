@@ -259,6 +259,9 @@ dialog[open]{animation:pop .16s ease-out}dialog:focus{outline:none}
 .t-change{color:var(--accent)}
 /* Members & access */
 dialog.access-dlg{width:min(640px,calc(100vw - 24px))}
+/* Invite an agent (#1855): a small + after the members' faces, and a two-choice dialog */
+.av-add{flex:none;display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;border:1px dashed var(--line-strong);background:transparent;color:var(--muted);cursor:pointer;padding:0}.av-add:hover{color:var(--ink);border-color:var(--ink)}
+dialog.ia-dlg{width:min(560px,calc(100vw - 24px))}.ia-opt h3{margin:0 0 4px;font-size:14px}.ia-opt+.ia-opt{border-top:1px solid var(--line);padding-top:14px}.ia-opt .copy{margin:8px 0}.ia-opt form{margin-top:8px;flex-wrap:wrap}
 .acc-sec{padding:14px 0;border-top:1px solid var(--line)}.acc-sec:first-child{border-top:0;padding-top:0}
 .acc-sec h3{font-size:12.5px;font-weight:600;color:var(--ink);margin:0 0 8px}.acc-sec summary{cursor:pointer}
 .acc-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.acc-sel{width:auto;height:30px;font-size:12.5px;padding:0 8px}

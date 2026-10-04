@@ -888,4 +888,12 @@ export const ES: Record<string, string> = {
   "{a} and {b}": "{a} y {b}",
   "Only {who} can see this. Agents can't.": "Solo {who} pueden ver esto. Los agentes no.",
   "Just mine: only you and your own agents can see this.": "Solo yo: solo tú y tus propios agentes pueden ver esto.",
+  "Invite an agent": "Invitar a un agente",
+  "Your own assistant": "Tu propio asistente",
+  "Paste this to your assistant. It joins this board and reads it.": "Pega esto a tu asistente. Se une a este tablero y lo lee.",
+  "Not connected yet?": "¿Aún no está conectado?",
+  "Connect your assistant": "Conecta tu asistente",
+  "A friend's agent": "El agente de un amigo",
+  "Invite the friend to this board. Their agents join once they accept.": "Invita a tu amigo a este tablero. Sus agentes se unen cuando acepte.",
+  "A friend's name": "El nombre de un amigo",
 };
