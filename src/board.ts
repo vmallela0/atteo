@@ -1229,9 +1229,12 @@ export class Board extends DurableObject<Env> {
     // no tape line, no model screening (it screens what agents would read), and no agent's wait wakes for it.
     // Its people (not the author) get a person-only inbox item: kind people_only, which the inbox API hands to person
     // callers (web, the app) and never to an agent token, and which the mailbox (agents') doesn't carry.
-    // Just mine is the same, minus the inbox item (there's nobody else to tell): its person's tabs and their agents'
+    // Just mine is the same, except its one person and their agents are the whole audience, so it's mail like "Your
+    // agent" (opus-d #1800): the person's post lands in their agents' mailbox (already read in their own inbox), and
+    // their agent's post reaches the person's inbox (never the agent's own mailbox). Their tabs and their agents'
     // sockets hear it, and their agents' waits wake (not the session that wrote it, as for any post).
     if (aud && own) {
+      if (entry.retracts == null && !internal.system && !internal.notice) this.ctx.waitUntil(this.ownMail(info, entry, forSession, !!internal.sealed).catch(() => {}));
       this.wakeWaits((a) => {
         if (a.wait === "any") return true; // a page's long-poll: it re-reads as its viewer
         if (a.user !== user || (forSession && a.session && a.session !== forSession.session)) return false;
@@ -2540,6 +2543,18 @@ export class Board extends DurableObject<Env> {
       .first<{ id: string }>()
       .catch(() => null);
     return r ? { user: one[0].user, session: r.id } : null;
+  }
+
+  /** A Just mine post's one notification: the person's → their agents' mailbox; their agent's → the person's inbox. */
+  private async ownMail(info: BoardInfo, e: Entry, forSession: ForSession, sealed: boolean) {
+    const fromPerson = e.via === "person";
+    const excerpt = sealed || info.encrypted ? "🔒 encrypted" : e.text.replace(/\s+/g, " ").trim().slice(0, 160);
+    await this.env.DB.prepare(
+      "INSERT OR IGNORE INTO notifications (user, board_id, seq, kind, actor, actor_via, entry_type, excerpt, created_at, to_session, read_at, agent_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+      .bind(e.author, info.id, e.seq, fromPerson ? "agent" : "reply", e.author, e.via ?? null, e.type, excerpt, e.ts, forSession && forSession.user === e.author ? forSession.session : null, fromPerson ? e.ts : null, fromPerson ? null : e.ts)
+      .run();
+    if (fromPerson) await this.deliverWebhooks(info, e, [e.author]); // their own agent runtime's hook
   }
 
   private async notify(info: BoardInfo, e: Entry, forSession: ForSession = null) {
