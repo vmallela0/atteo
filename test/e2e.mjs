@@ -4676,6 +4676,7 @@ await step("forward excerpt: fabricated selectedText is refused; a real selectio
 {
   let ob, other, pub, mine, auto, agentOwn, bOwn, sockets;
   const OWN = `quokka-amber-${run}`; // only A's lane carries it
+  const OWN_HINT = "Just mine: only your person sees this; reply in its thread or with own: true.";
   const BOWN = `ibis-coral-${run}`; // only B's lane carries it
   const papi = async (who, method, path, body, { bearer = false } = {}) => {
     const init = { method, headers: { "content-type": "application/json", ...(bearer ? auth(who) : {}) }, body: body ? JSON.stringify(body) : undefined };
@@ -4805,8 +4806,16 @@ await step("forward excerpt: fabricated selectedText is refused; a real selectio
     assert(one.status === 200 && one.body.entry.audience === "own" && one.body.entry.text.includes(OWN), `A get: ${one.status}`);
     assert(one.body.replies.some((x) => x.seq === auto && x.audience === "own"), "A sees the agent's reply in the lane");
     // It's mail like "Your agent" (opus-d #1800): A's post is in A's agents' mailbox; A's agent's posts reach A's inbox.
-    const mail = JSON.stringify((await papi(A, "GET", "/api/mailbox?peek=1&limit=100", null, { bearer: true })).body);
+    const mailBody = (await papi(A, "GET", "/api/mailbox?peek=1&limit=100", null, { bearer: true })).body;
+    const mail = JSON.stringify(mailBody);
     assert(mail.includes(`Plan for my agent: ${OWN}`), `A's agents' mailbox misses the just-mine post: ${mail.slice(0, 600)}`);
+    // Marked, so an agent that answers it at the top level knows it's private (#1850): audience "own" and a line saying so.
+    const laneMail = mailBody.mail.find((m) => m.board === ob && m.seq === mine);
+    assert(laneMail?.audience === "own" && laneMail.text.includes(OWN_HINT), `the lane's mail isn't marked: ${JSON.stringify(laneMail)}`);
+    assert(!mailBody.mail.some((m) => m.board === ob && m.seq === pub && m.audience), "public mail marked own");
+    const mcpMail = await ok(A, ob, "mailbox", { peek: true, limit: 50 });
+    has(mcpMail, "🔒 own");
+    has(mcpMail, OWN_HINT);
     assert(!mail.includes(`Private question: ${OWN}`), "A's agent's own post came back to its own mailbox");
     const inbox = JSON.stringify((await papi(A, "GET", "/api/inbox")).body);
     assert(inbox.includes(`Private question: ${OWN}`), `A's inbox misses A's agent's just-mine post: ${inbox.slice(0, 600)}`);
@@ -4851,6 +4860,43 @@ await step("forward excerpt: fabricated selectedText is refused; a real selectio
     const ob2 = await web(`/api/boards/${ob}/upload?name=x.txt&reply_to=${mine}`, B, { method: "POST", headers: { "content-type": "text/plain" }, body: "x" });
     assert(ob2.status === 400 && /does not exist/.test((await ob2.json()).error), `B's file reply: ${ob2.status}`);
     for (const s of Object.values(sockets)) s.ws.close();
+  });
+
+  await step("just mine: an agent's top-level answer to its person's private message stays private unless own: false; webhooks say it's own", async () => {
+    assert(mine, "needs the first just-mine step");
+    // A's agent runtime's webhook (local sink only) hears A's lane post, marked own.
+    const local = /localhost|127\.0\.0\.1/.test(BASE);
+    const hook = local ? await (await web(`/api/webhooks`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url: `${BASE}/__webhook-sink` }) })).json() : null;
+    const plan = `Second plan ${OWN}`;
+    const r = await papi(A, "POST", `/api/boards/${ob}/entries`, { text: plan, own: true });
+    assert(r.status === 201 && r.body.entry.audience === "own", `A's second lane post: ${JSON.stringify(r.body)}`);
+    if (hook) {
+      let d;
+      for (let i = 0; i < 40 && !d; i++) {
+        await new Promise((res) => setTimeout(res, 100));
+        d = (await (await fetch(`${BASE}/__webhook-sink`)).json()).deliveries.find((x) => x.body.includes(plan));
+      }
+      assert(d, "A's lane post wasn't delivered to A's webhook");
+      const body = JSON.parse(d.body);
+      assert(body.you === A && body.entry.seq === r.body.entry.seq && body.entry.audience === "own" && body.entry.hint === OWN_HINT, d.body.slice(0, 400));
+      assert((await web(`/api/webhooks/${hook.id}`, A, { method: "DELETE" })).status === 200, "remove A's webhook");
+    }
+    // A's agent reads it, then answers at the top level (reply_to 0: not threaded): kept in the lane, and told so.
+    await ok(A, ob, "read");
+    const kept = await ok(A, ob, "post", { type: "note", text: `Top-level answer ${OWN}`, reply_to: 0 });
+    has(kept, "🔒 own");
+    has(kept, `Kept in Just mine (your last message from ${A} was private); pass own: false to post publicly.`);
+    await err(B, ob, "get", { seq: seqOf(kept) }, "does not exist");
+    // own: false posts publicly, on purpose.
+    const pubWord = `public-after-lane-${run}`;
+    const open = await ok(A, ob, "post", { type: "note", text: `Public answer ${pubWord}`, reply_to: 0, own: false });
+    assert(!open.includes("🔒 own") && !open.includes("Kept in Just mine"), open);
+    has(await ok(B, ob, "get", { seq: seqOf(open) }), pubWord);
+    // Once something public came after it (B's post, read), a top-level post is public again.
+    await papi(B, "POST", `/api/boards/${ob}/entries`, { text: `B public ${run}` });
+    await ok(A, ob, "read");
+    const after = await ok(A, ob, "post", { type: "note", text: `Later public ${run}`, reply_to: 0 });
+    assert(!after.includes("🔒 own") && !after.includes("Kept in Just mine"), after);
   });
 }
 

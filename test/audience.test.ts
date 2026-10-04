@@ -2,7 +2,7 @@
 // through canSee / audienceOk, so these cover each viewer kind against each audience, in JS and in SQL.
 
 import { describe, expect, it } from "vitest";
-import { audienceNotice, audienceOk, canSee, forwardDestOk, forwardExcerptInEntry, normalizeForwardExcerpt, OWN_NOTICE, peopleNotice } from "../src/audience";
+import { audienceNotice, audienceOk, canSee, forwardDestOk, forwardExcerptInEntry, keptOwnNotice, normalizeForwardExcerpt, OWN_DEFAULT_MS, ownByDefault, OWN_NOTICE, peopleNotice } from "../src/audience";
 import type { Entry, Viewer } from "../src/types";
 
 const { DatabaseSync } = (await import("node:" + "sqlite")) as { DatabaseSync: new (p: string) => any };
@@ -94,5 +94,45 @@ describe("notices", () => {
     expect(audienceNotice(people, "vedu")).toBe(peopleNotice("vedu", ["vedu", "jxn"]));
     expect(peopleNotice("vedu", ["vedu", "jxn"])).toBe("Only you and jxn can see this. Agents can't.");
     expect(audienceNotice({}, "vedu")).toBeNull();
+  });
+});
+
+describe("ownByDefault: an agent's top-level post right after its person's Just mine message stays in the lane", () => {
+  const now = 1_000_000_000;
+  type R = Parameters<typeof ownByDefault>[1][number];
+  const e = (seq: number, over: Partial<R> = {}): R => ({ seq, ts: now - 60_000, author: "jxn", via: "person", to: null, mentions: [], ...over });
+  const lane = (seq: number, over: Partial<R> = {}) => e(seq, { author: "vedu", via: "person", audience: "own", ...over });
+
+  it("keeps it when the last thing the agent read is its person's own message", () => {
+    expect(ownByDefault("vedu", [lane(5), e(4)], 5, now)).toBe("vedu");
+  });
+  it("keeps it when that message came as mail, not read yet (a dispatcher's fork)", () => {
+    expect(ownByDefault("vedu", [lane(5), e(4)], 3, now)).toBe("vedu");
+  });
+  it("skips what the agent hasn't got: a newer public post it hasn't read doesn't count", () => {
+    expect(ownByDefault("vedu", [e(6), lane(5)], 5, now)).toBe("vedu");
+  });
+  it("doesn't when something public came after it, read or addressed to the agent", () => {
+    expect(ownByDefault("vedu", [e(6), lane(5)], 6, now)).toBeNull();
+    expect(ownByDefault("vedu", [e(6, { to: "vedu" }), lane(5)], 5, now)).toBeNull();
+    expect(ownByDefault("vedu", [e(6, { mentions: [{ user: "vedu", agent: true }] }), lane(5)], 5, now)).toBeNull();
+  });
+  it("only after ten minutes' quiet does it post publicly again", () => {
+    expect(ownByDefault("vedu", [lane(5, { ts: now - OWN_DEFAULT_MS - 1 })], 5, now)).toBeNull();
+    expect(ownByDefault("vedu", [lane(5, { ts: now - OWN_DEFAULT_MS + 1000 })], 5, now)).toBe("vedu");
+  });
+  it("only its own person's own message: not another lane, not an agent's, not one for another of its sessions", () => {
+    expect(ownByDefault("vedu", [lane(5, { author: "jxn" })], 5, now)).toBeNull();
+    expect(ownByDefault("vedu", [lane(5, { via: "agent" })], 5, now)).toBeNull();
+    expect(ownByDefault("vedu", [e(5, { author: "vedu" })], 5, now)).toBeNull(); // the person's public post
+    const forScout = lane(5, { mentions: [{ user: "vedu", agent: true, session: "scout" }] });
+    expect(ownByDefault("vedu", [forScout], 4, now, "builder")).toBeNull();
+    expect(ownByDefault("vedu", [forScout], 4, now, "scout")).toBe("vedu");
+  });
+  it("nothing recent: public", () => {
+    expect(ownByDefault("vedu", [], 0, now)).toBeNull();
+  });
+  it("says so, with the way out", () => {
+    expect(keptOwnNotice("vedu")).toBe("Kept in Just mine (your last message from vedu was private); pass own: false to post publicly.");
   });
 });
