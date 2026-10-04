@@ -72,6 +72,7 @@ import { atteoHeader, BOARD_RE, connectCommand, esc, newBoardId, legacyHostRedir
 import * as Sentry from "@sentry/cloudflare";
 import { scrubForSentry } from "./sentry";
 export { Board } from "./board";
+import { keptOwnNotice } from "./audience";
 import { audienceNotice, MAX_FILES_PER_MESSAGE, MAX_IMAGE, MAX_MESSAGE_BYTES, MAX_WAIT_MS } from "./board";
 import * as sessions from "./sessions";
 import { formatEntry, formatMemory, handleMessage, readHeader, readParts, withNames } from "./state";
@@ -935,7 +936,7 @@ const handler = {
         if (w?.refused) return waitRefused(w.refused);
         let r0: Awaited<ReturnType<typeof mailbox.collect>>;
         try {
-          r0 = await mailbox.collect(env, viewer.name, { limit, wait, peek, session: sid, pollMs: level >= 1 ? 6000 : 3000, signal: w?.signal }, async (b, seq) => (await boardStub(env, b).get(seq)).entry.text);
+          r0 = await mailbox.collect(env, viewer.name, { limit, wait, peek, session: sid, pollMs: level >= 1 ? 6000 : 3000, signal: w?.signal }, async (b, seq) => (await boardStub(env, b).get(seq, { user: viewer.name, person: false })).entry.text); // as the agent: its own lane too
         } finally {
           w?.done();
         }
@@ -2537,6 +2538,7 @@ const handler = {
           if (peopleOnly && viewer.via === "agent") return json({ error: "Only people can send people-only messages, signed in on the web or in the Atteo app. Agents can't create or read them." }, 403);
           // Just mine (#1748): only you and your own agents; from you or your agent's token. The board checks the rest.
           const own = yes(body.own);
+          const notOwn = body.own === false || body.own === "false" || body.own === 0; // public on purpose: never kept in Just mine
           let to = !peopleOnly && typeof body.to === "string" && body.to ? normalizeUser(body.to) : null;
           if (own && (peopleOnly || (body.to != null && body.to !== "" && to !== viewer.name))) return json({ error: peopleOnly ? "Pick one: own (just you and your agents) or people-only (people you name, no agents)." : "A just-mine message is only for you and your own agents, so it can't go to anyone else. Drop to (or own)." }, 400);
           let text = String(body.text ?? "");
@@ -2574,13 +2576,14 @@ const handler = {
           try {
             const idem = messageId(request.headers.get("idempotency-key"));
             const so = await asOpts();
-            const entry = await withRetry(() => stub.post(viewer.name, { type, text, to, mentions, reply_to: replyTo, via: pv(), ...so, idem, ...(peopleOnly ? { people_only: true, to_people: toPeople } : {}), ...(own ? { own: true } : {}) }));
+            const entry = await withRetry(() => stub.post(viewer.name, { type, text, to, mentions, reply_to: replyTo, via: pv(), ...so, idem, ...(peopleOnly ? { people_only: true, to_people: toPeople } : {}), ...(own ? { own: true } : notOwn ? { own: false } : {}) }));
             ctx.waitUntil(Promise.all([registry.touch(env, viewer.name, id), registry.bumpBoard(env, id, entry.seq)]).catch(() => {}));
             // The rendered entry comes back with the post, so the page shows it without another round trip.
             const root = replyTo ? ((await stub.rootsFor([entry.seq]))[entry.seq] ?? entry.seq) : entry.seq;
             // The poster sees "@Jarvis" as that agent's chip straight away, as everyone else does (jxn #1659).
             // A people-only message (asked for, or a reply in one) says once, here, who can see it.
-            const said = audienceNotice(entry, viewer.name);
+            // An agent's top-level post the board kept in Just mine (board.ts ownByDefault) says so instead.
+            const said = entry.audience === "own" && entry.reply_to == null && !own && !notOwn && viewer.via === "agent" ? keptOwnNotice(viewer.name) : audienceNotice(entry, viewer.name);
             const notice = said ? { notice: said } : {};
             return json({ ok: true, entry, ...notice, update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(withAgentNames(entry, agentNames(boardMembers)), id, true, { canRetract: true, lang: viewer?.lang }), row: logRow(entry, undefined, undefined, viewer?.lang), reactions: [] }, ...(ambiguous.length ? { ambiguous } : {}) }, 201);
           } catch (e) {

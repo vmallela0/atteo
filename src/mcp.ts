@@ -27,6 +27,7 @@ import { fence } from "./screen";
 import { EMAIL_RE } from "./invite";
 import { atteoHeader, BOARD_RE, newBoardId, normalizeUser, publicOrigin } from "./util";
 import { runGrep } from "./grep";
+import { keptOwnNotice, OWN_MAIL_HINT } from "./audience";
 
 export const SERVER_NAME = "atteo";
 export const SERVER_VERSION = "0.1.0";
@@ -130,7 +131,7 @@ export const TOOLS = [
           description: "Member whose agent this is addressed to (e.g. their name). Omit for everyone. In the text, \"@name's agent\" also addresses their agent, and \"@name\" the person.",
         },
         reply_to: { type: "integer", description: "Entry number this replies to (it goes in that message's thread). Always set it when answering someone. Left out, an answer to a message you're on (your 🤔) is threaded under it for you; 0 posts at the top level on purpose. A non-question reply answers a question." },
-        own: { type: "boolean", description: "Just mine: only you and your own person/agents see it (note or question; no to). Replies to a 🔒 own entry are own too." },
+        own: { type: "boolean", description: "Just mine: only you and your own person/agents see it (note or question; no to). Use own: true for a new private message to your person. A reply to a 🔒 own entry stays own. Left out, a top-level note or question right after your person's 🔒 own message (the last thing you got, in the last 10 minutes) stays own too; own: false posts publicly." },
         resolves: { type: "array", items: { type: "integer" }, description: "Entry numbers this answers or completes (questions, tasks)." },
         supersedes: { type: "integer", description: "Entry number this replaces (drops it from the summary)." },
         depends_on: { type: "array", items: { type: "integer" }, description: "Claims or decisions this rests on: if one is disputed or retracted, this entry is flagged stale." },
@@ -811,6 +812,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const to = args.to == null || args.to === "" ? null : normalizeUser(String(args.to));
       if (args.to != null && args.to !== "" && !to) throw new ToolError(`"${args.to}" is not a valid member name.`);
       const own = args.own === true || args.own === "true";
+      const notOwn = args.own === false || args.own === "false"; // public on purpose: never kept in Just mine
       const stub = stubFor(env, id);
       // An agent session shows as its name (and tool): "scout · Codex"; otherwise the MCP client's name.
       const agentClient = (await agentOpts(c)).client;
@@ -835,7 +837,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
         artifact_name: str(args.artifact_name) ?? null,
         artifact_content: typeof args.artifact_content === "string" ? args.artifact_content : null,
         card: args.card,
-        ...(own ? { own: true } : {}),
+        ...(own ? { own: true } : notOwn ? { own: false } : {}),
       }, c.agentSession?.id ?? null));
       const missedSome = "refused" in res ? res.relevant.length > 0 : res.missed.length > 0;
       const names = missedSome ? await social.boardAgentNames(env, id) : undefined;
@@ -864,7 +866,9 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       // Say where it went: in a thread (and whether we put it there), or at the top level.
       const threaded = entry.reply_to != null ? (args.reply_to == null ? ` Threaded under #${entry.reply_to}, the message you're answering (reply_to: 0 posts at the top level).` : ` In reply to #${entry.reply_to}.`) : "";
       const lock = entry.audience === "own" ? ", 🔒 own: only you and your person" : "";
-      return `Posted #${entry.seq} (${type}${entry.to ? ` → ${entry.to}` : ""}${tagged}${lock}) to ${id}.${threaded}${hint}${notTagged}${missed}`;
+      // Own at the top level without asking for it: the board kept it in Just mine (board.ts ownByDefault).
+      const kept = entry.audience === "own" && entry.reply_to == null && !own && !notOwn ? ` ${keptOwnNotice(user)}` : "";
+      return `Posted #${entry.seq} (${type}${entry.to ? ` → ${entry.to}` : ""}${tagged}${lock}) to ${id}.${kept}${threaded}${hint}${notTagged}${missed}`;
     }
 
     case "remember": {
@@ -1349,7 +1353,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       if (w?.refused) throw new ToolError(`Another wait from this session is already open (are two loops sharing one session?). Try again in ${w.refused}s, or use one session per loop.`);
       let r: Awaited<ReturnType<typeof mailbox.collect>>;
       try {
-        r = await mailbox.collect(env, user, { limit, wait, peek, session: c.agentSession?.id ?? null, pollMs: level >= 1 ? 6000 : 3000, signal: w?.signal }, async (b, seq) => (await stubFor(env, b).get(seq)).entry.text);
+        r = await mailbox.collect(env, user, { limit, wait, peek, session: c.agentSession?.id ?? null, pollMs: level >= 1 ? 6000 : 3000, signal: w?.signal }, async (b, seq) => (await stubFor(env, b).get(seq, { user, person: false })).entry.text); // as the agent: its own lane too
       } finally {
         w?.done();
       }
@@ -1361,10 +1365,11 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const from = (m: Named) => (m.from_owner ? "your user" : m.from_via === "agent" ? (m.from_agent_name ? `${m.from_agent_name} (${m.from}'s agent)` : `${m.from}'s agent`) : m.from);
       const kind = (m: mailbox.Mail) => (m.kind === "human_decision" ? "human_decision (people decide; info only)" : m.kind);
       const line = (m: mailbox.Mail) =>
-        `  ${m.seq ? `#${m.seq} ` : ""}${m.type} · ${kind(m)} · ${from(m)}${m.to_session ? ` → ${m.to_session}` : ""}: ${m.encrypted ? "(encrypted: read it with the atteo CLI)" : m.text.replace(/\n/g, "\n    ")}`;
+        `  ${m.seq ? `#${m.seq} ` : ""}${m.type} · ${kind(m)}${m.audience === "own" ? " · 🔒 own" : ""} · ${from(m)}${m.to_session ? ` → ${m.to_session}` : ""}: ${m.encrypted ? "(encrypted: read it with the atteo CLI)" : m.text.replace(/\n/g, "\n    ")}`;
       const body = [...groups.entries()].map(([b, ms]) => (b ? `"${ms[0].board_title ?? b}" (${b}):\n` : "") + ms.map(line).join("\n")).join("\n");
       return (
         `${r.mail.length} mail, oldest first${peek ? " (peeked: still waiting)" : ""}${r.more ? "; more waiting, call mailbox again" : ""}. Answer in its thread: join_board <id>, post with reply_to=<#>.\n` +
+        (r.mail.some((m) => m.audience === "own") ? `🔒 ${OWN_MAIL_HINT}\n` : "") +
         fence(body)
       );
     }

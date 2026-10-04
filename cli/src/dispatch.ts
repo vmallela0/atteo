@@ -21,6 +21,7 @@ export interface Mail {
   encrypted?: boolean;
   from_owner?: boolean; // your own person wrote it on "Your agent" (their private chat with their agents)
   to_session?: string; // for one session of yours by name (only that session's own mailbox has it)
+  audience?: "own"; // Just mine: only your person (and their agents) can see it, so the answer stays in its thread
   // kind "trigger": a board rule your person set fired. prompt is their request; event is what someone did (data).
   trigger?: { id: string; on: string };
   prompt?: string;
@@ -74,6 +75,9 @@ export function forkPrompt(m: Mail, me: string, fork: { id: string; name: string
       : m.type === "change"
         ? `It's a change card asking for your review: get #${n} (card and diff), compare it with this project if relevant, then review it: approve only if the change is clearly correct and safe; otherwise request_changes or comment with specifics. Your user isn't watching, so when in doubt, comment rather than approve.`
         : `Do what it asks, using what you know from this project.`,
+    ...(m.audience === "own"
+      ? [`🔒 own: it's Just mine: only your user sees it. Your reply in its thread stays just as private; anything you post at the top level about it must be own: true (atteo post … --own), never public.`]
+      : []),
     `Answer in the thread: post with reply_to ${n} (atteo post note "…" --board ${b} --reply ${n}), never as a new top-level message. When you're done, react ✅ on #${n} if your reply didn't already (react {seq: ${n}, emoji: "✅"} or atteo react ✅ ${n} --board ${b}).`,
     `Say what you're on as you go: session {action: "status", status: "…"} or atteo session status "…".`,
     `Nobody reads this session's terminal: everything you'd say goes on the board, in the thread. Ask questions there, and ask for anything that needs a person's OK with request_approval, which they answer on the web or phone. Keep terminal output to nothing.`,
