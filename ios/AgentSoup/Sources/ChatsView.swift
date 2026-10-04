@@ -6,6 +6,9 @@ import SwiftUI
 struct ChatsView: View {
     @EnvironmentObject var state: AppState
     @Environment(\.chatDensity) private var density
+    /// Everyday (Everyday.swift): back to For you, top left. Nil in Developer mode, where Chats is home.
+    var home: (() -> Void)? = nil
+    init(home: (() -> Void)? = nil) { self.home = home }
     @State private var query = ""
     @State private var found: CrossSearchResponse? // messages across your boards that match the search
     @State private var path: [Board] = []
@@ -84,7 +87,8 @@ struct ChatsView: View {
     var body: some View {
         NavigationStack(path: $path) {
             List {
-                if query.isEmpty && (!state.approvals.isEmpty || !state.contacts.isEmpty) {
+                // (Everyday asks these on For you instead.)
+                if !Vocab.everyday && query.isEmpty && (!state.approvals.isEmpty || !state.contacts.isEmpty) {
                     Section {
                         // Keyed by each item's own id, so answering one animates it out (instead of the next row's
                         // content swapping into its place).
@@ -125,7 +129,7 @@ struct ChatsView: View {
                             .listRowInsets(rowInsets)
                     }
                     if chats.isEmpty && query.isEmpty && state.loaded {
-                        Text(tab == "direct" ? "No DMs yet. When someone's agent writes to yours, it lands here." : "No boards yet. Start one with the pencil up top, or ask your agent to.")
+                        Text(tab == "direct" ? Vocab.pick("No DMs yet. When someone's agent writes to yours, it lands here.", "No DMs yet. When someone's assistant writes to yours, it lands here.") : Vocab.pick("No boards yet. Start one with the pencil up top, or ask your agent to.", "No group chats yet. Start one with the pencil up top, or ask your assistant to."))
                             .font(Typo.secondary).foregroundStyle(Theme.faint)
                             .listRowInsets(rowInsets).listRowBackground(Theme.bg).listRowSeparator(.hidden)
                     }
@@ -186,6 +190,13 @@ struct ChatsView: View {
             .background(Theme.bg)
             .navigationTitle("Chats")
             .toolbar {
+                if let home {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button(action: home) { Label("For you", systemImage: "chevron.left").labelStyle(.titleAndIcon) }
+                            .toolbarText()
+                            .accessibilityIdentifier("for-you")
+                    }
+                }
                 ToolbarItem(placement: .topBarLeading) {
                     // You: your picture opens settings (pictures, name, your agent, connections, sign out).
                     Button { showSettings = true } label: { Avatar(name: state.me?.owner ?? "", size: 30) }
@@ -196,14 +207,14 @@ struct ChatsView: View {
                     // Start something: a message to someone, or a new board.
                     Menu {
                         Button("New message", systemImage: "bubble.left") { compose = .message }
-                        Button("New board", systemImage: "square.grid.2x2") { compose = .board }
+                        Button(Vocab.pick("New board", "New group chat"), systemImage: "square.grid.2x2") { compose = .board }
                     } label: {
                         ToolbarIcon("square.and.pencil")
                     }
                     .accessibilityLabel("New")
                 }
-                ToolbarItem(placement: .topBarTrailing) {
-                    // Your agents live behind one button (green dot: one is working right now).
+                if !Vocab.everyday { ToolbarItem(placement: .topBarTrailing) {
+                    // Your agents live behind one button (green dot: one is working right now). (Developer mode only.)
                     Button { showAgents = true } label: {
                         ToolbarIcon("sparkles")
                             .overlay(alignment: .topTrailing) {
@@ -211,7 +222,7 @@ struct ChatsView: View {
                             }
                     }
                     .accessibilityLabel("Your agents")
-                }
+                } }
             }
             .sheet(isPresented: $showSettings) { SettingsView().presentationBackground(Theme.bg).environment(\.chatDensity, density) }
             .sheet(item: $compose, onDismiss: {
@@ -296,7 +307,7 @@ struct ChatsSwitch: View {
     var body: some View {
         HStack(spacing: Space.xs) {
             HStack(spacing: 0) {
-                item("boards", "Boards", boards)
+                item("boards", Vocab.boards, boards)
                 item("direct", "DMs", direct)
             }
             .padding(3)
@@ -448,7 +459,7 @@ struct ContactRow: View {
         HStack(spacing: Space.m) {
             Avatar(name: c.from, agent: true, size: 44).accessibilityHidden(true)
             VStack(alignment: .leading, spacing: Space.xxs) {
-                Text("\(c.from)'s agent wants to talk").font(Typo.rowTitle).foregroundStyle(Theme.text).lineLimit(1)
+                Text("\(Vocab.agentOf(c.from)) wants to talk").font(Typo.rowTitle).foregroundStyle(Theme.text).lineLimit(1)
                 Text(c.text ?? "first contact · \(c.createdAt.ago)").font(Typo.secondary).foregroundStyle(Theme.muted).lineLimit(1)
             }
             Spacer(minLength: 0)

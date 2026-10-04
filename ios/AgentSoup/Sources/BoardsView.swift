@@ -16,10 +16,10 @@ struct BoardView: View {
         var users: [String] = []
         for a in live where !users.contains(a.user) { users.append(a.user) }
         switch users.count {
-        case 0: return board.encrypted == true ? "End-to-end encrypted" : "No agents working now"
-        case 1: return "\(users[0])'s agent working"
-        case 2: return "\(users[0]) and \(users[1])'s agents working"
-        default: return "\(users.count) agents working"
+        case 0: return board.encrypted == true ? "End-to-end encrypted" : "No \(Vocab.agents) working now"
+        case 1: return "\(Vocab.agentOf(users[0])) working"
+        case 2: return Vocab.pick("\(users[0]) and \(users[1])'s agents working", "\(users[0].capitalizedFirst) and \(users[1].capitalizedFirst)'s assistants working")
+        default: return "\(users.count) \(Vocab.agents) working"
         }
     }
     @State private var focused = false // the message box has the keyboard
@@ -113,11 +113,11 @@ struct BoardView: View {
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
-                    Button("Tasks", systemImage: "checklist") { workPane = .tasks }
+                    Button(Vocab.tasks, systemImage: "checklist") { workPane = .tasks }
                     Button("Files", systemImage: "doc.on.doc") { workPane = .files }
                 } label: { ToolbarIcon("square.stack") }
                 .accessibilityIdentifier("work-menu")
-                .accessibilityLabel("Tasks and files")
+                .accessibilityLabel("\(Vocab.tasks) and files")
             }
         }
         // A "#123" in a message: go to it (or open its thread, if it's an answer).
@@ -225,7 +225,11 @@ struct BoardView: View {
                 }
             }
         }
-        .safeAreaInset(edge: .top, spacing: 0) { WorkStrip(tasks: state.tasks[board.id] ?? []) { showTasks = true } }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            // Everyday: Chat · To-dos · Files under the title (Everyday.swift); Developer mode: the work strip.
+            if Vocab.everyday { EverydayChatTabs(tasks: state.tasks[board.id] ?? []) { workPane = $0 } }
+            else { WorkStrip(tasks: state.tasks[board.id] ?? []) { showTasks = true } }
+        }
         .safeAreaInset(edge: .bottom, spacing: 0) { composer }
         .sheet(isPresented: $showTasks) { TasksSheet(board: board).environment(\.chatDensity, density).presentationDetents([.large]).presentationBackground(Theme.bg) }
         .sheet(item: $workPane) { p in TasksSheet(board: board, initial: p).environment(\.chatDensity, density).presentationDetents([.large]).presentationBackground(Theme.bg) }
@@ -731,7 +735,7 @@ struct EntryRow: View {
     /// Tap: the thread, on this reply (in a thread: scrolls to what it answers). Numbers read as titles (#675).
     @ViewBuilder private var quote: some View {
         if e.replyTo != nil {
-            let name = parent.map { $0.byAgent ? "\($0.author)'s agent" : ($0.author == me && $0.via != "agent" ? "You" : $0.author) }
+            let name = parent.map { $0.byAgent ? Vocab.agentOf($0.author) : ($0.author == me && $0.via != "agent" ? "You" : $0.author) }
             let line = parent.map { ThreadPreview.line($0).plainRefs(refTitle.callAsFunction) } ?? "an earlier message"
             Button { actions.jumpToParent?() } label: {
                 HStack(spacing: 0) {
@@ -818,7 +822,7 @@ struct EntryRow: View {
             if let k = kind { Text(k).font(Typo.micro.weight(.medium)).foregroundStyle(Theme.faint) }
             quote
             attachment
-            if unsent { unsentBody } else if e.type == "change" { ChangeCardView(e: e, board: board) } else if let caption {
+            if unsent { unsentBody } else if e.type == "change" { if Vocab.everyday { ResultCard(e: e) } else { ChangeCardView(e: e, board: board) } } else if let caption {
                 MessageBody(text: caption, render: words, ink: e.pending == true ? 0.55 : 1, lineSpacing: 0)
                     .padding(.horizontal, Space.m + 1).padding(.vertical, Space.row(density))
                     .background(Theme.raised, in: RoundedRectangle(cornerRadius: Radius.bubble, style: .continuous))
@@ -878,7 +882,7 @@ struct EntryRow: View {
                 }
                 attachment.padding(.vertical, Space.xxs)
                 quote
-                if unsent { unsentBody } else if e.type == "change" { ChangeCardView(e: e, board: board).padding(.top, Space.xxs) } else if e.type == "task" { TaskCard(seq: e.seq, board: board, text: e.text, tasks: tasks).padding(.top, Space.xxs) } else if let caption {
+                if unsent { unsentBody } else if e.type == "change" { Group { if Vocab.everyday { ResultCard(e: e) } else { ChangeCardView(e: e, board: board) } }.padding(.top, Space.xxs) } else if e.type == "task" { TaskCard(seq: e.seq, board: board, text: e.text, tasks: tasks).padding(.top, Space.xxs) } else if let caption {
                     MessageBody(text: caption, render: words)
                 }
                 if let decision, !unsent { HumanDecisionCard(hd: decision, me: me, actions: decisionActions).padding(.top, Space.xs) }
@@ -1003,7 +1007,7 @@ struct AgentHereRow: View {
             VStack(alignment: .leading, spacing: Space.xxs) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(a.label).font(Typo.rowTitle).foregroundStyle(Theme.text).lineLimit(1)
-                    if let d = a.detail { Text(d).font(Typo.micro).foregroundStyle(Theme.faint).lineLimit(1) }
+                    if let d = a.detail, !Vocab.everyday { Text(d).font(Typo.micro).foregroundStyle(Theme.faint).lineLimit(1) } // the tool and session: Developer mode
                 }
                 Text(a.status ?? stateLine(a.state, a.lastSeen)).font(Typo.secondary).foregroundStyle(a.state == "live" ? Theme.ok : Theme.muted).lineLimit(2)
             }
@@ -1053,5 +1057,9 @@ struct ReactionLine: View {
         .padding(.top, 2)
         .transition(.opacity)
     }
-    private func names(_ users: [String]) -> String { users.count <= 2 ? users.joined(separator: ", ") : "\(users[0]) and \(users.count - 1) more" }
+    private func names(_ users: [String]) -> String {
+        // Everyday: "Theo's assistant" for the server's "theo's agent" (display only).
+        let shown = users.map { u in Vocab.everyday && u.hasSuffix("'s agent") ? Vocab.agentOf(String(u.dropLast(8))) : u }
+        return shown.count <= 2 ? shown.joined(separator: ", ") : "\(shown[0]) and \(shown.count - 1) more"
+    }
 }
