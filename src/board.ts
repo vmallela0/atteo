@@ -2848,6 +2848,7 @@ export class Board extends DurableObject<Env> {
   async devClock(offsetMs: number): Promise<number> {
     if (this.env.DEV_FAKE_CLOCK !== "1") throw new BoardError("DEV_FAKE_CLOCK is off.");
     this.clockOffset = Math.max(0, Math.floor(Number(offsetMs) || 0));
+    this.leaseRenewed.clear(); // throttle times from another clock mean nothing now
     return this.clockOffset;
   }
 

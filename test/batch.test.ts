@@ -33,6 +33,10 @@ describe("parseBatch", () => {
     expect(() => parseBatch({ calls: [{ tool: "mailbox", args: { wait_seconds: 5 } }, { tool: "read" }] }, known)).toThrow(/last/);
     expect(() => parseBatch({ calls: [{ tool: "approval", args: { action: "wait" } }, { tool: "read" }] }, known)).toThrow(/last/);
     expect(parseBatch({ calls: [{ tool: "mailbox" }, { tool: "read" }] }, known).calls).toHaveLength(2); // no wait_seconds: not a wait
+    // Approvals that wait for the decision hold the request too.
+    expect(() => parseBatch({ calls: [{ tool: "request_approval", args: { title: "x" } }, { tool: "read" }] }, [...known, "request_approval"])).toThrow(/last/);
+    expect(parseBatch({ calls: [{ tool: "request_approval", args: { wait_seconds: 0 } }, { tool: "read" }] }, [...known, "request_approval"]).calls).toHaveLength(2);
+    expect(parseBatch({ calls: [{ tool: "approval", args: { action: "get" } }, { tool: "read" }] }, known).calls).toHaveLength(2);
   });
 });
 

@@ -5223,6 +5223,11 @@ await step("session model: people see it on the web, agents never get it (reads,
     assert((await call(lim.agent, "GET", `/api/boards/${lb}/entries?after=0`)).status === 200, "agent read at level 2");
     const pr = await fetch(`${BASE}/api/boards/${lb}/entries/${seq}/react`, { method: "POST", headers: { cookie: lim.cookie, "content-type": "application/json" }, body: JSON.stringify({ emoji: "👍" }) });
     assert(pr.status === 200, `a person's reaction at level 2: ${pr.status}`);
+    // A batch is judged by its calls, as if each came alone: [read, post] still works, [read, react] doesn't.
+    const batch = (calls) => fetch(`${BASE}/mcp?board=${lb}`, { method: "POST", headers: { authorization: `Bearer ${lim.agent}`, "content-type": "application/json", accept: "application/json, text/event-stream" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "batch", arguments: { calls } } }) });
+    const rp = await batch([{ tool: "read" }, { tool: "post", args: { type: "note", text: `batch at level 2 ${run}` } }]);
+    assert(rp.status === 200, `batch [read, post] at level 2: ${rp.status}`);
+    assert((await batch([{ tool: "read" }, { tool: "react", args: { seq, emoji: "🎉" } }])).status === 503, "batch [read, react] at level 2");
     // Level 1: open tabs are asked to pause between long-polls.
     await setLimits({ shed: 1 });
     const up = await (await fetch(`${BASE}/api/boards/${lb}/updates?after=0`, { headers: { cookie: lim.cookie } })).json();

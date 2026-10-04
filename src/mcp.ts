@@ -1688,7 +1688,8 @@ export async function handleMcp(request: Request, env: Env, ctx: ExecutionContex
       tokenKey: await sha256hex(token),
       wait,
       write: !readOnly,
-      essential: tools.every((t) => limits.isEssentialMcp(t)),
+      // In a batch, a read is as fine as an essential write (each passes alone at shed level 2).
+      essential: extra > 0 ? calls.every((m) => m.method !== "tools/call" || reads(m as typeof call) || limits.isEssentialMcp(m.params?.name)) : tools.every((t) => limits.isEssentialMcp(t)),
       // Every inner call takes a rate-limit slot; every one that isn't a wait counts in the daily budget.
       ...(extra > 0 ? { calls: 1 + extra, counted: wait ? 0 : Math.max(1, 1 + extra - calls.filter((m) => limits.isMcpWait(m)).length) } : {}),
     });

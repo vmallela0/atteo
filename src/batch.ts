@@ -13,7 +13,12 @@ export interface BatchCall {
 export class BatchError extends Error {}
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
-const waits = (c: BatchCall) => isMcpWait({ method: "tools/call", params: { name: c.tool, arguments: c.args } });
+// Calls that can hold the request open: waits, and approvals that wait for the decision (request_approval waits 45s
+// unless wait_seconds is 0; approval does unless action is get).
+const waits = (c: BatchCall) =>
+  isMcpWait({ method: "tools/call", params: { name: c.tool, arguments: c.args } }) ||
+  (c.tool === "request_approval" && Number(c.args.wait_seconds ?? 45) > 0) ||
+  (c.tool === "approval" && c.args.action !== "get");
 
 /** Checks the whole batch before anything runs: 1–10 known tools, no nested batch, a wait only as the last call. */
 export function parseBatch(args: Record<string, unknown>, known: readonly string[]): { calls: BatchCall[]; continueOnError: boolean } {
