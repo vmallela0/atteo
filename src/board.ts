@@ -14,6 +14,7 @@ import { cardText, parseCard, type ChangeCard } from "./card";
 import { deliver } from "./webhooks";
 import { HumanDecisions, isHumanDecisionPost, type HumanDecision } from "./decisions";
 import type { RecapCore, RecapOwner, RecapTask } from "./recap";
+import type { ForYouCore } from "./forYou";
 import { cleanMatch, cleanTrigger, eventLine, lastOccurrence, matches, MAX_FIRES_PER_HOUR, MAX_TRIGGERS, minuteOf, SCHEDULE_GRACE_MS, type Trigger, type TriggerEvent, type TriggerMatch } from "./triggers";
 import { offBoardSeq } from "./util";
 import { compileGrep, grepFtsQuery, grepText, newBudget, GREP_CANDIDATES, GREP_DEFAULT_MAX, GREP_HARD_MAX, GREP_RECENT, type BoardGrepOpts, type BoardGrepResult } from "./grep";
@@ -1852,6 +1853,41 @@ export class Board extends DurableObject<Env> {
       files: [...files.values()],
       pinned: this.pinnedNow(),
     };
+  }
+
+  /**
+   * For you (Everyday's home page): what on this board waits on `user` the person (human decisions they haven't voted
+   * on, open questions that @mention them) and what their own agent finished since `since` (ms): tasks it marked done
+   * and change cards it posted. Cheap: the cached summary, the decisions table, the task rows and one query.
+   */
+  async forYou(user: string, since: number): Promise<ForYouCore> {
+    const info = this.info();
+    const sealed = !!info.encrypted;
+    const line = (e: { title?: string | null; text: string }) => (sealed ? "" : (e.title || e.text.split("\n").find((l) => l.trim()) || "").trim().slice(0, 200));
+    await this.decisions.refresh();
+    const hds = this.decisions.all();
+    const s = this.cached().summary;
+    const pick = (e: Entry) => ({ seq: e.seq, title: line(e), author: e.author, via: e.via ?? null, ts: e.ts });
+    const decisions = s.decisions
+      .filter((e) => {
+        const h = hds[e.seq];
+        return !!h && h.state === "open" && h.waiting_on.includes(user) && !h.votes.some((v) => v.user === user);
+      })
+      .slice(-10)
+      .reverse()
+      .map(pick);
+    const questions = s.openQuestions.filter((e) => e.author !== user && forPerson(e, user)).slice(-10).reverse().map(pick);
+    const done: ForYouCore["done"] = [];
+    for (const t of this.taskRows({ status: "done" })) {
+      if (t.updated_at < since) continue;
+      if ((t.updated_by === user && t.updated_via === "agent") || (t.assignee === user && t.assignee_agent)) done.push({ seq: t.seq, title: sealed ? "" : t.title, kind: "task", ts: t.updated_at });
+    }
+    const changes = this.sql
+      .exec("SELECT e.seq, e.ts, e.title, e.text FROM entries e WHERE e.type = 'change' AND e.author = ? AND e.via = 'agent' AND e.ts >= ? AND e.retracts IS NULL AND NOT EXISTS (SELECT 1 FROM entries x WHERE x.retracts = e.seq) ORDER BY e.seq DESC LIMIT 20", user, since)
+      .toArray();
+    for (const r of changes) done.push({ seq: r.seq as number, title: line({ title: r.title as string | null, text: r.text as string }), kind: "change", ts: r.ts as number });
+    done.sort((a, b) => b.ts - a.ts);
+    return { board: { id: info.id, title: info.title, encrypted: sealed }, decisions, questions, done: done.slice(0, 20) };
   }
 
   // ---- the pinned doc: one document a board pins as its source of truth ----

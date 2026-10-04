@@ -14,6 +14,7 @@ import type { ChangeCard } from "./card";
 import type { Attachment, BoardInfo, Entry } from "./types";
 import { appPage, avatar, avatarStack, boardPic, copyField, hue, page, renderText, typeTag, when, working, type SideBoard, type Viewer } from "./ui";
 import { esc, pictureUrl } from "./util";
+import { WELCOME_BANNER_JS, assistantCard, grokBotMessage, welcomeBanner } from "./welcome";
 import { stateOf } from "./sessions";
 import { E2E_JS } from "./e2eweb";
 import { EMOJI } from "./emoji";
@@ -243,6 +244,27 @@ function sessionPicker(list: { name: string; state: string; client: string | nul
 // and a "read replies aloud" toggle: a blip when a new message is for you, then tap the bar (or say "go ahead") to hear it.
 // Browser-only (Web Speech); each button shows only where the browser supports it.
 const VOICE_BTNS = `<button class="btn ghost sm mic-btn" type="button" id="mic-btn" aria-label="Talk" aria-pressed="false" title="Talk instead of typing (say “send it” at the end to post)" hidden><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><rect x="5.5" y="1.8" width="5" height="8.2" rx="2.5"/><path d="M3.2 7.6a4.8 4.8 0 0 0 9.6 0M8 12.4v2"/></svg></button><button class="btn ghost sm aloud-btn" type="button" id="aloud-btn" aria-label="Read replies aloud" aria-pressed="false" title="Read replies aloud: a blip when a message is for you, then tap the bar or say “go ahead”" hidden><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 6h2.2L8 3.2v9.6L4.7 10H2.5z"/><path class="vw" d="M10.6 5.6a3.4 3.4 0 0 1 0 4.8M12.4 3.8a6 6 0 0 1 0 8.4"/></svg></button>`;
+// Everyday on a board (#1272): plainer words over the same page. Developer mode is today's page; switching back restores it.
+const evJs = (agentChat: boolean) => `
+(()=>{const cap=x=>x?x[0].toUpperCase()+x.slice(1):x,EV=()=>document.documentElement.dataset.mode==='everyday';
+  const asst=u=>u===ME?'Your assistant':cap(u)+"'s assistant";
+  // Swap a text node's words, remembering the developer ones.
+  function say(el,ev,every){if(!el)return;if(el.dataset.dev===undefined)el.dataset.dev=el.textContent;el.textContent=ev?every:el.dataset.dev}
+  function first(el){return el&&[...el.childNodes].find(n=>n.nodeType===3&&n.textContent.trim())}
+  function sayNode(n,ev,every){if(!n)return;if(n._dev===undefined)n._dev=n.textContent;n.textContent=ev?every:n._dev}
+  function evEntry(el,ev){if(el.classList.contains('by-agent')){const m=el.querySelector(':scope>.grow>.meta');const o=m&&m.querySelector(':scope>.via.owner');
+      if(o)say(o,ev,asst(el.dataset.author));else say(m&&m.querySelector(':scope>.who'),ev,asst(el.dataset.author))}
+    const t=el.querySelector(':scope>.grow>.meta .t-task>span:last-child');if(t)say(t,ev,'to-do');
+    const c=el.querySelector(':scope>.grow>.chg');if(c&&ev&&!el.querySelector(':scope>.grow>.ev-res')){const r=document.createElement('div');r.className='ev-res';r.innerHTML='<span class="ev-ok" aria-hidden="true">✓</span><b></b>';r.querySelector('b').textContent=el.dataset.title||'Done';c.before(r)}}
+  function evPage(){const ev=EV();document.querySelectorAll('#thread>.entry').forEach(el=>evEntry(el,ev));
+    const tabs=document.querySelectorAll('#board-tabs [role=tab]');if(tabs[0])sayNode(first(tabs[0]),ev,'Chat');if(tabs[3])sayNode(first(tabs[3]),ev,'To-dos ');
+    const inv=document.querySelector('.bp-actions [data-open="invite"]:not([data-goto]), [data-open="invite"]:not([data-goto])');if(inv)sayNode(first(inv),ev,'Add');
+    const ta=document.getElementById('composer-text');if(ta){if(ta.dataset.dev===undefined)ta.dataset.dev=ta.placeholder;ta.placeholder=ev?(${agentChat}?'Ask your assistant…':'Message the group…'):ta.dataset.dev}
+    document.querySelectorAll('.fold[data-fold="memory"] .fold-t').forEach(x=>say(x,ev,'What assistants remember'))}
+  evPage();document.addEventListener('atteo-mode',evPage);
+  new MutationObserver(ms=>{if(!EV())return;for(const m of ms)for(const n of m.addedNodes)if(n.nodeType===1){if(n.matches&&n.matches('#thread>.entry'))evEntry(n,true);else if(n.querySelectorAll)n.querySelectorAll('.fold[data-fold="memory"] .fold-t').forEach(x=>say(x,true,'What assistants remember'))}}).observe(document.body,{childList:true,subtree:true});
+})();
+`;
 const voiceJs = (agentChat: boolean) => `
 (()=>{const SR=window.SpeechRecognition||window.webkitSpeechRecognition,syn=window.speechSynthesis,ta=document.getElementById('composer-text'),th=document.getElementById('thread'),
   mic=document.getElementById('mic-btn'),vb=document.getElementById('aloud-btn'),pill=document.getElementById('voice-pill');
@@ -652,10 +674,11 @@ const CONNECT_JS = `
   const cmds={claude:'claude mcp add --transport http --scope user atteo '+u,codex:'codex mcp add atteo --url '+u+' && codex mcp login atteo',gemini:'gemini mcp add --transport http atteo '+u,grok:'grok mcp add --transport http atteo '+u};
   // Agents that set themselves up from a message (Grok Bot runs in the cloud; Muse and others edit their own config).
   // Grok Bot has no inbound channel: a Routine polling the mailbox is how it hears from other agents.
-  const says={grokbot:'Add a custom MCP connector named "Atteo" with the URL '+u+' and sign in to it. It is how you work with agents owned by other people, on shared boards.\\n\\nThen create a Routine that runs every 10 minutes: "Call the Atteo mailbox tool. For each item for you, answer it in its thread (join_board, then post with reply_to); ask me before doing anything with side effects. If the mailbox is empty, stay quiet."',
+  const says={grokbot:${JSON.stringify(grokBotMessage("%URL%"))}.split('%URL%').join(u),
     muse:'Add an MCP server named "atteo" to your settings (~/.config/muse/settings.json), transport streamable_http, url '+u+', then sign in to it when it asks. It is how you work with agents owned by other people, on shared boards.',
     any:'Connect to the Atteo MCP server at '+u+' (streamable HTTP; it signs in with OAuth in the browser). If you can run shell commands, you can instead install its CLI with: curl -fsSL '+location.origin+'/install.sh | sh  then run: atteo login'};
   const sayWhere={grokbot:'Paste it to Grok Bot (or add it yourself: Settings → Connectors → Custom, plus the Routine).',muse:'Paste it into Muse.',any:'Paste it into your agent.'};
+  if(location.hash==='#connect'){const d=document.getElementById('connect');if(d&&!d.open)d.showModal()}
   document.querySelectorAll('#cli-install,[data-fill-origin]').forEach(x=>x.textContent=x.textContent.replace('https://atteo.example',location.origin));
   let box=null;const done=(t)=>{const d=box&&box.querySelector('.cn-done');if(d)d.textContent=t};
   const copy=(t)=>navigator.clipboard?.writeText(t).catch(()=>{});
@@ -681,6 +704,7 @@ export function homePage(
   invitations: Invitation[] = [],
   agent: AgentState = { connected: false, onThisBoard: false },
   flash?: string,
+  firstRun = false, // never connected an assistant: a banner offers /welcome (Everyday first run) until dismissed
 ): Response {
   const invites = invitations.length
     ? `<h2 style="margin:0 0 10px">Invitations</h2><div class="list" style="margin-bottom:28px">${invitations
@@ -735,7 +759,7 @@ export function homePage(
     actions: `${agent.connected ? "" : `<button class="btn sm primary" data-open="connect">Connect an agent</button>`}<button class="btn ${agent.connected ? "primary " : ""}sm" data-open="new-board">New board</button>`,
     body: `${flash ? `<p class="flash ok" style="margin-bottom:18px">${esc(flash)}</p>` : ""}
 
-${invites}
+${firstRun ? welcomeBanner(viewer) : ""}${invites}
 <div class="section-title"><div><h1>Boards</h1><p class="muted" style="margin-top:4px">Problems you and your collaborators' agents are working on.</p></div></div>
 <details class="card pad add-agent"${agent.connected ? "" : " open"}><summary><b>${agent.connected ? "Add another agent" : "Add your agent"}</b> <span class="muted small">· one click, or one line in a terminal</span></summary>
   <div class="stack" style="margin-top:12px">${connectTiles()}
@@ -756,7 +780,7 @@ ${connectDialog(viewer)}
 ${[0, 1, 2].map((i) => `<div class="row" style="gap:6px;margin-bottom:6px"><input class="input" id="eb-l${i}" placeholder="Label" style="width:120px"><input class="input grow" id="eb-u${i}" placeholder="https://github.com/…"></div>`).join("")}
 <p class="flash err" id="eb-err" hidden></p>
 <div class="row" style="justify-content:flex-end;margin-top:14px"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary">Save</button></div></form></dialog>`,
-    script: CONNECT_JS + `window.answered=(j)=>{location.href=j.message==='Joined'?'/b/'+j.board:'/'};` + BOARDS_JS,
+    script: CONNECT_JS + `window.answered=(j)=>{location.href=j.message==='Joined'?'/b/'+j.board:'/'};` + BOARDS_JS + (firstRun ? WELCOME_BANNER_JS : ""),
   });
 }
 
@@ -2065,7 +2089,7 @@ window.boardKeys=(e,k)=>{
     els.forEach(x=>x.classList.remove('sel'));const el=els[cur];if(el){el.classList.add('sel');el.scrollIntoView({block:'nearest'})}}
   if(e.key==='Enter'&&els[cur]){openEntry(BOARD,els[cur].dataset.seq)}
 };
-` + (canPic ? BOARD_PIC_JS : "") + (info.encrypted ? E2E_JS : "") + voiceJs(agentChat) + (agentChat ? "" : pinRecapJs(board.last_seen ?? 0, !readOnly && !info.archived) + soulMemoryJs(!readOnly && !info.archived));
+` + (canPic ? BOARD_PIC_JS : "") + (info.encrypted ? E2E_JS : "") + voiceJs(agentChat) + evJs(agentChat) + (agentChat ? "" : pinRecapJs(board.last_seen ?? 0, !readOnly && !info.archived) + soulMemoryJs(!readOnly && !info.archived));
   const isCreator = viewer.name === info.created_by;
   const archivedBanner = info.archived
     ? `<div class="flash bp-banner"><span class="grow"><b>Archived.</b> This board is read-only.</span>${
@@ -2554,6 +2578,7 @@ export interface Display {
   text?: "s" | "m" | "l";
   density?: "comfortable" | "compact";
   theme?: "system" | "light" | "dark";
+  mode?: "auto" | "everyday" | "developer";
 }
 
 /** Account → Display: how the chat looks to you (Slack-style). Saved to your profile, so the web and the app match. */
@@ -2567,7 +2592,9 @@ function displaySection(d: Display | null | undefined): string {
 ${seg("text", "Text size", [["s", "Small"], ["m", "Medium"], ["l", "Large"]])}
 ${seg("density", "Density", [["comfortable", "Comfortable"], ["compact", "Compact"]])}
 ${seg("theme", "Theme", [["system", "System"], ["light", "Light"], ["dark", "Dark"]])}
-</div></form>`;
+</div></form>
+<div class="section-title" style="margin-top:24px"><div><h2 class="small" style="font-size:13px;color:var(--muted)">Advanced (for developers)</h2></div></div>
+<label class="card pad dev-mode" for="dev-mode"><span class="dev-ic" aria-hidden="true">&lt;&gt;</span><span class="grow"><span class="small" style="color:var(--ink);font-weight:600">Developer mode</span><span class="xs muted" id="dev-mode-hint" style="display:block;margin-top:2px">Tasks, change cards, #numbers, sessions. Turns on by itself if you connect Claude Code or Codex.</span></span><input type="checkbox" class="switch" id="dev-mode" role="switch"></label>`;
 }
 
 /** Account → Profile: how you show up to others (name, bio, the directory) and what your account accepts on its own. */
@@ -2596,7 +2623,14 @@ const DISPLAY_JS = `
   if(saved)applyDisplay(cur);
   f.addEventListener('change',async()=>{const d={text:f.text.value,density:f.density.value,theme:f.theme.value};applyDisplay(d);
     const r=await fetch('/api/me/profile',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({display:d})}).catch(()=>null);
-    toast(r&&r.ok?'Display saved':'Saved on this device only')})})();`;
+    toast(r&&r.ok?'Display saved':'Saved on this device only')})})();
+// Developer mode (#1272): one switch; the server works out "auto" (on once you've connected a coding agent).
+(()=>{const c=document.getElementById('dev-mode'),h=document.getElementById('dev-mode-hint');if(!c)return;c.checked=document.documentElement.dataset.mode!=='everyday';
+  fetch('/api/app/prefs').then(r=>r.ok?r.json():null).then(j=>{const p=j&&j.prefs;if(!p)return;c.checked=!!p.developer;
+    if(p.display&&p.display.mode==='auto'&&p.developer)h.textContent='On because you connected a coding agent. Turn it off for the simpler Everyday view.'}).catch(()=>{});
+  c.addEventListener('change',async()=>{const on=c.checked;applyDisplay(Object.assign({},JSON.parse(localStorage.getItem('atteo-display')||'{}'),{developer:on}));
+    const r=await fetch('/api/app/prefs',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({display:{mode:on?'developer':'everyday'}})}).catch(()=>null);
+    toast(r&&r.ok?(on?'Developer mode on':'Everyday view on'):'Saved on this device only')})})();`;
 
 const PROFILE_JS = `
 document.getElementById('pf-form')?.addEventListener('submit',async e=>{e.preventDefault();const f=e.target,b=f.querySelector('button');b.disabled=true;
@@ -2617,7 +2651,7 @@ document.getElementById('kill-all')?.addEventListener('click',async e=>{const b=
   const r=await fetch('/api/tokens/revoke-all',{method:'POST'});const j=await r.json().catch(()=>({}));toast(r.ok?j.message:(j.error||'Could not disconnect'));
   if(r.ok)setTimeout(()=>location.reload(),900);else b.disabled=false});`;
 
-export function mePage(viewer: Viewer, side: SideBoard[], tokens: TokenRow[], plan: PlanState = { plan: "free", status: null, renews_at: null, cancel_at_end: false, customer: null }, billingEnabled = false, hooks: WebhookRow[] = [], prof: ProfileView | null = null): Response {
+export function mePage(viewer: Viewer, side: SideBoard[], tokens: TokenRow[], plan: PlanState = { plan: "free", status: null, renews_at: null, cancel_at_end: false, customer: null }, billingEnabled = false, hooks: WebhookRow[] = [], prof: ProfileView | null = null, assistants: string[] = []): Response {
   const rows = tokens.length
     ? tokens
         .map(
@@ -2642,6 +2676,7 @@ export function mePage(viewer: Viewer, side: SideBoard[], tokens: TokenRow[], pl
     crumbs: `<span class="cur">Account</span>`,
     body: `<div class="section-title"><div><h1>Account</h1><p class="muted" style="margin-top:4px">Signed in as <b>${esc(viewer.name)}</b> · ${esc(viewer.email)}</p></div>
   <form method="post" action="/auth/logout"><button class="btn sm">Sign out</button></form></div>
+${assistantCard(assistants)}
 <div class="section-title" style="margin-top:32px"><div><h2>Profile</h2><p class="small muted" style="margin-top:4px">How you and your agent show up to others. Two pictures, so people can tell you apart at a glance.</p></div></div>
 <div class="pfps">${(["person", "agent"] as const)
       .map(

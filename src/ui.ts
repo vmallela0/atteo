@@ -253,6 +253,58 @@ dialog.access-dlg{width:min(640px,calc(100vw - 24px))}
 @media(max-width:640px){#acc-members{gap:12px}#acc-members .acc-row{display:grid;grid-template-columns:auto auto minmax(0,1fr);gap:6px 8px}#acc-members .acc-row>.grow{grid-column:2/4}#acc-members .acc-sel{grid-row:2;width:100%;min-width:0;padding-right:26px;background-position:right 9px center}#acc-members .acc-sel:first-of-type{grid-column:2}#acc-members .acc-sel:last-of-type{grid-column:3}}
 @media(max-width:360px){#acc-members .acc-sel:first-of-type{grid-column:1/3}} /* the narrowest phones: the role starts under the picture so the end date fits */
 .add-agent{margin:0 0 22px}.add-agent>summary{cursor:pointer;list-style:none}.add-agent>summary::-webkit-details-marker{display:none}.add-agent .cn-grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
+/* Everyday: "Bring your assistant" (/welcome), the home banner that points to it, and Account's "Your assistant" card.
+   Plain words, big tiles; headings a step above the web's h1 like the Everyday mockups (ios/qa/design/everyday). */
+.ev{max-width:560px;margin:4px auto 0}
+.ev h1{font-size:26px;line-height:1.2;letter-spacing:-.03em;margin:16px 0 8px}
+.ev-lede{font-size:15px;line-height:1.55;color:var(--muted)}
+.ev-now{margin-top:12px;font-size:13.5px;color:var(--ok)}
+.ev-list{margin-top:22px}
+.ev-row{display:flex;align-items:center;gap:14px;padding:14px 16px;border-top:1px solid var(--line)}
+.ev-row:first-child{border-top:0}
+.ev-ic{flex:none;width:40px;height:40px;border-radius:10px;display:grid;place-items:center;background:var(--bg-subtle);border:1px solid var(--line-strong);color:var(--ink);font-weight:600;font-size:16px}
+.ev-ic .pebble{width:28px;height:28px}
+.ev-name{font-size:16px;font-weight:600;color:var(--ink);line-height:1.3}
+.ev-sub{font-size:13px;color:var(--muted);line-height:1.4}
+.ev-sub .ok{color:var(--ok)}
+.ev-row>.btn{flex:none;height:36px;padding:0 16px;font-size:14px}
+.ev-soon{flex:none;white-space:nowrap}
+.ev-or{display:flex;align-items:center;gap:12px;margin:18px 0;color:var(--faint);font-size:13px}
+.ev-or::before,.ev-or::after{content:"";flex:1;height:1px;background:var(--line)}
+.ev-own{border-color:color-mix(in srgb,#D97857 45%,var(--line));background:color-mix(in srgb,#D97857 6%,var(--bg))}
+.ev-own .ev-ic{background:transparent;border-color:transparent}
+.ev-foot-links{margin-top:28px;display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center;font-size:13.5px;color:var(--muted)}
+.ev-foot-links a{color:var(--accent)}.ev-foot-links a:hover{text-decoration:underline}
+dialog.ev-sheet{width:min(480px,calc(100vw - 32px))}
+.ev-sheet .hd h2{font-size:18px}
+.ev-intro{font-size:14px;color:var(--muted);line-height:1.5}
+.ev-steps{list-style:none;counter-reset:ev;margin:16px 0 0;padding:0}
+.ev-steps>li{counter-increment:ev;position:relative;padding:0 0 18px 38px;font-size:14.5px;line-height:1.5;color:var(--text)}
+.ev-steps>li::before{content:counter(ev);position:absolute;left:0;top:-1px;width:26px;height:26px;border-radius:50%;background:var(--bg-hover);border:1px solid var(--line);color:var(--ink);font-weight:600;font-size:13px;display:grid;place-items:center}
+.ev-steps b{color:var(--ink);font-weight:600}
+.ev-copy{display:flex;width:100%;margin-top:10px;height:46px;font-size:15.5px}
+.ev-link{margin-top:8px;padding:8px 10px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--bg-subtle);color:var(--muted);font-size:12.5px;overflow-wrap:anywhere;user-select:all}
+.ev-open{margin-top:10px;height:38px;font-size:14px}
+.ev-note{margin:0 0 14px;padding:10px 12px;border-radius:var(--r-sm);background:var(--bg-subtle);border:1px solid var(--line);font-size:13px;color:var(--muted);line-height:1.5}
+.ev-alt{margin:0 0 14px;font-size:13px;color:var(--muted);line-height:1.5}
+.ev-alt .btn{margin-top:6px}
+.ev-done{display:flex;align-items:center;gap:12px;flex-wrap:wrap;border-top:1px solid var(--line);padding-top:14px}
+.ev-done .btn{height:42px;padding:0 20px;font-size:15px}
+.ev-status{flex:1;min-width:160px;font-size:13.5px;color:var(--muted)}
+.ev-status.ok{color:var(--ok);font-size:16px;font-weight:600}
+.ev-banner{display:flex;align-items:center;gap:14px;margin:0 0 22px;padding:16px 18px}
+.ev-banner .pebble{flex:none;width:36px;height:36px}
+.ev-banner b{display:block;font-size:15px;color:var(--ink)}
+.ev-banner .ev-acts{display:flex;align-items:center;gap:6px;flex:none}
+.ev-acct{display:flex;align-items:center;gap:14px;padding:14px 16px;color:inherit}
+a.ev-acct:hover{background:var(--bg-subtle)}
+.ev-acct .ev-chg{flex:none;color:var(--muted);font-size:13.5px}
+@media (max-width:640px){
+  dialog.ev-sheet{width:100%;max-width:100%;margin:auto 0 0;border-radius:16px 16px 0 0;max-height:92dvh;border-bottom:0}
+  .ev h1{font-size:24px}
+  .ev-banner{flex-wrap:wrap}.ev-banner .grow{flex-basis:calc(100% - 50px)}.ev-banner .ev-acts{width:100%;justify-content:flex-end}
+}
+@media (max-width:360px){.ev-row{gap:10px;padding:12px}.ev-ic{width:34px;height:34px;font-size:14px}.ev-row>.btn{padding:0 12px}.ev-name{font-size:15px}}
 .cn-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}@media (max-width:560px){.cn-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .cn-tile{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r);background:var(--bg);color:var(--ink);font:inherit;text-align:left;cursor:pointer;text-decoration:none}.cn-tile:hover{border-color:var(--line-strong);background:var(--bg-subtle)}.cn-tile b{font-size:13.5px;font-weight:600}.cn-tile span{font-size:12px;color:var(--muted)}
 .cn-list{list-style:none;margin:4px 0 0;padding:0;display:flex;flex-direction:column;gap:10px}.cn-list li>.copy{margin-top:5px}
@@ -508,6 +560,19 @@ rect.ch-s0,rect.ch-s1,rect.ch-s2,rect.ch-s3,rect.ch-s4,rect.ch-s5,rect.ch-s6,rec
 .ch-pie{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.ch-pie .ch-svg{width:170px;flex:none}.ch-pie .ch-legend{flex-direction:column;gap:4px}
 .ch-data{margin-top:4px}.ch-data summary{cursor:pointer;font-size:11.5px;color:var(--faint);list-style:none}.ch-data summary::-webkit-details-marker{display:none}.ch-data summary:hover{color:var(--ink)}
 .code-b{position:relative;margin:6px 0;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--bg-subtle)}.code-b>pre{margin:0;border:0;border-radius:0}.code-h{display:flex;align-items:center;justify-content:space-between;padding:3px 6px 3px 10px;border-bottom:1px solid var(--line);font-size:11.5px;color:var(--muted)}.code-copy{all:unset;cursor:pointer;padding:2px 8px;border-radius:6px;font-size:11.5px;color:var(--muted)}.code-copy:hover{background:var(--bg-hover);color:var(--ink)}
+.dev-mode{display:flex;align-items:center;gap:12px;border-style:dashed;cursor:pointer}.dev-ic{font-family:var(--mono,monospace);color:var(--muted);font-size:13px}
+input.switch{appearance:none;-webkit-appearance:none;flex:none;width:42px;height:24px;margin:0;border-radius:999px;background:var(--line-strong,var(--line));position:relative;cursor:pointer;transition:background .15s}
+input.switch::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:var(--bg);box-shadow:0 1px 2px rgba(0,0,0,.25);transition:left .15s}input.switch:checked{background:var(--ok)}input.switch:checked::after{left:21px}
+/* Everyday (#1272): the same entries in plainer clothes; Developer mode is today's page unchanged. */
+:root[data-mode="everyday"] .entry .seq,:root[data-mode="everyday"] .meta .via:not(.owner),:root[data-mode="everyday"] [aria-controls="panel-log"],
+:root[data-mode="everyday"] .entry .chg,:root[data-mode="everyday"] .apc-cmd,:root[data-mode="everyday"] .apc-risk,:root[data-mode="everyday"] .ag-hint,
+:root[data-mode="everyday"] .ag-hint+.copy,:root[data-mode="everyday"] #soul-side,:root[data-mode="everyday"] .meta .t-change,:root[data-mode="everyday"] .side-link .count.dev{display:none!important}
+:root:not([data-mode="everyday"]) .ev-res{display:none}
+:root[data-mode="everyday"] #board-tabs [aria-controls="panel-tasks"]{order:1}:root[data-mode="everyday"] #board-tabs [aria-controls="panel-docs"]{order:2}:root[data-mode="everyday"] #board-tabs>*:not([role=tab]){order:3}
+.ev-res{display:flex;align-items:center;gap:10px;margin-top:8px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--bg)}.ev-res b{font-size:16px;color:var(--ink);font-weight:600;line-height:1.35}
+.ev-ok{flex:none;width:22px;height:22px;border-radius:50%;background:var(--ok);color:var(--bg);display:inline-flex;align-items:center;justify-content:center;font-size:13px;font-weight:700}
+:root[data-mode="everyday"] .bp-title h1{font-size:26px;letter-spacing:-.01em}:root[data-mode="everyday"] .section-title h1{font-size:26px}
+@media(max-width:640px){:root[data-mode="everyday"] .bp-title h1{font-size:22px}}
 .mem-act{display:none}.mem-on .mem-act{display:inline-flex;width:30px;padding:0;justify-content:center;color:var(--muted)}.mem-on .mem-act:hover{color:var(--ink)}
 .soul-prev{white-space:pre-wrap;font-size:12.5px;line-height:1.5;color:var(--text);max-height:7.5em;overflow:hidden;-webkit-mask-image:linear-gradient(#000 70%,transparent);mask-image:linear-gradient(#000 70%,transparent)}
 .soul-meta{margin:4px 0 6px}.soul-edit{margin-top:2px}
@@ -965,6 +1030,11 @@ dialog.recap-dlg{width:min(560px,calc(100vw - 32px));max-height:min(80vh,720px)}
 // Themed: on dark the agent half is bone and both eyes ink so it doesn't vanish (--pb-agent / --pb-eye in CSS).
 const LOGO = `<svg class="pebble" width="22" height="22" viewBox="150 190 726 646" aria-hidden="true"><defs><clipPath id="pbc"><rect x="189" y="229" width="647" height="566" rx="283" ry="283"/></clipPath></defs><g clip-path="url(#pbc)"><polygon points="711,-1765 301,2785 -1691,2606 -1281,-1944" fill="#D97857"/><polygon points="746,-1761 336,2789 2328,2968 2738,-1582" fill="var(--pb-agent)"/></g><circle cx="405" cy="468" r="54" fill="var(--pb-eye)"/><circle cx="634" cy="498" r="54" fill="var(--pb-eye)"/></svg>`;
 
+/** The Pebble at another size (the first-run screen and Account's "Your assistant" card). */
+export function pebble(px: number): string {
+  return LOGO.replace('width="22" height="22"', `width="${px}" height="${px}"`);
+}
+
 // The favicon: the Pebble on its bone tile (fixed colors), enlarged a little so it reads at 16 px.
 export const FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><rect width="1024" height="1024" rx="230" fill="#F2EFE8"/>
 <g transform="translate(512 512) scale(1.18) translate(-512.5 -512)"><defs><clipPath id="pbf"><rect x="189" y="229" width="647" height="566" rx="283" ry="283"/></clipPath></defs><g clip-path="url(#pbf)"><polygon points="711,-1765 301,2785 -1691,2606 -1281,-1944" fill="#D97857"/><polygon points="746,-1761 336,2789 2328,2968 2738,-1582" fill="#111113"/></g><circle cx="405" cy="468" r="54" fill="#111113"/><circle cx="634" cy="498" r="54" fill="#F2EFE8"/></g></svg>`;
@@ -1204,7 +1274,7 @@ function inline(s: string, mentions?: Mention[] | null): string {
 
 // Applies the saved Display settings before first paint, so the page never flashes the wrong size or theme.
 const DISPLAY_HEAD = `<script>try{const d=JSON.parse(localStorage.getItem('atteo-display')||'{}'),r=document.documentElement;
-if(d.text==='s'||d.text==='l')r.dataset.text=d.text;if(d.density==='compact')r.dataset.density='compact';if(d.theme==='light'||d.theme==='dark')r.dataset.theme=d.theme}catch{}</script>`;
+if(d.text==='s'||d.text==='l')r.dataset.text=d.text;if(d.density==='compact')r.dataset.density='compact';if(d.theme==='light'||d.theme==='dark')r.dataset.theme=d.theme;if(d.ev===true)r.dataset.mode='everyday'}catch{}</script>`; // mode: what the account said last time (set on the first sync)
 
 const CLIENT_JS = `
 /** The one HTML escaper for every page script. */
@@ -1216,15 +1286,21 @@ window.applyDisplay=d=>{const r=document.documentElement;d=d||{};
   if(d.text==='s'||d.text==='l')r.dataset.text=d.text;else delete r.dataset.text;
   if(d.density==='compact')r.dataset.density='compact';else delete r.dataset.density;
   if(d.theme==='light'||d.theme==='dark')r.dataset.theme=d.theme;else delete r.dataset.theme;
-  try{localStorage.setItem('atteo-display',JSON.stringify({text:d.text||'m',density:d.density||'comfortable',theme:d.theme||'system'}))}catch{}};
+  // Everyday (the default) or Developer (#1272): the server says which, from your choice or (auto) whether you've connected a coding agent.
+  let ev=r.dataset.mode==='everyday';if(typeof d.developer==='boolean')ev=!d.developer;if(ev)r.dataset.mode='everyday';else delete r.dataset.mode;
+  try{localStorage.setItem('atteo-display',JSON.stringify({text:d.text||'m',density:d.density||'comfortable',theme:d.theme||'system',ev}))}catch{}
+  document.dispatchEvent(new CustomEvent('atteo-mode',{detail:{everyday:ev}}))};
 if($('a[href="/me"]')){let fresh=false;try{fresh=!!sessionStorage.getItem('atteo-display-sync');sessionStorage.setItem('atteo-display-sync','1')}catch{}
-  if(!fresh)fetch('/api/me/profile').then(r=>r.ok?r.json():null).then(j=>{const d=j&&j.profile&&j.profile.display;if(d&&typeof d==='object')applyDisplay(d)}).catch(()=>{})}
+  if(!fresh)fetch('/api/me/profile').then(r=>r.ok?r.json():null).then(j=>{const d=j&&j.profile&&j.profile.display;if(d&&typeof d==='object')applyDisplay({...d,developer:j.profile.developer})}).catch(()=>{})}
 // A new version shipped while this page was open (jxn #1221): offer a reload rather than keep running old code. Checked on
 // coming back to the tab and every 10 minutes; drafts are saved as you type, so reloading loses nothing.
 (()=>{let v0=null;const chk=async()=>{try{const j=await (await fetch('/health',{cache:'no-store'})).json();if(!j||!j.version)return;if(v0===null){v0=j.version;return}
   if(j.version===v0||document.getElementById('upd-bar'))return;const b=document.createElement('div');b.id='upd-bar';b.className='upd-bar';b.setAttribute('role','status');
   b.innerHTML='<span>Atteo was updated</span><button class="btn sm primary" type="button">Reload</button>';b.querySelector('button').addEventListener('click',()=>location.reload());document.body.appendChild(b)}catch(e){}};
   chk();document.addEventListener('visibilitychange',()=>{if(!document.hidden)chk()});setInterval(chk,600000)})();
+// Everyday words in the sidebar (#1272): Boards are "Chats". Developer mode keeps today's words.
+(()=>{const words=()=>{const ev=document.documentElement.dataset.mode==='everyday';document.querySelectorAll('.side-link[href="/"] span:not(.count)').forEach(x=>{x.textContent=ev?'Chats':'Boards'})};
+  words();document.addEventListener('atteo-mode',words)})();
 window.toast=(m)=>{const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),1800)};
 document.addEventListener('click',e=>{
   const c=e.target.closest('[data-copy]');
@@ -1270,6 +1346,7 @@ const ICON = {
   admin: `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M8 1.8l5 2v4c0 3-2.2 5.2-5 6.4C5.2 13 3 10.8 3 7.8v-4z"/></svg>`,
   me: `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="8" cy="5.5" r="2.8"/><path d="M2.8 14c.8-2.6 2.8-4 5.2-4s4.4 1.4 5.2 4"/></svg>`,
   approve: `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M8 1.8l5 2v4c0 3-2.2 5.2-5 6.4C5.2 13 3 10.8 3 7.8v-4z"/><path d="M5.8 8l1.6 1.6 2.9-3"/></svg>`,
+  foryou: `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 7.2L8 2.5l5.5 4.7V13a.8.8 0 0 1-.8.8H3.3a.8.8 0 0 1-.8-.8z"/><path d="M6.3 13.8V10h3.4v3.8"/></svg>`,
   inbox: `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M2 9.5l1.8-6h8.4l1.8 6v3.5H2z"/><path d="M2 9.5h3.5l1 1.5h3l1-1.5H14"/></svg>`,
   search: `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>`,
   menu: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"/></svg>`,
@@ -1342,6 +1419,7 @@ export function appPage(
   const paletteItems = [
     { label: "Your agent", hint: "Chat", href: own ? `/b/${own.id}` : "/agent" },
     ...opts.boards.filter((b) => b.kind !== "agent").map((b) => ({ label: b.kind === "direct" ? `${directPeer(b, v.name)} (direct)` : b.title, hint: "Board", href: `/b/${b.id}` })),
+    { label: "For you", hint: "Home", href: "/for-you" },
     { label: "Inbox", hint: "G I", href: "/inbox" },
     { label: "Approvals", hint: "G A", href: "/approvals" },
     { label: "People and friends", hint: "G P", href: "/people" },
@@ -1355,6 +1433,7 @@ export function appPage(
 <aside class="sidebar" aria-label="Navigation">
   <a class="ws" href="/">${LOGO}<span class="wm">atteo</span></a>
   <button class="search" type="button" data-palette>${ICON.search}<span>Search or jump to…</span><kbd>⌘K</kbd></button>
+  <a class="side-link" href="/for-you"${cur("foryou")}>${ICON.foryou}<span>For you</span></a>
   <a class="side-link" href="/inbox"${cur("inbox")}>${ICON.inbox}<span>Inbox</span><span class="count" id="inbox-count" hidden></span></a>
   <a class="side-link" href="/approvals"${cur("approvals")}>${ICON.approve}<span>Approvals</span><span class="count" id="approvals-count" hidden></span></a>
   <a class="side-link" href="/"${cur("boards")}>${ICON.boards}<span>Boards</span></a>

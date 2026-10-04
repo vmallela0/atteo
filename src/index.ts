@@ -23,6 +23,7 @@ import { openapi } from "./openapi";
 import * as billing from "./billing";
 import { blockedMessage, scanFields } from "./secrets";
 import * as inbox from "./inbox";
+import * as forYou from "./forYou";
 import * as auth from "./auth";
 import * as appSignin from "./appSignin";
 import { handleMcp } from "./mcp";
@@ -61,6 +62,7 @@ import {
 import type { Entry, Env, Viewer as Seer } from "./types";
 import { FAVICON_SVG, page, renderText } from "./ui";
 import { APPLE_TOUCH_PNG_B64 } from "./appleIcon";
+import { assistantWelcomePage } from "./welcome";
 import { atteoHeader, BOARD_RE, connectCommand, esc, newBoardId, legacyHostRedirect, normalizeUser, parseBoardMeta, publicOrigin } from "./util";
 
 import * as Sentry from "@sentry/cloudflare";
@@ -339,8 +341,13 @@ async function authCallback(c: Ctx): Promise<Response> {
 
 async function welcome(c: Ctx): Promise<Response> {
   const s = c.session;
-  if (!s) return redirect("/auth/login");
-  if (s.user) return redirect("/");
+  if (!s) return redirect("/auth/login?return=%2Fwelcome");
+  // Signed in: the Everyday first-run screen, "Bring your assistant" (board #1272). Before a name is picked, choose one.
+  if (s.user) {
+    if (c.request.method !== "GET" || !c.viewer) return redirect("/");
+    const [side, mine] = await Promise.all([sideBoards(c.env, c.viewer.name), sessions.list(c.env, c.viewer.name)]);
+    return assistantWelcomePage(c.viewer, side, c.origin, mine.filter(sessions.listed).map((x) => x.client || x.name));
+  }
   const suggestion = await freeName(c.env, suggestName(s.email, s.display_name));
   if (c.request.method === "GET") return welcomePage(s.email, suggestion);
   if (c.request.method !== "POST") return notFound();
@@ -739,13 +746,14 @@ const handler = {
         if (session && !session.user) return redirect("/welcome");
         if (!viewer) return landingPage();
         const me = await registry.userByName(env, viewer.name);
-        const [side, boards, invitations, status] = await Promise.all([
+        const [side, boards, invitations, status, had] = await Promise.all([
           sideBoards(env, viewer.name),
           registry.boardsOverview(env, viewer.name, viewer.via !== "agent"),
           me ? registry.invitationsFor(env, me) : [],
           registry.agentStatus(env, viewer.name),
+          registry.everHadAgent(env, viewer.name),
         ]);
-        return homePage(viewer, side, boards, invitations, { connected: status.connected, onThisBoard: false });
+        return homePage(viewer, side, boards, invitations, { connected: status.connected, onThisBoard: false }, undefined, !had);
       }
 
       if (path === "/boards" && method === "POST") {
@@ -823,6 +831,19 @@ const handler = {
         const unreadIds = items.filter((i) => !i.read_at).map((i) => i.id).slice(0, 90); // D1: at most 100 bound parameters
         if (unreadIds.length) ctx.waitUntil(inbox.markRead(env, viewer.name, { ids: unreadIds }).catch(() => 0));
         return inbox.inboxPage(viewer, side, items, aps);
+      }
+      // ---- For you (Everyday's home): what needs your OK, decisions and questions for you, what your assistant did today ----
+      if (path === "/for-you" && method === "GET") {
+        if (!viewer) return needLogin();
+        const now = Date.now();
+        const [side, aps, items] = await Promise.all([sideBoards(env, viewer.name), approvals.listApprovals(env, viewer.name, "pending"), inbox.listInbox(env, viewer.name, 60)]);
+        // Unread mail for you (the person) from the last week: mentions and replies open in their chat; their boards are
+        // looked at too, so a decision or question waiting there shows even on a quiet board.
+        const mail = items.filter((i) => !i.read_at && i.board_id && (i.kind === "mention" || i.kind === "reply" || i.kind === "decision") && now - i.created_at < 7 * 86_400_000);
+        const mentions = mail.filter((i) => i.kind !== "decision" && i.entry_type !== "question" && i.entry_type !== "decision");
+        const ids = [...new Set([...side.slice(0, forYou.FOR_YOU_BOARDS).map((b) => b.id), ...mail.map((i) => i.board_id)])].slice(0, forYou.FOR_YOU_BOARDS + 4);
+        const boards = (await Promise.all(ids.map((id) => boardStub(env, id).forYou(viewer.name, now - forYou.DONE_WINDOW_MS).catch(() => null)))).filter((b): b is forYou.ForYouCore => !!b);
+        return forYou.forYouPage(viewer, side, { approvals: aps, boards, mentions, now });
       }
       if (path === "/api/inbox" && method === "GET") {
         if (!viewer) return needLogin();
@@ -1100,7 +1121,10 @@ const handler = {
       if (path === "/api/app/prefs" && (method === "GET" || method === "POST")) {
         if (!viewer) return needLogin();
         if (viewer.via === "agent") return json({ error: "App settings are for people, in the web or the app." }, 403);
-        if (method === "GET") return json({ prefs: await social.appPrefs(env, viewer.name) }, 200, { "cache-control": "no-store" });
+        if (method === "GET") {
+          const prefs = await social.appPrefs(env, viewer.name);
+          return json({ prefs: prefs && { ...prefs, developer: await developerFor(env, viewer.name, prefs.display.mode) } }, 200, { "cache-control": "no-store" });
+        }
         const b = await request.json().catch(() => null);
         if (!b || typeof b !== "object" || Array.isArray(b)) return json({ error: 'Send an object, e.g. {"display":{"theme":"dark"}}.' }, 400);
         try {
@@ -1112,7 +1136,10 @@ const handler = {
       // display and reactions still work here (aliases of /api/app/prefs) so older web and app builds keep working.
       if (path === "/api/me/profile" && (method === "GET" || method === "POST")) {
         if (!viewer) return needLogin();
-        if (method === "GET") return json({ profile: await social.profile(env, viewer.name) });
+        if (method === "GET") {
+          const p = await social.profile(env, viewer.name);
+          return json({ profile: p && { ...p, developer: await developerFor(env, viewer.name, p.display?.mode) } });
+        }
         const b = (await request.json().catch(() => ({}))) as Record<string, unknown>;
         const hit = scanFields({ bio: typeof b.bio === "string" ? b.bio : null, display_name: typeof b.display_name === "string" ? b.display_name : null, agent_name: typeof b.agent_name === "string" ? b.agent_name : null });
         if (hit) return json({ error: blockedMessage(hit) }, 400);
@@ -1315,14 +1342,15 @@ const handler = {
 
       if (path === "/me" && method === "GET") {
         if (!viewer) return needLogin();
-        const [side, tokens, plan, hooks, prof] = await Promise.all([
+        const [side, tokens, plan, hooks, prof, mine] = await Promise.all([
           sideBoards(env, viewer.name),
           auth.listTokens(env, viewer.name),
           billing.planOf(env, viewer.name),
           webhooks.listWebhooks(env, viewer.name),
           social.profile(env, viewer.name),
+          sessions.list(env, viewer.name),
         ]);
-        return mePage(viewer, side, tokens, plan, !!env.STRIPE_SECRET_KEY, hooks, prof);
+        return mePage(viewer, side, tokens, plan, !!env.STRIPE_SECRET_KEY, hooks, prof, mine.filter(sessions.listed).map((x) => x.client || x.name));
       }
 
       if (path === OPS_PATH && method === "GET") {
@@ -2563,6 +2591,8 @@ const handler = {
             workos_id: null,
             display_name: body.display_name ?? null,
           });
+          // Tests can start a person in a given mode (Everyday is the default for people without a coding agent).
+          if (body.display && typeof body.display === "object") await social.setAppPrefs(env, name, { display: body.display });
           return json({ ok: true, name }, 201);
         }
         if (path === "/api/ops/tokens" && method === "POST") {
@@ -2670,6 +2700,14 @@ const handler = {
 } satisfies ExportedHandler<Env>;
 
 // Errors also go to Sentry when SENTRY_DSN is set (prod); with no DSN the SDK stays off (dev/CI).
+/** Everyday or Developer (#1272): Developer when the person chose it, or (auto) once they've connected a coding agent. */
+const CODING_AGENT = /claude code|codex|cursor|windsurf|copilot|aider|cline|zed|opencode|gemini cli|amp\b/i;
+async function developerFor(env: Env, user: string, mode: string | undefined): Promise<boolean> {
+  if (mode === "developer") return true;
+  if (mode === "everyday") return false;
+  return (await sessions.list(env, user).catch(() => [])).some((s) => CODING_AGENT.test(s.client ?? ""));
+}
+
 export default Sentry.withSentry(
   (env: Env) => ({ dsn: env.SENTRY_DSN, release: env.CF_VERSION_METADATA?.id, tracesSampleRate: 0, beforeSend: scrubForSentry }),
   handler,
