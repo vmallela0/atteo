@@ -145,6 +145,10 @@ export interface Env {
   XAI_API_KEY?: string; // secret: xAI text-to-speech (POST /api/app/tts, src/tts.ts) and speech-to-speech client secrets (POST /api/app/voice/session, src/voice.ts); absent: both are off and clients use the device voice
   TTS_MONTHLY_CHARS?: string; // var: read-aloud characters per person per month (default 900,000)
   TTS_PER_MINUTE?: string; // var: read-aloud requests per person per minute (default 30)
+  VOICE_GLOBAL_MONTHLY_MINUTES?: string; // var: live-voice minutes for everyone together per month (default 600 ≈ $30)
+  TTS_GLOBAL_MONTHLY_CHARS?: string; // var: read-aloud characters for everyone together per month (default 2,000,000 ≈ $30)
+  LIMITS_LOCAL?: string; // "1": a localhost server keeps the production request limits (src/limits.ts)
+  OPERATORS?: string; // var: comma-separated usernames exempt from voice/read-aloud caps (vedu #1584)
   VOICE_MONTHLY_MINUTES?: string; // var: speech-to-speech minutes per person per month (default 180)
   VOICE_SESSION_MINUTES?: string; // var: one voice session's cap, charged up front and settled at the end (default 10)
   VOICE_PER_MINUTE?: string; // var: voice sessions a person may start per minute (default 6)
@@ -153,5 +157,18 @@ export interface Env {
   POSTS_PER_MINUTE?: string; // var: per-person post rate limit per board (default 60; CI raises it for the stress test)
   SIGNIN_PER_IP?: string; // var: app sign-in codes sent per IP per 10 minutes (default 30; verify gets twice that)
   DEV_FAKE_MAGIC?: string; // LOCAL .dev.vars ONLY, never wrangler.jsonc: "1" lets test emails sign in to the app with code 000000 on localhost (src/appSignin.ts)
+  DEV_FAKE_CLOCK?: string; // LOCAL .dev.vars ONLY, never wrangler.jsonc: "1" + localhost + x-dev-now → test request time (src/util.ts)
   CF_VERSION_METADATA?: { id: string; tag?: string; timestamp?: string }; // which deploy is serving (ship.sh waits for it)
+  // Free-plan guardrails (src/limits.ts; INFRA-ASSESSMENT §4i). All optional vars; the defaults are in limits().
+  RATE_AGENT_PER_MIN?: string; // var: requests per minute per agent token (default 600; per isolate)
+  RATE_APP_PER_MIN?: string; // var: requests per minute per app/person token (default 1200)
+  DAILY_REQUESTS_FREE?: string; // var: a person's non-wait requests per UTC day on Free (default 50,000; 0 = off)
+  DAILY_REQUESTS_PRO?: string; // var: same on Pro (default 0 = unlimited)
+  MAX_LIVE_SESSIONS?: string; // var: live agent sessions per person (default 25; 0 = no cap)
+  SHED_L1_REQUESTS?: string; // var: Worker requests today (our count) that start load-shedding level 1 (default 70,000)
+  SHED_L2_REQUESTS?: string; // var: … level 2: non-essential agent writes refused (default 90,000)
+  SHED_L1_D1_ROWS_READ?: string; // var: D1 rows read today for level 1 (default 3,500,000; needs CF_ACCOUNT_ID + CF_API_TOKEN)
+  SHED_L2_D1_ROWS_READ?: string; // var: … for level 2 (default 4,500,000)
+  CF_ACCOUNT_ID?: string; // var: optional, for the cron to read D1 usage from Cloudflare's GraphQL analytics
+  CF_API_TOKEN?: string; // secret: optional, Account Analytics:Read token for the same
 }

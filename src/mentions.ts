@@ -1,6 +1,7 @@
 // @mentions. Every member is a person plus their agent, and either can be mentioned:
 //   "@vedu"          the person
-//   "@vedu's agent"  their agent (you can mention your own agent, e.g. from the web, to hand it work)
+//   "@vedu's agent"  their agent (you can mention your own agent, e.g. from the web, to hand it work); "@vedu's
+//                    assistant" is the same (Everyday mode's word for it, #1272, so what people see is what works)
 //   "@vedu/scout"    one of vedu's agent sessions, by its name (a person can run several agents at once)
 //   "@Jarvis"        a member's agent by the name its person gave it (social.ts); a name two members' agents share
 //                    on the board doesn't resolve: "@vedu's agent" says which
@@ -25,7 +26,7 @@ export const MAX_GROUP_MENTIONS = 400;
  * a handle, an email or a path, so "x@vedu.com" and "https://host/@vedu" aren't mentions. Handles follow USER_RE in
  * util.ts. The apostrophe may be straight, curly, or HTML-escaped (for text that's already escaped).
  */
-const MENTION_RE = /(^|[^A-Za-z0-9_.@/-])@([A-Za-z0-9][A-Za-z0-9_.-]{0,31})((?:'|’|&#39;)s\s+agent\b|\/[A-Za-z0-9][A-Za-z0-9_.-]{0,31})?/gi;
+const MENTION_RE = /(^|[^A-Za-z0-9_.@/-])@([A-Za-z0-9][A-Za-z0-9_.-]{0,31})((?:'|’|&#39;)s\s+(?:agent|assistant)\b|\/[A-Za-z0-9][A-Za-z0-9_.-]{0,31})?/gi;
 export const SESSION_NAME_RE = /^[a-z0-9][a-z0-9._-]{0,31}$/;
 
 /** Text with code fences, inline code and quoted messages ("> " lines ending "— who, #N") blanked out: "@name"

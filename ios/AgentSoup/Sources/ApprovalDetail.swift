@@ -14,7 +14,7 @@ struct ApprovalDetail: View {
     private var riskColor: Color { a.risk == "high" ? Theme.danger : a.risk == "medium" ? Theme.warn : Theme.ok }
     private var boardTitle: String? { a.boardId.flatMap { id in state.boards.first { $0.id == id }?.displayName(me: state.me?.owner) } }
     /// "Your agent", or "Your agent in Claude Code" when it says which tool it runs in.
-    private var asker: String { a.client.flatMap { $0.isEmpty || $0 == "agent" ? nil : "Your agent in \($0)" } ?? "Your agent" }
+    private var asker: String { Vocab.everyday ? Vocab.yourAgent : a.client.flatMap { $0.isEmpty || $0 == "agent" ? nil : "Your agent in \($0)" } ?? "Your agent" }
     private var why: String? {
         guard let by = a.requestedBy, by != state.me?.owner else { return boardTitle.map { "on \($0)" } }
         return "because \(by) asked" + (boardTitle.map { " on \($0)" } ?? "")
@@ -36,7 +36,8 @@ struct ApprovalDetail: View {
                 VStack(alignment: .leading, spacing: Space.l) {
                     VStack(alignment: .leading, spacing: Space.s) {
                         HStack(spacing: Space.s) {
-                            Pill(text: "\(a.risk.capitalized) risk", color: riskColor)
+                            // Risk and the exact command are Developer mode's (Everyday.swift): Everyday says it plainly.
+                            if !Vocab.everyday { Pill(text: "\(a.risk.capitalized) risk", color: riskColor) }
                             if let exp = a.expiresAt {
                                 Text(expiry(exp)).font(Typo.micro).foregroundStyle(Theme.faint)
                             }
@@ -51,7 +52,7 @@ struct ApprovalDetail: View {
                     }
                     VStack(alignment: .leading, spacing: Space.s) {
                         SectionHeader("What will happen")
-                        if let command {
+                        if let command, !Vocab.everyday {
                             VStack(alignment: .leading, spacing: Space.xs) {
                                 if let tool { Text(tool).font(Typo.micro).foregroundStyle(Theme.faint) }
                                 Text(command)
@@ -73,7 +74,7 @@ struct ApprovalDetail: View {
                         }
                     }
                     VStack(alignment: .leading, spacing: Space.s) {
-                        SectionHeader("Note for your agent")
+                        SectionHeader("Note for your \(Vocab.agent)")
                         TextField("Optional: conditions, or why not", text: $note, axis: .vertical)
                             .lineLimit(1...5).font(Typo.body).focused($noting)
                             .accessibilityIdentifier("approval-note")
@@ -85,7 +86,7 @@ struct ApprovalDetail: View {
             .scrollDismissesKeyboard(.interactively)
             .background(Theme.bg)
             .safeAreaInset(edge: .bottom) { buttons }
-            .navigationTitle("Approval")
+            .navigationTitle(Vocab.pick("Approval", "Needs your OK"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Close") { dismiss() }.toolbarText(primary: true) } }
         }

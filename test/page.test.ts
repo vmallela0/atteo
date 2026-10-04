@@ -40,7 +40,7 @@ describe("board page", () => {
   it("regexes in the page script keep their escapes (a single \\s in the server template turns into a plain s)", async () => {
     const res = boardPage({ name: "jxn", email: "jxn@example.com", display_name: null, admin: false }, [], info, [{ user: "jxn", display_name: null, last_seen: 0 }], entries, []);
     const js = [...(await res.text()).matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]).join("\n");
-    for (const re of ["/^#e\\d+$/", "(^|[^A-Za-z0-9_.@\\/-])@([A-Za-z0-9_.-]{0,32}(?:\\/[A-Za-z0-9_.-]{0,32})?)$/", "s\\s+agent\\b|\\/[A-Za-z0-9]", "/^(diff |index |\\+\\+\\+ |--- )/", "/^\\s*(?:[-*]|\\d+[.)])\\s+\\[( |x|X)\\]\\s+.+$/", "/\\x60\\x60\\x60[^\\n]*\\n?[\\s\\S]*?\\x60\\x60\\x60/g"]) expect(js).toContain(re);
+    for (const re of ["/^#e\\d+$/", "(^|[^A-Za-z0-9_.@\\/-])@([A-Za-z0-9_.-]{0,32}(?:\\/[A-Za-z0-9_.-]{0,32})?)$/", "s\\s+(?:agent|assistant)\\b|\\/[A-Za-z0-9]", "/^(diff |index |\\+\\+\\+ |--- )/", "/^\\s*(?:[-*]|\\d+[.)])\\s+\\[( |x|X)\\]\\s+.+$/", "/\\x60\\x60\\x60[^\\n]*\\n?[\\s\\S]*?\\x60\\x60\\x60/g"]) expect(js).toContain(re);
     expect(js).not.toMatch(/\(\^\|s\)/); // "(^|s)" is what a lost \s looks like
   });
 
@@ -61,6 +61,15 @@ describe("board page", () => {
     expect(member).toContain("/api/app/prefs");
     expect(member).toContain("let RX_SYNC=true&&!!ME");
     expect(viewer).toContain("let RX_SYNC=false&&!!ME");
+  });
+});
+
+describe("N: next thing that needs you (#1464)", () => {
+  it("every app page has the key (not while typing, via the shell's guard) and lists it in the shortcuts", async () => {
+    const html = await boardPage({ name: "jxn", email: "jxn@example.com", display_name: null, admin: false }, [], info, [{ user: "jxn", display_name: null, last_seen: 0 }], entries, []).text();
+    expect(html).toContain("if(k==='n'&&!e.shiftKey){e.preventDefault();nextNeed();return}");
+    expect(html).toContain("<dt><kbd>N</kbd></dt><dd>Next thing that needs you, on any board</dd>");
+    expect(html).toContain("'/approvals#'+a.id");
   });
 });
 
@@ -224,5 +233,21 @@ describe("status card (#1289)", () => {
     expect(page).toContain("window.ST=(()=>");
     expect(page).toContain("location.pathname.match(/^\\/b\\/([^/?#]+)/)");
     expect(page).toContain("L.join('\\n').replace(/```/g,\"'''\")");
+  });
+});
+
+describe("side panel (vedu #1361, jxn #1380)", () => {
+  const q = (n: number, extra: Partial<Entry> = {}): Entry => ({ ...base, seq: n, ts: n, author: "vedu", type: "question", text: `question ${n}?`, to: null, ...extra });
+  it("each list shows its newest 3 with Show all; open questions get Mark answered for people who can post", async () => {
+    const { summaryHtml } = await import("../src/html");
+    const entries = [1, 2, 3, 4, 5].map((n) => q(n));
+    const html = summaryHtml(entries, "jxn", [{ user: "jxn", display_name: null, last_seen: 0 }], undefined, { boardId: "b_test1234", creator: "vedu" });
+    expect(html).toContain('class="capped" data-cap="questions"');
+    expect(html).toContain('data-cap-more="questions">Show all 5</button>');
+    expect((html.match(/data-answered="/g) ?? []).length).toBe(5);
+    const two = summaryHtml(entries.slice(0, 2), "jxn", [{ user: "jxn", display_name: null, last_seen: 0 }], undefined, { boardId: "b_test1234", creator: "vedu" });
+    expect(two).not.toContain("data-cap-more");
+    const viewer = summaryHtml(entries, "jxn", [{ user: "jxn", display_name: null, last_seen: 0, role: "viewer" }], undefined, { boardId: "b_test1234", creator: "vedu" });
+    expect(viewer).not.toContain("data-answered");
   });
 });

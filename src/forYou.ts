@@ -80,7 +80,7 @@ export function chatLabel(b: Pick<SideBoard, "title" | "kind"> | null | undefine
 export function plainTitle(s: string, fallback = "A message for you"): string {
   let t = (s ?? "").split("\n").map((l) => l.trim()).find(Boolean) ?? "";
   t = t.replace(/^(#{1,6}\s+|[-*>]\s+)/, "").replace(/\*\*|__/g, "");
-  t = t.replace(/^((?:@[\w.-]+(?:\/[\w.-]+)?(?:'s agent)?)[,:]?\s+)+/i, "").trim();
+  t = t.replace(/^((?:@[\w.-]+(?:\/[\w.-]+)?(?:['’]s (?:agent|assistant))?)[,:]?\s+)+/i, "").trim();
   if (!t) return fallback;
   t = t.length > 160 ? t.slice(0, 159) + "…" : t;
   return t[0].toUpperCase() + t.slice(1);
@@ -197,7 +197,7 @@ ${okSec}${quickSec}${empty}${doneSec}
 </div>
 <div class="fy-askwrap"><form class="fy-ask" id="fy-ask" autocomplete="off"><input class="grow" id="fy-ask-text" name="text" placeholder="Ask your assistant…" aria-label="Ask your assistant" maxlength="4000" enterkeyhint="send">
 <button class="fy-send" type="submit" id="fy-send" aria-label="Send" hidden><svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 13V3M3.5 7.5L8 3l4.5 4.5"/></svg></button>
-<button class="fy-mic" type="button" id="fy-mic" aria-label="Talk" aria-pressed="false" title="Talk instead of typing (say “send it” at the end to send)" hidden><svg width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><rect x="5.5" y="1.8" width="5" height="8.2" rx="2.5"/><path d="M3.2 7.6a4.8 4.8 0 0 0 9.6 0M8 12.4v2"/></svg></button></form>
+<button class="fy-mic" type="button" id="fy-mic" aria-label="Talk" aria-pressed="false" title="Talk to your assistant (say “send it” at the end to send)" hidden><svg width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><rect x="5.5" y="1.8" width="5" height="8.2" rx="2.5"/><path d="M3.2 7.6a4.8 4.8 0 0 0 9.6 0M8 12.4v2"/></svg></button></form>
 <div class="fy-toast" id="fy-toast" role="status" aria-live="polite" hidden><span>Sent to your assistant</span><a class="link" id="fy-toast-a" href="${agentChat ? `/b/${esc(agentChat)}` : "/agent"}">Open chat</a></div></div>`;
 
   const chats = side.length;
@@ -314,7 +314,8 @@ f.addEventListener('submit',async e=>{e.preventDefault();const text=ta.value.tri
   catch(x){toast(x.message||'Could not send')}
   finally{send.disabled=false;ta.disabled=false;sync();ta.focus()}});
 // The mic: Web Speech, like the chat composer's (hidden where the browser can't); "send it" at the end sends.
-if(SR){mic.hidden=false;mic.addEventListener('click',()=>{if(rec){try{rec.stop()}catch(e){}return}
+// With nothing typed it opens Ask, the voice-first page, already listening (#1273 part 4); with words in the box it dictates the rest here.
+if(SR){mic.hidden=false;mic.addEventListener('click',()=>{if(rec){try{rec.stop()}catch(e){}return}if(!ta.value.trim()){location.href='/ask?talk=1';return}
   const base=ta.value.trim()?ta.value.replace(/[ ]+$/,'')+' ':'';let fin='';
   rec=new SR();rec.lang=navigator.language||'en-US';rec.interimResults=true;rec.continuous=true;mic.setAttribute('aria-pressed','true');mic.classList.add('on');
   rec.onresult=ev=>{let midT='';for(let i=ev.resultIndex;i<ev.results.length;i++){const r=ev.results[i];if(r.isFinal)fin+=r[0].transcript;else midT+=r[0].transcript}

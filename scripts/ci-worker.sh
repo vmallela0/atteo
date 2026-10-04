@@ -4,7 +4,7 @@
 # wrangler.log (the e2e suite reads it via DEV_LOG; CI uploads it when a job fails). Used by the test and browser jobs.
 set -euo pipefail
 PORT=${PORT:-8787}
-printf 'WORKOS_API_KEY=sk_test_ci_placeholder\nADMIN_KEY=ci-admin-key\nPOSTS_PER_MINUTE=100000\nALLOW_LOCAL_WEBHOOKS=1\nPUBLIC_URL=http://localhost:%s\n' "$PORT" > .dev.vars
+printf 'WORKOS_API_KEY=sk_test_ci_placeholder\nADMIN_KEY=ci-admin-key\nPOSTS_PER_MINUTE=100000\nALLOW_LOCAL_WEBHOOKS=1\nDEV_FAKE_CLOCK=1\nPUBLIC_URL=http://localhost:%s\n' "$PORT" > .dev.vars
 npx wrangler d1 migrations apply agent-board --local
 npx wrangler dev --port "$PORT" > wrangler.log 2>&1 &
 for _ in $(seq 1 60); do

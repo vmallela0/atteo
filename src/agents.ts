@@ -6,6 +6,7 @@
 // what each session is doing; a listed agent's profile and record are visible to anyone signed in; nobody else
 // finds it.
 
+import { modelFor } from "./sessions";
 import { isOnline, presenceOf } from "./social";
 import type { Env } from "./types";
 
@@ -18,6 +19,7 @@ export class AgentError extends Error {}
 export interface AgentSessionView {
   name: string;
   client: string | null;
+  model?: string | null; // people only (see sessions.modelFor)
   status: string | null;
   status_at: number | null;
   last_seen: number;
@@ -94,7 +96,7 @@ async function relations(env: Env, me: string, users: string[]): Promise<Record<
   return out;
 }
 
-async function build(env: Env, me: string, users: string[], rel: Record<string, "self" | "friend" | "coworker" | null>): Promise<AgentProfile[]> {
+async function build(env: Env, me: string, users: string[], rel: Record<string, "self" | "friend" | "coworker" | null>, person = false): Promise<AgentProfile[]> {
   if (!users.length) return [];
   const qs = users.map(() => "?").join(",");
   const [people, profiles, caps, rec, sess, pres] = await Promise.all([
@@ -102,9 +104,9 @@ async function build(env: Env, me: string, users: string[], rel: Record<string, 
     env.DB.prepare(`SELECT user, summary, listed FROM agent_profiles WHERE user IN (${qs})`).bind(...users).all<{ user: string; summary: string | null; listed: number }>(),
     env.DB.prepare(`SELECT user, cap FROM agent_caps WHERE user IN (${qs}) ORDER BY cap`).bind(...users).all<{ user: string; cap: string }>(),
     env.DB.prepare(`SELECT user, outcome, COUNT(*) AS n FROM agent_record WHERE user IN (${qs}) GROUP BY user, outcome`).bind(...users).all<{ user: string; outcome: string; n: number }>(),
-    env.DB.prepare(`SELECT user, name, client, status, status_at, last_seen FROM agent_sessions WHERE user IN (${qs}) AND ended_at IS NULL AND kind = 'main' AND last_seen > ? ORDER BY last_seen DESC LIMIT 200`)
+    env.DB.prepare(`SELECT user, name, client, model, status, status_at, last_seen FROM agent_sessions WHERE user IN (${qs}) AND ended_at IS NULL AND kind = 'main' AND last_seen > ? ORDER BY last_seen DESC LIMIT 200`)
       .bind(...users, Date.now() - 24 * 3600 * 1000)
-      .all<{ user: string; name: string; client: string | null; status: string | null; status_at: number | null; last_seen: number }>(),
+      .all<{ user: string; name: string; client: string | null; model: string | null; status: string | null; status_at: number | null; last_seen: number }>(),
     presenceOf(env, users),
   ]);
   const now = Date.now();
@@ -119,7 +121,7 @@ async function build(env: Env, me: string, users: string[], rel: Record<string, 
     const pr = prof.get(p.name);
     if (!r && !pr?.listed) continue;
     const n = (o: string) => recBy.get(p.name)?.find((x) => x.outcome === o)?.n ?? 0;
-    const ss = (sessBy.get(p.name) ?? []).map((s) => ({ name: s.name, client: s.client, status: s.status, status_at: s.status_at, last_seen: s.last_seen, active: now - s.last_seen < ACTIVE_MS }));
+    const ss = (sessBy.get(p.name) ?? []).map((s) => ({ name: s.name, client: s.client, ...modelFor(s, person), status: s.status, status_at: s.status_at, last_seen: s.last_seen, active: now - s.last_seen < ACTIVE_MS }));
     out.push({
       owner: p.name,
       agent_name: p.agent_name,
@@ -136,10 +138,10 @@ async function build(env: Env, me: string, users: string[], rel: Record<string, 
   return out;
 }
 
-/** One person's agent, if `me` may see it. */
-export async function agent(env: Env, me: string, owner: string): Promise<AgentProfile | null> {
+/** One person's agent, if `me` may see it. `person`: the caller is a person (web, app), so sessions carry their model. */
+export async function agent(env: Env, me: string, owner: string, person = false): Promise<AgentProfile | null> {
   const u = owner.toLowerCase().replace(/^@/, "").replace(/'s agent$/, "");
-  return (await build(env, me, [u], await relations(env, me, [u])))[0] ?? null;
+  return (await build(env, me, [u], await relations(env, me, [u]), person))[0] ?? null;
 }
 
 /**
@@ -147,7 +149,7 @@ export async function agent(env: Env, me: string, owner: string): Promise<AgentP
  * capability (prefix match: "stripe" finds "stripe" and "stripe-billing"), `q` by name or summary. Online first,
  * then by track record.
  */
-export async function findAgents(env: Env, me: string, opts: { can?: string | null; q?: string | null; limit?: number }): Promise<AgentProfile[]> {
+export async function findAgents(env: Env, me: string, opts: { can?: string | null; q?: string | null; limit?: number; person?: boolean }): Promise<AgentProfile[]> {
   const can = (opts.can ?? "").trim().toLowerCase();
   const q = (opts.q ?? "").trim().toLowerCase().replace(/^@/, "").slice(0, 40);
   const esc = (s: string) => s.replace(/[\\%_]/g, (c) => "\\" + c);
@@ -169,7 +171,7 @@ export async function findAgents(env: Env, me: string, opts: { can?: string | nu
       ${where.length ? "AND " + where.join(" AND ") : ""}
     LIMIT 90`; // D1 takes at most 100 bound values per statement, and build() binds every name
   const names = (await env.DB.prepare(sql).bind(...args).all<{ name: string }>()).results.map((r) => r.name);
-  const list = await build(env, me, names, await relations(env, me, names));
+  const list = await build(env, me, names, await relations(env, me, names), opts.person);
   const score = (a: AgentProfile) => a.record.claims_verified + a.record.tasks_done - 2 * a.record.claims_disputed;
   return list.sort((a, b) => Number(b.online) - Number(a.online) || score(b) - score(a) || a.owner.localeCompare(b.owner)).slice(0, Math.min(100, opts.limit ?? 50));
 }

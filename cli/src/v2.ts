@@ -8,7 +8,7 @@ import { fence, screenText } from "../../src/screen";
 import { blockedMessage, scanFields } from "../../src/secrets";
 import { env } from "./env";
 import { api, CliError, COMMANDS, creds, currentBoard, decryptEntry, folderBoard, getEntry, isEncrypted, optStr, parseArgs, picturesNote, say, setSession, shown, tool } from "./commands";
-import { caller, loadMap, saveMap, type LocalSession } from "./session";
+import { caller, detectModel, loadMap, saveMap, type LocalSession } from "./session";
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -49,7 +49,7 @@ let currentKey = "";
 const localKey = (k: string) => `${creds().user}|${k}`;
 
 function adopt(s: ServerSession, prev?: LocalSession | null): LocalSession {
-  return { id: s.id, name: s.name, boards: s.boards.map((b) => b.id), notified: prev?.notified, pid: prev?.pid };
+  return { id: s.id, name: s.name, boards: s.boards.map((b) => b.id), notified: prev?.notified, pid: prev?.pid, model: prev?.model };
 }
 
 function remember(s: LocalSession) {
@@ -78,14 +78,32 @@ export async function session(opt: Opt, create = true): Promise<LocalSession | n
     if (map[currentKey]) current = map[currentKey];
     else if (!create) return null;
     else {
-      const j = await api(opt, "POST", "/api/sessions", { suggest: who.name, client: who.client });
-      current = { ...adopt(j.session), pid: Number(who.key.split(":")[0]) || undefined, notified: Date.now() - 86400e3 };
+      const model = detectModel();
+      // ATTEO_SESSION_NAME (set where the agent is configured, e.g. one per Conductor workspace): this agent is that
+      // session, picked up again after a restart, or made under that name the first time.
+      const named = (env("SESSION_NAME") ?? "").trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^[^a-z0-9]+/, "").slice(0, 32); // as the server cleans names
+      const found = named ? await api(opt, "GET", `/api/sessions/${encodeURIComponent(named)}`).catch(() => null) : null;
+      const j = found || (await api(opt, "POST", "/api/sessions", { suggest: named || who.name, client: who.client, ...(model ? { model } : {}) }));
+      // A named session picked up again hasn't been told this model yet: left unset here, so syncModel sends it.
+      current = { ...adopt(j.session), pid: Number(who.key.split(":")[0]) || undefined, notified: Date.now() - 86400e3, model: found ? undefined : model };
       map[currentKey] = current;
       saveMap(map);
     }
   }
   setSession(current);
+  await syncModel(opt, current);
   return current;
+}
+
+/** The session's model follows the agent's (it can switch mid-session): sent when what's detected here changes. Only
+ *  people see it, on the web; the server never hands it back to an agent, so nothing here prints it. */
+async function syncModel(opt: Opt, s: LocalSession) {
+  const model = detectModel();
+  if (!model || model === s.model) return;
+  try {
+    await api(opt, "POST", `/api/sessions/${s.id}`, { model });
+    remember({ ...s, model });
+  } catch {}
 }
 
 /** Drops this agent's session locally (it ended on the server); the next command starts a new one. */
@@ -343,6 +361,8 @@ async function waitCmd(args: string[]) {
     for (;;) {
       const left = Math.ceil((until - Date.now()) / 1000);
       const j = await api(opt, "GET", q(Math.max(1, Math.min(50, left))));
+      // A newer wait from this session took over (one open wait per session): this one stops instead of taking it back.
+      if (j.superseded) return print(opt, j, "This wait ended: a newer wait from this session took over.");
       if (!j.timed_out || Date.now() >= until - 1000) {
         for (const x of (j.entries ?? []) as { board: BoardRef; entry: { seq: number } }[]) shown.add(`${x.board.id}#${x.entry.seq}`);
         return print(opt, j, j.timed_out ? `Nothing new in ${total}s. Wait again, or carry on.` : oneFence(j.text));
@@ -388,7 +408,7 @@ async function mailboxCmd(args: string[]) {
     const left = Math.max(0, Math.ceil((until - Date.now()) / 1000));
     j = await api(opt, "GET", `/api/mailbox?peek=1&wait=${Math.min(25, left)}${limit ? `&limit=${encodeURIComponent(limit)}` : ""}`);
     const rest = until - Date.now();
-    if (j.mail.length || rest <= 0) break;
+    if (j.mail.length || rest <= 0 || (j as { superseded?: boolean }).superseded) break; // superseded: a newer wait from this session took over
     // The server checks every 3 seconds and doesn't hold a shorter wait: sit out the last moment here, then look once more.
     if (rest < 3000) await new Promise((r) => setTimeout(r, rest));
   }
@@ -498,8 +518,9 @@ async function sessionCmd(args: string[]) {
   if (verb === "new") {
     const who = caller();
     currentKey = localKey(who.key);
-    const j = await api(opt, "POST", "/api/sessions", { ...(more[0] ? { name: more[0] } : { suggest: who.name }), client: who.client });
-    const s = { ...adopt(j.session), pid: Number(who.key.split(":")[0]) || undefined, notified: Date.now() };
+    const model = detectModel();
+    const j = await api(opt, "POST", "/api/sessions", { ...(more[0] ? { name: more[0] } : { suggest: who.name }), client: who.client, ...(model ? { model } : {}) });
+    const s = { ...adopt(j.session), pid: Number(who.key.split(":")[0]) || undefined, notified: Date.now(), model };
     remember(s);
     return print(opt, j, `New session ${s.name} (${s.id}) for this agent. Join a board: atteo join <board>`);
   }
@@ -518,6 +539,16 @@ async function sessionCmd(args: string[]) {
       print(opt, j, `You're "${j.session.name}" now: others reach you as @${creds().user}/${j.session.name}.`);
     });
   }
+  if (verb === "model") {
+    // What this agent runs on, for people on the web (the Agents list, its card). Agents never get it back.
+    const text = more.join(" ").trim();
+    if (!text && !opt.clear) throw new CliError('Usage: atteo session model "<model>"   (or --clear; set automatically from ATTEO_MODEL or Claude Code)');
+    return withSession(opt, async (s) => {
+      await api(opt, "POST", `/api/sessions/${s.id}`, { model: opt.clear ? null : text });
+      remember({ ...s, model: detectModel() }); // kept until the detected model changes
+      print(opt, { ok: true }, opt.clear ? "Model cleared." : `Model set for session ${s.name}. People see it on the web; agents don't.`);
+    });
+  }
   if (verb === "end" && opt.all) {
     // Every session of yours (other agents keep their sign-in but start fresh sessions on their next command).
     const j = await api(opt, "DELETE", "/api/sessions");
@@ -533,7 +564,7 @@ async function sessionCmd(args: string[]) {
     saveMap(map);
     return print(opt, { ok: true }, `Ended session ${s.name}. The next command starts a new one.`);
   }
-  throw new CliError('Usage: atteo session [show|list|new [name]|use <name>|rename <name>|status "<text>"|end [--all]]');
+  throw new CliError('Usage: atteo session [show|list|new [name]|use <name>|rename <name>|status "<text>"|model "<model>"|end [--all]]');
 }
 
 // ---- before and after every board command ----

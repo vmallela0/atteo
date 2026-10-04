@@ -16,6 +16,7 @@
 // (max_seconds) up front and POST /api/app/voice/session/end {session_id, seconds} settles it down to what was used.
 // A session the app never ends keeps its full cap. Without XAI_API_KEY the routes answer 503 {fallback: "device"}.
 
+import { isOperator } from "./tts";
 import type { Env } from "./types";
 import * as registry from "./registry";
 import { isLocalHost } from "./util";
@@ -95,7 +96,8 @@ const oneLine = (s: string, max: number) => s.replace(/[\u0000-\u001f\u007f"â€œâ
 export function instructionsFor(person: string, board: { id: string; title: string } | null): string {
   const who = oneLine(person, 60) || "the user";
   let s =
-    `You are ${who}'s voice front for Atteo, where their AI agents work alongside other people's agents on shared boards. ` +
+    `You are Atteo, ${who}'s voice assistant in Atteo, where their AI agents work alongside other people's agents on shared boards. ` +
+    `Your name is Atteo: never call yourself Grok or any other model name. ` +
     `Speak naturally and keep every reply to one or two short sentences. Use your tools to act and to look things up, then say what matters in plain words; ` +
     `never read out raw logs, code, IDs or links. Before approving or denying anything, or doing anything destructive, say exactly what will happen and wait for a clear yes. ` +
     `If you're unsure what they mean, ask one short question.`;
@@ -157,7 +159,9 @@ export function sessionConfig(o: { person: string; board: { id: string; title: s
     voice: o.voice,
     turn_detection: o.handsFree ? { type: "server_vad" } : null,
     audio: {
-      input: { format: { type: "audio/pcm", rate: SAMPLE_RATE } },
+      // grok-transcribe gives the app live captions of what the person says, and the spoken "yes" for approvals
+      // (conversation.item.input_audio_transcription.updated / .completed).
+      input: { format: { type: "audio/pcm", rate: SAMPLE_RATE }, transcription: { model: "grok-transcribe" } },
       output: { format: { type: "audio/pcm", rate: SAMPLE_RATE } },
     },
     tools: TOOLS,
@@ -173,6 +177,10 @@ const posInt = (v: unknown, d: number) => {
 export const budgetMinutesFor = (env: Pick<Env, "VOICE_MONTHLY_MINUTES">) => posInt(env.VOICE_MONTHLY_MINUTES, DEFAULT_BUDGET_MINUTES);
 export const sessionMinutesFor = (env: Pick<Env, "VOICE_SESSION_MINUTES">) => posInt(env.VOICE_SESSION_MINUTES, DEFAULT_SESSION_MINUTES);
 export const perMinuteFor = (env: Pick<Env, "VOICE_PER_MINUTE">) => posInt(env.VOICE_PER_MINUTE, DEFAULT_PER_MINUTE);
+/** Everyone's live-voice minutes per month (vedu #1582: strict caps); "*" is the shared row in voice_usage. ~$30 at $0.05/min. */
+export const DEFAULT_GLOBAL_MINUTES = 600;
+export const globalMinutesFor = (env: Pick<Env, "VOICE_GLOBAL_MONTHLY_MINUTES">) => posInt(env.VOICE_GLOBAL_MONTHLY_MINUTES, DEFAULT_GLOBAL_MINUTES);
+const ALL = "*";
 
 const minutes = (seconds: number) => Math.round(seconds / 6) / 10; // one decimal
 
@@ -185,9 +193,9 @@ export async function usedSeconds(db: D1Database, user: string, now: number): Pr
  * Starts a session: charges its cap to this month, all or nothing, and records it. Null: the cap would go past the
  * budget. A smaller last session is allowed when at least a minute is left.
  */
-export async function reserveSession(db: D1Database, user: string, capSeconds: number, budgetSeconds: number, now: number): Promise<{ id: string; seconds: number } | null> {
+export async function reserveSession(db: D1Database, user: string, capSeconds: number, budgetSeconds: number, now: number, globalSeconds = Infinity): Promise<{ id: string; seconds: number } | null> {
   const month = monthOf(now);
-  const left = budgetSeconds - (await usedSeconds(db, user, now));
+  const left = Math.min(budgetSeconds - (await usedSeconds(db, user, now)), Number.isFinite(globalSeconds) ? globalSeconds - (await usedSeconds(db, ALL, now)) : Infinity);
   const seconds = Math.min(capSeconds, left);
   if (seconds < 60) return null;
   const id = `vs_${crypto.randomUUID().replace(/-/g, "").slice(0, 20)}`;
@@ -196,6 +204,10 @@ export async function reserveSession(db: D1Database, user: string, capSeconds: n
     db.prepare(`UPDATE voice_usage SET seconds = seconds + ?, sessions = sessions + 1 WHERE user = ? AND month = ? AND seconds + ? <= ? RETURNING seconds`).bind(seconds, user, month, seconds, budgetSeconds),
   ]);
   if (!(upd?.results?.length ?? 0)) return null;
+  await db.batch([
+    db.prepare(`INSERT OR IGNORE INTO voice_usage (user, month, seconds, sessions) VALUES (?, ?, 0, 0)`).bind(ALL, month),
+    db.prepare(`UPDATE voice_usage SET seconds = seconds + ?, sessions = sessions + 1 WHERE user = ? AND month = ?`).bind(seconds, ALL, month),
+  ]);
   await db.prepare(`INSERT INTO voice_sessions (id, user, month, reserved_s, used_s, created_at, ended_at) VALUES (?, ?, ?, ?, NULL, ?, NULL)`).bind(id, user, month, seconds, now).run();
   return { id, seconds };
 }
@@ -203,7 +215,7 @@ export async function reserveSession(db: D1Database, user: string, capSeconds: n
 /** Gives a whole session back (the provider failed: nothing was said). */
 async function refundSession(db: D1Database, user: string, id: string, seconds: number, now: number): Promise<void> {
   await db.batch([
-    db.prepare(`UPDATE voice_usage SET seconds = MAX(0, seconds - ?), sessions = MAX(0, sessions - 1) WHERE user = ? AND month = ?`).bind(seconds, user, monthOf(now)),
+    db.prepare(`UPDATE voice_usage SET seconds = MAX(0, seconds - ?), sessions = MAX(0, sessions - 1) WHERE user IN (?, ?) AND month = ?`).bind(seconds, user, ALL, monthOf(now)),
     db.prepare(`DELETE FROM voice_sessions WHERE id = ? AND user = ?`).bind(id, user),
   ]);
 }
@@ -216,7 +228,7 @@ export async function endSession(db: D1Database, user: string, id: string, repor
     .first<{ month: string; reserved_s: number; used_s: number }>();
   if (!row) return null;
   const refunded = row.reserved_s - row.used_s;
-  if (refunded > 0) await db.prepare(`UPDATE voice_usage SET seconds = MAX(0, seconds - ?) WHERE user = ? AND month = ?`).bind(refunded, user, row.month).run();
+  if (refunded > 0) await db.prepare(`UPDATE voice_usage SET seconds = MAX(0, seconds - ?) WHERE user IN (?, ?) AND month = ?`).bind(refunded, user, ALL, row.month).run();
   return { used: row.used_s, refunded };
 }
 
@@ -226,6 +238,8 @@ export interface VoiceDeps {
   db: D1Database;
   provider: VoiceProvider | null;
   budgetMinutes: number;
+  /** Everyone's minutes per month; Infinity for operators (vedu #1584). */
+  globalMinutes?: number;
   sessionMinutes: number;
   perMinute: number;
   /** The board for this person, or an error (not a member). */
@@ -254,7 +268,7 @@ export async function createSession(user: { name: string; display_name?: string 
   if (!deps.provider) return err(NOT_SET_UP, 503, { fallback: "device" });
 
   const budgetS = deps.budgetMinutes * 60;
-  const s = await reserveSession(deps.db, user.name, deps.sessionMinutes * 60, budgetS, now);
+  const s = await reserveSession(deps.db, user.name, deps.sessionMinutes * 60, budgetS, now, (deps.globalMinutes ?? Infinity) * 60);
   if (!s) return err(`You've used this month's voice time (${deps.budgetMinutes} minutes). It resets on the 1st; typing and the device voice still work.`, 429, { fallback: "device" });
   let secret: ClientSecret;
   try {
@@ -323,7 +337,8 @@ export async function route(request: Request, env: Env, path: string, viewer: { 
   const deps: VoiceDeps = {
     db: env.DB,
     provider: providerFor(env, request),
-    budgetMinutes: budgetMinutesFor(env),
+    budgetMinutes: isOperator(env, me) ? 100_000 : budgetMinutesFor(env),
+    globalMinutes: isOperator(env, me) ? Infinity : globalMinutesFor(env),
     sessionMinutes: sessionMinutesFor(env),
     perMinute: perMinuteFor(env),
     board: async (id) => {

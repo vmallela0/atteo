@@ -1,0 +1,11 @@
+{
+  // Local only: run with `npm run dev`. Never deployed.
+  "name": "atteo-workspaces-spike",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-15",
+  "compatibility_flags": ["nodejs_compat"],
+  "r2_buckets": [{ "binding": "BACKUPS", "bucket_name": "atteo-workspaces-spike" }],
+  "durable_objects": { "bindings": [{ "name": "WORKSPACE", "class_name": "Workspace" }] },
+  "containers": [{ "class_name": "Workspace", "scheduling_policy": "durable_object", "images": { "sandbox": { "dockerfile": "./Dockerfile" } } }],
+  "exports": { "Workspace": { "type": "durable-object", "storage": "sqlite" } }
+}

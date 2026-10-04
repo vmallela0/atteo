@@ -148,6 +148,8 @@ struct ProgressRing: View {
 enum WorkPane: String, CaseIterable, Identifiable {
     case tasks = "Tasks", files = "Files"
     var id: String { rawValue }
+    /// What it's called: Everyday says To-dos (Everyday.swift).
+    var label: String { self == .tasks ? Vocab.tasks : "Files" }
 }
 
 /// The board's work in one sheet: its tasks or its files, one segmented control apart (the control sits in the
@@ -182,7 +184,7 @@ struct TasksSheet: View {
                 ToolbarItem(placement: .principal) { Color.clear.frame(width: 1, height: 1).accessibilityHidden(true) }
                 ToolbarItem(placement: .topBarLeading) {
                     Picker("Show", selection: $pane.animation(.snappy(duration: 0.22))) {
-                        ForEach(WorkPane.allCases) { p in Text(p.rawValue).tag(p) }
+                        ForEach(WorkPane.allCases) { p in Text(p.label).tag(p) }
                     }
                     .pickerStyle(.segmented)
                     .frame(width: 168)
@@ -191,7 +193,7 @@ struct TasksSheet: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     if pane == .tasks {
                         Button { newTask = true } label: { ToolbarIcon("plus") }
-                            .accessibilityLabel("New task")
+                            .accessibilityLabel("New \(Vocab.task)")
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() }.toolbarText(primary: true) }

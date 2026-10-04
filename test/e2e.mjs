@@ -1567,7 +1567,7 @@ await step("tasks board (web): list, move between columns, priority, claim confl
 
 await step("every page's inline scripts parse (a template escaping slip breaks the whole page)", async () => {
   const { Script } = await import("node:vm");
-  for (const path of [`/b/${fb}`, `/b/${board}`, "/", "/inbox", "/me"]) {
+  for (const path of [`/b/${fb}`, `/b/${board}`, "/", "/inbox", "/me", "/ask"]) {
     const html = await (await web(path, A)).text();
     const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
     assert(scripts.length, `no scripts on ${path}`);
@@ -2220,9 +2220,10 @@ await step("big boards open on the newest entries; earlier ones load on demand",
   assert((await ops("seed", { board: id, user: A, count: 320, prefix: `big` })).body.count === 320, "seeded");
   const page = await (await web(`/b/${id}`, A)).text();
   has(page, `big 319`);
+  assert(!/big 200</.test(page), "only the newest 80 are on the page");
   assert(!/big 0</.test(page), "the oldest entries aren't on the first page");
   const before = Number(page.match(/data-before="(\d+)"/)[1]);
-  const j = await (await web(`/api/boards/${id}/entries?before=${before}&limit=150`, A)).json();
+  const j = await (await web(`/api/boards/${id}/entries?before=${before}&limit=${before - 1}`, A)).json(); // the page shows the newest 80 (rail-cap, jxn #1365): the rest in one go
   assert(j.entries.length === before - 1 && j.first === 1 && j.entries[0].html.includes(`big 0<`), `${j.entries.length} ${j.first}`);
   const t0 = Date.now();
   has(await ok(A, id, "read"), "320 entries");
@@ -2696,6 +2697,29 @@ await step("soft delete: owner-only people action; gone for every member and age
   assert(dc.status === 400, `agent chat delete ${dc.status}`);
 });
 
+await step("soft delete restore window: day 29 restores; day 31 returns 410", async () => {
+  const day = 86_400_000;
+  const json = { "content-type": "application/json" };
+  const remove = async (label) => {
+    const id = (await ops("boards", { user: A, title: `e2e restore ${label} ${run}` })).body.board.id;
+    const response = await web(`/api/boards/${id}`, A, { method: "DELETE" });
+    const body = await response.json();
+    assert(response.status === 200 && Number.isSafeInteger(body.restorable_until), `delete ${label}: ${response.status} ${JSON.stringify(body)}`);
+    return { id, deletedAt: body.restorable_until - 30 * day };
+  };
+  const restoreAt = ({ id, deletedAt }, days) =>
+    web(`/api/boards/${id}/restore`, A, { method: "POST", headers: { ...json, "x-dev-now": String(deletedAt + days * day) }, body: "{}" });
+
+  const within = await remove("day29");
+  const restored = await restoreAt(within, 29);
+  assert(restored.status === 200, `day 29 restore: ${restored.status} ${await restored.text()}`);
+
+  const expired = await remove("day31");
+  const tooLate = await restoreAt(expired, 31);
+  const tooLateBody = await tooLate.json();
+  assert(tooLate.status === 410 && tooLateBody.error?.includes("more than 30 days"), `day 31 restore: ${tooLate.status} ${JSON.stringify(tooLateBody)}`);
+});
+
 await step("delete a board: creator only, typed confirmation, everything goes", async () => {
   const title = `e2e del </script><script>alert(1)</script> ${run}`;
   const del = (await ops("boards", { user: A, title })).body.board.id;
@@ -3026,6 +3050,36 @@ await step("URL connections (Cursor, claude.ai, a bot) are named agents too: lis
   // Closing the connection ends its session
   await fetch(`${BASE}/mcp`, { method: "DELETE", headers: { "mcp-session-id": cur.sid, ...auth(U) } });
   assert(!(await mine()).some((x) => x.id === s.id), "the session ends with its connection");
+});
+
+await step("named URL connections (/mcp?name=, one per Conductor workspace): the session takes that name, and a reconnect is the same session", async () => {
+  const U = `e2e-named-${run}`;
+  await ops("users", { name: U, email: `${U}@example.com`, verified: "true" });
+  tok[U] = (await ops("tokens", { user: U })).body.token;
+  const connect = async (name) => {
+    const url = `${BASE}/mcp?name=${encodeURIComponent(name)}`;
+    const init = await fetch(url, { method: "POST", headers: { "content-type": "application/json", ...auth(U) }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "claude-code", version: "1" } } }) });
+    const sid = init.headers.get("mcp-session-id");
+    const call = async (tool, args = {}) => (await (await fetch(url, { method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream", "mcp-session-id": sid, ...auth(U) }, body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: tool, arguments: args } }) })).json()).result.content[0].text;
+    return { sid, call };
+  };
+  const mine = async () => (await (await fetch(`${BASE}/api/sessions`, { headers: auth(U) })).json()).sessions;
+  const a = await connect("ws-Tokyo v2");
+  await a.call("list_boards");
+  const b = await connect("ws-osaka");
+  await b.call("list_boards");
+  const names = (await mine()).map((x) => x.name).sort();
+  assert(JSON.stringify(names) === JSON.stringify(["ws-osaka", "ws-tokyo-v2"]), "each workspace is its own session, named from ?name= (cleaned): " + JSON.stringify(names));
+  // The workspace's agent restarts (a new connection, same URL): it's the same session again, not ws-tokyo-v2-2.
+  const id = (await mine()).find((x) => x.name === "ws-tokyo-v2").id;
+  const a2 = await connect("ws-Tokyo v2");
+  has(await a2.call("session", { action: "status", status: "back" }), "back");
+  const after = await mine();
+  assert(after.length === 2 && after.find((x) => x.name === "ws-tokyo-v2")?.id === id, "a reconnect keeps its session: " + JSON.stringify(after));
+  // Without ?name= nothing changes: the session is named after the client.
+  const plain = await fetch(`${BASE}/mcp`, { method: "POST", headers: { "content-type": "application/json", ...auth(U) }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "grok-bot", version: "1" } } }) });
+  await sok({ who: U, sid: plain.headers.get("mcp-session-id"), board: null }, "list_boards");
+  assert((await mine()).some((x) => x.name === "grok-bot"), "unnamed connections are named after their client, as before");
 });
 
 await step("kill switch: Disconnect all agents revokes every sign-in and ends every session; only from the browser", async () => {
@@ -4227,11 +4281,43 @@ await step("agent names: entries, members, agents and people carry agent_name wi
   assert(JSON.stringify(owner.mentions) === JSON.stringify([{ user: v, agent: true }]), "the owner form still works");
 });
 
+await step("side panel: a question closes when the member it's for answers in its thread; people mark one answered (not agents, not viewers)", async () => {
+  const [O, M, V] = ["o", "m", "v"].map((x) => `e2e-sp${x}-${run}`);
+  for (const u of [O, M, V]) await ops("users", { name: u, email: `${u}@example.com`, verified: "true" });
+  for (const u of [O, M]) tok[u] = (await ops("tokens", { user: u })).body.token;
+  for (const u of [O, V]) cookie[u] = (await ops("sessions", { user: u })).body.cookie;
+  const b = (await ops("boards", { user: O, title: `e2e side panel ${run}` })).body.board.id;
+  for (const u of [M, V]) await ops("members", { board: b, user: u });
+  assert((await web(`/api/boards/${b}/members/${V}`, O, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ role: "viewer" }) })).ok, "V is a viewer");
+  const post = async (who, body) => (await (await fetch(`${BASE}/api/boards/${b}/entries`, { method: "POST", headers: { ...auth(who), "content-type": "application/json" }, body: JSON.stringify(body) })).json()).entry.seq;
+  const panel = async () => (await (await web(`/api/boards/${b}/updates?after=0`, O)).json()).summary;
+  const q = await post(O, { type: "question", to: M, text: "Which port does staging use?" });
+  const follow = await post(O, { type: "question", reply_to: q, text: "Or is it the same as prod?" });
+  has(await panel(), `data-answered="${q}"`);
+  // M's agent answers the follow-up: deeper in the thread, but it's who the question was for, so it closes.
+  await post(M, { type: "note", reply_to: follow, text: "8443, same as prod." });
+  const after = await panel();
+  assert(!after.includes(`href="#e${q}"`) && !after.includes(`href="#e${follow}"`), "answered in the thread: both close: " + after);
+  // Mark answered: people who can post; not agents, not viewers; questions only.
+  const q2 = await post(O, { type: "question", to: M, text: "Is the migration done?" });
+  const note = await post(O, { type: "note", text: "fyi" });
+  const mark = (seq, who, viaToken) => fetch(`${BASE}/api/boards/${b}/answered/${seq}`, { method: "POST", headers: viaToken ? auth(who) : { cookie: cookie[who] } });
+  assert((await mark(q2, O, true)).status === 403, "an agent's token can't");
+  assert((await mark(q2, V)).status === 403, "a viewer can't");
+  assert((await mark(note, O)).status === 404, "only questions");
+  has(await panel(), `data-answered="${q2}"`);
+  const r = await mark(q2, O);
+  assert(r.ok && (await r.json()).ok, "a person marks it answered");
+  assert(!(await panel()).includes(`href="#e${q2}"`), "it leaves the open questions");
+  const viewerPage = await (await web(`/b/${b}`, V)).text();
+  assert(!viewerPage.includes("data-answered="), "viewers get no Mark answered");
+});
+
 await step("read aloud (POST /api/app/tts): people only, validated, members only, encrypted boards refused, no key → 503", async () => {
   const tts = (who, body, headers = {}) => web("/api/app/tts", who, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body) });
   const app = (await ops("tokens", { user: A, kind: "app", label: "e2e tts app" })).body.token;
   const st = await (await web("/api/app/tts/status", A)).json();
-  assert(typeof st.enabled === "boolean" && st.voice_default === "eve" && st.budget_chars === 900000 && st.used_chars >= 0, JSON.stringify(st));
+  assert(typeof st.enabled === "boolean" && st.voice_default === "eve" && st.budget_chars === 150000 && st.used_chars >= 0, JSON.stringify(st));
   const viaApp = await fetch(`${BASE}/api/app/tts/status`, { headers: { authorization: `Bearer ${app}` } });
   assert(viaApp.status === 200, `app token status: ${viaApp.status}`);
   assert((await fetch(`${BASE}/api/app/tts/status`)).status === 401, "signed out: 401");
@@ -4267,7 +4353,7 @@ await step("voice (POST /api/app/voice/session): people only, validated, rate li
   const session = (who, body, headers = {}) => web("/api/app/voice/session", who, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body) });
   const app = (await ops("tokens", { user: A, kind: "app", label: "e2e voice app" })).body.token;
   const st = await (await web("/api/app/voice/status", A)).json();
-  assert(typeof st.enabled === "boolean" && st.minutes_budget === 180 && st.minutes_used >= 0 && st.voice_default === "eve" && st.voices.includes("eve"), JSON.stringify(st));
+  assert(typeof st.enabled === "boolean" && st.minutes_budget === 60 && st.minutes_used >= 0 && st.voice_default === "eve" && st.voices.includes("eve"), JSON.stringify(st));
   assert((await fetch(`${BASE}/api/app/voice/status`, { headers: { authorization: `Bearer ${app}` } })).status === 200, "app token: status");
   assert((await fetch(`${BASE}/api/app/voice/status`)).status === 401, "signed out: 401");
   for (const p of ["/api/app/voice/session", "/api/app/voice/status"]) {
@@ -4293,8 +4379,8 @@ await step("voice (POST /api/app/voice/session): people only, validated, rate li
   else {
     const j = await fake.json();
     assert(fake.status === 200 && j.url.startsWith("wss://api.x.ai/v1/realtime") && j.token?.value && j.protocols[0] === `xai-client-secret.${j.token.value}`, `fake session: ${fake.status} ${JSON.stringify(j).slice(0, 300)}`);
-    assert(j.session.turn_detection === null && j.session.instructions.includes("voice front for Atteo") && j.session.tools.length === 6 && j.tool_routes.answer_approval.confirm === true, "session config");
-    assert(j.minutes_budget === 180 && j.max_seconds === 600 && /^vs_/.test(j.session_id), JSON.stringify({ b: j.minutes_budget, m: j.max_seconds }));
+    assert(j.session.turn_detection === null && j.session.instructions.includes("You are Atteo") && j.session.tools.length === 6 && j.tool_routes.answer_approval.confirm === true, "session config");
+    assert(j.minutes_budget === 60 && j.max_seconds === 600 && /^vs_/.test(j.session_id), JSON.stringify({ b: j.minutes_budget, m: j.max_seconds }));
     const after = await (await web("/api/app/voice/status", A)).json();
     assert(after.minutes_used === st.minutes_used + 10, `charged the cap up front: ${JSON.stringify(after)}`);
     const end = await (await web("/api/app/voice/session/end", A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ session_id: j.session_id, seconds: 30 }) })).json();
@@ -4523,6 +4609,186 @@ await step("voice (POST /api/app/voice/session): people only, validated, rate li
     assert(fo.status !== 201, `outsider forward: ${fo.status}`);
     hidden(await ok(A, other, "read", { since: 0 }), "the other board");
     for (const s of Object.values(sockets)) s.ws.close();
+  });
+}
+
+// ---- #1191: an agent session's model is a label for people (the web's Agents list, its card); agents never get it ----
+await step("session model: people see it on the web, agents never get it (reads, mailbox, MCP, session JSON)", async () => {
+  const M = `Opus-e2e-${run}`; // unique, so any leak into agent-facing output is found
+  const mb = (await ops("boards", { user: A, title: `e2e model ${run}` })).body.board.id;
+  await ops("members", { board: mb, user: B });
+  const call = async (who, method, path, body, asAgent) => {
+    const r = await fetch(`${BASE}${path}`, { method, headers: { ...(asAgent ? auth(who) : { cookie: cookie[who] }), "content-type": "application/json" }, body: body == null ? undefined : JSON.stringify(body) });
+    return { status: r.status, text: await r.text() };
+  };
+  const agentSees = []; // everything an agent was handed
+  const seen = (r) => (agentSees.push(r.text), JSON.parse(r.text || "{}"));
+  // B's agent (the CLI's way) starts a session with its model: the reply doesn't echo it back.
+  const made = seen(await call(B, "POST", "/api/sessions", { client: "Claude Code", model: M }, true)).session;
+  assert(made && !("model" in made), `agent's own session view has no model: ${JSON.stringify(made)}`);
+  seen(await call(B, "POST", `/api/sessions/${made.id}/boards`, { board: mb }, true));
+  // People see it: their sessions, the board's agents, the agent's card, the board page.
+  const mine = JSON.parse((await call(B, "GET", "/api/sessions")).text).sessions.find((x) => x.id === made.id);
+  assert(mine?.model === M, `person sees the model: ${JSON.stringify(mine)}`);
+  const ag = JSON.parse((await call(A, "GET", `/api/boards/${mb}/agents`)).text).agents.find((x) => x.user === B);
+  assert(ag?.model === M && ag.client === "Claude Code", `board agents (person): ${JSON.stringify(ag)}`);
+  const card = JSON.parse((await call(A, "GET", `/api/agents/${B}`)).text).agent;
+  assert(card.sessions.some((x) => x.model === M), `agent card (person): ${JSON.stringify(card.sessions)}`);
+  const page = await (await web(`/b/${mb}`, A)).text();
+  has(page, `<span class="faint ag-model">${M}</span>`);
+  // A change from the agent (it switched models) and a clear.
+  seen(await call(B, "POST", `/api/sessions/${made.id}`, { model: `${M}-2` }, true));
+  assert(JSON.parse((await call(B, "GET", `/api/sessions/${made.id}`)).text).session.model === `${M}-2`, "model updated");
+  // Agents: the same APIs with a token, the session's read/wait, the mailbox, and every MCP tool that lists agents.
+  {
+    const r = await call(A, "POST", `/api/boards/${mb}/entries`, { type: "question", to: B, text: `model check ${run} @${B}'s agent` });
+    assert(r.status === 201, `post: ${r.status} ${r.text}`);
+  }
+  seen(await call(B, "GET", "/api/sessions", null, true));
+  seen(await call(B, "GET", `/api/sessions/${made.id}`, null, true));
+  seen(await call(B, "GET", `/api/sessions/${made.id}/read?board=${mb}`, null, true));
+  seen(await call(A, "GET", `/api/boards/${mb}/agents`, null, true));
+  seen(await call(A, "GET", `/api/agents/${B}`, null, true));
+  seen(await call(A, "GET", `/api/agents`, null, true));
+  seen(await call(B, "GET", "/api/mailbox?peek=1", null, true));
+  const viaCli = async (name, args) => {
+    const r = await rpcRaw({ ...auth(B), "x-atteo-session": made.id }, mb, "tools/call", { name, arguments: args });
+    agentSees.push(r.content.map((c) => c.text ?? "").join("\n"));
+  };
+  await viaCli("read", { since: 0 });
+  await viaCli("agents", { action: "find" });
+  await viaCli("agents", { action: "get", name: B });
+  await viaCli("people", {});
+  await viaCli("mailbox", {});
+  await viaCli("session", { action: "status", status: "checking models" });
+  // An MCP URL connection says its model on initialize (X-Atteo-Model): its session carries it, its tools never show it.
+  const init = await fetch(`${BASE}/mcp?board=${mb}`, { method: "POST", headers: { "content-type": "application/json", ...auth(B), "x-atteo-model": `${M}-mcp` }, body: JSON.stringify({ jsonrpc: "2.0", id: ++rpcId, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "cursor", version: "1" } } }) });
+  agentSees.push(await init.text());
+  const ms = { who: B, sid: init.headers.get("mcp-session-id"), board: mb };
+  for (const [name, args] of [["read", { since: 0 }], ["agents", { action: "find" }], ["agents", { action: "get", name: B }], ["session", { action: "status", status: "on cursor" }]]) agentSees.push((await stool(ms, name, args)).text);
+  const viaMcp = JSON.parse((await call(B, "GET", "/api/sessions")).text).sessions.find((x) => x.client === "Cursor");
+  assert(viaMcp?.model === `${M}-mcp`, `MCP session's model from X-Atteo-Model: ${JSON.stringify(viaMcp)}`);
+  const leaks = agentSees.filter((t) => t.includes(M));
+  assert(!leaks.length, `the model reached an agent:\n${leaks.map((t) => t.slice(0, 300)).join("\n---\n")}`);
+  // Something that looks like a secret is never stored: refused when set, dropped on create and from the MCP header.
+  const tokenish = `ghp_${"a".repeat(36)}`;
+  assert((await call(B, "POST", `/api/sessions/${made.id}`, { model: tokenish }, true)).status === 400, "a secret-looking model is refused");
+  const s2 = seen(await call(B, "POST", "/api/sessions", { client: "Codex", model: tokenish }, true)).session;
+  assert(JSON.parse((await call(B, "GET", `/api/sessions/${s2.id}`)).text).session.model === null, "dropped on create");
+  await call(B, "DELETE", `/api/sessions/${s2.id}`, null, true);
+  seen(await call(B, "POST", `/api/sessions/${made.id}`, { model: "" }, true));
+  assert(JSON.parse((await call(B, "GET", `/api/sessions/${made.id}`)).text).session.model === null, "model cleared");
+  await call(B, "DELETE", `/api/sessions/${made.id}`, null, true);
+});
+
+// ---- Free-plan guardrails (src/limits.ts): per-token rate limit, daily budget, load shedding, one wait per session.
+// Limits are lowered for this isolate through /api/ops/limits (wrangler dev runs one) and always reset afterwards.
+{
+  const LU = `e2e-lim-${run}`;
+  let lb = null;
+  const lim = { agent: null, app: null, cookie: null };
+  const call = async (token, method, path, body) => {
+    const r = await fetch(`${BASE}${path}`, { method, headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
+    return { status: r.status, retry: r.headers.get("retry-after"), body: await r.json().catch(() => ({})) };
+  };
+  const setLimits = async (o) => {
+    const r = await ops("limits", o);
+    assert(r.status === 200, `ops limits: ${r.status} ${JSON.stringify(r.body)}`);
+    return r.body;
+  };
+  const guarded = (name, fn) =>
+    step(name, async () => {
+      if (!lim.agent) {
+        assert((await ops("users", { name: LU, email: `${LU}@example.com`, verified: "true" })).status === 201, "limits user");
+        lim.agent = (await ops("tokens", { user: LU, label: "e2e" })).body.token;
+        lim.app = (await ops("tokens", { user: LU, label: "e2e app", kind: "app" })).body.token;
+        lim.cookie = (await ops("sessions", { user: LU })).body.cookie;
+        lb = (await ops("boards", { user: LU, title: `e2e limits ${run}` })).body.board.id;
+      }
+      await setLimits({ reset: true, shed: 0 });
+      try {
+        await fn();
+      } finally {
+        await setLimits({ reset: true, shed: 0 });
+      }
+    });
+
+  await guarded("limits: per-token rate limit answers 429 with Retry-After; health and static files are exempt", async () => {
+    await setLimits({ agentPerMin: 3, appPerMin: 5 });
+    for (let i = 0; i < 3; i++) assert((await call(lim.agent, "GET", "/api/me")).status === 200, `agent call ${i + 1}`);
+    const r = await call(lim.agent, "GET", "/api/me");
+    assert(r.status === 429 && Number(r.retry) > 0 && /at most 3 requests a minute/.test(r.body.error) && r.body.retry_after > 0, `4th agent call: ${r.status} ${r.retry} ${JSON.stringify(r.body)}`);
+    // MCP with the same token: the same window, as a JSON-RPC error.
+    const m = await fetch(`${BASE}/mcp`, { method: "POST", headers: { authorization: `Bearer ${lim.agent}`, "content-type": "application/json", accept: "application/json, text/event-stream" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }) });
+    const mj = await m.json();
+    assert(m.status === 429 && Number(m.headers.get("retry-after")) > 0 && /at most 3 requests/.test(mj.error?.message ?? ""), `MCP: ${m.status} ${JSON.stringify(mj)}`);
+    // The app's token (the person) has its own, higher limit.
+    for (let i = 0; i < 5; i++) assert((await call(lim.app, "GET", "/api/me")).status === 200, `app call ${i + 1}`);
+    assert((await call(lim.app, "GET", "/api/me")).status === 429, "6th app call");
+    // Exempt: health checks and static files, even with the throttled token.
+    for (const p of ["/health", "/skill.md", "/favicon.svg", "/openapi.json"]) assert((await fetch(`${BASE}${p}`, { headers: { authorization: `Bearer ${lim.agent}` } })).status === 200, `${p} exempt`);
+  });
+
+  await guarded("limits: daily budget: agents get 429 'Daily limit reached'; waits don't count; the web keeps reading", async () => {
+    await setLimits({ dailyFree: 4 });
+    for (let i = 0; i < 3; i++) assert((await call(lim.agent, "GET", "/api/me")).status === 200, `call ${i + 1}`);
+    // Long-polls aren't counted (one open per session instead).
+    const waits = await Promise.all([1, 2, 3].map(() => call(lim.agent, "GET", `/api/boards/${lb}/entries?after=999999&wait=1`)));
+    assert(waits.every((w) => w.status === 200), `waits: ${waits.map((w) => w.status)}`);
+    assert((await call(lim.agent, "GET", "/api/me")).status === 200, "4th counted call");
+    const r = await call(lim.agent, "GET", "/api/me");
+    assert(r.status === 429 && /^Daily limit reached/.test(r.body.error) && Number(r.retry) > 0 && Number(r.retry) <= 86400, `over budget: ${r.status} ${r.retry} ${JSON.stringify(r.body)}`);
+    const w = await call(lim.agent, "GET", `/api/boards/${lb}/entries?after=0&wait=1`);
+    assert(w.status === 429, `an over-budget agent's wait: ${w.status}`);
+    // The person on the web: pages and reads still work, changes don't.
+    const page = await fetch(`${BASE}/api/me`, { headers: { cookie: lim.cookie } });
+    assert(page.status === 200, `web read: ${page.status}`);
+    const post = await fetch(`${BASE}/api/boards/${lb}/entries`, { method: "POST", headers: { cookie: lim.cookie, "content-type": "application/json" }, body: JSON.stringify({ text: "over budget" }) });
+    assert(post.status === 429 && /still read/.test((await post.json()).error), `web write: ${post.status}`);
+  });
+
+  await guarded("limits: load shedding: level 2 refuses non-essential agent writes (503); posting still works; the cron sets levels", async () => {
+    const posted = await call(lim.agent, "POST", `/api/boards/${lb}/entries`, { text: `shed ${run}` });
+    assert(posted.status === 201, `post: ${posted.status} ${JSON.stringify(posted.body)}`);
+    const seq = posted.body.entry?.seq ?? posted.body.seq;
+    await setLimits({ shed: 2 });
+    const re = await call(lim.agent, "POST", `/api/boards/${lb}/entries/${seq}/react`, { emoji: "👍" });
+    assert(re.status === 503 && Number(re.retry) > 0, `agent reaction at level 2: ${re.status} ${JSON.stringify(re.body)}`);
+    assert((await call(lim.agent, "POST", `/api/boards/${lb}/entries`, { text: `still posting ${run}` })).status === 201, "agent post at level 2");
+    assert((await call(lim.agent, "GET", `/api/boards/${lb}/entries?after=0`)).status === 200, "agent read at level 2");
+    const pr = await fetch(`${BASE}/api/boards/${lb}/entries/${seq}/react`, { method: "POST", headers: { cookie: lim.cookie, "content-type": "application/json" }, body: JSON.stringify({ emoji: "👍" }) });
+    assert(pr.status === 200, `a person's reaction at level 2: ${pr.status}`);
+    // Level 1: open tabs are asked to pause between long-polls.
+    await setLimits({ shed: 1 });
+    const up = await (await fetch(`${BASE}/api/boards/${lb}/updates?after=0`, { headers: { cookie: lim.cookie } })).json();
+    assert(up.poll_after_ms > 0, `poll hint: ${up.poll_after_ms}`);
+    // The cron: today's requests over the level-1 threshold → 1; defaults (far above an e2e run) → 0.
+    await setLimits({ shedL1Requests: 1, shedL2Requests: 1e12 });
+    const c1 = await ops("cron", {});
+    assert(c1.body.shed?.level === 1 && c1.body.shed.requests >= 1, `cron level 1: ${JSON.stringify(c1.body.shed)}`);
+    await setLimits({ reset: true });
+    const c0 = await ops("cron", {});
+    assert(c0.body.shed?.level === 0, `cron level 0: ${JSON.stringify(c0.body.shed)}`);
+  });
+
+  await guarded("limits: one open wait per agent session (a newer wait ends the older); a cap on live sessions", async () => {
+    const s = await call(lim.agent, "POST", "/api/sessions", { client: "e2e" });
+    assert(s.status === 201, `session: ${s.status} ${JSON.stringify(s.body)}`);
+    const sid = s.body.session.id;
+    await call(lim.agent, "POST", `/api/sessions/${sid}/boards`, { board: lb });
+    const t0 = Date.now();
+    const first = call(lim.agent, "GET", `/api/sessions/${sid}/wait?timeout=20`);
+    await new Promise((r) => setTimeout(r, 700));
+    const second = await call(lim.agent, "GET", `/api/sessions/${sid}/wait?timeout=1`);
+    const a = await first;
+    assert(a.status === 200 && a.body.superseded === true && Date.now() - t0 < 10_000, `older wait: ${a.status} ${JSON.stringify(a.body)} after ${Date.now() - t0}ms`);
+    assert(second.status === 200 && !second.body.superseded, `newer wait: ${JSON.stringify(second.body)}`);
+    // Live sessions: at most MAX_LIVE_SESSIONS (2 here); this person has one live.
+    await setLimits({ liveSessions: 2 });
+    assert((await call(lim.agent, "POST", "/api/sessions", { client: "e2e" })).status === 201, "second session");
+    const third = await call(lim.agent, "POST", "/api/sessions", { client: "e2e" });
+    assert(third.status === 429 && /live agent sessions/.test(third.body.error) && Number(third.retry) > 0, `third session: ${third.status} ${JSON.stringify(third.body)}`);
+    await call(lim.agent, "DELETE", "/api/sessions");
   });
 }
 

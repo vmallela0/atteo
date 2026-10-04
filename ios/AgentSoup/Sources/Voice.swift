@@ -100,7 +100,13 @@ final class VoiceInput: ObservableObject {
             request = req
             heard = ""
             let input = engine.inputNode
-            input.installTap(onBus: 0, bufferSize: 1024, format: input.outputFormat(forBus: 0)) { buf, _ in req.append(buf) }
+            let f = input.outputFormat(forBus: 0)
+            guard f.sampleRate > 0, f.channelCount > 0 else {
+                problem = "The microphone isn't available right now (\(Int(f.sampleRate)) Hz × \(f.channelCount)). Try again, or check Settings → Privacy → Microphone."
+                request = nil
+                return
+            }
+            input.installTap(onBus: 0, bufferSize: 1024, format: f) { buf, _ in req.append(buf) }
             engine.prepare()
             try engine.start()
             listening = true
@@ -130,6 +136,9 @@ struct MicButton: View {
     var identifier = "mic"
     @State private var base = "" // what was in the box before this hold
     @State private var holding = false
+    @State private var pressedAt = Date.distantPast
+    @State private var tapMode = false
+    @State private var stoppedOnPress = false // a quick tap keeps listening until the next tap (vedu #1605: the hold wasn't landing)
 
     var body: some View {
         Image(systemName: voice.listening ? "waveform" : "mic.fill")
@@ -141,9 +150,20 @@ struct MicButton: View {
             .animation(.spring(duration: 0.25, bounce: 0.3), value: holding)
             .gesture(
                 DragGesture(minimumDistance: 0)
-                    .onChanged { _ in if !holding { holding = true; start() } }
-                    .onEnded { _ in holding = false; voice.stop() }
+                    .onChanged { _ in
+                        guard !holding else { return }
+                        holding = true
+                        pressedAt = Date()
+                        if tapMode { tapMode = false; stoppedOnPress = true; voice.stop() } else { stoppedOnPress = false; start() }
+                    }
+                    .onEnded { _ in
+                        holding = false
+                        if stoppedOnPress { return } // that tap ended a tap-to-talk
+                        if Date().timeIntervalSince(pressedAt) < 0.35 { tapMode = true } // a tap: keep listening until the next tap
+                        else { voice.stop() } // a hold: let go to stop
+                    }
             )
+            .onChange(of: voice.listening) { _, now in if !now && !holding { tapMode = false } } // it finished on its own
             .accessibilityElement()
             .accessibilityLabel(voice.listening ? "Stop talking" : "Talk")
             .accessibilityHint("Hold and talk; what you say goes in the message box. End with “send it” to send it.")

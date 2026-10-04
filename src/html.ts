@@ -280,7 +280,7 @@ const PO_JS = `
   window.poSet=on=>{b.setAttribute('aria-pressed',String(on));b.classList.toggle('on',on);inp.value=on?'true':'';note.hidden=!on;f.classList.toggle('po',on);ta.placeholder=on?'Only the people you @ will see this…':(ta.dataset.dev&&document.documentElement.dataset.mode!=='everyday'?ta.dataset.dev:ph0)};
   b.addEventListener('click',()=>{poSet(b.getAttribute('aria-pressed')!=='true');ta.focus()});
   // Needs someone to send it to: a person @mentioned in the text.
-  document.addEventListener('submit',e=>{if(e.target!==f||inp.value!=='true')return;if(!/(^|\\s)@[a-z0-9][a-z0-9_.-]*(?!'s agent)(?!\\/)/i.test(ta.value)){e.preventDefault();e.stopImmediatePropagation();toast('@ the people who should see it: agents never will')}},true);
+  document.addEventListener('submit',e=>{if(e.target!==f||inp.value!=='true')return;if(!/(^|\\s)@[a-z0-9][a-z0-9_.-]*(?![a-z0-9_.-]|['’]s\\s+(?:agent|assistant)\\b|\\/)/i.test(ta.value)){e.preventDefault();e.stopImmediatePropagation();toast('@ the people who should see it: agents never will')}},true);
 })();
 `;
 // HTML preview (jxn #1309). Board files are written by other people, so the page runs in an iframe with sandbox="allow-scripts"
@@ -312,7 +312,7 @@ const voiceJs = (agentChat: boolean) => `
   function stopGo(){if(gl){try{gl.abort()}catch(e){}gl=null}}
   // Talk: what you say goes into the box after what's there; "send it" at the end posts it.
   if(SR&&mic){mic.hidden=false;mic.addEventListener('click',()=>{if(rec){try{rec.stop()}catch(e){}return}
-    stopGo();if(syn)syn.cancel();const base=ta.value.trim()?ta.value.replace(/[ ]+$/,'')+' ':'';let fin='';
+    stopGo();if(typeof hush==='function')hush();else if(syn)syn.cancel();const base=ta.value.trim()?ta.value.replace(/[ ]+$/,'')+' ':'';let fin='';
     rec=new SR();rec.lang=LANG;rec.interimResults=true;rec.continuous=true;mic.setAttribute('aria-pressed','true');mic.classList.add('on');
     rec.onresult=ev=>{let mid='';for(let i=ev.resultIndex;i<ev.results.length;i++){const r=ev.results[i];if(r.isFinal)fin+=r[0].transcript;else mid+=r[0].transcript}
       const send=/(^|[ ,.])send it[.!]?$/i.test(fin.trim());
@@ -326,8 +326,20 @@ const voiceJs = (agentChat: boolean) => `
   function who(el){return ((el.querySelector('.who')||{}).innerText||el.dataset.author||'').trim()}
   function pillUpd(){if(!q.length&&!speaking){pill.hidden=true;return}pill.hidden=false;const el=document.getElementById('e'+q[0]);
     document.getElementById('vp-go').textContent=speaking?'🔊 Reading'+(q.length?' · '+q.length+' more':'')+' · tap to stop':'🔊 '+(q.length>1?q.length+' for you, first from ':'For you from ')+(el?who(el):'')+' · tap or say “go ahead”'}
-  function speakNext(){stopGo();const s=q.shift(),el=s&&document.getElementById('e'+s);if(!el){speaking=false;pillUpd();return}
+  // Atteo's own voice first (POST /api/app/tts, jxn #1612); the device's voice only when the server says to (fallback:"device":
+  // not set up, over the allowance, the service down) or the audio won't play.
+  var au=null,auN=0;
+  function auStop(){auN++;if(au){au.onended=au.onerror=null;try{au.pause()}catch(e){}URL.revokeObjectURL(au.src);au=null}}
+  function speakNext(){stopGo();auStop();const s=q.shift(),el=s&&document.getElementById('e'+s);if(!el){speaking=false;pillUpd();return}
     const body=((el.querySelector(':scope>.grow>.body')||{}).innerText||'').replace(/https?:[^\\s]+/g,'a link').slice(0,700);
+    const n=auN,next=()=>{if(n!==auN)return;auStop();speaking=false;if(q.length)speakNext();else pillUpd()};
+    speaking=true;pillUpd();
+    fetch('/api/app/tts',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(typeof BOARD!=='undefined'&&BOARD?{board:BOARD,seq:+s}:{text:body})})
+      .then(r=>r.ok&&/^audio\\//.test(r.headers.get('content-type')||'')?r.blob():null).then(b=>{if(n!==auN)return;if(!b){deviceSay(el,body);return}
+        const a=au=new Audio(URL.createObjectURL(b));a.onended=next;a.onerror=()=>{if(n===auN){auStop();deviceSay(el,body)}};
+        a.play().catch(()=>{if(n===auN){auStop();deviceSay(el,body)}})})
+      .catch(()=>{if(n===auN)deviceSay(el,body)})}
+  function deviceSay(el,body){if(!syn){speaking=false;pillUpd();return}
     const u=new SpeechSynthesisUtterance(el.dataset.author+(el.classList.contains('by-agent')?"'s agent":'')+'. '+body);u.lang=LANG;const vo=bestVoice();if(vo)try{u.voice=vo}catch(e){}let started=false;u.onstart=()=>{started=true};
     u.onend=u.onerror=()=>{if(u.done)return;u.done=1;window.__utt=null;speaking=false;if(q.length)speakNext();else pillUpd()};
     window.__utt=u; // Chrome drops an utterance nothing holds on to, and its end event with it
@@ -344,7 +356,7 @@ const voiceJs = (agentChat: boolean) => `
       return (vl===l?4:0)+(/natural|neural/i.test(n)?40:/premium/i.test(n)?30:/enhanced/i.test(n)?20:/^google/i.test(n)?15:0)+(v.default?1:0)};
     let best=null,bs=-1;for(const v of vs){const sc=score(v);if(sc>bs){bs=sc;best=v}}return best}
   if(syn.getVoices)syn.getVoices(); /* Chrome loads the list lazily */
-  function hush(){q.length=0;speaking=false;syn.cancel();pillUpd()}
+  function hush(){q.length=0;speaking=false;auStop();if(syn)syn.cancel();pillUpd()}
   // After the blip, listen briefly for "go ahead" (only once the mic is already allowed, so nothing asks for it out of nowhere).
   async function listenGo(){if(!SR||rec||gl||speaking)return;try{if((await navigator.permissions.query({name:'microphone'})).state!=='granted')return}catch(e){return}
     const g=gl=new SR();g.lang=LANG;g.interimResults=true;g.continuous=true;const end=setTimeout(()=>{try{g.stop()}catch(e){}},12000);
@@ -447,22 +459,32 @@ export function fold(id: string, title: string, count: number | string, body: st
 }
 const CHEVRON = `<svg class="fold-c" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M4.5 3l3 3-3 3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
+/** Lists in the side panel show this many (the newest) until "Show all". */
+const SUM_CAP = 3;
+
 export function summaryHtml(entries: Entry[], viewer: string, members: MemberView[], precomputed?: Summary, ctl?: { boardId: string; creator: string }): string {
   const s = precomputed ?? computeSummary(entries);
   // One line per item: who, then the first line of the text; the full text is on hover.
   // One short line per item: the people and agents involved as small overlapping avatars, then a 3–4 word title.
-  const item = (e: Entry) =>
-    `<li><a href="#e${e.seq}" title="${esc(`${authorLabel(e)}${e.to ? ` → ${e.to}` : ""}: ${clip(e.artifact_name ?? e.text, 300)}`)}">${involvedAvatars(e)}<span class="one">${esc(shortTitle(e))}</span><span class="n">#${e.seq}</span></a></li>`;
+  // People who can post close a stale open question here ("Mark answered", jxn #1380); agents answer in the thread.
+  const canMark = !!ctl && members.find((m) => m.user === viewer)?.role !== "viewer";
+  const item = (e: Entry) => {
+    const ans = canMark && e.type === "question" ? `<button type="button" class="sum-ans" data-answered="${e.seq}" title="Mark answered" aria-label="Mark answered: ${esc(shortTitle(e))}">✓</button>` : "";
+    return `<li${ans ? ' class="q"' : ""}><a href="#e${e.seq}" title="${esc(`${authorLabel(e)}${e.to ? ` → ${e.to}` : ""}: ${clip(e.artifact_name ?? e.text, 300)}`)}">${involvedAvatars(e)}<span class="one">${esc(shortTitle(e))}</span><span class="n">#${e.seq}</span></a>${ans}</li>`;
+  };
+  // Each list shows its newest 3, one line each; "Show all" opens the rest (vedu #1361).
+  const list = (id: string, items: Entry[], style = "") =>
+    `<ul${style}${items.length > SUM_CAP ? ` class="capped" data-cap="${id}"` : ""}>${items.map(item).join("")}</ul>${items.length > SUM_CAP ? `<button type="button" class="linkish sum-more" data-cap-more="${id}">Show all ${items.length}</button>` : ""}`;
   // Only sections with something in them show (files have their own tab); an empty board says so once.
-  const sec = (id: string, title: string, items: Entry[]) => (items.length ? fold(id, title, items.length, `<ul>${items.map(item).join("")}</ul>`, shortTitle(items[items.length - 1])) : "");
+  const sec = (id: string, title: string, items: Entry[]) => (items.length ? fold(id, title, items.length, list(id, items), shortTitle(items[items.length - 1])) : "");
   // The viewer is a person: `to` and "@viewer" wait on them; "@viewer's agent" is work handed to their agent.
   const mine = s.openQuestions.filter((e) => e.to === viewer || forPerson(e, viewer));
   const agents = [...s.openQuestions, ...s.openTasks].filter((e) => !mine.includes(e) && forAgent(e, viewer) && e.to !== viewer).sort((a, b) => a.seq - b.seq);
-  const box = (title: string, items: Entry[]) =>
+  const box = (id: string, title: string, items: Entry[]) =>
     items.length
-      ? `<div class="waiting"><div class="small" style="font-weight:600;color:var(--ink);margin-bottom:4px">${title}</div><ul style="list-style:none;margin:0;padding:0">${items.map(item).join("")}</ul></div>`
+      ? `<div class="waiting"><div class="small" style="font-weight:600;color:var(--ink);margin-bottom:4px">${title}</div>${list(id, items, ' style="list-style:none;margin:0;padding:0"')}</div>`
       : "";
-  const waiting = box("Waiting on you", mine) + box("For your agent", agents);
+  const waiting = box("wait-you", "Waiting on you", mine) + box("wait-agent", "For your agent", agents);
   const control = (m: MemberView) => {
     if (!ctl) return "";
     const isCreator = viewer === ctl.creator;
@@ -503,7 +525,7 @@ function involvedAvatars(e: Entry): string {
 export function shortTitle(e: Pick<Entry, "text" | "title" | "artifact_name">, words = 4): string {
   if (e.title?.trim()) return clip(e.title, 48);
   const line = clip(e.artifact_name ?? firstLine(e.text), 400)
-    .replace(/@[A-Za-z0-9][A-Za-z0-9_.-]*(?:['’]s\s+agent)?/gi, " ")
+    .replace(/@[A-Za-z0-9][A-Za-z0-9_.-]*(?:['’]s\s+(?:agent|assistant))?/gi, " ")
     .replace(/^[\s,:;.\-–—>]+/, "");
   const w = line.split(/\s+/).filter(Boolean);
   return w.length ? w.slice(0, words).join(" ").replace(/[,:;.\-–—]+$/, "") + (w.length > words ? "…" : "") : `#entry`;
@@ -636,6 +658,20 @@ export function connectTiles(): string {
   </div>`;
 }
 
+/** Conductor (conductor.build) runs many agents at once, one per workspace (a worktree). This goes in the repo's setup
+ *  script so each workspace's agent is its own session, named after the workspace: with the CLI (local workspaces on
+ *  your Mac, signed in once) through ATTEO_SESSION_NAME; without it (cloud workspaces) through /mcp?name= and a token. */
+export const CONDUCTOR_SETUP =
+  "# Atteo: this workspace's agent joins as <you>/ws-<workspace>\n" +
+  'ws="ws-$(printf %s "$CONDUCTOR_WORKSPACE_NAME" | tr -cs \'A-Za-z0-9._-\' -)"\n' +
+  "if command -v atteo >/dev/null; then\n" +
+  '  claude mcp add atteo --scope local --env ATTEO_SESSION_NAME="$ws" -- atteo mcp || true\n' +
+  "else\n" +
+  '  claude mcp add atteo --scope local --transport http "https://atteo.example/mcp?name=$ws" --header "Authorization: Bearer $ATTEO_TOKEN" || true\n' +
+  "fi";
+/** Or one committed file: Claude Code expands ${VAR:-default} in .mcp.json; signing in happens from Conductor's MCP status row. */
+export const CONDUCTOR_MCP_JSON = JSON.stringify({ mcpServers: { atteo: { type: "http", url: "https://atteo.example/mcp?name=ws-${CONDUCTOR_WORKSPACE_NAME:-conductor}" } } }, null, 2);
+
 /**
  * "Connect an agent": paste one URL into any MCP client that signs in (OAuth), else the CLI (also how an agent answers
  * in the background), else a token and the HTTP API. The URL is filled in by the page (it's this server's address).
@@ -649,6 +685,18 @@ export function connectDialog(viewer: Viewer, board?: { id: string; title: strin
     <p class="small muted">Pick your agent. It opens a browser to sign in; choose <b>Allow</b>. No token, no install.</p>
     ${connectTiles()}
     <p class="small">Then, in any new session, say ${join}. Other clients: the <b>MCP URL</b> tab; agents with a shell: the <b>CLI</b> tab.</p>
+    <p class="small">Running agents in <b>Conductor</b>? <button type="button" class="linkish" data-ctab-go="conductor">Set up every workspace at once</button></p>
+  </div>
+  <div data-cpanel="conductor" class="stack" hidden>
+    <p class="small"><b>Use with Conductor.</b> <span class="muted">Each workspace's agent joins your boards as its own session, named after the workspace (<span class="mono">${esc(viewer.name)}/ws-checkout-fix</span>), so everyone sees which workspace is doing what.</span></p>
+    <p class="small"><b>1.</b> Add this to your repo's setup script <span class="muted">(<span class="mono">.conductor/settings.toml</span> → <span class="mono">[scripts] setup</span>)</span>:</p>
+    <div class="copy"><pre class="mono" id="cn-conductor-setup" data-fill-origin>${esc(CONDUCTOR_SETUP)}</pre><button type="button" class="btn sm" data-copy="cn-conductor-setup">Copy</button></div>
+    <p class="small"><b>2.</b> Local workspaces: install and sign in to the CLI on your Mac once (the <b>CLI</b> tab); that's all. Cloud workspaces: add <span class="mono">ATTEO_TOKEN</span> to Conductor's environment variables, with a token from the <b>Token &amp; API</b> tab.</p>
+    <p class="small"><b>3.</b> In a workspace, tell the agent ${join}. A workspace that restarts comes back as the same session.</p>
+    <details class="small"><summary class="muted" style="cursor:pointer">Or commit one <span class="mono">.mcp.json</span> instead (no CLI, no token)</summary>
+      <p class="muted" style="margin:8px 0">Sign in from Conductor's MCP status row. The session is named after the workspace when Conductor passes <span class="mono">CONDUCTOR_WORKSPACE_NAME</span> to the agent, else "ws-conductor".</p>
+      <div class="copy"><pre class="mono" id="cn-conductor-json" data-fill-origin>${esc(CONDUCTOR_MCP_JSON)}</pre><button type="button" class="btn sm" data-copy="cn-conductor-json">Copy</button></div></details>
+    <p class="small"><button type="button" class="linkish" data-ctab-go="quick">← All agents</button></p>
   </div>
   <div data-cpanel="url" class="stack" hidden>
     <p class="small muted">For agents without a shell (claude.ai, ChatGPT…) or MCP-only clients.</p>
@@ -716,7 +764,7 @@ const CONNECT_JS = `
     any:'Connect to the Atteo MCP server at '+u+' (streamable HTTP; it signs in with OAuth in the browser). If you can run shell commands, you can instead install its CLI with: curl -fsSL '+location.origin+'/install.sh | sh  then run: atteo login'};
   const sayWhere={grokbot:'Paste it to Grok Bot (or add it yourself: Settings → Connectors → Custom, plus the Routine).',muse:'Paste it into Muse.',any:'Paste it into your agent.'};
   if(location.hash==='#connect'){const d=document.getElementById('connect');if(d&&!d.open)d.showModal()}
-  document.querySelectorAll('#cli-install,[data-fill-origin]').forEach(x=>x.textContent=x.textContent.replace('https://atteo.example',location.origin));
+  document.querySelectorAll('#cli-install,[data-fill-origin]').forEach(x=>x.textContent=x.textContent.split('https://atteo.example').join(location.origin));
   let box=null;const done=(t)=>{const d=box&&box.querySelector('.cn-done');if(d)d.textContent=t};
   const copy=(t)=>navigator.clipboard?.writeText(t).catch(()=>{});
   document.addEventListener('click',e=>{const o=e.target.closest('[data-cn-open]'),c=e.target.closest('[data-cn-cmd]'),l=e.target.closest('[data-cn-link]');box=e.target.closest('[data-cn-box]');
@@ -728,8 +776,10 @@ window.showToken=(j)=>{document.getElementById('connect-form').hidden=true;docum
   document.getElementById('cmd').textContent=j.command;const p=document.getElementById('pcmd');if(p&&j.project_command)p.textContent=j.project_command;
   document.getElementById('mcp-url').textContent=j.mcp_url;document.getElementById('mcp-header').textContent='Authorization: Bearer '+j.token;
   document.getElementById('mcp-json').textContent=JSON.stringify({mcpServers:{atteo:{url:j.mcp_url,headers:{Authorization:'Bearer '+j.token}}}},null,2)};
-document.addEventListener('click',e=>{const t=e.target.closest('[data-ctab]');if(!t)return;document.querySelectorAll('[data-ctab]').forEach(b=>b.setAttribute('aria-selected',String(b===t)));
-  document.querySelectorAll('[data-cpanel]').forEach(p=>p.hidden=p.dataset.cpanel!==t.dataset.ctab)});
+// Tabs; data-ctab-go opens a panel without a tab of its own (Conductor), or goes back to one.
+document.addEventListener('click',e=>{const t=e.target.closest('[data-ctab],[data-ctab-go]');if(!t)return;const want=t.dataset.ctab||t.dataset.ctabGo;
+  document.querySelectorAll('[data-ctab]').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.ctab===want)));
+  document.querySelectorAll('[data-cpanel]').forEach(p=>p.hidden=p.dataset.cpanel!==want)});
 `;
 
 // ---------- home ----------
@@ -903,6 +953,7 @@ export interface AgentHere {
   user: string;
   name: string | null; // the session's name (null: an agent without a session, e.g. an MCP connection)
   client: string | null;
+  model?: string | null; // what it runs on ("Opus 5.5"), next to the client; people only, never agents
   last_seen: number;
   status?: string | null; // what it says it's doing
 }
@@ -918,7 +969,8 @@ const agentDot = (st: keyof typeof STATE_LABEL) => `<span class="ag-dot ${st}" r
 export function agentsSection(agents: AgentHere[], boardId: string, readOnly = false): string {
   const row = (a: AgentHere) => {
     const st = stateOf(a.last_seen);
-    return `<li class="ag-row" data-k="${esc(`${a.user}/${a.name ?? ""}`)}" data-state="${st}" title="${esc(a.name ? `${a.user}'s agent session "${a.name}"${a.client ? ` (${a.client})` : ""}. Mention it as @${a.user}/${a.name}` : `${a.user}'s agent`)}">${avatar(a.user, "sm", true)}<span class="grow ag-main"><span class="truncate">${agentDot(st)}<span class="ag-name">${esc(a.name ? `${a.user}/${a.name}` : `${a.user}'s agent`)}</span>${a.client ? ` <span class="xs faint">${esc(a.client)}</span>` : ""}</span>${a.status ? `<span class="ag-status truncate">${esc(a.status)}</span>` : ""}</span>${when(a.last_seen)}</li>`;
+    const tool = [a.client, a.model].filter(Boolean).join(", ");
+    return `<li class="ag-row" data-k="${esc(`${a.user}/${a.name ?? ""}`)}" data-state="${st}" title="${esc(a.name ? `${a.user}'s agent session "${a.name}"${tool ? ` (${tool})` : ""}. Mention it as @${a.user}/${a.name}` : `${a.user}'s agent`)}">${avatar(a.user, "sm", true)}<span class="grow ag-main"><span class="truncate">${agentDot(st)}<span class="ag-name">${esc(a.name ? `${a.user}/${a.name}` : `${a.user}'s agent`)}</span>${a.client ? ` <span class="xs faint">${esc(a.client)}</span>` : ""}</span>${a.model || a.status ? `<span class="ag-status truncate">${a.model ? `<span class="faint ag-model">${esc(a.model)}</span>${a.status ? " · " : ""}` : ""}${esc(a.status ?? "")}</span>` : ""}</span>${when(a.last_seen)}</li>`;
   };
   const body = `${agents.length ? `<ul class="ag-list">${agents.map(row).join("")}</ul>` : `<p class="none">No agents on this board yet.</p>`}${
     readOnly ? "" : `<p class="xs muted ag-hint">Bring one: in any agent's shell</p>${copyField("ag-join", `atteo join ${boardId}`)}`
@@ -971,22 +1023,31 @@ window.BOARD=${JSON.stringify(info.id)};let last=${last};
 // into their threads and get the same reactions, task strips and claim chips as live entries.
 async function loadEarlier(until){const b=document.getElementById('load-earlier');if(!b||b.disabled)return;b.disabled=true;if(until)pinned=false;
   const sc=document.getElementById('thread-scroll'),before=+b.dataset.before;
-  const r=await fetch('/api/boards/'+BOARD+'/entries?before='+before+'&limit='+(until?Math.min(500,before-until+20):150));const j=await r.json().catch(()=>({}));if(!r.ok){b.disabled=false;return}
+  const r=await fetch('/api/boards/'+BOARD+'/entries?before='+before+'&limit='+(until?Math.min(500,before-until+20):60));const j=await r.json().catch(()=>({}));if(!r.ok){b.disabled=false;return}
   const frag=document.createDocumentFragment(),later=[];
-  for(const x of j.entries){if(document.getElementById('e'+x.seq))continue;const t=document.createElement('div');t.innerHTML=x.html;const el=t.firstElementChild;
-    if(x.root!==x.seq){el.dataset.root=String(x.root);el.querySelector(':scope>.grow>.replies')?.remove()}frag.appendChild(el);later.push(x)}
+  for(const x of j.entries){if(document.getElementById('e'+x.seq)||document.getElementById('g'+x.seq))continue;frag.appendChild(entryEl(x));later.push(x)}
   const h0=sc.scrollHeight;b.after(frag); // measured now: the thread can grow while the fetch is out (keeps your place, never overshoots to the bottom)
-  for(const x of later){if(x.human_decision){HDS[x.seq]=x.human_decision;renderHD(x.seq)}if(x.reactions?.length)renderRx(x.seq,x.reactions);if(document.querySelector('#e'+x.seq+' [data-task]'))refreshTask(x.seq);if(x.root!==x.seq)thrSum(x.root)}
+  entryFill(later);
+  if(j.first>1){b.dataset.before=j.first;b.disabled=false}else b.remove();sc.scrollTop+=sc.scrollHeight-h0;railBuild();ghostSoon()}
+/** An entry from the entries API as a conversation element (a reply ties to its thread). */
+function entryEl(x){const t=document.createElement('div');t.innerHTML=x.html;const el=t.firstElementChild;
+  if(x.root!==x.seq){el.dataset.root=String(x.root);el.querySelector(':scope>.grow>.replies')?.remove()}return el}
+/** Entries just put on the page from the API get the same reactions, task strips, claim chips, markers and quote bars as live ones. */
+function entryFill(later){if(!later.length)return;
+  for(const x of later){if(x.human_decision){HDS[x.seq]=x.human_decision;renderHD(x.seq)}if(x.reactions?.length)renderRx(x.seq,x.reactions);if(document.querySelector('#e'+x.seq+' [data-task]'))refreshTask(x.seq);thrSum(x.root)} // a message back on the page gets its "N replies" too
   document.querySelectorAll('#thread>.entry[data-reply]').forEach(quotify);
-  if(window.e2eSync&&later.length)e2eSync(later[0].seq-1);
-  renderClaims(CLAIMS);
-  if(j.first>1){b.dataset.before=j.first;b.disabled=false}else b.remove();sc.scrollTop+=sc.scrollHeight-h0;railBuild()}
+  if(window.e2eSync){window.e2eForget&&e2eForget(later.map(x=>x.seq));e2eSync(later[0].seq-1)}
+  renderClaims(CLAIMS);if(HDL)renderHandling(HDL);renderReads();refChips()}
 document.getElementById('load-earlier')?.addEventListener('click',()=>loadEarlier());
 // A link to a message (a ↗ chip, #N, a summary row) goes there smoothly: centered on screen, with a brief tint (jxn #1326).
 document.addEventListener('click',async e=>{const a=e.target.closest('a[href^="#e"]');if(a)usr();if(!a||e.defaultPrevented||e.metaKey||e.ctrlKey||a.closest('.thr-dlg'))return;
   const seq=+a.getAttribute('href').slice(2);if(!seq)return;e.preventDefault();await window.BOARD_CTX.jump(seq);try{history.replaceState(null,'','#e'+seq)}catch(err){}});
 /** Makes sure #seq is on the page (loading earlier messages if needed); false if it doesn't exist. */
-window.ensureEntry=async seq=>{for(let i=0;i<20&&!document.getElementById('e'+seq)&&document.getElementById('load-earlier');i++)await loadEarlier(seq);return !!document.getElementById('e'+seq)};
+window.ensureEntry=async seq=>{ghHold(seq);const far=!document.getElementById('e'+seq);if(document.getElementById('g'+seq))await ghostAround(seq);
+  for(let i=0;i<20&&!document.getElementById('e'+seq)&&!document.getElementById('g'+seq)&&document.getElementById('load-earlier');i++)await loadEarlier(seq);
+  if(document.getElementById('g'+seq))await ghostAround(seq);const el=document.getElementById('e'+seq);
+  // It wasn't on the page, so it's far: be there already (a long smooth scroll would be cut short as messages come back).
+  if(el&&far){pinned=false;el.scrollIntoView({block:'center'})}return !!el};
 // The thread scrolls in its own area, opens at the latest entry and stays pinned to the bottom (new entries, images,
 // expanding cards, a growing composer) until you scroll up yourself; reaching the bottom again re-pins. While unpinned a
 // pill offers the jump ("New messages" if something arrived).
@@ -994,34 +1055,39 @@ const scroller=document.getElementById('thread-scroll'),pill=document.getElement
 const usr=()=>{userT=Date.now()},nearEnd=()=>scroller.scrollHeight-scroller.scrollTop-scroller.clientHeight<=24; // userT: the last wheel/touch/key/drag, so programmatic scrolls aren't mistaken for the user's
 const atBottom=()=>scroller.clientHeight===0||scroller.scrollHeight-scroller.scrollTop-scroller.clientHeight<80;
 function toBottom(smooth){const far=scroller.scrollHeight-scroller.scrollTop-scroller.clientHeight>1200; // long jumps are instant
-  pinned=true;userT=0;scroller.scrollTo({top:scroller.scrollHeight,behavior:smooth&&!far?'smooth':'auto'});pill.hidden=true;unseen=false}
+  pinned=true;userT=0;scroller.scrollTo({top:scroller.scrollHeight,behavior:smooth&&!far?'smooth':'auto'});pill.hidden=true;unseen=0}
 // The rail: one tick per message at its place in the conversation (instead of a scrollbar). Ticks in view are darker,
 // so scrolling steps through them; hover previews a message, click jumps to it, drag scrubs.
 const rail=document.getElementById('rail'),tip=document.getElementById('rail-tip');let ticks=[];
 function railBuild(){const th=document.getElementById('thread'),top0=th.getBoundingClientRect().top,H=Math.max(1,th.scrollHeight);// top-level messages only: replies live in their thread
-  ticks=[...th.querySelectorAll(':scope>.entry')].map(el=>({el,y:(el.getBoundingClientRect().top-top0)/H,h:el.querySelector(':scope>.grow>.meta')?.offsetHeight||20}));
-  rail.innerHTML=ticks.map((t,i)=>'<i data-i="'+i+'" style="top:'+(t.y*100).toFixed(3)+'%"></i>').join('');railMark()}
-function railMark(){setTimeout(reportSeen,0);const a=scroller.scrollTop,b=a+scroller.clientHeight,H=Math.max(1,scroller.scrollHeight);const is=rail.children;
-  ticks.forEach((t,i)=>{const y=t.y*document.getElementById('thread').scrollHeight;is[i]?.classList.toggle('on',y+t.h>a&&y<b)})}
+  ticks=[...th.querySelectorAll(':scope>.entry,:scope>.ghost')].map(el=>({el,y:(el.getBoundingClientRect().top-top0)/H,h:el.querySelector(':scope>.grow>.meta')?.offsetHeight||20}));
+  // On a long board one tick per message is a grey smear (jxn #1359): at most RAIL_MAX ticks, nearby messages sharing one,
+  // and anything for you always gets its own. Hover and scrubbing still use every message.
+  const RAIL_MAX=60,groups=[];if(ticks.length<=RAIL_MAX)ticks.forEach((t,i)=>groups.push({y:t.y,m:[i],me:t.el.classList.contains('for-you')}));
+  else{const by=new Map();ticks.forEach((t,i)=>{if(t.el.classList.contains('for-you')){groups.push({y:t.y,m:[i],me:true});return}const k=Math.min(RAIL_MAX-1,Math.floor(t.y*RAIL_MAX));
+      let g=by.get(k);if(!g){g={y:t.y,m:[],me:false};by.set(k,g);groups.push(g)}g.m.push(i)})}
+  rticks=groups;rail.innerHTML=groups.map((g,i)=>'<i data-i="'+g.m[0]+'"'+(g.me?' class="me"':'')+(g.m.length>1?' data-n="'+g.m.length+'"':'')+' style="top:'+(g.y*100).toFixed(3)+'%"></i>').join('');railMark()}
+var rticks=[];
+function railMark(){setTimeout(reportSeen,0);const a=scroller.scrollTop,b=a+scroller.clientHeight;const is=rail.children,TH=document.getElementById('thread').scrollHeight;
+  rticks.forEach((g,i)=>{const on=g.m.some(j=>{const t=ticks[j],y=t.y*TH;return y+t.h>a&&y<b});is[i]?.classList.toggle('on',on)})}
 function railAt(ev){const r=rail.getBoundingClientRect();return Math.min(1,Math.max(0,(ev.clientY-r.top)/r.height))}
 function railNear(f){let best=-1,d=2;ticks.forEach((t,i)=>{const x=Math.abs(t.y-f);if(x<d){d=x;best=i}});return d<0.03?best:-1}
 let scrub=false;
 rail.addEventListener('pointerdown',ev=>{usr();scrub=true;rail.setPointerCapture(ev.pointerId);railMove(ev)});
 rail.addEventListener('pointermove',ev=>{if(scrub){railMove(ev);return}const i=railNear(railAt(ev));if(i<0){tip.hidden=true;return}
-  const el=ticks[i].el,m=el.querySelector(':scope>.grow>.meta'),who=m?.querySelector('.who')?.textContent||'',ty=m?.querySelector('.type')?.textContent||'',when=m?.querySelector('time')?.textContent||'';
-  const body=(el.querySelector(':scope>.grow>.body')?.textContent||'').trim().split('\\n')[0];
-  tip.textContent=who+' · '+ty+(when?' · '+when:'')+(body?' — '+body:'');tip.style.top=(ticks[i].y*rail.getBoundingClientRect().height+rail.offsetTop)+'px';tip.hidden=false});
+  tip.textContent=tipOf(ticks[i].el);tip.style.top=(ticks[i].y*rail.getBoundingClientRect().height+rail.offsetTop)+'px';tip.hidden=false});
 rail.addEventListener('pointerleave',()=>{tip.hidden=true});
 rail.addEventListener('pointerup',ev=>{if(!scrub)return;scrub=false;const i=railNear(railAt(ev));if(i>=0&&ev.pointerType!=='touch'){usr();ticks[i].el.scrollIntoView({block:'center'})}});
 function railMove(ev){moved=true;usr();scroller.scrollTop=railAt(ev)*scroller.scrollHeight-scroller.clientHeight/2}
 new ResizeObserver(()=>railBuild()).observe(document.getElementById('thread'));
-let unseen=false;
-function pillSync(){if(pinned){pill.hidden=true;unseen=false}else{pill.textContent=unseen?'New messages ↓':'Jump to latest ↓';pill.hidden=false}}
-scroller.addEventListener('scroll',()=>{if(scroller.clientHeight){if(Date.now()-userT<700)pinned=nearEnd();else if(nearEnd())pinned=true}pillSync();railMark()},{passive:true});
+let unseen=0; // new messages that arrived while you were scrolled up (jxn #1367)
+function pillSync(){if(pinned){pill.hidden=true;unseen=0}else{pill.textContent=unseen?unseen+' new message'+(unseen>1?'s':'')+' ↓':'Jump to latest ↓';pill.hidden=false}}
+scroller.addEventListener('scroll',()=>{if(scroller.clientHeight){if(Date.now()-userT<700)pinned=nearEnd();else if(nearEnd())pinned=true}pillSync();railMark();ghostSoon()},{passive:true});
 ['wheel','touchmove','keydown','pointerdown'].forEach(t=>scroller.addEventListener(t,()=>{moved=true;usr()},{passive:true}));
 document.addEventListener('keydown',e=>{if(/^(Page(Up|Down)|Home|End|Arrow(Up|Down)| )$/.test(e.key)&&!e.target.closest('textarea,input,select,[contenteditable]'))usr()},true);
-// Anything that grows the thread (or shrinks the view) while pinned keeps the latest in view.
-const stay=()=>{if(pinned&&scroller.clientHeight&&!nearEnd())scroller.scrollTop=scroller.scrollHeight};
+// Anything that grows the thread (or shrinks the view) while pinned keeps the latest in view, however little it grew: a
+// late 22px (a font, an avatar) once sat inside nearEnd's slack and left the page short of the bottom (#1569).
+const stay=()=>{if(pinned&&scroller.clientHeight&&scroller.scrollHeight-scroller.scrollTop-scroller.clientHeight>1)scroller.scrollTop=scroller.scrollHeight};
 new ResizeObserver(stay).observe(document.getElementById('thread'));new ResizeObserver(stay).observe(scroller);
 scroller.addEventListener('load',stay,true); // images
 pill.addEventListener('click',()=>toBottom(true));
@@ -1032,6 +1098,68 @@ document.addEventListener('wheel',e=>{if(e.ctrlKey||document.getElementById('pan
   if(!e.target.closest('#app'))return; // the whole main column: margins, top bar and board header
   usr();scroller.scrollBy({top:e.deltaMode===1?e.deltaY*20:e.deltaY});e.preventDefault()},{passive:false});
 railBuild();pillSync();
+// ---- a bounded conversation (jxn #1365): a long board keeps only the messages near the view on the page ----
+// Past 60 messages on the page, a message more than ~2.5 screens away (farthest first) becomes a light placeholder (.ghost, id g<seq>) of the same height that keeps its
+// place on the rail, its thread and its author, so scrolling, the rail and "N replies" don't move. Within ~1.5 screens it
+// comes back, re-rendered from the server (fresh reactions, tasks and markers). Jumps, links, search, the rail and threads
+// bring back what they need first. The newest messages and anything you're working with always stay.
+const GH_FAR=2.5,GH_NEAR=1.5,GH_TAIL=30,GH_MIN=60,GH_HOLD=new Map(),GH_BUSY=new Map();let ghOn=false,ghT=0,ghPause=0; // ghPause: offline, try again later
+function ghHold(seq){GH_HOLD.set(+seq,Date.now()+4000)}
+/** One line about a message for the rail's tip; a placeholder kept it from when it was on the page. */
+function tipOf(el){if(el.classList.contains('ghost'))return el.dataset.tip||'';
+  const m=el.querySelector(':scope>.grow>.meta'),who=m?.querySelector('.who')?.textContent||'',ty=m?.querySelector('.type')?.textContent||'',when=m?.querySelector('time')?.textContent||'';
+  const body=(el.querySelector(':scope>.grow>.body')?.textContent||'').trim().split('\\n')[0];
+  return who+' · '+ty+(when?' · '+when:'')+(body?' — '+body:'')}
+/** Stays on the page: for you, open in the thread, picked for forwarding, the reply target, selected, focused or just jumped to. */
+function ghKeep(el){const s=+el.dataset.seq;if(!s||el.matches('.for-you,.picked,.hit,.sel,.tap,.pending,:focus-within'))return true;
+  if(thrOpen&&(s===thrOpen||+el.dataset.root===thrOpen))return true;if(s===+rpTo.value||(SEL&&SEL.has(s)))return true;
+  const h=GH_HOLD.get(s);if(h){if(h>Date.now())return true;GH_HOLD.delete(s)}return false}
+function ghostOf(el,h){const g=document.createElement('div');g.className='ghost'+(el.classList.contains('by-agent')?' by-agent':'');g.id='g'+el.dataset.seq;g.setAttribute('aria-hidden','true');
+  for(const k of ['seq','root','reply','author','title'])if(el.dataset[k]!=null)g.dataset[k]=el.dataset[k];if(el.classList.contains('retracted'))g.dataset.gone='1';
+  g.dataset.tip=tipOf(el);g.dataset.who=headName(el);g.dataset.line=(el.querySelector(':scope>.grow>.body')?.textContent||el.dataset.title||'').trim().split('\\n')[0].slice(0,140);
+  const t=el.querySelector(':scope>.grow>.meta time[data-ts]');if(t)g.appendChild(t.cloneNode(true)); // a thread's "last 5m" reads it
+  g.style.height=h+'px';return g}
+function ghostSoon(){if(ghT||!ghOn)return;ghT=setTimeout(()=>{ghT=0;ghostSync()},120)}
+function ghostSync(){const H=scroller.clientHeight;if(!ghOn||!H||document.getElementById('panel-conv').hidden)return;
+  const th=document.getElementById('thread'),top=scroller.getBoundingClientRect().top,live=[...th.querySelectorAll(':scope>.entry')],tail=new Set(live.slice(-GH_TAIL)),far=[];
+  for(const el of live){if(tail.has(el)||ghKeep(el))continue;const r=el.getBoundingClientRect(),d=Math.max(top-GH_FAR*H-r.bottom,r.top-top-H-GH_FAR*H);if(d>0)far.push([el,r.height,d])} // measure all, then swap
+  far.sort((a,b)=>b[2]-a[2]);far.length=Math.max(0,Math.min(far.length,live.length-GH_MIN)); // a short board stays whole
+  for(const [el,h] of far)el.replaceWith(ghostOf(el,h));if(far.length)railBuild(); // the rail points at the placeholders now
+  const gs=th.querySelectorAll(':scope>.ghost'),near=[];let lo=0,hi=gs.length;
+  while(lo<hi){const m=(lo+hi)>>1;if(gs[m].getBoundingClientRect().bottom<top-GH_NEAR*H)lo=m+1;else hi=m}
+  for(let i=lo;i<gs.length;i++){if(gs[i].getBoundingClientRect().top>top+H+GH_NEAR*H)break;near.push(+gs[i].dataset.seq)}
+  if(near.length)Date.now()>ghPause?ghostFill(near).then(ghostSoon):setTimeout(ghostSoon,ghPause-Date.now()+50);
+  // Going back loads older messages before you reach the top (the button stays for keyboards and screen readers).
+  const le=document.getElementById('load-earlier');if(le&&!le.disabled&&Date.now()-ghUser<2000&&le.getBoundingClientRect().bottom>top-H)loadEarlier()}
+// Only the person's own scrolling loads more (a script's scrollTop or synthetic wheel never does).
+let ghUser=0;['wheel','touchmove','pointerdown'].forEach(t=>document.addEventListener(t,e=>{if(e.isTrusted)ghUser=Date.now()},{passive:true,capture:true}));
+document.addEventListener('keydown',e=>{if(e.isTrusted&&/^(Page(Up|Down)|Home|End|Arrow(Up|Down)| )$/.test(e.key))ghUser=Date.now()},true);
+/** Brings these placeholders back as messages (waits for any already on their way). */
+async function ghostFill(seqs){const wait=[],todo=[];for(const s of seqs){const p=GH_BUSY.get(s);if(p)wait.push(p);else if(document.getElementById('g'+s))todo.push(s)}
+  todo.sort((a,b)=>a-b);const runs=[];for(const s of todo){const r=runs[runs.length-1];if(r&&s-r[0]<150)r.push(s);else runs.push([s])}
+  for(const r of runs){const p=ghRun(r);r.forEach(s=>GH_BUSY.set(s,p));wait.push(p)}await Promise.all(wait)}
+async function ghRun(r){try{const lo=r[0],hi=r[r.length-1];
+    const res=await fetch('/api/boards/'+BOARD+'/entries?before='+(hi+1)+'&limit='+(hi-lo+1));const j=await res.json().catch(()=>({}));if(!res.ok){ghPause=Date.now()+3000;return}
+    const a=ghAnchor(),got=[];
+    for(const x of j.entries||[]){const g=x.seq>=lo&&document.getElementById('g'+x.seq);if(!g)continue;const el=entryEl(x);
+      if(g.dataset.gone){el.classList.add('retracted');el.querySelector('[data-retract]')?.remove()}g.replaceWith(el);got.push(x)}
+    for(const s of r)if(!got.some(x=>x.seq===s))document.getElementById('g'+s)?.remove(); // gone from the board since
+    entryFill(got);ghAnchorBack(a);railBuild()}catch(e){ghPause=Date.now()+3000}finally{r.forEach(s=>GH_BUSY.delete(s))}}
+/** Messages coming back can differ in height from their placeholders: whatever is at the top of the view stays put. */
+function ghAnchor(){if(pinned)return null;const r=scroller.getBoundingClientRect();let el=document.elementFromPoint(r.left+r.width/3,r.top+4)?.closest?.('#thread>*');
+  if(!el)for(const c of document.getElementById('thread').children)if(c.getBoundingClientRect().bottom>r.top){el=c;break}
+  return el?{el,seq:el.dataset.seq,y:el.getBoundingClientRect().top}:null}
+function ghAnchorBack(a){if(!a||pinned)return;const el=a.el.isConnected?a.el:a.seq&&(document.getElementById('e'+a.seq)||document.getElementById('g'+a.seq));if(!el)return;
+  const d=el.getBoundingClientRect().top-a.y;if(Math.abs(d)>=1)scroller.scrollTop+=d}
+/** A message and its neighbours, back on the page before a jump lands there. */
+async function ghostAround(seq){const g=document.getElementById('g'+seq);if(!g)return;const near=[seq];let p=g,n=g;
+  for(let i=0;i<12;i++){p=p?.previousElementSibling;n=n?.nextElementSibling;if(p?.classList.contains('ghost'))near.push(+p.dataset.seq);if(n?.classList.contains('ghost'))near.push(+n.dataset.seq)}
+  await ghostFill(near)}
+/** Opening a thread brings back its messages first (openThread, below, is wrapped: every way in goes through this). */
+{const open0=openThread;openThread=(root,o={})=>{const gs=o._gh?[]:[document.getElementById('g'+root),...document.querySelectorAll('#thread>.ghost[data-root="'+root+'"]')].filter(Boolean);
+  if(!gs.length)return open0(root,o);ghHold(root);ghostFill(gs.map(g=>+g.dataset.seq)).then(()=>openThread(root,Object.assign({},o,{_gh:1})))}}
+new ResizeObserver(ghostSoon).observe(scroller);
+window.addEventListener('load',()=>setTimeout(()=>{ghOn=true;ghostSoon()},300)); // after the page has opened where it should
 const linked=/^#e\\d+$/.test(location.hash);
 // A link to a message further back than the page shows loads back to it (on open, or when the hash changes).
 async function goLinked(){const m=location.hash.match(/^#e([0-9]+)$/);if(!m||document.getElementById('e'+m[1]))return;const seq=+m[1];pinned=false;
@@ -1051,7 +1179,7 @@ window.addEventListener('load',()=>{if(linked||moved)return;if(!unreadAt||!openA
 let ticking=null,again=false,sumNext=false; // sumNext: a task was finished, so the sidebar's open tasks changed
 function tick(wait){if(ticking){if(!wait)again=true;return ticking}ticking=tick1(wait).finally(()=>{ticking=null;if(again){again=false;tick(false)}});return ticking}
 async function tick1(wait){const sumNow=sumNext;sumNext=false;try{
-  const r=await fetch('/api/boards/'+BOARD+'/updates?after='+last+(wait?'&wait=25':''));if(!r.ok){await new Promise(r=>setTimeout(r,5000));return}const d=await r.json();
+  const r=await fetch('/api/boards/'+BOARD+'/updates?after='+last+(wait?'&wait=25':''));if(!r.ok){await new Promise(r=>setTimeout(r,5000));return}const d=await r.json();pollAfter=d.poll_after_ms||0;
   const stick=stickNext||pinned;stickNext=false;let added=0;
   for(const e of d.entries){if(addEntry(e))added++}
   if(typeof d.last==='number')last=Math.max(last,d.last);
@@ -1061,13 +1189,13 @@ async function tick1(wait){const sumNow=sumNext;sumNext=false;try{
   if(d.handling)renderHandling(d.handling);
   if(d.entries.length){for(const e of d.entries)TYPERS.delete(e.author);typingSync()} // sent: no longer typing
   if(d.reads){READS=d.reads;renderReads()}
-  if(added){railBuild();if(stick)toBottom();else{unseen=true;pillSync()}if(window.e2eSync)e2eSync()}
-  if(d.entries.length||sumNow){document.getElementById('sum').innerHTML=d.summary;foldApply();document.querySelectorAll('[data-count]').forEach(x=>x.textContent=d.count);refreshTimes();infoCount()}
+  if(added){railBuild();if(stick)toBottom();else{unseen+=added;pillSync()}if(window.e2eSync)e2eSync();ghostSoon()}
+  if(d.entries.length||sumNow){document.getElementById('sum').innerHTML=d.summary;foldApply();capApply();document.querySelectorAll('[data-count]').forEach(x=>x.textContent=d.count);refreshTimes();infoCount()}
 }catch(e){await new Promise(r=>setTimeout(r,5000))}}
 // Reactions that arrive live before their entry is on the page (an agent's 🤔 often beats the entry's own fetch).
 const RXP={};
 // "#412" links read as chips with that message's title, so people never have to think in numbers.
-function refChips(root){(root||document).querySelectorAll('a.ref:not([data-done])').forEach(a=>{const t=document.getElementById('e'+a.dataset.ref)?.dataset.title;
+function refChips(root){(root||document).querySelectorAll('a.ref:not([data-done])').forEach(a=>{const t=(document.getElementById('e'+a.dataset.ref)||document.getElementById('g'+a.dataset.ref))?.dataset.title;
   a.textContent='↗ '+(t||'an earlier message');a.title='Go to that message';a.dataset.done='1'})}
 refChips();
 /** Puts one entry (from updates, or straight from a post's response) on the page; false if it's already there. */
@@ -1082,11 +1210,12 @@ function addEntry(e){if(document.getElementById('e'+e.seq)){last=Math.max(last,e
     if(el.querySelector('[data-task]'))refreshTask(e.seq);
     if(reply){thrSum(e.root);if(thrOpen===e.root)thrRender();setTimeout(()=>window.reportSeen&&reportSeen(),0)}
     if(!document.querySelector('#log-body tr[data-seq="'+e.seq+'"]')){const lt=document.createElement('tbody');lt.innerHTML=e.row;document.getElementById('log-body').prepend(lt.firstElementChild);document.getElementById('log-empty')?.remove()}
-    if(e.retracts){const t=document.getElementById('e'+e.retracts);if(t){t.classList.add('retracted');t.querySelector('[data-retract]')?.remove()}}
+    if(e.retracts){const t=document.getElementById('e'+e.retracts);if(t){t.classList.add('retracted');t.querySelector('[data-retract]')?.remove()}else{const g=document.getElementById('g'+e.retracts);if(g)g.dataset.gone='1'}}
     last=Math.max(last,e.seq);return true}
 // Live updates: a WebSocket that only says "something changed"; fall back to long-polling if it can't stay up.
-let ws,retry=0,polling=false;
-function poll(){if(polling)return;polling=true;(async()=>{for(;;){if(document.hidden){await new Promise(r=>setTimeout(r,2000));continue}await tick(true)}})()}
+let ws,retry=0,polling=false,pollAfter=0;
+// poll_after_ms: the server is shedding load and asks open tabs to pause between long-polls.
+function poll(){if(polling)return;polling=true;(async()=>{for(;;){if(document.hidden){await new Promise(r=>setTimeout(r,2000));continue}await tick(true);if(pollAfter)await new Promise(r=>setTimeout(r,pollAfter))}})()}
 function connect(){
   try{ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/api/boards/'+BOARD+'/ws')}catch(e){return poll()}
   let ping;ws.onopen=()=>{retry=0;document.getElementById('conn').hidden=true;ping=setInterval(()=>{try{ws.send('ping')}catch(e){}},30000)};
@@ -1100,9 +1229,12 @@ function connect(){
     if(d.type==='memory'){window.onMemoryEvent&&onMemoryEvent();return}
     // Someone renamed their agent (vedu #1125): its posts here read the new name, always with whose agent it is.
     if(d.type==='profile'&&d.user){delete pcache[d.user];document.querySelectorAll('#thread .entry.by-agent[data-author="'+CSS.escape(d.user)+'"]>.grow>.meta').forEach(m=>{const w=m.querySelector('.who');if(!w)return;
-      let o=m.querySelector('.via.owner');if(d.agent_name){w.textContent=d.agent_name;if(!o){o=document.createElement('span');o.className='via owner';w.after(o)}o.textContent=d.user+"'s agent"}else if(o){w.textContent=d.user+"'s agent";o.remove()}});return}
+      let o=m.querySelector('.via.owner');delete w.dataset.dev;if(o)delete o.dataset.dev; // the developer words change; Everyday re-words them below
+      if(d.agent_name){w.textContent=d.agent_name;if(!o){o=document.createElement('span');o.className='via owner';w.after(o)}o.textContent=d.user+"'s agent"}else if(o){w.textContent=d.user+"'s agent";o.remove()}});
+      if(document.documentElement.dataset.mode==='everyday')document.dispatchEvent(new CustomEvent('atteo-mode',{detail:{everyday:true}}));return}
     if(d.type==='schedule'){if(document.getElementById('invite')?.open&&window.schLoad)schLoad();return}
     if(d.type==='reaction'){renderRx(d.seq,d.reactions);return}
+    if(d.type==='answered'){sumNext=true;tick(false);return} // someone marked a question answered: refresh the open questions
     if(d.type==='approval'){window.apcApply&&apcApply(d.approval);return}
     if(d.type==='typing'){if(d.who!==ME){TYPERS.set(d.who,d.until);typingSync()}return}
     if(d.type==='typing-agents')return; // agents don't show as typing (jxn #777): their 🤔 under the message says it
@@ -1121,8 +1253,9 @@ document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!polling)
 // Board info → Agents: working now, idle or gone, refreshed every 30s while the tab is visible (avatars are kept, so nothing flickers).
 const AG_LABEL={live:'working now',idle:'idle',gone:'gone'};
 function agRow(a){const nm=a.name?a.user+'/'+a.name:a.user+"'s agent",st=AG_LABEL[a.state]?a.state:'gone';
-  const tip=a.name?a.user+"'s agent session \\""+a.name+'"'+(a.client?' ('+a.client+')':'')+'. Mention it as @'+a.user+'/'+a.name:a.user+"'s agent";
-  return '<li class="ag-row" data-k="'+esc(a.user+'/'+(a.name||''))+'" data-state="'+st+'" title="'+esc(tip)+'">'+avatar16(a.user,true)+'<span class="grow ag-main"><span class="truncate"><span class="ag-dot '+st+'" role="img" aria-label="'+AG_LABEL[st]+'" title="'+AG_LABEL[st]+'"></span><span class="ag-name">'+esc(nm)+'</span>'+(a.client?' <span class="xs faint">'+esc(a.client)+'</span>':'')+'</span>'+(a.status?'<span class="ag-status truncate">'+esc(a.status)+'</span>':'')+'</span><time class="when" datetime="'+new Date(a.last_seen).toISOString()+'" data-ts="'+a.last_seen+'" title="'+new Date(a.last_seen).toUTCString()+'"></time></li>'}
+  const tool=[a.client,a.model].filter(Boolean).join(', ');
+  const tip=a.name?a.user+"'s agent session \\""+a.name+'"'+(tool?' ('+tool+')':'')+'. Mention it as @'+a.user+'/'+a.name:a.user+"'s agent";
+  return '<li class="ag-row" data-k="'+esc(a.user+'/'+(a.name||''))+'" data-state="'+st+'" title="'+esc(tip)+'">'+avatar16(a.user,true)+'<span class="grow ag-main"><span class="truncate"><span class="ag-dot '+st+'" role="img" aria-label="'+AG_LABEL[st]+'" title="'+AG_LABEL[st]+'"></span><span class="ag-name">'+esc(nm)+'</span>'+(a.client?' <span class="xs faint">'+esc(a.client)+'</span>':'')+'</span>'+(a.model||a.status?'<span class="ag-status truncate">'+(a.model?'<span class="faint ag-model">'+esc(a.model)+'</span>'+(a.status?' · ':''):'')+esc(a.status||'')+'</span>':'')+'</span><time class="when" datetime="'+new Date(a.last_seen).toISOString()+'" data-ts="'+a.last_seen+'" title="'+new Date(a.last_seen).toUTCString()+'"></time></li>'}
 let agentsAt=0;window.agentsRefresh=async()=>{if(document.hidden)return;const box=document.getElementById('agents');if(!box)return;
   const r=await fetch('/api/boards/'+BOARD+'/agents').catch(()=>null);if(!r||!r.ok)return;const ag=(await r.json()).agents||[];agentsAt=Date.now();
   // The @ menu's sessions follow too, so a renamed or new session is mentionable without a reload (jxn #986).
@@ -1204,7 +1337,7 @@ ta.addEventListener('blur',mclose);
 mm.addEventListener('mousedown',e=>{e.preventDefault();const li=e.target.closest('[data-i]');if(li)mpick(ms[+li.dataset.i])});
 // Mentions in the composer are chips: a mirror under the (transparent) text draws them, and an edit or a caret move
 // treats each one as a single unit, so one Backspace removes "@vedu's agent" whole and the caret never lands inside.
-function mtokens(v){const out=[],re=/(^|[^A-Za-z0-9_.@\\/-])@([A-Za-z0-9][A-Za-z0-9_.-]{0,31})((?:'|’)s\\s+agent\\b|\\/[A-Za-z0-9][A-Za-z0-9_.-]{0,31})?/gi;let m;
+function mtokens(v){const out=[],re=/(^|[^A-Za-z0-9_.@\\/-])@([A-Za-z0-9][A-Za-z0-9_.-]{0,31})((?:'|’)s\\s+(?:agent|assistant)\\b|\\/[A-Za-z0-9][A-Za-z0-9_.-]{0,31})?/gi;let m;
   while((m=re.exec(v))){const raw=m[2].toLowerCase();let h=raw;if(!MNAMES.has(h))h=raw.replace(/[.-]+$/,'');if(!MNAMES.has(h))continue;
     const agent=!!m[3]&&h===raw;if(!agent&&h===ME)continue; // you can't mention yourself, only your agent
     const start=m.index+m[1].length;out.push({start,end:start+1+h.length+(agent?m[3].length:0),agent})}
@@ -1264,15 +1397,21 @@ let draftT=0;ta.addEventListener('input',()=>{clearTimeout(draftT);draftT=setTim
 window.addEventListener('pagehide',()=>draftSave(draftNow(),ta.value));
 if(!ta.value){const d=draftLoad('');if(d){ta.value=d;setTimeout(()=>{msync();ta.style.height=ta.scrollHeight+2+'px'},0)}}
 // Reply: points the main composer at a message, with a slim "Replying to …" line above it (✕ or Esc cancels; clicking
-// it shows the message). The reply lands in that message's thread. Each reply keeps its own draft, and an unsent reply
-// is still a reply after a reload.
+// it shows the message). The reply lands in that message's thread. An unsent reply is still a reply after a reload.
+// Starting a reply keeps what's in the box (vedu #1469): the text becomes the reply, and cancelling leaves it in the box.
+// Per-reply drafts are used only when the box is empty or you switch from one reply to another.
 /** The name a message's header shows: "vedu/scout" for a named agent session, else "vedu's agent" or the person. */
 const headName=el=>el.querySelector(':scope>.grow>.meta>.who')?.textContent||(el.dataset.author+(el.classList.contains('by-agent')?"'s agent":''));
-const rpBox=document.getElementById('replying'),rpTo=document.getElementById('reply-to');let rpAt='';
+// What goes into a post (a quote's "— who"): the developer words, never Everyday's "X's assistant" (#1527). headName is
+// what this person sees, for labels on the page.
+const sentName=el=>{const w=el.querySelector(':scope>.grow>.meta>.who');return (w&&(w.dataset.dev??w.textContent))||(el.dataset.author+(el.classList.contains('by-agent')?"'s agent":''))};
+const rpBox=document.getElementById('replying'),rpTo=document.getElementById('reply-to');let rpAt='',rpCarry=0; // rpCarry: the reply (seq) that took the main box's text
 const draftNow=()=>rpTo.value?'r'+rpTo.value:'';
 const taFit=()=>{ta.style.height='';if(ta.value)ta.style.height=ta.scrollHeight+2+'px';msync()};
-function replyTo(seq,focus=true){const el=document.getElementById('e'+seq);if(!el||READONLY)return;
-  if(+rpTo.value!==seq){draftSave(draftNow(),ta.value);rpTo.value=String(seq);ta.value=draftLoad('r'+seq)}
+function replyTo(seq,focus=true,restore=false){const el=document.getElementById('e'+seq);if(!el||READONLY)return;
+  if(+rpTo.value!==seq){
+    if(!rpTo.value&&ta.value.trim()&&!restore){rpCarry=seq;draftSave('','');rpTo.value=String(seq);draftSave(draftNow(),ta.value);try{localStorage.setItem(draftKey('carry'),String(seq))}catch(e){}}
+    else{draftSave(draftNow(),ta.value);rpTo.value=String(seq);ta.value=draftLoad('r'+seq)}}
   const by=el.dataset.author,who=el.classList.contains('by-agent')?by+"'s agent":by;
   const named=headName(el);document.getElementById('replying-who').textContent=who===ME?'yourself':named.includes('/')?named:who===ME+"'s agent"?'your agent':who;
   const body=el.querySelector(':scope>.grow>.body');document.getElementById('replying-text').textContent=((body?.innerText||body?.textContent||'').trim().split('\\n')[0]||'').slice(0,160);
@@ -1285,10 +1424,13 @@ function replyTo(seq,focus=true){const el=document.getElementById('e'+seq);if(!e
   const top=el.dataset.root&&+el.dataset.root!==seq&&document.getElementById('e'+el.dataset.root);
   if(top){const tw=top.classList.contains('by-agent')?top.dataset.author+"'s agent":top.dataset.author;if(tw!==ME&&tw!==who)rpAt+='@'+tw+' '}const rpM=rpAt.trim();if(rpAt&&!(ta.value.startsWith(rpM)&&/^\\s*$/.test(ta.value.slice(rpM.length,rpM.length+1))))ta.value=rpAt+ta.value;
   taFit();if(focus){ta.focus();ta.setSelectionRange(ta.value.length,ta.value.length)}}
-/** Leaves reply mode: the reply's draft is kept (unless it's only the @mention it started with) and your other draft comes back. */
-function replyClear(sent){if(!rpTo.value)return;if(!sent)draftSave(draftNow(),ta.value.trim()===rpAt.trim()?'':ta.value);
-  rpTo.value='';rpAt='';rpBox.hidden=true;try{localStorage.removeItem(draftKey('to'))}catch(e){}
-  if(!sent){ta.value=draftLoad('');taFit()}}
+/** Leaves reply mode. A reply that took the box's text gives it back (without the @mention it added); otherwise the
+ *  reply's draft is kept (unless it's only that @mention) and your other draft comes back. */
+function replyClear(sent){if(!rpTo.value)return;const mine=rpCarry===+rpTo.value,carry=mine&&!sent;if(mine)rpCarry=0;
+  if(carry){const m=rpAt.trim();if(m&&ta.value.startsWith(m))ta.value=ta.value.slice(m.length).replace(/^ /,'');draftSave(draftNow(),'')}
+  else if(!sent)draftSave(draftNow(),ta.value.trim()===rpAt.trim()?'':ta.value);
+  rpTo.value='';rpAt='';rpBox.hidden=true;try{localStorage.removeItem(draftKey('to'));if(!rpCarry)localStorage.removeItem(draftKey('carry'))}catch(e){}
+  if(carry){draftSave('',ta.value);taFit()}else if(!sent){ta.value=draftLoad('');taFit()}}
 /** After a reply is posted: its thread is open, so you can see it there. */
 // A reply posts at the bottom like any message (jxn #1040): after sending one, the conversation follows it there.
 function replyShown(){toBottom(true)}
@@ -1298,14 +1440,15 @@ document.addEventListener('click',e=>{const b=e.target.closest('button[data-repl
   if(e.target.closest('#reply-cancel')){replyClear();ta.focus();return}
   if(e.target.closest('#replying-go')&&rpTo.value)window.BOARD_CTX.jump(+rpTo.value)});
 ta.addEventListener('keydown',e=>{if(e.key==='Escape'&&!e.defaultPrevented&&rpTo.value){e.preventDefault();if(cmpHome)closeThread();else replyClear()}}); // in a thread, Esc closes it
-{let t=0;try{t=+localStorage.getItem(draftKey('to'))||0}catch(e){}if(t)setTimeout(()=>{if(document.getElementById('e'+t))replyTo(t,false);else replyClear()},0)}
+{let t=0,c=0;try{t=+localStorage.getItem(draftKey('to'))||0;c=+localStorage.getItem(draftKey('carry'))||0}catch(e){}
+  rpCarry=c;if(t)setTimeout(()=>{if(document.getElementById('e'+t))replyTo(t,false,true);else replyClear()},0)}
 // Quote (vedu #1022): select words in a message and Quote puts them in the composer as "> " lines ending "— who, #N".
 // The page shows that as a box with ↗ original; agents read the plain lines.
 const qBtn=document.createElement('button');qBtn.type='button';qBtn.className='btn sm quote-btn';qBtn.id='quote-btn';qBtn.hidden=true;qBtn.textContent='❝ Quote';document.body.appendChild(qBtn);
 let qSel=null,qT=0;
 function qPick(){const s=getSelection();if(READONLY||!s||s.isCollapsed||!s.rangeCount)return null;const r=s.getRangeAt(0),at=n=>(n.nodeType===1?n:n.parentElement)?.closest('.body');
   const b=at(r.startContainer),el=b?.closest('.entry[data-seq]');if(!el||b!==at(r.endContainer))return null;
-  const text=s.toString().replace(/\\r/g,'').trim();return text?{seq:+el.dataset.seq,who:headName(el),text,r}:null}
+  const text=s.toString().replace(/\\r/g,'').trim();return text?{seq:+el.dataset.seq,who:sentName(el),text,r}:null}
 function qShow(){qSel=qPick();if(!qSel){qBtn.hidden=true;return}const box=qSel.r.getBoundingClientRect();
   (qSel.r.startContainer.parentElement?.closest('dialog')||document.body).appendChild(qBtn);qBtn.hidden=false; // over a modal too
   qBtn.style.left=Math.max(8,Math.min(innerWidth-qBtn.offsetWidth-8,box.left+box.width/2-qBtn.offsetWidth/2))+'px';
@@ -1457,6 +1600,17 @@ function foldApply(){const f=foldGet();document.querySelectorAll('#board-info .f
 document.addEventListener('click',e=>{const h=e.target.closest('#board-info .fold-h');if(!h)return;const id=h.closest('.fold').dataset.fold,f=foldGet();
   f.has(id)?f.delete(id):f.add(id);try{localStorage.setItem(FOLD_KEY,JSON.stringify([...f]))}catch{}foldApply()});
 foldApply();
+// Side panel lists show their newest 3; "Show all" opens one (kept open across live refreshes, until reload). Open
+// questions have a small ✓ "Mark answered" for people who can post (jxn #1380).
+const SUM_ALL=new Set();
+function capApply(){document.querySelectorAll('#sum [data-cap]').forEach(u=>{const on=SUM_ALL.has(u.dataset.cap);u.classList.toggle('all',on);
+  const b=document.querySelector('#sum [data-cap-more="'+u.dataset.cap+'"]');if(b){b.textContent=on?'Show less':'Show all '+u.children.length;b.setAttribute('aria-expanded',String(on))}})}
+document.addEventListener('click',async e=>{const m=e.target.closest('#sum [data-cap-more]');if(m){const id=m.dataset.capMore;SUM_ALL.has(id)?SUM_ALL.delete(id):SUM_ALL.add(id);capApply();return}
+  const a=e.target.closest('#sum [data-answered]');if(!a)return;e.preventDefault();a.disabled=true;
+  const r=await fetch('/api/boards/'+BOARD+'/answered/'+a.dataset.answered,{method:'POST'}).catch(()=>null);const j=r?await r.json().catch(()=>({})):{};
+  if(!r||!r.ok){a.disabled=false;toast(j.error||'Couldn’t mark it answered');return}
+  a.closest('li')?.remove();toast('Marked answered');sumNext=true;tick(false)});
+capApply();
 // Touch screens have no hover: the ⋯ on a message, or tapping the message itself, shows its actions (Reply, react, …);
 // tapping it again, or another one, moves them.
 function tapToggle(en){const was=en.classList.contains('tap');document.querySelectorAll('.entry.tap').forEach(x=>{x.classList.remove('tap');x.querySelector(':scope>.grow>.meta>.more-acts')?.setAttribute('aria-expanded','false')});
@@ -1501,9 +1655,11 @@ document.addEventListener('keydown',e=>{if(e.key!=='Escape'||(!RD_OPEN&&!documen
 function reportSeen(){if(document.visibilityState!=='visible'||document.getElementById('panel-conv').hidden)return;
   // Messages in view, and the replies of threads in view (a folded thread shows its latest replies).
   const seenIn=el=>Math.max(+el.dataset.seq,...[...el.querySelectorAll('.replies .entry')].map(r=>+r.dataset.seq));
-  let max=0;ticks.forEach((t,i)=>{if(rail.children[i]?.classList.contains('on'))max=Math.max(max,seenIn(t.el))});
+  // On screen by position (rail ticks are grouped on long boards, so rail.children no longer line up with messages).
+  const inView=()=>{const a=scroller.scrollTop,b=a+scroller.clientHeight,TH=document.getElementById('thread').scrollHeight;return ticks.filter(t=>{const y=t.y*TH;return y+t.h>a&&y<b})};
+  let max=0;for(const t of inView())max=Math.max(max,seenIn(t.el));
   if(max<=seenSent||seenTimer)return;
-  seenTimer=setTimeout(async()=>{seenTimer=null;let m=0;ticks.forEach((t,i)=>{if(rail.children[i]?.classList.contains('on'))m=Math.max(m,seenIn(t.el))});if(m<=seenSent)return;seenSent=m;
+  seenTimer=setTimeout(async()=>{seenTimer=null;let m=0;for(const t of inView())m=Math.max(m,seenIn(t.el));if(m<=seenSent)return;seenSent=m;
     try{await fetch('/api/boards/'+BOARD+'/seen',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({seq:m})})}catch(e){seenSent=0}},800)}
 document.addEventListener('visibilitychange',reportSeen);window.addEventListener('focus',reportSeen);window.reportSeen=reportSeen;
 // ---- reactions: chips under each message (who reacted on hover; yours highlighted; click to toggle) and a quick picker ----
@@ -1721,7 +1877,8 @@ document.addEventListener('change',async e=>{const i=e.target;if(!i.matches||!i.
 fetch('/api/boards/'+BOARD+'/tasks').then(r=>r.json()).then(j=>{const ts=j.tasks||[];ts.forEach(t=>TASKS[t.seq]=t);ts.forEach(renderTask)}).catch(()=>{});
 // ---- "on it" / "done": which agent took a message, and who finished it. The person whose agent it is can mark it
 // done or clear it (✓ / ×); a cleared marker disappears on the next update (the map always has all of them). ----
-function renderHandling(map){const seen=new Set();
+var HDL=null; // the last map, for messages that come back on the page (a bounded conversation, #1365)
+function renderHandling(map){HDL=map;const seen=new Set();
   for(const [seq,h] of Object.entries(map)){const m=document.querySelector('#e'+seq+'>.grow>.meta');if(!m)continue;seen.add(seq);
     let b=m.querySelector('.hdl');if(!b){b=document.createElement('span');b.className='badge hdl';m.insertBefore(b,m.querySelector('.acts'))}
     const mine=h.user===ME&&!READONLY;b.classList.toggle('done',h.done);b.dataset.seq=seq;
@@ -1831,6 +1988,7 @@ document.getElementById('fwd-send').addEventListener('click',async e=>{const b=e
 window.BOARD_CTX={id:BOARD,me:ME,members:MEMBERS,
   async jump(seq){if(!(await ensureEntry(seq))){toast('#'+seq+' was not found');return}const el=document.getElementById('e'+seq);
     if(document.getElementById('panel-conv').hidden)tab(0);if(el.closest('.replies')){openThread(+el.closest('#thread>.entry').dataset.seq,{focus:seq});return}
+    
     document.querySelectorAll('#thread .entry.hit').forEach(x=>x.classList.remove('hit'));el.classList.add('hit');pinned=false;el.scrollIntoView({block:'center',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});moved=true;setTimeout(()=>el.classList.remove('hit'),2200)},
   openFile(name,v){tab(2);openDoc(name,v)}};
 document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&!e.altKey&&!e.shiftKey&&e.key.toLowerCase()==='f'&&!document.querySelector('dialog[open]:not(#palette)')){e.preventDefault();window.openPalette([{k:'board'},{k:'kind',v:'messages'}])}},true);
@@ -1838,13 +1996,13 @@ document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&!e.altKey&&!e
 const avatar16=(u,agent)=>'<span class="av sm'+(agent?' agent':'')+'" style="--h:'+(MOPTS.find(o=>o.u===u)?.av.match(/--h:([0-9]+)/)?.[1]||220)+'">'+esc(u.slice(0,2).toUpperCase())+'<img class="av-img" src="/avatar/'+encodeURIComponent(u)+(agent?'?k=agent':'')+'" alt="" loading="lazy" onerror="this.remove()" onload="this.classList.add(&quot;ok&quot;)"></span>';
 // Replies post in the conversation like any message (jxn #1040). Each carries a bar quoting the message it answers;
 // tapping it, or a thread's "N replies", opens the thread as an overlay with its own reply box.
-function quotify(el){const r=el.dataset.reply;if(!r||el.querySelector(':scope>.grow>.rq'))return;const p=document.getElementById('e'+r);
+function quotify(el){const r=el.dataset.reply;if(!r||el.querySelector(':scope>.grow>.rq'))return;const p=document.getElementById('e'+r),g=!p&&document.getElementById('g'+r);
   const b=document.createElement('button');b.type='button';b.className='rq';b.dataset.thread=el.dataset.root||r;b.dataset.focus=el.dataset.seq;
-  const who=p?headName(p):'#'+r,line=p?((p.querySelector(':scope>.grow>.body')?.textContent||p.dataset.title||'').trim().split('\\n')[0].slice(0,140)):'an earlier message';
+  const who=p?headName(p):g?g.dataset.who:'#'+r,line=p?((p.querySelector(':scope>.grow>.body')?.textContent||p.dataset.title||'').trim().split('\\n')[0].slice(0,140)):g?g.dataset.line:'an earlier message';
   b.innerHTML='<span class="rq-who">'+esc(who)+'</span><span class="rq-t">'+esc(line)+'</span>';b.setAttribute('aria-label','Reply to '+who+': '+line+'. Open the thread');
   el.querySelector(':scope>.grow>.meta').after(b);const refs=el.querySelector(':scope>.grow>.refs');if(refs&&/^reply to\\s/.test(refs.textContent.trim())&&refs.querySelectorAll('a').length===1)refs.hidden=true}
 function kidsOf(root){return [...document.querySelectorAll('#thread>.entry[data-root="'+root+'"]')]}
-function thrSum(root){const top=document.getElementById('e'+root);if(!top)return;const kids=kidsOf(root);
+function thrSum(root){const top=document.getElementById('e'+root);if(!top)return;const kids=[...document.querySelectorAll('#thread>[data-root="'+root+'"]')]; // placeholders count too
   let b=top.querySelector(':scope>.grow>.thr-sum');if(!kids.length){b?.remove();return}
   if(!b){b=document.createElement('button');b.type='button';b.className='thr-sum';b.dataset.thread=root;(top.querySelector(':scope>.grow>.replies')||top.querySelector(':scope>.grow>.rx')).before(b)}
   const who=[];for(const k of kids){const key=k.dataset.author+(k.classList.contains('by-agent')?'/a':'');if(!who.includes(key))who.push(key)}
@@ -1919,7 +2077,7 @@ async function hShow(t,pin){if(t.group)return hGroup(t,pin);hFor=t.el;hPinned=!!
     ag='<div class="hc-agent"><div class="xs faint"><a class="link" href="/u/'+esc(p.name)+'">'+owner+'</a>\u2019s agent</div>'+
       (a&&a.summary?'<p class="hc-bio">'+esc(a.summary)+'</p>':'')+
       (a&&a.capabilities&&a.capabilities.length?'<div class="hc-caps">'+a.capabilities.slice(0,6).map(c=>'<span class="badge">'+esc(c)+'</span>').join('')+'</div>':'')+
-      (live.length?'<div class="xs hc-live">'+live.slice(0,2).map(s=>{const tool=s.client&&!/^(an? )?agent$|^unknown$/i.test(s.client)?s.client:'';return '<span class="pres on"></span> '+esc(s.name||tool||'session')+(tool&&tool!==s.name?' <span class="faint">· '+esc(tool)+'</span>':'')+(s.status?': '+esc(s.status):' <span class="faint">· active</span>')}).join('<br>')+'</div>':'')+'</div>'}
+      (live.length?'<div class="xs hc-live">'+live.slice(0,2).map(s=>{const tool=s.client&&!/^(an? )?agent$|^unknown$/i.test(s.client)?s.client:'';return '<span class="pres on"></span> '+esc(s.name||tool||'session')+(tool&&tool!==s.name?' <span class="faint">· '+esc(tool)+'</span>':'')+(s.model?' <span class="faint ag-model">· '+esc(s.model)+'</span>':'')+(s.status?': '+esc(s.status):' <span class="faint">· active</span>')}).join('<br>')+'</div>':'')+'</div>'}
   const cta=document.getElementById('composer-text');
   const ask=t.agent&&p.relation!=='self'&&cta&&!cta.disabled?'<button class="btn sm" data-ask="'+esc(p.name)+'">Ask '+esc(p.name)+"'s agent</button>":'';
   hcard.innerHTML='<div class="row" style="gap:12px;align-items:center">'+avatar16(p.name,t.agent).replace('av sm','av lg')+'<div class="grow" style="min-width:0"><div class="hc-name">'+esc(t.agent?(p.agent_name||p.name+"'s agent"):(p.display_name||p.name))+'</div><div class="xs faint">@'+esc(p.name)+(p.shared_boards?' · '+p.shared_boards+' shared board'+(p.shared_boards===1?'':'s'):'')+'</div></div></div>'+
@@ -2160,7 +2318,7 @@ window.boardKeys=(e,k)=>{
   if(k==='1'||k==='2'||k==='3'||k==='4'){tab(+k-1);return}
   const inLog=!document.getElementById('panel-log').hidden;
   const els=[...document.querySelectorAll(inLog?'#log-body tr.ev':'#thread>.entry')];
-  if(k==='j'||k==='k'){e.preventDefault();cur=Math.max(0,Math.min(els.length-1,cur+(k==='j'?1:-1)));
+  if(k==='j'||k==='k'){e.preventDefault();const s0=els.findIndex(x=>x.classList.contains('sel'));if(s0>=0)cur=s0;cur=Math.max(0,Math.min(els.length-1,cur+(k==='j'?1:-1)));
     els.forEach(x=>x.classList.remove('sel'));const el=els[cur];if(el){el.classList.add('sel');el.scrollIntoView({block:'nearest'})}}
   if(e.key==='Enter'&&els[cur]){openEntry(BOARD,els[cur].dataset.seq)}
 };
@@ -2593,7 +2751,7 @@ export function profilePage(viewer: Viewer, side: SideBoard[], p: import("./soci
     <div class="xs faint">Works for ${esc(p.display_name ?? p.name)}${ag?.online ? ` · <span class="pres on"></span> online now` : ""}</div>
     ${ag?.summary ? `<p class="prof-bio">${esc(ag.summary)}</p>` : `<p class="prof-bio faint">No summary yet.</p>`}
     ${ag?.capabilities.length ? `<div class="hc-caps">${ag.capabilities.slice(0, 12).map((c) => `<span class="badge">${esc(c)}</span>`).join("")}</div>` : ""}
-    ${live.length ? `<div class="xs muted" style="margin-top:8px">${live.slice(0, 3).map((x) => `<span class="pres on"></span> ${esc(x.name || clientName(x.client) || "session")}${clientName(x.client) && clientName(x.client) !== x.name ? ` <span class="faint">· ${esc(clientName(x.client)!)}</span>` : ""}${x.status ? `: ${esc(x.status)}` : ` <span class="faint">· active</span>`}`).join("<br>")}</div>` : ""}
+    ${live.length ? `<div class="xs muted" style="margin-top:8px">${live.slice(0, 3).map((x) => `<span class="pres on"></span> ${esc(x.name || clientName(x.client) || "session")}${clientName(x.client) && clientName(x.client) !== x.name ? ` <span class="faint">· ${esc(clientName(x.client)!)}</span>` : ""}${x.model ? ` <span class="faint ag-model">· ${esc(x.model)}</span>` : ""}${x.status ? `: ${esc(x.status)}` : ` <span class="faint">· active</span>`}`).join("<br>")}</div>` : ""}
   </div>
 </section>`;
   const body = `<div class="card pad prof prof-hero">

@@ -197,7 +197,13 @@ dialog[open]{animation:pop .16s ease-out}dialog:focus{outline:none}
 .entry .body a{color:var(--accent)}
 .entry .refs{margin-top:6px;font-size:12.5px;color:var(--faint)}
 .entry .refs a:hover{color:var(--ink)}
-.entry.flash-in{animation:flashin 1.6s ease-out}
+.entry.flash-in{animation:flashin 1.6s ease-out,entryin .32s cubic-bezier(.2,.7,.3,1)}
+@keyframes entryin{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}} /* new messages rise in gently (jxn #1366) */
+@media(prefers-reduced-motion:reduce){.entry.flash-in{animation:flashin 1.6s ease-out}}
+/* Long boards scroll smoothly (jxn #1365): only messages near the view are on the page (the rest are placeholders, see
+   ghostSync), so each one is laid out for real; a placeholder keeps its exact height and a faint line where its text was. */
+#thread>.ghost{border-top:1px solid var(--line);box-sizing:border-box;overflow:hidden}#thread>.ghost>*{display:none}
+#thread>.ghost::before{content:"";display:block;margin:20px 0 0 44px;width:min(40%,280px);height:10px;border-radius:5px;background:color-mix(in srgb,var(--muted) 10%,transparent)}
 .entry .rbadge{display:none;height:18px;font-size:11px}
 .entry .fbadge{height:18px;font-size:11px;color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,var(--line))}
 .entry.retracted>.grow>.body,.entry.retracted>.grow>.file{text-decoration:line-through;text-decoration-color:var(--faint);opacity:.55}
@@ -421,6 +427,10 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .apc{margin-top:8px;max-width:640px}.apc>.tk{margin-top:0}.apc-cmd{margin:0 0 6px;max-height:220px;overflow:auto;padding:8px 10px;border-radius:8px;background:var(--bg-subtle);border:1px solid var(--line);font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word}
 .apc .tk-st .dot{background:var(--warn)}.apc.st-approved .tk-st .dot{background:var(--ok)}.apc.st-rejected .tk-st .dot{background:var(--danger)}.apc.st-expired .tk-st .dot{background:var(--muted)}
 .apc.st-approved .tk-st{color:var(--ok)}.apc.st-rejected .tk-st,.apc.st-expired .tk-st{color:var(--muted)}
+.apc[tabindex]:focus-visible,.apc.kbd-sel,.approval:focus-visible,.approval.sel{outline:2px solid var(--accent);outline-offset:3px;border-radius:8px}
+.apc-kbd{display:none;align-self:center;margin-right:4px}.apc-kbd kbd,.ap-keys kbd{font-size:10.5px}.apc[tabindex]:focus-visible .apc-kbd,.apc.kbd-sel .apc-kbd,.entry.sel .apc .apc-kbd{display:inline}
+/* The hint never appears on a click (it would shift the buttons under the pointer), nor on touch or narrow screens. */
+@media (hover:none),(max-width:480px){.apc-kbd,.ap-keys{display:none!important}}
 .apc-acts{display:inline-flex;gap:6px;flex:none;margin-left:auto}.apc .tk{flex-wrap:wrap} /* too narrow for both: the buttons drop under the status, still on the right */.apc-acts[hidden]{display:none}.apc-risk{color:var(--danger);font-weight:500;white-space:nowrap}.apc-note{margin:6px 0 0}
 .inbox-item .apc{margin:0;padding:0 10px 12px 42px}.inbox-item .apc .dot{margin-top:0}
 .tk-subs{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:1px;font-size:12.5px}
@@ -585,6 +595,7 @@ input.switch::after{content:"";position:absolute;top:3px;left:3px;width:18px;hei
 /* Highlights (mention tint, new-message flash, jump tint) bleed 12px each side whatever the density, so the avatar never sits on the edge (jxn #1311). */
 #thread>.entry.for-you,#thread>.entry.flash-in,#thread>.entry.hit,.thr-list>.entry.for-you,.thr-list>.entry.hit{margin-left:-12px;margin-right:-12px;padding-left:12px;padding-right:12px;border-radius:8px}
 ${MERMAID_CSS}
+.slash-menu li{align-items:baseline}.slash-menu li b{flex:none;white-space:nowrap}.slash-menu li .k{margin-left:10px;flex:1;min-width:0;text-align:left} /* "/task" never splits (jxn #1391) */
 .mem-act{display:none}.mem-on .mem-act{display:inline-flex;width:30px;padding:0;justify-content:center;color:var(--muted)}.mem-on .mem-act:hover{color:var(--ink)}
 .soul-prev{white-space:pre-wrap;font-size:12.5px;line-height:1.5;color:var(--text);max-height:7.5em;overflow:hidden;-webkit-mask-image:linear-gradient(#000 70%,transparent);mask-image:linear-gradient(#000 70%,transparent)}
 .soul-meta{margin:4px 0 6px}.soul-edit{margin-top:2px}
@@ -640,6 +651,11 @@ ${MERMAID_CSS}
 .sum ul{list-style:none;margin:0;padding:0}
 .sum li a{display:flex;align-items:center;gap:8px;padding:6px 8px;margin:0 -8px;border-radius:6px;font-size:13px;line-height:1.45}
 .sum li a:hover{background:var(--bg-hover)}
+.sum ul.capped:not(.all)>li:nth-last-child(n+4){display:none} /* the newest 3 until "Show all" */
+.sum .sum-more{display:block;margin:2px 0 0;font-size:12px}
+.sum li.q{display:flex;align-items:center;gap:4px}.sum li.q>a{flex:1;min-width:0;margin-right:0}
+.sum-ans{flex:none;width:24px;height:24px;margin-right:-6px;display:inline-flex;align-items:center;justify-content:center;border:1px solid transparent;border-radius:6px;background:none;color:var(--faint);font-size:12px;cursor:pointer}
+.sum-ans:hover,.sum-ans:focus-visible{color:var(--ok);border-color:var(--line);background:var(--bg)}.sum-ans:disabled{opacity:.4;cursor:default}
 .sum li .n{color:var(--faint);flex:none;font-variant-numeric:tabular-nums}
 .sum li .one{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .sum li .avs{flex:none;min-width:34px}.sum li>.row>.btn.ghost.sm:last-child{margin-right:-9px} /* Remove/Leave: its text lines up with the right edge, like last seen */.sum li .avs .av{width:18px;height:18px;font-size:8px;margin-left:-6px}.sum li .avs .av:first-child{margin-left:0}
@@ -725,7 +741,7 @@ ${MERMAID_CSS}
 .prof-boards{display:flex;flex-wrap:wrap;gap:8px;margin:0;padding:0;list-style:none}.prof-boards a{display:inline-block;padding:5px 10px;border:1px solid var(--line);border-radius:999px;color:var(--ink);font-size:13px}.prof-boards a:hover{background:var(--hover,rgba(127,127,127,.1))}
 @media (max-width:860px){.prof-hero{flex-direction:column;align-items:flex-start}.prof-hero .prof-act{width:100%}.prof-hero .prof-act .btn{flex:1;min-height:40px;justify-content:center}}
 /* approvals: risk shows as the card's left edge and its badge */
-.approval{padding:16px 18px;border-left:3px solid var(--line)}.approval.risk-medium{border-left-color:var(--warn)}.approval.risk-high{border-left-color:var(--danger)}
+.approval{padding:16px 18px;border-left:3px solid var(--line)}.approval:target{outline:2px solid var(--accent);outline-offset:3px}.approval.risk-medium{border-left-color:var(--warn)}.approval.risk-high{border-left-color:var(--danger)}
 .ap-hd{display:flex;gap:12px;align-items:flex-start}.ap-title{font-size:15px;font-weight:600;line-height:1.35;margin:0 0 3px}
 .approval.risk-medium .ap-risk{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,var(--line))}.approval.risk-high .ap-risk{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 40%,var(--line))}
 .ap-details{max-height:280px;overflow:auto;margin:12px 0 0;padding:10px 12px;border-radius:8px;background:var(--bg-subtle);border:1px solid var(--line);font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word}
@@ -932,7 +948,7 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
 .thread-scroll::-webkit-scrollbar{display:none} /* the rail stands in for its scrollbar */
 .rail{position:absolute;top:8px;bottom:8px;right:0;width:16px;cursor:pointer;touch-action:none}
 .rail i{position:absolute;right:3px;width:8px;height:2px;margin-top:-1px;border-radius:1px;background:color-mix(in srgb,var(--muted) 16%,transparent);transition:background .12s,width .12s}
-.rail i.on{background:var(--muted);width:10px}
+.rail i.on{background:var(--muted);width:10px}.rail i[data-n]{height:3px;margin-top:-1.5px}.rail i.me{background:color-mix(in srgb,var(--warn) 70%,transparent);width:10px}
 .rail:hover i{background:var(--sb)}.rail:hover i.on{background:var(--ink)}
 .rail-tip{position:absolute;right:22px;z-index:5;max-width:min(360px,70%);padding:5px 9px;margin-top:-13px;border-radius:7px;background:var(--ink);color:var(--on-ink);
   font-size:12px;line-height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none;box-shadow:var(--shadow-lg)}
@@ -1471,6 +1487,7 @@ export function appPage(
 <dialog id="shortcuts"><div class="hd"><h2>Keyboard shortcuts</h2><button class="btn ghost sm" data-close aria-label="Close">✕</button></div>
 <div class="bd"><dl class="kv">
 <dt><kbd>⌘K</kbd> <kbd>/</kbd></dt><dd>Search or jump to a board</dd>
+<dt><kbd>N</kbd></dt><dd>Next thing that needs you, on any board</dd>
 <dt><kbd>C</kbd></dt><dd>New board, or write on the current board</dd>
 <dt><kbd>I</kbd></dt><dd>Invite someone to the current board</dd>
 <dt><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> <kbd>4</kbd></dt><dd>Conversation / Log / Files / Tasks</dd>
@@ -1479,6 +1496,7 @@ export function appPage(
 <dt><kbd>@</kbd></dt><dd>Mention a person or their agent</dd>
 <dt><kbd>J</kbd> <kbd>K</kbd></dt><dd>Move down / up through entries</dd>
 <dt><kbd>↵</kbd></dt><dd>Open the selected entry's details</dd>
+<dt><kbd>↵</kbd> · <kbd>⌫</kbd></dt><dd>Approve · deny the selected or focused approval (asks first when it's high risk)</dd>
 <dt><kbd>G</kbd> then <kbd>I</kbd> <kbd>A</kbd> <kbd>B</kbd> <kbd>P</kbd> <kbd>M</kbd></dt><dd>Go to Inbox / Approvals / Boards / People / Account</dd>
 <dt><kbd>?</kbd></dt><dd>This list</dd></dl></div></dialog>
 <script>window.PALETTE=${JSON.stringify(paletteItems).replace(/</g, "\\u003c")};${v.admin ? "window.OPS=1;" : ""}</script>`;
@@ -1583,8 +1601,25 @@ document.addEventListener('keydown',e=>{
   if(e.key==='?'){$('#shortcuts').showModal();return}
   if(k==='c'){const c=$('#composer-text');if(c){e.preventDefault();c.focus();return}const n=$('#new-board');if(n){e.preventDefault();n.showModal();$('#title')?.focus()}return}
   if(k==='i'){const b=$('[data-open="invite"]');if(b){e.preventDefault();b.click()}return} // same as clicking Invite (loads the members)
+  if(k==='n'&&!e.shiftKey){e.preventDefault();nextNeed();return}
   if(window.boardKeys)window.boardKeys(e,k);
 });
+// N: the next thing that needs you, on any board (Conductor notes, #1276): approvals waiting on you first, then unread
+// mentions, replies, decisions and people-only messages for you, then contact and friend requests; oldest first. It
+// opens where it is (marking that inbox item read, so the next N goes on); nothing waiting says so.
+const NN_KINDS=['mention','reply','decision','people_only','contact_request','friend_request'];let nnBusy=false;
+async function nextNeed(){if(nnBusy)return;nnBusy=true;try{
+  const get=u=>fetch(u,{cache:'no-store'}).then(r=>r.ok?r.json():{}).catch(()=>({}));const [ap,ib]=await Promise.all([get('/api/approvals'),get('/api/inbox')]);
+  const at=(i)=>i.board_id&&i.seq>0?'/b/'+i.board_id+'#e'+i.seq:null,items=ib.items||[];
+  // An approval opens on the Approvals page, at the request (where you decide it: ↵ approves, ⌫ denies).
+  const list=[...(ap.approvals||[]).filter(a=>a.status==='pending').sort((x,y)=>x.created_at-y.created_at).map(a=>({url:'/approvals#'+a.id})),
+    ...items.filter(i=>!i.read_at&&NN_KINDS.includes(i.kind)).sort((x,y)=>x.created_at-y.created_at).map(i=>({url:/request$/.test(i.kind)?'/people':at(i),id:i.id})).filter(x=>x.url)];
+  const here=location.pathname+location.hash,next=list.find(x=>x.url!==here);
+  if(!next){toast(list.length?'That\u2019s the only thing waiting on you':'Nothing needs you right now');return}
+  if(next.id)await fetch('/api/inbox/read',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({ids:[next.id]})}).catch(()=>{});
+  const [path,hash]=next.url.split('#');if(path===location.pathname&&hash){location.hash=hash}else location.href=next.url}
+  finally{nnBusy=false}}
+window.nextNeed=nextNeed;
 if(new URLSearchParams(location.search).get('new')==='1'){const n=$('#new-board');n&&n.showModal()}
 })();
 `;

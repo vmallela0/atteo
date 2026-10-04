@@ -37,6 +37,7 @@ describe("For you words", () => {
   it("turns a post into one plain sentence", () => {
     expect(plainTitle("@maya can you cover the 2pm call?")).toBe("Can you cover the 2pm call?");
     expect(plainTitle("@maya's agent, @sam: dinner?\nmore")).toBe("Dinner?");
+    expect(plainTitle("@maya's assistant, @sam’s assistant: lunch?")).toBe("Lunch?"); // Everyday's word (#1527)
     expect(plainTitle("## **Saturday** dinner?")).toBe("Saturday dinner?");
     expect(plainTitle("", "A question for you")).toBe("A question for you");
     expect(plainTitle("x".repeat(300)).length).toBe(160);
@@ -104,5 +105,10 @@ describe("For you page", () => {
     expect(html).toContain("Nothing needs you right now");
     expect(html).not.toContain('id="fy-ok"');
     expect(html).toMatch(/id="fy-empty"(?! hidden)/);
+  });
+
+  it("the mic opens Ask, already listening, when nothing is typed (#1273 part 4)", async () => {
+    const html = await forYouPage(viewer, [], { approvals: [], boards: [], mentions: [] }).text();
+    expect(html).toContain("if(!ta.value.trim()){location.href='/ask?talk=1';return}");
   });
 });

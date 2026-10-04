@@ -2,6 +2,8 @@
 // on the same board or on different ones. Each has a name, the boards it has joined, and its own read position on
 // every board (kept by the board itself), so sessions never consume each other's unread entries.
 
+import { limits } from "./limits";
+import { scanFields } from "./secrets";
 import type { Env } from "./types";
 
 export interface AgentSession {
@@ -9,6 +11,7 @@ export interface AgentSession {
   user: string;
   name: string;
   client: string | null;
+  model?: string | null; // "Opus 5.5 high": a label for people on the web, never handed to agents (see modelFor)
   boards: string[];
   created_at: number;
   last_seen: number;
@@ -23,6 +26,8 @@ export interface AgentSession {
 export type SessionKind = "main" | "fork";
 
 export class SessionError extends Error {}
+/** Too many live sessions (MAX_LIVE_SESSIONS): answered with 429. */
+export class SessionLimitError extends SessionError {}
 
 export const SESSION_RE = /^as_[A-Za-z0-9_-]{12,40}$/;
 const NAME_RE = /^[a-z0-9][a-z0-9._-]{0,31}$/;
@@ -40,9 +45,14 @@ export function stateOf(lastSeen: number, now = Date.now()): "live" | "idle" | "
   return now - lastSeen < LIVE_MS ? "live" : now - lastSeen < ACTIVE_MS ? "idle" : "gone";
 }
 
+// Hot queries, shared with test/queryPlans.test.ts (each must use an index, never scan the table: the D1 read cap, #1495).
+export const LIVE_SESSIONS_SQL = `SELECT boards FROM agent_sessions WHERE ended_at IS NULL AND last_seen > ? LIMIT 1000`;
+export const USER_SESSIONS_SQL = `SELECT * FROM agent_sessions WHERE user = ? AND ended_at IS NULL ORDER BY last_seen DESC LIMIT 100`;
+export const SESSIONS_ON_BOARD_SQL = `SELECT user, name, client, model, last_seen, status FROM agent_sessions WHERE ended_at IS NULL AND kind = 'main' AND last_seen > ? AND boards LIKE ? ORDER BY last_seen DESC LIMIT 50`;
+
 /** How many sessions are live on each board right now (one small query over recently seen sessions). */
 export async function liveByBoard(env: Env): Promise<Map<string, number>> {
-  const rows = (await env.DB.prepare(`SELECT boards FROM agent_sessions WHERE ended_at IS NULL AND last_seen > ? LIMIT 1000`).bind(Date.now() - LIVE_MS).all<{ boards: string | null }>()).results;
+  const rows = (await env.DB.prepare(LIVE_SESSIONS_SQL).bind(Date.now() - LIVE_MS).all<{ boards: string | null }>()).results;
   const out = new Map<string, number>();
   for (const r of rows) {
     let ids: string[] = [];
@@ -61,11 +71,36 @@ export function cleanName(raw: string | null | undefined): string | null {
   return NAME_RE.test(n) ? n : null;
 }
 
+const capped = new Map<string, { at: number; n: number }>();
+
 /** `name` is one the person chose (refused if taken); `suggest` is a default (numbered if taken: claude, claude-2…). */
-export async function create(env: Env, user: string, p: { name?: string | null; suggest?: string | null; client?: string | null; kind?: unknown }): Promise<AgentSession> {
+/** A model label as given: one line, 60 characters at most, or null. Null too for anything that looks like a secret:
+ *  every way in (create, the MCP header, an update) goes through here. */
+export function cleanModel(raw: unknown): string | null {
+  const m = typeof raw === "string" ? raw.replace(/[\s\u0000-\u001f\u007f]+/g, " ").trim().slice(0, 60) : "";
+  return m && !scanFields({ model: m }) ? m : null;
+}
+
+/** The model, for people only (jxn #1191): agents never get it, so it costs no agent context. */
+export const modelFor = (s: { model?: string | null }, person: boolean): { model?: string | null } => (person ? { model: s.model ?? null } : {});
+
+export async function create(env: Env, user: string, p: { name?: string | null; suggest?: string | null; client?: string | null; model?: unknown; kind?: unknown }): Promise<AgentSession> {
   const kind = p.kind ?? "main";
   if (kind !== "main" && kind !== "fork") throw new SessionError('kind is "main" (a running agent) or "fork" (one message\'s work, from atteo dispatch).');
+  // A cap on live sessions per person (waits are limited by concurrency, not counted: INFRA-ASSESSMENT §4i). Once at
+  // the cap, further tries in this isolate are refused for a minute without reading D1 again.
+  const cap = limits(env).liveSessions;
+  const capMsg = (n: number) => `You have ${n} live agent sessions, the most at once. End one you're done with (atteo session end <name>), or wait a few minutes for idle ones to drop off.`;
+  const held = capped.get(user);
+  if (cap && held && Date.now() - held.at < 60_000) throw new SessionLimitError(capMsg(held.n));
   const live = await list(env, user);
+  const liveNow = live.filter((s) => s.state === "live").length;
+  if (cap && liveNow >= cap) {
+    if (capped.size > 5000) capped.clear();
+    capped.set(user, { at: Date.now(), n: liveNow });
+    throw new SessionLimitError(capMsg(liveNow));
+  }
+  capped.delete(user);
   const taken = new Set(live.map((s) => s.name));
   let name = cleanName(p.name) ?? cleanName(p.suggest) ?? cleanName(p.client) ?? "agent";
   if (taken.has(name)) {
@@ -78,8 +113,9 @@ export async function create(env: Env, user: string, p: { name?: string | null; 
   const id = "as_" + btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
   const now = Date.now();
   const client = (p.client ?? "").trim().slice(0, 60) || null;
-  await env.DB.prepare(`INSERT INTO agent_sessions (id, user, name, client, boards, created_at, last_seen, kind) VALUES (?, ?, ?, ?, '[]', ?, ?, ?)`).bind(id, user, name, client, now, now, kind).run();
-  return { id, user, name, client, boards: [], created_at: now, last_seen: now, ended_at: null, kind };
+  const model = cleanModel(p.model);
+  await env.DB.prepare(`INSERT INTO agent_sessions (id, user, name, client, model, boards, created_at, last_seen, kind) VALUES (?, ?, ?, ?, ?, '[]', ?, ?, ?)`).bind(id, user, name, client, model, now, now, kind).run();
+  return { id, user, name, client, model, boards: [], created_at: now, last_seen: now, ended_at: null, kind };
 }
 
 /** Your session by id or by name (live ones only). */
@@ -96,7 +132,7 @@ export async function list(env: Env, user: string): Promise<(AgentSession & { ac
   const now = Date.now();
   const [, sel] = await env.DB.batch([
     env.DB.prepare(`UPDATE agent_sessions SET ended_at = ? WHERE user = ? AND ended_at IS NULL AND last_seen < ?`).bind(now, user, now - ACTIVE_MS),
-    env.DB.prepare(`SELECT * FROM agent_sessions WHERE user = ? AND ended_at IS NULL ORDER BY last_seen DESC LIMIT 100`).bind(user),
+    env.DB.prepare(USER_SESSIONS_SQL).bind(user),
   ]);
   return (sel.results as Row[]).map((r) => ({ ...toSession(r), active: now - r.last_seen < ACTIVE_MS, state: stateOf(r.last_seen, now) }));
 }
@@ -142,7 +178,15 @@ export async function setStatus(env: Env, s: AgentSession, raw: string | null): 
   return { ...s, status, status_at: status ? now : null };
 }
 
+/** Sets (or, with an empty text, clears) the model the session runs on. */
+export async function setModel(env: Env, s: AgentSession, raw: unknown): Promise<AgentSession> {
+  const model = cleanModel(raw);
+  if (model !== (s.model ?? null)) await env.DB.prepare(`UPDATE agent_sessions SET model = ? WHERE id = ?`).bind(model, s.id).run();
+  return { ...s, model };
+}
+
 export async function end(env: Env, s: AgentSession): Promise<void> {
+  capped.delete(s.user);
   await env.DB.prepare(`UPDATE agent_sessions SET ended_at = ? WHERE id = ?`).bind(Date.now(), s.id).run();
 }
 
@@ -153,17 +197,18 @@ export async function dropBoard(env: Env, user: string, board: string): Promise<
 
 /** Main agent sessions working on a board lately (any of its members'), most recent first: what the board lists as its
  *  agents (Board info, the @-mention menu, /api/boards/:id/agents). Forks, ended and gone sessions aren't listed. */
-export async function onBoard(env: Env, board: string): Promise<{ user: string; name: string; client: string | null; last_seen: number; status: string | null }[]> {
+export async function onBoard(env: Env, board: string): Promise<{ user: string; name: string; client: string | null; model: string | null; last_seen: number; status: string | null }[]> {
   if (!/^b_[a-z0-9]+$/.test(board)) return [];
   return (
-    await env.DB.prepare(`SELECT user, name, client, last_seen, status FROM agent_sessions WHERE ended_at IS NULL AND kind = 'main' AND last_seen > ? AND boards LIKE ? ORDER BY last_seen DESC LIMIT 50`)
+    await env.DB.prepare(SESSIONS_ON_BOARD_SQL)
       .bind(Date.now() - ACTIVE_MS, `%"${board}"%`)
-      .all<{ user: string; name: string; client: string | null; last_seen: number; status: string | null }>()
+      .all<{ user: string; name: string; client: string | null; model: string | null; last_seen: number; status: string | null }>()
   ).results;
 }
 
 /** Ends every live session of a person (atteo session end --all, and the account's kill switch). */
 export async function endAll(env: Env, user: string): Promise<number> {
+  capped.delete(user);
   const r = await env.DB.prepare(`UPDATE agent_sessions SET ended_at = ? WHERE user = ? AND ended_at IS NULL`).bind(Date.now(), user).run();
   return r.meta.changes ?? 0;
 }

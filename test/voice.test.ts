@@ -90,7 +90,7 @@ describe("voice: POST /api/app/voice/session", () => {
     expect(j.session.turn_detection).toBeNull(); // push-to-talk: the app commits
     expect(j.session.voice).toBe("eve");
     expect(j.session.audio.input.format).toEqual({ type: "audio/pcm", rate: 24000 });
-    expect(j.session.instructions).toContain("Vedu's voice front for Atteo");
+    expect(j.session.instructions).toContain("You are Atteo, Vedu's voice assistant");
     expect(j.session.instructions).toContain("one or two short sentences");
     expect(j.session.instructions).toContain('"Launch plan" (b_abcdefgh12)');
     expect(j.session.tools.map((t: { name: string }) => t.name)).toEqual(["post_to_my_agent", "read_board", "mailbox_summary", "recap", "answer_approval", "list_boards"]);

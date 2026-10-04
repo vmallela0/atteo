@@ -1,12 +1,14 @@
 // Which agent session a command runs as. Every running agent (a Claude Code window, a Codex run, a bot) is its own
 // session: the CLI walks up from its parent process to the first one that isn't a shell or a wrapper, and that
 // process (its pid plus start time, so a reused pid is a new session) maps to a session on the server. A person in a
-// plain terminal gets one session per terminal. --session or ATTEO_SESSION picks one explicitly.
+// plain terminal gets one session per terminal. --session or ATTEO_SESSION picks one explicitly; ATTEO_SESSION_NAME names
+// the one this agent gets (picked up again by name after a restart: one per Conductor workspace).
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, fstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, writeFileSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { join } from "node:path";
+import { env } from "./env";
 
 /** Shells and launchers between an agent and this process: skipped when looking for the agent. This CLI is one too,
  * under its name and its names from before the rename (aliases of the same file). */
@@ -90,6 +92,50 @@ export function caller(): Caller {
   return { key: `${t.pid}:${t.start}`, client: "terminal", name: "terminal" };
 }
 
+// ---- the model the agent runs on: a label for people on the web, never shown to agents (jxn #1191) ----
+
+/** "claude-opus-5-5" → "Opus 5.5", "claude-sonnet-4-5-20250929[1m]" → "Sonnet 4.5 1M", "opus" → "Opus"; others as given. */
+export function prettyModel(id: string): string {
+  const m = id.trim().match(/^(?:claude-)?(opus|sonnet|haiku|fable)(?:-(\d+)(?:-(\d{1,2}))?)?(?:-\d{8})?(\[1m\])?$/i);
+  if (!m) return id.trim();
+  const fam = m[1][0].toUpperCase() + m[1].slice(1).toLowerCase();
+  return `${fam}${m[2] ? ` ${m[2]}${m[3] ? `.${m[3]}` : ""}` : ""}${m[4] ? " 1M" : ""}`;
+}
+
+/** The newest model in a Claude Code session's transcript (its last 64 KB), if there is one. */
+function claudeCodeModel(sessionId: string): string | null {
+  if (!/^[\w-]{8,64}$/.test(sessionId)) return null;
+  const root = join(process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"), "projects");
+  try {
+    for (const d of readdirSync(root)) {
+      const f = join(root, d, `${sessionId}.jsonl`);
+      if (!existsSync(f)) continue;
+      const fd = openSync(f, "r");
+      try {
+        const size = fstatSync(fd).size, n = Math.min(size, 65536), buf = Buffer.alloc(n);
+        readSync(fd, buf, 0, n, size - n);
+        const all = [...buf.toString("utf8").matchAll(/"model":"(claude-[\w.[\]-]+)"/g)];
+        return all.length ? all[all.length - 1][1] : null;
+      } finally {
+        closeSync(fd);
+      }
+    }
+  } catch {}
+  return null;
+}
+
+/** What the calling agent runs on: ATTEO_MODEL, else (Claude Code) its transcript's newest model with its effort
+ *  ("Opus 5.5 high"), else ANTHROPIC_MODEL. Null when nothing says. */
+export function detectModel(): string | null {
+  const set = env("MODEL")?.trim();
+  if (set) return set.slice(0, 60);
+  const cc = process.env.CLAUDE_CODE_SESSION_ID ? claudeCodeModel(process.env.CLAUDE_CODE_SESSION_ID) : null;
+  const id = cc ?? process.env.ANTHROPIC_MODEL?.trim();
+  if (!id) return null;
+  const effort = cc && /^[a-z]{1,12}$/.test(process.env.CLAUDE_EFFORT ?? "") ? ` ${process.env.CLAUDE_EFFORT}` : "";
+  return (prettyModel(id) + effort).slice(0, 60);
+}
+
 // ---- local map: calling process → session (the server holds the session itself) ----
 
 export interface LocalSession {
@@ -98,6 +144,7 @@ export interface LocalSession {
   boards: string[]; // last known; refreshed on join/leave and whenever the server reports them
   notified?: number; // newest inbox item already shown to this session (the "📣" line)
   pid?: number;
+  model?: string | null; // the model last detected here and sent (re-sent only when it changes)
 }
 
 function file(): string {
