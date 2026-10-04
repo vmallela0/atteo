@@ -579,4 +579,5 @@ export const ZH_CN: Record<string, string> = {
   "Recap": "回顾",
   "What happened since you last looked": "自你上次查看以来发生了什么",
   "Chats": "聊天",
+  "set in the app; the web shows English for now": "在 App 中设置；网页版暂时显示英文",
 };

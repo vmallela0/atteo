@@ -1139,9 +1139,10 @@ function ghostSync(){const H=scroller.clientHeight;if(!ghOn||!H||document.getEle
   for(let i=lo;i<gs.length;i++){if(gs[i].getBoundingClientRect().top>top+H+GH_NEAR*H)break;near.push(+gs[i].dataset.seq)}
   if(near.length)Date.now()>ghPause?ghostFill(near).then(ghostSoon):setTimeout(ghostSoon,ghPause-Date.now()+50);
   // Going back loads older messages before you reach the top (the button stays for keyboards and screen readers).
-  const le=document.getElementById('load-earlier');if(le&&!le.disabled&&Date.now()-ghUser<2000&&le.getBoundingClientRect().bottom>top-H)loadEarlier()}
-// Only the person's own scrolling loads more (a script's scrollTop or synthetic wheel never does).
-let ghUser=0;['wheel','touchmove','pointerdown'].forEach(t=>document.addEventListener(t,e=>{if(e.isTrusted)ghUser=Date.now()},{passive:true,capture:true}));
+  const le=document.getElementById('load-earlier');if(le&&!le.disabled&&!scrub&&Date.now()-ghUser<2000&&le.getBoundingClientRect().bottom>top-H)loadEarlier()}
+// Only the person's own scrolling loads more (a script's scrollTop or synthetic wheel never does). The rail doesn't count:
+// it's the scrollbar of what's loaded, and a tick click must land on its message, not have older ones pushed in above it.
+let ghUser=0;['wheel','touchmove','pointerdown'].forEach(t=>document.addEventListener(t,e=>{if(e.isTrusted&&!e.target.closest?.('#rail'))ghUser=Date.now()},{passive:true,capture:true}));
 document.addEventListener('keydown',e=>{if(e.isTrusted&&/^(Page(Up|Down)|Home|End|Arrow(Up|Down)| )$/.test(e.key))ghUser=Date.now()},true);
 /** Brings these placeholders back as messages (waits for any already on their way). */
 async function ghostFill(seqs){const wait=[],todo=[];for(const s of seqs){const p=GH_BUSY.get(s);if(p)wait.push(p);else if(document.getElementById('g'+s))todo.push(s)}
@@ -2821,7 +2822,7 @@ export interface Display {
   density?: "comfortable" | "compact";
   theme?: "system" | "light" | "dark";
   mode?: "auto" | "everyday" | "developer";
-  lang?: "auto" | "en" | "zh-CN";
+  lang?: "auto" | "en" | "zh-Hans" | "zh-Hant" | "es" | "ja" | "ko" | "hi";
 }
 
 /** Account → Display: how the chat looks to you (Slack-style). Saved to your profile, so the web and the app match. */
@@ -2837,7 +2838,7 @@ ${seg("text", esc(T("Text size")), [["s", esc(T("Small"))], ["m", esc(T("Medium"
 ${seg("density", esc(T("Density")), [["comfortable", esc(T("Comfortable"))], ["compact", esc(T("Compact"))]])}
 ${seg("theme", esc(T("Theme")), [["system", esc(T("System"))], ["light", esc(T("Light"))], ["dark", esc(T("Dark"))]])}
 <label class="lbl" for="dp-lang">${esc(T("Language"))}</label><select class="input dp-lang" id="dp-lang" data-lang="${esc(d?.lang ?? "auto")}">${(
-    [["auto", T("Automatic (this browser's language)")], ...Object.entries(LANG_NAMES)] as [string, string][]
+    [["auto", T("Automatic (this browser's language)")], ...Object.entries(LANG_NAMES), ...(d?.lang && d.lang !== "auto" && !(d.lang in LANG_NAMES) ? [[d.lang, `${d.lang} (${T("set in the app; the web shows English for now")})`]] : [])] as [string, string][]
   )
     .map(([v, l]) => `<option value="${v}"${(d?.lang ?? "auto") === v ? " selected" : ""}>${esc(l)}</option>`)
     .join("")}</select>

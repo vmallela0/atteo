@@ -313,7 +313,7 @@ export interface Display {
   density: "comfortable" | "compact";
   theme: "system" | "light" | "dark";
   mode: "auto" | "everyday" | "developer"; // Everyday (#1272) or Developer; auto = Developer once you've connected a coding agent
-  lang: "auto" | "en" | "zh-CN"; // interface language (i18n.ts, #1646); auto = the browser's
+  lang: "auto" | "en" | "zh-Hans" | "zh-Hant" | "es" | "ja" | "ko" | "hi"; // interface language (vedu #1645, #1650); auto = the device's
 }
 export const DISPLAY_DEFAULTS: Display = { text: "m", density: "comfortable", theme: "system", mode: "auto", lang: "auto" };
 const DISPLAY_VALUES: Record<keyof Display, readonly string[]> = {
@@ -321,7 +321,7 @@ const DISPLAY_VALUES: Record<keyof Display, readonly string[]> = {
   density: ["comfortable", "compact"],
   theme: ["system", "light", "dark"],
   mode: ["auto", "everyday", "developer"],
-  lang: ["auto", "en", "zh-CN"],
+  lang: ["auto", "en", "zh-Hans", "zh-Hant", "es", "ja", "ko", "hi"],
 };
 const isDisplayKey = (k: string): k is keyof Display => Object.prototype.hasOwnProperty.call(DISPLAY_VALUES, k);
 

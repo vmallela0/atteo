@@ -1,8 +1,13 @@
-// Talk to Grok (vedu #1318): live speech-to-speech with xAI's Grok Voice Agent API, the server's src/voice.ts.
+// Voice chat with Atteo (vedu #1318; "Atteo", never "Grok", on screen: #1599): live speech-to-speech with xAI's Grok
+// Voice Agent API, the server's src/voice.ts.
 //   POST /api/app/voice/session {board?, voice?, hands_free?} → a short-lived client secret, the socket url/protocols,
-//   and the `session` to send as session.update (instructions, push-to-talk, the function tools). The app opens the
-//   socket itself, streams the mic as 24 kHz mono PCM16 while the button is held, then commits + response.create; it
-//   plays Grok's audio deltas and shows both sides as captions. Tools run here, against the Atteo API with the app's
+//   and the `session` to send as session.update (instructions, turn detection, the function tools). The app opens the
+//   socket itself. Hands-free (the default, vedu #1598): the mic streams as 24 kHz mono PCM16 the whole time, the
+//   server's VAD hears where a turn starts and stops (input_audio_buffer.speech_started / speech_stopped) and answers by
+//   itself; talking over Atteo stops its voice at once (barge-in: playback flushed, response.cancel, and the reply
+//   truncated to what was heard). "Hold to talk" (the sheet's menu, remembered per device) is the old push-to-talk:
+//   the mic streams while the button is held, then commit + response.create. It plays the audio deltas and shows both
+//   sides as captions. Tools run here, against the Atteo API with the app's
 //   own token (tool_routes), and go back as function_call_output + response.create. answer_approval only runs after a
 //   yes: said out loud (the transcript) or tapped. Every exit settles the session: POST end {session_id, seconds}.
 // The UI is TalkView.swift, the audio TalkAudio.swift, and the local fake (DEBUG only) TalkFake.swift.
@@ -150,6 +155,11 @@ final class TalkSession: ObservableObject {
     @Published private(set) var phase: Phase = .connecting
     @Published private(set) var captions: [Caption] = []
     @Published private(set) var holding = false
+    /// Hands-free (server VAD) or hold to talk; the per-device choice (UserDefaults "talk-hold-to-talk").
+    @Published private(set) var handsFree = !UserDefaults.standard.bool(forKey: TalkSession.holdKey)
+    @Published private(set) var micMuted = false // hands-free: nothing is sent; Atteo can still talk
+    @Published private(set) var hearing = false // the server's VAD hears you talking
+    @Published private(set) var level: Float = 0 // the mic, 0…1
     @Published private(set) var speaking = false // Grok's voice is playing
     @Published private(set) var thinking = false // a response or a tool is under way
     @Published private(set) var elapsed: TimeInterval = 0
@@ -181,6 +191,12 @@ final class TalkSession: ObservableObject {
     private var holdInterrupted = false
     private var appended = 0
     private var youCaption: String? // this turn's "you" line, until its transcript lands
+    private var session: [String: Any] = [:] // what session.update sends; resent with new turn detection on a mode switch
+    private var audioItem: String? // the assistant item whose audio is playing (for truncate on barge-in)
+    private var itemAudio: TimeInterval = 0 // seconds of it queued so far
+    private var stoppedAt: Date? // when the VAD last heard you stop
+
+    static let holdKey = "talk-hold-to-talk"
 
     init(board: Board?) { self.board = board }
 
@@ -198,6 +214,7 @@ final class TalkSession: ObservableObject {
         VoiceInput.shared.stop()
         var body: [String: Any] = [:]
         if let b = board, b.encrypted != true { body["board"] = b.id }
+        body["hands_free"] = handsFree
         let code: Int, j: [String: Any]
         do { (code, j) = try await TalkAPI.call("POST", "/api/app/voice/session", body: body) } catch {
             finish(problem: error.localizedDescription); return
@@ -233,20 +250,27 @@ final class TalkSession: ObservableObject {
         audio.useMic = provider != "fake" // the fake never asks for the microphone (no permission prompt in tests) nor plays
         audio.events = { [weak self] e in self?.audioEvent(e) }
         if audio.useMic, !(await AVAudioApplication.requestRecordPermission()) {
-            problem = "Allow the microphone for Atteo in Settings to talk to Grok. You can still read what Grok says."
+            problem = "Allow the microphone for Atteo in Settings to use voice chat. You can still read what Atteo says."
+        }
+        audio.onLevel = { [weak self] l in
+            guard let self else { return }
+            let on = self.handsFree ? !self.micMuted : self.holding
+            self.level = on ? l : 0
         }
         // The fake stays silent (its "voice" is only timed): a simulator under test can hang starting audio I/O.
         if audio.useMic {
             do { try audio.start() } catch { problem = "Audio isn't working (\(error.localizedDescription)); captions still show." }
         }
 
+        self.session = session
         link.send(["type": "session.update", "session": session])
         openedAt = Date()
         phase = .ready
+        if handsFree { listen() }
         Haptics.play(.touch)
         reader = Task { [weak self] in
             for await e in link.events { self?.handle(e) }
-            self?.finish(problem: self?.ended == false ? "The connection to Grok closed." : nil)
+            self?.finish(problem: self?.ended == false ? "The voice connection closed." : nil)
         }
         ticker = Task { [weak self] in
             while !Task.isCancelled {
@@ -261,6 +285,8 @@ final class TalkSession: ObservableObject {
         elapsed = Date().timeIntervalSince(openedAt)
         let s = Date() < audioUntil
         if s != speaking { speaking = s }
+        // The VAD heard something that never became a turn (a cough, a door): don't sit on "Thinking…".
+        if thinking, activeResponse == nil, toolsRunning == 0, let t = stoppedAt, Date().timeIntervalSince(t) > 8 { thinking = false; stoppedAt = nil }
         if elapsed >= Double(maxSeconds) { finish(problem: "That's this session's time. Start another to keep talking.") }
     }
 
@@ -274,7 +300,7 @@ final class TalkSession: ObservableObject {
         ticker?.cancel(); reader?.cancel()
         link?.close(); link = nil
         audio.stop()
-        holding = false; speaking = false; thinking = false; confirm = nil
+        holding = false; speaking = false; thinking = false; hearing = false; level = 0; confirm = nil
         phase = .ended
         if let openedAt { elapsed = Date().timeIntervalSince(openedAt) }
         Task { await settle() }
@@ -291,6 +317,57 @@ final class TalkSession: ObservableObject {
                 endNote = "\(Self.clock(seconds)) used · \(Int(max(0, b - u))) min left this month"
             }
         }
+    }
+
+    // MARK: Hands-free
+
+    /// The mic streams from now on (unless muted); the server's VAD finds the turns. Without echo cancelling the mic
+    /// pauses while Atteo talks, or the VAD would hear Atteo through the speaker and interrupt it.
+    private func listen() {
+        guard audio.useMic else { return } // the fake: its person speaks when the orb is tapped (orbTapped)
+        audio.capture { [weak self] b64 in
+            guard let self, self.handsFree, !self.micMuted, self.audio.echoCancelling || !self.speaking else { return }
+            self.link?.send(["type": "input_audio_buffer.append", "audio": b64])
+        }
+    }
+
+    /// Hold to talk on or off (the sheet's menu): remembered on this device, and switched live by resending the session
+    /// with the other turn detection.
+    func setHandsFree(_ on: Bool) {
+        guard on != handsFree else { return }
+        UserDefaults.standard.set(!on, forKey: Self.holdKey)
+        if holding { holdEnded() }
+        handsFree = on
+        hearing = false; level = 0
+        guard phase == .ready, !session.isEmpty else { return }
+        audio.stopCapture()
+        link?.send(["type": "input_audio_buffer.clear"])
+        var s = session
+        s["turn_detection"] = on ? ["type": "server_vad"] : NSNull()
+        session = s
+        link?.send(["type": "session.update", "session": s])
+        if on { listen() }
+        Haptics.play(.touch)
+    }
+
+    /// Mic off: nothing more goes to Atteo (it can still finish talking); on again: it listens.
+    func toggleMic() {
+        micMuted.toggle()
+        Haptics.play(.touch)
+        if micMuted {
+            level = 0
+            hearing = false
+            if phase == .ready { link?.send(["type": "input_audio_buffer.clear"]) } // no half-heard turn left behind
+        }
+    }
+
+    /// The orb, hands-free: while Atteo talks, a tap stops it. (DEBUG's fake: a tap is the person saying the next line.)
+    func orbTapped() {
+        guard phase == .ready else { return }
+        #if DEBUG
+        if let fake = link as? FakeGrokLink { if !micMuted { fake.personSpeaks() }; return }
+        #endif
+        if speaking || activeResponse != nil { interrupt() }
     }
 
     // MARK: Push to talk
@@ -334,9 +411,11 @@ final class TalkSession: ObservableObject {
         requestResponse()
     }
 
-    /// Tap while Grok talks: stop its voice and cancel the rest of its answer.
+    /// Tap while Atteo talks, or start talking over it: stop its voice now, cancel the rest of the answer, and cut the
+    /// reply in the conversation down to what was actually heard (conversation.item.truncate), so it knows.
     func interrupt() {
         let wasSpeaking = speaking || activeResponse.map { r in captions.last?.id == "grok-\(r)" } == true
+        let left = max(0, audioUntil.timeIntervalSinceNow)
         audio.stopPlayback()
         audioUntil = .distantPast
         speaking = false
@@ -344,6 +423,11 @@ final class TalkSession: ObservableObject {
             cancelled.insert(r)
             link?.send(["type": "response.cancel"])
         }
+        if let item = audioItem, itemAudio > 0 {
+            let heard = max(0, itemAudio - left)
+            link?.send(["type": "conversation.item.truncate", "item_id": item, "content_index": 0, "audio_end_ms": Int(heard * 1000)])
+        }
+        audioItem = nil; itemAudio = 0
         if wasSpeaking, let i = captions.lastIndex(where: { $0.who == .grok }), !captions[i].text.hasSuffix(" —") { captions[i].text += " —"; captions[i].done = true }
         Haptics.play(.touch)
     }
@@ -397,17 +481,32 @@ final class TalkSession: ObservableObject {
         case "response.created":
             activeResponse = rid ?? "r-\(UUID().uuidString)"
             thinking = true
+            stoppedAt = nil
         case "response.output_audio.delta", "response.audio.delta":
             guard let b64 = e["delta"] as? String, let pcm = Data(base64Encoded: b64) else { return }
             let d = audio.play(pcm)
             audioUntil = max(audioUntil, Date()) + d
             if !speaking { speaking = true }
+            if let item = e["item_id"] as? String {
+                if item != audioItem { audioItem = item; itemAudio = 0 }
+                itemAudio += d
+            }
+        case "input_audio_buffer.speech_started":
+            // You started talking: if Atteo was, it stops right now (barge-in).
+            hearing = true
+            stoppedAt = nil
+            if speaking || activeResponse != nil { interrupt() }
+            if youCaption == nil { let id = "you-\(UUID().uuidString)"; youCaption = id; captions.append(Caption(id: id, who: .you, text: "…")) }
+        case "input_audio_buffer.speech_stopped":
+            hearing = false
+            thinking = true // the server answers by itself
+            stoppedAt = Date()
         case "response.output_audio_transcript.delta", "response.audio_transcript.delta", "response.output_text.delta", "response.text.delta":
             guard let d = e["delta"] as? String else { return }
             grokSays(rid, append: d)
         case "response.output_audio_transcript.done", "response.audio_transcript.done", "response.output_text.done", "response.text.done":
             if let t = (e["transcript"] as? String) ?? (e["text"] as? String), !t.isEmpty { grokSays(rid, replace: t) }
-        case "conversation.item.input_audio_transcription.delta":
+        case "conversation.item.input_audio_transcription.delta", "conversation.item.input_audio_transcription.updated":
             if let d = e["delta"] as? String { youSaid(append: d) }
         case "conversation.item.input_audio_transcription.completed":
             youSaid(final: e["transcript"] as? String ?? "")
@@ -427,7 +526,7 @@ final class TalkSession: ObservableObject {
         case "error":
             let m = (e["error"] as? [String: Any])?["message"] as? String ?? "Grok had a problem."
             // Cancelling with nothing to cancel is harmless; anything else is worth a line.
-            if !m.lowercased().contains("cancel") { captions.append(Caption(id: "err-\(UUID().uuidString)", who: .note, text: m, done: true)) }
+            if !m.lowercased().contains("cancel"), !m.lowercased().contains("truncat") { captions.append(Caption(id: "err-\(UUID().uuidString)", who: .note, text: m, done: true)) }
         default: break
         }
     }
@@ -601,7 +700,8 @@ final class TalkSession: ObservableObject {
             holdEnded()
             audioUntil = .distantPast
             speaking = false
-            problem = "Paused: another app or a call took the audio. Hold to talk again when it's done."
+            hearing = false; level = 0
+            problem = "Paused: another app or a call took the audio. Voice chat picks up when it's done."
         case .resumed:
             if problem?.hasPrefix("Paused") == true { problem = nil }
         case .failed(let m):
