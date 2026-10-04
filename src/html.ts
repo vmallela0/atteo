@@ -304,16 +304,24 @@ const PO_JS = `
 // HTML preview (jxn #1309). Board files are written by other people, so the page runs in an iframe with sandbox="allow-scripts"
 // and nothing else: an opaque origin (no cookies, storage or /api as you), no top navigation, no form posts, no popups; it is
 // loaded from srcdoc with a CSP that blocks network calls and form submissions. Encrypted boards preview the decrypted text.
+// PREVIEW_HEAD goes in before anything of the file's, so the parser always puts it in <head>. A CSP meta that lands in
+// <body> is ignored and the page could call out (vedu's agent #2039): text before <head>, "<head>" in a comment or a
+// <header> taken for one, and, since JS's \s also matches them, a no-break space or other non-HTML whitespace before a
+// doctype (opus-d's review). A doctype after it is dropped, which costs nothing: a srcdoc page is never in quirks mode.
+// CSP doesn't cover WebRTC (Chromium doesn't know webrtc 'block'), so the script after it takes RTCPeerConnection away
+// and removes any frame the page makes, since a nested srcdoc frame is a fresh window that still has it. Best effort:
+// self-navigation (location, meta refresh) can't be blocked from here; the sandbox keeps whatever loads from the viewer.
+const PREVIEW_HEAD =
+  `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:; form-action 'none'; base-uri 'none'">` +
+  `<script>(()=>{for(const k of ["RTCPeerConnection","webkitRTCPeerConnection","RTCDataChannel","RTCIceCandidate"])try{delete window[k];Object.defineProperty(window,k,{value:undefined,configurable:false,writable:false})}catch(e){}` +
+  `const cut=n=>{if(n.nodeType!==1)return;if(/^i?frame$/i.test(n.nodeName))n.remove();else n.querySelectorAll("iframe,frame").forEach(x=>x.remove())};` +
+  `new MutationObserver(ms=>ms.forEach(m=>m.addedNodes.forEach(cut))).observe(document,{childList:true,subtree:true})})()</script>`;
 const PREVIEW_JS = `
 (()=>{const dlg=document.createElement('dialog');dlg.className='pv-dlg';dlg.setAttribute('aria-label',tr('Preview'));
   dlg.innerHTML='<div class="pv-hd"><b class="mono truncate" id="pv-name"></b><span class="grow"></span><div class="seg pv-w" role="group" aria-label="'+tr('Width')+'"><button type="button" class="on" data-pv-w="">'+tr('Full')+'</button><button type="button" data-pv-w="390">'+tr('Phone')+'</button></div><button type="button" class="btn ghost sm" data-pv-close aria-label="'+tr('Close preview')+'">✕</button></div><div class="pv-body"><iframe id="pv-frame" sandbox="allow-scripts" referrerpolicy="no-referrer" title="'+tr('Preview')+'"></iframe></div><p class="xs faint pv-note">Runs in a sandbox: it can\\'t see your account or reach the network.</p>';
   document.body.appendChild(dlg);const fr=dlg.querySelector('#pv-frame');
-  const CSP='<meta http-equiv="Content-Security-Policy" content="default-src \\'none\\'; script-src \\'unsafe-inline\\'; style-src \\'unsafe-inline\\'; img-src data: blob:; font-src data:; media-src data: blob:; form-action \\'none\\'; base-uri \\'none\\'; webrtc \\'block\\'">';
-  // The policy goes first (after a doctype), before anything the file has: after <head> it could land in <body> (content
-  // before <head>, or no <head>), where browsers ignore it and the page could reach the network (vedu's agent, #2039).
-  // CSP doesn't cover WebRTC, so a first script removes it too (best effort).
-  const RTC_OFF='<script>for(const k of ["RTCPeerConnection","webkitRTCPeerConnection","RTCDataChannel","RTCIceCandidate"]){try{delete window[k];Object.defineProperty(window,k,{value:undefined,configurable:false,writable:false})}catch(e){}}<\\/script>';
-  const withCsp=h=>{const d=/^\\s*<!doctype[^>]*>/i.exec(h),at=d?d[0].length:0;return h.slice(0,at)+CSP+RTC_OFF+h.slice(at)};
+  const HEAD=${JSON.stringify(PREVIEW_HEAD).replace(/</g, "\\u003c")};
+  const withCsp=h=>HEAD+h;
   async function open(name,ver){
     let html='';try{const r=await fetch('/api/boards/'+BOARD+'/doc?name='+encodeURIComponent(name)+(ver?'&version='+ver:''));const d=await r.json();if(!r.ok){toast(d.error||tr("Couldn't open it"));return}html=d.content||'';
       if(window.e2eDecryptDoc)html=await window.e2eDecryptDoc(d)||html}catch(e){toast(tr("Couldn't open it"));return}
