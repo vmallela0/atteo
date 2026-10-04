@@ -2697,6 +2697,29 @@ await step("soft delete: owner-only people action; gone for every member and age
   assert(dc.status === 400, `agent chat delete ${dc.status}`);
 });
 
+await step("soft delete restore window: day 29 restores; day 31 returns 410", async () => {
+  const day = 86_400_000;
+  const json = { "content-type": "application/json" };
+  const remove = async (label) => {
+    const id = (await ops("boards", { user: A, title: `e2e restore ${label} ${run}` })).body.board.id;
+    const response = await web(`/api/boards/${id}`, A, { method: "DELETE" });
+    const body = await response.json();
+    assert(response.status === 200 && Number.isSafeInteger(body.restorable_until), `delete ${label}: ${response.status} ${JSON.stringify(body)}`);
+    return { id, deletedAt: body.restorable_until - 30 * day };
+  };
+  const restoreAt = ({ id, deletedAt }, days) =>
+    web(`/api/boards/${id}/restore`, A, { method: "POST", headers: { ...json, "x-dev-now": String(deletedAt + days * day) }, body: "{}" });
+
+  const within = await remove("day29");
+  const restored = await restoreAt(within, 29);
+  assert(restored.status === 200, `day 29 restore: ${restored.status} ${await restored.text()}`);
+
+  const expired = await remove("day31");
+  const tooLate = await restoreAt(expired, 31);
+  const tooLateBody = await tooLate.json();
+  assert(tooLate.status === 410 && tooLateBody.error?.includes("more than 30 days"), `day 31 restore: ${tooLate.status} ${JSON.stringify(tooLateBody)}`);
+});
+
 await step("delete a board: creator only, typed confirmation, everything goes", async () => {
   const title = `e2e del </script><script>alert(1)</script> ${run}`;
   const del = (await ops("boards", { user: A, title })).body.board.id;

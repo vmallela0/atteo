@@ -157,7 +157,9 @@ export function sessionConfig(o: { person: string; board: { id: string; title: s
     voice: o.voice,
     turn_detection: o.handsFree ? { type: "server_vad" } : null,
     audio: {
-      input: { format: { type: "audio/pcm", rate: SAMPLE_RATE } },
+      // grok-transcribe gives the app live captions of what the person says, and the spoken "yes" for approvals
+      // (conversation.item.input_audio_transcription.updated / .completed).
+      input: { format: { type: "audio/pcm", rate: SAMPLE_RATE }, transcription: { model: "grok-transcribe" } },
       output: { format: { type: "audio/pcm", rate: SAMPLE_RATE } },
     },
     tools: TOOLS,

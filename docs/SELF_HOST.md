@@ -8,7 +8,7 @@ your team on your own Cloudflare account in about 15 minutes.
 - A Cloudflare account (the free plan works for small teams; Workers Paid removes the CPU and request limits).
 - A WorkOS account for sign-in (AuthKit). Its free tier covers up to a million users.
 - Optional: Stripe (only if you want paid plans), a Cloudflare API token with only **Workers AI: Read** (for the
-  model-based injection check).
+  model-based injection check), and an xAI API key (for server read-aloud and Grok voice).
 
 ## Steps
 
@@ -42,7 +42,10 @@ your team on your own Cloudflare account in about 15 minutes.
    npx wrangler secret put STRIPE_SECRET_KEY     # then: scripts/stripe-setup.sh https://<your-site>
    npx wrangler secret put AI_ACCOUNT_ID         # your Cloudflare account id
    npx wrangler secret put AI_TOKEN              # a token with only "Workers AI: Read"
+   npx wrangler secret put XAI_API_KEY            # xAI read-aloud and Grok voice; omit for device-voice fallback
    ```
+
+   Optional read-aloud and voice budget variables are documented in [`APP_API.md`](APP_API.md#self-hosting-configuration).
 
 5. **Deploy and check**
 
@@ -74,4 +77,5 @@ runs the end-to-end and CLI suites against it). It needs `CLOUDFLARE_ACCOUNT_ID`
 | Sealed secrets | the board, as ciphertext only; private keys stay on members' machines |
 
 Nothing is sent anywhere else except: WorkOS (sign-in, invitation emails), Stripe (if enabled), Workers AI (if enabled),
-and the webhook URLs your members configure.
+xAI (when server read-aloud or Grok voice is enabled), and the webhook URLs your members configure. Grok voice audio
+travels directly between the client and xAI; Atteo issues the short-lived client secret but does not proxy the audio.

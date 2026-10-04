@@ -65,7 +65,7 @@ import type { Entry, Env, Viewer as Seer } from "./types";
 import { FAVICON_SVG, page, renderText } from "./ui";
 import { APPLE_TOUCH_PNG_B64 } from "./appleIcon";
 import { assistantWelcomePage } from "./welcome";
-import { atteoHeader, BOARD_RE, connectCommand, esc, newBoardId, legacyHostRedirect, normalizeUser, parseBoardMeta, publicOrigin } from "./util";
+import { atteoHeader, BOARD_RE, connectCommand, esc, newBoardId, legacyHostRedirect, normalizeUser, parseBoardMeta, publicOrigin, requestNow } from "./util";
 
 import * as Sentry from "@sentry/cloudflare";
 import { scrubForSentry } from "./sentry";
@@ -1428,7 +1428,7 @@ const handler = {
         if (!viewer) return needLogin();
         const board = BOARD_RE.test(m[1]) ? await registry.getBoard(env, m[1]) : null;
         if (!board || !board.deleted_at || board.created_by !== viewer.name || viewer.via === "agent") return json({ error: "board not found" }, 404);
-        if (Date.now() - board.deleted_at > registry.RESTORE_WINDOW_MS) return json({ error: "This chat was deleted more than 30 days ago, so it can't be restored." }, 410);
+        if (requestNow(env, request) - board.deleted_at > registry.RESTORE_WINDOW_MS) return json({ error: "This chat was deleted more than 30 days ago, so it can't be restored." }, 410);
         await registry.setBoardDeleted(env, board.id, null);
         ctx.waitUntil(registry.audit(env, board.id, viewer.name, "restored_from_delete", null, null).catch(() => {}));
         return json({ ok: true, deleted: false, message: `Restored "${board.title}".` });
