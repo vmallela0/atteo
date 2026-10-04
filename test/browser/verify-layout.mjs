@@ -25,6 +25,8 @@ for (const [label, w, h] of [["desktop", 1280, 800], ["mobile", 390, 844]]) {
   await p.waitForTimeout(700);
   const st = () => p.evaluate(() => { const s = document.getElementById("thread-scroll"); return { top: s.scrollTop, max: s.scrollHeight - s.clientHeight, win: window.scrollY, docH: document.documentElement.scrollHeight, vh: innerHeight }; });
   let s = await st();
+  // On a slow machine late layout (fonts, avatars) can still grow the thread after 700ms; the page should stay pinned to the bottom.
+  for (let i = 0; i < 20 && !(s.max > 0 && s.max - s.top < 5); i++) { await p.waitForTimeout(150); s = await st(); }
   check(s.max > 0 && s.max - s.top < 5, `opens at the latest entry (scrollTop ${s.top}/${s.max})`);
   check(s.docH <= s.vh + 1, `the page itself doesn't scroll (doc ${s.docH} vs viewport ${s.vh})`);
   const box = async (sel) => p.locator(sel).first().boundingBox();
