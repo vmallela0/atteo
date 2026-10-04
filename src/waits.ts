@@ -8,12 +8,13 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export type WaitFor = { kind: "agent"; user: string; session?: string } | { kind: "any"; after: number };
 
-/** Resolves true when the board says something arrived (or the member was removed), false at the time limit. */
-export async function waitForBoard(stub: DurableObjectStub<Board>, q: WaitFor, timeoutMs: number): Promise<boolean> {
+/** Resolves true when the board says something arrived (or the member was removed), false at the time limit or once
+ *  `signal` aborts (a newer wait from the same session took over: limits.beginWait). */
+export async function waitForBoard(stub: DurableObjectStub<Board>, q: WaitFor, timeoutMs: number, signal?: AbortSignal): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   const qs = q.kind === "agent" ? `kind=agent&user=${encodeURIComponent(q.user)}${q.session ? `&session=${encodeURIComponent(q.session)}` : ""}` : `kind=any&after=${q.after}`;
   // A deploy restarts the board and drops the socket: wait on the new one for the time that's left.
-  while (deadline - Date.now() > 250) {
+  while (deadline - Date.now() > 250 && !signal?.aborted) {
     let ws: WebSocket | null = null;
     try {
       ws = (await stub.fetch(`https://board/wait?${qs}`, { headers: { Upgrade: "websocket" } })).webSocket;
@@ -26,10 +27,13 @@ export async function waitForBoard(stub: DurableObjectStub<Board>, q: WaitFor, t
     const socket = ws;
     const outcome = await new Promise<"go" | "closed" | "timeout">((resolve) => {
       const timer = setTimeout(() => resolve("timeout"), Math.max(0, deadline - Date.now()));
-      const done = (o: "go" | "closed") => () => {
+      const done = (o: "go" | "closed" | "timeout") => () => {
         clearTimeout(timer);
+        signal?.removeEventListener("abort", aborted);
         resolve(o);
       };
+      const aborted = done("timeout");
+      signal?.addEventListener("abort", aborted);
       socket.addEventListener("message", done("go"));
       socket.addEventListener("close", done("closed"));
       socket.addEventListener("error", done("closed"));

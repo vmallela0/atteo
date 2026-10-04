@@ -200,6 +200,8 @@ export async function createToken(
 // tens of milliseconds. Anything that changes something looks the token up fresh (`fresh`), so a revoked token (the
 // kill switch) can't write anywhere from that moment; reads stop within TOKEN_CACHE_MS on other isolates.
 const TOKEN_CACHE_MS = 10_000;
+/** The token lookup (hot: most API calls), shared with test/queryPlans.test.ts: it must use an index. */
+export const TOKEN_SQL = `SELECT id, user, expires_at, kind FROM tokens WHERE hash = ? AND revoked_at IS NULL`;
 const tokenCache = new Map<string, { id: string; user: string; expires_at: number | null; kind: string | null; at: number; touched: number }>();
 
 async function lookupToken(env: Env, token: string, ctx?: ExecutionContext, fresh = false) {
@@ -207,7 +209,7 @@ async function lookupToken(env: Env, token: string, ctx?: ExecutionContext, fres
   const now = Date.now();
   let row = tokenCache.get(hash);
   if (!row || fresh || now - row.at > TOKEN_CACHE_MS) {
-    const r = await env.DB.prepare(`SELECT id, user, expires_at, kind FROM tokens WHERE hash = ? AND revoked_at IS NULL`).bind(hash).first<{ id: string; user: string; expires_at: number | null; kind: string | null }>();
+    const r = await env.DB.prepare(TOKEN_SQL).bind(hash).first<{ id: string; user: string; expires_at: number | null; kind: string | null }>();
     if (!r) {
       tokenCache.delete(hash);
       return null;
@@ -230,12 +232,12 @@ export function forgetToken(id: string) {
   for (const [k, v] of tokenCache) if (v.id === id) tokenCache.delete(k);
 }
 
-export async function resolveToken(env: Env, token: string, ctx?: ExecutionContext, fresh = false): Promise<{ user: string | null; expired: boolean }> {
+export async function resolveToken(env: Env, token: string, ctx?: ExecutionContext, fresh = false): Promise<{ user: string | null; expired: boolean; kind?: string | null }> {
   if (!token.startsWith("ab_")) return { user: null, expired: false };
   const row = await lookupToken(env, token, ctx, fresh);
   if (!row) return { user: null, expired: false };
   if (row.expires_at != null && row.expires_at < Date.now()) return { user: null, expired: true };
-  return { user: row.user, expired: false };
+  return { user: row.user, expired: false, kind: row.kind ?? null };
 }
 
 /** A bearer token's user and kind ("app": the Atteo app, acting as the person), or null. */

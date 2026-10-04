@@ -1051,7 +1051,7 @@ window.addEventListener('load',()=>{if(linked||moved)return;if(!unreadAt||!openA
 let ticking=null,again=false,sumNext=false; // sumNext: a task was finished, so the sidebar's open tasks changed
 function tick(wait){if(ticking){if(!wait)again=true;return ticking}ticking=tick1(wait).finally(()=>{ticking=null;if(again){again=false;tick(false)}});return ticking}
 async function tick1(wait){const sumNow=sumNext;sumNext=false;try{
-  const r=await fetch('/api/boards/'+BOARD+'/updates?after='+last+(wait?'&wait=25':''));if(!r.ok){await new Promise(r=>setTimeout(r,5000));return}const d=await r.json();
+  const r=await fetch('/api/boards/'+BOARD+'/updates?after='+last+(wait?'&wait=25':''));if(!r.ok){await new Promise(r=>setTimeout(r,5000));return}const d=await r.json();pollAfter=d.poll_after_ms||0;
   const stick=stickNext||pinned;stickNext=false;let added=0;
   for(const e of d.entries){if(addEntry(e))added++}
   if(typeof d.last==='number')last=Math.max(last,d.last);
@@ -1085,8 +1085,9 @@ function addEntry(e){if(document.getElementById('e'+e.seq)){last=Math.max(last,e
     if(e.retracts){const t=document.getElementById('e'+e.retracts);if(t){t.classList.add('retracted');t.querySelector('[data-retract]')?.remove()}}
     last=Math.max(last,e.seq);return true}
 // Live updates: a WebSocket that only says "something changed"; fall back to long-polling if it can't stay up.
-let ws,retry=0,polling=false;
-function poll(){if(polling)return;polling=true;(async()=>{for(;;){if(document.hidden){await new Promise(r=>setTimeout(r,2000));continue}await tick(true)}})()}
+let ws,retry=0,polling=false,pollAfter=0;
+// poll_after_ms: the server is shedding load and asks open tabs to pause between long-polls.
+function poll(){if(polling)return;polling=true;(async()=>{for(;;){if(document.hidden){await new Promise(r=>setTimeout(r,2000));continue}await tick(true);if(pollAfter)await new Promise(r=>setTimeout(r,pollAfter))}})()}
 function connect(){
   try{ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/api/boards/'+BOARD+'/ws')}catch(e){return poll()}
   let ping;ws.onopen=()=>{retry=0;document.getElementById('conn').hidden=true;ping=setInterval(()=>{try{ws.send('ping')}catch(e){}},30000)};

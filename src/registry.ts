@@ -387,9 +387,18 @@ export async function touchMcpSession(env: Env, sessionId: string, user: string)
 
 export const AGENT_LIVE_MS = 10 * 60 * 1000;
 
+// Hot queries, shared with test/queryPlans.test.ts (each must use an index, never scan the table: the D1 read cap, #1495).
+export const AGENTS_ON_BOARD_SQL = `SELECT user, MAX(last_seen) AS seen FROM mcp_sessions WHERE board_id = ? AND last_seen > ? GROUP BY user`;
+export const BOARDS_FOR_USER_SQL = `SELECT b.*, m.joined_at FROM members m JOIN boards b ON b.id = m.board_id WHERE m.user = ? AND b.deleted_at IS NULL ORDER BY b.last_activity DESC`;
+// The tape (GET /api/tape): your boards' latest lines after a cursor; the cron prunes lines older than a week.
+export const TAPE_READ_SQL = `SELECT t.id, t.board_id, b.title AS board, b.kind, t.seq, t.ts, t.author, t.via, t.type, t.to_user, t.excerpt FROM tape t JOIN boards b ON b.id = t.board_id
+               WHERE t.id > ? AND t.board_id IN (SELECT board_id FROM members WHERE user = ?) ORDER BY t.id LIMIT ?`;
+export const TAPE_TOP_SQL = `SELECT MAX(id) AS id FROM tape`;
+export const TAPE_PRUNE_SQL = `DELETE FROM tape WHERE ts < ?`;
+
 /** Members whose agent has a session on this board that was active in the last 10 minutes. */
 export async function agentsOnBoard(env: Env, boardId: string): Promise<Record<string, number>> {
-  const r = await env.DB.prepare(`SELECT user, MAX(last_seen) AS seen FROM mcp_sessions WHERE board_id = ? AND last_seen > ? GROUP BY user`)
+  const r = await env.DB.prepare(AGENTS_ON_BOARD_SQL)
     .bind(boardId, Date.now() - AGENT_LIVE_MS)
     .all<{ user: string; seen: number }>();
   return Object.fromEntries(r.results.map((x) => [x.user, x.seen]));
@@ -467,9 +476,7 @@ export async function bumpBoard(env: Env, boardId: string, entryCount: number) {
 }
 
 export async function boardsForUser(env: Env, user: string): Promise<(BoardRow & { joined_at: number })[]> {
-  const r = await env.DB.prepare(
-    `SELECT b.*, m.joined_at FROM members m JOIN boards b ON b.id = m.board_id WHERE m.user = ? AND b.deleted_at IS NULL ORDER BY b.last_activity DESC`,
-  )
+  const r = await env.DB.prepare(BOARDS_FOR_USER_SQL)
     .bind(user)
     .all<BoardRow & { joined_at: number }>();
   return r.results;
