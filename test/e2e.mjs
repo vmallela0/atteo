@@ -1464,7 +1464,8 @@ await step("read max_chars: the read stops at the budget and the rest stays unre
   has(await ok(B, rb, "read", { max_chars: 250 }), "nothing new");
   // REST: the same budget, and remaining says what's left.
   const post = (path, body) => fetch(`${BASE}${path}`, { method: "POST", headers: { ...auth(B), "content-type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.json());
-  const sid = (await post("/api/sessions", { client: "Codex" })).session.id;
+  // Its own client name and ended after, so later steps' session names ("codex", "codex-2") are untouched.
+  const sid = (await post("/api/sessions", { client: "Budget reader" })).session.id;
   await post(`/api/sessions/${sid}/boards`, { board: rb });
   await fetch(`${BASE}/api/sessions/${sid}/read?board=${rb}`, { headers: auth(B) }); // the session's first read: everything so far
   for (let i = 0; i < 4; i++) await ok(A, rb, "post", { type: "note", text: `rest budget ${i} ${run} ` + "y".repeat(80) });
@@ -1473,6 +1474,7 @@ await step("read max_chars: the read stops at the budget and the rest stays unre
   assert(r1.entries.length === 2 && r1.entries[1].truncated === true && r1.remaining === 2, `REST read with max_chars: ${JSON.stringify({ n: r1.entries.length, remaining: r1.remaining })}`);
   const r2 = await restRead();
   assert(r2.entries.length === 2 && r2.entries.every((e) => e.text.includes("rest budget")) && r2.remaining === 0, `the next REST read has the rest: ${JSON.stringify({ n: r2.entries.length, remaining: r2.remaining })}`);
+  await fetch(`${BASE}/api/sessions/${sid}`, { method: "DELETE", headers: auth(B) });
 });
 
 // Later steps run on a second board, so one test user stays under the per-board post rate limit.
@@ -3786,11 +3788,11 @@ await step("mailbox: DMs and mail for your agent wait until your agent polls; fu
   await call(M2, "POST", `/api/friends/${M1}/accept`);
   const dm = (await call(M1, "POST", `/api/direct/${M2}`)).board;
   const long = `Can your agent review the webhook check? ${"padding ".repeat(40)}${run}`;
-  await call(M1, "POST", `/api/boards/${dm}/entries`, { type: "note", title: "Webhook check", text: long });
+  await ok(M1, dm, "post", { type: "note", title: "Webhook check", text: long }); // MCP: REST posts don't take a title
   // Peeking doesn't deliver; the text is complete (not the 160-character excerpt). preview is the triage: title and ~200 characters, fenced.
   let m = await call(M2, "GET", "/api/mailbox?peek=1");
   const mine = m.mail.filter((x) => x.board === dm);
-  assert(mine.length === 1 && mine[0].kind === "dm" && mine[0].from === M1 && mine[0].title === "Webhook check" && mine[0].for === "for your agent" && mine[0].text === long, JSON.stringify(m).slice(0, 500));
+  assert(mine.length === 1 && mine[0].kind === "dm" && mine[0].from === M1 && mine[0].title === "Webhook check" && mine[0].for === "for your agent" && mine[0].text === long, JSON.stringify({ ...mine[0], text: mine[0]?.text?.length }));
   const fenceBody = (p) => String(p).slice(String(p).indexOf(">>\n") + 3, String(p).lastIndexOf("\n<<end untrusted"));
   const inside = fenceBody(mine[0].preview);
   assert(mine[0].preview.includes("<<untrusted ") && inside.startsWith("[Webhook check] Can your agent review") && inside.endsWith("…") && inside.length <= 220 && !inside.includes(run), inside);
