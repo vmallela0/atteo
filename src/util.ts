@@ -93,8 +93,21 @@ export function connectCommand(origin: string, boardId: string | null, token: st
     : `claude mcp add --scope user --transport http atteo "${origin}/mcp" --header "Authorization: Bearer ${token}"`;
 }
 
+/**
+ * Explicit bidi formatting: embeddings (U+202A–U+202B), overrides (U+202D–U+202E), isolates (U+2066–U+2068) and their
+ * pops (U+202C, U+2069). An override draws the characters after it backwards, and the rest of the set can reorder the
+ * text around it, including someone else's name. Marks (LRM U+200E, RLM U+200F, ALM U+061C) are not in this set:
+ * Arabic uses them to place a Latin word, and they do not reverse letters.
+ */
+const BIDI_FORMAT = /[\u202A-\u202E\u2066-\u2069]/g;
+
+/** Drops explicit bidi controls so a name or message cannot be drawn backwards. The stored text is left as written. */
+export function stripBidiControls(s: string): string {
+  return s.replace(BIDI_FORMAT, "");
+}
+
 export function esc(s: unknown): string {
-  return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+  return stripBidiControls(String(s ?? "")).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 }
 
 /** One emoji (with skin tones, ZWJ sequences, flags) or a :shortcode: (custom names the web app renders). */

@@ -2,6 +2,8 @@
 // and posts that read like instructions aimed at an agent are flagged (never dropped).
 // Pure (no I/O). Screening is a heuristic and never the only control.
 
+import { stripBidiControls } from "./util";
+
 export interface Flag {
   rule: string;
   reason: string;
@@ -98,9 +100,10 @@ function scan(text: string): Flag | null {
   return null;
 }
 
-/** Defuses anything inside content that imitates a fence marker. */
+/** Defuses board content before an agent reads it: explicit bidi controls (so a name or message cannot be drawn
+ *  backwards; Arabic marks stay), then anything that imitates a fence marker. */
 export function neutralize(text: string): string {
-  return text.replace(/<<(\s*(?:end\s+)?untrusted)/gi, "‹‹$1");
+  return stripBidiControls(text).replace(/<<(\s*(?:end\s+)?untrusted)/gi, "‹‹$1");
 }
 
 /** Wraps board content for an agent: a random per-response id makes the closing marker unforgeable. */

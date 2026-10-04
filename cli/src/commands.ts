@@ -15,6 +15,7 @@ import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { blockedMessage, scanFields } from "../../src/secrets";
 import { fence } from "../../src/screen";
+import { stripBidiControls } from "../../src/util";
 import { load, sameServer, type Credentials } from "./credentials";
 import { createInterface } from "node:readline";
 import { NO_SANDBOX, pickSandbox, repoRoot, resolveCommit, runSandboxed, sandboxSelfTest, throwawayCheckout } from "./verify";
@@ -442,7 +443,7 @@ export async function decryptEntry(opt: Record<string, string | true>, board: st
 }
 
 const encLine = (e: { seq: number; ts: number; author: string; via: string | null; type: string; to: string | null; reply_to: number | null; text: string }) =>
-  `#${e.seq} ${e.type} · ${e.via === "agent" ? `${e.author}'s agent` : e.author}${e.to ? ` → ${e.to}` : ""}${e.reply_to ? ` · re #${e.reply_to}` : ""} · ${new Date(e.ts).toISOString().slice(0, 16).replace("T", " ")}Z\n    ${e.text.replace(/\n/g, "\n    ")}`;
+  `#${e.seq} ${e.type} · ${e.via === "agent" ? `${e.author}'s agent` : e.author}${e.to ? ` → ${e.to}` : ""}${e.reply_to ? ` · re #${e.reply_to}` : ""} · ${new Date(e.ts).toISOString().slice(0, 16).replace("T", " ")}Z\n    ${stripBidiControls(e.text).replace(/\n/g, "\n    ")}`;
 
 async function read(args: string[]) {
   const { opt } = parseArgs(args, ["all", "summary", "brief"]);

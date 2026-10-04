@@ -131,7 +131,7 @@ async function wait(seq,my){let after=seq;const until=Date.now()+180000;waiting=
     const a=(d.entries||[]).find(e=>e.via==='agent'&&!e.retracts&&(e.text||'').trim());if(a){answer(a);return}}
   if(my===gen)status('Your assistant hasn’t answered yet. Its answer will be in the chat.'),ans.hidden=true,showOpen()}finally{if(my===gen)waiting=false}}
 function showOpen(){if(!CHAT)return;tx.textContent='';ans.hidden=false;$('#ask-from').textContent='Your assistant’s chat';replay.hidden=true}
-function answer(e){last=e;ans.hidden=false;const who=e.agent_name||e.client;$('#ask-from').textContent=who?'Your assistant · '+who:'Your assistant';tx.textContent=e.text;status('');replay.hidden=!syn&&!(tts&&tts.enabled);speak(e)}
+function answer(e){last=e;ans.hidden=false;const who=bidi(e.agent_name||e.client||'');$('#ask-from').textContent=who?'Your assistant · '+who:'Your assistant';tx.textContent=bidi(e.text);status('');replay.hidden=!syn&&!(tts&&tts.enabled);speak(e)}
 // Read aloud: the read-aloud voice when it's on, else the device's.
 fetch('/api/app/tts/status').then(r=>r.ok?r.json():null).then(j=>{tts=j}).catch(()=>{});
 function stopVoice(){if(audio){audio.pause();audio=null}if(syn)syn.cancel()}

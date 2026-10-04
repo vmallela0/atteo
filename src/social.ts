@@ -2,7 +2,7 @@
 // on a private board for two friends. Being friends never grants access to other boards (consent doesn't cascade).
 
 import { addMember, recordBoard } from "./registry";
-import { EMOJI_RE, newBoardId, offBoardSeq } from "./util";
+import { EMOJI_RE, newBoardId, offBoardSeq, stripBidiControls } from "./util";
 import { AgentNameError, cleanAgentName, handleLookalikes, skeleton } from "./agentName";
 import type { Env } from "./types";
 
@@ -525,7 +525,7 @@ export async function mailWithAgentNames<T extends { board: string | null; from:
   const names = Object.fromEntries(await Promise.all(boards.map(async (b) => [b, await boardAgentNames(env, b)] as const)));
   return mail.map((m) => {
     const n = m.from_via === "agent" && m.board ? names[m.board]?.[m.from] : undefined;
-    return n ? { ...m, from_agent_name: n } : m;
+    return n ? { ...m, from_agent_name: stripBidiControls(n) } : m;
   });
 }
 

@@ -1362,8 +1362,10 @@ const DISPLAY_HEAD = `<script>try{const d=JSON.parse(localStorage.getItem('atteo
 if(d.text==='s'||d.text==='l')r.dataset.text=d.text;if(d.density==='compact')r.dataset.density='compact';if(d.theme==='light'||d.theme==='dark')r.dataset.theme=d.theme;if(d.ev===true)r.dataset.mode='everyday';if(d.replies==='thread')r.dataset.replies='thread'}catch{}</script>`; // mode: what the account said last time (set on the first sync)
 
 const CLIENT_JS = `
+/** Explicit bidi controls (embeddings, overrides, isolates and their pops). Marks that place a Latin word in Arabic stay. */
+function bidi(s){return String(s??'').replace(/[\\u202A-\\u202E\\u2066-\\u2069]/g,'')}
 /** The one HTML escaper for every page script. */
-function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c])}
+function esc(s){return bidi(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c])}
 /** The interface in this page's language (i18n.ts): the English as written, looked up in window.I18N; {name} filled from v. */
 function tr(s,v){let x=(window.I18N&&window.I18N[s])||s;if(v)for(const k in v)x=x.split('{'+k+'}').join(v[k]);return x}
 (()=>{
