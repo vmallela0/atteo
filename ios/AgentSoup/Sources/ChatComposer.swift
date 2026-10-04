@@ -2,7 +2,7 @@
 // who "@" can name, pictures and files waiting to go, the text (ComposerField) and send. The chat and a thread look
 // and behave the same; a thread's box answers a message (`replyTo`). Like iMessage (vedu #1783): an empty box has the
 // mic (dictation, Voice.swift), and once there's something to send the mic gives way to send. Voice chat isn't here:
-// it's the phone at the top right of the chat (TalkCallButton.swift).
+// it's the phone at the top right of the chat's bar (BoardsView.swift).
 
 import PhotosUI
 import SwiftUI
