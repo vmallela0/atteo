@@ -8,24 +8,26 @@
 import { ZH_CN } from "./i18n.zh";
 import { ZH_HANT } from "./i18n.zh-hant";
 import { ES } from "./i18n.es";
+import { FR } from "./i18n.fr";
 import { JA } from "./i18n.ja";
 import { KO } from "./i18n.ko";
 import { HI } from "./i18n.hi";
 
-export type Lang = "en" | "zh-Hans" | "zh-Hant" | "es" | "ja" | "ko" | "hi";
-export const LANGS: readonly Lang[] = ["en", "zh-Hans", "zh-Hant", "es", "ja", "ko", "hi"];
+export type Lang = "en" | "zh-Hans" | "zh-Hant" | "es" | "fr" | "ja" | "ko" | "hi";
+export const LANGS: readonly Lang[] = ["en", "zh-Hans", "zh-Hant", "es", "fr", "ja", "ko", "hi"];
 /** Each language in its own words, for the picker. */
 export const LANG_NAMES: Record<Lang, string> = {
   en: "English",
   "zh-Hans": "简体中文",
   "zh-Hant": "繁體中文",
   es: "Español",
+  fr: "Français",
   ja: "日本語",
   ko: "한국어",
   hi: "हिन्दी",
 };
 
-const TABLES: Record<Lang, Record<string, string>> = { en: {}, "zh-Hans": ZH_CN, "zh-Hant": ZH_HANT, es: ES, ja: JA, ko: KO, hi: HI };
+const TABLES: Record<Lang, Record<string, string>> = { en: {}, "zh-Hans": ZH_CN, "zh-Hant": ZH_HANT, es: ES, fr: FR, ja: JA, ko: KO, hi: HI };
 
 /** `s` in `lang`, with {name} placeholders filled from `vars`. */
 export function tr(lang: Lang | null | undefined, s: string, vars?: Record<string, string | number>): string {
@@ -41,7 +43,7 @@ export function matchLang(tag: string | null | undefined): Lang | null {
   if (t.startsWith("zh-hant") || t.startsWith("zh-tw") || t.startsWith("zh-hk") || t.startsWith("zh-mo")) return "zh-Hant";
   if (t === "zh" || t.startsWith("zh-cn") || t.startsWith("zh-hans") || t.startsWith("zh-sg")) return "zh-Hans";
   if (t === "en" || t.startsWith("en-")) return "en";
-  for (const l of ["es", "ja", "ko", "hi"] as const) if (t === l || t.startsWith(`${l}-`)) return l;
+  for (const l of ["es", "fr", "ja", "ko", "hi"] as const) if (t === l || t.startsWith(`${l}-`)) return l;
   return null;
 }
 
