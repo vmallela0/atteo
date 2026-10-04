@@ -3,7 +3,7 @@
 // keywords, strings, comments, numbers, function calls, types, keys/properties, tags, and diff lines, for the common
 // languages. The tokenizer is ours, served by the Worker (no CDN, no dependency), and board text only ever reaches the
 // page as text nodes (never as HTML).
-// An unknown or missing language stays one colour, as does a block over 20,000 characters.
+// An unknown or missing language stays one colour, as does a block over 4,000 characters (claude #2029).
 // The colours are their own tokens (--sx-*), picked for at least 4.5:1 on the code background in light and dark.
 
 // The tokenizer, as page script (plain JS in a String.raw, so regex backslashes are written once; no backticks or
@@ -95,7 +95,7 @@ export const CODE_COLOR_SRC = `${CODE_COLOR_PATH}?v=${fnv(CODE_COLOR_SCRIPT)}`;
 // new ones). A block is coloured once; a copy made before that (e.g. into the thread view) gets its own turn.
 // Only text nodes and spans with a fixed class go into the page; if the script can't load, blocks stay as they are.
 export const CODE_COLOR_JS = `
-(()=>{const SRC=${JSON.stringify(CODE_COLOR_SRC)},MAX=20000;let lib=null,io=null;
+(()=>{const SRC=${JSON.stringify(CODE_COLOR_SRC)},MAX=4000;let lib=null,io=null;
 const load=()=>lib||(lib=new Promise((ok,no)=>{if(window.__atteoHl)return ok(window.__atteoHl);const s=document.createElement('script');s.src=SRC;s.async=true;
   s.onload=()=>window.__atteoHl?ok(window.__atteoHl):no(new Error('no tokenizer'));s.onerror=()=>no(new Error('tokenizer did not load'));document.head.appendChild(s)}));
 // A block that scrolls sideways can be scrolled from the keyboard too (axe: scrollable-region-focusable).

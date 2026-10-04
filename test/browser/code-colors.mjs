@@ -2,7 +2,8 @@
 // TypeScript, Python, SQL and diff blocks, each colour at least 4.5:1 on the code background in light and dark. The code
 // itself is untouched: the same text, Copy copies it exactly, the server sends plain text, and code that looks like HTML
 // stays text (no element is made from it). A block without a known language stays one colour. The tokenizer is served by
-// the Worker and loaded only once a code block is on screen: a board without code never fetches it. 1280 light, 390 dark.
+// the Worker and loaded only once a code block is on screen: a board without code never fetches it. Hostile blocks can't
+// stall it, and blocks over 4,000 characters stay plain. 1280 light, 390 dark.
 // Usage: BASE=http://localhost:8798 node code-colors.mjs  (local dev only, ADMIN_KEY=ci-admin-key in .dev.vars)
 import { chromium } from "playwright-core";
 const BASE = process.env.BASE || "http://localhost:8787";
@@ -21,7 +22,7 @@ const DIFF = "@@ -1,2 +1,2 @@\n-const a = 1\n+const a = 2\n unchanged";
 const HTML = '<img src="x" onerror="window.__pwned=1"><b class="y">bold</b>';
 const PLAIN = "just some words = 1 // not coloured";
 const seqs = {};
-for (const [k, lang, code] of [["ts", "ts", TS], ["py", "python", PY], ["sql", "sql", SQL], ["diff", "diff", DIFF], ["html", "html", HTML], ["plain", "", PLAIN]]) seqs[k] = await post(`${k} block\n\n\`\`\`${lang}\n${code}\n\`\`\``);
+for (const [k, lang, code] of [["ts", "ts", TS], ["py", "python", PY], ["sql", "sql", SQL], ["diff", "diff", DIFF], ["html", "html", HTML], ["plain", "", PLAIN], ["big", "css", "-a".repeat(2500)]]) seqs[k] = await post(`${k} block\n\n\`\`\`${lang}\n${code}\n\`\`\``);
 
 const raw = await (await fetch(`${BASE}/b/${board}`, { headers: { cookie: ck } })).text();
 let fails = 0;
@@ -85,6 +86,12 @@ for (const [w, scheme] of [[1280, "light"], [390, "dark"]]) {
   check(html.text === HTML && html.kids.every((n) => n === "span") && want(html, "sx-g", "<img") && !(await p.evaluate(() => window.__pwned)), `${tag}: code that looks like HTML stays text (only spans made, nothing runs)`);
   const plain = await info("plain");
   check(plain.text === PLAIN && !plain.spans.length, `${tag}: a block without a language stays one colour`);
+  // Hostile blocks (opus-d #2028): the tokenizer itself finishes 20,000-char css "-a-a…" and toml "a.a.…" in under 50ms,
+  // and a block over 4,000 characters stays plain on the page.
+  const slow = await p.evaluate(() => [["css", "-a"], ["toml", "a."], ["css", "a:"], ["yaml", "a."]].map(([l, u]) => { const c = u.repeat(10000), t = performance.now(); window.__atteoHl(c, l); return [l, u, performance.now() - t]; }));
+  for (const [l, u, ms] of slow) check(ms < 50, `${tag}: a 20,000-char ${l} block of ${JSON.stringify(u)}… tokenizes in ${ms.toFixed(1)}ms (< 50)`);
+  const big = await p.evaluate((s) => { const c = document.querySelector(`#e${s} .code-b code`); return { hl: c.dataset.hl, spans: c.querySelectorAll("span").length }; }, (await (async () => { await p.evaluate((s) => document.getElementById("e" + s).scrollIntoView({ block: "center" }), seqs.big); await p.waitForTimeout(300); return seqs.big; })()));
+  check(big.hl === "plain" && !big.spans, `${tag}: a code block over 4,000 characters stays plain (${big.hl}, ${big.spans} spans)`);
   // Copy copies the code exactly, colours or not.
   await p.evaluate((s) => document.getElementById("e" + s).scrollIntoView({ block: "center" }), seqs.ts);
   await p.locator(`#e${seqs.ts} [data-copy-code]`).click();
