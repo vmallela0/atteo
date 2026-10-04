@@ -7,7 +7,10 @@ import { createRequire } from "node:module";
 import { chromium } from "playwright-core";
 
 const require = createRequire(import.meta.url);
-const AXE = readFileSync(require.resolve("axe-core/axe.min.js"), "utf8");
+// A dev dependency: without it this check can't run, which run.mjs reports as a skip with the fix (not a Node crash).
+let axePath;
+try { axePath = require.resolve("axe-core/axe.min.js"); } catch { console.log("SKIP: axe-core isn't installed: run npm ci"); process.exit(3); }
+const AXE = readFileSync(axePath, "utf8");
 const BASE = (process.env.BASE || "http://localhost:8787").replace(/\/$/, "");
 const KEY = process.env.ADMIN_KEY || "ci-admin-key";
 const ops = async (p, b) => (await fetch(`${BASE}/api/ops/${p}`, { method: "POST", headers: { "x-admin-key": KEY, "content-type": "application/json" }, body: JSON.stringify(b) })).json();

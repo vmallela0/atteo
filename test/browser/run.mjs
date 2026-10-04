@@ -3,6 +3,8 @@
 // its own node process. By default the checks share a couple of already-running Chromiums (lib/shim.mjs gives each check
 // its own contexts); a check that fails is retried once, alone and with its own browser, before it counts as a failure.
 // Prints one line per check as it finishes, then a summary; exits 1 if any check failed (2 if the server isn't up).
+// A check that can't run here (a missing dev dependency) exits 3 with a last line "SKIP: <reason>": listed as skipped
+// with its reason, not retried, not a failure.
 //
 //   node test/browser/run.mjs [check ...]        # or: npm run test:browser
 //
@@ -97,10 +99,10 @@ const run1 = (t, slot, useShared) => new Promise((resolve) => {
     const lines = readFileSync(log, "utf8").split("\n").map((l) => l.trimEnd()).filter(Boolean);
     let last = lines.at(-1) ?? `(no output, exit ${code})`;
     if (timedOut) last = `timed out after ${TIMEOUT / 1000}s (last: ${last})`;
-    resolve({ t, last, secs: secs(s), ok: !timedOut && code === 0 && passed(last) });
+    resolve({ t, last, secs: secs(s), ok: !timedOut && code === 0 && passed(last), skipped: !timedOut && code === 3 && /^SKIP: /.test(last) });
   });
 });
-const line = (r, note = "") => console.log(`${r.ok ? "ok  " : "FAIL"} ${r.t}: ${r.last} (${r.secs}s${note})`);
+const line = (r, note = "") => console.log(`${r.ok ? "ok  " : r.skipped ? "skip" : "FAIL"} ${r.t}: ${r.last} (${r.secs}s${note})`);
 
 console.log(`browser checks: ${list.length}${process.env.SHARD ? ` (shard ${process.env.SHARD})` : ""} against ${BASE}, PAR=${PAR}, ${shared ? `${NB}+1 shared Chromiums` : "a Chromium per check"}; logs and screenshots in ${SHOTS_DIR}`);
 const queue = [...list].sort((a, b) => timings[b] - timings[a]);
@@ -115,20 +117,22 @@ await Promise.all(Array.from({ length: Math.min(PAR, list.length) }, async (_, s
     const c = clip.has(t); if (c) clipBusy = true;
     const r = results[t] = await run1(t, slot, !!shared);
     if (c) { clipBusy = false; waiters.splice(0).forEach((w) => w()); }
-    if (r.ok || !RETRY) line(r); else console.log(`.... ${t}: ${r.last} (${r.secs}s; will retry alone)`);
+    if (r.ok || r.skipped || !RETRY) line(r); else console.log(`.... ${t}: ${r.last} (${r.secs}s; will retry alone)`);
   }
 }));
 const firstPass = secs(T0);
 if (shared) await shared.close();
 
-const failed1 = list.filter((t) => !results[t].ok);
+const failed1 = list.filter((t) => !results[t].ok && !results[t].skipped);
 if (RETRY && failed1.length) {
   console.log(`retrying alone: ${failed1.join(" ")}`);
   for (const t of failed1) { const r = await run1(t, 0, false); results[t] = { ...r, retried: true }; line(r, r.ok ? "; passed on retry alone" : "; failed again alone"); }
 }
 
-const failed = list.filter((t) => !results[t].ok), flaky = list.filter((t) => results[t].ok && results[t].retried);
+const skipped = list.filter((t) => results[t].skipped);
+const failed = list.filter((t) => !results[t].ok && !results[t].skipped), flaky = list.filter((t) => results[t].ok && results[t].retried);
 writeFileSync(join(SHOTS_DIR, "failed.txt"), failed.map((t) => t + "\n").join(""));
-console.log(`\n${list.length - failed.length}/${list.length} browser checks passed${flaky.length ? ` (${flaky.length} only on retry: ${flaky.join(" ")})` : ""}; first pass ${firstPass}s, total ${secs(T0)}s`);
+console.log(`\n${list.length - failed.length - skipped.length}/${list.length} browser checks passed${flaky.length ? ` (${flaky.length} only on retry: ${flaky.join(" ")})` : ""}${skipped.length ? `, ${skipped.length} skipped` : ""}; first pass ${firstPass}s, total ${secs(T0)}s`);
+for (const t of skipped) console.log(`  skipped ${t}: ${results[t].last.replace(/^SKIP: /, "")}`);
 if (failed.length) { console.log(`FAILED: ${failed.join(" ")}  (logs: ${LOGS})`); for (const t of failed) console.log(`  ${t}: ${results[t].last}`); }
 process.exit(failed.length ? 1 : 0);
