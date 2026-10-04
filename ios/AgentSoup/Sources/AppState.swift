@@ -180,16 +180,26 @@ final class AppState: ObservableObject {
     private func saveDisplay() async {
         let d = display
         do {
-            try await API.shared.send("/api/app/prefs", body: ["display": d.body])
+            do {
+                try await API.shared.send("/api/app/prefs", body: ["display": d.body(replies: !repliesRefused)])
+            } catch APIError.server(let m) where !repliesRefused && m.contains("\"replies\"") {
+                // A server from before replies could stay in their threads (vedu #2360): the rest saves, and that one
+                // stays on this phone.
+                repliesRefused = true
+                try await API.shared.send("/api/app/prefs", body: ["display": d.body(replies: false)])
+            }
             profile?.display = d
             if display == d { cacheDisplay(d, unsaved: false) }
         } catch { report(error, quiet: true) } // stays cached and unsaved: the next refresh sends it again
     }
+    /// The server said no to `replies` (it's older than the setting): saves leave it out until it sends one back.
+    private var repliesRefused = false
 
     /// What the server has (set here or on the web). A change made on this phone that hasn't reached the server yet
     /// wins and is sent again instead.
     private func adoptDisplay(_ server: DisplayPrefs?) {
-        guard !displayPinned, let server else { return }
+        guard !displayPinned, var server else { return }
+        if server.repliesKnown { repliesRefused = false } else { server.replies = display.replies } // not kept there yet: the phone's choice stands
         if UserDefaults.standard.bool(forKey: Self.displayDirtyKey) {
             if server == display { cacheDisplay(display, unsaved: false) } else {
                 displaySave?.cancel()
@@ -312,7 +322,8 @@ final class AppState: ObservableObject {
         profile = p
         let rules: [String: Any] = ["auto_accept_invites": p.rules.autoAcceptInvites ?? NSNull(), "auto_accept_friends": p.rules.autoAcceptFriends ?? NSNull(), "auto_accept_agents": p.rules.autoAcceptAgents ?? NSNull()]
         var body: [String: Any] = ["display_name": p.displayName ?? "", "bio": p.bio ?? "", "listed": p.listed, "rules": rules]
-        if !displayPinned { body["display"] = display.body } // always the phone's current display settings
+        // Always the phone's current display settings (replies too, once the server has shown it keeps them).
+        if !displayPinned { body["display"] = display.body(replies: old?.display?.repliesKnown == true && !repliesRefused) }
         do {
             let d = try await API.shared.send("/api/me/profile", body: body)
             if let r = try? JSONDecoder.soup.decode(ProfileResponse.self, from: d) { profile = r.profile }
