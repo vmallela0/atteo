@@ -1073,8 +1073,9 @@ function pillSync(){if(pinned){pill.hidden=true;unseen=0}else{pill.textContent=u
 scroller.addEventListener('scroll',()=>{if(scroller.clientHeight){if(Date.now()-userT<700)pinned=nearEnd();else if(nearEnd())pinned=true}pillSync();railMark();ghostSoon()},{passive:true});
 ['wheel','touchmove','keydown','pointerdown'].forEach(t=>scroller.addEventListener(t,()=>{moved=true;usr()},{passive:true}));
 document.addEventListener('keydown',e=>{if(/^(Page(Up|Down)|Home|End|Arrow(Up|Down)| )$/.test(e.key)&&!e.target.closest('textarea,input,select,[contenteditable]'))usr()},true);
-// Anything that grows the thread (or shrinks the view) while pinned keeps the latest in view.
-const stay=()=>{if(pinned&&scroller.clientHeight&&!nearEnd())scroller.scrollTop=scroller.scrollHeight};
+// Anything that grows the thread (or shrinks the view) while pinned keeps the latest in view, however little it grew: a
+// late 22px (a font, an avatar) once sat inside nearEnd's slack and left the page short of the bottom (#1569).
+const stay=()=>{if(pinned&&scroller.clientHeight&&scroller.scrollHeight-scroller.scrollTop-scroller.clientHeight>1)scroller.scrollTop=scroller.scrollHeight};
 new ResizeObserver(stay).observe(document.getElementById('thread'));new ResizeObserver(stay).observe(scroller);
 scroller.addEventListener('load',stay,true); // images
 pill.addEventListener('click',()=>toBottom(true));
