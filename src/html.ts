@@ -1251,7 +1251,7 @@ function pfEmpty(){if(pfNone)pfNone.hidden=!pfOn()||!!document.querySelector('#t
 /** save: remember it; told: say why agents' posts came back (a jump to one of them). */
 function pfSet(on,save,told){document.documentElement.toggleAttribute('data-pf',on);if(pfBtn)pfBtn.setAttribute('aria-pressed',String(on));
   if(save)try{on?localStorage.setItem('atteo.pf.'+ME0,'1'):localStorage.removeItem('atteo.pf.'+ME0)}catch(e){}
-  if(told)toast(tr("Showing agents' posts"));pfEmpty();railBuild();if(pinned)toBottom();ghostSoon()}
+  if(told)toast(tr("Showing agents' posts"));pfEmpty();railBuild();if(pinned)toBottom();ghostSoon();window.thrPf&&window.thrPf()}
 pfBtn?.addEventListener('click',()=>{const on=!pfOn();pfSet(on,true);toast(on?tr("Agents' posts are hidden, for you only"):tr("Showing agents' posts"))});
 if(pfBtn)pfBtn.setAttribute('aria-pressed',String(pfOn()));pfEmpty();
 new MutationObserver(()=>{if(pfOn())pfEmpty()}).observe(document.getElementById('thread'),{childList:true});
@@ -2134,7 +2134,15 @@ function thrSum(root){const top=document.getElementById('e'+root);if(!top)return
   b.innerHTML='<span class="thr-head"><span class="avs">'+who.slice(0,3).map(w=>avatar16(w.split('/')[0],w.endsWith('/a'))).join('')+'</span><b>'+kids.length+' repl'+(kids.length===1?'y':'ies')+'</b><span class="faint">'+(lastT?'last '+lastT.textContent:'')+'</span></span>';
   b.setAttribute('aria-label',tr('Open the thread: ')+kids.length+' repl'+(kids.length===1?'y':'ies'))}
 var thrOpen=0,thrTo=0;const thrDlg=document.createElement('dialog');thrDlg.className='thr-dlg';thrDlg.setAttribute('aria-label',tr('Thread'));
-thrDlg.innerHTML='<div class="thr-hd"><b>'+tr('Thread')+'</b><button type="button" class="btn ghost sm" data-thr-close aria-label="'+tr('Close the thread')+'">✕</button></div><div class="thr-list" id="thr-list"></div>';
+thrDlg.innerHTML='<div class="thr-hd"><b>'+tr('Thread')+'</b><span class="grow"></span><button type="button" class="btn ghost sm thr-pf" id="thr-pf" aria-pressed="false" title="'+tr('Just this thread: the board keeps them hidden.')+'" hidden></button><button type="button" class="btn ghost sm" data-thr-close aria-label="'+tr('Close the thread')+'">✕</button></div><div class="thr-list" id="thr-list"></div>';
+// Hide agents and a thread (jxn #2191, vedu's agent #2192): the thread follows the board's setting, but has its own Show
+// agents. It shows that thread's agent replies only, for you, on this page; the board keeps hiding them.
+const thrShow=new Set();
+window.thrPf=()=>{const b=document.getElementById('thr-pf');if(!b)return;const n=thrOpen?kidsOf(thrOpen).filter(k=>k.classList.contains('by-agent')).length:0,on=!!thrOpen&&thrShow.has(thrOpen);
+  thrDlg.classList.toggle('thr-all',on);b.hidden=!pfOn()||!n;b.setAttribute('aria-pressed',String(on));const ev=document.documentElement.dataset.mode==='everyday';
+  b.textContent=on?(ev?tr('Hide assistants'):tr('Hide agents')):(ev?tr('Show assistants'):tr('Show agents'))+' ('+n+')'};
+thrDlg.addEventListener('click',e=>{if(!e.target.closest('#thr-pf')||!thrOpen)return;thrShow.has(thrOpen)?thrShow.delete(thrOpen):thrShow.add(thrOpen);thrPf()});
+document.addEventListener('atteo-mode',()=>thrPf());
 // The thread's reply box is the conversation's own composer (jxn #1094), moved in while the thread is open: the same @ menu,
 // attachments, / commands, mic, drafts and encryption, replying to the thread's first message. Closing puts it back.
 const cmpForm=document.querySelector('form.composer');var cmpHome=null;
@@ -2148,8 +2156,11 @@ function thrRender(focus){const list=document.getElementById('thr-list'),top=doc
     c.querySelectorAll('[id]').forEach(x=>x.removeAttribute('id'));c.querySelectorAll('.thr-sum,.acts,.more-acts,.rd,.rx-add').forEach(x=>x.remove());
     const q=c.querySelector(':scope>.grow>.rq');if(q&&q.dataset.thread===String(thrOpen)&&src.dataset.reply===String(thrOpen))q.remove();
     list.appendChild(c)}
+  thrPf();
   const f=focus&&list.querySelector('[data-src="'+focus+'"]');(f||list.lastElementChild)?.scrollIntoView({block:f?'center':'end'});if(f)f.classList.add('hit')}
-function openThread(root,o={}){const top=document.getElementById('e'+root);if(!top)return;thrOpen=root;thrRender(o.focus);if(!thrDlg.open)thrDlg.showModal();
+function openThread(root,o={}){const top=document.getElementById('e'+root);if(!top)return;thrOpen=root;
+  if(o.focus&&pfOn()&&document.getElementById('e'+o.focus)?.classList.contains('by-agent'))thrShow.add(root); // opened at an agent's reply: show it
+  thrRender(o.focus);if(!thrDlg.open)thrDlg.showModal();
   // Opened at one message (its quote bar, a link to it): the box answers that message, not the thread's first (jxn #1351).
   thrTo=o.focus&&o.focus!==root&&document.getElementById('e'+o.focus)?o.focus:0;cmpIn(root,thrTo);if(cmpHome&&!o.focus&&matchMedia('(hover:hover)').matches){ta.focus();ta.setSelectionRange(ta.value.length,ta.value.length)}}
 function closeThread(){if(thrDlg.open)thrDlg.close();else{thrOpen=0;cmpBack()}}
