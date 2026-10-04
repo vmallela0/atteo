@@ -312,7 +312,7 @@ const voiceJs = (agentChat: boolean) => `
   function stopGo(){if(gl){try{gl.abort()}catch(e){}gl=null}}
   // Talk: what you say goes into the box after what's there; "send it" at the end posts it.
   if(SR&&mic){mic.hidden=false;mic.addEventListener('click',()=>{if(rec){try{rec.stop()}catch(e){}return}
-    stopGo();if(syn)syn.cancel();const base=ta.value.trim()?ta.value.replace(/[ ]+$/,'')+' ':'';let fin='';
+    stopGo();if(typeof hush==='function')hush();else if(syn)syn.cancel();const base=ta.value.trim()?ta.value.replace(/[ ]+$/,'')+' ':'';let fin='';
     rec=new SR();rec.lang=LANG;rec.interimResults=true;rec.continuous=true;mic.setAttribute('aria-pressed','true');mic.classList.add('on');
     rec.onresult=ev=>{let mid='';for(let i=ev.resultIndex;i<ev.results.length;i++){const r=ev.results[i];if(r.isFinal)fin+=r[0].transcript;else mid+=r[0].transcript}
       const send=/(^|[ ,.])send it[.!]?$/i.test(fin.trim());
@@ -326,8 +326,20 @@ const voiceJs = (agentChat: boolean) => `
   function who(el){return ((el.querySelector('.who')||{}).innerText||el.dataset.author||'').trim()}
   function pillUpd(){if(!q.length&&!speaking){pill.hidden=true;return}pill.hidden=false;const el=document.getElementById('e'+q[0]);
     document.getElementById('vp-go').textContent=speaking?'🔊 Reading'+(q.length?' · '+q.length+' more':'')+' · tap to stop':'🔊 '+(q.length>1?q.length+' for you, first from ':'For you from ')+(el?who(el):'')+' · tap or say “go ahead”'}
-  function speakNext(){stopGo();const s=q.shift(),el=s&&document.getElementById('e'+s);if(!el){speaking=false;pillUpd();return}
+  // Atteo's own voice first (POST /api/app/tts, jxn #1612); the device's voice only when the server says to (fallback:"device":
+  // not set up, over the allowance, the service down) or the audio won't play.
+  var au=null,auN=0;
+  function auStop(){auN++;if(au){au.onended=au.onerror=null;try{au.pause()}catch(e){}URL.revokeObjectURL(au.src);au=null}}
+  function speakNext(){stopGo();auStop();const s=q.shift(),el=s&&document.getElementById('e'+s);if(!el){speaking=false;pillUpd();return}
     const body=((el.querySelector(':scope>.grow>.body')||{}).innerText||'').replace(/https?:[^\\s]+/g,'a link').slice(0,700);
+    const n=auN,next=()=>{if(n!==auN)return;auStop();speaking=false;if(q.length)speakNext();else pillUpd()};
+    speaking=true;pillUpd();
+    fetch('/api/app/tts',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(typeof BOARD!=='undefined'&&BOARD?{board:BOARD,seq:+s}:{text:body})})
+      .then(r=>r.ok&&/^audio\\//.test(r.headers.get('content-type')||'')?r.blob():null).then(b=>{if(n!==auN)return;if(!b){deviceSay(el,body);return}
+        const a=au=new Audio(URL.createObjectURL(b));a.onended=next;a.onerror=()=>{if(n===auN){auStop();deviceSay(el,body)}};
+        a.play().catch(()=>{if(n===auN){auStop();deviceSay(el,body)}})})
+      .catch(()=>{if(n===auN)deviceSay(el,body)})}
+  function deviceSay(el,body){if(!syn){speaking=false;pillUpd();return}
     const u=new SpeechSynthesisUtterance(el.dataset.author+(el.classList.contains('by-agent')?"'s agent":'')+'. '+body);u.lang=LANG;const vo=bestVoice();if(vo)try{u.voice=vo}catch(e){}let started=false;u.onstart=()=>{started=true};
     u.onend=u.onerror=()=>{if(u.done)return;u.done=1;window.__utt=null;speaking=false;if(q.length)speakNext();else pillUpd()};
     window.__utt=u; // Chrome drops an utterance nothing holds on to, and its end event with it
@@ -344,7 +356,7 @@ const voiceJs = (agentChat: boolean) => `
       return (vl===l?4:0)+(/natural|neural/i.test(n)?40:/premium/i.test(n)?30:/enhanced/i.test(n)?20:/^google/i.test(n)?15:0)+(v.default?1:0)};
     let best=null,bs=-1;for(const v of vs){const sc=score(v);if(sc>bs){bs=sc;best=v}}return best}
   if(syn.getVoices)syn.getVoices(); /* Chrome loads the list lazily */
-  function hush(){q.length=0;speaking=false;syn.cancel();pillUpd()}
+  function hush(){q.length=0;speaking=false;auStop();if(syn)syn.cancel();pillUpd()}
   // After the blip, listen briefly for "go ahead" (only once the mic is already allowed, so nothing asks for it out of nowhere).
   async function listenGo(){if(!SR||rec||gl||speaking)return;try{if((await navigator.permissions.query({name:'microphone'})).state!=='granted')return}catch(e){return}
     const g=gl=new SR();g.lang=LANG;g.interimResults=true;g.continuous=true;const end=setTimeout(()=>{try{g.stop()}catch(e){}},12000);
