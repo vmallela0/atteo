@@ -6,6 +6,17 @@ import type { Env } from "./types";
 const day = (ts = Date.now()) => new Date(ts).toISOString().slice(0, 10);
 const once = new Map<string, number>();
 
+const USAGE_RETENTION_DAYS = 90;
+
+/** Cron sweep: delete usage_daily rows older than 90 days (shared with test/queryPlans.test.ts). */
+export const PRUNE_USAGE_DAILY_SQL = `DELETE FROM usage_daily WHERE day < ?`;
+
+/** Deletes usage_daily rows past the retention window; recent days stay. */
+export async function pruneUsageDaily(env: Env, now = Date.now(), days = USAGE_RETENTION_DAYS): Promise<number> {
+  const r = await env.DB.prepare(PRUNE_USAGE_DAILY_SQL).bind(day(now - days * 86_400_000)).run();
+  return r.meta.changes ?? 0;
+}
+
 /** Count an event. `unique`: count each key once per day (active people, active agents). */
 export function track(env: Env, metric: string, key: string, unique = false): Promise<unknown> | null {
   const d = day();

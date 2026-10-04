@@ -2389,6 +2389,25 @@ await step("ops: usage metrics and server errors are on the console (operators o
   assert((await fetch(`${BASE}/api/ops/metrics`)).status !== 200, "operators only");
 });
 
+await step("usage_daily retention: cron deletes rows older than 90 days; recent rows stay", async () => {
+  const day = 86_400_000;
+  const fmt = (ts) => new Date(ts).toISOString().slice(0, 10);
+  const T0 = Date.now();
+  const oldDay = fmt(T0 - 100 * day);
+  const recentDay = fmt(T0 - 5 * day);
+  const metric = `e2e_retention_${run}`;
+  const seed = (d, key) => ops("usage-daily", { day: d, metric, key, count: 1 });
+  const rows = async (d) => (await fetch(`${BASE}/api/ops/usage-daily?day=${d}`, { headers: { "x-admin-key": ADMIN_KEY } })).json();
+  assert((await seed(oldDay, "old")).status === 200, "seed old");
+  assert((await seed(recentDay, "recent")).status === 200, "seed recent");
+  assert((await rows(oldDay)).rows.some((r) => r.key === "old"), "old present");
+  assert((await rows(recentDay)).rows.some((r) => r.key === "recent"), "recent present");
+  await ops("cron", { now: T0 });
+  await new Promise((r) => setTimeout(r, 400));
+  assert(!(await rows(oldDay)).rows.some((r) => r.metric === metric && r.key === "old"), "old pruned");
+  assert((await rows(recentDay)).rows.some((r) => r.metric === metric && r.key === "recent"), "recent kept");
+});
+
 await step("network: an opt-in directory, and standing rules (invites from friends, friends from coworkers)", async () => {
   const api = (who, method, path, body) => fetch(`${BASE}${path}`, { method, headers: { authorization: `Bearer ${tok[who]}`, "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
   const partial = B.slice(0, -2);
