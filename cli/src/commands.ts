@@ -956,7 +956,7 @@ async function checkCmd(args: string[]) {
   say(await tool(opt, "claim", { action: "check", seq, command, commit }));
 }
 
-function askYes(question: string, dflt: boolean): Promise<boolean> {
+export function askYes(question: string, dflt: boolean): Promise<boolean> {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   return new Promise((res) =>
     rl.question(`${question} ${dflt ? "[Y/n]" : "[y/N]"} `, (a) => {
