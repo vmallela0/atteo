@@ -11,7 +11,7 @@ export interface InboxItem {
   board_id: string;
   board_title: string | null;
   seq: number;
-  kind: "mention" | "agent" | "reply" | "friend_request" | "friend_accept" | "approval" | "contact_request" | "contact_accept" | "decision";
+  kind: "mention" | "agent" | "reply" | "friend_request" | "friend_accept" | "approval" | "contact_request" | "contact_accept" | "decision" | "people_only";
   actor: string;
   actor_via: string | null;
   entry_type: string;
@@ -35,11 +35,14 @@ function withPush(r: InboxRow): InboxItem {
   }
 }
 
-export async function listInbox(env: Env, user: string, limit = 100): Promise<InboxItem[]> {
+/** People-only items (a message only the people named can see) go to person callers only: agent tokens read this API too. */
+const NOT_PEOPLE = (person: boolean, col = "kind") => (person ? "" : ` AND ${col} != 'people_only'`);
+
+export async function listInbox(env: Env, user: string, limit = 100, person = false): Promise<InboxItem[]> {
   const r = await env.DB.prepare(
     `SELECT n.id, n.board_id, b.title AS board_title, n.seq, n.kind, n.actor, n.actor_via, n.entry_type, n.excerpt, n.created_at, n.read_at, n.data
      FROM notifications n LEFT JOIN boards b ON b.id = n.board_id
-     WHERE n.user = ? AND n.kind != 'trigger' AND (n.board_id = '' OR n.board_id IN (SELECT board_id FROM members WHERE user = ?))
+     WHERE n.user = ? AND n.kind != 'trigger'${NOT_PEOPLE(person, "n.kind")} AND (n.board_id = '' OR n.board_id IN (SELECT board_id FROM members WHERE user = ?))
      ORDER BY n.created_at DESC LIMIT ?`,
   )
     .bind(user, user, limit)
@@ -48,14 +51,14 @@ export async function listInbox(env: Env, user: string, limit = 100): Promise<In
 }
 
 /** Unread count plus the newest unread item (for a browser notification when the count goes up). */
-export async function inboxCount(env: Env, user: string): Promise<{ unread: number; latest: InboxItem | null; approvals: number }> {
+export async function inboxCount(env: Env, user: string, person = false): Promise<{ unread: number; latest: InboxItem | null; approvals: number }> {
   const [c, latest, ap] = await Promise.all([
-    env.DB.prepare(`SELECT COUNT(*) AS n FROM notifications WHERE user = ? AND read_at IS NULL AND kind != 'trigger' AND (board_id = '' OR board_id IN (SELECT board_id FROM members WHERE user = ?))`)
+    env.DB.prepare(`SELECT COUNT(*) AS n FROM notifications WHERE user = ? AND read_at IS NULL AND kind != 'trigger'${NOT_PEOPLE(person)} AND (board_id = '' OR board_id IN (SELECT board_id FROM members WHERE user = ?))`)
       .bind(user, user)
       .first<{ n: number }>(),
     env.DB.prepare(
       `SELECT n.id, n.board_id, b.title AS board_title, n.seq, n.kind, n.actor, n.actor_via, n.entry_type, n.excerpt, n.created_at, n.read_at, n.data
-       FROM notifications n LEFT JOIN boards b ON b.id = n.board_id WHERE n.user = ? AND n.read_at IS NULL AND n.kind != 'trigger' ORDER BY n.created_at DESC LIMIT 1`,
+       FROM notifications n LEFT JOIN boards b ON b.id = n.board_id WHERE n.user = ? AND n.read_at IS NULL AND n.kind != 'trigger'${NOT_PEOPLE(person, "n.kind")} ORDER BY n.created_at DESC LIMIT 1`,
     )
       .bind(user)
       .first<InboxRow>(),
@@ -65,15 +68,16 @@ export async function inboxCount(env: Env, user: string): Promise<{ unread: numb
 }
 
 /** Mark read: everything, one board's items (opening a board), or specific ids. */
-export async function markRead(env: Env, user: string, what: { all?: boolean; board?: string; ids?: number[] }): Promise<number> {
+export async function markRead(env: Env, user: string, what: { all?: boolean; board?: string; ids?: number[] }, person = true): Promise<number> {
   const now = Date.now();
-  if (what.all) return (await env.DB.prepare(`UPDATE notifications SET read_at = ? WHERE user = ? AND read_at IS NULL`).bind(now, user).run()).meta.changes;
+  const np = NOT_PEOPLE(person);
+  if (what.all) return (await env.DB.prepare(`UPDATE notifications SET read_at = ? WHERE user = ? AND read_at IS NULL${np}`).bind(now, user).run()).meta.changes;
   if (what.board) {
-    return (await env.DB.prepare(`UPDATE notifications SET read_at = ? WHERE user = ? AND board_id = ? AND read_at IS NULL`).bind(now, user, what.board).run()).meta.changes;
+    return (await env.DB.prepare(`UPDATE notifications SET read_at = ? WHERE user = ? AND board_id = ? AND read_at IS NULL${np}`).bind(now, user, what.board).run()).meta.changes;
   }
   const ids = (what.ids ?? []).filter((n) => Number.isInteger(n)).slice(0, 200);
   if (!ids.length) return 0;
-  return (await env.DB.prepare(`UPDATE notifications SET read_at = ? WHERE user = ? AND read_at IS NULL AND id IN (${ids.map(() => "?").join(",")})`).bind(now, user, ...ids).run()).meta.changes;
+  return (await env.DB.prepare(`UPDATE notifications SET read_at = ? WHERE user = ? AND read_at IS NULL${np} AND id IN (${ids.map(() => "?").join(",")})`).bind(now, user, ...ids).run()).meta.changes;
 }
 
 const VERB: Record<InboxItem["kind"], string> = {
@@ -86,6 +90,7 @@ const VERB: Record<InboxItem["kind"], string> = {
   contact_request: "wants their agent to talk to yours",
   contact_accept: "said yes: your agents can talk now",
   decision: "asks for a decision",
+  people_only: "wrote to you privately (only people can see it)",
 };
 
 /** Pairs an approval notification with its approval: by id when the row carries one, else by the moment it was asked. */

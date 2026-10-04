@@ -1197,7 +1197,22 @@ export class Board extends DurableObject<Env> {
     // A people-only message leaves no trace outside this board's people-aware reads: no inbox or mailbox line (the
     // mailbox is the agents', and agents' tokens can read the inbox), no webhooks, no triggers, no board-list excerpt,
     // no tape line, no model screening (it screens what agents would read), and no agent's wait wakes for it.
+    // Its people (not the author) get a person-only inbox item: kind people_only, which the inbox API hands to person
+    // callers (web, the app) and never to an agent token, and which the mailbox (agents') doesn't carry.
     if (people) {
+      if (entry.retracts == null && !internal.system && !internal.notice) {
+        const excerpt = internal.sealed || info.encrypted ? "🔒 encrypted" : entry.text.replace(/\s+/g, " ").trim().slice(0, 160);
+        const to = people.filter((u) => u !== entry.author);
+        if (to.length) {
+          this.ctx.waitUntil(
+            this.env.DB.batch(
+              to.map((u) =>
+                this.env.DB.prepare("INSERT OR IGNORE INTO notifications (user, board_id, seq, kind, actor, actor_via, entry_type, excerpt, created_at) VALUES (?, ?, ?, 'people_only', ?, ?, ?, ?, ?)").bind(u, info.id, entry.seq, entry.author, entry.via ?? null, entry.type, excerpt, entry.ts),
+              ),
+            ).catch(() => {}),
+          );
+        }
+      }
       this.wakeWaits((a) => a.wait === "any");
       this.broadcast({ type: "entry", seq: entry.seq, retracts: entry.retracts, author: entry.author, via: entry.via ?? null, kind: entry.type, to: null, mentions: entry.mentions, reply_to: entry.reply_to, board: info.id, title: info.title, audience: "people", to_people: people }, entry.seq);
       return entry;
