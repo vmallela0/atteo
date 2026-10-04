@@ -3324,8 +3324,9 @@ export class Board extends DurableObject<Env> {
     return m;
   }
 
-  /** Lease a task so no one else takes it. Expires on its own; claim again to renew. An agent session's claim also
-   *  renews while that session is around, up to LEASE_CAP_MS after its last change to the task (leases.ts). */
+  /** Lease a task so no one else takes it. A to-do or stopped task becomes in progress. Expires on its own; claim again
+   *  to renew. An agent session's claim also renews while that session is around, up to LEASE_CAP_MS after its last
+   *  change to the task (leases.ts). */
   async taskClaim(user: string, seq: number, minutes: number, opts: TaskActOpts): Promise<TaskView> {
     const info = this.info();
     const t = this.task(seq);
@@ -3535,12 +3536,19 @@ export class Board extends DurableObject<Env> {
     }
   }
 
-  /** Create a task as a shared item: a title, a body (plan, checklist, notes), and optional fields. */
-
-  async taskCreate(user: string, input: { title: string; body?: string; assignee?: string | null; assignee_agent?: boolean; priority?: TaskPriority | null; due?: number | null; parent?: number | null }, opts: TaskActOpts): Promise<TaskView> {
-    if (input.parent != null) this.task(input.parent); // must be an open task on this board
+  /**
+   * Create a task as a shared item: a title, a body (plan, checklist, notes), and optional fields.
+   * The same title as an open task on this board (to do, in progress, or blocked) returns that task
+   * instead of posting another. Done and stopped tasks don't count, so the title can be used again.
+   */
+  async taskCreate(user: string, input: { title: string; body?: string; assignee?: string | null; assignee_agent?: boolean; priority?: TaskPriority | null; due?: number | null; parent?: number | null }, opts: TaskActOpts): Promise<{ task: TaskView; duplicate: boolean }> {
+    const info = this.info();
+    if (info.archived) throw new BoardError(archivedError(info.id));
     const title = (input.title ?? "").replace(/\s+/g, " ").trim().slice(0, 120);
     if (!title) throw new BoardError("A task needs a title.");
+    const existing = this.openTaskByTitle(splitTask(title).title);
+    if (existing) return { task: existing, duplicate: true };
+    if (input.parent != null) this.task(input.parent); // must be an open task on this board
     const body = (input.body ?? "").trim();
     const who = input.assignee ? input.assignee.toLowerCase() : null;
     if (who && !this.sql.exec("SELECT 1 AS x FROM members WHERE name = ?", who).toArray().length) throw new BoardError(`${who} isn't a member of this board.`);
@@ -3556,7 +3564,14 @@ export class Board extends DurableObject<Env> {
       this.broadcast({ type: "task", seq: input.parent });
     }
     this.taskEvent(e.seq, user, opts, "created"); // after its assignee and priority are set, so triggers can match them
-    return this.task(e.seq);
+    return { task: this.task(e.seq), duplicate: false };
+  }
+
+  /** An open task whose title is this one: case and spacing don't make a second task. The oldest, if several already match. */
+  private openTaskByTitle(title: string): TaskView | null {
+    const key = taskTitleKey(title);
+    if (!key) return null;
+    return this.taskRows().find((t) => (t.status === "todo" || t.status === "doing" || t.status === "blocked") && taskTitleKey(t.title) === key) ?? null;
   }
 
   /**
@@ -4252,6 +4267,11 @@ export function sniffImage(b: Uint8Array): string | null {
   if (b.length >= 6 && b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x38 && (b[4] === 0x37 || b[4] === 0x39) && b[5] === 0x61) return "image/gif";
   if (b.length >= 12 && String.fromCharCode(...b.slice(0, 4)) === "RIFF" && String.fromCharCode(...b.slice(8, 12)) === "WEBP") return "image/webp";
   return null;
+}
+
+/** Same open-task title: case and spacing don't count (task create returns the existing one). */
+export function taskTitleKey(title: string): string {
+  return title.replace(/\s+/g, " ").trim().toLowerCase();
 }
 
 /** A task post's first meaningful line is its title (markdown markers dropped); the rest is its body. */
