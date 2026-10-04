@@ -1087,11 +1087,11 @@ document.addEventListener('wheel',e=>{if(e.ctrlKey||document.getElementById('pan
   usr();scroller.scrollBy({top:e.deltaMode===1?e.deltaY*20:e.deltaY});e.preventDefault()},{passive:false});
 railBuild();pillSync();
 // ---- a bounded conversation (jxn #1365): a long board keeps only the messages near the view on the page ----
-// A message more than ~2.5 screens away becomes a light placeholder (.ghost, id g<seq>) of the same height that keeps its
+// Past 60 messages on the page, a message more than ~2.5 screens away (farthest first) becomes a light placeholder (.ghost, id g<seq>) of the same height that keeps its
 // place on the rail, its thread and its author, so scrolling, the rail and "N replies" don't move. Within ~1.5 screens it
 // comes back, re-rendered from the server (fresh reactions, tasks and markers). Jumps, links, search, the rail and threads
 // bring back what they need first. The newest messages and anything you're working with always stay.
-const GH_FAR=2.5,GH_NEAR=1.5,GH_TAIL=30,GH_HOLD=new Map(),GH_BUSY=new Map();let ghOn=false,ghT=0,ghPause=0; // ghPause: offline, try again later
+const GH_FAR=2.5,GH_NEAR=1.5,GH_TAIL=30,GH_MIN=60,GH_HOLD=new Map(),GH_BUSY=new Map();let ghOn=false,ghT=0,ghPause=0; // ghPause: offline, try again later
 function ghHold(seq){GH_HOLD.set(+seq,Date.now()+4000)}
 /** One line about a message for the rail's tip; a placeholder kept it from when it was on the page. */
 function tipOf(el){if(el.classList.contains('ghost'))return el.dataset.tip||'';
@@ -1110,14 +1110,18 @@ function ghostOf(el,h){const g=document.createElement('div');g.className='ghost'
 function ghostSoon(){if(ghT||!ghOn)return;ghT=setTimeout(()=>{ghT=0;ghostSync()},120)}
 function ghostSync(){const H=scroller.clientHeight;if(!ghOn||!H||document.getElementById('panel-conv').hidden)return;
   const th=document.getElementById('thread'),top=scroller.getBoundingClientRect().top,live=[...th.querySelectorAll(':scope>.entry')],tail=new Set(live.slice(-GH_TAIL)),far=[];
-  for(const el of live){if(tail.has(el)||ghKeep(el))continue;const r=el.getBoundingClientRect();if(r.bottom<top-GH_FAR*H||r.top>top+H+GH_FAR*H)far.push([el,r.height])} // measure all, then swap
+  for(const el of live){if(tail.has(el)||ghKeep(el))continue;const r=el.getBoundingClientRect(),d=Math.max(top-GH_FAR*H-r.bottom,r.top-top-H-GH_FAR*H);if(d>0)far.push([el,r.height,d])} // measure all, then swap
+  far.sort((a,b)=>b[2]-a[2]);far.length=Math.max(0,Math.min(far.length,live.length-GH_MIN)); // a short board stays whole
   for(const [el,h] of far)el.replaceWith(ghostOf(el,h));if(far.length)railBuild(); // the rail points at the placeholders now
   const gs=th.querySelectorAll(':scope>.ghost'),near=[];let lo=0,hi=gs.length;
   while(lo<hi){const m=(lo+hi)>>1;if(gs[m].getBoundingClientRect().bottom<top-GH_NEAR*H)lo=m+1;else hi=m}
   for(let i=lo;i<gs.length;i++){if(gs[i].getBoundingClientRect().top>top+H+GH_NEAR*H)break;near.push(+gs[i].dataset.seq)}
   if(near.length)Date.now()>ghPause?ghostFill(near).then(ghostSoon):setTimeout(ghostSoon,ghPause-Date.now()+50);
   // Going back loads older messages before you reach the top (the button stays for keyboards and screen readers).
-  const le=document.getElementById('load-earlier');if(le&&!le.disabled&&Date.now()-userT<2000&&le.getBoundingClientRect().bottom>top-H)loadEarlier()}
+  const le=document.getElementById('load-earlier');if(le&&!le.disabled&&Date.now()-ghUser<2000&&le.getBoundingClientRect().bottom>top-H)loadEarlier()}
+// Only the person's own scrolling loads more (a script's scrollTop or synthetic wheel never does).
+let ghUser=0;['wheel','touchmove','pointerdown'].forEach(t=>document.addEventListener(t,e=>{if(e.isTrusted)ghUser=Date.now()},{passive:true,capture:true}));
+document.addEventListener('keydown',e=>{if(e.isTrusted&&/^(Page(Up|Down)|Home|End|Arrow(Up|Down)| )$/.test(e.key))ghUser=Date.now()},true);
 /** Brings these placeholders back as messages (waits for any already on their way). */
 async function ghostFill(seqs){const wait=[],todo=[];for(const s of seqs){const p=GH_BUSY.get(s);if(p)wait.push(p);else if(document.getElementById('g'+s))todo.push(s)}
   todo.sort((a,b)=>a-b);const runs=[];for(const s of todo){const r=runs[runs.length-1];if(r&&s-r[0]<150)r.push(s);else runs.push([s])}
