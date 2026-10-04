@@ -22,7 +22,7 @@ import { compileGrep, grepFtsQuery, grepText, newBudget, GREP_CANDIDATES, GREP_D
 import { audienceOk, audienceWord, canSee, ownByDefault, OWN_DEFAULT_MS, OWN_MAIL_HINT, PEOPLE_ONLY_TYPES, type Audience } from "./audience";
 import { cleanSchedule, MAX_SCHEDULES, nextDue, lastDue, scheduleLabel, SCHEDULE_FIRES_PER_HOUR, taskText, tickAction, type Day, type Schedule } from "./schedules";
 import { LEASE_CAP_MS, RENEW_EVERY_MS, renewedUntil } from "./leases";
-import { prepareEntryData, readEntryData } from "./entryData";
+import { prepareEntryData, readEntryData, screenedText } from "./entryData";
 
 export const MAX_TEXT = 32_000;
 export const MAX_ARTIFACT = 256_000;
@@ -1129,7 +1129,14 @@ export class Board extends DurableObject<Env> {
     // Egress filter: nothing that looks like a credential is ever stored.
     // (A document save already checked its content; the log entry for it carries the same content.)
     const title = cleanTitle(input.title);
-    const dataJson = prepareEntryData(input.data);
+    // data is stored and served as plain JSON, so an end-to-end encrypted board (sealed posts) can't take it (#2346).
+    if (info.encrypted && input.data != null) throw new BoardError(`${info.id} is end-to-end encrypted, and data would be stored in plain text: put those fields in the (encrypted) text instead.`);
+    let dataJson: string | null;
+    try {
+      dataJson = prepareEntryData(input.data);
+    } catch (e) {
+      throw new BoardError(e instanceof Error ? e.message : String(e));
+    }
     const hit = scanFields({ text, title, artifact_name: input.artifact_name, artifact_content: internal.docVersion != null ? null : input.artifact_content, data: dataJson });
     if (hit) throw new BoardError(blockedMessage(hit));
 
@@ -1355,8 +1362,9 @@ export class Board extends DurableObject<Env> {
     }
     if (!internal.seeding && !user.startsWith("e2e-")) this.ctx.waitUntil(Promise.resolve(track(this.env, "posts", input.via ?? "agent")).catch(() => {}));
     // The model looks at everything the heuristic didn't fully flag, including text it found only in code or quotes.
-    const heuristic = screenText(text);
-    if (this.env.AI_TOKEN && !internal.seeding && text.length >= 25 && (!heuristic || heuristic.quoted)) this.ctx.waitUntil(this.screenWithModel(entry.seq, text).catch(() => {}));
+    const screened = screenedText(entry); // its data line too: read prints it to agents
+    const heuristic = screenText(screened);
+    if (this.env.AI_TOKEN && !internal.seeding && screened.length >= 25 && (!heuristic || heuristic.quoted)) this.ctx.waitUntil(this.screenWithModel(entry.seq, screened).catch(() => {}));
 
     // Wake everyone else's waits, and this person's other agent sessions (they see each other's posts).
     // A post for one agent session doesn't wake its person's other sessions (they'd find nothing to read).
@@ -1369,7 +1377,7 @@ export class Board extends DurableObject<Env> {
     // ping can be triaged without a read (#2177). Sealed and encrypted text: "🔒 encrypted". Private entries (above)
     // never carry text.
     const sealedText = !!internal.sealed || !!info.encrypted;
-    const flag = sealedText ? null : flagOf(entry.text, entry.ai_flag);
+    const flag = sealedText ? null : flagOf(screenedText(entry), entry.ai_flag);
     const pingText = entry.text || (internal.attachments ? `📎 ${filesLabel(internal.attachments.list)}` : entry.artifact_name ? `📎 ${entry.artifact_name}` : "");
     this.broadcast({
       type: "entry", seq: entry.seq, retracts: entry.retracts, author: entry.author, via: entry.via ?? null, kind: entry.type, to: entry.to, mentions: entry.mentions, reply_to: entry.reply_to, board: info.id, title: info.title,
