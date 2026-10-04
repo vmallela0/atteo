@@ -2894,6 +2894,55 @@ await step("read-only agent sessions: read and wait work; posting, through the A
   assert(!(await call("post", { type: "note", text: `full again ${run}` })).isError, "posts again");
 });
 
+// ---- review #1335 (#1343): "is on it" names the session the same way however it was taken; pages map only their seqs ----
+await step("handling: taking by reply or by finishing a task names the session (user/session) over REST too; a page with gaps maps only its own seqs", async () => {
+  // Its own two people (P asks, Q's agents answer), so the mail it makes doesn't crowd A's and B's later checks.
+  const P = `e2e-hp-${run}`, Q = `e2e-hq-${run}`;
+  for (const n of [P, Q]) {
+    await ops("users", { name: n, email: `${n}@example.com`, verified: "true" });
+    tok[n] = (await ops("tokens", { user: n, label: "e2e" })).body.token;
+    cookie[n] = (await ops("sessions", { user: n })).body.cookie;
+  }
+  const api = async (who, method, path, body, session) => {
+    const r = await fetch(`${BASE}${path}`, { method, headers: { ...auth(who), ...(session ? { "x-atteo-session": session.id } : {}), "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+    return { status: r.status, body: await r.json().catch(() => ({})) };
+  };
+  const hb = (await ops("boards", { user: P, title: `e2e handle label ${run}` })).body.board.id;
+  await ops("members", { board: hb, user: Q });
+  const relay = (await api(Q, "POST", "/api/sessions", { suggest: "relay", client: "Claude Code" })).body.session;
+  const scout = (await api(Q, "POST", "/api/sessions", { suggest: "lookout", client: "Codex" })).body.session;
+  for (const x of [relay, scout]) await api(Q, "POST", `/api/sessions/${x.id}/boards`, { board: hb });
+  const post = async (who, body, session) => {
+    const r = await api(who, "POST", `/api/boards/${hb}/entries`, body, session);
+    assert(r.status === 201, `post: ${r.status} ${JSON.stringify(r.body)}`);
+    return r.body.entry.seq;
+  };
+  const handling = async () => (await (await web(`/api/boards/${hb}/updates?after=0`, P)).json()).handling;
+  // Replying over REST (the SDK, a hosted agent) takes the message as "Q/relay", like atteo handle does.
+  const q = await post(P, { type: "question", text: `@${Q}'s agent which region? ${run}` });
+  await api(Q, "GET", `/api/sessions/${relay.id}/read?board=${hb}`);
+  await post(Q, { type: "note", text: "eu-west", reply_to: q }, relay);
+  assert((await handling())[q]?.by === `${Q}/relay`, `reply over REST: ${JSON.stringify(await handling())}`);
+  // Finishing a task nobody took marks it done by the session that finished it.
+  const t = (await api(P, "POST", `/api/boards/${hb}/tasks`, { title: `rotate keys ${run}` })).body.task.seq;
+  const done = await api(Q, "POST", `/api/boards/${hb}/tasks/${t}`, { action: "update", status: "done" }, relay);
+  assert(done.status === 200, JSON.stringify(done));
+  const h = (await handling())[t];
+  assert(h?.by === `${Q}/relay` && h.done === true, `task done: ${JSON.stringify(h)}`);
+  // A page with a gap: a people-only message (which Q, the person, takes) sits between two of P's; lookout can't see
+  // it, so its page skips it, and carries no marker but its page's.
+  const a1 = await post(P, { type: "note", text: `first ${run}` });
+  const mid = (await (await web(`/api/boards/${hb}/entries`, P, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "question", people_only: true, to: Q, text: `can you take this ${run}` }) })).json()).entry.seq;
+  assert((await web(`/api/boards/${hb}/handle/${mid}`, Q, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).status === 200, "Q takes it");
+  const a2 = await post(P, { type: "note", text: `second ${run}` });
+  const page = (await rpcRaw({ ...auth(Q), "x-atteo-session": scout.id }, hb, "tools/call", { name: "read", arguments: { since: a1 - 1 } })).content[0].text;
+  has(page, `first ${run}`);
+  has(page, `second ${run}`);
+  assert(!page.includes(`can you take this ${run}`) && !page.includes("handled by"), `a page with a gap (#${a1}, #${a2}; not #${mid}):\n${page}`);
+  assert((await (await web(`/api/boards/${hb}/updates?after=0`, Q)).json()).handling[mid]?.by === Q, "the marker is still on the message in the gap");
+  for (const x of [relay, scout]) await api(Q, "DELETE", `/api/sessions/${x.id}`);
+});
+
 await step("handling: when several of a person's agents are asked, one takes it and the rest see who; replying takes it too; @user/session reaches one", async () => {
   const api = async (who, method, path, body) => {
     const r = await fetch(`${BASE}${path}`, { method, headers: { ...auth(who), "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
