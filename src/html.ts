@@ -9,7 +9,7 @@ import { authorLabel, computeSummary, retractedSet, type Summary } from "./state
 import { PIN_BAR, PIN_SIDE, RECAP_BTN, RECAP_DLG, pinRecapJs } from "./pinrecap";
 import { SOUL_DLG, SOUL_SIDE, rememberBtn, soulMemoryJs } from "./soulmemory";
 import { forAgent, forPerson, mentionLabel } from "./mentions";
-import { screenText } from "./screen";
+import { flagOf } from "./screen";
 import { clientName, presenceLabel } from "./social";
 import type { ChangeCard } from "./card";
 import type { Attachment, BoardInfo, Entry } from "./types";
@@ -473,7 +473,9 @@ export function refLinks(html: string): string {
 }
 
 function flagBadge(text: string, aiFlag?: string | null): string {
-  const f = screenText(text) ?? (aiFlag ? { reason: aiFlag } : null);
+  const f = flagOf(text, aiFlag);
+  // Only quoted (in code or quotation marks): a softer badge; agents are told to treat it as data (#2210).
+  if (f?.quoted) return `<span class="badge fbadge quoted" title="It quotes text that reads like instructions to an agent (in code or quotation marks): agents are told to treat it as data.">⚠ Quoted instruction-like text</span>`;
   return f ? `<span class="badge fbadge" title="Looks like it ${esc(f.reason.replace(/^tries to |^asks an agent to |^tells an agent to /, ""))}: agents are told not to act on it.">⚠ Flagged: ${esc(f.reason)}</span>` : "";
 }
 
@@ -1251,7 +1253,7 @@ function pfEmpty(){if(pfNone)pfNone.hidden=!pfOn()||!!document.querySelector('#t
 /** save: remember it; told: say why agents' posts came back (a jump to one of them). */
 function pfSet(on,save,told){document.documentElement.toggleAttribute('data-pf',on);if(pfBtn)pfBtn.setAttribute('aria-pressed',String(on));
   if(save)try{on?localStorage.setItem('atteo.pf.'+ME0,'1'):localStorage.removeItem('atteo.pf.'+ME0)}catch(e){}
-  if(told)toast(tr("Showing agents' posts"));pfEmpty();railBuild();if(pinned)toBottom();ghostSoon()}
+  if(told)toast(tr("Showing agents' posts"));pfEmpty();railBuild();if(pinned)toBottom();ghostSoon();window.thrPf&&window.thrPf()}
 pfBtn?.addEventListener('click',()=>{const on=!pfOn();pfSet(on,true);toast(on?tr("Agents' posts are hidden, for you only"):tr("Showing agents' posts"))});
 if(pfBtn)pfBtn.setAttribute('aria-pressed',String(pfOn()));pfEmpty();
 new MutationObserver(()=>{if(pfOn())pfEmpty()}).observe(document.getElementById('thread'),{childList:true});
@@ -2134,7 +2136,15 @@ function thrSum(root){const top=document.getElementById('e'+root);if(!top)return
   b.innerHTML='<span class="thr-head"><span class="avs">'+who.slice(0,3).map(w=>avatar16(w.split('/')[0],w.endsWith('/a'))).join('')+'</span><b>'+kids.length+' repl'+(kids.length===1?'y':'ies')+'</b><span class="faint">'+(lastT?'last '+lastT.textContent:'')+'</span></span>';
   b.setAttribute('aria-label',tr('Open the thread: ')+kids.length+' repl'+(kids.length===1?'y':'ies'))}
 var thrOpen=0,thrTo=0;const thrDlg=document.createElement('dialog');thrDlg.className='thr-dlg';thrDlg.setAttribute('aria-label',tr('Thread'));
-thrDlg.innerHTML='<div class="thr-hd"><b>'+tr('Thread')+'</b><button type="button" class="btn ghost sm" data-thr-close aria-label="'+tr('Close the thread')+'">✕</button></div><div class="thr-list" id="thr-list"></div>';
+thrDlg.innerHTML='<div class="thr-hd"><b>'+tr('Thread')+'</b><span class="grow"></span><button type="button" class="btn ghost sm thr-pf" id="thr-pf" aria-pressed="false" title="'+tr('Just this thread: the board keeps them hidden.')+'" hidden></button><button type="button" class="btn ghost sm" data-thr-close aria-label="'+tr('Close the thread')+'">✕</button></div><div class="thr-list" id="thr-list"></div>';
+// Hide agents and a thread (jxn #2191, vedu's agent #2192): the thread follows the board's setting, but has its own Show
+// agents. It shows that thread's agent replies only, for you, on this page; the board keeps hiding them.
+const thrShow=new Set();
+window.thrPf=()=>{const b=document.getElementById('thr-pf');if(!b)return;const n=thrOpen?kidsOf(thrOpen).filter(k=>k.classList.contains('by-agent')).length:0,on=!!thrOpen&&thrShow.has(thrOpen);
+  thrDlg.classList.toggle('thr-all',on);b.hidden=!pfOn()||!n;b.setAttribute('aria-pressed',String(on));const ev=document.documentElement.dataset.mode==='everyday';
+  b.textContent=on?(ev?tr('Hide assistants'):tr('Hide agents')):(ev?tr('Show assistants'):tr('Show agents'))+' ('+n+')'};
+thrDlg.addEventListener('click',e=>{if(!e.target.closest('#thr-pf')||!thrOpen)return;thrShow.has(thrOpen)?thrShow.delete(thrOpen):thrShow.add(thrOpen);thrPf()});
+document.addEventListener('atteo-mode',()=>thrPf());
 // The thread's reply box is the conversation's own composer (jxn #1094), moved in while the thread is open: the same @ menu,
 // attachments, / commands, mic, drafts and encryption, replying to the thread's first message. Closing puts it back.
 const cmpForm=document.querySelector('form.composer');var cmpHome=null;
@@ -2148,8 +2158,11 @@ function thrRender(focus){const list=document.getElementById('thr-list'),top=doc
     c.querySelectorAll('[id]').forEach(x=>x.removeAttribute('id'));c.querySelectorAll('.thr-sum,.acts,.more-acts,.rd,.rx-add').forEach(x=>x.remove());
     const q=c.querySelector(':scope>.grow>.rq');if(q&&q.dataset.thread===String(thrOpen)&&src.dataset.reply===String(thrOpen))q.remove();
     list.appendChild(c)}
+  thrPf();
   const f=focus&&list.querySelector('[data-src="'+focus+'"]');(f||list.lastElementChild)?.scrollIntoView({block:f?'center':'end'});if(f)f.classList.add('hit')}
-function openThread(root,o={}){const top=document.getElementById('e'+root);if(!top)return;thrOpen=root;thrRender(o.focus);if(!thrDlg.open)thrDlg.showModal();
+function openThread(root,o={}){const top=document.getElementById('e'+root);if(!top)return;thrOpen=root;
+  if(o.focus&&pfOn()&&document.getElementById('e'+o.focus)?.classList.contains('by-agent'))thrShow.add(root); // opened at an agent's reply: show it
+  thrRender(o.focus);if(!thrDlg.open)thrDlg.showModal();
   // Opened at one message (its quote bar, a link to it): the box answers that message, not the thread's first (jxn #1351).
   thrTo=o.focus&&o.focus!==root&&document.getElementById('e'+o.focus)?o.focus:0;cmpIn(root,thrTo);if(cmpHome&&!o.focus&&matchMedia('(hover:hover)').matches){ta.focus();ta.setSelectionRange(ta.value.length,ta.value.length)}}
 function closeThread(){if(thrDlg.open)thrDlg.close();else{thrOpen=0;cmpBack()}}
@@ -2358,13 +2371,20 @@ document.addEventListener('click',async e=>{const b=e.target.closest('[data-memb
 const infoBtn=document.getElementById('info-btn'),convLayout=document.getElementById('conv-layout');
 const narrow=matchMedia('(max-width:959px)');let infoHidden=false;try{infoHidden=localStorage.getItem('soup.infoHidden')==='1'}catch(e){}
 function infoSync(){const wide=!narrow.matches;convLayout.classList.toggle('info-collapsed',wide&&infoHidden);
-  const shown=wide?!infoHidden:convLayout.classList.contains('info-open');infoBtn.setAttribute('aria-expanded',String(shown));infoBtn.title=shown?tr('Hide board info'):tr('Show board info')}
+  const shown=wide?!infoHidden:convLayout.classList.contains('info-open');infoBtn.setAttribute('aria-expanded',String(shown));infoBtn.title=shown?tr('Hide board info'):tr('Show board info');
+  infoBtn.setAttribute('aria-label',!wide&&shown?tr('Close board info'):tr('Board info'))} // on a phone the open panel's button is its ✕ (jxn #2223)
 function infoOpen(o){convLayout.classList.toggle('info-open',o);infoSync()}
 narrow.addEventListener('change',()=>infoOpen(false));infoSync();
 function infoCount(){const n=document.querySelectorAll('#sum .waiting li').length,c=document.getElementById('info-count');c.textContent=n||'';c.hidden=!n}
 infoBtn.addEventListener('click',()=>{if(narrow.matches){infoOpen(!convLayout.classList.contains('info-open'));return}
   infoHidden=!infoHidden;try{localStorage.setItem('soup.infoHidden',infoHidden?'1':'0')}catch(e){}infoSync()});
-document.addEventListener('keydown',e=>{if(e.key==='Escape'&&convLayout.classList.contains('info-open')&&!document.querySelector('dialog[open]'))infoOpen(false)});
+// On a phone the panel covers the conversation: its ✕ (the board info button, which turns into one), Esc or a swipe to
+// the right closes it, and focus goes back to that button (jxn #2223). It's never kept open across a reload.
+function infoClose(){if(!convLayout.classList.contains('info-open'))return;const back=document.getElementById('board-info').contains(document.activeElement)||document.activeElement===document.body;infoOpen(false);if(back)infoBtn.focus({preventScroll:true})}
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&convLayout.classList.contains('info-open')&&!document.querySelector('dialog[open]'))infoClose()});
+{let sx=0,sy=0;const bi=document.getElementById('board-info');
+  bi.addEventListener('touchstart',e=>{const t=e.touches[0];sx=t.clientX;sy=t.clientY},{passive:true});
+  bi.addEventListener('touchend',e=>{const t=e.changedTouches[0],dx=t.clientX-sx,dy=t.clientY-sy;if(narrow.matches&&dx>60&&Math.abs(dx)>Math.abs(dy)*1.5)infoClose()},{passive:true})}
 document.getElementById('board-info').addEventListener('click',e=>{if(e.target.closest('a[href^="#e"]'))infoOpen(false)});
 infoCount();
 let convStuck=true;
@@ -2393,7 +2413,10 @@ function card(t){const first=t.title||'';const boxes=ckLines(t.body||'');const t
     (t.parent!=null?'<span class="ksub" title="'+(par?tr('Sub-task of ')+esc(par.title):tr('A sub-task'))+'">↳ '+(par?esc(par.title):'sub-task')+'</span>':'')+
     (boxes.length?'<span title="'+tr('Checklist')+'">☑ '+ticked+'/'+boxes.length+'</span>':'')+(t.children?'<span title="'+tr('Sub-tasks done')+'">'+t.children.done+'/'+t.children.total+' sub-tasks</span>':'')+(t.due?'<span>due '+new Date(t.due).toISOString().slice(5,10)+'</span>':'')+'<span class="grow"></span>'+
     (hold?'<span title="'+esc(hold)+' is working on it">🔒</span>':'')+(who?'<span title="For '+esc(who)+'">'+avatar16(t.assignee,t.assignee_agent)+'</span>':'')+'</div>'+
-    (t.stop_reason?'<div class="xs faint">'+esc(t.stop_reason)+'</div>':'')+(t.done_note?'<div class="xs faint">✓ '+esc(t.done_note)+'</div>':'')+'</article>'}
+    (t.stop_reason?'<div class="xs faint">'+esc(t.stop_reason)+'</div>':'')+(t.done_note?'<div class="xs faint">✓ '+esc(t.done_note)+'</div>':'')+
+    // Someone who can't close it said a message resolves it (#2221): a link to that message (cards show no numbers,
+    // vedu #675), and Done to close it in one tap.
+    (t.resolved_by?'<div class="xs kres"><a class="kres-l" href="#e'+t.resolved_by+'" data-kopen="'+t.resolved_by+'">'+tr('A message says this is done')+'</a><button type="button" class="btn sm" data-kdone="'+t.seq+'">'+tr('Done')+'</button></div>':'')+'</article>'}
 async function taskAct(seq,body){const r=await fetch('/api/boards/'+BOARD+'/tasks/'+seq,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
   const j=await r.json().catch(()=>({}));if(!r.ok)toast(j.error||tr('Could not update'));loadTasks();tick(false)}
 const kb=document.getElementById('kanban');let dragSeq=null;
@@ -2401,7 +2424,8 @@ kb.addEventListener('dragstart',e=>{const c=e.target.closest('.kcard');if(!c)ret
 kb.addEventListener('dragend',e=>{e.target.closest('.kcard')?.classList.remove('dragging');kb.querySelectorAll('.kcol.over').forEach(x=>x.classList.remove('over'))});
 kb.addEventListener('dragover',e=>{const col=e.target.closest('.kcol');if(!col||!dragSeq)return;e.preventDefault();kb.querySelectorAll('.kcol.over').forEach(x=>x!==col&&x.classList.remove('over'));col.classList.add('over')});
 kb.addEventListener('drop',e=>{const col=e.target.closest('.kcol');if(!col||!dragSeq)return;e.preventDefault();const s=dragSeq;dragSeq=null;taskAct(s,{action:'update',status:col.dataset.status})});
-kb.addEventListener('click',e=>{const a=e.target.closest('[data-kopen]');if(a){e.preventDefault();tab(0);location.hash='#e'+a.dataset.kopen;return}
+kb.addEventListener('click',e=>{const d=e.target.closest('[data-kdone]');if(d){e.preventDefault();e.stopPropagation();taskAct(+d.dataset.kdone,{action:'update',status:'done'});return}
+  const a=e.target.closest('[data-kopen]');if(a){e.preventDefault();tab(0);location.hash='#e'+a.dataset.kopen;return}
   const c=e.target.closest('.kcard');if(c)openTask(+c.dataset.seq)});
 document.getElementById('kb-new')?.addEventListener('submit',async e=>{e.preventDefault();const i=document.getElementById('kb-new-text');const title=i.value.trim();if(!title)return;
   const r=await fetch('/api/boards/'+BOARD+'/tasks',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({title})});

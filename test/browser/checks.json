@@ -79,6 +79,7 @@
  "hl-bleed": 4,
  "highlight-phone": 9,
  "code-colors": 6,
+ "resolve-hint": 5,
  "preview-sandbox": 14,
  "muse-tile": 3,
  "hostile-text": 30,
@@ -105,6 +106,8 @@
  "dictation-mentions": 5,
  "railgap": 5,
  "people-filter": 29,
+ "thread-agents": 12,
+ "sidebar-close": 25,
  "just-mine": 10,
  "agentname-mention": 8,
  "i18n-zh": 6,
@@ -112,5 +115,7 @@
  "i18n-zh-3": 8,
  "i18n-more": 21,
  "call-nap": 46,
+ "web-budget": 12,
+ "connect-reachable": 8,
  "crawl": 6
 }

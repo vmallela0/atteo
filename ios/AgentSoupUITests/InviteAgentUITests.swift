@@ -48,6 +48,7 @@ final class InviteAgentUITests: AtteoUITestCase {
         XCTAssertEqual(message.label, "Join the Atteo board \(id): run atteo join \(id), or call join_board with \"\(id)\" if you use the Atteo connector. Then read it.")
         XCTAssertFalse(message.label.contains("Checkout bug"), "never the board's title")
         XCTAssertTrue(a.buttons["invite-agent-open-claude"].exists, "Claude's chat is a tap away")
+        XCTAssertTrue(a.buttons["invite-agent-open-muse"].exists, "and Muse's (vedu #2298)")
         a.buttons["invite-agent-copy"].tap()
         XCTAssertTrue(a.descendants(matching: .any)["invite-agent-copied"].firstMatch.waitForExistence(timeout: 5), "Copied. Now paste it.")
         save("invite-agent-own")
@@ -72,6 +73,32 @@ final class InviteAgentUITests: AtteoUITestCase {
         XCTAssertFalse(pasted.contains("Checkout bug"), "not its title: \(pasted)")
         box.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: pasted.count + 4))
         XCTAssertTrue(eventually(box, "NOT (value CONTAINS 'atteo join')"), "the box is cleared")
+    }
+
+    /// Your own assistant → Grok's Open (vedu #2298): copies the join message and opens Grok's app, or grok.com without
+    /// it (the simulator has no Grok app: Safari). Coming back to Atteo, the chat's sheets have closed (any trip out of
+    /// the app does that, Home and back too), so this checks Safari came up and Atteo is back without a crash; the copy
+    /// itself is testOwnAssistantCopiesIdNotTitle's, and ConnectAgentUITests sees "Copied." after a trip to Safari.
+    func testOwnAssistantOpenGrok() throws {
+        continueAfterFailure = false
+        let a = app()
+        a.launch()
+        openChat(a, "Checkout bug")
+        openInviteRow(a).tap()
+        let own = a.buttons["invite-agent-own"]
+        XCTAssertTrue(own.waitForExistence(timeout: 5), "Your own assistant")
+        own.tap()
+        let open = a.buttons["invite-agent-open-grok"]
+        XCTAssertTrue(open.waitForExistence(timeout: 5), "Grok's Open")
+        save("invite-agent-open-grok")
+        open.tap()
+        let safari = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari")
+        XCTAssertTrue(safari.wait(for: .runningForeground, timeout: 15), "no Grok app here: grok.com, in Safari")
+        a.activate()
+        XCTAssertTrue(a.wait(for: .runningForeground, timeout: 10), "back in Atteo, no crash")
+
+        let box = composer(a)
+        XCTAssertTrue(box.waitForExistence(timeout: 10), "the chat")
     }
 
     /// Info → Invite an agent → A friend's agent: a name to invite (their agents join once they accept). Nothing is sent.

@@ -215,6 +215,7 @@ dialog[open]{animation:pop .16s ease-out}dialog:focus{outline:none}@media (prefe
 #thread>.ghost::before{content:"";display:block;margin:20px 0 0 44px;width:min(40%,280px);height:10px;border-radius:5px;background:color-mix(in srgb,var(--muted) 10%,transparent)}
 .entry .rbadge{display:none;height:18px;font-size:11px}
 .entry .fbadge{height:18px;font-size:11px;color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,var(--line))}
+.entry .fbadge.quoted{color:var(--muted);border-color:var(--line)}
 .entry.retracted>.grow>.body,.entry.retracted>.grow>.file{text-decoration:line-through;text-decoration-color:var(--faint);opacity:.55}
 .entry.retracted>.grow>.meta .rbadge{display:inline-flex}
 /* Display (Account → Display): text size and density for the chat; saved per person so web and app match. */
@@ -402,7 +403,7 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .rq{display:flex;flex-direction:column;align-items:flex-start;gap:1px;max-width:100%;margin:4px 0 2px;padding:4px 10px;border:0;border-left:3px solid var(--line-strong);border-radius:0 8px 8px 0;background:var(--bg-subtle);color:var(--muted);font:inherit;font-size:12.5px;text-align:left;cursor:pointer}
 .rq:hover{background:var(--bg-hover);border-left-color:var(--muted)}.rq-who{font-weight:600;color:var(--text)}.rq-t{display:block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .thr-dlg{width:min(620px,calc(100vw - 24px));height:min(760px,calc(100vh - 48px));padding:0;display:none}.thr-dlg[open]{display:flex;flex-direction:column}
-.thr-hd{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--line)}.thr-hd b{color:var(--ink)}
+.thr-hd{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 16px;border-bottom:1px solid var(--line)}.thr-hd b{color:var(--ink)}.thr-hd .grow{flex:1}
 .thr-list{flex:1;overflow:auto;padding:4px 16px 12px}.thr-list>.entry:first-child{border-top:0}.thr-list>.entry.hit{background:color-mix(in srgb,var(--accent) 7%,transparent)}
 .thr-dlg>.composer.in-thr{margin:0 12px 12px;flex:none}.composer.in-thr .replying{display:none}.composer.in-thr .input{max-height:30vh}
 @media (max-width:640px){.thr-dlg{width:100vw;max-width:100vw;height:calc(100dvh - 40px);max-height:none;margin:auto 0 0;border-radius:16px 16px 0 0}}
@@ -828,6 +829,7 @@ mark{background:color-mix(in srgb,var(--warn) 30%,transparent);color:inherit;bor
 .kcard{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;cursor:grab;display:flex;flex-direction:column;gap:4px}
 .kcard:hover{border-color:color-mix(in srgb,var(--ink) 25%,var(--line))}
 .kcard.dragging{opacity:.5}
+.kres{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.kres-l{color:var(--accent)}.kres-l:hover{text-decoration:underline}.kres .btn{margin-left:auto;padding:1px 10px}
 .kcard .ktext{font-size:13px;color:var(--ink);line-height:1.4}
 .kmeta{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--faint);min-height:18px}.kmeta .seq{color:var(--faint)}.kmeta .badge{height:17px;font-size:10.5px}
 @media (max-width:640px){.kb-hint{display:none}.kb-new{flex:1}.kb-new .input{width:auto;flex:1}}
@@ -864,8 +866,15 @@ mark{background:color-mix(in srgb,var(--warn) 30%,transparent);color:inherit;bor
 .content{max-width:1120px;margin:0 auto;padding:28px 24px 96px}
 .content.narrow{max-width:760px}
 .menu-btn{display:none}
+.nav-x,.nav-scrim{display:none}
 @media(max-width:860px){.app{grid-template-columns:1fr}.sidebar{position:fixed;inset:0 auto 0 0;width:260px;z-index:40;transform:translateX(-100%);transition:transform .2s,box-shadow .2s}
-  .app.nav-open .sidebar{transform:none;box-shadow:var(--shadow-lg)}.menu-btn{display:inline-flex}.content{padding:20px 16px 80px}.topbar{padding:0 12px}}
+  .app.nav-open .sidebar{transform:none;box-shadow:var(--shadow-lg)}.menu-btn{display:inline-flex}.content{padding:20px 16px 80px}.topbar{padding:0 12px}
+  /* The open drawer closes with its ✕, a tap on the dimmed page beside it, a swipe back to the left, or Esc (jxn #2223). */
+  .nav-x{display:inline-flex;position:absolute;top:8px;right:8px;width:32px;padding:0;justify-content:center;z-index:1}
+  .app.nav-open .nav-scrim{display:block;position:fixed;inset:0;z-index:39;background:rgba(0,0,0,.32)}}
+/* Connect an agent, always in the phone menu (vedu #2241): the board's header button goes once an agent is connected. */
+.side-connect{display:none}@media(max-width:860px){.side-connect{display:flex}}
+.side-connect .ev-l,:root[data-mode="everyday"] .side-connect .dev-l{display:none}:root[data-mode="everyday"] .side-connect .ev-l{display:inline}
 kbd{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 4px;border:1px solid var(--line-strong);border-bottom-width:2px;
   border-radius:4px;font:500 10.5px/1 "Geist Mono",ui-monospace,monospace;color:var(--muted);background:var(--bg)}
 
@@ -1012,6 +1021,7 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
 @media(max-width:959px){
   .bp-panel .aside{display:none}
   .layout.info-open>.aside{display:block;position:absolute;inset:0;z-index:6;background:var(--bg);margin:0;padding:44px 2px 16px}
+  .info-btn[aria-expanded="true"]>svg,.info-btn[aria-expanded="true"]>.count{display:none}.info-btn[aria-expanded="true"]::after{content:"✕"} /* its ✕ while the panel covers the conversation (jxn #2223) */
   .bp-panel .rail{top:44px}
   .layout.info-open>.conv{visibility:hidden} /* only the open panel's scrollbar shows */
 }
@@ -1067,7 +1077,9 @@ a.ref:hover{color:var(--ink);background:color-mix(in srgb,var(--accent) 12%,var(
 /* Recap: a header button and a sheet (bottom sheet on phones) */
 .recap-btn{position:relative;gap:5px;align-self:center;color:var(--muted)}.recap-btn:hover{color:var(--ink)}
 /* People (jxn #1731): only what people wrote. Agents' posts are hidden for this viewer alone (a root attribute from this browser) */
-:root[data-pf] #thread>.entry.by-agent,:root[data-pf] #thread>.ghost.by-agent,:root[data-pf] .thr-list>.entry.by-agent:not(:first-child){display:none}
+:root[data-pf] #thread>.entry.by-agent,:root[data-pf] #thread>.ghost.by-agent,:root[data-pf] .thr-dlg:not(.thr-all) .thr-list>.entry.by-agent:not(:first-child){display:none}
+/* A thread's own Show agents (jxn #2191): only under Hide agents, only when the thread has agents' replies. */
+.thr-pf{color:var(--muted)}.thr-pf:hover{color:var(--ink)}.thr-pf[aria-pressed="true"]{color:var(--ink);background:var(--bg-hover)}.thr-pf[hidden],:root:not([data-pf]) .thr-pf{display:none}
 .pf-btn{gap:5px;align-self:center;color:var(--muted)}.pf-btn:hover{color:var(--ink)}.pf-btn[aria-pressed="true"]{color:var(--ink);background:var(--bg-hover)}
 .pf-empty{margin:28px auto;max-width:420px;padding:0 16px;text-align:center;font-size:13px;color:var(--faint)}
 @media(max-width:640px){.pf-btn span{display:none}.pf-btn{width:30px;padding:0;justify-content:center}} /* phones: the icon, so Recap still fits by the tabs */
@@ -1412,6 +1424,7 @@ ${CODE_COLOR_JS}`;
 // ---------- app shell (signed-in pages) ----------
 
 const ICON = {
+  plug: `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M6 2v3M10 2v3M4.5 5h7v2.5a3.5 3.5 0 0 1-7 0zM8 11v3"/></svg>`,
   boards: `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="2" y="2" width="5" height="5" rx="1.2"/><rect x="9" y="2" width="5" height="5" rx="1.2"/><rect x="2" y="9" width="5" height="5" rx="1.2"/><rect x="9" y="9" width="5" height="5" rx="1.2"/></svg>`,
   admin: `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M8 1.8l5 2v4c0 3-2.2 5.2-5 6.4C5.2 13 3 10.8 3 7.8v-4z"/></svg>`,
   me: `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="8" cy="5.5" r="2.8"/><path d="M2.8 14c.8-2.6 2.8-4 5.2-4s4.4 1.4 5.2 4"/></svg>`,
@@ -1502,7 +1515,8 @@ export function appPage(
     ...(v.admin ? [{ label: "Ops console", hint: "Operators", href: "/_ops" }] : []),
   ];
   const body = `<div class="app" id="app">
-<aside class="sidebar" aria-label="${esc(T("Navigation"))}">
+<aside class="sidebar" id="sidebar" aria-label="${esc(T("Navigation"))}">
+  <button class="btn ghost sm nav-x" type="button" data-nav-close aria-label="${esc(T("Close menu"))}" title="${esc(T("Close menu"))}">✕</button>
   <a class="ws" href="/">${LOGO}<span class="wm">atteo</span></a>
   <button class="search" type="button" data-palette>${ICON.search}<span>${esc(T("Search or jump to…"))}</span><kbd>⌘K</kbd></button>
   <a class="side-link" href="/for-you"${cur("foryou")}>${ICON.foryou}<span>${esc(T("For you"))}</span></a>
@@ -1510,6 +1524,7 @@ export function appPage(
   <a class="side-link" href="/approvals"${cur("approvals")}>${ICON.approve}<span>${esc(T("Approvals"))}</span><span class="count" id="approvals-count" hidden></span></a>
   <a class="side-link" href="/"${cur("boards")}>${ICON.boards}<span>${esc(T("Boards"))}</span></a>
   <a class="side-link" href="/people"${cur("people")}>${ICON.me}<span>${esc(T("People"))}</span></a>
+  <a class="side-link side-connect" href="/me#connect" data-connect>${ICON.plug}<span class="dev-l">${esc(T("Connect an agent"))}</span><span class="ev-l">${esc(T("Connect your assistant"))}</span></a>
   ${v.admin ? `<a class="side-link" href="/_ops"${cur("admin")}>${ICON.admin}<span>Ops</span></a>` : ""}
   <div class="side-label"><span>${esc(T("Your boards"))}</span><a href="/?new=1" title="${esc(T("New board (C)"))}" aria-label="${esc(T("New board"))}">${ICON.plus}</a></div>
   ${sideBoards || `<p class="xs faint" style="padding:2px 9px">${esc(T("No boards yet"))}</p>`}
@@ -1517,8 +1532,9 @@ export function appPage(
   <div class="me"><a class="side-link" href="/me">${avatar(v.name, "sm")}<span class="truncate">${esc(v.name)}</span></a>
 </div>
 </aside>
+<div class="nav-scrim" data-nav-close aria-hidden="true"></div>
 <div class="grow" style="min-width:0">
-  <header class="topbar"><button class="btn ghost sm menu-btn" type="button" data-nav aria-label="${esc(T("Menu"))}">${ICON.menu}</button>
+  <header class="topbar"><button class="btn ghost sm menu-btn" type="button" data-nav aria-label="${esc(T("Menu"))}" aria-controls="sidebar" aria-expanded="false">${ICON.menu}</button>
     <nav class="crumbs" aria-label="Breadcrumb">${opts.crumbs}</nav><div class="actions">${opts.actions ?? ""}</div></header>
   <div class="content${opts.narrow ? " narrow" : ""}${opts.full ? " full" : ""}">${opts.body}</div>
 </div></div>
@@ -1631,7 +1647,21 @@ list.addEventListener('mousedown',e=>{const li=e.target.closest('[data-n]');if(l
 pChips.addEventListener('click',e=>{const b=e.target.closest('[data-pchip]');if(!b)return;chips.splice(+b.dataset.pchip,1);paintChips();render();q.focus()});
 pFilt.addEventListener('click',e=>{const b=e.target.closest('[data-popt]');if(!b)return;const k=b.dataset.popt;
   if(k==='from'||k==='type'){mode=k;q.value='';sel=0;render();q.focus();return}chips.push({k,v:b.dataset.v||null});paintChips();render();q.focus()});
-document.addEventListener('click',e=>{if(e.target.closest('[data-palette]'))openPalette();if(e.target.closest('[data-nav]'))$('#app').classList.toggle('nav-open')});
+// The phone menu (a drawer): opens from the menu button; closes with its ✕, the dimmed page beside it, a swipe back to
+// the left or Esc, and focus goes back to the button (jxn #2223). It's never kept open across a reload or a Back.
+let navFrom=null;
+function navSet(on){const app=$('#app');if(!app||app.classList.contains('nav-open')===on)return;app.classList.toggle('nav-open',on);const mb=$('[data-nav]');mb?.setAttribute('aria-expanded',String(on));
+  if(on){navFrom=document.activeElement;$('.nav-x')?.focus({preventScroll:true})}else{const f=navFrom&&document.contains(navFrom)?navFrom:mb;navFrom=null;if(app.contains(document.activeElement)||document.activeElement===document.body)f?.focus?.({preventScroll:true})}}
+document.addEventListener('click',e=>{if(e.target.closest('[data-palette]'))openPalette();if(e.target.closest('[data-nav]'))navSet(!$('#app')?.classList.contains('nav-open'));else if(e.target.closest('[data-nav-close]'))navSet(false)});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&$('#app')?.classList.contains('nav-open')&&!$('dialog[open]')){e.preventDefault();navSet(false)}});
+// Connect an agent (the menu's link, vedu #2241): this page's Connect dialog when it has one, else Account's, opened by
+// its #connect.
+document.addEventListener('click',e=>{const a=e.target.closest('[data-connect]'),d=$('dialog#connect');if(!a||!d)return;e.preventDefault();navSet(false);if(!d.open)d.showModal()});
+if(location.hash==='#connect'){const d=$('dialog#connect');if(d&&!d.open)d.showModal()}
+{let sx=0,sy=0,on=false;const sb=$('#sidebar');
+  sb?.addEventListener('touchstart',e=>{const t=e.touches[0];sx=t.clientX;sy=t.clientY;on=$('#app')?.classList.contains('nav-open')},{passive:true});
+  sb?.addEventListener('touchend',e=>{const t=e.changedTouches[0],dx=t.clientX-sx,dy=t.clientY-sy;if(on&&dx<-50&&Math.abs(dx)>Math.abs(dy)*1.5)navSet(false)},{passive:true})}
+addEventListener('pageshow',()=>navSet(false));
 let g=false,gt;
 document.addEventListener('keydown',e=>{
   if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault();pal.open?pal.close():openPalette();return}

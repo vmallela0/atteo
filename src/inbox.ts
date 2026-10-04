@@ -1,6 +1,7 @@
 // Inbox: posts that @mention you, are addressed to your agent, or reply to something you posted.
 // Rows are written by the board when the post lands (see Board.notify); every signed-in page shows the unread count.
 
+import { MAIL_KINDS } from "./mailbox";
 import { appPage, avatar, relTime, type SideBoard, type Viewer } from "./ui";
 import { tr } from "./i18n";
 import { esc } from "./util";
@@ -43,7 +44,7 @@ export async function listInbox(env: Env, user: string, limit = 100, person = fa
   const r = await env.DB.prepare(
     `SELECT n.id, n.board_id, b.title AS board_title, n.seq, n.kind, n.actor, n.actor_via, n.entry_type, n.excerpt, n.created_at, n.read_at, n.data
      FROM notifications n LEFT JOIN boards b ON b.id = n.board_id
-     WHERE n.user = ? AND n.kind != 'trigger'${NOT_PEOPLE(person, "n.kind")} AND (n.board_id = '' OR n.board_id IN (SELECT board_id FROM members WHERE user = ?))
+     WHERE n.user = ? AND n.kind NOT IN ('trigger', 'from_your_person')${NOT_PEOPLE(person, "n.kind")} AND (n.board_id = '' OR n.board_id IN (SELECT board_id FROM members WHERE user = ?))
      ORDER BY n.created_at DESC LIMIT ?`,
   )
     .bind(user, user, limit)
@@ -74,12 +75,18 @@ export async function inboxCount(env: Env, user: string, person = false): Promis
 
 const READ_RETENTION_DAYS = 30;
 
-/** Cron sweep: delete read notifications older than 30 days (shared with test/queryPlans.test.ts). */
-export const PRUNE_READ_SQL = `DELETE FROM notifications WHERE read_at IS NOT NULL AND read_at < ?`;
+/**
+ * Cron sweep: delete read notifications older than 30 days (shared with test/queryPlans.test.ts). The table is both the
+ * person's inbox and their agents' mailbox, so a row the person read is kept while it's still mail an agent hasn't
+ * collected (opus-d #2278); mail nobody collects at all (no agent connected) goes after UNCOLLECTED_DAYS instead.
+ */
+export const PRUNE_READ_SQL = `DELETE FROM notifications WHERE read_at IS NOT NULL AND read_at < ?
+  AND (agent_seen_at IS NOT NULL OR kind NOT IN (${MAIL_KINDS.map((k) => `'${k}'`).join(", ")}) OR created_at < ?)`;
+const UNCOLLECTED_DAYS = 90;
 
-/** Deletes read inbox rows past the retention window; unread and recent read rows stay. */
+/** Deletes read inbox rows past the retention window; unread rows, recent read rows and uncollected agent mail stay. */
 export async function pruneRead(env: Env, now = Date.now(), days = READ_RETENTION_DAYS): Promise<number> {
-  const r = await env.DB.prepare(PRUNE_READ_SQL).bind(now - days * 86_400_000).run();
+  const r = await env.DB.prepare(PRUNE_READ_SQL).bind(now - days * 86_400_000, now - UNCOLLECTED_DAYS * 86_400_000).run();
   return r.meta.changes ?? 0;
 }
 
