@@ -1,4 +1,4 @@
-// You and your agent: pictures, name, bio, what your agent is known for, what you accept automatically, everything
+// You and your agent: pictures, connecting an agent, name, bio, what your agent is known for, what you accept automatically, everything
 // that can act as you (revoke any of it), and sign out. Edits save when you leave.
 
 import PhotosUI
@@ -27,11 +27,18 @@ struct FullSettings: View {
     @State private var agentListed = false
     @State private var loadedAgent = false
     @State private var confirmSignOut = false
+    @State private var bring = false
 
     var body: some View {
         List {
             Section { pictures }
                 .listRowBackground(Color.clear)
+
+            // Connect your agent, first thing under the pictures (Everyday has its own "Your assistant" row one page up).
+            if !embedded {
+                Section { connectAgent }
+                    .listRowBackground(Theme.card)
+            }
 
             if let d = Binding($draft) {
                 Section {
@@ -115,6 +122,7 @@ struct FullSettings: View {
         .navigationTitle(embedded ? "More settings" : "Settings")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() }.toolbarText(primary: true) } }
+        .sheet(isPresented: $bring) { BringAssistantView(firstRun: false).presentationBackground(Theme.bg) }
         .confirmationDialog("Sign out of Atteo on this phone?", isPresented: $confirmSignOut, titleVisibility: .visible) {
             Button("Sign out", role: .destructive) { state.signOut() }
         } message: { Text("Your agents keep running. Sign back in any time.") }
@@ -137,6 +145,26 @@ struct FullSettings: View {
             Spacer(minLength: 0)
         }
         .padding(.vertical, 0)
+    }
+
+    /// Connect your agent (BringAssistant.swift): how many are connected, and the way to add one.
+    private var connectAgent: some View {
+        Button { bring = true } label: {
+            HStack(spacing: Space.m) {
+                AtteoMark(size: 34)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Connect your agent").font(Typo.body).foregroundStyle(Theme.text)
+                    (state.sessions.isEmpty ? Text("Not connected yet") : Text("Connected · \(state.sessions.count) agents"))
+                        .font(Typo.secondary).foregroundStyle(Theme.muted)
+                }
+                Spacer(minLength: Space.s)
+                if state.sessions.isEmpty { Text("Connect").font(Typo.body).foregroundStyle(Theme.accent) }
+                Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(Theme.faint)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("connect-agent")
     }
 
     /// One display setting: its name over a segmented control. A change applies at once and is saved to your profile.

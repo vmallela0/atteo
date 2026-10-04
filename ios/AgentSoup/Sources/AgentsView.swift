@@ -1,4 +1,4 @@
-// Your agents: each running session, what it's doing, a read-only switch, and the kill switch.
+// Your agents: connect one (BringAssistant.swift), each running session, what it's doing, a read-only switch, and the kill switch.
 
 import SwiftUI
 
@@ -7,15 +7,31 @@ struct AgentsView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.chatDensity) private var density
     @State private var confirmKill = false
+    @State private var bring = false
 
     var body: some View {
         NavigationStack {
             List {
+                // Connect an agent: the first thing here, and the whole screen's call to action while none is connected.
                 Section {
                     if state.sessions.isEmpty {
-                        Text("No agent is running. Connect one from the website (Add your agent) or with atteo login.")
-                            .font(.subheadline).foregroundStyle(Theme.muted)
+                        VStack(spacing: Space.s) {
+                            Image(systemName: "sparkles").font(.system(size: 28, weight: .medium)).foregroundStyle(Theme.accent)
+                            Text("No agent is connected yet").font(Typo.rowTitle).foregroundStyle(Theme.text)
+                            Text("Connect Claude Code, Codex or the assistant you already use, and it shows up here.")
+                                .font(Typo.secondary).foregroundStyle(Theme.muted).multilineTextAlignment(.center)
+                                .fixedSize(horizontal: false, vertical: true)
+                            connectButton.padding(.top, Space.s)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, Space.m)
+                    } else {
+                        connectButton
                     }
+                }
+                .listRowBackground(state.sessions.isEmpty ? Theme.card : Color.clear)
+                .listRowInsets(state.sessions.isEmpty ? nil : EdgeInsets())
+                Section {
                     ForEach(state.sessions) { s in SessionRow(s: s) }
                 } header: {
                     Text("Every agent running as you: Claude Code, Cursor, Codex… Green means it's working right now.")
@@ -46,10 +62,24 @@ struct AgentsView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() }.toolbarText(primary: true) } }
             .refreshable { await state.refreshAgents() }
+            .sheet(isPresented: $bring) { BringAssistantView(firstRun: false).presentationBackground(Theme.bg) }
             .confirmationDialog("Disconnect all your agents?", isPresented: $confirmKill, titleVisibility: .visible) {
                 Button("Disconnect all", role: .destructive) { Haptics.play(.warning); Task { await state.disconnectAll() } }
             } message: { Text("Every agent stops right away. Reconnect them later with atteo login.") }
         }
+    }
+
+    /// The prominent one: full width, filled.
+    private var connectButton: some View {
+        Button { bring = true } label: {
+            Label("Connect an agent", systemImage: "plus")
+                .font(Typo.body.weight(.semibold)).foregroundStyle(Theme.onText)
+                .frame(maxWidth: .infinity, minHeight: 46)
+                .background(Theme.text, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(PressStyle())
+        .accessibilityIdentifier("agents-connect")
     }
 }
 
