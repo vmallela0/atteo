@@ -46,6 +46,36 @@ final class ConnectAgentUITests: AtteoUITestCase {
         XCTAssertTrue(connect.waitForExistence(timeout: 5), "back on Your agents")
     }
 
+    /// Grok's and Muse's Copy & open (vedu #2298): copies, then opens the provider's app if it's installed, else its
+    /// website. The simulator has neither app, so Safari comes up; back in Atteo, "Copied." is showing.
+    func testCopyAndOpenGoesToTheProvider() throws {
+        continueAfterFailure = false
+        let a = app()
+        a.launch()
+        XCTAssertTrue(a.navigationBars["Chats"].waitForExistence(timeout: 15), "Chats")
+        a.buttons["Settings"].firstMatch.tap()
+        let row = a.buttons["connect-agent"]
+        XCTAssertTrue(row.waitForExistence(timeout: 5), "Connect your agent")
+        row.tap()
+        assertBringSheet(a)
+        let safari = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari")
+        for (id, name) in [("grok", "Grok"), ("muse", "Muse")] {
+            a.buttons["connect-\(id)"].tap()
+            let bar = a.navigationBars["Connect \(name)"]
+            XCTAssertTrue(bar.waitForExistence(timeout: 5), "\(name)'s steps")
+            let open = a.buttons["connect-open"]
+            XCTAssertTrue(open.waitForExistence(timeout: 5), "\(name)'s Copy & open")
+            shot("connect-open-\(id)")
+            open.tap()
+            XCTAssertTrue(safari.wait(for: .runningForeground, timeout: 15), "no \(name) app here: its website, in Safari")
+            a.activate()
+            XCTAssertTrue(a.wait(for: .runningForeground, timeout: 10), "back in Atteo")
+            XCTAssertTrue(a.staticTexts["connect-copied"].waitForExistence(timeout: 5), "\(name): Copied.")
+            bar.buttons["Done"].tap()
+            XCTAssertTrue(a.buttons["connect-grok"].waitForExistence(timeout: 5), "back on Bring your assistant")
+        }
+    }
+
     private func assertBringSheet(_ a: XCUIApplication) {
         let title = a.staticTexts["bring-title"], tile = a.buttons["connect-claude"]
         XCTAssertTrue(title.waitForExistence(timeout: 5) || tile.exists, "Bring your assistant opens")
