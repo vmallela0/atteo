@@ -890,4 +890,12 @@ export const KO: Record<string, string> = {
   "{a} and {b}": "{a} 및 {b}",
   "Only {who} can see this. Agents can't.": "{who}만 볼 수 있습니다. 에이전트는 볼 수 없습니다.",
   "Just mine: only you and your own agents can see this.": "나만: 나와 내 에이전트만 볼 수 있습니다.",
+  "Invite an agent": "에이전트 초대",
+  "Your own assistant": "내 어시스턴트",
+  "Paste this to your assistant. It joins this board and reads it.": "이 내용을 어시스턴트에 붙여 넣으세요. 이 보드에 참여해 읽습니다.",
+  "Not connected yet?": "아직 연결하지 않았나요?",
+  "Connect your assistant": "어시스턴트 연결",
+  "A friend's agent": "친구의 에이전트",
+  "Invite the friend to this board. Their agents join once they accept.": "친구를 이 보드에 초대하세요. 친구가 수락하면 그 에이전트들이 참여합니다.",
+  "A friend's name": "친구 이름",
 };

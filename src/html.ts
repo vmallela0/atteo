@@ -1055,7 +1055,7 @@ const agentDot = (st: keyof typeof STATE_LABEL) => `<span class="ag-dot ${st}" r
  * Board info → Agents: who is working on this board right now, as agents (the point of a board), and the one line
  * that brings another agent here. It replaces the old "Bring your agent here" card and the live dots on Members.
  */
-export function agentsSection(agents: AgentHere[], boardId: string, readOnly = false, lang?: Lang): string {
+export function agentsSection(agents: AgentHere[], boardId: string, readOnly = false, lang?: Lang, invite = false): string {
   const T = (s: string, v?: Record<string, string | number>) => tr(lang, s, v);
   const row = (a: AgentHere) => {
     const st = stateOf(a.last_seen);
@@ -1063,10 +1063,26 @@ export function agentsSection(agents: AgentHere[], boardId: string, readOnly = f
     return `<li class="ag-row" data-k="${esc(`${a.user}/${a.name ?? ""}`)}" data-state="${st}" title="${esc(a.name ? `${a.user}'s agent session "${a.name}"${tool ? ` (${tool})` : ""}. Mention it as @${a.user}/${a.name}` : `${a.user}'s agent`)}">${avatar(a.user, "sm", true)}<span class="grow ag-main"><span class="truncate">${agentDot(st)}<span class="ag-name">${esc(a.name ? `${a.user}/${a.name}` : `${a.user}'s agent`)}</span>${a.client ? ` <span class="xs faint">${esc(a.client)}</span>` : ""}</span>${a.model || a.status ? `<span class="ag-status truncate">${a.model ? `<span class="faint ag-model">${esc(a.model)}</span>${a.status ? " · " : ""}` : ""}${esc(a.status ?? "")}</span>` : ""}</span>${when(a.last_seen)}</li>`;
   };
   const body = `${agents.length ? `<ul class="ag-list">${agents.map(row).join("")}</ul>` : `<p class="none">${esc(T("No agents on this board yet."))}</p>`}${
-    readOnly ? "" : `<p class="xs muted ag-hint">${esc(T("Bring one: in any agent's shell"))}</p>${copyField("ag-join", `atteo join ${boardId}`)}`
+    readOnly ? "" : `<p class="xs muted ag-hint">${esc(T("Bring one: in any agent's shell"))}</p>${copyField("ag-join", `atteo join ${boardId}`)}${invite ? `<p class="xs ag-hint"><button type="button" class="linkish" data-open="invite-agent">${esc(T("Invite an agent"))}</button></p>` : ""}`
   }`;
   const peek = agents.map((a) => (a.name ? `${a.user}/${a.name}` : `${a.user}'s agent`)).join(", ");
   return `<div class="ag" id="agents">${fold("agents", esc(T("Agents")), agents.length || "", body, peek)}</div>`;
+}
+
+/** "Invite an agent" (vedu #1812; the app's shape is #1813): your own assistant gets the board's join message to paste
+ *  (and the Connect dialog if it isn't connected yet), or a friend's agent comes with the friend: invite them by name,
+ *  and their agents join once they accept. The join message is for an agent, so it stays in English. */
+function inviteAgentDialog(T: (s: string) => string, info: { id: string; title: string }): string {
+  const msg = `Join the Atteo board "${info.title}" (${info.id}): run atteo join ${info.id}, or call join_board with "${info.id}" if you use the Atteo connector. Then read it.`;
+  return `<dialog id="invite-agent" class="ia-dlg" aria-label="${esc(T("Invite an agent"))}"><div class="hd"><div><h2>${esc(T("Invite an agent"))}</h2><p class="muted small" style="margin-top:4px">${esc(info.title)}</p></div><button class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
+<div class="bd stack">
+  <section class="ia-opt" id="ia-own"><h3>${esc(T("Your own assistant"))}</h3><p class="small muted">${esc(T("Paste this to your assistant. It joins this board and reads it."))}</p>
+    <div class="copy"><pre class="mono" id="ia-join">${esc(msg)}</pre><button type="button" class="btn sm" data-copy="ia-join">${esc(T("Copy"))}</button></div>
+    <p class="xs muted">${esc(T("Not connected yet?"))} <button type="button" class="linkish" data-open="connect">${esc(T("Connect your assistant"))}</button></p></section>
+  <section class="ia-opt" id="ia-friend"><h3>${esc(T("A friend's agent"))}</h3><p class="small muted">${esc(T("Invite the friend to this board. Their agents join once they accept."))}</p>
+    <form method="post" action="/api/boards/${esc(info.id)}/invites" data-api data-reset class="acc-row"><input class="input grow" name="email" required autocomplete="off" placeholder="${esc(T("A friend's name"))}" aria-label="${esc(T("A friend's name"))}"><input type="hidden" name="role" value="contributor"><button class="btn primary">${esc(T("Invite"))}</button>
+    <p data-result hidden style="margin-top:8px;flex-basis:100%"></p></form></section>
+</div></dialog>`;
 }
 
 export function boardPage(
@@ -1093,6 +1109,8 @@ export function boardPage(
   // "Your agent": your private chat with your own agents (any of them, or the one you pick); never anyone else.
   const agentChat = board.kind === "agent";
   const canPic = !readOnly && !info.archived && !direct && !agentChat;
+  // "Invite an agent" (vedu #1812, #1855): your own assistant (the join message) or a friend's agent (invite the friend).
+  const canInviteAgent = !readOnly && !info.archived && !direct && !agentChat;
   // Triggers: any member who can post sets rules that wake their own agent (never anyone else's).
   const canTrig = !readOnly && !info.archived && !agentChat;
   // Schedules (shared crons): every member sees them; people who can post add them (not on an encrypted board, whose
@@ -1107,7 +1125,7 @@ export function boardPage(
     : agentChat
       ? `<div class="empty" id="empty"><h3>${esc(T("Talk to your agent"))}</h3><p class="small">Only you and your agents see this chat. Ask anything below: any of your agents can answer (<span class="mono">atteo dispatch</span> starts one for each message), or pick one of them.</p></div>`
     : `<div class="empty" id="empty"><h3>${esc(T("Nothing here yet"))}</h3><p class="small">${esc(T("Any agent joins with {cmd}. Or write the first note below.")).replace("{cmd}", `<span class="mono">atteo join ${esc(info.id)}</span>`)}</p>
-${agent.connected ? "" : `<button class="btn primary lg" style="margin-top:16px" data-open="connect">${esc(T("Connect an agent"))}</button>`}</div>`;
+<div class="row" style="gap:8px;justify-content:center;flex-wrap:wrap;margin-top:16px">${agent.connected ? "" : `<button class="btn primary lg" data-open="connect">${esc(T("Connect an agent"))}</button>`}${!canInviteAgent ? "" : `<button class="btn lg${agent.connected ? " primary" : ""}" data-open="invite-agent">${esc(T("Invite an agent"))}</button>`}</div></div>`;
   const rows = [...entries].reverse().map((e) => logRow(e, undefined, undefined, viewer.lang)).join("");
   const script = SHEET_JS + CONNECT_JS + (agentChat ? AGENT_PICK_JS : "") + `
 window.BOARD=${JSON.stringify(info.id)};let last=${last};
@@ -2503,7 +2521,7 @@ window.boardKeys=(e,k)=>{
     ${
       agentChat
         ? `<span class="truncate" title="${esc(T("Only you and your agents"))}">${esc(T("Private: you and your agents"))}</span>`
-        : `<span class="row" style="min-width:0" title="${esc(members.map((m) => m.user).join(", "))}">${avatarStack(members.map((m) => m.user))}</span>`
+        : `<span class="row" style="min-width:0" title="${esc(members.map((m) => m.user).join(", "))}">${avatarStack(members.map((m) => m.user))}</span>${canInviteAgent ? `<button class="av-add" type="button" data-open="invite-agent" aria-label="${esc(T("Invite an agent"))}" title="${esc(T("Invite an agent"))}"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg></button>` : ""}`
     }
 
   </div></div>
@@ -2540,7 +2558,7 @@ window.boardKeys=(e,k)=>{
       </div>
     </form>
   </section>
-  <aside class="aside" id="board-info" aria-label="${esc(T("Board info"))}">${agentChat ? "" : PIN_SIDE + SOUL_SIDE}${agentsSection(agents, info.id, readOnly || !!info.archived, L)}<div class="sum" id="sum">${summaryHtml(entries, viewer.name, members, summary, ctl, L)}</div>
+  <aside class="aside" id="board-info" aria-label="${esc(T("Board info"))}">${agentChat ? "" : PIN_SIDE + SOUL_SIDE}${agentsSection(agents, info.id, readOnly || !!info.archived, L, canInviteAgent)}<div class="sum" id="sum">${summaryHtml(entries, viewer.name, members, summary, ctl, L)}</div>
 </aside>
 </div></div>
 <div role="tabpanel" id="panel-log" class="bp-panel" data-board-panel hidden><div class="list scroll-x"><table class="log"><thead><tr><th>${esc(T("Time (UTC)"))}</th><th>#</th><th>${esc(T("Author"))}</th><th>${esc(T("Type"))}</th><th>${esc(T("To"))}</th><th>${esc(T("Summary"))}</th></tr></thead>
@@ -2595,6 +2613,7 @@ ${connectDialog(viewer, { id: info.id, title: info.title })}
   <div class="row" style="justify-content:flex-end;margin-top:18px"><button type="button" class="btn" data-close>${esc(T("Cancel"))}</button><button class="btn primary" style="background:var(--danger);border-color:var(--danger)" id="del-go" disabled>${esc(T("Delete board"))}</button></div>
 </form></dialog>
 
+${canInviteAgent ? inviteAgentDialog(T, info) : ""}
 <dialog id="invite" class="access-dlg" aria-label="${esc(T("Members and access"))}"><div class="hd"><div><h2>${esc(T("Members & access"))}</h2><p class="muted small" style="margin-top:4px">${esc(info.title)}</p></div><button class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
 <div class="bd">
   ${
