@@ -31,10 +31,17 @@ export const MAX_GROUP_MENTIONS = 400;
 const MENTION_RE = /(^|[^A-Za-z0-9_.@/-])@([A-Za-z0-9][A-Za-z0-9_.-]{0,31})((?:'|’|&#39;)s\s+(?:agent|assistant)\b|\/[A-Za-z0-9][A-Za-z0-9_.-]{0,31})?/gi;
 export const SESSION_NAME_RE = /^[a-z0-9][a-z0-9._-]{0,31}$/;
 
-/** Text with code fences, inline code and quoted messages ("> " lines ending "— who, #N") blanked out: "@name"
- *  there is never a mention, so quoting a message doesn't ping whoever it named again. */
+/** Code fences, inline code and quoted messages ("> " lines ending "— who, #N") blanked out, so quoting a
+ *  message doesn't ping whoever it named again. */
 function withoutCode(text: string): string {
   return text.replace(/```[\s\S]*?```/g, " ").replace(/`[^`\n]+`/g, " ").replace(/(?:^>.*\n)+^> ?— .+, #\d{1,6}$/gm, " ");
+}
+
+/** The text @mentions are read from. Code (withoutCode) and quotation marks (blankLiterals, the same rules as the
+ *  injection screen) are blanked: "@name" inside a fence, inline code, or quotes is never a mention. Apostrophes
+ *  in "don't" or "vedu's" are not quotes. */
+function mentionScan(text: string): string {
+  return blankLiterals(withoutCode(text));
 }
 
 /**
@@ -56,10 +63,10 @@ const GROUPS = [ALL_AGENTS, ALL_HUMANS, ALL_MEMBERS];
 /** A handle as a group name: "@all." at the end of a sentence still means @all. */
 const groupOf = (handle: string) => handle.toLowerCase().replace(/[.-]+$/, "");
 
-/** Does `text` use the group mention `group` (not in code, not as "@group's agent", and no member has that name)? */
+/** Does `text` use the group mention `group` (not in code or quotes, not as "@group's agent", and no member has that name)? */
 export function hasGroupMention(text: string, group: string, members?: Iterable<string>): boolean {
   if (members && [...members].some((m) => m.toLowerCase() === group)) return false;
-  for (const m of withoutCode(text).matchAll(MENTION_RE)) if (groupOf(m[2]) === group && !m[3]) return true;
+  for (const m of mentionScan(text).matchAll(MENTION_RE)) if (groupOf(m[2]) === group && !m[3]) return true;
   return false;
 }
 
@@ -146,9 +153,10 @@ const NOT_A_HANDLE_AFTER = /^(?:[A-Za-z0-9_]|[^\x00-\x7F]|[(){}[\]=$<>|\\^&*+#~@
 /**
  * Members (and members' agents) mentioned in `text`, in order of first appearance.
  * The author mentioning themselves doesn't count; the author mentioning their own agent does, unless the post
- * was written by that agent. Handles that aren't on the board come back in `unknown` so a caller can say so, but
- * only likely typos of a member's handle (nearMember), not inside quotes, and only tokens that could be handles:
- * "@mentions" in prose, or "@Component(" in a snippet, is silently not a mention.
+ * was written by that agent. A mention is a member-shaped token outside code and quotes: "@name" inside a fence,
+ * inline code, or quotation marks is never one. Handles that aren't on the board come back in `unknown` so a
+ * caller can say so, but only likely typos of a member's handle (nearMember), and only tokens that could be
+ * handles: "@mentions" in prose, or "@Component(" in a snippet, is silently not a mention.
  * "@<agent name>" is that member's agent; a name two members' agents share on the board comes back in `ambiguous`
  * instead (the owner form, "@vedu's agent", is needed).
  */
@@ -164,7 +172,7 @@ export function parseMentions(
   const unknown = new Set<string>();
   const ambiguous = new Set<string>();
   let grouped = false;
-  let plain = withoutCode(text);
+  let plain = mentionScan(text);
   const events: { at: number; run: () => void }[] = [];
   const names = agentNameIndex(list);
   for (const h of agentNameHits(plain, names, (n) => set.has(n))) {
@@ -178,7 +186,6 @@ export function parseMentions(
       },
     });
   }
-  const literal = blankLiterals(plain); // quotes, for the warnings only (code is already out of `plain`)
   const near = [...set, ...names.keys()]; // what a typo'd "@token" would have meant
   for (const m of plain.matchAll(MENTION_RE)) {
     events.push({
@@ -198,9 +205,8 @@ export function parseMentions(
         }
         const r = resolve(m[2], m[3], (n) => set.has(n));
         if (!r.known) {
-          const at = (m.index ?? 0) + m[1].length; // the "@"
           const after = m[3] ? "" : plain.slice((m.index ?? 0) + m[0].length);
-          if (literal[at] === "@" && !NOT_A_HANDLE_AFTER.test(after) && nearMember(r.user, near)) unknown.add(r.user);
+          if (!NOT_A_HANDLE_AFTER.test(after) && nearMember(r.user, near)) unknown.add(r.user);
         }
         else if (keep(r, author, via)) mentions.set(key(r), { user: r.user, agent: r.agent, ...(r.session ? { session: r.session } : {}) });
       },

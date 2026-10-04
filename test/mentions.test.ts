@@ -67,7 +67,14 @@ describe("parseMentions", () => {
     expect(parse("```\n@vedx\n```").unknown).toEqual([]);
     expect(parse("@vedx(arg) and @vedx=1 and @vedxé").unknown).toEqual([]); // characters no handle has
     expect(parse("vedu's @vedx, isn't it").unknown).toEqual(["vedx"]); // apostrophes aren't quotes
-    expect(parse('"@jxn" still mentions jxn').mentions).toEqual([person("jxn")]); // quotes only quiet the warnings
+  });
+
+  it("recognizes a real member mention, and never one inside a fence or quotes", () => {
+    expect(parse("ask @jxn to look").mentions).toEqual([person("jxn")]);
+    expect(parse("see\n```\n@jxn's agent\n```\nlater").mentions).toEqual([]);
+    expect(parse("he wrote \"@jxn\" and “@jxn’s agent” and '@jxn'").mentions).toEqual([]);
+    expect(parse("ask @jxn, not \"@jxn\" or\n```\n@jxn\n```").mentions).toEqual([person("jxn")]);
+    expect(parse("the words \"@all\" and \"@agents\"").mentions).toEqual([]);
   });
 
   it("nearMember: edit distance 2 (1 for short names) or a 3+ character prefix", () => {
@@ -137,6 +144,7 @@ describe("agent names", () => {
     expect(p("@Jarvisx hi").mentions).toEqual([]);
     expect(p("@Jarvisx hi").unknown).toEqual(["jarvisx"]); // a typo of an agent name
     expect(p("`@Jarvis` and x@Jarvis").mentions).toEqual([]);
+    expect(p("see \"@Jarvis\" and “@big friday”").mentions).toEqual([]);
     expect(parseMentions("@Jarvis hi", ["vedu", "jxn"], "jxn").unknown).toEqual([]); // names unknown here: not near anyone
   });
 
