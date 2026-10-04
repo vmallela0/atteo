@@ -347,7 +347,8 @@ ${ALLOWANCE_JS}
     try{r.start()}catch(e){rec=null}})
     ta.addEventListener('input',()=>{if(rec&&!own)takeBox()});
     ta.addEventListener('keydown',e=>{if(e.key==='Escape')micStop()});
-    ta.form&&ta.form.addEventListener('submit',micStop)}
+    // Capture phase on window, so it runs before any handler that stops the submit (the encrypted board's, /status).
+    window.addEventListener('submit',e=>{if(e.target===ta.form)micStop()},true)}
   if(!syn||!vb)return;
   // What's left of this month's read-aloud, on the button's title; used up: a clear state and the device voice, never silently.
   const VB_TITLE=vb.title;let ttsOut=false,ttsTold=false,ttsT=0;
