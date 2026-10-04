@@ -1,7 +1,8 @@
 // Phone sidebars close easily (jxn #2223, claude #2225): the menu drawer and the board's info panel each close with an ✕
 // in their header (the info panel's button turns into one), Esc, and a swipe back toward their edge (the drawer also with a tap on the dimmed page beside it),
 // focus goes back to the button that opened them, and neither is open again after a reload. 390 and 320px, Developer
-// and Everyday. Usage: BASE=http://localhost:8787 PW_CHROME=… node sidebar-close.mjs  (local dev only, ADMIN_KEY=ci-admin-key)
+// and Everyday. Board info closes with a swipe in the reading direction: to the right in English, to the left in Arabic
+// (jxn #2446). The menu drawer's swipe is its own gesture. Usage: BASE=http://localhost:8787 PW_CHROME=… node sidebar-close.mjs  (local dev only, ADMIN_KEY=ci-admin-key)
 import { chromium } from "playwright-core";
 const BASE = process.env.BASE || "http://localhost:8787";
 const KEY = process.env.ADMIN_KEY || "ci-admin-key";
@@ -71,6 +72,8 @@ for (const [who, mode] of [[D, "Developer"], [E, "Everyday"]]) {
     await p.keyboard.press("Escape"); await p.waitForTimeout(300);
     check(!(await infoOpen()) && await focused("#info-btn"), `${tag}: Esc closes board info`);
     await openInfo();
+    await swipe(p, "#board-info", -140); await p.waitForTimeout(300);
+    check(await infoOpen(), `${tag}: a swipe to the left leaves board info open`);
     await swipe(p, "#board-info", 140); await p.waitForTimeout(300);
     check(!(await infoOpen()), `${tag}: a swipe to the right closes board info`);
     await openInfo();
@@ -97,6 +100,30 @@ for (const [who, mode] of [[D, "Developer"], [E, "Everyday"]]) {
   const p = await ctx.newPage();
   await p.goto(`${BASE}/b/${board}`); await p.waitForTimeout(800);
   check(!(await p.locator(".nav-x").isVisible()) && !(await p.locator(".nav-scrim").isVisible()) && (await p.locator("#info-btn").evaluate((el) => getComputedStyle(el, "::after").content)) === "none", "1280px: no ✕ or dimmed page on a wide screen");
+  await ctx.close();
+}
+// Arabic (right to left): board info follows the reading direction. A swipe to the right leaves it open; a swipe to the
+// left closes it (jxn #2446). The menu drawer is not part of this check.
+{
+  const ck = (await ops("sessions", { user: D })).cookie;
+  const ctx = await b.newContext({ viewport: { width: 390, height: 760 }, isMobile: true, hasTouch: true, locale: "ar-EG" });
+  const [k, ...v] = ck.split(";")[0].split("=");
+  await ctx.addCookies([{ name: k, value: v.join("="), url: BASE }]);
+  const p = await ctx.newPage();
+  const errors = [];
+  p.on("pageerror", (e) => errors.push(e.message));
+  await p.goto(`${BASE}/b/${board}`);
+  await p.waitForTimeout(900);
+  const dir = await p.evaluate(() => document.dir);
+  const infoOpen = () => p.evaluate(() => document.getElementById("conv-layout").classList.contains("info-open"));
+  await p.locator("#info-btn").tap();
+  await p.waitForTimeout(350);
+  check(dir === "rtl" && (await infoOpen()), `ar 390px: board info opens on a right-to-left page (${dir})`);
+  await swipe(p, "#board-info", 140); await p.waitForTimeout(300);
+  check(await infoOpen(), "ar 390px: a swipe to the right leaves board info open");
+  await swipe(p, "#board-info", -140); await p.waitForTimeout(300);
+  check(!(await infoOpen()), "ar 390px: a swipe to the left closes board info");
+  check(!errors.length, `ar 390px: no page errors ${errors.join(" | ")}`);
   await ctx.close();
 }
 await b.close();
