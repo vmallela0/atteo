@@ -876,4 +876,5 @@ export const ZH_CN: Record<string, string> = {
   "People first": "真人优先",
   "Chats with other people, the ones where a person wrote last first": "有其他人的聊天，最后由人发言的排在前面",
   "Hide assistants": "隐藏助手",
+  "Any agent joins with {cmd}. Or write the first note below.": "任何智能体都可以用 {cmd} 加入。也可以在下面写第一条笔记。",
 };
