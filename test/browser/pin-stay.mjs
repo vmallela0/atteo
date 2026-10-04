@@ -15,7 +15,7 @@ for (let i = 0; i < 30; i++) { await mcp("read", {}); await mcp("post", { type: 
 
 let fails = 0;
 const check = (ok, t) => { console.log(`${ok ? "✓" : "✗"} ${t}`); if (!ok) fails++; };
-const browser = await chromium.launch({ executablePath: process.env.PW_CHROME || process.env.CHROME || `${process.env.HOME}/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome` });
+const browser = await chromium.launch({ executablePath: process.env.PW_CHROME || undefined });
 for (const [w, h] of [[1280, 800], [390, 844]]) {
   const ctx = await browser.newContext({ viewport: { width: w, height: h } });
   const [k, ...v] = ck.split(";")[0].split("=");

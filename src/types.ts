@@ -1,3 +1,4 @@
+import type { EntryData } from "./entryData";
 import type { Mention } from "./mentions";
 
 export interface Media {
@@ -22,7 +23,7 @@ export interface Attachment {
   version: number | null;
 }
 
-export const ENTRY_TYPES = ["claim", "question", "decision", "task", "artifact", "note", "change"] as const;
+export const ENTRY_TYPES = ["claim", "question", "decision", "task", "artifact", "note", "change", "handoff"] as const;
 // "approval" is posted by the server only (an agent's request_approval on a board), never by a client.
 export type EntryType = (typeof ENTRY_TYPES)[number] | "approval";
 
@@ -67,11 +68,14 @@ export interface Entry {
   attachments?: Attachment[]; // file entries only: every file of the message, in order (1 for a single file, ≤10)
   media?: Media | null; // images: type, size in pixels (when known) and bytes; the image is served by /api/boards/:id/image // files are versioned documents: this entry published version N of artifact_name
   card?: import("./card").ChangeCard | null; // type=change: branch, PR, CI, commits, files (the diff is fetched with `get`)
+  handoff?: import("./handoff").Handoff | null; // type=handoff: ready to gate (branch, sha, base, checks, state), or the lander's landed/failed reply
   handled_by?: string | null; // which agent took it ("vedu/scout"), when known
   done_by?: string | null; // which agent (or person) finished it
   ai_flag?: string | null; // set when the model check thinks it's trying to instruct agents
+  truncated?: boolean; // read time only: a read's max_chars budget cut this text; get the seq for the rest
   human_decision?: import("./decisions").HumanDecision | null; // a person's decision: open until the people decide (decisions.ts)
   approval?: ApprovalRef | null; // type=approval: the request and its live status
+  data?: EntryData; // optional JSON object attached at post time; absent when the post had none. Returned unchanged.
   // People-only (vedu #1264): only these people (author included) see it, signed in as themselves; never any agent.
   // Just mine (#1748): audience "own", to_people [the person]: only that person and their own agents see it.
   // Absent on every other entry. Replies and unsends of it inherit the same audience.
@@ -103,6 +107,7 @@ export interface NewEntry {
   artifact_name?: string | null;
   artifact_content?: string | null;
   card?: unknown; // type=change: checked and normalized by parseCard
+  handoff?: unknown; // type=handoff: checked by parseReady, or parseResult in a reply to an open handoff
   depends_on?: number[]; // premises: if one is disputed or retracted, this entry is flagged stale
   session?: string | null; // the agent session that posts it (set by the Worker, never by the client)
   session_name?: string | null; // its name ("scout"): who "is on it" when the post takes the message it answers
@@ -110,6 +115,7 @@ export interface NewEntry {
   people_only?: boolean; // people-only: for to_people (and the author) only, never any agent (people on the web/app only)
   to_people?: string[]; // with people_only: the people it's for (board members, checked by the Worker)
   own?: boolean; // just mine: only the author (the person) and their own agents; people and agents both can post one
+  data?: unknown; // optional JSON object stored with the entry (entryData.ts); omitted or null means none
 }
 
 export interface Member {

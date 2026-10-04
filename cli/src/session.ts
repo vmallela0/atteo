@@ -145,6 +145,7 @@ export interface LocalSession {
   notified?: number; // newest inbox item already shown to this session (the "📣" line)
   pid?: number;
   model?: string | null; // the model last detected here and sent (re-sent only when it changes)
+  ack?: string; // what the last wait handed over ("b_x:12,b_y:30"): sent back with the next wait or read, which moves the read position there
 }
 
 function file(): string {

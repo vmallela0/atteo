@@ -8,10 +8,11 @@ import type { TokenRow } from "./auth";
 import { authorLabel, computeSummary, retractedSet, type Summary } from "./state";
 import { PIN_BAR, PIN_SIDE, RECAP_BTN, RECAP_DLG, pinRecapJs } from "./pinrecap";
 import { SOUL_DLG, SOUL_SIDE, rememberBtn, soulMemoryJs } from "./soulmemory";
-import { forAgent, forPerson, mentionLabel } from "./mentions";
+import { MENTION_SCAN_JS, forAgent, forPerson, mentionLabel } from "./mentions";
 import { flagOf } from "./screen";
 import { clientName, presenceLabel } from "./social";
 import type { ChangeCard } from "./card";
+import { handoffLine } from "./handoff";
 import type { Attachment, BoardInfo, Entry } from "./types";
 import { appPage, avatar, avatarStack, boardPic, copyField, hue, page, renderText, typeTag, when, working, type SideBoard, type Viewer } from "./ui";
 import { esc, pictureUrl } from "./util";
@@ -136,7 +137,7 @@ ${
 ${avatar(e.author, "", e.via === "agent")}
 <div class="grow">
   <div class="meta">${whoHtml(e)}${e.to ? `<span class="to">→ ${esc(e.to)}</span>` : ""}${e.type === "note" ? "" : typeTag(e.type, opts.lang)}${when(e.ts, opts.lang)}<a class="seq" href="#e${e.seq}">#${e.seq}</a>${peopleBadge(e, opts.lang)}<span class="badge rbadge">${esc(T("Unsent"))}</span>${flagBadge(e.text, e.ai_flag)}${actions}</div>
-  <div class="body">${apr?.title ? `<p>${esc(apr.title)}</p>` : refLinks(renderText(e.text, e.mentions, e.mention_names))}</div>${file}${e.card ? changeCardHtml(e.seq, e.card) : ""}${apr && !opts.retracted ? approvalCardHtml(apr, false, opts.lang) : ""}${e.type === "task" ? `<div class="tk" data-task="${e.seq}" hidden></div>` : ""}${e.type === "claim" && !opts.retracted ? `<div class="tk cl" data-claim="${e.seq}" hidden></div>` : ""}${e.type === "decision" && e.via === "person" && !opts.retracted ? `<div class="tk hd" data-hd="${e.seq}" hidden></div>` : ""}
+  <div class="body">${apr?.title ? `<p>${esc(apr.title)}</p>` : refLinks(renderText(e.text, e.mentions, e.mention_names))}</div>${file}${e.card ? changeCardHtml(e.seq, e.card) : ""}${e.handoff ? `<div class="refs mono handoff">${esc(handoffLine(e.handoff))}</div>` : ""}${apr && !opts.retracted ? approvalCardHtml(apr, false, opts.lang) : ""}${e.type === "task" ? `<div class="tk" data-task="${e.seq}" hidden></div>` : ""}${e.type === "claim" && !opts.retracted ? `<div class="tk cl" data-claim="${e.seq}" hidden></div>` : ""}${e.type === "decision" && e.via === "person" && !opts.retracted ? `<div class="tk hd" data-hd="${e.seq}" hidden></div>` : ""}
   ${refs.length ? `<div class="refs">${refs.join(" · ")}</div>` : ""}
   <div class="rx" data-rx="${e.seq}"><button class="rx-add" type="button" data-rx-add="${e.seq}" aria-label="${esc(T("Add a reaction"))}" title="${esc(T("Add a reaction"))}">☺<span>+</span></button></div>
   ${withReplies ? `<div class="replies" id="r${e.seq}"></div>` : ""}
@@ -298,8 +299,10 @@ const PO_JS = `
   note.addEventListener('click',e=>{const x=e.target.closest('[data-po]');if(!x)return;poSet(true,x.dataset.po);ta.focus()});
   // Arrow keys move between the two choices, as in any radio group.
   note.addEventListener('keydown',e=>{const x=e.target.closest('[data-po]');if(!x||!/^Arrow(Left|Right|Up|Down)$/.test(e.key))return;e.preventDefault();const m=mode==='own'?'people':'own';poSet(true,m);note.querySelector('[data-po="'+m+'"]').focus()});
-  // People only needs someone to send it to: a person @mentioned in the text. Just mine needs nobody.
-  document.addEventListener('submit',e=>{if(e.target!==f||inp.value!=='true')return;if(!/(^|\\s)@[a-z0-9][a-z0-9_.-]*(?![a-z0-9_.-]|['’]s\\s+(?:agent|assistant)\\b|\\/)/i.test(ta.value)){e.preventDefault();e.stopImmediatePropagation();toast('@ the people who should see it: agents never will')}},true);
+  // People only needs someone to send it to: a person @mentioned in the text, read the way the server reads mentions
+  // (not in code or quotes: mentions.ts MENTION_SCAN_JS). Just mine needs nobody.
+  const scan=${MENTION_SCAN_JS};
+  document.addEventListener('submit',e=>{if(e.target!==f||inp.value!=='true')return;if(!/(^|\\s)@[a-z0-9][a-z0-9_.-]*(?![a-z0-9_.-]|['’]s\\s+(?:agent|assistant)\\b|\\/)/i.test(scan(ta.value))){e.preventDefault();e.stopImmediatePropagation();toast('@ the people who should see it: agents never will')}},true);
 })();
 `;
 // HTML preview (jxn #1309). Board files are written by other people, so the page runs in an iframe with sandbox="allow-scripts"
@@ -1140,7 +1143,7 @@ function toBottom(smooth){const far=scroller.scrollHeight-scroller.scrollTop-scr
 // so scrolling steps through them; hover previews a message, click jumps to it, drag scrubs.
 const rail=document.getElementById('rail'),tip=document.getElementById('rail-tip');let ticks=[];
 function railBuild(){const th=document.getElementById('thread'),top0=th.getBoundingClientRect().top,H=Math.max(1,th.scrollHeight);// top-level messages only: replies live in their thread
-  ticks=[...th.querySelectorAll(':scope>.entry,:scope>.ghost')].filter(el=>!pfHid(el)).map(el=>({el,y:(el.getBoundingClientRect().top-top0)/H,h:el.querySelector(':scope>.grow>.meta')?.offsetHeight||20}));
+  ticks=[...th.querySelectorAll(':scope>.entry,:scope>.ghost')].filter(el=>!offChat(el)).map(el=>({el,y:(el.getBoundingClientRect().top-top0)/H,h:el.querySelector(':scope>.grow>.meta')?.offsetHeight||20}));
   // On a long board one tick per message is a grey smear (jxn #1359): at most RAIL_MAX ticks, nearby messages sharing one,
   // and anything for you always gets its own. Hover and scrubbing still use every message.
   const RAIL_MAX=60;let groups=[];if(ticks.length<=RAIL_MAX)ticks.forEach((t,i)=>groups.push({y:t.y,m:[i],me:t.el.classList.contains('for-you')}));
@@ -1205,11 +1208,11 @@ function ghostOf(el,h){const g=document.createElement('div');g.className='ghost'
   g.style.height=h+'px';return g}
 function ghostSoon(){if(ghT||!ghOn)return;ghT=setTimeout(()=>{ghT=0;ghostSync()},120)}
 function ghostSync(){const H=scroller.clientHeight;if(!ghOn||!H||document.getElementById('panel-conv').hidden)return;
-  const th=document.getElementById('thread'),top=scroller.getBoundingClientRect().top,live=[...th.querySelectorAll(':scope>.entry')].filter(el=>!pfHid(el)),tail=new Set(live.slice(-GH_TAIL)),far=[];
+  const th=document.getElementById('thread'),top=scroller.getBoundingClientRect().top,live=[...th.querySelectorAll(':scope>.entry')].filter(el=>!offChat(el)),tail=new Set(live.slice(-GH_TAIL)),far=[];
   for(const el of live){if(tail.has(el)||ghKeep(el))continue;const r=el.getBoundingClientRect(),d=Math.max(top-GH_FAR*H-r.bottom,r.top-top-H-GH_FAR*H);if(d>0)far.push([el,r.height,d])} // measure all, then swap
   far.sort((a,b)=>b[2]-a[2]);far.length=Math.max(0,Math.min(far.length,live.length-GH_MIN)); // a short board stays whole
   for(const [el,h] of far)el.replaceWith(ghostOf(el,h));if(far.length)railBuild(); // the rail points at the placeholders now
-  const gs=[...th.querySelectorAll(':scope>.ghost')].filter(g=>!pfHid(g)),near=[];let lo=0,hi=gs.length;
+  const gs=[...th.querySelectorAll(':scope>.ghost')].filter(g=>!offChat(g)),near=[];let lo=0,hi=gs.length;
   while(lo<hi){const m=(lo+hi)>>1;if(gs[m].getBoundingClientRect().bottom<top-GH_NEAR*H)lo=m+1;else hi=m}
   for(let i=lo;i<gs.length;i++){if(gs[i].getBoundingClientRect().top>top+H+GH_NEAR*H)break;near.push(+gs[i].dataset.seq)}
   if(near.length)Date.now()>ghPause?ghostFill(near).then(ghostSoon):setTimeout(ghostSoon,ghPause-Date.now()+50);
@@ -1248,6 +1251,11 @@ new ResizeObserver(ghostSoon).observe(scroller);
 // still on the board, agents still see everything, nothing is sent. Remembered per person, in this browser. ----
 function pfOn(){return document.documentElement.hasAttribute('data-pf')}
 function pfHid(el){return el.classList.contains('by-agent')&&pfOn()}
+// Replies only in their threads (Display, vedu #2360): replies stay off the chat; a link or jump to one opens its thread.
+function rpOn(){return document.documentElement.dataset.replies==='thread'}
+function rpHid(el){return !!el&&el.hasAttribute('data-root')&&rpOn()}
+function offChat(el){return pfHid(el)||rpHid(el)}
+document.addEventListener('atteo-replies',()=>{railBuild();if(pinned)toBottom();ghostSoon()});
 const pfBtn=document.getElementById('pf-btn'),pfNone=document.getElementById('pf-empty');
 function pfEmpty(){if(pfNone)pfNone.hidden=!pfOn()||!!document.querySelector('#thread>.entry:not(.by-agent),#thread>.ghost:not(.by-agent)')}
 /** save: remember it; told: say why agents' posts came back (a jump to one of them). */
@@ -1260,16 +1268,16 @@ new MutationObserver(()=>{if(pfOn())pfEmpty()}).observe(document.getElementById(
 window.addEventListener('load',()=>setTimeout(()=>{ghOn=true;ghostSoon()},300)); // after the page has opened where it should
 const linked=/^#e\\d+$/.test(location.hash);
 // A link to a message further back than the page shows loads back to it (on open, or when the hash changes).
-async function goLinked(){const m=location.hash.match(/^#e([0-9]+)$/);if(!m||document.getElementById('e'+m[1]))return;const seq=+m[1];pinned=false;
+async function goLinked(){const m=location.hash.match(/^#e([0-9]+)$/);if(!m)return;const here=document.getElementById('e'+m[1]);if(here){if(rpHid(here))openThread(+here.dataset.root,{focus:+m[1]});return}const seq=+m[1];pinned=false;
   if(!(await ensureEntry(seq))){toast('#'+seq+' was not found');return}const el=document.getElementById('e'+seq);pinned=false; // loading back may have passed the bottom and re-pinned
-  if(el.closest('.replies'))openThread(+el.closest('#thread>.entry').dataset.seq,{focus:seq});else el.scrollIntoView({block:'center'})}
+  if(el.closest('.replies'))openThread(+el.closest('#thread>.entry').dataset.seq,{focus:seq});else if(rpHid(el))openThread(+el.dataset.root,{focus:seq});else el.scrollIntoView({block:'center'})}
 if(linked&&!document.getElementById(location.hash.slice(1)))setTimeout(goLinked,0);
-{const t=linked&&document.getElementById(location.hash.slice(1));if(t&&pfHid(t)){pfSet(false,false,true);t.scrollIntoView({block:'center'})}} // a link to an agent's message shows it
+{const t=linked&&document.getElementById(location.hash.slice(1));if(t&&pfHid(t)){pfSet(false,false,true);t.scrollIntoView({block:'center'})}if(t&&rpHid(t))setTimeout(()=>openThread(+t.dataset.root,{focus:+t.dataset.seq}),0)} // a link to an agent's message shows it; to a reply, its thread
 window.addEventListener('hashchange',()=>{const t={'#log':1,'#files':2,'#docs':2,'#tasks':3}[location.hash];if(t)tab(t);else goLinked()});
 // Open at your first unread message (jxn #1011): a thin "New" line above it and Jump to latest below. If you've read
 // everything, or it's your first visit, it opens at the newest. Messages you wrote yourself never count as unread.
 const SEEN0=${Math.max(0, board.seen ?? 0)},ME0=${jsString(viewer.name)};let unreadAt=null;
-function openAtUnread(){const e=SEEN0?[...document.querySelectorAll('#thread>.entry')].find(x=>+x.dataset.seq>SEEN0&&!pfHid(x)&&!(x.dataset.author===ME0&&!x.classList.contains('by-agent'))):null;if(!e)return false;
+function openAtUnread(){const e=SEEN0?[...document.querySelectorAll('#thread>.entry')].find(x=>+x.dataset.seq>SEEN0&&!offChat(x)&&!(x.dataset.author===ME0&&!x.classList.contains('by-agent'))):null;if(!e)return false;
   unreadAt=e;let l=document.getElementById('new-line');if(!l){l=document.createElement('div');l.id='new-line';l.className='new-line';l.setAttribute('role','separator');l.innerHTML='<span>'+tr('New')+'</span>'}e.before(l);
   pinned=false;userT=0;scroller.scrollTop=Math.max(0,l.offsetTop-scroller.offsetTop-12);pinned=nearEnd();pillSync();return true}
 if(!linked&&!openAtUnread())toBottom();
@@ -1280,7 +1288,7 @@ function tick(wait){if(ticking){if(!wait)again=true;return ticking}ticking=tick1
 async function tick1(wait){const sumNow=sumNext;sumNext=false;try{
   const r=await fetch('/api/boards/'+BOARD+'/updates?after='+last+(wait?'&wait=25':''));if(!r.ok){await new Promise(r=>setTimeout(r,5000));return}const d=await r.json();pollAfter=d.poll_after_ms||0;
   const stick=stickNext||pinned;stickNext=false;let added=0;
-  for(const e of d.entries){if(addEntry(e))added++}
+  let shown=0;for(const e of d.entries){if(addEntry(e)){added++;if(!offChat(document.getElementById('e'+e.seq)))shown++}}
   if(typeof d.last==='number')last=Math.max(last,d.last);
   if(d.reviews)applyReviews(d.reviews);
   if(d.claims)renderClaims(d.claims);
@@ -1288,7 +1296,7 @@ async function tick1(wait){const sumNow=sumNext;sumNext=false;try{
   if(d.handling)renderHandling(d.handling);
   if(d.entries.length){for(const e of d.entries)TYPERS.delete(e.author);typingSync()} // sent: no longer typing
   if(d.reads){READS=d.reads;renderReads()}
-  if(added){railBuild();if(stick)toBottom();else{unseen+=added;pillSync()}if(window.e2eSync)e2eSync();ghostSoon()}
+  if(added){railBuild();if(stick)toBottom();else if(shown){unseen+=shown;pillSync()}if(window.e2eSync)e2eSync();ghostSoon()}
   if(d.entries.length||sumNow){document.getElementById('sum').innerHTML=d.summary;foldApply();capApply();document.querySelectorAll('[data-count]').forEach(x=>x.textContent=d.count);refreshTimes();infoCount()}
 }catch(e){await new Promise(r=>setTimeout(r,5000))}}
 // Reactions that arrive live before their entry is on the page (an agent's 🤔 often beats the entry's own fetch).
@@ -1539,10 +1547,12 @@ function replyClear(sent){if(!rpTo.value)return;if(window.micStop)micStop();cons
   if(carry){draftSave('',ta.value);taFit()}else if(!sent){ta.value=draftLoad('');taFit()}}
 /** After a reply is posted: its thread is open, so you can see it there. */
 // A reply posts at the bottom like any message (jxn #1040): after sending one, the conversation follows it there.
-function replyShown(){toBottom(true)}
+function replyShown(was){const p=was&&document.getElementById('e'+was);if(p&&rpOn()){openThread(+(p.dataset.root||p.dataset.seq),{focus:was});return}toBottom(true)}
 // The Reply button only: a reply's own article carries data-reply (its parent), and a click anywhere in it (a link, or the
 // mouse-up that ends a text selection for Quote) used to start a reply to that parent (jxn #1351).
-document.addEventListener('click',e=>{const b=e.target.closest('button[data-reply]');if(b){e.preventDefault();replyTo(+b.dataset.reply);return}
+document.addEventListener('click',e=>{const b=e.target.closest('button[data-reply]');if(b){e.preventDefault();const p=document.getElementById('e'+b.dataset.reply);
+    if(rpOn()&&p&&!b.closest('.thr-dlg')){openThread(+(p.dataset.root||p.dataset.seq),{focus:+b.dataset.reply});return} // replies live in threads: answer there
+    replyTo(+b.dataset.reply);return}
   if(e.target.closest('#reply-cancel')){replyClear();ta.focus();return}
   if(e.target.closest('#replying-go')&&rpTo.value)window.BOARD_CTX.jump(+rpTo.value)});
 ta.addEventListener('keydown',e=>{if(e.key==='Escape'&&!e.defaultPrevented&&rpTo.value){e.preventDefault();if(cmpHome)closeThread();else replyClear()}}); // in a thread, Esc closes it
@@ -2114,6 +2124,7 @@ document.getElementById('fwd-send').addEventListener('click',async e=>{const b=e
 window.BOARD_CTX={id:BOARD,me:ME,members:MEMBERS,
   async jump(seq){if(!(await ensureEntry(seq))){toast('#'+seq+' was not found');return}const el=document.getElementById('e'+seq);
     if(document.getElementById('panel-conv').hidden)tab(0);if(el.closest('.replies')){openThread(+el.closest('#thread>.entry').dataset.seq,{focus:seq});return}
+    if(rpHid(el)){openThread(+el.dataset.root,{focus:seq});return} // replies only in threads: open it there
     
     document.querySelectorAll('#thread .entry.hit').forEach(x=>x.classList.remove('hit'));el.classList.add('hit');pinned=false;el.scrollIntoView({block:'center',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});moved=true;setTimeout(()=>el.classList.remove('hit'),2200)},
   openFile(name,v){tab(2);openDoc(name,v)}};
@@ -2413,7 +2424,10 @@ function card(t){const first=t.title||'';const boxes=ckLines(t.body||'');const t
     (t.parent!=null?'<span class="ksub" title="'+(par?tr('Sub-task of ')+esc(par.title):tr('A sub-task'))+'">↳ '+(par?esc(par.title):'sub-task')+'</span>':'')+
     (boxes.length?'<span title="'+tr('Checklist')+'">☑ '+ticked+'/'+boxes.length+'</span>':'')+(t.children?'<span title="'+tr('Sub-tasks done')+'">'+t.children.done+'/'+t.children.total+' sub-tasks</span>':'')+(t.due?'<span>due '+new Date(t.due).toISOString().slice(5,10)+'</span>':'')+'<span class="grow"></span>'+
     (hold?'<span title="'+esc(hold)+' is working on it">🔒</span>':'')+(who?'<span title="For '+esc(who)+'">'+avatar16(t.assignee,t.assignee_agent)+'</span>':'')+'</div>'+
-    (t.stop_reason?'<div class="xs faint">'+esc(t.stop_reason)+'</div>':'')+(t.done_note?'<div class="xs faint">✓ '+esc(t.done_note)+'</div>':'')+'</article>'}
+    (t.stop_reason?'<div class="xs faint">'+esc(t.stop_reason)+'</div>':'')+(t.done_note?'<div class="xs faint">✓ '+esc(t.done_note)+'</div>':'')+
+    // Someone who can't close it said a message resolves it (#2221): a link to that message (cards show no numbers,
+    // vedu #675), and Done to close it in one tap.
+    (t.resolved_by?'<div class="xs kres"><a class="kres-l" href="#e'+t.resolved_by+'" data-kopen="'+t.resolved_by+'">'+tr('A message says this is done')+'</a><button type="button" class="btn sm" data-kdone="'+t.seq+'">'+tr('Done')+'</button></div>':'')+'</article>'}
 async function taskAct(seq,body){const r=await fetch('/api/boards/'+BOARD+'/tasks/'+seq,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
   const j=await r.json().catch(()=>({}));if(!r.ok)toast(j.error||tr('Could not update'));loadTasks();tick(false)}
 const kb=document.getElementById('kanban');let dragSeq=null;
@@ -2421,7 +2435,8 @@ kb.addEventListener('dragstart',e=>{const c=e.target.closest('.kcard');if(!c)ret
 kb.addEventListener('dragend',e=>{e.target.closest('.kcard')?.classList.remove('dragging');kb.querySelectorAll('.kcol.over').forEach(x=>x.classList.remove('over'))});
 kb.addEventListener('dragover',e=>{const col=e.target.closest('.kcol');if(!col||!dragSeq)return;e.preventDefault();kb.querySelectorAll('.kcol.over').forEach(x=>x!==col&&x.classList.remove('over'));col.classList.add('over')});
 kb.addEventListener('drop',e=>{const col=e.target.closest('.kcol');if(!col||!dragSeq)return;e.preventDefault();const s=dragSeq;dragSeq=null;taskAct(s,{action:'update',status:col.dataset.status})});
-kb.addEventListener('click',e=>{const a=e.target.closest('[data-kopen]');if(a){e.preventDefault();tab(0);location.hash='#e'+a.dataset.kopen;return}
+kb.addEventListener('click',e=>{const d=e.target.closest('[data-kdone]');if(d){e.preventDefault();e.stopPropagation();taskAct(+d.dataset.kdone,{action:'update',status:'done'});return}
+  const a=e.target.closest('[data-kopen]');if(a){e.preventDefault();tab(0);location.hash='#e'+a.dataset.kopen;return}
   const c=e.target.closest('.kcard');if(c)openTask(+c.dataset.seq)});
 document.getElementById('kb-new')?.addEventListener('submit',async e=>{e.preventDefault();const i=document.getElementById('kb-new-text');const title=i.value.trim();if(!title)return;
   const r=await fetch('/api/boards/'+BOARD+'/tasks',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({title})});
@@ -2964,7 +2979,7 @@ export interface Display {
   density?: "comfortable" | "compact";
   theme?: "system" | "light" | "dark";
   mode?: "auto" | "everyday" | "developer";
-  lang?: "auto" | "en" | "zh-Hans" | "zh-Hant" | "es" | "ja" | "ko" | "hi" | "fr";
+  lang?: "auto" | "en" | "zh-Hans" | "zh-Hant" | "es" | "ja" | "ko" | "hi" | "fr" | "pt" | "de" | "ru" | "id" | "tr" | "bn";
   voice?: "eve" | "ara" | "leo" | "rex" | "sal";
 }
 
@@ -2983,6 +2998,7 @@ function displaySection(d: Display | null | undefined, lang?: Lang): string {
 ${seg("text", esc(T("Text size")), [["s", esc(T("Small"))], ["m", esc(T("Medium"))], ["l", esc(T("Large"))]])}
 ${seg("density", esc(T("Density")), [["comfortable", esc(T("Comfortable"))], ["compact", esc(T("Compact"))]])}
 ${seg("theme", esc(T("Theme")), [["system", esc(T("System"))], ["light", esc(T("Light"))], ["dark", esc(T("Dark"))]])}
+${seg("replies", esc(T("Replies")), [["chat", esc(T("In the chat"))], ["thread", esc(T("Only in their threads"))]])}
 <label class="lbl" for="dp-lang">${esc(T("Language"))}</label><select class="input dp-lang" id="dp-lang" data-lang="${esc(d?.lang ?? "auto")}">${(
     [["auto", T("Automatic (this browser's language)")], ...Object.entries(LANG_NAMES), ...(d?.lang && d.lang !== "auto" && !(d.lang in LANG_NAMES) ? [[d.lang, `${d.lang} (${T("set in the app; the web shows English for now")})`]] : [])] as [string, string][]
   )
@@ -3017,10 +3033,10 @@ function profileSection(p: ProfileView | null, lang?: Lang): string {
 const DISPLAY_JS = `
 (()=>{const f=document.getElementById('dp-form');if(!f)return;let saved=null,local={};
   try{saved=JSON.parse(f.dataset.saved)}catch{}try{local=JSON.parse(localStorage.getItem('atteo-display')||'{}')}catch{}
-  const cur=Object.assign({text:'m',density:'comfortable',theme:'system'},local,saved||{});
-  for(const k of ['text','density','theme']){const i=f.querySelector('input[name="'+k+'"][value="'+cur[k]+'"]');if(i)i.checked=true}
+  const cur=Object.assign({text:'m',density:'comfortable',theme:'system',replies:'chat'},local,saved||{});
+  for(const k of ['text','density','theme','replies']){const i=f.querySelector('input[name="'+k+'"][value="'+cur[k]+'"]');if(i)i.checked=true}
   if(saved)applyDisplay(cur);
-  f.addEventListener('change',async e=>{if(e.target.id==='dp-lang'||e.target.id==='dp-voice')return;const d={text:f.text.value,density:f.density.value,theme:f.theme.value};applyDisplay(d);
+  f.addEventListener('change',async e=>{if(e.target.id==='dp-lang'||e.target.id==='dp-voice')return;const d={text:f.text.value,density:f.density.value,theme:f.theme.value,replies:f.replies.value};applyDisplay(d);
     const r=await fetch('/api/me/profile',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({display:d})}).catch(()=>null);
     toast(r&&r.ok?tr('Display saved'):tr('Saved on this device only'))})})();
 // Read-aloud voice (vedu #1717): shown when read aloud is on; saved as display.voice, which read-aloud and voice chat use
@@ -3103,7 +3119,7 @@ export function mePage(viewer: Viewer, side: SideBoard[], tokens: TokenRow[], pl
     narrow: true,
     crumbs: `<span class="cur">${esc(T("Account"))}</span>`,
     body: `<div class="section-title"><div><h1>${esc(T("Account"))}</h1><p class="muted" style="margin-top:4px">${esc(T("Signed in as"))} <b>${esc(viewer.name)}</b> · ${esc(viewer.email)}</p></div>
-  <form method="post" action="/auth/logout"><button class="btn sm">${esc(T("Sign out"))}</button></form></div>
+  <div class="row" style="gap:8px"><a class="btn sm" href="/guide" id="me-guide">${esc(T("What Atteo can do"))}</a><form method="post" action="/auth/logout"><button class="btn sm">${esc(T("Sign out"))}</button></form></div></div>
 ${assistantCard(assistants, viewer.lang)}
 <div class="section-title" style="margin-top:32px"><div><h2>${esc(T("Profile"))}</h2><p class="small muted" style="margin-top:4px">${esc(T("How you and your agent show up to others. Two pictures, so people can tell you apart at a glance."))}</p></div></div>
 <div class="pfps">${(["person", "agent"] as const)

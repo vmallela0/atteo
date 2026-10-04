@@ -658,6 +658,39 @@ sys.exit(os.waitstatus_to_exitcode(status))
   });
 }
 
+/** Runs the CLI in a pseudo-terminal and answers `answer` to the first [y/N]/[Y/n] prompt (for testing the confirm step). */
+function ptyRun(args, { cred, cfg, answer } = {}) {
+  const py = `
+import os, pty, sys, json, re, time
+argv = json.loads(sys.argv[1])
+pid, fd = pty.fork()
+if pid == 0:
+    os.execvp(argv[0], argv)
+out = b""; answered = 0; deadline = time.time() + 120
+while time.time() < deadline:
+    try:
+        chunk = os.read(fd, 4096)
+    except OSError:
+        break
+    if not chunk:
+        break
+    out += chunk
+    if len(re.findall(rb"\\[(y/N|Y/n)\\]", out)) > answered:
+        answered += 1
+        os.write(fd, (${JSON.stringify(answer)}).encode() + b"\\n")
+_, status = os.waitpid(pid, 0)
+sys.stdout.write(out.decode("utf8", "replace"))
+sys.exit(os.waitstatus_to_exitcode(status))
+`;
+  return new Promise((resolve) => {
+    const p = spawn("python3", ["-c", py, JSON.stringify(["node", CLI, ...args])], { cwd: dir, env: { ...process.env, ATTEO_CREDENTIALS_FILE: cred, ATTEO_SERVER: BASE, XDG_CONFIG_HOME: cfg } });
+    let out = "";
+    p.stdout.on("data", (d) => (out += d));
+    p.stderr.on("data", (d) => (out += d));
+    p.on("close", (code) => resolve({ code, out }));
+  });
+}
+
 await step("claim checks: the author attaches one; another member's person OKs it; it runs sandboxed (no network) in a throwaway checkout; pass verifies, fail disputes", async () => {
   const repo = realpathSync(mkdtempSync(join(tmpdir(), "agent-board-verify-")));
   const genv = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.com" };
@@ -936,6 +969,23 @@ await step("sessions: each agent is its own session (found from its process), jo
     assert(r.code === 0, r.out);
     r = await codex.run(`wait --timeout 5`);
     assert(r.out.includes(`agreed ${run}`), r.out);
+    // Held waits: the read position moves when the next wait or read sends back what this one got (kept in the session
+    // file once printed). An answer whose ack never got kept (lost on the way) is handed out again.
+    const sessFile = join(cfg, "cfg", "agent-board", "sessions.json");
+    const ackOf = () => Object.values(JSON.parse(readFileSync(sessFile, "utf8"))).find((s) => s.name === "codex")?.ack;
+    assert(ackOf()?.startsWith(`${board}:`), "the wait's ack is kept: " + readFileSync(sessFile, "utf8"));
+    r = await codex.run(`wait --timeout 1`);
+    assert(!r.out.includes(`agreed ${run}`), "acked by the next wait: " + r.out);
+    const before = readFileSync(sessFile, "utf8");
+    await tool(tokB, board, "read", {});
+    await tool(tokB, board, "post", { type: "note", text: `lost on the way ${run}`, reply_to: 0 });
+    r = await codex.run(`wait --timeout 5`);
+    assert(r.out.includes(`lost on the way ${run}`), r.out);
+    writeFileSync(sessFile, before); // as if the answer never arrived: its ack wasn't kept
+    r = await codex.run(`wait --timeout 5`);
+    assert(r.out.includes(`lost on the way ${run}`), "a lost answer comes again: " + r.out);
+    r = await codex.run(`read --board ${board}`);
+    assert(!r.out.includes(`lost on the way ${run}`), "a read acks it: " + r.out);
     r = await codex.run(`session rename scout`);
     assert(r.out.includes(`"scout"`), r.out);
     r = await codex.run(`leave ${board}`);
@@ -1175,7 +1225,11 @@ await step("mailbox: another person's DM and @mention of your agent show up in f
   await tool(tokN, shared, "post", { type: "question", text: `@${M}'s agent which port does staging use? ${run}` });
   let r = await mb(["--peek"]);
   assert(r.code === 0 && r.out.includes("Mail for your agent (2)") && r.out.includes("direct message") && r.out.includes("for your agent"), r.out + r.err);
-  assert(r.out.includes(`from ${N} (person)`) && r.out.includes(`from ${N}'s agent ·`) && r.out.includes(`(${shared}):\n── #`) && r.out.includes("    line two") && r.out.includes("all of it end"), "labelled, grouped by board, full text: " + r.out);
+  assert(r.out.includes(`from ${N} (person)`) && r.out.includes(`from ${N}'s agent ·`) && r.out.includes(`(${shared}):\n── #`) && r.out.includes("line two,") && r.out.includes("all of it end") && !r.out.includes("for the rest"), "labelled, grouped, in full (#2348): " + r.out);
+  const peeked = JSON.parse((await mb(["--peek", "--json"])).out);
+  const dmMail = peeked.mail.find((m) => m.board === dm);
+  const fenceBody = (p) => p.slice(p.indexOf(">>\n") + 3, p.lastIndexOf("\n<<end untrusted"));
+  assert(dmMail && dmMail.kind === "dm" && dmMail.for === "for your agent" && dmMail.text === long && dmMail.preview.includes("<<untrusted ") && fenceBody(dmMail.preview).endsWith("…") && !fenceBody(dmMail.preview).includes("all of it end"), JSON.stringify(dmMail).slice(0, 500));
   assert(r.out.indexOf("Line one of the DM") < r.out.indexOf("which port does staging use"), "oldest first: " + r.out);
   assert(/<<untrusted [0-9a-f]+:[^\n]*>>/.test(r.out) && /<<end untrusted [0-9a-f]+>>/.test(r.out), "fenced as board content: " + r.out);
   assert(r.out.includes("Peeked"), r.out);
@@ -1195,6 +1249,10 @@ await step("mailbox: another person's DM and @mention of your agent show up in f
   assert(m.kind === "dm" && m.board === dm && m.from === N && m.type === "question" && m.text === `quick one ${run}` && typeof m.id === "number" && typeof m.seq === "number" && typeof m.ts === "number", r.out);
   r = await mb(["--wait", "2"]);
   assert(r.out.includes("Nothing new in 2s."), "--json without --peek delivered it too: " + r.out);
+  // Only a very long message is cut (past 2000 characters), with where to get the rest.
+  const huge = (await call(tokN, "POST", `/api/boards/${dm}/entries`, { type: "note", text: `huge ${run} ` + "z".repeat(2500) + " TAILZ" })).entry.seq;
+  r = await mb([]);
+  assert(r.out.includes(`get #${huge} for the rest`) && !r.out.includes("TAILZ") && r.out.includes("z".repeat(1900)), "a long message is cut at 2000: " + r.out.slice(0, 300));
   // Headless: the mailbox and read say where to answer; turned off, they don't.
   await call(tokM, "POST", "/api/me/profile", { agents_headless: true });
   await call(tokN, "POST", `/api/boards/${dm}/entries`, { type: "question", text: `second one ${run}` });
@@ -1820,6 +1878,22 @@ await step("doctor (#2107): read-only checks of the login, server, CLI version, 
   assert(o.code === 1 && v && !v.ok && v.fix === "atteo update", `stale CLI: ${JSON.stringify(o.j)}`);
 });
 
+await step("guide (vedu #2402): the server's /agents.md, signed in or not; --json; listed in the agents' help", async () => {
+  const served = await (await fetch(`${BASE}/agents.md`)).text();
+  assert(served.startsWith("# Atteo for agents") && served.includes("`request_approval`") && served.includes(`${BASE}/guide`), `served: ${served.slice(0, 200)}`);
+  let r = await cli(["guide"]);
+  assert(r.code === 0 && r.out.trim() === served.trim(), `signed in: ${r.code} ${r.out.slice(0, 200)}${r.err}`);
+  r = await cli(["guide"], { cred: join(dir, "nobody.json") }); // no login on this machine: the guide still works
+  assert(r.code === 0 && r.out.includes("# Atteo for agents"), `signed out: ${r.code} ${r.err}`);
+  r = await cli(["guide", "--json"]);
+  const j = JSON.parse(r.out);
+  assert(j.server === BASE && j.guide.trim() === served.trim(), `json: ${r.out.slice(0, 200)}`);
+  r = await cli(["guide", "--bogus"]);
+  assert(r.code !== 0 && /--bogus/.test(r.err), `unknown option refused: ${r.err}`);
+  r = await cli([]);
+  assert(/atteo guide/.test(r.out), `help lists it: ${r.out.slice(-600)}`);
+});
+
 await step("a login only goes to its own server: --server / ATTEO_SERVER elsewhere never gets the token (opus-d #2127)", async () => {
   const { createServer } = await import("node:http");
   const seen = [];
@@ -1848,6 +1922,73 @@ await step("a login only goes to its own server: --server / ATTEO_SERVER elsewhe
   } finally {
     srv.close();
   }
+});
+
+await step("session end --idle <duration>: lists idle sessions, asks before ending (unless --yes), never ends the calling session", async () => {
+  // User C: the calling-session exclusion and --yes (non-TTY, so the calling session is shared across cli() calls).
+  const C = `e2e-cli-idle-${run}`;
+  await ops("users", { name: C, email: `${C}@example.com`, verified: "true" });
+  const tokC = (await ops("tokens", { user: C })).token;
+  const credC = join(dir, "c-idle.json");
+  writeFileSync(credC, JSON.stringify({ server: BASE, user: C, token: tokC, expires_at: Date.now() + 86400e3 }), { mode: 0o600 });
+  const cfgC = join(dir, "cfg-idle");
+  mkdirSync(cfgC, { recursive: true });
+  const cliC = (args, env = {}) => cli(args, { cred: credC, env: { XDG_CONFIG_HOME: cfgC, ...env } });
+  const sessionsOfC = async () => (await (await fetch(`${BASE}/api/sessions`, { headers: { authorization: `Bearer ${tokC}` } })).json()).sessions;
+  const setIdle = (sid, ms) => ops("session-seen", { session: sid, last_seen: Date.now() - ms });
+  const makeC = async (name) => (await (await fetch(`${BASE}/api/sessions`, { method: "POST", headers: { authorization: `Bearer ${tokC}`, "content-type": "application/json" }, body: JSON.stringify({ name }) })).json()).session;
+
+  // The calling session Sc: created with `session new`, remembered in cfgC's local map (keyed by this process tree).
+  let r = await cliC(["session", "new", `sc-${run}`]);
+  assert(r.code === 0 && /New session sc-/.test(r.out), `session new: ${r.out}${r.err}`);
+  const scId = r.out.match(/\((as_[A-Za-z0-9_-]+)\)/)?.[1];
+  assert(scId, `sc id from: ${r.out}`);
+
+  // S1, idle, that --idle should end (Sc is the calling session and must survive).
+  const s1 = await makeC(`s1-${run}`);
+  await setIdle(scId, 30 * 60_000);
+  await setIdle(s1.id, 30 * 60_000);
+
+  // List + refuse: without --yes and no TTY, it lists S1 (Sc excluded as the calling session) and refuses to end.
+  r = await cliC(["session", "end", "--idle", "20m"]);
+  assert(r.code !== 0 && r.out.includes(`s1-${run}`) && !r.out.includes(`sc-${run}`) && /pass --yes/.test(r.err + r.out), `list+refuse: ${r.code} ${r.out}${r.err}`);
+  let live = await sessionsOfC();
+  assert(live.some((s) => s.id === s1.id) && live.some((s) => s.id === scId), `nothing ended after refuse: ${JSON.stringify(live.map((s) => s.name))}`);
+
+  // --yes: ends S1 without asking; Sc (the calling session) survives.
+  r = await cliC(["session", "end", "--idle", "20m", "--yes"]);
+  assert(r.code === 0 && /Ended 1 idle session/.test(r.out) && r.out.includes(`sc-${run}`) && r.out.includes("keeps running"), `--yes: ${r.out}${r.err}`);
+  live = await sessionsOfC();
+  assert(!live.some((s) => s.id === s1.id) && live.some((s) => s.id === scId), `s1 ended, sc survives: ${JSON.stringify(live.map((s) => s.name))}`);
+
+  // The calling session Sc is still usable.
+  r = await cliC(["session", "show"]);
+  assert(r.code === 0 && r.out.includes(`sc-${run}`), `sc still usable: ${r.out}${r.err}`);
+
+  // User D: the confirm prompt in a TTY. A separate user, so the pty's own calling session (none) can't interfere.
+  const D = `e2e-cli-idle2-${run}`;
+  await ops("users", { name: D, email: `${D}@example.com`, verified: "true" });
+  const tokD = (await ops("tokens", { user: D })).token;
+  const credD = join(dir, "d-idle.json");
+  writeFileSync(credD, JSON.stringify({ server: BASE, user: D, token: tokD, expires_at: Date.now() + 86400e3 }), { mode: 0o600 });
+  const cfgD = join(dir, "cfg-idle2");
+  mkdirSync(cfgD, { recursive: true });
+  const sessionsOfD = async () => (await (await fetch(`${BASE}/api/sessions`, { headers: { authorization: `Bearer ${tokD}` } })).json()).sessions;
+  const makeD = async (name) => (await (await fetch(`${BASE}/api/sessions`, { method: "POST", headers: { authorization: `Bearer ${tokD}`, "content-type": "application/json" }, body: JSON.stringify({ name }) })).json()).session;
+
+  // "n" at the prompt: nothing ends.
+  const d1 = await makeD(`d1-${run}`);
+  await ops("session-seen", { session: d1.id, last_seen: Date.now() - 30 * 60_000 });
+  r = await ptyRun(["session", "end", "--idle", "20m"], { cred: credD, cfg: cfgD, answer: "n" });
+  assert(r.code === 0 && r.out.includes("Not ended."), `confirm n: ${r.out}`);
+  let liveD = await sessionsOfD();
+  assert(liveD.some((s) => s.id === d1.id), `d1 still live after n: ${JSON.stringify(liveD.map((s) => s.name))}`);
+
+  // "y" at the prompt: the idle session ends.
+  r = await ptyRun(["session", "end", "--idle", "20m"], { cred: credD, cfg: cfgD, answer: "y" });
+  assert(r.code === 0 && /Ended \d+ idle session/.test(r.out), `confirm y: ${r.out}`);
+  liveD = await sessionsOfD();
+  assert(!liveD.some((s) => s.id === d1.id), `d1 ended after y: ${JSON.stringify(liveD.map((s) => s.name))}`);
 });
 
 await step("creator-set text (board titles, display names, notes) only inside the untrusted fence; sentences name boards by id (#2181)", async () => {
@@ -1902,6 +2043,44 @@ await step("wait --for-me (claude #2181): sleeps through other agents' chatter, 
   r = await cli(["wait", "--for-me", "--timeout", "20", "--json"], { env });
   const j = JSON.parse(r.out);
   assert(!j.timed_out && JSON.stringify(j).includes(`and the tag ${run}?`), `json: ${r.out.slice(0, 300)}`);
+});
+
+await step("post handoff (#2173 item 3): branch, HEAD and the tested main come from git; get handoffs is the queue; the lander closes one with --landed or --failed", async () => {
+  const hb = (await ops("boards", { user: A, title: `e2e cli handoffs ${run}` })).board.id;
+  await ops("members", { board: hb, user: B });
+  const repo = mkdtempSync(join(tmpdir(), "atteo-handoff-"));
+  const genv = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.com" };
+  const g = (...a) => execFileSync("git", a, { cwd: repo, env: genv, stdio: "pipe" }).toString().trim();
+  g("init", "-q", "-b", "main");
+  writeFileSync(join(repo, "a.txt"), "one\n");
+  g("add", "."); g("commit", "-qm", "main");
+  const main = g("rev-parse", "HEAD");
+  g("update-ref", "refs/remotes/origin/main", main); // as if fetched
+  g("checkout", "-qb", `fix/cli-${run}`);
+  writeFileSync(join(repo, "a.txt"), "two\n");
+  g("commit", "-qam", "the fix");
+  const head = g("rev-parse", "HEAD");
+  const envA = { XDG_CONFIG_HOME: join(dir, "cfg-handoff-a") };
+  const envB = { XDG_CONFIG_HOME: join(dir, "cfg-handoff-b") };
+
+  let r = await cli(["post", "handoff", "--board", hb], { cwd: repo, env: envA });
+  assert(r.code !== 0 && (r.out + r.err).includes("--checks"), `asks what passed: ${r.out}${r.err}`);
+  r = await cli(["post", "note", "x", "--checks", "y", "--board", hb], { cwd: repo, env: envA });
+  assert(r.code !== 0 && (r.out + r.err).includes("atteo post handoff"), `gate flags only on a handoff: ${r.out}${r.err}`);
+  r = await cli(["post", "handoff", "--checks", "vitest 12, e2e 3", "--board", hb], { cwd: repo, env: envA });
+  assert(r.code === 0 && /Posted #\d+ \(handoff\)/.test(r.out) && r.out.includes("In the gate's queue"), `posted: ${r.out}${r.err}`);
+  const h = Number(r.out.match(/Posted #(\d+)/)[1]);
+
+  r = await cli(["get", "handoffs", "--board", hb], { cwd: repo, env: envB, cred: credB });
+  assert(r.code === 0 && r.out.includes(`#${h} fix/cli-${run} ${head} on ${main} · checks: vitest 12, e2e 3`) && /<<untrusted [0-9a-f]+:/.test(r.out), `queue: ${r.out}${r.err}`);
+  r = await cli(["post", "handoff", "--reply", String(h), "--landed", "HEAD", "--board", hb], { cwd: repo, env: envA });
+  assert(r.code !== 0 && (r.out + r.err).includes("someone else lands it"), `not your own: ${r.out}${r.err}`);
+  r = await cli(["post", "handoff", "--reply", String(h), "--board", hb, "--failed"], { cwd: repo, env: envB, cred: credB });
+  assert(r.code !== 0 && (r.out + r.err).includes("Say why it failed"), `--failed needs a reason: ${r.out}${r.err}`);
+  r = await cli(["post", "handoff", "--reply", String(h), "--landed", head, "--board", hb], { cwd: repo, env: envB, cred: credB });
+  assert(r.code === 0 && r.out.includes(`Closed #${h}: landed.`), `landed: ${r.out}${r.err}`);
+  r = await cli(["get", "handoffs", "--board", hb], { cwd: repo, env: envB, cred: credB });
+  assert(r.code === 0 && r.out.includes("No open handoffs"), `empty queue: ${r.out}${r.err}`);
 });
 
 if (ONLY && !matched) { failed++; console.log(`  ✗ no steps match ONLY=${JSON.stringify(process.env.ONLY)}`); }

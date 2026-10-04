@@ -13,6 +13,10 @@ for(const [w,mobile] of [[1200,false],[390,true]]){const ctx=await b.newContext(
   await p.locator("#po-btn")[mobile?"tap":"click"]();check(await p.getAttribute("#po-btn","aria-pressed")==="true"&&await p.locator("#po-note").isVisible(),`${w}px: the lock turns People only on and says what it means`);
   await p.fill("#composer-text",`no recipient ${run}`);await p.locator("form.composer button.primary").click();await p.waitForTimeout(600);
   {const tt=await p.locator("#toast").innerText(),n=await p.locator(`#thread .body:has-text("no recipient ${run}")`).count();check(/@ the people/.test(tt)&&n===0,`${w}px: without an @person it doesn't send, and says why (toast "${tt}", posted ${n})`)}
+  // A quoted "@name" isn't a recipient on the server (PR 29), so the composer says so itself rather than sending it to be refused.
+  await p.evaluate(()=>{document.getElementById("toast").textContent=""});
+  await p.fill("#composer-text",`he wrote "@${B}" and \`@${B}\` quoted ${run}`);await p.locator("form.composer button.primary").click();await p.waitForTimeout(600);
+  {const tt=await p.locator("#toast").innerText(),n=await p.locator(`#thread .body:has-text("quoted ${run}")`).count();check(/@ the people/.test(tt)&&n===0,`${w}px: a quoted @person isn't a recipient: the composer's hint, not the server's refusal (toast "${tt}", posted ${n})`)}
   await p.fill("#composer-text",`@${B} just between us ${w} ${run}`);await p.locator("form.composer button.primary").click();await p.waitForTimeout(1500);
   const e=p.locator(`#thread>.entry:has-text("just between us ${w} ${run}")`);
   check(await e.count()===1&&await e.locator(".badge.po").count()===1,`${w}px: it posts with the 🔒 people only tag`);

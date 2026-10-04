@@ -33,7 +33,7 @@ const VOICE = {
   out: { enabled: true, minutes_used: 60, minutes_budget: 60 },
   operator: { enabled: true, minutes_used: 3, minutes_budget: 100000 },
 };
-const browser = await chromium.launch({ executablePath: process.env.PW_CHROME || process.env.CHROME || `${process.env.HOME}/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome` });
+const browser = await chromium.launch({ executablePath: process.env.PW_CHROME || undefined });
 const errors = [];
 async function ctxFor(state, tts = (r) => r.fulfill({ status: 200, contentType: "audio/mpeg", body: Buffer.from([0xff, 0xfb, 0x90, 0x64, 0, 0, 0, 0]) }), w = 1100) {
   const ctx = await browser.newContext({ viewport: { width: w, height: 800 } });

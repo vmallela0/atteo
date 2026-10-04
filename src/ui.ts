@@ -261,7 +261,7 @@ dialog[open]{animation:pop .16s ease-out}dialog:focus{outline:none}@media (prefe
 .file{margin-top:8px;border:1px solid var(--line);border-radius:8px;overflow:hidden}
 .file .fh{display:flex;align-items:center;gap:10px;padding:9px 12px;background:var(--bg-subtle)}
 .file pre{margin:0;max-height:420px;overflow:auto;padding:12px;border-top:1px solid var(--line);white-space:pre;font-size:12px}
-.t-change{color:var(--accent)}
+.t-change{color:var(--accent)}.t-handoff{color:var(--ok)}
 /* Members & access */
 dialog.access-dlg{width:min(640px,calc(100vw - 24px))}
 /* Invite an agent (#1855): a small + after the members' faces, and a two-choice dialog */
@@ -829,6 +829,7 @@ mark{background:color-mix(in srgb,var(--warn) 30%,transparent);color:inherit;bor
 .kcard{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;cursor:grab;display:flex;flex-direction:column;gap:4px}
 .kcard:hover{border-color:color-mix(in srgb,var(--ink) 25%,var(--line))}
 .kcard.dragging{opacity:.5}
+.kres{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.kres-l{color:var(--accent)}.kres-l:hover{text-decoration:underline}.kres .btn{margin-left:auto;padding:1px 10px}
 .kcard .ktext{font-size:13px;color:var(--ink);line-height:1.4}
 .kmeta{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--faint);min-height:18px}.kmeta .seq{color:var(--faint)}.kmeta .badge{height:17px;font-size:10.5px}
 @media (max-width:640px){.kb-hint{display:none}.kb-new{flex:1}.kb-new .input{width:auto;flex:1}}
@@ -871,6 +872,9 @@ mark{background:color-mix(in srgb,var(--warn) 30%,transparent);color:inherit;bor
   /* The open drawer closes with its ✕, a tap on the dimmed page beside it, a swipe back to the left, or Esc (jxn #2223). */
   .nav-x{display:inline-flex;position:absolute;top:8px;right:8px;width:32px;padding:0;justify-content:center;z-index:1}
   .app.nav-open .nav-scrim{display:block;position:fixed;inset:0;z-index:39;background:rgba(0,0,0,.32)}}
+/* Connect an agent, always in the phone menu (vedu #2241): the board's header button goes once an agent is connected. */
+.side-connect{display:none}@media(max-width:860px){.side-connect{display:flex}}
+.side-connect .ev-l,:root[data-mode="everyday"] .side-connect .dev-l{display:none}:root[data-mode="everyday"] .side-connect .ev-l{display:inline}
 kbd{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 4px;border:1px solid var(--line-strong);border-bottom-width:2px;
   border-radius:4px;font:500 10.5px/1 "Geist Mono",ui-monospace,monospace;color:var(--muted);background:var(--bg)}
 
@@ -1073,6 +1077,7 @@ a.ref:hover{color:var(--ink);background:color-mix(in srgb,var(--accent) 12%,var(
 /* Recap: a header button and a sheet (bottom sheet on phones) */
 .recap-btn{position:relative;gap:5px;align-self:center;color:var(--muted)}.recap-btn:hover{color:var(--ink)}
 /* People (jxn #1731): only what people wrote. Agents' posts are hidden for this viewer alone (a root attribute from this browser) */
+:root[data-replies="thread"] #thread>.entry[data-root],:root[data-replies="thread"] #thread>.ghost[data-root]{display:none} /* replies only in their threads (vedu #2360) */
 :root[data-pf] #thread>.entry.by-agent,:root[data-pf] #thread>.ghost.by-agent,:root[data-pf] .thr-dlg:not(.thr-all) .thr-list>.entry.by-agent:not(:first-child){display:none}
 /* A thread's own Show agents (jxn #2191): only under Hide agents, only when the thread has agents' replies. */
 .thr-pf{color:var(--muted)}.thr-pf:hover{color:var(--ink)}.thr-pf[aria-pressed="true"]{color:var(--ink);background:var(--bg-hover)}.thr-pf[hidden],:root:not([data-pf]) .thr-pf{display:none}
@@ -1122,19 +1127,19 @@ export interface Viewer {
 export function page(
   title: string,
   body: string,
-  opts: { viewer?: Viewer | null; nav?: "boards" | "admin" | "me" | null; narrow?: boolean; script?: string; status?: number; headers?: HeadersInit } = {},
+  opts: { viewer?: Viewer | null; nav?: "boards" | "admin" | "me" | null; narrow?: boolean; script?: string; status?: number; headers?: HeadersInit; lang?: Lang } = {},
 ): Response {
   const v = opts.viewer;
   const link = (href: string, label: string, key: string) => `<a href="${href}"${opts.nav === key ? ' aria-current="page"' : ""}>${label}</a>`;
   const nav = `<header class="nav"><div class="in">
 <a class="brand" href="/">${LOGO}<span class="wm">atteo</span></a>
-${v ? `<nav class="links">${link("/", "Boards", "boards")}</nav>` : ""}
+${v ? `<nav class="links">${link("/", esc(tr(opts.lang, "Boards")), "boards")}</nav>` : ""}
 <div class="right">${
     v
-      ? `<a href="/me" class="row" title="Account">${avatar(v.name)}<span class="small hide-sm">${esc(v.name)}</span></a>`
-      : `<a class="btn sm primary" href="/auth/login">Sign in</a>`
+      ? `<a href="/me" class="row" title="${esc(tr(opts.lang, "Account"))}">${avatar(v.name)}<span class="small hide-sm">${esc(v.name)}</span></a>`
+      : `<a class="btn sm primary" href="/auth/login">${esc(tr(opts.lang, "Sign in"))}</a>`
   }</div></div></header>`;
-  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  const html = `<!doctype html><html lang="${opts.lang ?? "en"}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -1348,7 +1353,7 @@ function inline(s: string, mentions?: Mention[] | null): string {
 
 // Applies the saved Display settings before first paint, so the page never flashes the wrong size or theme.
 const DISPLAY_HEAD = `<script>try{const d=JSON.parse(localStorage.getItem('atteo-display')||'{}'),r=document.documentElement;
-if(d.text==='s'||d.text==='l')r.dataset.text=d.text;if(d.density==='compact')r.dataset.density='compact';if(d.theme==='light'||d.theme==='dark')r.dataset.theme=d.theme;if(d.ev===true)r.dataset.mode='everyday'}catch{}</script>`; // mode: what the account said last time (set on the first sync)
+if(d.text==='s'||d.text==='l')r.dataset.text=d.text;if(d.density==='compact')r.dataset.density='compact';if(d.theme==='light'||d.theme==='dark')r.dataset.theme=d.theme;if(d.ev===true)r.dataset.mode='everyday';if(d.replies==='thread')r.dataset.replies='thread'}catch{}</script>`; // mode: what the account said last time (set on the first sync)
 
 const CLIENT_JS = `
 /** The one HTML escaper for every page script. */
@@ -1362,10 +1367,12 @@ window.applyDisplay=d=>{const r=document.documentElement;d=d||{};
   if(d.text==='s'||d.text==='l')r.dataset.text=d.text;else delete r.dataset.text;
   if(d.density==='compact')r.dataset.density='compact';else delete r.dataset.density;
   if(d.theme==='light'||d.theme==='dark')r.dataset.theme=d.theme;else delete r.dataset.theme;
+  // Replies only in their threads (vedu #2360): the chat shows top-level messages, each with its "N replies".
+  if(d.replies==='thread')r.dataset.replies='thread';else delete r.dataset.replies;
   // Everyday (the default) or Developer (#1272): the server says which, from your choice or (auto) whether you've connected a coding agent.
   let ev=r.dataset.mode==='everyday';if(typeof d.developer==='boolean')ev=!d.developer;if(ev)r.dataset.mode='everyday';else delete r.dataset.mode;
-  try{localStorage.setItem('atteo-display',JSON.stringify({text:d.text||'m',density:d.density||'comfortable',theme:d.theme||'system',ev}))}catch{}
-  document.dispatchEvent(new CustomEvent('atteo-mode',{detail:{everyday:ev}}))};
+  try{localStorage.setItem('atteo-display',JSON.stringify({text:d.text||'m',density:d.density||'comfortable',theme:d.theme||'system',ev,replies:d.replies==='thread'?'thread':'chat'}))}catch{}
+  document.dispatchEvent(new CustomEvent('atteo-mode',{detail:{everyday:ev}}));document.dispatchEvent(new CustomEvent('atteo-replies'))};
 if($('a[href="/me"]')){let fresh=false;try{fresh=!!sessionStorage.getItem('atteo-display-sync');sessionStorage.setItem('atteo-display-sync','1')}catch{}
   if(!fresh)fetch('/api/me/profile').then(r=>r.ok?r.json():null).then(j=>{const d=j&&j.profile&&j.profile.display;if(d&&typeof d==='object')applyDisplay({...d,developer:j.profile.developer})}).catch(()=>{})}
 // A new version shipped while this page was open (jxn #1221): offer a reload rather than keep running old code. Checked on
@@ -1420,6 +1427,7 @@ ${CODE_COLOR_JS}`;
 // ---------- app shell (signed-in pages) ----------
 
 const ICON = {
+  plug: `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M6 2v3M10 2v3M4.5 5h7v2.5a3.5 3.5 0 0 1-7 0zM8 11v3"/></svg>`,
   boards: `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="2" y="2" width="5" height="5" rx="1.2"/><rect x="9" y="2" width="5" height="5" rx="1.2"/><rect x="2" y="9" width="5" height="5" rx="1.2"/><rect x="9" y="9" width="5" height="5" rx="1.2"/></svg>`,
   admin: `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M8 1.8l5 2v4c0 3-2.2 5.2-5 6.4C5.2 13 3 10.8 3 7.8v-4z"/></svg>`,
   me: `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="8" cy="5.5" r="2.8"/><path d="M2.8 14c.8-2.6 2.8-4 5.2-4s4.4 1.4 5.2 4"/></svg>`,
@@ -1429,6 +1437,7 @@ const ICON = {
   search: `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>`,
   menu: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"/></svg>`,
   plus: `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg>`,
+  guide: `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><path d="M8 4.2C6.6 3 4.6 2.6 2.5 2.8v9.6c2.1-.2 4.1.2 5.5 1.4 1.4-1.2 3.4-1.6 5.5-1.4V2.8c-2.1-.2-4.1.2-5.5 1.4z"/><path d="M8 4.2v9.6"/></svg>`,
 };
 
 export interface SideBoard {
@@ -1506,6 +1515,7 @@ export function appPage(
     { label: T("New board"), hint: "C", href: "/?new=1" },
     { label: T("All boards"), hint: "G B", href: "/" },
     { label: T("Account and agent connections"), hint: "G M", href: "/me" },
+    { label: T("Guide"), hint: T("What Atteo can do"), href: "/guide" },
     { label: T("Keyboard shortcuts"), hint: "?", href: "#shortcuts" },
     ...(v.admin ? [{ label: "Ops console", hint: "Operators", href: "/_ops" }] : []),
   ];
@@ -1519,6 +1529,8 @@ export function appPage(
   <a class="side-link" href="/approvals"${cur("approvals")}>${ICON.approve}<span>${esc(T("Approvals"))}</span><span class="count" id="approvals-count" hidden></span></a>
   <a class="side-link" href="/"${cur("boards")}>${ICON.boards}<span>${esc(T("Boards"))}</span></a>
   <a class="side-link" href="/people"${cur("people")}>${ICON.me}<span>${esc(T("People"))}</span></a>
+  <a class="side-link" href="/guide"${cur("guide")}>${ICON.guide}<span>${esc(T("Guide"))}</span></a>
+  <a class="side-link side-connect" href="/me#connect" data-connect>${ICON.plug}<span class="dev-l">${esc(T("Connect an agent"))}</span><span class="ev-l">${esc(T("Connect your assistant"))}</span></a>
   ${v.admin ? `<a class="side-link" href="/_ops"${cur("admin")}>${ICON.admin}<span>Ops</span></a>` : ""}
   <div class="side-label"><span>${esc(T("Your boards"))}</span><a href="/?new=1" title="${esc(T("New board (C)"))}" aria-label="${esc(T("New board"))}">${ICON.plus}</a></div>
   ${sideBoards || `<p class="xs faint" style="padding:2px 9px">${esc(T("No boards yet"))}</p>`}
@@ -1648,6 +1660,10 @@ function navSet(on){const app=$('#app');if(!app||app.classList.contains('nav-ope
   if(on){navFrom=document.activeElement;$('.nav-x')?.focus({preventScroll:true})}else{const f=navFrom&&document.contains(navFrom)?navFrom:mb;navFrom=null;if(app.contains(document.activeElement)||document.activeElement===document.body)f?.focus?.({preventScroll:true})}}
 document.addEventListener('click',e=>{if(e.target.closest('[data-palette]'))openPalette();if(e.target.closest('[data-nav]'))navSet(!$('#app')?.classList.contains('nav-open'));else if(e.target.closest('[data-nav-close]'))navSet(false)});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&$('#app')?.classList.contains('nav-open')&&!$('dialog[open]')){e.preventDefault();navSet(false)}});
+// Connect an agent (the menu's link, vedu #2241): this page's Connect dialog when it has one, else Account's, opened by
+// its #connect.
+document.addEventListener('click',e=>{const a=e.target.closest('[data-connect]'),d=$('dialog#connect');if(!a||!d)return;e.preventDefault();navSet(false);if(!d.open)d.showModal()});
+if(location.hash==='#connect'){const d=$('dialog#connect');if(d&&!d.open)d.showModal()}
 {let sx=0,sy=0,on=false;const sb=$('#sidebar');
   sb?.addEventListener('touchstart',e=>{const t=e.touches[0];sx=t.clientX;sy=t.clientY;on=$('#app')?.classList.contains('nav-open')},{passive:true});
   sb?.addEventListener('touchend',e=>{const t=e.changedTouches[0],dx=t.clientX-sx,dy=t.clientY-sy;if(on&&dx<-50&&Math.abs(dx)>Math.abs(dy)*1.5)navSet(false)},{passive:true})}

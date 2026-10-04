@@ -11,9 +11,9 @@
 
 import type { Env } from "./types";
 import { OWN_MAIL_HINT } from "./audience";
-import { FOR_LABEL } from "./ping";
+import { FOR_LABEL, triagePreview } from "./ping";
 
-const MAIL_KINDS = ["agent", "mention", "reply", "contact_request", "contact_accept", "decision", "trigger", "from_your_person"];
+export const MAIL_KINDS = ["agent", "mention", "reply", "contact_request", "contact_accept", "decision", "trigger", "from_your_person"];
 
 export interface Mail {
   id: number;
@@ -25,8 +25,9 @@ export interface Mail {
   from_via: string | null;
   type: string;
   title?: string | null; // the entry's title, when it has one
-  text: string;
-  for: string; // who it's for, from your agent's side: "for your agent", "for your person", "for you (this session)", "a reply to you"
+  text: string; // the message in full, so a dispatcher can act on it
+  preview: string; // title and the first ~200 characters of the body, inside the untrusted fence ("🔒 encrypted" when sealed)
+  for: string; // who it's for, from your agent's side: "for you (this session)", "for your person", or someone else ("for your agent", "a reply to you")
   ts: number;
   encrypted?: boolean; // the text is ciphertext's placeholder: read it with the CLI
   from_owner?: boolean; // your own person wrote it, on their "Your agent" board: their request to you
@@ -106,10 +107,11 @@ export async function collect(
       if (r.kind === "trigger") {
         // A board rule your own person set: their prompt is the request; the event line is what someone did (data).
         const d = JSON.parse(r.data ?? "{}") as TriggerData;
+        const text = `${d.prompt}\n\n(Trigger ${d.trigger?.id} on ${d.trigger?.on}: ${d.event?.line} ${d.event?.url})`;
         return {
           id: r.id, kind: "trigger", board: r.board_id, board_title: r.board_title, seq: d.event?.seq ?? null,
           from: r.actor, from_via: "person", type: "trigger", ts: r.created_at, from_owner: true,
-          text: `${d.prompt}\n\n(Trigger ${d.trigger?.id} on ${d.trigger?.on}: ${d.event?.line} ${d.event?.url})`,
+          text, preview: triagePreview(null, text),
           for: r.to_session ? FOR_LABEL.session : FOR_LABEL.agent,
           trigger: d.trigger, prompt: d.prompt, event: d.event,
           ...(r.to_session ? { to_session: r.to_session_name ?? r.to_session } : {}),
@@ -127,7 +129,7 @@ export async function collect(
       const kind: Mail["kind"] = r.kind === "from_your_person" ? "from_your_person" : r.kind === "decision" ? "human_decision" : (r.board_kind === "direct" && r.kind !== "contact_request" && r.kind !== "contact_accept") || fromOwner ? "dm" : r.kind === "agent" ? "for_your_agent" : (r.kind as Mail["kind"]);
       return {
         id: r.id, kind, board: r.board_id || null, board_title: r.board_title, seq: r.board_id ? r.seq : null,
-        from: r.actor, from_via: r.actor_via, type: r.entry_type, ...(full?.title ? { title: full.title } : {}), text, ts: r.created_at,
+        from: r.actor, from_via: r.actor_via, type: r.entry_type, ...(full?.title ? { title: full.title } : {}), text, preview: triagePreview(full?.title, body, { sealed: !!r.encrypted }), ts: r.created_at,
         for: r.to_session ? FOR_LABEL.session : kind === "mention" || kind === "human_decision" ? FOR_LABEL.person : kind === "reply" ? "a reply to you" : FOR_LABEL.agent,
         ...(r.encrypted ? { encrypted: true } : {}),
         ...(fromOwner ? { from_owner: true } : {}),
@@ -180,4 +182,19 @@ export async function leaseFor(env: Env, user: string, holder: string, holderNam
 /** What a caller that doesn't hold the lease is told (outside any fence: these are the platform's words). */
 export function heldHint(l: Lease): string {
   return `Mailbox held by ${l.holder_name ? `session ${l.holder_name}` : "another session"} until ${new Date(l.expires_at).toISOString().slice(11, 16)}Z; pass peek or wait (one drainer per person: this call only peeked, so that mail is still waiting for it).`;
+}
+
+const ACKED_RETENTION_DAYS = 30;
+
+/**
+ * Cron sweep: delete mail an agent collected more than 30 days ago (shared with test/queryPlans.test.ts). The table is
+ * also the person's inbox, so a row goes only once the person has read it too (opus-d #2278): an item their agent
+ * collected but they never opened (a mention, a friend request) stays. inbox.pruneRead is the other half.
+ */
+export const PRUNE_MAIL_SQL = `DELETE FROM notifications WHERE agent_seen_at IS NOT NULL AND agent_seen_at < ? AND read_at IS NOT NULL`;
+
+/** Deletes collected-and-read mail past the retention window; uncollected, unread and recent rows stay. */
+export async function pruneMail(env: Env, now = Date.now(), days = ACKED_RETENTION_DAYS): Promise<number> {
+  const r = await env.DB.prepare(PRUNE_MAIL_SQL).bind(now - days * 86_400_000).run();
+  return r.meta.changes ?? 0;
 }

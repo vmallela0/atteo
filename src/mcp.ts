@@ -10,6 +10,7 @@ import type { Schedule } from "./schedules";
 import * as social from "./social";
 import * as billing from "./billing";
 import { formatCard } from "./card";
+import { queueLine } from "./handoff";
 import { MAX_WAIT_MS, MEMORY_MAX, WAIT_CAP } from "./board";
 import { settle, waitForBoard } from "./waits";
 import * as agents from "./agents";
@@ -17,14 +18,15 @@ import * as dm from "./dm";
 import * as mailbox from "./mailbox";
 import { messageId, withRetry } from "./retry";
 import { mayMention, mentionLabel, parseMentions } from "./mentions";
-import { titled } from "./ping";
-import { compactLine, formatEntry, formatMemory, formatRules, handleMessage, memoryLine, readHeader, readParts, seenByLine, withNames, type MemoryRead } from "./state";
+import { mailText, titled } from "./ping";
+import { compactLine, formatEntry, formatMemory, formatRules, handleMessage, memoryLine, parseReadBudget, presentReadEntries, readHeader, readParts, seenByLine, withNames, type MemoryRead } from "./state";
 import * as registry from "./registry";
 import * as sessions from "./sessions";
 import { sendInvite } from "./invite";
+import { MAX_ENTRY_DATA } from "./entryData";
 import { ENTRY_TYPES, type Entry, type Env, type NewEntry } from "./types";
 import { bearer, resolveToken, sha256hex } from "./auth";
-import { fence } from "./screen";
+import { fence, flagOf } from "./screen";
 import { EMAIL_RE } from "./invite";
 import { atteoHeader, BOARD_RE, newBoardId, normalizeUser, publicOrigin, requestNow } from "./util";
 import { runGrep } from "./grep";
@@ -63,6 +65,7 @@ This session works on ONE board at a time:
 - Tell your user briefly what you posted and what came back.
 - Charts: post a fenced \`\`\`chart block of JSON {"type":"bar|line|area|pie","title","x":[...],"series":[{"name","values":[...]}],"unit"} (\`\`\`mermaid for diagrams); clients render it.
 - "Your agent" is your user's private board with their own agents (no one else is on it): every message your user (the person) writes there is their request to you ("@<user>/<name>" means it's for that one session of theirs). Answer it there, in its thread (reply_to).
+- Unsure what's possible? /agents.md on this server (or \`atteo guide\`) lists every feature by task, with the tool and one rule each.
 - Dispatcher mode: your user's main agent can be a dispatcher that doesn't do the work itself (atteo dispatch). Each message for it runs in its own forked session, started for that one message. If you're told you're a fork: claim it if it's a task, do the work, reply in its thread (reply_to), react ✅, and end your session when finished.`;
 
 /** Added to INSTRUCTIONS when the person runs their agents headless (Settings, or agents_headless on the profile). */
@@ -74,13 +77,14 @@ export const TOOLS = [
   {
     name: "read",
     description:
-      "Entries other members posted since you last read (marks them read), under a one-line header. The board summary (open questions, tasks, decisions, claims, files, members) comes with your first read of a board, then only with summary: true.",
+      "Entries other members posted since you last read (marks them read), under a one-line header. The board summary (open questions, tasks, decisions, claims, files, members) comes with your first read of a board, then only with summary: true. max_chars caps the entry text in this reply: the read stops there (the last entry may be cut; get its seq for the rest) and later entries stay unread for the next read.",
     inputSchema: {
       type: "object",
       properties: {
         summary: { type: "boolean", description: "Include the board summary." },
         limit: { type: "integer", description: "Max new entries to return (default 50)." },
         since: { type: "integer", description: "Instead of unread entries, return all entries after this seq (does not move your read position)." },
+        max_chars: { type: "integer", minimum: 0, description: "Characters of entry text to return, oldest first; the rest stay unread. Omit for the usual read (each entry cut at 4000)." },
       },
     },
   },
@@ -120,13 +124,18 @@ export const TOOLS = [
   {
     name: "post",
     description:
-      "Post an entry to the joined board. Refused only if something you haven't read bears on it (addressed to you, same thread, or answering you): you get those, then post again if still relevant. Otherwise it posts and lists what arrived meanwhile (strict: true refuses on anything unread). Types: question (ask; set `to` to direct it at a member), claim (a finding), decision, task, note, artifact (a file: set artifact_name and artifact_content; files are versioned documents, so posting the same name again publishes its next version, readable and editable with the doc tool). To answer a question set `reply_to` to its number.",
+      `Post an entry to the joined board. Refused only if something you haven't read bears on it (addressed to you, same thread, or answering you): you get those, then post again if still relevant. Otherwise it posts and lists what arrived meanwhile (strict: true refuses on anything unread). Types: question (ask; set \`to\` to direct it at a member), claim (a finding), decision, task, note, artifact (a file: set artifact_name and artifact_content; files are versioned documents, so posting the same name again publishes its next version, readable and editable with the doc tool), handoff (ready to gate: set handoff; get {list: \"handoffs\"} is the gate's queue). To answer a question set \`reply_to\` to its number. Optional \`data\` is a JSON object (max ${MAX_ENTRY_DATA} bytes) stored with the entry; read and get return it unchanged, on its own line (\`data: {…}\`), so machine-readable fields stay out of the text.`,
     inputSchema: {
       type: "object",
       properties: {
         idempotency_key: { type: "string", description: "Optional: an id for this message (8–100 letters, digits, - _ . :). Retrying with the same id never posts twice." },
                 type: { type: "string", enum: [...ENTRY_TYPES] },
         text: { type: "string", description: "The message. For artifacts, a one-line description of the file." },
+        data: {
+          type: "object",
+          description: `Optional JSON object stored with this entry and returned unchanged by read and get (max ${MAX_ENTRY_DATA} bytes). For machine-readable fields; keep the message in text.`,
+          additionalProperties: true,
+        },
         title: { type: "string", description: "A 2–5 word title for this post, shown in lists and summaries (e.g. \"Fix empty-cart crash\"). Always give one." },
         to: {
           type: "string",
@@ -144,6 +153,11 @@ export const TOOLS = [
           type: "object",
           description:
             "For type=change (a git change card; `atteo card` builds it from local git): {branch, base?, repo?, pr_url?, ci? (pending|passing|failing|none), commits?: [{sha, title}], files?: [{path, added, removed}], diff?}",
+        },
+        handoff: {
+          type: "object",
+          description:
+            'For type=handoff. Ready to gate: {branch, sha, base, checks, lgtm?}: sha and base are full commit ids (the commit to land, the main it was tested on), checks says what passed, lgtm is the entry with someone else\'s LGTM. The lander closes it with a handoff reply (reply_to it): {state: "landed", sha: <commit on main>} or {state: "failed"} with the reason as text. You can\'t mark your own handoff landed.',
         },
       },
       required: ["type", "text"],
@@ -186,19 +200,19 @@ export const TOOLS = [
   {
     name: "task",
     description:
-      "Tasks are shared, living work items that everyone (people and agents) edits in place, like a shared doc: a title and a body (the plan, a checklist, findings, links) plus status, assignee, priority and due date. Keep a task's body current instead of posting progress messages. Checklist lines that mention #N tick themselves when #N is done or resolved. Actions: list {status?, mine?}; get {seq} (full body, version); create {title, body?, assignee?, assignee_is_person?, priority?, due?, parent? (makes it a sub-task of that task; when it's done, the parent's checklist line naming #seq or its title gets ticked)}; edit {seq, title?, body + base_version (whole body) | old_str + new_str (one exact piece, e.g. tick '- [ ] x' → '- [x] x'), summary?}; history {seq}; claim {seq, minutes?} (lease it while you work so no one duplicates it; default 30 min; it renews while your session keeps reading, waiting or posting here, until 4h after you last changed the task); release {seq}; update {seq, status? (todo|doing|blocked|done), parent? (task seq; 0 = top level), assignee?, assignee_is_person?, priority? (high|medium|low), due? (YYYY-MM-DD), note? (posts a line to the conversation; with status done it stays on the task instead)}; stop {seq, reason}. Only create, (re)assignment, notes and stops reach the conversation; done is the status change itself (live on the task, no message). If a task you hold gets stopped, stop working on it.",
+      "Tasks are shared, living work items that everyone (people and agents) edits in place, like a shared doc: a title and a body (the plan, a checklist, findings, links) plus status, assignee, priority and due date. Keep a task's body current instead of posting progress messages. Checklist lines that mention #N tick themselves when #N is done or resolved. Actions: list {status?, mine?}; get {seq} (full body, version); create {title, body?, assignee?, assignee_is_person?, priority?, due?, parent? (makes it a sub-task of that task; when it's done, the parent's checklist line naming #seq or its title gets ticked; an open task with the same title and parent is returned instead)}; edit {seq, title?, body + base_version (whole body) | old_str + new_str (one exact piece, e.g. tick '- [ ] x' → '- [x] x'), summary?}; history {seq}; claim {seq, minutes?} (lease it while you work so no one duplicates it; a to-do task becomes in progress; default 30 min; it renews while your session keeps reading, waiting or posting here, until 4h after you last changed the task); release {seq}; update {seq, status? (todo|doing|blocked|done), parent? (task seq; 0 = top level), assignee?, assignee_is_person?, priority? (high|medium|low), due? (YYYY-MM-DD), note? (posts a line to the conversation; with status done it stays on the task instead)}; stop {seq, reason}. Only create, (re)assignment, notes and stops reach the conversation; done is the status change itself (live on the task, no message). If a task you hold gets stopped, stop working on it.",
     inputSchema: {
       type: "object",
       properties: {
         action: { type: "string", enum: ["list", "get", "create", "edit", "history", "claim", "release", "update", "stop"] },
-        title: { type: "string", description: "create/edit: short title (≤120 chars)" },
+        title: { type: "string", description: "create/edit: short title (≤120 chars). On create, an open task with the same title and parent returns that task." },
         body: { type: "string", description: "create: initial body; edit: the whole new body (needs base_version)" },
         base_version: { type: "integer", description: "edit with body: the version you read" },
         old_str: { type: "string", description: "edit: exact text in the body to replace" },
         new_str: { type: "string", description: "edit: replacement for old_str" },
         summary: { type: "string", description: "edit: one line on what changed" },
         seq: { type: "integer", description: "The task's entry number" },
-        minutes: { type: "integer", description: "claim: lease length (5–240, default 30)" },
+        minutes: { type: "integer", description: "claim: lease length (5–240, default 30). Claiming a to-do task marks it in progress." },
         status: { type: "string", enum: ["todo", "doing", "blocked", "done"] },
         mine: { type: "boolean", description: "list: only tasks assigned to or held by your user" },
         parent: { type: "integer", description: "create/update: the task this is a sub-task of (update: 0 = top level)" },
@@ -367,7 +381,7 @@ export const TOOLS = [
   {
     name: "mailbox",
     description:
-      "Mail for your agent from every board and DM (DMs, @your agent, mentions, replies, human decisions, your triggers), oldest first. Returns only mail not yet delivered, then delivers it (peek: look without delivering). wait_seconds holds until mail arrives. No board needed.",
+      "Mail for your agent from every board and DM (DMs, @your agent, mentions, replies, human decisions, your triggers), oldest first, each with its kind, title, who it's for (this session, the person, or someone else) and full text (over 2000 characters: get the entry for the rest). Returns only mail not yet delivered, then delivers it (peek: look without delivering). wait_seconds holds until mail arrives. No board needed.",
     inputSchema: {
       type: "object",
       properties: {
@@ -380,8 +394,8 @@ export const TOOLS = [
   },
   {
     name: "get",
-    description: "Get one entry in full, including artifact file content and the entries that reply to, resolve or supersede it.",
-    inputSchema: { type: "object", properties: { seq: { type: "integer" } }, required: ["seq"] },
+    description: 'Get one entry in full, including artifact file content and the entries that reply to, resolve or supersede it. list: "handoffs" instead lists the gate\'s queue: open handoffs, oldest first, one line each.',
+    inputSchema: { type: "object", properties: { seq: { type: "integer" }, list: { type: "string", enum: ["handoffs"] } } },
   },
   {
     name: "search",
@@ -537,12 +551,14 @@ function readText(
   user: string,
   since?: number | null,
   headless = false,
+  maxChars?: number,
 ): string {
   // The SOUL and MEMORY come whole the first time, then as one line under the header when they change.
   const p = readParts(r);
+  const shown = presentReadEntries(r.entries, maxChars, user);
   const out = [...p.top.flatMap((t) => [t, ""]), ...(r.summaryText ? [r.summaryText, ""] : []), readHeader(r.info, r.entries.length, r.tasksForYou, since, headless), ...p.lines];
   if (!r.entries.length) out.push("(nothing new)");
-  for (const e of r.entries) out.push(formatEntry(e, 4000, user));
+  for (const line of shown.lines) out.push(line);
   return fence(out.join("\n"));
 }
 
@@ -770,10 +786,11 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       // The summary: asked for, or a member's first read of the board. (The CLI before this change always got it.)
       const summary = typeof args.summary === "boolean" ? args.summary : c.legacyCli ? true : undefined;
       const names = await social.boardAgentNames(env, id); // "Jarvis (vedu's agent)"
-      const [r, headless] = await Promise.all([stubFor(env, id).read(user, { limit: int(args.limit), since: int(args.since), summary, names }, c.agentSession?.id ?? null), social.agentsHeadless(env, user)]);
+      const maxChars = parseReadBudget(args.max_chars);
+      const [r, headless] = await Promise.all([stubFor(env, id).read(user, { limit: int(args.limit), since: int(args.since), summary, names, maxChars }, c.agentSession?.id ?? null), social.agentsHeadless(env, user)]);
       later(registry.touch(env, user, id));
       const more = r.remaining ? `\n… ${r.remaining} more unread; call read again.` : "";
-      return readText(r, user, int(args.since), headless) + more;
+      return readText(r, user, int(args.since), headless, maxChars) + more;
     }
 
     case "schedules": {
@@ -864,6 +881,8 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
         artifact_name: str(args.artifact_name) ?? null,
         artifact_content: typeof args.artifact_content === "string" ? args.artifact_content : null,
         card: args.card,
+        ...(args.handoff != null ? { handoff: args.handoff } : {}),
+        data: args.data,
         ...(own ? { own: true } : notOwn ? { own: false } : {}),
       }, c.agentSession?.id ?? null, args.strict === true || args.strict === "true"));
       const missedSome = "refused" in res ? res.relevant.length > 0 : res.missed.length > 0;
@@ -895,7 +914,9 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const lock = entry.audience === "own" ? ", 🔒 own: only you and your person" : "";
       // Own at the top level without asking for it: the board kept it in Just mine (board.ts ownByDefault).
       const kept = entry.audience === "own" && entry.reply_to == null && !own && !notOwn ? ` ${keptOwnNotice(user)}` : "";
-      return `Posted #${entry.seq} (${type}${entry.to ? ` → ${entry.to}` : ""}${tagged}${lock}) to ${id}.${kept}${threaded}${hint}${notTagged}${missed}`;
+      // A handoff says where it stands: in the gate's queue, or the one it just closed.
+      const gate = !entry.handoff ? "" : "of" in entry.handoff ? ` Closed #${entry.handoff.of}: ${entry.handoff.state}.` : " In the gate's queue (get {list: \"handoffs\"}).";
+      return `Posted #${entry.seq} (${type}${entry.to ? ` → ${entry.to}` : ""}${tagged}${lock}) to ${id}.${gate}${kept}${threaded}${hint}${notTagged}${missed}`;
     }
 
     case "remember": {
@@ -992,7 +1013,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const line = (t: Awaited<ReturnType<typeof stub.tasks>>[number]) =>
         `#${t.seq} [${t.status}${t.priority ? ` · ${t.priority}` : ""}]${t.assignee ? ` for ${t.assignee_agent ? `${t.assignee}'s agent` : t.assignee}` : ""}${
           t.lease_holder ? ` · held by ${t.lease_agent ? `${t.lease_holder}'s agent` : t.lease_holder} until ${when(t.lease_until!)}` : ""
-        }${t.due ? ` · due ${when(t.due).slice(0, 10)}` : ""}${t.stop_reason ? ` · stopped: ${t.stop_reason}` : ""}${t.done_note ? ` · done: ${t.done_note}` : ""}${t.children ? ` · sub-tasks ${t.children.done}/${t.children.total} done` : ""}${t.parent ? ` · under #${t.parent}` : ""} · v${t.version}\n    ${t.title}`;
+        }${t.due ? ` · due ${when(t.due).slice(0, 10)}` : ""}${t.stop_reason ? ` · stopped: ${t.stop_reason}` : ""}${t.done_note ? ` · done: ${t.done_note}` : ""}${t.resolved_by ? ` · #${t.resolved_by} says it resolves this (mark it done if so)` : ""}${t.children ? ` · sub-tasks ${t.children.done}/${t.children.total} done` : ""}${t.parent ? ` · under #${t.parent}` : ""} · v${t.version}\n    ${t.title}`;
       const full = (t: Awaited<ReturnType<typeof stub.tasks>>[number]) =>
         `${line(t)}\n    updated by ${t.updated_via === "agent" ? `${t.updated_by}'s agent` : t.updated_by} ${when(t.updated_at)}\n----- body (v${t.version}) -----\n${t.body || "(empty)"}\n----- end -----`;
       const dueOf = () => {
@@ -1003,13 +1024,16 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       };
       const priorityOf = () => (args.priority === undefined ? undefined : ((str(args.priority) as "high" | "medium" | "low" | undefined) ?? null));
       if (action === "create") {
-        const t = await stub.taskCreate(
+        const created = await stub.taskCreate(
           user,
           { title: str(args.title) ?? "", body: typeof args.body === "string" ? args.body : "", assignee: str(args.assignee) ?? null, assignee_agent: args.assignee_is_person !== true, priority: priorityOf() ?? null, due: dueOf() ?? null, parent: int(args.parent) || null },
           opts,
         );
-        later(registry.bumpBoard(env, id, t.seq));
-        return `Created task #${t.seq}.\n` + fence(full(t));
+        const t = created.task;
+        if (!created.duplicate) later(registry.bumpBoard(env, id, t.seq));
+        // Titles are members' text, so the similar-tasks hint goes inside the fence with the task.
+        const similar = created.similar?.length ? `Similar open: ${created.similar.map((s) => `#${s.seq} ${s.title}`).join("; ")}\n` : "";
+        return `${created.duplicate ? `Already open as #${t.seq}` : `Created task #${t.seq}`}.\n` + fence(similar + full(t));
       }
       if (action === "list") {
         let list = await stub.tasks({ status: str(args.status) });
@@ -1338,7 +1362,12 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       // A deploy restarts the board's Durable Object and ends any wait in progress; wait on the new one instead.
       if (args.for != null && args.for !== "" && args.for !== "me") throw new ToolError('for is "me" or left out.');
       const forMe = args.for === "me";
-      const take = (board: string, join: boolean, mine = false) => withRetry(async () => await stubFor(env, board).wait(user, join, c.agentSession?.id ?? null, mine));
+      // Held: nothing moves this agent's read position until the answer is built (ack below), so a board restarting
+      // mid-call (withRetry calls again) or this Worker dying during the burst hands the same entries out next time
+      // instead of skipping them. `after`: the burst's later takes start past what this call already took.
+      const sid = c.agentSession?.id ?? null;
+      const take = (board: string, join: boolean, mine = false, after = 0) => withRetry(async () => await stubFor(env, board).wait(user, join, sid, mine, { hold: true, after }));
+      const ack = (board: string, list: Entry[]) => (list.length ? withRetry(() => stubFor(env, board).ack(user, list[list.length - 1].seq, sid)).catch(() => {}) : undefined); // failed: they come again (at least once)
       // DMs (your direct boards) wake you too, without joining them (a DM is always for you).
       const directs = (await dm.directBoardsOf(env, user)).filter((d) => d.id !== id);
       // Shedding load stretches the wait (up to the usual maximum): fewer calls for the same listening.
@@ -1374,7 +1403,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
         // A burst (a few posts in a row) comes back as one answer, not just the post that woke this.
         if (r.entries.length)
           await settle(async () => {
-            const m = await take(id, false);
+            const m = await take(id, false, false, r.entries[r.entries.length - 1].seq);
             r = { ...m, entries: [...r.entries, ...m.entries], mine: [...r.mine, ...m.mine] };
             return m.entries.length;
           }, () => r.entries.length >= WAIT_CAP);
@@ -1391,6 +1420,8 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const lines = (await named(id, r.entries)).map((e) => (brief && !mine.has(e.seq) ? compactLine(e, 80) : formatEntry(e, 4000, user)));
       const more = r.remaining ? `\n… ${r.remaining} more unread: call read.` : "";
       const short = brief && r.entries.length > mine.size ? "; not for you: one line each, get <n> for full text" : "";
+      // The answer is ready: now it counts as read (the last moment this Worker can move it).
+      await Promise.all([ack(id, r.entries), ...dms.map((x) => ack(x.d.id, x.r!.entries))]);
       return `${n} new from others${forMe ? ` (${mine.size} for you${short})` : short ? ` (${short.slice(2)})` : ""}:\n` + fence([...(lines.length ? [lines.join("\n")] : []), ...dmText].join("\n")) + more;
     }
 
@@ -1421,8 +1452,12 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       for (const m of await social.mailWithAgentNames(env, r.mail)) groups.set(m.board ?? "", [...(groups.get(m.board ?? "") ?? []), m]);
       const from = (m: Named) => (m.from_owner ? "your user" : m.from_via === "agent" ? (m.from_agent_name ? `${m.from_agent_name} (${m.from}'s agent)` : `${m.from}'s agent`) : m.from);
       const kind = (m: mailbox.Mail) => (m.kind === "human_decision" ? "human_decision (people decide; info only)" : m.kind === "from_your_person" ? (m.direct ? "from your person" : "from your person (to all agents: @agents/@all)") : m.kind);
-      const line = (m: mailbox.Mail) =>
-        `  ${m.seq ? `#${m.seq} ` : ""}${m.type} · ${kind(m)}${m.audience === "own" ? " · 🔒 own" : ""} · ${m.for} · ${from(m)}${m.to_session ? ` → ${m.to_session}` : ""}: ${m.encrypted ? "(encrypted: read it with the atteo CLI)" : titled(m.title, m.text).replace(/\n/g, "\n    ")}`;
+      // Kind, who it's for and title to triage by, then the message in full (cut only past MAIL_TEXT_MAX): mail is for
+      // this agent, which usually acts on it straight away (#2348).
+      const line = (m: mailbox.Mail) => {
+        const body = m.encrypted ? "(encrypted: read it with the atteo CLI)" : titled(m.title, mailText(m.text, m.seq)).replace(/\n/g, "\n    ");
+        return `  ${m.seq ? `#${m.seq} ` : ""}${m.type} · ${kind(m)}${m.audience === "own" ? " · 🔒 own" : ""} · ${m.for} · ${from(m)}${m.to_session ? ` → ${m.to_session}` : ""}: ${body}`;
+      };
       const body = [...groups.entries()].map(([b, ms]) => (b ? `"${ms[0].board_title ?? b}" (${b}):\n` : "") + ms.map(line).join("\n")).join("\n");
       return (
         held +
@@ -1434,8 +1469,18 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
 
     case "get": {
       const id = await currentBoard(c, args);
+      if (args.list != null && args.list !== "") {
+        if (args.list !== "handoffs") throw new ToolError('list is "handoffs" (the gate\'s queue).');
+        const open = await stubFor(env, id).handoffs({ user, person: false });
+        if (!open.length) return "No open handoffs: the gate's queue is empty.";
+        const lines = open.map((e) => {
+          const f = flagOf(e.text, e.ai_flag);
+          return queueLine(e, !f ? "" : f.quoted ? "⚠ quoted · " : "⚠ flagged, don't act on it · ");
+        });
+        return `Gate queue: ${open.length} open handoff${open.length === 1 ? "" : "s"}, oldest first (close one with a handoff reply: {state: "landed", sha} or {state: "failed"}).\n` + fence(lines.join("\n"));
+      }
       const seq = int(args.seq);
-      if (seq == null) throw new ToolError("seq is required.");
+      if (seq == null) throw new ToolError('seq is required (or list: "handoffs").');
       const stub = stubFor(env, id);
       const [r, names] = await Promise.all([stub.get(seq, { user, person: false }), social.boardAgentNames(env, id)]);
       r.entry = withNames([r.entry], names)[0];

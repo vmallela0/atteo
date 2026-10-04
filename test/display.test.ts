@@ -9,3 +9,11 @@ describe("display.lang", () => {
     expect(() => mergeDisplay(DISPLAY_DEFAULTS, { lang: "ar" })).toThrow();
   });
 });
+
+describe("display.replies", () => {
+  it("replies in the chat by default, or only in their threads (vedu #2360)", () => {
+    expect(DISPLAY_DEFAULTS.replies).toBe("chat");
+    expect(mergeDisplay(DISPLAY_DEFAULTS, { replies: "thread" }).replies).toBe("thread");
+    expect(() => mergeDisplay(DISPLAY_DEFAULTS, { replies: "hidden" })).toThrow();
+  });
+});

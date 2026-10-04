@@ -22,6 +22,7 @@ import { isRetriable, messageId, retryingReads, withRetry } from "./retry";
 import CLI_BUNDLE from "../cli/dist/atteo.mjs";
 import { installScript } from "./install";
 import SKILL_MD from "../skills/atteo/SKILL.md";
+import { agentsMd, guidePage } from "./guide";
 import { openapi } from "./openapi";
 import * as billing from "./billing";
 import { blockedMessage, scanFields } from "./secrets";
@@ -77,7 +78,7 @@ export { Board } from "./board";
 import { forwardDestOk, forwardExcerptInEntry, keptOwnNotice } from "./audience";
 import { audienceNotice, MAX_FILES_PER_MESSAGE, MAX_IMAGE, MAX_MESSAGE_BYTES, MAX_WAIT_MS, WAIT_CAP } from "./board";
 import * as sessions from "./sessions";
-import { compactLine, formatEntry, formatMemory, handleMessage, readHeader, readParts, withNames } from "./state";
+import { compactLine, formatEntry, formatMemory, handleMessage, parseReadBudget, presentReadEntries, readHeader, readParts, withNames } from "./state";
 import { fence } from "./screen";
 import { CODE_COLOR_PATH, CODE_COLOR_SCRIPT } from "./codecolor";
 
@@ -521,6 +522,7 @@ async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): 
     ctx.waitUntil(env.DB.prepare(registry.TAPE_PRUNE_SQL).bind(Date.now() - 7 * 86_400_000).run().catch(() => {}));
     ctx.waitUntil(appSignin.sweep(env).catch(() => {}));
     ctx.waitUntil(inbox.pruneRead(env, now).catch(() => {}));
+    ctx.waitUntil(mailbox.pruneMail(env, now).catch(() => {}));
     ctx.waitUntil(usage.pruneUsageDaily(env, now).catch(() => {}));
   }
   for (const m of await registry.expiredMembers(env)) {
@@ -653,6 +655,7 @@ const handler = {
       if (path === "/terms" || path === "/privacy") return legalPage(path.slice(1) as "terms" | "privacy");
       if (path === "/openapi.json") return json(openapi(origin), 200, { "access-control-allow-origin": "*", "cache-control": "public, max-age=300" });
       if (path === "/skill.md") return new Response(SKILL_MD, { headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "public, max-age=300" } });
+      if (path === "/agents.md") return new Response(agentsMd(origin), { headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "public, max-age=300", "access-control-allow-origin": "*" } });
       if (path === "/apple-touch-icon.png" || path === "/apple-touch-icon-precomposed.png") {
         return new Response(Uint8Array.from(atob(APPLE_TOUCH_PNG_B64), (c) => c.charCodeAt(0)), { headers: { "content-type": "image/png", "cache-control": "public, max-age=86400" } });
       }
@@ -898,6 +901,11 @@ const handler = {
         const unreadIds = items.filter((i) => !i.read_at).map((i) => i.id).slice(0, 90); // D1: at most 100 bound parameters
         if (unreadIds.length) ctx.waitUntil(inbox.markRead(env, viewer.name, { ids: unreadIds }).catch(() => 0));
         return inbox.inboxPage(viewer, side, items, aps);
+      }
+      // ---- The guide (vedu #2402): what people can do, by task. Public; signed in, it has the sidebar ----
+      if (path === "/guide" && method === "GET") {
+        const lang = viewer?.lang ?? pickLang(null, url.searchParams.get("lang"), request.headers.get("accept-language"));
+        return guidePage(lang, viewer ?? null, viewer ? await sideBoards(env, viewer.name) : [], origin);
       }
       // ---- For you (Everyday's home): what needs your OK, decisions and questions for you, what your assistant did today ----
       if (path === "/for-you" && method === "GET") {
@@ -1869,17 +1877,32 @@ const handler = {
           const only = url.searchParams.get("board");
           const ids = only ? [...cur.boards, ...directs].filter((b) => b === only) : [...cur.boards, ...directs];
           if (only && !ids.length) return json({ error: `This session isn't on ${only}.` }, 404);
-          const render = (b: { id: string; title: string; encrypted?: boolean }, entries: import("./types").Entry[], tasksForYou?: number, headless = false, lines: string[] = []) =>
+          const render = (b: { id: string; title: string; encrypted?: boolean }, entries: import("./types").Entry[], tasksForYou?: number, headless = false, lines: string[] = [], entryLines: string[] = []) =>
             fence(
               [
                 tasksForYou == null ? `== ${b.title} (${b.id}) · new (${entries.length}) ==` : readHeader(b, entries.length, tasksForYou, null, headless),
                 ...lines, // 📌 pin, 🧭 SOUL update, 🧠 memory change
                 ...(entries.length ? [] : ["(nothing new)"]),
-                ...entries.map((e) => formatEntry(e, 4000, viewer.name)),
+                ...entryLines,
               ].join("\n"),
             );
+          // ?ack=<board>:<seq>,…: what the client got from its last held wait (the `ack` that wait returned). Its read
+          // position moves there first. Present at all (even empty), a wait holds: see below.
+          const ackParam = url.searchParams.get("ack");
+          const held = ackParam != null;
+          if (ackParam) {
+            const mine = new Set([...cur.boards, ...directs]);
+            await Promise.all(
+              ackParam.split(",").map(async (part) => {
+                const [b, n] = part.split(":");
+                const seq = Number(n);
+                if (mine.has(b) && Number.isInteger(seq) && seq > 0) await boardStub(env, b).ack(viewer.name, seq, cur.id).catch(() => {});
+              }),
+            );
+          }
           if (method === "GET" && sub === "read") {
             const limit = Number(url.searchParams.get("limit")) || undefined;
+            const maxChars = parseReadBudget(url.searchParams.get("max_chars"));
             // ?summary=all: every board's summary; none: no summary. Otherwise (older CLIs send a comma list of boards)
             // a board's summary comes with the member's first read of it, then only on request.
             const sumParam = url.searchParams.get("summary");
@@ -1887,18 +1910,19 @@ const handler = {
             const headless = await social.agentsHeadless(env, viewer.name);
             const out = await Promise.all(
               ids.map(async (id) => {
-                const r = await boardStub(env, id).read(viewer.name, { limit, summary: summary(id), names: await social.boardAgentNames(env, id) }, cur.id);
+                const r = await boardStub(env, id).read(viewer.name, { limit, summary: summary(id), names: await social.boardAgentNames(env, id), maxChars }, cur.id);
                 const b = { id, title: r.info.title, encrypted: r.info.encrypted };
                 const p = readParts(r); // the SOUL and MEMORY: whole the first time, then a line when they change
+                const shown = presentReadEntries(r.entries, maxChars, viewer.name);
                 return {
                   board: { id, title: r.info.title },
                   summary: r.summaryText,
                   rules: r.rules, // the SOUL (PROTOCOL.md), when due: {name, version, text, truncated, update, by}
                   memory: r.memory, // {first: true, items} on the first read, {first: false, added, struck} after a change, else null
-                  entries: r.entries,
+                  entries: shown.entries,
                   remaining: r.remaining,
                   pin: r.pin, // "📌 SPEC.md updated to v4", once per version (null otherwise)
-                  text: p.top.map((t) => fence(t) + "\n").join("") + (r.summaryText ? fence(r.summaryText) + "\n" : "") + render(b, r.entries, r.tasksForYou, headless, p.lines),
+                  text: p.top.map((t) => fence(t) + "\n").join("") + (r.summaryText ? fence(r.summaryText) + "\n" : "") + render(b, shown.entries, r.tasksForYou, headless, p.lines, shown.lines),
                 };
               }),
             );
@@ -1911,8 +1935,13 @@ const handler = {
             const forMe = url.searchParams.get("for") === "me";
             const mineMode = (id: string, mine: boolean) => mine && forMe && !directs.includes(id);
             let gone = false; // removed from a board meanwhile: the wait ends
+            // Held (?ack present): nothing moves the read position until the client acks with the `ack` this returns, so
+            // a reply lost on the way (a deploy, a dropped connection, a retry) comes back on the next wait. Per board,
+            // the burst's later takes start past what this request already took (`after`).
+            const taken = new Map<string, number>(); // board → the last seq this request took
             const take = async (join: boolean, mine = true) => {
-              const all = await Promise.all(ids.map(async (id) => ({ id, r: await boardStub(env, id).wait(viewer.name, join, cur.id, mineMode(id, mine)).catch(() => null) })));
+              const all = await Promise.all(ids.map(async (id) => ({ id, r: await boardStub(env, id).wait(viewer.name, join, cur.id, mineMode(id, mine), held ? { hold: true, after: taken.get(id) ?? 0 } : {}).catch(() => null) })));
+              for (const x of all) if (x.r?.entries.length) taken.set(x.id, x.r.entries[x.r.entries.length - 1].seq);
               gone ||= all.some((x) => x.r?.gone);
               return all.filter((x) => x.r && x.r.entries.length);
             };
@@ -1970,6 +1999,8 @@ const handler = {
             return json({
               timed_out: !entries.length,
               ...(wasSuperseded && !entries.length ? { superseded: true } : {}),
+              // Held: send this as ?ack= on the next wait or read, once these entries are safely in hand.
+              ...(held && taken.size ? { ack: [...taken].map(([id, seq]) => `${id}:${seq}`).join(",") } : {}),
               entries,
               text: entries.length
                 ? got.map(waitText).join("\n")
@@ -2409,13 +2440,13 @@ const handler = {
         if (method === "POST" && !m[2]) {
           const b = (await request.json().catch(() => ({}))) as Record<string, unknown>;
           try {
-            const t = await stub.taskCreate(
+            const created = await stub.taskCreate(
               viewer.name,
               { title: String(b.title ?? ""), body: typeof b.body === "string" ? b.body : "", priority: (["high", "medium", "low"] as const).find((p) => p === b.priority) ?? null, parent: typeof b.parent === "number" && b.parent > 0 ? b.parent : null },
               { via: pv(), ...(await asOpts()) },
             );
-            ctx.waitUntil(registry.bumpBoard(env, m[1], t.seq).catch(() => {}));
-            return json({ ok: true, task: t }, 201);
+            if (!created.duplicate) ctx.waitUntil(registry.bumpBoard(env, m[1], created.task.seq).catch(() => {}));
+            return json({ ok: true, task: created.task, duplicate: created.duplicate, ...(created.similar?.length ? { similar: created.similar } : {}) }, created.duplicate ? 200 : 201);
           } catch (e) {
             return json({ error: e instanceof Error ? e.message : String(e) }, 400);
           }
@@ -2525,7 +2556,7 @@ const handler = {
         }
       }
 
-      m = path.match(/^\/api\/boards\/([^/]+)\/(updates|entries|invites|seen|search|grep|handle|typing|answered)(?:\/(\d+))?$/);
+      m = path.match(/^\/api\/boards\/([^/]+)\/(updates|entries|invites|seen|search|grep|handle|typing|answered|handoffs)(?:\/(\d+))?$/);
       if (m) {
         const [, id, what, seqStr] = m;
         if (!viewer && !hasOpsKey(c)) return needLogin();
@@ -2623,6 +2654,11 @@ const handler = {
             })),
           });
         }
+        // The gate's queue (#2173 item 3): open handoffs, oldest first. Its text and fields are members' data.
+        if (what === "handoffs" && !seqStr && method === "GET") {
+          const [open, names] = await Promise.all([stub.handoffs(seer()), social.boardAgentNames(env, id)]);
+          return json({ handoffs: withNames(open, names) });
+        }
         if (what === "entries" && seqStr && method === "GET") {
           try {
             const [r, names] = await Promise.all([stub.get(parseInt(seqStr, 10), seer()), social.boardAgentNames(env, id)]);
@@ -2634,8 +2670,8 @@ const handler = {
         if (what === "entries" && !seqStr && method === "POST") {
           // canSee above already checked membership, unless it let an operator through.
           if (!viewer || (isOps(c) && !(await registry.isMember(env, id, viewer.name)))) return json({ error: "Only members can post." }, 403);
-          const body = (await request.json().catch(() => ({}))) as { text?: string; type?: string; to?: string | string[]; reply_to?: string | number; to_session?: string; people_only?: unknown; own?: unknown };
-          const type = (["note", "question", "task", "decision", "claim"] as const).find((t) => t === body.type) ?? "note";
+          const body = (await request.json().catch(() => ({}))) as { text?: string; type?: string; to?: string | string[]; reply_to?: string | number; to_session?: string; people_only?: unknown; own?: unknown; resolves?: unknown; handoff?: unknown; data?: unknown };
+          const type = (["note", "question", "task", "decision", "claim", "handoff"] as const).find((t) => t === body.type) ?? "note";
           // People-only (vedu #1264): for the people named in `to` (a list, or one name) and/or @named in the text.
           // Never from an agent's token: agents can't create them (or read them).
           const yes = (v: unknown) => v === true || v === "true" || v === 1;
@@ -2668,6 +2704,8 @@ const handler = {
           }
           // Replying: to an agent's post, the reply goes to that agent; to a person's post, it mentions them.
           const replyTo = Number(body.reply_to) > 0 ? Math.floor(Number(body.reply_to)) : null;
+          // What it answers or completes, as over MCP (REST used to drop it, so a REST "resolves" did nothing).
+          const resolves = Array.isArray(body.resolves) ? [...new Set(body.resolves.map(Number).filter((n) => Number.isInteger(n) && n > 0))].slice(0, 50) : [];
           if (replyTo) {
             const parent = await stub.get(replyTo, seer()).catch(() => null);
             if (!parent) return json({ error: `Entry #${replyTo} does not exist on this board.` }, 400);
@@ -2681,7 +2719,7 @@ const handler = {
           try {
             const idem = messageId(request.headers.get("idempotency-key"));
             const so = await asOpts();
-            const entry = await withRetry(() => stub.post(viewer.name, { type, text, to, mentions, reply_to: replyTo, via: pv(), ...so, idem, ...(peopleOnly ? { people_only: true, to_people: toPeople } : {}), ...(own ? { own: true } : notOwn ? { own: false } : {}) }));
+            const entry = await withRetry(() => stub.post(viewer.name, { type, text, to, mentions, reply_to: replyTo, ...(resolves.length ? { resolves } : {}), via: pv(), ...so, idem, data: body.data, ...(peopleOnly ? { people_only: true, to_people: toPeople } : {}), ...(own ? { own: true } : notOwn ? { own: false } : {}), ...(body.handoff != null ? { handoff: body.handoff } : {}) }));
             ctx.waitUntil(Promise.all([registry.touch(env, viewer.name, id), registry.bumpBoard(env, id, entry.seq)]).catch(() => {}));
             // The rendered entry comes back with the post, so the page shows it without another round trip.
             const root = replyTo ? ((await stub.rootsFor([entry.seq]))[entry.seq] ?? entry.seq) : entry.seq;

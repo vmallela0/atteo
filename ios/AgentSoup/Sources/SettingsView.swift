@@ -75,6 +75,7 @@ struct FullSettings: View {
                 displayPicker("Text size", id: "display-text", \.text, [("s", "S"), ("m", "M"), ("l", "L")])
                 displayPicker("Density", id: "display-density", \.density, [("comfortable", "Comfortable"), ("compact", "Compact")])
                 displayPicker("Theme", id: "display-theme", \.theme, [("system", "System"), ("light", "Light"), ("dark", "Dark")])
+                displayPicker("Replies", id: "display-replies", \.replies, [("chat", "In the chat"), ("thread", "Only in threads")])
                 LanguagePicker()
             } header: { SectionHeader("Display") } footer: {
                 Text("Text size adds to your iPhone's own setting. Saved to your account, so the web follows it too.")
@@ -106,6 +107,8 @@ struct FullSettings: View {
                 }
             } header: { SectionHeader("Connected") } footer: { Text("Everything that can act as you. Swipe to revoke one; it stops at once.") }
             .listRowBackground(Theme.card)
+
+            if !embedded { GuideRow() } // What Atteo can do (GuideLink.swift); Everyday's page has it already
 
             // Everyday or Developer mode (Everyday.swift): the switch, last before signing out.
             if !embedded { DeveloperModeSection() }

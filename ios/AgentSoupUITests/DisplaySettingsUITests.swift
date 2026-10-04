@@ -73,10 +73,14 @@ final class DisplaySettingsUITests: XCTestCase {
     func control(_ a: XCUIApplication, _ id: String) -> XCUIElement {
         let c = a.segmentedControls[id]
         var tries = 0
-        // Settings is a lazy list: the Display section only exists once it's scrolled near.
-        while !(c.exists && c.isHittable) && tries < 8 {
+        // Settings is a lazy list: the Display section only exists once it's scrolled near. Small steps, and back up if it
+        // went past (under the title bar), so a smaller phone doesn't overshoot it.
+        while !(c.exists && c.isHittable) && tries < 16 {
             if c.waitForExistence(timeout: tries == 0 ? 2 : 0.5), c.isHittable { break }
-            a.swipeUp(); tries += 1
+            let past = c.exists && c.frame.midY < a.frame.height * 0.3
+            let from = a.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: past ? 0.35 : 0.7))
+            from.press(forDuration: 0.05, thenDragTo: a.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: past ? 0.7 : 0.35)))
+            tries += 1
         }
         XCTAssertTrue(c.exists && c.isHittable, "\(id) is on screen")
         return c

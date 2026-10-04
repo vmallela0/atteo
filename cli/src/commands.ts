@@ -5,6 +5,7 @@
 import { boardIdIn } from "./boardid";
 export { boardIdIn };
 import { randomUUID } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { env } from "./env";
 import SKILL_MD from "../../skills/atteo/SKILL.md";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -461,10 +462,74 @@ async function read(args: string[]) {
   say(await tool(opt, "read", { limit: optStr(opt, "limit") ? Number(optStr(opt, "limit")) : undefined, since: optStr(opt, "since") ? Number(optStr(opt, "since")) : undefined, summary }));
 }
 
+/**
+ * A handoff from flags. Closing one (with --reply): --landed <sha on main>, or --failed "<why>". A new one: what's
+ * ready to gate, from git unless given: --branch (current), --sha (HEAD), --base (the main it was tested on:
+ * merge-base with origin/main), plus --checks (what passed) and --lgtm N. The text defaults to a short line.
+ */
+function handoffFrom(opt: Record<string, string | true>, words: string[]): { handoff: Record<string, unknown>; text: string } {
+  const text = words.length ? textFrom(words) : "";
+  if (opt.landed !== undefined || opt.failed !== undefined) {
+    if (!optStr(opt, "reply")) throw new CliError("Close a handoff by replying to it: --reply <its number> with --landed <sha> or --failed \"<why>\".");
+    if (opt.landed !== undefined && opt.failed !== undefined) throw new CliError("Pick one: --landed or --failed.");
+    if (opt.landed !== undefined) {
+      const sha = gitSha(optStr(opt, "landed") ?? "", "--landed");
+      return { handoff: { state: "landed", sha }, text: text || `Landed as ${sha.slice(0, 7)}.` };
+    }
+    const why = optStr(opt, "failed") ?? text;
+    if (!why.trim()) throw new CliError('Say why it failed: --failed "<why>".');
+    return { handoff: { state: "failed" }, text: text || why };
+  }
+  const branch = optStr(opt, "branch") ?? git(["rev-parse", "--abbrev-ref", "HEAD"]);
+  if (!branch || branch === "HEAD") throw new CliError("Which branch? Run it on the branch, or give --branch.");
+  const sha = gitSha(optStr(opt, "sha") ?? "HEAD", "--sha");
+  const base = optStr(opt, "base") ? gitSha(optStr(opt, "base")!, "--base") : git(["merge-base", sha, "origin/main"]);
+  if (!base) throw new CliError("Which main was it tested on? Give --base <sha> (no origin/main here to work it out).");
+  const checks = optStr(opt, "checks");
+  if (!checks) throw new CliError('Say what passed: --checks "vitest 470, e2e 183".');
+  const lgtm = optStr(opt, "lgtm") ? int(optStr(opt, "lgtm")!.replace(/^#/, ""), "--lgtm") : undefined;
+  return { handoff: { branch, sha, base, checks, ...(lgtm ? { lgtm } : {}) }, text: text || `Ready to gate: ${branch}` };
+}
+
+/** git's answer here (trimmed), or null when it fails or there's no repo. */
+function git(args: string[]): string | null {
+  try {
+    return execFileSync("git", args, { cwd: process.cwd(), encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 15_000 }).trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+/** A full commit id: given as one, or resolved by local git (HEAD, a branch, a short sha). */
+function gitSha(ref: string, flag: string): string {
+  const r = ref.trim();
+  if (/^[0-9a-f]{40}$/i.test(r)) return r.toLowerCase();
+  const full = r ? git(["rev-parse", "--verify", "--quiet", `${r}^{commit}`]) : null;
+  if (!full) throw new CliError(`${flag}: "${r}" isn't a commit here. Give the full sha.`);
+  return full;
+}
+
 async function post(args: string[], forced?: string) {
   const { pos, opt } = parseArgs(args, ["own", "public"]);
-  onlyOptions(forced ?? "post", opt, ["board", "server", "type", "to", "reply", "title", "resolves", "supersedes", "own", "public"]);
+  onlyOptions(forced ?? "post", opt, ["board", "server", "type", "to", "reply", "title", "resolves", "supersedes", "own", "public", "branch", "sha", "base", "checks", "lgtm", "landed", "failed"]);
   if (opt.own && opt.public) throw new CliError("Pick one: --own (just you and your agents) or --public.");
+  const type = forced ?? optStr(opt, "type") ?? "note";
+  const gateFlags = ["branch", "sha", "base", "checks", "lgtm", "landed", "failed"].filter((k) => opt[k] !== undefined);
+  if (gateFlags.length && type !== "handoff") throw new CliError(`--${gateFlags[0]} goes with: atteo post handoff`);
+  if (type === "handoff") {
+    if (await isEncrypted(opt, currentBoard(opt))) throw new CliError("Handoffs aren't available on an end-to-end encrypted board.");
+    const h = handoffFrom(opt, pos);
+    return say(
+      await tool(opt, "post", {
+        type,
+        text: h.text,
+        handoff: h.handoff,
+        title: optStr(opt, "title"),
+        to: optStr(opt, "to"),
+        reply_to: optStr(opt, "reply") ? int(optStr(opt, "reply")!.replace(/^#/, ""), "--reply") : undefined,
+      }),
+    );
+  }
   if (await isEncrypted(opt, currentBoard(opt))) {
     if (opt.own) throw new CliError("--own isn't available on an end-to-end encrypted board.");
     const e = await encPost(opt, currentBoard(opt), { type: forced ?? optStr(opt, "type") ?? "note", text: textFrom(pos), to: optStr(opt, "to"), reply_to: optStr(opt, "reply") ? int(optStr(opt, "reply")!.replace(/^#/, ""), "--reply") : undefined });
@@ -956,7 +1021,7 @@ async function checkCmd(args: string[]) {
   say(await tool(opt, "claim", { action: "check", seq, command, commit }));
 }
 
-function askYes(question: string, dflt: boolean): Promise<boolean> {
+export function askYes(question: string, dflt: boolean): Promise<boolean> {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   return new Promise((res) =>
     rl.question(`${question} ${dflt ? "[Y/n]" : "[y/N]"} `, (a) => {

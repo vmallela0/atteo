@@ -2,7 +2,9 @@
 // button is held, as 24 kHz mono PCM16 (what voice.ts asks for), with the phone's echo cancelling (.voiceChat) so the
 // open mic doesn't hear Atteo's own voice; the 24 kHz PCM16 deltas into a player node. Out of the loudspeaker, not the
 // earpiece (vedu #1598): voice processing likes to move the route to the receiver, so whenever the route's output is
-// the built-in receiver it's overridden to the speaker; AirPods, Bluetooth and wired headsets are left alone. A call or
+// the built-in receiver it's overridden to the speaker; AirPods, Bluetooth and wired headsets are left alone. The person
+// can pick the earpiece instead (AudioRoute.swift, vedu #2384), and on the loudspeaker it runs in .videoChat with a
+// little gain and a limiter, since .voiceChat plays at the quieter phone-call level. A call or
 // Siri pauses it, and a route change (headphones in or out) rebuilds the engine for the new hardware. Standing by
 // (TalkStandby.swift) there's no engine and no mic, but the audio stays the app's (playback, not let go), so AirPods'
 // play comes here and not to whatever was playing before; a soft falling chime says it stopped listening, a rising one
@@ -25,6 +27,7 @@ final class TalkAudio {
 
     private var engine: AVAudioEngine?
     private var player: AVAudioPlayerNode?
+    private var boost: AVAudioUnitEQ? // the plan's gain (louder on the loudspeaker), then a limiter so it never clips
     private let playFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: rate, channels: 1, interleaved: false)!
     private let micFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: rate, channels: 1, interleaved: true)!
     private var onChunk: ((String) -> Void)?
@@ -39,7 +42,8 @@ final class TalkAudio {
         started = true
         standingBy = false
         let s = AVAudioSession.sharedInstance()
-        try s.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetoothHFP, .allowBluetoothA2DP, .defaultToSpeaker])
+        let plan = AudioRoutePlan.plan(.talk, loudspeaker: AudioOut.shared.loudspeaker)
+        try s.setCategory(plan.category, mode: plan.mode, options: plan.options)
         try s.setActive(true, options: .notifyOthersOnDeactivation)
         let nc = NotificationCenter.default
         observers.append(nc.addObserver(forName: AVAudioSession.interruptionNotification, object: s, queue: .main) { [weak self] n in
@@ -69,9 +73,7 @@ final class TalkAudio {
     func standBy() {
         halt()
         standingBy = true
-        let s = AVAudioSession.sharedInstance()
-        try? s.setCategory(.playback, mode: .spokenAudio, options: [])
-        try? s.setActive(true)
+        AudioRoutePlan.plan(.readAloud, loudspeaker: AudioOut.shared.loudspeaker).apply()
         chime(up: false)
     }
 
@@ -142,12 +144,23 @@ final class TalkAudio {
         onChunk = nil
     }
 
-    /// The loudspeaker instead of the earpiece. Only when the output is the built-in receiver, so AirPods, Bluetooth and
-    /// headphones keep the sound (and the override's own route change doesn't loop).
+    /// The loudspeaker instead of the earpiece, unless the person picked the earpiece. Only when the output is the
+    /// built-in receiver, so AirPods, Bluetooth and headphones keep the sound (and the override's own route change doesn't loop).
     private func preferSpeaker() {
         let s = AVAudioSession.sharedInstance()
-        guard started, s.currentRoute.outputs.contains(where: { $0.portType == .builtInReceiver }) else { return }
+        guard started, AudioRoutePlan.shouldOverride(loudspeaker: AudioOut.shared.loudspeaker, outputs: s.currentRoute.outputs.map(\.portType)) else { return }
         try? s.overrideOutputAudioPort(.speaker)
+    }
+
+    /// The speaker button: moves the sound now, whether talking or standing by.
+    func setLoudspeaker(_ on: Bool) {
+        if started {
+            let plan = AudioRoutePlan.plan(.talk, loudspeaker: on)
+            plan.apply()
+            boost?.globalGain = plan.gainDB
+        } else if standingBy {
+            AudioRoutePlan.plan(.readAloud, loudspeaker: on).apply()
+        }
     }
 
     /// Queues Grok's PCM16 (24 kHz mono); answers how long it lasts.
@@ -207,7 +220,17 @@ final class TalkAudio {
                 events?(.failed("no microphone: out \(Int(f.sampleRate)) Hz × \(f.channelCount), in \(Int(i.sampleRate)) Hz × \(i.channelCount), route \(AVAudioSession.sharedInstance().currentRoute.inputs.map(\.portType.rawValue).joined(separator: ","))"))
             }
         }
-        e.connect(p, to: e.mainMixerNode, format: playFormat)
+        // player → gain → limiter → mixer: louder on the loudspeaker without clipping.
+        let eq = AVAudioUnitEQ(numberOfBands: 0)
+        eq.globalGain = AudioRoutePlan.plan(.talk, loudspeaker: AudioOut.shared.loudspeaker).gainDB
+        let limiter = AVAudioUnitEffect(audioComponentDescription: AudioComponentDescription(
+            componentType: kAudioUnitType_Effect, componentSubType: kAudioUnitSubType_PeakLimiter,
+            componentManufacturer: kAudioUnitManufacturer_Apple, componentFlags: 0, componentFlagsMask: 0))
+        e.attach(eq); e.attach(limiter)
+        e.connect(p, to: eq, format: playFormat)
+        e.connect(eq, to: limiter, format: playFormat)
+        e.connect(limiter, to: e.mainMixerNode, format: playFormat)
+        boost = eq
         p.volume = muted ? 0 : 1
         e.mainMixerNode.outputVolume = 1
         e.prepare()
@@ -227,7 +250,7 @@ final class TalkAudio {
             if useMic { engine.inputNode.removeTap(onBus: 0) }
             engine.stop()
         }
-        player = nil; engine = nil
+        player = nil; engine = nil; boost = nil
     }
 
     /// New hardware (AirPods in, headphones out, the media server reset): a fresh engine in the new formats.
