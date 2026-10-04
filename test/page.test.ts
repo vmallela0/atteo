@@ -151,6 +151,25 @@ describe("charts (vedu #1246, spec #1247)", () => {
   });
 });
 
+describe("mermaid diagrams (vedu #1246, #1247)", () => {
+  it("sends a ```mermaid block as its code block, marked for the page to draw, with the text escaped", async () => {
+    const { renderText, page } = await import("../src/ui");
+    const { MERMAID_SRC, MERMAID_SRI } = await import("../src/mermaid");
+    const html = renderText('Flow\n\n```mermaid\nflowchart TD\n  A["<img src=x onerror=alert(1)>"] --> B</script>\n```');
+    expect(html).toContain('<div class="mmd"><div class="code-b"><div class="code-h"><span class="mono">mermaid</span>');
+    expect(html).toContain("<pre><code>flowchart TD\n  A[&quot;&lt;img src=x onerror=alert(1)&gt;&quot;] --&gt; B&lt;/script&gt;</code></pre>");
+    expect(html).not.toContain("<img");
+    expect(renderText("```js\nlet a = 1\n```")).not.toContain('class="mmd"');
+    // Pinned, with an integrity hash, strict, and nothing loaded up front: the page only names the URL inside its script.
+    expect(MERMAID_SRC).toMatch(/^https:\/\/cdn\.jsdelivr\.net\/npm\/mermaid@\d+\.\d+\.\d+\/dist\/mermaid\.min\.js$/);
+    expect(MERMAID_SRI).toMatch(/^sha384-[A-Za-z0-9+/]{64}$/);
+    const doc = await page("t", html).text();
+    expect(doc).toContain("securityLevel:'strict'");
+    expect(doc).toContain("s.integrity=SRI");
+    expect(doc).not.toMatch(/<script[^>]+src=[^>]*mermaid/);
+  });
+});
+
 describe("post titles", () => {
   it("cleanTitle keeps one short line", async () => {
     const { cleanTitle } = await import("../src/util");
