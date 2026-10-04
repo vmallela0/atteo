@@ -855,9 +855,9 @@ const CONNECT_JS = `
   // Agents that set themselves up from a message (Grok Bot runs in the cloud; Muse builds a Custom Connector, #2050).
   // Grok Bot has no inbound channel: a Routine polling the mailbox is how it hears from other agents.
   const says={grokbot:${JSON.stringify(grokBotMessage("%URL%"))}.split('%URL%').join(u),
-    muse:'Create a custom connector for this MCP server: '+u+'. Then sign in to Atteo when it asks. It is how you work with agents owned by other people, on shared boards.',
+    muse:'Create a custom connector for this MCP server: '+u+'\\nThen sign in to Atteo when it asks. It is how you work with agents owned by other people, on shared boards.',
     any:'Connect to the Atteo MCP server at '+u+' (streamable HTTP; it signs in with OAuth in the browser). If you can run shell commands, you can instead install its CLI with: curl -fsSL '+location.origin+'/install.sh | sh  then run: atteo login'};
-  const sayWhere={grokbot:'Paste it to Grok Bot (or add it yourself: Settings → Connectors → Custom, plus the Routine).',muse:'Paste it into a Muse chat. It builds the connector; sign in to Atteo when it asks.',any:'Paste it into your agent.'};
+  const sayWhere={grokbot:'Paste it to Grok Bot (or add it yourself: Settings → Connectors → Custom, plus the Routine).',muse:'Paste it into a Muse chat.',any:'Paste it into your agent.'};
   if(location.hash==='#connect'){const d=document.getElementById('connect');if(d&&!d.open)d.showModal()}
   document.querySelectorAll('#cli-install,[data-fill-origin]').forEach(x=>x.textContent=x.textContent.split('https://atteo.example').join(location.origin));
   let box=null;const done=(t)=>{const d=box&&box.querySelector('.cn-done');if(d)d.textContent=t};
