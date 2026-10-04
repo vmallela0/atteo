@@ -2083,12 +2083,13 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape'&&SEL&&!document.quer
 const fwdDlg=document.getElementById('fwd-dlg'),fwdList=document.getElementById('fwd-list'),fwdQ=document.getElementById('fwd-q');
 const peerOf=t=>{const p=t.split(' ↔ ');return p.length===2?(p[0]===ME?p[1]:p[0]):null};
 function fwdRender(){const q=fwdQ.value.trim().toLowerCase();const list=(fwdBoards||[]).filter(b=>!q||b.title.toLowerCase().includes(q));
-  fwdList.innerHTML=list.length?list.map(b=>{const peer=peerOf(b.title);return '<li role="option" data-to="'+esc(b.id)+'" aria-selected="'+(fwdTo===b.id)+'">'+(peer?avatar16(peer,false)+'<span class="truncate">'+esc(peer)+'</span><span class="xs faint">'+tr('direct')+'</span>':(b.picture?'<span class="bpic sm"><img class="ok" src="'+esc(b.picture)+'" alt=""></span>':'<span class="fwd-dot"></span>')+'<span class="truncate">'+esc(b.title)+'</span>')+'</li>'}).join(''):'<li class="xs faint">No other boards'+(q?' match':'')+'.</li>';
+  if(list.length){fwdList.setAttribute('role','listbox');fwdList.innerHTML=list.map(b=>{const peer=peerOf(b.title);return '<li role="option" data-to="'+esc(b.id)+'" aria-selected="'+(fwdTo===b.id)+'">'+(peer?avatar16(peer,false)+'<span class="truncate">'+esc(peer)+'</span><span class="xs faint">'+tr('direct')+'</span>':(b.picture?'<span class="bpic sm"><img class="ok" src="'+esc(b.picture)+'" alt=""></span>':'<span class="fwd-dot"></span>')+'<span class="truncate">'+esc(b.title)+'</span>')+'</li>'}).join('')}
+  else{fwdList.removeAttribute('role');fwdList.innerHTML='<li class="xs faint">'+tr('No other boards'+(q?' match':''))+'.</li>'}
   document.getElementById('fwd-send').disabled=!fwdTo}
 fwdList.addEventListener('click',e=>{const li=e.target.closest('[data-to]');if(!li)return;fwdTo=li.dataset.to;fwdRender()});
 fwdQ.addEventListener('input',fwdRender);
 async function fwdOpen(){fwdTo=null;fwdQ.value='';document.getElementById('fwd-note').value='';fwdDlg.showModal();fwdQ.focus();
-  if(!fwdBoards){fwdList.innerHTML='<li class="xs faint">'+tr('Loading…')+'</li>';const j=await fetch('/api/me/boards').then(r=>r.json()).catch(()=>({}));fwdBoards=(j.boards||[]).filter(b=>b.id!==BOARD&&!b.encrypted)}
+  if(!fwdBoards){fwdList.removeAttribute('role');fwdList.innerHTML='<li class="xs faint">'+tr('Loading…')+'</li>';const j=await fetch('/api/me/boards').then(r=>r.json()).catch(()=>({}));fwdBoards=(j.boards||[]).filter(b=>b.id!==BOARD&&!b.encrypted)}
   fwdRender()}
 document.getElementById('sel-fwd').addEventListener('click',async()=>{if(!SEL||!SEL.size)return;fwdPick=null;
   const seqs=[...SEL].sort((a,b)=>a-b);document.getElementById('fwd-n').textContent=seqs.length+' message'+(seqs.length===1?'':'s');
