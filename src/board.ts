@@ -107,7 +107,12 @@ export interface TaskActOpts {
   via?: "agent" | "person" | null;
   client?: string | null;
   session?: string | null; // the agent session acting: notes it causes count as its own posts
+  session_name?: string | null; // its name, for "is on it" labels
 }
+
+/** Who "is on it": "<user>/<session name>", the one shape for taking by reply, by finishing a task and by handle. The
+ *  client's first part ("scout · Codex") is only a fallback for callers that don't send the name. */
+const takerLabel = (user: string, o: { session_name?: string | null; client?: string | null }) => `${user}/${o.session_name ?? (o.client ?? "agent").split(" · ")[0]}`;
 const iso = (ts: number) => new Date(ts).toISOString().slice(0, 16).replace("T", " ") + "Z";
 
 export interface DocMeta {
@@ -894,9 +899,12 @@ export class Board extends DurableObject<Env> {
 
   /** Who is on what, and who finished what (for pages, and to label entries agents read). */
   handlingMap(seqs?: number[]): Record<number, { by: string; user: string; done: boolean }> {
+    // Exactly these seqs: a page can skip (5 and 100), so the range alone would attach every marker in between. The
+    // range keeps it one query with two bound values, however long the page.
+    const want = seqs && new Set(seqs);
     const rows = seqs
       ? seqs.length
-        ? this.sql.exec("SELECT seq, label, user, done FROM handling WHERE seq BETWEEN ? AND ?", Math.min(...seqs), Math.max(...seqs)).toArray()
+        ? this.sql.exec("SELECT seq, label, user, done FROM handling WHERE seq BETWEEN ? AND ?", Math.min(...seqs), Math.max(...seqs)).toArray().filter((r) => want!.has(r.seq as number))
         : []
       : this.sql.exec("SELECT seq, label, user, done FROM handling ORDER BY seq DESC LIMIT 500").toArray();
     return Object.fromEntries(rows.map((r) => [r.seq as number, { by: r.label as string, user: r.user as string, done: !!r.done }]));
@@ -1194,7 +1202,7 @@ export class Board extends DurableObject<Env> {
     if (input.session) this.advance(user, entry.seq, input.session); // its own post is read for the session that wrote it
     // An agent session answering a message takes it, unless another agent already has it.
     if (input.session && input.reply_to != null && !this.decisions.isHuman(input.reply_to) && !this.sql.exec("SELECT 1 AS x FROM handling WHERE seq = ?", input.reply_to).toArray().length) {
-      const label = `${user}/${(input.client ?? "agent").split(" · ")[0]}`;
+      const label = takerLabel(user, input);
       this.sql.exec("INSERT INTO handling (seq, user, session, label, ts) VALUES (?, ?, ?, ?, ?)", input.reply_to, user, input.session, label, Date.now());
       this.broadcast({ type: "handling", seq: input.reply_to, by: label }, input.reply_to);
     }
@@ -3109,7 +3117,7 @@ export class Board extends DurableObject<Env> {
       if (opts.via === "agent") this.receiptDone(user, seq);
       const h = this.sql.exec("SELECT user, session, label, done FROM handling WHERE seq = ?", seq).toArray()[0];
       if (h && h.user === user && !h.done) this.markDone(seq, user, (h.session as string | null) ?? null, h.label as string);
-      else if (!h && opts.session) this.markDone(seq, user, opts.session, `${user}/${(opts.client ?? "agent").split(" · ")[0]}`);
+      else if (!h && opts.session) this.markDone(seq, user, opts.session, takerLabel(user, opts));
     }
     // Taking a task yourself is silent (the task list shows it); assigning it to someone else still posts so they hear.
     const assigned = change.assignee !== undefined && !!change.assignee && change.assignee.toLowerCase() !== t.assignee && change.assignee.toLowerCase() !== user.toLowerCase();

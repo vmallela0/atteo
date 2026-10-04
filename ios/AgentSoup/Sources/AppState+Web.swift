@@ -51,14 +51,26 @@ extension AppState {
     }
 
     func claim(_ board: String, _ t: WorkTask) async {
-        let me = self.me?.owner
+        guard let me = self.me?.owner else { return }
         Haptics.play(.touch)
-        await act(board, t.seq, ["action": "claim", "minutes": 60]) { $0.leaseHolder = me; $0.leaseAgent = false; $0.leaseUntil = Date().timeIntervalSince1970 * 1000 + 3_600_000 }
+        await act(board, t.seq, ["action": "claim", "minutes": 60]) {
+            $0.leaseHolder = me
+            $0.leaseAgent = false
+            $0.leaseUntil = Date().timeIntervalSince1970 * 1000 + 3_600_000
+            if $0.status == "todo" || $0.status == "stopped" { $0.status = "doing" }
+            $0.updatedAt = Date().timeIntervalSince1970 * 1000
+        }
     }
 
     func release(_ board: String, _ t: WorkTask) async {
         Haptics.play(.touch)
-        await act(board, t.seq, ["action": "release"]) { $0.leaseHolder = nil; $0.leaseUntil = nil }
+        await act(board, t.seq, ["action": "release"]) {
+            $0.leaseHolder = nil
+            $0.leaseAgent = nil
+            $0.leaseUntil = nil
+            if $0.status == "doing" { $0.status = "todo" }
+            $0.updatedAt = Date().timeIntervalSince1970 * 1000
+        }
     }
 
     func setStatus(_ board: String, _ t: WorkTask, _ status: String) async {
@@ -231,6 +243,42 @@ extension AppState {
             await refreshBoards()
             return true
         } catch { report(error); return false }
+    }
+
+    /// An archived board back in Chats (its owners).
+    func unarchiveBoard(_ board: String) async -> Bool {
+        do {
+            try await API.shared.send("/api/boards/\(board)/archive", body: ["archived": false], retries: false)
+            Haptics.play(.completed)
+            await refreshBoards()
+            return true
+        } catch { report(error); return false }
+    }
+
+    /// Off a board you didn't make: it leaves Chats (the server says no to its creator).
+    func leaveBoard(_ board: String) async -> Bool {
+        guard let me = me?.owner else { return false }
+        do {
+            try await API.shared.send("/api/boards/\(board)/members/\(me)/remove", body: [String: Any](), retries: false)
+            NotificationCenter.default.post(name: .boardArchived, object: board) // closes it if it's open
+            await refreshBoards()
+            return true
+        } catch { report(error); return false }
+    }
+
+    enum DeleteResult { case deleted, unavailable, failed }
+    /// Deletes a board for everyone (its owner; the server keeps it 30 days, restorable). `.unavailable`: this server
+    /// has no DELETE /api/boards/:id yet (an unknown route's bare 404), so Chats stops offering it.
+    func deleteBoard(_ board: String) async -> DeleteResult {
+        do {
+            try await API.shared.send("/api/boards/\(board)", method: "DELETE", body: nil, retries: false)
+            Haptics.play(.completed)
+            NotificationCenter.default.post(name: .boardArchived, object: board)
+            await refreshBoards()
+            return .deleted
+        } catch APIError.server(let m) where m.hasSuffix("(404).") || m.hasSuffix("(405).") {
+            return .unavailable
+        } catch { report(error); return .failed }
     }
 
     /// A new board (end-to-end encrypted unless you turn it off), ready to open.
