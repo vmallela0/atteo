@@ -275,6 +275,9 @@ final class ReadAloud: NSObject, ObservableObject, AVSpeechSynthesizerDelegate, 
     override init() {
         super.init()
         synth.delegate = self
+        AudioOut.shared.onChange { [weak self] on in
+            if self?.speaking == true { AudioRoutePlan.plan(.readAloud, loudspeaker: on).apply() } // moves what's being read
+        }
     }
 
     /// A message for you landed in the chat you have open: a blip, and it waits in the bar.
@@ -308,19 +311,21 @@ final class ReadAloud: NSObject, ObservableObject, AVSpeechSynthesizerDelegate, 
     }
 
     private func speak(_ it: Item) async {
-        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
-        try? AVAudioSession.sharedInstance().setActive(true)
+        AudioRoutePlan.plan(.readAloud, loudspeaker: AudioOut.shared.loudspeaker).apply() // the speaker button (#2384)
         if it.board.encrypted != true, await serverHasVoice() {
             do {
                 let data = try await API.shared.send("/api/app/tts", body: ["board": it.board.id, "seq": it.entry.seq], retries: false)
                 let p = try AVAudioPlayer(data: data)
                 p.delegate = self
+                p.volume = 1
                 player = p
                 if p.play() { return }
             } catch {} // over the allowance, the service down, an encrypted board: the phone's voice instead
         }
         let u = AVSpeechUtterance(string: Self.spoken(it))
         u.voice = Self.bestVoice()
+        u.volume = 1
+        synth.usesApplicationAudioSession = true // our session (the speaker choice), not the system's
         synth.speak(u)
     }
 
@@ -407,6 +412,7 @@ struct ReadAloudBar: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("read-aloud-bar")
+                SpeakerToggle(style: .icon)
                 Button { aloud.hush() } label: { Image(systemName: "xmark").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.muted).frame(width: 28, height: 28) }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Dismiss")

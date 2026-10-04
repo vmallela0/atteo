@@ -485,4 +485,45 @@ final class TalkUITests: AtteoUITestCase {
         XCTAssertTrue(eventually(state, "label == 'Listening…'", timeout: 5), "hands-free again (\(state.label))")
         endAndSettle(a, before: before)
     }
+
+    /// Loudspeaker or earpiece (vedu #2384): a "Speaker" chip under the call's buttons, beside mute's job, that flips
+    /// to "Earpiece" and is remembered on this phone across launches.
+    func testSpeakerChoiceIsRemembered() {
+        let before = minutesUsed()
+        var a = app(extra: ["AGENT_SOUP_FAKE_VOICE": "1", "AGENT_SOUP_TALK_STANDBY_SECONDS": "600"])
+        a.launchArguments += ["-talk-hold-to-talk", "NO", "-talk-captions", "all"]
+        a.launch()
+        func openCall() -> XCUIElement {
+            openChat(a, "Checkout bug")
+            a.buttons["talk"].tap()
+            let state = a.staticTexts["talk-state"]
+            XCTAssertTrue(eventually(state, "label == 'Listening…'", timeout: 15), "listening (\(state.label))")
+            let speaker = a.buttons["speaker-toggle"]
+            XCTAssertTrue(speaker.waitForExistence(timeout: 5), "a speaker choice in the call")
+            XCTAssertTrue(a.buttons["talk-mute"].exists, "mute is still there too")
+            return speaker
+        }
+        var speaker = openCall()
+        if speaker.value as? String == "Earpiece" { speaker.tap() } // an earlier run's choice: start from the default
+        XCTAssertTrue(eventually(speaker, "value == 'Loudspeaker'", timeout: 3), "the loudspeaker by default")
+        XCTAssertEqual(speaker.label, "Speaker on")
+        shot("talk-speaker-on")
+        speaker.tap()
+        XCTAssertTrue(eventually(speaker, "value == 'Earpiece'", timeout: 3), "flips to the earpiece")
+        XCTAssertEqual(speaker.label, "Speaker off")
+        shot("talk-speaker-earpiece")
+        endAndSettle(a, before: before)
+
+        // A new launch keeps it.
+        a.terminate()
+        let before2 = minutesUsed()
+        a = app(extra: ["AGENT_SOUP_FAKE_VOICE": "1", "AGENT_SOUP_TALK_STANDBY_SECONDS": "600"])
+        a.launchArguments += ["-talk-hold-to-talk", "NO", "-talk-captions", "all"]
+        a.launch()
+        speaker = openCall()
+        XCTAssertTrue(eventually(speaker, "value == 'Earpiece'", timeout: 3), "remembered across launches (\(speaker.value ?? "nil"))")
+        speaker.tap() // back to the default on this simulator
+        XCTAssertTrue(eventually(speaker, "value == 'Loudspeaker'", timeout: 3))
+        endAndSettle(a, before: before2)
+    }
 }
