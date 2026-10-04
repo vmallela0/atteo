@@ -143,4 +143,40 @@ final class InviteAgentUITests: AtteoUITestCase {
         XCTAssertTrue(a.buttons["invite-agent-own"].waitForExistence(timeout: 5), "the same two choices")
         XCTAssertTrue(a.buttons["invite-agent-friend"].exists)
     }
+
+    /// Going to another app and coming back (vedu: Invite an agent "closed" when he did): Your own assistant's page
+    /// stays open, with Invite an agent and Info under it. Both ways out: the Home button, and Open
+    /// Claude itself (Safari on the simulator), where the page used to go back to the two choices once the app redrew.
+    func testSheetsSurviveBackground() throws {
+        continueAfterFailure = false
+        let a = app()
+        a.launch()
+        openChat(a, "Checkout bug")
+        openInviteRow(a).tap()
+        XCTAssertTrue(a.buttons["invite-agent-own"].waitForExistence(timeout: 5), "Invite an agent is open")
+        a.buttons["invite-agent-own"].tap()
+        let message = a.descendants(matching: .any)["invite-agent-message"].firstMatch
+        XCTAssertTrue(message.waitForExistence(timeout: 5), "Your own assistant's page")
+        a.buttons["invite-agent-copy"].tap()
+        XCTAssertTrue(a.descendants(matching: .any)["invite-agent-copied"].firstMatch.waitForExistence(timeout: 5))
+
+        XCUIDevice.shared.press(.home)
+        sleep(3)
+        a.activate()
+        XCTAssertTrue(message.waitForExistence(timeout: 5), "still on the page after Home and back")
+        sleep(5) // the refresh on coming back lands
+        XCTAssertTrue(message.exists, "still on the page once the app has refreshed")
+
+        let open = a.buttons["invite-agent-open-claude"]
+        XCTAssertTrue(open.waitForExistence(timeout: 5))
+        open.tap()
+        sleep(6)
+        a.activate()
+        sleep(5)
+        XCTAssertTrue(message.exists, "still on the page after Open Claude and back")
+        save("invite-agent-after-background")
+
+        a.buttons["invite-agent-done"].firstMatch.tap()
+        XCTAssertTrue(a.navigationBars["Info"].waitForExistence(timeout: 5), "Info is still under it")
+    }
 }

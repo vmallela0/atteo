@@ -11,6 +11,7 @@ struct BoardView: View {
     @State private var workPane: WorkPane? // Tasks or Files, from the top bar (always reachable)
     @State private var showAgents = false
     @State private var invitingAgent = false // "Invite an agent", from the empty chat (InviteAgent.swift)
+    @State private var invitePage: [InviteAgentSheet.Page] = [] // its page, kept here (InviteAgentSheet.path)
     @State private var talking = false // the voice chat sheet, from the phone at the top right (vedu #1783)
     @ObservedObject private var talkStatus = TalkStatus.shared // the phone shows once voice is set up on the server
     private var live: [BoardAgent] { (state.boardAgents[board.id] ?? []).filter { $0.state == "live" } }
@@ -185,7 +186,7 @@ struct BoardView: View {
         }
         .task { await talkStatus.load() }
         .fullScreenCover(isPresented: $talking) { TalkSheet(board: board) }
-        .sheet(isPresented: $invitingAgent) { InviteAgentSheet(board: board).presentationDetents([.large]).presentationBackground(Theme.bg) }
+        .sheet(isPresented: $invitingAgent) { InviteAgentSheet(board: board, path: $invitePage).presentationDetents([.large]).presentationBackground(Theme.bg) }
         // A "#123" in a message: go to it (or open its thread, if it's an answer).
         .environment(\.openURL, OpenURLAction { url in
             if let p = personLink(url) { profile = p; return .handled }
@@ -263,7 +264,7 @@ struct BoardView: View {
             // Nothing said yet: how agents get here, and "Invite an agent" (the web's empty board), in the middle.
             .overlay {
                 if state.entries[board.id] != nil && r.shown.isEmpty && !peopleOnly && board.invitesAgents {
-                    EmptyChatInvite(board: board) { focused = false; invitingAgent = true }
+                    EmptyChatInvite(board: board) { focused = false; invitePage = []; invitingAgent = true }
                         .transition(.opacity)
                 }
             }
@@ -1087,6 +1088,7 @@ struct EntryRow: View {
 /// has written yet, that it's empty because of the filter). Show all turns it off.
 struct PeopleFilterStrip: View {
     var empty = false
+    var id = "people-filter" // its accessibility ids: "<id>-strip", "<id>-show-all" (a thread's: "thread-agents")
     let showAll: () -> Void
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: Space.xs) {
@@ -1101,14 +1103,14 @@ struct PeopleFilterStrip: View {
                     .frame(minHeight: 28).contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityIdentifier("people-filter-show-all")
+            .accessibilityIdentifier("\(id)-show-all")
             Spacer(minLength: 0)
         }
         .padding(.horizontal, Space.l).padding(.vertical, 2)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Theme.card)
         .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("people-filter-strip")
+        .accessibilityIdentifier("\(id)-strip")
     }
 }
 

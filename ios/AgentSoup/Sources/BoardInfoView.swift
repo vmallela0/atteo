@@ -32,6 +32,7 @@ struct BoardInfoView<Top: View, Files: View>: View {
     @State private var cropping: CropRequest?
     @State private var pictureSaving = false
     @State private var invitingAgent = false // "Invite an agent" (InviteAgent.swift)
+    @State private var invitePage: [InviteAgentSheet.Page] = [] // its page, kept here (InviteAgentSheet.path)
     @ObservedObject private var pictures = BoardPictureStore.shared
     @FocusState private var typing: Bool
     @Environment(\.chatDensity) private var density
@@ -92,7 +93,7 @@ struct BoardInfoView<Top: View, Files: View>: View {
                 Section {
                     // Your own assistant (its join message) or a friend's agent (InviteAgent.swift; vedu #1812).
                     if canInviteAgent {
-                        Button { invitingAgent = true } label: { InfoLabel(InviteAgentWords.title, "person.badge.plus") }
+                        Button { invitePage = []; invitingAgent = true } label: { InfoLabel(InviteAgentWords.title, "person.badge.plus") }
                             .accessibilityIdentifier("invite-agent")
                     }
                     HStack(spacing: Space.s) {
@@ -220,7 +221,7 @@ struct BoardInfoView<Top: View, Files: View>: View {
             }
             .presentationBackground(Theme.bg)
         }
-        .sheet(isPresented: $invitingAgent) { InviteAgentSheet(board: board).presentationDetents([.large]).presentationBackground(Theme.bg) }
+        .sheet(isPresented: $invitingAgent) { InviteAgentSheet(board: board, path: $invitePage).presentationDetents([.large]).presentationBackground(Theme.bg) }
         .confirmationDialog("Archive \(board.title)?", isPresented: $confirmArchive, titleVisibility: .visible) {
             Button("Archive", role: .destructive) { Task { _ = await state.archiveBoard(boardId) } }
         } message: { Text("It becomes read-only for everyone. You can restore it on the web.") }
