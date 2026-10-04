@@ -741,7 +741,7 @@ const handler = {
         const me = await registry.userByName(env, viewer.name);
         const [side, boards, invitations, status] = await Promise.all([
           sideBoards(env, viewer.name),
-          registry.boardsOverview(env, viewer.name),
+          registry.boardsOverview(env, viewer.name, viewer.via !== "agent"),
           me ? registry.invitationsFor(env, me) : [],
           registry.agentStatus(env, viewer.name),
         ]);
@@ -817,7 +817,7 @@ const handler = {
       // ---- inbox: mentions of you, posts for your agent, replies to you ----
       if (path === "/inbox" && method === "GET") {
         if (!viewer) return needLogin();
-        const [side, items, aps] = await Promise.all([sideBoards(env, viewer.name), inbox.listInbox(env, viewer.name), approvals.listApprovals(env, viewer.name, "all")]);
+        const [side, items, aps] = await Promise.all([sideBoards(env, viewer.name), inbox.listInbox(env, viewer.name, 100, viewer.via !== "agent"), approvals.listApprovals(env, viewer.name, "all")]);
         // Looking at the inbox is reading it: the badge clears (items still show as new on this view). Off-board items
         // (friend and contact requests, approvals) have no board to open, so this is where they get read.
         const unreadIds = items.filter((i) => !i.read_at).map((i) => i.id).slice(0, 90); // D1: at most 100 bound parameters
@@ -826,7 +826,7 @@ const handler = {
       }
       if (path === "/api/inbox" && method === "GET") {
         if (!viewer) return needLogin();
-        return json({ items: await inbox.listInbox(env, viewer.name, 50) });
+        return json({ items: await inbox.listInbox(env, viewer.name, 50, viewer.via !== "agent") });
       }
       // ---- which agents are on a board, and whether each is working right now (live), idle, or gone ----
       m = path.match(/^\/api\/boards\/([^/]+)\/agents$/);
@@ -866,13 +866,13 @@ const handler = {
       }
       if (path === "/api/inbox/count" && method === "GET") {
         if (!viewer) return needLogin();
-        return json(await inbox.inboxCount(env, viewer.name), 200, { "cache-control": "no-store" });
+        return json(await inbox.inboxCount(env, viewer.name, viewer.via !== "agent"), 200, { "cache-control": "no-store" });
       }
       if (path === "/api/inbox/read" && method === "POST") {
         if (!viewer) return needLogin();
         const body = (await request.json().catch(() => ({}))) as { all?: unknown; board?: string; ids?: unknown };
         const ids = Array.isArray(body.ids) ? body.ids.map(Number) : undefined;
-        const n = await inbox.markRead(env, viewer.name, { all: body.all === true || body.all === "1", board: typeof body.board === "string" ? body.board : undefined, ids });
+        const n = await inbox.markRead(env, viewer.name, { all: body.all === true || body.all === "1", board: typeof body.board === "string" ? body.board : undefined, ids }, viewer.via !== "agent");
         return json({ ok: true, read: n });
       }
 
@@ -2084,7 +2084,7 @@ const handler = {
         if (!viewer) return needLogin();
         const q = (url.searchParams.get("q") ?? "").trim().slice(0, 200);
         if (!q) return json({ boards: [], hits: [] });
-        const all = await registry.boardsOverview(env, viewer.name);
+        const all = await registry.boardsOverview(env, viewer.name, viewer.via !== "agent");
         const needle = q.toLowerCase();
         const boards = all
           .filter((b) => [b.title, b.description ?? "", b.tags ?? ""].join(" ").toLowerCase().includes(needle))
