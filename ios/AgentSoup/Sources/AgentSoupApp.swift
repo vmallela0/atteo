@@ -14,6 +14,7 @@ struct AtteoApp: App {
                 Group {
                     if state.signedIn { ModeRoot() } else { SignInView() } // Everyday or Developer mode (Everyday.swift)
                 }
+                .id(state.display.lang) // a new language: every screen is built again in its words (Language.swift)
             }
             .modifier(ToastOverlay(state: state))
             .environmentObject(state)

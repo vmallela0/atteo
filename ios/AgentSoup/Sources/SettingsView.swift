@@ -68,6 +68,7 @@ struct FullSettings: View {
                 displayPicker("Text size", id: "display-text", \.text, [("s", "S"), ("m", "M"), ("l", "L")])
                 displayPicker("Density", id: "display-density", \.density, [("comfortable", "Comfortable"), ("compact", "Compact")])
                 displayPicker("Theme", id: "display-theme", \.theme, [("system", "System"), ("light", "Light"), ("dark", "Dark")])
+                LanguagePicker()
             } header: { SectionHeader("Display") } footer: {
                 Text("Text size adds to your iPhone's own setting. Saved to your account, so the web follows it too.")
             }
@@ -139,7 +140,7 @@ struct FullSettings: View {
     }
 
     /// One display setting: its name over a segmented control. A change applies at once and is saved to your profile.
-    private func displayPicker(_ title: String, id: String, _ key: WritableKeyPath<DisplayPrefs, String>, _ options: [(value: String, label: String)]) -> some View {
+    private func displayPicker(_ title: LocalizedStringKey, id: String, _ key: WritableKeyPath<DisplayPrefs, String>, _ options: [(value: String, label: LocalizedStringKey)]) -> some View {
         VStack(alignment: .leading, spacing: Space.s) {
             Text(title).font(Typo.secondary).foregroundStyle(Theme.muted)
             Picker(title, selection: Binding(get: { state.display[keyPath: key] }, set: { v in

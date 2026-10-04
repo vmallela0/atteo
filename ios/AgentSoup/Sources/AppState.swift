@@ -37,9 +37,11 @@ final class AppState: ObservableObject {
     struct JumpRequest: Equatable { let board: String; let seq: Int }
     @Published var me: MeAgentResponse.Agent?
     @Published var profile: Profile?
-    /// Text size, density and theme (Settings → Display). Cached on the phone so launch is instant; saved per person
-    /// on the server so the web follows them too (and the app follows the web).
-    @Published private(set) var display: DisplayPrefs = AppState.cachedDisplay
+    /// Text size, density, theme and language (Settings → Display). Cached on the phone so launch is instant; saved per
+    /// person on the server so the web follows them too (and the app follows the web).
+    @Published private(set) var display: DisplayPrefs = AppState.cachedDisplay {
+        didSet { if display.lang != oldValue.lang { L10n.apply(display.lang) } } // the app's words (Language.swift)
+    }
     private var displaySave: Task<Void, Never>?
     @Published var connections: [Connection] = []
     @Published var error: String?
@@ -55,6 +57,7 @@ final class AppState: ObservableObject {
     var needsYou: Int { approvals.count + contacts.count + inbox.filter { $0.readAt == nil && !$0.boardId.isEmpty }.count }
 
     init() {
+        L10n.apply(display.lang) // before the first screen draws: its words in your language
         #if DEBUG
         // Simulator runs against a local server: ATTEO_TOKEN skips the browser sign-in.
         if let t = API.environment("TOKEN"), !t.isEmpty { Keychain.token = t; signedIn = true }
@@ -171,12 +174,13 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// Sends the cached display settings with the profile save (POST /api/me/profile, a partial `display`).
+    /// Sends the cached display settings to your client prefs (POST /api/app/prefs, a partial `display`; the web reads
+    /// the same ones).
     private func saveDisplay() async {
         let d = display
         do {
-            let data = try await API.shared.send("/api/me/profile", body: ["display": d.body])
-            if let r = try? JSONDecoder.soup.decode(ProfileResponse.self, from: data) { profile = r.profile }
+            try await API.shared.send("/api/app/prefs", body: ["display": d.body])
+            profile?.display = d
             if display == d { cacheDisplay(d, unsaved: false) }
         } catch { report(error, quiet: true) } // stays cached and unsaved: the next refresh sends it again
     }

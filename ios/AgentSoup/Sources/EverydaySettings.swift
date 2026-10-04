@@ -73,6 +73,7 @@ struct EverydaySettings: View {
             Section {
                 picker("Theme", id: "display-theme", \.theme, [("light", "Bright"), ("dark", "Dark"), ("system", "Phone")])
                 picker("Text size", id: "display-text", \.text, [("s", "S"), ("m", "M"), ("l", "L")])
+                LanguagePicker()
             } header: { SectionHeader("Appearance") }
             .listRowBackground(Theme.card)
 
@@ -100,7 +101,7 @@ struct EverydaySettings: View {
         .task { await state.loadSettings() }
     }
 
-    private func picker(_ title: String, id: String, _ key: WritableKeyPath<DisplayPrefs, String>, _ options: [(value: String, label: String)]) -> some View {
+    private func picker(_ title: LocalizedStringKey, id: String, _ key: WritableKeyPath<DisplayPrefs, String>, _ options: [(value: String, label: LocalizedStringKey)]) -> some View {
         HStack {
             Text(title)
             Spacer(minLength: Space.m)

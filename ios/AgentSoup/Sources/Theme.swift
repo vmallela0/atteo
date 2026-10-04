@@ -243,9 +243,11 @@ struct Pill: View {
 
 /// A grouped list's section title: small, quiet, sentence case.
 struct SectionHeader: View {
-    let title: String
-    init(_ title: String) { self.title = title }
-    var body: some View { Text(title).font(Typo.section).foregroundStyle(Theme.muted).textCase(nil) }
+    let title: Text
+    init(_ title: LocalizedStringKey) { self.title = Text(title) }
+    /// A string from code, as is (like Text's): localize it first (String(localized:)) when it's the app's own words.
+    @_disfavoredOverload init<S: StringProtocol>(_ title: S) { self.title = Text(title) }
+    var body: some View { title.font(Typo.section).foregroundStyle(Theme.muted).textCase(nil) }
 }
 
 /// An unread count: a small clay capsule.
@@ -265,38 +267,41 @@ extension Theme {
 
 // MARK: - Display settings (Settings → Display; saved per person on the server, cached here)
 
-/// Text size, density and theme, as the server stores them (`profile.display`). Unknown values decode to the defaults,
-/// so a newer web setting never breaks the app.
+/// Text size, density, theme and language, as the server stores them (`profile.display`, /api/app/prefs). Unknown
+/// values decode to the defaults, so a newer web setting never breaks the app.
 struct DisplayPrefs: Codable, Equatable {
     var text: String = "m" // s | m | l
     var density: String = "comfortable" // comfortable | compact
     var theme: String = "system" // system | light | dark
+    var lang: String = "auto" // auto | en | zh-Hans | zh-Hant | es | ja | ko | hi (Language.swift)
 
     static let `default` = DisplayPrefs()
 
-    init(text: String = "m", density: String = "comfortable", theme: String = "system") {
+    init(text: String = "m", density: String = "comfortable", theme: String = "system", lang: String = "auto") {
         self.text = ["s", "m", "l"].contains(text) ? text : "m"
         self.density = ["comfortable", "compact"].contains(density) ? density : "comfortable"
         self.theme = ["system", "light", "dark"].contains(theme) ? theme : "system"
+        self.lang = AppLanguage.values.contains(lang) ? lang : "auto"
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.init(text: (try? c.decode(String.self, forKey: .text)) ?? "m",
                   density: (try? c.decode(String.self, forKey: .density)) ?? "comfortable",
-                  theme: (try? c.decode(String.self, forKey: .theme)) ?? "system")
+                  theme: (try? c.decode(String.self, forKey: .theme)) ?? "system",
+                  lang: (try? c.decode(String.self, forKey: .lang)) ?? "auto")
     }
-    /// "l,compact,dark" (the DEBUG ATTEO_DISPLAY override for simulator screenshots).
+    /// "l,compact,dark" or "l,compact,dark,zh-Hans" (the DEBUG ATTEO_DISPLAY override for simulator screenshots).
     init?(spec: String) {
         let p = spec.split(separator: ",").map(String.init)
-        guard p.count == 3 else { return nil }
-        self.init(text: p[0], density: p[1], theme: p[2])
+        guard p.count == 3 || p.count == 4 else { return nil }
+        self.init(text: p[0], density: p[1], theme: p[2], lang: p.count == 4 ? p[3] : "auto")
     }
 
     var chatDensity: ChatDensity { density == "compact" ? .compact : .comfortable }
     var interfaceStyle: UIUserInterfaceStyle { theme == "light" ? .light : theme == "dark" ? .dark : .unspecified }
     /// Steps on top of the person's iOS Dynamic Type: S two smaller (Large → Small), M as is, L one larger (→ xLarge).
     var textSteps: Int { text == "s" ? -2 : text == "l" ? 1 : 0 }
-    var body: [String: String] { ["text": text, "density": density, "theme": theme] }
+    var body: [String: String] { ["text": text, "density": density, "theme": theme, "lang": lang] }
 }
 
 /// How tight lists and the chat sit. Read it with `@Environment(\.chatDensity)`; pad rows with `Space.row(density)`.
@@ -334,6 +339,7 @@ struct DisplayRoot<Content: View>: View {
     var body: some View {
         content
             .environment(\.chatDensity, prefs.chatDensity)
+            .environment(\.locale, L10n.locale) // dates and numbers in the chosen language (Language.swift)
             .onAppear { apply() }
             .onChange(of: prefs) { _, _ in apply() }
             // Your iPhone's text size changed (Settings → Display & Brightness): stay the same steps on top of it.
