@@ -1,10 +1,14 @@
 name: CI
 
-# Every push and pull request: typecheck, unit tests, then the end-to-end and CLI suites against a local Worker
+# Pushes to main and pull requests: typecheck, unit tests, then the end-to-end and CLI suites against a local Worker
 # (wrangler dev, local D1 + Durable Objects), and the browser checks in 4 parallel shards. No real secrets needed.
+# Not every branch push: helpers push many branches and the local gate already tests them; on every push this used up the
+# private repo's Actions minutes (10-04, #1981). Run it on any branch by hand with "Run workflow".
 on:
   push:
+    branches: [main]
   pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
