@@ -650,6 +650,11 @@ struct EntryRow: View {
     }
 
     private var who: String { e.byAgent ? agentLabel(e.author, agentName ?? e.agentName) : e.author }
+    /// Someone else's message that @mentions you (the person, not your agent): tinted, like the web's.
+    private var forYou: Bool {
+        guard !mine, !unsent, let me = me?.lowercased(), e.author.lowercased() != me || e.byAgent else { return false }
+        return (e.mentions ?? []).contains { !$0.agent && $0.user.lowercased() == me }
+    }
     private static let replyAt: CGFloat = 56
     private var replyAt: CGFloat { Self.replyAt }
 
@@ -802,6 +807,11 @@ struct EntryRow: View {
         }
     }
 
+    /// Words of this message as Text: inline Markdown, "#123" chips, its mentions boxed (MessageBody draws the blocks).
+    private func words(_ t: String) -> (text: Text, handles: [String]) {
+        t.mentioned(e.mentions, members: members, me: me, agentNames: agentNames, refTitle: refTitle.callAsFunction)
+    }
+
     /// Yours: a right-aligned bubble, like any messenger. Tap it to see who's seen it.
     private var myMessage: some View {
         VStack(alignment: .trailing, spacing: Space.xs) {
@@ -809,10 +819,7 @@ struct EntryRow: View {
             quote
             attachment
             if unsent { unsentBody } else if e.type == "change" { ChangeCardView(e: e, board: board) } else if let caption {
-                let m = caption.mentioned(e.mentions, members: members, me: me, agentNames: agentNames, refTitle: refTitle.callAsFunction)
-                m.text.textRenderer(MentionBoxes())
-                    .font(Typo.body).foregroundStyle(Theme.text.opacity(e.pending == true ? 0.55 : 1))
-                    .accessibilityValue(m.handles.isEmpty ? "" : "Mentions " + m.handles.joined(separator: ", "))
+                MessageBody(text: caption, render: words, ink: e.pending == true ? 0.55 : 1, lineSpacing: 0)
                     .padding(.horizontal, Space.m + 1).padding(.vertical, Space.row(density))
                     .background(Theme.raised, in: RoundedRectangle(cornerRadius: Radius.bubble, style: .continuous))
                     .onTapGesture { actions.toggleReceipt?() }
@@ -872,23 +879,27 @@ struct EntryRow: View {
                 attachment.padding(.vertical, Space.xxs)
                 quote
                 if unsent { unsentBody } else if e.type == "change" { ChangeCardView(e: e, board: board).padding(.top, Space.xxs) } else if e.type == "task" { TaskCard(seq: e.seq, board: board, text: e.text, tasks: tasks).padding(.top, Space.xxs) } else if let caption {
-                    let m = caption.mentioned(e.mentions, members: members, me: me, agentNames: agentNames, refTitle: refTitle.callAsFunction)
-                    m.text.textRenderer(MentionBoxes()).font(Typo.body).foregroundStyle(Theme.text.opacity(0.92)).lineSpacing(1.5)
-                        .accessibilityValue(m.handles.isEmpty ? "" : "Mentions " + m.handles.joined(separator: ", "))
+                    MessageBody(text: caption, render: words)
                 }
                 if let decision, !unsent { HumanDecisionCard(hd: decision, me: me, actions: decisionActions).padding(.top, Space.xs) }
                 footer
             }
         }
+        // It names you (the web's .for-you): a soft tint, drawn inside the row so no edge cuts it (jxn #1311).
+        .padding(.horizontal, forYou ? Space.s : 0).padding(.vertical, forYou ? Space.xs + 2 : 0)
+        .background(forYou ? Theme.warn.opacity(0.09) : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .padding(.top, gapAbove(Space.s + 2))
     }
 }
 
 /// Where your unread messages start (jxn #1011): "NEW" and a thin line, in the web's red.
 struct NewDivider: View {
+    @ScaledMetric(relativeTo: .caption) private var capHeight = UIFont.preferredFont(forTextStyle: .caption1, compatibleWith: UITraitCollection(preferredContentSizeCategory: .large)).capHeight
     var body: some View {
         HStack(spacing: Space.s) {
+            // Centred on the capitals (not the text's line box, whose descender room sits the line low; jxn #1311).
             Text("New").textCase(.uppercase).font(Typo.micro.weight(.semibold)).tracking(0.7).foregroundStyle(Theme.danger)
+                .alignmentGuide(VerticalAlignment.center) { $0[.firstTextBaseline] - capHeight / 2 }
             Rectangle().fill(Theme.danger.opacity(0.45)).frame(height: 0.5)
         }
         .padding(.top, Space.m).padding(.bottom, Space.xxs)
