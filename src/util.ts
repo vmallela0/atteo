@@ -22,6 +22,21 @@ export function isLocalHost(hostname: string): boolean {
 }
 
 /**
+ * The request clock. Local e2e may supply an absolute epoch-millisecond value so long retention windows can be tested
+ * without changing stored data. Both the env opt-in and localhost check are required, so deployments always use real time.
+ */
+export function requestNow(env: { DEV_FAKE_CLOCK?: string }, request: Request): number {
+  if (env.DEV_FAKE_CLOCK === "1" && isLocalHost(new URL(request.url).hostname)) {
+    const raw = request.headers.get("x-dev-now");
+    if (raw && /^\d+$/.test(raw)) {
+      const value = Number(raw);
+      if (Number.isSafeInteger(value)) return value;
+    }
+  }
+  return Date.now();
+}
+
+/**
  * The address people and agents should use: PUBLIC_URL (https://atteo.dev) when it's set, else the request's own origin.
  * atteo.dev is a proxy in front of the workers.dev host, so inside the Worker every request looks like workers.dev and
  * url.origin can't be trusted for anything that points back at the product (sign-in callback, emails, OAuth metadata,
