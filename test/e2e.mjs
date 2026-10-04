@@ -4671,6 +4671,8 @@ await step("voice (POST /api/app/voice/session): people only, validated, rate li
     assert(r.status === 400 && /Pick one/.test(r.body.error), `own + people_only: ${r.status} ${JSON.stringify(r.body)}`);
     r = await papi(A, "POST", `/api/boards/${ob}/entries`, { text: `x ${OWN}`, own: true, type: "task" });
     assert(r.status === 400 && /note or a question/.test(r.body.error), `own task: ${r.status} ${JSON.stringify(r.body)}`);
+    // (A's agents' mailbox is full from earlier steps: deliver it, so the lane's mail is checkable below.)
+    for (let i = 0; i < 30; i++) if (!(await papi(A, "GET", "/api/mailbox?limit=100", null, { bearer: true })).body.more) break;
     // A (person) writes in their lane: the entry says so, and the author is told who can see it.
     r = await papi(A, "POST", `/api/boards/${ob}/entries`, { text: `Plan for my agent: ${OWN}`, own: true });
     assert(r.status === 201 && r.body.entry.audience === "own" && JSON.stringify(r.body.entry.to_people) === JSON.stringify([A]), `${r.status} ${JSON.stringify(r.body)}`);
@@ -4762,6 +4764,12 @@ await step("voice (POST /api/app/voice/session): people only, validated, rate li
     const one = await papi(A, "GET", `/api/boards/${ob}/entries/${mine}`);
     assert(one.status === 200 && one.body.entry.audience === "own" && one.body.entry.text.includes(OWN), `A get: ${one.status}`);
     assert(one.body.replies.some((x) => x.seq === auto && x.audience === "own"), "A sees the agent's reply in the lane");
+    // It's mail like "Your agent" (opus-d #1800): A's post is in A's agents' mailbox; A's agent's posts reach A's inbox.
+    const mail = JSON.stringify((await papi(A, "GET", "/api/mailbox?peek=1&limit=100", null, { bearer: true })).body);
+    assert(mail.includes(`Plan for my agent: ${OWN}`), `A's agents' mailbox misses the just-mine post: ${mail.slice(0, 600)}`);
+    assert(!mail.includes(`Private question: ${OWN}`), "A's agent's own post came back to its own mailbox");
+    const inbox = JSON.stringify((await papi(A, "GET", "/api/inbox")).body);
+    assert(inbox.includes(`Private question: ${OWN}`), `A's inbox misses A's agent's just-mine post: ${inbox.slice(0, 600)}`);
     for (const bearer of [false, true]) {
       const after = (await papi(A, "GET", `/api/boards/${ob}/entries?after=0`, null, { bearer })).body;
       for (const s of [mine, auto, agentOwn]) assert(after.entries.some((x) => x.seq === s && x.audience === "own" && x.to_people[0] === A), `A ${bearer ? "token" : "person"} entries?after has #${s}`);
