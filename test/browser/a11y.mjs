@@ -1,5 +1,7 @@
 // Accessibility (Atteo board #1909): axe-core on the board page, Account, and Ask — English and zh-Hans at 1280 and 390px.
 // Scans today's voice, privacy, and forward controls (not the global sidebar). Serious and critical violations fail.
+// Also (#1965) the whole page content of For you, Inbox, Approvals, People and the welcome page, seeded with an
+// approval, a mention and a friend request so their cards and buttons are on screen.
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { chromium } from "playwright-core";
@@ -10,8 +12,8 @@ const BASE = (process.env.BASE || "http://localhost:8787").replace(/\/$/, "");
 const KEY = process.env.ADMIN_KEY || "ci-admin-key";
 const ops = async (p, b) => (await fetch(`${BASE}/api/ops/${p}`, { method: "POST", headers: { "x-admin-key": KEY, "content-type": "application/json" }, body: JSON.stringify(b) })).json();
 
-const LANGS = [["en", ""], ["zh-Hans", "?lang=zh-Hans"]];
-const WIDTHS = [[1280, 820, false], [390, 844, true]];
+// Each language at 1280 and 390px in light; English at 1280px in dark too (#1965: dark has its own colours).
+const RUNS = [["en", "", 1280, 820, false, "light"], ["en", "", 390, 844, true, "light"], ["en", "", 1280, 820, false, "dark"], ["zh-Hans", "?lang=zh-Hans", 1280, 820, false, "light"], ["zh-Hans", "?lang=zh-Hans", 390, 844, true, "light"]];
 // Regions with today's controls: Talk to Atteo, voice/read-aloud, Just mine, forward selection, voice picker/allowance, Ask.
 const INCLUDES = [
   [".topbar"],
@@ -43,15 +45,16 @@ const VOICE = { enabled: true, minutes_used: 12, minutes_budget: 60 };
 let fails = 0;
 const check = (ok, m) => { console.log(`${ok ? "✓" : "✗"} ${m}`); if (!ok) fails++; };
 
-async function axeScan(page, label) {
+async function axeScan(page, label, include = INCLUDES) {
   const results = await page.evaluate(
     async (inc) => await axe.run({ include: inc }, { runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] } }),
-    INCLUDES,
+    include,
   );
   const bad = results.violations.filter((v) => v.impact === "serious" || v.impact === "critical");
   if (bad.length) {
     for (const v of bad) {
-      const nodes = v.nodes.slice(0, 3).map((n) => `${n.html.slice(0, 120)} (${n.failureSummary?.split("\n")[0] || ""})`).join("; ");
+      const why = (n) => { const d = n.any?.[0]?.data; return d && d.fgColor ? `${d.fgColor} on ${d.bgColor}, ${d.contrastRatio}:1` : n.failureSummary?.split("\n")[1]?.trim() || ""; };
+      const nodes = v.nodes.slice(0, 4).map((n) => `${n.html.slice(0, 90)} (${why(n)})`).join("; ");
       console.log(`  [${v.impact}] ${v.id}: ${v.help} — ${nodes}`);
     }
   }
@@ -69,13 +72,22 @@ await mcp("read", {});
 await mcp("post", { type: "note", text: `Public note ${run}` });
 await fetch(`${BASE}/api/boards/${board}/entries`, { method: "POST", headers: { cookie: ck.split(";")[0], "content-type": "application/json" }, body: JSON.stringify({ type: "note", text: `Private lane ${run}`, own: true }) });
 await mcp("post", { type: "note", text: `@${P} voice bar ${run}` });
+// For the page scans: an approval from P's agent, a mention from V, and a friend request from a third person.
+await mcp("request_approval", { title: `Send the deck ${run}`, details: "deck.pdf to the team", risk: "medium", wait_seconds: 0 });
+const tokV = (await ops("tokens", { user: V })).token;
+await fetch(`${BASE}/api/boards/${board}/entries`, { method: "POST", headers: { authorization: `Bearer ${tokV}`, "content-type": "application/json" }, body: JSON.stringify({ type: "question", text: `@${P} can you look at this? ${run}` }) });
+const F = `af${run}`;
+await ops("users", { name: F, email: `${F}@example.com`, verified: "true" });
+const ckF = (await ops("sessions", { user: F })).cookie.split(";")[0];
+await fetch(`${BASE}/api/friends/request`, { method: "POST", headers: { cookie: ckF, "content-type": "application/json" }, body: JSON.stringify({ user: P }) });
+const PAGES = ["/for-you", "/inbox", "/approvals", "/people", "/welcome"];
 
 const browser = await chromium.launch({ executablePath: process.env.PW_CHROME || undefined });
 const [k, ...v] = ck.split(";")[0].split("=");
 
-for (const [lang, qs] of LANGS) {
-  for (const [w, h, phone] of WIDTHS) {
-    const ctx = await browser.newContext({ viewport: { width: w, height: h }, ...(phone ? { hasTouch: true, isMobile: true } : {}) });
+for (const [lang, qs, w, h, phone, scheme] of RUNS) {
+  {
+    const ctx = await browser.newContext({ colorScheme: scheme, viewport: { width: w, height: h }, ...(phone ? { hasTouch: true, isMobile: true } : {}) });
     await ctx.addCookies([{ name: k, value: v.join("="), url: BASE }]);
     await ctx.addInitScript(FAKES);
     await ctx.addInitScript(AXE);
@@ -84,7 +96,7 @@ for (const [lang, qs] of LANGS) {
     await ctx.route("**/api/app/tts", (r) => r.fulfill({ status: 200, contentType: "audio/mpeg", body: Buffer.from([0xff, 0xfb, 0x90, 0x64, 0, 0, 0, 0]) }));
     await ctx.route("**/api/app/voice/session", (r) => r.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ fallback: "device" }) }));
     const p = await ctx.newPage();
-    const tag = `${lang} ${w}px`;
+    const tag = `${lang} ${w}px${scheme === "dark" ? " dark" : ""}`;
     const tap = async (sel) => { if (phone) await p.locator(sel).tap(); else await p.locator(sel).click(); };
 
     // Board: Talk to Atteo, voice/read-aloud, Just mine composer, voice pill, forward dialog.
@@ -117,6 +129,13 @@ for (const [lang, qs] of LANGS) {
     await p.goto(`${BASE}/ask${qs}`);
     await p.waitForTimeout(900);
     await axeScan(p, `ask ${tag}`);
+
+    // For you, Inbox, Approvals, People, welcome: the whole page content (not the sidebar).
+    for (const path of PAGES) {
+      await p.goto(`${BASE}${path}${qs}`);
+      await p.waitForTimeout(700);
+      await axeScan(p, `${path} ${tag}`, [["#app .content"]]);
+    }
 
     await ctx.close();
   }

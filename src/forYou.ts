@@ -215,10 +215,10 @@ const FY_CSS = `
 .fy .btn.xl{height:46px;padding:0 18px;font-size:15px;border-radius:10px}
 .fy .nc{--k:var(--q);position:relative;margin-top:16px;border:1px solid var(--line);border-radius:14px;background:var(--bg);box-shadow:var(--shadow);padding:15px 16px 16px 19px;overflow:hidden}
 .fy .nc::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--k)}
-.fy .nc .type{display:flex;align-items:center;gap:6px;font-size:13.5px;font-weight:500;color:var(--k)}.fy .nc .type b{color:var(--muted);font-weight:500}
+.fy .nc .type{display:flex;align-items:center;gap:6px;font-size:13.5px;font-weight:500;color:color-mix(in srgb,var(--k) 72%,var(--ink))}.fy .nc .type b{color:var(--muted);font-weight:500}
 .fy .nc .tt{font-size:20px;line-height:1.25;font-weight:600;color:var(--ink);letter-spacing:-.015em;margin-top:6px;overflow-wrap:anywhere}
 .fy .nc .who{display:flex;align-items:center;gap:8px;margin-top:8px;font-size:13.5px;color:var(--muted);min-width:0}.fy .nc .who>span{min-width:0;overflow-wrap:anywhere}
-.fy .nc .who b{color:var(--text);font-weight:500}.fy .nc .who a{color:var(--text)}.fy .nc .who a:hover{text-decoration:underline}
+.fy .nc .who b{color:var(--text);font-weight:500}.fy .nc .who a{color:var(--text);text-decoration:underline;text-decoration-color:var(--line-strong);text-underline-offset:2px}.fy .nc .who a:hover{text-decoration-color:currentColor}
 .fy .nc .det{margin-top:12px;padding:10px 12px;border-radius:10px;background:var(--bg-subtle);border:1px solid var(--line);font-size:14px;color:var(--text)}
 .fy .nc .det .ln{display:flex;justify-content:space-between;gap:12px;min-width:0}.fy .nc .det .ln+.ln{margin-top:3px}
 .fy .nc .det .ln span{min-width:0;overflow-wrap:anywhere}.fy .nc .det .ln span:first-child:not(.one){color:var(--muted);flex:none}.fy .nc .det .ln span:last-child:not(.one){text-align:right}
