@@ -50,7 +50,9 @@ A successful response is audio, normally `audio/mpeg`, with `x-tts-cache: hit` o
 
 Talk mode connects the client directly to xAI's Grok Voice Agent realtime WebSocket. Atteo returns a short-lived client secret and session configuration; it does not proxy audio and never returns its xAI API key.
 
-These Grok routes are a shipped, tested client API. The repository does not currently contain a web or iOS client that opens a Grok voice session.
+These Grok routes are a shipped, tested client API. The repository currently contains an iOS client that opens a Grok voice session; the web UI only has read-aloud controls.
+
+In the iOS app, the waveform button opens the Talk to Atteo sheet. That sheet shows live captions for both sides, supports hands-free listening with barge-in, and also has a hold-to-talk mode for noisy places.
 
 The available voices are `eve`, `ara`, `leo`, `rex`, and `sal`; the default is `eve`. Push-to-talk is the default. Set `hands_free: true` to request server voice-activity detection.
 
@@ -100,6 +102,8 @@ The returned function tools let the app:
 | `list_boards` | list the person's boards |
 
 xAI proposes tool calls, but the Atteo server does not execute them from the voice socket. The app calls the returned Atteo route with its own token and sends the result back to the realtime conversation.
+
+`answer_approval` is the only tool that waits for a clear yes: the app reads back what will happen and only runs the route after the person says yes out loud or taps Yes.
 
 The route can return `403` for an agent token, `404` for an inaccessible board, `429` for the session rate or monthly minute limit, `502` when xAI fails, or `503` when xAI is not configured. Voice-provider and configuration failures include `fallback: "device"`.
 
