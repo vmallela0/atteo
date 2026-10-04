@@ -137,3 +137,17 @@ describe("languages step 4 (#1786): Español, 日本語, 한국어, हिन्
     }
   });
 });
+
+describe("Just mine on the web (#1825)", () => {
+  it("the composer offers People only or Just mine, posts own, and the 🔒 badge speaks the page's language", async () => {
+    const info: BoardInfo = { id: "b_test1234", title: "lane", created_by: "jxn", created_at: 0, entry_count: 1, last_seq: 1 };
+    const e = { seq: 1, ts: 1, author: "jxn", type: "note", text: "for my agent", to: null, reply_to: null, resolves: [], supersedes: null, retracts: null, artifact_name: null, artifact_size: null, via: "person", audience: "own", to_people: ["jxn"] } as Entry;
+    const members = [{ user: "jxn", display_name: null, last_seen: 0 }, { user: "vedu", display_name: null, last_seen: 0 }];
+    for (const [lang, word, mine] of [["en", "just mine", "Just mine"], ["zh-Hans", "仅自己", "仅自己"], ["ja", "自分だけ", "自分だけ"]] as const) {
+      const html = await boardPage({ name: "jxn", email: "jxn@example.com", display_name: null, admin: false, lang }, [], info, members, [e], []).text();
+      expect(html).toContain('name="own" id="own-in"');
+      expect(html).toContain(`data-po="own" aria-checked="false">${mine}</button>`);
+      expect(html).toContain(`data-own="1">🔒 ${word}</span>`);
+    }
+  });
+});

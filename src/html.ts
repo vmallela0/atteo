@@ -81,13 +81,14 @@ export function rootMap(entries: Entry[]): Map<number, number> {
 }
 
 /** A people-only message's lock (vedu #1264): who can see it, and that agents can't. */
-function peopleBadge(e: Entry): string {
+function peopleBadge(e: Entry, lang?: Lang): string {
   if (!e.audience) return "";
+  const T = (s: string, v?: Record<string, string | number>) => tr(lang, s, v);
   // Just mine (#1748): its person and their own agents.
-  if (e.audience === "own") return `<span class="badge po own" title="${esc("Only you and your agents can see this.")}" data-own="1">🔒 just mine</span>`;
+  if (e.audience === "own") return `<span class="badge po own" title="${esc(T("Only you and your agents can see this."))}" data-own="1">🔒 ${esc(T("just mine"))}</span>`;
   const p = e.to_people ?? [];
-  const who = p.length <= 1 ? p.join("") : `${p.slice(0, -1).join(", ")} and ${p[p.length - 1]}`;
-  return `<span class="badge po" title="${esc(`Only ${who} can see this. Agents can't.`)}" data-people="${esc(p.join(","))}">🔒 people only</span>`;
+  const who = p.length <= 1 ? p.join("") : T("{a} and {b}", { a: p.slice(0, -1).join(", "), b: p[p.length - 1] });
+  return `<span class="badge po" title="${esc(T("Only {who} can see this. Agents can't.", { who }))}" data-people="${esc(p.join(","))}">🔒 ${esc(T("people only"))}</span>`;
 }
 
 /** An HTML file can be previewed live (jxn #1309), sandboxed: see PREVIEW_JS. */
@@ -133,7 +134,7 @@ ${
   return `<article class="entry${opts.retracted ? " retracted" : ""}${e.via === "agent" ? " by-agent" : ""}" id="e${e.seq}" data-seq="${e.seq}" data-author="${esc(e.author)}" data-title="${esc(shortTitle(e))}"${e.reply_to != null ? ` data-reply="${e.reply_to}"` : ""}${opts.root != null && opts.root !== e.seq ? ` data-root="${opts.root}"` : ""}>
 ${avatar(e.author, "", e.via === "agent")}
 <div class="grow">
-  <div class="meta">${whoHtml(e)}${e.to ? `<span class="to">→ ${esc(e.to)}</span>` : ""}${e.type === "note" ? "" : typeTag(e.type, opts.lang)}${when(e.ts, opts.lang)}<a class="seq" href="#e${e.seq}">#${e.seq}</a>${peopleBadge(e)}<span class="badge rbadge">${esc(T("Unsent"))}</span>${flagBadge(e.text, e.ai_flag)}${actions}</div>
+  <div class="meta">${whoHtml(e)}${e.to ? `<span class="to">→ ${esc(e.to)}</span>` : ""}${e.type === "note" ? "" : typeTag(e.type, opts.lang)}${when(e.ts, opts.lang)}<a class="seq" href="#e${e.seq}">#${e.seq}</a>${peopleBadge(e, opts.lang)}<span class="badge rbadge">${esc(T("Unsent"))}</span>${flagBadge(e.text, e.ai_flag)}${actions}</div>
   <div class="body">${apr?.title ? `<p>${esc(apr.title)}</p>` : refLinks(renderText(e.text, e.mentions, e.mention_names))}</div>${file}${e.card ? changeCardHtml(e.seq, e.card) : ""}${apr && !opts.retracted ? approvalCardHtml(apr, false, opts.lang) : ""}${e.type === "task" ? `<div class="tk" data-task="${e.seq}" hidden></div>` : ""}${e.type === "claim" && !opts.retracted ? `<div class="tk cl" data-claim="${e.seq}" hidden></div>` : ""}${e.type === "decision" && e.via === "person" && !opts.retracted ? `<div class="tk hd" data-hd="${e.seq}" hidden></div>` : ""}
   ${refs.length ? `<div class="refs">${refs.join(" · ")}</div>` : ""}
   <div class="rx" data-rx="${e.seq}"><button class="rx-add" type="button" data-rx-add="${e.seq}" aria-label="${esc(T("Add a reaction"))}" title="${esc(T("Add a reaction"))}">☺<span>+</span></button></div>
@@ -276,14 +277,24 @@ const evJs = (agentChat: boolean) => `
 })();
 `;
 
-// People only (vedu #1264): a lock on the composer; only the people you @ see the message, and no agent ever does.
-const PO_BTN = `<button class="btn ghost sm po-btn" type="button" id="po-btn" aria-pressed="false" aria-label="People only" title="People only: only the people you @ can see it, agents can't"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><rect x="3.5" y="7" width="9" height="6.5" rx="1.6"/><path d="M5.5 7V5.2a2.5 2.5 0 0 1 5 0V7"/></svg></button>`;
+// People only (vedu #1264): a lock on the composer; only the people you @ see the message, and no agent ever does. Once
+// it's on, the note under it offers the other private choice, Just mine (#1748, #1825): only you and your own agents.
+const PO_BTN = `<button class="btn ghost sm po-btn" type="button" id="po-btn" aria-pressed="false" aria-label="Private" title="Private: People only (the people you @, no agents) or Just mine (you and your agents)"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><rect x="3.5" y="7" width="9" height="6.5" rx="1.6"/><path d="M5.5 7V5.2a2.5 2.5 0 0 1 5 0V7"/></svg></button>`;
 const PO_JS = `
-(()=>{const b=document.getElementById('po-btn'),inp=document.getElementById('po-in'),note=document.getElementById('po-note'),f=document.querySelector('form.composer');if(!b||!inp||!f)return;
-  const ta=document.getElementById('composer-text');let ph0=ta.placeholder;
-  window.poSet=on=>{b.setAttribute('aria-pressed',String(on));b.classList.toggle('on',on);inp.value=on?'true':'';note.hidden=!on;f.classList.toggle('po',on);ta.placeholder=on?tr('Only the people you @ will see this…'):(ta.dataset.dev&&document.documentElement.dataset.mode!=='everyday'?ta.dataset.dev:ph0)};
+(()=>{const b=document.getElementById('po-btn'),inp=document.getElementById('po-in'),own=document.getElementById('own-in'),note=document.getElementById('po-note'),why=document.getElementById('po-why'),f=document.querySelector('form.composer');if(!b||!inp||!own||!f)return;
+  const ta=document.getElementById('composer-text');let ph0=ta.placeholder,mode='people';
+  // on: the lock; m: 'people' (only the people you @, no agent) or 'own' (Just mine: you and your agents). The lock
+  // remembers the last choice for this visit.
+  window.poSet=(on,m)=>{if(m)mode=m;b.setAttribute('aria-pressed',String(!!on));b.classList.toggle('on',!!on);inp.value=on&&mode==='people'?'true':'';own.value=on&&mode==='own'?'true':'';note.hidden=!on;f.classList.toggle('po',!!on);f.classList.toggle('own',!!on&&mode==='own');
+    note.querySelectorAll('[data-po]').forEach(x=>x.setAttribute('aria-checked',String(x.dataset.po===mode)));
+    if(why)why.textContent=mode==='own'?tr('· only you and your agents can see it.'):tr("· only the people you @ can see it. Agents can't.");
+    ta.placeholder=on?(mode==='own'?tr('Only you and your agents will see this…'):tr('Only the people you @ will see this…')):(ta.dataset.dev&&document.documentElement.dataset.mode!=='everyday'?ta.dataset.dev:ph0)};
+  window.poOn=()=>inp.value==='true'||own.value==='true';
   b.addEventListener('click',()=>{poSet(b.getAttribute('aria-pressed')!=='true');ta.focus()});
-  // Needs someone to send it to: a person @mentioned in the text.
+  note.addEventListener('click',e=>{const x=e.target.closest('[data-po]');if(!x)return;poSet(true,x.dataset.po);ta.focus()});
+  // Arrow keys move between the two choices, as in any radio group.
+  note.addEventListener('keydown',e=>{const x=e.target.closest('[data-po]');if(!x||!/^Arrow(Left|Right|Up|Down)$/.test(e.key))return;e.preventDefault();const m=mode==='own'?'people':'own';poSet(true,m);note.querySelector('[data-po="'+m+'"]').focus()});
+  // People only needs someone to send it to: a person @mentioned in the text. Just mine needs nobody.
   document.addEventListener('submit',e=>{if(e.target!==f||inp.value!=='true')return;if(!/(^|\\s)@[a-z0-9][a-z0-9_.-]*(?![a-z0-9_.-]|['’]s\\s+(?:agent|assistant)\\b|\\/)/i.test(ta.value)){e.preventDefault();e.stopImmediatePropagation();toast('@ the people who should see it: agents never will')}},true);
 })();
 `;
@@ -1364,7 +1375,7 @@ let agentsAt=0;window.agentsRefresh=async()=>{if(document.hidden)return;const bo
   if(!pk&&peek){pk=document.createElement('span');pk.className='fold-peek truncate';box.querySelector('.fold-h').appendChild(pk)}if(pk)pk.textContent=peek;refreshTimes()};
 setInterval(agentsRefresh,30000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)agentsRefresh()});
 // Your post shows up the moment you send it (a "sending" copy), then the real one from the post's own response.
-window.posted=(j)=>{if(j&&j.notice)toast(j.notice);if(window.poSet&&document.getElementById('po-in')?.value==='true')setTimeout(()=>poSet(false),0);sendLook(false);const typed=SENT_TEXT!=null?ta.value:'';SENT_TEXT=null; // what you started typing while it sent survives the form's reset
+window.posted=(j)=>{if(j&&j.notice)toast(tr(j.notice));if(window.poSet&&window.poOn&&poOn())setTimeout(()=>poSet(false),0);sendLook(false);const typed=SENT_TEXT!=null?ta.value:'';SENT_TEXT=null; // what you started typing while it sent survives the form's reset
 const was=+rpTo.value;draftSave(sentKey,'');replyClear(true);document.querySelectorAll('#thread .entry.pending').forEach(x=>x.remove());
   if(j&&j.update&&addEntry(j.update)){if(!was){railBuild();toBottom()}}else stickNext=!was;
   tick(false);setTimeout(()=>{if(was&&!(window.thrRearm&&thrRearm())){replyShown(was);ta.value=draftLoad('')}if(typed&&!ta.value)ta.value=typed;ta.style.height='';ta.style.height=ta.value?ta.scrollHeight+2+'px':'';msync()},0)}; // after the form's reset
@@ -2487,7 +2498,7 @@ window.boardKeys=(e,k)=>{
     <div class="typing" id="typing" aria-live="polite" hidden></div>
     <form class="card composer" method="post" action="/api/boards/${esc(info.id)}/entries" data-api data-reliable data-done="posted" data-failed="postFailed" data-retrying="postRetrying" data-reset${info.archived || readOnly || info.encrypted ? " hidden" : ""}>
       <div class="replying" id="replying" hidden><button class="rp-go" type="button" id="replying-go" title="${esc(T("Show the message"))}">${esc(T("Replying to"))} <b id="replying-who"></b><span class="rp-text" id="replying-text"></span></button><button class="btn ghost sm x" type="button" id="reply-cancel" aria-label="${esc(T("Cancel reply"))}" title="${esc(T("Cancel reply (Esc)"))}">✕</button></div>
-      <input type="hidden" name="reply_to" id="reply-to" value=""><input type="hidden" name="people_only" id="po-in" value=""><div class="po-note" id="po-note" hidden>🔒 <b>${esc(T("People only"))}</b> ${esc(T("· only the people you @ can see it. Agents can't."))}</div>${agentChat ? `<input type="hidden" name="to_session" id="to-session" value="">` : ""}
+      <input type="hidden" name="reply_to" id="reply-to" value=""><input type="hidden" name="people_only" id="po-in" value=""><input type="hidden" name="own" id="own-in" value=""><div class="po-note" id="po-note" hidden>🔒 <span class="po-seg" role="radiogroup" aria-label="${esc(T("Who can see it"))}"><button type="button" role="radio" data-po="people" aria-checked="true">${esc(T("People only"))}</button><button type="button" role="radio" data-po="own" aria-checked="false">${esc(T("Just mine"))}</button></span> <span id="po-why">${esc(T("· only the people you @ can see it. Agents can't."))}</span></div>${agentChat ? `<input type="hidden" name="to_session" id="to-session" value="">` : ""}
       <div class="voice-pill" id="voice-pill" hidden><button class="vp-t" type="button" id="vp-go"></button><button class="btn ghost sm x" type="button" id="vp-x" aria-label="${esc(T("Dismiss"))}" title="${esc(T("Dismiss"))}">✕</button></div>
       <div class="attachments" id="attachments" hidden></div>
       <div class="cmp-field"><div class="cmp-mirror" id="composer-mirror" aria-hidden="true"></div><textarea class="input" id="composer-text" name="text" required placeholder="${esc(T(agentChat ? "Message your agent…" : "Write a message…  @ to mention"))}" aria-label="${esc(T("Message"))}"
