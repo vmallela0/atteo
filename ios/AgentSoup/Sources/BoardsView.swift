@@ -39,6 +39,7 @@ struct BoardView: View {
     @State private var scrollRequest: ScrollRequest?
     @State private var thread: ThreadTarget? // the thread open, over the chat (iMessage-style), with its own box
     @State private var newAt: Int? // your first unread message when the chat opened: a thin "New" line above it
+    @State private var quiet = QuietBox() // where the list is while it's being put at the first unread (not drawn)
     @State private var unreadResolved = false // where to open (first unread or the latest) is settled, once per visit
     @State private var userScrolled = false // you've scrolled yourself since it opened (nothing moves you after)
     @State private var profile: ProfileTarget? // someone's card (a picture, a name or an @mention tapped)
@@ -259,9 +260,21 @@ struct BoardView: View {
             }
             // At the latest: the visible part (which includes what's under the composer) reaches the end.
             .onScrollGeometryChange(for: Bool.self) { g in g.visibleRect.maxY >= g.contentSize.height - 80 } action: { _, bottom in
-                if bottom != atBottom { withAnimation(.snappy) { atBottom = bottom } }
-                // Back at the latest: nothing's unseen. Leaving it: count what lands from now on.
-                if bottom { unseenAfter = nil } else if unseenAfter == nil, state.entries[board.id] != nil { unseenAfter = newestSeq }
+                // While it's being put at your first unread, nothing here changes the chat: a change drawn mid-scroll
+                // (this flag, the pill's count, an animation) kept SwiftUI's lazy layout from settling when the first
+                // unread was near the end, and the app froze on opening. It's applied once that's done.
+                quiet.bottom = bottom
+                guard !quiet.on else { return }
+                if bottom != atBottom { atBottom = bottom }
+                // Back at the latest: nothing's unseen.
+                if bottom, unseenAfter != nil { unseenAfter = nil }
+            }
+            // Away from the latest and something new lands: count from what was newest before it (the pill). Set here,
+            // not as you leave the latest: written from the scroll geometry, it re-drew the chat mid-layout each time the
+            // list crossed the bottom line, and opening at the first unread near the end froze the app (SwiftUI's lazy
+            // layout never settled).
+            .onChange(of: newestSeq) { old, _ in
+                if !atBottom, unseenAfter == nil, old > 0 { unseenAfter = old }
             }
             // Near the top of what's loaded (and it's long enough to scroll): bring in the page before it.
             .onScrollGeometryChange(for: Bool.self) { g in g.contentSize.height > g.containerSize.height && g.visibleRect.minY < 360 } action: { _, top in
@@ -305,18 +318,21 @@ struct BoardView: View {
                 .animation(.snappy, value: unseen)
             }
             .overlay(alignment: .bottomTrailing) {
-                if !atBottom && !list.isEmpty && !pillShown {
-                    Button { toLatest() } label: {
-                        Image(systemName: "chevron.down").font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.text)
-                            .frame(width: 36, height: 36).background(Theme.raised, in: Circle())
-                            .shadow(color: .black.opacity(0.4), radius: 8, y: 2)
-                            .frame(width: 44, height: 44).contentShape(Circle())
+                ZStack {
+                    if !atBottom && !list.isEmpty && !pillShown {
+                        Button { toLatest() } label: {
+                            Image(systemName: "chevron.down").font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.text)
+                                .frame(width: 36, height: 36).background(Theme.raised, in: Circle())
+                                .shadow(color: .black.opacity(0.4), radius: 8, y: 2)
+                                .frame(width: 44, height: 44).contentShape(Circle())
+                        }
+                        .buttonStyle(PressStyle())
+                        .padding(.trailing, Space.s).padding(.bottom, Space.xs)
+                        .transition(.scale(scale: 0.6).combined(with: .opacity))
+                        .accessibilityLabel("Jump to latest")
                     }
-                    .buttonStyle(PressStyle())
-                    .padding(.trailing, Space.s).padding(.bottom, Space.xs)
-                    .transition(.scale(scale: 0.6).combined(with: .opacity))
-                    .accessibilityLabel("Jump to latest")
                 }
+                .animation(.snappy, value: atBottom) // (animated here, not with withAnimation from the scroll geometry)
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
@@ -534,6 +550,7 @@ struct BoardView: View {
               let first = list.first(where: { $0.seq > seen && $0.retracts == nil && !isMine($0) && !filteredOut($0) }) else { return }
         newAt = first.seq
         stick = false
+        quiet.on = true
         // The lazy layout guesses row heights until rows are made: hold it there while it settles.
         Task {
             for _ in 0..<10 {
@@ -541,6 +558,8 @@ struct BoardView: View {
                 scrollRequest = ScrollRequest(id: first.seq, anchor: .top, animated: false)
                 try? await Task.sleep(nanoseconds: 150_000_000)
             }
+            quiet.on = false
+            atBottom = quiet.bottom
             if atBottom { stick = true } // everything unread fits: stay with the latest
         }
     }
@@ -1079,6 +1098,10 @@ struct PeopleFilterStrip: View {
         .accessibilityIdentifier("people-filter-strip")
     }
 }
+
+/// Whether the chat is at the latest while it's being put at the first unread (`on`): a reference, so noting it doesn't
+/// draw the chat again.
+final class QuietBox { var on = false; var bottom = true }
 
 /// Where your unread messages start (jxn #1011): "NEW" and a thin line, in the web's red.
 struct NewDivider: View {
