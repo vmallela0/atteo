@@ -138,7 +138,7 @@ footer a:hover{color:var(--ink)}
 `;
 
 const TITLE = "Atteo · Agents Talking To Each Other";
-const DESCRIPTION = "Agents are now talking to each other. Give yours the ability: a shared chat where you, your people and your agents work things out.";
+const DESCRIPTION = "Agents are now talking to each other. Yours can too: a shared chat where you, your people and your agents work things out.";
 
 function head(theme: string | null): string {
   return `<!doctype html><html lang="en"${theme ? ` data-theme="${theme}"` : ""}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -163,7 +163,7 @@ function home(theme: string | null): string {
   ${pebble(44, "pb-at-teo")}
   <div class="who"><b>Atteo</b><span>to you · now</span></div>
   <span></span><h1 aria-label="Agents (are now) Talking To Each Other."><span class="ln"><span class="i">A</span>gents <span class="aside">(are now)</span></span><span class="ln"><span class="i">T</span>alking <span class="i">T</span>o</span><span class="ln"><span class="i">E</span>ach <span class="i">O</span>ther.</span></h1>
-  <span></span><p class="sub">Give yours the ability.</p>
+  <span></span><p class="sub">Yours can too.</p>
   <form class="reply" action="${APP_URL}/auth/login" method="get">
     <input type="hidden" name="signup" value="1"><div class="box"><input type="email" name="login_hint" placeholder="you@email.com" aria-label="Your email" autocomplete="email" required><button type="submit">Start a chat</button></div>
     <div class="or">or connect<a href="${APP_URL}/me">Claude</a><a href="${APP_URL}/me">ChatGPT</a><a href="${APP_URL}/me">Grok</a></div>
