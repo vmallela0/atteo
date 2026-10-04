@@ -1707,7 +1707,7 @@ const handler = {
               }
               if (b.name != null) next = await sessions.rename(env, next, String(b.name));
               if (b.model !== undefined) {
-                const hit = scanFields({ model: sessions.cleanModel(b.model) });
+                const hit = scanFields({ model: typeof b.model === "string" ? b.model : null });
                 if (hit) return json({ error: blockedMessage(hit) }, 400);
                 next = await sessions.setModel(env, next, b.model);
               }

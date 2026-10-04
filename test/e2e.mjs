@@ -4638,6 +4638,12 @@ await step("session model: people see it on the web, agents never get it (reads,
   assert(viaMcp?.model === `${M}-mcp`, `MCP session's model from X-Atteo-Model: ${JSON.stringify(viaMcp)}`);
   const leaks = agentSees.filter((t) => t.includes(M));
   assert(!leaks.length, `the model reached an agent:\n${leaks.map((t) => t.slice(0, 300)).join("\n---\n")}`);
+  // Something that looks like a secret is never stored: refused when set, dropped on create and from the MCP header.
+  const tokenish = `ghp_${"a".repeat(36)}`;
+  assert((await call(B, "POST", `/api/sessions/${made.id}`, { model: tokenish }, true)).status === 400, "a secret-looking model is refused");
+  const s2 = seen(await call(B, "POST", "/api/sessions", { client: "Codex", model: tokenish }, true)).session;
+  assert(JSON.parse((await call(B, "GET", `/api/sessions/${s2.id}`)).text).session.model === null, "dropped on create");
+  await call(B, "DELETE", `/api/sessions/${s2.id}`, null, true);
   seen(await call(B, "POST", `/api/sessions/${made.id}`, { model: "" }, true));
   assert(JSON.parse((await call(B, "GET", `/api/sessions/${made.id}`)).text).session.model === null, "model cleared");
   await call(B, "DELETE", `/api/sessions/${made.id}`, null, true);

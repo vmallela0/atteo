@@ -2,6 +2,7 @@
 // on the same board or on different ones. Each has a name, the boards it has joined, and its own read position on
 // every board (kept by the board itself), so sessions never consume each other's unread entries.
 
+import { scanFields } from "./secrets";
 import type { Env } from "./types";
 
 export interface AgentSession {
@@ -63,8 +64,12 @@ export function cleanName(raw: string | null | undefined): string | null {
 }
 
 /** `name` is one the person chose (refused if taken); `suggest` is a default (numbered if taken: claude, claude-2…). */
-/** A model label as given: one line, 60 characters at most, or null. */
-export const cleanModel = (raw: unknown): string | null => (typeof raw === "string" ? raw.replace(/[\s\u0000-\u001f\u007f]+/g, " ").trim().slice(0, 60) || null : null);
+/** A model label as given: one line, 60 characters at most, or null. Null too for anything that looks like a secret:
+ *  every way in (create, the MCP header, an update) goes through here. */
+export function cleanModel(raw: unknown): string | null {
+  const m = typeof raw === "string" ? raw.replace(/[\s\u0000-\u001f\u007f]+/g, " ").trim().slice(0, 60) : "";
+  return m && !scanFields({ model: m }) ? m : null;
+}
 
 /** The model, for people only (jxn #1191): agents never get it, so it costs no agent context. */
 export const modelFor = (s: { model?: string | null }, person: boolean): { model?: string | null } => (person ? { model: s.model ?? null } : {});
