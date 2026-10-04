@@ -56,6 +56,7 @@ final class Batch6UITests: AtteoUITestCase {
         XCTAssertTrue(any["code-block"].firstMatch.waitForExistence(timeout: 5), "the code block")
         XCTAssertTrue(a.buttons["code-copy"].firstMatch.exists, "with Copy")
         XCTAssertTrue(a.staticTexts["swift"].exists, "and its language")
+        XCTAssertTrue(any.matching(NSPredicate(format: "identifier == 'code-block' AND value == %@", "highlighted: swift")).firstMatch.exists, "coloured as Swift (jxn #2015)")
         XCTAssertTrue(any["md-table"].firstMatch.exists, "the table")
         XCTAssertTrue(a.staticTexts["eu-west"].exists, "its cells")
         shot("b6-01-code-and-table")
@@ -77,6 +78,75 @@ final class Batch6UITests: AtteoUITestCase {
         XCTAssertTrue(any["mermaid-block"].firstMatch.exists, "the diagram's code")
         XCTAssertTrue(status.exists, "the status card")
         shot("b6-03-diagram-status")
+    }
+
+    /// Syntax colours (jxn #2015): TypeScript, Python, Swift and SQL blocks, each coloured, in light and dark.
+    /// TEST_RUNNER_CODE_SHOTS=<dir> also writes the screenshots there.
+    func testCodeColours() throws {
+        let title = "Checkout bug"
+        guard !mayaAgent.isEmpty, let b = boardId(titled: title) else { throw XCTSkip("needs the seed (MAYA_AGENT)") }
+        let n = Int(Date().timeIntervalSince1970) % 100000
+        let text = """
+        Four fixes \(n):
+
+        ```ts
+        // retry with backoff
+        export async function load(id: string): Promise<Board> {
+          return await api.get(`/boards/${id}`, { retries: 3 })
+        }
+        ```
+
+        ```python
+        @cache
+        def p95(samples: list[float]) -> float:  # ms
+            return sorted(samples)[int(len(samples) * 0.95)]
+        ```
+
+        ```swift
+        struct Latency: Codable {
+            let p95: Double // ms
+            func label() -> String { "p95 \\(p95) ms" }
+        }
+        ```
+
+        ```sql
+        SELECT board, count(*) AS n FROM entries
+        WHERE type = 'task' AND ts > 1700000000 -- recent
+        GROUP BY board ORDER BY n DESC;
+        ```
+        """
+        let posted = call("POST", "/api/boards/\(b)/entries", json: ["type": "note", "text": text], token: mayaAgent)
+        XCTAssertTrue((200..<300).contains(posted["_status"] as? Int ?? 0), "posted: \(posted)")
+        for theme in ["light", "dark"] {
+            let a = app(extra: ["AGENT_SOUP_DISPLAY": "m,comfortable,\(theme)"])
+            a.launch()
+            openChat(a, title)
+            let any = a.descendants(matching: .any)
+            XCTAssertTrue(a.staticTexts["Four fixes \(n):"].waitForExistence(timeout: 10), "the message")
+            for lang in ["ts", "python", "swift", "sql"] {
+                let block = any.matching(NSPredicate(format: "identifier == 'code-block' AND value == %@", "highlighted: \(lang)")).firstMatch
+                XCTAssertTrue(block.waitForExistence(timeout: 5), "a \(lang) block, coloured")
+            }
+            // All four blocks on screen: the last one above the message box (the first unread may have opened it higher).
+            let last = any.matching(NSPredicate(format: "identifier == 'code-block' AND value == %@", "highlighted: sql")).firstMatch
+            let box = composer(a)
+            for _ in 0..<6 where last.frame.maxY > box.frame.minY - 8 { a.swipeUp(velocity: .slow); sleep(1) }
+            sleep(1)
+            codeShot("code-colours-\(theme)")
+            a.terminate()
+        }
+    }
+
+    private func codeShot(_ name: String) {
+        let screenshot = XCUIScreen.main.screenshot()
+        let s = XCTAttachment(screenshot: screenshot)
+        s.name = name
+        s.lifetime = .keepAlways
+        add(s)
+        if let dir = env["CODE_SHOTS"], !dir.isEmpty {
+            try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+            try? screenshot.pngRepresentation.write(to: URL(fileURLWithPath: dir).appendingPathComponent("\(name).png"))
+        }
     }
 
     func testRenameAndArchiveFromList() throws {

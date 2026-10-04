@@ -623,7 +623,7 @@ struct CodeBlock: View {
                         Text((1...max(1, lines.count)).map(String.init).joined(separator: "\n"))
                             .foregroundStyle(Theme.faint.opacity(0.7)).multilineTextAlignment(.trailing)
                     }
-                    Text(shown).foregroundStyle(Theme.text).textSelection(.enabled)
+                    Text(SyntaxHighlight.attributed(shown, language: colourBy(code))).foregroundStyle(Theme.text).textSelection(.enabled) // coloured by language (SyntaxHighlight.swift)
                 }
                 .font(Self.mono)
                 .lineSpacing(3)
@@ -631,6 +631,7 @@ struct CodeBlock: View {
                 .padding(.horizontal, Space.m).padding(.top, 4).padding(.bottom, Space.m)
             }
             .accessibilityIdentifier("code-block")
+            .accessibilityValue(SyntaxHighlight.accessibilityValue(colourBy(code), code: shown))
             if folded || (expanded && maxLines != nil) {
                 Button { withAnimation(.snappy) { expanded.toggle() } } label: {
                     Label(expanded ? "Show less" : "Show all \(lines.count) lines", systemImage: expanded ? "chevron.up" : "chevron.down")
