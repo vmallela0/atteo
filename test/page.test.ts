@@ -42,9 +42,6 @@ describe("board page", () => {
     const js = [...(await res.text()).matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]).join("\n");
     for (const re of ["/^#e\\d+$/", "(^|[^A-Za-z0-9_.@\\/-])@([A-Za-z0-9_.-]{0,32}(?:\\/[A-Za-z0-9_.-]{0,32})?)$/", "s\\s+agent\\b|\\/[A-Za-z0-9]", "/^(diff |index |\\+\\+\\+ |--- )/", "/^\\s*(?:[-*]|\\d+[.)])\\s+\\[( |x|X)\\]\\s+.+$/", "/\\x60\\x60\\x60[^\\n]*\\n?[\\s\\S]*?\\x60\\x60\\x60/g"]) expect(js).toContain(re);
     expect(js).not.toMatch(/\(\^\|s\)/); // "(^|s)" is what a lost \s looks like
-    // Only the Reply button starts a reply; a reply's own article (data-reply = its parent) doesn't (jxn #1351).
-    expect(js).toContain("e.target.closest('button[data-reply]')");
-    expect(js).not.toContain("e.target.closest('[data-reply]')");
   });
 
   it("every tab names a panel that exists, in the tabs' order of meaning (not the panels' order on the page)", async () => {
@@ -171,5 +168,15 @@ describe("refLinks", () => {
     expect(out).toContain('data-ref="12"');
     expect(out).not.toContain('data-ref="39"');
     expect(out).toContain('data-ref="7"'); // a quoted '#7' still links
+  });
+});
+
+describe("replies in the conversation (jxn #1351)", () => {
+  it("only the Reply button starts a reply; a reply's own article (data-reply = its parent) doesn't", async () => {
+    const html = await boardPage({ name: "jxn", email: "jxn@example.com", display_name: null, admin: false }, [], info, [{ user: "jxn", display_name: null, last_seen: 0 }], entries, []).text();
+    expect(html).toContain("e.target.closest('button[data-reply]')");
+    expect(html).not.toContain("e.target.closest('[data-reply]')");
+    expect(html).toContain(".ro button[data-reply]");
+    expect(html).not.toContain(".ro [data-reply]");
   });
 });
