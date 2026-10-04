@@ -5082,7 +5082,7 @@ await step("session model: people see it on the web, agents never get it (reads,
 
 // ---- #1914 item 1 (#1934): one regression net for both private kinds. People only (people named, never an agent) and Just
 // mine (you and your own agents) never reach another member's agent, by any path; your own agent does get your Just mine.
-await step("privacy suite: People only and Just mine never reach another member's agent (read, get, search, grep, recap, summary, memory, mailbox, files, webhooks, forward); your own agent gets your Just mine", async () => {
+await step("privacy suite: People only and Just mine never reach another member's agent (read, get, search, grep, recap, summary, memory, mailbox, files, webhooks, forward, wait, live signals) or another member as a person (board list, inbox, For you); your own agent gets your Just mine", async () => {
   const O = `e2e-po-${run}`, P = `e2e-pp-${run}`, M = `e2e-pm-${run}`; // O writes; P is named in O's people-only; M is just another member
   for (const n of [O, P, M]) {
     await ops("users", { name: n, email: `${n}@example.com`, verified: "true" });
@@ -5101,6 +5101,18 @@ await step("privacy suite: People only and Just mine never reach another member'
   if (local) assert((await api(M, "POST", "/api/webhooks", { url: `${BASE}/__webhook-sink` })).status === 201, "M's webhook");
   for (const n of [O, P, M]) await ok(n, bd, "read");
   const pub = (await api(O, "POST", `/api/boards/${bd}/entries`, { text: `public marker ${run}` })).body.entry.seq;
+  // Live: M's agent and M as a person listen on the board's socket, and M's agent waits; none may carry the private text.
+  const ws = (headers) => new Promise((resolve) => {
+    const w = new WebSocket(BASE.replace(/^http/, "ws") + `/api/boards/${bd}/ws`, { headers }), msgs = [];
+    w.onmessage = (m) => msgs.push(String(m.data));
+    w.onopen = () => resolve({ w, msgs });
+    w.onerror = () => resolve({ w, msgs, failed: true });
+  });
+  const socks = { agentM: await ws(auth(M)), personM: await ws({ cookie: cookie[M] }) };
+  assert(Object.values(socks).every((x) => !x.failed), "sockets connect");
+  await ok(M, bd, "read");
+  const waitM = tool(M, bd, "wait", { timeout_seconds: 20 });
+  await new Promise((r) => setTimeout(r, 400));
   // People only, naming P and calling M's agent: no agent may get it, M's included.
   const po = await api(O, "POST", `/api/boards/${bd}/entries`, { text: `${S_PO} @${M}'s agent look`, people_only: true, to: [P] });
   assert(po.status === 201 && po.body.entry.audience === "people", `people-only: ${po.status} ${JSON.stringify(po.body).slice(0, 200)}`);
@@ -5117,6 +5129,9 @@ await step("privacy suite: People only and Just mine never reach another member'
   await api(O, "POST", "/api/forward", { from: bd, to: other, seqs: [jm.body.entry.seq] });
   await api(M, "POST", "/api/forward", { from: bd, to: other, seqs: [po.body.entry.seq, jm.body.entry.seq, jma.body.entry.seq] });
   const hidden = [po.body.entry.seq, jm.body.entry.seq, jma.body.entry.seq, rep.body.entry.seq];
+  // M's agent's wait wakes for the next public post, not for any of them; and the live signals say nothing about them.
+  await api(O, "POST", `/api/boards/${bd}/entries`, { text: `public after ${run}` });
+  const woke = await waitM;
   const clean = (text, where) => { const t = String(text); const hit = ALL.find((x) => t.includes(x)); assert(!hit, `${where} leaked "${hit}": ${t.slice(0, 500)}`); };
   for (const u of [M, P]) { // another member's agent; and P's, who is a person in the people-only but never its agent
     const tag = `${u}'s agent`;
@@ -5141,6 +5156,15 @@ await step("privacy suite: People only and Just mine never reach another member'
       clean(JSON.stringify(g.body), `${tag} GET ${p} (${g.status})`);
     }
     for (const s of hidden) assert((await api(u, "GET", `/api/boards/${bd}/entries/${s}`, null, true)).status === 404, `${tag} REST get #${s}`);
+  }
+  has(woke.text, `public after ${run}`);
+  clean(woke.text, "M's agent wait");
+  await new Promise((r) => setTimeout(r, 300));
+  for (const [k, x] of Object.entries(socks)) { assert(x.msgs.length > 0, `${k} heard nothing at all (the public posts should signal)`); clean(x.msgs.join("\n"), `${k} live signals`); x.w.close(); }
+  // M as a person (not in the people-only, and not O): no excerpt, inbox item or For you line carries either kind.
+  for (const p of ["/api/me/boards", "/api/inbox", "/api/inbox/count", "/for-you", "/", `/b/${bd}`]) {
+    const r = await fetch(`${BASE}${p}`, { headers: { cookie: cookie[M] }, redirect: "manual" });
+    clean(await r.text(), `M (person) ${p} (${r.status})`);
   }
   if (local) {
     await new Promise((r) => setTimeout(r, 500));
