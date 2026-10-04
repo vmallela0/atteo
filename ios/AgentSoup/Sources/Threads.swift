@@ -323,9 +323,15 @@ struct ThreadView: View {
     @State private var decisionPrompt: DecisionPrompt? // objecting (why?) or closing a human decision
     @State private var decisionNote = ""
     @Environment(\.dismiss) private var dismiss
+    /// "Show agents" (jxn #2191): off, a thread shows only what people wrote; the message it's about stays, whoever
+    /// wrote it. For you, remembered on this phone for every thread; never in "Your agent" (it's all your agents there).
+    @AppStorage("thread-show-agents") private var showAgents = true
 
     private var me: String? { state.me?.owner }
     private var rootSeq: Int { top ?? root }
+    private var hidesAgents: Bool { !showAgents && !board.isAgentChat }
+    /// Hidden by Show agents being off: an agent's answer.
+    private func hidden(_ e: Entry) -> Bool { hidesAgents && e.byAgent && e.seq != rootSeq }
 
     /// The root and its answers: what the server has for it, and what's loaded in the chat (yours still sending too).
     private var items: [Entry] {
@@ -354,9 +360,10 @@ struct ThreadView: View {
     private var gone: Set<Int> { Set((state.entries[board.id] ?? []).compactMap(\.retracts) + (fetched?.replies.compactMap(\.retracts) ?? [])) }
 
     var body: some View {
-        let list = items
+        let all = items
+        let list = all.filter { !hidden($0) }
         let unsent = gone
-        let bySeq = Dictionary(list.map { ($0.seq, $0) }, uniquingKeysWith: { a, _ in a })
+        let bySeq = Dictionary(all.map { ($0.seq, $0) }, uniquingKeysWith: { a, _ in a })
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
@@ -375,6 +382,7 @@ struct ThreadView: View {
                 }
                 .padding(.horizontal, Space.l).padding(.bottom, Space.m)
             }
+            .accessibilityIdentifier("thread-list")
             // The message at the top, its answers under it; a new answer scrolls into view.
             .scrollDismissesKeyboard(.interactively)
             .defaultScrollAnchor(.bottom, for: .initialOffset) // opens on the latest answers, like iMessage
@@ -390,6 +398,13 @@ struct ThreadView: View {
         }
         .background(Theme.bg)
         .refTitles(state.entries[board.id] ?? [], tasks: state.tasks[board.id] ?? [])
+        // Show agents is off: says so, one tap shows everything again.
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if hidesAgents {
+                PeopleFilterStrip(empty: all.count > 1 && list.count < 2, id: "thread-agents") { Haptics.play(.touch); withAnimation(.smooth(duration: 0.25)) { showAgents = true } }
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
         .safeAreaInset(edge: .bottom, spacing: 0) { composer }
         .navigationTitle("Thread")
         .navigationBarTitleDisplayMode(.inline)
@@ -401,6 +416,18 @@ struct ThreadView: View {
                     Button { dismiss() } label: { ToolbarIcon("xmark") }
                         .accessibilityIdentifier("thread-close")
                         .accessibilityLabel("Close")
+                }
+            }
+            if !board.isAgentChat {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Toggle(isOn: Binding(get: { showAgents }, set: { on in Haptics.play(.touch); withAnimation(.smooth(duration: 0.25)) { showAgents = on } })) {
+                            Label(Vocab.pick(String(localized: "Show agents", bundle: .l10n), String(localized: "Show assistants", bundle: .l10n)), systemImage: "person.2")
+                        }
+                        .accessibilityIdentifier("thread-show-agents")
+                    } label: { ToolbarIcon("ellipsis") }
+                    .accessibilityIdentifier("thread-menu")
+                    .accessibilityLabel(String(localized: "Thread options", bundle: .l10n))
                 }
             }
         }
@@ -490,7 +517,8 @@ struct ThreadView: View {
     }
 
     private func open(_ n: Int, here: [Int: Entry]) {
-        if here[n] != nil {
+        if let e = here[n] {
+            if hidden(e) { withAnimation(.smooth(duration: 0.25)) { showAgents = true } } // going to an agent's answer shows agents again
             scrollTo = n
             withAnimation(.smooth(duration: 0.25)) { flash = n }
             Task { try? await Task.sleep(nanoseconds: 1_400_000_000); withAnimation(.smooth(duration: 0.8)) { if flash == n { flash = nil } } }
