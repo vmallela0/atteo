@@ -332,6 +332,27 @@ ${ALLOWANCE_JS}
   // send, press Esc or leave a reply, and your own typing starts it afresh from what's in the box, so old words never come
   // back (jxn #1698). skip: results from before the last fresh start (continuous recognition keeps every result it had).
   var base='',fin='',skip=0,seen=0,own=false;
+  // Spoken mentions (jxn #1731): "at agents", "at vedu", "at vedu's agent" and an agent's name become @mentions of this
+  // board's members. Names match loosely by sound ("at vito" still finds vedu), but only when one is clearly closest, and
+  // everyday words after "at" ("at noon", "look at this") are left alone.
+  const SKIP=new Set('a an the this that these those it its me you him her us them my your his our their all least last first once home work noon night school lunch dinner some any every each about around which what how one two three four five six seven eight nine ten'.split(' '));
+  const sound=w=>w.toLowerCase().replace(/[^a-z]/g,'').replace(/ph/g,'f').replace(/d/g,'t').replace(/b/g,'p').replace(/[gq]/g,'k').replace(/z/g,'s').replace(/(?!^)[aeiouyhw]/g,'').replace(/(.)\\1+/g,'$1');
+  function lev(a,b){const d=[...Array(b.length+1).keys()];for(let i=1;i<=a.length;i++){let p=d[0];d[0]=i;for(let j=1;j<=b.length;j++){const t=d[j];d[j]=Math.min(d[j]+1,d[j-1]+1,p+(a[i-1]===b[j-1]?0:1));p=t}}return d[b.length]}
+  // The one candidate clearly closest to a spoken word: same word, else same sound, else one or two letters off.
+  function closest(w,cands){if(w.length<2||SKIP.has(w))return null;const sw=sound(w);let best=null,bs=9,tie=false;
+    for(const c of cands){const n=c.name.toLowerCase(),sn=sound(n),sc=w===n?0:sw===sn&&sn.length>=2?1:lev(w,n)<=(n.length>=6?2:1)?2:9;
+      if(sc<bs){bs=sc;best=c;tie=false}else if(sc===bs&&sc<9&&best.ins!==c.ins)tie=true}
+    return bs<9&&!tie?best:null}
+  function spoken(text){if(typeof MOPTS==='undefined'||!/\\bat\\s/i.test(text))return text;
+    const people=[{name:ME,ins:ME}],names=[],agentOf={};
+    for(const m of MOPTS){if(m.ins.includes('/')||['agents','humans','all'].includes(m.ins))continue;
+      if(m.k==='person')people.push({name:m.u,ins:m.u});else{agentOf[m.u]=m.ins;if(m.ins!==m.u+"'s agent")names.push({name:m.ins,ins:m.ins})}}
+    const others=people.filter(x=>x.ins!==ME);
+    return text.replace(/\\bat\\s+([A-Za-z][\\w.-]*?)(?:['’]?s)?(?:\\s+(agent|assistant)\\b)?(?=[\\s,.!?;:]|$)/gi,(all,w,ag)=>{const l=w.toLowerCase(),tok=all.slice(2).trim().split(/\\s+/)[0].toLowerCase().replace(/['’]s$/,'');
+      if(ag&&tok==='my'&&agentOf[ME])return '@'+agentOf[ME];if(SKIP.has(tok))return all;
+      if(!ag){if(/^(agent|assistant)$/.test(l))return '@agents';if(/^human$|^people$/.test(l))return '@humans';if(/^every(one|body)$/.test(l))return '@all'}
+      if(ag){const who=closest(l,people);return who&&agentOf[who.ins]?'@'+agentOf[who.ins]:all}
+      const hit=closest(l,[...others,...names]);return hit?'@'+hit.ins:all})}
   const takeBox=()=>{base=ta.value.trim()?ta.value.replace(/[ ]+$/,'')+' ':'';fin='';skip=seen};
   function micStop(){const r=rec;if(!r)return;rec=null;fin='';try{r.abort()}catch(e){}mic.setAttribute('aria-pressed','false');mic.classList.remove('on')}
   window.micStop=micStop;
@@ -340,7 +361,7 @@ ${ALLOWANCE_JS}
     const r=rec=new SR();r.lang=LANG;r.interimResults=true;r.continuous=true;mic.setAttribute('aria-pressed','true');mic.classList.add('on');
     r.onresult=ev=>{if(r!==rec)return;seen=ev.results.length;let mid='';for(let i=Math.max(ev.resultIndex,skip);i<ev.results.length;i++){const x=ev.results[i];if(x.isFinal)fin+=x[0].transcript;else mid+=x[0].transcript}
       const send=/(^|[ ,.])send it[.!]?$/i.test(fin.trim());
-      own=true;ta.value=base+(send?fin.trim().replace(/[ ,.]*send it[.!]?$/i,''):(fin+mid).trim());ta.dispatchEvent(new Event('input',{bubbles:true}));own=false;
+      own=true;ta.value=base+spoken(send?fin.trim().replace(/[ ,.]*send it[.!]?$/i,''):(fin+mid).trim());ta.dispatchEvent(new Event('input',{bubbles:true}));own=false;
       if(send){micStop();if(ta.value.trim())ta.form.requestSubmit()}};
     r.onerror=ev=>{if(ev.error==='not-allowed'||ev.error==='service-not-allowed')toast(tr('The microphone is blocked: allow it for this site to talk'))};
     r.onend=()=>{if(rec!==r)return;rec=null;mic.setAttribute('aria-pressed','false');mic.classList.remove('on')};
