@@ -175,7 +175,7 @@ dialog[open]{animation:pop .16s ease-out}dialog:focus{outline:none}
 @media(min-width:960px){.layout{grid-template-columns:minmax(0,1fr) 300px}.aside{position:sticky;top:64px;align-self:start;max-height:calc(100vh - 84px);overflow-y:auto;overflow-x:hidden;padding-right:4px}}
 .thread{display:flex;flex-direction:column}
 .entry{display:flex;gap:12px;padding:16px 0;border-top:1px solid var(--line)}
-.new-line{display:flex;align-items:center;gap:8px;margin:6px 0 -4px;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--danger)}.new-line::before,.new-line::after{content:"";flex:1;height:1px;background:color-mix(in srgb,var(--danger) 45%,transparent)}.new-line::before{flex:0 0 0}
+.new-line{display:flex;align-items:center;gap:8px;margin:8px 0 4px;font-size:11px;line-height:1;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--danger)}.new-line span{line-height:1;padding-top:1px}.new-line::after{content:"";flex:1;height:1px;background:color-mix(in srgb,var(--danger) 45%,transparent)}
 .thread>.entry:first-child{border-top:0;padding-top:4px}
 .entry .meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px;line-height:20px}
 .entry .who{font-weight:600;color:var(--ink)}
