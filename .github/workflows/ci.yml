@@ -1,7 +1,7 @@
 name: CI
 
 # The backstop, not the gate: the local gate already runs every suite on a fresh server before anything reaches main.
-# - Every 2 hours on main, only if main changed since the last green run: typecheck, unit tests, and the end-to-end and
+# - Every 2 hours on main, only if main changed since the last finished run: typecheck, unit tests, and the end-to-end and
 #   CLI suites against a local Worker (wrangler dev, local D1 + Durable Objects). ~1 billed minute when nothing changed,
 #   ~5 when it did.
 # - Nightly, and by hand ("Run workflow", any branch): all of that plus the browser checks in 4 shards (~22 minutes).
@@ -16,8 +16,10 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # Scheduled runs never cancel each other (a late nightly full run would lose to the next 2-hourly one); a new push to a
+  # pull request still cancels its older run.
+  group: ci-${{ github.ref }}-${{ github.event.schedule || github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   # The 2-hourly run: has main moved since the last green CI run on main? (Nothing else uses this job.)
@@ -34,8 +36,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          last=$(gh api "repos/${{ github.repository }}/actions/workflows/ci.yml/runs?branch=main&status=success&per_page=1" --jq '.workflow_runs[0].head_sha // ""')
-          if [ "$last" = "${{ github.sha }}" ]; then echo "run=false" >> "$GITHUB_OUTPUT"; echo "main hasn't moved since the last green run"; else echo "run=true" >> "$GITHUB_OUTPUT"; fi
+          # The last finished run, green or red: a red main that hasn't moved isn't retested every 2 hours.
+          last=$(gh api "repos/${{ github.repository }}/actions/workflows/ci.yml/runs?branch=main&status=completed&per_page=1" --jq '.workflow_runs[0].head_sha // ""')
+          if [ "$last" = "${{ github.sha }}" ]; then echo "run=false" >> "$GITHUB_OUTPUT"; echo "main hasn't moved since the last run"; else echo "run=true" >> "$GITHUB_OUTPUT"; fi
 
   test:
     needs: [changed]
