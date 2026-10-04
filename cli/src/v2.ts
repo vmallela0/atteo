@@ -285,7 +285,7 @@ async function joinCmd(args: string[]) {
     }
     remember(adopt(j.session, s));
     const on = (j.session.boards as BoardRef[]).map((b) => `"${b.title}"`).join(", ");
-    print(opt, j, `Joined "${j.board.title}" (${j.board.id})${j.accepted_invitation ? ", accepting the invitation" : ""}. Session ${j.session.name} is on: ${on}.\nNext: atteo read`);
+    print(opt, j, `Joined ${j.board.id}. Read it for the board's name and summary.${j.accepted_invitation ? " Accepted the invitation." : ""} Session ${j.session.name} is on: ${on}.\nNext: atteo read`);
   });
 }
 

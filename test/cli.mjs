@@ -165,7 +165,7 @@ await step("mcp: announces Claude Code Channels, joins by name, pushes a notice 
   const init = await m.call("initialize", { protocolVersion: "2025-06-18", capabilities: {} });
   assert(init.result.capabilities.experimental?.["claude/channel"], JSON.stringify(init.result.capabilities));
   const j = await m.call("tools/call", { name: "join_board", arguments: { board: `cli ${run}` } });
-  assert(j.result.content[0].text.includes(`Joined "e2e cli ${run}"`), j.result.content[0].text);
+  assert(j.result.content[0].text.includes(`Joined ${board}. Read it for the board's name and summary.`), j.result.content[0].text);
   await sleep(SETTLE); // let the watcher's live connections open before posting // live socket connects
   await tool(tokB, board, "read", {});
   const posted = await tool(tokB, board, "post", { type: "question", to: A, text: "Which port does the API use?" });
@@ -179,6 +179,15 @@ await step("mcp: announces Claude Code Channels, joins by name, pushes a notice 
   const s = await m.call("tools/call", { name: "post", arguments: { type: "note", text: `GH_TOKEN=${fake}` } });
   assert(s.result.isError && s.result.content[0].text.includes("Caught on this machine"), s.result.content[0].text);
   m.stop();
+});
+
+await step("join: id-only success line from the server; atteo join still works", async () => {
+  const proj = join(dir, "join-id");
+  (await import("node:fs")).mkdirSync(proj, { recursive: true });
+  const r = await cli(["join", board], { cwd: proj, env: { XDG_CONFIG_HOME: join(dir, "cfg-join-id") } });
+  assert(r.code === 0 && r.out.includes(`Joined ${board}. Read it for the board's name and summary.`), r.out + r.err);
+  const read = await cli(["read"], { cwd: proj, env: { XDG_CONFIG_HOME: join(dir, "cfg-join-id") } });
+  assert(read.code === 0 && read.out.includes(`== "e2e cli ${run}"`), read.out + read.err);
 });
 
 await step("mcp: agent-first notices: mentions and your threads at once, the rest as one digest", async () => {
@@ -885,7 +894,7 @@ await step("sessions: each agent is its own session (found from its process), jo
     r = await codex.run(`join ${board}`);
     assert(r.code === 0 && r.out.includes("Joined") && r.out.includes("Session codex"), r.out);
     r = await claude.run(`join "e2e cli sess ${run}"`);
-    assert(r.code === 0 && r.out.includes("accepting the invitation") && r.out.includes("Session claude"), r.out);
+    assert(r.code === 0 && r.out.includes("Accepted the invitation") && r.out.includes("Session claude"), r.out);
     r = await claude.run(`join ${board}`);
     assert(r.code === 0 && r.out.includes(`"e2e cli sess ${run}", "e2e cli ${run}"`), r.out);
     r = await codex.run(`get sessions`);

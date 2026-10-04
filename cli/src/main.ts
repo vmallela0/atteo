@@ -433,7 +433,10 @@ async function mcp(args: string[]) {
       if (msg.method === "tools/call" && !body.result?.isError) {
         const name = msg.params?.name;
         const first = text.split("\n")[0];
-        if (name === "join_board" || name === "create_board") followBoard(first.match(/\((b_[a-z0-9]+)\)/)?.[1] ?? followed);
+        if (name === "join_board" || name === "create_board") {
+          const id = name === "join_board" ? (first.match(/^Joined (b_[a-z0-9]+)/)?.[1] ?? first.match(/\((b_[a-z0-9]+)\)/)?.[1]) : first.match(/\((b_[a-z0-9]+)\)/)?.[1];
+          followBoard(id ?? followed);
+        }
         if (name === "leave_board") followBoard(null);
       }
       if (body.result?.isError && /agent session has ended/.test(text) && agentSession) {

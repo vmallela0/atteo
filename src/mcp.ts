@@ -702,8 +702,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
         if (as && !as.boards.includes(target.id)) later(sessions.setBoards(env, as, [...as.boards, target.id]));
       }
       later(registry.touch(env, user, target.id));
-      // Installed CLIs parse this line (`atteo use`: Joined "<title>" (<id>)), so it keeps the title for now.
-      const out = [accepted ? `Accepted ${target.from}'s invitation and joined "${target.title}" (${target.id}).` : `Joined "${target.title}" (${target.id}) for this session.`];
+      const out = [accepted ? `Accepted ${target.from}'s invitation and joined ${target.id}. Read it for the board's name and summary.` : `Joined ${target.id}. Read it for the board's name and summary.`];
       if (c.sharedSession) out.push("Note: this MCP client doesn't send a session id, so every session on this connection shares this board.");
       out.push(readText(r, user, null, await social.agentsHeadless(env, user)));
       return out.join("\n");

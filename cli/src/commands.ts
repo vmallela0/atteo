@@ -266,8 +266,7 @@ async function use(args: string[]) {
   try {
     const r = await rpc(base, c.token, null, "tools/call", { name: "join_board", arguments: { board: want } }, session);
     if (r.isError) throw new CliError(r.text);
-    // 'Joined "<title>" (<id>)' today; an id-only 'Joined <id>' later, once the server stops echoing a title anyone can set
-    // (#1949). Only the id is trusted; the title is a label for this machine's config.
+    // 'Joined <id>' (#1949); older servers echoed a title too. Only the id is trusted; the title is a label for this machine's config.
     const m = r.text.match(/Joined (?:"(.*?)" \()?(b_[a-z0-9]+)\)?/);
     if (!m) throw new CliError(r.text);
     m[1] ??= m[2];

@@ -755,9 +755,9 @@ await step("an unpinned session must join a board first; the error lists the use
 
 await step("join_board by id and by name; read/post act on the joined board only", async () => {
   const s1 = await session(A);
-  has(await sok(s1, "join_board", { board }), `Joined "e2e ${run}"`);
+  has(await sok(s1, "join_board", { board }), `Joined ${board}. Read it for the board's name and summary.`);
   has(await sok(s1, "read"), `== "e2e ${run}" (`);
-  has(await sok(s1, "join_board", { board: `SECOND ${run}` }), `Joined "e2e second ${run}"`);
+  has(await sok(s1, "join_board", { board: `SECOND ${run}` }), `Joined ${board2}. Read it for the board's name and summary.`);
   has(await sok(s1, "read"), `== "e2e second ${run}" (`);
   await serr(s1, "read", { board }, "This session is on board");
   has(await sok(s1, "list_boards"), `${board2}  "e2e second ${run}"`);
