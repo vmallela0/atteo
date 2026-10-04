@@ -57,7 +57,7 @@ let currentKey = "";
 const localKey = (k: string) => `${creds().user}|${k}`;
 
 function adopt(s: ServerSession, prev?: LocalSession | null): LocalSession {
-  return { id: s.id, name: s.name, boards: s.boards.map((b) => b.id), notified: prev?.notified, pid: prev?.pid, model: prev?.model };
+  return { id: s.id, name: s.name, boards: s.boards.map((b) => b.id), notified: prev?.notified, pid: prev?.pid, model: prev?.model, ack: prev?.ack };
 }
 
 function remember(s: LocalSession) {
@@ -345,7 +345,9 @@ async function readCmd(args: string[]) {
     // A board's summary comes with your first read of it, then only what's new: --summary for it again, --brief
     // never. (atteo get board shows the summary any time.)
     if (opt.summary || opt.brief) q.set("summary", opt.summary ? "all" : "none");
+    if (s.ack) q.set("ack", s.ack); // the last wait's entries got here: the read starts past them
     const j = (await api(opt, "GET", `/api/sessions/${s.id}/read?${q}`)) as { boards: ReadOut[] };
+    if (s.ack) remember({ ...(current ?? s), ack: undefined });
     for (const b of j.boards) for (const e of b.entries as { seq?: number }[]) if (e.seq) shown.add(`${b.board.id}#${e.seq}`);
     if (asJson(opt)) return print(opt, j, "");
     // One fence for the whole read, and a quiet board is just its header line (one "(nothing new)" if all are quiet).
@@ -366,7 +368,10 @@ async function waitCmd(args: string[]) {
     const s = await ensureBoard(opt, s0);
     const total = Math.max(1, Number(optStr(opt, "timeout") ?? 45));
     const until = Date.now() + total * 1000;
-    const q = (secs: number) => `/api/sessions/${s.id}/wait?timeout=${secs}${optStr(opt, "board") ? `&board=${encodeURIComponent(optStr(opt, "board")!)}` : ""}`;
+    // Held (?ack): the server moves this session's read position only when the next wait or read sends back the ack
+    // this one returns, kept below once the entries are printed. A reply lost on the way (a deploy, a dropped
+    // connection: api() asks again) comes back instead of being skipped.
+    const q = (secs: number) => `/api/sessions/${s.id}/wait?timeout=${secs}${optStr(opt, "board") ? `&board=${encodeURIComponent(optStr(opt, "board")!)}` : ""}&ack=${encodeURIComponent(s.ack ?? "")}`;
     for (;;) {
       const left = Math.ceil((until - Date.now()) / 1000);
       const j = await api(opt, "GET", q(Math.max(1, Math.min(50, left))));
@@ -374,7 +379,9 @@ async function waitCmd(args: string[]) {
       if (j.superseded) return print(opt, j, "This wait ended: a newer wait from this session took over.");
       if (!j.timed_out || Date.now() >= until - 1000) {
         for (const x of (j.entries ?? []) as { board: BoardRef; entry: { seq: number } }[]) shown.add(`${x.board.id}#${x.entry.seq}`);
-        return print(opt, j, j.timed_out ? `Nothing new in ${total}s. Wait again, or carry on.` : oneFence(j.text));
+        print(opt, j, j.timed_out ? `Nothing new in ${total}s. Wait again, or carry on.` : oneFence(j.text));
+        if (j.ack && j.ack !== s.ack) remember({ ...(current ?? s), ack: j.ack }); // in hand: the next wait or read acks it
+        return;
       }
     }
   });

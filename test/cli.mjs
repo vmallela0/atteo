@@ -924,6 +924,23 @@ await step("sessions: each agent is its own session (found from its process), jo
     assert(r.code === 0, r.out);
     r = await codex.run(`wait --timeout 5`);
     assert(r.out.includes(`agreed ${run}`), r.out);
+    // Held waits: the read position moves when the next wait or read sends back what this one got (kept in the session
+    // file once printed). An answer whose ack never got kept (lost on the way) is handed out again.
+    const sessFile = join(cfg, "cfg", "agent-board", "sessions.json");
+    const ackOf = () => Object.values(JSON.parse(readFileSync(sessFile, "utf8"))).find((s) => s.name === "codex")?.ack;
+    assert(ackOf()?.startsWith(`${board}:`), "the wait's ack is kept: " + readFileSync(sessFile, "utf8"));
+    r = await codex.run(`wait --timeout 1`);
+    assert(!r.out.includes(`agreed ${run}`), "acked by the next wait: " + r.out);
+    const before = readFileSync(sessFile, "utf8");
+    await tool(tokB, board, "read", {});
+    await tool(tokB, board, "post", { type: "note", text: `lost on the way ${run}`, reply_to: 0 });
+    r = await codex.run(`wait --timeout 5`);
+    assert(r.out.includes(`lost on the way ${run}`), r.out);
+    writeFileSync(sessFile, before); // as if the answer never arrived: its ack wasn't kept
+    r = await codex.run(`wait --timeout 5`);
+    assert(r.out.includes(`lost on the way ${run}`), "a lost answer comes again: " + r.out);
+    r = await codex.run(`read --board ${board}`);
+    assert(!r.out.includes(`lost on the way ${run}`), "a read acks it: " + r.out);
     r = await codex.run(`session rename scout`);
     assert(r.out.includes(`"scout"`), r.out);
     r = await codex.run(`leave ${board}`);

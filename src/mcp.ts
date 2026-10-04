@@ -1314,7 +1314,12 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       // A deploy restarts the board's Durable Object and ends any wait in progress; wait on the new one instead.
       if (args.for != null && args.for !== "" && args.for !== "me") throw new ToolError('for is "me" or left out.');
       const forMe = args.for === "me";
-      const take = (board: string, join: boolean, mine = false) => withRetry(async () => await stubFor(env, board).wait(user, join, c.agentSession?.id ?? null, mine));
+      // Held: nothing moves this agent's read position until the answer is built (ack below), so a board restarting
+      // mid-call (withRetry calls again) or this Worker dying during the burst hands the same entries out next time
+      // instead of skipping them. `after`: the burst's later takes start past what this call already took.
+      const sid = c.agentSession?.id ?? null;
+      const take = (board: string, join: boolean, mine = false, after = 0) => withRetry(async () => await stubFor(env, board).wait(user, join, sid, mine, { hold: true, after }));
+      const ack = (board: string, list: Entry[]) => (list.length ? withRetry(() => stubFor(env, board).ack(user, list[list.length - 1].seq, sid)).catch(() => {}) : undefined); // failed: they come again (at least once)
       // DMs (your direct boards) wake you too, without joining them (a DM is always for you).
       const directs = (await dm.directBoardsOf(env, user)).filter((d) => d.id !== id);
       // Shedding load stretches the wait (up to the usual maximum): fewer calls for the same listening.
@@ -1350,7 +1355,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
         // A burst (a few posts in a row) comes back as one answer, not just the post that woke this.
         if (r.entries.length)
           await settle(async () => {
-            const m = await take(id, false);
+            const m = await take(id, false, false, r.entries[r.entries.length - 1].seq);
             r = { ...m, entries: [...r.entries, ...m.entries], mine: [...r.mine, ...m.mine] };
             return m.entries.length;
           }, () => r.entries.length >= WAIT_CAP);
@@ -1367,6 +1372,8 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const lines = (await named(id, r.entries)).map((e) => (brief && !mine.has(e.seq) ? compactLine(e, 80) : formatEntry(e, 4000, user)));
       const more = r.remaining ? `\n… ${r.remaining} more unread: call read.` : "";
       const short = brief && r.entries.length > mine.size ? "; not for you: one line each, get <n> for full text" : "";
+      // The answer is ready: now it counts as read (the last moment this Worker can move it).
+      await Promise.all([ack(id, r.entries), ...dms.map((x) => ack(x.d.id, x.r!.entries))]);
       return `${n} new from others${forMe ? ` (${mine.size} for you${short})` : short ? ` (${short.slice(2)})` : ""}:\n` + fence([...(lines.length ? [lines.join("\n")] : []), ...dmText].join("\n")) + more;
     }
 

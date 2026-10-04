@@ -686,6 +686,9 @@ export class Board extends DurableObject<Env> {
     if (!memberCols.has("agent_seen")) this.sql.exec("ALTER TABLE members ADD COLUMN agent_seen INTEGER NOT NULL DEFAULT -1"); // -1: never here
     // Whether this member's agent has been given the board's summary (its first read does; later ones only on request).
     if (!memberCols.has("summarized")) this.sql.exec("ALTER TABLE members ADD COLUMN summarized INTEGER NOT NULL DEFAULT 0");
+    // How far a held wait (wait {hold}) has handed entries to this session, ahead of its cursor until the client acks.
+    const sessionCols = new Set(this.sql.exec("PRAGMA table_info(session_cursors)").toArray().map((r) => r.name as string));
+    if (sessionCols.size && !sessionCols.has("delivered")) this.sql.exec("ALTER TABLE session_cursors ADD COLUMN delivered INTEGER NOT NULL DEFAULT 0");
     // A claim's reproducible check: {command, commit?}, run by other members in a sandbox (atteo verify N).
     const claimCols = new Set(this.sql.exec("PRAGMA table_info(claim_state)").toArray().map((r) => r.name as string));
     if (!claimCols.has("check_json")) this.sql.exec("ALTER TABLE claim_state ADD COLUMN check_json TEXT");
@@ -832,6 +835,28 @@ export class Board extends DurableObject<Env> {
     return member;
   }
 
+  /** What this session has been handed, acked or not: a held wait's entries count as read for post refusals. */
+  private seenCursor(user: string, session?: string | null): number {
+    const cursor = this.readCursor(user, session);
+    if (!session) return cursor;
+    const d = this.sql.exec("SELECT delivered FROM session_cursors WHERE session = ? AND user = ?", session, user).toArray()[0]?.delivered as number | undefined;
+    return Math.max(cursor, d ?? 0);
+  }
+
+  /**
+   * The client got entries up to `seq` from a held wait (wait {hold}): its read position moves there now. Never back,
+   * never past the end; a stale or repeated ack does nothing.
+   */
+  async ack(user: string, seq: number, session?: string | null): Promise<void> {
+    const info = this.info();
+    if (!Number.isInteger(seq) || seq <= 0) return;
+    if (!this.sql.exec("SELECT 1 AS x FROM members WHERE name = ?", user).toArray().length) return; // removed meanwhile
+    const to = Math.min(seq, info.last_seq);
+    if (session) this.readCursor(user, session);
+    this.advance(user, to, session);
+    this.markSeen(user, "agent", to);
+  }
+
   /** Moves a reader forward: the session (if any) and the member (the furthest any of their sessions got). */
   private advance(user: string, seq: number, session?: string | null) {
     this.setCursor(user, seq);
@@ -933,7 +958,7 @@ export class Board extends DurableObject<Env> {
     const again = this.sentBefore(user, input.idem);
     if (again) return { entry: again, missed: [] }; // a retry of a post that already landed
     this.info();
-    const cursor = this.readCursor(user, session);
+    const cursor = this.seenCursor(user, session); // a held wait's entries count as read here, acked or not
     const missed = this.entriesAfter(cursor, user, MISSED_SCAN, session, asAgent(user));
     if (!missed.length) return { entry: await this.post(user, session ? { ...input, session } : input), missed: [] };
     // More than we check at once: refuse, as before, so nothing unchecked is skipped by the post.
@@ -2180,13 +2205,18 @@ export class Board extends DurableObject<Env> {
    * What other members posted that this user's agent hasn't read (never blocks: the Worker does the waiting, see
    * acceptWait). Advances the cursor past what it returns. `join` false: after a wait, so a member removed
    * meanwhile gets nothing and isn't re-added.
+   *
+   * `hold`: the cursor stays put until the client acks (ack()), so a reply lost on the way (a deploy restarting this
+   * object or the Worker, a dropped connection, a retried call) comes back on the next wait instead of being skipped.
+   * What it hands out is recorded as delivered (it counts as read for post refusals). `after`: a floor within one
+   * request, so the burst's later takes start past what this request already took.
    */
-  async wait(user: string, join = true, session?: string | null, forMe = false) {
+  async wait(user: string, join = true, session?: string | null, forMe = false, opts: { hold?: boolean; after?: number } = {}) {
     this.info();
     if (join) this.touch(user);
     const row = this.sql.exec("SELECT cursor FROM members WHERE name = ?", user).toArray();
     if (!row.length) return { info: this.info(), entries: [] as Entry[], timedOut: true, remaining: 0, mine: [] as number[], gone: true };
-    const cursor = session ? this.readCursor(user, session) : (row[0].cursor as number);
+    const cursor = Math.max(session ? this.readCursor(user, session) : (row[0].cursor as number), opts.after ?? 0);
     // For me: nothing moves (and nothing is returned) until something unread is for this agent; then everything new is.
     const scan = this.entriesAfter(cursor, user, forMe ? FOR_ME_SCAN : WAIT_CAP + 1, session, asAgent(user));
     const mine = this.forMeSeqs(user, session, scan);
@@ -2195,8 +2225,10 @@ export class Board extends DurableObject<Env> {
     // The cursor moves only past what's returned; the rest is counted so the caller can say "N more".
     const remaining = scan.length > WAIT_CAP ? this.countAfter(cursor, user, session) - fresh.length : 0;
     await this.receipts(user, fresh);
-    if (fresh.length) this.advance(user, fresh[fresh.length - 1].seq, session);
-    if (fresh.length) this.markSeen(user, "agent", fresh[fresh.length - 1].seq);
+    const last = fresh.length ? fresh[fresh.length - 1].seq : 0;
+    if (last && !opts.hold) this.advance(user, last, session);
+    else if (last && session) this.sql.exec("UPDATE session_cursors SET delivered = MAX(delivered, ?) WHERE session = ? AND user = ?", last, session, user);
+    if (last) this.markSeen(user, "agent", last);
     this.touch(user);
     await this.decisions.refresh();
     return { info: this.info(), entries: this.decisions.attach(this.withHandling(fresh)), timedOut: fresh.length === 0, remaining, mine: fresh.filter((e) => mine.has(e.seq)).map((e) => e.seq), gone: false };
@@ -2788,7 +2820,7 @@ export class Board extends DurableObject<Env> {
 
   /** Whether this agent session's last entry got here was its person's Just mine message, in the last ten minutes (audience.ts). */
   private ownByDefault(user: string, session: string | null, sessionName: string | null): boolean {
-    const cursor = this.readCursor(user, session);
+    const cursor = this.seenCursor(user, session);
     const ok = peopleOk(asAgent(user));
     // The newest few only (by seq, the primary key): a recent enough one is near the end.
     const recent = this.sql
