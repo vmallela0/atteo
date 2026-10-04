@@ -50,7 +50,7 @@ A successful response is audio, normally `audio/mpeg`, with `x-tts-cache: hit` o
 
 Talk mode connects the client directly to xAI's Grok Voice Agent realtime WebSocket. Atteo returns a short-lived client secret and session configuration; it does not proxy audio and never returns its xAI API key.
 
-These Grok routes are a shipped, tested client API. The repository currently contains an iOS client that opens a Grok voice session; the web UI only has read-aloud controls.
+These Grok routes are a shipped, tested client API. The repository currently contains an iOS client that opens a Grok voice session; the web UI in this repo only has composer dictation and read-aloud controls, not the full Talk sheet.
 
 In the iOS app, the waveform button opens the Talk to Atteo sheet. That sheet shows live captions for both sides, supports hands-free listening with barge-in, and also has a hold-to-talk mode for noisy places.
 
