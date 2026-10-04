@@ -754,7 +754,7 @@ const handler = {
           registry.everHadAgent(env, viewer.name),
         ]);
         // Everyday (#1272): home is "For you" once you have an assistant; the chat list lives at /chats. Developer mode keeps today's home.
-        if (path === "/" && had && viewer.via !== "agent" && !url.search && !(await developerFor(env, viewer.name, (await social.appPrefs(env, viewer.name))?.display.mode))) return redirect("/for-you");
+        if (path === "/" && had && !invitations.length && viewer.via !== "agent" && !url.search && !(await developerFor(env, viewer.name, (await social.appPrefs(env, viewer.name))?.display.mode))) return redirect("/for-you");
         return homePage(viewer, side, boards, invitations, { connected: status.connected, onThisBoard: false }, undefined, !had);
       }
 
@@ -1130,7 +1130,8 @@ const handler = {
         const b = await request.json().catch(() => null);
         if (!b || typeof b !== "object" || Array.isArray(b)) return json({ error: 'Send an object, e.g. {"display":{"theme":"dark"}}.' }, 400);
         try {
-          return json({ ok: true, prefs: await social.setAppPrefs(env, viewer.name, b as Record<string, unknown>) });
+          const saved = await social.setAppPrefs(env, viewer.name, b as Record<string, unknown>);
+          return json({ ok: true, prefs: { ...saved, developer: await developerFor(env, viewer.name, saved.display.mode) } });
         } catch (e) {
           return json({ error: e instanceof Error ? e.message : String(e) }, 400);
         }
