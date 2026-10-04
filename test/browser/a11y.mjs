@@ -107,7 +107,8 @@ const [k, ...v] = ck.split(";")[0].split("=");
 
 for (const [lang, qs, w, h, phone, scheme] of RUNS) {
   {
-    const ctx = await browser.newContext({ colorScheme: scheme, viewport: { width: w, height: h }, ...(phone ? { hasTouch: true, isMobile: true } : {}) });
+    // Reduced motion: no transition is mid-way when axe measures colours (the Talk sheet's flaked in parallel runs).
+    const ctx = await browser.newContext({ colorScheme: scheme, reducedMotion: "reduce", viewport: { width: w, height: h }, ...(phone ? { hasTouch: true, isMobile: true } : {}) });
     await ctx.grantPermissions(["microphone"]);
     await ctx.addCookies([{ name: k, value: v.join("="), url: BASE }]);
     await ctx.addInitScript(FAKES);

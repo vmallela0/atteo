@@ -30,21 +30,19 @@ dialog.talk::backdrop{background:rgba(0,0,0,.25)}
 .talk-hd{display:flex;align-items:center;gap:10px;padding:14px 16px 6px}.talk-hd b{font-size:15px}.talk-hd .grow{flex:1}.talk-left{font-size:12.5px;color:var(--faint);font-variant-numeric:tabular-nums}
 .talk-orb{display:flex;align-items:center;justify-content:center;gap:4px;height:64px;margin:4px 0}
 .talk-orb i{width:5px;height:8px;border-radius:3px;background:var(--faint);transition:height .08s,background .2s}
-.talk.napping .talk-orb i{opacity:.45}.talk.hearing .talk-orb i{background:var(--accent)}.talk.speaking .talk-orb i{background:#D97857;animation:talkWave 1s ease-in-out infinite}
+.talk.napping .talk-orb i{opacity:.45}.talk.hearing .talk-orb i{background:var(--accent)}.talk.speaking .talk-orb i{background:var(--atteo);animation:talkWave 1s ease-in-out infinite}
 .talk.speaking .talk-orb i:nth-child(2n){animation-delay:.15s}.talk.speaking .talk-orb i:nth-child(3n){animation-delay:.3s}
 @keyframes talkWave{50%{height:30px}}
 @media (prefers-reduced-motion:reduce){.talk-orb i{animation:none!important;transition:none}}
 .talk-st{text-align:center;font-size:14px;color:var(--text);min-height:1.4em;padding:0 16px}
 .talk-caps{max-height:240px;overflow:auto;padding:8px 16px;display:flex;flex-direction:column;gap:6px;font-size:14px;line-height:1.45}
-.talk-caps p{margin:0;overflow-wrap:anywhere}.talk-caps .who{font-weight:600;margin-right:6px}.talk-caps .you .who{color:var(--accent)}.talk-caps .atteo .who{color:#A34A2B}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .talk-caps .atteo .who{color:#F0A78E}}:root[data-theme="dark"] .talk-caps .atteo .who{color:#F0A78E}
+.talk-caps p{margin:0;overflow-wrap:anywhere}.talk-caps .who{font-weight:600;margin-right:6px}.talk-caps .you .who{color:var(--accent)}.talk-caps .atteo .who{color:var(--atteo)}
 .talk-caps .note{color:var(--faint);font-size:12.5px}.talk-caps .err{color:var(--danger)}
 .talk-caps .you{opacity:.6}.talk-caps .you.live{font-style:italic}.talk-caps p.old{opacity:.35}.talk-caps[data-mode="atteo"] .you{display:none}
 .talk-cc{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text)}.talk-cc select{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:2px 4px}
 .talk-ok{margin:6px 16px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;font-size:13.5px;display:flex;flex-direction:column;gap:8px}.talk-ok .row{display:flex;gap:8px}
 .talk-ft{display:flex;gap:8px;justify-content:center;padding:10px 16px 16px;flex-wrap:wrap}
-.talk-ft .btn.danger{background:#b91c1c;border-color:#b91c1c;color:#fff}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .talk-ft .btn.danger{background:#991b1b;border-color:#991b1b}}:root[data-theme="dark"] .talk-ft .btn.danger{background:#991b1b;border-color:#991b1b}
+.talk-ft .btn.danger{background:var(--danger);border-color:var(--danger);color:var(--on-ink)} /* End: 4.8:1 light, 7.2:1 dark */
 .talk-ft .btn[aria-pressed="true"]{background:var(--bg-hover);color:var(--danger)}
 `;
 

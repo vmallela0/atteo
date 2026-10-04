@@ -13,7 +13,7 @@ import { clientTable, tr, type Lang } from "./i18n";
 
 // Dark tokens: the system setting picks them unless Display says light; Display can also force them.
 const DARK = `  --bg:#0a0a0a;--bg-subtle:#111111;--bg-hover:#1a1a1a;--line:#232323;--line-strong:#2e2e2e;
-  --ink:#ededed;--text:#ededed;--muted:#a1a1a1;--faint:#858585;--on-ink:#0a0a0a;--pb-agent:#F2EFE8;--pb-eye:#111113;
+  --ink:#ededed;--text:#ededed;--muted:#a1a1a1;--faint:#858585;--on-ink:#0a0a0a;--pb-agent:#F2EFE8;--pb-eye:#111113;--atteo:#F0A78E;
   --accent:#4ea1ff;--ok:#3ecf75;--warn:#fb923c;--danger:#f87171;
   --q:#fbbf24;--claim:#4ade80;--decision:#a78bfa;--task:#38bdf8;--artifact:#a3a3a3;--note:#737373;
   --shadow:0 1px 2px rgba(0,0,0,.4);--shadow-lg:0 12px 48px rgba(0,0,0,.6);
@@ -23,7 +23,7 @@ const DARK = `  --bg:#0a0a0a;--bg-subtle:#111111;--bg-hover:#1a1a1a;--line:#2323
 export const CSS = `
 :root{
   --bg:#ffffff;--bg-subtle:#fafafa;--bg-hover:#f4f4f5;--line:#ebebeb;--line-strong:#dcdcdc;
-  --ink:#0a0a0a;--text:#171717;--muted:#595959;--faint:#737373;--on-ink:#ffffff;--pb-agent:#111113;--pb-eye:#F2EFE8;
+  --ink:#0a0a0a;--text:#171717;--muted:#595959;--faint:#737373;--on-ink:#ffffff;--pb-agent:#111113;--pb-eye:#F2EFE8;--atteo:#A34A2B; /* Atteo's voice (Talk to Atteo): 5.9:1 here, 10:1 in dark */
   --accent:#0062d1;--ok:#16a34a;--warn:#c2410c;--danger:#dc2626;
   --q:#d97706;--claim:#16a34a;--decision:#7c3aed;--task:#0284c7;--artifact:#737373;--note:#a3a3a3;
   --shadow:0 1px 2px rgba(0,0,0,.04),0 4px 16px rgba(0,0,0,.04);--shadow-lg:0 12px 48px rgba(0,0,0,.12);
@@ -169,7 +169,7 @@ dialog .bd{padding:16px 22px 22px}
 .crop-dlg canvas{display:block;width:100%;height:auto;min-width:0;aspect-ratio:1;border-radius:12px;background:var(--bg-subtle);touch-action:none;cursor:grab}
 .crop-dlg canvas:active{cursor:grabbing}.crop-row{display:flex;align-items:center;gap:10px;min-width:0}.crop-row .xs{flex:0 0 56px}.crop-row input[type=range]{flex:1 1 0;min-width:0;accent-color:var(--ink)}
 .crop-foot{display:flex;justify-content:space-between;gap:12px;padding:0 16px 16px}
-dialog[open]{animation:pop .16s ease-out}dialog:focus{outline:none}
+dialog[open]{animation:pop .16s ease-out}dialog:focus{outline:none}@media (prefers-reduced-motion:reduce){dialog[open]{animation:none}}
 @keyframes pop{from{opacity:0;transform:translateY(6px) scale(.985)}to{opacity:1;transform:none}}
 
 /* flash / toast */
