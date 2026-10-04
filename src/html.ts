@@ -970,7 +970,7 @@ window.BOARD=${JSON.stringify(info.id)};let last=${last};
 // into their threads and get the same reactions, task strips and claim chips as live entries.
 async function loadEarlier(until){const b=document.getElementById('load-earlier');if(!b||b.disabled)return;b.disabled=true;if(until)pinned=false;
   const sc=document.getElementById('thread-scroll'),before=+b.dataset.before;
-  const r=await fetch('/api/boards/'+BOARD+'/entries?before='+before+'&limit='+(until?Math.min(500,before-until+20):150));const j=await r.json().catch(()=>({}));if(!r.ok){b.disabled=false;return}
+  const r=await fetch('/api/boards/'+BOARD+'/entries?before='+before+'&limit='+(until?Math.min(500,before-until+20):60));const j=await r.json().catch(()=>({}));if(!r.ok){b.disabled=false;return}
   const frag=document.createDocumentFragment(),later=[];
   for(const x of j.entries){if(document.getElementById('e'+x.seq))continue;const t=document.createElement('div');t.innerHTML=x.html;const el=t.firstElementChild;
     if(x.root!==x.seq){el.dataset.root=String(x.root);el.querySelector(':scope>.grow>.replies')?.remove()}frag.appendChild(el);later.push(x)}
@@ -993,15 +993,21 @@ const scroller=document.getElementById('thread-scroll'),pill=document.getElement
 const usr=()=>{userT=Date.now()},nearEnd=()=>scroller.scrollHeight-scroller.scrollTop-scroller.clientHeight<=24; // userT: the last wheel/touch/key/drag, so programmatic scrolls aren't mistaken for the user's
 const atBottom=()=>scroller.clientHeight===0||scroller.scrollHeight-scroller.scrollTop-scroller.clientHeight<80;
 function toBottom(smooth){const far=scroller.scrollHeight-scroller.scrollTop-scroller.clientHeight>1200; // long jumps are instant
-  pinned=true;userT=0;scroller.scrollTo({top:scroller.scrollHeight,behavior:smooth&&!far?'smooth':'auto'});pill.hidden=true;unseen=false}
+  pinned=true;userT=0;scroller.scrollTo({top:scroller.scrollHeight,behavior:smooth&&!far?'smooth':'auto'});pill.hidden=true;unseen=0}
 // The rail: one tick per message at its place in the conversation (instead of a scrollbar). Ticks in view are darker,
 // so scrolling steps through them; hover previews a message, click jumps to it, drag scrubs.
 const rail=document.getElementById('rail'),tip=document.getElementById('rail-tip');let ticks=[];
 function railBuild(){const th=document.getElementById('thread'),top0=th.getBoundingClientRect().top,H=Math.max(1,th.scrollHeight);// top-level messages only: replies live in their thread
   ticks=[...th.querySelectorAll(':scope>.entry')].map(el=>({el,y:(el.getBoundingClientRect().top-top0)/H,h:el.querySelector(':scope>.grow>.meta')?.offsetHeight||20}));
-  rail.innerHTML=ticks.map((t,i)=>'<i data-i="'+i+'" style="top:'+(t.y*100).toFixed(3)+'%"></i>').join('');railMark()}
-function railMark(){setTimeout(reportSeen,0);const a=scroller.scrollTop,b=a+scroller.clientHeight,H=Math.max(1,scroller.scrollHeight);const is=rail.children;
-  ticks.forEach((t,i)=>{const y=t.y*document.getElementById('thread').scrollHeight;is[i]?.classList.toggle('on',y+t.h>a&&y<b)})}
+  // On a long board one tick per message is a grey smear (jxn #1359): at most RAIL_MAX ticks, nearby messages sharing one,
+  // and anything for you always gets its own. Hover and scrubbing still use every message.
+  const RAIL_MAX=60,groups=[];if(ticks.length<=RAIL_MAX)ticks.forEach((t,i)=>groups.push({y:t.y,m:[i],me:t.el.classList.contains('for-you')}));
+  else{const by=new Map();ticks.forEach((t,i)=>{if(t.el.classList.contains('for-you')){groups.push({y:t.y,m:[i],me:true});return}const k=Math.min(RAIL_MAX-1,Math.floor(t.y*RAIL_MAX));
+      let g=by.get(k);if(!g){g={y:t.y,m:[],me:false};by.set(k,g);groups.push(g)}g.m.push(i)})}
+  rticks=groups;rail.innerHTML=groups.map((g,i)=>'<i data-i="'+g.m[0]+'"'+(g.me?' class="me"':'')+(g.m.length>1?' data-n="'+g.m.length+'"':'')+' style="top:'+(g.y*100).toFixed(3)+'%"></i>').join('');railMark()}
+var rticks=[];
+function railMark(){setTimeout(reportSeen,0);const a=scroller.scrollTop,b=a+scroller.clientHeight;const is=rail.children,TH=document.getElementById('thread').scrollHeight;
+  rticks.forEach((g,i)=>{const on=g.m.some(j=>{const t=ticks[j],y=t.y*TH;return y+t.h>a&&y<b});is[i]?.classList.toggle('on',on)})}
 function railAt(ev){const r=rail.getBoundingClientRect();return Math.min(1,Math.max(0,(ev.clientY-r.top)/r.height))}
 function railNear(f){let best=-1,d=2;ticks.forEach((t,i)=>{const x=Math.abs(t.y-f);if(x<d){d=x;best=i}});return d<0.03?best:-1}
 let scrub=false;
@@ -1014,8 +1020,8 @@ rail.addEventListener('pointerleave',()=>{tip.hidden=true});
 rail.addEventListener('pointerup',ev=>{if(!scrub)return;scrub=false;const i=railNear(railAt(ev));if(i>=0&&ev.pointerType!=='touch'){usr();ticks[i].el.scrollIntoView({block:'center'})}});
 function railMove(ev){moved=true;usr();scroller.scrollTop=railAt(ev)*scroller.scrollHeight-scroller.clientHeight/2}
 new ResizeObserver(()=>railBuild()).observe(document.getElementById('thread'));
-let unseen=false;
-function pillSync(){if(pinned){pill.hidden=true;unseen=false}else{pill.textContent=unseen?'New messages ↓':'Jump to latest ↓';pill.hidden=false}}
+let unseen=0; // new messages that arrived while you were scrolled up (jxn #1367)
+function pillSync(){if(pinned){pill.hidden=true;unseen=0}else{pill.textContent=unseen?unseen+' new message'+(unseen>1?'s':'')+' ↓':'Jump to latest ↓';pill.hidden=false}}
 scroller.addEventListener('scroll',()=>{if(scroller.clientHeight){if(Date.now()-userT<700)pinned=nearEnd();else if(nearEnd())pinned=true}pillSync();railMark()},{passive:true});
 ['wheel','touchmove','keydown','pointerdown'].forEach(t=>scroller.addEventListener(t,()=>{moved=true;usr()},{passive:true}));
 document.addEventListener('keydown',e=>{if(/^(Page(Up|Down)|Home|End|Arrow(Up|Down)| )$/.test(e.key)&&!e.target.closest('textarea,input,select,[contenteditable]'))usr()},true);
@@ -1060,7 +1066,7 @@ async function tick1(wait){const sumNow=sumNext;sumNext=false;try{
   if(d.handling)renderHandling(d.handling);
   if(d.entries.length){for(const e of d.entries)TYPERS.delete(e.author);typingSync()} // sent: no longer typing
   if(d.reads){READS=d.reads;renderReads()}
-  if(added){railBuild();if(stick)toBottom();else{unseen=true;pillSync()}if(window.e2eSync)e2eSync()}
+  if(added){railBuild();if(stick)toBottom();else{unseen+=added;pillSync()}if(window.e2eSync)e2eSync()}
   if(d.entries.length||sumNow){document.getElementById('sum').innerHTML=d.summary;foldApply();document.querySelectorAll('[data-count]').forEach(x=>x.textContent=d.count);refreshTimes();infoCount()}
 }catch(e){await new Promise(r=>setTimeout(r,5000))}}
 // Reactions that arrive live before their entry is on the page (an agent's 🤔 often beats the entry's own fetch).

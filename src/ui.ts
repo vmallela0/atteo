@@ -195,7 +195,11 @@ dialog[open]{animation:pop .16s ease-out}dialog:focus{outline:none}
 .entry .body a{color:var(--accent)}
 .entry .refs{margin-top:6px;font-size:12.5px;color:var(--faint)}
 .entry .refs a:hover{color:var(--ink)}
-.entry.flash-in{animation:flashin 1.6s ease-out}
+.entry.flash-in{animation:flashin 1.6s ease-out,entryin .32s cubic-bezier(.2,.7,.3,1)}
+@keyframes entryin{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}} /* new messages rise in gently (jxn #1366) */
+@media(prefers-reduced-motion:reduce){.entry.flash-in{animation:flashin 1.6s ease-out}}
+/* Messages off screen aren't laid out or painted until they come near, so long boards scroll smoothly (jxn #1365). */
+#thread>.entry{content-visibility:auto;contain-intrinsic-size:auto 96px}
 .entry .rbadge{display:none;height:18px;font-size:11px}
 .entry .fbadge{height:18px;font-size:11px;color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,var(--line))}
 .entry.retracted>.grow>.body,.entry.retracted>.grow>.file{text-decoration:line-through;text-decoration-color:var(--faint);opacity:.55}
@@ -930,7 +934,7 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
 .thread-scroll::-webkit-scrollbar{display:none} /* the rail stands in for its scrollbar */
 .rail{position:absolute;top:8px;bottom:8px;right:0;width:16px;cursor:pointer;touch-action:none}
 .rail i{position:absolute;right:3px;width:8px;height:2px;margin-top:-1px;border-radius:1px;background:color-mix(in srgb,var(--muted) 16%,transparent);transition:background .12s,width .12s}
-.rail i.on{background:var(--muted);width:10px}
+.rail i.on{background:var(--muted);width:10px}.rail i[data-n]{height:3px;margin-top:-1.5px}.rail i.me{background:color-mix(in srgb,var(--warn) 70%,transparent);width:10px}
 .rail:hover i{background:var(--sb)}.rail:hover i.on{background:var(--ink)}
 .rail-tip{position:absolute;right:22px;z-index:5;max-width:min(360px,70%);padding:5px 9px;margin-top:-13px;border-radius:7px;background:var(--ink);color:var(--on-ink);
   font-size:12px;line-height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none;box-shadow:var(--shadow-lg)}
