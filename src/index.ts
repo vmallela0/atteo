@@ -650,6 +650,14 @@ const handler = {
       const needLogin = () =>
         method === "GET" && !path.startsWith("/api/") ? redirect(`/auth/login?return=${encodeURIComponent(url.pathname + url.search)}`) : json({ error: "sign in required" }, 401);
 
+      // ---- soft-deleted boards: gone for everyone (data stays in storage) until the creator restores one within 30 days ----
+      {
+        const dm = path.match(/^\/(?:api\/boards|b)\/(b_[a-z0-9]{8,32})(?:\/|$)/);
+        if (dm && !(method === "POST" && path === `/api/boards/${dm[1]}/restore`) && (await registry.deletedAt(env, dm[1]))) {
+          return path.startsWith("/api/") ? json({ error: "This chat was deleted" }, 404) : notFound(viewer);
+        }
+      }
+
       // ---- MCP OAuth: discovery, client registration, sign-in + approve, code → token ----
       const cors = { "access-control-allow-origin": "*", "access-control-allow-headers": "content-type, authorization, mcp-protocol-version", "access-control-allow-methods": "GET, POST, OPTIONS" };
       if ((path.startsWith("/.well-known/oauth-") || path.startsWith("/oauth/")) && method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
@@ -769,7 +777,7 @@ const handler = {
         } catch (e) {
           const plan = e instanceof billing.BillingError;
           if (plan) {
-            const mine = (await env.DB.prepare(`SELECT id, title, last_activity FROM boards WHERE created_by = ? AND archived_at IS NULL AND kind IS NULL ORDER BY last_activity`).bind(viewer.name).all<{ id: string; title: string; last_activity: number }>()).results;
+            const mine = (await env.DB.prepare(`SELECT id, title, last_activity FROM boards WHERE created_by = ? AND archived_at IS NULL AND deleted_at IS NULL AND kind IS NULL ORDER BY last_activity`).bind(viewer.name).all<{ id: string; title: string; last_activity: number }>()).results;
             return makeRoomPage(viewer, title, encrypted, mine);
           }
           return messagePage(plan ? "Free plan limit" : "Board not created", e instanceof Error ? e.message.replace(/: https?:\S+$/, ".") : String(e), {
@@ -1332,27 +1340,51 @@ const handler = {
       }
 
       // ---- rename / archive / restore a board (its creator, or an operator) ----
-      m = path.match(/^\/api\/boards\/([^/]+)\/(rename|archive)$/);
+      m = path.match(/^\/api\/boards\/([^/]+)\/(rename|archive|unarchive)$/);
       if (m && method === "POST") {
         if (!viewer && !hasOpsKey(c)) return needLogin();
         const board = BOARD_RE.test(m[1]) ? await registry.getBoard(env, m[1]) : null;
         if (!board || !(await canSee(c, m[1]))) return json({ error: "board not found" }, 404);
         if (!isOps(c) && board.created_by !== viewer?.name && (await registry.memberRole(env, board.id, viewer?.name ?? "")) !== "owner") return json({ error: "Only the board's owners can do that." }, 403);
         const body = (await request.json().catch(() => ({}))) as { title?: string; archived?: boolean | string };
-        ctx.waitUntil(registry.audit(env, board.id, viewer?.name ?? "ops", m[2] === "rename" ? "renamed" : body.archived === true || body.archived === "true" ? "archived" : "restored", null, m[2] === "rename" ? String(body.title ?? "").slice(0, 120) : null).catch(() => {}));
+        ctx.waitUntil(registry.audit(env, board.id, viewer?.name ?? "ops", m[2] === "rename" ? "renamed" : m[2] === "unarchive" ? "unarchived" : body.archived === true || body.archived === "true" ? "archived" : "restored", null, m[2] === "rename" ? String(body.title ?? "").slice(0, 120) : null).catch(() => {}));
         try {
           if (m[2] === "rename") {
             const info = await boardStub(env, board.id).rename(String(body.title ?? ""));
             await registry.renameBoard(env, board.id, info.title);
             return json({ ok: true, title: info.title, message: `Renamed to "${info.title}".` });
           }
-          const on = body.archived === true || body.archived === "true";
+          const on = m[2] === "archive" && (body.archived === true || body.archived === "true");
           await boardStub(env, board.id).setArchived(on);
           await registry.setBoardArchived(env, board.id, on);
           return json({ ok: true, archived: on, message: on ? `Archived "${board.title}". It's read-only until restored.` : `Restored "${board.title}".` });
         } catch (e) {
           return json({ error: e instanceof Error ? e.message : String(e) }, 400);
         }
+      }
+
+      // ---- soft delete / restore (people who own the board; agents can't). Nothing is removed. ----
+      m = path.match(/^\/api\/boards\/([^/]+)$/);
+      if (m && method === "DELETE") {
+        if (!viewer) return needLogin();
+        const board = BOARD_RE.test(m[1]) ? await registry.getBoard(env, m[1]) : null;
+        if (!board || board.deleted_at || !(await registry.isMember(env, board.id, viewer.name))) return json({ error: "board not found" }, 404);
+        if (viewer.via === "agent") return json({ error: "Agents can't delete chats. Ask your person to." }, 403);
+        if ((board as { kind?: string | null }).kind) return json({ error: "Direct messages and your agent chat can't be deleted." }, 400);
+        if (board.created_by !== viewer.name) return json({ error: "Only the person who created this chat can delete it." }, 403);
+        await registry.setBoardDeleted(env, board.id, viewer.name);
+        ctx.waitUntil(registry.audit(env, board.id, viewer.name, "deleted", null, "soft delete; can be restored for 30 days").catch(() => {}));
+        return json({ ok: true, deleted: true, restorable_until: Date.now() + registry.RESTORE_WINDOW_MS, message: `Deleted "${board.title}". You can restore it for 30 days.` });
+      }
+      m = path.match(/^\/api\/boards\/([^/]+)\/restore$/);
+      if (m && method === "POST") {
+        if (!viewer) return needLogin();
+        const board = BOARD_RE.test(m[1]) ? await registry.getBoard(env, m[1]) : null;
+        if (!board || !board.deleted_at || board.created_by !== viewer.name || viewer.via === "agent") return json({ error: "board not found" }, 404);
+        if (Date.now() - board.deleted_at > registry.RESTORE_WINDOW_MS) return json({ error: "This chat was deleted more than 30 days ago, so it can't be restored." }, 410);
+        await registry.setBoardDeleted(env, board.id, null);
+        ctx.waitUntil(registry.audit(env, board.id, viewer.name, "restored_from_delete", null, null).catch(() => {}));
+        return json({ ok: true, deleted: false, message: `Restored "${board.title}".` });
       }
 
       // ---- delete a board (its creator, or an operator); confirm by typing the title ----

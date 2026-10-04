@@ -13,6 +13,8 @@ export interface BoardRow {
   entry_count: number;
   last_activity: number;
   archived_at?: number | null;
+  deleted_at?: number | null; // soft delete: hidden from everyone, restorable by its creator for 30 days
+  deleted_by?: string | null;
   description?: string | null;
   tags?: string | null; // JSON array
   emoji?: string | null;
@@ -47,7 +49,7 @@ export async function boardsOverview(env: Env, user: string, person = false): Pr
   const r = await env.DB.prepare(
     `SELECT b.*, (SELECT GROUP_CONCAT(user, ', ') FROM members m2 WHERE m2.board_id = b.id) AS members,
             (SELECT COUNT(*) FROM notifications n WHERE n.user = ?1 AND n.board_id = b.id AND n.read_at IS NULL${person ? "" : " AND n.kind != 'people_only'"}) AS unread
-     FROM members m JOIN boards b ON b.id = m.board_id WHERE m.user = ?1 ORDER BY b.last_activity DESC`,
+     FROM members m JOIN boards b ON b.id = m.board_id WHERE m.user = ?1 AND b.deleted_at IS NULL ORDER BY b.last_activity DESC`,
   )
     .bind(user)
     .all<BoardRow & { members: string | null; unread: number }>();
@@ -127,7 +129,7 @@ export async function addMember(env: Env, boardId: string, user: string, opts: {
 
 /** A member's role, or null if they aren't one (or their access has expired). */
 export async function memberRole(env: Env, boardId: string, user: string): Promise<Role | null> {
-  const r = await env.DB.prepare(`SELECT role, expires_at FROM members WHERE board_id = ? AND user = ?`).bind(boardId, user).first<{ role: Role; expires_at: number | null }>();
+  const r = await env.DB.prepare(`SELECT role, expires_at FROM members WHERE board_id = ? AND user = ? AND NOT EXISTS (SELECT 1 FROM boards WHERE id = ? AND deleted_at IS NOT NULL)`).bind(boardId, user, boardId).first<{ role: Role; expires_at: number | null }>();
   if (!r || (r.expires_at != null && r.expires_at < Date.now())) return null;
   return r.role;
 }
@@ -168,6 +170,18 @@ export async function setBoardArchived(env: Env, boardId: string, on: boolean) {
   await env.DB.prepare(`UPDATE boards SET archived_at = ? WHERE id = ?`).bind(on ? Date.now() : null, boardId).run();
 }
 
+export const RESTORE_WINDOW_MS = 30 * 86_400_000;
+
+/** Soft delete / restore: only marks the board (nothing is removed). */
+export async function setBoardDeleted(env: Env, boardId: string, by: string | null) {
+  await env.DB.prepare(`UPDATE boards SET deleted_at = ?, deleted_by = ? WHERE id = ?`).bind(by ? Date.now() : null, by, boardId).run();
+}
+
+/** Is the board soft-deleted? (null: not deleted or unknown) */
+export async function deletedAt(env: Env, boardId: string): Promise<number | null> {
+  return (await env.DB.prepare(`SELECT deleted_at FROM boards WHERE id = ?`).bind(boardId).first<{ deleted_at: number | null }>())?.deleted_at ?? null;
+}
+
 /** Removes a board from the directory: memberships, invitations, joined sessions, and the board row. */
 export async function deleteBoard(env: Env, boardId: string) {
   await env.DB.batch([
@@ -181,7 +195,7 @@ export async function deleteBoard(env: Env, boardId: string) {
 
 /** Does the board exist, and is `user` on it? One query. */
 export async function boardAccess(env: Env, boardId: string, user: string | null): Promise<{ exists: boolean; member: boolean; role: Role | null }> {
-  const r = await env.DB.prepare(`SELECT (SELECT role FROM members WHERE board_id = b.id AND user = ?1 AND (expires_at IS NULL OR expires_at > ?3)) AS role FROM boards b WHERE b.id = ?2`)
+  const r = await env.DB.prepare(`SELECT (SELECT role FROM members WHERE board_id = b.id AND user = ?1 AND (expires_at IS NULL OR expires_at > ?3)) AS role FROM boards b WHERE b.id = ?2 AND b.deleted_at IS NULL`)
     .bind(user ?? "", boardId, Date.now())
     .first<{ role: Role | null }>();
   return { exists: !!r, member: !!r?.role, role: r?.role ?? null };
@@ -191,7 +205,7 @@ export async function boardAccess(env: Env, boardId: string, user: string | null
 export async function grepBoards(env: Env, user: string): Promise<{ id: string; title: string; encrypted: number }[]> {
   const r = await env.DB.prepare(
     `SELECT b.id, b.title, b.encrypted FROM members m JOIN boards b ON b.id = m.board_id
-     WHERE m.user = ? AND (m.expires_at IS NULL OR m.expires_at > ?) ORDER BY b.last_activity DESC`,
+     WHERE m.user = ? AND b.deleted_at IS NULL AND (m.expires_at IS NULL OR m.expires_at > ?) ORDER BY b.last_activity DESC`,
   )
     .bind(user, Date.now())
     .all<{ id: string; title: string; encrypted: number }>();
@@ -199,7 +213,7 @@ export async function grepBoards(env: Env, user: string): Promise<{ id: string; 
 }
 
 export async function isMember(env: Env, boardId: string, user: string): Promise<boolean> {
-  const r = await env.DB.prepare(`SELECT 1 AS ok FROM members WHERE board_id = ? AND user = ? AND (expires_at IS NULL OR expires_at > ?)`).bind(boardId, user, Date.now()).first();
+  const r = await env.DB.prepare(`SELECT 1 AS ok FROM members WHERE board_id = ?1 AND user = ?2 AND (expires_at IS NULL OR expires_at > ?3) AND NOT EXISTS (SELECT 1 FROM boards WHERE id = ?1 AND deleted_at IS NOT NULL)`).bind(boardId, user, Date.now()).first();
   return !!r;
 }
 
@@ -303,7 +317,7 @@ export async function invitationsFor(env: Env, user: FullUser): Promise<Invitati
   const r = await env.DB.prepare(
     `SELECT i.id, i.board_id, b.title AS board_title, i.invited_by, MAX(i.created_at) AS created_at
      FROM invites i JOIN boards b ON b.id = i.board_id
-     WHERE lower(i.email) = lower(?) AND i.accepted_at IS NULL AND i.declined_at IS NULL
+     WHERE b.deleted_at IS NULL AND lower(i.email) = lower(?) AND i.accepted_at IS NULL AND i.declined_at IS NULL
        AND NOT EXISTS (SELECT 1 FROM members m WHERE m.board_id = i.board_id AND m.user = ?)
      GROUP BY i.board_id ORDER BY created_at DESC`,
   )
@@ -443,7 +457,7 @@ export async function bumpBoard(env: Env, boardId: string, entryCount: number) {
 
 export async function boardsForUser(env: Env, user: string): Promise<(BoardRow & { joined_at: number })[]> {
   const r = await env.DB.prepare(
-    `SELECT b.*, m.joined_at FROM members m JOIN boards b ON b.id = m.board_id WHERE m.user = ? ORDER BY b.last_activity DESC`,
+    `SELECT b.*, m.joined_at FROM members m JOIN boards b ON b.id = m.board_id WHERE m.user = ? AND b.deleted_at IS NULL ORDER BY b.last_activity DESC`,
   )
     .bind(user)
     .all<BoardRow & { joined_at: number }>();

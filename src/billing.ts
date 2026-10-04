@@ -37,7 +37,7 @@ export async function checkCanCreateBoard(env: Env, user: string, origin: string
   const p = await planOf(env, user);
   const limit = PLANS[p.plan].boards;
   if (limit === Infinity) return;
-  const n = (await env.DB.prepare(`SELECT COUNT(*) AS n FROM boards WHERE created_by = ? AND archived_at IS NULL AND kind IS NULL`).bind(user).first<{ n: number }>())?.n ?? 0;
+  const n = (await env.DB.prepare(`SELECT COUNT(*) AS n FROM boards WHERE created_by = ? AND archived_at IS NULL AND deleted_at IS NULL AND kind IS NULL`).bind(user).first<{ n: number }>())?.n ?? 0;
   if (n >= limit) {
     throw new BillingError(`The Free plan includes ${limit} active boards, and you have ${n}. Archive one, or upgrade to Pro for unlimited boards: ${origin}/me#billing`);
   }
