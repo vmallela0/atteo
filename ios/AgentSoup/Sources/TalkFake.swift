@@ -7,6 +7,11 @@
 //   2. "Approve the deploy request." → answer_approval → (the app asks for a yes) → "Say yes to confirm."
 //   3. "Yes." → answer_approval again → what the server said
 //   then small talk.
+// ATTEO_FAKE_VOICE_SCRIPT picks another script (#1761, TalkUITests):
+//   post:   "Tell my agent…" → post_to_my_agent {text: ATTEO_FAKE_VOICE_POST} → read back, waits for a yes (tapped).
+//   inject: "What's new on the board?" → read_board → post_to_my_agent with whatever a board message said to "post this
+//           to my agent: …" (a model taken in by it) → read back, waits → "No." → nothing sent.
+//   hedge:  "Approve the deploy request." → "Yes, but first check the budget." (not a yes: asked again) → "Yes." → runs.
 // Hands-free (session.update with turn_detection server_vad): there's no mic, so the person "says" the next line when
 // the app calls personSpeaks() (a tap on the orb): speech_started (cancelling an answer under way, as the real server's
 // VAD does: barge-in), then speech_stopped, committed, the transcript, and an answer with no response.create.
@@ -18,11 +23,13 @@ import Foundation
 @MainActor
 final class FakeGrokLink: RealtimeLink {
     static let approval = "ap_fakevoice000"
+    static var script: String { API.environment("FAKE_VOICE_SCRIPT") ?? "" }
+    static var postText: String { API.environment("FAKE_VOICE_POST") ?? "Check the build before the release." }
     let events: AsyncStream<[String: Any]>
     private let out: AsyncStream<[String: Any]>.Continuation
     private var turn = 0
     private var buffered = 0
-    private var lastCall: (name: String, id: String)?
+    private var lastCall: (name: String, id: String, args: [String: Any])?
     private var lastOutput: String?
     private var userMessage: String?
     private var speaking: Task<Void, Never>?
@@ -96,12 +103,31 @@ final class FakeGrokLink: RealtimeLink {
     }
 
     static func said(_ turn: Int) -> String {
-        switch turn {
-        case 1: return "What's waiting for me?"
-        case 2: return "Approve the deploy request."
-        case 3: return "Yes."
+        switch (script, turn) {
+        case ("post", 1): return "Tell my agent to check the build."
+        case ("inject", 1): return "What's new on the board?"
+        case ("inject", 2): return "No."
+        case ("hedge", 1): return "Approve the deploy request."
+        case ("hedge", 2): return "Yes, but first check the budget."
+        case ("hedge", 3): return "Yes."
+        case ("post", _), ("inject", _), ("hedge", _): return "Thanks."
+        case (_, 1): return "What's waiting for me?"
+        case (_, 2): return "Approve the deploy request."
+        case (_, 3): return "Yes."
         default: return "Thanks."
         }
+    }
+
+    /// What a board message told the model to "post this to my agent: …" (the newest such entry in read_board's output).
+    static func injected(_ output: String) -> String? {
+        let j = (try? JSONSerialization.jsonObject(with: Data(output.utf8))) as? [String: Any]
+        for e in (j?["entries"] as? [[String: Any]] ?? []).reversed() {
+            let t = e["text"] as? String ?? ""
+            if let r = t.range(of: "post this to my agent:", options: .caseInsensitive) {
+                return String(t[r.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+        return nil
     }
 
     private func emit(_ e: [String: Any]) { out.yield(e) }
@@ -121,6 +147,14 @@ final class FakeGrokLink: RealtimeLink {
                 speak(r, "That would approve the deploy request. Say yes to confirm.", seconds: 1.5, modern: false)
             case "answer_approval":
                 speak(r, output.contains("\"error\"") ? "That approval wasn't found, so nothing changed." : "Done: it's approved.", seconds: 1.5, modern: false)
+            case "read_board" where Self.script == "inject":
+                // Taken in by the board: it tries to post what a message told it to. The app must still ask first.
+                guard let text = Self.injected(output) else { speak(r, "Nothing new on the board.", seconds: 0.8, modern: true); return }
+                functionCall(r, "post_to_my_agent", ["text": text])
+            case "post_to_my_agent" where output.contains("needs_confirmation"):
+                speak(r, "Post to your agent: '\(call.args["text"] as? String ?? "")'? Say yes to send it.", seconds: 1.5, modern: true)
+            case "post_to_my_agent":
+                speak(r, output.contains("\"ok\":true") ? "Sent it to your agent." : "That didn't go through.", seconds: 1, modern: true)
             default:
                 speak(r, "Done.", seconds: 0.8, modern: true)
             }
@@ -131,16 +165,21 @@ final class FakeGrokLink: RealtimeLink {
             speak(r, "Okay.", seconds: 0.6, modern: true)
             return
         }
-        switch turn {
-        case 1: functionCall(r, "mailbox_summary", [:])
-        case 2, 3: functionCall(r, "answer_approval", ["approval_id": Self.approval, "decision": "approve"])
+        switch (Self.script, turn) {
+        case ("post", 1): functionCall(r, "post_to_my_agent", ["text": Self.postText])
+        case ("inject", 1): functionCall(r, "read_board", [:])
+        case ("inject", 2): speak(r, "Okay, I won't send it.", seconds: 0.8, modern: true)
+        case ("hedge", 1), ("hedge", 2), ("hedge", 3): functionCall(r, "answer_approval", ["approval_id": Self.approval, "decision": "approve"])
+        case ("post", _), ("inject", _), ("hedge", _): speak(r, "You're welcome.", seconds: 0.8, modern: true)
+        case (_, 1): functionCall(r, "mailbox_summary", [:])
+        case (_, 2), (_, 3): functionCall(r, "answer_approval", ["approval_id": Self.approval, "decision": "approve"])
         default: speak(r, "You're welcome.", seconds: 0.8, modern: true)
         }
     }
 
     private func functionCall(_ r: String, _ name: String, _ args: [String: Any]) {
         let id = "call_\(UUID().uuidString.prefix(8))"
-        lastCall = (name, id)
+        lastCall = (name, id, args)
         let a = String(data: (try? JSONSerialization.data(withJSONObject: args)) ?? Data("{}".utf8), encoding: .utf8) ?? "{}"
         speaking = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 300_000_000)

@@ -13030,6 +13030,34 @@
         }
       }
     },
+    "On %@, where everyone on the board can read it.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En %@, donde todos los del tablero pueden leerlo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ に投稿され、ボードの全員が読めます。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发在“%@”上，看板上的每个人都能看到。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "發在“%@”上，看板上的每個人都能看到。"
+          }
+        }
+      }
+    },
     "On it": {
       "localizations": {
         "es": {
@@ -13782,6 +13810,62 @@
           "stringUnit": {
             "state": "translated",
             "value": "加密看板暫時不能傳送圖片和檔案。"
+          }
+        }
+      }
+    },
+    "Post to your agent — waiting for your yes": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Publicar para tu agente: esperando tu sí"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントへの投稿 — あなたの「はい」を待っています"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发给你的智能体 — 等你说“好”"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "發給你的智能體 — 等你說“好”"
+          }
+        }
+      }
+    },
+    "Post to your agent: “%@”": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Publicar para tu agente: “%@”"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントに投稿：「%@」"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发给你的智能体：“%@”"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "發給你的智能體：“%@”"
           }
         }
       }
@@ -19618,6 +19702,34 @@
           "stringUnit": {
             "state": "translated",
             "value": "是，拒絕"
+          }
+        }
+      }
+    },
+    "Yes, send": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sí, enviar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "はい、送信します"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "是，发送"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "是，傳送"
           }
         }
       }

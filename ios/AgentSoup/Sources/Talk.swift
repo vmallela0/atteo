@@ -8,8 +8,9 @@
 //   truncated to what was heard). "Hold to talk" (the sheet's menu, remembered per device) is the old push-to-talk:
 //   the mic streams while the button is held, then commit + response.create. It plays the audio deltas and shows both
 //   sides as captions. Tools run here, against the Atteo API with the app's
-//   own token (tool_routes), and go back as function_call_output + response.create. answer_approval only runs after a
-//   yes: said out loud (the transcript) or tapped. Every exit settles the session: POST end {session_id, seconds}.
+//   own token (tool_routes), and go back as function_call_output + response.create. answer_approval and post_to_my_agent
+//   only run after a yes (#1761): said out loud (a short, plain yes: TalkYes.swift) or tapped; a post is read back word
+//   for word first, and only that exact text goes. Every exit settles the session: POST end {session_id, seconds}.
 // The UI is TalkView.swift, the audio TalkAudio.swift, and the local fake (DEBUG only) TalkFake.swift.
 
 import AVFoundation
@@ -142,11 +143,23 @@ final class TalkSession: ObservableObject {
         var done = false
     }
 
-    /// An approval Grok wants to answer: nothing happens until a yes (out loud or tapped).
+    /// Something Atteo wants to do for the person: nothing happens until a yes (out loud or tapped). A post carries the
+    /// exact text and board that were read back (#1761): only that runs.
     struct Confirm: Equatable {
-        let approval: String
-        let decision: String // approve | deny
+        enum Kind: Equatable {
+            case approval(id: String, decision: String) // approve | deny
+            case post(text: String, board: String?) // board nil: the person's agent chat
+        }
+        let kind: Kind
         var confirmed = false
+
+        /// What a spoken yes is matched against (TalkYes): approve | deny | post.
+        var decision: String {
+            switch kind {
+            case .approval(_, let d): return d
+            case .post: return "post"
+            }
+        }
     }
 
     enum Phase: Equatable { case connecting, ready, ended }
@@ -439,32 +452,41 @@ final class TalkSession: ObservableObject {
         confirm = nil
         Haptics.play(yes ? .approved : .denied)
         Task {
-            var said = "I tapped No on the screen: don't \(c.decision) it."
-            if yes {
-                let out = await runRoute("answer_approval", ["approval_id": c.approval, "decision": c.decision])
-                said = "I tapped Yes on the screen, so the app did it: \(c.decision) \(c.approval). Result: \(out)"
+            let said: String
+            switch c.kind {
+            case .approval(let id, let decision):
+                if yes {
+                    let out = await runRoute("answer_approval", ["approval_id": id, "decision": decision])
+                    said = "I tapped Yes on the screen, so the app did it: \(decision) \(id). Result: \(out)"
+                } else {
+                    said = "I tapped No on the screen: don't \(decision) it."
+                }
+            case .post(let text, let board):
+                if yes {
+                    let out = await runRoute("post_to_my_agent", Self.postArgs(text, board))
+                    said = "I tapped Yes on the screen, so the app sent it to my agent, word for word: \"\(text)\". Result: \(out)"
+                } else {
+                    said = "I tapped No on the screen: don't send that to my agent."
+                }
             }
+            guard !ended else { return }
             link?.send(["type": "conversation.item.create", "item": ["type": "message", "role": "user", "content": [["type": "input_text", "text": said]]]])
             requestResponse()
         }
     }
 
-    /// A clear yes to this decision ("approve it" counts only for an approve, "deny it" only for a deny).
-    static func saysYes(_ s: String, to decision: String) -> Bool {
-        let t = words(s)
-        if saysNo(s, to: decision) || t.range(of: #" (not|wait) "#, options: .regularExpression) != nil { return false }
-        let mine = decision == "deny" ? "deny it|reject it" : "approve it"
-        return t.range(of: " (yes|yeah|yep|yup|sure|confirm|confirmed|correct|go ahead|do it|\(mine)) ", options: .regularExpression) != nil
-    }
+    /// A clear yes to this decision: short and unqualified (TalkYes). "approve it" counts only for an approve, "deny it"
+    /// only for a deny; "yes, but first…", "wait", a question, or anything long is not a yes.
+    static func saysYes(_ s: String, to decision: String) -> Bool { TalkYes.saysYes(s, to: decision) }
 
     /// A no, or the opposite decision ("deny it" while an approve waits).
-    static func saysNo(_ s: String, to decision: String) -> Bool {
-        let other = decision == "deny" ? "approve" : "deny|reject"
-        return words(s).range(of: " (no|nope|don't|dont|cancel|never mind|stop|\(other)) ", options: .regularExpression) != nil
-    }
+    static func saysNo(_ s: String, to decision: String) -> Bool { TalkYes.saysNo(s, to: decision) }
 
-    private static func words(_ s: String) -> String {
-        " " + s.lowercased().replacingOccurrences(of: #"[^a-z' ]"#, with: " ", options: .regularExpression) + " "
+    /// post_to_my_agent's arguments for exactly this text and board.
+    static func postArgs(_ text: String, _ board: String?) -> [String: Any] {
+        var a: [String: Any] = ["text": text]
+        if let board { a["board"] = board }
+        return a
     }
 
     // MARK: Events from Grok
@@ -548,9 +570,13 @@ final class TalkSession: ObservableObject {
             if !final.isEmpty { captions[i].text = final }
             captions[i].done = true
             youCaption = nil
-            // The yes (or no) an approval is waiting on.
+            // The yes (or no) an approval or a post is waiting on. Neither (a hedge, a question): it keeps waiting.
             if let c = confirm {
-                if Self.saysYes(final, to: c.decision) { confirm?.confirmed = true } else if Self.saysNo(final, to: c.decision) { confirm = nil }
+                switch TalkYes.verdict(final, to: c.decision) {
+                case .yes: confirm?.confirmed = true
+                case .no: confirm = nil
+                case .unclear: break
+                }
             }
         }
     }
@@ -567,7 +593,7 @@ final class TalkSession: ObservableObject {
         }()
         toolsRunning += 1
         thinking = true
-        let note = Caption(id: "tool-\(id)", who: .note, text: Self.doing(name, args))
+        let note = Caption(id: "tool-\(id)", who: .note, text: Self.doing(name, args, confirmed: confirm?.confirmed == true))
         captions.append(note)
         Task {
             let output = await runTool(name, args)
@@ -579,9 +605,10 @@ final class TalkSession: ObservableObject {
         }
     }
 
-    static func doing(_ name: String, _ a: [String: Any]) -> String {
+    static func doing(_ name: String, _ a: [String: Any], confirmed: Bool = false) -> String {
         switch name {
-        case "post_to_my_agent": return String(localized: "Telling your agent", bundle: .l10n)
+        case "post_to_my_agent":
+            return confirmed ? String(localized: "Telling your agent", bundle: .l10n) : String(localized: "Post to your agent — waiting for your yes", bundle: .l10n)
         case "read_board": return String(localized: "Reading the board", bundle: .l10n)
         case "mailbox_summary": return String(localized: "Checking what's waiting for you", bundle: .l10n)
         case "recap": return String(localized: "Catching up on the board", bundle: .l10n)
@@ -592,19 +619,41 @@ final class TalkSession: ObservableObject {
         }
     }
 
+    /// answer_approval and post_to_my_agent ask first: a second call after a yes for exactly the same thing runs it;
+    /// anything else (a first call, other words, another board) asks again. Text on a board can't post by itself (#1761).
     private func runTool(_ name: String, _ a: [String: Any]) async -> String {
-        guard name == "answer_approval" else { return await runRoute(name, a) }
-        let id = a["approval_id"] as? String ?? "", decision = a["decision"] as? String ?? ""
-        guard id.hasPrefix("ap_"), decision == "approve" || decision == "deny" else { return Self.json(["error": "Send approval_id (ap_…) and decision (approve or deny)."]) }
-        // A second call after a yes for the same thing runs it; anything else asks first.
-        if let c = confirm, c.approval == id, c.decision == decision, c.confirmed {
-            confirm = nil
+        switch name {
+        case "answer_approval":
+            let id = a["approval_id"] as? String ?? "", decision = a["decision"] as? String ?? ""
+            guard id.hasPrefix("ap_"), decision == "approve" || decision == "deny" else { return Self.json(["error": "Send approval_id (ap_…) and decision (approve or deny)."]) }
+            let kind = Confirm.Kind.approval(id: id, decision: decision)
+            if let c = confirm, c.kind == kind, c.confirmed {
+                confirm = nil
+                return await runRoute(name, ["approval_id": id, "decision": decision])
+            }
+            confirm = Confirm(kind: kind)
+            Haptics.play(.warning)
+            return Self.json(["done": false, "needs_confirmation": true,
+                              "message": "Nothing was done yet. Say exactly what \(decision == "deny" ? "denying" : "approving") \(id) will do and ask for a clear yes. The app runs it only after the person says yes (or taps Yes); after a spoken yes, call answer_approval again."])
+        case "post_to_my_agent":
+            let text = (a["text"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { return Self.json(["error": "Nothing to send."]) }
+            let target = (a["board"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            if let t = target, AppState.shared.boards.first(where: { $0.id == t })?.encrypted == true {
+                return Self.json(["error": "That board is end-to-end encrypted: voice can't read or post there. Open it in the app."])
+            }
+            let kind = Confirm.Kind.post(text: text, board: target)
+            if let c = confirm, c.kind == kind, c.confirmed {
+                confirm = nil
+                return await runRoute(name, Self.postArgs(text, target)) // exactly what was read back and confirmed
+            }
+            confirm = Confirm(kind: kind)
+            Haptics.play(.warning)
+            return Self.json(["done": false, "needs_confirmation": true,
+                              "message": "Nothing was sent yet. Read the message back word for word (\"Post to your agent: '…'?\") and ask for a clear yes. The app sends it only after the person says yes or taps Yes; after a spoken yes, call post_to_my_agent again with the same text."])
+        default:
             return await runRoute(name, a)
         }
-        confirm = Confirm(approval: id, decision: decision)
-        Haptics.play(.warning)
-        return Self.json(["done": false, "needs_confirmation": true,
-                          "message": "Nothing was done yet. Say exactly what \(decision == "deny" ? "denying" : "approving") \(id) will do and ask for a clear yes. The app runs it only after the person says yes (or taps Yes); after a spoken yes, call answer_approval again."])
     }
 
     /// Runs a tool's Atteo route (voice.ts TOOL_ROUTES) as the person. The answer is short JSON for Grok.

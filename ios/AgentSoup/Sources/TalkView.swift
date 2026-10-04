@@ -4,7 +4,8 @@
 // stops the moment you talk over it. A big orb shows what's happening (your voice's level while listening, thinking,
 // Atteo speaking); the mic can be turned off (Atteo can still talk), Atteo's voice muted (captions stay), and "Hold to
 // talk" in the menu brings back the push-to-talk button for noisy places. Live captions of both sides, the session's
-// time and the month's minutes, and a Yes/No card before any approval. Settings → Voice chat. Nothing shows when the
+// time and the month's minutes, and a Yes/No card before any approval or message to your agent (the message itself,
+// word for word: #1761). Settings → Voice chat. Nothing shows when the
 // server has no voice set up (GET /api/app/voice/status says disabled).
 
 import SwiftUI
@@ -145,15 +146,28 @@ struct TalkSheet: View {
         }
     }
 
+    /// What a yes would do, in so many words: the approval, or the exact message for the person's agent (#1761).
     private func confirmCard(_ c: TalkSession.Confirm) -> some View {
         VStack(alignment: .leading, spacing: Space.s) {
-            Label(c.decision == "deny" ? "Deny \(c.approval)?" : "Approve \(c.approval)?", systemImage: "checkmark.shield").font(.headline).foregroundStyle(Theme.text)
+            switch c.kind {
+            case .approval(let id, let decision):
+                Label(decision == "deny" ? "Deny \(id)?" : "Approve \(id)?", systemImage: "checkmark.shield").font(.headline).foregroundStyle(Theme.text)
+                    .accessibilityIdentifier("talk-confirm-what")
+            case .post(let text, let board):
+                Label("Post to your agent: “\(text)”", systemImage: "paperplane").font(.headline).foregroundStyle(Theme.text)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("talk-confirm-what")
+                if let board {
+                    let title = AppState.shared.boards.first { $0.id == board }?.title ?? board
+                    Text("On \(title), where everyone on the board can read it.").font(Typo.meta).foregroundStyle(Theme.muted)
+                }
+            }
             Text(c.confirmed ? "Heard yes. Atteo will do it now." : "Nothing happens until you say “yes” or tap Yes.")
                 .font(Typo.meta).foregroundStyle(Theme.muted)
             HStack(spacing: Space.s) {
                 Button { talk.answerConfirm(false) } label: { Text("No").frame(maxWidth: .infinity).padding(.vertical, 10).background(Theme.raised, in: Capsule()) }
                     .accessibilityIdentifier("talk-confirm-no")
-                Button { talk.answerConfirm(true) } label: { Text(c.decision == "deny" ? "Yes, deny" : "Yes, approve").frame(maxWidth: .infinity).padding(.vertical, 10).background(Theme.accent, in: Capsule()).foregroundStyle(Theme.onAccent) }
+                Button { talk.answerConfirm(true) } label: { yesWord(c).frame(maxWidth: .infinity).padding(.vertical, 10).background(Theme.accent, in: Capsule()).foregroundStyle(Theme.onAccent) }
                     .accessibilityIdentifier("talk-confirm-yes")
             }
             .buttonStyle(PressStyle()).font(.body.weight(.semibold)).foregroundStyle(Theme.text)
@@ -163,6 +177,13 @@ struct TalkSheet: View {
         .padding(.horizontal, Space.l).padding(.top, Space.s)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("talk-confirm")
+    }
+
+    private func yesWord(_ c: TalkSession.Confirm) -> Text {
+        switch c.kind {
+        case .approval(_, let decision): return decision == "deny" ? Text("Yes, deny") : Text("Yes, approve")
+        case .post: return Text("Yes, send")
+        }
     }
 
     private var stateLine: String {
