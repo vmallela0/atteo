@@ -29,6 +29,7 @@ struct TalkButton: View {
                 .accessibilityIdentifier(style == .composer ? "talk" : "talk-header")
                 .accessibilityLabel("Talk to Grok")
                 .accessibilityHint("Opens a live voice conversation with Grok.")
+                .padding(.trailing, style == .composer ? -Composer.inset : 0) // snug against the mic, like the mic to send
             }
         }
         .task { await status.load() }

@@ -122,7 +122,7 @@ struct ChatComposer: View {
                                   identifier: identifier)
                         .padding(.horizontal, Composer.gap)
                     // Talk to Grok, live (TalkView.swift): the chat's box only, when voice is set up.
-                    if replyTo == nil { TalkButton(board: board).padding(.trailing, -Composer.inset) }
+                    if replyTo == nil { TalkButton(board: board) }
                     // Hold to talk (Voice.swift): words go in the box; "send it" at the end sends.
                     MicButton(draft: $draft, send: send, identifier: identifier == "composer" ? "mic" : "\(identifier)-mic")
                         .padding(.trailing, -Composer.inset)

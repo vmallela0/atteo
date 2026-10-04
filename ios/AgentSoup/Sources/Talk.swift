@@ -365,15 +365,22 @@ final class TalkSession: ObservableObject {
         }
     }
 
-    static func saysYes(_ s: String) -> Bool {
-        let t = " " + s.lowercased().replacingOccurrences(of: #"[^a-z' ]"#, with: " ", options: .regularExpression) + " "
-        if t.range(of: #" (no|nope|don't|dont|not|cancel|stop|wait) "#, options: .regularExpression) != nil { return false }
-        return t.range(of: #" (yes|yeah|yep|yup|sure|confirm|confirmed|correct|go ahead|do it|approve it|deny it) "#, options: .regularExpression) != nil
+    /// A clear yes to this decision ("approve it" counts only for an approve, "deny it" only for a deny).
+    static func saysYes(_ s: String, to decision: String) -> Bool {
+        let t = words(s)
+        if saysNo(s, to: decision) || t.range(of: #" (not|wait) "#, options: .regularExpression) != nil { return false }
+        let mine = decision == "deny" ? "deny it|reject it" : "approve it"
+        return t.range(of: " (yes|yeah|yep|yup|sure|confirm|confirmed|correct|go ahead|do it|\(mine)) ", options: .regularExpression) != nil
     }
 
-    static func saysNo(_ s: String) -> Bool {
-        let t = " " + s.lowercased().replacingOccurrences(of: #"[^a-z' ]"#, with: " ", options: .regularExpression) + " "
-        return t.range(of: #" (no|nope|don't|dont|cancel|never mind|stop) "#, options: .regularExpression) != nil
+    /// A no, or the opposite decision ("deny it" while an approve waits).
+    static func saysNo(_ s: String, to decision: String) -> Bool {
+        let other = decision == "deny" ? "approve" : "deny|reject"
+        return words(s).range(of: " (no|nope|don't|dont|cancel|never mind|stop|\(other)) ", options: .regularExpression) != nil
+    }
+
+    private static func words(_ s: String) -> String {
+        " " + s.lowercased().replacingOccurrences(of: #"[^a-z' ]"#, with: " ", options: .regularExpression) + " "
     }
 
     // MARK: Events from Grok
@@ -443,8 +450,8 @@ final class TalkSession: ObservableObject {
             captions[i].done = true
             youCaption = nil
             // The yes (or no) an approval is waiting on.
-            if confirm != nil {
-                if Self.saysYes(final) { confirm?.confirmed = true } else if Self.saysNo(final) { confirm = nil }
+            if let c = confirm {
+                if Self.saysYes(final, to: c.decision) { confirm?.confirmed = true } else if Self.saysNo(final, to: c.decision) { confirm = nil }
             }
         }
     }
