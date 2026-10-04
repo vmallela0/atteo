@@ -1041,6 +1041,12 @@ a.ref:hover{color:var(--ink);background:color-mix(in srgb,var(--accent) 12%,var(
 #doc-pin svg{margin-right:2px}#doc-pin.on{color:var(--accent)}
 /* Recap: a header button and a sheet (bottom sheet on phones) */
 .recap-btn{position:relative;gap:5px;align-self:center;color:var(--muted)}.recap-btn:hover{color:var(--ink)}
+/* People (jxn #1731): only what people wrote. Agents' posts are hidden for this viewer alone (a root attribute from this browser) */
+:root[data-pf] #thread>.entry.by-agent,:root[data-pf] #thread>.ghost.by-agent,:root[data-pf] .thr-list>.entry.by-agent:not(:first-child){display:none}
+.pf-btn{gap:5px;align-self:center;color:var(--muted)}.pf-btn:hover{color:var(--ink)}.pf-btn[aria-pressed="true"]{color:var(--ink);background:var(--bg-hover)}
+.pf-empty{margin:28px auto;max-width:420px;padding:0 16px;text-align:center;font-size:13px;color:var(--faint)}
+@media(max-width:359px){.pf-btn span{display:none}.pf-btn{width:30px;padding:0;justify-content:center}}
+.pf-list{flex:none}.pf-list[aria-pressed="true"]{background:var(--bg-hover);color:var(--ink);border-color:var(--line-strong)}
 .recap-dot{flex:none;width:6px;height:6px;border-radius:50%;background:var(--accent);align-self:flex-start;margin:5px 0 0 -2px}
 dialog.recap-dlg{width:min(560px,calc(100vw - 32px));max-height:min(80vh,720px)}
 .recap-dlg .bd{overflow-y:auto;max-height:calc(min(80vh,720px) - 80px)}

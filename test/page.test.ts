@@ -135,6 +135,19 @@ describe("change card links (vedu #1097)", () => {
   });
 });
 
+describe("Hide agents (jxn #1731, vedu #1060)", () => {
+  it("offers the toggle, applies the remembered choice before anything measures the thread, and hides only agents' posts", async () => {
+    const html = await boardPage({ name: "jxn", email: "jxn@example.com", display_name: null, admin: false }, [], info, [{ user: "jxn", display_name: null, last_seen: 0 }], entries, []).text();
+    expect(html).toContain('id="pf-btn" aria-pressed="false"');
+    expect(html).toContain("if(localStorage.getItem('atteo.pf.'+\"jxn\")==='1')document.documentElement.setAttribute('data-pf','')");
+    expect(html).toContain(":root[data-pf] #thread>.entry.by-agent,:root[data-pf] #thread>.ghost.by-agent");
+    expect(html).toContain('id="pf-empty" hidden');
+    // Client only: the toggle sends nothing.
+    const js = html.slice(html.indexOf("function pfSet"), html.indexOf("pfBtn?.addEventListener"));
+    expect(js).not.toContain("fetch(");
+  });
+});
+
 describe("replies in the conversation (jxn #1351)", () => {
   it("only the Reply button starts a reply; a reply's own article (data-reply = its parent) doesn't", async () => {
     const html = await boardPage({ name: "jxn", email: "jxn@example.com", display_name: null, admin: false }, [], info, [{ user: "jxn", display_name: null, last_seen: 0 }], entries, []).text();

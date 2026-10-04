@@ -266,7 +266,7 @@ const evJs = (agentChat: boolean) => `
     const c=el.querySelector(':scope>.grow>.chg');if(c&&ev&&!el.querySelector(':scope>.grow>.ev-res')){const r=document.createElement('div');r.className='ev-res';r.innerHTML='<span class="ev-ok" aria-hidden="true">✓</span><b></b>';r.querySelector('b').textContent=el.dataset.title||tr('Done');c.before(r)}}
   function evPage(){const ev=EV();document.querySelectorAll('#thread>.entry').forEach(el=>evEntry(el,ev));
     const tabs=document.querySelectorAll('#board-tabs [role=tab]');if(tabs[0])sayNode(first(tabs[0]),ev,tr('Chat'));if(tabs[3])sayNode(first(tabs[3]),ev,tr('To-dos '));
-    const inv=document.querySelector('.bp-actions [data-open="invite"]:not([data-goto]), [data-open="invite"]:not([data-goto])');if(inv)sayNode(first(inv),ev,tr('Add'));
+    const inv=document.querySelector('.bp-actions [data-open="invite"]:not([data-goto]), [data-open="invite"]:not([data-goto])');if(inv)sayNode(first(inv),ev,tr('Add'));say(document.querySelector('#pf-btn>span'),ev,tr('Hide assistants'));
     const ta=document.getElementById('composer-text');if(ta){if(ta.dataset.dev===undefined)ta.dataset.dev=ta.placeholder;ta.placeholder=ev?(${agentChat}?tr('Ask your assistant…'):tr('Message the group…')):ta.dataset.dev}
     document.querySelectorAll('.fold[data-fold="memory"] .fold-t').forEach(x=>say(x,ev,tr('What assistants remember')))}
   evPage();document.addEventListener('atteo-mode',evPage);
@@ -851,7 +851,7 @@ export function homePage(
       const meta = boardMeta(b);
       const names = (b.members ?? "").split(", ").filter(Boolean);
       const text = [b.title, meta.description ?? "", ...meta.tags, ...names].join(" ").toLowerCase();
-      return `<article class="bcard${b.archived_at ? " archived" : ""}" data-text="${esc(text)}" data-archived="${b.archived_at ? 1 : 0}" data-id="${esc(b.id)}" data-meta="${esc(JSON.stringify(meta))}" data-title="${esc(b.title)}">
+      return `<article class="bcard${b.archived_at ? " archived" : ""}" data-text="${esc(text)}" data-archived="${b.archived_at ? 1 : 0}" data-id="${esc(b.id)}" data-meta="${esc(JSON.stringify(meta))}" data-title="${esc(b.title)}" data-people="${names.filter((n) => n !== viewer.name).length}" data-via="${esc(b.last_via ?? "")}">
   <a class="bcard-link" href="/b/${esc(b.id)}" aria-label="${esc(b.title)}"></a>
   <div class="row bc-top">${boardPic({ id: b.id, title: b.title, picture: pictureUrl(b.id, b.picture_v) }, "sm", `<span class="bc-dot" style="--h:${hue(b.id)}"></span>`)}
     <h3 class="grow truncate">${esc(b.title)}</h3>
@@ -871,7 +871,7 @@ export function homePage(
     .join("");
   const list = boards.length
     ? `<div class="boards-bar row"><div class="bsearch grow"><input class="input" id="bq" type="search" placeholder="${esc(T("Search boards, and what's inside them…"))}" autocomplete="off" aria-label="${esc(T("Search boards"))}"></div>
-  <div class="seg" role="radiogroup" aria-label="${esc(T("Show"))}"><input type="radio" name="bshow" id="bs-active" value="active" checked><label for="bs-active">${esc(T("Active"))} <span class="faint">${active}</span></label><input type="radio" name="bshow" id="bs-arch" value="archived"><label for="bs-arch">${esc(T("Archived"))} <span class="faint">${archivedCount}</span></label><input type="radio" name="bshow" id="bs-all" value="all"><label for="bs-all">${esc(T("All"))}</label></div></div>
+  <div class="seg" role="radiogroup" aria-label="${esc(T("Show"))}"><input type="radio" name="bshow" id="bs-active" value="active" checked><label for="bs-active">${esc(T("Active"))} <span class="faint">${active}</span></label><input type="radio" name="bshow" id="bs-arch" value="archived"><label for="bs-arch">${esc(T("Archived"))} <span class="faint">${archivedCount}</span></label><input type="radio" name="bshow" id="bs-all" value="all"><label for="bs-all">${esc(T("All"))}</label></div><button class="btn sm pf-list" type="button" id="pf-list" aria-pressed="false" data-me="${esc(viewer.name)}" title="${esc(T("Chats with other people, the ones where a person wrote last first"))}">${esc(T("People first"))}</button></div>
 <div class="bgrid" id="bgrid">${cards}</div>
 <p class="muted small" id="b-none" hidden>${esc(T("No boards match."))}</p>
 <section id="b-hits" hidden><h2 class="small muted" style="margin:22px 0 8px">${esc(T("Inside your boards"))}</h2><div class="list" id="b-hits-list"></div></section>`
@@ -915,9 +915,15 @@ ${[0, 1, 2].map((i) => `<div class="row" style="gap:6px;margin-bottom:6px"><inpu
 const BOARDS_JS = `
 (()=>{const q=document.getElementById('bq');if(!q)return;const cards=[...document.querySelectorAll('.bcard')];
 const show=()=>document.querySelector('input[name=bshow]:checked').value;
-function apply(){const t=q.value.trim().toLowerCase(),s=show();let n=0;
-  cards.forEach(c=>{const ok=(s==='all'||(s==='archived')===(c.dataset.archived==='1'))&&(!t||c.dataset.text.includes(t));c.hidden=!ok;if(ok)n++});
+// People first (jxn #1731): only chats with other people in them, the ones where a person wrote last first; the same
+// remembered switch as a board's Hide agents. This page only: nothing about the boards changes.
+const pfl=document.getElementById('pf-list'),PFK='atteo.pf.'+(pfl?pfl.dataset.me:''),grid=document.getElementById('bgrid');
+const pfOn=()=>{try{return localStorage.getItem(PFK)==='1'}catch(e){return false}};
+function apply(){const t=q.value.trim().toLowerCase(),s=show(),pf=pfOn();let n=0;if(pfl)pfl.setAttribute('aria-pressed',String(pf));
+  cards.forEach(c=>{const ok=(s==='all'||(s==='archived')===(c.dataset.archived==='1'))&&(!t||c.dataset.text.includes(t))&&(!pf||c.dataset.people!=='0');c.hidden=!ok;if(ok)n++});
+  (pf?[...cards].sort((a,b)=>(a.dataset.via==='person'?0:1)-(b.dataset.via==='person'?0:1)):cards).forEach(c=>grid.appendChild(c)); // stable: newest first within each
   document.getElementById('b-none').hidden=n>0||!!t}
+pfl?.addEventListener('click',()=>{const on=!pfOn();try{on?localStorage.setItem(PFK,'1'):localStorage.removeItem(PFK)}catch(e){}apply()});
 document.querySelectorAll('input[name=bshow]').forEach(r=>r.addEventListener('change',apply));
 const hits=document.getElementById('b-hits'),hl=document.getElementById('b-hits-list');let timer=0,seq=0;
 function snip(s){return esc(s).replace(/«/g,'<mark>').replace(/»/g,'</mark>')}
@@ -1061,6 +1067,7 @@ ${agent.connected ? "" : `<button class="btn primary lg" style="margin-top:16px"
   const rows = [...entries].reverse().map((e) => logRow(e)).join("");
   const script = SHEET_JS + CONNECT_JS + (agentChat ? AGENT_PICK_JS : "") + `
 window.BOARD=${JSON.stringify(info.id)};let last=${last};
+${agentChat ? "" : `try{if(localStorage.getItem('atteo.pf.'+${jsString(viewer.name)})==='1')document.documentElement.setAttribute('data-pf','')}catch(e){}`} // the People filter, before anything measures the thread
 // Earlier messages, on demand (a page at a time, or as far back as a given entry for a link to an older message). Replies go
 // into their threads and get the same reactions, task strips and claim chips as live entries.
 async function loadEarlier(until){const b=document.getElementById('load-earlier');if(!b||b.disabled)return;b.disabled=true;if(until)pinned=false;
@@ -1089,6 +1096,7 @@ window.ensureEntry=async seq=>{ghHold(seq);const far=!document.getElementById('e
   for(let i=0;i<20&&!document.getElementById('e'+seq)&&!document.getElementById('g'+seq)&&document.getElementById('load-earlier');i++)await loadEarlier(seq);
   if(document.getElementById('g'+seq))await ghostAround(seq);const el=document.getElementById('e'+seq);
   // It wasn't on the page, so it's far: be there already (a long smooth scroll would be cut short as messages come back).
+  if(el&&pfHid(el))pfSet(false,false,true); // a jump to an agent's message brings agents' messages back
   if(el&&far){pinned=false;el.scrollIntoView({block:'center'})}return !!el};
 // The thread scrolls in its own area, opens at the latest entry and stays pinned to the bottom (new entries, images,
 // expanding cards, a growing composer) until you scroll up yourself; reaching the bottom again re-pins. While unpinned a
@@ -1102,7 +1110,7 @@ function toBottom(smooth){const far=scroller.scrollHeight-scroller.scrollTop-scr
 // so scrolling steps through them; hover previews a message, click jumps to it, drag scrubs.
 const rail=document.getElementById('rail'),tip=document.getElementById('rail-tip');let ticks=[];
 function railBuild(){const th=document.getElementById('thread'),top0=th.getBoundingClientRect().top,H=Math.max(1,th.scrollHeight);// top-level messages only: replies live in their thread
-  ticks=[...th.querySelectorAll(':scope>.entry,:scope>.ghost')].map(el=>({el,y:(el.getBoundingClientRect().top-top0)/H,h:el.querySelector(':scope>.grow>.meta')?.offsetHeight||20}));
+  ticks=[...th.querySelectorAll(':scope>.entry,:scope>.ghost')].filter(el=>!pfHid(el)).map(el=>({el,y:(el.getBoundingClientRect().top-top0)/H,h:el.querySelector(':scope>.grow>.meta')?.offsetHeight||20}));
   // On a long board one tick per message is a grey smear (jxn #1359): at most RAIL_MAX ticks, nearby messages sharing one,
   // and anything for you always gets its own. Hover and scrubbing still use every message.
   const RAIL_MAX=60,groups=[];if(ticks.length<=RAIL_MAX)ticks.forEach((t,i)=>groups.push({y:t.y,m:[i],me:t.el.classList.contains('for-you')}));
@@ -1163,11 +1171,11 @@ function ghostOf(el,h){const g=document.createElement('div');g.className='ghost'
   g.style.height=h+'px';return g}
 function ghostSoon(){if(ghT||!ghOn)return;ghT=setTimeout(()=>{ghT=0;ghostSync()},120)}
 function ghostSync(){const H=scroller.clientHeight;if(!ghOn||!H||document.getElementById('panel-conv').hidden)return;
-  const th=document.getElementById('thread'),top=scroller.getBoundingClientRect().top,live=[...th.querySelectorAll(':scope>.entry')],tail=new Set(live.slice(-GH_TAIL)),far=[];
+  const th=document.getElementById('thread'),top=scroller.getBoundingClientRect().top,live=[...th.querySelectorAll(':scope>.entry')].filter(el=>!pfHid(el)),tail=new Set(live.slice(-GH_TAIL)),far=[];
   for(const el of live){if(tail.has(el)||ghKeep(el))continue;const r=el.getBoundingClientRect(),d=Math.max(top-GH_FAR*H-r.bottom,r.top-top-H-GH_FAR*H);if(d>0)far.push([el,r.height,d])} // measure all, then swap
   far.sort((a,b)=>b[2]-a[2]);far.length=Math.max(0,Math.min(far.length,live.length-GH_MIN)); // a short board stays whole
   for(const [el,h] of far)el.replaceWith(ghostOf(el,h));if(far.length)railBuild(); // the rail points at the placeholders now
-  const gs=th.querySelectorAll(':scope>.ghost'),near=[];let lo=0,hi=gs.length;
+  const gs=[...th.querySelectorAll(':scope>.ghost')].filter(g=>!pfHid(g)),near=[];let lo=0,hi=gs.length;
   while(lo<hi){const m=(lo+hi)>>1;if(gs[m].getBoundingClientRect().bottom<top-GH_NEAR*H)lo=m+1;else hi=m}
   for(let i=lo;i<gs.length;i++){if(gs[i].getBoundingClientRect().top>top+H+GH_NEAR*H)break;near.push(+gs[i].dataset.seq)}
   if(near.length)Date.now()>ghPause?ghostFill(near).then(ghostSoon):setTimeout(ghostSoon,ghPause-Date.now()+50);
@@ -1202,6 +1210,19 @@ async function ghostAround(seq){const g=document.getElementById('g'+seq);if(!g)r
 {const open0=openThread;openThread=(root,o={})=>{const gs=o._gh?[]:[document.getElementById('g'+root),...document.querySelectorAll('#thread>.ghost[data-root="'+root+'"]')].filter(Boolean);
   if(!gs.length)return open0(root,o);ghHold(root);ghostFill(gs.map(g=>+g.dataset.seq)).then(()=>openThread(root,Object.assign({},o,{_gh:1})))}}
 new ResizeObserver(ghostSoon).observe(scroller);
+// ---- People (jxn #1731, vedu #1060): only what people wrote. Agents' posts are hidden on this page, for you alone: they're
+// still on the board, agents still see everything, nothing is sent. Remembered per person, in this browser. ----
+function pfOn(){return document.documentElement.hasAttribute('data-pf')}
+function pfHid(el){return el.classList.contains('by-agent')&&pfOn()}
+const pfBtn=document.getElementById('pf-btn'),pfNone=document.getElementById('pf-empty');
+function pfEmpty(){if(pfNone)pfNone.hidden=!pfOn()||!!document.querySelector('#thread>.entry:not(.by-agent),#thread>.ghost:not(.by-agent)')}
+/** save: remember it; told: say why agents' posts came back (a jump to one of them). */
+function pfSet(on,save,told){document.documentElement.toggleAttribute('data-pf',on);if(pfBtn)pfBtn.setAttribute('aria-pressed',String(on));
+  if(save)try{on?localStorage.setItem('atteo.pf.'+ME0,'1'):localStorage.removeItem('atteo.pf.'+ME0)}catch(e){}
+  if(told)toast(tr("Showing agents' posts"));pfEmpty();railBuild();if(pinned)toBottom();ghostSoon()}
+pfBtn?.addEventListener('click',()=>{const on=!pfOn();pfSet(on,true);toast(on?tr("Agents' posts are hidden, for you only"):tr("Showing agents' posts"))});
+if(pfBtn)pfBtn.setAttribute('aria-pressed',String(pfOn()));pfEmpty();
+new MutationObserver(()=>{if(pfOn())pfEmpty()}).observe(document.getElementById('thread'),{childList:true});
 window.addEventListener('load',()=>setTimeout(()=>{ghOn=true;ghostSoon()},300)); // after the page has opened where it should
 const linked=/^#e\\d+$/.test(location.hash);
 // A link to a message further back than the page shows loads back to it (on open, or when the hash changes).
@@ -1209,11 +1230,12 @@ async function goLinked(){const m=location.hash.match(/^#e([0-9]+)$/);if(!m||doc
   if(!(await ensureEntry(seq))){toast('#'+seq+' was not found');return}const el=document.getElementById('e'+seq);pinned=false; // loading back may have passed the bottom and re-pinned
   if(el.closest('.replies'))openThread(+el.closest('#thread>.entry').dataset.seq,{focus:seq});else el.scrollIntoView({block:'center'})}
 if(linked&&!document.getElementById(location.hash.slice(1)))setTimeout(goLinked,0);
+{const t=linked&&document.getElementById(location.hash.slice(1));if(t&&pfHid(t)){pfSet(false,false,true);t.scrollIntoView({block:'center'})}} // a link to an agent's message shows it
 window.addEventListener('hashchange',()=>{const t={'#log':1,'#files':2,'#docs':2,'#tasks':3}[location.hash];if(t)tab(t);else goLinked()});
 // Open at your first unread message (jxn #1011): a thin "New" line above it and Jump to latest below. If you've read
 // everything, or it's your first visit, it opens at the newest. Messages you wrote yourself never count as unread.
 const SEEN0=${Math.max(0, board.seen ?? 0)},ME0=${jsString(viewer.name)};let unreadAt=null;
-function openAtUnread(){const e=SEEN0?[...document.querySelectorAll('#thread>.entry')].find(x=>+x.dataset.seq>SEEN0&&!(x.dataset.author===ME0&&!x.classList.contains('by-agent'))):null;if(!e)return false;
+function openAtUnread(){const e=SEEN0?[...document.querySelectorAll('#thread>.entry')].find(x=>+x.dataset.seq>SEEN0&&!pfHid(x)&&!(x.dataset.author===ME0&&!x.classList.contains('by-agent'))):null;if(!e)return false;
   unreadAt=e;let l=document.getElementById('new-line');if(!l){l=document.createElement('div');l.id='new-line';l.className='new-line';l.setAttribute('role','separator');l.innerHTML='<span>'+tr('New')+'</span>'}e.before(l);
   pinned=false;userT=0;scroller.scrollTop=Math.max(0,l.offsetTop-scroller.offsetTop-12);pinned=nearEnd();pillSync();return true}
 if(!linked&&!openAtUnread())toBottom();
@@ -2418,13 +2440,17 @@ window.boardKeys=(e,k)=>{
     }
 
   </div></div>
-  <div class="bp-tabs"><div class="tabs" role="tablist" id="board-tabs"><button role="tab" aria-selected="true" aria-controls="panel-conv">${esc(T("Conversation"))}</button><button role="tab" aria-selected="false" aria-controls="panel-log">${esc(T("Log"))}</button><button role="tab" aria-selected="false" aria-controls="panel-docs">${esc(T("Files"))}</button><button role="tab" aria-selected="false" aria-controls="panel-tasks">${esc(T("Tasks"))} <span class="faint" id="task-count"></span></button></div>${agentChat ? "" : RECAP_BTN}
+  <div class="bp-tabs"><div class="tabs" role="tablist" id="board-tabs"><button role="tab" aria-selected="true" aria-controls="panel-conv">${esc(T("Conversation"))}</button><button role="tab" aria-selected="false" aria-controls="panel-log">${esc(T("Log"))}</button><button role="tab" aria-selected="false" aria-controls="panel-docs">${esc(T("Files"))}</button><button role="tab" aria-selected="false" aria-controls="panel-tasks">${esc(T("Tasks"))} <span class="faint" id="task-count"></span></button></div>${
+    agentChat
+      ? ""
+      : `<button class="btn ghost sm pf-btn" type="button" id="pf-btn" aria-pressed="false" title="${esc(T("Only messages people wrote. Agents' posts are hidden for you; nothing changes for anyone else."))}"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="8" cy="5.5" r="2.75"/><path d="M2.75 14c.6-2.9 2.7-4.5 5.25-4.5s4.65 1.6 5.25 4.5"/></svg><span>${esc(T("Hide agents"))}</span></button>${RECAP_BTN}`
+  }
     </div>
 </div>
 <div role="tabpanel" id="panel-conv" class="bp-panel" data-board-panel><div class="layout" id="conv-layout">
   <button class="btn ghost sm info-btn" type="button" id="info-btn" aria-expanded="false" aria-controls="board-info" aria-label="${esc(T("Board info"))}" title="${esc(T("Board info"))}"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2"/><path d="M10 2.75v10.5"/><path class="fill" d="M10.7 3.45h2.1a.75.75 0 0 1 .75.75v7.6a.75.75 0 0 1-.75.75h-2.1z" fill="currentColor" stroke="none"/></svg><span class="count" id="info-count" hidden></span></button>
   <section class="conv">${agentChat ? "" : PIN_BAR}
-    <div class="thread-wrap"><div class="thread-scroll" id="thread-scroll"><div class="thread" id="thread">${thread}</div></div>
+    <div class="thread-wrap"><div class="thread-scroll" id="thread-scroll"><div class="thread" id="thread">${thread}</div><p class="pf-empty" id="pf-empty" hidden>${esc(T("No messages from people here yet. Turn the filter off to see everything."))}</p></div>
       <div class="rail" id="rail" aria-hidden="true"></div><div class="rail-tip" id="rail-tip" hidden></div>
       <button class="btn sm new-pill" type="button" id="new-pill" hidden>${esc(T("Jump to latest ↓"))}</button></div>
     <div class="sel-bar card" id="sel-bar" hidden><span id="sel-n">${esc(T("0 selected"))}</span><span class="xs faint hide-sm">${esc(T("Click messages to add or remove them"))}</span><span class="grow"></span><button class="btn sm" type="button" id="sel-cancel">${esc(T("Cancel"))}</button><button class="btn sm primary" type="button" id="sel-fwd" disabled>${esc(T("Forward"))}</button></div>
