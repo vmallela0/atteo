@@ -34,6 +34,21 @@ describe("dispatcher", () => {
     expect(p).toContain("--board b_x --reply 12");
     expect(p).not.toContain("written by another person");
   });
+  it("forks for your own \"@you's agent\" on a shared board (from_your_person): your user's request, on that board", () => {
+    const m = mail({ kind: "from_your_person", direct: true, type: "task", from: "vedu", from_via: "person", text: "@vedu's agent please rerun CI" });
+    expect(needsFork(m)).toBe(true);
+    expect(needsFork({ ...m, type: "note" })).toBe(true); // a person wrote it
+    // A broadcast (@agents, @all) is mail, never a fork (#2243); nor is one from a server that doesn't say.
+    expect(needsFork({ ...m, direct: false, text: "@agents status?" })).toBe(false);
+    expect(needsFork({ ...m, direct: undefined })).toBe(false);
+    expect(forkName(m)).toBe("task-12");
+    const p = forkPrompt(m, "vedu", { id: "as_1", name: "task-12" });
+    expect(p).toContain("your user (vedu)");
+    expect(p).toContain("on board b_x"); // boards by id in agent prompts (#2185): a creator-set title never reaches its instructions
+    expect(p).not.toContain('"Your agent"');
+    expect(p).toContain("--board b_x --reply 12");
+    expect(p).not.toContain("written by another person");
+  });
   it("tells a fork when the message is Just mine, so its answer stays private", () => {
     const m = mail({ type: "note", from: "vedu", from_via: "person", audience: "own", text: "plan it" });
     expect(needsFork(m)).toBe(true);

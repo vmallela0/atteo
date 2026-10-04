@@ -2,6 +2,8 @@
 //   atteo use checkout · read · post "…" · ask jxn "…" · wait · get 12 · search "…" · share log.txt · task … · doc …
 // They call the same tools as `atteo mcp`, on the board chosen with `use` (per folder), and filter secrets locally first.
 
+import { boardIdIn } from "./boardid";
+export { boardIdIn };
 import { randomUUID } from "node:crypto";
 import { env } from "./env";
 import SKILL_MD from "../../skills/atteo/SKILL.md";
@@ -237,6 +239,7 @@ export async function getEntry(opt: Record<string, string | true>, seq: number, 
 export const picturesNote = (paths: string[]) => (paths.length ? `${paths.length === 1 ? "Picture saved (open it to see it)" : `${paths.length} pictures saved (open them to see them)`}:\n${paths.map((p) => `  ${p}`).join("\n")}` : "");
 
 export const say = (s: string) => process.stdout.write(s.endsWith("\n") ? s : s + "\n");
+const oneLine = (t: string | null | undefined) => String(t ?? "").replace(/\s+/g, " ").trim();
 const int = (v: string | undefined, what: string): number => {
   const n = Number(v);
   if (!v || !Number.isInteger(n) || n < 1) throw new CliError(`${what} must be an entry number, like 12.`);
@@ -258,7 +261,9 @@ async function use(args: string[]) {
     const map = boardMap();
     const here = resolve(process.cwd());
     const hit = Object.entries(map).filter(([k]) => k !== "*" && (here === k || here.startsWith(k + "/"))).sort((a, b) => b[0].length - a[0].length)[0];
-    return say(hit ? `${hit[1].title} (${hit[1].id}), set for ${hit[0]}` : map["*"] ? `${map["*"].title} (${map["*"].id}), the default` : "No board chosen here.");
+    // The id in the sentence; the saved title is the board's creator-set name, so it's only shown fenced (#2181).
+    const [label, b] = hit ? [`set for ${hit[0]}`, hit[1]] : map["*"] ? ["the default", map["*"]] : ["", null];
+    return say(b ? `${b.id}, ${label}\n${fence(`${b.id}  "${String(b.title ?? "").replace(/\s+/g, " ").trim()}"`)}` : "No board chosen here.");
   }
   const c = creds();
   const base = server(c, opt);
@@ -271,11 +276,13 @@ async function use(args: string[]) {
   try {
     const r = await rpc(base, c.token, null, "tools/call", { name: "join_board", arguments: { board: want } }, session);
     if (r.isError) throw new CliError(r.text);
-    // 'Joined "<title>" (<id>)' today; an id-only 'Joined <id>' later, once the server stops echoing a title anyone can set
-    // (#1949). Only the id is trusted; the title is a label for this machine's config.
-    const m = r.text.match(/Joined (?:"(.*?)" \()?(b_[a-z0-9]+)\)?/);
-    if (!m) throw new CliError(r.text);
-    m[1] ??= m[2];
+    // 'Joined "<title>" (<id>)', an invitation's '…and joined "<title>" (<id>)', or an id-only 'Joined <id>' once the server
+    // stops echoing a title anyone can set (#1949, #2156). Only the id is trusted; the title is a label for this machine's config.
+    const first = r.text.split("\n")[0];
+    const id = /\bjoined\b/i.test(first) ? boardIdIn(first) : undefined;
+    if (!id) throw new CliError(r.text);
+    const title = first.match(/\bjoined "(.*)" \(b_/i)?.[1] ?? id;
+    const m = [first, title, id];
     const map = boardMap();
     const key = opt.global ? "*" : resolve(process.cwd());
     map[key] = { id: m[2], title: m[1] };
@@ -603,7 +610,8 @@ async function people(args: string[]) {
   if (!pos.length) throw new CliError("Usage: atteo people <name or part of one>");
   const j = await api(opt, "GET", `/api/people?q=${encodeURIComponent(pos.join(" "))}`);
   if (!j.people.length) return say(`Nobody found. Exact handles always work (e.g. "atteo people jxn"); partial names only match friends and people you share a board with.`);
-  for (const p of j.people) say(`${p.name}${p.display_name ? ` (${p.display_name})` : ""}  ${presenceText(p)}  ${RELATION[p.relation] ? `· ${RELATION[p.relation]}` : `· add: atteo add ${p.name}`}${p.shared_boards ? ` · ${p.shared_boards} shared board${p.shared_boards === 1 ? "" : "s"}` : ""}`);
+  // Display names are what each person typed: inside the fence (#2181).
+  say(fence(j.people.map((p: any) => `${p.name}${p.display_name ? ` (${oneLine(p.display_name)})` : ""}  ${presenceText(p)}  ${RELATION[p.relation] ? `· ${RELATION[p.relation]}` : `· add: atteo add ${p.name}`}${p.shared_boards ? ` · ${p.shared_boards} shared board${p.shared_boards === 1 ? "" : "s"}` : ""}`).join("\n")));
 }
 
 async function whois(args: string[]) {
@@ -611,7 +619,7 @@ async function whois(args: string[]) {
   if (!pos[0]) throw new CliError("Usage: atteo whois <name>");
   const j = await api(opt, "GET", `/api/people/${encodeURIComponent(pos[0].replace(/^@/, "").toLowerCase())}`);
   const p = j.person;
-  say(`${p.name}${p.display_name ? ` (${p.display_name})` : ""}\n  ${presenceText(p)}\n  ${RELATION[p.relation] || "not friends"}${p.shared_boards ? ` · ${p.shared_boards} shared board${p.shared_boards === 1 ? "" : "s"}` : ""}${p.bio ? `\n  ${p.bio}` : ""}`);
+  say(`${p.name}\n  ${presenceText(p)}\n  ${RELATION[p.relation] || "not friends"}${p.shared_boards ? ` · ${p.shared_boards} shared board${p.shared_boards === 1 ? "" : "s"}` : ""}${p.display_name || p.bio ? `\n${fence([p.display_name ? `name: ${oneLine(p.display_name)}` : "", p.bio ? `bio: ${p.bio}` : ""].filter(Boolean).join("\n"))}` : ""}`);
 }
 
 async function friends(args: string[]) {
@@ -619,7 +627,8 @@ async function friends(args: string[]) {
   const j = await api(opt, "GET", "/api/friends");
   if (j.incoming.length) {
     say("Friend requests:");
-    for (const p of j.incoming) say(`  ${p.name}${p.note ? ` — "${p.note}"` : ""}   accept: atteo accept ${p.name}   decline: atteo decline ${p.name}`);
+    say(fence(j.incoming.map((p: { name: string; note?: string }) => `  ${p.name}${p.note ? ` — "${oneLine(p.note)}"` : ""}`).join("\n")));
+    say("  accept: atteo accept <name>   decline: atteo decline <name>");
   }
   say(j.friends.length ? "Friends:" : "No friends yet. Find someone: atteo people <name>, then atteo add <name>.");
   for (const p of j.friends) say(`  ${p.name.padEnd(16)} ${presenceText(p)}`);
@@ -921,7 +930,7 @@ async function create(args: string[]) {
   const title = pos.join(" ").trim();
   if (!title) throw new CliError('Usage: atteo create "<title>" [--encrypted]');
   const out = await tool(opt, "create_board", { title, encrypted: opt.encrypted === true }, null);
-  const id = out.match(/\((b_[a-z0-9]+)\)/)?.[1];
+  const id = boardIdIn(out.split("\n")[0]);
   say(out.split("\n")[0]);
   if (id) {
     const map = boardMap();
@@ -947,7 +956,7 @@ async function checkCmd(args: string[]) {
   say(await tool(opt, "claim", { action: "check", seq, command, commit }));
 }
 
-function askYes(question: string, dflt: boolean): Promise<boolean> {
+export function askYes(question: string, dflt: boolean): Promise<boolean> {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   return new Promise((res) =>
     rl.question(`${question} ${dflt ? "[Y/n]" : "[y/N]"} `, (a) => {
