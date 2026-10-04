@@ -67,14 +67,120 @@ describe("audienceOk (the same rule in SQL)", () => {
   });
 });
 
-describe("forwardExcerptInEntry", () => {
-  it("matches after stripping markdown, links, blockquotes and collapsing whitespace", () => {
+describe("normalizeForwardExcerpt", () => {
+  it("strips markdown, links, blockquotes, list markers and collapses whitespace", () => {
     const entry = "> **Heads up**: see [the docs](https://x.test/p) and #12 for `port 8443`";
     expect(normalizeForwardExcerpt(entry)).toBe("Heads up: see the docs and #12 for port 8443");
-    expect(forwardExcerptInEntry("Heads up: see the docs", entry)).toBe(true);
-    expect(forwardExcerptInEntry("port 8443", entry)).toBe(true);
-    expect(forwardExcerptInEntry("#12", entry)).toBe(true);
-    expect(forwardExcerptInEntry("fabricated words", entry)).toBe(false);
+    expect(normalizeForwardExcerpt("- one\n- two")).toBe("one two");
+    expect(normalizeForwardExcerpt("1. first\n2. second")).toBe("first second");
+  });
+});
+
+describe("forwardExcerptInEntry", () => {
+  const rich = "> **Heads up**: see [the docs](https://x.test/p) and #12 for `port 8443`";
+
+  describe("real board selections match", () => {
+    it("markdown links, bold, blockquotes and code spans", () => {
+      expect(forwardExcerptInEntry("Heads up: see the docs", rich)).toBe(true);
+      expect(forwardExcerptInEntry("port 8443", rich)).toBe(true);
+      expect(forwardExcerptInEntry("the docs", rich)).toBe(true);
+    });
+
+    it("italics with * and _", () => {
+      const entry = "*emphasis* and _also_ here";
+      expect(forwardExcerptInEntry("emphasis", entry)).toBe(true);
+      expect(forwardExcerptInEntry("also", entry)).toBe(true);
+      expect(forwardExcerptInEntry("emphasis and also", entry)).toBe(true);
+    });
+
+    it("ref chips stay as #N", () => {
+      const entry = "Following up on #42: all set, and see #99 too.";
+      expect(forwardExcerptInEntry("#42", entry)).toBe(true);
+      expect(forwardExcerptInEntry("Following up on #42", entry)).toBe(true);
+      expect(forwardExcerptInEntry("#42: all set", entry)).toBe(true);
+    });
+
+    it("CJK without spaces", () => {
+      const entry = "这是中文测试没有空格";
+      expect(forwardExcerptInEntry("中文测试", entry)).toBe(true);
+      expect(forwardExcerptInEntry("这是中文", entry)).toBe(true);
+    });
+
+    it("emoji", () => {
+      const entry = "Ship it 🚀 now 👍🏽";
+      expect(forwardExcerptInEntry("🚀", entry)).toBe(true);
+      expect(forwardExcerptInEntry("Ship it 🚀", entry)).toBe(true);
+      expect(forwardExcerptInEntry("👍🏽", entry)).toBe(true);
+    });
+
+    it("NBSP", () => {
+      const entry = "hello\u00A0world";
+      expect(forwardExcerptInEntry("hello world", entry)).toBe(true);
+    });
+
+    it("CRLF", () => {
+      const entry = "line one\r\nline two\r\nline three";
+      expect(forwardExcerptInEntry("line one line two", entry)).toBe(true);
+      expect(forwardExcerptInEntry("line two line three", entry)).toBe(true);
+    });
+
+    it("a 2,000-char excerpt", () => {
+      const tail = "end marker";
+      const pad = "x".repeat(2000 - tail.length);
+      const entry = pad + tail;
+      expect(entry.length).toBe(2000);
+      expect(forwardExcerptInEntry(pad.slice(-500) + tail, entry)).toBe(true);
+      expect(forwardExcerptInEntry(entry.slice(0, 2000), entry)).toBe(true);
+    });
+
+    it("list items selected without bullet markers", () => {
+      const entry = "- item one\n- item two\n- item three";
+      expect(forwardExcerptInEntry("item one", entry)).toBe(true);
+      expect(forwardExcerptInEntry("item one item two", entry)).toBe(true);
+      expect(forwardExcerptInEntry("item two item three", entry)).toBe(true);
+    });
+
+    it("angle-bracket autolinks", () => {
+      const entry = "see <https://example.com/path> for more";
+      expect(forwardExcerptInEntry("https://example.com/path", entry)).toBe(true);
+    });
+
+    it("fenced code blocks", () => {
+      const entry = "run:\n```js\nconst x = 1;\n```\nafter";
+      expect(forwardExcerptInEntry("const x = 1", entry)).toBe(true);
+    });
+  });
+
+  describe("fabricated selections do not match", () => {
+    it("words not in the message", () => {
+      expect(forwardExcerptInEntry("fabricated words", rich)).toBe(false);
+      expect(forwardExcerptInEntry("port 9999", rich)).toBe(false);
+    });
+
+    it("link URL when only the label is in the message", () => {
+      expect(forwardExcerptInEntry("https://x.test/p", rich)).toBe(false);
+    });
+
+    it("ref chip title instead of #N", () => {
+      const entry = "Following up on #42: all set.";
+      expect(forwardExcerptInEntry("Ship on Friday", entry)).toBe(false);
+      expect(forwardExcerptInEntry("#43", entry)).toBe(false);
+    });
+
+    it("wrong CJK", () => {
+      const entry = "这是中文测试";
+      expect(forwardExcerptInEntry("这是英文", entry)).toBe(false);
+    });
+
+    it("empty or whitespace-only", () => {
+      expect(forwardExcerptInEntry("", rich)).toBe(false);
+      expect(forwardExcerptInEntry("   \n\t  ", rich)).toBe(false);
+    });
+
+    it("list text that is not contiguous in the message", () => {
+      const entry = "- alpha\nmiddle prose\n- beta";
+      expect(forwardExcerptInEntry("alpha beta", entry)).toBe(false);
+    });
   });
 });
 
