@@ -486,6 +486,7 @@ export interface CallContext {
   sessionId: string; // Mcp-Session-Id, or a per-token key when the client sends none
   sharedSession: boolean; // no Mcp-Session-Id: every session on this connection shares one board
   pinnedBoard: string | null; // ?board= in the MCP URL pins this connection to one board
+  sessionName?: string | null; // ?name= in the MCP URL: the agent session this connection is (e.g. a Conductor workspace, ws-checkout-fix)
   origin: string;
   // The agent session making the call (X-Atteo-Session, sent by the CLI): its own read positions and name.
   agentSession?: { id: string; name: string; client: string | null; scope?: "full" | "read"; boards?: string[] } | null;
@@ -540,12 +541,18 @@ async function mcpAgentSession(c: HandleContext, user: string): Promise<NonNulla
     }
   }
   const client = row?.client ?? "agent";
-  const idle = await registry.idleMcpAgentSession(c.env, user, client, Date.now() - MCP_IDLE_MS);
-  let s = idle ? await sessions.get(c.env, user, idle) : null;
+  // A named connection (/mcp?name=ws-checkout-fix, one per Conductor workspace) is that session: the same one again when
+  // it reconnects, made under that name the first time. Unnamed ones take over their client's idle session, as before.
+  const named = sessions.cleanName(c.sessionName);
+  let s = named ? await sessions.get(c.env, user, named) : null;
+  if (!s && !named) {
+    const idle = await registry.idleMcpAgentSession(c.env, user, client, Date.now() - MCP_IDLE_MS);
+    s = idle ? await sessions.get(c.env, user, idle) : null;
+  }
   if (s && row?.model && row.model !== s.model) s = await sessions.setModel(c.env, s, row.model);
   if (!s) {
     const short: Record<string, string> = { "Claude Code": "claude", Claude: "claude", "VS Code": "vscode" };
-    s = await sessions.create(c.env, user, { suggest: short[client] ?? sessions.cleanName(client) ?? "agent", client, model: row?.model });
+    s = await sessions.create(c.env, user, { suggest: named ?? short[client] ?? sessions.cleanName(client) ?? "agent", client, model: row?.model });
   }
   const board = c.pinnedBoard ?? row?.board_id ?? null;
   if (board && !s.boards.includes(board)) {
@@ -1573,6 +1580,7 @@ export async function handleMcp(request: Request, env: Env, ctx: ExecutionContex
     sessionId,
     sharedSession: !issued && !sentSid,
     pinnedBoard: url.searchParams.get("board") || null,
+    sessionName: url.searchParams.get("name") || null,
     origin: publicOrigin(env, url),
     legacy,
     tokenSent: !!token,

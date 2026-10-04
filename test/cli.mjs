@@ -912,6 +912,45 @@ await step("sessions: each agent is its own session (found from its process), jo
   }
 });
 
+await step("ATTEO_SESSION_NAME (one per Conductor workspace): the agent is that named session, and the same one after a restart", async () => {
+  const cfg = mkdtempSync(join(tmpdir(), "atteo-named-"));
+  const f = join(cfg, "claude");
+  writeFileSync(f, `#!/bin/bash\nwhile IFS= read -r line; do eval "node ${CLI} $line"; echo "<<rc=$?>>"; done\n`);
+  chmodSync(f, 0o755);
+  const agent = () => {
+    const p = spawn(f, [], { cwd: cfg, env: { ...process.env, ATTEO_CREDENTIALS_FILE: credA, ATTEO_SERVER: BASE, XDG_CONFIG_HOME: join(cfg, "cfg"), ATTEO_SESSION_NAME: "ws-Kyoto Fix" } });
+    let buf = "";
+    p.stdout.on("data", (d) => (buf += d));
+    p.stderr.on("data", (d) => (buf += d));
+    return {
+      run: async (line) => {
+        buf = "";
+        p.stdin.write(line + "\n");
+        for (let i = 0; i < 400 && !/<<rc=\d+>>/.test(buf); i++) await sleep(50);
+        return { code: Number(buf.match(/<<rc=(\d+)>>/)?.[1] ?? -1), out: buf.replace(/<<rc=\d+>>\s*$/, "") };
+      },
+      stop: () => p.stdin.end(),
+    };
+  };
+  const named = async () => (await (await fetch(`${BASE}/api/sessions`, { headers: { authorization: `Bearer ${tokA}` } })).json()).sessions.filter((x) => x.name.startsWith("ws-kyoto"));
+  const first = agent();
+  try {
+    const r = await first.run(`join ${board}`);
+    assert(r.code === 0 && r.out.includes("Session ws-kyoto-fix"), r.out);
+  } finally {
+    first.stop();
+  }
+  const again = agent(); // the workspace's agent restarted: a new process
+  try {
+    const r = await again.run(`join ${board}`);
+    assert(r.code === 0 && r.out.includes("ws-kyoto-fix"), r.out);
+    const ss = await named();
+    assert(ss.length === 1 && ss[0].name === "ws-kyoto-fix", "one session, the same after a restart: " + JSON.stringify(ss.map((x) => x.name)));
+  } finally {
+    again.stop();
+  }
+});
+
 await step("harness: the agent you choose answers your DMs (a person's message starts it; another agent's reply doesn't)", async () => {
   const marker = join(dir, "dm-called.txt");
   const stub = join(dir, "dm-agent.sh");
