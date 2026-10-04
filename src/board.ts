@@ -61,6 +61,8 @@ export function memoryNorm(text: string): string {
   return text.toLowerCase().replace(/\s+/g, " ").trim().replace(/[\s.!?;:,]+$/, "");
 }
 const MISSED_SCAN = 200; // entries a post checks for anything that bears on it; more unread than this and it's refused
+const FOR_ME_SCAN = 500; // unread entries a wait {for: "me"} looks through for one that's for this agent
+export const WAIT_CAP = 50; // entries one wait returns; the cursor never moves past what it returned
 
 export class BoardError extends Error {}
 
@@ -204,6 +206,7 @@ interface WaitAtt {
   wait: "agent" | "any";
   user: string;
   session?: string; // an agent session's wait: woken by anything but its own posts, including its person's other sessions
+  forMe?: true; // wait {for: "me"}: woken only by what's for this agent (Board.forMeSeqs)
 }
 
 /** A board tab's (or CLI watcher's) socket: whose, and whether it's the person themselves (not an agent's token). */
@@ -546,7 +549,7 @@ export class Board extends DurableObject<Env> {
   // Worker opens a hibernating socket, and this object only wakes to send "go" when something arrives.
 
   private acceptWait(url: URL): Response {
-    const att: WaitAtt = { wait: url.searchParams.get("kind") === "any" ? "any" : "agent", user: url.searchParams.get("user") ?? "", ...(url.searchParams.get("session") ? { session: url.searchParams.get("session")! } : {}) };
+    const att: WaitAtt = { wait: url.searchParams.get("kind") === "any" ? "any" : "agent", user: url.searchParams.get("user") ?? "", ...(url.searchParams.get("session") ? { session: url.searchParams.get("session")! } : {}), ...(url.searchParams.get("for") === "me" ? { forMe: true as const } : {}) };
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
     this.ctx.acceptWebSocket(server, ["wait"]);
@@ -557,7 +560,8 @@ export class Board extends DurableObject<Env> {
     else {
       const row = this.sql.exec("SELECT cursor FROM members WHERE name = ?", att.user).toArray();
       const own = att.session ? this.sql.exec("SELECT cursor FROM session_cursors WHERE session = ?", att.session).toArray()[0] : undefined;
-      ready = !row.length || this.countAfter(own ? (own.cursor as number) : (row[0].cursor as number), att.user, att.session) > 0;
+      const cursor = row.length ? (own ? (own.cursor as number) : (row[0].cursor as number)) : 0;
+      ready = !row.length || (att.forMe ? this.forMeSeqs(att.user, att.session, this.entriesAfter(cursor, att.user, FOR_ME_SCAN, att.session, asAgent(att.user))).size > 0 : this.countAfter(cursor, att.user, att.session) > 0);
     }
     if (ready) server.send("go");
     return new Response(null, { status: 101, webSocket: client });
@@ -572,11 +576,13 @@ export class Board extends DurableObject<Env> {
     return this.ctx.getWebSockets().filter((ws) => !this.isWait(ws));
   }
 
-  /** Ends waits: all of them, or (for a post) every wait except the author's own agent's, unless they handed it work. */
-  private wakeWaits(filter?: (a: WaitAtt) => boolean) {
+  /** Ends waits: all of them, or (for a post) every wait except the author's own agent's, unless they handed it work.
+   *  `about`: the new entry; a for-me wait wakes only if it's for that agent. */
+  private wakeWaits(filter?: (a: WaitAtt) => boolean, about?: Entry) {
     for (const ws of this.ctx.getWebSockets("wait")) {
       const a = ws.deserializeAttachment() as WaitAtt | null;
       if (filter && a && !filter(a)) continue;
+      if (about && a?.forMe && !this.forMeSeqs(a.user, a.session, [about]).size) continue;
       try {
         ws.send("go");
       } catch {}
@@ -923,6 +929,7 @@ export class Board extends DurableObject<Env> {
     user: string,
     input: NewEntry,
     session?: string | null,
+    strict = false, // post {strict: true}: anything unread stops it, as before relevance (#2177)
   ): Promise<{ entry: Entry; missed: Entry[] } | { refused: true; relevant: Entry[]; others: number[]; remaining: number }> {
     const again = this.sentBefore(user, input.idem);
     if (again) return { entry: again, missed: [] }; // a retry of a post that already landed
@@ -932,7 +939,7 @@ export class Board extends DurableObject<Env> {
     if (!missed.length) return { entry: await this.post(user, session ? { ...input, session } : input), missed: [] };
     // More than we check at once: refuse, as before, so nothing unchecked is skipped by the post.
     const remaining = missed.length < MISSED_SCAN ? 0 : this.countAfter(cursor, user, session) - missed.length;
-    const relevant = await this.relevantMisses(user, input, missed);
+    const relevant = strict ? new Set(missed.map((e) => e.seq)) : await this.relevantMisses(user, input, missed, session);
     await this.receipts(user, missed);
     const last = missed[missed.length - 1].seq;
     if (relevant.size || remaining > 0) {
@@ -946,11 +953,12 @@ export class Board extends DurableObject<Env> {
 
   /**
    * Which entries an agent missed bear on what it's posting: addressed to it (to, an @mention of it or its person, a
-   * hand-off from its own person, a post for its session); in the thread it's posting in; or resolving, superseding or
-   * retracting what it's answering. In a DM, everything. An entry it names (reply_to, resolves, …) doesn't count: it
+   * hand-off from its own person, a post for its session); in the thread it's posting in; answering (replying to,
+   * resolving, superseding) anything its agent wrote; or resolving, superseding or retracting what it's answering. In a
+   * DM, everything. An entry it names (reply_to, resolves, …) doesn't count: it
    * has that one. (One it would be threaded under without naming it does: it may not have seen it.)
    */
-  private async relevantMisses(user: string, input: NewEntry, missed: Entry[]): Promise<Set<number>> {
+  private async relevantMisses(user: string, input: NewEntry, missed: Entry[], session?: string | null): Promise<Set<number>> {
     if ((await this.kindOf(this.info().id)) === "direct") return new Set(missed.map((e) => e.seq));
     const named = new Set([input.reply_to, input.supersedes, input.retracts, ...(input.resolves ?? [])].filter((n): n is number => Number.isInteger(n) && (n as number) > 0));
     // The thread the post will land in: its reply_to, or the message an unthreaded answer gets threaded under.
@@ -978,11 +986,12 @@ export class Board extends DurableObject<Env> {
       return root;
     };
     const root = thread != null ? rootOf(thread) : null;
+    const answered = this.answersMine(user, missed, session);
     const out = new Set<number>();
     for (const e of missed) {
       if (named.has(e.seq)) continue;
       const about =
-        forAgent(e, user) || forPerson(e, user) || forMe.has(e.seq) ||
+        forAgent(e, user) || forPerson(e, user) || forMe.has(e.seq) || answered.has(e.seq) ||
         (root != null && rootOf(e.seq) === root) ||
         e.resolves.some((r) => targets.has(r)) || (e.supersedes != null && targets.has(e.supersedes)) || (e.retracts != null && targets.has(e.retracts));
       if (about) out.add(e.seq);
@@ -1250,7 +1259,7 @@ export class Board extends DurableObject<Env> {
         if (a.wait === "any") return true; // a page's long-poll: it re-reads as its viewer
         if (a.user !== user || (forSession && a.session && a.session !== forSession.session)) return false;
         return forOwnAgent || (!!a.session && a.session !== input.session);
-      });
+      }, entry);
       this.broadcast({ type: "entry", seq: entry.seq, retracts: entry.retracts, author: entry.author, via: entry.via ?? null, kind: entry.type, to: null, mentions: entry.mentions, reply_to: entry.reply_to, board: info.id, title: info.title, audience: "own", to_people: people }, entry.seq);
       return entry;
     }
@@ -1304,7 +1313,7 @@ export class Board extends DurableObject<Env> {
     this.wakeWaits((a) => {
       if (forSession && a.session && a.user === forSession.user && a.session !== forSession.session) return false;
       return a.wait === "any" || a.user !== user || forOwnAgent || (!!a.session && a.session !== input.session);
-    });
+    }, entry);
     // Who posted what to whom: enough for tabs to refresh and for a member's CLI to decide whether to wake its agent,
     // plus the entry's title and first ~200 characters (every socket here is a member who may read it) so the agent's
     // ping can be triaged without a read (#2177). Sealed and encrypted text: "🔒 encrypted". Private entries (above)
@@ -2184,18 +2193,75 @@ export class Board extends DurableObject<Env> {
    * acceptWait). Advances the cursor past what it returns. `join` false: after a wait, so a member removed
    * meanwhile gets nothing and isn't re-added.
    */
-  async wait(user: string, join = true, session?: string | null) {
+  async wait(user: string, join = true, session?: string | null, forMe = false) {
     this.info();
     if (join) this.touch(user);
     const row = this.sql.exec("SELECT cursor FROM members WHERE name = ?", user).toArray();
-    if (!row.length) return { info: this.info(), entries: [] as Entry[], timedOut: true };
-    const fresh = this.entriesAfter(session ? this.readCursor(user, session) : (row[0].cursor as number), user, 50, session, asAgent(user));
+    if (!row.length) return { info: this.info(), entries: [] as Entry[], timedOut: true, remaining: 0, mine: [] as number[], gone: true };
+    const cursor = session ? this.readCursor(user, session) : (row[0].cursor as number);
+    // For me: nothing moves (and nothing is returned) until something unread is for this agent; then everything new is.
+    const scan = this.entriesAfter(cursor, user, forMe ? FOR_ME_SCAN : WAIT_CAP + 1, session, asAgent(user));
+    const mine = this.forMeSeqs(user, session, scan);
+    if (forMe && !mine.size) return { info: this.info(), entries: [] as Entry[], timedOut: true, remaining: 0, mine: [] as number[], gone: false };
+    const fresh = scan.slice(0, WAIT_CAP);
+    // The cursor moves only past what's returned; the rest is counted so the caller can say "N more".
+    const remaining = scan.length > WAIT_CAP ? this.countAfter(cursor, user, session) - fresh.length : 0;
     await this.receipts(user, fresh);
     if (fresh.length) this.advance(user, fresh[fresh.length - 1].seq, session);
     if (fresh.length) this.markSeen(user, "agent", fresh[fresh.length - 1].seq);
     this.touch(user);
     await this.decisions.refresh();
-    return { info: this.info(), entries: this.decisions.attach(this.withHandling(fresh)), timedOut: fresh.length === 0 };
+    return { info: this.info(), entries: this.decisions.attach(this.withHandling(fresh)), timedOut: fresh.length === 0, remaining, mine: fresh.filter((e) => mine.has(e.seq)).map((e) => e.seq), gone: false };
+  }
+
+  /**
+   * Which of these entries (already filtered to what this agent may see) are for it, for wait {for: "me"}: addressed to
+   * it or its session (to, @its agent, @name/session, a hand-off from its own person), mentioning its person, @agents
+   * or @all; posted by a person; answering something its agent wrote; or a new task it could take (open, unclaimed,
+   * for anyone or for it). Not: other agents' chatter, change cards, unsends.
+   */
+  private forMeSeqs(user: string, session: string | null | undefined, entries: Entry[]): Set<number> {
+    const out = new Set<number>();
+    const list = entries.filter((e) => e.retracts == null);
+    if (!list.length) return out;
+    const lo = list[0].seq;
+    const hi = list[list.length - 1].seq;
+    const sent = new Set(
+      this.sql
+        .exec("SELECT seq FROM entries WHERE seq BETWEEN ? AND ? AND ((self_agent = 1 AND author = ?) OR (for_user = ? AND (for_session IS NULL OR for_session = ?)))", lo, hi, user, user, session ?? "")
+        .toArray()
+        .map((r) => r.seq as number),
+    );
+    const answered = this.answersMine(user, list, session);
+    const tasks = list.filter((e) => e.type === "task");
+    const open = tasks.length
+      ? new Set(
+          this.sql
+            .exec("SELECT seq FROM tasks WHERE seq IN (SELECT value FROM json_each(?)) AND status = 'todo' AND lease_holder IS NULL AND (assignee IS NULL OR assignee = ?)", JSON.stringify(tasks.map((e) => e.seq)), user)
+            .toArray()
+            .map((r) => r.seq as number),
+        )
+      : new Set<number>();
+    for (const e of list) {
+      const direct = sent.has(e.seq) || forAgent(e, user) || forPerson(e, user) || !!e.mentions?.some((m) => m.user === ALL_AGENTS || m.user === ALL_MEMBERS);
+      if (direct || (!e.card && (e.via === "person" || answered.has(e.seq) || open.has(e.seq)))) out.add(e.seq);
+    }
+    return out;
+  }
+
+  /** Which of these entries answer something this user's agent (this session, for a session) wrote: a reply to it, or
+   *  resolving or superseding it. */
+  private answersMine(user: string, entries: Entry[], session?: string | null): Set<number> {
+    const targets = (e: Entry) => [e.reply_to, e.supersedes, ...e.resolves].filter((n): n is number => n != null && n > 0);
+    const all = [...new Set(entries.flatMap(targets))];
+    if (!all.length) return new Set();
+    const mine = new Set(
+      this.sql
+        .exec("SELECT seq FROM entries WHERE seq IN (SELECT value FROM json_each(?)) AND author = ? AND via = 'agent' AND (? = '' OR session = ?)", JSON.stringify(all), user, session ?? "", session ?? "")
+        .toArray()
+        .map((r) => r.seq as number),
+    );
+    return new Set(entries.filter((e) => targets(e).some((t) => mine.has(t))).map((e) => e.seq));
   }
 
   /** Drops a member's cursor and ends any wait they have in progress. Access itself is enforced by the Worker. */

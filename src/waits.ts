@@ -6,13 +6,13 @@ import type { Board } from "./board";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-export type WaitFor = { kind: "agent"; user: string; session?: string } | { kind: "any"; after: number };
+export type WaitFor = { kind: "agent"; user: string; session?: string; forMe?: boolean } | { kind: "any"; after: number };
 
 /** Resolves true when the board says something arrived (or the member was removed), false at the time limit or once
  *  `signal` aborts (a newer wait from the same session took over: limits.beginWait). */
 export async function waitForBoard(stub: DurableObjectStub<Board>, q: WaitFor, timeoutMs: number, signal?: AbortSignal): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
-  const qs = q.kind === "agent" ? `kind=agent&user=${encodeURIComponent(q.user)}${q.session ? `&session=${encodeURIComponent(q.session)}` : ""}` : `kind=any&after=${q.after}`;
+  const qs = q.kind === "agent" ? `kind=agent&user=${encodeURIComponent(q.user)}${q.session ? `&session=${encodeURIComponent(q.session)}` : ""}${q.forMe ? "&for=me" : ""}` : `kind=any&after=${q.after}`;
   // A deploy restarts the board and drops the socket: wait on the new one for the time that's left.
   while (deadline - Date.now() > 250 && !signal?.aborted) {
     let ws: WebSocket | null = null;
@@ -45,4 +45,19 @@ export async function waitForBoard(stub: DurableObjectStub<Board>, q: WaitFor, t
     await sleep(300);
   }
   return false;
+}
+
+/** How long a wake lingers for more of the same burst (a few posts in a row come back as one answer), and how often. */
+export const SETTLE_MS = 250;
+export const SETTLE_ROUNDS = 4;
+
+/**
+ * After a wake: `more` takes what has landed since (advancing the reader), every SETTLE_MS while something keeps
+ * arriving, up to SETTLE_ROUNDS times or until `full()`. Without it a wake returned only the post that woke it.
+ */
+export async function settle(more: () => Promise<number>, full: () => boolean): Promise<void> {
+  for (let i = 0; i < SETTLE_ROUNDS && !full(); i++) {
+    await sleep(SETTLE_MS);
+    if (!(await more())) return;
+  }
 }
