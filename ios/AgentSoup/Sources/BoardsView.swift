@@ -46,6 +46,8 @@ struct BoardView: View {
     @State private var decisionPrompt: DecisionPrompt? // objecting (why?) or closing a human decision
     @State private var decisionNote = ""
     @State private var toSession: String? // "Your agent": one of your sessions (nil: any of your agents)
+    @State private var confetti = 0 // bumped when a "Shipped" change card arrives while you're here
+    @State private var newestSeen: Int? // the newest message when the chat opened (so only arrivals celebrate)
 
     @ObservedObject private var threadSeen = ThreadSeen.shared
     @Environment(\.chatDensity) private var density
@@ -120,13 +122,13 @@ struct BoardView: View {
         }
         // A "#123" in a message: go to it (or open its thread, if it's an answer).
         .environment(\.openURL, OpenURLAction { url in
-            if let p = personLink(url) { Haptic.tap(); profile = p; return .handled }
-            if let g = groupLink(url) { Haptic.tap(); group = g; return .handled }
+            if let p = personLink(url) { profile = p; return .handled }
+            if let g = groupLink(url) { group = g; return .handled }
             guard let n = entryLink(url) else { return .systemAction }
             jump(to: n)
             return .handled
         })
-        .sheet(item: $group) { g in GroupSheet(board: board, agents: g.agents).presentationDetents([.medium, .large]).presentationBackground(Theme.bg) }
+        .sheet(item: $group) { g in GroupSheet(board: board, agents: g.agents, all: g.all).presentationDetents([.medium, .large]).presentationBackground(Theme.bg) }
         .sheet(item: $seenBy) { r in SeenBySheet(receipt: r).environment(\.chatDensity, density).presentationDetents([.medium, .large]).presentationBackground(Theme.bg) }
         // Someone's card: Message opens your DM; "Ask theo's agent" starts a message to it here.
         .sheet(item: $profile) { p in
@@ -210,7 +212,7 @@ struct BoardView: View {
             }
             .overlay(alignment: .bottomTrailing) {
                 if !atBottom && !list.isEmpty {
-                    Button { Haptic.tap(); stick = true; withAnimation(.smooth(duration: 0.35)) { position.scrollTo(edge: .bottom) } } label: {
+                    Button { stick = true; withAnimation(.smooth(duration: 0.35)) { position.scrollTo(edge: .bottom) } } label: {
                         Image(systemName: "chevron.down").font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.text)
                             .frame(width: 36, height: 36).background(Theme.raised, in: Circle())
                             .shadow(color: .black.opacity(0.4), radius: 8, y: 2)
@@ -223,7 +225,7 @@ struct BoardView: View {
                 }
             }
         }
-        .safeAreaInset(edge: .top, spacing: 0) { WorkStrip(tasks: state.tasks[board.id] ?? []) { Haptic.tap(); showTasks = true } }
+        .safeAreaInset(edge: .top, spacing: 0) { WorkStrip(tasks: state.tasks[board.id] ?? []) { showTasks = true } }
         .safeAreaInset(edge: .bottom, spacing: 0) { composer }
         .sheet(isPresented: $showTasks) { TasksSheet(board: board).environment(\.chatDensity, density).presentationDetents([.large]).presentationBackground(Theme.bg) }
         .sheet(item: $workPane) { p in TasksSheet(board: board, initial: p).environment(\.chatDensity, density).presentationDetents([.large]).presentationBackground(Theme.bg) }
@@ -231,7 +233,7 @@ struct BoardView: View {
         .toolbar {
             // The title, and under it who's working here right now (tap for everyone, live / idle / gone).
             ToolbarItem(placement: .principal) {
-                Button { Haptic.tap(); showAgents = true } label: {
+                Button { showAgents = true } label: {
                     VStack(spacing: 1) {
                         HStack(spacing: 6) { BoardPicture(board: board, size: 20).accessibilityHidden(true); Text(board.displayName(me: state.me?.owner)).font(.headline).foregroundStyle(Theme.text.fixed(scheme)).lineLimit(1) }
                         HStack(spacing: Space.xs) {
@@ -268,11 +270,15 @@ struct BoardView: View {
             // Where to open is settled by the server's fresh "seen up to" for you, before anything marks it read.
             await state.loadEntries(board)
             openAtFirstUnread()
+            if newestSeen == nil { newestSeen = list.lazy.filter { $0.seq > 0 }.map(\.seq).max() ?? 0 }
             async let t: Void = state.loadTasks(board); async let a: Void = state.loadAgents(board); async let m: Void = state.loadMembers(board); _ = await (t, a, m)
             await state.markRead(board); await state.loadHandling(board); await state.markSeen(board)
         }
         .onChange(of: state.pulse) { _, p in if p?.board == board.id { Task { async let e: Void = state.loadEntries(board); async let t: Void = state.loadTasks(board); async let a: Void = state.loadAgents(board); _ = await (e, t, a); await state.markRead(board) } } }
         .onChange(of: list.last?.seq) { _, _ in Task { await state.markSeen(board) } } // you've seen what just landed
+        // Shipped to production while you watch: about a second of confetti and the shipped buzz (Effects / Haptics).
+        .onChange(of: list.last?.seq) { _, _ in celebrateShipped() }
+        .overlay { Confetti(trigger: confetti).ignoresSafeArea() }
         // A long chat is laid out lazily (row heights are guesses until rows are made), so "the latest" keeps moving for a
         // moment after it opens: hold it there until it stops, unless you scroll up or a search hit sent you somewhere.
         .task(id: board.id) {
@@ -315,16 +321,17 @@ struct BoardView: View {
                         reply: live ? { startReply(to: e) } : nil,
                         unsent: unsent, replies: r.replies[e.seq] ?? [], threadUnread: threadUnread(e.seq, r), handling: state.handling[board.id]?[e.seq], lit: flash == e.seq,
                         receipt: showReceipt ? receipt(for: e) : nil,
-                        openReceipt: mine && live ? { if let r = receipt(for: e) { Haptic.tap(); seenBy = r } } : nil,
+                        openReceipt: mine && live ? { if let r = receipt(for: e) { seenBy = r } } : nil,
                         actions: actions(for: e, mine: mine, live: live, r),
-                        decision: hd, decisionActions: DecisionActions.make(hd, seq: e.seq, board: board, state: state) { p in decisionNote = ""; decisionPrompt = p }) {
+                        decision: hd, decisionActions: DecisionActions.make(hd, seq: e.seq, board: board, state: state) { p in decisionNote = ""; decisionPrompt = p },
+                        agentName: state.agentNames[board.id]?[e.author]?.name, quick: state.favouriteReactions, agentNames: state.agentNameMap(board.id)) {
             Task { if e.local != nil || e.isMultiFile { await state.retryUpload(e, in: board) } else { await state.send(e.text, to: board, retrying: e) } }
         }
     }
 
     private func actions(for e: Entry, mine: Bool, live: Bool, _ r: Rows) -> EntryActions {
         var a = EntryActions()
-        a.openProfile = { name, agent in Haptic.tap(); profile = ProfileTarget(name: name, agent: agent) }
+        a.openProfile = { name, agent in profile = ProfileTarget(name: name, agent: agent) }
         if live {
             a.react = { emoji in Task { await state.react(emoji, to: e.seq, in: board) } }
             a.moreReactions = { reactingTo = SeqRef(id: e.seq) }
@@ -335,9 +342,10 @@ struct BoardView: View {
                 a.toggleReceipt = { withAnimation(.snappy) { if openReceipts.contains(e.seq) { openReceipts.remove(e.seq) } else { openReceipts.insert(e.seq) } } }
             }
             if forMe(e) { a.takeOn = { Task { await state.takeOn(e.seq, in: board) } } }
+            if !board.isAgentChat { a.remember = { Task { await state.remember(e.seq, in: board.id) } } }
         }
         // A reply's quote bar: its thread, over the chat, on this reply (jxn #1040).
-        if e.replyTo != nil, e.seq > 0 { let root = rootOf(e, in: r.bySeq); a.jumpToParent = { Haptic.tap(); focused = false; thread = ThreadTarget(root: root, focus: e.seq) } }
+        if e.replyTo != nil, e.seq > 0 { let root = rootOf(e, in: r.bySeq); a.jumpToParent = { focused = false; thread = ThreadTarget(root: root, focus: e.seq) } }
         return a
     }
 
@@ -345,7 +353,6 @@ struct BoardView: View {
     /// message and starting with who wrote it, like the web: "@theo ", "@theo's agent ", and your own agent's posts too
     /// ("@maya's agent ", #975); only your own messages start empty.
     private func startReply(to e: Entry) {
-        Haptic.tap()
         focused = false
         thread = ThreadTarget(root: rootOf(e, in: Dictionary(list.map { ($0.seq, $0) }, uniquingKeysWith: { a, _ in a })),
                               prefill: Self.replyHandle(e, me: me), replyTo: e.seq)
@@ -355,6 +362,29 @@ struct BoardView: View {
     static func replyHandle(_ e: Entry, me: String?) -> String? {
         if e.author == me && e.via != "agent" { return nil }
         return "@" + (e.byAgent ? "\(e.author)'s agent" : e.author) + " "
+    }
+
+    /// A shipped change card that arrived since the chat opened (never one already here, scrolled back into view).
+    private func celebrateShipped() {
+        let top = list.lazy.filter { $0.seq > 0 }.map(\.seq).max() ?? 0
+        guard let seen = newestSeen else { newestSeen = top; return }
+        newestSeen = max(seen, top)
+        let arrived = list.filter { $0.seq > seen && $0.pending != true && $0.retracts == nil }
+        // Read replies aloud (Voice.swift): a message for you blips and waits in the bar.
+        for e in arrived where forMeToHear(e) { ReadAloud.shared.heard(e, from: e.byAgent ? agentLabel(e.author, e.agentName ?? state.agentNames[board.id]?[e.author]?.name) : e.author, in: board) }
+        guard arrived.contains(where: { $0.type == "change" && $0.text.localizedCaseInsensitiveContains("shipped") }) else { return }
+        Haptics.play(.shipped)
+        confetti += 1
+    }
+
+    /// For you, to hear (the web's forMe): in "Your agent", anything your agent says; on a board, a mention of you or a
+    /// reply to something you wrote. Never your own.
+    private func forMeToHear(_ e: Entry) -> Bool {
+        guard let me = me?.lowercased(), !isMine(e) else { return false }
+        if board.isAgentChat { return e.byAgent }
+        if (e.mentions ?? []).contains(where: { $0.user.lowercased() == me && !$0.agent }) { return true }
+        if let p = e.replyTo, let parent = list.first(where: { $0.seq == p }) { return isMine(parent) }
+        return false
     }
 
     /// Scrolls to a message and lights it for a moment, loading older messages first if it's before what's here.
@@ -370,13 +400,12 @@ struct BoardView: View {
             }
             if holdBottom { try? await Task.sleep(nanoseconds: 250_000_000); holdBottom = false }
             // (A reply is in the chat like any message now, jxn #1040: it scrolls there too.)
-            guard list.contains(where: { $0.seq == seq && $0.retracts == nil }) else { Haptic.warn(); return }
+            guard list.contains(where: { $0.seq == seq && $0.retracts == nil }) else { Haptics.play(.warning); return }
             stick = false
             if focused { // the keyboard would cover it: let it go down first, then scroll
                 focused = false
                 try? await Task.sleep(nanoseconds: 350_000_000)
             }
-            Haptic.tap()
             scrollRequest = ScrollRequest(id: seq, anchor: .center, animated: true)
             try? await Task.sleep(nanoseconds: 300_000_000)
             withAnimation(.smooth(duration: 0.25)) { flash = seq }
@@ -460,8 +489,14 @@ struct BoardView: View {
 
     /// The message box (ChatComposer.swift, the same one threads use).
     var composer: some View {
-        ChatComposer(board: board, draft: $draft, focused: $focused, placeholder: placeholder,
-                     toSession: board.isAgentChat ? $toSession : nil)
+        VStack(spacing: 0) {
+            ReadAloudBar(board: board.id) // a message for you, waiting to be read aloud (Voice.swift)
+            ChatComposer(board: board, draft: $draft, focused: $focused, placeholder: placeholder,
+                         toSession: board.isAgentChat ? $toSession : nil)
+        }
+        .background(Theme.bg)
+        .animation(.snappy, value: ReadAloud.shared.queue.count)
+        .onDisappear { ReadAloud.shared.leave(board.id) }
     }
 
     /// "Message theo", "Message Checkout bug", "Message your agent…" / "Message builder…".
@@ -503,6 +538,7 @@ struct Mentionable: Hashable {
     let handle: String // what goes after the "@"
     let user: String? // nil: a group
     let agent: Bool
+    var note: String? = nil // what it is, on the right ("vedu's agent" for "@Jarvis", "everyone and their agents")
 }
 
 /// What "@" suggests, just above the message box: a compact list, one tap to insert.
@@ -515,12 +551,12 @@ struct MentionList: View {
                 Button { pick(m) } label: {
                     HStack(spacing: 10) {
                         if let u = m.user { Avatar(name: u, agent: m.agent, size: 24) } else {
-                            Image(systemName: m.agent ? "sparkles" : "person.2.fill").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
+                            Image(systemName: m.agent ? "sparkles" : m.handle == "all" ? "person.3.fill" : "person.2.fill").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
                                 .frame(width: 24, height: 24).background(Theme.raised, in: Circle())
                         }
                         Text("@" + m.handle).font(Typo.secondary.weight(.medium)).foregroundStyle(Theme.text)
                         Spacer(minLength: Space.s)
-                        Text(m.user == nil ? (m.agent ? "every agent here" : "everyone here") : (m.agent ? "agent" : "person")).font(Typo.micro).foregroundStyle(Theme.faint)
+                        Text(m.note ?? (m.user == nil ? (m.agent ? "every agent here" : "everyone here") : (m.agent ? "agent" : "person"))).font(Typo.micro).foregroundStyle(Theme.faint).lineLimit(1)
                     }
                     .padding(.horizontal, Space.m).frame(minHeight: 40)
                     .contentShape(Rectangle())
@@ -576,6 +612,7 @@ struct EntryActions {
     var toggleReceipt: (() -> Void)? = nil // yours: show or hide who's seen it
     var takeOn: (() -> Void)? = nil // "On it", for a question or task for you
     var openProfile: ((String, Bool) -> Void)? = nil // tap a picture or a name: their card (agent: their agent's)
+    var remember: (() -> Void)? = nil // add it to the board's MEMORY (people)
 }
 
 struct EntryRow: View {
@@ -600,6 +637,9 @@ struct EntryRow: View {
     var actions = EntryActions()
     var decision: HumanDecision? = nil // a person's decision: where it stands, and your vote / close
     var decisionActions = DecisionActions()
+    var agentName: String? = nil // what its owner named this agent ("Jarvis"), if they did
+    var quick: [String] = defaultReactions // your favourite reactions, the row on top of the long-press menu (#1163)
+    var agentNames: [String: String] = [:] // named agents here, lowercased name → owner ("@Jarvis" in a message)
     var retry: () -> Void = {}
     @State var drag: CGFloat = 0 // swipe right to reply
     @Environment(\.chatDensity) private var density
@@ -609,10 +649,9 @@ struct EntryRow: View {
         density == .compact ? (grouped ? Space.xxs : Space.gap(density)) : (grouped ? Space.xs : comfortable)
     }
 
-    private var who: String { e.byAgent ? "\(e.author)'s agent" : e.author }
+    private var who: String { e.byAgent ? agentLabel(e.author, agentName ?? e.agentName) : e.author }
     private static let replyAt: CGFloat = 56
     private var replyAt: CGFloat { Self.replyAt }
-    static let quick = ["👍", "❤️", "😂", "🎉", "👀", "✅"]
 
     /// Agents' 👀 / ✅ are read receipts (the quiet line); everything else is a reaction chip.
     private var receipts: [Reaction] {
@@ -653,26 +692,29 @@ struct EntryRow: View {
             .contextMenu {
                 if let react = actions.react {
                     // A quick-reaction row, like any messenger (the palette holds six); every other emoji just under it.
+                    // Your favourites (up to 8) and "+" for every other emoji.
                     ControlGroup {
-                        ForEach(Self.quick, id: \.self) { q in Button { react(q) } label: { Text(q) } }
+                        ForEach(quick, id: \.self) { q in Button { react(q) } label: { Text(q) } }
+                        if let more = actions.moreReactions { Button(action: more) { Image(systemName: "plus") }.accessibilityLabel("Any emoji") }
                     }
                     .controlGroupStyle(.palette)
                     .menuActionDismissBehavior(.enabled) // a palette stays open by default; picking one closes it
                 }
                 if let more = actions.moreReactions { Button("More reactions", systemImage: "face.smiling", action: more) }
+                if let remember = actions.remember { Button("Remember this", systemImage: "bookmark", action: remember) }
                 if let reply { Button("Reply", systemImage: "arrowshape.turn.up.left", action: reply) }
                 if let open = actions.openThread, !replies.isEmpty || e.replyTo != nil { Button("View thread", systemImage: "bubble.left.and.bubble.right", action: open) }
                 if let take = actions.takeOn, handling == nil { Button("On it", systemImage: "hand.raised", action: take) }
-                if !unsent { Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = e.text; Haptic.tap() } }
+                if !unsent { Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = e.text; Haptics.play(.copied) } }
                 // The message's address (its number is in it, for agents and the web): /b/<board>#e<seq>.
-                if e.seq > 0, !board.isEmpty { Button("Copy link", systemImage: "link") { UIPasteboard.general.string = Self.link(board: board, seq: e.seq); Haptic.tap() } }
+                if e.seq > 0, !board.isEmpty { Button("Copy link", systemImage: "link") { UIPasteboard.general.string = Self.link(board: board, seq: e.seq); Haptics.play(.copied) } }
                 if e.failed == true { Button("Retry", systemImage: "arrow.clockwise", action: retry) }
                 if let unsend = actions.unsend { Button("Unsend", systemImage: "arrow.uturn.backward", role: .destructive, action: unsend) }
             }
             .gesture(SwipeToReply(changed: { dx in
                 guard reply != nil else { return }
                 let d = dx < replyAt ? dx : replyAt + (dx - replyAt) * 0.25 // rubber band past the threshold
-                if (drag < replyAt) != (d < replyAt) { Haptic.tap() }
+                if drag < replyAt && d >= replyAt { Haptics.play(.armed) } // once, crossing into "will reply"
                 drag = d
             }, ended: { _ in
                 if drag >= replyAt { reply?() }
@@ -767,7 +809,7 @@ struct EntryRow: View {
             quote
             attachment
             if unsent { unsentBody } else if e.type == "change" { ChangeCardView(e: e, board: board) } else if let caption {
-                let m = caption.mentioned(e.mentions, members: members, me: me, refTitle: refTitle.callAsFunction)
+                let m = caption.mentioned(e.mentions, members: members, me: me, agentNames: agentNames, refTitle: refTitle.callAsFunction)
                 m.text.textRenderer(MentionBoxes())
                     .font(Typo.body).foregroundStyle(Theme.text.opacity(e.pending == true ? 0.55 : 1))
                     .accessibilityValue(m.handles.isEmpty ? "" : "Mentions " + m.handles.joined(separator: ", "))
@@ -830,7 +872,7 @@ struct EntryRow: View {
                 attachment.padding(.vertical, Space.xxs)
                 quote
                 if unsent { unsentBody } else if e.type == "change" { ChangeCardView(e: e, board: board).padding(.top, Space.xxs) } else if e.type == "task" { TaskCard(seq: e.seq, board: board, text: e.text, tasks: tasks).padding(.top, Space.xxs) } else if let caption {
-                    let m = caption.mentioned(e.mentions, members: members, me: me, refTitle: refTitle.callAsFunction)
+                    let m = caption.mentioned(e.mentions, members: members, me: me, agentNames: agentNames, refTitle: refTitle.callAsFunction)
                     m.text.textRenderer(MentionBoxes()).font(Typo.body).foregroundStyle(Theme.text.opacity(0.92)).lineSpacing(1.5)
                         .accessibilityValue(m.handles.isEmpty ? "" : "Mentions " + m.handles.joined(separator: ", "))
                 }
@@ -897,7 +939,7 @@ struct TaskCard: View {
         let subs = tasks.filter { $0.parent == seq }.sorted { $0.seq < $1.seq }
         // A checklist line that is also a sub-task shows once, as the sub-task (it has its own ring and owner).
         let items = (t?.items ?? []).filter { it in !subs.contains { $0.covers(it.text) } }
-        Button { if t != nil { Haptic.tap(); open = true } } label: {
+        Button { if t != nil { open = true } } label: {
             VStack(alignment: .leading, spacing: Space.s) {
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
                     Group {

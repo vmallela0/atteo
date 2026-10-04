@@ -271,7 +271,7 @@ struct SignInView: View {
     private func fail(_ e: Error) {
         error = (e as? LocalizedError)?.errorDescription ?? e.localizedDescription
         shakes += 1
-        Haptic.warn()
+        Haptics.play(.failed)
     }
 
     private func go(to s: Step) {
@@ -281,7 +281,6 @@ struct SignInView: View {
     }
 
     private func back(to s: Step) {
-        Haptic.tap()
         code = ""
         ticket = ""
         email = "" // a different one
@@ -294,7 +293,6 @@ struct SignInView: View {
         let address = email.trimmingCharacters(in: .whitespaces).lowercased()
         email = address
         busy = true
-        Haptic.tap()
         Task {
             defer { busy = false }
             do {
@@ -302,7 +300,7 @@ struct SignInView: View {
                 UserDefaults.standard.set(address, forKey: Self.lastEmailKey)
                 sentAt = Date(); now = sentAt
                 code = ""
-                if again { error = nil; Haptic.done() } else { go(to: .code) }
+                if again { error = nil; Haptics.play(.completed) } else { go(to: .code) }
                 focus = .code
             } catch { fail(error) }
         }
@@ -319,7 +317,6 @@ struct SignInView: View {
                 case .needsName(let t, let suggestion):
                     ticket = t
                     name = suggestion
-                    Haptic.tap()
                     go(to: .name)
                 }
             } catch {
@@ -333,7 +330,6 @@ struct SignInView: View {
     private func pickName() {
         guard !busy, !name.isEmpty else { return }
         busy = true
-        Haptic.tap()
         Task {
             defer { busy = false }
             do {
@@ -345,7 +341,6 @@ struct SignInView: View {
 
     private func browserSignIn() {
         webBusy = true
-        Haptic.tap()
         Task {
             defer { webBusy = false }
             do { try await SignIn().start(); finish() } catch { state.report(error) }
@@ -354,7 +349,7 @@ struct SignInView: View {
 
     private func finish() {
         focus = nil
-        Haptic.done()
+        Haptics.play(.completed)
         state.signedIn = true
     }
 }

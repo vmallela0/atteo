@@ -21,6 +21,8 @@ struct ComposerField: UIViewRepresentable {
     /// Who "@" can name here (lowercased), and you: a mention typed in sits in its blue box at once, as when sent.
     var members: Set<String> = []
     var me: String? = nil
+    /// Agents named by their owners, lowercased name → owner ("jarvis" → "vedu"): "@Jarvis" is boxed too.
+    var agentNames: [String: String] = [:]
     var identifier = "composer"
 
     final class Box: UITextView {
@@ -28,6 +30,7 @@ struct ComposerField: UIViewRepresentable {
         let placeholderLabel = UILabel()
         var members: Set<String> = []
         var me: String?
+        var agentNames: [String: String] = [:]
         private var mentions: [(range: NSRange, mine: Bool, handle: String)] = []
         private var boxes: [UIView] = []
         private var boxesFor = "" // the text and width the boxes were placed for
@@ -37,7 +40,7 @@ struct ComposerField: UIViewRepresentable {
         func restyle() {
             guard markedTextRange == nil, let font else { return }
             let plain = text ?? ""
-            let found = ComposerField.mentions(in: plain, members: members, me: me)
+            let found = ComposerField.mentions(in: plain, members: members, me: me, agentNames: agentNames)
             let base: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: UIColor(Theme.text)]
             let bold = UIFont.systemFont(ofSize: font.pointSize, weight: .semibold)
             let sel = selectedRange
@@ -144,7 +147,7 @@ struct ComposerField: UIViewRepresentable {
     func updateUIView(_ v: Box, context: Context) {
         context.coordinator.parent = self
         v.onImages = pasteImages
-        if v.members != members || v.me != me { v.members = members; v.me = me; v.restyle() }
+        if v.members != members || v.me != me || v.agentNames != agentNames { v.members = members; v.me = me; v.agentNames = agentNames; v.restyle() }
         v.placeholderLabel.text = placeholder
         v.accessibilityLabel = placeholder
         if v.text != text {
@@ -162,15 +165,17 @@ struct ComposerField: UIViewRepresentable {
 
     /// The mentions in a draft, as the web's composer highlights them: "@theo", "@theo's agent", "@theo/scout" for
     /// someone here, and "@agents" / "@humans". Yours (you, your agent) marked mine.
-    static func mentions(in text: String, members: Set<String>, me: String?) -> [(range: NSRange, mine: Bool, handle: String)] {
+    static func mentions(in text: String, members: Set<String>, me: String?, agentNames: [String: String] = [:]) -> [(range: NSRange, mine: Bool, handle: String)] {
         guard text.contains("@") else { return [] }
         let ns = text as NSString
-        var out: [(NSRange, Bool, String)] = []
+        var out: [(NSRange, Bool, String)] = agentNameMentions(in: text, names: agentNames, members: members).map { ($0.range, $0.owner == me?.lowercased(), ns.substring(with: $0.range)) }
+        let taken = out.map(\.0)
         for m in draftRE.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
             let handle = ns.substring(with: m.range(at: 2)).lowercased()
             let suffix = m.range(at: 3).location == NSNotFound ? nil : ns.substring(with: m.range(at: 3))
             let at = m.range(at: 2).location - 1
-            if (handle == "agents" || handle == "humans") && suffix == nil && !members.contains(handle) {
+            if taken.contains(where: { $0.location == at }) { continue } // already an agent's name
+            if (handle == "agents" || handle == "humans" || handle == "all") && suffix == nil && !members.contains(handle) {
                 out.append((NSRange(location: at, length: 1 + m.range(at: 2).length), false, "@" + handle))
                 continue
             }

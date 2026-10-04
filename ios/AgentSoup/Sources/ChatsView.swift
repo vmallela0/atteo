@@ -36,7 +36,6 @@ struct ChatsView: View {
 
     /// Your agent's chat: open it (made the first time).
     private func openAgentChat() {
-        Haptic.tap()
         if let b = state.agentChat { path.append(b); return }
         Task { if let b = await state.openAgentChat() { path.append(b) } }
     }
@@ -58,13 +57,13 @@ struct ChatsView: View {
                     Section {
                         // Keyed by each item's own id, so answering one animates it out (instead of the next row's
                         // content swapping into its place).
-                        let items: [(id: String, view: AnyView)] = state.approvals.map { ("a-" + $0.id, AnyView(ApprovalRow(a: $0) { a in Haptic.tap(); openApproval = a })) } + state.contacts.map { ("c-" + $0.from, AnyView(ContactRow(c: $0))) }
+                        let items: [(id: String, view: AnyView)] = state.approvals.map { ("a-" + $0.id, AnyView(ApprovalRow(a: $0) { a in openApproval = a })) } + state.contacts.map { ("c-" + $0.from, AnyView(ContactRow(c: $0))) }
                         ForEach(showAll ? items : Array(items.prefix(2)), id: \.id) {
                             $0.view.transition(.opacity.combined(with: .move(edge: .leading)))
                                 .listRowInsets(rowInsets).listRowSeparator(.hidden).listRowBackground(Theme.bg)
                         }
                         if items.count > 2 {
-                            Button(showAll ? "Show less" : "Show \(items.count - 2) more") { Haptic.tap(); withAnimation(.snappy) { showAll.toggle() } }
+                            Button(showAll ? "Show less" : "Show \(items.count - 2) more") { withAnimation(.snappy) { showAll.toggle() } }
                                 .font(Typo.meta.weight(.semibold)).foregroundStyle(Theme.muted)
                                 .padding(.leading, 44 + Space.m) // under the text column
                                 .frame(minHeight: 32)
@@ -103,7 +102,7 @@ struct ChatsView: View {
                         // A row you tap (no disclosure arrow): the whole row opens the chat.
                         ChatRow(b: b, unread: unread(b), me: state.me?.owner)
                             .contentShape(Rectangle())
-                            .onTapGesture { Haptic.tap(); path.append(b) }
+                            .onTapGesture { path.append(b) }
                             .accessibilityAddTraits(.isButton)
                             .accessibilityIdentifier("chat-\(b.title)")
                             .listRowBackground(Theme.bg)
@@ -123,7 +122,6 @@ struct ChatsView: View {
                         ForEach(hits) { h in
                             SearchHitRow(hit: .init(seq: h.seq ?? 0, ts: 0, author: h.author ?? "", via: h.via, type: "note", title: nil, snippet: h.snippet), board: h.title) {
                                 guard let b = state.boards.first(where: { $0.id == h.board }) else { return }
-                                Haptic.tap()
                                 state.jumpRequest = AppState.JumpRequest(board: b.id, seq: h.seq ?? 0)
                                 path = [b]
                             }
@@ -143,7 +141,7 @@ struct ChatsView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     // You: your picture opens settings (pictures, name, your agent, connections, sign out).
-                    Button { Haptic.tap(); showSettings = true } label: { Avatar(name: state.me?.owner ?? "", size: 30) }
+                    Button { showSettings = true } label: { Avatar(name: state.me?.owner ?? "", size: 30) }
                         .buttonStyle(.plain)
                         .accessibilityLabel("Settings")
                 }
@@ -159,7 +157,7 @@ struct ChatsView: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     // Your agents live behind one button (green dot: one is working right now).
-                    Button { Haptic.tap(); showAgents = true } label: {
+                    Button { showAgents = true } label: {
                         ToolbarIcon("sparkles")
                             .overlay(alignment: .topTrailing) {
                                 if state.sessions.contains(where: { $0.active == true }) { Circle().fill(Theme.ok).frame(width: 7, height: 7).offset(x: 4, y: -3) }
@@ -245,7 +243,7 @@ struct ChatsSwitch: View {
     }
 
     private func item(_ key: String, _ label: String, _ n: Int) -> some View {
-        Button { Haptic.tap(); withAnimation(.spring(duration: 0.3, bounce: 0.15)) { tab = key } } label: {
+        Button { withAnimation(.spring(duration: 0.3, bounce: 0.15)) { tab = key } } label: {
             HStack(spacing: 6) {
                 Text(label).font(Typo.meta.weight(.semibold))
                 if n > 0 { CountBadge(n: n) }
@@ -369,10 +367,10 @@ struct ApprovalRow: View {
             .accessibilityAddTraits(.isButton)
             .accessibilityIdentifier("approval-row")
             .accessibilityHint("Shows everything it asks")
-            AnswerButtons(yes: { Haptic.done(); Task { await state.decide(a, approve: true) } }, no: { Haptic.warn(); Task { await state.decide(a, approve: false) } })
+            AnswerButtons(yes: { Task { await state.decide(a, approve: true) } }, no: { Task { await state.decide(a, approve: false) } })
         }
-        .swipeActions(edge: .leading) { Button { Haptic.done(); Task { await state.decide(a, approve: true) } } label: { Label("Approve", systemImage: "checkmark") }.tint(Theme.ok) }
-        .swipeActions(edge: .trailing) { Button(role: .destructive) { Haptic.warn(); Task { await state.decide(a, approve: false) } } label: { Label("Reject", systemImage: "xmark") } }
+        .swipeActions(edge: .leading) { Button { Task { await state.decide(a, approve: true) } } label: { Label("Approve", systemImage: "checkmark") }.tint(Theme.ok) }
+        .swipeActions(edge: .trailing) { Button(role: .destructive) { Task { await state.decide(a, approve: false) } } label: { Label("Reject", systemImage: "xmark") } }
     }
 }
 
@@ -389,7 +387,7 @@ struct ContactRow: View {
                 Text(c.text ?? "first contact · \(c.createdAt.ago)").font(Typo.secondary).foregroundStyle(Theme.muted).lineLimit(1)
             }
             Spacer(minLength: 0)
-            AnswerButtons(yes: { Haptic.done(); Task { await state.answer(c, accept: true) } }, no: { Haptic.warn(); Task { await state.answer(c, accept: false) } }, yesColor: Theme.accent)
+            AnswerButtons(yes: { Haptics.play(.approved); Task { await state.answer(c, accept: true) } }, no: { Haptics.play(.denied); Task { await state.answer(c, accept: false) } }, yesColor: Theme.accent)
         }
         .swipeActions(edge: .leading) { Button { Task { await state.answer(c, accept: true) } } label: { Label("Allow", systemImage: "checkmark") }.tint(Theme.accent) }
         .swipeActions(edge: .trailing) { Button(role: .destructive) { Task { await state.answer(c, accept: false) } } label: { Label("Decline", systemImage: "xmark") } }

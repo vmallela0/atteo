@@ -31,10 +31,22 @@
 			</array>
 		</dict>
 	</array>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.atteo.app.refresh</string>
+	</array>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>fetch</string>
+	</array>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>Take a photo to send in a chat.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Hold the mic in the message box to talk instead of typing.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>What you say is turned into text on this iPhone, for the message box.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>
