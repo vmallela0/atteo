@@ -5119,6 +5119,48 @@ await step("session model: people see it on the web, agents never get it (reads,
     assert(third.status === 429 && /live agent sessions/.test(third.body.error) && Number(third.retry) > 0, `third session: ${third.status} ${JSON.stringify(third.body)}`);
     await call(lim.agent, "DELETE", "/api/sessions");
   });
+
+  // #2107 item 4 (#1544/#1548): every kind of idle wait an agent makes, REST and MCP, is free; work past the budget gets
+  // 429 with Retry-After on REST and MCP alike; refused calls don't use up budget. A fresh person, so no earlier counts.
+  // (Operators, ADMIN_EMAIL, get Pro limits: no daily cap. That's unit-tested in limits.test.ts, since it needs their email.)
+  await guarded("limits: idle waits (session, mailbox, board, MCP wait and mailbox) are never counted; work past the budget is 429 on REST and MCP; refused calls don't count", async () => {
+    const U = `e2e-lw-${run}`;
+    assert((await ops("users", { name: U, email: `${U}@example.com`, verified: "true" })).status === 201, "user");
+    const t = (await ops("tokens", { user: U, label: "e2e" })).body.token;
+    const bd = (await ops("boards", { user: U, title: `e2e waits ${run}` })).body.board.id;
+    const mcpCall = async (name, args) => {
+      const r = await fetch(`${BASE}/mcp?board=${bd}`, { method: "POST", headers: { authorization: `Bearer ${t}`, "content-type": "application/json", accept: "application/json, text/event-stream" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }) });
+      return { status: r.status, retry: r.headers.get("retry-after"), body: await r.json().catch(() => ({})) };
+    };
+    await setLimits({ dailyFree: 4 });
+    const s = await call(t, "POST", "/api/sessions", { client: "e2e" }); // counted: 1
+    assert(s.status === 201, `session: ${s.status} ${JSON.stringify(s.body)}`);
+    const sid = s.body.session.id;
+    assert((await call(t, "POST", `/api/sessions/${sid}/boards`, { board: bd })).status < 300, "join"); // 2
+    // Ten idle waits of every kind: none counted, all answered.
+    for (let i = 0; i < 2; i++) {
+      const w = [
+        await call(t, "GET", `/api/sessions/${sid}/wait?timeout=1`),
+        await call(t, "GET", "/api/mailbox?wait=1"),
+        await call(t, "GET", `/api/boards/${bd}/updates?after=999999&wait=1`),
+        await mcpCall("wait", { timeout_seconds: 1 }),
+        await mcpCall("mailbox", { wait_seconds: 1 }),
+      ];
+      assert(w.every((x) => x.status === 200 && !x.body.error), `waits round ${i + 1}: ${w.map((x) => `${x.status} ${JSON.stringify(x.body).slice(0, 80)}`).join(" | ")}`);
+    }
+    assert((await call(t, "GET", "/api/me")).status === 200, "3rd counted call");
+    assert((await mcpCall("read", {})).status === 200, "4th counted call (MCP read)");
+    // Past the budget: REST and MCP both refuse, with Retry-After until midnight UTC.
+    const r = await call(t, "GET", "/api/me");
+    assert(r.status === 429 && /^Daily limit reached/.test(r.body.error) && Number(r.retry) > 0, `REST past the budget: ${r.status} ${r.retry} ${JSON.stringify(r.body)}`);
+    const m = await mcpCall("read", {});
+    assert(m.status === 429 && Number(m.retry) > 0 && /Daily limit reached/.test(m.body.error?.message ?? ""), `MCP past the budget: ${m.status} ${m.retry} ${JSON.stringify(m.body)}`);
+    // Those refusals didn't count: one more allowed call fits exactly, then it's refused again.
+    await setLimits({ dailyFree: 5 });
+    assert((await call(t, "GET", "/api/me")).status === 200, "the 5th call fits: refused calls weren't counted");
+    assert((await call(t, "GET", "/api/me")).status === 429, "then over again");
+    await call(t, "DELETE", "/api/sessions");
+  });
 }
 
 // ---- #1914 item 1 (#1934): one regression net for both private kinds. People only (people named, never an agent) and Just

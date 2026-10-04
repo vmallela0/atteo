@@ -140,6 +140,19 @@ describe("daily budget", () => {
     expect((await admit(env, ctx, agent({ tokenKey: null }), T0 + 200))?.status).toBe(429);
   });
 
+  it("operators (ADMIN_EMAIL) get Pro limits on a Free plan: no daily cap; a Free account with another email does (#2107)", async () => {
+    const { env, db } = fakeEnv({ DAILY_REQUESTS_FREE: "2", ADMIN_EMAIL: "Boss@Example.com, other@example.com" } as Partial<Env>);
+    db.prepare(`INSERT INTO users (name, email, first_seen, last_seen) VALUES ('vedu', 'boss@example.com', 0, 0)`).run();
+    db.prepare(`INSERT INTO users (name, email, first_seen, last_seen) VALUES ('jo', 'jo@example.com', 0, 0)`).run();
+    for (let i = 0; i < 30; i++) expect(await admit(env, ctx, agent({ tokenKey: null }), T0 + i)).toBeNull();
+    for (let i = 0; i < 2; i++) expect(await admit(env, ctx, agent({ user: "jo", tokenKey: null }), T0 + i)).toBeNull();
+    expect((await admit(env, ctx, agent({ user: "jo", tokenKey: null }), T0 + 10))?.status).toBe(429);
+    // The per-token rate limit still applies to an operator's tokens (it protects the Worker, not a plan).
+    setOverrides({ agentPerMin: 2 });
+    for (let i = 0; i < 2; i++) expect(await admit(env, ctx, agent({ tokenKey: "tok-op" }), T0 + 100 + i)).toBeNull();
+    expect((await admit(env, ctx, agent({ tokenKey: "tok-op" }), T0 + 110))?.status).toBe(429);
+  });
+
   it("counts from every isolate add up through the flush (it returns the global total)", async () => {
     const { env, db } = fakeEnv({ DAILY_REQUESTS_FREE: "150" });
     db.prepare(`INSERT INTO usage_daily (day, metric, key, count) VALUES ('2026-10-03', 'requests', 'vedu', 120)`).run(); // other isolates
