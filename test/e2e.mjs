@@ -5119,6 +5119,35 @@ await step("session model: people see it on the web, agents never get it (reads,
     assert(c0.body.shed?.level === 0, `cron level 0: ${JSON.stringify(c0.body.shed)}`);
   });
 
+  // #2144 item 2 (#1544): near quota stretches waits instead of failing, pauses non-essential cron housekeeping, posts still work.
+  await guarded("limits: near quota (DEV_FAKE_NEAR_QUOTA): waits stretch instead of failing, cron housekeeping pauses, posts still work", async () => {
+    const probe = await ops("limits", { nearQuota: true });
+    if (probe.status === 400) return console.log("      (skipped near quota: set DEV_FAKE_NEAR_QUOTA=1 in .dev.vars)");
+    assert(probe.status === 200 && probe.body.near_quota === true, `nearQuota on: ${probe.status} ${JSON.stringify(probe.body)}`);
+    const t0 = Date.now();
+    const w = await call(lim.agent, "GET", `/api/boards/${lb}/entries?after=999999&wait=1`);
+    const elapsed = Date.now() - t0;
+    assert(w.status === 200, `wait succeeds near quota: ${w.status} ${JSON.stringify(w.body)}`);
+    assert(elapsed >= 1800, `wait stretched (1s → ~2s): ${elapsed}ms`);
+    const up = await (await fetch(`${BASE}/api/boards/${lb}/updates?after=0`, { headers: { cookie: lim.cookie } })).json();
+    assert(up.poll_after_ms > 0, `poll hint near quota: ${up.poll_after_ms}`);
+    assert((await call(lim.agent, "POST", `/api/boards/${lb}/entries`, { text: `near quota post ${run}` })).status === 201, "post near quota");
+    const oldDay = new Date(Date.now() - 91 * 86_400_000).toISOString().slice(0, 10);
+    assert((await ops("usage-daily", { day: oldDay, metric: "requests", key: "stale", count: 1 })).status === 200, "seed old usage_daily row");
+    const cronNear = await ops("cron", {});
+    assert(cronNear.body.housekeeping === false, `housekeeping paused: ${JSON.stringify(cronNear.body)}`);
+    let kept = (await ops("usage-daily")).body.rows?.filter((r) => r.day === oldDay) ?? [];
+    assert(kept.length === 1, `old row kept while paused: ${kept.length}`);
+    await setLimits({ nearQuota: false, reset: true, shed: 0 });
+    const cronOk = await ops("cron", {});
+    assert(cronOk.body.housekeeping === true, `housekeeping runs again: ${JSON.stringify(cronOk.body)}`);
+    for (let i = 0; i < 20 && kept.length; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+      kept = (await ops("usage-daily")).body.rows?.filter((r) => r.day === oldDay) ?? [];
+    }
+    assert(kept.length === 0, `old row pruned after reset: ${kept.length}`);
+  });
+
   await guarded("limits: one open wait per agent session (a newer wait ends the older); a cap on live sessions", async () => {
     const s = await call(lim.agent, "POST", "/api/sessions", { client: "e2e" });
     assert(s.status === 201, `session: ${s.status} ${JSON.stringify(s.body)}`);

@@ -506,7 +506,7 @@ async function opsData(env: Env): Promise<AdminData> {
 
 /** Every 5 minutes (the cron; tests call it through POST /api/ops/cron): retention, sweeps, expired memberships, and
  *  workflow triggers on a daily schedule (`now` lets a test pick the time those see). */
-async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): Promise<{ schedules: number; scheduled_tasks: number; shed: Awaited<ReturnType<typeof limits.updateShedLevel>> }> {
+async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): Promise<{ schedules: number; scheduled_tasks: number; housekeeping: boolean; shed: Awaited<ReturnType<typeof limits.updateShedLevel>> }> {
   // Load shedding (src/limits.ts): today's usage sets the level every request then sees (0 normal, 1 stretch waits and
   // pause background work, 2 also refuse non-essential agent writes).
   const shed = await limits.updateShedLevel(env).catch(() => ({ level: limits.shedLevelNow(), requests: 0, rows_read: null }));
@@ -514,7 +514,8 @@ async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): 
   const keep = (await env.DB.prepare(`SELECT id, retention_days FROM boards WHERE retention_days IS NOT NULL`).all<{ id: string; retention_days: number }>()).results;
   for (const b of keep) ctx.waitUntil(boardStub(env, b.id).prune(Date.now() - b.retention_days * 86_400_000).catch(() => 0));
   // Housekeeping sweeps wait while shedding load (they catch up on a quieter run).
-  if (shed.level < 1) {
+  const housekeeping = shed.level < 1;
+  if (housekeeping) {
     ctx.waitUntil(env.DB.prepare(registry.TAPE_PRUNE_SQL).bind(Date.now() - 7 * 86_400_000).run().catch(() => {}));
     ctx.waitUntil(appSignin.sweep(env).catch(() => {}));
     ctx.waitUntil(inbox.pruneRead(env, now).catch(() => {}));
@@ -547,7 +548,7 @@ async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): 
       .catch(() => ({ results: [] as { board_id: string }[] }))
   ).results;
   const posted = await Promise.all(dueBoards.map((b) => boardStub(env, b.board_id).runBoardSchedules(now).catch((e) => (console.error("board schedules failed", b.board_id, e), 0))));
-  return { schedules: fired.reduce((a, b) => a + b, 0), scheduled_tasks: posted.reduce((a, b) => a + b, 0), shed };
+  return { schedules: fired.reduce((a, b) => a + b, 0), scheduled_tasks: posted.reduce((a, b) => a + b, 0), housekeeping, shed };
 }
 
 const handler = {
@@ -2860,11 +2861,15 @@ const handler = {
         // single isolate under wrangler dev), {reset: true} clears overrides and counters, {shed: 0-2} sets today's level.
         if (path === "/api/ops/limits") {
           if (method === "POST") {
-            limits.setOverrides(body as Record<string, unknown>, (body as { reset?: unknown }).reset === true);
-            const lv = (body as { shed?: unknown }).shed;
+            const b = body as { reset?: unknown; nearQuota?: unknown; shed?: unknown };
+            limits.setOverrides(body as Record<string, unknown>, b.reset === true);
+            if (b.nearQuota === true) {
+              if (!limits.setNearQuota(env, true)) return json({ error: "nearQuota requires DEV_FAKE_NEAR_QUOTA=1 on localhost" }, 400);
+            } else if (b.nearQuota === false || b.reset === true) limits.setNearQuota(env, false);
+            const lv = b.shed;
             if (lv != null) await limits.setShedLevel(env, Number(lv));
           }
-          return json({ limits: limits.limits(env), shed: await limits.shedLevel(env) });
+          return json({ limits: limits.limits(env), shed: await limits.shedLevel(env), near_quota: limits.nearQuotaActive() });
         }
         // Tests: run the cron now (as the 5-minute schedule would), at `now` (ms) for scheduled triggers.
         if (path === "/api/ops/cron" && method === "POST") {

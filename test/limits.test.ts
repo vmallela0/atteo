@@ -8,9 +8,12 @@ import {
   isEssentialRest,
   isMcpWait,
   isWaitRequest,
+  nearQuotaActive,
+  nearQuotaAllowed,
   pollAfterMs,
   rateCheck,
   secondsToMidnight,
+  setNearQuota,
   setOverrides,
   setShedLevel,
   shedLevel,
@@ -182,6 +185,20 @@ describe("load shedding", () => {
     expect(await shedLevel(env, T0 + 1)).toBe(1);
     expect(await shedLevel(env, T0 + 30_000)).toBe(1);
     expect(sent.length - before).toBe(1);
+  });
+
+  it("DEV_FAKE_NEAR_QUOTA fakes level 1 on localhost for tests", async () => {
+    const { env } = fakeEnv({ PUBLIC_URL: "http://localhost:8787" });
+    expect(nearQuotaAllowed(env)).toBe(false);
+    const on = fakeEnv({ PUBLIC_URL: "http://localhost:8787", DEV_FAKE_NEAR_QUOTA: "1" });
+    expect(nearQuotaAllowed(on.env)).toBe(true);
+    expect(setNearQuota(on.env, true)).toBe(true);
+    expect(nearQuotaActive()).toBe(true);
+    expect(await shedLevel(on.env, T0)).toBe(1);
+    expect(await updateShedLevel(on.env, T0)).toMatchObject({ level: 1 });
+    setOverrides({}, true);
+    expect(nearQuotaActive()).toBe(false);
+    expect(setNearQuota({ PUBLIC_URL: "http://localhost:8787" } as typeof on.env, true)).toBe(false);
   });
 
   it("level 1 stretches waits and asks clients to poll less; level 2 also refuses non-essential agent writes with 503", async () => {
