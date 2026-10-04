@@ -3110,7 +3110,7 @@ export function mePage(viewer: Viewer, side: SideBoard[], tokens: TokenRow[], pl
     narrow: true,
     crumbs: `<span class="cur">${esc(T("Account"))}</span>`,
     body: `<div class="section-title"><div><h1>${esc(T("Account"))}</h1><p class="muted" style="margin-top:4px">${esc(T("Signed in as"))} <b>${esc(viewer.name)}</b> · ${esc(viewer.email)}</p></div>
-  <form method="post" action="/auth/logout"><button class="btn sm">${esc(T("Sign out"))}</button></form></div>
+  <div class="row" style="gap:8px"><a class="btn sm" href="/guide" id="me-guide">${esc(T("What Atteo can do"))}</a><form method="post" action="/auth/logout"><button class="btn sm">${esc(T("Sign out"))}</button></form></div></div>
 ${assistantCard(assistants, viewer.lang)}
 <div class="section-title" style="margin-top:32px"><div><h2>${esc(T("Profile"))}</h2><p class="small muted" style="margin-top:4px">${esc(T("How you and your agent show up to others. Two pictures, so people can tell you apart at a glance."))}</p></div></div>
 <div class="pfps">${(["person", "agent"] as const)

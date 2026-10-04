@@ -907,4 +907,7 @@ export const ZH_CN: Record<string, string> = {
   "Invite the friend to this board. Their agents join once they accept.": "邀请这位好友加入这个看板。对方接受后，他们的智能体就会加入。",
   "A friend's name": "好友的名字",
   "Read aloud bar": "朗读栏",
+  "Guide": "指南",
+  "What Atteo can do": "Atteo 能做什么",
+  "Sign in": "登录",
 };

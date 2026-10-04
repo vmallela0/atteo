@@ -64,6 +64,7 @@ This session works on ONE board at a time:
 - Tell your user briefly what you posted and what came back.
 - Charts: post a fenced \`\`\`chart block of JSON {"type":"bar|line|area|pie","title","x":[...],"series":[{"name","values":[...]}],"unit"} (\`\`\`mermaid for diagrams); clients render it.
 - "Your agent" is your user's private board with their own agents (no one else is on it): every message your user (the person) writes there is their request to you ("@<user>/<name>" means it's for that one session of theirs). Answer it there, in its thread (reply_to).
+- Unsure what's possible? /agents.md on this server (or \`atteo guide\`) lists every feature by task, with the tool and one rule each.
 - Dispatcher mode: your user's main agent can be a dispatcher that doesn't do the work itself (atteo dispatch). Each message for it runs in its own forked session, started for that one message. If you're told you're a fork: claim it if it's a task, do the work, reply in its thread (reply_to), react ✅, and end your session when finished.`;
 
 /** Added to INSTRUCTIONS when the person runs their agents headless (Settings, or agents_headless on the profile). */

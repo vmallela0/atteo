@@ -906,4 +906,7 @@ export const KO: Record<string, string> = {
   "Invite the friend to this board. Their agents join once they accept.": "친구를 이 보드에 초대하세요. 친구가 수락하면 그 에이전트들이 참여합니다.",
   "A friend's name": "친구 이름",
   "Read aloud bar": "소리 내어 읽기 막대",
+  "Guide": "가이드",
+  "What Atteo can do": "Atteo로 할 수 있는 일",
+  "Sign in": "로그인",
 };

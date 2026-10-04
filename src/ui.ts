@@ -1126,19 +1126,19 @@ export interface Viewer {
 export function page(
   title: string,
   body: string,
-  opts: { viewer?: Viewer | null; nav?: "boards" | "admin" | "me" | null; narrow?: boolean; script?: string; status?: number; headers?: HeadersInit } = {},
+  opts: { viewer?: Viewer | null; nav?: "boards" | "admin" | "me" | null; narrow?: boolean; script?: string; status?: number; headers?: HeadersInit; lang?: Lang } = {},
 ): Response {
   const v = opts.viewer;
   const link = (href: string, label: string, key: string) => `<a href="${href}"${opts.nav === key ? ' aria-current="page"' : ""}>${label}</a>`;
   const nav = `<header class="nav"><div class="in">
 <a class="brand" href="/">${LOGO}<span class="wm">atteo</span></a>
-${v ? `<nav class="links">${link("/", "Boards", "boards")}</nav>` : ""}
+${v ? `<nav class="links">${link("/", esc(tr(opts.lang, "Boards")), "boards")}</nav>` : ""}
 <div class="right">${
     v
-      ? `<a href="/me" class="row" title="Account">${avatar(v.name)}<span class="small hide-sm">${esc(v.name)}</span></a>`
-      : `<a class="btn sm primary" href="/auth/login">Sign in</a>`
+      ? `<a href="/me" class="row" title="${esc(tr(opts.lang, "Account"))}">${avatar(v.name)}<span class="small hide-sm">${esc(v.name)}</span></a>`
+      : `<a class="btn sm primary" href="/auth/login">${esc(tr(opts.lang, "Sign in"))}</a>`
   }</div></div></header>`;
-  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  const html = `<!doctype html><html lang="${opts.lang ?? "en"}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -1434,6 +1434,7 @@ const ICON = {
   search: `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>`,
   menu: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"/></svg>`,
   plus: `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg>`,
+  guide: `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><path d="M8 4.2C6.6 3 4.6 2.6 2.5 2.8v9.6c2.1-.2 4.1.2 5.5 1.4 1.4-1.2 3.4-1.6 5.5-1.4V2.8c-2.1-.2-4.1.2-5.5 1.4z"/><path d="M8 4.2v9.6"/></svg>`,
 };
 
 export interface SideBoard {
@@ -1511,6 +1512,7 @@ export function appPage(
     { label: T("New board"), hint: "C", href: "/?new=1" },
     { label: T("All boards"), hint: "G B", href: "/" },
     { label: T("Account and agent connections"), hint: "G M", href: "/me" },
+    { label: T("Guide"), hint: T("What Atteo can do"), href: "/guide" },
     { label: T("Keyboard shortcuts"), hint: "?", href: "#shortcuts" },
     ...(v.admin ? [{ label: "Ops console", hint: "Operators", href: "/_ops" }] : []),
   ];
@@ -1524,6 +1526,7 @@ export function appPage(
   <a class="side-link" href="/approvals"${cur("approvals")}>${ICON.approve}<span>${esc(T("Approvals"))}</span><span class="count" id="approvals-count" hidden></span></a>
   <a class="side-link" href="/"${cur("boards")}>${ICON.boards}<span>${esc(T("Boards"))}</span></a>
   <a class="side-link" href="/people"${cur("people")}>${ICON.me}<span>${esc(T("People"))}</span></a>
+  <a class="side-link" href="/guide"${cur("guide")}>${ICON.guide}<span>${esc(T("Guide"))}</span></a>
   <a class="side-link side-connect" href="/me#connect" data-connect>${ICON.plug}<span class="dev-l">${esc(T("Connect an agent"))}</span><span class="ev-l">${esc(T("Connect your assistant"))}</span></a>
   ${v.admin ? `<a class="side-link" href="/_ops"${cur("admin")}>${ICON.admin}<span>Ops</span></a>` : ""}
   <div class="side-label"><span>${esc(T("Your boards"))}</span><a href="/?new=1" title="${esc(T("New board (C)"))}" aria-label="${esc(T("New board"))}">${ICON.plus}</a></div>

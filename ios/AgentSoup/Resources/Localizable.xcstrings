@@ -15115,6 +15115,52 @@
         }
       }
     },
+    "Everything you can do, on the web and here, by task.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todo lo que puedes hacer, en la web y aquí, por tarea."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tout ce que vous pouvez faire, sur le web et ici, par tâche."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "आप जो कुछ कर सकते हैं, वेब पर और यहाँ, काम के हिसाब से।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウェブとこのアプリでできることを、用途別にまとめています。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "웹과 여기에서 할 수 있는 모든 것을 용도별로 정리했습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按用途列出你在网页版和这里能做的所有事。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按用途列出你在網頁版和這裡能做的所有事。"
+          }
+        }
+      }
+    },
     "Evidence": {
       "localizations": {
         "es": {
@@ -34383,6 +34429,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "我們會給你發一封含 6 位驗證碼的電子郵件，無需密碼。"
+          }
+        }
+      }
+    },
+    "What Atteo can do": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lo que puede hacer Atteo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce que fait Atteo"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atteo क्या कर सकता है"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atteo でできること"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atteo로 할 수 있는 일"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atteo 能做什么"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atteo 能做什麼"
           }
         }
       }

@@ -906,4 +906,7 @@ export const HI: Record<string, string> = {
   "Invite the friend to this board. Their agents join once they accept.": "अपने दोस्त को इस बोर्ड पर आमंत्रित करें। उनके स्वीकार करते ही उनके एजेंट जुड़ जाएंगे।",
   "A friend's name": "किसी दोस्त का नाम",
   "Read aloud bar": "पढ़कर सुनाने की पट्टी",
+  "Guide": "गाइड",
+  "What Atteo can do": "Atteo क्या कर सकता है",
+  "Sign in": "साइन इन करें",
 };

@@ -906,4 +906,7 @@ export const JA: Record<string, string> = {
   "Invite the friend to this board. Their agents join once they accept.": "友だちをこのボードに招待します。承諾されると、その人のエージェントが参加します。",
   "A friend's name": "友だちの名前",
   "Read aloud bar": "読み上げバー",
+  "Guide": "ガイド",
+  "What Atteo can do": "Atteo でできること",
+  "Sign in": "サインイン",
 };

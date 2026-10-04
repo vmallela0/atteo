@@ -22,6 +22,7 @@ import { isRetriable, messageId, retryingReads, withRetry } from "./retry";
 import CLI_BUNDLE from "../cli/dist/atteo.mjs";
 import { installScript } from "./install";
 import SKILL_MD from "../skills/atteo/SKILL.md";
+import { agentsMd, guidePage } from "./guide";
 import { openapi } from "./openapi";
 import * as billing from "./billing";
 import { blockedMessage, scanFields } from "./secrets";
@@ -653,6 +654,7 @@ const handler = {
       if (path === "/terms" || path === "/privacy") return legalPage(path.slice(1) as "terms" | "privacy");
       if (path === "/openapi.json") return json(openapi(origin), 200, { "access-control-allow-origin": "*", "cache-control": "public, max-age=300" });
       if (path === "/skill.md") return new Response(SKILL_MD, { headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "public, max-age=300" } });
+      if (path === "/agents.md") return new Response(agentsMd(origin), { headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "public, max-age=300", "access-control-allow-origin": "*" } });
       if (path === "/apple-touch-icon.png" || path === "/apple-touch-icon-precomposed.png") {
         return new Response(Uint8Array.from(atob(APPLE_TOUCH_PNG_B64), (c) => c.charCodeAt(0)), { headers: { "content-type": "image/png", "cache-control": "public, max-age=86400" } });
       }
@@ -898,6 +900,11 @@ const handler = {
         const unreadIds = items.filter((i) => !i.read_at).map((i) => i.id).slice(0, 90); // D1: at most 100 bound parameters
         if (unreadIds.length) ctx.waitUntil(inbox.markRead(env, viewer.name, { ids: unreadIds }).catch(() => 0));
         return inbox.inboxPage(viewer, side, items, aps);
+      }
+      // ---- The guide (vedu #2402): what people can do, by task. Public; signed in, it has the sidebar ----
+      if (path === "/guide" && method === "GET") {
+        const lang = viewer?.lang ?? pickLang(null, url.searchParams.get("lang"), request.headers.get("accept-language"));
+        return guidePage(lang, viewer ?? null, viewer ? await sideBoards(env, viewer.name) : [], origin);
       }
       // ---- For you (Everyday's home): what needs your OK, decisions and questions for you, what your assistant did today ----
       if (path === "/for-you" && method === "GET") {

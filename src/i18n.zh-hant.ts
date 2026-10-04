@@ -907,4 +907,7 @@ export const ZH_HANT: Record<string, string> = {
   "Invite the friend to this board. Their agents join once they accept.": "邀請這位好友加入這個看板。對方接受後，他們的智能體就會加入。",
   "A friend's name": "好友的名字",
   "Read aloud bar": "朗讀列",
+  "Guide": "指南",
+  "What Atteo can do": "Atteo 能做什麼",
+  "Sign in": "登入",
 };
