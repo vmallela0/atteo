@@ -87,4 +87,128 @@ final class LanguageUITests: AtteoUITestCase {
         pick(a, "English")
         XCTAssertTrue(a.navigationBars["Chats"].waitForExistence(timeout: 10), "back to English")
     }
+
+    // Français, हिन्दी and 한국어 (vedu #1776). Each checks words that differ from English (French "Chats" is "Chats", so the
+    // French passes look at For you, Settings and the New button instead).
+
+    private func has(_ a: XCUIApplication, _ text: String) -> Bool {
+        a.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", text)).firstMatch.waitForExistence(timeout: 5)
+    }
+
+    /// Everyday: `name` turns For you, the greeting, Needs your OK, Settings and the picker's Automatic row into the
+    /// language, saved as `code`; English brings the English words back.
+    private func everyday(_ name: String, code: String, forYou: String, chats: String?, needsOK: String, settings: String,
+                          appearance: String, automatic: String, shots tag: String) {
+        continueAfterFailure = false
+        call("POST", "/api/app/prefs", json: ["display": ["lang": "auto"]])
+        let a = app(extra: ["AGENT_SOUP_MODE": "everyday"])
+        a.launch()
+        XCTAssertTrue(a.navigationBars["For you"].waitForExistence(timeout: 20), "For you, in English")
+        openSettings(a, label: "Settings", title: "Settings")
+        pick(a, name)
+
+        XCTAssertTrue(a.navigationBars[forYou].waitForExistence(timeout: 10), "For you → \(forYou)")
+        if let chats { XCTAssertTrue(a.buttons["open-chats"].label.contains(chats), "Chats → \(chats)") }
+        XCTAssertTrue(a.staticTexts["greeting"].label.contains("Maya") && !a.staticTexts["greeting"].label.hasPrefix("Good"), "the greeting translated")
+        XCTAssertTrue(has(a, needsOK), "Needs your OK → \(needsOK)")
+        shot("language-\(tag)-for-you")
+        openSettings(a, label: settings, title: settings)
+        XCTAssertTrue(has(a, appearance), "Appearance → \(appearance)")
+        shot("language-\(tag)-settings")
+        XCTAssertEqual(serverLang(), code, "saved to display.lang for the web")
+
+        let row = a.buttons["display-lang"]
+        for _ in 0..<10 where !(row.exists && row.isHittable) { a.swipeUp(velocity: .slow) }
+        shot("language-\(tag)-settings-lower")
+        row.tap()
+        XCTAssertTrue(a.buttons.matching(NSPredicate(format: "label CONTAINS %@", automatic)).firstMatch.waitForExistence(timeout: 5), "Automatic → \(automatic)")
+        a.buttons.matching(NSPredicate(format: "label CONTAINS 'English'")).firstMatch.tap()
+        XCTAssertTrue(a.navigationBars["For you"].waitForExistence(timeout: 10), "back to English")
+        XCTAssertEqual(serverLang(), "en")
+    }
+
+    /// Developer mode: `name` from Settings → Display; the Chats screen and Settings follow, then back to English.
+    private func developer(_ name: String, code: String, chats: String, new: String, settings: String, display: String, shots tag: String) {
+        continueAfterFailure = false
+        call("POST", "/api/app/prefs", json: ["display": ["lang": "auto"]])
+        let a = app()
+        a.launch()
+        XCTAssertTrue(a.navigationBars["Chats"].waitForExistence(timeout: 20), "Chats, in English")
+        openSettings(a, label: "Settings", title: "Settings")
+        pick(a, name)
+
+        XCTAssertTrue(a.buttons.matching(NSPredicate(format: "label == %@", settings)).firstMatch.waitForExistence(timeout: 10), "Settings → \(settings)")
+        XCTAssertTrue(a.navigationBars[chats].exists, "Chats → \(chats)")
+        XCTAssertTrue(a.buttons.matching(NSPredicate(format: "label == %@", new)).firstMatch.exists, "New → \(new)")
+        // The Boards / DMs switch stays one line (French « Messages directs » once broke over three).
+        let dms = a.buttons["tab-direct"]
+        XCTAssertTrue(dms.waitForExistence(timeout: 5), "the DMs tab")
+        XCTAssertLessThan(dms.frame.height, 40, "DMs on one line")
+        XCTAssertTrue(a.buttons["people-first"].exists, "People first is still there")
+        shot("language-\(tag)-chats")
+        openSettings(a, label: settings, title: settings)
+        shot("language-\(tag)-dev-settings")
+        // Display is below the fold: scroll to the Language row (in it), then its header is on screen.
+        let row = a.buttons["display-lang"]
+        for _ in 0..<10 where !(row.exists && row.isHittable) { a.swipeUp(velocity: .slow) }
+        XCTAssertTrue(has(a, display), "Display → \(display)")
+        shot("language-\(tag)-dev-settings-display")
+        XCTAssertEqual(serverLang(), code)
+        pick(a, "English")
+        XCTAssertTrue(a.navigationBars["Chats"].waitForExistence(timeout: 10), "back to English")
+    }
+
+    func testEverydayFrench() throws {
+        everyday("Français", code: "fr", forYou: "Pour vous", chats: nil, needsOK: "Attend votre accord", settings: "Paramètres",
+                 appearance: "Apparence", automatic: "Automatique", shots: "fr")
+    }
+
+    func testEverydayHindi() throws {
+        everyday("हिन्दी", code: "hi", forYou: "आपके लिए", chats: "चैट", needsOK: "आपकी मंज़ूरी चाहिए", settings: "सेटिंग",
+                 appearance: "दिखावट", automatic: "अपने आप", shots: "hi")
+    }
+
+    func testDeveloperFrench() throws {
+        developer("Français", code: "fr", chats: "Chats", new: "Nouveau", settings: "Paramètres", display: "Affichage", shots: "fr")
+    }
+
+    func testDeveloperHindi() throws {
+        developer("हिन्दी", code: "hi", chats: "चैट", new: "नया", settings: "सेटिंग", display: "डिस्प्ले", shots: "hi")
+    }
+
+    /// Hindi's longer words in the tight places (vedu #1776): a chat's header and tabs (Everyday and Developer), and
+    /// Everyday's Work screen, whose segmented control is 168 pt for करने के काम / फ़ाइलें. Shots for a look; the test
+    /// checks the screens open in Hindi.
+    func testHindiTightPlaces() throws {
+        continueAfterFailure = false
+        for mode in ["everyday", "developer"] {
+            call("POST", "/api/app/prefs", json: ["display": ["lang": "hi"]])
+            let a = app(extra: ["AGENT_SOUP_MODE": mode])
+            a.launch()
+            if mode == "everyday" {
+                XCTAssertTrue(a.navigationBars["आपके लिए"].waitForExistence(timeout: 20), "For you in Hindi")
+                a.buttons["open-chats"].tap()
+            }
+            XCTAssertTrue(a.navigationBars["चैट"].waitForExistence(timeout: 15), "Chats in Hindi")
+            let tab = a.buttons["tab-boards"]
+            if tab.waitForExistence(timeout: 10) { tab.tap() }
+            let row = a.buttons["chat-Checkout bug"].firstMatch
+            XCTAssertTrue(row.waitForExistence(timeout: 10), "Checkout bug")
+            row.tap()
+            XCTAssertTrue(composer(a).waitForExistence(timeout: 10), "the chat opens")
+            sleep(1)
+            shot("language-hi-\(mode)-chat")
+            if mode == "everyday" {
+                a.buttons["tab-todos"].tap()
+                XCTAssertTrue(a.segmentedControls["work-pane"].waitForExistence(timeout: 5), "the Work screen")
+                sleep(1)
+                shot("language-hi-everyday-work")
+            }
+            a.terminate()
+        }
+    }
+
+    func testDeveloperKorean() throws {
+        developer("한국어", code: "ko", chats: "채팅", new: "새로 만들기", settings: "설정", display: "화면", shots: "ko")
+    }
 }

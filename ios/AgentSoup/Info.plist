@@ -10,7 +10,10 @@
 		<string>zh-Hans</string>
 		<string>zh-Hant</string>
 		<string>es</string>
+		<string>fr</string>
 		<string>ja</string>
+		<string>ko</string>
+		<string>hi</string>
 	</array>
 	<key>CFBundleDisplayName</key>
 	<string>Atteo</string>
