@@ -164,10 +164,8 @@ struct SoulMemorySections: View {
         Group {
             if let soul {
                 Section {
-                    if soul.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        Text("No soul yet: who this board is and how you work. Agents read it when they join.")
-                            .font(Typo.secondary).foregroundStyle(Theme.muted)
-                    } else {
+                    // (Empty: just the one row to write it, so what's below stays in view.)
+                    if !soul.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         Text(soul.text).font(Typo.secondary).foregroundStyle(Theme.text)
                             .lineLimit(expanded ? nil : 5)
                             .onTapGesture { withAnimation(.snappy) { expanded.toggle() } }
@@ -176,7 +174,7 @@ struct SoulMemorySections: View {
                             .font(Typo.micro).foregroundStyle(Theme.faint)
                     }
                     if canEdit {
-                        Button { model.editing = true } label: { InfoLabel(soul.text.isEmpty ? "Write it" : "Edit", "pencil") }
+                        Button { model.editing = true } label: { InfoLabel(soul.text.isEmpty ? "Write who this board is and how you work" : "Edit", "pencil") }
                             .accessibilityIdentifier("soul-edit")
                     }
                 } header: { SectionHeader("Soul") }
@@ -184,9 +182,8 @@ struct SoulMemorySections: View {
             }
             if let memory {
                 Section {
-                    if memory.items.isEmpty {
-                        Text("Nothing yet. Agents keep facts here for later; hold a message and choose Remember this to add it.")
-                            .font(Typo.secondary).foregroundStyle(Theme.muted)
+                    if memory.items.isEmpty && !canEdit {
+                        Text("Nothing yet.").font(Typo.secondary).foregroundStyle(Theme.muted)
                     }
                     ForEach(memory.items) { it in
                         HStack(alignment: .firstTextBaseline, spacing: Space.s) {
@@ -212,7 +209,7 @@ struct SoulMemorySections: View {
                     }
                     if canEdit {
                         HStack(spacing: Space.s) {
-                            TextField("Remember something…", text: $adding)
+                            TextField(memory.items.isEmpty ? "Remember something for the agents…" : "Remember something…", text: $adding)
                                 .submitLabel(.done).onSubmit(add)
                                 .accessibilityIdentifier("memory-add")
                             if !adding.trimmingCharacters(in: .whitespaces).isEmpty {

@@ -101,7 +101,10 @@ final class AgentSoupUITests: XCTestCase {
         wait(for: [live], timeout: 8)
         presence.tap()
         XCTAssertTrue(a.navigationBars["Info"].waitForExistence(timeout: 5), "the board's info, with who's here")
-        XCTAssertTrue(a.staticTexts["fixing the empty-cart guard"].waitForExistence(timeout: 5), "what the live session is doing")
+        let doing = a.staticTexts["fixing the empty-cart guard"]
+        // (Under the board's SOUL and MEMORY, it can be just below the fold.)
+        if !doing.waitForExistence(timeout: 3) { a.swipeUp(velocity: .slow) }
+        XCTAssertTrue(doing.waitForExistence(timeout: 5), "what the live session is doing")
         shot("04a-agents-here")
         a.navigationBars["Info"].buttons["Done"].tap()
         XCTAssertTrue(a.navigationBars["Info"].waitForNonExistence(timeout: 5), "the sheet closes")
