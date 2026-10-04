@@ -201,7 +201,7 @@ dialog[open]{animation:pop .16s ease-out}dialog:focus{outline:none}
 @keyframes entryin{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}} /* new messages rise in gently (jxn #1366) */
 @media(prefers-reduced-motion:reduce){.entry.flash-in{animation:flashin 1.6s ease-out}}
 /* Messages off screen aren't laid out or painted until they come near, so long boards scroll smoothly (jxn #1365). */
-#thread>.entry{content-visibility:auto;contain-intrinsic-size:auto 96px}
+#thread>.entry{content-visibility:auto;contain-intrinsic-size:auto 96px}#thread.cv-all>.entry{content-visibility:visible} /* while jumping to a message (BOARD_CTX.jump) */
 .entry .rbadge{display:none;height:18px;font-size:11px}
 .entry .fbadge{height:18px;font-size:11px;color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,var(--line))}
 .entry.retracted>.grow>.body,.entry.retracted>.grow>.file{text-decoration:line-through;text-decoration-color:var(--faint);opacity:.55}

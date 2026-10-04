@@ -1868,6 +1868,9 @@ document.getElementById('fwd-send').addEventListener('click',async e=>{const b=e
 window.BOARD_CTX={id:BOARD,me:ME,members:MEMBERS,
   async jump(seq){if(!(await ensureEntry(seq))){toast('#'+seq+' was not found');return}const el=document.getElementById('e'+seq);
     if(document.getElementById('panel-conv').hidden)tab(0);if(el.closest('.replies')){openThread(+el.closest('#thread>.entry').dataset.seq,{focus:seq});return}
+    // Off-screen messages aren't laid out (content-visibility, #1365), so their heights are guesses and a jump would land off
+    // centre: everything is laid out for the jump, then left to the browser again (it remembers the real sizes).
+    const th=document.getElementById('thread');th.classList.add('cv-all');void th.offsetHeight;clearTimeout(th._cv);th._cv=setTimeout(()=>th.classList.remove('cv-all'),1500);
     document.querySelectorAll('#thread .entry.hit').forEach(x=>x.classList.remove('hit'));el.classList.add('hit');pinned=false;el.scrollIntoView({block:'center',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});moved=true;setTimeout(()=>el.classList.remove('hit'),2200)},
   openFile(name,v){tab(2);openDoc(name,v)}};
 document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&!e.altKey&&!e.shiftKey&&e.key.toLowerCase()==='f'&&!document.querySelector('dialog[open]:not(#palette)')){e.preventDefault();window.openPalette([{k:'board'},{k:'kind',v:'messages'}])}},true);
