@@ -4317,7 +4317,7 @@ await step("read aloud (POST /api/app/tts): people only, validated, members only
   const tts = (who, body, headers = {}) => web("/api/app/tts", who, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body) });
   const app = (await ops("tokens", { user: A, kind: "app", label: "e2e tts app" })).body.token;
   const st = await (await web("/api/app/tts/status", A)).json();
-  assert(typeof st.enabled === "boolean" && st.voice_default === "eve" && st.budget_chars === 900000 && st.used_chars >= 0, JSON.stringify(st));
+  assert(typeof st.enabled === "boolean" && st.voice_default === "eve" && st.budget_chars === 150000 && st.used_chars >= 0, JSON.stringify(st));
   const viaApp = await fetch(`${BASE}/api/app/tts/status`, { headers: { authorization: `Bearer ${app}` } });
   assert(viaApp.status === 200, `app token status: ${viaApp.status}`);
   assert((await fetch(`${BASE}/api/app/tts/status`)).status === 401, "signed out: 401");
@@ -4353,7 +4353,7 @@ await step("voice (POST /api/app/voice/session): people only, validated, rate li
   const session = (who, body, headers = {}) => web("/api/app/voice/session", who, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body) });
   const app = (await ops("tokens", { user: A, kind: "app", label: "e2e voice app" })).body.token;
   const st = await (await web("/api/app/voice/status", A)).json();
-  assert(typeof st.enabled === "boolean" && st.minutes_budget === 180 && st.minutes_used >= 0 && st.voice_default === "eve" && st.voices.includes("eve"), JSON.stringify(st));
+  assert(typeof st.enabled === "boolean" && st.minutes_budget === 60 && st.minutes_used >= 0 && st.voice_default === "eve" && st.voices.includes("eve"), JSON.stringify(st));
   assert((await fetch(`${BASE}/api/app/voice/status`, { headers: { authorization: `Bearer ${app}` } })).status === 200, "app token: status");
   assert((await fetch(`${BASE}/api/app/voice/status`)).status === 401, "signed out: 401");
   for (const p of ["/api/app/voice/session", "/api/app/voice/status"]) {
@@ -4380,7 +4380,7 @@ await step("voice (POST /api/app/voice/session): people only, validated, rate li
     const j = await fake.json();
     assert(fake.status === 200 && j.url.startsWith("wss://api.x.ai/v1/realtime") && j.token?.value && j.protocols[0] === `xai-client-secret.${j.token.value}`, `fake session: ${fake.status} ${JSON.stringify(j).slice(0, 300)}`);
     assert(j.session.turn_detection === null && j.session.instructions.includes("voice front for Atteo") && j.session.tools.length === 6 && j.tool_routes.answer_approval.confirm === true, "session config");
-    assert(j.minutes_budget === 180 && j.max_seconds === 600 && /^vs_/.test(j.session_id), JSON.stringify({ b: j.minutes_budget, m: j.max_seconds }));
+    assert(j.minutes_budget === 60 && j.max_seconds === 600 && /^vs_/.test(j.session_id), JSON.stringify({ b: j.minutes_budget, m: j.max_seconds }));
     const after = await (await web("/api/app/voice/status", A)).json();
     assert(after.minutes_used === st.minutes_used + 10, `charged the cap up front: ${JSON.stringify(after)}`);
     const end = await (await web("/api/app/voice/session/end", A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ session_id: j.session_id, seconds: 30 }) })).json();

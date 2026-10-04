@@ -145,6 +145,9 @@ export interface Env {
   XAI_API_KEY?: string; // secret: xAI text-to-speech (POST /api/app/tts, src/tts.ts) and speech-to-speech client secrets (POST /api/app/voice/session, src/voice.ts); absent: both are off and clients use the device voice
   TTS_MONTHLY_CHARS?: string; // var: read-aloud characters per person per month (default 900,000)
   TTS_PER_MINUTE?: string; // var: read-aloud requests per person per minute (default 30)
+  VOICE_GLOBAL_MONTHLY_MINUTES?: string; // var: live-voice minutes for everyone together per month (default 600 ≈ $30)
+  TTS_GLOBAL_MONTHLY_CHARS?: string; // var: read-aloud characters for everyone together per month (default 2,000,000 ≈ $30)
+  OPERATORS?: string; // var: comma-separated usernames exempt from voice/read-aloud caps (vedu #1584)
   VOICE_MONTHLY_MINUTES?: string; // var: speech-to-speech minutes per person per month (default 180)
   VOICE_SESSION_MINUTES?: string; // var: one voice session's cap, charged up front and settled at the end (default 10)
   VOICE_PER_MINUTE?: string; // var: voice sessions a person may start per minute (default 6)
