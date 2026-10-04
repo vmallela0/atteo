@@ -1,12 +1,13 @@
 name: CI
 
-# Pushes to main and pull requests: typecheck, unit tests, then the end-to-end and CLI suites against a local Worker
-# (wrangler dev, local D1 + Durable Objects), and the browser checks in 4 parallel shards. No real secrets needed.
-# Not every branch push: helpers push many branches and the local gate already tests them; on every push this used up the
-# private repo's Actions minutes (10-04, #1981). Run it on any branch by hand with "Run workflow".
+# The backstop, not the gate: the local gate already runs every suite on a fresh server before anything reaches main.
+# Nightly on main and by hand ("Run workflow", any branch): typecheck, unit tests, the end-to-end and CLI suites against
+# a local Worker (wrangler dev, local D1 + Durable Objects), and the browser checks in 4 shards. Pull requests run the
+# test job only. A run on every main push bills ~22 minutes and main gets ~15 a day: the private repo's 2,000 free
+# minutes a month lasted 4 days (10-04, #1981, #1989, #1990).
 on:
-  push:
-    branches: [main]
+  schedule:
+    - cron: "17 10 * * *" # ~3am Pacific
   pull_request:
   workflow_dispatch:
 
@@ -57,6 +58,7 @@ jobs:
   # Worker. Chromium comes from playwright-core's installer, cached by its version.
   browser:
     name: browser (${{ matrix.shard }}/4)
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
@@ -134,7 +136,7 @@ jobs:
   # the ATTEO_BOT_TOKEN secret it only leaves a notice. Never turns a run red.
   report:
     needs: [test, browser]
-    if: ${{ github.event_name == 'push' && !cancelled() }}
+    if: ${{ github.event_name != 'pull_request' && !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 3
     permissions:
