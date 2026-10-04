@@ -75,10 +75,10 @@ const live = (p) => p.evaluate(() => window.__talk.ws?.readyState);
   check(JSON.stringify(mic) === '["ended"]', `…and the mic is released (${JSON.stringify(mic)})`);
   check(/Standing by/.test(await st(p)) && await p.locator("#talk-wake").isVisible() && !(await p.locator("#talk-mic").isVisible()) && await p.locator("dialog.talk").isVisible() && /End/.test(await p.locator("#talk-end").innerText()), `the sheet stays up and says so: "${await st(p)}", with Talk and End`);
   check(await p.evaluate(() => navigator.mediaSession.playbackState) === "paused", "the media session shows it paused");
-  // A message for you while it stands by: read with read-aloud, not the paid line.
+  // A message for you while it stands by: read with read-aloud (from: true, so it says who wrote it), not the paid line.
   const opened0 = await p.evaluate(() => window.__talk.opened);
   const m1 = await postAs(ckV, `@${P} the build is green ${run}`); await p.waitForTimeout(400);
-  check(p.tts.length === 1 && p.tts[0].board === board && p.tts[0].seq === m1.entry?.seq && /Reading you a new message/.test(await st(p)), `a message for you is read aloud in standby (tts ${JSON.stringify(p.tts[0])}, "${await st(p)}")`);
+  check(p.tts.length === 1 && p.tts[0].board === board && p.tts[0].seq === m1.entry?.seq && p.tts[0].from === true && /Reading you a new message/.test(await st(p)), `a message for you is read aloud in standby (tts ${JSON.stringify(p.tts[0])}, "${await st(p)}")`);
   check((await p.locator("#talk-caps").innerText()).includes(`New message from ${V}`), "…with a line in the captions");
   await p.waitForTimeout(1200);
   check(/Standing by/.test(await st(p)) && await p.evaluate(() => window.__talk.opened) === opened0, `then it stands by again, still off the paid line ("${await st(p)}")`);
