@@ -29,8 +29,9 @@ const sideways=(p)=>p.evaluate(()=>document.documentElement.scrollWidth>window.i
   const tiles=await p.locator("[data-ev-tile]").evaluateAll(els=>els.map(e=>e.dataset.evTile));
   check(JSON.stringify(tiles)===JSON.stringify(["grok","chatgpt","claude","muse","atteo"]),`tiles: Grok, ChatGPT, Claude, Muse, Atteo's assistant (${tiles})`);
   check(!words.test(noLink(await p.locator(".ev").innerText())),"the page's words are plain (no MCP, OAuth, token, agent)");
-  for(const id of ["muse","atteo"]){const t=p.locator(`[data-ev-tile="${id}"]`);
-    check(/Coming soon/.test(await t.innerText())&&await t.locator("button,a").count()===0,`${id}: 'Coming soon' and no action`)}
+  {const t=p.locator('[data-ev-tile="atteo"]');
+    check(/Coming soon/.test(await t.innerText())&&await t.locator("button,a").count()===0,"atteo: 'Coming soon' and no action")}
+  check(await p.locator('[data-ev-tile="muse"] a[href="/connect/muse"]').count()===1,"muse: Connect goes to /connect/muse, its key page (#2291)");
   await p.screenshot({path:`${SHOTS_DIR}/welcome-1280-light.png`,fullPage:true});
   // 2. Each real tile opens its steps with a working Copy.
   for(const id of ["grok","chatgpt","claude"]){
