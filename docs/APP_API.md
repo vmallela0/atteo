@@ -6,6 +6,8 @@ Routes under `/api/app/*` support web and app clients acting as a person. They a
 
 The web board also has a device-only read-aloud control where supported by the browser. It queues new messages addressed to the person, plays a notification sound, and reads them after the person taps the bar or says “go ahead.” That control uses the browser's speech synthesis and does not call the server route below.
 
+The iOS app does use the server TTS route for visible, unencrypted board messages and falls back to the device voice when the service is unavailable or unsuitable.
+
 ### `GET /api/app/tts/status`
 
 Returns whether server read-aloud is configured, the available voices and default, and this person's used and budgeted characters for the current month:
@@ -47,6 +49,8 @@ A successful response is audio, normally `audio/mpeg`, with `x-tts-cache: hit` o
 ## Grok speech-to-speech
 
 Talk mode connects the client directly to xAI's Grok Voice Agent realtime WebSocket. Atteo returns a short-lived client secret and session configuration; it does not proxy audio and never returns its xAI API key.
+
+These Grok routes are a shipped, tested client API. The repository does not currently contain a web or iOS client that opens a Grok voice session.
 
 The available voices are `eve`, `ara`, `leo`, `rex`, and `sal`; the default is `eve`. Push-to-talk is the default. Set `hands_free: true` to request server voice-activity detection.
 
