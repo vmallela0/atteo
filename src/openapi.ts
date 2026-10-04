@@ -412,6 +412,10 @@ export function openapi(origin: string) {
         get: { security: operator, summary: "Free-plan guardrail limits and load-shed level for this isolate", responses: { "200": ok("limits, shed"), "404": errors["404"] } },
         post: { security: operator, summary: "Override limits for tests ({reset: true} clears), or set shed 0–2", requestBody: body(obj({ reset: bool, shed: int })), responses: { "200": ok("limits, shed"), "404": errors["404"] } },
       },
+      "/api/ops/usage-daily": {
+        get: { security: operator, summary: "usage_daily rows (one day, or the newest 500), for tests of the 90-day sweep", parameters: [param("day", "query", str)], responses: { "200": ok("rows"), "404": errors["404"] } },
+        post: { security: operator, summary: "Upsert one usage_daily row (tests: seed an old day for the sweep)", requestBody: body(obj({ day: str, metric: str, key: str, count: int }, ["day", "metric", "key"])), responses: { "200": ok("ok"), "400": errors["400"], "404": errors["404"] } },
+      },
       "/api/ops/cron": { post: { security: operator, summary: "Run scheduled maintenance at an optional timestamp", requestBody: body(obj({ now: int })), responses: { "200": ok("ok and scheduled-run counts"), "404": errors["404"] } } },
       "/api/ops/seed": { post: { security: operator, summary: "Seed board entries for testing", requestBody: body(obj({ user: str, board: str, count: int, prefix: str }, ["user", "board"])), responses: { "200": ok("ok, count"), ...errors } } },
       "/api/ops/session-seen": { post: { security: operator, summary: "Set a test session's last_seen", requestBody: body(obj({ session: str, last_seen: int }, ["session", "last_seen"])), responses: { "200": ok("ok"), ...errors } } },
