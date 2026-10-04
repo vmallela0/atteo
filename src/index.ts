@@ -518,6 +518,7 @@ async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): 
     ctx.waitUntil(env.DB.prepare(registry.TAPE_PRUNE_SQL).bind(Date.now() - 7 * 86_400_000).run().catch(() => {}));
     ctx.waitUntil(appSignin.sweep(env).catch(() => {}));
     ctx.waitUntil(inbox.pruneRead(env, now).catch(() => {}));
+    ctx.waitUntil(usage.pruneUsageDaily(env, now).catch(() => {}));
   }
   for (const m of await registry.expiredMembers(env)) {
     ctx.waitUntil(
@@ -2783,6 +2784,21 @@ const handler = {
         // Proves error reporting end to end (D1 errors + Sentry): throws on purpose.
         if (path === "/api/ops/test-error" && method === "POST") throw new Error("Test error from /api/ops/test-error");
         if (path === "/api/ops/metrics" && method === "GET") return json(await usage.metrics(env, Number(url.searchParams.get("days")) || 14));
+        if (path === "/api/ops/usage-daily" && method === "GET") {
+          const d = url.searchParams.get("day");
+          const r = d
+            ? await env.DB.prepare(`SELECT day, metric, key, count FROM usage_daily WHERE day = ?`).bind(d).all<{ day: string; metric: string; key: string; count: number }>()
+            : await env.DB.prepare(`SELECT day, metric, key, count FROM usage_daily ORDER BY day DESC LIMIT 500`).all<{ day: string; metric: string; key: string; count: number }>();
+          return json({ rows: r.results });
+        }
+        if (path === "/api/ops/usage-daily" && method === "POST") {
+          const { day: d, metric, key, count } = body as { day?: string; metric?: string; key?: string; count?: number };
+          if (!d || !metric || !key) return json({ error: "day, metric, key required" }, 400);
+          await env.DB.prepare(`INSERT INTO usage_daily (day, metric, key, count) VALUES (?, ?, ?, ?) ON CONFLICT(day, metric, key) DO UPDATE SET count = excluded.count`)
+            .bind(d, metric, key, Number(count) || 1)
+            .run();
+          return json({ ok: true });
+        }
         if (path === "/api/ops/users" && method === "POST") {
           const name = normalizeUser(body.name);
           if (!name) return json({ error: "valid name required" }, 400);
