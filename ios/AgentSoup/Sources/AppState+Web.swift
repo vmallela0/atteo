@@ -51,14 +51,26 @@ extension AppState {
     }
 
     func claim(_ board: String, _ t: WorkTask) async {
-        let me = self.me?.owner
+        guard let me = self.me?.owner else { return }
         Haptics.play(.touch)
-        await act(board, t.seq, ["action": "claim", "minutes": 60]) { $0.leaseHolder = me; $0.leaseAgent = false; $0.leaseUntil = Date().timeIntervalSince1970 * 1000 + 3_600_000 }
+        await act(board, t.seq, ["action": "claim", "minutes": 60]) {
+            $0.leaseHolder = me
+            $0.leaseAgent = false
+            $0.leaseUntil = Date().timeIntervalSince1970 * 1000 + 3_600_000
+            if $0.status == "todo" || $0.status == "stopped" { $0.status = "doing" }
+            $0.updatedAt = Date().timeIntervalSince1970 * 1000
+        }
     }
 
     func release(_ board: String, _ t: WorkTask) async {
         Haptics.play(.touch)
-        await act(board, t.seq, ["action": "release"]) { $0.leaseHolder = nil; $0.leaseUntil = nil }
+        await act(board, t.seq, ["action": "release"]) {
+            $0.leaseHolder = nil
+            $0.leaseAgent = nil
+            $0.leaseUntil = nil
+            if $0.status == "doing" { $0.status = "todo" }
+            $0.updatedAt = Date().timeIntervalSince1970 * 1000
+        }
     }
 
     func setStatus(_ board: String, _ t: WorkTask, _ status: String) async {
