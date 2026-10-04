@@ -80,7 +80,7 @@ export function askPage(viewer: Viewer, side: SideBoard[], opts: { assistant: st
   <form class="ask-type" id="ask-type" hidden autocomplete="off"><input class="input" id="ask-text" name="text" maxlength="4000" placeholder="Ask your assistant…" aria-label="Ask your assistant" enterkeyhint="send"><button class="btn primary lg" type="submit">Send</button></form>
   <section class="ask-answer" id="ask-answer" hidden aria-live="polite"><div class="card"><div class="hd"><span class="grow" id="ask-from">Your assistant</span><button type="button" class="btn ghost sm" id="ask-replay" hidden>Read again</button><a class="btn ghost sm" id="ask-open" href="#">Open the chat</a></div><div class="tx" id="ask-tx"></div></div></section>
   <section class="ask-try" id="ask-try"><h2>Or try</h2>${sugg.map((s) => `<button type="button" class="ask-s" data-ask="${esc(s.text)}">${icon(s.icon)}<span>${esc(s.text)}</span></button>`).join("")}</section>
-  <div class="ask-foot"><button type="button" class="btn lg" id="ask-mode">${KBD}<span>Type instead</span></button>${talkBtn(null, viewer.name, "btn lg ask-talk").replace("</button>", "<span>Talk to Atteo</span></button>")}</div>
+  <div class="ask-foot"><button type="button" class="btn lg" id="ask-mode">${KBD}<span>Type instead</span></button>${talkBtn(null, viewer.name, "btn lg ask-talk")}</div>
 </div>`;
   return appPage("Ask · Atteo", {
     viewer,

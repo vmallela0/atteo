@@ -12,15 +12,20 @@
 
 import { esc } from "./util";
 
-const WAVE = `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M2.5 6.5v3M5 4.5v7M7.5 2.5v11M10 5v6M12.5 6.5v3"/></svg>`;
+const PHONE = `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M5.6 2.2 3.7 2.4c-.8.1-1.4.8-1.3 1.6.6 5.1 4.5 9 9.6 9.6.8.1 1.5-.5 1.6-1.3l.2-1.9c0-.5-.3-1-.8-1.1l-2.1-.6c-.4-.1-.8 0-1.1.3l-.9.9a8.4 8.4 0 0 1-3.8-3.8l.9-.9c.3-.3.4-.7.3-1.1l-.6-2.1c-.1-.5-.6-.8-1.1-.8z"/></svg>`;
 
-/** The button: hidden until /api/app/voice/status says voice is on. board: the board it's about (none on an encrypted one). */
-export function talkBtn(board: string | null, me: string, cls = "btn ghost sm talk-btn"): string {
-  return `<button class="${cls}" type="button" data-talk${board ? ` data-board="${esc(board)}"` : ""} data-me="${esc(me)}" aria-label="Talk to Atteo" title="Talk to Atteo: a voice conversation, hands-free" hidden>${WAVE}</button>`;
+/** The call button (like the app's, vedu #1783): top right of a board's header, and on Ask. Hidden until
+ *  /api/app/voice/status says voice is on. board: the board it's about (none on an encrypted one). */
+export function talkBtn(board: string | null, me: string, cls = "btn ghost sm call-btn"): string {
+  return `<button class="${cls}" type="button" data-talk${board ? ` data-board="${esc(board)}"` : ""} data-me="${esc(me)}" aria-label="Talk to Atteo" title="Talk to Atteo: a voice conversation, hands-free" hidden>${PHONE}<span class="call-l">Talk to Atteo</span></button>`;
 }
 
 export const TALK_CSS = `
-.composer .talk-btn{width:30px;padding:0;justify-content:center;color:var(--muted)}.composer .talk-btn:hover{color:var(--ink)}
+.call-btn{gap:6px;align-self:center;color:var(--muted)}.call-btn:hover{color:var(--ink)}
+.bp-head{position:relative}
+@media(max-width:859px){.bp-tabs .call-btn{position:absolute;top:2px;right:0;width:32px;padding:0;justify-content:center}.bp-tabs .call-btn .call-l{display:none}.bp-head:has(.call-btn:not([hidden])) .bp-title{padding-right:40px}}
+/* The composer's mic is for dictation; once you've typed, it steps aside (unless it's listening), like the app. */
+.composer.typed:has(textarea:not(:placeholder-shown)) .mic-btn:not(.on){display:none}
 dialog.talk{width:min(420px,calc(100vw - 24px));padding:0;border:1px solid var(--line);border-radius:16px;background:var(--bg);color:var(--ink);box-shadow:var(--shadow-lg)}
 dialog.talk::backdrop{background:rgba(0,0,0,.25)}
 .talk-hd{display:flex;align-items:center;gap:10px;padding:14px 16px 6px}.talk-hd b{font-size:15px}.talk-hd .grow{flex:1}.talk-left{font-size:12.5px;color:var(--faint);font-variant-numeric:tabular-nums}

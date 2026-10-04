@@ -347,9 +347,12 @@ ${ALLOWANCE_JS}
     r.onend=()=>{if(rec!==r)return;rec=null;mic.setAttribute('aria-pressed','false');mic.classList.remove('on')};
     try{r.start()}catch(e){rec=null}})
     ta.addEventListener('input',()=>{if(rec&&!own)takeBox()});
+    // Typing steps the mic aside (like the app: once you type, it's Send); dictation's own words, a reply's @mention or a
+    // draft put there by the page don't (talk.ts has the rule). Emptying the box or sending brings it back.
+    ta.addEventListener('input',e=>{if(e.isTrusted||!ta.value.trim())ta.form.classList.toggle('typed',!!ta.value.trim())});
     ta.addEventListener('keydown',e=>{if(e.key==='Escape')micStop()});
     // Capture phase on window, so it runs before any handler that stops the submit (the encrypted board's, /status).
-    window.addEventListener('submit',e=>{if(e.target===ta.form)micStop()},true)}
+    window.addEventListener('submit',e=>{if(e.target===ta.form){micStop();ta.form.classList.remove('typed')}},true)}
   if(!syn||!vb)return;
   // What's left of this month's read-aloud, on the button's title; used up: a clear state and the device voice, never silently.
   const VB_TITLE=vb.title;let ttsOut=false,ttsTold=false,ttsT=0;
@@ -1459,7 +1462,7 @@ const headName=el=>el.querySelector(':scope>.grow>.meta>.who')?.textContent||(el
 const sentName=el=>{const w=el.querySelector(':scope>.grow>.meta>.who');return (w&&(w.dataset.dev??w.textContent))||(el.dataset.author+(el.classList.contains('by-agent')?"'s agent":''))};
 const rpBox=document.getElementById('replying'),rpTo=document.getElementById('reply-to');let rpAt='',rpCarry=0; // rpCarry: the reply (seq) that took the main box's text
 const draftNow=()=>rpTo.value?'r'+rpTo.value:'';
-const taFit=()=>{ta.style.height='';if(ta.value)ta.style.height=ta.scrollHeight+2+'px';msync()};
+const taFit=()=>{ta.style.height='';if(ta.value)ta.style.height=ta.scrollHeight+2+'px';msync();ta.form&&ta.form.classList.remove('typed')}; // the page set the text: not typed (the mic stays)
 function replyTo(seq,focus=true,restore=false){const el=document.getElementById('e'+seq);if(!el||READONLY)return;
   if(+rpTo.value!==seq){
     if(!rpTo.value&&ta.value.trim()&&!restore){rpCarry=seq;draftSave('','');rpTo.value=String(seq);draftSave(draftNow(),ta.value);try{localStorage.setItem(draftKey('carry'),String(seq))}catch(e){}}
@@ -2420,7 +2423,7 @@ window.boardKeys=(e,k)=>{
     }
 
   </div></div>
-  <div class="bp-tabs"><div class="tabs" role="tablist" id="board-tabs"><button role="tab" aria-selected="true" aria-controls="panel-conv">${esc(T("Conversation"))}</button><button role="tab" aria-selected="false" aria-controls="panel-log">${esc(T("Log"))}</button><button role="tab" aria-selected="false" aria-controls="panel-docs">${esc(T("Files"))}</button><button role="tab" aria-selected="false" aria-controls="panel-tasks">${esc(T("Tasks"))} <span class="faint" id="task-count"></span></button></div>${agentChat ? "" : RECAP_BTN}
+  <div class="bp-tabs"><div class="tabs" role="tablist" id="board-tabs"><button role="tab" aria-selected="true" aria-controls="panel-conv">${esc(T("Conversation"))}</button><button role="tab" aria-selected="false" aria-controls="panel-log">${esc(T("Log"))}</button><button role="tab" aria-selected="false" aria-controls="panel-docs">${esc(T("Files"))}</button><button role="tab" aria-selected="false" aria-controls="panel-tasks">${esc(T("Tasks"))} <span class="faint" id="task-count"></span></button></div>${agentChat ? "" : RECAP_BTN}${talkBtn(info.encrypted ? null : info.id, viewer.name)}
     </div>
 </div>
 <div role="tabpanel" id="panel-conv" class="bp-panel" data-board-panel><div class="layout" id="conv-layout">
@@ -2443,7 +2446,7 @@ window.boardKeys=(e,k)=>{
       <div class="bar">
         <button class="btn ghost sm attach" type="button" id="attach-btn" aria-label="${esc(T("Attach files"))}" title="${esc(T("Attach files or images (or paste or drop them)"))}"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M13.5 7.6 8.3 12.8a3.2 3.2 0 0 1-4.5-4.5l5.6-5.6a2.1 2.1 0 0 1 3 3L6.8 11.3a1 1 0 0 1-1.5-1.5l4.9-4.9"/></svg></button>
         <input type="file" id="attach-input" multiple hidden>
-        <button class="btn ghost sm at-btn" type="button" data-mention-for="composer-text" aria-label="${esc(T("Mention someone"))}" title="${esc(T("Mention a person or their agent (or type @)"))}">@</button>${agentChat ? sessionPicker(board.sessions ?? []) : ""}${VOICE_BTNS}${talkBtn(info.encrypted ? null : info.id, viewer.name)}${agentChat ? "" : PO_BTN}
+        <button class="btn ghost sm at-btn" type="button" data-mention-for="composer-text" aria-label="${esc(T("Mention someone"))}" title="${esc(T("Mention a person or their agent (or type @)"))}">@</button>${agentChat ? sessionPicker(board.sessions ?? []) : ""}${VOICE_BTNS}${agentChat ? "" : PO_BTN}
         <input type="hidden" name="type" id="cmp-type" value="note">
         <span class="grow"></span><button class="btn primary sm">${esc(T("Post"))}</button>
       </div>
