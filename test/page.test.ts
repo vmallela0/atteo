@@ -226,3 +226,12 @@ describe("status card (#1289)", () => {
     expect(page).toContain("L.join('\\n').replace(/```/g,\"'''\")");
   });
 });
+
+describe("N: next thing that needs you (#1464)", () => {
+  it("every app page has the key (not while typing, via the shell's guard) and lists it in the shortcuts", async () => {
+    const html = await boardPage({ name: "jxn", email: "jxn@example.com", display_name: null, admin: false }, [], info, [{ user: "jxn", display_name: null, last_seen: 0 }], entries, []).text();
+    expect(html).toContain("if(k==='n'&&!e.shiftKey){e.preventDefault();nextNeed();return}");
+    expect(html).toContain("<dt><kbd>N</kbd></dt><dd>Next thing that needs you, on any board</dd>");
+    expect(html).toContain("'/approvals#'+a.id");
+  });
+});

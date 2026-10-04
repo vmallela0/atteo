@@ -652,7 +652,7 @@ ${MERMAID_CSS}
 .prof-boards{display:flex;flex-wrap:wrap;gap:8px;margin:0;padding:0;list-style:none}.prof-boards a{display:inline-block;padding:5px 10px;border:1px solid var(--line);border-radius:999px;color:var(--ink);font-size:13px}.prof-boards a:hover{background:var(--hover,rgba(127,127,127,.1))}
 @media (max-width:860px){.prof-hero{flex-direction:column;align-items:flex-start}.prof-hero .prof-act{width:100%}.prof-hero .prof-act .btn{flex:1;min-height:40px;justify-content:center}}
 /* approvals: risk shows as the card's left edge and its badge */
-.approval{padding:16px 18px;border-left:3px solid var(--line)}.approval.risk-medium{border-left-color:var(--warn)}.approval.risk-high{border-left-color:var(--danger)}
+.approval{padding:16px 18px;border-left:3px solid var(--line)}.approval:target{outline:2px solid var(--accent);outline-offset:3px}.approval.risk-medium{border-left-color:var(--warn)}.approval.risk-high{border-left-color:var(--danger)}
 .ap-hd{display:flex;gap:12px;align-items:flex-start}.ap-title{font-size:15px;font-weight:600;line-height:1.35;margin:0 0 3px}
 .approval.risk-medium .ap-risk{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,var(--line))}.approval.risk-high .ap-risk{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 40%,var(--line))}
 .ap-details{max-height:280px;overflow:auto;margin:12px 0 0;padding:10px 12px;border-radius:8px;background:var(--bg-subtle);border:1px solid var(--line);font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word}
@@ -1392,6 +1392,7 @@ export function appPage(
 <dt><kbd>@</kbd></dt><dd>Mention a person or their agent</dd>
 <dt><kbd>J</kbd> <kbd>K</kbd></dt><dd>Move down / up through entries</dd>
 <dt><kbd>↵</kbd></dt><dd>Open the selected entry's details</dd>
+<dt><kbd>N</kbd></dt><dd>Next thing that needs you, on any board</dd>
 <dt><kbd>G</kbd> then <kbd>I</kbd> <kbd>A</kbd> <kbd>B</kbd> <kbd>P</kbd> <kbd>M</kbd></dt><dd>Go to Inbox / Approvals / Boards / People / Account</dd>
 <dt><kbd>?</kbd></dt><dd>This list</dd></dl></div></dialog>
 <script>window.PALETTE=${JSON.stringify(paletteItems).replace(/</g, "\\u003c")};${v.admin ? "window.OPS=1;" : ""}</script>`;
@@ -1496,8 +1497,25 @@ document.addEventListener('keydown',e=>{
   if(e.key==='?'){$('#shortcuts').showModal();return}
   if(k==='c'){const c=$('#composer-text');if(c){e.preventDefault();c.focus();return}const n=$('#new-board');if(n){e.preventDefault();n.showModal();$('#title')?.focus()}return}
   if(k==='i'){const b=$('[data-open="invite"]');if(b){e.preventDefault();b.click()}return} // same as clicking Invite (loads the members)
+  if(k==='n'&&!e.shiftKey){e.preventDefault();nextNeed();return}
   if(window.boardKeys)window.boardKeys(e,k);
 });
+// N: the next thing that needs you, on any board (Conductor notes, #1276): approvals waiting on you first, then unread
+// mentions, replies, decisions and people-only messages for you, then contact and friend requests; oldest first. It
+// opens where it is (marking that inbox item read, so the next N goes on); nothing waiting says so.
+const NN_KINDS=['mention','reply','decision','people_only','contact_request','friend_request'];let nnBusy=false;
+async function nextNeed(){if(nnBusy)return;nnBusy=true;try{
+  const get=u=>fetch(u,{cache:'no-store'}).then(r=>r.ok?r.json():{}).catch(()=>({}));const [ap,ib]=await Promise.all([get('/api/approvals'),get('/api/inbox')]);
+  const at=(i)=>i.board_id&&i.seq>0?'/b/'+i.board_id+'#e'+i.seq:null,items=ib.items||[];
+  // An approval opens on the Approvals page, at the request (where you decide it: ↵ approves, ⌫ denies).
+  const list=[...(ap.approvals||[]).filter(a=>a.status==='pending').sort((x,y)=>x.created_at-y.created_at).map(a=>({url:'/approvals#'+a.id})),
+    ...items.filter(i=>!i.read_at&&NN_KINDS.includes(i.kind)).sort((x,y)=>x.created_at-y.created_at).map(i=>({url:/request$/.test(i.kind)?'/people':at(i),id:i.id})).filter(x=>x.url)];
+  const here=location.pathname+location.hash,next=list.find(x=>x.url!==here);
+  if(!next){toast(list.length?'That\u2019s the only thing waiting on you':'Nothing needs you right now');return}
+  if(next.id)await fetch('/api/inbox/read',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({ids:[next.id]})}).catch(()=>{});
+  const [path,hash]=next.url.split('#');if(path===location.pathname&&hash){location.hash=hash}else location.href=next.url}
+  finally{nnBusy=false}}
+window.nextNeed=nextNeed;
 if(new URLSearchParams(location.search).get('new')==='1'){const n=$('#new-board');n&&n.showModal()}
 })();
 `;
