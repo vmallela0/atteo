@@ -76,7 +76,7 @@ export { Board } from "./board";
 import { forwardDestOk, forwardExcerptInEntry, keptOwnNotice } from "./audience";
 import { audienceNotice, MAX_FILES_PER_MESSAGE, MAX_IMAGE, MAX_MESSAGE_BYTES, MAX_WAIT_MS, WAIT_CAP } from "./board";
 import * as sessions from "./sessions";
-import { compactLine, formatEntry, formatMemory, handleMessage, readHeader, readParts, withNames } from "./state";
+import { compactLine, formatEntry, formatMemory, handleMessage, parseReadBudget, presentReadEntries, readHeader, readParts, withNames } from "./state";
 import { fence } from "./screen";
 import { CODE_COLOR_PATH, CODE_COLOR_SCRIPT } from "./codecolor";
 
@@ -1863,13 +1863,13 @@ const handler = {
           const only = url.searchParams.get("board");
           const ids = only ? [...cur.boards, ...directs].filter((b) => b === only) : [...cur.boards, ...directs];
           if (only && !ids.length) return json({ error: `This session isn't on ${only}.` }, 404);
-          const render = (b: { id: string; title: string; encrypted?: boolean }, entries: import("./types").Entry[], tasksForYou?: number, headless = false, lines: string[] = []) =>
+          const render = (b: { id: string; title: string; encrypted?: boolean }, entries: import("./types").Entry[], tasksForYou?: number, headless = false, lines: string[] = [], entryLines: string[] = []) =>
             fence(
               [
                 tasksForYou == null ? `== ${b.title} (${b.id}) · new (${entries.length}) ==` : readHeader(b, entries.length, tasksForYou, null, headless),
                 ...lines, // 📌 pin, 🧭 SOUL update, 🧠 memory change
                 ...(entries.length ? [] : ["(nothing new)"]),
-                ...entries.map((e) => formatEntry(e, 4000, viewer.name)),
+                ...entryLines,
               ].join("\n"),
             );
           // ?ack=<board>:<seq>,…: what the client got from its last held wait (the `ack` that wait returned). Its read
@@ -1888,6 +1888,7 @@ const handler = {
           }
           if (method === "GET" && sub === "read") {
             const limit = Number(url.searchParams.get("limit")) || undefined;
+            const maxChars = parseReadBudget(url.searchParams.get("max_chars"));
             // ?summary=all: every board's summary; none: no summary. Otherwise (older CLIs send a comma list of boards)
             // a board's summary comes with the member's first read of it, then only on request.
             const sumParam = url.searchParams.get("summary");
@@ -1898,15 +1899,16 @@ const handler = {
                 const r = await boardStub(env, id).read(viewer.name, { limit, summary: summary(id), names: await social.boardAgentNames(env, id) }, cur.id);
                 const b = { id, title: r.info.title, encrypted: r.info.encrypted };
                 const p = readParts(r); // the SOUL and MEMORY: whole the first time, then a line when they change
+                const shown = presentReadEntries(r.entries, maxChars, viewer.name);
                 return {
                   board: { id, title: r.info.title },
                   summary: r.summaryText,
                   rules: r.rules, // the SOUL (PROTOCOL.md), when due: {name, version, text, truncated, update, by}
                   memory: r.memory, // {first: true, items} on the first read, {first: false, added, struck} after a change, else null
-                  entries: r.entries,
+                  entries: shown.entries,
                   remaining: r.remaining,
                   pin: r.pin, // "📌 SPEC.md updated to v4", once per version (null otherwise)
-                  text: p.top.map((t) => fence(t) + "\n").join("") + (r.summaryText ? fence(r.summaryText) + "\n" : "") + render(b, r.entries, r.tasksForYou, headless, p.lines),
+                  text: p.top.map((t) => fence(t) + "\n").join("") + (r.summaryText ? fence(r.summaryText) + "\n" : "") + render(b, shown.entries, r.tasksForYou, headless, p.lines, shown.lines),
                 };
               }),
             );

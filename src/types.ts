@@ -70,6 +70,7 @@ export interface Entry {
   handled_by?: string | null; // which agent took it ("vedu/scout"), when known
   done_by?: string | null; // which agent (or person) finished it
   ai_flag?: string | null; // set when the model check thinks it's trying to instruct agents
+  truncated?: boolean; // read time only: a read's max_chars budget cut this text; get the seq for the rest
   human_decision?: import("./decisions").HumanDecision | null; // a person's decision: open until the people decide (decisions.ts)
   approval?: ApprovalRef | null; // type=approval: the request and its live status
   // People-only (vedu #1264): only these people (author included) see it, signed in as themselves; never any agent.
