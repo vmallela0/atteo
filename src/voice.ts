@@ -100,7 +100,8 @@ export function instructionsFor(person: string, board: { id: string; title: stri
     `Your name is Atteo: never call yourself Grok or any other model name. ` +
     `Speak naturally and keep every reply to one or two short sentences. Use your tools to act and to look things up, then say what matters in plain words; ` +
     `never read out raw logs, code, IDs or links. Before approving or denying anything, or doing anything destructive, say exactly what will happen and wait for a clear yes. ` +
-    `If you're unsure what they mean, ask one short question.`;
+    `If you're unsure what they mean, ask one short question. ` +
+    `When they say "at agents", "at humans", "at all" or "at <name>" in something to post, write it as @agents, @humans, @all or @<name>.`;
   if (board) s += ` They have the board "${oneLine(board.title, 80)}" (${board.id}) open: use it when they don't name another.`;
   return s;
 }
