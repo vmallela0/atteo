@@ -160,6 +160,7 @@ export interface Env {
   SIGNIN_PER_IP?: string; // var: app sign-in codes sent per IP per 10 minutes (default 30; verify gets twice that)
   DEV_FAKE_MAGIC?: string; // LOCAL .dev.vars ONLY, never wrangler.jsonc: "1" lets test emails sign in to the app with code 000000 on localhost (src/appSignin.ts)
   DEV_FAKE_CLOCK?: string; // LOCAL .dev.vars ONLY, never wrangler.jsonc: "1" + localhost + x-dev-now → test request time (src/util.ts)
+  DEV_FAKE_NEAR_QUOTA?: string; // LOCAL .dev.vars ONLY, never wrangler.jsonc: "1" lets POST /api/ops/limits {nearQuota: true} fake load-shedding level 1 on localhost (src/limits.ts)
   CF_VERSION_METADATA?: { id: string; tag?: string; timestamp?: string }; // which deploy is serving (ship.sh waits for it)
   // Free-plan guardrails (src/limits.ts; INFRA-ASSESSMENT §4i). All optional vars; the defaults are in limits().
   RATE_AGENT_PER_MIN?: string; // var: requests per minute per agent token (default 600; per isolate)

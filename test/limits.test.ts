@@ -8,9 +8,12 @@ import {
   isEssentialRest,
   isMcpWait,
   isWaitRequest,
+  nearQuotaActive,
+  nearQuotaAllowed,
   pollAfterMs,
   rateCheck,
   secondsToMidnight,
+  setNearQuota,
   setOverrides,
   setShedLevel,
   shedLevel,
@@ -184,6 +187,20 @@ describe("load shedding", () => {
     expect(sent.length - before).toBe(1);
   });
 
+  it("DEV_FAKE_NEAR_QUOTA fakes level 1 on localhost for tests", async () => {
+    const { env } = fakeEnv({ PUBLIC_URL: "http://localhost:8787" });
+    expect(nearQuotaAllowed(env)).toBe(false);
+    const on = fakeEnv({ PUBLIC_URL: "http://localhost:8787", DEV_FAKE_NEAR_QUOTA: "1" });
+    expect(nearQuotaAllowed(on.env)).toBe(true);
+    expect(setNearQuota(on.env, true)).toBe(true);
+    expect(nearQuotaActive()).toBe(true);
+    expect(await shedLevel(on.env, T0)).toBe(1);
+    expect(await updateShedLevel(on.env, T0)).toMatchObject({ level: 1 });
+    setOverrides({}, true);
+    expect(nearQuotaActive()).toBe(false);
+    expect(setNearQuota({ PUBLIC_URL: "http://localhost:8787" } as typeof on.env, true)).toBe(false);
+  });
+
   it("level 1 stretches waits and asks clients to poll less; level 2 also refuses non-essential agent writes with 503", async () => {
     const { env } = fakeEnv();
     expect(stretchWait(25_000, 50_000, 0)).toBe(25_000);
@@ -253,5 +270,23 @@ describe("classification", () => {
   });
   it("Retry-After for the daily budget runs to 00:00 UTC", () => {
     expect(secondsToMidnight(Date.UTC(2026, 9, 3, 23, 59, 30))).toBe(30);
+  });
+});
+
+describe("an MCP batch counts as its calls (calls/counted)", () => {
+  it("rate limit: a batch of 3 takes 3 slots; one that doesn't fit is refused whole", async () => {
+    const { env } = fakeEnv({ RATE_AGENT_PER_MIN: "4" });
+    expect(await admit(env, ctx, agent({ calls: 3, counted: 3 }), T0)).toBeNull();
+    expect((await admit(env, ctx, agent({ calls: 2, counted: 2 }), T0 + 1))?.status).toBe(429);
+    expect(await admit(env, ctx, agent(), T0 + 2)).toBeNull(); // the 4th slot
+    expect((await admit(env, ctx, agent(), T0 + 3))?.status).toBe(429);
+  });
+
+  it("daily budget: counts each non-wait call, refuses a batch that would go past it, and a refusal counts nothing", async () => {
+    const { env } = fakeEnv({ DAILY_REQUESTS_FREE: "4" });
+    expect(await admit(env, ctx, agent({ tokenKey: null, calls: 3, counted: 3 }), T0)).toBeNull();
+    expect((await admit(env, ctx, agent({ tokenKey: null, calls: 2, counted: 2 }), T0 + 1))?.status).toBe(429);
+    expect(await admit(env, ctx, agent({ tokenKey: null }), T0 + 2)).toBeNull(); // the refused batch didn't count
+    expect((await admit(env, ctx, agent({ tokenKey: null }), T0 + 3))?.status).toBe(429);
   });
 });

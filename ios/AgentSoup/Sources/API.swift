@@ -34,6 +34,12 @@ final class API: @unchecked Sendable {
         return URL(string: "https://agent-board.vedu-mallela.workers.dev")!
     }()
 
+    /// The address people and other assistants are given (connect messages, shared links): Atteo's public name,
+    /// atteo.dev, which reaches the same server. Debug runs against another server keep that server's address.
+    var publicBase: URL {
+        base.host == "agent-board.vedu-mallela.workers.dev" ? URL(string: "https://atteo.dev")! : base
+    }
+
     private let session: URLSession = {
         let c = URLSessionConfiguration.default
         c.timeoutIntervalForRequest = 35

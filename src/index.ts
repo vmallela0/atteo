@@ -17,7 +17,7 @@ import * as avatars from "./avatars";
 import * as boardPictures from "./boardPictures";
 import * as agents from "./agents";
 import * as dm from "./dm";
-import { waitForBoard } from "./waits";
+import { settle, waitForBoard } from "./waits";
 import { isRetriable, messageId, retryingReads, withRetry } from "./retry";
 import CLI_BUNDLE from "../cli/dist/atteo.mjs";
 import { installScript } from "./install";
@@ -68,14 +68,15 @@ import { FAVICON_SVG, page, renderText } from "./ui";
 import { APPLE_TOUCH_PNG_B64 } from "./appleIcon";
 import { assistantWelcomePage } from "./welcome";
 import { atteoHeader, BOARD_RE, connectCommand, esc, newBoardId, legacyHostRedirect, normalizeUser, parseBoardMeta, publicOrigin, requestNow } from "./util";
+import { isLocalHost } from "./util";
 
 import * as Sentry from "@sentry/cloudflare";
 import { scrubForSentry } from "./sentry";
 export { Board } from "./board";
 import { forwardDestOk, forwardExcerptInEntry, keptOwnNotice } from "./audience";
-import { audienceNotice, MAX_FILES_PER_MESSAGE, MAX_IMAGE, MAX_MESSAGE_BYTES, MAX_WAIT_MS } from "./board";
+import { audienceNotice, MAX_FILES_PER_MESSAGE, MAX_IMAGE, MAX_MESSAGE_BYTES, MAX_WAIT_MS, WAIT_CAP } from "./board";
 import * as sessions from "./sessions";
-import { formatEntry, formatMemory, handleMessage, readHeader, readParts, withNames } from "./state";
+import { compactLine, formatEntry, formatMemory, handleMessage, readHeader, readParts, withNames } from "./state";
 import { fence } from "./screen";
 import { CODE_COLOR_PATH, CODE_COLOR_SCRIPT } from "./codecolor";
 
@@ -506,7 +507,7 @@ async function opsData(env: Env): Promise<AdminData> {
 
 /** Every 5 minutes (the cron; tests call it through POST /api/ops/cron): retention, sweeps, expired memberships, and
  *  workflow triggers on a daily schedule (`now` lets a test pick the time those see). */
-async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): Promise<{ schedules: number; scheduled_tasks: number; shed: Awaited<ReturnType<typeof limits.updateShedLevel>> }> {
+async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): Promise<{ schedules: number; scheduled_tasks: number; housekeeping: boolean; shed: Awaited<ReturnType<typeof limits.updateShedLevel>> }> {
   // Load shedding (src/limits.ts): today's usage sets the level every request then sees (0 normal, 1 stretch waits and
   // pause background work, 2 also refuse non-essential agent writes).
   const shed = await limits.updateShedLevel(env).catch(() => ({ level: limits.shedLevelNow(), requests: 0, rows_read: null }));
@@ -514,7 +515,8 @@ async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): 
   const keep = (await env.DB.prepare(`SELECT id, retention_days FROM boards WHERE retention_days IS NOT NULL`).all<{ id: string; retention_days: number }>()).results;
   for (const b of keep) ctx.waitUntil(boardStub(env, b.id).prune(Date.now() - b.retention_days * 86_400_000).catch(() => 0));
   // Housekeeping sweeps wait while shedding load (they catch up on a quieter run).
-  if (shed.level < 1) {
+  const housekeeping = shed.level < 1;
+  if (housekeeping) {
     ctx.waitUntil(env.DB.prepare(registry.TAPE_PRUNE_SQL).bind(Date.now() - 7 * 86_400_000).run().catch(() => {}));
     ctx.waitUntil(appSignin.sweep(env).catch(() => {}));
     ctx.waitUntil(inbox.pruneRead(env, now).catch(() => {}));
@@ -548,7 +550,7 @@ async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): 
       .catch(() => ({ results: [] as { board_id: string }[] }))
   ).results;
   const posted = await Promise.all(dueBoards.map((b) => boardStub(env, b.board_id).runBoardSchedules(now).catch((e) => (console.error("board schedules failed", b.board_id, e), 0))));
-  return { schedules: fired.reduce((a, b) => a + b, 0), scheduled_tasks: posted.reduce((a, b) => a + b, 0), shed };
+  return { schedules: fired.reduce((a, b) => a + b, 0), scheduled_tasks: posted.reduce((a, b) => a + b, 0), housekeeping, shed };
 }
 
 const handler = {
@@ -685,6 +687,14 @@ const handler = {
           return h && viewer?.via === "agent" ? await sessions.get(env, viewer.name, h) : null;
         })());
       const asid = async () => (await asess())?.id ?? null;
+      // Who's draining the mailbox (mailbox.leaseFor): the agent session, else the token (a dispatcher runs without a
+      // session), else the signed-in page.
+      const mailboxHolder = async () => {
+        const s = await asid();
+        if (s) return `s:${s}`;
+        const tok = session?.user ? null : auth.bearer(request);
+        return tok ? `t:${(await auth.sha256hex(tok)).slice(0, 32)}` : "web";
+      };
       // Its id and name for the board: posts and tasks it causes are its own, and "is on it" names it.
       const asOpts = async () => {
         const s = await asess();
@@ -935,23 +945,30 @@ const handler = {
         const peek = url.searchParams.get("peek") === "1";
         // An agent session gets its own mail too (mail for one session, "@you/claude-2", only reaches that session).
         const sid = await asid();
+        // One drainer per person (#2184): drain=1 takes (or renews) the lease; while someone else holds it, a delivering
+        // read only peeks (mail for this very session still comes). A plain peek never looks.
+        const drain = url.searchParams.get("drain") === "1";
+        const lease = drain || !peek ? await mailbox.leaseFor(env, viewer.name, await mailboxHolder(), (await asess())?.name ?? null, requestNow(env, request), drain) : null;
         // One open wait per agent session: a newer one ends this one (limits.beginWait).
         const w = wait && sid ? limits.beginWait(`s:${sid}`) : null;
         if (w?.refused) return waitRefused(w.refused);
         let r0: Awaited<ReturnType<typeof mailbox.collect>>;
         try {
-          r0 = await mailbox.collect(env, viewer.name, { limit, wait, peek, session: sid, pollMs: level >= 1 ? 6000 : 3000, signal: w?.signal }, async (b, seq) => (await boardStub(env, b).get(seq, { user: viewer.name, person: false })).entry.text); // as the agent: its own lane too
+          r0 = await mailbox.collect(env, viewer.name, { limit, wait, peek, held: !!lease, session: sid, pollMs: level >= 1 ? 6000 : 3000, signal: w?.signal }, async (b, seq) => { const e = (await boardStub(env, b).get(seq, { user: viewer.name, person: false })).entry; return { text: e.text, title: e.title }; }); // as the agent: its own lane too
         } finally {
           w?.done();
         }
-        const r = { ...r0, mail: await social.mailWithAgentNames(env, r0.mail), ...(limits.superseded(w?.signal) ? { superseded: true } : {}), ...(limits.pollAfterMs(level) ? { poll_after_ms: limits.pollAfterMs(level) } : {}) }; // from_agent_name: "Jarvis" (from: its owner)
+        const r = { ...r0, mail: await social.mailWithAgentNames(env, r0.mail), ...(lease ? { held: mailbox.heldHint(lease), held_until: lease.expires_at } : {}), ...(limits.superseded(w?.signal) ? { superseded: true } : {}), ...(limits.pollAfterMs(level) ? { poll_after_ms: limits.pollAfterMs(level) } : {}) }; // from_agent_name: "Jarvis" (from: its owner)
         // headless: the person reads the board, not the agent's terminal (the CLI says so over the mail).
         return json((await social.agentsHeadless(env, viewer.name)) ? { ...r, headless: true } : r, 200, { "cache-control": "no-store" });
       }
       if (path === "/api/mailbox/ack" && method === "POST") {
         if (!viewer) return needLogin();
         const b = (await request.json().catch(() => ({}))) as { ids?: unknown };
-        return json({ ok: true, delivered: await mailbox.ack(env, viewer.name, Array.isArray(b.ids) ? b.ids.map(Number) : []) });
+        // Acknowledging is delivering: while another session drains this mailbox, only this session's own mail.
+        const lease = await mailbox.leaseFor(env, viewer.name, await mailboxHolder(), null, requestNow(env, request), false);
+        const delivered = await mailbox.ack(env, viewer.name, Array.isArray(b.ids) ? b.ids.map(Number) : [], lease ? await asid() : undefined);
+        return json({ ok: true, delivered, ...(lease ? { held: mailbox.heldHint(lease), held_until: lease.expires_at } : {}) });
       }
       if (path === "/api/inbox/count" && method === "GET") {
         if (!viewer) return needLogin();
@@ -1884,8 +1901,15 @@ const handler = {
           if (method === "GET" && sub === "wait") {
             // Shedding load stretches the wait (up to the usual maximum): fewer requests for the same listening.
             const ms = limits.stretchWait(Math.max(1000, Math.min((Number(url.searchParams.get("timeout")) || 45) * 1000, MAX_WAIT_MS)), MAX_WAIT_MS, await limits.shedLevel(env));
-            const take = async (join: boolean) =>
-              (await Promise.all(ids.map(async (id) => ({ id, r: await boardStub(env, id).wait(viewer.name, join, cur.id).catch(() => null) })))).filter((x) => x.r && x.r.entries.length);
+            // ?for=me: wake only for what's for this agent (a DM always is), then return everything new.
+            const forMe = url.searchParams.get("for") === "me";
+            const mineMode = (id: string, mine: boolean) => mine && forMe && !directs.includes(id);
+            let gone = false; // removed from a board meanwhile: the wait ends
+            const take = async (join: boolean, mine = true) => {
+              const all = await Promise.all(ids.map(async (id) => ({ id, r: await boardStub(env, id).wait(viewer.name, join, cur.id, mineMode(id, mine)).catch(() => null) })));
+              gone ||= all.some((x) => x.r?.gone);
+              return all.filter((x) => x.r && x.r.entries.length);
+            };
             const named = async (got: Awaited<ReturnType<typeof take>>) => Promise.all(got.map(async (x) => ({ ...x, r: { ...x.r!, entries: withNames(x.r!.entries, await social.boardAgentNames(env, x.id)) } })));
             let got = await take(true);
             let wasSuperseded = false;
@@ -1893,23 +1917,56 @@ const handler = {
               // One open wait per session: a newer one ends this one (limits.beginWait).
               const w = limits.beginWait(`s:${cur.id}`);
               if (w.refused) return waitRefused(w.refused);
-              // The Worker waits on every board at once (they sleep meanwhile); the first that has something wakes it.
-              const woke = await new Promise<boolean>((resolve) => {
-                let left = ids.length;
-                for (const id of ids)
-                  waitForBoard(boardStub(env, id), { kind: "agent", user: viewer.name, session: cur.id }, ms, w.signal).then((v) => (v ? resolve(true) : --left === 0 && resolve(false)), () => --left === 0 && resolve(false));
-              }).finally(() => w.done());
+              const until = Date.now() + ms;
+              try {
+                // The Worker waits on every board at once (they sleep meanwhile); the first that has something wakes it.
+                // For me, a wake can find nothing (another reader got there first): wait on for the time that's left.
+                // Otherwise a wake ends the wait, as always (a removal, an archive).
+                for (let again = true; again && !w.signal?.aborted; again = forMe && !got.length && !gone && until - Date.now() > 250) {
+                  const woke = await new Promise<boolean>((resolve) => {
+                    let left = ids.length;
+                    for (const id of ids)
+                      waitForBoard(boardStub(env, id), { kind: "agent", user: viewer.name, session: cur.id, forMe: mineMode(id, true) }, until - Date.now(), w.signal).then((v) => (v ? resolve(true) : --left === 0 && resolve(false)), () => --left === 0 && resolve(false));
+                  });
+                  if (!woke) break;
+                  got = await take(false);
+                }
+              } finally {
+                w.done();
+              }
               wasSuperseded = limits.superseded(w.signal);
-              if (woke) got = await take(false);
+              // A burst (a few posts in a row) comes back as one answer, not just the post that woke this.
+              if (got.length)
+                await settle(async () => {
+                  const more = await take(false, false);
+                  for (const m of more) {
+                    const x = got.find((g) => g.id === m.id);
+                    if (x) x.r = { ...m.r!, entries: [...x.r!.entries, ...m.r!.entries], mine: [...x.r!.mine, ...m.r!.mine] };
+                    else got.push(m);
+                  }
+                  return more.length;
+                }, () => got.reduce((k, x) => k + x.r!.entries.length, 0) >= WAIT_CAP);
             }
             if (got.length) got = await named(got); // "Jarvis (vedu's agent)"
             const entries = got.flatMap((x) => x.r!.entries.map((e) => ({ board: { id: x.id, title: x.r!.info.title }, entry: e })));
+            // What's for you in full; the rest one line each with for=me or when there's a lot.
+            const brief = forMe || entries.length > 10;
+            const waitText = (x: (typeof got)[number]) => {
+              const mine = new Set(x.r!.mine);
+              return fence(
+                [
+                  `== ${x.r!.info.title} (${x.id}) · new (${x.r!.entries.length}${forMe ? `, ${mine.size} for you` : ""}) ==`,
+                  ...x.r!.entries.map((e) => (brief && !mine.has(e.seq) ? compactLine(e, 80) : formatEntry(e, 4000, viewer.name))),
+                  ...(x.r!.remaining ? [`… ${x.r!.remaining} more unread on this board; read again.`] : []),
+                ].join("\n"),
+              );
+            };
             return json({
               timed_out: !entries.length,
               ...(wasSuperseded && !entries.length ? { superseded: true } : {}),
               entries,
               text: entries.length
-                ? got.map((x) => render({ id: x.id, title: x.r!.info.title }, x.r!.entries)).join("\n")
+                ? got.map(waitText).join("\n")
                 : wasSuperseded
                   ? "This wait ended early: a newer wait from the same session took over."
                   : `Nothing new on ${ids.length} board${ids.length === 1 ? "" : "s"} in ${Math.round(ms / 1000)}s.`,
@@ -2857,15 +2914,25 @@ const handler = {
           if (!body.board || !(await registry.getBoard(env, body.board))) return json({ error: "board required" }, 400);
           return json({ ok: true, pruned: await boardStub(env, body.board).prune(Number(body.before) || Date.now()) });
         }
+        // Tests: move a board's lease clock forward (renewing claims, src/leases.ts). DEV_FAKE_CLOCK=1 on localhost only.
+        if (path === "/api/ops/dev-clock" && method === "POST") {
+          if (env.DEV_FAKE_CLOCK !== "1" || !isLocalHost(url.hostname)) return json({ error: "dev-clock requires DEV_FAKE_CLOCK=1 on localhost" }, 400);
+          if (!body.board || !(await registry.getBoard(env, body.board))) return json({ error: "board required" }, 400);
+          return json({ ok: true, offset_ms: await boardStub(env, body.board).devClock(Number(body.offset_ms) || 0) });
+        }
         // Free-plan guardrails (src/limits.ts) in this isolate: GET shows them; POST overrides limits (tests lower one; a
         // single isolate under wrangler dev), {reset: true} clears overrides and counters, {shed: 0-2} sets today's level.
         if (path === "/api/ops/limits") {
           if (method === "POST") {
-            limits.setOverrides(body as Record<string, unknown>, (body as { reset?: unknown }).reset === true);
-            const lv = (body as { shed?: unknown }).shed;
+            const b = body as { reset?: unknown; nearQuota?: unknown; shed?: unknown };
+            limits.setOverrides(body as Record<string, unknown>, b.reset === true);
+            if (b.nearQuota === true) {
+              if (!limits.setNearQuota(env, true)) return json({ error: "nearQuota requires DEV_FAKE_NEAR_QUOTA=1 on localhost" }, 400);
+            } else if (b.nearQuota === false || b.reset === true) limits.setNearQuota(env, false);
+            const lv = b.shed;
             if (lv != null) await limits.setShedLevel(env, Number(lv));
           }
-          return json({ limits: limits.limits(env), shed: await limits.shedLevel(env) });
+          return json({ limits: limits.limits(env), shed: await limits.shedLevel(env), near_quota: limits.nearQuotaActive() });
         }
         // Tests: run the cron now (as the 5-minute schedule would), at `now` (ms) for scheduled triggers.
         if (path === "/api/ops/cron" && method === "POST") {

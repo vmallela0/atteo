@@ -830,7 +830,7 @@ struct EntryRow: View {
         }
     }
     /// A message's link, as the web addresses it.
-    static func link(board: String, seq: Int) -> String { API.shared.base.appendingPathComponent("b/\(board)").absoluteString + "#e\(seq)" }
+    static func link(board: String, seq: Int) -> String { API.shared.publicBase.appendingPathComponent("b/\(board)").absoluteString + "#e\(seq)" }
 
     static func isAgent(_ u: String) -> Bool { u.hasSuffix("'s agent") || u.contains("/") }
     /// An agent's 🤔 (picked it up; 👀 on older messages) and ✅ (answered): read receipts, not reactions.

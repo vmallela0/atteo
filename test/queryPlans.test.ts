@@ -7,7 +7,7 @@ import { AGENTS_ON_BOARD_SQL, BOARDS_FOR_USER_SQL, TAPE_PRUNE_SQL, TAPE_READ_SQL
 import { LIVE_SESSIONS_SQL, SESSIONS_ON_BOARD_SQL, USER_SESSIONS_SQL } from "../src/sessions";
 import { PRUNE_READ_SQL, unreadCountSql } from "../src/inbox";
 import { PRUNE_USAGE_DAILY_SQL } from "../src/usage";
-import { PRUNE_MAIL_SQL, UNDELIVERED_SQL } from "../src/mailbox";
+import { LEASE_GET_SQL, PRUNE_MAIL_SQL, UNDELIVERED_SQL } from "../src/mailbox";
 import { TOKEN_SQL } from "../src/auth";
 import { BUMP_SQL, REQUESTS_TODAY_SQL, SHED_GET_SQL, SHED_SET_SQL } from "../src/limits";
 
@@ -32,6 +32,7 @@ const HOT: Record<string, string> = {
   "mailbox acked prune": PRUNE_MAIL_SQL,
   "usage_daily prune": PRUNE_USAGE_DAILY_SQL,
   "mailbox: undelivered mail": UNDELIVERED_SQL,
+  "mailbox: drain lease": LEASE_GET_SQL,
   "tape read": TAPE_READ_SQL,
   "tape newest": TAPE_TOP_SQL,
   "tape prune": TAPE_PRUNE_SQL,

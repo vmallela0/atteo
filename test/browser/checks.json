@@ -105,11 +105,14 @@
  "dictation-mentions": 5,
  "railgap": 5,
  "people-filter": 29,
+ "thread-agents": 12,
+ "sidebar-close": 25,
  "just-mine": 10,
  "agentname-mention": 8,
  "i18n-zh": 6,
  "i18n-zh-2": 12,
  "i18n-zh-3": 8,
  "i18n-more": 21,
- "call-nap": 46
+ "call-nap": 46,
+ "web-budget": 12
 }

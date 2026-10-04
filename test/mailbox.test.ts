@@ -24,11 +24,12 @@ function fakeEnv() {
 const day = 86_400_000;
 const T0 = Date.UTC(2026, 9, 3, 12, 0, 0);
 
-function insert(db: any, user: string, board: string, seq: number, agentSeenAt: number | null) {
+/** readAt: when the person read it in their inbox (the same row is their inbox item); default read. */
+function insert(db: any, user: string, board: string, seq: number, agentSeenAt: number | null, readAt: number | null = agentSeenAt ?? T0) {
   db.prepare(
-    `INSERT INTO notifications (user, board_id, seq, kind, actor, actor_via, entry_type, excerpt, created_at, agent_seen_at)
-     VALUES (?, ?, ?, 'mention', 'alice', 'agent', 'note', 'hi', ?, ?)`,
-  ).run(user, board, seq, agentSeenAt ?? T0, agentSeenAt);
+    `INSERT INTO notifications (user, board_id, seq, kind, actor, actor_via, entry_type, excerpt, created_at, agent_seen_at, read_at)
+     VALUES (?, ?, ?, 'mention', 'alice', 'agent', 'note', 'hi', ?, ?, ?)`,
+  ).run(user, board, seq, agentSeenAt ?? T0, agentSeenAt, readAt);
 }
 
 function remaining(db: any, user: string): { seq: number; agent_seen_at: number | null }[] {
@@ -47,6 +48,14 @@ describe("mailbox acked retention sweep", () => {
     expect(rows.map((r) => r.seq).sort()).toEqual([2, 3]);
     expect(rows.find((r) => r.seq === 2)?.agent_seen_at).toBe(T0 - 5 * day);
     expect(rows.find((r) => r.seq === 3)?.agent_seen_at).toBeNull();
+  });
+
+  it("keeps mail the agent collected long ago while the person hasn't read it in their inbox (opus-d #2278)", async () => {
+    const { env, db } = fakeEnv();
+    insert(db, "bob", "", 1, T0 - 40 * day, null); // the agent took it; bob never opened it
+    insert(db, "bob", "", 2, T0 - 40 * day, T0 - 39 * day); // both done
+    expect(await pruneMail(env, T0)).toBe(1);
+    expect(remaining(db, "bob").map((r) => r.seq)).toEqual([1]);
   });
 
   it("leaves nothing to delete when all acked rows are within the window", async () => {
