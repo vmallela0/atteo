@@ -646,6 +646,11 @@ ${MERMAID_CSS}
 .sum ul{list-style:none;margin:0;padding:0}
 .sum li a{display:flex;align-items:center;gap:8px;padding:6px 8px;margin:0 -8px;border-radius:6px;font-size:13px;line-height:1.45}
 .sum li a:hover{background:var(--bg-hover)}
+.sum ul.capped:not(.all)>li:nth-last-child(n+4){display:none} /* the newest 3 until "Show all" */
+.sum .sum-more{display:block;margin:2px 0 0;font-size:12px}
+.sum li.q{display:flex;align-items:center;gap:4px}.sum li.q>a{flex:1;min-width:0;margin-right:0}
+.sum-ans{flex:none;width:24px;height:24px;margin-right:-6px;display:inline-flex;align-items:center;justify-content:center;border:1px solid transparent;border-radius:6px;background:none;color:var(--faint);font-size:12px;cursor:pointer}
+.sum-ans:hover,.sum-ans:focus-visible{color:var(--ok);border-color:var(--line);background:var(--bg)}.sum-ans:disabled{opacity:.4;cursor:default}
 .sum li .n{color:var(--faint);flex:none;font-variant-numeric:tabular-nums}
 .sum li .one{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .sum li .avs{flex:none;min-width:34px}.sum li>.row>.btn.ghost.sm:last-child{margin-right:-9px} /* Remove/Leave: its text lines up with the right edge, like last seen */.sum li .avs .av{width:18px;height:18px;font-size:8px;margin-left:-6px}.sum li .avs .av:first-child{margin-left:0}
