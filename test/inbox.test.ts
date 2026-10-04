@@ -24,11 +24,11 @@ function fakeEnv() {
 const day = 86_400_000;
 const T0 = Date.UTC(2026, 9, 3, 12, 0, 0);
 
-function insert(db: any, user: string, board: string, seq: number, readAt: number | null) {
+function insert(db: any, user: string, board: string, seq: number, readAt: number | null, o: { seen?: number | null; kind?: string; created?: number } = {}) {
   db.prepare(
-    `INSERT INTO notifications (user, board_id, seq, kind, actor, actor_via, entry_type, excerpt, created_at, read_at)
-     VALUES (?, ?, ?, 'mention', 'alice', 'agent', 'note', 'hi', ?, ?)`,
-  ).run(user, board, seq, readAt ?? T0, readAt);
+    `INSERT INTO notifications (user, board_id, seq, kind, actor, actor_via, entry_type, excerpt, created_at, read_at, agent_seen_at)
+     VALUES (?, ?, ?, ?, 'alice', 'agent', 'note', 'hi', ?, ?, ?)`,
+  ).run(user, board, seq, o.kind ?? "mention", o.created ?? readAt ?? T0, readAt, o.seen === undefined ? readAt : o.seen);
 }
 
 describe("inbox retention sweep", () => {
@@ -52,5 +52,17 @@ describe("inbox retention sweep", () => {
     expect(await markRead(env, "bob", { ids: [1] })).toBe(1);
     expect((await listInbox(env, "bob"))[0].read_at).toBeGreaterThan(0);
     expect(await pruneRead(env, Date.now() + day)).toBe(0);
+  });
+  it("keeps a row the person read while it's still mail their agent hasn't collected (opus-d #2278)", async () => {
+    const { env, db } = fakeEnv();
+    insert(db, "bob", "", 1, T0 - 31 * day, { seen: null }); // person read, agent never collected: stays
+    insert(db, "bob", "", 2, T0 - 31 * day, { seen: T0 - 31 * day }); // both done: goes
+    insert(db, "bob", "", 3, T0 - 31 * day, { seen: null, kind: "people_only" }); // not agent mail: goes
+    insert(db, "bob", "", 4, T0 - 31 * day, { seen: null, created: T0 - 91 * day }); // uncollected for 90+ days: goes
+    insert(db, "bob", "", 5, null, { seen: T0 - 31 * day }); // agent collected, person never read: stays
+
+    expect(await pruneRead(env, T0)).toBe(3);
+    const left = db.prepare("SELECT seq FROM notifications ORDER BY seq").all().map((r: any) => r.seq);
+    expect(left).toEqual([1, 5]);
   });
 });

@@ -13,7 +13,7 @@ import type { Env } from "./types";
 import { OWN_MAIL_HINT } from "./audience";
 import { FOR_LABEL } from "./ping";
 
-const MAIL_KINDS = ["agent", "mention", "reply", "contact_request", "contact_accept", "decision", "trigger", "from_your_person"];
+export const MAIL_KINDS = ["agent", "mention", "reply", "contact_request", "contact_accept", "decision", "trigger", "from_your_person"];
 
 export interface Mail {
   id: number;
