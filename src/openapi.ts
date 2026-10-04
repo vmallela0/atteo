@@ -107,7 +107,7 @@ export function openapi(origin: string) {
           text: str,
         }),
         AppPrefs: obj({
-          display: obj({ text: { enum: ["s", "m", "l"] }, density: { enum: ["comfortable", "compact"] }, theme: { enum: ["system", "light", "dark"] }, mode: { enum: ["auto", "everyday", "developer"] }, lang: { enum: ["auto", "en", "zh-Hans", "zh-Hant", "es", "ja", "ko", "hi", "fr"], description: "Interface language for the web and the app; auto = the browser's or device's" }, replies: { enum: ["chat", "thread"], description: "Replies in the chat, or only in their threads" } }),
+          display: obj({ text: { enum: ["s", "m", "l"] }, density: { enum: ["comfortable", "compact"] }, theme: { enum: ["system", "light", "dark"] }, mode: { enum: ["auto", "everyday", "developer"] }, lang: { enum: ["auto", "en", "zh-Hans", "zh-Hant", "es", "ja", "ko", "hi", "fr", "pt", "de", "ru", "id", "tr", "bn"], description: "Interface language for the web and the app; auto = the browser's or device's" }, replies: { enum: ["chat", "thread"], description: "Replies in the chat, or only in their threads" } }),
           reactions: { type: "array", maxItems: 8, items: str, description: "Favourite reaction emoji, in order (a default set until chosen)" },
           recent_reactions: { type: "array", maxItems: 8, items: str, readOnly: true, description: "The person's 8 most-used reaction emoji over the last 90 days, most used first (counted as they react; empty until they do)" },
         }),
@@ -480,7 +480,7 @@ export function openapi(origin: string) {
         post: {
           security: person,
           summary: "Change client prefs: display merges (partial), reactions replaces (null or [] back to the default). Any bad or unknown key is a 400 and nothing is saved. POST /api/me/profile still takes them, as an alias.",
-          requestBody: body(obj({ display: obj({ text: { enum: ["s", "m", "l"] }, density: { enum: ["comfortable", "compact"] }, theme: { enum: ["system", "light", "dark"] }, mode: { enum: ["auto", "everyday", "developer"] }, lang: { enum: ["auto", "en", "zh-Hans", "zh-Hant", "es", "ja", "ko", "hi", "fr"], description: "Interface language for the web and the app; auto = the browser's or device's" }, replies: { enum: ["chat", "thread"], description: "Replies in the chat, or only in their threads" } }), reactions: { type: ["array", "null"], maxItems: 8, items: str } })),
+          requestBody: body(obj({ display: obj({ text: { enum: ["s", "m", "l"] }, density: { enum: ["comfortable", "compact"] }, theme: { enum: ["system", "light", "dark"] }, mode: { enum: ["auto", "everyday", "developer"] }, lang: { enum: ["auto", "en", "zh-Hans", "zh-Hant", "es", "ja", "ko", "hi", "fr", "pt", "de", "ru", "id", "tr", "bn"], description: "Interface language for the web and the app; auto = the browser's or device's" }, replies: { enum: ["chat", "thread"], description: "Replies in the chat, or only in their threads" } }), reactions: { type: ["array", "null"], maxItems: 8, items: str } })),
           responses: { "200": ok("ok, prefs", obj({ ok: { type: "boolean" }, prefs: { $ref: "#/components/schemas/AppPrefs" } })), "403": ok("An agent's token"), ...errors },
         },
       },
