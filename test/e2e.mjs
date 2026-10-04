@@ -2200,7 +2200,36 @@ await step("agent webhooks: signed deliveries when something is addressed to you
   }
   assert(d, "delivered");
   const body = JSON.parse(d.body);
-  assert(body.event === "for_your_agent" && body.you === B && body.for === "for your agent" && body.entry.type === "question" && body.entry.seq === seq && body.reply.url.endsWith(`/api/boards/${fb}/entries`), d.body.slice(0, 300));
+  assert(body.event === "for_your_agent" && body.kind === "question" && body.title == null && body.you === B && body.for === "for your agent" && body.entry.type === "question" && body.entry.seq === seq && body.reply.url.endsWith(`/api/boards/${fb}/entries`), d.body.slice(0, 500));
+  const fenceBody = (p) => String(p).slice(String(p).indexOf(">>\n") + 3, String(p).lastIndexOf("\n<<end untrusted"));
+  assert(body.preview.includes("<<untrusted ") && fenceBody(body.preview) === `webhook me ${run}` && body.preview.includes("<<end untrusted "), `preview: ${body.preview}`);
+  // A long titled post: kind, title, and about the first 200 characters inside the fence; the entry text stays whole.
+  const longHook = `Please review the retry budget ${"and the backoff ".repeat(20)}tail-${run}`;
+  const seqLong = seqOf(await ok(A, fb, "post", { type: "task", title: "Retry budget", to: B, text: longHook }));
+  let dLong;
+  for (let i = 0; i < 40 && !dLong; i++) {
+    await new Promise((res) => setTimeout(res, 100));
+    dLong = (await (await fetch(`${BASE}/__webhook-sink`)).json()).deliveries.find((x) => x.body.includes(`tail-${run}`));
+  }
+  assert(dLong, "long webhook wasn't delivered");
+  const longBody = JSON.parse(dLong.body);
+  const inside = fenceBody(longBody.preview);
+  assert(longBody.kind === "task" && longBody.title === "Retry budget" && longBody.for === "for your agent" && longBody.entry.text === longHook, JSON.stringify(longBody).slice(0, 400));
+  assert(inside.startsWith("[Retry budget] Please review the retry budget") && inside.endsWith("…") && inside.length <= 220 && !inside.includes(`tail-${run}`), inside);
+  // Addressed to one live session of B: for this session, not for the agent generally.
+  const made = await (await fetch(`${BASE}/api/sessions`, { method: "POST", headers: { ...auth(B), "content-type": "application/json" }, body: JSON.stringify({ name: "hooksess", client: "e2e" }) })).json();
+  const sessName = made.session?.name;
+  assert(sessName, `session: ${JSON.stringify(made)}`);
+  await ok(A, fb, "read");
+  const seqSess = seqOf(await ok(A, fb, "post", { type: "question", title: "One session", text: `@${B}/${sessName} look at the queue ${run}` }));
+  let dSess;
+  for (let i = 0; i < 40 && !dSess; i++) {
+    await new Promise((res) => setTimeout(res, 100));
+    dSess = (await (await fetch(`${BASE}/__webhook-sink`)).json()).deliveries.find((x) => x.body.includes(`look at the queue ${run}`));
+  }
+  assert(dSess, "session webhook wasn't delivered");
+  const sessBody = JSON.parse(dSess.body);
+  assert(sessBody.kind === "question" && sessBody.title === "One session" && sessBody.for === "for you (this session)" && sessBody.entry.seq === seqSess && fenceBody(sessBody.preview).includes(`[One session] @${B}/${sessName} look at the queue ${run}`), JSON.stringify(sessBody).slice(0, 500));
   assert(d.headers["agent-soup-signature"] === d.headers["atteo-signature"], "the header under its old name too, for receivers set up before the rename");
   const [, t, v1] = d.headers["atteo-signature"].match(/^t=(\d+),v1=([0-9a-f]+)$/);
   const { createHmac } = await import("node:crypto");
@@ -3522,12 +3551,15 @@ await step("mailbox: DMs and mail for your agent wait until your agent polls; fu
   await call(M1, "POST", "/api/friends/request", { user: M2 });
   await call(M2, "POST", `/api/friends/${M1}/accept`);
   const dm = (await call(M1, "POST", `/api/direct/${M2}`)).board;
-  const long = `Can your agent review the webhook check? ${"details ".repeat(40)}${run}`;
-  await call(M1, "POST", `/api/boards/${dm}/entries`, { type: "note", text: long });
-  // Peeking doesn't deliver; the text is complete (not the 160-character excerpt).
+  const long = `Can your agent review the webhook check? ${"padding ".repeat(40)}${run}`;
+  await call(M1, "POST", `/api/boards/${dm}/entries`, { type: "note", title: "Webhook check", text: long });
+  // Peeking doesn't deliver; the text is complete (not the 160-character excerpt). preview is the triage: title and ~200 characters, fenced.
   let m = await call(M2, "GET", "/api/mailbox?peek=1");
   const mine = m.mail.filter((x) => x.board === dm);
-  assert(mine.length === 1 && mine[0].kind === "dm" && mine[0].from === M1 && mine[0].text === long, JSON.stringify(m).slice(0, 400));
+  assert(mine.length === 1 && mine[0].kind === "dm" && mine[0].from === M1 && mine[0].title === "Webhook check" && mine[0].for === "for your agent" && mine[0].text === long, JSON.stringify(m).slice(0, 500));
+  const fenceBody = (p) => String(p).slice(String(p).indexOf(">>\n") + 3, String(p).lastIndexOf("\n<<end untrusted"));
+  const inside = fenceBody(mine[0].preview);
+  assert(mine[0].preview.includes("<<untrusted ") && inside.startsWith("[Webhook check] Can your agent review") && inside.endsWith("…") && inside.length <= 220 && !inside.includes(run), inside);
   assert((await call(M2, "GET", "/api/mailbox?peek=1")).mail.some((x) => x.board === dm), "still there after a peek");
   // Reading on the web doesn't hide it from the agent.
   await call(M2, "POST", "/api/inbox/read", { all: true });
@@ -3570,7 +3602,7 @@ await step("mailbox tool (MCP): new mail as compact fenced lines under one heade
   const [head, ...rest] = t.split("\n");
   assert(/^1 mail, oldest first\. Answer in its thread/.test(head), `one-line header: ${head}`);
   has(rest[0], "<<untrusted ");
-  has(t, `(${dm}):\n  #${seq} question · dm · for your agent · ${M1}'s agent: line one ${run}\n    line two`);
+  has(t, `(${dm}):\n  #${seq} question · dm · for your agent · ${M1}'s agent: line one ${run} line two`);
   has(rest.at(-1), "<<end untrusted ");
   has(await sok(bot, "mailbox"), "Mailbox empty.");
   // An entry's title comes with it, inside the fence.
