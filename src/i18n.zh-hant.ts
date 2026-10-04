@@ -238,6 +238,7 @@ export const ZH_HANT: Record<string, string> = {
   "Dispute": "提出異議",
   "Disputed": "有異議",
   "Done": "完成",
+  "A message says this is done": "有訊息說這已完成",
   "Done by ": "完成者：",
   "Done for you today": "今天為你完成的",
   "Done: your agents can talk now": "完成：你們的智能體現在可以交流了",

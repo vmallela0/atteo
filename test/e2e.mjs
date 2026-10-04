@@ -1556,11 +1556,12 @@ await step("tasks: claim leases, conflicts, release, assign, done closes it, sto
 });
 
 // jxn #2172, opus-a #2175: the message that resolves a task is the record that it's done, so the task list agrees.
-await step("tasks: a change card or note that resolves an open task marks it done (whoever holds it); done or stopped tasks stay; a private message can't", async () => {
+await step("tasks: a card or note that resolves an open task marks it done when its author could close it (author, holder, assignee, board creator), else leaves a one-tap hint; REST too; done or stopped tasks stay; a private message can't", async () => {
   await ok(A, fb, "read");
   const mk = async (t) => seqOf(await ok(A, fb, "post", { type: "task", text: `${t} ${run}\n- [ ] first step\n- [ ] second step` }));
-  const held = await mk("Resolve-held"), plain = await mk("Resolve-plain"), stopped = await mk("Resolve-stopped"), quiet = await mk("Resolve-private"), other = await mk("Resolve-other");
-  await ok(B, fb, "task", { action: "claim", seq: held, minutes: 30 }); // held by B: A's card still closes it
+  const held = await mk("Resolve-held"), plain = await mk("Resolve-plain"), stopped = await mk("Resolve-stopped"), quiet = await mk("Resolve-private"), other = await mk("Resolve-other"), forB = await mk("Resolve-assigned"), rest = await mk("Resolve-rest");
+  await ok(B, fb, "task", { action: "claim", seq: held, minutes: 30 }); // held by B: A wrote it, so A's card still closes it
+  await ok(A, fb, "task", { action: "update", seq: forB, assignee: B });
   await ok(B, fb, "task", { action: "stop", seq: stopped, reason: "not now" });
   const task = async (n) => (await (await web(`/api/boards/${fb}/tasks/${n}`, A)).json()).task;
   // An agent's change card resolving two open tasks and a stopped one.
@@ -1575,11 +1576,25 @@ await step("tasks: a change card or note that resolves an open task marks it don
   assert((await task(stopped)).status === "stopped", "a stopped task stays stopped");
   has(await ok(A, fb, "task", { action: "list", status: "done" }), `#${held} [done]`);
   assert(!(await ok(A, fb, "task", { action: "list" })).includes(`#${plain} `), "resolved tasks leave the open list");
-  // Another member's agent resolving it with a plain note: the same.
+  // Another member's agent, who neither wrote, holds nor was given it, can't close it by saying so (vedu's agent #2221):
+  // the task stays open with "#M says it resolves this", and one tap (status done) closes it and clears the hint.
   await ok(B, fb, "read");
   const n2 = seqOf(await ok(B, fb, "post", { type: "note", text: `done with it ${run}`, resolves: [other] }));
   const vw = await task(other);
-  assert(vw.status === "done" && vw.done_note === `Resolved by #${n2}`, `another agent's note that resolves it: ${vw.status} ${vw.done_note}`);
+  assert(vw.status === "todo" && vw.resolved_by === n2 && !vw.done_note, `a non-holder's resolve: ${vw.status} ${vw.resolved_by} ${vw.done_note}`);
+  has(await ok(A, fb, "task", { action: "list" }), `#${other} [todo]`);
+  has(await ok(A, fb, "task", { action: "get", seq: other }), `#${n2} says it resolves this`);
+  const tap = await web(`/api/boards/${fb}/tasks/${other}`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "update", status: "done" }) });
+  assert(tap.status === 200, `one tap: ${tap.status}`);
+  const tapped = await task(other);
+  assert(tapped.status === "done" && tapped.resolved_by === null, `after the tap: ${tapped.status} ${tapped.resolved_by}`);
+  // The assignee's resolve closes it.
+  const n3 = seqOf(await ok(B, fb, "post", { type: "note", text: `mine is done ${run}`, resolves: [forB] }));
+  assert((await task(forB)).status === "done" && (await task(forB)).done_note === `Resolved by #${n3}`, "the assignee's resolve closes it");
+  // REST posts carry resolves now (they used to drop it): the author's agent through the REST API closes it.
+  const rp = await (await fetch(`${BASE}/api/boards/${fb}/entries`, { method: "POST", headers: { authorization: `Bearer ${tok[A]}`, "content-type": "application/json" }, body: JSON.stringify({ type: "note", text: `via REST ${run}`, resolves: [rest] }) })).json();
+  assert(JSON.stringify(rp.entry?.resolves) === JSON.stringify([rest]), `REST keeps resolves: ${JSON.stringify(rp.entry?.resolves)}`);
+  assert((await task(rest)).status === "done" && (await task(rest)).done_note === `Resolved by #${rp.entry.seq}`, "a REST resolve closes it");
   // A private message (Just mine) can't resolve anything, so the shared task stays open.
   await ok(A, fb, "read");
   await err(A, fb, "post", { type: "note", own: true, text: `privately done ${run}`, resolves: [quiet] }, "can't resolve");

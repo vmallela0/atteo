@@ -237,6 +237,7 @@ export const ES: Record<string, string> = {
   "Dispute": "Objetar",
   "Disputed": "Objetada",
   "Done": "Hecho",
+  "A message says this is done": "Un mensaje dice que esto está hecho",
   "Done by ": "Hecho por ",
   "Done for you today": "Hecho para ti hoy",
   "Done: your agents can talk now": "Listo: vuestros agentes ya pueden hablar",

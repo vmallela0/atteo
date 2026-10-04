@@ -2393,7 +2393,10 @@ function card(t){const first=t.title||'';const boxes=ckLines(t.body||'');const t
     (t.parent!=null?'<span class="ksub" title="'+(par?tr('Sub-task of ')+esc(par.title):tr('A sub-task'))+'">↳ '+(par?esc(par.title):'sub-task')+'</span>':'')+
     (boxes.length?'<span title="'+tr('Checklist')+'">☑ '+ticked+'/'+boxes.length+'</span>':'')+(t.children?'<span title="'+tr('Sub-tasks done')+'">'+t.children.done+'/'+t.children.total+' sub-tasks</span>':'')+(t.due?'<span>due '+new Date(t.due).toISOString().slice(5,10)+'</span>':'')+'<span class="grow"></span>'+
     (hold?'<span title="'+esc(hold)+' is working on it">🔒</span>':'')+(who?'<span title="For '+esc(who)+'">'+avatar16(t.assignee,t.assignee_agent)+'</span>':'')+'</div>'+
-    (t.stop_reason?'<div class="xs faint">'+esc(t.stop_reason)+'</div>':'')+(t.done_note?'<div class="xs faint">✓ '+esc(t.done_note)+'</div>':'')+'</article>'}
+    (t.stop_reason?'<div class="xs faint">'+esc(t.stop_reason)+'</div>':'')+(t.done_note?'<div class="xs faint">✓ '+esc(t.done_note)+'</div>':'')+
+    // Someone who can't close it said a message resolves it (#2221): a link to that message (cards show no numbers,
+    // vedu #675), and Done to close it in one tap.
+    (t.resolved_by?'<div class="xs kres"><a class="kres-l" href="#e'+t.resolved_by+'" data-kopen="'+t.resolved_by+'">'+tr('A message says this is done')+'</a><button type="button" class="btn sm" data-kdone="'+t.seq+'">'+tr('Done')+'</button></div>':'')+'</article>'}
 async function taskAct(seq,body){const r=await fetch('/api/boards/'+BOARD+'/tasks/'+seq,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
   const j=await r.json().catch(()=>({}));if(!r.ok)toast(j.error||tr('Could not update'));loadTasks();tick(false)}
 const kb=document.getElementById('kanban');let dragSeq=null;
@@ -2401,7 +2404,8 @@ kb.addEventListener('dragstart',e=>{const c=e.target.closest('.kcard');if(!c)ret
 kb.addEventListener('dragend',e=>{e.target.closest('.kcard')?.classList.remove('dragging');kb.querySelectorAll('.kcol.over').forEach(x=>x.classList.remove('over'))});
 kb.addEventListener('dragover',e=>{const col=e.target.closest('.kcol');if(!col||!dragSeq)return;e.preventDefault();kb.querySelectorAll('.kcol.over').forEach(x=>x!==col&&x.classList.remove('over'));col.classList.add('over')});
 kb.addEventListener('drop',e=>{const col=e.target.closest('.kcol');if(!col||!dragSeq)return;e.preventDefault();const s=dragSeq;dragSeq=null;taskAct(s,{action:'update',status:col.dataset.status})});
-kb.addEventListener('click',e=>{const a=e.target.closest('[data-kopen]');if(a){e.preventDefault();tab(0);location.hash='#e'+a.dataset.kopen;return}
+kb.addEventListener('click',e=>{const d=e.target.closest('[data-kdone]');if(d){e.preventDefault();e.stopPropagation();taskAct(+d.dataset.kdone,{action:'update',status:'done'});return}
+  const a=e.target.closest('[data-kopen]');if(a){e.preventDefault();tab(0);location.hash='#e'+a.dataset.kopen;return}
   const c=e.target.closest('.kcard');if(c)openTask(+c.dataset.seq)});
 document.getElementById('kb-new')?.addEventListener('submit',async e=>{e.preventDefault();const i=document.getElementById('kb-new-text');const title=i.value.trim();if(!title)return;
   const r=await fetch('/api/boards/'+BOARD+'/tasks',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({title})});

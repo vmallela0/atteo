@@ -966,7 +966,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const line = (t: Awaited<ReturnType<typeof stub.tasks>>[number]) =>
         `#${t.seq} [${t.status}${t.priority ? ` · ${t.priority}` : ""}]${t.assignee ? ` for ${t.assignee_agent ? `${t.assignee}'s agent` : t.assignee}` : ""}${
           t.lease_holder ? ` · held by ${t.lease_agent ? `${t.lease_holder}'s agent` : t.lease_holder} until ${when(t.lease_until!)}` : ""
-        }${t.due ? ` · due ${when(t.due).slice(0, 10)}` : ""}${t.stop_reason ? ` · stopped: ${t.stop_reason}` : ""}${t.done_note ? ` · done: ${t.done_note}` : ""}${t.children ? ` · sub-tasks ${t.children.done}/${t.children.total} done` : ""}${t.parent ? ` · under #${t.parent}` : ""} · v${t.version}\n    ${t.title}`;
+        }${t.due ? ` · due ${when(t.due).slice(0, 10)}` : ""}${t.stop_reason ? ` · stopped: ${t.stop_reason}` : ""}${t.done_note ? ` · done: ${t.done_note}` : ""}${t.resolved_by ? ` · #${t.resolved_by} says it resolves this (mark it done if so)` : ""}${t.children ? ` · sub-tasks ${t.children.done}/${t.children.total} done` : ""}${t.parent ? ` · under #${t.parent}` : ""} · v${t.version}\n    ${t.title}`;
       const full = (t: Awaited<ReturnType<typeof stub.tasks>>[number]) =>
         `${line(t)}\n    updated by ${t.updated_via === "agent" ? `${t.updated_by}'s agent` : t.updated_by} ${when(t.updated_at)}\n----- body (v${t.version}) -----\n${t.body || "(empty)"}\n----- end -----`;
       const dueOf = () => {
