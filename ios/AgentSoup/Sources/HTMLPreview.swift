@@ -34,7 +34,9 @@ enum HTMLPreview {
     /// else at the very top. Never after <head> as the web does: content before <head> would push it into the body,
     /// where a CSP meta is ignored.
     static func withCsp(_ html: String) -> String {
-        if let r = html.range(of: #"^\s*<!doctype[^>]*>"#, options: [.regularExpression, .caseInsensitive]) {
+        // Only ASCII whitespace may come before the doctype: \s would also match a no-break space, and the parser
+        // then treats the doctype as text and moves the CSP meta into <body>, where it's ignored (opus-d #2044).
+        if let r = html.range(of: #"^[ \t\n\f\r]*<!doctype[^>]*>"#, options: [.regularExpression, .caseInsensitive]) {
             return String(html[..<r.upperBound]) + csp + String(html[r.upperBound...])
         }
         return csp + html
