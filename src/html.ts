@@ -1495,23 +1495,26 @@ ta.addEventListener('keydown',e=>{if(e.key==='Escape'&&!e.defaultPrevented&&rpTo
 {let t=0,c=0;try{t=+localStorage.getItem(draftKey('to'))||0;c=+localStorage.getItem(draftKey('carry'))||0}catch(e){}
   rpCarry=c;if(t)setTimeout(()=>{if(document.getElementById('e'+t))replyTo(t,false,true);else replyClear()},0)}
 // Quote (vedu #1022): select words in a message and Quote puts them in the composer as "> " lines ending "— who, #N".
-// The page shows that as a box with ↗ original; agents read the plain lines.
-const qBtn=document.createElement('button');qBtn.type='button';qBtn.className='btn sm quote-btn';qBtn.id='quote-btn';qBtn.hidden=true;qBtn.textContent='❝ Quote';document.body.appendChild(qBtn);
+// Forward (vedu #1023): the same selection can go to another board as an excerpt, quoted with ↗ original.
+const qBar=document.createElement('div');qBar.className='sel-float';qBar.id='sel-float';qBar.hidden=true;
+const qBtn=document.createElement('button');qBtn.type='button';qBtn.className='btn sm';qBtn.id='quote-btn';qBtn.textContent='❝ Quote';
+const fwdQBtn=document.createElement('button');fwdQBtn.type='button';fwdQBtn.className='btn sm';fwdQBtn.id='fwd-q-btn';fwdQBtn.textContent='↪ '+tr('Forward');
+qBar.append(qBtn,fwdQBtn);document.body.appendChild(qBar);
 let qSel=null,qT=0;
 function qPick(){const s=getSelection();if(READONLY||!s||s.isCollapsed||!s.rangeCount)return null;const r=s.getRangeAt(0),at=n=>(n.nodeType===1?n:n.parentElement)?.closest('.body');
   const b=at(r.startContainer),el=b?.closest('.entry[data-seq]');if(!el||b!==at(r.endContainer))return null;
   const text=s.toString().replace(/\\r/g,'').trim();return text?{seq:+el.dataset.seq,who:sentName(el),text,r}:null}
-function qShow(){qSel=qPick();if(!qSel){qBtn.hidden=true;return}const box=qSel.r.getBoundingClientRect();
-  (qSel.r.startContainer.parentElement?.closest('dialog')||document.body).appendChild(qBtn);qBtn.hidden=false; // over a modal too
-  qBtn.style.left=Math.max(8,Math.min(innerWidth-qBtn.offsetWidth-8,box.left+box.width/2-qBtn.offsetWidth/2))+'px';
+function qShow(){qSel=qPick();if(!qSel){qBar.hidden=true;return}const box=qSel.r.getBoundingClientRect();
+  (qSel.r.startContainer.parentElement?.closest('dialog')||document.body).appendChild(qBar);qBar.hidden=false; // over a modal too
+  qBar.style.left=Math.max(8,Math.min(innerWidth-qBar.offsetWidth-8,box.left+box.width/2-qBar.offsetWidth/2))+'px';
   // phones put their own copy menu above a selection: Quote goes below it there
-  const up=box.top-qBtn.offsetHeight-8;qBtn.style.top=(matchMedia('(hover:none)').matches||up<8?Math.min(innerHeight-qBtn.offsetHeight-8,box.bottom+8):up)+'px'}
+  const up=box.top-qBar.offsetHeight-8;qBar.style.top=(matchMedia('(hover:none)').matches||up<8?Math.min(innerHeight-qBar.offsetHeight-8,box.bottom+8):up)+'px'}
 document.addEventListener('selectionchange',()=>{clearTimeout(qT);qT=setTimeout(qShow,120)});
-scroller.addEventListener('scroll',()=>{if(!qBtn.hidden)qShow()},{passive:true});
-qBtn.addEventListener('pointerdown',e=>e.preventDefault()); // keeps the selection
+scroller.addEventListener('scroll',()=>{if(!qBar.hidden)qShow()},{passive:true});
+qBar.addEventListener('pointerdown',e=>e.preventDefault()); // keeps the selection
 qBtn.addEventListener('click',()=>{const q=qSel||qPick();if(!q)return;
   const block=q.text.replace(/\\n{3,}/g,'\\n\\n').split('\\n').map(l=>l.trim()?'> '+l.trimEnd():'>').join('\\n')+'\\n> — '+q.who+', #'+q.seq;
-  const pre=ta.value.trimEnd();ta.value=(pre?pre+'\\n\\n':'')+block+'\\n\\n';getSelection().removeAllRanges();qBtn.hidden=true;qSel=null;
+  const pre=ta.value.trimEnd();ta.value=(pre?pre+'\\n\\n':'')+block+'\\n\\n';getSelection().removeAllRanges();qBar.hidden=true;qSel=null;
   ta.dispatchEvent(new Event('input'));taFit();ta.focus();ta.setSelectionRange(ta.value.length,ta.value.length)});
 // ↗ original: the search jump (loads back to it, opens its thread, flashes it).
 document.addEventListener('click',e=>{const a=e.target.closest('a[data-jump]');if(!a||!window.BOARD_CTX)return;e.preventDefault();e.stopPropagation();usr();BOARD_CTX.jump(+a.dataset.jump)},true);
@@ -2006,7 +2009,9 @@ document.addEventListener('submit',async e=>{const f=e.target.closest('.hd-f');i
   const ok=f.dataset.mode==='close'?await hdAct(seq,'close',{outcome:o,note}):await hdAct(seq,'vote',{vote:'object',note});
   f.querySelectorAll('button').forEach(x=>x.disabled=false);if(ok){f.hidden=true;renderHD(seq)}});
 // ---- multi-select and forward (people only): pick messages here, send them quoted to another board you're on ----
-let SEL=null,fwdTo=null,fwdBoards=null;const selBar=document.getElementById('sel-bar');
+let SEL=null,fwdPick=null,fwdTo=null,fwdBoards=null;const selBar=document.getElementById('sel-bar');
+const FWD_DESC_MSG=tr('Quoted with who said what, as one message from you. Only you can forward (agents can\\'t move messages between boards).');
+const FWD_DESC_EX=tr('Only the selected words are quoted, with who said them and a link back. Only you can forward (agents can\\'t move messages between boards).');
 function selUpdate(){selBar.hidden=!SEL;if(!SEL)return;document.getElementById('sel-n').textContent=SEL.size+' selected';document.getElementById('sel-fwd').disabled=!SEL.size}
 function selToggle(seq){const el=document.getElementById('e'+seq);if(!el||!SEL)return;if(SEL.has(seq)){SEL.delete(seq);el.classList.remove('picked')}else{SEL.add(seq);el.classList.add('picked')}selUpdate()}
 function selStart(seq){SEL=new Set();document.documentElement.classList.add('selecting');selToggle(seq)}
@@ -2024,18 +2029,26 @@ function fwdRender(){const q=fwdQ.value.trim().toLowerCase();const list=(fwdBoar
   document.getElementById('fwd-send').disabled=!fwdTo}
 fwdList.addEventListener('click',e=>{const li=e.target.closest('[data-to]');if(!li)return;fwdTo=li.dataset.to;fwdRender()});
 fwdQ.addEventListener('input',fwdRender);
-document.getElementById('sel-fwd').addEventListener('click',async()=>{if(!SEL||!SEL.size)return;fwdTo=null;fwdQ.value='';document.getElementById('fwd-note').value='';
+async function fwdOpen(){fwdTo=null;fwdQ.value='';document.getElementById('fwd-note').value='';fwdDlg.showModal();fwdQ.focus();
+  if(!fwdBoards){fwdList.innerHTML='<li class="xs faint">'+tr('Loading…')+'</li>';const j=await fetch('/api/me/boards').then(r=>r.json()).catch(()=>({}));fwdBoards=(j.boards||[]).filter(b=>b.id!==BOARD&&!b.encrypted)}
+  fwdRender()}
+document.getElementById('sel-fwd').addEventListener('click',async()=>{if(!SEL||!SEL.size)return;fwdPick=null;
   const seqs=[...SEL].sort((a,b)=>a-b);document.getElementById('fwd-n').textContent=seqs.length+' message'+(seqs.length===1?'':'s');
+  document.getElementById('fwd-desc').textContent=FWD_DESC_MSG;
   // The preview is what will be quoted: who said it, then its first lines.
   document.getElementById('fwd-prev').innerHTML=seqs.map(n=>{const el=document.getElementById('e'+n);const w=el?.querySelector(':scope>.grow>.meta .who')?.textContent||el?.dataset.author||'';
     return '<div class="fwd-q"><b>'+esc(w)+'</b> <span class="faint">#'+n+'</span><div class="truncate">'+esc((el?.querySelector(':scope>.grow>.body')?.textContent||'').trim().slice(0,240))+'</div></div>'}).join('');
-  fwdDlg.showModal();fwdQ.focus();
-  if(!fwdBoards){fwdList.innerHTML='<li class="xs faint">'+tr('Loading…')+'</li>';const j=await fetch('/api/me/boards').then(r=>r.json()).catch(()=>({}));fwdBoards=(j.boards||[]).filter(b=>b.id!==BOARD&&!b.encrypted)}
-  fwdRender()});
-document.getElementById('fwd-send').addEventListener('click',async e=>{const b=e.currentTarget;if(!fwdTo||!SEL)return;b.disabled=true;
-  const r=await fetch('/api/forward',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({from:BOARD,to:fwdTo,seqs:[...SEL],note:document.getElementById('fwd-note').value})});
+  await fwdOpen()});
+fwdQBtn.addEventListener('click',async()=>{const q=qSel||qPick();if(!q)return;fwdPick={seq:q.seq,who:q.who,text:q.text};
+  document.getElementById('fwd-n').textContent=tr('excerpt');document.getElementById('fwd-desc').textContent=FWD_DESC_EX;
+  document.getElementById('fwd-prev').innerHTML='<div class="fwd-q"><b>'+esc(q.who)+'</b> <span class="faint">#'+q.seq+'</span><div>'+esc(q.text.slice(0,500))+'</div></div>';
+  getSelection().removeAllRanges();qBar.hidden=true;qSel=null;await fwdOpen()});
+document.getElementById('fwd-send').addEventListener('click',async e=>{const b=e.currentTarget;if(!fwdTo||(!fwdPick&&(!SEL||!SEL.size)))return;b.disabled=true;
+  const note=document.getElementById('fwd-note').value;
+  const body=fwdPick?{from:BOARD,to:fwdTo,seqs:[fwdPick.seq],selectedText:fwdPick.text,note}:{from:BOARD,to:fwdTo,seqs:[...SEL],note};
+  const r=await fetch('/api/forward',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
   const j=await r.json().catch(()=>({}));b.disabled=false;if(!r.ok){toast(j.error||tr('Could not forward'));return}
-  fwdDlg.close();selEnd();toast(tr('Forwarded ')+j.forwarded+' to '+(peerOf(j.board.title)||j.board.title))});
+  fwdDlg.close();if(fwdPick)fwdPick=null;else selEnd();toast(tr('Forwarded ')+j.forwarded+' to '+(peerOf(j.board.title)||j.board.title))});
 // ---- search: the palette (⌘K) knows this board; ⌘F opens it already filtered to this board's messages ----
 window.BOARD_CTX={id:BOARD,me:ME,members:MEMBERS,
   async jump(seq){if(!(await ensureEntry(seq))){toast('#'+seq+' was not found');return}const el=document.getElementById('e'+seq);
@@ -2488,7 +2501,7 @@ ${SHEET}${agentChat ? "" : RECAP_DLG + SOUL_DLG}
 
 ${connectDialog(viewer, { id: info.id, title: info.title })}
 
-<dialog id="fwd-dlg" class="fwd-dlg" aria-label="${esc(T("Forward messages"))}"><div class="hd"><div><h2>${esc(T("Forward"))} <span id="fwd-n"></span></h2><p class="muted small" style="margin-top:4px">${esc(T("Quoted with who said what, as one message from you. Only you can forward (agents can't move messages between boards)."))}</p></div><button class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
+<dialog id="fwd-dlg" class="fwd-dlg" aria-label="${esc(T("Forward messages"))}"><div class="hd"><div><h2>${esc(T("Forward"))} <span id="fwd-n"></span></h2><p class="muted small" id="fwd-desc" style="margin-top:4px">${esc(T("Quoted with who said what, as one message from you. Only you can forward (agents can't move messages between boards)."))}</p></div><button class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
 <div class="bd stack" style="--gap:10px">
   <input class="input" id="fwd-q" placeholder="${esc(T("Find a board or person"))}" autocomplete="off" aria-label="${esc(T("Find a board"))}">
   <ul class="fwd-list" id="fwd-list" role="listbox" aria-label="${esc(T("Boards"))}"></ul>

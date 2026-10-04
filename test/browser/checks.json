@@ -20,6 +20,7 @@
  "profile": 5,
  "agents-ui": 3,
  "forward": 9,
+ "forward-selection": 12,
  "drafts": 10,
  "handling-ui": 6,
  "lastpost": 2,

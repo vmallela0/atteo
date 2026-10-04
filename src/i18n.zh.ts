@@ -472,6 +472,8 @@ export const ZH_CN: Record<string, string> = {
   "Profile": "个人资料",
   "Profile saved": "个人资料已保存",
   "Quoted with who said what, as one message from you. Only you can forward (agents can't move messages between boards).": "会带上谁说了什么，作为你发出的一条消息引用。只有你能转发（智能体不能在看板之间移动消息）。",
+  "Only the selected words are quoted, with who said them and a link back. Only you can forward (agents can't move messages between boards).": "只引用选中的文字，并附上说话人和返回原消息的链接。只有你能转发（智能体不能在看板之间移动消息）。",
+  "excerpt": "摘录",
   "React ": "回应 ",
   "React {e}": "回应 {e}",
   "Read aloud:": "朗读：",

@@ -1673,10 +1673,15 @@ const handler = {
       if (path === "/api/forward" && method === "POST") {
         if (!viewer) return needLogin();
         if (viewer.via === "agent") return json({ error: "Forwarding is for people, in the browser: agents can't move messages between boards." }, 403);
-        const b = (await request.json().catch(() => ({}))) as { from?: string; to?: string; seqs?: unknown; note?: string };
+        const b = (await request.json().catch(() => ({}))) as { from?: string; to?: string; seqs?: unknown; note?: string; selectedText?: string };
         const from = String(b.from ?? ""), to = String(b.to ?? "");
+        const selectedText = typeof b.selectedText === "string" ? b.selectedText.replace(/\r/g, "").trim() : "";
         const seqs = [...new Set((Array.isArray(b.seqs) ? b.seqs : []).map(Number).filter((n) => Number.isInteger(n) && n > 0))].sort((x, y) => x - y).slice(0, 50);
         if (!seqs.length) return json({ error: "Select at least one message." }, 400);
+        if (selectedText) {
+          if (seqs.length !== 1) return json({ error: "Selected text forwards one message at a time." }, 400);
+          if (!selectedText) return json({ error: "Selected text is empty." }, 400);
+        }
         if (!from || !to || from === to) return json({ error: "Pick another board to forward to." }, 400);
         if (!(await registry.isMember(env, from, viewer.name)) || !(await registry.isMember(env, to, viewer.name))) return json({ error: "board not found" }, 404);
         if ((await registry.memberRole(env, to, viewer.name)) === "viewer") return json({ error: "You can view that board but not post to it." }, 403);
@@ -1692,7 +1697,9 @@ const handler = {
         const quote = (e: Entry) =>
           [`> **${who(e)}** · #${e.seq}`, ...(e.artifact_name ? [`> 📎 ${(e.attachments ?? []).map((a) => a.name).join(", ") || e.artifact_name}`] : []), ...e.text.slice(0, 2000).split("\n").slice(0, 40).map((l) => `> ${l}`)].join("\n");
         const note = String(b.note ?? "").trim().slice(0, 2000);
-        const text = [...(note ? [note] : []), `↪ Forwarded from **${src.title}** · ${picked.length} message${picked.length === 1 ? "" : "s"}`, ...picked.map(quote)].join("\n\n").slice(0, 20000);
+        const text = selectedText
+          ? [...(note ? [note] : []), `↪ Forwarded from **${src.title}** · excerpt`, [...selectedText.slice(0, 2000).split("\n").slice(0, 40).map((l) => `> ${l}`), `> — ${who(picked[0])}, #${picked[0].seq}`].join("\n")].join("\n\n").slice(0, 20000)
+          : [...(note ? [note] : []), `↪ Forwarded from **${src.title}** · ${picked.length} message${picked.length === 1 ? "" : "s"}`, ...picked.map(quote)].join("\n\n").slice(0, 20000);
         const hit = scanFields({ text });
         if (hit) return json({ error: blockedMessage(hit) }, 400);
         // Only the note can mention anyone: quoted @names don't ping people on the new board.
