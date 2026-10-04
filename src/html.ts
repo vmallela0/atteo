@@ -503,7 +503,7 @@ function involvedAvatars(e: Entry): string {
 export function shortTitle(e: Pick<Entry, "text" | "title" | "artifact_name">, words = 4): string {
   if (e.title?.trim()) return clip(e.title, 48);
   const line = clip(e.artifact_name ?? firstLine(e.text), 400)
-    .replace(/@[A-Za-z0-9][A-Za-z0-9_.-]*(?:['’]s\s+agent)?/gi, " ")
+    .replace(/@[A-Za-z0-9][A-Za-z0-9_.-]*(?:['’]s\s+(?:agent|assistant))?/gi, " ")
     .replace(/^[\s,:;.\-–—>]+/, "");
   const w = line.split(/\s+/).filter(Boolean);
   return w.length ? w.slice(0, words).join(" ").replace(/[,:;.\-–—]+$/, "") + (w.length > words ? "…" : "") : `#entry`;
@@ -1100,7 +1100,9 @@ function connect(){
     if(d.type==='memory'){window.onMemoryEvent&&onMemoryEvent();return}
     // Someone renamed their agent (vedu #1125): its posts here read the new name, always with whose agent it is.
     if(d.type==='profile'&&d.user){delete pcache[d.user];document.querySelectorAll('#thread .entry.by-agent[data-author="'+CSS.escape(d.user)+'"]>.grow>.meta').forEach(m=>{const w=m.querySelector('.who');if(!w)return;
-      let o=m.querySelector('.via.owner');if(d.agent_name){w.textContent=d.agent_name;if(!o){o=document.createElement('span');o.className='via owner';w.after(o)}o.textContent=d.user+"'s agent"}else if(o){w.textContent=d.user+"'s agent";o.remove()}});return}
+      let o=m.querySelector('.via.owner');delete w.dataset.dev;if(o)delete o.dataset.dev; // the developer words change; Everyday re-words them below
+      if(d.agent_name){w.textContent=d.agent_name;if(!o){o=document.createElement('span');o.className='via owner';w.after(o)}o.textContent=d.user+"'s agent"}else if(o){w.textContent=d.user+"'s agent";o.remove()}});
+      if(document.documentElement.dataset.mode==='everyday')document.dispatchEvent(new CustomEvent('atteo-mode',{detail:{everyday:true}}));return}
     if(d.type==='schedule'){if(document.getElementById('invite')?.open&&window.schLoad)schLoad();return}
     if(d.type==='reaction'){renderRx(d.seq,d.reactions);return}
     if(d.type==='approval'){window.apcApply&&apcApply(d.approval);return}
@@ -1204,7 +1206,7 @@ ta.addEventListener('blur',mclose);
 mm.addEventListener('mousedown',e=>{e.preventDefault();const li=e.target.closest('[data-i]');if(li)mpick(ms[+li.dataset.i])});
 // Mentions in the composer are chips: a mirror under the (transparent) text draws them, and an edit or a caret move
 // treats each one as a single unit, so one Backspace removes "@vedu's agent" whole and the caret never lands inside.
-function mtokens(v){const out=[],re=/(^|[^A-Za-z0-9_.@\\/-])@([A-Za-z0-9][A-Za-z0-9_.-]{0,31})((?:'|’)s\\s+agent\\b|\\/[A-Za-z0-9][A-Za-z0-9_.-]{0,31})?/gi;let m;
+function mtokens(v){const out=[],re=/(^|[^A-Za-z0-9_.@\\/-])@([A-Za-z0-9][A-Za-z0-9_.-]{0,31})((?:'|’)s\\s+(?:agent|assistant)\\b|\\/[A-Za-z0-9][A-Za-z0-9_.-]{0,31})?/gi;let m;
   while((m=re.exec(v))){const raw=m[2].toLowerCase();let h=raw;if(!MNAMES.has(h))h=raw.replace(/[.-]+$/,'');if(!MNAMES.has(h))continue;
     const agent=!!m[3]&&h===raw;if(!agent&&h===ME)continue; // you can't mention yourself, only your agent
     const start=m.index+m[1].length;out.push({start,end:start+1+h.length+(agent?m[3].length:0),agent})}
@@ -1268,6 +1270,9 @@ if(!ta.value){const d=draftLoad('');if(d){ta.value=d;setTimeout(()=>{msync();ta.
 // is still a reply after a reload.
 /** The name a message's header shows: "vedu/scout" for a named agent session, else "vedu's agent" or the person. */
 const headName=el=>el.querySelector(':scope>.grow>.meta>.who')?.textContent||(el.dataset.author+(el.classList.contains('by-agent')?"'s agent":''));
+// What goes into a post (a quote's "— who"): the developer words, never Everyday's "X's assistant" (#1527). headName is
+// what this person sees, for labels on the page.
+const sentName=el=>{const w=el.querySelector(':scope>.grow>.meta>.who');return (w&&(w.dataset.dev??w.textContent))||(el.dataset.author+(el.classList.contains('by-agent')?"'s agent":''))};
 const rpBox=document.getElementById('replying'),rpTo=document.getElementById('reply-to');let rpAt='';
 const draftNow=()=>rpTo.value?'r'+rpTo.value:'';
 const taFit=()=>{ta.style.height='';if(ta.value)ta.style.height=ta.scrollHeight+2+'px';msync()};
@@ -1305,7 +1310,7 @@ const qBtn=document.createElement('button');qBtn.type='button';qBtn.className='b
 let qSel=null,qT=0;
 function qPick(){const s=getSelection();if(READONLY||!s||s.isCollapsed||!s.rangeCount)return null;const r=s.getRangeAt(0),at=n=>(n.nodeType===1?n:n.parentElement)?.closest('.body');
   const b=at(r.startContainer),el=b?.closest('.entry[data-seq]');if(!el||b!==at(r.endContainer))return null;
-  const text=s.toString().replace(/\\r/g,'').trim();return text?{seq:+el.dataset.seq,who:headName(el),text,r}:null}
+  const text=s.toString().replace(/\\r/g,'').trim();return text?{seq:+el.dataset.seq,who:sentName(el),text,r}:null}
 function qShow(){qSel=qPick();if(!qSel){qBtn.hidden=true;return}const box=qSel.r.getBoundingClientRect();
   (qSel.r.startContainer.parentElement?.closest('dialog')||document.body).appendChild(qBtn);qBtn.hidden=false; // over a modal too
   qBtn.style.left=Math.max(8,Math.min(innerWidth-qBtn.offsetWidth-8,box.left+box.width/2-qBtn.offsetWidth/2))+'px';
