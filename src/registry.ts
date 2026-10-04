@@ -43,10 +43,10 @@ export function boardMeta(b: BoardRow): BoardMeta {
 }
 
 /** Your boards (active and archived) with members and how many inbox items wait for you on each. */
-export async function boardsOverview(env: Env, user: string): Promise<(BoardRow & { members: string | null; unread: number })[]> {
+export async function boardsOverview(env: Env, user: string, person = false): Promise<(BoardRow & { members: string | null; unread: number })[]> {
   const r = await env.DB.prepare(
     `SELECT b.*, (SELECT GROUP_CONCAT(user, ', ') FROM members m2 WHERE m2.board_id = b.id) AS members,
-            (SELECT COUNT(*) FROM notifications n WHERE n.user = ?1 AND n.board_id = b.id AND n.read_at IS NULL) AS unread
+            (SELECT COUNT(*) FROM notifications n WHERE n.user = ?1 AND n.board_id = b.id AND n.read_at IS NULL${person ? "" : " AND n.kind != 'people_only'"}) AS unread
      FROM members m JOIN boards b ON b.id = m.board_id WHERE m.user = ?1 ORDER BY b.last_activity DESC`,
   )
     .bind(user)

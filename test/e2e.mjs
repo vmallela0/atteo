@@ -4324,6 +4324,37 @@ await step("read aloud (POST /api/app/tts): people only, validated, members only
     hidden((await papi(A, "GET", `/api/boards/${pb}/updates?after=0`)).body.summary, "summary");
   });
 
+  await step("people-only: its people get an inbox item and unread bump; their agent tokens, the author and non-audience members get nothing", async () => {
+    assert(reply, "needs the earlier people-only steps");
+    const mine = (who) => papi(who, "GET", "/api/inbox").then((r) => r.body.items ?? []);
+    // B (person): item with board, seq, from and a short excerpt; unread count includes it; the home page shows "for you".
+    const bi = (await mine(B)).filter((i) => i.kind === "people_only" && i.board_id === pb);
+    assert(bi.some((i) => i.seq === secret && i.actor === A && i.actor_via === "person" && i.excerpt.includes(SECRET) && i.excerpt.length <= 160 && !i.read_at), `B's inbox: ${JSON.stringify(bi)}`);
+    const cb = (await papi(B, "GET", "/api/inbox/count")).body;
+    assert(cb.unread >= 1 && cb.latest?.kind === "people_only", `B's count: ${JSON.stringify(cb)}`);
+    // The same person's AGENT token: no item, no count bump, no latest, no excerpt anywhere.
+    const ai = await papi(B, "GET", "/api/inbox", null, { bearer: true });
+    assert(ai.status === 200 && !ai.body.items.some((i) => i.kind === "people_only") && !JSON.stringify(ai.body).includes(SECRET), `agent inbox: ${JSON.stringify(ai.body).slice(0, 400)}`);
+    const ac = (await papi(B, "GET", "/api/inbox/count", null, { bearer: true })).body;
+    assert(ac.unread === 0 || ac.latest?.kind !== "people_only", `agent count: ${JSON.stringify(ac)}`);
+    hidden(JSON.stringify(ac), "agent inbox count");
+    assert(ac.unread < cb.unread, `agent count ${ac.unread} should be below the person's ${cb.unread}`);
+    // An agent can't mark them read either.
+    await papi(B, "POST", "/api/inbox/read", { all: true }, { bearer: true });
+    assert((await papi(B, "GET", "/api/inbox/count")).body.unread >= 1, "an agent token marked a people-only item read");
+    // The mailbox (agents') never carries it.
+    hidden(JSON.stringify((await papi(B, "GET", "/api/mailbox?peek=1", null, { bearer: true })).body), "mailbox");
+    // Author: no item for their own message. Non-audience member (OUT): nothing.
+    const ai2 = (await mine(A)).filter((i) => i.kind === "people_only"); // B's people-only reply does reach A, but nothing A wrote does
+    assert(!ai2.some((i) => i.actor === A || i.seq === secret) && ai2.some((i) => i.seq === reply && i.actor === B), `the author got an item for their own message: ${JSON.stringify(ai2)}`);
+    assert(!(await papi(A, "GET", "/api/inbox", null, { bearer: true })).body.items.some((i) => i.kind === "people_only"), "A's agent token got one");
+    assert(!(await mine(OUT)).some((i) => i.kind === "people_only") && !JSON.stringify(await mine(OUT)).includes(SECRET), "a non-audience member got an item");
+    // Reading the board as a person clears it (and the unread bump goes).
+    const rd = await papi(B, "POST", "/api/inbox/read", { board: pb });
+    assert(rd.body.read >= 1, JSON.stringify(rd.body));
+    assert(!(await mine(B)).some((i) => i.kind === "people_only" && !i.read_at), "still unread after reading");
+  });
+
   await step("people-only: memory refuses it and forwarding refuses it, even for its people", async () => {
     assert(reply, "needs the earlier people-only steps");
     const m = await papi(A, "POST", `/api/boards/${pb}/memory`, { from: secret });
