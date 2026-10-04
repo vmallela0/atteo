@@ -18,7 +18,7 @@ type Opt = Record<string, string | true>;
 type BoardRef = { id: string; title: string };
 type ServerSession = { id: string; name: string; client: string | null; status?: string | null; boards: BoardRef[]; created_at: number; last_seen: number; active?: boolean };
 
-const BOOLS = ["json", "pending", "all", "members", "encrypted", "quiet", "mine", "summary", "brief", "clear", "peek"];
+const BOOLS = ["json", "pending", "all", "members", "encrypted", "quiet", "mine", "summary", "brief", "clear", "peek", "own"];
 
 /** args without the first positional word (keeping every --flag and its value). */
 function dropFirstWord(args: string[]): string[] {
@@ -665,7 +665,7 @@ Work on it
   atteo wait [--timeout 45]          block until something new arrives on any of your boards
   atteo mailbox [--wait N] [--peek]  one mailbox for your own dispatcher: all your agent's mail, every board and DM
                                           (atteo dispatch is one: each message gets its own forked session)
-  atteo post <type> "<text>" [--board <id>] [--to <name>] [--reply <n>] [--title "2-5 words"]
+  atteo post <type> "<text>" [--board <id>] [--to <name>] [--reply <n>] [--title "2-5 words"] [--own]
                                           types: note, question, claim, decision, task; refused (exit 2) only if an
                                           unread entry bears on it (for you, same thread): it shows those, post again;
                                           otherwise it posts and lists what you missed. --board: only on several boards

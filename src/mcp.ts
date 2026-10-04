@@ -130,6 +130,7 @@ export const TOOLS = [
           description: "Member whose agent this is addressed to (e.g. their name). Omit for everyone. In the text, \"@name's agent\" also addresses their agent, and \"@name\" the person.",
         },
         reply_to: { type: "integer", description: "Entry number this replies to (it goes in that message's thread). Always set it when answering someone. Left out, an answer to a message you're on (your 🤔) is threaded under it for you; 0 posts at the top level on purpose. A non-question reply answers a question." },
+        own: { type: "boolean", description: "Just mine: only you and your own person/agents see it (note or question; no to). Replies to a 🔒 own entry are own too." },
         resolves: { type: "array", items: { type: "integer" }, description: "Entry numbers this answers or completes (questions, tasks)." },
         supersedes: { type: "integer", description: "Entry number this replaces (drops it from the summary)." },
         depends_on: { type: "array", items: { type: "integer" }, description: "Claims or decisions this rests on: if one is disputed or retracted, this entry is flagged stale." },
@@ -809,6 +810,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       if (!type || !(ENTRY_TYPES as readonly string[]).includes(type)) throw new ToolError(`type must be one of: ${ENTRY_TYPES.join(", ")}`);
       const to = args.to == null || args.to === "" ? null : normalizeUser(String(args.to));
       if (args.to != null && args.to !== "" && !to) throw new ToolError(`"${args.to}" is not a valid member name.`);
+      const own = args.own === true || args.own === "true";
       const stub = stubFor(env, id);
       // An agent session shows as its name (and tool): "scout · Codex"; otherwise the MCP client's name.
       const agentClient = (await agentOpts(c)).client;
@@ -833,6 +835,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
         artifact_name: str(args.artifact_name) ?? null,
         artifact_content: typeof args.artifact_content === "string" ? args.artifact_content : null,
         card: args.card,
+        ...(own ? { own: true } : {}),
       }, c.agentSession?.id ?? null));
       const missedSome = "refused" in res ? res.relevant.length > 0 : res.missed.length > 0;
       const names = missedSome ? await social.boardAgentNames(env, id) : undefined;
@@ -860,7 +863,8 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const notTagged = (unknown.length ? ` Not mentions (not members of this board): ${unknown.map((m) => "@" + m).join(", ")}.` : "") + (ambiguous.length ? ` Not mentions (more than one member's agent here is called that; write @<owner>'s agent): ${ambiguous.map((m) => "@" + m).join(", ")}.` : "");
       // Say where it went: in a thread (and whether we put it there), or at the top level.
       const threaded = entry.reply_to != null ? (args.reply_to == null ? ` Threaded under #${entry.reply_to}, the message you're answering (reply_to: 0 posts at the top level).` : ` In reply to #${entry.reply_to}.`) : "";
-      return `Posted #${entry.seq} (${type}${to ? ` → ${to}` : ""}${tagged}) to ${id}.${threaded}${hint}${notTagged}${missed}`;
+      const lock = entry.audience === "own" ? ", 🔒 own: only you and your person" : "";
+      return `Posted #${entry.seq} (${type}${entry.to ? ` → ${entry.to}` : ""}${tagged}${lock}) to ${id}.${threaded}${hint}${notTagged}${missed}`;
     }
 
     case "remember": {
@@ -1370,7 +1374,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const seq = int(args.seq);
       if (seq == null) throw new ToolError("seq is required.");
       const stub = stubFor(env, id);
-      const [r, names] = await Promise.all([stub.get(seq), social.boardAgentNames(env, id)]);
+      const [r, names] = await Promise.all([stub.get(seq, { user, person: false }), social.boardAgentNames(env, id)]);
       r.entry = withNames([r.entry], names)[0];
       r.replies = withNames(r.replies, names);
       const out = [formatEntry(r.entry, 100_000, user)];
@@ -1411,7 +1415,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
         author: normalizeUser(str(args.author)) ?? undefined,
         type: str(args.type),
         limit: int(args.limit),
-      });
+      }, { user, person: false });
       if (!r.entries.length && !r.files.length) return `Nothing matches "${query}".`;
       const out: string[] = [];
       if (r.files.length) out.push("Files (latest version; read with doc):", ...r.files.map((f) => `  ${f.name} v${f.version}: ${f.snippet.replace(/\s+/g, " ")}`), "");
@@ -1436,7 +1440,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
           context: int(args.context),
           max: int(args.max),
           files: args.files === true,
-        }, id);
+        }, id, { user, person: false });
         return r.count ? fence(r.text) : r.text;
       } catch (e) {
         throw new ToolError(e instanceof Error ? e.message : String(e));

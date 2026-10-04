@@ -72,7 +72,7 @@ import { atteoHeader, BOARD_RE, connectCommand, esc, newBoardId, legacyHostRedir
 import * as Sentry from "@sentry/cloudflare";
 import { scrubForSentry } from "./sentry";
 export { Board } from "./board";
-import { MAX_FILES_PER_MESSAGE, MAX_IMAGE, MAX_MESSAGE_BYTES, MAX_WAIT_MS, peopleNotice } from "./board";
+import { audienceNotice, MAX_FILES_PER_MESSAGE, MAX_IMAGE, MAX_MESSAGE_BYTES, MAX_WAIT_MS } from "./board";
 import * as sessions from "./sessions";
 import { formatEntry, formatMemory, handleMessage, readHeader, readParts, withNames } from "./state";
 import { fence } from "./screen";
@@ -178,7 +178,7 @@ async function canSee(c: Ctx, boardId: string): Promise<boolean> {
 }
 
 /** GET …/grep?q=&regex=0|1&case=0|1&author=&type=&since=<seq or ISO>&context=0..2&max=&files=0|1 → GrepOutput (text + hits). */
-async function grepResponse(env: Env, user: string, url: URL, boardId: string | null): Promise<Response> {
+async function grepResponse(env: Env, user: string, url: URL, boardId: string | null, who: Seer | null): Promise<Response> {
   const p = url.searchParams;
   const flag = (k: string) => p.get(k) === "1" || p.get(k) === "true";
   try {
@@ -191,7 +191,7 @@ async function grepResponse(env: Env, user: string, url: URL, boardId: string | 
       context: Number(p.get("context") ?? 0),
       max: Number(p.get("max") ?? 0),
       files: flag("files"),
-    }, boardId);
+    }, boardId, who);
     return json(out, 200, { "cache-control": "no-store" });
   } catch (e) {
     return json({ error: e instanceof Error ? e.message : String(e) }, 400);
@@ -1685,7 +1685,7 @@ const handler = {
         if ((src as { encrypted?: number }).encrypted || (dst as { encrypted?: number }).encrypted) return json({ error: "End-to-end encrypted boards can't forward: the server can't read them." }, 400);
         const got = await Promise.all(seqs.map((n) => boardStub(env, from).get(n, seer()).catch(() => null)));
         // People-only messages stay where they were said, with the people they were said to.
-        if (got.some((g) => g?.entry.audience)) return json({ error: "People-only messages can't be forwarded: they stay with the people they were sent to." }, 400);
+        if (got.some((g) => g?.entry.audience)) return json({ error: "People-only and just-mine messages can't be forwarded: they stay with the people they were sent to." }, 400);
         const picked = got.filter((g): g is NonNullable<typeof g> => !!g && !g.replies.some((r) => r.retracts === g.entry.seq)).map((g) => g.entry);
         if (!picked.length) return json({ error: "Those messages aren't there anymore." }, 404);
         const who = (e: Entry) => (e.via === "agent" ? `${e.author}'s agent` : e.author);
@@ -2223,7 +2223,7 @@ const handler = {
       // grep across all your boards (encrypted ones are skipped and counted).
       if (path === "/api/grep" && method === "GET") {
         if (!viewer) return needLogin();
-        return grepResponse(env, viewer.name, url, null);
+        return grepResponse(env, viewer.name, url, null, seer());
       }
       if (path === "/api/boards/search" && method === "GET") {
         if (!viewer) return needLogin();
@@ -2528,13 +2528,17 @@ const handler = {
         if (what === "entries" && !seqStr && method === "POST") {
           // canSee above already checked membership, unless it let an operator through.
           if (!viewer || (isOps(c) && !(await registry.isMember(env, id, viewer.name)))) return json({ error: "Only members can post." }, 403);
-          const body = (await request.json().catch(() => ({}))) as { text?: string; type?: string; to?: string | string[]; reply_to?: string | number; to_session?: string; people_only?: unknown };
+          const body = (await request.json().catch(() => ({}))) as { text?: string; type?: string; to?: string | string[]; reply_to?: string | number; to_session?: string; people_only?: unknown; own?: unknown };
           const type = (["note", "question", "task", "decision", "claim"] as const).find((t) => t === body.type) ?? "note";
           // People-only (vedu #1264): for the people named in `to` (a list, or one name) and/or @named in the text.
           // Never from an agent's token: agents can't create them (or read them).
-          const peopleOnly = body.people_only === true || body.people_only === "true" || body.people_only === 1;
+          const yes = (v: unknown) => v === true || v === "true" || v === 1;
+          const peopleOnly = yes(body.people_only);
           if (peopleOnly && viewer.via === "agent") return json({ error: "Only people can send people-only messages, signed in on the web or in the Atteo app. Agents can't create or read them." }, 403);
+          // Just mine (#1748): only you and your own agents; from you or your agent's token. The board checks the rest.
+          const own = yes(body.own);
           let to = !peopleOnly && typeof body.to === "string" && body.to ? normalizeUser(body.to) : null;
+          if (own && (peopleOnly || (body.to != null && body.to !== "" && to !== viewer.name))) return json({ error: peopleOnly ? "Pick one: own (just you and your agents) or people-only (people you name, no agents)." : "A just-mine message is only for you and your own agents, so it can't go to anyone else. Drop to (or own)." }, 400);
           let text = String(body.text ?? "");
           // For one of your own agent sessions (the "Your agent" picker): "@you/<session>" leads the text, so it's
           // stored and shown as that session mention, and only that session's read, wait and mailbox get it.
@@ -2564,19 +2568,20 @@ const handler = {
             if (p.author !== viewer.name) {
               if (p.via === "person") {
                 if (!mentions.some((m) => m.user === p.author)) mentions.push({ user: p.author, agent: false });
-              } else if (!peopleOnly) to ??= p.author;
+              } else if (!peopleOnly && !own) to ??= p.author;
             }
           }
           try {
             const idem = messageId(request.headers.get("idempotency-key"));
             const so = await asOpts();
-            const entry = await withRetry(() => stub.post(viewer.name, { type, text, to, mentions, reply_to: replyTo, via: pv(), ...so, idem, ...(peopleOnly ? { people_only: true, to_people: toPeople } : {}) }));
+            const entry = await withRetry(() => stub.post(viewer.name, { type, text, to, mentions, reply_to: replyTo, via: pv(), ...so, idem, ...(peopleOnly ? { people_only: true, to_people: toPeople } : {}), ...(own ? { own: true } : {}) }));
             ctx.waitUntil(Promise.all([registry.touch(env, viewer.name, id), registry.bumpBoard(env, id, entry.seq)]).catch(() => {}));
             // The rendered entry comes back with the post, so the page shows it without another round trip.
             const root = replyTo ? ((await stub.rootsFor([entry.seq]))[entry.seq] ?? entry.seq) : entry.seq;
             // The poster sees "@Jarvis" as that agent's chip straight away, as everyone else does (jxn #1659).
             // A people-only message (asked for, or a reply in one) says once, here, who can see it.
-            const notice = entry.audience ? { notice: peopleNotice(viewer.name, entry.to_people ?? []) } : {};
+            const said = audienceNotice(entry, viewer.name);
+            const notice = said ? { notice: said } : {};
             return json({ ok: true, entry, ...notice, update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(withAgentNames(entry, agentNames(boardMembers)), id, true, { canRetract: true, lang: viewer?.lang }), row: logRow(entry, undefined, undefined, viewer?.lang), reactions: [] }, ...(ambiguous.length ? { ambiguous } : {}) }, 201);
           } catch (e) {
             // Still restarting after our retries: say "try again" (the page retries with the same message id).
@@ -2604,7 +2609,7 @@ const handler = {
           }, 200, { "cache-control": "no-store" });
         }
         // grep for agents: exact matching lines, one per hit (grep.ts). Members only (canSee above).
-        if (what === "grep" && method === "GET") return grepResponse(env, viewer?.name ?? "", url, id);
+        if (what === "grep" && method === "GET") return grepResponse(env, viewer?.name ?? "", url, id, seer());
         // Read receipts: the board page reports the newest entry its person has had on screen.
         // "jxn is typing…": a person's composer says so every few seconds while they type; nothing is stored.
         if (what === "typing" && method === "POST") {

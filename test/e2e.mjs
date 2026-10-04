@@ -4497,6 +4497,8 @@ await step("voice (POST /api/app/voice/session): people only, validated, rate li
       hidden(await ok(u, pb, "get", { seq: pub }), `${tag} MCP get of the public thread it's in`);
       has((await tool(u, pb, "search", { query: SECRET })).text, `Nothing matches`); // (it echoes the query)
       hidden((await tool(u, pb, "search", { query: "Salary numbers" })).text, `${tag} MCP search`);
+      hidden((await tool(u, pb, "grep", { pattern: SECRET })).text, `${tag} MCP grep`);
+      hidden((await tool(u, pb, "grep", { pattern: SECRET, board: "all" })).text, `${tag} MCP grep (all boards)`);
       hidden(await ok(u, pb, "recap", { since: "0" }), `${tag} MCP recap`);
       await err(u, pb, "react", { seq: secret, emoji: "✅" }, "does not exist");
       await err(u, pb, "post", { type: "note", text: "answering", reply_to: secret }, "does not exist");
@@ -4509,7 +4511,7 @@ await step("voice (POST /api/app/voice/session): people only, validated, rate li
       const parent = await papi(u, "GET", `/api/boards/${pb}/entries/${pub}`, null, { bearer: true });
       assert(parent.status === 200, `${tag} REST get of the public thread: ${parent.status}`);
       hidden(JSON.stringify(parent.body), `${tag} REST get's replies`);
-      for (const p of [`/api/boards/${pb}/updates?after=0`, `/api/boards/${pb}/entries?after=0`, `/api/boards/${pb}/entries?before=999999`, `/api/boards/${pb}/search?q=${SECRET}`, `/api/boards/search?q=${SECRET}`, `/api/boards/${pb}/reactions`, `/api/boards/${pb}/recap?since=0`, `/api/tape?limit=500`]) {
+      for (const p of [`/api/boards/${pb}/updates?after=0`, `/api/boards/${pb}/entries?after=0`, `/api/boards/${pb}/entries?before=999999`, `/api/boards/${pb}/search?q=${SECRET}`, `/api/boards/search?q=${SECRET}`, `/api/boards/${pb}/reactions`, `/api/boards/${pb}/recap?since=0`, `/api/tape?limit=500`, `/api/boards/${pb}/grep?q=${SECRET}`, `/api/grep?q=${SECRET}`]) {
         const g = await papi(u, "GET", p, null, { bearer: true });
         assert(g.status === 200, `${tag} ${p}: ${g.status}`);
         hidden(JSON.stringify(g.body), `${tag} ${p}`);
@@ -4626,6 +4628,178 @@ await step("voice (POST /api/app/voice/session): people only, validated, rate li
     const fo = await papi(OUT, "POST", "/api/forward", { from: pb, to: other, seqs: [secret] });
     assert(fo.status !== 201, `outsider forward: ${fo.status}`);
     hidden(await ok(A, other, "read", { since: 0 }), "the other board");
+    for (const s of Object.values(sockets)) s.ws.close();
+  });
+}
+
+// ---- just mine (#1748): a private lane on a shared board between a person and their OWN agents ----
+{
+  let ob, other, pub, mine, auto, agentOwn, bOwn, sockets;
+  const OWN = `quokka-amber-${run}`; // only A's lane carries it
+  const BOWN = `ibis-coral-${run}`; // only B's lane carries it
+  const papi = async (who, method, path, body, { bearer = false } = {}) => {
+    const init = { method, headers: { "content-type": "application/json", ...(bearer ? auth(who) : {}) }, body: body ? JSON.stringify(body) : undefined };
+    const r = bearer ? await fetch(`${BASE}${path}`, init) : await web(path, who, init);
+    return { status: r.status, body: await r.json().catch(() => ({})) };
+  };
+  const openWs = (headers) =>
+    new Promise((resolve) => {
+      const ws = new WebSocket(BASE.replace(/^http/, "ws") + `/api/boards/${ob}/ws`, { headers });
+      const msgs = [];
+      ws.onmessage = (m) => msgs.push(String(m.data));
+      ws.onopen = () => resolve({ ws, msgs });
+      ws.onerror = () => resolve({ ws, msgs, failed: true });
+    });
+  const sawSeq = (s, seq) => s.msgs.some((x) => { try { return JSON.parse(x).seq === seq; } catch { return false; } });
+  const hidden = (text, what, word = OWN) => assert(!String(text).includes(word), `${what} leaked a just-mine text: ${String(text).slice(0, 600)}`);
+
+  await step("just mine: a person's own message wakes only their own agent, which sees it and answers in the lane", async () => {
+    ob = (await ops("boards", { user: A, title: `e2e just mine ${run}` })).body.board.id;
+    other = (await ops("boards", { user: A, title: `e2e just mine fwd ${run}` })).body.board.id;
+    for (const u of [B, OUT]) assert((await ops("members", { board: ob, user: u })).status === 200, `add ${u}`);
+    pub = (await papi(A, "POST", `/api/boards/${ob}/entries`, { text: `Public here ${run}` })).body.entry.seq;
+    for (const u of [A, B, OUT]) await ok(u, ob, "read");
+    sockets = { personA: await openWs({ cookie: cookie[A] }), agentA: await openWs(auth(A)), personB: await openWs({ cookie: cookie[B] }), agentB: await openWs(auth(B)), personOUT: await openWs({ cookie: cookie[OUT] }) };
+    assert(Object.values(sockets).every((s) => !s.failed), "sockets connect");
+    const waitA = tool(A, ob, "wait", { timeout_seconds: 20 });
+    const waitB = tool(B, ob, "wait", { timeout_seconds: 20 });
+    await new Promise((r) => setTimeout(r, 400));
+    // Refused, in plain words: with someone else, with people-only, or as anything but a note or a question.
+    let r = await papi(A, "POST", `/api/boards/${ob}/entries`, { text: `x ${OWN}`, own: true, to: B });
+    assert(r.status === 400 && /only for you and your own agents/.test(r.body.error), `own + to: ${r.status} ${JSON.stringify(r.body)}`);
+    r = await papi(A, "POST", `/api/boards/${ob}/entries`, { text: `x ${OWN}`, own: true, people_only: true, to: [B] });
+    assert(r.status === 400 && /Pick one/.test(r.body.error), `own + people_only: ${r.status} ${JSON.stringify(r.body)}`);
+    r = await papi(A, "POST", `/api/boards/${ob}/entries`, { text: `x ${OWN}`, own: true, type: "task" });
+    assert(r.status === 400 && /note or a question/.test(r.body.error), `own task: ${r.status} ${JSON.stringify(r.body)}`);
+    // A (person) writes in their lane: the entry says so, and the author is told who can see it.
+    r = await papi(A, "POST", `/api/boards/${ob}/entries`, { text: `Plan for my agent: ${OWN}`, own: true });
+    assert(r.status === 201 && r.body.entry.audience === "own" && JSON.stringify(r.body.entry.to_people) === JSON.stringify([A]), `${r.status} ${JSON.stringify(r.body)}`);
+    assert(r.body.notice === "Just mine: only you and your own agents can see this.", `notice: ${r.body.notice}`);
+    has(r.body.update.html, "just mine");
+    mine = r.body.entry.seq;
+    // A's agent wakes with it (marked); B's agent doesn't wake.
+    const w = await waitA;
+    has(w.text, OWN);
+    has(w.text, "🔒 own");
+    const early = await Promise.race([waitB.then(() => "woke"), new Promise((res) => setTimeout(() => res("still waiting"), 1500))]);
+    assert(early === "still waiting", "B's agent's wait woke for A's just-mine message");
+    await papi(A, "POST", `/api/boards/${ob}/entries`, { text: `public marker ${run}` });
+    const wb = await waitB;
+    has(wb.text, `public marker ${run}`);
+    hidden(wb.text, "B's MCP wait");
+    // A's agent answers without reply_to: it's on #mine (🤔), so the answer goes in that thread, and stays own.
+    const a1 = await ok(A, ob, "post", { type: "note", text: `On it: ${OWN} step one` });
+    has(a1, `Threaded under #${mine}`);
+    has(a1, "🔒 own");
+    auto = seqOf(a1);
+    // Its own top-level message in the lane; a reply to the lane that isn't a note/question, or own to someone else: refused.
+    const a2 = await ok(A, ob, "post", { type: "question", text: `Private question: ${OWN} ok?`, own: true, reply_to: 0 });
+    has(a2, "🔒 own");
+    agentOwn = seqOf(a2);
+    await err(A, ob, "post", { type: "claim", text: "x", reply_to: mine }, "a reply to it is a note or a question too");
+    await err(A, ob, "post", { type: "note", text: "x", own: true, to: B }, "can't go to");
+    await err(A, ob, "remember", { from: mine }, "just-mine");
+    // A's agent sees all of it: read, get (with the reply), search, grep.
+    const all = await ok(A, ob, "read", { since: 0, limit: 200 });
+    for (const s of [mine, auto, agentOwn]) has(all, `#${s} `);
+    const g = await ok(A, ob, "get", { seq: mine });
+    has(g, OWN);
+    has(g, `#${auto} `);
+    has((await tool(A, ob, "search", { query: OWN })).text, `#${mine}`);
+    has((await tool(A, ob, "grep", { pattern: OWN })).text, `#${mine}`);
+    // B's agent token can post in its own lane too (B and B's agents only).
+    const bo = await papi(B, "POST", `/api/boards/${ob}/entries`, { text: `B's private: ${BOWN}`, own: true }, { bearer: true });
+    assert(bo.status === 201 && bo.body.entry.audience === "own" && JSON.stringify(bo.body.entry.to_people) === JSON.stringify([B]), `B's agent own: ${JSON.stringify(bo.body)}`);
+    bOwn = bo.body.entry.seq;
+  });
+
+  await step("just mine: no other person, and no other person's agent, sees it through any path", async () => {
+    assert(agentOwn, "needs the first just-mine step");
+    const lane = [mine, auto, agentOwn];
+    for (const [u, word, theirs] of [[B, OWN, lane], [OUT, OWN, lane], [A, BOWN, [bOwn]], [OUT, BOWN, [bOwn]]]) {
+      const tag = `${u} (looking for ${word === OWN ? "A's" : "B's"} lane)`;
+      // The agent (MCP): read, get, search, grep, recap, and refused as "does not exist" for anything that names it.
+      hidden(await ok(u, ob, "read", { since: 0, limit: 200 }), `${tag} MCP read`, word);
+      hidden(await ok(u, ob, "read", { summary: true }), `${tag} MCP read summary`, word);
+      for (const s of theirs) await err(u, ob, "get", { seq: s }, "does not exist");
+      hidden(await ok(u, ob, "get", { seq: pub }), `${tag} MCP get`, word);
+      hidden((await tool(u, ob, "search", { query: word })).text.replace(`"${word}"`, ""), `${tag} MCP search`, word);
+      hidden((await tool(u, ob, "grep", { pattern: word })).text, `${tag} MCP grep`, word);
+      hidden((await tool(u, ob, "grep", { pattern: word, board: "all" })).text, `${tag} MCP grep all`, word);
+      hidden(await ok(u, ob, "recap", { since: "0" }), `${tag} MCP recap`, word);
+      await err(u, ob, "react", { seq: theirs[0], emoji: "✅" }, "does not exist");
+      await err(u, ob, "post", { type: "note", text: "answering", reply_to: theirs[0] }, "does not exist");
+      await err(u, ob, "remember", { from: theirs[0] }, "does not exist");
+      // REST, as the agent (token) and as the person (cookie).
+      for (const bearer of [true, false]) {
+        const as = `${tag} ${bearer ? "token" : "person"}`;
+        for (const s of theirs) assert((await papi(u, "GET", `/api/boards/${ob}/entries/${s}`, null, { bearer })).status === 404, `${as} REST get #${s}`);
+        for (const p of [`/api/boards/${ob}/updates?after=0`, `/api/boards/${ob}/entries?after=0`, `/api/boards/${ob}/entries?before=999999`, `/api/boards/${ob}/entries/${pub}`, `/api/boards/${ob}/search?q=${word}`, `/api/boards/search?q=${word}`, `/api/boards/${ob}/reactions`, `/api/boards/${ob}/recap?since=0`, `/api/boards/${ob}/grep?q=${word}`, `/api/grep?q=${word}`, `/api/tape?limit=500`, "/api/mailbox?peek=1", "/api/inbox", "/api/inbox/count"]) {
+          if (!bearer && (p.startsWith("/api/mailbox") || p.startsWith("/api/tape"))) continue; // agents' feeds
+          const res = await papi(u, "GET", p, null, { bearer });
+          assert(res.status === 200, `${as} ${p}: ${res.status}`);
+          hidden(JSON.stringify(res.body), `${as} ${p}`, word);
+          if (p.includes("after=0") || p.includes("before=")) assert(!res.body.entries.some((e) => theirs.includes(e.seq)), `${as} ${p} lists it`);
+          if (p.includes("/reactions")) for (const s of theirs) assert(!res.body.reactions?.[s], `${as} sees reactions on #${s}`);
+        }
+      }
+      const html = await (await web(`/b/${ob}`, u)).text();
+      hidden(html, `${tag} board page`, word);
+      for (const s of theirs) assert(!html.includes(`id="e${s}"`), `${tag} board page has a placeholder for #${s}`);
+    }
+    // Sockets: B and OUT (people and B's agent) never heard about A's lane; A's tabs never heard B's.
+    await new Promise((r) => setTimeout(r, 300));
+    for (const k of ["personB", "agentB", "personOUT"]) for (const s of [mine, auto, agentOwn]) assert(!sawSeq(sockets[k], s), `${k} socket heard #${s}: ${sockets[k].msgs.join(" | ").slice(0, 600)}`);
+    for (const k of ["personA", "agentA", "personOUT"]) assert(!sawSeq(sockets[k], bOwn), `${k} socket heard B's #${bOwn}`);
+    // Nobody's summary has it (it's what every agent reads).
+    hidden((await papi(A, "GET", `/api/boards/${ob}/updates?after=0`)).body.summary, "summary");
+  });
+
+  await step("just mine: its person sees the lane with its mark, live; unsends stay in it; memory and forwarding refuse it", async () => {
+    assert(agentOwn, "needs the first just-mine step");
+    for (const k of ["personA", "agentA"]) for (const s of [mine, auto, agentOwn]) assert(sawSeq(sockets[k], s), `${k}'s socket missed #${s}`);
+    assert(sawSeq(sockets.personB, bOwn) && sawSeq(sockets.agentB, bOwn), "B's tabs missed B's own lane");
+    const one = await papi(A, "GET", `/api/boards/${ob}/entries/${mine}`);
+    assert(one.status === 200 && one.body.entry.audience === "own" && one.body.entry.text.includes(OWN), `A get: ${one.status}`);
+    assert(one.body.replies.some((x) => x.seq === auto && x.audience === "own"), "A sees the agent's reply in the lane");
+    for (const bearer of [false, true]) {
+      const after = (await papi(A, "GET", `/api/boards/${ob}/entries?after=0`, null, { bearer })).body;
+      for (const s of [mine, auto, agentOwn]) assert(after.entries.some((x) => x.seq === s && x.audience === "own" && x.to_people[0] === A), `A ${bearer ? "token" : "person"} entries?after has #${s}`);
+      assert(!after.entries.some((x) => x.seq === bOwn), "A sees B's lane");
+    }
+    const sr = (await papi(A, "GET", `/api/boards/${ob}/search?q=${OWN}`)).body;
+    assert(sr.entries.some((x) => x.seq === mine), `A's search: ${JSON.stringify(sr).slice(0, 300)}`);
+    const html = await (await web(`/b/${ob}`, A)).text();
+    has(html, OWN);
+    has(html, "just mine");
+    // A (person) unsends their agent's lane question: the unsend is in the lane too.
+    const un = await papi(A, "POST", `/api/boards/${ob}/entries/${agentOwn}/retract`, {});
+    assert(un.status === 201 && un.body.entry.audience === "own", `unsend: ${JSON.stringify(un.body)}`);
+    await err(B, ob, "get", { seq: un.body.entry.seq }, "does not exist");
+    assert(!(await papi(B, "GET", `/api/boards/${ob}/entries?after=0`, null, { bearer: true })).body.entries.some((e) => e.seq === un.body.entry.seq), "B's agent lists the unsend");
+    // Memory never takes it (every agent reads memory); forwarding refuses it.
+    const m = await papi(A, "POST", `/api/boards/${ob}/memory`, { from: mine });
+    assert(m.status === 400 && /just-mine/.test(m.body.error), `memory: ${m.status} ${JSON.stringify(m.body)}`);
+    const f = await papi(A, "POST", "/api/forward", { from: ob, to: other, seqs: [mine] });
+    assert(f.status === 400 && /just-mine/.test(f.body.error), `forward: ${f.status} ${JSON.stringify(f.body)}`);
+    // Files are the whole board's: one in the lane's thread is refused before it's stored (nobody gets the file).
+    const fname = `lane-${run}.txt`;
+    for (const multi of [false, true]) {
+      let up;
+      if (multi) {
+        const fd = new FormData();
+        for (const n of [fname, `2-${fname}`]) fd.append("file", new Blob([`secret file ${OWN}`], { type: "text/plain" }), n);
+        fd.append("reply_to", String(mine));
+        up = await web(`/api/boards/${ob}/upload`, A, { method: "POST", body: fd });
+      } else up = await web(`/api/boards/${ob}/upload?name=${fname}&reply_to=${mine}`, A, { method: "POST", headers: { "content-type": "text/plain" }, body: `secret file ${OWN}` });
+      const uj = await up.json().catch(() => ({}));
+      assert(up.status === 400 && /files are shared with the whole board/.test(uj.error), `file in the lane (${multi ? "several" : "one"}): ${up.status} ${JSON.stringify(uj)}`);
+    }
+    const docs = await ok(B, ob, "doc", { action: "list" });
+    assert(!docs.includes(fname), `the refused file was stored anyway: ${docs}`);
+    // Someone outside the lane can't even learn it's private.
+    const ob2 = await web(`/api/boards/${ob}/upload?name=x.txt&reply_to=${mine}`, B, { method: "POST", headers: { "content-type": "text/plain" }, body: "x" });
+    assert(ob2.status === 400 && /does not exist/.test((await ob2.json()).error), `B's file reply: ${ob2.status}`);
     for (const s of Object.values(sockets)) s.ws.close();
   });
 }

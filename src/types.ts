@@ -73,8 +73,9 @@ export interface Entry {
   human_decision?: import("./decisions").HumanDecision | null; // a person's decision: open until the people decide (decisions.ts)
   approval?: ApprovalRef | null; // type=approval: the request and its live status
   // People-only (vedu #1264): only these people (author included) see it, signed in as themselves; never any agent.
+  // Just mine (#1748): audience "own", to_people [the person]: only that person and their own agents see it.
   // Absent on every other entry. Replies and unsends of it inherit the same audience.
-  audience?: "people";
+  audience?: "people" | "own";
   to_people?: string[];
 }
 
@@ -108,6 +109,7 @@ export interface NewEntry {
   idem?: string | null; // the sender's id for this message (Idempotency-Key): a retry is stored once
   people_only?: boolean; // people-only: for to_people (and the author) only, never any agent (people on the web/app only)
   to_people?: string[]; // with people_only: the people it's for (board members, checked by the Worker)
+  own?: boolean; // just mine: only the author (the person) and their own agents; people and agents both can post one
 }
 
 export interface Member {

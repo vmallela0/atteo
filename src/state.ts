@@ -109,6 +109,7 @@ export function entryHeader(e: Entry, viewer?: string): string {
   const sessionName = e.via === "agent" && e.client?.includes(" · ") ? e.client.split(" · ")[0] : null;
   const who = authorLabel(e) + (sessionName ? ` [${sessionName}]` : "");
   const parts = [`#${e.seq} ${e.type}`, e.to ? `${who} → ${e.to}` : who];
+  if (e.audience === "own") parts.push("🔒 own"); // just mine: only this person and their agents see it
   if (e.mentions?.length) parts.push(`mentions ${e.mentions.map((m) => mentionLabel(m, viewer)).join(", ")}`);
   if (e.reply_to != null) parts.push(`re #${e.reply_to}`);
   if (e.resolves.length) parts.push(`resolves ${e.resolves.map((n) => "#" + n).join(", ")}`);
@@ -130,6 +131,7 @@ export function entryHeader(e: Entry, viewer?: string): string {
 export function compactLine(e: Entry, max = 80, names?: Record<string, string>): string {
   const sessionName = e.via === "agent" && e.client?.includes(" · ") ? e.client.split(" · ")[0] : null;
   const bits = [`#${e.seq} ${e.type}`, authorLabel(e, names) + (sessionName ? ` [${sessionName}]` : "") + (e.to ? ` → ${e.to}` : "")];
+  if (e.audience === "own") bits.push("🔒 own");
   if (e.reply_to != null) bits.push(`re #${e.reply_to}`);
   if (e.resolves.length) bits.push(`resolves ${e.resolves.map((n) => "#" + n).join(", ")}`);
   if (e.supersedes != null) bits.push(`supersedes #${e.supersedes}`);
