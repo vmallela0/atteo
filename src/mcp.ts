@@ -10,6 +10,7 @@ import type { Schedule } from "./schedules";
 import * as social from "./social";
 import * as billing from "./billing";
 import { formatCard } from "./card";
+import { agentLabel } from "./handoff";
 import { MAX_WAIT_MS, MEMORY_MAX, WAIT_CAP } from "./board";
 import { settle, waitForBoard } from "./waits";
 import * as agents from "./agents";
@@ -120,7 +121,7 @@ export const TOOLS = [
   {
     name: "post",
     description:
-      "Post an entry to the joined board. Refused only if something you haven't read bears on it (addressed to you, same thread, or answering you): you get those, then post again if still relevant. Otherwise it posts and lists what arrived meanwhile (strict: true refuses on anything unread). Types: question (ask; set `to` to direct it at a member), claim (a finding), decision, task, note, artifact (a file: set artifact_name and artifact_content; files are versioned documents, so posting the same name again publishes its next version, readable and editable with the doc tool). To answer a question set `reply_to` to its number.",
+      "Post an entry to the joined board. Refused only if something you haven't read bears on it (addressed to you, same thread, or answering you): you get those, then post again if still relevant. Otherwise it posts and lists what arrived meanwhile (strict: true refuses on anything unread). Types: question (ask; set `to` to direct it at a member), claim (a finding), decision, task, note, artifact (a file: set artifact_name and artifact_content; files are versioned documents, so posting the same name again publishes its next version, readable and editable with the doc tool), handoff (hand a task to another agent: handoff {to, task, from?}; from defaults to you; stored and returned on read). To answer a question set `reply_to` to its number.",
     inputSchema: {
       type: "object",
       properties: {
@@ -144,6 +145,11 @@ export const TOOLS = [
           type: "object",
           description:
             "For type=change (a git change card; `atteo card` builds it from local git): {branch, base?, repo?, pr_url?, ci? (pending|passing|failing|none), commits?: [{sha, title}], files?: [{path, added, removed}], diff?}",
+        },
+        handoff: {
+          type: "object",
+          description:
+            'For type=handoff. {to, task, from?}. to and from name an agent: "jxn", "jxn/opus-a", or {user, session}. from defaults to the agent posting. task is the task entry. Stored and returned on read.',
         },
       },
       required: ["type", "text"],
@@ -864,6 +870,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
         artifact_name: str(args.artifact_name) ?? null,
         artifact_content: typeof args.artifact_content === "string" ? args.artifact_content : null,
         card: args.card,
+        handoff: args.handoff,
         ...(own ? { own: true } : notOwn ? { own: false } : {}),
       }, c.agentSession?.id ?? null, args.strict === true || args.strict === "true"));
       const missedSome = "refused" in res ? res.relevant.length > 0 : res.missed.length > 0;
@@ -895,7 +902,8 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const lock = entry.audience === "own" ? ", 🔒 own: only you and your person" : "";
       // Own at the top level without asking for it: the board kept it in Just mine (board.ts ownByDefault).
       const kept = entry.audience === "own" && entry.reply_to == null && !own && !notOwn ? ` ${keptOwnNotice(user)}` : "";
-      return `Posted #${entry.seq} (${type}${entry.to ? ` → ${entry.to}` : ""}${tagged}${lock}) to ${id}.${kept}${threaded}${hint}${notTagged}${missed}`;
+      const handed = entry.handoff ? ` Handed task #${entry.handoff.task} to ${agentLabel(entry.handoff.to)}.` : "";
+      return `Posted #${entry.seq} (${type}${entry.to ? ` → ${entry.to}` : ""}${tagged}${lock}) to ${id}.${handed}${kept}${threaded}${hint}${notTagged}${missed}`;
     }
 
     case "remember": {

@@ -9,9 +9,10 @@ import { computeSummary, formatSummary, summaryWithNames, tasksFor, withNames, D
 import { blockedMessage, scanFields, scanText, type SecretHit } from "./secrets";
 import { recordOutcome } from "./agents";
 import { ALL_AGENTS, ALL_HUMANS, ALL_MEMBERS, forAgent, forPerson, hasGroupMention, keep, MAX_GROUP_MENTIONS, MAX_MENTIONS, mentionsOwnAgent, parseMentions, SESSION_NAME_RE, type Mention } from "./mentions";
-import { ENTRY_TYPES, type ApprovalRef, type Attachment, type BoardInfo, type Entry, type Env, type Media, type Member, type NewEntry, type Viewer } from "./types";
+import { ENTRY_TYPES, type ApprovalRef, type Attachment, type BoardInfo, type Entry, type Env, type Handoff, type Media, type Member, type NewEntry, type Viewer } from "./types";
 import { cleanTitle, EMOJI_RE, ftsQuery, USER_RE } from "./util";
 import { cardText, parseCard, type ChangeCard } from "./card";
+import { handoffLine, parseHandoff, sameAgent } from "./handoff";
 import { deliver } from "./webhooks";
 import { HumanDecisions, isHumanDecisionPost, type HumanDecision } from "./decisions";
 import type { RecapCore, RecapOwner, RecapTask } from "./recap";
@@ -255,6 +256,7 @@ function toEntry(r: Row): Entry {
     ...(attachments ? { attachments } : {}),
     title: (r.title as string | null) ?? null,
     card: r.card ? (JSON.parse(r.card as string) as ChangeCard) : null,
+    handoff: r.handoff ? (JSON.parse(r.handoff as string) as Handoff) : null,
     ai_flag: (r.ai_flag as string | null) ?? null,
     ...(r.approval ? { approval: liveApproval(JSON.parse(r.approval as string) as ApprovalRef) } : {}),
     ...(r.audience === "people" || r.audience === "own" ? { audience: r.audience as Audience, to_people: JSON.parse((r.to_people as string | null) || "[]") as string[] } : {}),
@@ -272,7 +274,7 @@ const opts0 = (input: NewEntry): TaskActOpts => ({ via: input.via ?? null, clien
 /** For a session's reads: skip posts addressed to another session of the same person (binds: user, session). */
 const FOR_SESSION_OK = "(for_session IS NULL OR for_user != ? OR for_session = ?)";
 
-const ENTRY_COLS = "seq, ts, author, type, text, title, to_user, mentions, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, card, media, ai_flag, attachments, approval, audience, to_people";
+const ENTRY_COLS = "seq, ts, author, type, text, title, to_user, mentions, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, card, media, ai_flag, attachments, approval, audience, to_people, handoff";
 
 // ---- private entries (audience.ts): people-only (vedu #1264), only the people it names, never any agent; and just
 // mine (#1748), only one person and their own agents. Every read of entries filters through these, so a path that
@@ -682,6 +684,8 @@ export class Board extends DurableObject<Env> {
     // audience 'own' and [its person]; NULL otherwise.
     if (!cols.has("audience")) this.sql.exec("ALTER TABLE entries ADD COLUMN audience TEXT");
     if (!cols.has("to_people")) this.sql.exec("ALTER TABLE entries ADD COLUMN to_people TEXT");
+    // A handoff: who it came from, who it goes to, and the task it refers to (JSON Handoff). Null on every other entry.
+    if (!cols.has("handoff")) this.sql.exec("ALTER TABLE entries ADD COLUMN handoff TEXT");
     // Covering: hiddenFrom reads only the index (with the kind, since there are two).
     this.sql.exec("CREATE INDEX IF NOT EXISTS entries_audience2 ON entries (seq, audience, to_people) WHERE audience IS NOT NULL");
     this.sql.exec("DROP INDEX IF EXISTS entries_audience");
@@ -1183,6 +1187,43 @@ export class Board extends DurableObject<Env> {
       if (hit) throw new BoardError(blockedMessage(hit));
     }
 
+    // A handoff names the agent it came from (the one posting it), the agent it goes to, and the task.
+    let handoff: Handoff | null = null;
+    if (input.handoff != null && input.type !== "handoff") throw new BoardError("handoff is only on a handoff entry.");
+    if (input.type === "handoff") {
+      if (input.via !== "agent") throw new BoardError("An agent hands a task to another agent.");
+      const sessionName = input.session_name && SESSION_NAME_RE.test(input.session_name) ? input.session_name : null;
+      const fromAgent = { user, session: sessionName };
+      let parsed: ReturnType<typeof parseHandoff>;
+      try {
+        parsed = parseHandoff(input.handoff, fromAgent);
+      } catch (e) {
+        throw new BoardError(e instanceof Error ? e.message : String(e));
+      }
+      handoff = parsed.handoff;
+      if (parsed.fromGiven && !sameAgent(handoff.from, fromAgent)) {
+        throw new BoardError(`A handoff comes from the agent posting it${sessionName ? ` (${user}/${sessionName})` : ""}.`);
+      }
+      handoff = { ...handoff, from: fromAgent };
+      if (sameAgent(handoff.from, handoff.to)) throw new BoardError("A handoff goes to a different agent.");
+      if (input.to && input.to !== handoff.to.user) throw new BoardError("to has to be the agent the handoff goes to.");
+      input = { ...input, to: handoff.to.user };
+      const onBoard = async (name: string) => {
+        if (this.sql.exec("SELECT 1 AS x FROM members WHERE name = ?", name).toArray().length) return true;
+        const row = await this.env.DB.prepare("SELECT 1 AS ok FROM members WHERE board_id = ? AND user = ? AND (expires_at IS NULL OR expires_at > ?)").bind(info.id, name, Date.now()).first();
+        return !!row;
+      };
+      if (!(await onBoard(handoff.to.user))) throw new BoardError(`${handoff.to.user} isn't a member of this board.`);
+      const taskRow = this.sql.exec("SELECT type, retracts FROM entries WHERE seq = ?", handoff.task).toArray()[0];
+      if (!taskRow || !this.visible(handoff.task, poster)) throw new BoardError(`Entry #${handoff.task} does not exist on this board.`);
+      if (taskRow.type !== "task") throw new BoardError(`#${handoff.task} isn't a task.`);
+      if (this.sql.exec("SELECT 1 AS x FROM entries WHERE retracts = ?", handoff.task).toArray().length) throw new BoardError(`#${handoff.task} was unsent.`);
+      const hit = scanFields({ handoff: handoffLine(handoff) });
+      if (hit) throw new BoardError(blockedMessage(hit));
+      // One named session of theirs, when that session is live; otherwise any of their agents.
+      forSession = handoff.to.session ? await this.sessionRoute([{ user: handoff.to.user, agent: true, session: handoff.to.session }]) : null;
+    }
+
     // Your agent's board ("Your agent"): everything its person writes there is for their agent. So is a just-mine message.
     const toOwnAgent = input.via === "person" && (boardKind === "agent" || own);
     // Resolved against the board's members by the Worker; stored as given, minus anything malformed or meaningless.
@@ -1200,8 +1241,8 @@ export class Board extends DurableObject<Env> {
 
     const row = this.sql
       .exec(
-        `INSERT INTO entries (ts, author, type, text, to_user, mentions, self_agent, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, artifact_content, card, card_diff, media, title, session, idem, for_user, for_session, attachments, approval, audience, to_people)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING ${ENTRY_COLS}`,
+        `INSERT INTO entries (ts, author, type, text, to_user, mentions, self_agent, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, artifact_content, card, card_diff, media, title, session, idem, for_user, for_session, attachments, approval, audience, to_people, handoff)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING ${ENTRY_COLS}`,
         Date.now(),
         user,
         input.type,
@@ -1231,6 +1272,7 @@ export class Board extends DurableObject<Env> {
         internal.approval ? JSON.stringify(internal.approval) : null,
         aud ? aud.audience : null,
         people ? JSON.stringify(people) : null,
+        handoff ? JSON.stringify(handoff) : null,
       )
       .one();
     if (artifactVersion != null) this.broadcast({ type: "doc", name: artifactName, version: artifactVersion, by: user });
@@ -1238,7 +1280,7 @@ export class Board extends DurableObject<Env> {
     for (const a of internal.attachments?.list.slice(1) ?? []) this.broadcast({ type: "doc", name: a.name, version: a.version, by: user });
     const entry = toEntry(row);
     if (internal.attachments) this.indexEntry(entry.seq, entry.text, internal.attachments.list.map((a) => a.name).join(" "), null, internal.attachments.text || null);
-    else this.indexEntry(entry.seq, entry.text, entry.artifact_name, entry.card ?? null, artifactContent);
+    else this.indexEntry(entry.seq, handoff ? `${entry.text}\n${handoffLine(handoff)}` : entry.text, entry.artifact_name, entry.card ?? null, artifactContent);
     if (entry.type === "task") {
       const { title, body } = splitTask(entry.text);
       this.sql.exec(

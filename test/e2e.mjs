@@ -1476,6 +1476,42 @@ await step("change cards: agents post a git card; summary, get and the secret fi
   await err(A, fb, "post", { type: "change", text: "leaky", card: { branch: "x", diff: `+ token = "${fake}"` } }, "Blocked");
 });
 
+await step("handoff: an agent hands a task to another; read and the entries API return from, to, and the task", async () => {
+  const hb = (await ops("boards", { user: A, title: `e2e handoff ${run}` })).body.board.id;
+  assert((await ops("members", { board: hb, user: B })).status === 200, "add B");
+  await ok(A, hb, "read");
+  const task = seqOf(await ok(A, hb, "post", { type: "task", text: `Hand this off ${run}` }));
+  const posted = await ok(A, hb, "post", { type: "handoff", text: `Yours now ${run}`, handoff: { to: B, task } });
+  const seq = seqOf(posted);
+  has(posted, `Handed task #${task} to ${B}'s agent`);
+  const got = await ok(B, hb, "read", { since: seq - 1 });
+  has(got, `from ${A}'s agent to ${B}'s agent, task #${task}`);
+  has(await ok(B, hb, "get", { seq }), `from ${A}'s agent to ${B}'s agent, task #${task}`);
+  const api = await (await fetch(`${BASE}/api/boards/${hb}/entries?after=${seq - 1}&limit=5`, { headers: { authorization: `Bearer ${tok[B]}` } })).json();
+  const e = api.entries.find((x) => x.seq === seq);
+  assert(e?.type === "handoff", JSON.stringify(api).slice(0, 500));
+  assert(e.handoff.from.user === A && e.handoff.from.session == null, JSON.stringify(e.handoff));
+  assert(e.handoff.to.user === B && e.handoff.to.session == null && e.handoff.task === task, JSON.stringify(e.handoff));
+  const rest = await fetch(`${BASE}/api/boards/${hb}/entries`, { method: "POST", headers: { authorization: `Bearer ${tok[A]}`, "content-type": "application/json" }, body: JSON.stringify({ type: "handoff", text: `REST ${run}`, handoff: { to: `${B}/builder`, task } }) });
+  const rj = await rest.json();
+  assert(rest.status === 201 && rj.entry?.handoff?.to?.user === B && rj.entry.handoff.to.session === "builder" && rj.entry.handoff.task === task && rj.entry.handoff.from.user === A, JSON.stringify(rj).slice(0, 700));
+  const again = await (await fetch(`${BASE}/api/boards/${hb}/entries?after=${rj.entry.seq - 1}&limit=1`, { headers: { authorization: `Bearer ${tok[B]}` } })).json();
+  assert(again.entries[0]?.handoff?.to?.session === "builder", JSON.stringify(again).slice(0, 500));
+  const person = await web(`/api/boards/${hb}/entries`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "handoff", text: "no", handoff: { to: B, task } }) });
+  assert(person.status === 400 && (await person.json()).error.includes("An agent hands"), "a person can't post a handoff");
+  const note = seqOf(await ok(A, hb, "post", { type: "note", text: `not a task ${run}`, reply_to: 0 }));
+  await err(A, hb, "post", { type: "handoff", text: "nope", handoff: { to: B, task: note } }, "isn't a task");
+  await err(A, hb, "post", { type: "handoff", text: "nope", handoff: { to: B, task: 9_000_000 } }, "does not exist");
+  await err(A, hb, "post", { type: "handoff", text: "nope", handoff: { to: OUT, task } }, "isn't a member");
+  await err(A, hb, "post", { type: "handoff", text: "nope", handoff: { from: B, to: A, task } }, "posting it");
+  await err(A, hb, "post", { type: "handoff", text: "nope", handoff: { to: A, task } }, "different agent");
+  await err(A, hb, "post", { type: "handoff", text: "nope", handoff: { task } }, "who it goes to");
+  await err(A, hb, "post", { type: "note", text: "nope", handoff: { to: B, task } }, "only on a handoff");
+  const dropped = seqOf(await ok(A, hb, "post", { type: "task", text: `Dropped task ${run}` }));
+  await ok(A, hb, "retract", { seq: dropped });
+  await err(A, hb, "post", { type: "handoff", text: "nope", handoff: { to: B, task: dropped } }, "unsent");
+});
+
 await step("reviews: a change addressed to someone is a review request; verdicts show in summaries; web reviews too", async () => {
   await ok(A, fb, "read");
   const card = { branch: `feat/x-${run}`, base: "main", pr_url: "https://github.com/acme/shop/pull/7", files: [{ path: "a.ts", added: 1, removed: 0 }], diff: "+ x" };

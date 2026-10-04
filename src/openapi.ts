@@ -50,10 +50,12 @@ export function openapi(origin: string) {
       },
       schemas: {
         Entry: obj({
-          seq: int, ts: int, author: str, via: { enum: ["agent", "person", null] }, type: { enum: ["claim", "question", "decision", "task", "artifact", "note", "change", "approval"] },
+          seq: int, ts: int, author: str, via: { enum: ["agent", "person", null] }, type: { enum: ["claim", "question", "decision", "task", "artifact", "note", "change", "handoff", "approval"] },
           text: str, title: str, to: str, reply_to: int, resolves: { type: "array", items: int }, supersedes: int, retracts: int, agent_name: { ...str, description: "Read-time name given to the posting agent by its owner; present on named agent posts" },
           mentions: { type: "array", items: obj({ user: str, agent: bool, session: str }), description: "@all reaches every other member's person and agent; @agents and @humans reach those groups. A member with the group name takes precedence." }, mention_names: { type: "object", additionalProperties: str }, client: str,
-          artifact_name: str, artifact_size: int, artifact_version: int, media: obj({ mime: str, w: int, h: int, size: int }), card: { type: "object" }, handled_by: str, done_by: str, ai_flag: str, human_decision: obj({ state: { enum: ["open", "decided", "dropped"] }, author: str, votes: arr(obj({ user: str, vote: { enum: ["agree", "object"] }, note: str, ts: int })), voters: arr(str), waiting_on: arr(str), closed_by: str, note: str, line: int }),
+          artifact_name: str, artifact_size: int, artifact_version: int, media: obj({ mime: str, w: int, h: int, size: int }), card: { type: "object" }, handled_by: str, done_by: str, ai_flag: str,
+          handoff: { ...obj({ from: { $ref: "#/components/schemas/HandoffParty" }, to: { $ref: "#/components/schemas/HandoffParty" }, task: int }, ["from", "to", "task"]), description: "type=handoff: the agent it came from, the agent it goes to, and the task entry it refers to. Returned on read." },
+          human_decision: obj({ state: { enum: ["open", "decided", "dropped"] }, author: str, votes: arr(obj({ user: str, vote: { enum: ["agree", "object"] }, note: str, ts: int })), voters: arr(str), waiting_on: arr(str), closed_by: str, note: str, line: int }),
           audience: { enum: ["people", "own"], description: "people: shown (with a lock) only to the people in to_people, signed in as themselves; never to any agent. own (just mine): only the one person in to_people and their own agents. Absent otherwise." },
           to_people: { type: "array", items: str, description: "With audience: who can see it (people: author included; own: the one person)" },
           approval: { $ref: "#/components/schemas/ApprovalRef", description: "type=approval (posted by the server for an agent's request_approval): the request, its status kept current" },
@@ -65,6 +67,7 @@ export function openapi(origin: string) {
           note: str, created_at: int, expires_at: int, decided_at: int,
         }),
         ApprovalRef: obj({ id: str, user: str, status: { enum: ["pending", "approved", "rejected", "expired"] }, title: str, tool: str, command: str, risk: str, expires_at: int, note: str, session: str, about: int, created_at: int, decided_at: int }),
+        HandoffParty: obj({ user: str, session: { type: ["string", "null"], description: "One session of that member's agent; null when it is their agent generally" } }, ["user"]),
         TriggerOn: { enum: ["entry", "task", "question", "mention", "approval", "change", "schedule"] },
         TriggerMatch: obj({
           type: { ...str, description: "entry: entry type" }, text: { ...str, description: "entry/question/mention/change/task: text it contains (case-insensitive)" }, mention: { ...str, description: "entry: a member it mentions" },
@@ -205,7 +208,8 @@ export function openapi(origin: string) {
             obj(
               {
                 text: str,
-                type: { enum: ["note", "question", "task", "decision", "claim"] },
+                type: { enum: ["note", "question", "task", "decision", "claim", "handoff"] },
+                handoff: { description: "type=handoff. {to, task, from?}. to and from: \"member\", \"member/session\", or {user, session}. from defaults to the posting agent. task is the task's entry number. Stored on the entry and returned on read.", type: "object" },
                 to: { description: "The member's agent it's for; with people_only, the people it's for (a list of usernames, or one)", oneOf: [str, { type: "array", items: str }] },
                 reply_to: int,
                 to_session: str,

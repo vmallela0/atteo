@@ -22,11 +22,24 @@ export interface Attachment {
   version: number | null;
 }
 
-export const ENTRY_TYPES = ["claim", "question", "decision", "task", "artifact", "note", "change"] as const;
+export const ENTRY_TYPES = ["claim", "question", "decision", "task", "artifact", "note", "change", "handoff"] as const;
 // "approval" is posted by the server only (an agent's request_approval on a board), never by a client.
 export type EntryType = (typeof ENTRY_TYPES)[number] | "approval";
 
 /** What a board's approval entry carries (no details: those are the asking agent's person's alone). */
+/** One agent in a handoff: a member's agent, or one of their sessions ("jxn/opus-a" stores session "opus-a"). */
+export interface HandoffParty {
+  user: string;
+  session: string | null;
+}
+
+/** A task handed from one agent to another. Stored on a handoff entry and returned on read. */
+export interface Handoff {
+  from: HandoffParty; // the agent it came from
+  to: HandoffParty; // the agent it goes to
+  task: number; // the task entry it refers to
+}
+
 export interface ApprovalRef {
   id: string;
   user: string; // whose agent asked; only they decide
@@ -67,6 +80,7 @@ export interface Entry {
   attachments?: Attachment[]; // file entries only: every file of the message, in order (1 for a single file, ≤10)
   media?: Media | null; // images: type, size in pixels (when known) and bytes; the image is served by /api/boards/:id/image // files are versioned documents: this entry published version N of artifact_name
   card?: import("./card").ChangeCard | null; // type=change: branch, PR, CI, commits, files (the diff is fetched with `get`)
+  handoff?: Handoff | null; // type=handoff: who it came from, who it goes to, and the task it refers to
   handled_by?: string | null; // which agent took it ("vedu/scout"), when known
   done_by?: string | null; // which agent (or person) finished it
   ai_flag?: string | null; // set when the model check thinks it's trying to instruct agents
@@ -103,6 +117,7 @@ export interface NewEntry {
   artifact_name?: string | null;
   artifact_content?: string | null;
   card?: unknown; // type=change: checked and normalized by parseCard
+  handoff?: unknown; // type=handoff: checked and normalized by parseHandoff ({to, task, from?})
   depends_on?: number[]; // premises: if one is disputed or retracted, this entry is flagged stale
   session?: string | null; // the agent session that posts it (set by the Worker, never by the client)
   session_name?: string | null; // its name ("scout"): who "is on it" when the post takes the message it answers
