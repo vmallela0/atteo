@@ -1,7 +1,8 @@
 // QA for opening a busy chat with a lot unread: it opens at the first unread under the New line (jxn #1011) and stays
-// usable. Checkout bug with 16 of theo's messages under the seed's unread task cards used to freeze on opening: rows
-// changed size (tasks, names, who's on what loading) under the scroll to the first unread near the end of the chat,
-// and SwiftUI's lazy layout never settled.
+// usable. Checkout bug froze on opening with 8 or 16 of theo's messages under the seed's own unread ones (two sub-task
+// cards and an approval, below maya's picture): with the first unread within a screen or two of the end, SwiftUI's lazy
+// layout can fail to settle after the scroll to it (100% CPU in one layout pass). State written from the scroll
+// geometry meanwhile (the new-messages pill's bookkeeping) made that far likelier; it still happens now and then.
 
 import XCTest
 
@@ -29,6 +30,14 @@ final class UnreadOpenUITests: AtteoUITestCase {
         continueAfterFailure = false
         guard !otherApp.isEmpty, let b1 = boardId(titled: "Checkout bug") else { throw XCTSkip("needs the seeded server (OTHER_APP)") }
         let n = n
+        // The freeze needs the seed's read mark with its own unread cards still unread: a fresh seed, before anything
+        // has opened Checkout bug (this class on its own, test1 first).
+        if !markRead {
+            let d = call("GET", "/api/boards/\(b1)/entries?after=0&limit=1000")
+            let newest = (d["entries"] as? [[String: Any]] ?? []).compactMap { $0["seq"] as? Int }.max() ?? 0
+            let seen = ((d["reads"] as? [String: Any])?["maya"] as? [String: Any])?["person_seen"] as? Int ?? 0
+            guard seen > 0, seen < newest else { throw XCTSkip("needs a fresh seed: maya has read Checkout bug (seen \(seen) of \(newest))") }
+        }
         // (The last test's app is still in the chat, live: it would read theo's messages as they land.)
         XCUIApplication().terminate()
         unread(count, on: b1, markRead: markRead, n: n)
@@ -57,8 +66,10 @@ final class UnreadOpenUITests: AtteoUITestCase {
         XCTAssertTrue(eventually(box, "value CONTAINS 'still here'", timeout: 5), "it takes typing")
     }
 
-    /// Runs first, on a fresh seed (ios/qa/run.sh): maya's read mark is where the seed left it, before the seed's own
-    /// later messages (theo's agent's task cards, an approval), so the first unread is above theo's 16.
+    /// The shape that froze. Runs first on a fresh seed (ios/qa/run.sh -only-testing:AtteoUITests/UnreadOpenUITests):
+    /// maya's read mark is where the seed left it (her picture), before the seed's own later messages (theo's agent's
+    /// sub-task cards, an approval), so the first unread is above theo's 16. Skipped once Checkout bug has been read
+    /// (after other classes in a full run): a constructed copy of that shape didn't freeze the old code.
     func test1_NeverRead16() throws { try opens(16, markRead: false) }
     func test2_Unread16() throws { try opens(16) }
     func test3_Unread50() throws { try opens(50) }
