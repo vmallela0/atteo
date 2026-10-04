@@ -331,3 +331,13 @@ describe("mentioning one agent session", () => {
     expect(highlightMentions("@vedu/scout go", [{ user: "vedu", agent: true, session: "scout" }])).toBe('<span class="mention agent" data-user="vedu">@vedu/scout</span> go');
   });
 });
+
+describe("Everyday's word: @vedu's assistant (#1527)", () => {
+  it("is vedu's agent, as typed, curly or straight; drawn as the agent chip", async () => {
+    const { parseMentions, highlightMentions } = await import("../src/mentions");
+    const r = parseMentions("@vedu's assistant can you check? and @jxn’s Assistant too", ["vedu", "jxn", "sam"], "sam");
+    expect(r.mentions).toEqual([{ user: "vedu", agent: true }, { user: "jxn", agent: true }]);
+    expect(parseMentions("@vedu's assistants are busy", ["vedu"], "sam").mentions).toEqual([{ user: "vedu", agent: false }]);
+    expect(highlightMentions("@vedu&#39;s assistant hi", [{ user: "vedu", agent: true }])).toContain('<span class="mention agent" data-user="vedu">@vedu&#39;s assistant</span>');
+  });
+});
