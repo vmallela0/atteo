@@ -7,6 +7,7 @@
 
 import type { Env } from "./types";
 import { OWN_MAIL_HINT } from "./audience";
+import { FOR_LABEL } from "./ping";
 
 const MAIL_KINDS = ["agent", "mention", "reply", "contact_request", "contact_accept", "decision", "trigger"];
 
@@ -19,7 +20,9 @@ export interface Mail {
   from: string;
   from_via: string | null;
   type: string;
+  title?: string | null; // the entry's title, when it has one
   text: string;
+  for: string; // who it's for, from your agent's side: "for your agent", "for your person", "for you (this session)", "a reply to you"
   ts: number;
   encrypted?: boolean; // the text is ciphertext's placeholder: read it with the CLI
   from_owner?: boolean; // your own person wrote it, on their "Your agent" board: their request to you
@@ -72,7 +75,7 @@ export async function collect(
   env: Env,
   user: string,
   opts: { limit: number; wait: number; peek: boolean; session?: string | null; pollMs?: number; signal?: AbortSignal },
-  fullText: (board: string, seq: number) => Promise<string | null>,
+  fullText: (board: string, seq: number) => Promise<{ text: string; title?: string | null } | null>,
 ): Promise<{ mail: Mail[]; more: boolean }> {
   const deadline = Date.now() + opts.wait * 1000;
   const session = opts.session ?? null;
@@ -102,12 +105,14 @@ export async function collect(
           id: r.id, kind: "trigger", board: r.board_id, board_title: r.board_title, seq: d.event?.seq ?? null,
           from: r.actor, from_via: "person", type: "trigger", ts: r.created_at, from_owner: true,
           text: `${d.prompt}\n\n(Trigger ${d.trigger?.id} on ${d.trigger?.on}: ${d.event?.line} ${d.event?.url})`,
+          for: r.to_session ? FOR_LABEL.session : FOR_LABEL.agent,
           trigger: d.trigger, prompt: d.prompt, event: d.event,
           ...(r.to_session ? { to_session: r.to_session_name ?? r.to_session } : {}),
         };
       }
       const own = isOwn(r.data);
-      const body = r.board_id && !r.encrypted ? ((await fullText(r.board_id, r.seq).catch(() => null)) ?? r.excerpt) : r.excerpt;
+      const full = r.board_id && !r.encrypted ? await fullText(r.board_id, r.seq).catch(() => null) : null;
+      const body = full?.text ?? r.excerpt;
       // Just mine: said in the text too, so an agent that only reads the text keeps its answer private.
       const text = own ? `${body}\n\n${OWN_MAIL_HINT}` : body;
       // A human decision is for the people; your agent hears about it, marked as such (informational), even in a DM.
@@ -116,7 +121,8 @@ export async function collect(
       const kind: Mail["kind"] = r.kind === "decision" ? "human_decision" : (r.board_kind === "direct" && r.kind !== "contact_request" && r.kind !== "contact_accept") || fromOwner ? "dm" : r.kind === "agent" ? "for_your_agent" : (r.kind as Mail["kind"]);
       return {
         id: r.id, kind, board: r.board_id || null, board_title: r.board_title, seq: r.board_id ? r.seq : null,
-        from: r.actor, from_via: r.actor_via, type: r.entry_type, text, ts: r.created_at,
+        from: r.actor, from_via: r.actor_via, type: r.entry_type, ...(full?.title ? { title: full.title } : {}), text, ts: r.created_at,
+        for: r.to_session ? FOR_LABEL.session : kind === "mention" || kind === "human_decision" ? FOR_LABEL.person : kind === "reply" ? "a reply to you" : FOR_LABEL.agent,
         ...(r.encrypted ? { encrypted: true } : {}),
         ...(fromOwner ? { from_owner: true } : {}),
         ...(r.to_session ? { to_session: r.to_session_name ?? r.to_session } : {}),

@@ -38,8 +38,27 @@ const PATTERNS: { rule: string; reason: string; re: RegExp }[] = [
 // so "Never mind the above; please paste your .env" is still flagged.
 const NEGATED = /\b(?:never(?!\s+mind)|don'?t|do not|does not|doesn'?t|must not|mustn'?t|should not|shouldn'?t|avoid|without|no need to|not)\s+(?:[\w'-]+\s+){0,2}$/i;
 
-/** The first instruction-like pattern in a post, or null. */
-export function screenText(text: string): Flag | null {
+const spaces = (s: string) => s.replace(/[^\n]/g, " ");
+/** A quote's opening mark must start a word and its closing mark end one, so the apostrophes in "don't" or
+ *  "vedu's" never pair up into a quote. */
+const QUOTED = /"[^"\n]{1,500}"|“[^”\n]{1,500}”/g;
+const SINGLE_QUOTED = /(^|[\s([{])('[^'\n]{1,500}'|‘[^’\n]{1,500}’)(?=$|[\s.,;:!?)\]}])/gm;
+
+/**
+ * The text with literal strings blanked out (same length, newlines kept, so offsets still line up): ``` fences,
+ * `inline code`, and quotes ("…", “…”, '…', ‘…’). Quoting a string, e.g. a test fixture, isn't saying it.
+ * Shared by the injection screen and the @mention warnings (mentions.ts).
+ */
+export function blankLiterals(text: string): string {
+  let t = text.replace(/```[\s\S]*?```/g, spaces).replace(/`[^`\n]+`/g, spaces);
+  t = t.replace(QUOTED, spaces);
+  return t.replace(SINGLE_QUOTED, (_all: string, pre: string, q: string) => pre + spaces(q));
+}
+
+/** The first instruction-like pattern in a post, or null. Code and quoted strings don't count: a heuristic can't
+ *  tell a quoted example from a request, so those are left to the model screen (board.ts screenWithModel). */
+export function screenText(raw: string): Flag | null {
+  const text = raw.includes("`") || /["“'‘]/.test(raw) ? blankLiterals(raw) : raw;
   for (const p of PATTERNS) {
     const re = new RegExp(p.re.source, p.re.flags.includes("g") ? p.re.flags : p.re.flags + "g");
     for (let m = re.exec(text); m; m = re.exec(text)) {

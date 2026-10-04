@@ -921,10 +921,14 @@ await step("@mentions: people vs agents, unknown handles, and handing work to yo
   const section = (text, title) => text.slice(text.indexOf(title), text.indexOf("\n\n", text.indexOf(title)));
   // A's agent mentions B's agent and B the person; a handle that isn't on the board is reported, not stored.
   await ok(A, board, "read");
-  const r1 = await ok(A, board, "post", { type: "question", text: `@${B}'s agent which port does checkout use? cc @${B} @nobody-${run}` });
+  const r1 = await ok(A, board, "post", { type: "question", text: `@${B}'s agent which port does checkout use? cc @${B} @${B}x @nobody-${run}` });
   has(r1, `mentions @${B}'s agent, @${B}`);
-  has(r1, `Not mentions (not members of this board): @nobody-${run}`);
+  has(r1, `Not mentions (not members of this board): @${B}x.`); // a near miss of a member's handle; @nobody-… is just a word
   const q = seqOf(r1);
+  // "@words" in prose, in code or quoted aren't mention candidates: no warning (#2173).
+  await ok(A, board, "read");
+  const quiet = await ok(A, board, "post", { type: "note", text: `see @mentions and \`@HALo\` and "@${B}x" ${run}` });
+  assert(!quiet.includes("Not mentions"), quiet);
   const p = await ok(A, board, "post", { type: "question", text: `@${B} can you approve the deploy?` });
   const pq = seqOf(p);
   const rb = await ok(B, board, "read", { summary: true });
@@ -1176,9 +1180,12 @@ await step("live updates over WebSocket: members get a signal on each post; outs
   await new Promise((r) => setTimeout(r, 300));
   assert(m.msgs.some((x) => JSON.parse(x).type === "hello"), "expected hello");
   const t0 = Date.now();
-  const posted = seqOf(await ok(A, board, "post", { type: "note", text: `ws ping ${run}` }));
+  const posted = seqOf(await ok(A, board, "post", { type: "note", title: "WS ping", text: `ws ping ${run} ${"padding ".repeat(40)}` }));
   while (!m.msgs.some((x) => x.includes(`"seq":${posted}`)) && Date.now() - t0 < 4000) await new Promise((r) => setTimeout(r, 50));
   assert(m.msgs.some((x) => x.includes(`"seq":${posted}`)), `no signal for #${posted}: ${m.msgs.join(" | ")}`);
+  // Triage-able (#2177): the entry's kind, title and first ~200 characters ride along, for an agent's ping.
+  const sig = JSON.parse(m.msgs.find((x) => x.includes(`"seq":${posted}`)));
+  assert(sig.kind === "note" && sig.entry_title === "WS ping" && sig.excerpt.startsWith(`ws ping ${run} padding`) && sig.excerpt.endsWith("…") && sig.excerpt.length <= 200 && !sig.flagged, JSON.stringify(sig));
   m.ws.send("ping");
   await new Promise((r) => setTimeout(r, 400));
   assert(m.msgs.includes("pong"), "keep-alive ping should be answered");
@@ -1924,7 +1931,7 @@ await step("agent webhooks: signed deliveries when something is addressed to you
   }
   assert(d, "delivered");
   const body = JSON.parse(d.body);
-  assert(body.event === "for_your_agent" && body.you === B && body.entry.seq === seq && body.reply.url.endsWith(`/api/boards/${fb}/entries`), d.body.slice(0, 300));
+  assert(body.event === "for_your_agent" && body.you === B && body.for === "for your agent" && body.entry.type === "question" && body.entry.seq === seq && body.reply.url.endsWith(`/api/boards/${fb}/entries`), d.body.slice(0, 300));
   assert(d.headers["agent-soup-signature"] === d.headers["atteo-signature"], "the header under its old name too, for receivers set up before the rename");
   const [, t, v1] = d.headers["atteo-signature"].match(/^t=(\d+),v1=([0-9a-f]+)$/);
   const { createHmac } = await import("node:crypto");
@@ -3261,9 +3268,13 @@ await step("mailbox tool (MCP): new mail as compact fenced lines under one heade
   const [head, ...rest] = t.split("\n");
   assert(/^1 mail, oldest first\. Answer in its thread/.test(head), `one-line header: ${head}`);
   has(rest[0], "<<untrusted ");
-  has(t, `(${dm}):\n  #${seq} question · dm · ${M1}'s agent: line one ${run}\n    line two`);
+  has(t, `(${dm}):\n  #${seq} question · dm · for your agent · ${M1}'s agent: line one ${run}\n    line two`);
   has(rest.at(-1), "<<end untrusted ");
   has(await sok(bot, "mailbox"), "Mailbox empty.");
+  // An entry's title comes with it, inside the fence.
+  await ok(M1, dm, "read");
+  const ts = seqOf(await ok(M1, dm, "post", { type: "task", title: "Deploy window", text: `pick a slot ${run}` }));
+  has(await sok(bot, "mailbox"), `#${ts} task · dm · for your agent · ${M1}'s agent: [Deploy window] pick a slot ${run}`);
   // wait: holds until mail arrives.
   const t0 = Date.now();
   const waiting = sok(bot, "mailbox", { wait_seconds: 15 });
@@ -4655,6 +4666,9 @@ await step("forward excerpt: fabricated selectedText is refused; a real selectio
   await step("people-only: its people see it with a lock, live; replies, reactions and unsends stay people-only", async () => {
     assert(reply, "needs the earlier people-only steps");
     for (const [u, s] of [[B, "personB"]]) for (const n of [secret, reply]) assert(sawSeq(sockets[s], n), `${u}'s socket missed #${n}`);
+    // Its live signal carries no text, even for its people (the ping says only that something private arrived).
+    const withText = (s, seq) => s.msgs.some((x) => { try { const j = JSON.parse(x); return j.seq === seq && ("excerpt" in j || "entry_title" in j); } catch { return false; } });
+    for (const n of [secret, reply]) assert(!withText(sockets.personB, n), `people-only signal #${n} carried text`);
     for (const u of [A, B]) {
       const one = await papi(u, "GET", `/api/boards/${pb}/entries/${secret}`);
       assert(one.status === 200 && one.body.entry.audience === "people" && one.body.entry.text === secretText, `${u} get: ${one.status}`);
@@ -4862,6 +4876,8 @@ await step("forward excerpt: fabricated selectedText is refused; a real selectio
     assert(agentOwn, "needs the first just-mine step");
     for (const k of ["personA", "agentA"]) for (const s of [mine, auto, agentOwn]) assert(sawSeq(sockets[k], s), `${k}'s socket missed #${s}`);
     assert(sawSeq(sockets.personB, bOwn) && sawSeq(sockets.agentB, bOwn), "B's tabs missed B's own lane");
+    // No text in a private entry's signal: its agent's ping says only that something private arrived (#2177).
+    for (const s of [mine, auto, agentOwn]) assert(!sockets.agentA.msgs.some((x) => { try { const j = JSON.parse(x); return j.seq === s && "excerpt" in j; } catch { return false; } }), `own signal #${s} carried text`);
     const one = await papi(A, "GET", `/api/boards/${ob}/entries/${mine}`);
     assert(one.status === 200 && one.body.entry.audience === "own" && one.body.entry.text.includes(OWN), `A get: ${one.status}`);
     assert(one.body.replies.some((x) => x.seq === auto && x.audience === "own"), "A sees the agent's reply in the lane");

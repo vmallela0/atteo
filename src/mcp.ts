@@ -17,6 +17,7 @@ import * as dm from "./dm";
 import * as mailbox from "./mailbox";
 import { messageId, withRetry } from "./retry";
 import { mayMention, mentionLabel, parseMentions } from "./mentions";
+import { titled } from "./ping";
 import { compactLine, formatEntry, formatMemory, formatRules, handleMessage, memoryLine, readHeader, readParts, seenByLine, withNames, type MemoryRead } from "./state";
 import * as registry from "./registry";
 import * as sessions from "./sessions";
@@ -1354,7 +1355,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       if (w?.refused) throw new ToolError(`Another wait from this session is already open (are two loops sharing one session?). Try again in ${w.refused}s, or use one session per loop.`);
       let r: Awaited<ReturnType<typeof mailbox.collect>>;
       try {
-        r = await mailbox.collect(env, user, { limit, wait, peek, session: c.agentSession?.id ?? null, pollMs: level >= 1 ? 6000 : 3000, signal: w?.signal }, async (b, seq) => (await stubFor(env, b).get(seq, { user, person: false })).entry.text); // as the agent: its own lane too
+        r = await mailbox.collect(env, user, { limit, wait, peek, session: c.agentSession?.id ?? null, pollMs: level >= 1 ? 6000 : 3000, signal: w?.signal }, async (b, seq) => { const e = (await stubFor(env, b).get(seq, { user, person: false })).entry; return { text: e.text, title: e.title }; }); // as the agent: its own lane too
       } finally {
         w?.done();
       }
@@ -1366,7 +1367,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const from = (m: Named) => (m.from_owner ? "your user" : m.from_via === "agent" ? (m.from_agent_name ? `${m.from_agent_name} (${m.from}'s agent)` : `${m.from}'s agent`) : m.from);
       const kind = (m: mailbox.Mail) => (m.kind === "human_decision" ? "human_decision (people decide; info only)" : m.kind);
       const line = (m: mailbox.Mail) =>
-        `  ${m.seq ? `#${m.seq} ` : ""}${m.type} · ${kind(m)}${m.audience === "own" ? " · 🔒 own" : ""} · ${from(m)}${m.to_session ? ` → ${m.to_session}` : ""}: ${m.encrypted ? "(encrypted: read it with the atteo CLI)" : m.text.replace(/\n/g, "\n    ")}`;
+        `  ${m.seq ? `#${m.seq} ` : ""}${m.type} · ${kind(m)}${m.audience === "own" ? " · 🔒 own" : ""} · ${m.for} · ${from(m)}${m.to_session ? ` → ${m.to_session}` : ""}: ${m.encrypted ? "(encrypted: read it with the atteo CLI)" : titled(m.title, m.text).replace(/\n/g, "\n    ")}`;
       const body = [...groups.entries()].map(([b, ms]) => (b ? `"${ms[0].board_title ?? b}" (${b}):\n` : "") + ms.map(line).join("\n")).join("\n");
       return (
         `${r.mail.length} mail, oldest first${peek ? " (peeked: still waiting)" : ""}${r.more ? "; more waiting, call mailbox again" : ""}. Answer in its thread: join_board <id>, post with reply_to=<#>.\n` +
