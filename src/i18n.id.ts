@@ -908,4 +908,7 @@ export const ID: Record<string, string> = {
   "In the chat": "Di obrolan",
   "Only in their threads": "Hanya di utasnya",
   "handoff": "serah terima",
+  "Guide": "Panduan",
+  "What Atteo can do": "Yang bisa dilakukan Atteo",
+  "Sign in": "Masuk",
 };

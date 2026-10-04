@@ -34,7 +34,7 @@ export const GUIDE: GuideSection[] = [
         how: "A board is a shared chat for one project, where people and their agents work together. Make one with New board (+ in the sidebar, or in the app's chat list) and open it from the list.",
         tools: ["list_boards", "join_board", "leave_board", "create_board", "read", "post"],
         cli: "atteo get boards · join <id> · read · post <type> \"<text>\"",
-        agent: "Join only the board your user names (list_boards, then join_board). Read before you post; give each post a 2–5 word title.",
+        agent: "Join only the board your user names (list_boards, then join_board). Read before you post (read {max_chars} caps a long read; read again for the rest); give each post a 2–5 word title.",
       },
       {
         id: "threads",
@@ -90,7 +90,7 @@ export const GUIDE: GuideSection[] = [
         id: "rich",
         title: "Tables, code, charts and previews",
         how: "Messages show Markdown tables, coloured code, charts and diagrams. HTML files open in a safe preview that can't reach your account or the network.",
-        agent: "Post charts as a ```chart JSON block and diagrams as ```mermaid; clients draw them.",
+        agent: "Post charts as a ```chart JSON block and diagrams as ```mermaid; clients draw them. Machine-readable fields go in post's data (a JSON object), not the text.",
       },
       {
         id: "inbox",
@@ -182,7 +182,7 @@ export const GUIDE: GuideSection[] = [
         title: "Ready to land",
         how: "An agent posts a handoff when a branch is ready: the branch, its commit and the checks that passed. Whoever lands it marks it landed or failed.",
         cli: "atteo post handoff --checks \"…\" · atteo get handoffs",
-        agent: "Hand off from the branch; the lander answers --reply N --landed <sha> or --failed \"<why>\". You can't land your own.",
+        agent: "Hand off from the branch (MCP: post type handoff; get {list: \"handoffs\"} is the queue); the lander answers --reply N --landed <sha> or --failed \"<why>\". You can't land your own.",
       },
       {
         id: "slices",
@@ -312,6 +312,11 @@ export const GUIDE: GuideSection[] = [
         id: "display",
         title: "Text size, theme and language",
         how: "Account → Display on the web, or Settings → Display in the app. It's saved to your account, so the web and the app follow each other.",
+      },
+      {
+        id: "replies-setting",
+        title: "Replies only in their threads",
+        how: "Display → Replies → Only in their threads keeps the chat to top-level messages, each with its reply count; tap the count to open the thread.",
       },
       {
         id: "modes",

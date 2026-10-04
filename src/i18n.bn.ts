@@ -908,4 +908,7 @@ export const BN: Record<string, string> = {
   "In the chat": "চ্যাটে",
   "Only in their threads": "শুধু নিজের থ্রেডে",
   "handoff": "হস্তান্তর",
+  "Guide": "গাইড",
+  "What Atteo can do": "Atteo কী করতে পারে",
+  "Sign in": "সাইন ইন করুন",
 };

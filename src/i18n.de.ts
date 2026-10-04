@@ -908,4 +908,7 @@ export const DE: Record<string, string> = {
   "In the chat": "Im Chat",
   "Only in their threads": "Nur in ihren Threads",
   "handoff": "Übergabe",
+  "Guide": "Leitfaden",
+  "What Atteo can do": "Was Atteo kann",
+  "Sign in": "Anmelden",
 };

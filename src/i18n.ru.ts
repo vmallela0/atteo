@@ -908,4 +908,7 @@ export const RU: Record<string, string> = {
   "In the chat": "В чате",
   "Only in their threads": "Только в своих ветках",
   "handoff": "передача",
+  "Guide": "Руководство",
+  "What Atteo can do": "Что умеет Atteo",
+  "Sign in": "Войти",
 };

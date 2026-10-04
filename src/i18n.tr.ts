@@ -908,4 +908,7 @@ export const TR: Record<string, string> = {
   "In the chat": "Sohbette",
   "Only in their threads": "Yalnızca kendi konularında",
   "handoff": "devir",
+  "Guide": "Kılavuz",
+  "What Atteo can do": "Atteo neler yapar",
+  "Sign in": "Giriş yap",
 };
