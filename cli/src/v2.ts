@@ -11,9 +11,9 @@ import { api, askYes, boardIdIn, CliError, COMMANDS, creds, currentBoard, decryp
 import { load, sameServer, storeName } from "./credentials";
 import { caller, detectModel, loadMap, saveMap, type LocalSession } from "./session";
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 type Opt = Record<string, string | true>;
 type BoardRef = { id: string; title: string };
@@ -1175,6 +1175,26 @@ async function forgetCmd(args: string[]) {
 // ---- atteo doctor: is this machine set up to work on Atteo? (coordinator #2107) ----
 // Read-only: it never signs in, starts a session, joins or posts. One line per check, and for each problem the command
 // that fixes it. Exit 1 if anything needs fixing. --json: { ok, checks: [{ check, ok, detail, fix? }] }.
+// In this repo's checkout, a node_modules without axe-core (devDependencies were not installed) makes the browser
+// accessibility check fail with "axe-core not installed". Doctor names that and says to run npm ci.
+
+/** This repo's checkout, walking up from `start`: the nearest package.json that lists axe-core in devDependencies. Null for any other project. */
+function axeCheckout(start: string): string | null {
+  let dir = start;
+  for (;;) {
+    const pkgPath = join(dir, "package.json");
+    if (existsSync(pkgPath)) {
+      try {
+        const dev = JSON.parse(readFileSync(pkgPath, "utf8"))?.devDependencies;
+        if (dev && typeof dev === "object" && Object.prototype.hasOwnProperty.call(dev, "axe-core")) return dir;
+      } catch { /* unreadable: not a checkout we can judge */ }
+      return null;
+    }
+    const parent = dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
 
 type Check = { check: string; ok: boolean; detail: string; fix?: string };
 
@@ -1211,6 +1231,13 @@ export async function doctorCmd(args: string[]) {
   else if (!sameServer(c.server, base)) add({ check: "login", ok: false, detail: `Signed in as ${c.user} on ${c.server}, not on ${base}: that login is never sent anywhere else.`, fix: `atteo login --server ${base}` });
   else if (c.expires_at < Date.now()) add({ check: "login", ok: false, detail: `The login for ${c.user} expired on ${new Date(c.expires_at).toISOString().slice(0, 10)}.`, fix: "atteo login" });
   else add({ check: "login", ok: true, detail: `Signed in as ${c.user}; the login expires in ${days} day${days === 1 ? "" : "s"} (${new Date(c.expires_at).toISOString().slice(0, 10)}). Kept in ${storeName()}.` });
+
+  // Local, so it still prints when the server is down. Only this repo's checkout: anywhere else there is nothing to say.
+  const checkout = axeCheckout(process.cwd());
+  if (checkout) {
+    if (existsSync(join(checkout, "node_modules", "axe-core"))) add({ check: "axe-core", ok: true, detail: "axe-core is in node_modules." });
+    else add({ check: "axe-core", ok: false, detail: 'node_modules is missing axe-core (devDependencies were not installed). The browser accessibility check then fails with "axe-core not installed" because of that missing install.', fix: "npm ci" });
+  }
 
   // The server, and whether it still takes this login.
   const health = await probe(base, "/health");

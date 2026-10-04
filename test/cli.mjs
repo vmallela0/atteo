@@ -1835,6 +1835,7 @@ await step("doctor (#2107): read-only checks of the login, server, CLI version, 
   let r = await doc();
   assert(r.j && r.check("session")[0]?.ok && /No agent session for this shell yet/.test(r.check("session")[0].detail) && (await sessionsOfA()) === before, `no session made: ${r.out}${r.err}`);
   for (const k of ["login", "server", "token", "mailbox"]) assert(r.check(k)[0]?.ok, `${k} ok: ${r.out}`);
+  assert(!r.check("axe-core").length, `no checkout here, so no axe-core check: ${r.out}`);
   // This CLI against the server's: whatever this build is, doctor agrees with /cli/version.
   const same = (await (await fetch(`${BASE}/cli/version`)).json()).hash === createHash("sha256").update(readFileSync(CLI)).digest("hex");
   assert(r.check("version")[0]?.ok === same && (same ? r.code === 0 && r.j.ok : r.check("version")[0].fix === "atteo update"), `version (${same ? "same" : "differs"}): ${r.out}`);
@@ -1868,6 +1869,37 @@ await step("doctor (#2107): read-only checks of the login, server, CLI version, 
   });
   const v = o.j.checks.find((c) => c.check === "version");
   assert(o.code === 1 && v && !v.ok && v.fix === "atteo update", `stale CLI: ${JSON.stringify(o.j)}`);
+  // This repo's checkout with no axe-core (no node_modules, or devDependencies left out): the accessibility check's
+  // "axe-core not installed" is that missing install. Doctor says so, in plain text, and to run npm ci.
+  const pkg = JSON.stringify({ devDependencies: { "axe-core": "^4.13.0" } });
+  const bare = join(dir, "axe-bare");
+  mkdirSync(bare, { recursive: true });
+  writeFileSync(join(bare, "package.json"), pkg);
+  let text = await cli(["doctor"], { env, cwd: bare });
+  assert(text.code === 1 && /node_modules is missing axe-core/.test(text.out) && /devDependencies were not installed/.test(text.out) && /axe-core not installed/.test(text.out) && /fix: npm ci/.test(text.out), `missing axe, plain text: ${text.out}`);
+  r = await doc({ cwd: bare });
+  assert(r.check("axe-core")[0] && !r.check("axe-core")[0].ok && r.check("axe-core")[0].fix === "npm ci", `missing axe, json: ${r.out}`);
+  const sub = join(bare, "test", "browser");
+  mkdirSync(sub, { recursive: true });
+  text = await cli(["doctor"], { env, cwd: sub });
+  assert(/fix: npm ci/.test(text.out) && /missing axe-core/.test(text.out), `subdir of a checkout: ${text.out}`);
+  // node_modules is there, but axe-core isn't: devDependencies were not installed. Same advice.
+  const prod = join(dir, "axe-prod");
+  mkdirSync(join(prod, "node_modules", "left-pad"), { recursive: true });
+  writeFileSync(join(prod, "package.json"), pkg);
+  text = await cli(["doctor"], { env, cwd: prod });
+  assert(text.code === 1 && /devDependencies were not installed/.test(text.out) && /fix: npm ci/.test(text.out), `deps omitted: ${text.out}`);
+  // Installed: this check passes. Another project: doctor doesn't invent it.
+  const okc = join(dir, "axe-ok");
+  mkdirSync(join(okc, "node_modules", "axe-core"), { recursive: true });
+  writeFileSync(join(okc, "package.json"), pkg);
+  r = await doc({ cwd: okc });
+  assert(r.check("axe-core")[0]?.ok && !/npm ci/.test(r.out), `axe present: ${r.out}`);
+  const unrelated = join(dir, "not-axe");
+  mkdirSync(unrelated, { recursive: true });
+  writeFileSync(join(unrelated, "package.json"), JSON.stringify({ devDependencies: { typescript: "^5.0.0" } }));
+  r = await doc({ cwd: unrelated });
+  assert(!r.check("axe-core").length && !/npm ci/.test(r.out), `other project: ${r.out}`);
 });
 
 await step("a login only goes to its own server: --server / ATTEO_SERVER elsewhere never gets the token (opus-d #2127)", async () => {
