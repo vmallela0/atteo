@@ -1294,7 +1294,9 @@ function replyClear(sent){if(!rpTo.value)return;if(!sent)draftSave(draftNow(),ta
 /** After a reply is posted: its thread is open, so you can see it there. */
 // A reply posts at the bottom like any message (jxn #1040): after sending one, the conversation follows it there.
 function replyShown(){toBottom(true)}
-document.addEventListener('click',e=>{const b=e.target.closest('[data-reply]');if(b){e.preventDefault();replyTo(+b.dataset.reply);return}
+// The Reply button only: a reply's own article carries data-reply (its parent), and a click anywhere in it (a link, or the
+// mouse-up that ends a text selection for Quote) used to start a reply to that parent (jxn #1351).
+document.addEventListener('click',e=>{const b=e.target.closest('button[data-reply]');if(b){e.preventDefault();replyTo(+b.dataset.reply);return}
   if(e.target.closest('#reply-cancel')){replyClear();ta.focus();return}
   if(e.target.closest('#replying-go')&&rpTo.value)window.BOARD_CTX.jump(+rpTo.value)});
 ta.addEventListener('keydown',e=>{if(e.key==='Escape'&&!e.defaultPrevented&&rpTo.value){e.preventDefault();if(cmpHome)closeThread();else replyClear()}}); // in a thread, Esc closes it
@@ -1821,15 +1823,15 @@ function thrSum(root){const top=document.getElementById('e'+root);if(!top)return
   const lastT=kids[kids.length-1]?.querySelector('time[data-ts]');
   b.innerHTML='<span class="thr-head"><span class="avs">'+who.slice(0,3).map(w=>avatar16(w.split('/')[0],w.endsWith('/a'))).join('')+'</span><b>'+kids.length+' repl'+(kids.length===1?'y':'ies')+'</b><span class="faint">'+(lastT?'last '+lastT.textContent:'')+'</span></span>';
   b.setAttribute('aria-label','Open the thread: '+kids.length+' repl'+(kids.length===1?'y':'ies'))}
-var thrOpen=0;const thrDlg=document.createElement('dialog');thrDlg.className='thr-dlg';thrDlg.setAttribute('aria-label','Thread');
+var thrOpen=0,thrTo=0;const thrDlg=document.createElement('dialog');thrDlg.className='thr-dlg';thrDlg.setAttribute('aria-label','Thread');
 thrDlg.innerHTML='<div class="thr-hd"><b>Thread</b><button type="button" class="btn ghost sm" data-thr-close aria-label="Close the thread">✕</button></div><div class="thr-list" id="thr-list"></div>';
 // The thread's reply box is the conversation's own composer (jxn #1094), moved in while the thread is open: the same @ menu,
 // attachments, / commands, mic, drafts and encryption, replying to the thread's first message. Closing puts it back.
 const cmpForm=document.querySelector('form.composer');var cmpHome=null;
-function cmpIn(root){if(!cmpForm||READONLY||cmpForm.hidden)return;if(!cmpHome){cmpHome={p:cmpForm.parentNode,n:cmpForm.nextSibling};thrDlg.appendChild(cmpForm);cmpForm.classList.add('in-thr')}replyTo(root,false)}
+function cmpIn(root,to){if(!cmpForm||READONLY||cmpForm.hidden)return;if(!cmpHome){cmpHome={p:cmpForm.parentNode,n:cmpForm.nextSibling};thrDlg.appendChild(cmpForm);cmpForm.classList.add('in-thr')}replyTo(to||root,false)}
 function cmpBack(){if(!cmpHome)return;const h=cmpHome;cmpHome=null;h.p.insertBefore(cmpForm,h.n);cmpForm.classList.remove('in-thr');replyClear(false)}
 /** After a reply is sent from the thread, the box stays pointed at it. */
-window.thrRearm=()=>{if(!cmpHome||!thrOpen)return false;rpTo.value=String(thrOpen);rpAt='';return true};
+window.thrRearm=()=>{if(!cmpHome||!thrOpen)return false;rpTo.value=String(thrTo||thrOpen);rpAt='';return true};
 document.body.appendChild(thrDlg);
 function thrRender(focus){const list=document.getElementById('thr-list'),top=document.getElementById('e'+thrOpen);if(!top)return;list.innerHTML='';
   for(const src of [top,...kidsOf(thrOpen)]){const c=src.cloneNode(true);c.removeAttribute('id');c.classList.remove('flash-in','tap','sel','hit');c.dataset.src=src.dataset.seq;
@@ -1838,12 +1840,14 @@ function thrRender(focus){const list=document.getElementById('thr-list'),top=doc
     list.appendChild(c)}
   const f=focus&&list.querySelector('[data-src="'+focus+'"]');(f||list.lastElementChild)?.scrollIntoView({block:f?'center':'end'});if(f)f.classList.add('hit')}
 function openThread(root,o={}){const top=document.getElementById('e'+root);if(!top)return;thrOpen=root;thrRender(o.focus);if(!thrDlg.open)thrDlg.showModal();
-  cmpIn(root);if(cmpHome&&!o.focus&&matchMedia('(hover:hover)').matches){ta.focus();ta.setSelectionRange(ta.value.length,ta.value.length)}}
+  // Opened at one message (its quote bar, a link to it): the box answers that message, not the thread's first (jxn #1351).
+  thrTo=o.focus&&o.focus!==root&&document.getElementById('e'+o.focus)?o.focus:0;cmpIn(root,thrTo);if(cmpHome&&!o.focus&&matchMedia('(hover:hover)').matches){ta.focus();ta.setSelectionRange(ta.value.length,ta.value.length)}}
 function closeThread(){if(thrDlg.open)thrDlg.close();else{thrOpen=0;cmpBack()}}
 thrDlg.addEventListener('close',()=>{thrOpen=0;cmpBack()});
 thrDlg.addEventListener('click',e=>{if(e.target===thrDlg||e.target.closest('[data-thr-close]'))closeThread();const s=e.target.closest('.thr-list [data-src]');
   if(s&&e.target.closest('a.seq,.rq')){e.preventDefault();const n=s.dataset.src;closeThread();const el=document.getElementById('e'+n);if(el){pinned=false;el.scrollIntoView({block:'center'});el.classList.add('hit');setTimeout(()=>el.classList.remove('hit'),4000)}}});
-document.addEventListener('click',e=>{const s=e.target.closest('#thread [data-thread]');if(!s)return;e.preventDefault();openThread(+s.dataset.thread,{focus:+(s.dataset.focus||0)||undefined})});
+document.addEventListener('click',e=>{const s=e.target.closest('#thread [data-thread]');if(!s)return;const sel=getSelection();if(sel&&!sel.isCollapsed&&sel.rangeCount&&sel.getRangeAt(0).intersectsNode(s))return; // ending a selection isn't a click
+  e.preventDefault();openThread(+s.dataset.thread,{focus:+(s.dataset.focus||0)||undefined})});
 document.querySelectorAll('#thread>.entry[data-reply]').forEach(quotify);
 document.querySelectorAll('#thread>.entry:not([data-root])').forEach(x=>thrSum(+x.dataset.seq));
 // ---- hover cards: who someone is, whether they or their agent are around, and what you can do (people and agents) ----
