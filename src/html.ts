@@ -401,8 +401,9 @@ ${ALLOWANCE_JS}
   ttsSync();
   // Read aloud: new messages for you queue up behind a blip; the bar under them plays them in order.
   function who(el){return ((el.querySelector('.who')||{}).innerText||el.dataset.author||'').trim()}
-  function pillUpd(){if(!q.length&&!speaking){pill.hidden=true;return}pill.hidden=false;const el=document.getElementById('e'+q[0]);
-    document.getElementById('vp-go').textContent=speaking?'🔊 '+tr(ttsOut?'Reading with the device voice':'Reading')+(q.length?' · '+tr('{n} more',{n:q.length}):'')+' · '+tr('tap to stop'):'🔊 '+(q.length>1?tr('{n} for you, first from {name}',{n:q.length,name:el?who(el):''}):tr('For you from {name}',{name:el?who(el):''}))+' · '+tr('tap or say “go ahead”')}
+  function pillUpd(){if(!q.length&&!speaking){pill.hidden=true;return}pill.hidden=false;const el=document.getElementById('e'+q[0]),go=document.getElementById('vp-go');
+    const t=speaking?'🔊 '+tr(ttsOut?'Reading with the device voice':'Reading')+(q.length?' · '+tr('{n} more',{n:q.length}):'')+' · '+tr('tap to stop'):'🔊 '+(q.length>1?tr('{n} for you, first from {name}',{n:q.length,name:el?who(el):''}):tr('For you from {name}',{name:el?who(el):''}))+' · '+tr('tap or say “go ahead”');
+    go.textContent=t;go.setAttribute('aria-label',t.replace(/^🔊\\s*/,''))}
   // Atteo's own voice first (POST /api/app/tts, jxn #1612); the device's voice only when the server says to (fallback:"device":
   // not set up, over the allowance, the service down) or the audio won't play.
   var au=null,auN=0;
@@ -2525,7 +2526,7 @@ window.boardKeys=(e,k)=>{
     <form class="card composer" method="post" action="/api/boards/${esc(info.id)}/entries" data-api data-reliable data-done="posted" data-failed="postFailed" data-retrying="postRetrying" data-reset${info.archived || readOnly || info.encrypted ? " hidden" : ""}>
       <div class="replying" id="replying" hidden><button class="rp-go" type="button" id="replying-go" title="${esc(T("Show the message"))}">${esc(T("Replying to"))} <b id="replying-who"></b><span class="rp-text" id="replying-text"></span></button><button class="btn ghost sm x" type="button" id="reply-cancel" aria-label="${esc(T("Cancel reply"))}" title="${esc(T("Cancel reply (Esc)"))}">✕</button></div>
       <input type="hidden" name="reply_to" id="reply-to" value=""><input type="hidden" name="people_only" id="po-in" value=""><input type="hidden" name="own" id="own-in" value=""><div class="po-note" id="po-note" hidden>🔒 <span class="po-seg" role="radiogroup" aria-label="${esc(T("Who can see it"))}"><button type="button" role="radio" data-po="people" aria-checked="true">${esc(T("People only"))}</button><button type="button" role="radio" data-po="own" aria-checked="false">${esc(T("Just mine"))}</button></span> <span id="po-why">${esc(T("· only the people you @ can see it. Agents can't."))}</span></div>${agentChat ? `<input type="hidden" name="to_session" id="to-session" value="">` : ""}
-      <div class="voice-pill" id="voice-pill" hidden><button class="vp-t" type="button" id="vp-go"></button><button class="btn ghost sm x" type="button" id="vp-x" aria-label="${esc(T("Dismiss"))}" title="${esc(T("Dismiss"))}">✕</button></div>
+      <div class="voice-pill" id="voice-pill" hidden><button class="vp-t" type="button" id="vp-go" aria-label="${esc(T("Read aloud bar"))}"></button><button class="btn ghost sm x" type="button" id="vp-x" aria-label="${esc(T("Dismiss"))}" title="${esc(T("Dismiss"))}">✕</button></div>
       <div class="attachments" id="attachments" hidden></div>
       <div class="cmp-field"><div class="cmp-mirror" id="composer-mirror" aria-hidden="true"></div><textarea class="input" id="composer-text" name="text" required placeholder="${esc(T(agentChat ? "Message your agent…" : "Write a message…  @ to mention"))}" aria-label="${esc(T("Message"))}"
         role="combobox" aria-autocomplete="list" aria-controls="mention-menu" aria-expanded="false"></textarea></div>

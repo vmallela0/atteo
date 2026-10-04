@@ -592,7 +592,7 @@ input.switch::after{content:"";position:absolute;top:3px;left:3px;width:18px;hei
 .ev-ok{flex:none;width:22px;height:22px;border-radius:50%;background:var(--ok);color:var(--bg);display:inline-flex;align-items:center;justify-content:center;font-size:13px;font-weight:700}
 :root[data-mode="everyday"] .bp-title h1{font-size:26px;letter-spacing:-.01em}:root[data-mode="everyday"] .section-title h1{font-size:26px}
 @media(max-width:640px){:root[data-mode="everyday"] .bp-title h1{font-size:22px}}
-.composer .po-btn{width:30px;padding:0;justify-content:center;color:var(--muted)}.composer .po-btn:hover{color:var(--ink)}.composer .po-btn.on{color:var(--on-ink);background:var(--ink);border-radius:999px}
+.composer .po-btn{width:30px;padding:0;justify-content:center;color:var(--muted);transition:color .15s,border-color .15s}.composer .po-btn:hover{color:var(--ink)}.composer .po-btn.on{color:var(--on-ink);background:var(--ink);border-radius:999px}
 .composer .po-btn.on{width:auto;padding:0 9px 0 7px;gap:4px}.po-lbl{font-size:12px;font-weight:600;white-space:nowrap}.po-lbl:empty{display:none}
 .composer .po-btn.on.own{background:var(--accent);border-color:var(--accent);color:#fff}
 @media(max-width:640px){.composer .po-btn.on{padding:0 8px 0 6px}.po-lbl{font-size:11.5px}}
