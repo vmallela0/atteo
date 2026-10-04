@@ -336,7 +336,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "#412、sam/claude-2，以及每個智能體所在的客戶端"
+            "value": "#412、sam/claude-2，以及每個智能體所在的用戶端"
           }
         }
       }
@@ -2598,13 +2598,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "有 %lld 件事需要你处理。"
+            "value": "有 %lld 件事需要你。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "有 %lld 件事需要你處理。"
+            "value": "有 %lld 件事需要你。"
           }
         }
       }
@@ -3165,7 +3165,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "App 圖示上會顯示需要你處理的數量；Atteo 在後台時，有人提及你、回覆你或需要你審批時會通知你（檢查頻率由 iOS 決定）。"
+            "value": "App 圖示上會顯示需要你處理的數量；Atteo 在後台時，有人提及你、回覆你或需要你核准時會通知你（檢查頻率由 iOS 決定）。"
           }
         }
       }
@@ -4173,7 +4173,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "審批"
+            "value": "核准"
           }
         }
       }
@@ -4201,7 +4201,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "審批詳情"
+            "value": "核准詳細資料"
           }
         }
       }
@@ -4341,7 +4341,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "歸檔"
+            "value": "封存"
           }
         }
       }
@@ -4369,7 +4369,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "歸檔“%@”？"
+            "value": "封存“%@”？"
           }
         }
       }
@@ -4397,7 +4397,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "已歸檔"
+            "value": "已封存"
           }
         }
       }
@@ -4425,7 +4425,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "已歸檔 · 只讀"
+            "value": "已封存 · 只讀"
           }
         }
       }
@@ -4453,7 +4453,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "歸檔後，看板對所有人只讀，並從你的列表中移除。可在網頁版恢復。"
+            "value": "封存後，看板對所有人只讀，並從你的列表中移除。可在網頁版恢復。"
           }
         }
       }
@@ -4537,7 +4537,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "問你的任意智能體，或指定一個會話"
+            "value": "問你的任意智能體，或指定一個工作階段"
           }
         }
       }
@@ -5909,7 +5909,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "查收你的郵件"
+            "value": "查收你的電子郵件"
           }
         }
       }
@@ -6808,6 +6808,34 @@
           "stringUnit": {
             "state": "translated",
             "value": "複製標題"
+          }
+        }
+      }
+    },
+    "Could not play it": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo reproducir"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再生できませんでした"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法播放"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法播放"
           }
         }
       }
@@ -8061,13 +8089,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "今天为你完成的事"
+            "value": "今天为你完成的"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "今天為你完成的事"
+            "value": "今天為你完成的"
           }
         }
       }
@@ -8235,7 +8263,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "郵箱"
+            "value": "電子郵件"
           }
         }
       }
@@ -8347,7 +8375,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "請輸入有效的郵箱地址。"
+            "value": "請輸入有效的電子郵件地址。"
           }
         }
       }
@@ -8375,7 +8403,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "輸入我們傳送到以下郵箱的 6 位驗證碼"
+            "value": "輸入我們傳送到以下電子郵件的 6 位驗證碼"
           }
         }
       }
@@ -8572,7 +8600,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "這裡的所有人都會看到它已撤回。"
+            "value": "這裡的所有人都會看到它已收回。"
           }
         }
       }
@@ -9160,7 +9188,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "好友名字或郵箱"
+            "value": "好友名字或電子郵件"
           }
         }
       }
@@ -9216,7 +9244,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "好友輸入名字，其他人輸入郵箱。"
+            "value": "好友輸入名字，其他人輸入電子郵件。"
           }
         }
       }
@@ -9244,7 +9272,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "好友輸入名字，其他人輸入郵箱。有帳戶的人都能透過連結加入（可發言，7 天內有效）。"
+            "value": "好友輸入名字，其他人輸入電子郵件。有帳戶的人都能透過連結加入（可發言，7 天內有效）。"
           }
         }
       }
@@ -9665,6 +9693,34 @@
           "stringUnit": {
             "state": "translated",
             "value": "聽到“好”了，Atteo 這就去辦。"
+          }
+        }
+      }
+    },
+    "Hi, this is how I’ll read your messages to you.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hola, así te leeré tus mensajes."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "こんにちは。この声でメッセージを読み上げます。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你好，我会用这个声音为你朗读消息。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你好，我會用這個聲音為你朗讀訊息。"
           }
         }
       }
@@ -11540,7 +11596,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "訊息編號和會話"
+            "value": "訊息編號和工作階段"
           }
         }
       }
@@ -11988,7 +12044,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "需要審批"
+            "value": "需要核准"
           }
         }
       }
@@ -13186,13 +13242,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "给你的智能体的备注"
+            "value": "给你智能体的备注"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "給你的智能體的備註"
+            "value": "給你智能體的備註"
           }
         }
       }
@@ -13248,7 +13304,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "沒有已歸檔的內容。"
+            "value": "沒有已封存的內容。"
           }
         }
       }
@@ -14174,7 +14230,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "開啟實時、免手動的語音對話。"
+            "value": "開啟即時、免手動的語音對話。"
           }
         }
       }
@@ -14454,7 +14510,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在終端裡貼上一行命令；它會開啟瀏覽器讓你登入。"
+            "value": "在終端機裡貼上一行指令；它會開啟瀏覽器讓你登入。"
           }
         }
       }
@@ -14791,6 +14847,34 @@
           "stringUnit": {
             "state": "translated",
             "value": "加密看板暫時不能傳送圖片和檔案。"
+          }
+        }
+      }
+    },
+    "Play a sample of this voice": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escuchar una muestra de esta voz"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この声のサンプルを再生"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "试听这个声音"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "試聽這個聲音"
           }
         }
       }
@@ -15938,7 +16022,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "回覆一條訊息後，相關回復會彙集到這裡的討論串中。"
+            "value": "回覆一條訊息後，相關回覆會彙集到這裡的討論串中。"
           }
         }
       }
@@ -18072,13 +18156,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "语音对话"
+            "value": "说话"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "語音對話"
+            "value": "說話"
           }
         }
       }
@@ -18190,7 +18274,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "和 Atteo 實時對話，無需動手。它能閱讀你的看板、檢視待處理的事項、給你的智能體發訊息，批准任何事之前都會先問你。分鐘數每月 1 日重置。"
+            "value": "和 Atteo 即時對話，無需動手。它能閱讀你的看板、檢視待處理的事項、給你的智能體發訊息，批准任何事之前都會先問你。分鐘數每月 1 日重置。"
           }
         }
       }
@@ -18604,7 +18688,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "这个内容已被修改，请重试。"
+            "value": "此内容已被他人修改，请重试。"
           }
         },
         "zh-Hant": {
@@ -18806,7 +18890,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "緊急停止：讓所有智能體和這台手機退出登入，並結束所有會話。你隨時可以重新連線。"
+            "value": "緊急停止：讓所有智能體和這台手機退出登入，並結束所有工作階段。你隨時可以重新連線。"
           }
         }
       }
@@ -18862,7 +18946,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "具體命令、風險，以及來自哪個看板"
+            "value": "具體指令、風險，以及來自哪個看板"
           }
         }
       }
@@ -19646,7 +19730,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "撤回"
+            "value": "收回"
           }
         }
       }
@@ -19674,7 +19758,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "撤回這條訊息？"
+            "value": "收回這條訊息？"
           }
         }
       }
@@ -19702,7 +19786,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "已撤回"
+            "value": "已收回"
           }
         }
       }
@@ -19814,7 +19898,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用其他郵箱"
+            "value": "使用其他電子郵件"
           }
         }
       }
@@ -20094,7 +20178,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "我們會給你發一封含 6 位驗證碼的郵件，無需密碼。"
+            "value": "我們會給你發一封含 6 位驗證碼的電子郵件，無需密碼。"
           }
         }
       }
@@ -20430,7 +20514,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "你的智能體瞭解什麼（Stripe、我們的結賬程式碼庫…）"
+            "value": "你的智能體瞭解什麼（Stripe、我們的結帳程式碼庫…）"
           }
         }
       }
@@ -20592,13 +20676,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "说明这个看板是做什么的、你们如何协作。每个智能体加入时都会读取，内容更改后也会重新读取。只有人可以编辑。"
+            "value": "这个看板是做什么的、你们如何协作。每个智能体加入时都会读取，修改后也会再读一次。只有真人可以编辑。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "說明這個看板是做什麼的、你們如何協作。每個智能體加入時都會讀取，內容更改後也會重新讀取。只有人可以編輯。"
+            "value": "這個看板是做什麼的、你們如何協作。每個智能體加入時都會讀取，修改後也會再讀一次。只有真人可以編輯。"
           }
         }
       }
@@ -23271,6 +23355,41 @@
           "stringUnit": {
             "state": "translated",
             "value": "數值"
+          }
+        }
+      }
+    },
+    "voice-picker.title": {
+      "comment": "Settings → Voice chat: which voice reads aloud and talks (Eve, Ara…), not speech in general",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voice"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voz"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "声"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "声音"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聲音"
           }
         }
       }

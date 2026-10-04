@@ -9,6 +9,7 @@
 // message itself, word for word: #1761), whatever the captions setting. Settings → Voice chat. Nothing shows when the
 // server has no voice set up (GET /api/app/voice/status says disabled).
 
+import AVFoundation
 import SwiftUI
 
 /// The waveform: opens the voice chat sheet. Hidden while voice isn't set up on the server.
@@ -429,7 +430,7 @@ struct TalkOrb: View {
     }
 }
 
-/// Settings → Voice chat: this month's minutes, or that it isn't set up.
+/// Settings → Voice chat: this month's minutes, or that it isn't set up, and the voice (VoicePicker).
 struct TalkSection: View {
     @ObservedObject private var status = TalkStatus.shared
 
@@ -443,6 +444,7 @@ struct TalkSection: View {
             }
             .accessibilityElement(children: .combine)
             .accessibilityIdentifier("talk-settings")
+            VoicePicker()
         } footer: {
             Text(status.enabled == false
                  ? "Voice isn't set up yet. Typing, the mic in the message box and reading replies aloud still work."
@@ -453,4 +455,118 @@ struct TalkSection: View {
     }
 
     static func minutes(_ m: Double) -> String { m == m.rounded() ? String(Int(m)) : String(format: "%.1f", m) }
+}
+
+/// Settings → Voice chat → Voice (vedu #1717): Eve, Ara, Leo, Rex or Sal, saved to display.voice (so the web follows
+/// it). Read-aloud and voice chat never name a voice, so the server speaks in this one. Play reads a short sample in
+/// that voice (POST /api/app/tts {text, voice}), fetched once per voice and kept in memory, like the web's.
+struct VoicePicker: View {
+    @EnvironmentObject var state: AppState
+    @ObservedObject private var preview = VoicePreview.shared
+    @Environment(\.chatDensity) private var density
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Space.s) {
+            Text(String(localized: "voice-picker.title", defaultValue: "Voice", bundle: .l10n, comment: "Settings → Voice chat: which voice reads aloud and talks (Eve, Ara…), not speech in general"))
+                .font(Typo.secondary).foregroundStyle(Theme.muted)
+            ForEach(DisplayPrefs.voices, id: \.self) { v in row(v) }
+            if let p = preview.problem {
+                Text(p).font(Typo.meta).foregroundStyle(Theme.danger).accessibilityIdentifier("voice-problem")
+            }
+        }
+        .padding(.vertical, Space.row(density) / 2)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("voice-picker")
+    }
+
+    private func row(_ v: String) -> some View {
+        let on = state.display.voice == v, name = v.prefix(1).uppercased() + v.dropFirst()
+        return HStack(spacing: Space.m) {
+            Button {
+                guard !on else { return }
+                Haptics.play(.touch)
+                var d = state.display
+                d.voice = v
+                state.setDisplay(d)
+            } label: {
+                HStack {
+                    Image(systemName: on ? "checkmark.circle.fill" : "circle")
+                        .foregroundStyle(on ? Theme.accent : Theme.faint)
+                    Text(verbatim: name).foregroundStyle(Theme.text)
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel(Text(verbatim: name))
+            .accessibilityAddTraits(on ? .isSelected : [])
+            .accessibilityIdentifier("voice-\(v)")
+
+            Button { preview.play(v) } label: {
+                Group {
+                    if preview.loading == v { ProgressView().controlSize(.small) }
+                    else { Image(systemName: preview.playing == v ? "stop.fill" : "play.fill") }
+                }
+                .frame(width: 32, height: 28)
+                .foregroundStyle(Theme.accent)
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel("Play a sample of this voice")
+            .accessibilityValue(Text(verbatim: name))
+            .accessibilityIdentifier("voice-play-\(v)")
+        }
+        .frame(minHeight: 32)
+    }
+}
+
+/// Plays a voice's sample. One request per voice and language (kept for this launch); tapping the playing one stops it.
+@MainActor
+final class VoicePreview: NSObject, ObservableObject, AVAudioPlayerDelegate {
+    static let shared = VoicePreview()
+    @Published private(set) var loading: String?
+    @Published private(set) var playing: String?
+    @Published private(set) var problem: String?
+    private var cache: [String: Data] = [:]
+    private var player: AVAudioPlayer?
+
+    func play(_ voice: String) {
+        if playing == voice { stop(); return }
+        stop()
+        problem = nil
+        let text = String(localized: "Hi, this is how I’ll read your messages to you.", bundle: .l10n)
+        let key = voice + "\n" + text
+        Task {
+            var data = cache[key]
+            if data == nil {
+                loading = voice
+                defer { if loading == voice { loading = nil } }
+                do {
+                    let got = try await API.shared.send("/api/app/tts", body: ["text": text, "voice": voice], retries: false)
+                    cache[key] = got
+                    data = got
+                } catch {
+                    problem = error.localizedDescription
+                    return
+                }
+            }
+            guard let data else { return }
+            ReadAloud.shared.hush()
+            try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
+            try? AVAudioSession.sharedInstance().setActive(true)
+            guard let p = try? AVAudioPlayer(data: data) else { problem = String(localized: "Could not play it", bundle: .l10n); return }
+            p.delegate = self
+            player = p
+            if p.play() { playing = voice } else { problem = String(localized: "Could not play it", bundle: .l10n) }
+        }
+    }
+
+    func stop() {
+        player?.stop()
+        player = nil
+        playing = nil
+    }
+
+    nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        Task { @MainActor in if self.player === player { self.stop() } }
+    }
 }

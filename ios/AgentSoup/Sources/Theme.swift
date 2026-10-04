@@ -271,41 +271,47 @@ extension Theme {
 
 // MARK: - Display settings (Settings → Display; saved per person on the server, cached here)
 
-/// Text size, density, theme and language, as the server stores them (`profile.display`, /api/app/prefs). Unknown
+/// Text size, density, theme, language and voice, as the server stores them (`profile.display`, /api/app/prefs). Unknown
 /// values decode to the defaults, so a newer web setting never breaks the app.
 struct DisplayPrefs: Codable, Equatable {
     var text: String = "m" // s | m | l
     var density: String = "comfortable" // comfortable | compact
     var theme: String = "system" // system | light | dark
     var lang: String = "auto" // auto | en | zh-Hans | zh-Hant | es | ja | ko | hi (Language.swift)
+    var voice: String = "eve" // read-aloud and voice chat (TalkView.swift VoicePicker); the server uses it when the app names none
 
     static let `default` = DisplayPrefs()
+    /// xAI's voices, in the order the picker lists them (the server's tts.ts VOICES).
+    static let voices = ["eve", "ara", "leo", "rex", "sal"]
 
-    init(text: String = "m", density: String = "comfortable", theme: String = "system", lang: String = "auto") {
+    init(text: String = "m", density: String = "comfortable", theme: String = "system", lang: String = "auto", voice: String = "eve") {
         self.text = ["s", "m", "l"].contains(text) ? text : "m"
         self.density = ["comfortable", "compact"].contains(density) ? density : "comfortable"
         self.theme = ["system", "light", "dark"].contains(theme) ? theme : "system"
         self.lang = AppLanguage.values.contains(lang) ? lang : "auto"
+        self.voice = Self.voices.contains(voice) ? voice : "eve"
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.init(text: (try? c.decode(String.self, forKey: .text)) ?? "m",
                   density: (try? c.decode(String.self, forKey: .density)) ?? "comfortable",
                   theme: (try? c.decode(String.self, forKey: .theme)) ?? "system",
-                  lang: (try? c.decode(String.self, forKey: .lang)) ?? "auto")
+                  lang: (try? c.decode(String.self, forKey: .lang)) ?? "auto",
+                  voice: (try? c.decode(String.self, forKey: .voice)) ?? "eve")
     }
-    /// "l,compact,dark" or "l,compact,dark,zh-Hans" (the DEBUG ATTEO_DISPLAY override for simulator screenshots).
+    /// "l,compact,dark", "l,compact,dark,zh-Hans" or "l,compact,dark,zh-Hans,leo" (the DEBUG ATTEO_DISPLAY override for
+    /// simulator screenshots).
     init?(spec: String) {
         let p = spec.split(separator: ",").map(String.init)
-        guard p.count == 3 || p.count == 4 else { return nil }
-        self.init(text: p[0], density: p[1], theme: p[2], lang: p.count == 4 ? p[3] : "auto")
+        guard (3...5).contains(p.count) else { return nil }
+        self.init(text: p[0], density: p[1], theme: p[2], lang: p.count >= 4 ? p[3] : "auto", voice: p.count == 5 ? p[4] : "eve")
     }
 
     var chatDensity: ChatDensity { density == "compact" ? .compact : .comfortable }
     var interfaceStyle: UIUserInterfaceStyle { theme == "light" ? .light : theme == "dark" ? .dark : .unspecified }
     /// Steps on top of the person's iOS Dynamic Type: S two smaller (Large → Small), M as is, L one larger (→ xLarge).
     var textSteps: Int { text == "s" ? -2 : text == "l" ? 1 : 0 }
-    var body: [String: String] { ["text": text, "density": density, "theme": theme, "lang": lang] }
+    var body: [String: String] { ["text": text, "density": density, "theme": theme, "lang": lang, "voice": voice] }
 }
 
 /// How tight lists and the chat sit. Read it with `@Environment(\.chatDensity)`; pad rows with `Space.row(density)`.
