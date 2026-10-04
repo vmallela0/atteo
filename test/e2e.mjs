@@ -5080,6 +5080,83 @@ await step("session model: people see it on the web, agents never get it (reads,
   });
 }
 
+// ---- #1914 item 1 (#1934): one regression net for both private kinds. People only (people named, never an agent) and Just
+// mine (you and your own agents) never reach another member's agent, by any path; your own agent does get your Just mine.
+await step("privacy suite: People only and Just mine never reach another member's agent (read, get, search, grep, recap, summary, memory, mailbox, files, webhooks, forward); your own agent gets your Just mine", async () => {
+  const O = `e2e-po-${run}`, P = `e2e-pp-${run}`, M = `e2e-pm-${run}`; // O writes; P is named in O's people-only; M is just another member
+  for (const n of [O, P, M]) {
+    await ops("users", { name: n, email: `${n}@example.com`, verified: "true" });
+    tok[n] = (await ops("tokens", { user: n, label: "e2e" })).body.token;
+    cookie[n] = (await ops("sessions", { user: n })).body.cookie;
+  }
+  const bd = (await ops("boards", { user: O, title: `e2e privacy ${run}` })).body.board.id;
+  const other = (await ops("boards", { user: M, title: `e2e privacy elsewhere ${run}` })).body.board.id;
+  for (const n of [P, M]) await ops("members", { board: bd, user: n });
+  const api = async (who, method, path, body, bearer) => {
+    const r = await fetch(`${BASE}${path}`, { method, headers: { ...(bearer ? auth(who) : { cookie: cookie[who] }), "content-type": "application/json" }, body: body == null ? undefined : JSON.stringify(body) });
+    return { status: r.status, body: await r.json().catch(() => ({})) };
+  };
+  const S_PO = `peopleonly-${run}-zq`, S_JM = `justmine-${run}-zq`, S_JMA = `justmine-agent-${run}-zq`, ALL = [S_PO, S_JM, S_JMA];
+  const local = /localhost|127\.0\.0\.1/.test(BASE);
+  if (local) assert((await api(M, "POST", "/api/webhooks", { url: `${BASE}/__webhook-sink` })).status === 201, "M's webhook");
+  for (const n of [O, P, M]) await ok(n, bd, "read");
+  const pub = (await api(O, "POST", `/api/boards/${bd}/entries`, { text: `public marker ${run}` })).body.entry.seq;
+  // People only, naming P and calling M's agent: no agent may get it, M's included.
+  const po = await api(O, "POST", `/api/boards/${bd}/entries`, { text: `${S_PO} @${M}'s agent look`, people_only: true, to: [P] });
+  assert(po.status === 201 && po.body.entry.audience === "people", `people-only: ${po.status} ${JSON.stringify(po.body).slice(0, 200)}`);
+  // Just mine from O on the web, and from O's agent; a reply to the people-only stays people-only.
+  const jm = await api(O, "POST", `/api/boards/${bd}/entries`, { text: `${S_JM} note to self`, own: true });
+  assert(jm.status === 201 && jm.body.entry.audience === "own", `just mine (web): ${jm.status} ${JSON.stringify(jm.body).slice(0, 200)}`);
+  const jma = await api(O, "POST", `/api/boards/${bd}/entries`, { text: `${S_JMA} for my person`, own: true }, true);
+  assert(jma.status === 201 && jma.body.entry.audience === "own", `just mine (agent): ${jma.status} ${JSON.stringify(jma.body).slice(0, 200)}`);
+  const rep = await api(P, "POST", `/api/boards/${bd}/entries`, { text: `re ${S_PO}`, reply_to: po.body.entry.seq });
+  assert(rep.status === 201 && rep.body.entry.audience === "people", `reply inherits: ${JSON.stringify(rep.body).slice(0, 200)}`);
+  // Its audience tries to carry them out: remember (memory every agent reads) and forward to another board.
+  await tool(O, bd, "remember", { from: jma.body.entry.seq }); // refused or not, nobody else's agent may see it after
+  await api(P, "POST", "/api/forward", { from: bd, to: other, seqs: [po.body.entry.seq] });
+  await api(O, "POST", "/api/forward", { from: bd, to: other, seqs: [jm.body.entry.seq] });
+  await api(M, "POST", "/api/forward", { from: bd, to: other, seqs: [po.body.entry.seq, jm.body.entry.seq, jma.body.entry.seq] });
+  const hidden = [po.body.entry.seq, jm.body.entry.seq, jma.body.entry.seq, rep.body.entry.seq];
+  const clean = (text, where) => { const t = String(text); const hit = ALL.find((x) => t.includes(x)); assert(!hit, `${where} leaked "${hit}": ${t.slice(0, 500)}`); };
+  for (const u of [M, P]) { // another member's agent; and P's, who is a person in the people-only but never its agent
+    const tag = `${u}'s agent`;
+    const all = await ok(u, bd, "read", { since: 0, limit: 200 });
+    has(all, `public marker ${run}`);
+    clean(all, `${tag} read`);
+    clean(await ok(u, bd, "read", { summary: true }), `${tag} read summary`);
+    for (const s of hidden) await err(u, bd, "get", { seq: s }, "does not exist");
+    clean(await ok(u, bd, "get", { seq: pub }), `${tag} get`);
+    for (const x of ALL.map((y) => y.slice(0, -3))) { // without the "-zq" tail, so an echoed query isn't a leak
+      clean((await tool(u, bd, "search", { query: x })).text, `${tag} search`);
+      clean((await tool(u, bd, "grep", { pattern: x })).text, `${tag} grep`);
+      clean((await tool(u, bd, "grep", { pattern: x, board: "all" })).text, `${tag} grep all boards`);
+    }
+    clean(await ok(u, bd, "recap", { since: "0" }), `${tag} recap`);
+    clean((await tool(u, bd, "memory", {})).text, `${tag} memory`);
+    clean((await tool(u, bd, "mailbox", { peek: true })).text, `${tag} mailbox tool`);
+    clean((await tool(u, bd, "doc", { action: "list" })).text, `${tag} files`);
+    clean((await tool(u, other, "read", { since: 0 })).text, `${tag} the board things were forwarded to`);
+    for (const p of [`/api/boards/${bd}/entries?after=0`, `/api/boards/${bd}/updates?after=0`, `/api/boards/${bd}/search?q=${S_JM.slice(0, -3)}`, `/api/boards/search?q=${S_PO.slice(0, -3)}`, `/api/boards/${bd}/grep?pattern=${S_JMA.slice(0, -3)}`, `/api/boards/${bd}/grep?pattern=justmine`, `/api/boards/${bd}/memory`, `/api/boards/${bd}/docs`, `/api/boards/${bd}/recap?since=0`, `/api/mailbox?peek=1&limit=100`, `/api/me/boards`, `/api/inbox`]) {
+      const g = await api(u, "GET", p, null, true);
+      clean(JSON.stringify(g.body), `${tag} GET ${p} (${g.status})`);
+    }
+    for (const s of hidden) assert((await api(u, "GET", `/api/boards/${bd}/entries/${s}`, null, true)).status === 404, `${tag} REST get #${s}`);
+  }
+  if (local) {
+    await new Promise((r) => setTimeout(r, 500));
+    const d = (await (await fetch(`${BASE}/__webhook-sink`)).json()).deliveries.filter((x) => x.body.includes(`e2e privacy ${run}`) || ALL.some((s) => x.body.includes(s)));
+    clean(JSON.stringify(d), "M's webhook deliveries");
+  }
+  // The other way round: O's own agent gets O's Just mine (both of them), and still never the people-only.
+  const mine = await ok(O, bd, "read", { since: 0, limit: 200 });
+  has(mine, S_JM);
+  has(mine, S_JMA);
+  assert(!mine.includes(S_PO), `O's agent read the people-only: ${mine.slice(0, 400)}`);
+  has(await ok(O, bd, "get", { seq: jm.body.entry.seq }), S_JM);
+  has((await tool(O, bd, "grep", { pattern: S_JM })).text, S_JM);
+  assert((await api(O, "GET", `/api/boards/${bd}/entries/${jm.body.entry.seq}`, null, true)).status === 200, "O's agent REST get of its Just mine");
+});
+
 if (/localhost|127\.0\.0\.1/.test(BASE) && process.env.E2E_FULL) {
   await step("boards past 1,000 entries page through updates without looping (local only)", async () => {
     const big = (await ops("boards", { user: A, title: `e2e big ${run}` })).body.board.id;
