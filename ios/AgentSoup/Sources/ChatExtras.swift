@@ -182,7 +182,8 @@ struct BoardInfoSheet: View {
         let open = ChatSummary.open(state.entries[board.id] ?? [])
         let agents = (state.boardAgents[board.id] ?? []).sorted { rank($0.state) == rank($1.state) ? $0.lastSeen > $1.lastSeen : rank($0.state) < rank($1.state) }
         // The board's standing context for agents, first: its SOUL and MEMORY (vedu #1090).
-        if !board.isAgentChat { SoulMemorySections(board: board, model: context) }
+        // (Developer mode only: Everyday keeps agent files out of sight, Everyday.swift.)
+        if !board.isAgentChat && !Vocab.everyday { SoulMemorySections(board: board, model: context) }
         if !open.questions.isEmpty {
             Section { ForEach(open.questions.suffix(8).reversed()) { e in jumpRow(e, icon: "questionmark.circle.fill", tint: Theme.warn) } }
                 header: { SectionHeader("Open questions · \(open.questions.count)") }
@@ -194,14 +195,14 @@ struct BoardInfoSheet: View {
                 .listRowBackground(Theme.card)
         }
         Section {
-            if agents.isEmpty { Text("No agents on this board yet.").font(Typo.secondary).foregroundStyle(Theme.muted) }
+            if agents.isEmpty { Text(Vocab.pick("No agents on this board yet.", "No assistants in this chat yet.")).font(Typo.secondary).foregroundStyle(Theme.muted) }
             ForEach(agents) { a in
                 NavigationLink { PersonCard(name: a.user, open: { b in state.openRequest = b }, agentFirst: true) } label: { AgentHereRow(a: a) }
                     .accessibilityIdentifier("info-agent-\(a.user)")
             }
         } header: {
             let live = agents.filter { $0.state == "live" }.count
-            SectionHeader(live > 0 ? "Agents · \(live) working" : "Agents")
+            SectionHeader(Vocab.pick(live > 0 ? "Agents · \(live) working" : "Agents", live > 0 ? "Assistants · \(live) working" : "Assistants"))
         }
         .listRowBackground(Theme.card)
     }
@@ -229,7 +230,7 @@ struct BoardInfoSheet: View {
                 Image(systemName: icon).font(.system(size: 15)).foregroundStyle(tint).frame(width: 22).onFirstLine()
                 VStack(alignment: .leading, spacing: 1) {
                     Text(ChatSummary.short(e)).font(Typo.secondary.weight(.medium)).foregroundStyle(Theme.text).lineLimit(1)
-                    Text((e.byAgent ? "\(e.author)'s agent" : e.author) + (e.to.map { " → \($0)" } ?? "") + " · " + e.ts.ago)
+                    Text((e.byAgent ? Vocab.agentOf(e.author) : e.author) + (e.to.map { " → \($0)" } ?? "") + " · " + e.ts.ago)
                         .font(Typo.micro).foregroundStyle(Theme.faint).lineLimit(1)
                 }
                 Spacer(minLength: 0)
@@ -248,7 +249,7 @@ struct BoardInfoSheet: View {
             }
             VStack(alignment: .leading, spacing: 1) {
                 Text(f.name).font(Typo.secondary.weight(.medium)).foregroundStyle(Theme.text).lineLimit(1).truncationMode(.middle)
-                Text([f.size.bytes, f.version > 1 ? "v\(f.version)" : nil, f.via == "agent" ? "\(f.updatedBy)'s agent" : f.updatedBy, f.updatedAt.ago].compactMap { $0 }.joined(separator: " · "))
+                Text([f.size.bytes, f.version > 1 ? "v\(f.version)" : nil, f.via == "agent" ? Vocab.agentOf(f.updatedBy) : f.updatedBy, f.updatedAt.ago].compactMap { $0 }.joined(separator: " · "))
                     .font(Typo.micro).foregroundStyle(Theme.faint).lineLimit(1)
             }
             Spacer(minLength: 0)
@@ -340,7 +341,7 @@ struct SearchHitRow: View {
                 Avatar(name: hit.author, agent: hit.via == "agent", size: 28)
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: Space.xs) {
-                        Text(hit.via == "agent" ? "\(hit.author)'s agent" : hit.author).font(Typo.meta.weight(.semibold)).foregroundStyle(Theme.text).lineLimit(1)
+                        Text(hit.via == "agent" ? Vocab.agentOf(hit.author) : hit.author).font(Typo.meta.weight(.semibold)).foregroundStyle(Theme.text).lineLimit(1)
                         if let board { Text("in \(board)").font(Typo.micro).foregroundStyle(Theme.faint).lineLimit(1) }
                         Spacer(minLength: Space.s)
                         if hit.ts > 0 { Text(hit.ts.ago).font(Typo.micro).foregroundStyle(Theme.faint) }
@@ -383,7 +384,7 @@ struct Reader: Hashable, Identifiable {
     let mine: Bool // your own agent
     let seen: Bool
     var id: String { "\(user)/\(agent)" }
-    var label: String { mine ? "your agent" : agent ? "\(user)'s agent" : user }
+    var label: String { mine ? Vocab.yourAgent.lowercased() : agent ? Vocab.agentOf(user) : user }
 }
 
 /// The line under your message: what it says, how far it got (0 delivered, 1 seen by some, 2 by everyone), and who.
@@ -423,7 +424,7 @@ struct SeenBySheet: View {
                             ForEach(group) { r in
                                 HStack(spacing: Space.m) {
                                     Avatar(name: r.user, agent: r.agent, size: 30)
-                                    Text(r.mine ? "Your agent" : r.agent ? "\(r.user)'s agent" : r.user).font(Typo.rowTitleRead).foregroundStyle(Theme.text).lineLimit(1)
+                                    Text(r.mine ? Vocab.yourAgent : r.agent ? Vocab.agentOf(r.user) : r.user).font(Typo.rowTitleRead).foregroundStyle(Theme.text).lineLimit(1)
                                     Spacer(minLength: Space.s)
                                     if r.seen {
                                         Label("Seen", systemImage: "checkmark").font(Typo.micro.weight(.semibold)).foregroundStyle(Theme.ok)

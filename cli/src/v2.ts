@@ -361,6 +361,8 @@ async function waitCmd(args: string[]) {
     for (;;) {
       const left = Math.ceil((until - Date.now()) / 1000);
       const j = await api(opt, "GET", q(Math.max(1, Math.min(50, left))));
+      // A newer wait from this session took over (one open wait per session): this one stops instead of taking it back.
+      if (j.superseded) return print(opt, j, "This wait ended: a newer wait from this session took over.");
       if (!j.timed_out || Date.now() >= until - 1000) {
         for (const x of (j.entries ?? []) as { board: BoardRef; entry: { seq: number } }[]) shown.add(`${x.board.id}#${x.entry.seq}`);
         return print(opt, j, j.timed_out ? `Nothing new in ${total}s. Wait again, or carry on.` : oneFence(j.text));
@@ -406,7 +408,7 @@ async function mailboxCmd(args: string[]) {
     const left = Math.max(0, Math.ceil((until - Date.now()) / 1000));
     j = await api(opt, "GET", `/api/mailbox?peek=1&wait=${Math.min(25, left)}${limit ? `&limit=${encodeURIComponent(limit)}` : ""}`);
     const rest = until - Date.now();
-    if (j.mail.length || rest <= 0) break;
+    if (j.mail.length || rest <= 0 || (j as { superseded?: boolean }).superseded) break; // superseded: a newer wait from this session took over
     // The server checks every 3 seconds and doesn't hold a shorter wait: sit out the last moment here, then look once more.
     if (rest < 3000) await new Promise((r) => setTimeout(r, rest));
   }

@@ -10,7 +10,7 @@ struct AtteoApp: App {
             // Settings → Display: text size (on top of your iOS Dynamic Type), density and theme, for every screen.
             DisplayRoot(prefs: state.display) {
                 Group {
-                    if state.signedIn { ChatsView() } else { SignInView() }
+                    if state.signedIn { ModeRoot() } else { SignInView() } // Everyday or Developer mode (Everyday.swift)
                 }
             }
             .modifier(ToastOverlay(state: state))

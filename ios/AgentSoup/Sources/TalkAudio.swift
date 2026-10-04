@@ -98,19 +98,25 @@ final class TalkAudio {
         let p = AVAudioPlayerNode()
         e.attach(p)
         if useMic {
-            // Echo cancelling: Grok's voice out of the speaker isn't sent back as yours.
-            try? e.inputNode.setVoiceProcessingEnabled(true)
+            // Echo cancelling: Grok's voice out of the speaker isn't sent back as yours. Some iPhones hand back an unusable
+            // or multichannel format with it on, so: tap in whatever the node gives (format nil), take channel 0, resample
+            // that mono stream to 24 kHz, and only give up (saying exactly what the mic reported) when nothing is usable.
             let input = e.inputNode
-            let inFormat = input.outputFormat(forBus: 0)
-            if inFormat.sampleRate > 0, inFormat.channelCount > 0, let conv = AVAudioConverter(from: inFormat, to: micFormat) {
-                conv.downmix = true
-                let state = tapState, target = micFormat
-                input.installTap(onBus: 0, bufferSize: AVAudioFrameCount(inFormat.sampleRate / 10), format: inFormat) { [weak self] buf, _ in
-                    guard state.on, let b64 = Self.convert(buf, conv, target) else { return }
+            try? input.setVoiceProcessingEnabled(true)
+            var f = input.outputFormat(forBus: 0)
+            if f.sampleRate <= 0 || f.channelCount == 0 {
+                try? input.setVoiceProcessingEnabled(false)
+                f = input.outputFormat(forBus: 0)
+            }
+            if f.sampleRate > 0, f.channelCount > 0 {
+                let state = tapState, mic = MicStream(target: micFormat)
+                input.installTap(onBus: 0, bufferSize: AVAudioFrameCount(f.sampleRate / 10), format: nil) { [weak self] buf, _ in
+                    guard state.on, let b64 = mic.base64(buf) else { return }
                     Task { @MainActor in self?.onChunk?(b64) }
                 }
             } else {
-                events?(.failed("no microphone"))
+                let i = input.inputFormat(forBus: 0)
+                events?(.failed("no microphone: out \(Int(f.sampleRate)) Hz × \(f.channelCount), in \(Int(i.sampleRate)) Hz × \(i.channelCount), route \(AVAudioSession.sharedInstance().currentRoute.inputs.map(\.portType.rawValue).joined(separator: ","))"))
             }
         }
         e.connect(p, to: e.mainMixerNode, format: playFormat)
@@ -156,8 +162,36 @@ final class TalkAudio {
         }
     }
 
-    nonisolated private static func convert(_ buf: AVAudioPCMBuffer, _ conv: AVAudioConverter, _ target: AVAudioFormat) -> String? {
-        let cap = AVAudioFrameCount(Double(buf.frameLength) * target.sampleRate / buf.format.sampleRate) + 64
+}
+
+/// The mic's buffers (any rate, any channel count, float or int) → base64 PCM16 mono at the target rate. Used only on the
+/// audio thread that delivers the tap, one buffer at a time.
+private final class MicStream: @unchecked Sendable {
+    private let target: AVAudioFormat // PCM16 mono 24 kHz
+    private var conv: AVAudioConverter?
+    private var monoFormat: AVAudioFormat?
+    init(target: AVAudioFormat) { self.target = target }
+
+    func base64(_ buf: AVAudioPCMBuffer) -> String? {
+        let n = Int(buf.frameLength), sr = buf.format.sampleRate
+        guard n > 0, sr > 0 else { return nil }
+        // Channel 0 as Float32 mono at the mic's own rate.
+        if monoFormat?.sampleRate != sr {
+            monoFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: sr, channels: 1, interleaved: false)
+            conv = monoFormat.flatMap { AVAudioConverter(from: $0, to: target) }
+        }
+        guard let monoFormat, let conv, let mono = AVAudioPCMBuffer(pcmFormat: monoFormat, frameCapacity: AVAudioFrameCount(n)) else { return nil }
+        mono.frameLength = AVAudioFrameCount(n)
+        let dst = mono.floatChannelData![0]
+        if let f = buf.floatChannelData {
+            if buf.format.isInterleaved { let stride = Int(buf.format.channelCount); for k in 0..<n { dst[k] = f[0][k * stride] } }
+            else { dst.update(from: f[0], count: n) }
+        } else if let i = buf.int16ChannelData {
+            let stride = buf.format.isInterleaved ? Int(buf.format.channelCount) : 1
+            for k in 0..<n { dst[k] = Float(i[0][k * stride]) / 32768 }
+        } else { return nil }
+        // Resample + to PCM16.
+        let cap = AVAudioFrameCount(Double(n) * target.sampleRate / sr) + 64
         guard let out = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: cap) else { return nil }
         var fed = false
         var err: NSError?
@@ -165,7 +199,7 @@ final class TalkAudio {
             if fed { status.pointee = .noDataNow; return nil }
             fed = true
             status.pointee = .haveData
-            return buf
+            return mono
         }
         guard err == nil, out.frameLength > 0, let ch = out.int16ChannelData else { return nil }
         return Data(bytes: ch[0], count: Int(out.frameLength) * 2).base64EncodedString()

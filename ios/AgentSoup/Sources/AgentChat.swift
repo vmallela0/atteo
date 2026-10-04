@@ -63,15 +63,15 @@ struct AgentChatRow: View {
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: Space.xxs) {
                 HStack(alignment: .firstTextBaseline, spacing: Space.xs) {
-                    Text("Your agent").font(unread > 0 ? Typo.rowTitle : Typo.rowTitleRead).foregroundStyle(Theme.text).lineLimit(1)
+                    Text(Vocab.yourAgent).font(unread > 0 ? Typo.rowTitle : Typo.rowTitleRead).foregroundStyle(Theme.text).lineLimit(1)
                     Image(systemName: "pin.fill").font(.system(size: 9)).foregroundStyle(Theme.faint).accessibilityHidden(true)
                     Spacer(minLength: Space.s)
                     if let b { Text(b.lastActivity.ago).font(Typo.meta).foregroundStyle(unread > 0 ? Theme.accent : Theme.faint).monospacedDigit() }
                 }
                 HStack(alignment: .center, spacing: Space.s) {
                     Group {
-                        if let l = b?.last { Text(l.by + ": ").foregroundStyle(Theme.muted) + Text(l.text.md).foregroundStyle(unread > 0 ? Theme.muted : Theme.faint) }
-                        else { Text("Ask any of your agents, or one session").foregroundStyle(Theme.faint) }
+                        if let l = b?.last { Text(Vocab.shown(l.by) + ": ").foregroundStyle(Theme.muted) + Text(l.text.md).foregroundStyle(unread > 0 ? Theme.muted : Theme.faint) }
+                        else { Text(Vocab.pick("Ask any of your agents, or one session", "Ask your assistant anything")).foregroundStyle(Theme.faint) }
                     }
                     .font(Typo.secondary).lineLimit(1)
                     Spacer(minLength: 0)

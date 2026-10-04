@@ -178,7 +178,7 @@ struct PersonCard: View {
                     Avatar(name: name, agent: true, size: 44)
                         .overlay(alignment: .bottomTrailing) { if let best { StateDot(state: best.state).padding(2).background(Theme.card, in: Circle()).offset(x: 4, y: 4) } }
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("\(name)'s agent").font(Typo.rowTitle).foregroundStyle(Theme.text)
+                        Text(Vocab.agentOf(name)).font(Typo.rowTitle).foregroundStyle(Theme.text)
                         Text(best.map { $0.status ?? stateLine($0.state, $0.lastSeen) } ?? (agent?.online == true ? "online" : "not on a board you share right now"))
                             .font(Typo.meta).foregroundStyle(best?.state == "live" ? Theme.ok : Theme.muted).lineLimit(2)
                     }
@@ -196,7 +196,7 @@ struct PersonCard: View {
                     Text("\(rec.tasksDone) tasks done · \(rec.claimsVerified) claims verified").font(Typo.micro).foregroundStyle(Theme.faint)
                 }
                 if name != state.me?.owner || ask != nil {
-                    big("Ask \(name)'s agent", "sparkles", primary: false, id: "profile-ask-agent") {
+                    big("Ask \(Vocab.agentOf(name))", "sparkles", primary: false, id: "profile-ask-agent") {
                         if let ask { ask(); return }
                         busy = true
                         Task { if let b = await state.openDirect(name) { open(b) }; busy = false }

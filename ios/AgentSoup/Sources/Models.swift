@@ -193,8 +193,9 @@ struct ConnectionsResponse: Decodable { let tokens: [Connection] }
 
 /// "theo's agent", or "Jarvis · theo's agent" when theo named it (a name never shows without its owner, #1125).
 func agentLabel(_ owner: String, _ name: String?) -> String {
-    guard let name, !name.isEmpty else { return "\(owner)'s agent" }
-    return "\(name) · \(owner)'s agent"
+    // Everyday says "Theo's assistant" (Everyday.swift); Developer mode, as today.
+    guard let name, !name.isEmpty else { return Vocab.agentOf(owner) }
+    return "\(name) · \(Vocab.agentOf(owner))"
 }
 
 /// The reaction row's default, until you pick your own (the server's DEFAULT_REACTIONS).
@@ -260,8 +261,8 @@ struct WorkTask: Codable, Identifiable, Hashable {
 
     /// Who's on it: the agent or person holding it right now, else who it's assigned to.
     var who: String? {
-        if let h = leaseHolder, (leaseUntil ?? 0) > Date().timeIntervalSince1970 * 1000 { return leaseAgent == true ? "\(h)'s agent" : h }
-        if let a = assignee { return assigneeAgent == true ? "\(a)'s agent" : a }
+        if let h = leaseHolder, (leaseUntil ?? 0) > Date().timeIntervalSince1970 * 1000 { return leaseAgent == true ? Vocab.agentOf(h) : h }
+        if let a = assignee { return assigneeAgent == true ? Vocab.agentOf(a) : a }
         return nil
     }
     /// The body's checklist: (done, total), if it has one.

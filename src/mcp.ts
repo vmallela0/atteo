@@ -1,6 +1,7 @@
 // Minimal MCP server over Streamable HTTP (JSON responses, no SSE): initialize, tools/list, tools/call, ping.
 
 import * as usage from "./usage";
+import * as limits from "./limits";
 import { blockedMessage, scanFields } from "./secrets";
 import * as approvals from "./approvals";
 import * as recap from "./recap";
@@ -564,6 +565,9 @@ async function mcpAgentSession(c: HandleContext, user: string): Promise<NonNulla
   if (t) c.ctx.waitUntil(t.catch(() => {}));
   return view(s);
 }
+/** What one open wait is held per (limits.beginWait): the agent session, else a real MCP connection (not a shared one). */
+const waitKey = (c: Pick<CallContext, "agentSession" | "sharedSession" | "sessionId">) => (c.agentSession?.id ? `s:${c.agentSession.id}` : c.sharedSession ? null : `mcp:${c.sessionId}`);
+
 /** A URL connection's session unused this long is free for the client's next connection to take over. */
 const MCP_IDLE_MS = 30 * 60 * 1000;
 
@@ -1300,21 +1304,29 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const take = (board: string, join: boolean) => withRetry(async () => await stubFor(env, board).wait(user, join, c.agentSession?.id ?? null));
       // DMs (your direct boards) wake you too, without joining them.
       const directs = (await dm.directBoardsOf(env, user)).filter((d) => d.id !== id);
-      const ms = Math.max(1000, Math.min(secs * 1000, MAX_WAIT_MS));
+      // Shedding load stretches the wait (up to the usual maximum): fewer calls for the same listening.
+      const asked = Math.max(1000, Math.min(secs * 1000, MAX_WAIT_MS));
+      const ms = limits.stretchWait(asked, MAX_WAIT_MS, await limits.shedLevel(env));
       const takeDms = async () => (await Promise.all(directs.map(async (d) => ({ d, r: await take(d.id, false).catch(() => null) })))).filter((x) => x.r && x.r.entries.length);
       // Anything already new comes back at once; otherwise this Worker waits (the boards sleep) and reads again.
       let r = await take(id, true);
       let dms = r.entries.length ? [] : await takeDms();
+      let wasSuperseded = false;
       if (!r.entries.length && !dms.length) {
+        // One open wait per agent session (or MCP connection): a newer one ends this one (limits.beginWait).
+        const w = limits.beginWait(waitKey(c));
+        if (w.refused) throw new ToolError(`Another wait from this session is already open (are two loops sharing one session?). Try again in ${w.refused}s, or use one session per loop.`);
         const boards = [id, ...directs.map((d) => d.id)];
         const woke = await new Promise<boolean>((resolve) => {
           let left = boards.length;
-          for (const b of boards) waitForBoard(stubFor(env, b), { kind: "agent", user, session: c.agentSession?.id }, ms).then((v) => (v ? resolve(true) : --left === 0 && resolve(false)), () => --left === 0 && resolve(false));
-        });
+          for (const b of boards) waitForBoard(stubFor(env, b), { kind: "agent", user, session: c.agentSession?.id }, ms, w.signal).then((v) => (v ? resolve(true) : --left === 0 && resolve(false)), () => --left === 0 && resolve(false));
+        }).finally(() => w.done());
+        wasSuperseded = limits.superseded(w.signal);
         if (woke) [r, dms] = await Promise.all([take(id, false), takeDms()]);
       }
       later(registry.touch(env, user, id));
-      if (!r.entries.length && !dms.length) return `Nothing new from other members in ${Math.min(secs, MAX_WAIT_MS / 1000)}s. Call wait again to keep listening, or carry on.`;
+      if (!r.entries.length && !dms.length && wasSuperseded) return "This wait ended early: a newer wait from this session took over. Nothing new arrived.";
+      if (!r.entries.length && !dms.length) return `Nothing new from other members in ${ms === asked ? Math.min(secs, MAX_WAIT_MS / 1000) : Math.round(ms / 1000)}s. Call wait again to keep listening, or carry on.`;
       const named = async (board: string, list: Entry[]) => withNames(list, list.some((e) => e.via === "agent") ? await social.boardAgentNames(env, board) : null);
       const dmText = await Promise.all(dms.map(async (x) => `== ${x.d.kind === "agent" ? `Your agent: your user's own chat with you` : `DM: ${x.d.title}`} (${x.d.id}) · reply with post on that board (join_board ${x.d.id}), in the thread ==\n` + (await named(x.d.id, x.r!.entries)).map((e) => formatEntry(e, 4000, user)).join("\n")));
       const n = r.entries.length + dms.reduce((k, x) => k + x.r!.entries.length, 0);
@@ -1324,10 +1336,20 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
     case "mailbox": {
       // The same mail as GET /api/mailbox (src/mailbox.ts), as compact lines: one header, then one line per mail
       // grouped under its board, all fenced (board content). Delivering it means it never comes back.
-      const wait = Math.max(0, Math.min(MAILBOX_MAX_WAIT_S, int(args.wait_seconds) ?? 0));
+      const level = await limits.shedLevel(env);
+      const wait = Math.round(limits.stretchWait(Math.max(0, Math.min(MAILBOX_MAX_WAIT_S, int(args.wait_seconds) ?? 0)) * 1000, MAILBOX_MAX_WAIT_S * 1000, level) / 1000);
       const limit = Math.max(1, Math.min(50, int(args.limit) ?? 20));
       const peek = args.peek === true;
-      const r = await mailbox.collect(env, user, { limit, wait, peek, session: c.agentSession?.id ?? null }, async (b, seq) => (await stubFor(env, b).get(seq)).entry.text);
+      // One open wait per agent session (or MCP connection): a newer one ends this one (limits.beginWait).
+      const w = wait ? limits.beginWait(waitKey(c)) : null;
+      if (w?.refused) throw new ToolError(`Another wait from this session is already open (are two loops sharing one session?). Try again in ${w.refused}s, or use one session per loop.`);
+      let r: Awaited<ReturnType<typeof mailbox.collect>>;
+      try {
+        r = await mailbox.collect(env, user, { limit, wait, peek, session: c.agentSession?.id ?? null, pollMs: level >= 1 ? 6000 : 3000, signal: w?.signal }, async (b, seq) => (await stubFor(env, b).get(seq)).entry.text);
+      } finally {
+        w?.done();
+      }
+      if (!r.mail.length && limits.superseded(w?.signal)) return "Mailbox empty: this wait ended early because a newer wait from this session took over.";
       if (!r.mail.length) return `Mailbox empty${wait ? ` after ${wait}s` : ""}.`;
       type Named = mailbox.Mail & { from_agent_name?: string };
       const groups = new Map<string, Named[]>();
@@ -1589,6 +1611,28 @@ export async function handleMcp(request: Request, env: Env, ctx: ExecutionContex
     legacyCli: request.headers.get("user-agent") === "atteo-cli", // today's CLI says "atteo-cli/2"
     model: sessions.cleanModel(atteoHeader(request, "model")),
   };
+  // Free-plan guardrails (src/limits.ts): per-token rate limit, the person's daily budget (waits aren't counted),
+  // load shedding. No D1 in the usual case.
+  if (user && token) {
+    const calls = (Array.isArray(body) ? body : [body]).filter((m) => m && typeof m === "object") as { method?: string; params?: { name?: string; arguments?: Record<string, unknown> } }[];
+    const tools = calls.filter((m) => m.method === "tools/call").map((m) => m.params?.name);
+    const denied = await limits.admit(env, ctx, {
+      user,
+      kind: resolved.kind === "app" ? "person" : "agent",
+      tokenKey: await sha256hex(token),
+      wait: calls.every((m) => limits.isMcpWait(m)),
+      write: !readOnly,
+      essential: tools.every((t) => limits.isEssentialMcp(t)),
+    });
+    if (denied) {
+      const why = (await denied.clone().json().catch(() => ({}))) as { error?: string };
+      const id = Array.isArray(body) ? null : ((body as RpcRequest | null)?.id ?? null);
+      return Response.json(
+        { jsonrpc: "2.0", id, error: { code: -32000, message: why.error ?? "Too many requests", data: { status: denied.status, retry_after: Number(denied.headers.get("retry-after")) } } },
+        { status: denied.status, headers: { "retry-after": denied.headers.get("retry-after") ?? "60" } },
+      );
+    }
+  }
   const asHeader = atteoHeader(request, "session");
   if (asHeader && user) {
     const s = await sessions.get(env, user, asHeader);
