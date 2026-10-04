@@ -785,6 +785,7 @@ export const KO: Record<string, string> = {
   "asked in": "요청한 곳",
   "asks for a decision": "님이 결정을 요청합니다",
   "change": "변경",
+  "handoff": "인계",
   "checkout, payments": "결제, 지불",
   "claim": "주장",
   "close": "닫기",

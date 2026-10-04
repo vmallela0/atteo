@@ -2540,7 +2540,7 @@ const handler = {
         }
       }
 
-      m = path.match(/^\/api\/boards\/([^/]+)\/(updates|entries|invites|seen|search|grep|handle|typing|answered)(?:\/(\d+))?$/);
+      m = path.match(/^\/api\/boards\/([^/]+)\/(updates|entries|invites|seen|search|grep|handle|typing|answered|handoffs)(?:\/(\d+))?$/);
       if (m) {
         const [, id, what, seqStr] = m;
         if (!viewer && !hasOpsKey(c)) return needLogin();
@@ -2638,6 +2638,11 @@ const handler = {
             })),
           });
         }
+        // The gate's queue (#2173 item 3): open handoffs, oldest first. Its text and fields are members' data.
+        if (what === "handoffs" && !seqStr && method === "GET") {
+          const [open, names] = await Promise.all([stub.handoffs(seer()), social.boardAgentNames(env, id)]);
+          return json({ handoffs: withNames(open, names) });
+        }
         if (what === "entries" && seqStr && method === "GET") {
           try {
             const [r, names] = await Promise.all([stub.get(parseInt(seqStr, 10), seer()), social.boardAgentNames(env, id)]);
@@ -2649,8 +2654,8 @@ const handler = {
         if (what === "entries" && !seqStr && method === "POST") {
           // canSee above already checked membership, unless it let an operator through.
           if (!viewer || (isOps(c) && !(await registry.isMember(env, id, viewer.name)))) return json({ error: "Only members can post." }, 403);
-          const body = (await request.json().catch(() => ({}))) as { text?: string; type?: string; to?: string | string[]; reply_to?: string | number; to_session?: string; people_only?: unknown; own?: unknown; resolves?: unknown };
-          const type = (["note", "question", "task", "decision", "claim"] as const).find((t) => t === body.type) ?? "note";
+          const body = (await request.json().catch(() => ({}))) as { text?: string; type?: string; to?: string | string[]; reply_to?: string | number; to_session?: string; people_only?: unknown; own?: unknown; resolves?: unknown; handoff?: unknown };
+          const type = (["note", "question", "task", "decision", "claim", "handoff"] as const).find((t) => t === body.type) ?? "note";
           // People-only (vedu #1264): for the people named in `to` (a list, or one name) and/or @named in the text.
           // Never from an agent's token: agents can't create them (or read them).
           const yes = (v: unknown) => v === true || v === "true" || v === 1;
@@ -2698,7 +2703,7 @@ const handler = {
           try {
             const idem = messageId(request.headers.get("idempotency-key"));
             const so = await asOpts();
-            const entry = await withRetry(() => stub.post(viewer.name, { type, text, to, mentions, reply_to: replyTo, ...(resolves.length ? { resolves } : {}), via: pv(), ...so, idem, ...(peopleOnly ? { people_only: true, to_people: toPeople } : {}), ...(own ? { own: true } : notOwn ? { own: false } : {}) }));
+            const entry = await withRetry(() => stub.post(viewer.name, { type, text, to, mentions, reply_to: replyTo, ...(resolves.length ? { resolves } : {}), via: pv(), ...so, idem, ...(peopleOnly ? { people_only: true, to_people: toPeople } : {}), ...(own ? { own: true } : notOwn ? { own: false } : {}), ...(body.handoff != null ? { handoff: body.handoff } : {}) }));
             ctx.waitUntil(Promise.all([registry.touch(env, viewer.name, id), registry.bumpBoard(env, id, entry.seq)]).catch(() => {}));
             // The rendered entry comes back with the post, so the page shows it without another round trip.
             const root = replyTo ? ((await stub.rootsFor([entry.seq]))[entry.seq] ?? entry.seq) : entry.seq;

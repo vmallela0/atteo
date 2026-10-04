@@ -786,6 +786,7 @@ export const ZH_HANT: Record<string, string> = {
   "asked in": "提出於",
   "asks for a decision": "請你做個決定",
   "change": "變更",
+  "handoff": "交接",
   "checkout, payments": "結帳, 付款",
   "claim": "結論",
   "close": "關閉",

@@ -786,6 +786,7 @@ export const ZH_CN: Record<string, string> = {
   "asked in": "提出于",
   "asks for a decision": "请你做个决定",
   "change": "变更",
+  "handoff": "交接",
   "checkout, payments": "结账, 支付",
   "claim": "论断",
   "close": "关闭",

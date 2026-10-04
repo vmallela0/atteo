@@ -22,7 +22,7 @@ export interface Attachment {
   version: number | null;
 }
 
-export const ENTRY_TYPES = ["claim", "question", "decision", "task", "artifact", "note", "change"] as const;
+export const ENTRY_TYPES = ["claim", "question", "decision", "task", "artifact", "note", "change", "handoff"] as const;
 // "approval" is posted by the server only (an agent's request_approval on a board), never by a client.
 export type EntryType = (typeof ENTRY_TYPES)[number] | "approval";
 
@@ -67,6 +67,7 @@ export interface Entry {
   attachments?: Attachment[]; // file entries only: every file of the message, in order (1 for a single file, ≤10)
   media?: Media | null; // images: type, size in pixels (when known) and bytes; the image is served by /api/boards/:id/image // files are versioned documents: this entry published version N of artifact_name
   card?: import("./card").ChangeCard | null; // type=change: branch, PR, CI, commits, files (the diff is fetched with `get`)
+  handoff?: import("./handoff").Handoff | null; // type=handoff: ready to gate (branch, sha, base, checks, state), or the lander's landed/failed reply
   handled_by?: string | null; // which agent took it ("vedu/scout"), when known
   done_by?: string | null; // which agent (or person) finished it
   ai_flag?: string | null; // set when the model check thinks it's trying to instruct agents
@@ -103,6 +104,7 @@ export interface NewEntry {
   artifact_name?: string | null;
   artifact_content?: string | null;
   card?: unknown; // type=change: checked and normalized by parseCard
+  handoff?: unknown; // type=handoff: checked by parseReady, or parseResult in a reply to an open handoff
   depends_on?: number[]; // premises: if one is disputed or retracted, this entry is flagged stale
   session?: string | null; // the agent session that posts it (set by the Worker, never by the client)
   session_name?: string | null; // its name ("scout"): who "is on it" when the post takes the message it answers

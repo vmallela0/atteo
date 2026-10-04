@@ -12,6 +12,7 @@ import { ALL_AGENTS, ALL_HUMANS, ALL_MEMBERS, forAgent, forPerson, hasGroupMenti
 import { ENTRY_TYPES, type ApprovalRef, type Attachment, type BoardInfo, type Entry, type Env, type Media, type Member, type NewEntry, type Viewer } from "./types";
 import { cleanTitle, EMOJI_RE, ftsQuery, USER_RE } from "./util";
 import { cardText, parseCard, type ChangeCard } from "./card";
+import { closes, handoffText, HandoffError, isResult, parseReady, parseResult, type Handoff, type HandoffReady, type HandoffResult } from "./handoff";
 import { deliver } from "./webhooks";
 import { HumanDecisions, isHumanDecisionPost, type HumanDecision } from "./decisions";
 import type { RecapCore, RecapOwner, RecapTask } from "./recap";
@@ -256,6 +257,7 @@ function toEntry(r: Row): Entry {
     ...(attachments ? { attachments } : {}),
     title: (r.title as string | null) ?? null,
     card: r.card ? (JSON.parse(r.card as string) as ChangeCard) : null,
+    ...(r.handoff ? { handoff: JSON.parse(r.handoff as string) as Handoff } : {}),
     ai_flag: (r.ai_flag as string | null) ?? null,
     ...(r.approval ? { approval: liveApproval(JSON.parse(r.approval as string) as ApprovalRef) } : {}),
     ...(r.audience === "people" || r.audience === "own" ? { audience: r.audience as Audience, to_people: JSON.parse((r.to_people as string | null) || "[]") as string[] } : {}),
@@ -273,7 +275,7 @@ const opts0 = (input: NewEntry): TaskActOpts => ({ via: input.via ?? null, clien
 /** For a session's reads: skip posts addressed to another session of the same person (binds: user, session). */
 const FOR_SESSION_OK = "(for_session IS NULL OR for_user != ? OR for_session = ?)";
 
-const ENTRY_COLS = "seq, ts, author, type, text, title, to_user, mentions, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, card, media, ai_flag, attachments, approval, audience, to_people";
+const ENTRY_COLS = "seq, ts, author, type, text, title, to_user, mentions, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, card, media, ai_flag, attachments, approval, audience, to_people, handoff";
 
 // ---- private entries (audience.ts): people-only (vedu #1264), only the people it names, never any agent; and just
 // mine (#1748), only one person and their own agents. Every read of entries filters through these, so a path that
@@ -683,6 +685,9 @@ export class Board extends DurableObject<Env> {
     // audience 'own' and [its person]; NULL otherwise.
     if (!cols.has("audience")) this.sql.exec("ALTER TABLE entries ADD COLUMN audience TEXT");
     if (!cols.has("to_people")) this.sql.exec("ALTER TABLE entries ADD COLUMN to_people TEXT");
+    // Gate handoffs (#2173 item 3): a ready-to-gate handoff (JSON HandoffReady, its state kept current as approval is), or
+    // the lander's landed/failed reply (HandoffResult). NULL on every other entry.
+    if (!cols.has("handoff")) this.sql.exec("ALTER TABLE entries ADD COLUMN handoff TEXT");
     // Covering: hiddenFrom reads only the index (with the kind, since there are two).
     this.sql.exec("CREATE INDEX IF NOT EXISTS entries_audience2 ON entries (seq, audience, to_people) WHERE audience IS NOT NULL");
     this.sql.exec("DROP INDEX IF EXISTS entries_audience");
@@ -1190,6 +1195,28 @@ export class Board extends DurableObject<Env> {
       if (hit) throw new BoardError(blockedMessage(hit));
     }
 
+    // A gate handoff (#2173 item 3, #2358): a new one says what's ready to land; a handoff reply to an open one closes it.
+    let handoff: Handoff | null = null;
+    let closing: { seq: number; ready: HandoffReady } | null = null;
+    if (input.handoff != null && input.type !== "handoff") throw new BoardError("handoff goes with type handoff.");
+    if (input.type === "handoff") {
+      if (info.encrypted) throw new BoardError("Handoffs aren't available on an end-to-end encrypted board: the server would see the branch and checks.");
+      if (aud) throw new BoardError("A handoff is for the board's gate, so it can't be people-only or just mine.");
+      try {
+        if (closes(input.handoff)) {
+          const c = this.handoffToClose({ user, session: input.session ?? null }, input.reply_to ?? null, input.handoff);
+          closing = c.closing;
+          handoff = c.result;
+        } else handoff = this.handoffReady({ user, session: input.session ?? null }, poster, input.handoff);
+      } catch (e) {
+        throw e instanceof HandoffError ? new BoardError(e.message) : e;
+      }
+      if (!isResult(handoff)) {
+        const hit = scanFields({ handoff: handoffText(handoff) });
+        if (hit) throw new BoardError(blockedMessage(hit));
+      }
+    }
+
     // Your agent's board ("Your agent"): everything its person writes there is for their agent. So is a just-mine message.
     const toOwnAgent = input.via === "person" && (boardKind === "agent" || own);
     // Resolved against the board's members by the Worker; stored as given, minus anything malformed or meaningless.
@@ -1207,8 +1234,8 @@ export class Board extends DurableObject<Env> {
 
     const row = this.sql
       .exec(
-        `INSERT INTO entries (ts, author, type, text, to_user, mentions, self_agent, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, artifact_content, card, card_diff, media, title, session, idem, for_user, for_session, attachments, approval, audience, to_people)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING ${ENTRY_COLS}`,
+        `INSERT INTO entries (ts, author, type, text, to_user, mentions, self_agent, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, artifact_content, card, card_diff, media, title, session, idem, for_user, for_session, attachments, approval, audience, to_people, handoff)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING ${ENTRY_COLS}`,
         Date.now(),
         user,
         input.type,
@@ -1238,6 +1265,7 @@ export class Board extends DurableObject<Env> {
         internal.approval ? JSON.stringify(internal.approval) : null,
         aud ? aud.audience : null,
         people ? JSON.stringify(people) : null,
+        handoff ? JSON.stringify(handoff) : null,
       )
       .one();
     if (artifactVersion != null) this.broadcast({ type: "doc", name: artifactName, version: artifactVersion, by: user });
@@ -1245,7 +1273,14 @@ export class Board extends DurableObject<Env> {
     for (const a of internal.attachments?.list.slice(1) ?? []) this.broadcast({ type: "doc", name: a.name, version: a.version, by: user });
     const entry = toEntry(row);
     if (internal.attachments) this.indexEntry(entry.seq, entry.text, internal.attachments.list.map((a) => a.name).join(" "), null, internal.attachments.text || null);
-    else this.indexEntry(entry.seq, entry.text, entry.artifact_name, entry.card ?? null, artifactContent);
+    else this.indexEntry(entry.seq, handoff && !isResult(handoff) ? `${entry.text}\n${handoffText(handoff)}` : entry.text, entry.artifact_name, entry.card ?? null, artifactContent);
+    // A handoff's own fields are screened like its text: instructions in checks are flagged the same way.
+    const handoffFlag = handoff && !isResult(handoff) ? screenText(handoffText(handoff)) : null;
+    if (handoffFlag && !handoffFlag.quoted) {
+      this.sql.exec("UPDATE entries SET ai_flag = ? WHERE seq = ?", handoffFlag.reason, entry.seq);
+      entry.ai_flag = handoffFlag.reason;
+    }
+    if (closing && handoff && isResult(handoff)) this.closeHandoff(closing, handoff, user, entry.seq);
     if (entry.type === "task") {
       const { title, body } = splitTask(entry.text);
       this.sql.exec(
@@ -1282,7 +1317,7 @@ export class Board extends DurableObject<Env> {
     }
     // An agent answering (or resolving) a person's message turns its 🤔 into ✅.
     // (Not for a change card: threaded under a message it is "related", not "answered".)
-    if (input.via === "agent" && input.type !== "change" && !input.card) for (const r of new Set([...(input.reply_to != null ? [input.reply_to] : []), ...(input.resolves ?? [])])) this.receiptDone(user, r);
+    if (input.via === "agent" && input.type !== "change" && input.type !== "handoff" && !input.card) for (const r of new Set([...(input.reply_to != null ? [input.reply_to] : []), ...(input.resolves ?? [])])) this.receiptDone(user, r);
     // Resolving a message you (or another of your agents) were on turns "is on it" into "done".
     for (const r of new Set(input.resolves ?? [])) {
       const h = this.sql.exec("SELECT user, session, label, done FROM handling WHERE seq = ?", r).toArray()[0];
@@ -1354,8 +1389,9 @@ export class Board extends DurableObject<Env> {
     }
     if (!internal.seeding && !user.startsWith("e2e-")) this.ctx.waitUntil(Promise.resolve(track(this.env, "posts", input.via ?? "agent")).catch(() => {}));
     // The model looks at everything the heuristic didn't fully flag, including text it found only in code or quotes.
-    const heuristic = screenText(text);
-    if (this.env.AI_TOKEN && !internal.seeding && text.length >= 25 && (!heuristic || heuristic.quoted)) this.ctx.waitUntil(this.screenWithModel(entry.seq, text).catch(() => {}));
+    const screened = handoff && !isResult(handoff) ? `${text}\n${handoffText(handoff)}` : text;
+    const heuristic = screenText(screened);
+    if (this.env.AI_TOKEN && !internal.seeding && screened.length >= 25 && (!heuristic || heuristic.quoted)) this.ctx.waitUntil(this.screenWithModel(entry.seq, screened).catch(() => {}));
 
     // Wake everyone else's waits, and this person's other agent sessions (they see each other's posts).
     // A post for one agent session doesn't wake its person's other sessions (they'd find nothing to read).
@@ -2862,7 +2898,7 @@ export class Board extends DurableObject<Env> {
     // open; threading it would also mark the request answered (✅). A change card can still say it is related with an
     // explicit reply_to. Claims, decisions, artifacts, notes and questions stay auto-threaded: they are how an agent
     // answers (a finding, an agreed outcome, a file it was asked for), and nothing marks them as non-answers.
-    if (input.type === "task" || input.type === "change" || input.card) return null;
+    if (input.type === "task" || input.type === "change" || input.type === "handoff" || input.card) return null;
     const since = Date.now() - 2 * 3600_000;
     const answered = (seq: number) => this.sql.exec("SELECT 1 AS x FROM entries WHERE reply_to = ? AND author = ? LIMIT 1", seq, user).toArray().length > 0;
     const open = new Map<number, string>();
@@ -3125,6 +3161,66 @@ export class Board extends DurableObject<Env> {
       this.changes++; // the verdict changes the summary's tags
     }
     return { entry, state: this.taskTags().get(seq) ?? "no verdicts yet" };
+  }
+
+  // ---- gate handoffs (#2173 item 3, #2358): ready to gate → landed or failed, answered by someone else ----
+
+  /**
+   * Whether an entry was written by this poster. Every agent posts as its person, so two agent sessions of one person
+   * (jxn's opus-b and opus-d) are different reviewers and landers (opus-d #2379): when both sides are agent sessions,
+   * the session decides. A post without a session (a person on the web, a plain token) falls back to the author.
+   */
+  private sameActor(me: { user: string; session: string | null }, row: Record<string, unknown>): boolean {
+    const theirs = (row.session as string | null) ?? null;
+    return me.session && theirs ? me.session === theirs : row.author === me.user;
+  }
+
+  /** A new handoff, checked: its lgtm is a public entry on this board by someone other than the poster. */
+  private handoffReady(me: { user: string; session: string | null }, poster: Viewer, raw: unknown): HandoffReady {
+    const ready = parseReady(raw);
+    const n = ready.lgtm;
+    if (n != null) {
+      const row = this.sql.exec("SELECT author, session, audience FROM entries WHERE seq = ?", n).toArray()[0];
+      if (!row || !this.visible(n, poster)) throw new BoardError(`Entry #${n} does not exist on this board.`);
+      if (row.audience != null) throw new BoardError(`#${n} is private, so the gate can't see it: point lgtm at a review everyone on the board can read.`);
+      if (this.sql.exec("SELECT 1 AS x FROM entries WHERE retracts = ?", n).toArray().length) throw new BoardError(`#${n} was unsent.`);
+      if (this.sameActor(me, row)) throw new BoardError(`#${n} is yours: lgtm points at someone else's review.`);
+    }
+    return ready;
+  }
+
+  /**
+   * The lander's reply closing handoff #of. Any member may close an open handoff, but never mark their own landed:
+   * whoever handed it off can only withdraw it (failed). Unsent and already closed handoffs stay as they are.
+   */
+  private handoffToClose(me: { user: string; session: string | null }, of: number | null, raw: unknown): { closing: { seq: number; ready: HandoffReady }; result: HandoffResult } {
+    const row = of != null ? this.sql.exec("SELECT author, session, handoff FROM entries WHERE seq = ?", of).toArray()[0] : undefined;
+    const target = row?.handoff ? (JSON.parse(row.handoff as string) as Handoff) : null;
+    if (of == null || !target || isResult(target)) throw new BoardError("To close a handoff, reply to it: reply_to is the handoff's number.");
+    if (this.sql.exec("SELECT 1 AS x FROM entries WHERE retracts = ?", of).toArray().length) throw new BoardError(`#${of} was unsent.`);
+    if (target.state !== "open") throw new BoardError(`#${of} is already ${target.state}${target.closed_seq ? ` (#${target.closed_seq})` : ""}.`);
+    const result = parseResult(raw, of);
+    if (result.state === "landed" && this.sameActor(me, row!)) throw new BoardError(`You handed off #${of}, so someone else lands it and says so. To withdraw it, reply with state "failed".`);
+    return { closing: { seq: of, ready: target }, result };
+  }
+
+  private closeHandoff(closing: { seq: number; ready: HandoffReady }, result: HandoffResult, user: string, seq: number) {
+    const h: HandoffReady = { ...closing.ready, state: result.state, landed_sha: result.sha, closed_by: user, closed_seq: seq };
+    this.sql.exec("UPDATE entries SET handoff = ? WHERE seq = ?", JSON.stringify(h), closing.seq);
+    this.entryMemo = this.entryMemo.map((e) => (e.seq === closing.seq ? { ...e, handoff: h } : e));
+    this.changes++;
+  }
+
+  /** The gate's queue: open handoffs, oldest first (unsent ones are gone). */
+  async handoffs(viewer?: Viewer | null): Promise<Entry[]> {
+    this.info();
+    const rows = this.sql
+      .exec(
+        `SELECT ${ENTRY_COLS} FROM entries WHERE type = 'handoff' AND handoff IS NOT NULL AND json_extract(handoff, '$.state') = 'open'
+           AND NOT EXISTS (SELECT 1 FROM entries r WHERE r.retracts = entries.seq) ORDER BY seq LIMIT 100`,
+      )
+      .toArray();
+    return rows.map(toEntry).filter((e) => canSee(e, viewer));
   }
 
   // ---- claims: asserted → evidenced → verified (never by their author), or disputed; dependents go stale ----
