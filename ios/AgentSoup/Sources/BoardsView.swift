@@ -125,7 +125,7 @@ struct BoardView: View {
         }
         // iMessage-style: the thread slides up over the chat, with the same message box as the chat (jxn #1040, #1094).
         .sheet(item: $thread) { t in
-            NavigationStack { ThreadView(board: board, root: t.root, prefill: t.prefill, focus: t.focus, replyTo: t.replyTo, overChat: true, closes: true) }
+            NavigationStack { ThreadView(board: board, root: t.root, prefill: t.prefill, focus: t.focus, replyTo: t.replyTo, overChat: true, closes: true, carry: t.carries ? $draft : nil) }
                 .environment(\.chatDensity, density)
                 .presentationDetents([.large]).presentationDragIndicator(.visible)
                 .presentationBackground(Theme.bg)
@@ -421,11 +421,12 @@ struct BoardView: View {
 
     /// Reply (swipe right, or long-press → Reply): the message's thread opens over the chat, its box answering that
     /// message and starting with who wrote it, like the web: "@theo ", "@theo's agent ", and your own agent's posts too
-    /// ("@maya's agent ", #975); only your own messages start empty.
+    /// ("@maya's agent ", #975); only your own messages start empty. What you'd typed comes along after it, and comes
+    /// back here if you cancel the reply instead of sending it (vedu #1469).
     private func startReply(to e: Entry) {
         focused = false
         thread = ThreadTarget(root: rootOf(e, in: Dictionary(list.map { ($0.seq, $0) }, uniquingKeysWith: { a, _ in a })),
-                              prefill: Self.replyHandle(e, me: me), replyTo: e.seq)
+                              prefill: Self.replyHandle(e, me: me), replyTo: e.seq, carries: true)
     }
 
     /// What a reply to this message starts with: "@who " (a person, or their agent: yours too), nil for your own.
@@ -606,7 +607,8 @@ struct ScrollRequest: Equatable { let id: Int; let anchor: UnitPoint; let animat
 struct SeqRef: Identifiable { let id: Int }
 /// A thread to open: its root, what its box starts with (a reply's @mention), and an answer to show.
 /// `replyTo`: the message its box answers (a reply started on one message); nil: the thread's root.
-struct ThreadTarget: Hashable, Identifiable { let root: Int; var prefill: String? = nil; var focus: Int? = nil; var replyTo: Int? = nil; var id: Int { root } }
+/// `carries`: its box takes the chat's text, and gives it back unless it's sent (a reply started in the chat, #1469).
+struct ThreadTarget: Hashable, Identifiable { let root: Int; var prefill: String? = nil; var focus: Int? = nil; var replyTo: Int? = nil; var carries = false; var id: Int { root } }
 
 /// Someone "@" can name: a member's agent, a member, or everyone's agents / everyone.
 struct Mentionable: Hashable {

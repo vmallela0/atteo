@@ -300,11 +300,18 @@ struct ThreadView: View {
     var replyTo: Int? = nil // the message the box answers first (a reply started on one), else the root
     var overChat = false // a sheet over the chat, which keeps its live socket (one per board is enough)
     var closes = false // the sheet's first screen: a Close button
+    /// A reply started in the chat (a swipe or Reply) carries the chat's box (vedu #1469, like the web): what was typed
+    /// there starts this box after the "@who ", and until it's sent the chat's box follows this one without that
+    /// "@who ", so cancelling the reply (✕, Close or a swipe down) leaves the text in the chat. Sending clears both.
+    var carry: Binding<String>? = nil
     @State private var top: Int? // the real root, once known (opened on an answer: its thread)
     @State private var fetched: ThreadResponse?
     @State private var draft = ""
     @State private var answering: Int? // what the next answer quotes (nil: the root)
     @State private var started = false // the box's first words and what it answers are set, once
+    @State private var carrying = false // the chat's box follows this one (until a send)
+    @State private var carryAdded = "" // the "@who " this box put in front of the chat's text
+    @State private var mentionAdded: String? // the "@who " a reply here put in front (✕ takes it out)
     @State private var unsending: Entry?
     @State private var reactingTo: SeqRef?
     @State private var next: ThreadTarget? // another thread, pushed on top
@@ -427,7 +434,13 @@ struct ThreadView: View {
         } message: { _ in Text("Everyone here will see it as unsent.") }
         .decisionPrompts($decisionPrompt, note: $decisionNote, board: board, state: state)
         .task {
-            if !started, let prefill { started = true; answering = replyTo; draft = prefill; focused = true }
+            if !started, let carry {
+                // The chat's text, after "@who " (unless it already names them).
+                let kept = carry.wrappedValue, handle = (prefill ?? "").trimmingCharacters(in: .whitespaces)
+                carryAdded = handle.isEmpty || kept.localizedCaseInsensitiveContains(handle) ? "" : prefill ?? ""
+                started = true; answering = replyTo; draft = carryAdded + kept; carrying = true; focused = true
+            }
+            else if !started, let prefill { started = true; answering = replyTo; draft = prefill; focused = true }
             else if !started, replyTo != nil { started = true; answering = replyTo; focused = true }
             await load()
             // Opened on the thread itself ("N replies", a quote bar): the box starts with who wrote the message, like
@@ -439,6 +452,36 @@ struct ThreadView: View {
         .task(id: board.id) { if !overChat { await state.watch(board) } }
         .onAppear { markSeen() }
         .onChange(of: list.last?.seq) { _, _ in markSeen() }
+        .onChange(of: draft) { _, d in if carrying { carry?.wrappedValue = Self.without(carryAdded, d) } }
+    }
+
+    /// The text without the "@who " a reply put in front of it (as typed, or with its space gone).
+    static func without(_ added: String, _ text: String) -> String {
+        guard !added.isEmpty else { return text }
+        if text.hasPrefix(added) { return String(text.dropFirst(added.count)) }
+        let bare = added.trimmingCharacters(in: .whitespaces)
+        if text.hasPrefix(bare) { return String(text.dropFirst(bare.count)).replacingOccurrences(of: #"^ "#, with: "", options: .regularExpression) }
+        return text
+    }
+
+    /// Who and what the box answers, for its "Replying to" line (nil while it answers the thread's top).
+    private var replyingTo: (who: String, line: String)? {
+        guard let a = answering else { return nil }
+        let e = items.first(where: { $0.seq == a }) ?? (state.entries[board.id] ?? []).first(where: { $0.seq == a })
+        guard let e else { return nil }
+        let who = e.author == me ? (e.byAgent ? String(localized: "your agent", bundle: .l10n) : String(localized: "yourself", bundle: .l10n))
+            : e.byAgent ? "\(e.author)'s agent" : e.author
+        let line = e.text.split(whereSeparator: \.isNewline).first.map { String($0.prefix(120)) } ?? ""
+        return (who, line)
+    }
+
+    /// ✕ on "Replying to": a reply started in the chat closes, its text back in the chat's box; one started here
+    /// answers the thread again, without the "@who " it added. The text stays either way.
+    private func cancelReply() {
+        if carrying, answering == replyTo { dismiss(); return }
+        if let m = mentionAdded { draft = Self.without(m, draft) }
+        mentionAdded = nil
+        withAnimation(.smooth(duration: 0.2)) { answering = nil }
     }
 
     /// You've seen every answer here.
@@ -487,17 +530,25 @@ struct ThreadView: View {
     /// Replying to a message in the thread: the next answer quotes it, and names who wrote it (your agent too).
     private func mention(_ e: Entry) {
         answering = e.seq == rootSeq ? nil : e.seq
-        if let handle = BoardView.replyHandle(e, me: me)?.trimmingCharacters(in: .whitespaces), !draft.localizedCaseInsensitiveContains(handle) { draft = handle + " " + draft }
+        mentionAdded = nil
+        if let handle = BoardView.replyHandle(e, me: me)?.trimmingCharacters(in: .whitespaces), !draft.localizedCaseInsensitiveContains(handle) {
+            mentionAdded = handle + " "
+            draft = handle + " " + draft
+        }
         focused = true
     }
 
     /// The chat's own message box (jxn #1094): typing, "/", "@", pictures and files, send.
     private var composer: some View {
         ChatComposer(board: board, draft: $draft, focused: $focused, placeholder: String(localized: "Reply…", bundle: .l10n), replyTo: answering ?? rootSeq,
-                     identifier: "thread-composer", sendIdentifier: "thread-send", attachIdentifier: "thread-attach") {
-            answering = nil
-            await load()
-        }
+                     identifier: "thread-composer", sendIdentifier: "thread-send", attachIdentifier: "thread-attach",
+                     sent: {
+                         // Sent: the chat's box is done with it too (it no longer follows this one).
+                         if carrying { carry?.wrappedValue = ""; carrying = false }
+                         answering = nil; mentionAdded = nil
+                         await load()
+                     },
+                     replying: replyingTo, cancelReply: cancelReply)
     }
 
     /// The root and its direct answers from the server. Opened on an answer (a "#123" to one): climbs to its root.

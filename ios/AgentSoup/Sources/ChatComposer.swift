@@ -22,6 +22,10 @@ struct ChatComposer: View {
     var attachIdentifier = "attach"
     /// After a message went (the thread refreshes what the server has for it).
     var sent: (() async -> Void)? = nil
+    /// A reply started on one message (a swipe or Reply): "Replying to theo · its first line" above the box, and ✕
+    /// to cancel it. What's typed stays either way (vedu #1469).
+    var replying: (who: String, line: String)? = nil
+    var cancelReply: (() -> Void)? = nil
 
     // Pictures and files waiting in the message box (sent with the text, the way the web composer sends them).
     @State private var attachments: [Attachment] = []
@@ -133,6 +137,7 @@ struct ChatComposer: View {
                 else if let (c, _) = SlashCommand.parse(draft, on: board, locked: locked) { SlashChips(commands: [c], active: c) { _ in } }
             }
             if locked { lockChoices.transition(.move(edge: .bottom).combined(with: .opacity)) }
+            if let replying { replyingRow(replying).transition(.move(edge: .bottom).combined(with: .opacity)) }
             if !suggestions.isEmpty {
                 MentionList(items: suggestions, pick: insert)
                     .padding(.horizontal, Space.m).padding(.bottom, Space.xs)
@@ -288,6 +293,30 @@ struct ChatComposer: View {
             }
             await sent?()
         }
+    }
+
+    /// "Replying to theo · Rollback plan…" and ✕, like the web's line above its box.
+    private func replyingRow(_ r: (who: String, line: String)) -> some View {
+        HStack(spacing: Space.s) {
+            Image(systemName: "arrowshape.turn.up.left.fill").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.accent)
+                .accessibilityHidden(true)
+            (Text("Replying to") + Text(verbatim: " ") + Text(verbatim: r.who).bold()
+                + Text(verbatim: r.line.isEmpty ? "" : " · " + r.line).foregroundStyle(Theme.muted))
+                .font(Typo.micro).foregroundStyle(Theme.text).lineLimit(1)
+                .accessibilityIdentifier("reply-chip")
+            Spacer(minLength: 0)
+            if let cancelReply {
+                Button { Haptics.play(.touch); cancelReply() } label: {
+                    Image(systemName: "xmark").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.muted)
+                        .frame(width: 28, height: 28).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("reply-cancel")
+                .accessibilityLabel(Text("Cancel reply"))
+            }
+        }
+        .padding(.horizontal, Space.l)
+        .padding(.bottom, Space.xs)
     }
 
     // MARK: - The lock
