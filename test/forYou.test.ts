@@ -105,4 +105,9 @@ describe("For you page", () => {
     expect(html).not.toContain('id="fy-ok"');
     expect(html).toMatch(/id="fy-empty"(?! hidden)/);
   });
+
+  it("the mic opens Ask, already listening, when nothing is typed (#1273 part 4)", async () => {
+    const html = await forYouPage(viewer, [], { approvals: [], boards: [], mentions: [] }).text();
+    expect(html).toContain("if(!ta.value.trim()){location.href='/ask?talk=1';return}");
+  });
 });

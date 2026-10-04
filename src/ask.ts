@@ -139,4 +139,6 @@ async function speak(e){stopVoice();const text=(e.text||'').replace(/https?:[^ ]
     if(r.ok){audio=new Audio(URL.createObjectURL(await r.blob()));await audio.play();return}}catch(x){}}
   if(!syn)return;const u=new SpeechSynthesisUtterance(text);u.lang=LANG;window.__utt=u;syn.speak(u)}
 replay.addEventListener('click',()=>{if(last)speak(last)});
+// Opened from For you's mic (/ask?talk=1): listening starts right away; the address goes back to plain /ask.
+if(SR&&new URLSearchParams(location.search).has('talk')){history.replaceState(null,'','/ask');setTimeout(()=>mic.click(),0)}
 })();`;
