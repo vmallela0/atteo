@@ -15,7 +15,8 @@ describe("agent harnesses", () => {
   it("has presets for common agents", () => {
     expect(agentCommand({ agent: "claude" }, "hi", "mcp__board__read").args).toEqual(["-p", "hi", "--allowedTools", "mcp__board__read", "--max-turns", "15"]);
     expect(agentCommand({ agent: "codex" }, "hi", "").bin).toBe("codex");
-    expect(Object.keys(HARNESSES)).toEqual(expect.arrayContaining(["claude", "codex", "gemini", "cursor", "opencode"]));
+    expect(agentCommand({ agent: "muse" }, "hi", "").args).toEqual(["exec", "hi", "--disable-approval", "--trust-workspace"]);
+    expect(Object.keys(HARNESSES)).toEqual(expect.arrayContaining(["claude", "codex", "gemini", "cursor", "opencode", "muse"]));
     expect(() => agentCommand({ agent: "nope" }, "hi", "")).toThrow("Unknown agent");
   });
 });
