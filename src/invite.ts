@@ -23,25 +23,24 @@ export async function sendInvite(
 ): Promise<InviteResult> {
   const email = opts.email.trim().toLowerCase();
   const board = await registry.getBoard(env, opts.boardId);
-  const title = board?.title ?? opts.boardId;
   const signInUrl = `${origin}/auth/login?login_hint=${encodeURIComponent(email)}`;
   const base = { id: crypto.randomUUID(), board_id: opts.boardId, email, invited_by: opts.invitedBy, created_at: Date.now(), role: opts.role ?? "contributor", expires_days: opts.expiresDays ?? null };
   // "Your agent" is between a person and their own agents: no one else is ever invited.
-  if ((board as { kind?: string | null } | null)?.kind === "agent") return { ok: false, added: false, emailed: false, signInUrl, message: `"${title}" is your private chat with your own agents; no one else can join it.` };
+  if ((board as { kind?: string | null } | null)?.kind === "agent") return { ok: false, added: false, emailed: false, signInUrl, message: `Board ${opts.boardId} is your private chat with your own agents; no one else can join it.` };
 
   const existing = await registry.userByEmail(env, email);
   if (existing && (await registry.isMember(env, opts.boardId, existing.name))) {
-    return { ok: true, added: false, emailed: false, signInUrl, message: `${existing.name} (${email}) is already a member of "${title}".` };
+    return { ok: true, added: false, emailed: false, signInUrl, message: `${existing.name} (${email}) is already a member of board ${opts.boardId}.` };
   }
   if (await registry.hasOpenInvite(env, opts.boardId, email)) {
-    return { ok: true, added: false, emailed: false, signInUrl, message: `${email} already has an open invitation to "${title}".` };
+    return { ok: true, added: false, emailed: false, signInUrl, message: `${email} already has an open invitation to board ${opts.boardId}.` };
   }
   if (existing) {
     // Their standing rule: invites from friends join them right away.
     if (opts.invitedBy !== "ops" && (await rulesOf(env, existing.name)).auto_accept_invites === "friends" && (await isFriend(env, opts.invitedBy, existing.name))) {
       await registry.recordInvite(env, { ...base, email_status: "accepted by their rule (invites from friends)" });
       if (await registry.acceptInvitation(env, existing, opts.boardId, origin).catch(() => false)) {
-        return { ok: true, added: true, emailed: false, signInUrl, message: `${existing.name} joined "${title}" right away (they accept invites from friends automatically).` };
+        return { ok: true, added: true, emailed: false, signInUrl, message: `${existing.name} joined board ${opts.boardId} right away (they accept invites from friends automatically).` };
       }
     }
     // Has an account: no email needed. The invitation waits in their Atteo until they accept it.
@@ -51,7 +50,7 @@ export async function sendInvite(
       added: false,
       emailed: false,
       signInUrl,
-      message: `Invited ${existing.name} (${email}) to "${title}". They already have an account, so they'll see the invitation in Atteo and can accept it there, or by asking their agent to join "${title}".`,
+      message: `Invited ${existing.name} (${email}) to board ${opts.boardId}. They already have an account, so they'll see the invitation in Atteo and can accept it there, or by asking their agent to join board ${opts.boardId}.`,
     };
   }
 
@@ -69,7 +68,7 @@ export async function sendInvite(
     emailed: sent.ok,
     signInUrl,
     message: sent.ok
-      ? `Invited ${email} to "${title}". WorkOS is emailing them a sign-up link; after signing up with that email they can accept the invitation.`
-      : `Saved an invitation for ${email} to "${title}", but the email didn't go out (${sent.error}). Send them this link; after signing in with that email they can accept it: ${signInUrl}`,
+      ? `Invited ${email} to board ${opts.boardId}. WorkOS is emailing them a sign-up link; after signing up with that email they can accept the invitation.`
+      : `Saved an invitation for ${email} to board ${opts.boardId}, but the email didn't go out (${sent.error}). Send them this link; after signing in with that email they can accept it: ${signInUrl}`,
   };
 }

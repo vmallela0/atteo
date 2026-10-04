@@ -1509,7 +1509,7 @@ const handler = {
         const board = BOARD_RE.test(m[1]) ? await registry.getBoard(env, m[1]) : null;
         if (!board || !(await registry.isMember(env, board.id, viewer.name))) return json({ error: "board not found" }, 404);
         if ((board as { kind?: string | null }).kind === "direct") return json({ error: "Direct boards don't have their own picture: they show the other person's." }, 400);
-        if (board.archived_at) return json({ error: `"${board.title}" is archived, so it's read-only. Its creator can restore it.` }, 403);
+        if (board.archived_at) return json({ error: `Board ${board.id} is archived, so it's read-only. Its creator can restore it.` }, 403);
         let mime = "";
         let bytes = new ArrayBuffer(0);
         if (method === "POST") {
@@ -1819,7 +1819,7 @@ const handler = {
               if (!hits.length) return json({ error: `No board of yours or invitation matches "${want}". List them: atteo get boards` }, 404);
               if (hits.length > 1) return json({ error: `"${want}" matches more than one board; use its id.`, matches: hits.map((h) => ({ id: h.id, title: h.title, status: h.invite ? "invited" : "member" })) }, 409);
               const target = hits[0];
-              if (target.invite && !(me && (await registry.acceptInvitation(env, me, target.id, origin)))) return json({ error: `Couldn't accept the invitation to "${target.title}".` }, 400);
+              if (target.invite && !(me && (await registry.acceptInvitation(env, me, target.id, origin)))) return json({ error: `Couldn't accept the invitation to ${target.id}.` }, 400);
               await boardStub(env, target.id).joinSession(viewer.name, s.id);
               const cur = await live();
               const next = await sessions.setBoards(env, cur, [...cur.boards.filter((b) => b !== target.id), target.id]);

@@ -676,7 +676,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       if (!hits.length) throw new ToolError(`No board of yours or invitation matches "${want}".\n${await optionsText(c)}`);
       if (hits.length > 1) {
         throw new ToolError(
-          `"${want}" matches more than one board. Ask your user which one:\n${hits.map((h) => `  ${h.id}  "${h.title}"${h.invite ? ` (invitation from ${h.from})` : ""}`).join("\n")}`,
+          `"${want}" matches more than one board. Ask your user which one:\n${fence(hits.map((h) => `  ${h.id}  "${h.title}"${h.invite ? ` (invitation from ${h.from})` : ""}`).join("\n"))}`,
         );
       }
       const target = hits[0];
@@ -691,7 +691,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
         } catch (e) {
           throw new ToolError(e instanceof Error ? e.message : String(e));
         }
-        if (!joined) throw new ToolError(`Couldn't accept the invitation to "${target.title}".`);
+        if (!joined) throw new ToolError(`Couldn't accept the invitation to ${target.id}.`);
         accepted = true;
       }
       if (!c.pinnedBoard) await registry.setMcpSessionBoard(env, c.sessionId, user, target.id);
@@ -702,6 +702,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
         if (as && !as.boards.includes(target.id)) later(sessions.setBoards(env, as, [...as.boards, target.id]));
       }
       later(registry.touch(env, user, target.id));
+      // Installed CLIs parse this line (`atteo use`: Joined "<title>" (<id>)), so it keeps the title for now.
       const out = [accepted ? `Accepted ${target.from}'s invitation and joined "${target.title}" (${target.id}).` : `Joined "${target.title}" (${target.id}) for this session.`];
       if (c.sharedSession) out.push("Note: this MCP client doesn't send a session id, so every session on this connection shares this board.");
       out.push(readText(r, user, null, await social.agentsHeadless(env, user)));
@@ -711,10 +712,10 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
     case "leave_board": {
       const id = await currentBoard(c, args);
       const board = await registry.getBoard(env, id);
-      if (board?.created_by === user) throw new ToolError(`Your user created "${board.title}", so they can't leave it.`);
+      if (board?.created_by === user) throw new ToolError(`Your user created board ${id}, so they can't leave it.`);
       await registry.removeMember(env, id, user);
       await stubFor(env, id).removeMember(user);
-      return `Left "${board?.title ?? id}". This session isn't on a board now.`;
+      return `Left board ${id}. This session isn't on a board now.`;
     }
 
     case "create_board": {
@@ -1243,7 +1244,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
         if (c.pinnedBoard) throw new ToolError(`This connection is pinned to another board; the direct board with ${name} is ${d.id}.`);
         await registry.setMcpSessionBoard(env, c.sessionId, user, d.id);
         const p = await social.person(env, user, name);
-        return `Joined your direct board with ${name} ("${d.title}", ${d.id}) for this session. ${name}: ${p ? pres(p) : "offline"}. Post a question with to=${name}; their agent gets it now if it's online, or when it's back. Then wait for the answer.`;
+        return `Joined your direct board with ${name} (${d.id}) for this session. ${name}: ${p ? pres(p) : "offline"}. Post a question with to=${name}; their agent gets it now if it's online, or when it's back. Then wait for the answer.`;
       }
       throw new ToolError("action must be one of: search, whois, friends, direct.");
     }

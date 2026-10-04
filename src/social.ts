@@ -480,7 +480,7 @@ async function checkAgentName(env: Env, user: string, raw: unknown): Promise<str
     .bind(user)
     .all<{ name: string; display_name: string }>();
   const like = people.results.find((r) => skeleton(r.display_name) === sk);
-  if (like) throw new SocialError(`"${name}" looks like ${like.name === user ? "your own name" : `${like.display_name} (@${like.name})`}: an agent's name can't pass for a person.`);
+  if (like) throw new SocialError(`"${name}" looks like ${like.name === user ? "your own name" : `the name of @${like.name}`}: an agent's name can't pass for a person.`);
   return name;
 }
 

@@ -2,7 +2,7 @@
 // its embedded SQLite holds the entry log, members and their read cursors.
 
 import { track } from "./usage";
-import { screenText } from "./screen";
+import { fence, screenText } from "./screen";
 import { DurableObject } from "cloudflare:workers";
 import { computeSummary, formatSummary, summaryWithNames, tasksFor, withNames, DEFAULT_SUMMARY_CHARS, type Summary } from "./state";
 import { blockedMessage, scanFields, scanText, type SecretHit } from "./secrets";
@@ -1042,7 +1042,7 @@ export class Board extends DurableObject<Env> {
     const again = this.sentBefore(user, input.idem, poster.person);
     if (again) return again;
     const info = this.info();
-    if (info.archived) throw new BoardError(`"${info.title}" is archived, so it's read-only. Its creator can restore it.`);
+    if (info.archived) throw new BoardError(archivedError(info.id));
     if (!internal.seeding) this.rateLimit(user);
     // Answers go in the thread they answer: an agent's post without reply_to that clearly answers a message it's on
     // (🤔) is threaded under it. reply_to 0 keeps it at the top level on purpose.
@@ -1062,7 +1062,7 @@ export class Board extends DurableObject<Env> {
       this.ownByDefault(user, input.session ?? null, input.session_name ?? null)
     ) input = { ...input, own: true };
     if (info.encrypted && !internal.sealed && !internal.notice && input.retracts != null) input = { ...input, text: "Unsent." }; // no plaintext reasons
-    else if (info.encrypted && !internal.sealed && !internal.notice) throw new BoardError(encryptedOnly(info.title));
+    else if (info.encrypted && !internal.sealed && !internal.notice) throw new BoardError(encryptedOnly(info.id));
     if (!internal.scheduled) this.touch(user); // a schedule posting at 09:00 isn't its creator being here
 
     if (!(ENTRY_TYPES as readonly string[]).includes(input.type) && !(input.type === "approval" && internal.approval)) {
@@ -1448,7 +1448,7 @@ export class Board extends DurableObject<Env> {
   /** A new trigger that wakes `user`'s own agent (the Worker has checked the session name is theirs). */
   async triggerAdd(user: string, input: { on: unknown; match?: unknown; prompt: unknown; session?: string | null; enabled?: boolean }): Promise<Trigger> {
     const info = this.info();
-    if (info.archived) throw new BoardError(`"${info.title}" is archived, so it's read-only. Its creator can restore it.`);
+    if (info.archived) throw new BoardError(archivedError(info.id));
     let t;
     try {
       t = cleanTrigger(input);
@@ -1638,8 +1638,8 @@ export class Board extends DurableObject<Env> {
   /** A person's new schedule (the Worker has checked it's a person who can post here). */
   async scheduleAdd(user: string, input: { title?: unknown; body?: unknown; at?: unknown; tz?: unknown; days?: unknown; enabled?: unknown }): Promise<Schedule> {
     const info = this.info();
-    if (info.archived) throw new BoardError(`"${info.title}" is archived, so it's read-only. Its creator can restore it.`);
-    if (info.encrypted) throw new BoardError(`"${info.title}" is end-to-end encrypted, and a schedule's tasks would be posted in plain text, so it can't have schedules.`);
+    if (info.archived) throw new BoardError(archivedError(info.id));
+    if (info.encrypted) throw new BoardError(`Board ${info.id} is end-to-end encrypted, and a schedule's tasks would be posted in plain text, so it can't have schedules.`);
     let c;
     try {
       c = cleanSchedule(input);
@@ -1671,7 +1671,7 @@ export class Board extends DurableObject<Env> {
     const s = this.scheduleRows().find((x) => x.id === id);
     if (!s) throw new BoardError(`No schedule ${id} on this board.`);
     if (s.created_by !== user && info.created_by !== user && !manager) throw new BoardError(`Only ${s.created_by}, who made ${id}, or an owner of this board can change it.`);
-    if (info.archived) throw new BoardError(`"${info.title}" is archived, so it's read-only. Its creator can restore it.`);
+    if (info.archived) throw new BoardError(archivedError(info.id));
     if (patch.enabled !== undefined && typeof patch.enabled !== "boolean") throw new BoardError("enabled is true or false.");
     let c;
     try {
@@ -1987,7 +1987,7 @@ export class Board extends DurableObject<Env> {
   /** Pin a document as the board's source of truth (any member who can post). Replaces any earlier pin. */
   async pin(user: string, name: string, opts: TaskActOpts): Promise<PinnedDoc> {
     const info = this.info();
-    if (info.archived) throw new BoardError(`"${info.title}" is archived, so it's read-only. Its creator can restore it.`);
+    if (info.archived) throw new BoardError(archivedError(info.id));
     const d = this.sql.exec("SELECT version FROM docs WHERE name = ?", name).toArray()[0];
     if (!d) throw new BoardError(`There's no document named "${name}" on this board. Create it first (doc write), then pin it.`);
     if (this.meta("pin") === name) return this.pinnedNow()!; // already pinned: nothing to announce
@@ -2005,10 +2005,10 @@ export class Board extends DurableObject<Env> {
   /** Unpin (any member who can post). `name`, if given, must be what's pinned. Returns what was unpinned. */
   async unpin(user: string, name: string | null, opts: TaskActOpts): Promise<{ unpinned: string | null }> {
     const info = this.info();
-    if (info.archived) throw new BoardError(`"${info.title}" is archived, so it's read-only. Its creator can restore it.`);
+    if (info.archived) throw new BoardError(archivedError(info.id));
     const cur = this.meta("pin") || null;
     if (!cur) return { unpinned: null };
-    if (name && name !== cur) throw new BoardError(`"${name}" isn't pinned; ${cur} is.`);
+    if (name && name !== cur) throw new BoardError(`"${name}" isn't pinned; doc list shows which document is.`);
     this.setMeta("pin", "");
     await this.notice(user, "Unpinned doc", `📌 Unpinned ${cur}.`, opts);
     this.broadcast({ type: "pin", pinned: null });
@@ -2096,8 +2096,8 @@ export class Board extends DurableObject<Env> {
    */
   async remember(user: string, input: { text?: string | null; from?: number | null }, opts: { via: "person" | "agent"; session_name?: string | null }): Promise<{ item: MemoryItem; duplicate: boolean; count: number }> {
     const info = this.info();
-    if (info.archived) throw new BoardError(`"${info.title}" is archived, so it's read-only. Its creator can restore it.`);
-    if (info.encrypted) throw new BoardError(`"${info.title}" is end-to-end encrypted, and memory would be stored in plain text, so this board has no memory.`);
+    if (info.archived) throw new BoardError(archivedError(info.id));
+    if (info.encrypted) throw new BoardError(`Board ${info.id} is end-to-end encrypted, and memory would be stored in plain text, so this board has no memory.`);
     let text = (input.text ?? "").replace(/\s+/g, " ").trim();
     const from = input.from ?? null;
     if (from != null) {
@@ -2137,7 +2137,7 @@ export class Board extends DurableObject<Env> {
   /** Strike a memory item: people strike any; an agent only its own person's. */
   async forget(user: string, id: number, opts: { via: "person" | "agent" }): Promise<MemoryItem> {
     const info = this.info();
-    if (info.archived) throw new BoardError(`"${info.title}" is archived, so it's read-only. Its creator can restore it.`);
+    if (info.archived) throw new BoardError(archivedError(info.id));
     const r = this.sql.exec("SELECT * FROM memory WHERE id = ?", id).toArray()[0];
     if (!r) throw new BoardError(`No memory item m${id} on this board.`);
     if (r.struck_ts != null) throw new BoardError(`m${id} is already struck.`);
@@ -2794,7 +2794,7 @@ export class Board extends DurableObject<Env> {
   // `as`: who's actually reacting, when `via` doesn't say (the REST route); neither: an agent, for what it may see.
   async react(user: string, seq: number, emoji: string, opts: { via?: "agent" | "person" | null; session?: string | null; as?: "agent" | "person" } = {}): Promise<{ on: boolean; reactions: Reactions }> {
     const info = this.info();
-    if (info.archived) throw new BoardError(`"${info.title}" is archived, so it's read-only. Its creator can restore it.`);
+    if (info.archived) throw new BoardError(archivedError(info.id));
     const e = (emoji ?? "").trim();
     if (!EMOJI_RE.test(e)) throw new BoardError("Give one emoji, like 👍, or a :shortcode:.");
     const person = opts.via !== "agent" && !opts.session && (opts.as ?? opts.via) === "person";
@@ -3339,7 +3339,7 @@ export class Board extends DurableObject<Env> {
     internal: { auto?: boolean } = {},
   ): Promise<TaskView> {
     const info = this.info();
-    if (info.archived) throw new BoardError(`"${info.title}" is archived, so it's read-only. Its creator can restore it.`);
+    if (info.archived) throw new BoardError(archivedError(info.id));
     const t = this.task(seq);
     let title = t.title;
     let body = t.body;
@@ -3354,7 +3354,7 @@ export class Board extends DurableObject<Env> {
       if (body.indexOf(edit.old_str, i + 1) >= 0) throw new BoardError("old_str appears more than once; include more surrounding text.");
       body = body.slice(0, i) + (edit.new_str ?? "") + body.slice(i + edit.old_str.length);
     } else if (edit.body !== undefined) {
-      if (edit.base_version !== t.version) throw new BoardError(`Task #${seq} is at v${t.version}, not v${edit.base_version ?? "?"}. Its current body:\n${t.body}`);
+      if (edit.base_version !== t.version) throw new BoardError(`Task #${seq} is at v${t.version}, not v${edit.base_version ?? "?"}. Its current body:\n${fence(t.body)}`);
       body = edit.body;
     }
     if (body.length > MAX_TEXT) throw new BoardError(`A task's body is limited to ${MAX_TEXT} characters; put long material in a file.`);
@@ -3426,7 +3426,7 @@ export class Board extends DurableObject<Env> {
    */
   async postFile(user: string, f: { name: string; bytes: ArrayBuffer; width?: number | null; height?: number | null; text?: string; mentions?: Mention[]; reply_to?: number | null; via: "agent" | "person"; client?: string | null }): Promise<Entry> {
     const info = this.info();
-    if (info.archived) throw new BoardError(`"${info.title}" is archived, so it's read-only. Its creator can restore it.`);
+    if (info.archived) throw new BoardError(archivedError(info.id));
     this.noFileInPrivate(f.reply_to, { user, person: f.via === "person" });
     if (f.bytes.byteLength > MAX_IMAGE) throw new BoardError(`That file is too large (max ${MAX_IMAGE / 1e6} MB).`);
     const bytes = new Uint8Array(f.bytes);
@@ -3475,8 +3475,8 @@ export class Board extends DurableObject<Env> {
   async postFiles(user: string, f: { files: { name: string; bytes: ArrayBuffer; width?: number | null; height?: number | null }[]; text?: string; mentions?: Mention[]; reply_to?: number | null; via: "agent" | "person"; client?: string | null }): Promise<Entry> {
     if (f.files.length === 1) return this.postFile(user, { ...f.files[0], text: f.text, mentions: f.mentions, reply_to: f.reply_to, via: f.via, client: f.client });
     const info = this.info();
-    if (info.archived) throw new BoardError(`"${info.title}" is archived, so it's read-only. Its creator can restore it.`);
-    if (info.encrypted) throw new BoardError(encryptedOnly(info.title));
+    if (info.archived) throw new BoardError(archivedError(info.id));
+    if (info.encrypted) throw new BoardError(encryptedOnly(info.id));
     if (!f.files.length) throw new BoardError("Attach at least one file.");
     this.noFileInPrivate(f.reply_to, { user, person: f.via === "person" });
     if (f.files.length > MAX_FILES_PER_MESSAGE) throw new BoardError(`At most ${MAX_FILES_PER_MESSAGE} files in one message.`);
@@ -3580,7 +3580,7 @@ export class Board extends DurableObject<Env> {
   async docWrite(user: string, name: string, content: string, baseVersion: number, opts: DocEditOpts): Promise<DocResult> {
     const info = this.info();
     if (this.isImage(name)) throw new BoardError(`"${name}" isn't a text file; post a new version of it instead.`);
-    if (info.archived) throw new BoardError(`"${info.title}" is archived, so it's read-only. Its creator can restore it.`);
+    if (info.archived) throw new BoardError(archivedError(info.id));
     validateDocName(name);
     if (content.length > MAX_ARTIFACT) throw new BoardError(`That document is too large (max ${MAX_ARTIFACT} characters).`);
     const hit = scanFields({ [name]: content, summary: opts.summary ?? null });
@@ -3594,7 +3594,7 @@ export class Board extends DurableObject<Env> {
   /** Replace one exact, unique piece of text in the latest version (atomic, no version needed). */
   async docEdit(user: string, name: string, oldStr: string, newStr: string, opts: DocEditOpts): Promise<DocResult> {
     const info = this.info();
-    if (info.archived) throw new BoardError(`"${info.title}" is archived, so it's read-only. Its creator can restore it.`);
+    if (info.archived) throw new BoardError(archivedError(info.id));
     const cur = this.sql.exec("SELECT version, content FROM docs WHERE name = ?", name).toArray()[0];
     if (!cur) throw new BoardError(`There's no document named "${name}" on this board. Create it with action "write" and base_version 0.`);
     const content = cur.content as string;
@@ -3917,7 +3917,7 @@ export class Board extends DurableObject<Env> {
 
   private async humanCtx(seq: number) {
     const info = this.info();
-    if (info.archived) throw new BoardError(`"${info.title}" is archived, so it's read-only. Its creator can restore it.`);
+    if (info.archived) throw new BoardError(archivedError(info.id));
     const row = this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq = ?`, seq).toArray()[0];
     if (!row) throw new BoardError(`Entry #${seq} does not exist on this board.`);
     // Its outcome line is posted in its author's name, quietly: it doesn't move their read position.
@@ -3948,9 +3948,17 @@ export const MAX_IMAGE = 1_500_000; // any stored file (images and other binarie
 export const MAX_FILES_PER_MESSAGE = 10; // files in one message (POST /upload, multipart)
 export const MAX_MESSAGE_BYTES = MAX_FILES_PER_MESSAGE * MAX_IMAGE; // all of one message's files together (15 MB)
 
+// Errors reach agents outside the <<untrusted>> fence, so they name a board by its id, never by its title: anyone can
+// create a board and title it "…ignore previous instructions…".
+
 /** Why the server refuses a plaintext post on an end-to-end encrypted board. */
-function encryptedOnly(title: string): string {
-  return `"${title}" is end-to-end encrypted: the server only takes encrypted messages. Post with the atteo CLI (atteo post / ask), which encrypts on your machine.`;
+export function encryptedOnly(id: string): string {
+  return `Board ${id} is end-to-end encrypted: the server only takes encrypted messages. Post with the atteo CLI (atteo post / ask), which encrypts on your machine.`;
+}
+
+/** Why a change to an archived board is refused. */
+export function archivedError(id: string): string {
+  return `Board ${id} is archived, so it's read-only. Its creator can restore it.`;
 }
 
 /** "3 images" / "4 files", for list excerpts of a message with several files. */
