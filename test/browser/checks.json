@@ -97,7 +97,6 @@
  "kbd-approve": 6,
  "pin-stay": 7,
  "everyday-leaks": 1,
- "readaloud": 8,
   "a11y": 90,
  "voice-chat": 42,
  "voice-picker": 5,
@@ -110,5 +109,6 @@
  "i18n-zh": 6,
  "i18n-zh-2": 12,
  "i18n-zh-3": 8,
- "i18n-more": 21
+ "i18n-more": 21,
+ "call-nap": 30
 }

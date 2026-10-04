@@ -1,4 +1,5 @@
 // Browser check (#651): the composer bar stays one row on phones, Post on the right, nothing wider than the screen.
+// Since #2083 an empty box shows the mic in Post's place (where speech recognition exists); Post once there's text.
 import { SHOTS_DIR } from "./lib/shots.mjs";
 import { chromium } from "playwright-core";
 const BASE = process.env.BASE || "http://localhost:8787";
@@ -20,16 +21,19 @@ for (const [w, scheme] of [[320, "dark"], [360, "light"], [390, "dark"], [390, "
     const bar = document.querySelector(".composer .bar"), br = bar.getBoundingClientRect(), pad = parseFloat(getComputedStyle(bar).paddingRight);
     const vis = [...bar.children].filter((e) => e.offsetParent && e.getBoundingClientRect().width > 0);
     const mids = vis.map((e) => { const r = e.getBoundingClientRect(); return r.top + r.height / 2; });
-    const post = bar.querySelector(".btn.primary").getBoundingClientRect(), seg = bar.querySelector(".seg") || { scrollWidth: 0, clientWidth: 0 };
+    const post = [...bar.querySelectorAll(".post-btn,#mic-btn")].find((e) => e.offsetParent).getBoundingClientRect(), seg = bar.querySelector(".seg") || { scrollWidth: 0, clientWidth: 0 };
     return { rows: Math.max(...mids) - Math.min(...mids), postGap: Math.round(br.right - pad - post.right), segScroll: seg.scrollWidth - seg.clientWidth, doc: document.documentElement.scrollWidth, W: innerWidth, h: Math.round(br.height) };
   });
   console.log(`-- ${w}px ${scheme}: ${JSON.stringify(m)}`);
   check(m.rows < 2, `attach, @ and Post sit on one row (centres within ${m.rows.toFixed(1)}px)`);
-  check(Math.abs(m.postGap) <= 1, `Post is at the right edge (${m.postGap}px off)`);
+  check(Math.abs(m.postGap) <= 1, `Post (the mic while the box is empty) is at the right edge (${m.postGap}px off)`);
   check(m.doc <= m.W, `page no wider than the screen (${m.doc} ≤ ${m.W})`);
   check(m.h <= 60, `bar is one row tall (${m.h}px)`);
   check(!(await p.locator(".composer .seg").count()), "no type picker: people just write (jxn #928)");
-  await p.click("#composer-text"); await p.keyboard.type(`hello from ${w}`); await p.click(".composer .btn.primary");
+  await p.click("#composer-text"); await p.keyboard.type(`hello from ${w}`);
+  const g2 = await p.evaluate(() => { const bar = document.querySelector(".composer .bar"), br = bar.getBoundingClientRect(), pb = document.querySelector(".composer .post-btn"); return pb.offsetParent ? Math.round(br.right - parseFloat(getComputedStyle(bar).paddingRight) - pb.getBoundingClientRect().right) : null; });
+  check(g2 !== null && Math.abs(g2) <= 1, `once there's text, Post is at the right edge (${g2}px off)`);
+  await p.click(".composer .btn.primary");
   await p.waitForFunction((t) => document.getElementById("thread").textContent.includes(t), `hello from ${w}`, { timeout: 5000 }).catch(() => {});
   check(await p.evaluate((t) => document.getElementById("thread").textContent.includes(t), `hello from ${w}`), "posting still works");
   await p.locator(".composer").screenshot({ path: `${OUT}composer-${w}-${scheme}.png` });

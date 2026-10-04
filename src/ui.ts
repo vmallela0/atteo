@@ -532,11 +532,12 @@ dialog.lightbox img{display:block;max-width:min(96vw,1600px);max-height:92vh;wid
 .att-x:hover{color:var(--ink)}
 .att.file{display:flex;flex-direction:column;justify-content:center;gap:2px;height:64px;max-width:180px;padding:0 12px;border:1px solid var(--line);border-radius:7px;background:var(--bg-subtle)}
 .att-name{font-size:12px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.composer .mic-btn,.composer .aloud-btn{width:30px;padding:0;justify-content:center;color:var(--muted)}.composer .mic-btn:hover,.composer .aloud-btn:hover{color:var(--ink)}
-.composer .mic-btn.on{color:var(--on-ink);background:var(--danger);border-radius:999px}.composer .mic-btn.on svg{animation:mic-pulse 1.2s ease-in-out infinite}@keyframes mic-pulse{50%{opacity:.5}}
-.composer .aloud-btn .vw{opacity:.35}.composer .aloud-btn.on{color:var(--accent)}.composer .aloud-btn.on .vw{opacity:1}
-.voice-pill{display:flex;align-items:center;gap:4px;margin:0 0 8px;padding:2px 2px 2px 10px;border-left:2px solid var(--accent);font-size:12.5px}.voice-pill[hidden]{display:none}
-.voice-pill .vp-t{flex:1;min-width:0;text-align:left;background:none;border:0;padding:4px 0;color:var(--ink);font:inherit;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Dictation (#2081, #2089): the mic sits where Post is, like the app's. Empty box: only the mic; once there's text (or a
+   file), Post, and the mic steps aside unless it's listening. Text the page puts there (a reply's @mention) keeps both. */
+.composer .mic-btn{width:32px;height:32px;margin:-3px 0;padding:0;justify-content:center;border-radius:999px;background:var(--ink);border-color:var(--ink);color:var(--on-ink);touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}.composer .mic-btn:hover{opacity:.88}
+.composer .mic-btn.on{background:var(--danger);border-color:var(--danger)}.composer .mic-btn.on svg{animation:mic-pulse 1.2s ease-in-out infinite}@keyframes mic-pulse{50%{opacity:.5}}
+.composer:has(.mic-btn:not([hidden])):has(#attachments[hidden]):has(textarea:placeholder-shown) .post-btn{display:none}
+.composer.typed:has(textarea:not(:placeholder-shown)) .mic-btn:not(.on){display:none}
 .composer .attach{width:30px;padding:0;justify-content:center;color:var(--muted)}.composer .attach:hover{color:var(--ink)}
 .conv.drop .composer{box-shadow:0 0 0 2px var(--accent)}
 .doc-img img{display:block;max-width:100%;height:auto;border-radius:8px;border:1px solid var(--line);background:var(--bg-subtle)}
@@ -711,7 +712,7 @@ ${TALK_CSS}
 .mention-menu .hint{padding:4px 8px 2px;font-size:11.5px;color:var(--faint);cursor:default}
 .composer .bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 12px;border-top:1px solid var(--line)}
 /* phones: one row, Post on the right; the type picker scrolls sideways when it can't fit (it comes after the rule above so it wins) */
-@media(max-width:480px){.composer .bar{flex-wrap:nowrap;gap:6px;padding:8px 10px}.composer .bar>*{flex:none}.composer .bar .grow{display:none}.composer .bar>.primary{margin-left:auto}
+@media(max-width:480px){.composer .bar{flex-wrap:nowrap;gap:6px;padding:8px 10px}.composer .bar>*{flex:none}.composer .bar .grow{display:none}.composer .bar>.primary{margin-left:auto}.composer .bar>.mic-btn{margin-left:auto}.composer .bar>.mic-btn~.primary{margin-left:0}.composer.typed:has(textarea:not(:placeholder-shown)) .bar>.mic-btn:not(.on)~.primary{margin-left:auto}
   .composer .bar>.seg{flex:0 1 auto;min-width:0;overflow-x:auto;scrollbar-width:none}.composer .seg::-webkit-scrollbar{display:none}.composer .seg label{flex:none;padding:4px 7px;font-size:12.5px;white-space:nowrap}}
 @media(max-width:387px){.composer .bar{gap:4px}.composer .seg label{padding:4px 5px;font-size:12px}}
 @media(max-width:359px){.composer .bar>.seg{-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 18px),transparent);mask-image:linear-gradient(90deg,#000 calc(100% - 18px),transparent)}}

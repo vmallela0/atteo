@@ -637,7 +637,7 @@ export const HI: Record<string, string> = {
   "System": "सिस्टम",
   "Tags": "टैग",
   "Talk": "बोलें",
-  "Talk instead of typing (say “send it” at the end to post)": "टाइप करने के बजाय बोलें (पोस्ट करने के लिए अंत में “send it” कहें)",
+  "Hold to talk, or tap to start and stop (say “send it” at the end to post)": "बोलने के लिए दबाकर रखें, या शुरू और बंद करने के लिए टैप करें (पोस्ट करने के लिए अंत में “send it” कहें)",
   "Talk to your agent": "अपने एजेंट से बात करें",
   "Talk to your assistant (say “send it” at the end to send)": "अपने सहायक से बात करें (भेजने के लिए अंत में “send it” कहें)",
   "Talking:": "बातचीत:",

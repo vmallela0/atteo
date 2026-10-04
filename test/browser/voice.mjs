@@ -1,5 +1,5 @@
-// Voice prototype (jxn #1069): the mic button dictates into the composer ("send it" posts), and "read replies aloud"
-// blips on a message for you, then reads it on tap or on "go ahead". Speech APIs are faked so this runs headless.
+// Voice prototype (jxn #1069): the mic button dictates into the composer ("send it" posts). Since #2083 it sits where
+// Post is (Post once there's text), and reading messages for you aloud lives in Talk to Atteo (call-nap.mjs). Speech is faked.
 import { SHOTS_DIR } from "./lib/shots.mjs";
 import { chromium } from "playwright-core";
 const BASE=process.env.BASE||"http://localhost:8787";
@@ -28,7 +28,7 @@ const errors=[];
 const open=async(w,mobile)=>{const ctx=await b.newContext({viewport:{width:w,height:800},hasTouch:mobile,isMobile:mobile});const [k,...v]=ckP.split(";")[0].split("=");await ctx.addCookies([{name:k,value:v.join("="),url:BASE}]);
   await ctx.addInitScript(FAKES);const p=await ctx.newPage();p.on("pageerror",e=>errors.push(e.message));await p.goto(`${BASE}/b/${board}`);await p.waitForTimeout(900);return {ctx,p}};
 const {ctx,p}=await open(1100,false);
-check(await p.locator("#mic-btn").isVisible()&&await p.locator("#aloud-btn").isVisible(),"the composer has a mic button and a read-aloud button");
+check(await p.locator("#mic-btn").isVisible()&&!(await p.locator(".composer .post-btn").isVisible())&&await p.locator("#aloud-btn").count()===0,"an empty composer has the mic where Post goes, and no read-aloud button");
 // Typing steps the mic aside (jxn's agent #1785, like the app); an empty box brings it back.
 await p.fill("#composer-text","typed words");await p.waitForTimeout(100);const micGone=!(await p.locator("#mic-btn").isVisible());
 await p.fill("#composer-text","");await p.waitForTimeout(100);
@@ -47,56 +47,17 @@ await p.click("#mic-btn");await p.waitForTimeout(2000);
 const posted=await p.locator(`#thread>.entry .body:has-text("ship the fix ${run}")`).count();
 const leaked=await p.locator(`#thread>.entry .body:has-text("send it")`).count();
 check(posted===1&&leaked===0&&await p.inputValue("#composer-text")==="","saying “send it” at the end posts the message (without the words “send it”)");
-// Read aloud: off by default; on, a message for you blips and shows the bar
-check(await p.getAttribute("#aloud-btn","aria-pressed")==="false","read-aloud starts off");
-await p.click("#aloud-btn");check(await p.getAttribute("#aloud-btn","aria-pressed")==="true","the read-aloud button turns on");
-const b0=await p.evaluate(()=>window.__blips);
-await agentPost(`@${P} the deploy is done ${run}`);
-await p.locator("#voice-pill").waitFor({state:"visible",timeout:8000}).catch(()=>{});
-check(await p.locator("#voice-pill").isVisible()&&/For you from/.test(await p.locator("#vp-go").innerText()),`a message that mentions you shows the bar (${await p.locator("#vp-go").innerText().catch(()=>"")})`);
-check(await p.evaluate(()=>window.__blips)>b0,"…and blips");
-await p.click("#vp-go");await p.waitForTimeout(450);
-const sp=await p.evaluate(()=>window.__spoken);check(sp.length===1&&sp[0].includes(`the deploy is done ${run}`)&&sp[0].startsWith(`${V}'s agent. `),`tapping the bar reads it out, who said it first (${JSON.stringify(sp)})`);
-check(/Aria Online \(Natural\)/.test(await p.evaluate(()=>window.__voice)||''),`it reads with the best voice the device has (${await p.evaluate(()=>window.__voice)})`);
-await p.waitForTimeout(700);check(await p.locator("#voice-pill").isHidden(),"the bar goes away when it's done");
-// "go ahead"
-await p.evaluate(()=>{window.__say=[["go ahead",true]]});
-await agentPost(`@${P} tests are green ${run}`);
-await p.waitForFunction(()=>window.__spoken.length>=2,null,{timeout:8000}).catch(()=>{});
-check((await p.evaluate(()=>window.__spoken))[1]?.includes(`tests are green ${run}`),"after the blip, saying “go ahead” reads it");
-// Not for you: no blip, no bar
-await p.waitForTimeout(600);const b1=await p.evaluate(()=>window.__blips);
-await agentPost(`a note for the whole board ${run}`);
-await p.locator(`#thread>.entry .body:has-text("a note for the whole board ${run}")`).waitFor({timeout:8000}).catch(()=>{});await p.waitForTimeout(400);
-check(await p.evaluate(()=>window.__blips)===b1&&await p.locator("#voice-pill").isHidden(),"a message that isn't for you stays quiet");
-// A reply to your message is for you
-const mine=await api("POST",`/api/boards/${board}/entries`,{text:`which port ${run}?`},{cookie:ckP});const ms=mine.entry?.seq??mine.seq;
-await p.locator(`#e${ms}`).waitFor({timeout:8000}).catch(()=>{});
-await mcp("read",{});await mcp("post",{type:"note",text:`8443 ${run}`,reply_to:ms});
-await p.locator("#voice-pill").waitFor({state:"visible",timeout:8000}).catch(()=>{});
-check(await p.locator("#voice-pill").isVisible(),"a reply to your message is for you too");
-await p.click("#vp-x");check(await p.locator("#voice-pill").isHidden(),"✕ dismisses the bar");
-// A browser that never starts speaking: retried once, then the bar clears and says so (jxn #1101)
-await p.evaluate(()=>{window.__mute=true;window.__tries=0});
-await agentPost(`@${P} silent one ${run}`);await p.locator("#voice-pill").waitFor({state:"visible",timeout:8000}).catch(()=>{});
-await p.click("#vp-go");await p.waitForTimeout(800);check(/Reading/.test(await p.locator("#vp-go").innerText()),"while it tries, the bar says it's reading");
-await p.waitForTimeout(3500);
-check(await p.locator("#voice-pill").isHidden()&&/didn't play/.test(await p.locator("#toast").innerText())&&await p.evaluate(()=>window.__tries)===2,`if speech never starts, it tries twice, then clears the bar and says so (tries ${await p.evaluate(()=>window.__tries)})`);
-await p.evaluate(()=>{window.__mute=false});
-// Remembered across reloads
-await p.reload();await p.waitForTimeout(700);check(await p.getAttribute("#aloud-btn","aria-pressed")==="true","read-aloud stays on after a reload");
-await p.click("#aloud-btn");await p.reload();await p.waitForTimeout(700);check(await p.getAttribute("#aloud-btn","aria-pressed")==="false","…and off once turned off");
 await ctx.close();
-// Phones: both buttons fit in the composer bar
+// Phones: the composer bar fits, mic included
 for(const w of [320,390]){const {ctx,p}=await open(w,true);
   const g=await p.evaluate(()=>{const bar=document.querySelector(".composer .bar"),r=bar.getBoundingClientRect(),bs=[...bar.querySelectorAll(":scope>button,:scope>.seg,:scope>span:not(.grow)")].filter(x=>x.offsetParent).map(x=>x.getBoundingClientRect());
     return {sw:bar.scrollWidth,cw:bar.clientWidth,out:bs.filter(x=>x.right>r.right+0.5||x.left<r.left-0.5).length,doc:document.documentElement.scrollWidth}});
-  check(g.sw<=g.cw&&g.out===0&&g.doc<=w,`${w}px: mic and read-aloud fit in the composer bar (${JSON.stringify(g)})`);
+  check(g.sw<=g.cw&&g.out===0&&g.doc<=w,`${w}px: the bar and its mic fit (${JSON.stringify(g)})`);
   await p.screenshot({path:`${SHOTS_DIR}/voice-${w}.png`});await ctx.close()}
-// No speech support: the buttons stay hidden
+// No speech support: no mic, and Post is there from the start
 {const ctx=await b.newContext({viewport:{width:900,height:700}});const [k,...v]=ckP.split(";")[0].split("=");await ctx.addCookies([{name:k,value:v.join("="),url:BASE}]);
   await ctx.addInitScript(()=>{delete window.webkitSpeechRecognition;delete window.SpeechRecognition;Object.defineProperty(window,"speechSynthesis",{value:undefined,configurable:true})});
   const p=await ctx.newPage();p.on("pageerror",e=>errors.push(e.message));await p.goto(`${BASE}/b/${board}`);await p.waitForTimeout(700);
-  check(await p.locator("#mic-btn").isHidden()&&await p.locator("#aloud-btn").isHidden(),"a browser without speech support doesn't show the buttons");await ctx.close()}
+  check(await p.locator("#mic-btn").isHidden()&&await p.locator(".composer .post-btn").isVisible(),"a browser without speech support shows Post, no mic");await ctx.close()}
 check(errors.length===0,`no page errors ${errors.join(" | ")}`);
 await b.close();console.log(fails?`${fails} FAILED`:"voice: all passed");process.exit(fails?1:0);

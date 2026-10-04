@@ -4,7 +4,7 @@ Routes under `/api/app/*` support web and app clients acting as a person. They a
 
 ## Read aloud
 
-The web board also has a device-only read-aloud control where supported by the browser. It queues new messages addressed to the person, plays a notification sound, and reads them after the person taps the bar or says “go ahead.” That control uses the browser's speech synthesis and does not call the server route below.
+On the web, read-aloud lives in Talk to Atteo. While a call is live, Atteo reads new messages addressed to the person in the call. While the call stands by (after about 5 seconds with nothing for Atteo, the paid voice session ends), it reads them with the server route below (`{board, seq}`), falling back to the browser's speech synthesis when the route refuses or the audio won't play. Messages on end-to-end encrypted boards are never voiced.
 
 The iOS app does use the server TTS route for visible, unencrypted board messages and falls back to the device voice when the service is unavailable or unsuitable.
 

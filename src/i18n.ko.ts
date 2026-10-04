@@ -637,7 +637,7 @@ export const KO: Record<string, string> = {
   "System": "시스템",
   "Tags": "태그",
   "Talk": "말하기",
-  "Talk instead of typing (say “send it” at the end to post)": "타이핑 대신 말하기(끝에 “send it”이라고 말하면 게시)",
+  "Hold to talk, or tap to start and stop (say “send it” at the end to post)": "길게 눌러 말하거나, 탭해서 시작하고 다시 탭해 멈추기(끝에 “send it”이라고 말하면 게시)",
   "Talk to your agent": "에이전트와 대화",
   "Talk to your assistant (say “send it” at the end to send)": "어시스턴트와 대화(끝에 “send it”이라고 말하면 전송)",
   "Talking:": "대화:",

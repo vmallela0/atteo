@@ -85,6 +85,7 @@ for (const [w, h, scheme] of [[1300, 900, "light"], [390, 844, "dark"]]) {
 {
   const { ctx, p } = await open("zh-TW");
   await p.goto(`${BASE}/b/${board}`);
+  await p.locator("#composer-text").fill("x"); // Post shows once there's text (#2083)
   const t = await p.locator("body").innerText();
   check((await p.locator("html").getAttribute("lang")) === "zh-Hant" && /對話|聊天/.test(t) && /傳送/.test(t), "a zh-TW browser gets 繁體中文");
   await ctx.close();

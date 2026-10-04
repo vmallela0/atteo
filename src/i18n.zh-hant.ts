@@ -638,7 +638,7 @@ export const ZH_HANT: Record<string, string> = {
   "System": "跟隨系統",
   "Tags": "標籤",
   "Talk": "說話",
-  "Talk instead of typing (say “send it” at the end to post)": "用說話代替打字（最後說“send it”即可傳送）",
+  "Hold to talk, or tap to start and stop (say “send it” at the end to post)": "按住說話，或輕點開始、再點停止（最後說“send it”即可傳送）",
   "Talk to your agent": "和你的智能體對話",
   "Talk to your assistant (say “send it” at the end to send)": "和你的助手對話（最後說“send it”即可傳送）",
   "Talking:": "通話：",

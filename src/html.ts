@@ -252,10 +252,11 @@ function sessionPicker(list: { name: string; state: string; client: string | nul
 }
 
 // The picker fills the composer's hidden to_session (a hidden input keeps its value when the form resets after a post).
-// Voice (jxn #1069, a web prototype): a mic button that turns speech into the message ("send it" at the end posts it),
-// and a "read replies aloud" toggle: a blip when a new message is for you, then tap the bar (or say "go ahead") to hear it.
-// Browser-only (Web Speech); each button shows only where the browser supports it.
-const VOICE_BTNS = `<button class="btn ghost sm mic-btn" type="button" id="mic-btn" aria-label="Talk" aria-pressed="false" title="Talk instead of typing (say “send it” at the end to post)" hidden><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><rect x="5.5" y="1.8" width="5" height="8.2" rx="2.5"/><path d="M3.2 7.6a4.8 4.8 0 0 0 9.6 0M8 12.4v2"/></svg></button><button class="btn ghost sm aloud-btn" type="button" id="aloud-btn" aria-label="Read replies aloud" aria-pressed="false" title="Read replies aloud: a blip when a message is for you, then tap the bar or say “go ahead”" hidden><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 6h2.2L8 3.2v9.6L4.7 10H2.5z"/><path class="vw" d="M10.6 5.6a3.4 3.4 0 0 1 0 4.8M12.4 3.8a6 6 0 0 1 0 8.4"/></svg></button>`;
+// Dictation (jxn #1069; #2081, #2086, #2089): the mic sits where Post is, at the right of the composer's bar, like the app's.
+// Hold it to talk and let go to stop, or tap to start and tap again to stop; "send it" at the end posts it. While the box
+// is empty it's the only button there; once there's text it steps aside for Post (ui.ts and talk.ts have the rules).
+// Browser-only (Web Speech): it shows only where the browser has speech recognition. Read-aloud moved into Talk to Atteo.
+const MIC_BTN = `<button class="btn sm mic-btn" type="button" id="mic-btn" aria-label="Talk" aria-pressed="false" title="Hold to talk, or tap to start and stop (say “send it” at the end to post)" hidden><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><rect x="5.5" y="1.8" width="5" height="8.2" rx="2.5"/><path d="M3.2 7.6a4.8 4.8 0 0 0 9.6 0M8 12.4v2"/></svg></button>`;
 // Everyday on a board (#1272): plainer words over the same page. Developer mode is today's page; switching back restores it.
 const evJs = (agentChat: boolean) => `
 (()=>{const cap=x=>x?x[0].toUpperCase()+x.slice(1):x,EV=()=>document.documentElement.dataset.mode==='everyday';
@@ -348,14 +349,10 @@ window.atteoAllow=window.atteoAllow||(()=>{const CHARS_PER_MIN=1000,LOW_MIN=15;
   return {tts,voice}})();
 `;
 const voiceJs = (agentChat: boolean) => `
-${ALLOWANCE_JS}
-(()=>{const SR=window.SpeechRecognition||window.webkitSpeechRecognition,syn=window.speechSynthesis,ta=document.getElementById('composer-text'),th=document.getElementById('thread'),
-  mic=document.getElementById('mic-btn'),vb=document.getElementById('aloud-btn'),pill=document.getElementById('voice-pill');
+(()=>{const SR=window.SpeechRecognition||window.webkitSpeechRecognition,ta=document.getElementById('composer-text'),th=document.getElementById('thread'),
+  mic=document.getElementById('mic-btn');
   if(!ta||!th)return;
-  var rec=null,gl=null,on=false,speaking=false,ac=null;const q=[],LANG=navigator.language||'en-US';
-  function blip(){try{ac=ac||new (window.AudioContext||window.webkitAudioContext)();const t=ac.currentTime;
-    [[660,0],[880,.09]].forEach(([f,d])=>{const o=ac.createOscillator(),g=ac.createGain();o.frequency.value=f;g.gain.setValueAtTime(0,t+d);g.gain.linearRampToValueAtTime(.15,t+d+.015);g.gain.exponentialRampToValueAtTime(.0001,t+d+.16);o.connect(g);g.connect(ac.destination);o.start(t+d);o.stop(t+d+.18)})}catch(e){}}
-  function stopGo(){if(gl){try{gl.abort()}catch(e){}gl=null}}
+  var rec=null;const LANG=navigator.language||'en-US';
   // Talk: what you say goes into the box after what's there; "send it" at the end posts it. What it heard is dropped when you
   // send, press Esc or leave a reply, and your own typing starts it afresh from what's in the box, so old words never come
   // back (jxn #1698). skip: results from before the last fresh start (continuous recognition keeps every result it had).
@@ -387,8 +384,12 @@ ${ALLOWANCE_JS}
   const takeBox=()=>{base=ta.value.trim()?ta.value.replace(/[ ]+$/,'')+' ':'';fin='';skip=seen};
   function micStop(){const r=rec;if(!r)return;rec=null;fin='';try{r.abort()}catch(e){}mic.setAttribute('aria-pressed','false');mic.classList.remove('on')}
   window.micStop=micStop;
-  if(SR&&mic){mic.hidden=false;mic.addEventListener('click',()=>{if(rec){try{rec.stop()}catch(e){}return}
-    stopGo();if(typeof hush==='function')hush();else if(syn)syn.cancel();seen=0;takeBox();skip=0;
+  // Hold to talk, let go to stop; a quick tap starts it and the next tap stops it (Enter or Space too). Letting go stops
+  // gently (stop, not abort), so the last words still land.
+  const HOLD_MS=400;let press=null;
+  function micGo(){if(rec){try{rec.stop()}catch(e){}return}
+    if(window.atteoTalk&&atteoTalk.busy&&atteoTalk.busy()){toast(tr('End the call with Atteo to dictate'));return}
+    seen=0;takeBox();skip=0;
     const r=rec=new SR();r.lang=LANG;r.interimResults=true;r.continuous=true;mic.setAttribute('aria-pressed','true');mic.classList.add('on');
     r.onresult=ev=>{if(r!==rec)return;seen=ev.results.length;let mid='';for(let i=Math.max(ev.resultIndex,skip);i<ev.results.length;i++){const x=ev.results[i];if(x.isFinal)fin+=x[0].transcript;else mid+=x[0].transcript}
       const send=/(^|[ ,.])send it[.!]?$/i.test(fin.trim());
@@ -396,7 +397,13 @@ ${ALLOWANCE_JS}
       if(send){micStop();if(ta.value.trim())ta.form.requestSubmit()}};
     r.onerror=ev=>{if(ev.error==='not-allowed'||ev.error==='service-not-allowed')toast(tr('The microphone is blocked: allow it for this site to talk'))};
     r.onend=()=>{if(rec!==r)return;rec=null;mic.setAttribute('aria-pressed','false');mic.classList.remove('on')};
-    try{r.start()}catch(e){rec=null}})
+    try{r.start()}catch(e){rec=null}}
+  if(SR&&mic){mic.hidden=false;
+    mic.addEventListener('pointerdown',e=>{if(e.button)return;e.preventDefault();try{mic.setPointerCapture(e.pointerId)}catch(x){}press={t:Date.now(),started:!rec};micGo()});
+    const up=()=>{const p=press;press=null;if(p&&p.started&&Date.now()-p.t>=HOLD_MS&&rec)try{rec.stop()}catch(x){}};
+    mic.addEventListener('pointerup',up);mic.addEventListener('pointercancel',up);
+    mic.addEventListener('contextmenu',e=>e.preventDefault()); // a long press on a phone is talking, not a menu
+    mic.addEventListener('click',e=>{if(e.detail===0)micGo()}); // the keyboard; a pointer was handled on the way down
     ta.addEventListener('input',()=>{if(rec&&!own)takeBox()});
     // Typing steps the mic aside (like the app: once you type, it's Send); dictation's own words, a reply's @mention or a
     // draft put there by the page don't (talk.ts has the rule). Emptying the box or sending brings it back.
@@ -404,64 +411,7 @@ ${ALLOWANCE_JS}
     ta.addEventListener('keydown',e=>{if(e.key==='Escape')micStop()});
     // Capture phase on window, so it runs before any handler that stops the submit (the encrypted board's, /status).
     window.addEventListener('submit',e=>{if(e.target===ta.form){micStop();ta.form.classList.remove('typed')}},true)}
-  if(!syn||!vb)return;
-  // What's left of this month's read-aloud, on the button's title; used up: a clear state and the device voice, never silently.
-  const VB_TITLE=vb.title;let ttsOut=false,ttsTold=false,ttsT=0;
-  function ttsShow(a){if(!a)return;ttsOut=a.out;vb.title=VB_TITLE+' · '+a.text;vb.dataset.allow=a.text;vb.classList.toggle('out',a.out)}
-  function ttsSync(){fetch('/api/app/tts/status').then(r=>r.ok?r.json():null).then(j=>{if(j&&j.enabled)ttsShow(atteoAllow.tts(j))}).catch(()=>{})}
-  function ttsSpent(){ttsShow({text:'Out of read-aloud for this month: using the device voice',out:true});if(!ttsTold){ttsTold=true;toast('Out of read-aloud for this month: using the device voice')}}
-  ttsSync();
-  // Read aloud: new messages for you queue up behind a blip; the bar under them plays them in order.
-  function who(el){return ((el.querySelector('.who')||{}).innerText||el.dataset.author||'').trim()}
-  function pillUpd(){if(!q.length&&!speaking){pill.hidden=true;return}pill.hidden=false;const el=document.getElementById('e'+q[0]),go=document.getElementById('vp-go');
-    const t=speaking?'🔊 '+tr(ttsOut?'Reading with the device voice':'Reading')+(q.length?' · '+tr('{n} more',{n:q.length}):'')+' · '+tr('tap to stop'):'🔊 '+(q.length>1?tr('{n} for you, first from {name}',{n:q.length,name:el?who(el):''}):tr('For you from {name}',{name:el?who(el):''}))+' · '+tr('tap or say “go ahead”');
-    go.textContent=t;go.setAttribute('aria-label',t.replace(/^🔊\\s*/,''))}
-  // Atteo's own voice first (POST /api/app/tts, jxn #1612); the device's voice only when the server says to (fallback:"device":
-  // not set up, over the allowance, the service down) or the audio won't play.
-  var au=null,auN=0;
-  function auStop(){auN++;if(au){au.onended=au.onerror=null;try{au.pause()}catch(e){}URL.revokeObjectURL(au.src);au=null}}
-  function speakNext(){stopGo();auStop();const s=q.shift(),el=s&&document.getElementById('e'+s);if(!el){speaking=false;pillUpd();return}
-    const body=((el.querySelector(':scope>.grow>.body')||{}).innerText||'').replace(/https?:[^\\s]+/g,'a link').slice(0,700);
-    const n=auN,next=()=>{if(n!==auN)return;auStop();speaking=false;if(q.length)speakNext();else pillUpd()};
-    speaking=true;pillUpd();
-    fetch('/api/app/tts',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(typeof BOARD!=='undefined'&&BOARD?{board:BOARD,seq:+s}:{text:body})})
-      .then(r=>{if(r.status===429)return r.json().catch(()=>null).then(j=>{if(j&&j.fallback==='device')ttsSpent();return null});
-        if(r.ok){clearTimeout(ttsT);ttsT=setTimeout(ttsSync,1500)}return r.ok&&/^audio\\//.test(r.headers.get('content-type')||'')?r.blob():null}).then(b=>{if(n!==auN)return;if(!b){deviceSay(el,body);return}
-        const a=au=new Audio(URL.createObjectURL(b));a.onended=next;a.onerror=()=>{if(n===auN){auStop();deviceSay(el,body)}};
-        a.play().catch(()=>{if(n===auN){auStop();deviceSay(el,body)}})})
-      .catch(()=>{if(n===auN)deviceSay(el,body)})}
-  function deviceSay(el,body){if(!syn){speaking=false;pillUpd();return}
-    const u=new SpeechSynthesisUtterance(el.dataset.author+(el.classList.contains('by-agent')?"'s agent":'')+'. '+body);u.lang=LANG;const vo=bestVoice();if(vo)try{u.voice=vo}catch(e){}let started=false;u.onstart=()=>{started=true};
-    u.onend=u.onerror=()=>{if(u.done)return;u.done=1;window.__utt=null;speaking=false;if(q.length)speakNext();else pillUpd()};
-    window.__utt=u; // Chrome drops an utterance nothing holds on to, and its end event with it
-    speaking=true;pillUpd();if(syn.speaking||syn.pending)syn.cancel();
-    // Speaking straight after cancel(), or while the mic still holds the audio, can come out silent (jxn #1101):
-    // start a beat later, retry once if it never starts, then say so instead of showing "Reading" forever.
-    const never=()=>!started&&!u.done&&!syn.speaking;
-    setTimeout(()=>{if(u.done)return;if(syn.resume)syn.resume();syn.speak(u);
-      setTimeout(()=>{if(!never())return;syn.cancel();syn.speak(u);
-        setTimeout(()=>{if(!never())return;u.done=1;speaking=false;q.length=0;pillUpd();toast(tr("The browser didn't play it: check the volume, or that this page may play sound"))},2000)},1500)},200)}
-  // The best voice this device has for the language: neural ones first (Edge "Natural", Apple "Premium"/"Enhanced", Google's), then local (jxn #1104)
-  function bestVoice(){const vs=(syn.getVoices&&syn.getVoices())||[],l=LANG.toLowerCase(),two=l.slice(0,2);
-    const score=v=>{const n=v.name||'',vl=(v.lang||'').toLowerCase().replace('_','-');if(!vl.startsWith(two))return -1;
-      return (vl===l?4:0)+(/natural|neural/i.test(n)?40:/premium/i.test(n)?30:/enhanced/i.test(n)?20:/^google/i.test(n)?15:0)+(v.default?1:0)};
-    let best=null,bs=-1;for(const v of vs){const sc=score(v);if(sc>bs){bs=sc;best=v}}return best}
-  if(syn.getVoices)syn.getVoices(); /* Chrome loads the list lazily */
-  function hush(){q.length=0;speaking=false;auStop();if(syn)syn.cancel();pillUpd()}
-  // After the blip, listen briefly for "go ahead" (only once the mic is already allowed, so nothing asks for it out of nowhere).
-  async function listenGo(){if(!SR||rec||gl||speaking)return;try{if((await navigator.permissions.query({name:'microphone'})).state!=='granted')return}catch(e){return}
-    const g=gl=new SR();g.lang=LANG;g.interimResults=true;g.continuous=true;const end=setTimeout(()=>{try{g.stop()}catch(e){}},12000);
-    g.onresult=ev=>{for(let i=ev.resultIndex;i<ev.results.length;i++)if(/go ahead|read it|play it/i.test(ev.results[i][0].transcript)){clearTimeout(end);g.go=1;try{g.stop()}catch(e){}return}};
-    g.onend=()=>{clearTimeout(end);if(gl===g)gl=null;if(g.go&&!speaking&&q.length)setTimeout(speakNext,250)}; /* speak once the mic has let go of the audio */try{g.start()}catch(e){gl=null}}
-  window.voiceHush=()=>{micStop();stopGo();hush()}; // Talk to Atteo (talk.ts) takes the mic and the speaker
-  function setOn(v){on=v;vb.setAttribute('aria-pressed',String(v));vb.classList.toggle('on',v);try{localStorage.setItem('atteo.voice',v?'1':'0')}catch(e){}if(!v){stopGo();hush()}}
-  try{on=localStorage.getItem('atteo.voice')==='1'}catch(e){}
-  vb.hidden=false;setOn(on);
-  // Turning it on is a tap, which is when browsers (Safari above all) let a page start speaking: say a blank there so later reads are allowed.
-  vb.addEventListener('click',()=>{setOn(!on);if(on){try{const w=new SpeechSynthesisUtterance(' ');w.volume=0;syn.speak(w)}catch(e){}blip();toast(ttsOut?tr('Out of read-aloud for this month: messages for you will be read with the device voice'):tr('Messages for you will blip: tap the bar or say “go ahead” to hear them'))}});
-  document.getElementById('vp-go').addEventListener('click',()=>{if(speaking)hush();else speakNext()});
-  document.getElementById('vp-x').addEventListener('click',hush);
-  document.addEventListener('keydown',e=>{if(e.key==='Escape'&&speaking)hush()});
+  window.voiceHush=micStop; // Talk to Atteo (talk.ts) takes the mic
   const ME_SEL='.mention:not(.agent)[data-user="'+CSS.escape(ME)+'"]';
   // For you: in Your agent, anything your agent says; on a board, a mention of you or a reply to your message.
   function forMe(el){if(el.classList.contains('pending'))return false;const mine=el.dataset.author===ME,ag=el.classList.contains('by-agent');if(mine&&!ag)return false;
@@ -469,7 +419,7 @@ ${ALLOWANCE_JS}
     const r=el.dataset.reply&&document.getElementById('e'+el.dataset.reply);return !!(r&&r.dataset.author===ME&&!r.classList.contains('by-agent'))}
   let top=0;th.querySelectorAll(':scope>.entry[data-seq]').forEach(x=>{top=Math.max(top,+x.dataset.seq)});
   new MutationObserver(ms=>{for(const m of ms)for(const n of m.addedNodes){if(!(n instanceof HTMLElement)||!n.classList.contains('entry'))continue;
-    const s=+n.dataset.seq;if(!s||s<=top)continue;top=s;if(on&&forMe(n)){q.push(s);blip();pillUpd();listenGo()}}}).observe(th,{childList:true});
+    const s=+n.dataset.seq;if(!s||s<=top)continue;top=s;if(forMe(n))document.dispatchEvent(new CustomEvent('atteo:forme',{detail:{seq:s}}))}}).observe(th,{childList:true});
 })();
 `;
 const AGENT_PICK_JS = `
@@ -2559,7 +2509,6 @@ window.boardKeys=(e,k)=>{
     <form class="card composer" method="post" action="/api/boards/${esc(info.id)}/entries" data-api data-reliable data-done="posted" data-failed="postFailed" data-retrying="postRetrying" data-reset${info.archived || readOnly || info.encrypted ? " hidden" : ""}>
       <div class="replying" id="replying" hidden><button class="rp-go" type="button" id="replying-go" title="${esc(T("Show the message"))}">${esc(T("Replying to"))} <b id="replying-who"></b><span class="rp-text" id="replying-text"></span></button><button class="btn ghost sm x" type="button" id="reply-cancel" aria-label="${esc(T("Cancel reply"))}" title="${esc(T("Cancel reply (Esc)"))}">✕</button></div>
       <input type="hidden" name="reply_to" id="reply-to" value=""><input type="hidden" name="people_only" id="po-in" value=""><input type="hidden" name="own" id="own-in" value=""><div class="po-note" id="po-note" hidden>🔒 <span class="po-seg" role="radiogroup" aria-label="${esc(T("Who can see it"))}"><button type="button" role="radio" data-po="people" aria-checked="true">${esc(T("People only"))}</button><button type="button" role="radio" data-po="own" aria-checked="false">${esc(T("Just mine"))}</button></span> <span id="po-why">${esc(T("· only the people you @ can see it. Agents can't."))}</span></div>${agentChat ? `<input type="hidden" name="to_session" id="to-session" value="">` : ""}
-      <div class="voice-pill" id="voice-pill" hidden><button class="vp-t" type="button" id="vp-go" aria-label="${esc(T("Read aloud bar"))}"></button><button class="btn ghost sm x" type="button" id="vp-x" aria-label="${esc(T("Dismiss"))}" title="${esc(T("Dismiss"))}">✕</button></div>
       <div class="attachments" id="attachments" hidden></div>
       <div class="cmp-field"><div class="cmp-mirror" id="composer-mirror" aria-hidden="true"></div><textarea class="input" id="composer-text" name="text" required placeholder="${esc(T(agentChat ? "Message your agent…" : "Write a message…  @ to mention"))}" aria-label="${esc(T("Message"))}"
         role="combobox" aria-autocomplete="list" aria-controls="mention-menu" aria-expanded="false"></textarea></div>
@@ -2568,9 +2517,9 @@ window.boardKeys=(e,k)=>{
       <div class="bar">
         <button class="btn ghost sm attach" type="button" id="attach-btn" aria-label="${esc(T("Attach files"))}" title="${esc(T("Attach files or images (or paste or drop them)"))}"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M13.5 7.6 8.3 12.8a3.2 3.2 0 0 1-4.5-4.5l5.6-5.6a2.1 2.1 0 0 1 3 3L6.8 11.3a1 1 0 0 1-1.5-1.5l4.9-4.9"/></svg></button>
         <input type="file" id="attach-input" multiple hidden>
-        <button class="btn ghost sm at-btn" type="button" data-mention-for="composer-text" aria-label="${esc(T("Mention someone"))}" title="${esc(T("Mention a person or their agent (or type @)"))}">@</button>${agentChat ? sessionPicker(board.sessions ?? []) : ""}${localize(L, VOICE_BTNS)}${agentChat ? "" : localize(L, PO_BTN)}
+        <button class="btn ghost sm at-btn" type="button" data-mention-for="composer-text" aria-label="${esc(T("Mention someone"))}" title="${esc(T("Mention a person or their agent (or type @)"))}">@</button>${agentChat ? sessionPicker(board.sessions ?? []) : ""}${agentChat ? "" : localize(L, PO_BTN)}
         <input type="hidden" name="type" id="cmp-type" value="note">
-        <span class="grow"></span><button class="btn primary sm">${esc(T("Post"))}</button>
+        <span class="grow"></span>${localize(L, MIC_BTN)}<button class="btn primary sm post-btn">${esc(T("Post"))}</button>
       </div>
     </form>
   </section>

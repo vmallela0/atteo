@@ -637,7 +637,7 @@ export const JA: Record<string, string> = {
   "System": "システム",
   "Tags": "タグ",
   "Talk": "話す",
-  "Talk instead of typing (say “send it” at the end to post)": "入力の代わりに話す（最後に「send it」と言うと投稿）",
+  "Hold to talk, or tap to start and stop (say “send it” at the end to post)": "押している間話す、またはタップで開始・停止（最後に「send it」と言うと投稿）",
   "Talk to your agent": "エージェントと話す",
   "Talk to your assistant (say “send it” at the end to send)": "アシスタントと話す（最後に「send it」と言うと送信）",
   "Talking:": "通話：",

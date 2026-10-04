@@ -40,6 +40,7 @@ for (const [locale, lang, home, boardRe, account, script] of LANGS) {
     for (const [path, re, name] of [["/", home, "home"], [`/b/${board}`, boardRe, "the board"], ["/me", account, "Account"]]) {
       await p.goto(BASE + path);
       await p.waitForTimeout(path.startsWith("/b/") ? 800 : 300);
+      if (path.startsWith("/b/")) await p.locator("#composer-text").fill("x"); // Post shows once there's text (#2083)
       const htmlLang = await p.locator("html").getAttribute("lang");
       const text = await p.locator("body").innerText();
       const over = await p.evaluate(() => document.documentElement.scrollWidth - innerWidth);

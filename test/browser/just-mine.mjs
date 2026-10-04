@@ -43,7 +43,8 @@ for (const [w, mobile] of [[1200, false], [390, true]]) {
   check((await p.locator("#po-lbl").innerText()) === "People only" && /People only/.test(await p.getAttribute("#po-btn", "aria-label")), `${w}px: the button says People only (${await p.getAttribute("#po-btn", "aria-label")})`);
   await tap('[data-po="own"]');
   check((await p.locator("#po-lbl").innerText()) === "Just mine" && await p.locator("#po-btn.own").count() === 1, `${w}px: …and Just mine, in another colour, once that's picked`);
-  const fit = await p.evaluate(() => { const r = document.querySelector("form.composer button.primary").getBoundingClientRect(), l = document.getElementById("po-btn").getBoundingClientRect(); return r.right <= innerWidth && Math.abs(r.top - l.top) < 12; });
+  // Post, or the mic that stands in for it while the box is empty (#2083).
+  const fit = await p.evaluate(() => { const r = [...document.querySelectorAll("form.composer .post-btn, form.composer #mic-btn")].find((e) => e.offsetParent).getBoundingClientRect(), l = document.getElementById("po-btn").getBoundingClientRect(); return r.right <= innerWidth && Math.abs(r.top - l.top) < 12; });
   check(fit, `${w}px: the labelled lock and Post still fit on one row`);
   const why = await p.locator("#po-note").innerText(), ph = await p.getAttribute("#composer-text", "placeholder");
   check(await p.getAttribute('[data-po="own"]', "aria-checked") === "true" && /only you and your agents/i.test(why) && /only you and your agents/i.test(ph), `${w}px: Just mine says who sees it ("${why.replace(/\s+/g, " ")}"; "${ph}")`);

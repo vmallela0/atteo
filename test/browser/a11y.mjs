@@ -14,13 +14,12 @@ const ops = async (p, b) => (await fetch(`${BASE}/api/ops/${p}`, { method: "POST
 
 // Each language at 1280 and 390px in light; English at 1280px in dark too (#1965: dark has its own colours).
 const RUNS = [["en", "", 1280, 820, false, "light"], ["en", "", 390, 844, true, "light"], ["en", "", 1280, 820, false, "dark"], ["zh-Hans", "?lang=zh-Hans", 1280, 820, false, "light"], ["zh-Hans", "?lang=zh-Hans", 390, 844, true, "light"]];
-// Regions with today's controls: Talk to Atteo, voice/read-aloud, Just mine, forward selection, voice picker/allowance, Ask.
+// Regions with today's controls: Talk to Atteo, the composer's mic, Just mine, forward selection, voice picker/allowance, Ask.
 const INCLUDES = [
   [".topbar"],
   [".composer"],
   ["#po-note"],
   [".thread .badge.po.own"],
-  ["#voice-pill"],
   ["#sel-float"],
   ["#fwd-dlg"],
   ["dialog.talk"],
@@ -102,14 +101,12 @@ for (const [lang, qs, w, h, phone, scheme] of RUNS) {
     const tag = `${lang} ${w}px${scheme === "dark" ? " dark" : ""}`;
     const tap = async (sel) => { if (phone) await p.locator(sel).tap(); else await p.locator(sel).click(); };
 
-    // Board: Talk to Atteo, voice/read-aloud, Just mine composer, voice pill, forward dialog.
+    // Board: Talk to Atteo, the composer's mic, Just mine composer, forward dialog.
     await p.goto(`${BASE}/b/${board}${qs}`);
     await p.waitForTimeout(900);
     await tap("#po-btn");
     await tap('[data-po="own"]');
     await p.waitForTimeout(200);
-    await tap("#aloud-btn");
-    await p.locator("#voice-pill").waitFor({ state: "visible", timeout: 8000 }).catch(() => {});
     await p.waitForTimeout(200);
     await p.evaluate(() => document.querySelector(".thread .code-b")?.scrollIntoView({ block: "center" }));
     await p.locator('.thread .code-b code[data-hl="on"]').first().waitFor({ timeout: 8000 }).catch(() => {});

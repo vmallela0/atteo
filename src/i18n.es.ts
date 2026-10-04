@@ -637,7 +637,7 @@ export const ES: Record<string, string> = {
   "System": "Sistema",
   "Tags": "Etiquetas",
   "Talk": "Hablar",
-  "Talk instead of typing (say “send it” at the end to post)": "Habla en vez de escribir (di “send it” al final para publicar)",
+  "Hold to talk, or tap to start and stop (say “send it” at the end to post)": "Mantén pulsado para hablar, o toca para empezar y parar (di “send it” al final para publicar)",
   "Talk to your agent": "Habla con tu agente",
   "Talk to your assistant (say “send it” at the end to send)": "Habla con tu asistente (di “send it” al final para enviar)",
   "Talking:": "Conversación por voz:",
