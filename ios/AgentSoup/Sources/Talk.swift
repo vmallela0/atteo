@@ -6,8 +6,9 @@
 //   server's VAD hears where a turn starts and stops (input_audio_buffer.speech_started / speech_stopped) and answers by
 //   itself; talking over Atteo stops its voice at once (barge-in: playback flushed, response.cancel, and the reply
 //   truncated to what was heard). "Hold to talk" (the sheet's menu, remembered per device) is the old push-to-talk:
-//   the mic streams while the button is held, then commit + response.create. It plays the audio deltas and shows both
-//   sides as captions. Tools run here, against the Atteo API with the app's
+//   the mic streams while the button is held, then commit + response.create. It plays the audio deltas and captions
+//   them calmly (#1796): Atteo a finished sentence at a time, your words once, when final; the sheet's menu picks All,
+//   Atteo only (the default) or Off. Tools run here, against the Atteo API with the app's
 //   own token (tool_routes), and go back as function_call_output + response.create. answer_approval and post_to_my_agent
 //   only run after a yes (#1761): said out loud (a short, plain yes: TalkYes.swift) or tapped; a post is read back word
 //   for word first, and only that exact text goes. Every exit settles the session: POST end {session_id, seconds}.
@@ -207,8 +208,31 @@ final class TalkSession: ObservableObject {
     private var audioItem: String? // the assistant item whose audio is playing (for truncate on barge-in)
     private var itemAudio: TimeInterval = 0 // seconds of it queued so far
     private var stoppedAt: Date? // when the VAD last heard you stop
+    private var grokPending: [String: String] = [:] // caption id → Atteo's words after its last finished sentence
 
     static let holdKey = "talk-hold-to-talk"
+
+    /// What the captions show (#1796), per device (UserDefaults "talk-captions"): Atteo only unless chosen otherwise.
+    enum CaptionMode: String, CaseIterable, Identifiable {
+        case all, atteo, off
+        static let key = "talk-captions"
+        static var saved: CaptionMode { UserDefaults.standard.string(forKey: key).flatMap(CaptionMode.init) ?? .atteo }
+        var id: String { rawValue }
+        var title: LocalizedStringKey {
+            switch self {
+            case .all: return "All"
+            case .atteo: return "Atteo only"
+            case .off: return "Off"
+            }
+        }
+        func shows(_ c: Caption) -> Bool {
+            switch self {
+            case .all: return c.who != .you || c.done // your words once, when they're final
+            case .atteo: return c.who != .you
+            case .off: return false
+            }
+        }
+    }
 
     init(board: Board?) { self.board = board }
 
@@ -427,6 +451,7 @@ final class TalkSession: ObservableObject {
     /// Tap while Atteo talks, or start talking over it: stop its voice now, cancel the rest of the answer, and cut the
     /// reply in the conversation down to what was actually heard (conversation.item.truncate), so it knows.
     func interrupt() {
+        if let r = activeResponse { flushGrok("grok-\(r)") } // what was already said, up to where it stopped
         let wasSpeaking = speaking || activeResponse.map { r in captions.last?.id == "grok-\(r)" } == true
         let left = max(0, audioUntil.timeIntervalSinceNow)
         audio.stopPlayback()
@@ -529,7 +554,7 @@ final class TalkSession: ObservableObject {
         case "response.output_audio_transcript.done", "response.audio_transcript.done", "response.output_text.done", "response.text.done":
             if let t = (e["transcript"] as? String) ?? (e["text"] as? String), !t.isEmpty { grokSays(rid, replace: t) }
         case "conversation.item.input_audio_transcription.delta", "conversation.item.input_audio_transcription.updated":
-            if let d = e["delta"] as? String { youSaid(append: d) }
+            if youCaption == nil { youSaid() } // a place for the final words, in order; the words themselves wait
         case "conversation.item.input_audio_transcription.completed":
             youSaid(final: e["transcript"] as? String ?? "")
         case "response.function_call_arguments.done":
@@ -539,7 +564,10 @@ final class TalkSession: ObservableObject {
                 call(name: item["name"] as? String, id: item["call_id"] as? String, arguments: item["arguments"])
             }
         case "response.done":
-            if let r = rid ?? activeResponse, let i = captions.lastIndex(where: { $0.id == "grok-\(r)" }) { captions[i].done = true }
+            if let r = rid ?? activeResponse {
+                flushGrok("grok-\(r)")
+                if let i = captions.lastIndex(where: { $0.id == "grok-\(r)" }) { captions[i].done = true }
+            }
             if let rid { cancelled.remove(rid) }
             activeResponse = nil
             thinking = toolsRunning > 0
@@ -553,19 +581,51 @@ final class TalkSession: ObservableObject {
         }
     }
 
+    /// Atteo's caption grows a finished sentence at a time (#1796), not a word at a time: the rest waits in grokPending
+    /// until its sentence ends, the reply ends, or it's interrupted. The final transcript replaces it all.
     private func grokSays(_ rid: String?, append: String? = nil, replace: String? = nil) {
         let id = "grok-\(rid ?? activeResponse ?? "x")"
-        if let i = captions.lastIndex(where: { $0.id == id }) {
-            if let replace { captions[i].text = replace } else if let append { captions[i].text += append }
-        } else {
-            captions.append(Caption(id: id, who: .grok, text: replace ?? append ?? ""))
+        if let replace {
+            grokPending[id] = nil
+            setGrok(id, replace, append: false)
+        } else if let append {
+            let (done, rest) = Self.sentences((grokPending[id] ?? "") + append)
+            grokPending[id] = rest
+            if !done.isEmpty { setGrok(id, done, append: true) }
         }
     }
 
-    private func youSaid(append: String? = nil, final: String? = nil) {
+    private func flushGrok(_ id: String) {
+        guard let rest = grokPending.removeValue(forKey: id), !rest.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+        setGrok(id, rest, append: true)
+    }
+
+    private func setGrok(_ id: String, _ text: String, append: Bool) {
+        if let i = captions.lastIndex(where: { $0.id == id }) {
+            captions[i].text = append ? captions[i].text + text : text
+        } else {
+            captions.append(Caption(id: id, who: .grok, text: append ? text.trimmingCharacters(in: .whitespaces) : text))
+        }
+    }
+
+    /// Splits after the last finished sentence: ".", "!", "?" or "…" then a space, or a CJK full stop anywhere.
+    static func sentences(_ s: String) -> (done: String, rest: String) {
+        var cut: String.Index?
+        var i = s.startIndex
+        while i < s.endIndex {
+            let c = s[i], next = s.index(after: i)
+            if "。！？".contains(c) || c == "\n" || (".!?…".contains(c) && next < s.endIndex && s[next].isWhitespace) { cut = next }
+            i = next
+        }
+        guard let cut else { return ("", s) }
+        return (String(s[..<cut]), String(s[cut...]))
+    }
+
+    /// Your words aren't shown as they're heard (#1796): the sheet says "Listening…" with your level, and the caption
+    /// gets the final transcript once.
+    private func youSaid(final: String? = nil) {
         if youCaption == nil { let id = "you-\(UUID().uuidString)"; youCaption = id; captions.append(Caption(id: id, who: .you, text: "…")) }
         guard let y = youCaption, let i = captions.firstIndex(where: { $0.id == y }) else { return }
-        if let append { captions[i].text = (captions[i].text == "…" ? "" : captions[i].text) + append }
         if let final {
             if !final.isEmpty { captions[i].text = final }
             captions[i].done = true

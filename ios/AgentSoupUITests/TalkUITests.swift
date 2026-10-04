@@ -11,10 +11,11 @@ final class TalkUITests: AtteoUITestCase {
         a.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", prefix)).firstMatch
     }
 
-    /// Hands-free unless a test switches (the per-device choice is pinned for this run).
-    private func launch() -> XCUIApplication {
+    /// Hands-free unless a test switches (the per-device choice is pinned for this run), and every caption (#1796: the
+    /// default is Atteo only) so a test can see what the fake person said.
+    private func launch(captions: String = "all") -> XCUIApplication {
         let a = app(extra: ["AGENT_SOUP_FAKE_VOICE": "1"])
-        a.launchArguments += ["-talk-hold-to-talk", "NO"]
+        a.launchArguments += ["-talk-hold-to-talk", "NO", "-talk-captions", captions]
         a.launch()
         return a
     }
@@ -102,7 +103,7 @@ final class TalkUITests: AtteoUITestCase {
     func testVoiceChatFromEverydayAsk() {
         let before = minutesUsed()
         let a = app(extra: ["AGENT_SOUP_FAKE_VOICE": "1", "AGENT_SOUP_MODE": "everyday"])
-        a.launchArguments += ["-talk-hold-to-talk", "NO"]
+        a.launchArguments += ["-talk-hold-to-talk", "NO", "-talk-captions", "all"]
         a.launch()
         XCTAssertTrue(a.buttons["ask-bar"].waitForExistence(timeout: 15), "For you's Ask bar")
         a.buttons["ask-bar"].tap()
@@ -127,12 +128,66 @@ final class TalkUITests: AtteoUITestCase {
         XCTAssertLessThan(used, 2, "the unused minutes went back")
     }
 
+    // MARK: Calm captions (#1796)
+
+    /// Atteo only: your words aren't shown, Atteo's come a finished sentence at a time. All: your final words once, as a
+    /// faded line. Off: no captions, but a confirm card still shows. Chosen in the sheet's menu.
+    func testCaptionsSetting() {
+        let before = minutesUsed()
+        let a = launch(captions: "atteo")
+        openChat(a, "Checkout bug")
+        a.buttons["talk"].tap()
+        let state = a.staticTexts["talk-state"]
+        XCTAssertTrue(eventually(state, "label == 'Listening…'", timeout: 15), "listening (\(state.label))")
+        let orb = a.buttons["talk-orb"]
+        func pick(_ id: String) {
+            a.buttons["talk-menu"].tap()
+            let item = a.buttons[id]
+            XCTAssertTrue(item.waitForExistence(timeout: 5), "\(id) in the menu")
+            item.tap()
+        }
+
+        // Atteo only: the answer, a whole sentence at a time; not what you said.
+        orb.tap()
+        let answer = text(a, "Atteo: Here's what's waiting for you")
+        XCTAssertTrue(answer.waitForExistence(timeout: 10), "Atteo's answer")
+        XCTAssertTrue(answer.label.hasSuffix("."), "a finished sentence, not words as they come: \(answer.label)")
+        XCTAssertFalse(text(a, "You:").exists, "your words aren't shown in Atteo only")
+        XCTAssertTrue(eventually(answer, "label ENDSWITH 'right now.'", timeout: 10), "the whole answer")
+        XCTAssertTrue(eventually(state, "label == 'Listening…'", timeout: 10))
+        XCTAssertFalse(text(a, "You:").exists)
+        shot("talk-captions-atteo")
+
+        // All: your final words, once.
+        pick("talk-captions-all")
+        XCTAssertTrue(text(a, "You: What's waiting for me?").waitForExistence(timeout: 5), "your earlier words show in All")
+        orb.tap()
+        XCTAssertTrue(text(a, "You: Approve the deploy request.").waitForExistence(timeout: 8))
+        let card = a.descendants(matching: .any)["talk-confirm"]
+        XCTAssertTrue(card.waitForExistence(timeout: 10))
+        shot("talk-captions-all")
+
+        // Off: nothing but a note, and the confirm card stays.
+        pick("talk-captions-off")
+        XCTAssertTrue(a.staticTexts["talk-captions-off"].waitForExistence(timeout: 5), "Captions are off.")
+        XCTAssertFalse(text(a, "Atteo:").exists, "no Atteo captions")
+        XCTAssertFalse(text(a, "You:").exists, "no captions of you")
+        XCTAssertTrue(card.exists && a.buttons["talk-confirm-yes"].exists, "the confirm card shows whatever the setting")
+        shot("talk-captions-off")
+        a.buttons["talk-confirm-no"].tap()
+        XCTAssertTrue(eventually(card, "exists == false", timeout: 5))
+
+        pick("talk-captions-atteo") // back to the default on this simulator
+        XCTAssertTrue(answer.waitForExistence(timeout: 5))
+        endAndSettle(a, before: before)
+    }
+
     // MARK: A yes first (#1761)
 
     /// Hands-free with one of TalkFake's scripts (post, inject, hedge), opened from Checkout bug and listening.
     private func scripted(_ script: String, post: String? = nil) -> XCUIApplication {
         let a = app(extra: ["AGENT_SOUP_FAKE_VOICE": "1", "AGENT_SOUP_FAKE_VOICE_SCRIPT": script].merging(post.map { ["AGENT_SOUP_FAKE_VOICE_POST": $0] } ?? [:]) { $1 })
-        a.launchArguments += ["-talk-hold-to-talk", "NO"]
+        a.launchArguments += ["-talk-hold-to-talk", "NO", "-talk-captions", "all"]
         a.launch()
         openChat(a, "Checkout bug")
         let talk = a.buttons["talk"]
