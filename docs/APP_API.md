@@ -36,6 +36,8 @@ or a board message reference:
 {"board":"b_example123","seq":42,"voice":"ara"}
 ```
 
+Add `"from": true` to a message reference to hear who wrote it first: `"theo: The deploy passed."`, or `"theo's agent: …"` for an agent's post (the iOS voice call reads new messages this way while it stands by). Servers that predate it ignore the flag and read the text alone.
+
 The text form is limited to 2,000 characters. A referenced message is checked against the person's board membership and visibility, cleaned for speech, and capped at 2,000 characters. Cleaning omits fenced code, removes markup, and speaks link hostnames instead of full URLs. Server read-aloud refuses end-to-end encrypted boards because the server cannot decrypt them; clients should use a device voice instead.
 
 A successful response is audio, normally `audio/mpeg`, with `x-tts-cache: hit` or `miss`. The xAI result is cached for seven days by voice and cleaned text. The route can return:
@@ -115,7 +117,7 @@ Starting a voice session reserves its `max_seconds` against the monthly budget. 
 {"session_id":"vs_example123","seconds":93}
 ```
 
-Unused reserved time is returned to the person's monthly allowance. A session that is never ended keeps its full reservation.
+Unused reserved time is returned to the person's monthly allowance. A session that is never ended keeps its full reservation. Settling is to the second, with no per-session minimum, so a long call that stands by when it goes quiet (closing its socket and settling) and resumes with a new session is charged only for the seconds it was live.
 
 ## Self-hosting configuration
 
@@ -129,7 +131,7 @@ Optional Worker variables override the source defaults:
 | `TTS_PER_MINUTE` | 30 | read-aloud requests per person per minute |
 | `VOICE_MONTHLY_MINUTES` | 180 | Grok voice minutes per person per month |
 | `VOICE_SESSION_MINUTES` | 10 | maximum reserved minutes for one session |
-| `VOICE_PER_MINUTE` | 6 | sessions a person may start per minute |
+| `VOICE_PER_MINUTE` | 12 | sessions a person may start per minute |
 
 ## Request limits (Free-plan guardrails)
 

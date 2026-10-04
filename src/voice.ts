@@ -15,6 +15,9 @@
 // voice_usage). Once the app holds the socket the Worker sees no frames, so a session is charged its full cap
 // (max_seconds) up front and POST /api/app/voice/session/end {session_id, seconds} settles it down to what was used.
 // A session the app never ends keeps its full cap. Without XAI_API_KEY the routes answer 503 {fallback: "device"}.
+// A long call (jxn #2071) stands by when it goes quiet: the app closes the socket and settles, and a resume is a new
+// session. So only live seconds count (settled to the second, no per-session minimum), and the per-minute limit allows
+// a call's quick resumes.
 
 import { savedVoice } from "./social";
 import { isOperator } from "./tts";
@@ -28,7 +31,7 @@ export const REALTIME_URL = `wss://api.x.ai/v1/realtime?model=${MODEL}`;
 export const SECRET_TTL = 120; // seconds the client secret is good for: enough to connect, not to hoard
 export const DEFAULT_BUDGET_MINUTES = 180; // per person per month: 3 h (the Max plan math, #1117/#1175)
 export const DEFAULT_SESSION_MINUTES = 10; // one session's cap: charged up front, settled at the end
-export const DEFAULT_PER_MINUTE = 6; // sessions a person may start per minute
+export const DEFAULT_PER_MINUTE = 12; // sessions a person may start per minute: the app stands a call by after ~5 s of quiet and starts a fresh session on resume (jxn #2071), so a long call is many short sessions
 export const SAMPLE_RATE = 24000;
 
 export interface ClientSecret {

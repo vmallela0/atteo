@@ -5,6 +5,8 @@ import {
   DEFAULT_BUDGET,
   MAX_TEXT,
   NOT_SET_UP,
+  providerFor,
+  silentWav,
   speak,
   status,
   xaiSpeak,
@@ -247,5 +249,41 @@ describe("read aloud: the xAI call", () => {
       throw new Error("ECONNRESET");
     }) as unknown as typeof fetch;
     await expect(xaiSpeak("k", "Hi", "eve", down)).rejects.toBeInstanceOf(TtsProviderError);
+  });
+});
+
+describe("read aloud: who said it (from: true, the voice call standing by, jxn #2071)", () => {
+  it("board+seq with from reads \"<author>: <text>\"; an agent's post is \"<author>'s agent\"; without from, only the text", async () => {
+    const f = fakeProvider();
+    const { deps } = setup({
+      provider: f.p,
+      entry: async (_b, s) => (s === 1 ? { text: "**Deploy** is green", author: "theo", via: "person" } : s === 2 ? { text: "Tests pass.", author: "theo", via: "agent" } : { text: "```\ncode\n```", author: "theo" }),
+    });
+    expect((await speak("vedu", { board: "b_abcdefgh", seq: 1, from: true }, deps)).status).toBe(200);
+    expect((await speak("vedu", { board: "b_abcdefgh", seq: 2, from: true }, deps)).status).toBe(200);
+    expect((await speak("vedu", { board: "b_abcdefgh", seq: 1 }, deps)).status).toBe(200);
+    expect(f.calls.map((c) => c.text)).toEqual(["theo: Deploy is green", "theo's agent: Tests pass.", "Deploy is green"]);
+    expect((await status("vedu", deps)).used_chars).toBe("theo: Deploy is green".length + "theo's agent: Tests pass.".length + "Deploy is green".length);
+    // Nothing but code is still nothing to read, name or not.
+    expect((await speak("vedu", { board: "b_abcdefgh", seq: 3, from: true }, deps)).status).toBe(400);
+    // from with text (not a message) is the usual either/or error's business: text is read as given.
+    expect((await speak("vedu", { text: "hi", from: true }, deps)).status).toBe(200);
+    expect(f.calls.at(-1)!.text).toBe("hi");
+  });
+
+  it("the fake provider is local-only, opt-in, never beats a real key, and answers a playable WAV", async () => {
+    const req = (host: string, fake = true) => new Request(`http://${host}/api/app/tts`, { method: "POST", headers: fake ? { "x-dev-fake-voice": "1" } : {} });
+    expect(providerFor({}, req("localhost:8981"))).toBeNull();
+    expect(providerFor({ DEV_FAKE_VOICE: "1" }, req("localhost:8981"))?.name).toBe("fake");
+    expect(providerFor({ DEV_FAKE_VOICE: "1" }, req("localhost:8981", false))).toBeNull();
+    expect(providerFor({ DEV_FAKE_VOICE: "1" }, req("atteo.dev"))).toBeNull();
+    expect(providerFor({ DEV_FAKE_VOICE: "1", XAI_API_KEY: "k" }, req("localhost:8981"))?.name).toBe("xai");
+    expect(providerFor({ DEV_FAKE_VOICE: "1" })).toBeNull();
+    const a = await providerFor({ DEV_FAKE_VOICE: "1" }, req("localhost:8981"))!.speak("hi", "eve");
+    expect(a.contentType).toBe("audio/wav");
+    const bytes = new Uint8Array(await new Response(a.body).arrayBuffer());
+    expect(new TextDecoder().decode(bytes.slice(0, 4))).toBe("RIFF");
+    expect(bytes.length).toBe(silentWav(0.2).length);
+    expect(new DataView(bytes.buffer).getUint32(40, true)).toBe(bytes.length - 44);
   });
 });
