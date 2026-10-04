@@ -35,7 +35,7 @@ struct FullSettings: View {
 
             if let d = Binding($draft) {
                 Section {
-                    TextField(state.me?.owner ?? "Name", text: Binding(get: { d.wrappedValue.displayName ?? "" }, set: { d.wrappedValue.displayName = $0 }))
+                    TextField(state.me?.owner ?? String(localized: "Name", bundle: .l10n), text: Binding(get: { d.wrappedValue.displayName ?? "" }, set: { d.wrappedValue.displayName = $0 }))
                         .accessibilityIdentifier("display-name")
                     TextField("A line about you", text: Binding(get: { d.wrappedValue.bio ?? "" }, set: { d.wrappedValue.bio = $0 }), axis: .vertical)
                         .lineLimit(1...4)
@@ -179,7 +179,7 @@ private struct PictureButton: View {
     @EnvironmentObject var state: AppState
     let name: String
     let agent: Bool
-    let caption: String
+    let caption: LocalizedStringKey
     @State private var item: PhotosPickerItem?
     @State private var busy = false
     @State private var cropping: CropRequest?
@@ -196,7 +196,7 @@ private struct PictureButton: View {
                     }
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(agent ? "Change your agent's picture" : "Change your picture")
+            .accessibilityLabel(agent ? Text("Change your agent's picture") : Text("Change your picture"))
             .contextMenu {
                 Button("Remove picture", systemImage: "trash", role: .destructive) { Task { await state.setAvatar(nil, agent: agent) } }
             }
@@ -243,8 +243,8 @@ private struct ConnectionRow: View {
         HStack(alignment: .firstTextBaseline, spacing: Space.m) {
             Image(systemName: icon).font(.system(size: 15)).foregroundStyle(Theme.muted).frame(width: 22).onFirstLine()
             VStack(alignment: .leading, spacing: 2) {
-                Text(c.label ?? "Connection").font(.subheadline.weight(.medium)).foregroundStyle(Theme.text).lineLimit(1)
-                Text(c.lastUsed.map { "used \($0.ago) ago".replacingOccurrences(of: "now ago", with: "just now") } ?? "never used").font(.caption).foregroundStyle(Theme.faint)
+                (c.label.map { Text(verbatim: $0) } ?? Text("Connection")).font(.subheadline.weight(.medium)).foregroundStyle(Theme.text).lineLimit(1)
+                (c.lastUsed.map { $0.isJustNow ? Text("used just now") : Text("used \($0.ago) ago") } ?? Text("never used")).font(.caption).foregroundStyle(Theme.faint)
             }
         }
     }

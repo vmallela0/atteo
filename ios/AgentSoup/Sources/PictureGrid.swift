@@ -120,7 +120,7 @@ struct PictureGrid: View {
             .contentShape(Rectangle())
             .onTapGesture { tap(i) }
             .accessibilityElement()
-            .accessibilityLabel(pictures[i].name + (more > 0 ? ", and \(more) more" : ""))
+            .accessibilityLabel(more > 0 ? String(localized: "\(pictures[i].name), and \(more) more", bundle: .l10n) : pictures[i].name)
             .accessibilityAddTraits([.isImage, .isButton])
             .accessibilityIdentifier("grid-picture-\(i)")
     }

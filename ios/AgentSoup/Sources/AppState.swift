@@ -601,7 +601,7 @@ final class AppState: ObservableObject {
         let plain = await BoardCrypto.shared.decrypt(b.id, after: after)
         return list.map { e in
             var e = e
-            if let t = plain[e.seq] { e.text = t } else if e.text.hasPrefix("🔒 Encrypted message") { e.text = "🔒 Encrypted. This phone can't read it yet." }
+            if let t = plain[e.seq] { e.text = t } else if e.text.hasPrefix("🔒 Encrypted message") { e.text = String(localized: "🔒 Encrypted. This phone can't read it yet.", bundle: .l10n) }
             return e
         }
     }

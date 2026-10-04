@@ -11,9 +11,9 @@ enum APIError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .signedOut: return "You're signed out."
+        case .signedOut: return String(localized: "You're signed out.", bundle: .l10n)
         case .server(let m): return m
-        case .offline: return "Couldn't reach Atteo. Check your connection."
+        case .offline: return String(localized: "Couldn't reach Atteo. Check your connection.", bundle: .l10n)
         }
     }
 }
@@ -78,7 +78,7 @@ final class API: @unchecked Sendable {
         }
         if !(200..<300).contains(http.statusCode) {
             let msg = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] as? String
-            throw APIError.server(msg ?? "Something went wrong (\(http.statusCode)).")
+            throw APIError.server(msg ?? String(localized: "Something went wrong (\(http.statusCode)).", bundle: .l10n))
         }
         return data
     }

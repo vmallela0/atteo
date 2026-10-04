@@ -233,10 +233,14 @@ struct BoardTile: View {
 }
 
 struct Pill: View {
-    let text: String
+    let text: Text
     var color: Color = Theme.muted
+    /// The app's own words (a literal): localized.
+    init(text: LocalizedStringKey, color: Color = Theme.muted) { self.text = Text(text); self.color = color }
+    /// A string from code, as is (like Text's): localize it first when it's the app's own words.
+    @_disfavoredOverload init<S: StringProtocol>(text: S, color: Color = Theme.muted) { self.text = Text(text); self.color = color }
     var body: some View {
-        Text(text).font(.caption.weight(.semibold)).padding(.horizontal, Space.s).padding(.vertical, 3)
+        text.font(.caption.weight(.semibold)).padding(.horizontal, Space.s).padding(.vertical, 3)
             .background(color.opacity(0.14), in: Capsule()).foregroundStyle(color)
     }
 }

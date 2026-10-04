@@ -127,7 +127,7 @@ struct PictureEditor: View {
         .interactiveDismissDisabled()
     }
 
-    private func row(_ title: String, @ViewBuilder _ control: () -> some View) -> some View {
+    private func row(_ title: LocalizedStringKey, @ViewBuilder _ control: () -> some View) -> some View {
         HStack(spacing: Space.m) {
             Text(title).font(Typo.meta).foregroundStyle(Theme.muted).frame(width: 64, alignment: .leading)
             control()

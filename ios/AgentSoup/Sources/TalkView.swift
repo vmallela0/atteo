@@ -98,11 +98,11 @@ struct TalkSheet: View {
     }
 
     private var timeLine: String {
-        if talk.phase == .connecting { return "Connecting…" }
-        if talk.phase == .ended { return talk.endNote ?? "Ended" }
-        var s = "\(TalkSession.clock(talk.secondsLeft)) left"
-        if let m = talk.monthMinutesLeft { s += " · \(m) min this month" }
-        return s
+        if talk.phase == .connecting { return String(localized: "Connecting…", bundle: .l10n) }
+        if talk.phase == .ended { return talk.endNote ?? String(localized: "Ended", bundle: .l10n) }
+        let clock = TalkSession.clock(talk.secondsLeft)
+        if let m = talk.monthMinutesLeft { return String(localized: "\(clock) left · \(m) min this month", bundle: .l10n) }
+        return String(localized: "\(clock) left", bundle: .l10n)
     }
 
     private var captions: some View {
@@ -110,7 +110,7 @@ struct TalkSheet: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: Space.m) {
                     if talk.captions.isEmpty && talk.phase != .ended {
-                        Text(talk.board.map { "Just talk. Ask about \($0.displayName(me: AppState.shared.me?.owner)), what's waiting for you, or tell your agent something." } ?? "Just talk. Ask what's waiting for you, catch up on a board, or tell your agent something.")
+                        (talk.board.map { Text("Just talk. Ask about \($0.displayName(me: AppState.shared.me?.owner)), what's waiting for you, or tell your agent something.") } ?? Text("Just talk. Ask what's waiting for you, catch up on a board, or tell your agent something."))
                             .font(Typo.secondary).foregroundStyle(Theme.faint)
                             .frame(maxWidth: .infinity, alignment: .center).multilineTextAlignment(.center)
                             .padding(.top, Space.xl)
@@ -138,7 +138,7 @@ struct TalkSheet: View {
                     .accessibilityHidden(true)
                 Text(c.text).font(c.who == .grok ? .title3 : .body).foregroundStyle(c.who == .grok ? Theme.text : Theme.muted)
                     .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityLabel((c.who == .you ? "You: " : "Atteo: ") + c.text)
+                    .accessibilityLabel(c.who == .you ? Text("You: \(c.text)") : Text("Atteo: \(c.text)"))
                     .accessibilityIdentifier(c.who == .you ? "talk-you" : "talk-atteo")
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -147,13 +147,13 @@ struct TalkSheet: View {
 
     private func confirmCard(_ c: TalkSession.Confirm) -> some View {
         VStack(alignment: .leading, spacing: Space.s) {
-            Label("\(c.verb) \(c.approval)?", systemImage: "checkmark.shield").font(.headline).foregroundStyle(Theme.text)
+            Label(c.decision == "deny" ? "Deny \(c.approval)?" : "Approve \(c.approval)?", systemImage: "checkmark.shield").font(.headline).foregroundStyle(Theme.text)
             Text(c.confirmed ? "Heard yes. Atteo will do it now." : "Nothing happens until you say “yes” or tap Yes.")
                 .font(Typo.meta).foregroundStyle(Theme.muted)
             HStack(spacing: Space.s) {
                 Button { talk.answerConfirm(false) } label: { Text("No").frame(maxWidth: .infinity).padding(.vertical, 10).background(Theme.raised, in: Capsule()) }
                     .accessibilityIdentifier("talk-confirm-no")
-                Button { talk.answerConfirm(true) } label: { Text("Yes, \(c.verb.lowercased())").frame(maxWidth: .infinity).padding(.vertical, 10).background(Theme.accent, in: Capsule()).foregroundStyle(Theme.onAccent) }
+                Button { talk.answerConfirm(true) } label: { Text(c.decision == "deny" ? "Yes, deny" : "Yes, approve").frame(maxWidth: .infinity).padding(.vertical, 10).background(Theme.accent, in: Capsule()).foregroundStyle(Theme.onAccent) }
                     .accessibilityIdentifier("talk-confirm-yes")
             }
             .buttonStyle(PressStyle()).font(.body.weight(.semibold)).foregroundStyle(Theme.text)
@@ -167,19 +167,19 @@ struct TalkSheet: View {
 
     private var stateLine: String {
         switch talk.phase {
-        case .connecting: return "Connecting…"
-        case .ended: return "Ended"
+        case .connecting: return String(localized: "Connecting…", bundle: .l10n)
+        case .ended: return String(localized: "Ended", bundle: .l10n)
         case .ready where talk.handsFree:
-            if talk.speaking { return "Atteo is speaking" }
-            if talk.hearing { return "Listening…" }
-            if talk.thinking { return "Thinking…" }
-            if talk.micMuted { return "Mic off" }
-            return "Listening…"
+            if talk.speaking { return String(localized: "Atteo is speaking", bundle: .l10n) }
+            if talk.hearing { return String(localized: "Listening…", bundle: .l10n) }
+            if talk.thinking { return String(localized: "Thinking…", bundle: .l10n) }
+            if talk.micMuted { return String(localized: "Mic off", bundle: .l10n) }
+            return String(localized: "Listening…", bundle: .l10n)
         case .ready:
-            if talk.holding { return "Listening… let go to send" }
-            if talk.speaking { return "Atteo is speaking · tap to interrupt" }
-            if talk.thinking { return "Thinking…" }
-            return "Hold to talk"
+            if talk.holding { return String(localized: "Listening… let go to send", bundle: .l10n) }
+            if talk.speaking { return String(localized: "Atteo is speaking · tap to interrupt", bundle: .l10n) }
+            if talk.thinking { return String(localized: "Thinking…", bundle: .l10n) }
+            return String(localized: "Hold to talk", bundle: .l10n)
         }
     }
 

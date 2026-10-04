@@ -15,9 +15,9 @@ enum SlashCommand: String, CaseIterable, Identifiable {
     var type: String { self == .task ? "task" : self == .decide ? "decision" : "question" }
     var hint: String {
         switch self {
-        case .task: return "Task, next lines a checklist"
-        case .decide: return "Decision people agree on"
-        case .ask: return "Question that stays open"
+        case .task: return String(localized: "Task, next lines a checklist", bundle: .l10n)
+        case .decide: return String(localized: "Decision people agree on", bundle: .l10n)
+        case .ask: return String(localized: "Question that stays open", bundle: .l10n)
         }
     }
     var icon: String { self == .task ? "checklist" : self == .decide ? "checkmark.seal" : "questionmark.circle" }

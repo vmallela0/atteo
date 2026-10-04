@@ -15,7 +15,7 @@ struct AgentChatSession: Decodable, Hashable, Identifiable {
     /// "builder · Claude Code", "scout · Codex (idle)".
     var label: String {
         let c = client.map { " · " + ($0.components(separatedBy: " (").first ?? $0) } ?? ""
-        return name + c + (state == "live" ? "" : " (idle)")
+        return name + c + (state == "live" ? "" : String(localized: " (idle)", bundle: .l10n))
     }
 }
 
@@ -71,7 +71,7 @@ struct AgentChatRow: View {
                 HStack(alignment: .center, spacing: Space.s) {
                     Group {
                         if let l = b?.last { Text(Vocab.shown(l.by) + ": ").foregroundStyle(Theme.muted) + Text(l.text.md).foregroundStyle(unread > 0 ? Theme.muted : Theme.faint) }
-                        else { Text(Vocab.pick("Ask any of your agents, or one session", "Ask your assistant anything")).foregroundStyle(Theme.faint) }
+                        else { Text(Vocab.pick(String(localized: "Ask any of your agents, or one session", bundle: .l10n), String(localized: "Ask your assistant anything", bundle: .l10n))).foregroundStyle(Theme.faint) }
                     }
                     .font(Typo.secondary).lineLimit(1)
                     Spacer(minLength: 0)
@@ -99,7 +99,7 @@ struct AgentToPicker: View {
             HStack(spacing: 6) {
                 Text("To").foregroundStyle(Theme.faint)
                 Avatar(name: state.me?.owner ?? "", agent: true, size: 18)
-                Text(to.map { n in sessions.first { $0.name == n }?.label ?? n } ?? "Any of my agents").foregroundStyle(Theme.text).lineLimit(1)
+                (to.map { n in Text(verbatim: sessions.first { $0.name == n }?.label ?? n) } ?? Text("Any of my agents")).foregroundStyle(Theme.text).lineLimit(1)
                 Image(systemName: "chevron.up.chevron.down").font(.system(size: 9, weight: .semibold)).foregroundStyle(Theme.faint)
             }
             .font(Typo.micro.weight(.medium))
@@ -110,7 +110,7 @@ struct AgentToPicker: View {
         .menuOrder(.fixed)
         .accessibilityIdentifier("agent-to")
         .accessibilityLabel("Send to")
-        .accessibilityValue(to ?? "Any of my agents")
+        .accessibilityValue(to ?? String(localized: "Any of my agents", bundle: .l10n))
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, Space.l)
         .padding(.bottom, Space.xs)

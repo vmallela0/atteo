@@ -32,13 +32,13 @@ struct ReactionChips: View {
                 }
                 .buttonStyle(PressStyle())
                 .contextMenu {
-                    Section("\(r.emoji) \(r.users.count == 1 ? "1 reaction" : "\(r.users.count) reactions")") {
-                        ForEach(r.users, id: \.self) { u in Text(u == me ? "You" : u) }
+                    Section("\(r.emoji) \(r.users.count) reactions") {
+                        ForEach(r.users, id: \.self) { u in u == me ? Text("You") : Text(verbatim: u) }
                     }
                 }
                 .accessibilityLabel("\(r.emoji) \(r.users.count)")
                 .accessibilityValue(yours ? "yours" : "")
-                .accessibilityHint(r.users.map { $0 == me ? "you" : $0 }.joined(separator: ", "))
+                .accessibilityHint(r.users.map { $0 == me ? String(localized: "you", bundle: .l10n) : $0 }.joined(separator: ", "))
                 .accessibilityIdentifier("reaction-\(r.emoji)")
                 .transition(.scale(scale: 0.6).combined(with: .opacity))
             }
@@ -73,7 +73,8 @@ struct HandlingLine: View {
     let me: String?
     var body: some View {
         let you = h.by == me
-        Label(h.done == true ? "Done by \(you ? "you" : h.by)" : (you ? "You're on it" : "\(h.by) is on it"),
+        let title: LocalizedStringKey = h.done == true ? (you ? "Done by you" : "Done by \(h.by)") : (you ? "You're on it" : "\(h.by) is on it")
+        Label(title,
               systemImage: h.done == true ? "checkmark.circle.fill" : "hand.raised.fill")
             .font(Typo.micro.weight(.medium)).foregroundStyle(h.done == true ? Theme.ok : Theme.muted)
             .padding(.top, Space.xxs)
@@ -125,7 +126,7 @@ enum ChatSummary {
             .replacingOccurrences(of: "@[A-Za-z0-9][A-Za-z0-9_.-]*(?:['’]s\\s+agent)?", with: " ", options: .regularExpression)
             .replacingOccurrences(of: "[*`]", with: "", options: .regularExpression)
         let w = line.split(whereSeparator: \.isWhitespace)
-        return w.isEmpty ? (e.artifactName ?? "A message") : w.prefix(words).joined(separator: " ") + (w.count > words ? "…" : "")
+        return w.isEmpty ? (e.artifactName ?? String(localized: "A message", bundle: .l10n)) : w.prefix(words).joined(separator: " ") + (w.count > words ? "…" : "")
     }
 }
 
@@ -195,14 +196,15 @@ struct BoardInfoSheet: View {
                 .listRowBackground(Theme.card)
         }
         Section {
-            if agents.isEmpty { Text(Vocab.pick("No agents on this board yet.", "No assistants in this chat yet.")).font(Typo.secondary).foregroundStyle(Theme.muted) }
+            if agents.isEmpty { Text(Vocab.pick(String(localized: "No agents on this board yet.", bundle: .l10n), String(localized: "No assistants in this chat yet.", bundle: .l10n))).font(Typo.secondary).foregroundStyle(Theme.muted) }
             ForEach(agents) { a in
                 NavigationLink { PersonCard(name: a.user, open: { b in state.openRequest = b }, agentFirst: true) } label: { AgentHereRow(a: a) }
                     .accessibilityIdentifier("info-agent-\(a.user)")
             }
         } header: {
             let live = agents.filter { $0.state == "live" }.count
-            SectionHeader(Vocab.pick(live > 0 ? "Agents · \(live) working" : "Agents", live > 0 ? "Assistants · \(live) working" : "Assistants"))
+            SectionHeader(Vocab.pick(live > 0 ? String(localized: "Agents · \(live) working", bundle: .l10n) : String(localized: "Agents", bundle: .l10n),
+                                     live > 0 ? String(localized: "Assistants · \(live) working", bundle: .l10n) : String(localized: "Assistants", bundle: .l10n)))
         }
         .listRowBackground(Theme.card)
     }
@@ -219,7 +221,7 @@ struct BoardInfoSheet: View {
                         .accessibilityIdentifier("board-files")
                 }
             } else { ProgressView().tint(Theme.faint) }
-        } header: { SectionHeader(files.map { $0.isEmpty ? "Files" : "Files · \($0.count)" } ?? "Files") }
+        } header: { if let files, !files.isEmpty { SectionHeader("Files · \(files.count)") } else { SectionHeader("Files") } }
         .listRowBackground(Theme.card)
     }
 
@@ -417,7 +419,7 @@ struct SeenBySheet: View {
         let seen = receipt.readers.filter(\.seen).count
         NavigationStack {
             List {
-                ForEach([(false, "People"), (true, "Agents")], id: \.0) { agent, title in
+                ForEach([false, true], id: \.self) { agent in
                     let group = receipt.readers.filter { $0.agent == agent }.sorted { ($0.seen ? 0 : 1, $0.user) < ($1.seen ? 0 : 1, $1.user) }
                     if !group.isEmpty {
                         Section {
@@ -435,7 +437,7 @@ struct SeenBySheet: View {
                                 .accessibilityElement(children: .combine)
                                 .accessibilityIdentifier("reader-\(r.id)")
                             }
-                        } header: { SectionHeader(title) }
+                        } header: { SectionHeader(agent ? "Agents" : "People") }
                         .listRowBackground(Theme.card)
                     }
                 }
@@ -482,16 +484,16 @@ struct GroupSheet: View {
 
     @ViewBuilder private var agentSections: some View {
         let all = state.boardAgents[board.id] ?? []
-        let groups = [("live", "Working now"), ("idle", "Idle")].map { k, t in (t, all.filter { $0.state == k }.sorted { $0.lastSeen > $1.lastSeen }) }
+        let groups = ["live", "idle"].map { k in (k, all.filter { $0.state == k }.sorted { $0.lastSeen > $1.lastSeen }) }
         if groups.allSatisfy({ $0.1.isEmpty }) { Text("No agents here right now.").font(Typo.secondary).foregroundStyle(Theme.muted).listRowBackground(Theme.card) }
-        ForEach(groups, id: \.0) { title, list in
+        ForEach(groups, id: \.0) { k, list in
             if !list.isEmpty {
                 Section {
                     ForEach(list) { a in
                         NavigationLink { PersonCard(name: a.user, open: { b in state.openRequest = b }, agentFirst: true) } label: { agentRow(a) }
                             .accessibilityIdentifier("group-agent-\(a.user)")
                     }
-                } header: { SectionHeader("\(title) · \(list.count)") }
+                } header: { k == "live" ? SectionHeader("Working now · \(list.count)") : SectionHeader("Idle · \(list.count)") }
                 .listRowBackground(Theme.card)
             }
         }
@@ -505,8 +507,8 @@ struct GroupSheet: View {
                     HStack(spacing: Space.m) {
                         Avatar(name: m.user, size: 30)
                         VStack(alignment: .leading, spacing: 1) {
-                            Text(m.user == state.me?.owner ? "\(m.displayName ?? m.user) (you)" : m.displayName ?? m.user).font(Typo.rowTitleRead).foregroundStyle(Theme.text).lineLimit(1)
-                            Text(m.lastSeen.map { "here \($0.ago == "now" ? "just now" : "\($0.ago) ago")" } ?? "@\(m.user)").font(Typo.micro).foregroundStyle(Theme.faint)
+                            Text(verbatim: m.user == state.me?.owner ? String(localized: "\(m.displayName ?? m.user) (you)", bundle: .l10n) : m.displayName ?? m.user).font(Typo.rowTitleRead).foregroundStyle(Theme.text).lineLimit(1)
+                            Text(verbatim: m.lastSeen.map { Date().timeIntervalSince1970 - $0 / 1000 < 60 ? String(localized: "here just now", bundle: .l10n) : String(localized: "here \($0.ago) ago", bundle: .l10n) } ?? "@\(m.user)").font(Typo.micro).foregroundStyle(Theme.faint)
                         }
                     }
                 }

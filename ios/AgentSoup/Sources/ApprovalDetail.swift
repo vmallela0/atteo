@@ -14,10 +14,25 @@ struct ApprovalDetail: View {
     private var riskColor: Color { a.risk == "high" ? Theme.danger : a.risk == "medium" ? Theme.warn : Theme.ok }
     private var boardTitle: String? { a.boardId.flatMap { id in state.boards.first { $0.id == id }?.displayName(me: state.me?.owner) } }
     /// "Your agent", or "Your agent in Claude Code" when it says which tool it runs in.
-    private var asker: String { Vocab.everyday ? Vocab.yourAgent : a.client.flatMap { $0.isEmpty || $0 == "agent" ? nil : "Your agent in \($0)" } ?? "Your agent" }
-    private var why: String? {
-        guard let by = a.requestedBy, by != state.me?.owner else { return boardTitle.map { "on \($0)" } }
-        return "because \(by) asked" + (boardTitle.map { " on \($0)" } ?? "")
+    private var asker: String { Vocab.everyday ? Vocab.yourAgent : a.client.flatMap { $0.isEmpty || $0 == "agent" ? nil : String(localized: "Your agent in \($0)", bundle: .l10n) } ?? String(localized: "Your agent", bundle: .l10n) }
+    /// After the asker: " asks on Checkout bug · 5m", " asks because theo asked · 5m", …
+    private var asks: String {
+        let ago = a.createdAt.ago
+        let by = a.requestedBy.flatMap { $0 == state.me?.owner ? nil : $0 }
+        switch (by, boardTitle) {
+        case let (by?, board?): return String(localized: " asks because \(by) asked on \(board) · \(ago)", bundle: .l10n)
+        case let (by?, nil): return String(localized: " asks because \(by) asked · \(ago)", bundle: .l10n)
+        case let (nil, board?): return String(localized: " asks on \(board) · \(ago)", bundle: .l10n)
+        case (nil, nil): return String(localized: " asks · \(ago)", bundle: .l10n)
+        }
+    }
+    private var riskLabel: String {
+        switch a.risk {
+        case "high": return String(localized: "High risk", bundle: .l10n)
+        case "medium": return String(localized: "Medium risk", bundle: .l10n)
+        case "low": return String(localized: "Low risk", bundle: .l10n)
+        default: return String(localized: "\(a.risk.capitalized) risk", bundle: .l10n)
+        }
     }
     /// A permission hook sends the exact action separately from its explanation. Keep it verbatim: this is what the
     /// person is approving, including whitespace in a shell command or file diff.
@@ -37,7 +52,7 @@ struct ApprovalDetail: View {
                     VStack(alignment: .leading, spacing: Space.s) {
                         HStack(spacing: Space.s) {
                             // Risk and the exact command are Developer mode's (Everyday.swift): Everyday says it plainly.
-                            if !Vocab.everyday { Pill(text: "\(a.risk.capitalized) risk", color: riskColor) }
+                            if !Vocab.everyday { Pill(text: riskLabel, color: riskColor) }
                             if let exp = a.expiresAt {
                                 Text(expiry(exp)).font(Typo.micro).foregroundStyle(Theme.faint)
                             }
@@ -46,7 +61,7 @@ struct ApprovalDetail: View {
                             .accessibilityIdentifier("approval-title")
                         HStack(spacing: Space.s) {
                             Avatar(name: state.me?.owner ?? "", agent: true, size: 22)
-                            (Text(asker).foregroundStyle(Theme.text) + Text(" asks\(why.map { " " + $0 } ?? "") · \(a.createdAt.ago)").foregroundStyle(Theme.muted))
+                            (Text(asker).foregroundStyle(Theme.text) + Text(asks).foregroundStyle(Theme.muted))
                                 .font(Typo.secondary).lineLimit(2)
                         }
                     }
@@ -74,7 +89,7 @@ struct ApprovalDetail: View {
                         }
                     }
                     VStack(alignment: .leading, spacing: Space.s) {
-                        SectionHeader("Note for your \(Vocab.agent)")
+                        SectionHeader(Vocab.pick(String(localized: "Note for your agent", bundle: .l10n), String(localized: "Note for your assistant", bundle: .l10n)))
                         TextField("Optional: conditions, or why not", text: $note, axis: .vertical)
                             .lineLimit(1...5).font(Typo.body).focused($noting)
                             .accessibilityIdentifier("approval-note")
@@ -86,7 +101,7 @@ struct ApprovalDetail: View {
             .scrollDismissesKeyboard(.interactively)
             .background(Theme.bg)
             .safeAreaInset(edge: .bottom) { buttons }
-            .navigationTitle(Vocab.pick("Approval", "Needs your OK"))
+            .navigationTitle(Vocab.pick(String(localized: "Approval", bundle: .l10n), String(localized: "Needs your OK", bundle: .l10n)))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Close") { dismiss() }.toolbarText(primary: true) } }
         }
@@ -119,8 +134,8 @@ struct ApprovalDetail: View {
 
     private func expiry(_ t: Double) -> String {
         let s = t / 1000 - Date().timeIntervalSince1970
-        if s <= 0 { return "expired" }
-        return s < 3600 ? "expires in \(Int(s / 60))m" : "expires in \(Int(s / 3600))h"
+        if s <= 0 { return String(localized: "expired", bundle: .l10n) }
+        return s < 3600 ? String(localized: "expires in \(Int(s / 60))m", bundle: .l10n) : String(localized: "expires in \(Int(s / 3600))h", bundle: .l10n)
     }
 
     private func decide(_ approve: Bool) {

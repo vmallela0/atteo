@@ -72,7 +72,7 @@ final class SignIn: NSObject, ASWebAuthenticationPresentationContextProviding {
             r.httpBody = try JSONSerialization.data(withJSONObject: ["client_name": "Atteo for iOS", "redirect_uris": [Self.redirect]])
             let (data, _) = try await URLSession.shared.data(for: r)
             clientId = (try JSONSerialization.jsonObject(with: data) as? [String: Any])?["client_id"] as? String
-            guard let clientId else { throw APIError.server("Couldn't register the app with Atteo.") }
+            guard let clientId else { throw APIError.server(String(localized: "Couldn't register the app with Atteo.", bundle: .l10n)) }
             UserDefaults.standard.set(clientId, forKey: "atteo_oauth_client_id")
         }
         // 2. PKCE + the browser sheet.
@@ -87,7 +87,7 @@ final class SignIn: NSObject, ASWebAuthenticationPresentationContextProviding {
         ]
         let callback: URL = try await withCheckedThrowingContinuation { cont in
             let s = ASWebAuthenticationSession(url: c.url!, callbackURLScheme: "atteo") { url, err in
-                if let url { cont.resume(returning: url) } else { cont.resume(throwing: err ?? APIError.server("Sign-in was cancelled.")) }
+                if let url { cont.resume(returning: url) } else { cont.resume(throwing: err ?? APIError.server(String(localized: "Sign-in was cancelled.", bundle: .l10n))) }
             }
             s.presentationContextProvider = self
             s.prefersEphemeralWebBrowserSession = false
@@ -96,7 +96,7 @@ final class SignIn: NSObject, ASWebAuthenticationPresentationContextProviding {
         }
         let items = URLComponents(url: callback, resolvingAgainstBaseURL: false)?.queryItems ?? []
         guard items.first(where: { $0.name == "state" })?.value == state, let code = items.first(where: { $0.name == "code" })?.value else {
-            throw APIError.server(items.first(where: { $0.name == "error" })?.value == "access_denied" ? "Sign-in was declined." : "Sign-in didn't complete.")
+            throw APIError.server(items.first(where: { $0.name == "error" })?.value == "access_denied" ? String(localized: "Sign-in was declined.", bundle: .l10n) : String(localized: "Sign-in didn't complete.", bundle: .l10n))
         }
         // 3. Code → token.
         var t = URLRequest(url: base.appendingPathComponent("oauth/token"))
@@ -105,7 +105,7 @@ final class SignIn: NSObject, ASWebAuthenticationPresentationContextProviding {
         let form = ["grant_type": "authorization_code", "code": code, "redirect_uri": Self.redirect, "client_id": clientId!, "code_verifier": verifier]
         t.httpBody = form.map { "\($0.key)=\($0.value.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "")" }.joined(separator: "&").data(using: .utf8)
         let (data, _) = try await URLSession.shared.data(for: t)
-        guard let token = (try JSONSerialization.jsonObject(with: data) as? [String: Any])?["access_token"] as? String else { throw APIError.server("Couldn't finish signing in.") }
+        guard let token = (try JSONSerialization.jsonObject(with: data) as? [String: Any])?["access_token"] as? String else { throw APIError.server(String(localized: "Couldn't finish signing in.", bundle: .l10n)) }
         Keychain.token = token
     }
 }
@@ -137,7 +137,7 @@ enum EmailSignIn {
     }
 
     private static func keep(_ j: [String: Any]) throws {
-        guard let token = j["token"] as? String, token.hasPrefix("ab_") else { throw APIError.server("Couldn't finish signing in. Try again.") }
+        guard let token = j["token"] as? String, token.hasPrefix("ab_") else { throw APIError.server(String(localized: "Couldn't finish signing in. Try again.", bundle: .l10n)) }
         Keychain.token = token
     }
 
@@ -153,7 +153,7 @@ enum EmailSignIn {
         let j = (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
         let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(code) else {
-            throw APIError.server(j["error"] as? String ?? (code == 429 ? "Too many tries. Wait a few minutes, then try again." : "Something went wrong (\(code)). Try again."))
+            throw APIError.server(j["error"] as? String ?? (code == 429 ? String(localized: "Too many tries. Wait a few minutes, then try again.", bundle: .l10n) : String(localized: "Something went wrong (\(code)). Try again.", bundle: .l10n)))
         }
         return j
     }

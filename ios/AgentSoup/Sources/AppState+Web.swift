@@ -103,7 +103,7 @@ extension AppState {
                 // The same line twice: send the whole body, from the version on the server.
                 let fresh = try await API.shared.get("/api/boards/\(board)/tasks/\(t.seq)", as: TaskResponse.self).task
                 var fl = fresh.body.components(separatedBy: "\n")
-                guard fl.indices.contains(line), fl[line] == raw else { throw APIError.server("That box has changed. Try again.") }
+                guard fl.indices.contains(line), fl[line] == raw else { throw APIError.server(String(localized: "That box has changed. Try again.", bundle: .l10n)) }
                 fl[line] = flipped
                 _ = try await API.shared.send("/api/boards/\(board)/tasks/\(t.seq)", body: ["action": "edit", "body": fl.joined(separator: "\n"), "base_version": fresh.version ?? 0, "summary": summary])
             }
@@ -215,7 +215,7 @@ extension AppState {
         do {
             let d = try await API.shared.send("/api/boards/\(board)/invites", body: ["to": to.trimmingCharacters(in: .whitespaces)], retries: false)
             Haptics.play(.completed)
-            return (try? JSONDecoder.soup.decode(InviteResponse.self, from: d))?.message ?? "Invited \(to)."
+            return (try? JSONDecoder.soup.decode(InviteResponse.self, from: d))?.message ?? String(localized: "Invited \(to).", bundle: .l10n)
         } catch { report(error); return nil }
     }
 

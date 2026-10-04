@@ -1,104 +1,2650 @@
 {
-  "sourceLanguage": "en",
-  "strings": {
-    "%lld chats": {
-      "localizations": {
-        "en": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "%lld chat"
+  "sourceLanguage" : "en",
+  "strings" : {
+    "" : {
+
+    },
+    " " : {
+
+    },
+    "  (%@)" : {
+
+    },
+    "  %@" : {
+
+    },
+    " · %lld" : {
+
+    },
+    " (idle)" : {
+
+    },
+    " and Developer mode turns on." : {
+
+    },
+    " asked" : {
+
+    },
+    " asked in %@" : {
+
+    },
+    " asks · %@" : {
+
+    },
+    " asks because %@ asked · %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : " asks because %1$@ asked · %2$@"
+          }
+        }
+      }
+    },
+    " asks because %@ asked on %@ · %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : " asks because %1$@ asked on %2$@ · %3$@"
+          }
+        }
+      }
+    },
+    " asks on %@ · %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : " asks on %1$@ · %2$@"
+          }
+        }
+      }
+    },
+    " is on it" : {
+
+    },
+    " object: %@" : {
+
+    },
+    "…" : {
+
+    },
+    "·" : {
+
+    },
+    "· %@" : {
+
+    },
+    "· %@ · v%lld of %lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "· %1$@ · v%2$lld of %3$lld"
+          }
+        }
+      }
+    },
+    "· %lld of %lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "· %1$lld of %2$lld"
+          }
+        }
+      }
+    },
+    "(code omitted)" : {
+
+    },
+    "(spoke)" : {
+
+    },
+    "@" : {
+
+    },
+    "@%@" : {
+
+    },
+    "#412, sam/claude-2, the client each agent runs in" : {
+
+    },
+    "%@ · %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ · %2$@"
+          }
+        }
+      }
+    },
+    "%@ · agent" : {
+
+    },
+    "%@ (you)" : {
+
+    },
+    "%@ %lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ %2$lld"
+          }
+        }
+      }
+    },
+    "%@ %lld reactions" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ %2$lld reactions"
+          }
+        }
+      }
+    },
+    "%@ ago" : {
+
+    },
+    "%@ and %@ are typing" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ and %2$@ are typing"
+          }
+        }
+      }
+    },
+    "%@ and %@'s agents working" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ and %2$@'s agents working"
+          }
+        }
+      }
+    },
+    "%@ and %@'s assistants working" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ and %2$@'s assistants working"
+          }
+        }
+      }
+    },
+    "%@ and %lld more" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ and %2$lld more"
+          }
+        }
+      }
+    },
+    "%@ and %lld others are typing" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ and %2$lld others are typing"
+          }
+        }
+      }
+    },
+    "%@ in %@" : {
+      "comment" : "Notification title: who wrote, in which board",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ in %2$@"
+          }
+        }
+      }
+    },
+    "%@ is on it" : {
+
+    },
+    "%@ is too large (max 1.5 MB)." : {
+
+    },
+    "%@ is typing" : {
+
+    },
+    "%@ left" : {
+
+    },
+    "%@ left · %lld min this month" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ left · %2$lld min this month"
+          }
+        }
+      }
+    },
+    "%@ of %lld min" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ of %2$lld min"
+          }
+        }
+      }
+    },
+    "%@ risk" : {
+
+    },
+    "%@ used · %lld min left this month" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ used · %2$lld min left this month"
+          }
+        }
+      }
+    },
+    "%@ wants to talk" : {
+
+    },
+    "%@ wants to talk to yours" : {
+
+    },
+    "%@, %lld tasks" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@, %2$lld tasks"
+          }
+        }
+      }
+    },
+    "%@, and %lld more" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@, and %2$lld more"
+          }
+        }
+      }
+    },
+    "%@: %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@: %2$@"
+          }
+        }
+      }
+    },
+    "%@." : {
+
+    },
+    "%@'s agent" : {
+
+    },
+    "%@'s agent is on it" : {
+
+    },
+    "%@'s agent working" : {
+
+    },
+    "%@'s assistant" : {
+
+    },
+    "%@'s assistant working" : {
+
+    },
+    "%@'s picture" : {
+
+    },
+    "%lld" : {
+
+    },
+    "%lld active" : {
+
+    },
+    "%lld agents working" : {
+
+    },
+    "%lld agents working now" : {
+
+    },
+    "%lld assistants working" : {
+
+    },
+    "%lld chats" : {
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld chat"
                 }
               },
-              "other": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "%lld chats"
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld chats"
                 }
               }
             }
           }
         },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld 个聊天"
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 个聊天"
           }
         }
       }
     },
-    "Automatic (device)": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "自动（跟随设备）"
+    "%lld claims verified" : {
+
+    },
+    "%lld commits" : {
+
+    },
+    "%lld disputed" : {
+
+    },
+    "%lld files" : {
+
+    },
+    "%lld for you, first from %@ · tap to hear" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld for you, first from %2$@ · tap to hear"
           }
         }
       }
     },
-    "Language": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "语言"
+    "%lld lines" : {
+
+    },
+    "%lld members" : {
+
+    },
+    "%lld messages" : {
+
+    },
+    "%lld more commits" : {
+
+    },
+    "%lld more files" : {
+
+    },
+    "%lld next" : {
+
+    },
+    "%lld of %lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld of %2$lld"
           }
         }
       }
     },
-    "Settings": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "设置"
+    "%lld of %lld checked" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld of %2$lld checked"
           }
         }
       }
     },
-    "Appearance": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "外观"
+    "%lld of %lld sub-tasks done" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld of %2$lld sub-tasks done"
           }
         }
       }
     },
-    "For you": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "为你"
+    "%lld pictures" : {
+
+    },
+    "%lld replies" : {
+
+    },
+    "%lld replies, new" : {
+
+    },
+    "%lld shared boards" : {
+
+    },
+    "%lld tasks done" : {
+
+    },
+    "%lld tasks done · %lld claims verified" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld tasks done · %2$lld claims verified"
           }
         }
       }
     },
-    "Chats": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "聊天"
+    "%lld things need you." : {
+
+    },
+    "%lld unread" : {
+
+    },
+    "%lld working" : {
+
+    },
+    "%lld%%" : {
+
+    },
+    "%lldd" : {
+      "comment" : "Relative time: days ago, short"
+    },
+    "%lldh" : {
+      "comment" : "Relative time: hours ago, short"
+    },
+    "%lldm" : {
+      "comment" : "Relative time: minutes ago, short"
+    },
+    "+%lld" : {
+
+    },
+    "+%lld more" : {
+
+    },
+    "🔒 Encrypted. This phone can't read it yet." : {
+
+    },
+    "a chat" : {
+
+    },
+    "A coding agent" : {
+
+    },
+    "A line about you" : {
+
+    },
+    "a link" : {
+
+    },
+    "A message" : {
+
+    },
+    "A note for everyone (optional)" : {
+
+    },
+    "A number on the app icon for what needs you, and a notification for mentions, replies and approvals while Atteo is in the background (iOS decides how often it checks)." : {
+
+    },
+    "A regular board: the server stores what's said, as on most boards." : {
+
+    },
+    "Accept automatically" : {
+
+    },
+    "Accept friend" : {
+
+    },
+    "Add" : {
+
+    },
+    "Add a note" : {
+
+    },
+    "Add a reaction" : {
+
+    },
+    "Add a step (optional)" : {
+
+    },
+    "Add an emoji" : {
+
+    },
+    "Add friend" : {
+
+    },
+    "Add one, or ask an agent to." : {
+
+    },
+    "Add to your reactions" : {
+
+    },
+    "Added by %@" : {
+
+    },
+    "Advanced" : {
+
+    },
+    "Advanced (for developers)" : {
+
+    },
+    "agent" : {
+
+    },
+    "Agent files" : {
+
+    },
+    "agents" : {
+
+    },
+    "Agents" : {
+
+    },
+    "Agents · %lld working" : {
+
+    },
+    "Agents from coworkers" : {
+
+    },
+    "Agents on this board" : {
+
+    },
+    "Agents Talking To Each Other" : {
+
+    },
+    "Agree" : {
+
+    },
+    "agreed" : {
+
+    },
+    "All" : {
+
+    },
+    "All %lld files" : {
+
+    },
+    "Allow" : {
+
+    },
+    "Allow the microphone and speech recognition for Atteo in Settings to talk." : {
+
+    },
+    "Allow the microphone for Atteo in Settings to use voice chat. You can still read what Atteo says." : {
+
+    },
+    "Almost ready: still checking it." : {
+
+    },
+    "Already remembered" : {
+
+    },
+    "an earlier message" : {
+
+    },
+    "An earlier message" : {
+
+    },
+    "Another step" : {
+
+    },
+    "Any emoji" : {
+
+    },
+    "Any of my agents" : {
+
+    },
+    "Anyone else asks you first, on For you." : {
+
+    },
+    "Appearance" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "外观"
           }
         }
       }
     },
-    "Your assistant": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "你的助手"
+    "Approval" : {
+
+    },
+    "Approval details" : {
+
+    },
+    "Approve" : {
+
+    },
+    "Approve — waiting for your yes" : {
+
+    },
+    "Approve %@?" : {
+
+    },
+    "Approve or deny in Atteo." : {
+
+    },
+    "Archive" : {
+
+    },
+    "Archive %@?" : {
+
+    },
+    "Archived" : {
+
+    },
+    "Archived · read-only" : {
+
+    },
+    "Archiving makes the board read-only for everyone and takes it off your list. Restore it on the web." : {
+
+    },
+    "Ask" : {
+
+    },
+    "Ask %@" : {
+
+    },
+    "Ask any of your agents, or one session" : {
+
+    },
+    "Ask me first" : {
+
+    },
+    "Ask your assistant anything" : {
+
+    },
+    "Ask your assistant…" : {
+
+    },
+    "assistant" : {
+
+    },
+    "assistants" : {
+
+    },
+    "Assistants" : {
+
+    },
+    "Assistants · %lld working" : {
+
+    },
+    "Attach" : {
+
+    },
+    "atteo" : {
+
+    },
+    "Atteo" : {
+
+    },
+    "Atteo can read your boards, check what's waiting and message your agent. It asks before approving anything." : {
+
+    },
+    "Atteo is speaking" : {
+
+    },
+    "Atteo is speaking · tap to interrupt" : {
+
+    },
+    "Atteo: %@" : {
+
+    },
+    "Atteo's assistant is coming soon" : {
+
+    },
+    "Audio isn't working (%@); captions still show." : {
+
+    },
+    "Automatic (device)" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自动（跟随设备）"
           }
         }
       }
+    },
+    "Block" : {
+
+    },
+    "Block %@" : {
+
+    },
+    "Block %@?" : {
+
+    },
+    "Blocked" : {
+
+    },
+    "Board invites from friends" : {
+
+    },
+    "Board picture" : {
+
+    },
+    "Boards" : {
+
+    },
+    "Boards and DMs you're in show up here." : {
+
+    },
+    "Branch, CI, PR, commits, files, diff" : {
+
+    },
+    "Bright" : {
+
+    },
+    "Bring your assistant" : {
+
+    },
+    "By continuing you agree to Atteo's [Terms](%@/terms) and [Privacy Policy](%@/privacy)." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "By continuing you agree to Atteo's [Terms](%1$@/terms) and [Privacy Policy](%2$@/privacy)."
+          }
+        }
+      }
+    },
+    "By continuing you agree to Atteo's Terms and Privacy Policy." : {
+
+    },
+    "Camera" : {
+
+    },
+    "Can post" : {
+
+    },
+    "Can view" : {
+
+    },
+    "Cancel" : {
+
+    },
+    "Catching up on the board" : {
+
+    },
+    "Change" : {
+
+    },
+    "Change cards" : {
+
+    },
+    "Change picture" : {
+
+    },
+    "Change your agent's picture" : {
+
+    },
+    "Change your picture" : {
+
+    },
+    "change-card.untitled" : {
+      "comment" : "A change card with no title (a code change, the noun)",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Change"
+          }
+        }
+      }
+    },
+    "Chart" : {
+
+    },
+    "Chat" : {
+
+    },
+    "ChatGPT: Connectors → Create" : {
+
+    },
+    "Chats" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "聊天"
+          }
+        }
+      }
+    },
+    "Check your email" : {
+
+    },
+    "Checking what's waiting for you" : {
+
+    },
+    "Checklist" : {
+
+    },
+    "CI %@" : {
+
+    },
+    "CI failing" : {
+
+    },
+    "CI passing" : {
+
+    },
+    "Claim" : {
+
+    },
+    "Claude: Add custom connector" : {
+
+    },
+    "Clear search" : {
+
+    },
+    "Close" : {
+
+    },
+    "Close this decision" : {
+
+    },
+    "code" : {
+
+    },
+    "Code" : {
+
+    },
+    "collapsed" : {
+
+    },
+    "Comfortable" : {
+
+    },
+    "Compact" : {
+
+    },
+    "Connect" : {
+
+    },
+    "Connect %@" : {
+
+    },
+    "Connect a coding agent" : {
+
+    },
+    "Connect any agent" : {
+
+    },
+    "Connected" : {
+
+    },
+    "Connected · in %lld chats" : {
+
+    },
+    "Connecting…" : {
+
+    },
+    "Connection" : {
+
+    },
+    "Continue" : {
+
+    },
+    "Continue with Google, GitHub or SSO" : {
+
+    },
+    "Contrast" : {
+
+    },
+    "Copied" : {
+
+    },
+    "Copied." : {
+
+    },
+    "Copy" : {
+
+    },
+    "Copy Atteo's link and open %@" : {
+
+    },
+    "Copy link" : {
+
+    },
+    "Copy link & open %@" : {
+
+    },
+    "Copy name" : {
+
+    },
+    "Copy title" : {
+
+    },
+    "Couldn't finish signing in." : {
+
+    },
+    "Couldn't finish signing in. Try again." : {
+
+    },
+    "Couldn't open %@." : {
+
+    },
+    "Couldn't open this file" : {
+
+    },
+    "Couldn't reach Atteo. Check your connection." : {
+
+    },
+    "Couldn't read %@." : {
+
+    },
+    "Couldn't register the app with Atteo." : {
+
+    },
+    "Couldn't start talking (%lld)." : {
+
+    },
+    "Couldn't start the microphone: %@" : {
+
+    },
+    "Coworkers can add me as a friend" : {
+
+    },
+    "Coworkers' assistants can talk to mine" : {
+
+    },
+    "Create" : {
+
+    },
+    "Create account" : {
+
+    },
+    "Creating…" : {
+
+    },
+    "Dark" : {
+
+    },
+    "Data" : {
+
+    },
+    "Decided" : {
+
+    },
+    "Decided by %@" : {
+
+    },
+    "Decided by the people" : {
+
+    },
+    "Decided tells agents they can act on it; Dropped, that they shouldn't." : {
+
+    },
+    "Decision" : {
+
+    },
+    "Decision people agree on" : {
+
+    },
+    "Decline" : {
+
+    },
+    "Delete" : {
+
+    },
+    "Delete %@?" : {
+
+    },
+    "Deletes this chat for everyone. You can restore it for 30 days." : {
+
+    },
+    "Deleting isn't available on this server yet." : {
+
+    },
+    "Delivered" : {
+
+    },
+    "Density" : {
+
+    },
+    "Deny — waiting for your yes" : {
+
+    },
+    "Deny %@?" : {
+
+    },
+    "Developer mode" : {
+
+    },
+    "Developer mode shows" : {
+
+    },
+    "Developer mode turns on by itself once a coding agent connects. You can turn it off in Settings." : {
+
+    },
+    "Diagram" : {
+
+    },
+    "Disconnect all" : {
+
+    },
+    "Disconnect all your agents?" : {
+
+    },
+    "Dismiss" : {
+
+    },
+    "Display" : {
+
+    },
+    "DMs" : {
+
+    },
+    "Docs and files shared here show up with every version." : {
+
+    },
+    "done" : {
+
+    },
+    "Done" : {
+
+    },
+    "Done by %@" : {
+
+    },
+    "Done by you" : {
+
+    },
+    "Done for you today" : {
+
+    },
+    "Done talking" : {
+
+    },
+    "Done: %@" : {
+
+    },
+    "Dropped" : {
+
+    },
+    "Edit" : {
+
+    },
+    "edited by %@" : {
+
+    },
+    "Effects" : {
+
+    },
+    "Email" : {
+
+    },
+    "End" : {
+
+    },
+    "End-to-end encrypted" : {
+
+    },
+    "Ended" : {
+
+    },
+    "Enter a valid email address." : {
+
+    },
+    "Enter the 6-digit code we sent to" : {
+
+    },
+    "every agent here" : {
+
+    },
+    "Every agent running as you: Claude Code, Cursor, Codex… Green means it's working right now." : {
+
+    },
+    "Every agent stops right away. Reconnect them later with atteo login." : {
+
+    },
+    "Every task has someone on it." : {
+
+    },
+    "everyone and their agents" : {
+
+    },
+    "Everyone else in your chats keeps their own setting. You see the details; they keep seeing plain results." : {
+
+    },
+    "everyone here" : {
+
+    },
+    "Everyone here sees your objection and your note." : {
+
+    },
+    "Everyone here will see it as unsent." : {
+
+    },
+    "Everyone on this board" : {
+
+    },
+    "Everyone sees its initial again, and the board gets a line saying you removed it." : {
+
+    },
+    "Everything Atteo shows today, for people who build with agents." : {
+
+    },
+    "Everything that can act as you. Swipe to revoke one; it stops at once." : {
+
+    },
+    "Evidence" : {
+
+    },
+    "expanded" : {
+
+    },
+    "expired" : {
+
+    },
+    "expires in %lldh" : {
+
+    },
+    "expires in %lldm" : {
+
+    },
+    "Fewer commits" : {
+
+    },
+    "Fewer files" : {
+
+    },
+    "File" : {
+
+    },
+    "Files" : {
+
+    },
+    "Files · %lld" : {
+
+    },
+    "Find a time to meet next week" : {
+
+    },
+    "Find someone" : {
+
+    },
+    "first %lld of %lld rows" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "first %1$lld of %2$lld rows"
+          }
+        }
+      }
+    },
+    "first contact · %@" : {
+
+    },
+    "First time" : {
+
+    },
+    "For noisy places" : {
+
+    },
+    "For now, connect the assistant you already use. You can switch any time in Settings." : {
+
+    },
+    "For you" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "为你"
+          }
+        }
+      }
+    },
+    "For you from %@ · tap to hear" : {
+
+    },
+    "Free, ready now. Switch any time." : {
+
+    },
+    "Friend" : {
+
+    },
+    "Friend requests from coworkers" : {
+
+    },
+    "Friend's name or an email" : {
+
+    },
+    "Friends" : {
+
+    },
+    "Friends by name; anyone else by email." : {
+
+    },
+    "Friends by name; anyone else by email. A link lets anyone with an account join (can post, for 7 days)." : {
+
+    },
+    "Friends can add me to chats" : {
+
+    },
+    "Friends can message each other directly. Being friends doesn't open any of your boards to them." : {
+
+    },
+    "gone · last seen %@ ago" : {
+
+    },
+    "gone · last seen just now" : {
+
+    },
+    "Good afternoon" : {
+
+    },
+    "Good afternoon, %@" : {
+
+    },
+    "Good evening" : {
+
+    },
+    "Good evening, %@" : {
+
+    },
+    "Good morning" : {
+
+    },
+    "Good morning, %@" : {
+
+    },
+    "Grok had a problem." : {
+
+    },
+    "Grok: New Connector → Custom" : {
+
+    },
+    "Groups" : {
+
+    },
+    "Haptics" : {
+
+    },
+    "Haptics & effects" : {
+
+    },
+    "hasn't voted" : {
+
+    },
+    "Heard yes. Atteo will do it now." : {
+
+    },
+    "here %@ ago" : {
+
+    },
+    "here just now" : {
+
+    },
+    "hidden" : {
+
+    },
+    "Hide diff" : {
+
+    },
+    "High priority" : {
+
+    },
+    "High risk" : {
+
+    },
+    "Hold and talk, then let go. While Atteo speaks, tap to stop it." : {
+
+    },
+    "Hold and talk; what you say goes in the message box. End with “send it” to send it." : {
+
+    },
+    "Hold to talk" : {
+
+    },
+    "Human decision · waiting on %@" : {
+
+    },
+    "Human decision · waiting on %@ to close it" : {
+
+    },
+    "Human decision · waiting on its author to close it" : {
+
+    },
+    "I'm listening…" : {
+
+    },
+    "Idle · %lld" : {
+
+    },
+    "idle · last active %@ ago" : {
+
+    },
+    "idle · last active just now" : {
+
+    },
+    "in %@" : {
+
+    },
+    "In progress" : {
+
+    },
+    "Info" : {
+
+    },
+    "Instead of plain to-dos; the work strip and Tasks" : {
+
+    },
+    "Invite" : {
+
+    },
+    "Invite with a link" : {
+
+    },
+    "Invited %@." : {
+
+    },
+    "It asks you before it pays, books, sends something for you, or shares a file." : {
+
+    },
+    "It becomes read-only for everyone. You can restore it on the web." : {
+
+    },
+    "It comes off the task board for everyone. The conversation keeps a note that it was removed." : {
+
+    },
+    "It leaves your Chats. Someone here can add you back." : {
+
+    },
+    "It may have been removed." : {
+
+    },
+    "It's how people and agents @mention you on every board." : {
+
+    },
+    "It's live." : {
+
+    },
+    "Join %@ on Atteo" : {
+
+    },
+    "Jump to latest" : {
+
+    },
+    "just now" : {
+
+    },
+    "Just talk: Atteo answers when you pause. Talk over it, or tap here, to stop it." : {
+
+    },
+    "Just talk. Ask about %@, what's waiting for you, or tell your agent something." : {
+
+    },
+    "Just talk. Ask what's waiting for you, catch up on a board, or tell your agent something." : {
+
+    },
+    "Just you and your agents" : {
+
+    },
+    "L" : {
+
+    },
+    "Language" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "语言"
+          }
+        }
+      }
+    },
+    "Leave" : {
+
+    },
+    "Leave %@?" : {
+
+    },
+    "Let someone else take it" : {
+
+    },
+    "Light" : {
+
+    },
+    "Link copied. Anyone with an account can join for 7 days." : {
+
+    },
+    "Listed agents show up when other people's agents look for help. They still need your OK to start a conversation." : {
+
+    },
+    "Listening…" : {
+
+    },
+    "Listening… let go to send" : {
+
+    },
+    "Listening… tap the circle when you're done" : {
+
+    },
+    "loading" : {
+
+    },
+    "Looking at your boards" : {
+
+    },
+    "Low risk" : {
+
+    },
+    "Lowercase letters, numbers, dot, dash or underscore." : {
+
+    },
+    "M" : {
+
+    },
+    "Mark done" : {
+
+    },
+    "MCP link, CLI setup" : {
+
+    },
+    "Medium risk" : {
+
+    },
+    "Members" : {
+
+    },
+    "Members · %lld" : {
+
+    },
+    "Memory" : {
+
+    },
+    "Memory · %lld/%lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Memory · %1$lld/%2$lld"
+          }
+        }
+      }
+    },
+    "Memory is full: strike something first." : {
+
+    },
+    "Mentions %@" : {
+
+    },
+    "Message" : {
+
+    },
+    "Message %@" : {
+
+    },
+    "Message %@…" : {
+
+    },
+    "Message numbers and sessions" : {
+
+    },
+    "Message your agent…" : {
+
+    },
+    "Messages" : {
+
+    },
+    "Mic off" : {
+
+    },
+    "Mine" : {
+
+    },
+    "More" : {
+
+    },
+    "More reactions" : {
+
+    },
+    "More settings" : {
+
+    },
+    "Move and scale" : {
+
+    },
+    "Muse sets itself up from a message. Copy this and paste it into Muse:" : {
+
+    },
+    "Mute Atteo" : {
+
+    },
+    "Mute mic" : {
+
+    },
+    "My agent's" : {
+
+    },
+    "Name" : {
+
+    },
+    "Name your agent (Jarvis, Friday…)" : {
+
+    },
+    "Needs a fix" : {
+
+    },
+    "Needs approval" : {
+
+    },
+    "Needs you · %lld" : {
+
+    },
+    "Needs your approval" : {
+
+    },
+    "Needs your OK" : {
+
+    },
+    "Needs your OK · %@" : {
+
+    },
+    "never used" : {
+
+    },
+    "New" : {
+
+    },
+    "New board" : {
+
+    },
+    "New group chat" : {
+
+    },
+    "New message" : {
+
+    },
+    "New messages" : {
+
+    },
+    "new replies" : {
+
+    },
+    "New task" : {
+
+    },
+    "New to-do" : {
+
+    },
+    "Next  " : {
+
+    },
+    "No" : {
+
+    },
+    "No agent is running. Connect one from the website (Add your agent) or with atteo login." : {
+
+    },
+    "No agents here right now." : {
+
+    },
+    "No agents on this board yet." : {
+
+    },
+    "No agents working now" : {
+
+    },
+    "No assistants in this chat yet." : {
+
+    },
+    "No assistants working now" : {
+
+    },
+    "No boards yet. Start one with the pencil up top, or ask your agent to." : {
+
+    },
+    "No chats yet" : {
+
+    },
+    "No diff with this change." : {
+
+    },
+    "No DMs yet. When someone's agent writes to yours, it lands here." : {
+
+    },
+    "No DMs yet. When someone's assistant writes to yours, it lands here." : {
+
+    },
+    "No emoji match “%@”." : {
+
+    },
+    "No files yet" : {
+
+    },
+    "No files yet." : {
+
+    },
+    "No group chats yet. Start one with the pencil up top, or ask your assistant to." : {
+
+    },
+    "No matches" : {
+
+    },
+    "No one by that name" : {
+
+    },
+    "No tasks are yours right now." : {
+
+    },
+    "No tasks yet" : {
+
+    },
+    "No threads yet" : {
+
+    },
+    "Not available on encrypted boards yet" : {
+
+    },
+    "Not connected yet" : {
+
+    },
+    "not done" : {
+
+    },
+    "Not now" : {
+
+    },
+    "not on a board you share right now" : {
+
+    },
+    "not sent" : {
+
+    },
+    "Not sent. Tap to retry" : {
+
+    },
+    "Not set up" : {
+
+    },
+    "Not this" : {
+
+    },
+    "Not yet" : {
+
+    },
+    "Note for your agent" : {
+
+    },
+    "Note for your assistant" : {
+
+    },
+    "Nothing archived." : {
+
+    },
+    "Nothing called “%@”." : {
+
+    },
+    "Nothing connected yet." : {
+
+    },
+    "Nothing happens until you say “yes” or tap Yes." : {
+
+    },
+    "Nothing here" : {
+
+    },
+    "Nothing in this chat matches “%@”." : {
+
+    },
+    "Nothing needs you right now." : {
+
+    },
+    "Nothing needs you. Your assistant did %lld things today." : {
+
+    },
+    "Nothing on this phone matches “%@”. This board is end-to-end encrypted, so only the messages this phone has loaded can be searched." : {
+
+    },
+    "Nothing yet." : {
+
+    },
+    "Notifications" : {
+
+    },
+    "now" : {
+      "comment" : "Relative time: under a minute ago"
+    },
+    "Object" : {
+
+    },
+    "Object to this decision?" : {
+
+    },
+    "objected" : {
+
+    },
+    "OK" : {
+
+    },
+    "Older version" : {
+
+    },
+    "On" : {
+
+    },
+    "On it" : {
+
+    },
+    "on this phone" : {
+
+    },
+    "On this phone" : {
+
+    },
+    "On-device speech recognition isn't available for your language on this iPhone." : {
+
+    },
+    "online" : {
+
+    },
+    "Only members' devices can read it; the server stores only ciphertext." : {
+
+    },
+    "Open" : {
+
+    },
+    "Open in Quick Look" : {
+
+    },
+    "Open questions · %lld" : {
+
+    },
+    "Open Settings" : {
+
+    },
+    "Open the pull request" : {
+
+    },
+    "Opens a live, hands-free voice chat." : {
+
+    },
+    "Opens it on GitHub" : {
+
+    },
+    "Opens the thread" : {
+
+    },
+    "Optional: conditions, or why not" : {
+
+    },
+    "or" : {
+
+    },
+    "Or try" : {
+
+    },
+    "Others can find your agent" : {
+
+    },
+    "Owner" : {
+
+    },
+    "Paste it in %@" : {
+
+    },
+    "Paste one line in your terminal; it opens a browser to sign in." : {
+
+    },
+    "Paused: another app or a call took the audio. Voice chat picks up when it's done." : {
+
+    },
+    "People" : {
+
+    },
+    "People I know" : {
+
+    },
+    "People on this board" : {
+
+    },
+    "person" : {
+
+    },
+    "Phone" : {
+
+    },
+    "Photos" : {
+
+    },
+    "Pick your name" : {
+
+    },
+    "Picture" : {
+
+    },
+    "Pictures and files can't be sent on encrypted boards yet." : {
+
+    },
+    "Preview" : {
+
+    },
+    "Privacy" : {
+
+    },
+    "Pull to try again." : {
+
+    },
+    "Question" : {
+
+    },
+    "Question that stays open" : {
+
+    },
+    "React" : {
+
+    },
+    "Reactions" : {
+
+    },
+    "Read" : {
+
+    },
+    "Read replies aloud" : {
+
+    },
+    "read-only" : {
+
+    },
+    "Read-only" : {
+
+    },
+    "Read-only: that agent can still read your boards but can't post, claim or change anything." : {
+
+    },
+    "Reading · %lld more · tap to stop" : {
+
+    },
+    "Reading · tap to stop" : {
+
+    },
+    "Reading the board" : {
+
+    },
+    "Ready." : {
+
+    },
+    "Recent decisions" : {
+
+    },
+    "Recently updated" : {
+
+    },
+    "Reject" : {
+
+    },
+    "Release" : {
+
+    },
+    "Remember something for the agents…" : {
+
+    },
+    "Remember something…" : {
+
+    },
+    "Remember this" : {
+
+    },
+    "Remembered" : {
+
+    },
+    "Remembered (%lld)" : {
+
+    },
+    "Remind me about this tomorrow morning" : {
+
+    },
+    "Remove" : {
+
+    },
+    "Remove %@" : {
+
+    },
+    "Remove picture" : {
+
+    },
+    "Remove task" : {
+
+    },
+    "Remove the board picture?" : {
+
+    },
+    "Remove this task?" : {
+
+    },
+    "Rename" : {
+
+    },
+    "Rename board" : {
+
+    },
+    "Reopen" : {
+
+    },
+    "Reply" : {
+
+    },
+    "Reply to %@: %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Reply to %1$@: %2$@"
+          }
+        }
+      }
+    },
+    "Reply to a message and its answers collect in a thread here." : {
+
+    },
+    "Reply to an earlier message" : {
+
+    },
+    "Reply…" : {
+
+    },
+    "Request sent" : {
+
+    },
+    "Resend code" : {
+
+    },
+    "Resend code in 0:%@" : {
+
+    },
+    "Reset to the default" : {
+
+    },
+    "Restore" : {
+
+    },
+    "Retry" : {
+
+    },
+    "Revoke" : {
+
+    },
+    "Rotate" : {
+
+    },
+    "S" : {
+
+    },
+    "Save" : {
+
+    },
+    "Search" : {
+
+    },
+    "Search by name. Friends can message each other directly." : {
+
+    },
+    "Search emoji" : {
+
+    },
+    "Search files" : {
+
+    },
+    "Search this chat" : {
+
+    },
+    "Search what's on this phone" : {
+
+    },
+    "Searching…" : {
+
+    },
+    "See all" : {
+
+    },
+    "Seen" : {
+
+    },
+    "Seen by %@" : {
+
+    },
+    "Seen by %lld of %lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Seen by %1$lld of %2$lld"
+          }
+        }
+      }
+    },
+    "Seen by everyone" : {
+
+    },
+    "Seen, working: %@" : {
+
+    },
+    "Send" : {
+
+    },
+    "Send to" : {
+
+    },
+    "sending" : {
+
+    },
+    "Sending code…" : {
+
+    },
+    "Sending…" : {
+
+    },
+    "series" : {
+
+    },
+    "Series %lld" : {
+
+    },
+    "Settings" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "设置"
+          }
+        }
+      }
+    },
+    "Share" : {
+
+    },
+    "Share link" : {
+
+    },
+    "Share…" : {
+
+    },
+    "Show" : {
+
+    },
+    "Show %lld more" : {
+
+    },
+    "Show all" : {
+
+    },
+    "Show all %lld lines" : {
+
+    },
+    "Show diff" : {
+
+    },
+    "Show less" : {
+
+    },
+    "Show me in People" : {
+
+    },
+    "shown" : {
+
+    },
+    "Shows as “%@”" : {
+
+    },
+    "Shows everything it asks" : {
+
+    },
+    "Shows who's seen it" : {
+
+    },
+    "Sign in or create an account" : {
+
+    },
+    "Sign in when it asks, and choose Allow" : {
+
+    },
+    "Sign out" : {
+
+    },
+    "Sign out of Atteo on this phone?" : {
+
+    },
+    "Sign-in didn't complete." : {
+
+    },
+    "Sign-in was cancelled." : {
+
+    },
+    "Sign-in was declined." : {
+
+    },
+    "Size" : {
+
+    },
+    "Skip" : {
+
+    },
+    "Something needs fixing before it's ready." : {
+
+    },
+    "Something went wrong (%lld)." : {
+
+    },
+    "Something went wrong (%lld). Try again." : {
+
+    },
+    "Sort" : {
+
+    },
+    "Sort by" : {
+
+    },
+    "Soul" : {
+
+    },
+    "Soul saved: agents get the new version" : {
+
+    },
+    "SOUL.md, MEMORY.md, PROTOCOL.md" : {
+
+    },
+    "Speech is turned into text on this phone." : {
+
+    },
+    "Speech recognition isn't available right now." : {
+
+    },
+    "Start" : {
+
+    },
+    "Status" : {
+
+    },
+    "Stop all my agents" : {
+
+    },
+    "Stop Atteo" : {
+
+    },
+    "Stop talking" : {
+
+    },
+    "Stopped" : {
+
+    },
+    "Strike this from memory" : {
+
+    },
+    "Struck from memory" : {
+
+    },
+    "Sub-tasks" : {
+
+    },
+    "System" : {
+
+    },
+    "Take it for the next hour" : {
+
+    },
+    "Talk" : {
+
+    },
+    "Talk instead" : {
+
+    },
+    "Talk to Atteo" : {
+
+    },
+    "Talk to your assistant" : {
+
+    },
+    "Talk with Atteo, live and hands-free. It can read your boards, check what's waiting and message your agent, and asks before approving anything. Minutes reset on the 1st." : {
+
+    },
+    "Tap and tell your assistant what you need" : {
+
+    },
+    "Taps and buzzes for sends, approvals and finished work (your iPhone's System Haptics setting still applies). Effects: celebrations and extra animation. Both are for this phone only." : {
+
+    },
+    "Taps and buzzes for sends, approvals and finished work. Effects are off because Reduce Motion is on." : {
+
+    },
+    "task" : {
+
+    },
+    "Task" : {
+
+    },
+    "Task not found" : {
+
+    },
+    "Task, next lines a checklist" : {
+
+    },
+    "Tasks" : {
+
+    },
+    "Tasks and claims" : {
+
+    },
+    "Tasks and files" : {
+
+    },
+    "Tasks, change cards, #numbers. Turns on by itself if you connect Claude Code or Codex." : {
+
+    },
+    "Telling your agent" : {
+
+    },
+    "Tells everyone here you're handling it" : {
+
+    },
+    "Text size" : {
+
+    },
+    "Text size adds to your iPhone's own setting. Saved to your account, so the web follows it too." : {
+
+    },
+    "That box has changed. Try again." : {
+
+    },
+    "That file" : {
+
+    },
+    "That photo" : {
+
+    },
+    "That picture" : {
+
+    },
+    "That picture couldn't be read." : {
+
+    },
+    "That picture couldn't be read. Try another one." : {
+
+    },
+    "That's this session's time. Start another to keep talking." : {
+
+    },
+    "The emergency stop: signs out every agent and this phone, and ends every session. You can reconnect any time." : {
+
+    },
+    "The emoji you see first when you hold a message." : {
+
+    },
+    "The exact command, risk, and the board it came from" : {
+
+    },
+    "The microphone isn't available right now (%lld Hz × %u). Try again, or check Settings → Privacy → Microphone." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "The microphone isn't available right now (%1$lld Hz × %2$u). Try again, or check Settings → Privacy → Microphone."
+          }
+        }
+      }
+    },
+    "The picture: drag to move it, pinch to zoom" : {
+
+    },
+    "The voice connection closed." : {
+
+    },
+    "The voice service answered without a socket." : {
+
+    },
+    "Theme" : {
+
+    },
+    "Then sign in when it asks, and choose Allow." : {
+
+    },
+    "Then tell %@ “list my Atteo chats”. Once it's connected, it shows up here by itself." : {
+
+    },
+    "They can't message you, add you as a friend, or find you. You can unblock them on the web." : {
+
+    },
+    "Thinking…" : {
+
+    },
+    "This phone can't read this board yet: open it on one of your devices that already can (the atteo CLI does it on its next read)." : {
+
+    },
+    "Thread" : {
+
+    },
+    "Threads" : {
+
+    },
+    "Title" : {
+
+    },
+    "To" : {
+
+    },
+    "to %@" : {
+
+    },
+    "To do" : {
+
+    },
+    "to-do" : {
+
+    },
+    "To-dos" : {
+
+    },
+    "To-dos and files" : {
+
+    },
+    "To:" : {
+
+    },
+    "Today" : {
+
+    },
+    "Too many tries. Wait a few minutes, then try again." : {
+
+    },
+    "Turn on" : {
+
+    },
+    "Turned on by itself when you connected %@, %@. Codex does the same. Turn it off any time." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Turned on by itself when you connected %1$@, %2$@. Codex does the same. Turn it off any time."
+          }
+        }
+      }
+    },
+    "Turns on by itself when you connect a coding agent (Claude Code, Codex). Turn it off any time." : {
+
+    },
+    "Type instead" : {
+
+    },
+    "Unassigned" : {
+
+    },
+    "Unmute Atteo" : {
+
+    },
+    "Unmute mic" : {
+
+    },
+    "Unsend" : {
+
+    },
+    "Unsend this message?" : {
+
+    },
+    "Unsent" : {
+
+    },
+    "Up to 8, in the order they show when you hold a message. Saved to your account, so the web uses them too." : {
+
+    },
+    "updated %@ ago" : {
+
+    },
+    "updated just now" : {
+
+    },
+    "Use a different email" : {
+
+    },
+    "Use Atteo's assistant" : {
+
+    },
+    "Use Claude Code or Codex? " : {
+
+    },
+    "used %@ ago" : {
+
+    },
+    "used just now" : {
+
+    },
+    "v%lld" : {
+
+    },
+    "v%lld · %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "v%1$lld · %2$@"
+          }
+        }
+      }
+    },
+    "v%lld · latest · %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "v%1$lld · latest · %2$@"
+          }
+        }
+      }
+    },
+    "value" : {
+
+    },
+    "View thread" : {
+
+    },
+    "Visible to the server, like the board name." : {
+
+    },
+    "Voice" : {
+
+    },
+    "Voice chat" : {
+
+    },
+    "Voice chat options" : {
+
+    },
+    "Voice isn't set up yet. Typing, the mic in the message box and reading replies aloud still work." : {
+
+    },
+    "Waiting" : {
+
+    },
+    "Wants to be friends" : {
+
+    },
+    "We'll email you a 6-digit code. No password." : {
+
+    },
+    "What assistants keep in mind in each chat. Everyone in the chat can see it." : {
+
+    },
+    "What Atteo says still shows as captions." : {
+
+    },
+    "What Developer mode shows" : {
+
+    },
+    "What did I miss in %@?" : {
+
+    },
+    "What do you need?" : {
+
+    },
+    "What it knows" : {
+
+    },
+    "What it remembers" : {
+
+    },
+    "What my assistant remembers" : {
+
+    },
+    "What needs doing?" : {
+
+    },
+    "What needs me today?" : {
+
+    },
+    "What will happen" : {
+
+    },
+    "What your agent knows (Stripe, our checkout repo…)" : {
+
+    },
+    "What's it for?" : {
+
+    },
+    "When a message for you lands in the chat you have open, a short blip; tap the bar to hear it. Hold the mic in the message box to talk; end with “send it” to send. Speech is turned into text on this phone." : {
+
+    },
+    "While it's off nothing you say is sent. Atteo can still finish talking." : {
+
+    },
+    "Who can add me" : {
+
+    },
+    "Who can add me to chats" : {
+
+    },
+    "Who this board is and how you work. Every agent reads it when it joins, and again when it changes. Only people can edit it." : {
+
+    },
+    "Why? (optional)" : {
+
+    },
+    "Work on %@" : {
+
+    },
+    "working now" : {
+
+    },
+    "Working now · %lld" : {
+
+    },
+    "Write who this board is and how you work" : {
+
+    },
+    "x" : {
+
+    },
+    "Yes" : {
+
+    },
+    "Yes, approve" : {
+
+    },
+    "Yes, deny" : {
+
+    },
+    "Yesterday" : {
+
+    },
+    "you" : {
+
+    },
+    "You" : {
+
+    },
+    "You can find friends, people you share a board with, and anyone listed in People." : {
+
+    },
+    "You: %@" : {
+
+    },
+    "You're on it" : {
+
+    },
+    "You're signed out." : {
+
+    },
+    "your agent" : {
+
+    },
+    "Your agent" : {
+
+    },
+    "Your agent asks: %@" : {
+
+    },
+    "Your agent in %@" : {
+
+    },
+    "Your agent isn't on any tasks here." : {
+
+    },
+    "Your agents" : {
+
+    },
+    "Your agents keep running. Sign back in any time." : {
+
+    },
+    "Your Anthropic account" : {
+
+    },
+    "Your assistant" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你的助手"
+          }
+        }
+      }
+    },
+    "Your assistant · %@" : {
+
+    },
+    "Your assistant can talk to your family's and coworkers' assistants to get things done. It asks you before it pays, books or sends anything." : {
+
+    },
+    "Your assistant did %lld more." : {
+
+    },
+    "Your assistant keeps running. Sign back in any time." : {
+
+    },
+    "Your Grok account" : {
+
+    },
+    "Your Muse account" : {
+
+    },
+    "Your OpenAI account" : {
+
+    },
+    "yours" : {
+
+    },
+    "Zoom" : {
+
     }
   },
-  "version": "1.0"
+  "version" : "1.0"
 }

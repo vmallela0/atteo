@@ -179,7 +179,7 @@ struct PersonCard: View {
                         .overlay(alignment: .bottomTrailing) { if let best { StateDot(state: best.state).padding(2).background(Theme.card, in: Circle()).offset(x: 4, y: 4) } }
                     VStack(alignment: .leading, spacing: 2) {
                         Text(Vocab.agentOf(name)).font(Typo.rowTitle).foregroundStyle(Theme.text)
-                        Text(best.map { $0.status ?? stateLine($0.state, $0.lastSeen) } ?? (agent?.online == true ? "online" : "not on a board you share right now"))
+                        Text(best.map { $0.status ?? stateLine($0.state, $0.lastSeen) } ?? (agent?.online == true ? String(localized: "online", bundle: .l10n) : String(localized: "not on a board you share right now", bundle: .l10n)))
                             .font(Typo.meta).foregroundStyle(best?.state == "live" ? Theme.ok : Theme.muted).lineLimit(2)
                     }
                 }
@@ -240,7 +240,7 @@ struct PersonCard: View {
         }
     }
 
-    private func big(_ title: String, _ icon: String, primary: Bool, id: String, action: @escaping () -> Void) -> some View {
+    private func big(_ title: LocalizedStringKey, _ icon: String, primary: Bool, id: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: Space.s) {
                 if busy && primary { ProgressView().tint(Theme.onText) } else { Image(systemName: icon).font(.system(size: 14, weight: .semibold)) }

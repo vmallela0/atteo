@@ -129,7 +129,8 @@ struct ChatsView: View {
                             .listRowInsets(rowInsets)
                     }
                     if chats.isEmpty && query.isEmpty && state.loaded {
-                        Text(tab == "direct" ? Vocab.pick("No DMs yet. When someone's agent writes to yours, it lands here.", "No DMs yet. When someone's assistant writes to yours, it lands here.") : Vocab.pick("No boards yet. Start one with the pencil up top, or ask your agent to.", "No group chats yet. Start one with the pencil up top, or ask your assistant to."))
+                        Text(tab == "direct" ? Vocab.pick(String(localized: "No DMs yet. When someone's agent writes to yours, it lands here.", bundle: .l10n), String(localized: "No DMs yet. When someone's assistant writes to yours, it lands here.", bundle: .l10n))
+                             : Vocab.pick(String(localized: "No boards yet. Start one with the pencil up top, or ask your agent to.", bundle: .l10n), String(localized: "No group chats yet. Start one with the pencil up top, or ask your assistant to.", bundle: .l10n)))
                             .font(Typo.secondary).foregroundStyle(Theme.faint)
                             .listRowInsets(rowInsets).listRowBackground(Theme.bg).listRowSeparator(.hidden)
                     }
@@ -207,7 +208,7 @@ struct ChatsView: View {
                     // Start something: a message to someone, or a new board.
                     Menu {
                         Button("New message", systemImage: "bubble.left") { compose = .message }
-                        Button(Vocab.pick("New board", "New group chat"), systemImage: "square.grid.2x2") { compose = .board }
+                        Button(Vocab.pick(String(localized: "New board", bundle: .l10n), String(localized: "New group chat", bundle: .l10n)), systemImage: "square.grid.2x2") { compose = .board }
                     } label: {
                         ToolbarIcon("square.and.pencil")
                     }
@@ -254,7 +255,7 @@ struct ChatsView: View {
             } message: { _ in Text("It leaves your Chats. Someone here can add you back.") }
             .confirmationDialog("Delete \(deleting?.title ?? "")?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }), titleVisibility: .visible, presenting: deleting) { b in
                 Button("Delete", role: .destructive) {
-                    Task { if await state.deleteBoard(b.id) == .unavailable { deleteMissingAt = Date().timeIntervalSince1970; state.report(APIError.server("Deleting isn't available on this server yet.")) } }
+                    Task { if await state.deleteBoard(b.id) == .unavailable { deleteMissingAt = Date().timeIntervalSince1970; state.report(APIError.server(String(localized: "Deleting isn't available on this server yet.", bundle: .l10n))) } }
                 }
             } message: { _ in Text("Deletes this chat for everyone. You can restore it for 30 days.") }
             .sheet(isPresented: $showArchived) { ArchivedChats().presentationDetents([.medium, .large]).presentationBackground(Theme.bg).environment(\.chatDensity, density) }
@@ -308,7 +309,7 @@ struct ChatsSwitch: View {
         HStack(spacing: Space.xs) {
             HStack(spacing: 0) {
                 item("boards", Vocab.boards, boards)
-                item("direct", "DMs", direct)
+                item("direct", String(localized: "DMs", bundle: .l10n), direct)
             }
             .padding(3)
             .background(Theme.card, in: Capsule())
@@ -361,7 +362,7 @@ struct ChatRow: View {
                     Spacer(minLength: Space.s)
                     if working > 0 {
                         Text("\(working) working").font(Typo.meta.weight(.medium)).foregroundStyle(Theme.ok)
-                            .accessibilityLabel("\(working) agent\(working == 1 ? "" : "s") working now")
+                            .accessibilityLabel("\(working) agents working now")
                     } else {
                         Text(b.lastActivity.ago).font(Typo.meta).foregroundStyle(unread > 0 ? Theme.accent : Theme.faint).monospacedDigit()
                     }
@@ -371,7 +372,7 @@ struct ChatRow: View {
                         if let l = b.last {
                             Text(Vocab.shown(l.by) + ": ").foregroundStyle(Theme.muted) + Text(l.text.md).foregroundStyle(unread > 0 ? Theme.muted : Theme.faint)
                         } else {
-                            Text(b.entryCount == 1 ? "1 message" : "\(b.entryCount) messages").foregroundStyle(Theme.faint)
+                            Text("\(b.entryCount) messages").foregroundStyle(Theme.faint)
                         }
                     }
                     .font(Typo.secondary).lineLimit(1)
@@ -427,6 +428,14 @@ struct ApprovalRow: View {
     @EnvironmentObject var state: AppState
     let a: Approval
     var open: (Approval) -> Void = { _ in } // tap the row for everything it asks (and a note back)
+    var riskLabel: String {
+        switch a.risk {
+        case "high": return String(localized: "High risk", bundle: .l10n)
+        case "medium": return String(localized: "Medium risk", bundle: .l10n)
+        case "low": return String(localized: "Low risk", bundle: .l10n)
+        default: return String(localized: "\(a.risk) risk", bundle: .l10n)
+        }
+    }
     var riskColor: Color { a.risk == "high" ? Theme.danger : a.risk == "medium" ? Theme.warn : Theme.ok }
 
     var body: some View {
@@ -434,7 +443,7 @@ struct ApprovalRow: View {
             NeedTile(symbol: a.risk == "high" ? "exclamationmark.shield.fill" : "checkmark.shield.fill", color: riskColor)
             VStack(alignment: .leading, spacing: Space.xxs) {
                 Text(a.title).font(Typo.rowTitle).foregroundStyle(Theme.text).lineLimit(1)
-                Text(a.details.isEmpty ? "\(a.risk) risk · \(a.createdAt.ago)" : a.details).font(Typo.secondary).foregroundStyle(Theme.muted).lineLimit(1)
+                Text(verbatim: a.details.isEmpty ? "\(riskLabel) · \(a.createdAt.ago)" : a.details).font(Typo.secondary).foregroundStyle(Theme.muted).lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
@@ -460,7 +469,7 @@ struct ContactRow: View {
             Avatar(name: c.from, agent: true, size: 44).accessibilityHidden(true)
             VStack(alignment: .leading, spacing: Space.xxs) {
                 Text("\(Vocab.agentOf(c.from)) wants to talk").font(Typo.rowTitle).foregroundStyle(Theme.text).lineLimit(1)
-                Text(c.text ?? "first contact · \(c.createdAt.ago)").font(Typo.secondary).foregroundStyle(Theme.muted).lineLimit(1)
+                (c.text.map { Text(verbatim: $0) } ?? Text("first contact · \(c.createdAt.ago)")).font(Typo.secondary).foregroundStyle(Theme.muted).lineLimit(1)
             }
             Spacer(minLength: 0)
             AnswerButtons(yes: { Haptics.play(.approved); Task { await state.answer(c, accept: true) } }, no: { Haptics.play(.denied); Task { await state.answer(c, accept: false) } }, yesColor: Theme.accent)

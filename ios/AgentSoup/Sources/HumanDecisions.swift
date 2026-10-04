@@ -24,13 +24,19 @@ struct HumanDecision: Codable, Hashable {
 
     /// "Human decision · waiting on jxn, you", "… waiting on you to close it", "Decided by you", "Dropped".
     func pill(me: String?) -> String {
-        let name = { (u: String) in u == me ? "you" : u }
+        let name = { (u: String) in u == me ? String(localized: "you", bundle: .l10n) : u }
         switch state {
         case "open":
-            if !waitingOn.isEmpty { return "Human decision · waiting on " + waitingOn.map(name).joined(separator: ", ") }
-            return "Human decision · waiting on \(author.map(name) ?? "its author") to close it"
-        case "decided": return "Decided " + (closedBy.map { "by \(name($0))" } ?? "by the people")
-        default: return "Dropped"
+            if !waitingOn.isEmpty {
+                let who = waitingOn.map(name).joined(separator: ", ")
+                return String(localized: "Human decision · waiting on \(who)", bundle: .l10n)
+            }
+            if let a = author.map(name) { return String(localized: "Human decision · waiting on \(a) to close it", bundle: .l10n) }
+            return String(localized: "Human decision · waiting on its author to close it", bundle: .l10n)
+        case "decided":
+            if let by = closedBy.map(name) { return String(localized: "Decided by \(by)", bundle: .l10n) }
+            return String(localized: "Decided by the people", bundle: .l10n)
+        default: return String(localized: "Dropped", bundle: .l10n)
         }
     }
 }
@@ -127,11 +133,11 @@ struct HumanDecisionCard: View {
                 }
             }
             ForEach(hd.votes.filter { $0.vote == "object" && !($0.note ?? "").isEmpty }, id: \.user) { v in
-                (Text(v.user == me ? "You" : v.user).fontWeight(.semibold) + Text(" object: " + (v.note ?? "")))
+                ((v.user == me ? Text("You") : Text(verbatim: v.user)).fontWeight(.semibold) + Text(String(localized: " object: \(v.note ?? "")", bundle: .l10n)))
                     .font(Typo.micro).foregroundStyle(Theme.muted).lineLimit(3)
             }
             if let n = hd.note, !n.isEmpty {
-                (Text((hd.closedBy ?? hd.author ?? "") == me ? "You" : (hd.closedBy ?? hd.author ?? "")).fontWeight(.semibold) + Text(": " + n))
+                (((hd.closedBy ?? hd.author ?? "") == me ? Text("You") : Text(verbatim: hd.closedBy ?? hd.author ?? "")).fontWeight(.semibold) + Text(verbatim: ": " + n))
                     .font(Typo.micro).foregroundStyle(Theme.muted).lineLimit(3)
             }
             if actions.agree != nil || actions.object != nil || actions.close != nil {
@@ -174,15 +180,15 @@ struct HumanDecisionCard: View {
                 }
             }
             .accessibilityElement()
-            .accessibilityLabel(u == me ? "You" : u)
-            .accessibilityValue(v.map { $0.vote == "agree" ? "agreed" : "objected" } ?? "hasn't voted")
+            .accessibilityLabel(u == me ? String(localized: "You", bundle: .l10n) : u)
+            .accessibilityValue(v.map { $0.vote == "agree" ? String(localized: "agreed", bundle: .l10n) : String(localized: "objected", bundle: .l10n) } ?? String(localized: "hasn't voted", bundle: .l10n))
             .accessibilityIdentifier("voter-\(u)")
     }
 }
 
 /// A small capsule button on a decision; filled when it's your vote.
 private struct DecisionButton: View {
-    let title: String
+    let title: LocalizedStringKey
     let icon: String
     let on: Bool
     let color: Color

@@ -29,8 +29,8 @@ enum AttachError: LocalizedError {
     case tooLarge(String), unreadable(String)
     var errorDescription: String? {
         switch self {
-        case .tooLarge(let n): return "\(n) is too large (max 1.5 MB)."
-        case .unreadable(let n): return "Couldn't read \(n)."
+        case .tooLarge(let n): return String(localized: "\(n) is too large (max 1.5 MB).", bundle: .l10n)
+        case .unreadable(let n): return String(localized: "Couldn't read \(n).", bundle: .l10n)
         }
     }
 }
@@ -75,7 +75,7 @@ enum Attachments {
     /// quality, then the size, down until it's under the limit.
     static func picture(_ data: Data, name: String?) async throws -> Attachment {
         try await Task.detached(priority: .userInitiated) { () throws -> Attachment in
-            let label = name ?? "That picture"
+            let label = name ?? String(localized: "That picture", bundle: .l10n)
             guard let src = CGImageSourceCreateWithData(data as CFData, nil) else { throw AttachError.unreadable(label) }
             let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any] ?? [:]
             let pw = props[kCGImagePropertyPixelWidth] as? Int ?? 0, ph = props[kCGImagePropertyPixelHeight] as? Int ?? 0
@@ -104,7 +104,7 @@ enum Attachments {
 
     /// A photo from the camera.
     static func photo(_ image: UIImage) async throws -> Attachment {
-        guard let jpeg = image.jpegData(compressionQuality: 0.95) else { throw AttachError.unreadable("That photo") }
+        guard let jpeg = image.jpegData(compressionQuality: 0.95) else { throw AttachError.unreadable(String(localized: "That photo", bundle: .l10n)) }
         return try await picture(jpeg, name: nil)
     }
 
@@ -176,7 +176,7 @@ final class MediaStore: @unchecked Sendable {
     /// A file on disk, for Quick Look: stored bytes (`media`), or a text file's content.
     func file(for e: Entry, board: String) async throws -> URL {
         if let local = e.local { return URL(fileURLWithPath: local) }
-        guard let name = e.artifactName else { throw AttachError.unreadable("That file") }
+        guard let name = e.artifactName else { throw AttachError.unreadable(String(localized: "That file", bundle: .l10n)) }
         let u = url(board: board, name: name, version: e.artifactVersion)
         if e.artifactVersion != nil, FileManager.default.fileExists(atPath: u.path) { return u }
         if e.media != nil {
@@ -327,8 +327,8 @@ struct ChatImage: View {
         .task(id: "\(e.seq)/\(e.artifactName ?? "")/\(e.artifactVersion ?? 0)") { await load() }
         .fullScreenCover(isPresented: $open) { ImageViewer(e: e, board: board) }
         .accessibilityElement()
-        .accessibilityLabel(e.artifactName ?? "Picture")
-        .accessibilityValue(sending ? "sending" : e.failed == true ? "not sent" : image == nil ? "loading" : e.local == nil ? "shown" : "on this phone")
+        .accessibilityLabel(e.artifactName.map { Text(verbatim: $0) } ?? Text("Picture"))
+        .accessibilityValue(sending ? Text("sending") : e.failed == true ? Text("not sent") : image == nil ? Text("loading") : e.local == nil ? Text("shown") : Text("on this phone"))
         .accessibilityAddTraits(.isImage)
         .accessibilityIdentifier("chat-image")
     }
@@ -371,7 +371,7 @@ struct FileChip: View {
     @State private var preview: URL?
 
     var body: some View {
-        let name = e.artifactName ?? "File"
+        let name = e.artifactName ?? String(localized: "File", bundle: .l10n)
         Button(action: open) {
             HStack(spacing: 10) {
                 ZStack {
@@ -424,7 +424,7 @@ struct ImageViewer: View {
                 })
                 .offset(y: drag)
                 .ignoresSafeArea()
-                .accessibilityLabel(e.artifactName ?? "Picture")
+                .accessibilityLabel(e.artifactName.map { Text(verbatim: $0) } ?? Text("Picture"))
                 .accessibilityIdentifier("image-viewer")
             } else {
                 ProgressView().tint(.white)

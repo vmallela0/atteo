@@ -63,7 +63,7 @@ extension AppState {
         do {
             try await API.shared.send("/api/boards/\(board)/soul", method: "PUT", body: ["text": text, "base_version": base], retries: false)
             Haptics.play(.completed)
-            say("Soul saved: agents get the new version")
+            say(String(localized: "Soul saved: agents get the new version", bundle: .l10n))
             return nil
         } catch {
             Haptics.play(.failed)
@@ -86,12 +86,12 @@ extension AppState {
             let d = try await API.shared.send("/api/boards/\(board)/memory", body: body, retries: false)
             let r = try? JSONDecoder.soup.decode(R.self, from: d)
             Haptics.play(.completed)
-            say(r?.duplicate == true ? "Already remembered" : "Remembered" + (r?.count.map { " (\($0))" } ?? ""))
+            say(r?.duplicate == true ? String(localized: "Already remembered", bundle: .l10n) : r?.count.map { String(localized: "Remembered (\($0))", bundle: .l10n) } ?? String(localized: "Remembered", bundle: .l10n))
             NotificationCenter.default.post(name: .memoryChanged, object: board)
             return true
         } catch APIError.server(let m) {
             Haptics.play(.failed)
-            error = m.localizedCaseInsensitiveContains("full") ? "Memory is full: strike something first." : m
+            error = m.localizedCaseInsensitiveContains("full") ? String(localized: "Memory is full: strike something first.", bundle: .l10n) : m
             return false
         } catch { report(error); return false }
     }
@@ -101,9 +101,16 @@ extension AppState {
         do {
             try await API.shared.send("/api/boards/\(board)/memory/\(item.id)", method: "DELETE", body: nil, retries: false)
             Haptics.play(.completed)
-            say("Struck from memory")
+            say(String(localized: "Struck from memory", bundle: .l10n))
             return true
         } catch { report(error); return false }
+    }
+}
+
+extension Double {
+    /// "just now", "5m ago": a time (ms) as a short phrase in the app's language.
+    var agoPhrase: String {
+        Date().timeIntervalSince1970 - self / 1000 < 60 ? String(localized: "just now", bundle: .l10n) : String(localized: "\(ago) ago", bundle: .l10n)
     }
 }
 
@@ -170,7 +177,7 @@ struct SoulMemorySections: View {
                             .lineLimit(expanded ? nil : 5)
                             .onTapGesture { withAnimation(.snappy) { expanded.toggle() } }
                             .accessibilityIdentifier("soul-text")
-                        Text(["v\(soul.version)", soul.updatedBy.map { "edited by \($0)" }, soul.updatedAt.map { $0.ago == "now" ? "just now" : "\($0.ago) ago" }].compactMap { $0 }.joined(separator: " · "))
+                        Text(verbatim: ["v\(soul.version)", soul.updatedBy.map { String(localized: "edited by \($0)", bundle: .l10n) }, soul.updatedAt.map(\.agoPhrase)].compactMap { $0 }.joined(separator: " · "))
                             .font(Typo.micro).foregroundStyle(Theme.faint)
                     }
                     if canEdit {
@@ -189,7 +196,7 @@ struct SoulMemorySections: View {
                         HStack(alignment: .firstTextBaseline, spacing: Space.s) {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(it.text).font(Typo.secondary).foregroundStyle(Theme.text)
-                                Text([it.who, it.from.map { "#\($0)" }, it.ts.ago == "now" ? "just now" : "\(it.ts.ago) ago"].compactMap { $0 }.joined(separator: " · "))
+                                Text(verbatim: [it.who, it.from.map { "#\($0)" }, it.ts.agoPhrase].compactMap { $0 }.joined(separator: " · "))
                                     .font(Typo.micro).foregroundStyle(Theme.faint)
                             }
                             Spacer(minLength: Space.s)
@@ -217,7 +224,7 @@ struct SoulMemorySections: View {
                             }
                         }
                     }
-                } header: { SectionHeader("Memory" + (memory.items.isEmpty ? "" : " · \(memory.items.count)/\(memory.max ?? 50)")) }
+                } header: { memory.items.isEmpty ? SectionHeader("Memory") : SectionHeader("Memory · \(memory.items.count)/\(memory.max ?? 50)") }
                 .listRowBackground(Theme.card)
             }
         }
@@ -324,7 +331,7 @@ enum EmojiCatalog {
 /// The full emoji picker behind "+": your favourites first, a search field, and every emoji in a grid.
 struct EmojiPicker: View {
     @EnvironmentObject var state: AppState
-    var title = "React"
+    var title: LocalizedStringKey = "React"
     let pick: (String) -> Void
     @State private var query = ""
 

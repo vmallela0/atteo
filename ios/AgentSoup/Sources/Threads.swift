@@ -82,7 +82,7 @@ extension String {
             guard let n = Int(ns.substring(with: m.range(at: 2))), let r = Range(m.range(at: 1), in: src), r.lowerBound >= cursor else { continue }
             if src[r].runs.contains(where: { $0.link != nil || $0.inlinePresentationIntent?.contains(.code) == true }) { continue }
             out += src[cursor..<r.lowerBound]
-            var chip = AttributedString("↗ " + (title(n) ?? "an earlier message"))
+            var chip = AttributedString("↗ " + (title(n) ?? String(localized: "an earlier message", bundle: .l10n)))
             chip.link = URL(string: "atteo-entry://\(n)")
             chip.foregroundColor = Theme.text
             chip.backgroundColor = Theme.raised
@@ -103,7 +103,7 @@ extension String {
         for m in Self.entryRE.matches(in: self, range: NSRange(location: 0, length: ns.length)) {
             guard let n = Int(ns.substring(with: m.range(at: 2))) else { continue }
             out += ns.substring(with: NSRange(location: cursor, length: m.range(at: 1).location - cursor))
-            out += "↗ " + (title(n) ?? "an earlier message")
+            out += "↗ " + (title(n) ?? String(localized: "an earlier message", bundle: .l10n))
             cursor = m.range(at: 1).location + m.range(at: 1).length
         }
         return out + ns.substring(from: cursor)
@@ -186,7 +186,7 @@ struct ThreadPreview: View {
                     ForEach(Array(who), id: \.seq) { r in Avatar(name: r.author, agent: r.byAgent, size: 18).padding(1).background(Theme.bg, in: Circle()) }
                 }
                 if unread { Circle().fill(Theme.accent).frame(width: 6, height: 6).accessibilityIdentifier("thread-unread") }
-                Text(n == 1 ? "1 reply" : "\(n) replies").font(Typo.micro.weight(.semibold)).foregroundStyle(unread ? Theme.accent : Theme.text.opacity(0.85))
+                Text("\(n) replies").font(Typo.micro.weight(.semibold)).foregroundStyle(unread ? Theme.accent : Theme.text.opacity(0.85))
                 if let last = replies.last { Text("· \(last.ts.ago)").font(Typo.micro).foregroundStyle(Theme.faint).monospacedDigit() }
                 Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold)).foregroundStyle(Theme.faint)
             }
@@ -196,7 +196,7 @@ struct ThreadPreview: View {
         }
         .buttonStyle(PressStyle())
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel((n == 1 ? "1 reply" : "\(n) replies") + (unread ? ", new" : ""))
+        .accessibilityLabel(unread ? String(localized: "\(n) replies, new", bundle: .l10n) : String(localized: "\(n) replies", bundle: .l10n))
         .accessibilityHint("Opens the thread")
         .accessibilityAddTraits(.isButton)
         .accessibilityIdentifier("replies-\(seq)")
@@ -267,17 +267,17 @@ struct ThreadsList: View {
             }
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline) {
-                    Text(t.rootEntry.map { $0.byAgent ? Vocab.agentOf($0.author) : $0.author } ?? "An earlier message")
+                    (t.rootEntry.map { Text(verbatim: $0.byAgent ? Vocab.agentOf($0.author) : $0.author) } ?? Text("An earlier message"))
                         .font(unread ? Typo.rowTitle : Typo.rowTitleRead).foregroundStyle(Theme.text).lineLimit(1)
                     Spacer(minLength: Space.s)
                     Text(t.last.ago).font(Typo.micro).foregroundStyle(unread ? Theme.accent : Theme.faint).monospacedDigit()
                 }
-                Text(t.rootEntry.map { ThreadPreview.line($0).plainRefs(refTitle.callAsFunction) } ?? "An earlier message").font(Typo.secondary).foregroundStyle(Theme.muted).lineLimit(2)
+                (t.rootEntry.map { Text(verbatim: ThreadPreview.line($0).plainRefs(refTitle.callAsFunction)) } ?? Text("An earlier message")).font(Typo.secondary).foregroundStyle(Theme.muted).lineLimit(2)
                 HStack(spacing: 6) {
                     HStack(spacing: -5) {
                         ForEach(Array(people), id: \.seq) { p in Avatar(name: p.author, agent: p.byAgent, size: 16).padding(1).background(Theme.card, in: Circle()) }
                     }
-                    Text(t.replies.count == 1 ? "1 reply" : "\(t.replies.count) replies").font(Typo.micro.weight(.semibold)).foregroundStyle(unread ? Theme.accent : Theme.faint)
+                    Text("\(t.replies.count) replies").font(Typo.micro.weight(.semibold)).foregroundStyle(unread ? Theme.accent : Theme.faint)
                 }
             }
         }
@@ -357,7 +357,7 @@ struct ThreadView: View {
                     ForEach(Array(list.enumerated()), id: \.element.id) { i, e in
                         if i == 1 {
                             HStack(spacing: Space.s) {
-                                Text(list.count == 2 ? "1 reply" : "\(list.count - 1) replies").font(Typo.micro.weight(.semibold)).foregroundStyle(Theme.faint)
+                                Text("\(list.count - 1) replies").font(Typo.micro.weight(.semibold)).foregroundStyle(Theme.faint)
                                     .accessibilityIdentifier("thread-count")
                                 Rectangle().fill(Theme.line).frame(height: 0.5)
                             }
@@ -493,7 +493,7 @@ struct ThreadView: View {
 
     /// The chat's own message box (jxn #1094): typing, "/", "@", pictures and files, send.
     private var composer: some View {
-        ChatComposer(board: board, draft: $draft, focused: $focused, placeholder: "Reply…", replyTo: answering ?? rootSeq,
+        ChatComposer(board: board, draft: $draft, focused: $focused, placeholder: String(localized: "Reply…", bundle: .l10n), replyTo: answering ?? rootSeq,
                      identifier: "thread-composer", sendIdentifier: "thread-send", attachIdentifier: "thread-attach") {
             answering = nil
             await load()

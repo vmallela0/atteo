@@ -5,9 +5,20 @@
 import SwiftUI
 
 extension WorkTask {
-    var statusLabel: String { ["todo": "To do", "doing": "In progress", "blocked": "Blocked", "done": "Done", "stopped": "Stopped"][status] ?? status }
+    var statusLabel: String { Self.statusName(status) }
+    /// A status in words ("doing" → "In progress"); an unknown one as the server wrote it.
+    static func statusName(_ status: String) -> String {
+        switch status {
+        case "todo": return String(localized: "To do", bundle: .l10n)
+        case "doing": return String(localized: "In progress", bundle: .l10n)
+        case "blocked": return String(localized: "Blocked", bundle: .l10n)
+        case "done": return String(localized: "Done", bundle: .l10n)
+        case "stopped": return String(localized: "Stopped", bundle: .l10n)
+        default: return status
+        }
+    }
     /// How far along its checklist is, in words: "2 of 4".
-    var progress: String? { checklist.map { "\($0.done) of \($0.total)" } }
+    var progress: String? { checklist.map { String(localized: "\($0.done) of \($0.total)", bundle: .l10n) } }
     /// One line under a task's title: where it stands (always first), who's on it, how far along.
     var caption: String {
         [statusLabel, who, progress].compactMap { $0 }.joined(separator: " · ")
@@ -97,7 +108,7 @@ struct WorkStrip: View {
                                 .font(Typo.meta.weight(.semibold)).lineLimit(1)
                         }
                         if let n = next.first {
-                            (Text("Next  ").foregroundStyle(Theme.faint) + Text(n.title).foregroundStyle(Theme.muted)).font(Typo.micro).lineLimit(1)
+                            (Text("Next  ").foregroundStyle(Theme.faint) + Text(verbatim: n.title).foregroundStyle(Theme.muted)).font(Typo.micro).lineLimit(1)
                         }
                     }
                     Spacer(minLength: Space.s)
@@ -116,7 +127,7 @@ struct WorkStrip: View {
     }
 
     private func summary(doing: Int, next: Int) -> String {
-        [doing > 0 ? "\(doing) active" : nil, next > 0 ? "\(next) next" : nil].compactMap { $0 }.joined(separator: " · ")
+        [doing > 0 ? String(localized: "\(doing) active", bundle: .l10n) : nil, next > 0 ? String(localized: "\(next) next", bundle: .l10n) : nil].compactMap { $0 }.joined(separator: " · ")
     }
 }
 
@@ -149,7 +160,7 @@ enum WorkPane: String, CaseIterable, Identifiable {
     case tasks = "Tasks", files = "Files"
     var id: String { rawValue }
     /// What it's called: Everyday says To-dos (Everyday.swift).
-    var label: String { self == .tasks ? Vocab.tasks : "Files" }
+    var label: String { self == .tasks ? Vocab.tasks : String(localized: "Files", bundle: .l10n) }
 }
 
 /// The board's work in one sheet: its tasks or its files, one segmented control apart (the control sits in the
@@ -193,7 +204,7 @@ struct TasksSheet: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     if pane == .tasks {
                         Button { newTask = true } label: { ToolbarIcon("plus") }
-                            .accessibilityLabel("New \(Vocab.task)")
+                            .accessibilityLabel(Vocab.pick(String(localized: "New task", bundle: .l10n), String(localized: "New to-do", bundle: .l10n)))
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() }.toolbarText(primary: true) }
@@ -209,6 +220,15 @@ struct TasksSheet: View {
 enum TaskFilter: String, CaseIterable, Identifiable {
     case all = "All", mine = "Mine", agent = "My agent's", unassigned = "Unassigned"
     var id: String { rawValue }
+    /// What the chip says (the raw value names its accessibility identifier).
+    var label: LocalizedStringKey {
+        switch self {
+        case .all: return "All"
+        case .mine: return "Mine"
+        case .agent: return "My agent's"
+        case .unassigned: return "Unassigned"
+        }
+    }
 
     func matches(_ t: WorkTask, me: String?) -> Bool {
         switch self {
@@ -227,7 +247,7 @@ enum TaskFilter: String, CaseIterable, Identifiable {
 enum TaskGroup: String, CaseIterable, Identifiable {
     case doing, open, done
     var id: String { rawValue }
-    var title: String { self == .doing ? "In progress" : self == .open ? "Open" : "Done" }
+    var title: String { self == .doing ? String(localized: "In progress", bundle: .l10n) : self == .open ? String(localized: "Open", bundle: .l10n) : String(localized: "Done", bundle: .l10n) }
     func holds(_ t: WorkTask) -> Bool { self == .doing ? t.status == "doing" : self == .done ? t.isDone : !(t.status == "doing" || t.isDone) }
     /// In progress: latest first. Open: blocked first, then by priority, oldest first. Done: latest first.
     func sort(_ a: WorkTask, _ b: WorkTask) -> Bool {
@@ -297,7 +317,7 @@ struct TasksPane: View {
         .animation(.smooth(duration: 0.25), value: collapsed)
     }
 
-    private var emptyLine: String {
+    private var emptyLine: LocalizedStringKey {
         switch filter {
         case .mine: return "No tasks are yours right now."
         case .agent: return "Your agent isn't on any tasks here."
@@ -331,7 +351,7 @@ struct TasksPane: View {
                     .rotationEffect(.degrees(shut ? 0 : 90))
                 GroupGlyph(group: g).frame(width: 12, height: 12)
                 Text(g.title).font(Typo.section).foregroundStyle(Theme.text)
-                Text("\(count)").font(Typo.section).foregroundStyle(Theme.faint).monospacedDigit()
+                Text(verbatim: "\(count)").font(Typo.section).foregroundStyle(Theme.faint).monospacedDigit()
                 Spacer()
             }
             .padding(.horizontal, Space.l).padding(.top, first ? 6 : 22).padding(.bottom, 6)
@@ -343,8 +363,8 @@ struct TasksPane: View {
         .listRowBackground(Theme.bg)
         .listRowSeparator(.hidden)
         .accessibilityIdentifier("group-\(g.rawValue)")
-        .accessibilityLabel("\(g.title), \(count) task\(count == 1 ? "" : "s")")
-        .accessibilityValue(shut ? "collapsed" : "expanded")
+        .accessibilityLabel(String(localized: "\(g.title), \(count) tasks", bundle: .l10n))
+        .accessibilityValue(shut ? Text("collapsed") : Text("expanded"))
     }
 
     /// The filters, in one row. (Not a horizontal ScrollView: right under the navigation bar, iOS 26's scroll-edge
@@ -355,8 +375,8 @@ struct TasksPane: View {
                     let n = all.filter { f.matches($0, me: me) && !$0.isDone }.count
                     Button { withAnimation(.snappy) { filter = f } } label: {
                         HStack(spacing: 5) {
-                            Text(f.rawValue)
-                            if f != .all && n > 0 { Text("\(n)").monospacedDigit().foregroundStyle(filter == f ? Theme.bg.opacity(0.6) : Theme.faint) }
+                            Text(f.label)
+                            if f != .all && n > 0 { Text(verbatim: "\(n)").monospacedDigit().foregroundStyle(filter == f ? Theme.bg.opacity(0.6) : Theme.faint) }
                         }
                         .font(Typo.meta.weight(.medium))
                         .foregroundStyle(filter == f ? Theme.bg : Theme.muted)
@@ -413,7 +433,7 @@ struct TaskListRow: View {
             if let k = task.children, k.total > 0, depth == 0, !kidsShown {
                 HStack(spacing: 2) {
                     Image(systemName: "arrow.turn.down.right").font(.system(size: 9, weight: .semibold))
-                    Text("\(k.done)/\(k.total)").monospacedDigit()
+                    Text(verbatim: "\(k.done)/\(k.total)").monospacedDigit()
                 }
                 .font(Typo.micro).foregroundStyle(Theme.faint)
                 .fixedSize()
@@ -428,7 +448,7 @@ struct TaskListRow: View {
 
 /// A tiny flag in a row's second line: "Blocked", "Needs approval".
 struct Tag: View {
-    let text: String
+    let text: LocalizedStringKey
     let icon: String
     let color: Color
     var body: some View {
@@ -500,7 +520,7 @@ struct ChecklistMeter: View {
                 Circle().trim(from: 0, to: p).stroke(full ? Theme.ok : Theme.muted, style: StrokeStyle(lineWidth: 2, lineCap: .round)).rotationEffect(.degrees(-90))
             }
             .frame(width: 11, height: 11)
-            Text("\(done)/\(total)").font(Typo.micro.weight(.medium)).monospacedDigit().foregroundStyle(full ? Theme.ok : Theme.muted)
+            Text(verbatim: "\(done)/\(total)").font(Typo.micro.weight(.medium)).monospacedDigit().foregroundStyle(full ? Theme.ok : Theme.muted)
         }
         .fixedSize()
         .animation(.smooth, value: done)
@@ -513,6 +533,16 @@ struct ChecklistMeter: View {
 struct OwnerAvatar: View {
     let task: WorkTask
     var size: CGFloat = 20
+    /// "theo's agent is on it", "theo", …
+    private func ownerLabel(_ o: (name: String, agent: Bool)) -> String {
+        let live = task.holder != nil && !task.isDone
+        switch (o.agent, live) {
+        case (true, true): return String(localized: "\(o.name)'s agent is on it", bundle: .l10n)
+        case (true, false): return String(localized: "\(o.name)'s agent", bundle: .l10n)
+        case (false, true): return String(localized: "\(o.name) is on it", bundle: .l10n)
+        case (false, false): return o.name
+        }
+    }
     var body: some View {
         if let o = task.owner {
             Avatar(name: o.name, agent: o.agent, size: size)
@@ -525,7 +555,7 @@ struct OwnerAvatar: View {
                     }
                 }
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel(task.holder != nil && !task.isDone ?"\(o.agent ? "\(o.name)'s agent" : o.name) is on it" : o.agent ? "\(o.name)'s agent" : o.name)
+                .accessibilityLabel(ownerLabel(o))
         } else {
             Circle().stroke(Theme.faint.opacity(0.7), style: StrokeStyle(lineWidth: 1, dash: [2, 2]))
                 .frame(width: size - 2, height: size - 2).frame(width: size, height: size)
@@ -544,19 +574,25 @@ struct RowPressStyle: ButtonStyle {
 /// A short, friendly empty state: a glyph, a line or two, one button.
 struct EmptyNote: View {
     let icon: String
-    let title: String
-    let line: String
-    var action: (String, () -> Void)? = nil
+    let title: Text
+    let line: Text?
+    var action: (Text, () -> Void)? = nil
+    init(icon: String, title: LocalizedStringKey, line: LocalizedStringKey, action: (LocalizedStringKey, () -> Void)? = nil) {
+        self.icon = icon
+        self.title = Text(title)
+        self.line = Text(line)
+        self.action = action.map { (Text($0.0), $0.1) }
+    }
     var body: some View {
         VStack(spacing: Space.s) {
             Image(systemName: icon).font(.system(size: 22, weight: .medium)).foregroundStyle(Theme.faint)
                 .frame(width: 48, height: 48).background(Theme.card, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 .padding(.bottom, Space.xs)
-            Text(title).font(Typo.rowTitle).foregroundStyle(Theme.text)
-            if !line.isEmpty { Text(line).font(Typo.meta).foregroundStyle(Theme.muted).multilineTextAlignment(.center) }
+            title.font(Typo.rowTitle).foregroundStyle(Theme.text)
+            if let line { line.font(Typo.meta).foregroundStyle(Theme.muted).multilineTextAlignment(.center) }
             if let action {
                 Button { action.1() } label: {
-                    Text(action.0).font(Typo.meta.weight(.semibold)).foregroundStyle(Theme.text)
+                    action.0.font(Typo.meta.weight(.semibold)).foregroundStyle(Theme.text)
                         .padding(.horizontal, 14).frame(height: 30).background(Theme.raised, in: Capsule())
                 }
                 .buttonStyle(PressStyle())
@@ -582,7 +618,7 @@ struct TaskSwipes: ViewModifier {
         content
             .swipeActions(edge: .leading) {
                 Button { Task { await state.setStatus(board, task, task.isDone ? "todo" : "done") } } label: {
-                    Label(task.isDone ? "Reopen" : "Done", systemImage: task.isDone ? "arrow.uturn.backward" : "checkmark")
+                    Label(task.isDone ? "Reopen" as LocalizedStringKey : "Done", systemImage: task.isDone ? "arrow.uturn.backward" : "checkmark")
                 }.tint(task.isDone ? Theme.faint : Theme.ok)
             }
             .swipeActions(edge: .trailing) {
@@ -604,11 +640,11 @@ struct TaskMenu: View {
         let mine = state.holding(task)
         Button("Open", systemImage: "arrow.up.right") { open() }
         if !task.isDone && (mine || task.holder == nil) {
-            Button(mine ? "Release" : "Claim", systemImage: mine ? "person.crop.circle.badge.minus" : "person.crop.circle.badge.plus") {
+            Button(mine ? "Release" as LocalizedStringKey : "Claim", systemImage: mine ? "person.crop.circle.badge.minus" : "person.crop.circle.badge.plus") {
                 Task { if mine { await state.release(board, task) } else { await state.claim(board, task) } }
             }
         }
-        Button(task.isDone ? "Reopen" : "Mark done", systemImage: task.isDone ? "arrow.uturn.backward" : "checkmark.circle") {
+        Button(task.isDone ? "Reopen" as LocalizedStringKey : "Mark done", systemImage: task.isDone ? "arrow.uturn.backward" : "checkmark.circle") {
             Task { await state.setStatus(board, task, task.isDone ? "todo" : "done") }
         }
         Menu {
@@ -690,7 +726,7 @@ struct TaskDetail: View {
                     }
                     checklist(task)
                     if !subs.isEmpty { subTasks(subs) }
-                    Text([task.author.map { "Added by \($0)" }, "updated \(task.updatedAt.ago == "now" ? "just now" : "\(task.updatedAt.ago) ago")"].compactMap { $0 }.joined(separator: " · ").capitalizedFirst)
+                    Text([task.author.map { String(localized: "Added by \($0)", bundle: .l10n) }, Date().timeIntervalSince1970 - task.updatedAt / 1000 < 60 ? String(localized: "updated just now", bundle: .l10n) : String(localized: "updated \(task.updatedAt.ago) ago", bundle: .l10n)].compactMap { $0 }.joined(separator: " · ").capitalizedFirst)
                         .font(Typo.micro).foregroundStyle(Theme.faint)
                         .padding(.top, Space.xl)
                 }
@@ -737,7 +773,7 @@ struct TaskDetail: View {
             VStack(alignment: .leading, spacing: Space.s) {
                 HStack(spacing: Space.s) {
                     Text("Checklist").font(Typo.section).foregroundStyle(Theme.muted)
-                    Text("\(done)/\(lines.count)").font(Typo.section).monospacedDigit().foregroundStyle(done == lines.count ? Theme.ok : Theme.faint)
+                    Text(verbatim: "\(done)/\(lines.count)").font(Typo.section).monospacedDigit().foregroundStyle(done == lines.count ? Theme.ok : Theme.faint)
                     Spacer()
                 }
                 GeometryReader { g in
@@ -767,7 +803,7 @@ struct TaskDetail: View {
                         .buttonStyle(RowPressStyle())
                         .animation(.spring(duration: 0.35, bounce: 0.4), value: ticked)
                         .accessibilityIdentifier("check-\(text)")
-                        .accessibilityValue(ticked ? "done" : "not done")
+                        .accessibilityValue(ticked ? Text("done") : Text("not done"))
                         if k < lines.count - 1 { Rectangle().fill(Theme.line).frame(height: 0.5).padding(.leading, 39) }
                     }
                 }
@@ -782,7 +818,7 @@ struct TaskDetail: View {
         VStack(alignment: .leading, spacing: Space.s) {
             HStack(spacing: Space.s) {
                 Text("Sub-tasks").font(Typo.section).foregroundStyle(Theme.muted)
-                Text("\(subs.filter(\.isDone).count)/\(subs.count)").font(Typo.section).monospacedDigit().foregroundStyle(Theme.faint)
+                Text(verbatim: "\(subs.filter(\.isDone).count)/\(subs.count)").font(Typo.section).monospacedDigit().foregroundStyle(Theme.faint)
             }
             VStack(spacing: 0) {
                 ForEach(Array(subs.enumerated()), id: \.element.id) { k, s in
@@ -816,7 +852,7 @@ struct TaskActionBar: View {
     @EnvironmentObject var state: AppState
     let task: WorkTask
     let board: String
-    static let statuses: [(key: String, label: String, icon: String)] = [("todo", "To do", "circle"), ("doing", "In progress", "circle.lefthalf.filled"), ("blocked", "Blocked", "exclamationmark.circle"), ("done", "Done", "checkmark.circle")]
+    static var statuses: [(key: String, label: String, icon: String)] { [("todo", "circle"), ("doing", "circle.lefthalf.filled"), ("blocked", "exclamationmark.circle"), ("done", "checkmark.circle")].map { ($0.0, WorkTask.statusName($0.0), $0.1) } }
 
     private var color: Color { task.status == "doing" ? Theme.accent : task.isDone ? Theme.ok : task.isBlocked ? Theme.warn : Theme.muted }
 
@@ -845,9 +881,9 @@ struct TaskActionBar: View {
             HStack(spacing: 6) {
                 OwnerAvatar(task: task, size: 18)
                 if task.holder != nil, !task.isDone {
-                    (Text(task.who ?? "") + Text(" is on it").foregroundStyle(Theme.muted)).font(Typo.meta.weight(.medium)).foregroundStyle(Theme.text).lineLimit(1)
+                    (Text(verbatim: task.who ?? "") + Text(" is on it").foregroundStyle(Theme.muted)).font(Typo.meta.weight(.medium)).foregroundStyle(Theme.text).lineLimit(1)
                 } else {
-                    Text(task.who ?? "Unassigned").font(Typo.meta.weight(.medium)).foregroundStyle(task.who == nil ? Theme.faint : Theme.text).lineLimit(1)
+                    (task.who.map { Text(verbatim: $0) } ?? Text("Unassigned")).font(Typo.meta.weight(.medium)).foregroundStyle(task.who == nil ? Theme.faint : Theme.text).lineLimit(1)
                 }
             }
             .padding(.leading, 6).padding(.trailing, 10).frame(height: 30)
@@ -864,14 +900,14 @@ struct TaskActionBar: View {
                 Button {
                     Task { if mine { await state.release(board, task) } else { await state.claim(board, task) } }
                 } label: {
-                    Text(mine ? "Release" : "Claim").font(Typo.meta.weight(.semibold))
+                    (mine ? Text("Release") : Text("Claim")).font(Typo.meta.weight(.semibold))
                         .padding(.horizontal, 11).frame(height: 30)
                         .background(mine ? Theme.raised : Theme.text, in: Capsule())
                         .foregroundStyle(mine ? Theme.text : Theme.bg)
                 }
                 .buttonStyle(PressStyle())
                 .accessibilityIdentifier("task-claim")
-                .accessibilityHint(mine ? "Let someone else take it" : "Take it for the next hour")
+                .accessibilityHint(mine ? Text("Let someone else take it") : Text("Take it for the next hour"))
             }
         }
     }
@@ -903,7 +939,7 @@ struct NewTaskSheet: View {
                     ForEach(items.indices, id: \.self) { i in
                         HStack(spacing: Space.s) {
                             Image(systemName: "circle").font(.system(size: 13)).foregroundStyle(Theme.faint)
-                            TextField(i == 0 ? "Add a step (optional)" : "Another step", text: $items[i])
+                            TextField(i == 0 ? "Add a step (optional)" as LocalizedStringKey : "Another step", text: $items[i])
                                 .font(Typo.secondary)
                                 .focused($focus, equals: i)
                                 .submitLabel(.next)

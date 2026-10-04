@@ -155,7 +155,7 @@ extension AppState {
         let store = BoardPictureStore.shared
         let old = boards.first { $0.id == boardId }?.picture
         let next: String? = jpeg.flatMap { store.standIn($0) }
-        if jpeg != nil && next == nil { return "That picture couldn't be read." }
+        if jpeg != nil && next == nil { return String(localized: "That picture couldn't be read.", bundle: .l10n) }
         store.pending[boardId] = .some(next)
         showPicture(boardId, next)
         let path = "/api/boards/\(boardId)/picture"

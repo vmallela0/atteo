@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "CFBundleDisplayName" : {
+      "comment" : "Bundle display name (the brand: never translated)",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Atteo"
+          }
+        }
+      },
+      "shouldTranslate" : false
+    },
+    "CFBundleName" : {
+      "comment" : "Bundle name",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Atteo"
+          }
+        }
+      },
+      "shouldTranslate" : false
+    },
+    "NSCameraUsageDescription" : {
+      "comment" : "Privacy - Camera Usage Description",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Take a photo to send in a chat."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Toma una foto para enviarla en un chat."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "写真を撮ってチャットに送信します。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "拍一张照片，发到聊天里。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "拍一張照片，傳到聊天裡。"
+          }
+        }
+      }
+    },
+    "NSMicrophoneUsageDescription" : {
+      "comment" : "Privacy - Microphone Usage Description",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hold the mic in the message box to talk instead of typing."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mantén pulsado el micrófono del cuadro de mensaje para hablar en lugar de escribir."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "メッセージ欄のマイクを長押しすると、入力の代わりに話せます。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "按住消息框里的麦克风，直接说话，不用打字。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "按住訊息框裡的麥克風，直接說話，不用打字。"
+          }
+        }
+      }
+    },
+    "NSSpeechRecognitionUsageDescription" : {
+      "comment" : "Privacy - Speech Recognition Usage Description",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "What you say is turned into text on this iPhone, for the message box."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lo que dices se convierte en texto en este iPhone, para el cuadro de mensaje."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "話した内容はこの iPhone 上で文字に変換され、メッセージ欄に入ります。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你说的话会在这台 iPhone 上转成文字，填进消息框。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你說的話會在這支 iPhone 上轉成文字，填進訊息框。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

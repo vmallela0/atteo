@@ -16,15 +16,15 @@ enum AssistantProvider: String, Identifiable, CaseIterable {
         case .muse: return "Muse"
         case .chatgpt: return "ChatGPT"
         case .claude: return "Claude"
-        case .coding: return "A coding agent"
+        case .coding: return String(localized: "A coding agent", bundle: .l10n)
         }
     }
     var account: String {
         switch self {
-        case .grok: return "Your Grok account"
-        case .muse: return "Your Muse account"
-        case .chatgpt: return "Your OpenAI account"
-        case .claude: return "Your Anthropic account"
+        case .grok: return String(localized: "Your Grok account", bundle: .l10n)
+        case .muse: return String(localized: "Your Muse account", bundle: .l10n)
+        case .chatgpt: return String(localized: "Your OpenAI account", bundle: .l10n)
+        case .claude: return String(localized: "Your Anthropic account", bundle: .l10n)
         case .coding: return "Claude Code, Codex"
         }
     }
@@ -40,9 +40,9 @@ enum AssistantProvider: String, Identifiable, CaseIterable {
     /// Where to paste the link (the one-tap providers), as the web says it.
     var page: (url: String, where: String)? {
         switch self {
-        case .grok: return ("https://grok.com/connectors", "Grok: New Connector → Custom")
-        case .chatgpt: return ("https://chatgpt.com/#settings/Connectors", "ChatGPT: Connectors → Create")
-        case .claude: return ("https://claude.ai/settings/connectors", "Claude: Add custom connector")
+        case .grok: return ("https://grok.com/connectors", String(localized: "Grok: New Connector → Custom", bundle: .l10n))
+        case .chatgpt: return ("https://chatgpt.com/#settings/Connectors", String(localized: "ChatGPT: Connectors → Create", bundle: .l10n))
+        case .claude: return ("https://claude.ai/settings/connectors", String(localized: "Claude: Add custom connector", bundle: .l10n))
         default: return nil
         }
     }
@@ -217,13 +217,13 @@ struct ConnectSteps: View {
                 .padding(Space.l)
             }
             .background(Theme.bg)
-            .navigationTitle("Connect \(provider == .coding ? "a coding agent" : provider.name)")
+            .navigationTitle(provider == .coding ? Text("Connect a coding agent") : Text("Connect \(provider.name)"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() }.toolbarText(primary: true) } }
         }
     }
 
-    private func step(_ n: Int, _ text: String) -> some View {
+    private func step(_ n: Int, _ text: LocalizedStringKey) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: Space.m) {
             Text("\(n)").font(Typo.meta.weight(.bold)).foregroundStyle(Theme.text)
                 .frame(width: 22, height: 22).background(Theme.card, in: Circle()).onFirstLine(6)
@@ -245,6 +245,6 @@ struct ConnectSteps: View {
     private func copy(_ t: String) {
         UIPasteboard.general.string = t
         Haptics.play(.copied)
-        withAnimation(.smooth) { copied = "Copied." }
+        withAnimation(.smooth) { copied = String(localized: "Copied.", bundle: .l10n) }
     }
 }

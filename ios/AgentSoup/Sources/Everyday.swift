@@ -105,20 +105,27 @@ enum Vocab {
     /// Mirrors AppMode (a plain flag, so free functions like agentLabel can read it).
     nonisolated(unsafe) static var everyday = false
 
-    static func pick(_ developer: String, _ everyday: String) -> String { Self.everyday ? everyday : developer }
+    /// The app's words for each mode, in the app's language (literals at the call site are the catalog's keys).
+    static func pick(_ developer: String.LocalizationValue, _ everyday: String.LocalizationValue) -> String {
+        String(localized: Self.everyday ? everyday : developer, bundle: .l10n)
+    }
+    /// Words already localized (or not words at all).
+    @_disfavoredOverload static func pick(_ developer: String, _ everyday: String) -> String { Self.everyday ? everyday : developer }
 
     /// "theo's agent" / "Theo's assistant".
-    static func agentOf(_ owner: String) -> String { everyday ? "\(owner.capitalizedFirst)'s assistant" : "\(owner)'s agent" }
+    static func agentOf(_ owner: String) -> String {
+        everyday ? String(localized: "\(owner.capitalizedFirst)'s assistant", bundle: .l10n) : String(localized: "\(owner)'s agent", bundle: .l10n)
+    }
     /// A name the server wrote ("theo's agent: …" in a chat's last line, a reaction's user): as Everyday says it.
     static func shown(_ serverName: String) -> String {
         everyday && serverName.hasSuffix("'s agent") ? agentOf(String(serverName.dropLast(8))) : serverName
     }
-    static var agent: String { pick("agent", "assistant") }
-    static var agents: String { pick("agents", "assistants") }
-    static var yourAgent: String { pick("Your agent", "Your assistant") }
-    static var tasks: String { pick("Tasks", "To-dos") }
-    static var task: String { pick("task", "to-do") }
-    static var boards: String { pick("Boards", "Groups") }
+    static var agent: String { pick(String(localized: "agent", bundle: .l10n), String(localized: "assistant", bundle: .l10n)) }
+    static var agents: String { pick(String(localized: "agents", bundle: .l10n), String(localized: "assistants", bundle: .l10n)) }
+    static var yourAgent: String { pick(String(localized: "Your agent", bundle: .l10n), String(localized: "Your assistant", bundle: .l10n)) }
+    static var tasks: String { pick(String(localized: "Tasks", bundle: .l10n), String(localized: "To-dos", bundle: .l10n)) }
+    static var task: String { pick(String(localized: "task", bundle: .l10n), String(localized: "to-do", bundle: .l10n)) }
+    static var boards: String { pick(String(localized: "Boards", bundle: .l10n), String(localized: "Groups", bundle: .l10n)) }
 }
 
 extension String {

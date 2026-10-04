@@ -147,7 +147,6 @@ final class TalkSession: ObservableObject {
         let approval: String
         let decision: String // approve | deny
         var confirmed = false
-        var verb: String { decision == "deny" ? "Deny" : "Approve" }
     }
 
     enum Phase: Equatable { case connecting, ready, ended }
@@ -221,7 +220,7 @@ final class TalkSession: ObservableObject {
         }
         guard code == 200, let sid = j["session_id"] as? String, let session = j["session"] as? [String: Any] else {
             if code == 503 { TalkStatus.shared.objectWillChange.send(); await TalkStatus.shared.load(force: true) }
-            finish(problem: j["error"] as? String ?? "Couldn't start talking (\(code)).")
+            finish(problem: j["error"] as? String ?? String(localized: "Couldn't start talking (\(code)).", bundle: .l10n))
             return
         }
         sessionId = sid
@@ -240,7 +239,7 @@ final class TalkSession: ObservableObject {
         if provider == "fake" { made = FakeGrokLink() }
         #endif
         if made == nil {
-            guard provider != "fake", let s = j["url"] as? String, let url = URL(string: s) else { finish(problem: "The voice service answered without a socket."); return }
+            guard provider != "fake", let s = j["url"] as? String, let url = URL(string: s) else { finish(problem: String(localized: "The voice service answered without a socket.", bundle: .l10n)); return }
             let secret = (j["token"] as? [String: Any])?["value"] as? String ?? ""
             made = WebSocketLink(url: url, protocols: j["protocols"] as? [String] ?? [], secret: secret)
         }
@@ -250,7 +249,7 @@ final class TalkSession: ObservableObject {
         audio.useMic = provider != "fake" // the fake never asks for the microphone (no permission prompt in tests) nor plays
         audio.events = { [weak self] e in self?.audioEvent(e) }
         if audio.useMic, !(await AVAudioApplication.requestRecordPermission()) {
-            problem = "Allow the microphone for Atteo in Settings to use voice chat. You can still read what Atteo says."
+            problem = String(localized: "Allow the microphone for Atteo in Settings to use voice chat. You can still read what Atteo says.", bundle: .l10n)
         }
         audio.onLevel = { [weak self] l in
             guard let self else { return }
@@ -259,7 +258,7 @@ final class TalkSession: ObservableObject {
         }
         // The fake stays silent (its "voice" is only timed): a simulator under test can hang starting audio I/O.
         if audio.useMic {
-            do { try audio.start() } catch { problem = "Audio isn't working (\(error.localizedDescription)); captions still show." }
+            do { try audio.start() } catch { problem = String(localized: "Audio isn't working (\(error.localizedDescription)); captions still show.", bundle: .l10n) }
         }
 
         self.session = session
@@ -270,7 +269,7 @@ final class TalkSession: ObservableObject {
         Haptics.play(.touch)
         reader = Task { [weak self] in
             for await e in link.events { self?.handle(e) }
-            self?.finish(problem: self?.ended == false ? "The voice connection closed." : nil)
+            self?.finish(problem: self?.ended == false ? String(localized: "The voice connection closed.", bundle: .l10n) : nil)
         }
         ticker = Task { [weak self] in
             while !Task.isCancelled {
@@ -287,7 +286,7 @@ final class TalkSession: ObservableObject {
         if s != speaking { speaking = s }
         // The VAD heard something that never became a turn (a cough, a door): don't sit on "Thinking…".
         if thinking, activeResponse == nil, toolsRunning == 0, let t = stoppedAt, Date().timeIntervalSince(t) > 8 { thinking = false; stoppedAt = nil }
-        if elapsed >= Double(maxSeconds) { finish(problem: "That's this session's time. Start another to keep talking.") }
+        if elapsed >= Double(maxSeconds) { finish(problem: String(localized: "That's this session's time. Start another to keep talking.", bundle: .l10n)) }
     }
 
     /// Ends it: the socket closes, the audio stops, and the minutes not used go back to the month.
@@ -314,7 +313,8 @@ final class TalkSession: ObservableObject {
             TalkStatus.shared.update(used: j["minutes_used"], budget: j["minutes_budget"])
             if let u = (j["minutes_used"] as? NSNumber)?.doubleValue, let b = (j["minutes_budget"] as? NSNumber)?.doubleValue {
                 monthLeft = max(0, b - u)
-                endNote = "\(Self.clock(seconds)) used · \(Int(max(0, b - u))) min left this month"
+                let clock = Self.clock(seconds), left = Int(max(0, b - u))
+                endNote = String(localized: "\(clock) used · \(left) min left this month", bundle: .l10n)
             }
         }
     }
@@ -521,10 +521,10 @@ final class TalkSession: ObservableObject {
             if let rid { cancelled.remove(rid) }
             activeResponse = nil
             thinking = toolsRunning > 0
-            if let y = youCaption, let i = captions.firstIndex(where: { $0.id == y }), captions[i].text == "…" { captions[i].text = "(spoke)"; youCaption = nil }
+            if let y = youCaption, let i = captions.firstIndex(where: { $0.id == y }), captions[i].text == "…" { captions[i].text = String(localized: "(spoke)", bundle: .l10n); youCaption = nil }
             if wantResponse { wantResponse = false; link?.send(["type": "response.create"]) }
         case "error":
-            let m = (e["error"] as? [String: Any])?["message"] as? String ?? "Grok had a problem."
+            let m = (e["error"] as? [String: Any])?["message"] as? String ?? String(localized: "Grok had a problem.", bundle: .l10n)
             // Cancelling with nothing to cancel is harmless; anything else is worth a line.
             if !m.lowercased().contains("cancel"), !m.lowercased().contains("truncat") { captions.append(Caption(id: "err-\(UUID().uuidString)", who: .note, text: m, done: true)) }
         default: break
@@ -581,12 +581,13 @@ final class TalkSession: ObservableObject {
 
     static func doing(_ name: String, _ a: [String: Any]) -> String {
         switch name {
-        case "post_to_my_agent": return "Telling your agent"
-        case "read_board": return "Reading the board"
-        case "mailbox_summary": return "Checking what's waiting for you"
-        case "recap": return "Catching up on the board"
-        case "answer_approval": return (a["decision"] as? String == "deny" ? "Deny" : "Approve") + " — waiting for your yes"
-        case "list_boards": return "Looking at your boards"
+        case "post_to_my_agent": return String(localized: "Telling your agent", bundle: .l10n)
+        case "read_board": return String(localized: "Reading the board", bundle: .l10n)
+        case "mailbox_summary": return String(localized: "Checking what's waiting for you", bundle: .l10n)
+        case "recap": return String(localized: "Catching up on the board", bundle: .l10n)
+        case "answer_approval":
+            return a["decision"] as? String == "deny" ? String(localized: "Deny — waiting for your yes", bundle: .l10n) : String(localized: "Approve — waiting for your yes", bundle: .l10n)
+        case "list_boards": return String(localized: "Looking at your boards", bundle: .l10n)
         default: return name
         }
     }
@@ -694,6 +695,8 @@ final class TalkSession: ObservableObject {
 
     // MARK: Audio
 
+    private static var pausedNote: String { String(localized: "Paused: another app or a call took the audio. Voice chat picks up when it's done.", bundle: .l10n) }
+
     private func audioEvent(_ e: TalkAudio.Event) {
         switch e {
         case .interrupted:
@@ -701,11 +704,11 @@ final class TalkSession: ObservableObject {
             audioUntil = .distantPast
             speaking = false
             hearing = false; level = 0
-            problem = "Paused: another app or a call took the audio. Voice chat picks up when it's done."
+            problem = Self.pausedNote
         case .resumed:
-            if problem?.hasPrefix("Paused") == true { problem = nil }
+            if problem == Self.pausedNote { problem = nil }
         case .failed(let m):
-            problem = "Audio isn't working (\(m)); captions still show."
+            problem = String(localized: "Audio isn't working (\(m)); captions still show.", bundle: .l10n)
         }
     }
 }

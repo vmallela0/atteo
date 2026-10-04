@@ -16,10 +16,12 @@ struct BoardView: View {
         var users: [String] = []
         for a in live where !users.contains(a.user) { users.append(a.user) }
         switch users.count {
-        case 0: return board.encrypted == true ? "End-to-end encrypted" : "No \(Vocab.agents) working now"
-        case 1: return "\(Vocab.agentOf(users[0])) working"
-        case 2: return Vocab.pick("\(users[0]) and \(users[1])'s agents working", "\(users[0].capitalizedFirst) and \(users[1].capitalizedFirst)'s assistants working")
-        default: return "\(users.count) \(Vocab.agents) working"
+        case 0:
+            if board.encrypted == true { return String(localized: "End-to-end encrypted", bundle: .l10n) }
+            return Vocab.pick(String(localized: "No agents working now", bundle: .l10n), String(localized: "No assistants working now", bundle: .l10n))
+        case 1: return Vocab.pick(String(localized: "\(users[0])'s agent working", bundle: .l10n), String(localized: "\(users[0].capitalizedFirst)'s assistant working", bundle: .l10n))
+        case 2: return Vocab.pick(String(localized: "\(users[0]) and \(users[1])'s agents working", bundle: .l10n), String(localized: "\(users[0].capitalizedFirst) and \(users[1].capitalizedFirst)'s assistants working", bundle: .l10n))
+        default: return Vocab.pick(String(localized: "\(users.count) agents working", bundle: .l10n), String(localized: "\(users.count) assistants working", bundle: .l10n))
         }
     }
     @State private var focused = false // the message box has the keyboard
@@ -109,7 +111,7 @@ struct BoardView: View {
                 }
                 .accessibilityIdentifier("threads")
                 .accessibilityLabel("Threads")
-                .accessibilityValue(anyUnreadThread ? "new replies" : "")
+                .accessibilityValue(anyUnreadThread ? Text("new replies") : Text(verbatim: ""))
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
@@ -117,7 +119,7 @@ struct BoardView: View {
                     Button("Files", systemImage: "doc.on.doc") { workPane = .files }
                 } label: { ToolbarIcon("square.stack") }
                 .accessibilityIdentifier("work-menu")
-                .accessibilityLabel("\(Vocab.tasks) and files")
+                .accessibilityLabel(Vocab.pick(String(localized: "Tasks and files", bundle: .l10n), String(localized: "To-dos and files", bundle: .l10n)))
             }
         }
         // A "#123" in a message: go to it (or open its thread, if it's an answer).
@@ -484,9 +486,10 @@ struct BoardView: View {
     private func receipt(for e: Entry) -> Receipt? {
         guard let who = readers(for: e) else { return nil }
         let seen = who.filter(\.seen)
-        if seen.isEmpty { return Receipt(text: "Delivered", level: 0, readers: who) }
-        if seen.count == who.count { return Receipt(text: "Seen by everyone", level: 2, readers: who) }
-        return Receipt(text: "Seen by " + seen.map(\.label).joined(separator: ", "), level: 1, readers: who)
+        if seen.isEmpty { return Receipt(text: String(localized: "Delivered", bundle: .l10n), level: 0, readers: who) }
+        if seen.count == who.count { return Receipt(text: String(localized: "Seen by everyone", bundle: .l10n), level: 2, readers: who) }
+        let names = seen.map(\.label).joined(separator: ", ")
+        return Receipt(text: String(localized: "Seen by \(names)", bundle: .l10n), level: 1, readers: who)
     }
 
     // MARK: - The message box
@@ -505,8 +508,9 @@ struct BoardView: View {
 
     /// "Message theo", "Message Checkout bug", "Message your agent…" / "Message builder…".
     private var placeholder: String {
-        if board.isAgentChat { return toSession.map { "Message \($0)…" } ?? "Message your agent…" }
-        return board.kind == "direct" ? "Message \(board.displayName(me: state.me?.owner))" : "Message \(board.title)"
+        if board.isAgentChat { return toSession.map { String(localized: "Message \($0)…", bundle: .l10n) } ?? String(localized: "Message your agent…", bundle: .l10n) }
+        let name = board.kind == "direct" ? board.displayName(me: state.me?.owner) : board.title
+        return String(localized: "Message \(name)", bundle: .l10n)
     }
 }
 
@@ -560,7 +564,7 @@ struct MentionList: View {
                         }
                         Text("@" + m.handle).font(Typo.secondary.weight(.medium)).foregroundStyle(Theme.text)
                         Spacer(minLength: Space.s)
-                        Text(m.note ?? (m.user == nil ? (m.agent ? "every agent here" : "everyone here") : (m.agent ? "agent" : "person"))).font(Typo.micro).foregroundStyle(Theme.faint).lineLimit(1)
+                        (m.note.map { Text(verbatim: $0) } ?? (m.user == nil ? (m.agent ? Text("every agent here") : Text("everyone here")) : (m.agent ? Text("agent") : Text("person")))).font(Typo.micro).foregroundStyle(Theme.faint).lineLimit(1)
                     }
                     .padding(.horizontal, Space.m).frame(minHeight: 40)
                     .contentShape(Rectangle())
@@ -735,14 +739,14 @@ struct EntryRow: View {
     /// Tap: the thread, on this reply (in a thread: scrolls to what it answers). Numbers read as titles (#675).
     @ViewBuilder private var quote: some View {
         if e.replyTo != nil {
-            let name = parent.map { $0.byAgent ? Vocab.agentOf($0.author) : ($0.author == me && $0.via != "agent" ? "You" : $0.author) }
-            let line = parent.map { ThreadPreview.line($0).plainRefs(refTitle.callAsFunction) } ?? "an earlier message"
+            let name = parent.map { $0.byAgent ? Vocab.agentOf($0.author) : ($0.author == me && $0.via != "agent" ? String(localized: "You", bundle: .l10n) : $0.author) }
+            let line = parent.map { ThreadPreview.line($0).plainRefs(refTitle.callAsFunction) } ?? ""
             Button { actions.jumpToParent?() } label: {
                 HStack(spacing: 0) {
                     RoundedRectangle(cornerRadius: 1.5, style: .continuous).fill(Theme.faint.opacity(0.7)).frame(width: 3)
                     HStack(alignment: .firstTextBaseline, spacing: 5) {
                         Image(systemName: "arrow.turn.up.left").font(.system(size: 9, weight: .bold)).foregroundStyle(Theme.faint)
-                        (Text(name ?? "An earlier message").fontWeight(.semibold).foregroundColor(Theme.text.opacity(0.9)) + Text(name == nil ? "" : ": " + line))
+                        ((name.map { Text(verbatim: $0) } ?? Text("An earlier message")).fontWeight(.semibold).foregroundColor(Theme.text.opacity(0.9)) + Text(verbatim: name == nil ? "" : ": " + line))
                             .font(Typo.micro).foregroundStyle(Theme.muted).lineLimit(1)
                     }
                     .padding(.leading, 7).padding(.trailing, 10).padding(.vertical, 4)
@@ -755,7 +759,7 @@ struct EntryRow: View {
             .disabled(actions.jumpToParent == nil)
             .padding(.vertical, 1)
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Reply to \(name ?? "an earlier message")" + (name == nil ? "" : ": " + line))
+            .accessibilityLabel(name.map { String(localized: "Reply to \($0): \(line)", bundle: .l10n) } ?? String(localized: "Reply to an earlier message", bundle: .l10n))
             .accessibilityAddTraits(.isButton)
             .accessibilityIdentifier("reply-quote")
             .accessibilityHint("Opens the thread")
@@ -766,6 +770,11 @@ struct EntryRow: View {
     private var kind: String? {
         switch e.type {
         case "note", "task", "artifact", "change": return nil // a file, a task, a change: each shows as itself
+        case "question": return String(localized: "Question", bundle: .l10n)
+        case "claim": return String(localized: "Claim", bundle: .l10n)
+        case "decision": return String(localized: "Decision", bundle: .l10n)
+        case "approval": return String(localized: "Approval", bundle: .l10n)
+        case "evidence": return String(localized: "Evidence", bundle: .l10n)
         default: return e.type.prefix(1).uppercased() + e.type.dropFirst()
         }
     }
@@ -918,7 +927,7 @@ struct DaySeparator: View {
     let ts: Double
     var body: some View {
         let d = Date(timeIntervalSince1970: ts / 1000)
-        let label = Calendar.current.isDateInToday(d) ? "Today" : Calendar.current.isDateInYesterday(d) ? "Yesterday" : d.formatted(.dateTime.weekday(.wide).month(.abbreviated).day())
+        let label = Calendar.current.isDateInToday(d) ? String(localized: "Today", bundle: .l10n) : Calendar.current.isDateInYesterday(d) ? String(localized: "Yesterday", bundle: .l10n) : d.formatted(.dateTime.weekday(.wide).month(.abbreviated).day())
         Text(label).font(Typo.micro.weight(.semibold)).foregroundStyle(Theme.faint)
             .frame(maxWidth: .infinity).padding(.top, Space.l).padding(.bottom, Space.xxs)
     }
@@ -966,7 +975,7 @@ struct TaskCard: View {
                     VStack(alignment: .leading, spacing: Space.xxs) {
                         Text((t?.title ?? String(text.split(separator: "\n").first ?? Substring(text))).md)
                             .font(Typo.secondary.weight(.semibold)).foregroundStyle(t?.status == "done" ? Theme.muted : Theme.text).lineLimit(2)
-                        Text(t.map { $0.caption } ?? "Task").font(Typo.micro).foregroundStyle(Theme.faint).lineLimit(1)
+                        (t.map { Text(verbatim: $0.caption) } ?? Text("Task")).font(Typo.micro).foregroundStyle(Theme.faint).lineLimit(1)
                     }
                     Spacer(minLength: 0)
                 }
@@ -1028,11 +1037,16 @@ struct StateDot: View {
     }
 }
 
+/// Under a minute ago (what `ago` calls "now").
+private func justNow(_ ms: Double) -> Bool { Date().timeIntervalSince1970 - ms / 1000 < 60 }
+
 func stateLine(_ state: String?, _ lastSeen: Double) -> String {
     switch state {
-    case "live": return "working now"
-    case "idle": return "idle · last active \(lastSeen.ago) ago".replacingOccurrences(of: "now ago", with: "just now")
-    default: return "gone · last seen \(lastSeen.ago) ago".replacingOccurrences(of: "now ago", with: "just now")
+    case "live": return String(localized: "working now", bundle: .l10n)
+    case "idle":
+        return justNow(lastSeen) ? String(localized: "idle · last active just now", bundle: .l10n) : String(localized: "idle · last active \(lastSeen.ago) ago", bundle: .l10n)
+    default:
+        return justNow(lastSeen) ? String(localized: "gone · last seen just now", bundle: .l10n) : String(localized: "gone · last seen \(lastSeen.ago) ago", bundle: .l10n)
     }
 }
 
@@ -1050,7 +1064,7 @@ struct ReactionLine: View {
                     Text(receipt ? names(r.users) : "\(r.users.count)").font(.caption2).foregroundStyle(r.emoji == "✅" ? Theme.ok : Theme.faint).lineLimit(1)
                 }
                 .accessibilityElement(children: .combine)
-                .accessibilityLabel(receipt ? "\(r.emoji == "✅" ? "Done" : "Seen, working"): \(names(r.users))" : "\(r.emoji) \(r.users.count)")
+                .accessibilityLabel(receipt ? (r.emoji == "✅" ? String(localized: "Done: \(names(r.users))", bundle: .l10n) : String(localized: "Seen, working: \(names(r.users))", bundle: .l10n)) : "\(r.emoji) \(r.users.count)")
             }
         }
         .frame(maxWidth: .infinity, alignment: trailing ? .trailing : .leading)
@@ -1060,6 +1074,6 @@ struct ReactionLine: View {
     private func names(_ users: [String]) -> String {
         // Everyday: "Theo's assistant" for the server's "theo's agent" (display only).
         let shown = users.map(Vocab.shown)
-        return shown.count <= 2 ? shown.joined(separator: ", ") : "\(shown[0]) and \(shown.count - 1) more"
+        return shown.count <= 2 ? shown.joined(separator: ", ") : String(localized: "\(shown[0]) and \(shown.count - 1) more", bundle: .l10n)
     }
 }

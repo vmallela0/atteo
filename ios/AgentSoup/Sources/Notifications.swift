@@ -62,8 +62,8 @@ final class Notifier: NSObject, ObservableObject, UNUserNotificationCenterDelega
         let center = UNUserNotificationCenter.current()
         for a in approvals where !seen.contains("a\(a.id)") {
             let c = UNMutableNotificationContent()
-            c.title = "Your agent asks: \(a.title)"
-            c.body = a.details.isEmpty ? "Approve or deny in Atteo." : String(a.details.prefix(180))
+            c.title = String(localized: "Your agent asks: \(a.title)", bundle: .l10n)
+            c.body = a.details.isEmpty ? String(localized: "Approve or deny in Atteo.", bundle: .l10n) : String(a.details.prefix(180))
             c.sound = .default
             c.userInfo = a.boardId.map { ["board": $0] } ?? [:]
             c.threadIdentifier = "approvals"
@@ -71,8 +71,8 @@ final class Notifier: NSObject, ObservableObject, UNUserNotificationCenterDelega
         }
         for i in inbox where i.readAt == nil && !seen.contains("i\(i.id)") && Self.worthIt(i.kind) {
             let c = UNMutableNotificationContent()
-            let who = i.kind == "approval" ? "Your agent" : i.actorVia == "agent" ? "\(i.actor)'s agent" : i.actor
-            c.title = who + (i.boardTitle.map { " in \($0)" } ?? "")
+            let who = i.kind == "approval" ? String(localized: "Your agent", bundle: .l10n) : i.actorVia == "agent" ? String(localized: "\(i.actor)'s agent", bundle: .l10n) : i.actor
+            c.title = i.boardTitle.map { String(localized: "\(who) in \($0)", bundle: .l10n, comment: "Notification title: who wrote, in which board") } ?? who
             c.body = String(i.excerpt.prefix(180))
             c.sound = .default
             c.userInfo = i.boardId.isEmpty ? [:] : ["board": i.boardId, "seq": i.seq]

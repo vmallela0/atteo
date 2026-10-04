@@ -49,7 +49,7 @@ struct ChangeView {
         let version = head.firstMatch(of: /\(([^)]{1,40})\)/).map { String($0.1) }
         var title = e.title?.trimmingCharacters(in: .whitespaces).nilIfEmpty
             ?? head.replacing(/\s*\([^)]*\)/, with: "").replacing(/:\s*\d+\s+commits?\s*$/, with: "").trimmingCharacters(in: .whitespaces)
-        if title.isEmpty { title = "Change" }
+        if title.isEmpty { title = String(localized: "change-card.untitled", defaultValue: "Change", bundle: .l10n, comment: "A change card with no title (a code change, the noun)") }
         self.title = title
         if let version { chip = version } else if let c = card { chip = c.base.map { "\(c.branch) → \($0)" } ?? c.branch } else { chip = nil }
         self.card = card
@@ -131,7 +131,7 @@ struct ChangeCardView: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("change-card")
         .accessibilityValue(v.card?.link?.absoluteString ?? "")
-        .accessibilityHint(v.card?.link == nil ? "" : "Opens it on GitHub")
+        .accessibilityHint(v.card?.link == nil ? Text(verbatim: "") : Text("Opens it on GitHub"))
     }
 
     private func header(_ v: ChangeView) -> some View {
@@ -149,7 +149,7 @@ struct ChangeCardView: View {
             Spacer(minLength: 0)
             if let ci = v.card?.ci, ci != "none" {
                 Circle().fill(ci == "passing" ? Theme.ok : ci == "failing" ? Theme.danger : Theme.warn).frame(width: 7, height: 7)
-                    .accessibilityLabel("CI \(ci)")
+                    .accessibilityLabel(ci == "passing" ? Text("CI passing") : ci == "failing" ? Text("CI failing") : Text("CI \(ci)"))
             }
             if let pr = v.card?.prUrl, let url = URL(string: pr) {
                 Link(destination: url) { Image(systemName: "arrow.up.right.square").font(.system(size: 14)).foregroundStyle(Theme.muted) }
@@ -161,11 +161,11 @@ struct ChangeCardView: View {
     /// "3 commits · 5 files  +120 −30".
     private func stats(_ c: ChangeCardData) -> some View {
         HStack(spacing: 6) {
-            Text([c.commits.isEmpty ? nil : "\(c.commits.count) commit\(c.commits.count == 1 ? "" : "s")", c.files.isEmpty ? nil : "\(c.files.count) file\(c.files.count == 1 ? "" : "s")"].compactMap { $0 }.joined(separator: " · "))
+            Text([c.commits.isEmpty ? nil : String(localized: "\(c.commits.count) commits", bundle: .l10n), c.files.isEmpty ? nil : String(localized: "\(c.files.count) files", bundle: .l10n)].compactMap { $0 }.joined(separator: " · "))
                 .foregroundStyle(Theme.muted)
             if !c.files.isEmpty {
-                Text("+\(c.added)").foregroundStyle(Self.added)
-                Text("−\(c.removed)").foregroundStyle(Self.removed)
+                Text(verbatim: "+\(c.added)").foregroundStyle(Self.added)
+                Text(verbatim: "−\(c.removed)").foregroundStyle(Self.removed)
             }
         }
         .font(Typo.micro.weight(.medium)).monospacedDigit()
@@ -195,8 +195,8 @@ struct ChangeCardView: View {
                         Text(f.path).font(.system(.caption2, design: .monospaced)).foregroundStyle(Theme.muted).lineLimit(1).truncationMode(.head)
                         Spacer(minLength: Space.xs)
                         HStack(spacing: 3) {
-                            Text("+\(f.added)").foregroundStyle(Self.added)
-                            Text("−\(f.removed)").foregroundStyle(Self.removed)
+                            Text(verbatim: "+\(f.added)").foregroundStyle(Self.added)
+                            Text(verbatim: "−\(f.removed)").foregroundStyle(Self.removed)
                         }
                         .font(.system(.caption2, design: .monospaced)).fixedSize()
                         bar(f.added, f.removed)
@@ -221,7 +221,7 @@ struct ChangeCardView: View {
         .accessibilityHidden(true)
     }
 
-    private func more(_ label: String, _ action: @escaping () -> Void) -> some View {
+    private func more(_ label: LocalizedStringKey, _ action: @escaping () -> Void) -> some View {
         Button { withAnimation(.snappy) { action() } } label: { Text(label).font(Typo.micro.weight(.semibold)).foregroundStyle(Theme.muted) }
             .buttonStyle(.plain)
     }
@@ -239,7 +239,7 @@ struct ChangeCardView: View {
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: showDiff ? "chevron.down" : "chevron.right").font(.system(size: 9, weight: .bold))
-                        Text(showDiff ? "Hide diff" : "Show diff").font(Typo.micro.weight(.semibold))
+                        (showDiff ? Text("Hide diff") : Text("Show diff")).font(Typo.micro.weight(.semibold))
                         if loading { ProgressView().controlSize(.mini).tint(Theme.faint) }
                     }
                     .foregroundStyle(Theme.muted).frame(minHeight: 28).contentShape(Rectangle())

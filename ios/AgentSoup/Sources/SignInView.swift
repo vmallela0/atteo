@@ -33,7 +33,8 @@ struct SignInView: View {
     private var typing: Bool { focus != nil }
     private var terms: AttributedString {
         let base = API.shared.base.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        return (try? AttributedString(markdown: "By continuing you agree to Atteo's [Terms](\(base)/terms) and [Privacy Policy](\(base)/privacy).")) ?? AttributedString("By continuing you agree to Atteo's Terms and Privacy Policy.")
+        return (try? AttributedString(markdown: String(localized: "By continuing you agree to Atteo's [Terms](\(base)/terms) and [Privacy Policy](\(base)/privacy).", bundle: .l10n)))
+            ?? AttributedString(String(localized: "By continuing you agree to Atteo's Terms and Privacy Policy.", bundle: .l10n))
     }
     private var emailLooksRight: Bool {
         let e = email.trimmingCharacters(in: .whitespaces)
@@ -246,7 +247,7 @@ struct SignInView: View {
 
     // MARK: - Pieces
 
-    private func heading(_ title: String, _ sub: String?) -> some View {
+    private func heading(_ title: LocalizedStringKey, _ sub: LocalizedStringKey?) -> some View {
         VStack(alignment: .leading, spacing: Space.xs) {
             Text(title).font(.title3.weight(.bold)).foregroundStyle(Theme.text).accessibilityAddTraits(.isHeader)
             if let sub { Text(sub).font(Typo.secondary).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true) }
@@ -289,7 +290,7 @@ struct SignInView: View {
     }
 
     private func sendCode(again: Bool = false) {
-        guard emailLooksRight, !busy else { if !emailLooksRight && !email.isEmpty { fail(APIError.server("Enter a valid email address.")) }; return }
+        guard emailLooksRight, !busy else { if !emailLooksRight && !email.isEmpty { fail(APIError.server(String(localized: "Enter a valid email address.", bundle: .l10n))) }; return }
         let address = email.trimmingCharacters(in: .whitespaces).lowercased()
         email = address
         busy = true
@@ -379,8 +380,8 @@ private struct InputBox<Content: View>: View {
 
 /// The ink button with a spinner while it works.
 private struct PrimaryButton: View {
-    let title: String
-    let busyTitle: String
+    let title: LocalizedStringKey
+    let busyTitle: LocalizedStringKey
     let busy: Bool
     let enabled: Bool
     let action: () -> Void

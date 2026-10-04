@@ -80,15 +80,19 @@ struct ForYouView: View {
 
     private var greeting: some View {
         let h = Calendar.current.component(.hour, from: Date())
-        let part = h < 12 ? "morning" : h < 18 ? "afternoon" : "evening"
         let raw = state.profile?.displayName?.trimmingCharacters(in: .whitespaces).nonEmpty ?? state.me?.owner ?? ""
         let name = raw.split(separator: " ").first.map { String($0).capitalizedFirst } ?? ""
         let did = done.count
         let line = needCount == 0
-            ? (did > 0 ? "Nothing needs you. Your assistant did \(did) thing\(did == 1 ? "" : "s") today." : "Nothing needs you right now.")
-            : "\(needCount) thing\(needCount == 1 ? "" : "s") need\(needCount == 1 ? "s" : "") you." + (did > 0 ? " Your assistant did \(did) more." : "")
+            ? (did > 0 ? String(localized: "Nothing needs you. Your assistant did \(did) things today.", bundle: .l10n) : String(localized: "Nothing needs you right now.", bundle: .l10n))
+            : String(localized: "\(needCount) things need you.", bundle: .l10n) + (did > 0 ? " " + String(localized: "Your assistant did \(did) more.", bundle: .l10n) : "")
+        let hello = h < 12
+            ? (name.isEmpty ? String(localized: "Good morning", bundle: .l10n) : String(localized: "Good morning, \(name)", bundle: .l10n))
+            : h < 18
+            ? (name.isEmpty ? String(localized: "Good afternoon", bundle: .l10n) : String(localized: "Good afternoon, \(name)", bundle: .l10n))
+            : (name.isEmpty ? String(localized: "Good evening", bundle: .l10n) : String(localized: "Good evening, \(name)", bundle: .l10n))
         return VStack(alignment: .leading, spacing: Space.xs) {
-            Text(name.isEmpty ? "Good \(part)" : "Good \(part), \(name)")
+            Text(hello)
                 .font(.system(.title, design: .default).weight(.bold)).foregroundStyle(Theme.text)
                 .accessibilityIdentifier("greeting")
             Text(line).font(Typo.body).foregroundStyle(Theme.muted)
@@ -128,7 +132,7 @@ struct ForYouView: View {
     private func askRow(_ i: InboxItem) -> some View {
         let decision = i.kind == "decision"
         let who = i.actorVia == "agent" ? Vocab.agentOf(i.actor) : i.actor.capitalizedFirst
-        return NeedRow(edge: decision ? Color.purple : Color.blue, title: i.excerpt, sub: "\(who) · \(i.boardTitle ?? "a chat")") {
+        return NeedRow(edge: decision ? Color.purple : Color.blue, title: i.excerpt, sub: "\(who) · \(i.boardTitle ?? String(localized: "a chat", bundle: .l10n))") {
             if decision {
                 small("Agree", id: "decide-agree") { Task { await vote(i, agree: true) } }
                 small("Not this", id: "decide-object") { Task { await vote(i, agree: false) } }
@@ -140,14 +144,14 @@ struct ForYouView: View {
     }
 
     private func contactRow(_ c: ContactsResponse.Incoming) -> some View {
-        NeedRow(edge: Theme.accent, title: "\(Vocab.agentOf(c.from)) wants to talk to yours", sub: c.text ?? "First time") {
+        NeedRow(edge: Theme.accent, title: String(localized: "\(Vocab.agentOf(c.from)) wants to talk to yours", bundle: .l10n), sub: c.text ?? String(localized: "First time", bundle: .l10n)) {
             small("Not now", id: "contact-no") { Haptics.play(.denied); Task { await state.answer(c, accept: false) } }
             small("Allow", id: "contact-yes") { Haptics.play(.approved); Task { await state.answer(c, accept: true) } }
         }
         .accessibilityIdentifier("need-contact")
     }
 
-    private func small(_ t: String, id: String, _ action: @escaping () -> Void) -> some View {
+    private func small(_ t: LocalizedStringKey, id: String, _ action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(t).font(Typo.secondary.weight(.medium)).foregroundStyle(Theme.text)
                 .padding(.horizontal, Space.m).frame(minHeight: 34)
@@ -288,7 +292,7 @@ private struct OKCard: View {
                 .accessibilityIdentifier("ok-title")
             HStack(spacing: Space.s) {
                 AtteoMark(size: 20)
-                (Text(a.requestedBy.map { Vocab.agentOf($0) } ?? "Your assistant").foregroundStyle(Theme.text) + Text(boardTitle.map { " asked in \($0)" } ?? " asked").foregroundStyle(Theme.muted))
+                ((a.requestedBy.map { Text(verbatim: Vocab.agentOf($0)) } ?? Text("Your assistant")).foregroundStyle(Theme.text) + (boardTitle.map { Text(" asked in \($0)") } ?? Text(" asked")).foregroundStyle(Theme.muted))
                     .font(Typo.secondary).lineLimit(1)
             }
             // One plain sentence (Developer mode's approval shows the exact command, risk and where it came from).
@@ -338,7 +342,7 @@ private struct OKRow: View {
     let a: Approval
     let boardTitle: String?
     var body: some View {
-        NeedRow(edge: Theme.warn, title: a.title, sub: "Needs your OK" + (boardTitle.map { " · \($0)" } ?? "")) {
+        NeedRow(edge: Theme.warn, title: a.title, sub: boardTitle.map { String(localized: "Needs your OK · \($0)", bundle: .l10n) } ?? String(localized: "Needs your OK", bundle: .l10n)) {
             Button { Task { await state.decide(a, approve: true) } } label: {
                 Text("Approve").font(Typo.secondary.weight(.semibold)).foregroundStyle(Theme.onText)
                     .padding(.horizontal, Space.m).frame(minHeight: 34)

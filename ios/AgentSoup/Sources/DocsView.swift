@@ -59,7 +59,7 @@ func icon(_ name: String, mime: String? = nil) -> String { FileKind(name: name, 
 extension DocMeta {
     var kind: FileKind { FileKind(name: name, mime: mime) }
     /// "theo's agent", "maya".
-    var by: String { via == "agent" ? "\(updatedBy)'s agent" : updatedBy }
+    var by: String { via == "agent" ? String(localized: "\(updatedBy)'s agent", bundle: .l10n) : updatedBy }
     /// A stored file (picture, PDF, binary) rather than a text document.
     var stored: Bool { mime != nil || !kind.readable }
 }
@@ -78,6 +78,14 @@ final class FileIndex: ObservableObject {
 enum FileSort: String, CaseIterable, Identifiable {
     case recent = "Recently updated", name = "Name", size = "Size"
     var id: String { rawValue }
+    /// Its name in the app's language.
+    var label: String {
+        switch self {
+        case .recent: return String(localized: "Recently updated", bundle: .l10n)
+        case .name: return String(localized: "Name", bundle: .l10n)
+        case .size: return String(localized: "Size", bundle: .l10n)
+        }
+    }
 }
 
 /// A board's files as their own screen (Board info → Files).
@@ -97,14 +105,14 @@ struct FileSortMenu: View {
     var body: some View {
         Menu {
             Picker("Sort by", selection: $sort.animation(.smooth)) {
-                ForEach(FileSort.allCases) { s in Text(s.rawValue).tag(s) }
+                ForEach(FileSort.allCases) { s in Text(s.label).tag(s) }
             }
         } label: {
             Image(systemName: "arrow.up.arrow.down").font(.system(size: 13, weight: .semibold)).foregroundStyle(sort == .recent ? Theme.muted : Theme.accent)
                 .frame(width: 34, height: 34).background(Theme.card, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
         .accessibilityLabel("Sort")
-        .accessibilityValue(sort.rawValue)
+        .accessibilityValue(sort.label)
         .accessibilityIdentifier("files-sort")
     }
 }
@@ -284,7 +292,7 @@ enum FileExport {
             _ = try await MediaStore.shared.data(board: board, name: doc.name, version: v)
             return u
         }
-        guard let d = await AppState.shared.doc(board, doc.name, version: v) else { throw APIError.server("Couldn't open \(doc.name).") }
+        guard let d = await AppState.shared.doc(board, doc.name, version: v) else { throw APIError.server(String(localized: "Couldn't open \(doc.name).", bundle: .l10n)) }
         return try write(d.content, to: u)
     }
 
@@ -352,7 +360,8 @@ struct DocViewer: View {
                     Menu {
                         ForEach(versions.sorted { $0.version > $1.version }) { v in
                             Button { Task { await load(v.version) } } label: {
-                                Label("v\(v.version)\(v.version == doc.latest ? " · latest" : "") · \(v.via == "agent" ? "\(v.author)'s agent" : v.author)", systemImage: v.version == doc.version ? "checkmark" : "clock")
+                                let who = v.via == "agent" ? String(localized: "\(v.author)'s agent", bundle: .l10n) : v.author
+                                Label(v.version == doc.latest ? "v\(v.version) · latest · \(who)" : "v\(v.version) · \(who)", systemImage: v.version == doc.version ? "checkmark" : "clock")
                                 Text([v.summary, v.ts.ago].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
                             }
                         }
@@ -383,7 +392,7 @@ struct DocViewer: View {
     }
 
     private func byline(_ doc: Doc) -> some View {
-        let by = doc.via == "agent" ? "\(doc.updatedBy)'s agent" : doc.updatedBy
+        let by = doc.via == "agent" ? String(localized: "\(doc.updatedBy)'s agent", bundle: .l10n) : doc.updatedBy
         let summary = versions.first(where: { $0.version == doc.version })?.summary
         return VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
@@ -570,7 +579,7 @@ struct CodeBlock: View {
     let code: String
     var language: String? = nil
     var numbered = false
-    var label: String? = nil // instead of the language ("Diagram")
+    var label: LocalizedStringKey? = nil // instead of the language ("Diagram")
     var maxLines: Int? = nil // longer: folded to this many, with "Show all"
     @State private var copied = false
     @State private var expanded = false
@@ -589,7 +598,7 @@ struct CodeBlock: View {
                     (Text(label).foregroundColor(Theme.muted) + Text(language.map { "  \($0)" } ?? "").foregroundColor(Theme.faint))
                         .font(.caption2.weight(.semibold))
                 } else {
-                    Text(language ?? (numbered ? "\(lines.count) line\(lines.count == 1 ? "" : "s")" : "code"))
+                    (language.map { Text(verbatim: $0) } ?? (numbered ? Text("\(lines.count) lines") : Text("code")))
                         .font(.caption2.weight(.semibold)).foregroundStyle(Theme.faint).textCase(language == nil ? nil : .lowercase)
                 }
                 Spacer()

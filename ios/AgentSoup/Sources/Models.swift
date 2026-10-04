@@ -214,19 +214,21 @@ struct MemoryItem: Decodable, Identifiable, Equatable {
     var from: Int? = nil
     let ts: Double
     /// "theo", "theo's agent", "theo/scout".
-    var who: String { via == "agent" ? (session.map { "\(by)/\($0)" } ?? "\(by)'s agent") : by }
+    var who: String { via == "agent" ? (session.map { "\(by)/\($0)" } ?? String(localized: "\(by)'s agent", bundle: .l10n)) : by }
 }
 
 extension Double {
-    /// "now", "4m", "2h", "3d", or a date.
+    /// "now", "4m", "2h", "3d", or a date (in the app's language: "刚刚", "4分钟"…).
     var ago: String {
         let s = max(0, Date().timeIntervalSince1970 - self / 1000)
-        if s < 60 { return "now" }
-        if s < 3600 { return "\(Int(s / 60))m" }
-        if s < 86400 { return "\(Int(s / 3600))h" }
-        if s < 604_800 { return "\(Int(s / 86400))d" }
+        if s < 60 { return String(localized: "now", bundle: .l10n, comment: "Relative time: under a minute ago") }
+        if s < 3600 { return String(localized: "\(Int(s / 60))m", bundle: .l10n, comment: "Relative time: minutes ago, short") }
+        if s < 86400 { return String(localized: "\(Int(s / 3600))h", bundle: .l10n, comment: "Relative time: hours ago, short") }
+        if s < 604_800 { return String(localized: "\(Int(s / 86400))d", bundle: .l10n, comment: "Relative time: days ago, short") }
         return Date(timeIntervalSince1970: self / 1000).formatted(.dateTime.month(.abbreviated).day())
     }
+    /// Under a minute ago (what `ago` calls "now", in any language).
+    var isJustNow: Bool { Date().timeIntervalSince1970 - self / 1000 < 60 }
 }
 
 struct TasksResponse: Decodable { let tasks: [WorkTask] }
@@ -329,14 +331,14 @@ struct Person: Decodable, Identifiable, Hashable {
     var id: String { name }
     var relationLabel: String? {
         switch relation {
-        case "friend": return "Friend"
-        case "pending_out": return "Request sent"
-        case "pending_in": return "Wants to be friends"
-        case "blocked": return "Blocked"
-        case "self": return "You"
+        case "friend": return String(localized: "Friend", bundle: .l10n)
+        case "pending_out": return String(localized: "Request sent", bundle: .l10n)
+        case "pending_in": return String(localized: "Wants to be friends", bundle: .l10n)
+        case "blocked": return String(localized: "Blocked", bundle: .l10n)
+        case "self": return String(localized: "You", bundle: .l10n)
         default:
             let n = sharedBoards ?? 0
-            return n > 0 ? "\(n) shared board\(n == 1 ? "" : "s")" : nil
+            return n > 0 ? String(localized: "\(n) shared boards", bundle: .l10n) : nil
         }
     }
 }

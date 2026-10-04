@@ -73,7 +73,7 @@ struct BoardInfoView<Top: View, Files: View>: View {
                         .accessibilityIdentifier("board-info-title")
                     HStack(spacing: Space.xs) {
                         if board.encrypted == true { Image(systemName: "lock.fill").font(.system(size: 10)) }
-                        Text(agentChat ? "Just you and your agents" : [board.encrypted == true ? "End-to-end encrypted" : nil, members.map { "\($0.members.count) member\($0.members.count == 1 ? "" : "s")" }].compactMap { $0 }.joined(separator: " · "))
+                        Text(verbatim: agentChat ? String(localized: "Just you and your agents", bundle: .l10n) : [board.encrypted == true ? String(localized: "End-to-end encrypted", bundle: .l10n) : nil, members.map { String(localized: "\($0.members.count) members", bundle: .l10n) }].compactMap { $0 }.joined(separator: " · "))
                     }
                     .font(Typo.meta).foregroundStyle(Theme.muted)
                     if canChangePicture { pictureControls }
@@ -115,7 +115,7 @@ struct BoardInfoView<Top: View, Files: View>: View {
                             HStack(spacing: Space.s) {
                                 Text(link.absoluteString).font(.system(.footnote, design: .monospaced)).foregroundStyle(Theme.muted).lineLimit(1).truncationMode(.middle)
                                 Spacer(minLength: Space.s)
-                                Button { UIPasteboard.general.url = link; Haptics.play(.copied); sent = "Link copied. Anyone with an account can join for 7 days." } label: { Image(systemName: "doc.on.doc").foregroundStyle(Theme.text) }
+                                Button { UIPasteboard.general.url = link; Haptics.play(.copied); sent = String(localized: "Link copied. Anyone with an account can join for 7 days.", bundle: .l10n) } label: { Image(systemName: "doc.on.doc").foregroundStyle(Theme.text) }
                                     .buttonStyle(.borderless).accessibilityLabel("Copy link")
                                 ShareLink(item: link, subject: Text(board.title), message: Text("Join \(board.title) on Atteo")) { Image(systemName: "square.and.arrow.up").foregroundStyle(Theme.text) }
                                     .buttonStyle(.borderless).accessibilityLabel("Share link")
@@ -144,7 +144,7 @@ struct BoardInfoView<Top: View, Files: View>: View {
                     HStack(spacing: Space.m) {
                         Avatar(name: m.user, size: 32)
                         VStack(alignment: .leading, spacing: Space.xxs) {
-                            Text(m.user == state.me?.owner ? "\(m.displayName ?? m.user) (you)" : m.displayName ?? m.user).font(Typo.rowTitleRead).foregroundStyle(Theme.text).lineLimit(1)
+                            Text(verbatim: m.user == state.me?.owner ? String(localized: "\(m.displayName ?? m.user) (you)", bundle: .l10n) : m.displayName ?? m.user).font(Typo.rowTitleRead).foregroundStyle(Theme.text).lineLimit(1)
                             if m.displayName != nil { Text("@\(m.user)").font(Typo.micro).foregroundStyle(Theme.faint) }
                         }
                         Spacer()
@@ -154,7 +154,7 @@ struct BoardInfoView<Top: View, Files: View>: View {
                     .accessibilityIdentifier("member-\(m.user)")
                 }
                 if members == nil { ProgressView().frame(maxWidth: .infinity) }
-            } header: { SectionHeader("Members\(members.map { " · \($0.members.count)" } ?? "")") }
+            } header: { if let members { SectionHeader("Members · \(members.members.count)") } else { SectionHeader("Members") } }
             .listRowBackground(Theme.card)
             }
 
@@ -197,7 +197,7 @@ struct BoardInfoView<Top: View, Files: View>: View {
                 let data = try? await item.loadTransferable(type: Data.self)
                 guard let img = data.flatMap(UIImage.init(data:)) else {
                     pictureBusy = false
-                    withAnimation(.smooth) { pictureError = "That picture couldn't be read. Try another one." }
+                    withAnimation(.smooth) { pictureError = String(localized: "That picture couldn't be read. Try another one.", bundle: .l10n) }
                     return
                 }
                 cropping = CropRequest(image: img.uprightAndSmall()) // crop and touch it up first (#1001)
@@ -278,7 +278,7 @@ struct BoardInfoView<Top: View, Files: View>: View {
 
 /// A small capsule button under the board's picture: a quiet icon and its words.
 private struct PictureControl: View {
-    let title: String
+    let title: LocalizedStringKey
     let icon: String
     let color: Color
     var body: some View {
@@ -295,10 +295,10 @@ private struct PictureControl: View {
 
 /// A row's label in Board info: a quiet icon and plain text (clay is for what needs you, not every row).
 struct InfoLabel: View {
-    let title: String
+    let title: LocalizedStringKey
     let icon: String
     var color: Color = Theme.text
-    init(_ title: String, _ icon: String, color: Color = Theme.text) { self.title = title; self.icon = icon; self.color = color }
+    init(_ title: LocalizedStringKey, _ icon: String, color: Color = Theme.text) { self.title = title; self.icon = icon; self.color = color }
     var body: some View {
         Label { Text(title).foregroundStyle(color) } icon: { Image(systemName: icon).foregroundStyle(color == Theme.text ? Theme.muted : color) }
     }

@@ -25,7 +25,7 @@ struct EverydaySettings: View {
                     Avatar(name: state.me?.owner ?? "", size: 52)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(state.profile?.displayName?.nonEmpty ?? state.me?.owner.capitalizedFirst ?? "").font(.title3.weight(.semibold)).foregroundStyle(Theme.text)
-                        Text("\(chats) chat\(chats == 1 ? "" : "s")").font(Typo.secondary).foregroundStyle(Theme.muted)
+                        Text("\(chats) chats").font(Typo.secondary).foregroundStyle(Theme.muted)
                     }
                 }
                 .padding(.vertical, Space.xs)
@@ -37,8 +37,8 @@ struct EverydaySettings: View {
                     HStack(spacing: Space.m) {
                         AtteoMark(size: 34)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(provider ?? "Your assistant").font(Typo.body).foregroundStyle(Theme.text)
-                            Text(state.sessions.isEmpty ? "Not connected yet" : "Connected · in \(chats) chat\(chats == 1 ? "" : "s")")
+                            (provider.map { Text(verbatim: $0) } ?? Text("Your assistant")).font(Typo.body).foregroundStyle(Theme.text)
+                            (state.sessions.isEmpty ? Text("Not connected yet") : Text("Connected · in \(chats) chats"))
                                 .font(Typo.secondary).foregroundStyle(Theme.muted)
                         }
                         Spacer(minLength: Space.s)
@@ -156,7 +156,7 @@ struct AdvancedView: View {
     @ObservedObject private var mode = AppMode.shared
     @State private var connect = false
 
-    private let shows: [(String, String)] = [
+    private let shows: [(LocalizedStringKey, LocalizedStringKey)] = [
         ("Change cards", "Branch, CI, PR, commits, files, diff"),
         ("Tasks and claims", "Instead of plain to-dos; the work strip and Tasks"),
         ("Approval details", "The exact command, risk, and the board it came from"),
@@ -185,7 +185,8 @@ struct AdvancedView: View {
             .listRowBackground(Theme.card)
 
             Section {
-                ForEach(shows, id: \.0) { s in
+                ForEach(shows.indices, id: \.self) { i in
+                    let s = shows[i]
                     VStack(alignment: .leading, spacing: 2) {
                         Text(s.0)
                         Text(s.1).font(Typo.secondary).foregroundStyle(Theme.muted)
@@ -225,7 +226,7 @@ struct WhoCanAddMe: View {
 
     static func summary(_ p: Profile?) -> String {
         guard let r = p?.rules else { return "" }
-        return r.autoAcceptInvites != nil || r.autoAcceptFriends != nil || r.autoAcceptAgents != nil ? "People I know" : "Ask me first"
+        return r.autoAcceptInvites != nil || r.autoAcceptFriends != nil || r.autoAcceptAgents != nil ? String(localized: "People I know", bundle: .l10n) : String(localized: "Ask me first", bundle: .l10n)
     }
 
     var body: some View {

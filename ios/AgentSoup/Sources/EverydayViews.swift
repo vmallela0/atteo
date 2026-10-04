@@ -29,7 +29,7 @@ struct EverydayChatTabs: View {
         .background(Theme.bg)
     }
 
-    private func tab(_ title: String, count: Int, id: String, action: @escaping () -> Void) -> some View {
+    private func tab(_ title: LocalizedStringKey, count: Int, id: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             VStack(spacing: 6) {
                 HStack(spacing: 6) {
@@ -97,11 +97,11 @@ struct ResultCard: View {
     /// One plain line: the words that came with it, else what kind of result it is.
     private func line(_ v: ChangeView, _ s: Status) -> String {
         switch s {
-        case .failing: return "Something needs fixing before it's ready."
-        case .waiting: return "Almost ready: still checking it."
+        case .failing: return String(localized: "Something needs fixing before it's ready.", bundle: .l10n)
+        case .waiting: return String(localized: "Almost ready: still checking it.", bundle: .l10n)
         case .done:
             if let note = v.note?.split(separator: "\n").first.map(String.init), !note.isEmpty { return note }
-            return v.title.localizedCaseInsensitiveContains("ship") ? "It's live." : "Ready."
+            return v.title.localizedCaseInsensitiveContains("ship") ? String(localized: "It's live.", bundle: .l10n) : String(localized: "Ready.", bundle: .l10n)
         }
     }
 

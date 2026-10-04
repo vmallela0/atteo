@@ -147,7 +147,7 @@ struct ChartSpec: Hashable {
             let r = s as? [String: Any] ?? [:]
             let values = ((r["values"] as? [Any]) ?? []).prefix(60).map(number)
             guard !values.isEmpty else { return nil }
-            return Series(name: (r["name"] as? String).map { String($0.prefix(40)) } ?? "Series \(i + 1)", values: values)
+            return Series(name: (r["name"] as? String).map { String($0.prefix(40)) } ?? String(localized: "Series \(i + 1)", bundle: .l10n), values: values)
         }
         guard !series.isEmpty else { return nil }
         let n = series.map(\.values.count).max() ?? 0
@@ -219,7 +219,7 @@ struct ChartBlock: View {
         .background(Theme.card, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("chart")
-        .accessibilityLabel(spec.title ?? "Chart")
+        .accessibilityLabel(spec.title ?? String(localized: "Chart", bundle: .l10n))
     }
 
     private var names: [String] { spec.series.map(\.name) }
@@ -353,6 +353,6 @@ struct MessageBody: View {
     private func words(_ t: String) -> some View {
         let m = render(t)
         return m.text.textRenderer(MentionBoxes()).font(Typo.body).foregroundStyle(Theme.text.opacity(ink)).lineSpacing(lineSpacing)
-            .accessibilityValue(m.handles.isEmpty ? "" : "Mentions " + m.handles.joined(separator: ", "))
+            .accessibilityValue(m.handles.isEmpty ? "" : String(localized: "Mentions \(m.handles.joined(separator: ", "))", bundle: .l10n))
     }
 }

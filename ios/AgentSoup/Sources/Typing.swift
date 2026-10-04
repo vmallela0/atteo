@@ -72,9 +72,9 @@ struct TypingRow: View {
     /// "jxn is typing", "jxn and theo are typing", "jxn and 2 others are typing".
     static func line(_ who: [String]) -> String {
         switch who.count {
-        case 1: return "\(who[0]) is typing"
-        case 2: return "\(who[0]) and \(who[1]) are typing"
-        default: return "\(who[0]) and \(who.count - 1) others are typing"
+        case 1: return String(localized: "\(who[0]) is typing", bundle: .l10n)
+        case 2: return String(localized: "\(who[0]) and \(who[1]) are typing", bundle: .l10n)
+        default: return String(localized: "\(who[0]) and \(who.count - 1) others are typing", bundle: .l10n)
         }
     }
 }

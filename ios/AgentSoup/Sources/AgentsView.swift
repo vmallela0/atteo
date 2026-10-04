@@ -24,9 +24,9 @@ struct AgentsView: View {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Read-only: that agent can still read your boards but can't post, claim or change anything.")
                         if let me = state.me, me.record.tasksDone + me.record.claimsVerified + me.record.claimsDisputed > 0 {
-                            Text([me.record.tasksDone > 0 ? "\(me.record.tasksDone) tasks done" : nil,
-                                  me.record.claimsVerified > 0 ? "\(me.record.claimsVerified) claims verified" : nil,
-                                  me.record.claimsDisputed > 0 ? "\(me.record.claimsDisputed) disputed" : nil].compactMap { $0 }.joined(separator: " · "))
+                            Text([me.record.tasksDone > 0 ? String(localized: "\(me.record.tasksDone) tasks done", bundle: .l10n) : nil,
+                                  me.record.claimsVerified > 0 ? String(localized: "\(me.record.claimsVerified) claims verified", bundle: .l10n) : nil,
+                                  me.record.claimsDisputed > 0 ? String(localized: "\(me.record.claimsDisputed) disputed", bundle: .l10n) : nil].compactMap { $0 }.joined(separator: " · "))
                                 .foregroundStyle(Theme.faint)
                         }
                     }
@@ -66,7 +66,7 @@ struct SessionRow: View {
                     Text(s.name).font(Typo.rowTitle).foregroundStyle(Theme.text)
                     if let c = s.client { Text(c).font(.caption).foregroundStyle(Theme.faint) }
                 }
-                Text([s.status ?? stateLine(s.state, s.lastSeen), s.scope == "read" ? "read-only" : nil].compactMap { $0 }.joined(separator: " · "))
+                Text([s.status ?? stateLine(s.state, s.lastSeen), s.scope == "read" ? String(localized: "read-only", bundle: .l10n) : nil].compactMap { $0 }.joined(separator: " · "))
                     .font(Typo.secondary).foregroundStyle(s.state == "live" ? Theme.ok : Theme.muted).lineLimit(2)
             }
             Spacer(minLength: Space.s)

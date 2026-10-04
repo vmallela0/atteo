@@ -54,15 +54,15 @@ struct ChatComposer: View {
         var out: [Mentionable] = []
         for u in people {
             if let n = named[u], !n.ambiguous {
-                out.append(Mentionable(handle: n.name, user: u, agent: true, note: u == me ? "your agent" : "\(u)'s agent"))
+                out.append(Mentionable(handle: n.name, user: u, agent: true, note: u == me ? String(localized: "your agent", bundle: .l10n) : String(localized: "\(u)'s agent", bundle: .l10n)))
             }
-            let note: String? = named[u].map { "\($0.name) · agent" }
+            let note: String? = named[u].map { String(localized: "\($0.name) · agent", bundle: .l10n) }
             out.append(Mentionable(handle: "\(u)'s agent", user: u, agent: true, note: note))
             if u != me { out.append(Mentionable(handle: u, user: u, agent: false)) }
         }
         out.append(Mentionable(handle: "agents", user: nil, agent: true))
         out.append(Mentionable(handle: "humans", user: nil, agent: false))
-        out.append(Mentionable(handle: "all", user: nil, agent: false, note: "everyone and their agents")) // last, like the web
+        out.append(Mentionable(handle: "all", user: nil, agent: false, note: String(localized: "everyone and their agents", bundle: .l10n))) // last, like the web
         return out
     }
 
@@ -115,7 +115,7 @@ struct ChatComposer: View {
                     attachButton
                     // A text view of its own, so Paste takes pictures too (ComposerField.swift).
                     ComposerField(text: $draft, focused: $focused,
-                                  placeholder: attachments.isEmpty ? placeholder : "Add a note",
+                                  placeholder: attachments.isEmpty ? placeholder : String(localized: "Add a note", bundle: .l10n),
                                   pasteImages: pasted,
                                   members: Set(mentionables.compactMap { $0.user?.lowercased() }), me: me,
                                   agentNames: state.agentNameMap(board.id),
@@ -153,7 +153,7 @@ struct ChatComposer: View {
         .onChange(of: picked) { _, items in
             guard !items.isEmpty else { return }
             picked = []
-            for item in items { add { guard let d = try await item.loadTransferable(type: Data.self) else { throw AttachError.unreadable("That picture") }; return try await Attachments.picture(d, name: nil) } }
+            for item in items { add { guard let d = try await item.loadTransferable(type: Data.self) else { throw AttachError.unreadable(String(localized: "That picture", bundle: .l10n)) }; return try await Attachments.picture(d, name: nil) } }
         }
         .fileImporter(isPresented: $showFiles, allowedContentTypes: [.item], allowsMultipleSelection: true) { r in
             switch r {

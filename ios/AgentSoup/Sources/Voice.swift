@@ -38,7 +38,7 @@ final class VoiceInput: ObservableObject {
         self.onText = onText
         Task {
             guard await Self.allowed() else {
-                problem = "Allow the microphone and speech recognition for Atteo in Settings to talk."
+                problem = String(localized: "Allow the microphone and speech recognition for Atteo in Settings to talk.", bundle: .l10n)
                 wanted = false
                 return
             }
@@ -80,12 +80,12 @@ final class VoiceInput: ObservableObject {
 
     private func begin() {
         guard let recognizer = SFSpeechRecognizer(locale: Locale.current) ?? SFSpeechRecognizer(locale: Locale(identifier: "en-US")), recognizer.isAvailable else {
-            problem = "Speech recognition isn't available right now."
+            problem = String(localized: "Speech recognition isn't available right now.", bundle: .l10n)
             return
         }
         // On this phone only: nothing you say leaves it to be transcribed.
         guard recognizer.supportsOnDeviceRecognition else {
-            problem = "On-device speech recognition isn't available for your language on this iPhone."
+            problem = String(localized: "On-device speech recognition isn't available for your language on this iPhone.", bundle: .l10n)
             return
         }
         ReadAloud.shared.hush()
@@ -102,7 +102,7 @@ final class VoiceInput: ObservableObject {
             let input = engine.inputNode
             let f = input.outputFormat(forBus: 0)
             guard f.sampleRate > 0, f.channelCount > 0 else {
-                problem = "The microphone isn't available right now (\(Int(f.sampleRate)) Hz × \(f.channelCount)). Try again, or check Settings → Privacy → Microphone."
+                problem = String(localized: "The microphone isn't available right now (\(Int(f.sampleRate)) Hz × \(f.channelCount)). Try again, or check Settings → Privacy → Microphone.", bundle: .l10n)
                 request = nil
                 return
             }
@@ -121,7 +121,7 @@ final class VoiceInput: ObservableObject {
                 }
             }
         } catch {
-            problem = "Couldn't start the microphone: \(error.localizedDescription)"
+            problem = String(localized: "Couldn't start the microphone: \(error.localizedDescription)", bundle: .l10n)
             engine.inputNode.removeTap(onBus: 0)
             listening = false
         }
@@ -269,8 +269,8 @@ final class ReadAloud: NSObject, ObservableObject, AVSpeechSynthesizerDelegate, 
     /// "theo's agent. The deploy is green…": who, then what (links as "a link", at most about 700 characters).
     static func spoken(_ it: Item) -> String {
         let body = it.entry.text
-            .replacingOccurrences(of: #"https?://\S+"#, with: "a link", options: .regularExpression)
-            .replacingOccurrences(of: #"```[\s\S]*?```"#, with: "(code omitted)", options: .regularExpression)
+            .replacingOccurrences(of: #"https?://\S+"#, with: String(localized: "a link", bundle: .l10n), options: .regularExpression)
+            .replacingOccurrences(of: #"```[\s\S]*?```"#, with: String(localized: "(code omitted)", bundle: .l10n), options: .regularExpression)
             .replacingOccurrences(of: #"[*_`#>]"#, with: "", options: .regularExpression)
         return it.from + ". " + String(body.prefix(700))
     }
@@ -331,9 +331,9 @@ struct ReadAloudBar: View {
                 Button { aloud.tap() } label: {
                     HStack(spacing: Space.s) {
                         Image(systemName: aloud.speaking ? "speaker.wave.2.fill" : "speaker.wave.1.fill").foregroundStyle(Theme.accent)
-                        Text(aloud.speaking
-                             ? "Reading" + (waiting.isEmpty ? "" : " · \(waiting.count) more") + " · tap to stop"
-                             : (waiting.count > 1 ? "\(waiting.count) for you, first from \(waiting[0].from)" : "For you from \(waiting[0].from)") + " · tap to hear")
+                        (aloud.speaking
+                             ? (waiting.isEmpty ? Text("Reading · tap to stop") : Text("Reading · \(waiting.count) more · tap to stop"))
+                             : (waiting.count > 1 ? Text("\(waiting.count) for you, first from \(waiting[0].from) · tap to hear") : Text("For you from \(waiting[0].from) · tap to hear")))
                             .font(Typo.meta.weight(.medium)).foregroundStyle(Theme.text).lineLimit(1)
                         Spacer(minLength: 0)
                     }

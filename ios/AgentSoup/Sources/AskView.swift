@@ -29,12 +29,12 @@ struct AskView: View {
     }
 
     private var suggestions: [(icon: String, text: String)] {
-        var out: [(String, String)] = [("checklist", "What needs me today?")]
+        var out: [(String, String)] = [("checklist", String(localized: "What needs me today?", bundle: .l10n))]
         if let b = state.boards.first(where: { $0.archived != true && !$0.isAgentChat }) {
-            out.append(("bubble.left", "What did I miss in \(b.displayName(me: state.me?.owner))?"))
+            out.append(("bubble.left", String(localized: "What did I miss in \(b.displayName(me: state.me?.owner))?", bundle: .l10n)))
         }
-        out.append(("calendar", "Find a time to meet next week"))
-        out.append(("bell", "Remind me about this tomorrow morning"))
+        out.append(("calendar", String(localized: "Find a time to meet next week", bundle: .l10n)))
+        out.append(("bell", String(localized: "Remind me about this tomorrow morning", bundle: .l10n)))
         return out
     }
 
@@ -66,7 +66,7 @@ struct AskView: View {
         ZStack {
             HStack(spacing: Space.s) {
                 AtteoMark(size: 22)
-                Text("Your assistant" + (provider.map { " · \($0)" } ?? "")).font(Typo.secondary).foregroundStyle(Theme.muted)
+                (provider.map { Text("Your assistant · \($0)") } ?? Text("Your assistant")).font(Typo.secondary).foregroundStyle(Theme.muted)
             }
             HStack {
                 Button { voice.stop(); done(nil) } label: {
@@ -100,7 +100,7 @@ struct AskView: View {
             .accessibilityIdentifier("ask-circle")
             .padding(.top, Space.l)
 
-            Text(heard.isEmpty ? (voice.listening ? "I'm listening…" : "Tap and tell your assistant what you need") : heard)
+            (heard.isEmpty ? (voice.listening ? Text("I'm listening…") : Text("Tap and tell your assistant what you need")) : Text(verbatim: heard))
                 .font(.title2.weight(.semibold)).foregroundStyle(heard.isEmpty ? Theme.muted : Theme.text)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
