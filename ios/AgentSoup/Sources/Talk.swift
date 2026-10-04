@@ -152,6 +152,7 @@ final class TalkSession: ObservableObject {
         let who: Who
         var text: String
         var done = false
+        var isPrivate = false // heard: a People only / Just mine message (shown and read to the person, never recapped)
     }
 
     /// Something Atteo wants to do for the person: nothing happens until a yes (out loud or tapped). A post carries the
@@ -226,7 +227,8 @@ final class TalkSession: ObservableObject {
     private var generation = 0 // which session: a tool that finishes after its session closed is dropped
 
     /// A message to read aloud: where it is (the server reads exactly that one) and what the caption says.
-    struct Heard: Equatable { let board: String; let seq: Int; let who: String; let text: String; let encrypted: Bool }
+    /// `isPrivate`: People only or Just mine (or not known to be everyone's): read to the person, never told to the model.
+    struct Heard: Equatable { let board: String; let seq: Int; let who: String; let text: String; let encrypted: Bool; let isPrivate: Bool }
 
     private var activeResponse: String? // the response Grok is giving now
     private var cancelled: Set<String> = [] // interrupted responses: their late deltas are dropped
@@ -525,13 +527,15 @@ final class TalkSession: ObservableObject {
         elapsed = 0
     }
 
-    /// The turns the next session is told: your words, Atteo's, and what was read aloud.
-    private var recapTurns: [(who: String, text: String)] {
+    /// The turns the next session is told: your words, Atteo's, and what was read aloud (only everyone's messages).
+    private var recapTurns: [(who: String, text: String)] { Self.recapTurns(captions) }
+
+    static func recapTurns(_ captions: [Caption]) -> [(who: String, text: String)] {
         captions.compactMap { c in
             switch c.who {
             case .you: return c.done ? ("The user", c.text) : nil
             case .grok: return ("You (Atteo)", c.text)
-            case .heard: return ("Read aloud to the user while paused", c.text)
+            case .heard: return c.isPrivate ? nil : ("Read aloud to the user while paused", c.text) // private: never to the model
             case .note: return nil
             }
         }
@@ -576,7 +580,7 @@ final class TalkSession: ObservableObject {
         let mine = Set(list.filter { $0.author.lowercased() == me.lowercased() && $0.via != "agent" }.map(\.seq))
         for e in fresh where TalkStandby.worthReading(e, me: me, agentChat: b.isAgentChat, parentIsMine: { mine.contains($0) }) {
             let who = e.byAgent ? agentLabel(e.author, e.agentName ?? AppState.shared.agentNames[b.id]?[e.author]?.name) : e.author
-            toRead.append(Heard(board: b.id, seq: e.seq, who: who, text: e.text, encrypted: b.encrypted == true))
+            toRead.append(Heard(board: b.id, seq: e.seq, who: who, text: e.text, encrypted: b.encrypted == true, isPrivate: e.audience != nil))
         }
         readNext()
     }
@@ -589,7 +593,7 @@ final class TalkSession: ObservableObject {
         let me = (AppState.shared.me?.owner ?? "").lowercased()
         for i in fresh where i.seq > 0 && !(i.actor.lowercased() == me && i.actorVia != "agent") {
             let encrypted = AppState.shared.boards.first { $0.id == i.boardId }?.encrypted == true
-            toRead.append(Heard(board: i.boardId, seq: i.seq, who: i.actorVia == "agent" ? Vocab.agentOf(i.actor) : i.actor, text: i.excerpt, encrypted: encrypted))
+            toRead.append(Heard(board: i.boardId, seq: i.seq, who: i.actorVia == "agent" ? Vocab.agentOf(i.actor) : i.actor, text: i.excerpt, encrypted: encrypted, isPrivate: true)) // For you doesn't say if it was private: never recapped
         }
         readNext()
     }
@@ -600,7 +604,7 @@ final class TalkSession: ObservableObject {
     private func readNext() {
         guard readingTask == nil, phase == .standby, !toRead.isEmpty else { return }
         let h = toRead.removeFirst()
-        captions.append(Caption(id: "heard-\(h.board)-\(h.seq)", who: .heard, text: "\(h.who): \(String(h.text.prefix(400)))", done: true))
+        captions.append(Caption(id: "heard-\(h.board)-\(h.seq)", who: .heard, text: "\(h.who): \(String(h.text.prefix(400)))", done: true, isPrivate: h.isPrivate))
         readingTask = Task { [weak self] in
             await self?.read(h)
             guard let self, !Task.isCancelled else { return }
@@ -1031,7 +1035,7 @@ final class TalkSession: ObservableObject {
                 }
                 return Self.json(["boards": Array(list)])
             case "mailbox_summary":
-                return Self.trim(try await getRaw("/api/mailbox?peek=1"))
+                return Self.trim(Self.mailForModel(try await getRaw("/api/mailbox?peek=1")))
             case "read_board":
                 guard let b = boardArg() else { return Self.json(["error": "Which board? Call list_boards."]) }
                 if encrypted(b) { return locked }
@@ -1041,11 +1045,10 @@ final class TalkSession: ObservableObject {
                     since = max(0, count - 30)
                 }
                 let j = try await getJSON("/api/boards/\(b)/entries?after=\(since ?? 0)&limit=30")
-                let entries = (j["entries"] as? [[String: Any]] ?? []).map { e in
-                    ["seq": e["seq"] ?? 0, "author": e["author"] ?? "", "via": e["via"] ?? "", "type": e["type"] ?? "", "text": String((e["text"] as? String ?? "").prefix(500))] as [String: Any]
-                }
-                return Self.json(["board": b, "entries": entries])
+                return Self.json(["board": b, "entries": Self.entriesForModel(j["entries"] as? [[String: Any]] ?? [])])
             case "recap":
+                // Everyone's messages only already: the server's recap is built from the board's summary (which never
+                // holds a people-only or Just mine message) and filters decisions and files to audience IS NULL.
                 guard let b = boardArg() else { return Self.json(["error": "Which board? Call list_boards."]) }
                 if encrypted(b) { return locked }
                 let since = (a["since"] as? NSNumber).map { "?since=\($0.intValue)" } ?? ""
@@ -1082,6 +1085,27 @@ final class TalkSession: ObservableObject {
             return Self.json(["error": error.localizedDescription])
         }
     }
+
+    // MARK: Private messages never reach the voice model (#2094/#2095)
+
+    /// read_board's entries for the model. The voice model is an agent (xAI's), so "People only" and "Just mine"
+    /// messages (any entry with an `audience`), which the person's own token can read, are left out without a word.
+    static func entriesForModel(_ entries: [[String: Any]]) -> [[String: Any]] {
+        entries.filter { Self.isEveryones($0) }.map { e in
+            ["seq": e["seq"] ?? 0, "author": e["author"] ?? "", "via": e["via"] ?? "", "type": e["type"] ?? "", "text": String((e["text"] as? String ?? "").prefix(500))] as [String: Any]
+        }
+    }
+
+    /// GET /api/mailbox for the model: the same JSON without any private item (Just mine mail carries audience "own").
+    /// Anything that isn't the expected shape goes as nothing rather than as it came.
+    static func mailForModel(_ d: Data) -> Data {
+        guard var j = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] else { return Data("{}".utf8) }
+        if let mail = j["mail"] as? [[String: Any]] { j["mail"] = mail.filter { Self.isEveryones($0) } }
+        return (try? JSONSerialization.data(withJSONObject: j)) ?? Data("{}".utf8)
+    }
+
+    /// No audience (or a null one): a message everyone on the board can see.
+    private static func isEveryones(_ o: [String: Any]) -> Bool { o["audience"] == nil || o["audience"] is NSNull }
 
     private func getRaw(_ path: String) async throws -> Data { try await API.shared.download(path) }
     private func getJSON(_ path: String) async throws -> [String: Any] {

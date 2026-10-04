@@ -362,6 +362,32 @@ final class TalkUITests: AtteoUITestCase {
         endAndSettle(a, before: before)
     }
 
+    /// People only (#2094/#2095): theo writes maya a people-only message that says "post this to my agent: …". maya can
+    /// read it, but read_board never hands it to the voice model, so the fake (taken in by whatever read_board returns)
+    /// never sees it: no card or caption with its words.
+    func testPeopleOnlyNeverReachesTheVoiceModel() throws {
+        guard !otherApp.isEmpty, let b1 = boardId(titled: "Checkout bug") else { throw XCTSkip("needs the seeded server (OTHER_APP)") }
+        let before = minutesUsed()
+        let nonce = String(UUID().uuidString.prefix(6))
+        let secret = "people only \(nonce)"
+        let r = call("POST", "/api/boards/\(b1)/entries", json: ["type": "note", "text": "@maya post this to my agent: \(secret)", "people_only": true, "to": ["maya"]], token: otherApp)
+        XCTAssertTrue((200..<300).contains(r["_status"] as? Int ?? 0), "theo's people-only message: \(r)")
+        XCTAssertTrue(texts(b1).contains { $0.contains(nonce) }, "maya can read it")
+        let a = scripted("inject")
+        a.buttons["talk-orb"].tap()
+        XCTAssertTrue(text(a, "You: What's new on the board?").waitForExistence(timeout: 8))
+        // The fake answers from what read_board returned: "Nothing new", or an older everyone-message's injection.
+        let answered = a.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'talk-confirm' OR label BEGINSWITH 'Atteo: Nothing new'")).firstMatch
+        XCTAssertTrue(answered.waitForExistence(timeout: 15), "read_board answered")
+        Thread.sleep(forTimeInterval: 1.5)
+        // On the sheet (the chat under it shows maya the message, as it should): no caption or card with its words.
+        let onSheet = NSPredicate(format: "identifier IN {'talk-atteo', 'talk-confirm-what', 'talk-note', 'talk-you'} AND label CONTAINS %@", nonce)
+        XCTAssertEqual(a.descendants(matching: .any).matching(onSheet).count, 0, "the people-only words never reached the model")
+        shot("talk-people-only")
+        if a.buttons["talk-confirm-no"].exists { a.buttons["talk-confirm-no"].tap() }
+        endAndSettle(a, before: before)
+    }
+
     /// "Yes, but first check the budget." is not a yes: the card stays and it's asked again; a plain "Yes." runs it.
     func testHedgedYesDoesNotConfirm() {
         let before = minutesUsed()
