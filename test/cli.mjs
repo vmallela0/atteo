@@ -1335,6 +1335,54 @@ await step("Your agent: your own messages are mail from your user; dispatch fork
   assert(prompt.includes(`your user (${Y})`) && prompt.includes(`"Your agent"`) && prompt.includes(`--board ${chat} --reply ${p1}`) && /<<untrusted [0-9a-f]+:/.test(prompt), "the fork answers on Your agent, in the thread: " + prompt);
 });
 
+await step("one drainer (#2184): dispatch forks your own \"@you's agent\" from a shared board; while another session holds the mailbox, atteo mailbox and dispatch only peek, say who holds it, and take nothing", async () => {
+  const G = `e2e-cli-g-${run}`, H = `e2e-cli-h-${run}`;
+  for (const u of [G, H]) await ops("users", { name: u, email: `${u}@example.com`, verified: "true" });
+  const tokG = (await ops("tokens", { user: G })).token;
+  const credG = join(dir, "g.json");
+  writeFileSync(credG, JSON.stringify({ server: BASE, user: G, token: tokG, expires_at: Date.now() + 86400e3 }), { mode: 0o600 });
+  const call = async (method, path, body, headers = {}) => (await fetch(`${BASE}${path}`, { method, headers: { authorization: `Bearer ${tokG}`, "content-type": "application/json", ...headers }, body: body ? JSON.stringify(body) : undefined })).json();
+  const shared = (await ops("boards", { user: H, title: `e2e cli drain ${run}` })).board.id;
+  await ops("members", { board: shared, user: G });
+  const cfg = { XDG_CONFIG_HOME: join(dir, "cfg-drain") };
+  await cli(["mailbox"], { cred: credG, env: cfg }); // drain what joining sent
+  const say = async (who, text) => (await (await fetch(`${BASE}/api/boards/${shared}/entries`, { method: "POST", headers: { "content-type": "application/json", cookie: (await ops("sessions", { user: who })).cookie }, body: JSON.stringify({ type: "question", text }) })).json()).entry.seq;
+  const waiting = async (seq) => (await call("GET", "/api/mailbox?peek=1&limit=100")).mail.filter((m) => m.board === shared && m.seq === seq);
+  // G (the person) asks their own agent on the shared board: mail from your person, and the dispatcher forks it.
+  const own = await say(G, `@${G}'s agent please check the deploy ${run}`);
+  for (let i = 0; i < 40 && !(await waiting(own)).length; i++) await sleep(150);
+  let r = await cli(["mailbox", "--peek"], { cred: credG, env: cfg });
+  assert(r.code === 0 && r.out.includes(`#${own} question · from your person`) && r.out.includes(`please check the deploy ${run}`), "labelled: " + r.out + r.err);
+  const forkDir = join(dir, "drain-forks");
+  mkdirSync(forkDir, { recursive: true });
+  const stub = join(dir, "drain-fork.sh");
+  writeFileSync(stub, `#!/bin/sh\nprintf '%s\\n' "$@" > "${forkDir}/$ATTEO_SESSION.txt"\necho "answered"\n`);
+  chmodSync(stub, 0o755);
+  const dispatch = () => cli(["dispatch", "--once", "--quiet", "--json", "--agent-cmd", `${stub} {prompt}`, "--dir", dir], { cred: credG, env: cfg });
+  r = await dispatch();
+  let events = r.out.trim().split("\n").filter(Boolean).map((l) => JSON.parse(l));
+  const fork = events.find((e) => e.event === "fork");
+  assert(r.code === 0 && fork?.seq === own && fork.name === `question-${own}`, `forked: ${r.out}${r.err}`);
+  const prompt = readFileSync(join(forkDir, `${fork.session}.txt`), "utf8");
+  assert(prompt.includes(`your user (${G})`) && prompt.includes(`--board ${shared} --reply ${own}`) && !prompt.includes('"Your agent"'), "your user's request, answered on that board: " + prompt);
+  assert(!(await waiting(own)).length, "acked");
+  // Another session (a coordinator) can't take it from the dispatcher (no session: "another session")…
+  const X = (await call("POST", "/api/sessions", { suggest: "coord", client: "Claude Code" })).session;
+  const held = (await call("GET", "/api/mailbox?drain=1&peek=1", null, { "x-atteo-session": X.id })).held ?? "";
+  assert(held.startsWith("Mailbox held by another session until "), "the dispatcher drains it: " + held);
+  // …until its lease lapses (the test clock, DEV_FAKE_CLOCK=1: three minutes on), then X holds it.
+  assert(!(await call("GET", "/api/mailbox?drain=1&peek=1", null, { "x-atteo-session": X.id, "x-dev-now": String(Date.now() + 180_000) })).held, "X holds it");
+  const q = await say(H, `@${G}'s agent which port? ${run}`);
+  for (let i = 0; i < 40 && !(await waiting(q)).length; i++) await sleep(150);
+  r = await cli(["mailbox"], { cred: credG, env: cfg });
+  assert(r.code === 0 && r.out.includes(`which port? ${run}`) && r.out.includes(`held by session ${X.name} until`) && !r.out.includes("Delivered"), "atteo mailbox only peeks, and says so: " + r.out + r.err);
+  assert((await waiting(q)).length === 1, "still waiting for X");
+  r = await dispatch();
+  events = r.out.trim().split("\n").filter(Boolean).map((l) => JSON.parse(l));
+  assert(r.code === 0 && !events.some((e) => e.event === "fork") && events.some((e) => e.event === "held"), "dispatch takes nothing while X holds it: " + r.out + r.err);
+  assert((await waiting(q)).length === 1, "still waiting for X after dispatch");
+});
+
 await step("staying current: an older CLI says so (once, then hourly) and atteo update replaces it with the server's", async () => {
   const old = join(dir, "old-atteo.mjs");
   writeFileSync(old, readFileSync(CLI, "utf8") + "\n// an older build\n", { mode: 0o755 });

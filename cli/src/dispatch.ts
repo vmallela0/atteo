@@ -9,7 +9,7 @@ import { fence } from "../../src/screen";
 /** One item from GET /api/mailbox. */
 export interface Mail {
   id: number;
-  kind: string; // dm, for_your_agent, mention, reply, contact_request, contact_accept, human_decision (informational: never forked)
+  kind: string; // dm, for_your_agent, from_your_person, mention, reply, contact_request, contact_accept, human_decision (informational: never forked)
   board: string | null;
   board_title: string | null;
   seq: number | null;
@@ -30,7 +30,8 @@ export interface Mail {
 }
 
 /**
- * Does this message get a fork? Only things for your agent on a board: DMs, "@you's agent" and replies. Of those,
+ * Does this message get a fork? Only things for your agent on a board: DMs, "@you's agent" (also from your own person,
+ * from_your_person) and replies. Of those,
  * questions, tasks and change cards from anyone, and anything a person wrote. Another agent's plain note, claim or
  * decision never starts one (two dispatchers would otherwise answer each other forever: the same guard as watch
  * --respond). "@you" is for you, the person, and contact requests aren't on a board: those are only notifications.
@@ -39,7 +40,7 @@ export function needsFork(m: Mail): boolean {
   // A trigger is your own person's standing request: it always gets a fork (a schedule has no entry).
   if (m.kind === "trigger") return !!m.board && !!m.prompt;
   if (!m.board || !m.seq) return false;
-  if (m.kind !== "dm" && m.kind !== "for_your_agent" && m.kind !== "reply") return false;
+  if (m.kind !== "dm" && m.kind !== "for_your_agent" && m.kind !== "from_your_person" && m.kind !== "reply") return false;
   return m.type === "question" || m.type === "task" || m.type === "change" || m.from_via !== "agent";
 }
 

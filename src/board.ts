@@ -2579,18 +2579,19 @@ export class Board extends DurableObject<Env> {
 
   private async notify(info: BoardInfo, e: Entry, forSession: ForSession = null) {
     const members = new Set(this.members().map((m) => m.name));
-    const kinds = new Map<string, "mention" | "agent" | "reply" | "decision">();
+    const kinds = new Map<string, "mention" | "agent" | "reply" | "decision" | "from_your_person">();
     const forAgents = new Set<string>(); // whose agents this is addressed to (their webhooks get it)
     // Mentions were resolved against the board's real member list (D1) when posted; a member who hasn't opened the
     // board yet isn't in this object's members table, but must still hear about it (e.g. "@humans" on a new board).
     const mentioned = new Set((e.mentions ?? []).map((m) => m.user));
     const add = (u: string | null | undefined, k: "mention" | "agent" | "reply") => {
       if (!u || !(members.has(u) || mentioned.has(u))) return;
-      const rank = { decision: 4, mention: 3, agent: 2, reply: 1 };
+      const rank = { decision: 4, mention: 3, agent: 2, reply: 1, from_your_person: 0 };
       if (!kinds.has(u) || rank[k] > rank[kinds.get(u)!]) kinds.set(u, k);
     };
     for (const m of e.mentions ?? []) {
-      // Your own agent pinging you counts; you mentioning yourself or handing work to your own agent doesn't.
+      // Your own agent pinging you counts; you mentioning yourself doesn't, and handing work to your own agent is mail
+      // of its own (from_your_person, below), not a mention.
       if (m.user === e.author && !(e.via === "agent" && !m.agent)) continue;
       add(m.user, m.agent ? "agent" : "mention");
       if (m.agent) forAgents.add(m.user);
@@ -2618,6 +2619,13 @@ export class Board extends DurableObject<Env> {
         ownReply = true;
         kinds.set(e.author, "reply");
       }
+    } else if (e.via === "person" && e.retracts == null && (e.to === e.author || mentionsOwnAgent(e) || hasGroupMention(e.text, ALL_MEMBERS, members))) {
+      // A person handing their own agents work on a shared board ("@me's agent", "@<my agent's name>", "@agents",
+      // "@all"; #2184): their agents' mailbox gets it as mail from their person, so a coordinator needn't scan every
+      // board. Already read in their own inbox (they wrote it). Only public posts reach here: people-only and Just
+      // mine entries return before notify (Just mine has its own mail, ownMail).
+      ownMail = true;
+      kinds.set(e.author, "from_your_person");
     }
     if (e.reply_to != null) {
       const parent = this.sql.exec("SELECT author, via FROM entries WHERE seq = ?", e.reply_to).toArray()[0];
@@ -2642,7 +2650,7 @@ export class Board extends DurableObject<Env> {
       [...kinds].map(([u, k]) =>
         this.env.DB.prepare(
           "INSERT OR IGNORE INTO notifications (user, board_id, seq, kind, actor, actor_via, entry_type, excerpt, created_at, to_session, read_at, agent_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        ).bind(u, info.id, e.seq, k, e.author, e.via ?? null, e.type, excerpt, e.ts, forSession && forSession.user === u ? forSession.session : null, ownMail && u === e.author ? e.ts : null, ownReply && u === e.author ? e.ts : null),
+        ).bind(u, info.id, e.seq, k, e.author, e.via ?? null, e.type, k === "from_your_person" && info.encrypted ? "🔒 encrypted" : excerpt, e.ts, forSession && forSession.user === u ? forSession.session : null, ownMail && u === e.author ? e.ts : null, ownReply && u === e.author ? e.ts : null),
       ),
     );
   }

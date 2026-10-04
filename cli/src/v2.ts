@@ -379,7 +379,7 @@ type Mail = { id: number; kind: string; board: string | null; board_title: strin
 /** Just mine mail (audience "own"): only your person sees it, so the answer must stay in the lane. */
 export const OWN_MAIL_HINT = "Just mine: only your person sees this; reply in its thread or with own: true.";
 
-const MAIL_KIND: Record<string, string> = { dm: "direct message", for_your_agent: "for your agent", mention: "mentioned you", reply: "reply to you", contact_request: "contact request", contact_accept: "contact accepted", human_decision: "human decision (people decide; for your information, don't act on it until it's decided)", trigger: "trigger fired (a rule your person set; its prompt is their request)" };
+const MAIL_KIND: Record<string, string> = { dm: "direct message", for_your_agent: "for your agent", mention: "mentioned you", reply: "reply to you", contact_request: "contact request", contact_accept: "contact accepted", from_your_person: "from your person (they asked their agents on a shared board)", human_decision: "human decision (people decide; for your information, don't act on it until it's decided)", trigger: "trigger fired (a rule your person set; its prompt is their request)" };
 
 /** "08:02Z" today (UTC), else "2026-10-02 08:02Z". */
 const when = (ts: number) => {
@@ -407,10 +407,11 @@ async function mailboxCmd(args: string[]) {
   const limit = optStr(opt, "limit");
   // As this agent's session if it has one (never makes one): mail for that one session ("@you/<name>") comes too.
   await session(opt, false).catch(() => null);
-  let j: { mail: Mail[]; more: boolean; headless?: boolean };
+  let j: { mail: Mail[]; more: boolean; headless?: boolean; held?: string };
   for (;;) {
     const left = Math.max(0, Math.ceil((until - Date.now()) / 1000));
-    j = await api(opt, "GET", `/api/mailbox?peek=1&wait=${Math.min(25, left)}${limit ? `&limit=${encodeURIComponent(limit)}` : ""}`);
+    // A delivering run is the drainer (drain=1: one per person, so two pollers don't split the mail); --peek isn't.
+    j = await api(opt, "GET", `/api/mailbox?peek=1${opt.peek ? "" : "&drain=1"}&wait=${Math.min(25, left)}${limit ? `&limit=${encodeURIComponent(limit)}` : ""}`);
     const rest = until - Date.now();
     if (j.mail.length || rest <= 0 || (j as { superseded?: boolean }).superseded) break; // superseded: a newer wait from this session took over
     // The server checks every 3 seconds and doesn't hold a shorter wait: sit out the last moment here, then look once more.
@@ -420,18 +421,19 @@ async function mailboxCmd(args: string[]) {
   for (const m of j.mail)
     if (m.encrypted && m.board && m.seq)
       m.text = (await decryptEntry(opt, m.board, m.seq).catch(() => null)) ?? m.text;
-  if (!j.mail.length) return print(opt, j, total ? `Nothing new in ${total}s.` : "Nothing new.");
+  if (!j.mail.length) return print(opt, j, [...(j.held ? [j.held] : []), total ? `Nothing new in ${total}s.` : "Nothing new."].join("\n"));
   for (const m of j.mail) if (m.board && m.seq) shown.add(`${m.board}#${m.seq}`);
   const text = [
     `Mail for your agent (${j.mail.length}), oldest first${j.headless ? " · headless: answer here" : ""}:`,
     // Said outside the fence (fenced text is someone's writing): the CLI's own words. (--reply keeps it in the lane.)
     ...(j.mail.some((m) => m.audience === "own") ? [`🔒 ${OWN_MAIL_HINT.replace("own: true", "--own")}`] : []),
     fence(mailText(j.mail)),
-    opt.peek ? "Peeked: it's still waiting. atteo mailbox takes it." : 'Delivered: it won\'t come again. Reply on the board it came from: atteo post note "…" --board <id> --reply <#>',
+    opt.peek ? "Peeked: it's still waiting. atteo mailbox takes it." : j.held ? j.held : 'Delivered: it won\'t come again. Reply on the board it came from: atteo post note "…" --board <id> --reply <#>',
     ...(j.more ? ["More is waiting: run atteo mailbox again."] : []),
   ].join("\n");
   print(opt, j, text);
   if (opt.peek) return;
+  // Held by another session's drainer: the server acknowledges only mail for this session (the rest waits for it).
   const ids = j.mail.map((m) => m.id);
   for (let i = 0; i < ids.length; i += 90) await api(opt, "POST", "/api/mailbox/ack", { ids: ids.slice(i, i + 90) });
 }

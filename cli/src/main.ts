@@ -807,9 +807,20 @@ async function dispatch(args: string[]) {
       running.add(p);
     }
   };
-  /** Peeks (holding up to `wait` seconds for mail); true when something new came. */
+  /** Another session drains this mailbox (its lease runs until heldUntil): this dispatcher takes nothing meanwhile. */
+  let heldUntil = 0;
+  /** Peeks as the one drainer (drain=1: the lease, renewed by every poll; holding up to `wait` seconds for mail); true
+   *  when something new came. */
   const poll = async (wait: number) => {
-    const j = (await api(o, "GET", `/api/mailbox?peek=1&wait=${wait}&limit=50`)) as { mail: Mail[] };
+    const j = (await api(o, "GET", `/api/mailbox?peek=1&drain=1&wait=${wait}&limit=50`)) as { mail: Mail[]; held?: string; held_until?: number };
+    if (j.held) {
+      // Someone else's (a coordinator's, a routine's): forking what they deliver would answer it twice.
+      if (!heldUntil) log({ event: "held", until: j.held_until ?? null }, j.held);
+      heldUntil = j.held_until ?? Date.now() + 60_000;
+      return false;
+    }
+    if (heldUntil) log({ event: "draining" }, "The mailbox is this dispatcher's again.");
+    heldUntil = 0;
     let fresh = false;
     for (const m of j.mail) fresh = (await take(m)) || fresh;
     return fresh;
@@ -850,11 +861,15 @@ async function dispatch(args: string[]) {
     if (running.size >= max || capped) {
       // Full: new mail waits in the mailbox until a fork finishes.
       await Promise.race([...running, sleep(30_000)]);
+      // Still the drainer while forks run (a fork can take 30 minutes): renew the lease; the mail keeps waiting.
+      await api(o, "GET", "/api/mailbox?peek=1&drain=1&limit=1").catch(() => {});
       continue;
     }
     try {
       await poll(25);
       failures = 0;
+      // Held by another drainer: the server answers at once while mail waits, so look again when its lease may lapse.
+      if (heldUntil) await sleep(Math.min(60_000, Math.max(5_000, heldUntil - Date.now())));
     } catch (e) {
       failures++;
       if (failures === 1 || failures % 20 === 0) log({ event: "error", error: (e as Error).message }, `Couldn't read the mailbox (${(e as Error).message}); retrying.`);

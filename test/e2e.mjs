@@ -3289,6 +3289,150 @@ await step("mailbox tool (MCP): new mail as compact fenced lines under one heade
   assert((await rpcRaw(auth(M2), null, "tools/list", {})).tools.some((x) => x.name === "mailbox"), "mailbox is listed");
 });
 
+await step("mailbox from_your_person (#2184): your own \"@you's agent\" / @agents / @all on a shared board is your agents' mail (already read for you); people-only and plain posts aren't; Just mine and \"Your agent\" come once, as before", async () => {
+  const P = `e2e-fyp-${run}`, Q = `e2e-fyq-${run}`;
+  for (const n of [P, Q]) {
+    await ops("users", { name: n, email: `${n}@example.com`, verified: "true" });
+    tok[n] = (await ops("tokens", { user: n, label: "e2e" })).body.token;
+    cookie[n] = (await ops("sessions", { user: n })).body.cookie;
+  }
+  const sb = (await ops("boards", { user: Q, title: `e2e fyp ${run}` })).body.board.id;
+  await ops("members", { board: sb, user: P });
+  const say = async (board, body) => {
+    const r = await web(`/api/boards/${board}/entries`, P, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    const j = await r.json();
+    assert(r.status === 201, `${r.status} ${JSON.stringify(j)}`);
+    return j.entry.seq;
+  };
+  const peek = async () => (await (await fetch(`${BASE}/api/mailbox?peek=1&limit=100`, { headers: auth(P) })).json()).mail;
+  const mailFor = async (board, seq, settle = true) => {
+    let n = [];
+    for (let i = 0; i < (settle ? 40 : 8); i++) {
+      n = (await peek()).filter((m) => m.board === board && m.seq === seq);
+      if (n.length) break;
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    return n;
+  };
+  const s1 = await say(sb, { type: "task", text: `@${P}'s agent please rerun CI ${run}` });
+  let n = await mailFor(sb, s1);
+  assert(n.length === 1 && n[0].kind === "from_your_person" && n[0].from === P && n[0].from_via === "person" && n[0].for === "for your agent" && !n[0].from_owner && n[0].text === `@${P}'s agent please rerun CI ${run}`, `@me's agent: ${JSON.stringify(n)}`);
+  const s2 = await say(sb, { type: "question", text: `@agents where are we on the release? ${run}` });
+  const s3 = await say(sb, { type: "note", text: `@all heads up: freeze at 5 ${run}` });
+  for (const s of [s2, s3]) {
+    n = await mailFor(sb, s);
+    assert(n.length === 1 && n[0].kind === "from_your_person", `#${s}: ${JSON.stringify(n)}`);
+  }
+  // Not for your agents: a plain note, and a people-only message (agents never see it, so no agent's mail).
+  const s4 = await say(sb, { type: "note", text: `just thinking out loud ${run}` });
+  const s5 = await say(sb, { type: "note", text: `@${P}'s agent salary talk ${run}`, people_only: true, to: [Q] });
+  for (const s of [s4, s5]) assert(!(await mailFor(sb, s, false)).length, `#${s} isn't mail`);
+  // Already read in your own inbox: you wrote it (the inbox doesn't list it, and nothing is unread).
+  const items = (await (await web("/api/inbox", P)).json()).items;
+  assert(!items.some((i) => i.board_id === sb && [s1, s2, s3].includes(i.seq)), `inbox: ${JSON.stringify(items.filter((i) => i.board_id === sb))}`);
+  assert((await (await web("/api/inbox/count", P)).json()).unread === 0, "nothing unread for you");
+  // Just mine: its own mail (for_your_agent, marked own), once, not also from_your_person.
+  const s6 = await say(sb, { type: "note", text: `@${P}'s agent private plan ${run}`, own: true });
+  n = await mailFor(sb, s6);
+  assert(n.length === 1 && n[0].kind === "for_your_agent" && n[0].audience === "own", `Just mine: ${JSON.stringify(n)}`);
+  // "Your agent": a DM from your user, as before (once).
+  const chat = (await (await fetch(`${BASE}/api/me/agent-chat`, { method: "POST", headers: auth(P) })).json()).board;
+  const s7 = await say(chat, { type: "question", text: `@${P}'s agent what changed? ${run}` });
+  n = await mailFor(chat, s7);
+  assert(n.length === 1 && n[0].kind === "dm" && n[0].from_owner === true, `Your agent: ${JSON.stringify(n)}`);
+  // Another person's "@P's agent" is still for_your_agent.
+  const qr = await web(`/api/boards/${sb}/entries`, Q, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "question", text: `@${P}'s agent which port? ${run}` }) });
+  const qs = (await qr.json()).entry.seq;
+  n = await mailFor(sb, qs);
+  assert(n.length === 1 && n[0].kind === "for_your_agent" && n[0].from === Q, `Q's: ${JSON.stringify(n)}`);
+  // The MCP mailbox labels it.
+  const bot = await session(P);
+  const t = await sok(bot, "mailbox", { peek: true, limit: 50 });
+  has(t, `#${s1} task · from your person · for your agent · ${P}: `);
+  has(t, `@${P}'s agent please rerun CI ${run}`);
+});
+
+await step("mailbox drain lease (#2184): one drainer per person; while S1 holds it S2 only peeks (with a hint), acks deliver nothing but its own session's mail; once it lapses S2 drains", async () => {
+  const L = `e2e-dl-${run}`, R = `e2e-dr-${run}`;
+  for (const n of [L, R]) {
+    await ops("users", { name: n, email: `${n}@example.com`, verified: "true" });
+    tok[n] = (await ops("tokens", { user: n, label: "e2e" })).body.token;
+    cookie[n] = (await ops("sessions", { user: n })).body.cookie;
+  }
+  const lb = (await ops("boards", { user: R, title: `e2e lease ${run}` })).body.board.id;
+  await ops("members", { board: lb, user: L });
+  const call = async (method, path, { body, sess, now } = {}) => {
+    const r = await fetch(`${BASE}${path}`, { method, headers: { ...auth(L), "content-type": "application/json", ...(sess ? { "x-atteo-session": sess.id } : {}), ...(now ? { "x-dev-now": String(now) } : {}) }, body: body ? JSON.stringify(body) : undefined });
+    return r.json();
+  };
+  const ask = async (text) => {
+    const r = await web(`/api/boards/${lb}/entries`, R, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "question", text }) });
+    return (await r.json()).entry.seq;
+  };
+  const S1 = (await call("POST", "/api/sessions", { body: { suggest: "dispatch", client: "atteo" } })).session;
+  const S2 = (await call("POST", "/api/sessions", { body: { suggest: "coord", client: "Claude Code" } })).session;
+  const until = async (seq) => {
+    for (let i = 0; i < 40; i++) {
+      if ((await call("GET", "/api/mailbox?peek=1&limit=100")).mail.some((m) => m.board === lb && m.seq === seq)) return;
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    throw new Error(`#${seq} never reached the mailbox`);
+  };
+  // S1 drains: takes the lease, delivers as today.
+  const m1 = await ask(`@${L}'s agent first ${run}`);
+  await until(m1);
+  let r = await call("GET", "/api/mailbox?drain=1&limit=100", { sess: S1 });
+  assert(!r.held && r.mail.some((m) => m.seq === m1 && m.board === lb), `S1 drains: ${JSON.stringify(r).slice(0, 400)}`);
+  // S2's delivering read (with or without drain) only peeks, and says who holds it until when.
+  const m2 = await ask(`@${L}'s agent second ${run}`);
+  await until(m2);
+  for (const q of ["/api/mailbox?limit=100", "/api/mailbox?drain=1&limit=100"]) {
+    r = await call("GET", q, { sess: S2 });
+    assert(r.mail.some((m) => m.seq === m2 && m.board === lb), `S2 sees it: ${JSON.stringify(r).slice(0, 300)}`);
+    has(r.held, `held by session ${S1.name} until `);
+    has(r.held, "pass peek or wait");
+    assert(typeof r.held_until === "number", "held_until");
+  }
+  assert((await call("GET", "/api/mailbox?peek=1&limit=100", { sess: S2 })).mail.some((m) => m.seq === m2), "nothing was delivered");
+  const id2 = r.mail.find((m) => m.seq === m2).id;
+  r = await call("POST", "/api/mailbox/ack", { body: { ids: [id2] }, sess: S2 });
+  assert(r.delivered === 0 && r.held?.includes(S1.name), `S2's ack delivers nothing: ${JSON.stringify(r)}`);
+  r = await call("POST", "/api/mailbox/ack", { body: { ids: [id2] } }); // a token without a session: another holder too
+  assert(r.delivered === 0 && r.held, `token ack: ${JSON.stringify(r)}`);
+  // A plain peek never mentions the lease.
+  assert(!("held" in (await call("GET", "/api/mailbox?peek=1", { sess: S2 }))), "peek: no lease lookup");
+  // Mail for S2 itself is S2's to take, lease or not.
+  const m3 = (await (await web(`/api/boards/${lb}/entries`, R, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "note", text: `@${L}/${S2.name} just you ${run}` }) })).json()).entry.seq;
+  let mine = null;
+  for (let i = 0; i < 40 && !mine; i++) {
+    mine = (await call("GET", "/api/mailbox?peek=1&limit=100", { sess: S2 })).mail.find((m) => m.board === lb && m.seq === m3);
+    if (!mine) await new Promise((res) => setTimeout(res, 150));
+  }
+  assert(mine?.to_session === S2.name, `S2's own mail: ${JSON.stringify(mine)}`);
+  r = await call("GET", "/api/mailbox?limit=100", { sess: S2 });
+  assert(r.held && r.mail.some((m) => m.seq === m3) && r.mail.some((m) => m.seq === m2), `S2's read while held: ${JSON.stringify(r).slice(0, 300)}`);
+  const after = (await call("GET", "/api/mailbox?peek=1&limit=100", { sess: S2 })).mail;
+  assert(!after.some((m) => m.seq === m3) && after.some((m) => m.seq === m2), `its own delivered, the rest waits: ${JSON.stringify(after.map((m) => m.seq))}`);
+  // The MCP mailbox (another session: another holder) says so outside the fence, and only peeks.
+  const bot = await session(L);
+  const t = await sok(bot, "mailbox", { limit: 50 });
+  assert(t.startsWith("Mailbox held by session "), t);
+  has(t, "peeked: still waiting");
+  // The holder renews and keeps delivering.
+  r = await call("GET", "/api/mailbox?drain=1&limit=100", { sess: S1 });
+  assert(!r.held && r.mail.some((m) => m.seq === m2), `S1 renews and delivers: ${JSON.stringify(r).slice(0, 300)}`);
+  // Two minutes later (the test clock) the lease has lapsed: S2 drains and holds it; S1 now gets the hint.
+  const later = Date.now() + 3 * 60_000;
+  const m4 = await ask(`@${L}'s agent fourth ${run}`);
+  await until(m4);
+  r = await call("GET", "/api/mailbox?drain=1&limit=100", { sess: S2, now: later });
+  assert(!r.held && r.mail.some((m) => m.seq === m4), `S2 drains after the lease lapsed (needs DEV_FAKE_CLOCK=1 in .dev.vars): ${JSON.stringify(r).slice(0, 300)}`);
+  r = await call("GET", "/api/mailbox?limit=100", { sess: S1, now: later });
+  has(r.held ?? "", `held by session ${S2.name}`);
+  // MCP drain: true can't take it from S2 either (S2's lease runs until its test-clock time).
+  has(await sok(bot, "mailbox", { drain: true, peek: true }), `Mailbox held by session ${S2.name}`);
+});
+
 await step("read receipts: an old 👀 receipt still counts as picked up, and answering swaps it to ✅", async () => {
   const asked = await (await web(`/api/boards/${board}/entries`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "question", text: `@${B}'s agent legacy receipt ${run}?` }) })).json();
   const seq = asked.entry.seq;
@@ -4221,6 +4365,8 @@ await step("@all: every other person and every person's agent hear it once (inbo
   await ops("members", { board: ab, user: B });
   await ops("members", { board: ab, user: H }); // H never opens the board
   const post = async (text) => (await (await web(`/api/boards/${ab}/entries`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "note", text }) })).json()).entry;
+  // (A's agents' mailbox is full from earlier steps: deliver it, so the author's own mail is checkable below.)
+  for (let i = 0; i < 30; i++) if (!(await (await fetch(`${BASE}/api/mailbox?limit=100`, { headers: auth(A) })).json()).more) break;
   const e1 = await post(`@all heads up ${run}`);
   const want = [B, H].flatMap((u) => [`${u}/p`, `${u}/a`]).sort().join();
   assert(e1.mentions.map((m) => `${m.user}/${m.agent ? "a" : "p"}`).sort().join() === want, JSON.stringify(e1.mentions));
@@ -4246,7 +4392,9 @@ await step("@all: every other person and every person's agent hear it once (inbo
       assert(n.length === 1 && n[0].kind === "mention", `${who} mailbox #${e.seq}: ${JSON.stringify(n)}`);
     }
   }
-  assert(!only((await inbox(A)).items, e1.seq).length && !only((await mail(tok[A])).mail, e1.seq).length, "the author hears nothing");
+  // The author hears nothing as a mention; their own agents get it as mail from their person (#2184), read for them.
+  const own = only((await mail(tok[A])).mail, e1.seq);
+  assert(!only((await inbox(A)).items, e1.seq).length && own.length === 1 && own[0].kind === "from_your_person", `the author: ${JSON.stringify(own)}`);
   // From an agent: everyone else and their agents, never itself or its own person.
   await ok(B, ab, "read");
   const ag = await ok(B, ab, "post", { type: "note", text: `@all from an agent ${run}` });

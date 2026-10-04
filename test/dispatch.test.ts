@@ -34,6 +34,18 @@ describe("dispatcher", () => {
     expect(p).toContain("--board b_x --reply 12");
     expect(p).not.toContain("written by another person");
   });
+  it("forks for your own \"@you's agent\" on a shared board (from_your_person): your user's request, on that board", () => {
+    const m = mail({ kind: "from_your_person", type: "task", from: "vedu", from_via: "person", text: "@vedu's agent please rerun CI" });
+    expect(needsFork(m)).toBe(true);
+    expect(needsFork({ ...m, type: "note" })).toBe(true); // a person wrote it
+    expect(forkName(m)).toBe("task-12");
+    const p = forkPrompt(m, "vedu", { id: "as_1", name: "task-12" });
+    expect(p).toContain("your user (vedu)");
+    expect(p).toContain('the board "checkout" (b_x)');
+    expect(p).not.toContain('"Your agent"');
+    expect(p).toContain("--board b_x --reply 12");
+    expect(p).not.toContain("written by another person");
+  });
   it("tells a fork when the message is Just mine, so its answer stays private", () => {
     const m = mail({ type: "note", from: "vedu", from_via: "person", audience: "own", text: "plan it" });
     expect(needsFork(m)).toBe(true);

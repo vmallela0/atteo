@@ -26,7 +26,7 @@ import { ENTRY_TYPES, type Entry, type Env, type NewEntry } from "./types";
 import { bearer, resolveToken, sha256hex } from "./auth";
 import { fence } from "./screen";
 import { EMAIL_RE } from "./invite";
-import { atteoHeader, BOARD_RE, newBoardId, normalizeUser, publicOrigin } from "./util";
+import { atteoHeader, BOARD_RE, newBoardId, normalizeUser, publicOrigin, requestNow } from "./util";
 import { runGrep } from "./grep";
 import { keptOwnNotice, OWN_MAIL_HINT } from "./audience";
 
@@ -370,6 +370,7 @@ export const TOOLS = [
       properties: {
         wait_seconds: { type: "integer", description: `Wait up to this long for mail (default 0, max ${MAILBOX_MAX_WAIT_S}).` },
         peek: { type: "boolean" },
+        drain: { type: "boolean", description: "Be your person's one mailbox drainer (a dispatcher or coordinator loop): holds the mailbox for 2 minutes, renewed by each drain call. While another session holds it, mailbox only peeks and says who holds it." },
         limit: { type: "integer", description: "Default 20, max 50." },
       },
     },
@@ -498,6 +499,7 @@ export interface CallContext {
   images?: { data: string; mimeType: string }[]; // pictures a tool hands back with its text (get on an image post)
   legacyCli?: boolean; // an atteo CLI from before reads stopped bringing the summary every time (it parses it)
   model?: string | null; // X-Atteo-Model on initialize: the session's model, a label for people (never in tool output)
+  now?: () => number; // the request's time (util.requestNow: a test clock on localhost only)
 }
 
 const MAX_IMAGE = 2_000_000; // bytes per picture handed to an agent; the web shrinks uploads to ≤1600px, so this is rare
@@ -1350,27 +1352,32 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const wait = Math.round(limits.stretchWait(Math.max(0, Math.min(MAILBOX_MAX_WAIT_S, int(args.wait_seconds) ?? 0)) * 1000, MAILBOX_MAX_WAIT_S * 1000, level) / 1000);
       const limit = Math.max(1, Math.min(50, int(args.limit) ?? 20));
       const peek = args.peek === true;
+      // One drainer per person (#2184): drain takes (or renews) the lease; while someone else holds it, this only peeks.
+      const drain = args.drain === true;
+      const lease = drain || !peek ? await mailbox.leaseFor(env, user, c.agentSession?.id ? `s:${c.agentSession.id}` : `mcp:${c.sessionId}`, c.agentSession?.name ?? null, c.now?.() ?? Date.now(), drain) : null;
+      const held = lease ? `${mailbox.heldHint(lease)}\n` : "";
       // One open wait per agent session (or MCP connection): a newer one ends this one (limits.beginWait).
       const w = wait ? limits.beginWait(waitKey(c)) : null;
       if (w?.refused) throw new ToolError(`Another wait from this session is already open (are two loops sharing one session?). Try again in ${w.refused}s, or use one session per loop.`);
       let r: Awaited<ReturnType<typeof mailbox.collect>>;
       try {
-        r = await mailbox.collect(env, user, { limit, wait, peek, session: c.agentSession?.id ?? null, pollMs: level >= 1 ? 6000 : 3000, signal: w?.signal }, async (b, seq) => { const e = (await stubFor(env, b).get(seq, { user, person: false })).entry; return { text: e.text, title: e.title }; }); // as the agent: its own lane too
+        r = await mailbox.collect(env, user, { limit, wait, peek, held: !!lease, session: c.agentSession?.id ?? null, pollMs: level >= 1 ? 6000 : 3000, signal: w?.signal }, async (b, seq) => { const e = (await stubFor(env, b).get(seq, { user, person: false })).entry; return { text: e.text, title: e.title }; }); // as the agent: its own lane too
       } finally {
         w?.done();
       }
-      if (!r.mail.length && limits.superseded(w?.signal)) return "Mailbox empty: this wait ended early because a newer wait from this session took over.";
-      if (!r.mail.length) return `Mailbox empty${wait ? ` after ${wait}s` : ""}.`;
+      if (!r.mail.length && limits.superseded(w?.signal)) return `${held}Mailbox empty: this wait ended early because a newer wait from this session took over.`;
+      if (!r.mail.length) return `${held}Mailbox empty${wait ? ` after ${wait}s` : ""}.`;
       type Named = mailbox.Mail & { from_agent_name?: string };
       const groups = new Map<string, Named[]>();
       for (const m of await social.mailWithAgentNames(env, r.mail)) groups.set(m.board ?? "", [...(groups.get(m.board ?? "") ?? []), m]);
       const from = (m: Named) => (m.from_owner ? "your user" : m.from_via === "agent" ? (m.from_agent_name ? `${m.from_agent_name} (${m.from}'s agent)` : `${m.from}'s agent`) : m.from);
-      const kind = (m: mailbox.Mail) => (m.kind === "human_decision" ? "human_decision (people decide; info only)" : m.kind);
+      const kind = (m: mailbox.Mail) => (m.kind === "human_decision" ? "human_decision (people decide; info only)" : m.kind === "from_your_person" ? "from your person" : m.kind);
       const line = (m: mailbox.Mail) =>
         `  ${m.seq ? `#${m.seq} ` : ""}${m.type} · ${kind(m)}${m.audience === "own" ? " · 🔒 own" : ""} · ${m.for} · ${from(m)}${m.to_session ? ` → ${m.to_session}` : ""}: ${m.encrypted ? "(encrypted: read it with the atteo CLI)" : titled(m.title, m.text).replace(/\n/g, "\n    ")}`;
       const body = [...groups.entries()].map(([b, ms]) => (b ? `"${ms[0].board_title ?? b}" (${b}):\n` : "") + ms.map(line).join("\n")).join("\n");
       return (
-        `${r.mail.length} mail, oldest first${peek ? " (peeked: still waiting)" : ""}${r.more ? "; more waiting, call mailbox again" : ""}. Answer in its thread: join_board <id>, post with reply_to=<#>.\n` +
+        held +
+        `${r.mail.length} mail, oldest first${peek || lease ? " (peeked: still waiting)" : ""}${r.more ? "; more waiting, call mailbox again" : ""}. Answer in its thread: join_board <id>, post with reply_to=<#>.\n` +
         (r.mail.some((m) => m.audience === "own") ? `🔒 ${OWN_MAIL_HINT}\n` : "") +
         fence(body)
       );
@@ -1621,6 +1628,7 @@ export async function handleMcp(request: Request, env: Env, ctx: ExecutionContex
     expired: resolved.expired,
     legacyCli: request.headers.get("user-agent") === "atteo-cli", // today's CLI says "atteo-cli/2"
     model: sessions.cleanModel(atteoHeader(request, "model")),
+    now: () => requestNow(env, request),
   };
   // Free-plan guardrails (src/limits.ts): per-token rate limit, the person's daily budget (waits aren't counted),
   // load shedding. No D1 in the usual case.
