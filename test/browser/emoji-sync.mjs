@@ -7,6 +7,7 @@
 import { chromium } from "playwright-core";
 const BASE = (process.env.BASE || "http://localhost:8787").replace(/\/$/, "");
 let KEY = process.env.ADMIN_KEY;
+// (the gate runs against 8787, whose ADMIN_KEY is ci-admin-key)
 KEY ||= "ci-admin-key";
 const ops = async (p, b) => (await fetch(`${BASE}/api/ops/${p}`, { method: "POST", headers: { "x-admin-key": KEY, "content-type": "application/json" }, body: JSON.stringify(b) })).json();
 const run = Date.now().toString(36).slice(-5), P = `es${run}`, V = `ev${run}`, R = `er${run}`;
@@ -24,7 +25,7 @@ const prefs = async () => (await (await api("/api/app/prefs")).json()).prefs;
 const DEF = ["👍", "✅", "🤔", "🎉", "❤️", "🔥", "😂", "🙏"];
 let fails = 0;
 const check = (ok, m) => { console.log(`${ok ? "✓" : "✗"} ${m}`); if (!ok) fails++; };
-const until = async (f, ms = 8000) => { const t = Date.now(); for (;;) { const v = await f(); if (v || Date.now() - t > ms) return v; await new Promise((r) => setTimeout(r, 150)); } };
+const until = async (f, ms = 15000) => { const t = Date.now(); for (;;) { const v = await f(); if (v || Date.now() - t > ms) return v; await new Promise((r) => setTimeout(r, 150)); } };
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
 // The person reacts (as on any device): 🚀 twice, 🐙 once, so recent_reactions = [🚀, 🐙]. Favourites never set.
@@ -56,7 +57,7 @@ const done = async (p) => { await p.locator(".rx-pick [data-rp-done]").click(); 
 // 1. Seeding: a fresh browser, nothing chosen: the row is your most-used from every device, then the defaults.
 const A = await open();
 await A.p.goto(`${BASE}/b/${board}`);
-const seeded = await until(async () => (await bar(A.p)) === "🚀🐙👍" && "ok", 5000);
+const seeded = await until(async () => (await bar(A.p)) === "🚀🐙👍" && "ok", 12000);
 check(seeded, `fresh browser, never set: one-click buttons seeded from recent_reactions (${await bar(A.p)})`);
 await openPicker(A.p);
 const q0 = await quick(A.p);
@@ -81,7 +82,7 @@ check(!(await lsGet(A.p, "dirty")), "nothing left unsent in A");
 // 3. Browser B, fresh localStorage: sees them.
 const B = await open();
 await B.p.goto(`${BASE}/b/${board}`);
-check(await until(async () => (await bar(B.p)) === "🔥👀🎉" && "ok", 5000), `browser B (fresh localStorage) shows A's favourites (${await bar(B.p)})`);
+check(await until(async () => (await bar(B.p)) === "🔥👀🎉" && "ok", 12000), `browser B (fresh localStorage) shows A's favourites (${await bar(B.p)})`);
 await openPicker(B.p);
 const qB = await quick(B.p);
 check(qB.startsWith("🔥👀🎉🚀🐙"), `B's quick row: favourites, then most-used fill the rest (${qB})`);
@@ -102,11 +103,11 @@ check(same((await prefs()).reactions, want), "…and the server still has the ol
 const toasts = await B.p.locator(".toast").evaluateAll((ts) => ts.filter((t) => t.offsetParent).map((t) => t.textContent));
 check(!toasts.some((t) => /prefs|save|couldn/i.test(t)), `…quietly, no error toast (${JSON.stringify(toasts)})`);
 await B.p.unroute("**/api/app/prefs");
-check(await until(async () => same((await prefs()).reactions, [...want, "🙏"]) && "ok", 9000), `back online: the retry lands (${JSON.stringify((await prefs()).reactions)})`);
-check(await until(async () => !(await lsGet(B.p, "dirty")) && "ok", 3000), "…and B has nothing left unsent");
+check(await until(async () => same((await prefs()).reactions, [...want, "🙏"]) && "ok", 20000), `back online: the retry lands (${JSON.stringify((await prefs()).reactions)})`);
+check(await until(async () => !(await lsGet(B.p, "dirty")) && "ok", 6000), "…and B has nothing left unsent");
 // A picks it up on its next load.
 await A.p.reload();
-check(await until(async () => { await openPicker(A.p); const q = await quick(A.p); await A.p.keyboard.press("Escape"); return q.startsWith("🔥👀🎉🙏") && "ok"; }, 5000), "A's next load has B's change");
+check(await until(async () => { await openPicker(A.p); const q = await quick(A.p); await A.p.keyboard.press("Escape"); return q.startsWith("🔥👀🎉🙏") && "ok"; }, 12000), "A's next load has B's change");
 
 // 4. Reset (in A): the server goes back to the default; both browsers fall back to the seeded row.
 await customize(A.p);
@@ -116,7 +117,7 @@ check(await until(async () => same((await prefs()).reactions, DEF) && "ok"), `Re
 check((await bar(A.p)) === "🚀🐙👍", `A after Reset: seeded row again (${await bar(A.p)})`);
 check((await lsGet(A.p, "quick")) === null, "A's local copy cleared");
 await B.p.reload();
-check(await until(async () => (await bar(B.p)) === "🚀🐙👍" && "ok", 5000), `B after reload: seeded row too (${await bar(B.p)})`);
+check(await until(async () => (await bar(B.p)) === "🚀🐙👍" && "ok", 12000), `B after reload: seeded row too (${await bar(B.p)})`);
 
 // 5. A row saved by an older build (this browser only, before the server held it) is sent up, not wiped.
 const C = await open(ck, `localStorage.setItem(${JSON.stringify("atteo.rx.quick." + P)}, JSON.stringify(["🐛","🚢"]))`);

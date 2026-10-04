@@ -1,4 +1,6 @@
 // Browser check for #1023 (vedu #1022): select words in a message → Quote → a quote block in the composer → post →
+// (quote.next: scrolls to a message before selecting in it (dom-cap placeholders); the test scrolls to the message until it settles, since rail-cap's content-visibility makes off-screen
+// heights guesses that a single scrollIntoView aims at)
 // a compact box with who said it, the words and "↗ original", which jumps back to the source. Desktop and phone.
 // Agents read the same post as plain "> " lines ending "— who, #N".
 import { SHOTS_DIR } from "./lib/shots.mjs";
@@ -23,13 +25,13 @@ let fails=0;const check=(ok,m)=>{console.log(`${ok?"✓":"✗"} ${m}`);if(!ok)fa
 const RANGE=`window.qRange=(s,w)=>{const body=document.querySelector('#e'+s+'>.grow>.body'),ns=[],tw=document.createTreeWalker(body,NodeFilter.SHOW_TEXT);let n,all='';
   while((n=tw.nextNode())){ns.push([n,all.length]);all+=n.data}const i=all.indexOf(w);if(i<0)return null;
   const at=o=>{for(let k=ns.length-1;k>=0;k--)if(ns[k][1]<=o)return [ns[k][0],o-ns[k][1]]};const g=document.createRange();g.setStart(...at(i));g.setEnd(...at(i+w.length));return g}`;
-const select=async(p,seq,words,mouse)=>{await p.evaluate(s=>document.getElementById('e'+s).scrollIntoView({block:'center'}),seq);await p.waitForTimeout(150);
+const select=async(p,seq,words,mouse)=>{await p.evaluate(async s=>{for(let i=0;i<4;i++){(document.getElementById('e'+s)||document.getElementById('g'+s)).scrollIntoView({block:'center'});await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))}},seq);await p.waitForTimeout(150);
   const r=await p.evaluate(([s,w])=>{const g=qRange(s,w);if(!g)return null;const rs=[...g.getClientRects()].filter(x=>x.width),a=rs[0],z=rs[rs.length-1];return {x0:a.left,y0:a.top+a.height/2,x1:z.right,y1:z.top+z.height/2}},[seq,words]);
   if(!r)throw new Error(`"${words}" not in #${seq}`);
   if(mouse){await p.mouse.move(r.x0+0.5,r.y0);await p.mouse.down();await p.mouse.move((r.x0+r.x1)/2,r.y1,{steps:4});await p.mouse.move(r.x1-0.5,r.y1,{steps:4});await p.mouse.up()}
   else await p.evaluate(([s,w])=>{getSelection().removeAllRanges();getSelection().addRange(qRange(s,w))},[seq,words]);
   await p.waitForTimeout(300)};
-const inView=(p,sel)=>p.evaluate(s=>{const el=document.querySelector(s),sc=document.getElementById('thread-scroll').getBoundingClientRect(),r=el.getBoundingClientRect();return r.top>=sc.top-1&&r.bottom<=sc.bottom+1},sel);
+const inView=(p,sel)=>p.evaluate(s=>{const el=document.querySelector(s);if(!el)return false;const sc=document.getElementById('thread-scroll').getBoundingClientRect(),r=el.getBoundingClientRect();return r.top>=sc.top-1&&r.bottom<=sc.bottom+1},sel);
 const b=await chromium.launch({executablePath: process.env.PW_CHROME || undefined});
 for(const [label,w,h,phone] of [["desktop",1280,800,false],["phone",390,844,true]]){
   const ctx=await b.newContext({viewport:{width:w,height:h},...(phone?{hasTouch:true,isMobile:true}:{})});const [k,...v]=ckB.split(";")[0].split("=");await ctx.addCookies([{name:k,value:v.join("="),url:BASE}]);
@@ -37,6 +39,7 @@ for(const [label,w,h,phone] of [["desktop",1280,800,false],["phone",390,844,true
   await p.goto(`${BASE}/b/${board}`);await p.waitForTimeout(800);
   check(await p.locator("#quote-btn").isHidden(),`${label}: no Quote button without a selection`);
   // A selection across two messages isn't a quote of one.
+  await p.evaluate(async a=>{for(let i=0;i<4;i++){(document.getElementById('e'+a)||document.getElementById('g'+a)).scrollIntoView({block:'center'});await new Promise(r=>setTimeout(r,120))}},src); // dom-cap: far messages are placeholders until near
   await p.evaluate(([a,z])=>{const g=document.createRange();g.setStart(document.querySelector('#e'+a+'>.grow>.body'),0);g.setEnd(document.querySelector('#e'+z+'>.grow>.body'),1);getSelection().removeAllRanges();getSelection().addRange(g)},[src,other]);
   await p.waitForTimeout(300);check(await p.locator("#quote-btn").isHidden(),`${label}: a selection across two messages shows no Quote`);
   await p.evaluate(()=>getSelection().removeAllRanges());

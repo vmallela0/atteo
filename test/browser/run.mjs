@@ -79,7 +79,10 @@ const passed = (last) => /passed|all scripts parse/.test(last) && !/FAIL/.test(l
 const run1 = (t, slot, useShared) => new Promise((resolve) => {
   const f = join(DIR, `${t}.mjs`), s = Date.now(), log = join(LOGS, `${t}${useShared ? "" : ".alone"}.log`);
   const env = { ...process.env, BASE, SHOTS_DIR };
-  const imports = [`--import=${pathToFileURL(join(DIR, "lib/devmode.mjs"))}`];
+  // Older checks were written for Developer mode (lib/devmode.mjs makes the people they create start there); a check whose
+  // header says "// gate: everyday" tests Everyday and runs without it, as the gate does.
+  const everyday = /^\/\/ gate: everyday/m.test(readFileSync(f, "utf8"));
+  const imports = everyday ? [] : [`--import=${pathToFileURL(join(DIR, "lib/devmode.mjs"))}`];
   if (useShared) {
     imports.push(`--import=${pathToFileURL(join(DIR, "lib/shim.mjs"))}`);
     Object.assign(env, { BROWSER_SHIM_MAIN: f, BROWSER_SHIM_EXE: EXE, BROWSER_SHIM_WS: JSON.stringify({ default: shared.servers[slot % NB].wsEndpoint(), scrollbars: shared.sb.wsEndpoint() }) });

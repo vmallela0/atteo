@@ -14,7 +14,7 @@ for (const [label,w,h,scheme] of [["desktop",1280,800,"light"],["mobile",390,844
   await ctx.addCookies([{ name: k, value: v.join("="), url: BASE }]);
   const p = await ctx.newPage(); const errors=[]; p.on("pageerror",e=>errors.push(e.message));
   await p.goto(`${BASE}/b/${board}`); await p.waitForTimeout(700);
-  const n = await p.locator("#thread>.entry").count(), t = await p.locator("#rail i").count();
+  const n = await p.locator("#thread>.entry, #thread>.ghost").count(), t = await p.locator("#rail i").count();
   check(n>10 && (t===n || (n>60 && t<=60+await p.locator("#thread>.entry.for-you").count())), `${label}: one tick per message, at most ~60 on long boards (${t} ticks, ${n} messages)`);
   const on0 = await p.locator("#rail i.on").count();
   check(on0>0 && on0<n, `${label}: ticks in view are marked (${on0})`);
@@ -47,11 +47,11 @@ for (const [label,w,h,scheme] of [["desktop",1280,800,"light"],["mobile",390,844
     await p.mouse.up();
     check(Math.abs(mid-0.5)<0.1, `drag scrubs (centre at ${(mid*100).toFixed(0)}%)`);
   }
-  // new message while away → "New messages ↓"
+  // new message while away → "1 new message ↓" (rail.next: rail-cap counts them and buckets ticks past ~60)
   await mcp("read",{}); await mcp("post",{type:"note",text:`rail check ${label} ${Date.now()}`});
-  await p.waitForFunction(()=>document.getElementById("new-pill").textContent.includes("New messages"),null,{timeout:5000}).catch(()=>{});
-  check((await p.locator("#new-pill").textContent()).includes("New messages"), `${label}: a new message while away → "New messages ↓"`);
-  check(await p.locator("#rail i").count()===n+1, `${label}: the new message gets a tick`);
+  await p.waitForFunction(()=>document.getElementById("new-pill").textContent.match(/^\d+ new messages? ↓$/),null,{timeout:5000}).catch(()=>{});
+  check(/^\d+ new messages? ↓$/.test(await p.locator("#new-pill").textContent()), `${label}: a new message while away → "1 new message ↓" (rail-cap counts them, jxn #1367)`);
+  {const c=await p.locator("#rail i").count();check(c===n+1||(n+1>60&&c>=40&&c<=62), `${label}: the new message gets a tick (or joins a bucket once there are ~60, rail-cap) (${n}→${c})`)}
   await p.click("#new-pill"); await p.waitForTimeout(600);
   check(!(await p.locator("#new-pill").isVisible()), `${label}: pill takes you down and hides`);
   if (label==="mobile") await p.screenshot({ path: `${SHOTS_DIR}/rail-${label}.png` });

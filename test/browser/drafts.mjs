@@ -23,14 +23,14 @@ await p.goto(`${BASE}/b/${board}`);await p.waitForTimeout(500);
 check((await p.inputValue("#composer-text"))===`half-written thought ${run}`,"coming back restores what you were typing");
 await p.locator("#composer-text").click();await p.keyboard.press("End");await p.keyboard.press("Enter");await p.waitForTimeout(900);await p.reload();await p.waitForTimeout(500);
 check((await p.inputValue("#composer-text"))==="","posting clears the draft");
-// a reply's draft (in the main composer) is its own, and survives a reload still pointed at that message
+// starting a reply keeps what's typed (#1469); the reply and its text survive a reload; cancelling leaves the text
 await p.locator("#composer-text").fill(`main draft ${run}`);await p.waitForTimeout(400);
 await p.locator(`#e${root}`).hover();await p.locator(`#e${root} [data-reply]`).first().click({force:true});await p.waitForTimeout(200);
-check((await p.inputValue("#composer-text")).trim()===`@${B}'s agent`,`replying starts its own draft ("${await p.inputValue("#composer-text")}")`);
+check((await p.inputValue("#composer-text")).includes(`main draft ${run}`),`starting a reply keeps what you'd typed (vedu #1469: "${await p.inputValue("#composer-text")}")`);
 await p.keyboard.type(`reply draft ${run}`);await p.waitForTimeout(400);await p.reload();await p.waitForTimeout(600);
 check(await p.locator("#replying").isVisible()&&(await p.inputValue("#composer-text")).includes(`reply draft ${run}`),"after a reload it's still a reply, with its draft");
 await p.locator("#composer-text").press("Escape");await p.waitForTimeout(150);
-check(!(await p.locator("#replying").isVisible())&&(await p.inputValue("#composer-text"))===`main draft ${run}`,"Esc cancels the reply and your other draft comes back");
+check(!(await p.locator("#replying").isVisible())&&(await p.inputValue("#composer-text")).includes(`reply draft ${run}`),"Esc cancels the reply and leaves the text in the box (#1469)");
 await p.locator(`#e${root}`).hover();await p.locator(`#e${root} [data-reply]`).first().click({force:true});await p.waitForTimeout(200);
 check((await p.inputValue("#composer-text")).includes(`reply draft ${run}`),"replying again brings back that reply's draft");
 await p.locator("#composer-text").fill("");await p.locator("#reply-cancel").click();await p.locator("#composer-text").fill("");await p.waitForTimeout(400);
