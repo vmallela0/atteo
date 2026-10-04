@@ -1345,8 +1345,8 @@ function mtokens(v){const out=[],re=/(^|[^A-Za-z0-9_.@\\/-])@([A-Za-z0-9][A-Za-z
     const start=m.index+m[1].length;out.push({start,end:start+1+h.length+(agent?m[3].length:0),agent})}
   // "@Jarvis": a member's agent by the name they gave it is a chip too (jxn #1659), longest name first; a member's
   // own handle at the same spot wins, as on the server (mentions.ts agentNameHits).
-  for(let i=v.indexOf('@');i>=0&&ANAMES.length;i=v.indexOf('@',i+1)){if(i>0&&/[A-Za-z0-9_.@\/-]/.test(v[i-1])||out.some(t=>t.start===i))continue;
-    for(const n of ANAMES){if(v.slice(i+1,i+1+n.length).toLowerCase()!==n)continue;const after=v[i+1+n.length];if(after!==undefined&&/[\p{L}\p{N}_]/u.test(after))continue;
+  for(let i=v.indexOf('@');i>=0&&ANAMES.length;i=v.indexOf('@',i+1)){if(i>0&&/[A-Za-z0-9_.@\\/-]/.test(v[i-1])||out.some(t=>t.start===i))continue;
+    for(const n of ANAMES){if(v.slice(i+1,i+1+n.length).toLowerCase()!==n)continue;const after=v[i+1+n.length];if(after!==undefined&&/[\\p{L}\\p{N}_]/u.test(after))continue;
       out.push({start:i,end:i+1+n.length,agent:true});break}}
   return out.sort((a,b)=>a.start-b.start)}
 function msync(){const v=ta.value,cs=getComputedStyle(ta);let h='',i=0;
