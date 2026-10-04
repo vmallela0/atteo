@@ -14,7 +14,9 @@
 // Plus what Actions sets: GITHUB_SHA, GITHUB_REF_NAME, GITHUB_REPOSITORY, GITHUB_RUN_ID, GITHUB_EVENT_PATH, …
 // Local try: ATTEO_URL=http://localhost:8799 ATTEO_BOARD=b_… ATTEO_BOT_TOKEN=ab_… CI_RESULT=failure FAILED_STEP=Typecheck \
 //   GITHUB_SHA=$(git rev-parse HEAD) GITHUB_REF_NAME=my-branch node scripts/ci-report.mjs
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 const env = process.env;
 const notice = (s) => console.log(`::notice title=Atteo CI bot::${s}`);
@@ -60,11 +62,55 @@ async function findCard(shas) {
 }
 
 /** The commit's author as a board member, when one matches by handle or display name (people pick their handles). */
-async function authorOnBoard(author) {
-  const names = [author?.username, author?.name, author?.email?.split("@")[0], env.GITHUB_ACTOR].filter(Boolean).map((s) => s.toLowerCase());
+export function authorOnBoard(author, members) {
+  const names = [author?.username, author?.name, author?.email?.split("@")[0]].filter(Boolean).map((s) => s.toLowerCase());
   if (!names.length) return null;
-  const { members = [] } = await api(`/api/boards/${board}/members`);
   return members.find((m) => names.includes(m.user.toLowerCase()) || (m.display_name && names.includes(m.display_name.toLowerCase())))?.user ?? null;
+}
+
+/** Authors of commits after base up to head (git log base..head). Empty when base is unknown or equals head. */
+export function commitAuthorsSince(base, head, runGit = (args) => execFileSync("git", args, { encoding: "utf8" }).trim()) {
+  if (!base || !head || base === head) return [];
+  try {
+    const out = runGit(["log", `${base}..${head}`, "--format=%aN|%aE", "--no-merges"]);
+    if (!out) return [];
+    return out.split("\n").map((line) => {
+      const [name, email] = line.split("|");
+      return { name, email, username: email?.split("@")[0] };
+    });
+  } catch {
+    return [];
+  }
+}
+
+/** The head sha of the last completed green CI run on this branch (GitHub Actions API). */
+export async function lastGreenSha(e = env, fetchFn = fetch) {
+  if (!e.GITHUB_TOKEN || !e.GITHUB_REPOSITORY) return null;
+  const ref = e.GITHUB_REF_NAME || "main";
+  try {
+    const url = `${e.GITHUB_API_URL || "https://api.github.com"}/repos/${e.GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?branch=${encodeURIComponent(ref)}&status=completed&conclusion=success&per_page=1`;
+    const r = await fetchFn(url, { headers: { authorization: `Bearer ${e.GITHUB_TOKEN}`, accept: "application/vnd.github+json" }, signal: AbortSignal.timeout(15_000) });
+    const { workflow_runs = [] } = await r.json();
+    return workflow_runs[0]?.head_sha?.toLowerCase() ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Who to @ on CI failure: change-card author, else commit authors since last green, else nobody. */
+export async function resolveFailurePings({ card, sinceAuthors, matchAuthor }) {
+  if (card?.author) return [card.author];
+  const who = [];
+  for (const author of sinceAuthors ?? []) {
+    const user = await matchAuthor(author);
+    if (user && !who.includes(user)) who.push(user);
+  }
+  return who;
+}
+
+/** The @-mention suffix for a failure note; empty when nobody should be pinged. */
+export function failurePingSuffix(who) {
+  return who.length ? ` ${who.map((u) => `@${u} @${u}'s agent`).join(" ")}` : "";
 }
 
 /** The step that failed, from the run's jobs (the checks job is done by the time this runs). */
@@ -95,9 +141,11 @@ async function main() {
     text = card ? `✅ CI passed on ${short} (${branch})${link}` : `✅ CI passed on ${branch} @ ${short}${head?.message ? ` "${head.message.split("\n")[0].slice(0, 80)}"` : ""} (no change card for it)${link}`;
   } else {
     const step = await failedStep();
-    // The pusher (the card's author: their pre-push hook posted it) and the commit's author, when they're members.
-    const who = [...new Set([card?.author, await authorOnBoard(head?.author).catch(() => null)].filter(Boolean))];
-    const ping = who.length ? ` ${who.map((u) => `@${u} @${u}'s agent`).join(" ")}` : head?.author?.name ? ` (author: ${head.author.name})` : "";
+    const { members = [] } = await api(`/api/boards/${board}/members`).catch(() => ({}));
+    const matchAuthor = (author) => authorOnBoard(author, members);
+    const sinceAuthors = commitAuthorsSince(await lastGreenSha(), sha);
+    const who = await resolveFailurePings({ card, sinceAuthors, matchAuthor });
+    const ping = failurePingSuffix(who);
     const what = card ? `${short} (${branch})` : `${branch} @ ${short}${head?.message ? ` "${head.message.split("\n")[0].slice(0, 80)}"` : ""}`;
     text = `❌ CI failed on ${what}${step ? ` at "${step}"` : ""}.${ping}${link}`;
   }
@@ -108,4 +156,6 @@ async function main() {
   console.log(`Posted #${entry.seq}${card ? ` on change card #${card.seq}` : " (no change card for this commit)"}.`);
 }
 
-main().catch((e) => warn(`couldn't post to the board: ${e.message}`));
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  main().catch((e) => warn(`couldn't post to the board: ${e.message}`));
+}
