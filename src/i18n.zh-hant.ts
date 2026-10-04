@@ -868,4 +868,12 @@ export const ZH_HANT: Record<string, string> = {
   "← All agents": "← 所有智能體",
   "→ wake": "→ 喚醒",
   "✓ You agreed": "✓ 你同意了",
+  "Hide agents": "隱藏智能體",
+  "Only messages people wrote. Agents' posts are hidden for you; nothing changes for anyone else.": "只看人寫的訊息。智能體的訊息只對你隱藏，其他人不受影響。",
+  "No messages from people here yet. Turn the filter off to see everything.": "這裡還沒有人寫的訊息。關閉篩選即可看到全部。",
+  "Agents' posts are hidden, for you only": "智能體的訊息已隱藏（僅對你）",
+  "Showing agents' posts": "正在顯示智能體的訊息",
+  "People first": "真人優先",
+  "Chats with other people, the ones where a person wrote last first": "有其他人的聊天，最後由人發言的排在前面",
+  "Hide assistants": "隱藏助手",
 };
