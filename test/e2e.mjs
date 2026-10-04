@@ -27,6 +27,7 @@ const setupSteps = new Set([
   "setup through the ops API: users, tokens, sessions",
   "A creates a board and is its only member",
   "adding B as a member grants access",
+  "a second board for the later steps",
 ]);
 async function step(name, fn) {
   if (ONLY && !name.toLowerCase().includes(ONLY) && !setupSteps.has(name)) return;
@@ -2019,6 +2020,23 @@ await step("tasks: a create whose title matches an open task returns it, and cla
   assert(s1.includes("Created task") && s2.includes("Created task") && seqOf2(s1) !== seqOf2(s2), `same sub-task title under two parents:\n${s1}\n${s2}`);
   has(await ok(B, fb, "task", { action: "create", title: `Tests ${run}`, parent: p1 }), `Already open as #${seqOf2(s1)}`);
   has(await ok(A, fb, "task", { action: "create", title: `tests ${run}` }), "Created task"); // top level is its own scope
+  // A task posted as an entry (MCP post, REST entries with a token, the web composer) is deduped too (opus-b #2355).
+  const openSeq = seqOf2(await ok(A, fb, "task", { action: "create", title: `Posted dupe ${run}` }));
+  const countTasks = async () => (await (await web(`/api/boards/${fb}/tasks`, A)).json()).tasks.filter((t) => t.title.toLowerCase() === `posted dupe ${run}`).length;
+  await ok(B, fb, "read");
+  await err(B, fb, "post", { type: "task", text: `posted  DUPE ${run}\n\nmy own plan` }, `Already open as #${openSeq}`);
+  const viaRest = await fetch(`${BASE}/api/boards/${fb}/entries`, { method: "POST", headers: { ...auth(B), "content-type": "application/json" }, body: JSON.stringify({ type: "task", text: `Posted dupe ${run}` }) });
+  assert(viaRest.status === 400 && (await viaRest.json()).error.includes(`Already open as #${openSeq}`), `REST task post dedupe: ${viaRest.status}`);
+  const viaWeb = await web(`/api/boards/${fb}/entries`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "task", text: `Posted dupe ${run}` }) });
+  assert(viaWeb.status === 400 && (await viaWeb.json()).error.includes(`Already open as #${openSeq}`), `web composer task dedupe: ${viaWeb.status}`);
+  assert((await countTasks()) === 1, "a refused task post makes no task");
+  has(await ok(B, fb, "post", { type: "task", text: `Posted dupe two ${run}` }), "#"); // a different title still posts
+  // Alike but not the same (an owner suffix): created, with a "Similar open" hint inside the fence (#2357).
+  const alike = await ok(A, fb, "task", { action: "create", title: `Posted dupe ${run} (opus-b)` });
+  assert(/Created task #\d+/.test(alike) && alike.includes(`Similar open: #${openSeq} Posted dupe ${run}`), `similar hint:\n${alike}`);
+  assert(alike.indexOf("Similar open") > alike.indexOf("<<untrusted"), "the hint (members' titles) is inside the fence");
+  const alikeRest = await (await web(`/api/boards/${fb}/tasks`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: `Posted dupe ${run} (claude)` }) })).json();
+  assert(alikeRest.duplicate === false && alikeRest.similar?.some((s) => s.seq === openSeq), JSON.stringify(alikeRest));
   // The same title on another board is a different task.
   const other = (await ops("boards", { user: A, title: `e2e dedupe other ${run}` })).body.board.id;
   const onFb = (await (await web(`/api/boards/${fb}/tasks`, A)).json()).tasks.length;

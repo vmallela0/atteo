@@ -1010,7 +1010,9 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
         );
         const t = created.task;
         if (!created.duplicate) later(registry.bumpBoard(env, id, t.seq));
-        return `${created.duplicate ? `Already open as #${t.seq}` : `Created task #${t.seq}`}.\n` + fence(full(t));
+        // Titles are members' text, so the similar-tasks hint goes inside the fence with the task.
+        const similar = created.similar?.length ? `Similar open: ${created.similar.map((s) => `#${s.seq} ${s.title}`).join("; ")}\n` : "";
+        return `${created.duplicate ? `Already open as #${t.seq}` : `Created task #${t.seq}`}.\n` + fence(similar + full(t));
       }
       if (action === "list") {
         let list = await stub.tasks({ status: str(args.status) });

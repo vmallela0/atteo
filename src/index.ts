@@ -2430,7 +2430,7 @@ const handler = {
               { via: pv(), ...(await asOpts()) },
             );
             if (!created.duplicate) ctx.waitUntil(registry.bumpBoard(env, m[1], created.task.seq).catch(() => {}));
-            return json({ ok: true, task: created.task, duplicate: created.duplicate }, created.duplicate ? 200 : 201);
+            return json({ ok: true, task: created.task, duplicate: created.duplicate, ...(created.similar?.length ? { similar: created.similar } : {}) }, created.duplicate ? 200 : 201);
           } catch (e) {
             return json({ error: e instanceof Error ? e.message : String(e) }, 400);
           }

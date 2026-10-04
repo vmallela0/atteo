@@ -22,6 +22,7 @@ import { compileGrep, grepFtsQuery, grepText, newBudget, GREP_CANDIDATES, GREP_D
 import { audienceOk, audienceWord, canSee, ownByDefault, OWN_DEFAULT_MS, OWN_MAIL_HINT, PEOPLE_ONLY_TYPES, type Audience } from "./audience";
 import { cleanSchedule, MAX_SCHEDULES, nextDue, lastDue, scheduleLabel, SCHEDULE_FIRES_PER_HOUR, taskText, tickAction, type Day, type Schedule } from "./schedules";
 import { LEASE_CAP_MS, RENEW_EVERY_MS, renewedUntil } from "./leases";
+import { similarOpen, taskTitleKey } from "./taskTitles";
 
 export const MAX_TEXT = 32_000;
 export const MAX_ARTIFACT = 256_000;
@@ -1119,6 +1120,12 @@ export class Board extends DurableObject<Env> {
     const text = (input.text ?? "").trim();
     if (!text) throw new BoardError("text is required.");
     if (text.length > MAX_TEXT) throw new BoardError(`text is too long (max ${MAX_TEXT} characters); post the long part as an artifact.`);
+    // A task posted as an entry (post type task, the composer's Task) is deduped like task create (opus-b #2355):
+    // the same title as an open top-level task isn't posted again. A schedule's tick repeats its task on purpose.
+    if (input.type === "task" && !internal.taskCreate && !internal.seeding && !internal.scheduled) {
+      const dup = this.openTaskByTitle(splitTask(text).title, null);
+      if (dup) throw new BoardError(`Already open as #${dup.seq}: not posted. Claim or edit that task instead.`);
+    }
 
     // Egress filter: nothing that looks like a credential is ever stored.
     // (A document save already checked its content; the log entry for it carries the same content.)
@@ -3541,7 +3548,7 @@ export class Board extends DurableObject<Env> {
    * The same title as an open task on this board (to do, in progress, or blocked) under the same parent returns that
    * task instead of posting another. Done and stopped tasks don't count, so the title can be used again.
    */
-  async taskCreate(user: string, input: { title: string; body?: string; assignee?: string | null; assignee_agent?: boolean; priority?: TaskPriority | null; due?: number | null; parent?: number | null }, opts: TaskActOpts): Promise<{ task: TaskView; duplicate: boolean }> {
+  async taskCreate(user: string, input: { title: string; body?: string; assignee?: string | null; assignee_agent?: boolean; priority?: TaskPriority | null; due?: number | null; parent?: number | null }, opts: TaskActOpts): Promise<{ task: TaskView; duplicate: boolean; similar?: { seq: number; title: string }[] }> {
     const info = this.info();
     if (info.archived) throw new BoardError(archivedError(info.id));
     const title = (input.title ?? "").replace(/\s+/g, " ").trim().slice(0, 120);
@@ -3564,7 +3571,15 @@ export class Board extends DurableObject<Env> {
       this.broadcast({ type: "task", seq: input.parent });
     }
     this.taskEvent(e.seq, user, opts, "created"); // after its assignee and priority are set, so triggers can match them
-    return { task: this.task(e.seq), duplicate: false };
+    const task = this.task(e.seq);
+    // Alike but not the same (an owner suffix, a reworded title): created anyway, with up to 3 to check (#2357).
+    const similar = similarOpen(task.title, this.openTasks(input.parent ?? null), task.seq).map((t) => ({ seq: t.seq, title: t.title }));
+    return { task, duplicate: false, similar };
+  }
+
+  /** Open tasks (to do, in progress, blocked) under one parent (top level: null). */
+  private openTasks(parent: number | null): TaskView[] {
+    return this.taskRows().filter((t) => (t.status === "todo" || t.status === "doing" || t.status === "blocked") && (t.parent ?? null) === parent);
   }
 
   /** An open task with this title under the same parent (top level: none): case and spacing don't make a second task.
@@ -3572,7 +3587,7 @@ export class Board extends DurableObject<Env> {
   private openTaskByTitle(title: string, parent: number | null): TaskView | null {
     const key = taskTitleKey(title);
     if (!key) return null;
-    return this.taskRows().find((t) => (t.status === "todo" || t.status === "doing" || t.status === "blocked") && (t.parent ?? null) === parent && taskTitleKey(t.title) === key) ?? null;
+    return this.openTasks(parent).find((t) => taskTitleKey(t.title) === key) ?? null;
   }
 
   /**
@@ -4268,11 +4283,6 @@ export function sniffImage(b: Uint8Array): string | null {
   if (b.length >= 6 && b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x38 && (b[4] === 0x37 || b[4] === 0x39) && b[5] === 0x61) return "image/gif";
   if (b.length >= 12 && String.fromCharCode(...b.slice(0, 4)) === "RIFF" && String.fromCharCode(...b.slice(8, 12)) === "WEBP") return "image/webp";
   return null;
-}
-
-/** Same open-task title: case and spacing don't count (task create returns the existing one). */
-export function taskTitleKey(title: string): string {
-  return title.replace(/\s+/g, " ").trim().toLowerCase();
 }
 
 /** A task post's first meaningful line is its title (markdown markers dropped); the rest is its body. */
