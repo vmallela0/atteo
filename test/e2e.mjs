@@ -1769,7 +1769,7 @@ await step("plans: Free caps boards you create; a signed Stripe webhook upgrades
   assert((await send(event("customer.subscription.updated", "active"), "whsec_wrong")).status === 400, "forged webhook rejected");
   assert((await send(event("customer.subscription.created", "active"))).status === 200, "webhook accepted");
   assert(made(await create(`e2e cap 4 ${run}`)), "Pro lifts the board limit");
-  has(await (await fetch(`${BASE}/me`, { headers: { cookie: cc } })).text(), "You're on <b>Pro");
+  { const pg = await (await fetch(`${BASE}/me`, { headers: { cookie: cc } })).text(); assert(/You(?:'|&#39;)re on <b>Pro/.test(pg), "Account shows Pro"); } // the page escapes the apostrophe (i18n)
   await send(event("customer.subscription.deleted", "canceled"));
   assert((await create(`e2e cap 5 ${run}`)).status === 402, "back on Free after cancelling");
   // Checkout opens a Stripe-hosted page. Only against a local server: production uses live keys.
