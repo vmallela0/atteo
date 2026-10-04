@@ -132,11 +132,23 @@ struct BoardView: View {
     private func threads(_ v: some View) -> some View {
         v
         // Tapping into the message box (#842): to the latest, pinned there as the keyboard comes up and the box
-        // grows (the sizeChanges anchor), until you scroll up to read, which unpins it.
+        // grows (the sizeChanges anchor), until you scroll up to read, which unpins it. While it's still being put at
+        // your first unread, that stops and takes it to the latest instead (openAtFirstUnread).
         .onChange(of: focused) { _, on in
             guard on else { return }
             stick = true
+            guard !quiet.on else { return }
             withAnimation(.smooth(duration: 0.3)) { position.scrollTo(edge: .bottom) }
+            // The rows between where you were and the end are only guesses until they're made, and the keyboard is
+            // coming up meanwhile: the first scroll can land short. Once it's done, make sure.
+            Task {
+                try? await Task.sleep(for: .milliseconds(350))
+                for _ in 0..<3 {
+                    guard stick, focused, !Task.isCancelled else { return }
+                    position.scrollTo(edge: .bottom)
+                    try? await Task.sleep(for: .milliseconds(150))
+                }
+            }
         }
         // iMessage-style: the thread slides up over the chat, with the same message box as the chat (jxn #1040, #1094).
         .sheet(item: $thread) { t in
@@ -555,12 +567,12 @@ struct BoardView: View {
     /// Opens the chat at your first unread message (jxn #1011), like the web: a thin "New" line above it, and Jump to
     /// latest below. Nothing unread (or your first visit): the latest, as it opened. Your own messages never count as
     /// unread (your agent's do). Once per visit, from the server's "seen up to" for you; not when a search hit or a
-    /// link sent you somewhere, nor once you've scrolled yourself.
+    /// link sent you somewhere, nor once you've scrolled yourself or tapped into the message box (that's the latest).
     private func openAtFirstUnread() {
         guard !unreadResolved else { return }
         unreadResolved = true
         let bySeq = Dictionary(list.map { ($0.seq, $0) }, uniquingKeysWith: { a, _ in a })
-        guard state.jumpRequest == nil, !userScrolled, let me, let seen = state.reads[board.id]?[me]?.personSeen, seen > 0,
+        guard state.jumpRequest == nil, !userScrolled, !focused, let me, let seen = state.reads[board.id]?[me]?.personSeen, seen > 0,
               let first = list.first(where: { $0.seq > seen && $0.retracts == nil && !isMine($0) && !filteredOut($0) && !folded($0, in: bySeq) }) else { return }
         newAt = first.seq
         stick = false
@@ -568,13 +580,23 @@ struct BoardView: View {
         // The lazy layout guesses row heights until rows are made: hold it there while it settles.
         Task {
             for _ in 0..<10 {
-                guard !userScrolled, newAt == first.seq, !Task.isCancelled else { break }
+                guard !userScrolled, !focused, newAt == first.seq, !Task.isCancelled else { break }
                 scrollRequest = ScrollRequest(id: first.seq, anchor: .top, animated: false)
                 try? await Task.sleep(nanoseconds: 150_000_000)
             }
+            // Tapped into the message box meanwhile (#842): to the latest instead, still quiet until it's there (these
+            // passes would otherwise put it back at the first unread, and leave it pinned short of the end).
+            if focused {
+                for _ in 0..<4 {
+                    position.scrollTo(edge: .bottom)
+                    try? await Task.sleep(nanoseconds: 120_000_000)
+                }
+            }
             quiet.on = false
             atBottom = quiet.bottom
-            if atBottom { stick = true } // everything unread fits: stay with the latest
+            // Everything unread fits, or you're typing: stay with the latest. (A tap into the box and back out meanwhile
+            // leaves it at the first unread, not pinned.)
+            stick = atBottom || focused
         }
     }
 
