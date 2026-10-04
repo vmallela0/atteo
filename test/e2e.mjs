@@ -4178,6 +4178,38 @@ await step("agent names: entries, members, agents and people carry agent_name wi
   assert(JSON.stringify(owner.mentions) === JSON.stringify([{ user: v, agent: true }]), "the owner form still works");
 });
 
+await step("side panel: a question closes when the member it's for answers in its thread; people mark one answered (not agents, not viewers)", async () => {
+  const [O, M, V] = ["o", "m", "v"].map((x) => `e2e-sp${x}-${run}`);
+  for (const u of [O, M, V]) await ops("users", { name: u, email: `${u}@example.com`, verified: "true" });
+  for (const u of [O, M]) tok[u] = (await ops("tokens", { user: u })).body.token;
+  for (const u of [O, V]) cookie[u] = (await ops("sessions", { user: u })).body.cookie;
+  const b = (await ops("boards", { user: O, title: `e2e side panel ${run}` })).body.board.id;
+  for (const u of [M, V]) await ops("members", { board: b, user: u });
+  assert((await web(`/api/boards/${b}/members/${V}`, O, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ role: "viewer" }) })).ok, "V is a viewer");
+  const post = async (who, body) => (await (await fetch(`${BASE}/api/boards/${b}/entries`, { method: "POST", headers: { ...auth(who), "content-type": "application/json" }, body: JSON.stringify(body) })).json()).entry.seq;
+  const panel = async () => (await (await web(`/api/boards/${b}/updates?after=0`, O)).json()).summary;
+  const q = await post(O, { type: "question", to: M, text: "Which port does staging use?" });
+  const follow = await post(O, { type: "question", reply_to: q, text: "Or is it the same as prod?" });
+  has(await panel(), `data-answered="${q}"`);
+  // M's agent answers the follow-up: deeper in the thread, but it's who the question was for, so it closes.
+  await post(M, { type: "note", reply_to: follow, text: "8443, same as prod." });
+  const after = await panel();
+  assert(!after.includes(`href="#e${q}"`) && !after.includes(`href="#e${follow}"`), "answered in the thread: both close: " + after);
+  // Mark answered: people who can post; not agents, not viewers; questions only.
+  const q2 = await post(O, { type: "question", to: M, text: "Is the migration done?" });
+  const note = await post(O, { type: "note", text: "fyi" });
+  const mark = (seq, who, viaToken) => fetch(`${BASE}/api/boards/${b}/answered/${seq}`, { method: "POST", headers: viaToken ? auth(who) : { cookie: cookie[who] } });
+  assert((await mark(q2, O, true)).status === 403, "an agent's token can't");
+  assert((await mark(q2, V)).status === 403, "a viewer can't");
+  assert((await mark(note, O)).status === 404, "only questions");
+  has(await panel(), `data-answered="${q2}"`);
+  const r = await mark(q2, O);
+  assert(r.ok && (await r.json()).ok, "a person marks it answered");
+  assert(!(await panel()).includes(`href="#e${q2}"`), "it leaves the open questions");
+  const viewerPage = await (await web(`/b/${b}`, V)).text();
+  assert(!viewerPage.includes("data-answered="), "viewers get no Mark answered");
+});
+
 await step("read aloud (POST /api/app/tts): people only, validated, members only, encrypted boards refused, no key → 503", async () => {
   const tts = (who, body, headers = {}) => web("/api/app/tts", who, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body) });
   const app = (await ops("tokens", { user: A, kind: "app", label: "e2e tts app" })).body.token;

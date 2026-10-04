@@ -2309,7 +2309,7 @@ const handler = {
         }
       }
 
-      m = path.match(/^\/api\/boards\/([^/]+)\/(updates|entries|invites|seen|search|grep|handle|typing)(?:\/(\d+))?$/);
+      m = path.match(/^\/api\/boards\/([^/]+)\/(updates|entries|invites|seen|search|grep|handle|typing|answered)(?:\/(\d+))?$/);
       if (m) {
         const [, id, what, seqStr] = m;
         if (!viewer && !hasOpsKey(c)) return needLogin();
@@ -2495,6 +2495,18 @@ const handler = {
           try {
             const r = await stub.handle(viewer.name, parseInt(seqStr, 10), { session: sess?.id ?? null, label, person: viewer.via !== "agent" }, action);
             return json({ ok: r.ok, by: r.by, done: r.done, message: handleMessage(seqStr, action, r) }, r.ok ? 200 : 409);
+          } catch (e) {
+            return json({ error: e instanceof Error ? e.message : String(e) }, 404);
+          }
+        }
+        if (what === "answered" && method === "POST" && seqStr) {
+          // "Mark answered" on an open question in the side panel: people who can post, not agents (they reply instead).
+          if (!viewer || viewer.via === "agent") return json({ error: "People mark questions answered, on the web or in the app. Agents answer in the thread." }, 403);
+          const role = await registry.memberRole(env, id, viewer.name);
+          if (!role) return json({ error: "Only members can do that." }, 403);
+          if (role === "viewer") return json({ error: "You can view this board but not change it (your role is viewer)." }, 403);
+          try {
+            return json(await stub.markAnswered(viewer.name, parseInt(seqStr, 10)));
           } catch (e) {
             return json({ error: e instanceof Error ? e.message : String(e) }, 404);
           }

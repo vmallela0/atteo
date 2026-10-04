@@ -388,22 +388,32 @@ export function fold(id: string, title: string, count: number | string, body: st
 }
 const CHEVRON = `<svg class="fold-c" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M4.5 3l3 3-3 3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
+/** Lists in the side panel show this many (the newest) until "Show all". */
+const SUM_CAP = 3;
+
 export function summaryHtml(entries: Entry[], viewer: string, members: MemberView[], precomputed?: Summary, ctl?: { boardId: string; creator: string }): string {
   const s = precomputed ?? computeSummary(entries);
   // One line per item: who, then the first line of the text; the full text is on hover.
   // One short line per item: the people and agents involved as small overlapping avatars, then a 3–4 word title.
-  const item = (e: Entry) =>
-    `<li><a href="#e${e.seq}" title="${esc(`${authorLabel(e)}${e.to ? ` → ${e.to}` : ""}: ${clip(e.artifact_name ?? e.text, 300)}`)}">${involvedAvatars(e)}<span class="one">${esc(shortTitle(e))}</span><span class="n">#${e.seq}</span></a></li>`;
+  // People who can post close a stale open question here ("Mark answered", jxn #1380); agents answer in the thread.
+  const canMark = !!ctl && members.find((m) => m.user === viewer)?.role !== "viewer";
+  const item = (e: Entry) => {
+    const ans = canMark && e.type === "question" ? `<button type="button" class="sum-ans" data-answered="${e.seq}" title="Mark answered" aria-label="Mark answered: ${esc(shortTitle(e))}">✓</button>` : "";
+    return `<li${ans ? ' class="q"' : ""}><a href="#e${e.seq}" title="${esc(`${authorLabel(e)}${e.to ? ` → ${e.to}` : ""}: ${clip(e.artifact_name ?? e.text, 300)}`)}">${involvedAvatars(e)}<span class="one">${esc(shortTitle(e))}</span><span class="n">#${e.seq}</span></a>${ans}</li>`;
+  };
+  // Each list shows its newest 3, one line each; "Show all" opens the rest (vedu #1361).
+  const list = (id: string, items: Entry[], style = "") =>
+    `<ul${style}${items.length > SUM_CAP ? ` class="capped" data-cap="${id}"` : ""}>${items.map(item).join("")}</ul>${items.length > SUM_CAP ? `<button type="button" class="linkish sum-more" data-cap-more="${id}">Show all ${items.length}</button>` : ""}`;
   // Only sections with something in them show (files have their own tab); an empty board says so once.
-  const sec = (id: string, title: string, items: Entry[]) => (items.length ? fold(id, title, items.length, `<ul>${items.map(item).join("")}</ul>`, shortTitle(items[items.length - 1])) : "");
+  const sec = (id: string, title: string, items: Entry[]) => (items.length ? fold(id, title, items.length, list(id, items), shortTitle(items[items.length - 1])) : "");
   // The viewer is a person: `to` and "@viewer" wait on them; "@viewer's agent" is work handed to their agent.
   const mine = s.openQuestions.filter((e) => e.to === viewer || forPerson(e, viewer));
   const agents = [...s.openQuestions, ...s.openTasks].filter((e) => !mine.includes(e) && forAgent(e, viewer) && e.to !== viewer).sort((a, b) => a.seq - b.seq);
-  const box = (title: string, items: Entry[]) =>
+  const box = (id: string, title: string, items: Entry[]) =>
     items.length
-      ? `<div class="waiting"><div class="small" style="font-weight:600;color:var(--ink);margin-bottom:4px">${title}</div><ul style="list-style:none;margin:0;padding:0">${items.map(item).join("")}</ul></div>`
+      ? `<div class="waiting"><div class="small" style="font-weight:600;color:var(--ink);margin-bottom:4px">${title}</div>${list(id, items, ' style="list-style:none;margin:0;padding:0"')}</div>`
       : "";
-  const waiting = box("Waiting on you", mine) + box("For your agent", agents);
+  const waiting = box("wait-you", "Waiting on you", mine) + box("wait-agent", "For your agent", agents);
   const control = (m: MemberView) => {
     if (!ctl) return "";
     const isCreator = viewer === ctl.creator;
@@ -1000,7 +1010,7 @@ async function tick1(wait){const sumNow=sumNext;sumNext=false;try{
   if(d.entries.length){for(const e of d.entries)TYPERS.delete(e.author);typingSync()} // sent: no longer typing
   if(d.reads){READS=d.reads;renderReads()}
   if(added){railBuild();if(stick)toBottom();else{unseen=true;pillSync()}if(window.e2eSync)e2eSync()}
-  if(d.entries.length||sumNow){document.getElementById('sum').innerHTML=d.summary;foldApply();document.querySelectorAll('[data-count]').forEach(x=>x.textContent=d.count);refreshTimes();infoCount()}
+  if(d.entries.length||sumNow){document.getElementById('sum').innerHTML=d.summary;foldApply();capApply();document.querySelectorAll('[data-count]').forEach(x=>x.textContent=d.count);refreshTimes();infoCount()}
 }catch(e){await new Promise(r=>setTimeout(r,5000))}}
 // Reactions that arrive live before their entry is on the page (an agent's 🤔 often beats the entry's own fetch).
 const RXP={};
@@ -1041,6 +1051,7 @@ function connect(){
       let o=m.querySelector('.via.owner');if(d.agent_name){w.textContent=d.agent_name;if(!o){o=document.createElement('span');o.className='via owner';w.after(o)}o.textContent=d.user+"'s agent"}else if(o){w.textContent=d.user+"'s agent";o.remove()}});return}
     if(d.type==='schedule'){if(document.getElementById('invite')?.open&&window.schLoad)schLoad();return}
     if(d.type==='reaction'){renderRx(d.seq,d.reactions);return}
+    if(d.type==='answered'){sumNext=true;tick(false);return} // someone marked a question answered: refresh the open questions
     if(d.type==='approval'){window.apcApply&&apcApply(d.approval);return}
     if(d.type==='typing'){if(d.who!==ME){TYPERS.set(d.who,d.until);typingSync()}return}
     if(d.type==='typing-agents')return; // agents don't show as typing (jxn #777): their 🤔 under the message says it
@@ -1390,6 +1401,17 @@ function foldApply(){const f=foldGet();document.querySelectorAll('#board-info .f
 document.addEventListener('click',e=>{const h=e.target.closest('#board-info .fold-h');if(!h)return;const id=h.closest('.fold').dataset.fold,f=foldGet();
   f.has(id)?f.delete(id):f.add(id);try{localStorage.setItem(FOLD_KEY,JSON.stringify([...f]))}catch{}foldApply()});
 foldApply();
+// Side panel lists show their newest 3; "Show all" opens one (kept open across live refreshes, until reload). Open
+// questions have a small ✓ "Mark answered" for people who can post (jxn #1380).
+const SUM_ALL=new Set();
+function capApply(){document.querySelectorAll('#sum [data-cap]').forEach(u=>{const on=SUM_ALL.has(u.dataset.cap);u.classList.toggle('all',on);
+  const b=document.querySelector('#sum [data-cap-more="'+u.dataset.cap+'"]');if(b){b.textContent=on?'Show less':'Show all '+u.children.length;b.setAttribute('aria-expanded',String(on))}})}
+document.addEventListener('click',async e=>{const m=e.target.closest('#sum [data-cap-more]');if(m){const id=m.dataset.capMore;SUM_ALL.has(id)?SUM_ALL.delete(id):SUM_ALL.add(id);capApply();return}
+  const a=e.target.closest('#sum [data-answered]');if(!a)return;e.preventDefault();a.disabled=true;
+  const r=await fetch('/api/boards/'+BOARD+'/answered/'+a.dataset.answered,{method:'POST'}).catch(()=>null);const j=r?await r.json().catch(()=>({})):{};
+  if(!r||!r.ok){a.disabled=false;toast(j.error||'Couldn’t mark it answered');return}
+  a.closest('li')?.remove();toast('Marked answered');sumNext=true;tick(false)});
+capApply();
 // Touch screens have no hover: the ⋯ on a message, or tapping the message itself, shows its actions (Reply, react, …);
 // tapping it again, or another one, moves them.
 function tapToggle(en){const was=en.classList.contains('tap');document.querySelectorAll('.entry.tap').forEach(x=>{x.classList.remove('tap');x.querySelector(':scope>.grow>.meta>.more-acts')?.setAttribute('aria-expanded','false')});

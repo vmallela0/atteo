@@ -436,6 +436,12 @@ export class Board extends DurableObject<Env> {
         ts INTEGER NOT NULL,
         done INTEGER NOT NULL DEFAULT 0 -- 1: "done by vedu/scout" instead of "is on it"
       );
+      -- Questions a person marked answered from the side panel (they close as if answered; nothing is posted).
+      CREATE TABLE IF NOT EXISTS answered_marks (
+        seq INTEGER PRIMARY KEY,
+        user TEXT NOT NULL,
+        ts INTEGER NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS session_cursors (
         session TEXT PRIMARY KEY,
         user TEXT NOT NULL,
@@ -865,6 +871,17 @@ export class Board extends DurableObject<Env> {
     }
     this.markDone(seq, user, who.session ?? null, cur ? (cur.label as string) : label);
     return { ok: true, by: cur ? (cur.label as string) : label, done: true };
+  }
+
+  /** A person marks an open question answered (side panel): it leaves the open questions for everyone. */
+  async markAnswered(user: string, seq: number): Promise<{ ok: true }> {
+    this.info();
+    const row = Number.isInteger(seq) && this.visible(seq, { user, person: true }) ? this.sql.exec("SELECT type FROM entries WHERE seq = ?", seq).toArray()[0] : undefined;
+    if (!row) throw new BoardError(`Entry #${seq} does not exist on this board.`);
+    if (row.type !== "question") throw new BoardError(`#${seq} isn't a question.`);
+    this.sql.exec("INSERT OR IGNORE INTO answered_marks (seq, user, ts) VALUES (?, ?, ?)", seq, user, Date.now());
+    this.broadcast({ type: "answered", seq, by: user }, seq);
+    return { ok: true };
   }
 
   private markDone(seq: number, user: string, session: string | null, label: string) {
@@ -1298,7 +1315,8 @@ export class Board extends DurableObject<Env> {
   private computeSummaryNow(): Summary {
     // A task is closed by its status (marking it done posts nothing), or, as before, by an entry that resolves it.
     const done = new Set(this.sql.exec("SELECT seq FROM tasks WHERE status = 'done'").toArray().map((r) => r.seq as number));
-    const s = computeSummary(this.allEntries(), done);
+    const closed = new Set(this.sql.exec("SELECT seq FROM answered_marks").toArray().map((r) => r.seq as number));
+    const s = computeSummary(this.allEntries(), done, closed);
     const titles = new Map(this.sql.exec("SELECT seq, title FROM tasks WHERE title IS NOT NULL").toArray().map((r) => [r.seq as number, r.title as string]));
     s.openTasks = s.openTasks.map((e) => (titles.has(e.seq) ? { ...e, text: titles.get(e.seq)! } : e));
     return s;

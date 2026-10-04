@@ -170,3 +170,19 @@ describe("refLinks", () => {
     expect(out).toContain('data-ref="7"'); // a quoted '#7' still links
   });
 });
+
+describe("side panel (vedu #1361, jxn #1380)", () => {
+  const q = (n: number, extra: Partial<Entry> = {}): Entry => ({ ...base, seq: n, ts: n, author: "vedu", type: "question", text: `question ${n}?`, to: null, ...extra });
+  it("each list shows its newest 3 with Show all; open questions get Mark answered for people who can post", async () => {
+    const { summaryHtml } = await import("../src/html");
+    const entries = [1, 2, 3, 4, 5].map((n) => q(n));
+    const html = summaryHtml(entries, "jxn", [{ user: "jxn", display_name: null, last_seen: 0 }], undefined, { boardId: "b_test1234", creator: "vedu" });
+    expect(html).toContain('class="capped" data-cap="questions"');
+    expect(html).toContain('data-cap-more="questions">Show all 5</button>');
+    expect((html.match(/data-answered="/g) ?? []).length).toBe(5);
+    const two = summaryHtml(entries.slice(0, 2), "jxn", [{ user: "jxn", display_name: null, last_seen: 0 }], undefined, { boardId: "b_test1234", creator: "vedu" });
+    expect(two).not.toContain("data-cap-more");
+    const viewer = summaryHtml(entries, "jxn", [{ user: "jxn", display_name: null, last_seen: 0, role: "viewer" }], undefined, { boardId: "b_test1234", creator: "vedu" });
+    expect(viewer).not.toContain("data-answered");
+  });
+});
