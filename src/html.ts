@@ -1304,6 +1304,8 @@ window.postFailed=(j)=>{sendLook(false);if(SENT_TEXT!=null&&!ta.value.trim()){ta
 // @mention autocomplete: people ("@vedu") and agents ("@vedu's agent", including your own).
 const MOPTS=${jsString(mentionOptions(members.map((m) => m.user), viewer.name, agents, agentNames(members), new Set(members.filter((m) => m.agent_name_ambiguous).map((m) => m.user))))};
 const MNAMES=new Set(MOPTS.map(o=>o.u)),ME=${jsString(viewer.name)};
+// Agent names on this board (the @ menu's "Jarvis · vedu's agent" rows), longest first, for chips in the composer.
+const ANAMES=MOPTS.filter(o=>o.sub&&!o.ins.includes('/')&&o.ins!==o.u+"'s agent").map(o=>o.ins.toLowerCase()).sort((a,b)=>b.length-a.length);
 // "@you" glows, and so does the message it's in, including ones that arrive live.
 // Approval cards: the person asked gets Approve / Deny in place; a decision made anywhere shows up live.
 ${approvalJs(viewer.name)}
@@ -1341,7 +1343,12 @@ function mtokens(v){const out=[],re=/(^|[^A-Za-z0-9_.@\\/-])@([A-Za-z0-9][A-Za-z
   while((m=re.exec(v))){const raw=m[2].toLowerCase();let h=raw;if(!MNAMES.has(h))h=raw.replace(/[.-]+$/,'');if(!MNAMES.has(h))continue;
     const agent=!!m[3]&&h===raw;if(!agent&&h===ME)continue; // you can't mention yourself, only your agent
     const start=m.index+m[1].length;out.push({start,end:start+1+h.length+(agent?m[3].length:0),agent})}
-  return out}
+  // "@Jarvis": a member's agent by the name they gave it is a chip too (jxn #1659), longest name first; a member's
+  // own handle at the same spot wins, as on the server (mentions.ts agentNameHits).
+  for(let i=v.indexOf('@');i>=0&&ANAMES.length;i=v.indexOf('@',i+1)){if(i>0&&/[A-Za-z0-9_.@\/-]/.test(v[i-1])||out.some(t=>t.start===i))continue;
+    for(const n of ANAMES){if(v.slice(i+1,i+1+n.length).toLowerCase()!==n)continue;const after=v[i+1+n.length];if(after!==undefined&&/[\p{L}\p{N}_]/u.test(after))continue;
+      out.push({start:i,end:i+1+n.length,agent:true});break}}
+  return out.sort((a,b)=>a.start-b.start)}
 function msync(){const v=ta.value,cs=getComputedStyle(ta);let h='',i=0;
   for(const t of mtokens(v)){h+=esc(v.slice(i,t.start))+'<span class="chip'+(t.agent?' agent':'')+'">'+esc(v.slice(t.start,t.end))+'</span>';i=t.end}
   mirror.innerHTML=h+esc(v.slice(i))+'\\n';

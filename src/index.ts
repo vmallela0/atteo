@@ -1930,7 +1930,8 @@ const handler = {
             text = (q("text") ?? "").slice(0, 4000);
             replyRaw = q("reply_to");
           }
-          const { mentions } = mayMention(text) ? parseMentions(text, await registry.boardMembers(env, id), viewer.name, pv()) : { mentions: [] };
+          const fileMembers = await registry.boardMembers(env, id);
+          const { mentions } = mayMention(text) ? parseMentions(text, fileMembers, viewer.name, pv()) : { mentions: [] };
           try {
             const replyTo = Number(replyRaw) > 0 ? Math.floor(Number(replyRaw)) : null; // files sent as a reply
             const entry = multi
@@ -1939,7 +1940,7 @@ const handler = {
             ctx.waitUntil(Promise.all([registry.touch(env, viewer.name, id), registry.bumpBoard(env, id, entry.seq)]).catch(() => {}));
             // Like a text post, the rendered entry comes back so the page can swap its "sending" copy for it.
             const root = replyTo ? ((await stub.rootsFor([entry.seq]))[entry.seq] ?? entry.seq) : entry.seq;
-            return json({ ok: true, entry, update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(entry, id, true, { canRetract: true }), row: logRow(entry), reactions: [] } }, 201);
+            return json({ ok: true, entry, update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(withAgentNames(entry, agentNames(fileMembers)), id, true, { canRetract: true }), row: logRow(entry), reactions: [] } }, 201);
           } catch (e) {
             return json({ error: e instanceof Error ? e.message : String(e) }, 400);
           }
@@ -2491,17 +2492,18 @@ const handler = {
           const before = parseInt(url.searchParams.get("before") ?? "0", 10) || null;
           const page = await stub.page(before, parseInt(url.searchParams.get("limit") ?? "100", 10) || 100, seer());
           const seqs = page.map((e) => e.seq);
-          const [isOwner, roots, reactions] = await Promise.all([
+          const [isOwner, roots, reactions, names] = await Promise.all([
             viewer ? registry.memberRole(env, id, viewer.name).then((r) => r === "owner") : false,
             stub.rootsFor(seqs),
             stub.reactionsFor(seqs, seer()),
+            registry.boardMembers(env, id).then(agentNames), // "@Jarvis" chips, as on the page (jxn #1659)
           ]);
           return json({
             first: page.length ? page[0].seq : 0,
             entries: page.map((e) => ({
               seq: e.seq,
               root: roots[e.seq] ?? e.seq,
-              html: entryHtml(e, id, true, { canRetract: !!viewer && (e.author === viewer.name || isOwner) }),
+              html: entryHtml(withAgentNames(e, names), id, true, { canRetract: !!viewer && (e.author === viewer.name || isOwner) }),
               row: logRow(e),
               reactions: reactions[e.seq] ?? [],
               ...(e.human_decision ? { human_decision: e.human_decision } : {}),
@@ -2565,9 +2567,10 @@ const handler = {
             ctx.waitUntil(Promise.all([registry.touch(env, viewer.name, id), registry.bumpBoard(env, id, entry.seq)]).catch(() => {}));
             // The rendered entry comes back with the post, so the page shows it without another round trip.
             const root = replyTo ? ((await stub.rootsFor([entry.seq]))[entry.seq] ?? entry.seq) : entry.seq;
+            // The poster sees "@Jarvis" as that agent's chip straight away, as everyone else does (jxn #1659).
             // A people-only message (asked for, or a reply in one) says once, here, who can see it.
             const notice = entry.audience ? { notice: peopleNotice(viewer.name, entry.to_people ?? []) } : {};
-            return json({ ok: true, entry, ...notice, update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(entry, id, true, { canRetract: true }), row: logRow(entry), reactions: [] }, ...(ambiguous.length ? { ambiguous } : {}) }, 201);
+            return json({ ok: true, entry, ...notice, update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(withAgentNames(entry, agentNames(boardMembers)), id, true, { canRetract: true }), row: logRow(entry), reactions: [] }, ...(ambiguous.length ? { ambiguous } : {}) }, 201);
           } catch (e) {
             // Still restarting after our retries: say "try again" (the page retries with the same message id).
             if (isRetriable(e)) {
