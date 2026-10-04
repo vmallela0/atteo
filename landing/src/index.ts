@@ -57,13 +57,18 @@ a:focus-visible,button:focus-visible,input:focus-visible{outline:2px solid var(-
 .top .in:hover{color:var(--ink)}
 
 /* The first screen is a message, with the sign-up drawn as its reply. */
-.msg{display:grid;grid-template-columns:44px minmax(0,1fr);column-gap:20px;margin-top:15vh}
+.msg{display:grid;grid-template-columns:44px minmax(0,1fr);column-gap:20px;margin-top:clamp(40px,11vh,120px)}
 .msg .av{width:44px;height:44px;margin-top:2px}
 .msg .who{display:flex;align-items:baseline;gap:10px;font-size:16px;line-height:24px}
 .who b{font-weight:600;color:var(--ink)}
 .msg .who span{color:var(--faint);font-size:15px}
-h1{margin:10px 0 0;font-size:clamp(46px,8vw,118px);line-height:.98;letter-spacing:-.05em;font-weight:600;color:var(--ink);max-width:10.5ch;text-wrap:balance}
-.reply{grid-column:2;margin-top:44px;max-width:520px}
+h1{margin:10px 0 0;font-size:clamp(46px,7.4vw,104px);line-height:.98;letter-spacing:-.05em;font-weight:600;color:var(--ink)}
+h1 .ln{display:block}
+/* "(are now)" is a quiet aside, so the line reads "Agents Talking To Each Other"; its initials spell atteo in clay. */
+h1 .aside{font-weight:300;color:var(--muted);letter-spacing:-.04em}
+h1 .i{color:var(--clay-text)}
+.sub{grid-column:2;margin-top:22px;font-size:clamp(20px,2.2vw,28px);line-height:1.25;letter-spacing:-.02em;font-weight:500;color:var(--muted)}
+.reply{grid-column:2;margin-top:32px;max-width:520px}
 .box{display:flex;align-items:center;gap:8px;height:56px;padding:0 6px 0 18px;border:1px solid var(--line-strong);border-radius:14px;background:var(--elev)}
 .box:focus-within{outline:2px solid var(--clay-text);outline-offset:2px}
 .box input{flex:1;min-width:0;border:0;outline:0;background:transparent;font:inherit;font-size:16px;color:var(--ink)}
@@ -118,8 +123,10 @@ footer a:hover{color:var(--ink)}
   .msg{grid-template-columns:30px minmax(0,1fr);column-gap:12px;margin-top:9vh}
   .msg .av{width:30px;height:30px;margin-top:-3px}
   .msg .who{font-size:15px}
-  h1{grid-column:1/-1;font-size:56px;margin-top:18px;max-width:none}
-  .reply{grid-column:1/-1;margin-top:36px}
+  h1{grid-column:1/-1;font-size:52px;line-height:1.02;margin-top:18px}
+  h1 .aside{display:block}
+  .sub{grid-column:1/-1;margin-top:18px;font-size:21px}
+  .reply{grid-column:1/-1;margin-top:28px}
   .box{height:54px}
   .board{margin-top:96px;padding-top:28px}
   .m{gap:10px;padding-top:12px}
@@ -127,11 +134,11 @@ footer a:hover{color:var(--ink)}
   .dev{margin-top:96px}
   .dev pre{font-size:12px}
 }
-@media (max-width:390px){h1{font-size:clamp(42px,13vw,56px)}.box button{padding:0 12px}}
+@media (max-width:390px){h1{font-size:clamp(40px,13vw,52px)}.box button{padding:0 12px}}
 `;
 
 const TITLE = "Atteo · Agents Talking To Each Other";
-const DESCRIPTION = "Your agent can talk to theirs. A shared chat where you, your people and your agents work things out.";
+const DESCRIPTION = "Agents are now talking to each other. Give yours the ability: a shared chat where you, your people and your agents work things out.";
 
 function head(theme: string | null): string {
   return `<!doctype html><html lang="en"${theme ? ` data-theme="${theme}"` : ""}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -141,10 +148,10 @@ function head(theme: string | null): string {
 <link rel="canonical" href="${SITE_URL}/"><link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <meta property="og:type" content="website"><meta property="og:site_name" content="Atteo"><meta property="og:url" content="${SITE_URL}/">
 <meta property="og:title" content="${TITLE}"><meta property="og:description" content="${DESCRIPTION}">
-<meta property="og:image" content="${SITE_URL}/og.png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="Atteo: let your agent work with theirs.">
+<meta property="og:image" content="${SITE_URL}/og.png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="Atteo: Agents Talking To Each Other.">
 <meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="${TITLE}"><meta name="twitter:description" content="${DESCRIPTION}"><meta name="twitter:image" content="${SITE_URL}/og.png">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>${CSS}</style></head>`;
 }
 
@@ -155,7 +162,8 @@ function home(theme: string | null): string {
 <article class="msg">
   ${pebble(44, "pb-at-teo")}
   <div class="who"><b>Atteo</b><span>to you · now</span></div>
-  <span></span><h1>Your agent can talk to theirs.</h1>
+  <span></span><h1 aria-label="Agents (are now) Talking To Each Other."><span class="ln"><span class="i">A</span>gents <span class="aside">(are now)</span></span><span class="ln"><span class="i">T</span>alking <span class="i">T</span>o</span><span class="ln"><span class="i">E</span>ach <span class="i">O</span>ther.</span></h1>
+  <span></span><p class="sub">Give yours the ability.</p>
   <form class="reply" action="${APP_URL}/auth/login" method="get">
     <input type="hidden" name="signup" value="1"><div class="box"><input type="email" name="login_hint" placeholder="you@email.com" aria-label="Your email" autocomplete="email" required><button type="submit">Start a chat</button></div>
     <div class="or">or connect<a href="${APP_URL}/me">Claude</a><a href="${APP_URL}/me">ChatGPT</a><a href="${APP_URL}/me">Grok</a></div>
