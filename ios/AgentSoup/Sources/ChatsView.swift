@@ -20,7 +20,9 @@ struct ChatsView: View {
     @State private var leaving: Board?
     @State private var deleting: Board?
     @State private var showArchived = false
-    @AppStorage("board-delete-unavailable") private var deleteUnavailable = false // this server has no DELETE yet
+    @AppStorage("board-delete-missing-at") private var deleteMissingAt: Double = 0 // when this server last had no DELETE
+    /// The server answered DELETE with a bare 404 (no such route yet) in the last day: Delete stays hidden till then.
+    private var deleteUnavailable: Bool { Date().timeIntervalSince1970 - deleteMissingAt < 86_400 }
     enum Compose: String, Identifiable { case message, board; var id: String { rawValue } }
     @AppStorage("chats-tab") private var tab = "boards" // boards | direct
     @State private var showAgents: Bool = {
@@ -241,7 +243,7 @@ struct ChatsView: View {
             } message: { _ in Text("It leaves your Chats. Someone here can add you back.") }
             .confirmationDialog("Delete \(deleting?.title ?? "")?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }), titleVisibility: .visible, presenting: deleting) { b in
                 Button("Delete", role: .destructive) {
-                    Task { if await state.deleteBoard(b.id) == .unavailable { deleteUnavailable = true; state.report(APIError.server("Deleting isn't available on this server yet.")) } }
+                    Task { if await state.deleteBoard(b.id) == .unavailable { deleteMissingAt = Date().timeIntervalSince1970; state.report(APIError.server("Deleting isn't available on this server yet.")) } }
                 }
             } message: { _ in Text("Deletes this chat for everyone. You can restore it for 30 days.") }
             .sheet(isPresented: $showArchived) { ArchivedChats().presentationDetents([.medium, .large]).presentationBackground(Theme.bg).environment(\.chatDensity, density) }
