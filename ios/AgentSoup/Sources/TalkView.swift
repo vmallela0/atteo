@@ -1,17 +1,26 @@
-// Talk to Grok's screens (Talk.swift has the conversation): the waveform button by the message box's mic and in a
-// chat's top bar, the full-screen talk sheet (hold the big button to talk, live captions of both sides, tap to stop
-// Grok mid-sentence, the session's time and the month's minutes, mute, end), and Settings → Talk to Grok. Nothing
-// shows when the server has no voice set up (GET /api/app/voice/status says disabled).
+// Voice chat's screens (Talk.swift has the conversation). On screen it's always "Atteo", never the provider (vedu
+// #1599). One way in per screen (#1602): the waveform by the message box's mic, and Everyday's Ask screen
+// (EverydayHooks.talk). The full-screen sheet is hands-free (#1598): it listens, waits for you to pause, answers, and
+// stops the moment you talk over it. A big orb shows what's happening (your voice's level while listening, thinking,
+// Atteo speaking); the mic can be turned off (Atteo can still talk), Atteo's voice muted (captions stay), and "Hold to
+// talk" in the menu brings back the push-to-talk button for noisy places. Live captions of both sides, the session's
+// time and the month's minutes, and a Yes/No card before any approval. Settings → Voice chat. Nothing shows when the
+// server has no voice set up (GET /api/app/voice/status says disabled).
 
 import SwiftUI
 
-/// The waveform: opens the talk sheet. Hidden while voice isn't set up on the server.
+/// The waveform: opens the voice chat sheet. Hidden while voice isn't set up on the server.
 struct TalkButton: View {
-    enum Style { case composer, toolbar }
+    enum Style { case composer, ask }
     let board: Board?
     var style: Style = .composer
     @ObservedObject private var status = TalkStatus.shared
     @State private var open = false
+
+    /// Everyday's Ask screen gets the same sheet (no board: it's about you, and can message your assistant).
+    static func plugIn() {
+        EverydayHooks.talk = { MainActor.assumeIsolated { AnyView(TalkButton(board: nil, style: .ask)) } }
+    }
 
     var body: some View {
         ZStack {
@@ -21,31 +30,22 @@ struct TalkButton: View {
                     case .composer:
                         Image(systemName: "waveform").font(.system(size: 14, weight: .bold))
                             .composerCircle(fill: Theme.raised).foregroundStyle(Theme.muted)
-                    case .toolbar:
-                        ToolbarIcon("waveform")
+                    case .ask:
+                        Label("Voice chat", systemImage: "waveform")
+                            .font(Typo.body.weight(.medium)).foregroundStyle(Theme.text)
+                            .padding(.horizontal, Space.l).frame(height: 44)
+                            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Theme.line))
                     }
                 }
                 .buttonStyle(PressStyle())
-                .accessibilityIdentifier(style == .composer ? "talk" : "talk-header")
-                .accessibilityLabel("Talk to Grok")
-                .accessibilityHint("Opens a live voice conversation with Grok.")
+                .accessibilityIdentifier(style == .composer ? "talk" : "ask-talk")
+                .accessibilityLabel("Talk to Atteo")
+                .accessibilityHint("Opens a live, hands-free voice chat.")
                 .padding(.trailing, style == .composer ? -Composer.inset : 0) // snug against the mic, like the mic to send
             }
         }
         .task { await status.load() }
         .fullScreenCover(isPresented: $open) { TalkSheet(board: board) }
-    }
-}
-
-/// A chat's top bar: the waveform, when voice is set up.
-struct TalkToolbarItem: ToolbarContent {
-    let board: Board
-    @ObservedObject private var status = TalkStatus.shared
-
-    var body: some ToolbarContent {
-        if status.enabled == true {
-            ToolbarItem(placement: .topBarTrailing) { TalkButton(board: board, style: .toolbar) }
-        }
     }
 }
 
@@ -81,22 +81,18 @@ struct TalkSheet: View {
         HStack(alignment: .center) {
             Button(talk.phase == .ended ? "Close" : "End") { talk.end(); dismiss() }
                 .font(.body.weight(.semibold)).foregroundStyle(talk.phase == .ended ? Theme.text : Theme.danger)
+                .frame(minWidth: 44, alignment: .leading)
                 .accessibilityIdentifier("talk-end")
             Spacer()
             VStack(spacing: 2) {
-                Text("Grok").font(.headline).foregroundStyle(Theme.text)
+                Text("Atteo").font(.headline).foregroundStyle(Theme.text)
                 Text(timeLine).font(Typo.micro.monospacedDigit()).foregroundStyle(Theme.muted)
                     .accessibilityIdentifier("talk-timer")
             }
             Spacer()
-            Button { talk.muted.toggle(); Haptics.play(.touch) } label: {
-                Image(systemName: talk.muted ? "speaker.slash.fill" : "speaker.wave.2.fill")
-                    .font(.system(size: 17, weight: .semibold)).foregroundStyle(talk.muted ? Theme.accent : Theme.muted)
-                    .frame(width: 44, height: 44).contentShape(Rectangle())
-            }
-            .accessibilityIdentifier("talk-mute")
-            .accessibilityLabel(talk.muted ? "Unmute Grok" : "Mute Grok")
-            .accessibilityHint("Grok's answers still show as captions.")
+            // Its own Equatable view: the sheet redraws a few times a second (the clock), and an open menu redrawn with it
+            // never settles.
+            TalkMenu(handsFree: talk.handsFree) { [talk] in talk.setHandsFree(!talk.handsFree) }.equatable()
         }
         .padding(.horizontal, Space.l).padding(.top, Space.s)
     }
@@ -114,7 +110,7 @@ struct TalkSheet: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: Space.m) {
                     if talk.captions.isEmpty && talk.phase != .ended {
-                        Text(talk.board.map { "Ask about \($0.displayName(me: AppState.shared.me?.owner)), what's waiting for you, or tell your agent something." } ?? "Ask what's waiting for you, catch up on a board, or tell your agent something.")
+                        Text(talk.board.map { "Just talk. Ask about \($0.displayName(me: AppState.shared.me?.owner)), what's waiting for you, or tell your agent something." } ?? "Just talk. Ask what's waiting for you, catch up on a board, or tell your agent something.")
                             .font(Typo.secondary).foregroundStyle(Theme.faint)
                             .frame(maxWidth: .infinity, alignment: .center).multilineTextAlignment(.center)
                             .padding(.top, Space.xl)
@@ -138,12 +134,12 @@ struct TalkSheet: View {
                 .accessibilityIdentifier("talk-note")
         case .you, .grok:
             VStack(alignment: .leading, spacing: 2) {
-                Text(c.who == .you ? "You" : "Grok").font(Typo.micro.weight(.semibold)).foregroundStyle(c.who == .you ? Theme.muted : Theme.accent)
+                Text(c.who == .you ? "You" : "Atteo").font(Typo.micro.weight(.semibold)).foregroundStyle(c.who == .you ? Theme.muted : Theme.accent)
                     .accessibilityHidden(true)
                 Text(c.text).font(c.who == .grok ? .title3 : .body).foregroundStyle(c.who == .grok ? Theme.text : Theme.muted)
                     .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityLabel((c.who == .you ? "You: " : "Grok: ") + c.text)
-                    .accessibilityIdentifier(c.who == .you ? "talk-you" : "talk-grok")
+                    .accessibilityLabel((c.who == .you ? "You: " : "Atteo: ") + c.text)
+                    .accessibilityIdentifier(c.who == .you ? "talk-you" : "talk-atteo")
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -152,7 +148,7 @@ struct TalkSheet: View {
     private func confirmCard(_ c: TalkSession.Confirm) -> some View {
         VStack(alignment: .leading, spacing: Space.s) {
             Label("\(c.verb) \(c.approval)?", systemImage: "checkmark.shield").font(.headline).foregroundStyle(Theme.text)
-            Text(c.confirmed ? "Heard yes. Grok will do it now." : "Nothing happens until you say “yes” or tap Yes.")
+            Text(c.confirmed ? "Heard yes. Atteo will do it now." : "Nothing happens until you say “yes” or tap Yes.")
                 .font(Typo.meta).foregroundStyle(Theme.muted)
             HStack(spacing: Space.s) {
                 Button { talk.answerConfirm(false) } label: { Text("No").frame(maxWidth: .infinity).padding(.vertical, 10).background(Theme.raised, in: Capsule()) }
@@ -173,12 +169,28 @@ struct TalkSheet: View {
         switch talk.phase {
         case .connecting: return "Connecting…"
         case .ended: return "Ended"
+        case .ready where talk.handsFree:
+            if talk.speaking { return "Atteo is speaking" }
+            if talk.hearing { return "Listening…" }
+            if talk.thinking { return "Thinking…" }
+            if talk.micMuted { return "Mic off" }
+            return "Listening…"
         case .ready:
             if talk.holding { return "Listening… let go to send" }
-            if talk.speaking { return "Grok is speaking · tap to interrupt" }
+            if talk.speaking { return "Atteo is speaking · tap to interrupt" }
             if talk.thinking { return "Thinking…" }
             return "Hold to talk"
         }
+    }
+
+    private var mood: TalkOrb.Mood {
+        guard talk.phase == .ready else { return .idle }
+        if talk.holding { return .holding }
+        if talk.speaking { return .speaking }
+        if talk.handsFree && talk.hearing { return .hearing }
+        if talk.thinking { return .thinking }
+        if talk.handsFree { return talk.micMuted ? .off : .listening }
+        return .idle
     }
 
     private var controls: some View {
@@ -192,49 +204,187 @@ struct TalkSheet: View {
                 }
                 .buttonStyle(PressStyle())
                 .accessibilityIdentifier("talk-done")
-                .frame(height: 132)
+                .frame(height: 160)
             } else {
-                Image(systemName: talk.holding ? "mic.fill" : talk.speaking ? "stop.fill" : "waveform")
-                    .font(.system(size: 40, weight: .semibold))
-                    .symbolEffect(.variableColor.iterative, isActive: (talk.holding || talk.speaking) && Effects.enabled)
-                    .foregroundStyle(talk.holding ? Theme.onAccent : live ? Theme.text : Theme.faint)
-                    .frame(width: 132, height: 132)
-                    .background(talk.holding ? Theme.accent : Theme.raised, in: Circle())
-                    .overlay(Circle().stroke(Theme.accent.opacity(talk.speaking ? 0.8 : 0), lineWidth: 3))
-                    .scaleEffect(talk.holding ? 1.08 : 1)
-                    .animation(.spring(duration: 0.25, bounce: 0.3), value: talk.holding)
-                    .contentShape(Circle())
-                    .gesture(
-                        DragGesture(minimumDistance: 0)
-                            .onChanged { _ in if !pressing { pressing = true; talk.holdBegan() } }
-                            .onEnded { _ in pressing = false; talk.holdEnded() }
-                    )
-                    .allowsHitTesting(live)
-                    .accessibilityElement()
-                    .accessibilityAddTraits(.isButton)
-                    .accessibilityLabel(talk.holding ? "Send" : talk.speaking ? "Stop Grok" : "Talk")
-                    .accessibilityHint("Hold and talk, then let go. While Grok speaks, tap to stop it.")
-                    .accessibilityAction {
-                        if talk.holding { talk.holdEnded() } else if talk.speaking { talk.interrupt() } else { talk.holdBegan() }
-                    }
-                    .accessibilityIdentifier("talk-button")
+                HStack(spacing: Space.xl) {
+                    micButton.opacity(talk.handsFree ? 1 : 0).disabled(!talk.handsFree || !live)
+                        .accessibilityHidden(!talk.handsFree)
+                    orb(live)
+                    speakerButton.disabled(!live)
+                }
+                .frame(height: 160)
             }
-            Text("Grok can read your boards, check what's waiting and message your agent. It asks before approving anything.")
+            Text("Atteo can read your boards, check what's waiting and message your agent. It asks before approving anything.")
                 .font(Typo.micro).foregroundStyle(Theme.faint).multilineTextAlignment(.center)
                 .padding(.horizontal, Space.xl)
         }
         .padding(.top, Space.m).padding(.bottom, Space.l)
     }
+
+    @ViewBuilder private func orb(_ live: Bool) -> some View {
+        let o = TalkOrb(mood: mood, level: talk.level, live: live)
+        if talk.handsFree {
+            o.contentShape(Circle())
+                .onTapGesture { talk.orbTapped() }
+                .allowsHitTesting(live)
+                .accessibilityElement()
+                .accessibilityAddTraits(.isButton)
+                .accessibilityLabel(talk.speaking ? "Stop Atteo" : "Voice chat")
+                .accessibilityValue(stateLine)
+                .accessibilityHint("Just talk: Atteo answers when you pause. Talk over it, or tap here, to stop it.")
+                .accessibilityAction { talk.orbTapped() }
+                .accessibilityIdentifier("talk-orb")
+        } else {
+            o.contentShape(Circle())
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { _ in if !pressing { pressing = true; talk.holdBegan() } }
+                        .onEnded { _ in pressing = false; talk.holdEnded() }
+                )
+                .allowsHitTesting(live)
+                .accessibilityElement()
+                .accessibilityAddTraits(.isButton)
+                .accessibilityLabel(talk.holding ? "Send" : talk.speaking ? "Stop Atteo" : "Talk")
+                .accessibilityHint("Hold and talk, then let go. While Atteo speaks, tap to stop it.")
+                .accessibilityAction {
+                    if talk.holding { talk.holdEnded() } else if talk.speaking { talk.interrupt() } else { talk.holdBegan() }
+                }
+                .accessibilityIdentifier("talk-button")
+        }
+    }
+
+    private var micButton: some View {
+        Button { talk.toggleMic() } label: {
+            Image(systemName: talk.micMuted ? "mic.slash.fill" : "mic.fill")
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundStyle(talk.micMuted ? Theme.onAccent : Theme.text)
+                .frame(width: 56, height: 56)
+                .background(talk.micMuted ? Theme.danger : Theme.raised, in: Circle())
+        }
+        .buttonStyle(PressStyle())
+        .accessibilityIdentifier("talk-mic")
+        .accessibilityLabel(talk.micMuted ? "Unmute mic" : "Mute mic")
+        .accessibilityHint("While it's off nothing you say is sent. Atteo can still finish talking.")
+    }
+
+    private var speakerButton: some View {
+        Button { talk.muted.toggle(); Haptics.play(.touch) } label: {
+            Image(systemName: talk.muted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(talk.muted ? Theme.accent : Theme.text)
+                .frame(width: 56, height: 56)
+                .background(Theme.raised, in: Circle())
+        }
+        .buttonStyle(PressStyle())
+        .accessibilityIdentifier("talk-mute")
+        .accessibilityLabel(talk.muted ? "Unmute Atteo" : "Mute Atteo")
+        .accessibilityHint("What Atteo says still shows as captions.")
+    }
 }
 
-/// Settings → Talk to Grok: this month's minutes, or that it isn't set up.
+/// The sheet's menu: "Hold to talk" for noisy places (remembered on this device).
+struct TalkMenu: View, Equatable {
+    let handsFree: Bool
+    let toggle: () -> Void
+
+    static func == (a: TalkMenu, b: TalkMenu) -> Bool { a.handsFree == b.handsFree }
+
+    var body: some View {
+        Menu {
+            Section("For noisy places") {
+                Button(action: toggle) {
+                    Label("Hold to talk", systemImage: handsFree ? "hand.tap" : "checkmark")
+                }
+                .accessibilityIdentifier("talk-hold-mode")
+            }
+        } label: {
+            Image(systemName: "ellipsis.circle").font(.system(size: 19, weight: .semibold)).foregroundStyle(Theme.muted)
+                .frame(width: 44, height: 44).contentShape(Rectangle())
+        }
+        .accessibilityIdentifier("talk-menu")
+        .accessibilityLabel("Voice chat options")
+    }
+}
+
+/// The big orb: grows with your voice while listening, a turning arc while thinking, rings while Atteo speaks. Only
+/// animates when motion effects are on (and never under UI tests, which need the app to go idle).
+struct TalkOrb: View {
+    enum Mood: Equatable { case idle, listening, hearing, thinking, speaking, off, holding }
+    let mood: Mood
+    let level: Float
+    let live: Bool
+    private let size: CGFloat = 132
+
+    var body: some View {
+        let moving = Effects.enabled && (mood == .thinking || mood == .speaking)
+        TimelineView(.animation(minimumInterval: nil, paused: !moving)) { ctx in
+            let t = moving ? ctx.date.timeIntervalSinceReferenceDate : 0
+            let l = CGFloat(level)
+            ZStack {
+                // Your voice: a soft halo that follows the level.
+                Circle().fill(Theme.accent.opacity(mood == .hearing || mood == .listening || mood == .holding ? 0.10 + 0.25 * l : 0))
+                    .scaleEffect(1 + 0.45 * l)
+                // Atteo speaking: rings going out.
+                if mood == .speaking {
+                    ForEach(0..<3) { i in
+                        let p = (t * 0.6 + Double(i) / 3).truncatingRemainder(dividingBy: 1)
+                        Circle().stroke(Theme.accent.opacity(Effects.enabled ? 0.5 * (1 - p) : 0.35), lineWidth: 2)
+                            .scaleEffect(Effects.enabled ? 1 + 0.5 * p : 1.12)
+                    }
+                }
+                // Thinking: an arc going round.
+                if mood == .thinking {
+                    Circle().trim(from: 0, to: 0.28)
+                        .stroke(Theme.accent, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                        .rotationEffect(.radians(t * 4))
+                        .scaleEffect(1.1)
+                }
+                Circle().fill(fill)
+                    .overlay(Circle().stroke(Theme.accent.opacity(mood == .listening ? 0.35 : 0), lineWidth: 2))
+                    .scaleEffect(mood == .speaking ? 1 + 0.03 * sin(t * 7) : 1 + 0.12 * l)
+                Image(systemName: symbol)
+                    .font(.system(size: 40, weight: .semibold))
+                    .foregroundStyle(onFill)
+            }
+            .frame(width: size, height: size)
+        }
+        .animation(.easeOut(duration: 0.12), value: level)
+        .animation(.spring(duration: 0.3, bounce: 0.25), value: mood)
+    }
+
+    private var fill: Color {
+        switch mood {
+        case .speaking, .hearing, .holding: return Theme.accent
+        default: return Theme.raised
+        }
+    }
+
+    private var onFill: Color {
+        switch mood {
+        case .speaking, .hearing, .holding: return Theme.onAccent
+        case .off, .idle: return live ? Theme.muted : Theme.faint
+        default: return Theme.text
+        }
+    }
+
+    private var symbol: String {
+        switch mood {
+        case .off: return "mic.slash.fill"
+        case .holding: return "mic.fill"
+        case .thinking: return "ellipsis"
+        default: return "waveform"
+        }
+    }
+}
+
+/// Settings → Voice chat: this month's minutes, or that it isn't set up.
 struct TalkSection: View {
     @ObservedObject private var status = TalkStatus.shared
 
     var body: some View {
         Section {
             HStack {
-                Label("Talk to Grok", systemImage: "waveform")
+                Label("Voice chat", systemImage: "waveform")
                 Spacer()
                 Text(status.enabled == true ? "\(Self.minutes(status.minutesUsed)) of \(status.minutesBudget) min" : status.enabled == false ? "Not set up" : "…")
                     .foregroundStyle(Theme.muted).monospacedDigit()
@@ -244,7 +394,7 @@ struct TalkSection: View {
         } footer: {
             Text(status.enabled == false
                  ? "Voice isn't set up yet. Typing, the mic in the message box and reading replies aloud still work."
-                 : "Tap the waveform in a chat to talk with Grok, live. It can read your boards, check what's waiting and message your agent, and asks before approving anything. Minutes reset on the 1st.")
+                 : "Talk with Atteo, live and hands-free. It can read your boards, check what's waiting and message your agent, and asks before approving anything. Minutes reset on the 1st.")
         }
         .listRowBackground(Theme.card)
         .task { await status.load(force: true) }

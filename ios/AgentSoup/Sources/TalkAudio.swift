@@ -1,7 +1,9 @@
-// Talk to Grok's audio (Talk.swift): one AVAudioEngine for both ways. The mic, while the button is held, as 24 kHz mono
-// PCM16 (what voice.ts asks for), with the phone's echo cancelling (.voiceChat) so Grok doesn't hear itself; Grok's
-// 24 kHz PCM16 deltas into a player node. AirPods and other Bluetooth headsets work; a call or Siri pauses it, and a
-// route change (headphones in or out) rebuilds the engine for the new hardware.
+// Voice chat's audio (Talk.swift): one AVAudioEngine for both ways. The mic, all the time (hands-free) or while the
+// button is held, as 24 kHz mono PCM16 (what voice.ts asks for), with the phone's echo cancelling (.voiceChat) so the
+// open mic doesn't hear Atteo's own voice; the 24 kHz PCM16 deltas into a player node. Out of the loudspeaker, not the
+// earpiece (vedu #1598): voice processing likes to move the route to the receiver, so whenever the route's output is
+// the built-in receiver it's overridden to the speaker; AirPods, Bluetooth and wired headsets are left alone. A call or
+// Siri pauses it, and a route change (headphones in or out) rebuilds the engine for the new hardware.
 
 import AVFoundation
 
@@ -13,6 +15,10 @@ final class TalkAudio {
     var useMic = true
     var muted = false { didSet { player?.volume = muted ? 0 : 1 } }
     var events: ((Event) -> Void)?
+    /// The mic's loudness, 0…1, about ten times a second while capturing.
+    var onLevel: ((Float) -> Void)?
+    /// Whether the phone's echo cancelling is on: without it an open mic hears Atteo through the speaker.
+    private(set) var echoCancelling = false
 
     private var engine: AVAudioEngine?
     private var player: AVAudioPlayerNode?
@@ -38,8 +44,9 @@ final class TalkAudio {
         })
         observers.append(nc.addObserver(forName: AVAudioSession.routeChangeNotification, object: s, queue: .main) { [weak self] n in
             let reason = (n.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt).flatMap(AVAudioSession.RouteChangeReason.init(rawValue:))
-            guard reason == .newDeviceAvailable || reason == .oldDeviceUnavailable else { return }
-            MainActor.assumeIsolated { self?.rebuild() }
+            MainActor.assumeIsolated {
+                if reason == .newDeviceAvailable || reason == .oldDeviceUnavailable { self?.rebuild() } else { self?.preferSpeaker() }
+            }
         })
         observers.append(nc.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: s, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.rebuild() }
@@ -56,7 +63,7 @@ final class TalkAudio {
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 
-    /// From now until stopCapture(), each ~100 ms of the mic comes to `chunk` as base64 PCM16.
+    /// From now until stopCapture(), each ~100 ms of the mic comes to `chunk` as base64 PCM16 (and its level to onLevel).
     func capture(_ chunk: @escaping (String) -> Void) {
         onChunk = chunk
         tapState.set(true)
@@ -65,6 +72,14 @@ final class TalkAudio {
     func stopCapture() {
         tapState.set(false)
         onChunk = nil
+    }
+
+    /// The loudspeaker instead of the earpiece. Only when the output is the built-in receiver, so AirPods, Bluetooth and
+    /// headphones keep the sound (and the override's own route change doesn't loop).
+    private func preferSpeaker() {
+        let s = AVAudioSession.sharedInstance()
+        guard started, s.currentRoute.outputs.contains(where: { $0.portType == .builtInReceiver }) else { return }
+        try? s.overrideOutputAudioPort(.speaker)
     }
 
     /// Queues Grok's PCM16 (24 kHz mono); answers how long it lasts.
@@ -108,11 +123,16 @@ final class TalkAudio {
                 try? input.setVoiceProcessingEnabled(false)
                 f = input.outputFormat(forBus: 0)
             }
+            echoCancelling = input.isVoiceProcessingEnabled
+            if echoCancelling {
+                // Only ever duck other apps' audio a little; Atteo's own voice isn't "other audio".
+                input.voiceProcessingOtherAudioDuckingConfiguration = .init(enableAdvancedDucking: false, duckingLevel: .min)
+            }
             if f.sampleRate > 0, f.channelCount > 0 {
                 let state = tapState, mic = MicStream(target: micFormat)
                 input.installTap(onBus: 0, bufferSize: AVAudioFrameCount(f.sampleRate / 10), format: nil) { [weak self] buf, _ in
-                    guard state.on, let b64 = mic.base64(buf) else { return }
-                    Task { @MainActor in self?.onChunk?(b64) }
+                    guard state.on, let (b64, level) = mic.base64(buf) else { return }
+                    Task { @MainActor in self?.onChunk?(b64); self?.onLevel?(level) }
                 }
             } else {
                 let i = input.inputFormat(forBus: 0)
@@ -121,10 +141,12 @@ final class TalkAudio {
         }
         e.connect(p, to: e.mainMixerNode, format: playFormat)
         p.volume = muted ? 0 : 1
+        e.mainMixerNode.outputVolume = 1
         e.prepare()
         engine = e; player = p
         try e.start()
         p.play()
+        preferSpeaker() // after voice processing and the engine start, which can move the route to the earpiece
         configObserver = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: e, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.rebuild() }
         }
@@ -172,7 +194,8 @@ private final class MicStream: @unchecked Sendable {
     private var monoFormat: AVAudioFormat?
     init(target: AVAudioFormat) { self.target = target }
 
-    func base64(_ buf: AVAudioPCMBuffer) -> String? {
+    /// The chunk as base64, and its loudness 0…1 (RMS, -50…-10 dBFS).
+    func base64(_ buf: AVAudioPCMBuffer) -> (String, Float)? {
         let n = Int(buf.frameLength), sr = buf.format.sampleRate
         guard n > 0, sr > 0 else { return nil }
         // Channel 0 as Float32 mono at the mic's own rate.
@@ -190,6 +213,10 @@ private final class MicStream: @unchecked Sendable {
             let stride = buf.format.isInterleaved ? Int(buf.format.channelCount) : 1
             for k in 0..<n { dst[k] = Float(i[0][k * stride]) / 32768 }
         } else { return nil }
+        var sum: Float = 0
+        for k in 0..<n { sum += dst[k] * dst[k] }
+        let db = 20 * log10(max(sqrt(sum / Float(n)), 1e-6))
+        let level = min(1, max(0, (db + 50) / 40))
         // Resample + to PCM16.
         let cap = AVAudioFrameCount(Double(n) * target.sampleRate / sr) + 64
         guard let out = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: cap) else { return nil }
@@ -202,7 +229,7 @@ private final class MicStream: @unchecked Sendable {
             return mono
         }
         guard err == nil, out.frameLength > 0, let ch = out.int16ChannelData else { return nil }
-        return Data(bytes: ch[0], count: Int(out.frameLength) * 2).base64EncodedString()
+        return (Data(bytes: ch[0], count: Int(out.frameLength) * 2).base64EncodedString(), level)
     }
 }
 
