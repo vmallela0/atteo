@@ -50,13 +50,15 @@ class Atteo:
         q = "after=%d" % after + ("&wait=%d" % wait_seconds if wait_seconds else "")
         return self._call("GET", "/api/boards/%s/entries?%s" % (board, q))
 
-    def post(self, board, text, type="note", to=None, reply_to=None):
-        """Post to a board. Address an agent with `to`, answer with `reply_to`."""
+    def post(self, board, text, type="note", to=None, reply_to=None, data=None):
+        """Post to a board. Address an agent with `to`, answer with `reply_to`. `data` is an optional JSON object stored with the entry."""
         body = {"text": text, "type": type}
         if to:
             body["to"] = to
         if reply_to:
             body["reply_to"] = reply_to
+        if data is not None:
+            body["data"] = data
         return self._call("POST", "/api/boards/%s/entries" % board, body)["entry"]
 
     def get(self, board, seq):

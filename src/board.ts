@@ -24,6 +24,7 @@ import { audienceOk, audienceWord, canSee, ownByDefault, OWN_DEFAULT_MS, OWN_MAI
 import { cleanSchedule, MAX_SCHEDULES, nextDue, lastDue, scheduleLabel, SCHEDULE_FIRES_PER_HOUR, taskText, tickAction, type Day, type Schedule } from "./schedules";
 import { LEASE_CAP_MS, RENEW_EVERY_MS, renewedUntil } from "./leases";
 import { similarOpen, taskTitleKey } from "./taskTitles";
+import { prepareEntryData, readEntryData, screenedText } from "./entryData";
 
 export const MAX_TEXT = 32_000;
 export const MAX_ARTIFACT = 256_000;
@@ -236,6 +237,7 @@ function attachmentsOf(r: Row, media: Media | null): Attachment[] | undefined {
 function toEntry(r: Row): Entry {
   const media = r.media ? (JSON.parse(r.media as string) as Media) : null;
   const attachments = attachmentsOf(r, media);
+  const data = readEntryData(r.data as string | null);
   return {
     seq: r.seq as number,
     ts: r.ts as number,
@@ -261,6 +263,7 @@ function toEntry(r: Row): Entry {
     ai_flag: (r.ai_flag as string | null) ?? null,
     ...(r.approval ? { approval: liveApproval(JSON.parse(r.approval as string) as ApprovalRef) } : {}),
     ...(r.audience === "people" || r.audience === "own" ? { audience: r.audience as Audience, to_people: JSON.parse((r.to_people as string | null) || "[]") as string[] } : {}),
+    ...(data ? { data } : {}),
   };
 }
 
@@ -275,7 +278,7 @@ const opts0 = (input: NewEntry): TaskActOpts => ({ via: input.via ?? null, clien
 /** For a session's reads: skip posts addressed to another session of the same person (binds: user, session). */
 const FOR_SESSION_OK = "(for_session IS NULL OR for_user != ? OR for_session = ?)";
 
-const ENTRY_COLS = "seq, ts, author, type, text, title, to_user, mentions, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, card, media, ai_flag, attachments, approval, audience, to_people, handoff";
+const ENTRY_COLS = "seq, ts, author, type, text, title, to_user, mentions, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, card, media, ai_flag, attachments, approval, audience, to_people, handoff, data";
 
 // ---- private entries (audience.ts): people-only (vedu #1264), only the people it names, never any agent; and just
 // mine (#1748), only one person and their own agents. Every read of entries filters through these, so a path that
@@ -323,7 +326,8 @@ export class Board extends DurableObject<Env> {
         artifact_version INTEGER,
         artifact_content TEXT,
         card TEXT,
-        card_diff TEXT
+        card_diff TEXT,
+        data TEXT
       );
       CREATE TABLE IF NOT EXISTS reactions (
         seq INTEGER NOT NULL,
@@ -688,6 +692,8 @@ export class Board extends DurableObject<Env> {
     // Gate handoffs (#2173 item 3): a ready-to-gate handoff (JSON HandoffReady, its state kept current as approval is), or
     // the lander's landed/failed reply (HandoffResult). NULL on every other entry.
     if (!cols.has("handoff")) this.sql.exec("ALTER TABLE entries ADD COLUMN handoff TEXT");
+    // Optional JSON object attached at post time (entryData.ts). Null when the post had none.
+    if (!cols.has("data")) this.sql.exec("ALTER TABLE entries ADD COLUMN data TEXT");
     // Covering: hiddenFrom reads only the index (with the kind, since there are two).
     this.sql.exec("CREATE INDEX IF NOT EXISTS entries_audience2 ON entries (seq, audience, to_people) WHERE audience IS NOT NULL");
     this.sql.exec("DROP INDEX IF EXISTS entries_audience");
@@ -1135,7 +1141,15 @@ export class Board extends DurableObject<Env> {
     // Egress filter: nothing that looks like a credential is ever stored.
     // (A document save already checked its content; the log entry for it carries the same content.)
     const title = cleanTitle(input.title);
-    const hit = scanFields({ text, title, artifact_name: input.artifact_name, artifact_content: internal.docVersion != null ? null : input.artifact_content });
+    // data is stored and served as plain JSON, so an end-to-end encrypted board (sealed posts) can't take it (#2346).
+    if (info.encrypted && input.data != null) throw new BoardError(`${info.id} is end-to-end encrypted, and data would be stored in plain text: put those fields in the (encrypted) text instead.`);
+    let dataJson: string | null;
+    try {
+      dataJson = prepareEntryData(input.data);
+    } catch (e) {
+      throw new BoardError(e instanceof Error ? e.message : String(e));
+    }
+    const hit = scanFields({ text, title, artifact_name: input.artifact_name, artifact_content: internal.docVersion != null ? null : input.artifact_content, data: dataJson });
     if (hit) throw new BoardError(blockedMessage(hit));
 
     const depends = [...new Set((input.depends_on ?? []).filter((n) => Number.isInteger(n)))].slice(0, 20);
@@ -1234,8 +1248,8 @@ export class Board extends DurableObject<Env> {
 
     const row = this.sql
       .exec(
-        `INSERT INTO entries (ts, author, type, text, to_user, mentions, self_agent, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, artifact_content, card, card_diff, media, title, session, idem, for_user, for_session, attachments, approval, audience, to_people, handoff)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING ${ENTRY_COLS}`,
+        `INSERT INTO entries (ts, author, type, text, to_user, mentions, self_agent, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, artifact_content, card, card_diff, media, title, session, idem, for_user, for_session, attachments, approval, audience, to_people, handoff, data)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING ${ENTRY_COLS}`,
         Date.now(),
         user,
         input.type,
@@ -1266,6 +1280,7 @@ export class Board extends DurableObject<Env> {
         aud ? aud.audience : null,
         people ? JSON.stringify(people) : null,
         handoff ? JSON.stringify(handoff) : null,
+        dataJson,
       )
       .one();
     if (artifactVersion != null) this.broadcast({ type: "doc", name: artifactName, version: artifactVersion, by: user });
@@ -1389,7 +1404,8 @@ export class Board extends DurableObject<Env> {
     }
     if (!internal.seeding && !user.startsWith("e2e-")) this.ctx.waitUntil(Promise.resolve(track(this.env, "posts", input.via ?? "agent")).catch(() => {}));
     // The model looks at everything the heuristic didn't fully flag, including text it found only in code or quotes.
-    const screened = handoff && !isResult(handoff) ? `${text}\n${handoffText(handoff)}` : text;
+    // The screen reads a ready-to-gate handoff's fields and the entry's data too: read prints both to agents.
+    const screened = screenedText({ text: handoff && !isResult(handoff) ? `${text}\n${handoffText(handoff)}` : text, data: entry.data });
     const heuristic = screenText(screened);
     if (this.env.AI_TOKEN && !internal.seeding && screened.length >= 25 && (!heuristic || heuristic.quoted)) this.ctx.waitUntil(this.screenWithModel(entry.seq, screened).catch(() => {}));
 
@@ -1404,7 +1420,7 @@ export class Board extends DurableObject<Env> {
     // ping can be triaged without a read (#2177). Sealed and encrypted text: "🔒 encrypted". Private entries (above)
     // never carry text.
     const sealedText = !!internal.sealed || !!info.encrypted;
-    const flag = sealedText ? null : flagOf(entry.text, entry.ai_flag);
+    const flag = sealedText ? null : flagOf(screenedText(entry), entry.ai_flag);
     const pingText = entry.text || (internal.attachments ? `📎 ${filesLabel(internal.attachments.list)}` : entry.artifact_name ? `📎 ${entry.artifact_name}` : "");
     this.broadcast({
       type: "entry", seq: entry.seq, retracts: entry.retracts, author: entry.author, via: entry.via ?? null, kind: entry.type, to: entry.to, mentions: entry.mentions, reply_to: entry.reply_to, board: info.id, title: info.title,
