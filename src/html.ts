@@ -17,6 +17,7 @@ import { esc, pictureUrl } from "./util";
 import { WELCOME_BANNER_JS, assistantCard, grokBotMessage, welcomeBanner } from "./welcome";
 import { stateOf } from "./sessions";
 import { E2E_JS } from "./e2eweb";
+import { STATUS_JS } from "./status";
 import { EMOJI } from "./emoji";
 import { approvalCardHtml, approvalJs, type ApprovalCardData } from "./approvalCard";
 
@@ -1148,13 +1149,16 @@ const was=+rpTo.value;draftSave(sentKey,'');replyClear(true);document.querySelec
 let sentKey='';
 // People just write; a message is a note (jxn #928). For the rare typed post, a / command at the start: /task (a task, its
 // lines become the checklist), /decide (a decision people agree or object to), /ask (a question that stays open).
-const SLASH=[['task','A task: first line is the title, the next lines its checklist'],['decide','A decision for people to agree or object to'],['ask','A question that stays open until it’s answered']];
+const SLASH=[['task','A task: first line is the title, the next lines its checklist'],['decide','A decision for people to agree or object to'],['ask','A question that stays open until it’s answered'],['status','The last 3 commits and the task queue, as a live card']];
 const slashMenu=document.getElementById('slash-menu');let slashI=0;
 function slashShow(){const m=ta.value.match(/^\\/(\\w*)$/);const hits=m?SLASH.filter(([c])=>c.startsWith(m[1].toLowerCase())):[];if(!slashMenu)return;
   if(!hits.length){slashMenu.hidden=true;return}slashI=Math.min(slashI,hits.length-1);
   slashMenu.innerHTML=hits.map(([c,d],i)=>'<li role="option" data-cmd="'+c+'"'+(i===slashI?' aria-selected="true" class="on"':'')+'><b>/'+c+'</b> <span class="k">'+d+'</span></li>').join('');slashMenu.hidden=false}
 function slashPick(c){ta.value='/'+c+' ';slashMenu.hidden=true;ta.focus();ta.setSelectionRange(ta.value.length,ta.value.length);ta.dispatchEvent(new Event('input'))}
 slashMenu?.addEventListener('mousedown',e=>{const li=e.target.closest('[data-cmd]');if(li){e.preventDefault();slashPick(li.dataset.cmd)}});
+// "/status" posts the status card (#1289): a fenced status block with a plain-text snapshot (what agents read); the web draws it live.
+document.querySelector('form.composer')?.addEventListener('submit',async e=>{if(!/^\\/status\\s*$/i.test(ta.value)||!window.ST)return;e.preventDefault();e.stopImmediatePropagation();const f=e.target;
+  try{ST.fresh();const d=await ST.data();ta.value='\`\`\`status\\n'+ST.text(d)+'\\n\`\`\`';f.requestSubmit()}catch(err){toast("Couldn't get the status: "+(err&&err.message||err))}},true);
 document.querySelector('form.composer')?.addEventListener('submit',()=>{const m=ta.value.match(/^\\/(task|decide|ask)\\b[ \\t]*/i),ty=document.getElementById('cmp-type');
   if(ty)ty.value=m?{task:'task',decide:'decision',ask:'question'}[m[1].toLowerCase()]:'note';if(m)ta.value=ta.value.slice(m[0].length)},true);
 // While a message sends, its "sending…" copy is in the conversation, so the box looks empty instead of showing it twice (jxn #1222); it comes back if sending fails.
@@ -2136,7 +2140,7 @@ window.boardKeys=(e,k)=>{
     els.forEach(x=>x.classList.remove('sel'));const el=els[cur];if(el){el.classList.add('sel');el.scrollIntoView({block:'nearest'})}}
   if(e.key==='Enter'&&els[cur]){openEntry(BOARD,els[cur].dataset.seq)}
 };
-` + (canPic ? BOARD_PIC_JS : "") + (info.encrypted ? E2E_JS : "") + voiceJs(agentChat) + PREVIEW_JS + evJs(agentChat) + (agentChat ? "" : PO_JS) + (agentChat ? "" : pinRecapJs(board.last_seen ?? 0, !readOnly && !info.archived) + soulMemoryJs(!readOnly && !info.archived));
+` + (canPic ? BOARD_PIC_JS : "") + (info.encrypted ? E2E_JS : "") + STATUS_JS + voiceJs(agentChat) + PREVIEW_JS + evJs(agentChat) + (agentChat ? "" : PO_JS) + (agentChat ? "" : pinRecapJs(board.last_seen ?? 0, !readOnly && !info.archived) + soulMemoryJs(!readOnly && !info.archived));
   const isCreator = viewer.name === info.created_by;
   const archivedBanner = info.archived
     ? `<div class="flash bp-banner"><span class="grow"><b>Archived.</b> This board is read-only.</span>${

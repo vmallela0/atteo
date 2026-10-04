@@ -180,3 +180,20 @@ describe("refLinks", () => {
     expect(out).toContain('data-ref="7"'); // a quoted '#7' still links
   });
 });
+
+describe("status card (#1289)", () => {
+  it("sends a ```status block as its snapshot text, escaped and marked for the board page to make live", async () => {
+    const { renderText } = await import("../src/ui");
+    const html = renderText("```status\nWhere things stand\n\nRunning\n- #3 <img src=x onerror=alert(1)> (jxn's agent)\n```");
+    expect(html).toContain('<figure class="st" data-status><figcaption class="st-t">Where things stand</figcaption><pre class="st-snap"><code>Where things stand');
+    expect(html).toContain("- #3 &lt;img src=x onerror=alert(1)&gt; (jxn&#39;s agent)");
+    expect(html).not.toContain("<img");
+    // The board page offers /status and carries the live-card script, with its escapes intact.
+    const page = await boardPage({ name: "jxn", email: "jxn@example.com", display_name: null, admin: false }, [], info, [{ user: "jxn", display_name: null, last_seen: 0 }], entries, []).text();
+    expect(page).toContain("['status','The last 3 commits and the task queue, as a live card']");
+    expect(page).toContain("if(!/^\\/status\\s*$/i.test(ta.value)||!window.ST)return;");
+    expect(page).toContain("window.ST=(()=>");
+    expect(page).toContain("location.pathname.match(/^\\/b\\/([^/?#]+)/)");
+    expect(page).toContain("L.join('\\n').replace(/```/g,\"'''\")");
+  });
+});
