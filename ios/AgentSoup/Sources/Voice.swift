@@ -21,6 +21,7 @@ final class VoiceInput: ObservableObject {
     private var task: SFSpeechRecognitionTask?
     private var heard = "" // the latest transcript of this hold
     private var onText: ((String, Bool) -> Void)?
+    private var hints: [String] = [] // words to listen for: this board's @groups, members and agents (jxn #1731)
     private var wanted = false // still held (permission prompts take a moment)
 
     /// "…send it" at the end: the words before it, or nil.
@@ -31,11 +32,12 @@ final class VoiceInput: ObservableObject {
     }
 
     /// Starts listening (asks for the microphone and speech recognition the first time). `onText` hears the transcript
-    /// so far, and `true` once it's final.
-    func start(onText: @escaping (String, Bool) -> Void) {
+    /// so far, and `true` once it's final. `hints`: names it should expect (the board's members and their agents).
+    func start(hints: [String] = [], onText: @escaping (String, Bool) -> Void) {
         guard !listening else { return }
         wanted = true
         self.onText = onText
+        self.hints = hints
         Task {
             guard await Self.allowed() else {
                 problem = String(localized: "Allow the microphone and speech recognition for Atteo in Settings to talk.", bundle: .l10n)
@@ -97,6 +99,7 @@ final class VoiceInput: ObservableObject {
             req.requiresOnDeviceRecognition = true
             req.shouldReportPartialResults = true
             req.addsPunctuation = true
+            req.contextualStrings = hints
             request = req
             heard = ""
             let input = engine.inputNode
@@ -134,6 +137,8 @@ struct MicButton: View {
     @Binding var draft: String
     let send: () -> Void
     var identifier = "mic"
+    /// This board's members, so "at vedu" goes in as "@vedu" (SpokenMentions.swift).
+    var spoken: SpokenMentions? = nil
     @State private var base = "" // what was in the box before this hold
     @State private var holding = false
     @State private var pressedAt = Date.distantPast
@@ -178,12 +183,13 @@ struct MicButton: View {
     private func start() {
         let d = draft.replacingOccurrences(of: #"\s+$"#, with: "", options: .regularExpression)
         base = d.isEmpty ? "" : d + " "
-        voice.start { text, final in
+        let spoken = spoken
+        voice.start(hints: spoken?.hints ?? []) { text, final in
             if final, let words = VoiceInput.sendIt(text) {
-                draft = base + words
+                draft = base + (spoken?.apply(words) ?? words)
                 if !draft.trimmingCharacters(in: .whitespaces).isEmpty { send() }
             } else {
-                draft = base + text
+                draft = base + (spoken?.apply(text) ?? text)
             }
         }
     }

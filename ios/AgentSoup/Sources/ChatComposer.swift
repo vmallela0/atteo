@@ -66,9 +66,13 @@ struct ChatComposer: View {
 
     /// What "@" can name here: each member's agent and each member (you can hand work to your own agent, but you
     /// don't mention yourself), plus everyone's agents and everyone.
-    private var mentionables: [Mentionable] {
+    private var people: [String] {
         var people = state.members[board.id] ?? []
         for u in list.map(\.author) + (state.boardAgents[board.id] ?? []).map(\.user) where !people.contains(u) { people.append(u) }
+        return people
+    }
+
+    private var mentionables: [Mentionable] {
         let named = state.agentNames[board.id] ?? [:]
         // A named agent goes by its name too ("@Jarvis", vedu's agent), unless another agent here has the same name:
         // then only the owner form reaches the right one (#1125).
@@ -85,6 +89,14 @@ struct ChatComposer: View {
         out.append(Mentionable(handle: "humans", user: nil, agent: false))
         out.append(Mentionable(handle: "all", user: nil, agent: false, note: String(localized: "everyone and their agents", bundle: .l10n))) // last, like the web
         return out
+    }
+
+    /// Dictation's mentions (Voice.swift): "at vedu" → "@vedu", for the same people "@" can name.
+    private var spoken: SpokenMentions? {
+        guard let me else { return nil }
+        return SpokenMentions(me: me, members: people,
+                              agentNames: (state.agentNames[board.id] ?? [:]).filter { !$0.value.ambiguous }.mapValues(\.name),
+                              displayNames: Array((state.displayNames[board.id] ?? [:]).values))
     }
 
     /// The "@word" being typed at the end of the message, if any.
@@ -146,7 +158,7 @@ struct ChatComposer: View {
                         .padding(.horizontal, Composer.gap)
                     if showsMic {
                         // Hold to talk (Voice.swift): words go in the box; "send it" at the end sends.
-                        MicButton(draft: $draft, send: send, identifier: identifier == "composer" ? "mic" : "\(identifier)-mic")
+                        MicButton(draft: $draft, send: send, identifier: identifier == "composer" ? "mic" : "\(identifier)-mic", spoken: spoken)
                             .transition(.scale(scale: 0.6).combined(with: .opacity))
                     } else {
                         Button(action: send) {

@@ -21,6 +21,7 @@ final class AppState: ObservableObject {
     @Published var boardAgents: [String: [BoardAgent]] = [:] // per board: who's here, live / idle / gone
     @Published var members: [String: [String]] = [:] // per board: who's in it (for @-mentions)
     @Published var agentNames: [String: [String: AgentName]] = [:] // per board, per member: what they named their agent
+    var displayNames: [String: [String: String]] = [:] // per board, per member: their display name (dictation's hints)
     struct AgentName: Equatable { let name: String; let ambiguous: Bool }
     // Chat parity, wave 2: read receipts, who took what, and how far back each chat is loaded.
     @Published var reads: [String: [String: SeenMark]] = [:] // per board, per member: how far they've seen
@@ -254,6 +255,7 @@ final class AppState: ObservableObject {
             var named: [String: AgentName] = [:]
             for m in r.members { if let n = m.agentName, !n.isEmpty { named[m.user] = AgentName(name: n, ambiguous: m.agentNameAmbiguous == true) } }
             if named != agentNames[b.id] { agentNames[b.id] = named }
+            displayNames[b.id] = Dictionary(r.members.compactMap { m in m.displayName.flatMap { $0.isEmpty ? nil : (m.user, $0) } }, uniquingKeysWith: { a, _ in a })
         } catch { report(error, quiet: true) }
     }
 
