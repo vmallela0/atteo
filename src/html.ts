@@ -280,7 +280,7 @@ const PO_JS = `
   window.poSet=on=>{b.setAttribute('aria-pressed',String(on));b.classList.toggle('on',on);inp.value=on?'true':'';note.hidden=!on;f.classList.toggle('po',on);ta.placeholder=on?'Only the people you @ will see this…':(ta.dataset.dev&&document.documentElement.dataset.mode!=='everyday'?ta.dataset.dev:ph0)};
   b.addEventListener('click',()=>{poSet(b.getAttribute('aria-pressed')!=='true');ta.focus()});
   // Needs someone to send it to: a person @mentioned in the text.
-  document.addEventListener('submit',e=>{if(e.target!==f||inp.value!=='true')return;if(!/(^|\\s)@[a-z0-9][a-z0-9_.-]*(?!'s agent)(?!\\/)/i.test(ta.value)){e.preventDefault();e.stopImmediatePropagation();toast('@ the people who should see it: agents never will')}},true);
+  document.addEventListener('submit',e=>{if(e.target!==f||inp.value!=='true')return;if(!/(^|\\s)@[a-z0-9][a-z0-9_.-]*(?![a-z0-9_.-]|['’]s\\s+(?:agent|assistant)\\b|\\/)/i.test(ta.value)){e.preventDefault();e.stopImmediatePropagation();toast('@ the people who should see it: agents never will')}},true);
 })();
 `;
 // HTML preview (jxn #1309). Board files are written by other people, so the page runs in an iframe with sandbox="allow-scripts"

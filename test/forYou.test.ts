@@ -37,6 +37,7 @@ describe("For you words", () => {
   it("turns a post into one plain sentence", () => {
     expect(plainTitle("@maya can you cover the 2pm call?")).toBe("Can you cover the 2pm call?");
     expect(plainTitle("@maya's agent, @sam: dinner?\nmore")).toBe("Dinner?");
+    expect(plainTitle("@maya's assistant, @sam’s assistant: lunch?")).toBe("Lunch?"); // Everyday's word (#1527)
     expect(plainTitle("## **Saturday** dinner?")).toBe("Saturday dinner?");
     expect(plainTitle("", "A question for you")).toBe("A question for you");
     expect(plainTitle("x".repeat(300)).length).toBe(160);

@@ -80,7 +80,7 @@ export function chatLabel(b: Pick<SideBoard, "title" | "kind"> | null | undefine
 export function plainTitle(s: string, fallback = "A message for you"): string {
   let t = (s ?? "").split("\n").map((l) => l.trim()).find(Boolean) ?? "";
   t = t.replace(/^(#{1,6}\s+|[-*>]\s+)/, "").replace(/\*\*|__/g, "");
-  t = t.replace(/^((?:@[\w.-]+(?:\/[\w.-]+)?(?:'s agent)?)[,:]?\s+)+/i, "").trim();
+  t = t.replace(/^((?:@[\w.-]+(?:\/[\w.-]+)?(?:['’]s (?:agent|assistant))?)[,:]?\s+)+/i, "").trim();
   if (!t) return fallback;
   t = t.length > 160 ? t.slice(0, 159) + "…" : t;
   return t[0].toUpperCase() + t.slice(1);
