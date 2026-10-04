@@ -1020,6 +1020,9 @@ window.ensureEntry=async seq=>{for(let i=0;i<20&&!document.getElementById('e'+se
 // The thread scrolls in its own area, opens at the latest entry and stays pinned to the bottom (new entries, images,
 // expanding cards, a growing composer) until you scroll up yourself; reaching the bottom again re-pins. While unpinned a
 // pill offers the jump ("New messages" if something arrived).
+// Off-screen messages aren't laid out (content-visibility, #1365), so their heights are guesses and centring one would land
+// off: layAll() lays every message out for the moment, then hands them back to the browser, which keeps the real sizes.
+window.layAll=()=>{const th=document.getElementById('thread');if(!th)return;th.classList.add('cv-all');void th.offsetHeight;clearTimeout(th._cv);th._cv=setTimeout(()=>th.classList.remove('cv-all'),1500)};
 const scroller=document.getElementById('thread-scroll'),pill=document.getElementById('new-pill');let stickNext=false,moved=false,userT=0,pinned=!/^#e\\d+$/.test(location.hash);
 const usr=()=>{userT=Date.now()},nearEnd=()=>scroller.scrollHeight-scroller.scrollTop-scroller.clientHeight<=24; // userT: the last wheel/touch/key/drag, so programmatic scrolls aren't mistaken for the user's
 const atBottom=()=>scroller.clientHeight===0||scroller.scrollHeight-scroller.scrollTop-scroller.clientHeight<80;
@@ -1048,7 +1051,7 @@ rail.addEventListener('pointermove',ev=>{if(scrub){railMove(ev);return}const i=r
   const body=(el.querySelector(':scope>.grow>.body')?.textContent||'').trim().split('\\n')[0];
   tip.textContent=who+' · '+ty+(when?' · '+when:'')+(body?' — '+body:'');tip.style.top=(ticks[i].y*rail.getBoundingClientRect().height+rail.offsetTop)+'px';tip.hidden=false});
 rail.addEventListener('pointerleave',()=>{tip.hidden=true});
-rail.addEventListener('pointerup',ev=>{if(!scrub)return;scrub=false;const i=railNear(railAt(ev));if(i>=0&&ev.pointerType!=='touch'){usr();ticks[i].el.scrollIntoView({block:'center'})}});
+rail.addEventListener('pointerup',ev=>{if(!scrub)return;scrub=false;const i=railNear(railAt(ev));if(i>=0&&ev.pointerType!=='touch'){usr();layAll();ticks[i].el.scrollIntoView({block:'center'})}});
 function railMove(ev){moved=true;usr();scroller.scrollTop=railAt(ev)*scroller.scrollHeight-scroller.clientHeight/2}
 new ResizeObserver(()=>railBuild()).observe(document.getElementById('thread'));
 let unseen=0; // new messages that arrived while you were scrolled up (jxn #1367)
@@ -1072,7 +1075,7 @@ const linked=/^#e\\d+$/.test(location.hash);
 // A link to a message further back than the page shows loads back to it (on open, or when the hash changes).
 async function goLinked(){const m=location.hash.match(/^#e([0-9]+)$/);if(!m||document.getElementById('e'+m[1]))return;const seq=+m[1];pinned=false;
   if(!(await ensureEntry(seq))){toast('#'+seq+' was not found');return}const el=document.getElementById('e'+seq);pinned=false; // loading back may have passed the bottom and re-pinned
-  if(el.closest('.replies'))openThread(+el.closest('#thread>.entry').dataset.seq,{focus:seq});else el.scrollIntoView({block:'center'})}
+  if(el.closest('.replies'))openThread(+el.closest('#thread>.entry').dataset.seq,{focus:seq});else{layAll();el.scrollIntoView({block:'center'})}}
 if(linked&&!document.getElementById(location.hash.slice(1)))setTimeout(goLinked,0);
 window.addEventListener('hashchange',()=>{const t={'#log':1,'#files':2,'#docs':2,'#tasks':3}[location.hash];if(t)tab(t);else goLinked()});
 // Open at your first unread message (jxn #1011): a thin "New" line above it and Jump to latest below. If you've read
@@ -1868,9 +1871,7 @@ document.getElementById('fwd-send').addEventListener('click',async e=>{const b=e
 window.BOARD_CTX={id:BOARD,me:ME,members:MEMBERS,
   async jump(seq){if(!(await ensureEntry(seq))){toast('#'+seq+' was not found');return}const el=document.getElementById('e'+seq);
     if(document.getElementById('panel-conv').hidden)tab(0);if(el.closest('.replies')){openThread(+el.closest('#thread>.entry').dataset.seq,{focus:seq});return}
-    // Off-screen messages aren't laid out (content-visibility, #1365), so their heights are guesses and a jump would land off
-    // centre: everything is laid out for the jump, then left to the browser again (it remembers the real sizes).
-    const th=document.getElementById('thread');th.classList.add('cv-all');void th.offsetHeight;clearTimeout(th._cv);th._cv=setTimeout(()=>th.classList.remove('cv-all'),1500);
+    layAll();
     document.querySelectorAll('#thread .entry.hit').forEach(x=>x.classList.remove('hit'));el.classList.add('hit');pinned=false;el.scrollIntoView({block:'center',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});moved=true;setTimeout(()=>el.classList.remove('hit'),2200)},
   openFile(name,v){tab(2);openDoc(name,v)}};
 document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&!e.altKey&&!e.shiftKey&&e.key.toLowerCase()==='f'&&!document.querySelector('dialog[open]:not(#palette)')){e.preventDefault();window.openPalette([{k:'board'},{k:'kind',v:'messages'}])}},true);
@@ -1913,7 +1914,7 @@ function openThread(root,o={}){const top=document.getElementById('e'+root);if(!t
 function closeThread(){if(thrDlg.open)thrDlg.close();else{thrOpen=0;cmpBack()}}
 thrDlg.addEventListener('close',()=>{thrOpen=0;cmpBack()});
 thrDlg.addEventListener('click',e=>{if(e.target===thrDlg||e.target.closest('[data-thr-close]'))closeThread();const s=e.target.closest('.thr-list [data-src]');
-  if(s&&e.target.closest('a.seq,.rq')){e.preventDefault();const n=s.dataset.src;closeThread();const el=document.getElementById('e'+n);if(el){pinned=false;el.scrollIntoView({block:'center'});el.classList.add('hit');setTimeout(()=>el.classList.remove('hit'),4000)}}});
+  if(s&&e.target.closest('a.seq,.rq')){e.preventDefault();const n=s.dataset.src;closeThread();const el=document.getElementById('e'+n);if(el){pinned=false;layAll();el.scrollIntoView({block:'center'});el.classList.add('hit');setTimeout(()=>el.classList.remove('hit'),4000)}}});
 document.addEventListener('click',e=>{const s=e.target.closest('#thread [data-thread]');if(!s)return;const sel=getSelection();if(sel&&!sel.isCollapsed&&sel.rangeCount&&sel.getRangeAt(0).intersectsNode(s))return; // ending a selection isn't a click
   e.preventDefault();openThread(+s.dataset.thread,{focus:+(s.dataset.focus||0)||undefined})});
 document.querySelectorAll('#thread>.entry[data-reply]').forEach(quotify);
