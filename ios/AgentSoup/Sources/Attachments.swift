@@ -362,38 +362,50 @@ struct UploadRing: View {
     }
 }
 
-/// A file in a message: its kind, name and size; tap to look at it (Quick Look).
+/// A file in a message: its kind, name and size; tap to look at it (Quick Look). An .html file also has Preview
+/// beside it (HTMLPreview.swift), which runs the page in a sandbox.
 struct FileChip: View {
     let e: Entry
     let board: String
     var progress: Double? = nil
     @State private var opening = false
     @State private var preview: URL?
+    @State private var running: HTMLPreviewTarget?
+
+    private var previewable: Bool { e.pending != true && e.failed != true && HTMLPreview.available(board: board, name: e.artifactName, stored: e.media != nil) }
 
     var body: some View {
         let name = e.artifactName ?? String(localized: "File", bundle: .l10n)
-        Button(action: open) {
-            HStack(spacing: 10) {
-                ZStack {
-                    FileIcon(name: name, size: 32).opacity(opening || e.pending == true ? 0.4 : 1)
-                    if e.pending == true { UploadRing(progress: progress ?? 0).scaleEffect(0.7) } else if opening { ProgressView().controlSize(.small).tint(Theme.muted) }
+        let shape = RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
+        HStack(spacing: Space.s) {
+            Button(action: open) {
+                HStack(spacing: 10) {
+                    ZStack {
+                        FileIcon(name: name, size: 32).opacity(opening || e.pending == true ? 0.4 : 1)
+                        if e.pending == true { UploadRing(progress: progress ?? 0).scaleEffect(0.7) } else if opening { ProgressView().controlSize(.small).tint(Theme.muted) }
+                    }
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(name).font(Typo.meta.weight(.medium)).foregroundStyle(Theme.text).lineLimit(1).truncationMode(.middle)
+                        Text(((e.media?.size ?? e.artifactSize) ?? 0).bytes + (e.artifactVersion.map { $0 > 1 ? " · v\($0)" : "" } ?? ""))
+                            .font(Typo.micro).foregroundStyle(Theme.faint)
+                    }
+                    Spacer(minLength: 0)
                 }
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(name).font(Typo.meta.weight(.medium)).foregroundStyle(Theme.text).lineLimit(1).truncationMode(.middle)
-                    Text(((e.media?.size ?? e.artifactSize) ?? 0).bytes + (e.artifactVersion.map { $0 > 1 ? " · v\($0)" : "" } ?? ""))
-                        .font(Typo.micro).foregroundStyle(Theme.faint)
-                }
-                Spacer(minLength: 0)
+                .padding(.leading, Space.s).padding(.trailing, previewable ? 0 : Space.m).padding(.vertical, Space.s)
+                .contentShape(Rectangle())
             }
-            .padding(.leading, Space.s).padding(.trailing, Space.m).padding(.vertical, Space.s)
-            .frame(maxWidth: 260, alignment: .leading)
-            .background(Theme.card, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
-            .contentShape(Rectangle())
+            .buttonStyle(PressStyle())
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("chat-file")
+            if previewable {
+                PreviewButton { running = HTMLPreviewTarget(board: board, name: name, version: e.artifactVersion) }
+                    .padding(.trailing, Space.s)
+            }
         }
-        .buttonStyle(PressStyle())
+        .frame(maxWidth: previewable ? 300 : 260, alignment: .leading)
+        .background(Theme.card, in: shape)
         .quickLookPreview($preview)
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("chat-file")
+        .htmlPreview($running)
     }
 
     private func open() {
