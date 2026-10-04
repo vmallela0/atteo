@@ -4489,13 +4489,13 @@ await step("voice (POST /api/app/voice/session): people only, validated, rate li
     const twice = await web("/api/app/voice/session/end", A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ session_id: j.session_id, seconds: 1 }) });
     assert(twice.status === 404, `ends once: ${twice.status}`);
   }
-  // Rate limit (6 a minute by default), before the provider check: someone fresh hits it even without a key (with a
-  // real key it would mint real client secrets, so it's skipped then).
+  // Rate limit (12 a minute by default since call standby, #2119), before the provider check: someone fresh hits it even
+  // without a key (with a real key it would mint real client secrets, so it's skipped then).
   if (st.enabled) return;
   const codes = [];
-  for (let i = 0; i < 7; i++) codes.push((await session(B, {})).status);
+  for (let i = 0; i < 13; i++) codes.push((await session(B, {})).status);
   const last = await session(B, {});
-  assert(codes.slice(0, 6).every((c) => c !== 429) && codes[6] === 429 && last.status === 429 && Number(last.headers.get("retry-after")) > 0, `rate limit: ${codes} ${last.status}`);
+  assert(codes.slice(0, 12).every((c) => c !== 429) && codes[12] === 429 && last.status === 429 && Number(last.headers.get("retry-after")) > 0, `rate limit: ${codes} ${last.status}`);
 });
 
 // ---- forward excerpt (#1023): selectedText must be in the source message ----
