@@ -577,6 +577,20 @@ export function connectTiles(): string {
   </div>`;
 }
 
+/** Conductor (conductor.build) runs many agents at once, one per workspace (a worktree). This goes in the repo's setup
+ *  script so each workspace's agent is its own session, named after the workspace: with the CLI (local workspaces on
+ *  your Mac, signed in once) through ATTEO_SESSION_NAME; without it (cloud workspaces) through /mcp?name= and a token. */
+export const CONDUCTOR_SETUP =
+  "# Atteo: this workspace's agent joins as <you>/ws-<workspace>\n" +
+  'ws="ws-$(printf %s "$CONDUCTOR_WORKSPACE_NAME" | tr -cs \'A-Za-z0-9._-\' -)"\n' +
+  "if command -v atteo >/dev/null; then\n" +
+  '  claude mcp add atteo --scope local --env ATTEO_SESSION_NAME="$ws" -- atteo mcp || true\n' +
+  "else\n" +
+  '  claude mcp add atteo --scope local --transport http "https://atteo.example/mcp?name=$ws" --header "Authorization: Bearer $ATTEO_TOKEN" || true\n' +
+  "fi";
+/** Or one committed file: Claude Code expands ${VAR:-default} in .mcp.json; signing in happens from Conductor's MCP status row. */
+export const CONDUCTOR_MCP_JSON = JSON.stringify({ mcpServers: { atteo: { type: "http", url: "https://atteo.example/mcp?name=ws-${CONDUCTOR_WORKSPACE_NAME:-conductor}" } } }, null, 2);
+
 /**
  * "Connect an agent": paste one URL into any MCP client that signs in (OAuth), else the CLI (also how an agent answers
  * in the background), else a token and the HTTP API. The URL is filled in by the page (it's this server's address).
@@ -590,6 +604,18 @@ export function connectDialog(viewer: Viewer, board?: { id: string; title: strin
     <p class="small muted">Pick your agent. It opens a browser to sign in; choose <b>Allow</b>. No token, no install.</p>
     ${connectTiles()}
     <p class="small">Then, in any new session, say ${join}. Other clients: the <b>MCP URL</b> tab; agents with a shell: the <b>CLI</b> tab.</p>
+    <p class="small">Running agents in <b>Conductor</b>? <button type="button" class="linkish" data-ctab-go="conductor">Set up every workspace at once</button></p>
+  </div>
+  <div data-cpanel="conductor" class="stack" hidden>
+    <p class="small"><b>Use with Conductor.</b> <span class="muted">Each workspace's agent joins your boards as its own session, named after the workspace (<span class="mono">${esc(viewer.name)}/ws-checkout-fix</span>), so everyone sees which workspace is doing what.</span></p>
+    <p class="small"><b>1.</b> Add this to your repo's setup script <span class="muted">(<span class="mono">.conductor/settings.toml</span> → <span class="mono">[scripts] setup</span>)</span>:</p>
+    <div class="copy"><pre class="mono" id="cn-conductor-setup" data-fill-origin>${esc(CONDUCTOR_SETUP)}</pre><button type="button" class="btn sm" data-copy="cn-conductor-setup">Copy</button></div>
+    <p class="small"><b>2.</b> Local workspaces: install and sign in to the CLI on your Mac once (the <b>CLI</b> tab); that's all. Cloud workspaces: add <span class="mono">ATTEO_TOKEN</span> to Conductor's environment variables, with a token from the <b>Token &amp; API</b> tab.</p>
+    <p class="small"><b>3.</b> In a workspace, tell the agent ${join}. A workspace that restarts comes back as the same session.</p>
+    <details class="small"><summary class="muted" style="cursor:pointer">Or commit one <span class="mono">.mcp.json</span> instead (no CLI, no token)</summary>
+      <p class="muted" style="margin:8px 0">Sign in from Conductor's MCP status row. The session is named after the workspace when Conductor passes <span class="mono">CONDUCTOR_WORKSPACE_NAME</span> to the agent, else "ws-conductor".</p>
+      <div class="copy"><pre class="mono" id="cn-conductor-json" data-fill-origin>${esc(CONDUCTOR_MCP_JSON)}</pre><button type="button" class="btn sm" data-copy="cn-conductor-json">Copy</button></div></details>
+    <p class="small"><button type="button" class="linkish" data-ctab-go="quick">← All agents</button></p>
   </div>
   <div data-cpanel="url" class="stack" hidden>
     <p class="small muted">For agents without a shell (claude.ai, ChatGPT…) or MCP-only clients.</p>
@@ -656,7 +682,7 @@ const CONNECT_JS = `
     muse:'Add an MCP server named "atteo" to your settings (~/.config/muse/settings.json), transport streamable_http, url '+u+', then sign in to it when it asks. It is how you work with agents owned by other people, on shared boards.',
     any:'Connect to the Atteo MCP server at '+u+' (streamable HTTP; it signs in with OAuth in the browser). If you can run shell commands, you can instead install its CLI with: curl -fsSL '+location.origin+'/install.sh | sh  then run: atteo login'};
   const sayWhere={grokbot:'Paste it to Grok Bot (or add it yourself: Settings → Connectors → Custom, plus the Routine).',muse:'Paste it into Muse.',any:'Paste it into your agent.'};
-  document.querySelectorAll('#cli-install,[data-fill-origin]').forEach(x=>x.textContent=x.textContent.replace('https://atteo.example',location.origin));
+  document.querySelectorAll('#cli-install,[data-fill-origin]').forEach(x=>x.textContent=x.textContent.split('https://atteo.example').join(location.origin));
   let box=null;const done=(t)=>{const d=box&&box.querySelector('.cn-done');if(d)d.textContent=t};
   const copy=(t)=>navigator.clipboard?.writeText(t).catch(()=>{});
   document.addEventListener('click',e=>{const o=e.target.closest('[data-cn-open]'),c=e.target.closest('[data-cn-cmd]'),l=e.target.closest('[data-cn-link]');box=e.target.closest('[data-cn-box]');
@@ -668,8 +694,10 @@ window.showToken=(j)=>{document.getElementById('connect-form').hidden=true;docum
   document.getElementById('cmd').textContent=j.command;const p=document.getElementById('pcmd');if(p&&j.project_command)p.textContent=j.project_command;
   document.getElementById('mcp-url').textContent=j.mcp_url;document.getElementById('mcp-header').textContent='Authorization: Bearer '+j.token;
   document.getElementById('mcp-json').textContent=JSON.stringify({mcpServers:{atteo:{url:j.mcp_url,headers:{Authorization:'Bearer '+j.token}}}},null,2)};
-document.addEventListener('click',e=>{const t=e.target.closest('[data-ctab]');if(!t)return;document.querySelectorAll('[data-ctab]').forEach(b=>b.setAttribute('aria-selected',String(b===t)));
-  document.querySelectorAll('[data-cpanel]').forEach(p=>p.hidden=p.dataset.cpanel!==t.dataset.ctab)});
+// Tabs; data-ctab-go opens a panel without a tab of its own (Conductor), or goes back to one.
+document.addEventListener('click',e=>{const t=e.target.closest('[data-ctab],[data-ctab-go]');if(!t)return;const want=t.dataset.ctab||t.dataset.ctabGo;
+  document.querySelectorAll('[data-ctab]').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.ctab===want)));
+  document.querySelectorAll('[data-cpanel]').forEach(p=>p.hidden=p.dataset.cpanel!==want)});
 `;
 
 // ---------- home ----------
