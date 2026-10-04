@@ -4,7 +4,8 @@
 // read-aloud by answering /api/app/tts with a short WAV. BASE, ADMIN_KEY, PW_CHROME.
 // Covers: standby after quiet (session settled, mic released, "Standing by"), no standby while someone talks or a yes
 // waits, the media play key and the Talk button waking it with the last lines, pause standing it by, a message for you
-// read in standby (TTS) and in the call (Atteo), the cap as a standby, End from standby; the composer's mic: alone
+// read in standby (TTS) and in the call (Atteo), People only and Just mine never reaching the voice agent (live, recap,
+// read_board, opus-d #2094), the cap as a standby, End from standby; the composer's mic: alone
 // when the box is empty, Post once there's text or a file, hold to talk, tap to toggle, Enter, no read-aloud button,
 // and the same at 390px.
 import { chromium } from "playwright-core";
@@ -15,6 +16,7 @@ for (const u of [P, V, W]) await ops("users", { name: u, email: `${u}@example.co
 const board = (await ops("boards", { user: P, title: `Nap ${run}` })).board.id; await ops("members", { board, user: V }); await ops("members", { board, user: W });
 const ckP = (await ops("sessions", { user: P })).cookie, ckV = (await ops("sessions", { user: V })).cookie, ckW = (await ops("sessions", { user: W })).cookie;
 let fails = 0; const check = (ok, t) => { console.log(`${ok ? "✓" : "✗"} ${t}`); if (!ok) fails++; };
+const postPriv = (ck, body) => fetch(`${BASE}/api/boards/${board}/entries`, { method: "POST", headers: { "content-type": "application/json", cookie: ck }, body: JSON.stringify(body) }).then((r) => r.json());
 const postAs = (ck, text) => fetch(`${BASE}/api/boards/${board}/entries`, { method: "POST", headers: { "content-type": "application/json", cookie: ck }, body: JSON.stringify({ text }) }).then((r) => r.json());
 const wav = (sec) => { const n = Math.round(8000 * sec), b = Buffer.alloc(44 + n); b.write("RIFF", 0); b.writeUInt32LE(36 + n, 4); b.write("WAVEfmt ", 8); b.writeUInt32LE(16, 16); b.writeUInt16LE(1, 20); b.writeUInt16LE(1, 22); b.writeUInt32LE(8000, 24); b.writeUInt32LE(8000, 28); b.writeUInt16LE(1, 32); b.writeUInt16LE(8, 34); b.write("data", 36); b.writeUInt32LE(n, 40); b.fill(128, 44); return b; };
 const FAKE = `(()=>{const Real=window.WebSocket;window.__talk={sent:[],opened:0,all:[]};
@@ -111,6 +113,29 @@ const live = (p) => p.evaluate(() => window.__talk.ws?.readyState);
   check(p.tts.length === 1, "after the call, messages aren't read");
   await p.locator("#talk-end").click(); await p.waitForTimeout(200);
   check(!(await p.locator("dialog.talk").isVisible()), "Close puts the sheet away");
+  check(!p.errors.length, `no page errors ${p.errors.join(" | ")}`); await ctx.close(); }
+
+// 1b. People only and Just mine never reach the voice agent (opus-d #2094): not in the live call, not in the recap, not
+// from read_board. In standby our own read-aloud still reads a People only message for you.
+{ const { ctx, p } = await page(`/b/${board}`, { ck: ckW });
+  await p.evaluate(() => { window.__talkNapMs = 1500; });
+  await p.locator(".bp-head [data-talk]").click(); await p.waitForTimeout(600);
+  const n0 = (await sent(p)).length;
+  const po1 = await postPriv(ckV, { text: `@${W} secret plan po-live-${run}`, people_only: true, to_people: [W] }); await p.waitForTimeout(800);
+  check(po1.entry?.seq && await p.locator(`#e${po1.entry.seq} .badge.po`).count() === 1 && !JSON.stringify((await sent(p)).slice(n0)).includes(`po-live-${run}`), "live: a People only message for you isn't sent to the voice agent");
+  await p.waitForTimeout(2200); // quiet: standby, where read-aloud (our server) reads it
+  check(/Standing by|Reading/.test(await st(p)) && p.tts.some((x) => x.seq === po1.entry.seq), `standby: it's read to you with read-aloud (${JSON.stringify(p.tts)})`);
+  await p.waitForTimeout(800);
+  const own = await postPriv(ckW, { text: `just mine note own-${run}`, own: true });
+  await postPriv(ckV, { text: `@${W} another secret po-nap-${run}`, people_only: true, to_people: [W] }); await p.waitForTimeout(1500);
+  await p.evaluate(() => window.__ms.play()); await p.waitForTimeout(700);
+  const all = JSON.stringify(await sent(p));
+  check(!all.includes(`po-nap-${run}`) && !all.includes(`po-live-${run}`), "the wake's recap carries no People only text");
+  const n1 = (await sent(p)).length;
+  await emit(p, { type: "response.function_call_arguments.done", name: "read_board", call_id: "rb1", arguments: JSON.stringify({ since: 0 }) }); await p.waitForTimeout(800);
+  const out = (await sent(p)).slice(n1).find((x) => x.item?.call_id === "rb1")?.item.output || "";
+  check(out.includes(`not for anyone ${run}`) && !out.includes(`po-live-${run}`) && !out.includes(`po-nap-${run}`) && !out.includes(`own-${run}`) && own.entry?.audience === "own", `read_board hands over the board without People only or Just mine (${out.length} chars)`);
+  await p.locator("#talk-end").click(); await p.waitForTimeout(300);
   check(!p.errors.length, `no page errors ${p.errors.join(" | ")}`); await ctx.close(); }
 
 // 2. The session's cap is a standby, not the end.
