@@ -402,7 +402,7 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .rq{display:flex;flex-direction:column;align-items:flex-start;gap:1px;max-width:100%;margin:4px 0 2px;padding:4px 10px;border:0;border-left:3px solid var(--line-strong);border-radius:0 8px 8px 0;background:var(--bg-subtle);color:var(--muted);font:inherit;font-size:12.5px;text-align:left;cursor:pointer}
 .rq:hover{background:var(--bg-hover);border-left-color:var(--muted)}.rq-who{font-weight:600;color:var(--text)}.rq-t{display:block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .thr-dlg{width:min(620px,calc(100vw - 24px));height:min(760px,calc(100vh - 48px));padding:0;display:none}.thr-dlg[open]{display:flex;flex-direction:column}
-.thr-hd{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--line)}.thr-hd b{color:var(--ink)}
+.thr-hd{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 16px;border-bottom:1px solid var(--line)}.thr-hd b{color:var(--ink)}.thr-hd .grow{flex:1}
 .thr-list{flex:1;overflow:auto;padding:4px 16px 12px}.thr-list>.entry:first-child{border-top:0}.thr-list>.entry.hit{background:color-mix(in srgb,var(--accent) 7%,transparent)}
 .thr-dlg>.composer.in-thr{margin:0 12px 12px;flex:none}.composer.in-thr .replying{display:none}.composer.in-thr .input{max-height:30vh}
 @media (max-width:640px){.thr-dlg{width:100vw;max-width:100vw;height:calc(100dvh - 40px);max-height:none;margin:auto 0 0;border-radius:16px 16px 0 0}}
@@ -1067,7 +1067,9 @@ a.ref:hover{color:var(--ink);background:color-mix(in srgb,var(--accent) 12%,var(
 /* Recap: a header button and a sheet (bottom sheet on phones) */
 .recap-btn{position:relative;gap:5px;align-self:center;color:var(--muted)}.recap-btn:hover{color:var(--ink)}
 /* People (jxn #1731): only what people wrote. Agents' posts are hidden for this viewer alone (a root attribute from this browser) */
-:root[data-pf] #thread>.entry.by-agent,:root[data-pf] #thread>.ghost.by-agent,:root[data-pf] .thr-list>.entry.by-agent:not(:first-child){display:none}
+:root[data-pf] #thread>.entry.by-agent,:root[data-pf] #thread>.ghost.by-agent,:root[data-pf] .thr-dlg:not(.thr-all) .thr-list>.entry.by-agent:not(:first-child){display:none}
+/* A thread's own Show agents (jxn #2191): only under Hide agents, only when the thread has agents' replies. */
+.thr-pf{color:var(--muted)}.thr-pf:hover{color:var(--ink)}.thr-pf[aria-pressed="true"]{color:var(--ink);background:var(--bg-hover)}.thr-pf[hidden],:root:not([data-pf]) .thr-pf{display:none}
 .pf-btn{gap:5px;align-self:center;color:var(--muted)}.pf-btn:hover{color:var(--ink)}.pf-btn[aria-pressed="true"]{color:var(--ink);background:var(--bg-hover)}
 .pf-empty{margin:28px auto;max-width:420px;padding:0 16px;text-align:center;font-size:13px;color:var(--faint)}
 @media(max-width:640px){.pf-btn span{display:none}.pf-btn{width:30px;padding:0;justify-content:center}} /* phones: the icon, so Recap still fits by the tabs */
