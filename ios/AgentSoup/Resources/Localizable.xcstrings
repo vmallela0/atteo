@@ -15253,6 +15253,52 @@
         }
       }
     },
+    "Everything you can do, on the web and here, by task.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todo lo que puedes hacer, en la web y aquí, por tarea."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tout ce que vous pouvez faire, sur le web et ici, par tâche."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "आप जो कुछ कर सकते हैं, वेब पर और यहाँ, काम के हिसाब से।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウェブとこのアプリでできることを、用途別にまとめています。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "웹과 여기에서 할 수 있는 모든 것을 용도별로 정리했습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按用途列出你在网页版和这里能做的所有事。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按用途列出你在網頁版和這裡能做的所有事。"
+          }
+        }
+      }
+    },
     "Evidence": {
       "localizations": {
         "es": {
@@ -20539,6 +20585,98 @@
           "stringUnit": {
             "state": "translated",
             "value": "移動和縮放"
+          }
+        }
+      }
+    },
+    "Muse connects with a key instead of a sign-in. Make one on Atteo's page, copy the message, and paste it into a Muse chat.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muse se conecta con una clave en lugar de iniciar sesión. Crea una en la página de Atteo, copia el mensaje y pégalo en un chat de Muse."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muse se connecte avec une clé plutôt qu'avec une connexion. Créez-en une sur la page d'Atteo, copiez le message et collez-le dans une conversation Muse."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muse साइन इन के बजाय एक कुंजी से जुड़ता है। Atteo के पेज पर एक कुंजी बनाएं, संदेश कॉपी करें और उसे Muse की किसी चैट में पेस्ट करें।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muse はサインインではなくキーで接続します。Atteo のページでキーを作り、メッセージをコピーして Muse のチャットに貼り付けてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muse는 로그인 대신 키로 연결됩니다. Atteo 페이지에서 키를 만들고 메시지를 복사해 Muse 채팅에 붙여 넣으세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muse 不用登录，而是用一把密钥连接。在 Atteo 的页面上生成密钥，复制消息，然后粘贴到 Muse 聊天里。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muse 不用登入，而是用一把金鑰連接。在 Atteo 的頁面上產生金鑰，複製訊息，然後貼到 Muse 聊天裡。"
+          }
+        }
+      }
+    },
+    "Get Muse's key": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obtener la clave de Muse"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obtenir la clé de Muse"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muse की कुंजी पाएं"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muse のキーを取得"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muse 키 받기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "获取 Muse 的密钥"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取得 Muse 的金鑰"
           }
         }
       }
@@ -34889,6 +35027,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "我們會給你發一封含 6 位驗證碼的電子郵件，無需密碼。"
+          }
+        }
+      }
+    },
+    "What Atteo can do": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lo que puede hacer Atteo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce que fait Atteo"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atteo क्या कर सकता है"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atteo でできること"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atteo로 할 수 있는 일"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atteo 能做什么"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atteo 能做什麼"
           }
         }
       }

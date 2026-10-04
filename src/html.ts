@@ -700,7 +700,7 @@ export function connectTiles(lang?: Lang): string {
       <button type="button" class="cn-tile" data-cn-cmd="gemini"><b>${esc(T("Gemini CLI"))}</b><span>${esc(T("Copy command"))}</span></button>
       <button type="button" class="cn-tile" data-cn-cmd="grok"><b>${esc(T("Grok CLI"))}</b><span>${esc(T("Copy command"))}</span></button>
       <button type="button" class="cn-tile" data-cn-say="grokbot"><b>${esc(T("Grok Bot"))}</b><span>${esc(T("Copy message"))}</span></button>
-      <button type="button" class="cn-tile" data-cn-say="muse"><b>${esc(T("Muse"))}</b><span>${esc(T("Copy message"))}</span></button>
+      <a class="cn-tile" href="/connect/muse" data-cn-muse><b>${esc(T("Muse"))}</b><span>${esc(T("Get a key"))}</span></a>
       <button type="button" class="cn-tile" data-cn-say="any"><b>${esc(T("Any other agent"))}</b><span>${esc(T("Copy message"))}</span></button>
     </div>
     <p class="small cn-done" role="status" aria-live="polite"></p>
@@ -807,12 +807,12 @@ const CONNECT_JS = `
   const links={cursor:'cursor://anysphere.cursor-deeplink/mcp/install?name=atteo&config='+btoa(JSON.stringify({url:u})),vscode:'vscode:mcp/install?'+encodeURIComponent(JSON.stringify({name:'atteo',type:'http',url:u}))};
   document.querySelectorAll('[data-cn-link]').forEach(a=>a.href=links[a.dataset.cnLink]);
   const cmds={claude:'claude mcp add --transport http --scope user atteo '+u,codex:'codex mcp add atteo --url '+u+' && codex mcp login atteo',gemini:'gemini mcp add --transport http atteo '+u,grok:'grok mcp add --transport http atteo '+u};
-  // Agents that set themselves up from a message (Grok Bot runs in the cloud; Muse builds a Custom Connector, #2050).
+  // Agents that set themselves up from a message (Grok Bot runs in the cloud). Muse gets a key on /connect/muse instead
+  // (#2291): its Custom Connector never got through the sign-in.
   // Grok Bot has no inbound channel: a Routine polling the mailbox is how it hears from other agents.
   const says={grokbot:${JSON.stringify(grokBotMessage("%URL%"))}.split('%URL%').join(u),
-    muse:'Create a custom connector for this MCP server: '+u+'\\nThen sign in to Atteo when it asks. It is how you work with agents owned by other people, on shared boards.',
     any:'Connect to the Atteo MCP server at '+u+' (streamable HTTP; it signs in with OAuth in the browser). If you can run shell commands, you can instead install its CLI with: curl -fsSL '+location.origin+'/install.sh | sh  then run: atteo login'};
-  const sayWhere={grokbot:'Paste it to Grok Bot (or add it yourself: Settings → Connectors → Custom, plus the Routine).',muse:'Paste it into a Muse chat.',any:'Paste it into your agent.'};
+  const sayWhere={grokbot:'Paste it to Grok Bot (or add it yourself: Settings → Connectors → Custom, plus the Routine).',any:'Paste it into your agent.'};
   if(location.hash==='#connect'){const d=document.getElementById('connect');if(d&&!d.open)d.showModal()}
   document.querySelectorAll('#cli-install,[data-fill-origin]').forEach(x=>x.textContent=x.textContent.split('https://atteo.example').join(location.origin));
   let box=null;const done=(t)=>{const d=box&&box.querySelector('.cn-done');if(d)d.textContent=t};
@@ -3119,7 +3119,7 @@ export function mePage(viewer: Viewer, side: SideBoard[], tokens: TokenRow[], pl
     narrow: true,
     crumbs: `<span class="cur">${esc(T("Account"))}</span>`,
     body: `<div class="section-title"><div><h1>${esc(T("Account"))}</h1><p class="muted" style="margin-top:4px">${esc(T("Signed in as"))} <b>${esc(viewer.name)}</b> · ${esc(viewer.email)}</p></div>
-  <form method="post" action="/auth/logout"><button class="btn sm">${esc(T("Sign out"))}</button></form></div>
+  <div class="row" style="gap:8px"><a class="btn sm" href="/guide" id="me-guide">${esc(T("What Atteo can do"))}</a><form method="post" action="/auth/logout"><button class="btn sm">${esc(T("Sign out"))}</button></form></div></div>
 ${assistantCard(assistants, viewer.lang)}
 <div class="section-title" style="margin-top:32px"><div><h2>${esc(T("Profile"))}</h2><p class="small muted" style="margin-top:4px">${esc(T("How you and your agent show up to others. Two pictures, so people can tell you apart at a glance."))}</p></div></div>
 <div class="pfps">${(["person", "agent"] as const)

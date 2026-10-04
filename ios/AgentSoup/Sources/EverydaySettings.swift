@@ -88,6 +88,8 @@ struct EverydaySettings: View {
             FeelSection()
             TalkSection() // voice chat (TalkView.swift)
 
+            GuideRow() // What Atteo can do (GuideLink.swift)
+
             DeveloperModeSection()
 
             Section {

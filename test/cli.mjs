@@ -1878,6 +1878,22 @@ await step("doctor (#2107): read-only checks of the login, server, CLI version, 
   assert(o.code === 1 && v && !v.ok && v.fix === "atteo update", `stale CLI: ${JSON.stringify(o.j)}`);
 });
 
+await step("guide (vedu #2402): the server's /agents.md, signed in or not; --json; listed in the agents' help", async () => {
+  const served = await (await fetch(`${BASE}/agents.md`)).text();
+  assert(served.startsWith("# Atteo for agents") && served.includes("`request_approval`") && served.includes(`${BASE}/guide`), `served: ${served.slice(0, 200)}`);
+  let r = await cli(["guide"]);
+  assert(r.code === 0 && r.out.trim() === served.trim(), `signed in: ${r.code} ${r.out.slice(0, 200)}${r.err}`);
+  r = await cli(["guide"], { cred: join(dir, "nobody.json") }); // no login on this machine: the guide still works
+  assert(r.code === 0 && r.out.includes("# Atteo for agents"), `signed out: ${r.code} ${r.err}`);
+  r = await cli(["guide", "--json"]);
+  const j = JSON.parse(r.out);
+  assert(j.server === BASE && j.guide.trim() === served.trim(), `json: ${r.out.slice(0, 200)}`);
+  r = await cli(["guide", "--bogus"]);
+  assert(r.code !== 0 && /--bogus/.test(r.err), `unknown option refused: ${r.err}`);
+  r = await cli([]);
+  assert(/atteo guide/.test(r.out), `help lists it: ${r.out.slice(-600)}`);
+});
+
 await step("a login only goes to its own server: --server / ATTEO_SERVER elsewhere never gets the token (opus-d #2127)", async () => {
   const { createServer } = await import("node:http");
   const seen = [];

@@ -5,8 +5,8 @@
 // - Grok, ChatGPT, Claude: their custom-connector settings take our sign-in link (/mcp, MCP + OAuth). The person copies
 //   the link, pastes it there, signs in and chooses Allow. Not one tap: none of them offers an "add app" deep link that
 //   takes a third-party URL. Grok Bot users can paste a setup message instead (it also adds the mailbox Routine).
-// - Muse and Atteo's assistant: no flow a regular person can finish yet (the only Muse path we have edits a config file
-//   on a computer; Atteo has no hosted assistant), so they show "Coming soon" and do nothing.
+// - Muse: a key instead of a sign-in (/connect/muse, #2291): its custom connector never got through our sign-in.
+// - Atteo's assistant: no hosted assistant yet, so it shows "Coming soon" and does nothing.
 // "Done" polls the person's agent sessions and connections and flips to "Connected ✓" when a new one appears.
 
 import { tr, type Lang } from "./i18n";
@@ -30,7 +30,9 @@ interface Provider {
   letter: string;
   /** Matches the client name a connection reports (session client or sign-in label), to mark the tile connected. */
   match: RegExp;
-  /** Absent: "Coming soon", no action. */
+  /** A page that connects it instead of the sheet (Muse's key). */
+  href?: string;
+  /** Absent (and no href): "Coming soon", no action. */
   flow?: { open: { href: string; label: string }; step2: string; step3: string; note?: string; grokBot?: boolean };
 }
 
@@ -74,13 +76,13 @@ const PROVIDERS: Provider[] = [
       step3: `<b>Choose Connect, sign in to Atteo</b>, and choose Allow. Then press Done here.`,
     },
   },
-  { id: "muse", name: "Muse", sub: "Your Muse account", letter: "M", match: /muse/i },
+  { id: "muse", name: "Muse", sub: "Your Muse account", letter: "M", match: /muse/i, href: "/connect/muse" },
 ];
 
 const tile = (p: Provider, on: boolean, T: Tr) =>
   `<div class="ev-row" data-ev-tile="${esc(p.id)}"><span class="ev-ic" aria-hidden="true">${esc(p.letter)}</span>
 <div class="grow"><div class="ev-name">${esc(p.name)}</div><div class="ev-sub">${esc(T(p.sub))}${on ? ` · <span class="ok">${esc(T("Connected"))}</span>` : ""}</div></div>
-${p.flow ? `<button type="button" class="btn" data-open="ev-${esc(p.id)}">${esc(T(on ? "Add again" : "Connect"))}</button>` : `<span class="badge ev-soon">${esc(T("Coming soon"))}</span>`}</div>`;
+${p.flow ? `<button type="button" class="btn" data-open="ev-${esc(p.id)}">${esc(T(on ? "Add again" : "Connect"))}</button>` : p.href ? `<a class="btn" href="${esc(p.href)}">${esc(T(on ? "Add again" : "Connect"))}</a>` : `<span class="badge ev-soon">${esc(T("Coming soon"))}</span>`}</div>`;
 
 function sheet(p: Provider, link: string, T: Tr): string {
   const f = p.flow!;

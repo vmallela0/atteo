@@ -65,11 +65,10 @@ enum AssistantProvider: String, Identifiable, CaseIterable {
         case .coding: return nil
         }
     }
-    /// TODO(#2298): Muse's Connect will go through a page of ours that mints a key (https://atteo.dev/connect/muse,
-    /// built on the server separately) instead of a message to paste. When it ships, set this to
-    /// `API.shared.publicBase.appendingPathComponent("connect/muse")`: Muse's Connect then opens it (web only — our
-    /// page hands off to Muse itself; muse.ai/connect/* is a Muse-app link if it needs one). Nil: the message, as today.
-    static let museConnectPage: URL? = nil
+    /// Muse can't do Atteo's sign-in, so its Connect goes through our page that mints a key (/connect/muse, vedu #2290,
+    /// #2422): it opens in the browser, where the person's web session signs in, makes the key and copies one message to
+    /// paste into a Muse chat. Always atteo.dev (publicBase), never the workers.dev host the app talks to.
+    static var museConnectPage: URL? { API.shared.publicBase.appendingPathComponent("connect/muse") }
     static let tiles: [AssistantProvider] = [.grok, .muse, .chatgpt, .claude]
 }
 
@@ -254,8 +253,13 @@ struct ConnectSteps: View {
                         Text("Then tell \(provider.name) “list my Atteo chats”. Once it's connected, it shows up here by itself.")
                             .font(Typo.secondary).foregroundStyle(Theme.muted)
                     } else if provider == .muse, let page = AssistantProvider.museConnectPage {
-                        // Our connect page (TODO #2298, not built yet): it mints a key and hands off to Muse.
-                        openButton("Open \(provider.name)") { AppOpener.open(ProviderLink(app: nil, web: page.absoluteString)) }
+                        // Our connect page: it mints a key and copies the message; the person pastes it into Muse once.
+                        Text("Muse connects with a key instead of a sign-in. Make one on Atteo's page, copy the message, and paste it into a Muse chat.")
+                            .font(Typo.body).foregroundStyle(Theme.text)
+                        openButton("Get Muse's key") { AppOpener.open(ProviderLink(app: nil, web: page.absoluteString)) }
+                        // Developer Muse sets up from its settings file instead: small, under the main way.
+                        Text("Muse Code: paste this instead.").font(Typo.meta).foregroundStyle(Theme.muted).padding(.top, Space.s)
+                        copyField(museCodeMessage, mono: true)
                     } else if provider == .muse, let chat = provider.chat {
                         // The message, then Muse's app (or muse.ai) to paste it into a chat (vedu #2298).
                         openButton("Copy message & open \(provider.name)") { copy(museMessage); AppOpener.open(chat) }

@@ -22,6 +22,7 @@ import { isRetriable, messageId, retryingReads, withRetry } from "./retry";
 import CLI_BUNDLE from "../cli/dist/atteo.mjs";
 import { installScript } from "./install";
 import SKILL_MD from "../skills/atteo/SKILL.md";
+import { agentsMd, guidePage } from "./guide";
 import { openapi } from "./openapi";
 import * as billing from "./billing";
 import { blockedMessage, scanFields } from "./secrets";
@@ -37,6 +38,7 @@ import * as registry from "./registry";
 import * as boardkeys from "./boardkeys";
 import * as mailbox from "./mailbox";
 import * as recap from "./recap";
+import { musePage } from "./muse";
 import * as triggers from "./triggers";
 import * as tts from "./tts";
 import * as voice from "./voice";
@@ -653,6 +655,7 @@ const handler = {
       if (path === "/terms" || path === "/privacy") return legalPage(path.slice(1) as "terms" | "privacy");
       if (path === "/openapi.json") return json(openapi(origin), 200, { "access-control-allow-origin": "*", "cache-control": "public, max-age=300" });
       if (path === "/skill.md") return new Response(SKILL_MD, { headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "public, max-age=300" } });
+      if (path === "/agents.md") return new Response(agentsMd(origin), { headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "public, max-age=300", "access-control-allow-origin": "*" } });
       if (path === "/apple-touch-icon.png" || path === "/apple-touch-icon-precomposed.png") {
         return new Response(Uint8Array.from(atob(APPLE_TOUCH_PNG_B64), (c) => c.charCodeAt(0)), { headers: { "content-type": "image/png", "cache-control": "public, max-age=86400" } });
       }
@@ -898,6 +901,11 @@ const handler = {
         const unreadIds = items.filter((i) => !i.read_at).map((i) => i.id).slice(0, 90); // D1: at most 100 bound parameters
         if (unreadIds.length) ctx.waitUntil(inbox.markRead(env, viewer.name, { ids: unreadIds }).catch(() => 0));
         return inbox.inboxPage(viewer, side, items, aps);
+      }
+      // ---- The guide (vedu #2402): what people can do, by task. Public; signed in, it has the sidebar ----
+      if (path === "/guide" && method === "GET") {
+        const lang = viewer?.lang ?? pickLang(null, url.searchParams.get("lang"), request.headers.get("accept-language"));
+        return guidePage(lang, viewer ?? null, viewer ? await sideBoards(env, viewer.name) : [], origin);
       }
       // ---- For you (Everyday's home): what needs your OK, decisions and questions for you, what your assistant did today ----
       if (path === "/for-you" && method === "GET") {
@@ -1435,6 +1443,12 @@ const handler = {
         }
       }
 
+      // Connect Muse with a key (#2291): a page for people; the key is made by its button, never on this GET.
+      if (path === "/connect/muse" && method === "GET") {
+        if (!viewer) return needLogin();
+        if (viewer.via === "agent") return json({ error: "This page is for people, signed in on the web." }, 403);
+        return musePage(viewer, await sideBoards(env, viewer.name), origin);
+      }
       if (path === "/me" && method === "GET") {
         if (!viewer) return needLogin();
         const [side, tokens, plan, hooks, prof, mine] = await Promise.all([
@@ -2836,9 +2850,15 @@ const handler = {
       }
       if (path === "/api/tokens" && method === "POST") {
         if (!viewer) return needLogin();
-        const body = (await request.json().catch(() => ({}))) as { board?: string; label?: string };
+        // Only this site's own pages mint a key (the browser says where a request came from; SameSite=Lax already keeps
+        // other sites' POSTs from carrying the cookie). Muse's key (#2291, opus-d #2292) is made here, from /connect/muse.
+        const site = request.headers.get("sec-fetch-site");
+        if (site && site !== "same-origin" && site !== "none") return json({ error: "Make keys from Atteo's own pages." }, 403);
+        const body = (await request.json().catch(() => ({}))) as { board?: string; label?: string; expires_in_days?: unknown };
         const board = body.board && (await canSee(c, body.board)) ? body.board : null;
-        const t = await auth.createToken(env, viewer.name, String(body.label ?? "").slice(0, 80) || "Agent");
+        const days = Number(body.expires_in_days);
+        const expiresAt = Number.isFinite(days) && days >= 1 ? Date.now() + Math.min(365, Math.floor(days)) * 86400e3 : null;
+        const t = await auth.createToken(env, viewer.name, String(body.label ?? "").slice(0, 80) || "Agent", { expiresAt });
         return json(
           {
             id: t.id,

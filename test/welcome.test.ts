@@ -22,14 +22,16 @@ describe("Bring your assistant (/welcome)", () => {
     expect(main).not.toMatch(/\bMCP\b|OAuth|\btoken\b|\bagents?\b/i);
   });
 
-  it("real flows open a sheet with the link to copy; Muse and Atteo's assistant are coming soon with no action", async () => {
+  it("real flows open a sheet with the link to copy; Muse goes to its key page; Atteo's assistant is coming soon with no action", async () => {
     const html = await assistantWelcomePage(viewer, [], "https://atteo.dev", []).text();
     for (const id of ["grok", "chatgpt", "claude"]) {
       expect(html).toContain(`data-open="ev-${id}"`);
       expect(html).toContain(`<dialog class="ev-sheet" id="ev-${id}"`);
     }
     expect(html.match(/data-ev-link>https:\/\/atteo\.dev\/mcp</g)?.length).toBe(3);
-    for (const id of ["muse", "atteo"]) {
+    const mu = html.indexOf(`data-ev-tile="muse"`);
+    expect(html.slice(mu, html.indexOf("data-ev-tile=", mu + 10))).toContain(`<a class="btn" href="/connect/muse">`); // its key page (#2291)
+    for (const id of ["atteo"]) {
       const at = html.indexOf(`data-ev-tile="${id}"`);
       const row = html.slice(at, html.indexOf("Coming soon</span></div>", at) + 24);
       expect(row).toContain("Coming soon");

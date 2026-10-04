@@ -108,6 +108,8 @@ struct FullSettings: View {
             } header: { SectionHeader("Connected") } footer: { Text("Everything that can act as you. Swipe to revoke one; it stops at once.") }
             .listRowBackground(Theme.card)
 
+            if !embedded { GuideRow() } // What Atteo can do (GuideLink.swift); Everyday's page has it already
+
             // Everyday or Developer mode (Everyday.swift): the switch, last before signing out.
             if !embedded { DeveloperModeSection() }
 
