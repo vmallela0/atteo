@@ -55,6 +55,11 @@ const MSG = [
 
 // The attacker's side.
 await web(ckA, "/api/me/profile", { display_name: DISPLAY, bio: BIO, agent_name: AGENT });
+// Agent names only store letters, numbers, spaces, - _ and ' (24 characters). A name that still fits, with HTML, a
+// handler and a markdown link, must be refused so the quote name is what every page shows.
+const AGENT_HTML = `<svg onload=1>[x](js:1)`;
+const agentPost = await fetch(`${BASE}/api/me/profile`, { method: "POST", headers: { "content-type": "application/json", cookie: ckA }, body: JSON.stringify({ agent_name: AGENT_HTML }) });
+const agentKept = (await web(ckA, "/api/me/profile", undefined, "GET"))?.profile?.agent_name;
 const b1 = (await ops("boards", { user: A, title: TITLE1 })).board.id;
 await ops("members", { board: b1, user: B });
 const b2 = (await ops("boards", { user: A, title: TITLE2 })).board.id;
@@ -63,6 +68,8 @@ await web(ckA, `/api/boards/${b1}/entries`, { text: MSG });
 await web(ckA, `/api/boards/${b1}/tasks`, { title: TASK });
 await mcp(tokA, b1, "read", {});
 await mcp(tokA, b1, "post", { type: "artifact", text: `a file ${img(12)}`, artifact_name: FILE, artifact_content: `<p>${img(13)}</p>` });
+// The stored name is what every page must show as text (characters a file name can't keep are dropped first).
+const FILE_SHOWN = (await web(ckA, `/api/boards/${b1}/files`, undefined, "GET"))?.docs?.map((d) => d.name).find((n) => typeof n === "string" && n.includes("pwned"));
 await mcp(tokA, b1, "post", { type: "note", text: `@${B} from my agent ${img(14)} [x](javascript:__pwned=15)` });
 await web(ckA, "/api/friends/request", { user: B, note: NOTE });
 const link = await web(ckA, `/api/boards/${b1}/links`, {});
@@ -127,26 +134,58 @@ t = await visit("people", "/people");
 check(t.includes(DISPLAY.slice(3)), "people shows the attacker's display name as written");
 await visit("account", "/me");
 await visit("ask", "/ask");
+let filesText = "", logText = "", docText = "", searchText = "";
 t = await visit("board", `/b/${b1}`, async () => {
   for (const tab of await p.locator('[aria-controls^="panel-"]').all()) { await tab.click().catch(() => {}); await p.waitForTimeout(400); }
+  if (FILE_SHOWN) {
+    await p.locator('[aria-controls="panel-docs"]').click();
+    await p.locator("#doc-items").getByText(FILE_SHOWN, { exact: false }).first().click();
+    await p.waitForTimeout(500);
+    filesText = await p.locator("#doc-items").innerText();
+    docText = await p.locator("#doc-view").innerText();
+    await p.locator('[aria-controls="panel-log"]').click();
+    logText = await p.locator("#panel-log").innerText();
+    await p.keyboard.press("Control+k");
+    await p.waitForTimeout(250);
+    const filesChip = p.locator('#pal-filters [data-popt="kind"][data-v="files"]');
+    if (await filesChip.count()) await filesChip.click();
+    await p.locator("#palette-q").fill(FILE_SHOWN);
+    await p.waitForTimeout(1000);
+    searchText = await p.locator("#palette-list").innerText();
+  }
 });
 check(t.includes(TITLE1), "the board shows its title as written");
 check(t.includes(`onerror=__pwned=57`) && t.includes(`javascript:__pwned=58`), "the message's raw HTML shows as text");
 check(t.includes(TASK.replace(/ "q' task$/, "")) || (await p.locator(`text=${"__pwned=7"}`).count()) > 0, "the task title shows as written");
 check(t.includes(`D'Arcy ${run}`), "the agent name with its quote shows as written");
+check(!agentPost.ok && agentKept === AGENT, "HTML, script and markdown are refused as an agent name; the quote name stays");
+check(!!FILE_SHOWN && t.includes(FILE_SHOWN), "the file name shows as written");
+check(!!FILE_SHOWN && filesText.includes(FILE_SHOWN), "the files list shows the file name as written");
+check(!!FILE_SHOWN && docText.includes(FILE_SHOWN), "the open file shows its name as written");
+check(!!FILE_SHOWN && logText.includes(FILE_SHOWN), "the log shows the file name as written");
+check(!!FILE_SHOWN && searchText.includes(FILE_SHOWN), "search shows the file name as written");
 t = await visit("profile", `/u/${A}`);
 check(t.includes(DISPLAY.slice(3)) && t.includes("onerror=__pwned=3"), "the profile shows the name and bio as written");
 if (link?.url) await visit("invite link", new URL(link.url).pathname);
 else check(false, "the invite link was made");
 await visit("invited board", `/b/${b2}`);
+let homeHits = "";
+await visit("home search", "/", async () => {
+  const box = p.locator("#bq");
+  if (FILE_SHOWN && await box.count()) { await box.fill(FILE_SHOWN); await p.waitForTimeout(1200); }
+  homeHits = await p.locator("#b-hits-list").innerText().catch(() => "");
+});
+check(!!FILE_SHOWN && homeHits.includes(FILE_SHOWN), "the boards page search shows the file name as written");
 // Everyday mode draws names and cards its own way.
 await web(ckB, "/api/me/profile", { display: { mode: "everyday" } });
-await visit("board (Everyday)", `/b/${b1}`);
+t = await visit("board (Everyday)", `/b/${b1}`);
+check(!!FILE_SHOWN && t.includes(FILE_SHOWN), "Everyday shows the file name as written");
 await visit("home (Everyday)", "/");
 await visit("for you (Everyday)", "/for-you");
 // And on a phone.
 await p.setViewportSize({ width: 390, height: 844 });
-await visit("board (390px)", `/b/${b1}`);
+t = await visit("board (390px)", `/b/${b1}`);
+check(!!FILE_SHOWN && t.includes(FILE_SHOWN), "a phone shows the file name as written");
 await browser.close();
 console.log(fails ? `${fails} FAILED` : "hostile text: all passed");
 process.exit(fails ? 1 : 0);
