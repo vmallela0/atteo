@@ -28,6 +28,7 @@ import { EMAIL_RE } from "./invite";
 import { atteoHeader, BOARD_RE, newBoardId, normalizeUser, publicOrigin } from "./util";
 import { runGrep } from "./grep";
 import { keptOwnNotice, OWN_MAIL_HINT } from "./audience";
+import { BATCH_MAX, BatchError, batchUnits, formatBatch, parseBatch, type BatchResult } from "./batch";
 
 export const SERVER_NAME = "atteo";
 export const SERVER_VERSION = "0.1.0";
@@ -183,7 +184,7 @@ export const TOOLS = [
   {
     name: "task",
     description:
-      "Tasks are shared, living work items that everyone (people and agents) edits in place, like a shared doc: a title and a body (the plan, a checklist, findings, links) plus status, assignee, priority and due date. Keep a task's body current instead of posting progress messages. Checklist lines that mention #N tick themselves when #N is done or resolved. Actions: list {status?, mine?}; get {seq} (full body, version); create {title, body?, assignee?, assignee_is_person?, priority?, due?, parent? (makes it a sub-task of that task; when it's done, the parent's checklist line naming #seq or its title gets ticked)}; edit {seq, title?, body + base_version (whole body) | old_str + new_str (one exact piece, e.g. tick '- [ ] x' → '- [x] x'), summary?}; history {seq}; claim {seq, minutes?} (lease it while you work so no one duplicates it; default 30 min); release {seq}; update {seq, status? (todo|doing|blocked|done), parent? (task seq; 0 = top level), assignee?, assignee_is_person?, priority? (high|medium|low), due? (YYYY-MM-DD), note? (posts a line to the conversation; with status done it stays on the task instead)}; stop {seq, reason}. Only create, (re)assignment, notes and stops reach the conversation; done is the status change itself (live on the task, no message). If a task you hold gets stopped, stop working on it.",
+      "Tasks are shared, living work items that everyone (people and agents) edits in place, like a shared doc: a title and a body (the plan, a checklist, findings, links) plus status, assignee, priority and due date. Keep a task's body current instead of posting progress messages. Checklist lines that mention #N tick themselves when #N is done or resolved. Actions: list {status?, mine?}; get {seq} (full body, version); create {title, body?, assignee?, assignee_is_person?, priority?, due?, parent? (makes it a sub-task of that task; when it's done, the parent's checklist line naming #seq or its title gets ticked)}; edit {seq, title?, body + base_version (whole body) | old_str + new_str (one exact piece, e.g. tick '- [ ] x' → '- [x] x'), summary?}; history {seq}; claim {seq, minutes?} (lease it while you work so no one duplicates it; default 30 min; it renews while your session keeps reading, waiting or posting here, until 4h after you last changed the task); release {seq}; update {seq, status? (todo|doing|blocked|done), parent? (task seq; 0 = top level), assignee?, assignee_is_person?, priority? (high|medium|low), due? (YYYY-MM-DD), note? (posts a line to the conversation; with status done it stays on the task instead)}; stop {seq, reason}. Only create, (re)assignment, notes and stops reach the conversation; done is the status change itself (live on the task, no message). If a task you hold gets stopped, stop working on it.",
     inputSchema: {
       type: "object",
       properties: {
@@ -444,6 +445,23 @@ export const TOOLS = [
       required: ["email"],
     },
   },
+  {
+    name: "batch",
+    description: `Run up to ${BATCH_MAX} of these tools in order in one call, each exactly as if called alone (a read counts before a later post); stops at the first error unless continue_on_error. No nested batch; a wait only last.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        calls: {
+          type: "array",
+          maxItems: BATCH_MAX,
+          items: { type: "object", properties: { tool: { type: "string" }, args: { type: "object" } }, required: ["tool"] },
+          description: 'e.g. [{"tool":"read"},{"tool":"react","args":{"seq":12,"emoji":"✅"}},{"tool":"post","args":{…}}]',
+        },
+        continue_on_error: { type: "boolean" },
+      },
+      required: ["calls"],
+    },
+  },
 ] as const;
 
 // ---------- helpers ----------
@@ -633,6 +651,9 @@ async function currentBoard(c: CallContext, args: Json): Promise<string> {
 export async function callTool(c: CallContext, name: string, args: Json): Promise<string> {
   const { env, user } = c;
   const later = (p: Promise<unknown>) => c.ctx.waitUntil(p.catch((e) => console.error("registry write failed", e)));
+
+  // A batch is its calls, one after another, each authorized here exactly as if it came alone (scope included).
+  if (name === "batch") return runBatch(c, args);
 
   // A read-only session (scope "read") reads, waits and searches; anything that would change something is refused.
   if (c.agentSession?.scope === "read") {
@@ -1468,6 +1489,41 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
   }
 }
 
+const TOOL_NAMES: readonly string[] = TOOLS.map((t) => t.name);
+
+/** The batch tool: the whole list is checked first (nothing runs if it's malformed), then each call goes through
+ *  callTool with this same context, so it's authorized, scoped and recorded exactly as if it came alone. */
+async function runBatch(c: CallContext, args: Json): Promise<string> {
+  let plan: ReturnType<typeof parseBatch>;
+  try {
+    plan = parseBatch(args, TOOL_NAMES);
+  } catch (e) {
+    if (e instanceof BatchError) throw new ToolError(e.message);
+    throw e;
+  }
+  const results: BatchResult[] = [];
+  for (const call of plan.calls) {
+    try {
+      results.push({ tool: call.tool, ok: true, text: await callTool(c, call.tool, call.args) });
+    } catch (e) {
+      results.push({ tool: call.tool, ok: false, text: toolErrorText(e, call.tool) });
+      if (!plan.continueOnError) break;
+    }
+  }
+  return formatBatch(results, plan.calls.length);
+}
+
+/** A tool's error as the agent sees it. Errors from the board Durable Object arrive over RPC as plain Errors; their
+ *  messages are written for the agent. */
+function toolErrorText(e: unknown, name: string): string {
+  const message = e instanceof Error ? e.message : String(e);
+  if (!(e instanceof ToolError)) console.warn("tool error", name, message);
+  if (/Exceeded allowed .* in Durable Objects|exceeded.*free tier/i.test(message)) {
+    return "Atteo's boards are paused: it hit its daily storage limit. They're back at 00:00 UTC; nothing was lost. Tell your user, and try again then.";
+  }
+  return message;
+}
+
 // ---------- JSON-RPC ----------
 
 interface RpcRequest {
@@ -1547,13 +1603,7 @@ async function handleOne(c: HandleContext, msg: RpcRequest): Promise<object | nu
         const text = await callTool(cc, name, args);
         return rpcResult(msg.id, { content: [{ type: "text", text }, ...(cc.images ?? []).map((i) => ({ type: "image", data: i.data, mimeType: i.mimeType }))] });
       } catch (e) {
-        // Errors from the board Durable Object arrive over RPC as plain Errors; their messages are written for the agent.
-        let message = e instanceof Error ? e.message : String(e);
-        if (!(e instanceof ToolError)) console.warn("tool error", name, message);
-        if (/Exceeded allowed .* in Durable Objects|exceeded.*free tier/i.test(message)) {
-          message = "Atteo's boards are paused: it hit its daily storage limit. They're back at 00:00 UTC; nothing was lost. Tell your user, and try again then.";
-        }
-        return rpcResult(msg.id, { content: [{ type: "text", text: message }], isError: true });
+        return rpcResult(msg.id, { content: [{ type: "text", text: toolErrorText(e, name) }], isError: true });
       }
     }
     default:
@@ -1596,7 +1646,9 @@ export async function handleMcp(request: Request, env: Env, ctx: ExecutionContex
   // short cache (they stop within seconds).
   const READS = new Set(["read", "wait", "get", "search", "list_boards", "doc", "people", "agents"]);
   const call = body as { method?: string; params?: { name?: string; arguments?: { action?: string } } } | null;
-  const readOnly = !Array.isArray(body) && (call?.method !== "tools/call" || (READS.has(String(call?.params?.name)) && !["write", "profile", "dm", "direct"].includes(String(call?.params?.arguments?.action ?? ""))));
+  const reads = (m: typeof call) => READS.has(String(m?.params?.name)) && !["write", "profile", "dm", "direct"].includes(String(m?.params?.arguments?.action ?? ""));
+  // A batch is read-only when every call in it is.
+  const readOnly = !Array.isArray(body) && (call?.method !== "tools/call" || (call?.params?.name === "batch" ? batchUnits(call as Parameters<typeof batchUnits>[0]).every((u) => u.params?.name !== "batch" && reads(u as typeof call)) : reads(call)));
   const resolved = token ? await resolveToken(env, token, ctx, !readOnly) : { user: null, expired: false };
   const user = resolved.user;
   const legacy = !token && !!request.headers.get("x-user");
@@ -1624,15 +1676,21 @@ export async function handleMcp(request: Request, env: Env, ctx: ExecutionContex
   // Free-plan guardrails (src/limits.ts): per-token rate limit, the person's daily budget (waits aren't counted),
   // load shedding. No D1 in the usual case.
   if (user && token) {
-    const calls = (Array.isArray(body) ? body : [body]).filter((m) => m && typeof m === "object") as { method?: string; params?: { name?: string; arguments?: Record<string, unknown> } }[];
+    const sent = (Array.isArray(body) ? body : [body]).filter((m) => m && typeof m === "object") as { method?: string; params?: { name?: string; arguments?: Record<string, unknown> } }[];
+    // A batch tool call counts as its inner calls, as if each were sent alone (src/batch.ts).
+    const calls = sent.flatMap(batchUnits);
+    const extra = calls.length - sent.length;
     const tools = calls.filter((m) => m.method === "tools/call").map((m) => m.params?.name);
+    const wait = calls.every((m) => limits.isMcpWait(m));
     const denied = await limits.admit(env, ctx, {
       user,
       kind: resolved.kind === "app" ? "person" : "agent",
       tokenKey: await sha256hex(token),
-      wait: calls.every((m) => limits.isMcpWait(m)),
+      wait,
       write: !readOnly,
       essential: tools.every((t) => limits.isEssentialMcp(t)),
+      // Every inner call takes a rate-limit slot; every one that isn't a wait counts in the daily budget.
+      ...(extra > 0 ? { calls: 1 + extra, counted: wait ? 0 : Math.max(1, 1 + extra - calls.filter((m) => limits.isMcpWait(m)).length) } : {}),
     });
     if (denied) {
       const why = (await denied.clone().json().catch(() => ({}))) as { error?: string };
