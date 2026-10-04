@@ -303,6 +303,6 @@ export async function route(request: Request, env: Env, ctx: ExecutionContext, p
       return { text: g.entry.text };
     },
   };
-  if (path === "/api/app/tts/status") return Response.json(await status(me, deps), { headers: { "cache-control": "no-store" } });
+  if (path === "/api/app/tts/status") return Response.json({ ...(await status(me, deps)), operator: isOperator(env, me) }, { headers: { "cache-control": "no-store" } });
   return speak(me, await request.json().catch(() => null), deps);
 }
