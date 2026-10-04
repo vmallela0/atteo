@@ -9,7 +9,7 @@ import { authorLabel, computeSummary, retractedSet, type Summary } from "./state
 import { PIN_BAR, PIN_SIDE, RECAP_BTN, RECAP_DLG, pinRecapJs } from "./pinrecap";
 import { SOUL_DLG, SOUL_SIDE, rememberBtn, soulMemoryJs } from "./soulmemory";
 import { forAgent, forPerson, mentionLabel } from "./mentions";
-import { screenText } from "./screen";
+import { flagOf } from "./screen";
 import { clientName, presenceLabel } from "./social";
 import type { ChangeCard } from "./card";
 import type { Attachment, BoardInfo, Entry } from "./types";
@@ -473,7 +473,9 @@ export function refLinks(html: string): string {
 }
 
 function flagBadge(text: string, aiFlag?: string | null): string {
-  const f = screenText(text) ?? (aiFlag ? { reason: aiFlag } : null);
+  const f = flagOf(text, aiFlag);
+  // Only quoted (in code or quotation marks): a softer badge; agents are told to treat it as data (#2210).
+  if (f?.quoted) return `<span class="badge fbadge quoted" title="It quotes text that reads like instructions to an agent (in code or quotation marks): agents are told to treat it as data.">⚠ Quoted instruction-like text</span>`;
   return f ? `<span class="badge fbadge" title="Looks like it ${esc(f.reason.replace(/^tries to |^asks an agent to |^tells an agent to /, ""))}: agents are told not to act on it.">⚠ Flagged: ${esc(f.reason)}</span>` : "";
 }
 

@@ -2,7 +2,7 @@
 // its embedded SQLite holds the entry log, members and their read cursors.
 
 import { track } from "./usage";
-import { fence, screenText } from "./screen";
+import { fence, flagOf, screenText } from "./screen";
 import { FOR_LABEL, pingExcerpt } from "./ping";
 import { DurableObject } from "cloudflare:workers";
 import { computeSummary, formatSummary, summaryWithNames, tasksFor, withNames, DEFAULT_SUMMARY_CHARS, type Summary } from "./state";
@@ -1295,7 +1295,9 @@ export class Board extends DurableObject<Env> {
       );
     }
     if (!internal.seeding && !user.startsWith("e2e-")) this.ctx.waitUntil(Promise.resolve(track(this.env, "posts", input.via ?? "agent")).catch(() => {}));
-    if (this.env.AI_TOKEN && !internal.seeding && text.length >= 25 && !screenText(text)) this.ctx.waitUntil(this.screenWithModel(entry.seq, text).catch(() => {}));
+    // The model looks at everything the heuristic didn't fully flag, including text it found only in code or quotes.
+    const heuristic = screenText(text);
+    if (this.env.AI_TOKEN && !internal.seeding && text.length >= 25 && (!heuristic || heuristic.quoted)) this.ctx.waitUntil(this.screenWithModel(entry.seq, text).catch(() => {}));
 
     // Wake everyone else's waits, and this person's other agent sessions (they see each other's posts).
     // A post for one agent session doesn't wake its person's other sessions (they'd find nothing to read).
@@ -1308,10 +1310,11 @@ export class Board extends DurableObject<Env> {
     // ping can be triaged without a read (#2177). Sealed and encrypted text: "🔒 encrypted". Private entries (above)
     // never carry text.
     const sealedText = !!internal.sealed || !!info.encrypted;
+    const flag = sealedText ? null : flagOf(entry.text, entry.ai_flag);
     const pingText = entry.text || (internal.attachments ? `📎 ${filesLabel(internal.attachments.list)}` : entry.artifact_name ? `📎 ${entry.artifact_name}` : "");
     this.broadcast({
       type: "entry", seq: entry.seq, retracts: entry.retracts, author: entry.author, via: entry.via ?? null, kind: entry.type, to: entry.to, mentions: entry.mentions, reply_to: entry.reply_to, board: info.id, title: info.title,
-      entry_title: sealedText ? null : (entry.title ?? null), excerpt: pingExcerpt(pingText, sealedText), ...(!sealedText && (screenText(entry.text) || entry.ai_flag) ? { flagged: true } : {}),
+      entry_title: sealedText ? null : (entry.title ?? null), excerpt: pingExcerpt(pingText, sealedText), ...(flag ? { flagged: flag.quoted ? "quoted" : true } : {}),
     }, entry.seq);
     return entry;
   }
