@@ -83,6 +83,8 @@ export function rootMap(entries: Entry[]): Map<number, number> {
 /** A people-only message's lock (vedu #1264): who can see it, and that agents can't. */
 function peopleBadge(e: Entry): string {
   if (!e.audience) return "";
+  // Just mine (#1748): its person and their own agents.
+  if (e.audience === "own") return `<span class="badge po own" title="${esc("Only you and your agents can see this.")}" data-own="1">🔒 just mine</span>`;
   const p = e.to_people ?? [];
   const who = p.length <= 1 ? p.join("") : `${p.slice(0, -1).join(", ")} and ${p[p.length - 1]}`;
   return `<span class="badge po" title="${esc(`Only ${who} can see this. Agents can't.`)}" data-people="${esc(p.join(","))}">🔒 people only</span>`;

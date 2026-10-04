@@ -18,6 +18,7 @@ import type { ForYouCore } from "./forYou";
 import { cleanMatch, cleanTrigger, eventLine, lastOccurrence, matches, MAX_FIRES_PER_HOUR, MAX_TRIGGERS, minuteOf, SCHEDULE_GRACE_MS, type Trigger, type TriggerEvent, type TriggerMatch } from "./triggers";
 import { offBoardSeq } from "./util";
 import { compileGrep, grepFtsQuery, grepText, newBudget, GREP_CANDIDATES, GREP_DEFAULT_MAX, GREP_HARD_MAX, GREP_RECENT, type BoardGrepOpts, type BoardGrepResult } from "./grep";
+import { audienceOk, audienceWord, canSee, PEOPLE_ONLY_TYPES, type Audience } from "./audience";
 import { cleanSchedule, MAX_SCHEDULES, nextDue, lastDue, scheduleLabel, SCHEDULE_FIRES_PER_HOUR, taskText, tickAction, type Day, type Schedule } from "./schedules";
 
 export const MAX_TEXT = 32_000;
@@ -250,7 +251,7 @@ function toEntry(r: Row): Entry {
     card: r.card ? (JSON.parse(r.card as string) as ChangeCard) : null,
     ai_flag: (r.ai_flag as string | null) ?? null,
     ...(r.approval ? { approval: liveApproval(JSON.parse(r.approval as string) as ApprovalRef) } : {}),
-    ...(r.audience === "people" ? { audience: "people" as const, to_people: JSON.parse((r.to_people as string | null) || "[]") as string[] } : {}),
+    ...(r.audience === "people" || r.audience === "own" ? { audience: r.audience as Audience, to_people: JSON.parse((r.to_people as string | null) || "[]") as string[] } : {}),
   };
 }
 
@@ -267,36 +268,17 @@ const FOR_SESSION_OK = "(for_session IS NULL OR for_user != ? OR for_session = ?
 
 const ENTRY_COLS = "seq, ts, author, type, text, title, to_user, mentions, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, card, media, ai_flag, attachments, approval, audience, to_people";
 
-// ---- people-only messages (vedu #1264): an entry only the people it names (and its author) see, signed in as
-// themselves; never any agent (theirs included). Every read of entries filters through these, so a path that doesn't
-// say who's asking (no viewer) is treated as an agent and sees none of them. ----
+// ---- private entries (audience.ts): people-only (vedu #1264), only the people it names, never any agent; and just
+// mine (#1748), only one person and their own agents. Every read of entries filters through these, so a path that
+// doesn't say who's asking (no viewer) sees none of them. ----
 
-/** For agent-only reads (read, wait, posting's missed check, recaps, auto-threading): no people-only entries. Binds nothing. */
-const AGENT_OK = "audience IS NULL";
+export { canSee, peopleList, peopleNotice, audienceNotice, PEOPLE_ONLY_TYPES } from "./audience";
 
 /** SQL for "this viewer may see the entry" (columns unqualified, or with `alias.`), and what it binds. */
-function peopleOk(v: Viewer | null | undefined, alias = ""): { sql: string; args: SqlStorageValue[] } {
-  if (!v?.person) return { sql: `${alias}audience IS NULL`, args: [] };
-  return { sql: `(${alias}audience IS NULL OR EXISTS (SELECT 1 FROM json_each(${alias}to_people) WHERE value = ?))`, args: [v.user] };
-}
+const peopleOk = (v: Viewer | null | undefined, alias = ""): { sql: string; args: SqlStorageValue[] } => audienceOk(v, alias);
 
-/** The same test for an entry already loaded. */
-export function canSee(e: Pick<Entry, "audience" | "to_people">, v: Viewer | null | undefined): boolean {
-  return !e.audience || (!!v?.person && (e.to_people ?? []).includes(v.user));
-}
-
-/** "vedu", "vedu and jxn", "vedu, jxn and sam". */
-export function peopleList(people: string[]): string {
-  return people.length <= 1 ? people.join("") : `${people.slice(0, -1).join(", ")} and ${people[people.length - 1]}`;
-}
-
-/** What the author is told once, when they send one: "Only you and jxn can see this. Agents can't." */
-export function peopleNotice(author: string, people: string[]): string {
-  const others = people.filter((p) => p !== author);
-  return `Only you${others.length ? ` and ${peopleList(others)}` : ""} can see this. Agents can't.`;
-}
-
-export const PEOPLE_ONLY_TYPES = ["note", "question"] as const;
+/** An agent reading as `user` (its person): everyone's entries, and its person's own lane. */
+const asAgent = (user: string): Viewer => ({ user, person: false });
 
 export class Board extends DurableObject<Env> {
   private sql: SqlStorage;
@@ -621,29 +603,30 @@ export class Board extends DurableObject<Env> {
     return this.cache;
   }
 
-  /** A people-only entry's people, author included (null: an entry for everyone, or none). */
-  private audienceOf(seq: number): string[] | null {
-    const r = this.sql.exec("SELECT to_people FROM entries WHERE seq = ? AND audience IS NOT NULL", seq).toArray()[0];
-    return r ? (JSON.parse((r.to_people as string | null) || "[]") as string[]) : null;
+  /** A private entry's audience and its people (people-only: author included; own: its one person). Null: everyone's. */
+  private audienceOf(seq: number): { audience: Audience; to_people: string[] } | null {
+    const r = this.sql.exec("SELECT audience, to_people FROM entries WHERE seq = ? AND audience IS NOT NULL", seq).toArray()[0];
+    return r ? { audience: r.audience as Audience, to_people: JSON.parse((r.to_people as string | null) || "[]") as string[] } : null;
   }
 
   /** #seq exists and this viewer may see it. Otherwise it "does not exist" for them (the same words either way). */
   private visible(seq: number, v: Viewer | null | undefined): boolean {
     if (!Number.isInteger(seq) || !this.sql.exec("SELECT 1 AS x FROM entries WHERE seq = ?", seq).toArray().length) return false;
-    const people = this.audienceOf(seq);
-    return !people || canSee({ audience: "people", to_people: people }, v);
+    const a = this.audienceOf(seq);
+    return !a || canSee(a, v);
   }
 
-  /** To every open tab; `about` an entry: a people-only one's signals go only to its people's own (person) tabs. */
+  /** To every open tab; `about` an entry: a private one's signals go only to the tabs that may see it (people-only:
+   *  its people's own person tabs; just mine: its person's tabs and their agents' sockets). */
   private broadcast(msg: object, about?: number | null) {
     this.changes++;
     const data = JSON.stringify(msg);
-    const people = about != null ? this.audienceOf(about) : null;
+    const aud = about != null ? this.audienceOf(about) : null;
     for (const ws of this.tabs()) {
-      if (people) {
-        // Tabs opened before people-only existed carry no attachment: treated as an agent's.
+      if (aud) {
+        // Tabs opened before people-only existed carry no attachment: they hear nothing private.
         const a = ws.deserializeAttachment() as TabAtt | null;
-        if (!a?.person || !people.includes(a.user)) continue;
+        if (!a || !canSee(aud, a)) continue;
       }
       try {
         ws.send(data);
@@ -682,10 +665,13 @@ export class Board extends DurableObject<Env> {
     // Addressed to one agent session ("@vedu/claude-2"): only that session of the person reads it; their others skip it.
     if (!cols.has("for_user")) this.sql.exec("ALTER TABLE entries ADD COLUMN for_user TEXT");
     if (!cols.has("for_session")) this.sql.exec("ALTER TABLE entries ADD COLUMN for_session TEXT");
-    // People-only (vedu #1264): audience 'people' and the JSON list of who sees it (author included); NULL otherwise.
+    // People-only (vedu #1264): audience 'people' and the JSON list of who sees it (author included); just mine (#1748):
+    // audience 'own' and [its person]; NULL otherwise.
     if (!cols.has("audience")) this.sql.exec("ALTER TABLE entries ADD COLUMN audience TEXT");
     if (!cols.has("to_people")) this.sql.exec("ALTER TABLE entries ADD COLUMN to_people TEXT");
-    this.sql.exec("CREATE INDEX IF NOT EXISTS entries_audience ON entries (seq, to_people) WHERE audience IS NOT NULL"); // covering: hiddenFrom reads only the index
+    // Covering: hiddenFrom reads only the index (with the kind, since there are two).
+    this.sql.exec("CREATE INDEX IF NOT EXISTS entries_audience2 ON entries (seq, audience, to_people) WHERE audience IS NOT NULL");
+    this.sql.exec("DROP INDEX IF EXISTS entries_audience");
     // Read receipts: how far each member has seen, as a person (web) and through their agent (read/wait/post).
     const handlingCols = new Set(this.sql.exec("PRAGMA table_info(handling)").toArray().map((r) => r.name as string));
     if (handlingCols.size && !handlingCols.has("done")) this.sql.exec("ALTER TABLE handling ADD COLUMN done INTEGER NOT NULL DEFAULT 0");
@@ -941,7 +927,7 @@ export class Board extends DurableObject<Env> {
     if (again) return { entry: again, missed: [] }; // a retry of a post that already landed
     this.info();
     const cursor = this.readCursor(user, session);
-    const missed = this.entriesAfter(cursor, user, MISSED_SCAN, session);
+    const missed = this.entriesAfter(cursor, user, MISSED_SCAN, session, asAgent(user));
     if (!missed.length) return { entry: await this.post(user, session ? { ...input, session } : input), missed: [] };
     // More than we check at once: refuse, as before, so nothing unchecked is skipped by the post.
     const remaining = missed.length < MISSED_SCAN ? 0 : this.countAfter(cursor, user, session) - missed.length;
@@ -1006,30 +992,45 @@ export class Board extends DurableObject<Env> {
   /** The entry this author already posted with this message id (a retry), if any. */
   private sentBefore(user: string, idem?: string | null, person = false): Entry | null {
     if (!idem) return null;
-    const ok = peopleOk(person ? { user, person } : null); // an agent never gets its person's people-only post back
+    const ok = peopleOk({ user, person }); // an agent never gets its person's people-only post back (its own lane's, yes)
     const r = this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE author = ? AND idem = ? AND ${ok.sql}`, user, idem, ...ok.args).toArray();
     return r.length ? toEntry(r[0]) : null;
   }
 
   /**
-   * A post's people-only audience (author included), or null for an entry everyone sees. Unsending one keeps its
-   * audience (an unsend of an everyone-entry is everyone's); a reply to one has the same audience, asked or not.
-   * Only a person signed in as themselves sends one; the Worker has checked that the people named are members.
+   * A post's private audience, or null for an entry everyone sees. People-only: its people, author included; only a
+   * person signed in as themselves sends one (the Worker has checked the people named are members). Just mine: [the
+   * author], who is the person whether they or one of their agents posts it. Unsending one keeps its audience (an
+   * unsend of an everyone-entry is everyone's); a reply to one has the same audience, asked or not.
    */
-  private peopleFor(user: string, input: NewEntry, poster: Viewer, boardKind: string): string[] | null {
-    let people: string[] | null;
-    if (input.retracts != null) return this.audienceOf(input.retracts);
-    if (input.reply_to != null && (people = this.audienceOf(input.reply_to))) {
-      // (Its refs were checked: a reply to one comes only from its own people.)
+  private audienceFor(user: string, input: NewEntry, poster: Viewer, boardKind: string): { audience: Audience; people: string[] } | null {
+    if (input.retracts != null) {
+      const a = this.audienceOf(input.retracts);
+      return a && { audience: a.audience, people: a.to_people };
+    }
+    let aud: { audience: Audience; people: string[] } | null = null;
+    const inherited = input.reply_to != null ? this.audienceOf(input.reply_to) : null; // (refs were checked: only its own people reply)
+    if (inherited) aud = { audience: inherited.audience, people: inherited.to_people };
+    else if (input.own && input.people_only) throw new BoardError("Pick one: own (just you and your agents) or people-only (people you name, no agents).");
+    else if (input.own) {
+      if (boardKind === "agent") return null; // your chat with your own agents is already just yours
+      if (input.to && input.to !== user) throw new BoardError(`A just-mine message is only for you and your own agents, so it can't go to ${input.to}. Drop to (or own).`);
+      aud = { audience: "own", people: [user] };
     } else if (input.people_only) {
-      people = [...new Set([user, ...(input.to_people ?? []).map((p) => String(p).trim().toLowerCase()).filter((p) => USER_RE.test(p))])];
+      const people = [...new Set([user, ...(input.to_people ?? []).map((p) => String(p).trim().toLowerCase()).filter((p) => USER_RE.test(p))])];
       if (people.length < 2) throw new BoardError("Say who it's for: a people-only message needs at least one other person on this board (to, or @name in the text).");
       if (boardKind === "agent") throw new BoardError("This is your chat with your own agents: there's nobody here to send a people-only message to.");
+      aud = { audience: "people", people };
     } else return null;
-    if (!poster.person) throw new BoardError("Only people can send people-only messages, signed in on the web or in the Atteo app. Agents can't create or read them.");
-    if (!(PEOPLE_ONLY_TYPES as readonly string[]).includes(input.type)) throw new BoardError("A people-only message is a note or a question.");
-    if ((input.resolves ?? []).length || input.supersedes != null || (input.depends_on ?? []).length) throw new BoardError("A people-only message can't resolve, supersede or depend on other entries (agents would see the change but not why).");
-    return people;
+    const word = audienceWord(aud.audience);
+    if (aud.audience === "people" && !poster.person) throw new BoardError("Only people can send people-only messages, signed in on the web or in the Atteo app. Agents can't create or read them.");
+    if (!(PEOPLE_ONLY_TYPES as readonly string[]).includes(input.type)) {
+      throw new BoardError(inherited ? `#${input.reply_to} is ${word}, so a reply to it is a note or a question too.` : `A ${word} message is a note or a question.`);
+    }
+    if ((input.resolves ?? []).length || input.supersedes != null || (input.depends_on ?? []).length) {
+      throw new BoardError(`A ${word} message can't resolve, supersede or depend on other entries (others would see the change but not why).`);
+    }
+    return aud;
   }
 
   async post(user: string, input: NewEntry, internal: { docVersion?: number; media?: Media; attachments?: { list: Attachment[]; text: string }; seeding?: boolean; sealed?: boolean; notice?: boolean; system?: boolean; approval?: ApprovalRef; taskCreate?: boolean; scheduled?: boolean } = {}): Promise<Entry> {
@@ -1073,11 +1074,14 @@ export class Board extends DurableObject<Env> {
       // A people-only entry this poster can't see doesn't exist for them (an agent can't answer, unsend or cite one).
       if (!Number.isInteger(n) || n < 1 || n > info.last_seq || !this.visible(n, poster)) throw new BoardError(`Entry #${n} does not exist on this board.`);
     }
-    // People-only: asked for, or inherited. An unsend has its target's audience; a reply, the audience of what it answers.
-    const people = this.peopleFor(user, input, poster, boardKind);
-    if (people) {
-      input = { ...input, to: null }; // never addressed to an agent
-      forSession = null;
+    // Private (people-only, or just mine): asked for, or inherited. An unsend has its target's audience; a reply, the
+    // audience of what it answers.
+    const aud = this.audienceFor(user, input, poster, boardKind);
+    const people = aud?.people ?? null;
+    const own = aud?.audience === "own";
+    if (aud) {
+      input = { ...input, to: null }; // never addressed to another member's agent
+      if (!own || forSession?.user !== user) forSession = null; // just mine may still go to one of your own sessions
     }
     if (input.via === "agent") this.decisions.guardResolves(input.resolves ?? []); // people decide human decisions
     if (input.retracts != null) {
@@ -1121,8 +1125,8 @@ export class Board extends DurableObject<Env> {
       if (hit) throw new BoardError(blockedMessage(hit));
     }
 
-    // Your agent's board ("Your agent"): everything its person writes there is for their agent.
-    const toOwnAgent = input.via === "person" && boardKind === "agent";
+    // Your agent's board ("Your agent"): everything its person writes there is for their agent. So is a just-mine message.
+    const toOwnAgent = input.via === "person" && (boardKind === "agent" || own);
     // Resolved against the board's members by the Worker; stored as given, minus anything malformed or meaningless.
     const mentions: Mention[] = [];
     // A group mention (@agents, @humans, @all) reaches every member it names, however many.
@@ -1130,7 +1134,7 @@ export class Board extends DurableObject<Env> {
     for (const m of input.mentions ?? []) {
       if (typeof m?.user !== "string" || !USER_RE.test(m.user)) continue;
       const clean = { user: m.user, agent: m.agent === true || typeof m.session === "string", ...(typeof m.session === "string" && SESSION_NAME_RE.test(m.session) ? { session: m.session } : {}) };
-      if (people && (clean.agent || !people.includes(clean.user))) continue; // people-only: its own people, never an agent
+      if (people && ((!own && clean.agent) || !people.includes(clean.user))) continue; // people-only: its own people, never an agent; just mine: its person and their agents
       if (keep(clean, user, input.via) && !mentions.some((x) => x.user === clean.user && x.agent === clean.agent)) mentions.push(clean);
       if (mentions.length >= cap) break;
     }
@@ -1167,7 +1171,7 @@ export class Board extends DurableObject<Env> {
         forSession?.session ?? null,
         internal.attachments ? JSON.stringify(internal.attachments.list) : null,
         internal.approval ? JSON.stringify(internal.approval) : null,
-        people ? "people" : null,
+        aud ? aud.audience : null,
         people ? JSON.stringify(people) : null,
       )
       .one();
@@ -1225,6 +1229,17 @@ export class Board extends DurableObject<Env> {
     // no tape line, no model screening (it screens what agents would read), and no agent's wait wakes for it.
     // Its people (not the author) get a person-only inbox item: kind people_only, which the inbox API hands to person
     // callers (web, the app) and never to an agent token, and which the mailbox (agents') doesn't carry.
+    // Just mine is the same, minus the inbox item (there's nobody else to tell): its person's tabs and their agents'
+    // sockets hear it, and their agents' waits wake (not the session that wrote it, as for any post).
+    if (aud && own) {
+      this.wakeWaits((a) => {
+        if (a.wait === "any") return true; // a page's long-poll: it re-reads as its viewer
+        if (a.user !== user || (forSession && a.session && a.session !== forSession.session)) return false;
+        return forOwnAgent || (!!a.session && a.session !== input.session);
+      });
+      this.broadcast({ type: "entry", seq: entry.seq, retracts: entry.retracts, author: entry.author, via: entry.via ?? null, kind: entry.type, to: null, mentions: entry.mentions, reply_to: entry.reply_to, board: info.id, title: info.title, audience: "own", to_people: people }, entry.seq);
+      return entry;
+    }
     if (people) {
       if (entry.retracts == null && !internal.system && !internal.notice) {
         const excerpt = internal.sealed || info.encrypted ? "🔒 encrypted" : entry.text.replace(/\s+/g, " ").trim().slice(0, 160);
@@ -1284,7 +1299,8 @@ export class Board extends DurableObject<Env> {
   // "From others" for an agent: other members' entries, plus its own person's posts that mention it ("@me's agent").
   // An agent session reads everything except its own posts (so a person's sessions see each other's work);
   // otherwise a reader gets other members' entries plus hand-offs to their own agent.
-  // `viewer`: who's reading (pages: a person). Absent for every agent read, so people-only entries never come back.
+  // `viewer`: who's reading (pages: a person; agent reads: asAgent(user), which adds its person's own lane). Absent:
+  // no private entries at all.
   private entriesAfter(seq: number, excludeAuthor: string | null, limit: number, session?: string | null, viewer?: Viewer | null): Entry[] {
     const ok = peopleOk(viewer);
     const rows = session
@@ -1295,11 +1311,12 @@ export class Board extends DurableObject<Env> {
     return rows.toArray().map(toEntry);
   }
 
-  /** What an agent has left to read (agents only: never counts people-only entries). */
+  /** What an agent has left to read (agents only: never counts people-only entries; its person's own lane, yes). */
   private countAfter(seq: number, excludeAuthor: string, session?: string | null): number {
+    const ok = peopleOk(asAgent(excludeAuthor));
     return session
-      ? (this.sql.exec(`SELECT COUNT(*) AS n FROM entries WHERE seq > ? AND (session IS NULL OR session != ?) AND ${FOR_SESSION_OK} AND ${AGENT_OK}`, seq, session, excludeAuthor, session).one().n as number)
-      : (this.sql.exec(`SELECT COUNT(*) AS n FROM entries WHERE seq > ? AND (author != ? OR self_agent = 1) AND ${AGENT_OK}`, seq, excludeAuthor).one().n as number);
+      ? (this.sql.exec(`SELECT COUNT(*) AS n FROM entries WHERE seq > ? AND (session IS NULL OR session != ?) AND ${FOR_SESSION_OK} AND ${ok.sql}`, seq, session, excludeAuthor, session, ...ok.args).one().n as number)
+      : (this.sql.exec(`SELECT COUNT(*) AS n FROM entries WHERE seq > ? AND (author != ? OR self_agent = 1) AND ${ok.sql}`, seq, excludeAuthor, ...ok.args).one().n as number);
   }
 
   // Entries never change once posted, so the in-memory copy only ever needs the new ones appended.
@@ -1343,7 +1360,7 @@ export class Board extends DurableObject<Env> {
     const cursor = this.readCursor(user, session);
     const from = opts.since != null ? Math.max(0, opts.since) : cursor;
     const limit = clamp(opts.limit ?? 50, 1, 200);
-    const fresh = opts.since != null ? this.entriesAfter(from, null, limit) : this.entriesAfter(from, user, limit, session);
+    const fresh = opts.since != null ? this.entriesAfter(from, null, limit, null, asAgent(user)) : this.entriesAfter(from, user, limit, session, asAgent(user));
     if (opts.since == null) await this.receipts(user, fresh);
     await this.decisions.refresh();
     const remaining = opts.since != null ? 0 : Math.max(0, this.countAfter(from, user, session) - fresh.length);
@@ -2073,8 +2090,9 @@ export class Board extends DurableObject<Env> {
     if (from != null) {
       const e = this.sql.exec("SELECT text FROM entries WHERE seq = ?", from).toArray()[0];
       if (!Number.isInteger(from) || !e || !this.visible(from, { user, person: opts.via === "person" })) throw new BoardError(`Entry #${from} does not exist on this board.`);
-      // Memory is every agent's context: a people-only message never goes there, even from its own people.
-      if (this.audienceOf(from)) throw new BoardError(`#${from} is people-only, so it can't be remembered: the board's memory is read by every agent.`);
+      // Memory is every agent's context: a private message never goes there, even from its own people.
+      const a = this.audienceOf(from);
+      if (a) throw new BoardError(`#${from} is ${audienceWord(a.audience)}, so it can't be remembered: the board's memory is read by every agent.`);
       if (!text) {
         const first = (e.text as string).split("\n").map((l) => l.replace(/^\s*(?:#+|[-*>]|\d+\.)\s*/, "").trim()).find((l) => l) ?? "";
         text = first.length > MEMORY_TEXT_MAX ? first.slice(0, MEMORY_TEXT_MAX - 1).trimEnd() + "…" : first;
@@ -2146,7 +2164,7 @@ export class Board extends DurableObject<Env> {
     if (join) this.touch(user);
     const row = this.sql.exec("SELECT cursor FROM members WHERE name = ?", user).toArray();
     if (!row.length) return { info: this.info(), entries: [] as Entry[], timedOut: true };
-    const fresh = this.entriesAfter(session ? this.readCursor(user, session) : (row[0].cursor as number), user, 50, session);
+    const fresh = this.entriesAfter(session ? this.readCursor(user, session) : (row[0].cursor as number), user, 50, session, asAgent(user));
     await this.receipts(user, fresh);
     if (fresh.length) this.advance(user, fresh[fresh.length - 1].seq, session);
     if (fresh.length) this.markSeen(user, "agent", fresh[fresh.length - 1].seq);
@@ -2328,7 +2346,9 @@ export class Board extends DurableObject<Env> {
     const sinceTs = o.sinceTs ?? 0;
     const files = !!o.files && !o.author && !o.type;
     const done = () => res.hits.length >= max || budget.hit;
-    const keep = (e: Row) => (!o.author || e.author === o.author) && (!o.type || e.type === o.type) && (!sinceTs || (e.ts as number) >= sinceTs);
+    // A private entry is no hit for anyone outside its audience.
+    const mayRead = (e: Row) => !e.audience || canSee({ audience: e.audience as Audience, to_people: JSON.parse((e.to_people as string | null) || "[]") }, o.viewer);
+    const keep = (e: Row) => (!o.author || e.author === o.author) && (!o.type || e.type === o.type) && (!sinceTs || (e.ts as number) >= sinceTs) && mayRead(e);
     const fromEntry = (seq: number, author: string, text: string) => {
       for (const h of grepText(text, m, { context, max: max - res.hits.length, budget })) res.hits.push({ seq, author, text: h.text });
     };
@@ -2356,7 +2376,7 @@ export class Board extends DurableObject<Env> {
         const marks = seqs.map(() => "?").join(",");
         const ents = new Map<number, Row>();
         const tasks = new Map<number, Row>();
-        for (const r of this.sql.exec(`SELECT seq, ts, author, type, text FROM entries WHERE seq IN (${marks})`, ...seqs)) ents.set(r.seq as number, r);
+        for (const r of this.sql.exec(`SELECT seq, ts, author, type, text, audience, to_people FROM entries WHERE seq IN (${marks})`, ...seqs)) ents.set(r.seq as number, r);
         for (const r of this.sql.exec(`SELECT seq, title, body FROM tasks WHERE seq IN (${marks})`, ...seqs)) tasks.set(r.seq as number, r);
         for (const seq of seqs) {
           if (done()) return;
@@ -2395,7 +2415,7 @@ export class Board extends DurableObject<Env> {
       return res;
     }
     res.fallback = true;
-    for (const e of this.sql.exec("SELECT seq, ts, author, type, text FROM entries WHERE seq > ? ORDER BY seq DESC LIMIT ?", sinceSeq, GREP_RECENT)) {
+    for (const e of this.sql.exec("SELECT seq, ts, author, type, text, audience, to_people FROM entries WHERE seq > ? ORDER BY seq DESC LIMIT ?", sinceSeq, GREP_RECENT)) {
       if (sinceTs && (e.ts as number) < sinceTs) break;
       if (keep(e)) fromEntry(e.seq as number, e.author as string, e.text as string);
       if (done()) break;
@@ -2419,11 +2439,13 @@ export class Board extends DurableObject<Env> {
         OR EXISTS (SELECT 1 FROM doc_versions v WHERE v.name = entries.artifact_name AND v.version = entries.artifact_version AND v.content LIKE ?1 ESCAPE '\\'))`,
     ];
     const args: SqlStorageValue[] = [q];
-    // Who may see what (numbered binds here): a person also finds their own people-only messages; an agent never.
-    if (viewer?.person) {
+    // Who may see what (numbered binds here): a person also finds their own private messages; an agent, only its
+    // person's own lane; nobody in particular, none.
+    if (viewer) {
       args.push(viewer.user);
-      clauses.push(`(audience IS NULL OR EXISTS (SELECT 1 FROM json_each(to_people) WHERE value = ?${args.length}))`);
-    } else clauses.push(AGENT_OK);
+      const named = `EXISTS (SELECT 1 FROM json_each(to_people) WHERE value = ?${args.length})`;
+      clauses.push(viewer.person ? `(audience IS NULL OR ${named})` : `(audience IS NULL OR (audience = 'own' AND ${named}))`);
+    } else clauses.push("audience IS NULL");
     if (opts.author) {
       args.push(opts.author);
       clauses.push(`author = ?${args.length}`);
@@ -2616,7 +2638,8 @@ export class Board extends DurableObject<Env> {
     for (const e of asks) {
       // For this agent: addressed to it, "@user's agent" or "@agents", or a DM from the other person.
       // (On "Your agent", everything its person writes.)
-      if (!(forAgent(e, user) || (direct && e.author !== user) || (kind === "agent" && e.author === user))) continue;
+      // (And its own person's just-mine messages: they're for their agents, like everything on "Your agent".)
+      if (!(forAgent(e, user) || (direct && e.author !== user) || ((kind === "agent" || e.audience === "own") && e.author === user))) continue;
       if (this.sql.exec("SELECT 1 AS x FROM reactions WHERE seq = ? AND user = ? AND emoji IN ('🤔', '👀', '✅')", e.seq, who).toArray().length) continue;
       this.sql.exec("INSERT INTO reactions (seq, user, emoji, ts) VALUES (?, ?, '🤔', ?)", e.seq, who, now);
       this.broadcast({ type: "reaction", seq: e.seq, reactions: this.reactionsOf([e.seq])[e.seq] ?? [] }, e.seq);
@@ -2628,7 +2651,8 @@ export class Board extends DurableObject<Env> {
    *  haven't answered yet (answering turns their 👀 into ✅). */
   agentsTyping(): { seq: number; who: string }[] {
     return this.sql
-      .exec("SELECT seq, user FROM reactions WHERE emoji = '👀' AND (user LIKE '%''s agent' OR user LIKE '%/%') AND ts > ? ORDER BY ts", Date.now() - 600_000)
+      // Told to every tab: never about a private message (its people see the 👀 on it instead).
+      .exec("SELECT seq, user FROM reactions WHERE emoji = '👀' AND (user LIKE '%''s agent' OR user LIKE '%/%') AND ts > ? AND seq NOT IN (SELECT seq FROM entries WHERE audience IS NOT NULL) ORDER BY ts", Date.now() - 600_000)
       .toArray()
       .map((r) => ({ seq: r.seq as number, who: r.user as string }));
   }
@@ -2655,12 +2679,14 @@ export class Board extends DurableObject<Env> {
     const since = Date.now() - 2 * 3600_000;
     const answered = (seq: number) => this.sql.exec("SELECT 1 AS x FROM entries WHERE reply_to = ? AND author = ? LIMIT 1", seq, user).toArray().length > 0;
     const open = new Map<number, string>();
-    for (const r of this.sql.exec(`SELECT seq, author, to_user, mentions FROM entries WHERE ts > ? AND author != ? AND retracts IS NULL AND ${AGENT_OK} ORDER BY seq DESC LIMIT 200`, since, user).toArray()) {
+    // Its person's own lane counts only for what may go there (a note or a question): anything else stays at the top.
+    const ok = (PEOPLE_ONLY_TYPES as readonly string[]).includes(input.type) ? peopleOk(asAgent(user), "e.") : peopleOk(null, "e.");
+    for (const r of this.sql.exec(`SELECT e.seq, e.author, e.to_user, e.mentions FROM entries e WHERE e.ts > ? AND e.author != ? AND e.retracts IS NULL AND ${ok.sql} ORDER BY e.seq DESC LIMIT 200`, since, user, ...ok.args).toArray()) {
       let mentions: Mention[] = [];
       try { mentions = r.mentions ? JSON.parse(r.mentions as string) : []; } catch {}
       if (forAgent({ to: (r.to_user as string | null) ?? null, mentions }, user)) open.set(r.seq as number, r.author as string);
     }
-    for (const r of this.sql.exec("SELECT r.seq, e.author FROM reactions r JOIN entries e ON e.seq = r.seq WHERE r.user = ? AND r.emoji IN ('🤔', '👀') AND r.ts > ? AND e.audience IS NULL", `${user}'s agent`, since).toArray()) open.set(r.seq as number, r.author as string);
+    for (const r of this.sql.exec(`SELECT r.seq, e.author FROM reactions r JOIN entries e ON e.seq = r.seq WHERE r.user = ? AND r.emoji IN ('🤔', '👀') AND r.ts > ? AND ${ok.sql}`, `${user}'s agent`, since, ...ok.args).toArray()) open.set(r.seq as number, r.author as string);
     const list = [...open].filter(([seq]) => !answered(seq)).sort((x, y) => y[0] - x[0]);
     if (!list.length) return null;
     const addressed = new Set([input.to ?? null, ...(input.mentions ?? []).filter((m) => !m.agent).map((m) => m.user)].filter((x): x is string => !!x));
@@ -2692,11 +2718,11 @@ export class Board extends DurableObject<Env> {
     return bySeq;
   }
 
-  /** The people-only entries this viewer can't see (an indexed lookup: there are few of them). */
+  /** The private entries this viewer can't see (an indexed lookup: there are few of them). */
   private hiddenFrom(v: Viewer | null | undefined): Set<number> {
     const out = new Set<number>();
-    for (const r of this.sql.exec("SELECT seq, to_people FROM entries WHERE audience IS NOT NULL").toArray()) {
-      if (!canSee({ audience: "people", to_people: JSON.parse((r.to_people as string | null) || "[]") }, v)) out.add(r.seq as number);
+    for (const r of this.sql.exec("SELECT seq, audience, to_people FROM entries WHERE audience IS NOT NULL").toArray()) {
+      if (!canSee({ audience: r.audience as Audience, to_people: JSON.parse((r.to_people as string | null) || "[]") }, v)) out.add(r.seq as number);
     }
     return out;
   }
@@ -3363,6 +3389,7 @@ export class Board extends DurableObject<Env> {
   async postFile(user: string, f: { name: string; bytes: ArrayBuffer; width?: number | null; height?: number | null; text?: string; mentions?: Mention[]; reply_to?: number | null; via: "agent" | "person"; client?: string | null }): Promise<Entry> {
     const info = this.info();
     if (info.archived) throw new BoardError(`"${info.title}" is archived, so it's read-only. Its creator can restore it.`);
+    this.noFileInPrivate(f.reply_to, { user, person: f.via === "person" });
     if (f.bytes.byteLength > MAX_IMAGE) throw new BoardError(`That file is too large (max ${MAX_IMAGE / 1e6} MB).`);
     const bytes = new Uint8Array(f.bytes);
     const text = (f.text ?? "").trim();
@@ -3382,6 +3409,14 @@ export class Board extends DurableObject<Env> {
     const about = aboutBinary(media);
     const version = this.storeBlob(user, name, about, media, f.bytes, { via: f.via, client: f.client, summary: text || `Shared ${name}` });
     return this.post(user, { type: "artifact", text: text || `Shared ${name}`, artifact_name: name, artifact_content: about, mentions: f.mentions, reply_to: f.reply_to ?? null, via: f.via, client: f.client }, { docVersion: version, media });
+  }
+
+  /** Files are the whole board's (every version is listed for everyone), so none goes in a private thread. Checked
+   *  before anything is stored. */
+  private noFileInPrivate(replyTo: number | null | undefined, poster: Viewer) {
+    const a = replyTo != null && Number.isInteger(replyTo) ? this.audienceOf(replyTo) : null;
+    if (a && !canSee(a, poster)) throw new BoardError(`Entry #${replyTo} does not exist on this board.`);
+    if (a) throw new BoardError(`#${replyTo} is ${audienceWord(a.audience)}, and files are shared with the whole board, so a file can't go in its thread.`);
   }
 
   /** A binary file's next version: its description as the doc version's text, its bytes in `blobs`. */
@@ -3405,6 +3440,7 @@ export class Board extends DurableObject<Env> {
     if (info.archived) throw new BoardError(`"${info.title}" is archived, so it's read-only. Its creator can restore it.`);
     if (info.encrypted) throw new BoardError(encryptedOnly(info.title));
     if (!f.files.length) throw new BoardError("Attach at least one file.");
+    this.noFileInPrivate(f.reply_to, { user, person: f.via === "person" });
     if (f.files.length > MAX_FILES_PER_MESSAGE) throw new BoardError(`At most ${MAX_FILES_PER_MESSAGE} files in one message.`);
     let total = 0;
     for (const x of f.files) {
