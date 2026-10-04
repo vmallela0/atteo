@@ -1410,6 +1410,36 @@ await step("SOUL: the board's PROTOCOL.md, handed to each agent on join and once
   assert(!long.includes("TAILMARK"), "long rules not capped");
 });
 
+await step("read max_chars: the read stops at the budget and the rest stays unread for the next read (no blanks)", async () => {
+  const rb = (await ops("boards", { user: A, title: `e2e read budget ${run}` })).body.board.id;
+  await ops("members", { board: rb, user: B });
+  await ok(B, rb, "read");
+  const seqs = [];
+  for (let i = 0; i < 12; i++) seqs.push(seqOf(await ok(A, rb, "post", { type: "note", text: `budget ${i} ${run} ` + "x".repeat(80) })));
+  const seen = new Set();
+  let reads = 0, last = "";
+  for (; reads < 12; reads++) {
+    last = await ok(B, rb, "read", { max_chars: 250 });
+    const got = [...last.matchAll(/budget (\d+) /g)].map((m) => Number(m[1]));
+    assert(got.length && got.length <= 3, `a 250-char read returns at most 3 of these ~100-char posts, never blanks:\n${last}`);
+    got.forEach((i) => seen.add(i));
+    if (!last.includes("more unread")) break;
+  }
+  assert(seen.size === 12 && reads >= 3, `every post came back across ${reads + 1} reads: ${[...seen].sort((a, b) => a - b)}`);
+  has(await ok(B, rb, "read", { max_chars: 250 }), "nothing new");
+  // REST: the same budget, and remaining says what's left.
+  const post = (path, body) => fetch(`${BASE}${path}`, { method: "POST", headers: { ...auth(B), "content-type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.json());
+  const sid = (await post("/api/sessions", { client: "Codex" })).session.id;
+  await post(`/api/sessions/${sid}/boards`, { board: rb });
+  await fetch(`${BASE}/api/sessions/${sid}/read?board=${rb}`, { headers: auth(B) }); // the session's first read: everything so far
+  for (let i = 0; i < 4; i++) await ok(A, rb, "post", { type: "note", text: `rest budget ${i} ${run} ` + "y".repeat(80) });
+  const restRead = async () => (await (await fetch(`${BASE}/api/sessions/${sid}/read?board=${rb}&max_chars=150`, { headers: auth(B) })).json()).boards[0];
+  const r1 = await restRead();
+  assert(r1.entries.length === 2 && r1.entries[1].truncated === true && r1.remaining === 2, `REST read with max_chars: ${JSON.stringify({ n: r1.entries.length, remaining: r1.remaining })}`);
+  const r2 = await restRead();
+  assert(r2.entries.length === 2 && r2.entries.every((e) => e.text.includes("rest budget")) && r2.remaining === 0, `the next REST read has the rest: ${JSON.stringify({ n: r2.entries.length, remaining: r2.remaining })}`);
+});
+
 // Later steps run on a second board, so one test user stays under the per-board post rate limit.
 let fb;
 await step("a second board for the later steps", async () => {

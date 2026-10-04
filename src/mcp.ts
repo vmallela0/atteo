@@ -19,7 +19,7 @@ import * as mailbox from "./mailbox";
 import { messageId, withRetry } from "./retry";
 import { mayMention, mentionLabel, parseMentions } from "./mentions";
 import { titled } from "./ping";
-import { compactLine, formatEntry, formatMemory, formatRules, handleMessage, memoryLine, readHeader, readParts, seenByLine, withNames, type MemoryRead } from "./state";
+import { compactLine, formatEntry, formatMemory, formatRules, handleMessage, memoryLine, parseReadBudget, presentReadEntries, readHeader, readParts, seenByLine, withNames, type MemoryRead } from "./state";
 import * as registry from "./registry";
 import * as sessions from "./sessions";
 import { sendInvite } from "./invite";
@@ -75,13 +75,14 @@ export const TOOLS = [
   {
     name: "read",
     description:
-      "Entries other members posted since you last read (marks them read), under a one-line header. The board summary (open questions, tasks, decisions, claims, files, members) comes with your first read of a board, then only with summary: true.",
+      "Entries other members posted since you last read (marks them read), under a one-line header. The board summary (open questions, tasks, decisions, claims, files, members) comes with your first read of a board, then only with summary: true. max_chars caps the entry text in this reply: the read stops there (the last entry may be cut; get its seq for the rest) and later entries stay unread for the next read.",
     inputSchema: {
       type: "object",
       properties: {
         summary: { type: "boolean", description: "Include the board summary." },
         limit: { type: "integer", description: "Max new entries to return (default 50)." },
         since: { type: "integer", description: "Instead of unread entries, return all entries after this seq (does not move your read position)." },
+        max_chars: { type: "integer", minimum: 0, description: "Characters of entry text to return, oldest first; the rest stay unread. Omit for the usual read (each entry cut at 4000)." },
       },
     },
   },
@@ -543,12 +544,14 @@ function readText(
   user: string,
   since?: number | null,
   headless = false,
+  maxChars?: number,
 ): string {
   // The SOUL and MEMORY come whole the first time, then as one line under the header when they change.
   const p = readParts(r);
+  const shown = presentReadEntries(r.entries, maxChars, user);
   const out = [...p.top.flatMap((t) => [t, ""]), ...(r.summaryText ? [r.summaryText, ""] : []), readHeader(r.info, r.entries.length, r.tasksForYou, since, headless), ...p.lines];
   if (!r.entries.length) out.push("(nothing new)");
-  for (const e of r.entries) out.push(formatEntry(e, 4000, user));
+  for (const line of shown.lines) out.push(line);
   return fence(out.join("\n"));
 }
 
@@ -776,10 +779,11 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       // The summary: asked for, or a member's first read of the board. (The CLI before this change always got it.)
       const summary = typeof args.summary === "boolean" ? args.summary : c.legacyCli ? true : undefined;
       const names = await social.boardAgentNames(env, id); // "Jarvis (vedu's agent)"
-      const [r, headless] = await Promise.all([stubFor(env, id).read(user, { limit: int(args.limit), since: int(args.since), summary, names }, c.agentSession?.id ?? null), social.agentsHeadless(env, user)]);
+      const maxChars = parseReadBudget(args.max_chars);
+      const [r, headless] = await Promise.all([stubFor(env, id).read(user, { limit: int(args.limit), since: int(args.since), summary, names, maxChars }, c.agentSession?.id ?? null), social.agentsHeadless(env, user)]);
       later(registry.touch(env, user, id));
       const more = r.remaining ? `\n… ${r.remaining} more unread; call read again.` : "";
-      return readText(r, user, int(args.since), headless) + more;
+      return readText(r, user, int(args.since), headless, maxChars) + more;
     }
 
     case "schedules": {
