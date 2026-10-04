@@ -12,9 +12,13 @@
 //   own token (tool_routes), and go back as function_call_output + response.create. answer_approval and post_to_my_agent
 //   only run after a yes (#1761): said out loud (a short, plain yes: TalkYes.swift) or tapped; a post is read back word
 //   for word first, and only that exact text goes. Every exit settles the session: POST end {session_id, seconds}.
+// A long hands-free call stands by when it goes quiet (TalkStandby.swift, jxn #2071): the socket closes and the
+// session settles, the sheet stays; a tap or AirPods' play starts a new session that's told the last few turns. While
+// it stands by, new messages are read aloud (/api/app/tts {board, seq, from: true}).
 // The UI is TalkView.swift, the audio TalkAudio.swift, and the local fake (DEBUG only) TalkFake.swift.
 
 import AVFoundation
+import Combine
 import SwiftUI
 
 // MARK: - The voice routes
@@ -31,6 +35,12 @@ enum TalkAPI {
 
     /// A voice route as the person: (status, JSON). Not retried: the person is waiting on it.
     static func call(_ method: String, _ path: String, body: [String: Any]? = nil) async throws -> (Int, [String: Any]) {
+        let (code, data, _) = try await raw(method, path, body: body)
+        return (code, (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:])
+    }
+
+    /// The same, answering the bytes and the response (audio from /api/app/tts).
+    static func raw(_ method: String, _ path: String, body: [String: Any]? = nil) async throws -> (Int, Data, HTTPURLResponse?) {
         guard let token = API.shared.token else { throw APIError.signedOut }
         var r = URLRequest(url: URL(string: path, relativeTo: API.shared.base)!)
         r.httpMethod = method
@@ -43,8 +53,8 @@ enum TalkAPI {
         }
         let (data, resp): (Data, URLResponse)
         do { (data, resp) = try await URLSession.shared.data(for: r) } catch { throw APIError.offline }
-        let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
-        return (code, (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:])
+        let http = resp as? HTTPURLResponse
+        return (http?.statusCode ?? 0, data, http)
     }
 }
 
@@ -137,7 +147,7 @@ final class WebSocketLink: RealtimeLink {
 @MainActor
 final class TalkSession: ObservableObject {
     struct Caption: Identifiable, Equatable {
-        enum Who { case you, grok, note }
+        enum Who { case you, grok, note, heard } // heard: a new message read aloud while standing by ("theo: …")
         let id: String
         let who: Who
         var text: String
@@ -163,7 +173,8 @@ final class TalkSession: ObservableObject {
         }
     }
 
-    enum Phase: Equatable { case connecting, ready, ended }
+    /// standby: the socket is closed and the session settled; the sheet waits for a tap or play (TalkStandby.swift).
+    enum Phase: Equatable { case connecting, ready, standby, ended }
 
     @Published private(set) var phase: Phase = .connecting
     @Published private(set) var captions: [Caption] = []
@@ -182,6 +193,8 @@ final class TalkSession: ObservableObject {
     @Published var muted = false { didSet { audio.muted = muted } }
     @Published var problem: String?
     @Published private(set) var endNote: String?
+    @Published private(set) var reading = false // standing by: a new message is being read aloud
+    @Published private(set) var standbyNote: String? // standing by: why it couldn't resume, or read-aloud is used up
 
     let board: Board?
     private var link: RealtimeLink?
@@ -193,6 +206,27 @@ final class TalkSession: ObservableObject {
     private var ticker: Task<Void, Never>?
     private var reader: Task<Void, Never>?
     private var ended = false
+
+    // Standing by (TalkStandby.swift).
+    private var lastActive = Date() // the last moment something was going on in the live call
+    private var liveSeconds: TimeInterval = 0 // every session of this call, live, so far
+    private var settling: Task<Void, Never>? // the last session's /session/end, awaited before the next one starts
+    private var instructions: String? // the first session's, which a resumed one gets again with the recap
+    private let remote = TalkRemote()
+    private var watching: [AnyCancellable] = []
+    private var seenSeq = 0 // the board's newest message when it stood by: only later ones are read
+    private var seenInbox = 0 // Ask: the newest For-you item when it stood by
+    private var toRead: [Heard] = []
+    private var readingTask: Task<Void, Never>? // reading the queue aloud
+    private var player: AVAudioPlayer?
+    private var playerDone: CheckedContinuation<Void, Never>?
+    private var playerDelegate: PlayerDone?
+    private var ttsOut = false // this month's read-aloud is used up: captions only
+    private var fetchLater: Task<Void, Never>?
+    private var generation = 0 // which session: a tool that finishes after its session closed is dropped
+
+    /// A message to read aloud: where it is (the server reads exactly that one) and what the caption says.
+    struct Heard: Equatable { let board: String; let seq: Int; let who: String; let text: String; let encrypted: Bool }
 
     private var activeResponse: String? // the response Grok is giving now
     private var cancelled: Set<String> = [] // interrupted responses: their late deltas are dropped
@@ -240,7 +274,7 @@ final class TalkSession: ObservableObject {
     /// This month's minutes left, counting this session as it goes (the server charged its whole cap up front).
     var monthMinutesLeft: Int? {
         guard let m = monthLeft else { return nil }
-        return Int(phase == .ended || endNote != nil ? m : m + max(0, Double(maxSeconds) - elapsed) / 60)
+        return Int(phase == .ready && endNote == nil ? m + max(0, Double(maxSeconds) - elapsed) / 60 : m)
     }
 
     // MARK: Start and end
@@ -248,16 +282,31 @@ final class TalkSession: ObservableObject {
     func start() async {
         ReadAloud.shared.hush()
         VoiceInput.shared.stop()
+        remote.on { [weak self] c in self?.remoteCommand(c) }
+        ticker = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 250_000_000)
+                self?.tick()
+            }
+        }
+        await connect(resuming: false)
+    }
+
+    /// One realtime session: POST /session, the socket, session.update. A resumed one gets the first session's
+    /// instructions plus a short recap of the last turns, and a refusal (the minute's limit, the month) leaves the call
+    /// standing by with the reason instead of ending it.
+    private func connect(resuming: Bool) async {
+        phase = .connecting
         var body: [String: Any] = [:]
         if let b = board, b.encrypted != true { body["board"] = b.id }
         body["hands_free"] = handsFree
         let code: Int, j: [String: Any]
         do { (code, j) = try await TalkAPI.call("POST", "/api/app/voice/session", body: body) } catch {
-            finish(problem: error.localizedDescription); return
+            failed(error.localizedDescription, resuming: resuming); return
         }
-        guard code == 200, let sid = j["session_id"] as? String, let session = j["session"] as? [String: Any] else {
+        guard code == 200, let sid = j["session_id"] as? String, var session = j["session"] as? [String: Any] else {
             if code == 503 { TalkStatus.shared.objectWillChange.send(); await TalkStatus.shared.load(force: true) }
-            finish(problem: j["error"] as? String ?? String(localized: "Couldn't start talking (\(code)).", bundle: .l10n))
+            failed(j["error"] as? String ?? String(localized: "Couldn't start talking (\(code)).", bundle: .l10n), resuming: resuming)
             return
         }
         sessionId = sid
@@ -268,7 +317,7 @@ final class TalkSession: ObservableObject {
             monthLeft = max(0, budget - used) // used already counts this session's whole cap
             TalkStatus.shared.update(used: used, budget: budget)
         }
-        guard !ended else { await settle(); return } // closed while it was starting
+        guard !ended else { await settle(sid, seconds: 0); return } // closed while it was starting
 
         let provider = j["provider"] as? String ?? ""
         var made: RealtimeLink?
@@ -285,7 +334,7 @@ final class TalkSession: ObservableObject {
 
         audio.useMic = provider != "fake" // the fake never asks for the microphone (no permission prompt in tests) nor plays
         audio.events = { [weak self] e in self?.audioEvent(e) }
-        if audio.useMic, !(await AVAudioApplication.requestRecordPermission()) {
+        if audio.useMic, !resuming, !(await AVAudioApplication.requestRecordPermission()) {
             problem = String(localized: "Allow the microphone for Atteo in Settings to use voice chat. You can still read what Atteo says.", bundle: .l10n)
         }
         audio.onLevel = { [weak self] l in
@@ -296,34 +345,66 @@ final class TalkSession: ObservableObject {
         // The fake stays silent (its "voice" is only timed): a simulator under test can hang starting audio I/O.
         if audio.useMic {
             do { try audio.start() } catch { problem = String(localized: "Audio isn't working (\(error.localizedDescription)); captions still show.", bundle: .l10n) }
+            if resuming { audio.resumed() }
         }
 
+        // The first session's instructions, kept; a resumed one is told what was just said (a few short lines).
+        if let i = session["instructions"] as? String {
+            if instructions == nil { instructions = i }
+            if resuming { session["instructions"] = (instructions ?? i) + TalkStandby.recap(recapTurns) }
+        }
         self.session = session
         link.send(["type": "session.update", "session": session])
         openedAt = Date()
+        lastActive = Date()
+        elapsed = 0
         phase = .ready
+        remote.nowPlaying(live: true, subtitle: subtitle)
         if handsFree { listen() }
         Haptics.play(.touch)
         reader = Task { [weak self] in
             for await e in link.events { self?.handle(e) }
-            self?.finish(problem: self?.ended == false ? String(localized: "The voice connection closed.", bundle: .l10n) : nil)
-        }
-        ticker = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 250_000_000)
-                self?.tick()
-            }
+            // Closed by us (standing by, or the end) isn't news; the service dropping it is.
+            guard !Task.isCancelled, let self, self.link === link else { return }
+            self.finish(problem: self.ended ? nil : String(localized: "The voice connection closed.", bundle: .l10n))
         }
     }
 
+    /// Couldn't get a session: the call ends, unless it was resuming (then it keeps standing by, saying why).
+    private func failed(_ why: String, resuming: Bool) {
+        guard resuming, !ended else { finish(problem: why); return }
+        standbyNote = why
+        phase = .standby
+        remote.nowPlaying(live: false, subtitle: subtitle)
+        watchMessages()
+    }
+
+    private var subtitle: String {
+        board.map { $0.displayName(me: AppState.shared.me?.owner) } ?? String(localized: "Voice chat", bundle: .l10n)
+    }
+
     private func tick() {
-        guard let openedAt, !ended else { return }
-        elapsed = Date().timeIntervalSince(openedAt)
-        let s = Date() < audioUntil
+        guard !ended, phase == .ready, let openedAt else { return }
+        let now = Date()
+        elapsed = now.timeIntervalSince(openedAt)
+        let s = now < audioUntil
         if s != speaking { speaking = s }
         // The VAD heard something that never became a turn (a cough, a door): don't sit on "Thinking…".
-        if thinking, activeResponse == nil, toolsRunning == 0, let t = stoppedAt, Date().timeIntervalSince(t) > 8 { thinking = false; stoppedAt = nil }
-        if elapsed >= Double(maxSeconds) { finish(problem: String(localized: "That's this session's time. Start another to keep talking.", bundle: .l10n)) }
+        if thinking, activeResponse == nil, toolsRunning == 0, let t = stoppedAt, now.timeIntervalSince(t) > 8 { thinking = false; stoppedAt = nil }
+        if elapsed >= Double(maxSeconds) {
+            // A session's cap: hands-free stands by (play keeps talking, in a new session); hold to talk ends.
+            if handsFree { standBy(note: String(localized: "That session reached its time limit. Tap or press play to keep talking.", bundle: .l10n)) }
+            else { finish(problem: String(localized: "That's this session's time. Start another to keep talking.", bundle: .l10n)) }
+            return
+        }
+        let a = activity
+        if a.busy { lastActive = now }
+        if TalkStandby.shouldStandBy(now: now, lastActive: lastActive, a) { standBy() }
+    }
+
+    private var activity: TalkStandby.Activity {
+        TalkStandby.Activity(handsFree: handsFree, hearing: hearing || holding, speaking: speaking, thinking: thinking || activeResponse != nil,
+                             toolsRunning: toolsRunning, confirmWaiting: confirm != nil)
     }
 
     /// Ends it: the socket closes, the audio stops, and the minutes not used go back to the month.
@@ -333,27 +414,236 @@ final class TalkSession: ObservableObject {
         guard !ended else { return }
         ended = true
         if let p { problem = p }
-        ticker?.cancel(); reader?.cancel()
-        link?.close(); link = nil
+        let (sid, seconds) = closeSession()
+        ticker?.cancel()
+        stopReading()
+        watching = []
+        fetchLater?.cancel()
+        remote.off()
         audio.stop()
+        audio.release() // standing by it kept the audio (for AirPods' play): let it go
         holding = false; speaking = false; thinking = false; hearing = false; level = 0; confirm = nil
         phase = .ended
-        if let openedAt { elapsed = Date().timeIntervalSince(openedAt) }
-        Task { await settle() }
+        let before = settling
+        Task {
+            await before?.value
+            await settle(sid, seconds: seconds)
+            if let m = monthLeft {
+                endNote = String(localized: "\(Self.clock(Int(liveSeconds.rounded(.up)))) used · \(Int(m)) min left this month", bundle: .l10n)
+            }
+        }
     }
 
-    private func settle() async {
-        guard let sid = sessionId else { return }
+    /// Closes the live session (the socket, the reader): answers its id and the whole seconds it was open, to settle.
+    private func closeSession() -> (String?, Int) {
+        generation += 1
+        reader?.cancel(); reader = nil
+        link?.close(); link = nil
+        let sid = sessionId
         sessionId = nil
-        let seconds = openedAt.map { Int(Date().timeIntervalSince($0).rounded(.up)) } ?? 0
+        let open = openedAt.map { Date().timeIntervalSince($0) } ?? 0
+        if openedAt != nil { liveSeconds += open; elapsed = open }
+        openedAt = nil
+        return (sid, Int(open.rounded(.up)))
+    }
+
+    /// POST end {session_id, seconds}: the session's unused minutes go back to the month.
+    private func settle(_ sid: String?, seconds: Int) async {
+        guard let sid else { return }
         if let (code, j) = try? await TalkAPI.call("POST", endPath, body: ["session_id": sid, "seconds": seconds]), code == 200 {
             TalkStatus.shared.update(used: j["minutes_used"], budget: j["minutes_budget"])
             if let u = (j["minutes_used"] as? NSNumber)?.doubleValue, let b = (j["minutes_budget"] as? NSNumber)?.doubleValue {
                 monthLeft = max(0, b - u)
-                let clock = Self.clock(seconds), left = Int(max(0, b - u))
-                endNote = String(localized: "\(clock) used · \(left) min left this month", bundle: .l10n)
             }
         }
+    }
+
+    // MARK: Standing by
+
+    /// Quiet for a while (or pause on AirPods): the socket closes and the session settles now (xAI bills every minute
+    /// it's open); the sheet stays with what was said, and new messages are read aloud until a tap or play.
+    func standBy(note: String? = nil) {
+        guard !ended, phase == .ready, handsFree else { return }
+        if let r = activeResponse { flushGrok("grok-\(r)"); if let i = captions.lastIndex(where: { $0.id == "grok-\(r)" }) { captions[i].done = true } }
+        if let y = youCaption, let i = captions.firstIndex(where: { $0.id == y }), captions[i].text == "…" { captions.remove(at: i) }
+        let used = openedAt.map { Date().timeIntervalSince($0) } ?? 0
+        if let m = monthLeft { monthLeft = m + max(0, Double(maxSeconds) - used) / 60 } // what settling gives back, until it says
+        let (sid, seconds) = closeSession()
+        settling = Task { [weak self] in await self?.settle(sid, seconds: seconds) }
+        if audio.useMic { audio.standBy() } else { audio.stopCapture() }
+        resetTurn()
+        confirm = nil // it was waiting for a yes: nothing was done, and the new session can ask again
+        standbyNote = note
+        phase = .standby
+        remote.nowPlaying(live: false, subtitle: subtitle)
+        Haptics.play(.touch)
+        watchMessages()
+    }
+
+    /// A tap or play: a fresh session (after the last one has settled), listening again, told the last few turns.
+    func resume() {
+        guard !ended, phase == .standby else { return }
+        stopReading()
+        watching = []
+        fetchLater?.cancel()
+        standbyNote = nil
+        micMuted = false // play means "I want to talk"
+        phase = .connecting
+        Haptics.play(.touch)
+        let before = settling
+        Task { [weak self] in
+            await before?.value
+            guard let self, !self.ended, self.phase == .connecting else { return }
+            await self.connect(resuming: true)
+        }
+    }
+
+    /// AirPods, headphones, the lock screen or Control Center.
+    private func remoteCommand(_ c: TalkStandby.Command) {
+        let state: TalkStandby.State = switch phase {
+        case .connecting: .connecting
+        case .ready: .live
+        case .standby: .standby
+        case .ended: .ended
+        }
+        // One AirPods press can arrive twice during a live call (the mute gesture and a play/pause): act on the first.
+        guard Date().timeIntervalSince(lastRemote) > 1 else { return }
+        switch TalkStandby.action(c, state, handsFree: handsFree) {
+        case .standBy: lastRemote = Date(); standBy()
+        case .resume: lastRemote = Date(); resume()
+        case .none: break
+        }
+    }
+
+    private var lastRemote = Date.distantPast
+
+    /// A new session starts clean: no answer, voice, turn or tool in flight from the last one.
+    private func resetTurn() {
+        activeResponse = nil; cancelled = []; wantResponse = false; toolsRunning = 0
+        audioUntil = .distantPast; audioItem = nil; itemAudio = 0; stoppedAt = nil; youCaption = nil; grokPending = [:]
+        holding = false; speaking = false; thinking = false; hearing = false; level = 0
+        elapsed = 0
+    }
+
+    /// The turns the next session is told: your words, Atteo's, and what was read aloud.
+    private var recapTurns: [(who: String, text: String)] {
+        captions.compactMap { c in
+            switch c.who {
+            case .you: return c.done ? ("The user", c.text) : nil
+            case .grok: return ("You (Atteo)", c.text)
+            case .heard: return ("Read aloud to the user while paused", c.text)
+            case .note: return nil
+            }
+        }
+    }
+
+    // MARK: New messages while standing by
+
+    /// The call's board (the chat under the sheet keeps its live socket, so its messages arrive in AppState), or for
+    /// Ask, what's for you (the app's live feed refreshes it): what's newer than now gets read.
+    private func watchMessages() {
+        guard phase == .standby, watching.isEmpty else { return }
+        let st = AppState.shared
+        if let b = board {
+            seenSeq = max(seenSeq, (st.entries[b.id] ?? []).map(\.seq).max() ?? 0)
+            st.$entries.map { $0[b.id] ?? [] }.removeDuplicates().dropFirst()
+                .sink { [weak self] list in self?.arrived(list, on: b) }.store(in: &watching)
+            // Just in case nothing has the chat open: the feed's pulse for this board fetches it (when no update came).
+            st.$pulse.compactMap { $0 }.filter { $0.board == b.id }
+                .sink { [weak self] _ in self?.fetchSoon(b) }.store(in: &watching)
+        } else {
+            seenInbox = max(seenInbox, st.inbox.map(\.id).max() ?? 0)
+            st.$inbox.dropFirst().sink { [weak self] items in self?.arrived(items) }.store(in: &watching)
+        }
+    }
+
+    private func fetchSoon(_ b: Board) {
+        let seen = seenSeq
+        fetchLater?.cancel()
+        fetchLater = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            guard let self, !Task.isCancelled, self.phase == .standby, self.seenSeq == seen else { return }
+            await AppState.shared.loadEntries(b)
+        }
+    }
+
+    private func arrived(_ list: [Entry], on b: Board) {
+        guard phase == .standby else { return }
+        let me = AppState.shared.me?.owner ?? ""
+        let fresh = list.filter { $0.seq > seenSeq && $0.pending != true }.sorted { $0.seq < $1.seq }
+        guard let top = fresh.last?.seq else { return }
+        seenSeq = top
+        let mine = Set(list.filter { $0.author.lowercased() == me.lowercased() && $0.via != "agent" }.map(\.seq))
+        for e in fresh where TalkStandby.worthReading(e, me: me, agentChat: b.isAgentChat, parentIsMine: { mine.contains($0) }) {
+            let who = e.byAgent ? agentLabel(e.author, e.agentName ?? AppState.shared.agentNames[b.id]?[e.author]?.name) : e.author
+            toRead.append(Heard(board: b.id, seq: e.seq, who: who, text: e.text, encrypted: b.encrypted == true))
+        }
+        readNext()
+    }
+
+    private func arrived(_ items: [InboxItem]) {
+        guard phase == .standby else { return }
+        let fresh = items.filter { $0.id > seenInbox && $0.readAt == nil }.sorted { $0.id < $1.id }
+        guard let top = fresh.last?.id else { return }
+        seenInbox = top
+        let me = (AppState.shared.me?.owner ?? "").lowercased()
+        for i in fresh where i.seq > 0 && !(i.actor.lowercased() == me && i.actorVia != "agent") {
+            let encrypted = AppState.shared.boards.first { $0.id == i.boardId }?.encrypted == true
+            toRead.append(Heard(board: i.boardId, seq: i.seq, who: i.actorVia == "agent" ? Vocab.agentOf(i.actor) : i.actor, text: i.excerpt, encrypted: encrypted))
+        }
+        readNext()
+    }
+
+    /// One at a time: the caption, then the server's voice reading exactly that message ("theo: …"), in the person's
+    /// saved voice and against their read-aloud allowance. Encrypted boards (the server can't read them) and a used-up
+    /// allowance: the caption only.
+    private func readNext() {
+        guard readingTask == nil, phase == .standby, !toRead.isEmpty else { return }
+        let h = toRead.removeFirst()
+        captions.append(Caption(id: "heard-\(h.board)-\(h.seq)", who: .heard, text: "\(h.who): \(String(h.text.prefix(400)))", done: true))
+        readingTask = Task { [weak self] in
+            await self?.read(h)
+            guard let self, !Task.isCancelled else { return }
+            self.readingTask = nil
+            self.readNext()
+        }
+    }
+
+    private func read(_ h: Heard) async {
+        guard !ttsOut, !h.encrypted else { return }
+        reading = true
+        defer { reading = false }
+        guard let (code, data, resp) = try? await TalkAPI.raw("POST", "/api/app/tts", body: ["board": h.board, "seq": h.seq, "from": true]),
+              !Task.isCancelled, phase == .standby else { return }
+        if code == 429, resp?.value(forHTTPHeaderField: "retry-after") == nil {
+            // The month's read-aloud is used up (the per-minute limit says when to retry instead): stop asking.
+            ttsOut = true
+            standbyNote = String(localized: "This month's read-aloud is used up: new messages show here instead.", bundle: .l10n)
+            return
+        }
+        guard code == 200 else { return } // not set up, a moment's limit, the service down: the caption is there
+        if !audio.useMic { try? await Task.sleep(nanoseconds: 500_000_000); return } // the fake: timed, never played
+        guard let p = try? AVAudioPlayer(data: data) else { return }
+        let done = PlayerDone { [weak self] in self?.playerFinished() }
+        p.delegate = done
+        p.volume = muted ? 0 : 1
+        playerDelegate = done
+        player = p
+        guard p.play() else { player = nil; return }
+        await withCheckedContinuation { c in playerDone = c }
+    }
+
+    private func playerFinished() {
+        player = nil; playerDelegate = nil
+        playerDone?.resume(); playerDone = nil
+    }
+
+    private func stopReading() {
+        toRead = []
+        readingTask?.cancel(); readingTask = nil
+        player?.stop()
+        playerFinished()
+        reading = false
     }
 
     // MARK: Hands-free
@@ -376,6 +666,8 @@ final class TalkSession: ObservableObject {
         if holding { holdEnded() }
         handsFree = on
         hearing = false; level = 0
+        lastActive = Date() // back to hands-free: quiet from now, not from before
+        if phase == .standby, !on { resume(); return } // hold to talk never stands by: a session for the presses
         guard phase == .ready, !session.isEmpty else { return }
         audio.stopCapture()
         link?.send(["type": "input_audio_buffer.clear"])
@@ -390,6 +682,7 @@ final class TalkSession: ObservableObject {
     /// Mic off: nothing more goes to Atteo (it can still finish talking); on again: it listens.
     func toggleMic() {
         micMuted.toggle()
+        lastActive = Date() // a touch: the quiet clock starts over
         Haptics.play(.touch)
         if micMuted {
             level = 0
@@ -476,6 +769,8 @@ final class TalkSession: ObservableObject {
         guard let c = confirm else { return }
         confirm = nil
         Haptics.play(yes ? .approved : .denied)
+        toolsRunning += 1 // until Atteo has heard what happened: no standing by in between
+        let gen = generation
         Task {
             let said: String
             switch c.kind {
@@ -494,6 +789,8 @@ final class TalkSession: ObservableObject {
                     said = "I tapped No on the screen: don't send that to my agent."
                 }
             }
+            guard gen == generation else { return }
+            toolsRunning -= 1
             guard !ended else { return }
             link?.send(["type": "conversation.item.create", "item": ["type": "message", "role": "user", "content": [["type": "input_text", "text": said]]]])
             requestResponse()
@@ -655,10 +952,12 @@ final class TalkSession: ObservableObject {
         thinking = true
         let note = Caption(id: "tool-\(id)", who: .note, text: Self.doing(name, args, confirmed: confirm?.confirmed == true))
         captions.append(note)
+        let gen = generation
         Task {
             let output = await runTool(name, args)
-            toolsRunning -= 1
             if let i = captions.firstIndex(where: { $0.id == note.id }) { captions[i].done = true }
+            guard gen == generation else { return } // its session stood by or ended meanwhile
+            toolsRunning -= 1
             guard !ended else { return }
             link?.send(["type": "conversation.item.create", "item": ["type": "function_call_output", "call_id": id, "output": output]])
             requestResponse()
@@ -820,4 +1119,12 @@ final class TalkSession: ObservableObject {
             problem = String(localized: "Audio isn't working (\(m)); captions still show.", bundle: .l10n)
         }
     }
+}
+
+/// AVAudioPlayer's "finished", as a closure (a message read aloud while standing by).
+private final class PlayerDone: NSObject, AVAudioPlayerDelegate {
+    let done: @MainActor () -> Void
+    init(_ done: @escaping @MainActor () -> Void) { self.done = done }
+    func audioPlayerDidFinishPlaying(_ p: AVAudioPlayer, successfully: Bool) { Task { @MainActor in self.done() } }
+    func audioPlayerDecodeErrorDidOccur(_ p: AVAudioPlayer, error: Error?) { Task { @MainActor in self.done() } }
 }

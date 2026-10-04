@@ -3,7 +3,10 @@
 // open mic doesn't hear Atteo's own voice; the 24 kHz PCM16 deltas into a player node. Out of the loudspeaker, not the
 // earpiece (vedu #1598): voice processing likes to move the route to the receiver, so whenever the route's output is
 // the built-in receiver it's overridden to the speaker; AirPods, Bluetooth and wired headsets are left alone. A call or
-// Siri pauses it, and a route change (headphones in or out) rebuilds the engine for the new hardware.
+// Siri pauses it, and a route change (headphones in or out) rebuilds the engine for the new hardware. Standing by
+// (TalkStandby.swift) there's no engine and no mic, but the audio stays the app's (playback, not let go), so AirPods'
+// play comes here and not to whatever was playing before; a soft falling chime says it stopped listening, a rising one
+// that it listens again.
 
 import AVFoundation
 
@@ -34,6 +37,7 @@ final class TalkAudio {
     func start() throws {
         guard !started else { return }
         started = true
+        standingBy = false
         let s = AVAudioSession.sharedInstance()
         try s.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetoothHFP, .allowBluetoothA2DP, .defaultToSpeaker])
         try s.setActive(true, options: .notifyOthersOnDeactivation)
@@ -56,11 +60,75 @@ final class TalkAudio {
 
     func stop() {
         guard started else { return }
+        halt()
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
+
+    /// Standing by: the engine and the mic stop (no recording indicator), the audio session stays this app's as
+    /// playback (AirPods are headphones again and their play comes here), and a falling chime says it.
+    func standBy() {
+        halt()
+        standingBy = true
+        let s = AVAudioSession.sharedInstance()
+        try? s.setCategory(.playback, mode: .spokenAudio, options: [])
+        try? s.setActive(true)
+        chime(up: false)
+    }
+
+    /// Lets the audio go entirely (the call ended while standing by).
+    func release() {
+        guard standingBy else { return }
+        standingBy = false
+        chimePlayer?.stop(); chimePlayer = nil
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
+
+    private func halt() {
+        guard started else { return }
         started = false
         observers.forEach(NotificationCenter.default.removeObserver)
         observers = []
         teardown()
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
+
+    /// Listening again: a short rising chime through the call's own player.
+    func resumed() { play(Self.chimePCM(up: true)) }
+
+    private var chimePlayer: AVAudioPlayer?
+    private var standingBy = false
+
+    private func chime(up: Bool) {
+        chimePlayer = try? AVAudioPlayer(data: Self.wav(Self.chimePCM(up: up)))
+        chimePlayer?.volume = muted ? 0 : 1
+        chimePlayer?.play()
+    }
+
+    /// Two soft notes, 24 kHz mono PCM16: 660 → 880 Hz up (listening), 880 → 587 Hz down (standing by).
+    static func chimePCM(up: Bool) -> Data {
+        let notes: [Double] = up ? [660, 880] : [880, 587]
+        let n = Int(0.14 * rate)
+        var d = Data(capacity: notes.count * n * 2)
+        for f in notes {
+            for i in 0..<n {
+                let t = Double(i) / rate
+                let env = t < 0.01 ? t / 0.01 : exp(-(t - 0.01) * 22)
+                let v = Int16(sin(2 * .pi * f * t) * env * 0.18 * 32767)
+                withUnsafeBytes(of: v.littleEndian) { d.append(contentsOf: $0) }
+            }
+        }
+        return d
+    }
+
+    /// 24 kHz mono PCM16 as a WAV file (for AVAudioPlayer).
+    static func wav(_ pcm: Data) -> Data {
+        var d = Data()
+        func u32(_ v: UInt32) { withUnsafeBytes(of: v.littleEndian) { d.append(contentsOf: $0) } }
+        func u16(_ v: UInt16) { withUnsafeBytes(of: v.littleEndian) { d.append(contentsOf: $0) } }
+        d.append(contentsOf: Array("RIFF".utf8)); u32(36 + UInt32(pcm.count)); d.append(contentsOf: Array("WAVE".utf8))
+        d.append(contentsOf: Array("fmt ".utf8)); u32(16); u16(1); u16(1); u32(UInt32(rate)); u32(UInt32(rate) * 2); u16(2); u16(16)
+        d.append(contentsOf: Array("data".utf8)); u32(UInt32(pcm.count))
+        d.append(pcm)
+        return d
     }
 
     /// From now until stopCapture(), each ~100 ms of the mic comes to `chunk` as base64 PCM16 (and its level to onLevel).

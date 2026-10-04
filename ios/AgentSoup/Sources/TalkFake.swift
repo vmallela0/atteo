@@ -16,6 +16,8 @@
 // the app calls personSpeaks() (a tap on the orb): speech_started (cancelling an answer under way, as the real server's
 // VAD does: barge-in), then speech_stopped, committed, the transcript, and an answer with no response.create.
 // Push-to-talk (turn_detection null): the app's commit is the turn, and its response.create the answer.
+// A resumed call (TalkStandby.swift) is a new link whose instructions carry the recap: its first answer is "Picking up
+// where we left off." (so a test sees the recap arrived), then the script goes on as usual.
 
 #if DEBUG
 import Foundation
@@ -36,6 +38,7 @@ final class FakeGrokLink: RealtimeLink {
     private var current: String?
     private var closed = false
     private var handsFree = false
+    private var resumed = false // the session's instructions carry a standby recap
     private(set) var truncated: [String: Int] = [:] // item → audio_end_ms the app cut it to
 
     init() { (events, out) = AsyncStream.makeStream(of: [String: Any].self) }
@@ -48,6 +51,7 @@ final class FakeGrokLink: RealtimeLink {
         case "session.update":
             let session = e["session"] as? [String: Any] ?? [:]
             handsFree = (session["turn_detection"] as? [String: Any])?["type"] as? String == "server_vad"
+            resumed = (session["instructions"] as? String ?? "").contains("picking up again")
             emit(["type": "session.updated", "session": session])
         case "conversation.item.truncate":
             guard let item = e["item_id"] as? String else { return }
@@ -163,6 +167,11 @@ final class FakeGrokLink: RealtimeLink {
         if userMessage != nil {
             userMessage = nil
             speak(r, "Okay.", seconds: 0.6, modern: true)
+            return
+        }
+        if resumed {
+            resumed = false
+            speak(r, "Picking up where we left off.", seconds: 0.8, modern: true)
             return
         }
         switch (Self.script, turn) {

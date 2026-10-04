@@ -7,7 +7,8 @@
 // sentence at a time, yours once, when final, as one faded line; the menu picks All, Atteo only (the default) or Off.
 // The session's time and the month's minutes, and a Yes/No card before any approval or message to your agent (the
 // message itself, word for word: #1761), whatever the captions setting. Settings → Voice chat. Nothing shows when the
-// server has no voice set up (GET /api/app/voice/status says disabled).
+// server has no voice set up (GET /api/app/voice/status says disabled). A quiet hands-free call stands by
+// (TalkStandby.swift): "Standing by", a big Resume, and new messages read aloud; a tap anywhere or play resumes.
 
 import AVFoundation
 import SwiftUI
@@ -67,6 +68,11 @@ struct TalkSheet: View {
             header
             captions
             if let c = talk.confirm { confirmCard(c).transition(.move(edge: .bottom).combined(with: .opacity)) }
+            if let n = talk.standbyNote, talk.phase == .standby {
+                Text(n).font(Typo.meta).foregroundStyle(Theme.muted).multilineTextAlignment(.center)
+                    .padding(.horizontal, Space.l).padding(.top, Space.s)
+                    .accessibilityIdentifier("talk-standby-note")
+            }
             if let p = talk.problem {
                 Text(p).font(Typo.meta).foregroundStyle(Theme.warn).multilineTextAlignment(.center)
                     .padding(.horizontal, Space.l).padding(.top, Space.s)
@@ -78,7 +84,9 @@ struct TalkSheet: View {
         .animation(.snappy, value: talk.confirm)
         .animation(.snappy, value: talk.problem)
         .task { await talk.start() }
-        .onDisappear { talk.end() }
+        // A long call with the phone set down: the screen doesn't auto-lock under it (going to the background ends it).
+        .onAppear { UIApplication.shared.isIdleTimerDisabled = true }
+        .onDisappear { talk.end(); UIApplication.shared.isIdleTimerDisabled = false }
         .onChange(of: scenePhase) { _, p in if p == .background { talk.end() } } // the mic doesn't follow you out of the app
     }
 
@@ -109,6 +117,10 @@ struct TalkSheet: View {
     private var timeLine: String {
         if talk.phase == .connecting { return String(localized: "Connecting…", bundle: .l10n) }
         if talk.phase == .ended { return talk.endNote ?? String(localized: "Ended", bundle: .l10n) }
+        if talk.phase == .standby {
+            if let m = talk.monthMinutesLeft { return String(localized: "Standing by · \(m) min this month", bundle: .l10n) }
+            return String(localized: "Standing by", bundle: .l10n)
+        }
         let clock = TalkSession.clock(talk.secondsLeft)
         if let m = talk.monthMinutesLeft { return String(localized: "\(clock) left · \(m) min this month", bundle: .l10n) }
         return String(localized: "\(clock) left", bundle: .l10n)
@@ -139,6 +151,8 @@ struct TalkSheet: View {
                 if let last = shown.last { withAnimation(.smooth(duration: 0.2)) { proxy.scrollTo(last.id, anchor: .bottom) } }
             }
         }
+        .contentShape(Rectangle())
+        .onTapGesture { if talk.phase == .standby { talk.resume() } } // standing by, a tap anywhere talks again
         .accessibilityIdentifier("talk-captions")
     }
 
@@ -155,6 +169,13 @@ struct TalkSheet: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityLabel(Text("You: \(c.text)"))
                 .accessibilityIdentifier("talk-you")
+        case .heard:
+            // A new message, read aloud while standing by: who, then what (as the server reads it).
+            Label(c.text, systemImage: "text.bubble")
+                .font(Typo.secondary).foregroundStyle(Theme.text)
+                .lineLimit(4).truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityIdentifier("talk-heard")
         case .grok:
             VStack(alignment: .leading, spacing: 2) {
                 Text("Atteo").font(Typo.micro.weight(.semibold)).foregroundStyle(Theme.accent)
@@ -212,6 +233,8 @@ struct TalkSheet: View {
         switch talk.phase {
         case .connecting: return String(localized: "Connecting…", bundle: .l10n)
         case .ended: return String(localized: "Ended", bundle: .l10n)
+        case .standby:
+            return talk.reading ? String(localized: "Reading a new message…", bundle: .l10n) : String(localized: "Standing by", bundle: .l10n)
         case .ready where talk.handsFree:
             if talk.speaking { return String(localized: "Atteo is speaking", bundle: .l10n) }
             if talk.hearing { return String(localized: "Listening…", bundle: .l10n) }
@@ -248,6 +271,8 @@ struct TalkSheet: View {
                 .buttonStyle(PressStyle())
                 .accessibilityIdentifier("talk-done")
                 .frame(height: 160)
+            } else if talk.phase == .standby {
+                resumeButton.frame(height: 160)
             } else {
                 HStack(spacing: Space.xl) {
                     micButton.opacity(talk.handsFree ? 1 : 0).disabled(!talk.handsFree || !live)
@@ -257,9 +282,16 @@ struct TalkSheet: View {
                 }
                 .frame(height: 160)
             }
-            Text("Atteo can read your boards, check what's waiting and message your agent. It asks before approving anything.")
-                .font(Typo.micro).foregroundStyle(Theme.faint).multilineTextAlignment(.center)
-                .padding(.horizontal, Space.xl)
+            if talk.phase == .standby {
+                Text("Tap or press play on your AirPods to talk")
+                    .font(Typo.meta).foregroundStyle(Theme.muted).multilineTextAlignment(.center)
+                    .padding(.horizontal, Space.xl)
+                    .accessibilityIdentifier("talk-standby-hint")
+            } else {
+                Text("Atteo can read your boards, check what's waiting and message your agent. It asks before approving anything.")
+                    .font(Typo.micro).foregroundStyle(Theme.faint).multilineTextAlignment(.center)
+                    .padding(.horizontal, Space.xl)
+            }
         }
         .padding(.top, Space.m).padding(.bottom, Space.l)
     }
@@ -294,6 +326,26 @@ struct TalkSheet: View {
                 }
                 .accessibilityIdentifier("talk-button")
         }
+    }
+
+    /// Standing by: one big Resume (a new session; the last one closed, so a quiet call costs nothing).
+    private var resumeButton: some View {
+        Button { talk.resume() } label: {
+            VStack(spacing: Space.s) {
+                Image(systemName: "play.fill")
+                    .font(.system(size: 44, weight: .semibold))
+                    .foregroundStyle(Theme.onAccent)
+                    .frame(width: 112, height: 112)
+                    .background(Theme.accent, in: Circle())
+                Text("Resume").font(.headline).foregroundStyle(Theme.text)
+            }
+        }
+        .buttonStyle(PressStyle())
+        .accessibilityElement(children: .ignore)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel("Resume")
+        .accessibilityHint("Tap or press play on your AirPods to talk")
+        .accessibilityIdentifier("talk-resume")
     }
 
     private var micButton: some View {

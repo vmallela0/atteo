@@ -11,10 +11,14 @@ final class TalkUITests: AtteoUITestCase {
         a.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", prefix)).firstMatch
     }
 
+    /// The fake has no mic, so a call is quiet between taps: tests that aren't about standing by (jxn #2071) keep it
+    /// live for 10 minutes instead of 5 seconds.
+    private static let noStandby = ["AGENT_SOUP_FAKE_VOICE": "1", "AGENT_SOUP_TALK_STANDBY_SECONDS": "600"]
+
     /// Hands-free unless a test switches (the per-device choice is pinned for this run), and every caption (#1796: the
     /// default is Atteo only) so a test can see what the fake person said.
-    private func launch(captions: String = "all") -> XCUIApplication {
-        let a = app(extra: ["AGENT_SOUP_FAKE_VOICE": "1"])
+    private func launch(captions: String = "all", standby: String = "600") -> XCUIApplication {
+        let a = app(extra: ["AGENT_SOUP_FAKE_VOICE": "1", "AGENT_SOUP_TALK_STANDBY_SECONDS": standby])
         a.launchArguments += ["-talk-hold-to-talk", "NO", "-talk-captions", captions]
         a.launch()
         return a
@@ -106,7 +110,7 @@ final class TalkUITests: AtteoUITestCase {
     /// Everyday's Ask screen opens the same hands-free sheet (EverydayHooks.talk).
     func testVoiceChatFromEverydayAsk() {
         let before = minutesUsed()
-        let a = app(extra: ["AGENT_SOUP_FAKE_VOICE": "1", "AGENT_SOUP_MODE": "everyday"])
+        let a = app(extra: Self.noStandby.merging(["AGENT_SOUP_MODE": "everyday"]) { $1 })
         a.launchArguments += ["-talk-hold-to-talk", "NO", "-talk-captions", "all"]
         a.launch()
         XCTAssertTrue(a.buttons["ask-bar"].waitForExistence(timeout: 15), "For you's Ask bar")
@@ -140,6 +144,75 @@ final class TalkUITests: AtteoUITestCase {
             Thread.sleep(forTimeInterval: 1)
         }
         XCTAssertLessThan(used, 2, "the unused minutes went back")
+    }
+
+    // MARK: Standing by (jxn #2071)
+
+    private func ttsUsed() -> Int { (call("GET", "/api/app/tts/status")["used_chars"] as? NSNumber)?.intValue ?? 0 }
+
+    /// A quiet hands-free call stands by after 5 s: the session ends (its minutes go back), the sheet says "Standing
+    /// by" with a big Resume. theo posts meanwhile: it's read aloud with the server's voice ("theo: …", the local fake
+    /// TTS), and it keeps standing by. Resume starts a new session that's told what was said (the fake answers "Picking
+    /// up where we left off."); quiet again, a tap anywhere on the sheet resumes too.
+    func testStandbyReadsNewMessagesAndResumes() throws {
+        guard !otherApp.isEmpty, let b1 = boardId(titled: "Checkout bug") else { throw XCTSkip("needs the seeded server (OTHER_APP)") }
+        let before = minutesUsed()
+        let a = launch(standby: "5")
+        openChat(a, "Checkout bug")
+        a.buttons["talk"].tap()
+        let state = a.staticTexts["talk-state"]
+        XCTAssertTrue(eventually(state, "label == 'Listening…'", timeout: 15), "listening (\(state.label))")
+        let started = Date()
+
+        // 1. Quiet: it stands by after about 5 seconds, and the session is over (only those seconds were used).
+        XCTAssertTrue(eventually(state, "label == 'Standing by'", timeout: 15), "standing by (\(state.label))")
+        XCTAssertGreaterThanOrEqual(Date().timeIntervalSince(started), 4, "not before it was quiet for a while")
+        let resume = a.buttons["talk-resume"]
+        XCTAssertTrue(resume.exists, "a big Resume")
+        XCTAssertEqual(a.staticTexts["talk-standby-hint"].label, "Tap or press play on your AirPods to talk")
+        XCTAssertFalse(a.buttons["talk-orb"].exists, "no orb while standing by")
+        XCTAssertTrue(a.staticTexts["talk-timer"].label.hasPrefix("Standing by"), a.staticTexts["talk-timer"].label)
+        var used = 99.0
+        for _ in 0..<10 {
+            used = minutesUsed() - before
+            if used < 0.5 { break }
+            Thread.sleep(forTimeInterval: 1)
+        }
+        XCTAssertLessThan(used, 0.5, "the session ended and settled: its 10-minute cap went back, only live seconds count")
+        shot("talk-standby")
+
+        // 2. theo posts: read aloud (the server's voice, "theo: …", counted against maya's read-aloud allowance).
+        let ttsBefore = ttsUsed()
+        let nonce = String(UUID().uuidString.prefix(6))
+        let message = "The deploy is green \(nonce)."
+        call("POST", "/api/boards/\(b1)/entries", json: ["type": "note", "text": message], token: otherApp)
+        let heard = a.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'talk-heard' AND label CONTAINS %@", nonce)).firstMatch
+        XCTAssertTrue(heard.waitForExistence(timeout: 15), "the new message shows")
+        XCTAssertTrue(heard.label.contains("theo: \(message)"), heard.label)
+        var spoken = 0
+        for _ in 0..<10 {
+            spoken = ttsUsed() - ttsBefore
+            if spoken > 0 { break }
+            Thread.sleep(forTimeInterval: 1)
+        }
+        XCTAssertEqual(spoken, "theo: \(message)".count, "read by the server, who then what")
+        XCTAssertTrue(eventually(state, "label == 'Standing by'", timeout: 8), "still standing by after reading (\(state.label))")
+        XCTAssertLessThan(minutesUsed() - before, 0.5, "reading costs no voice minutes")
+        shot("talk-standby-heard")
+
+        // 3. Resume: a new session, listening, and it was told the last turns.
+        resume.tap()
+        XCTAssertTrue(eventually(state, "label == 'Listening…'", timeout: 15), "listening again (\(state.label))")
+        XCTAssertTrue(heard.exists, "the captions stay")
+        a.buttons["talk-orb"].tap()
+        XCTAssertTrue(text(a, "Atteo: Picking up where we left off.").waitForExistence(timeout: 10), "the recap reached the new session")
+
+        // 4. Quiet again: standing by; a tap anywhere on the sheet resumes.
+        XCTAssertTrue(eventually(state, "label == 'Standing by'", timeout: 20), "standing by again (\(state.label))")
+        a.otherElements["talk-captions"].firstMatch.exists ? a.otherElements["talk-captions"].firstMatch.tap() : a.scrollViews["talk-captions"].firstMatch.tap()
+        XCTAssertTrue(eventually(state, "label == 'Listening…'", timeout: 15), "a tap on the sheet resumes (\(state.label))")
+        endAndSettle(a, before: before)
+        XCTAssertLessThan(minutesUsed() - before, 0.5, "three short sessions, a few seconds each")
     }
 
     // MARK: Calm captions (#1796)
@@ -200,7 +273,7 @@ final class TalkUITests: AtteoUITestCase {
 
     /// Hands-free with one of TalkFake's scripts (post, inject, hedge), opened from Checkout bug and listening.
     private func scripted(_ script: String, post: String? = nil) -> XCUIApplication {
-        let a = app(extra: ["AGENT_SOUP_FAKE_VOICE": "1", "AGENT_SOUP_FAKE_VOICE_SCRIPT": script].merging(post.map { ["AGENT_SOUP_FAKE_VOICE_POST": $0] } ?? [:]) { $1 })
+        let a = app(extra: Self.noStandby.merging(["AGENT_SOUP_FAKE_VOICE_SCRIPT": script]) { $1 }.merging(post.map { ["AGENT_SOUP_FAKE_VOICE_POST": $0] } ?? [:]) { $1 })
         a.launchArguments += ["-talk-hold-to-talk", "NO", "-talk-captions", "all"]
         a.launch()
         openChat(a, "Checkout bug")
