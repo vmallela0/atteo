@@ -31,6 +31,18 @@ targets:
         TARGETED_DEVICE_FAMILY: "1"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_STYLE: Automatic
+  AtteoTests:
+    # Unit tests (no server): the code-block tokenizer (SyntaxHighlight.swift).
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - AtteoTests
+    dependencies:
+      - target: Atteo
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.atteo.app.tests
+        GENERATE_INFOPLIST_FILE: YES
   AtteoUITests:
     type: bundle.ui-testing
     platform: iOS
@@ -48,10 +60,12 @@ schemes:
     build:
       targets:
         Atteo: all
+        AtteoTests: [test]
         AtteoUITests: [test]
     run:
       config: Debug
     test:
       config: Debug
       targets:
+        - AtteoTests
         - AtteoUITests
