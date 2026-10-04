@@ -81,7 +81,6 @@ struct InviteAgentSheet: View {
 /// Your own assistant: the join message, Copy, then open the assistant to paste it (or connect one first).
 struct OwnAssistantInvite: View {
     let board: Board
-    @Environment(\.openURL) private var openURL
     @State private var copied = false
     @State private var connecting = false
 
@@ -136,22 +135,22 @@ struct OwnAssistantInvite: View {
         .sheet(isPresented: $connecting) { BringAssistantView(firstRun: false).presentationBackground(Theme.bg) }
     }
 
-    /// One assistant: Open (copies the message again and opens its chat), or where to paste it when there's no chat to open.
+    /// One assistant: Open (copies the message again and opens its chat: its app when installed, else its website,
+    /// vedu #2298), or where to paste it when there's no chat to open.
     private func tile(_ p: AssistantProvider) -> some View {
         HStack(spacing: Space.m) {
             ProviderMark(provider: p).accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(verbatim: p.name).font(Typo.body.weight(.semibold)).foregroundStyle(Theme.text)
                 Group {
-                    if let chat = p.chat { Text(verbatim: chat.host() ?? "") }
-                    else if p == .muse { Text("Paste it into Muse") }
+                    if let chat = p.chat { Text(verbatim: chat.web.host() ?? "") }
                     else { Text("Paste it into Claude Code or Codex") }
                 }
                 .font(Typo.secondary).foregroundStyle(Theme.muted)
             }
             Spacer(minLength: Space.s)
             if let chat = p.chat {
-                Button { copy(); openURL(chat) } label: {
+                Button { copy(); AppOpener.open(chat) } label: {
                     Text("Open").font(Typo.secondary.weight(.medium)).foregroundStyle(Theme.text)
                         .padding(.horizontal, Space.m).frame(minHeight: 36)
                         .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).stroke(Theme.line))
