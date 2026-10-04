@@ -369,7 +369,7 @@ struct ChatRow: View {
                 HStack(alignment: .center, spacing: Space.s) {
                     Group {
                         if let l = b.last {
-                            Text(l.by + ": ").foregroundStyle(Theme.muted) + Text(l.text.md).foregroundStyle(unread > 0 ? Theme.muted : Theme.faint)
+                            Text(Vocab.shown(l.by) + ": ").foregroundStyle(Theme.muted) + Text(l.text.md).foregroundStyle(unread > 0 ? Theme.muted : Theme.faint)
                         } else {
                             Text(b.entryCount == 1 ? "1 message" : "\(b.entryCount) messages").foregroundStyle(Theme.faint)
                         }

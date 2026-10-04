@@ -1059,7 +1059,7 @@ struct ReactionLine: View {
     }
     private func names(_ users: [String]) -> String {
         // Everyday: "Theo's assistant" for the server's "theo's agent" (display only).
-        let shown = users.map { u in Vocab.everyday && u.hasSuffix("'s agent") ? Vocab.agentOf(String(u.dropLast(8))) : u }
+        let shown = users.map(Vocab.shown)
         return shown.count <= 2 ? shown.joined(separator: ", ") : "\(shown[0]) and \(shown.count - 1) more"
     }
 }

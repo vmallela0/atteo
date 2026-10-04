@@ -249,7 +249,7 @@ struct BoardInfoSheet: View {
             }
             VStack(alignment: .leading, spacing: 1) {
                 Text(f.name).font(Typo.secondary.weight(.medium)).foregroundStyle(Theme.text).lineLimit(1).truncationMode(.middle)
-                Text([f.size.bytes, f.version > 1 ? "v\(f.version)" : nil, f.via == "agent" ? "\(f.updatedBy)'s agent" : f.updatedBy, f.updatedAt.ago].compactMap { $0 }.joined(separator: " · "))
+                Text([f.size.bytes, f.version > 1 ? "v\(f.version)" : nil, f.via == "agent" ? Vocab.agentOf(f.updatedBy) : f.updatedBy, f.updatedAt.ago].compactMap { $0 }.joined(separator: " · "))
                     .font(Typo.micro).foregroundStyle(Theme.faint).lineLimit(1)
             }
             Spacer(minLength: 0)
@@ -341,7 +341,7 @@ struct SearchHitRow: View {
                 Avatar(name: hit.author, agent: hit.via == "agent", size: 28)
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: Space.xs) {
-                        Text(hit.via == "agent" ? "\(hit.author)'s agent" : hit.author).font(Typo.meta.weight(.semibold)).foregroundStyle(Theme.text).lineLimit(1)
+                        Text(hit.via == "agent" ? Vocab.agentOf(hit.author) : hit.author).font(Typo.meta.weight(.semibold)).foregroundStyle(Theme.text).lineLimit(1)
                         if let board { Text("in \(board)").font(Typo.micro).foregroundStyle(Theme.faint).lineLimit(1) }
                         Spacer(minLength: Space.s)
                         if hit.ts > 0 { Text(hit.ts.ago).font(Typo.micro).foregroundStyle(Theme.faint) }
@@ -384,7 +384,7 @@ struct Reader: Hashable, Identifiable {
     let mine: Bool // your own agent
     let seen: Bool
     var id: String { "\(user)/\(agent)" }
-    var label: String { mine ? "your agent" : agent ? "\(user)'s agent" : user }
+    var label: String { mine ? Vocab.yourAgent.lowercased() : agent ? Vocab.agentOf(user) : user }
 }
 
 /// The line under your message: what it says, how far it got (0 delivered, 1 seen by some, 2 by everyone), and who.
@@ -424,7 +424,7 @@ struct SeenBySheet: View {
                             ForEach(group) { r in
                                 HStack(spacing: Space.m) {
                                     Avatar(name: r.user, agent: r.agent, size: 30)
-                                    Text(r.mine ? "Your agent" : r.agent ? "\(r.user)'s agent" : r.user).font(Typo.rowTitleRead).foregroundStyle(Theme.text).lineLimit(1)
+                                    Text(r.mine ? Vocab.yourAgent : r.agent ? Vocab.agentOf(r.user) : r.user).font(Typo.rowTitleRead).foregroundStyle(Theme.text).lineLimit(1)
                                     Spacer(minLength: Space.s)
                                     if r.seen {
                                         Label("Seen", systemImage: "checkmark").font(Typo.micro.weight(.semibold)).foregroundStyle(Theme.ok)

@@ -109,6 +109,10 @@ enum Vocab {
 
     /// "theo's agent" / "Theo's assistant".
     static func agentOf(_ owner: String) -> String { everyday ? "\(owner.capitalizedFirst)'s assistant" : "\(owner)'s agent" }
+    /// A name the server wrote ("theo's agent: …" in a chat's last line, a reaction's user): as Everyday says it.
+    static func shown(_ serverName: String) -> String {
+        everyday && serverName.hasSuffix("'s agent") ? agentOf(String(serverName.dropLast(8))) : serverName
+    }
     static var agent: String { pick("agent", "assistant") }
     static var agents: String { pick("agents", "assistants") }
     static var yourAgent: String { pick("Your agent", "Your assistant") }

@@ -125,6 +125,8 @@ final class EverydayUITests: AtteoUITestCase {
         XCTAssertTrue(a.buttons["for-you"].exists, "back to For you")
         XCTAssertEqual(a.buttons["tab-boards"].label.components(separatedBy: ",").first, "Groups", "Boards are group chats")
         XCTAssertFalse(a.buttons["Your agents"].exists, "no sessions button")
+        sleep(2)
+        XCTAssertEqual(a.buttons.matching(NSPredicate(format: "label CONTAINS %@", "'s agent")).count, 0, "chat rows say assistant")
         openChat(a, "Checkout bug")
 
         let todos = a.buttons["tab-todos"]
