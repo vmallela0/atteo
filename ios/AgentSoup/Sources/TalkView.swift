@@ -3,8 +3,10 @@
 // (EverydayHooks.talk). The full-screen sheet is hands-free (#1598): it listens, waits for you to pause, answers, and
 // stops the moment you talk over it. A big orb shows what's happening (your voice's level while listening, thinking,
 // Atteo speaking); the mic can be turned off (Atteo can still talk), Atteo's voice muted (captions stay), and "Hold to
-// talk" in the menu brings back the push-to-talk button for noisy places. Live captions of both sides, the session's
-// time and the month's minutes, and a Yes/No card before any approval. Settings → Voice chat. Nothing shows when the
+// talk" in the menu brings back the push-to-talk button for noisy places. Calm captions (#1796): Atteo's a finished
+// sentence at a time, yours once, when final, as one faded line; the menu picks All, Atteo only (the default) or Off.
+// The session's time and the month's minutes, and a Yes/No card before any approval or message to your agent (the
+// message itself, word for word: #1761), whatever the captions setting. Settings → Voice chat. Nothing shows when the
 // server has no voice set up (GET /api/app/voice/status says disabled).
 
 import SwiftUI
@@ -54,6 +56,8 @@ struct TalkSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @State private var pressing = false
+    /// All, Atteo only or Off (#1796): read once, saved on change (not @AppStorage, so a launch argument can't pin it).
+    @State private var captionMode = TalkSession.CaptionMode.saved
 
     init(board: Board?) { _talk = StateObject(wrappedValue: TalkSession(board: board)) }
 
@@ -92,7 +96,11 @@ struct TalkSheet: View {
             Spacer()
             // Its own Equatable view: the sheet redraws a few times a second (the clock), and an open menu redrawn with it
             // never settles.
-            TalkMenu(handsFree: talk.handsFree) { [talk] in talk.setHandsFree(!talk.handsFree) }.equatable()
+            TalkMenu(handsFree: talk.handsFree, captions: captionMode, toggle: { [talk] in talk.setHandsFree(!talk.handsFree) }, setCaptions: { m in
+                captionMode = m
+                UserDefaults.standard.set(m.rawValue, forKey: TalkSession.CaptionMode.key)
+                Haptics.play(.touch)
+            }).equatable()
         }
         .padding(.horizontal, Space.l).padding(.top, Space.s)
     }
@@ -105,6 +113,9 @@ struct TalkSheet: View {
         return String(localized: "\(clock) left", bundle: .l10n)
     }
 
+    /// The captions this setting shows. The confirm card isn't one of them: it shows whatever the setting.
+    private var shown: [TalkSession.Caption] { talk.captions.filter { captionMode.shows($0) } }
+
     private var captions: some View {
         ScrollViewReader { proxy in
             ScrollView {
@@ -114,13 +125,17 @@ struct TalkSheet: View {
                             .font(Typo.secondary).foregroundStyle(Theme.faint)
                             .frame(maxWidth: .infinity, alignment: .center).multilineTextAlignment(.center)
                             .padding(.top, Space.xl)
+                    } else if captionMode == .off {
+                        Text("Captions are off.").font(Typo.meta).foregroundStyle(Theme.faint)
+                            .frame(maxWidth: .infinity, alignment: .center).padding(.top, Space.xl)
+                            .accessibilityIdentifier("talk-captions-off")
                     }
-                    ForEach(talk.captions) { c in caption(c).id(c.id) }
+                    ForEach(shown) { c in caption(c).id(c.id) }
                 }
                 .padding(.horizontal, Space.l).padding(.vertical, Space.m)
             }
-            .onChange(of: talk.captions.last.map { "\($0.id)\($0.text.count)" }) { _, _ in
-                if let last = talk.captions.last { withAnimation(.smooth(duration: 0.2)) { proxy.scrollTo(last.id, anchor: .bottom) } }
+            .onChange(of: shown.last.map { "\($0.id)\($0.text.count)" }) { _, _ in
+                if let last = shown.last { withAnimation(.smooth(duration: 0.2)) { proxy.scrollTo(last.id, anchor: .bottom) } }
             }
         }
         .accessibilityIdentifier("talk-captions")
@@ -132,28 +147,48 @@ struct TalkSheet: View {
             Label(c.text, systemImage: c.done ? "checkmark.circle" : "ellipsis.circle")
                 .font(Typo.meta).foregroundStyle(Theme.faint)
                 .accessibilityIdentifier("talk-note")
-        case .you, .grok:
+        case .you:
+            // What you said, once it's final (#1796): one short faded line, never more than two.
+            Text(c.text).font(Typo.meta).foregroundStyle(Theme.faint)
+                .lineLimit(2).truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityLabel(Text("You: \(c.text)"))
+                .accessibilityIdentifier("talk-you")
+        case .grok:
             VStack(alignment: .leading, spacing: 2) {
-                Text(c.who == .you ? "You" : "Atteo").font(Typo.micro.weight(.semibold)).foregroundStyle(c.who == .you ? Theme.muted : Theme.accent)
+                Text("Atteo").font(Typo.micro.weight(.semibold)).foregroundStyle(Theme.accent)
                     .accessibilityHidden(true)
-                Text(c.text).font(c.who == .grok ? .title3 : .body).foregroundStyle(c.who == .grok ? Theme.text : Theme.muted)
+                Text(c.text).font(.title3).foregroundStyle(Theme.text)
                     .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityLabel(c.who == .you ? Text("You: \(c.text)") : Text("Atteo: \(c.text)"))
-                    .accessibilityIdentifier(c.who == .you ? "talk-you" : "talk-atteo")
+                    .accessibilityLabel(Text("Atteo: \(c.text)"))
+                    .accessibilityIdentifier("talk-atteo")
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
+    /// What a yes would do, in so many words: the approval, or the exact message for the person's agent (#1761).
     private func confirmCard(_ c: TalkSession.Confirm) -> some View {
         VStack(alignment: .leading, spacing: Space.s) {
-            Label(c.decision == "deny" ? "Deny \(c.approval)?" : "Approve \(c.approval)?", systemImage: "checkmark.shield").font(.headline).foregroundStyle(Theme.text)
+            switch c.kind {
+            case .approval(let id, let decision):
+                Label(decision == "deny" ? "Deny \(id)?" : "Approve \(id)?", systemImage: "checkmark.shield").font(.headline).foregroundStyle(Theme.text)
+                    .accessibilityIdentifier("talk-confirm-what")
+            case .post(let text, let board):
+                Label("Post to your agent: “\(text)”", systemImage: "paperplane").font(.headline).foregroundStyle(Theme.text)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("talk-confirm-what")
+                if let board {
+                    let title = AppState.shared.boards.first { $0.id == board }?.title ?? board
+                    Text("On \(title), where everyone on the board can read it.").font(Typo.meta).foregroundStyle(Theme.muted)
+                }
+            }
             Text(c.confirmed ? "Heard yes. Atteo will do it now." : "Nothing happens until you say “yes” or tap Yes.")
                 .font(Typo.meta).foregroundStyle(Theme.muted)
             HStack(spacing: Space.s) {
                 Button { talk.answerConfirm(false) } label: { Text("No").frame(maxWidth: .infinity).padding(.vertical, 10).background(Theme.raised, in: Capsule()) }
                     .accessibilityIdentifier("talk-confirm-no")
-                Button { talk.answerConfirm(true) } label: { Text(c.decision == "deny" ? "Yes, deny" : "Yes, approve").frame(maxWidth: .infinity).padding(.vertical, 10).background(Theme.accent, in: Capsule()).foregroundStyle(Theme.onAccent) }
+                Button { talk.answerConfirm(true) } label: { yesWord(c).frame(maxWidth: .infinity).padding(.vertical, 10).background(Theme.accent, in: Capsule()).foregroundStyle(Theme.onAccent) }
                     .accessibilityIdentifier("talk-confirm-yes")
             }
             .buttonStyle(PressStyle()).font(.body.weight(.semibold)).foregroundStyle(Theme.text)
@@ -163,6 +198,13 @@ struct TalkSheet: View {
         .padding(.horizontal, Space.l).padding(.top, Space.s)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("talk-confirm")
+    }
+
+    private func yesWord(_ c: TalkSession.Confirm) -> Text {
+        switch c.kind {
+        case .approval(_, let decision): return decision == "deny" ? Text("Yes, deny") : Text("Yes, approve")
+        case .post: return Text("Yes, send")
+        }
     }
 
     private var stateLine: String {
@@ -282,12 +324,14 @@ struct TalkSheet: View {
     }
 }
 
-/// The sheet's menu: "Hold to talk" for noisy places (remembered on this device).
+/// The sheet's menu: "Hold to talk" for noisy places, and what the captions show (#1796); both remembered on this device.
 struct TalkMenu: View, Equatable {
     let handsFree: Bool
+    let captions: TalkSession.CaptionMode
     let toggle: () -> Void
+    let setCaptions: (TalkSession.CaptionMode) -> Void
 
-    static func == (a: TalkMenu, b: TalkMenu) -> Bool { a.handsFree == b.handsFree }
+    static func == (a: TalkMenu, b: TalkMenu) -> Bool { a.handsFree == b.handsFree && a.captions == b.captions }
 
     var body: some View {
         Menu {
@@ -296,6 +340,14 @@ struct TalkMenu: View, Equatable {
                     Label("Hold to talk", systemImage: handsFree ? "hand.tap" : "checkmark")
                 }
                 .accessibilityIdentifier("talk-hold-mode")
+            }
+            Section("Captions") {
+                ForEach(TalkSession.CaptionMode.allCases) { m in
+                    Button { setCaptions(m) } label: {
+                        if m == captions { Label(m.title, systemImage: "checkmark") } else { Text(m.title) }
+                    }
+                    .accessibilityIdentifier("talk-captions-\(m.rawValue)")
+                }
             }
         } label: {
             Image(systemName: "ellipsis.circle").font(.system(size: 19, weight: .semibold)).foregroundStyle(Theme.muted)
