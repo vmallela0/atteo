@@ -326,17 +326,26 @@ ${ALLOWANCE_JS}
   function blip(){try{ac=ac||new (window.AudioContext||window.webkitAudioContext)();const t=ac.currentTime;
     [[660,0],[880,.09]].forEach(([f,d])=>{const o=ac.createOscillator(),g=ac.createGain();o.frequency.value=f;g.gain.setValueAtTime(0,t+d);g.gain.linearRampToValueAtTime(.15,t+d+.015);g.gain.exponentialRampToValueAtTime(.0001,t+d+.16);o.connect(g);g.connect(ac.destination);o.start(t+d);o.stop(t+d+.18)})}catch(e){}}
   function stopGo(){if(gl){try{gl.abort()}catch(e){}gl=null}}
-  // Talk: what you say goes into the box after what's there; "send it" at the end posts it.
+  // Talk: what you say goes into the box after what's there; "send it" at the end posts it. What it heard is dropped when you
+  // send, press Esc or leave a reply, and your own typing starts it afresh from what's in the box, so old words never come
+  // back (jxn #1698). skip: results from before the last fresh start (continuous recognition keeps every result it had).
+  var base='',fin='',skip=0,seen=0,own=false;
+  const takeBox=()=>{base=ta.value.trim()?ta.value.replace(/[ ]+$/,'')+' ':'';fin='';skip=seen};
+  function micStop(){const r=rec;if(!r)return;rec=null;fin='';try{r.abort()}catch(e){}mic.setAttribute('aria-pressed','false');mic.classList.remove('on')}
+  window.micStop=micStop;
   if(SR&&mic){mic.hidden=false;mic.addEventListener('click',()=>{if(rec){try{rec.stop()}catch(e){}return}
-    stopGo();if(typeof hush==='function')hush();else if(syn)syn.cancel();const base=ta.value.trim()?ta.value.replace(/[ ]+$/,'')+' ':'';let fin='';
-    rec=new SR();rec.lang=LANG;rec.interimResults=true;rec.continuous=true;mic.setAttribute('aria-pressed','true');mic.classList.add('on');
-    rec.onresult=ev=>{let mid='';for(let i=ev.resultIndex;i<ev.results.length;i++){const r=ev.results[i];if(r.isFinal)fin+=r[0].transcript;else mid+=r[0].transcript}
+    stopGo();if(typeof hush==='function')hush();else if(syn)syn.cancel();seen=0;takeBox();skip=0;
+    const r=rec=new SR();r.lang=LANG;r.interimResults=true;r.continuous=true;mic.setAttribute('aria-pressed','true');mic.classList.add('on');
+    r.onresult=ev=>{if(r!==rec)return;seen=ev.results.length;let mid='';for(let i=Math.max(ev.resultIndex,skip);i<ev.results.length;i++){const x=ev.results[i];if(x.isFinal)fin+=x[0].transcript;else mid+=x[0].transcript}
       const send=/(^|[ ,.])send it[.!]?$/i.test(fin.trim());
-      ta.value=base+(send?fin.trim().replace(/[ ,.]*send it[.!]?$/i,''):(fin+mid).trim());ta.dispatchEvent(new Event('input',{bubbles:true}));
-      if(send){try{rec.stop()}catch(e){}if(ta.value.trim())ta.form.requestSubmit()}};
-    rec.onerror=ev=>{if(ev.error==='not-allowed'||ev.error==='service-not-allowed')toast('The microphone is blocked: allow it for this site to talk')};
-    rec.onend=()=>{rec=null;mic.setAttribute('aria-pressed','false');mic.classList.remove('on')};
-    try{rec.start()}catch(e){rec=null}})}
+      own=true;ta.value=base+(send?fin.trim().replace(/[ ,.]*send it[.!]?$/i,''):(fin+mid).trim());ta.dispatchEvent(new Event('input',{bubbles:true}));own=false;
+      if(send){micStop();if(ta.value.trim())ta.form.requestSubmit()}};
+    r.onerror=ev=>{if(ev.error==='not-allowed'||ev.error==='service-not-allowed')toast('The microphone is blocked: allow it for this site to talk')};
+    r.onend=()=>{if(rec!==r)return;rec=null;mic.setAttribute('aria-pressed','false');mic.classList.remove('on')};
+    try{r.start()}catch(e){rec=null}})
+    ta.addEventListener('input',()=>{if(rec&&!own)takeBox()});
+    ta.addEventListener('keydown',e=>{if(e.key==='Escape')micStop()});
+    ta.form&&ta.form.addEventListener('submit',micStop)}
   if(!syn||!vb)return;
   // What's left of this month's read-aloud, on the button's title; used up: a clear state and the device voice, never silently.
   const VB_TITLE=vb.title;let ttsOut=false,ttsTold=false,ttsT=0;
@@ -1457,7 +1466,7 @@ function replyTo(seq,focus=true,restore=false){const el=document.getElementById(
   taFit();if(focus){ta.focus();ta.setSelectionRange(ta.value.length,ta.value.length)}}
 /** Leaves reply mode. A reply that took the box's text gives it back (without the @mention it added); otherwise the
  *  reply's draft is kept (unless it's only that @mention) and your other draft comes back. */
-function replyClear(sent){if(!rpTo.value)return;const mine=rpCarry===+rpTo.value,carry=mine&&!sent;if(mine)rpCarry=0;
+function replyClear(sent){if(!rpTo.value)return;if(window.micStop)micStop();const mine=rpCarry===+rpTo.value,carry=mine&&!sent;if(mine)rpCarry=0;
   if(carry){const m=rpAt.trim();if(m&&ta.value.startsWith(m))ta.value=ta.value.slice(m.length).replace(/^ /,'');draftSave(draftNow(),'')}
   else if(!sent)draftSave(draftNow(),ta.value.trim()===rpAt.trim()?'':ta.value);
   rpTo.value='';rpAt='';rpBox.hidden=true;try{localStorage.removeItem(draftKey('to'));if(!rpCarry)localStorage.removeItem(draftKey('carry'))}catch(e){}
