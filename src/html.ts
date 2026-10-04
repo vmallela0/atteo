@@ -1564,9 +1564,15 @@ const qBtn=document.createElement('button');qBtn.type='button';qBtn.className='b
 const fwdQBtn=document.createElement('button');fwdQBtn.type='button';fwdQBtn.className='btn sm';fwdQBtn.id='fwd-q-btn';fwdQBtn.textContent='↪ '+tr('Forward');
 qBar.append(qBtn,fwdQBtn);document.body.appendChild(qBar);
 let qSel=null,qT=0;
+/** Quoted text keeps "#N" for ref chips (agents and the quote box re-render them), not the on-screen "↗ title", and keeps
+ *  its line breaks: the copy is read as rendered text (innerText) from an offscreen box, so <br>, paragraphs and list
+ *  items stay separate lines, as selection.toString() gave them (#1887). */
+function qText(r){const f=r.cloneContents();f.querySelectorAll('a.ref').forEach(a=>a.replaceWith('#'+a.dataset.ref));
+  const box=document.createElement('div');box.setAttribute('aria-hidden','true');box.style.cssText='position:fixed;left:-10000px;top:0;width:640px;white-space:normal;pointer-events:none';
+  box.append(f);document.body.appendChild(box);const t=box.innerText;box.remove();return t.replace(/\\r/g,'').replace(/\\u00a0/g,' ').trim()}
 function qPick(){const s=getSelection();if(READONLY||!s||s.isCollapsed||!s.rangeCount)return null;const r=s.getRangeAt(0),at=n=>(n.nodeType===1?n:n.parentElement)?.closest('.body');
   const b=at(r.startContainer),el=b?.closest('.entry[data-seq]');if(!el||b!==at(r.endContainer))return null;
-  const text=s.toString().replace(/\\r/g,'').trim();return text?{seq:+el.dataset.seq,who:sentName(el),text,r}:null}
+  const text=qText(r);return text?{seq:+el.dataset.seq,who:sentName(el),text,r}:null}
 function qShow(){qSel=qPick();if(!qSel){qBar.hidden=true;return}const box=qSel.r.getBoundingClientRect();
   (qSel.r.startContainer.parentElement?.closest('dialog')||document.body).appendChild(qBar);qBar.hidden=false; // over a modal too
   qBar.style.left=Math.max(8,Math.min(innerWidth-qBar.offsetWidth-8,box.left+box.width/2-qBar.offsetWidth/2))+'px';

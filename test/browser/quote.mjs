@@ -6,7 +6,7 @@
 import { SHOTS_DIR } from "./lib/shots.mjs";
 import { chromium } from "playwright-core";
 const BASE=process.env.BASE||"http://localhost:8787";
-const ops=async(p,b)=>(await fetch(`${BASE}/api/ops/${p}`,{method:"POST",headers:{"x-admin-key":"ci-admin-key","content-type":"application/json"},body:JSON.stringify(b)})).json();
+const ops=async(p,b)=>(await fetch(`${BASE}/api/ops/${p}`,{method:"POST",headers:{"x-admin-key":process.env.ADMIN_KEY||"ci-admin-key","content-type":"application/json"},body:JSON.stringify(b)})).json();
 const run=Date.now().toString(36).slice(-4),A=`vq${run}`,B=`jq${run}`;
 for(const u of [A,B])await ops("users",{name:u,email:`${u}@example.com`,verified:"true"});
 const tokA=(await ops("tokens",{user:A})).token;
@@ -81,4 +81,40 @@ for(const [label,w,h,phone] of [["desktop",1280,800,false],["phone",390,844,true
   check(await p.locator(`#e${seq} blockquote.qt .qt-go[href="#e${src}"]`).count()===1,`${label}: the box renders the same after a reload`);
   check(errors.length===0,`${label}: no page errors ${errors.join(" | ")}`);await ctx.close();
 }
+// Ref chip in a selection quotes #N, not the visible title (board #1820, #1443).
+{const run2=Date.now().toString(36).slice(-4),C=`qc${run2}`;
+for(const u of [C])await ops("users",{name:u,email:`${u}@example.com`,verified:"true"});
+const tokC=(await ops("tokens",{user:C})).token;
+const board2=(await ops("boards",{user:C,title:`Quote ref ${run2}`})).board.id;
+const ckC=(await ops("sessions",{user:C})).cookie;
+const mcp2=async(name,args)=>(await (await fetch(`${BASE}/mcp?board=${board2}`,{method:"POST",headers:{"content-type":"application/json",accept:"application/json, text/event-stream",authorization:`Bearer ${tokC}`},body:JSON.stringify({jsonrpc:"2.0",id:1,method:"tools/call",params:{name,arguments:args}})})).json()).result.content[0].text;
+await mcp2("read",{});const tgt=+(await mcp2("post",{type:"decision",title:"Ship on Friday",text:"We ship on Friday."})).match(/#(\d+)/)[1];
+const refSeq=+(await mcp2("post",{type:"note",text:`Following up on #${tgt}: all set.`})).match(/#(\d+)/)[1];
+const chipTitle="↗ Ship on Friday";
+const ctx=await b.newContext({viewport:{width:1280,height:800}});const [k,...v]=ckC.split(";")[0].split("=");await ctx.addCookies([{name:k,value:v.join("="),url:BASE}]);
+const p=await ctx.newPage();const errors=[];p.on("pageerror",e=>errors.push(e.message));
+await p.goto(`${BASE}/b/${board2}`);await p.waitForTimeout(800);
+check((await p.evaluate(()=>[...document.querySelectorAll('#thread .body a.ref')].map(a=>a.textContent)))[0]===chipTitle,`ref chip shows the title (${chipTitle})`);
+await p.evaluate(s=>{const body=document.querySelector('#e'+s+'>.grow>.body'),r=document.createRange();r.selectNodeContents(body);getSelection().removeAllRanges();getSelection().addRange(r)},refSeq);
+await p.waitForTimeout(300);
+const qb=p.locator("#quote-btn");check(await qb.isVisible(),"selecting a message with a ref chip shows Quote");
+await qb.click();await p.waitForTimeout(250);
+await p.locator("#composer-text").pressSequentially("noted");await p.keyboard.press("Enter");await p.waitForTimeout(900);
+const posted=+(await p.locator("#thread>.entry").last().getAttribute("data-seq"));
+const got=await mcp2("get",{seq:posted});
+check(got.includes(`#${tgt}`)&&!got.includes(chipTitle),`posted quote has #${tgt}, not the chip title (${JSON.stringify(got.slice(0,120))})`);
+check(got.includes(`> Following up on #${tgt}: all set.`),"…with the #N in the quoted line");
+// Line breaks survive the #N swap (#1887): two lines with a chip in one, then a list, quote as separate "> " lines.
+{const multi=+(await mcp2("post",{type:"note",text:`First line, no ref\nSecond line on #${tgt} here\n\n- item one\n- item two`})).match(/#(\d+)/)[1];
+await p.goto(`${BASE}/b/${board2}`);await p.waitForTimeout(800);
+await p.evaluate(s=>{const body=document.querySelector('#e'+s+'>.grow>.body'),r=document.createRange();r.selectNodeContents(body);getSelection().removeAllRanges();getSelection().addRange(r)},multi);
+await p.waitForTimeout(300);await p.locator("#quote-btn").click();await p.waitForTimeout(250);
+const box=await p.inputValue("#composer-text");
+await p.locator("#composer-text").press("End");await p.locator("#composer-text").pressSequentially("ok");await p.keyboard.press("Enter");await p.waitForTimeout(900);
+const posted2=+(await p.locator("#thread>.entry").last().getAttribute("data-seq"));
+const got2=await mcp2("get",{seq:posted2});
+check(/> First line, no ref\n\s*> Second line on #\d+ here\n/.test(got2)&&got2.includes(`> Second line on #${tgt} here`),`a two-line quote keeps both lines, with #${tgt} in the second (${JSON.stringify(box.slice(0,160))})`);
+check(/> item one\n\s*> item two/.test(got2),"…and list items stay one per line");
+check(!got2.includes(chipTitle),"…and never the chip's title")}
+check(errors.length===0,`ref chip quote: no page errors ${errors.join(" | ")}`);await ctx.close()}
 await b.close();console.log(fails?`${fails} FAILED`:"all quote checks passed");process.exit(fails?1:0);
