@@ -414,11 +414,17 @@ final class AppState: ObservableObject {
     /// Sends a message: it shows at once (sending…), then becomes the real entry, or "not sent, tap to retry".
     /// `toSession`: on "Your agent", one of your sessions by name (nil: any of your agents).
     /// `type`: what a slash command makes it (SlashCommands.swift): note, task, decision or question.
-    func send(_ text: String, to b: Board, replyTo: Int? = nil, retrying old: Entry? = nil, toSession: String? = nil, type: String = "note") async {
+    /// `audience` (the composer's lock, #1748/#1749): "own" (Just mine: you and your agents) or "people" (People only:
+    /// `toPeople` and you, no agent). Kept on the message as it shows, so a retry sends it the same way.
+    func send(_ text: String, to b: Board, replyTo: Int? = nil, retrying old: Entry? = nil, toSession: String? = nil, type: String = "note",
+              audience: String? = nil, toPeople: [String]? = nil) async {
         let mine = self.me?.owner ?? ""
-        let temp = old ?? Entry(seq: -Int(Date().timeIntervalSince1970 * 1000), ts: Date().timeIntervalSince1970 * 1000, author: mine, type: type, text: text, title: nil, to: nil, via: "person", artifactName: nil, pending: true, replyTo: replyTo)
+        let temp = old ?? Entry(seq: -Int(Date().timeIntervalSince1970 * 1000), ts: Date().timeIntervalSince1970 * 1000, author: mine, type: type, text: text, title: nil, to: nil, via: "person", artifactName: nil, pending: true, replyTo: replyTo,
+                                audience: audience, toPeople: audience == "people" ? toPeople ?? [] : nil)
         var reply: [String: Any] = temp.replyTo.map { ["reply_to": $0] } ?? [:]
         if let toSession { reply["to_session"] = toSession }
+        if temp.audience == "own" { reply["own"] = true }
+        else if temp.audience == "people" { reply["people_only"] = true; reply["to"] = temp.toPeople ?? [] }
         withAnimation(.smooth) {
             var list = entries[b.id] ?? []
             list.removeAll { $0.seq == temp.seq }

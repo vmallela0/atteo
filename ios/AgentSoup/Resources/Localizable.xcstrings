@@ -2917,6 +2917,34 @@
       }
     },
     "@": {},
+    "@ the people who should see it: agents never will": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "@menciona a quienes deben verlo: los agentes nunca lo verán"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "見せたい人を @ してください。エージェントには決して見えません"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "@ 应该看到它的人：智能体永远看不到"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "@ 應該看到它的人：智能體永遠看不到"
+          }
+        }
+      }
+    },
     "@%@": {},
     "A coding agent": {
       "localizations": {
@@ -5830,6 +5858,34 @@
         }
       }
     },
+    "Chats with other people, the ones where a person wrote last first": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chats con otras personas, primero aquellos donde una persona escribió lo último"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ほかの人とのチャット。最後に人が書いたものから順に"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有其他人的聊天，最后由人发言的排在前面"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有其他人的聊天，最後由人發言的排在前面"
+          }
+        }
+      }
+    },
     "Check your email": {
       "localizations": {
         "es": {
@@ -8408,6 +8464,35 @@
         }
       }
     },
+    "Everyone": {
+      "comment": "The composer's lock: a message everyone on the board sees",
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todos"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全員"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所有人"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所有人"
+          }
+        }
+      }
+    },
     "Everyone else in your chats keeps their own setting. You see the details; they keep seeing plain results.": {
       "localizations": {
         "es": {
@@ -9584,6 +9669,62 @@
         }
       }
     },
+    "Hide agents": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ocultar agentes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントを隠す"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐藏智能体"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隱藏智能體"
+          }
+        }
+      }
+    },
+    "Hide assistants": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ocultar asistentes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アシスタントを隠す"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐藏助手"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隱藏助手"
+          }
+        }
+      }
+    },
     "Hide diff": {
       "localizations": {
         "es": {
@@ -10448,6 +10589,62 @@
           "stringUnit": {
             "state": "translated",
             "value": "跳到最新"
+          }
+        }
+      }
+    },
+    "Just mine": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo yo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自分だけ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅自己"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "僅自己"
+          }
+        }
+      }
+    },
+    "Just mine · only you and your agents": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo yo · solo tú y tus agentes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自分だけ · あなたとあなたのエージェントだけ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅自己 · 只有你和你的智能体"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "僅自己 · 只有你和你的智能體"
           }
         }
       }
@@ -12608,6 +12805,34 @@
         }
       }
     },
+    "No messages from people here yet. Turn the filter off to see everything.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aún no hay mensajes de personas aquí. Desactiva el filtro para verlo todo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここにはまだ人が書いたメッセージがありません。フィルターをオフにするとすべて表示されます。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这里还没有真人写的消息。关闭筛选即可看到全部。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這裡還沒有真人寫的訊息。關閉篩選即可看到全部。"
+          }
+        }
+      }
+    },
     "No one by that name": {
       "localizations": {
         "es": {
@@ -13674,6 +13899,62 @@
         }
       }
     },
+    "Only the people you @ will see this…": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo las personas que @menciones verán esto…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "@ した人だけがこれを見られます…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只有你 @ 的人能看到…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只有你 @ 的人能看到…"
+          }
+        }
+      }
+    },
+    "Only you and your agents will see this…": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo tú y tus agentes verán esto…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "あなたとあなたのエージェントだけがこれを見ます…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只有你和你的智能体会看到这条…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只有你和你的智能體會看到這則…"
+          }
+        }
+      }
+    },
     "Open": {
       "localizations": {
         "es": {
@@ -14290,6 +14571,34 @@
         }
       }
     },
+    "People first": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personas primero"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "人を優先"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "真人优先"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "真人優先"
+          }
+        }
+      }
+    },
     "People on this board": {
       "localizations": {
         "es": {
@@ -14314,6 +14623,34 @@
           "stringUnit": {
             "state": "translated",
             "value": "這個看板上的人"
+          }
+        }
+      }
+    },
+    "People only": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo personas"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "人だけ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅限真人"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "僅限真人"
           }
         }
       }
@@ -14566,6 +14903,62 @@
           "stringUnit": {
             "state": "translated",
             "value": "隱私"
+          }
+        }
+      }
+    },
+    "Private": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Privado"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "非公開"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "私密"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "私密"
+          }
+        }
+      }
+    },
+    "Private: People only (the people you @, no agents) or Just mine (you and your agents)": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Privado: Solo personas (las que menciones con @, sin agentes) o Solo yo (tú y tus agentes)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "非公開：人だけ（@ した人のみ、エージェントは不可）または自分だけ（あなたとあなたのエージェント）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "私密：仅限真人（你 @ 的人，智能体看不到）或仅自己（你和你的智能体）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "私密：僅限真人（你 @ 的人，智能體看不到）或僅自己（你和你的智能體）"
           }
         }
       }
@@ -16734,6 +17127,34 @@
           "stringUnit": {
             "state": "translated",
             "value": "在“聯絡人”中顯示我"
+          }
+        }
+      }
+    },
+    "Showing people only": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrando solo personas"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "人の投稿だけを表示中"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅显示真人的消息"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "僅顯示真人的訊息"
           }
         }
       }
@@ -23048,6 +23469,62 @@
           "stringUnit": {
             "state": "translated",
             "value": "· 第 %1$lld 項，共 %2$lld 項"
+          }
+        }
+      }
+    },
+    "· only the people you @ can see it. Agents can't.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "· solo las personas que @menciones pueden verlo. Los agentes no."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "· @ した人だけが見られます。エージェントは見られません。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "· 只有你 @ 的人能看到。智能体看不到。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "· 只有你 @ 的人能看到。智能體看不到。"
+          }
+        }
+      }
+    },
+    "· only you and your agents can see it.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "· solo tú y tus agentes pueden verlo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "・あなたとあなたのエージェントだけが見られます。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "· 只有你和你的智能体能看到。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "· 只有你和你的智能體能看到。"
           }
         }
       }

@@ -53,6 +53,32 @@ struct BoardView: View {
     @State private var toSession: String? // "Your agent": one of your sessions (nil: any of your agents)
     @State private var confetti = 0 // bumped when a "Shipped" change card arrives while you're here
     @State private var newestSeen: Int? // the newest message when the chat opened (so only arrivals celebrate)
+    /// The People filter (jxn #1731, vedu #1060; the web's Hide agents): only what people wrote, their replies included.
+    /// For you only, remembered for this board on this phone. Never on "Your agent" (it's all your agents there).
+    @State private var peopleOnly: Bool
+
+    init(board: Board) {
+        self.board = board
+        _peopleOnly = State(initialValue: !board.isAgentChat && UserDefaults.standard.bool(forKey: Self.filterKey(board.id)))
+    }
+    static func filterKey(_ board: String) -> String { "people-filter.\(board)" }
+    /// `follow`: at the latest, stay there as rows leave or come back (the web's toBottom while pinned); a jump to a
+    /// message doesn't (it scrolls there itself).
+    private func setPeopleOnly(_ on: Bool, follow: Bool = true) {
+        let pinned = follow && (stick || atBottom)
+        withAnimation(.smooth(duration: 0.25)) { peopleOnly = on }
+        if on { UserDefaults.standard.set(true, forKey: Self.filterKey(board.id)) } else { UserDefaults.standard.removeObject(forKey: Self.filterKey(board.id)) }
+        guard pinned else { return }
+        stick = true
+        Task {
+            for _ in 0..<4 { // the lazy layout settles over a few passes
+                try? await Task.sleep(for: .milliseconds(120))
+                position.scrollTo(edge: .bottom)
+            }
+        }
+    }
+    /// Hidden by the People filter: an agent's post.
+    private func filteredOut(_ e: Entry) -> Bool { peopleOnly && e.byAgent }
 
     @ObservedObject private var threadSeen = ThreadSeen.shared
     @Environment(\.chatDensity) private var density
@@ -75,7 +101,8 @@ struct BoardView: View {
         let gone = Set(list.compactMap(\.retracts))
         // Every message in order, replies included (jxn #1040): a reply lands at the bottom like any message, under a
         // bar quoting what it answers; the message it answers says "3 replies", which opens the thread.
-        let shown = list.filter { $0.retracts == nil }
+        // (The People filter leaves agents' posts out of what's shown only: a person's reply still quotes what it answers.)
+        let shown = list.filter { $0.retracts == nil && !filteredOut($0) }
         let replies = Dictionary(grouping: list.filter { $0.replyTo != nil && $0.retracts == nil && $0.seq > 0 && !gone.contains($0.seq) }, by: { rootOf($0, in: bySeq) })
         let latestMine = shown.last { isMine($0) && $0.seq > 0 && $0.type != "task" && !gone.contains($0.seq) }?.seq
         return Rows(shown: shown, bySeq: bySeq, gone: gone, replies: replies, latestMine: latestMine)
@@ -120,6 +147,14 @@ struct BoardView: View {
                 Menu {
                     Button(Vocab.tasks, systemImage: "checklist") { workPane = .tasks }
                     Button("Files", systemImage: "doc.on.doc") { workPane = .files }
+                    if !board.isAgentChat {
+                        Divider()
+                        // Only messages people wrote (the web's Hide agents): for you, on this board.
+                        Toggle(isOn: Binding(get: { peopleOnly }, set: { on in Haptics.play(.touch); setPeopleOnly(on) })) {
+                            Label(Vocab.pick(String(localized: "Hide agents", bundle: .l10n), String(localized: "Hide assistants", bundle: .l10n)), systemImage: "person")
+                        }
+                        .accessibilityIdentifier("people-filter")
+                    }
                 } label: { ToolbarIcon("square.stack") }
                 .accessibilityIdentifier("work-menu")
                 .accessibilityLabel(Vocab.pick(String(localized: "Tasks and files", bundle: .l10n), String(localized: "To-dos and files", bundle: .l10n)))
@@ -211,7 +246,7 @@ struct BoardView: View {
             .background(Theme.bg)
             // Nothing said yet: how agents get here, and "Invite an agent" (the web's empty board), in the middle.
             .overlay {
-                if state.entries[board.id] != nil && r.shown.isEmpty && board.invitesAgents {
+                if state.entries[board.id] != nil && r.shown.isEmpty && !peopleOnly && board.invitesAgents {
                     EmptyChatInvite(board: board) { focused = false; invitingAgent = true }
                         .transition(.opacity)
                 }
@@ -250,9 +285,16 @@ struct BoardView: View {
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
-            // Everyday: Chat · To-dos · Files under the title (Everyday.swift); Developer mode: the work strip.
-            if Vocab.everyday { EverydayChatTabs(tasks: state.tasks[board.id] ?? []) { workPane = $0 } }
-            else { WorkStrip(tasks: state.tasks[board.id] ?? []) { showTasks = true } }
+            VStack(spacing: 0) {
+                // Everyday: Chat · To-dos · Files under the title (Everyday.swift); Developer mode: the work strip.
+                if Vocab.everyday { EverydayChatTabs(tasks: state.tasks[board.id] ?? []) { workPane = $0 } }
+                else { WorkStrip(tasks: state.tasks[board.id] ?? []) { showTasks = true } }
+                // The People filter is on: says so, one tap shows everything again.
+                if peopleOnly {
+                    PeopleFilterStrip(empty: state.entries[board.id] != nil && r.shown.isEmpty) { Haptics.play(.touch); setPeopleOnly(false) }
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+            }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) { composer }
         .sheet(isPresented: $showTasks) { TasksSheet(board: board).environment(\.chatDensity, density).presentationDetents([.large]).presentationBackground(Theme.bg) }
@@ -419,6 +461,8 @@ struct BoardView: View {
     private func jump(to seq: Int, after delay: Double = 0) {
         Task {
             if delay > 0 { try? await Task.sleep(nanoseconds: UInt64(delay * 1e9)) }
+            // An agent's post, with the People filter on: show everything again first (the web's "Showing agents' posts").
+            if peopleOnly, list.first(where: { $0.seq == seq })?.byAgent == true { setPeopleOnly(false, follow: false) }
             // Further back than what's loaded: bring it in (pages of up to 500, until it's here).
             var tries = 0
             while !list.contains(where: { $0.seq == seq }), tries < 20, (state.firstLoaded(board) ?? 0) > seq {
@@ -427,6 +471,7 @@ struct BoardView: View {
                 tries += 1
             }
             if holdBottom { try? await Task.sleep(nanoseconds: 250_000_000); holdBottom = false }
+            if peopleOnly, list.first(where: { $0.seq == seq })?.byAgent == true { setPeopleOnly(false, follow: false); try? await Task.sleep(nanoseconds: 250_000_000) }
             // (A reply is in the chat like any message now, jxn #1040: it scrolls there too.)
             guard list.contains(where: { $0.seq == seq && $0.retracts == nil }) else { Haptics.play(.warning); return }
             stick = false
@@ -450,7 +495,7 @@ struct BoardView: View {
         guard !unreadResolved else { return }
         unreadResolved = true
         guard state.jumpRequest == nil, !userScrolled, let me, let seen = state.reads[board.id]?[me]?.personSeen, seen > 0,
-              let first = list.first(where: { $0.seq > seen && $0.retracts == nil && !isMine($0) }) else { return }
+              let first = list.first(where: { $0.seq > seen && $0.retracts == nil && !isMine($0) && !filteredOut($0) }) else { return }
         newAt = first.seq
         stick = false
         // The lazy layout guesses row heights until rows are made: hold it there while it settles.
@@ -788,6 +833,20 @@ struct EntryRow: View {
         }
     }
 
+    /// Who can see it, when not everyone (#1748): "🔒 Just mine · only you and your agents", or "🔒 People only".
+    @ViewBuilder private var audienceNote: some View {
+        if e.audience == "own" {
+            Text(verbatim: "🔒 " + String(localized: "Just mine · only you and your agents", bundle: .l10n))
+                .font(Typo.micro.weight(.medium)).foregroundStyle(Theme.accent)
+                .accessibilityIdentifier("own-badge")
+        } else if e.audience == "people" {
+            let others = (e.toPeople ?? []).filter { $0 != me }
+            Text(verbatim: "🔒 " + String(localized: "People only", bundle: .l10n) + (others.isEmpty ? "" : " · " + others.joined(separator: ", ")))
+                .font(Typo.micro.weight(.medium)).foregroundStyle(Theme.warn).lineLimit(1)
+                .accessibilityIdentifier("people-badge")
+        }
+    }
+
     /// A question, a claim, a decision: said in words, not as a type tag.
     private var kind: String? {
         switch e.type {
@@ -852,6 +911,7 @@ struct EntryRow: View {
         VStack(alignment: .trailing, spacing: Space.xs) {
             if let k = kind { Text(k).font(Typo.micro.weight(.medium)).foregroundStyle(Theme.faint) }
             quote
+            audienceNote
             attachment
             if unsent { unsentBody } else if e.type == "change" { if Vocab.everyday { ResultCard(e: e) } else { ChangeCardView(e: e, board: board) } } else if let caption {
                 MessageBody(text: caption, render: words, ink: e.pending == true ? 0.55 : 1, lineSpacing: 0)
@@ -913,6 +973,7 @@ struct EntryRow: View {
                 }
                 attachment.padding(.vertical, Space.xxs)
                 quote
+                audienceNote
                 if unsent { unsentBody } else if e.type == "change" { Group { if Vocab.everyday { ResultCard(e: e) } else { ChangeCardView(e: e, board: board) } }.padding(.top, Space.xxs) } else if e.type == "task" { TaskCard(seq: e.seq, board: board, text: e.text, tasks: tasks).padding(.top, Space.xxs) } else if let caption {
                     MessageBody(text: caption, render: words)
                 }
@@ -924,6 +985,35 @@ struct EntryRow: View {
         .padding(.horizontal, forYou ? Space.s : 0).padding(.vertical, forYou ? Space.xs + 2 : 0)
         .background(forYou ? Theme.warn.opacity(0.09) : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .padding(.top, gapAbove(Space.s + 2))
+    }
+}
+
+/// Under the chat's title while the People filter is on: "Showing people only · Show all" (or, when nobody but agents
+/// has written yet, that it's empty because of the filter). Show all turns it off.
+struct PeopleFilterStrip: View {
+    var empty = false
+    let showAll: () -> Void
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: Space.xs) {
+            Image(systemName: "person.fill").font(.system(size: 10, weight: .semibold)).foregroundStyle(Theme.muted).accessibilityHidden(true)
+            Text(empty ? String(localized: "No messages from people here yet. Turn the filter off to see everything.", bundle: .l10n)
+                 : String(localized: "Showing people only", bundle: .l10n))
+                .font(Typo.micro.weight(.medium)).foregroundStyle(Theme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(verbatim: "·").font(Typo.micro).foregroundStyle(Theme.faint).accessibilityHidden(true)
+            Button(action: showAll) {
+                Text("Show all").font(Typo.micro.weight(.semibold)).foregroundStyle(Theme.accent)
+                    .frame(minHeight: 28).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("people-filter-show-all")
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, Space.l).padding(.vertical, 2)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.card)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("people-filter-strip")
     }
 }
 

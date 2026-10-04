@@ -33,6 +33,17 @@ struct ChatComposer: View {
     @State private var showEncryptedNote = false
     @ObservedObject private var voice = VoiceInput.shared
     private let maxAttachments = 10
+    // The lock (#1748/#1749, like the web's): who the next message is for. Each time it's turned on it starts at People
+    // only, the stricter one (#1866/#1881): Just mine, which your agents see, is always a choice made for that message.
+    @State private var privacy: Privacy = .everyone
+    @State private var lockWarning = false // People only, sent without an @person: say who it needs
+
+    /// Who a message is for: everyone here, People only (the people you @, no agent) or Just mine (you and your agents).
+    enum Privacy: String { case everyone, people, own }
+    /// The lock is on the chat's box of a board: not in a thread (a reply has what it answers' audience), a DM or
+    /// "Your agent" (private already), nor an encrypted board (its sealed posts can't carry an audience).
+    private var lockable: Bool { replyTo == nil && !board.isAgentChat && board.kind != "direct" && board.encrypted != true }
+    private var locked: Bool { lockable && privacy != .everyone }
 
     private var me: String? { state.me?.owner }
     private var list: [Entry] { state.entries[board.id] ?? [] }
@@ -40,7 +51,7 @@ struct ChatComposer: View {
     private var canSend: Bool {
         guard preparing == 0 else { return false }
         if !attachments.isEmpty { return true }
-        if let (_, rest) = SlashCommand.parse(draft, on: board) { return !rest.isEmpty } // "/task" alone: nothing to send yet
+        if let (_, rest) = SlashCommand.parse(draft, on: board, locked: locked) { return !rest.isEmpty } // "/task" alone: nothing to send yet
         return !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
@@ -105,10 +116,11 @@ struct ChatComposer: View {
             if let toSession { AgentToPicker(to: toSession) }
             // "/": what a message can be besides a note (a task, a decision, a question).
             if attachments.isEmpty {
-                let fits = SlashCommand.suggestions(draft, on: board)
+                let fits = SlashCommand.suggestions(draft, on: board, locked: locked)
                 if !fits.isEmpty { SlashChips(commands: fits) { c in draft = c.word + " " } }
-                else if let (c, _) = SlashCommand.parse(draft, on: board) { SlashChips(commands: [c], active: c) { _ in } }
+                else if let (c, _) = SlashCommand.parse(draft, on: board, locked: locked) { SlashChips(commands: [c], active: c) { _ in } }
             }
+            if locked { lockChoices.transition(.move(edge: .bottom).combined(with: .opacity)) }
             if !suggestions.isEmpty {
                 MentionList(items: suggestions, pick: insert)
                     .padding(.horizontal, Space.m).padding(.bottom, Space.xs)
@@ -123,9 +135,10 @@ struct ChatComposer: View {
                 }
                 HStack(alignment: .bottom, spacing: 0) {
                     attachButton
+                    if lockable { lockButton }
                     // A text view of its own, so Paste takes pictures too (ComposerField.swift).
                     ComposerField(text: $draft, focused: $focused,
-                                  placeholder: attachments.isEmpty ? placeholder : String(localized: "Add a note", bundle: .l10n),
+                                  placeholder: !attachments.isEmpty ? String(localized: "Add a note", bundle: .l10n) : locked ? lockedPlaceholder : placeholder,
                                   pasteImages: pasted,
                                   members: Set(mentionables.compactMap { $0.user?.lowercased() }), me: me,
                                   agentNames: state.agentNameMap(board.id),
@@ -161,6 +174,7 @@ struct ChatComposer: View {
         .animation(.spring(duration: 0.28, bounce: 0.1), value: preparing)
         .animation(.smooth(duration: 0.25), value: state.typing[board.id])
         .animation(.spring(duration: 0.28, bounce: 0.1), value: draft.hasPrefix("/"))
+        .animation(.spring(duration: 0.28, bounce: 0.1), value: privacy)
         .onChange(of: draft) { _, d in state.typed(d, in: board) } // "maya is typing…" for everyone else here
         .photosPicker(isPresented: $showPhotos, selection: $picked, maxSelectionCount: max(1, maxAttachments - attachments.count - preparing), selectionBehavior: .ordered, matching: .images)
         .onChange(of: picked) { _, items in
@@ -206,7 +220,8 @@ struct ChatComposer: View {
             } label: { label.foregroundStyle(Theme.muted) }
                 .menuOrder(.fixed)
                 .menuStyle(.button).buttonStyle(.plain) // the bare circle, no system padding (it lines up with send)
-                .disabled(attachments.count + preparing >= maxAttachments)
+                .disabled(attachments.count + preparing >= maxAttachments || locked) // a picture or file can't be private
+                .opacity(locked ? 0.55 : 1)
                 .accessibilityIdentifier(attachIdentifier)
                 .accessibilityLabel("Attach")
         }
@@ -216,6 +231,7 @@ struct ChatComposer: View {
     /// can't take attachments yet: the + says why).
     private func pasted(_ images: [UIImage]) {
         guard board.encrypted != true else { Haptics.play(.warning); showEncryptedNote = true; return }
+        guard !locked else { Haptics.play(.warning); return } // a picture or file can't be private
         for img in images.prefix(max(0, maxAttachments - attachments.count - preparing)) { add { try await Attachments.photo(img) } }
     }
 
@@ -235,20 +251,118 @@ struct ChatComposer: View {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         let files = attachments
         guard canSend else { return }
+        // Private: Just mine needs nobody; People only needs the people it's for, @named in it (agents never see it).
+        let audience: String? = locked ? privacy.rawValue : nil
+        let people = audience == "people" ? mentionedPeople(text) : []
+        if audience == "people" && people.isEmpty {
+            Haptics.play(.warning)
+            withAnimation(.smooth(duration: 0.2)) { lockWarning = true }
+            return
+        }
         draft = ""
         withAnimation(.spring(duration: 0.3, bounce: 0.15)) { attachments = [] }
         Haptics.play(.sent)
         let session = board.isAgentChat ? toSession?.wrappedValue : nil
         let replyTo = replyTo
+        let wasLocked = locked
+        if wasLocked { privacy = .everyone; lockWarning = false } // like the web: each private message is chosen for itself
         Task {
-            if files.isEmpty, let (c, rest) = SlashCommand.parse(text, on: board) {
-                await state.send(c.body(rest), to: board, replyTo: replyTo, toSession: session, type: c.type)
+            if files.isEmpty, let (c, rest) = SlashCommand.parse(text, on: board, locked: wasLocked) {
+                await state.send(c.body(rest), to: board, replyTo: replyTo, toSession: session, type: c.type, audience: audience, toPeople: people)
             } else if files.isEmpty {
-                await state.send(text, to: board, replyTo: replyTo, toSession: session)
+                await state.send(text, to: board, replyTo: replyTo, toSession: session, audience: audience, toPeople: people)
             } else {
                 await state.send(files: files, caption: text, to: board, replyTo: replyTo)
             }
             await sent?()
+        }
+    }
+
+    // MARK: - The lock
+
+    /// The lock, between + and the text: off, a plain lock; on, filled (ink for People only, the accent for Just mine).
+    /// A tap turns it on at People only, or off.
+    private var lockButton: some View {
+        Button {
+            Haptics.play(.touch)
+            withAnimation(.spring(duration: 0.28, bounce: 0.1)) { privacy = privacy == .everyone ? .people : .everyone; lockWarning = false }
+        } label: {
+            Image(systemName: locked ? "lock.fill" : "lock").font(.system(size: 13, weight: .semibold))
+                .composerCircle(fill: !locked ? Theme.raised : privacy == .own ? Theme.accent : Theme.text)
+                .foregroundStyle(!locked ? Theme.muted : privacy == .own ? Color.black : Theme.onText)
+        }
+        .buttonStyle(PressStyle())
+        .padding(.leading, -Composer.inset) // snug against the +
+        .disabled(!attachments.isEmpty || preparing > 0) // a picture or file can't be private
+        .accessibilityIdentifier("composer-lock")
+        .accessibilityLabel(Text("Private"))
+        .accessibilityValue(Text(privacyName(locked ? privacy : .everyone)))
+        .accessibilityHint(Text("Private: People only (the people you @, no agents) or Just mine (you and your agents)"))
+        .accessibilityAddTraits(locked ? .isSelected : [])
+    }
+
+    private func privacyName(_ p: Privacy) -> String {
+        switch p {
+        case .everyone: return String(localized: "Everyone", bundle: .l10n, comment: "The composer's lock: a message everyone on the board sees")
+        case .people: return String(localized: "People only", bundle: .l10n)
+        case .own: return String(localized: "Just mine", bundle: .l10n)
+        }
+    }
+
+    /// While the lock is on: Everyone · People only · Just mine (the web's two, and Everyone to turn it off), and who
+    /// will see it.
+    private var lockChoices: some View {
+        VStack(alignment: .leading, spacing: Space.xs) {
+            HStack(spacing: Space.xs) {
+                Image(systemName: "lock.fill").font(.system(size: 11, weight: .semibold)).foregroundStyle(privacy == .own ? Theme.accent : Theme.muted)
+                    .accessibilityHidden(true)
+                lockChoice(.everyone, id: "lock-everyone")
+                lockChoice(.people, id: "lock-people")
+                lockChoice(.own, id: "lock-own")
+                Spacer(minLength: 0)
+            }
+            // (The web's words follow its chips on one line, after a "·": here they're a line of their own.)
+            Text(verbatim: (lockWarning ? String(localized: "@ the people who should see it: agents never will", bundle: .l10n)
+                 : privacy == .own ? String(localized: "· only you and your agents can see it.", bundle: .l10n)
+                 : String(localized: "· only the people you @ can see it. Agents can't.", bundle: .l10n)).trimmingCharacters(in: CharacterSet(charactersIn: "·・ ")))
+                .font(Typo.micro).foregroundStyle(lockWarning ? Theme.danger : Theme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("lock-why")
+        }
+        .padding(.horizontal, Space.l)
+        .padding(.bottom, Space.xs)
+    }
+
+    private func lockChoice(_ p: Privacy, id: String) -> some View {
+        let on = p == privacy
+        return Button {
+            Haptics.play(.touch)
+            withAnimation(.spring(duration: 0.28, bounce: 0.1)) { privacy = p; lockWarning = false }
+        } label: {
+            Text(privacyName(p)).font(Typo.micro.weight(.semibold))
+                .foregroundStyle(on ? (p == .own ? Color.black : Theme.onText) : Theme.text)
+                .padding(.horizontal, 10).frame(minHeight: 28)
+                .background(on ? (p == .own ? Theme.accent : Theme.text) : Theme.card, in: Capsule())
+                .contentShape(Capsule())
+        }
+        .buttonStyle(PressStyle())
+        .accessibilityIdentifier(id)
+        .accessibilityAddTraits(on ? [.isSelected] : [])
+    }
+
+    /// "Only the people you @ will see this…" / "Only you and your agents will see this…".
+    private var lockedPlaceholder: String {
+        privacy == .own ? String(localized: "Only you and your agents will see this…", bundle: .l10n)
+            : String(localized: "Only the people you @ will see this…", bundle: .l10n)
+    }
+
+    /// The people (not their agents) a message @names, among the people here: who a People only message is for.
+    private func mentionedPeople(_ text: String) -> [String] {
+        let people = Set(mentionables.filter { !$0.agent && $0.user != nil && $0.user != me }.compactMap(\.user))
+        return people.sorted().filter { u in
+            // "@theo", but not "@theo's agent" or "@theo/builder" (the web's test).
+            let pattern = "(^|\\s)@" + NSRegularExpression.escapedPattern(for: u) + "(?![a-z0-9_.-]|['’]s\\s+(?:agent|assistant)\\b|/)"
+            return text.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
         }
     }
 }

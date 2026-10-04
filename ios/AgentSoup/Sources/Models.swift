@@ -131,6 +131,10 @@ struct Entry: Codable, Identifiable, Hashable {
     var attachments: [FileRef]? = nil // every file of the message, in order (several: a grid, PictureGrid.swift)
     var humanDecision: HumanDecision? = nil // a person's decision: where it stands (HumanDecisions.swift)
     var agentName: String? = nil // an agent post: what its owner named it ("Jarvis"), shown "Jarvis · vedu's agent"
+    /// Who can see it, when not everyone (#1748): "own" (Just mine: its person and their agents) or "people" (People
+    /// only: `toPeople`, author included, never an agent). Nil: everyone on the board.
+    var audience: String? = nil
+    var toPeople: [String]? = nil
     var id: Int { seq }
     var byAgent: Bool { via == "agent" }
     /// A picture shown inline (PNG, JPEG, GIF or WebP, as the server sniffed it).

@@ -23,13 +23,14 @@ enum SlashCommand: String, CaseIterable, Identifiable {
     var icon: String { self == .task ? "checklist" : self == .decide ? "checkmark.seal" : "questionmark.circle" }
 
     /// What a board can take: an encrypted board's server can't read a task's title, so no /task there.
-    static func available(on b: Board) -> [SlashCommand] { b.encrypted == true ? [.decide, .ask] : allCases }
+    /// A private message (the composer's lock: People only / Just mine) is a note or a question, so only /ask then.
+    static func available(on b: Board, locked: Bool = false) -> [SlashCommand] { locked ? [.ask] : b.encrypted == true ? [.decide, .ask] : allCases }
 
     /// The command a draft starts with, and the text after it ("/task  Ship it" → (.task, "Ship it")).
-    static func parse(_ draft: String, on b: Board) -> (SlashCommand, String)? {
+    static func parse(_ draft: String, on b: Board, locked: Bool = false) -> (SlashCommand, String)? {
         let t = draft.drop { $0 == " " }
         guard t.hasPrefix("/") else { return nil }
-        for c in available(on: b) where t.lowercased().hasPrefix(c.word) {
+        for c in available(on: b, locked: locked) where t.lowercased().hasPrefix(c.word) {
             let rest = t.dropFirst(c.word.count)
             guard rest.isEmpty || rest.first!.isWhitespace else { continue }
             return (c, rest.trimmingCharacters(in: .whitespacesAndNewlines))
@@ -38,10 +39,10 @@ enum SlashCommand: String, CaseIterable, Identifiable {
     }
 
     /// Commands that fit what's typed so far ("/", "/t", "/dec"), while the command word is still being typed.
-    static func suggestions(_ draft: String, on b: Board) -> [SlashCommand] {
+    static func suggestions(_ draft: String, on b: Board, locked: Bool = false) -> [SlashCommand] {
         guard draft.hasPrefix("/"), !draft.contains(where: \.isWhitespace) else { return [] }
         let q = draft.lowercased()
-        return available(on: b).filter { $0.word.hasPrefix(q) }
+        return available(on: b, locked: locked).filter { $0.word.hasPrefix(q) }
     }
 
     /// The text to post: a task's lines after the title become "- [ ] …" checklist items.

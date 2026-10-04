@@ -52,8 +52,18 @@ struct ChatsView: View {
         Task { if let b = await state.openAgentChat() { path.append(b) } }
     }
 
+    /// People first (jxn #1731, the web's): chats where a person wrote last go first (newest first within each), and
+    /// boards known to have nobody else on them leave the list. On this phone, for this list only.
+    @AppStorage("people-first") private var peopleFirst = false
+    private func lastByPerson(_ b: Board) -> Bool { b.last.map { !$0.by.hasSuffix("'s agent") } ?? false }
+    private func justMe(_ b: Board) -> Bool { state.members[b.id].map { $0.allSatisfy { $0 == state.me?.owner } } ?? false }
+
     var chats: [Board] {
-        let all = state.boards.filter { !$0.isAgentChat && isDirect($0) == (tab == "direct") && $0.archived != true }.sorted { (unread($0) > 0 ? 1 : 0, $0.lastActivity) > (unread($1) > 0 ? 1 : 0, $1.lastActivity) }
+        var all = state.boards.filter { !$0.isAgentChat && isDirect($0) == (tab == "direct") && $0.archived != true }.sorted { (unread($0) > 0 ? 1 : 0, $0.lastActivity) > (unread($1) > 0 ? 1 : 0, $1.lastActivity) }
+        if peopleFirst {
+            all = all.filter { !justMe($0) }
+            all = all.filter(lastByPerson) + all.filter { !lastByPerson($0) }
+        }
         guard !query.isEmpty else { return all }
         return all.filter { $0.title.localizedCaseInsensitiveContains(query) || ($0.last?.text.localizedCaseInsensitiveContains(query) ?? false) || ($0.last?.by.localizedCaseInsensitiveContains(query) ?? false) }
     }
@@ -165,7 +175,7 @@ struct ChatsView: View {
                         .listRowInsets(rowInsets).listRowBackground(Theme.bg).listRowSeparator(.hidden)
                     }
                 } header: {
-                    ChatsSwitch(tab: $tab, boards: unreadIn(direct: false), direct: unreadIn(direct: true))
+                    ChatsSwitch(tab: $tab, boards: unreadIn(direct: false), direct: unreadIn(direct: true), peopleFirst: $peopleFirst)
                 }
                 .listSectionSeparator(.hidden)
                 // Searching: messages in every board you're in (the server's search, like the web's), tap to go there.
@@ -303,6 +313,8 @@ struct ChatsSwitch: View {
     @Binding var tab: String
     let boards: Int
     let direct: Int
+    /// People first (the web's, beside its Active / Archived): nil leaves it out.
+    var peopleFirst: Binding<Bool>? = nil
     @Namespace private var pill
 
     var body: some View {
@@ -314,6 +326,23 @@ struct ChatsSwitch: View {
             .padding(3)
             .background(Theme.card, in: Capsule())
             Spacer()
+            if let peopleFirst {
+                let on = peopleFirst.wrappedValue
+                Button { Haptics.play(.touch); withAnimation(.spring(duration: 0.3, bounce: 0.15)) { peopleFirst.wrappedValue.toggle() } } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: on ? "person.fill" : "person").font(.system(size: 10, weight: .semibold))
+                        Text("People first").font(Typo.meta.weight(.semibold))
+                    }
+                    .foregroundStyle(on ? Theme.onText : Theme.muted)
+                    .padding(.horizontal, Space.m).frame(minHeight: 30)
+                    .background(on ? Theme.text : Theme.card, in: Capsule())
+                    .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("people-first")
+                .accessibilityHint(Text("Chats with other people, the ones where a person wrote last first"))
+                .accessibilityAddTraits(on ? .isSelected : [])
+            }
         }
         .padding(.top, Space.xs).padding(.bottom, Space.xs)
         .textCase(nil)
