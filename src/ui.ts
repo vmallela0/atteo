@@ -215,6 +215,7 @@ dialog[open]{animation:pop .16s ease-out}dialog:focus{outline:none}@media (prefe
 #thread>.ghost::before{content:"";display:block;margin:20px 0 0 44px;width:min(40%,280px);height:10px;border-radius:5px;background:color-mix(in srgb,var(--muted) 10%,transparent)}
 .entry .rbadge{display:none;height:18px;font-size:11px}
 .entry .fbadge{height:18px;font-size:11px;color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,var(--line))}
+.entry .fbadge.quoted{color:var(--muted);border-color:var(--line)}
 .entry.retracted>.grow>.body,.entry.retracted>.grow>.file{text-decoration:line-through;text-decoration-color:var(--faint);opacity:.55}
 .entry.retracted>.grow>.meta .rbadge{display:inline-flex}
 /* Display (Account → Display): text size and density for the chat; saved per person so web and app match. */
