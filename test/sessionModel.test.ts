@@ -9,6 +9,7 @@ describe("session model", () => {
     expect(cleanModel("   ")).toBeNull();
     expect(cleanModel(42)).toBeNull();
     expect(cleanModel(null)).toBeNull();
+    expect(cleanModel(`ghp_${"a".repeat(36)}`)).toBeNull(); // never stores something that looks like a secret
   });
   it("goes to people only", () => {
     expect(modelFor({ model: "Opus 5.5" }, true)).toEqual({ model: "Opus 5.5" });

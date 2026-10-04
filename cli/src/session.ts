@@ -123,8 +123,8 @@ function claudeCodeModel(sessionId: string): string | null {
   return null;
 }
 
-/** What the calling agent runs on: ATTEO_MODEL, else ANTHROPIC_MODEL, else (Claude Code) its transcript's newest
- *  model, with its effort ("Opus 5.5 high"). Null when nothing says. */
+/** What the calling agent runs on: ATTEO_MODEL, else (Claude Code) its transcript's newest model with its effort
+ *  ("Opus 5.5 high"), else ANTHROPIC_MODEL. Null when nothing says. */
 export function detectModel(): string | null {
   const set = env("MODEL")?.trim();
   if (set) return set.slice(0, 60);
