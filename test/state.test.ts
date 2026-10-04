@@ -37,6 +37,36 @@ describe("computeSummary", () => {
     expect(computeSummary([q, followUp, answer]).openQuestions.map((x) => x.seq)).toEqual([2]);
   });
 
+  it("closes a question when the member it's for (or their agent) answers anywhere in its thread (jxn #1380)", () => {
+    const q = e({ seq: 101, type: "question", author: "jxn", to: "claude-owner", text: "should I take #1289?" });
+    const other = e({ seq: 102, type: "question", author: "vedu", reply_to: 101, text: "which one?" });
+    const deep = e({ seq: 103, type: "note", author: "jxn", reply_to: 102, text: "the status card" });
+    // A follow-up question and the asker's own answer deeper in the thread don't answer it (102 is answered by 103).
+    expect(computeSummary([q, other, deep]).openQuestions.map((x) => x.seq)).toEqual([101]);
+    const ans = e({ seq: 104, type: "note", author: "claude-owner", via: "agent", reply_to: 103, text: "yes, take it" });
+    expect(computeSummary([q, other, deep, ans]).openQuestions).toHaveLength(0);
+    // @mentions count as who it's for, too; someone else's thread reply doesn't close it.
+    const m = e({ seq: 110, type: "question", author: "jxn", text: "@vedu ok?", mentions: [{ user: "vedu", agent: false }] });
+    const n1 = e({ seq: 111, type: "question", author: "jxn", reply_to: 110, text: "still need it?" });
+    const n2 = e({ seq: 112, type: "note", author: "sam", reply_to: 111, text: "not me" });
+    expect(computeSummary([m, n1, n2]).openQuestions.map((x) => x.seq)).toEqual([110]);
+    const n3 = e({ seq: 113, type: "note", author: "vedu", reply_to: 112, text: "yes" });
+    expect(computeSummary([m, n1, n2, n3]).openQuestions).toHaveLength(0);
+    // Asked of nobody: a thread answer from anyone but the asker closes it; a retracted answer doesn't.
+    const open = e({ seq: 120, type: "question", author: "jxn", text: "anyone?" });
+    const self = e({ seq: 121, type: "question", author: "jxn", reply_to: 120, text: "hello?" });
+    const reply = e({ seq: 122, type: "note", author: "sam", reply_to: 121, text: "here" });
+    const gone = e({ seq: 123, type: "note", author: "sam", retracts: 122, text: "" });
+    expect(computeSummary([open, self, reply]).openQuestions).toHaveLength(0);
+    expect(computeSummary([open, self, reply, gone]).openQuestions.map((x) => x.seq)).toEqual([120, 121]);
+  });
+
+  it("closes questions a person marked answered (closed)", () => {
+    const q1 = e({ seq: 130, type: "question", text: "a?" });
+    const q2 = e({ seq: 131, type: "question", text: "b?" });
+    expect(computeSummary([q1, q2], undefined, new Set([130])).openQuestions.map((x) => x.seq)).toEqual([131]);
+  });
+
   it("closes questions and tasks named in resolves", () => {
     const q = e({ seq: 1, type: "question" });
     const t = e({ seq: 2, type: "task" });

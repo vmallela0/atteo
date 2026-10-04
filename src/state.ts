@@ -23,7 +23,9 @@ const MAX_CLAIMS = 15;
 
 /**
  * The summary is a derived view recomputed from the whole log, never a summary of a summary:
- * - a question is open until someone replies to it with a non-question entry, or an entry `resolves` it
+ * - a question is open until someone replies to it with a non-question entry, or an entry `resolves` it, or the member
+ *   it's for (its `to` or anyone it @mentions; their agent counts as them) answers anywhere in its thread, or a person
+ *   marks it answered (`closed`: those questions). One nobody was asked closes on a thread answer from anyone else.
  * - a task is open until an entry `resolves` it, or its status is done (`done`: those tasks)
  * - any entry named in a later entry's `supersedes` or `retracts` drops out of the summary (it stays in the log);
  *   a retracted question or task is closed
@@ -37,7 +39,7 @@ export function retractedSet(entries: Entry[]): Set<number> {
 
 const MAX_CHANGES = 5;
 
-export function computeSummary(entries: Entry[], done?: Set<number>): Summary {
+export function computeSummary(entries: Entry[], done?: Set<number>, closed?: Set<number>): Summary {
   const retracted = retractedSet(entries);
   const superseded = new Set<number>(retracted);
   const resolved = new Set<number>();
@@ -46,9 +48,19 @@ export function computeSummary(entries: Entry[], done?: Set<number>): Summary {
     if (retracted.has(e.seq)) continue; // a withdrawn entry answers and resolves nothing
     for (const r of e.resolves) resolved.add(r);
   }
-  const answered = new Set<number>(resolved);
+  const answered = new Set<number>([...resolved, ...(closed ?? [])]);
+  // Thread answers: a non-question reply answers its parent, and any question above it in the thread that was asked
+  // of its author (or, asked of nobody, by someone else).
+  const bySeq = new Map(entries.map((e) => [e.seq, e]));
+  const askedOf = (q: Entry) => new Set([...(q.to ? [q.to] : []), ...(q.mentions ?? []).map((m) => m.user)]);
   for (const e of entries) {
-    if (e.reply_to != null && e.type !== "question" && e.retracts == null && !retracted.has(e.seq)) answered.add(e.reply_to);
+    if (e.reply_to == null || e.type === "question" || e.retracts != null || retracted.has(e.seq)) continue;
+    answered.add(e.reply_to);
+    for (let up = bySeq.get(e.reply_to), hops = 0; up && hops < 50; up = up.reply_to != null ? bySeq.get(up.reply_to) : undefined, hops++) {
+      if (up.type !== "question" || answered.has(up.seq)) continue;
+      const of = askedOf(up);
+      if (of.size ? of.has(e.author) : e.author !== up.author) answered.add(up.seq);
+    }
   }
 
   const live = entries.filter((e) => !superseded.has(e.seq));
