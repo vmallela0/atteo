@@ -7,7 +7,7 @@
 import { fence, screenText } from "../../src/screen";
 import { blockedMessage, scanFields } from "../../src/secrets";
 import { env } from "./env";
-import { api, CliError, COMMANDS, creds, currentBoard, decryptEntry, folderBoard, getEntry, isEncrypted, onlyOptions, optStr, parseArgs, picturesNote, say, setSession, shown, tool } from "./commands";
+import { api, boardIdIn, CliError, COMMANDS, creds, currentBoard, decryptEntry, folderBoard, getEntry, isEncrypted, onlyOptions, optStr, parseArgs, picturesNote, say, setSession, shown, tool } from "./commands";
 import { load, sameServer, storeName } from "./credentials";
 import { caller, detectModel, loadMap, saveMap, type LocalSession } from "./session";
 import { createHash } from "node:crypto";
@@ -469,7 +469,7 @@ async function createCmd(args: string[]) {
   if (!title) throw new CliError('Usage: atteo create board "<title>" [--invite vedu,sam] [--encrypted]');
   await withSession(opt, async (s) => {
     const out = await tool(opt, "create_board", { title, encrypted: opt.encrypted === true }, null);
-    const id = out.match(/\((b_[a-z0-9]+)\)/)?.[1];
+    const id = boardIdIn(out.split("\n")[0]);
     if (!id) throw new CliError(out);
     const j = await api(opt, "POST", `/api/sessions/${s.id}/boards`, { board: id });
     remember(adopt(j.session, s));

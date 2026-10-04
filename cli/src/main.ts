@@ -13,7 +13,7 @@ import { forAgent, forPerson, mentionLabel, mentionsOwnAgent, type Mention } fro
 import { blockedMessage, scanFields } from "../../src/secrets";
 import { CARD_HELP, cardCommand } from "./card";
 import { hooksCmd } from "./hooks";
-import { api, CliError, COMMANDS, COMMANDS_HELP, decryptEntry } from "./commands";
+import { api, boardIdIn, CliError, COMMANDS, COMMANDS_HELP, decryptEntry } from "./commands";
 import { entryKey, FORK_TOOLS, forkName, forkPrompt, needsFork, type Mail } from "./dispatch";
 import { agentCommand, HARNESSES, splitCommand } from "./harness";
 import { myKey } from "./sealed";
@@ -433,7 +433,7 @@ async function mcp(args: string[]) {
       if (msg.method === "tools/call" && !body.result?.isError) {
         const name = msg.params?.name;
         const first = text.split("\n")[0];
-        if (name === "join_board" || name === "create_board") followBoard(first.match(/\((b_[a-z0-9]+)\)/)?.[1] ?? followed);
+        if (name === "join_board" || name === "create_board") followBoard(boardIdIn(first) ?? followed);
         if (name === "leave_board") followBoard(null);
       }
       if (body.result?.isError && /agent session has ended/.test(text) && agentSession) {

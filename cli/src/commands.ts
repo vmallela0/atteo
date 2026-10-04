@@ -2,6 +2,8 @@
 //   atteo use checkout · read · post "…" · ask jxn "…" · wait · get 12 · search "…" · share log.txt · task … · doc …
 // They call the same tools as `atteo mcp`, on the board chosen with `use` (per folder), and filter secrets locally first.
 
+import { boardIdIn } from "./boardid";
+export { boardIdIn };
 import { randomUUID } from "node:crypto";
 import { env } from "./env";
 import SKILL_MD from "../../skills/atteo/SKILL.md";
@@ -271,11 +273,13 @@ async function use(args: string[]) {
   try {
     const r = await rpc(base, c.token, null, "tools/call", { name: "join_board", arguments: { board: want } }, session);
     if (r.isError) throw new CliError(r.text);
-    // 'Joined "<title>" (<id>)' today; an id-only 'Joined <id>' later, once the server stops echoing a title anyone can set
-    // (#1949). Only the id is trusted; the title is a label for this machine's config.
-    const m = r.text.match(/Joined (?:"(.*?)" \()?(b_[a-z0-9]+)\)?/);
-    if (!m) throw new CliError(r.text);
-    m[1] ??= m[2];
+    // 'Joined "<title>" (<id>)', an invitation's '…and joined "<title>" (<id>)', or an id-only 'Joined <id>' once the server
+    // stops echoing a title anyone can set (#1949, #2156). Only the id is trusted; the title is a label for this machine's config.
+    const first = r.text.split("\n")[0];
+    const id = /\bjoined\b/i.test(first) ? boardIdIn(first) : undefined;
+    if (!id) throw new CliError(r.text);
+    const title = first.match(/\bjoined "(.*)" \(b_/i)?.[1] ?? id;
+    const m = [first, title, id];
     const map = boardMap();
     const key = opt.global ? "*" : resolve(process.cwd());
     map[key] = { id: m[2], title: m[1] };
@@ -921,7 +925,7 @@ async function create(args: string[]) {
   const title = pos.join(" ").trim();
   if (!title) throw new CliError('Usage: atteo create "<title>" [--encrypted]');
   const out = await tool(opt, "create_board", { title, encrypted: opt.encrypted === true }, null);
-  const id = out.match(/\((b_[a-z0-9]+)\)/)?.[1];
+  const id = boardIdIn(out.split("\n")[0]);
   say(out.split("\n")[0]);
   if (id) {
     const map = boardMap();
