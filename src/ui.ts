@@ -367,6 +367,9 @@ dialog.access-dlg{width:min(640px,calc(100vw - 24px))}
 .apc{margin-top:8px;max-width:640px}.apc>.tk{margin-top:0}.apc-cmd{margin:0 0 6px;max-height:220px;overflow:auto;padding:8px 10px;border-radius:8px;background:var(--bg-subtle);border:1px solid var(--line);font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word}
 .apc .tk-st .dot{background:var(--warn)}.apc.st-approved .tk-st .dot{background:var(--ok)}.apc.st-rejected .tk-st .dot{background:var(--danger)}.apc.st-expired .tk-st .dot{background:var(--muted)}
 .apc.st-approved .tk-st{color:var(--ok)}.apc.st-rejected .tk-st,.apc.st-expired .tk-st{color:var(--muted)}
+.apc[tabindex]:focus-visible,.apc.kbd-sel,.approval:focus-visible,.approval.sel{outline:2px solid var(--accent);outline-offset:3px;border-radius:8px}
+.apc-kbd{display:none;align-self:center;margin-right:4px}.apc-kbd kbd,.ap-keys kbd{font-size:10.5px}.apc:focus-within .apc-kbd,.apc.kbd-sel .apc-kbd,.entry.sel .apc .apc-kbd{display:inline}
+@media (hover:none){.apc-kbd,.ap-keys{display:none!important}}
 .apc-acts{display:inline-flex;gap:6px;flex:none;margin-left:auto}.apc .tk{flex-wrap:wrap} /* too narrow for both: the buttons drop under the status, still on the right */.apc-acts[hidden]{display:none}.apc-risk{color:var(--danger);font-weight:500;white-space:nowrap}.apc-note{margin:6px 0 0}
 .inbox-item .apc{margin:0;padding:0 10px 12px 42px}.inbox-item .apc .dot{margin-top:0}
 .tk-subs{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:1px;font-size:12.5px}
@@ -1386,6 +1389,7 @@ export function appPage(
 <dt><kbd>@</kbd></dt><dd>Mention a person or their agent</dd>
 <dt><kbd>J</kbd> <kbd>K</kbd></dt><dd>Move down / up through entries</dd>
 <dt><kbd>↵</kbd></dt><dd>Open the selected entry's details</dd>
+<dt><kbd>↵</kbd> · <kbd>⌫</kbd></dt><dd>Approve · deny the selected or focused approval (asks first when it's high risk)</dd>
 <dt><kbd>G</kbd> then <kbd>I</kbd> <kbd>A</kbd> <kbd>B</kbd> <kbd>P</kbd> <kbd>M</kbd></dt><dd>Go to Inbox / Approvals / Boards / People / Account</dd>
 <dt><kbd>?</kbd></dt><dd>This list</dd></dl></div></dialog>
 <script>window.PALETTE=${JSON.stringify(paletteItems).replace(/</g, "\\u003c")};${v.admin ? "window.OPS=1;" : ""}</script>`;

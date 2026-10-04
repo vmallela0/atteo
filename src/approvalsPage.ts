@@ -20,7 +20,7 @@ function origin(a: Approval, titles: Record<string, string>): string {
 
 // A waiting request: what, who asked and where, exactly what will happen, then a note and the two buttons.
 function pendingCard(a: Approval, titles: Record<string, string>): string {
-  return `<article class="card approval risk-${esc(a.risk)}" id="${esc(a.id)}">
+  return `<article class="card approval risk-${esc(a.risk)}" id="${esc(a.id)}" tabindex="0" aria-keyshortcuts="Enter Backspace" aria-label="${esc(`${a.title}. Enter approves, Backspace denies`)}">
 <div class="ap-hd"><div class="grow"><h2 class="ap-title">${esc(a.title)}</h2><p class="xs muted">${esc(a.client ?? "Your agent")} · ${origin(a, titles)} · ${esc(relTime(a.created_at))}</p></div>
 <span class="badge ap-risk">${RISK[a.risk] ?? esc(a.risk)}</span></div>
 ${cmd(a)}${det(a)}
@@ -38,12 +38,21 @@ export function approvalsPage(viewer: Viewer, side: SideBoard[], list: Approval[
   const pending = list.filter((a) => a.status === "pending");
   const done = list.filter((a) => a.status !== "pending");
   const body = `<div class="section-title"><div><h1>Approvals</h1><p class="muted" style="margin-top:4px">Your agent asks here before anything with side effects, especially when someone else asked for it on a board. Nothing happens until you approve.</p></div></div>
-${pending.length ? `<div class="stack" style="--gap:12px">${pending.map((a) => pendingCard(a, titles)).join("")}</div>` : `<div class="card empty"><p class="muted">Nothing waiting. When an agent asks to run a command, change files or share something, it shows up here.</p></div>`}
+${pending.length ? `<p class="xs faint ap-keys"><kbd>J</kbd> <kbd>K</kbd> pick a request · <kbd>↵</kbd> approve · <kbd>⌫</kbd> deny</p><div class="stack" style="--gap:12px">${pending.map((a) => pendingCard(a, titles)).join("")}</div>` : `<div class="card empty"><p class="muted">Nothing waiting. When an agent asks to run a command, change files or share something, it shows up here.</p></div>`}
 ${done.length ? `<h3 class="ap-sub">Decided <span class="faint">${done.length}</span></h3><ul class="card ap-done">${done.map((a) => decidedRow(a, titles)).join("")}</ul>` : ""}`;
   const script = `
 let decision='approve';document.addEventListener('click',e=>{const b=e.target.closest('[data-decision]');if(b)decision=b.dataset.decision});
 document.addEventListener('submit',async e=>{const f=e.target.closest('[data-approval]');if(!f)return;e.preventDefault();
   const r=await fetch('/api/approvals/'+f.dataset.approval+'/'+decision,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({note:f.note.value})});
-  const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||'Could not save');return}toast(decision==='approve'?'Approved':'Rejected');setTimeout(()=>location.reload(),300)});`;
+  const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||'Could not save');return}toast(decision==='approve'?'Approved':'Rejected');setTimeout(()=>location.reload(),300)});
+// Keyboard (Conductor notes, #1276): J/K picks a request; Enter approves and Backspace denies the picked or focused one
+// (never while typing a note); a high-risk one asks first.
+document.addEventListener('keydown',e=>{if(e.metaKey||e.ctrlKey||e.altKey||e.shiftKey||e.isComposing)return;const t=e.target;
+  if(t.closest('input,textarea,select,[contenteditable]')||document.querySelector('dialog[open]'))return;const cs=[...document.querySelectorAll('.approval')];if(!cs.length)return;
+  if(e.key==='j'||e.key==='k'){e.preventDefault();let i=cs.findIndex(c=>c.classList.contains('sel'));i=i<0?0:Math.max(0,Math.min(cs.length-1,i+(e.key==='j'?1:-1)));
+    cs.forEach(c=>c.classList.remove('sel'));cs[i].classList.add('sel');cs[i].focus();cs[i].scrollIntoView({block:'nearest'});return}
+  if(e.key!=='Enter'&&e.key!=='Backspace')return;if(e.key==='Enter'&&t.closest('button,a,summary'))return;
+  const c=t.closest('.approval')||document.querySelector('.approval.sel');if(!c)return;const b=c.querySelector('[data-decision="'+(e.key==='Enter'?'approve':'reject')+'"]');if(!b)return;
+  e.preventDefault();e.stopPropagation();if(e.key==='Enter'&&c.classList.contains('risk-high')&&!confirm('This one is high risk. Approve it?'))return;b.click()},true);`;
   return appPage("Approvals · Atteo", { viewer, boards: side, active: "approvals", crumbs: `<span class="cur">Approvals</span>`, body, script, narrow: true });
 }

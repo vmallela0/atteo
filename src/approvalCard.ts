@@ -37,7 +37,7 @@ export function approvalCardHtml(a: ApprovalCardData, mine = false): string {
   const head = [a.tool ? `<span class="faint">${esc(a.tool)}</span>` : "", risk].filter(Boolean).join(`<span class="faint"> · </span>`);
   const cmd = a.command ? `<pre class="mono apc-cmd">${head ? `${head}\n` : ""}${esc(a.command)}</pre>` : "";
   const acts = pending
-    ? `<span class="apc-acts"${mine ? "" : " hidden"}><button class="btn ghost sm" type="button" data-apc-do="reject">Deny</button><button class="btn sm primary" type="button" data-apc-do="approve">Approve</button></span>`
+    ? `<span class="apc-acts"${mine ? "" : " hidden"}><span class="apc-kbd xs faint" aria-hidden="true"><kbd>↵</kbd> approve · <kbd>⌫</kbd> deny</span><button class="btn ghost sm" type="button" data-apc-do="reject">Deny</button><button class="btn sm primary" type="button" data-apc-do="approve">Approve</button></span>`
     : "";
   return `<div class="apc st-${st}" data-apc="${esc(a.id)}" data-apc-user="${esc(a.user)}">${cmd}<div class="tk"><span class="tk-st"><span class="dot"></span><span class="apc-lbl">${esc(
     approvalLabel(a, mine),
@@ -50,9 +50,10 @@ export function approvalCardHtml(a: ApprovalCardData, mine = false): string {
  */
 export const approvalJs = (me: string): string => `
 (()=>{const ME=${JSON.stringify(me).replace(/</g, "\\u003c")};const lbl=(a,mine)=>a.status==='pending'?(mine?'Waiting on you':'Waiting on '+a.user):a.status==='approved'?'Approved':a.status==='rejected'?'Denied':'Timed out, denied';
-function mark(root){(root||document).querySelectorAll('.apc.st-pending').forEach(c=>{if(c.dataset.apcUser!==ME)return;const s=c.querySelector('.apc-acts');if(s)s.hidden=false;const l=c.querySelector('.apc-lbl');if(l)l.textContent='Waiting on you'})}
+function mark(root){(root||document).querySelectorAll('.apc.st-pending').forEach(c=>{if(c.dataset.apcUser!==ME)return;const s=c.querySelector('.apc-acts');if(s)s.hidden=false;const l=c.querySelector('.apc-lbl');if(l)l.textContent='Waiting on you';
+  c.tabIndex=0;c.setAttribute('aria-keyshortcuts','Enter Backspace');c.setAttribute('aria-label','Approval waiting on you: Enter approves, Backspace denies')})}
 function apply(a){if(!a||!a.id)return;document.querySelectorAll('.apc[data-apc="'+a.id+'"]').forEach(c=>{const st=a.status==='pending'?'pending':a.status==='approved'?'approved':a.status==='rejected'?'rejected':'expired';
-  c.className='apc st-'+st;const l=c.querySelector('.apc-lbl');if(l)l.textContent=lbl(a,a.user===ME);if(st!=='pending')c.querySelector('.apc-acts')?.remove();
+  c.className='apc st-'+st;const l=c.querySelector('.apc-lbl');if(l)l.textContent=lbl(a,a.user===ME);if(st!=='pending'){c.querySelector('.apc-acts')?.remove();c.removeAttribute('tabindex');c.removeAttribute('aria-keyshortcuts');c.removeAttribute('aria-label')}
   if(a.note&&!c.querySelector('.apc-note')){const p=document.createElement('p');p.className='xs muted apc-note';p.textContent='Note: '+a.note;c.appendChild(p)}})}
 window.apcMark=mark;window.apcApply=apply;mark();
 document.addEventListener('click',async e=>{const b=e.target.closest('[data-apc-do]');if(!b)return;e.preventDefault();e.stopPropagation();const c=b.closest('.apc');
@@ -60,4 +61,21 @@ document.addEventListener('click',async e=>{const b=e.target.closest('[data-apc-
   const r=await fetch('/api/approvals/'+encodeURIComponent(c.dataset.apc)+'/'+b.dataset.apcDo,{method:'POST',headers:{'content-type':'application/json'},body:'{}'});
   const j=await r.json().catch(()=>({}));
   if(!r.ok){toast(j.error||'Could not save');c.querySelectorAll('[data-apc-do]').forEach(x=>x.disabled=false);return}
-  apply(j.approval||{id:c.dataset.apc,user:ME,status:b.dataset.apcDo==='approve'?'approved':'rejected'});toast(b.dataset.apcDo==='approve'?'Approved':'Denied')},true)})();`;
+  apply(j.approval||{id:c.dataset.apc,user:ME,status:b.dataset.apcDo==='approve'?'approved':'rejected'});toast(b.dataset.apcDo==='approve'?'Approved':'Denied')},true);
+// Keyboard (from the Conductor notes, #1276): Enter approves and Backspace denies the card that has focus, or the one in
+// the message selected with J/K. Never a global key, never while typing; a high-risk one asks first. Where the page has
+// no J/K of its own (the Inbox), J/K moves between the cards waiting on you.
+const mine=c=>c&&c.classList.contains('st-pending')&&c.dataset.apcUser===ME&&!!c.querySelector('.apc-acts:not([hidden])');
+document.addEventListener('keydown',e=>{if(e.metaKey||e.ctrlKey||e.altKey||e.shiftKey||e.isComposing)return;const t=e.target;
+  if(t.closest&&t.closest('input,textarea,select,[contenteditable]'))return;if(document.querySelector('dialog[open]'))return;
+  if(!window.boardKeys&&(e.key==='j'||e.key==='k')){const cs=[...document.querySelectorAll('.apc')].filter(mine);if(!cs.length)return;e.preventDefault();
+    let i=cs.findIndex(c=>c.classList.contains('kbd-sel'));i=i<0?0:Math.max(0,Math.min(cs.length-1,i+(e.key==='j'?1:-1)));
+    cs.forEach(c=>c.classList.remove('kbd-sel'));cs[i].classList.add('kbd-sel');cs[i].focus();return}
+  if(e.key!=='Enter'&&e.key!=='Backspace')return;
+  if(e.key==='Enter'&&t.closest&&t.closest('button,a,summary'))return; // a focused button or link: Enter presses it
+  const c=(t.closest&&t.closest('.apc'))||document.querySelector('#thread .entry.sel .apc.st-pending, .apc.kbd-sel');if(!mine(c))return;
+  const b=c.querySelector('[data-apc-do="'+(e.key==='Enter'?'approve':'reject')+'"]');if(!b||b.disabled)return;
+  e.preventDefault();e.stopPropagation();
+  if(e.key==='Enter'&&c.querySelector('.apc-risk')&&!confirm('This one is high risk. Approve it?'))return;
+  b.click()},true);
+})();`;
