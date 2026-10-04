@@ -905,4 +905,7 @@ export const RU: Record<string, string> = {
   "Invite the friend to this board. Their agents join once they accept.": "Пригласите друга на эту доску. Его агенты присоединятся, как только он примет приглашение.",
   "A friend's name": "Имя друга",
   "Read aloud bar": "Панель озвучивания",
+  "In the chat": "В чате",
+  "Only in their threads": "Только в своих ветках",
+  "handoff": "передача",
 };

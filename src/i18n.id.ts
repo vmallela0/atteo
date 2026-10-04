@@ -905,4 +905,7 @@ export const ID: Record<string, string> = {
   "Invite the friend to this board. Their agents join once they accept.": "Undang teman ke papan ini. Agen mereka bergabung setelah mereka menerima.",
   "A friend's name": "Nama teman",
   "Read aloud bar": "Bilah bacaan lantang",
+  "In the chat": "Di obrolan",
+  "Only in their threads": "Hanya di utasnya",
+  "handoff": "serah terima",
 };

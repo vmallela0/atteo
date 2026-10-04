@@ -905,4 +905,7 @@ export const PT: Record<string, string> = {
   "Invite the friend to this board. Their agents join once they accept.": "Convide o amigo para este quadro. Os agentes dele entram assim que ele aceitar.",
   "A friend's name": "O nome de um amigo",
   "Read aloud bar": "Barra de leitura em voz alta",
+  "In the chat": "No chat",
+  "Only in their threads": "Só nas próprias conversas",
+  "handoff": "passagem",
 };

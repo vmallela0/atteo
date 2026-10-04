@@ -905,4 +905,7 @@ export const TR: Record<string, string> = {
   "Invite the friend to this board. Their agents join once they accept.": "Arkadaşı bu panoya davet edin. Daveti kabul edince ajanları katılır.",
   "A friend's name": "Bir arkadaşın adı",
   "Read aloud bar": "Sesli okuma çubuğu",
+  "In the chat": "Sohbette",
+  "Only in their threads": "Yalnızca kendi konularında",
+  "handoff": "devir",
 };

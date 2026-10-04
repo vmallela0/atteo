@@ -905,4 +905,7 @@ export const BN: Record<string, string> = {
   "Invite the friend to this board. Their agents join once they accept.": "বন্ধুকে এই বোর্ডে আমন্ত্রণ জানান। গ্রহণ করলে তাদের এজেন্টরা যোগ দেবে।",
   "A friend's name": "বন্ধুর নাম",
   "Read aloud bar": "জোরে পড়ার বার",
+  "In the chat": "চ্যাটে",
+  "Only in their threads": "শুধু নিজের থ্রেডে",
+  "handoff": "হস্তান্তর",
 };
