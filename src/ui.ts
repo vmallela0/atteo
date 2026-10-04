@@ -322,7 +322,7 @@ dialog.access-dlg{width:min(640px,calc(100vw - 24px))}
 .acc-list{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:8px}
 .sum h3 .linkish,.linkish{border:0;background:none;padding:0;font:inherit;font-size:12px;color:var(--accent);cursor:pointer}.linkish:hover{text-decoration:underline}
 /* view-only members: nothing that writes */
-.ro .composer,.ro [data-qr],.ro [data-rx-add],.ro [data-reply],.ro .rx-add,.ro [data-tk],.ro .kb-new,.ro #doc-new,.ro #doc-edit{display:none!important}
+.ro .composer,.ro [data-qr],.ro [data-rx-add],.ro button[data-reply],.ro .rx-add,.ro [data-tk],.ro .kb-new,.ro #doc-new,.ro #doc-edit{display:none!important}
 .ro .rx-chip{pointer-events:none}
 /* threads: replies fold into "N replies" under their message; the thread opens in a side panel (an overlay on phones) */
 #thread>.entry>.grow>.replies{display:none}#thread>.entry.thr-open>.grow>.replies{display:block}

@@ -116,6 +116,16 @@ describe("change card links (vedu #1097)", () => {
   });
 });
 
+describe("replies in the conversation (jxn #1351)", () => {
+  it("only the Reply button starts a reply; a reply's own article (data-reply = its parent) doesn't", async () => {
+    const html = await boardPage({ name: "jxn", email: "jxn@example.com", display_name: null, admin: false }, [], info, [{ user: "jxn", display_name: null, last_seen: 0 }], entries, []).text();
+    expect(html).toContain("e.target.closest('button[data-reply]')");
+    expect(html).not.toContain("e.target.closest('[data-reply]')");
+    expect(html).toContain(".ro button[data-reply]");
+    expect(html).not.toContain(".ro [data-reply]");
+  });
+});
+
 describe("markdown tables", () => {
   it("renders a header row, alignment and body rows; a lone | line stays text", async () => {
     const { renderText } = await import("../src/ui");
