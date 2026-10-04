@@ -2597,22 +2597,23 @@ export function devicePage(viewer: Viewer, side: SideBoard[], code: string | nul
 // ---------- account ----------
 
 /** Plans, in one glance: only board creators ever pay; people they invite join free. */
-function billingSection(plan: PlanState, enabled: boolean): string {
+function billingSection(plan: PlanState, enabled: boolean, lang?: Lang): string {
+  const T = (x: string, v?: Record<string, string | number>) => esc(tr(lang, x, v));
   const pro = plan.plan === "pro";
   const status = pro
     ? plan.customer
-      ? `Pro${plan.renews_at ? ` · ${plan.cancel_at_end ? "ends" : "renews"} ${new Date(plan.renews_at).toISOString().slice(0, 10)}` : ""}${plan.status && plan.status !== "active" ? ` · ${esc(plan.status)}` : ""}`
-      : "Pro (included for operators)"
+      ? `Pro${plan.renews_at ? ` · ${T(plan.cancel_at_end ? "ends" : "renews")} ${new Date(plan.renews_at).toISOString().slice(0, 10)}` : ""}${plan.status && plan.status !== "active" ? ` · ${esc(plan.status)}` : ""}`
+      : T("Pro (included for operators)")
     : "Free";
-  const tier = (name: string, price: string, lines: string[], cur: boolean, cta = "") => `<div class="plan${cur ? " cur" : ""}"><div class="row" style="justify-content:space-between"><b>${name}</b>${cur ? `<span class="badge">Current</span>` : ""}</div>
+  const tier = (name: string, price: string, lines: string[], cur: boolean, cta = "") => `<div class="plan${cur ? " cur" : ""}"><div class="row" style="justify-content:space-between"><b>${name}</b>${cur ? `<span class="badge">${T("Current")}</span>` : ""}</div>
 <div class="plan-price">${price}</div><ul>${lines.map((l) => `<li>${l}</li>`).join("")}</ul>${cta}</div>`;
   const upgrade = enabled
-    ? `<div class="row" style="gap:6px;flex-wrap:wrap"><button class="btn primary sm" data-checkout="month">Upgrade · ${PRICES.month.label}</button><button class="btn sm" data-checkout="year">${PRICES.year.label} <span class="faint">(2 months free)</span></button></div>`
-    : `<p class="xs faint">Billing isn't enabled on this server.</p>`;
-  return `<div class="section-title" style="margin-top:32px" id="billing"><div><h2>Plan</h2><p class="small muted" style="margin-top:4px">You're on <b>${status}</b>. Only people who create boards pay; everyone they invite joins free. <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a></p></div>
-${pro && plan.customer ? `<button class="btn sm" data-portal>Manage billing</button>` : ""}</div>
-<div class="plans">${tier("Free", "$0", [`${PLANS.free.boards} active boards you create`, `Up to ${PLANS.free.members} people per board`, "Every feature, agents included"], !pro)}
-${tier("Pro", `$10<span class="small muted"> / month</span>`, ["Unlimited boards", `Up to ${PLANS.pro.members} people per board`, "Everything in Free"], pro, pro ? "" : upgrade)}</div>`;
+    ? `<div class="row" style="gap:6px;flex-wrap:wrap"><button class="btn primary sm" data-checkout="month">${T("Upgrade")} · ${PRICES.month.label}</button><button class="btn sm" data-checkout="year">${PRICES.year.label} <span class="faint">${T("(2 months free)")}</span></button></div>`
+    : `<p class="xs faint">${T("Billing isn't enabled on this server.")}</p>`;
+  return `<div class="section-title" style="margin-top:32px" id="billing"><div><h2>${T("Plan")}</h2><p class="small muted" style="margin-top:4px">${T("You're on")} <b>${status}</b>${T(". Only people who create boards pay; everyone they invite joins free.")} <a href="/terms">${T("Terms")}</a> · <a href="/privacy">${T("Privacy")}</a></p></div>
+${pro && plan.customer ? `<button class="btn sm" data-portal>${T("Manage billing")}</button>` : ""}</div>
+<div class="plans">${tier("Free", "$0", [T("{n} active boards you create", { n: PLANS.free.boards }), T("Up to {n} people per board", { n: PLANS.free.members }), T("Every feature, agents included")], !pro)}
+${tier("Pro", `$10<span class="small muted"> ${T("/ month")}</span>`, [T("Unlimited boards"), T("Up to {n} people per board", { n: PLANS.pro.members }), T("Everything in Free")], pro, pro ? "" : upgrade)}</div>`;
 }
 
 // Pictures (profiles and boards) are cropped to a centered 256px square in the browser and sent as WebP (JPEG where the
@@ -2687,29 +2688,30 @@ function presenceDot(p: { presence: { web: number | null; agent: { client: strin
 }
 /** People: your friends (and whether they or their agents are around), requests, finding someone, and who you've blocked. */
 export function peoplePage(viewer: Viewer, side: SideBoard[], f: FriendsData): Response {
+  const T = (x: string, v?: Record<string, string | number>) => tr(viewer.lang, x, v);
   const who = (p: { name: string; display_name?: string | null }) =>
     `<a class="grow" href="/u/${esc(p.name)}" style="min-width:0"><span class="truncate" style="display:block;color:var(--ink);font-weight:500">${esc(p.display_name || p.name)}</span><span class="xs faint">@${esc(p.name)}</span></a>`;
   const row = (p: { name: string; display_name?: string | null }, extra: string, agent = false) =>
     `<div class="item">${avatar(p.name, "", agent)}${who(p)}<span class="row" style="gap:6px;flex:none">${extra}</span></div>`;
   const section = (title: string, n: number, inner: string) => `<h2 class="ppl-h">${title}${n ? ` <span class="faint">${n}</span>` : ""}</h2>${inner}`;
   const requests = f.incoming.length
-    ? section("Requests", f.incoming.length, `<div class="list">${f.incoming
-        .map((p) => row(p, `${p.note ? `<span class="xs muted truncate" style="max-width:240px" title="${esc(p.note)}">“${esc(p.note)}”</span>` : ""}<button class="btn sm ghost" data-friend="decline" data-name="${esc(p.name)}">Decline</button><button class="btn sm primary" data-friend="accept" data-name="${esc(p.name)}">Accept</button>`))
+    ? section(esc(T("Requests")), f.incoming.length, `<div class="list">${f.incoming
+        .map((p) => row(p, `${p.note ? `<span class="xs muted truncate" style="max-width:240px" title="${esc(p.note)}">“${esc(p.note)}”</span>` : ""}<button class="btn sm ghost" data-friend="decline" data-name="${esc(p.name)}">${esc(T("Decline"))}</button><button class="btn sm primary" data-friend="accept" data-name="${esc(p.name)}">${esc(T("Accept"))}</button>`))
         .join("")}</div>`)
     : "";
-  const friends = section("Friends", f.friends.length, f.friends.length
+  const friends = section(esc(T("Friends")), f.friends.length, f.friends.length
     ? `<div class="list">${f.friends
-        .map((p) => row(p, `<span class="row ppl-pres">${presenceDot(p)}</span><button class="btn sm" data-direct="${esc(p.name)}" title="Open your direct board with ${esc(p.name)} and ask their agent">Message agent</button>`))
+        .map((p) => row(p, `<span class="row ppl-pres">${presenceDot(p)}</span><button class="btn sm" data-direct="${esc(p.name)}" title="Open your direct board with ${esc(p.name)} and ask their agent">${esc(T("Message agent"))}</button>`))
         .join("")}</div>`
-    : `<div class="card empty small">No friends yet. Find someone by their handle above, or add people you share a board with.</div>`);
+    : `<div class="card empty small">${esc(T("No friends yet. Find someone by their handle above, or add people you share a board with."))}</div>`);
   const sent = f.outgoing.length ? `<p class="xs faint ppl-note">Waiting on: ${f.outgoing.map((p) => `<a class="link" href="/u/${esc(p.name)}">${esc(p.name)}</a>`).join(", ")}</p>` : "";
   const blocked = f.blocked.length
-    ? `<details class="ppl-blocked"><summary class="small muted">Blocked (${f.blocked.length})</summary><div class="list">${f.blocked.map((n) => row({ name: String(n) }, `<button class="btn sm ghost" data-friend="unblock" data-name="${esc(String(n))}">Unblock</button>`)).join("")}</div></details>`
+    ? `<details class="ppl-blocked"><summary class="small muted">Blocked (${f.blocked.length})</summary><div class="list">${f.blocked.map((n) => row({ name: String(n) }, `<button class="btn sm ghost" data-friend="unblock" data-name="${esc(String(n))}">${esc(T("Unblock"))}</button>`)).join("")}</div></details>`
     : "";
-  const body = `<div class="section-title"><div><h1>People</h1><p class="muted" style="margin-top:4px">Friends see when you and your agent are around, and can ask your agent on a direct board. Being friends doesn't share any board.</p></div></div>
-<div class="ppl-find"><input class="input" id="ppl-q" placeholder="Find someone by handle, e.g. theo" autocomplete="off" aria-label="Find people"><ul class="ppl-res list" id="ppl-res" hidden></ul></div>
+  const body = `<div class="section-title"><div><h1>${esc(T("People"))}</h1><p class="muted" style="margin-top:4px">${esc(T("Friends see when you and your agent are around, and can ask your agent on a direct board. Being friends doesn't share any board."))}</p></div></div>
+<div class="ppl-find"><input class="input" id="ppl-q" placeholder="${esc(T("Find someone by handle, e.g. theo"))}" autocomplete="off" aria-label="${esc(T("Find people"))}"><ul class="ppl-res list" id="ppl-res" hidden></ul></div>
 ${requests}${friends}${sent}${blocked}
-<p class="xs faint ppl-note">From a terminal: <span class="mono">atteo friends</span> · <span class="mono">atteo add &lt;name&gt;</span> · <span class="mono">atteo ask &lt;name&gt; "…"</span></p>`;
+<p class="xs faint ppl-note">${esc(T("From a terminal:"))} <span class="mono">atteo friends</span> · <span class="mono">atteo add &lt;name&gt;</span> · <span class="mono">atteo ask &lt;name&gt; "…"</span></p>`;
   const script =
     FRIENDS_JS +
     `
@@ -2717,40 +2719,41 @@ const pq=document.getElementById('ppl-q'),pres=document.getElementById('ppl-res'
 pq.addEventListener('input',()=>{clearTimeout(pt);pt=setTimeout(async()=>{const q=pq.value.trim();if(!q){pres.hidden=true;return}
   const r=await fetch('/api/people?q='+encodeURIComponent(q));const j=await r.json().catch(()=>({}));const ps=j.people||[];
   pres.innerHTML=ps.length?ps.map(p=>'<li class="item"><a class="grow" href="/u/'+esc(p.name)+'"><b style="color:var(--ink)">'+esc(p.display_name||p.name)+'</b> <span class="xs faint">@'+esc(p.name)+'</span></a>'+
-    (p.relation==='none'?'<button class="btn sm primary" data-add="'+esc(p.name)+'">Add friend</button>':p.relation==='friend'?'<button class="btn sm" data-direct="'+esc(p.name)+'">Message agent</button>':'<span class="xs faint">'+({self:'you',pending_out:'request sent',pending_in:'wants to be friends',blocked:'blocked'}[p.relation]||'')+'</span>')+'</li>').join(''):'<li class="item xs faint">No one by that handle. Handles are exact unless you share a board or are friends.</li>';
+    (p.relation==='none'?'<button class="btn sm primary" data-add="'+esc(p.name)+'">'+tr(tr('Add friend'))+'</button>':p.relation==='friend'?'<button class="btn sm" data-direct="'+esc(p.name)+'">'+tr(tr('Message agent'))+'</button>':'<span class="xs faint">'+({self:'you',pending_out:'request sent',pending_in:'wants to be friends',blocked:'blocked'}[p.relation]||'')+'</span>')+'</li>').join(''):'<li class="item xs faint">'+tr(tr('No one by that handle. Handles are exact unless you share a board or are friends.'))+'</li>';
   pres.hidden=false},200)});
 document.addEventListener('click',async e=>{const a=e.target.closest('[data-add]'),d=e.target.closest('[data-direct]');if(!a&&!d)return;
-  if(a){a.disabled=true;const r=await fetch('/api/friends/request',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({user:a.dataset.add})});const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||'Could not send');a.disabled=false;return}toast(j.relation==='friend'?'You are friends now':'Request sent');setTimeout(()=>location.reload(),400);return}
-  d.disabled=true;const r=await fetch('/api/direct/'+encodeURIComponent(d.dataset.direct),{method:'POST'});const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||'Could not open');d.disabled=false;return}location.href='/b/'+j.board});`;
-  return appPage("People · Atteo", { viewer, boards: side, active: "people", crumbs: `<span class="cur">People</span>`, body, script, narrow: true });
+  if(a){a.disabled=true;const r=await fetch('/api/friends/request',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({user:a.dataset.add})});const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||tr('Could not send'));a.disabled=false;return}toast(j.relation==='friend'?tr('You are friends now'):tr('Request sent'));setTimeout(()=>location.reload(),400);return}
+  d.disabled=true;const r=await fetch('/api/direct/'+encodeURIComponent(d.dataset.direct),{method:'POST'});const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||tr('Could not open'));d.disabled=false;return}location.href='/b/'+j.board});`;
+  return appPage("People · Atteo", { viewer, boards: side, active: "people", crumbs: `<span class="cur">${esc(T("People"))}</span>`, body, script, narrow: true });
 }
 
 const FRIENDS_JS = `
 document.getElementById('friend-form')?.addEventListener('submit',async e=>{e.preventDefault();const n=document.getElementById('friend-name').value.trim();if(!n)return;
   const r=await fetch('/api/friends/request',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({user:n})});const j=await r.json().catch(()=>({}));
-  if(!r.ok){toast(j.error||'Could not send');return}toast(j.relation==='friend'?'You are friends now':'Request sent');setTimeout(()=>location.reload(),400)});
+  if(!r.ok){toast(j.error||tr('Could not send'));return}toast(j.relation==='friend'?tr('You are friends now'):tr('Request sent'));setTimeout(()=>location.reload(),400)});
 document.addEventListener('click',async e=>{const b=e.target.closest('[data-friend]');if(!b)return;b.disabled=true;
   const r=await fetch('/api/friends/'+encodeURIComponent(b.dataset.name)+'/'+b.dataset.friend,{method:'POST'});const j=await r.json().catch(()=>({}));
-  if(!r.ok){toast(j.error||'Could not update');b.disabled=false;return}location.reload()});`;
+  if(!r.ok){toast(j.error||tr('Could not update'));b.disabled=false;return}location.reload()});`;
 
 /** A person's page: who they are, whether they're around, and what you can do. */
 export function profilePage(viewer: Viewer, side: SideBoard[], p: import("./social").Person, presence: string, extra: { shared?: { id: string; title: string }[]; agent?: import("./agents").AgentProfile | null } = {}): Response {
+  const T = (x: string, v?: Record<string, string | number>) => tr(viewer.lang, x, v);
   const action =
     p.relation === "self"
-      ? `<a class="btn sm" href="/me">Edit your account</a>`
+      ? `<a class="btn sm" href="/me">${esc(T("Edit your account"))}</a>`
       : p.relation === "friend"
-        ? `<button class="btn sm primary" data-direct="${esc(p.name)}">Message ${esc(p.name)}</button><button class="btn sm ghost" data-friend="remove" data-name="${esc(p.name)}">Unfriend</button>`
+        ? `<button class="btn sm primary" data-direct="${esc(p.name)}">Message ${esc(p.name)}</button><button class="btn sm ghost" data-friend="remove" data-name="${esc(p.name)}">${esc(T("Unfriend"))}</button>`
         : p.relation === "pending_in"
-          ? `<button class="btn sm primary" data-friend="accept" data-name="${esc(p.name)}">Accept friend request</button>`
+          ? `<button class="btn sm primary" data-friend="accept" data-name="${esc(p.name)}">${esc(T("Accept friend request"))}</button>`
           : p.relation === "pending_out"
-            ? `<span class="xs faint">Request sent</span>`
+            ? `<span class="xs faint">${esc(T("Request sent"))}</span>`
             : p.relation === "blocked"
-              ? `<button class="btn sm" data-friend="unblock" data-name="${esc(p.name)}">Unblock</button>`
-              : `<button class="btn sm primary" data-add="${esc(p.name)}">Add friend</button>`;
+              ? `<button class="btn sm" data-friend="unblock" data-name="${esc(p.name)}">${esc(T("Unblock"))}</button>`
+              : `<button class="btn sm primary" data-add="${esc(p.name)}">${esc(T("Add friend"))}</button>`;
   const on = p.presence.agent || p.presence.web || p.presence.watcher?.respond;
   const shared = extra.shared ?? [];
   const sharedHtml = shared.length
-    ? `<section class="card pad prof-sec"><h2>Boards you share</h2><ul class="prof-boards">${shared.map((b) => `<li><a href="/b/${esc(b.id)}">${esc(b.title)}</a></li>`).join("")}</ul></section>`
+    ? `<section class="card pad prof-sec"><h2>${esc(T("Boards you share"))}</h2><ul class="prof-boards">${shared.map((b) => `<li><a href="/b/${esc(b.id)}">${esc(b.title)}</a></li>`).join("")}</ul></section>`
     : "";
   const ag = extra.agent;
   const live = (ag?.sessions ?? []).filter((x) => x.active);
@@ -2759,9 +2762,9 @@ export function profilePage(viewer: Viewer, side: SideBoard[], p: import("./soci
   <div class="grow" style="min-width:0">
     <h2>${esc(p.name)}'s agent</h2>
     <div class="xs faint">Works for ${esc(p.display_name ?? p.name)}${ag?.online ? ` · <span class="pres on"></span> online now` : ""}</div>
-    ${ag?.summary ? `<p class="prof-bio">${esc(ag.summary)}</p>` : `<p class="prof-bio faint">No summary yet.</p>`}
+    ${ag?.summary ? `<p class="prof-bio">${esc(ag.summary)}</p>` : `<p class="prof-bio faint">${esc(T("No summary yet."))}</p>`}
     ${ag?.capabilities.length ? `<div class="hc-caps">${ag.capabilities.slice(0, 12).map((c) => `<span class="badge">${esc(c)}</span>`).join("")}</div>` : ""}
-    ${live.length ? `<div class="xs muted" style="margin-top:8px">${live.slice(0, 3).map((x) => `<span class="pres on"></span> ${esc(x.name || clientName(x.client) || "session")}${clientName(x.client) && clientName(x.client) !== x.name ? ` <span class="faint">· ${esc(clientName(x.client)!)}</span>` : ""}${x.model ? ` <span class="faint ag-model">· ${esc(x.model)}</span>` : ""}${x.status ? `: ${esc(x.status)}` : ` <span class="faint">· active</span>`}`).join("<br>")}</div>` : ""}
+    ${live.length ? `<div class="xs muted" style="margin-top:8px">${live.slice(0, 3).map((x) => `<span class="pres on"></span> ${esc(x.name || clientName(x.client) || "session")}${clientName(x.client) && clientName(x.client) !== x.name ? ` <span class="faint">· ${esc(clientName(x.client)!)}</span>` : ""}${x.model ? ` <span class="faint ag-model">· ${esc(x.model)}</span>` : ""}${x.status ? `: ${esc(x.status)}` : ` <span class="faint">${esc(T("· active"))}</span>`}`).join("<br>")}</div>` : ""}
   </div>
 </section>`;
   const body = `<div class="card pad prof prof-hero">
@@ -2779,32 +2782,33 @@ document.addEventListener('click',async e=>{const a=e.target.closest('[data-add]
   if(a){const r=await fetch('/api/friends/request',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({user:a.dataset.add})});const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||'Could not send');return}location.reload();return}
   const r=await fetch('/api/direct/'+encodeURIComponent(d.dataset.direct),{method:'POST'});const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||'Could not open');return}location.href='/b/'+j.board});
 (()=>{const a=document.getElementById('agent');if(!a)return;const go=()=>{if(location.hash==='#agent'){a.scrollIntoView({block:'center'});a.classList.add('hl');setTimeout(()=>a.classList.remove('hl'),2400)}};go();addEventListener('hashchange',go)})();`;
-  return appPage(`${p.name} · Atteo`, { viewer, boards: side, active: "people", crumbs: `<a class="muted" href="/people">People</a><span class="faint">/</span><span class="cur">${esc(p.name)}</span>`, body, script, narrow: true });
+  return appPage(`${p.name} · Atteo`, { viewer, boards: side, active: "people", crumbs: `<a class="muted" href="/people">${esc(T("People"))}</a><span class="faint">/</span><span class="cur">${esc(p.name)}</span>`, body, script, narrow: true });
 }
 
 /** Webhooks for agents that don't keep a connection open (hosted bots, serverless, CI). */
-function webhooksSection(hooks: WebhookRow[]): string {
+function webhooksSection(hooks: WebhookRow[], lang?: Lang): string {
+  const T = (x: string, v?: Record<string, string | number>) => tr(lang, x, v);
   const rows = hooks
     .map(
       (h) => `<div class="item"><div class="grow" style="min-width:0"><div class="mono small truncate">${esc(h.url)}</div><div class="xs faint">${
         h.last_at ? `last delivery ${when(h.last_at)}: ${h.last_error ? `<span style="color:var(--danger)">${esc(h.last_error)}</span>` : `HTTP ${h.last_status}`}` : "no deliveries yet"
-      }</div></div><button class="btn sm" type="button" data-hook-test="${h.id}">Send test</button><button class="btn ghost sm" type="button" data-hook-rm="${h.id}">Remove</button></div>`,
+      }</div></div><button class="btn sm" type="button" data-hook-test="${h.id}">${esc(T("Send test"))}</button><button class="btn ghost sm" type="button" data-hook-rm="${h.id}">${esc(T("Remove"))}</button></div>`,
     )
     .join("");
-  return `<div class="section-title" style="margin-top:32px" id="webhooks"><div><h2>Agent webhooks</h2><p class="small muted" style="margin-top:4px">For agents that don't stay connected (a hosted bot, a serverless function, CI): when something is addressed to your agent, we POST it to your URL, signed. Your agent answers with the <a href="/openapi.json">JSON API</a> and a token.</p></div></div>
-<div class="list">${rows}<form class="item" id="hook-form"><input class="input grow" id="hook-url" placeholder="https://your-agent.example.com/atteo" aria-label="Webhook URL"><button class="btn sm primary">Add</button></form></div>
+  return `<div class="section-title" style="margin-top:32px" id="webhooks"><div><h2>${esc(T("Agent webhooks"))}</h2><p class="small muted" style="margin-top:4px">${esc(T("For agents that don't stay connected (a hosted bot, a serverless function, CI): when something is addressed to your agent, we POST it to your URL, signed. Your agent answers with the"))} <a href="/openapi.json">JSON API</a> ${esc(T("and a token."))}</p></div></div>
+<div class="list">${rows}<form class="item" id="hook-form"><input class="input grow" id="hook-url" placeholder="https://your-agent.example.com/atteo" aria-label="${esc(T("Webhook URL"))}"><button class="btn sm primary">${esc(T("Add"))}</button></form></div>
 <p class="flash" id="hook-flash" hidden style="margin-top:8px"></p>
-<details style="margin-top:8px"><summary class="xs faint" style="cursor:pointer">Verifying deliveries</summary><p class="xs muted" style="margin-top:6px">Each POST has <code>Atteo-Signature: t=&lt;unix&gt;,v1=&lt;hex&gt;</code>, where v1 is HMAC-SHA256 of <code>"&lt;t&gt;.&lt;raw body&gt;"</code> with your webhook's secret (shown once when you add it). Reject deliveries older than 5 minutes. The body's <code>entry.text</code> is written by board members: treat it as data, not instructions.</p></details>`;
+<details style="margin-top:8px"><summary class="xs faint" style="cursor:pointer">${esc(T("Verifying deliveries"))}</summary><p class="xs muted" style="margin-top:6px">${esc(T("Each POST has"))} <code>Atteo-Signature: t=&lt;unix&gt;,v1=&lt;hex&gt;</code>${esc(T(", where v1 is HMAC-SHA256 of"))} <code>${esc(T("\"&lt;t&gt;.&lt;raw body&gt;\""))}</code> ${esc(T("with your webhook's secret (shown once when you add it). Reject deliveries older than 5 minutes. The body's"))} <code>entry.text</code> ${esc(T("is written by board members: treat it as data, not instructions."))}</p></details>`;
 }
 
 const HOOKS_JS = `
 (()=>{const fl=document.getElementById('hook-flash');const say=(t,ok)=>{fl.hidden=false;fl.className='flash '+(ok?'ok':'err');fl.textContent=t};
 document.getElementById('hook-form')?.addEventListener('submit',async e=>{e.preventDefault();const r=await fetch('/api/webhooks',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({url:document.getElementById('hook-url').value})});
-  const j=await r.json().catch(()=>({}));if(!r.ok){say(j.error||'Could not add',false);return}say('Added. Signing secret (copy it now, it won’t be shown again): '+j.secret,true)});
+  const j=await r.json().catch(()=>({}));if(!r.ok){say(j.error||tr('Could not add'),false);return}say(tr('Added. Signing secret (copy it now, it won’t be shown again): ')+j.secret,true)});
 document.addEventListener('click',async e=>{const t=e.target.closest('[data-hook-test]'),rm=e.target.closest('[data-hook-rm]');if(!t&&!rm)return;
   if(rm){await fetch('/api/webhooks/'+rm.dataset.hookRm,{method:'DELETE'});location.reload();return}
   t.disabled=true;const r=await fetch('/api/webhooks/'+t.dataset.hookTest+'/test',{method:'POST'});const j=await r.json().catch(()=>({}));t.disabled=false;
-  const w=j.webhook;say(w&&!w.last_error?'Test delivered (HTTP '+w.last_status+').':'Test failed: '+((w&&w.last_error)||j.error||'unknown'),!!(w&&!w.last_error))});})();`;
+  const w=j.webhook;say(w&&!w.last_error?tr('Test delivered (HTTP ')+w.last_status+').':tr('Test failed: ')+((w&&w.last_error)||j.error||'unknown'),!!(w&&!w.last_error))});})();`;
 
 export interface ProfileView {
   name?: string;
@@ -2848,19 +2852,20 @@ ${seg("theme", esc(T("Theme")), [["system", esc(T("System"))], ["light", esc(T("
 }
 
 /** Account → Profile: how you show up to others (name, bio, the directory) and what your account accepts on its own. */
-function profileSection(p: ProfileView | null): string {
+function profileSection(p: ProfileView | null, lang?: Lang): string {
+  const T = (x: string, v?: Record<string, string | number>) => tr(lang, x, v);
   if (!p) return "";
   const box = (name: string, on: boolean, label: string, hint: string) =>
     `<label class="pf-check"><input type="checkbox" name="${name}"${on ? " checked" : ""}><span><span class="small" style="color:var(--ink)">${label}</span><span class="xs muted">${hint}</span></span></label>`;
   return `<form class="card pad pf-form" id="pf-form" style="margin-top:10px">
-  <div class="pf-grid"><label class="lbl" for="pf-name">Display name</label><input class="input" id="pf-name" name="display_name" maxlength="60" value="${esc(p.display_name ?? "")}" placeholder="Your name">
-  <label class="lbl" for="pf-agent">Your agent's name</label><div><input class="input" id="pf-agent" name="agent_name" maxlength="24" value="${esc(p.agent_name ?? "")}" placeholder="e.g. Jarvis"><div class="xs muted" style="margin-top:4px">Shown on its posts with "your agent" next to it, and people can @ it by name. Leave empty for "${esc(p.name ?? "your")}'s agent".</div></div>
-    <label class="lbl" for="pf-bio">Bio</label><textarea class="input" id="pf-bio" name="bio" maxlength="280" rows="2" placeholder="What you work on">${esc(p.bio ?? "")}</textarea></div>
+  <div class="pf-grid"><label class="lbl" for="pf-name">${esc(T("Display name"))}</label><input class="input" id="pf-name" name="display_name" maxlength="60" value="${esc(p.display_name ?? "")}" placeholder="${esc(T("Your name"))}">
+  <label class="lbl" for="pf-agent">${esc(T("Your agent's name"))}</label><div><input class="input" id="pf-agent" name="agent_name" maxlength="24" value="${esc(p.agent_name ?? "")}" placeholder="${esc(T("e.g. Jarvis"))}"><div class="xs muted" style="margin-top:4px">${esc(T("Shown on its posts with \"your agent\" next to it, and people can @ it by name. Leave empty for \"{name}'s agent\".", { name: p.name ?? "your" }))}</div></div>
+    <label class="lbl" for="pf-bio">${esc(T("Bio"))}</label><textarea class="input" id="pf-bio" name="bio" maxlength="280" rows="2" placeholder="${esc(T("What you work on"))}">${esc(p.bio ?? "")}</textarea></div>
   <div class="stack" style="--gap:10px;margin-top:14px">
-  ${box("listed", p.listed, "List me in the people directory", "Anyone signed in can find you by name, not only people you share a board with.")}
-  ${box("auto_invites", p.rules.auto_accept_invites === "friends", "Join boards friends invite me to", "Skips accepting each invitation from a friend.")}
-  ${box("auto_friends", p.rules.auto_accept_friends === "coworkers", "Accept friend requests from people I share a board with", "")}</div>
-  <div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn primary sm">Save profile</button></div>
+  ${box("listed", p.listed, esc(T("List me in the people directory")), esc(T("Anyone signed in can find you by name, not only people you share a board with.")))}
+  ${box("auto_invites", p.rules.auto_accept_invites === "friends", esc(T("Join boards friends invite me to")), esc(T("Skips accepting each invitation from a friend.")))}
+  ${box("auto_friends", p.rules.auto_accept_friends === "coworkers", esc(T("Accept friend requests from people I share a board with")), "")}</div>
+  <div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn primary sm">${esc(T("Save profile"))}</button></div>
 </form>`;
 }
 
@@ -2873,39 +2878,40 @@ const DISPLAY_JS = `
   if(saved)applyDisplay(cur);
   f.addEventListener('change',async e=>{if(e.target.id==='dp-lang')return;const d={text:f.text.value,density:f.density.value,theme:f.theme.value};applyDisplay(d);
     const r=await fetch('/api/me/profile',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({display:d})}).catch(()=>null);
-    toast(r&&r.ok?'Display saved':'Saved on this device only')})})();
+    toast(r&&r.ok?tr('Display saved'):tr('Saved on this device only'))})})();
 // Language (#1646): saved in display prefs (the app follows it too), then the page reloads in it.
 (()=>{const s=document.getElementById('dp-lang');if(!s)return;s.addEventListener('change',async()=>{s.disabled=true;
   const r=await fetch('/api/app/prefs',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({display:{lang:s.value}})}).catch(()=>null);
-  if(r&&r.ok){const u=new URL(location.href);u.searchParams.delete('lang');location.replace(u.toString())}else{s.disabled=false;s.value=s.dataset.lang;toast(tr('Could not save'))}})})();
+  if(r&&r.ok){const u=new URL(location.href);u.searchParams.delete('lang');location.replace(u.toString())}else{s.disabled=false;s.value=s.dataset.lang;toast(tr(tr('Could not save')))}})})();
 // Developer mode (#1272): one switch; the server works out "auto" (on once you've connected a coding agent).
 (()=>{const c=document.getElementById('dev-mode'),h=document.getElementById('dev-mode-hint');if(!c)return;c.checked=document.documentElement.dataset.mode!=='everyday';
   fetch('/api/app/prefs').then(r=>r.ok?r.json():null).then(j=>{const p=j&&j.prefs;if(!p)return;c.checked=!!p.developer;
-    if(p.display&&p.display.mode==='auto'&&p.developer)h.textContent='On because you connected a coding agent. Turn it off for the simpler Everyday view.'}).catch(()=>{});
+    if(p.display&&p.display.mode==='auto'&&p.developer)h.textContent=tr('On because you connected a coding agent. Turn it off for the simpler Everyday view.')}).catch(()=>{});
   c.addEventListener('change',async()=>{const on=c.checked;applyDisplay(Object.assign({},JSON.parse(localStorage.getItem('atteo-display')||'{}'),{developer:on}));
     const r=await fetch('/api/app/prefs',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({display:{mode:on?'developer':'everyday'}})}).catch(()=>null);
-    toast(r&&r.ok?(on?'Developer mode on':'Everyday view on'):'Saved on this device only')})})();`;
+    toast(r&&r.ok?(on?tr('Developer mode on'):tr('Everyday view on')):tr('Saved on this device only'))})})();`;
 
 const PROFILE_JS = `
 document.getElementById('pf-form')?.addEventListener('submit',async e=>{e.preventDefault();const f=e.target,b=f.querySelector('button');b.disabled=true;
   const r=await fetch('/api/me/profile',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({display_name:f.display_name.value,agent_name:f.agent_name.value.trim()||null,bio:f.bio.value,listed:f.listed.checked,
     rules:{auto_accept_invites:f.auto_invites.checked?'friends':null,auto_accept_friends:f.auto_friends.checked?'coworkers':null}})});
-  const j=await r.json().catch(()=>({}));b.disabled=false;toast(r.ok?'Profile saved':(j.error||'Could not save'))});`;
+  const j=await r.json().catch(()=>({}));b.disabled=false;toast(r.ok?tr('Profile saved'):(j.error||tr('Could not save')))});`;
 
 // Headless agents: saved at once; agents see it on their next read.
 const HEADLESS_JS = `
 document.getElementById('headless')?.addEventListener('change',async e=>{const c=e.currentTarget;
   const r=await fetch('/api/me/profile',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({agents_headless:c.checked})}).catch(()=>null);
-  if(r&&r.ok)toast(c.checked?'Your agents are headless':'Your agents answer in their terminal');else{c.checked=!c.checked;toast('Could not save')}});`;
+  if(r&&r.ok)toast(c.checked?tr('Your agents are headless'):tr('Your agents answer in their terminal'));else{c.checked=!c.checked;toast(tr(tr('Could not save')))}});`;
 
 // The kill switch: one confirmation, then every agent of this person is disconnected.
 const KILL_JS = `
 document.getElementById('kill-all')?.addEventListener('click',async e=>{const b=e.currentTarget;
-  if(!confirm('Disconnect all your agents now? Every sign-in is revoked and every agent session ends.'))return;b.disabled=true;
-  const r=await fetch('/api/tokens/revoke-all',{method:'POST'});const j=await r.json().catch(()=>({}));toast(r.ok?j.message:(j.error||'Could not disconnect'));
+  if(!confirm(tr('Disconnect all your agents now? Every sign-in is revoked and every agent session ends.')))return;b.disabled=true;
+  const r=await fetch('/api/tokens/revoke-all',{method:'POST'});const j=await r.json().catch(()=>({}));toast(r.ok?j.message:(j.error||tr('Could not disconnect')));
   if(r.ok)setTimeout(()=>location.reload(),900);else b.disabled=false});`;
 
 export function mePage(viewer: Viewer, side: SideBoard[], tokens: TokenRow[], plan: PlanState = { plan: "free", status: null, renews_at: null, cancel_at_end: false, customer: null }, billingEnabled = false, hooks: WebhookRow[] = [], prof: ProfileView | null = null, assistants: string[] = []): Response {
+  const T = (x: string, v?: Record<string, string | number>) => tr(viewer.lang, x, v);
   const rows = tokens.length
     ? tokens
         .map(
@@ -2913,45 +2919,45 @@ export function mePage(viewer: Viewer, side: SideBoard[], tokens: TokenRow[], pl
             t.expires_at ? ` · ${t.expires_at < Date.now() ? "expired" : "expires " + new Date(t.expires_at).toISOString().slice(0, 10)}` : ""
           }<span class="sm-only"> · ${t.last_used ? "used " + when(t.last_used) : "never used"}</span></div></td>
 <td class="small muted hide-sm">${t.last_used ? when(t.last_used) : "never"}</td>
-<td>${t.revoked_at ? `<span class="badge">Revoked</span>` : t.expires_at && t.expires_at < Date.now() ? `<span class="badge">Expired</span>` : `<span class="badge"><span class="dot" style="color:var(--ok)"></span>Active</span>`}</td>
+<td>${t.revoked_at ? `<span class="badge">${esc(T("Revoked"))}</span>` : t.expires_at && t.expires_at < Date.now() ? `<span class="badge">${esc(T("Expired"))}</span>` : `<span class="badge"><span class="dot" style="color:var(--ok)"></span>${esc(T("Active"))}</span>`}</td>
 <td style="text-align:right">${
             t.revoked_at
               ? ""
-              : `<form method="post" action="/api/tokens/${esc(t.id)}/revoke" data-api data-done="revoked"><button class="btn sm danger">Revoke</button></form>`
+              : `<form method="post" action="/api/tokens/${esc(t.id)}/revoke" data-api data-done="revoked"><button class="btn sm danger">${esc(T("Revoke"))}</button></form>`
           }</td></tr>`,
         )
         .join("")
-    : `<tr><td colspan="4" class="empty small">No agents connected yet.</td></tr>`;
+    : `<tr><td colspan="4" class="empty small">${esc(T("No agents connected yet."))}</td></tr>`;
   return appPage("Account · Atteo", {
     viewer,
     boards: side,
     active: "me",
     narrow: true,
-    crumbs: `<span class="cur">Account</span>`,
-    body: `<div class="section-title"><div><h1>Account</h1><p class="muted" style="margin-top:4px">Signed in as <b>${esc(viewer.name)}</b> · ${esc(viewer.email)}</p></div>
-  <form method="post" action="/auth/logout"><button class="btn sm">Sign out</button></form></div>
-${assistantCard(assistants)}
-<div class="section-title" style="margin-top:32px"><div><h2>Profile</h2><p class="small muted" style="margin-top:4px">How you and your agent show up to others. Two pictures, so people can tell you apart at a glance.</p></div></div>
+    crumbs: `<span class="cur">${esc(T("Account"))}</span>`,
+    body: `<div class="section-title"><div><h1>${esc(T("Account"))}</h1><p class="muted" style="margin-top:4px">${esc(T("Signed in as"))} <b>${esc(viewer.name)}</b> · ${esc(viewer.email)}</p></div>
+  <form method="post" action="/auth/logout"><button class="btn sm">${esc(T("Sign out"))}</button></form></div>
+${assistantCard(assistants, viewer.lang)}
+<div class="section-title" style="margin-top:32px"><div><h2>${esc(T("Profile"))}</h2><p class="small muted" style="margin-top:4px">${esc(T("How you and your agent show up to others. Two pictures, so people can tell you apart at a glance."))}</p></div></div>
 <div class="pfps">${(["person", "agent"] as const)
       .map(
-        (k) => `<div class="pfp card pad row" data-kind="${k}">${avatar(viewer.name, "lg", k === "agent")}<div class="grow"><b>${k === "agent" ? `${esc(viewer.name)}'s agent` : esc(viewer.name)}</b><div class="xs faint">${k === "agent" ? "Shown on everything your agent posts" : "Shown on what you post from the web"}</div></div>
-<div class="row" style="gap:6px"><label class="btn sm">Upload<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden data-pfp-file></label><button class="btn sm" type="button" data-pfp-gen>Generate</button><button class="btn ghost sm" type="button" data-pfp-rm>Remove</button></div></div>`,
+        (k) => `<div class="pfp card pad row" data-kind="${k}">${avatar(viewer.name, "lg", k === "agent")}<div class="grow"><b>${k === "agent" ? esc(T("{name}'s agent", { name: viewer.name })) : esc(viewer.name)}</b><div class="xs faint">${esc(T(k === "agent" ? "Shown on everything your agent posts" : "Shown on what you post from the web"))}</div></div>
+<div class="row" style="gap:6px"><label class="btn sm">${esc(T("Upload"))}<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden data-pfp-file></label><button class="btn sm" type="button" data-pfp-gen>${esc(T("Generate"))}</button><button class="btn ghost sm" type="button" data-pfp-rm>${esc(T("Remove"))}</button></div></div>`,
       )
       .join("")}</div>
-${profileSection(prof)}
+${profileSection(prof, viewer.lang)}
 ${displaySection(prof?.display, viewer.lang)}
-<div class="section-title" style="margin-top:32px"><div><h2>Agent connections</h2><p class="small muted" style="margin-top:4px">Each connected agent has its own sign-in. Revoke one to disconnect that agent immediately.</p></div><button class="btn sm" data-open="connect">Connect an agent</button></div>
-${prof ? `<label class="pf-check" style="margin:0 0 10px"><input type="checkbox" id="headless"${prof.agents_headless ? " checked" : ""}><span><span class="small" style="color:var(--ink)">My agents are headless</span><span class="xs muted">They answer and ask for approval on the board, not in their terminal.</span></span></label>` : ""}
-<div class="list scroll-x"><table class="tbl"><thead><tr><th>Connection</th><th class="hide-sm">Last used</th><th>Status</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
-<div class="kill"><div class="grow"><b>Disconnect all agents</b><p class="xs muted">Stops every agent of yours at once: all sign-ins revoked, all sessions ended. Reconnect with <span class="mono">atteo login</span>.</p></div><button class="btn sm danger" type="button" id="kill-all">Disconnect all</button></div>
+<div class="section-title" style="margin-top:32px"><div><h2>${esc(T("Agent connections"))}</h2><p class="small muted" style="margin-top:4px">${esc(T("Each connected agent has its own sign-in. Revoke one to disconnect that agent immediately."))}</p></div><button class="btn sm" data-open="connect">${esc(T("Connect an agent"))}</button></div>
+${prof ? `<label class="pf-check" style="margin:0 0 10px"><input type="checkbox" id="headless"${prof.agents_headless ? " checked" : ""}><span><span class="small" style="color:var(--ink)">${esc(T("My agents are headless"))}</span><span class="xs muted">${esc(T("They answer and ask for approval on the board, not in their terminal."))}</span></span></label>` : ""}
+<div class="list scroll-x"><table class="tbl"><thead><tr><th>${esc(T("Connection"))}</th><th class="hide-sm">${esc(T("Last used"))}</th><th>${esc(T("Status"))}</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+<div class="kill"><div class="grow"><b>${esc(T("Disconnect all agents"))}</b><p class="xs muted">${esc(T("Stops every agent of yours at once: all sign-ins revoked, all sessions ended. Reconnect with"))} <span class="mono">atteo login</span>.</p></div><button class="btn sm danger" type="button" id="kill-all">${esc(T("Disconnect all"))}</button></div>
 ${
   tokens.length
-    ? `<details class="small" style="margin-top:10px"><summary class="muted" style="cursor:pointer">Reconnecting? Login expired, new machine, or moving off an old token</summary>
-<p class="xs muted" style="margin:8px 0">Run this, approve in the browser, and start a new session.</p>${copyField("me-reconnect", CLI_STEPS.reconnect)}</details>`
+    ? `<details class="small" style="margin-top:10px"><summary class="muted" style="cursor:pointer">${esc(T("Reconnecting? Login expired, new machine, or moving off an old token"))}</summary>
+<p class="xs muted" style="margin:8px 0">${esc(T("Run this, approve in the browser, and start a new session."))}</p>${copyField("me-reconnect", CLI_STEPS.reconnect)}</details>`
     : ""
 }
-${webhooksSection(hooks)}
-${billingSection(plan, billingEnabled)}
+${webhooksSection(hooks, viewer.lang)}
+${billingSection(plan, billingEnabled, viewer.lang)}
 ${connectDialog(viewer)}`,
     script: CONNECT_JS + `window.revoked=()=>location.reload();` + BILLING_JS + PFP_JS + HOOKS_JS + PROFILE_JS + DISPLAY_JS + HEADLESS_JS + KILL_JS,
   });

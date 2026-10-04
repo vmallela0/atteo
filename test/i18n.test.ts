@@ -62,3 +62,28 @@ describe("languages (#1646)", () => {
     expect(en).toContain("New board");
   });
 });
+
+describe("languages step 2 (#1701): For you, Inbox, Approvals, People, welcome", () => {
+  const zh = { name: "jxn", email: "jxn@example.com", display_name: null, admin: false, lang: "zh-Hans" as const };
+  const compiles = async (res: Response) => {
+    const html = await res.text();
+    for (const s of [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1])) expect(() => new Function(s)).not.toThrow();
+    return html;
+  };
+  it("render in Chinese and their scripts compile", async () => {
+    const { forYouPage, greetingFor, summaryLine, whoLabel } = await import("../src/forYou");
+    const { inboxPage } = await import("../src/inbox");
+    const { approvalsPage } = await import("../src/approvalsPage");
+    const { peoplePage } = await import("../src/html");
+    const { assistantWelcomePage } = await import("../src/welcome");
+    expect(greetingFor(9, "zh-Hans")).toBe("早上好");
+    expect(summaryLine(2, 1, "zh-Hans")).toBe("有 2 件事需要你。你的助手还完成了 1 件。");
+    expect(whoLabel("sam", "agent", "jxn", "zh-Hans")).toBe("Sam 的助手");
+    expect(whoLabel("sam", "agent", "jxn")).toBe("Sam's assistant"); // English by default, as before
+    expect(await compiles(forYouPage(zh, [], { approvals: [], boards: [], mentions: [] }))).toContain("现在没有需要你处理的事");
+    expect(await compiles(inboxPage(zh, [], []))).toContain("收件箱");
+    expect(await compiles(approvalsPage(zh, [], [], {}))).toContain("审批");
+    expect(await compiles(peoplePage(zh, [], { friends: [], incoming: [], outgoing: [], blocked: [] } as never))).toContain("联系人");
+    expect(await compiles(assistantWelcomePage(zh, [], "https://atteo.example", []))).toContain("带上你的助手");
+  });
+});
