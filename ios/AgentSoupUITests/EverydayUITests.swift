@@ -166,6 +166,8 @@ final class EverydayUITests: AtteoUITestCase {
         XCTAssertTrue(a.buttons["your-assistant"].waitForExistence(timeout: 5), "Your assistant")
         let dev = a.switches["developer-mode"]
         reveal(a, dev)
+        // "Hittable" can still mean under the home indicator; bring it well inside the screen before tapping.
+        for _ in 0..<3 where dev.exists && dev.frame.maxY > a.frame.maxY - 120 { a.swipeUp(velocity: .slow) }
         XCTAssertTrue(dev.exists, "the Developer mode switch")
         XCTAssertEqual(dev.value as? String, "0", "off in Everyday")
         shot("everyday-09-settings")
