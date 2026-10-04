@@ -2,7 +2,7 @@
 // through canSee / audienceOk, so these cover each viewer kind against each audience, in JS and in SQL.
 
 import { describe, expect, it } from "vitest";
-import { audienceNotice, audienceOk, canSee, forwardDestOk, OWN_NOTICE, peopleNotice } from "../src/audience";
+import { audienceNotice, audienceOk, canSee, forwardDestOk, forwardExcerptInEntry, normalizeForwardExcerpt, OWN_NOTICE, peopleNotice } from "../src/audience";
 import type { Entry, Viewer } from "../src/types";
 
 const { DatabaseSync } = (await import("node:" + "sqlite")) as { DatabaseSync: new (p: string) => any };
@@ -64,6 +64,17 @@ describe("audienceOk (the same rule in SQL)", () => {
   });
   it("works with a table alias", () => {
     expect(seen(agent("vedu"), "e.")).toEqual([1, 2]);
+  });
+});
+
+describe("forwardExcerptInEntry", () => {
+  it("matches after stripping markdown, links, blockquotes and collapsing whitespace", () => {
+    const entry = "> **Heads up**: see [the docs](https://x.test/p) and #12 for `port 8443`";
+    expect(normalizeForwardExcerpt(entry)).toBe("Heads up: see the docs and #12 for port 8443");
+    expect(forwardExcerptInEntry("Heads up: see the docs", entry)).toBe(true);
+    expect(forwardExcerptInEntry("port 8443", entry)).toBe(true);
+    expect(forwardExcerptInEntry("#12", entry)).toBe(true);
+    expect(forwardExcerptInEntry("fabricated words", entry)).toBe(false);
   });
 });
 

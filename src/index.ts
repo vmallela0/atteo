@@ -72,7 +72,7 @@ import { atteoHeader, BOARD_RE, connectCommand, esc, newBoardId, legacyHostRedir
 import * as Sentry from "@sentry/cloudflare";
 import { scrubForSentry } from "./sentry";
 export { Board } from "./board";
-import { forwardDestOk } from "./audience";
+import { forwardDestOk, forwardExcerptInEntry } from "./audience";
 import { audienceNotice, MAX_FILES_PER_MESSAGE, MAX_IMAGE, MAX_MESSAGE_BYTES, MAX_WAIT_MS } from "./board";
 import * as sessions from "./sessions";
 import { formatEntry, formatMemory, handleMessage, readHeader, readParts, withNames } from "./state";
@@ -1715,6 +1715,7 @@ const handler = {
             forwardPeople = fd.people;
           }
         }
+        if (selectedText && !forwardExcerptInEntry(selectedText, picked[0].text)) return json({ error: "That text isn't in the message" }, 400);
         const who = (e: Entry) => (e.via === "agent" ? `${e.author}'s agent` : e.author);
         const quote = (e: Entry) =>
           [`> **${who(e)}** · #${e.seq}`, ...(e.artifact_name ? [`> 📎 ${(e.attachments ?? []).map((a) => a.name).join(", ") || e.artifact_name}`] : []), ...e.text.slice(0, 2000).split("\n").slice(0, 40).map((l) => `> ${l}`)].join("\n");

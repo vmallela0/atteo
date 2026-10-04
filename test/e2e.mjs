@@ -4438,6 +4438,21 @@ await step("voice (POST /api/app/voice/session): people only, validated, rate li
   assert(codes.slice(0, 6).every((c) => c !== 429) && codes[6] === 429 && last.status === 429 && Number(last.headers.get("retry-after")) > 0, `rate limit: ${codes} ${last.status}`);
 });
 
+// ---- forward excerpt (#1023): selectedText must be in the source message ----
+await step("forward excerpt: fabricated selectedText is refused; a real selection is accepted", async () => {
+  const papi = async (who, body) => {
+    const r = await web("/api/forward", who, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    return { status: r.status, body: await r.json().catch(() => ({})) };
+  };
+  const from = (await ops("boards", { user: A, title: `e2e fwd excerpt ${run}` })).body.board.id;
+  const to = (await ops("boards", { user: A, title: `e2e fwd excerpt dst ${run}` })).body.board.id;
+  const pub = (await (await web(`/api/boards/${from}/entries`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: `**Real** words about #${q1} and [notes](https://example.com)` }) })).json()).entry.seq;
+  const bad = await papi(A, { from, to, seqs: [pub], selectedText: `Fabricated excerpt ${run}` });
+  assert(bad.status === 400 && bad.body.error === "That text isn't in the message", `fabricated: ${bad.status} ${JSON.stringify(bad.body)}`);
+  const ok = await papi(A, { from, to, seqs: [pub], selectedText: "Real words about" });
+  assert(ok.status === 201 && ok.body.forwarded === 1, `real excerpt: ${ok.status} ${JSON.stringify(ok.body)}`);
+});
+
 // ---- people-only messages (vedu #1264): visible only to the people named (and the author), never to any agent ----
 {
   let pb, other, pub, secret, secretText, reply, unsend, sockets, sessB, agentWait;
