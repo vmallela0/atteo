@@ -1199,6 +1199,10 @@ export class Board extends DurableObject<Env> {
       );
     }
     if (entry.retracts != null) this.stopDependents(user, entry.retracts);
+    // Resolving an open task finishes it (jxn #2172, opus-a #2175): a change card or a note saying "resolves #N" is the
+    // record that it's done, so the task list stops showing it as doing. A private message (People only, Just mine)
+    // leaves the shared task alone.
+    if (entry.resolves.length && !aud && !internal.seeding) await this.closeResolvedTasks(user, entry, { via: input.via, client: input.client, session: input.session });
     if (entry.type === "claim") this.sql.exec("INSERT OR IGNORE INTO claim_state (seq, updated_at) VALUES (?, ?)", entry.seq, entry.ts);
     if (isHumanDecisionPost(entry) && !internal.seeding) this.decisions.record(entry);
     for (const d of depends) this.sql.exec("INSERT OR IGNORE INTO depends (seq, on_seq) VALUES (?, ?)", entry.seq, d);
@@ -3211,27 +3215,9 @@ export class Board extends DurableObject<Env> {
     this.broadcast({ type: "task", seq, ...(done ? { done: true } : {}) });
     // The conversation only hears about a task when it's newly assigned or someone adds a note; everything else,
     // finishing it included, is visible on the task itself (Tasks tab, `task get`) and goes out live.
-    if (done) this.trackRecord(seq, "task", { author: user, via: opts.via }, "done");
-    if (done) {
-      // What a "✅ Done" note used to do, without the note: the agent's 🤔 on the task turns ✅, and "on it" turns "done".
-      if (opts.via === "agent") this.receiptDone(user, seq);
-      const h = this.sql.exec("SELECT user, session, label, done FROM handling WHERE seq = ?", seq).toArray()[0];
-      if (h && h.user === user && !h.done) this.markDone(seq, user, (h.session as string | null) ?? null, h.label as string);
-      else if (!h && opts.session) this.markDone(seq, user, opts.session, takerLabel(user, opts));
-    }
+    if (done) await this.finishTask(user, seq, opts, after);
     // Taking a task yourself is silent (the task list shows it); assigning it to someone else still posts so they hear.
     const assigned = change.assignee !== undefined && !!change.assignee && change.assignee.toLowerCase() !== t.assignee && change.assignee.toLowerCase() !== user.toLowerCase();
-    // Closing a task ticks whatever is still open in its own checklist, so the body shows what was completed.
-    if (done) {
-      const me = this.taskRows().find((x) => x.seq === seq);
-      if (me && /^\s*- \[ \]/m.test(me.body)) {
-        const body = me.body.replace(/^(\s*- )\[ \]/gm, "$1[x]");
-        await this.taskEdit(user, seq, { body, base_version: me.version, summary: "done: ticked the remaining items" }, opts).catch(() => {});
-      }
-    }
-    // Finishing #N ticks every open checklist line naming it in the other open tasks (a sub-task's parent also matches by
-    // title).
-    if (done) await this.tickMentions(user, seq, "done", opts, after);
     const note = doneNote ? null : change.note;
     if (assigned || note) {
       await this.post(user, {
@@ -3245,6 +3231,44 @@ export class Board extends DurableObject<Env> {
       });
     }
     return after;
+  }
+
+  /** What finishing a task does besides its status (marked done, or resolved by a message). */
+  private async finishTask(user: string, seq: number, opts: TaskActOpts, after: TaskView) {
+    this.trackRecord(seq, "task", { author: user, via: opts.via }, "done");
+    // What a "✅ Done" note used to do, without the note: the agent's 🤔 on the task turns ✅, and "on it" turns "done".
+    if (opts.via === "agent") this.receiptDone(user, seq);
+    const h = this.sql.exec("SELECT user, session, label, done FROM handling WHERE seq = ?", seq).toArray()[0];
+    if (h && h.user === user && !h.done) this.markDone(seq, user, (h.session as string | null) ?? null, h.label as string);
+    else if (!h && opts.session) this.markDone(seq, user, opts.session, takerLabel(user, opts));
+    // Closing a task ticks whatever is still open in its own checklist, so the body shows what was completed.
+    const me = this.taskRows().find((x) => x.seq === seq);
+    if (me && /^\s*- \[ \]/m.test(me.body)) {
+      const body = me.body.replace(/^(\s*- )\[ \]/gm, "$1[x]");
+      await this.taskEdit(user, seq, { body, base_version: me.version, summary: "done: ticked the remaining items" }, opts).catch(() => {});
+    }
+    // Finishing #N ticks every open checklist line naming it in the other open tasks (a sub-task's parent also matches by
+    // title).
+    await this.tickMentions(user, seq, "done", opts, after);
+  }
+
+  /**
+   * A message that resolves open tasks finishes them, whoever holds them: the message is the record. The task keeps
+   * "Resolved by #N" as its done note. Tasks already done or stopped stay as they are.
+   */
+  private async closeResolvedTasks(user: string, entry: Entry, opts: TaskActOpts) {
+    for (const r of new Set(entry.resolves)) {
+      if (r === entry.seq) continue;
+      const t = this.sql.exec("SELECT status FROM tasks WHERE seq = ?", r).toArray()[0];
+      if (!t || t.status === "done" || t.status === "stopped") continue;
+      this.sql.exec(
+        "UPDATE tasks SET status = 'done', stop_reason = NULL, done_note = ?, lease_holder = NULL, lease_until = NULL, updated_at = ? WHERE seq = ?",
+        `Resolved by #${entry.seq}`, Date.now(), r,
+      );
+      this.taskEvent(r, user, opts, "status", t.status as string);
+      this.broadcast({ type: "task", seq: r, done: true });
+      await this.finishTask(user, r, opts, this.task(r));
+    }
   }
 
   /** Stop signal: any member can halt a task; whoever holds it hears about it on their next read. */
