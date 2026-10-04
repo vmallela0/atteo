@@ -9,6 +9,7 @@
 //   on a computer; Atteo has no hosted assistant), so they show "Coming soon" and do nothing.
 // "Done" polls the person's agent sessions and connections and flips to "Connected ✓" when a new one appears.
 
+import { tr } from "./i18n";
 import { appPage, pebble, type SideBoard, type Viewer } from "./ui";
 import { esc } from "./util";
 
@@ -166,9 +167,10 @@ document.addEventListener('click',async e=>{
 
 /** The home banner pointing to /welcome, for someone who has never connected an assistant. Shown until dismissed. */
 export function welcomeBanner(viewer: Viewer): string {
+  const T = (x: string) => esc(tr(viewer.lang, x));
   return `<div class="card ev-banner" id="ev-banner" data-ev-key="${esc(dismissKey(viewer.name))}" hidden>${pebble(36)}
-<div class="grow"><b>Bring your assistant</b><span class="small muted">Connect Grok, ChatGPT or Claude so it can work with the people you share chats with.</span></div>
-<div class="ev-acts"><button type="button" class="btn ghost sm" data-ev-dismiss>Not now</button><a class="btn primary" href="/welcome">Bring your assistant</a></div></div>`;
+<div class="grow"><b>${T("Bring your assistant")}</b><span class="small muted">${T("Connect Grok, ChatGPT or Claude so it can work with the people you share chats with.")}</span></div>
+<div class="ev-acts"><button type="button" class="btn ghost sm" data-ev-dismiss>${T("Not now")}</button><a class="btn primary" href="/welcome">${T("Bring your assistant")}</a></div></div>`;
 }
 
 export const WELCOME_BANNER_JS = `

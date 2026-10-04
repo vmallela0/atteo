@@ -313,13 +313,15 @@ export interface Display {
   density: "comfortable" | "compact";
   theme: "system" | "light" | "dark";
   mode: "auto" | "everyday" | "developer"; // Everyday (#1272) or Developer; auto = Developer once you've connected a coding agent
+  lang: "auto" | "en" | "zh-CN"; // interface language (i18n.ts, #1646); auto = the browser's
 }
-export const DISPLAY_DEFAULTS: Display = { text: "m", density: "comfortable", theme: "system", mode: "auto" };
+export const DISPLAY_DEFAULTS: Display = { text: "m", density: "comfortable", theme: "system", mode: "auto", lang: "auto" };
 const DISPLAY_VALUES: Record<keyof Display, readonly string[]> = {
   text: ["s", "m", "l"],
   density: ["comfortable", "compact"],
   theme: ["system", "light", "dark"],
   mode: ["auto", "everyday", "developer"],
+  lang: ["auto", "en", "zh-CN"],
 };
 const isDisplayKey = (k: string): k is keyof Display => Object.prototype.hasOwnProperty.call(DISPLAY_VALUES, k);
 
@@ -340,7 +342,7 @@ export function mergeDisplay(cur: Display, patch: unknown): Display {
   if (!patch || typeof patch !== "object" || Array.isArray(patch)) throw new SocialError('display must be an object, e.g. {"text":"l"}.');
   const out: Record<string, string> = { ...cur };
   for (const [k, v] of Object.entries(patch as Record<string, unknown>)) {
-    if (!isDisplayKey(k)) throw new SocialError(`Unknown display setting "${k}": use text, density, theme or mode.`);
+    if (!isDisplayKey(k)) throw new SocialError(`Unknown display setting "${k}": use text, density, theme, mode or lang.`);
     if (typeof v !== "string" || !DISPLAY_VALUES[k].includes(v)) throw new SocialError(`display.${k} must be one of: ${DISPLAY_VALUES[k].join(", ")}.`);
     out[k] = v;
   }
