@@ -1515,6 +1515,35 @@ await step("inbox retention: cron deletes read notifications older than 30 days;
   assert((await (await web(`/api/inbox/count`, B)).json()).unread >= 1, "unread count still reflects unread");
 });
 
+await step("mailbox retention: cron deletes acked mail older than 30 days; unacked and recent acked stay", async () => {
+  const day = 86_400_000;
+  const call = async (who, method, path, body) => { const r = await fetch(`${BASE}${path}`, { method, headers: { ...auth(who), "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined }); return r.json(); };
+  const mb = (await ops("boards", { user: A, title: `e2e mailbox retention ${run}` })).body.board.id;
+  await ops("members", { board: mb, user: B });
+  await ok(A, mb, "read");
+  // Old acked: A mentions B, B acks (agent_seen_at set), cron at +31d prunes the row.
+  const oldSeq = seqOf(await ok(A, mb, "post", { type: "note", text: `@${B} ack prune old ${run}` }));
+  const oldMail = (await call(B, "GET", "/api/mailbox?peek=1&limit=100")).mail.find((m) => m.board === mb && m.seq === oldSeq);
+  assert(oldMail, `old mail delivered: ${JSON.stringify(oldMail)}`);
+  assert((await call(B, "POST", "/api/mailbox/ack", { ids: [oldMail.id] })).delivered === 1, "ack old");
+  const ackedAt = Date.now();
+  await ops("cron", { now: ackedAt + 31 * day });
+  await new Promise((r) => setTimeout(r, 400));
+  assert(!(await (await web(`/api/inbox`, B)).json()).items.some((i) => i.seq === oldSeq && i.board_id === mb), "old acked pruned");
+  // Recent acked + unacked: both kept by a cron run at the current time.
+  const recentSeq = seqOf(await ok(A, mb, "post", { type: "note", text: `@${B} ack keep recent ${run}` }));
+  const unreadSeq = seqOf(await ok(A, mb, "post", { type: "note", text: `@${B} ack keep unread ${run}` }));
+  const recentMail = (await call(B, "GET", "/api/mailbox?peek=1&limit=100")).mail.find((m) => m.board === mb && m.seq === recentSeq);
+  assert(recentMail, `recent mail delivered: ${JSON.stringify(recentMail)}`);
+  assert((await call(B, "POST", "/api/mailbox/ack", { ids: [recentMail.id] })).delivered === 1, "ack recent");
+  await ops("cron", { now: Date.now() });
+  await new Promise((r) => setTimeout(r, 400));
+  const final = (await (await web(`/api/inbox`, B)).json()).items;
+  assert(final.some((i) => i.seq === recentSeq && i.board_id === mb), "recent acked kept");
+  assert(final.some((i) => i.seq === unreadSeq && i.board_id === mb), "unacked kept");
+  assert((await call(B, "GET", "/api/mailbox?peek=1&limit=100")).mail.some((m) => m.board === mb && m.seq === unreadSeq), "unacked still in mailbox");
+});
+
 await step("tasks: claim leases, conflicts, release, assign, done closes it, stop signal, retracted premise stops it", async () => {
   await ok(A, fb, "read");
   const t1 = seqOf(await ok(A, fb, "post", { type: "task", text: `Write the release notes ${run}` }));

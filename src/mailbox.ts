@@ -137,3 +137,14 @@ export async function ack(env: Env, user: string, ids: number[]): Promise<number
     .run();
   return r.meta.changes ?? 0;
 }
+
+const ACKED_RETENTION_DAYS = 30;
+
+/** Cron sweep: delete acked mailbox rows older than 30 days (shared with test/queryPlans.test.ts). */
+export const PRUNE_MAIL_SQL = `DELETE FROM notifications WHERE agent_seen_at IS NOT NULL AND agent_seen_at < ?`;
+
+/** Deletes acked mailbox rows past the retention window; unacked and recent acked rows stay. */
+export async function pruneMail(env: Env, now = Date.now(), days = ACKED_RETENTION_DAYS): Promise<number> {
+  const r = await env.DB.prepare(PRUNE_MAIL_SQL).bind(now - days * 86_400_000).run();
+  return r.meta.changes ?? 0;
+}
