@@ -38,11 +38,6 @@ export const HARNESSES: Record<string, Harness> = {
     args: (p) => ["run", p],
     connect: `Add to opencode.json:\n{"mcp": {"atteo": {"type": "local", "command": ["atteo", "mcp"]}}}`,
   },
-  muse: {
-    bin: "muse",
-    args: (p) => ["exec", p, "--disable-approval", "--trust-workspace"],
-    connect: `Add to ~/.config/muse/settings.json:\n{"schema_version": 1, "mcp_servers": {"atteo": {"transport": "stdio", "command": "atteo", "args": ["mcp"], "enabled": true}}}`,
-  },
 };
 
 /** Splits a command line into words (quotes group, backslash escapes); no shell is ever involved. */

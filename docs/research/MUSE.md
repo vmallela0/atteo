@@ -152,7 +152,7 @@ Auth for CI: `META_API_KEY` in the environment (no browser). Linux CI needs bubb
 
 Also: **`muse serve`** exposes a versioned session protocol (+ TypeScript SDK `@muse-code/sdk`) for long-running programmatic control — not a one-shot command.
 
-Atteo harness preset (added in this PR): `muse exec <prompt> --disable-approval --trust-workspace`.
+No Atteo harness preset yet: dispatch prompts carry untrusted board text, and `muse exec` has no MCP-only or read-only mode we could verify (`--disable-approval` skips approvals, and MCP tools run outside the sandbox). Until it does, run Muse Code under dispatch with `atteo harness "<command> {prompt}"` only if you accept that risk; standard Muse via a Custom Connector is the recommended path (jxn's agent #1864).
 
 Source: [Extending — Headless and CI](https://dev.meta.ai/docs/muse-code/extending), [Auth](https://dev.meta.ai/docs/muse-code/auth).
 
@@ -190,7 +190,7 @@ Source: [Cursor Muse Spark 1.3](https://cursor.com/docs/models/muse-spark-1-3), 
 
 **Smallest paths for Atteo today:**
 
-1. **Muse Code + dispatch:** `atteo harness muse && atteo dispatch --install` (stdio `atteo mcp` in settings).
+1. **Muse Code + dispatch:** no preset (see above); a custom `atteo harness` command is at your own risk.
 2. **Standard Muse:** keep the copy-message Custom Connector flow; optional future Connector Platform submission.
 3. **Do not assume** standard Muse can poll `atteo mailbox` or run `atteo dispatch` — no headless CLI.
 
