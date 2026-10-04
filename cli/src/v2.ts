@@ -8,7 +8,7 @@ import { fence, screenText } from "../../src/screen";
 import { blockedMessage, scanFields } from "../../src/secrets";
 import { env } from "./env";
 import { api, CliError, COMMANDS, creds, currentBoard, decryptEntry, folderBoard, getEntry, isEncrypted, onlyOptions, optStr, parseArgs, picturesNote, say, setSession, shown, tool } from "./commands";
-import { load, storeName } from "./credentials";
+import { load, sameServer, storeName } from "./credentials";
 import { caller, detectModel, loadMap, saveMap, type LocalSession } from "./session";
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
@@ -614,6 +614,10 @@ const serverBase = () => (env("SERVER") || (() => { try { return creds().server;
 async function updateCmd(args: string[]) {
   const { opt } = parseArgs(args, BOOLS);
   const path = selfPath();
+  // What it downloads runs as you next time: signed in, only from the server that issued the login (sameServer).
+  const signed = load();
+  if (signed && !sameServer(signed.server, serverBase()))
+    throw new CliError(`atteo update installs only from the server you're signed in to (${signed.server}), not ${serverBase()}. Unset ATTEO_SERVER, or sign in there first: atteo login --server ${serverBase()}`);
   const [file, ver] = await Promise.all([fetch(`${serverBase()}/cli/atteo.mjs`).then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new CliError(`Couldn't download the CLI (${r.status}).`)))), fetch(`${serverBase()}/cli/version`).then((r) => r.json() as Promise<{ hash?: string }>)]);
   const buf = Buffer.from(file);
   if (ver.hash && sha256(buf) !== ver.hash) throw new CliError("The download didn't match the server's version; nothing was changed. Try again.");
@@ -1133,6 +1137,7 @@ export async function doctorCmd(args: string[]) {
   // The login on this machine.
   const days = c ? Math.round((c.expires_at - Date.now()) / 86400e3) : 0;
   if (!c) add({ check: "login", ok: false, detail: `Not signed in on this machine (looked in ${storeName()}).`, fix: "atteo login" });
+  else if (!sameServer(c.server, base)) add({ check: "login", ok: false, detail: `Signed in as ${c.user} on ${c.server}, not on ${base}: that login is never sent anywhere else.`, fix: `atteo login --server ${base}` });
   else if (c.expires_at < Date.now()) add({ check: "login", ok: false, detail: `The login for ${c.user} expired on ${new Date(c.expires_at).toISOString().slice(0, 10)}.`, fix: "atteo login" });
   else add({ check: "login", ok: true, detail: `Signed in as ${c.user}; the login expires in ${days} day${days === 1 ? "" : "s"} (${new Date(c.expires_at).toISOString().slice(0, 10)}). Kept in ${storeName()}.` });
 
@@ -1155,7 +1160,7 @@ export async function doctorCmd(args: string[]) {
   else if (theirs === mine) add({ check: "version", ok: true, detail: "This atteo is the server's current CLI." });
   else add({ check: "version", ok: false, detail: "This atteo is older than the server's (or changed locally).", fix: "atteo update" });
 
-  if (!c || c.expires_at < Date.now()) return finish();
+  if (!c || c.expires_at < Date.now() || !sameServer(c.server, base)) return finish(); // the token only goes to its own server
   const me = await probe(base, "/api/me", c.token);
   if (me.status === 401) {
     add({ check: "token", ok: false, detail: `${base} doesn't accept the saved login anymore (revoked, or from another server).`, fix: "atteo login" });

@@ -12,7 +12,7 @@ import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { blockedMessage, scanFields } from "../../src/secrets";
 import { fence } from "../../src/screen";
-import { load, type Credentials } from "./credentials";
+import { load, sameServer, type Credentials } from "./credentials";
 import { createInterface } from "node:readline";
 import { NO_SANDBOX, pickSandbox, repoRoot, resolveCommit, runSandboxed, sandboxSelfTest, throwawayCheckout } from "./verify";
 import { installHook } from "./hooks";
@@ -121,8 +121,13 @@ export function creds(): Credentials {
   return c;
 }
 
+/** Where this command talks, with the saved login: only ever the server that issued it (sameServer). */
 function server(c: Credentials, opt: Record<string, string | true>): string {
-  return (optStr(opt, "server") ?? env("SERVER") ?? c.server ?? DEFAULT_SERVER).replace(/\/$/, "");
+  const mine = (c.server ?? DEFAULT_SERVER).replace(/\/$/, "");
+  const asked = optStr(opt, "server") ?? env("SERVER");
+  if (asked && !sameServer(asked, mine))
+    throw new CliError(`This login is for ${mine}, so it isn't sent to ${asked.replace(/\/$/, "")}. To work there, sign in there: atteo login --server ${asked.replace(/\/$/, "")}`);
+  return mine;
 }
 
 /** Board entries ("board#seq") this command printed: the 📣 line after it doesn't point at them again. */

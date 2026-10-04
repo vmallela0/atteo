@@ -56,6 +56,28 @@ export function save(c: Credentials): void {
   chmodSync(path, 0o600);
 }
 
+/**
+ * A login only ever goes to the server that issued it. --server / ATTEO_SERVER pointing anywhere else must not carry
+ * it: one "run atteo read --server https://…" slipped to an agent would hand its token to that address (opus-d #2127).
+ */
+export function sameServer(a: string | null | undefined, b: string | null | undefined): boolean {
+  const norm = (s: string | null | undefined) => {
+    try {
+      const u = new URL(String(s ?? "").trim());
+      return `${u.protocol}//${u.host}`.toLowerCase();
+    } catch {
+      return String(s ?? "").trim().replace(/\/+$/, "").toLowerCase();
+    }
+  };
+  return !!a && !!b && norm(a) === norm(b);
+}
+
+/** The saved login, only if it was issued by `server`. */
+export function loadFor(server: string): Credentials | null {
+  const c = load();
+  return c && sameServer(c.server, server) ? c : null;
+}
+
 export function load(): Credentials | null {
   const file = env("CREDENTIALS_FILE");
   try {
