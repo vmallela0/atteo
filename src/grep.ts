@@ -3,7 +3,7 @@
 // Kept cheap on purpose: no whole-board scans (Durable Object rows read are a daily budget).
 
 import * as registry from "./registry";
-import type { Env } from "./types";
+import type { Env, Viewer } from "./types";
 
 export const GREP_MAX_PATTERN = 200;
 export const GREP_DEFAULT_MAX = 50;
@@ -380,6 +380,7 @@ export interface BoardGrepOpts {
   context?: number;
   max?: number;
   files?: boolean;
+  viewer?: Viewer | null; // who's asking: private entries only for those who may see them (absent: none)
 }
 
 export interface GrepHit extends BoardGrepHit {
@@ -399,8 +400,9 @@ export function hitLine(h: GrepHit): string {
   return h.file != null ? `${h.title}/${h.file}:${h.line}: ${h.text}` : `${h.title}#${h.seq} ${h.author}: ${h.text}`;
 }
 
-/** Runs a grep on one board (boardId; membership already checked) or on all the user's boards (boardId null). */
-export async function runGrep(env: Env, user: string, pattern: string, opts: GrepOptions, boardId: string | null): Promise<GrepOutput> {
+/** Runs a grep on one board (boardId; membership already checked) or on all the user's boards (boardId null).
+ *  `viewer`: who's asking (an agent, or a person on the web), for which private entries they may see. */
+export async function runGrep(env: Env, user: string, pattern: string, opts: GrepOptions, boardId: string | null, viewer: Viewer | null): Promise<GrepOutput> {
   compileGrep(pattern, opts); // a bad pattern fails here, before any board is asked
   const max = Math.max(1, Math.min(GREP_HARD_MAX, Math.trunc(Number(opts.max)) || GREP_DEFAULT_MAX));
   const bo: BoardGrepOpts = {
@@ -411,6 +413,7 @@ export async function runGrep(env: Env, user: string, pattern: string, opts: Gre
     context: Math.max(0, Math.min(2, Math.trunc(Number(opts.context)) || 0)),
     files: !!opts.files,
     ...parseSince(opts.since),
+    viewer,
   };
   const stub = (id: string) => env.BOARD.get(env.BOARD.idFromName(id));
   const notes: string[] = [];

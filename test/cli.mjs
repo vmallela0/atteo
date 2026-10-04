@@ -128,6 +128,28 @@ await step("replies go in the thread: --reply-to works like --reply, unknown opt
   assert(!top.includes("Threaded") && !top.includes("In reply to"), `top level: ${top}`);
 });
 
+await step("post --own (#1748): just you and your own agents; with --to someone else it's refused", async () => {
+  const cli = (cred, ...args) => new Promise((resolve) => {
+    const p = spawn("node", [CLI, ...args, "--board", board], { env: { ...process.env, ATTEO_CREDENTIALS_FILE: cred, XDG_CONFIG_HOME: join(dir, "cfg-own") } });
+    let s = "";
+    p.stdout.on("data", (d) => (s += d));
+    p.stderr.on("data", (d) => (s += d));
+    p.on("close", (code) => resolve({ code, out: s }));
+  });
+  const word = `lynx-ochre-${run}`;
+  await cli(credA, "read");
+  // --own before the text: a flag, not "--own <text>".
+  let r = await cli(credA, "post", "--own", `note to my agents ${word}`);
+  if (r.out.includes("Not posted")) r = await cli(credA, "post", "--own", `note to my agents ${word}`);
+  assert(r.code === 0 && /Posted #\d+/.test(r.out) && r.out.includes("🔒 own"), `--own: ${r.out}`);
+  const seq = Number(r.out.match(/Posted #(\d+)/)[1]);
+  assert((await tool(tokA, board, "get", { seq })).includes(word), "A's agent sees it");
+  assert(!(await tool(tokB, board, "get", { seq })).includes(word), "B's agent sees A's own note");
+  assert(!(await tool(tokB, board, "read", { since: 0, limit: 200 })).includes(word), "B's agent reads A's own note");
+  r = await cli(credA, "post", "--own", "--to", B, `not for B ${run}`);
+  assert(r.code !== 0 && r.out.includes("can't go to"), `--own --to someone else: ${r.out}`);
+});
+
 await step("status reads the saved login", async () => {
   const out = await new Promise((resolve) => {
     const p = spawn("node", [CLI, "status"], { env: { ...process.env, ATTEO_CREDENTIALS_FILE: credA } });
