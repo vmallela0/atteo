@@ -4438,6 +4438,21 @@ await step("voice (POST /api/app/voice/session): people only, validated, rate li
   assert(codes.slice(0, 6).every((c) => c !== 429) && codes[6] === 429 && last.status === 429 && Number(last.headers.get("retry-after")) > 0, `rate limit: ${codes} ${last.status}`);
 });
 
+// ---- forward excerpt (#1023): selectedText must be in the source message ----
+await step("forward excerpt: fabricated selectedText is refused; a real selection is accepted", async () => {
+  const papi = async (who, body) => {
+    const r = await web("/api/forward", who, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    return { status: r.status, body: await r.json().catch(() => ({})) };
+  };
+  const from = (await ops("boards", { user: A, title: `e2e fwd excerpt ${run}` })).body.board.id;
+  const to = (await ops("boards", { user: A, title: `e2e fwd excerpt dst ${run}` })).body.board.id;
+  const pub = (await (await web(`/api/boards/${from}/entries`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: `**Real** words about #${q1} and [notes](https://example.com)` }) })).json()).entry.seq;
+  const bad = await papi(A, { from, to, seqs: [pub], selectedText: `Fabricated excerpt ${run}` });
+  assert(bad.status === 400 && bad.body.error === "That text isn't in the message", `fabricated: ${bad.status} ${JSON.stringify(bad.body)}`);
+  const ok = await papi(A, { from, to, seqs: [pub], selectedText: "Real words about" });
+  assert(ok.status === 201 && ok.body.forwarded === 1, `real excerpt: ${ok.status} ${JSON.stringify(ok.body)}`);
+});
+
 // ---- people-only messages (vedu #1264): visible only to the people named (and the author), never to any agent ----
 {
   let pb, other, pub, secret, secretText, reply, unsend, sockets, sessB, agentWait;
@@ -4648,6 +4663,8 @@ await step("voice (POST /api/app/voice/session): people only, validated, rate li
     assert(ma.status === 400 && /does not exist/.test(ma.body.error), `memory (agent): ${ma.status} ${JSON.stringify(ma.body)}`);
     const f = await papi(A, "POST", "/api/forward", { from: pb, to: other, seqs: [secret] });
     assert(f.status === 400 && /People-only/.test(f.body.error), `forward: ${f.status} ${JSON.stringify(f.body)}`);
+    const fs = await papi(A, "POST", "/api/forward", { from: pb, to: other, seqs: [secret], selectedText: "Salary" });
+    assert(fs.status === 400 && /People-only/.test(fs.body.error), `forward excerpt: ${fs.status} ${JSON.stringify(fs.body)}`);
     const fo = await papi(OUT, "POST", "/api/forward", { from: pb, to: other, seqs: [secret] });
     assert(fo.status !== 201, `outsider forward: ${fo.status}`);
     hidden(await ok(A, other, "read", { since: 0 }), "the other board");
@@ -4813,6 +4830,8 @@ await step("voice (POST /api/app/voice/session): people only, validated, rate li
     assert(m.status === 400 && /just-mine/.test(m.body.error), `memory: ${m.status} ${JSON.stringify(m.body)}`);
     const f = await papi(A, "POST", "/api/forward", { from: ob, to: other, seqs: [mine] });
     assert(f.status === 400 && /just-mine/.test(f.body.error), `forward: ${f.status} ${JSON.stringify(f.body)}`);
+    const fs = await papi(A, "POST", "/api/forward", { from: ob, to: other, seqs: [mine], selectedText: "Plan" });
+    assert(fs.status === 400 && /just-mine/.test(fs.body.error), `forward excerpt: ${fs.status} ${JSON.stringify(fs.body)}`);
     // Files are the whole board's: one in the lane's thread is refused before it's stored (nobody gets the file).
     const fname = `lane-${run}.txt`;
     for (const multi of [false, true]) {

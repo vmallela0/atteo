@@ -72,6 +72,7 @@ import { atteoHeader, BOARD_RE, connectCommand, esc, newBoardId, legacyHostRedir
 import * as Sentry from "@sentry/cloudflare";
 import { scrubForSentry } from "./sentry";
 export { Board } from "./board";
+import { forwardDestOk, forwardExcerptInEntry } from "./audience";
 import { audienceNotice, MAX_FILES_PER_MESSAGE, MAX_IMAGE, MAX_MESSAGE_BYTES, MAX_WAIT_MS } from "./board";
 import * as sessions from "./sessions";
 import { formatEntry, formatMemory, handleMessage, readHeader, readParts, withNames } from "./state";
@@ -1674,10 +1675,15 @@ const handler = {
       if (path === "/api/forward" && method === "POST") {
         if (!viewer) return needLogin();
         if (viewer.via === "agent") return json({ error: "Forwarding is for people, in the browser: agents can't move messages between boards." }, 403);
-        const b = (await request.json().catch(() => ({}))) as { from?: string; to?: string; seqs?: unknown; note?: string };
+        const b = (await request.json().catch(() => ({}))) as { from?: string; to?: string; seqs?: unknown; note?: string; selectedText?: string };
         const from = String(b.from ?? ""), to = String(b.to ?? "");
+        const selectedText = typeof b.selectedText === "string" ? b.selectedText.replace(/\r/g, "").trim() : "";
         const seqs = [...new Set((Array.isArray(b.seqs) ? b.seqs : []).map(Number).filter((n) => Number.isInteger(n) && n > 0))].sort((x, y) => x - y).slice(0, 50);
         if (!seqs.length) return json({ error: "Select at least one message." }, 400);
+        if (selectedText) {
+          if (seqs.length !== 1) return json({ error: "Selected text forwards one message at a time." }, 400);
+          if (!selectedText) return json({ error: "Selected text is empty." }, 400);
+        }
         if (!from || !to || from === to) return json({ error: "Pick another board to forward to." }, 400);
         if (!(await registry.isMember(env, from, viewer.name)) || !(await registry.isMember(env, to, viewer.name))) return json({ error: "board not found" }, 404);
         if ((await registry.memberRole(env, to, viewer.name)) === "viewer") return json({ error: "You can view that board but not post to it." }, 403);
@@ -1685,20 +1691,50 @@ const handler = {
         if (!src || !dst) return json({ error: "board not found" }, 404);
         if ((src as { encrypted?: number }).encrypted || (dst as { encrypted?: number }).encrypted) return json({ error: "End-to-end encrypted boards can't forward: the server can't read them." }, 400);
         const got = await Promise.all(seqs.map((n) => boardStub(env, from).get(n, seer()).catch(() => null)));
-        // People-only messages stay where they were said, with the people they were said to.
-        if (got.some((g) => g?.entry.audience)) return json({ error: "People-only and just-mine messages can't be forwarded: they stay with the people they were sent to." }, 400);
         const picked = got.filter((g): g is NonNullable<typeof g> => !!g && !g.replies.some((r) => r.retracts === g.entry.seq)).map((g) => g.entry);
         if (!picked.length) return json({ error: "Those messages aren't there anymore." }, 404);
+        const destMembers = (await registry.boardMembers(env, to)).map((m) => m.user);
+        let forwardPeople: string[] | undefined;
+        for (const e of picked) {
+          const fd = forwardDestOk(e, destMembers);
+          if (!fd.ok) {
+            return json(
+              {
+                error:
+                  fd.reason === "just-mine"
+                    ? "Just-mine messages can't be forwarded: they stay with you and your own agents."
+                    : "People-only messages can only be forwarded to a board whose members are exactly the people who could see the original.",
+              },
+              400,
+            );
+          }
+          if (fd.people) {
+            const key = fd.people.slice().sort().join("\0");
+            const cur = forwardPeople?.slice().sort().join("\0");
+            if (forwardPeople && key !== cur) return json({ error: "Those people-only messages aren't for the same people." }, 400);
+            forwardPeople = fd.people;
+          }
+        }
+        if (selectedText && !forwardExcerptInEntry(selectedText, picked[0].text)) return json({ error: "That text isn't in the message" }, 400);
         const who = (e: Entry) => (e.via === "agent" ? `${e.author}'s agent` : e.author);
         const quote = (e: Entry) =>
           [`> **${who(e)}** · #${e.seq}`, ...(e.artifact_name ? [`> 📎 ${(e.attachments ?? []).map((a) => a.name).join(", ") || e.artifact_name}`] : []), ...e.text.slice(0, 2000).split("\n").slice(0, 40).map((l) => `> ${l}`)].join("\n");
         const note = String(b.note ?? "").trim().slice(0, 2000);
-        const text = [...(note ? [note] : []), `↪ Forwarded from **${src.title}** · ${picked.length} message${picked.length === 1 ? "" : "s"}`, ...picked.map(quote)].join("\n\n").slice(0, 20000);
+        const text = selectedText
+          ? [...(note ? [note] : []), `↪ Forwarded from **${src.title}** · excerpt`, [...selectedText.slice(0, 2000).split("\n").slice(0, 40).map((l) => `> ${l}`), `> — ${who(picked[0])}, #${picked[0].seq}`].join("\n")].join("\n\n").slice(0, 20000)
+          : [...(note ? [note] : []), `↪ Forwarded from **${src.title}** · ${picked.length} message${picked.length === 1 ? "" : "s"}`, ...picked.map(quote)].join("\n\n").slice(0, 20000);
         const hit = scanFields({ text });
         if (hit) return json({ error: blockedMessage(hit) }, 400);
         // Only the note can mention anyone: quoted @names don't ping people on the new board.
         const { mentions } = note && mayMention(note) ? parseMentions(note, await registry.boardMembers(env, to), viewer.name, "person") : { mentions: [] as Mention[] };
-        const entry = await boardStub(env, to).post(viewer.name, { type: "note", title: `Forwarded from ${src.title}`.slice(0, 60), text, mentions, via: "person" });
+        const entry = await boardStub(env, to).post(viewer.name, {
+          type: "note",
+          title: `Forwarded from ${src.title}`.slice(0, 60),
+          text,
+          mentions,
+          via: "person",
+          ...(forwardPeople ? { people_only: true, to_people: forwardPeople } : {}),
+        });
         ctx.waitUntil(registry.bumpBoard(env, to, entry.seq).catch(() => {}));
         return json({ ok: true, board: { id: to, title: dst.title }, seq: entry.seq, forwarded: picked.length }, 201);
       }

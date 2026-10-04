@@ -50,5 +50,40 @@ export function audienceNotice(e: Pick<Entry, "audience" | "to_people">, author:
 /** The short name of a private audience, for errors: "people-only", "just-mine". */
 export const audienceWord = (a: Audience): string => (a === "own" ? "just-mine" : "people-only");
 
+/** Plain text for matching a forward excerpt against an entry: markdown, links and blockquotes stripped; whitespace collapsed. */
+export function normalizeForwardExcerpt(text: string): string {
+  let t = text.replace(/\r\n?/g, "\n");
+  t = t.replace(/```[^\n]*\n([\s\S]*?)```/g, "$1");
+  t = t.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1");
+  t = t.replace(/<([^>\s]+)>/g, "$1");
+  t = t.replace(/\*\*([^*]+)\*\*/g, "$1");
+  t = t.replace(/__([^_]+)__/g, "$1");
+  t = t.replace(/\*([^*\n]+)\*/g, "$1");
+  t = t.replace(/_([^_\n]+)_/g, "$1");
+  t = t.replace(/`([^`]+)`/g, "$1");
+  t = t.replace(/^>\s?/gm, "");
+  return t.replace(/\s+/g, " ").trim();
+}
+
+/** True when `selectedText` appears in `entryText` after the same normalization (ref chips stay as #N). */
+export function forwardExcerptInEntry(selectedText: string, entryText: string): boolean {
+  const sel = normalizeForwardExcerpt(selectedText);
+  if (!sel) return false;
+  return normalizeForwardExcerpt(entryText).includes(sel);
+}
+
+/** Whether an entry may be forwarded to a board (destMembers: everyone on the destination). */
+export function forwardDestOk(
+  e: Pick<Entry, "audience" | "to_people">,
+  destMembers: string[],
+): { ok: true; people?: string[] } | { ok: false; reason: "just-mine" | "people" } {
+  if (!e.audience) return { ok: true };
+  if (e.audience === "own") return { ok: false, reason: "just-mine" };
+  const people = [...new Set(e.to_people ?? [])].sort();
+  const dest = [...new Set(destMembers)].sort();
+  if (people.length !== dest.length || people.some((m, i) => m !== dest[i])) return { ok: false, reason: "people" };
+  return { ok: true, people };
+}
+
 /** What a private message can be: a note or a question (nothing that changes shared state agents read). */
 export const PEOPLE_ONLY_TYPES = ["note", "question"] as const;
