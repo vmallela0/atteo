@@ -11,6 +11,8 @@
 // A mention counts as addressed to whoever it names, alongside the entry's `to` (which addresses the member's agent).
 // Pure functions, shared by the Worker, the web UI and the CLI.
 
+import { blankLiterals } from "./screen";
+
 export interface Mention {
   user: string;
   agent: boolean; // true: "@user's agent"; false: the person
@@ -109,10 +111,44 @@ function agentNameHits(text: string, names: Map<string, string[]>, isMember: (n:
   return hits;
 }
 
+/** Edit distance between two short strings, stopping early once it's over `max` (returns max + 1). */
+function within(a: string, b: string, max: number): number {
+  if (Math.abs(a.length - b.length) > max) return max + 1;
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    if (Math.min(...cur) > max) return max + 1;
+    prev = cur;
+  }
+  return prev[b.length];
+}
+
+/** Is an unknown "@token" close enough to a member's handle to be a typo worth warning about? Within edit distance 2
+ *  (1 when both are under 6 characters, so "@halo" isn't a typo of "jo"), or one a prefix of the other (at least 3
+ *  characters). "@mentions" or "@HALo" in prose isn't. */
+export function nearMember(token: string, members: Iterable<string>): boolean {
+  const t = token.toLowerCase();
+  for (const raw of members) {
+    const m = raw.toLowerCase();
+    const max = Math.max(t.length, m.length) < 6 ? 1 : 2;
+    if (within(t, m, max) <= max) return true;
+    const [short, long] = t.length <= m.length ? [t, m] : [m, t];
+    if (short.length >= 3 && long.startsWith(short)) return true;
+  }
+  return false;
+}
+
+/** After a matched "@token": a character no handle has (or more handle past the 32-character limit) means the token
+ *  isn't a handle at all ("@Component(", "@user=…", "@ünïcode"). Punctuation that ends a sentence is fine. */
+const NOT_A_HANDLE_AFTER = /^(?:[A-Za-z0-9_]|[^\x00-\x7F]|[(){}[\]=$<>|\\^&*+#~@%])/u;
+
 /**
  * Members (and members' agents) mentioned in `text`, in order of first appearance.
  * The author mentioning themselves doesn't count; the author mentioning their own agent does, unless the post
- * was written by that agent. Handles that aren't on the board come back in `unknown` so a caller can say so.
+ * was written by that agent. Handles that aren't on the board come back in `unknown` so a caller can say so, but
+ * only likely typos of a member's handle (nearMember), not inside quotes, and only tokens that could be handles:
+ * "@mentions" in prose, or "@Component(" in a snippet, is silently not a mention.
  * "@<agent name>" is that member's agent; a name two members' agents share on the board comes back in `ambiguous`
  * instead (the owner form, "@vedu's agent", is needed).
  */
@@ -130,7 +166,8 @@ export function parseMentions(
   let grouped = false;
   let plain = withoutCode(text);
   const events: { at: number; run: () => void }[] = [];
-  for (const h of agentNameHits(plain, agentNameIndex(list), (n) => set.has(n))) {
+  const names = agentNameIndex(list);
+  for (const h of agentNameHits(plain, names, (n) => set.has(n))) {
     plain = plain.slice(0, h.at) + " ".repeat(h.typed.length + 1) + plain.slice(h.at + 1 + h.typed.length); // the handle pass skips it
     events.push({
       at: h.at,
@@ -141,6 +178,8 @@ export function parseMentions(
       },
     });
   }
+  const literal = blankLiterals(plain); // quotes, for the warnings only (code is already out of `plain`)
+  const near = [...set, ...names.keys()]; // what a typo'd "@token" would have meant
   for (const m of plain.matchAll(MENTION_RE)) {
     events.push({
       at: m.index ?? 0,
@@ -158,7 +197,11 @@ export function parseMentions(
           return;
         }
         const r = resolve(m[2], m[3], (n) => set.has(n));
-        if (!r.known) unknown.add(r.user);
+        if (!r.known) {
+          const at = (m.index ?? 0) + m[1].length; // the "@"
+          const after = m[3] ? "" : plain.slice((m.index ?? 0) + m[0].length);
+          if (literal[at] === "@" && !NOT_A_HANDLE_AFTER.test(after) && nearMember(r.user, near)) unknown.add(r.user);
+        }
         else if (keep(r, author, via)) mentions.set(key(r), { user: r.user, agent: r.agent, ...(r.session ? { session: r.session } : {}) });
       },
     });

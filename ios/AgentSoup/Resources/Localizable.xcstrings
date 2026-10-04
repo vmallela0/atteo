@@ -10774,6 +10774,52 @@
         }
       }
     },
+    "Connect Claude Code, Codex or the assistant you already use, and it shows up here.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conecta Claude Code, Codex o el asistente que ya usas y aparecerá aquí."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connectez Claude Code, Codex ou l’assistant que vous utilisez déjà, et il apparaîtra ici."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code, Codex या जिस सहायक का आप पहले से उपयोग करते हैं, उसे कनेक्ट करें — वह यहाँ दिखेगा।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code、Codex、またはいつものアシスタントを接続すると、ここに表示されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code, Codex 또는 이미 쓰는 어시스턴트를 연결하면 여기에 표시됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接 Claude Code、Codex 或你已在用的助手，它就会显示在这里。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連線 Claude Code、Codex 或你已在用的助手，它就會顯示在這裡。"
+          }
+        }
+      }
+    },
     "Connect a coding agent": {
       "localizations": {
         "es": {
@@ -10820,6 +10866,52 @@
         }
       }
     },
+    "Connect an agent": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectar un agente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecter un agent"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "एक एजेंट कनेक्ट करें"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントを接続"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 연결"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接智能体"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連線智能體"
+          }
+        }
+      }
+    },
     "Connect any agent": {
       "localizations": {
         "es": {
@@ -10862,6 +10954,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "連線任意智能體"
+          }
+        }
+      }
+    },
+    "Connect your agent": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conecta tu agente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecter votre agent"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "अपना एजेंट कनेक्ट करें"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントを接続"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 연결"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接你的智能体"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連線你的智能體"
           }
         }
       }
@@ -10954,6 +11092,106 @@
           "stringUnit": {
             "state": "translated",
             "value": "已連線"
+          }
+        }
+      }
+    },
+    "Connected · %lld agents": {
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Connected · %lld agent"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Connected · %lld agents"
+                }
+              }
+            }
+          }
+        },
+        "es": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Conectado · %lld agente"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Conectado · %lld agentes"
+                }
+              }
+            }
+          }
+        },
+        "fr": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Connecté · %lld agent"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Connecté · %lld agents"
+                }
+              }
+            }
+          }
+        },
+        "hi": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "कनेक्टेड · %lld एजेंट"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "कनेक्टेड · %lld एजेंट"
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続済み · %lld 個のエージェント"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결됨 · 에이전트 %lld개"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已连接 · %lld 个智能体"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已連線 · %lld 個智能體"
           }
         }
       }
@@ -21041,48 +21279,48 @@
         }
       }
     },
-    "No agent is running. Connect one from the website (Add your agent) or with atteo login.": {
+    "No agent is connected yet": {
       "localizations": {
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No hay ningún agente en marcha. Conecta uno desde la web (Añade tu agente) o con atteo login."
+            "value": "Aún no hay ningún agente conectado"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aucun agent n’est en cours d’exécution. Connectez-en un depuis le site web (Ajouter votre agent) ou avec atteo login."
+            "value": "Aucun agent n’est encore connecté"
           }
         },
         "hi": {
           "stringUnit": {
             "state": "translated",
-            "value": "कोई एजेंट नहीं चल रहा। वेबसाइट से (अपना एजेंट जोड़ें) या atteo login से एक कनेक्ट करें।"
+            "value": "अभी कोई एजेंट कनेक्ट नहीं है"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "実行中のエージェントはありません。Web サイト（「エージェントを追加」）または atteo login で接続してください。"
+            "value": "まだエージェントが接続されていません"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "실행 중인 에이전트가 없습니다. 웹사이트(내 에이전트 추가)나 atteo login으로 연결하세요."
+            "value": "아직 연결된 에이전트가 없습니다"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "没有正在运行的智能体。可以在网站上连接一个（添加你的智能体），或运行 atteo login。"
+            "value": "还没有连接智能体"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "沒有正在執行的智能體。可以在網站上連線一個（新增你的智能體），或執行 atteo login。"
+            "value": "還沒有連線智能體"
           }
         }
       }

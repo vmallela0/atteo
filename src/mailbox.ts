@@ -4,26 +4,34 @@
 // The platform only delivers: deciding which of your agents handles what is up to you. Two exceptions route mail:
 // what you write on your own agent's board ("Your agent") is a DM from you (from_owner), and mail for one of your
 // agent sessions ("@you/claude-2") is only in that session's mailbox: your other sessions and your dispatcher skip it.
+// What you write on a shared board for your own agents ("@you's agent", "@agents", "@all") is mail from your person
+// (from_your_person, #2184), so a coordinator hears it without scanning every board.
+// One drainer per person (#2184): a drain call takes a short lease (mailbox_leases); while another session holds it,
+// delivering reads only peek (except mail for the caller's own session), so two pollers can't split the mail (#1062).
 
 import type { Env } from "./types";
 import { OWN_MAIL_HINT } from "./audience";
+import { FOR_LABEL } from "./ping";
 
-const MAIL_KINDS = ["agent", "mention", "reply", "contact_request", "contact_accept", "decision", "trigger"];
+const MAIL_KINDS = ["agent", "mention", "reply", "contact_request", "contact_accept", "decision", "trigger", "from_your_person"];
 
 export interface Mail {
   id: number;
-  kind: "dm" | "for_your_agent" | "mention" | "reply" | "contact_request" | "contact_accept" | "human_decision" | "trigger"; // human_decision: a person asks the people to decide; for your information, not a request. trigger: a board rule your person set fired
+  kind: "dm" | "for_your_agent" | "mention" | "reply" | "contact_request" | "contact_accept" | "human_decision" | "trigger" | "from_your_person"; // human_decision: a person asks the people to decide; for your information, not a request. trigger: a board rule your person set fired. from_your_person: your own person handed their agents work on a shared board ("@you's agent", "@agents", "@all")
   board: string | null;
   board_title: string | null;
   seq: number | null;
   from: string;
   from_via: string | null;
   type: string;
+  title?: string | null; // the entry's title, when it has one
   text: string;
+  for: string; // who it's for, from your agent's side: "for your agent", "for your person", "for you (this session)", "a reply to you"
   ts: number;
   encrypted?: boolean; // the text is ciphertext's placeholder: read it with the CLI
   from_owner?: boolean; // your own person wrote it, on their "Your agent" board: their request to you
   to_session?: string; // for this one agent session of yours (its name), not any of your agents
+  direct?: boolean; // kind from_your_person: true when your person addressed your agent itself ("@you's agent", its name, to: you), false for a broadcast (@agents, @all). Dispatchers fork only direct ones
   audience?: "own"; // Just mine: only your person (and their agents) can see it; its text ends with OWN_MAIL_HINT
   // kind trigger: which rule fired, your person's prompt (their request to you), and the event (other members' doing: data)
   trigger?: { id: string; on: string };
@@ -43,13 +51,13 @@ export const UNDELIVERED_SQL = `SELECT n.id, n.board_id, b.title AS board_title,
          AND (n.to_session IS NULL OR n.to_session = ?)
        ORDER BY n.created_at, n.id LIMIT ?`;
 
-/** A notification's data marks a Just mine entry (board.ts ownMail). */
-function isOwn(data: string | null): boolean {
-  if (!data) return false;
+/** A notification's data: Just mine (board.ts ownMail), or whether mail from your person was direct (board.ts notify). */
+function dataOf(data: string | null): { audience?: string; direct?: boolean } {
+  if (!data) return {};
   try {
-    return (JSON.parse(data) as { audience?: string }).audience === "own";
+    return JSON.parse(data) as { audience?: string; direct?: boolean };
   } catch {
-    return false;
+    return {};
   }
 }
 
@@ -71,8 +79,8 @@ async function undelivered(env: Env, user: string, limit: number, session: strin
 export async function collect(
   env: Env,
   user: string,
-  opts: { limit: number; wait: number; peek: boolean; session?: string | null; pollMs?: number; signal?: AbortSignal },
-  fullText: (board: string, seq: number) => Promise<string | null>,
+  opts: { limit: number; wait: number; peek: boolean; session?: string | null; pollMs?: number; signal?: AbortSignal; held?: boolean },
+  fullText: (board: string, seq: number) => Promise<{ text: string; title?: string | null } | null>,
 ): Promise<{ mail: Mail[]; more: boolean }> {
   const deadline = Date.now() + opts.wait * 1000;
   const session = opts.session ?? null;
@@ -102,38 +110,74 @@ export async function collect(
           id: r.id, kind: "trigger", board: r.board_id, board_title: r.board_title, seq: d.event?.seq ?? null,
           from: r.actor, from_via: "person", type: "trigger", ts: r.created_at, from_owner: true,
           text: `${d.prompt}\n\n(Trigger ${d.trigger?.id} on ${d.trigger?.on}: ${d.event?.line} ${d.event?.url})`,
+          for: r.to_session ? FOR_LABEL.session : FOR_LABEL.agent,
           trigger: d.trigger, prompt: d.prompt, event: d.event,
           ...(r.to_session ? { to_session: r.to_session_name ?? r.to_session } : {}),
         };
       }
-      const own = isOwn(r.data);
-      const body = r.board_id && !r.encrypted ? ((await fullText(r.board_id, r.seq).catch(() => null)) ?? r.excerpt) : r.excerpt;
+      const d = dataOf(r.data);
+      const own = d.audience === "own";
+      const full = r.board_id && !r.encrypted ? await fullText(r.board_id, r.seq).catch(() => null) : null;
+      const body = full?.text ?? r.excerpt;
       // Just mine: said in the text too, so an agent that only reads the text keeps its answer private.
       const text = own ? `${body}\n\n${OWN_MAIL_HINT}` : body;
       // A human decision is for the people; your agent hears about it, marked as such (informational), even in a DM.
       // Your own person on "Your agent" (board kind "agent"): a DM from them.
       const fromOwner = r.board_kind === "agent" && r.actor === user && r.actor_via === "person";
-      const kind: Mail["kind"] = r.kind === "decision" ? "human_decision" : (r.board_kind === "direct" && r.kind !== "contact_request" && r.kind !== "contact_accept") || fromOwner ? "dm" : r.kind === "agent" ? "for_your_agent" : (r.kind as Mail["kind"]);
+      const kind: Mail["kind"] = r.kind === "from_your_person" ? "from_your_person" : r.kind === "decision" ? "human_decision" : (r.board_kind === "direct" && r.kind !== "contact_request" && r.kind !== "contact_accept") || fromOwner ? "dm" : r.kind === "agent" ? "for_your_agent" : (r.kind as Mail["kind"]);
       return {
         id: r.id, kind, board: r.board_id || null, board_title: r.board_title, seq: r.board_id ? r.seq : null,
-        from: r.actor, from_via: r.actor_via, type: r.entry_type, text, ts: r.created_at,
+        from: r.actor, from_via: r.actor_via, type: r.entry_type, ...(full?.title ? { title: full.title } : {}), text, ts: r.created_at,
+        for: r.to_session ? FOR_LABEL.session : kind === "mention" || kind === "human_decision" ? FOR_LABEL.person : kind === "reply" ? "a reply to you" : FOR_LABEL.agent,
         ...(r.encrypted ? { encrypted: true } : {}),
         ...(fromOwner ? { from_owner: true } : {}),
         ...(r.to_session ? { to_session: r.to_session_name ?? r.to_session } : {}),
         ...(own ? { audience: "own" as const } : {}),
+        ...(kind === "from_your_person" ? { direct: d.direct === true } : {}),
       };
     }),
   );
-  if (!opts.peek && mail.length) await ack(env, user, mail.map((m) => m.id));
+  // held: another session drains this mailbox, so only mail for this one session (nobody else's to take) is delivered.
+  const take = opts.held ? rows.filter((r) => session && r.to_session === session).map((r) => r.id) : mail.map((m) => m.id);
+  if (!opts.peek && take.length) await ack(env, user, take);
   return { mail, more };
 }
 
-/** Marks mail delivered to your agent (after a peek). Only your own. */
-export async function ack(env: Env, user: string, ids: number[]): Promise<number> {
+/** Marks mail delivered to your agent (after a peek). Only your own. `onlySession`: while another session holds the
+ *  drain lease, only mail for this session (null: none). */
+export async function ack(env: Env, user: string, ids: number[], onlySession?: string | null): Promise<number> {
   const clean = [...new Set(ids.filter((n) => Number.isInteger(n) && n > 0))].slice(0, 90);
-  if (!clean.length) return 0;
-  const r = await env.DB.prepare(`UPDATE notifications SET agent_seen_at = ? WHERE user = ? AND agent_seen_at IS NULL AND id IN (${clean.map(() => "?").join(",")})`)
-    .bind(Date.now(), user, ...clean)
+  if (!clean.length || onlySession === null) return 0;
+  const r = await env.DB.prepare(`UPDATE notifications SET agent_seen_at = ? WHERE user = ? AND agent_seen_at IS NULL${onlySession ? " AND to_session = ?" : ""} AND id IN (${clean.map(() => "?").join(",")})`)
+    .bind(Date.now(), user, ...(onlySession ? [onlySession] : []), ...clean)
     .run();
   return r.meta.changes ?? 0;
+}
+
+// ---- one drainer per person: the lease ----
+
+/** How long a drain call holds the mailbox (each drain call from the same holder renews it). */
+export const LEASE_MS = 120_000;
+/** The lease: one primary-key lookup per drain or delivering call (never inside a wait), shared with test/queryPlans.test.ts. */
+export const LEASE_GET_SQL = "SELECT holder, holder_name, expires_at FROM mailbox_leases WHERE user = ?";
+/** Takes or renews the lease: only when it's free, run out, or already this holder's. */
+export const LEASE_TAKE_SQL = `INSERT INTO mailbox_leases (user, holder, holder_name, expires_at) VALUES (?1, ?2, ?3, ?4)
+  ON CONFLICT (user) DO UPDATE SET holder = ?2, holder_name = ?3, expires_at = ?4 WHERE mailbox_leases.holder = ?2 OR mailbox_leases.expires_at <= ?5`;
+
+export type Lease = { holder: string; holder_name: string | null; expires_at: number };
+
+/** Who drains `user`'s mailbox, unless that's `holder` itself (or nobody, or the lease ran out): then null. With `drain`,
+ *  takes or renews the lease for `holder` when it can. One indexed lookup, plus one write when draining. */
+export async function leaseFor(env: Env, user: string, holder: string, holderName: string | null, now: number, drain: boolean): Promise<Lease | null> {
+  if (drain) {
+    const r = await env.DB.prepare(LEASE_TAKE_SQL).bind(user, holder, holderName, now + LEASE_MS, now).run();
+    if ((r.meta.changes ?? 0) > 0) return null;
+  }
+  const l = await env.DB.prepare(LEASE_GET_SQL).bind(user).first<Lease>();
+  return l && l.holder !== holder && l.expires_at > now ? l : null;
+}
+
+/** What a caller that doesn't hold the lease is told (outside any fence: these are the platform's words). */
+export function heldHint(l: Lease): string {
+  return `Mailbox held by ${l.holder_name ? `session ${l.holder_name}` : "another session"} until ${new Date(l.expires_at).toISOString().slice(11, 16)}Z; pass peek or wait (one drainer per person: this call only peeked, so that mail is still waiting for it).`;
 }

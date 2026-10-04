@@ -71,7 +71,7 @@ struct ProviderMark: View {
 }
 
 /// Atteo's MCP address (what every assistant connects to).
-var atteoMCP: String { API.shared.base.appendingPathComponent("mcp").absoluteString }
+var atteoMCP: String { API.shared.publicBase.appendingPathComponent("mcp").absoluteString }
 
 struct BringAssistantView: View {
     /// This phone has been through the first run (skipped or connected).

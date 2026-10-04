@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { forAgent, forPerson, highlightMentions, mentionLabel, mentionsOwnAgent, parseMentions } from "../src/mentions";
+import { forAgent, forPerson, highlightMentions, mentionLabel, mentionsOwnAgent, nearMember, parseMentions } from "../src/mentions";
 import { entryHeader, formatSummary, computeSummary } from "../src/state";
 import { cleanAgentName, handleLookalikes, skeleton } from "../src/agentName";
 import { renderText } from "../src/ui";
@@ -53,10 +53,30 @@ describe("parseMentions", () => {
     expect(parse("run `@jxn` and\n```\n@jxn's agent\n```\nok").mentions).toEqual([]);
   });
 
-  it("reports handles that aren't members", () => {
-    const r = parse("@nobody and @jxn and @Nobody");
+  it("reports handles that aren't members, when they look like a typo of one", () => {
+    const r = parse("@vedx and @jxn and @Vedx and @nobody");
     expect(r.mentions).toEqual([person("jxn")]);
-    expect(r.unknown).toEqual(["nobody"]);
+    expect(r.unknown).toEqual(["vedx"]);
+    expect(parse("ping @ops-b and @ops-bots").unknown).toEqual(["ops-b", "ops-bots"]); // prefixes either way
+  });
+
+  it("stays quiet about @words that aren't near any member (#2173)", () => {
+    expect(parse("see @mentions and `@HALo`").unknown).toEqual([]);
+    expect(parse("@HALo said hi; @everyone else too").unknown).toEqual([]);
+    expect(parse('he wrote "@vedx" and “@vedx” and \'@vedx\'').unknown).toEqual([]); // quoted
+    expect(parse("```\n@vedx\n```").unknown).toEqual([]);
+    expect(parse("@vedx(arg) and @vedx=1 and @vedxé").unknown).toEqual([]); // characters no handle has
+    expect(parse("vedu's @vedx, isn't it").unknown).toEqual(["vedx"]); // apostrophes aren't quotes
+    expect(parse('"@jxn" still mentions jxn').mentions).toEqual([person("jxn")]); // quotes only quiet the warnings
+  });
+
+  it("nearMember: edit distance 2 (1 for short names) or a 3+ character prefix", () => {
+    expect(nearMember("vedx", ["vedu"])).toBe(true);
+    expect(nearMember("halo", ["jxn", "vedu"])).toBe(false);
+    expect(nearMember("mentions", ["vedu", "jxn"])).toBe(false);
+    expect(nearMember("e2e-jxn-abcx", ["e2e-jxn-abc"])).toBe(true);
+    expect(nearMember("e2e-jxn-xyz", ["e2e-jxn-abc"])).toBe(false);
+    expect(nearMember("ve", ["vedu"])).toBe(false);
   });
 
   it("self-mentions cross the person/agent line: you hand work to your agent, your agent gets your attention", () => {
@@ -115,9 +135,9 @@ describe("agent names", () => {
 
   it("only whole names, never in code, and not someone else's name on another board", () => {
     expect(p("@Jarvisx hi").mentions).toEqual([]);
-    expect(p("@Jarvisx hi").unknown).toEqual(["jarvisx"]);
+    expect(p("@Jarvisx hi").unknown).toEqual(["jarvisx"]); // a typo of an agent name
     expect(p("`@Jarvis` and x@Jarvis").mentions).toEqual([]);
-    expect(parseMentions("@Jarvis hi", ["vedu", "jxn"], "jxn").unknown).toEqual(["jarvis"]); // names unknown here
+    expect(parseMentions("@Jarvis hi", ["vedu", "jxn"], "jxn").unknown).toEqual([]); // names unknown here: not near anyone
   });
 
   it("a member's own handle wins over an agent name", () => {
