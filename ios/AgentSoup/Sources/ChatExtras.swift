@@ -57,56 +57,6 @@ struct ReactionChips: View {
     }
 }
 
-/// Every emoji, for a reaction: the common ones in a grid, and a field on the emoji keyboard for anything else.
-struct EmojiPicker: View {
-    let pick: (String) -> Void
-    @State private var typed = ""
-    static let common = ["👍", "👎", "❤️", "🔥", "🎉", "😂", "😮", "😢", "🙏", "👏", "💯", "✅", "❌", "👀", "🚀", "🤔",
-                         "😅", "🙌", "💡", "⚠️", "🐛", "🔧", "📌", "⏳", "🫡", "😍", "🤝", "💪", "👌", "😬", "🙃", "✨"]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Space.m) {
-            Text("React").font(Typo.section).foregroundStyle(Theme.muted)
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Space.xs), count: 8), spacing: Space.xs) {
-                ForEach(Self.common, id: \.self) { e in
-                    Button { pick(e) } label: { Text(e).font(.title2).frame(maxWidth: .infinity, minHeight: 40).contentShape(Rectangle()) }
-                        .buttonStyle(PressStyle())
-                        .accessibilityIdentifier("emoji-\(e)")
-                }
-            }
-            EmojiField(text: $typed, placeholder: "Any emoji")
-                .frame(height: 40).padding(.horizontal, Space.m)
-                .background(Theme.raised, in: RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
-                .onChange(of: typed) { _, t in if let c = t.last, c.isEmoji { pick(String(c)) } }
-        }
-        .padding(Space.l)
-    }
-}
-
-/// A text field that opens on the emoji keyboard.
-private struct EmojiField: UIViewRepresentable {
-    @Binding var text: String
-    let placeholder: String
-    final class Field: UITextField {
-        override var textInputMode: UITextInputMode? { UITextInputMode.activeInputModes.first { $0.primaryLanguage == "emoji" } ?? super.textInputMode }
-    }
-    func makeUIView(context: Context) -> Field {
-        let f = Field()
-        f.attributedPlaceholder = NSAttributedString(string: placeholder, attributes: [.foregroundColor: UIColor(Theme.faint)])
-        f.textColor = UIColor(Theme.text)
-        f.font = .preferredFont(forTextStyle: .callout)
-        f.addTarget(context.coordinator, action: #selector(Coordinator.changed(_:)), for: .editingChanged)
-        return f
-    }
-    func updateUIView(_ f: Field, context: Context) { if f.text != text { f.text = text } }
-    func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
-    final class Coordinator: NSObject {
-        let text: Binding<String>
-        init(text: Binding<String>) { self.text = text }
-        @objc func changed(_ f: UITextField) { text.wrappedValue = f.text ?? "" }
-    }
-}
-
 extension Character {
     /// Shown as an emoji (not a digit or "#", which are emoji only with a modifier).
     var isEmoji: Bool {
@@ -193,6 +143,7 @@ struct BoardInfoSheet: View {
     @State private var searching = false
     @State private var preview: URL?
     @State private var opening: String?
+    @StateObject private var context = SoulMemoryModel() // the board's SOUL and MEMORY (BoardContext.swift)
 
     private var me: String? { state.me?.owner }
 
@@ -216,6 +167,11 @@ struct BoardInfoSheet: View {
             .quickLookPreview($preview)
             .task { await load() }
             .task(id: query) { await search() }
+            .onReceive(NotificationCenter.default.publisher(for: .memoryChanged)) { n in if n.object as? String == board.id { Task { await context.load(board.id, state) } } }
+            .sheet(isPresented: $context.editing) {
+                SoulEditor(board: board.id, soul: context.soul ?? Soul(version: 0, text: "")) { Task { await context.load(board.id, state) } }
+                    .presentationBackground(Theme.bg)
+            }
         }
     }
 
@@ -225,6 +181,8 @@ struct BoardInfoSheet: View {
     @ViewBuilder private var openAndAgents: some View {
         let open = ChatSummary.open(state.entries[board.id] ?? [])
         let agents = (state.boardAgents[board.id] ?? []).sorted { rank($0.state) == rank($1.state) ? $0.lastSeen > $1.lastSeen : rank($0.state) < rank($1.state) }
+        // The board's standing context for agents, first: its SOUL and MEMORY (vedu #1090).
+        if !board.isAgentChat { SoulMemorySections(board: board, model: context) }
         if !open.questions.isEmpty {
             Section { ForEach(open.questions.suffix(8).reversed()) { e in jumpRow(e, icon: "questionmark.circle.fill", tint: Theme.warn) } }
                 header: { SectionHeader("Open questions · \(open.questions.count)") }
@@ -266,7 +224,7 @@ struct BoardInfoSheet: View {
 
     /// A question or decision: a few words, who and when (no number: those are for agents). Tap: go to it in the chat.
     private func jumpRow(_ e: Entry, icon: String, tint: Color) -> some View {
-        Button { Haptic.tap(); jump(e.seq) } label: {
+        Button { jump(e.seq) } label: {
             HStack(alignment: .firstTextBaseline, spacing: Space.m) {
                 Image(systemName: icon).font(.system(size: 15)).foregroundStyle(tint).frame(width: 22).onFirstLine()
                 VStack(alignment: .leading, spacing: 1) {
@@ -316,7 +274,7 @@ struct BoardInfoSheet: View {
             }
             if !hits.entries.isEmpty {
                 Section {
-                    ForEach(hits.entries) { h in SearchHitRow(hit: h) { Haptic.tap(); jump(h.seq) } }
+                    ForEach(hits.entries) { h in SearchHitRow(hit: h) { jump(h.seq) } }
                 } header: { SectionHeader(board.encrypted == true ? "On this phone" : "Messages") }
             }
             if let fs = hits.files, !fs.isEmpty {
@@ -336,7 +294,8 @@ struct BoardInfoSheet: View {
     private func load() async {
         async let a: Void = state.loadAgents(board)
         async let f = state.docs(board.id)
-        let (_, ff) = await (a, f)
+        async let c: Void = board.isAgentChat ? () : context.load(board.id, state)
+        let (_, ff, _) = await (a, f, c)
         withAnimation(.smooth) { files = ff.sorted { $0.updatedAt > $1.updatedAt } }
     }
 
@@ -362,11 +321,10 @@ struct BoardInfoSheet: View {
 
     private func openFile(_ f: DocMeta) {
         guard opening == nil else { return }
-        Haptic.tap()
         opening = f.name
         Task {
             defer { opening = nil }
-            do { preview = try await MediaStore.shared.file(for: f.entry, board: board.id) } catch { Haptic.warn(); state.report(error) }
+            do { preview = try await MediaStore.shared.file(for: f.entry, board: board.id) } catch { Haptics.play(.failed); state.report(error) }
         }
     }
 }
@@ -498,54 +456,63 @@ struct GroupSheet: View {
     @EnvironmentObject var state: AppState
     let board: Board
     let agents: Bool
+    var all = false // "@all": everyone, then their agents
     @State private var members: BoardMembersResponse?
 
     var body: some View {
-        let all = state.boardAgents[board.id] ?? []
         NavigationStack {
             List {
-                if agents {
-                    let groups = [("live", "Working now"), ("idle", "Idle")].map { k, t in (t, all.filter { $0.state == k }.sorted { $0.lastSeen > $1.lastSeen }) }
-                    if groups.allSatisfy({ $0.1.isEmpty }) { Text("No agents here right now.").font(Typo.secondary).foregroundStyle(Theme.muted).listRowBackground(Theme.card) }
-                    ForEach(groups, id: \.0) { title, list in
-                        if !list.isEmpty {
-                            Section {
-                                ForEach(list) { a in
-                                    NavigationLink { PersonCard(name: a.user, open: { b in state.openRequest = b }, agentFirst: true) } label: { agentRow(a) }
-                                        .accessibilityIdentifier("group-agent-\(a.user)")
-                                }
-                            } header: { SectionHeader("\(title) · \(list.count)") }
-                            .listRowBackground(Theme.card)
-                        }
-                    }
-                } else {
-                    Section {
-                        if members == nil { ProgressView().frame(maxWidth: .infinity) }
-                        ForEach(members?.members ?? []) { m in
-                            NavigationLink { PersonCard(name: m.user, open: { b in state.openRequest = b }) } label: {
-                                HStack(spacing: Space.m) {
-                                    Avatar(name: m.user, size: 30)
-                                    VStack(alignment: .leading, spacing: 1) {
-                                        Text(m.user == state.me?.owner ? "\(m.displayName ?? m.user) (you)" : m.displayName ?? m.user).font(Typo.rowTitleRead).foregroundStyle(Theme.text).lineLimit(1)
-                                        Text(m.lastSeen.map { "here \($0.ago == "now" ? "just now" : "\($0.ago) ago")" } ?? "@\(m.user)").font(Typo.micro).foregroundStyle(Theme.faint)
-                                    }
-                                }
-                            }
-                            .accessibilityIdentifier("group-person-\(m.user)")
-                        }
-                    }
-                    .listRowBackground(Theme.card)
-                }
+                if all {
+                    peopleSection
+                    agentSections
+                } else if agents { agentSections } else { peopleSection }
             }
             .listSectionSpacing(.compact)
             .scrollContentBackground(.hidden)
             .background(Theme.bg)
-            .navigationTitle(agents ? "Agents on this board" : "People on this board")
+            .navigationTitle(all ? "Everyone on this board" : agents ? "Agents on this board" : "People on this board")
             .navigationBarTitleDisplayMode(.inline)
             .task {
-                if agents { await state.loadAgents(board) } else { members = await state.boardMembers(board.id) }
+                if agents || all { await state.loadAgents(board) }
+                if !agents || all { members = await state.boardMembers(board.id) }
             }
         }
+    }
+
+    @ViewBuilder private var agentSections: some View {
+        let all = state.boardAgents[board.id] ?? []
+        let groups = [("live", "Working now"), ("idle", "Idle")].map { k, t in (t, all.filter { $0.state == k }.sorted { $0.lastSeen > $1.lastSeen }) }
+        if groups.allSatisfy({ $0.1.isEmpty }) { Text("No agents here right now.").font(Typo.secondary).foregroundStyle(Theme.muted).listRowBackground(Theme.card) }
+        ForEach(groups, id: \.0) { title, list in
+            if !list.isEmpty {
+                Section {
+                    ForEach(list) { a in
+                        NavigationLink { PersonCard(name: a.user, open: { b in state.openRequest = b }, agentFirst: true) } label: { agentRow(a) }
+                            .accessibilityIdentifier("group-agent-\(a.user)")
+                    }
+                } header: { SectionHeader("\(title) · \(list.count)") }
+                .listRowBackground(Theme.card)
+            }
+        }
+    }
+
+    private var peopleSection: some View {
+        Section {
+            if members == nil { ProgressView().frame(maxWidth: .infinity) }
+            ForEach(members?.members ?? []) { m in
+                NavigationLink { PersonCard(name: m.user, open: { b in state.openRequest = b }) } label: {
+                    HStack(spacing: Space.m) {
+                        Avatar(name: m.user, size: 30)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(m.user == state.me?.owner ? "\(m.displayName ?? m.user) (you)" : m.displayName ?? m.user).font(Typo.rowTitleRead).foregroundStyle(Theme.text).lineLimit(1)
+                            Text(m.lastSeen.map { "here \($0.ago == "now" ? "just now" : "\($0.ago) ago")" } ?? "@\(m.user)").font(Typo.micro).foregroundStyle(Theme.faint)
+                        }
+                    }
+                }
+                .accessibilityIdentifier("group-person-\(m.user)")
+            }
+        } header: { if all { SectionHeader("People") } }
+        .listRowBackground(Theme.card)
     }
 
     private func agentRow(_ a: BoardAgent) -> some View {

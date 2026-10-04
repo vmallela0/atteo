@@ -32,6 +32,7 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    AgentNameField()
                     TextField("What your agent knows (Stripe, our checkout repo…)", text: $summary, axis: .vertical)
                         .lineLimit(1...4)
                         .accessibilityIdentifier("agent-summary")
@@ -60,10 +61,26 @@ struct SettingsView: View {
                 .listRowBackground(Theme.card)
 
                 Section {
+                    NavigationLink { FavouriteReactionsEditor() } label: {
+                        HStack {
+                            Text("Reactions")
+                            Spacer()
+                            Text(state.favouriteReactions.joined()).lineLimit(1).foregroundStyle(Theme.muted)
+                        }
+                    }
+                    .accessibilityIdentifier("favourite-reactions")
+                } footer: { Text("The emoji you see first when you hold a message.") }
+                .listRowBackground(Theme.card)
+
+                NotificationsSection()
+                FeelSection()
+                VoiceSection()
+
+                Section {
                     if state.connections.isEmpty { Text("Nothing connected yet.").foregroundStyle(Theme.muted) }
                     ForEach(state.connections) { c in
                         ConnectionRow(c: c)
-                            .swipeActions { Button("Revoke", role: .destructive) { Haptic.warn(); Task { await state.revoke(c) } } }
+                            .swipeActions { Button("Revoke", role: .destructive) { Haptics.play(.warning); Task { await state.revoke(c) } } }
                     }
                 } header: { SectionHeader("Connected") } footer: { Text("Everything that can act as you. Swipe to revoke one; it stops at once.") }
                 .listRowBackground(Theme.card)
@@ -112,7 +129,6 @@ struct SettingsView: View {
             Picker(title, selection: Binding(get: { state.display[keyPath: key] }, set: { v in
                 var d = state.display
                 d[keyPath: key] = v
-                Haptic.tap()
                 state.setDisplay(d)
             })) {
                 ForEach(options, id: \.value) { Text($0.label).tag($0.value) }
@@ -134,7 +150,8 @@ struct SettingsView: View {
         let agentChanged = loadedAgent && (s != (state.me?.summary ?? "") || l != (state.me?.listed ?? false))
         Task {
             // Display settings save as you change them; only the rest of the profile is compared here.
-            if var p { p.display = old?.display; if p != old { await state.saveProfile(p) } }
+            // (So are your agent's name and your reactions.)
+            if var p { p.display = old?.display; p.agentName = old?.agentName; p.reactions = old?.reactions; if p != old { await state.saveProfile(p) } }
             if agentChanged { await state.saveAgent(summary: s, listed: l) }
         }
     }
@@ -148,6 +165,8 @@ private struct PictureButton: View {
     let caption: String
     @State private var item: PhotosPickerItem?
     @State private var busy = false
+    @State private var cropping: CropRequest?
+    @State private var saving = false
 
     var body: some View {
         VStack(spacing: 8) {
@@ -170,9 +189,20 @@ private struct PictureButton: View {
             guard let it else { return }
             busy = true
             Task {
-                if let data = try? await it.loadTransferable(type: Data.self), let jpeg = squareJPEG(data) { await state.setAvatar(jpeg, agent: agent) }
-                busy = false; item = nil
+                // Crop and touch it up first (#1001), then save.
+                if let data = try? await it.loadTransferable(type: Data.self), let img = UIImage(data: data) { cropping = CropRequest(image: img.uprightAndSmall()) }
+                else { busy = false }
+                item = nil
             }
+        }
+        .sheet(item: $cropping, onDismiss: { if !saving { busy = false } }) { c in
+            PictureEditor(image: c.image, round: !agent, side: 320) { jpeg in
+                cropping = nil
+                guard let jpeg else { busy = false; return }
+                saving = true
+                Task { await state.setAvatar(jpeg, agent: agent); busy = false; saving = false }
+            }
+            .presentationBackground(Theme.bg)
         }
     }
 }

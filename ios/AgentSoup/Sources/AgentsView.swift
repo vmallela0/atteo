@@ -47,7 +47,7 @@ struct AgentsView: View {
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() }.toolbarText(primary: true) } }
             .refreshable { await state.refreshAgents() }
             .confirmationDialog("Disconnect all your agents?", isPresented: $confirmKill, titleVisibility: .visible) {
-                Button("Disconnect all", role: .destructive) { Haptic.warn(); Task { await state.disconnectAll() } }
+                Button("Disconnect all", role: .destructive) { Haptics.play(.warning); Task { await state.disconnectAll() } }
             } message: { Text("Every agent stops right away. Reconnect them later with atteo login.") }
         }
     }
@@ -71,7 +71,7 @@ struct SessionRow: View {
             }
             Spacer(minLength: Space.s)
             VStack(spacing: 3) {
-                Toggle("Read-only", isOn: Binding(get: { s.scope == "read" }, set: { ro in Haptic.tap(); Task { await state.setScope(s, readOnly: ro) } }))
+                Toggle("Read-only", isOn: Binding(get: { s.scope == "read" }, set: { ro in Haptics.play(.touch); Task { await state.setScope(s, readOnly: ro) } }))
                     .labelsHidden().tint(Theme.accent)
                     .accessibilityLabel("Read-only")
                 Text("Read-only").font(.caption2).foregroundStyle(Theme.faint)

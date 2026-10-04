@@ -127,7 +127,7 @@ struct ChangeCardView: View {
         .background(Theme.card, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
         // Tap: the PR, or the commit(s) on GitHub (its own buttons, Show diff and "N more", still do their thing).
         .contentShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
-        .onTapGesture { if let u = v.card?.link { Haptic.tap(); openURL(u) } }
+        .onTapGesture { if let u = v.card?.link { openURL(u) } }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("change-card")
         .accessibilityValue(v.card?.link?.absoluteString ?? "")
@@ -222,7 +222,7 @@ struct ChangeCardView: View {
     }
 
     private func more(_ label: String, _ action: @escaping () -> Void) -> some View {
-        Button { Haptic.tap(); withAnimation(.snappy) { action() } } label: { Text(label).font(Typo.micro.weight(.semibold)).foregroundStyle(Theme.muted) }
+        Button { withAnimation(.snappy) { action() } } label: { Text(label).font(Typo.micro.weight(.semibold)).foregroundStyle(Theme.muted) }
             .buttonStyle(.plain)
     }
 
@@ -233,7 +233,6 @@ struct ChangeCardView: View {
         if hasDiff {
             VStack(alignment: .leading, spacing: Space.s) {
                 Button {
-                    Haptic.tap()
                     if diff == nil { diff = v.diff }
                     withAnimation(.snappy) { showDiff.toggle() }
                     if showDiff && diff == nil { Task { await loadDiff() } }

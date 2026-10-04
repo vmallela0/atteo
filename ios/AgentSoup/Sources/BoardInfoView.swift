@@ -29,6 +29,8 @@ struct BoardInfoView<Top: View, Files: View>: View {
     @State private var pictureBusy = false
     @State private var pictureError: String?
     @State private var confirmRemovePicture = false
+    @State private var cropping: CropRequest?
+    @State private var pictureSaving = false
     @ObservedObject private var pictures = BoardPictureStore.shared
     @FocusState private var typing: Bool
     @Environment(\.chatDensity) private var density
@@ -113,7 +115,7 @@ struct BoardInfoView<Top: View, Files: View>: View {
                             HStack(spacing: Space.s) {
                                 Text(link.absoluteString).font(.system(.footnote, design: .monospaced)).foregroundStyle(Theme.muted).lineLimit(1).truncationMode(.middle)
                                 Spacer(minLength: Space.s)
-                                Button { UIPasteboard.general.url = link; Haptic.done(); sent = "Link copied. Anyone with an account can join for 7 days." } label: { Image(systemName: "doc.on.doc").foregroundStyle(Theme.text) }
+                                Button { UIPasteboard.general.url = link; Haptics.play(.copied); sent = "Link copied. Anyone with an account can join for 7 days." } label: { Image(systemName: "doc.on.doc").foregroundStyle(Theme.text) }
                                     .buttonStyle(.borderless).accessibilityLabel("Copy link")
                                 ShareLink(item: link, subject: Text(board.title), message: Text("Join \(board.title) on Atteo")) { Image(systemName: "square.and.arrow.up").foregroundStyle(Theme.text) }
                                     .buttonStyle(.borderless).accessibilityLabel("Share link")
@@ -193,13 +195,22 @@ struct BoardInfoView<Top: View, Files: View>: View {
             pictureError = nil
             Task {
                 let data = try? await item.loadTransferable(type: Data.self)
-                guard let jpeg = data.flatMap({ squareJPEG($0, side: 256) }) else {
+                guard let img = data.flatMap(UIImage.init(data:)) else {
                     pictureBusy = false
                     withAnimation(.smooth) { pictureError = "That picture couldn't be read. Try another one." }
                     return
                 }
+                cropping = CropRequest(image: img.uprightAndSmall()) // crop and touch it up first (#1001)
+            }
+        }
+        .sheet(item: $cropping, onDismiss: { if !pictureSaving { pictureBusy = false } }) { c in
+            PictureEditor(image: c.image, round: false, side: 256) { jpeg in
+                cropping = nil
+                guard let jpeg else { pictureBusy = false; return }
+                pictureSaving = true
                 changePicture(jpeg)
             }
+            .presentationBackground(Theme.bg)
         }
         .confirmationDialog("Archive \(board.title)?", isPresented: $confirmArchive, titleVisibility: .visible) {
             Button("Archive", role: .destructive) { Task { _ = await state.archiveBoard(boardId) } }
@@ -246,6 +257,7 @@ struct BoardInfoView<Top: View, Files: View>: View {
         Task {
             let failed = await state.setBoardPicture(boardId, jpeg: jpeg)
             pictureBusy = false
+            pictureSaving = false
             withAnimation(.smooth) { pictureError = failed }
         }
     }

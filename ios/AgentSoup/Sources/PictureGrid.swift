@@ -45,7 +45,6 @@ struct MultiAttachment: View {
             if !pictures.isEmpty {
                 PictureGrid(e: e, board: board, pictures: pictures, progress: progress) { i in
                     guard e.pending != true else { return }
-                    Haptic.tap()
                     open = GalleryStart(index: i)
                 }
             }

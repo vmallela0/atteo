@@ -53,6 +53,7 @@ struct CheckLine: View {
             Image(systemName: done ? "checkmark.circle.fill" : "circle")
                 .font(.system(size: compact ? 12 : 13)).foregroundStyle(done ? Theme.ok : Theme.faint)
                 .contentTransition(.symbolEffect(.replace))
+                .symbolEffect(.bounce, value: Effects.enabled && done) // a tick that pops (Effects)
             Text(text.mdLinked(refTitle.callAsFunction)).font(compact ? Typo.meta : Typo.secondary).foregroundStyle(done ? Theme.faint : Theme.text).strikethrough(done, color: Theme.faint).lineLimit(2)
         }
         .animation(.spring(duration: 0.35, bounce: 0.4), value: done)
@@ -122,6 +123,7 @@ struct WorkStrip: View {
 /// A small ring that fills as a task's checklist gets ticked (a spinner-ish dot when there's no checklist).
 struct ProgressRing: View {
     let task: WorkTask
+    @State private var pop = false // the ring completing: a small pop (Effects)
     var body: some View {
         // Done: a check. In progress: fills with the checklist (a quarter if it has none). Not started: empty.
         let p = task.status == "done" ? 1 : task.checklist.map { Double($0.done) / Double(max(1, $0.total)) } ?? (task.status == "doing" ? 0.25 : 0)
@@ -130,7 +132,13 @@ struct ProgressRing: View {
             Circle().trim(from: 0, to: p).stroke(task.status == "done" ? Theme.ok : Theme.accent, style: StrokeStyle(lineWidth: 2, lineCap: .round)).rotationEffect(.degrees(-90))
             if task.status == "done" { Image(systemName: "checkmark").font(.system(size: 7, weight: .black)).foregroundStyle(Theme.ok) }
         }
+        .scaleEffect(pop ? 1.35 : 1)
         .animation(.smooth, value: p)
+        .onChange(of: task.status) { old, new in
+            guard new == "done", old != "done", let a = Effects.animation(.spring(duration: 0.22, bounce: 0.5)) else { return }
+            withAnimation(a) { pop = true }
+            Task { try? await Task.sleep(nanoseconds: 220_000_000); withAnimation(.spring(duration: 0.3)) { pop = false } }
+        }
     }
 }
 
@@ -179,11 +187,10 @@ struct TasksSheet: View {
                     .pickerStyle(.segmented)
                     .frame(width: 168)
                     .accessibilityIdentifier("work-pane")
-                    .onChange(of: pane) { _, _ in Haptic.tap() }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     if pane == .tasks {
-                        Button { Haptic.tap(); newTask = true } label: { ToolbarIcon("plus") }
+                        Button { newTask = true } label: { ToolbarIcon("plus") }
                             .accessibilityLabel("New task")
                     }
                 }
@@ -298,7 +305,7 @@ struct TasksPane: View {
     }
 
     private func row(_ t: WorkTask, depth: Int, kidsShown: Bool = false) -> some View {
-        Button { Haptic.tap(); open(t.seq) } label: {
+        Button { open(t.seq) } label: {
             TaskListRow(task: t, depth: depth, needsApproval: state.needsApproval(t, board: board), kidsShown: kidsShown)
         }
         .buttonStyle(RowPressStyle())
@@ -315,7 +322,6 @@ struct TasksPane: View {
     private func header(_ g: TaskGroup, count: Int, first: Bool) -> some View {
         let shut = collapsed.contains(g)
         return Button {
-            Haptic.tap()
             if shut { collapsed.remove(g) } else { collapsed.insert(g) }
         } label: {
             HStack(spacing: 6) {
@@ -345,7 +351,7 @@ struct TasksPane: View {
             HStack(spacing: 6) {
                 ForEach(TaskFilter.allCases) { f in
                     let n = all.filter { f.matches($0, me: me) && !$0.isDone }.count
-                    Button { Haptic.tap(); withAnimation(.snappy) { filter = f } } label: {
+                    Button { withAnimation(.snappy) { filter = f } } label: {
                         HStack(spacing: 5) {
                             Text(f.rawValue)
                             if f != .all && n > 0 { Text("\(n)").monospacedDigit().foregroundStyle(filter == f ? Theme.bg.opacity(0.6) : Theme.faint) }
@@ -547,7 +553,7 @@ struct EmptyNote: View {
             Text(title).font(Typo.rowTitle).foregroundStyle(Theme.text)
             if !line.isEmpty { Text(line).font(Typo.meta).foregroundStyle(Theme.muted).multilineTextAlignment(.center) }
             if let action {
-                Button { Haptic.tap(); action.1() } label: {
+                Button { action.1() } label: {
                     Text(action.0).font(Typo.meta.weight(.semibold)).foregroundStyle(Theme.text)
                         .padding(.horizontal, 14).frame(height: 30).background(Theme.raised, in: Capsule())
                 }
@@ -654,7 +660,7 @@ struct TaskDetail: View {
                         .padding(.bottom, Space.m)
                     TaskActionBar(task: task, board: board)
                     if let a = state.approvals.first(where: { $0.boardId == board && $0.seq == task.seq }) {
-                        Button { Haptic.tap(); approval = a } label: {
+                        Button { approval = a } label: {
                             HStack(spacing: 10) {
                                 Image(systemName: "hand.raised.fill").font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.accent)
                                 VStack(alignment: .leading, spacing: 1) {

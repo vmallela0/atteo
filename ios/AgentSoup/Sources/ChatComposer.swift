@@ -48,8 +48,22 @@ struct ChatComposer: View {
     private var mentionables: [Mentionable] {
         var people = state.members[board.id] ?? []
         for u in list.map(\.author) + (state.boardAgents[board.id] ?? []).map(\.user) where !people.contains(u) { people.append(u) }
-        return people.flatMap { u in [Mentionable(handle: "\(u)'s agent", user: u, agent: true)] + (u == me ? [] : [Mentionable(handle: u, user: u, agent: false)]) }
-            + [Mentionable(handle: "agents", user: nil, agent: true), Mentionable(handle: "humans", user: nil, agent: false)]
+        let named = state.agentNames[board.id] ?? [:]
+        // A named agent goes by its name too ("@Jarvis", vedu's agent), unless another agent here has the same name:
+        // then only the owner form reaches the right one (#1125).
+        var out: [Mentionable] = []
+        for u in people {
+            if let n = named[u], !n.ambiguous {
+                out.append(Mentionable(handle: n.name, user: u, agent: true, note: u == me ? "your agent" : "\(u)'s agent"))
+            }
+            let note: String? = named[u].map { "\($0.name) · agent" }
+            out.append(Mentionable(handle: "\(u)'s agent", user: u, agent: true, note: note))
+            if u != me { out.append(Mentionable(handle: u, user: u, agent: false)) }
+        }
+        out.append(Mentionable(handle: "agents", user: nil, agent: true))
+        out.append(Mentionable(handle: "humans", user: nil, agent: false))
+        out.append(Mentionable(handle: "all", user: nil, agent: false, note: "everyone and their agents")) // last, like the web
+        return out
     }
 
     /// The "@word" being typed at the end of the message, if any.
@@ -68,7 +82,6 @@ struct ChatComposer: View {
 
     private func insert(_ m: Mentionable) {
         guard let at = draft.lastIndex(of: "@") else { return }
-        Haptic.tap()
         draft = String(draft[..<at]) + "@\(m.handle) "
     }
 
@@ -83,7 +96,7 @@ struct ChatComposer: View {
             // "/": what a message can be besides a note (a task, a decision, a question).
             if attachments.isEmpty {
                 let fits = SlashCommand.suggestions(draft, on: board)
-                if !fits.isEmpty { SlashChips(commands: fits) { c in Haptic.tap(); draft = c.word + " " } }
+                if !fits.isEmpty { SlashChips(commands: fits) { c in draft = c.word + " " } }
                 else if let (c, _) = SlashCommand.parse(draft, on: board) { SlashChips(commands: [c], active: c) { _ in } }
             }
             if !suggestions.isEmpty {
@@ -104,8 +117,13 @@ struct ChatComposer: View {
                     ComposerField(text: $draft, focused: $focused,
                                   placeholder: attachments.isEmpty ? placeholder : "Add a note",
                                   pasteImages: pasted,
-                                  members: Set(mentionables.compactMap { $0.user?.lowercased() }), me: me, identifier: identifier)
+                                  members: Set(mentionables.compactMap { $0.user?.lowercased() }), me: me,
+                                  agentNames: state.agentNameMap(board.id),
+                                  identifier: identifier)
                         .padding(.horizontal, Composer.gap)
+                    // Hold to talk (Voice.swift): words go in the box; "send it" at the end sends.
+                    MicButton(draft: $draft, send: send, identifier: identifier == "composer" ? "mic" : "\(identifier)-mic")
+                        .padding(.trailing, -Composer.inset)
                     Button(action: send) {
                         Image(systemName: "arrow.up").font(.system(size: 14, weight: .bold))
                             .composerCircle(fill: canSend ? Theme.accent : Theme.raised)
@@ -150,7 +168,7 @@ struct ChatComposer: View {
         let label = Image(systemName: "plus").font(.system(size: 14, weight: .bold))
             .composerCircle(fill: Theme.raised)
         if board.encrypted == true {
-            Button { Haptic.tap(); showEncryptedNote = true } label: { label.foregroundStyle(Theme.faint).opacity(0.55) }
+            Button { showEncryptedNote = true } label: { label.foregroundStyle(Theme.faint).opacity(0.55) }
                 .buttonStyle(PressStyle())
                 .popover(isPresented: $showEncryptedNote, arrowEdge: .bottom) {
                     Label("Pictures and files can't be sent on encrypted boards yet.", systemImage: "lock.fill")
@@ -182,8 +200,7 @@ struct ChatComposer: View {
     /// Pictures pasted into the message box: attached like ones picked from Photos (not on encrypted boards, which
     /// can't take attachments yet: the + says why).
     private func pasted(_ images: [UIImage]) {
-        guard board.encrypted != true else { Haptic.warn(); showEncryptedNote = true; return }
-        Haptic.tap()
+        guard board.encrypted != true else { Haptics.play(.warning); showEncryptedNote = true; return }
         for img in images.prefix(max(0, maxAttachments - attachments.count - preparing)) { add { try await Attachments.photo(img) } }
     }
 
@@ -194,7 +211,7 @@ struct ChatComposer: View {
             do {
                 let a = try await make()
                 withAnimation(.spring(duration: 0.28, bounce: 0.1)) { attachments.append(a) }
-            } catch { Haptic.warn(); state.report(error) }
+            } catch { Haptics.play(.failed); state.report(error) }
             preparing -= 1
         }
     }
@@ -205,7 +222,7 @@ struct ChatComposer: View {
         guard canSend else { return }
         draft = ""
         withAnimation(.spring(duration: 0.3, bounce: 0.15)) { attachments = [] }
-        Haptic.tap()
+        Haptics.play(.sent)
         let session = board.isAgentChat ? toSession?.wrappedValue : nil
         let replyTo = replyTo
         Task {

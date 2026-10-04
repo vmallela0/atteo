@@ -131,6 +131,9 @@ final class BoardPictureUITests: XCTestCase {
         let before = checkout()?["picture"] as? String
         change.tap()
         pickPhoto(a)
+        let save = a.buttons["crop-save"] // the crop sheet comes up after picking (#1001)
+        XCTAssertTrue(save.waitForExistence(timeout: 10), "the crop sheet opens")
+        save.tap()
         waitServer("the server has the new picture") { $0 != nil && $0 != before }
         waitValue(pic, "picture", "Info shows the new picture")
         XCTAssertFalse(a.staticTexts["board-picture-error"].exists, "no error")

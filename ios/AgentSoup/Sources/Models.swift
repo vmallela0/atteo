@@ -60,16 +60,19 @@ struct BoardAgent: Codable, Hashable, Identifiable {
     let status: String?
     let lastSeen: Double
     let state: String // live | idle | gone
+    var agentName: String? = nil // what its owner named it ("Jarvis"): shown with them, "Jarvis · theo's agent" (#1125)
+    var agentNameAmbiguous: Bool? = nil // another member's agent here has the same name: "@Jarvis" needs the owner form
     var id: String { "\(user)/\(name ?? "")" }
-    /// What people call it: "theo's agent" (the session's slug and client are details, not its name).
-    var label: String { "\(user)'s agent" }
+    /// What people call it: "theo's agent", or "Jarvis · theo's agent" when theo named it (the session's slug and
+    /// client are details, not its name).
+    var label: String { agentLabel(user, agentName) }
     /// "Claude Code · claude-code-3": which tool and which session, when there's more than one.
     var detail: String? { let d = [client, name].compactMap { $0 }.filter { !$0.isEmpty }; return d.isEmpty ? nil : d.joined(separator: " · ") }
 }
 struct BoardAgentsResponse: Decodable { let agents: [BoardAgent] }
 /// A board's members (for @-mentions in the message box).
 struct MembersResponse: Decodable {
-    struct Member: Decodable { let user: String; let displayName: String? }
+    struct Member: Decodable { let user: String; let displayName: String?; var agentName: String? = nil; var agentNameAmbiguous: Bool? = nil }
     let members: [Member]
 }
 
@@ -124,6 +127,7 @@ struct Entry: Codable, Identifiable, Hashable {
     var card: ChangeCardData? = nil // type "change": the git change card (branch, commits, files)
     var attachments: [FileRef]? = nil // every file of the message, in order (several: a grid, PictureGrid.swift)
     var humanDecision: HumanDecision? = nil // a person's decision: where it stands (HumanDecisions.swift)
+    var agentName: String? = nil // an agent post: what its owner named it ("Jarvis"), shown "Jarvis · vedu's agent"
     var id: Int { seq }
     var byAgent: Bool { via == "agent" }
     /// A picture shown inline (PNG, JPEG, GIF or WebP, as the server sniffed it).
@@ -166,6 +170,8 @@ struct Profile: Codable, Equatable {
     var listed: Bool
     var rules: Rules
     var display: DisplayPrefs? = nil // text size, density, theme (only in your own profile; nil from an older server)
+    var agentName: String? = nil // what you named your agent ("Jarvis"; #1125)
+    var reactions: [String]? = nil // your favourite reaction emoji, 1–8 (the server's default preset until you pick; #1163)
     struct Rules: Codable, Equatable { var autoAcceptInvites: String?; var autoAcceptFriends: String?; var autoAcceptAgents: String? }
 }
 struct ProfileResponse: Decodable { let profile: Profile }
@@ -181,6 +187,31 @@ struct Connection: Decodable, Identifiable, Equatable {
     let expiresAt: Double?
 }
 struct ConnectionsResponse: Decodable { let tokens: [Connection] }
+
+/// "theo's agent", or "Jarvis · theo's agent" when theo named it (a name never shows without its owner, #1125).
+func agentLabel(_ owner: String, _ name: String?) -> String {
+    guard let name, !name.isEmpty else { return "\(owner)'s agent" }
+    return "\(name) · \(owner)'s agent"
+}
+
+/// The reaction row's default, until you pick your own (the server's DEFAULT_REACTIONS).
+let defaultReactions = ["👍", "✅", "🤔", "🎉", "❤️", "🔥", "😂", "🙏"]
+
+/// A board's SOUL (its PROTOCOL.md: who it is and how it works; people edit it) and MEMORY (short facts for agents).
+struct SoulResponse: Decodable { let soul: Soul }
+struct Soul: Decodable, Equatable { let version: Int; let text: String; var updatedBy: String? = nil; var updatedAt: Double? = nil }
+struct MemoryResponse: Decodable { let items: [MemoryItem]; var max: Int? = nil }
+struct MemoryItem: Decodable, Identifiable, Equatable {
+    let id: Int
+    let text: String
+    let by: String
+    let via: String
+    var session: String? = nil
+    var from: Int? = nil
+    let ts: Double
+    /// "theo", "theo's agent", "theo/scout".
+    var who: String { via == "agent" ? (session.map { "\(by)/\($0)" } ?? "\(by)'s agent") : by }
+}
 
 extension Double {
     /// "now", "4m", "2h", "3d", or a date.

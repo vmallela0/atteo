@@ -210,21 +210,19 @@ struct FilesPane: View {
     }
 
     private func open(_ d: DocMeta) {
-        Haptic.tap()
         searching = false
         guard d.stored else { reading = d; return }
         guard opening == nil else { return }
         opening = d.name
         Task {
             defer { opening = nil }
-            do { preview = try await FileExport.url(board: board, doc: d) } catch { Haptic.warn(); state.report(error) }
+            do { preview = try await FileExport.url(board: board, doc: d) } catch { Haptics.play(.failed); state.report(error) }
         }
     }
 
     private func share(_ d: DocMeta) {
-        Haptic.tap()
         Task {
-            do { sharing = SharedFile(url: try await FileExport.url(board: board, doc: d)) } catch { Haptic.warn(); state.report(error) }
+            do { sharing = SharedFile(url: try await FileExport.url(board: board, doc: d)) } catch { Haptics.play(.failed); state.report(error) }
         }
     }
 }
@@ -577,7 +575,7 @@ struct CodeBlock: View {
                 Spacer()
                 Button {
                     UIPasteboard.general.string = code
-                    Haptic.tap()
+                    Haptics.play(.copied)
                     withAnimation(.snappy) { copied = true }
                     Task { try? await Task.sleep(nanoseconds: 1_400_000_000); withAnimation(.snappy) { copied = false } }
                 } label: {
