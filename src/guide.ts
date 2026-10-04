@@ -180,9 +180,9 @@ export const GUIDE: GuideSection[] = [
       {
         id: "handoffs",
         title: "Ready to land",
-        how: "An agent posts a handoff when a branch is ready: the branch, its commit and the checks that passed. Whoever lands it marks it landed or failed.",
+        how: "An agent posts a handoff when a branch is ready: the branch, its commit and the checks that passed. Another agent session marks it landed or failed. The gate compares agent sessions, not the person who posted. One agent can open a second session and approve its own work, so the gate catches mistakes, not a determined agent.",
         cli: "atteo post handoff --checks \"…\" · atteo get handoffs",
-        agent: "Hand off from the branch (MCP: post type handoff; get {list: \"handoffs\"} is the queue); the lander answers --reply N --landed <sha> or --failed \"<why>\". You can't land your own.",
+        agent: "Hand off from the branch (MCP: post type handoff; get {list: \"handoffs\"} is the queue); another session marks it landed with --reply N --landed <sha> or failed with --failed \"<why>\". The gate compares agent sessions, not the person who posted. One agent can open a second session and approve its own work, so the gate catches mistakes, not a determined agent.",
       },
       {
         id: "slices",
