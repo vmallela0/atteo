@@ -6,6 +6,7 @@ import { chartHtml } from "./chart";
 import { STATUS_CSS, statusHtml } from "./status";
 import { highlightMentions, type Mention } from "./mentions";
 import { MERMAID_CSS, MERMAID_JS, mermaidHtml } from "./mermaid";
+import { CODE_COLOR_CSS, CODE_COLOR_JS } from "./codecolor";
 import { TALK_CSS } from "./talk";
 import { esc } from "./util";
 import { clientTable, tr, type Lang } from "./i18n";
@@ -37,6 +38,8 @@ export const CSS = `
 /* Scrollbars: thin and quiet (Linear/Slack-like), one per scrolling pane. Chrome and Safari use the ::-webkit
    rules (Chrome ignores them once scrollbar-width is set, so that's Firefox-only); darker while the pane is hovered. */
 :root{--sb:color-mix(in srgb,var(--muted) 35%,transparent);--sb-hover:color-mix(in srgb,var(--muted) 70%,transparent)}
+/* How far a message highlight reaches past the entry: left, past the avatar; right, only up to the scroll rail (jxn #2003). */
+:root{--hl-l:12px;--hl-r:4px}@media(max-width:640px){:root{--hl-l:8px}}
 ::-webkit-scrollbar{width:6px;height:6px}
 ::-webkit-scrollbar-track,::-webkit-scrollbar-corner{background:transparent}
 ::-webkit-scrollbar-thumb{background:var(--sb);border-radius:6px}
@@ -354,7 +357,7 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .selecting #thread .entry::before{content:"";position:absolute;left:4px;top:18px;width:16px;height:16px;border:1.5px solid var(--line-strong);border-radius:50%;background:var(--bg)}
 .selecting #thread .entry.picked::before{border-color:var(--accent);background:var(--accent);box-shadow:inset 0 0 0 3px var(--bg)}
 .selecting #thread .entry.picked{background:color-mix(in srgb,var(--accent) 5%,transparent)}
-.selecting #thread .entry.for-you{padding-left:42px}.selecting #thread .entry.for-you::before{left:16px} /* its highlight bleeds 12px left */
+.selecting #thread .entry.for-you{padding-left:calc(30px + var(--hl-l))}.selecting #thread .entry.for-you::before{left:calc(4px + var(--hl-l))} /* its highlight bleeds left */
 .fwd-dlg{width:min(520px,calc(100vw - 24px))}.fwd-list{list-style:none;margin:0;padding:0;max-height:220px;overflow:auto;border:1px solid var(--line);border-radius:var(--r-sm)}
 .fwd-list li{display:flex;align-items:center;gap:8px;padding:8px 10px;cursor:pointer;font-size:13px;min-width:0}.fwd-list li+li{border-top:1px solid var(--line)}
 .fwd-list li:hover{background:var(--bg-hover)}.fwd-list li[aria-selected="true"]{background:color-mix(in srgb,var(--accent) 9%,var(--bg));color:var(--ink)}
@@ -608,12 +611,14 @@ input.switch::after{content:"";position:absolute;top:3px;left:3px;width:18px;hei
 .pv-hd{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line)}.pv-hd .mono{min-width:0;font-size:13px}.pv-w button{padding:3px 10px;font-size:12px}
 .pv-body{flex:1;min-height:0;display:flex;justify-content:center;background:var(--bg-subtle);overflow:auto}.pv-body iframe{border:0;height:100%;background:#fff;transition:width .2s}.pv-note{margin:0;padding:6px 12px;border-top:1px solid var(--line)}
 @media(max-width:640px){.pv-dlg{width:100vw;max-width:100vw;height:100dvh;max-height:none;margin:0;border-radius:0}.pv-w{display:none}}
-/* Highlights (mention tint, new-message flash, jump tint) bleed 12px each side whatever the density, so the avatar never sits on the edge (jxn #1311). */
-#thread>.entry.for-you,#thread>.entry.flash-in,#thread>.entry.hit,.thr-list>.entry.for-you,.thr-list>.entry.hit{margin-left:-12px;margin-right:-12px;padding-left:12px;padding-right:12px;border-radius:8px}
+/* Highlights (mention tint, new-message flash, jump tint) bleed past the avatar whatever the density, so it never sits on the edge (jxn #1311),
+   and on the right only as far as the rail, never under it (jxn #2003). The thread's scroller makes room for the left bleed so it isn't clipped. */
+#thread>.entry.for-you,#thread>.entry.flash-in,#thread>.entry.hit,.thr-list>.entry.for-you,.thr-list>.entry.hit{margin-left:calc(-1*var(--hl-l));margin-right:calc(-1*var(--hl-r));padding-left:var(--hl-l);padding-right:var(--hl-r);border-radius:8px}
 /* …and a seen-by ring on such a message stays where it was, clear of the rail (jxn #1751). */
-#thread>.entry.for-you>.rd,#thread>.entry.flash-in>.rd,#thread>.entry.hit>.rd,.thr-list>.entry.for-you>.rd,.thr-list>.entry.hit>.rd{right:12px}
-@media (pointer:coarse){#thread>.entry.for-you>.rd,#thread>.entry.flash-in>.rd,#thread>.entry.hit>.rd,.thr-list>.entry.for-you>.rd,.thr-list>.entry.hit>.rd{right:10px}}
+#thread>.entry.for-you>.rd,#thread>.entry.flash-in>.rd,#thread>.entry.hit>.rd,.thr-list>.entry.for-you>.rd,.thr-list>.entry.hit>.rd{right:var(--hl-r)}
+@media (pointer:coarse){#thread>.entry.for-you>.rd,#thread>.entry.flash-in>.rd,#thread>.entry.hit>.rd,.thr-list>.entry.for-you>.rd,.thr-list>.entry.hit>.rd{right:calc(var(--hl-r) - 2px)}}
 ${MERMAID_CSS}
+${CODE_COLOR_CSS}
 ${TALK_CSS}
 .slash-menu li{align-items:baseline}.slash-menu li b{flex:none;white-space:nowrap}.slash-menu li .k{margin-left:10px;flex:1;min-width:0;text-align:left} /* "/task" never splits (jxn #1391) */
 .mem-act{display:none}.mem-on .mem-act{display:inline-flex;width:30px;padding:0;justify-content:center;color:var(--muted)}.mem-on .mem-act:hover{color:var(--ink)}
@@ -689,9 +694,9 @@ ${TALK_CSS}
 .mention.agent{border:1px dashed color-mix(in srgb,var(--accent) 45%,transparent);padding:0 3px}
 /* Takes real space (border, not an outline ring), so it never overlaps the text or the mention next to it. */
 .mention.me{color:var(--ink);background:color-mix(in srgb,var(--warn) 22%,transparent);border:1px solid color-mix(in srgb,var(--warn) 45%,transparent);padding:0 3px;margin:0 1px}
-/* The highlight extends 12px beyond the entry on both sides (content stays put), so its bar never sits on the avatar. */
-.entry.for-you{margin-left:-12px;margin-right:-12px;padding-left:12px;padding-right:12px;background:color-mix(in srgb,var(--warn) 8%,transparent);border-radius:8px;animation:foryou 1.6s ease-out 1}
-.entry.for-you .rd{right:12px}
+/* The highlight extends beyond the entry on both sides (content stays put), so it never starts at the avatar. */
+.entry.for-you{margin-left:calc(-1*var(--hl-l));margin-right:calc(-1*var(--hl-r));padding-left:var(--hl-l);padding-right:var(--hl-r);background:color-mix(in srgb,var(--warn) 8%,transparent);border-radius:8px;animation:foryou 1.6s ease-out 1}
+.entry.for-you .rd{right:var(--hl-r)}
 @keyframes foryou{from{background:color-mix(in srgb,var(--warn) 18%,transparent)}}
 .hc-gap{height:12px}
 .mention-menu{position:absolute;left:12px;bottom:calc(100% - 6px);z-index:5;width:min(280px,calc(100% - 24px));list-style:none;margin:0;padding:6px;
@@ -964,7 +969,7 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
 .layout.info-collapsed .rail{top:44px} /* clear of the toggle when it sits over the thread */
 .conv{display:flex;flex-direction:column;min-height:0;min-width:0}
 .thread-wrap{flex:1;min-height:0;position:relative;display:flex}
-.thread-scroll{flex:1;min-width:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;padding:8px 22px 8px 0;scrollbar-width:none}
+.thread-scroll{flex:1;min-width:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;padding:8px 22px 8px var(--hl-l);margin-left:calc(-1*var(--hl-l));scrollbar-width:none} /* the left padding is room for a highlight's bleed, which overflow-x would clip */
 .thread-scroll::-webkit-scrollbar{display:none} /* the rail stands in for its scrollbar */
 .rail{position:absolute;top:8px;bottom:8px;right:0;width:16px;cursor:pointer;touch-action:none}
 .rail i{position:absolute;right:3px;width:8px;height:2px;margin-top:-1px;border-radius:1px;background:color-mix(in srgb,var(--muted) 16%,transparent);transition:background .12s,width .12s}
@@ -1400,7 +1405,8 @@ document.addEventListener('submit',async e=>{
   }finally{b&&(b.disabled=false)}
 });
 })();
-${MERMAID_JS}`;
+${MERMAID_JS}
+${CODE_COLOR_JS}`;
 
 // ---------- app shell (signed-in pages) ----------
 

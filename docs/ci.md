@@ -1,6 +1,6 @@
 # CI
 
-`.github/workflows/ci.yml` runs on every push and pull request. No real secrets are needed: each job starts its own local
+`.github/workflows/ci.yml` is the backstop (the local gate runs every suite before anything reaches main): every 2 hours on main, only when main moved, the test job (typecheck, unit, e2e, CLI); nightly and by hand ("Run workflow", any branch) the full run including the 4 browser shards; on pull requests the test job only.
 Worker (`scripts/ci-worker.sh`: `wrangler dev` on :8787 with local D1 and Durable Objects, and a test `.dev.vars` with
 `ADMIN_KEY=ci-admin-key`). Nothing in CI talks to production.
 
@@ -8,7 +8,7 @@ Worker (`scripts/ci-worker.sh`: `wrangler dev` on :8787 with local D1 and Durabl
 | --- | --- |
 | `test` | typecheck, vitest, `build:cli`, then `test/e2e.mjs`, `test/cli.mjs` and `test/sdk.mjs` against the local Worker |
 | `browser (1/4)` … `browser (4/4)` | the Playwright browser checks in `test/browser/`, a quarter each, in parallel |
-| `report` | after both, posts the push's result to its change card on the Atteo board ([ci-bot.md](ci-bot.md)) |
+| `report` | after both, posts the run's result to its change card on the Atteo board ([ci-bot.md](ci-bot.md)) |
 
 The four browser jobs each install Chromium with `npx playwright-core install --with-deps --no-shell chromium` and cache
 `~/.cache/ms-playwright` under a key holding the playwright-core version (bumping playwright-core in `package.json`

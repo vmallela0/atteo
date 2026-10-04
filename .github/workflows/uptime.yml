@@ -1,9 +1,9 @@
-# Production uptime: every 15 minutes, check that the site, sign-in discovery and the agent endpoint answer.
+# Production uptime: every 2 hours, check that the site, sign-in discovery and the agent endpoint answer.
 # A failed run shows up in Actions and GitHub emails whoever last changed this schedule.
 name: Uptime
 on:
   schedule:
-    - cron: "7 * * * *" # hourly: every 15 min was ~2,900 billed minutes a month on its own (#1982)
+    - cron: "7 */2 * * *" # every 2 hours, ~360 billed minutes a month (every 15 min was ~2,900 on its own, #1982)
   workflow_dispatch:
 jobs:
   probe:
