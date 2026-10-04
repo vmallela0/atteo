@@ -1,5 +1,6 @@
 // Pages. Server-rendered with the design system in ui.ts; small inline scripts for live updates.
 
+import { TALK_JS, talkBtn } from "./talk";
 import type { WebhookRow } from "./webhooks";
 import { PLANS, PRICES, type PlanState } from "./billing";
 import { boardMeta, type BoardRow, type InviteRow, type Invitation, type UserRow } from "./registry";
@@ -385,9 +386,12 @@ ${ALLOWANCE_JS}
     r.onend=()=>{if(rec!==r)return;rec=null;mic.setAttribute('aria-pressed','false');mic.classList.remove('on')};
     try{r.start()}catch(e){rec=null}})
     ta.addEventListener('input',()=>{if(rec&&!own)takeBox()});
+    // Typing steps the mic aside (like the app: once you type, it's Send); dictation's own words, a reply's @mention or a
+    // draft put there by the page don't (talk.ts has the rule). Emptying the box or sending brings it back.
+    ta.addEventListener('input',e=>{if(e.isTrusted||!ta.value.trim())ta.form.classList.toggle('typed',!!ta.value.trim())});
     ta.addEventListener('keydown',e=>{if(e.key==='Escape')micStop()});
     // Capture phase on window, so it runs before any handler that stops the submit (the encrypted board's, /status).
-    window.addEventListener('submit',e=>{if(e.target===ta.form)micStop()},true)}
+    window.addEventListener('submit',e=>{if(e.target===ta.form){micStop();ta.form.classList.remove('typed')}},true)}
   if(!syn||!vb)return;
   // What's left of this month's read-aloud, on the button's title; used up: a clear state and the device voice, never silently.
   const VB_TITLE=vb.title;let ttsOut=false,ttsTold=false,ttsT=0;
@@ -436,6 +440,7 @@ ${ALLOWANCE_JS}
     const g=gl=new SR();g.lang=LANG;g.interimResults=true;g.continuous=true;const end=setTimeout(()=>{try{g.stop()}catch(e){}},12000);
     g.onresult=ev=>{for(let i=ev.resultIndex;i<ev.results.length;i++)if(/go ahead|read it|play it/i.test(ev.results[i][0].transcript)){clearTimeout(end);g.go=1;try{g.stop()}catch(e){}return}};
     g.onend=()=>{clearTimeout(end);if(gl===g)gl=null;if(g.go&&!speaking&&q.length)setTimeout(speakNext,250)}; /* speak once the mic has let go of the audio */try{g.start()}catch(e){gl=null}}
+  window.voiceHush=()=>{micStop();stopGo();hush()}; // Talk to Atteo (talk.ts) takes the mic and the speaker
   function setOn(v){on=v;vb.setAttribute('aria-pressed',String(v));vb.classList.toggle('on',v);try{localStorage.setItem('atteo.voice',v?'1':'0')}catch(e){}if(!v){stopGo();hush()}}
   try{on=localStorage.getItem('atteo.voice')==='1'}catch(e){}
   vb.hidden=false;setOn(on);
@@ -1522,7 +1527,7 @@ const headName=el=>el.querySelector(':scope>.grow>.meta>.who')?.textContent||(el
 const sentName=el=>{const w=el.querySelector(':scope>.grow>.meta>.who');return (w&&(w.dataset.dev??w.textContent))||(el.dataset.author+(el.classList.contains('by-agent')?"'s agent":''))};
 const rpBox=document.getElementById('replying'),rpTo=document.getElementById('reply-to');let rpAt='',rpCarry=0; // rpCarry: the reply (seq) that took the main box's text
 const draftNow=()=>rpTo.value?'r'+rpTo.value:'';
-const taFit=()=>{ta.style.height='';if(ta.value)ta.style.height=ta.scrollHeight+2+'px';msync()};
+const taFit=()=>{ta.style.height='';if(ta.value)ta.style.height=ta.scrollHeight+2+'px';msync();ta.form&&ta.form.classList.remove('typed')}; // the page set the text: not typed (the mic stays)
 function replyTo(seq,focus=true,restore=false){const el=document.getElementById('e'+seq);if(!el||READONLY)return;
   if(+rpTo.value!==seq){
     if(!rpTo.value&&ta.value.trim()&&!restore){rpCarry=seq;draftSave('','');rpTo.value=String(seq);draftSave(draftNow(),ta.value);try{localStorage.setItem(draftKey('carry'),String(seq))}catch(e){}}
@@ -2456,7 +2461,7 @@ window.boardKeys=(e,k)=>{
     els.forEach(x=>x.classList.remove('sel'));const el=els[cur];if(el){el.classList.add('sel');el.scrollIntoView({block:'nearest'})}}
   if(e.key==='Enter'&&els[cur]){openEntry(BOARD,els[cur].dataset.seq)}
 };
-` + (canPic ? BOARD_PIC_JS : "") + (info.encrypted ? E2E_JS : "") + STATUS_JS + voiceJs(agentChat) + PREVIEW_JS + evJs(agentChat) + (agentChat ? "" : PO_JS) + (agentChat ? "" : pinRecapJs(board.last_seen ?? 0, !readOnly && !info.archived) + soulMemoryJs(!readOnly && !info.archived));
+` + (canPic ? BOARD_PIC_JS : "") + (info.encrypted ? E2E_JS : "") + STATUS_JS + voiceJs(agentChat) + TALK_JS + PREVIEW_JS + evJs(agentChat) + (agentChat ? "" : PO_JS) + (agentChat ? "" : pinRecapJs(board.last_seen ?? 0, !readOnly && !info.archived) + soulMemoryJs(!readOnly && !info.archived));
   const isCreator = viewer.name === info.created_by;
   const archivedBanner = info.archived
     ? `<div class="flash bp-banner"><span class="grow"><b>${esc(T("Archived."))}</b> ${esc(T("This board is read-only."))}</span>${
@@ -2506,7 +2511,7 @@ window.boardKeys=(e,k)=>{
     agentChat
       ? ""
       : `<button class="btn ghost sm pf-btn" type="button" id="pf-btn" aria-pressed="false" aria-label="${esc(T("Hide agents"))}" title="${esc(T("Only messages people wrote. Agents' posts are hidden for you; nothing changes for anyone else."))}"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="8" cy="5.5" r="2.75"/><path d="M2.75 14c.6-2.9 2.7-4.5 5.25-4.5s4.65 1.6 5.25 4.5"/></svg><span>${esc(T("Hide agents"))}</span></button>${localize(L, RECAP_BTN)}`
-  }
+  }${talkBtn(info.encrypted ? null : info.id, viewer.name)}
     </div>
 </div>
 <div role="tabpanel" id="panel-conv" class="bp-panel" data-board-panel><div class="layout" id="conv-layout">
