@@ -272,3 +272,21 @@ describe("classification", () => {
     expect(secondsToMidnight(Date.UTC(2026, 9, 3, 23, 59, 30))).toBe(30);
   });
 });
+
+describe("an MCP batch counts as its calls (calls/counted)", () => {
+  it("rate limit: a batch of 3 takes 3 slots; one that doesn't fit is refused whole", async () => {
+    const { env } = fakeEnv({ RATE_AGENT_PER_MIN: "4" });
+    expect(await admit(env, ctx, agent({ calls: 3, counted: 3 }), T0)).toBeNull();
+    expect((await admit(env, ctx, agent({ calls: 2, counted: 2 }), T0 + 1))?.status).toBe(429);
+    expect(await admit(env, ctx, agent(), T0 + 2)).toBeNull(); // the 4th slot
+    expect((await admit(env, ctx, agent(), T0 + 3))?.status).toBe(429);
+  });
+
+  it("daily budget: counts each non-wait call, refuses a batch that would go past it, and a refusal counts nothing", async () => {
+    const { env } = fakeEnv({ DAILY_REQUESTS_FREE: "4" });
+    expect(await admit(env, ctx, agent({ tokenKey: null, calls: 3, counted: 3 }), T0)).toBeNull();
+    expect((await admit(env, ctx, agent({ tokenKey: null, calls: 2, counted: 2 }), T0 + 1))?.status).toBe(429);
+    expect(await admit(env, ctx, agent({ tokenKey: null }), T0 + 2)).toBeNull(); // the refused batch didn't count
+    expect((await admit(env, ctx, agent({ tokenKey: null }), T0 + 3))?.status).toBe(429);
+  });
+});

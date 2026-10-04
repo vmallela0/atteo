@@ -68,6 +68,7 @@ import { FAVICON_SVG, page, renderText } from "./ui";
 import { APPLE_TOUCH_PNG_B64 } from "./appleIcon";
 import { assistantWelcomePage } from "./welcome";
 import { atteoHeader, BOARD_RE, connectCommand, esc, newBoardId, legacyHostRedirect, normalizeUser, parseBoardMeta, publicOrigin, requestNow } from "./util";
+import { isLocalHost } from "./util";
 
 import * as Sentry from "@sentry/cloudflare";
 import { scrubForSentry } from "./sentry";
@@ -940,7 +941,7 @@ const handler = {
         if (w?.refused) return waitRefused(w.refused);
         let r0: Awaited<ReturnType<typeof mailbox.collect>>;
         try {
-          r0 = await mailbox.collect(env, viewer.name, { limit, wait, peek, session: sid, pollMs: level >= 1 ? 6000 : 3000, signal: w?.signal }, async (b, seq) => (await boardStub(env, b).get(seq, { user: viewer.name, person: false })).entry.text); // as the agent: its own lane too
+          r0 = await mailbox.collect(env, viewer.name, { limit, wait, peek, session: sid, pollMs: level >= 1 ? 6000 : 3000, signal: w?.signal }, async (b, seq) => { const e = (await boardStub(env, b).get(seq, { user: viewer.name, person: false })).entry; return { text: e.text, title: e.title }; }); // as the agent: its own lane too
         } finally {
           w?.done();
         }
@@ -2917,6 +2918,12 @@ const handler = {
         if (path === "/api/ops/prune" && method === "POST") {
           if (!body.board || !(await registry.getBoard(env, body.board))) return json({ error: "board required" }, 400);
           return json({ ok: true, pruned: await boardStub(env, body.board).prune(Number(body.before) || Date.now()) });
+        }
+        // Tests: move a board's lease clock forward (renewing claims, src/leases.ts). DEV_FAKE_CLOCK=1 on localhost only.
+        if (path === "/api/ops/dev-clock" && method === "POST") {
+          if (env.DEV_FAKE_CLOCK !== "1" || !isLocalHost(url.hostname)) return json({ error: "dev-clock requires DEV_FAKE_CLOCK=1 on localhost" }, 400);
+          if (!body.board || !(await registry.getBoard(env, body.board))) return json({ error: "board required" }, 400);
+          return json({ ok: true, offset_ms: await boardStub(env, body.board).devClock(Number(body.offset_ms) || 0) });
         }
         // Free-plan guardrails (src/limits.ts) in this isolate: GET shows them; POST overrides limits (tests lower one; a
         // single isolate under wrangler dev), {reset: true} clears overrides and counters, {shed: 0-2} sets today's level.
