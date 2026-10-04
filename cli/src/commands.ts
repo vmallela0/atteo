@@ -266,8 +266,11 @@ async function use(args: string[]) {
   try {
     const r = await rpc(base, c.token, null, "tools/call", { name: "join_board", arguments: { board: want } }, session);
     if (r.isError) throw new CliError(r.text);
-    const m = r.text.match(/Joined "(.*?)" \((b_[a-z0-9]+)\)/);
+    // 'Joined "<title>" (<id>)' today; an id-only 'Joined <id>' later, once the server stops echoing a title anyone can set
+    // (#1949). Only the id is trusted; the title is a label for this machine's config.
+    const m = r.text.match(/Joined (?:"(.*?)" \()?(b_[a-z0-9]+)\)?/);
     if (!m) throw new CliError(r.text);
+    m[1] ??= m[2];
     const map = boardMap();
     const key = opt.global ? "*" : resolve(process.cwd());
     map[key] = { id: m[2], title: m[1] };
