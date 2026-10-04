@@ -2920,6 +2920,36 @@ await step("URL connections (Cursor, claude.ai, a bot) are named agents too: lis
   assert(!(await mine()).some((x) => x.id === s.id), "the session ends with its connection");
 });
 
+await step("named URL connections (/mcp?name=, one per Conductor workspace): the session takes that name, and a reconnect is the same session", async () => {
+  const U = `e2e-named-${run}`;
+  await ops("users", { name: U, email: `${U}@example.com`, verified: "true" });
+  tok[U] = (await ops("tokens", { user: U })).body.token;
+  const connect = async (name) => {
+    const url = `${BASE}/mcp?name=${encodeURIComponent(name)}`;
+    const init = await fetch(url, { method: "POST", headers: { "content-type": "application/json", ...auth(U) }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "claude-code", version: "1" } } }) });
+    const sid = init.headers.get("mcp-session-id");
+    const call = async (tool, args = {}) => (await (await fetch(url, { method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream", "mcp-session-id": sid, ...auth(U) }, body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: tool, arguments: args } }) })).json()).result.content[0].text;
+    return { sid, call };
+  };
+  const mine = async () => (await (await fetch(`${BASE}/api/sessions`, { headers: auth(U) })).json()).sessions;
+  const a = await connect("ws-Tokyo v2");
+  await a.call("list_boards");
+  const b = await connect("ws-osaka");
+  await b.call("list_boards");
+  const names = (await mine()).map((x) => x.name).sort();
+  assert(JSON.stringify(names) === JSON.stringify(["ws-osaka", "ws-tokyo-v2"]), "each workspace is its own session, named from ?name= (cleaned): " + JSON.stringify(names));
+  // The workspace's agent restarts (a new connection, same URL): it's the same session again, not ws-tokyo-v2-2.
+  const id = (await mine()).find((x) => x.name === "ws-tokyo-v2").id;
+  const a2 = await connect("ws-Tokyo v2");
+  has(await a2.call("session", { action: "status", status: "back" }), "back");
+  const after = await mine();
+  assert(after.length === 2 && after.find((x) => x.name === "ws-tokyo-v2")?.id === id, "a reconnect keeps its session: " + JSON.stringify(after));
+  // Without ?name= nothing changes: the session is named after the client.
+  const plain = await fetch(`${BASE}/mcp`, { method: "POST", headers: { "content-type": "application/json", ...auth(U) }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "grok-bot", version: "1" } } }) });
+  await sok({ who: U, sid: plain.headers.get("mcp-session-id"), board: null }, "list_boards");
+  assert((await mine()).some((x) => x.name === "grok-bot"), "unnamed connections are named after their client, as before");
+});
+
 await step("kill switch: Disconnect all agents revokes every sign-in and ends every session; only from the browser", async () => {
   const K = `e2e-kill-${run}`;
   await ops("users", { name: K, email: `${K}@example.com`, verified: "true" });

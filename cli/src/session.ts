@@ -1,7 +1,8 @@
 // Which agent session a command runs as. Every running agent (a Claude Code window, a Codex run, a bot) is its own
 // session: the CLI walks up from its parent process to the first one that isn't a shell or a wrapper, and that
 // process (its pid plus start time, so a reused pid is a new session) maps to a session on the server. A person in a
-// plain terminal gets one session per terminal. --session or ATTEO_SESSION picks one explicitly.
+// plain terminal gets one session per terminal. --session or ATTEO_SESSION picks one explicitly; ATTEO_SESSION_NAME names
+// the one this agent gets (picked up again by name after a restart: one per Conductor workspace).
 
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";

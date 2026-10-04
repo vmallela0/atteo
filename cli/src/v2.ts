@@ -78,7 +78,10 @@ export async function session(opt: Opt, create = true): Promise<LocalSession | n
     if (map[currentKey]) current = map[currentKey];
     else if (!create) return null;
     else {
-      const j = await api(opt, "POST", "/api/sessions", { suggest: who.name, client: who.client });
+      // ATTEO_SESSION_NAME (set where the agent is configured, e.g. one per Conductor workspace): this agent is that
+      // session, picked up again after a restart, or made under that name the first time.
+      const named = (env("SESSION_NAME") ?? "").trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^[^a-z0-9]+/, "").slice(0, 32); // as the server cleans names
+      const j = (named && (await api(opt, "GET", `/api/sessions/${encodeURIComponent(named)}`).catch(() => null))) || (await api(opt, "POST", "/api/sessions", { suggest: named || who.name, client: who.client }));
       current = { ...adopt(j.session), pid: Number(who.key.split(":")[0]) || undefined, notified: Date.now() - 86400e3 };
       map[currentKey] = current;
       saveMap(map);
