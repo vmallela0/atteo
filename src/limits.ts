@@ -31,17 +31,31 @@ const num = (v: string | undefined, d: number) => {
 // Test/ops overrides for this isolate (POST /api/ops/limits). wrangler dev runs one isolate, so e2e can lower a limit.
 let overrides: Partial<Limits> = {};
 
+/**
+ * A local dev/test server (PUBLIC_URL on localhost, as .dev.vars and CI set it) runs suite after suite all day with the
+ * same users, so the production defaults would throttle the tests themselves (jxn #1616: emoji-sync's writes 429'd).
+ * There the defaults are effectively off; env vars and ops overrides still set real limits (the limits e2e does that).
+ * LIMITS_LOCAL=1 keeps the production defaults locally.
+ */
+const OFF = 1e12;
+function isLocalServer(env: Env): boolean {
+  if (env.LIMITS_LOCAL === "1") return false;
+  try { return /^(localhost|127\.0\.0\.1|\[::1\])$/.test(new URL(String(env.PUBLIC_URL ?? "")).hostname); } catch { return false; }
+}
+
 export function limits(env: Env): Limits {
+  const local = isLocalServer(env);
+  const d = (prod: number) => (local ? OFF : prod);
   return {
-    agentPerMin: num(env.RATE_AGENT_PER_MIN, 600),
-    appPerMin: num(env.RATE_APP_PER_MIN, 1200),
-    dailyFree: num(env.DAILY_REQUESTS_FREE, 50_000),
+    agentPerMin: num(env.RATE_AGENT_PER_MIN, d(600)),
+    appPerMin: num(env.RATE_APP_PER_MIN, d(1200)),
+    dailyFree: num(env.DAILY_REQUESTS_FREE, d(50_000)),
     dailyPro: num(env.DAILY_REQUESTS_PRO, 0),
-    liveSessions: num(env.MAX_LIVE_SESSIONS, 25),
-    shedL1Requests: num(env.SHED_L1_REQUESTS, 70_000),
-    shedL2Requests: num(env.SHED_L2_REQUESTS, 90_000),
-    shedL1RowsRead: num(env.SHED_L1_D1_ROWS_READ, 3_500_000),
-    shedL2RowsRead: num(env.SHED_L2_D1_ROWS_READ, 4_500_000),
+    liveSessions: num(env.MAX_LIVE_SESSIONS, d(25)),
+    shedL1Requests: num(env.SHED_L1_REQUESTS, d(70_000)),
+    shedL2Requests: num(env.SHED_L2_REQUESTS, d(90_000)),
+    shedL1RowsRead: num(env.SHED_L1_D1_ROWS_READ, d(3_500_000)),
+    shedL2RowsRead: num(env.SHED_L2_D1_ROWS_READ, d(4_500_000)),
     ...overrides,
   };
 }
