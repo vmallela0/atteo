@@ -27,6 +27,9 @@ struct Approval: Codable, Identifiable, Hashable {
     let boardId: String?
     let title: String
     let details: String
+    var tool: String? = nil // permission hook: Bash, Edit, etc.
+    var command: String? = nil // the exact command or file the person is approving, verbatim
+    var session: String? = nil // the agent session that asked
     let risk: String
     let status: String
     let createdAt: Double

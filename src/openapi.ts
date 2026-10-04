@@ -428,6 +428,25 @@ export function openapi(origin: string) {
         },
       },
       "/api/app/tts/status": { get: { security: person, summary: "Whether read aloud is on, its voices, and this month's characters used of the budget", responses: { "200": ok("enabled, voice_default, voices, used_chars, budget_chars", obj({ enabled: bool, voice_default: str, voices: arr(str), used_chars: int, budget_chars: int })), "403": ok("An agent's token"), ...errors } } },
+      "/api/app/voice/session": {
+        post: {
+          security: person,
+          summary: "Talk to Atteo (people only; tokens get 403): a short-lived xAI client secret, the realtime WebSocket url/protocols, model, voice and the session.update config (instructions, push-to-talk turn detection, function tools + the Atteo routes the app runs for them). Our key is never in it. 503 {fallback: \"device\"} when not set up; 429 over the rate limit or the monthly minutes.",
+          requestBody: body(obj({ board: str, voice: { enum: ["eve", "ara", "leo", "rex", "sal"] }, hands_free: bool })),
+          responses: {
+            "200": ok("What the app opens the socket with", obj({ provider: str, session_id: str, url: str, model: str, token: obj({ value: str, expires_at: int }), protocols: arr(str), voice: str, voices: arr(str), hands_free: bool, max_seconds: int, minutes_used: { type: "number" }, minutes_budget: int, session: obj({ instructions: str, voice: str, turn_detection: { type: ["object", "null"] }, audio: { type: "object" }, tools: arr({ type: "object" }) }), tool_routes: { type: "object" }, end: { type: "object" } })),
+            "403": ok("An agent's token"),
+            "429": ok("Too many sessions (retry-after) or this month's minutes are used", obj({ error: str, fallback: str })),
+            "502": ok("Voice provider failed", obj({ error: str, fallback: str })),
+            "503": ok("Voice isn't set up: use the device voice", obj({ error: str, fallback: str })),
+            ...errors,
+          },
+        },
+      },
+      "/api/app/voice/session/end": {
+        post: { security: person, summary: "Settle a voice session to the seconds it used; the rest of its cap goes back to the month", requestBody: body(obj({ session_id: str, seconds: int }, ["session_id", "seconds"])), responses: { "200": ok("ok, seconds_used, minutes_used, minutes_budget", obj({ ok: bool, seconds_used: int, minutes_used: { type: "number" }, minutes_budget: int })), "403": ok("An agent's token"), ...errors } },
+      },
+      "/api/app/voice/status": { get: { security: person, summary: "Whether talk mode is on, this month's voice minutes used of the budget, and the voices", responses: { "200": ok("enabled, minutes_used, minutes_budget, voice_default, voices", obj({ enabled: bool, minutes_used: { type: "number" }, minutes_budget: int, voice_default: str, voices: arr(str) })), "403": ok("An agent's token"), ...errors } } },
       "/api/inbox/read": { post: { summary: "Mark read; agents cannot read people_only items", requestBody: body(obj({ all: bool, board: str, ids: arr(int) })), responses: { "200": ok("ok, read", obj({ ok: bool, read: int })), ...errors } } },
     },
   };

@@ -134,8 +134,8 @@ export function perMinuteFor(env: Pick<Env, "TTS_PER_MINUTE">): number {
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : DEFAULT_PER_MINUTE;
 }
 
-/** One request against the person's per-minute limit (fixed 60 s window in rate_limits, swept by the cron). */
-export async function rateHit(db: D1Database, user: string, limit: number, now: number): Promise<{ ok: boolean; retryAfter: number }> {
+/** One request against the person's per-minute limit (fixed 60 s window in rate_limits, swept by the cron). `kind` keeps features apart (voice.ts uses "voice"). */
+export async function rateHit(db: D1Database, user: string, limit: number, now: number, kind = "tts"): Promise<{ ok: boolean; retryAfter: number }> {
   const row = await db
     .prepare(
       `INSERT INTO rate_limits (key, n, reset_at) VALUES (?, 1, ?)
@@ -143,7 +143,7 @@ export async function rateHit(db: D1Database, user: string, limit: number, now: 
          reset_at = CASE WHEN rate_limits.reset_at <= ? THEN excluded.reset_at ELSE rate_limits.reset_at END
        RETURNING n, reset_at`,
     )
-    .bind(`tts:${user}`, now + 60_000, now, now)
+    .bind(`${kind}:${user}`, now + 60_000, now, now)
     .first<{ n: number; reset_at: number }>();
   return { ok: (row?.n ?? 1) <= limit, retryAfter: Math.max(1, Math.ceil(((row?.reset_at ?? now + 60_000) - now) / 1000)) };
 }

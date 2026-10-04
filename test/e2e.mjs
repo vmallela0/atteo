@@ -2507,7 +2507,7 @@ await step("app prefs: /api/app/prefs holds display + favourite reactions for pe
   assert(!(await ok(P, fb, "read")).includes("🦄"), "MCP read carries no client prefs");
   assert(!JSON.stringify(await (await as(AG, "GET", "/api/me")).json()).includes("🦄"), "/api/me carries no client prefs");
   const spec = await (await fetch(`${BASE}/openapi.json`)).json();
-  assert(spec.paths["/api/app/prefs"]?.get && spec.paths["/api/app/prefs"]?.post && spec.paths["/api/app/tts"]?.post, "openapi lists the app namespace");
+  assert(spec.paths["/api/app/prefs"]?.get && spec.paths["/api/app/prefs"]?.post && spec.paths["/api/app/tts"]?.post && spec.paths["/api/app/voice/session"]?.post, "openapi lists the app namespace");
 });
 
 await step("recent_reactions: a person's most-used emoji, counted as they react (not their agents), next to reactions, private", async () => {
@@ -4243,6 +4243,54 @@ await step("read aloud (POST /api/app/tts): people only, validated, members only
     const r = await tts(A, { board, seq });
     assert(r.status === 200 && r.headers.get("content-type")?.startsWith("audio/"), `speaks: ${r.status}`);
   }
+});
+
+await step("voice (POST /api/app/voice/session): people only, validated, rate limited, no key → 503; a fake provider shows the session shape", async () => {
+  const session = (who, body, headers = {}) => web("/api/app/voice/session", who, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body) });
+  const app = (await ops("tokens", { user: A, kind: "app", label: "e2e voice app" })).body.token;
+  const st = await (await web("/api/app/voice/status", A)).json();
+  assert(typeof st.enabled === "boolean" && st.minutes_budget === 180 && st.minutes_used >= 0 && st.voice_default === "eve" && st.voices.includes("eve"), JSON.stringify(st));
+  assert((await fetch(`${BASE}/api/app/voice/status`, { headers: { authorization: `Bearer ${app}` } })).status === 200, "app token: status");
+  assert((await fetch(`${BASE}/api/app/voice/status`)).status === 401, "signed out: 401");
+  for (const p of ["/api/app/voice/session", "/api/app/voice/status"]) {
+    const r = await fetch(`${BASE}${p}`, { method: p.endsWith("status") ? "GET" : "POST", headers: { authorization: `Bearer ${tok[A]}`, "content-type": "application/json" }, body: p.endsWith("status") ? undefined : "{}" });
+    assert(r.status === 403, `agents are refused ${p}: ${r.status}`);
+  }
+  for (const [body, code, needle] of [[{ voice: "darth" }, 400, "Unknown voice"], [{ board: "nope" }, 400, "board id"], [{ hands_free: "yes" }, 400, "hands_free"]]) {
+    const r = await session(A, body);
+    const j = await r.json();
+    assert(r.status === code && j.error.includes(needle), `${JSON.stringify(body)} → ${r.status} ${JSON.stringify(j)}`);
+  }
+  const outsider = await session(OUT, { board });
+  assert(outsider.status === 404, `non-member board: ${outsider.status}`);
+  if (!st.enabled) {
+    for (const r of [await session(A, { board }), await fetch(`${BASE}/api/app/voice/session`, { method: "POST", headers: { authorization: `Bearer ${app}`, "content-type": "application/json" }, body: "{}" })]) {
+      const j = await r.json();
+      assert(r.status === 503 && j.error === "Voice isn't set up yet" && j.fallback === "device", `no key: ${r.status} ${JSON.stringify(j)}`);
+    }
+  }
+  // The local fake provider (DEV_FAKE_VOICE=1 in .dev.vars, header-gated, localhost only): a whole session, no xAI.
+  const fake = await session(A, { board }, { "x-dev-fake-voice": "1" });
+  if (fake.status === 503) console.log("      (fake voice is off here: set DEV_FAKE_VOICE=1 in .dev.vars to see a session's shape)");
+  else {
+    const j = await fake.json();
+    assert(fake.status === 200 && j.url.startsWith("wss://api.x.ai/v1/realtime") && j.token?.value && j.protocols[0] === `xai-client-secret.${j.token.value}`, `fake session: ${fake.status} ${JSON.stringify(j).slice(0, 300)}`);
+    assert(j.session.turn_detection === null && j.session.instructions.includes("voice front for Atteo") && j.session.tools.length === 6 && j.tool_routes.answer_approval.confirm === true, "session config");
+    assert(j.minutes_budget === 180 && j.max_seconds === 600 && /^vs_/.test(j.session_id), JSON.stringify({ b: j.minutes_budget, m: j.max_seconds }));
+    const after = await (await web("/api/app/voice/status", A)).json();
+    assert(after.minutes_used === st.minutes_used + 10, `charged the cap up front: ${JSON.stringify(after)}`);
+    const end = await (await web("/api/app/voice/session/end", A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ session_id: j.session_id, seconds: 30 }) })).json();
+    assert(end.ok && end.seconds_used === 30 && end.minutes_used === st.minutes_used + 0.5, `settled: ${JSON.stringify(end)}`);
+    const twice = await web("/api/app/voice/session/end", A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ session_id: j.session_id, seconds: 1 }) });
+    assert(twice.status === 404, `ends once: ${twice.status}`);
+  }
+  // Rate limit (6 a minute by default), before the provider check: someone fresh hits it even without a key (with a
+  // real key it would mint real client secrets, so it's skipped then).
+  if (st.enabled) return;
+  const codes = [];
+  for (let i = 0; i < 7; i++) codes.push((await session(B, {})).status);
+  const last = await session(B, {});
+  assert(codes.slice(0, 6).every((c) => c !== 429) && codes[6] === 429 && last.status === 429 && Number(last.headers.get("retry-after")) > 0, `rate limit: ${codes} ${last.status}`);
 });
 
 // ---- people-only messages (vedu #1264): visible only to the people named (and the author), never to any agent ----
