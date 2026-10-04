@@ -103,6 +103,8 @@ export const ZH_CN: Record<string, string> = {
   "Board": "看板",
   "Board details": "看板详情",
   "Board info": "看板信息",
+  "Close menu": "关闭菜单",
+  "Close board info": "关闭看板信息",
   "Board name": "看板名称",
   "Board picture": "看板图片",
   "Board settings": "看板设置",

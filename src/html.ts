@@ -2369,13 +2369,20 @@ document.addEventListener('click',async e=>{const b=e.target.closest('[data-memb
 const infoBtn=document.getElementById('info-btn'),convLayout=document.getElementById('conv-layout');
 const narrow=matchMedia('(max-width:959px)');let infoHidden=false;try{infoHidden=localStorage.getItem('soup.infoHidden')==='1'}catch(e){}
 function infoSync(){const wide=!narrow.matches;convLayout.classList.toggle('info-collapsed',wide&&infoHidden);
-  const shown=wide?!infoHidden:convLayout.classList.contains('info-open');infoBtn.setAttribute('aria-expanded',String(shown));infoBtn.title=shown?tr('Hide board info'):tr('Show board info')}
+  const shown=wide?!infoHidden:convLayout.classList.contains('info-open');infoBtn.setAttribute('aria-expanded',String(shown));infoBtn.title=shown?tr('Hide board info'):tr('Show board info');
+  infoBtn.setAttribute('aria-label',!wide&&shown?tr('Close board info'):tr('Board info'))} // on a phone the open panel's button is its ✕ (jxn #2223)
 function infoOpen(o){convLayout.classList.toggle('info-open',o);infoSync()}
 narrow.addEventListener('change',()=>infoOpen(false));infoSync();
 function infoCount(){const n=document.querySelectorAll('#sum .waiting li').length,c=document.getElementById('info-count');c.textContent=n||'';c.hidden=!n}
 infoBtn.addEventListener('click',()=>{if(narrow.matches){infoOpen(!convLayout.classList.contains('info-open'));return}
   infoHidden=!infoHidden;try{localStorage.setItem('soup.infoHidden',infoHidden?'1':'0')}catch(e){}infoSync()});
-document.addEventListener('keydown',e=>{if(e.key==='Escape'&&convLayout.classList.contains('info-open')&&!document.querySelector('dialog[open]'))infoOpen(false)});
+// On a phone the panel covers the conversation: its ✕ (the board info button, which turns into one), Esc or a swipe to
+// the right closes it, and focus goes back to that button (jxn #2223). It's never kept open across a reload.
+function infoClose(){if(!convLayout.classList.contains('info-open'))return;const back=document.getElementById('board-info').contains(document.activeElement)||document.activeElement===document.body;infoOpen(false);if(back)infoBtn.focus({preventScroll:true})}
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&convLayout.classList.contains('info-open')&&!document.querySelector('dialog[open]'))infoClose()});
+{let sx=0,sy=0;const bi=document.getElementById('board-info');
+  bi.addEventListener('touchstart',e=>{const t=e.touches[0];sx=t.clientX;sy=t.clientY},{passive:true});
+  bi.addEventListener('touchend',e=>{const t=e.changedTouches[0],dx=t.clientX-sx,dy=t.clientY-sy;if(narrow.matches&&dx>60&&Math.abs(dx)>Math.abs(dy)*1.5)infoClose()},{passive:true})}
 document.getElementById('board-info').addEventListener('click',e=>{if(e.target.closest('a[href^="#e"]'))infoOpen(false)});
 infoCount();
 let convStuck=true;

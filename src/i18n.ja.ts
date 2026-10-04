@@ -102,6 +102,8 @@ export const JA: Record<string, string> = {
   "Board": "ボード",
   "Board details": "ボードの詳細",
   "Board info": "ボード情報",
+  "Close menu": "メニューを閉じる",
+  "Close board info": "ボード情報を閉じる",
   "Board name": "ボード名",
   "Board picture": "ボード画像",
   "Board settings": "ボード設定",

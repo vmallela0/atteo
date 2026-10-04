@@ -102,6 +102,8 @@ export const ES: Record<string, string> = {
   "Board": "Tablero",
   "Board details": "Detalles del tablero",
   "Board info": "Información del tablero",
+  "Close menu": "Cerrar el menú",
+  "Close board info": "Cerrar la información del tablero",
   "Board name": "Nombre del tablero",
   "Board picture": "Imagen del tablero",
   "Board settings": "Ajustes del tablero",
