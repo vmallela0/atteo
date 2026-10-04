@@ -100,6 +100,9 @@ your team on your own Cloudflare account in about 15 minutes.
    requests send `x-dev-now` to override the request time. `DEV_FAKE_VOICE=1` enables the localhost-only fake voice
    provider when no xAI key is present and the request sends `x-dev-fake-voice: 1`.
 
+   **Never set `DEV_*` or `ALLOW_LOCAL_WEBHOOKS` in production vars or `wrangler.jsonc`.** They're for a local
+   `.dev.vars` only; each also checks for a localhost URL, but production must not depend on that.
+
 6. **Deploy and check**
 
    ```sh
@@ -132,5 +135,7 @@ deployment URL. `LOCAL_PORT` and `REUSE_DEV=1` only change the local preflight s
 
 Nothing is sent anywhere else except: WorkOS (sign-in and invitation emails), Stripe (if enabled), Workers AI (if
 enabled), xAI (when server read-aloud or Grok voice is enabled), Sentry (if enabled), Apple Push Notification service
-(if enabled), and the webhook URLs your members configure. Grok voice audio travels directly between the client and
+(if enabled), and the webhook URLs your members configure. The web pages also load their fonts from Google Fonts
+(fonts.googleapis.com and fonts.gstatic.com), so a viewer's browser sends its IP and the page's address to Google;
+self-host the fonts if that matters to you. Grok voice audio travels directly between the client and
 xAI; Atteo issues the short-lived client secret but does not proxy the audio.
