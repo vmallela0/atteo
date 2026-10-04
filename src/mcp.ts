@@ -1387,11 +1387,12 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       // A task moves on after it's posted: ticks and edits make new versions, claims and done change its status. Show it
       // as it is now too, so a ticked item never reads as open (opus-b, claude #2181). Same fence as the rest.
       if (r.entry.type === "task" && r.entry.retracts == null) {
-        const t = await stub.taskGet(seq).catch(() => null);
+        const [t, info] = await Promise.all([stub.taskGet(seq).catch(() => null), stub.info()]);
         if (t && (t.version > 1 || t.status !== "todo")) {
           const who = t.lease_holder ? `, ${t.lease_holder}${t.lease_agent ? "'s agent" : ""} has it` : t.assignee ? `, for ${t.assignee}${t.assignee_agent ? "'s agent" : ""}` : "";
           const why = t.status === "stopped" && t.stop_reason ? `: ${t.stop_reason}` : t.status === "done" && t.done_note ? `: ${t.done_note}` : "";
-          out.push("", `Now (v${t.version}, ${t.status}${who}${why}):`, ...(t.version > 1 ? [`    ${t.title}`, ...(t.body ? t.body.split("\n").map((l) => `    ${l}`) : [])] : []));
+          const now = info.encrypted ? ["    🔒 encrypted"] : [`    ${t.title}`, ...(t.body ? t.body.split("\n").map((l) => `    ${l}`) : [])]; // ciphertext isn't text
+          out.push("", `Now (v${t.version}, ${t.status}${who}${why}):`, ...(t.version > 1 ? now : []));
         }
       }
       if (r.entry.card) out.push("", formatCard(r.entry.card, r.diff));
