@@ -44,6 +44,10 @@ export const CSS = `
 html{-webkit-text-size-adjust:100%}
 body{margin:0;background:var(--bg);color:var(--text);font:13.5px/1.5 "Geist",ui-sans-serif,system-ui,-apple-system,"Segoe UI","PingFang SC","Hiragino Sans GB","Noto Sans SC","Microsoft YaHei",sans-serif;
   -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;font-feature-settings:"ss01","cv11"}
+html:lang(zh-Hant) body{font-family:"Geist",ui-sans-serif,system-ui,-apple-system,"Segoe UI","PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif}
+html:lang(ja) body{font-family:"Geist",ui-sans-serif,system-ui,-apple-system,"Segoe UI","Hiragino Sans","Hiragino Kaku Gothic ProN","Noto Sans JP","Yu Gothic UI",Meiryo,sans-serif}
+html:lang(ko) body{font-family:"Geist",ui-sans-serif,system-ui,-apple-system,"Segoe UI","Apple SD Gothic Neo","Noto Sans KR","Malgun Gothic",sans-serif}
+html:lang(hi) body{font-family:"Geist",ui-sans-serif,system-ui,-apple-system,"Segoe UI","Kohinoor Devanagari","Noto Sans Devanagari","Nirmala UI",sans-serif}
 a{color:inherit;text-decoration:none}
 a.link{color:var(--accent)}a.link:hover{text-decoration:underline}
 code,pre,.mono{font-family:"Geist Mono",ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px}
@@ -216,7 +220,7 @@ dialog[open]{animation:pop .16s ease-out}dialog:focus{outline:none}
 :root[data-text="l"] .composer textarea{font-size:15.5px}
 :root[data-density="compact"] .entry{padding:7px 0;gap:10px}:root[data-density="compact"] .thread>.entry:first-child{padding-top:4px}:root[data-density="compact"] .replies .entry{padding:4px 0 0}
 :root[data-density="compact"] .entry .body{margin-top:0}:root[data-density="compact"] .entry .body p+p{margin-top:4px}
-.dp-lang{max-width:300px}.dp-grid{display:grid;grid-template-columns:110px 1fr;gap:12px 14px;align-items:center}.dp-grid .lbl{margin:0}
+.dp-lang{max-width:300px}.dp-voice-row{display:flex;gap:8px;align-items:center}.dp-voice{max-width:180px}.dp-grid{display:grid;grid-template-columns:110px 1fr;gap:12px 14px;align-items:center}.dp-grid .lbl{margin:0}
 .dp-grid .seg{flex-wrap:wrap}.dp-grid .seg input{display:inline;position:absolute;opacity:0;width:1px;height:1px;pointer-events:none}
 .dp-grid .seg input:focus-visible+label{outline:2px solid var(--accent);outline-offset:1px}
 @media (max-width:640px){.dp-grid{grid-template-columns:1fr;gap:6px}}
@@ -588,13 +592,20 @@ input.switch::after{content:"";position:absolute;top:3px;left:3px;width:18px;hei
 :root[data-mode="everyday"] .bp-title h1{font-size:26px;letter-spacing:-.01em}:root[data-mode="everyday"] .section-title h1{font-size:26px}
 @media(max-width:640px){:root[data-mode="everyday"] .bp-title h1{font-size:22px}}
 .composer .po-btn{width:30px;padding:0;justify-content:center;color:var(--muted)}.composer .po-btn:hover{color:var(--ink)}.composer .po-btn.on{color:var(--on-ink);background:var(--ink);border-radius:999px}
-.po-note{margin:0 0 8px;padding:6px 10px;border-radius:8px;background:color-mix(in srgb,var(--warn) 10%,transparent);font-size:12.5px;color:var(--text)}.po-note[hidden]{display:none}.composer.po{box-shadow:0 0 0 1.5px color-mix(in srgb,var(--warn) 55%,transparent)}
+.po-note{margin:0 0 8px;padding:6px 10px;border-radius:8px;background:color-mix(in srgb,var(--warn) 10%,transparent);font-size:12.5px;color:var(--text)}.po-note[hidden]{display:none}
+.po-seg{display:inline-flex;vertical-align:baseline;border:1px solid var(--line);border-radius:999px;padding:1px;background:var(--bg);margin-right:2px}
+.po-seg button{border:0;background:none;font:inherit;font-size:12px;line-height:1.5;padding:1px 9px;border-radius:999px;color:var(--muted);cursor:pointer}
+.po-seg button:hover{color:var(--ink)}.po-seg button[aria-checked="true"]{background:var(--ink);color:var(--on-ink);font-weight:600}
+.po-seg button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}.composer.po{box-shadow:0 0 0 1.5px color-mix(in srgb,var(--warn) 55%,transparent)}
 .pv-dlg{width:min(1100px,calc(100vw - 24px));height:min(860px,calc(100vh - 40px));padding:0;display:none}.pv-dlg[open]{display:flex;flex-direction:column}
 .pv-hd{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line)}.pv-hd .mono{min-width:0;font-size:13px}.pv-w button{padding:3px 10px;font-size:12px}
 .pv-body{flex:1;min-height:0;display:flex;justify-content:center;background:var(--bg-subtle);overflow:auto}.pv-body iframe{border:0;height:100%;background:#fff;transition:width .2s}.pv-note{margin:0;padding:6px 12px;border-top:1px solid var(--line)}
 @media(max-width:640px){.pv-dlg{width:100vw;max-width:100vw;height:100dvh;max-height:none;margin:0;border-radius:0}.pv-w{display:none}}
 /* Highlights (mention tint, new-message flash, jump tint) bleed 12px each side whatever the density, so the avatar never sits on the edge (jxn #1311). */
 #thread>.entry.for-you,#thread>.entry.flash-in,#thread>.entry.hit,.thr-list>.entry.for-you,.thr-list>.entry.hit{margin-left:-12px;margin-right:-12px;padding-left:12px;padding-right:12px;border-radius:8px}
+/* …and a seen-by ring on such a message stays where it was, clear of the rail (jxn #1751). */
+#thread>.entry.for-you>.rd,#thread>.entry.flash-in>.rd,#thread>.entry.hit>.rd,.thr-list>.entry.for-you>.rd,.thr-list>.entry.hit>.rd{right:12px}
+@media (pointer:coarse){#thread>.entry.for-you>.rd,#thread>.entry.flash-in>.rd,#thread>.entry.hit>.rd,.thr-list>.entry.for-you>.rd,.thr-list>.entry.hit>.rd{right:10px}}
 ${MERMAID_CSS}
 .slash-menu li{align-items:baseline}.slash-menu li b{flex:none;white-space:nowrap}.slash-menu li .k{margin-left:10px;flex:1;min-width:0;text-align:left} /* "/task" never splits (jxn #1391) */
 .mem-act{display:none}.mem-on .mem-act{display:inline-flex;width:30px;padding:0;justify-content:center;color:var(--muted)}.mem-on .mem-act:hover{color:var(--ink)}
@@ -1041,6 +1052,15 @@ a.ref:hover{color:var(--ink);background:color-mix(in srgb,var(--accent) 12%,var(
 #doc-pin svg{margin-right:2px}#doc-pin.on{color:var(--accent)}
 /* Recap: a header button and a sheet (bottom sheet on phones) */
 .recap-btn{position:relative;gap:5px;align-self:center;color:var(--muted)}.recap-btn:hover{color:var(--ink)}
+/* People (jxn #1731): only what people wrote. Agents' posts are hidden for this viewer alone (a root attribute from this browser) */
+:root[data-pf] #thread>.entry.by-agent,:root[data-pf] #thread>.ghost.by-agent,:root[data-pf] .thr-list>.entry.by-agent:not(:first-child){display:none}
+.pf-btn{gap:5px;align-self:center;color:var(--muted)}.pf-btn:hover{color:var(--ink)}.pf-btn[aria-pressed="true"]{color:var(--ink);background:var(--bg-hover)}
+.pf-empty{margin:28px auto;max-width:420px;padding:0 16px;text-align:center;font-size:13px;color:var(--faint)}
+@media(max-width:640px){.pf-btn span{display:none}.pf-btn{width:30px;padding:0;justify-content:center}} /* phones: the icon, so Recap still fits by the tabs */
+@media(max-width:379px){.recap-l{display:none}.recap-btn{width:30px;padding:0;justify-content:center}.recap-dot{position:absolute;top:4px;right:4px;margin:0;box-shadow:0 0 0 2px var(--bg)}} /* with Hide agents beside it */
+@media(max-width:359px){.bp-tabs{gap:2px}.bp-tabs .tabs button{padding-left:5px;padding-right:5px}} /* the narrowest phones: Recap stays clear of the info button below it */
+@media(pointer:coarse){.bp-tabs>.pf-btn,.bp-tabs>.recap-btn{z-index:1}} /* their taller tap areas sit over the conversation's top edge */
+.pf-list{flex:none}.pf-list[aria-pressed="true"]{background:var(--bg-hover);color:var(--ink);border-color:var(--line-strong)}
 .recap-dot{flex:none;width:6px;height:6px;border-radius:50%;background:var(--accent);align-self:flex-start;margin:5px 0 0 -2px}
 dialog.recap-dlg{width:min(560px,calc(100vw - 32px));max-height:min(80vh,720px)}
 .recap-dlg .bd{overflow-y:auto;max-height:calc(min(80vh,720px) - 80px)}
@@ -1344,6 +1364,7 @@ document.addEventListener('click',e=>{
 });
 $$('dialog').forEach(d=>d.addEventListener('click',e=>{if(e.target===d)d.close()}));
 function rel(ts){const s=Math.max(0,(Date.now()-ts)/1000);if(s<45)return tr('just now');if(s<3600)return tr('{n}m ago',{n:Math.round(s/60)});if(s<86400)return tr('{n}h ago',{n:Math.round(s/3600)});if(s<604800)return tr('{n}d ago',{n:Math.round(s/86400)});return new Date(ts).toISOString().slice(0,10)}
+$$('button[data-copy]').forEach(b=>{if(b.textContent==='Copy')b.textContent=tr('Copy')});
 window.refreshTimes=()=>$$('time[data-ts]').forEach(t=>t.textContent=rel(+t.dataset.ts));setInterval(refreshTimes,30000);if(window.I18N&&Object.keys(window.I18N).length)refreshTimes();
 // Posting never fails silently: a message gets an id (Idempotency-Key) and is retried through dropped connections and
 // restarts for a couple of minutes; the server stores it once however many tries arrive. Your text stays until it lands.
@@ -1540,7 +1561,7 @@ function rawPage(title: string, body: string, script: string, status = 200, lang
 <style>${CSS}</style>${DISPLAY_HEAD}</head><body>${body}
 <div id="toast" role="status" aria-live="polite"></div>
 ${lang === "en" ? "" : `<script>window.I18N=${clientTable(lang)}</script>`}<script>${CLIENT_JS}${script}</script></body></html>`;
-  return new Response(html, { status, headers: { "content-type": "text/html; charset=utf-8", "content-language": lang } });
+  return new Response(html, { status, headers: { "content-type": "text/html; charset=utf-8", "content-language": lang, vary: "Accept-Language, Cookie" } });
 }
 
 const SHELL_JS = `
@@ -1555,30 +1576,30 @@ const KINDS=[['messages',tr('Messages')],['files',tr('Files')],['boards',tr('Boa
 const h=x=>String(x==null?'':x).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const has=(k,v)=>chips.some(c=>c.k===k&&(v==null||c.v===v)),chip=k=>chips.find(c=>c.k===k);
 const who=(u,agent)=>{const me=B()&&B().me;return u===me?(agent?'your agent':'you'):(agent?u+"'s agent":u)};
-const label=c=>c.k==='board'?'This board':c.k==='kind'?KINDS.find(k=>k[0]===c.v)[1]:c.k==='type'?'type: '+c.v:'from '+who(c.v,c.agent);
+const label=c=>c.k==='board'?tr('This board'):c.k==='kind'?KINDS.find(k=>k[0]===c.v)[1]:c.k==='type'?tr('type:')+' '+tr(c.v):tr('from')+' '+who(c.v,c.agent);
 function paintChips(){pChips.innerHTML=chips.map((c,i)=>'<span class="pal-chip">'+h(label(c))+'<button type="button" data-pchip="'+i+'" aria-label="Remove '+h(label(c))+'">✕</button></span>').join('');
-  const o=[];if(B()&&!has('board'))o.push(['board','','This board']);if(!has('kind'))KINDS.forEach(([v,l])=>o.push(['kind',v,l]));
-  if(B()&&!has('from'))o.push(['from','','From…']);if(!has('type'))o.push(['type','','Type…']);
+  const o=[];if(B()&&!has('board'))o.push(['board','',tr('This board')]);if(!has('kind'))KINDS.forEach(([v,l])=>o.push(['kind',v,l]));
+  if(B()&&!has('from'))o.push(['from','',tr('From…')]);if(!has('type'))o.push(['type','',tr('Type…')]);
   pFilt.innerHTML=o.map(x=>'<button type="button" class="pal-opt" data-popt="'+x[0]+'" data-v="'+x[1]+'">'+h(x[2])+'</button>').join('');pFilt.hidden=!o.length}
 function paint(rows){items=rows;sel=Math.min(sel,Math.max(0,rows.length-1));let g='';
   list.innerHTML=rows.map((r,n)=>(r.g!==g?'<li class="pal-g" aria-hidden="true">'+(g=r.g)+'</li>':'')+'<li role="option" data-n="'+n+'" id="po-'+n+'" aria-selected="'+(n===sel)+'"><span class="pal-l">'+r.label+'</span><span class="k">'+h(r.hint||'')+'</span></li>').join('')||'<li class="faint pal-none">'+(q.value.trim()?'No matches':'Type to search')+'</li>';
   q.setAttribute('aria-activedescendant',rows.length?'po-'+sel:'')}
 function pickList(){const t=q.value.trim().replace(/^@/,'').toLowerCase();
-  const rows=mode==='from'?(B()?B().members:[]).flatMap(u=>[{u,agent:false},{u,agent:true}]).filter(x=>x.u.startsWith(t)).map(x=>({g:'From',label:h(who(x.u,x.agent)),pick:{k:'from',v:x.u,agent:x.agent}}))
-    :TYPES.filter(x=>x.startsWith(t)).map(x=>({g:'Type',label:h(x),pick:{k:'type',v:x}}));paint(rows)}
+  const rows=mode==='from'?(B()?B().members:[]).flatMap(u=>[{u,agent:false},{u,agent:true}]).filter(x=>x.u.startsWith(t)).map(x=>({g:tr('From'),label:h(who(x.u,x.agent)),pick:{k:'from',v:x.u,agent:x.agent}}))
+    :TYPES.filter(x=>x.startsWith(t)).map(x=>({g:tr('Type'),label:h(tr(x)),pick:{k:'type',v:x}}));paint(rows)}
 const snip=x=>h(x||'').split('«').join('<mark>').split('»').join('</mark>');
 function render(){const my=++run;if(mode){pickList();return}const t=q.value.trim(),kind=chip('kind')&&chip('kind').v,b=B(),scoped=b&&(has('board')||has('from')||has('type'));
   const rows=[];
   if((!kind||kind==='boards'||kind==='actions')&&!scoped&&!has('from')&&!has('type'))
     PALETTE.filter(i=>!t||i.label.toLowerCase().includes(t.toLowerCase())).filter(i=>!kind||(kind==='boards')===(i.hint==='Board')).slice(0,t?8:6)
-      .forEach(i=>rows.push({g:i.hint==='Board'?'Boards':'Actions',label:h(i.label),hint:i.hint==='Board'?'':i.hint,href:i.href}));
+      .forEach(i=>rows.push({g:i.hint===tr('Board')?tr('Boards'):tr('Actions'),label:h(i.label),hint:i.hint==='Board'?'':i.hint,href:i.href}));
   paint(rows);
   if(kind==='boards'||kind==='actions'||(!t&&!has('from')&&!has('type')))return;
   clearTimeout(timer);timer=setTimeout(async()=>{const more=[];
     try{if(scoped){const p=new URLSearchParams({q:t});const f=chip('from');if(f){p.set('from',f.v);p.set('agent',f.agent?'1':'0')}if(chip('type'))p.set('type',chip('type').v);if(kind==='messages')p.set('in','chat');
         const j=await (await fetch('/api/boards/'+b.id+'/search?'+p)).json();
-        if(kind!=='files')(j.entries||[]).forEach(x=>more.push({g:'Messages',label:(x.title?'<b>'+h(x.title)+'</b> ':'')+snip(x.snippet),hint:who(x.author,x.via==='agent')+' · #'+x.seq,act:()=>b.jump(x.seq)}));
-        if(kind!=='messages')(j.files||[]).forEach(x=>more.push({g:'Files',label:'<span class="mono">'+h(x.name)+'</span> '+snip(x.snippet),hint:'v'+x.version,act:()=>b.openFile(x.name,x.version)}))}
+        if(kind!=='files')(j.entries||[]).forEach(x=>more.push({g:tr('Messages'),label:(x.title?'<b>'+h(x.title)+'</b> ':'')+snip(x.snippet),hint:who(x.author,x.via==='agent')+' · #'+x.seq,act:()=>b.jump(x.seq)}));
+        if(kind!=='messages')(j.files||[]).forEach(x=>more.push({g:tr('Files'),label:'<span class="mono">'+h(x.name)+'</span> '+snip(x.snippet),hint:'v'+x.version,act:()=>b.openFile(x.name,x.version)}))}
       else if(t){const j=await (await fetch('/api/boards/search?q='+encodeURIComponent(t))).json();
         (j.hits||[]).filter(x=>kind==='files'?x.kind==='file':kind==='messages'?x.kind==='entry':true).forEach(x=>{const here=b&&x.board===b.id;
           more.push({g:x.kind==='file'?'Files':'Messages',label:(x.kind==='file'?'<span class="mono">'+h(x.name)+'</span> ':'')+snip(x.snippet),hint:x.title+(x.seq?' · #'+x.seq:''),

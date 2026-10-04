@@ -1492,6 +1492,29 @@ await step("inbox: mentions, posts for your agent and replies reach the person; 
   assert([401, 302, 303].includes((await web(`/api/inbox/count`, null)).status), "sign-in required");
 });
 
+await step("inbox retention: cron deletes read notifications older than 30 days; unread and recent read stay", async () => {
+  const day = 86_400_000;
+  await web(`/api/inbox/read`, B, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ all: true }) });
+  await ok(A, fb, "read");
+  const oldSeq = seqOf(await ok(A, fb, "post", { type: "note", text: `@${B} prune me ${run}` }));
+  const oldItem = (await (await web(`/api/inbox`, B)).json()).items.find((i) => i.seq === oldSeq);
+  await web(`/api/inbox/read`, B, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ids: [oldItem.id] }) });
+  const markedAt = Date.now();
+  await ops("cron", { now: markedAt + 31 * day });
+  await new Promise((r) => setTimeout(r, 400));
+  assert(!(await (await web(`/api/inbox`, B)).json()).items.some((i) => i.seq === oldSeq), "old read pruned");
+  const recentSeq = seqOf(await ok(A, fb, "post", { type: "note", text: `@${B} keep recent ${run}` }));
+  const unreadSeq = seqOf(await ok(A, fb, "post", { type: "note", text: `@${B} keep unread ${run}` }));
+  const recentItem = (await (await web(`/api/inbox`, B)).json()).items.find((i) => i.seq === recentSeq);
+  await web(`/api/inbox/read`, B, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ids: [recentItem.id] }) });
+  await ops("cron", { now: Date.now() });
+  await new Promise((r) => setTimeout(r, 400));
+  const final = (await (await web(`/api/inbox`, B)).json()).items;
+  assert(final.some((i) => i.seq === recentSeq), "recent read kept");
+  assert(final.some((i) => i.seq === unreadSeq), "unread kept");
+  assert((await (await web(`/api/inbox/count`, B)).json()).unread >= 1, "unread count still reflects unread");
+});
+
 await step("tasks: claim leases, conflicts, release, assign, done closes it, stop signal, retracted premise stops it", async () => {
   await ok(A, fb, "read");
   const t1 = seqOf(await ok(A, fb, "post", { type: "task", text: `Write the release notes ${run}` }));
@@ -2397,13 +2420,13 @@ await step("display settings: text size, density and theme per person (defaults,
   const get = async (who) => (await (await api(who, "GET", "/api/me/profile")).json()).profile;
   // Defaults: medium text, comfortable, follow the system.
   const d0 = (await get(P)).display;
-  assert(JSON.stringify(d0) === JSON.stringify({ text: "m", density: "comfortable", theme: "system", mode: "auto", lang: "auto" }), "defaults: " + JSON.stringify(d0));
+  assert(JSON.stringify(d0) === JSON.stringify({ text: "m", density: "comfortable", theme: "system", mode: "auto", lang: "auto", voice: "eve" }), "defaults: " + JSON.stringify(d0));
   // A partial update merges with what's there; other profile fields are untouched.
   await api(P, "POST", "/api/me/profile", { bio: `display ${run}` });
   let r = await (await api(P, "POST", "/api/me/profile", { display: { text: "l" } })).json();
   assert(r.ok && r.profile.display.text === "l" && r.profile.display.density === "comfortable" && r.profile.display.theme === "system", "partial: " + JSON.stringify(r));
   r = await (await api(P, "POST", "/api/me/profile", { display: { density: "compact", theme: "dark" } })).json();
-  assert(JSON.stringify(r.profile.display) === JSON.stringify({ text: "l", density: "compact", theme: "dark", mode: "auto", lang: "auto" }), "merged: " + JSON.stringify(r.profile.display));
+  assert(JSON.stringify(r.profile.display) === JSON.stringify({ text: "l", density: "compact", theme: "dark", mode: "auto", lang: "auto", voice: "eve" }), "merged: " + JSON.stringify(r.profile.display));
   const saved = await get(P);
   assert(saved.display.text === "l" && saved.display.density === "compact" && saved.display.theme === "dark" && saved.bio === `display ${run}`, "persisted: " + JSON.stringify(saved));
   // Other profile saves (no display key) leave it alone.
@@ -2415,7 +2438,7 @@ await step("display settings: text size, density and theme per person (defaults,
     assert(res.status === 400, `bad display ${JSON.stringify(bad)}: ${res.status}`);
   }
   const after = await get(P);
-  assert(JSON.stringify(after.display) === JSON.stringify({ text: "l", density: "compact", theme: "dark", mode: "auto", lang: "auto" }) && after.bio === `display ${run}`, "unchanged after bad: " + JSON.stringify(after));
+  assert(JSON.stringify(after.display) === JSON.stringify({ text: "l", density: "compact", theme: "dark", mode: "auto", lang: "auto", voice: "eve" }) && after.bio === `display ${run}`, "unchanged after bad: " + JSON.stringify(after));
   // Private: someone else sees their own settings (defaults), never P's, and P's person card doesn't carry them.
   const other = await get(B);
   assert(other.name === B && other.display && other.display.theme !== undefined, "B gets B's own profile");
@@ -2470,13 +2493,13 @@ await step("app prefs: /api/app/prefs holds display + favourite reactions for pe
   const prefs = async (h = W) => (await (await as(h, "GET", "/api/app/prefs")).json()).prefs;
   const profile = async () => (await (await as(W, "GET", "/api/me/profile")).json()).profile;
   // Defaults; signed out 401; an agent's token 403 (client prefs aren't part of the network).
-  assert(JSON.stringify(await prefs()) === JSON.stringify({ display: { text: "m", density: "comfortable", theme: "system", mode: "auto", lang: "auto" }, reactions: DEF, recent_reactions: [], developer: false }), "defaults: " + JSON.stringify(await prefs()));
+  assert(JSON.stringify(await prefs()) === JSON.stringify({ display: { text: "m", density: "comfortable", theme: "system", mode: "auto", lang: "auto", voice: "eve" }, reactions: DEF, recent_reactions: [], developer: false }), "defaults: " + JSON.stringify(await prefs()));
   assert((await fetch(`${BASE}/api/app/prefs`)).status === 401, "signed out: 401");
   assert((await as(AG, "GET", "/api/app/prefs")).status === 403 && (await as(AG, "POST", "/api/app/prefs", { display: { theme: "dark" } })).status === 403, "agent token: 403");
   assert((await prefs()).display.theme === "system", "the agent's 403 saved nothing");
   // Web: display merges, reactions replace; the app token sees the same.
   let r = await (await as(W, "POST", "/api/app/prefs", { display: { theme: "dark" }, reactions: ["🚀", "👀"] })).json();
-  assert(r.ok && JSON.stringify(r.prefs) === JSON.stringify({ display: { text: "m", density: "comfortable", theme: "dark", mode: "auto", lang: "auto" }, reactions: ["🚀", "👀"], recent_reactions: [], developer: false }), "set: " + JSON.stringify(r));
+  assert(r.ok && JSON.stringify(r.prefs) === JSON.stringify({ display: { text: "m", density: "comfortable", theme: "dark", mode: "auto", lang: "auto", voice: "eve" }, reactions: ["🚀", "👀"], recent_reactions: [], developer: false }), "set: " + JSON.stringify(r));
   r = await (await as(APP, "POST", "/api/app/prefs", { display: { text: "l" } })).json();
   assert(r.ok && r.prefs.display.theme === "dark" && r.prefs.display.text === "l" && r.prefs.reactions.length === 2, "app token, partial: " + JSON.stringify(r));
   assert(JSON.stringify(await prefs(APP)) === JSON.stringify(await prefs()), "web and app agree");
@@ -2491,7 +2514,7 @@ await step("app prefs: /api/app/prefs holds display + favourite reactions for pe
   let p = await profile();
   assert(JSON.stringify(p.display) === JSON.stringify(kept.display) && JSON.stringify(p.reactions) === JSON.stringify(kept.reactions), "old GET: " + JSON.stringify(p));
   await as(W, "POST", "/api/me/profile", { display: { density: "compact" }, reactions: ["🎯"] });
-  assert(JSON.stringify(await prefs()) === JSON.stringify({ display: { text: "l", density: "compact", theme: "dark", mode: "auto", lang: "auto" }, reactions: ["🎯"], recent_reactions: [], developer: false }), "old POST lands: " + JSON.stringify(await prefs()));
+  assert(JSON.stringify(await prefs()) === JSON.stringify({ display: { text: "l", density: "compact", theme: "dark", mode: "auto", lang: "auto", voice: "eve" }, reactions: ["🎯"], recent_reactions: [], developer: false }), "old POST lands: " + JSON.stringify(await prefs()));
   assert((await (await as(AG, "GET", "/api/me/profile")).json()).profile.reactions[0] === "🎯", "the old path still answers tokens");
   // Clearing returns the default; other profile saves leave prefs alone.
   await as(W, "POST", "/api/me/profile", { bio: `prefs ${run}` });
@@ -4331,6 +4354,13 @@ await step("read aloud (POST /api/app/tts): people only, validated, members only
   assert(typeof st.enabled === "boolean" && st.voice_default === "eve" && st.budget_chars === 150000 && st.used_chars >= 0, JSON.stringify(st));
   const viaApp = await fetch(`${BASE}/api/app/tts/status`, { headers: { authorization: `Bearer ${app}` } });
   assert(viaApp.status === 200, `app token status: ${viaApp.status}`);
+  // A saved voice (display.voice) becomes the default for read-aloud and voice chat (vedu #1717); bad voices 400.
+  const setVoice = (v) => fetch(`${BASE}/api/app/prefs`, { method: "POST", headers: { authorization: `Bearer ${app}`, "content-type": "application/json" }, body: JSON.stringify({ display: { voice: v } }) });
+  assert((await setVoice("leo")).ok, "save voice leo");
+  assert((await (await web("/api/app/tts/status", A)).json()).voice_default === "leo", "read-aloud default follows the saved voice");
+  assert((await (await web("/api/app/voice/status", A)).json()).voice_default === "leo", "voice chat default follows the saved voice");
+  assert((await setVoice("robot")).status === 400, "unknown voice refused");
+  assert((await setVoice("eve")).ok, "back to eve");
   assert((await fetch(`${BASE}/api/app/tts/status`)).status === 401, "signed out: 401");
   const agent = await fetch(`${BASE}/api/app/tts`, { method: "POST", headers: { authorization: `Bearer ${tok[A]}`, "content-type": "application/json" }, body: JSON.stringify({ text: "hi" }) });
   assert(agent.status === 403, `agents are refused: ${agent.status}`);
@@ -4618,6 +4648,8 @@ await step("voice (POST /api/app/voice/session): people only, validated, rate li
     assert(ma.status === 400 && /does not exist/.test(ma.body.error), `memory (agent): ${ma.status} ${JSON.stringify(ma.body)}`);
     const f = await papi(A, "POST", "/api/forward", { from: pb, to: other, seqs: [secret] });
     assert(f.status === 400 && /People-only/.test(f.body.error), `forward: ${f.status} ${JSON.stringify(f.body)}`);
+    const fs = await papi(A, "POST", "/api/forward", { from: pb, to: other, seqs: [secret], selectedText: "Salary" });
+    assert(fs.status === 400 && /People-only/.test(fs.body.error), `forward excerpt: ${fs.status} ${JSON.stringify(fs.body)}`);
     const fo = await papi(OUT, "POST", "/api/forward", { from: pb, to: other, seqs: [secret] });
     assert(fo.status !== 201, `outsider forward: ${fo.status}`);
     hidden(await ok(A, other, "read", { since: 0 }), "the other board");
@@ -4664,6 +4696,8 @@ await step("voice (POST /api/app/voice/session): people only, validated, rate li
     assert(r.status === 400 && /Pick one/.test(r.body.error), `own + people_only: ${r.status} ${JSON.stringify(r.body)}`);
     r = await papi(A, "POST", `/api/boards/${ob}/entries`, { text: `x ${OWN}`, own: true, type: "task" });
     assert(r.status === 400 && /note or a question/.test(r.body.error), `own task: ${r.status} ${JSON.stringify(r.body)}`);
+    // (A's agents' mailbox is full from earlier steps: deliver it, so the lane's mail is checkable below.)
+    for (let i = 0; i < 30; i++) if (!(await papi(A, "GET", "/api/mailbox?limit=100", null, { bearer: true })).body.more) break;
     // A (person) writes in their lane: the entry says so, and the author is told who can see it.
     r = await papi(A, "POST", `/api/boards/${ob}/entries`, { text: `Plan for my agent: ${OWN}`, own: true });
     assert(r.status === 201 && r.body.entry.audience === "own" && JSON.stringify(r.body.entry.to_people) === JSON.stringify([A]), `${r.status} ${JSON.stringify(r.body)}`);
@@ -4755,6 +4789,12 @@ await step("voice (POST /api/app/voice/session): people only, validated, rate li
     const one = await papi(A, "GET", `/api/boards/${ob}/entries/${mine}`);
     assert(one.status === 200 && one.body.entry.audience === "own" && one.body.entry.text.includes(OWN), `A get: ${one.status}`);
     assert(one.body.replies.some((x) => x.seq === auto && x.audience === "own"), "A sees the agent's reply in the lane");
+    // It's mail like "Your agent" (opus-d #1800): A's post is in A's agents' mailbox; A's agent's posts reach A's inbox.
+    const mail = JSON.stringify((await papi(A, "GET", "/api/mailbox?peek=1&limit=100", null, { bearer: true })).body);
+    assert(mail.includes(`Plan for my agent: ${OWN}`), `A's agents' mailbox misses the just-mine post: ${mail.slice(0, 600)}`);
+    assert(!mail.includes(`Private question: ${OWN}`), "A's agent's own post came back to its own mailbox");
+    const inbox = JSON.stringify((await papi(A, "GET", "/api/inbox")).body);
+    assert(inbox.includes(`Private question: ${OWN}`), `A's inbox misses A's agent's just-mine post: ${inbox.slice(0, 600)}`);
     for (const bearer of [false, true]) {
       const after = (await papi(A, "GET", `/api/boards/${ob}/entries?after=0`, null, { bearer })).body;
       for (const s of [mine, auto, agentOwn]) assert(after.entries.some((x) => x.seq === s && x.audience === "own" && x.to_people[0] === A), `A ${bearer ? "token" : "person"} entries?after has #${s}`);
@@ -4775,6 +4815,8 @@ await step("voice (POST /api/app/voice/session): people only, validated, rate li
     assert(m.status === 400 && /just-mine/.test(m.body.error), `memory: ${m.status} ${JSON.stringify(m.body)}`);
     const f = await papi(A, "POST", "/api/forward", { from: ob, to: other, seqs: [mine] });
     assert(f.status === 400 && /just-mine/.test(f.body.error), `forward: ${f.status} ${JSON.stringify(f.body)}`);
+    const fs = await papi(A, "POST", "/api/forward", { from: ob, to: other, seqs: [mine], selectedText: "Plan" });
+    assert(fs.status === 400 && /just-mine/.test(fs.body.error), `forward excerpt: ${fs.status} ${JSON.stringify(fs.body)}`);
     // Files are the whole board's: one in the lane's thread is refused before it's stored (nobody gets the file).
     const fname = `lane-${run}.txt`;
     for (const multi of [false, true]) {

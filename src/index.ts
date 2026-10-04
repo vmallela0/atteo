@@ -72,6 +72,7 @@ import { atteoHeader, BOARD_RE, connectCommand, esc, newBoardId, legacyHostRedir
 import * as Sentry from "@sentry/cloudflare";
 import { scrubForSentry } from "./sentry";
 export { Board } from "./board";
+import { forwardDestOk } from "./audience";
 import { audienceNotice, MAX_FILES_PER_MESSAGE, MAX_IMAGE, MAX_MESSAGE_BYTES, MAX_WAIT_MS } from "./board";
 import * as sessions from "./sessions";
 import { formatEntry, formatMemory, handleMessage, readHeader, readParts, withNames } from "./state";
@@ -515,6 +516,7 @@ async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): 
   if (shed.level < 1) {
     ctx.waitUntil(env.DB.prepare(registry.TAPE_PRUNE_SQL).bind(Date.now() - 7 * 86_400_000).run().catch(() => {}));
     ctx.waitUntil(appSignin.sweep(env).catch(() => {}));
+    ctx.waitUntil(inbox.pruneRead(env, now).catch(() => {}));
   }
   for (const m of await registry.expiredMembers(env)) {
     ctx.waitUntil(
@@ -1689,10 +1691,30 @@ const handler = {
         if (!src || !dst) return json({ error: "board not found" }, 404);
         if ((src as { encrypted?: number }).encrypted || (dst as { encrypted?: number }).encrypted) return json({ error: "End-to-end encrypted boards can't forward: the server can't read them." }, 400);
         const got = await Promise.all(seqs.map((n) => boardStub(env, from).get(n, seer()).catch(() => null)));
-        // People-only messages stay where they were said, with the people they were said to.
-        if (got.some((g) => g?.entry.audience)) return json({ error: "People-only and just-mine messages can't be forwarded: they stay with the people they were sent to." }, 400);
         const picked = got.filter((g): g is NonNullable<typeof g> => !!g && !g.replies.some((r) => r.retracts === g.entry.seq)).map((g) => g.entry);
         if (!picked.length) return json({ error: "Those messages aren't there anymore." }, 404);
+        const destMembers = (await registry.boardMembers(env, to)).map((m) => m.user);
+        let forwardPeople: string[] | undefined;
+        for (const e of picked) {
+          const fd = forwardDestOk(e, destMembers);
+          if (!fd.ok) {
+            return json(
+              {
+                error:
+                  fd.reason === "just-mine"
+                    ? "Just-mine messages can't be forwarded: they stay with you and your own agents."
+                    : "People-only messages can only be forwarded to a board whose members are exactly the people who could see the original.",
+              },
+              400,
+            );
+          }
+          if (fd.people) {
+            const key = fd.people.slice().sort().join("\0");
+            const cur = forwardPeople?.slice().sort().join("\0");
+            if (forwardPeople && key !== cur) return json({ error: "Those people-only messages aren't for the same people." }, 400);
+            forwardPeople = fd.people;
+          }
+        }
         const who = (e: Entry) => (e.via === "agent" ? `${e.author}'s agent` : e.author);
         const quote = (e: Entry) =>
           [`> **${who(e)}** · #${e.seq}`, ...(e.artifact_name ? [`> 📎 ${(e.attachments ?? []).map((a) => a.name).join(", ") || e.artifact_name}`] : []), ...e.text.slice(0, 2000).split("\n").slice(0, 40).map((l) => `> ${l}`)].join("\n");
@@ -1704,7 +1726,14 @@ const handler = {
         if (hit) return json({ error: blockedMessage(hit) }, 400);
         // Only the note can mention anyone: quoted @names don't ping people on the new board.
         const { mentions } = note && mayMention(note) ? parseMentions(note, await registry.boardMembers(env, to), viewer.name, "person") : { mentions: [] as Mention[] };
-        const entry = await boardStub(env, to).post(viewer.name, { type: "note", title: `Forwarded from ${src.title}`.slice(0, 60), text, mentions, via: "person" });
+        const entry = await boardStub(env, to).post(viewer.name, {
+          type: "note",
+          title: `Forwarded from ${src.title}`.slice(0, 60),
+          text,
+          mentions,
+          via: "person",
+          ...(forwardPeople ? { people_only: true, to_people: forwardPeople } : {}),
+        });
         ctx.waitUntil(registry.bumpBoard(env, to, entry.seq).catch(() => {}));
         return json({ ok: true, board: { id: to, title: dst.title }, seq: entry.seq, forwarded: picked.length }, 201);
       }
@@ -1954,7 +1983,7 @@ const handler = {
             ctx.waitUntil(Promise.all([registry.touch(env, viewer.name, id), registry.bumpBoard(env, id, entry.seq)]).catch(() => {}));
             // Like a text post, the rendered entry comes back so the page can swap its "sending" copy for it.
             const root = replyTo ? ((await stub.rootsFor([entry.seq]))[entry.seq] ?? entry.seq) : entry.seq;
-            return json({ ok: true, entry, update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(withAgentNames(entry, agentNames(fileMembers)), id, true, { canRetract: true, lang: viewer?.lang }), row: logRow(entry), reactions: [] } }, 201);
+            return json({ ok: true, entry, update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(withAgentNames(entry, agentNames(fileMembers)), id, true, { canRetract: true, lang: viewer?.lang }), row: logRow(entry, undefined, undefined, viewer?.lang), reactions: [] } }, 201);
           } catch (e) {
             return json({ error: e instanceof Error ? e.message : String(e) }, 400);
           }
@@ -2468,7 +2497,7 @@ const handler = {
               root: roots[e.seq] ?? e.seq,
               retracts: e.retracts,
               html: entryHtml(withAgentNames(e, names), id, true, { canRetract: canRetract(e), lang: viewer?.lang }),
-              row: logRow(e),
+              row: logRow(e, undefined, undefined, viewer?.lang),
               reactions: snap.reactions[e.seq] ?? [],
               ...(e.type === "change" ? { reviews: snap.reviews[e.seq] ?? [] } : {}),
               ...(snap.claims[e.seq] ? { claim: snap.claims[e.seq] } : {}),
@@ -2518,7 +2547,7 @@ const handler = {
               seq: e.seq,
               root: roots[e.seq] ?? e.seq,
               html: entryHtml(withAgentNames(e, names), id, true, { canRetract: !!viewer && (e.author === viewer.name || isOwner), lang: viewer?.lang }),
-              row: logRow(e),
+              row: logRow(e, undefined, undefined, viewer?.lang),
               reactions: reactions[e.seq] ?? [],
               ...(e.human_decision ? { human_decision: e.human_decision } : {}),
             })),
@@ -2589,7 +2618,7 @@ const handler = {
             // A people-only message (asked for, or a reply in one) says once, here, who can see it.
             const said = audienceNotice(entry, viewer.name);
             const notice = said ? { notice: said } : {};
-            return json({ ok: true, entry, ...notice, update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(withAgentNames(entry, agentNames(boardMembers)), id, true, { canRetract: true, lang: viewer?.lang }), row: logRow(entry), reactions: [] }, ...(ambiguous.length ? { ambiguous } : {}) }, 201);
+            return json({ ok: true, entry, ...notice, update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(withAgentNames(entry, agentNames(boardMembers)), id, true, { canRetract: true, lang: viewer?.lang }), row: logRow(entry, undefined, undefined, viewer?.lang), reactions: [] }, ...(ambiguous.length ? { ambiguous } : {}) }, 201);
           } catch (e) {
             // Still restarting after our retries: say "try again" (the page retries with the same message id).
             if (isRetriable(e)) {

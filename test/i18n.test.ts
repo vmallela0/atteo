@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { fromAcceptLanguage, matchLang, pickLang, tr } from "../src/i18n";
+import { LANG_NAMES, fromAcceptLanguage, matchLang, pickLang, tr } from "../src/i18n";
 import { ZH_CN } from "../src/i18n.zh";
 import { ZH_HANT } from "../src/i18n.zh-hant";
+import { ES } from "../src/i18n.es";
+import { FR } from "../src/i18n.fr";
+import { JA } from "../src/i18n.ja";
+import { KO } from "../src/i18n.ko";
+import { HI } from "../src/i18n.hi";
 import { boardPage, homePage } from "../src/html";
 import type { BoardInfo, Entry } from "../src/types";
 
@@ -12,14 +17,14 @@ describe("languages (#1646)", () => {
     expect(pickLang("en", null, "zh-CN")).toBe("en");
     expect(pickLang("zh-Hans", null, "en-US")).toBe("zh-Hans");
     expect(pickLang("en", "zh", "en-US")).toBe("zh-Hans");
-    expect(pickLang("auto", "fr", "de-DE,fr;q=0.5")).toBe("en");
-    expect(fromAcceptLanguage("fr-FR, zh-Hans-CN;q=0.7, en;q=0.5")).toBe("zh-Hans");
+    expect(pickLang("auto", "de", "de-DE,it;q=0.5")).toBe("en");
+    expect(fromAcceptLanguage("de-DE, zh-Hans-CN;q=0.7, en;q=0.5")).toBe("zh-Hans");
     expect(fromAcceptLanguage("en;q=0.9, zh;q=0.95")).toBe("zh-Hans");
     expect(matchLang("zh-TW")).toBe("zh-Hant");
     expect(matchLang("zh-Hant-HK")).toBe("zh-Hant");
     expect(pickLang("zh-Hant", null, "zh-CN")).toBe("zh-Hant");
-    expect(pickLang("ja", null, "zh-TW")).toBe("zh-Hant"); // a language only the app has yet: the browser's next
-    expect(matchLang("fr")).toBe(null);
+    expect(pickLang("ja", null, "zh-TW")).toBe("ja");
+    expect(matchLang("de")).toBe(null);
   });
 
   it("translates by the English string, fills {placeholders}, and falls back to the English", () => {
@@ -46,6 +51,7 @@ describe("languages (#1646)", () => {
     const res = boardPage(viewer, [], info, [{ user: "jxn", display_name: null, last_seen: 0 }, { user: "vedu", display_name: null, last_seen: 0 }], entries, []);
     const html = await res.text();
     expect(res.headers.get("content-language")).toBe("zh-Hans");
+    expect(res.headers.get("vary")).toContain("Accept-Language"); // caches keep each language apart
     expect(html).toContain('<html lang="zh-Hans">');
     expect(html).toContain("window.I18N={");
     for (const zh of ["对话", "发送", "看板信息", "回复", "问题"]) expect(html).toContain(zh);
@@ -85,5 +91,66 @@ describe("languages step 2 (#1701): For you, Inbox, Approvals, People, welcome",
     expect(await compiles(approvalsPage(zh, [], [], {}))).toContain("审批");
     expect(await compiles(peoplePage(zh, [], { friends: [], incoming: [], outgoing: [], blocked: [] } as never))).toContain("联系人");
     expect(await compiles(assistantWelcomePage(zh, [], "https://atteo.example", []))).toContain("带上你的助手");
+  });
+});
+
+describe("languages step 4 (#1786, #1842): Español, Français, 日本語, 한국어, हिन्दी", () => {
+  const tables = { es: ES, fr: FR, ja: JA, ko: KO, hi: HI };
+  it("are matched from the browser and the saved pref, and the picker names each in its own words", () => {
+    expect(matchLang("es-MX")).toBe("es");
+    expect(matchLang("es")).toBe("es");
+    expect(matchLang("ja-JP")).toBe("ja");
+    expect(matchLang("ko-KR")).toBe("ko");
+    expect(matchLang("hi-IN")).toBe("hi");
+    expect(matchLang("fr-CA")).toBe("fr");
+    expect(pickLang("fr", null, "en-US")).toBe("fr");
+    expect(matchLang("eu")).toBe(null); // Basque is not Spanish
+    expect(fromAcceptLanguage("de-DE, ko;q=0.8, en;q=0.5")).toBe("ko");
+    expect(pickLang("hi", null, "en-US")).toBe("hi");
+    expect(pickLang("auto", null, "es-419,es;q=0.9")).toBe("es");
+    expect(LANG_NAMES).toMatchObject({ es: "Español", fr: "Français", ja: "日本語", ko: "한국어", hi: "हिन्दी" });
+  });
+  it("cover the same strings as 简体中文, keep every {placeholder} and <b>, and are never empty", () => {
+    const keys = Object.keys(ZH_CN).sort();
+    for (const [lang, t] of Object.entries(tables)) {
+      expect(Object.keys(t).sort(), lang).toEqual(keys);
+      for (const [k, v] of Object.entries(t)) {
+        expect((v.match(/\{\w+\}/g) ?? []).sort(), `${lang}: ${k}`).toEqual((k.match(/\{\w+\}/g) ?? []).sort());
+        expect((v.match(/<\/?b>/g) ?? []).length, `${lang}: ${k}`).toBe((k.match(/<\/?b>/g) ?? []).length);
+        expect(v.trim(), `${lang}: ${k}`).not.toBe("");
+      }
+    }
+    expect(tr("es", "{n}m ago", { n: 5 })).toMatch(/5/);
+    expect(tr("ja", "Boards")).not.toBe("Boards");
+  });
+  it("the board page and home render in each, with scripts that compile", async () => {
+    const info: BoardInfo = { id: "b_test1234", title: "pagos", created_by: "jxn", created_at: 0, entry_count: 1, last_seq: 1 };
+    const entries: Entry[] = [{ seq: 1, ts: 1, author: "vedu", type: "question", text: "Can you check?", to: null, reply_to: null, resolves: [], supersedes: null, retracts: null, artifact_name: null, artifact_size: null, via: "agent" }];
+    for (const lang of ["es", "fr", "ja", "ko", "hi"] as const) {
+      const viewer = { name: "jxn", email: "jxn@example.com", display_name: null, admin: false, lang };
+      const res = boardPage(viewer, [], info, [{ user: "jxn", display_name: null, last_seen: 0 }, { user: "vedu", display_name: null, last_seen: 0 }], entries, []);
+      const html = await res.text();
+      expect(res.headers.get("content-language")).toBe(lang);
+      expect(html).toContain(`<html lang="${lang}">`);
+      expect(html).toContain(tables[lang]["Send"]);
+      expect(html).toContain("Can you check?");
+      for (const s of [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1])) expect(() => new Function(s)).not.toThrow();
+      const home = await homePage(viewer, [], []).text();
+      expect(home).toContain(tables[lang]["New board"]);
+    }
+  });
+});
+
+describe("Just mine on the web (#1825)", () => {
+  it("the composer offers People only or Just mine, posts own, and the 🔒 badge speaks the page's language", async () => {
+    const info: BoardInfo = { id: "b_test1234", title: "lane", created_by: "jxn", created_at: 0, entry_count: 1, last_seq: 1 };
+    const e = { seq: 1, ts: 1, author: "jxn", type: "note", text: "for my agent", to: null, reply_to: null, resolves: [], supersedes: null, retracts: null, artifact_name: null, artifact_size: null, via: "person", audience: "own", to_people: ["jxn"] } as Entry;
+    const members = [{ user: "jxn", display_name: null, last_seen: 0 }, { user: "vedu", display_name: null, last_seen: 0 }];
+    for (const [lang, word, mine] of [["en", "just mine", "Just mine"], ["zh-Hans", "仅自己", "仅自己"], ["ja", "自分だけ", "自分だけ"]] as const) {
+      const html = await boardPage({ name: "jxn", email: "jxn@example.com", display_name: null, admin: false, lang }, [], info, members, [e], []).text();
+      expect(html).toContain('name="own" id="own-in"');
+      expect(html).toContain(`data-po="own" aria-checked="false">${mine}</button>`);
+      expect(html).toContain(`data-own="1">🔒 ${word}</span>`);
+    }
   });
 });

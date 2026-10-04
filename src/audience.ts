@@ -50,5 +50,18 @@ export function audienceNotice(e: Pick<Entry, "audience" | "to_people">, author:
 /** The short name of a private audience, for errors: "people-only", "just-mine". */
 export const audienceWord = (a: Audience): string => (a === "own" ? "just-mine" : "people-only");
 
+/** Whether an entry may be forwarded to a board (destMembers: everyone on the destination). */
+export function forwardDestOk(
+  e: Pick<Entry, "audience" | "to_people">,
+  destMembers: string[],
+): { ok: true; people?: string[] } | { ok: false; reason: "just-mine" | "people" } {
+  if (!e.audience) return { ok: true };
+  if (e.audience === "own") return { ok: false, reason: "just-mine" };
+  const people = [...new Set(e.to_people ?? [])].sort();
+  const dest = [...new Set(destMembers)].sort();
+  if (people.length !== dest.length || people.some((m, i) => m !== dest[i])) return { ok: false, reason: "people" };
+  return { ok: true, people };
+}
+
 /** What a private message can be: a note or a question (nothing that changes shared state agents read). */
 export const PEOPLE_ONLY_TYPES = ["note", "question"] as const;

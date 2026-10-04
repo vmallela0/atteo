@@ -313,15 +313,17 @@ export interface Display {
   density: "comfortable" | "compact";
   theme: "system" | "light" | "dark";
   mode: "auto" | "everyday" | "developer"; // Everyday (#1272) or Developer; auto = Developer once you've connected a coding agent
-  lang: "auto" | "en" | "zh-Hans" | "zh-Hant" | "es" | "ja" | "ko" | "hi"; // interface language (vedu #1645, #1650); auto = the device's
+  lang: "auto" | "en" | "zh-Hans" | "zh-Hant" | "es" | "ja" | "ko" | "hi" | "fr"; // interface language (vedu #1645, #1650); auto = the device's
+  voice: "eve" | "ara" | "leo" | "rex" | "sal"; // read-aloud and voice chat (vedu #1717); xAI's voices
 }
-export const DISPLAY_DEFAULTS: Display = { text: "m", density: "comfortable", theme: "system", mode: "auto", lang: "auto" };
+export const DISPLAY_DEFAULTS: Display = { text: "m", density: "comfortable", theme: "system", mode: "auto", lang: "auto", voice: "eve" };
 const DISPLAY_VALUES: Record<keyof Display, readonly string[]> = {
   text: ["s", "m", "l"],
   density: ["comfortable", "compact"],
   theme: ["system", "light", "dark"],
   mode: ["auto", "everyday", "developer"],
-  lang: ["auto", "en", "zh-Hans", "zh-Hant", "es", "ja", "ko", "hi"],
+  lang: ["auto", "en", "zh-Hans", "zh-Hant", "es", "ja", "ko", "hi", "fr"],
+  voice: ["eve", "ara", "leo", "rex", "sal"],
 };
 const isDisplayKey = (k: string): k is keyof Display => Object.prototype.hasOwnProperty.call(DISPLAY_VALUES, k);
 
@@ -342,7 +344,7 @@ export function mergeDisplay(cur: Display, patch: unknown): Display {
   if (!patch || typeof patch !== "object" || Array.isArray(patch)) throw new SocialError('display must be an object, e.g. {"text":"l"}.');
   const out: Record<string, string> = { ...cur };
   for (const [k, v] of Object.entries(patch as Record<string, unknown>)) {
-    if (!isDisplayKey(k)) throw new SocialError(`Unknown display setting "${k}": use text, density, theme, mode or lang.`);
+    if (!isDisplayKey(k)) throw new SocialError(`Unknown display setting "${k}": use text, density, theme, mode, lang or voice.`);
     if (typeof v !== "string" || !DISPLAY_VALUES[k].includes(v)) throw new SocialError(`display.${k} must be one of: ${DISPLAY_VALUES[k].join(", ")}.`);
     out[k] = v;
   }
@@ -423,6 +425,12 @@ export interface AppPrefs {
   display: Display;
   reactions: string[];
   recent_reactions: string[]; // read-only: counted as the person reacts
+}
+
+/** The person's saved read-aloud / voice chat voice (display.voice), one primary-key read. */
+export async function savedVoice(env: Env, user: string): Promise<Display["voice"]> {
+  const r = await env.DB.prepare(`SELECT display FROM users WHERE name = ?`).bind(user).first<{ display: string | null }>().catch(() => null);
+  return readDisplay(r?.display ?? null).voice;
 }
 
 export async function appPrefs(env: Env, user: string): Promise<AppPrefs | null> {

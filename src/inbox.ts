@@ -72,6 +72,17 @@ export async function inboxCount(env: Env, user: string, person = false): Promis
   return { unread: c?.n ?? 0, latest: latest ? withPush(latest) : null, approvals: ap?.n ?? 0 };
 }
 
+const READ_RETENTION_DAYS = 30;
+
+/** Cron sweep: delete read notifications older than 30 days (shared with test/queryPlans.test.ts). */
+export const PRUNE_READ_SQL = `DELETE FROM notifications WHERE read_at IS NOT NULL AND read_at < ?`;
+
+/** Deletes read inbox rows past the retention window; unread and recent read rows stay. */
+export async function pruneRead(env: Env, now = Date.now(), days = READ_RETENTION_DAYS): Promise<number> {
+  const r = await env.DB.prepare(PRUNE_READ_SQL).bind(now - days * 86_400_000).run();
+  return r.meta.changes ?? 0;
+}
+
 /** Mark read: everything, one board's items (opening a board), or specific ids. */
 export async function markRead(env: Env, user: string, what: { all?: boolean; board?: string; ids?: number[] }, person = true): Promise<number> {
   const now = Date.now();

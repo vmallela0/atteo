@@ -16,6 +16,7 @@
 // (max_seconds) up front and POST /api/app/voice/session/end {session_id, seconds} settles it down to what was used.
 // A session the app never ends keeps its full cap. Without XAI_API_KEY the routes answer 503 {fallback: "device"}.
 
+import { savedVoice } from "./social";
 import { isOperator } from "./tts";
 import type { Env } from "./types";
 import * as registry from "./registry";
@@ -100,7 +101,8 @@ export function instructionsFor(person: string, board: { id: string; title: stri
     `Your name is Atteo: never call yourself Grok or any other model name. ` +
     `Speak naturally and keep every reply to one or two short sentences. Use your tools to act and to look things up, then say what matters in plain words; ` +
     `never read out raw logs, code, IDs or links. Before approving or denying anything, or doing anything destructive, say exactly what will happen and wait for a clear yes. ` +
-    `If you're unsure what they mean, ask one short question.`;
+    `If you're unsure what they mean, ask one short question. ` +
+    `When they say "at agents", "at humans", "at all" or "at <name>" in something to post, write it as @agents, @humans, @all or @<name>.`;
   if (board) s += ` They have the board "${oneLine(board.title, 80)}" (${board.id}) open: use it when they don't name another.`;
   return s;
 }
@@ -238,6 +240,8 @@ export interface VoiceDeps {
   db: D1Database;
   provider: VoiceProvider | null;
   budgetMinutes: number;
+  /** The person's saved voice (display.voice), used when a session names none (vedu #1717). */
+  defaultVoice?: Voice;
   /** Everyone's minutes per month; Infinity for operators (vedu #1584). */
   globalMinutes?: number;
   sessionMinutes: number;
@@ -252,7 +256,7 @@ const err = (error: string, status: number, extra: Record<string, unknown> = {},
 /** POST /api/app/voice/session {board?, voice?, hands_free?} → what the app opens the socket with. */
 export async function createSession(user: { name: string; display_name?: string | null }, raw: unknown, deps: VoiceDeps): Promise<Response> {
   const body = (raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {}) as { board?: unknown; voice?: unknown; hands_free?: unknown };
-  const voice = (body.voice == null || body.voice === "" ? DEFAULT_VOICE : String(body.voice).toLowerCase()) as Voice;
+  const voice = (body.voice == null || body.voice === "" ? (deps.defaultVoice ?? DEFAULT_VOICE) : String(body.voice).toLowerCase()) as Voice;
   if (!VOICES.includes(voice)) return err(`Unknown voice. Pick one of: ${VOICES.join(", ")}.`, 400);
   if (body.hands_free != null && typeof body.hands_free !== "boolean") return err("hands_free must be true or false.", 400);
   let board: { id: string; title: string } | null = null;
@@ -313,12 +317,12 @@ export async function finishSession(user: string, raw: unknown, deps: Pick<Voice
 }
 
 /** GET /api/app/voice/status: whether to show talk mode, and this month's minutes. */
-export async function status(user: string, deps: Pick<VoiceDeps, "db" | "provider" | "budgetMinutes" | "now">) {
+export async function status(user: string, deps: Pick<VoiceDeps, "db" | "provider" | "budgetMinutes" | "now" | "defaultVoice">) {
   return {
     enabled: !!deps.provider,
     minutes_used: minutes(await usedSeconds(deps.db, user, (deps.now ?? Date.now)())),
     minutes_budget: deps.budgetMinutes,
-    voice_default: DEFAULT_VOICE,
+    voice_default: deps.defaultVoice ?? DEFAULT_VOICE,
     voices: [...VOICES],
   };
 }
@@ -335,6 +339,7 @@ export async function route(request: Request, env: Env, path: string, viewer: { 
   if (viewer.via === "agent") return err("Voice is for people, in the web or the app.", 403);
   const me = viewer.name;
   const deps: VoiceDeps = {
+    defaultVoice: await savedVoice(env, me),
     db: env.DB,
     provider: providerFor(env, request),
     budgetMinutes: isOperator(env, me) ? 100_000 : budgetMinutesFor(env),

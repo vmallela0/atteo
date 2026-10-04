@@ -2,7 +2,7 @@
 // through canSee / audienceOk, so these cover each viewer kind against each audience, in JS and in SQL.
 
 import { describe, expect, it } from "vitest";
-import { audienceNotice, audienceOk, canSee, OWN_NOTICE, peopleNotice } from "../src/audience";
+import { audienceNotice, audienceOk, canSee, forwardDestOk, OWN_NOTICE, peopleNotice } from "../src/audience";
 import type { Entry, Viewer } from "../src/types";
 
 const { DatabaseSync } = (await import("node:" + "sqlite")) as { DatabaseSync: new (p: string) => any };
@@ -64,6 +64,16 @@ describe("audienceOk (the same rule in SQL)", () => {
   });
   it("works with a table alias", () => {
     expect(seen(agent("vedu"), "e.")).toEqual([1, 2]);
+  });
+});
+
+describe("forwardDestOk", () => {
+  it("allows everyone's messages anywhere; refuses just-mine; people-only only when the destination is exactly its people", () => {
+    expect(forwardDestOk(everyone, ["vedu", "jxn", "sam"])).toEqual({ ok: true });
+    expect(forwardDestOk(own, ["vedu"])).toEqual({ ok: false, reason: "just-mine" });
+    expect(forwardDestOk(people, ["vedu", "jxn"])).toEqual({ ok: true, people: ["jxn", "vedu"] });
+    expect(forwardDestOk(people, ["vedu"])).toEqual({ ok: false, reason: "people" });
+    expect(forwardDestOk(people, ["vedu", "jxn", "sam"])).toEqual({ ok: false, reason: "people" });
   });
 });
 

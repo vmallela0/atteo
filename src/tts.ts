@@ -3,6 +3,7 @@
 // budget (D1 tts_usage), a per-person rate limit (D1 rate_limits) and a 7-day cache by hash(voice+text), so a replay
 // costs nothing. Without a provider key the route answers 503 and clients use the device's own voice.
 
+import { savedVoice } from "./social";
 import type { Env } from "./types";
 import * as registry from "./registry";
 
@@ -199,6 +200,8 @@ export interface TtsDeps {
   provider: TtsProvider | null;
   cache: Pick<Cache, "match" | "put"> | null; // caches.default in the Worker; null skips caching
   budget: number;
+  /** The person's saved voice (display.voice), used when a request names none (vedu #1717). */
+  defaultVoice?: Voice;
   /** Everyone's characters per month; Infinity for operators, who skip both caps (vedu #1584). */
   globalBudget?: number;
   perMinute: number;
@@ -213,7 +216,7 @@ const err = (error: string, status: number, extra: Record<string, unknown> = {},
 /** POST /api/app/tts {text, voice?} or {board, seq, voice?} → audio/mpeg. */
 export async function speak(user: string, raw: unknown, deps: TtsDeps): Promise<Response> {
   const body = (raw && typeof raw === "object" ? raw : {}) as { text?: unknown; voice?: unknown; board?: unknown; seq?: unknown };
-  const voice = (body.voice == null || body.voice === "" ? DEFAULT_VOICE : String(body.voice).toLowerCase()) as Voice;
+  const voice = (body.voice == null || body.voice === "" ? (deps.defaultVoice ?? DEFAULT_VOICE) : String(body.voice).toLowerCase()) as Voice;
   if (!VOICES.includes(voice)) return err(`Unknown voice. Pick one of: ${VOICES.join(", ")}.`, 400);
   const hasText = body.text != null && body.text !== "";
   const hasRef = body.board != null || body.seq != null;
@@ -265,10 +268,10 @@ export async function speak(user: string, raw: unknown, deps: TtsDeps): Promise<
 }
 
 /** GET /api/app/tts/status: whether to show read-aloud, and how much of the month's allowance is left. */
-export async function status(user: string, deps: Pick<TtsDeps, "db" | "provider" | "budget" | "now">) {
+export async function status(user: string, deps: Pick<TtsDeps, "db" | "provider" | "budget" | "now" | "defaultVoice">) {
   return {
     enabled: !!deps.provider,
-    voice_default: DEFAULT_VOICE,
+    voice_default: deps.defaultVoice ?? DEFAULT_VOICE,
     voices: [...VOICES],
     used_chars: await usedChars(deps.db, user, (deps.now ?? Date.now)()),
     budget_chars: deps.budget,
@@ -286,6 +289,7 @@ export async function route(request: Request, env: Env, ctx: ExecutionContext, p
   if (viewer.via === "agent") return err("Read aloud is for people, in the web or the app.", 403);
   const me = viewer.name;
   const deps: TtsDeps = {
+    defaultVoice: await savedVoice(env, me),
     db: env.DB,
     provider: providerFor(env),
     cache: typeof caches !== "undefined" ? caches.default : null,

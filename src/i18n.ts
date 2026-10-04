@@ -7,13 +7,27 @@
 
 import { ZH_CN } from "./i18n.zh";
 import { ZH_HANT } from "./i18n.zh-hant";
+import { ES } from "./i18n.es";
+import { FR } from "./i18n.fr";
+import { JA } from "./i18n.ja";
+import { KO } from "./i18n.ko";
+import { HI } from "./i18n.hi";
 
-export type Lang = "en" | "zh-Hans" | "zh-Hant";
-export const LANGS: readonly Lang[] = ["en", "zh-Hans", "zh-Hant"];
+export type Lang = "en" | "zh-Hans" | "zh-Hant" | "es" | "fr" | "ja" | "ko" | "hi";
+export const LANGS: readonly Lang[] = ["en", "zh-Hans", "zh-Hant", "es", "fr", "ja", "ko", "hi"];
 /** Each language in its own words, for the picker. */
-export const LANG_NAMES: Record<Lang, string> = { en: "English", "zh-Hans": "简体中文", "zh-Hant": "繁體中文" };
+export const LANG_NAMES: Record<Lang, string> = {
+  en: "English",
+  "zh-Hans": "简体中文",
+  "zh-Hant": "繁體中文",
+  es: "Español",
+  fr: "Français",
+  ja: "日本語",
+  ko: "한국어",
+  hi: "हिन्दी",
+};
 
-const TABLES: Record<Lang, Record<string, string>> = { en: {}, "zh-Hans": ZH_CN, "zh-Hant": ZH_HANT };
+const TABLES: Record<Lang, Record<string, string>> = { en: {}, "zh-Hans": ZH_CN, "zh-Hant": ZH_HANT, es: ES, fr: FR, ja: JA, ko: KO, hi: HI };
 
 /** `s` in `lang`, with {name} placeholders filled from `vars`. */
 export function tr(lang: Lang | null | undefined, s: string, vars?: Record<string, string | number>): string {
@@ -29,6 +43,7 @@ export function matchLang(tag: string | null | undefined): Lang | null {
   if (t.startsWith("zh-hant") || t.startsWith("zh-tw") || t.startsWith("zh-hk") || t.startsWith("zh-mo")) return "zh-Hant";
   if (t === "zh" || t.startsWith("zh-cn") || t.startsWith("zh-hans") || t.startsWith("zh-sg")) return "zh-Hans";
   if (t === "en" || t.startsWith("en-")) return "en";
+  for (const l of ["es", "fr", "ja", "ko", "hi"] as const) if (t === l || t.startsWith(`${l}-`)) return l;
   return null;
 }
 
@@ -58,4 +73,24 @@ export function pickLang(pref: string | null | undefined, query: string | null |
 /** The table a page script needs (inline it as window.I18N), JSON-safe inside <script>. Empty for English. */
 export function clientTable(lang: Lang | null | undefined): string {
   return JSON.stringify(lang ? TABLES[lang] : {}).replace(/</g, "\\u003c").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
+}
+
+const unescapeHtml = (s: string) => s.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+/** Fixed markup written in the code (dialogs and buttons shared by every page): its text nodes and its title, aria-label
+ *  and placeholder attributes translated where the whole string is in the table. Never for anything people wrote. */
+export function localize(lang: Lang | null | undefined, html: string): string {
+  const t = lang ? TABLES[lang] : undefined;
+  if (!t || !Object.keys(t).length) return html;
+  return html
+    .replace(/>([^<>]*[A-Za-z][^<>]*)</g, (m, x: string) => {
+      const k = x.trim();
+      const v = t[unescapeHtml(k)];
+      return v ? `>${x.replace(k, escapeHtml(v))}<` : m;
+    })
+    .replace(/\b(title|aria-label|placeholder)="([^"]*)"/g, (m, n: string, x: string) => {
+      const v = t[unescapeHtml(x)];
+      return v ? `${n}="${escapeHtml(v)}"` : m;
+    });
 }
