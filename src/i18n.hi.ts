@@ -546,6 +546,8 @@ export const HI: Record<string, string> = {
   "Renamed": "नाम बदला",
   "Reopen": "फिर से खोलें",
   "Replies": "जवाब",
+  "In the chat": "चैट में",
+  "Only in their threads": "सिर्फ़ अपने थ्रेड में",
   "Reply": "जवाब दें",
   "Reply to": "इसका जवाब",
   "Reply to ": "जवाब: ",

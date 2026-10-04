@@ -546,6 +546,8 @@ export const JA: Record<string, string> = {
   "Renamed": "名前を変更しました",
   "Reopen": "再開",
   "Replies": "返信",
+  "In the chat": "チャットに表示",
+  "Only in their threads": "スレッド内のみ",
   "Reply": "返信",
   "Reply to": "返信先",
   "Reply to ": "返信：",
