@@ -347,7 +347,7 @@ export async function route(request: Request, env: Env, path: string, viewer: { 
       return b ? { id, title: String((b as { title?: string }).title ?? "") } : null;
     },
   };
-  if (path === "/api/app/voice/status") return Response.json(await status(me, deps), { headers: { "cache-control": "no-store" } });
+  if (path === "/api/app/voice/status") return Response.json({ ...(await status(me, deps)), operator: isOperator(env, me) }, { headers: { "cache-control": "no-store" } });
   const body = await request.json().catch(() => null);
   if (path === "/api/app/voice/session/end") return finishSession(me, body, deps);
   return createSession(viewer, body, deps);
