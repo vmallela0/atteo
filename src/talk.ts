@@ -46,7 +46,42 @@ dialog.talk::backdrop{background:rgba(0,0,0,.25)}
 .talk-ft .btn[aria-pressed="true"]{background:var(--bg-hover);color:var(--danger)}
 `;
 
-/** The page script: binds every [data-talk] button. Plain JS (no template interpolation). */
+// What a spoken answer to the read-back means (#1761; every language, #2061): talkVerdict(said, d) is 'yes', 'no' or
+// 'unclear', d being approve | deny | post. Plain JS (it's page script, and test/talkyes.test.ts runs it as is).
+//   yes:     short (4 words or fewer; 8 characters or fewer in Chinese or Japanese, which go without spaces) and plain.
+//            English must be exactly a yes ("yes", "ok go ahead", "approve it please"), as before. The other languages,
+//            from the app's TalkYes.swift (#2060): a yes word ("네", "oui", "हाँ", "sí", "はい", "好的") and no hedge.
+//   no:      a no word in any of them, or the opposite decision ("deny it" while an approve waits): the card is dropped.
+//   unclear: anything else, a question or a hedge ("sí, pero primero…", "好，但是先等一下"): the card stays.
+// Every language counts whatever the page's language is: people answer in their own.
+export const TALK_YES = String.raw`
+var TY_EN={approve:'approve|approve it',deny:'deny|deny it|reject|reject it',post:'send it|post it|send|post'};
+var TY_OTHER={approve:'deny|deny it|reject|reject it',deny:'approve|approve it',post:"don't send|dont send|do not send|don't post|dont post|do not post"};
+// [yes, no, hedge] per language, over talkWords(said) (" word word "): space-separated languages match whole words,
+// Chinese and Japanese anywhere. A no is checked before a hedge, a hedge before a yes ("不是", "但是", "いいえ" hold a
+// yes's characters).
+var TY_LANGS=[
+  [' (네|예|응)+ ','아니|취소|하지 ?마','근데|먼저|하지만|잠깐|나중에|만약|까요|생각'],
+  [" (oui|d'accord|vas y|allez y) "," (non|attends|attendez|annule|annuler|arrête) "," (mais|d'abord|si|plus tard|seulement|peut être|est ce|réfléchi\\p{L}*) "],
+  [' (हाँ|हां|ठीक है) ',' (नहीं|नही|रुको|मत|रद्द) ',' (लेकिन|पहले|पर|क्या|बाद में|अगर|शायद|सोच\\p{L}*) '],
+  [' (sí|vale|adelante) ',' (no|espera|cancela) ',' (pero|primero|si|después|luego|solo|quizás|tal vez|antes|pienso|pensar\\p{L}*) '],
+  ['はい|お願い','いいえ|待って|やめて|キャンセル|だめ|ダメ','でも|まず|けど|あとで|後で|ちょっと|ですか|ますか|考え|検討'],
+  ['是|好|对|對|可以|确认|確認','不|别|別|等等|取消|算了','但是|先|吗|嗎|还是|還是|等一下|以后|以後|如果|呢|想|考虑|考慮|再说|再說|稍后|稍後']
+].map(function(l){return l.map(function(r){return new RegExp(r,'u')})});
+var TY_HEDGE=/^ (what|why|how|should|can|could|is|does|did|will|would|are|am) | (but|first|wait|not|hold on|later|unless|if|until|after|before|only|maybe|instead|think) /u;
+// Lowercase words between spaces, in any script (letters and their marks: accents, Devanagari's vowel signs); curly
+// apostrophes as straight ones ("don’t"), a hyphen or a comma as a space ("vas-y" is "vas y"), accents composed.
+function talkWords(said){return ' '+String(said||'').normalize('NFC').toLowerCase().replace(/[‘’]/g,"'").replace(/[^\p{L}\p{M}' ]+/gu,' ').split(' ').filter(Boolean).join(' ')+' '}
+function talkVerdict(said,d){var t=talkWords(said),w=t.trim(),n=w?w.split(' ').length:0;
+  if(new RegExp(' (no|nope|nah|don\'t|dont|do not|cancel|never mind|stop|'+(TY_OTHER[d]||TY_OTHER.approve)+') ','u').test(t)||TY_LANGS.some(function(l){return l[1].test(t)}))return 'no';
+  if(/[?？¿]/.test(String(said||''))||!n||n>4)return 'unclear';
+  if(/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u.test(w)&&w.replace(/ /g,'').length>8)return 'unclear';
+  if(new RegExp('^(ok |okay )?(yes|yeah|yep|yup|sure|ok|okay|confirm|confirmed|correct|go ahead|do it|'+(TY_EN[d]||TY_EN.approve)+')( please| now)?$').test(w))return 'yes';
+  if(TY_HEDGE.test(t)||TY_LANGS.some(function(l){return l[2].test(t)}))return 'unclear';
+  return TY_LANGS.some(function(l){return l[0].test(t)})?'yes':'unclear'}
+`;
+
+/** The page script: binds every [data-talk] button. Plain JS (its one interpolation is TALK_YES). */
 export const TALK_JS = String.raw`
 (()=>{if(window.atteoTalk)return;const T=(s,v)=>typeof tr==='function'?tr(s,v):s,RATE=24000;
 let st=null; // the live session, or null
@@ -200,13 +235,13 @@ function askYes(s,c){c.yes=false;c.armed=false;s.confirm=c;okEl.hidden=false;okE
 async function answered(s,c,yes){if(s.confirm!==c)return;s.confirm=null;okEl.hidden=true;let said='I tapped No on the screen: don’t do it ('+c.name+').';
   if(yes){const out=await route(s,c.name,c.args);said='I tapped Yes on the screen, so the app did it ('+c.name+' '+J(c.args)+'). Result: '+out}
   send({type:'conversation.item.create',item:{type:'message',role:'user',content:[{type:'input_text',text:said}]}},s);respond(s)}
-// Only a short, unqualified yes counts ("yes", "do it", "go ahead", "approve it"), and only one said after the read-back.
-// "Sure, but first…", "wait", a question or anything longer is not a yes: the card stays and Atteo asks again. A no drops it.
-const YES={approve:'approve|approve it',deny:'deny|deny it|reject|reject it',post:'send it|post it|send|post'};
-function heardYes(s,t){const c=s.confirm,raw=String(t).toLowerCase().trim(),w=raw.replace(/[^a-z' ]+/g,' ').replace(/\s+/g,' ').trim();
-  if(/(^| )(no|nope|don't|dont|cancel|never mind|stop)( |$)/.test(w)){s.confirm=null;okEl.hidden=true;return}
-  if(!c.armed||raw.includes('?')||w.split(' ').length>4)return;
-  if(new RegExp('^(ok |okay )?(yes|yeah|yep|yup|sure|ok|okay|confirm|confirmed|correct|go ahead|do it|'+YES[c.d]+')( please| now)?$').test(w))c.yes=true}
+// Only a short, unqualified yes counts ("yes", "do it", "go ahead", "approve it", "네", "はい"…), and only one said after
+// the read-back. "Sure, but first…", "wait", a question or anything longer is not a yes: the card stays and Atteo asks
+// again. A no drops it. The words are talkVerdict's (TALK_YES), in every language the web speaks.
+${TALK_YES}
+function heardYes(s,t){const c=s.confirm,v=talkVerdict(t,c.d);
+  if(v==='no'){s.confirm=null;okEl.hidden=true;return}
+  if(c.armed&&v==='yes')c.yes=true}
 
 // ---- the end: socket closed, mic and audio off, unused minutes back to the month ----
 function finish(problem,leaving){const s=st;if(!s||s.ended)return;s.ended=true;if(problem)s.problem=problem;clearInterval(s.timer);
