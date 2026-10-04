@@ -107,7 +107,7 @@ check(!secrets.some((s) => apiB.includes(s)), `${B} never sees them in the API`)
   const { ctx, p } = await open(ckA, 1200, false, "zh-CN");
   await p.click("#po-btn");
   const seg = await p.locator(".po-seg").innerText();
-  check(/仅限人/.test(seg) && /仅自己/.test(seg), `the choice in 简体中文 (${seg.replace(/\s+/g, " ")})`);
+  check(/仅限真人/.test(seg) && /仅自己/.test(seg), `the choice in 简体中文 (${seg.replace(/\s+/g, " ")})`);
   const badge = await p.locator(".badge.po.own").first().innerText();
   check(/仅自己/.test(badge), `…and the badge (${badge})`);
   await ctx.close();
