@@ -1974,47 +1974,49 @@ await step("tasks are shared items: create, get, edit in place (versions, confli
 });
 
 await step("tasks: a create whose title matches an open task returns it, and claiming a todo task marks it doing", async () => {
+  const db = (await ops("boards", { user: A, title: `e2e task dedupe ${run}` })).body.board.id;
+  assert((await ops("members", { board: db, user: B })).status === 200, "add B");
   const title = `Dedupe the soup ${run}`;
-  const made = await ok(A, fb, "task", { action: "create", title, body: "original plan" });
+  const made = await ok(A, db, "task", { action: "create", title, body: "original plan" });
   const n = Number(made.match(/Created task #(\d+)/)[1]);
   has(made, `#${n} [todo]`);
-  const before = (await (await web(`/api/boards/${fb}/updates?after=0`, A)).json()).count;
+  const before = (await (await web(`/api/boards/${db}/updates?after=0`, A)).json()).count;
   // Case and spacing are the same title. The new body is not applied, and nothing is posted.
-  const again = await ok(B, fb, "task", { action: "create", title: `  dedupe   the soup ${run}  `, body: "a different plan" });
+  const again = await ok(B, db, "task", { action: "create", title: `  dedupe   the soup ${run}  `, body: "a different plan" });
   has(again, `Already open as #${n}`);
   has(again, "original plan");
   assert(!again.includes("Created task") && !again.includes("a different plan"), `a matching title must return the open task:\n${again}`);
-  assert((await (await web(`/api/boards/${fb}/updates?after=0`, A)).json()).count === before, "a duplicate create posts nothing");
-  const same = (await (await web(`/api/boards/${fb}/tasks`, A)).json()).tasks.filter((t) => t.title.toLowerCase() === title.toLowerCase());
+  assert((await (await web(`/api/boards/${db}/updates?after=0`, A)).json()).count === before, "a duplicate create posts nothing");
+  const same = (await (await web(`/api/boards/${db}/tasks`, A)).json()).tasks.filter((t) => t.title.toLowerCase() === title.toLowerCase());
   assert(same.length === 1 && same[0].seq === n && same[0].status === "todo", JSON.stringify(same));
   // A different title is a new task. REST returns the open one (200) instead of creating.
-  const extra = Number((await ok(A, fb, "task", { action: "create", title: `Dedupe the soup extra ${run}` })).match(/Created task #(\d+)/)[1]);
+  const extra = Number((await ok(A, db, "task", { action: "create", title: `Dedupe the soup extra ${run}` })).match(/Created task #(\d+)/)[1]);
   assert(extra !== n, "a longer title is not the same task");
-  const rest = await web(`/api/boards/${fb}/tasks`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title, body: "from the web" }) });
+  const rest = await web(`/api/boards/${db}/tasks`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title, body: "from the web" }) });
   const rj = await rest.json();
   assert(rest.status === 200 && rj.duplicate === true && rj.task.seq === n && rj.task.body === "original plan", JSON.stringify(rj));
   // In progress and blocked are still open. Done is not, so the title can be used again.
-  await ok(A, fb, "task", { action: "update", seq: n, status: "blocked" });
-  has(await ok(A, fb, "task", { action: "create", title }), `Already open as #${n}`);
-  await ok(A, fb, "task", { action: "update", seq: n, status: "done" });
-  const fresh = await ok(A, fb, "task", { action: "create", title, body: "started over" });
+  await ok(A, db, "task", { action: "update", seq: n, status: "blocked" });
+  has(await ok(A, db, "task", { action: "create", title }), `Already open as #${n}`);
+  await ok(A, db, "task", { action: "update", seq: n, status: "done" });
+  const fresh = await ok(A, db, "task", { action: "create", title, body: "started over" });
   const n2 = Number(fresh.match(/Created task #(\d+)/)[1]);
   assert(n2 !== n && fresh.includes(`#${n2} [todo]`), `a done task's title can be created again:\n${fresh}`);
-  const halted = Number((await ok(A, fb, "task", { action: "create", title: `Dedupe halted ${run}` })).match(/Created task #(\d+)/)[1]);
-  await ok(A, fb, "task", { action: "stop", seq: halted, reason: "not now" });
-  const restarted = Number((await ok(A, fb, "task", { action: "create", title: `Dedupe halted ${run}` })).match(/Created task #(\d+)/)[1]);
+  const halted = Number((await ok(A, db, "task", { action: "create", title: `Dedupe halted ${run}` })).match(/Created task #(\d+)/)[1]);
+  await ok(A, db, "task", { action: "stop", seq: halted, reason: "not now" });
+  const restarted = Number((await ok(A, db, "task", { action: "create", title: `Dedupe halted ${run}` })).match(/Created task #(\d+)/)[1]);
   assert(restarted !== halted, "a stopped task's title can be created again");
   // Claiming that to-do task is how it starts: the lease and the status both move.
-  const claimed = await ok(B, fb, "task", { action: "claim", seq: n2, minutes: 15 });
+  const claimed = await ok(B, db, "task", { action: "claim", seq: n2, minutes: 15 });
   has(claimed, `#${n2} [doing]`);
   has(claimed, `held by ${B}'s agent`);
-  const got = (await (await web(`/api/boards/${fb}/tasks/${n2}`, A)).json()).task;
+  const got = (await (await web(`/api/boards/${db}/tasks/${n2}`, A)).json()).task;
   assert(got.status === "doing" && got.lease_holder === B, JSON.stringify({ status: got.status, holder: got.lease_holder }));
   // The same title on another board is a different task.
   const other = (await ops("boards", { user: A, title: `e2e dedupe other ${run}` })).body.board.id;
-  const onFb = (await (await web(`/api/boards/${fb}/tasks`, A)).json()).tasks.length;
+  const onDb = (await (await web(`/api/boards/${db}/tasks`, A)).json()).tasks.length;
   has(await ok(A, other, "task", { action: "create", title }), "Created task");
-  assert((await (await web(`/api/boards/${fb}/tasks`, A)).json()).tasks.length === onFb, "another board's create stays on that board");
+  assert((await (await web(`/api/boards/${db}/tasks`, A)).json()).tasks.length === onDb, "another board's create stays on that board");
 });
 
 await step("sub-tasks: parent, nested list, children done/total, a finished sub-task ticks the parent's checklist", async () => {
