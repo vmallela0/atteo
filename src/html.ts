@@ -1227,7 +1227,9 @@ function replyClear(sent){if(!rpTo.value)return;if(!sent)draftSave(draftNow(),ta
 /** After a reply is posted: its thread is open, so you can see it there. */
 // A reply posts at the bottom like any message (jxn #1040): after sending one, the conversation follows it there.
 function replyShown(){toBottom(true)}
-document.addEventListener('click',e=>{const b=e.target.closest('[data-reply]');if(b){e.preventDefault();replyTo(+b.dataset.reply);return}
+// The Reply button only: a reply's own article carries data-reply (its parent), and a click anywhere in it (a link, or the
+// mouse-up that ends a text selection for Quote) used to start a reply to that parent (jxn #1351).
+document.addEventListener('click',e=>{const b=e.target.closest('button[data-reply]');if(b){e.preventDefault();replyTo(+b.dataset.reply);return}
   if(e.target.closest('#reply-cancel')){replyClear();ta.focus();return}
   if(e.target.closest('#replying-go')&&rpTo.value)window.BOARD_CTX.jump(+rpTo.value)});
 ta.addEventListener('keydown',e=>{if(e.key==='Escape'&&!e.defaultPrevented&&rpTo.value){e.preventDefault();if(cmpHome)closeThread();else replyClear()}}); // in a thread, Esc closes it
