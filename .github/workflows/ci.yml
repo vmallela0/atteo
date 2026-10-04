@@ -1,13 +1,17 @@
 name: CI
 
 # The backstop, not the gate: the local gate already runs every suite on a fresh server before anything reaches main.
-# Nightly on main and by hand ("Run workflow", any branch): typecheck, unit tests, the end-to-end and CLI suites against
-# a local Worker (wrangler dev, local D1 + Durable Objects), and the browser checks in 4 shards. Pull requests run the
-# test job only. A run on every main push bills ~22 minutes and main gets ~15 a day: the private repo's 2,000 free
-# minutes a month lasted 4 days (10-04, #1981, #1989, #1990).
+# - Every 2 hours on main, only if main changed since the last green run: typecheck, unit tests, and the end-to-end and
+#   CLI suites against a local Worker (wrangler dev, local D1 + Durable Objects). ~1 billed minute when nothing changed,
+#   ~5 when it did.
+# - Nightly, and by hand ("Run workflow", any branch): all of that plus the browser checks in 4 shards (~22 minutes).
+# - Pull requests: the test job only.
+# The private repo has 2,000 free minutes a month; a full run on every main push used them up in 4 days (10-04, #1981,
+# #1989, #2000, #2001).
 on:
   schedule:
-    - cron: "17 10 * * *" # ~3am Pacific
+    - cron: "17 10 * * *" # nightly full run, ~3am Pacific
+    - cron: "47 */2 * * *" # every 2 hours, test job only, when main moved
   pull_request:
   workflow_dispatch:
 
@@ -16,7 +20,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # The 2-hourly run: has main moved since the last green CI run on main? (Nothing else uses this job.)
+  changed:
+    if: github.event_name == 'schedule' && github.event.schedule == '47 */2 * * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      actions: read
+    outputs:
+      run: ${{ steps.c.outputs.run }}
+    steps:
+      - id: c
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          last=$(gh api "repos/${{ github.repository }}/actions/workflows/ci.yml/runs?branch=main&status=success&per_page=1" --jq '.workflow_runs[0].head_sha // ""')
+          if [ "$last" = "${{ github.sha }}" ]; then echo "run=false" >> "$GITHUB_OUTPUT"; echo "main hasn't moved since the last green run"; else echo "run=true" >> "$GITHUB_OUTPUT"; fi
+
   test:
+    needs: [changed]
+    if: ${{ !cancelled() && (needs.changed.result == 'skipped' || needs.changed.outputs.run == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -58,7 +81,7 @@ jobs:
   # Worker. Chromium comes from playwright-core's installer, cached by its version.
   browser:
     name: browser (${{ matrix.shard }}/4)
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && github.event.schedule != '47 */2 * * *'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
@@ -136,7 +159,7 @@ jobs:
   # the ATTEO_BOT_TOKEN secret it only leaves a notice. Never turns a run red.
   report:
     needs: [test, browser]
-    if: ${{ github.event_name != 'pull_request' && !cancelled() }}
+    if: ${{ github.event_name != 'pull_request' && github.event.schedule != '47 */2 * * *' && !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 3
     permissions:

@@ -1,6 +1,6 @@
 # CI
 
-`.github/workflows/ci.yml` runs nightly on main, by hand ("Run workflow", any branch), and (test job only) on pull requests; the local gate runs every suite before anything reaches main, so GitHub CI is the backstop. No real secrets are needed: each job starts its own local
+`.github/workflows/ci.yml` is the backstop (the local gate runs every suite before anything reaches main): every 2 hours on main, only when main moved, the test job (typecheck, unit, e2e, CLI); nightly and by hand ("Run workflow", any branch) the full run including the 4 browser shards; on pull requests the test job only.
 Worker (`scripts/ci-worker.sh`: `wrangler dev` on :8787 with local D1 and Durable Objects, and a test `.dev.vars` with
 `ADMIN_KEY=ci-admin-key`). Nothing in CI talks to production.
 
