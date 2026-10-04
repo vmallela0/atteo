@@ -10,6 +10,7 @@ struct BoardView: View {
     @State private var showTasks = false
     @State private var workPane: WorkPane? // Tasks or Files, from the top bar (always reachable)
     @State private var showAgents = false
+    @State private var talking = false // the voice chat sheet, from the phone at the top right (TalkCallButton.swift)
     private var live: [BoardAgent] { (state.boardAgents[board.id] ?? []).filter { $0.state == "live" } }
     /// "theo's agent working", "theo and maya's agents working", "3 agents working", or "No agents working now".
     private var presence: String {
@@ -254,7 +255,12 @@ struct BoardView: View {
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("presence")
             }
+            // Voice chat with Atteo, like a call (vedu #1783): the message box keeps the mic for dictation.
+            ToolbarItem(placement: .topBarTrailing) {
+                TalkCallButton(color: Theme.text.fixed(scheme)) { focused = false; talking = true }
+            }
         }
+        .fullScreenCover(isPresented: $talking) { TalkSheet(board: board) }
         // The title opens the board's info: what's open, who's here, files, search.
         .sheet(isPresented: $showAgents) {
             BoardInfoSheet(board: board) { seq in showAgents = false; jump(to: seq, after: 0.35) }

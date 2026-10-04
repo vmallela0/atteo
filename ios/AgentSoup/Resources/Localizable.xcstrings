@@ -18810,6 +18810,34 @@
         }
       }
     },
+    "Voice chat with Atteo": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat de voz con Atteo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atteo と音声会話"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "和 Atteo 语音对话"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "和 Atteo 語音對話"
+          }
+        }
+      }
+    },
     "Voice isn't set up yet. Typing, the mic in the message box and reading replies aloud still work.": {
       "localizations": {
         "es": {

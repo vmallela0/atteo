@@ -1,4 +1,4 @@
-// Voice chat with Atteo (vedu #1318, hands-free #1598, "Atteo" on screen #1599, one way in #1602) against the local
+// Voice chat with Atteo (vedu #1318, hands-free #1598, "Atteo" on screen #1599, a phone at the top right #1783) against the local
 // server's fake voice: DEV_FAKE_VOICE=1 in the local .dev.vars, and the app (ATTEO_FAKE_VOICE=1) sends x-dev-fake-voice
 // and plays the scripted conversation in TalkFake.swift. Hands-free there's no mic: a tap on the orb is the fake person
 // saying the next line (speech_started → speech_stopped → transcript → an answer, no button). The tools run for real
@@ -37,10 +37,14 @@ final class TalkUITests: AtteoUITestCase {
         let before = minutesUsed()
         let a = launch()
         openChat(a, "Checkout bug")
-        let talk = a.buttons["talk"]
-        XCTAssertTrue(talk.waitForExistence(timeout: 10), "the waveform by the mic")
-        XCTAssertFalse(a.buttons["talk-header"].exists, "one way in: no waveform in the top bar (#1602)")
-        XCTAssertEqual(talk.label, "Talk to Atteo")
+        // Like a call (#1783): a phone at the top right of the chat's bar, and nothing for voice chat in the message box.
+        let talk = a.navigationBars.buttons["talk"]
+        XCTAssertTrue(talk.waitForExistence(timeout: 10), "the phone in the chat's top bar")
+        XCTAssertEqual(talk.label, "Voice chat with Atteo")
+        XCTAssertEqual(a.buttons.matching(identifier: "talk").count, 1, "one way in: not by the mic too")
+        XCTAssertGreaterThan(talk.frame.midX, a.windows.firstMatch.frame.midX, "top right")
+        XCTAssertLessThan(talk.frame.maxY, composer(a).frame.minY, "above the chat, not in the message box")
+        XCTAssertTrue(a.descendants(matching: .any)["mic"].exists, "the message box keeps its mic for dictation")
         shot("talk-buttons")
         talk.tap()
 
@@ -107,9 +111,19 @@ final class TalkUITests: AtteoUITestCase {
         XCTAssertTrue(a.buttons["ask-bar"].waitForExistence(timeout: 15), "For you's Ask bar")
         a.buttons["ask-bar"].tap()
         let voice = a.buttons["ask-talk"]
-        XCTAssertTrue(voice.waitForExistence(timeout: 8), "Voice chat beside Type instead")
-        XCTAssertEqual(voice.label, "Talk to Atteo")
+        XCTAssertTrue(voice.waitForExistence(timeout: 8), "Voice chat at the top right")
+        XCTAssertEqual(voice.label, "Voice chat with Atteo")
+        XCTAssertGreaterThan(voice.frame.midX, a.windows.firstMatch.frame.midX, "on the right")
+        XCTAssertEqual(voice.frame.midY, a.buttons["ask-close"].frame.midY, accuracy: 4, "across from Close, like a call")
+        XCTAssertLessThan(voice.frame.maxY, a.buttons["ask-switch"].frame.minY, "above Type instead")
         shot("talk-ask")
+        // Type instead / Talk instead still switch.
+        let swap = a.buttons["ask-switch"]
+        let first = swap.label, other = first == "Talk instead" ? "Type instead" : "Talk instead"
+        swap.tap()
+        XCTAssertTrue(eventually(swap, "label == '\(other)'", timeout: 5), swap.label)
+        swap.tap()
+        XCTAssertTrue(eventually(swap, "label == '\(first)'", timeout: 5), swap.label)
         voice.tap()
         let state = a.staticTexts["talk-state"]
         XCTAssertTrue(eventually(state, "label == 'Listening…'", timeout: 15), "hands-free (\(state.label))")
@@ -127,11 +141,41 @@ final class TalkUITests: AtteoUITestCase {
         XCTAssertLessThan(used, 2, "the unused minutes went back")
     }
 
+    /// The message box like iMessage (#1783): empty, the mic (dictation); something typed, send in its place; cleared,
+    /// the mic again. (No fake voice needed.)
+    func testComposerMicGivesWayToSend() {
+        let a = app()
+        a.launch()
+        openChat(a, "Checkout bug")
+        let box = composer(a)
+        XCTAssertTrue(box.waitForExistence(timeout: 10))
+        let mic = a.descendants(matching: .any)["mic"]
+        let send = a.buttons["send"]
+        XCTAssertTrue(mic.waitForExistence(timeout: 5), "empty: the mic")
+        XCTAssertFalse(send.exists, "empty: no send")
+        XCTAssertEqual(a.buttons.matching(identifier: "talk").count, a.navigationBars.buttons.matching(identifier: "talk").count,
+                       "voice chat only in the top bar, never in the message box")
+        shot("composer-empty")
+        box.tap()
+        box.typeText("hi")
+        XCTAssertTrue(send.waitForExistence(timeout: 5), "text: send")
+        XCTAssertTrue(send.isEnabled)
+        XCTAssertTrue(eventually(mic, "exists == false", timeout: 5), "text: the mic gives way")
+        shot("composer-text")
+        box.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 2))
+        XCTAssertTrue(mic.waitForExistence(timeout: 5), "cleared: the mic is back")
+        XCTAssertTrue(eventually(send, "exists == false", timeout: 5), "cleared: no send")
+        // Only spaces is still nothing to send.
+        box.typeText("  ")
+        XCTAssertTrue(mic.exists, "spaces: still the mic")
+        XCTAssertFalse(send.exists)
+    }
+
     func testHoldToTalkFallback() {
         let before = minutesUsed()
         let a = launch()
         openChat(a, "Checkout bug")
-        let talk = a.buttons["talk"]
+        let talk = a.navigationBars.buttons["talk"]
         XCTAssertTrue(talk.waitForExistence(timeout: 10))
         talk.tap()
         let state = a.staticTexts["talk-state"]

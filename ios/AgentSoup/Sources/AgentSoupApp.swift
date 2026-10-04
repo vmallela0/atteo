@@ -5,7 +5,7 @@ struct AtteoApp: App {
     @StateObject private var state = AppState.shared
     @Environment(\.scenePhase) private var phase
 
-    init() { TalkButton.plugIn() } // voice chat on Everyday's Ask screen (TalkView.swift)
+    init() { TalkCallButton.plugIn() } // voice chat on Everyday's Ask screen (TalkCallButton.swift)
 
     var body: some Scene {
         WindowGroup {

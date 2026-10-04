@@ -1,6 +1,8 @@
 // The message box, one component for the chat and its threads (jxn #1094): who's typing, what "/" makes a message,
 // who "@" can name, pictures and files waiting to go, the text (ComposerField) and send. The chat and a thread look
-// and behave the same; a thread's box answers a message (`replyTo`).
+// and behave the same; a thread's box answers a message (`replyTo`). Like iMessage (vedu #1783): an empty box has the
+// mic (dictation, Voice.swift), and once there's something to send the mic gives way to send. Voice chat isn't here:
+// it's the phone at the top right of the chat (TalkCallButton.swift).
 
 import PhotosUI
 import SwiftUI
@@ -29,6 +31,7 @@ struct ChatComposer: View {
     @State private var showCamera = false
     @State private var showFiles = false
     @State private var showEncryptedNote = false
+    @ObservedObject private var voice = VoiceInput.shared
     private let maxAttachments = 10
 
     private var me: String? { state.me?.owner }
@@ -39,6 +42,13 @@ struct ChatComposer: View {
         if !attachments.isEmpty { return true }
         if let (_, rest) = SlashCommand.parse(draft, on: board) { return !rest.isEmpty } // "/task" alone: nothing to send yet
         return !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// The mic while the box is empty (and while it's listening: what it hears fills the box, and the mic is how you
+    /// stop it); send once there's something in it.
+    private var showsMic: Bool {
+        if voice.listening { return true }
+        return attachments.isEmpty && preparing == 0 && draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     // MARK: - "@"
@@ -121,22 +131,25 @@ struct ChatComposer: View {
                                   agentNames: state.agentNameMap(board.id),
                                   identifier: identifier)
                         .padding(.horizontal, Composer.gap)
-                    // Talk to Grok, live (TalkView.swift): the chat's box only, when voice is set up.
-                    if replyTo == nil { TalkButton(board: board) }
-                    // Hold to talk (Voice.swift): words go in the box; "send it" at the end sends.
-                    MicButton(draft: $draft, send: send, identifier: identifier == "composer" ? "mic" : "\(identifier)-mic")
-                        .padding(.trailing, -Composer.inset)
-                    Button(action: send) {
-                        Image(systemName: "arrow.up").font(.system(size: 14, weight: .bold))
-                            .composerCircle(fill: canSend ? Theme.accent : Theme.raised)
-                            .foregroundStyle(canSend ? .black : Theme.faint)
-                            .animation(.spring(duration: 0.3, bounce: 0.35), value: canSend)
+                    if showsMic {
+                        // Hold to talk (Voice.swift): words go in the box; "send it" at the end sends.
+                        MicButton(draft: $draft, send: send, identifier: identifier == "composer" ? "mic" : "\(identifier)-mic")
+                            .transition(.scale(scale: 0.6).combined(with: .opacity))
+                    } else {
+                        Button(action: send) {
+                            Image(systemName: "arrow.up").font(.system(size: 14, weight: .bold))
+                                .composerCircle(fill: canSend ? Theme.accent : Theme.raised)
+                                .foregroundStyle(canSend ? .black : Theme.faint)
+                                .animation(.spring(duration: 0.3, bounce: 0.35), value: canSend)
+                        }
+                        .buttonStyle(PressStyle())
+                        .disabled(!canSend)
+                        .accessibilityIdentifier(sendIdentifier)
+                        .accessibilityLabel("Send")
+                        .transition(.scale(scale: 0.6).combined(with: .opacity))
                     }
-                    .buttonStyle(PressStyle())
-                    .disabled(!canSend)
-                    .accessibilityIdentifier(sendIdentifier)
-                    .accessibilityLabel("Send")
                 }
+                .animation(.spring(duration: 0.25, bounce: 0.25), value: showsMic)
             }
             .background(Theme.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
             .padding(.horizontal, Space.m)
