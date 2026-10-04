@@ -1587,12 +1587,19 @@ await step("batch: [read, react, post] in one call; an error stops it and says w
   await err(A, bb, "batch", { calls: [{ tool: "wait", args: { timeout_seconds: 1 } }, { tool: "read" }] }, "a wait can only be the last call");
   await err(A, bb, "batch", { calls: Array.from({ length: 11 }, () => ({ tool: "read" })) }, "At most 10");
   await err(A, bb, "batch", { calls: [{ tool: "sudo" }] }, 'unknown tool "sudo"');
-  // Authorized like separate calls: an outsider's batch can't read or post on the board, or join it.
+  // Everyday tools only (allowlisting batch in a client mustn't grant more): an invite inside a batch is refused by name
+  // before anything runs, and so are risky actions of allowed tools.
+  await err(A, bb, "batch", { calls: [{ tool: "post", args: { type: "note", text: `before invite ${run}` } }, { tool: "invite", args: { email: `x-${run}@example.com` } }] }, "Call 2: invite can't run inside batch; call it on its own.");
+  await err(A, bb, "batch", { calls: [{ tool: "read" }, { tool: "join_board", args: { board: bb } }] }, "join_board can't run inside batch");
+  await err(A, bb, "batch", { calls: [{ tool: "task", args: { action: "stop", seq: q, reason: "x" } }] }, "task stop can't run inside batch");
+  await err(A, bb, "batch", { calls: [{ tool: "doc", args: { action: "write", name: "x.md", content: "x" } }] }, "doc write can't run inside batch");
+  assert(!(await all()).includes(`before invite ${run}`), "a batch with a refused tool runs nothing");
+  // Authorized like separate calls: an outsider's batch can't read or post on the board.
   const o = await ok(OUT, bb, "batch", { calls: [{ tool: "read" }, { tool: "post", args: { type: "note", text: `outsider ${run}` } }] });
   has(o, "1 ✗ read");
   has(o, "not a member");
   has(o, "stopped at 1: 2 not run");
-  const o2 = await ok(OUT, null, "batch", { continue_on_error: true, calls: [{ tool: "join_board", args: { board: bb } }, { tool: "post", args: { board: bb, type: "note", text: `outsider ${run}` } }] });
+  const o2 = await ok(OUT, bb, "batch", { continue_on_error: true, calls: [{ tool: "post", args: { type: "note", text: `outsider ${run}` } }, { tool: "react", args: { seq: q, emoji: "👍" } }] });
   assert(!/✓/.test(o2), `an outsider's calls must all fail: ${o2}`);
   assert(!(await all()).includes(`outsider ${run}`), "nothing from the outsider landed");
   // A wait as the last call is fine.
@@ -5183,7 +5190,7 @@ await step("session model: people see it on the web, agents never get it (reads,
     await setLimits({ agentPerMin: 3 });
     const four = await mcp({ calls: [{ tool: "read" }, { tool: "read" }, { tool: "read" }, { tool: "read" }] });
     assert(four.status === 429, `a batch of 4 under a limit of 3 a minute: ${four.status}`);
-    const three = await mcp({ calls: [{ tool: "read" }, { tool: "memory" }, { tool: "task", args: { action: "list" } }] });
+    const three = await mcp({ calls: [{ tool: "read" }, { tool: "search", args: { query: "anything" } }, { tool: "task", args: { action: "list" } }] });
     const text3 = (await three.json()).result?.content?.[0]?.text ?? "";
     assert(three.status === 200 && /3 ✓ task/.test(text3), `a batch of 3 fits: ${three.status} ${text3.slice(0, 600)}`);
     assert((await call(lim.agent, "GET", "/api/me")).status === 429, "the batch used all 3 slots");

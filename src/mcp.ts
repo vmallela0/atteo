@@ -447,7 +447,7 @@ export const TOOLS = [
   },
   {
     name: "batch",
-    description: `Run up to ${BATCH_MAX} of these tools in order in one call, each exactly as if called alone (a read counts before a later post); stops at the first error unless continue_on_error. No nested batch; a wait only last.`,
+    description: `Run up to ${BATCH_MAX} tool calls in order in one request, each exactly as if called alone (a read counts before a later post); stops at the first error unless continue_on_error. Everyday tools only: read, get, search, grep, recap, react, post, retract, task (not stop), doc list/read/grep/history, mailbox, people/agents lookups, session; a wait only last.`,
     inputSchema: {
       type: "object",
       properties: {

@@ -27,16 +27,38 @@ describe("parseBatch", () => {
     expect(() => parseBatch({ calls: [] }, known)).toThrow(BatchError);
   });
 
-  it("a wait (wait, mailbox with wait_seconds, approval wait) may only come last", () => {
+  it("a wait (wait, mailbox with wait_seconds) may only come last", () => {
     expect(parseBatch({ calls: [{ tool: "post", args: { text: "q?" } }, { tool: "wait" }] }, known).calls).toHaveLength(2);
     expect(() => parseBatch({ calls: [{ tool: "wait" }, { tool: "read" }] }, known)).toThrow(/Call 1: a wait can only be the last/);
     expect(() => parseBatch({ calls: [{ tool: "mailbox", args: { wait_seconds: 5 } }, { tool: "read" }] }, known)).toThrow(/last/);
-    expect(() => parseBatch({ calls: [{ tool: "approval", args: { action: "wait" } }, { tool: "read" }] }, known)).toThrow(/last/);
-    expect(parseBatch({ calls: [{ tool: "mailbox" }, { tool: "read" }] }, known).calls).toHaveLength(2); // no wait_seconds: not a wait
-    // Approvals that wait for the decision hold the request too.
-    expect(() => parseBatch({ calls: [{ tool: "request_approval", args: { title: "x" } }, { tool: "read" }] }, [...known, "request_approval"])).toThrow(/last/);
-    expect(parseBatch({ calls: [{ tool: "request_approval", args: { wait_seconds: 0 } }, { tool: "read" }] }, [...known, "request_approval"]).calls).toHaveLength(2);
-    expect(parseBatch({ calls: [{ tool: "approval", args: { action: "get" } }, { tool: "read" }] }, known).calls).toHaveLength(2);
+    expect(parseBatch({ calls: [{ tool: "read" }, { tool: "mailbox", args: { wait_seconds: 5 } }] }, known).calls).toHaveLength(2);
+    expect(parseBatch({ calls: [{ tool: "mailbox", args: { peek: true } }, { tool: "read" }] }, known).calls).toHaveLength(2); // no wait_seconds: not a wait
+  });
+
+  it("everyday tools only: the rest are refused by name before anything runs", () => {
+    const all = [...known, "approval", "request_approval", "invite", "join_board", "leave_board", "create_board", "publish", "schedules", "trigger", "memory", "remember", "handle", "review", "claim", "doc", "people", "agents", "session", "get", "search", "grep", "recap", "retract"];
+    for (const tool of ["approval", "request_approval", "invite", "join_board", "leave_board", "create_board", "publish", "schedules", "trigger", "memory", "remember", "handle", "review", "claim"]) {
+      expect(() => parseBatch({ calls: [{ tool: "read" }, { tool, args: { action: "list" } }] }, all)).toThrow(`Call 2: ${tool} can't run inside batch; call it on its own.`);
+    }
+    for (const tool of ["read", "get", "search", "grep", "recap", "react", "post", "retract", "mailbox", "wait", "session"]) {
+      expect(parseBatch({ calls: [{ tool }] }, all).calls[0].tool).toBe(tool);
+    }
+  });
+
+  it("tools with risky actions: only their everyday actions, named explicitly", () => {
+    const all = [...known, "doc", "people", "agents"];
+    const ok = (tool: string, action: string) => expect(parseBatch({ calls: [{ tool, args: { action } }] }, all).calls).toHaveLength(1);
+    const no = (tool: string, action?: string) => expect(() => parseBatch({ calls: [{ tool, args: action ? { action } : {} }] }, all)).toThrow(/can't run inside batch; call it on its own \(inside batch: action /);
+    for (const a of ["list", "get", "create", "edit", "history", "claim", "release", "update"]) ok("task", a);
+    no("task", "stop");
+    for (const a of ["list", "read", "grep", "history"]) ok("doc", a);
+    for (const a of ["write", "edit", "pin", "unpin"]) no("doc", a);
+    for (const a of ["search", "whois", "friends"]) ok("people", a);
+    no("people", "direct");
+    for (const a of ["find", "get"]) ok("agents", a);
+    for (const a of ["profile", "dm"]) no("agents", a);
+    no("doc"); // no action: refused, not guessed
+    expect(() => parseBatch({ calls: [{ tool: "task", args: { action: "stop", seq: 1 } }] }, all)).toThrow("Call 1: task stop can't run inside batch");
   });
 });
 
