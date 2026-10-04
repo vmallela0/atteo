@@ -278,7 +278,7 @@ export async function route(request: Request, env: Env, ctx: ExecutionContext, p
       const b = await registry.getBoard(env, bid);
       if (!b) return { error: "board not found", status: 404 };
       if ((b as { encrypted?: number }).encrypted) return { error: "End-to-end encrypted boards can't be read aloud by the server: it can't read them. Use the device voice.", status: 400 };
-      const g = await env.BOARD.get(env.BOARD.idFromName(bid)).get(seq).catch(() => null);
+      const g = await env.BOARD.get(env.BOARD.idFromName(bid)).get(seq, { user: me, person: true }).catch(() => null); // people only (checked above): their own people-only messages too
       if (!g || g.replies.some((r) => r.retracts === seq)) return { error: "That message isn't there.", status: 404 };
       return { text: g.entry.text };
     },
