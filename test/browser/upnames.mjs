@@ -1,0 +1,34 @@
+import { chromium } from "playwright-core";
+const BASE=process.env.BASE||"http://localhost:8787";
+const ops = async (p, b) => (await fetch(`${BASE}/api/ops/${p}`, { method: "POST", headers: { "x-admin-key": "ci-admin-key", "content-type": "application/json" }, body: JSON.stringify(b) })).json();
+const run=Date.now().toString(36).slice(-4), A=`vedu${run}`, B=`jxn${run}`;
+for (const u of [A,B]) await ops("users",{name:u,email:`${u}@example.com`,verified:"true"});
+const tokA=(await ops("tokens",{user:A})).token;
+const board=(await ops("boards",{user:B,title:"Upload names"})).board.id; await ops("members",{board,user:A});
+const cookie=(await ops("sessions",{user:B})).cookie;
+const mcp=async(name,args)=>(await (await fetch(`${BASE}/mcp?board=${board}`,{method:"POST",headers:{"content-type":"application/json",accept:"application/json, text/event-stream",authorization:`Bearer ${tokA}`},body:JSON.stringify({jsonrpc:"2.0",id:1,method:"tools/call",params:{name,arguments:args}})})).json()).result.content[0].text;
+let fails=0;const check=(ok,m)=>{console.log(`${ok?"✓":"✗"} ${m}`);if(!ok)fails++};
+const b = await chromium.launch({ executablePath: process.env.PW_CHROME || undefined });
+const ctx=await b.newContext({viewport:{width:1280,height:900}});const [k,...v]=cookie.split(";")[0].split("=");await ctx.addCookies([{name:k,value:v.join("="),url:BASE}]);
+const p=await ctx.newPage();const errors=[];p.on("pageerror",e=>errors.push(e.message));
+await p.goto(`${BASE}/b/${board}`);await p.waitForTimeout(500);
+// make test images in the page: a small PNG and a big 4000x3000 noisy PNG
+const mk=(w,h,noise)=>p.evaluate(async([w,h,noise])=>{const c=document.createElement('canvas');c.width=w;c.height=h;const g=c.getContext('2d');
+  const grd=g.createLinearGradient(0,0,w,h);grd.addColorStop(0,'#4ea1ff');grd.addColorStop(1,'#16a34a');g.fillStyle=grd;g.fillRect(0,0,w,h);
+  if(noise){const d=g.getImageData(0,0,w,h);for(let i=0;i<d.data.length;i+=4){d.data[i]=Math.random()*255}g.putImageData(d,0,0)}
+  g.fillStyle='#fff';g.font=(h/6)+'px sans-serif';g.fillText('Agent Soup',w/10,h/2);
+  const blob=await new Promise(r=>c.toBlob(r,'image/png'));return [...new Uint8Array(await blob.arrayBuffer())]},[w,h,noise]).then(a=>Buffer.from(a));
+const small=await mk(600,400,false);
+const paste=async(name)=>{await p.evaluate(async([bytes,name])=>{const dt=new DataTransfer();dt.items.add(new File([new Uint8Array(bytes)],name,{type:"image/png"}));
+  document.getElementById('composer-text').dispatchEvent(new ClipboardEvent('paste',{clipboardData:dt,bubbles:true,cancelable:true}))},[[...small],name]);
+  await p.waitForFunction(()=>document.querySelectorAll('#attachments .att').length===1,null,{timeout:8000});
+  await p.click("#composer-text");await p.keyboard.press("Enter");await p.waitForFunction(()=>!document.querySelector('#attachments .att'),null,{timeout:8000});await p.waitForTimeout(400)};
+await paste("image.png");await paste("image.png");await paste("diagram.png");
+const docs=await p.evaluate(async b=>(await (await fetch('/api/boards/'+b+'/files')).json()).docs.map(d=>d.name),board);
+const stamped=docs.filter(n=>n.startsWith("image-"));const [n1,n2]=stamped;
+const re=/^image-\d{4}-\d\d-\d\d-\d{6}(-\d+)?\.png$/;
+check(re.test(n1)&&re.test(n2)&&n1!==n2, "two pasted image.png get their own names with the time");
+check(docs.includes("diagram.png"), "a real file name is kept");
+check(docs.includes(n1)&&docs.includes(n2)&&!docs.includes("image.png"), "Files lists them as separate files: "+docs.join(", "));
+check(errors.length===0,`no page errors ${errors.join(" | ")}`);
+await b.close();console.log(fails?`${fails} FAILED`:"all upload-name checks passed");

@@ -304,7 +304,23 @@ const PREVIEW_JS = `
   document.addEventListener('click',e=>{const b=e.target.closest('[data-preview-file]');if(!b)return;e.preventDefault();e.stopPropagation();open(b.dataset.previewFile,b.dataset.fileVer?+b.dataset.fileVer:undefined)},true);
 })();
 `;
+// This month's read-aloud and talking allowance in plain words (#1629, vedu's caps #1592), from GET /api/app/tts/status
+// {enabled, used_chars, budget_chars, operator?} and /api/app/voice/status {enabled, minutes_used, minutes_budget, operator?}.
+// Read-aloud time is estimated at ~1,000 characters a minute (150k ≈ 2.5 h). Operators have no limit.
+const ALLOWANCE_JS = `
+window.atteoAllow=window.atteoAllow||(()=>{const CHARS_PER_MIN=1000,LOW_MIN=15;
+  const dur=m=>{m=Math.max(0,Math.floor(m));if(m<1)return 'under a minute';const h=Math.floor(m/60),r=m%60;return h?h+' h'+(r?' '+r+' m':''):r+' m'};
+  const tts=j=>{if(!j)return null;if(j.operator===true||j.budget_chars>=1e12)return {text:'No limit (operator)',out:false,low:false,op:true};
+    const left=Math.max(0,(j.budget_chars||0)-(j.used_chars||0)),m=left/CHARS_PER_MIN,used=dur((j.used_chars||0)/CHARS_PER_MIN);
+    if(left<=0)return {text:'Out of read-aloud for this month: using the device voice',out:true,low:false,used:'~'+used};
+    return {text:'~'+dur(m)+' left this month'+(m<LOW_MIN?' (running low)':''),left:'~'+dur(m),out:false,low:m<LOW_MIN,used:'~'+used}};
+  const voice=j=>{if(!j)return null;if(j.operator===true||j.minutes_budget>=100000)return {text:'No limit (operator)',out:false,op:true};
+    const b=j.minutes_budget||0,u=Math.min(b,j.minutes_used||0),left=Math.max(0,b-u);
+    return {text:left<=0?'Out of talking time for this month':dur(left)+' left this month',out:left<=0,used:dur(u),budget:dur(b)}};
+  return {tts,voice}})();
+`;
 const voiceJs = (agentChat: boolean) => `
+${ALLOWANCE_JS}
 (()=>{const SR=window.SpeechRecognition||window.webkitSpeechRecognition,syn=window.speechSynthesis,ta=document.getElementById('composer-text'),th=document.getElementById('thread'),
   mic=document.getElementById('mic-btn'),vb=document.getElementById('aloud-btn'),pill=document.getElementById('voice-pill');
   if(!ta||!th)return;
@@ -324,10 +340,16 @@ const voiceJs = (agentChat: boolean) => `
     rec.onend=()=>{rec=null;mic.setAttribute('aria-pressed','false');mic.classList.remove('on')};
     try{rec.start()}catch(e){rec=null}})}
   if(!syn||!vb)return;
+  // What's left of this month's read-aloud, on the button's title; used up: a clear state and the device voice, never silently.
+  const VB_TITLE=vb.title;let ttsOut=false,ttsTold=false,ttsT=0;
+  function ttsShow(a){if(!a)return;ttsOut=a.out;vb.title=VB_TITLE+' · '+a.text;vb.dataset.allow=a.text;vb.classList.toggle('out',a.out)}
+  function ttsSync(){fetch('/api/app/tts/status').then(r=>r.ok?r.json():null).then(j=>{if(j&&j.enabled)ttsShow(atteoAllow.tts(j))}).catch(()=>{})}
+  function ttsSpent(){ttsShow({text:'Out of read-aloud for this month: using the device voice',out:true});if(!ttsTold){ttsTold=true;toast('Out of read-aloud for this month: using the device voice')}}
+  ttsSync();
   // Read aloud: new messages for you queue up behind a blip; the bar under them plays them in order.
   function who(el){return ((el.querySelector('.who')||{}).innerText||el.dataset.author||'').trim()}
   function pillUpd(){if(!q.length&&!speaking){pill.hidden=true;return}pill.hidden=false;const el=document.getElementById('e'+q[0]);
-    document.getElementById('vp-go').textContent=speaking?'🔊 Reading'+(q.length?' · '+q.length+' more':'')+' · tap to stop':'🔊 '+(q.length>1?q.length+' for you, first from ':tr('For you from '))+(el?who(el):'')+' · tap or say “go ahead”'}
+    document.getElementById('vp-go').textContent=speaking?'🔊 Reading'+(ttsOut?' with the device voice':'')+(q.length?' · '+q.length+' more':'')+' · tap to stop':'🔊 '+(q.length>1?q.length+' for you, first from ':tr('For you from '))+(el?who(el):'')+' · tap or say “go ahead”'}
   // Atteo's own voice first (POST /api/app/tts, jxn #1612); the device's voice only when the server says to (fallback:"device":
   // not set up, over the allowance, the service down) or the audio won't play.
   var au=null,auN=0;
@@ -337,7 +359,8 @@ const voiceJs = (agentChat: boolean) => `
     const n=auN,next=()=>{if(n!==auN)return;auStop();speaking=false;if(q.length)speakNext();else pillUpd()};
     speaking=true;pillUpd();
     fetch('/api/app/tts',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(typeof BOARD!=='undefined'&&BOARD?{board:BOARD,seq:+s}:{text:body})})
-      .then(r=>r.ok&&/^audio\\//.test(r.headers.get('content-type')||'')?r.blob():null).then(b=>{if(n!==auN)return;if(!b){deviceSay(el,body);return}
+      .then(r=>{if(r.status===429)return r.json().catch(()=>null).then(j=>{if(j&&j.fallback==='device')ttsSpent();return null});
+        if(r.ok){clearTimeout(ttsT);ttsT=setTimeout(ttsSync,1500)}return r.ok&&/^audio\\//.test(r.headers.get('content-type')||'')?r.blob():null}).then(b=>{if(n!==auN)return;if(!b){deviceSay(el,body);return}
         const a=au=new Audio(URL.createObjectURL(b));a.onended=next;a.onerror=()=>{if(n===auN){auStop();deviceSay(el,body)}};
         a.play().catch(()=>{if(n===auN){auStop();deviceSay(el,body)}})})
       .catch(()=>{if(n===auN)deviceSay(el,body)})}
@@ -368,7 +391,7 @@ const voiceJs = (agentChat: boolean) => `
   try{on=localStorage.getItem('atteo.voice')==='1'}catch(e){}
   vb.hidden=false;setOn(on);
   // Turning it on is a tap, which is when browsers (Safari above all) let a page start speaking: say a blank there so later reads are allowed.
-  vb.addEventListener('click',()=>{setOn(!on);if(on){try{const w=new SpeechSynthesisUtterance(' ');w.volume=0;syn.speak(w)}catch(e){}blip();toast(tr(tr('Messages for you will blip: tap the bar or say “go ahead” to hear them')))}});
+  vb.addEventListener('click',()=>{setOn(!on);if(on){try{const w=new SpeechSynthesisUtterance(' ');w.volume=0;syn.speak(w)}catch(e){}blip();toast(ttsOut?tr('Out of read-aloud for this month: messages for you will be read with the device voice'):tr('Messages for you will blip: tap the bar or say “go ahead” to hear them'))}});
   document.getElementById('vp-go').addEventListener('click',()=>{if(speaking)hush();else speakNext()});
   document.getElementById('vp-x').addEventListener('click',hush);
   document.addEventListener('keydown',e=>{if(e.key==='Escape'&&speaking)hush()});
@@ -1314,6 +1337,8 @@ window.postFailed=(j)=>{sendLook(false);if(SENT_TEXT!=null&&!ta.value.trim()){ta
 // @mention autocomplete: people ("@vedu") and agents ("@vedu's agent", including your own).
 const MOPTS=${jsString(mentionOptions(members.map((m) => m.user), viewer.name, agents, agentNames(members), new Set(members.filter((m) => m.agent_name_ambiguous).map((m) => m.user))))};
 const MNAMES=new Set(MOPTS.map(o=>o.u)),ME=${jsString(viewer.name)};
+// Agent names on this board (the @ menu's "Jarvis · vedu's agent" rows), longest first, for chips in the composer.
+const ANAMES=MOPTS.filter(o=>o.sub&&!o.ins.includes('/')&&o.ins!==o.u+"'s agent").map(o=>o.ins.toLowerCase()).sort((a,b)=>b.length-a.length);
 // "@you" glows, and so does the message it's in, including ones that arrive live.
 // Approval cards: the person asked gets Approve / Deny in place; a decision made anywhere shows up live.
 ${approvalJs(viewer.name)}
@@ -1351,7 +1376,12 @@ function mtokens(v){const out=[],re=/(^|[^A-Za-z0-9_.@\\/-])@([A-Za-z0-9][A-Za-z
   while((m=re.exec(v))){const raw=m[2].toLowerCase();let h=raw;if(!MNAMES.has(h))h=raw.replace(/[.-]+$/,'');if(!MNAMES.has(h))continue;
     const agent=!!m[3]&&h===raw;if(!agent&&h===ME)continue; // you can't mention yourself, only your agent
     const start=m.index+m[1].length;out.push({start,end:start+1+h.length+(agent?m[3].length:0),agent})}
-  return out}
+  // "@Jarvis": a member's agent by the name they gave it is a chip too (jxn #1659), longest name first; a member's
+  // own handle at the same spot wins, as on the server (mentions.ts agentNameHits).
+  for(let i=v.indexOf('@');i>=0&&ANAMES.length;i=v.indexOf('@',i+1)){if(i>0&&/[A-Za-z0-9_.@\\/-]/.test(v[i-1])||out.some(t=>t.start===i))continue;
+    for(const n of ANAMES){if(v.slice(i+1,i+1+n.length).toLowerCase()!==n)continue;const after=v[i+1+n.length];if(after!==undefined&&/[\\p{L}\\p{N}_]/u.test(after))continue;
+      out.push({start:i,end:i+1+n.length,agent:true});break}}
+  return out.sort((a,b)=>a.start-b.start)}
 function msync(){const v=ta.value,cs=getComputedStyle(ta);let h='',i=0;
   for(const t of mtokens(v)){h+=esc(v.slice(i,t.start))+'<span class="chip'+(t.agent?' agent':'')+'">'+esc(v.slice(t.start,t.end))+'</span>';i=t.end}
   mirror.innerHTML=h+esc(v.slice(i))+'\\n';
@@ -2844,7 +2874,8 @@ ${seg("theme", esc(T("Theme")), [["system", esc(T("System"))], ["light", esc(T("
     .join("")}</select>
 </div></form>
 <div class="section-title" style="margin-top:24px"><div><h2 class="small" style="font-size:13px;color:var(--muted)">${esc(T("Advanced (for developers)"))}</h2></div></div>
-<label class="card pad dev-mode" for="dev-mode"><span class="dev-ic" aria-hidden="true">&lt;&gt;</span><span class="grow"><span class="small" style="color:var(--ink);font-weight:600">${esc(T("Developer mode"))}</span><span class="xs muted" id="dev-mode-hint" style="display:block;margin-top:2px">${esc(T("Tasks, change cards, #numbers, sessions. Turns on by itself if you connect Claude Code or Codex."))}</span></span><input type="checkbox" class="switch" id="dev-mode" role="switch"></label>`;
+<label class="card pad dev-mode" for="dev-mode"><span class="dev-ic" aria-hidden="true">&lt;&gt;</span><span class="grow"><span class="small" style="color:var(--ink);font-weight:600">${esc(T("Developer mode"))}</span><span class="xs muted" id="dev-mode-hint" style="display:block;margin-top:2px">${esc(T("Tasks, change cards, #numbers, sessions. Turns on by itself if you connect Claude Code or Codex."))}</span></span><input type="checkbox" class="switch" id="dev-mode" role="switch"></label>
+<div class="card pad voice-allow" id="voice-allow" hidden><span class="small" style="color:var(--ink);font-weight:600">${esc(T("Voice this month"))}</span><span class="xs muted" id="voice-allow-text" style="display:block;margin-top:2px"></span></div>`;
 }
 
 /** Account → Profile: how you show up to others (name, bio, the directory) and what your account accepts on its own. */
@@ -2878,6 +2909,16 @@ const DISPLAY_JS = `
 (()=>{const s=document.getElementById('dp-lang');if(!s)return;s.addEventListener('change',async()=>{s.disabled=true;
   const r=await fetch('/api/app/prefs',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({display:{lang:s.value}})}).catch(()=>null);
   if(r&&r.ok){const u=new URL(location.href);u.searchParams.delete('lang');location.replace(u.toString())}else{s.disabled=false;s.value=s.dataset.lang;toast(tr('Could not save'))}})})();
+// Voice this month (#1629): read-aloud and talking time used and left, or "No limit (operator)".
+${ALLOWANCE_JS}
+(()=>{const box=document.getElementById('voice-allow'),t=document.getElementById('voice-allow-text');if(!box)return;
+  const get=u=>fetch(u).then(r=>r.ok?r.json():null).catch(()=>null);
+  Promise.all([get('/api/app/tts/status'),get('/api/app/voice/status')]).then(([a,v])=>{const parts=[];
+    const ta=a&&a.enabled?atteoAllow.tts(a):null,va=v&&v.enabled?atteoAllow.voice(v):null;
+    if((ta&&ta.op)||(va&&va.op)){t.textContent='No limit (operator)';box.hidden=false;return}
+    if(ta)parts.push('Read aloud: '+(ta.out?ta.used+' used, none left, so it uses the device voice':ta.used+' used, '+ta.text));
+    if(va)parts.push('Talking: '+va.used+' of '+va.budget+' used'+(va.out?', none left':', '+va.text));
+    if(!parts.length)return;t.textContent=parts.join(' · ');box.hidden=false})})();
 // Developer mode (#1272): one switch; the server works out "auto" (on once you've connected a coding agent).
 (()=>{const c=document.getElementById('dev-mode'),h=document.getElementById('dev-mode-hint');if(!c)return;c.checked=document.documentElement.dataset.mode!=='everyday';
   fetch('/api/app/prefs').then(r=>r.ok?r.json():null).then(j=>{const p=j&&j.prefs;if(!p)return;c.checked=!!p.developer;
