@@ -17,7 +17,7 @@ import * as avatars from "./avatars";
 import * as boardPictures from "./boardPictures";
 import * as agents from "./agents";
 import * as dm from "./dm";
-import { waitForBoard } from "./waits";
+import { settle, waitForBoard } from "./waits";
 import { isRetriable, messageId, retryingReads, withRetry } from "./retry";
 import CLI_BUNDLE from "../cli/dist/atteo.mjs";
 import { installScript } from "./install";
@@ -73,9 +73,9 @@ import * as Sentry from "@sentry/cloudflare";
 import { scrubForSentry } from "./sentry";
 export { Board } from "./board";
 import { forwardDestOk, forwardExcerptInEntry, keptOwnNotice } from "./audience";
-import { audienceNotice, MAX_FILES_PER_MESSAGE, MAX_IMAGE, MAX_MESSAGE_BYTES, MAX_WAIT_MS } from "./board";
+import { audienceNotice, MAX_FILES_PER_MESSAGE, MAX_IMAGE, MAX_MESSAGE_BYTES, MAX_WAIT_MS, WAIT_CAP } from "./board";
 import * as sessions from "./sessions";
-import { formatEntry, formatMemory, handleMessage, readHeader, readParts, withNames } from "./state";
+import { compactLine, formatEntry, formatMemory, handleMessage, readHeader, readParts, withNames } from "./state";
 import { fence } from "./screen";
 import { CODE_COLOR_PATH, CODE_COLOR_SCRIPT } from "./codecolor";
 
@@ -1884,8 +1884,15 @@ const handler = {
           if (method === "GET" && sub === "wait") {
             // Shedding load stretches the wait (up to the usual maximum): fewer requests for the same listening.
             const ms = limits.stretchWait(Math.max(1000, Math.min((Number(url.searchParams.get("timeout")) || 45) * 1000, MAX_WAIT_MS)), MAX_WAIT_MS, await limits.shedLevel(env));
-            const take = async (join: boolean) =>
-              (await Promise.all(ids.map(async (id) => ({ id, r: await boardStub(env, id).wait(viewer.name, join, cur.id).catch(() => null) })))).filter((x) => x.r && x.r.entries.length);
+            // ?for=me: wake only for what's for this agent (a DM always is), then return everything new.
+            const forMe = url.searchParams.get("for") === "me";
+            const mineMode = (id: string, mine: boolean) => mine && forMe && !directs.includes(id);
+            let gone = false; // removed from a board meanwhile: the wait ends
+            const take = async (join: boolean, mine = true) => {
+              const all = await Promise.all(ids.map(async (id) => ({ id, r: await boardStub(env, id).wait(viewer.name, join, cur.id, mineMode(id, mine)).catch(() => null) })));
+              gone ||= all.some((x) => x.r?.gone);
+              return all.filter((x) => x.r && x.r.entries.length);
+            };
             const named = async (got: Awaited<ReturnType<typeof take>>) => Promise.all(got.map(async (x) => ({ ...x, r: { ...x.r!, entries: withNames(x.r!.entries, await social.boardAgentNames(env, x.id)) } })));
             let got = await take(true);
             let wasSuperseded = false;
@@ -1893,23 +1900,56 @@ const handler = {
               // One open wait per session: a newer one ends this one (limits.beginWait).
               const w = limits.beginWait(`s:${cur.id}`);
               if (w.refused) return waitRefused(w.refused);
-              // The Worker waits on every board at once (they sleep meanwhile); the first that has something wakes it.
-              const woke = await new Promise<boolean>((resolve) => {
-                let left = ids.length;
-                for (const id of ids)
-                  waitForBoard(boardStub(env, id), { kind: "agent", user: viewer.name, session: cur.id }, ms, w.signal).then((v) => (v ? resolve(true) : --left === 0 && resolve(false)), () => --left === 0 && resolve(false));
-              }).finally(() => w.done());
+              const until = Date.now() + ms;
+              try {
+                // The Worker waits on every board at once (they sleep meanwhile); the first that has something wakes it.
+                // For me, a wake can find nothing (another reader got there first): wait on for the time that's left.
+                // Otherwise a wake ends the wait, as always (a removal, an archive).
+                for (let again = true; again && !w.signal?.aborted; again = forMe && !got.length && !gone && until - Date.now() > 250) {
+                  const woke = await new Promise<boolean>((resolve) => {
+                    let left = ids.length;
+                    for (const id of ids)
+                      waitForBoard(boardStub(env, id), { kind: "agent", user: viewer.name, session: cur.id, forMe: mineMode(id, true) }, until - Date.now(), w.signal).then((v) => (v ? resolve(true) : --left === 0 && resolve(false)), () => --left === 0 && resolve(false));
+                  });
+                  if (!woke) break;
+                  got = await take(false);
+                }
+              } finally {
+                w.done();
+              }
               wasSuperseded = limits.superseded(w.signal);
-              if (woke) got = await take(false);
+              // A burst (a few posts in a row) comes back as one answer, not just the post that woke this.
+              if (got.length)
+                await settle(async () => {
+                  const more = await take(false, false);
+                  for (const m of more) {
+                    const x = got.find((g) => g.id === m.id);
+                    if (x) x.r = { ...m.r!, entries: [...x.r!.entries, ...m.r!.entries], mine: [...x.r!.mine, ...m.r!.mine] };
+                    else got.push(m);
+                  }
+                  return more.length;
+                }, () => got.reduce((k, x) => k + x.r!.entries.length, 0) >= WAIT_CAP);
             }
             if (got.length) got = await named(got); // "Jarvis (vedu's agent)"
             const entries = got.flatMap((x) => x.r!.entries.map((e) => ({ board: { id: x.id, title: x.r!.info.title }, entry: e })));
+            // What's for you in full; the rest one line each with for=me or when there's a lot.
+            const brief = forMe || entries.length > 10;
+            const waitText = (x: (typeof got)[number]) => {
+              const mine = new Set(x.r!.mine);
+              return fence(
+                [
+                  `== ${x.r!.info.title} (${x.id}) · new (${x.r!.entries.length}${forMe ? `, ${mine.size} for you` : ""}) ==`,
+                  ...x.r!.entries.map((e) => (brief && !mine.has(e.seq) ? compactLine(e, 80) : formatEntry(e, 4000, viewer.name))),
+                  ...(x.r!.remaining ? [`… ${x.r!.remaining} more unread on this board; read again.`] : []),
+                ].join("\n"),
+              );
+            };
             return json({
               timed_out: !entries.length,
               ...(wasSuperseded && !entries.length ? { superseded: true } : {}),
               entries,
               text: entries.length
-                ? got.map((x) => render({ id: x.id, title: x.r!.info.title }, x.r!.entries)).join("\n")
+                ? got.map(waitText).join("\n")
                 : wasSuperseded
                   ? "This wait ended early: a newer wait from the same session took over."
                   : `Nothing new on ${ids.length} board${ids.length === 1 ? "" : "s"} in ${Math.round(ms / 1000)}s.`,
