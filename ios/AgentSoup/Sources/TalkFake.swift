@@ -7,6 +7,10 @@
 //   2. "Approve the deploy request." → answer_approval → (the app asks for a yes) → "Say yes to confirm."
 //   3. "Yes." → answer_approval again → what the server said
 //   then small talk.
+// Hands-free (session.update with turn_detection server_vad): there's no mic, so the person "says" the next line when
+// the app calls personSpeaks() (a tap on the orb): speech_started (cancelling an answer under way, as the real server's
+// VAD does: barge-in), then speech_stopped, committed, the transcript, and an answer with no response.create.
+// Push-to-talk (turn_detection null): the app's commit is the turn, and its response.create the answer.
 
 #if DEBUG
 import Foundation
@@ -24,6 +28,8 @@ final class FakeGrokLink: RealtimeLink {
     private var speaking: Task<Void, Never>?
     private var current: String?
     private var closed = false
+    private var handsFree = false
+    private(set) var truncated: [String: Int] = [:] // item → audio_end_ms the app cut it to
 
     init() { (events, out) = AsyncStream.makeStream(of: [String: Any].self) }
 
@@ -33,7 +39,13 @@ final class FakeGrokLink: RealtimeLink {
         guard !closed else { return }
         switch e["type"] as? String {
         case "session.update":
-            emit(["type": "session.updated", "session": e["session"] ?? [:]])
+            let session = e["session"] as? [String: Any] ?? [:]
+            handsFree = (session["turn_detection"] as? [String: Any])?["type"] as? String == "server_vad"
+            emit(["type": "session.updated", "session": session])
+        case "conversation.item.truncate":
+            guard let item = e["item_id"] as? String else { return }
+            truncated[item] = (e["audio_end_ms"] as? Int) ?? 0
+            emit(["type": "conversation.item.truncated", "item_id": item, "content_index": 0, "audio_end_ms": truncated[item] ?? 0])
         case "input_audio_buffer.append":
             buffered += 1
         case "input_audio_buffer.clear":
@@ -57,6 +69,29 @@ final class FakeGrokLink: RealtimeLink {
             current = nil
             emit(["type": "response.done", "response": ["id": r, "status": "cancelled"]])
         default: break
+        }
+    }
+
+    /// Hands-free: the person says the next line (over Atteo, if it's talking: the VAD cancels the answer).
+    func personSpeaks() {
+        guard !closed, handsFree else { return }
+        turn += 1
+        let t = turn, item = "item_u\(t)"
+        emit(["type": "input_audio_buffer.speech_started", "item_id": item, "audio_start_ms": t * 1000])
+        if let r = current {
+            speaking?.cancel()
+            current = nil
+            emit(["type": "response.done", "response": ["id": r, "status": "cancelled"]])
+        }
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            guard let self, !self.closed else { return }
+            self.emit(["type": "input_audio_buffer.speech_stopped", "item_id": item, "audio_end_ms": t * 1000 + 500])
+            self.emit(["type": "input_audio_buffer.committed", "item_id": item])
+            try? await Task.sleep(nanoseconds: 300_000_000) // a moment of "Thinking…"
+            guard !self.closed else { return }
+            self.emit(["type": "conversation.item.input_audio_transcription.completed", "item_id": item, "transcript": Self.said(t)])
+            self.respond()
         }
     }
 
@@ -130,8 +165,8 @@ final class FakeGrokLink: RealtimeLink {
             for i in 0..<chunks {
                 guard let self, !Task.isCancelled else { return }
                 let w0 = i * words.count / chunks, w1 = (i + 1) * words.count / chunks
-                if w1 > w0 { self.emit(["type": textType, "response_id": r, "delta": (i == 0 ? "" : " ") + words[w0..<w1].joined(separator: " ")]) }
-                self.emit(["type": audioType, "response_id": r, "delta": Self.tone(chunk, phase: i)])
+                if w1 > w0 { self.emit(["type": textType, "response_id": r, "item_id": "item_a\(r)", "delta": (i == 0 ? "" : " ") + words[w0..<w1].joined(separator: " ")]) }
+                self.emit(["type": audioType, "response_id": r, "item_id": "item_a\(r)", "delta": Self.tone(chunk, phase: i)])
                 // Faster than real time, like the real service: the app plays it at its own pace.
                 try? await Task.sleep(nanoseconds: UInt64(chunk * 0.5 * 1e9))
             }

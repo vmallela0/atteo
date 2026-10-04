@@ -5,6 +5,8 @@ struct AtteoApp: App {
     @StateObject private var state = AppState.shared
     @Environment(\.scenePhase) private var phase
 
+    init() { TalkButton.plugIn() } // voice chat on Everyday's Ask screen (TalkView.swift)
+
     var body: some Scene {
         WindowGroup {
             // Settings → Display: text size (on top of your iOS Dynamic Type), density and theme, for every screen.
