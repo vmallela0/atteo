@@ -338,9 +338,10 @@ ${ALLOWANCE_JS}
   const SKIP=new Set('a an the this that these those it its me you him her us them my your his our their all least last first once home work noon night school lunch dinner some any every each about around which what how one two three four five six seven eight nine ten'.split(' '));
   const sound=w=>w.toLowerCase().replace(/[^a-z]/g,'').replace(/ph/g,'f').replace(/d/g,'t').replace(/b/g,'p').replace(/[gq]/g,'k').replace(/z/g,'s').replace(/(?!^)[aeiouyhw]/g,'').replace(/(.)\\1+/g,'$1');
   function lev(a,b){const d=[...Array(b.length+1).keys()];for(let i=1;i<=a.length;i++){let p=d[0];d[0]=i;for(let j=1;j<=b.length;j++){const t=d[j];d[j]=Math.min(d[j]+1,d[j-1]+1,p+(a[i-1]===b[j-1]?0:1));p=t}}return d[b.length]}
-  // The one candidate clearly closest to a spoken word: same word, else same sound, else one or two letters off.
+  // The one candidate clearly closest to a spoken word: same word, else same sound, else (handles of 5+ letters) one or two
+  // letters off, so "at and then" never becomes @ann.
   function closest(w,cands){if(w.length<2||SKIP.has(w))return null;const sw=sound(w);let best=null,bs=9,tie=false;
-    for(const c of cands){const n=c.name.toLowerCase(),sn=sound(n),sc=w===n?0:sw===sn&&sn.length>=2?1:lev(w,n)<=(n.length>=6?2:1)?2:9;
+    for(const c of cands){const n=c.name.toLowerCase(),sn=sound(n),sc=w===n?0:sw===sn&&sn.length>=2?1:n.length>=5&&lev(w,n)<=(n.length>=6?2:1)?2:9; // short handles: same word or same sound only
       if(sc<bs){bs=sc;best=c;tie=false}else if(sc===bs&&sc<9&&best.ins!==c.ins)tie=true}
     return bs<9&&!tie?best:null}
   function spoken(text){if(typeof MOPTS==='undefined'||!/\\bat\\s/i.test(text))return text;
@@ -348,11 +349,13 @@ ${ALLOWANCE_JS}
     for(const m of MOPTS){if(m.ins.includes('/')||['agents','humans','all'].includes(m.ins))continue;
       if(m.k==='person')people.push({name:m.u,ins:m.u});else{agentOf[m.u]=m.ins;if(m.ins!==m.u+"'s agent")names.push({name:m.ins,ins:m.ins})}}
     const others=people.filter(x=>x.ins!==ME);
-    return text.replace(/\\bat\\s+([A-Za-z][\\w.-]*?)(?:['’]?s)?(?:\\s+(agent|assistant)\\b)?(?=[\\s,.!?;:]|$)/gi,(all,w,ag)=>{const l=w.toLowerCase(),tok=all.slice(2).trim().split(/\\s+/)[0].toLowerCase().replace(/['’]s$/,'');
+    return text.replace(/\\bat\\s+([A-Za-z][\\w.-]*?)(['’]?s)?(?:\\s+(agent|assistant)\\b)?(?=[\\s,.!?;:]|$)/gi,(all,w,suf,ag)=>{const l=w.toLowerCase(),tok=all.slice(2).trim().split(/\\s+/)[0].toLowerCase().replace(/['’]s$/,'');
       if(ag&&tok==='my'&&agentOf[ME])return '@'+agentOf[ME];if(SKIP.has(tok))return all;
       if(!ag){if(/^(agent|assistant)$/.test(l))return '@agents';if(/^human$|^people$/.test(l))return '@humans';if(/^every(one|body)$/.test(l))return '@all'}
+      if(!ag&&suf&&/['’]/.test(suf))return all; // "look at ann's draft": 's only means an agent right before agent/assistant
+      const word=!ag&&suf?l+'s':l; // "at chris": the s is part of the name
       if(ag){const who=closest(l,people);return who&&agentOf[who.ins]?'@'+agentOf[who.ins]:all}
-      const hit=closest(l,[...others,...names]);return hit?'@'+hit.ins:all})}
+      const hit=closest(word,[...others,...names]);return hit?'@'+hit.ins:all})}
   const takeBox=()=>{base=ta.value.trim()?ta.value.replace(/[ ]+$/,'')+' ':'';fin='';skip=seen};
   function micStop(){const r=rec;if(!r)return;rec=null;fin='';try{r.abort()}catch(e){}mic.setAttribute('aria-pressed','false');mic.classList.remove('on')}
   window.micStop=micStop;
