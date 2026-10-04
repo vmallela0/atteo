@@ -120,6 +120,8 @@ function show(seq,r){const el=document.querySelector('#e'+seq+'>.grow>.body');if
   el.innerHTML=r.text!=null?'<div class="e2e-text">'+esc(r.text)+'</div>':'<span class="e2e-none">🔒 '+esc(r.why)+'</span>';el.closest('.entry').classList.toggle('e2e-open',r.text!=null);
   const top=el.closest('.replies')?.closest('#thread>.entry');if(top)thrSum(+top.dataset.seq);return r.text!=null}
 let busy=null,queued=false,qFrom=null;
+/** Messages that came back on the page (a bounded conversation, #1365) arrive sealed again: open them on the next sync. */
+window.e2eForget=seqs=>{for(const s of seqs)OPEN.delete(s)};
 /** Fetches envelopes after "from" (default: the newest seen) and opens everything on the page not yet opened. */
 window.e2eSync=from=>{if(busy){queued=true;if(from!=null)qFrom=qFrom==null?from:Math.min(qFrom,from);return busy}
   busy=(async()=>{try{await epochKeys();let after=from!=null?from:HI;
