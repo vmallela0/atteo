@@ -42,8 +42,8 @@ const NEGATED = /\b(?:never(?!\s+mind)|don'?t|do not|does not|doesn'?t|must not|
 const spaces = (s: string) => s.replace(/[^\n]/g, " ");
 /** A quote's opening mark must start a word and its closing mark end one, so the apostrophes in "don't" or
  *  "vedu's" never pair up into a quote. */
-const QUOTED = /"[^"\n]{1,500}"|“[^”\n]{1,500}”/g;
-const SINGLE_QUOTED = /(^|[\s([{])('[^'\n]{1,500}'|‘[^’\n]{1,500}’)(?=$|[\s.,;:!?)\]}])/gm;
+export const QUOTED = /"[^"\n]{1,500}"|“[^”\n]{1,500}”/g;
+export const SINGLE_QUOTED = /(^|[\s([{])('[^'\n]{1,500}'|‘[^’\n]{1,500}’)(?=$|[\s.,;:!?)\]}])/gm;
 
 /**
  * The text with literal strings blanked out (same length, newlines kept, so offsets still line up): ``` fences,

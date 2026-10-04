@@ -11,7 +11,7 @@
 // A mention counts as addressed to whoever it names, alongside the entry's `to` (which addresses the member's agent).
 // Pure functions, shared by the Worker, the web UI and the CLI.
 
-import { blankLiterals } from "./screen";
+import { QUOTED, SINGLE_QUOTED, blankLiterals } from "./screen";
 
 export interface Mention {
   user: string;
@@ -33,16 +33,28 @@ export const SESSION_NAME_RE = /^[a-z0-9][a-z0-9._-]{0,31}$/;
 
 /** Code fences, inline code and quoted messages ("> " lines ending "— who, #N") blanked out, so quoting a
  *  message doesn't ping whoever it named again. */
+const FENCE = /```[\s\S]*?```/g;
+const INLINE_CODE = /`[^`\n]+`/g;
+const QUOTED_MESSAGE = /(?:^>.*\n)+^> ?— .+, #\d{1,6}$/gm;
 function withoutCode(text: string): string {
-  return text.replace(/```[\s\S]*?```/g, " ").replace(/`[^`\n]+`/g, " ").replace(/(?:^>.*\n)+^> ?— .+, #\d{1,6}$/gm, " ");
+  return text.replace(FENCE, " ").replace(INLINE_CODE, " ").replace(QUOTED_MESSAGE, " ");
 }
 
 /** The text @mentions are read from. Code (withoutCode) and quotation marks (blankLiterals, the same rules as the
  *  injection screen) are blanked: "@name" inside a fence, inline code, or quotes is never a mention. Apostrophes
  *  in "don't" or "vedu's" are not quotes. */
-function mentionScan(text: string): string {
+export function mentionScan(text: string): string {
   return blankLiterals(withoutCode(text));
 }
+
+/** mentionScan for the browser, built from the same regexes: the web composer's People only check (html.ts PO_JS)
+ *  must read recipients the way the server will, or a quoted "@vedu" passes there and the post is then refused. */
+const reJs = (r: RegExp) => `new RegExp(${JSON.stringify(r.source)},${JSON.stringify(r.flags)})`;
+export const MENTION_SCAN_JS =
+  `(t=>{const sp=s=>s.replace(/[^\\n]/g,' ');` +
+  `t=t.replace(${reJs(FENCE)},' ').replace(${reJs(INLINE_CODE)},' ').replace(${reJs(QUOTED_MESSAGE)},' ');` +
+  `t=t.replace(${reJs(QUOTED)},sp);` +
+  `return t.replace(${reJs(SINGLE_QUOTED)},(a,p,q)=>p+sp(q))})`;
 
 /**
  * The member a matched handle refers to. A trailing "." or "-" is dropped unless the full handle is a member,

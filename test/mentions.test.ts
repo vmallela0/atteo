@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { forAgent, forPerson, highlightMentions, mentionLabel, mentionsOwnAgent, nearMember, parseMentions } from "../src/mentions";
+import { MENTION_SCAN_JS, forAgent, forPerson, highlightMentions, mentionLabel, mentionScan, mentionsOwnAgent, nearMember, parseMentions } from "../src/mentions";
 import { entryHeader, formatSummary, computeSummary } from "../src/state";
 import { cleanAgentName, handleLookalikes, skeleton } from "../src/agentName";
 import { renderText } from "../src/ui";
@@ -75,6 +75,21 @@ describe("parseMentions", () => {
     expect(parse("he wrote \"@jxn\" and “@jxn’s agent” and '@jxn'").mentions).toEqual([]);
     expect(parse("ask @jxn, not \"@jxn\" or\n```\n@jxn\n```").mentions).toEqual([person("jxn")]);
     expect(parse("the words \"@all\" and \"@agents\"").mentions).toEqual([]);
+  });
+
+  it("the web composer's People only check reads mentions the server's way (MENTION_SCAN_JS = mentionScan)", () => {
+    const scan = (0, eval)(MENTION_SCAN_JS) as (t: string) => string;
+    const words = (t: string) => t.trim().split(/\s+/).join(" ");
+    for (const t of [
+      "ask @jxn to look",
+      'he wrote "@jxn" and “@jxn’s agent” and \'@jxn\' and ‘@vedu’',
+      "see\n```\n@jxn's agent\n```\nlater, and `@vedu` inline",
+      "> @jxn said this\n> — jxn, #12\nreply to @vedu",
+      "don't ping vedu's @jxn, isn't it",
+      '"@jxn"',
+    ]) expect(words(scan(t))).toBe(words(mentionScan(t)));
+    expect(scan('only "@jxn" quoted')).not.toContain("@");
+    expect(scan("'@jxn', then @vedu")).toMatch(/^[^@]*@vedu$/);
   });
 
   it("nearMember: edit distance 2 (1 for short names) or a 3+ character prefix", () => {

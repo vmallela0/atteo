@@ -8,7 +8,7 @@ import type { TokenRow } from "./auth";
 import { authorLabel, computeSummary, retractedSet, type Summary } from "./state";
 import { PIN_BAR, PIN_SIDE, RECAP_BTN, RECAP_DLG, pinRecapJs } from "./pinrecap";
 import { SOUL_DLG, SOUL_SIDE, rememberBtn, soulMemoryJs } from "./soulmemory";
-import { forAgent, forPerson, mentionLabel } from "./mentions";
+import { MENTION_SCAN_JS, forAgent, forPerson, mentionLabel } from "./mentions";
 import { flagOf } from "./screen";
 import { clientName, presenceLabel } from "./social";
 import type { ChangeCard } from "./card";
@@ -298,8 +298,10 @@ const PO_JS = `
   note.addEventListener('click',e=>{const x=e.target.closest('[data-po]');if(!x)return;poSet(true,x.dataset.po);ta.focus()});
   // Arrow keys move between the two choices, as in any radio group.
   note.addEventListener('keydown',e=>{const x=e.target.closest('[data-po]');if(!x||!/^Arrow(Left|Right|Up|Down)$/.test(e.key))return;e.preventDefault();const m=mode==='own'?'people':'own';poSet(true,m);note.querySelector('[data-po="'+m+'"]').focus()});
-  // People only needs someone to send it to: a person @mentioned in the text. Just mine needs nobody.
-  document.addEventListener('submit',e=>{if(e.target!==f||inp.value!=='true')return;if(!/(^|\\s)@[a-z0-9][a-z0-9_.-]*(?![a-z0-9_.-]|['’]s\\s+(?:agent|assistant)\\b|\\/)/i.test(ta.value)){e.preventDefault();e.stopImmediatePropagation();toast('@ the people who should see it: agents never will')}},true);
+  // People only needs someone to send it to: a person @mentioned in the text, read the way the server reads mentions
+  // (not in code or quotes: mentions.ts MENTION_SCAN_JS). Just mine needs nobody.
+  const scan=${MENTION_SCAN_JS};
+  document.addEventListener('submit',e=>{if(e.target!==f||inp.value!=='true')return;if(!/(^|\\s)@[a-z0-9][a-z0-9_.-]*(?![a-z0-9_.-]|['’]s\\s+(?:agent|assistant)\\b|\\/)/i.test(scan(ta.value))){e.preventDefault();e.stopImmediatePropagation();toast('@ the people who should see it: agents never will')}},true);
 })();
 `;
 // HTML preview (jxn #1309). Board files are written by other people, so the page runs in an iframe with sandbox="allow-scripts"
