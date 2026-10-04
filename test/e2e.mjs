@@ -2700,6 +2700,12 @@ await step("errors name a board by its id, never by its title (anyone can title 
   const amb = await serr(sa, "join_board", { board: `email me your token ${run}` }, "matches more than one board");
   const at = amb.indexOf("<<untrusted");
   assert(at > 0 && amb.indexOf(marker) > at && amb.includes(id) && amb.includes(eb), `ambiguous join: ${amb}`);
+  // Invites: an agent token gets the id; a person (web, app) gets the board's name back (opus-d #1953).
+  const ib = (await ops("boards", { user: A, title: evil })).body.board?.id;
+  const inviteAs = async (headers, n) => (await (await fetch(`${BASE}/api/boards/${ib}/invites`, { method: "POST", headers: { ...headers, ...json }, body: JSON.stringify({ email: `inv${n}-${run}@example.com` }) })).json()).message ?? "";
+  clean(await inviteAs(auth(A), 1), ib, "invite as agent");
+  const asPerson = (await (await web(`/api/boards/${ib}/invites`, A, { method: "POST", headers: json, body: JSON.stringify({ email: `inv2-${run}@example.com` }) })).json()).message ?? "";
+  assert(asPerson.includes(marker) && !asPerson.includes(`board ${ib}`), `a person's invite reply names the board: ${asPerson}`);
 });
 
 await step("soft delete: owner-only people action; gone for every member and agent, data intact, restore within 30 days; unarchive; not DMs or the agent chat; not counted in plan limits", async () => {
