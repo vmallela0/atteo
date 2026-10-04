@@ -33,7 +33,7 @@ function pinNorm(j){const p=j&&(j.pinned!==undefined?j.pinned:j.pin);if(!p||!p.n
 window.pinRefresh=async()=>{let r;try{r=await fetch('/api/boards/'+BOARD+'/pin')}catch(e){return}
   if(r.status===404||r.status===405){PIN_API=false;PIN=null;pinRender(null);return}if(!r.ok)return;PIN_API=true;
   // The pin and the recap arrive together on the server: Recap shows once the pin API answers.
-  const rb=document.getElementById('recap-btn');if(rb)rb.hidden=false;
+  const rb=document.getElementById('recap-btn');if(rb){rb.hidden=false;const l=rb.querySelector('.recap-l');if(l)l.textContent=tr('Recap');rb.title=tr('What happened since you last looked')}
   PIN=pinNorm(await r.json().catch(()=>null));let doc=null;
   if(PIN){const d=await fetch('/api/boards/'+BOARD+'/doc?name='+encodeURIComponent(PIN.name)).catch(()=>null);if(d&&d.ok)doc=await d.json().catch(()=>null)}
   pinRender(doc);if(typeof curDoc!=='undefined'&&curDoc)pinSlot(curDoc)};
@@ -43,8 +43,8 @@ function pinRender(doc){const bar=document.getElementById('pin-bar'),side=docume
   const lines=String(doc&&doc.content||'').split('\\n').map(l=>l.replace(/^[#>*\\-\\s]+/,'').trim()).filter(Boolean);
   document.getElementById('pin-name').textContent=PIN.name;document.getElementById('pin-peek').textContent=lines[0]||'';bar.hidden=false;
   const meta=(doc&&doc.version?'v'+doc.version+' · ':'')+'edited by '+esc(doc?(doc.via==='agent'?doc.updated_by+"'s agent":doc.updated_by):pinBy(PIN));
-  const body=doc?(doc.media?'<img class="pin-img" alt="" src="/api/boards/'+BOARD+'/image?name='+encodeURIComponent(doc.name)+'&version='+doc.version+'">':'<div class="pin-prev body">'+doc.html+'</div>'):'<p class="none">This file is gone. Pin another from Files.</p>';
-  side.innerHTML='<section class="fold" data-fold="pinned"><h3><button type="button" class="fold-h" aria-expanded="true" aria-controls="fold-pinned"><svg class="fold-c" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M4.5 3l3 3-3 3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="fold-t">Pinned</span><span class="faint fold-n"></span><span class="fold-peek truncate">'+esc(PIN.name)+'</span></button></h3>'+
+  const body=doc?(doc.media?'<img class="pin-img" alt="" src="/api/boards/'+BOARD+'/image?name='+encodeURIComponent(doc.name)+'&version='+doc.version+'">':'<div class="pin-prev body">'+doc.html+'</div>'):'<p class="none">'+tr('This file is gone. Pin another from Files.')+'</p>';
+  side.innerHTML='<section class="fold" data-fold="pinned"><h3><button type="button" class="fold-h" aria-expanded="true" aria-controls="fold-pinned"><svg class="fold-c" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M4.5 3l3 3-3 3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="fold-t">'+tr('Pinned')+'</span><span class="faint fold-n"></span><span class="fold-peek truncate">'+esc(PIN.name)+'</span></button></h3>'+
     '<div class="fold-b" id="fold-pinned"><button class="pin-card" type="button" data-pin-open><span class="row" style="gap:6px;min-width:0">${PIN_ICON}<b class="mono truncate">'+esc(PIN.name)+'</b></span><span class="xs faint">'+meta+'</span>'+body+'</button></div></section>';
   side.hidden=false;if(typeof foldApply==='function')foldApply()}
 function pinOpen(){if(!PIN)return;if(typeof infoOpen==='function')infoOpen(false);window.BOARD_CTX.openFile(PIN.name)}
@@ -53,12 +53,12 @@ document.addEventListener('click',e=>{if(e.target.closest('[data-pin-open]')){e.
 /** The file viewer's Pin / Unpin (people who can post; not for an older version). */
 function pinSlot(d){const s=document.getElementById('doc-pin-slot');if(!s)return;
   if(!PIN_API||!CAN_PIN||!d||d.version!==d.latest){s.innerHTML='';return}const on=!!PIN&&PIN.name===d.name;
-  s.innerHTML='<button class="btn sm ghost'+(on?' on':'')+'" type="button" id="doc-pin" aria-pressed="'+on+'" title="'+(on?'Unpin it from the top of the board':'Pin it to the top of the board as its source of truth')+'">${PIN_ICON}<span>'+(on?'Unpin':'Pin')+'</span></button>'}
+  s.innerHTML='<button class="btn sm ghost'+(on?' on':'')+'" type="button" id="doc-pin" aria-pressed="'+on+'" title="'+(on?tr('Unpin it from the top of the board'):tr('Pin it to the top of the board as its source of truth'))+'">${PIN_ICON}<span>'+(on?tr('Unpin'):tr('Pin'))+'</span></button>'}
 window.pinSlot=pinSlot;
 document.addEventListener('click',async e=>{const b=e.target.closest('#doc-pin');if(!b||!curDoc)return;b.disabled=true;const on=b.getAttribute('aria-pressed')==='true';
   const r=await fetch('/api/boards/'+BOARD+'/pin',on?{method:'DELETE'}:{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name:curDoc.name})}).catch(()=>null);
   const j=r?await r.json().catch(()=>({})):{};if(!r||!r.ok){toast(j.error||(on?"Couldn't unpin it":"Couldn't pin it"));b.disabled=false;return}
-  toast(on?'Unpinned':'Pinned to the top of the board');await pinRefresh()});
+  toast(on?tr('Unpinned'):tr('Pinned to the top of the board'));await pinRefresh()});
 pinRefresh();
 
 // ---- Recap: what happened since you last looked (decisions, open questions, who owes what) ----
@@ -74,9 +74,9 @@ function rcRender(j,since){
   const qs=(j.questions||j.open_questions||[]).map(x=>rcItem(x,esc(rcWho(x))+(waits(x).length?' → '+esc(waits(x).join(', ')):'')+(x.ts?' · '+rcTime(x.ts):'')));
   const owed=(j.owed||j.owes||[]).filter(o=>(o.items||[]).length);
   const KIND={task:'task',question:'question',review:'review',approval:'approval'};
-  const ow=owed.length?'<section class="rc-sec"><h3>Who owes what</h3>'+owed.map(o=>{const nm=o.agent?(o.session?o.who+'/'+o.session:o.who+"'s agent"):o.who;
-    return '<div class="rc-owe"><div class="rc-owe-h">'+(typeof avatar16==='function'?avatar16(o.who,!!o.agent):'')+'<b>'+esc(o.who===ME&&!o.agent?'You':nm)+'</b><span class="faint xs">'+o.items.length+'</span></div><ul>'+
-      o.items.map(x=>rcItem(x,esc(KIND[x.kind]||x.kind||'task')+((x.state||x.status)&&(x.state||x.status)!=='open'?' · '+esc(x.state||x.status):''))).join('')+'</ul></div>'}).join('')+'</section>':rcSec('Who owes what',[],'Nobody owes anything open.');
+  const ow=owed.length?'<section class="rc-sec"><h3>'+tr('Who owes what')+'</h3>'+owed.map(o=>{const nm=o.agent?(o.session?o.who+'/'+o.session:o.who+"'s agent"):o.who;
+    return '<div class="rc-owe"><div class="rc-owe-h">'+(typeof avatar16==='function'?avatar16(o.who,!!o.agent):'')+'<b>'+esc(o.who===ME&&!o.agent?tr('You'):nm)+'</b><span class="faint xs">'+o.items.length+'</span></div><ul>'+
+      o.items.map(x=>rcItem(x,esc(KIND[x.kind]||x.kind||'task')+((x.state||x.status)&&(x.state||x.status)!=='open'?' · '+esc(x.state||x.status):''))).join('')+'</ul></div>'}).join('')+'</section>':rcSec(tr('Who owes what'),[],tr('Nobody owes anything open.'));
   // Also, only when there is some: approvals waiting for you, tasks finished, files changed.
   const ap=(j.approvals||[]).map(a=>'<li><a href="/approvals" class="rc-ext"><span class="rc-t">'+esc(a.title)+'</span><span class="rc-m xs faint">'+esc(a.risk||'')+' risk'+(a.tool?' · '+esc(a.tool):'')+'</span></a></li>');
   // New or blocked tasks nobody owes yet (unassigned) aren't under "who owes what": list them, so nothing new is missed.
@@ -84,15 +84,15 @@ function rcRender(j,since){
   const fresh=[...(tm.blocked||[]),...(tm.new||[])].filter((t,i,a)=>!owing.has(t.seq)&&a.findIndex(x=>x.seq===t.seq)===i).map(t=>rcItem(t,esc(t.owner_label||'unassigned')+(t.status==='blocked'?' · blocked':'')));
   const done=(tm.done||[]).map(t=>rcItem(t,esc(t.owner_label||'')));
   const files=(j.files||[]).map(f=>'<li><a href="#files" data-recap-file="'+esc(f.name)+'"><span class="rc-t mono">'+esc(f.name)+'</span><span class="rc-m xs faint">'+(f.from_version?'v'+f.from_version+' → v'+f.to_version:'new')+(f.authors&&f.authors.length?' · '+esc(f.authors.join(', ')):'')+'</span></a></li>');
-  const more=(ap.length?rcSec('Waiting for your approval',ap,''):'')+(fresh.length?rcSec('New tasks',fresh,''):'')+(done.length?rcSec('Done',done,''):'')+(files.length?rcSec('Files changed',files,''):'');
+  const more=(ap.length?rcSec(tr('Waiting for your approval'),ap,''):'')+(fresh.length?rcSec(tr('New tasks'),fresh,''):'')+(done.length?rcSec(tr('Done'),done,''):'')+(files.length?rcSec(tr('Files changed'),files,''):'');
   const n=j.entries!=null?j.entries:j.count!=null?j.count:j.new_count;
   // Nothing posted since you last looked: say so, still show what's open and waiting, and offer the whole board.
   const quiet=since>0&&(n!=null?n===0:!dec.length&&!qs.length&&!owed.length);
-  rcSub.textContent=quiet?'Nothing new since you last looked':since>0?(n!=null?n+' new message'+(n===1?'':'s')+' since you last looked':'Since you last looked'):'The whole board'+(n?' · '+n+' message'+(n===1?'':'s'):'');
-  const all='<p class="small muted rc-none">'+(quiet?'':'Want more? ')+'<button class="linkish" type="button" data-recap-all>Recap the whole board</button></p>';
-  rcBody.innerHTML=quiet?(qs.length?rcSec('Still open',qs,''):'')+(owed.length?ow:'')+more+all
-    :rcSec('Decisions',dec,'No new decisions.')+rcSec('Open questions',qs,'No open questions.')+ow+more+(since>0?all:'')}
-async function rcOpen(since){rcSub.textContent='Loading…';rcBody.innerHTML='<p class="small muted">Loading…</p>';if(!rcDlg.open)rcDlg.showModal();
+  rcSub.textContent=quiet?tr('Nothing new since you last looked'):since>0?(n!=null?n+' new message'+(n===1?'':'s')+' since you last looked':tr('Since you last looked')):tr('The whole board')+(n?' · '+n+' message'+(n===1?'':'s'):'');
+  const all='<p class="small muted rc-none">'+(quiet?'':tr('Want more? '))+'<button class="linkish" type="button" data-recap-all>'+tr('Recap the whole board')+'</button></p>';
+  rcBody.innerHTML=quiet?(qs.length?rcSec(tr('Still open'),qs,''):'')+(owed.length?ow:'')+more+all
+    :rcSec(tr('Decisions'),dec,tr('No new decisions.'))+rcSec(tr('Open questions'),qs,tr('No open questions.'))+ow+more+(since>0?all:'')}
+async function rcOpen(since){rcSub.textContent=tr('Loading…');rcBody.innerHTML='<p class="small muted">'+tr('Loading…')+'</p>';if(!rcDlg.open)rcDlg.showModal();
   let r;try{r=await fetch('/api/boards/'+BOARD+'/recap?since='+since)}catch(e){r=null}
   if(!r||r.status===404||r.status===405){rcSub.textContent='';rcBody.innerHTML='<p class="small muted">Recap isn\\'t available on this server yet.</p>';return}
   const j=await r.json().catch(()=>({}));if(!r.ok){rcSub.textContent='';rcBody.innerHTML='<p class="flash err">'+esc(j.error||"Couldn't load the recap")+'</p>';return}

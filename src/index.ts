@@ -1,5 +1,6 @@
 // Worker entry: MCP endpoint, sign-in, web pages, JSON API, and the operator console (/_ops).
 
+import { pickLang } from "./i18n";
 import * as a2a from "./a2a";
 import { runGrep } from "./grep";
 import * as usage from "./usage";
@@ -136,11 +137,17 @@ async function loadViewer(env: Env, session: auth.Session | null, request?: Requ
   // Usually already joined in by getSession; look the member up only if it wasn't.
   const u = session.u_name ? { name: session.u_name, email: session.u_email ?? null, display_name: session.u_display_name ?? null } : await registry.userByName(env, session.user);
   if (!u) return null;
+  // The interface language (i18n.ts): ?lang=, else the saved display pref, else the browser's.
+  let pref: string | null = null;
+  try {
+    pref = session.u_display ? ((JSON.parse(session.u_display) as { lang?: unknown }).lang as string | null) ?? null : null;
+  } catch {}
   return {
     name: u.name,
     email: u.email ?? session.email,
     display_name: u.display_name,
     admin: !!session.email_verified && auth.isAdminEmail(env, session.email),
+    lang: pickLang(typeof pref === "string" ? pref : null, request ? new URL(request.url).searchParams.get("lang") : null, request?.headers.get("accept-language") ?? null),
   };
 }
 
@@ -1940,7 +1947,7 @@ const handler = {
             ctx.waitUntil(Promise.all([registry.touch(env, viewer.name, id), registry.bumpBoard(env, id, entry.seq)]).catch(() => {}));
             // Like a text post, the rendered entry comes back so the page can swap its "sending" copy for it.
             const root = replyTo ? ((await stub.rootsFor([entry.seq]))[entry.seq] ?? entry.seq) : entry.seq;
-            return json({ ok: true, entry, update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(withAgentNames(entry, agentNames(fileMembers)), id, true, { canRetract: true }), row: logRow(entry), reactions: [] } }, 201);
+            return json({ ok: true, entry, update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(withAgentNames(entry, agentNames(fileMembers)), id, true, { canRetract: true, lang: viewer?.lang }), row: logRow(entry), reactions: [] } }, 201);
           } catch (e) {
             return json({ error: e instanceof Error ? e.message : String(e) }, 400);
           }
@@ -2453,7 +2460,7 @@ const handler = {
               ...(e.via === "agent" && names[e.author] ? { agent_name: names[e.author] } : {}), // "Jarvis · vedu's agent"
               root: roots[e.seq] ?? e.seq,
               retracts: e.retracts,
-              html: entryHtml(withAgentNames(e, names), id, true, { canRetract: canRetract(e) }),
+              html: entryHtml(withAgentNames(e, names), id, true, { canRetract: canRetract(e), lang: viewer?.lang }),
               row: logRow(e),
               reactions: snap.reactions[e.seq] ?? [],
               ...(e.type === "change" ? { reviews: snap.reviews[e.seq] ?? [] } : {}),
@@ -2467,7 +2474,7 @@ const handler = {
             handling: snap.handling, // which agent took which message ("vedu/scout")
             reads: snap.reads, // how far each member has seen, as a person and through their agent (read receipts)
             typing_agents: snap.typing_agents, // agents working on a person's message right now ("… is typing")
-            summary: summaryHtml([], viewer?.name ?? "", members, snap.summary, { boardId: id, creator: snap.info.created_by }),
+            summary: summaryHtml([], viewer?.name ?? "", members, snap.summary, { boardId: id, creator: snap.info.created_by }, viewer?.lang),
             pinned: snap.pinned, // the board's pinned doc {name, version, …} or null
             count: snap.info.entry_count,
             last: snap.last, // past any people-only entries this viewer doesn't get, so the tab doesn't ask again
@@ -2503,7 +2510,7 @@ const handler = {
             entries: page.map((e) => ({
               seq: e.seq,
               root: roots[e.seq] ?? e.seq,
-              html: entryHtml(withAgentNames(e, names), id, true, { canRetract: !!viewer && (e.author === viewer.name || isOwner) }),
+              html: entryHtml(withAgentNames(e, names), id, true, { canRetract: !!viewer && (e.author === viewer.name || isOwner), lang: viewer?.lang }),
               row: logRow(e),
               reactions: reactions[e.seq] ?? [],
               ...(e.human_decision ? { human_decision: e.human_decision } : {}),
@@ -2570,7 +2577,7 @@ const handler = {
             // The poster sees "@Jarvis" as that agent's chip straight away, as everyone else does (jxn #1659).
             // A people-only message (asked for, or a reply in one) says once, here, who can see it.
             const notice = entry.audience ? { notice: peopleNotice(viewer.name, entry.to_people ?? []) } : {};
-            return json({ ok: true, entry, ...notice, update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(withAgentNames(entry, agentNames(boardMembers)), id, true, { canRetract: true }), row: logRow(entry), reactions: [] }, ...(ambiguous.length ? { ambiguous } : {}) }, 201);
+            return json({ ok: true, entry, ...notice, update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(withAgentNames(entry, agentNames(boardMembers)), id, true, { canRetract: true, lang: viewer?.lang }), row: logRow(entry), reactions: [] }, ...(ambiguous.length ? { ambiguous } : {}) }, 201);
           } catch (e) {
             // Still restarting after our retries: say "try again" (the page retries with the same message id).
             if (isRetriable(e)) {

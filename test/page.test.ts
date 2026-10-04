@@ -228,7 +228,7 @@ describe("status card (#1289)", () => {
     expect(html).not.toContain("<img");
     // The board page offers /status and carries the live-card script, with its escapes intact.
     const page = await boardPage({ name: "jxn", email: "jxn@example.com", display_name: null, admin: false }, [], info, [{ user: "jxn", display_name: null, last_seen: 0 }], entries, []).text();
-    expect(page).toContain("['status','The last 3 commits and the task queue, as a live card']");
+    expect(page).toContain("['status',tr('The last 3 commits and the task queue, as a live card')]");
     expect(page).toContain("if(!/^\\/status\\s*$/i.test(ta.value)||!window.ST)return;");
     expect(page).toContain("window.ST=(()=>");
     expect(page).toContain("location.pathname.match(/^\\/b\\/([^/?#]+)/)");

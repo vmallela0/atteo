@@ -2,6 +2,7 @@
 // Rows are written by the board when the post lands (see Board.notify); every signed-in page shows the unread count.
 
 import { appPage, avatar, relTime, type SideBoard, type Viewer } from "./ui";
+import { tr } from "./i18n";
 import { esc } from "./util";
 import { approvalCardHtml, approvalJs, type ApprovalCardData } from "./approvalCard";
 import type { Env } from "./types";
@@ -104,28 +105,30 @@ function approvalFor(i: InboxItem & { approval_id?: string | null }, list: (Appr
 }
 
 export function inboxPage(viewer: Viewer, side: SideBoard[], items: InboxItem[], approvals: (ApprovalCardData & { created_at?: number })[] = []): Response {
+  const L = viewer.lang,
+    T = (x: string, v?: Record<string, string | number>) => tr(L, x, v);
   const unread = items.filter((i) => !i.read_at).length;
   const rows = items
     .map((i) => {
-      const who = i.kind === "approval" ? "Your agent" : i.actor_via === "agent" ? `${i.actor}'s agent` : i.actor;
+      const who = i.kind === "approval" ? T("Your agent") : i.actor_via === "agent" ? T("{name}'s agent", { name: i.actor }) : i.actor;
       const href = i.board_id ? `/b/${esc(i.board_id)}#e${i.seq}` : i.kind === "approval" ? "/approvals" : "/people";
       return `<li class="inbox-item${i.read_at ? "" : " unread"}"><a href="${href}" data-inbox-id="${i.id}">
 ${avatar(i.actor, "sm", i.actor_via === "agent")}
-<div class="grow" style="min-width:0"><div class="small">${i.kind === "people_only" ? `<span class="po-lock" title="Only people can see it. Agents can't." aria-label="People only">🔒</span> ` : ""}<b>${esc(who)}</b> ${VERB[i.kind]}${i.board_id ? ` <span class="faint">in</span> ${esc(i.board_title ?? i.board_id)} <span class="faint">· #${i.seq}` : ` <span class="faint">`} · ${esc(relTime(i.created_at))}</span></div>
-<div class="small muted truncate">${esc(i.excerpt)}</div></div>${i.read_at ? "" : `<span class="dot" aria-label="unread"></span>`}</a>${
+<div class="grow" style="min-width:0"><div class="small">${i.kind === "people_only" ? `<span class="po-lock" title="${esc(T("Only people can see it. Agents can't."))}" aria-label="${esc(T("People only"))}">🔒</span> ` : ""}<b>${esc(who)}</b> ${esc(T(VERB[i.kind]))}${i.board_id ? ` <span class="faint">${esc(T("in"))}</span> ${esc(i.board_title ?? i.board_id)} <span class="faint">· #${i.seq}` : ` <span class="faint">`} · ${esc(relTime(i.created_at, Date.now(), L))}</span></div>
+<div class="small muted truncate">${esc(i.excerpt)}</div></div>${i.read_at ? "" : `<span class="dot" aria-label="${esc(T("unread"))}"></span>`}</a>${
         approvalFor(i, approvals)
-          ? approvalCardHtml(approvalFor(i, approvals)!, true)
+          ? approvalCardHtml(approvalFor(i, approvals)!, true, L)
           : i.kind === "contact_request" && !i.read_at
-          ? `<div class="row" style="gap:6px;padding:0 12px 10px 48px"><button class="btn sm primary" type="button" data-contact="${esc(i.actor)}" data-decide="accept">Let them talk</button><button class="btn sm ghost" type="button" data-contact="${esc(i.actor)}" data-decide="decline">Decline</button></div>`
+          ? `<div class="row" style="gap:6px;padding:0 12px 10px 48px"><button class="btn sm primary" type="button" data-contact="${esc(i.actor)}" data-decide="accept">${esc(T("Let them talk"))}</button><button class="btn sm ghost" type="button" data-contact="${esc(i.actor)}" data-decide="decline">${esc(T("Decline"))}</button></div>`
           : ""
       }</li>`;
     })
     .join("");
   const body = `<div class="section-title">
-<div><h1>Inbox</h1><p class="muted" style="margin-top:4px">Mentions of you, posts for your agent, and replies to you.</p></div>
-<div class="row" style="gap:6px"><button class="btn sm" type="button" id="notif-on" hidden>Turn on browser notifications</button>
-${unread ? `<form method="post" action="/api/inbox/read" data-api data-done="inboxCleared" style="margin:0"><input type="hidden" name="all" value="1"><button class="btn sm">Mark all read</button></form>` : ""}</div></div>
-${items.length ? `<ul class="inbox card">${rows}</ul>` : `<div class="card empty"><p class="muted">Nothing yet. When someone @mentions you or writes to your agent, it shows up here.</p></div>`}`;
+<div><h1>${esc(T("Inbox"))}</h1><p class="muted" style="margin-top:4px">${esc(T("Mentions of you, posts for your agent, and replies to you."))}</p></div>
+<div class="row" style="gap:6px"><button class="btn sm" type="button" id="notif-on" hidden>${esc(T("Turn on browser notifications"))}</button>
+${unread ? `<form method="post" action="/api/inbox/read" data-api data-done="inboxCleared" style="margin:0"><input type="hidden" name="all" value="1"><button class="btn sm">${esc(T("Mark all read"))}</button></form>` : ""}</div></div>
+${items.length ? `<ul class="inbox card">${rows}</ul>` : `<div class="card empty"><p class="muted">${esc(T("Nothing yet. When someone @mentions you or writes to your agent, it shows up here."))}</p></div>`}`;
   const script = `
 window.inboxCleared=()=>location.reload();
 // Approvals: Approve / Deny right here, without opening the board.
@@ -133,8 +136,8 @@ ${approvalJs(viewer.name)}
 // First contact from someone's agent: you decide once; after a yes, the two agents can DM each other.
 document.addEventListener('click',async e=>{const b=e.target.closest('[data-contact]');if(!b)return;b.disabled=true;
   const r=await sendReliably('/api/contacts/'+encodeURIComponent(b.dataset.contact)+'/'+b.dataset.decide,{});const j=await r.json().catch(()=>({}));
-  toast(r.ok?(b.dataset.decide==='accept'?'Done: your agents can talk now':'Declined'):(j.error||'Something went wrong'));if(r.ok)setTimeout(()=>location.reload(),600);else b.disabled=false});
+  toast(r.ok?(b.dataset.decide==='accept'?tr('Done: your agents can talk now'):tr('Declined')):(j.error||tr('Something went wrong')));if(r.ok)setTimeout(()=>location.reload(),600);else b.disabled=false});
 const nb=document.getElementById('notif-on');
 if('Notification' in window&&Notification.permission==='default'){nb.hidden=false;nb.onclick=async()=>{await Notification.requestPermission();nb.hidden=true}}`;
-  return appPage("Inbox · Atteo", { viewer, boards: side, active: "inbox", crumbs: `<span class="cur">Inbox</span>`, body, script, narrow: true });
+  return appPage(`${T("Inbox")} · Atteo`, { viewer, boards: side, active: "inbox", crumbs: `<span class="cur">${esc(T("Inbox"))}</span>`, body, script, narrow: true });
 }

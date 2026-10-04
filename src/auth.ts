@@ -130,6 +130,7 @@ export interface Session {
   u_name?: string | null;
   u_email?: string | null;
   u_display_name?: string | null;
+  u_display?: string | null; // display prefs JSON (for the interface language)
 }
 
 export async function createSession(
@@ -150,7 +151,7 @@ export async function getSession(request: Request, env: Env): Promise<Session | 
   const secret = readCookie(request, SESSION_COOKIE);
   if (!secret) return null;
   const row = await env.DB.prepare(
-    `SELECT s.id_hash, s.user, s.workos_id, s.email, s.email_verified, s.display_name, s.expires_at, u.name AS u_name, u.email AS u_email, u.display_name AS u_display_name
+    `SELECT s.id_hash, s.user, s.workos_id, s.email, s.email_verified, s.display_name, s.expires_at, u.name AS u_name, u.email AS u_email, u.display_name AS u_display_name, u.display AS u_display
      FROM sessions s LEFT JOIN users u ON u.name = s.user WHERE s.id_hash = ?`,
   )
     .bind(await sha256hex(secret))
