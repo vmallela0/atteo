@@ -155,8 +155,12 @@ export function deviceLabel(raw: unknown): string | null {
   return s || null;
 }
 
-/** Sweeps expired counters and tickets (the cron). */
+/** Sweeps expired counters and tickets (the cron), and voice sessions past two months (their minutes stay in voice_usage). */
 export async function sweep(env: Env): Promise<void> {
   const now = Date.now();
-  await env.DB.batch([env.DB.prepare(`DELETE FROM rate_limits WHERE reset_at < ?`).bind(now), env.DB.prepare(`DELETE FROM app_signups WHERE expires_at < ?`).bind(now)]);
+  await env.DB.batch([
+    env.DB.prepare(`DELETE FROM rate_limits WHERE reset_at < ?`).bind(now),
+    env.DB.prepare(`DELETE FROM app_signups WHERE expires_at < ?`).bind(now),
+    env.DB.prepare(`DELETE FROM voice_sessions WHERE created_at < ?`).bind(now - 62 * 24 * 3600_000),
+  ]);
 }

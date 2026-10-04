@@ -267,7 +267,7 @@ struct ThreadsList: View {
             }
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline) {
-                    Text(t.rootEntry.map { $0.byAgent ? "\($0.author)'s agent" : $0.author } ?? "An earlier message")
+                    Text(t.rootEntry.map { $0.byAgent ? Vocab.agentOf($0.author) : $0.author } ?? "An earlier message")
                         .font(unread ? Typo.rowTitle : Typo.rowTitleRead).foregroundStyle(Theme.text).lineLimit(1)
                     Spacer(minLength: Space.s)
                     Text(t.last.ago).font(Typo.micro).foregroundStyle(unread ? Theme.accent : Theme.faint).monospacedDigit()

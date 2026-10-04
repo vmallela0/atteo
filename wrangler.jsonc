@@ -30,7 +30,13 @@
     "ADMIN_EMAIL": "vedu.mallela@gmail.com,jxn@blxmail.com",
     // The public address (proxied to this workers.dev Worker from another account): sign-in callback, emails, OAuth/A2A
     // metadata, install.sh and webhook links all point here. Requests to localhost keep their own origin (src/util.ts publicOrigin).
-    "PUBLIC_URL": "https://atteo.dev"
+    "PUBLIC_URL": "https://atteo.dev",
+    // Voice + read-aloud caps (vedu #1582: strict; #1584: operators exempt). Per person per month, and everyone together.
+    "OPERATORS": "vedu,jxn",
+    "VOICE_MONTHLY_MINUTES": "60",
+    "VOICE_GLOBAL_MONTHLY_MINUTES": "600",
+    "TTS_MONTHLY_CHARS": "150000",
+    "TTS_GLOBAL_MONTHLY_CHARS": "2000000"
   }
-  // Secrets (wrangler secret put): WORKOS_API_KEY, ADMIN_KEY, SENTRY_DSN, XAI_API_KEY (read aloud; without it /api/app/tts answers 503). Locally they come from .dev.vars.
+  // Secrets (wrangler secret put): WORKOS_API_KEY, ADMIN_KEY, SENTRY_DSN, XAI_API_KEY (read aloud and voice; without it /api/app/tts and /api/app/voice/session answer 503). Locally they come from .dev.vars.
 }

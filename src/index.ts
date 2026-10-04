@@ -3,6 +3,7 @@
 import * as a2a from "./a2a";
 import { runGrep } from "./grep";
 import * as usage from "./usage";
+import * as limits from "./limits";
 import * as oauth from "./oauth";
 import { consentPage } from "./oauthPage";
 import * as approvals from "./approvals";
@@ -23,6 +24,7 @@ import { openapi } from "./openapi";
 import * as billing from "./billing";
 import { blockedMessage, scanFields } from "./secrets";
 import * as inbox from "./inbox";
+import * as forYou from "./forYou";
 import * as auth from "./auth";
 import * as appSignin from "./appSignin";
 import { handleMcp } from "./mcp";
@@ -35,6 +37,7 @@ import * as mailbox from "./mailbox";
 import * as recap from "./recap";
 import * as triggers from "./triggers";
 import * as tts from "./tts";
+import * as voice from "./voice";
 import { MAX_SCHEDULES } from "./schedules";
 import {
   adminPage,
@@ -61,7 +64,8 @@ import {
 import type { Entry, Env, Viewer as Seer } from "./types";
 import { FAVICON_SVG, page, renderText } from "./ui";
 import { APPLE_TOUCH_PNG_B64 } from "./appleIcon";
-import { atteoHeader, BOARD_RE, connectCommand, esc, newBoardId, legacyHostRedirect, normalizeUser, parseBoardMeta, publicOrigin } from "./util";
+import { assistantWelcomePage } from "./welcome";
+import { atteoHeader, BOARD_RE, connectCommand, esc, newBoardId, legacyHostRedirect, normalizeUser, parseBoardMeta, publicOrigin, requestNow } from "./util";
 
 import * as Sentry from "@sentry/cloudflare";
 import { scrubForSentry } from "./sentry";
@@ -145,6 +149,10 @@ function hasOpsKey(c: Ctx): boolean {
 }
 
 const isOps = (c: Ctx) => !!c.viewer?.admin || hasOpsKey(c);
+
+/** Two loops keep taking one session's wait from each other (limits.beginWait): the newest is turned away for a bit. */
+const waitRefused = (retryAfter: number) =>
+  json({ error: "Another wait from this agent session is already open (are two loops sharing one session?). Use one session per loop.", retry_after: retryAfter }, 429, { "retry-after": String(retryAfter) });
 
 async function sideBoards(env: Env, user: string): Promise<SideBoard[]> {
   const [boards, live] = await Promise.all([registry.boardsForUser(env, user), sessions.liveByBoard(env).catch(() => new Map<string, number>())]);
@@ -339,8 +347,13 @@ async function authCallback(c: Ctx): Promise<Response> {
 
 async function welcome(c: Ctx): Promise<Response> {
   const s = c.session;
-  if (!s) return redirect("/auth/login");
-  if (s.user) return redirect("/");
+  if (!s) return redirect("/auth/login?return=%2Fwelcome");
+  // Signed in: the Everyday first-run screen, "Bring your assistant" (board #1272). Before a name is picked, choose one.
+  if (s.user) {
+    if (c.request.method !== "GET" || !c.viewer) return redirect("/");
+    const [side, mine] = await Promise.all([sideBoards(c.env, c.viewer.name), sessions.list(c.env, c.viewer.name)]);
+    return assistantWelcomePage(c.viewer, side, c.origin, mine.filter(sessions.listed).map((x) => x.client || x.name));
+  }
   const suggestion = await freeName(c.env, suggestName(s.email, s.display_name));
   if (c.request.method === "GET") return welcomePage(s.email, suggestion);
   if (c.request.method !== "POST") return notFound();
@@ -483,12 +496,18 @@ async function opsData(env: Env): Promise<AdminData> {
 
 /** Every 5 minutes (the cron; tests call it through POST /api/ops/cron): retention, sweeps, expired memberships, and
  *  workflow triggers on a daily schedule (`now` lets a test pick the time those see). */
-async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): Promise<{ schedules: number; scheduled_tasks: number }> {
+async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): Promise<{ schedules: number; scheduled_tasks: number; shed: Awaited<ReturnType<typeof limits.updateShedLevel>> }> {
+  // Load shedding (src/limits.ts): today's usage sets the level every request then sees (0 normal, 1 stretch waits and
+  // pause background work, 2 also refuse non-essential agent writes).
+  const shed = await limits.updateShedLevel(env).catch(() => ({ level: limits.shedLevelNow(), requests: 0, rows_read: null }));
   // Boards with a retention period: blank what's older.
   const keep = (await env.DB.prepare(`SELECT id, retention_days FROM boards WHERE retention_days IS NOT NULL`).all<{ id: string; retention_days: number }>()).results;
   for (const b of keep) ctx.waitUntil(boardStub(env, b.id).prune(Date.now() - b.retention_days * 86_400_000).catch(() => 0));
-  ctx.waitUntil(env.DB.prepare(`DELETE FROM tape WHERE ts < ?`).bind(Date.now() - 7 * 86_400_000).run().catch(() => {}));
-  ctx.waitUntil(appSignin.sweep(env).catch(() => {}));
+  // Housekeeping sweeps wait while shedding load (they catch up on a quieter run).
+  if (shed.level < 1) {
+    ctx.waitUntil(env.DB.prepare(registry.TAPE_PRUNE_SQL).bind(Date.now() - 7 * 86_400_000).run().catch(() => {}));
+    ctx.waitUntil(appSignin.sweep(env).catch(() => {}));
+  }
   for (const m of await registry.expiredMembers(env)) {
     ctx.waitUntil(
       (async () => {
@@ -516,7 +535,7 @@ async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): 
       .catch(() => ({ results: [] as { board_id: string }[] }))
   ).results;
   const posted = await Promise.all(dueBoards.map((b) => boardStub(env, b.board_id).runBoardSchedules(now).catch((e) => (console.error("board schedules failed", b.board_id, e), 0))));
-  return { schedules: fired.reduce((a, b) => a + b, 0), scheduled_tasks: posted.reduce((a, b) => a + b, 0) };
+  return { schedules: fired.reduce((a, b) => a + b, 0), scheduled_tasks: posted.reduce((a, b) => a + b, 0), shed };
 }
 
 const handler = {
@@ -534,6 +553,7 @@ const handler = {
     const origin = publicOrigin(env, url);
     const path = url.pathname.replace(/\/+$/, "") || "/";
     const method = request.method;
+    limits.countServed(env, ctx); // every request, for the cron's shed level (in memory, flushed in batches)
 
     // Old workers.dev page links move to the public site (legacyHostRedirect: what stays put, and the cf-worker loop guard).
     const moved = legacyHostRedirect(env, request, url);
@@ -568,6 +588,8 @@ const handler = {
         const who = tok ? (await auth.resolveToken(env, tok, ctx)).user : null;
         const rpcErr = (id: unknown, code: number, message: string, status = 200) => json({ jsonrpc: "2.0", id: id ?? null, error: { code, message } }, status);
         if (!who) return new Response(JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32001, message: "Send a personal token: Authorization: Bearer <token>" } }), { status: 401, headers: { "content-type": "application/json", "WWW-Authenticate": `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource"` } });
+        const denied = await limits.admit(env, ctx, { user: who, kind: "agent", tokenKey: await auth.sha256hex(tok!), wait: false, write: true, essential: true });
+        if (denied) return denied;
         const rpc = (await request.json().catch(() => null)) as { id?: unknown; method?: string; params?: Record<string, any> } | null;
         if (!rpc?.method) return rpcErr(null, -32600, "Invalid request");
         const ok = (result: unknown) => json({ jsonrpc: "2.0", id: rpc.id ?? null, result });
@@ -625,17 +647,36 @@ const handler = {
 
       const session = await auth.getSession(request, env);
       const viewer = await loadViewer(env, session, request, path);
+      // Free-plan guardrails (src/limits.ts): per-token rate limit, the person's daily budget, load shedding. No D1 here.
+      if (viewer) {
+        const tok = session?.user ? null : auth.bearer(request);
+        const denied = await limits.admit(env, ctx, {
+          user: viewer.name,
+          kind: viewer.via === "agent" ? "agent" : "person",
+          tokenKey: tok ? await auth.sha256hex(tok) : null,
+          wait: limits.isWaitRequest(method, path, url),
+          write: method !== "GET" && method !== "HEAD" && method !== "OPTIONS",
+          essential: limits.isEssentialRest(path),
+        });
+        if (denied) return denied;
+      }
       const pv = (): "agent" | "person" => viewer?.via ?? "person"; // who wrote it: a person on the web, or an agent via token
       // Who's looking, for what a board shows: people-only messages (vedu #1264) reach only their own people, signed
       // in as themselves (web, the app). An agent's token, or no viewer (ops), sees none of them.
       const seer = (): Seer | null => (viewer ? { user: viewer.name, person: viewer.via !== "agent" } : null);
       // The agent session making the call (the CLI sends X-Atteo-Session): what it causes counts as its own posts.
-      let sessionMemo: Promise<string | null> | null = null;
-      const asid = () =>
+      let sessionMemo: Promise<sessions.AgentSession | null> | null = null;
+      const asess = () =>
         (sessionMemo ??= (async () => {
           const h = atteoHeader(request, "session");
-          return h && viewer?.via === "agent" ? ((await sessions.get(env, viewer.name, h))?.id ?? null) : null;
+          return h && viewer?.via === "agent" ? await sessions.get(env, viewer.name, h) : null;
         })());
+      const asid = async () => (await asess())?.id ?? null;
+      // Its id and name for the board: posts and tasks it causes are its own, and "is on it" names it.
+      const asOpts = async () => {
+        const s = await asess();
+        return { session: s?.id ?? null, session_name: s?.name ?? null };
+      };
       // A read-only agent session (scope "read") can read and wait, mark things seen, and manage its own session,
       // but nothing it sends may change a board or anyone's account.
       if (viewer?.via === "agent" && method !== "GET" && method !== "HEAD" && atteoHeader(request, "session")) {
@@ -649,6 +690,14 @@ const handler = {
       const c: Ctx = { request, env, ctx, url, origin, session, viewer };
       const needLogin = () =>
         method === "GET" && !path.startsWith("/api/") ? redirect(`/auth/login?return=${encodeURIComponent(url.pathname + url.search)}`) : json({ error: "sign in required" }, 401);
+
+      // ---- soft-deleted boards: gone for everyone (data stays in storage) until the creator restores one within 30 days ----
+      {
+        const dm = path.match(/^\/(?:api\/boards|b)\/(b_[a-z0-9]{8,32})(?:\/|$)/);
+        if (dm && !(method === "POST" && path === `/api/boards/${dm[1]}/restore`) && (await registry.deletedAt(env, dm[1]))) {
+          return path.startsWith("/api/") ? json({ error: "This chat was deleted" }, 404) : notFound(viewer);
+        }
+      }
 
       // ---- MCP OAuth: discovery, client registration, sign-in + approve, code → token ----
       const cors = { "access-control-allow-origin": "*", "access-control-allow-headers": "content-type, authorization, mcp-protocol-version", "access-control-allow-methods": "GET, POST, OPTIONS" };
@@ -735,17 +784,20 @@ const handler = {
       }
 
       // ---- pages ----
-      if (path === "/" && method === "GET") {
+      if ((path === "/" || path === "/chats") && method === "GET") {
         if (session && !session.user) return redirect("/welcome");
         if (!viewer) return landingPage();
         const me = await registry.userByName(env, viewer.name);
-        const [side, boards, invitations, status] = await Promise.all([
+        const [side, boards, invitations, status, had] = await Promise.all([
           sideBoards(env, viewer.name),
           registry.boardsOverview(env, viewer.name, viewer.via !== "agent"),
           me ? registry.invitationsFor(env, me) : [],
           registry.agentStatus(env, viewer.name),
+          registry.everHadAgent(env, viewer.name),
         ]);
-        return homePage(viewer, side, boards, invitations, { connected: status.connected, onThisBoard: false });
+        // Everyday (#1272): home is "For you" once you have an assistant; the chat list lives at /chats. Developer mode keeps today's home.
+        if (path === "/" && had && !invitations.length && viewer.via !== "agent" && !url.search && !(await developerFor(env, viewer.name, (await social.appPrefs(env, viewer.name))?.display.mode))) return redirect("/for-you");
+        return homePage(viewer, side, boards, invitations, { connected: status.connected, onThisBoard: false }, undefined, !had);
       }
 
       if (path === "/boards" && method === "POST") {
@@ -769,7 +821,7 @@ const handler = {
         } catch (e) {
           const plan = e instanceof billing.BillingError;
           if (plan) {
-            const mine = (await env.DB.prepare(`SELECT id, title, last_activity FROM boards WHERE created_by = ? AND archived_at IS NULL AND kind IS NULL ORDER BY last_activity`).bind(viewer.name).all<{ id: string; title: string; last_activity: number }>()).results;
+            const mine = (await env.DB.prepare(`SELECT id, title, last_activity FROM boards WHERE created_by = ? AND archived_at IS NULL AND deleted_at IS NULL AND kind IS NULL ORDER BY last_activity`).bind(viewer.name).all<{ id: string; title: string; last_activity: number }>()).results;
             return makeRoomPage(viewer, title, encrypted, mine);
           }
           return messagePage(plan ? "Free plan limit" : "Board not created", e instanceof Error ? e.message.replace(/: https?:\S+$/, ".") : String(e), {
@@ -824,6 +876,19 @@ const handler = {
         if (unreadIds.length) ctx.waitUntil(inbox.markRead(env, viewer.name, { ids: unreadIds }).catch(() => 0));
         return inbox.inboxPage(viewer, side, items, aps);
       }
+      // ---- For you (Everyday's home): what needs your OK, decisions and questions for you, what your assistant did today ----
+      if (path === "/for-you" && method === "GET") {
+        if (!viewer) return needLogin();
+        const now = Date.now();
+        const [side, aps, items] = await Promise.all([sideBoards(env, viewer.name), approvals.listApprovals(env, viewer.name, "pending"), inbox.listInbox(env, viewer.name, 60)]);
+        // Unread mail for you (the person) from the last week: mentions and replies open in their chat; their boards are
+        // looked at too, so a decision or question waiting there shows even on a quiet board.
+        const mail = items.filter((i) => !i.read_at && i.board_id && (i.kind === "mention" || i.kind === "reply" || i.kind === "decision") && now - i.created_at < 7 * 86_400_000);
+        const mentions = mail.filter((i) => i.kind !== "decision" && i.entry_type !== "question" && i.entry_type !== "decision");
+        const ids = [...new Set([...side.slice(0, forYou.FOR_YOU_BOARDS).map((b) => b.id), ...mail.map((i) => i.board_id)])].slice(0, forYou.FOR_YOU_BOARDS + 4);
+        const boards = (await Promise.all(ids.map((id) => boardStub(env, id).forYou(viewer.name, now - forYou.DONE_WINDOW_MS).catch(() => null)))).filter((b): b is forYou.ForYouCore => !!b);
+        return forYou.forYouPage(viewer, side, { approvals: aps, boards, mentions, now });
+      }
       if (path === "/api/inbox" && method === "GET") {
         if (!viewer) return needLogin();
         return json({ items: await inbox.listInbox(env, viewer.name, 50, viewer.via !== "agent") });
@@ -851,11 +916,22 @@ const handler = {
       if (path === "/api/mailbox" && method === "GET") {
         if (!viewer) return needLogin();
         const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get("limit") ?? "50", 10) || 50));
-        const wait = Math.min(25, Math.max(0, parseInt(url.searchParams.get("wait") ?? "0", 10) || 0));
+        // Shedding load: waits hold up to twice as long and check half as often (fewer requests, same D1 reads a minute).
+        const level = await limits.shedLevel(env);
+        const wait = Math.round(limits.stretchWait(Math.min(25, Math.max(0, parseInt(url.searchParams.get("wait") ?? "0", 10) || 0)) * 1000, 50_000, level) / 1000);
         const peek = url.searchParams.get("peek") === "1";
         // An agent session gets its own mail too (mail for one session, "@you/claude-2", only reaches that session).
-        const r0 = await mailbox.collect(env, viewer.name, { limit, wait, peek, session: await asid() }, async (b, seq) => (await boardStub(env, b).get(seq)).entry.text);
-        const r = { ...r0, mail: await social.mailWithAgentNames(env, r0.mail) }; // from_agent_name: "Jarvis" (from: its owner)
+        const sid = await asid();
+        // One open wait per agent session: a newer one ends this one (limits.beginWait).
+        const w = wait && sid ? limits.beginWait(`s:${sid}`) : null;
+        if (w?.refused) return waitRefused(w.refused);
+        let r0: Awaited<ReturnType<typeof mailbox.collect>>;
+        try {
+          r0 = await mailbox.collect(env, viewer.name, { limit, wait, peek, session: sid, pollMs: level >= 1 ? 6000 : 3000, signal: w?.signal }, async (b, seq) => (await boardStub(env, b).get(seq)).entry.text);
+        } finally {
+          w?.done();
+        }
+        const r = { ...r0, mail: await social.mailWithAgentNames(env, r0.mail), ...(limits.superseded(w?.signal) ? { superseded: true } : {}), ...(limits.pollAfterMs(level) ? { poll_after_ms: limits.pollAfterMs(level) } : {}) }; // from_agent_name: "Jarvis" (from: its owner)
         // headless: the person reads the board, not the agent's terminal (the CLI says so over the mail).
         return json((await social.agentsHeadless(env, viewer.name)) ? { ...r, headless: true } : r, 200, { "cache-control": "no-store" });
       }
@@ -1019,7 +1095,7 @@ const handler = {
               if (k.rotate_needed) return json({ error: "Someone left or a device was removed: open a new epoch first (atteo does this for you).", rotate_needed: true }, 409);
               if (v2.epoch !== k.current) return json({ error: `This board's key is at epoch ${k.current}; encrypt with that.`, current: k.current }, 409);
             }
-            const e = await stub.postSealed(viewer.name, { to: b.to ? String(b.to) : null, note, payload: String(b.payload ?? ""), type: b.type, reply_to: Number(b.reply_to) || null }, { via: pv(), client: viewer.via === "agent" ? "atteo CLI" : null, session: await asid() });
+            const e = await stub.postSealed(viewer.name, { to: b.to ? String(b.to) : null, note, payload: String(b.payload ?? ""), type: b.type, reply_to: Number(b.reply_to) || null }, { via: pv(), client: viewer.via === "agent" ? "atteo CLI" : null, ...(await asOpts()) });
             ctx.waitUntil(registry.bumpBoard(env, km[1], e.seq).catch(() => {}));
             return json({ ok: true, entry: e }, 201);
           }
@@ -1100,11 +1176,15 @@ const handler = {
       if (path === "/api/app/prefs" && (method === "GET" || method === "POST")) {
         if (!viewer) return needLogin();
         if (viewer.via === "agent") return json({ error: "App settings are for people, in the web or the app." }, 403);
-        if (method === "GET") return json({ prefs: await social.appPrefs(env, viewer.name) }, 200, { "cache-control": "no-store" });
+        if (method === "GET") {
+          const prefs = await social.appPrefs(env, viewer.name);
+          return json({ prefs: prefs && { ...prefs, developer: await developerFor(env, viewer.name, prefs.display.mode) } }, 200, { "cache-control": "no-store" });
+        }
         const b = await request.json().catch(() => null);
         if (!b || typeof b !== "object" || Array.isArray(b)) return json({ error: 'Send an object, e.g. {"display":{"theme":"dark"}}.' }, 400);
         try {
-          return json({ ok: true, prefs: await social.setAppPrefs(env, viewer.name, b as Record<string, unknown>) });
+          const saved = await social.setAppPrefs(env, viewer.name, b as Record<string, unknown>);
+          return json({ ok: true, prefs: { ...saved, developer: await developerFor(env, viewer.name, saved.display.mode) } });
         } catch (e) {
           return json({ error: e instanceof Error ? e.message : String(e) }, 400);
         }
@@ -1112,7 +1192,10 @@ const handler = {
       // display and reactions still work here (aliases of /api/app/prefs) so older web and app builds keep working.
       if (path === "/api/me/profile" && (method === "GET" || method === "POST")) {
         if (!viewer) return needLogin();
-        if (method === "GET") return json({ profile: await social.profile(env, viewer.name) });
+        if (method === "GET") {
+          const p = await social.profile(env, viewer.name);
+          return json({ profile: p && { ...p, developer: await developerFor(env, viewer.name, p.display?.mode) } });
+        }
         const b = (await request.json().catch(() => ({}))) as Record<string, unknown>;
         const hit = scanFields({ bio: typeof b.bio === "string" ? b.bio : null, display_name: typeof b.display_name === "string" ? b.display_name : null, agent_name: typeof b.agent_name === "string" ? b.agent_name : null });
         if (hit) return json({ error: blockedMessage(hit) }, 400);
@@ -1135,23 +1218,21 @@ const handler = {
         type Line = { id: number; board_id: string; board: string | null; kind: string | null; seq: number; ts: number; author: string; via: string | null; type: string; to_user: string | null; excerpt: string };
         const read = async (from: number) =>
           (
-            await env.DB.prepare(
-              `SELECT t.id, t.board_id, b.title AS board, b.kind, t.seq, t.ts, t.author, t.via, t.type, t.to_user, t.excerpt FROM tape t JOIN boards b ON b.id = t.board_id
-               WHERE t.id > ? AND t.board_id IN (SELECT board_id FROM members WHERE user = ?) ORDER BY t.id LIMIT ?`,
-            )
+            await env.DB.prepare(registry.TAPE_READ_SQL)
               .bind(from, viewer.name, limit)
               .all<Line>()
           ).results;
         // No cursor yet: start at the newest line (a tape shows what happens from now on, plus the last few).
         let from = after;
         if (!url.searchParams.has("after")) {
-          const top = await env.DB.prepare(`SELECT MAX(id) AS id FROM tape`).first<{ id: number | null }>();
+          const top = await env.DB.prepare(registry.TAPE_TOP_SQL).first<{ id: number | null }>();
           from = Math.max(0, (top?.id ?? 0) - Math.min(limit, 20));
         }
         let lines = await read(from);
         const until = Date.now() + waitSec * 1000;
+        const every = limits.shedLevelNow() >= 1 ? 5000 : 1500; // shedding load: check D1 less often
         while (!lines.length && Date.now() < until) {
-          await new Promise((r) => setTimeout(r, 1500));
+          await new Promise((r) => setTimeout(r, every));
           lines = await read(from);
         }
         const last = lines.length ? lines[lines.length - 1].id : from;
@@ -1275,6 +1356,8 @@ const handler = {
 
       // ---- read aloud (an app/web client feature, all in tts.ts): /api/app/tts, /api/app/tts/status ----
       if (path.startsWith("/api/app/tts")) return tts.route(request, env, ctx, path, viewer);
+      // ---- talk to Atteo (speech-to-speech; all in voice.ts): /api/app/voice/session, /session/end, /status ----
+      if (path.startsWith("/api/app/voice/")) return voice.route(request, env, path, viewer);
 
       // ---- phones for push notifications (the Atteo app registers its APNs device token) ----
       if (path === "/api/me/devices" && (method === "POST" || method === "DELETE")) {
@@ -1315,14 +1398,15 @@ const handler = {
 
       if (path === "/me" && method === "GET") {
         if (!viewer) return needLogin();
-        const [side, tokens, plan, hooks, prof] = await Promise.all([
+        const [side, tokens, plan, hooks, prof, mine] = await Promise.all([
           sideBoards(env, viewer.name),
           auth.listTokens(env, viewer.name),
           billing.planOf(env, viewer.name),
           webhooks.listWebhooks(env, viewer.name),
           social.profile(env, viewer.name),
+          sessions.list(env, viewer.name),
         ]);
-        return mePage(viewer, side, tokens, plan, !!env.STRIPE_SECRET_KEY, hooks, prof);
+        return mePage(viewer, side, tokens, plan, !!env.STRIPE_SECRET_KEY, hooks, prof, mine.filter(sessions.listed).map((x) => x.client || x.name));
       }
 
       if (path === OPS_PATH && method === "GET") {
@@ -1332,27 +1416,51 @@ const handler = {
       }
 
       // ---- rename / archive / restore a board (its creator, or an operator) ----
-      m = path.match(/^\/api\/boards\/([^/]+)\/(rename|archive)$/);
+      m = path.match(/^\/api\/boards\/([^/]+)\/(rename|archive|unarchive)$/);
       if (m && method === "POST") {
         if (!viewer && !hasOpsKey(c)) return needLogin();
         const board = BOARD_RE.test(m[1]) ? await registry.getBoard(env, m[1]) : null;
         if (!board || !(await canSee(c, m[1]))) return json({ error: "board not found" }, 404);
         if (!isOps(c) && board.created_by !== viewer?.name && (await registry.memberRole(env, board.id, viewer?.name ?? "")) !== "owner") return json({ error: "Only the board's owners can do that." }, 403);
         const body = (await request.json().catch(() => ({}))) as { title?: string; archived?: boolean | string };
-        ctx.waitUntil(registry.audit(env, board.id, viewer?.name ?? "ops", m[2] === "rename" ? "renamed" : body.archived === true || body.archived === "true" ? "archived" : "restored", null, m[2] === "rename" ? String(body.title ?? "").slice(0, 120) : null).catch(() => {}));
+        ctx.waitUntil(registry.audit(env, board.id, viewer?.name ?? "ops", m[2] === "rename" ? "renamed" : m[2] === "unarchive" ? "unarchived" : body.archived === true || body.archived === "true" ? "archived" : "restored", null, m[2] === "rename" ? String(body.title ?? "").slice(0, 120) : null).catch(() => {}));
         try {
           if (m[2] === "rename") {
             const info = await boardStub(env, board.id).rename(String(body.title ?? ""));
             await registry.renameBoard(env, board.id, info.title);
             return json({ ok: true, title: info.title, message: `Renamed to "${info.title}".` });
           }
-          const on = body.archived === true || body.archived === "true";
+          const on = m[2] === "archive" && (body.archived === true || body.archived === "true");
           await boardStub(env, board.id).setArchived(on);
           await registry.setBoardArchived(env, board.id, on);
           return json({ ok: true, archived: on, message: on ? `Archived "${board.title}". It's read-only until restored.` : `Restored "${board.title}".` });
         } catch (e) {
           return json({ error: e instanceof Error ? e.message : String(e) }, 400);
         }
+      }
+
+      // ---- soft delete / restore (people who own the board; agents can't). Nothing is removed. ----
+      m = path.match(/^\/api\/boards\/([^/]+)$/);
+      if (m && method === "DELETE") {
+        if (!viewer) return needLogin();
+        const board = BOARD_RE.test(m[1]) ? await registry.getBoard(env, m[1]) : null;
+        if (!board || board.deleted_at || !(await registry.isMember(env, board.id, viewer.name))) return json({ error: "board not found" }, 404);
+        if (viewer.via === "agent") return json({ error: "Agents can't delete chats. Ask your person to." }, 403);
+        if ((board as { kind?: string | null }).kind) return json({ error: "Direct messages and your agent chat can't be deleted." }, 400);
+        if (board.created_by !== viewer.name) return json({ error: "Only the person who created this chat can delete it." }, 403);
+        await registry.setBoardDeleted(env, board.id, viewer.name);
+        ctx.waitUntil(registry.audit(env, board.id, viewer.name, "deleted", null, "soft delete; can be restored for 30 days").catch(() => {}));
+        return json({ ok: true, deleted: true, restorable_until: Date.now() + registry.RESTORE_WINDOW_MS, message: `Deleted "${board.title}". You can restore it for 30 days.` });
+      }
+      m = path.match(/^\/api\/boards\/([^/]+)\/restore$/);
+      if (m && method === "POST") {
+        if (!viewer) return needLogin();
+        const board = BOARD_RE.test(m[1]) ? await registry.getBoard(env, m[1]) : null;
+        if (!board || !board.deleted_at || board.created_by !== viewer.name || viewer.via === "agent") return json({ error: "board not found" }, 404);
+        if (requestNow(env, request) - board.deleted_at > registry.RESTORE_WINDOW_MS) return json({ error: "This chat was deleted more than 30 days ago, so it can't be restored." }, 410);
+        await registry.setBoardDeleted(env, board.id, null);
+        ctx.waitUntil(registry.audit(env, board.id, viewer.name, "restored_from_delete", null, null).catch(() => {}));
+        return json({ ok: true, deleted: false, message: `Restored "${board.title}".` });
       }
 
       // ---- delete a board (its creator, or an operator); confirm by typing the title ----
@@ -1711,26 +1819,42 @@ const handler = {
             return json({ session: { id: cur.id, name: cur.name }, boards: out });
           }
           if (method === "GET" && sub === "wait") {
-            const ms = Math.max(1000, Math.min((Number(url.searchParams.get("timeout")) || 45) * 1000, MAX_WAIT_MS));
+            // Shedding load stretches the wait (up to the usual maximum): fewer requests for the same listening.
+            const ms = limits.stretchWait(Math.max(1000, Math.min((Number(url.searchParams.get("timeout")) || 45) * 1000, MAX_WAIT_MS)), MAX_WAIT_MS, await limits.shedLevel(env));
             const take = async (join: boolean) =>
               (await Promise.all(ids.map(async (id) => ({ id, r: await boardStub(env, id).wait(viewer.name, join, cur.id).catch(() => null) })))).filter((x) => x.r && x.r.entries.length);
             const named = async (got: Awaited<ReturnType<typeof take>>) => Promise.all(got.map(async (x) => ({ ...x, r: { ...x.r!, entries: withNames(x.r!.entries, await social.boardAgentNames(env, x.id)) } })));
             let got = await take(true);
+            let wasSuperseded = false;
             if (!got.length) {
+              // One open wait per session: a newer one ends this one (limits.beginWait).
+              const w = limits.beginWait(`s:${cur.id}`);
+              if (w.refused) return waitRefused(w.refused);
               // The Worker waits on every board at once (they sleep meanwhile); the first that has something wakes it.
               const woke = await new Promise<boolean>((resolve) => {
                 let left = ids.length;
                 for (const id of ids)
-                  waitForBoard(boardStub(env, id), { kind: "agent", user: viewer.name, session: cur.id }, ms).then((v) => (v ? resolve(true) : --left === 0 && resolve(false)), () => --left === 0 && resolve(false));
-              });
+                  waitForBoard(boardStub(env, id), { kind: "agent", user: viewer.name, session: cur.id }, ms, w.signal).then((v) => (v ? resolve(true) : --left === 0 && resolve(false)), () => --left === 0 && resolve(false));
+              }).finally(() => w.done());
+              wasSuperseded = limits.superseded(w.signal);
               if (woke) got = await take(false);
             }
             if (got.length) got = await named(got); // "Jarvis (vedu's agent)"
             const entries = got.flatMap((x) => x.r!.entries.map((e) => ({ board: { id: x.id, title: x.r!.info.title }, entry: e })));
-            return json({ timed_out: !entries.length, entries, text: entries.length ? got.map((x) => render({ id: x.id, title: x.r!.info.title }, x.r!.entries)).join("\n") : `Nothing new on ${ids.length} board${ids.length === 1 ? "" : "s"} in ${Math.round(ms / 1000)}s.` });
+            return json({
+              timed_out: !entries.length,
+              ...(wasSuperseded && !entries.length ? { superseded: true } : {}),
+              entries,
+              text: entries.length
+                ? got.map((x) => render({ id: x.id, title: x.r!.info.title }, x.r!.entries)).join("\n")
+                : wasSuperseded
+                  ? "This wait ended early: a newer wait from the same session took over."
+                  : `Nothing new on ${ids.length} board${ids.length === 1 ? "" : "s"} in ${Math.round(ms / 1000)}s.`,
+            });
           }
           return json({ error: "method not allowed" }, 405);
         } catch (e) {
+          if (e instanceof sessions.SessionLimitError) return json({ error: e.message, retry_after: 180 }, 429, { "retry-after": "180" });
           if (e instanceof sessions.SessionError) return json({ error: e.message }, 400);
           throw e;
         }
@@ -2161,7 +2285,7 @@ const handler = {
             const t = await stub.taskCreate(
               viewer.name,
               { title: String(b.title ?? ""), body: typeof b.body === "string" ? b.body : "", priority: (["high", "medium", "low"] as const).find((p) => p === b.priority) ?? null, parent: typeof b.parent === "number" && b.parent > 0 ? b.parent : null },
-              { via: pv(), session: await asid() },
+              { via: pv(), ...(await asOpts()) },
             );
             ctx.waitUntil(registry.bumpBoard(env, m[1], t.seq).catch(() => {}));
             return json({ ok: true, task: t }, 201);
@@ -2173,7 +2297,7 @@ const handler = {
           const seq = parseInt(m[2], 10);
           const b = (await request.json().catch(() => ({}))) as Record<string, unknown>;
           const s = (k: string) => (typeof b[k] === "string" ? (b[k] as string).trim() : undefined);
-          const opts = { via: pv(), session: await asid() };
+          const opts = { via: pv(), ...(await asOpts()) };
           try {
             let t;
             if (b.action === "edit")
@@ -2280,12 +2404,27 @@ const handler = {
         if (!viewer && !hasOpsKey(c)) return needLogin();
         if (!(await canSee(c, id))) return json({ error: "board not found" }, 404);
         const stub = boardStub(env, id);
+        // Long-polls (wait=seconds, up to 25): stretched up to 50s while shedding load; one open per agent session.
+        const longPoll = async (after: number): Promise<Response | null> => {
+          const waitSec = Math.min(25, Math.max(0, parseInt(url.searchParams.get("wait") ?? "0", 10) || 0));
+          if (!waitSec) return null;
+          const ms = limits.stretchWait(waitSec * 1000, 50_000, await limits.shedLevel(env));
+          const sid = viewer?.via === "agent" ? await asid() : null;
+          const w = limits.beginWait(sid && `s:${sid}`);
+          if (w.refused) return waitRefused(w.refused);
+          try {
+            await waitForBoard(stub, { kind: "any", after }, ms, w.signal);
+          } finally {
+            w.done();
+          }
+          return null;
+        };
 
         if (what === "updates" && method === "GET") {
           const after = Math.max(0, parseInt(url.searchParams.get("after") ?? "0", 10) || 0);
           // Long-poll (wait=seconds) so an open board tab costs one request per change or per ~25s, not one every few seconds.
-          const waitSec = Math.min(25, Math.max(0, parseInt(url.searchParams.get("wait") ?? "0", 10) || 0));
-          if (waitSec) await waitForBoard(stub, { kind: "any", after }, waitSec * 1000);
+          const refused = await longPoll(after);
+          if (refused) return refused;
           // Only entries after `after` (up to 1000 per call; the client advances and asks again), roots resolved in the DO.
           const [snap, members0, live] = await Promise.all([stub.snapshot(after, {}, seer()), registry.boardMembers(env, id), registry.agentsOnBoard(env, id)]);
           const members = members0.map((x) => ({ ...x, agent_seen: live[x.user] ?? null }));
@@ -2318,13 +2457,14 @@ const handler = {
             pinned: snap.pinned, // the board's pinned doc {name, version, …} or null
             count: snap.info.entry_count,
             last: snap.last, // past any people-only entries this viewer doesn't get, so the tab doesn't ask again
+            ...(limits.pollAfterMs() ? { poll_after_ms: limits.pollAfterMs() } : {}), // shedding load: the tab waits this long before asking again
           });
         }
         if (what === "entries" && !seqStr && method === "GET" && url.searchParams.has("after")) {
           // Plain JSON for SDKs and scripts: entries after N (oldest first), optionally waiting up to 25s for new ones.
           const after = Math.max(0, parseInt(url.searchParams.get("after") ?? "0", 10) || 0);
-          const waitSec = Math.min(25, Math.max(0, parseInt(url.searchParams.get("wait") ?? "0", 10) || 0));
-          if (waitSec) await waitForBoard(stub, { kind: "any", after }, waitSec * 1000);
+          const refused = await longPoll(after);
+          if (refused) return refused;
           const [snap, names] = await Promise.all([stub.snapshot(after, {}, seer()), social.boardAgentNames(env, id)]);
           const list = withNames(snap.entries.slice(0, Math.min(500, parseInt(url.searchParams.get("limit") ?? "200", 10) || 200)), names);
           // Reactions on these entries (agents' 🤔 / ✅ read receipts among them), keyed by seq.
@@ -2407,8 +2547,8 @@ const handler = {
           }
           try {
             const idem = messageId(request.headers.get("idempotency-key"));
-            const session = await asid();
-            const entry = await withRetry(() => stub.post(viewer.name, { type, text, to, mentions, reply_to: replyTo, via: pv(), session, idem, ...(peopleOnly ? { people_only: true, to_people: toPeople } : {}) }));
+            const so = await asOpts();
+            const entry = await withRetry(() => stub.post(viewer.name, { type, text, to, mentions, reply_to: replyTo, via: pv(), ...so, idem, ...(peopleOnly ? { people_only: true, to_people: toPeople } : {}) }));
             ctx.waitUntil(Promise.all([registry.touch(env, viewer.name, id), registry.bumpBoard(env, id, entry.seq)]).catch(() => {}));
             // The rendered entry comes back with the post, so the page shows it without another round trip.
             const root = replyTo ? ((await stub.rootsFor([entry.seq]))[entry.seq] ?? entry.seq) : entry.seq;
@@ -2563,6 +2703,8 @@ const handler = {
             workos_id: null,
             display_name: body.display_name ?? null,
           });
+          // Tests can start a person in a given mode (Everyday is the default for people without a coding agent).
+          if (body.display && typeof body.display === "object") await social.setAppPrefs(env, name, { display: body.display });
           return json({ ok: true, name }, 201);
         }
         if (path === "/api/ops/tokens" && method === "POST") {
@@ -2606,6 +2748,16 @@ const handler = {
         if (path === "/api/ops/prune" && method === "POST") {
           if (!body.board || !(await registry.getBoard(env, body.board))) return json({ error: "board required" }, 400);
           return json({ ok: true, pruned: await boardStub(env, body.board).prune(Number(body.before) || Date.now()) });
+        }
+        // Free-plan guardrails (src/limits.ts) in this isolate: GET shows them; POST overrides limits (tests lower one; a
+        // single isolate under wrangler dev), {reset: true} clears overrides and counters, {shed: 0-2} sets today's level.
+        if (path === "/api/ops/limits") {
+          if (method === "POST") {
+            limits.setOverrides(body as Record<string, unknown>, (body as { reset?: unknown }).reset === true);
+            const lv = (body as { shed?: unknown }).shed;
+            if (lv != null) await limits.setShedLevel(env, Number(lv));
+          }
+          return json({ limits: limits.limits(env), shed: await limits.shedLevel(env) });
         }
         // Tests: run the cron now (as the 5-minute schedule would), at `now` (ms) for scheduled triggers.
         if (path === "/api/ops/cron" && method === "POST") {
@@ -2670,6 +2822,14 @@ const handler = {
 } satisfies ExportedHandler<Env>;
 
 // Errors also go to Sentry when SENTRY_DSN is set (prod); with no DSN the SDK stays off (dev/CI).
+/** Everyday or Developer (#1272): Developer when the person chose it, or (auto) once they've connected a coding agent. */
+const CODING_AGENT = /claude code|codex|cursor|windsurf|copilot|aider|cline|zed|opencode|gemini cli|amp\b/i;
+async function developerFor(env: Env, user: string, mode: string | undefined): Promise<boolean> {
+  if (mode === "developer") return true;
+  if (mode === "everyday") return false;
+  return (await sessions.list(env, user).catch(() => [])).some((s) => CODING_AGENT.test(s.client ?? ""));
+}
+
 export default Sentry.withSentry(
   (env: Env) => ({ dsn: env.SENTRY_DSN, release: env.CF_VERSION_METADATA?.id, tracesSampleRate: 0, beforeSend: scrubForSentry }),
   handler,

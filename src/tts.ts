@@ -129,13 +129,24 @@ export function budgetFor(env: Pick<Env, "TTS_MONTHLY_CHARS">): number {
   const n = Number(env.TTS_MONTHLY_CHARS);
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : DEFAULT_BUDGET;
 }
+/** Operators (env OPERATORS, comma-separated usernames; vedu #1584) skip the per-person and shared caps; their use still counts. */
+export function isOperator(env: Pick<Env, "OPERATORS">, user: string): boolean {
+  return String(env.OPERATORS ?? "").split(",").map((u) => u.trim().toLowerCase()).filter(Boolean).includes(user.toLowerCase());
+}
+/** All people together, per month (vedu #1582: strict caps). "*" is the shared row in tts_usage; no username can be "*". */
+export const ALL = "*";
+export const DEFAULT_GLOBAL_CHARS = 2_000_000; // ~$30/month of xAI TTS at $15 per 1M characters
+export function globalBudgetFor(env: Pick<Env, "TTS_GLOBAL_MONTHLY_CHARS">): number {
+  const n = Number(env.TTS_GLOBAL_MONTHLY_CHARS);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : DEFAULT_GLOBAL_CHARS;
+}
 export function perMinuteFor(env: Pick<Env, "TTS_PER_MINUTE">): number {
   const n = Number(env.TTS_PER_MINUTE);
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : DEFAULT_PER_MINUTE;
 }
 
-/** One request against the person's per-minute limit (fixed 60 s window in rate_limits, swept by the cron). */
-export async function rateHit(db: D1Database, user: string, limit: number, now: number): Promise<{ ok: boolean; retryAfter: number }> {
+/** One request against the person's per-minute limit (fixed 60 s window in rate_limits, swept by the cron). `kind` keeps features apart (voice.ts uses "voice"). */
+export async function rateHit(db: D1Database, user: string, limit: number, now: number, kind = "tts"): Promise<{ ok: boolean; retryAfter: number }> {
   const row = await db
     .prepare(
       `INSERT INTO rate_limits (key, n, reset_at) VALUES (?, 1, ?)
@@ -143,7 +154,7 @@ export async function rateHit(db: D1Database, user: string, limit: number, now: 
          reset_at = CASE WHEN rate_limits.reset_at <= ? THEN excluded.reset_at ELSE rate_limits.reset_at END
        RETURNING n, reset_at`,
     )
-    .bind(`tts:${user}`, now + 60_000, now, now)
+    .bind(`${kind}:${user}`, now + 60_000, now, now)
     .first<{ n: number; reset_at: number }>();
   return { ok: (row?.n ?? 1) <= limit, retryAfter: Math.max(1, Math.ceil(((row?.reset_at ?? now + 60_000) - now) / 1000)) };
 }
@@ -154,18 +165,24 @@ export async function usedChars(db: D1Database, user: string, now: number): Prom
 }
 
 /** Takes `n` characters from this month's budget, all or nothing. False: it would go past the budget. */
-export async function reserve(db: D1Database, user: string, n: number, budget: number, now: number): Promise<boolean> {
+export async function reserve(db: D1Database, user: string, n: number, budget: number, now: number, globalBudget = Infinity): Promise<boolean> {
   const month = monthOf(now);
+  if (Number.isFinite(globalBudget) && (await usedChars(db, ALL, now)) + n > globalBudget) return false; // everyone's month is spent
   const [, upd] = await db.batch<{ chars: number }>([
     db.prepare(`INSERT OR IGNORE INTO tts_usage (user, month, chars, requests) VALUES (?, ?, 0, 0)`).bind(user, month),
     db.prepare(`UPDATE tts_usage SET chars = chars + ?, requests = requests + 1 WHERE user = ? AND month = ? AND chars + ? <= ? RETURNING chars`).bind(n, user, month, n, budget),
   ]);
-  return (upd?.results?.length ?? 0) > 0;
+  if (!(upd?.results?.length ?? 0)) return false;
+  await db.batch([
+    db.prepare(`INSERT OR IGNORE INTO tts_usage (user, month, chars, requests) VALUES (?, ?, 0, 0)`).bind(ALL, month),
+    db.prepare(`UPDATE tts_usage SET chars = chars + ?, requests = requests + 1 WHERE user = ? AND month = ?`).bind(n, ALL, month),
+  ]);
+  return true;
 }
 
 /** Gives characters back when the provider failed (nothing was spoken). */
 export async function refund(db: D1Database, user: string, n: number, now: number): Promise<void> {
-  await db.prepare(`UPDATE tts_usage SET chars = MAX(0, chars - ?), requests = MAX(0, requests - 1) WHERE user = ? AND month = ?`).bind(n, user, monthOf(now)).run();
+  await db.prepare(`UPDATE tts_usage SET chars = MAX(0, chars - ?), requests = MAX(0, requests - 1) WHERE user IN (?, ?) AND month = ?`).bind(n, user, ALL, monthOf(now)).run();
 }
 
 export async function cacheKey(voice: Voice, text: string): Promise<string> {
@@ -182,6 +199,8 @@ export interface TtsDeps {
   provider: TtsProvider | null;
   cache: Pick<Cache, "match" | "put"> | null; // caches.default in the Worker; null skips caching
   budget: number;
+  /** Everyone's characters per month; Infinity for operators, who skip both caps (vedu #1584). */
+  globalBudget?: number;
   perMinute: number;
   /** A board message's text for this person: checks membership and refuses encrypted boards. */
   entryText: (board: string, seq: number) => Promise<EntryText>;
@@ -225,7 +244,7 @@ export async function speak(user: string, raw: unknown, deps: TtsDeps): Promise<
   const hit = deps.cache ? await deps.cache.match(key).catch(() => undefined) : undefined;
   if (hit?.body) return new Response(hit.body, { headers: { ...headers, "content-type": hit.headers.get("content-type") || "audio/mpeg", "x-tts-cache": "hit" } });
 
-  if (!(await reserve(deps.db, user, text.length, deps.budget, now)))
+  if (!(await reserve(deps.db, user, text.length, deps.budget, now, deps.globalBudget ?? Infinity)))
     return err(`You've used this month's read-aloud allowance (${deps.budget.toLocaleString("en-US")} characters). It resets on the 1st; the device voice still works.`, 429, { fallback: "device" });
   let audio: TtsAudio;
   try {
@@ -270,7 +289,8 @@ export async function route(request: Request, env: Env, ctx: ExecutionContext, p
     db: env.DB,
     provider: providerFor(env),
     cache: typeof caches !== "undefined" ? caches.default : null,
-    budget: budgetFor(env),
+    budget: isOperator(env, me) ? Number.MAX_SAFE_INTEGER : budgetFor(env),
+    globalBudget: isOperator(env, me) ? Infinity : globalBudgetFor(env),
     perMinute: perMinuteFor(env),
     waitUntil: (p) => ctx.waitUntil(p),
     entryText: async (bid, seq) => {

@@ -11,6 +11,7 @@ final class AgentSoupUITests: XCTestCase {
 
     func app(fresh: Bool) -> XCUIApplication {
         let a = XCUIApplication()
+        a.launchEnvironment["AGENT_SOUP_MODE"] = "developer" // today's app (Everyday.swift); Everyday tests opt in with "everyday"
         a.launchEnvironment["AGENT_SOUP_SERVER"] = env["AGENT_SOUP_SERVER"] ?? "http://localhost:8788"
         a.launchEnvironment["AGENT_SOUP_STILL"] = "1" // no endless animations: they keep the app from ever being idle for the test
         a.launchEnvironment["AGENT_SOUP_TOKEN"] = env["AGENT_SOUP_TOKEN"] ?? ""
@@ -587,6 +588,12 @@ final class AgentSoupUITests: XCTestCase {
         let onIt = a.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'on-it-'")).firstMatch
         if onIt.waitForExistence(timeout: 3) {
             if a.keyboards.count > 0 { a.swipeDown(velocity: .slow); sleep(1) } // keyboard down
+            // That swipe also scrolls the chat up, and the lazy list drops the question below the fold: bringIntoView
+            // reads a missing element as "above" and would scroll the wrong way, so back to the latest first (the
+            // question is a few messages up from there).
+            let latest = a.buttons["Jump to latest"]
+            if !onIt.exists && latest.exists { latest.tap(); sleep(1) }
+            XCTAssertTrue(onIt.waitForExistence(timeout: 5), "On it, near the latest")
             bringIntoView(onIt)
             onIt.tap()
             XCTAssertTrue(a.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'handling' AND label CONTAINS 'on it'")).firstMatch.waitForExistence(timeout: 5), "who's on it")
@@ -668,8 +675,9 @@ final class AgentSoupUITests: XCTestCase {
         let task = any["task-row-Write the incident note"].firstMatch
         XCTAssertTrue(task.waitForExistence(timeout: 5), "the task is in the list")
         task.tap()
-        // Who's on it shows in the task (read-only now: there's no Claim).
+        // Who's on it shows in the task; an available task also offers Claim.
         XCTAssertTrue(any["task-owner"].firstMatch.waitForExistence(timeout: 5), "the task says who's on it")
+        XCTAssertTrue(a.buttons["task-claim"].exists, "the available task can be claimed")
         // Tick a checklist line by tapping it; the server has the tick.
         let line = a.buttons["check-timeline of the outage"]
         XCTAssertTrue(line.exists)

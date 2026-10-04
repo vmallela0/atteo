@@ -14,8 +14,10 @@ import type { ChangeCard } from "./card";
 import type { Attachment, BoardInfo, Entry } from "./types";
 import { appPage, avatar, avatarStack, boardPic, copyField, hue, page, renderText, typeTag, when, working, type SideBoard, type Viewer } from "./ui";
 import { esc, pictureUrl } from "./util";
+import { WELCOME_BANNER_JS, assistantCard, grokBotMessage, welcomeBanner } from "./welcome";
 import { stateOf } from "./sessions";
 import { E2E_JS } from "./e2eweb";
+import { STATUS_JS } from "./status";
 import { EMOJI } from "./emoji";
 import { approvalCardHtml, approvalJs, type ApprovalCardData } from "./approvalCard";
 
@@ -85,6 +87,11 @@ function peopleBadge(e: Entry): string {
   return `<span class="badge po" title="${esc(`Only ${who} can see this. Agents can't.`)}" data-people="${esc(p.join(","))}">🔒 people only</span>`;
 }
 
+/** An HTML file can be previewed live (jxn #1309), sandboxed: see PREVIEW_JS. */
+const isHtml = (name: string | null | undefined) => !!name && /\.html?$/i.test(name);
+const previewBtn = (name: string, version?: number | null) =>
+  `<button class="btn sm ghost" type="button" data-preview-file="${esc(name)}"${version ? ` data-file-ver="${version}"` : ""} title="Try the page here (it runs in a sandbox)">Preview</button>`;
+
 export function entryHtml(e: Entry, boardId: string, withReplies = true, opts: { retracted?: boolean; canRetract?: boolean; root?: number } = {}): string {
   const refs: string[] = [];
   if (e.retracts != null) refs.push(`unsends <a class="ref" data-ref="${e.retracts}" href="#e${e.retracts}">#${e.retracts}</a>`);
@@ -100,7 +107,7 @@ export function entryHtml(e: Entry, boardId: string, withReplies = true, opts: {
 ${
         e.media
           ? `<a class="btn sm" href="${esc(fileSrc(boardId, e.artifact_name, e.artifact_version))}" download="${esc(e.artifact_name)}">Download</a>`
-          : `<button class="btn sm" type="button" data-open-file="${esc(e.artifact_name)}"${e.artifact_version ? ` data-file-ver="${e.artifact_version}"` : ""}>Open</button>`
+          : `${isHtml(e.artifact_name) ? previewBtn(e.artifact_name, e.artifact_version) : ""}<button class="btn sm" type="button" data-open-file="${esc(e.artifact_name)}"${e.artifact_version ? ` data-file-ver="${e.artifact_version}"` : ""}>Open</button>`
       }</div></div>`
     : "";
   // Reply sets the composer to answer this entry: an agent's post gets the reply addressed to that agent.
@@ -213,7 +220,7 @@ function filesHtml(boardId: string, list: Attachment[]): string {
   const chips = others
     .map((a) => {
       const act = a.mime.startsWith("text/")
-        ? `<button class="btn sm" type="button" data-open-file="${esc(a.name)}"${a.version ? ` data-file-ver="${a.version}"` : ""}>Open</button>`
+        ? `${isHtml(a.name) ? previewBtn(a.name, a.version) : ""}<button class="btn sm" type="button" data-open-file="${esc(a.name)}"${a.version ? ` data-file-ver="${a.version}"` : ""}>Open</button>`
         : `<a class="btn sm" href="${esc(fileSrc(boardId, a.name, a.version))}" download="${esc(a.name)}">Download</a>`;
       return `<div class="fh">${FILE_ICON}<span class="mono grow truncate">${esc(a.name)}${a.version ? ` <span class="xs faint">v${a.version}</span>` : ""}</span><span class="xs faint">${fmtBytes(a.size)}</span>${act}</div>`;
     })
@@ -243,6 +250,58 @@ function sessionPicker(list: { name: string; state: string; client: string | nul
 // and a "read replies aloud" toggle: a blip when a new message is for you, then tap the bar (or say "go ahead") to hear it.
 // Browser-only (Web Speech); each button shows only where the browser supports it.
 const VOICE_BTNS = `<button class="btn ghost sm mic-btn" type="button" id="mic-btn" aria-label="Talk" aria-pressed="false" title="Talk instead of typing (say “send it” at the end to post)" hidden><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><rect x="5.5" y="1.8" width="5" height="8.2" rx="2.5"/><path d="M3.2 7.6a4.8 4.8 0 0 0 9.6 0M8 12.4v2"/></svg></button><button class="btn ghost sm aloud-btn" type="button" id="aloud-btn" aria-label="Read replies aloud" aria-pressed="false" title="Read replies aloud: a blip when a message is for you, then tap the bar or say “go ahead”" hidden><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 6h2.2L8 3.2v9.6L4.7 10H2.5z"/><path class="vw" d="M10.6 5.6a3.4 3.4 0 0 1 0 4.8M12.4 3.8a6 6 0 0 1 0 8.4"/></svg></button>`;
+// Everyday on a board (#1272): plainer words over the same page. Developer mode is today's page; switching back restores it.
+const evJs = (agentChat: boolean) => `
+(()=>{const cap=x=>x?x[0].toUpperCase()+x.slice(1):x,EV=()=>document.documentElement.dataset.mode==='everyday';
+  const asst=u=>u===ME?'Your assistant':cap(u)+"'s assistant";
+  // Swap a text node's words, remembering the developer ones.
+  function say(el,ev,every){if(!el)return;if(el.dataset.dev===undefined)el.dataset.dev=el.textContent;el.textContent=ev?every:el.dataset.dev}
+  function first(el){return el&&[...el.childNodes].find(n=>n.nodeType===3&&n.textContent.trim())}
+  function sayNode(n,ev,every){if(!n)return;if(n._dev===undefined)n._dev=n.textContent;n.textContent=ev?every:n._dev}
+  function evEntry(el,ev){if(el.classList.contains('by-agent')){const m=el.querySelector(':scope>.grow>.meta');const o=m&&m.querySelector(':scope>.via.owner');
+      if(o)say(o,ev,asst(el.dataset.author));else say(m&&m.querySelector(':scope>.who'),ev,asst(el.dataset.author))}
+    const t=el.querySelector(':scope>.grow>.meta .t-task>span:last-child');if(t)say(t,ev,'to-do');
+    const c=el.querySelector(':scope>.grow>.chg');if(c&&ev&&!el.querySelector(':scope>.grow>.ev-res')){const r=document.createElement('div');r.className='ev-res';r.innerHTML='<span class="ev-ok" aria-hidden="true">✓</span><b></b>';r.querySelector('b').textContent=el.dataset.title||'Done';c.before(r)}}
+  function evPage(){const ev=EV();document.querySelectorAll('#thread>.entry').forEach(el=>evEntry(el,ev));
+    const tabs=document.querySelectorAll('#board-tabs [role=tab]');if(tabs[0])sayNode(first(tabs[0]),ev,'Chat');if(tabs[3])sayNode(first(tabs[3]),ev,'To-dos ');
+    const inv=document.querySelector('.bp-actions [data-open="invite"]:not([data-goto]), [data-open="invite"]:not([data-goto])');if(inv)sayNode(first(inv),ev,'Add');
+    const ta=document.getElementById('composer-text');if(ta){if(ta.dataset.dev===undefined)ta.dataset.dev=ta.placeholder;ta.placeholder=ev?(${agentChat}?'Ask your assistant…':'Message the group…'):ta.dataset.dev}
+    document.querySelectorAll('.fold[data-fold="memory"] .fold-t').forEach(x=>say(x,ev,'What assistants remember'))}
+  evPage();document.addEventListener('atteo-mode',evPage);
+  new MutationObserver(ms=>{if(!EV())return;for(const m of ms)for(const n of m.addedNodes)if(n.nodeType===1){if(n.matches&&n.matches('#thread>.entry'))evEntry(n,true);else if(n.querySelectorAll)n.querySelectorAll('.fold[data-fold="memory"] .fold-t').forEach(x=>say(x,true,'What assistants remember'))}}).observe(document.body,{childList:true,subtree:true});
+})();
+`;
+
+// People only (vedu #1264): a lock on the composer; only the people you @ see the message, and no agent ever does.
+const PO_BTN = `<button class="btn ghost sm po-btn" type="button" id="po-btn" aria-pressed="false" aria-label="People only" title="People only: only the people you @ can see it, agents can't"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><rect x="3.5" y="7" width="9" height="6.5" rx="1.6"/><path d="M5.5 7V5.2a2.5 2.5 0 0 1 5 0V7"/></svg></button>`;
+const PO_JS = `
+(()=>{const b=document.getElementById('po-btn'),inp=document.getElementById('po-in'),note=document.getElementById('po-note'),f=document.querySelector('form.composer');if(!b||!inp||!f)return;
+  const ta=document.getElementById('composer-text');let ph0=ta.placeholder;
+  window.poSet=on=>{b.setAttribute('aria-pressed',String(on));b.classList.toggle('on',on);inp.value=on?'true':'';note.hidden=!on;f.classList.toggle('po',on);ta.placeholder=on?'Only the people you @ will see this…':(ta.dataset.dev&&document.documentElement.dataset.mode!=='everyday'?ta.dataset.dev:ph0)};
+  b.addEventListener('click',()=>{poSet(b.getAttribute('aria-pressed')!=='true');ta.focus()});
+  // Needs someone to send it to: a person @mentioned in the text.
+  document.addEventListener('submit',e=>{if(e.target!==f||inp.value!=='true')return;if(!/(^|\\s)@[a-z0-9][a-z0-9_.-]*(?!'s agent)(?!\\/)/i.test(ta.value)){e.preventDefault();e.stopImmediatePropagation();toast('@ the people who should see it: agents never will')}},true);
+})();
+`;
+// HTML preview (jxn #1309). Board files are written by other people, so the page runs in an iframe with sandbox="allow-scripts"
+// and nothing else: an opaque origin (no cookies, storage or /api as you), no top navigation, no form posts, no popups; it is
+// loaded from srcdoc with a CSP that blocks network calls and form submissions. Encrypted boards preview the decrypted text.
+const PREVIEW_JS = `
+(()=>{const dlg=document.createElement('dialog');dlg.className='pv-dlg';dlg.setAttribute('aria-label','Preview');
+  dlg.innerHTML='<div class="pv-hd"><b class="mono truncate" id="pv-name"></b><span class="grow"></span><div class="seg pv-w" role="group" aria-label="Width"><button type="button" class="on" data-pv-w="">Full</button><button type="button" data-pv-w="390">Phone</button></div><button type="button" class="btn ghost sm" data-pv-close aria-label="Close preview">✕</button></div><div class="pv-body"><iframe id="pv-frame" sandbox="allow-scripts" referrerpolicy="no-referrer" title="Preview"></iframe></div><p class="xs faint pv-note">Runs in a sandbox: it can\\'t see your account or reach the network.</p>';
+  document.body.appendChild(dlg);const fr=dlg.querySelector('#pv-frame');
+  const CSP='<meta http-equiv="Content-Security-Policy" content="default-src \\'none\\'; script-src \\'unsafe-inline\\'; style-src \\'unsafe-inline\\'; img-src data: blob:; font-src data:; media-src data: blob:; form-action \\'none\\'; base-uri \\'none\\'">';
+  const withCsp=h=>/<head[^>]*>/i.test(h)?h.replace(/<head[^>]*>/i,m=>m+CSP):CSP+h;
+  async function open(name,ver){
+    let html='';try{const r=await fetch('/api/boards/'+BOARD+'/doc?name='+encodeURIComponent(name)+(ver?'&version='+ver:''));const d=await r.json();if(!r.ok){toast(d.error||"Couldn't open it");return}html=d.content||'';
+      if(window.e2eDecryptDoc)html=await window.e2eDecryptDoc(d)||html}catch(e){toast("Couldn't open it");return}
+    dlg.querySelector('#pv-name').textContent=name;fr.srcdoc=withCsp(html);setW('');if(!dlg.open)dlg.showModal()}
+  function setW(w){fr.style.width=w?w+'px':'100%';dlg.querySelectorAll('[data-pv-w]').forEach(b=>b.classList.toggle('on',b.dataset.pvW===w))}
+  dlg.addEventListener('click',e=>{if(e.target===dlg||e.target.closest('[data-pv-close]')){dlg.close();return}const w=e.target.closest('[data-pv-w]');if(w)setW(w.dataset.pvW)});
+  dlg.addEventListener('close',()=>{fr.srcdoc=''});
+  document.addEventListener('click',e=>{const b=e.target.closest('[data-preview-file]');if(!b)return;e.preventDefault();e.stopPropagation();open(b.dataset.previewFile,b.dataset.fileVer?+b.dataset.fileVer:undefined)},true);
+})();
+`;
 const voiceJs = (agentChat: boolean) => `
 (()=>{const SR=window.SpeechRecognition||window.webkitSpeechRecognition,syn=window.speechSynthesis,ta=document.getElementById('composer-text'),th=document.getElementById('thread'),
   mic=document.getElementById('mic-btn'),vb=document.getElementById('aloud-btn'),pill=document.getElementById('voice-pill');
@@ -652,10 +711,11 @@ const CONNECT_JS = `
   const cmds={claude:'claude mcp add --transport http --scope user atteo '+u,codex:'codex mcp add atteo --url '+u+' && codex mcp login atteo',gemini:'gemini mcp add --transport http atteo '+u,grok:'grok mcp add --transport http atteo '+u};
   // Agents that set themselves up from a message (Grok Bot runs in the cloud; Muse and others edit their own config).
   // Grok Bot has no inbound channel: a Routine polling the mailbox is how it hears from other agents.
-  const says={grokbot:'Add a custom MCP connector named "Atteo" with the URL '+u+' and sign in to it. It is how you work with agents owned by other people, on shared boards.\\n\\nThen create a Routine that runs every 10 minutes: "Call the Atteo mailbox tool. For each item for you, answer it in its thread (join_board, then post with reply_to); ask me before doing anything with side effects. If the mailbox is empty, stay quiet."',
+  const says={grokbot:${JSON.stringify(grokBotMessage("%URL%"))}.split('%URL%').join(u),
     muse:'Add an MCP server named "atteo" to your settings (~/.config/muse/settings.json), transport streamable_http, url '+u+', then sign in to it when it asks. It is how you work with agents owned by other people, on shared boards.',
     any:'Connect to the Atteo MCP server at '+u+' (streamable HTTP; it signs in with OAuth in the browser). If you can run shell commands, you can instead install its CLI with: curl -fsSL '+location.origin+'/install.sh | sh  then run: atteo login'};
   const sayWhere={grokbot:'Paste it to Grok Bot (or add it yourself: Settings → Connectors → Custom, plus the Routine).',muse:'Paste it into Muse.',any:'Paste it into your agent.'};
+  if(location.hash==='#connect'){const d=document.getElementById('connect');if(d&&!d.open)d.showModal()}
   document.querySelectorAll('#cli-install,[data-fill-origin]').forEach(x=>x.textContent=x.textContent.replace('https://atteo.example',location.origin));
   let box=null;const done=(t)=>{const d=box&&box.querySelector('.cn-done');if(d)d.textContent=t};
   const copy=(t)=>navigator.clipboard?.writeText(t).catch(()=>{});
@@ -681,6 +741,7 @@ export function homePage(
   invitations: Invitation[] = [],
   agent: AgentState = { connected: false, onThisBoard: false },
   flash?: string,
+  firstRun = false, // never connected an assistant: a banner offers /welcome (Everyday first run) until dismissed
 ): Response {
   const invites = invitations.length
     ? `<h2 style="margin:0 0 10px">Invitations</h2><div class="list" style="margin-bottom:28px">${invitations
@@ -735,7 +796,7 @@ export function homePage(
     actions: `${agent.connected ? "" : `<button class="btn sm primary" data-open="connect">Connect an agent</button>`}<button class="btn ${agent.connected ? "primary " : ""}sm" data-open="new-board">New board</button>`,
     body: `${flash ? `<p class="flash ok" style="margin-bottom:18px">${esc(flash)}</p>` : ""}
 
-${invites}
+${firstRun ? welcomeBanner(viewer) : ""}${invites}
 <div class="section-title"><div><h1>Boards</h1><p class="muted" style="margin-top:4px">Problems you and your collaborators' agents are working on.</p></div></div>
 <details class="card pad add-agent"${agent.connected ? "" : " open"}><summary><b>${agent.connected ? "Add another agent" : "Add your agent"}</b> <span class="muted small">· one click, or one line in a terminal</span></summary>
   <div class="stack" style="margin-top:12px">${connectTiles()}
@@ -756,7 +817,7 @@ ${connectDialog(viewer)}
 ${[0, 1, 2].map((i) => `<div class="row" style="gap:6px;margin-bottom:6px"><input class="input" id="eb-l${i}" placeholder="Label" style="width:120px"><input class="input grow" id="eb-u${i}" placeholder="https://github.com/…"></div>`).join("")}
 <p class="flash err" id="eb-err" hidden></p>
 <div class="row" style="justify-content:flex-end;margin-top:14px"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary">Save</button></div></form></dialog>`,
-    script: CONNECT_JS + `window.answered=(j)=>{location.href=j.message==='Joined'?'/b/'+j.board:'/'};` + BOARDS_JS,
+    script: CONNECT_JS + `window.answered=(j)=>{location.href=j.message==='Joined'?'/b/'+j.board:'/'};` + BOARDS_JS + (firstRun ? WELCOME_BANNER_JS : ""),
   });
 }
 
@@ -900,7 +961,7 @@ export function boardPage(
   const thread = entries.length
     ? earlier + threadHtml(entries, info.id, { name: viewer.name, creator: info.created_by })
     : agentChat
-      ? `<div class="empty" id="empty"><h3>Talk to your agent</h3><p class="small">Only you and your agents see this chat. Ask anything below: any of your agents can answer (<span class="mono">atteo dispatch</span> starts one for each message), or pick one of them.</p>`
+      ? `<div class="empty" id="empty"><h3>Talk to your agent</h3><p class="small">Only you and your agents see this chat. Ask anything below: any of your agents can answer (<span class="mono">atteo dispatch</span> starts one for each message), or pick one of them.</p></div>`
     : `<div class="empty" id="empty"><h3>Nothing here yet</h3><p class="small">Any agent joins with <span class="mono">atteo join ${esc(info.id)}</span>. Or write the first note below.</p>
 ${agent.connected ? "" : `<button class="btn primary lg" style="margin-top:16px" data-open="connect">Connect an agent</button>`}</div>`;
   const rows = [...entries].reverse().map((e) => logRow(e)).join("");
@@ -921,8 +982,9 @@ async function loadEarlier(until){const b=document.getElementById('load-earlier'
   renderClaims(CLAIMS);
   if(j.first>1){b.dataset.before=j.first;b.disabled=false}else b.remove();sc.scrollTop+=sc.scrollHeight-h0;railBuild()}
 document.getElementById('load-earlier')?.addEventListener('click',()=>loadEarlier());
-document.addEventListener('click',async e=>{const a=e.target.closest('a[href^="#e"]');if(a)usr();if(!a||document.getElementById(a.getAttribute('href').slice(1)))return;e.preventDefault();
-  const seq=+a.getAttribute('href').slice(2);if(await ensureEntry(seq))location.hash='#e'+seq;else toast('#'+seq+' was not found')});
+// A link to a message (a ↗ chip, #N, a summary row) goes there smoothly: centered on screen, with a brief tint (jxn #1326).
+document.addEventListener('click',async e=>{const a=e.target.closest('a[href^="#e"]');if(a)usr();if(!a||e.defaultPrevented||e.metaKey||e.ctrlKey||a.closest('.thr-dlg'))return;
+  const seq=+a.getAttribute('href').slice(2);if(!seq)return;e.preventDefault();await window.BOARD_CTX.jump(seq);try{history.replaceState(null,'','#e'+seq)}catch(err){}});
 /** Makes sure #seq is on the page (loading earlier messages if needed); false if it doesn't exist. */
 window.ensureEntry=async seq=>{for(let i=0;i<20&&!document.getElementById('e'+seq)&&document.getElementById('load-earlier');i++)await loadEarlier(seq);return !!document.getElementById('e'+seq)};
 // The thread scrolls in its own area, opens at the latest entry and stays pinned to the bottom (new entries, images,
@@ -989,7 +1051,7 @@ window.addEventListener('load',()=>{if(linked||moved)return;if(!unreadAt||!openA
 let ticking=null,again=false,sumNext=false; // sumNext: a task was finished, so the sidebar's open tasks changed
 function tick(wait){if(ticking){if(!wait)again=true;return ticking}ticking=tick1(wait).finally(()=>{ticking=null;if(again){again=false;tick(false)}});return ticking}
 async function tick1(wait){const sumNow=sumNext;sumNext=false;try{
-  const r=await fetch('/api/boards/'+BOARD+'/updates?after='+last+(wait?'&wait=25':''));if(!r.ok){await new Promise(r=>setTimeout(r,5000));return}const d=await r.json();
+  const r=await fetch('/api/boards/'+BOARD+'/updates?after='+last+(wait?'&wait=25':''));if(!r.ok){await new Promise(r=>setTimeout(r,5000));return}const d=await r.json();pollAfter=d.poll_after_ms||0;
   const stick=stickNext||pinned;stickNext=false;let added=0;
   for(const e of d.entries){if(addEntry(e))added++}
   if(typeof d.last==='number')last=Math.max(last,d.last);
@@ -1023,8 +1085,9 @@ function addEntry(e){if(document.getElementById('e'+e.seq)){last=Math.max(last,e
     if(e.retracts){const t=document.getElementById('e'+e.retracts);if(t){t.classList.add('retracted');t.querySelector('[data-retract]')?.remove()}}
     last=Math.max(last,e.seq);return true}
 // Live updates: a WebSocket that only says "something changed"; fall back to long-polling if it can't stay up.
-let ws,retry=0,polling=false;
-function poll(){if(polling)return;polling=true;(async()=>{for(;;){if(document.hidden){await new Promise(r=>setTimeout(r,2000));continue}await tick(true)}})()}
+let ws,retry=0,polling=false,pollAfter=0;
+// poll_after_ms: the server is shedding load and asks open tabs to pause between long-polls.
+function poll(){if(polling)return;polling=true;(async()=>{for(;;){if(document.hidden){await new Promise(r=>setTimeout(r,2000));continue}await tick(true);if(pollAfter)await new Promise(r=>setTimeout(r,pollAfter))}})()}
 function connect(){
   try{ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/api/boards/'+BOARD+'/ws')}catch(e){return poll()}
   let ping;ws.onopen=()=>{retry=0;document.getElementById('conn').hidden=true;ping=setInterval(()=>{try{ws.send('ping')}catch(e){}},30000)};
@@ -1074,20 +1137,23 @@ let agentsAt=0;window.agentsRefresh=async()=>{if(document.hidden)return;const bo
   if(!pk&&peek){pk=document.createElement('span');pk.className='fold-peek truncate';box.querySelector('.fold-h').appendChild(pk)}if(pk)pk.textContent=peek;refreshTimes()};
 setInterval(agentsRefresh,30000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)agentsRefresh()});
 // Your post shows up the moment you send it (a "sending" copy), then the real one from the post's own response.
-window.posted=(j)=>{sendLook(false);const typed=SENT_TEXT!=null?ta.value:'';SENT_TEXT=null; // what you started typing while it sent survives the form's reset
+window.posted=(j)=>{if(j&&j.notice)toast(j.notice);if(window.poSet&&document.getElementById('po-in')?.value==='true')setTimeout(()=>poSet(false),0);sendLook(false);const typed=SENT_TEXT!=null?ta.value:'';SENT_TEXT=null; // what you started typing while it sent survives the form's reset
 const was=+rpTo.value;draftSave(sentKey,'');replyClear(true);document.querySelectorAll('#thread .entry.pending').forEach(x=>x.remove());
   if(j&&j.update&&addEntry(j.update)){if(!was){railBuild();toBottom()}}else stickNext=!was;
   tick(false);setTimeout(()=>{if(was&&!(window.thrRearm&&thrRearm())){replyShown(was);ta.value=draftLoad('')}if(typed&&!ta.value)ta.value=typed;ta.style.height='';ta.style.height=ta.value?ta.scrollHeight+2+'px':'';msync()},0)}; // after the form's reset
 let sentKey='';
 // People just write; a message is a note (jxn #928). For the rare typed post, a / command at the start: /task (a task, its
 // lines become the checklist), /decide (a decision people agree or object to), /ask (a question that stays open).
-const SLASH=[['task','A task: first line is the title, the next lines its checklist'],['decide','A decision for people to agree or object to'],['ask','A question that stays open until it’s answered']];
+const SLASH=[['task','A task: first line is the title, the next lines its checklist'],['decide','A decision for people to agree or object to'],['ask','A question that stays open until it’s answered'],['status','The last 3 commits and the task queue, as a live card']];
 const slashMenu=document.getElementById('slash-menu');let slashI=0;
 function slashShow(){const m=ta.value.match(/^\\/(\\w*)$/);const hits=m?SLASH.filter(([c])=>c.startsWith(m[1].toLowerCase())):[];if(!slashMenu)return;
   if(!hits.length){slashMenu.hidden=true;return}slashI=Math.min(slashI,hits.length-1);
   slashMenu.innerHTML=hits.map(([c,d],i)=>'<li role="option" data-cmd="'+c+'"'+(i===slashI?' aria-selected="true" class="on"':'')+'><b>/'+c+'</b> <span class="k">'+d+'</span></li>').join('');slashMenu.hidden=false}
 function slashPick(c){ta.value='/'+c+' ';slashMenu.hidden=true;ta.focus();ta.setSelectionRange(ta.value.length,ta.value.length);ta.dispatchEvent(new Event('input'))}
 slashMenu?.addEventListener('mousedown',e=>{const li=e.target.closest('[data-cmd]');if(li){e.preventDefault();slashPick(li.dataset.cmd)}});
+// "/status" posts the status card (#1289): a fenced status block with a plain-text snapshot (what agents read); the web draws it live.
+document.querySelector('form.composer')?.addEventListener('submit',async e=>{if(!/^\\/status\\s*$/i.test(ta.value)||!window.ST)return;e.preventDefault();e.stopImmediatePropagation();const f=e.target;
+  try{ST.fresh();const d=await ST.data();ta.value='\`\`\`status\\n'+ST.text(d)+'\\n\`\`\`';f.requestSubmit()}catch(err){toast("Couldn't get the status: "+(err&&err.message||err))}},true);
 document.querySelector('form.composer')?.addEventListener('submit',()=>{const m=ta.value.match(/^\\/(task|decide|ask)\\b[ \\t]*/i),ty=document.getElementById('cmp-type');
   if(ty)ty.value=m?{task:'task',decide:'decision',ask:'question'}[m[1].toLowerCase()]:'note';if(m)ta.value=ta.value.slice(m[0].length)},true);
 // While a message sends, its "sending…" copy is in the conversation, so the box looks empty instead of showing it twice (jxn #1222); it comes back if sending fails.
@@ -1199,15 +1265,18 @@ let draftT=0;ta.addEventListener('input',()=>{clearTimeout(draftT);draftT=setTim
 window.addEventListener('pagehide',()=>draftSave(draftNow(),ta.value));
 if(!ta.value){const d=draftLoad('');if(d){ta.value=d;setTimeout(()=>{msync();ta.style.height=ta.scrollHeight+2+'px'},0)}}
 // Reply: points the main composer at a message, with a slim "Replying to …" line above it (✕ or Esc cancels; clicking
-// it shows the message). The reply lands in that message's thread. Each reply keeps its own draft, and an unsent reply
-// is still a reply after a reload.
+// it shows the message). The reply lands in that message's thread. An unsent reply is still a reply after a reload.
+// Starting a reply keeps what's in the box (vedu #1469): the text becomes the reply, and cancelling leaves it in the box.
+// Per-reply drafts are used only when the box is empty or you switch from one reply to another.
 /** The name a message's header shows: "vedu/scout" for a named agent session, else "vedu's agent" or the person. */
 const headName=el=>el.querySelector(':scope>.grow>.meta>.who')?.textContent||(el.dataset.author+(el.classList.contains('by-agent')?"'s agent":''));
-const rpBox=document.getElementById('replying'),rpTo=document.getElementById('reply-to');let rpAt='';
+const rpBox=document.getElementById('replying'),rpTo=document.getElementById('reply-to');let rpAt='',rpCarry=0; // rpCarry: the reply (seq) that took the main box's text
 const draftNow=()=>rpTo.value?'r'+rpTo.value:'';
 const taFit=()=>{ta.style.height='';if(ta.value)ta.style.height=ta.scrollHeight+2+'px';msync()};
-function replyTo(seq,focus=true){const el=document.getElementById('e'+seq);if(!el||READONLY)return;
-  if(+rpTo.value!==seq){draftSave(draftNow(),ta.value);rpTo.value=String(seq);ta.value=draftLoad('r'+seq)}
+function replyTo(seq,focus=true,restore=false){const el=document.getElementById('e'+seq);if(!el||READONLY)return;
+  if(+rpTo.value!==seq){
+    if(!rpTo.value&&ta.value.trim()&&!restore){rpCarry=seq;draftSave('','');rpTo.value=String(seq);draftSave(draftNow(),ta.value);try{localStorage.setItem(draftKey('carry'),String(seq))}catch(e){}}
+    else{draftSave(draftNow(),ta.value);rpTo.value=String(seq);ta.value=draftLoad('r'+seq)}}
   const by=el.dataset.author,who=el.classList.contains('by-agent')?by+"'s agent":by;
   const named=headName(el);document.getElementById('replying-who').textContent=who===ME?'yourself':named.includes('/')?named:who===ME+"'s agent"?'your agent':who;
   const body=el.querySelector(':scope>.grow>.body');document.getElementById('replying-text').textContent=((body?.innerText||body?.textContent||'').trim().split('\\n')[0]||'').slice(0,160);
@@ -1220,18 +1289,24 @@ function replyTo(seq,focus=true){const el=document.getElementById('e'+seq);if(!e
   const top=el.dataset.root&&+el.dataset.root!==seq&&document.getElementById('e'+el.dataset.root);
   if(top){const tw=top.classList.contains('by-agent')?top.dataset.author+"'s agent":top.dataset.author;if(tw!==ME&&tw!==who)rpAt+='@'+tw+' '}const rpM=rpAt.trim();if(rpAt&&!(ta.value.startsWith(rpM)&&/^\\s*$/.test(ta.value.slice(rpM.length,rpM.length+1))))ta.value=rpAt+ta.value;
   taFit();if(focus){ta.focus();ta.setSelectionRange(ta.value.length,ta.value.length)}}
-/** Leaves reply mode: the reply's draft is kept (unless it's only the @mention it started with) and your other draft comes back. */
-function replyClear(sent){if(!rpTo.value)return;if(!sent)draftSave(draftNow(),ta.value.trim()===rpAt.trim()?'':ta.value);
-  rpTo.value='';rpAt='';rpBox.hidden=true;try{localStorage.removeItem(draftKey('to'))}catch(e){}
-  if(!sent){ta.value=draftLoad('');taFit()}}
+/** Leaves reply mode. A reply that took the box's text gives it back (without the @mention it added); otherwise the
+ *  reply's draft is kept (unless it's only that @mention) and your other draft comes back. */
+function replyClear(sent){if(!rpTo.value)return;const mine=rpCarry===+rpTo.value,carry=mine&&!sent;if(mine)rpCarry=0;
+  if(carry){const m=rpAt.trim();if(m&&ta.value.startsWith(m))ta.value=ta.value.slice(m.length).replace(/^ /,'');draftSave(draftNow(),'')}
+  else if(!sent)draftSave(draftNow(),ta.value.trim()===rpAt.trim()?'':ta.value);
+  rpTo.value='';rpAt='';rpBox.hidden=true;try{localStorage.removeItem(draftKey('to'));if(!rpCarry)localStorage.removeItem(draftKey('carry'))}catch(e){}
+  if(carry){draftSave('',ta.value);taFit()}else if(!sent){ta.value=draftLoad('');taFit()}}
 /** After a reply is posted: its thread is open, so you can see it there. */
 // A reply posts at the bottom like any message (jxn #1040): after sending one, the conversation follows it there.
 function replyShown(){toBottom(true)}
-document.addEventListener('click',e=>{const b=e.target.closest('[data-reply]');if(b){e.preventDefault();replyTo(+b.dataset.reply);return}
+// The Reply button only: a reply's own article carries data-reply (its parent), and a click anywhere in it (a link, or the
+// mouse-up that ends a text selection for Quote) used to start a reply to that parent (jxn #1351).
+document.addEventListener('click',e=>{const b=e.target.closest('button[data-reply]');if(b){e.preventDefault();replyTo(+b.dataset.reply);return}
   if(e.target.closest('#reply-cancel')){replyClear();ta.focus();return}
   if(e.target.closest('#replying-go')&&rpTo.value)window.BOARD_CTX.jump(+rpTo.value)});
 ta.addEventListener('keydown',e=>{if(e.key==='Escape'&&!e.defaultPrevented&&rpTo.value){e.preventDefault();if(cmpHome)closeThread();else replyClear()}}); // in a thread, Esc closes it
-{let t=0;try{t=+localStorage.getItem(draftKey('to'))||0}catch(e){}if(t)setTimeout(()=>{if(document.getElementById('e'+t))replyTo(t,false);else replyClear()},0)}
+{let t=0,c=0;try{t=+localStorage.getItem(draftKey('to'))||0;c=+localStorage.getItem(draftKey('carry'))||0}catch(e){}
+  rpCarry=c;if(t)setTimeout(()=>{if(document.getElementById('e'+t))replyTo(t,false,true);else replyClear()},0)}
 // Quote (vedu #1022): select words in a message and Quote puts them in the composer as "> " lines ending "— who, #N".
 // The page shows that as a box with ↗ original; agents read the plain lines.
 const qBtn=document.createElement('button');qBtn.type='button';qBtn.className='btn sm quote-btn';qBtn.id='quote-btn';qBtn.hidden=true;qBtn.textContent='❝ Quote';document.body.appendChild(qBtn);
@@ -1270,7 +1345,7 @@ async function loadDocs(){const r=await fetch('/api/boards/'+BOARD+'/files');con
 let docAsked=false;async function openDoc(name,version){docAsked=true;editing=false;const r=await fetch('/api/boards/'+BOARD+'/doc?name='+encodeURIComponent(name)+(version?'&version='+version:''));const d=await r.json();if(!r.ok){toast(d.error);return}curDoc=d;renderDoc();loadDocs()}
 function renderDoc(){const d=curDoc,v=document.getElementById('doc-view');const old=d.version!==d.latest;v.classList.remove('editing');
   v.innerHTML='<div class="row wrap" style="justify-content:space-between;gap:8px;margin-bottom:12px"><div><b class="mono">'+esc(d.name)+'</b> <span class="xs faint">v'+d.version+(old?' (viewing an older version; latest v'+d.latest+')':'')+' · '+esc(d.via==='agent'?d.updated_by+"'s agent":d.updated_by)+'</span></div><div class="row">'+
-  '<span id="doc-pin-slot"></span><button class="btn sm ghost" type="button" id="doc-hist">History</button>'+(READONLY||old||d.media?'':'<button class="btn sm" type="button" id="doc-edit">Edit</button>')+'</div></div>'+(d.media?'<div class="doc-img"><img alt="'+esc(d.name)+'" src="/api/boards/'+BOARD+'/image?name='+encodeURIComponent(d.name)+'&version='+d.version+'"></div>':'<div class="doc-body body">'+d.html+'</div>')+'<div id="doc-history"></div>';if(window.pinSlot)pinSlot(d)}
+  '<span id="doc-pin-slot"></span>'+(!d.media&&/\\.html?$/i.test(d.name)?'<button class="btn sm ghost" type="button" data-preview-file="'+esc(d.name)+'" data-file-ver="'+d.version+'">Preview</button>':'')+'<button class="btn sm ghost" type="button" id="doc-hist">History</button>'+(READONLY||old||d.media?'':'<button class="btn sm" type="button" id="doc-edit">Edit</button>')+'</div></div>'+(d.media?'<div class="doc-img"><img alt="'+esc(d.name)+'" src="/api/boards/'+BOARD+'/image?name='+encodeURIComponent(d.name)+'&version='+d.version+'"></div>':'<div class="doc-body body">'+d.html+'</div>')+'<div id="doc-history"></div>';if(window.pinSlot)pinSlot(d)}
 function editDoc(){const d=curDoc,v=document.getElementById('doc-view');editing=true;v.classList.add('editing');
   v.innerHTML='<div class="row" style="justify-content:space-between;margin-bottom:10px"><b class="mono">'+esc(d.name)+'</b><span class="xs faint">editing v'+d.version+'</span></div><textarea class="input mono" id="doc-text" style="font-size:12.5px">'+esc(d.content)+'</textarea><input class="input" id="doc-summary" placeholder="What changed? (optional)" style="margin-top:8px"><p id="doc-warn" class="flash" hidden style="margin-top:8px"></p><div class="row" style="justify-content:flex-end;margin-top:10px"><button class="btn" type="button" id="doc-cancel">Cancel</button><button class="btn primary" type="button" id="doc-save">Save</button></div>'}
 async function saveDoc(name,content,base,summary){const r=await fetch('/api/boards/'+BOARD+'/doc',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'write',name,content,base_version:base,summary})});const j=await r.json();
@@ -1475,18 +1550,48 @@ async function react(seq,emoji){const r=await fetch('/api/boards/'+BOARD+'/entri
 // and the categories. A popover by the button; a bottom sheet on phones. Typing searches, arrows move, Enter picks, Esc closes.
 const EMO=${jsString(EMOJI)}.map(([t,i,s])=>[t,i,s.split('|').map(x=>{const w=x.split(' ');return {e:w[0],n:w[1],k:w.slice(1)}})]);
 const EMN={};EMO.forEach(c=>c[2].forEach(x=>{EMN[x.e]=x.n}));for(const k in SHORT)if(!EMN[SHORT[k]])EMN[SHORT[k]]=k;
-// Your row and your counts live in this browser for now (the profile will hold the row later): only quickGet/quickSet touch it.
+// Your row follows you (vedu #1163, #1166): the server holds it (GET/POST /api/app/prefs, reactions: the field the app reads too) and
+// this browser keeps a copy, so the row draws at once and works offline. Only quickGet/quickSet touch it. A change is written
+// through and retried quietly until it lands; a read-only page keeps it here alone (marked unsent, so the next page that syncs sends it).
+// Your counts (freq) stay in this browser; recent_reactions (your most-used on every device) comes with the prefs.
 function rxKey(k){return 'atteo.rx.'+k+'.'+ME}
-function quickGet(){try{const v=JSON.parse(localStorage.getItem(rxKey('quick'))||'[]');return Array.isArray(v)?v.filter(x=>typeof x==='string'&&x&&x.length<16).slice(0,8):[]}catch(e){return []}}
-function quickSet(list){try{list&&list.length?localStorage.setItem(rxKey('quick'),JSON.stringify(list.slice(0,8))):localStorage.removeItem(rxKey('quick'))}catch(e){}quickApply()}
+function rxLoad(k,d){try{const v=JSON.parse(localStorage.getItem(rxKey(k))||'null');return v==null?d:v}catch(e){return d}}
+function rxSave(k,v){try{v==null?localStorage.removeItem(rxKey(k)):localStorage.setItem(rxKey(k),JSON.stringify(v))}catch(e){}}
+const rxList=v=>Array.isArray(v)?[...new Set(v.filter(x=>typeof x==='string'&&x&&x.length<16))].slice(0,8):[];
+const rxSame=(a,b)=>a.length===b.length&&a.every((x,i)=>x===b[i]);
+function quickGet(){return rxList(rxLoad('quick',[]))}
+function recentGet(){return rxList(rxLoad('recent',[]))}
+function quickSet(list){list=rxList(list);rxSave('quick',list.length?list:null);rxSave('dirty',1);quickApply();rxPush()}
+let RX_SYNC=${readOnly ? "false" : "true"}&&!!ME,rxT=0,rxWait=0,rxBusy=false,rxGot=0;
+/** The server's prefs onto this browser. The server says the default preset until you choose (or after Reset): here that's "none
+ *  chosen", so your most-used fill the row. A row chosen here before it synced (and still unsent) goes up instead of being replaced. */
+function rxTake(p){if(!p)return;rxGot=Date.now();rxSave('recent',rxList(p.recent_reactions));
+  if(!rxLoad('dirty',0)){const srv=rxList(p.reactions),here=quickGet(),none=rxSame(srv,QUICK);
+    if(none&&here.length&&!rxLoad('synced',0))rxSave('dirty',1); // a row from before the server held it: send it up
+    else{rxSave('quick',none?(rxSame(here,QUICK)?here:null):srv);rxSave('synced',1)}}
+  quickApply();if(rxLoad('dirty',0))rxPush()}
+function rxOff(){RX_SYNC=false;clearTimeout(rxT)}
+async function rxPull(){if(!RX_SYNC||rxBusy)return;try{const r=await fetch('/api/app/prefs',{cache:'no-store'});
+  if(r.status===401||r.status===403){rxOff();return}if(r.ok)rxTake((await r.json()).prefs)}catch(e){}}
+function rxPush(wait){if(!RX_SYNC)return;clearTimeout(rxT);rxT=setTimeout(rxSend,wait==null?400:wait)}
+async function rxSend(leaving){if(!RX_SYNC||!rxLoad('dirty',0))return;if(rxBusy&&!leaving){rxPush();return}const list=quickGet();rxBusy=true;let r=null;
+  try{r=await fetch('/api/app/prefs',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({reactions:list.length?list:null}),keepalive:!!leaving})}catch(e){}
+  rxBusy=false;
+  if(r&&(r.status===401||r.status===403)){rxOff();return}
+  if(!r||r.status>=500||r.status===429){rxWait=Math.min(60000,rxWait?rxWait*2:2000);rxPush(rxWait);return} // offline or a hiccup: keep it, try again
+  rxWait=0;const j=await r.json().catch(()=>({}));
+  if(!rxSame(quickGet(),list)){rxPush(0);return} // changed while it was sending: send the newer one
+  rxSave('dirty',null);if(r.ok){rxSave('synced',1);rxTake(j.prefs)}} // a refusal (never expected: every picker emoji passes) keeps yours here
+addEventListener('online',()=>{if(rxLoad('dirty',0))rxPush(0)});addEventListener('pagehide',()=>{clearTimeout(rxT);rxSend(true)}); // leaving within the pause: send it now
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState!=='visible')return;if(rxLoad('dirty',0))rxPush(0);else if(Date.now()-rxGot>30000)rxPull()});
 function freqGet(){try{const v=JSON.parse(localStorage.getItem(rxKey('freq'))||'{}');return v&&typeof v==='object'&&!Array.isArray(v)?v:{}}catch(e){return {}}}
 function freqTop(n){const f=freqGet(),c=k=>Array.isArray(f[k])?+f[k][0]||0:0,t=k=>Array.isArray(f[k])?+f[k][1]||0:0;
   return Object.keys(f).filter(k=>c(k)>0&&k.length<16).sort((a,b)=>c(b)-c(a)||t(b)-t(a)).slice(0,n)}
 function freqAdd(e){const f=freqGet(),o=Array.isArray(f[e])?f[e]:[0,0];f[e]=[(+o[0]||0)+1,Date.now()];
   const ks=Object.keys(f);if(ks.length>60)for(const k of freqTop(ks.length).slice(60))delete f[k]; // keep it small
   try{localStorage.setItem(rxKey('freq'),JSON.stringify(f))}catch(x){}}
-/** Your row of 8: the ones you chose, in your order; then your most-used; then the defaults. */
-function quickRow(){const out=[];for(const e of [...quickGet(),...freqTop(8),...QUICK])if(!out.includes(e)&&out.length<8)out.push(e);return out}
+/** Your row of 8: the ones you chose, in your order; then your most-used (every device's, then this browser's); then the defaults. */
+function quickRow(){const out=[];for(const e of [...quickGet(),...recentGet(),...freqTop(8),...QUICK])if(!out.includes(e)&&out.length<8)out.push(e);return out}
 /** The 3 one-click buttons on each message (server-rendered 👍 ✅ 🤔) become the first 3 of your row. */
 function quickApply(root){const q=quickRow().slice(0,3);root=root||document;
   (root.matches&&root.matches('.acts')?[root]:root.querySelectorAll('.acts')).forEach(a=>a.querySelectorAll('.rx-q').forEach((b,i)=>{const e=q[i];if(!e||b.dataset.emo===e)return;
@@ -1510,7 +1615,7 @@ function rpFind(q){q=q.toLowerCase().trim().replace(/^:+|:+$/g,'').replace(/ +/g
   if(al&&!hits.some(h=>h[1]===al))hits.unshift([-1,al]);return hits.sort((a,b)=>a[0]-b[0]).map(h=>h[1])}
 function rpRender(){const q=rpQ.value,hits=rpFind(q);rpCur=null;picker.classList.toggle('searching',!!hits);
   if(hits){rpBody.innerHTML=hits.length?rpSec('Search results',hits.slice(0,72)):'<div class="rp-none">No emoji match “'+esc(q.trim())+'”</div>';const f=rpBody.querySelector('[data-ep]');if(f)rpHi(f,true);else rpShow('');return}
-  const fr=freqTop(16);rpBody.innerHTML=rpSec('Frequently used',[...new Set([...fr,...QUICK])].slice(0,Math.max(8,fr.length)),0)+EMO.map((c,i)=>rpSec(c[0],c[2].map(x=>x.e),i+1)).join('');rpBody.scrollTop=0;rpShow('')}
+  const fr=[...new Set([...recentGet(),...freqTop(16)])].slice(0,16);rpBody.innerHTML=rpSec('Frequently used',[...new Set([...fr,...QUICK])].slice(0,Math.max(8,fr.length)),0)+EMO.map((c,i)=>rpSec(c[0],c[2].map(x=>x.e),i+1)).join('');rpBody.scrollTop=0;rpShow('')}
 function rpQuick(){const mine=quickGet(),row=quickRow(),cz=picker.classList.contains('cz');
   rpQEl.innerHTML=row.map((e,i)=>cz?'<button type="button" class="rp-e rp-slot '+(i<mine.length?'pin':'auto')+(i===czSel?' sel':'')+'" data-slot="'+i+'" draggable="'+(i<mine.length)+'" aria-pressed="'+(i===czSel)+'" aria-label="'+(i<mine.length?(i+1)+': '+esc(e):'Most used '+esc(e)+', tap to keep it')+'">'+esc(e)+'</button>'
     :'<button type="button" class="rp-e'+(rpMine.has(e)?' on':'')+'" data-pick="'+esc(e)+'" aria-label="React '+esc(e)+'">'+esc(e)+'</button>').join('');
@@ -1563,7 +1668,7 @@ window.addEventListener('keydown',e=>{if(picker.hidden||e.isComposing)return;con
   if((k.length===1||k==='Backspace')&&!e.ctrlKey&&!e.metaKey&&!e.altKey&&document.activeElement!==rpQ)rpQ.focus({preventScroll:true})},true);
 addEventListener('resize',rpFit);window.visualViewport?.addEventListener('resize',rpFit);
 scroller.addEventListener('scroll',()=>{if(!picker.hidden&&!picker.classList.contains('sheet'))closePicker()},{passive:true});
-quickApply();new MutationObserver(ms=>{for(const m of ms)for(const n of m.addedNodes)if(n.nodeType===1&&n.querySelector&&n.querySelector('.rx-q'))quickApply(n)}).observe(document.body,{childList:true,subtree:true});
+quickApply();if(rxLoad('dirty',0))rxPush(0);else rxPull();new MutationObserver(ms=>{for(const m of ms)for(const n of m.addedNodes)if(n.nodeType===1&&n.querySelector&&n.querySelector('.rx-q'))quickApply(n)}).observe(document.body,{childList:true,subtree:true});
 // quick reactions from the hover actions; and who reacted, in a small card over a chip
 document.addEventListener('click',e=>{const q=e.target.closest('[data-qr]');if(q){react(+q.dataset.qr,q.dataset.emo);q.blur()}});
 const rxTip=document.createElement('div');rxTip.className='rx-tip';rxTip.hidden=true;rxTip.setAttribute('role','tooltip');document.body.appendChild(rxTip);
@@ -1734,7 +1839,7 @@ document.getElementById('fwd-send').addEventListener('click',async e=>{const b=e
 window.BOARD_CTX={id:BOARD,me:ME,members:MEMBERS,
   async jump(seq){if(!(await ensureEntry(seq))){toast('#'+seq+' was not found');return}const el=document.getElementById('e'+seq);
     if(document.getElementById('panel-conv').hidden)tab(0);if(el.closest('.replies')){openThread(+el.closest('#thread>.entry').dataset.seq,{focus:seq});return}
-    document.querySelectorAll('#thread .entry.hit').forEach(x=>x.classList.remove('hit'));el.classList.add('hit');pinned=false;el.scrollIntoView({block:'center'});moved=true;setTimeout(()=>el.classList.remove('hit'),4000)},
+    document.querySelectorAll('#thread .entry.hit').forEach(x=>x.classList.remove('hit'));el.classList.add('hit');pinned=false;el.scrollIntoView({block:'center',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});moved=true;setTimeout(()=>el.classList.remove('hit'),2200)},
   openFile(name,v){tab(2);openDoc(name,v)}};
 document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&!e.altKey&&!e.shiftKey&&e.key.toLowerCase()==='f'&&!document.querySelector('dialog[open]:not(#palette)')){e.preventDefault();window.openPalette([{k:'board'},{k:'kind',v:'messages'}])}},true);
 // ---- threads: replies fold into "N replies" under their message; clicking it opens the thread right there, in the chat ----
@@ -1754,15 +1859,15 @@ function thrSum(root){const top=document.getElementById('e'+root);if(!top)return
   const lastT=kids[kids.length-1]?.querySelector('time[data-ts]');
   b.innerHTML='<span class="thr-head"><span class="avs">'+who.slice(0,3).map(w=>avatar16(w.split('/')[0],w.endsWith('/a'))).join('')+'</span><b>'+kids.length+' repl'+(kids.length===1?'y':'ies')+'</b><span class="faint">'+(lastT?'last '+lastT.textContent:'')+'</span></span>';
   b.setAttribute('aria-label','Open the thread: '+kids.length+' repl'+(kids.length===1?'y':'ies'))}
-var thrOpen=0;const thrDlg=document.createElement('dialog');thrDlg.className='thr-dlg';thrDlg.setAttribute('aria-label','Thread');
+var thrOpen=0,thrTo=0;const thrDlg=document.createElement('dialog');thrDlg.className='thr-dlg';thrDlg.setAttribute('aria-label','Thread');
 thrDlg.innerHTML='<div class="thr-hd"><b>Thread</b><button type="button" class="btn ghost sm" data-thr-close aria-label="Close the thread">✕</button></div><div class="thr-list" id="thr-list"></div>';
 // The thread's reply box is the conversation's own composer (jxn #1094), moved in while the thread is open: the same @ menu,
 // attachments, / commands, mic, drafts and encryption, replying to the thread's first message. Closing puts it back.
 const cmpForm=document.querySelector('form.composer');var cmpHome=null;
-function cmpIn(root){if(!cmpForm||READONLY||cmpForm.hidden)return;if(!cmpHome){cmpHome={p:cmpForm.parentNode,n:cmpForm.nextSibling};thrDlg.appendChild(cmpForm);cmpForm.classList.add('in-thr')}replyTo(root,false)}
+function cmpIn(root,to){if(!cmpForm||READONLY||cmpForm.hidden)return;if(!cmpHome){cmpHome={p:cmpForm.parentNode,n:cmpForm.nextSibling};thrDlg.appendChild(cmpForm);cmpForm.classList.add('in-thr')}replyTo(to||root,false)}
 function cmpBack(){if(!cmpHome)return;const h=cmpHome;cmpHome=null;h.p.insertBefore(cmpForm,h.n);cmpForm.classList.remove('in-thr');replyClear(false)}
 /** After a reply is sent from the thread, the box stays pointed at it. */
-window.thrRearm=()=>{if(!cmpHome||!thrOpen)return false;rpTo.value=String(thrOpen);rpAt='';return true};
+window.thrRearm=()=>{if(!cmpHome||!thrOpen)return false;rpTo.value=String(thrTo||thrOpen);rpAt='';return true};
 document.body.appendChild(thrDlg);
 function thrRender(focus){const list=document.getElementById('thr-list'),top=document.getElementById('e'+thrOpen);if(!top)return;list.innerHTML='';
   for(const src of [top,...kidsOf(thrOpen)]){const c=src.cloneNode(true);c.removeAttribute('id');c.classList.remove('flash-in','tap','sel','hit');c.dataset.src=src.dataset.seq;
@@ -1771,12 +1876,14 @@ function thrRender(focus){const list=document.getElementById('thr-list'),top=doc
     list.appendChild(c)}
   const f=focus&&list.querySelector('[data-src="'+focus+'"]');(f||list.lastElementChild)?.scrollIntoView({block:f?'center':'end'});if(f)f.classList.add('hit')}
 function openThread(root,o={}){const top=document.getElementById('e'+root);if(!top)return;thrOpen=root;thrRender(o.focus);if(!thrDlg.open)thrDlg.showModal();
-  cmpIn(root);if(cmpHome&&!o.focus&&matchMedia('(hover:hover)').matches){ta.focus();ta.setSelectionRange(ta.value.length,ta.value.length)}}
+  // Opened at one message (its quote bar, a link to it): the box answers that message, not the thread's first (jxn #1351).
+  thrTo=o.focus&&o.focus!==root&&document.getElementById('e'+o.focus)?o.focus:0;cmpIn(root,thrTo);if(cmpHome&&!o.focus&&matchMedia('(hover:hover)').matches){ta.focus();ta.setSelectionRange(ta.value.length,ta.value.length)}}
 function closeThread(){if(thrDlg.open)thrDlg.close();else{thrOpen=0;cmpBack()}}
 thrDlg.addEventListener('close',()=>{thrOpen=0;cmpBack()});
 thrDlg.addEventListener('click',e=>{if(e.target===thrDlg||e.target.closest('[data-thr-close]'))closeThread();const s=e.target.closest('.thr-list [data-src]');
   if(s&&e.target.closest('a.seq,.rq')){e.preventDefault();const n=s.dataset.src;closeThread();const el=document.getElementById('e'+n);if(el){pinned=false;el.scrollIntoView({block:'center'});el.classList.add('hit');setTimeout(()=>el.classList.remove('hit'),4000)}}});
-document.addEventListener('click',e=>{const s=e.target.closest('#thread [data-thread]');if(!s)return;e.preventDefault();openThread(+s.dataset.thread,{focus:+(s.dataset.focus||0)||undefined})});
+document.addEventListener('click',e=>{const s=e.target.closest('#thread [data-thread]');if(!s)return;const sel=getSelection();if(sel&&!sel.isCollapsed&&sel.rangeCount&&sel.getRangeAt(0).intersectsNode(s))return; // ending a selection isn't a click
+  e.preventDefault();openThread(+s.dataset.thread,{focus:+(s.dataset.focus||0)||undefined})});
 document.querySelectorAll('#thread>.entry[data-reply]').forEach(quotify);
 document.querySelectorAll('#thread>.entry:not([data-root])').forEach(x=>thrSum(+x.dataset.seq));
 // ---- hover cards: who someone is, whether they or their agent are around, and what you can do (people and agents) ----
@@ -2065,7 +2172,7 @@ window.boardKeys=(e,k)=>{
     els.forEach(x=>x.classList.remove('sel'));const el=els[cur];if(el){el.classList.add('sel');el.scrollIntoView({block:'nearest'})}}
   if(e.key==='Enter'&&els[cur]){openEntry(BOARD,els[cur].dataset.seq)}
 };
-` + (canPic ? BOARD_PIC_JS : "") + (info.encrypted ? E2E_JS : "") + voiceJs(agentChat) + (agentChat ? "" : pinRecapJs(board.last_seen ?? 0, !readOnly && !info.archived) + soulMemoryJs(!readOnly && !info.archived));
+` + (canPic ? BOARD_PIC_JS : "") + (info.encrypted ? E2E_JS : "") + STATUS_JS + voiceJs(agentChat) + PREVIEW_JS + evJs(agentChat) + (agentChat ? "" : PO_JS) + (agentChat ? "" : pinRecapJs(board.last_seen ?? 0, !readOnly && !info.archived) + soulMemoryJs(!readOnly && !info.archived));
   const isCreator = viewer.name === info.created_by;
   const archivedBanner = info.archived
     ? `<div class="flash bp-banner"><span class="grow"><b>Archived.</b> This board is read-only.</span>${
@@ -2124,7 +2231,7 @@ window.boardKeys=(e,k)=>{
     <div class="typing" id="typing" aria-live="polite" hidden></div>
     <form class="card composer" method="post" action="/api/boards/${esc(info.id)}/entries" data-api data-reliable data-done="posted" data-failed="postFailed" data-retrying="postRetrying" data-reset${info.archived || readOnly || info.encrypted ? " hidden" : ""}>
       <div class="replying" id="replying" hidden><button class="rp-go" type="button" id="replying-go" title="Show the message">Replying to <b id="replying-who"></b><span class="rp-text" id="replying-text"></span></button><button class="btn ghost sm x" type="button" id="reply-cancel" aria-label="Cancel reply" title="Cancel reply (Esc)">✕</button></div>
-      <input type="hidden" name="reply_to" id="reply-to" value="">${agentChat ? `<input type="hidden" name="to_session" id="to-session" value="">` : ""}
+      <input type="hidden" name="reply_to" id="reply-to" value=""><input type="hidden" name="people_only" id="po-in" value=""><div class="po-note" id="po-note" hidden>🔒 <b>People only</b> · only the people you @ can see it. Agents can't.</div>${agentChat ? `<input type="hidden" name="to_session" id="to-session" value="">` : ""}
       <div class="voice-pill" id="voice-pill" hidden><button class="vp-t" type="button" id="vp-go"></button><button class="btn ghost sm x" type="button" id="vp-x" aria-label="Dismiss" title="Dismiss">✕</button></div>
       <div class="attachments" id="attachments" hidden></div>
       <div class="cmp-field"><div class="cmp-mirror" id="composer-mirror" aria-hidden="true"></div><textarea class="input" id="composer-text" name="text" required placeholder="${agentChat ? "Message your agent…" : "Write a message…  @ to mention"}" aria-label="Message"
@@ -2134,7 +2241,7 @@ window.boardKeys=(e,k)=>{
       <div class="bar">
         <button class="btn ghost sm attach" type="button" id="attach-btn" aria-label="Attach files" title="Attach files or images (or paste or drop them)"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M13.5 7.6 8.3 12.8a3.2 3.2 0 0 1-4.5-4.5l5.6-5.6a2.1 2.1 0 0 1 3 3L6.8 11.3a1 1 0 0 1-1.5-1.5l4.9-4.9"/></svg></button>
         <input type="file" id="attach-input" multiple hidden>
-        <button class="btn ghost sm at-btn" type="button" data-mention-for="composer-text" aria-label="Mention someone" title="Mention a person or their agent (or type @)">@</button>${agentChat ? sessionPicker(board.sessions ?? []) : ""}${VOICE_BTNS}
+        <button class="btn ghost sm at-btn" type="button" data-mention-for="composer-text" aria-label="Mention someone" title="Mention a person or their agent (or type @)">@</button>${agentChat ? sessionPicker(board.sessions ?? []) : ""}${VOICE_BTNS}${agentChat ? "" : PO_BTN}
         <input type="hidden" name="type" id="cmp-type" value="note">
         <span class="grow"></span><button class="btn primary sm">Post</button>
       </div>
@@ -2554,6 +2661,7 @@ export interface Display {
   text?: "s" | "m" | "l";
   density?: "comfortable" | "compact";
   theme?: "system" | "light" | "dark";
+  mode?: "auto" | "everyday" | "developer";
 }
 
 /** Account → Display: how the chat looks to you (Slack-style). Saved to your profile, so the web and the app match. */
@@ -2567,7 +2675,9 @@ function displaySection(d: Display | null | undefined): string {
 ${seg("text", "Text size", [["s", "Small"], ["m", "Medium"], ["l", "Large"]])}
 ${seg("density", "Density", [["comfortable", "Comfortable"], ["compact", "Compact"]])}
 ${seg("theme", "Theme", [["system", "System"], ["light", "Light"], ["dark", "Dark"]])}
-</div></form>`;
+</div></form>
+<div class="section-title" style="margin-top:24px"><div><h2 class="small" style="font-size:13px;color:var(--muted)">Advanced (for developers)</h2></div></div>
+<label class="card pad dev-mode" for="dev-mode"><span class="dev-ic" aria-hidden="true">&lt;&gt;</span><span class="grow"><span class="small" style="color:var(--ink);font-weight:600">Developer mode</span><span class="xs muted" id="dev-mode-hint" style="display:block;margin-top:2px">Tasks, change cards, #numbers, sessions. Turns on by itself if you connect Claude Code or Codex.</span></span><input type="checkbox" class="switch" id="dev-mode" role="switch"></label>`;
 }
 
 /** Account → Profile: how you show up to others (name, bio, the directory) and what your account accepts on its own. */
@@ -2596,7 +2706,14 @@ const DISPLAY_JS = `
   if(saved)applyDisplay(cur);
   f.addEventListener('change',async()=>{const d={text:f.text.value,density:f.density.value,theme:f.theme.value};applyDisplay(d);
     const r=await fetch('/api/me/profile',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({display:d})}).catch(()=>null);
-    toast(r&&r.ok?'Display saved':'Saved on this device only')})})();`;
+    toast(r&&r.ok?'Display saved':'Saved on this device only')})})();
+// Developer mode (#1272): one switch; the server works out "auto" (on once you've connected a coding agent).
+(()=>{const c=document.getElementById('dev-mode'),h=document.getElementById('dev-mode-hint');if(!c)return;c.checked=document.documentElement.dataset.mode!=='everyday';
+  fetch('/api/app/prefs').then(r=>r.ok?r.json():null).then(j=>{const p=j&&j.prefs;if(!p)return;c.checked=!!p.developer;
+    if(p.display&&p.display.mode==='auto'&&p.developer)h.textContent='On because you connected a coding agent. Turn it off for the simpler Everyday view.'}).catch(()=>{});
+  c.addEventListener('change',async()=>{const on=c.checked;applyDisplay(Object.assign({},JSON.parse(localStorage.getItem('atteo-display')||'{}'),{developer:on}));
+    const r=await fetch('/api/app/prefs',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({display:{mode:on?'developer':'everyday'}})}).catch(()=>null);
+    toast(r&&r.ok?(on?'Developer mode on':'Everyday view on'):'Saved on this device only')})})();`;
 
 const PROFILE_JS = `
 document.getElementById('pf-form')?.addEventListener('submit',async e=>{e.preventDefault();const f=e.target,b=f.querySelector('button');b.disabled=true;
@@ -2617,7 +2734,7 @@ document.getElementById('kill-all')?.addEventListener('click',async e=>{const b=
   const r=await fetch('/api/tokens/revoke-all',{method:'POST'});const j=await r.json().catch(()=>({}));toast(r.ok?j.message:(j.error||'Could not disconnect'));
   if(r.ok)setTimeout(()=>location.reload(),900);else b.disabled=false});`;
 
-export function mePage(viewer: Viewer, side: SideBoard[], tokens: TokenRow[], plan: PlanState = { plan: "free", status: null, renews_at: null, cancel_at_end: false, customer: null }, billingEnabled = false, hooks: WebhookRow[] = [], prof: ProfileView | null = null): Response {
+export function mePage(viewer: Viewer, side: SideBoard[], tokens: TokenRow[], plan: PlanState = { plan: "free", status: null, renews_at: null, cancel_at_end: false, customer: null }, billingEnabled = false, hooks: WebhookRow[] = [], prof: ProfileView | null = null, assistants: string[] = []): Response {
   const rows = tokens.length
     ? tokens
         .map(
@@ -2642,6 +2759,7 @@ export function mePage(viewer: Viewer, side: SideBoard[], tokens: TokenRow[], pl
     crumbs: `<span class="cur">Account</span>`,
     body: `<div class="section-title"><div><h1>Account</h1><p class="muted" style="margin-top:4px">Signed in as <b>${esc(viewer.name)}</b> · ${esc(viewer.email)}</p></div>
   <form method="post" action="/auth/logout"><button class="btn sm">Sign out</button></form></div>
+${assistantCard(assistants)}
 <div class="section-title" style="margin-top:32px"><div><h2>Profile</h2><p class="small muted" style="margin-top:4px">How you and your agent show up to others. Two pictures, so people can tell you apart at a glance.</p></div></div>
 <div class="pfps">${(["person", "agent"] as const)
       .map(

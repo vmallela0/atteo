@@ -698,14 +698,14 @@ await step("brand: the Pebble is the favicon, apple-touch icon and header mark",
   assert(!svg.includes("#f59e0b"), "old soup-bowl steam still in favicon");
   const t = await fetch(`${BASE}/apple-touch-icon.png`);
   assert((t.headers.get("content-type") ?? "") === "image/png" && (await t.arrayBuffer()).byteLength > 1000, "apple-touch icon not a png");
-  const html = await (await web("/", A)).text();
+  const html = await (await web("/chats", A)).text(); // "/" is For you in Everyday (#1272); the list is /chats
   has(html, 'class="pebble"');
   has(html, "#D97857");
   has(html, 'class="wm">atteo<');
 });
 
 await step("web: home lists my boards; tokens can be created and revoked", async () => {
-  has(await (await web("/", A)).text(), `e2e ${run}`);
+  has(await (await web("/chats", A)).text(), `e2e ${run}`);
   const r = await web("/api/tokens", A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ board, label: "e2e web" }) });
   const t = await r.json();
   assert(r.status === 201 && t.command.includes(`Authorization: Bearer ${t.token}`) && t.command.includes("--scope user") && !t.command.includes("board="), JSON.stringify(t));
@@ -1749,6 +1749,12 @@ await step("plans: Free caps boards you create; a signed Stripe webhook upgrades
   const old = await fetch(`${BASE}/b/${first}`, { headers: { cookie: cc } });
   const oldHtml = await old.text();
   assert(old.status === 200 && oldHtml.includes("Archived"), "the archived board is still readable");
+  // A deleted board doesn't count toward the cap either: at 3 active, delete one and a new board is allowed.
+  const five = await create(`e2e cap 5 ${run}`);
+  assert(five.status === 402, `at the cap again: ${five.status}`);
+  const victim = (await five.text()).match(/name="archive" value="(b_[a-z0-9]+)"/)[1];
+  assert((await fetch(`${BASE}/api/boards/${victim}`, { method: "DELETE", headers: { cookie: cc } })).status === 200, "delete frees a slot");
+  assert(made(await create(`e2e cap 5 ${run}`)), "a deleted board isn't counted");
   // Someone else's board can't be archived through this.
   const notMine = await fetch(`${BASE}/boards`, { method: "POST", redirect: "manual", headers: { cookie: cc, "content-type": "application/x-www-form-urlencoded" }, body: `title=x&archive=${board}` });
   assert(notMine.status === 400, `archiving a board you didn't make: ${notMine.status}`);
@@ -2390,13 +2396,13 @@ await step("display settings: text size, density and theme per person (defaults,
   const get = async (who) => (await (await api(who, "GET", "/api/me/profile")).json()).profile;
   // Defaults: medium text, comfortable, follow the system.
   const d0 = (await get(P)).display;
-  assert(JSON.stringify(d0) === JSON.stringify({ text: "m", density: "comfortable", theme: "system" }), "defaults: " + JSON.stringify(d0));
+  assert(JSON.stringify(d0) === JSON.stringify({ text: "m", density: "comfortable", theme: "system", mode: "auto" }), "defaults: " + JSON.stringify(d0));
   // A partial update merges with what's there; other profile fields are untouched.
   await api(P, "POST", "/api/me/profile", { bio: `display ${run}` });
   let r = await (await api(P, "POST", "/api/me/profile", { display: { text: "l" } })).json();
   assert(r.ok && r.profile.display.text === "l" && r.profile.display.density === "comfortable" && r.profile.display.theme === "system", "partial: " + JSON.stringify(r));
   r = await (await api(P, "POST", "/api/me/profile", { display: { density: "compact", theme: "dark" } })).json();
-  assert(JSON.stringify(r.profile.display) === JSON.stringify({ text: "l", density: "compact", theme: "dark" }), "merged: " + JSON.stringify(r.profile.display));
+  assert(JSON.stringify(r.profile.display) === JSON.stringify({ text: "l", density: "compact", theme: "dark", mode: "auto" }), "merged: " + JSON.stringify(r.profile.display));
   const saved = await get(P);
   assert(saved.display.text === "l" && saved.display.density === "compact" && saved.display.theme === "dark" && saved.bio === `display ${run}`, "persisted: " + JSON.stringify(saved));
   // Other profile saves (no display key) leave it alone.
@@ -2408,7 +2414,7 @@ await step("display settings: text size, density and theme per person (defaults,
     assert(res.status === 400, `bad display ${JSON.stringify(bad)}: ${res.status}`);
   }
   const after = await get(P);
-  assert(JSON.stringify(after.display) === JSON.stringify({ text: "l", density: "compact", theme: "dark" }) && after.bio === `display ${run}`, "unchanged after bad: " + JSON.stringify(after));
+  assert(JSON.stringify(after.display) === JSON.stringify({ text: "l", density: "compact", theme: "dark", mode: "auto" }) && after.bio === `display ${run}`, "unchanged after bad: " + JSON.stringify(after));
   // Private: someone else sees their own settings (defaults), never P's, and P's person card doesn't carry them.
   const other = await get(B);
   assert(other.name === B && other.display && other.display.theme !== undefined, "B gets B's own profile");
@@ -2463,13 +2469,13 @@ await step("app prefs: /api/app/prefs holds display + favourite reactions for pe
   const prefs = async (h = W) => (await (await as(h, "GET", "/api/app/prefs")).json()).prefs;
   const profile = async () => (await (await as(W, "GET", "/api/me/profile")).json()).profile;
   // Defaults; signed out 401; an agent's token 403 (client prefs aren't part of the network).
-  assert(JSON.stringify(await prefs()) === JSON.stringify({ display: { text: "m", density: "comfortable", theme: "system" }, reactions: DEF, recent_reactions: [] }), "defaults: " + JSON.stringify(await prefs()));
+  assert(JSON.stringify(await prefs()) === JSON.stringify({ display: { text: "m", density: "comfortable", theme: "system", mode: "auto" }, reactions: DEF, recent_reactions: [], developer: false }), "defaults: " + JSON.stringify(await prefs()));
   assert((await fetch(`${BASE}/api/app/prefs`)).status === 401, "signed out: 401");
   assert((await as(AG, "GET", "/api/app/prefs")).status === 403 && (await as(AG, "POST", "/api/app/prefs", { display: { theme: "dark" } })).status === 403, "agent token: 403");
   assert((await prefs()).display.theme === "system", "the agent's 403 saved nothing");
   // Web: display merges, reactions replace; the app token sees the same.
   let r = await (await as(W, "POST", "/api/app/prefs", { display: { theme: "dark" }, reactions: ["🚀", "👀"] })).json();
-  assert(r.ok && JSON.stringify(r.prefs) === JSON.stringify({ display: { text: "m", density: "comfortable", theme: "dark" }, reactions: ["🚀", "👀"], recent_reactions: [] }), "set: " + JSON.stringify(r));
+  assert(r.ok && JSON.stringify(r.prefs) === JSON.stringify({ display: { text: "m", density: "comfortable", theme: "dark", mode: "auto" }, reactions: ["🚀", "👀"], recent_reactions: [], developer: false }), "set: " + JSON.stringify(r));
   r = await (await as(APP, "POST", "/api/app/prefs", { display: { text: "l" } })).json();
   assert(r.ok && r.prefs.display.theme === "dark" && r.prefs.display.text === "l" && r.prefs.reactions.length === 2, "app token, partial: " + JSON.stringify(r));
   assert(JSON.stringify(await prefs(APP)) === JSON.stringify(await prefs()), "web and app agree");
@@ -2484,7 +2490,7 @@ await step("app prefs: /api/app/prefs holds display + favourite reactions for pe
   let p = await profile();
   assert(JSON.stringify(p.display) === JSON.stringify(kept.display) && JSON.stringify(p.reactions) === JSON.stringify(kept.reactions), "old GET: " + JSON.stringify(p));
   await as(W, "POST", "/api/me/profile", { display: { density: "compact" }, reactions: ["🎯"] });
-  assert(JSON.stringify(await prefs()) === JSON.stringify({ display: { text: "l", density: "compact", theme: "dark" }, reactions: ["🎯"], recent_reactions: [] }), "old POST lands: " + JSON.stringify(await prefs()));
+  assert(JSON.stringify(await prefs()) === JSON.stringify({ display: { text: "l", density: "compact", theme: "dark", mode: "auto" }, reactions: ["🎯"], recent_reactions: [], developer: false }), "old POST lands: " + JSON.stringify(await prefs()));
   assert((await (await as(AG, "GET", "/api/me/profile")).json()).profile.reactions[0] === "🎯", "the old path still answers tokens");
   // Clearing returns the default; other profile saves leave prefs alone.
   await as(W, "POST", "/api/me/profile", { bio: `prefs ${run}` });
@@ -2500,7 +2506,7 @@ await step("app prefs: /api/app/prefs holds display + favourite reactions for pe
   assert(!(await ok(P, fb, "read")).includes("🦄"), "MCP read carries no client prefs");
   assert(!JSON.stringify(await (await as(AG, "GET", "/api/me")).json()).includes("🦄"), "/api/me carries no client prefs");
   const spec = await (await fetch(`${BASE}/openapi.json`)).json();
-  assert(spec.paths["/api/app/prefs"]?.get && spec.paths["/api/app/prefs"]?.post && spec.paths["/api/app/tts"]?.post, "openapi lists the app namespace");
+  assert(spec.paths["/api/app/prefs"]?.get && spec.paths["/api/app/prefs"]?.post && spec.paths["/api/app/tts"]?.post && spec.paths["/api/app/voice/session"]?.post, "openapi lists the app namespace");
 });
 
 await step("recent_reactions: a person's most-used emoji, counted as they react (not their agents), next to reactions, private", async () => {
@@ -2635,6 +2641,82 @@ await step("rename and archive: creator only; archived boards are read-only and 
   assert((await call(A, "archive", { archived: false })).status === 200, "restore");
   await ok(B, id, "read");
   has(await ok(B, id, "post", { type: "note", text: `back ${run}` }), "Posted");
+});
+
+await step("soft delete: owner-only people action; gone for every member and agent, data intact, restore within 30 days; unarchive; not DMs or the agent chat; not counted in plan limits", async () => {
+  const id = (await ops("boards", { user: A, title: `e2e softdel ${run}` })).body.board.id;
+  await ops("members", { board: id, user: B });
+  const json = { "content-type": "application/json" };
+  const del = (who) => web(`/api/boards/${id}`, who, { method: "DELETE" });
+  const agentCall = (who, method, path) => fetch(`${BASE}${path}`, { method, headers: { authorization: `Bearer ${tok[who]}`, ...json }, body: method === "POST" ? "{}" : undefined });
+  has(await ok(B, id, "post", { type: "note", text: `before delete ${run}` }), "Posted");
+  // unarchive
+  assert((await web(`/api/boards/${id}/unarchive`, B, { method: "POST", headers: json, body: "{}" })).status === 403, "non-owner can't unarchive");
+  assert((await web(`/api/boards/${id}/archive`, A, { method: "POST", headers: json, body: JSON.stringify({ archived: true }) })).status === 200, "archive");
+  const un = await web(`/api/boards/${id}/unarchive`, A, { method: "POST", headers: json, body: "{}" });
+  assert(un.status === 200 && (await un.json()).archived === false, `unarchive ${un.status}`);
+  has(await ok(B, id, "post", { type: "note", text: `unarchived ${run}` }), "Posted");
+  // who can't delete
+  assert((await del(B)).status === 403, "a non-owner member can't delete");
+  assert((await agentCall(A, "DELETE", `/api/boards/${id}`)).status === 403, "an agent can't delete, even its owner's");
+  assert((await del(OUT)).status === 404, "a stranger can't even see it");
+  // delete
+  const d = await del(A);
+  const dj = await d.json();
+  assert(d.status === 200 && dj.deleted === true, `delete ${d.status} ${JSON.stringify(dj)}`);
+  const mine = async (who) => (await (await web("/api/me/boards", who)).json()).boards.some((b) => b.id === id);
+  assert(!(await mine(A)) && !(await mine(B)), "gone from everyone's list");
+  assert(!(await (await web("/", B)).text()).includes(id), "gone from the home page");
+  for (const who of [A, B]) {
+    for (const p of [`/api/boards/${id}/entries`, `/api/boards/${id}/snapshot`, `/api/boards/${id}/members`]) {
+      const r = await web(p, who);
+      assert(r.status === 404 && (await r.json()).error === "This chat was deleted", `${who} ${p}: ${r.status}`);
+    }
+    assert((await web(`/b/${id}`, who)).status === 404, "page is gone");
+    const ag = await agentCall(who, "GET", `/api/boards/${id}/entries`);
+    assert(ag.status === 404, `agent REST ${ag.status}`);
+    await err(who, id, "read", {}, "This chat was deleted");
+  }
+  assert(!(await ok(B, null, "list_boards")).includes(id), "not in the agent's board list");
+  assert((await web(`/api/boards/${id}/delete`, A, { method: "POST", headers: json, body: JSON.stringify({ confirm: "x" }) })).status === 404, "no other action on it");
+  // restore: owner only, people only
+  assert((await web(`/api/boards/${id}/restore`, B, { method: "POST" })).status === 404, "a member can't restore");
+  assert((await agentCall(A, "POST", `/api/boards/${id}/restore`)).status === 404, "an agent can't restore");
+  const rs = await web(`/api/boards/${id}/restore`, A, { method: "POST" });
+  assert(rs.status === 200, `restore ${rs.status}`);
+  assert((await mine(A)) && (await mine(B)), "back for everyone");
+  const back = await ok(B, id, "read");
+  has(back, "2 entries"); // its data was never touched
+  assert((await web(`/api/boards/${id}/restore`, A, { method: "POST" })).status === 404, "restoring a live board is a no-op 404");
+  const aud = await (await web(`/api/boards/${id}/audit`, A)).json();
+  assert(aud.audit.some((a) => a.action === "deleted") && aud.audit.some((a) => a.action === "restored_from_delete"), JSON.stringify(aud).slice(0, 300));
+  // DMs and the agent chat can't be deleted
+  const chat = (await (await agentCall(A, "POST", "/api/me/agent-chat")).json()).board;
+  const dc = await web(`/api/boards/${chat}`, A, { method: "DELETE" });
+  assert(dc.status === 400, `agent chat delete ${dc.status}`);
+});
+
+await step("soft delete restore window: day 29 restores; day 31 returns 410", async () => {
+  const day = 86_400_000;
+  const json = { "content-type": "application/json" };
+  const remove = async (label) => {
+    const id = (await ops("boards", { user: A, title: `e2e restore ${label} ${run}` })).body.board.id;
+    const response = await web(`/api/boards/${id}`, A, { method: "DELETE" });
+    const body = await response.json();
+    assert(response.status === 200 && Number.isSafeInteger(body.restorable_until), `delete ${label}: ${response.status} ${JSON.stringify(body)}`);
+    return { id, deletedAt: body.restorable_until - 30 * day };
+  };
+  const restoreAt = ({ id, deletedAt }, days) =>
+    web(`/api/boards/${id}/restore`, A, { method: "POST", headers: { ...json, "x-dev-now": String(deletedAt + days * day) }, body: "{}" });
+
+  const within = await remove("day29");
+  const restored = await restoreAt(within, 29);
+  assert(restored.status === 200, `day 29 restore: ${restored.status} ${await restored.text()}`);
+
+  const expired = await remove("day31");
+  const tooLate = await restoreAt(expired, 31);
+  const tooLateBody = await tooLate.json();
+  assert(tooLate.status === 410 && tooLateBody.error?.includes("more than 30 days"), `day 31 restore: ${tooLate.status} ${JSON.stringify(tooLateBody)}`);
 });
 
 await step("delete a board: creator only, typed confirmation, everything goes", async () => {
@@ -2832,6 +2914,55 @@ await step("read-only agent sessions: read and wait work; posting, through the A
   r = await web(`/api/sessions/${ro.id}`, B, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ scope: "full" }) });
   assert(r.status === 200 && (await r.json()).session.scope === "full", "the person raises it");
   assert(!(await call("post", { type: "note", text: `full again ${run}` })).isError, "posts again");
+});
+
+// ---- review #1335 (#1343): "is on it" names the session the same way however it was taken; pages map only their seqs ----
+await step("handling: taking by reply or by finishing a task names the session (user/session) over REST too; a page with gaps maps only its own seqs", async () => {
+  // Its own two people (P asks, Q's agents answer), so the mail it makes doesn't crowd A's and B's later checks.
+  const P = `e2e-hp-${run}`, Q = `e2e-hq-${run}`;
+  for (const n of [P, Q]) {
+    await ops("users", { name: n, email: `${n}@example.com`, verified: "true" });
+    tok[n] = (await ops("tokens", { user: n, label: "e2e" })).body.token;
+    cookie[n] = (await ops("sessions", { user: n })).body.cookie;
+  }
+  const api = async (who, method, path, body, session) => {
+    const r = await fetch(`${BASE}${path}`, { method, headers: { ...auth(who), ...(session ? { "x-atteo-session": session.id } : {}), "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+    return { status: r.status, body: await r.json().catch(() => ({})) };
+  };
+  const hb = (await ops("boards", { user: P, title: `e2e handle label ${run}` })).body.board.id;
+  await ops("members", { board: hb, user: Q });
+  const relay = (await api(Q, "POST", "/api/sessions", { suggest: "relay", client: "Claude Code" })).body.session;
+  const scout = (await api(Q, "POST", "/api/sessions", { suggest: "lookout", client: "Codex" })).body.session;
+  for (const x of [relay, scout]) await api(Q, "POST", `/api/sessions/${x.id}/boards`, { board: hb });
+  const post = async (who, body, session) => {
+    const r = await api(who, "POST", `/api/boards/${hb}/entries`, body, session);
+    assert(r.status === 201, `post: ${r.status} ${JSON.stringify(r.body)}`);
+    return r.body.entry.seq;
+  };
+  const handling = async () => (await (await web(`/api/boards/${hb}/updates?after=0`, P)).json()).handling;
+  // Replying over REST (the SDK, a hosted agent) takes the message as "Q/relay", like atteo handle does.
+  const q = await post(P, { type: "question", text: `@${Q}'s agent which region? ${run}` });
+  await api(Q, "GET", `/api/sessions/${relay.id}/read?board=${hb}`);
+  await post(Q, { type: "note", text: "eu-west", reply_to: q }, relay);
+  assert((await handling())[q]?.by === `${Q}/relay`, `reply over REST: ${JSON.stringify(await handling())}`);
+  // Finishing a task nobody took marks it done by the session that finished it.
+  const t = (await api(P, "POST", `/api/boards/${hb}/tasks`, { title: `rotate keys ${run}` })).body.task.seq;
+  const done = await api(Q, "POST", `/api/boards/${hb}/tasks/${t}`, { action: "update", status: "done" }, relay);
+  assert(done.status === 200, JSON.stringify(done));
+  const h = (await handling())[t];
+  assert(h?.by === `${Q}/relay` && h.done === true, `task done: ${JSON.stringify(h)}`);
+  // A page with a gap: a people-only message (which Q, the person, takes) sits between two of P's; lookout can't see
+  // it, so its page skips it, and carries no marker but its page's.
+  const a1 = await post(P, { type: "note", text: `first ${run}` });
+  const mid = (await (await web(`/api/boards/${hb}/entries`, P, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "question", people_only: true, to: Q, text: `can you take this ${run}` }) })).json()).entry.seq;
+  assert((await web(`/api/boards/${hb}/handle/${mid}`, Q, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).status === 200, "Q takes it");
+  const a2 = await post(P, { type: "note", text: `second ${run}` });
+  const page = (await rpcRaw({ ...auth(Q), "x-atteo-session": scout.id }, hb, "tools/call", { name: "read", arguments: { since: a1 - 1 } })).content[0].text;
+  has(page, `first ${run}`);
+  has(page, `second ${run}`);
+  assert(!page.includes(`can you take this ${run}`) && !page.includes("handled by"), `a page with a gap (#${a1}, #${a2}; not #${mid}):\n${page}`);
+  assert((await (await web(`/api/boards/${hb}/updates?after=0`, Q)).json()).handling[mid]?.by === Q, "the marker is still on the message in the gap");
+  for (const x of [relay, scout]) await api(Q, "DELETE", `/api/sessions/${x.id}`);
 });
 
 await step("handling: when several of a person's agents are asked, one takes it and the rest see who; replying takes it too; @user/session reaches one", async () => {
@@ -4123,7 +4254,7 @@ await step("read aloud (POST /api/app/tts): people only, validated, members only
   const tts = (who, body, headers = {}) => web("/api/app/tts", who, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body) });
   const app = (await ops("tokens", { user: A, kind: "app", label: "e2e tts app" })).body.token;
   const st = await (await web("/api/app/tts/status", A)).json();
-  assert(typeof st.enabled === "boolean" && st.voice_default === "eve" && st.budget_chars === 900000 && st.used_chars >= 0, JSON.stringify(st));
+  assert(typeof st.enabled === "boolean" && st.voice_default === "eve" && st.budget_chars === 150000 && st.used_chars >= 0, JSON.stringify(st));
   const viaApp = await fetch(`${BASE}/api/app/tts/status`, { headers: { authorization: `Bearer ${app}` } });
   assert(viaApp.status === 200, `app token status: ${viaApp.status}`);
   assert((await fetch(`${BASE}/api/app/tts/status`)).status === 401, "signed out: 401");
@@ -4153,6 +4284,54 @@ await step("read aloud (POST /api/app/tts): people only, validated, members only
     const r = await tts(A, { board, seq });
     assert(r.status === 200 && r.headers.get("content-type")?.startsWith("audio/"), `speaks: ${r.status}`);
   }
+});
+
+await step("voice (POST /api/app/voice/session): people only, validated, rate limited, no key → 503; a fake provider shows the session shape", async () => {
+  const session = (who, body, headers = {}) => web("/api/app/voice/session", who, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body) });
+  const app = (await ops("tokens", { user: A, kind: "app", label: "e2e voice app" })).body.token;
+  const st = await (await web("/api/app/voice/status", A)).json();
+  assert(typeof st.enabled === "boolean" && st.minutes_budget === 60 && st.minutes_used >= 0 && st.voice_default === "eve" && st.voices.includes("eve"), JSON.stringify(st));
+  assert((await fetch(`${BASE}/api/app/voice/status`, { headers: { authorization: `Bearer ${app}` } })).status === 200, "app token: status");
+  assert((await fetch(`${BASE}/api/app/voice/status`)).status === 401, "signed out: 401");
+  for (const p of ["/api/app/voice/session", "/api/app/voice/status"]) {
+    const r = await fetch(`${BASE}${p}`, { method: p.endsWith("status") ? "GET" : "POST", headers: { authorization: `Bearer ${tok[A]}`, "content-type": "application/json" }, body: p.endsWith("status") ? undefined : "{}" });
+    assert(r.status === 403, `agents are refused ${p}: ${r.status}`);
+  }
+  for (const [body, code, needle] of [[{ voice: "darth" }, 400, "Unknown voice"], [{ board: "nope" }, 400, "board id"], [{ hands_free: "yes" }, 400, "hands_free"]]) {
+    const r = await session(A, body);
+    const j = await r.json();
+    assert(r.status === code && j.error.includes(needle), `${JSON.stringify(body)} → ${r.status} ${JSON.stringify(j)}`);
+  }
+  const outsider = await session(OUT, { board });
+  assert(outsider.status === 404, `non-member board: ${outsider.status}`);
+  if (!st.enabled) {
+    for (const r of [await session(A, { board }), await fetch(`${BASE}/api/app/voice/session`, { method: "POST", headers: { authorization: `Bearer ${app}`, "content-type": "application/json" }, body: "{}" })]) {
+      const j = await r.json();
+      assert(r.status === 503 && j.error === "Voice isn't set up yet" && j.fallback === "device", `no key: ${r.status} ${JSON.stringify(j)}`);
+    }
+  }
+  // The local fake provider (DEV_FAKE_VOICE=1 in .dev.vars, header-gated, localhost only): a whole session, no xAI.
+  const fake = await session(A, { board }, { "x-dev-fake-voice": "1" });
+  if (fake.status === 503) console.log("      (fake voice is off here: set DEV_FAKE_VOICE=1 in .dev.vars to see a session's shape)");
+  else {
+    const j = await fake.json();
+    assert(fake.status === 200 && j.url.startsWith("wss://api.x.ai/v1/realtime") && j.token?.value && j.protocols[0] === `xai-client-secret.${j.token.value}`, `fake session: ${fake.status} ${JSON.stringify(j).slice(0, 300)}`);
+    assert(j.session.turn_detection === null && j.session.instructions.includes("You are Atteo") && j.session.tools.length === 6 && j.tool_routes.answer_approval.confirm === true, "session config");
+    assert(j.minutes_budget === 60 && j.max_seconds === 600 && /^vs_/.test(j.session_id), JSON.stringify({ b: j.minutes_budget, m: j.max_seconds }));
+    const after = await (await web("/api/app/voice/status", A)).json();
+    assert(after.minutes_used === st.minutes_used + 10, `charged the cap up front: ${JSON.stringify(after)}`);
+    const end = await (await web("/api/app/voice/session/end", A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ session_id: j.session_id, seconds: 30 }) })).json();
+    assert(end.ok && end.seconds_used === 30 && end.minutes_used === st.minutes_used + 0.5, `settled: ${JSON.stringify(end)}`);
+    const twice = await web("/api/app/voice/session/end", A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ session_id: j.session_id, seconds: 1 }) });
+    assert(twice.status === 404, `ends once: ${twice.status}`);
+  }
+  // Rate limit (6 a minute by default), before the provider check: someone fresh hits it even without a key (with a
+  // real key it would mint real client secrets, so it's skipped then).
+  if (st.enabled) return;
+  const codes = [];
+  for (let i = 0; i < 7; i++) codes.push((await session(B, {})).status);
+  const last = await session(B, {});
+  assert(codes.slice(0, 6).every((c) => c !== 429) && codes[6] === 429 && last.status === 429 && Number(last.headers.get("retry-after")) > 0, `rate limit: ${codes} ${last.status}`);
 });
 
 // ---- people-only messages (vedu #1264): visible only to the people named (and the author), never to any agent ----
@@ -4367,6 +4546,117 @@ await step("read aloud (POST /api/app/tts): people only, validated, members only
     assert(fo.status !== 201, `outsider forward: ${fo.status}`);
     hidden(await ok(A, other, "read", { since: 0 }), "the other board");
     for (const s of Object.values(sockets)) s.ws.close();
+  });
+}
+
+// ---- Free-plan guardrails (src/limits.ts): per-token rate limit, daily budget, load shedding, one wait per session.
+// Limits are lowered for this isolate through /api/ops/limits (wrangler dev runs one) and always reset afterwards.
+{
+  const LU = `e2e-lim-${run}`;
+  let lb = null;
+  const lim = { agent: null, app: null, cookie: null };
+  const call = async (token, method, path, body) => {
+    const r = await fetch(`${BASE}${path}`, { method, headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
+    return { status: r.status, retry: r.headers.get("retry-after"), body: await r.json().catch(() => ({})) };
+  };
+  const setLimits = async (o) => {
+    const r = await ops("limits", o);
+    assert(r.status === 200, `ops limits: ${r.status} ${JSON.stringify(r.body)}`);
+    return r.body;
+  };
+  const guarded = (name, fn) =>
+    step(name, async () => {
+      if (!lim.agent) {
+        assert((await ops("users", { name: LU, email: `${LU}@example.com`, verified: "true" })).status === 201, "limits user");
+        lim.agent = (await ops("tokens", { user: LU, label: "e2e" })).body.token;
+        lim.app = (await ops("tokens", { user: LU, label: "e2e app", kind: "app" })).body.token;
+        lim.cookie = (await ops("sessions", { user: LU })).body.cookie;
+        lb = (await ops("boards", { user: LU, title: `e2e limits ${run}` })).body.board.id;
+      }
+      await setLimits({ reset: true, shed: 0 });
+      try {
+        await fn();
+      } finally {
+        await setLimits({ reset: true, shed: 0 });
+      }
+    });
+
+  await guarded("limits: per-token rate limit answers 429 with Retry-After; health and static files are exempt", async () => {
+    await setLimits({ agentPerMin: 3, appPerMin: 5 });
+    for (let i = 0; i < 3; i++) assert((await call(lim.agent, "GET", "/api/me")).status === 200, `agent call ${i + 1}`);
+    const r = await call(lim.agent, "GET", "/api/me");
+    assert(r.status === 429 && Number(r.retry) > 0 && /at most 3 requests a minute/.test(r.body.error) && r.body.retry_after > 0, `4th agent call: ${r.status} ${r.retry} ${JSON.stringify(r.body)}`);
+    // MCP with the same token: the same window, as a JSON-RPC error.
+    const m = await fetch(`${BASE}/mcp`, { method: "POST", headers: { authorization: `Bearer ${lim.agent}`, "content-type": "application/json", accept: "application/json, text/event-stream" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }) });
+    const mj = await m.json();
+    assert(m.status === 429 && Number(m.headers.get("retry-after")) > 0 && /at most 3 requests/.test(mj.error?.message ?? ""), `MCP: ${m.status} ${JSON.stringify(mj)}`);
+    // The app's token (the person) has its own, higher limit.
+    for (let i = 0; i < 5; i++) assert((await call(lim.app, "GET", "/api/me")).status === 200, `app call ${i + 1}`);
+    assert((await call(lim.app, "GET", "/api/me")).status === 429, "6th app call");
+    // Exempt: health checks and static files, even with the throttled token.
+    for (const p of ["/health", "/skill.md", "/favicon.svg", "/openapi.json"]) assert((await fetch(`${BASE}${p}`, { headers: { authorization: `Bearer ${lim.agent}` } })).status === 200, `${p} exempt`);
+  });
+
+  await guarded("limits: daily budget: agents get 429 'Daily limit reached'; waits don't count; the web keeps reading", async () => {
+    await setLimits({ dailyFree: 4 });
+    for (let i = 0; i < 3; i++) assert((await call(lim.agent, "GET", "/api/me")).status === 200, `call ${i + 1}`);
+    // Long-polls aren't counted (one open per session instead).
+    const waits = await Promise.all([1, 2, 3].map(() => call(lim.agent, "GET", `/api/boards/${lb}/entries?after=999999&wait=1`)));
+    assert(waits.every((w) => w.status === 200), `waits: ${waits.map((w) => w.status)}`);
+    assert((await call(lim.agent, "GET", "/api/me")).status === 200, "4th counted call");
+    const r = await call(lim.agent, "GET", "/api/me");
+    assert(r.status === 429 && /^Daily limit reached/.test(r.body.error) && Number(r.retry) > 0 && Number(r.retry) <= 86400, `over budget: ${r.status} ${r.retry} ${JSON.stringify(r.body)}`);
+    const w = await call(lim.agent, "GET", `/api/boards/${lb}/entries?after=0&wait=1`);
+    assert(w.status === 429, `an over-budget agent's wait: ${w.status}`);
+    // The person on the web: pages and reads still work, changes don't.
+    const page = await fetch(`${BASE}/api/me`, { headers: { cookie: lim.cookie } });
+    assert(page.status === 200, `web read: ${page.status}`);
+    const post = await fetch(`${BASE}/api/boards/${lb}/entries`, { method: "POST", headers: { cookie: lim.cookie, "content-type": "application/json" }, body: JSON.stringify({ text: "over budget" }) });
+    assert(post.status === 429 && /still read/.test((await post.json()).error), `web write: ${post.status}`);
+  });
+
+  await guarded("limits: load shedding: level 2 refuses non-essential agent writes (503); posting still works; the cron sets levels", async () => {
+    const posted = await call(lim.agent, "POST", `/api/boards/${lb}/entries`, { text: `shed ${run}` });
+    assert(posted.status === 201, `post: ${posted.status} ${JSON.stringify(posted.body)}`);
+    const seq = posted.body.entry?.seq ?? posted.body.seq;
+    await setLimits({ shed: 2 });
+    const re = await call(lim.agent, "POST", `/api/boards/${lb}/entries/${seq}/react`, { emoji: "👍" });
+    assert(re.status === 503 && Number(re.retry) > 0, `agent reaction at level 2: ${re.status} ${JSON.stringify(re.body)}`);
+    assert((await call(lim.agent, "POST", `/api/boards/${lb}/entries`, { text: `still posting ${run}` })).status === 201, "agent post at level 2");
+    assert((await call(lim.agent, "GET", `/api/boards/${lb}/entries?after=0`)).status === 200, "agent read at level 2");
+    const pr = await fetch(`${BASE}/api/boards/${lb}/entries/${seq}/react`, { method: "POST", headers: { cookie: lim.cookie, "content-type": "application/json" }, body: JSON.stringify({ emoji: "👍" }) });
+    assert(pr.status === 200, `a person's reaction at level 2: ${pr.status}`);
+    // Level 1: open tabs are asked to pause between long-polls.
+    await setLimits({ shed: 1 });
+    const up = await (await fetch(`${BASE}/api/boards/${lb}/updates?after=0`, { headers: { cookie: lim.cookie } })).json();
+    assert(up.poll_after_ms > 0, `poll hint: ${up.poll_after_ms}`);
+    // The cron: today's requests over the level-1 threshold → 1; defaults (far above an e2e run) → 0.
+    await setLimits({ shedL1Requests: 1, shedL2Requests: 1e12 });
+    const c1 = await ops("cron", {});
+    assert(c1.body.shed?.level === 1 && c1.body.shed.requests >= 1, `cron level 1: ${JSON.stringify(c1.body.shed)}`);
+    await setLimits({ reset: true });
+    const c0 = await ops("cron", {});
+    assert(c0.body.shed?.level === 0, `cron level 0: ${JSON.stringify(c0.body.shed)}`);
+  });
+
+  await guarded("limits: one open wait per agent session (a newer wait ends the older); a cap on live sessions", async () => {
+    const s = await call(lim.agent, "POST", "/api/sessions", { client: "e2e" });
+    assert(s.status === 201, `session: ${s.status} ${JSON.stringify(s.body)}`);
+    const sid = s.body.session.id;
+    await call(lim.agent, "POST", `/api/sessions/${sid}/boards`, { board: lb });
+    const t0 = Date.now();
+    const first = call(lim.agent, "GET", `/api/sessions/${sid}/wait?timeout=20`);
+    await new Promise((r) => setTimeout(r, 700));
+    const second = await call(lim.agent, "GET", `/api/sessions/${sid}/wait?timeout=1`);
+    const a = await first;
+    assert(a.status === 200 && a.body.superseded === true && Date.now() - t0 < 10_000, `older wait: ${a.status} ${JSON.stringify(a.body)} after ${Date.now() - t0}ms`);
+    assert(second.status === 200 && !second.body.superseded, `newer wait: ${JSON.stringify(second.body)}`);
+    // Live sessions: at most MAX_LIVE_SESSIONS (2 here); this person has one live.
+    await setLimits({ liveSessions: 2 });
+    assert((await call(lim.agent, "POST", "/api/sessions", { client: "e2e" })).status === 201, "second session");
+    const third = await call(lim.agent, "POST", "/api/sessions", { client: "e2e" });
+    assert(third.status === 429 && /live agent sessions/.test(third.body.error) && Number(third.retry) > 0, `third session: ${third.status} ${JSON.stringify(third.body)}`);
+    await call(lim.agent, "DELETE", "/api/sessions");
   });
 }
 

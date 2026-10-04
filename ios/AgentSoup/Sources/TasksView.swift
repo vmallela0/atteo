@@ -148,6 +148,8 @@ struct ProgressRing: View {
 enum WorkPane: String, CaseIterable, Identifiable {
     case tasks = "Tasks", files = "Files"
     var id: String { rawValue }
+    /// What it's called: Everyday says To-dos (Everyday.swift).
+    var label: String { self == .tasks ? Vocab.tasks : "Files" }
 }
 
 /// The board's work in one sheet: its tasks or its files, one segmented control apart (the control sits in the
@@ -182,7 +184,7 @@ struct TasksSheet: View {
                 ToolbarItem(placement: .principal) { Color.clear.frame(width: 1, height: 1).accessibilityHidden(true) }
                 ToolbarItem(placement: .topBarLeading) {
                     Picker("Show", selection: $pane.animation(.snappy(duration: 0.22))) {
-                        ForEach(WorkPane.allCases) { p in Text(p.rawValue).tag(p) }
+                        ForEach(WorkPane.allCases) { p in Text(p.label).tag(p) }
                     }
                     .pickerStyle(.segmented)
                     .frame(width: 168)
@@ -191,7 +193,7 @@ struct TasksSheet: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     if pane == .tasks {
                         Button { newTask = true } label: { ToolbarIcon("plus") }
-                            .accessibilityLabel("New task")
+                            .accessibilityLabel("New \(Vocab.task)")
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() }.toolbarText(primary: true) }
@@ -599,7 +601,13 @@ struct TaskMenu: View {
     let board: String
     let open: () -> Void
     var body: some View {
+        let mine = state.holding(task)
         Button("Open", systemImage: "arrow.up.right") { open() }
+        if !task.isDone && (mine || task.holder == nil) {
+            Button(mine ? "Release" : "Claim", systemImage: mine ? "person.crop.circle.badge.minus" : "person.crop.circle.badge.plus") {
+                Task { if mine { await state.release(board, task) } else { await state.claim(board, task) } }
+            }
+        }
         Button(task.isDone ? "Reopen" : "Mark done", systemImage: task.isDone ? "arrow.uturn.backward" : "checkmark.circle") {
             Task { await state.setStatus(board, task, task.isDone ? "todo" : "done") }
         }
@@ -626,7 +634,7 @@ extension AppState {
 // MARK: - One task
 
 /// One task, live: where it stands and whose it is, what it's about, its checklist (tap a line to tick it), its
-/// sub-tasks and what it's part of. You act on it here: change where it stands,
+/// sub-tasks and what it's part of. You act on it here: claim or release it, change where it stands,
 /// tick its checklist, or remove it (if you posted it or made the board). Every change shows at once and rolls back
 /// if refused.
 struct TaskDetail: View {
@@ -803,8 +811,7 @@ struct TaskDetail: View {
     }
 }
 
-/// Where a task stands (a status you change from a compact menu) and who's on it, read-only: agents claim work through
-/// their tools, so the phone shows "theo's agent is on it" (with a live dot) rather than a claim button.
+/// Where a task stands (a status you change from a compact menu), who's on it, and a button to take it or let it go.
 struct TaskActionBar: View {
     @EnvironmentObject var state: AppState
     let task: WorkTask
@@ -814,6 +821,7 @@ struct TaskActionBar: View {
     private var color: Color { task.status == "doing" ? Theme.accent : task.isDone ? Theme.ok : task.isBlocked ? Theme.warn : Theme.muted }
 
     var body: some View {
+        let mine = state.holding(task)
         HStack(spacing: 6) {
             Menu {
                 ForEach(Self.statuses, id: \.key) { s in
@@ -852,6 +860,19 @@ struct TaskActionBar: View {
                     .accessibilityLabel("High priority")
             }
             Spacer(minLength: 0)
+            if !task.isDone && (mine || task.holder == nil) {
+                Button {
+                    Task { if mine { await state.release(board, task) } else { await state.claim(board, task) } }
+                } label: {
+                    Text(mine ? "Release" : "Claim").font(Typo.meta.weight(.semibold))
+                        .padding(.horizontal, 11).frame(height: 30)
+                        .background(mine ? Theme.raised : Theme.text, in: Capsule())
+                        .foregroundStyle(mine ? Theme.text : Theme.bg)
+                }
+                .buttonStyle(PressStyle())
+                .accessibilityIdentifier("task-claim")
+                .accessibilityHint(mine ? "Let someone else take it" : "Take it for the next hour")
+            }
         }
     }
 }

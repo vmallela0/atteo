@@ -445,7 +445,7 @@ struct MarkdownText: View {
     var compact = false
 
     enum Block: Hashable {
-        case heading(Int, String), paragraph(String), bullet(String, Int), number(String, String, Int), check(String, Bool), quote(String), code(String, String?), table([[String]]), rule
+        case heading(Int, String), paragraph(String), bullet(String, Int), number(String, String, Int), check(String, Bool), quote(String), code(String, String?), table(MarkdownTable), rule
     }
 
     static func blocks(_ s: String) -> [Block] {
@@ -453,9 +453,18 @@ struct MarkdownText: View {
         var para: [String] = []
         var code: [String]? = nil
         var lang: String? = nil
-        var table: [[String]] = []
+        var table: [String] = []
         func flush() { if !para.isEmpty { out.append(.paragraph(para.joined(separator: " "))); para = [] } }
-        func flushTable() { if !table.isEmpty { out.append(.table(table)); table = [] } }
+        // A table with its "|---|" line takes its alignment from it (MarkdownTable, shared with the chat); without
+        // one, every "|" line is a row (files written loosely still read as tables).
+        func flushTable() {
+            guard !table.isEmpty else { return }
+            if let t = MarkdownTable.parse(table) { out.append(.table(t)) } else {
+                let rows = table.map(MarkdownTable.cells).filter { !$0.allSatisfy({ $0.range(of: #"^:?-{2,}:?$"#, options: .regularExpression) != nil }) }
+                if let h = rows.first { out.append(.table(MarkdownTable(header: h, rows: Array(rows.dropFirst()), aligns: []))) }
+            }
+            table = []
+        }
         for raw in s.components(separatedBy: "\n") {
             if code != nil {
                 if raw.trimmingCharacters(in: .whitespaces).hasPrefix("```") { out.append(.code(code!.joined(separator: "\n"), lang)); code = nil } else { code!.append(raw) }
@@ -465,9 +474,7 @@ struct MarkdownText: View {
             let indent = (raw.prefix { $0 == " " }.count) / 2
             if line.hasPrefix("|") {
                 flush()
-                let cells = line.trimmingCharacters(in: CharacterSet(charactersIn: "|")).components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespaces) }
-                // The |---|:--:| line under a header is layout, not a row.
-                if !cells.allSatisfy({ $0.range(of: #"^:?-{2,}:?$"#, options: .regularExpression) != nil }) { table.append(cells) }
+                table.append(line)
                 continue
             }
             flushTable()
@@ -548,9 +555,9 @@ struct MarkdownText: View {
                 .padding(.leading, 14)
                 .overlay(alignment: .leading) { Capsule().fill(Theme.raised).frame(width: 3) }
         case .code(let t, let lang):
-            CodeBlock(code: t, language: lang)
-        case .table(let rows):
-            TableBlock(rows: rows, header: rows.count > 1)
+            FencedBlock(block: MessageBlocks.fenced(t, lang), maxLines: nil) // a chart draws, a diagram is labelled
+        case .table(let t):
+            TableBlock(table: t)
         case .rule:
             Rectangle().fill(Theme.line).frame(height: 0.5).padding(.vertical, Space.xs)
         }
@@ -563,15 +570,28 @@ struct CodeBlock: View {
     let code: String
     var language: String? = nil
     var numbered = false
+    var label: String? = nil // instead of the language ("Diagram")
+    var maxLines: Int? = nil // longer: folded to this many, with "Show all"
     @State private var copied = false
+    @State private var expanded = false
+
+    /// Geist Mono when the app bundles it, else the system's monospace.
+    static let mono: Font = UIFont(name: "GeistMono-Regular", size: 12.5) != nil ? .custom("GeistMono-Regular", size: 12.5) : .system(size: 12.5, design: .monospaced)
 
     var body: some View {
         let code = self.code.replacingOccurrences(of: #"\n+$"#, with: "", options: .regularExpression)
         let lines = code.components(separatedBy: "\n")
+        let folded = !expanded && maxLines.map { lines.count > $0 + 2 } == true
+        let shown = folded ? lines.prefix(maxLines ?? lines.count).joined(separator: "\n") : code
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: Space.s) {
-                Text(language ?? (numbered ? "\(lines.count) line\(lines.count == 1 ? "" : "s")" : "code"))
-                    .font(.caption2.weight(.semibold)).foregroundStyle(Theme.faint).textCase(language == nil ? nil : .lowercase)
+                if let label {
+                    (Text(label).foregroundColor(Theme.muted) + Text(language.map { "  \($0)" } ?? "").foregroundColor(Theme.faint))
+                        .font(.caption2.weight(.semibold))
+                } else {
+                    Text(language ?? (numbered ? "\(lines.count) line\(lines.count == 1 ? "" : "s")" : "code"))
+                        .font(.caption2.weight(.semibold)).foregroundStyle(Theme.faint).textCase(language == nil ? nil : .lowercase)
+                }
                 Spacer()
                 Button {
                     UIPasteboard.general.string = code
@@ -594,14 +614,24 @@ struct CodeBlock: View {
                         Text((1...max(1, lines.count)).map(String.init).joined(separator: "\n"))
                             .foregroundStyle(Theme.faint.opacity(0.7)).multilineTextAlignment(.trailing)
                     }
-                    Text(code).foregroundStyle(Theme.text).textSelection(.enabled)
+                    Text(shown).foregroundStyle(Theme.text).textSelection(.enabled)
                 }
-                .font(.system(size: 12.5, design: .monospaced))
+                .font(Self.mono)
                 .lineSpacing(3)
                 .fixedSize(horizontal: true, vertical: false)
                 .padding(.horizontal, Space.m).padding(.top, 4).padding(.bottom, Space.m)
             }
             .accessibilityIdentifier("code-block")
+            if folded || (expanded && maxLines != nil) {
+                Button { withAnimation(.snappy) { expanded.toggle() } } label: {
+                    Label(expanded ? "Show less" : "Show all \(lines.count) lines", systemImage: expanded ? "chevron.up" : "chevron.down")
+                        .labelStyle(.titleAndIcon).font(.caption2.weight(.semibold)).foregroundStyle(Theme.muted)
+                        .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, Space.m).padding(.top, -4).padding(.bottom, 10)
+                .accessibilityIdentifier("code-expand")
+            }
         }
         .background(Theme.card, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
@@ -611,6 +641,10 @@ struct CodeBlock: View {
 struct TableBlock: View {
     let rows: [[String]]
     var header = true
+    var aligns: [ColumnAlign?] = [] // per column, from a Markdown table's "|:--|--:|" (nil / missing: as the cells suggest)
+
+    init(rows: [[String]], header: Bool = true, aligns: [ColumnAlign?] = []) { self.rows = rows; self.header = header; self.aligns = aligns }
+    init(table t: MarkdownTable) { self.init(rows: [t.header] + t.rows, header: true, aligns: t.aligns) }
 
     var body: some View {
         let width = rows.map(\.count).max() ?? 0
@@ -633,7 +667,7 @@ struct TableBlock: View {
                                 .monospacedDigit()
                                 .lineLimit(1)
                                 .padding(.vertical, 8)
-                                .gridColumnAlignment(numeric[c] ? .trailing : .leading)
+                                .gridColumnAlignment(align(c, numeric[c]))
                         }
                     }
                     if i < shown.count - 1 {
@@ -646,6 +680,17 @@ struct TableBlock: View {
         .background(Theme.card, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay(alignment: .bottomTrailing) {
             if rows.count > shown.count { Text("first \(shown.count) of \(rows.count) rows").font(.caption2).foregroundStyle(Theme.faint).padding(6) }
+        }
+    }
+}
+
+extension TableBlock {
+    fileprivate func align(_ c: Int, _ numeric: Bool) -> HorizontalAlignment {
+        switch c < aligns.count ? aligns[c] : nil {
+        case .leading?: return .leading
+        case .center?: return .center
+        case .trailing?: return .trailing
+        case nil: return numeric ? .trailing : .leading
         }
     }
 }

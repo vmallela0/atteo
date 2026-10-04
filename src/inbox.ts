@@ -50,10 +50,14 @@ export async function listInbox(env: Env, user: string, limit = 100, person = fa
   return r.results.map(withPush);
 }
 
+/** The unread count (hot: every open page polls it), shared with test/queryPlans.test.ts: it must use an index. */
+export const unreadCountSql = (person: boolean) =>
+  `SELECT COUNT(*) AS n FROM notifications WHERE user = ? AND read_at IS NULL AND kind != 'trigger'${NOT_PEOPLE(person)} AND (board_id = '' OR board_id IN (SELECT board_id FROM members WHERE user = ?))`;
+
 /** Unread count plus the newest unread item (for a browser notification when the count goes up). */
 export async function inboxCount(env: Env, user: string, person = false): Promise<{ unread: number; latest: InboxItem | null; approvals: number }> {
   const [c, latest, ap] = await Promise.all([
-    env.DB.prepare(`SELECT COUNT(*) AS n FROM notifications WHERE user = ? AND read_at IS NULL AND kind != 'trigger'${NOT_PEOPLE(person)} AND (board_id = '' OR board_id IN (SELECT board_id FROM members WHERE user = ?))`)
+    env.DB.prepare(unreadCountSql(person))
       .bind(user, user)
       .first<{ n: number }>(),
     env.DB.prepare(
@@ -107,7 +111,7 @@ export function inboxPage(viewer: Viewer, side: SideBoard[], items: InboxItem[],
       const href = i.board_id ? `/b/${esc(i.board_id)}#e${i.seq}` : i.kind === "approval" ? "/approvals" : "/people";
       return `<li class="inbox-item${i.read_at ? "" : " unread"}"><a href="${href}" data-inbox-id="${i.id}">
 ${avatar(i.actor, "sm", i.actor_via === "agent")}
-<div class="grow" style="min-width:0"><div class="small"><b>${esc(who)}</b> ${VERB[i.kind]}${i.board_id ? ` <span class="faint">in</span> ${esc(i.board_title ?? i.board_id)} <span class="faint">· #${i.seq}` : ` <span class="faint">`} · ${esc(relTime(i.created_at))}</span></div>
+<div class="grow" style="min-width:0"><div class="small">${i.kind === "people_only" ? `<span class="po-lock" title="Only people can see it. Agents can't." aria-label="People only">🔒</span> ` : ""}<b>${esc(who)}</b> ${VERB[i.kind]}${i.board_id ? ` <span class="faint">in</span> ${esc(i.board_title ?? i.board_id)} <span class="faint">· #${i.seq}` : ` <span class="faint">`} · ${esc(relTime(i.created_at))}</span></div>
 <div class="small muted truncate">${esc(i.excerpt)}</div></div>${i.read_at ? "" : `<span class="dot" aria-label="unread"></span>`}</a>${
         approvalFor(i, approvals)
           ? approvalCardHtml(approvalFor(i, approvals)!, true)

@@ -6,6 +6,9 @@ import SwiftUI
 struct ChatsView: View {
     @EnvironmentObject var state: AppState
     @Environment(\.chatDensity) private var density
+    /// Everyday (Everyday.swift): back to For you, top left. Nil in Developer mode, where Chats is home.
+    var home: (() -> Void)? = nil
+    init(home: (() -> Void)? = nil) { self.home = home }
     @State private var query = ""
     @State private var found: CrossSearchResponse? // messages across your boards that match the search
     @State private var path: [Board] = []
@@ -14,6 +17,15 @@ struct ChatsView: View {
     @State private var compose: Compose? // New message / New board
     @State private var pendingOpen: Board? // opened once the compose sheet is down
     @State private var openApproval: Approval?
+    // Managing a chat from the list (vedu #1322/#1323): rename, archive, leave, delete; and the archived ones.
+    @State private var renaming: Board?
+    @State private var newTitle = ""
+    @State private var leaving: Board?
+    @State private var deleting: Board?
+    @State private var showArchived = false
+    @AppStorage("board-delete-missing-at") private var deleteMissingAt: Double = 0 // when this server last had no DELETE
+    /// The server answered DELETE with a bare 404 (no such route yet) in the last day: Delete stays hidden till then.
+    private var deleteUnavailable: Bool { Date().timeIntervalSince1970 - deleteMissingAt < 86_400 }
     enum Compose: String, Identifiable { case message, board; var id: String { rawValue } }
     @AppStorage("chats-tab") private var tab = "boards" // boards | direct
     @State private var showAgents: Bool = {
@@ -46,6 +58,28 @@ struct ChatsView: View {
         return all.filter { $0.title.localizedCaseInsensitiveContains(query) || ($0.last?.text.localizedCaseInsensitiveContains(query) ?? false) || ($0.last?.by.localizedCaseInsensitiveContains(query) ?? false) }
     }
 
+    /// Archived chats (not "Your agent"): restored from their own list.
+    private var archived: [Board] { state.boards.filter { $0.archived == true && !$0.isAgentChat } }
+    private func owns(_ b: Board) -> Bool { b.createdBy != nil && b.createdBy == state.me?.owner }
+
+    /// What you can do to a chat from the list: its owner renames, archives or deletes it; anyone else leaves it.
+    /// The same actions on a long-press and a swipe to the left (the swipe: destructive first, rightmost).
+    @ViewBuilder private func manage(_ b: Board, swipe: Bool) -> some View {
+        if owns(b) {
+            if !deleteUnavailable && swipe {
+                Button { deleting = b } label: { Label("Delete", systemImage: "trash") }.tint(Theme.danger)
+            }
+            Button { Task { _ = await state.archiveBoard(b.id) } } label: { Label("Archive", systemImage: "archivebox") }.tint(Theme.warn)
+            if b.kind != "direct" { Button { newTitle = b.title; renaming = b } label: { Label("Rename", systemImage: "pencil") }.tint(Theme.muted) }
+            if !deleteUnavailable && !swipe {
+                Divider()
+                Button(role: .destructive) { deleting = b } label: { Label("Delete", systemImage: "trash") }
+            }
+        } else {
+            Button(role: swipe ? nil : .destructive) { leaving = b } label: { Label("Leave", systemImage: "rectangle.portrait.and.arrow.right") }.tint(Theme.danger)
+        }
+    }
+
     /// Rows sit on the page edge to edge, 16 pt in, with the text column lined up across every row (closer together
     /// when Display → Density is Compact).
     private var rowInsets: EdgeInsets { EdgeInsets(top: Space.row(density), leading: Space.l, bottom: Space.row(density), trailing: Space.l) }
@@ -53,7 +87,8 @@ struct ChatsView: View {
     var body: some View {
         NavigationStack(path: $path) {
             List {
-                if query.isEmpty && (!state.approvals.isEmpty || !state.contacts.isEmpty) {
+                // (Everyday asks these on For you instead.)
+                if !Vocab.everyday && query.isEmpty && (!state.approvals.isEmpty || !state.contacts.isEmpty) {
                     Section {
                         // Keyed by each item's own id, so answering one animates it out (instead of the next row's
                         // content swapping into its place).
@@ -94,7 +129,7 @@ struct ChatsView: View {
                             .listRowInsets(rowInsets)
                     }
                     if chats.isEmpty && query.isEmpty && state.loaded {
-                        Text(tab == "direct" ? "No DMs yet. When someone's agent writes to yours, it lands here." : "No boards yet. Start one with the pencil up top, or ask your agent to.")
+                        Text(tab == "direct" ? Vocab.pick("No DMs yet. When someone's agent writes to yours, it lands here.", "No DMs yet. When someone's assistant writes to yours, it lands here.") : Vocab.pick("No boards yet. Start one with the pencil up top, or ask your agent to.", "No group chats yet. Start one with the pencil up top, or ask your assistant to."))
                             .font(Typo.secondary).foregroundStyle(Theme.faint)
                             .listRowInsets(rowInsets).listRowBackground(Theme.bg).listRowSeparator(.hidden)
                     }
@@ -111,6 +146,22 @@ struct ChatsView: View {
                             .swipeActions(edge: .leading) {
                                 if unread(b) > 0 { Button { Task { await state.markRead(b) } } label: { Label("Read", systemImage: "checkmark") }.tint(Theme.accent) }
                             }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) { manage(b, swipe: true) }
+                            .contextMenu { manage(b, swipe: false) }
+                    }
+                    if query.isEmpty && !archived.isEmpty {
+                        Button { showArchived = true } label: {
+                            HStack(spacing: Space.m) {
+                                Image(systemName: "archivebox").font(.system(size: 15)).foregroundStyle(Theme.muted).frame(width: 44)
+                                Text("Archived").font(Typo.rowTitleRead).foregroundStyle(Theme.muted)
+                                Spacer()
+                                Text("\(archived.count)").font(Typo.meta).foregroundStyle(Theme.faint).monospacedDigit()
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("archived-chats")
+                        .listRowInsets(rowInsets).listRowBackground(Theme.bg).listRowSeparator(.hidden)
                     }
                 } header: {
                     ChatsSwitch(tab: $tab, boards: unreadIn(direct: false), direct: unreadIn(direct: true))
@@ -139,6 +190,13 @@ struct ChatsView: View {
             .background(Theme.bg)
             .navigationTitle("Chats")
             .toolbar {
+                if let home {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button(action: home) { Label("For you", systemImage: "chevron.left").labelStyle(.titleAndIcon) }
+                            .toolbarText()
+                            .accessibilityIdentifier("for-you")
+                    }
+                }
                 ToolbarItem(placement: .topBarLeading) {
                     // You: your picture opens settings (pictures, name, your agent, connections, sign out).
                     Button { showSettings = true } label: { Avatar(name: state.me?.owner ?? "", size: 30) }
@@ -149,14 +207,14 @@ struct ChatsView: View {
                     // Start something: a message to someone, or a new board.
                     Menu {
                         Button("New message", systemImage: "bubble.left") { compose = .message }
-                        Button("New board", systemImage: "square.grid.2x2") { compose = .board }
+                        Button(Vocab.pick("New board", "New group chat"), systemImage: "square.grid.2x2") { compose = .board }
                     } label: {
                         ToolbarIcon("square.and.pencil")
                     }
                     .accessibilityLabel("New")
                 }
-                ToolbarItem(placement: .topBarTrailing) {
-                    // Your agents live behind one button (green dot: one is working right now).
+                if !Vocab.everyday { ToolbarItem(placement: .topBarTrailing) {
+                    // Your agents live behind one button (green dot: one is working right now). (Developer mode only.)
                     Button { showAgents = true } label: {
                         ToolbarIcon("sparkles")
                             .overlay(alignment: .topTrailing) {
@@ -164,7 +222,7 @@ struct ChatsView: View {
                             }
                     }
                     .accessibilityLabel("Your agents")
-                }
+                } }
             }
             .sheet(isPresented: $showSettings) { SettingsView().presentationBackground(Theme.bg).environment(\.chatDensity, density) }
             .sheet(item: $compose, onDismiss: {
@@ -182,6 +240,24 @@ struct ChatsView: View {
                 .environment(\.chatDensity, density)
             }
             .sheet(item: $openApproval) { a in ApprovalDetail(a: a).presentationBackground(Theme.bg).environment(\.chatDensity, density) }
+            .alert("Rename", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
+                TextField("Title", text: $newTitle).accessibilityIdentifier("rename-field")
+                Button("Cancel", role: .cancel) { renaming = nil }
+                Button("Rename") {
+                    let t = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if let b = renaming, !t.isEmpty, t != b.title { Task { _ = await state.renameBoard(b.id, to: t) } }
+                    renaming = nil
+                }
+            }
+            .confirmationDialog("Leave \(leaving?.title ?? "")?", isPresented: Binding(get: { leaving != nil }, set: { if !$0 { leaving = nil } }), titleVisibility: .visible, presenting: leaving) { b in
+                Button("Leave", role: .destructive) { Task { _ = await state.leaveBoard(b.id) } }
+            } message: { _ in Text("It leaves your Chats. Someone here can add you back.") }
+            .confirmationDialog("Delete \(deleting?.title ?? "")?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }), titleVisibility: .visible, presenting: deleting) { b in
+                Button("Delete", role: .destructive) {
+                    Task { if await state.deleteBoard(b.id) == .unavailable { deleteMissingAt = Date().timeIntervalSince1970; state.report(APIError.server("Deleting isn't available on this server yet.")) } }
+                }
+            } message: { _ in Text("Deletes this chat for everyone. You can restore it for 30 days.") }
+            .sheet(isPresented: $showArchived) { ArchivedChats().presentationDetents([.medium, .large]).presentationBackground(Theme.bg).environment(\.chatDensity, density) }
             .onReceive(NotificationCenter.default.publisher(for: .boardArchived)) { n in
                 // An archived board closes (it's read-only now) and leaves the list.
                 if let id = n.object as? String { path.removeAll { $0.id == id } }
@@ -231,7 +307,7 @@ struct ChatsSwitch: View {
     var body: some View {
         HStack(spacing: Space.xs) {
             HStack(spacing: 0) {
-                item("boards", "Boards", boards)
+                item("boards", Vocab.boards, boards)
                 item("direct", "DMs", direct)
             }
             .padding(3)
@@ -293,7 +369,7 @@ struct ChatRow: View {
                 HStack(alignment: .center, spacing: Space.s) {
                     Group {
                         if let l = b.last {
-                            Text(l.by + ": ").foregroundStyle(Theme.muted) + Text(l.text.md).foregroundStyle(unread > 0 ? Theme.muted : Theme.faint)
+                            Text(Vocab.shown(l.by) + ": ").foregroundStyle(Theme.muted) + Text(l.text.md).foregroundStyle(unread > 0 ? Theme.muted : Theme.faint)
                         } else {
                             Text(b.entryCount == 1 ? "1 message" : "\(b.entryCount) messages").foregroundStyle(Theme.faint)
                         }
@@ -383,7 +459,7 @@ struct ContactRow: View {
         HStack(spacing: Space.m) {
             Avatar(name: c.from, agent: true, size: 44).accessibilityHidden(true)
             VStack(alignment: .leading, spacing: Space.xxs) {
-                Text("\(c.from)'s agent wants to talk").font(Typo.rowTitle).foregroundStyle(Theme.text).lineLimit(1)
+                Text("\(Vocab.agentOf(c.from)) wants to talk").font(Typo.rowTitle).foregroundStyle(Theme.text).lineLimit(1)
                 Text(c.text ?? "first contact · \(c.createdAt.ago)").font(Typo.secondary).foregroundStyle(Theme.muted).lineLimit(1)
             }
             Spacer(minLength: 0)
@@ -405,5 +481,48 @@ struct PlaceholderChat: View {
             }
         }
         .padding(.horizontal, Space.l).padding(.vertical, Space.s)
+    }
+}
+
+/// Archived chats: read-only until restored; their owners bring them back to Chats here.
+struct ArchivedChats: View {
+    @EnvironmentObject var state: AppState
+    @Environment(\.dismiss) private var dismiss
+    private var boards: [Board] { state.boards.filter { $0.archived == true && !$0.isAgentChat }.sorted { $0.lastActivity > $1.lastActivity } }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if boards.isEmpty {
+                    Text("Nothing archived.").font(Typo.secondary).foregroundStyle(Theme.faint).listRowBackground(Theme.bg).listRowSeparator(.hidden)
+                }
+                ForEach(boards) { b in
+                    HStack(spacing: Space.m) {
+                        BoardPicture(board: b, size: 36)
+                        VStack(alignment: .leading, spacing: Space.xxs) {
+                            Text(b.displayName(me: state.me?.owner)).font(Typo.rowTitleRead).foregroundStyle(Theme.text).lineLimit(1)
+                            Text("Archived · read-only").font(Typo.micro).foregroundStyle(Theme.faint)
+                        }
+                        Spacer(minLength: Space.s)
+                        if b.createdBy == state.me?.owner {
+                            Button("Restore") { Task { _ = await state.unarchiveBoard(b.id) } }
+                                .font(Typo.meta.weight(.semibold)).foregroundStyle(Theme.text)
+                                .padding(.horizontal, 12).frame(height: 30).background(Theme.raised, in: Capsule())
+                                .buttonStyle(PressStyle())
+                                .accessibilityIdentifier("restore-\(b.title)")
+                        }
+                    }
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("archived-\(b.title)")
+                    .listRowBackground(Theme.bg).listRowSeparator(.hidden)
+                }
+            }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(Theme.bg)
+            .navigationTitle("Archived")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } } }
+        }
     }
 }

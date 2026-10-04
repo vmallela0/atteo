@@ -14,10 +14,20 @@ struct ApprovalDetail: View {
     private var riskColor: Color { a.risk == "high" ? Theme.danger : a.risk == "medium" ? Theme.warn : Theme.ok }
     private var boardTitle: String? { a.boardId.flatMap { id in state.boards.first { $0.id == id }?.displayName(me: state.me?.owner) } }
     /// "Your agent", or "Your agent in Claude Code" when it says which tool it runs in.
-    private var asker: String { a.client.flatMap { $0.isEmpty || $0 == "agent" ? nil : "Your agent in \($0)" } ?? "Your agent" }
+    private var asker: String { Vocab.everyday ? Vocab.yourAgent : a.client.flatMap { $0.isEmpty || $0 == "agent" ? nil : "Your agent in \($0)" } ?? "Your agent" }
     private var why: String? {
         guard let by = a.requestedBy, by != state.me?.owner else { return boardTitle.map { "on \($0)" } }
         return "because \(by) asked" + (boardTitle.map { " on \($0)" } ?? "")
+    }
+    /// A permission hook sends the exact action separately from its explanation. Keep it verbatim: this is what the
+    /// person is approving, including whitespace in a shell command or file diff.
+    private var command: String? {
+        guard let command = a.command, !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return command
+    }
+    private var tool: String? {
+        guard let tool = a.tool, !tool.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return tool
     }
 
     var body: some View {
@@ -26,7 +36,8 @@ struct ApprovalDetail: View {
                 VStack(alignment: .leading, spacing: Space.l) {
                     VStack(alignment: .leading, spacing: Space.s) {
                         HStack(spacing: Space.s) {
-                            Pill(text: "\(a.risk.capitalized) risk", color: riskColor)
+                            // Risk and the exact command are Developer mode's (Everyday.swift): Everyday says it plainly.
+                            if !Vocab.everyday { Pill(text: "\(a.risk.capitalized) risk", color: riskColor) }
                             if let exp = a.expiresAt {
                                 Text(expiry(exp)).font(Typo.micro).foregroundStyle(Theme.faint)
                             }
@@ -41,14 +52,29 @@ struct ApprovalDetail: View {
                     }
                     VStack(alignment: .leading, spacing: Space.s) {
                         SectionHeader("What will happen")
-                        Text(a.details)
-                            .font(looksLikeCode ? .system(.footnote, design: .monospaced) : Typo.body)
-                            .foregroundStyle(Theme.text).textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                        if let command, !Vocab.everyday {
+                            VStack(alignment: .leading, spacing: Space.xs) {
+                                if let tool { Text(tool).font(Typo.micro).foregroundStyle(Theme.faint) }
+                                Text(command)
+                                    .font(.system(.footnote, design: .monospaced))
+                                    .foregroundStyle(Theme.text).textSelection(.enabled)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
                             .surface()
+                            .accessibilityElement(children: .combine)
+                            .accessibilityIdentifier("approval-command")
+                        }
+                        if !a.details.isEmpty, a.details != command {
+                            Text(a.details)
+                                .font(looksLikeCode(a.details) ? .system(.footnote, design: .monospaced) : Typo.body)
+                                .foregroundStyle(Theme.text).textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .surface()
+                                .accessibilityIdentifier("approval-details")
+                        }
                     }
                     VStack(alignment: .leading, spacing: Space.s) {
-                        SectionHeader("Note for your agent")
+                        SectionHeader("Note for your \(Vocab.agent)")
                         TextField("Optional: conditions, or why not", text: $note, axis: .vertical)
                             .lineLimit(1...5).font(Typo.body).focused($noting)
                             .accessibilityIdentifier("approval-note")
@@ -60,7 +86,7 @@ struct ApprovalDetail: View {
             .scrollDismissesKeyboard(.interactively)
             .background(Theme.bg)
             .safeAreaInset(edge: .bottom) { buttons }
-            .navigationTitle("Approval")
+            .navigationTitle(Vocab.pick("Approval", "Needs your OK"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Close") { dismiss() }.toolbarText(primary: true) } }
         }
@@ -87,7 +113,9 @@ struct ApprovalDetail: View {
         .background(Theme.bg)
     }
 
-    private var looksLikeCode: Bool { a.details.contains("\n") && (a.details.contains("--") || a.details.contains("$ ") || a.details.contains("```") || a.details.hasPrefix("diff")) }
+    private func looksLikeCode(_ text: String) -> Bool {
+        text.contains("\n") && (text.contains("--") || text.contains("$ ") || text.contains("```") || text.hasPrefix("diff"))
+    }
 
     private func expiry(_ t: Double) -> String {
         let s = t / 1000 - Date().timeIntervalSince1970

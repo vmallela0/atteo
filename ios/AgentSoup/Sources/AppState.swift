@@ -78,6 +78,7 @@ final class AppState: ObservableObject {
     private func restore() {
         guard let d = try? Data(contentsOf: Self.cacheURL), let s = try? JSONDecoder().decode(Snapshot.self, from: d) else { return }
         inbox = s.inbox; approvals = s.approvals; contacts = s.contacts; sessions = s.sessions; boards = s.boards; entries = s.entries; me = s.me; tasks = s.tasks ?? [:]
+        AppMode.shared.note(sessions: s.sessions, fromServer: false) // Everyday or Developer (Everyday.swift)
     }
 
     private func save() {
@@ -123,6 +124,7 @@ final class AppState: ObservableObject {
             async let p = try? API.shared.get("/api/me/profile", as: ProfileResponse.self)
             let (ss, mm) = try await (s, m)
             withAnimation(.smooth) { sessions = ss.sessions; me = mm.agent }
+            AppMode.shared.note(sessions: ss.sessions, fromServer: true) // a coding agent turns Developer mode on (Everyday.swift)
             if let pp = await p { profile = pp.profile; adoptDisplay(pp.profile.display) }
             save()
         } catch { report(error, quiet: true) }
@@ -740,6 +742,9 @@ final class AppState: ObservableObject {
         UserDefaults.standard.removeObject(forKey: Self.displayKey)
         UserDefaults.standard.removeObject(forKey: Self.displayDirtyKey)
         if !displayPinned { display = .default }
+        // Everyday or Developer, and the first run, are the person's too (Everyday.swift).
+        AppMode.shared.forget()
+        UserDefaults.standard.removeObject(forKey: BringAssistantView.doneKey)
         profile = nil
         withAnimation(.smooth) {
             signedIn = false; loaded = false

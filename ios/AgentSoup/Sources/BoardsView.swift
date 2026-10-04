@@ -16,10 +16,10 @@ struct BoardView: View {
         var users: [String] = []
         for a in live where !users.contains(a.user) { users.append(a.user) }
         switch users.count {
-        case 0: return board.encrypted == true ? "End-to-end encrypted" : "No agents working now"
-        case 1: return "\(users[0])'s agent working"
-        case 2: return "\(users[0]) and \(users[1])'s agents working"
-        default: return "\(users.count) agents working"
+        case 0: return board.encrypted == true ? "End-to-end encrypted" : "No \(Vocab.agents) working now"
+        case 1: return "\(Vocab.agentOf(users[0])) working"
+        case 2: return Vocab.pick("\(users[0]) and \(users[1])'s agents working", "\(users[0].capitalizedFirst) and \(users[1].capitalizedFirst)'s assistants working")
+        default: return "\(users.count) \(Vocab.agents) working"
         }
     }
     @State private var focused = false // the message box has the keyboard
@@ -113,11 +113,11 @@ struct BoardView: View {
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
-                    Button("Tasks", systemImage: "checklist") { workPane = .tasks }
+                    Button(Vocab.tasks, systemImage: "checklist") { workPane = .tasks }
                     Button("Files", systemImage: "doc.on.doc") { workPane = .files }
                 } label: { ToolbarIcon("square.stack") }
                 .accessibilityIdentifier("work-menu")
-                .accessibilityLabel("Tasks and files")
+                .accessibilityLabel("\(Vocab.tasks) and files")
             }
         }
         // A "#123" in a message: go to it (or open its thread, if it's an answer).
@@ -225,7 +225,11 @@ struct BoardView: View {
                 }
             }
         }
-        .safeAreaInset(edge: .top, spacing: 0) { WorkStrip(tasks: state.tasks[board.id] ?? []) { showTasks = true } }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            // Everyday: Chat · To-dos · Files under the title (Everyday.swift); Developer mode: the work strip.
+            if Vocab.everyday { EverydayChatTabs(tasks: state.tasks[board.id] ?? []) { workPane = $0 } }
+            else { WorkStrip(tasks: state.tasks[board.id] ?? []) { showTasks = true } }
+        }
         .safeAreaInset(edge: .bottom, spacing: 0) { composer }
         .sheet(isPresented: $showTasks) { TasksSheet(board: board).environment(\.chatDensity, density).presentationDetents([.large]).presentationBackground(Theme.bg) }
         .sheet(item: $workPane) { p in TasksSheet(board: board, initial: p).environment(\.chatDensity, density).presentationDetents([.large]).presentationBackground(Theme.bg) }
@@ -248,6 +252,7 @@ struct BoardView: View {
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("presence")
             }
+            TalkToolbarItem(board: board) // Talk to Grok (TalkView.swift), when voice is set up
         }
         // The title opens the board's info: what's open, who's here, files, search.
         .sheet(isPresented: $showAgents) {
@@ -650,6 +655,11 @@ struct EntryRow: View {
     }
 
     private var who: String { e.byAgent ? agentLabel(e.author, agentName ?? e.agentName) : e.author }
+    /// Someone else's message that @mentions you (the person, not your agent): tinted, like the web's.
+    private var forYou: Bool {
+        guard !mine, !unsent, let me = me?.lowercased(), e.author.lowercased() != me || e.byAgent else { return false }
+        return (e.mentions ?? []).contains { !$0.agent && $0.user.lowercased() == me }
+    }
     private static let replyAt: CGFloat = 56
     private var replyAt: CGFloat { Self.replyAt }
 
@@ -726,7 +736,7 @@ struct EntryRow: View {
     /// Tap: the thread, on this reply (in a thread: scrolls to what it answers). Numbers read as titles (#675).
     @ViewBuilder private var quote: some View {
         if e.replyTo != nil {
-            let name = parent.map { $0.byAgent ? "\($0.author)'s agent" : ($0.author == me && $0.via != "agent" ? "You" : $0.author) }
+            let name = parent.map { $0.byAgent ? Vocab.agentOf($0.author) : ($0.author == me && $0.via != "agent" ? "You" : $0.author) }
             let line = parent.map { ThreadPreview.line($0).plainRefs(refTitle.callAsFunction) } ?? "an earlier message"
             Button { actions.jumpToParent?() } label: {
                 HStack(spacing: 0) {
@@ -802,17 +812,19 @@ struct EntryRow: View {
         }
     }
 
+    /// Words of this message as Text: inline Markdown, "#123" chips, its mentions boxed (MessageBody draws the blocks).
+    private func words(_ t: String) -> (text: Text, handles: [String]) {
+        t.mentioned(e.mentions, members: members, me: me, agentNames: agentNames, refTitle: refTitle.callAsFunction)
+    }
+
     /// Yours: a right-aligned bubble, like any messenger. Tap it to see who's seen it.
     private var myMessage: some View {
         VStack(alignment: .trailing, spacing: Space.xs) {
             if let k = kind { Text(k).font(Typo.micro.weight(.medium)).foregroundStyle(Theme.faint) }
             quote
             attachment
-            if unsent { unsentBody } else if e.type == "change" { ChangeCardView(e: e, board: board) } else if let caption {
-                let m = caption.mentioned(e.mentions, members: members, me: me, agentNames: agentNames, refTitle: refTitle.callAsFunction)
-                m.text.textRenderer(MentionBoxes())
-                    .font(Typo.body).foregroundStyle(Theme.text.opacity(e.pending == true ? 0.55 : 1))
-                    .accessibilityValue(m.handles.isEmpty ? "" : "Mentions " + m.handles.joined(separator: ", "))
+            if unsent { unsentBody } else if e.type == "change" { if Vocab.everyday { ResultCard(e: e) } else { ChangeCardView(e: e, board: board) } } else if let caption {
+                MessageBody(text: caption, render: words, ink: e.pending == true ? 0.55 : 1, lineSpacing: 0)
                     .padding(.horizontal, Space.m + 1).padding(.vertical, Space.row(density))
                     .background(Theme.raised, in: RoundedRectangle(cornerRadius: Radius.bubble, style: .continuous))
                     .onTapGesture { actions.toggleReceipt?() }
@@ -871,24 +883,28 @@ struct EntryRow: View {
                 }
                 attachment.padding(.vertical, Space.xxs)
                 quote
-                if unsent { unsentBody } else if e.type == "change" { ChangeCardView(e: e, board: board).padding(.top, Space.xxs) } else if e.type == "task" { TaskCard(seq: e.seq, board: board, text: e.text, tasks: tasks).padding(.top, Space.xxs) } else if let caption {
-                    let m = caption.mentioned(e.mentions, members: members, me: me, agentNames: agentNames, refTitle: refTitle.callAsFunction)
-                    m.text.textRenderer(MentionBoxes()).font(Typo.body).foregroundStyle(Theme.text.opacity(0.92)).lineSpacing(1.5)
-                        .accessibilityValue(m.handles.isEmpty ? "" : "Mentions " + m.handles.joined(separator: ", "))
+                if unsent { unsentBody } else if e.type == "change" { Group { if Vocab.everyday { ResultCard(e: e) } else { ChangeCardView(e: e, board: board) } }.padding(.top, Space.xxs) } else if e.type == "task" { TaskCard(seq: e.seq, board: board, text: e.text, tasks: tasks).padding(.top, Space.xxs) } else if let caption {
+                    MessageBody(text: caption, render: words)
                 }
                 if let decision, !unsent { HumanDecisionCard(hd: decision, me: me, actions: decisionActions).padding(.top, Space.xs) }
                 footer
             }
         }
+        // It names you (the web's .for-you): a soft tint, drawn inside the row so no edge cuts it (jxn #1311).
+        .padding(.horizontal, forYou ? Space.s : 0).padding(.vertical, forYou ? Space.xs + 2 : 0)
+        .background(forYou ? Theme.warn.opacity(0.09) : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .padding(.top, gapAbove(Space.s + 2))
     }
 }
 
 /// Where your unread messages start (jxn #1011): "NEW" and a thin line, in the web's red.
 struct NewDivider: View {
+    @ScaledMetric(relativeTo: .caption) private var capHeight = UIFont.preferredFont(forTextStyle: .caption1, compatibleWith: UITraitCollection(preferredContentSizeCategory: .large)).capHeight
     var body: some View {
         HStack(spacing: Space.s) {
+            // Centred on the capitals (not the text's line box, whose descender room sits the line low; jxn #1311).
             Text("New").textCase(.uppercase).font(Typo.micro.weight(.semibold)).tracking(0.7).foregroundStyle(Theme.danger)
+                .alignmentGuide(VerticalAlignment.center) { $0[.firstTextBaseline] - capHeight / 2 }
             Rectangle().fill(Theme.danger.opacity(0.45)).frame(height: 0.5)
         }
         .padding(.top, Space.m).padding(.bottom, Space.xxs)
@@ -992,7 +1008,7 @@ struct AgentHereRow: View {
             VStack(alignment: .leading, spacing: Space.xxs) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(a.label).font(Typo.rowTitle).foregroundStyle(Theme.text).lineLimit(1)
-                    if let d = a.detail { Text(d).font(Typo.micro).foregroundStyle(Theme.faint).lineLimit(1) }
+                    if let d = a.detail, !Vocab.everyday { Text(d).font(Typo.micro).foregroundStyle(Theme.faint).lineLimit(1) } // the tool and session: Developer mode
                 }
                 Text(a.status ?? stateLine(a.state, a.lastSeen)).font(Typo.secondary).foregroundStyle(a.state == "live" ? Theme.ok : Theme.muted).lineLimit(2)
             }
@@ -1042,5 +1058,9 @@ struct ReactionLine: View {
         .padding(.top, 2)
         .transition(.opacity)
     }
-    private func names(_ users: [String]) -> String { users.count <= 2 ? users.joined(separator: ", ") : "\(users[0]) and \(users.count - 1) more" }
+    private func names(_ users: [String]) -> String {
+        // Everyday: "Theo's assistant" for the server's "theo's agent" (display only).
+        let shown = users.map(Vocab.shown)
+        return shown.count <= 2 ? shown.joined(separator: ", ") : "\(shown[0]) and \(shown.count - 1) more"
+    }
 }

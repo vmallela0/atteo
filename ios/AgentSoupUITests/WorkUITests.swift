@@ -10,6 +10,7 @@ final class WorkUITests: XCTestCase {
 
     func app() -> XCUIApplication {
         let a = XCUIApplication()
+        a.launchEnvironment["AGENT_SOUP_MODE"] = "developer" // today's app (Everyday.swift); Everyday tests opt in with "everyday"
         a.launchEnvironment["AGENT_SOUP_SERVER"] = env["AGENT_SOUP_SERVER"] ?? "http://localhost:8788"
         a.launchEnvironment["AGENT_SOUP_STILL"] = "1" // no endless animations: they keep the app from ever being idle for the test
         a.launchEnvironment["AGENT_SOUP_TOKEN"] = env["AGENT_SOUP_TOKEN"] ?? ""
@@ -137,7 +138,7 @@ final class WorkUITests: XCTestCase {
         a.buttons["filter-All"].tap()
         XCTAssertTrue(parent.waitForExistence(timeout: 3))
 
-        // No claiming from the phone (agents claim through their tools): a swipe left offers Remove, not Claim.
+        // Destructive actions stay on the trailing swipe; taking work is available in the task and its menu.
         row(a, "Add a regression test for empty carts").swipeLeft()
         XCTAssertTrue(a.buttons["Remove"].firstMatch.waitForExistence(timeout: 3), "swipe offers Remove")
         XCTAssertFalse(a.buttons["Claim"].exists, "and no Claim")
@@ -149,7 +150,7 @@ final class WorkUITests: XCTestCase {
         wait(for: [shut], timeout: 3)
         sleep(1)
 
-        // Who's on it, read-only, in the detail: theo's agent holds the seeded task.
+        // A task held by someone else shows who has it and cannot be claimed out from under them.
         parent.tap()
         let owner = any["task-owner"].firstMatch
         XCTAssertTrue(owner.waitForExistence(timeout: 5))
@@ -157,6 +158,21 @@ final class WorkUITests: XCTestCase {
         XCTAssertFalse(a.buttons["task-claim"].exists, "no Claim button")
         XCTAssertTrue(a.buttons["sub-task-Ship"].exists, "the parent lists its sub-tasks")
         shot("w09-parent")
+
+        // An open task can be claimed for an hour and released again. Both changes are immediate.
+        a.buttons["sub-task-Ship"].tap()
+        let claim = a.buttons["task-claim"]
+        XCTAssertTrue(claim.waitForExistence(timeout: 5))
+        XCTAssertEqual(claim.label, "Claim")
+        claim.tap()
+        let claimed = expectation(for: NSPredicate(format: "label == 'Release'"), evaluatedWith: claim)
+        wait(for: [claimed], timeout: 6)
+        XCTAssertTrue(any["task-owner"].firstMatch.label.contains("maya is on it"))
+        claim.tap()
+        let released = expectation(for: NSPredicate(format: "label == 'Claim'"), evaluatedWith: claim)
+        wait(for: [released], timeout: 6)
+        shot("w09a-claim-release")
+        back(a)
         back(a)
 
         // The detail: tap a checklist line to tick it (and again to untick); the approval it's waiting on is there.
@@ -197,8 +213,8 @@ final class WorkUITests: XCTestCase {
             back(a)
         }
 
-        // Long-press: everything you can do to a task (status, done, remove), no Claim. (Settle first: a press while
-        // the list is still animating the live change lands as a tap.)
+        // Long-press: everything you can do to a task. This one is held by theo's agent, so it cannot be claimed.
+        // (Settle first: a press while the list is still animating the live change lands as a tap.)
         sleep(2)
         parent.press(forDuration: 1.0)
         XCTAssertTrue(a.buttons["Open"].waitForExistence(timeout: 3), "a context menu")

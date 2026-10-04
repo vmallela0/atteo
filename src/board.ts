@@ -14,6 +14,7 @@ import { cardText, parseCard, type ChangeCard } from "./card";
 import { deliver } from "./webhooks";
 import { HumanDecisions, isHumanDecisionPost, type HumanDecision } from "./decisions";
 import type { RecapCore, RecapOwner, RecapTask } from "./recap";
+import type { ForYouCore } from "./forYou";
 import { cleanMatch, cleanTrigger, eventLine, lastOccurrence, matches, MAX_FIRES_PER_HOUR, MAX_TRIGGERS, minuteOf, SCHEDULE_GRACE_MS, type Trigger, type TriggerEvent, type TriggerMatch } from "./triggers";
 import { offBoardSeq } from "./util";
 import { compileGrep, grepFtsQuery, grepText, newBudget, GREP_CANDIDATES, GREP_DEFAULT_MAX, GREP_HARD_MAX, GREP_RECENT, type BoardGrepOpts, type BoardGrepResult } from "./grep";
@@ -107,7 +108,12 @@ export interface TaskActOpts {
   via?: "agent" | "person" | null;
   client?: string | null;
   session?: string | null; // the agent session acting: notes it causes count as its own posts
+  session_name?: string | null; // its name, for "is on it" labels
 }
+
+/** Who "is on it": "<user>/<session name>", the one shape for taking by reply, by finishing a task and by handle. The
+ *  client's first part ("scout · Codex") is only a fallback for callers that don't send the name. */
+const takerLabel = (user: string, o: { session_name?: string | null; client?: string | null }) => `${user}/${o.session_name ?? (o.client ?? "agent").split(" · ")[0]}`;
 const iso = (ts: number) => new Date(ts).toISOString().slice(0, 16).replace("T", " ") + "Z";
 
 export interface DocMeta {
@@ -877,9 +883,12 @@ export class Board extends DurableObject<Env> {
 
   /** Who is on what, and who finished what (for pages, and to label entries agents read). */
   handlingMap(seqs?: number[]): Record<number, { by: string; user: string; done: boolean }> {
+    // Exactly these seqs: a page can skip (5 and 100), so the range alone would attach every marker in between. The
+    // range keeps it one query with two bound values, however long the page.
+    const want = seqs && new Set(seqs);
     const rows = seqs
       ? seqs.length
-        ? this.sql.exec("SELECT seq, label, user, done FROM handling WHERE seq BETWEEN ? AND ?", Math.min(...seqs), Math.max(...seqs)).toArray()
+        ? this.sql.exec("SELECT seq, label, user, done FROM handling WHERE seq BETWEEN ? AND ?", Math.min(...seqs), Math.max(...seqs)).toArray().filter((r) => want!.has(r.seq as number))
         : []
       : this.sql.exec("SELECT seq, label, user, done FROM handling ORDER BY seq DESC LIMIT 500").toArray();
     return Object.fromEntries(rows.map((r) => [r.seq as number, { by: r.label as string, user: r.user as string, done: !!r.done }]));
@@ -1177,7 +1186,7 @@ export class Board extends DurableObject<Env> {
     if (input.session) this.advance(user, entry.seq, input.session); // its own post is read for the session that wrote it
     // An agent session answering a message takes it, unless another agent already has it.
     if (input.session && input.reply_to != null && !this.decisions.isHuman(input.reply_to) && !this.sql.exec("SELECT 1 AS x FROM handling WHERE seq = ?", input.reply_to).toArray().length) {
-      const label = `${user}/${(input.client ?? "agent").split(" · ")[0]}`;
+      const label = takerLabel(user, input);
       this.sql.exec("INSERT INTO handling (seq, user, session, label, ts) VALUES (?, ?, ?, ?, ?)", input.reply_to, user, input.session, label, Date.now());
       this.broadcast({ type: "handling", seq: input.reply_to, by: label }, input.reply_to);
     }
@@ -1852,6 +1861,41 @@ export class Board extends DurableObject<Env> {
       files: [...files.values()],
       pinned: this.pinnedNow(),
     };
+  }
+
+  /**
+   * For you (Everyday's home page): what on this board waits on `user` the person (human decisions they haven't voted
+   * on, open questions that @mention them) and what their own agent finished since `since` (ms): tasks it marked done
+   * and change cards it posted. Cheap: the cached summary, the decisions table, the task rows and one query.
+   */
+  async forYou(user: string, since: number): Promise<ForYouCore> {
+    const info = this.info();
+    const sealed = !!info.encrypted;
+    const line = (e: { title?: string | null; text: string }) => (sealed ? "" : (e.title || e.text.split("\n").find((l) => l.trim()) || "").trim().slice(0, 200));
+    await this.decisions.refresh();
+    const hds = this.decisions.all();
+    const s = this.cached().summary;
+    const pick = (e: Entry) => ({ seq: e.seq, title: line(e), author: e.author, via: e.via ?? null, ts: e.ts });
+    const decisions = s.decisions
+      .filter((e) => {
+        const h = hds[e.seq];
+        return !!h && h.state === "open" && h.waiting_on.includes(user) && !h.votes.some((v) => v.user === user);
+      })
+      .slice(-10)
+      .reverse()
+      .map(pick);
+    const questions = s.openQuestions.filter((e) => e.author !== user && forPerson(e, user)).slice(-10).reverse().map(pick);
+    const done: ForYouCore["done"] = [];
+    for (const t of this.taskRows({ status: "done" })) {
+      if (t.updated_at < since) continue;
+      if ((t.updated_by === user && t.updated_via === "agent") || (t.assignee === user && t.assignee_agent)) done.push({ seq: t.seq, title: sealed ? "" : t.title, kind: "task", ts: t.updated_at });
+    }
+    const changes = this.sql
+      .exec("SELECT e.seq, e.ts, e.title, e.text FROM entries e WHERE e.type = 'change' AND e.author = ? AND e.via = 'agent' AND e.ts >= ? AND e.retracts IS NULL AND NOT EXISTS (SELECT 1 FROM entries x WHERE x.retracts = e.seq) ORDER BY e.seq DESC LIMIT 20", user, since)
+      .toArray();
+    for (const r of changes) done.push({ seq: r.seq as number, title: line({ title: r.title as string | null, text: r.text as string }), kind: "change", ts: r.ts as number });
+    done.sort((a, b) => b.ts - a.ts);
+    return { board: { id: info.id, title: info.title, encrypted: sealed }, decisions, questions, done: done.slice(0, 20) };
   }
 
   // ---- the pinned doc: one document a board pins as its source of truth ----
@@ -3091,7 +3135,7 @@ export class Board extends DurableObject<Env> {
       if (opts.via === "agent") this.receiptDone(user, seq);
       const h = this.sql.exec("SELECT user, session, label, done FROM handling WHERE seq = ?", seq).toArray()[0];
       if (h && h.user === user && !h.done) this.markDone(seq, user, (h.session as string | null) ?? null, h.label as string);
-      else if (!h && opts.session) this.markDone(seq, user, opts.session, `${user}/${(opts.client ?? "agent").split(" · ")[0]}`);
+      else if (!h && opts.session) this.markDone(seq, user, opts.session, takerLabel(user, opts));
     }
     // Taking a task yourself is silent (the task list shows it); assigning it to someone else still posts so they hear.
     const assigned = change.assignee !== undefined && !!change.assignee && change.assignee.toLowerCase() !== t.assignee && change.assignee.toLowerCase() !== user.toLowerCase();
