@@ -17,7 +17,7 @@ import { api, CliError, COMMANDS, COMMANDS_HELP, decryptEntry } from "./commands
 import { entryKey, FORK_TOOLS, forkName, forkPrompt, needsFork, type Mail } from "./dispatch";
 import { agentCommand, HARNESSES, splitCommand } from "./harness";
 import { myKey } from "./sealed";
-import { forgetSession, HELP_AGENTS, mentionLine, prepare, session as agentSessionFor, V2, versionCheck } from "./v2";
+import { doctorCmd, forgetSession, HELP_AGENTS, mentionLine, prepare, session as agentSessionFor, V2, versionCheck } from "./v2";
 import { load, remove, save, storeName, type Credentials } from "./credentials";
 
 const VERSION = "0.1.0";
@@ -1048,6 +1048,7 @@ const HELP = `Atteo CLI ${VERSION} (the atteo command)
 
   atteo login      Sign in (opens a link; or scan the QR code with your phone)
   atteo status     Who you're signed in as, and when it expires
+  atteo doctor     Checks sign-in, the server, this CLI's version, your session, boards and mailbox; says how to fix each
   atteo logout     Remove the saved login from this machine
   atteo mcp        Local MCP server for your agent:
                            claude mcp add --scope user atteo -- atteo mcp
@@ -1089,6 +1090,7 @@ const run: Record<string, () => unknown> = {
   login: () => login(rest),
   status,
   whoami: status,
+  doctor: () => doctorCmd(rest), // read-only: no session, no version line after (it checks the version itself)
   logout,
   mcp: () => mcp(rest),
   watch: () => (rest.includes("--install") ? serviceInstall(rest) : rest.includes("--uninstall") ? serviceUninstall() : rest.includes("--status") ? serviceStatus() : watch(rest)),
@@ -1112,6 +1114,6 @@ try {
 Promise.resolve((run[cmd] ?? (() => (cmd ? err(`Unknown command "${cmd}".\n\n${HELP_AGENTS}`) : console.log(HELP_AGENTS + "\n\nSetup, the background watcher and every command: atteo help --all"))))()).catch(async (e: Error) => {
   err(e.message);
   if (e instanceof CliError && e.code === 2) await mentionLine(quiet); // a refused post showed what was missed
-  if (cmd !== "update" && cmd !== "mcp" && cmd !== "watch" && cmd !== "hooks" && cmd !== "dispatch") await versionCheck(quiet); // an old CLI is a likely reason for a failure
+  if (cmd !== "update" && cmd !== "mcp" && cmd !== "watch" && cmd !== "hooks" && cmd !== "dispatch" && cmd !== "doctor") await versionCheck(quiet); // an old CLI is a likely reason for a failure
   process.exit(e instanceof CliError ? e.code : 1);
 });

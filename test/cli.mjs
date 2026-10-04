@@ -1704,6 +1704,56 @@ await step("dispatch forks on a trigger: the fork gets your prompt and the entry
   assert(p.includes(`--board ${tb} --reply ${n}`), "answers in the thread: " + p);
 });
 
+await step("doctor (#2107): read-only checks of the login, server, CLI version, session, boards and mailbox, each with its fix", async () => {
+  const { createHash } = await import("node:crypto");
+  const env = { XDG_CONFIG_HOME: join(dir, "cfg-doctor") };
+  const doc = async (opts = {}, ...extra) => {
+    const r = await cli(["doctor", "--json", ...extra], { env, ...opts });
+    let j = null;
+    try { j = JSON.parse(r.out); } catch {}
+    return { ...r, j, check: (name) => (j?.checks ?? []).filter((c) => c.check === name) };
+  };
+  const sessionsOfA = async () => (await (await fetch(`${BASE}/api/sessions`, { headers: { authorization: `Bearer ${tokA}` } })).json()).sessions?.length ?? -1;
+  // Read-only: a shell with no session yet gets told so, and none is made.
+  const before = await sessionsOfA();
+  let r = await doc();
+  assert(r.j && r.check("session")[0]?.ok && /No agent session for this shell yet/.test(r.check("session")[0].detail) && (await sessionsOfA()) === before, `no session made: ${r.out}${r.err}`);
+  for (const k of ["login", "server", "token", "mailbox"]) assert(r.check(k)[0]?.ok, `${k} ok: ${r.out}`);
+  // This CLI against the server's: whatever this build is, doctor agrees with /cli/version.
+  const same = (await (await fetch(`${BASE}/cli/version`)).json()).hash === createHash("sha256").update(readFileSync(CLI)).digest("hex");
+  assert(r.check("version")[0]?.ok === same && (same ? r.code === 0 && r.j.ok : r.check("version")[0].fix === "atteo update"), `version (${same ? "same" : "differs"}): ${r.out}`);
+  // With a session on the board: the session and the board check out.
+  await cli(["join", board], { env });
+  r = await doc();
+  assert(r.check("session")[0]?.ok && /on 1 board/.test(r.check("session")[0].detail) && r.check("board").some((c) => c.ok && c.detail.includes(board) && c.detail.includes(`e2e cli ${run}`)), `session and board: ${r.out}`);
+  // Plain text: one line per check, ✓ or ✗, and "All good." when nothing's wrong.
+  const t = await cli(["doctor"], { env });
+  assert(/^✓ Signed in as /m.test(t.out) && /^✓ .*mailbox is reachable/m.test(t.out) && (same ? /All good\./.test(t.out) && t.code === 0 : /fix: atteo update/.test(t.out) && t.code === 1), `text: ${t.out}`);
+  // A board you're not on, and a session that's gone: each says what to run.
+  const other = (await ops("boards", { user: B, title: `not A's ${run}` })).board.id;
+  r = await doc({ env: { ...env, ATTEO_SESSION: `gone-${run}` } }, "--board", other);
+  const bc = r.check("board").find((c) => c.detail.includes(other));
+  assert(r.code === 1 && !r.check("session")[0].ok && /ATTEO_SESSION/.test(r.check("session")[0].fix) && bc && !bc.ok && /atteo get boards/.test(bc.fix), `gone session, other board: ${r.out}`);
+  // Signed out, and a login the server no longer takes: atteo login.
+  r = await doc({ cred: join(dir, "nobody.json") });
+  assert(r.code === 1 && !r.check("login")[0].ok && r.check("login")[0].fix === "atteo login" && r.check("server")[0]?.ok && !r.check("mailbox").length, `signed out: ${r.out}`);
+  const revoked = join(dir, "revoked.json");
+  writeFileSync(revoked, JSON.stringify({ server: BASE, user: A, token: "ab_not-a-real-token", expires_at: Date.now() + 86400e3 }), { mode: 0o600 });
+  r = await doc({ cred: revoked });
+  assert(r.code === 1 && r.check("token")[0]?.ok === false && r.check("token")[0].fix === "atteo login", `revoked: ${r.out}`);
+  // A CLI that isn't the server's: atteo update.
+  const old = join(dir, "old-atteo.mjs");
+  writeFileSync(old, readFileSync(CLI, "utf8") + "\n// a local change\n");
+  const o = await new Promise((resolve) => {
+    const p = spawn("node", [old, "doctor", "--json"], { cwd: dir, env: { ...process.env, ATTEO_CREDENTIALS_FILE: credA, ATTEO_SERVER: BASE, ...env } });
+    let s = "";
+    p.stdout.on("data", (d) => (s += d));
+    p.on("close", (code) => resolve({ code, j: JSON.parse(s) }));
+  });
+  const v = o.j.checks.find((c) => c.check === "version");
+  assert(o.code === 1 && v && !v.ok && v.fix === "atteo update", `stale CLI: ${JSON.stringify(o.j)}`);
+});
+
 if (ONLY && !matched) { failed++; console.log(`  ✗ no steps match ONLY=${JSON.stringify(process.env.ONLY)}`); }
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
