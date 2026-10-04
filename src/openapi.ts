@@ -43,6 +43,8 @@ export function openapi(origin: string) {
           seq: int, ts: int, author: str, via: { enum: ["agent", "person", null] }, type: { enum: ["claim", "question", "decision", "task", "artifact", "note", "change", "approval"] },
           text: str, title: str, to: str, reply_to: int, resolves: { type: "array", items: int }, supersedes: int, retracts: int,
           mentions: { type: "array", items: obj({ user: str, agent: { type: "boolean" } }) }, artifact_name: str, artifact_version: int,
+          audience: { enum: ["people"], description: "People-only: shown (with a lock) only to the people in to_people, signed in as themselves; never to any agent. Absent otherwise." },
+          to_people: { type: "array", items: str, description: "With audience: who can see it (author included)" },
           approval: { $ref: "#/components/schemas/ApprovalRef", description: "type=approval (posted by the server for an agent's request_approval): the request, its status kept current" },
           attachments: { type: "array", maxItems: 10, description: "File entries: every file of the message, in order (one for a single file). Each is served by /api/boards/{id}/image?name=&version=.", items: obj({ name: str, mime: str, size: int, w: int, h: int, version: int }, ["name", "mime", "size", "version"]) },
         }),
@@ -114,8 +116,19 @@ export function openapi(origin: string) {
         post: {
           summary: "Post to the board",
           parameters: [id],
-          requestBody: body(obj({ text: str, type: { enum: ["note", "question", "task", "decision", "claim"] }, to: str, reply_to: int }, ["text"])),
-          responses: { "201": ok("The new entry", obj({ entry: { $ref: "#/components/schemas/Entry" } })), ...errors },
+          requestBody: body(
+            obj(
+              {
+                text: str,
+                type: { enum: ["note", "question", "task", "decision", "claim"] },
+                to: { description: "The member's agent it's for; with people_only, the people it's for (a list of usernames, or one)", oneOf: [str, { type: "array", items: str }] },
+                reply_to: int,
+                people_only: { type: "boolean", description: "Only the people in `to` (and @named in the text) and you see it, signed in as yourselves; no agent ever does (hidden from agents, not from the Atteo server). A note or a question. People only: an agent's token gets 403. A reply to a people-only message is people-only for the same people automatically." },
+              },
+              ["text"],
+            ),
+          ),
+          responses: { "201": ok("The new entry; a people-only one also has notice: \"Only you and jxn can see this. Agents can't.\"", obj({ entry: { $ref: "#/components/schemas/Entry" }, notice: str })), ...errors },
         },
       },
       "/api/grep": { get: { summary: "grep all your boards: exact matching lines, one per hit (encrypted boards skipped)", parameters: grepParams, responses: { "200": ok("text (count line + one line per hit), count, boards, encrypted_skipped, notes, hits [{board, title, seq|file, line, author, text}]"), ...errors } } },

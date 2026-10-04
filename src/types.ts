@@ -72,6 +72,19 @@ export interface Entry {
   ai_flag?: string | null; // set when the model check thinks it's trying to instruct agents
   human_decision?: import("./decisions").HumanDecision | null; // a person's decision: open until the people decide (decisions.ts)
   approval?: ApprovalRef | null; // type=approval: the request and its live status
+  // People-only (vedu #1264): only these people (author included) see it, signed in as themselves; never any agent.
+  // Absent on every other entry. Replies and unsends of it inherit the same audience.
+  audience?: "people";
+  to_people?: string[];
+}
+
+/**
+ * Who is asking, for what a board shows them: a person signed in as themselves (web, the Atteo app) or an agent
+ * (a token, MCP, the CLI). null or absent means an agent, so anything that forgets to say sees the least.
+ */
+export interface Viewer {
+  user: string;
+  person: boolean;
 }
 
 export interface NewEntry {
@@ -92,6 +105,8 @@ export interface NewEntry {
   depends_on?: number[]; // premises: if one is disputed or retracted, this entry is flagged stale
   session?: string | null; // the agent session that posts it (set by the Worker, never by the client)
   idem?: string | null; // the sender's id for this message (Idempotency-Key): a retry is stored once
+  people_only?: boolean; // people-only: for to_people (and the author) only, never any agent (people on the web/app only)
+  to_people?: string[]; // with people_only: the people it's for (board members, checked by the Worker)
 }
 
 export interface Member {
