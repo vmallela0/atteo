@@ -11,7 +11,7 @@ extension WorkTask {
         switch status {
         case "todo": return String(localized: "To do", bundle: .l10n)
         case "doing": return String(localized: "In progress", bundle: .l10n)
-        case "blocked": return String(localized: "Blocked", bundle: .l10n)
+        case "blocked": return String(localized: "task-status.blocked", defaultValue: "Blocked", bundle: .l10n, comment: "A task status: it cannot move on")
         case "done": return String(localized: "Done", bundle: .l10n)
         case "stopped": return String(localized: "Stopped", bundle: .l10n)
         default: return status
@@ -419,7 +419,7 @@ struct TaskListRow: View {
                     .strikethrough(task.isDone, color: Theme.faint)
                     .lineLimit(1)
                 HStack(spacing: 6) {
-                    if task.isBlocked { Tag(text: task.status == "stopped" ? "Stopped" : "Blocked", icon: "exclamationmark.octagon.fill", color: Theme.warn) }
+                    if task.isBlocked { Tag(text: task.status == "stopped" ? "Stopped" : "task-status.blocked", icon: "exclamationmark.octagon.fill", color: Theme.warn) }
                     if needsApproval { Tag(text: "Needs approval", icon: "hand.raised.fill", color: Theme.accent) }
                     if task.priority == "high" && !task.isDone { Image(systemName: "flag.fill").font(.system(size: 9)).foregroundStyle(Theme.accent).accessibilityLabel("High priority") }
                     Text(task.updatedAt.ago).foregroundStyle(Theme.faint)

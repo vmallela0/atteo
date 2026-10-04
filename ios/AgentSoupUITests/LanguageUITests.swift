@@ -49,6 +49,8 @@ final class LanguageUITests: AtteoUITestCase {
         // Settings closes onto For you, in Chinese.
         XCTAssertTrue(a.navigationBars["为你"].waitForExistence(timeout: 10), "For you → 为你")
         XCTAssertTrue(a.buttons["open-chats"].label.contains("聊天"), "the Chats button → 聊天")
+        XCTAssertTrue(a.staticTexts["greeting"].label.contains("Maya") && !a.staticTexts["greeting"].label.hasPrefix("Good"), "the greeting in Chinese")
+        XCTAssertTrue(a.staticTexts.matching(NSPredicate(format: "label CONTAINS '需要你确认'")).firstMatch.exists, "Needs your OK → 需要你确认")
         shot("language-zh-hans-for-you")
         openSettings(a, label: "设置", title: "设置")
         XCTAssertTrue(a.staticTexts["外观"].exists || a.staticTexts["你的助手"].exists, "Settings' sections in Chinese")

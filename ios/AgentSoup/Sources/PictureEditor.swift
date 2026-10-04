@@ -106,7 +106,7 @@ struct PictureEditor: View {
                         .accessibilityLabel("Rotate")
                         .accessibilityIdentifier("crop-rotate")
                     }
-                    row("Light") { Slider(value: $light, in: -0.3...0.3).accessibilityIdentifier("crop-light") }
+                    row("picture-editor.light") { Slider(value: $light, in: -0.3...0.3).accessibilityIdentifier("crop-light") }
                     row("Contrast") { Slider(value: $contrast, in: 0.6...1.4).accessibilityIdentifier("crop-contrast") }
                 }
                 .tint(Theme.accent)

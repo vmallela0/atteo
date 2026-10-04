@@ -771,7 +771,7 @@ struct EntryRow: View {
         switch e.type {
         case "note", "task", "artifact", "change": return nil // a file, a task, a change: each shows as itself
         case "question": return String(localized: "Question", bundle: .l10n)
-        case "claim": return String(localized: "Claim", bundle: .l10n)
+        case "claim": return String(localized: "entry-type.claim", defaultValue: "Claim", bundle: .l10n, comment: "An entry type: a claim (a finding stated with evidence), not claiming a task")
         case "decision": return String(localized: "Decision", bundle: .l10n)
         case "approval": return String(localized: "Approval", bundle: .l10n)
         case "evidence": return String(localized: "Evidence", bundle: .l10n)
