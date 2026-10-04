@@ -1095,10 +1095,14 @@ function railBuild(){const th=document.getElementById('thread'),top0=th.getBound
   ticks=[...th.querySelectorAll(':scope>.entry,:scope>.ghost')].map(el=>({el,y:(el.getBoundingClientRect().top-top0)/H,h:el.querySelector(':scope>.grow>.meta')?.offsetHeight||20}));
   // On a long board one tick per message is a grey smear (jxn #1359): at most RAIL_MAX ticks, nearby messages sharing one,
   // and anything for you always gets its own. Hover and scrubbing still use every message.
-  const RAIL_MAX=60,groups=[];if(ticks.length<=RAIL_MAX)ticks.forEach((t,i)=>groups.push({y:t.y,m:[i],me:t.el.classList.contains('for-you')}));
+  const RAIL_MAX=60;let groups=[];if(ticks.length<=RAIL_MAX)ticks.forEach((t,i)=>groups.push({y:t.y,m:[i],me:t.el.classList.contains('for-you')}));
   else{const by=new Map();ticks.forEach((t,i)=>{if(t.el.classList.contains('for-you')){groups.push({y:t.y,m:[i],me:true});return}const k=Math.min(RAIL_MAX-1,Math.floor(t.y*RAIL_MAX));
       let g=by.get(k);if(!g){g={y:t.y,m:[],me:false};by.set(k,g);groups.push(g)}g.m.push(i)})}
-  rticks=groups;rail.innerHTML=groups.map((g,i)=>'<i data-i="'+g.m[0]+'"'+(g.me?' class="me"':'')+(g.m.length>1?' data-n="'+g.m.length+'"':'')+' style="top:'+(g.y*100).toFixed(3)+'%"></i>').join('');railMark()}
+  // Ticks closer than 5px run into each other (jxn #1751): a plain tick folds into its neighbour, and a tick for you is
+  // never folded away (it takes the plain one's messages instead).
+  const RH=rail.clientHeight||1,GAP=5/RH,kept=[];for(const g of groups){const p=kept[kept.length-1];
+    if(p&&g.y-p.y<GAP&&!(p.me&&g.me)){if(g.me){g.m=g.m.concat(p.m);kept[kept.length-1]=g}else p.m.push(...g.m)}else kept.push(g)}
+  rticks=groups=kept;rail.innerHTML=groups.map((g,i)=>'<i data-i="'+g.m[0]+'"'+(g.me?' class="me"':'')+(g.m.length>1?' data-n="'+g.m.length+'"':'')+' style="top:'+(g.y*100).toFixed(3)+'%"></i>').join('');railMark()}
 var rticks=[];
 function railMark(){setTimeout(reportSeen,0);const a=scroller.scrollTop,b=a+scroller.clientHeight;const is=rail.children,TH=document.getElementById('thread').scrollHeight;
   rticks.forEach((g,i)=>{const on=g.m.some(j=>{const t=ticks[j],y=t.y*TH;return y+t.h>a&&y<b});is[i]?.classList.toggle('on',on)})}

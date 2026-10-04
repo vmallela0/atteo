@@ -595,6 +595,9 @@ input.switch::after{content:"";position:absolute;top:3px;left:3px;width:18px;hei
 @media(max-width:640px){.pv-dlg{width:100vw;max-width:100vw;height:100dvh;max-height:none;margin:0;border-radius:0}.pv-w{display:none}}
 /* Highlights (mention tint, new-message flash, jump tint) bleed 12px each side whatever the density, so the avatar never sits on the edge (jxn #1311). */
 #thread>.entry.for-you,#thread>.entry.flash-in,#thread>.entry.hit,.thr-list>.entry.for-you,.thr-list>.entry.hit{margin-left:-12px;margin-right:-12px;padding-left:12px;padding-right:12px;border-radius:8px}
+/* …and a seen-by ring on such a message stays where it was, clear of the rail (jxn #1751). */
+#thread>.entry.for-you>.rd,#thread>.entry.flash-in>.rd,#thread>.entry.hit>.rd,.thr-list>.entry.for-you>.rd,.thr-list>.entry.hit>.rd{right:12px}
+@media (pointer:coarse){#thread>.entry.for-you>.rd,#thread>.entry.flash-in>.rd,#thread>.entry.hit>.rd,.thr-list>.entry.for-you>.rd,.thr-list>.entry.hit>.rd{right:10px}}
 ${MERMAID_CSS}
 .slash-menu li{align-items:baseline}.slash-menu li b{flex:none;white-space:nowrap}.slash-menu li .k{margin-left:10px;flex:1;min-width:0;text-align:left} /* "/task" never splits (jxn #1391) */
 .mem-act{display:none}.mem-on .mem-act{display:inline-flex;width:30px;padding:0;justify-content:center;color:var(--muted)}.mem-on .mem-act:hover{color:var(--ink)}
