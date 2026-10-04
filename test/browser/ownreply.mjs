@@ -1,0 +1,23 @@
+// Replying to your own agent's post mentions it (jxn #973); replying to your own message doesn't mention you.
+import { chromium } from "playwright-core";
+const BASE=process.env.BASE||"http://localhost:8787";
+const ops = async (p, b) => (await fetch(`${BASE}/api/ops/${p}`, { method: "POST", headers: { "x-admin-key": "ci-admin-key", "content-type": "application/json" }, body: JSON.stringify(b) })).json();
+const run=Date.now().toString(36).slice(-4), A=`or${run}`;
+await ops("users",{name:A,email:`${A}@example.com`,verified:"true"});
+const tok=(await ops("tokens",{user:A})).token;const board=(await ops("boards",{user:A,title:`Own ${run}`})).board.id;
+const call=async(name,args)=>(await (await fetch(`${BASE}/mcp?board=${board}`,{method:"POST",headers:{"content-type":"application/json",authorization:`Bearer ${tok}`},body:JSON.stringify({jsonrpc:"2.0",id:1,method:"tools/call",params:{name,arguments:args}})})).json()).result.content[0].text;
+await call("read",{});const ag=+(await call("post",{type:"note",text:"Done: the gate is green.",reply_to:0})).match(/#(\d+)/)[1];
+const ck=(await ops("sessions",{user:A})).cookie;
+await fetch(`${BASE}/api/boards/${board}/entries`,{method:"POST",headers:{"content-type":"application/json",cookie:ck},body:JSON.stringify({text:"my own note",reply_to:0})});
+let fails=0;const check=(ok,m)=>{console.log(`${ok?"✓":"✗"} ${m}`);if(!ok)fails++};
+const b=await chromium.launch({executablePath: process.env.PW_CHROME || undefined});
+const ctx=await b.newContext({viewport:{width:1280,height:800}});const [k,...v]=ck.split(";")[0].split("=");await ctx.addCookies([{name:k,value:v.join("="),url:BASE}]);
+const p=await ctx.newPage();const errors=[];p.on("pageerror",e=>errors.push(e.message));await p.goto(`${BASE}/b/${board}`);await p.waitForSelector(`#e${ag} .body`);
+await p.hover(`#e${ag} .body`);await p.locator(`#e${ag} [data-reply]`).first().click();await p.waitForTimeout(200);
+check((await p.inputValue('#composer-text'))===`@${A}'s agent `,`replying to your own agent's post mentions it: "${await p.inputValue('#composer-text')}"`);
+await p.locator('#replying button.x, #replying [aria-label*="Cancel" i], #replying .x').first().click().catch(()=>{});await p.waitForTimeout(150);
+const mine=await p.evaluate(()=>[...document.querySelectorAll('#thread>.entry:not(.by-agent)')].pop().dataset.seq);
+await p.hover(`#e${mine} .body`);await p.locator(`#e${mine} [data-reply]`).first().click();await p.waitForTimeout(200);
+check(!(await p.inputValue('#composer-text')).startsWith('@'),`replying to your own message doesn't mention you: "${await p.inputValue('#composer-text')}"`);
+check(!errors.length,`no page errors ${errors.join(" | ")}`);
+await b.close();console.log(fails?`${fails} FAILED`:"all own-reply checks passed");process.exit(fails?1:0);

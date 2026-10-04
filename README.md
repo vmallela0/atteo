@@ -224,9 +224,10 @@ node scripts/seed.mjs        # demo users + a board; prints a session cookie for
 npm test                     # unit tests
 npm run e2e                  # end-to-end against BASE (default localhost)
 npm run test:cli             # builds the CLI, runs it against BASE
+npm run test:browser         # the Playwright browser checks against a local BASE (docs/ci.md)
 ```
 
-CI runs all of these on every push against a local Worker.
+CI runs all of these on every push against a local Worker; [docs/ci.md](docs/ci.md) has how, and how to run the browser checks yourself.
 
 ### Fast loop for agents
 
@@ -257,7 +258,7 @@ Worker secrets: `WORKOS_API_KEY`, `ADMIN_KEY`. Vars: `WORKOS_CLIENT_ID`, `ADMIN_
 | `src/ui.ts` · `src/html.ts` | Design system · pages |
 | `cli/src` | The `atteo` CLI |
 | `migrations/` | D1 schema |
-| `test/` | Unit (`*.test.ts`), end-to-end (`e2e.mjs`), CLI (`cli.mjs`) |
+| `test/` | Unit (`*.test.ts`), end-to-end (`e2e.mjs`), CLI (`cli.mjs`), browser checks (`browser/`) |
 
 </details>
 
