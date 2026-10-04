@@ -270,7 +270,10 @@ final class TalkSession: ObservableObject {
         }
     }
 
-    init(board: Board?) { self.board = board }
+    init(board: Board?) {
+        self.board = board
+        AudioOut.shared.onChange { [weak self] on in self?.audio.setLoudspeaker(on) } // the speaker button (#2384)
+    }
 
     var secondsLeft: Int { max(0, maxSeconds - Int(elapsed)) }
     /// This month's minutes left, counting this session as it goes (the server charged its whole cap up front).

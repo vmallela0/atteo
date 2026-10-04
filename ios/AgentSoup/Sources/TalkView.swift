@@ -282,6 +282,8 @@ struct TalkSheet: View {
                 }
                 .frame(height: 160)
             }
+            // Loudspeaker or earpiece (vedu #2384), beside mute's job: mute silences Atteo, this picks where it plays.
+            if talk.phase == .ready || talk.phase == .standby { SpeakerToggle(style: .chip) }
             if talk.phase == .standby {
                 Text("Tap or press play on your AirPods to talk")
                     .font(Typo.meta).foregroundStyle(Theme.muted).multilineTextAlignment(.center)
