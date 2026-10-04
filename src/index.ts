@@ -814,7 +814,7 @@ const handler = {
         ]);
         // Agents here: named sessions, plus members' agents connected without one (e.g. an MCP URL connection).
         const memberSet = new Set(members.map((x) => x.user));
-        const sessionsHere = (await sessions.onBoard(env, m[2])).filter((x) => memberSet.has(x.user));
+        const sessionsHere = (await sessions.onBoard(env, m[2])).filter((x) => memberSet.has(x.user)).map(({ model, ...x }) => ({ ...x, ...sessions.modelFor({ model }, viewer.via !== "agent") }));
         const agentsHere = [
           ...sessionsHere,
           ...Object.entries(live)
@@ -871,7 +871,7 @@ const handler = {
         // agent_name: what `user` (the owner) named their agent; `name` is the session's own name ("scout").
         const named = new Map(members.map((x) => [x.user, { agent_name: x.agent_name, ...(x.agent_name_ambiguous ? { agent_name_ambiguous: true } : {}) }]));
         const agents = [
-          ...here.map((x) => ({ user: x.user, ...named.get(x.user), name: x.name, client: x.client, status: x.status, last_seen: x.last_seen, state: sessions.stateOf(x.last_seen, now) })),
+          ...here.map((x) => ({ user: x.user, ...named.get(x.user), name: x.name, client: x.client, ...sessions.modelFor(x, viewer.via !== "agent"), status: x.status, last_seen: x.last_seen, state: sessions.stateOf(x.last_seen, now) })),
           ...Object.entries(live)
             .filter(([u]) => memberSet.has(u) && !here.some((x) => x.user === u))
             .map(([u, seen]) => ({ user: u, ...named.get(u), name: null, client: null, status: null, last_seen: seen as number, state: sessions.stateOf(seen as number, now) })),
@@ -1119,7 +1119,7 @@ const handler = {
         if (!viewer) return needLogin();
         const [side, p] = await Promise.all([sideBoards(env, viewer.name), social.person(env, viewer.name, um[1])]);
         if (!p) return notFound(viewer);
-        const [shared, ag] = await Promise.all([p.relation === "self" || p.relation === "blocked" ? [] : social.sharedBoards(env, viewer.name, p.name).catch(() => []), agents.agent(env, viewer.name, p.name).catch(() => null)]);
+        const [shared, ag] = await Promise.all([p.relation === "self" || p.relation === "blocked" ? [] : social.sharedBoards(env, viewer.name, p.name).catch(() => []), agents.agent(env, viewer.name, p.name, viewer.via !== "agent").catch(() => null)]);
         return profilePage(viewer, side, p, social.presenceLabel(p.presence), { shared, agent: ag });
       }
       // Who this is (the app checks its token here after signing in).
@@ -1247,17 +1247,17 @@ const handler = {
       if (path === "/api/agents" || path.startsWith("/api/agents/")) {
         if (!viewer) return needLogin();
         try {
-          if (path === "/api/agents" && method === "GET") return json({ agents: await agents.findAgents(env, viewer.name, { can: url.searchParams.get("can"), q: url.searchParams.get("q") }) });
+          if (path === "/api/agents" && method === "GET") return json({ agents: await agents.findAgents(env, viewer.name, { can: url.searchParams.get("can"), q: url.searchParams.get("q"), person: viewer.via !== "agent" }) });
           const am = path.match(/^\/api\/agents\/([^/]+)$/);
           if (am && method === "GET") {
             const who = am[1] === "me" ? viewer.name : decodeURIComponent(am[1]);
-            const a = await agents.agent(env, viewer.name, who);
+            const a = await agents.agent(env, viewer.name, who, viewer.via !== "agent");
             return a ? json({ agent: a }) : json({ error: `No agent "${who}" that you can see. Agents show up for friends, people you share a board with, and everyone if they're listed.` }, 404);
           }
           if (am && am[1] === "me" && method === "POST") {
             const b = (await request.json().catch(() => ({}))) as { summary?: unknown; capabilities?: unknown; listed?: unknown };
             await agents.setProfile(env, viewer.name, b);
-            return json({ agent: await agents.agent(env, viewer.name, viewer.name) });
+            return json({ agent: await agents.agent(env, viewer.name, viewer.name, viewer.via !== "agent") });
           }
           return json({ error: "not found" }, 404);
         } catch (e) {
@@ -1650,7 +1650,8 @@ const handler = {
         if (!sm) return json({ error: "not found" }, 404);
         const [, sid, sub, subId] = sm;
         const titled = async (ids: string[]) => Promise.all(ids.map(async (id) => ({ id, title: (await registry.getBoard(env, id))?.title ?? id })));
-        const view = async (x: sessions.AgentSession & { active?: boolean }) => ({ id: x.id, name: x.name, client: x.client, scope: x.scope ?? "full", status: x.status ?? null, status_at: x.status_at ?? null, boards: await titled(x.boards), created_at: x.created_at, last_seen: x.last_seen, state: sessions.stateOf(x.last_seen), kind: x.kind ?? "main", ...(x.active != null ? { active: x.active } : {}) });
+        // model: for people only (agents never get it back, not even their own).
+        const view = async (x: sessions.AgentSession & { active?: boolean }) => ({ id: x.id, name: x.name, client: x.client, ...sessions.modelFor(x, viewer.via !== "agent"), scope: x.scope ?? "full", status: x.status ?? null, status_at: x.status_at ?? null, boards: await titled(x.boards), created_at: x.created_at, last_seen: x.last_seen, state: sessions.stateOf(x.last_seen), kind: x.kind ?? "main", ...(x.active != null ? { active: x.active } : {}) });
         try {
           if (!sid) {
             // Your agents: main sessions, live or idle. ?all=1 adds dispatch's forks (and any not swept yet).
@@ -1661,8 +1662,8 @@ const handler = {
             }
             if (method === "DELETE") return json({ ok: true, ended: await sessions.endAll(env, viewer.name) });
             if (method === "POST") {
-              const b = (await request.json().catch(() => ({}))) as { name?: string; suggest?: string; client?: string; scope?: string; kind?: unknown };
-              let made = await sessions.create(env, viewer.name, { name: b.name ?? null, suggest: b.suggest ?? null, client: b.client ?? null, kind: b.kind });
+              const b = (await request.json().catch(() => ({}))) as { name?: string; suggest?: string; client?: string; model?: unknown; scope?: string; kind?: unknown };
+              let made = await sessions.create(env, viewer.name, { name: b.name ?? null, suggest: b.suggest ?? null, client: b.client ?? null, model: b.model, kind: b.kind });
               if (b.scope === "read") made = await sessions.setScope(env, made, "read");
               return json({ session: await view(made) }, 201);
             }
@@ -1680,8 +1681,8 @@ const handler = {
           if (!sub) {
             if (method === "GET") return json({ session: await view(await live()) });
             if (method === "POST") {
-              // {name} renames it; {status} says what it's doing (empty clears it); {scope} "read" | "full".
-              const b = (await request.json().catch(() => ({}))) as { name?: string; status?: string | null; scope?: string };
+              // {name} renames it; {status} says what it's doing (empty clears it); {model} what it runs on; {scope} "read" | "full".
+              const b = (await request.json().catch(() => ({}))) as { name?: string; status?: string | null; model?: unknown; scope?: string };
               let next = s;
               if (b.scope !== undefined) {
                 // An agent can make itself read-only; only its person, from the web, gives full access back.
@@ -1689,6 +1690,11 @@ const handler = {
                 next = await sessions.setScope(env, next, b.scope);
               }
               if (b.name != null) next = await sessions.rename(env, next, String(b.name));
+              if (b.model !== undefined) {
+                const hit = scanFields({ model: sessions.cleanModel(b.model) });
+                if (hit) return json({ error: blockedMessage(hit) }, 400);
+                next = await sessions.setModel(env, next, b.model);
+              }
               if (b.status !== undefined) {
                 const hit = scanFields({ status: typeof b.status === "string" ? b.status : null });
                 if (hit) return json({ error: blockedMessage(hit) }, 400);

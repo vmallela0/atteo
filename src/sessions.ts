@@ -9,6 +9,7 @@ export interface AgentSession {
   user: string;
   name: string;
   client: string | null;
+  model?: string | null; // "Opus 5.5 high": a label for people on the web, never handed to agents (see modelFor)
   boards: string[];
   created_at: number;
   last_seen: number;
@@ -62,7 +63,13 @@ export function cleanName(raw: string | null | undefined): string | null {
 }
 
 /** `name` is one the person chose (refused if taken); `suggest` is a default (numbered if taken: claude, claude-2…). */
-export async function create(env: Env, user: string, p: { name?: string | null; suggest?: string | null; client?: string | null; kind?: unknown }): Promise<AgentSession> {
+/** A model label as given: one line, 60 characters at most, or null. */
+export const cleanModel = (raw: unknown): string | null => (typeof raw === "string" ? raw.replace(/[\s\u0000-\u001f\u007f]+/g, " ").trim().slice(0, 60) || null : null);
+
+/** The model, for people only (jxn #1191): agents never get it, so it costs no agent context. */
+export const modelFor = (s: { model?: string | null }, person: boolean): { model?: string | null } => (person ? { model: s.model ?? null } : {});
+
+export async function create(env: Env, user: string, p: { name?: string | null; suggest?: string | null; client?: string | null; model?: unknown; kind?: unknown }): Promise<AgentSession> {
   const kind = p.kind ?? "main";
   if (kind !== "main" && kind !== "fork") throw new SessionError('kind is "main" (a running agent) or "fork" (one message\'s work, from atteo dispatch).');
   const live = await list(env, user);
@@ -78,8 +85,9 @@ export async function create(env: Env, user: string, p: { name?: string | null; 
   const id = "as_" + btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
   const now = Date.now();
   const client = (p.client ?? "").trim().slice(0, 60) || null;
-  await env.DB.prepare(`INSERT INTO agent_sessions (id, user, name, client, boards, created_at, last_seen, kind) VALUES (?, ?, ?, ?, '[]', ?, ?, ?)`).bind(id, user, name, client, now, now, kind).run();
-  return { id, user, name, client, boards: [], created_at: now, last_seen: now, ended_at: null, kind };
+  const model = cleanModel(p.model);
+  await env.DB.prepare(`INSERT INTO agent_sessions (id, user, name, client, model, boards, created_at, last_seen, kind) VALUES (?, ?, ?, ?, ?, '[]', ?, ?, ?)`).bind(id, user, name, client, model, now, now, kind).run();
+  return { id, user, name, client, model, boards: [], created_at: now, last_seen: now, ended_at: null, kind };
 }
 
 /** Your session by id or by name (live ones only). */
@@ -142,6 +150,13 @@ export async function setStatus(env: Env, s: AgentSession, raw: string | null): 
   return { ...s, status, status_at: status ? now : null };
 }
 
+/** Sets (or, with an empty text, clears) the model the session runs on. */
+export async function setModel(env: Env, s: AgentSession, raw: unknown): Promise<AgentSession> {
+  const model = cleanModel(raw);
+  if (model !== (s.model ?? null)) await env.DB.prepare(`UPDATE agent_sessions SET model = ? WHERE id = ?`).bind(model, s.id).run();
+  return { ...s, model };
+}
+
 export async function end(env: Env, s: AgentSession): Promise<void> {
   await env.DB.prepare(`UPDATE agent_sessions SET ended_at = ? WHERE id = ?`).bind(Date.now(), s.id).run();
 }
@@ -153,12 +168,12 @@ export async function dropBoard(env: Env, user: string, board: string): Promise<
 
 /** Main agent sessions working on a board lately (any of its members'), most recent first: what the board lists as its
  *  agents (Board info, the @-mention menu, /api/boards/:id/agents). Forks, ended and gone sessions aren't listed. */
-export async function onBoard(env: Env, board: string): Promise<{ user: string; name: string; client: string | null; last_seen: number; status: string | null }[]> {
+export async function onBoard(env: Env, board: string): Promise<{ user: string; name: string; client: string | null; model: string | null; last_seen: number; status: string | null }[]> {
   if (!/^b_[a-z0-9]+$/.test(board)) return [];
   return (
-    await env.DB.prepare(`SELECT user, name, client, last_seen, status FROM agent_sessions WHERE ended_at IS NULL AND kind = 'main' AND last_seen > ? AND boards LIKE ? ORDER BY last_seen DESC LIMIT 50`)
+    await env.DB.prepare(`SELECT user, name, client, model, last_seen, status FROM agent_sessions WHERE ended_at IS NULL AND kind = 'main' AND last_seen > ? AND boards LIKE ? ORDER BY last_seen DESC LIMIT 50`)
       .bind(Date.now() - ACTIVE_MS, `%"${board}"%`)
-      .all<{ user: string; name: string; client: string | null; last_seen: number; status: string | null }>()
+      .all<{ user: string; name: string; client: string | null; model: string | null; last_seen: number; status: string | null }>()
   ).results;
 }
 

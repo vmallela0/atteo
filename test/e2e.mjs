@@ -4429,6 +4429,69 @@ await step("read aloud (POST /api/app/tts): people only, validated, members only
   });
 }
 
+// ---- #1191: an agent session's model is a label for people (the web's Agents list, its card); agents never get it ----
+await step("session model: people see it on the web, agents never get it (reads, mailbox, MCP, session JSON)", async () => {
+  const M = `Opus-e2e-${run}`; // unique, so any leak into agent-facing output is found
+  const mb = (await ops("boards", { user: A, title: `e2e model ${run}` })).body.board.id;
+  await ops("members", { board: mb, user: B });
+  const call = async (who, method, path, body, asAgent) => {
+    const r = await fetch(`${BASE}${path}`, { method, headers: { ...(asAgent ? auth(who) : { cookie: cookie[who] }), "content-type": "application/json" }, body: body == null ? undefined : JSON.stringify(body) });
+    return { status: r.status, text: await r.text() };
+  };
+  const agentSees = []; // everything an agent was handed
+  const seen = (r) => (agentSees.push(r.text), JSON.parse(r.text || "{}"));
+  // B's agent (the CLI's way) starts a session with its model: the reply doesn't echo it back.
+  const made = seen(await call(B, "POST", "/api/sessions", { client: "Claude Code", model: M }, true)).session;
+  assert(made && !("model" in made), `agent's own session view has no model: ${JSON.stringify(made)}`);
+  seen(await call(B, "POST", `/api/sessions/${made.id}/boards`, { board: mb }, true));
+  // People see it: their sessions, the board's agents, the agent's card, the board page.
+  const mine = JSON.parse((await call(B, "GET", "/api/sessions")).text).sessions.find((x) => x.id === made.id);
+  assert(mine?.model === M, `person sees the model: ${JSON.stringify(mine)}`);
+  const ag = JSON.parse((await call(A, "GET", `/api/boards/${mb}/agents`)).text).agents.find((x) => x.user === B);
+  assert(ag?.model === M && ag.client === "Claude Code", `board agents (person): ${JSON.stringify(ag)}`);
+  const card = JSON.parse((await call(A, "GET", `/api/agents/${B}`)).text).agent;
+  assert(card.sessions.some((x) => x.model === M), `agent card (person): ${JSON.stringify(card.sessions)}`);
+  const page = await (await web(`/b/${mb}`, A)).text();
+  has(page, `<span class="faint ag-model">${M}</span>`);
+  // A change from the agent (it switched models) and a clear.
+  seen(await call(B, "POST", `/api/sessions/${made.id}`, { model: `${M}-2` }, true));
+  assert(JSON.parse((await call(B, "GET", `/api/sessions/${made.id}`)).text).session.model === `${M}-2`, "model updated");
+  // Agents: the same APIs with a token, the session's read/wait, the mailbox, and every MCP tool that lists agents.
+  {
+    const r = await call(A, "POST", `/api/boards/${mb}/entries`, { type: "question", to: B, text: `model check ${run} @${B}'s agent` });
+    assert(r.status === 201, `post: ${r.status} ${r.text}`);
+  }
+  seen(await call(B, "GET", "/api/sessions", null, true));
+  seen(await call(B, "GET", `/api/sessions/${made.id}`, null, true));
+  seen(await call(B, "GET", `/api/sessions/${made.id}/read?board=${mb}`, null, true));
+  seen(await call(A, "GET", `/api/boards/${mb}/agents`, null, true));
+  seen(await call(A, "GET", `/api/agents/${B}`, null, true));
+  seen(await call(A, "GET", `/api/agents`, null, true));
+  seen(await call(B, "GET", "/api/mailbox?peek=1", null, true));
+  const viaCli = async (name, args) => {
+    const r = await rpcRaw({ ...auth(B), "x-atteo-session": made.id }, mb, "tools/call", { name, arguments: args });
+    agentSees.push(r.content.map((c) => c.text ?? "").join("\n"));
+  };
+  await viaCli("read", { since: 0 });
+  await viaCli("agents", { action: "find" });
+  await viaCli("agents", { action: "get", name: B });
+  await viaCli("people", {});
+  await viaCli("mailbox", {});
+  await viaCli("session", { action: "status", status: "checking models" });
+  // An MCP URL connection says its model on initialize (X-Atteo-Model): its session carries it, its tools never show it.
+  const init = await fetch(`${BASE}/mcp?board=${mb}`, { method: "POST", headers: { "content-type": "application/json", ...auth(B), "x-atteo-model": `${M}-mcp` }, body: JSON.stringify({ jsonrpc: "2.0", id: ++rpcId, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "cursor", version: "1" } } }) });
+  agentSees.push(await init.text());
+  const ms = { who: B, sid: init.headers.get("mcp-session-id"), board: mb };
+  for (const [name, args] of [["read", { since: 0 }], ["agents", { action: "find" }], ["agents", { action: "get", name: B }], ["session", { action: "status", status: "on cursor" }]]) agentSees.push((await stool(ms, name, args)).text);
+  const viaMcp = JSON.parse((await call(B, "GET", "/api/sessions")).text).sessions.find((x) => x.client === "Cursor");
+  assert(viaMcp?.model === `${M}-mcp`, `MCP session's model from X-Atteo-Model: ${JSON.stringify(viaMcp)}`);
+  const leaks = agentSees.filter((t) => t.includes(M));
+  assert(!leaks.length, `the model reached an agent:\n${leaks.map((t) => t.slice(0, 300)).join("\n---\n")}`);
+  seen(await call(B, "POST", `/api/sessions/${made.id}`, { model: "" }, true));
+  assert(JSON.parse((await call(B, "GET", `/api/sessions/${made.id}`)).text).session.model === null, "model cleared");
+  await call(B, "DELETE", `/api/sessions/${made.id}`, null, true);
+});
+
 if (/localhost|127\.0\.0\.1/.test(BASE) && process.env.E2E_FULL) {
   await step("boards past 1,000 entries page through updates without looping (local only)", async () => {
     const big = (await ops("boards", { user: A, title: `e2e big ${run}` })).body.board.id;

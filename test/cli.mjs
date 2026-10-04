@@ -765,6 +765,69 @@ await step("a shell script an agent runs (deploy.sh, a git hook) is part of that
   assert(/^Session codex /.test(out) && !out.includes("deploy.sh"), out);
 });
 
+await step("model: the CLI sends its agent's model for people on the web, and never prints it back (#1191)", async () => {
+  const d = mkdtempSync(join(tmpdir(), "atteo-model-"));
+  const U = `e2e-cli-mo-${run}`; // its own user, so its session doesn't show up in the sessions step below
+  await ops("users", { name: U, email: `${U}@example.com`, verified: "true" });
+  const tok = (await ops("tokens", { user: U })).token;
+  const cookie = (await ops("sessions", { user: U })).cookie;
+  const cred = join(d, "u.json");
+  writeFileSync(cred, JSON.stringify({ server: BASE, user: U, token: tok, expires_at: Date.now() + 86400e3 }), { mode: 0o600 });
+  const b = (await ops("boards", { user: U, title: `e2e cli model ${run}` })).board.id;
+  const M = `Opus-cli-${run}`;
+  // A fake Claude Code: its shell runs atteo commands (and can change its env between them, as /model would).
+  const f = join(d, "claude");
+  writeFileSync(f, `#!/bin/bash\nwhile IFS= read -r line; do eval "node ${CLI} $line"; echo "<<rc=$?>>"; done\n`, { mode: 0o755 });
+  const env = { ...process.env, ATTEO_CREDENTIALS_FILE: cred, ATTEO_SERVER: BASE, XDG_CONFIG_HOME: join(d, "cfg"), ATTEO_MODEL: M };
+  delete env.CLAUDE_CODE_SESSION_ID;
+  delete env.ANTHROPIC_MODEL;
+  const p = spawn(f, [], { cwd: d, env });
+  let buf = "";
+  p.stdout.on("data", (x) => (buf += x));
+  p.stderr.on("data", (x) => (buf += x));
+  const say = async (line) => {
+    buf = "";
+    p.stdin.write(line + "\n");
+    for (let i = 0; i < 400 && !/<<rc=\d+>>/.test(buf); i++) await sleep(50);
+    return { code: Number(buf.match(/<<rc=(\d+)>>/)?.[1] ?? -1), out: buf.replace(/<<rc=\d+>>\s*$/, "") };
+  };
+  const mine = async () => (await (await fetch(`${BASE}/api/sessions`, { headers: { cookie } })).json()).sessions.find((x) => x.client === "Claude Code");
+  const outs = [];
+  try {
+    let r = await say(`join ${b}`);
+    assert(r.code === 0, r.out);
+    outs.push(r.out);
+    assert((await mine())?.model === M, `the person sees the model: ${JSON.stringify(await mine())}`);
+    for (const c of ["session show", "session show --json", "get sessions --json", "read", `post note "model check ${run}"`]) outs.push((await say(c)).out);
+    // The agent switches models: the next command sends the new one.
+    outs.push((await say(`whoami; export ATTEO_MODEL=${M}-2`)).out);
+    outs.push((await say(`read`)).out);
+    assert((await mine())?.model === `${M}-2`, `follows the agent's model: ${JSON.stringify(await mine())}`);
+    r = await say(`session model "Fable-${run}"`);
+    assert(r.code === 0 && r.out.includes("People see it on the web") && !r.out.includes(`Fable-${run}`), r.out);
+    outs.push(r.out);
+    assert((await mine())?.model === `Fable-${run}`, "set by hand");
+    outs.push((await say(`read`)).out);
+    assert((await mine())?.model === `Fable-${run}`, "kept until the agent's model changes");
+    r = await say(`session model --clear`);
+    assert(r.code === 0 && (await mine())?.model === null, r.out);
+    // The stdio MCP server (atteo mcp) shares the session: its tool output never carries the model either.
+    const mcp = startMcp(cred, { XDG_CONFIG_HOME: join(d, "cfg-mcp"), ATTEO_MODEL: `${M}-mcp`, CLAUDE_CODE_SESSION_ID: "" });
+    try {
+      await mcp.call("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "claude-code", version: "1" } });
+      for (const [name, args] of [["join_board", { board: b }], ["read", {}], ["agents", { action: "get", name: U }]]) outs.push(JSON.stringify(await mcp.call("tools/call", { name, arguments: args })));
+    } finally {
+      mcp.stop();
+    }
+    const all = await (await fetch(`${BASE}/api/sessions`, { headers: { cookie } })).json();
+    assert(all.sessions.some((x) => x.model === `${M}-mcp`), `atteo mcp's session carries its model: ${JSON.stringify(all.sessions)}`);
+    const leaks = outs.filter((o) => o.includes(M) || o.includes(`Fable-${run}`));
+    assert(!leaks.length, `the model reached the agent:\n${leaks.join("\n---\n").slice(0, 1500)}`);
+  } finally {
+    p.stdin.end();
+  }
+});
+
 await step("sessions: each agent is its own session (found from its process), joins boards with standard commands, sees its person's other sessions", async () => {
   // Fake agents: long-lived processes named like the agent, running atteo commands from their shell (as real agents do).
   const cfg = mkdtempSync(join(tmpdir(), "atteo-sess-"));
