@@ -12,7 +12,8 @@
 //   playwright-core installed) · PAR (default 4) · SHARD=i/n (run the i-th of n balanced slices, 1-based) · ONLY="a b"
 //   · SHARED=0 (a fresh Chromium per check) · BROWSERS (shared Chromiums, default 2) · RETRY=0 (no retry) · TIMEOUT per
 //   check in s (default 240) · SHOTS_DIR (screenshots, logs and failed.txt; default <os tmp>/atteo-browser-shots)
-//   · ADMIN_KEY (default ci-admin-key, as in CI's .dev.vars).
+//   · ADMIN_KEY (default ci-admin-key, as in CI's .dev.vars) · PERSIST (the server's `wrangler dev --persist-to` dir, so
+//   checks that write to local D1 directly, live and e2e-web, reach the server's database; unset = the default .wrangler).
 import { spawn } from "node:child_process";
 import { readFileSync, writeFileSync, existsSync, mkdirSync, openSync, closeSync } from "node:fs";
 import { join, dirname } from "node:path";

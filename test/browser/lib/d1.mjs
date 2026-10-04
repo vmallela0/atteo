@@ -15,8 +15,10 @@ export function sqliteBusy(e) {
   return /SQLITE_BUSY/.test(msg);
 }
 
-export async function d1Execute(args, { cwd, exec = execSync, sleep, waitMs = BUSY_WAIT_MS } = {}) {
-  const cmd = `npx wrangler d1 execute agent-board --local ${args}`;
+// PERSIST: the server's --persist-to directory. A server started with `wrangler dev --persist-to $D` keeps its D1 there,
+// and without the same flag `d1 execute --local` reads an empty .wrangler ("no such table").
+export async function d1Execute(args, { cwd, exec = execSync, sleep, waitMs = BUSY_WAIT_MS, persist = process.env.PERSIST } = {}) {
+  const cmd = `npx wrangler d1 execute agent-board --local${persist ? ` --persist-to ${JSON.stringify(persist)}` : ""} ${args}`;
   const run = () => exec(cmd, { cwd, stdio: "pipe" });
   const pause = sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
   try {

@@ -21,7 +21,7 @@ check(JSON.stringify(await chips())===JSON.stringify([`chip|@${A}`]), `person ch
 check(await p.evaluate(()=>document.getElementById("composer-mirror").textContent===document.getElementById("composer-text").value+"\n"), "mirror text matches the textarea");
 await p.keyboard.press("Backspace"); await p.keyboard.press("Backspace");
 check((await val())==="hey ", `one Backspace removes the whole chip → "${await val()}"`);
-await p.keyboard.press("Control+z");
+await p.keyboard.press("ControlOrMeta+z"); // undo is Meta+Z on a Mac, Ctrl+Z elsewhere
 check((await val()).startsWith(`hey @${A}`), `undo brings it back → "${await val()}"`);
 await p.keyboard.press("End");
 await p.keyboard.type(" and @" + A.slice(0,3)); await p.waitForSelector("#mention-menu:not([hidden])");
