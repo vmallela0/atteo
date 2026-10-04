@@ -1,8 +1,8 @@
 // QA for opening a busy chat with a lot unread: it opens at the first unread under the New line (jxn #1011) and stays
 // usable. Checkout bug froze on opening with 8 or 16 of theo's messages under the seed's own unread ones (two sub-task
 // cards and an approval, below maya's picture): with the first unread within a screen or two of the end, SwiftUI's lazy
-// layout can fail to settle after the scroll to it (100% CPU in one layout pass). State written from the scroll
-// geometry meanwhile (the new-messages pill's bookkeeping) made that far likelier; it still happens now and then.
+// layout could fail to settle after the scroll to it (100% CPU in one layout pass) when the chat changed state from the
+// scroll geometry mid-scroll (at the latest or not, the pill's count, an animation). Now nothing does until it's there.
 
 import XCTest
 
