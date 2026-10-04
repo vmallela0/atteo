@@ -186,19 +186,19 @@ export const TOOLS = [
   {
     name: "task",
     description:
-      "Tasks are shared, living work items that everyone (people and agents) edits in place, like a shared doc: a title and a body (the plan, a checklist, findings, links) plus status, assignee, priority and due date. Keep a task's body current instead of posting progress messages. Checklist lines that mention #N tick themselves when #N is done or resolved. Actions: list {status?, mine?}; get {seq} (full body, version); create {title, body?, assignee?, assignee_is_person?, priority?, due?, parent? (makes it a sub-task of that task; when it's done, the parent's checklist line naming #seq or its title gets ticked)}; edit {seq, title?, body + base_version (whole body) | old_str + new_str (one exact piece, e.g. tick '- [ ] x' → '- [x] x'), summary?}; history {seq}; claim {seq, minutes?} (lease it while you work so no one duplicates it; default 30 min; it renews while your session keeps reading, waiting or posting here, until 4h after you last changed the task); release {seq}; update {seq, status? (todo|doing|blocked|done), parent? (task seq; 0 = top level), assignee?, assignee_is_person?, priority? (high|medium|low), due? (YYYY-MM-DD), note? (posts a line to the conversation; with status done it stays on the task instead)}; stop {seq, reason}. Only create, (re)assignment, notes and stops reach the conversation; done is the status change itself (live on the task, no message). If a task you hold gets stopped, stop working on it.",
+      "Tasks are shared, living work items that everyone (people and agents) edits in place, like a shared doc: a title and a body (the plan, a checklist, findings, links) plus status, assignee, priority and due date. Keep a task's body current instead of posting progress messages. Checklist lines that mention #N tick themselves when #N is done or resolved. Actions: list {status?, mine?}; get {seq} (full body, version); create {title, body?, assignee?, assignee_is_person?, priority?, due?, parent? (makes it a sub-task of that task; when it's done, the parent's checklist line naming #seq or its title gets ticked; an open task with the same title and parent is returned instead)}; edit {seq, title?, body + base_version (whole body) | old_str + new_str (one exact piece, e.g. tick '- [ ] x' → '- [x] x'), summary?}; history {seq}; claim {seq, minutes?} (lease it while you work so no one duplicates it; a to-do task becomes in progress; default 30 min; it renews while your session keeps reading, waiting or posting here, until 4h after you last changed the task); release {seq}; update {seq, status? (todo|doing|blocked|done), parent? (task seq; 0 = top level), assignee?, assignee_is_person?, priority? (high|medium|low), due? (YYYY-MM-DD), note? (posts a line to the conversation; with status done it stays on the task instead)}; stop {seq, reason}. Only create, (re)assignment, notes and stops reach the conversation; done is the status change itself (live on the task, no message). If a task you hold gets stopped, stop working on it.",
     inputSchema: {
       type: "object",
       properties: {
         action: { type: "string", enum: ["list", "get", "create", "edit", "history", "claim", "release", "update", "stop"] },
-        title: { type: "string", description: "create/edit: short title (≤120 chars)" },
+        title: { type: "string", description: "create/edit: short title (≤120 chars). On create, an open task with the same title and parent returns that task." },
         body: { type: "string", description: "create: initial body; edit: the whole new body (needs base_version)" },
         base_version: { type: "integer", description: "edit with body: the version you read" },
         old_str: { type: "string", description: "edit: exact text in the body to replace" },
         new_str: { type: "string", description: "edit: replacement for old_str" },
         summary: { type: "string", description: "edit: one line on what changed" },
         seq: { type: "integer", description: "The task's entry number" },
-        minutes: { type: "integer", description: "claim: lease length (5–240, default 30)" },
+        minutes: { type: "integer", description: "claim: lease length (5–240, default 30). Claiming a to-do task marks it in progress." },
         status: { type: "string", enum: ["todo", "doing", "blocked", "done"] },
         mine: { type: "boolean", description: "list: only tasks assigned to or held by your user" },
         parent: { type: "integer", description: "create/update: the task this is a sub-task of (update: 0 = top level)" },
@@ -1003,13 +1003,16 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       };
       const priorityOf = () => (args.priority === undefined ? undefined : ((str(args.priority) as "high" | "medium" | "low" | undefined) ?? null));
       if (action === "create") {
-        const t = await stub.taskCreate(
+        const created = await stub.taskCreate(
           user,
           { title: str(args.title) ?? "", body: typeof args.body === "string" ? args.body : "", assignee: str(args.assignee) ?? null, assignee_agent: args.assignee_is_person !== true, priority: priorityOf() ?? null, due: dueOf() ?? null, parent: int(args.parent) || null },
           opts,
         );
-        later(registry.bumpBoard(env, id, t.seq));
-        return `Created task #${t.seq}.\n` + fence(full(t));
+        const t = created.task;
+        if (!created.duplicate) later(registry.bumpBoard(env, id, t.seq));
+        // Titles are members' text, so the similar-tasks hint goes inside the fence with the task.
+        const similar = created.similar?.length ? `Similar open: ${created.similar.map((s) => `#${s.seq} ${s.title}`).join("; ")}\n` : "";
+        return `${created.duplicate ? `Already open as #${t.seq}` : `Created task #${t.seq}`}.\n` + fence(similar + full(t));
       }
       if (action === "list") {
         let list = await stub.tasks({ status: str(args.status) });

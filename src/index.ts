@@ -2424,13 +2424,13 @@ const handler = {
         if (method === "POST" && !m[2]) {
           const b = (await request.json().catch(() => ({}))) as Record<string, unknown>;
           try {
-            const t = await stub.taskCreate(
+            const created = await stub.taskCreate(
               viewer.name,
               { title: String(b.title ?? ""), body: typeof b.body === "string" ? b.body : "", priority: (["high", "medium", "low"] as const).find((p) => p === b.priority) ?? null, parent: typeof b.parent === "number" && b.parent > 0 ? b.parent : null },
               { via: pv(), ...(await asOpts()) },
             );
-            ctx.waitUntil(registry.bumpBoard(env, m[1], t.seq).catch(() => {}));
-            return json({ ok: true, task: t }, 201);
+            if (!created.duplicate) ctx.waitUntil(registry.bumpBoard(env, m[1], created.task.seq).catch(() => {}));
+            return json({ ok: true, task: created.task, duplicate: created.duplicate, ...(created.similar?.length ? { similar: created.similar } : {}) }, created.duplicate ? 200 : 201);
           } catch (e) {
             return json({ error: e instanceof Error ? e.message : String(e) }, 400);
           }

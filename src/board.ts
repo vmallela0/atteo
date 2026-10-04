@@ -22,6 +22,7 @@ import { compileGrep, grepFtsQuery, grepText, newBudget, GREP_CANDIDATES, GREP_D
 import { audienceOk, audienceWord, canSee, ownByDefault, OWN_DEFAULT_MS, OWN_MAIL_HINT, PEOPLE_ONLY_TYPES, type Audience } from "./audience";
 import { cleanSchedule, MAX_SCHEDULES, nextDue, lastDue, scheduleLabel, SCHEDULE_FIRES_PER_HOUR, taskText, tickAction, type Day, type Schedule } from "./schedules";
 import { LEASE_CAP_MS, RENEW_EVERY_MS, renewedUntil } from "./leases";
+import { similarOpen, taskTitleKey } from "./taskTitles";
 
 export const MAX_TEXT = 32_000;
 export const MAX_ARTIFACT = 256_000;
@@ -1119,6 +1120,12 @@ export class Board extends DurableObject<Env> {
     const text = (input.text ?? "").trim();
     if (!text) throw new BoardError("text is required.");
     if (text.length > MAX_TEXT) throw new BoardError(`text is too long (max ${MAX_TEXT} characters); post the long part as an artifact.`);
+    // A task posted as an entry (post type task, the composer's Task) is deduped like task create (opus-b #2355):
+    // the same title as an open top-level task isn't posted again. A schedule's tick repeats its task on purpose.
+    if (input.type === "task" && !internal.taskCreate && !internal.seeding && !internal.scheduled) {
+      const dup = this.openTaskByTitle(splitTask(text).title, null);
+      if (dup) throw new BoardError(`Already open as #${dup.seq}: not posted. Claim or edit that task instead.`);
+    }
 
     // Egress filter: nothing that looks like a credential is ever stored.
     // (A document save already checked its content; the log entry for it carries the same content.)
@@ -3324,8 +3331,9 @@ export class Board extends DurableObject<Env> {
     return m;
   }
 
-  /** Lease a task so no one else takes it. Expires on its own; claim again to renew. An agent session's claim also
-   *  renews while that session is around, up to LEASE_CAP_MS after its last change to the task (leases.ts). */
+  /** Lease a task so no one else takes it. A to-do or stopped task becomes in progress. Expires on its own; claim again
+   *  to renew. An agent session's claim also renews while that session is around, up to LEASE_CAP_MS after its last
+   *  change to the task (leases.ts). */
   async taskClaim(user: string, seq: number, minutes: number, opts: TaskActOpts): Promise<TaskView> {
     const info = this.info();
     const t = this.task(seq);
@@ -3535,12 +3543,19 @@ export class Board extends DurableObject<Env> {
     }
   }
 
-  /** Create a task as a shared item: a title, a body (plan, checklist, notes), and optional fields. */
-
-  async taskCreate(user: string, input: { title: string; body?: string; assignee?: string | null; assignee_agent?: boolean; priority?: TaskPriority | null; due?: number | null; parent?: number | null }, opts: TaskActOpts): Promise<TaskView> {
-    if (input.parent != null) this.task(input.parent); // must be an open task on this board
+  /**
+   * Create a task as a shared item: a title, a body (plan, checklist, notes), and optional fields.
+   * The same title as an open task on this board (to do, in progress, or blocked) under the same parent returns that
+   * task instead of posting another. Done and stopped tasks don't count, so the title can be used again.
+   */
+  async taskCreate(user: string, input: { title: string; body?: string; assignee?: string | null; assignee_agent?: boolean; priority?: TaskPriority | null; due?: number | null; parent?: number | null }, opts: TaskActOpts): Promise<{ task: TaskView; duplicate: boolean; similar?: { seq: number; title: string }[] }> {
+    const info = this.info();
+    if (info.archived) throw new BoardError(archivedError(info.id));
     const title = (input.title ?? "").replace(/\s+/g, " ").trim().slice(0, 120);
     if (!title) throw new BoardError("A task needs a title.");
+    if (input.parent != null) this.task(input.parent); // must be an open task on this board
+    const existing = this.openTaskByTitle(splitTask(title).title, input.parent ?? null);
+    if (existing) return { task: existing, duplicate: true };
     const body = (input.body ?? "").trim();
     const who = input.assignee ? input.assignee.toLowerCase() : null;
     if (who && !this.sql.exec("SELECT 1 AS x FROM members WHERE name = ?", who).toArray().length) throw new BoardError(`${who} isn't a member of this board.`);
@@ -3556,7 +3571,23 @@ export class Board extends DurableObject<Env> {
       this.broadcast({ type: "task", seq: input.parent });
     }
     this.taskEvent(e.seq, user, opts, "created"); // after its assignee and priority are set, so triggers can match them
-    return this.task(e.seq);
+    const task = this.task(e.seq);
+    // Alike but not the same (an owner suffix, a reworded title): created anyway, with up to 3 to check (#2357).
+    const similar = similarOpen(task.title, this.openTasks(input.parent ?? null), task.seq).map((t) => ({ seq: t.seq, title: t.title }));
+    return { task, duplicate: false, similar };
+  }
+
+  /** Open tasks (to do, in progress, blocked) under one parent (top level: null). */
+  private openTasks(parent: number | null): TaskView[] {
+    return this.taskRows().filter((t) => (t.status === "todo" || t.status === "doing" || t.status === "blocked") && (t.parent ?? null) === parent);
+  }
+
+  /** An open task with this title under the same parent (top level: none): case and spacing don't make a second task.
+   *  Sub-tasks of different tasks often share a title ("tests", "docs"), so those stay separate. The oldest, if several match. */
+  private openTaskByTitle(title: string, parent: number | null): TaskView | null {
+    const key = taskTitleKey(title);
+    if (!key) return null;
+    return this.openTasks(parent).find((t) => taskTitleKey(t.title) === key) ?? null;
   }
 
   /**
