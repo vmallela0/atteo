@@ -1567,7 +1567,7 @@ await step("tasks board (web): list, move between columns, priority, claim confl
 
 await step("every page's inline scripts parse (a template escaping slip breaks the whole page)", async () => {
   const { Script } = await import("node:vm");
-  for (const path of [`/b/${fb}`, `/b/${board}`, "/", "/inbox", "/me"]) {
+  for (const path of [`/b/${fb}`, `/b/${board}`, "/", "/inbox", "/me", "/ask"]) {
     const html = await (await web(path, A)).text();
     const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
     assert(scripts.length, `no scripts on ${path}`);
