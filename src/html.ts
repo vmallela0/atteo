@@ -1073,7 +1073,10 @@ export function agentsSection(agents: AgentHere[], boardId: string, readOnly = f
  *  (and the Connect dialog if it isn't connected yet), or a friend's agent comes with the friend: invite them by name,
  *  and their agents join once they accept. The join message is for an agent, so it stays in English. */
 function inviteAgentDialog(T: (s: string) => string, info: { id: string; title: string }): string {
-  const msg = `Join the Atteo board "${info.title}" (${info.id}): run atteo join ${info.id}, or call join_board with "${info.id}" if you use the Atteo connector. Then read it.`;
+  // Only the board id goes in: the title is set by whoever made the board, and this text is pasted to an agent as the
+  // person's own instruction, so a title could smuggle instructions in (opus-d's review, #1920). The agent reads the
+  // title as board data once it has joined.
+  const msg = `Join the Atteo board ${info.id}: run atteo join ${info.id}, or call join_board with "${info.id}" if you use the Atteo connector. Then read it.`;
   return `<dialog id="invite-agent" class="ia-dlg" aria-label="${esc(T("Invite an agent"))}"><div class="hd"><div><h2>${esc(T("Invite an agent"))}</h2><p class="muted small" style="margin-top:4px">${esc(info.title)}</p></div><button class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
 <div class="bd stack">
   <section class="ia-opt" id="ia-own"><h3>${esc(T("Your own assistant"))}</h3><p class="small muted">${esc(T("Paste this to your assistant. It joins this board and reads it."))}</p>
