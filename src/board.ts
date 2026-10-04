@@ -3538,17 +3538,17 @@ export class Board extends DurableObject<Env> {
 
   /**
    * Create a task as a shared item: a title, a body (plan, checklist, notes), and optional fields.
-   * The same title as an open task on this board (to do, in progress, or blocked) returns that task
-   * instead of posting another. Done and stopped tasks don't count, so the title can be used again.
+   * The same title as an open task on this board (to do, in progress, or blocked) under the same parent returns that
+   * task instead of posting another. Done and stopped tasks don't count, so the title can be used again.
    */
   async taskCreate(user: string, input: { title: string; body?: string; assignee?: string | null; assignee_agent?: boolean; priority?: TaskPriority | null; due?: number | null; parent?: number | null }, opts: TaskActOpts): Promise<{ task: TaskView; duplicate: boolean }> {
     const info = this.info();
     if (info.archived) throw new BoardError(archivedError(info.id));
     const title = (input.title ?? "").replace(/\s+/g, " ").trim().slice(0, 120);
     if (!title) throw new BoardError("A task needs a title.");
-    const existing = this.openTaskByTitle(splitTask(title).title);
-    if (existing) return { task: existing, duplicate: true };
     if (input.parent != null) this.task(input.parent); // must be an open task on this board
+    const existing = this.openTaskByTitle(splitTask(title).title, input.parent ?? null);
+    if (existing) return { task: existing, duplicate: true };
     const body = (input.body ?? "").trim();
     const who = input.assignee ? input.assignee.toLowerCase() : null;
     if (who && !this.sql.exec("SELECT 1 AS x FROM members WHERE name = ?", who).toArray().length) throw new BoardError(`${who} isn't a member of this board.`);
@@ -3567,11 +3567,12 @@ export class Board extends DurableObject<Env> {
     return { task: this.task(e.seq), duplicate: false };
   }
 
-  /** An open task whose title is this one: case and spacing don't make a second task. The oldest, if several already match. */
-  private openTaskByTitle(title: string): TaskView | null {
+  /** An open task with this title under the same parent (top level: none): case and spacing don't make a second task.
+   *  Sub-tasks of different tasks often share a title ("tests", "docs"), so those stay separate. The oldest, if several match. */
+  private openTaskByTitle(title: string, parent: number | null): TaskView | null {
     const key = taskTitleKey(title);
     if (!key) return null;
-    return this.taskRows().find((t) => (t.status === "todo" || t.status === "doing" || t.status === "blocked") && taskTitleKey(t.title) === key) ?? null;
+    return this.taskRows().find((t) => (t.status === "todo" || t.status === "doing" || t.status === "blocked") && (t.parent ?? null) === parent && taskTitleKey(t.title) === key) ?? null;
   }
 
   /**

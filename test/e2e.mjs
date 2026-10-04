@@ -2010,6 +2010,15 @@ await step("tasks: a create whose title matches an open task returns it, and cla
   has(claimed, `held by ${B}'s agent`);
   const got = (await (await web(`/api/boards/${fb}/tasks/${n2}`, A)).json()).task;
   assert(got.status === "doing" && got.lease_holder === B, JSON.stringify({ status: got.status, holder: got.lease_holder }));
+  // Sub-tasks: the same title under two parents is two tasks ("tests" for each); under one parent, one.
+  const seqOf2 = (s) => Number(s.match(/(?:Created task|Already open as) #(\d+)/)[1]);
+  const p1 = seqOf2(await ok(A, fb, "task", { action: "create", title: `Dedupe parent one ${run}` }));
+  const p2 = seqOf2(await ok(A, fb, "task", { action: "create", title: `Dedupe parent two ${run}` }));
+  const s1 = await ok(A, fb, "task", { action: "create", title: `tests ${run}`, parent: p1 });
+  const s2 = await ok(A, fb, "task", { action: "create", title: `tests ${run}`, parent: p2 });
+  assert(s1.includes("Created task") && s2.includes("Created task") && seqOf2(s1) !== seqOf2(s2), `same sub-task title under two parents:\n${s1}\n${s2}`);
+  has(await ok(B, fb, "task", { action: "create", title: `Tests ${run}`, parent: p1 }), `Already open as #${seqOf2(s1)}`);
+  has(await ok(A, fb, "task", { action: "create", title: `tests ${run}` }), "Created task"); // top level is its own scope
   // The same title on another board is a different task.
   const other = (await ops("boards", { user: A, title: `e2e dedupe other ${run}` })).body.board.id;
   const onFb = (await (await web(`/api/boards/${fb}/tasks`, A)).json()).tasks.length;
