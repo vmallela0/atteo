@@ -3,7 +3,7 @@
 import { SHOTS_DIR } from "./lib/shots.mjs";
 import { chromium } from "playwright-core";
 const BASE=process.env.BASE||"http://localhost:8787";
-const ops=async(p,b)=>(await fetch(`${BASE}/api/ops/${p}`,{method:"POST",headers:{"x-admin-key":"ci-admin-key","content-type":"application/json"},body:JSON.stringify(b)})).json();
+const ops=async(p,b)=>(await fetch(`${BASE}/api/ops/${p}`,{method:"POST",headers:{"x-admin-key":process.env.ADMIN_KEY||"ci-admin-key","content-type":"application/json"},body:JSON.stringify(b)})).json();
 const run=Date.now().toString(36).slice(-4),P=`jv${run}`,V=`vv${run}`;
 for(const u of [P,V])await ops("users",{name:u,email:`${u}@example.com`,verified:"true"});
 const tokV=(await ops("tokens",{user:V})).token;
@@ -29,8 +29,12 @@ const open=async(w,mobile)=>{const ctx=await b.newContext({viewport:{width:w,hei
   await ctx.addInitScript(FAKES);const p=await ctx.newPage();p.on("pageerror",e=>errors.push(e.message));await p.goto(`${BASE}/b/${board}`);await p.waitForTimeout(900);return {ctx,p}};
 const {ctx,p}=await open(1100,false);
 check(await p.locator("#mic-btn").isVisible()&&await p.locator("#aloud-btn").isVisible(),"the composer has a mic button and a read-aloud button");
-// Dictation: words land after what's typed; stopping keeps them
-await p.fill("#composer-text","note:");
+// Typing steps the mic aside (jxn's agent #1785, like the app); an empty box brings it back.
+await p.fill("#composer-text","typed words");await p.waitForTimeout(100);const micGone=!(await p.locator("#mic-btn").isVisible());
+await p.fill("#composer-text","");await p.waitForTimeout(100);
+check(micGone&&await p.locator("#mic-btn").isVisible(),"typing steps the mic aside; an empty box brings it back");
+// Dictation: words land after what's already there (text the page put there, like a reply's @mention); stopping keeps them
+await p.evaluate(()=>{document.getElementById("composer-text").value="note:"});
 await p.evaluate(()=>{window.__say=[["remember the",false],["remember the milk",true]]});
 await p.click("#mic-btn");check(await p.getAttribute("#mic-btn","aria-pressed")==="true","the mic button shows it's listening");
 await p.waitForTimeout(600);check(await p.inputValue("#composer-text")==="note: remember the milk",`what you say goes in after what you typed (${JSON.stringify(await p.inputValue("#composer-text"))})`);
