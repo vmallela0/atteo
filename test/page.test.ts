@@ -37,6 +37,21 @@ describe("board page", () => {
     expect(html).not.toContain("Checkout </script> bug\"");
   });
 
+  it("People only does not treat a mention inside quotes, a fence, or inline code as a recipient", async () => {
+    const res = boardPage({ name: "vedu", email: "vedu@example.com", display_name: null, admin: false }, [], info, [{ user: "vedu", display_name: null, last_seen: 0 }, { user: "jxn", display_name: null, last_seen: 0 }], entries, []);
+    const js = [...(await res.text()).matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]).join("\n");
+    const start = js.indexOf("function poPerson");
+    const end = js.indexOf("document.addEventListener('submit'", start);
+    const check = new Function(`${js.slice(start, end)}\nreturn poPerson`)() as (s: string) => boolean;
+    expect(check('"@vedu"')).toBe(false);
+    expect(check('"ask @vedu"')).toBe(false);
+    expect(check("see\n```\n@vedu\n```\n")).toBe(false);
+    expect(check("run `@vedu`")).toBe(false);
+    expect(check("@vedu")).toBe(true);
+    expect(check('ask @vedu about "@vedu"')).toBe(true);
+    expect(check("@vedu's agent")).toBe(false);
+  });
+
   it("regexes in the page script keep their escapes (a single \\s in the server template turns into a plain s)", async () => {
     const res = boardPage({ name: "jxn", email: "jxn@example.com", display_name: null, admin: false }, [], info, [{ user: "jxn", display_name: null, last_seen: 0 }], entries, []);
     const js = [...(await res.text()).matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]).join("\n");

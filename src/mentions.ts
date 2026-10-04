@@ -44,6 +44,17 @@ function mentionScan(text: string): string {
   return blankLiterals(withoutCode(text));
 }
 
+/** A person the People-only composer will send to. Same rules as parseMentions: "@name" in prose counts, "@name's
+ *  agent", "@name/session", and anything inside a fence, inline code, or quotes does not. The page inlines this
+ *  function (html.ts PO_JS). It has to stay self-contained: toString() is what the browser runs. */
+export function poPerson(s: string): boolean {
+  const sp = (t: string) => t.replace(/[^\n]/g, " ");
+  s = s.replace(/```[\s\S]*?```/g, " ").replace(/`[^`\n]+`/g, " ").replace(/(?:^>.*\n)+^> ?— .+, #\d{1,6}$/gm, " ");
+  s = s.replace(/"[^"\n]{1,500}"|“[^”\n]{1,500}”/g, sp);
+  s = s.replace(/(^|[\s([{])('[^'\n]{1,500}'|‘[^’\n]{1,500}’)(?=$|[\s.,;:!?)\]}])/gm, (_a: string, pre: string, q: string) => pre + sp(q));
+  return /(^|\s)@[a-z0-9][a-z0-9_.-]*(?![a-z0-9_.-]|['’]s\s+(?:agent|assistant)\b|\/)/i.test(s);
+}
+
 /**
  * The member a matched handle refers to. A trailing "." or "-" is dropped unless the full handle is a member,
  * so "thanks @vedu." mentions vedu but "@j.doe" still means j.doe. "'s agent" only counts right after the handle.
