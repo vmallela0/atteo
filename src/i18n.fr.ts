@@ -805,6 +805,7 @@ export const FR: Record<string, string> = {
   "asked in": "demandé dans",
   "asks for a decision": "demande une décision",
   "change": "modification",
+  "handoff": "passation",
   "checkout, payments": "caisse, paiements",
   "claim": "prendre",
   "close": "fermer",

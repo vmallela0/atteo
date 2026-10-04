@@ -2021,6 +2021,44 @@ await step("wait --for-me (claude #2181): sleeps through other agents' chatter, 
   assert(!j.timed_out && JSON.stringify(j).includes(`and the tag ${run}?`), `json: ${r.out.slice(0, 300)}`);
 });
 
+await step("post handoff (#2173 item 3): branch, HEAD and the tested main come from git; get handoffs is the queue; the lander closes one with --landed or --failed", async () => {
+  const hb = (await ops("boards", { user: A, title: `e2e cli handoffs ${run}` })).board.id;
+  await ops("members", { board: hb, user: B });
+  const repo = mkdtempSync(join(tmpdir(), "atteo-handoff-"));
+  const genv = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.com" };
+  const g = (...a) => execFileSync("git", a, { cwd: repo, env: genv, stdio: "pipe" }).toString().trim();
+  g("init", "-q", "-b", "main");
+  writeFileSync(join(repo, "a.txt"), "one\n");
+  g("add", "."); g("commit", "-qm", "main");
+  const main = g("rev-parse", "HEAD");
+  g("update-ref", "refs/remotes/origin/main", main); // as if fetched
+  g("checkout", "-qb", `fix/cli-${run}`);
+  writeFileSync(join(repo, "a.txt"), "two\n");
+  g("commit", "-qam", "the fix");
+  const head = g("rev-parse", "HEAD");
+  const envA = { XDG_CONFIG_HOME: join(dir, "cfg-handoff-a") };
+  const envB = { XDG_CONFIG_HOME: join(dir, "cfg-handoff-b") };
+
+  let r = await cli(["post", "handoff", "--board", hb], { cwd: repo, env: envA });
+  assert(r.code !== 0 && (r.out + r.err).includes("--checks"), `asks what passed: ${r.out}${r.err}`);
+  r = await cli(["post", "note", "x", "--checks", "y", "--board", hb], { cwd: repo, env: envA });
+  assert(r.code !== 0 && (r.out + r.err).includes("atteo post handoff"), `gate flags only on a handoff: ${r.out}${r.err}`);
+  r = await cli(["post", "handoff", "--checks", "vitest 12, e2e 3", "--board", hb], { cwd: repo, env: envA });
+  assert(r.code === 0 && /Posted #\d+ \(handoff\)/.test(r.out) && r.out.includes("In the gate's queue"), `posted: ${r.out}${r.err}`);
+  const h = Number(r.out.match(/Posted #(\d+)/)[1]);
+
+  r = await cli(["get", "handoffs", "--board", hb], { cwd: repo, env: envB, cred: credB });
+  assert(r.code === 0 && r.out.includes(`#${h} fix/cli-${run} ${head} on ${main} · checks: vitest 12, e2e 3`) && /<<untrusted [0-9a-f]+:/.test(r.out), `queue: ${r.out}${r.err}`);
+  r = await cli(["post", "handoff", "--reply", String(h), "--landed", "HEAD", "--board", hb], { cwd: repo, env: envA });
+  assert(r.code !== 0 && (r.out + r.err).includes("someone else lands it"), `not your own: ${r.out}${r.err}`);
+  r = await cli(["post", "handoff", "--reply", String(h), "--board", hb, "--failed"], { cwd: repo, env: envB, cred: credB });
+  assert(r.code !== 0 && (r.out + r.err).includes("Say why it failed"), `--failed needs a reason: ${r.out}${r.err}`);
+  r = await cli(["post", "handoff", "--reply", String(h), "--landed", head, "--board", hb], { cwd: repo, env: envB, cred: credB });
+  assert(r.code === 0 && r.out.includes(`Closed #${h}: landed.`), `landed: ${r.out}${r.err}`);
+  r = await cli(["get", "handoffs", "--board", hb], { cwd: repo, env: envB, cred: credB });
+  assert(r.code === 0 && r.out.includes("No open handoffs"), `empty queue: ${r.out}${r.err}`);
+});
+
 if (ONLY && !matched) { failed++; console.log(`  ✗ no steps match ONLY=${JSON.stringify(process.env.ONLY)}`); }
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

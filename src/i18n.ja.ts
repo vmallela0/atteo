@@ -785,6 +785,7 @@ export const JA: Record<string, string> = {
   "asked in": "依頼した場所",
   "asks for a decision": "が決定を求めています",
   "change": "変更",
+  "handoff": "引き継ぎ",
   "checkout, payments": "決済, 支払い",
   "claim": "主張",
   "close": "閉じる",

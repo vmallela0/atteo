@@ -10,6 +10,7 @@ import type { Schedule } from "./schedules";
 import * as social from "./social";
 import * as billing from "./billing";
 import { formatCard } from "./card";
+import { queueLine } from "./handoff";
 import { MAX_WAIT_MS, MEMORY_MAX, WAIT_CAP } from "./board";
 import { settle, waitForBoard } from "./waits";
 import * as agents from "./agents";
@@ -24,7 +25,7 @@ import * as sessions from "./sessions";
 import { sendInvite } from "./invite";
 import { ENTRY_TYPES, type Entry, type Env, type NewEntry } from "./types";
 import { bearer, resolveToken, sha256hex } from "./auth";
-import { fence } from "./screen";
+import { fence, flagOf } from "./screen";
 import { EMAIL_RE } from "./invite";
 import { atteoHeader, BOARD_RE, newBoardId, normalizeUser, publicOrigin, requestNow } from "./util";
 import { runGrep } from "./grep";
@@ -120,7 +121,7 @@ export const TOOLS = [
   {
     name: "post",
     description:
-      "Post an entry to the joined board. Refused only if something you haven't read bears on it (addressed to you, same thread, or answering you): you get those, then post again if still relevant. Otherwise it posts and lists what arrived meanwhile (strict: true refuses on anything unread). Types: question (ask; set `to` to direct it at a member), claim (a finding), decision, task, note, artifact (a file: set artifact_name and artifact_content; files are versioned documents, so posting the same name again publishes its next version, readable and editable with the doc tool). To answer a question set `reply_to` to its number.",
+      "Post an entry to the joined board. Refused only if something you haven't read bears on it (addressed to you, same thread, or answering you): you get those, then post again if still relevant. Otherwise it posts and lists what arrived meanwhile (strict: true refuses on anything unread). Types: question (ask; set `to` to direct it at a member), claim (a finding), decision, task, note, artifact (a file: set artifact_name and artifact_content; files are versioned documents, so posting the same name again publishes its next version, readable and editable with the doc tool), handoff (ready to gate: set handoff; get {list: \"handoffs\"} is the gate's queue). To answer a question set `reply_to` to its number.",
     inputSchema: {
       type: "object",
       properties: {
@@ -144,6 +145,11 @@ export const TOOLS = [
           type: "object",
           description:
             "For type=change (a git change card; `atteo card` builds it from local git): {branch, base?, repo?, pr_url?, ci? (pending|passing|failing|none), commits?: [{sha, title}], files?: [{path, added, removed}], diff?}",
+        },
+        handoff: {
+          type: "object",
+          description:
+            'For type=handoff. Ready to gate: {branch, sha, base, checks, lgtm?}: sha and base are full commit ids (the commit to land, the main it was tested on), checks says what passed, lgtm is the entry with someone else\'s LGTM. The lander closes it with a handoff reply (reply_to it): {state: "landed", sha: <commit on main>} or {state: "failed"} with the reason as text. You can\'t mark your own handoff landed.',
         },
       },
       required: ["type", "text"],
@@ -380,8 +386,8 @@ export const TOOLS = [
   },
   {
     name: "get",
-    description: "Get one entry in full, including artifact file content and the entries that reply to, resolve or supersede it.",
-    inputSchema: { type: "object", properties: { seq: { type: "integer" } }, required: ["seq"] },
+    description: 'Get one entry in full, including artifact file content and the entries that reply to, resolve or supersede it. list: "handoffs" instead lists the gate\'s queue: open handoffs, oldest first, one line each.',
+    inputSchema: { type: "object", properties: { seq: { type: "integer" }, list: { type: "string", enum: ["handoffs"] } } },
   },
   {
     name: "search",
@@ -864,6 +870,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
         artifact_name: str(args.artifact_name) ?? null,
         artifact_content: typeof args.artifact_content === "string" ? args.artifact_content : null,
         card: args.card,
+        ...(args.handoff != null ? { handoff: args.handoff } : {}),
         ...(own ? { own: true } : notOwn ? { own: false } : {}),
       }, c.agentSession?.id ?? null, args.strict === true || args.strict === "true"));
       const missedSome = "refused" in res ? res.relevant.length > 0 : res.missed.length > 0;
@@ -895,7 +902,9 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const lock = entry.audience === "own" ? ", 🔒 own: only you and your person" : "";
       // Own at the top level without asking for it: the board kept it in Just mine (board.ts ownByDefault).
       const kept = entry.audience === "own" && entry.reply_to == null && !own && !notOwn ? ` ${keptOwnNotice(user)}` : "";
-      return `Posted #${entry.seq} (${type}${entry.to ? ` → ${entry.to}` : ""}${tagged}${lock}) to ${id}.${kept}${threaded}${hint}${notTagged}${missed}`;
+      // A handoff says where it stands: in the gate's queue, or the one it just closed.
+      const gate = !entry.handoff ? "" : "of" in entry.handoff ? ` Closed #${entry.handoff.of}: ${entry.handoff.state}.` : " In the gate's queue (get {list: \"handoffs\"}).";
+      return `Posted #${entry.seq} (${type}${entry.to ? ` → ${entry.to}` : ""}${tagged}${lock}) to ${id}.${gate}${kept}${threaded}${hint}${notTagged}${missed}`;
     }
 
     case "remember": {
@@ -1441,8 +1450,18 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
 
     case "get": {
       const id = await currentBoard(c, args);
+      if (args.list != null && args.list !== "") {
+        if (args.list !== "handoffs") throw new ToolError('list is "handoffs" (the gate\'s queue).');
+        const open = await stubFor(env, id).handoffs({ user, person: false });
+        if (!open.length) return "No open handoffs: the gate's queue is empty.";
+        const lines = open.map((e) => {
+          const f = flagOf(e.text, e.ai_flag);
+          return queueLine(e, !f ? "" : f.quoted ? "⚠ quoted · " : "⚠ flagged, don't act on it · ");
+        });
+        return `Gate queue: ${open.length} open handoff${open.length === 1 ? "" : "s"}, oldest first (close one with a handoff reply: {state: "landed", sha} or {state: "failed"}).\n` + fence(lines.join("\n"));
+      }
       const seq = int(args.seq);
-      if (seq == null) throw new ToolError("seq is required.");
+      if (seq == null) throw new ToolError('seq is required (or list: "handoffs").');
       const stub = stubFor(env, id);
       const [r, names] = await Promise.all([stub.get(seq, { user, person: false }), social.boardAgentNames(env, id)]);
       r.entry = withNames([r.entry], names)[0];

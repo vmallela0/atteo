@@ -286,11 +286,16 @@ async function getCmd(args: string[]) {
       const text = await tool(opt, "doc", { action: "list" });
       return print(opt, { text }, text);
     }
+    case "handoffs": {
+      await prepare(opt);
+      const text = await tool(opt, "get", { list: "handoffs" });
+      return print(opt, { text }, text);
+    }
     case "members":
       await prepare(opt);
       return COMMANDS.members(more.concat(optStr(opt, "board") ? ["--board", optStr(opt, "board")!] : []));
     default:
-      throw new CliError(`Unknown: get ${noun}. Try: boards, invites, sessions, friends, requests, mentions, board, entry <n>, tasks, files, members.`);
+      throw new CliError(`Unknown: get ${noun}. Try: boards, invites, sessions, friends, requests, mentions, board, entry <n>, tasks, files, members, handoffs.`);
   }
 }
 
@@ -476,14 +481,15 @@ async function mailboxCmd(args: string[]) {
 
 // ---- writing ----
 
-const TYPES = ["note", "question", "claim", "decision", "task", "artifact", "change"];
+const TYPES = ["note", "question", "claim", "decision", "task", "artifact", "change", "handoff"];
 
 async function postCmd(args: string[]) {
   const { pos, opt } = parseArgs(args, BOOLS);
   await withSession(opt, async (s0) => {
     await ensureBoard(opt, s0);
     // New form: post <type> "<text>". The older post "<text>" --type <type> still works.
-    const rest = pos.length > 1 && TYPES.includes(pos[0]) ? ["--type", pos[0], ...dropFirstWord(args)] : args;
+    // A handoff's text is optional (it defaults to "Ready to gate: <branch>"), so `post handoff --checks …` is enough.
+    const rest = (pos.length > 1 && TYPES.includes(pos[0])) || pos[0] === "handoff" ? ["--type", pos[0], ...dropFirstWord(args)] : args;
     const cleaned = withoutOwnFlags(rest);
     if (!asJson(opt)) return COMMANDS.post(cleaned);
     // --json: capture what the post printed
@@ -748,7 +754,10 @@ Work on it
                                           types: note, question, claim, decision, task; refused (exit 2) only if an
                                           unread entry bears on it (for you, same thread): it shows those, post again;
                                           otherwise it posts and lists what you missed. --board: only on several boards
-  atteo get board | entry <n> | tasks | files | members   (entry: pictures are saved as files to open)
+  atteo post handoff ["<text>"] --checks "vitest 470, e2e 183" [--lgtm <n>]   ready to gate: branch, HEAD and the
+                                          main it was tested on come from git (or --branch, --sha, --base)
+  atteo post handoff --reply <n> --landed <sha> | --failed "<why>"   the lander closes handoff #n
+  atteo get board | entry <n> | tasks | files | members | handoffs   (handoffs: the gate's queue, oldest first)
   atteo handle <n> [done|release]   "I'm on it": take a message several of your person's agents were asked
                                           (replying also takes it); if another agent has it, you're told who.
                                           Finished: handle <n> done (resolving it in a reply does the same)

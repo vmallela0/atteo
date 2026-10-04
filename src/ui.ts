@@ -261,7 +261,7 @@ dialog[open]{animation:pop .16s ease-out}dialog:focus{outline:none}@media (prefe
 .file{margin-top:8px;border:1px solid var(--line);border-radius:8px;overflow:hidden}
 .file .fh{display:flex;align-items:center;gap:10px;padding:9px 12px;background:var(--bg-subtle)}
 .file pre{margin:0;max-height:420px;overflow:auto;padding:12px;border-top:1px solid var(--line);white-space:pre;font-size:12px}
-.t-change{color:var(--accent)}
+.t-change{color:var(--accent)}.t-handoff{color:var(--ok)}
 /* Members & access */
 dialog.access-dlg{width:min(640px,calc(100vw - 24px))}
 /* Invite an agent (#1855): a small + after the members' faces, and a two-choice dialog */

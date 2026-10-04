@@ -785,6 +785,7 @@ export const ES: Record<string, string> = {
   "asked in": "pidió en",
   "asks for a decision": "pide una decisión",
   "change": "cambio",
+  "handoff": "traspaso",
   "checkout, payments": "checkout, pagos",
   "claim": "conclusión",
   "close": "cerrar",

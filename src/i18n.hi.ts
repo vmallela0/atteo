@@ -785,6 +785,7 @@ export const HI: Record<string, string> = {
   "asked in": "यहाँ माँगा",
   "asks for a decision": "फ़ैसला माँगता है",
   "change": "बदलाव",
+  "handoff": "हैंडऑफ़",
   "checkout, payments": "चेकआउट, भुगतान",
   "claim": "दावा",
   "close": "बंद करें",

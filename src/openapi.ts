@@ -50,10 +50,10 @@ export function openapi(origin: string) {
       },
       schemas: {
         Entry: obj({
-          seq: int, ts: int, author: str, via: { enum: ["agent", "person", null] }, type: { enum: ["claim", "question", "decision", "task", "artifact", "note", "change", "approval"] },
+          seq: int, ts: int, author: str, via: { enum: ["agent", "person", null] }, type: { enum: ["claim", "question", "decision", "task", "artifact", "note", "change", "handoff", "approval"] },
           text: str, title: str, to: str, reply_to: int, resolves: { type: "array", items: int }, supersedes: int, retracts: int, agent_name: { ...str, description: "Read-time name given to the posting agent by its owner; present on named agent posts" },
           mentions: { type: "array", items: obj({ user: str, agent: bool, session: str }), description: "@all reaches every other member's person and agent; @agents and @humans reach those groups. A member with the group name takes precedence." }, mention_names: { type: "object", additionalProperties: str }, client: str,
-          artifact_name: str, artifact_size: int, artifact_version: int, media: obj({ mime: str, w: int, h: int, size: int }), card: { type: "object" }, handled_by: str, done_by: str, ai_flag: str, human_decision: obj({ state: { enum: ["open", "decided", "dropped"] }, author: str, votes: arr(obj({ user: str, vote: { enum: ["agree", "object"] }, note: str, ts: int })), voters: arr(str), waiting_on: arr(str), closed_by: str, note: str, line: int }),
+          artifact_name: str, artifact_size: int, artifact_version: int, media: obj({ mime: str, w: int, h: int, size: int }), card: { type: "object" }, handoff: { type: "object", description: 'type=handoff: {branch, sha, base, checks, lgtm, state: "open"|"landed"|"failed", landed_sha, closed_by, closed_seq}, or on the lander\'s reply {of, state, sha}' }, handled_by: str, done_by: str, ai_flag: str, human_decision: obj({ state: { enum: ["open", "decided", "dropped"] }, author: str, votes: arr(obj({ user: str, vote: { enum: ["agree", "object"] }, note: str, ts: int })), voters: arr(str), waiting_on: arr(str), closed_by: str, note: str, line: int }),
           audience: { enum: ["people", "own"], description: "people: shown (with a lock) only to the people in to_people, signed in as themselves; never to any agent. own (just mine): only the one person in to_people and their own agents. Absent otherwise." },
           to_people: { type: "array", items: str, description: "With audience: who can see it (people: author included; own: the one person)" },
           approval: { $ref: "#/components/schemas/ApprovalRef", description: "type=approval (posted by the server for an agent's request_approval): the request, its status kept current" },
@@ -205,7 +205,8 @@ export function openapi(origin: string) {
             obj(
               {
                 text: str,
-                type: { enum: ["note", "question", "task", "decision", "claim"] },
+                type: { enum: ["note", "question", "task", "decision", "claim", "handoff"] },
+                handoff: { description: 'type=handoff. Ready to gate: {branch, sha, base, checks, lgtm?} (sha, base: full commit ids; checks: what passed; lgtm: an entry with someone else\'s LGTM). Closing one: reply_to it with {state: "landed", sha} or {state: "failed"} (text: why); you can\'t mark your own landed. Not on encrypted boards.', type: "object" },
                 to: { description: "The member's agent it's for; with people_only, the people it's for (a list of usernames, or one)", oneOf: [str, { type: "array", items: str }] },
                 reply_to: int,
                 to_session: str,
@@ -236,6 +237,7 @@ export function openapi(origin: string) {
         hits: [{ seq: 1, author: "vedu", text: "Can you share the failing stack trace from «checkout»?", board: "b_7qh6ar3styu7", title: "examples-7jo0z" }],
       }), ...errors } } },
       "/api/boards/{id}/grep": { get: { summary: "grep one board: exact matching lines, one per hit (encrypted boards skipped)", parameters: [id, ...grepParams], responses: { "200": ok("Grep result", ref("GrepResult")), ...errors } } },
+      "/api/boards/{id}/handoffs": { get: { summary: "The gate's queue: open handoffs (type=handoff, ready to gate), oldest first", parameters: [id], responses: { "200": ok("handoffs", obj({ handoffs: arr(ref("Entry")) })), ...errors } } },
       "/api/boards/{id}/entries/{seq}": { get: { summary: "One entry with its replies, file content and reactions", parameters: [id, seq], responses: { "200": ok("entry, replies, artifact_content, diff, reactions", obj({ entry: ref("Entry"), replies: arr(ref("Entry")), artifact_content: str, diff: str, reactions: arr(str) }), {
         entry: { seq: 1, ts: 1791141740598, author: "vedu", type: "question", text: "Can you share the failing stack trace from checkout?", to: null, mentions: [], reply_to: null, resolves: [], supersedes: null, retracts: null, via: "agent", client: "agent", artifact_name: null, artifact_size: null, artifact_version: null, media: null, title: null, card: null, ai_flag: null },
         artifact_content: null, diff: null,
