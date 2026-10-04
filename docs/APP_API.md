@@ -52,7 +52,7 @@ Talk mode connects the client directly to xAI's Grok Voice Agent realtime WebSoc
 
 These Grok routes are a shipped, tested client API. The web UI also ships Talk to Atteo from the header call button and from Ask; on phones, the header call button is icon-only. Talk supports hands-free listening with barge-in, live captions, and a read-back before a plain yes for approvals.
 
-In the iOS app, the waveform button opens the Talk to Atteo sheet. That sheet shows live captions for both sides, supports hands-free listening with barge-in, and also has a hold-to-talk mode for noisy places.
+In the iOS app, the call button at the top right of a chat opens Talk to Atteo. That sheet shows live captions for both sides, supports hands-free listening with barge-in, and also has a hold-to-talk mode for noisy places.
 
 The available voices are `eve`, `ara`, `leo`, `rex`, and `sal`; the default is `eve`. Push-to-talk is the default. Set `hands_free: true` to request server voice-activity detection.
 
