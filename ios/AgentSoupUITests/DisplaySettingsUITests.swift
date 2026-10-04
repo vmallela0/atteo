@@ -96,7 +96,8 @@ final class DisplaySettingsUITests: XCTestCase {
         let until = Date().addingTimeInterval(timeout)
         var got: [String: String] = [:]
         repeat {
-            got = try serverDisplay()
+            // Only the settings this test changes: the server's display also carries mode and lang.
+            got = try serverDisplay().filter { want[$0.key] != nil }
             if got == want { return }
             Thread.sleep(forTimeInterval: 0.5)
         } while Date() < until

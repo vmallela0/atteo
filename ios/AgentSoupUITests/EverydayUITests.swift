@@ -190,6 +190,8 @@ final class EverydayUITests: AtteoUITestCase {
         XCTAssertTrue(a.navigationBars["Settings"].waitForExistence(timeout: 5))
         let back = a.switches["developer-mode"]
         reveal(a, back, tries: 20)
+        // As above: well inside the screen, not under the home indicator (Display's Language row moved it down).
+        for _ in 0..<3 where back.exists && back.frame.maxY > a.frame.maxY - 120 { a.swipeUp(velocity: .slow) }
         XCTAssertEqual(back.value as? String, "1", "on")
         back.coordinate(withNormalizedOffset: CGVector(dx: 0.93, dy: 0.5)).tap()
         forYou(a)
