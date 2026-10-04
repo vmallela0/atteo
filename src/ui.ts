@@ -494,6 +494,8 @@ dialog.lightbox img{display:block;max-width:min(96vw,1600px);max-height:92vh;wid
 .composer.sending .attachments{display:none}
 .upd-bar{position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:60;display:flex;align-items:center;gap:10px;padding:6px 6px 6px 14px;border:1px solid var(--line);border-radius:999px;background:var(--bg);box-shadow:var(--shadow-lg);font-size:13px;color:var(--ink);white-space:nowrap}
 .md-tw{overflow-x:auto;margin:6px 0;max-width:100%}.md-t{border-collapse:collapse;font-size:13px;line-height:1.45}.md-t th,.md-t td{border:1px solid var(--line);padding:4px 9px;text-align:left;vertical-align:top}.md-t th{background:var(--bg-subtle);color:var(--ink);font-weight:600}
+.composer .po-btn{width:30px;padding:0;justify-content:center;color:var(--muted)}.composer .po-btn:hover{color:var(--ink)}.composer .po-btn.on{color:var(--on-ink);background:var(--ink);border-radius:999px}
+.po-note{margin:0 0 8px;padding:6px 10px;border-radius:8px;background:color-mix(in srgb,var(--warn) 10%,transparent);font-size:12.5px;color:var(--text)}.po-note[hidden]{display:none}.composer.po{box-shadow:0 0 0 1.5px color-mix(in srgb,var(--warn) 55%,transparent)}
 .mem-act{display:none}.mem-on .mem-act{display:inline-flex;width:30px;padding:0;justify-content:center;color:var(--muted)}.mem-on .mem-act:hover{color:var(--ink)}
 .soul-prev{white-space:pre-wrap;font-size:12.5px;line-height:1.5;color:var(--text);max-height:7.5em;overflow:hidden;-webkit-mask-image:linear-gradient(#000 70%,transparent);mask-image:linear-gradient(#000 70%,transparent)}
 .soul-meta{margin:4px 0 6px}.soul-edit{margin-top:2px}
