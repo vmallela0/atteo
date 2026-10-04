@@ -1639,6 +1639,12 @@ await step("tasks are shared items: create, get, edit in place (versions, confli
   const g = await ok(B, fb, "task", { action: "get", seq: t });
   has(g, "- [x] noodles");
   has(g, `Ship the soup now ${run}`);
+  // get on the entry shows the task as it is now under what was first posted (opus-b, claude #2181): ticks read as ticked.
+  const ge = await ok(B, fb, "get", { seq: t });
+  has(ge, "Now (v3, todo, for");
+  has(ge, `    Ship the soup now ${run}`);
+  has(ge, "    - [x] noodles");
+  assert(ge.indexOf("- [ ] noodles") < ge.indexOf("Now (v3"), `the original first, then now:\n${ge}`);
   has(await ok(B, fb, "task", { action: "history", seq: t }), "stock done");
   // Claims, releases, edits and done don't post to the conversation (done is the status change itself).
   const before = (await (await web(`/api/boards/${fb}/updates?after=0`, A)).json()).count;
@@ -1667,10 +1673,12 @@ await step("tasks are shared items: create, get, edit in place (versions, confli
   assert((await (await web(`/api/boards/${fb}/updates?after=0`, A)).json()).count === n0, "done with a note posts nothing either");
   const ptr = await ptRx();
   assert(ptr.some((x) => x.emoji === "✅" && x.users.includes(`${B}'s agent`)) && !ptr.some((x) => x.emoji === "🤔"), `✅ after done: ${JSON.stringify(ptr)}`);
+  has(await ok(A, fb, "get", { seq: pt }), `Now (v1, done: swept and labelled ${run}):`);
   const ptTask = (await (await web(`/api/boards/${fb}/tasks/${pt}`, A)).json()).task;
   assert(ptTask.status === "done" && ptTask.done_note === `swept and labelled ${run}`, JSON.stringify(ptTask));
   // Closing a task ticks what is still open in its checklist, as a normal versioned edit.
   const ct = Number((await ok(A, fb, "task", { action: "create", title: `Close ticks ${run}`, body: "- [ ] a\n- [ ] b" })).match(/Created task #(\d+)/)[1]);
+  assert(!(await ok(A, fb, "get", { seq: ct })).includes("Now ("), "an untouched task is shown as posted, with no Now line");
   await ok(A, fb, "task", { action: "edit", seq: ct, old_str: "- [ ] a", new_str: "- [x] a" });
   await ok(A, fb, "task", { action: "update", seq: ct, status: "done" });
   const cg = await ok(A, fb, "task", { action: "get", seq: ct });

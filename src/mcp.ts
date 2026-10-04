@@ -1384,6 +1384,16 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       r.entry = withNames([r.entry], names)[0];
       r.replies = withNames(r.replies, names);
       const out = [formatEntry(r.entry, 100_000, user)];
+      // A task moves on after it's posted: ticks and edits make new versions, claims and done change its status. Show it
+      // as it is now too, so a ticked item never reads as open (opus-b, claude #2181). Same fence as the rest.
+      if (r.entry.type === "task" && r.entry.retracts == null) {
+        const t = await stub.taskGet(seq).catch(() => null);
+        if (t && (t.version > 1 || t.status !== "todo")) {
+          const who = t.lease_holder ? `, ${t.lease_holder}${t.lease_agent ? "'s agent" : ""} has it` : t.assignee ? `, for ${t.assignee}${t.assignee_agent ? "'s agent" : ""}` : "";
+          const why = t.status === "stopped" && t.stop_reason ? `: ${t.stop_reason}` : t.status === "done" && t.done_note ? `: ${t.done_note}` : "";
+          out.push("", `Now (v${t.version}, ${t.status}${who}${why}):`, ...(t.version > 1 ? [`    ${t.title}`, ...(t.body ? t.body.split("\n").map((l) => `    ${l}`) : [])] : []));
+        }
+      }
       if (r.entry.card) out.push("", formatCard(r.entry.card, r.diff));
       if (r.reactions.length) out.push(`Reactions: ${r.reactions.map((x) => `${x.emoji} ${x.users.join(", ")}`).join(" · ")}`);
       // Your own entries say who has seen them, as the web's ring does.
