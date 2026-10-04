@@ -387,13 +387,13 @@ export async function agentStatus(env: Env, user: string): Promise<{ connected: 
   return { connected: !!r?.last, lastUsed: r?.last ?? null };
 }
 
-export async function setMcpSessionClient(env: Env, sessionId: string, user: string, client: string) {
+export async function setMcpSessionClient(env: Env, sessionId: string, user: string, client: string, model: string | null = null) {
   const now = Date.now();
   await env.DB.prepare(
-    `INSERT INTO mcp_sessions (id, user, board_id, created_at, last_seen, client) VALUES (?, ?, NULL, ?, ?, ?)
-     ON CONFLICT(id) DO UPDATE SET client = excluded.client WHERE mcp_sessions.user = excluded.user`,
+    `INSERT INTO mcp_sessions (id, user, board_id, created_at, last_seen, client, model) VALUES (?, ?, NULL, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET client = excluded.client, model = excluded.model WHERE mcp_sessions.user = excluded.user`,
   )
-    .bind(sessionId, user, now, now, client)
+    .bind(sessionId, user, now, now, client, model)
     .run();
 }
 
@@ -403,8 +403,8 @@ export async function mcpSessionClient(env: Env, sessionId: string): Promise<str
 }
 
 /** The agent session behind an MCP connection (and the board it's on and its client), if it has one yet. */
-export async function mcpSessionRow(env: Env, sessionId: string, user: string): Promise<{ agent_session: string | null; client: string | null; board_id: string | null } | null> {
-  return env.DB.prepare(`SELECT agent_session, client, board_id FROM mcp_sessions WHERE id = ? AND user = ?`).bind(sessionId, user).first();
+export async function mcpSessionRow(env: Env, sessionId: string, user: string): Promise<{ agent_session: string | null; client: string | null; model: string | null; board_id: string | null } | null> {
+  return env.DB.prepare(`SELECT agent_session, client, model, board_id FROM mcp_sessions WHERE id = ? AND user = ?`).bind(sessionId, user).first();
 }
 
 /** The most recent agent session of this person's MCP connections from this client that has been idle since `before`. */

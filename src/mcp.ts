@@ -492,6 +492,7 @@ export interface CallContext {
   badSession?: boolean; // a session header that isn't one of this user's live sessions
   images?: { data: string; mimeType: string }[]; // pictures a tool hands back with its text (get on an image post)
   legacyCli?: boolean; // an atteo CLI from before reads stopped bringing the summary every time (it parses it)
+  model?: string | null; // X-Atteo-Model on initialize: the session's model, a label for people (never in tool output)
 }
 
 const MAX_IMAGE = 2_000_000; // bytes per picture handed to an agent; the web shrinks uploads to ≤1600px, so this is rare
@@ -541,9 +542,10 @@ async function mcpAgentSession(c: HandleContext, user: string): Promise<NonNulla
   const client = row?.client ?? "agent";
   const idle = await registry.idleMcpAgentSession(c.env, user, client, Date.now() - MCP_IDLE_MS);
   let s = idle ? await sessions.get(c.env, user, idle) : null;
+  if (s && row?.model && row.model !== s.model) s = await sessions.setModel(c.env, s, row.model);
   if (!s) {
     const short: Record<string, string> = { "Claude Code": "claude", Claude: "claude", "VS Code": "vscode" };
-    s = await sessions.create(c.env, user, { suggest: short[client] ?? sessions.cleanName(client) ?? "agent", client });
+    s = await sessions.create(c.env, user, { suggest: short[client] ?? sessions.cleanName(client) ?? "agent", client, model: row?.model });
   }
   const board = c.pinnedBoard ?? row?.board_id ?? null;
   if (board && !s.boards.includes(board)) {
@@ -1456,7 +1458,7 @@ async function handleOne(c: HandleContext, msg: RpcRequest): Promise<object | nu
       const requested = String(msg.params?.protocolVersion ?? "");
       const info = (msg.params?.clientInfo ?? {}) as { name?: string };
       // Awaited: the connection's first tool call names its agent session after this client.
-      if (c.user && !c.sharedSession) await registry.setMcpSessionClient(c.env, c.sessionId, c.user, clientName(info.name)).catch(() => {});
+      if (c.user && !c.sharedSession) await registry.setMcpSessionClient(c.env, c.sessionId, c.user, clientName(info.name), c.model ?? null).catch(() => {});
       if (c.user && !c.user.startsWith("e2e-")) {
         c.ctx.waitUntil(Promise.resolve(usage.track(c.env, "active_agent", c.user, true)).catch(() => {}));
         c.ctx.waitUntil(Promise.resolve(usage.track(c.env, "agent_client", `${clientName(info.name)}|${c.user}`, true)).catch(() => {}));
@@ -1572,6 +1574,7 @@ export async function handleMcp(request: Request, env: Env, ctx: ExecutionContex
     tokenSent: !!token,
     expired: resolved.expired,
     legacyCli: request.headers.get("user-agent") === "atteo-cli", // today's CLI says "atteo-cli/2"
+    model: sessions.cleanModel(atteoHeader(request, "model")),
   };
   const asHeader = atteoHeader(request, "session");
   if (asHeader && user) {

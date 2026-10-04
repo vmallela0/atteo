@@ -68,7 +68,7 @@ export function legacyHostRedirect(env: { PUBLIC_URL?: string }, request: Reques
  * With a board: a project-scoped install that pins every session in that folder to the board.
  */
 /** An Atteo request header (x-atteo-<name>), or its name from before the rename (x-agent-soup-<name>), which older CLIs still send. */
-export function atteoHeader(request: Request, name: "session" | "watch"): string | null {
+export function atteoHeader(request: Request, name: "session" | "watch" | "model"): string | null {
   return request.headers.get(`x-atteo-${name}`) ?? request.headers.get(`x-agent-soup-${name}`);
 }
 
