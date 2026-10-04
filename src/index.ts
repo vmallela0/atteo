@@ -520,6 +520,7 @@ async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): 
     ctx.waitUntil(env.DB.prepare(registry.TAPE_PRUNE_SQL).bind(Date.now() - 7 * 86_400_000).run().catch(() => {}));
     ctx.waitUntil(appSignin.sweep(env).catch(() => {}));
     ctx.waitUntil(inbox.pruneRead(env, now).catch(() => {}));
+    ctx.waitUntil(mailbox.pruneMail(env, now).catch(() => {}));
     ctx.waitUntil(usage.pruneUsageDaily(env, now).catch(() => {}));
   }
   for (const m of await registry.expiredMembers(env)) {

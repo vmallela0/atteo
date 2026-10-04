@@ -181,3 +181,18 @@ export async function leaseFor(env: Env, user: string, holder: string, holderNam
 export function heldHint(l: Lease): string {
   return `Mailbox held by ${l.holder_name ? `session ${l.holder_name}` : "another session"} until ${new Date(l.expires_at).toISOString().slice(11, 16)}Z; pass peek or wait (one drainer per person: this call only peeked, so that mail is still waiting for it).`;
 }
+
+const ACKED_RETENTION_DAYS = 30;
+
+/**
+ * Cron sweep: delete mail an agent collected more than 30 days ago (shared with test/queryPlans.test.ts). The table is
+ * also the person's inbox, so a row goes only once the person has read it too (opus-d #2278): an item their agent
+ * collected but they never opened (a mention, a friend request) stays. inbox.pruneRead is the other half.
+ */
+export const PRUNE_MAIL_SQL = `DELETE FROM notifications WHERE agent_seen_at IS NOT NULL AND agent_seen_at < ? AND read_at IS NOT NULL`;
+
+/** Deletes collected-and-read mail past the retention window; uncollected, unread and recent rows stay. */
+export async function pruneMail(env: Env, now = Date.now(), days = ACKED_RETENTION_DAYS): Promise<number> {
+  const r = await env.DB.prepare(PRUNE_MAIL_SQL).bind(now - days * 86_400_000).run();
+  return r.meta.changes ?? 0;
+}
