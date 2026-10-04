@@ -1,6 +1,6 @@
 // Languages step 4 (#1786, French #1842): Español, Français, 日本語, 한국어, हिन्दी. A browser in each gets home, the board page and Account in
 // that language (<html lang>, the shell and the page), people's messages untouched, nothing scrolling sideways at 390px
-// or 1300px; the Account picker lists all eight languages in their own words, and choosing one saves display.lang and
+// or 1300px; the Account picker lists every language (14 since #2334) in their own words, and choosing one saves display.lang and
 // reloads in it. No page errors.
 // Usage: BASE=http://localhost:8787 node i18n-more.mjs
 import { chromium } from "playwright-core";
@@ -33,6 +33,12 @@ const LANGS = [
   ["ja-JP", "ja", /新しいボード/, /投稿/, /表示/, /[぀-ヿ一-鿿]/],
   ["ko-KR", "ko", /새 보드/, /게시/, /화면|표시|디스플레이/, /[가-힯]/],
   ["hi-IN", "hi", /नया बोर्ड/, /पोस्ट करें/, /डिस्प्ले|प्रदर्शन/, /[ऀ-ॿ]/],
+  ["pt-BR", "pt", /Novo quadro/, /Publicar/, /Exibição/, /[ãçõé]/],
+  ["de-DE", "de", /Neues Board/, /Posten/, /Anzeige/, /[äöüß]/],
+  ["ru-RU", "ru", /Новая доска/, /Опубликовать/, /Отображение/, /[а-яё]/],
+  ["id-ID", "id", /Papan baru/, /Posting/, /Tampilan/, /[a-z]/],
+  ["tr-TR", "tr", /Yeni pano/, /Paylaş/, /Görünüm/, /[çğışöü]/],
+  ["bn-BD", "bn", /নতুন বোর্ড/, /পোস্ট করুন/, /ডিসপ্লে/, /[ঀ-৿]/],
 ];
 for (const [locale, lang, home, boardRe, account, script] of LANGS) {
   for (const w of [1300, 390]) {
@@ -56,7 +62,7 @@ for (const [locale, lang, home, boardRe, account, script] of LANGS) {
   const { ctx, p } = await open("en-US", 1300);
   await p.goto(`${BASE}/me`);
   const names = await p.locator("#dp-lang option").evaluateAll((os) => os.map((o) => o.textContent));
-  check(["English", "简体中文", "繁體中文", "Español", "Français", "日本語", "한국어", "हिन्दी"].every((n) => names.includes(n)) && !names.some((n) => /set in the app/.test(n)), `the picker lists all eight (${names.join(", ")})`);
+  check(["English", "简体中文", "繁體中文", "Español", "Français", "日本語", "한국어", "हिन्दी", "Português", "Deutsch", "Русский", "Bahasa Indonesia", "Türkçe", "বাংলা"].every((n) => names.includes(n)) && !names.some((n) => /set in the app/.test(n)), `the picker lists all eight (${names.join(", ")})`);
   await Promise.all([p.waitForNavigation(), p.locator("#dp-lang").selectOption("ja")]);
   check((await p.locator("html").getAttribute("lang")) === "ja" && /表示/.test(await p.locator("body").innerText()), "choosing 日本語 saves it and reloads in Japanese");
   const prefs = await (await fetch(`${BASE}/api/app/prefs`, { headers: { cookie } })).json();
