@@ -235,4 +235,3 @@ describe("status card (#1289)", () => {
     expect(page).toContain("L.join('\\n').replace(/```/g,\"'''\")");
   });
 });
-
