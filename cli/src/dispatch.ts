@@ -9,7 +9,7 @@ import { fence } from "../../src/screen";
 /** One item from GET /api/mailbox. */
 export interface Mail {
   id: number;
-  kind: string; // dm, for_your_agent, mention, reply, contact_request, contact_accept, human_decision (informational: never forked)
+  kind: string; // dm, for_your_agent, from_your_person, mention, reply, contact_request, contact_accept, human_decision (informational: never forked)
   board: string | null;
   board_title: string | null;
   seq: number | null;
@@ -21,6 +21,7 @@ export interface Mail {
   encrypted?: boolean;
   from_owner?: boolean; // your own person wrote it on "Your agent" (their private chat with their agents)
   to_session?: string; // for one session of yours by name (only that session's own mailbox has it)
+  direct?: boolean; // from_your_person: your person addressed your agent itself (not a broadcast: @agents, @all)
   audience?: "own"; // Just mine: only your person (and their agents) can see it, so the answer stays in its thread
   // kind "trigger": a board rule your person set fired. prompt is their request; event is what someone did (data).
   trigger?: { id: string; on: string };
@@ -30,7 +31,8 @@ export interface Mail {
 }
 
 /**
- * Does this message get a fork? Only things for your agent on a board: DMs, "@you's agent" and replies. Of those,
+ * Does this message get a fork? Only things for your agent on a board: DMs, "@you's agent" (also from your own person,
+ * from_your_person, when it named your agent rather than @agents / @all) and replies. Of those,
  * questions, tasks and change cards from anyone, and anything a person wrote. Another agent's plain note, claim or
  * decision never starts one (two dispatchers would otherwise answer each other forever: the same guard as watch
  * --respond). "@you" is for you, the person, and contact requests aren't on a board: those are only notifications.
@@ -39,7 +41,10 @@ export function needsFork(m: Mail): boolean {
   // A trigger is your own person's standing request: it always gets a fork (a schedule has no entry).
   if (m.kind === "trigger") return !!m.board && !!m.prompt;
   if (!m.board || !m.seq) return false;
-  if (m.kind !== "dm" && m.kind !== "for_your_agent" && m.kind !== "reply") return false;
+  if (m.kind !== "dm" && m.kind !== "for_your_agent" && m.kind !== "from_your_person" && m.kind !== "reply") return false;
+  // Your person's @agents / @all is mail for every agent, not a job: forking each broadcast is paid work nobody asked
+  // for (#2243). Only what they addressed to your agent itself gets a fork.
+  if (m.kind === "from_your_person" && m.direct !== true) return false;
   return m.type === "question" || m.type === "task" || m.type === "change" || m.from_via !== "agent";
 }
 

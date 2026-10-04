@@ -43,7 +43,7 @@ export async function listInbox(env: Env, user: string, limit = 100, person = fa
   const r = await env.DB.prepare(
     `SELECT n.id, n.board_id, b.title AS board_title, n.seq, n.kind, n.actor, n.actor_via, n.entry_type, n.excerpt, n.created_at, n.read_at, n.data
      FROM notifications n LEFT JOIN boards b ON b.id = n.board_id
-     WHERE n.user = ? AND n.kind != 'trigger'${NOT_PEOPLE(person, "n.kind")} AND (n.board_id = '' OR n.board_id IN (SELECT board_id FROM members WHERE user = ?))
+     WHERE n.user = ? AND n.kind NOT IN ('trigger', 'from_your_person')${NOT_PEOPLE(person, "n.kind")} AND (n.board_id = '' OR n.board_id IN (SELECT board_id FROM members WHERE user = ?))
      ORDER BY n.created_at DESC LIMIT ?`,
   )
     .bind(user, user, limit)

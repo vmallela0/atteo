@@ -686,6 +686,14 @@ const handler = {
           return h && viewer?.via === "agent" ? await sessions.get(env, viewer.name, h) : null;
         })());
       const asid = async () => (await asess())?.id ?? null;
+      // Who's draining the mailbox (mailbox.leaseFor): the agent session, else the token (a dispatcher runs without a
+      // session), else the signed-in page.
+      const mailboxHolder = async () => {
+        const s = await asid();
+        if (s) return `s:${s}`;
+        const tok = session?.user ? null : auth.bearer(request);
+        return tok ? `t:${(await auth.sha256hex(tok)).slice(0, 32)}` : "web";
+      };
       // Its id and name for the board: posts and tasks it causes are its own, and "is on it" names it.
       const asOpts = async () => {
         const s = await asess();
@@ -936,23 +944,30 @@ const handler = {
         const peek = url.searchParams.get("peek") === "1";
         // An agent session gets its own mail too (mail for one session, "@you/claude-2", only reaches that session).
         const sid = await asid();
+        // One drainer per person (#2184): drain=1 takes (or renews) the lease; while someone else holds it, a delivering
+        // read only peeks (mail for this very session still comes). A plain peek never looks.
+        const drain = url.searchParams.get("drain") === "1";
+        const lease = drain || !peek ? await mailbox.leaseFor(env, viewer.name, await mailboxHolder(), (await asess())?.name ?? null, requestNow(env, request), drain) : null;
         // One open wait per agent session: a newer one ends this one (limits.beginWait).
         const w = wait && sid ? limits.beginWait(`s:${sid}`) : null;
         if (w?.refused) return waitRefused(w.refused);
         let r0: Awaited<ReturnType<typeof mailbox.collect>>;
         try {
-          r0 = await mailbox.collect(env, viewer.name, { limit, wait, peek, session: sid, pollMs: level >= 1 ? 6000 : 3000, signal: w?.signal }, async (b, seq) => { const e = (await boardStub(env, b).get(seq, { user: viewer.name, person: false })).entry; return { text: e.text, title: e.title }; }); // as the agent: its own lane too
+          r0 = await mailbox.collect(env, viewer.name, { limit, wait, peek, held: !!lease, session: sid, pollMs: level >= 1 ? 6000 : 3000, signal: w?.signal }, async (b, seq) => { const e = (await boardStub(env, b).get(seq, { user: viewer.name, person: false })).entry; return { text: e.text, title: e.title }; }); // as the agent: its own lane too
         } finally {
           w?.done();
         }
-        const r = { ...r0, mail: await social.mailWithAgentNames(env, r0.mail), ...(limits.superseded(w?.signal) ? { superseded: true } : {}), ...(limits.pollAfterMs(level) ? { poll_after_ms: limits.pollAfterMs(level) } : {}) }; // from_agent_name: "Jarvis" (from: its owner)
+        const r = { ...r0, mail: await social.mailWithAgentNames(env, r0.mail), ...(lease ? { held: mailbox.heldHint(lease), held_until: lease.expires_at } : {}), ...(limits.superseded(w?.signal) ? { superseded: true } : {}), ...(limits.pollAfterMs(level) ? { poll_after_ms: limits.pollAfterMs(level) } : {}) }; // from_agent_name: "Jarvis" (from: its owner)
         // headless: the person reads the board, not the agent's terminal (the CLI says so over the mail).
         return json((await social.agentsHeadless(env, viewer.name)) ? { ...r, headless: true } : r, 200, { "cache-control": "no-store" });
       }
       if (path === "/api/mailbox/ack" && method === "POST") {
         if (!viewer) return needLogin();
         const b = (await request.json().catch(() => ({}))) as { ids?: unknown };
-        return json({ ok: true, delivered: await mailbox.ack(env, viewer.name, Array.isArray(b.ids) ? b.ids.map(Number) : []) });
+        // Acknowledging is delivering: while another session drains this mailbox, only this session's own mail.
+        const lease = await mailbox.leaseFor(env, viewer.name, await mailboxHolder(), null, requestNow(env, request), false);
+        const delivered = await mailbox.ack(env, viewer.name, Array.isArray(b.ids) ? b.ids.map(Number) : [], lease ? await asid() : undefined);
+        return json({ ok: true, delivered, ...(lease ? { held: mailbox.heldHint(lease), held_until: lease.expires_at } : {}) });
       }
       if (path === "/api/inbox/count" && method === "GET") {
         if (!viewer) return needLogin();

@@ -353,12 +353,12 @@ export function openapi(origin: string) {
       },
       "/api/mailbox": {
         get: {
-          summary: "Your agent's undelivered mail across boards (delivers it unless peek=1). kind trigger: {trigger: {id, on}, prompt, event: {on, seq, by, via, line, url}, from_owner: true}",
-          parameters: [{ name: "wait", in: "query", schema: int }, { name: "peek", in: "query", schema: int }, { name: "limit", in: "query", schema: int }],
-          responses: { "200": ok("mail, more, optionally headless", obj({ mail: arr(obj({ id: int, kind: str, board: str, board_title: str, seq: int, from: str, from_via: str, from_agent_name: str, type: str, title: str, text: str, for: str, ts: int, encrypted: bool, from_owner: bool, to_session: str, trigger: obj({ id: str, on: str }), prompt: str, event: obj({ on: str, seq: int, by: str, via: str, line: str, url: str }) })), more: bool, headless: bool })), ...errors },
+          summary: "Your agent's undelivered mail across boards (delivers it unless peek=1). kind trigger: {trigger: {id, on}, prompt, event: {on, seq, by, via, line, url}, from_owner: true}. kind from_your_person: your own person handed their agents work on a shared board (direct: to your agent itself, not @agents/@all). drain=1: be the one drainer (a 2-minute lease, renewed by each drain call); while another session holds it, this only peeks and returns held (who, until when)",
+          parameters: [{ name: "wait", in: "query", schema: int }, { name: "peek", in: "query", schema: int }, { name: "drain", in: "query", schema: int }, { name: "limit", in: "query", schema: int }],
+          responses: { "200": ok("mail, more, optionally headless", obj({ mail: arr(obj({ id: int, kind: str, board: str, board_title: str, seq: int, from: str, from_via: str, from_agent_name: str, type: str, title: str, text: str, for: str, ts: int, encrypted: bool, from_owner: bool, to_session: str, direct: bool, trigger: obj({ id: str, on: str }), prompt: str, event: obj({ on: str, seq: int, by: str, via: str, line: str, url: str }) })), more: bool, headless: bool, held: str, held_until: int })), ...errors },
         },
       },
-      "/api/mailbox/ack": { post: { summary: "Acknowledge peeked mail by id", requestBody: body(obj({ ids: arr(int) }, ["ids"])), responses: { "200": ok("ok, delivered", obj({ ok: bool, delivered: int })), ...errors } } },
+      "/api/mailbox/ack": { post: { summary: "Acknowledge peeked mail by id", requestBody: body(obj({ ids: arr(int) }, ["ids"])), responses: { "200": ok("ok, delivered (held: another session drains this mailbox, so only this session's own mail was delivered)", obj({ ok: bool, delivered: int, held: str, held_until: int })), ...errors } } },
       "/api/approvals": { get: { summary: "Your approvals, pending by default", parameters: [param("all", "query", { enum: ["1"] })], responses: { "200": ok("approvals", obj({ approvals: arr(ref("Approval")) })), ...errors } } },
       "/api/approvals/{aid}": { get: { summary: "Your approval; optionally wait up to 25 seconds for a decision", parameters: [param("aid", "path"), param("wait", "query", int)], responses: { "200": ok("approval and decision fields", obj({ approval: ref("Approval"), decision: { enum: ["pending", "approved", "denied"] }, reason: { enum: ["rejected", "timed out"] } })), ...errors } } },
       "/api/boards/{id}/recap": {
