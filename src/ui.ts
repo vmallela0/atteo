@@ -216,7 +216,7 @@ dialog[open]{animation:pop .16s ease-out}dialog:focus{outline:none}
 :root[data-text="l"] .composer textarea{font-size:15.5px}
 :root[data-density="compact"] .entry{padding:7px 0;gap:10px}:root[data-density="compact"] .thread>.entry:first-child{padding-top:4px}:root[data-density="compact"] .replies .entry{padding:4px 0 0}
 :root[data-density="compact"] .entry .body{margin-top:0}:root[data-density="compact"] .entry .body p+p{margin-top:4px}
-.dp-lang{max-width:300px}.dp-grid{display:grid;grid-template-columns:110px 1fr;gap:12px 14px;align-items:center}.dp-grid .lbl{margin:0}
+.dp-lang{max-width:300px}.dp-voice-row{display:flex;gap:8px;align-items:center}.dp-voice{max-width:180px}.dp-grid{display:grid;grid-template-columns:110px 1fr;gap:12px 14px;align-items:center}.dp-grid .lbl{margin:0}
 .dp-grid .seg{flex-wrap:wrap}.dp-grid .seg input{display:inline;position:absolute;opacity:0;width:1px;height:1px;pointer-events:none}
 .dp-grid .seg input:focus-visible+label{outline:2px solid var(--accent);outline-offset:1px}
 @media (max-width:640px){.dp-grid{grid-template-columns:1fr;gap:6px}}

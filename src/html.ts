@@ -2857,7 +2857,11 @@ export interface Display {
   theme?: "system" | "light" | "dark";
   mode?: "auto" | "everyday" | "developer";
   lang?: "auto" | "en" | "zh-Hans" | "zh-Hant" | "es" | "ja" | "ko" | "hi";
+  voice?: "eve" | "ara" | "leo" | "rex" | "sal";
 }
+
+/** Read-aloud and voice chat voices (xAI's), as the picker names them. */
+const VOICE_NAMES: [string, string][] = [["eve", "Eve"], ["ara", "Ara"], ["leo", "Leo"], ["rex", "Rex"], ["sal", "Sal"]];
 
 /** Account → Display: how the chat looks to you (Slack-style). Saved to your profile, so the web and the app match. */
 function displaySection(d: Display | null | undefined, lang?: Lang): string {
@@ -2876,6 +2880,7 @@ ${seg("theme", esc(T("Theme")), [["system", esc(T("System"))], ["light", esc(T("
   )
     .map(([v, l]) => `<option value="${v}"${(d?.lang ?? "auto") === v ? " selected" : ""}>${esc(l)}</option>`)
     .join("")}</select>
+<label class="lbl" for="dp-voice" id="dp-voice-l" hidden>${esc(T("Read-aloud voice"))}</label><div class="dp-voice-row" id="dp-voice-row" hidden><select class="input dp-voice" id="dp-voice" data-voice="${esc(d?.voice ?? "eve")}">${VOICE_NAMES.map(([v, n]) => `<option value="${v}"${(d?.voice ?? "eve") === v ? " selected" : ""}>${n}</option>`).join("")}</select><button class="btn sm" type="button" id="dp-voice-play" aria-label="${esc(T("Play a sample of this voice"))}">${esc(T("Play"))}</button></div>
 </div></form>
 <div class="section-title" style="margin-top:24px"><div><h2 class="small" style="font-size:13px;color:var(--muted)">${esc(T("Advanced (for developers)"))}</h2></div></div>
 <label class="card pad dev-mode" for="dev-mode"><span class="dev-ic" aria-hidden="true">&lt;&gt;</span><span class="grow"><span class="small" style="color:var(--ink);font-weight:600">${esc(T("Developer mode"))}</span><span class="xs muted" id="dev-mode-hint" style="display:block;margin-top:2px">${esc(T("Tasks, change cards, #numbers, sessions. Turns on by itself if you connect Claude Code or Codex."))}</span></span><input type="checkbox" class="switch" id="dev-mode" role="switch"></label>
@@ -2907,9 +2912,23 @@ const DISPLAY_JS = `
   const cur=Object.assign({text:'m',density:'comfortable',theme:'system'},local,saved||{});
   for(const k of ['text','density','theme']){const i=f.querySelector('input[name="'+k+'"][value="'+cur[k]+'"]');if(i)i.checked=true}
   if(saved)applyDisplay(cur);
-  f.addEventListener('change',async e=>{if(e.target.id==='dp-lang')return;const d={text:f.text.value,density:f.density.value,theme:f.theme.value};applyDisplay(d);
+  f.addEventListener('change',async e=>{if(e.target.id==='dp-lang'||e.target.id==='dp-voice')return;const d={text:f.text.value,density:f.density.value,theme:f.theme.value};applyDisplay(d);
     const r=await fetch('/api/me/profile',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({display:d})}).catch(()=>null);
     toast(r&&r.ok?tr('Display saved'):tr('Saved on this device only'))})})();
+// Read-aloud voice (vedu #1717): shown when read aloud is on; saved as display.voice, which read-aloud and voice chat use
+// whenever they don't name one. Play reads a short sample in that voice (one request per voice, kept for the visit).
+(()=>{const s=document.getElementById('dp-voice'),btn=document.getElementById('dp-voice-play');if(!s)return;const cache={};let audio=null;
+  fetch('/api/app/tts/status',{cache:'no-store'}).then(r=>r.ok?r.json():null).then(j=>{if(!j||!j.enabled)return;
+    if(Array.isArray(j.voices)&&j.voices.length)[...s.options].forEach(o=>{if(!j.voices.includes(o.value))o.remove()});
+    if(j.voice_default&&[...s.options].some(o=>o.value===j.voice_default)){s.value=j.voice_default;s.dataset.voice=j.voice_default}
+    document.getElementById('dp-voice-l').hidden=false;document.getElementById('dp-voice-row').hidden=false}).catch(()=>{});
+  s.addEventListener('change',async()=>{const v=s.value;s.disabled=true;
+    const r=await fetch('/api/app/prefs',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({display:{voice:v}})}).catch(()=>null);
+    s.disabled=false;if(r&&r.ok){s.dataset.voice=v;toast(tr('Voice saved'))}else{s.value=s.dataset.voice;toast(tr('Could not save'))}});
+  btn.addEventListener('click',async()=>{const v=s.value;if(audio){audio.pause();audio=null}btn.disabled=true;
+    try{if(!cache[v]){const r=await fetch('/api/app/tts',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({text:tr('Hi, this is how I’ll read your messages to you.'),voice:v})});
+        if(!r.ok){const j=await r.json().catch(()=>({}));toast(j.error||tr('Could not play it'));return}cache[v]=URL.createObjectURL(await r.blob())}
+      audio=new Audio(cache[v]);await audio.play()}catch(e){toast(tr('Could not play it'))}finally{btn.disabled=false}})})();
 // Language (#1646): saved in display prefs (the app follows it too), then the page reloads in it.
 (()=>{const s=document.getElementById('dp-lang');if(!s)return;s.addEventListener('change',async()=>{s.disabled=true;
   const r=await fetch('/api/app/prefs',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({display:{lang:s.value}})}).catch(()=>null);
