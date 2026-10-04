@@ -260,8 +260,15 @@ struct BoardView: View {
             // At the latest: the visible part (which includes what's under the composer) reaches the end.
             .onScrollGeometryChange(for: Bool.self) { g in g.visibleRect.maxY >= g.contentSize.height - 80 } action: { _, bottom in
                 if bottom != atBottom { withAnimation(.snappy) { atBottom = bottom } }
-                // Back at the latest: nothing's unseen. Leaving it: count what lands from now on.
-                if bottom { unseenAfter = nil } else if unseenAfter == nil, state.entries[board.id] != nil { unseenAfter = newestSeq }
+                // Back at the latest: nothing's unseen.
+                if bottom, unseenAfter != nil { unseenAfter = nil }
+            }
+            // Away from the latest and something new lands: count from what was newest before it (the pill). Set here,
+            // not as you leave the latest: written from the scroll geometry, it re-drew the chat mid-layout each time the
+            // list crossed the bottom line, and opening at the first unread near the end froze the app (SwiftUI's lazy
+            // layout never settled).
+            .onChange(of: newestSeq) { old, _ in
+                if !atBottom, unseenAfter == nil, old > 0 { unseenAfter = old }
             }
             // Near the top of what's loaded (and it's long enough to scroll): bring in the page before it.
             .onScrollGeometryChange(for: Bool.self) { g in g.contentSize.height > g.containerSize.height && g.visibleRect.minY < 360 } action: { _, top in
