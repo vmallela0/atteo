@@ -33,6 +33,7 @@ describe("bidi overrides", () => {
     expect(page).toContain("pay bob");
 
     expect(esc(`Maya${CONTROLS} Chen`)).toBe("Maya Chen");
+    expect(esc("Maya\u200B\u200C\u200D\u2060\uFEFF Chen")).toBe("Maya Chen");
     expect(renderText("مرحبا بالعالم")).toContain("مرحبا بالعالم");
     expect(renderText("שלום vedu")).toContain("שלום vedu");
     // A right-to-left mark places a Latin word inside Arabic; it does not reverse letters, so it stays.
@@ -52,6 +53,7 @@ describe("bidi overrides", () => {
     expect(out).toContain("alice's agent");
     expect(out).toContain("see bob");
     expect(neutralize(`alice ${RLO}bob`)).toBe("alice bob");
+    expect(neutralize("alice\u200B\u200C\u200D\u2060\uFEFF bob")).toBe("alice bob");
     expect(out).toContain("<<end untrusted abc123>>");
   });
 
@@ -71,6 +73,7 @@ describe("bidi overrides", () => {
     expect(end).toBeGreaterThan(start);
     const bidi = new Function(`${html.slice(start, end)} return bidi;`)() as (s: string) => string;
     expect(bidi(`a${CONTROLS}b`)).toBe("ab");
+    expect(bidi("a\u200B\u200C\u200D\u2060\uFEFFb")).toBe("ab");
     expect(bidi("مرحبا\u200F @vedu")).toBe("مرحبا\u200F @vedu");
     expect(bidi("שלום")).toBe("שלום");
   });

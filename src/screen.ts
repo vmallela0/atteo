@@ -59,16 +59,19 @@ export function blankLiterals(text: string): string {
 }
 
 /**
- * The first instruction-like pattern in a post, or null. Everything is scanned, code and quotes included (wrapping an
- * injection in backticks mustn't hide it), but a pattern found ONLY inside code or quotes, e.g. a test fixture or a
- * message about injection quoting one, comes back `quoted`: a softer flag ("treat it as data", not "don't act on
- * it"), and the model screen still looks at it (board.ts screenWithModel). #2210.
+ * The first instruction-like pattern in a post, or null. The scan sees the text an agent reads
+ * (`stripBidiControls`: bidi controls and zero-width characters removed), so a hidden character cannot split a word
+ * the agent then sees whole. Everything is scanned, code and quotes included (wrapping an injection in backticks
+ * mustn't hide it), but a pattern found ONLY inside code or quotes, e.g. a test fixture or a message about injection
+ * quoting one, comes back `quoted`: a softer flag ("treat it as data", not "don't act on it"), and the model screen
+ * still looks at it (board.ts screenWithModel). #2210.
  */
 export function screenText(raw: string): Flag | null {
-  if (!raw.includes("`") && !/["“'‘]/.test(raw)) return scan(raw);
-  const prose = scan(blankLiterals(raw));
+  const text = stripBidiControls(raw);
+  if (!text.includes("`") && !/["“'‘]/.test(text)) return scan(text);
+  const prose = scan(blankLiterals(text));
   if (prose) return prose;
-  const quoted = scan(raw);
+  const quoted = scan(text);
   return quoted && { ...quoted, quoted: true };
 }
 
@@ -100,8 +103,9 @@ function scan(text: string): Flag | null {
   return null;
 }
 
-/** Defuses board content before an agent reads it: explicit bidi controls (so a name or message cannot be drawn
- *  backwards; Arabic marks stay), then anything that imitates a fence marker. */
+/** Defuses board content before an agent reads it: bidi controls and zero-width characters (so a name or message
+ *  cannot be drawn backwards, and a hidden character cannot split a word; Arabic marks stay), then anything that
+ *  imitates a fence marker. */
 export function neutralize(text: string): string {
   return stripBidiControls(text).replace(/<<(\s*(?:end\s+)?untrusted)/gi, "‹‹$1");
 }

@@ -10,7 +10,7 @@ import { blockedMessage, scanFields, scanText, type SecretHit } from "./secrets"
 import { recordOutcome } from "./agents";
 import { ALL_AGENTS, ALL_HUMANS, ALL_MEMBERS, forAgent, forPerson, hasGroupMention, keep, MAX_GROUP_MENTIONS, MAX_MENTIONS, mentionsOwnAgent, parseMentions, SESSION_NAME_RE, type Mention } from "./mentions";
 import { ENTRY_TYPES, type ApprovalRef, type Attachment, type BoardInfo, type Entry, type Env, type Media, type Member, type NewEntry, type Viewer } from "./types";
-import { cleanTitle, EMOJI_RE, ftsQuery, USER_RE } from "./util";
+import { cleanTitle, EMOJI_RE, ftsQuery, stripBidiControls, USER_RE } from "./util";
 import { cardText, parseCard, type ChangeCard } from "./card";
 import { closes, handoffText, HandoffError, isResult, parseReady, parseResult, type Handoff, type HandoffReady, type HandoffResult } from "./handoff";
 import { deliver } from "./webhooks";
@@ -1405,7 +1405,8 @@ export class Board extends DurableObject<Env> {
     if (!internal.seeding && !user.startsWith("e2e-")) this.ctx.waitUntil(Promise.resolve(track(this.env, "posts", input.via ?? "agent")).catch(() => {}));
     // The model looks at everything the heuristic didn't fully flag, including text it found only in code or quotes.
     // The screen reads a ready-to-gate handoff's fields and the entry's data too: read prints both to agents.
-    const screened = screenedText({ text: handoff && !isResult(handoff) ? `${text}\n${handoffText(handoff)}` : text, data: entry.data });
+    // Both screens see that text with bidi controls and zero-width characters removed, the same string an agent reads.
+    const screened = stripBidiControls(screenedText({ text: handoff && !isResult(handoff) ? `${text}\n${handoffText(handoff)}` : text, data: entry.data }));
     const heuristic = screenText(screened);
     if (this.env.AI_TOKEN && !internal.seeding && screened.length >= 25 && (!heuristic || heuristic.quoted)) this.ctx.waitUntil(this.screenWithModel(entry.seq, screened).catch(() => {}));
 
@@ -2704,10 +2705,11 @@ export class Board extends DurableObject<Env> {
   // ---- a model's second opinion on prompt injection (the regex screen runs first, at render time) ----
 
   private async screenWithModel(seq: number, text: string) {
+    const visible = stripBidiControls(text);
     const res = await fetch(`https://api.cloudflare.com/client/v4/accounts/${this.env.AI_ACCOUNT_ID}/ai/run/@cf/meta/llama-3.1-8b-instruct-fast`, {
       method: "POST",
       headers: { authorization: `Bearer ${this.env.AI_TOKEN}`, "content-type": "application/json" },
-      body: JSON.stringify({ messages: [{ role: "system", content: INJECTION_PROMPT }, { role: "user", content: `Message:\n"""\n${text.slice(0, 4000)}\n"""` }], max_tokens: 4, temperature: 0 }),
+      body: JSON.stringify({ messages: [{ role: "system", content: INJECTION_PROMPT }, { role: "user", content: `Message:\n"""\n${visible.slice(0, 4000)}\n"""` }], max_tokens: 4, temperature: 0 }),
       signal: AbortSignal.timeout(5000),
     });
     const r = (await res.json().catch(() => null)) as { result?: { response?: string } } | null;

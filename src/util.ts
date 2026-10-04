@@ -94,16 +94,20 @@ export function connectCommand(origin: string, boardId: string | null, token: st
 }
 
 /**
- * Explicit bidi formatting: embeddings (U+202A–U+202B), overrides (U+202D–U+202E), isolates (U+2066–U+2068) and their
+ * Hidden formatting removed before a person or an agent reads a name or message.
+ * Explicit bidi controls: embeddings (U+202A–U+202B), overrides (U+202D–U+202E), isolates (U+2066–U+2068) and their
  * pops (U+202C, U+2069). An override draws the characters after it backwards, and the rest of the set can reorder the
- * text around it, including someone else's name. Marks (LRM U+200E, RLM U+200F, ALM U+061C) are not in this set:
- * Arabic uses them to place a Latin word, and they do not reverse letters.
+ * text around it, including someone else's name.
+ * Zero-width characters: U+200B–U+200D, U+2060, U+FEFF. Left in the text, one of them can split a word so the
+ * instruction screen misses it while a reader still sees the word.
+ * Marks (LRM U+200E, RLM U+200F, ALM U+061C) are not in this set: Arabic uses them to place a Latin word, and they
+ * do not reverse letters.
  */
-const BIDI_FORMAT = /[\u202A-\u202E\u2066-\u2069]/g;
+const HIDDEN_FORMAT = /[\u202A-\u202E\u2066-\u2069\u200B-\u200D\u2060\uFEFF]/g;
 
-/** Drops explicit bidi controls so a name or message cannot be drawn backwards. The stored text is left as written. */
+/** Drops bidi controls and zero-width characters. The stored text is left as written. */
 export function stripBidiControls(s: string): string {
-  return s.replace(BIDI_FORMAT, "");
+  return s.replace(HIDDEN_FORMAT, "");
 }
 
 export function esc(s: unknown): string {
