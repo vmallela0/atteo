@@ -4316,7 +4316,7 @@ await step("voice (POST /api/app/voice/session): people only, validated, rate li
   else {
     const j = await fake.json();
     assert(fake.status === 200 && j.url.startsWith("wss://api.x.ai/v1/realtime") && j.token?.value && j.protocols[0] === `xai-client-secret.${j.token.value}`, `fake session: ${fake.status} ${JSON.stringify(j).slice(0, 300)}`);
-    assert(j.session.turn_detection === null && j.session.instructions.includes("voice front for Atteo") && j.session.tools.length === 6 && j.tool_routes.answer_approval.confirm === true, "session config");
+    assert(j.session.turn_detection === null && j.session.instructions.includes("You are Atteo") && j.session.tools.length === 6 && j.tool_routes.answer_approval.confirm === true, "session config");
     assert(j.minutes_budget === 60 && j.max_seconds === 600 && /^vs_/.test(j.session_id), JSON.stringify({ b: j.minutes_budget, m: j.max_seconds }));
     const after = await (await web("/api/app/voice/status", A)).json();
     assert(after.minutes_used === st.minutes_used + 10, `charged the cap up front: ${JSON.stringify(after)}`);
