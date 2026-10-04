@@ -38,7 +38,7 @@ await p.keyboard.press("ArrowDown");await p.keyboard.press("Enter");await p.wait
 check((await p.locator("#pal-chips").innerText()).includes(`from ${A}'s agent`),"picking one makes a chip");
 await p.keyboard.type(word);await p.waitForTimeout(800);
 r=await rows();check(r.length===2&&r.every(x=>x.includes(`${A}'s agent`)),`narrowed to vedu's agent (${r.length})`);
-await p.keyboard.press("Control+a");await p.keyboard.press("Backspace");await p.keyboard.press("Backspace");await p.waitForTimeout(300);
+await p.keyboard.press("ControlOrMeta+a");await p.keyboard.press("Backspace");await p.keyboard.press("Backspace");await p.waitForTimeout(300);
 check(!(await p.locator("#pal-chips").innerText()).includes("from"),"Backspace on an empty box removes the last filter");
 await p.keyboard.press("Escape");await p.waitForTimeout(200);
 check(!(await p.locator("#palette").isVisible()),"Esc closes");

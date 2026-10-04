@@ -62,7 +62,7 @@ await p.keyboard.type(" EDITED");
 await say(" and more", false);
 check((await box()) === "hello there EDITED and more", `after you type, new words go after your edit (${JSON.stringify(await box())})`);
 await say(" and more words");
-await p.locator("#composer-text").press("Control+a");
+await p.locator("#composer-text").press("ControlOrMeta+a"); // select all is Meta+A on a Mac
 await p.keyboard.press("Backspace");
 await say("fresh", false);
 check((await box()) === "fresh", `clearing the box while it listens: old words don't come back (${JSON.stringify(await box())})`);

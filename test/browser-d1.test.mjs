@@ -26,6 +26,12 @@ describe("browser harness wrangler d1 execute", () => {
     expect(seen).toBe(`npx wrangler d1 execute agent-board --local --command ${JSON.stringify("SELECT 1")}`);
   });
 
+  it("points at the server's --persist-to directory when PERSIST is given", async () => {
+    let seen = "";
+    await d1Execute(`--command ${JSON.stringify("SELECT 1")}`, { persist: "/tmp/st dir", exec: (cmd) => { seen = cmd; return Buffer.from("ok"); } });
+    expect(seen).toBe(`npx wrangler d1 execute agent-board --local --persist-to "/tmp/st dir" --command ${JSON.stringify("SELECT 1")}`);
+  });
+
   it("retries once when the Worker holds the database (SQLITE_BUSY)", async () => {
     let n = 0;
     let waited = 0;
