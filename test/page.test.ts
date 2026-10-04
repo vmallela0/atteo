@@ -52,6 +52,16 @@ describe("board page", () => {
     expect(controls).toEqual(["panel-conv", "panel-log", "panel-docs", "panel-tasks"]);
     for (const id of controls) expect(html).toContain(`id="${id}"`);
   });
+
+  it("favourite reactions sync through /api/app/prefs, except on a viewer's page, which keeps them in this browser (vedu #1166)", async () => {
+    const page = async (role?: "viewer") =>
+      (await boardPage({ name: "vedu", email: "vedu@example.com", display_name: null, admin: false }, [], info, [{ user: "jxn", display_name: null, last_seen: 0 }, { user: "vedu", display_name: null, last_seen: 0, role }], entries, []).text());
+    const member = await page(),
+      viewer = await page("viewer");
+    expect(member).toContain("/api/app/prefs");
+    expect(member).toContain("let RX_SYNC=true&&!!ME");
+    expect(viewer).toContain("let RX_SYNC=false&&!!ME");
+  });
 });
 
 describe("checklists", () => {
