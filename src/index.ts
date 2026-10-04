@@ -7,6 +7,7 @@ import * as oauth from "./oauth";
 import { consentPage } from "./oauthPage";
 import * as approvals from "./approvals";
 import { approvalsPage } from "./approvalsPage";
+import { askPage } from "./ask";
 import * as access from "./access";
 import * as social from "./social";
 import * as webhooks from "./webhooks";
@@ -1040,6 +1041,12 @@ const handler = {
       }
 
       // ---- approvals: agents ask their person before side effects; decisions only from a browser ----
+      // Ask (Everyday): a voice-first page that asks your assistant in its chat and reads the answer aloud.
+      if (path === "/ask" && method === "GET") {
+        if (!viewer) return needLogin();
+        const [side, me] = await Promise.all([sideBoards(env, viewer.name), social.profile(env, viewer.name).catch(() => null)]);
+        return askPage(viewer, side, { assistant: me?.agent_name ?? null, agentChat: side.find((b) => b.kind === "agent")?.id ?? null });
+      }
       if (path === "/approvals" && method === "GET") {
         if (!viewer) return needLogin();
         const [side, list] = await Promise.all([sideBoards(env, viewer.name), approvals.listApprovals(env, viewer.name, "all")]);
