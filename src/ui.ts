@@ -368,8 +368,9 @@ dialog.access-dlg{width:min(640px,calc(100vw - 24px))}
 .apc .tk-st .dot{background:var(--warn)}.apc.st-approved .tk-st .dot{background:var(--ok)}.apc.st-rejected .tk-st .dot{background:var(--danger)}.apc.st-expired .tk-st .dot{background:var(--muted)}
 .apc.st-approved .tk-st{color:var(--ok)}.apc.st-rejected .tk-st,.apc.st-expired .tk-st{color:var(--muted)}
 .apc[tabindex]:focus-visible,.apc.kbd-sel,.approval:focus-visible,.approval.sel{outline:2px solid var(--accent);outline-offset:3px;border-radius:8px}
-.apc-kbd{display:none;align-self:center;margin-right:4px}.apc-kbd kbd,.ap-keys kbd{font-size:10.5px}.apc:focus-within .apc-kbd,.apc.kbd-sel .apc-kbd,.entry.sel .apc .apc-kbd{display:inline}
-@media (hover:none){.apc-kbd,.ap-keys{display:none!important}}
+.apc-kbd{display:none;align-self:center;margin-right:4px}.apc-kbd kbd,.ap-keys kbd{font-size:10.5px}.apc[tabindex]:focus-visible .apc-kbd,.apc.kbd-sel .apc-kbd,.entry.sel .apc .apc-kbd{display:inline}
+/* The hint never appears on a click (it would shift the buttons under the pointer), nor on touch or narrow screens. */
+@media (hover:none),(max-width:480px){.apc-kbd,.ap-keys{display:none!important}}
 .apc-acts{display:inline-flex;gap:6px;flex:none;margin-left:auto}.apc .tk{flex-wrap:wrap} /* too narrow for both: the buttons drop under the status, still on the right */.apc-acts[hidden]{display:none}.apc-risk{color:var(--danger);font-weight:500;white-space:nowrap}.apc-note{margin:6px 0 0}
 .inbox-item .apc{margin:0;padding:0 10px 12px 42px}.inbox-item .apc .dot{margin-top:0}
 .tk-subs{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:1px;font-size:12.5px}
