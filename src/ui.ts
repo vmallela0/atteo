@@ -573,6 +573,8 @@ input.switch::after{content:"";position:absolute;top:3px;left:3px;width:18px;hei
 .ev-ok{flex:none;width:22px;height:22px;border-radius:50%;background:var(--ok);color:var(--bg);display:inline-flex;align-items:center;justify-content:center;font-size:13px;font-weight:700}
 :root[data-mode="everyday"] .bp-title h1{font-size:26px;letter-spacing:-.01em}:root[data-mode="everyday"] .section-title h1{font-size:26px}
 @media(max-width:640px){:root[data-mode="everyday"] .bp-title h1{font-size:22px}}
+.composer .po-btn{width:30px;padding:0;justify-content:center;color:var(--muted)}.composer .po-btn:hover{color:var(--ink)}.composer .po-btn.on{color:var(--on-ink);background:var(--ink);border-radius:999px}
+.po-note{margin:0 0 8px;padding:6px 10px;border-radius:8px;background:color-mix(in srgb,var(--warn) 10%,transparent);font-size:12.5px;color:var(--text)}.po-note[hidden]{display:none}.composer.po{box-shadow:0 0 0 1.5px color-mix(in srgb,var(--warn) 55%,transparent)}
 .mem-act{display:none}.mem-on .mem-act{display:inline-flex;width:30px;padding:0;justify-content:center;color:var(--muted)}.mem-on .mem-act:hover{color:var(--ink)}
 .soul-prev{white-space:pre-wrap;font-size:12.5px;line-height:1.5;color:var(--text);max-height:7.5em;overflow:hidden;-webkit-mask-image:linear-gradient(#000 70%,transparent);mask-image:linear-gradient(#000 70%,transparent)}
 .soul-meta{margin:4px 0 6px}.soul-edit{margin-top:2px}

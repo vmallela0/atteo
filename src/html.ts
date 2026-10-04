@@ -265,6 +265,18 @@ const evJs = (agentChat: boolean) => `
   new MutationObserver(ms=>{if(!EV())return;for(const m of ms)for(const n of m.addedNodes)if(n.nodeType===1){if(n.matches&&n.matches('#thread>.entry'))evEntry(n,true);else if(n.querySelectorAll)n.querySelectorAll('.fold[data-fold="memory"] .fold-t').forEach(x=>say(x,true,'What assistants remember'))}}).observe(document.body,{childList:true,subtree:true});
 })();
 `;
+
+// People only (vedu #1264): a lock on the composer; only the people you @ see the message, and no agent ever does.
+const PO_BTN = `<button class="btn ghost sm po-btn" type="button" id="po-btn" aria-pressed="false" aria-label="People only" title="People only: only the people you @ can see it, agents can't"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><rect x="3.5" y="7" width="9" height="6.5" rx="1.6"/><path d="M5.5 7V5.2a2.5 2.5 0 0 1 5 0V7"/></svg></button>`;
+const PO_JS = `
+(()=>{const b=document.getElementById('po-btn'),inp=document.getElementById('po-in'),note=document.getElementById('po-note'),f=document.querySelector('form.composer');if(!b||!inp||!f)return;
+  const ta=document.getElementById('composer-text');let ph0=ta.placeholder;
+  window.poSet=on=>{b.setAttribute('aria-pressed',String(on));b.classList.toggle('on',on);inp.value=on?'true':'';note.hidden=!on;f.classList.toggle('po',on);ta.placeholder=on?'Only the people you @ will see this…':(ta.dataset.dev&&document.documentElement.dataset.mode!=='everyday'?ta.dataset.dev:ph0)};
+  b.addEventListener('click',()=>{poSet(b.getAttribute('aria-pressed')!=='true');ta.focus()});
+  // Needs someone to send it to: a person @mentioned in the text.
+  document.addEventListener('submit',e=>{if(e.target!==f||inp.value!=='true')return;if(!/(^|\\s)@[a-z0-9][a-z0-9_.-]*(?!'s agent)(?!\\/)/i.test(ta.value)){e.preventDefault();e.stopImmediatePropagation();toast('@ the people who should see it: agents never will')}},true);
+})();
+`;
 const voiceJs = (agentChat: boolean) => `
 (()=>{const SR=window.SpeechRecognition||window.webkitSpeechRecognition,syn=window.speechSynthesis,ta=document.getElementById('composer-text'),th=document.getElementById('thread'),
   mic=document.getElementById('mic-btn'),vb=document.getElementById('aloud-btn'),pill=document.getElementById('voice-pill');
@@ -1098,7 +1110,7 @@ let agentsAt=0;window.agentsRefresh=async()=>{if(document.hidden)return;const bo
   if(!pk&&peek){pk=document.createElement('span');pk.className='fold-peek truncate';box.querySelector('.fold-h').appendChild(pk)}if(pk)pk.textContent=peek;refreshTimes()};
 setInterval(agentsRefresh,30000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)agentsRefresh()});
 // Your post shows up the moment you send it (a "sending" copy), then the real one from the post's own response.
-window.posted=(j)=>{sendLook(false);const typed=SENT_TEXT!=null?ta.value:'';SENT_TEXT=null; // what you started typing while it sent survives the form's reset
+window.posted=(j)=>{if(j&&j.notice)toast(j.notice);if(window.poSet&&document.getElementById('po-in')?.value==='true')setTimeout(()=>poSet(false),0);sendLook(false);const typed=SENT_TEXT!=null?ta.value:'';SENT_TEXT=null; // what you started typing while it sent survives the form's reset
 const was=+rpTo.value;draftSave(sentKey,'');replyClear(true);document.querySelectorAll('#thread .entry.pending').forEach(x=>x.remove());
   if(j&&j.update&&addEntry(j.update)){if(!was){railBuild();toBottom()}}else stickNext=!was;
   tick(false);setTimeout(()=>{if(was&&!(window.thrRearm&&thrRearm())){replyShown(was);ta.value=draftLoad('')}if(typed&&!ta.value)ta.value=typed;ta.style.height='';ta.style.height=ta.value?ta.scrollHeight+2+'px':'';msync()},0)}; // after the form's reset
@@ -2089,7 +2101,7 @@ window.boardKeys=(e,k)=>{
     els.forEach(x=>x.classList.remove('sel'));const el=els[cur];if(el){el.classList.add('sel');el.scrollIntoView({block:'nearest'})}}
   if(e.key==='Enter'&&els[cur]){openEntry(BOARD,els[cur].dataset.seq)}
 };
-` + (canPic ? BOARD_PIC_JS : "") + (info.encrypted ? E2E_JS : "") + voiceJs(agentChat) + evJs(agentChat) + (agentChat ? "" : pinRecapJs(board.last_seen ?? 0, !readOnly && !info.archived) + soulMemoryJs(!readOnly && !info.archived));
+` + (canPic ? BOARD_PIC_JS : "") + (info.encrypted ? E2E_JS : "") + voiceJs(agentChat) + evJs(agentChat) + (agentChat ? "" : PO_JS) + (agentChat ? "" : pinRecapJs(board.last_seen ?? 0, !readOnly && !info.archived) + soulMemoryJs(!readOnly && !info.archived));
   const isCreator = viewer.name === info.created_by;
   const archivedBanner = info.archived
     ? `<div class="flash bp-banner"><span class="grow"><b>Archived.</b> This board is read-only.</span>${
@@ -2148,7 +2160,7 @@ window.boardKeys=(e,k)=>{
     <div class="typing" id="typing" aria-live="polite" hidden></div>
     <form class="card composer" method="post" action="/api/boards/${esc(info.id)}/entries" data-api data-reliable data-done="posted" data-failed="postFailed" data-retrying="postRetrying" data-reset${info.archived || readOnly || info.encrypted ? " hidden" : ""}>
       <div class="replying" id="replying" hidden><button class="rp-go" type="button" id="replying-go" title="Show the message">Replying to <b id="replying-who"></b><span class="rp-text" id="replying-text"></span></button><button class="btn ghost sm x" type="button" id="reply-cancel" aria-label="Cancel reply" title="Cancel reply (Esc)">✕</button></div>
-      <input type="hidden" name="reply_to" id="reply-to" value="">${agentChat ? `<input type="hidden" name="to_session" id="to-session" value="">` : ""}
+      <input type="hidden" name="reply_to" id="reply-to" value=""><input type="hidden" name="people_only" id="po-in" value=""><div class="po-note" id="po-note" hidden>🔒 <b>People only</b> · only the people you @ can see it. Agents can't.</div>${agentChat ? `<input type="hidden" name="to_session" id="to-session" value="">` : ""}
       <div class="voice-pill" id="voice-pill" hidden><button class="vp-t" type="button" id="vp-go"></button><button class="btn ghost sm x" type="button" id="vp-x" aria-label="Dismiss" title="Dismiss">✕</button></div>
       <div class="attachments" id="attachments" hidden></div>
       <div class="cmp-field"><div class="cmp-mirror" id="composer-mirror" aria-hidden="true"></div><textarea class="input" id="composer-text" name="text" required placeholder="${agentChat ? "Message your agent…" : "Write a message…  @ to mention"}" aria-label="Message"
@@ -2158,7 +2170,7 @@ window.boardKeys=(e,k)=>{
       <div class="bar">
         <button class="btn ghost sm attach" type="button" id="attach-btn" aria-label="Attach files" title="Attach files or images (or paste or drop them)"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M13.5 7.6 8.3 12.8a3.2 3.2 0 0 1-4.5-4.5l5.6-5.6a2.1 2.1 0 0 1 3 3L6.8 11.3a1 1 0 0 1-1.5-1.5l4.9-4.9"/></svg></button>
         <input type="file" id="attach-input" multiple hidden>
-        <button class="btn ghost sm at-btn" type="button" data-mention-for="composer-text" aria-label="Mention someone" title="Mention a person or their agent (or type @)">@</button>${agentChat ? sessionPicker(board.sessions ?? []) : ""}${VOICE_BTNS}
+        <button class="btn ghost sm at-btn" type="button" data-mention-for="composer-text" aria-label="Mention someone" title="Mention a person or their agent (or type @)">@</button>${agentChat ? sessionPicker(board.sessions ?? []) : ""}${VOICE_BTNS}${agentChat ? "" : PO_BTN}
         <input type="hidden" name="type" id="cmp-type" value="note">
         <span class="grow"></span><button class="btn primary sm">Post</button>
       </div>
