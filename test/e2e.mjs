@@ -4244,8 +4244,14 @@ await step("agent names: entries, members, agents and people carry agent_name wi
   const ss = await (await anApi(v, "GET", "/api/sessions")).json();
   assert(ss.owner === v && ss.agent_name === "Jarvis", JSON.stringify({ owner: ss.owner, agent_name: ss.agent_name }));
   // @Jarvis (any case) is v's agent: it lands in v's agent mailbox, like "@v's agent".
-  const e1 = (await (await web(`/api/boards/${anBoard}/entries`, j, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "question", text: `@jarvis can you check the deploy ${run}?` }) })).json()).entry;
+  const p1 = await (await web(`/api/boards/${anBoard}/entries`, j, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "question", text: `@jarvis can you check the deploy ${run}?` }) })).json();
+  const e1 = p1.entry;
   assert(JSON.stringify(e1.mentions) === JSON.stringify([{ user: v, agent: true }]), JSON.stringify(e1.mentions));
+  // The page draws "@jarvis" as that agent's chip: in the post's own response, live updates and earlier messages (jxn #1659).
+  const chip = `<span class="mention agent" data-user="${v}" title="${v}'s agent">@jarvis</span>`;
+  assert(p1.update.html.includes(chip), `post response: ${p1.update.html}`);
+  assert((await (await web(`/api/boards/${anBoard}/updates?after=${e1.seq - 1}`, j)).json()).entries.find((x) => x.seq === e1.seq).html.includes(chip), "live update");
+  assert((await (await web(`/api/boards/${anBoard}/entries?before=${e1.seq + 1}&limit=1`, j)).json()).entries[0].html.includes(chip), "earlier messages");
   let mb = [];
   for (let i = 0; i < 40 && !mb.some((x) => x.seq === e1.seq); i++) {
     mb = (await (await anApi(v, "GET", "/api/mailbox?peek=1&limit=50")).json()).mail ?? [];
