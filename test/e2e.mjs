@@ -2220,9 +2220,10 @@ await step("big boards open on the newest entries; earlier ones load on demand",
   assert((await ops("seed", { board: id, user: A, count: 320, prefix: `big` })).body.count === 320, "seeded");
   const page = await (await web(`/b/${id}`, A)).text();
   has(page, `big 319`);
+  assert(!/big 200</.test(page), "only the newest 80 are on the page");
   assert(!/big 0</.test(page), "the oldest entries aren't on the first page");
   const before = Number(page.match(/data-before="(\d+)"/)[1]);
-  const j = await (await web(`/api/boards/${id}/entries?before=${before}&limit=150`, A)).json();
+  const j = await (await web(`/api/boards/${id}/entries?before=${before}&limit=${before - 1}`, A)).json(); // the page shows the newest 80 (rail-cap, jxn #1365): the rest in one go
   assert(j.entries.length === before - 1 && j.first === 1 && j.entries[0].html.includes(`big 0<`), `${j.entries.length} ${j.first}`);
   const t0 = Date.now();
   has(await ok(A, id, "read"), "320 entries");
