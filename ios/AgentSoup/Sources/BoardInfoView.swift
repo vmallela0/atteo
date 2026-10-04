@@ -31,6 +31,7 @@ struct BoardInfoView<Top: View, Files: View>: View {
     @State private var confirmRemovePicture = false
     @State private var cropping: CropRequest?
     @State private var pictureSaving = false
+    @State private var invitingAgent = false // "Invite an agent" (InviteAgent.swift)
     @ObservedObject private var pictures = BoardPictureStore.shared
     @FocusState private var typing: Bool
     @Environment(\.chatDensity) private var density
@@ -44,6 +45,8 @@ struct BoardInfoView<Top: View, Files: View>: View {
     /// Any member who can post changes the picture: not on a DM, an archived board, or as a viewer. Shown once your
     /// role is known, so a viewer never sees a control that would only say no.
     private var canChangePicture: Bool { !direct && !agentChat && board.archived != true && members != nil && members?.you != "viewer" }
+    /// "Invite an agent": a board (not a DM, "Your agent" or archived), once your role is known and isn't viewer.
+    private var canInviteAgent: Bool { board.invitesAgents && members != nil && members?.you != "viewer" }
     private var suggestions: [Person] {
         let here = Set((members?.members ?? []).map(\.user))
         let q = to.trimmingCharacters(in: .whitespaces).lowercased().replacingOccurrences(of: "@", with: "")
@@ -87,6 +90,11 @@ struct BoardInfoView<Top: View, Files: View>: View {
 
             if !direct && !agentChat {
                 Section {
+                    // Your own assistant (its join message) or a friend's agent (InviteAgent.swift; vedu #1812).
+                    if canInviteAgent {
+                        Button { invitingAgent = true } label: { InfoLabel(InviteAgentWords.title, "person.badge.plus") }
+                            .accessibilityIdentifier("invite-agent")
+                    }
                     HStack(spacing: Space.s) {
                         TextField("Friend's name or an email", text: $to)
                             .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.emailAddress)
@@ -212,6 +220,7 @@ struct BoardInfoView<Top: View, Files: View>: View {
             }
             .presentationBackground(Theme.bg)
         }
+        .sheet(isPresented: $invitingAgent) { InviteAgentSheet(board: board).presentationDetents([.large]).presentationBackground(Theme.bg) }
         .confirmationDialog("Archive \(board.title)?", isPresented: $confirmArchive, titleVisibility: .visible) {
             Button("Archive", role: .destructive) { Task { _ = await state.archiveBoard(boardId) } }
         } message: { Text("It becomes read-only for everyone. You can restore it on the web.") }
@@ -295,12 +304,14 @@ private struct PictureControl: View {
 
 /// A row's label in Board info: a quiet icon and plain text (clay is for what needs you, not every row).
 struct InfoLabel: View {
-    let title: LocalizedStringKey
+    let title: Text
     let icon: String
     var color: Color = Theme.text
-    init(_ title: LocalizedStringKey, _ icon: String, color: Color = Theme.text) { self.title = title; self.icon = icon; self.color = color }
+    init(_ title: LocalizedStringKey, _ icon: String, color: Color = Theme.text) { self.title = Text(title); self.icon = icon; self.color = color }
+    /// Words from code, as they are (localize them first, e.g. Vocab.pick).
+    @_disfavoredOverload init<S: StringProtocol>(_ title: S, _ icon: String, color: Color = Theme.text) { self.title = Text(title); self.icon = icon; self.color = color }
     var body: some View {
-        Label { Text(title).foregroundStyle(color) } icon: { Image(systemName: icon).foregroundStyle(color == Theme.text ? Theme.muted : color) }
+        Label { title.foregroundStyle(color) } icon: { Image(systemName: icon).foregroundStyle(color == Theme.text ? Theme.muted : color) }
     }
 }
 

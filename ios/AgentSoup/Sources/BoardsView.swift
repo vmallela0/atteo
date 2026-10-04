@@ -10,6 +10,7 @@ struct BoardView: View {
     @State private var showTasks = false
     @State private var workPane: WorkPane? // Tasks or Files, from the top bar (always reachable)
     @State private var showAgents = false
+    @State private var invitingAgent = false // "Invite an agent", from the empty chat (InviteAgent.swift)
     @State private var talking = false // the voice chat sheet, from the phone at the top right (vedu #1783)
     @ObservedObject private var talkStatus = TalkStatus.shared // the phone shows once voice is set up on the server
     private var live: [BoardAgent] { (state.boardAgents[board.id] ?? []).filter { $0.state == "live" } }
@@ -135,6 +136,7 @@ struct BoardView: View {
         }
         .task { await talkStatus.load() }
         .fullScreenCover(isPresented: $talking) { TalkSheet(board: board) }
+        .sheet(isPresented: $invitingAgent) { InviteAgentSheet(board: board).presentationDetents([.large]).presentationBackground(Theme.bg) }
         // A "#123" in a message: go to it (or open its thread, if it's an answer).
         .environment(\.openURL, OpenURLAction { url in
             if let p = personLink(url) { profile = p; return .handled }
@@ -207,6 +209,13 @@ struct BoardView: View {
             .defaultScrollAnchor(stick || holdBottom ? .bottom : nil, for: .sizeChanges)
             .scrollDismissesKeyboard(.interactively)
             .background(Theme.bg)
+            // Nothing said yet: how agents get here, and "Invite an agent" (the web's empty board), in the middle.
+            .overlay {
+                if state.entries[board.id] != nil && r.shown.isEmpty && board.invitesAgents {
+                    EmptyChatInvite(board: board) { focused = false; invitingAgent = true }
+                        .transition(.opacity)
+                }
+            }
             // At the latest: the visible part (which includes what's under the composer) reaches the end.
             .onScrollGeometryChange(for: Bool.self) { g in g.visibleRect.maxY >= g.contentSize.height - 80 } action: { _, bottom in
                 if bottom != atBottom { withAnimation(.snappy) { atBottom = bottom } }
