@@ -3174,6 +3174,30 @@ await step("agent sessions: several per person, each with its own boards and rea
   await ok(A, b3, "post", { type: "note", text: `@${B}'s agent for-me ping ${run}`, reply_to: 0 });
   const fm = (await mineWait).body;
   assert(!fm.timed_out && fm.text.includes(`chatter for-me ${run}`) && fm.text.includes(`for-me ping ${run}`) && fm.text.includes("1 for you"), JSON.stringify(fm).slice(0, 400));
+  // Held wait (?ack): a reply lost on the way (a deploy, a dropped connection) comes back on the next wait; sending
+  // back the ack it returned moves past it. Without ?ack (older clients) a wait moves the read position, as before.
+  await api(B, "GET", `/api/sessions/${s1.id}/read`);
+  await ok(A, b3, "post", { type: "note", text: `@${B}'s agent held one ${run}`, reply_to: 0 });
+  const h1 = (await api(B, "GET", `/api/sessions/${s1.id}/wait?timeout=2&ack=`)).body;
+  assert(!h1.timed_out && h1.text.includes(`held one ${run}`) && new RegExp(`^${b3}:\\d+$`).test(h1.ack), JSON.stringify(h1).slice(0, 400));
+  const lost = (await api(B, "GET", `/api/sessions/${s1.id}/wait?timeout=2&ack=`)).body; // the first reply never arrived
+  assert(!lost.timed_out && lost.text.includes(`held one ${run}`) && lost.ack === h1.ack, "a lost reply comes again: " + JSON.stringify(lost).slice(0, 400));
+  const acked = (await api(B, "GET", `/api/sessions/${s1.id}/wait?timeout=1&ack=${encodeURIComponent(h1.ack)}`)).body;
+  assert(acked.timed_out && !acked.ack, "acked: not again: " + JSON.stringify(acked).slice(0, 300));
+  // Handed over but not acked yet counts as read: this session posting isn't stopped over it, nor told it missed it.
+  await ok(A, b3, "post", { type: "note", text: `@${B}'s agent held two ${run}`, reply_to: 0 });
+  const h3 = (await api(B, "GET", `/api/sessions/${s1.id}/wait?timeout=2&ack=${encodeURIComponent(h1.ack)}`)).body;
+  assert(!h3.timed_out && h3.text.includes(`held two ${run}`) && !h3.text.includes(`held one ${run}`), JSON.stringify(h3).slice(0, 400));
+  const afterHeld = await rpcRaw(sh(s1), b3, "tools/call", { name: "post", arguments: { type: "note", text: `answer to held two ${run}`, reply_to: 0 } });
+  assert(!afterHeld.isError && !afterHeld.content[0].text.includes(`held two ${run}`), afterHeld.content[0].text.slice(0, 300));
+  // A read sends the ack too (and starts past it): nothing held comes back.
+  const rAck = (await api(B, "GET", `/api/sessions/${s1.id}/read?board=${b3}&ack=${encodeURIComponent(h3.ack)}`)).body;
+  assert(rAck.boards[0].entries.length === 0, JSON.stringify(rAck.boards[0].entries).slice(0, 300));
+  // Old clients (no ?ack): the wait moves the read position at once, and never returns an ack.
+  await ok(A, b3, "post", { type: "note", text: `@${B}'s agent unheld ${run}`, reply_to: 0 });
+  const old1 = (await api(B, "GET", `/api/sessions/${s1.id}/wait?timeout=2`)).body;
+  assert(!old1.timed_out && old1.text.includes(`unheld ${run}`) && old1.ack === undefined, JSON.stringify(old1).slice(0, 300));
+  assert((await api(B, "GET", `/api/sessions/${s1.id}/wait?timeout=1`)).body.timed_out, "old clients: once");
   // List, rename (then found by name), leave a board, only your own, end
   assert((await api(B, "GET", "/api/sessions")).body.sessions.some((x) => x.id === s1.id && x.boards.length === 2), "listed with its boards");
   assert((await api(B, "POST", `/api/sessions/${s1.id}`, { name: "scout" })).body.session.name === "scout", "rename");

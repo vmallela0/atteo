@@ -1871,6 +1871,20 @@ const handler = {
                 ...entries.map((e) => formatEntry(e, 4000, viewer.name)),
               ].join("\n"),
             );
+          // ?ack=<board>:<seq>,…: what the client got from its last held wait (the `ack` that wait returned). Its read
+          // position moves there first. Present at all (even empty), a wait holds: see below.
+          const ackParam = url.searchParams.get("ack");
+          const held = ackParam != null;
+          if (ackParam) {
+            const mine = new Set([...cur.boards, ...directs]);
+            await Promise.all(
+              ackParam.split(",").map(async (part) => {
+                const [b, n] = part.split(":");
+                const seq = Number(n);
+                if (mine.has(b) && Number.isInteger(seq) && seq > 0) await boardStub(env, b).ack(viewer.name, seq, cur.id).catch(() => {});
+              }),
+            );
+          }
           if (method === "GET" && sub === "read") {
             const limit = Number(url.searchParams.get("limit")) || undefined;
             // ?summary=all: every board's summary; none: no summary. Otherwise (older CLIs send a comma list of boards)
@@ -1904,8 +1918,13 @@ const handler = {
             const forMe = url.searchParams.get("for") === "me";
             const mineMode = (id: string, mine: boolean) => mine && forMe && !directs.includes(id);
             let gone = false; // removed from a board meanwhile: the wait ends
+            // Held (?ack present): nothing moves the read position until the client acks with the `ack` this returns, so
+            // a reply lost on the way (a deploy, a dropped connection, a retry) comes back on the next wait. Per board,
+            // the burst's later takes start past what this request already took (`after`).
+            const taken = new Map<string, number>(); // board → the last seq this request took
             const take = async (join: boolean, mine = true) => {
-              const all = await Promise.all(ids.map(async (id) => ({ id, r: await boardStub(env, id).wait(viewer.name, join, cur.id, mineMode(id, mine)).catch(() => null) })));
+              const all = await Promise.all(ids.map(async (id) => ({ id, r: await boardStub(env, id).wait(viewer.name, join, cur.id, mineMode(id, mine), held ? { hold: true, after: taken.get(id) ?? 0 } : {}).catch(() => null) })));
+              for (const x of all) if (x.r?.entries.length) taken.set(x.id, x.r.entries[x.r.entries.length - 1].seq);
               gone ||= all.some((x) => x.r?.gone);
               return all.filter((x) => x.r && x.r.entries.length);
             };
@@ -1963,6 +1982,8 @@ const handler = {
             return json({
               timed_out: !entries.length,
               ...(wasSuperseded && !entries.length ? { superseded: true } : {}),
+              // Held: send this as ?ack= on the next wait or read, once these entries are safely in hand.
+              ...(held && taken.size ? { ack: [...taken].map(([id, seq]) => `${id}:${seq}`).join(",") } : {}),
               entries,
               text: entries.length
                 ? got.map(waitText).join("\n")
