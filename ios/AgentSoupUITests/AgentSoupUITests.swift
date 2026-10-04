@@ -587,6 +587,12 @@ final class AgentSoupUITests: XCTestCase {
         let onIt = a.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'on-it-'")).firstMatch
         if onIt.waitForExistence(timeout: 3) {
             if a.keyboards.count > 0 { a.swipeDown(velocity: .slow); sleep(1) } // keyboard down
+            // That swipe also scrolls the chat up, and the lazy list drops the question below the fold: bringIntoView
+            // reads a missing element as "above" and would scroll the wrong way, so back to the latest first (the
+            // question is a few messages up from there).
+            let latest = a.buttons["Jump to latest"]
+            if !onIt.exists && latest.exists { latest.tap(); sleep(1) }
+            XCTAssertTrue(onIt.waitForExistence(timeout: 5), "On it, near the latest")
             bringIntoView(onIt)
             onIt.tap()
             XCTAssertTrue(a.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'handling' AND label CONTAINS 'on it'")).firstMatch.waitForExistence(timeout: 5), "who's on it")

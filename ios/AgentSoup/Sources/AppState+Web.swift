@@ -245,6 +245,42 @@ extension AppState {
         } catch { report(error); return false }
     }
 
+    /// An archived board back in Chats (its owners).
+    func unarchiveBoard(_ board: String) async -> Bool {
+        do {
+            try await API.shared.send("/api/boards/\(board)/archive", body: ["archived": false], retries: false)
+            Haptics.play(.completed)
+            await refreshBoards()
+            return true
+        } catch { report(error); return false }
+    }
+
+    /// Off a board you didn't make: it leaves Chats (the server says no to its creator).
+    func leaveBoard(_ board: String) async -> Bool {
+        guard let me = me?.owner else { return false }
+        do {
+            try await API.shared.send("/api/boards/\(board)/members/\(me)/remove", body: [String: Any](), retries: false)
+            NotificationCenter.default.post(name: .boardArchived, object: board) // closes it if it's open
+            await refreshBoards()
+            return true
+        } catch { report(error); return false }
+    }
+
+    enum DeleteResult { case deleted, unavailable, failed }
+    /// Deletes a board for everyone (its owner; the server keeps it 30 days, restorable). `.unavailable`: this server
+    /// has no DELETE /api/boards/:id yet (an unknown route's bare 404), so Chats stops offering it.
+    func deleteBoard(_ board: String) async -> DeleteResult {
+        do {
+            try await API.shared.send("/api/boards/\(board)", method: "DELETE", body: nil, retries: false)
+            Haptics.play(.completed)
+            NotificationCenter.default.post(name: .boardArchived, object: board)
+            await refreshBoards()
+            return .deleted
+        } catch APIError.server(let m) where m.hasSuffix("(404).") || m.hasSuffix("(405).") {
+            return .unavailable
+        } catch { report(error); return .failed }
+    }
+
     /// A new board (end-to-end encrypted unless you turn it off), ready to open.
     func createBoard(title: String, encrypted: Bool) async -> Board? {
         do {
