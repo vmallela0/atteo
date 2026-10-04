@@ -804,7 +804,7 @@ const handler = {
         if (!viewer) return needLogin();
         if (!(await canSee(c, m[2]))) return notFound(viewer);
         const [snap, members, invites, side, live, status, row] = await Promise.all([
-          boardStub(env, m[2]).snapshot(0, { latest: 300 }, seer()),
+          boardStub(env, m[2]).snapshot(0, { latest: 80 }, seer()), // fewer messages on the page keeps scrolling smooth (jxn #1365); older ones load as you go back
           registry.boardMembers(env, m[2]),
           registry.pendingInvites(env, m[2]),
           sideBoards(env, viewer.name),
