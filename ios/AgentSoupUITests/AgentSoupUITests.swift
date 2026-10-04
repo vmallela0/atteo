@@ -668,8 +668,9 @@ final class AgentSoupUITests: XCTestCase {
         let task = any["task-row-Write the incident note"].firstMatch
         XCTAssertTrue(task.waitForExistence(timeout: 5), "the task is in the list")
         task.tap()
-        // Who's on it shows in the task (read-only now: there's no Claim).
+        // Who's on it shows in the task; an available task also offers Claim.
         XCTAssertTrue(any["task-owner"].firstMatch.waitForExistence(timeout: 5), "the task says who's on it")
+        XCTAssertTrue(a.buttons["task-claim"].exists, "the available task can be claimed")
         // Tick a checklist line by tapping it; the server has the tick.
         let line = a.buttons["check-timeline of the outage"]
         XCTAssertTrue(line.exists)
