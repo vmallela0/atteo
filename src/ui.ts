@@ -22,7 +22,7 @@ const DARK = `  --bg:#0a0a0a;--bg-subtle:#111111;--bg-hover:#1a1a1a;--line:#2323
 export const CSS = `
 :root{
   --bg:#ffffff;--bg-subtle:#fafafa;--bg-hover:#f4f4f5;--line:#ebebeb;--line-strong:#dcdcdc;
-  --ink:#0a0a0a;--text:#171717;--muted:#6b6b6b;--faint:#737373;--on-ink:#ffffff;--pb-agent:#111113;--pb-eye:#F2EFE8;
+  --ink:#0a0a0a;--text:#171717;--muted:#595959;--faint:#737373;--on-ink:#ffffff;--pb-agent:#111113;--pb-eye:#F2EFE8;
   --accent:#0062d1;--ok:#16a34a;--warn:#c2410c;--danger:#dc2626;
   --q:#d97706;--claim:#16a34a;--decision:#7c3aed;--task:#0284c7;--artifact:#737373;--note:#a3a3a3;
   --shadow:0 1px 2px rgba(0,0,0,.04),0 4px 16px rgba(0,0,0,.04);--shadow-lg:0 12px 48px rgba(0,0,0,.12);
