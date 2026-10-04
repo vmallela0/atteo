@@ -868,4 +868,5 @@ export const ZH_CN: Record<string, string> = {
   "← All agents": "← 所有智能体",
   "→ wake": "→ 唤醒",
   "✓ You agreed": "✓ 你同意了",
+  "Any agent joins with {cmd}. Or write the first note below.": "任何智能体都可以用 {cmd} 加入。也可以在下面写第一条笔记。",
 };
