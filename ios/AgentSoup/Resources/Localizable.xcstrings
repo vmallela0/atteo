@@ -9300,6 +9300,52 @@
         }
       }
     },
+    "Cancel reply": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancelar respuesta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Annuler la réponse"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "जवाब रद्द करें"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "返信をやめる"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "답장 취소"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消回复"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消回覆"
+          }
+        }
+      }
+    },
     "Captions": {
       "localizations": {
         "es": {
@@ -19797,48 +19843,48 @@
         }
       }
     },
-    "Muse sets itself up from a message. Copy this and paste it into Muse:": {
+    "Muse Code: paste this instead.": {
       "localizations": {
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Muse se configura a partir de un mensaje. Copia esto y pégalo en Muse:"
+            "value": "Muse Code: pega esto en su lugar."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Muse se configure à partir d’un message. Copiez ceci et collez-le dans Muse :"
+            "value": "Muse Code : collez plutôt ceci."
           }
         },
         "hi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Muse एक संदेश से अपने आप सेट हो जाता है। इसे कॉपी करें और Muse में पेस्ट करें:"
+            "value": "Muse Code: इसके बजाय यह पेस्ट करें।"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Muse はメッセージから自動で設定されます。これをコピーして Muse に貼り付けてください："
+            "value": "Muse Code の場合は、代わりにこちらを貼り付けてください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Muse는 메시지 하나로 스스로 설정합니다. 이것을 복사해 Muse에 붙여 넣으세요:"
+            "value": "Muse Code: 대신 이것을 붙여 넣으세요."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Muse 可以根据一条消息自行设置。复制下面的内容并粘贴到 Muse："
+            "value": "Muse Code：改为粘贴这段。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Muse 可以根據一條訊息自行設定。複製下面的內容並貼上到 Muse："
+            "value": "Muse Code：改為貼上這段。"
           }
         }
       }
@@ -22338,13 +22384,13 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rien ne se passe tant que vous ne dites pas « yes » ou ne touchez pas Oui."
+            "value": "Rien ne se passe tant que vous ne dites pas « oui » ou ne touchez pas Oui."
           }
         },
         "hi": {
           "stringUnit": {
             "state": "translated",
-            "value": "जब तक आप “yes” न कहें या हाँ पर टैप न करें, कुछ नहीं होगा।"
+            "value": "जब तक आप “हाँ” न कहें या हाँ पर टैप न करें, कुछ नहीं होगा।"
           }
         },
         "ja": {
@@ -22362,13 +22408,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在你说“yes”或点按“是”之前，什么都不会执行。"
+            "value": "在你说“好”或点按“是”之前，什么都不会执行。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在你說“yes”或點按“是”之前，什麼都不會執行。"
+            "value": "在你說“好”或點按“是”之前，什麼都不會執行。"
           }
         }
       }
@@ -24171,6 +24217,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "貼上到 Muse"
+          }
+        }
+      }
+    },
+    "Paste it into a Muse chat.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pégalo en un chat de Muse."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collez-le dans une conversation Muse."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "इसे Muse की किसी चैट में पेस्ट करें।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muse のチャットに貼り付けてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muse 채팅에 붙여 넣으세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "把它粘贴到 Muse 的聊天中。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "把它貼到 Muse 的聊天中。"
           }
         }
       }
@@ -26747,6 +26839,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "回覆一條更早的訊息"
+          }
+        }
+      }
+    },
+    "Replying to": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Respondiendo a"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En réponse à"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "इसे जवाब दे रहे हैं"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "返信先："
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "답장 대상:"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在回复"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回覆給"
           }
         }
       }
@@ -31797,52 +31935,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "主題"
-          }
-        }
-      }
-    },
-    "Then sign in when it asks, and choose Allow.": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Luego inicia sesión cuando te lo pida y elige Permitir."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Connectez-vous ensuite quand il le demande, puis choisissez Autoriser."
-          }
-        },
-        "hi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "फिर पूछे जाने पर साइन इन करें और अनुमति दें चुनें।"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "求められたらサインインして、「許可」を選択してください。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "그런 다음 요청하면 로그인하고 허용을 선택하세요."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "然后按提示登录，并选择“允许”。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "然後按提示登入，並選擇“允許”。"
           }
         }
       }
@@ -39241,6 +39333,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "你的"
+          }
+        }
+      }
+    },
+    "yourself": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ti mismo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vous-même"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ख़ुद को"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自分"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "나 자신"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自己"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自己"
           }
         }
       }

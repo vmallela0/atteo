@@ -1,7 +1,8 @@
 // "Bring your assistant" (ios/qa/design/everyday, `firstrun`): after sign-in, when you have no assistant connected yet,
 // Everyday asks which one you use. Each tile does what the web's connect page does (src/html.ts connectTiles): Grok,
 // ChatGPT and Claude copy Atteo's link and open their connectors page (paste it there, sign in, Allow); Muse has no
-// one-tap path, so it's a message to paste into it. Coding agents (Claude Code, Codex) get their one-line command, and
+// one-tap path, so it's a message to paste into a Muse chat, which builds a custom connector (#2050; Muse Code, the
+// developer one, gets the settings.json message under it). Coding agents (Claude Code, Codex) get their one-line command, and
 // Developer mode turns on by itself once one connects. Skippable; Settings → Your assistant opens it again.
 
 import SwiftUI
@@ -186,8 +187,12 @@ struct ConnectSteps: View {
     @Environment(\.openURL) private var openURL
     @State private var copied: String?
 
-    /// What to paste into Muse (the web's message, word for word).
+    /// What to paste into a Muse chat (the web's message, word for word: Muse builds a custom connector, #2050/#2055).
     private var museMessage: String {
+        "Create a custom connector for this MCP server: \(atteoMCP)\nThen sign in to Atteo when it asks. It is how you work with agents owned by other people, on shared boards."
+    }
+    /// Developer Muse (Muse Code) instead: the server goes in its settings file.
+    private var museCodeMessage: String {
         "Add an MCP server named \"atteo\" to your settings (~/.config/muse/settings.json), transport streamable_http, url \(atteoMCP), then sign in to it when it asks. It is how you work with agents owned by other people, on shared boards."
     }
     private var commands: [(label: String, text: String)] {
@@ -218,9 +223,11 @@ struct ConnectSteps: View {
                         Text("Then tell \(provider.name) “list my Atteo chats”. Once it's connected, it shows up here by itself.")
                             .font(Typo.secondary).foregroundStyle(Theme.muted)
                     } else if provider == .muse {
-                        Text("Muse sets itself up from a message. Copy this and paste it into Muse:").font(Typo.body).foregroundStyle(Theme.text)
                         copyField(museMessage)
-                        Text("Then sign in when it asks, and choose Allow.").font(Typo.secondary).foregroundStyle(Theme.muted)
+                        Text("Paste it into a Muse chat.").font(Typo.body).foregroundStyle(Theme.text)
+                        // Developer Muse sets up from its settings file instead: small, under the main way.
+                        Text("Muse Code: paste this instead.").font(Typo.meta).foregroundStyle(Theme.muted).padding(.top, Space.s)
+                        copyField(museCodeMessage, mono: true)
                     } else {
                         Text("Paste one line in your terminal; it opens a browser to sign in.").font(Typo.body).foregroundStyle(Theme.text)
                         ForEach(commands, id: \.label) { c in

@@ -23,6 +23,7 @@ final class VoiceInput: ObservableObject {
     private var onText: ((String, Bool) -> Void)?
     private var hints: [String] = [] // words to listen for: this board's @groups, members and agents (jxn #1731)
     private var wanted = false // still held (permission prompts take a moment)
+    private var session = 0 // this listen's number: a late result or timer from an earlier one doesn't touch it
 
     /// "…send it" at the end: the words before it, or nil.
     static func sendIt(_ s: String) -> String? {
@@ -35,6 +36,7 @@ final class VoiceInput: ObservableObject {
     /// so far, and `true` once it's final. `hints`: names it should expect (the board's members and their agents).
     func start(hints: [String] = [], onText: @escaping (String, Bool) -> Void) {
         guard !listening else { return }
+        settle()
         wanted = true
         self.onText = onText
         self.hints = hints
@@ -58,10 +60,17 @@ final class VoiceInput: ObservableObject {
         engine.inputNode.removeTap(onBus: 0)
         listening = false
         // The recognizer finishes the last words a moment later (its final result); don't wait forever.
+        let mine = session
         Task { [weak self] in
             try? await Task.sleep(nanoseconds: 1_200_000_000)
-            self?.finish()
+            if let self, self.session == mine { self.finish() }
         }
+    }
+
+    /// An earlier listen still finishing (stopped, its last words not in yet): its words go in now, as they are, so
+    /// talking again right away starts clean instead of the old one's final landing on (or ending) the new one.
+    func settle() {
+        if !listening, task != nil { finish() }
     }
 
     private func finish() {
@@ -102,6 +111,8 @@ final class VoiceInput: ObservableObject {
             req.contextualStrings = hints
             request = req
             heard = ""
+            session += 1
+            let mine = session
             let input = engine.inputNode
             let f = input.outputFormat(forBus: 0)
             guard f.sampleRate > 0, f.channelCount > 0 else {
@@ -116,7 +127,7 @@ final class VoiceInput: ObservableObject {
             Haptics.play(.touch)
             task = recognizer.recognitionTask(with: req) { [weak self] result, error in
                 Task { @MainActor in
-                    guard let self else { return }
+                    guard let self, self.session == mine else { return } // an earlier listen's late words
                     if let result {
                         self.heard = result.bestTranscription.formattedString
                         if result.isFinal { self.finish() } else { self.onText?(self.heard, false) }
@@ -139,7 +150,6 @@ struct MicButton: View {
     var identifier = "mic"
     /// This board's members, so "at vedu" goes in as "@vedu" (SpokenMentions.swift).
     var spoken: SpokenMentions? = nil
-    @State private var base = "" // what was in the box before this hold
     @State private var holding = false
     @State private var pressedAt = Date.distantPast
     @State private var tapMode = false
@@ -180,18 +190,68 @@ struct MicButton: View {
             } message: { Text(voice.problem ?? "") }
     }
 
+    /// Each listen starts from what's in the box now (an earlier one's last words in first), and what you change by
+    /// hand while it listens stays: what you say next goes after it (DictationMerge). The merge lives in the closure,
+    /// not the view: the mic gives way to send once there's text, before the last words are in.
     private func start() {
-        let d = draft.replacingOccurrences(of: #"\s+$"#, with: "", options: .regularExpression)
-        base = d.isEmpty ? "" : d + " "
+        voice.settle()
+        let merge = DictationMerge.Box(DictationMerge(draft))
         let spoken = spoken
+        let draft = $draft
         voice.start(hints: spoken?.hints ?? []) { text, final in
+            let say: (String) -> String = { spoken?.apply($0) ?? $0 }
             if final, let words = VoiceInput.sendIt(text) {
-                draft = base + (spoken?.apply(words) ?? words)
-                if !draft.trimmingCharacters(in: .whitespaces).isEmpty { send() }
+                draft.wrappedValue = merge.value.merge(words, into: draft.wrappedValue, say)
+                if !draft.wrappedValue.trimmingCharacters(in: .whitespaces).isEmpty { send() }
             } else {
-                draft = base + (spoken?.apply(text) ?? text)
+                draft.wrappedValue = merge.value.merge(text, into: draft.wrappedValue, say)
             }
         }
+    }
+}
+
+/// Dictation into a box you can type in too. What's heard goes after what the box held when listening started; if
+/// the box is changed by hand while it listens, that change stays and only the words heard after it are added, at
+/// the end (the recognizer rewrites its whole transcript as it goes, so it can't simply be put back each time).
+struct DictationMerge {
+    private(set) var base: String // the box's text the transcript goes after ("…words " or "")
+    private var consumed = "" // the transcript already in `base` (heard before a hand edit)
+    private var heardLast = "" // the transcript at the last write
+    private var written: String // the box as dictation last left it (at the start: as it was)
+
+    init(_ draft: String) { base = Self.joined(draft); written = draft }
+
+    /// Reference storage for a listen's closure.
+    final class Box { var value: DictationMerge; init(_ v: DictationMerge) { value = v } }
+
+    /// The box with what's heard so far (`heard`: the recognizer's whole transcript of this listen; `say`: dictation's
+    /// mentions, "at vedu" → "@vedu").
+    mutating func merge(_ heard: String, into draft: String, _ say: (String) -> String = { $0 }) -> String {
+        if draft != written { base = Self.joined(draft); consumed = heardLast } // changed by hand: keep it
+        heardLast = heard
+        let fresh = Self.after(consumed, in: heard)
+        let out = fresh.isEmpty ? draft : base + say(fresh)
+        written = out
+        return out
+    }
+
+    /// Text with one space after it to go on from ("" when empty).
+    static func joined(_ s: String) -> String {
+        let d = s.replacingOccurrences(of: #"\s+$"#, with: "", options: .regularExpression)
+        return d.isEmpty ? "" : d + " "
+    }
+
+    /// The words of `heard` after `consumed`: what follows it when `heard` still starts with it (at a word's end),
+    /// else after as many words (the recognizer changed one of them: the hand edit wins).
+    static func after(_ consumed: String, in heard: String) -> String {
+        let h = heard.trimmingCharacters(in: .whitespaces), c = consumed.trimmingCharacters(in: .whitespaces)
+        if c.isEmpty { return h }
+        if h.hasPrefix(c) {
+            let rest = h.dropFirst(c.count)
+            if rest.isEmpty || rest.first!.isWhitespace { return rest.trimmingCharacters(in: .whitespaces) }
+        }
+        let n = c.split(whereSeparator: \.isWhitespace).count
+        return h.split(whereSeparator: \.isWhitespace).dropFirst(n).joined(separator: " ")
     }
 }
 
