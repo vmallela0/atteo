@@ -42,3 +42,24 @@ describe("approval entry in the conversation", () => {
     expect(entryHtml(e as never, "b_test1234", true, { retracted: true })).not.toContain("data-apc=");
   });
 });
+
+describe("keyboard approvals (#1426)", () => {
+  it("the card script compiles and keys only the focused or picked card; the card shows the hint for its person", async () => {
+    const { approvalJs, approvalCardHtml } = await import("../src/approvalCard");
+    const js = approvalJs("jxn");
+    expect(() => new Function(js)).not.toThrow();
+    expect(js).toContain("#thread .entry.sel .apc.st-pending, .apc.kbd-sel");
+    expect(js).toContain("input,textarea,select,[contenteditable]");
+    const html = approvalCardHtml({ id: "ap_x", user: "jxn", status: "pending", risk: "high", command: "rm -rf build" }, true);
+    expect(html).toContain('class="apc-kbd');
+    expect(html).toContain("High risk");
+  });
+  it("the Approvals page script compiles, says the keys, and makes each waiting request focusable", async () => {
+    const { approvalsPage } = await import("../src/approvalsPage");
+    const a = { id: "ap_y", user: "jxn", status: "pending", title: "Deploy", risk: "high", created_at: 1, expires_at: Date.now() + 60000 } as unknown as Parameters<typeof approvalsPage>[2][number];
+    const html = await approvalsPage({ name: "jxn", email: "j@example.com", display_name: null, admin: false }, [], [a], {}).text();
+    expect(html).toContain('class="xs faint ap-keys"');
+    expect(html).toContain('id="ap_y" tabindex="0"');
+    for (const s of [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1])) expect(() => new Function(s)).not.toThrow();
+  });
+});
