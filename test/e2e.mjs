@@ -4549,6 +4549,117 @@ await step("voice (POST /api/app/voice/session): people only, validated, rate li
   });
 }
 
+// ---- Free-plan guardrails (src/limits.ts): per-token rate limit, daily budget, load shedding, one wait per session.
+// Limits are lowered for this isolate through /api/ops/limits (wrangler dev runs one) and always reset afterwards.
+{
+  const LU = `e2e-lim-${run}`;
+  let lb = null;
+  const lim = { agent: null, app: null, cookie: null };
+  const call = async (token, method, path, body) => {
+    const r = await fetch(`${BASE}${path}`, { method, headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
+    return { status: r.status, retry: r.headers.get("retry-after"), body: await r.json().catch(() => ({})) };
+  };
+  const setLimits = async (o) => {
+    const r = await ops("limits", o);
+    assert(r.status === 200, `ops limits: ${r.status} ${JSON.stringify(r.body)}`);
+    return r.body;
+  };
+  const guarded = (name, fn) =>
+    step(name, async () => {
+      if (!lim.agent) {
+        assert((await ops("users", { name: LU, email: `${LU}@example.com`, verified: "true" })).status === 201, "limits user");
+        lim.agent = (await ops("tokens", { user: LU, label: "e2e" })).body.token;
+        lim.app = (await ops("tokens", { user: LU, label: "e2e app", kind: "app" })).body.token;
+        lim.cookie = (await ops("sessions", { user: LU })).body.cookie;
+        lb = (await ops("boards", { user: LU, title: `e2e limits ${run}` })).body.board.id;
+      }
+      await setLimits({ reset: true, shed: 0 });
+      try {
+        await fn();
+      } finally {
+        await setLimits({ reset: true, shed: 0 });
+      }
+    });
+
+  await guarded("limits: per-token rate limit answers 429 with Retry-After; health and static files are exempt", async () => {
+    await setLimits({ agentPerMin: 3, appPerMin: 5 });
+    for (let i = 0; i < 3; i++) assert((await call(lim.agent, "GET", "/api/me")).status === 200, `agent call ${i + 1}`);
+    const r = await call(lim.agent, "GET", "/api/me");
+    assert(r.status === 429 && Number(r.retry) > 0 && /at most 3 requests a minute/.test(r.body.error) && r.body.retry_after > 0, `4th agent call: ${r.status} ${r.retry} ${JSON.stringify(r.body)}`);
+    // MCP with the same token: the same window, as a JSON-RPC error.
+    const m = await fetch(`${BASE}/mcp`, { method: "POST", headers: { authorization: `Bearer ${lim.agent}`, "content-type": "application/json", accept: "application/json, text/event-stream" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }) });
+    const mj = await m.json();
+    assert(m.status === 429 && Number(m.headers.get("retry-after")) > 0 && /at most 3 requests/.test(mj.error?.message ?? ""), `MCP: ${m.status} ${JSON.stringify(mj)}`);
+    // The app's token (the person) has its own, higher limit.
+    for (let i = 0; i < 5; i++) assert((await call(lim.app, "GET", "/api/me")).status === 200, `app call ${i + 1}`);
+    assert((await call(lim.app, "GET", "/api/me")).status === 429, "6th app call");
+    // Exempt: health checks and static files, even with the throttled token.
+    for (const p of ["/health", "/skill.md", "/favicon.svg", "/openapi.json"]) assert((await fetch(`${BASE}${p}`, { headers: { authorization: `Bearer ${lim.agent}` } })).status === 200, `${p} exempt`);
+  });
+
+  await guarded("limits: daily budget: agents get 429 'Daily limit reached'; waits don't count; the web keeps reading", async () => {
+    await setLimits({ dailyFree: 4 });
+    for (let i = 0; i < 3; i++) assert((await call(lim.agent, "GET", "/api/me")).status === 200, `call ${i + 1}`);
+    // Long-polls aren't counted (one open per session instead).
+    const waits = await Promise.all([1, 2, 3].map(() => call(lim.agent, "GET", `/api/boards/${lb}/entries?after=999999&wait=1`)));
+    assert(waits.every((w) => w.status === 200), `waits: ${waits.map((w) => w.status)}`);
+    assert((await call(lim.agent, "GET", "/api/me")).status === 200, "4th counted call");
+    const r = await call(lim.agent, "GET", "/api/me");
+    assert(r.status === 429 && /^Daily limit reached/.test(r.body.error) && Number(r.retry) > 0 && Number(r.retry) <= 86400, `over budget: ${r.status} ${r.retry} ${JSON.stringify(r.body)}`);
+    const w = await call(lim.agent, "GET", `/api/boards/${lb}/entries?after=0&wait=1`);
+    assert(w.status === 429, `an over-budget agent's wait: ${w.status}`);
+    // The person on the web: pages and reads still work, changes don't.
+    const page = await fetch(`${BASE}/api/me`, { headers: { cookie: lim.cookie } });
+    assert(page.status === 200, `web read: ${page.status}`);
+    const post = await fetch(`${BASE}/api/boards/${lb}/entries`, { method: "POST", headers: { cookie: lim.cookie, "content-type": "application/json" }, body: JSON.stringify({ text: "over budget" }) });
+    assert(post.status === 429 && /still read/.test((await post.json()).error), `web write: ${post.status}`);
+  });
+
+  await guarded("limits: load shedding: level 2 refuses non-essential agent writes (503); posting still works; the cron sets levels", async () => {
+    const posted = await call(lim.agent, "POST", `/api/boards/${lb}/entries`, { text: `shed ${run}` });
+    assert(posted.status === 201, `post: ${posted.status} ${JSON.stringify(posted.body)}`);
+    const seq = posted.body.entry?.seq ?? posted.body.seq;
+    await setLimits({ shed: 2 });
+    const re = await call(lim.agent, "POST", `/api/boards/${lb}/entries/${seq}/react`, { emoji: "👍" });
+    assert(re.status === 503 && Number(re.retry) > 0, `agent reaction at level 2: ${re.status} ${JSON.stringify(re.body)}`);
+    assert((await call(lim.agent, "POST", `/api/boards/${lb}/entries`, { text: `still posting ${run}` })).status === 201, "agent post at level 2");
+    assert((await call(lim.agent, "GET", `/api/boards/${lb}/entries?after=0`)).status === 200, "agent read at level 2");
+    const pr = await fetch(`${BASE}/api/boards/${lb}/entries/${seq}/react`, { method: "POST", headers: { cookie: lim.cookie, "content-type": "application/json" }, body: JSON.stringify({ emoji: "👍" }) });
+    assert(pr.status === 200, `a person's reaction at level 2: ${pr.status}`);
+    // Level 1: open tabs are asked to pause between long-polls.
+    await setLimits({ shed: 1 });
+    const up = await (await fetch(`${BASE}/api/boards/${lb}/updates?after=0`, { headers: { cookie: lim.cookie } })).json();
+    assert(up.poll_after_ms > 0, `poll hint: ${up.poll_after_ms}`);
+    // The cron: today's requests over the level-1 threshold → 1; defaults (far above an e2e run) → 0.
+    await setLimits({ shedL1Requests: 1, shedL2Requests: 1e12 });
+    const c1 = await ops("cron", {});
+    assert(c1.body.shed?.level === 1 && c1.body.shed.requests >= 1, `cron level 1: ${JSON.stringify(c1.body.shed)}`);
+    await setLimits({ reset: true });
+    const c0 = await ops("cron", {});
+    assert(c0.body.shed?.level === 0, `cron level 0: ${JSON.stringify(c0.body.shed)}`);
+  });
+
+  await guarded("limits: one open wait per agent session (a newer wait ends the older); a cap on live sessions", async () => {
+    const s = await call(lim.agent, "POST", "/api/sessions", { client: "e2e" });
+    assert(s.status === 201, `session: ${s.status} ${JSON.stringify(s.body)}`);
+    const sid = s.body.session.id;
+    await call(lim.agent, "POST", `/api/sessions/${sid}/boards`, { board: lb });
+    const t0 = Date.now();
+    const first = call(lim.agent, "GET", `/api/sessions/${sid}/wait?timeout=20`);
+    await new Promise((r) => setTimeout(r, 700));
+    const second = await call(lim.agent, "GET", `/api/sessions/${sid}/wait?timeout=1`);
+    const a = await first;
+    assert(a.status === 200 && a.body.superseded === true && Date.now() - t0 < 10_000, `older wait: ${a.status} ${JSON.stringify(a.body)} after ${Date.now() - t0}ms`);
+    assert(second.status === 200 && !second.body.superseded, `newer wait: ${JSON.stringify(second.body)}`);
+    // Live sessions: at most MAX_LIVE_SESSIONS (2 here); this person has one live.
+    await setLimits({ liveSessions: 2 });
+    assert((await call(lim.agent, "POST", "/api/sessions", { client: "e2e" })).status === 201, "second session");
+    const third = await call(lim.agent, "POST", "/api/sessions", { client: "e2e" });
+    assert(third.status === 429 && /live agent sessions/.test(third.body.error) && Number(third.retry) > 0, `third session: ${third.status} ${JSON.stringify(third.body)}`);
+    await call(lim.agent, "DELETE", "/api/sessions");
+  });
+}
+
 if (/localhost|127\.0\.0\.1/.test(BASE) && process.env.E2E_FULL) {
   await step("boards past 1,000 entries page through updates without looping (local only)", async () => {
     const big = (await ops("boards", { user: A, title: `e2e big ${run}` })).body.board.id;

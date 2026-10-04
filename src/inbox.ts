@@ -50,10 +50,14 @@ export async function listInbox(env: Env, user: string, limit = 100, person = fa
   return r.results.map(withPush);
 }
 
+/** The unread count (hot: every open page polls it), shared with test/queryPlans.test.ts: it must use an index. */
+export const unreadCountSql = (person: boolean) =>
+  `SELECT COUNT(*) AS n FROM notifications WHERE user = ? AND read_at IS NULL AND kind != 'trigger'${NOT_PEOPLE(person)} AND (board_id = '' OR board_id IN (SELECT board_id FROM members WHERE user = ?))`;
+
 /** Unread count plus the newest unread item (for a browser notification when the count goes up). */
 export async function inboxCount(env: Env, user: string, person = false): Promise<{ unread: number; latest: InboxItem | null; approvals: number }> {
   const [c, latest, ap] = await Promise.all([
-    env.DB.prepare(`SELECT COUNT(*) AS n FROM notifications WHERE user = ? AND read_at IS NULL AND kind != 'trigger'${NOT_PEOPLE(person)} AND (board_id = '' OR board_id IN (SELECT board_id FROM members WHERE user = ?))`)
+    env.DB.prepare(unreadCountSql(person))
       .bind(user, user)
       .first<{ n: number }>(),
     env.DB.prepare(

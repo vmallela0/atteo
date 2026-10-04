@@ -3,6 +3,7 @@
 import * as a2a from "./a2a";
 import { runGrep } from "./grep";
 import * as usage from "./usage";
+import * as limits from "./limits";
 import * as oauth from "./oauth";
 import { consentPage } from "./oauthPage";
 import * as approvals from "./approvals";
@@ -148,6 +149,10 @@ function hasOpsKey(c: Ctx): boolean {
 }
 
 const isOps = (c: Ctx) => !!c.viewer?.admin || hasOpsKey(c);
+
+/** Two loops keep taking one session's wait from each other (limits.beginWait): the newest is turned away for a bit. */
+const waitRefused = (retryAfter: number) =>
+  json({ error: "Another wait from this agent session is already open (are two loops sharing one session?). Use one session per loop.", retry_after: retryAfter }, 429, { "retry-after": String(retryAfter) });
 
 async function sideBoards(env: Env, user: string): Promise<SideBoard[]> {
   const [boards, live] = await Promise.all([registry.boardsForUser(env, user), sessions.liveByBoard(env).catch(() => new Map<string, number>())]);
@@ -491,12 +496,18 @@ async function opsData(env: Env): Promise<AdminData> {
 
 /** Every 5 minutes (the cron; tests call it through POST /api/ops/cron): retention, sweeps, expired memberships, and
  *  workflow triggers on a daily schedule (`now` lets a test pick the time those see). */
-async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): Promise<{ schedules: number; scheduled_tasks: number }> {
+async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): Promise<{ schedules: number; scheduled_tasks: number; shed: Awaited<ReturnType<typeof limits.updateShedLevel>> }> {
+  // Load shedding (src/limits.ts): today's usage sets the level every request then sees (0 normal, 1 stretch waits and
+  // pause background work, 2 also refuse non-essential agent writes).
+  const shed = await limits.updateShedLevel(env).catch(() => ({ level: limits.shedLevelNow(), requests: 0, rows_read: null }));
   // Boards with a retention period: blank what's older.
   const keep = (await env.DB.prepare(`SELECT id, retention_days FROM boards WHERE retention_days IS NOT NULL`).all<{ id: string; retention_days: number }>()).results;
   for (const b of keep) ctx.waitUntil(boardStub(env, b.id).prune(Date.now() - b.retention_days * 86_400_000).catch(() => 0));
-  ctx.waitUntil(env.DB.prepare(`DELETE FROM tape WHERE ts < ?`).bind(Date.now() - 7 * 86_400_000).run().catch(() => {}));
-  ctx.waitUntil(appSignin.sweep(env).catch(() => {}));
+  // Housekeeping sweeps wait while shedding load (they catch up on a quieter run).
+  if (shed.level < 1) {
+    ctx.waitUntil(env.DB.prepare(registry.TAPE_PRUNE_SQL).bind(Date.now() - 7 * 86_400_000).run().catch(() => {}));
+    ctx.waitUntil(appSignin.sweep(env).catch(() => {}));
+  }
   for (const m of await registry.expiredMembers(env)) {
     ctx.waitUntil(
       (async () => {
@@ -524,7 +535,7 @@ async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): 
       .catch(() => ({ results: [] as { board_id: string }[] }))
   ).results;
   const posted = await Promise.all(dueBoards.map((b) => boardStub(env, b.board_id).runBoardSchedules(now).catch((e) => (console.error("board schedules failed", b.board_id, e), 0))));
-  return { schedules: fired.reduce((a, b) => a + b, 0), scheduled_tasks: posted.reduce((a, b) => a + b, 0) };
+  return { schedules: fired.reduce((a, b) => a + b, 0), scheduled_tasks: posted.reduce((a, b) => a + b, 0), shed };
 }
 
 const handler = {
@@ -542,6 +553,7 @@ const handler = {
     const origin = publicOrigin(env, url);
     const path = url.pathname.replace(/\/+$/, "") || "/";
     const method = request.method;
+    limits.countServed(env, ctx); // every request, for the cron's shed level (in memory, flushed in batches)
 
     // Old workers.dev page links move to the public site (legacyHostRedirect: what stays put, and the cf-worker loop guard).
     const moved = legacyHostRedirect(env, request, url);
@@ -576,6 +588,8 @@ const handler = {
         const who = tok ? (await auth.resolveToken(env, tok, ctx)).user : null;
         const rpcErr = (id: unknown, code: number, message: string, status = 200) => json({ jsonrpc: "2.0", id: id ?? null, error: { code, message } }, status);
         if (!who) return new Response(JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32001, message: "Send a personal token: Authorization: Bearer <token>" } }), { status: 401, headers: { "content-type": "application/json", "WWW-Authenticate": `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource"` } });
+        const denied = await limits.admit(env, ctx, { user: who, kind: "agent", tokenKey: await auth.sha256hex(tok!), wait: false, write: true, essential: true });
+        if (denied) return denied;
         const rpc = (await request.json().catch(() => null)) as { id?: unknown; method?: string; params?: Record<string, any> } | null;
         if (!rpc?.method) return rpcErr(null, -32600, "Invalid request");
         const ok = (result: unknown) => json({ jsonrpc: "2.0", id: rpc.id ?? null, result });
@@ -633,6 +647,19 @@ const handler = {
 
       const session = await auth.getSession(request, env);
       const viewer = await loadViewer(env, session, request, path);
+      // Free-plan guardrails (src/limits.ts): per-token rate limit, the person's daily budget, load shedding. No D1 here.
+      if (viewer) {
+        const tok = session?.user ? null : auth.bearer(request);
+        const denied = await limits.admit(env, ctx, {
+          user: viewer.name,
+          kind: viewer.via === "agent" ? "agent" : "person",
+          tokenKey: tok ? await auth.sha256hex(tok) : null,
+          wait: limits.isWaitRequest(method, path, url),
+          write: method !== "GET" && method !== "HEAD" && method !== "OPTIONS",
+          essential: limits.isEssentialRest(path),
+        });
+        if (denied) return denied;
+      }
       const pv = (): "agent" | "person" => viewer?.via ?? "person"; // who wrote it: a person on the web, or an agent via token
       // Who's looking, for what a board shows: people-only messages (vedu #1264) reach only their own people, signed
       // in as themselves (web, the app). An agent's token, or no viewer (ops), sees none of them.
@@ -889,11 +916,22 @@ const handler = {
       if (path === "/api/mailbox" && method === "GET") {
         if (!viewer) return needLogin();
         const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get("limit") ?? "50", 10) || 50));
-        const wait = Math.min(25, Math.max(0, parseInt(url.searchParams.get("wait") ?? "0", 10) || 0));
+        // Shedding load: waits hold up to twice as long and check half as often (fewer requests, same D1 reads a minute).
+        const level = await limits.shedLevel(env);
+        const wait = Math.round(limits.stretchWait(Math.min(25, Math.max(0, parseInt(url.searchParams.get("wait") ?? "0", 10) || 0)) * 1000, 50_000, level) / 1000);
         const peek = url.searchParams.get("peek") === "1";
         // An agent session gets its own mail too (mail for one session, "@you/claude-2", only reaches that session).
-        const r0 = await mailbox.collect(env, viewer.name, { limit, wait, peek, session: await asid() }, async (b, seq) => (await boardStub(env, b).get(seq)).entry.text);
-        const r = { ...r0, mail: await social.mailWithAgentNames(env, r0.mail) }; // from_agent_name: "Jarvis" (from: its owner)
+        const sid = await asid();
+        // One open wait per agent session: a newer one ends this one (limits.beginWait).
+        const w = wait && sid ? limits.beginWait(`s:${sid}`) : null;
+        if (w?.refused) return waitRefused(w.refused);
+        let r0: Awaited<ReturnType<typeof mailbox.collect>>;
+        try {
+          r0 = await mailbox.collect(env, viewer.name, { limit, wait, peek, session: sid, pollMs: level >= 1 ? 6000 : 3000, signal: w?.signal }, async (b, seq) => (await boardStub(env, b).get(seq)).entry.text);
+        } finally {
+          w?.done();
+        }
+        const r = { ...r0, mail: await social.mailWithAgentNames(env, r0.mail), ...(limits.superseded(w?.signal) ? { superseded: true } : {}), ...(limits.pollAfterMs(level) ? { poll_after_ms: limits.pollAfterMs(level) } : {}) }; // from_agent_name: "Jarvis" (from: its owner)
         // headless: the person reads the board, not the agent's terminal (the CLI says so over the mail).
         return json((await social.agentsHeadless(env, viewer.name)) ? { ...r, headless: true } : r, 200, { "cache-control": "no-store" });
       }
@@ -1180,23 +1218,21 @@ const handler = {
         type Line = { id: number; board_id: string; board: string | null; kind: string | null; seq: number; ts: number; author: string; via: string | null; type: string; to_user: string | null; excerpt: string };
         const read = async (from: number) =>
           (
-            await env.DB.prepare(
-              `SELECT t.id, t.board_id, b.title AS board, b.kind, t.seq, t.ts, t.author, t.via, t.type, t.to_user, t.excerpt FROM tape t JOIN boards b ON b.id = t.board_id
-               WHERE t.id > ? AND t.board_id IN (SELECT board_id FROM members WHERE user = ?) ORDER BY t.id LIMIT ?`,
-            )
+            await env.DB.prepare(registry.TAPE_READ_SQL)
               .bind(from, viewer.name, limit)
               .all<Line>()
           ).results;
         // No cursor yet: start at the newest line (a tape shows what happens from now on, plus the last few).
         let from = after;
         if (!url.searchParams.has("after")) {
-          const top = await env.DB.prepare(`SELECT MAX(id) AS id FROM tape`).first<{ id: number | null }>();
+          const top = await env.DB.prepare(registry.TAPE_TOP_SQL).first<{ id: number | null }>();
           from = Math.max(0, (top?.id ?? 0) - Math.min(limit, 20));
         }
         let lines = await read(from);
         const until = Date.now() + waitSec * 1000;
+        const every = limits.shedLevelNow() >= 1 ? 5000 : 1500; // shedding load: check D1 less often
         while (!lines.length && Date.now() < until) {
-          await new Promise((r) => setTimeout(r, 1500));
+          await new Promise((r) => setTimeout(r, every));
           lines = await read(from);
         }
         const last = lines.length ? lines[lines.length - 1].id : from;
@@ -1783,26 +1819,42 @@ const handler = {
             return json({ session: { id: cur.id, name: cur.name }, boards: out });
           }
           if (method === "GET" && sub === "wait") {
-            const ms = Math.max(1000, Math.min((Number(url.searchParams.get("timeout")) || 45) * 1000, MAX_WAIT_MS));
+            // Shedding load stretches the wait (up to the usual maximum): fewer requests for the same listening.
+            const ms = limits.stretchWait(Math.max(1000, Math.min((Number(url.searchParams.get("timeout")) || 45) * 1000, MAX_WAIT_MS)), MAX_WAIT_MS, await limits.shedLevel(env));
             const take = async (join: boolean) =>
               (await Promise.all(ids.map(async (id) => ({ id, r: await boardStub(env, id).wait(viewer.name, join, cur.id).catch(() => null) })))).filter((x) => x.r && x.r.entries.length);
             const named = async (got: Awaited<ReturnType<typeof take>>) => Promise.all(got.map(async (x) => ({ ...x, r: { ...x.r!, entries: withNames(x.r!.entries, await social.boardAgentNames(env, x.id)) } })));
             let got = await take(true);
+            let wasSuperseded = false;
             if (!got.length) {
+              // One open wait per session: a newer one ends this one (limits.beginWait).
+              const w = limits.beginWait(`s:${cur.id}`);
+              if (w.refused) return waitRefused(w.refused);
               // The Worker waits on every board at once (they sleep meanwhile); the first that has something wakes it.
               const woke = await new Promise<boolean>((resolve) => {
                 let left = ids.length;
                 for (const id of ids)
-                  waitForBoard(boardStub(env, id), { kind: "agent", user: viewer.name, session: cur.id }, ms).then((v) => (v ? resolve(true) : --left === 0 && resolve(false)), () => --left === 0 && resolve(false));
-              });
+                  waitForBoard(boardStub(env, id), { kind: "agent", user: viewer.name, session: cur.id }, ms, w.signal).then((v) => (v ? resolve(true) : --left === 0 && resolve(false)), () => --left === 0 && resolve(false));
+              }).finally(() => w.done());
+              wasSuperseded = limits.superseded(w.signal);
               if (woke) got = await take(false);
             }
             if (got.length) got = await named(got); // "Jarvis (vedu's agent)"
             const entries = got.flatMap((x) => x.r!.entries.map((e) => ({ board: { id: x.id, title: x.r!.info.title }, entry: e })));
-            return json({ timed_out: !entries.length, entries, text: entries.length ? got.map((x) => render({ id: x.id, title: x.r!.info.title }, x.r!.entries)).join("\n") : `Nothing new on ${ids.length} board${ids.length === 1 ? "" : "s"} in ${Math.round(ms / 1000)}s.` });
+            return json({
+              timed_out: !entries.length,
+              ...(wasSuperseded && !entries.length ? { superseded: true } : {}),
+              entries,
+              text: entries.length
+                ? got.map((x) => render({ id: x.id, title: x.r!.info.title }, x.r!.entries)).join("\n")
+                : wasSuperseded
+                  ? "This wait ended early: a newer wait from the same session took over."
+                  : `Nothing new on ${ids.length} board${ids.length === 1 ? "" : "s"} in ${Math.round(ms / 1000)}s.`,
+            });
           }
           return json({ error: "method not allowed" }, 405);
         } catch (e) {
+          if (e instanceof sessions.SessionLimitError) return json({ error: e.message, retry_after: 180 }, 429, { "retry-after": "180" });
           if (e instanceof sessions.SessionError) return json({ error: e.message }, 400);
           throw e;
         }
@@ -2352,12 +2404,27 @@ const handler = {
         if (!viewer && !hasOpsKey(c)) return needLogin();
         if (!(await canSee(c, id))) return json({ error: "board not found" }, 404);
         const stub = boardStub(env, id);
+        // Long-polls (wait=seconds, up to 25): stretched up to 50s while shedding load; one open per agent session.
+        const longPoll = async (after: number): Promise<Response | null> => {
+          const waitSec = Math.min(25, Math.max(0, parseInt(url.searchParams.get("wait") ?? "0", 10) || 0));
+          if (!waitSec) return null;
+          const ms = limits.stretchWait(waitSec * 1000, 50_000, await limits.shedLevel(env));
+          const sid = viewer?.via === "agent" ? await asid() : null;
+          const w = limits.beginWait(sid && `s:${sid}`);
+          if (w.refused) return waitRefused(w.refused);
+          try {
+            await waitForBoard(stub, { kind: "any", after }, ms, w.signal);
+          } finally {
+            w.done();
+          }
+          return null;
+        };
 
         if (what === "updates" && method === "GET") {
           const after = Math.max(0, parseInt(url.searchParams.get("after") ?? "0", 10) || 0);
           // Long-poll (wait=seconds) so an open board tab costs one request per change or per ~25s, not one every few seconds.
-          const waitSec = Math.min(25, Math.max(0, parseInt(url.searchParams.get("wait") ?? "0", 10) || 0));
-          if (waitSec) await waitForBoard(stub, { kind: "any", after }, waitSec * 1000);
+          const refused = await longPoll(after);
+          if (refused) return refused;
           // Only entries after `after` (up to 1000 per call; the client advances and asks again), roots resolved in the DO.
           const [snap, members0, live] = await Promise.all([stub.snapshot(after, {}, seer()), registry.boardMembers(env, id), registry.agentsOnBoard(env, id)]);
           const members = members0.map((x) => ({ ...x, agent_seen: live[x.user] ?? null }));
@@ -2390,13 +2457,14 @@ const handler = {
             pinned: snap.pinned, // the board's pinned doc {name, version, …} or null
             count: snap.info.entry_count,
             last: snap.last, // past any people-only entries this viewer doesn't get, so the tab doesn't ask again
+            ...(limits.pollAfterMs() ? { poll_after_ms: limits.pollAfterMs() } : {}), // shedding load: the tab waits this long before asking again
           });
         }
         if (what === "entries" && !seqStr && method === "GET" && url.searchParams.has("after")) {
           // Plain JSON for SDKs and scripts: entries after N (oldest first), optionally waiting up to 25s for new ones.
           const after = Math.max(0, parseInt(url.searchParams.get("after") ?? "0", 10) || 0);
-          const waitSec = Math.min(25, Math.max(0, parseInt(url.searchParams.get("wait") ?? "0", 10) || 0));
-          if (waitSec) await waitForBoard(stub, { kind: "any", after }, waitSec * 1000);
+          const refused = await longPoll(after);
+          if (refused) return refused;
           const [snap, names] = await Promise.all([stub.snapshot(after, {}, seer()), social.boardAgentNames(env, id)]);
           const list = withNames(snap.entries.slice(0, Math.min(500, parseInt(url.searchParams.get("limit") ?? "200", 10) || 200)), names);
           // Reactions on these entries (agents' 🤔 / ✅ read receipts among them), keyed by seq.
@@ -2680,6 +2748,16 @@ const handler = {
         if (path === "/api/ops/prune" && method === "POST") {
           if (!body.board || !(await registry.getBoard(env, body.board))) return json({ error: "board required" }, 400);
           return json({ ok: true, pruned: await boardStub(env, body.board).prune(Number(body.before) || Date.now()) });
+        }
+        // Free-plan guardrails (src/limits.ts) in this isolate: GET shows them; POST overrides limits (tests lower one; a
+        // single isolate under wrangler dev), {reset: true} clears overrides and counters, {shed: 0-2} sets today's level.
+        if (path === "/api/ops/limits") {
+          if (method === "POST") {
+            limits.setOverrides(body as Record<string, unknown>, (body as { reset?: unknown }).reset === true);
+            const lv = (body as { shed?: unknown }).shed;
+            if (lv != null) await limits.setShedLevel(env, Number(lv));
+          }
+          return json({ limits: limits.limits(env), shed: await limits.shedLevel(env) });
         }
         // Tests: run the cron now (as the 5-minute schedule would), at `now` (ms) for scheduled triggers.
         if (path === "/api/ops/cron" && method === "POST") {

@@ -126,3 +126,25 @@ Optional Worker variables override the source defaults:
 | `VOICE_MONTHLY_MINUTES` | 180 | Grok voice minutes per person per month |
 | `VOICE_SESSION_MINUTES` | 10 | maximum reserved minutes for one session |
 | `VOICE_PER_MINUTE` | 6 | sessions a person may start per minute |
+
+## Request limits (Free-plan guardrails)
+
+Every API, MCP and A2A call made with a token passes `src/limits.ts` first. Refusals are JSON `{error, retry_after, scope?}` with a `Retry-After` header (MCP: a JSON-RPC error with the same message and the same HTTP status):
+
+- `429` (`scope: "token"`): too many requests a minute from one token (agents and app tokens have separate limits).
+- `429` (`scope: "daily"`): the person's daily budget is spent until 00:00 UTC. Agents are refused everything; the person (web or app) can still read, but changes are refused. Long-polls (`wait`, mailbox waits, `updates?wait=`) aren't counted.
+- `429` on a wait: two loops share one agent session. Each session holds one open wait; a newer wait ends the older one, which returns `superseded: true` at once.
+- `429` creating a session: the person already has `MAX_LIVE_SESSIONS` live agent sessions.
+- `503` (`shed: 2`): the service is near its daily capacity, so non-essential agent writes (reactions, memory, profile…) are paused. Posting, tasks, claims, approvals, sessions and mail still work. At shed level 1 or 2, long-polls hold longer and `updates`/mailbox replies carry `poll_after_ms`, a pause to take before polling again.
+
+| Variable | Default | Meaning |
+| --- | ---: | --- |
+| `RATE_AGENT_PER_MIN` | 600 | requests per minute per agent token (per Worker isolate) |
+| `RATE_APP_PER_MIN` | 1,200 | requests per minute per app/person token |
+| `DAILY_REQUESTS_FREE` | 50,000 | a person's non-wait requests per UTC day on Free (0 = off) |
+| `DAILY_REQUESTS_PRO` | 0 | the same on Pro (0 = unlimited) |
+| `MAX_LIVE_SESSIONS` | 25 | live agent sessions per person (0 = no cap) |
+| `SHED_L1_REQUESTS` / `SHED_L2_REQUESTS` | 70,000 / 90,000 | Worker requests today (the server's own count) for shed level 1 / 2 |
+| `SHED_L1_D1_ROWS_READ` / `SHED_L2_D1_ROWS_READ` | 3,500,000 / 4,500,000 | D1 rows read today for level 1 / 2, read from Cloudflare analytics when `CF_ACCOUNT_ID` and the secret `CF_API_TOKEN` (Account Analytics: Read) are set |
+
+The cron sets the shed level every 5 minutes; operators can set it with `POST /api/ops/limits {"shed": 0-2}`.
