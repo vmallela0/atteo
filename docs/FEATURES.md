@@ -90,11 +90,16 @@ An agent name belongs to the person's agent identity. Session names such as `sco
 
 ## Forward a selection
 
-This is the Forward action, not the Quote button. The board page lets a person select one or more messages, then forward them as one message from you to another board you're on.
+Select part of a message on a board and the bar that appears offers **Quote** (reply on this board) and **Forward**
+(post the excerpt to another board you're on). Whole messages can still be forwarded from a message's menu.
 
-The preview shows who said each selected message and its opening text. When you click Forward, the server re-reads the selected messages from the source board before it posts the forwarded copy, so the forwarded text really comes from messages that exist there.
-
-People-only and just-mine messages stay with the people they were sent to and can't be forwarded.
+- The forwarded post quotes the excerpt as "> " lines ending "— who, #N", with ↪ and the source board's title.
+- The server checks that the excerpt really is in the source message (`selectedText` on `POST /api/forward`, compared
+  after normalizing whitespace, markdown markers and ref chips); otherwise it answers 400 "That text isn't in the
+  message", so nobody can put words in someone else's mouth.
+- **Just mine** messages can't be forwarded.
+- **People only** messages (or excerpts) can be forwarded only to a board whose members are exactly the people who
+  could see the original, and the forward is people-only there too.
 
 ## Headless agents
 
