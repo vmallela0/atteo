@@ -972,20 +972,29 @@ async function loadEarlier(until){const b=document.getElementById('load-earlier'
   const sc=document.getElementById('thread-scroll'),before=+b.dataset.before;
   const r=await fetch('/api/boards/'+BOARD+'/entries?before='+before+'&limit='+(until?Math.min(500,before-until+20):60));const j=await r.json().catch(()=>({}));if(!r.ok){b.disabled=false;return}
   const frag=document.createDocumentFragment(),later=[];
-  for(const x of j.entries){if(document.getElementById('e'+x.seq))continue;const t=document.createElement('div');t.innerHTML=x.html;const el=t.firstElementChild;
-    if(x.root!==x.seq){el.dataset.root=String(x.root);el.querySelector(':scope>.grow>.replies')?.remove()}frag.appendChild(el);later.push(x)}
+  for(const x of j.entries){if(document.getElementById('e'+x.seq)||document.getElementById('g'+x.seq))continue;frag.appendChild(entryEl(x));later.push(x)}
   const h0=sc.scrollHeight;b.after(frag); // measured now: the thread can grow while the fetch is out (keeps your place, never overshoots to the bottom)
-  for(const x of later){if(x.human_decision){HDS[x.seq]=x.human_decision;renderHD(x.seq)}if(x.reactions?.length)renderRx(x.seq,x.reactions);if(document.querySelector('#e'+x.seq+' [data-task]'))refreshTask(x.seq);if(x.root!==x.seq)thrSum(x.root)}
+  entryFill(later);
+  if(j.first>1){b.dataset.before=j.first;b.disabled=false}else b.remove();sc.scrollTop+=sc.scrollHeight-h0;railBuild();ghostSoon()}
+/** An entry from the entries API as a conversation element (a reply ties to its thread). */
+function entryEl(x){const t=document.createElement('div');t.innerHTML=x.html;const el=t.firstElementChild;
+  if(x.root!==x.seq){el.dataset.root=String(x.root);el.querySelector(':scope>.grow>.replies')?.remove()}return el}
+/** Entries just put on the page from the API get the same reactions, task strips, claim chips, markers and quote bars as live ones. */
+function entryFill(later){if(!later.length)return;
+  for(const x of later){if(x.human_decision){HDS[x.seq]=x.human_decision;renderHD(x.seq)}if(x.reactions?.length)renderRx(x.seq,x.reactions);if(document.querySelector('#e'+x.seq+' [data-task]'))refreshTask(x.seq);thrSum(x.root)} // a message back on the page gets its "N replies" too
   document.querySelectorAll('#thread>.entry[data-reply]').forEach(quotify);
-  if(window.e2eSync&&later.length)e2eSync(later[0].seq-1);
-  renderClaims(CLAIMS);
-  if(j.first>1){b.dataset.before=j.first;b.disabled=false}else b.remove();sc.scrollTop+=sc.scrollHeight-h0;railBuild()}
+  if(window.e2eSync){window.e2eForget&&e2eForget(later.map(x=>x.seq));e2eSync(later[0].seq-1)}
+  renderClaims(CLAIMS);if(HDL)renderHandling(HDL);renderReads();refChips()}
 document.getElementById('load-earlier')?.addEventListener('click',()=>loadEarlier());
 // A link to a message (a ↗ chip, #N, a summary row) goes there smoothly: centered on screen, with a brief tint (jxn #1326).
 document.addEventListener('click',async e=>{const a=e.target.closest('a[href^="#e"]');if(a)usr();if(!a||e.defaultPrevented||e.metaKey||e.ctrlKey||a.closest('.thr-dlg'))return;
   const seq=+a.getAttribute('href').slice(2);if(!seq)return;e.preventDefault();await window.BOARD_CTX.jump(seq);try{history.replaceState(null,'','#e'+seq)}catch(err){}});
 /** Makes sure #seq is on the page (loading earlier messages if needed); false if it doesn't exist. */
-window.ensureEntry=async seq=>{for(let i=0;i<20&&!document.getElementById('e'+seq)&&document.getElementById('load-earlier');i++)await loadEarlier(seq);return !!document.getElementById('e'+seq)};
+window.ensureEntry=async seq=>{ghHold(seq);const far=!document.getElementById('e'+seq);if(document.getElementById('g'+seq))await ghostAround(seq);
+  for(let i=0;i<20&&!document.getElementById('e'+seq)&&!document.getElementById('g'+seq)&&document.getElementById('load-earlier');i++)await loadEarlier(seq);
+  if(document.getElementById('g'+seq))await ghostAround(seq);const el=document.getElementById('e'+seq);
+  // It wasn't on the page, so it's far: be there already (a long smooth scroll would be cut short as messages come back).
+  if(el&&far){pinned=false;el.scrollIntoView({block:'center'})}return !!el};
 // The thread scrolls in its own area, opens at the latest entry and stays pinned to the bottom (new entries, images,
 // expanding cards, a growing composer) until you scroll up yourself; reaching the bottom again re-pins. While unpinned a
 // pill offers the jump ("New messages" if something arrived).
@@ -998,7 +1007,7 @@ function toBottom(smooth){const far=scroller.scrollHeight-scroller.scrollTop-scr
 // so scrolling steps through them; hover previews a message, click jumps to it, drag scrubs.
 const rail=document.getElementById('rail'),tip=document.getElementById('rail-tip');let ticks=[];
 function railBuild(){const th=document.getElementById('thread'),top0=th.getBoundingClientRect().top,H=Math.max(1,th.scrollHeight);// top-level messages only: replies live in their thread
-  ticks=[...th.querySelectorAll(':scope>.entry')].map(el=>({el,y:(el.getBoundingClientRect().top-top0)/H,h:el.querySelector(':scope>.grow>.meta')?.offsetHeight||20}));
+  ticks=[...th.querySelectorAll(':scope>.entry,:scope>.ghost')].map(el=>({el,y:(el.getBoundingClientRect().top-top0)/H,h:el.querySelector(':scope>.grow>.meta')?.offsetHeight||20}));
   // On a long board one tick per message is a grey smear (jxn #1359): at most RAIL_MAX ticks, nearby messages sharing one,
   // and anything for you always gets its own. Hover and scrubbing still use every message.
   const RAIL_MAX=60,groups=[];if(ticks.length<=RAIL_MAX)ticks.forEach((t,i)=>groups.push({y:t.y,m:[i],me:t.el.classList.contains('for-you')}));
@@ -1013,16 +1022,14 @@ function railNear(f){let best=-1,d=2;ticks.forEach((t,i)=>{const x=Math.abs(t.y-
 let scrub=false;
 rail.addEventListener('pointerdown',ev=>{usr();scrub=true;rail.setPointerCapture(ev.pointerId);railMove(ev)});
 rail.addEventListener('pointermove',ev=>{if(scrub){railMove(ev);return}const i=railNear(railAt(ev));if(i<0){tip.hidden=true;return}
-  const el=ticks[i].el,m=el.querySelector(':scope>.grow>.meta'),who=m?.querySelector('.who')?.textContent||'',ty=m?.querySelector('.type')?.textContent||'',when=m?.querySelector('time')?.textContent||'';
-  const body=(el.querySelector(':scope>.grow>.body')?.textContent||'').trim().split('\\n')[0];
-  tip.textContent=who+' · '+ty+(when?' · '+when:'')+(body?' — '+body:'');tip.style.top=(ticks[i].y*rail.getBoundingClientRect().height+rail.offsetTop)+'px';tip.hidden=false});
+  tip.textContent=tipOf(ticks[i].el);tip.style.top=(ticks[i].y*rail.getBoundingClientRect().height+rail.offsetTop)+'px';tip.hidden=false});
 rail.addEventListener('pointerleave',()=>{tip.hidden=true});
 rail.addEventListener('pointerup',ev=>{if(!scrub)return;scrub=false;const i=railNear(railAt(ev));if(i>=0&&ev.pointerType!=='touch'){usr();ticks[i].el.scrollIntoView({block:'center'})}});
 function railMove(ev){moved=true;usr();scroller.scrollTop=railAt(ev)*scroller.scrollHeight-scroller.clientHeight/2}
 new ResizeObserver(()=>railBuild()).observe(document.getElementById('thread'));
 let unseen=0; // new messages that arrived while you were scrolled up (jxn #1367)
 function pillSync(){if(pinned){pill.hidden=true;unseen=0}else{pill.textContent=unseen?unseen+' new message'+(unseen>1?'s':'')+' ↓':'Jump to latest ↓';pill.hidden=false}}
-scroller.addEventListener('scroll',()=>{if(scroller.clientHeight){if(Date.now()-userT<700)pinned=nearEnd();else if(nearEnd())pinned=true}pillSync();railMark()},{passive:true});
+scroller.addEventListener('scroll',()=>{if(scroller.clientHeight){if(Date.now()-userT<700)pinned=nearEnd();else if(nearEnd())pinned=true}pillSync();railMark();ghostSoon()},{passive:true});
 ['wheel','touchmove','keydown','pointerdown'].forEach(t=>scroller.addEventListener(t,()=>{moved=true;usr()},{passive:true}));
 document.addEventListener('keydown',e=>{if(/^(Page(Up|Down)|Home|End|Arrow(Up|Down)| )$/.test(e.key)&&!e.target.closest('textarea,input,select,[contenteditable]'))usr()},true);
 // Anything that grows the thread (or shrinks the view) while pinned keeps the latest in view.
@@ -1037,6 +1044,64 @@ document.addEventListener('wheel',e=>{if(e.ctrlKey||document.getElementById('pan
   if(!e.target.closest('#app'))return; // the whole main column: margins, top bar and board header
   usr();scroller.scrollBy({top:e.deltaMode===1?e.deltaY*20:e.deltaY});e.preventDefault()},{passive:false});
 railBuild();pillSync();
+// ---- a bounded conversation (jxn #1365): a long board keeps only the messages near the view on the page ----
+// A message more than ~2.5 screens away becomes a light placeholder (.ghost, id g<seq>) of the same height that keeps its
+// place on the rail, its thread and its author, so scrolling, the rail and "N replies" don't move. Within ~1.5 screens it
+// comes back, re-rendered from the server (fresh reactions, tasks and markers). Jumps, links, search, the rail and threads
+// bring back what they need first. The newest messages and anything you're working with always stay.
+const GH_FAR=2.5,GH_NEAR=1.5,GH_TAIL=30,GH_HOLD=new Map(),GH_BUSY=new Map();let ghOn=false,ghT=0,ghPause=0; // ghPause: offline, try again later
+function ghHold(seq){GH_HOLD.set(+seq,Date.now()+4000)}
+/** One line about a message for the rail's tip; a placeholder kept it from when it was on the page. */
+function tipOf(el){if(el.classList.contains('ghost'))return el.dataset.tip||'';
+  const m=el.querySelector(':scope>.grow>.meta'),who=m?.querySelector('.who')?.textContent||'',ty=m?.querySelector('.type')?.textContent||'',when=m?.querySelector('time')?.textContent||'';
+  const body=(el.querySelector(':scope>.grow>.body')?.textContent||'').trim().split('\\n')[0];
+  return who+' · '+ty+(when?' · '+when:'')+(body?' — '+body:'')}
+/** Stays on the page: for you, open in the thread, picked for forwarding, the reply target, selected, focused or just jumped to. */
+function ghKeep(el){const s=+el.dataset.seq;if(!s||el.matches('.for-you,.picked,.hit,.sel,.tap,.pending,:focus-within'))return true;
+  if(thrOpen&&(s===thrOpen||+el.dataset.root===thrOpen))return true;if(s===+rpTo.value||(SEL&&SEL.has(s)))return true;
+  const h=GH_HOLD.get(s);if(h){if(h>Date.now())return true;GH_HOLD.delete(s)}return false}
+function ghostOf(el,h){const g=document.createElement('div');g.className='ghost'+(el.classList.contains('by-agent')?' by-agent':'');g.id='g'+el.dataset.seq;g.setAttribute('aria-hidden','true');
+  for(const k of ['seq','root','reply','author','title'])if(el.dataset[k]!=null)g.dataset[k]=el.dataset[k];if(el.classList.contains('retracted'))g.dataset.gone='1';
+  g.dataset.tip=tipOf(el);g.dataset.who=headName(el);g.dataset.line=(el.querySelector(':scope>.grow>.body')?.textContent||el.dataset.title||'').trim().split('\\n')[0].slice(0,140);
+  const t=el.querySelector(':scope>.grow>.meta time[data-ts]');if(t)g.appendChild(t.cloneNode(true)); // a thread's "last 5m" reads it
+  g.style.height=h+'px';return g}
+function ghostSoon(){if(ghT||!ghOn)return;ghT=setTimeout(()=>{ghT=0;ghostSync()},120)}
+function ghostSync(){const H=scroller.clientHeight;if(!ghOn||!H||document.getElementById('panel-conv').hidden)return;
+  const th=document.getElementById('thread'),top=scroller.getBoundingClientRect().top,live=[...th.querySelectorAll(':scope>.entry')],tail=new Set(live.slice(-GH_TAIL)),far=[];
+  for(const el of live){if(tail.has(el)||ghKeep(el))continue;const r=el.getBoundingClientRect();if(r.bottom<top-GH_FAR*H||r.top>top+H+GH_FAR*H)far.push([el,r.height])} // measure all, then swap
+  for(const [el,h] of far)el.replaceWith(ghostOf(el,h));if(far.length)railBuild(); // the rail points at the placeholders now
+  const gs=th.querySelectorAll(':scope>.ghost'),near=[];let lo=0,hi=gs.length;
+  while(lo<hi){const m=(lo+hi)>>1;if(gs[m].getBoundingClientRect().bottom<top-GH_NEAR*H)lo=m+1;else hi=m}
+  for(let i=lo;i<gs.length;i++){if(gs[i].getBoundingClientRect().top>top+H+GH_NEAR*H)break;near.push(+gs[i].dataset.seq)}
+  if(near.length)Date.now()>ghPause?ghostFill(near).then(ghostSoon):setTimeout(ghostSoon,ghPause-Date.now()+50);
+  // Going back loads older messages before you reach the top (the button stays for keyboards and screen readers).
+  const le=document.getElementById('load-earlier');if(le&&!le.disabled&&Date.now()-userT<2000&&le.getBoundingClientRect().bottom>top-H)loadEarlier()}
+/** Brings these placeholders back as messages (waits for any already on their way). */
+async function ghostFill(seqs){const wait=[],todo=[];for(const s of seqs){const p=GH_BUSY.get(s);if(p)wait.push(p);else if(document.getElementById('g'+s))todo.push(s)}
+  todo.sort((a,b)=>a-b);const runs=[];for(const s of todo){const r=runs[runs.length-1];if(r&&s-r[0]<150)r.push(s);else runs.push([s])}
+  for(const r of runs){const p=ghRun(r);r.forEach(s=>GH_BUSY.set(s,p));wait.push(p)}await Promise.all(wait)}
+async function ghRun(r){try{const lo=r[0],hi=r[r.length-1];
+    const res=await fetch('/api/boards/'+BOARD+'/entries?before='+(hi+1)+'&limit='+(hi-lo+1));const j=await res.json().catch(()=>({}));if(!res.ok){ghPause=Date.now()+3000;return}
+    const a=ghAnchor(),got=[];
+    for(const x of j.entries||[]){const g=x.seq>=lo&&document.getElementById('g'+x.seq);if(!g)continue;const el=entryEl(x);
+      if(g.dataset.gone){el.classList.add('retracted');el.querySelector('[data-retract]')?.remove()}g.replaceWith(el);got.push(x)}
+    for(const s of r)if(!got.some(x=>x.seq===s))document.getElementById('g'+s)?.remove(); // gone from the board since
+    entryFill(got);ghAnchorBack(a);railBuild()}catch(e){ghPause=Date.now()+3000}finally{r.forEach(s=>GH_BUSY.delete(s))}}
+/** Messages coming back can differ in height from their placeholders: whatever is at the top of the view stays put. */
+function ghAnchor(){if(pinned)return null;const r=scroller.getBoundingClientRect();let el=document.elementFromPoint(r.left+r.width/3,r.top+4)?.closest?.('#thread>*');
+  if(!el)for(const c of document.getElementById('thread').children)if(c.getBoundingClientRect().bottom>r.top){el=c;break}
+  return el?{el,seq:el.dataset.seq,y:el.getBoundingClientRect().top}:null}
+function ghAnchorBack(a){if(!a||pinned)return;const el=a.el.isConnected?a.el:a.seq&&(document.getElementById('e'+a.seq)||document.getElementById('g'+a.seq));if(!el)return;
+  const d=el.getBoundingClientRect().top-a.y;if(Math.abs(d)>=1)scroller.scrollTop+=d}
+/** A message and its neighbours, back on the page before a jump lands there. */
+async function ghostAround(seq){const g=document.getElementById('g'+seq);if(!g)return;const near=[seq];let p=g,n=g;
+  for(let i=0;i<12;i++){p=p?.previousElementSibling;n=n?.nextElementSibling;if(p?.classList.contains('ghost'))near.push(+p.dataset.seq);if(n?.classList.contains('ghost'))near.push(+n.dataset.seq)}
+  await ghostFill(near)}
+/** Opening a thread brings back its messages first (openThread, below, is wrapped: every way in goes through this). */
+{const open0=openThread;openThread=(root,o={})=>{const gs=o._gh?[]:[document.getElementById('g'+root),...document.querySelectorAll('#thread>.ghost[data-root="'+root+'"]')].filter(Boolean);
+  if(!gs.length)return open0(root,o);ghHold(root);ghostFill(gs.map(g=>+g.dataset.seq)).then(()=>openThread(root,Object.assign({},o,{_gh:1})))}}
+new ResizeObserver(ghostSoon).observe(scroller);
+window.addEventListener('load',()=>setTimeout(()=>{ghOn=true;ghostSoon()},300)); // after the page has opened where it should
 const linked=/^#e\\d+$/.test(location.hash);
 // A link to a message further back than the page shows loads back to it (on open, or when the hash changes).
 async function goLinked(){const m=location.hash.match(/^#e([0-9]+)$/);if(!m||document.getElementById('e'+m[1]))return;const seq=+m[1];pinned=false;
@@ -1066,13 +1131,13 @@ async function tick1(wait){const sumNow=sumNext;sumNext=false;try{
   if(d.handling)renderHandling(d.handling);
   if(d.entries.length){for(const e of d.entries)TYPERS.delete(e.author);typingSync()} // sent: no longer typing
   if(d.reads){READS=d.reads;renderReads()}
-  if(added){railBuild();if(stick)toBottom();else{unseen+=added;pillSync()}if(window.e2eSync)e2eSync()}
+  if(added){railBuild();if(stick)toBottom();else{unseen+=added;pillSync()}if(window.e2eSync)e2eSync();ghostSoon()}
   if(d.entries.length||sumNow){document.getElementById('sum').innerHTML=d.summary;foldApply();document.querySelectorAll('[data-count]').forEach(x=>x.textContent=d.count);refreshTimes();infoCount()}
 }catch(e){await new Promise(r=>setTimeout(r,5000))}}
 // Reactions that arrive live before their entry is on the page (an agent's 🤔 often beats the entry's own fetch).
 const RXP={};
 // "#412" links read as chips with that message's title, so people never have to think in numbers.
-function refChips(root){(root||document).querySelectorAll('a.ref:not([data-done])').forEach(a=>{const t=document.getElementById('e'+a.dataset.ref)?.dataset.title;
+function refChips(root){(root||document).querySelectorAll('a.ref:not([data-done])').forEach(a=>{const t=(document.getElementById('e'+a.dataset.ref)||document.getElementById('g'+a.dataset.ref))?.dataset.title;
   a.textContent='↗ '+(t||'an earlier message');a.title='Go to that message';a.dataset.done='1'})}
 refChips();
 /** Puts one entry (from updates, or straight from a post's response) on the page; false if it's already there. */
@@ -1087,7 +1152,7 @@ function addEntry(e){if(document.getElementById('e'+e.seq)){last=Math.max(last,e
     if(el.querySelector('[data-task]'))refreshTask(e.seq);
     if(reply){thrSum(e.root);if(thrOpen===e.root)thrRender();setTimeout(()=>window.reportSeen&&reportSeen(),0)}
     if(!document.querySelector('#log-body tr[data-seq="'+e.seq+'"]')){const lt=document.createElement('tbody');lt.innerHTML=e.row;document.getElementById('log-body').prepend(lt.firstElementChild);document.getElementById('log-empty')?.remove()}
-    if(e.retracts){const t=document.getElementById('e'+e.retracts);if(t){t.classList.add('retracted');t.querySelector('[data-retract]')?.remove()}}
+    if(e.retracts){const t=document.getElementById('e'+e.retracts);if(t){t.classList.add('retracted');t.querySelector('[data-retract]')?.remove()}else{const g=document.getElementById('g'+e.retracts);if(g)g.dataset.gone='1'}}
     last=Math.max(last,e.seq);return true}
 // Live updates: a WebSocket that only says "something changed"; fall back to long-polling if it can't stay up.
 let ws,retry=0,polling=false;
@@ -1501,9 +1566,11 @@ document.addEventListener('keydown',e=>{if(e.key!=='Escape'||(!RD_OPEN&&!documen
 function reportSeen(){if(document.visibilityState!=='visible'||document.getElementById('panel-conv').hidden)return;
   // Messages in view, and the replies of threads in view (a folded thread shows its latest replies).
   const seenIn=el=>Math.max(+el.dataset.seq,...[...el.querySelectorAll('.replies .entry')].map(r=>+r.dataset.seq));
-  let max=0;ticks.forEach((t,i)=>{if(rail.children[i]?.classList.contains('on'))max=Math.max(max,seenIn(t.el))});
+  // On screen by position (rail ticks are grouped on long boards, so rail.children no longer line up with messages).
+  const inView=()=>{const a=scroller.scrollTop,b=a+scroller.clientHeight,TH=document.getElementById('thread').scrollHeight;return ticks.filter(t=>{const y=t.y*TH;return y+t.h>a&&y<b})};
+  let max=0;for(const t of inView())max=Math.max(max,seenIn(t.el));
   if(max<=seenSent||seenTimer)return;
-  seenTimer=setTimeout(async()=>{seenTimer=null;let m=0;ticks.forEach((t,i)=>{if(rail.children[i]?.classList.contains('on'))m=Math.max(m,seenIn(t.el))});if(m<=seenSent)return;seenSent=m;
+  seenTimer=setTimeout(async()=>{seenTimer=null;let m=0;for(const t of inView())m=Math.max(m,seenIn(t.el));if(m<=seenSent)return;seenSent=m;
     try{await fetch('/api/boards/'+BOARD+'/seen',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({seq:m})})}catch(e){seenSent=0}},800)}
 document.addEventListener('visibilitychange',reportSeen);window.addEventListener('focus',reportSeen);window.reportSeen=reportSeen;
 // ---- reactions: chips under each message (who reacted on hover; yours highlighted; click to toggle) and a quick picker ----
@@ -1691,7 +1758,8 @@ document.addEventListener('change',async e=>{const i=e.target;if(!i.matches||!i.
 fetch('/api/boards/'+BOARD+'/tasks').then(r=>r.json()).then(j=>{const ts=j.tasks||[];ts.forEach(t=>TASKS[t.seq]=t);ts.forEach(renderTask)}).catch(()=>{});
 // ---- "on it" / "done": which agent took a message, and who finished it. The person whose agent it is can mark it
 // done or clear it (✓ / ×); a cleared marker disappears on the next update (the map always has all of them). ----
-function renderHandling(map){const seen=new Set();
+var HDL=null; // the last map, for messages that come back on the page (a bounded conversation, #1365)
+function renderHandling(map){HDL=map;const seen=new Set();
   for(const [seq,h] of Object.entries(map)){const m=document.querySelector('#e'+seq+'>.grow>.meta');if(!m)continue;seen.add(seq);
     let b=m.querySelector('.hdl');if(!b){b=document.createElement('span');b.className='badge hdl';m.insertBefore(b,m.querySelector('.acts'))}
     const mine=h.user===ME&&!READONLY;b.classList.toggle('done',h.done);b.dataset.seq=seq;
@@ -1808,13 +1876,13 @@ document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&!e.altKey&&!e
 const avatar16=(u,agent)=>'<span class="av sm'+(agent?' agent':'')+'" style="--h:'+(MOPTS.find(o=>o.u===u)?.av.match(/--h:([0-9]+)/)?.[1]||220)+'">'+esc(u.slice(0,2).toUpperCase())+'<img class="av-img" src="/avatar/'+encodeURIComponent(u)+(agent?'?k=agent':'')+'" alt="" loading="lazy" onerror="this.remove()" onload="this.classList.add(&quot;ok&quot;)"></span>';
 // Replies post in the conversation like any message (jxn #1040). Each carries a bar quoting the message it answers;
 // tapping it, or a thread's "N replies", opens the thread as an overlay with its own reply box.
-function quotify(el){const r=el.dataset.reply;if(!r||el.querySelector(':scope>.grow>.rq'))return;const p=document.getElementById('e'+r);
+function quotify(el){const r=el.dataset.reply;if(!r||el.querySelector(':scope>.grow>.rq'))return;const p=document.getElementById('e'+r),g=!p&&document.getElementById('g'+r);
   const b=document.createElement('button');b.type='button';b.className='rq';b.dataset.thread=el.dataset.root||r;b.dataset.focus=el.dataset.seq;
-  const who=p?headName(p):'#'+r,line=p?((p.querySelector(':scope>.grow>.body')?.textContent||p.dataset.title||'').trim().split('\\n')[0].slice(0,140)):'an earlier message';
+  const who=p?headName(p):g?g.dataset.who:'#'+r,line=p?((p.querySelector(':scope>.grow>.body')?.textContent||p.dataset.title||'').trim().split('\\n')[0].slice(0,140)):g?g.dataset.line:'an earlier message';
   b.innerHTML='<span class="rq-who">'+esc(who)+'</span><span class="rq-t">'+esc(line)+'</span>';b.setAttribute('aria-label','Reply to '+who+': '+line+'. Open the thread');
   el.querySelector(':scope>.grow>.meta').after(b);const refs=el.querySelector(':scope>.grow>.refs');if(refs&&/^reply to\\s/.test(refs.textContent.trim())&&refs.querySelectorAll('a').length===1)refs.hidden=true}
 function kidsOf(root){return [...document.querySelectorAll('#thread>.entry[data-root="'+root+'"]')]}
-function thrSum(root){const top=document.getElementById('e'+root);if(!top)return;const kids=kidsOf(root);
+function thrSum(root){const top=document.getElementById('e'+root);if(!top)return;const kids=[...document.querySelectorAll('#thread>[data-root="'+root+'"]')]; // placeholders count too
   let b=top.querySelector(':scope>.grow>.thr-sum');if(!kids.length){b?.remove();return}
   if(!b){b=document.createElement('button');b.type='button';b.className='thr-sum';b.dataset.thread=root;(top.querySelector(':scope>.grow>.replies')||top.querySelector(':scope>.grow>.rx')).before(b)}
   const who=[];for(const k of kids){const key=k.dataset.author+(k.classList.contains('by-agent')?'/a':'');if(!who.includes(key))who.push(key)}
@@ -2128,7 +2196,7 @@ window.boardKeys=(e,k)=>{
   if(k==='1'||k==='2'||k==='3'||k==='4'){tab(+k-1);return}
   const inLog=!document.getElementById('panel-log').hidden;
   const els=[...document.querySelectorAll(inLog?'#log-body tr.ev':'#thread>.entry')];
-  if(k==='j'||k==='k'){e.preventDefault();cur=Math.max(0,Math.min(els.length-1,cur+(k==='j'?1:-1)));
+  if(k==='j'||k==='k'){e.preventDefault();const s0=els.findIndex(x=>x.classList.contains('sel'));if(s0>=0)cur=s0;cur=Math.max(0,Math.min(els.length-1,cur+(k==='j'?1:-1)));
     els.forEach(x=>x.classList.remove('sel'));const el=els[cur];if(el){el.classList.add('sel');el.scrollIntoView({block:'nearest'})}}
   if(e.key==='Enter'&&els[cur]){openEntry(BOARD,els[cur].dataset.seq)}
 };

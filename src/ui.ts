@@ -198,8 +198,10 @@ dialog[open]{animation:pop .16s ease-out}dialog:focus{outline:none}
 .entry.flash-in{animation:flashin 1.6s ease-out,entryin .32s cubic-bezier(.2,.7,.3,1)}
 @keyframes entryin{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}} /* new messages rise in gently (jxn #1366) */
 @media(prefers-reduced-motion:reduce){.entry.flash-in{animation:flashin 1.6s ease-out}}
-/* Messages off screen aren't laid out or painted until they come near, so long boards scroll smoothly (jxn #1365). */
-#thread>.entry{content-visibility:auto;contain-intrinsic-size:auto 96px}
+/* Long boards scroll smoothly (jxn #1365): only messages near the view are on the page (the rest are placeholders, see
+   ghostSync), so each one is laid out for real; a placeholder keeps its exact height and a faint line where its text was. */
+#thread>.ghost{border-top:1px solid var(--line);box-sizing:border-box;overflow:hidden}#thread>.ghost>*{display:none}
+#thread>.ghost::before{content:"";display:block;margin:20px 0 0 44px;width:min(40%,280px);height:10px;border-radius:5px;background:color-mix(in srgb,var(--muted) 10%,transparent)}
 .entry .rbadge{display:none;height:18px;font-size:11px}
 .entry .fbadge{height:18px;font-size:11px;color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,var(--line))}
 .entry.retracted>.grow>.body,.entry.retracted>.grow>.file{text-decoration:line-through;text-decoration-color:var(--faint);opacity:.55}
