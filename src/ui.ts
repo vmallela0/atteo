@@ -5,6 +5,7 @@
 import { chartHtml } from "./chart";
 import { STATUS_CSS, statusHtml } from "./status";
 import { highlightMentions, type Mention } from "./mentions";
+import { MERMAID_CSS, MERMAID_JS, mermaidHtml } from "./mermaid";
 import { esc } from "./util";
 
 // Dark tokens: the system setting picks them unless Display says light; Display can also force them.
@@ -589,6 +590,7 @@ input.switch::after{content:"";position:absolute;top:3px;left:3px;width:18px;hei
 #thread>.entry.for-you,#thread>.entry.flash-in,#thread>.entry.hit,.thr-list>.entry.for-you,.thr-list>.entry.hit{margin-left:-12px;margin-right:-12px;padding-left:12px;padding-right:12px;border-radius:8px}
 /* The "New" divider is the line: no second (border) line right under it (jxn #1311). */
 .new-line{margin:10px 0 2px}.new-line+.entry{border-top-color:transparent}
+${MERMAID_CSS}
 .mem-act{display:none}.mem-on .mem-act{display:inline-flex;width:30px;padding:0;justify-content:center;color:var(--muted)}.mem-on .mem-act:hover{color:var(--ink)}
 .soul-prev{white-space:pre-wrap;font-size:12.5px;line-height:1.5;color:var(--text);max-height:7.5em;overflow:hidden;-webkit-mask-image:linear-gradient(#000 70%,transparent);mask-image:linear-gradient(#000 70%,transparent)}
 .soul-meta{margin:4px 0 6px}.soul-edit{margin-top:2px}
@@ -1160,7 +1162,7 @@ export function renderText(text: string, mentions?: Mention[] | null, names?: Re
 function renderTextInner(text: string, mentions?: Mention[] | null): string {
   const out: string[] = [];
   const ck = { n: 0 }; // checklist items ("- [ ] …") are numbered in order, so a page can tick the n-th one
-  // ```lang blocks: [text, lang, code, text, …]; ```chart draws a chart (vedu #1246).
+  // ```lang blocks: [text, lang, code, text, …]; ```chart draws a chart, ```mermaid a diagram once it's on screen (vedu #1246).
   const parts = text.split(/```([^\n`]*)\n?([\s\S]*?)```/g);
   parts.forEach((part, i) => {
     if (i % 3 === 1) return;
@@ -1170,7 +1172,7 @@ function renderTextInner(text: string, mentions?: Mention[] | null): string {
 
       // Code gets a small header with its language and Copy (jxn #1255).
       const code = `<pre><code>${esc(part.replace(/\n$/, ""))}</code></pre>`;
-      out.push(lang === "chart" ? chartHtml(part) : `<div class="code-b"><div class="code-h"><span class="mono">${esc(lang.replace(/[^\w+#.-]/g, "").slice(0, 20)) || "code"}</span><button type="button" class="code-copy" data-copy-code aria-label="Copy the code">Copy</button></div>${code}</div>`);
+      out.push(lang === "chart" ? chartHtml(part) : lang === "mermaid" ? mermaidHtml(part) : `<div class="code-b"><div class="code-h"><span class="mono">${esc(lang.replace(/[^\w+#.-]/g, "").slice(0, 20)) || "code"}</span><button type="button" class="code-copy" data-copy-code aria-label="Copy the code">Copy</button></div>${code}</div>`);
       return;
     }
     const paras = part.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
@@ -1355,7 +1357,7 @@ document.addEventListener('submit',async e=>{
   }finally{b&&(b.disabled=false)}
 });
 })();
-`;
+${MERMAID_JS}`;
 
 // ---------- app shell (signed-in pages) ----------
 
