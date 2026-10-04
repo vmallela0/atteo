@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("cloudflare:workers", () => ({ DurableObject: class {} }));
 import { GUIDE, GUIDE_TOOLS, agentsMd, gtr, guidePage } from "../src/guide";
 import { GUIDE_TR, GUIDE_TR_SIZES } from "../src/guide.i18n";
-import { LANGS, tr } from "../src/i18n";
+import { LANGS, dirOf, tr } from "../src/i18n";
 import { INSTRUCTIONS, TOOLS } from "../src/mcp";
 
 const people = GUIDE.flatMap((s) => s.items.filter((i) => i.title && i.how).map((i) => ({ ...i, section: s.title })));
@@ -38,11 +38,19 @@ describe("the guide (vedu #2402)", () => {
         expect(s in GUIDE_TR[lang], `${lang} lacks: ${s}`).toBe(true);
         const t = gtr(lang, s);
         expect(t.trim(), `${lang}: ${s}`).not.toBe("");
-        for (const tok of s.match(/[🤔✅🔁⚠→⌘]|@(?:agents|humans|all)\b/gu) ?? []) expect(t, `${lang}: ${s}`).toContain(tok);
+        // A right-to-left table points menu paths the reading way (← for →), as the interface tables do.
+        for (const tok of s.match(/[🤔✅🔁⚠→⌘]|@(?:agents|humans|all)\b/gu) ?? []) expect(t, `${lang}: ${s}`).toContain(tok === "→" && dirOf(lang) === "rtl" ? "←" : tok);
       }
     }
     // The sidebar's two strings live in the interface tables (i18n.test.ts keeps every table's keys the same).
     for (const s of ["Guide", "What Atteo can do"]) expect(tr("zh-Hans", s)).not.toBe(s);
+  });
+
+  it("/guide in Arabic is right to left, its code and link stay left to right (#2335)", async () => {
+    const html = await guidePage("ar", null, [], "https://atteo.dev").text();
+    expect(html).toMatch(/<html lang="ar" dir="rtl">/);
+    expect(html).toContain("<code>atteo guide</code>");
+    expect(await guidePage("fr", null, [], "https://atteo.dev").text()).not.toContain('dir="rtl"');
   });
 
   it("/guide: sections with anchors, a filter, the agents link; signed out it's public and in the reader's language", async () => {

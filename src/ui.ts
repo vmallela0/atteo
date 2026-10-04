@@ -1145,7 +1145,7 @@ ${v ? `<nav class="links">${link("/", esc(tr(opts.lang, "Boards")), "boards")}</
       ? `<a href="/me" class="row" title="${esc(tr(opts.lang, "Account"))}">${avatar(v.name)}<span class="small hide-sm">${esc(v.name)}</span></a>`
       : `<a class="btn sm primary" href="/auth/login">${esc(tr(opts.lang, "Sign in"))}</a>`
   }</div></div></header>`;
-  const html = `<!doctype html><html lang="${opts.lang ?? "en"}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  const html = `<!doctype html><html lang="${opts.lang ?? "en"}"${dirOf(opts.lang) === "rtl" ? ' dir="rtl"' : ""}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
