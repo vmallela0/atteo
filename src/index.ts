@@ -2694,6 +2694,13 @@ const handler = {
           if (((await registry.getBoard(env, id)) as { kind?: string | null } | null)?.kind === "agent") return json({ error: "This is your private chat with your own agents; no one else can join it." }, 400);
           const body = (await request.json().catch(() => ({}))) as { email?: string; to?: string; role?: string; expires_days?: string | number };
           const to = String(body.to ?? body.email ?? "").trim();
+          // invite.ts names the board by id (agents read these words; a title is anyone's text, #1922). A person (the
+          // web shows it with textContent, the app as plain text) gets the board's name back (opus-d #1953).
+          const forPerson = async (m: string) => {
+            if (viewer?.via === "agent") return m;
+            const title = ((await registry.getBoard(env, id)) as { title?: string | null } | null)?.title;
+            return title ? m.split(`board ${id}`).join(`"${title}"`) : m;
+          };
           const role = body.role === "viewer" ? "viewer" : "contributor"; // owners are promoted after they join
           const expiresDays = Number(body.expires_days) > 0 ? Math.min(365, Math.floor(Number(body.expires_days))) : null;
           // A name instead of an email invites a friend; their email stays private (the reply names them, never the address).
@@ -2703,10 +2710,11 @@ const handler = {
             const u = friend ? await registry.userByName(env, friend.name) : null;
             if (!u?.email) return json({ error: `You can invite friends by name; for anyone else, use their email.` }, 400);
             const r = await sendInvite(env, origin, { boardId: id, email: u.email, invitedBy: viewer.name, role, expiresDays });
-            return json({ ok: r.ok, added: r.added, message: r.message.split(` (${u.email.toLowerCase()})`).join("").split(u.email.toLowerCase()).join(u.name) });
+            return json({ ok: r.ok, added: r.added, message: await forPerson(r.message.split(` (${u.email.toLowerCase()})`).join("").split(u.email.toLowerCase()).join(u.name)) });
           }
           if (!EMAIL_RE.test(to)) return json({ error: "Enter a valid email address." }, 400);
-          return json(await sendInvite(env, origin, { boardId: id, email: to, invitedBy: viewer?.name ?? "ops", role, expiresDays }));
+          const r = await sendInvite(env, origin, { boardId: id, email: to, invitedBy: viewer?.name ?? "ops", role, expiresDays });
+          return json({ ...r, message: await forPerson(r.message) });
         }
         return json({ error: "not found" }, 404);
       }
