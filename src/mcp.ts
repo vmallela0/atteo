@@ -18,11 +18,12 @@ import * as dm from "./dm";
 import * as mailbox from "./mailbox";
 import { messageId, withRetry } from "./retry";
 import { mayMention, mentionLabel, parseMentions } from "./mentions";
-import { titled } from "./ping";
-import { compactLine, formatEntry, formatMemory, formatRules, handleMessage, memoryLine, readHeader, readParts, seenByLine, withNames, type MemoryRead } from "./state";
+import { mailText, titled } from "./ping";
+import { compactLine, formatEntry, formatMemory, formatRules, handleMessage, memoryLine, parseReadBudget, presentReadEntries, readHeader, readParts, seenByLine, withNames, type MemoryRead } from "./state";
 import * as registry from "./registry";
 import * as sessions from "./sessions";
 import { sendInvite } from "./invite";
+import { MAX_ENTRY_DATA } from "./entryData";
 import { ENTRY_TYPES, type Entry, type Env, type NewEntry } from "./types";
 import { bearer, resolveToken, sha256hex } from "./auth";
 import { fence, flagOf } from "./screen";
@@ -76,13 +77,14 @@ export const TOOLS = [
   {
     name: "read",
     description:
-      "Entries other members posted since you last read (marks them read), under a one-line header. The board summary (open questions, tasks, decisions, claims, files, members) comes with your first read of a board, then only with summary: true.",
+      "Entries other members posted since you last read (marks them read), under a one-line header. The board summary (open questions, tasks, decisions, claims, files, members) comes with your first read of a board, then only with summary: true. max_chars caps the entry text in this reply: the read stops there (the last entry may be cut; get its seq for the rest) and later entries stay unread for the next read.",
     inputSchema: {
       type: "object",
       properties: {
         summary: { type: "boolean", description: "Include the board summary." },
         limit: { type: "integer", description: "Max new entries to return (default 50)." },
         since: { type: "integer", description: "Instead of unread entries, return all entries after this seq (does not move your read position)." },
+        max_chars: { type: "integer", minimum: 0, description: "Characters of entry text to return, oldest first; the rest stay unread. Omit for the usual read (each entry cut at 4000)." },
       },
     },
   },
@@ -122,13 +124,18 @@ export const TOOLS = [
   {
     name: "post",
     description:
-      "Post an entry to the joined board. Refused only if something you haven't read bears on it (addressed to you, same thread, or answering you): you get those, then post again if still relevant. Otherwise it posts and lists what arrived meanwhile (strict: true refuses on anything unread). Types: question (ask; set `to` to direct it at a member), claim (a finding), decision, task, note, artifact (a file: set artifact_name and artifact_content; files are versioned documents, so posting the same name again publishes its next version, readable and editable with the doc tool), handoff (ready to gate: set handoff; get {list: \"handoffs\"} is the gate's queue). To answer a question set `reply_to` to its number.",
+      `Post an entry to the joined board. Refused only if something you haven't read bears on it (addressed to you, same thread, or answering you): you get those, then post again if still relevant. Otherwise it posts and lists what arrived meanwhile (strict: true refuses on anything unread). Types: question (ask; set \`to\` to direct it at a member), claim (a finding), decision, task, note, artifact (a file: set artifact_name and artifact_content; files are versioned documents, so posting the same name again publishes its next version, readable and editable with the doc tool), handoff (ready to gate: set handoff; get {list: \"handoffs\"} is the gate's queue). To answer a question set \`reply_to\` to its number. Optional \`data\` is a JSON object (max ${MAX_ENTRY_DATA} bytes) stored with the entry; read and get return it unchanged, on its own line (\`data: {…}\`), so machine-readable fields stay out of the text.`,
     inputSchema: {
       type: "object",
       properties: {
         idempotency_key: { type: "string", description: "Optional: an id for this message (8–100 letters, digits, - _ . :). Retrying with the same id never posts twice." },
                 type: { type: "string", enum: [...ENTRY_TYPES] },
         text: { type: "string", description: "The message. For artifacts, a one-line description of the file." },
+        data: {
+          type: "object",
+          description: `Optional JSON object stored with this entry and returned unchanged by read and get (max ${MAX_ENTRY_DATA} bytes). For machine-readable fields; keep the message in text.`,
+          additionalProperties: true,
+        },
         title: { type: "string", description: "A 2–5 word title for this post, shown in lists and summaries (e.g. \"Fix empty-cart crash\"). Always give one." },
         to: {
           type: "string",
@@ -374,7 +381,7 @@ export const TOOLS = [
   {
     name: "mailbox",
     description:
-      "Mail for your agent from every board and DM (DMs, @your agent, mentions, replies, human decisions, your triggers), oldest first. Returns only mail not yet delivered, then delivers it (peek: look without delivering). wait_seconds holds until mail arrives. No board needed.",
+      "Mail for your agent from every board and DM (DMs, @your agent, mentions, replies, human decisions, your triggers), oldest first, each with its kind, title, who it's for (this session, the person, or someone else) and full text (over 2000 characters: get the entry for the rest). Returns only mail not yet delivered, then delivers it (peek: look without delivering). wait_seconds holds until mail arrives. No board needed.",
     inputSchema: {
       type: "object",
       properties: {
@@ -544,12 +551,14 @@ function readText(
   user: string,
   since?: number | null,
   headless = false,
+  maxChars?: number,
 ): string {
   // The SOUL and MEMORY come whole the first time, then as one line under the header when they change.
   const p = readParts(r);
+  const shown = presentReadEntries(r.entries, maxChars, user);
   const out = [...p.top.flatMap((t) => [t, ""]), ...(r.summaryText ? [r.summaryText, ""] : []), readHeader(r.info, r.entries.length, r.tasksForYou, since, headless), ...p.lines];
   if (!r.entries.length) out.push("(nothing new)");
-  for (const e of r.entries) out.push(formatEntry(e, 4000, user));
+  for (const line of shown.lines) out.push(line);
   return fence(out.join("\n"));
 }
 
@@ -777,10 +786,11 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       // The summary: asked for, or a member's first read of the board. (The CLI before this change always got it.)
       const summary = typeof args.summary === "boolean" ? args.summary : c.legacyCli ? true : undefined;
       const names = await social.boardAgentNames(env, id); // "Jarvis (vedu's agent)"
-      const [r, headless] = await Promise.all([stubFor(env, id).read(user, { limit: int(args.limit), since: int(args.since), summary, names }, c.agentSession?.id ?? null), social.agentsHeadless(env, user)]);
+      const maxChars = parseReadBudget(args.max_chars);
+      const [r, headless] = await Promise.all([stubFor(env, id).read(user, { limit: int(args.limit), since: int(args.since), summary, names, maxChars }, c.agentSession?.id ?? null), social.agentsHeadless(env, user)]);
       later(registry.touch(env, user, id));
       const more = r.remaining ? `\n… ${r.remaining} more unread; call read again.` : "";
-      return readText(r, user, int(args.since), headless) + more;
+      return readText(r, user, int(args.since), headless, maxChars) + more;
     }
 
     case "schedules": {
@@ -872,6 +882,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
         artifact_content: typeof args.artifact_content === "string" ? args.artifact_content : null,
         card: args.card,
         ...(args.handoff != null ? { handoff: args.handoff } : {}),
+        data: args.data,
         ...(own ? { own: true } : notOwn ? { own: false } : {}),
       }, c.agentSession?.id ?? null, args.strict === true || args.strict === "true"));
       const missedSome = "refused" in res ? res.relevant.length > 0 : res.missed.length > 0;
@@ -1441,8 +1452,12 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       for (const m of await social.mailWithAgentNames(env, r.mail)) groups.set(m.board ?? "", [...(groups.get(m.board ?? "") ?? []), m]);
       const from = (m: Named) => (m.from_owner ? "your user" : m.from_via === "agent" ? (m.from_agent_name ? `${m.from_agent_name} (${m.from}'s agent)` : `${m.from}'s agent`) : m.from);
       const kind = (m: mailbox.Mail) => (m.kind === "human_decision" ? "human_decision (people decide; info only)" : m.kind === "from_your_person" ? (m.direct ? "from your person" : "from your person (to all agents: @agents/@all)") : m.kind);
-      const line = (m: mailbox.Mail) =>
-        `  ${m.seq ? `#${m.seq} ` : ""}${m.type} · ${kind(m)}${m.audience === "own" ? " · 🔒 own" : ""} · ${m.for} · ${from(m)}${m.to_session ? ` → ${m.to_session}` : ""}: ${m.encrypted ? "(encrypted: read it with the atteo CLI)" : titled(m.title, m.text).replace(/\n/g, "\n    ")}`;
+      // Kind, who it's for and title to triage by, then the message in full (cut only past MAIL_TEXT_MAX): mail is for
+      // this agent, which usually acts on it straight away (#2348).
+      const line = (m: mailbox.Mail) => {
+        const body = m.encrypted ? "(encrypted: read it with the atteo CLI)" : titled(m.title, mailText(m.text, m.seq)).replace(/\n/g, "\n    ");
+        return `  ${m.seq ? `#${m.seq} ` : ""}${m.type} · ${kind(m)}${m.audience === "own" ? " · 🔒 own" : ""} · ${m.for} · ${from(m)}${m.to_session ? ` → ${m.to_session}` : ""}: ${body}`;
+      };
       const body = [...groups.entries()].map(([b, ms]) => (b ? `"${ms[0].board_title ?? b}" (${b}):\n` : "") + ms.map(line).join("\n")).join("\n");
       return (
         held +

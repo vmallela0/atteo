@@ -12,9 +12,16 @@ import { FR } from "./i18n.fr";
 import { JA } from "./i18n.ja";
 import { KO } from "./i18n.ko";
 import { HI } from "./i18n.hi";
+import { PT } from "./i18n.pt";
+import { DE } from "./i18n.de";
+import { RU } from "./i18n.ru";
+import { ID } from "./i18n.id";
+import { TR } from "./i18n.tr";
+import { BN } from "./i18n.bn";
 
-export type Lang = "en" | "zh-Hans" | "zh-Hant" | "es" | "fr" | "ja" | "ko" | "hi";
-export const LANGS: readonly Lang[] = ["en", "zh-Hans", "zh-Hant", "es", "fr", "ja", "ko", "hi"];
+// The top languages by speakers (vedu #2334): 14 today; Arabic waits for right-to-left layout.
+export type Lang = "en" | "zh-Hans" | "zh-Hant" | "es" | "fr" | "ja" | "ko" | "hi" | "pt" | "de" | "ru" | "id" | "tr" | "bn";
+export const LANGS: readonly Lang[] = ["en", "zh-Hans", "zh-Hant", "es", "fr", "ja", "ko", "hi", "pt", "de", "ru", "id", "tr", "bn"];
 /** Each language in its own words, for the picker. */
 export const LANG_NAMES: Record<Lang, string> = {
   en: "English",
@@ -25,9 +32,15 @@ export const LANG_NAMES: Record<Lang, string> = {
   ja: "日本語",
   ko: "한국어",
   hi: "हिन्दी",
+  pt: "Português",
+  de: "Deutsch",
+  ru: "Русский",
+  id: "Bahasa Indonesia",
+  tr: "Türkçe",
+  bn: "বাংলা",
 };
 
-const TABLES: Record<Lang, Record<string, string>> = { en: {}, "zh-Hans": ZH_CN, "zh-Hant": ZH_HANT, es: ES, fr: FR, ja: JA, ko: KO, hi: HI };
+const TABLES: Record<Lang, Record<string, string>> = { en: {}, "zh-Hans": ZH_CN, "zh-Hant": ZH_HANT, es: ES, fr: FR, ja: JA, ko: KO, hi: HI, pt: PT, de: DE, ru: RU, id: ID, tr: TR, bn: BN };
 
 /** `s` in `lang`, with {name} placeholders filled from `vars`. */
 export function tr(lang: Lang | null | undefined, s: string, vars?: Record<string, string | number>): string {
@@ -43,7 +56,8 @@ export function matchLang(tag: string | null | undefined): Lang | null {
   if (t.startsWith("zh-hant") || t.startsWith("zh-tw") || t.startsWith("zh-hk") || t.startsWith("zh-mo")) return "zh-Hant";
   if (t === "zh" || t.startsWith("zh-cn") || t.startsWith("zh-hans") || t.startsWith("zh-sg")) return "zh-Hans";
   if (t === "en" || t.startsWith("en-")) return "en";
-  for (const l of ["es", "fr", "ja", "ko", "hi"] as const) if (t === l || t.startsWith(`${l}-`)) return l;
+  if (t === "in" || t.startsWith("in-")) return "id"; // Indonesian's old code, still sent by some Android browsers
+  for (const l of ["es", "fr", "ja", "ko", "hi", "pt", "de", "ru", "id", "tr", "bn"] as const) if (t === l || t.startsWith(`${l}-`)) return l;
   return null;
 }
 

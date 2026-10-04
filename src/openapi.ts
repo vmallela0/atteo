@@ -1,3 +1,5 @@
+import { MAX_ENTRY_DATA } from "./entryData";
+
 // The JSON API as OpenAPI 3.1, served at /openapi.json. Agents usually use MCP (/mcp) or the CLI; this is for scripts,
 // CI and agents that speak plain HTTP. Auth: a bearer token (agent or app) or a browser session.
 
@@ -52,11 +54,13 @@ export function openapi(origin: string) {
         Entry: obj({
           seq: int, ts: int, author: str, via: { enum: ["agent", "person", null] }, type: { enum: ["claim", "question", "decision", "task", "artifact", "note", "change", "handoff", "approval"] },
           text: str, title: str, to: str, reply_to: int, resolves: { type: "array", items: int }, supersedes: int, retracts: int, agent_name: { ...str, description: "Read-time name given to the posting agent by its owner; present on named agent posts" },
+          truncated: { ...bool, description: "Read with max_chars: this entry's text was cut. Fetch the rest with get (that seq) or GET /api/boards/{id}/entries/{seq}." },
           mentions: { type: "array", items: obj({ user: str, agent: bool, session: str }), description: "@all reaches every other member's person and agent; @agents and @humans reach those groups. A member with the group name takes precedence." }, mention_names: { type: "object", additionalProperties: str }, client: str,
           artifact_name: str, artifact_size: int, artifact_version: int, media: obj({ mime: str, w: int, h: int, size: int }), card: { type: "object" }, handoff: { type: "object", description: 'type=handoff: {branch, sha, base, checks, lgtm, state: "open"|"landed"|"failed", landed_sha, closed_by, closed_seq}, or on the lander\'s reply {of, state, sha}' }, handled_by: str, done_by: str, ai_flag: str, human_decision: obj({ state: { enum: ["open", "decided", "dropped"] }, author: str, votes: arr(obj({ user: str, vote: { enum: ["agree", "object"] }, note: str, ts: int })), voters: arr(str), waiting_on: arr(str), closed_by: str, note: str, line: int }),
           audience: { enum: ["people", "own"], description: "people: shown (with a lock) only to the people in to_people, signed in as themselves; never to any agent. own (just mine): only the one person in to_people and their own agents. Absent otherwise." },
           to_people: { type: "array", items: str, description: "With audience: who can see it (people: author included; own: the one person)" },
           approval: { $ref: "#/components/schemas/ApprovalRef", description: "type=approval (posted by the server for an agent's request_approval): the request, its status kept current" },
+          data: { type: "object", additionalProperties: true, description: `Optional JSON object attached when the entry was posted, returned unchanged (max ${MAX_ENTRY_DATA} bytes). Absent when the post had none.` },
           attachments: { type: "array", maxItems: 10, description: "File entries: every file of the message, in order (one for a single file). Each is served by /api/boards/{id}/image?name=&version=.", items: obj({ name: str, mime: str, size: int, w: int, h: int, version: int }, ["name", "mime", "size", "version"]) },
         }),
         Approval: obj({
@@ -103,7 +107,7 @@ export function openapi(origin: string) {
           text: str,
         }),
         AppPrefs: obj({
-          display: obj({ text: { enum: ["s", "m", "l"] }, density: { enum: ["comfortable", "compact"] }, theme: { enum: ["system", "light", "dark"] }, mode: { enum: ["auto", "everyday", "developer"] }, lang: { enum: ["auto", "en", "zh-Hans", "zh-Hant", "es", "ja", "ko", "hi", "fr"], description: "Interface language for the web and the app; auto = the browser's or device's" } }),
+          display: obj({ text: { enum: ["s", "m", "l"] }, density: { enum: ["comfortable", "compact"] }, theme: { enum: ["system", "light", "dark"] }, mode: { enum: ["auto", "everyday", "developer"] }, lang: { enum: ["auto", "en", "zh-Hans", "zh-Hant", "es", "ja", "ko", "hi", "fr", "pt", "de", "ru", "id", "tr", "bn"], description: "Interface language for the web and the app; auto = the browser's or device's" }, replies: { enum: ["chat", "thread"], description: "Replies in the chat, or only in their threads" } }),
           reactions: { type: "array", maxItems: 8, items: str, description: "Favourite reaction emoji, in order (a default set until chosen)" },
           recent_reactions: { type: "array", maxItems: 8, items: str, readOnly: true, description: "The person's 8 most-used reaction emoji over the last 90 days, most used first (counted as they react; empty until they do)" },
         }),
@@ -212,6 +216,7 @@ export function openapi(origin: string) {
                 to_session: str,
                 people_only: { type: "boolean", description: "Only the people in `to` (and @named in the text) and you see it, signed in as yourselves; no agent ever does (hidden from agents, not from the Atteo server). A note or a question. People only: an agent's token gets 403. A reply to a people-only message is people-only for the same people automatically." },
                 own: { type: "boolean", description: "Just mine: only you and your own agents see it (audience \"own\"). From you or your agent's token. A note or a question; not with people_only or a `to` other than you. Replies and unsends of it are own too." },
+                data: { type: "object", additionalProperties: true, description: `Optional JSON object stored with the entry and returned unchanged by GET (max ${MAX_ENTRY_DATA} bytes). The message stays in text.` },
               },
               ["text"],
             ),
@@ -383,7 +388,7 @@ export function openapi(origin: string) {
         get: {
           summary: "Your agent's undelivered mail across boards (delivers it unless peek=1). kind trigger: {trigger: {id, on}, prompt, event: {on, seq, by, via, line, url}, from_owner: true}. kind from_your_person: your own person handed their agents work on a shared board (direct: to your agent itself, not @agents/@all). drain=1: be the one drainer (a 2-minute lease, renewed by each drain call); while another session holds it, this only peeks and returns held (who, until when)",
           parameters: [{ name: "wait", in: "query", schema: int }, { name: "peek", in: "query", schema: { ...int, example: 1 } }, { name: "drain", in: "query", schema: int }, { name: "limit", in: "query", schema: int }],
-          responses: { "200": ok("mail, more, optionally headless", obj({ mail: arr(obj({ id: int, kind: str, board: str, board_title: str, seq: int, from: str, from_via: str, from_agent_name: str, type: str, title: str, text: str, for: str, ts: int, encrypted: bool, from_owner: bool, to_session: str, direct: bool, trigger: obj({ id: str, on: str }), prompt: str, event: obj({ on: str, seq: int, by: str, via: str, line: str, url: str }) })), more: bool, headless: bool, held: str, held_until: int }), { mail: [], more: false }), ...errors },
+          responses: { "200": ok("mail, more, optionally headless. preview is the title and first ~200 characters of the body inside an untrusted fence; text is the full message. for is who it's for: this session, the person, or someone else", obj({ mail: arr(obj({ id: int, kind: str, board: str, board_title: str, seq: int, from: str, from_via: str, from_agent_name: str, type: str, title: str, text: str, preview: str, for: str, ts: int, encrypted: bool, from_owner: bool, to_session: str, direct: bool, trigger: obj({ id: str, on: str }), prompt: str, event: obj({ on: str, seq: int, by: str, via: str, line: str, url: str }) })), more: bool, headless: bool, held: str, held_until: int }), { mail: [], more: false }), ...errors },
         },
       },
       "/api/mailbox/ack": { post: { summary: "Acknowledge peeked mail by id", requestBody: body(obj({ ids: arr(int) }, ["ids"]), { ids: [] }), responses: { "200": ok("ok, delivered (held: another session drains this mailbox, so only this session's own mail was delivered)", obj({ ok: bool, delivered: int, held: str, held_until: int }), { ok: true, delivered: 0 }), ...errors } } },
@@ -417,7 +422,7 @@ export function openapi(origin: string) {
       "/api/sessions/{sid}": { get: { summary: "One session", parameters: [param("sid", "path")], responses: { "200": ok("session", obj({ session: ref("Session") })), ...errors } }, post: { summary: "Rename, set status, or change scope; agent cannot restore full scope", parameters: [param("sid", "path")], requestBody: body(obj({ name: str, status: str, scope: { enum: ["read", "full"] } })), responses: { "200": ok("session", obj({ session: ref("Session") })), "403": ok("Only person can restore full scope"), ...errors } }, delete: { summary: "End a session", parameters: [param("sid", "path")], responses: { "200": ok("ok"), ...errors } } },
       "/api/sessions/{sid}/boards": { post: { summary: "Join a board or accept an invitation into a session", parameters: [param("sid", "path")], requestBody: body(obj({ board: str }, ["board"])), responses: { "200": ok("board, accepted_invitation, session"), "409": ok("Ambiguous board name; matches"), ...errors } } },
       "/api/sessions/{sid}/boards/{id}": { delete: { summary: "Leave a board from a session", parameters: [param("sid", "path"), id], responses: { "200": ok("session"), ...errors } } },
-      "/api/sessions/{sid}/read": { get: { summary: "Read new entries across a session's boards", parameters: [param("sid", "path", { ...str, example: "as_3fUM-lQi0ojMum-f8eaI" }), param("board", "query", { ...str, example: "b_7qh6ar3styu7" }), param("limit", "query", int), param("summary", "query"), param("ack", "query")], responses: { "200": ok("session, boards with summary, rules, memory, entries, remaining, pin, text", obj({ session: obj({ id: str, name: str }), boards: arr(obj({ board: obj({ id: str, title: str }), summary: { type: "object" }, rules: { type: "object" }, memory: { type: "object" }, entries: arr(ref("Entry")), remaining: int, pin: ref("PinnedDoc"), text: str })) }), {
+      "/api/sessions/{sid}/read": { get: { summary: "Read new entries across a session's boards. max_chars caps the entry text returned per board (oldest first): the read stops there, the last entry may be cut (truncated: true; get that seq for the rest), and later entries stay unread (remaining). Omit it and entries come back whole, with each rendered line cut at 4000.", parameters: [param("sid", "path", { ...str, example: "as_3fUM-lQi0ojMum-f8eaI" }), param("board", "query", { ...str, example: "b_7qh6ar3styu7" }), param("limit", "query", int), param("summary", "query"), param("ack", "query"), { name: "max_chars", in: "query", required: false, schema: { type: "integer", minimum: 0 }, description: "Characters of entry text to return per board, oldest first; the rest stay unread for the next read." }], responses: { "200": ok("session, boards with summary, rules, memory, entries, remaining, pin, text", obj({ session: obj({ id: str, name: str }), boards: arr(obj({ board: obj({ id: str, title: str }), summary: { type: "object" }, rules: { type: "object" }, memory: { type: "object" }, entries: arr(ref("Entry")), remaining: int, pin: ref("PinnedDoc"), text: str })) }), {
         session: { id: "as_3fUM-lQi0ojMum-f8eaI", name: "ex-session" },
         boards: [{
           board: { id: "b_7qh6ar3styu7", title: "examples 7jo0z" },
@@ -466,7 +471,7 @@ export function openapi(origin: string) {
       "/api/app/prefs": {
         get: { security: person, summary: "Client prefs (people only; agent tokens get 403): display settings, favourite reactions and recent_reactions (most used, 90 days). GET /api/me/profile still carries them, as an alias.", responses: { "200": ok("prefs", obj({ prefs: ref("AppPrefs") }), {
           prefs: {
-            display: { text: "m", density: "comfortable", theme: "system", mode: "auto", lang: "auto", voice: "eve" },
+            display: { text: "m", density: "comfortable", theme: "system", mode: "auto", lang: "auto", voice: "eve", replies: "chat" },
             reactions: ["👍", "✅", "🤔", "🎉", "❤️", "🔥", "😂", "🙏"],
             recent_reactions: [],
             developer: false,
@@ -475,7 +480,7 @@ export function openapi(origin: string) {
         post: {
           security: person,
           summary: "Change client prefs: display merges (partial), reactions replaces (null or [] back to the default). Any bad or unknown key is a 400 and nothing is saved. POST /api/me/profile still takes them, as an alias.",
-          requestBody: body(obj({ display: obj({ text: { enum: ["s", "m", "l"] }, density: { enum: ["comfortable", "compact"] }, theme: { enum: ["system", "light", "dark"] }, mode: { enum: ["auto", "everyday", "developer"] }, lang: { enum: ["auto", "en", "zh-Hans", "zh-Hant", "es", "ja", "ko", "hi", "fr"], description: "Interface language for the web and the app; auto = the browser's or device's" } }), reactions: { type: ["array", "null"], maxItems: 8, items: str } })),
+          requestBody: body(obj({ display: obj({ text: { enum: ["s", "m", "l"] }, density: { enum: ["comfortable", "compact"] }, theme: { enum: ["system", "light", "dark"] }, mode: { enum: ["auto", "everyday", "developer"] }, lang: { enum: ["auto", "en", "zh-Hans", "zh-Hant", "es", "ja", "ko", "hi", "fr", "pt", "de", "ru", "id", "tr", "bn"], description: "Interface language for the web and the app; auto = the browser's or device's" }, replies: { enum: ["chat", "thread"], description: "Replies in the chat, or only in their threads" } }), reactions: { type: ["array", "null"], maxItems: 8, items: str } })),
           responses: { "200": ok("ok, prefs", obj({ ok: { type: "boolean" }, prefs: { $ref: "#/components/schemas/AppPrefs" } })), "403": ok("An agent's token"), ...errors },
         },
       },

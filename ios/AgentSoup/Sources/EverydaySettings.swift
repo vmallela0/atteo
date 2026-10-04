@@ -73,6 +73,14 @@ struct EverydaySettings: View {
             Section {
                 picker("Theme", id: "display-theme", \.theme, [("light", "Bright"), ("dark", "Dark"), ("system", "Phone")])
                 picker("Text size", id: "display-text", \.text, [("s", "S"), ("m", "M"), ("l", "L")])
+                // Replies only in their thread (vedu #2360): the chat shows "N replies" under the message instead.
+                Toggle("Keep replies in their thread", isOn: Binding(get: { state.display.repliesInThread }, set: { on in
+                    var d = state.display
+                    d.replies = on ? "thread" : "chat"
+                    state.setDisplay(d)
+                }))
+                .tint(Theme.accent)
+                .accessibilityIdentifier("display-replies")
                 LanguagePicker()
             } header: { SectionHeader("Appearance") }
             .listRowBackground(Theme.card)

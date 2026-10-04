@@ -546,6 +546,8 @@ export const KO: Record<string, string> = {
   "Renamed": "이름 바꿈",
   "Reopen": "다시 열기",
   "Replies": "답장",
+  "In the chat": "채팅에 표시",
+  "Only in their threads": "각 스레드에서만",
   "Reply": "답장",
   "Reply to": "답장 대상",
   "Reply to ": "답장: ",

@@ -77,7 +77,7 @@ export { Board } from "./board";
 import { forwardDestOk, forwardExcerptInEntry, keptOwnNotice } from "./audience";
 import { audienceNotice, MAX_FILES_PER_MESSAGE, MAX_IMAGE, MAX_MESSAGE_BYTES, MAX_WAIT_MS, WAIT_CAP } from "./board";
 import * as sessions from "./sessions";
-import { compactLine, formatEntry, formatMemory, handleMessage, readHeader, readParts, withNames } from "./state";
+import { compactLine, formatEntry, formatMemory, handleMessage, parseReadBudget, presentReadEntries, readHeader, readParts, withNames } from "./state";
 import { fence } from "./screen";
 import { CODE_COLOR_PATH, CODE_COLOR_SCRIPT } from "./codecolor";
 
@@ -1870,13 +1870,13 @@ const handler = {
           const only = url.searchParams.get("board");
           const ids = only ? [...cur.boards, ...directs].filter((b) => b === only) : [...cur.boards, ...directs];
           if (only && !ids.length) return json({ error: `This session isn't on ${only}.` }, 404);
-          const render = (b: { id: string; title: string; encrypted?: boolean }, entries: import("./types").Entry[], tasksForYou?: number, headless = false, lines: string[] = []) =>
+          const render = (b: { id: string; title: string; encrypted?: boolean }, entries: import("./types").Entry[], tasksForYou?: number, headless = false, lines: string[] = [], entryLines: string[] = []) =>
             fence(
               [
                 tasksForYou == null ? `== ${b.title} (${b.id}) · new (${entries.length}) ==` : readHeader(b, entries.length, tasksForYou, null, headless),
                 ...lines, // 📌 pin, 🧭 SOUL update, 🧠 memory change
                 ...(entries.length ? [] : ["(nothing new)"]),
-                ...entries.map((e) => formatEntry(e, 4000, viewer.name)),
+                ...entryLines,
               ].join("\n"),
             );
           // ?ack=<board>:<seq>,…: what the client got from its last held wait (the `ack` that wait returned). Its read
@@ -1895,6 +1895,7 @@ const handler = {
           }
           if (method === "GET" && sub === "read") {
             const limit = Number(url.searchParams.get("limit")) || undefined;
+            const maxChars = parseReadBudget(url.searchParams.get("max_chars"));
             // ?summary=all: every board's summary; none: no summary. Otherwise (older CLIs send a comma list of boards)
             // a board's summary comes with the member's first read of it, then only on request.
             const sumParam = url.searchParams.get("summary");
@@ -1902,18 +1903,19 @@ const handler = {
             const headless = await social.agentsHeadless(env, viewer.name);
             const out = await Promise.all(
               ids.map(async (id) => {
-                const r = await boardStub(env, id).read(viewer.name, { limit, summary: summary(id), names: await social.boardAgentNames(env, id) }, cur.id);
+                const r = await boardStub(env, id).read(viewer.name, { limit, summary: summary(id), names: await social.boardAgentNames(env, id), maxChars }, cur.id);
                 const b = { id, title: r.info.title, encrypted: r.info.encrypted };
                 const p = readParts(r); // the SOUL and MEMORY: whole the first time, then a line when they change
+                const shown = presentReadEntries(r.entries, maxChars, viewer.name);
                 return {
                   board: { id, title: r.info.title },
                   summary: r.summaryText,
                   rules: r.rules, // the SOUL (PROTOCOL.md), when due: {name, version, text, truncated, update, by}
                   memory: r.memory, // {first: true, items} on the first read, {first: false, added, struck} after a change, else null
-                  entries: r.entries,
+                  entries: shown.entries,
                   remaining: r.remaining,
                   pin: r.pin, // "📌 SPEC.md updated to v4", once per version (null otherwise)
-                  text: p.top.map((t) => fence(t) + "\n").join("") + (r.summaryText ? fence(r.summaryText) + "\n" : "") + render(b, r.entries, r.tasksForYou, headless, p.lines),
+                  text: p.top.map((t) => fence(t) + "\n").join("") + (r.summaryText ? fence(r.summaryText) + "\n" : "") + render(b, shown.entries, r.tasksForYou, headless, p.lines, shown.lines),
                 };
               }),
             );
@@ -2661,7 +2663,7 @@ const handler = {
         if (what === "entries" && !seqStr && method === "POST") {
           // canSee above already checked membership, unless it let an operator through.
           if (!viewer || (isOps(c) && !(await registry.isMember(env, id, viewer.name)))) return json({ error: "Only members can post." }, 403);
-          const body = (await request.json().catch(() => ({}))) as { text?: string; type?: string; to?: string | string[]; reply_to?: string | number; to_session?: string; people_only?: unknown; own?: unknown; resolves?: unknown; handoff?: unknown };
+          const body = (await request.json().catch(() => ({}))) as { text?: string; type?: string; to?: string | string[]; reply_to?: string | number; to_session?: string; people_only?: unknown; own?: unknown; resolves?: unknown; handoff?: unknown; data?: unknown };
           const type = (["note", "question", "task", "decision", "claim", "handoff"] as const).find((t) => t === body.type) ?? "note";
           // People-only (vedu #1264): for the people named in `to` (a list, or one name) and/or @named in the text.
           // Never from an agent's token: agents can't create them (or read them).
@@ -2710,7 +2712,7 @@ const handler = {
           try {
             const idem = messageId(request.headers.get("idempotency-key"));
             const so = await asOpts();
-            const entry = await withRetry(() => stub.post(viewer.name, { type, text, to, mentions, reply_to: replyTo, ...(resolves.length ? { resolves } : {}), via: pv(), ...so, idem, ...(peopleOnly ? { people_only: true, to_people: toPeople } : {}), ...(own ? { own: true } : notOwn ? { own: false } : {}), ...(body.handoff != null ? { handoff: body.handoff } : {}) }));
+            const entry = await withRetry(() => stub.post(viewer.name, { type, text, to, mentions, reply_to: replyTo, ...(resolves.length ? { resolves } : {}), via: pv(), ...so, idem, data: body.data, ...(peopleOnly ? { people_only: true, to_people: toPeople } : {}), ...(own ? { own: true } : notOwn ? { own: false } : {}), ...(body.handoff != null ? { handoff: body.handoff } : {}) }));
             ctx.waitUntil(Promise.all([registry.touch(env, viewer.name, id), registry.bumpBoard(env, id, entry.seq)]).catch(() => {}));
             // The rendered entry comes back with the post, so the page shows it without another round trip.
             const root = replyTo ? ((await stub.rootsFor([entry.seq]))[entry.seq] ?? entry.seq) : entry.seq;

@@ -75,6 +75,7 @@ struct FullSettings: View {
                 displayPicker("Text size", id: "display-text", \.text, [("s", "S"), ("m", "M"), ("l", "L")])
                 displayPicker("Density", id: "display-density", \.density, [("comfortable", "Comfortable"), ("compact", "Compact")])
                 displayPicker("Theme", id: "display-theme", \.theme, [("system", "System"), ("light", "Light"), ("dark", "Dark")])
+                displayPicker("Replies", id: "display-replies", \.replies, [("chat", "In the chat"), ("thread", "Only in threads")])
                 LanguagePicker()
             } header: { SectionHeader("Display") } footer: {
                 Text("Text size adds to your iPhone's own setting. Saved to your account, so the web follows it too.")

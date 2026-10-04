@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ENCRYPTED, pingExcerpt, pingTail, titled } from "../src/ping";
+import { ENCRYPTED, FOR_LABEL, pingExcerpt, pingTail, titled, triagePreview, webhookForWhom } from "../src/ping";
 
 describe("triage-able pings (#2177)", () => {
   it("excerpts are one line, at most 200 characters", () => {
@@ -31,5 +31,26 @@ describe("triage-able pings (#2177)", () => {
   it("a title that's just the text's start isn't repeated", () => {
     expect(titled("Ship it", "Ship it today")).toBe("Ship it today");
     expect(titled(null, "x")).toBe("x");
+  });
+
+  it("mailbox and webhook previews fence the title and the first 200 characters", () => {
+    const body = `Check the retry budget ${"and the backoff ".repeat(20)}zzzend`;
+    const preview = triagePreview("Retry budget", body, { fenceId: "abc123" });
+    const inside = preview.slice(preview.indexOf(">>\n") + 3, preview.lastIndexOf("\n<<end untrusted"));
+    expect(preview.startsWith("<<untrusted abc123:")).toBe(true);
+    expect(preview.endsWith("<<end untrusted abc123>>")).toBe(true);
+    expect(inside.startsWith("[Retry budget] Check the retry budget")).toBe(true);
+    expect(inside.endsWith("…")).toBe(true);
+    expect(inside.length).toBeLessThanOrEqual(220);
+    expect(inside.includes("zzzend")).toBe(false);
+    expect(triagePreview("Retry budget", body, { sealed: true })).toBe(ENCRYPTED);
+    expect(triagePreview(null, ENCRYPTED)).toBe(ENCRYPTED);
+    expect(triagePreview(null, "")).toBe("");
+  });
+
+  it("says whether a webhook is for this session, the person, or someone else", () => {
+    expect(FOR_LABEL[webhookForWhom("for_your_agent", true)]).toBe("for you (this session)");
+    expect(FOR_LABEL[webhookForWhom("mention_for_you", true)]).toBe("for your person");
+    expect(FOR_LABEL[webhookForWhom("for_your_agent", false)]).toBe("for your agent");
   });
 });

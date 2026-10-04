@@ -84,6 +84,14 @@ struct BoardView: View {
     }
     /// Hidden by the People filter: an agent's post.
     private func filteredOut(_ e: Entry) -> Bool { peopleOnly && e.byAgent }
+    /// Kept in its thread (Settings → Display → Replies: Only in threads, vedu #2360): a reply whose thread's first
+    /// message is in the chat, which says "N replies" for it. One whose first message isn't loaded, or is hidden, stays
+    /// in the chat, so a reply is never out of sight altogether.
+    private func folded(_ e: Entry, in bySeq: [Int: Entry]) -> Bool {
+        guard state.display.repliesInThread, e.replyTo != nil, e.retracts == nil,
+              let root = bySeq[rootOf(e, in: bySeq)], root.seq != e.seq, root.retracts == nil, !filteredOut(root) else { return false }
+        return true
+    }
 
     @ObservedObject private var threadSeen = ThreadSeen.shared
     @Environment(\.chatDensity) private var density
@@ -107,7 +115,8 @@ struct BoardView: View {
         // Every message in order, replies included (jxn #1040): a reply lands at the bottom like any message, under a
         // bar quoting what it answers; the message it answers says "3 replies", which opens the thread.
         // (The People filter leaves agents' posts out of what's shown only: a person's reply still quotes what it answers.)
-        let shown = list.filter { $0.retracts == nil && !filteredOut($0) }
+        // Replies only in their thread (Settings → Display): the chat keeps just the message they answer and its "N replies".
+        let shown = list.filter { $0.retracts == nil && !filteredOut($0) && !folded($0, in: bySeq) }
         let replies = Dictionary(grouping: list.filter { $0.replyTo != nil && $0.retracts == nil && $0.seq > 0 && !gone.contains($0.seq) }, by: { rootOf($0, in: bySeq) })
         let latestMine = shown.last { isMine($0) && $0.seq > 0 && $0.type != "task" && !gone.contains($0.seq) }?.seq
         return Rows(shown: shown, bySeq: bySeq, gone: gone, replies: replies, latestMine: latestMine)
@@ -525,7 +534,10 @@ struct BoardView: View {
             if holdBottom { try? await Task.sleep(nanoseconds: 250_000_000); holdBottom = false }
             if peopleOnly, list.first(where: { $0.seq == seq })?.byAgent == true { setPeopleOnly(false, follow: false); try? await Task.sleep(nanoseconds: 250_000_000) }
             // (A reply is in the chat like any message now, jxn #1040: it scrolls there too.)
-            guard list.contains(where: { $0.seq == seq && $0.retracts == nil }) else { Haptics.play(.warning); return }
+            guard let target = list.first(where: { $0.seq == seq && $0.retracts == nil }) else { Haptics.play(.warning); return }
+            // Unless replies stay in their threads: then its thread opens at it.
+            let bySeq = Dictionary(list.map { ($0.seq, $0) }, uniquingKeysWith: { a, _ in a })
+            if folded(target, in: bySeq) { focused = false; thread = ThreadTarget(root: rootOf(target, in: bySeq), focus: seq); return }
             stick = false
             if focused { // the keyboard would cover it: let it go down first, then scroll
                 focused = false
@@ -546,8 +558,9 @@ struct BoardView: View {
     private func openAtFirstUnread() {
         guard !unreadResolved else { return }
         unreadResolved = true
+        let bySeq = Dictionary(list.map { ($0.seq, $0) }, uniquingKeysWith: { a, _ in a })
         guard state.jumpRequest == nil, !userScrolled, let me, let seen = state.reads[board.id]?[me]?.personSeen, seen > 0,
-              let first = list.first(where: { $0.seq > seen && $0.retracts == nil && !isMine($0) && !filteredOut($0) }) else { return }
+              let first = list.first(where: { $0.seq > seen && $0.retracts == nil && !isMine($0) && !filteredOut($0) && !folded($0, in: bySeq) }) else { return }
         newAt = first.seq
         stick = false
         quiet.on = true

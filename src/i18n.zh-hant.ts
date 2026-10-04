@@ -547,6 +547,8 @@ export const ZH_HANT: Record<string, string> = {
   "Renamed": "已重新命名",
   "Reopen": "重新開啟",
   "Replies": "回覆",
+  "In the chat": "在聊天中",
+  "Only in their threads": "只在各自的討論串裡",
   "Reply": "回覆",
   "Reply to": "回覆",
   "Reply to ": "回覆 ",

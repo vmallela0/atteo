@@ -5,6 +5,7 @@
 // Each running agent is its own session (session.ts): its own boards and read positions. Older commands still work.
 
 import { fence, flagNote, screenText } from "../../src/screen";
+import { ENCRYPTED, mailText as mailBody, titled } from "../../src/ping";
 import { blockedMessage, scanFields } from "../../src/secrets";
 import { env } from "./env";
 import { api, askYes, boardIdIn, CliError, COMMANDS, creds, currentBoard, decryptEntry, folderBoard, getEntry, isEncrypted, onlyOptions, optStr, parseArgs, picturesNote, say, setSession, shown, tool } from "./commands";
@@ -415,7 +416,7 @@ async function waitCmd(args: string[]) {
 
 // ---- the mailbox: one place for everything addressed to your agent, on every board and DM ----
 
-type Mail = { direct?: boolean; id: number; kind: string; board: string | null; board_title: string | null; seq: number | null; from: string; from_via: string | null; type: string; text: string; ts: number; encrypted?: boolean; from_owner?: boolean; to_session?: string; audience?: "own" };
+type Mail = { direct?: boolean; id: number; kind: string; board: string | null; board_title: string | null; seq: number | null; from: string; from_via: string | null; type: string; title?: string | null; text: string; preview?: string; for?: string; ts: number; encrypted?: boolean; from_owner?: boolean; to_session?: string; audience?: "own" };
 
 /** Just mine mail (audience "own"): only your person sees it, so the answer must stay in the lane. */
 export const OWN_MAIL_HINT = "Just mine: only your person sees this; reply in its thread or with own: true.";
@@ -428,8 +429,12 @@ const when = (ts: number) => {
   return (iso.slice(0, 10) === new Date().toISOString().slice(0, 10) ? iso.slice(11, 16) : iso.slice(0, 16).replace("T", " ")) + "Z";
 };
 // Your own person, on "Your agent": "from your user" (still fenced, like everything from a board).
-const mailBlock = (m: Mail) =>
-  `── ${m.seq ? `#${m.seq} ` : ""}${m.type} · ${m.kind === "from_your_person" && !m.direct ? "from your person (to all agents: @agents/@all)" : (MAIL_KIND[m.kind] ?? m.kind)}${m.audience === "own" ? " · 🔒 own" : ""} · from ${m.from_owner ? `your user (${m.from})` : m.from_via === "agent" ? `${m.from}'s agent` : `${m.from} (person)`}${m.to_session ? ` · for your session "${m.to_session}"` : ""} · ${when(m.ts)}\n    ${m.text.replace(/\n/g, "\n    ")}`;
+// Kind, title and who it's for to triage by, then the message in full (cut only past MAIL_TEXT_MAX, #2348). --json adds `preview`, the fenced excerpt pings use.
+const mailBlock = (m: Mail) => {
+  const shown = m.text === ENCRYPTED ? m.text : titled(m.title, mailBody(m.text, m.seq));
+  const kind = m.kind === "from_your_person" && !m.direct ? "from your person (to all agents: @agents/@all)" : (MAIL_KIND[m.kind] ?? m.kind);
+  return `── ${m.seq ? `#${m.seq} ` : ""}${m.type} · ${kind}${m.audience === "own" ? " · 🔒 own" : ""}${m.for && m.for !== kind ? ` · ${m.for}` : ""} · from ${m.from_owner ? `your user (${m.from})` : m.from_via === "agent" ? `${m.from}'s agent` : `${m.from} (person)`}${m.to_session ? ` · for your session "${m.to_session}"` : ""} · ${when(m.ts)}\n    ${shown.replace(/\n/g, "\n    ")}`;
+};
 /** Mail grouped under one line per board (in order of first arrival), each message under it oldest first. */
 const mailText = (mail: Mail[]) => {
   const groups = new Map<string, Mail[]>();
@@ -438,7 +443,8 @@ const mailText = (mail: Mail[]) => {
 };
 
 /**
- * Your agent's undelivered mail, oldest first, with full text. It always peeks, then acknowledges what it printed
+ * Your agent's undelivered mail, oldest first, in full (kind, title and who it's for on each line; a message past
+ * 2000 characters is cut with "get #N for the rest"); --json adds `preview`. It always peeks, then acknowledges what it printed
  * (unless --peek), so mail isn't lost if this process dies on the way. --wait N holds up to N seconds in all.
  */
 async function mailboxCmd(args: string[]) {

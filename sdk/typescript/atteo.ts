@@ -20,6 +20,7 @@ export interface Entry {
   resolves: number[];
   artifact_name: string | null;
   artifact_version?: number | null;
+  data?: { [key: string]: unknown };
 }
 
 export interface Board {
@@ -77,7 +78,7 @@ export class Atteo {
   }
 
   /** Post to a board. Address an agent with `to`, answer with `reply_to`. */
-  async post(board: string, p: { text: string; type?: "note" | "question" | "task" | "decision" | "claim"; to?: string; reply_to?: number }): Promise<Entry> {
+  async post(board: string, p: { text: string; type?: "note" | "question" | "task" | "decision" | "claim"; to?: string; reply_to?: number; data?: { [key: string]: unknown } }): Promise<Entry> {
     return (await this.call<{ entry: Entry }>("POST", `/api/boards/${board}/entries`, p)).entry;
   }
 

@@ -3,7 +3,8 @@
 // the browser, and in the CLI for a new browser); removing someone rotates the key; the server only ever has ciphertext.
 import { SHOTS_DIR } from "./lib/shots.mjs";
 import { chromium } from "playwright-core";
-import { spawn, execSync } from "node:child_process";
+import { spawn } from "node:child_process";
+import { d1Execute } from "./lib/d1.mjs";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,7 +17,7 @@ for (const u of [A,B,C]) { await ops("users",{name:u,email:`${u}@example.com`,ve
   cred[u]=join(dir,`${u}.json`); writeFileSync(cred[u],JSON.stringify({server:BASE,user:u,token:tok[u],expires_at:Date.now()+86400e3}),{mode:0o600}); }
 const cli=(u,args)=>new Promise(res=>{const p=spawn("node",[CLI,...args],{cwd:dir,env:{...process.env,AGENT_BOARD_CREDENTIALS_FILE:cred[u],AGENT_BOARD_SERVER:BASE,XDG_CONFIG_HOME:join(dir,`cfg-${u}`)}});
   let out="",err="";p.stdout.on("data",d=>out+=d);p.stderr.on("data",d=>err+=d);p.stdin.end();p.on("close",code=>res({code,out,err}))});
-const sql=(q)=>execSync(`npx wrangler d1 execute agent-board --local --command ${JSON.stringify(q)}`,{cwd:WT,stdio:"pipe"});
+const sql=(q)=>d1Execute(`--command ${JSON.stringify(q)}`,{cwd:WT});
 const board=(await ops("boards",{user:A,title:`Secret plans ${run}`,encrypted:true})).board.id;
 await ops("members",{board,user:B});
 let fails=0;const check=(ok,m)=>{console.log(`${ok?"✓":"✗"} ${m}`);if(!ok)fails++};
@@ -122,7 +123,7 @@ const bobCli=(await (await fetch(`${BASE}/api/keys/${B}`,{headers:{authorization
 check(Object.values(pinsA).flat().every(e=>/^[a-z0-9-]+\|[A-Za-z0-9+/]{43}=$/.test(e))&&pinsA[B]?.[0]===`${bobCli.id}|${bobCli.public_key}`,`pins are id|public key (Bob: ${pinsA[B]?.[0]?.slice(0,20)}…)`);
 // A server that swaps the public key under Bob's pinned id: the next epoch isn't wrapped to it.
 const { generateKeyPairSync } = await import("node:crypto");const evil=Buffer.from(generateKeyPairSync("x25519").publicKey.export({format:"jwk"}).x,"base64url").toString("base64");
-sql(`UPDATE agent_keys SET public_key = '${evil}' WHERE id = '${bobCli.id}'`);
+await sql(`UPDATE agent_keys SET public_key = '${evil}' WHERE id = '${bobCli.id}'`);
 // Removing this browser's key from the account (a lost device): the browser never brings that key back; it makes a new one, which waits.
 const before=await pa.evaluate(async()=>{const r=await fetch("/api/me/keys");return (await r.json()).keys.find(k=>/web/.test(k.label)).id});
 check((await pa.evaluate(async k=>(await fetch("/api/me/keys/"+k,{method:"DELETE"})).status,before))===200,"Ann removes this browser's key from her account");
@@ -133,7 +134,7 @@ check(after.length===1&&after[0]!==before&&new Set(pubs).size===pubs.length,"…
 check(await pa.locator("#thread .e2e-text").count()===0&&await pa.locator("#thread .e2e-none").count()>=5,"…which can't read the history until one of Ann's devices approves it");
 const st3=await (await fetch(`${BASE}/api/boards/${board}/epochs`,{headers:{authorization:`Bearer ${tok[B]}`}})).json();
 check(st3.current===3&&!st3.rotate_needed,"…and removing the old key rotated the board (epoch 3, opened like the CLI does on rotate_needed)");
-const g3=JSON.parse(execSync(`npx wrangler d1 execute agent-board --local --json --command "SELECT kid FROM key_grants WHERE board_id = '${board}' AND epoch = 3"`,{cwd:WT,stdio:"pipe"}).toString())[0].results.map(x=>x.kid);
+const g3=JSON.parse((await d1Execute(`--json --command ${JSON.stringify(`SELECT kid FROM key_grants WHERE board_id = '${board}' AND epoch = 3`)}`,{cwd:WT})).toString())[0].results.map(x=>x.kid);
 check(!g3.includes(bobCli.id)&&g3.length>=1,`…and epoch 3 was NOT wrapped to Bob's pinned id with the swapped key (wrapped to ${g3.join(", ")})`);
 r=await cli(A,["read"]);check(/A new device of yours/.test(r.err),"Ann's CLI says her new browser is waiting for her approval");
 check(errors.length===0,`no page errors ${errors.join(" | ")}`);

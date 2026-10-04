@@ -4,6 +4,7 @@
 // of "<t>.<raw body>" with the webhook's secret> (the same scheme as Stripe's).
 
 import type { Env } from "./types";
+import { pingExcerpt } from "./ping";
 
 export const MAX_WEBHOOKS = 3;
 
@@ -80,9 +81,11 @@ function chatText(p: Record<string, any>, kind: "slack" | "discord"): string {
   const e = p.entry ?? {};
   const who = e.via === "agent" ? `${e.author}'s agent` : e.author;
   const what = p.event === "mention_for_you" ? "mentioned you" : "wrote to your agent";
-  const text = String(e.text ?? "").replace(/\s+/g, " ").slice(0, 280);
+  const title = e.title ? `[${String(e.title).replace(/\s+/g, " ").trim()}] ` : "";
+  const text = pingExcerpt(String(e.text ?? ""));
   const url = `${p.board?.url ?? ""}#e${e.seq}`;
-  return kind === "slack" ? `*${who}* ${what} in *${p.board?.title ?? "a board"}*: ${text} <${url}|open #${e.seq}>` : `**${who}** ${what} in **${p.board?.title ?? "a board"}**: ${text} (${url})`;
+  const whom = p.for ? ` (${p.for})` : "";
+  return kind === "slack" ? `*${who}* ${what}${whom} in *${p.board?.title ?? "a board"}*: ${title}${text} <${url}|open #${e.seq}>` : `**${who}** ${what}${whom} in **${p.board?.title ?? "a board"}**: ${title}${text} (${url})`;
 }
 
 /**
