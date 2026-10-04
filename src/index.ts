@@ -717,7 +717,7 @@ const handler = {
       }
 
       // ---- pages ----
-      if (path === "/" && method === "GET") {
+      if ((path === "/" || path === "/chats") && method === "GET") {
         if (session && !session.user) return redirect("/welcome");
         if (!viewer) return landingPage();
         const me = await registry.userByName(env, viewer.name);
@@ -728,6 +728,8 @@ const handler = {
           registry.agentStatus(env, viewer.name),
           registry.everHadAgent(env, viewer.name),
         ]);
+        // Everyday (#1272): home is "For you" once you have an assistant; the chat list lives at /chats. Developer mode keeps today's home.
+        if (path === "/" && had && viewer.via !== "agent" && !url.search && !(await developerFor(env, viewer.name, (await social.appPrefs(env, viewer.name))?.display.mode))) return redirect("/for-you");
         return homePage(viewer, side, boards, invitations, { connected: status.connected, onThisBoard: false }, undefined, !had);
       }
 

@@ -1299,7 +1299,7 @@ if($('a[href="/me"]')){let fresh=false;try{fresh=!!sessionStorage.getItem('atteo
   b.innerHTML='<span>Atteo was updated</span><button class="btn sm primary" type="button">Reload</button>';b.querySelector('button').addEventListener('click',()=>location.reload());document.body.appendChild(b)}catch(e){}};
   chk();document.addEventListener('visibilitychange',()=>{if(!document.hidden)chk()});setInterval(chk,600000)})();
 // Everyday words in the sidebar (#1272): Boards are "Chats". Developer mode keeps today's words.
-(()=>{const words=()=>{const ev=document.documentElement.dataset.mode==='everyday';document.querySelectorAll('.side-link[href="/"] span:not(.count)').forEach(x=>{x.textContent=ev?'Chats':'Boards'})};
+(()=>{const words=()=>{const ev=document.documentElement.dataset.mode==='everyday';document.querySelectorAll('.side-link[href="/"],.side-link[href="/chats"]').forEach(a=>{a.setAttribute('href',ev?'/chats':'/');const x=a.querySelector('span:not(.count)');if(x)x.textContent=ev?'Chats':'Boards'})};
   words();document.addEventListener('atteo-mode',words)})();
 window.toast=(m)=>{const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),1800)};
 document.addEventListener('click',e=>{
