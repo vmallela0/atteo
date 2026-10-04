@@ -8,7 +8,7 @@ import { computeSummary, formatSummary, summaryWithNames, tasksFor, withNames, D
 import { blockedMessage, scanFields, scanText, type SecretHit } from "./secrets";
 import { recordOutcome } from "./agents";
 import { ALL_AGENTS, ALL_HUMANS, ALL_MEMBERS, forAgent, forPerson, hasGroupMention, keep, MAX_GROUP_MENTIONS, MAX_MENTIONS, mentionsOwnAgent, SESSION_NAME_RE, type Mention } from "./mentions";
-import { ENTRY_TYPES, type ApprovalRef, type Attachment, type BoardInfo, type Entry, type Env, type Media, type Member, type NewEntry } from "./types";
+import { ENTRY_TYPES, type ApprovalRef, type Attachment, type BoardInfo, type Entry, type Env, type Media, type Member, type NewEntry, type Viewer } from "./types";
 import { cleanTitle, EMOJI_RE, ftsQuery, USER_RE } from "./util";
 import { cardText, parseCard, type ChangeCard } from "./card";
 import { deliver } from "./webhooks";
@@ -198,6 +198,12 @@ interface WaitAtt {
   session?: string; // an agent session's wait: woken by anything but its own posts, including its person's other sessions
 }
 
+/** A board tab's (or CLI watcher's) socket: whose, and whether it's the person themselves (not an agent's token). */
+interface TabAtt {
+  user: string;
+  person: boolean;
+}
+
 /** Entry columns that route a post to one agent session ("@vedu/claude-2"): its person and the session's id. */
 type ForSession = { user: string; session: string } | null;
 
@@ -238,6 +244,7 @@ function toEntry(r: Row): Entry {
     card: r.card ? (JSON.parse(r.card as string) as ChangeCard) : null,
     ai_flag: (r.ai_flag as string | null) ?? null,
     ...(r.approval ? { approval: liveApproval(JSON.parse(r.approval as string) as ApprovalRef) } : {}),
+    ...(r.audience === "people" ? { audience: "people" as const, to_people: JSON.parse((r.to_people as string | null) || "[]") as string[] } : {}),
   };
 }
 
@@ -252,7 +259,38 @@ const opts0 = (input: NewEntry): TaskActOpts => ({ via: input.via ?? null, clien
 /** For a session's reads: skip posts addressed to another session of the same person (binds: user, session). */
 const FOR_SESSION_OK = "(for_session IS NULL OR for_user != ? OR for_session = ?)";
 
-const ENTRY_COLS = "seq, ts, author, type, text, title, to_user, mentions, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, card, media, ai_flag, attachments, approval";
+const ENTRY_COLS = "seq, ts, author, type, text, title, to_user, mentions, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, card, media, ai_flag, attachments, approval, audience, to_people";
+
+// ---- people-only messages (vedu #1264): an entry only the people it names (and its author) see, signed in as
+// themselves; never any agent (theirs included). Every read of entries filters through these, so a path that doesn't
+// say who's asking (no viewer) is treated as an agent and sees none of them. ----
+
+/** For agent-only reads (read, wait, posting's missed check, recaps, auto-threading): no people-only entries. Binds nothing. */
+const AGENT_OK = "audience IS NULL";
+
+/** SQL for "this viewer may see the entry" (columns unqualified, or with `alias.`), and what it binds. */
+function peopleOk(v: Viewer | null | undefined, alias = ""): { sql: string; args: SqlStorageValue[] } {
+  if (!v?.person) return { sql: `${alias}audience IS NULL`, args: [] };
+  return { sql: `(${alias}audience IS NULL OR EXISTS (SELECT 1 FROM json_each(${alias}to_people) WHERE value = ?))`, args: [v.user] };
+}
+
+/** The same test for an entry already loaded. */
+export function canSee(e: Pick<Entry, "audience" | "to_people">, v: Viewer | null | undefined): boolean {
+  return !e.audience || (!!v?.person && (e.to_people ?? []).includes(v.user));
+}
+
+/** "vedu", "vedu and jxn", "vedu, jxn and sam". */
+export function peopleList(people: string[]): string {
+  return people.length <= 1 ? people.join("") : `${people.slice(0, -1).join(", ")} and ${people[people.length - 1]}`;
+}
+
+/** What the author is told once, when they send one: "Only you and jxn can see this. Agents can't." */
+export function peopleNotice(author: string, people: string[]): string {
+  const others = people.filter((p) => p !== author);
+  return `Only you${others.length ? ` and ${peopleList(others)}` : ""} can see this. Agents can't.`;
+}
+
+export const PEOPLE_ONLY_TYPES = ["note", "question"] as const;
 
 export class Board extends DurableObject<Env> {
   private sql: SqlStorage;
@@ -502,6 +540,8 @@ export class Board extends DurableObject<Env> {
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
     this.ctx.acceptWebSocket(server, [user]);
+    // A person signed in as themselves (web, the app) or an agent (the CLI's token): people-only signals go to the first only.
+    server.serializeAttachment({ user, person: url.searchParams.get("as") === "person" } satisfies TabAtt);
     server.send(JSON.stringify({ type: "hello", last: this.info().last_seq }));
     return new Response(null, { status: 101, webSocket: client });
   }
@@ -569,10 +609,30 @@ export class Board extends DurableObject<Env> {
     return this.cache;
   }
 
-  private broadcast(msg: object) {
+  /** A people-only entry's people, author included (null: an entry for everyone, or none). */
+  private audienceOf(seq: number): string[] | null {
+    const r = this.sql.exec("SELECT to_people FROM entries WHERE seq = ? AND audience IS NOT NULL", seq).toArray()[0];
+    return r ? (JSON.parse((r.to_people as string | null) || "[]") as string[]) : null;
+  }
+
+  /** #seq exists and this viewer may see it. Otherwise it "does not exist" for them (the same words either way). */
+  private visible(seq: number, v: Viewer | null | undefined): boolean {
+    if (!Number.isInteger(seq) || !this.sql.exec("SELECT 1 AS x FROM entries WHERE seq = ?", seq).toArray().length) return false;
+    const people = this.audienceOf(seq);
+    return !people || canSee({ audience: "people", to_people: people }, v);
+  }
+
+  /** To every open tab; `about` an entry: a people-only one's signals go only to its people's own (person) tabs. */
+  private broadcast(msg: object, about?: number | null) {
     this.changes++;
     const data = JSON.stringify(msg);
+    const people = about != null ? this.audienceOf(about) : null;
     for (const ws of this.tabs()) {
+      if (people) {
+        // Tabs opened before people-only existed carry no attachment: treated as an agent's.
+        const a = ws.deserializeAttachment() as TabAtt | null;
+        if (!a?.person || !people.includes(a.user)) continue;
+      }
       try {
         ws.send(data);
       } catch {}
@@ -610,6 +670,10 @@ export class Board extends DurableObject<Env> {
     // Addressed to one agent session ("@vedu/claude-2"): only that session of the person reads it; their others skip it.
     if (!cols.has("for_user")) this.sql.exec("ALTER TABLE entries ADD COLUMN for_user TEXT");
     if (!cols.has("for_session")) this.sql.exec("ALTER TABLE entries ADD COLUMN for_session TEXT");
+    // People-only (vedu #1264): audience 'people' and the JSON list of who sees it (author included); NULL otherwise.
+    if (!cols.has("audience")) this.sql.exec("ALTER TABLE entries ADD COLUMN audience TEXT");
+    if (!cols.has("to_people")) this.sql.exec("ALTER TABLE entries ADD COLUMN to_people TEXT");
+    this.sql.exec("CREATE INDEX IF NOT EXISTS entries_audience ON entries (seq, to_people) WHERE audience IS NOT NULL"); // covering: hiddenFrom reads only the index
     // Read receipts: how far each member has seen, as a person (web) and through their agent (read/wait/post).
     const handlingCols = new Set(this.sql.exec("PRAGMA table_info(handling)").toArray().map((r) => r.name as string));
     if (handlingCols.size && !handlingCols.has("done")) this.sql.exec("ALTER TABLE handling ADD COLUMN done INTEGER NOT NULL DEFAULT 0");
@@ -782,21 +846,21 @@ export class Board extends DurableObject<Env> {
    * The person whose agent has it can drop the marker (release) or turn it into "done"; a message nobody took can be
    * marked done straight away.
    */
-  async handle(user: string, seq: number, who: { session?: string | null; label: string }, action: "take" | "release" | "done" = "take"): Promise<{ ok: boolean; by: string | null; done: boolean }> {
+  async handle(user: string, seq: number, who: { session?: string | null; label: string; person?: boolean }, action: "take" | "release" | "done" = "take"): Promise<{ ok: boolean; by: string | null; done: boolean }> {
     this.info();
-    if (!this.sql.exec("SELECT 1 AS x FROM entries WHERE seq = ?", seq).toArray().length) throw new BoardError(`Entry #${seq} does not exist on this board.`);
+    if (!this.visible(seq, { user, person: !!who.person && !who.session })) throw new BoardError(`Entry #${seq} does not exist on this board.`);
     const cur = this.sql.exec("SELECT user, session, label, done FROM handling WHERE seq = ?", seq).toArray()[0];
     const label = who.label.slice(0, 80);
     if (action === "take") {
       if (cur) return { ok: !cur.done && cur.user === user && (cur.session ?? null) === (who.session ?? null), by: cur.label as string, done: !!cur.done };
       this.sql.exec("INSERT INTO handling (seq, user, session, label, ts, done) VALUES (?, ?, ?, ?, ?, 0)", seq, user, who.session ?? null, label, Date.now());
-      this.broadcast({ type: "handling", seq, by: label });
+      this.broadcast({ type: "handling", seq, by: label }, seq);
       return { ok: true, by: label, done: false };
     }
     if (cur && cur.user !== user) return { ok: false, by: cur.label as string, done: !!cur.done };
     if (action === "release") {
       if (cur) this.sql.exec("DELETE FROM handling WHERE seq = ?", seq);
-      this.broadcast({ type: "handling", seq, by: null });
+      this.broadcast({ type: "handling", seq, by: null }, seq);
       return { ok: true, by: null, done: false };
     }
     this.markDone(seq, user, who.session ?? null, cur ? (cur.label as string) : label);
@@ -808,7 +872,7 @@ export class Board extends DurableObject<Env> {
       "INSERT INTO handling (seq, user, session, label, ts, done) VALUES (?, ?, ?, ?, ?, 1) ON CONFLICT(seq) DO UPDATE SET done = 1, ts = excluded.ts",
       seq, user, session, label, Date.now(),
     );
-    this.broadcast({ type: "handling", seq, by: label, done: true });
+    this.broadcast({ type: "handling", seq, by: label, done: true }, seq);
   }
 
   /** Who is on what, and who finished what (for pages, and to label entries agents read). */
@@ -914,17 +978,41 @@ export class Board extends DurableObject<Env> {
   }
 
   /** The entry this author already posted with this message id (a retry), if any. */
-  private sentBefore(user: string, idem?: string | null): Entry | null {
+  private sentBefore(user: string, idem?: string | null, person = false): Entry | null {
     if (!idem) return null;
-    const r = this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE author = ? AND idem = ?`, user, idem).toArray();
+    const ok = peopleOk(person ? { user, person } : null); // an agent never gets its person's people-only post back
+    const r = this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE author = ? AND idem = ? AND ${ok.sql}`, user, idem, ...ok.args).toArray();
     return r.length ? toEntry(r[0]) : null;
+  }
+
+  /**
+   * A post's people-only audience (author included), or null for an entry everyone sees. Unsending one keeps its
+   * audience (an unsend of an everyone-entry is everyone's); a reply to one has the same audience, asked or not.
+   * Only a person signed in as themselves sends one; the Worker has checked that the people named are members.
+   */
+  private peopleFor(user: string, input: NewEntry, poster: Viewer, boardKind: string): string[] | null {
+    let people: string[] | null;
+    if (input.retracts != null) return this.audienceOf(input.retracts);
+    if (input.reply_to != null && (people = this.audienceOf(input.reply_to))) {
+      // (Its refs were checked: a reply to one comes only from its own people.)
+    } else if (input.people_only) {
+      people = [...new Set([user, ...(input.to_people ?? []).map((p) => String(p).trim().toLowerCase()).filter((p) => USER_RE.test(p))])];
+      if (people.length < 2) throw new BoardError("Say who it's for: a people-only message needs at least one other person on this board (to, or @name in the text).");
+      if (boardKind === "agent") throw new BoardError("This is your chat with your own agents: there's nobody here to send a people-only message to.");
+    } else return null;
+    if (!poster.person) throw new BoardError("Only people can send people-only messages, signed in on the web or in the Atteo app. Agents can't create or read them.");
+    if (!(PEOPLE_ONLY_TYPES as readonly string[]).includes(input.type)) throw new BoardError("A people-only message is a note or a question.");
+    if ((input.resolves ?? []).length || input.supersedes != null || (input.depends_on ?? []).length) throw new BoardError("A people-only message can't resolve, supersede or depend on other entries (agents would see the change but not why).");
+    return people;
   }
 
   async post(user: string, input: NewEntry, internal: { docVersion?: number; media?: Media; attachments?: { list: Attachment[]; text: string }; seeding?: boolean; sealed?: boolean; notice?: boolean; system?: boolean; approval?: ApprovalRef; taskCreate?: boolean; scheduled?: boolean } = {}): Promise<Entry> {
     // D1 lookups first, so nothing below waits between the duplicate check and the insert.
     const boardKind = await this.kindOf(this.meta("id") ?? "");
-    const forSession = await this.sessionRoute(input.mentions ?? []);
-    const again = this.sentBefore(user, input.idem);
+    // Who's posting, for what they may answer or unsend: a person signed in as themselves, or an agent.
+    const poster: Viewer = { user, person: input.via === "person" && !input.session };
+    let forSession = await this.sessionRoute(input.mentions ?? []);
+    const again = this.sentBefore(user, input.idem, poster.person);
     if (again) return again;
     const info = this.info();
     if (info.archived) throw new BoardError(`"${info.title}" is archived, so it's read-only. Its creator can restore it.`);
@@ -956,7 +1044,14 @@ export class Board extends DurableObject<Env> {
     const depends = [...new Set((input.depends_on ?? []).filter((n) => Number.isInteger(n)))].slice(0, 20);
     const refs = [input.reply_to, input.supersedes, input.retracts, ...(input.resolves ?? []), ...depends].filter((n): n is number => n != null);
     for (const n of refs) {
-      if (!Number.isInteger(n) || n < 1 || n > info.last_seq) throw new BoardError(`Entry #${n} does not exist on this board.`);
+      // A people-only entry this poster can't see doesn't exist for them (an agent can't answer, unsend or cite one).
+      if (!Number.isInteger(n) || n < 1 || n > info.last_seq || !this.visible(n, poster)) throw new BoardError(`Entry #${n} does not exist on this board.`);
+    }
+    // People-only: asked for, or inherited. An unsend has its target's audience; a reply, the audience of what it answers.
+    const people = this.peopleFor(user, input, poster, boardKind);
+    if (people) {
+      input = { ...input, to: null }; // never addressed to an agent
+      forSession = null;
     }
     if (input.via === "agent") this.decisions.guardResolves(input.resolves ?? []); // people decide human decisions
     if (input.retracts != null) {
@@ -1009,6 +1104,7 @@ export class Board extends DurableObject<Env> {
     for (const m of input.mentions ?? []) {
       if (typeof m?.user !== "string" || !USER_RE.test(m.user)) continue;
       const clean = { user: m.user, agent: m.agent === true || typeof m.session === "string", ...(typeof m.session === "string" && SESSION_NAME_RE.test(m.session) ? { session: m.session } : {}) };
+      if (people && (clean.agent || !people.includes(clean.user))) continue; // people-only: its own people, never an agent
       if (keep(clean, user, input.via) && !mentions.some((x) => x.user === clean.user && x.agent === clean.agent)) mentions.push(clean);
       if (mentions.length >= cap) break;
     }
@@ -1016,8 +1112,8 @@ export class Board extends DurableObject<Env> {
 
     const row = this.sql
       .exec(
-        `INSERT INTO entries (ts, author, type, text, to_user, mentions, self_agent, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, artifact_content, card, card_diff, media, title, session, idem, for_user, for_session, attachments, approval)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING ${ENTRY_COLS}`,
+        `INSERT INTO entries (ts, author, type, text, to_user, mentions, self_agent, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, artifact_content, card, card_diff, media, title, session, idem, for_user, for_session, attachments, approval, audience, to_people)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING ${ENTRY_COLS}`,
         Date.now(),
         user,
         input.type,
@@ -1045,6 +1141,8 @@ export class Board extends DurableObject<Env> {
         forSession?.session ?? null,
         internal.attachments ? JSON.stringify(internal.attachments.list) : null,
         internal.approval ? JSON.stringify(internal.approval) : null,
+        people ? "people" : null,
+        people ? JSON.stringify(people) : null,
       )
       .one();
     if (artifactVersion != null) this.broadcast({ type: "doc", name: artifactName, version: artifactVersion, by: user });
@@ -1081,7 +1179,7 @@ export class Board extends DurableObject<Env> {
     if (input.session && input.reply_to != null && !this.decisions.isHuman(input.reply_to) && !this.sql.exec("SELECT 1 AS x FROM handling WHERE seq = ?", input.reply_to).toArray().length) {
       const label = `${user}/${(input.client ?? "agent").split(" · ")[0]}`;
       this.sql.exec("INSERT INTO handling (seq, user, session, label, ts) VALUES (?, ?, ?, ?, ?)", input.reply_to, user, input.session, label, Date.now());
-      this.broadcast({ type: "handling", seq: input.reply_to, by: label });
+      this.broadcast({ type: "handling", seq: input.reply_to, by: label }, input.reply_to);
     }
     // An agent answering (or resolving) a person's message turns its 🤔 into ✅.
     // (Not for a change card: threaded under a message it is "related", not "answered".)
@@ -1096,6 +1194,14 @@ export class Board extends DurableObject<Env> {
       for (const r of new Set(input.resolves ?? [])) await this.tickMentions(user, r, "resolved", { via: input.via, client: input.client, session: input.session });
     }
 
+    // A people-only message leaves no trace outside this board's people-aware reads: no inbox or mailbox line (the
+    // mailbox is the agents', and agents' tokens can read the inbox), no webhooks, no triggers, no board-list excerpt,
+    // no tape line, no model screening (it screens what agents would read), and no agent's wait wakes for it.
+    if (people) {
+      this.wakeWaits((a) => a.wait === "any");
+      this.broadcast({ type: "entry", seq: entry.seq, retracts: entry.retracts, author: entry.author, via: entry.via ?? null, kind: entry.type, to: null, mentions: entry.mentions, reply_to: entry.reply_to, board: info.id, title: info.title, audience: "people", to_people: people }, entry.seq);
+      return entry;
+    }
     this.ctx.waitUntil(this.notify(info, entry, forSession).catch(() => {}));
     // Workflow triggers: a post (not a notice, a system line, a seed or an unsend); a task post is also a new task.
     if (!internal.seeding && !internal.notice && !internal.system && entry.retracts == null) {
@@ -1128,7 +1234,7 @@ export class Board extends DurableObject<Env> {
       return a.wait === "any" || a.user !== user || forOwnAgent || (!!a.session && a.session !== input.session);
     });
     // Who posted what to whom (no text): enough for tabs to refresh and for a member's CLI to decide whether to wake its agent.
-    this.broadcast({ type: "entry", seq: entry.seq, retracts: entry.retracts, author: entry.author, via: entry.via ?? null, kind: entry.type, to: entry.to, mentions: entry.mentions, reply_to: entry.reply_to, board: info.id, title: info.title });
+    this.broadcast({ type: "entry", seq: entry.seq, retracts: entry.retracts, author: entry.author, via: entry.via ?? null, kind: entry.type, to: entry.to, mentions: entry.mentions, reply_to: entry.reply_to, board: info.id, title: info.title }, entry.seq);
     return entry;
   }
 
@@ -1137,27 +1243,35 @@ export class Board extends DurableObject<Env> {
   // "From others" for an agent: other members' entries, plus its own person's posts that mention it ("@me's agent").
   // An agent session reads everything except its own posts (so a person's sessions see each other's work);
   // otherwise a reader gets other members' entries plus hand-offs to their own agent.
-  private entriesAfter(seq: number, excludeAuthor: string | null, limit: number, session?: string | null): Entry[] {
+  // `viewer`: who's reading (pages: a person). Absent for every agent read, so people-only entries never come back.
+  private entriesAfter(seq: number, excludeAuthor: string | null, limit: number, session?: string | null, viewer?: Viewer | null): Entry[] {
+    const ok = peopleOk(viewer);
     const rows = session
-      ? this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq > ? AND (session IS NULL OR session != ?) AND ${FOR_SESSION_OK} ORDER BY seq LIMIT ?`, seq, session, excludeAuthor ?? "", session, limit)
+      ? this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq > ? AND (session IS NULL OR session != ?) AND ${FOR_SESSION_OK} AND ${ok.sql} ORDER BY seq LIMIT ?`, seq, session, excludeAuthor ?? "", session, ...ok.args, limit)
       : excludeAuthor
-        ? this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq > ? AND (author != ? OR self_agent = 1) ORDER BY seq LIMIT ?`, seq, excludeAuthor, limit)
-        : this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq > ? ORDER BY seq LIMIT ?`, seq, limit);
+        ? this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq > ? AND (author != ? OR self_agent = 1) AND ${ok.sql} ORDER BY seq LIMIT ?`, seq, excludeAuthor, ...ok.args, limit)
+        : this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq > ? AND ${ok.sql} ORDER BY seq LIMIT ?`, seq, ...ok.args, limit);
     return rows.toArray().map(toEntry);
   }
 
+  /** What an agent has left to read (agents only: never counts people-only entries). */
   private countAfter(seq: number, excludeAuthor: string, session?: string | null): number {
     return session
-      ? (this.sql.exec(`SELECT COUNT(*) AS n FROM entries WHERE seq > ? AND (session IS NULL OR session != ?) AND ${FOR_SESSION_OK}`, seq, session, excludeAuthor, session).one().n as number)
-      : (this.sql.exec("SELECT COUNT(*) AS n FROM entries WHERE seq > ? AND (author != ? OR self_agent = 1)", seq, excludeAuthor).one().n as number);
+      ? (this.sql.exec(`SELECT COUNT(*) AS n FROM entries WHERE seq > ? AND (session IS NULL OR session != ?) AND ${FOR_SESSION_OK} AND ${AGENT_OK}`, seq, session, excludeAuthor, session).one().n as number)
+      : (this.sql.exec(`SELECT COUNT(*) AS n FROM entries WHERE seq > ? AND (author != ? OR self_agent = 1) AND ${AGENT_OK}`, seq, excludeAuthor).one().n as number);
   }
 
   // Entries never change once posted, so the in-memory copy only ever needs the new ones appended.
   private entryMemo: Entry[] = [];
+  // Everyone's entries only: the summary (which agents read) never includes a people-only message.
+  private entryMemoTo = 0; // the last seq looked at (a people-only one isn't kept, so it can be past the memo's last)
   allEntries(): Entry[] {
-    const after = this.entryMemo.length ? this.entryMemo[this.entryMemo.length - 1].seq : 0;
+    const after = Math.max(this.entryMemoTo, this.entryMemo.length ? this.entryMemo[this.entryMemo.length - 1].seq : 0);
     const fresh = this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq > ? ORDER BY seq`, after).toArray().map(toEntry);
-    if (fresh.length) this.entryMemo = this.entryMemo.concat(fresh);
+    if (fresh.length) {
+      this.entryMemoTo = fresh[fresh.length - 1].seq;
+      this.entryMemo = this.entryMemo.concat(fresh.filter((e) => !e.audience));
+    }
     return this.entryMemo;
   }
 
@@ -1650,7 +1764,7 @@ export class Board extends DurableObject<Env> {
     // Decisions: posted since, plus human decisions whose outcome was announced since.
     const decided = Object.entries(hds).filter(([seq, h]) => Number(seq) <= from && h.line != null && h.line > from).map(([seq]) => Number(seq));
     const decRows = this.sql
-      .exec(`SELECT e.seq, e.ts, e.author, e.via, e.text, e.title FROM entries e WHERE e.type = 'decision' AND e.retracts IS NULL AND (e.seq > ? OR e.seq IN (SELECT value FROM json_each(?))) AND ${live} ORDER BY e.seq`, from, JSON.stringify(decided))
+      .exec(`SELECT e.seq, e.ts, e.author, e.via, e.text, e.title FROM entries e WHERE e.type = 'decision' AND e.retracts IS NULL AND e.audience IS NULL AND (e.seq > ? OR e.seq IN (SELECT value FROM json_each(?))) AND ${live} ORDER BY e.seq`, from, JSON.stringify(decided))
       .toArray();
     const decisions = decRows.map((r) => {
       const h = hds[r.seq as number];
@@ -1696,7 +1810,7 @@ export class Board extends DurableObject<Env> {
     }
     // Files: every version published since (a message with several files counts each).
     const files = new Map<string, { name: string; from_version: number; to_version: number; versions: number; authors: string[] }>();
-    for (const r of this.sql.exec("SELECT author, via, artifact_name, artifact_version, attachments FROM entries WHERE seq > ? AND artifact_name IS NOT NULL AND retracts IS NULL ORDER BY seq", from).toArray()) {
+    for (const r of this.sql.exec("SELECT author, via, artifact_name, artifact_version, attachments FROM entries WHERE seq > ? AND artifact_name IS NOT NULL AND retracts IS NULL AND audience IS NULL ORDER BY seq", from).toArray()) {
       const list: { name: string; version: number | null }[] = r.attachments ? (JSON.parse(r.attachments as string) as Attachment[]).map((a) => ({ name: a.name, version: a.version ?? null })) : [{ name: r.artifact_name as string, version: (r.artifact_version as number | null) ?? null }];
       const who = r.via === "agent" ? `${r.author}'s agent` : (r.author as string);
       for (const a of list) {
@@ -1881,7 +1995,9 @@ export class Board extends DurableObject<Env> {
     const from = input.from ?? null;
     if (from != null) {
       const e = this.sql.exec("SELECT text FROM entries WHERE seq = ?", from).toArray()[0];
-      if (!Number.isInteger(from) || !e) throw new BoardError(`Entry #${from} does not exist on this board.`);
+      if (!Number.isInteger(from) || !e || !this.visible(from, { user, person: opts.via === "person" })) throw new BoardError(`Entry #${from} does not exist on this board.`);
+      // Memory is every agent's context: a people-only message never goes there, even from its own people.
+      if (this.audienceOf(from)) throw new BoardError(`#${from} is people-only, so it can't be remembered: the board's memory is read by every agent.`);
       if (!text) {
         const first = (e.text as string).split("\n").map((l) => l.replace(/^\s*(?:#+|[-*>]|\d+\.)\s*/, "").trim()).find((l) => l) ?? "";
         text = first.length > MEMORY_TEXT_MAX ? first.slice(0, MEMORY_TEXT_MAX - 1).trimEnd() + "…" : first;
@@ -1988,15 +2104,16 @@ export class Board extends DurableObject<Env> {
     }
   }
 
-  async get(seq: number): Promise<{ entry: Entry; artifact_content: string | null; diff: string | null; replies: Entry[]; reactions: Reactions }> {
+  /** One entry with its replies. `viewer` absent: an agent's view (a people-only entry "does not exist"). */
+  async get(seq: number, viewer?: Viewer | null): Promise<{ entry: Entry; artifact_content: string | null; diff: string | null; replies: Entry[]; reactions: Reactions }> {
     this.info();
     const rows = this.sql.exec(`SELECT ${ENTRY_COLS}, artifact_content, card_diff FROM entries WHERE seq = ?`, seq).toArray();
-    if (!rows.length) throw new BoardError(`Entry #${seq} does not exist on this board.`);
+    if (!rows.length || !canSee(toEntry(rows[0]), viewer)) throw new BoardError(`Entry #${seq} does not exist on this board.`);
     const replies = this.sql
       .exec(`SELECT ${ENTRY_COLS} FROM entries WHERE reply_to = ? OR supersedes = ? OR retracts = ? OR resolves LIKE ? ORDER BY seq`, seq, seq, seq, `%${seq}%`)
       .toArray()
       .map(toEntry)
-      .filter((e) => e.reply_to === seq || e.supersedes === seq || e.retracts === seq || e.resolves.includes(seq));
+      .filter((e) => canSee(e, viewer) && (e.reply_to === seq || e.supersedes === seq || e.retracts === seq || e.resolves.includes(seq)));
     await this.decisions.refresh(this.decisions.isHuman(seq)); // one decision asked for: who's on the board now, not 30s ago
     const [entry] = this.decisions.attach([toEntry(rows[0])]);
     let content = (rows[0].artifact_content as string | null) ?? null;
@@ -2004,7 +2121,7 @@ export class Board extends DurableObject<Env> {
       const v = this.sql.exec("SELECT content FROM doc_versions WHERE name = ? AND version = ?", entry.artifact_name, entry.artifact_version).toArray()[0];
       content = v ? (v.content as string) : `(v${entry.artifact_version} of ${entry.artifact_name} is no longer kept; read the latest with the doc tool.)`;
     }
-    return { entry, artifact_content: content, diff: (rows[0].card_diff as string | null) ?? null, replies, reactions: this.reactionsFor([seq])[seq] ?? [] };
+    return { entry, artifact_content: content, diff: (rows[0].card_diff as string | null) ?? null, replies, reactions: this.reactionsOf([seq])[seq] ?? [] };
   }
 
   // ---- search: ranked full text (FTS5, bm25) over entries and the latest version of every file; grep over files ----
@@ -2027,6 +2144,7 @@ export class Board extends DurableObject<Env> {
   async rankedSearch(
     query: string,
     opts: { author?: string; type?: string; limit?: number } = {},
+    viewer?: Viewer | null, // absent: an agent's search (no people-only entries)
   ): Promise<{ entries: { entry: Entry; snippet: string }[]; files: { name: string; version: number; snippet: string }[] }> {
     this.info();
     const match = ftsQuery(query);
@@ -2042,7 +2160,7 @@ export class Board extends DurableObject<Env> {
         .toArray();
     } catch {
       // Anything FTS can't parse falls back to plain substring search.
-      return { entries: (await this.search(query, opts)).map((entry) => ({ entry, snippet: "" })), files: [] };
+      return { entries: (await this.search(query, opts, viewer)).map((entry) => ({ entry, snippet: "" })), files: [] };
     }
     // A task's live title/body is indexed as kind "task"; it points at the task's entry like an entry hit.
     const isEntry = (r: Row) => r.kind === "entry" || r.kind === "task";
@@ -2052,7 +2170,10 @@ export class Board extends DurableObject<Env> {
       // SQLite in a Durable Object takes at most 100 bound values per statement: look them up 90 at a time.
       for (let i = 0; i < seqs.length; i += 90) {
         const chunk = seqs.slice(i, i + 90);
-        for (const r of this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq IN (${chunk.map(() => "?").join(",")})`, ...chunk).toArray()) bySeq.set(r.seq as number, toEntry(r));
+        for (const r of this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq IN (${chunk.map(() => "?").join(",")})`, ...chunk).toArray()) {
+          const e = toEntry(r);
+          if (canSee(e, viewer)) bySeq.set(e.seq, e); // a people-only hit is no hit for anyone outside its people
+        }
       }
     }
     const entries: { entry: Entry; snippet: string }[] = [];
@@ -2213,7 +2334,7 @@ export class Board extends DurableObject<Env> {
   }
 
   /** Case-insensitive substring search over text and artifact names/content, with optional filters. */
-  async search(query: string, opts: { author?: string; type?: string; limit?: number } = {}): Promise<Entry[]> {
+  async search(query: string, opts: { author?: string; type?: string; limit?: number } = {}, viewer?: Viewer | null): Promise<Entry[]> {
     this.info();
     const q = `%${query.replace(/[\\%_]/g, (c) => "\\" + c)}%`;
     const clauses = [
@@ -2221,6 +2342,11 @@ export class Board extends DurableObject<Env> {
         OR EXISTS (SELECT 1 FROM doc_versions v WHERE v.name = entries.artifact_name AND v.version = entries.artifact_version AND v.content LIKE ?1 ESCAPE '\\'))`,
     ];
     const args: SqlStorageValue[] = [q];
+    // Who may see what (numbered binds here): a person also finds their own people-only messages; an agent never.
+    if (viewer?.person) {
+      args.push(viewer.user);
+      clauses.push(`(audience IS NULL OR EXISTS (SELECT 1 FROM json_each(to_people) WHERE value = ?${args.length}))`);
+    } else clauses.push(AGENT_OK);
     if (opts.author) {
       args.push(opts.author);
       clauses.push(`author = ?${args.length}`);
@@ -2286,7 +2412,7 @@ export class Board extends DurableObject<Env> {
     const why = "looks like instructions aimed at agents (model check)";
     this.sql.exec("UPDATE entries SET ai_flag = ? WHERE seq = ?", why, seq);
     this.entryMemo = this.entryMemo.map((e) => (e.seq === seq ? { ...e, ai_flag: why } : e));
-    this.broadcast({ type: "flag", seq });
+    this.broadcast({ type: "flag", seq }, seq);
   }
 
   // ---- inbox: who should hear about a post (stored in D1 so every page can show an unread count) ----
@@ -2416,7 +2542,7 @@ export class Board extends DurableObject<Env> {
       if (!(forAgent(e, user) || (direct && e.author !== user) || (kind === "agent" && e.author === user))) continue;
       if (this.sql.exec("SELECT 1 AS x FROM reactions WHERE seq = ? AND user = ? AND emoji IN ('🤔', '👀', '✅')", e.seq, who).toArray().length) continue;
       this.sql.exec("INSERT INTO reactions (seq, user, emoji, ts) VALUES (?, ?, '🤔', ?)", e.seq, who, now);
-      this.broadcast({ type: "reaction", seq: e.seq, reactions: this.reactionsFor([e.seq])[e.seq] ?? [] });
+      this.broadcast({ type: "reaction", seq: e.seq, reactions: this.reactionsOf([e.seq])[e.seq] ?? [] }, e.seq);
       this.broadcast({ type: "typing-agents", agents: this.agentsTyping() });
     }
   }
@@ -2452,12 +2578,12 @@ export class Board extends DurableObject<Env> {
     const since = Date.now() - 2 * 3600_000;
     const answered = (seq: number) => this.sql.exec("SELECT 1 AS x FROM entries WHERE reply_to = ? AND author = ? LIMIT 1", seq, user).toArray().length > 0;
     const open = new Map<number, string>();
-    for (const r of this.sql.exec("SELECT seq, author, to_user, mentions FROM entries WHERE ts > ? AND author != ? AND retracts IS NULL ORDER BY seq DESC LIMIT 200", since, user).toArray()) {
+    for (const r of this.sql.exec(`SELECT seq, author, to_user, mentions FROM entries WHERE ts > ? AND author != ? AND retracts IS NULL AND ${AGENT_OK} ORDER BY seq DESC LIMIT 200`, since, user).toArray()) {
       let mentions: Mention[] = [];
       try { mentions = r.mentions ? JSON.parse(r.mentions as string) : []; } catch {}
       if (forAgent({ to: (r.to_user as string | null) ?? null, mentions }, user)) open.set(r.seq as number, r.author as string);
     }
-    for (const r of this.sql.exec("SELECT r.seq, e.author FROM reactions r JOIN entries e ON e.seq = r.seq WHERE r.user = ? AND r.emoji IN ('🤔', '👀') AND r.ts > ?", `${user}'s agent`, since).toArray()) open.set(r.seq as number, r.author as string);
+    for (const r of this.sql.exec("SELECT r.seq, e.author FROM reactions r JOIN entries e ON e.seq = r.seq WHERE r.user = ? AND r.emoji IN ('🤔', '👀') AND r.ts > ? AND e.audience IS NULL", `${user}'s agent`, since).toArray()) open.set(r.seq as number, r.author as string);
     const list = [...open].filter(([seq]) => !answered(seq)).sort((x, y) => y[0] - x[0]);
     if (!list.length) return null;
     const addressed = new Set([input.to ?? null, ...(input.mentions ?? []).filter((m) => !m.agent).map((m) => m.user)].filter((x): x is string => !!x));
@@ -2472,14 +2598,34 @@ export class Board extends DurableObject<Env> {
     // The automatic receipt ("user's agent") and any 🤔/👀 one of that user's agent sessions added by hand ("user/session").
     if (!this.sql.exec("DELETE FROM reactions WHERE seq = ? AND (user = ? OR user LIKE ? ESCAPE '\\') AND emoji IN ('🤔', '👀') RETURNING seq", seq, who, `${user.replace(/[\\%_]/g, "\\$&")}/%`).toArray().length) return false;
     this.sql.exec("INSERT OR IGNORE INTO reactions (seq, user, emoji, ts) VALUES (?, ?, '✅', ?)", seq, who, Date.now());
-    this.broadcast({ type: "reaction", seq, reactions: this.reactionsFor([seq])[seq] ?? [] });
+    this.broadcast({ type: "reaction", seq, reactions: this.reactionsOf([seq])[seq] ?? [] }, seq);
     this.broadcast({ type: "typing-agents", agents: this.agentsTyping() });
     return true;
   }
 
   // ---- reactions: toggled per person; don't create entries or wake agents ----
 
-  reactionsFor(seqs?: number[]): Record<number, Reactions> {
+  /** Reactions on these entries (or all) that this viewer may see: none on a people-only entry outside its people. */
+  reactionsFor(seqs?: number[], viewer?: Viewer | null): Record<number, Reactions> {
+    return this.withoutHidden(this.reactionsOf(seqs), this.hiddenFrom(viewer));
+  }
+
+  private withoutHidden<T>(bySeq: Record<number, T>, hidden: Set<number>): Record<number, T> {
+    for (const seq of hidden) delete bySeq[seq];
+    return bySeq;
+  }
+
+  /** The people-only entries this viewer can't see (an indexed lookup: there are few of them). */
+  private hiddenFrom(v: Viewer | null | undefined): Set<number> {
+    const out = new Set<number>();
+    for (const r of this.sql.exec("SELECT seq, to_people FROM entries WHERE audience IS NOT NULL").toArray()) {
+      if (!canSee({ audience: "people", to_people: JSON.parse((r.to_people as string | null) || "[]") }, v)) out.add(r.seq as number);
+    }
+    return out;
+  }
+
+  /** Every reaction on these entries, unfiltered (for an entry already checked, and for its own people's signals). */
+  private reactionsOf(seqs?: number[]): Record<number, Reactions> {
     // By range, then filtered: SQLite here allows at most 100 bound parameters, and pages ask for hundreds of entries.
     const want = seqs && new Set(seqs);
     const rows = seqs
@@ -2497,19 +2643,21 @@ export class Board extends DurableObject<Env> {
     return out;
   }
 
-  async reactions(): Promise<Record<number, Reactions>> {
+  async reactions(viewer?: Viewer | null): Promise<Record<number, Reactions>> {
     this.info();
-    return this.reactionsFor();
+    return this.reactionsFor(undefined, viewer);
   }
 
   /** Add your reaction, or remove it if it's already there. Returns the entry's reactions. */
   /** An agent's reaction is shown (and toggled) as "<name>'s agent", separately from its person's. */
-  async react(user: string, seq: number, emoji: string, opts: { via?: "agent" | "person" | null; session?: string | null } = {}): Promise<{ on: boolean; reactions: Reactions }> {
+  // `as`: who's actually reacting, when `via` doesn't say (the REST route); neither: an agent, for what it may see.
+  async react(user: string, seq: number, emoji: string, opts: { via?: "agent" | "person" | null; session?: string | null; as?: "agent" | "person" } = {}): Promise<{ on: boolean; reactions: Reactions }> {
     const info = this.info();
     if (info.archived) throw new BoardError(`"${info.title}" is archived, so it's read-only. Its creator can restore it.`);
     const e = (emoji ?? "").trim();
     if (!EMOJI_RE.test(e)) throw new BoardError("Give one emoji, like 👍, or a :shortcode:.");
-    if (!Number.isInteger(seq) || seq < 1 || seq > info.last_seq) throw new BoardError(`Entry #${seq} does not exist on this board.`);
+    const person = opts.via !== "agent" && !opts.session && (opts.as ?? opts.via) === "person";
+    if (!Number.isInteger(seq) || seq < 1 || seq > info.last_seq || !this.visible(seq, { user, person })) throw new BoardError(`Entry #${seq} does not exist on this board.`);
     // A named agent reacts as itself ("vedu/scout"), so people can tell which of someone's agents it was.
     const who = opts.via === "agent" ? (opts.session ? `${user}/${opts.session}` : `${user}'s agent`) : user;
     let had = this.sql.exec("DELETE FROM reactions WHERE seq = ? AND user = ? AND emoji = ? RETURNING seq", seq, who, e).toArray().length > 0;
@@ -2529,8 +2677,8 @@ export class Board extends DurableObject<Env> {
       const answered = opts.via === "agent" && e !== "🤔" && e !== "👀" && this.receiptDone(user, seq);
       if (!(answered && e === "✅")) this.sql.exec("INSERT INTO reactions (seq, user, emoji, ts) VALUES (?, ?, ?, ?)", seq, who, e, Date.now());
     }
-    const reactions = this.reactionsFor([seq])[seq] ?? [];
-    this.broadcast({ type: "reaction", seq, reactions });
+    const reactions = this.reactionsOf([seq])[seq] ?? [];
+    this.broadcast({ type: "reaction", seq, reactions }, seq);
     return { on: !had, reactions };
   }
 
@@ -3394,6 +3542,7 @@ export class Board extends DurableObject<Env> {
     await this.ctx.storage.deleteAll();
     this.metaCache.clear();
     this.entryMemo = [];
+    this.entryMemoTo = 0;
     this.cache = null;
   }
 
@@ -3560,6 +3709,7 @@ export class Board extends DurableObject<Env> {
     // Old versions of files go too (the current version of each stays).
     this.sql.exec("DELETE FROM doc_versions WHERE ts < ? AND version < (SELECT version FROM docs d WHERE d.name = doc_versions.name)", cutoff);
     this.entryMemo = [];
+    this.entryMemoTo = 0;
     this.changes++;
     this.broadcast({ type: "pruned", before: cutoff });
     return rows.length;
@@ -3573,31 +3723,40 @@ export class Board extends DurableObject<Env> {
   }
 
   /** The newest `limit` entries before `before` (or the newest overall), oldest first. */
-  async page(before: number | null, limit = 100): Promise<Entry[]> {
+  async page(before: number | null, limit = 100, viewer?: Viewer | null): Promise<Entry[]> {
     this.info();
     const n = clamp(limit, 1, 500);
+    const ok = peopleOk(viewer);
     const rows = before
-      ? this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq < ? ORDER BY seq DESC LIMIT ?`, before, n)
-      : this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries ORDER BY seq DESC LIMIT ?`, n);
+      ? this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq < ? AND ${ok.sql} ORDER BY seq DESC LIMIT ?`, before, ...ok.args, n)
+      : this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE ${ok.sql} ORDER BY seq DESC LIMIT ?`, ...ok.args, n);
     await this.decisions.refresh();
     return this.decisions.attach(rows.toArray().map(toEntry).reverse());
   }
 
   /** For pages: afterSeq 0 means "open the board", which shows the newest entries (big boards load earlier ones on demand). */
-  async snapshot(afterSeq = 0, opts: { latest?: number } = {}) {
+  // `viewer`: who the page is for (a person sees their own people-only messages); absent: an agent's or the ops view.
+  async snapshot(afterSeq = 0, opts: { latest?: number } = {}, viewer?: Viewer | null) {
     const info = this.info();
     await this.decisions.refresh();
+    const PAGE = 1000;
+    const entries = opts.latest ? await this.page(null, opts.latest, viewer) : this.decisions.attach(this.entriesAfter(afterSeq, null, PAGE, null, viewer));
+    const hidden = this.hiddenFrom(viewer);
+    const handling = this.withoutHidden(this.handlingMap(), hidden);
     return {
       info,
+      // How far this covers: a full page stops at its last entry; otherwise everything up to the newest (hidden
+      // people-only entries included), so a tab doesn't keep asking for entries it will never get.
+      last: !opts.latest && entries.length === PAGE ? entries[entries.length - 1].seq : Math.max(afterSeq, info.last_seq, entries.length ? entries[entries.length - 1].seq : 0),
       reads: this.reads(),
       members: this.members(),
       summary: this.summary(),
-      entries: opts.latest ? await this.page(null, opts.latest) : this.decisions.attach(this.entriesAfter(afterSeq, null, 1000)),
-      reactions: afterSeq === 0 ? this.reactionsFor() : {},
-      typing_agents: this.agentsTyping(),
+      entries,
+      reactions: afterSeq === 0 ? this.withoutHidden(this.reactionsOf(), hidden) : {},
+      typing_agents: this.agentsTyping().filter((t) => !hidden.has(t.seq)),
       reviews: this.reviewsBySeq(),
       claims: this.claimStates(),
-      handling: this.handlingMap(),
+      handling,
       decisions: this.decisions.all(), // every human decision's state (small), like claims
       pinned: this.pinnedNow(),
     };
@@ -3616,13 +3775,13 @@ export class Board extends DurableObject<Env> {
 
   async humanVote(user: string, seq: number, vote: string, note: unknown, opts: { via?: "agent" | "person" | null } = {}): Promise<HumanDecision> {
     const hd = await this.decisions.vote(user, opts.via, vote, note, await this.humanCtx(seq));
-    this.broadcast({ type: "decision", seq, human_decision: hd });
+    this.broadcast({ type: "decision", seq, human_decision: hd }, seq);
     return hd;
   }
 
   async humanClose(user: string, seq: number, outcome: string, note: unknown, opts: { via?: "agent" | "person" | null } = {}): Promise<HumanDecision> {
     const hd = await this.decisions.close(user, opts.via, outcome, note, await this.humanCtx(seq));
-    this.broadcast({ type: "decision", seq, human_decision: hd });
+    this.broadcast({ type: "decision", seq, human_decision: hd }, seq);
     return hd;
   }
 

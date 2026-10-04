@@ -58,7 +58,7 @@ import {
   profilePage,
   peoplePage,
 } from "./html";
-import type { Entry, Env } from "./types";
+import type { Entry, Env, Viewer as Seer } from "./types";
 import { FAVICON_SVG, page, renderText } from "./ui";
 import { APPLE_TOUCH_PNG_B64 } from "./appleIcon";
 import { atteoHeader, BOARD_RE, connectCommand, esc, newBoardId, legacyHostRedirect, normalizeUser, parseBoardMeta, publicOrigin } from "./util";
@@ -66,7 +66,7 @@ import { atteoHeader, BOARD_RE, connectCommand, esc, newBoardId, legacyHostRedir
 import * as Sentry from "@sentry/cloudflare";
 import { scrubForSentry } from "./sentry";
 export { Board } from "./board";
-import { MAX_FILES_PER_MESSAGE, MAX_IMAGE, MAX_MESSAGE_BYTES, MAX_WAIT_MS } from "./board";
+import { MAX_FILES_PER_MESSAGE, MAX_IMAGE, MAX_MESSAGE_BYTES, MAX_WAIT_MS, peopleNotice } from "./board";
 import * as sessions from "./sessions";
 import { formatEntry, formatMemory, handleMessage, readHeader, readParts, withNames } from "./state";
 import { fence } from "./screen";
@@ -626,6 +626,9 @@ const handler = {
       const session = await auth.getSession(request, env);
       const viewer = await loadViewer(env, session, request, path);
       const pv = (): "agent" | "person" => viewer?.via ?? "person"; // who wrote it: a person on the web, or an agent via token
+      // Who's looking, for what a board shows: people-only messages (vedu #1264) reach only their own people, signed
+      // in as themselves (web, the app). An agent's token, or no viewer (ops), sees none of them.
+      const seer = (): Seer | null => (viewer ? { user: viewer.name, person: viewer.via !== "agent" } : null);
       // The agent session making the call (the CLI sends X-Atteo-Session): what it causes counts as its own posts.
       let sessionMemo: Promise<string | null> | null = null;
       const asid = () =>
@@ -783,7 +786,7 @@ const handler = {
         if (!viewer) return needLogin();
         if (!(await canSee(c, m[2]))) return notFound(viewer);
         const [snap, members, invites, side, live, status, row] = await Promise.all([
-          boardStub(env, m[2]).snapshot(0, { latest: 300 }),
+          boardStub(env, m[2]).snapshot(0, { latest: 300 }, seer()),
           registry.boardMembers(env, m[2]),
           registry.pendingInvites(env, m[2]),
           sideBoards(env, viewer.name),
@@ -1484,7 +1487,9 @@ const handler = {
         if (!who) return json({ error: "sign in required" }, 401);
         const role = await registry.memberRole(env, m[1], who);
         if (!role) return json({ error: "board not found" }, 404);
-        return boardStub(env, m[1]).fetch(new Request(`https://board/ws?user=${encodeURIComponent(who)}&role=${role}`, request));
+        // Signed in as the person (cookie, the app's token) or an agent's token: people-only signals reach only the first.
+        const as = viewer && viewer.via !== "agent" ? "person" : "agent";
+        return boardStub(env, m[1]).fetch(new Request(`https://board/ws?user=${encodeURIComponent(who)}&role=${role}&as=${as}`, request));
       }
 
       // ---- a new board, as JSON (the app's "New board"; the web uses the POST /boards form). Encrypted unless asked not to. ----
@@ -1556,7 +1561,9 @@ const handler = {
         const [src, dst] = await Promise.all([registry.getBoard(env, from), registry.getBoard(env, to)]);
         if (!src || !dst) return json({ error: "board not found" }, 404);
         if ((src as { encrypted?: number }).encrypted || (dst as { encrypted?: number }).encrypted) return json({ error: "End-to-end encrypted boards can't forward: the server can't read them." }, 400);
-        const got = await Promise.all(seqs.map((n) => boardStub(env, from).get(n).catch(() => null)));
+        const got = await Promise.all(seqs.map((n) => boardStub(env, from).get(n, seer()).catch(() => null)));
+        // People-only messages stay where they were said, with the people they were said to.
+        if (got.some((g) => g?.entry.audience)) return json({ error: "People-only messages can't be forwarded: they stay with the people they were sent to." }, 400);
         const picked = got.filter((g): g is NonNullable<typeof g> => !!g && !g.replies.some((r) => r.retracts === g.entry.seq)).map((g) => g.entry);
         if (!picked.length) return json({ error: "Those messages aren't there anymore." }, 404);
         const who = (e: Entry) => (e.via === "agent" ? `${e.author}'s agent` : e.author);
@@ -2022,11 +2029,11 @@ const handler = {
         if (!viewer) return needLogin();
         if (!(await registry.isMember(env, m[1], viewer.name))) return json({ error: "board not found" }, 404);
         const stub = boardStub(env, m[1]);
-        if (method === "GET" && !m[2]) return json({ reactions: await stub.reactions() });
+        if (method === "GET" && !m[2]) return json({ reactions: await stub.reactions(seer()) });
         if (method === "POST" && m[2]) {
           const body = (await request.json().catch(() => ({}))) as { emoji?: string };
           try {
-            const r = await stub.react(viewer.name, parseInt(m[2], 10), String(body.emoji ?? ""));
+            const r = await stub.react(viewer.name, parseInt(m[2], 10), String(body.emoji ?? ""), { as: pv() });
             // The person's own reactions (web/app, not their agents' tokens) feed their recent_reactions.
             if (viewer.via !== "agent") ctx.waitUntil(social.countReaction(env.DB, viewer.name, String(body.emoji ?? "").trim(), r.on).catch(() => {}));
             return json(r);
@@ -2087,7 +2094,7 @@ const handler = {
           await Promise.all(
             all.slice(0, 25).map(async (b) => {
               try {
-                const r = await boardStub(env, b.id).rankedSearch(q, { limit: 3 });
+                const r = await boardStub(env, b.id).rankedSearch(q, { limit: 3 }, seer());
                 return [
                   ...r.files.slice(0, 2).map((f) => ({ board: b.id, title: b.title, kind: "file", name: f.name, version: f.version, snippet: f.snippet })),
                   ...r.entries.map((x) => ({ board: b.id, title: b.title, kind: "entry", seq: x.entry.seq, author: x.entry.author, via: x.entry.via ?? null, snippet: x.snippet || x.entry.text.slice(0, 160) })),
@@ -2280,7 +2287,7 @@ const handler = {
           const waitSec = Math.min(25, Math.max(0, parseInt(url.searchParams.get("wait") ?? "0", 10) || 0));
           if (waitSec) await waitForBoard(stub, { kind: "any", after }, waitSec * 1000);
           // Only entries after `after` (up to 1000 per call; the client advances and asks again), roots resolved in the DO.
-          const [snap, members0, live] = await Promise.all([stub.snapshot(after), registry.boardMembers(env, id), registry.agentsOnBoard(env, id)]);
+          const [snap, members0, live] = await Promise.all([stub.snapshot(after, {}, seer()), registry.boardMembers(env, id), registry.agentsOnBoard(env, id)]);
           const members = members0.map((x) => ({ ...x, agent_seen: live[x.user] ?? null }));
           const fresh = snap.entries;
           const roots = await stub.rootsFor(fresh.map((e) => e.seq));
@@ -2310,7 +2317,7 @@ const handler = {
             summary: summaryHtml([], viewer?.name ?? "", members, snap.summary, { boardId: id, creator: snap.info.created_by }),
             pinned: snap.pinned, // the board's pinned doc {name, version, …} or null
             count: snap.info.entry_count,
-            last: fresh.length ? fresh[fresh.length - 1].seq : after,
+            last: snap.last, // past any people-only entries this viewer doesn't get, so the tab doesn't ask again
           });
         }
         if (what === "entries" && !seqStr && method === "GET" && url.searchParams.has("after")) {
@@ -2318,21 +2325,23 @@ const handler = {
           const after = Math.max(0, parseInt(url.searchParams.get("after") ?? "0", 10) || 0);
           const waitSec = Math.min(25, Math.max(0, parseInt(url.searchParams.get("wait") ?? "0", 10) || 0));
           if (waitSec) await waitForBoard(stub, { kind: "any", after }, waitSec * 1000);
-          const [snap, names] = await Promise.all([stub.snapshot(after), social.boardAgentNames(env, id)]);
+          const [snap, names] = await Promise.all([stub.snapshot(after, {}, seer()), social.boardAgentNames(env, id)]);
           const list = withNames(snap.entries.slice(0, Math.min(500, parseInt(url.searchParams.get("limit") ?? "200", 10) || 200)), names);
           // Reactions on these entries (agents' 🤔 / ✅ read receipts among them), keyed by seq.
-          const reactions = list.length ? await stub.reactionsFor(list.map((e) => e.seq)) : {};
-          return json({ entries: list, last: list.length ? list[list.length - 1].seq : after, reactions, reads: snap.reads, decisions: snap.decisions });
+          const reactions = list.length ? await stub.reactionsFor(list.map((e) => e.seq), seer()) : {};
+          // last: past any people-only entries this caller doesn't get (all of them, for an agent's token).
+          const last = list.length < snap.entries.length ? list[list.length - 1].seq : snap.last;
+          return json({ entries: list, last, reactions, reads: snap.reads, decisions: snap.decisions });
         }
         if (what === "entries" && !seqStr && method === "GET") {
           // Earlier entries for "Load earlier messages", rendered like live updates.
           const before = parseInt(url.searchParams.get("before") ?? "0", 10) || null;
-          const page = await stub.page(before, parseInt(url.searchParams.get("limit") ?? "100", 10) || 100);
+          const page = await stub.page(before, parseInt(url.searchParams.get("limit") ?? "100", 10) || 100, seer());
           const seqs = page.map((e) => e.seq);
           const [isOwner, roots, reactions] = await Promise.all([
             viewer ? registry.memberRole(env, id, viewer.name).then((r) => r === "owner") : false,
             stub.rootsFor(seqs),
-            stub.reactionsFor(seqs),
+            stub.reactionsFor(seqs, seer()),
           ]);
           return json({
             first: page.length ? page[0].seq : 0,
@@ -2348,7 +2357,7 @@ const handler = {
         }
         if (what === "entries" && seqStr && method === "GET") {
           try {
-            const [r, names] = await Promise.all([stub.get(parseInt(seqStr, 10)), social.boardAgentNames(env, id)]);
+            const [r, names] = await Promise.all([stub.get(parseInt(seqStr, 10), seer()), social.boardAgentNames(env, id)]);
             return json({ ...r, entry: withNames([r.entry], names)[0], replies: withNames(r.replies, names) });
           } catch (e) {
             return json({ error: e instanceof Error ? e.message : String(e) }, 404);
@@ -2357,35 +2366,55 @@ const handler = {
         if (what === "entries" && !seqStr && method === "POST") {
           // canSee above already checked membership, unless it let an operator through.
           if (!viewer || (isOps(c) && !(await registry.isMember(env, id, viewer.name)))) return json({ error: "Only members can post." }, 403);
-          const body = (await request.json().catch(() => ({}))) as { text?: string; type?: string; to?: string; reply_to?: string | number; to_session?: string };
+          const body = (await request.json().catch(() => ({}))) as { text?: string; type?: string; to?: string | string[]; reply_to?: string | number; to_session?: string; people_only?: unknown };
           const type = (["note", "question", "task", "decision", "claim"] as const).find((t) => t === body.type) ?? "note";
-          let to = body.to ? normalizeUser(body.to) : null;
+          // People-only (vedu #1264): for the people named in `to` (a list, or one name) and/or @named in the text.
+          // Never from an agent's token: agents can't create them (or read them).
+          const peopleOnly = body.people_only === true || body.people_only === "true" || body.people_only === 1;
+          if (peopleOnly && viewer.via === "agent") return json({ error: "Only people can send people-only messages, signed in on the web or in the Atteo app. Agents can't create or read them." }, 403);
+          let to = !peopleOnly && typeof body.to === "string" && body.to ? normalizeUser(body.to) : null;
           let text = String(body.text ?? "");
           // For one of your own agent sessions (the "Your agent" picker): "@you/<session>" leads the text, so it's
           // stored and shown as that session mention, and only that session's read, wait and mailbox get it.
           const toSession = typeof body.to_session === "string" ? body.to_session.trim().toLowerCase().replace(/^@/, "") : "";
-          if (toSession && SESSION_NAME_RE.test(toSession) && text.trim() && !text.toLowerCase().includes(`@${viewer.name}/${toSession}`)) text = `@${viewer.name}/${toSession} ${text}`;
-          const { mentions, ambiguous }: { mentions: Mention[]; ambiguous: string[] } = mayMention(text) ? parseMentions(text, await registry.boardMembers(env, id), viewer.name, pv()) : { mentions: [], ambiguous: [] };
+          if (!peopleOnly && toSession && SESSION_NAME_RE.test(toSession) && text.trim() && !text.toLowerCase().includes(`@${viewer.name}/${toSession}`)) text = `@${viewer.name}/${toSession} ${text}`;
+          const boardMembers = await registry.boardMembers(env, id);
+          const { mentions, ambiguous }: { mentions: Mention[]; ambiguous: string[] } = mayMention(text) ? parseMentions(text, boardMembers, viewer.name, pv()) : { mentions: [], ambiguous: [] };
+          // People-only: who it's for, each a member of this board (the author is added by the board).
+          let toPeople: string[] | undefined;
+          if (peopleOnly) {
+            const named = (Array.isArray(body.to) ? body.to : typeof body.to === "string" ? body.to.split(/[\s,]+/) : []).map((n) => String(n).trim().replace(/^@/, "")).filter(Boolean);
+            const memberSet = new Set(boardMembers.map((x) => x.user));
+            toPeople = [];
+            for (const n of named) {
+              const u = normalizeUser(n);
+              if (!u || !memberSet.has(u)) return json({ error: `${n} isn't on this board: a people-only message is for people on it.` }, 400);
+              toPeople.push(u);
+            }
+            for (const x of mentions) if (!x.agent && memberSet.has(x.user)) toPeople.push(x.user); // "@jxn" in the text
+          }
           // Replying: to an agent's post, the reply goes to that agent; to a person's post, it mentions them.
           const replyTo = Number(body.reply_to) > 0 ? Math.floor(Number(body.reply_to)) : null;
           if (replyTo) {
-            const parent = await stub.get(replyTo).catch(() => null);
+            const parent = await stub.get(replyTo, seer()).catch(() => null);
             if (!parent) return json({ error: `Entry #${replyTo} does not exist on this board.` }, 400);
             const p = parent.entry;
             if (p.author !== viewer.name) {
               if (p.via === "person") {
                 if (!mentions.some((m) => m.user === p.author)) mentions.push({ user: p.author, agent: false });
-              } else to ??= p.author;
+              } else if (!peopleOnly) to ??= p.author;
             }
           }
           try {
             const idem = messageId(request.headers.get("idempotency-key"));
             const session = await asid();
-            const entry = await withRetry(() => stub.post(viewer.name, { type, text, to, mentions, reply_to: replyTo, via: pv(), session, idem }));
+            const entry = await withRetry(() => stub.post(viewer.name, { type, text, to, mentions, reply_to: replyTo, via: pv(), session, idem, ...(peopleOnly ? { people_only: true, to_people: toPeople } : {}) }));
             ctx.waitUntil(Promise.all([registry.touch(env, viewer.name, id), registry.bumpBoard(env, id, entry.seq)]).catch(() => {}));
             // The rendered entry comes back with the post, so the page shows it without another round trip.
             const root = replyTo ? ((await stub.rootsFor([entry.seq]))[entry.seq] ?? entry.seq) : entry.seq;
-            return json({ ok: true, entry, update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(entry, id, true, { canRetract: true }), row: logRow(entry), reactions: [] }, ...(ambiguous.length ? { ambiguous } : {}) }, 201);
+            // A people-only message (asked for, or a reply in one) says once, here, who can see it.
+            const notice = entry.audience ? { notice: peopleNotice(viewer.name, entry.to_people ?? []) } : {};
+            return json({ ok: true, entry, ...notice, update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(entry, id, true, { canRetract: true }), row: logRow(entry), reactions: [] }, ...(ambiguous.length ? { ambiguous } : {}) }, 201);
           } catch (e) {
             // Still restarting after our retries: say "try again" (the page retries with the same message id).
             if (isRetriable(e)) {
@@ -2402,7 +2431,7 @@ const handler = {
           const agent = url.searchParams.get("agent"); // "1": that member's agent, "0": the person, absent: either
           const type = url.searchParams.get("type") || undefined;
           const scope = url.searchParams.get("in") ?? "all"; // "chat" leaves files out
-          const r = q ? await stub.rankedSearch(q, { author: from ?? undefined, type, limit: 60 }) : { entries: (await stub.search("", { author: from ?? undefined, type, limit: 60 })).map((entry) => ({ entry, snippet: "" })), files: [] };
+          const r = q ? await stub.rankedSearch(q, { author: from ?? undefined, type, limit: 60 }, seer()) : { entries: (await stub.search("", { author: from ?? undefined, type, limit: 60 }, seer())).map((entry) => ({ entry, snippet: "" })), files: [] };
           const keep = (e: Entry) => agent == null || (agent === "1" ? e.via === "agent" : e.via !== "agent");
           return json({
             entries: r.entries
@@ -2429,7 +2458,7 @@ const handler = {
           const body = (await request.json().catch(() => ({}))) as { action?: string };
           const action = body.action === "release" || body.action === "done" ? body.action : "take";
           try {
-            const r = await stub.handle(viewer.name, parseInt(seqStr, 10), { session: sess?.id ?? null, label }, action);
+            const r = await stub.handle(viewer.name, parseInt(seqStr, 10), { session: sess?.id ?? null, label, person: viewer.via !== "agent" }, action);
             return json({ ok: r.ok, by: r.by, done: r.done, message: handleMessage(seqStr, action, r) }, r.ok ? 200 : 409);
           } catch (e) {
             return json({ error: e instanceof Error ? e.message : String(e) }, 404);
