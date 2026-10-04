@@ -6,6 +6,7 @@ import { chartHtml } from "./chart";
 import { STATUS_CSS, statusHtml } from "./status";
 import { highlightMentions, type Mention } from "./mentions";
 import { MERMAID_CSS, MERMAID_JS, mermaidHtml } from "./mermaid";
+import { TALK_CSS } from "./talk";
 import { esc } from "./util";
 import { clientTable, tr, type Lang } from "./i18n";
 
@@ -596,6 +597,7 @@ input.switch::after{content:"";position:absolute;top:3px;left:3px;width:18px;hei
 /* Highlights (mention tint, new-message flash, jump tint) bleed 12px each side whatever the density, so the avatar never sits on the edge (jxn #1311). */
 #thread>.entry.for-you,#thread>.entry.flash-in,#thread>.entry.hit,.thr-list>.entry.for-you,.thr-list>.entry.hit{margin-left:-12px;margin-right:-12px;padding-left:12px;padding-right:12px;border-radius:8px}
 ${MERMAID_CSS}
+${TALK_CSS}
 .slash-menu li{align-items:baseline}.slash-menu li b{flex:none;white-space:nowrap}.slash-menu li .k{margin-left:10px;flex:1;min-width:0;text-align:left} /* "/task" never splits (jxn #1391) */
 .mem-act{display:none}.mem-on .mem-act{display:inline-flex;width:30px;padding:0;justify-content:center;color:var(--muted)}.mem-on .mem-act:hover{color:var(--ink)}
 .soul-prev{white-space:pre-wrap;font-size:12.5px;line-height:1.5;color:var(--text);max-height:7.5em;overflow:hidden;-webkit-mask-image:linear-gradient(#000 70%,transparent);mask-image:linear-gradient(#000 70%,transparent)}

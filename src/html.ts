@@ -1,5 +1,6 @@
 // Pages. Server-rendered with the design system in ui.ts; small inline scripts for live updates.
 
+import { TALK_JS, talkBtn } from "./talk";
 import type { WebhookRow } from "./webhooks";
 import { PLANS, PRICES, type PlanState } from "./billing";
 import { boardMeta, type BoardRow, type InviteRow, type Invitation, type UserRow } from "./registry";
@@ -397,6 +398,7 @@ ${ALLOWANCE_JS}
     const g=gl=new SR();g.lang=LANG;g.interimResults=true;g.continuous=true;const end=setTimeout(()=>{try{g.stop()}catch(e){}},12000);
     g.onresult=ev=>{for(let i=ev.resultIndex;i<ev.results.length;i++)if(/go ahead|read it|play it/i.test(ev.results[i][0].transcript)){clearTimeout(end);g.go=1;try{g.stop()}catch(e){}return}};
     g.onend=()=>{clearTimeout(end);if(gl===g)gl=null;if(g.go&&!speaking&&q.length)setTimeout(speakNext,250)}; /* speak once the mic has let go of the audio */try{g.start()}catch(e){gl=null}}
+  window.voiceHush=()=>{micStop();stopGo();hush()}; // Talk to Atteo (talk.ts) takes the mic and the speaker
   function setOn(v){on=v;vb.setAttribute('aria-pressed',String(v));vb.classList.toggle('on',v);try{localStorage.setItem('atteo.voice',v?'1':'0')}catch(e){}if(!v){stopGo();hush()}}
   try{on=localStorage.getItem('atteo.voice')==='1'}catch(e){}
   vb.hidden=false;setOn(on);
@@ -2372,7 +2374,7 @@ window.boardKeys=(e,k)=>{
     els.forEach(x=>x.classList.remove('sel'));const el=els[cur];if(el){el.classList.add('sel');el.scrollIntoView({block:'nearest'})}}
   if(e.key==='Enter'&&els[cur]){openEntry(BOARD,els[cur].dataset.seq)}
 };
-` + (canPic ? BOARD_PIC_JS : "") + (info.encrypted ? E2E_JS : "") + STATUS_JS + voiceJs(agentChat) + PREVIEW_JS + evJs(agentChat) + (agentChat ? "" : PO_JS) + (agentChat ? "" : pinRecapJs(board.last_seen ?? 0, !readOnly && !info.archived) + soulMemoryJs(!readOnly && !info.archived));
+` + (canPic ? BOARD_PIC_JS : "") + (info.encrypted ? E2E_JS : "") + STATUS_JS + voiceJs(agentChat) + TALK_JS + PREVIEW_JS + evJs(agentChat) + (agentChat ? "" : PO_JS) + (agentChat ? "" : pinRecapJs(board.last_seen ?? 0, !readOnly && !info.archived) + soulMemoryJs(!readOnly && !info.archived));
   const isCreator = viewer.name === info.created_by;
   const archivedBanner = info.archived
     ? `<div class="flash bp-banner"><span class="grow"><b>${esc(T("Archived."))}</b> ${esc(T("This board is read-only."))}</span>${
@@ -2441,7 +2443,7 @@ window.boardKeys=(e,k)=>{
       <div class="bar">
         <button class="btn ghost sm attach" type="button" id="attach-btn" aria-label="${esc(T("Attach files"))}" title="${esc(T("Attach files or images (or paste or drop them)"))}"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M13.5 7.6 8.3 12.8a3.2 3.2 0 0 1-4.5-4.5l5.6-5.6a2.1 2.1 0 0 1 3 3L6.8 11.3a1 1 0 0 1-1.5-1.5l4.9-4.9"/></svg></button>
         <input type="file" id="attach-input" multiple hidden>
-        <button class="btn ghost sm at-btn" type="button" data-mention-for="composer-text" aria-label="${esc(T("Mention someone"))}" title="${esc(T("Mention a person or their agent (or type @)"))}">@</button>${agentChat ? sessionPicker(board.sessions ?? []) : ""}${VOICE_BTNS}${agentChat ? "" : PO_BTN}
+        <button class="btn ghost sm at-btn" type="button" data-mention-for="composer-text" aria-label="${esc(T("Mention someone"))}" title="${esc(T("Mention a person or their agent (or type @)"))}">@</button>${agentChat ? sessionPicker(board.sessions ?? []) : ""}${VOICE_BTNS}${talkBtn(info.encrypted ? null : info.id, viewer.name)}${agentChat ? "" : PO_BTN}
         <input type="hidden" name="type" id="cmp-type" value="note">
         <span class="grow"></span><button class="btn primary sm">${esc(T("Post"))}</button>
       </div>
