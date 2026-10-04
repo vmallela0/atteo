@@ -181,10 +181,27 @@ export function parseReadBudget(raw: unknown): number | undefined {
 }
 
 /**
+ * The entries one read returns under a `max_chars` budget, oldest first: every entry until the budget is spent, the
+ * last of them possibly too long for what's left (presentReadEntries cuts it). Never none when there's anything, so
+ * a tiny budget still moves the read along. The rest stay unread for the next read (jxn's agent #2341).
+ */
+export function withinReadBudget<T extends { text: string }>(entries: T[], maxChars: number | undefined): T[] {
+  if (maxChars == null) return entries;
+  let left = maxChars;
+  const out: T[] = [];
+  for (const e of entries) {
+    if (out.length && left <= 0) break;
+    out.push(e);
+    left -= e.text.length;
+  }
+  return out;
+}
+
+/**
  * Entry text for one read. Omit `maxChars` and nothing changes: entry objects stay whole, and each rendered line
- * is cut at 4000 with a pointer to `get`. Set it and the entries' texts together stay within that many characters
- * (oldest first). A cut entry is marked `truncated` and its line says to get that seq for the rest. The notice is
- * not entry text, so it is not counted against the budget.
+ * is cut at 4000 with a pointer to `get`. Set it and the entries (already withinReadBudget) stay within that many
+ * characters: the last one may be cut, marked `truncated`, its line saying to get that seq for the rest. The notice
+ * is not entry text, so it is not counted against the budget.
  */
 export function presentReadEntries(entries: Entry[], maxChars: number | undefined, viewer?: string): { entries: Entry[]; lines: string[] } {
   if (maxChars == null) return { entries, lines: entries.map((e) => formatEntry(e, DEFAULT_READ_ENTRY_CHARS, viewer)) };

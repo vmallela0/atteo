@@ -5,7 +5,7 @@ import { track } from "./usage";
 import { fence, flagOf, screenText } from "./screen";
 import { FOR_LABEL, pingExcerpt } from "./ping";
 import { DurableObject } from "cloudflare:workers";
-import { computeSummary, formatSummary, summaryWithNames, tasksFor, withNames, DEFAULT_SUMMARY_CHARS, type Summary } from "./state";
+import { computeSummary, formatSummary, summaryWithNames, tasksFor, withinReadBudget, withNames, DEFAULT_SUMMARY_CHARS, type Summary } from "./state";
 import { blockedMessage, scanFields, scanText, type SecretHit } from "./secrets";
 import { recordOutcome } from "./agents";
 import { ALL_AGENTS, ALL_HUMANS, ALL_MEMBERS, forAgent, forPerson, hasGroupMention, keep, MAX_GROUP_MENTIONS, MAX_MENTIONS, mentionsOwnAgent, parseMentions, SESSION_NAME_RE, type Mention } from "./mentions";
@@ -1429,7 +1429,7 @@ export class Board extends DurableObject<Env> {
    * past what was returned. The board's summary comes with a member's first read of the board, then only when asked
    * for (`summary: true`); `summary: false` never.
    */
-  async read(user: string, opts: { limit?: number; since?: number; summary?: boolean; names?: Record<string, string> } = {}, session?: string | null) {
+  async read(user: string, opts: { limit?: number; since?: number; summary?: boolean; names?: Record<string, string>; maxChars?: number } = {}, session?: string | null) {
     const info = this.info();
     this.renewLeases(user, session);
     const rules = this.rulesFor(user, session);
@@ -1437,10 +1437,13 @@ export class Board extends DurableObject<Env> {
     const cursor = this.readCursor(user, session);
     const from = opts.since != null ? Math.max(0, opts.since) : cursor;
     const limit = clamp(opts.limit ?? 50, 1, 200);
-    const fresh = opts.since != null ? this.entriesAfter(from, null, limit, null, asAgent(user)) : this.entriesAfter(from, user, limit, session, asAgent(user));
+    const page = opts.since != null ? this.entriesAfter(from, null, limit, null, asAgent(user)) : this.entriesAfter(from, user, limit, session, asAgent(user));
+    // max_chars: the page stops where the budget runs out (its last entry may be cut when shown), and the read
+    // position moves only past what's returned, so the rest comes with the next read (jxn's agent #2341).
+    const fresh = withinReadBudget(page, opts.maxChars);
     if (opts.since == null) await this.receipts(user, fresh);
     await this.decisions.refresh();
-    const remaining = opts.since != null ? 0 : Math.max(0, this.countAfter(from, user, session) - fresh.length);
+    const remaining = opts.since != null ? page.length - fresh.length : Math.max(0, this.countAfter(from, user, session) - fresh.length);
     if (fresh.length) this.advance(user, fresh[fresh.length - 1].seq, session);
     else if (opts.since == null) this.advance(user, info.last_seq, session);
     if (fresh.length) this.markSeen(user, "agent", fresh[fresh.length - 1].seq);

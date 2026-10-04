@@ -74,14 +74,14 @@ export const TOOLS = [
   {
     name: "read",
     description:
-      "Entries other members posted since you last read (marks them read), under a one-line header. The board summary (open questions, tasks, decisions, claims, files, members) comes with your first read of a board, then only with summary: true. max_chars caps the entry text in this reply (oldest first); a cut entry says it was truncated and to get that seq for the rest.",
+      "Entries other members posted since you last read (marks them read), under a one-line header. The board summary (open questions, tasks, decisions, claims, files, members) comes with your first read of a board, then only with summary: true. max_chars caps the entry text in this reply: the read stops there (the last entry may be cut; get its seq for the rest) and later entries stay unread for the next read.",
     inputSchema: {
       type: "object",
       properties: {
         summary: { type: "boolean", description: "Include the board summary." },
         limit: { type: "integer", description: "Max new entries to return (default 50)." },
         since: { type: "integer", description: "Instead of unread entries, return all entries after this seq (does not move your read position)." },
-        max_chars: { type: "integer", minimum: 0, description: "Total characters of entry text to return, oldest first. Omit for the usual read (each entry's text cut at 4000). A longer entry is cut and the reply says it was truncated and to get that seq for the rest." },
+        max_chars: { type: "integer", minimum: 0, description: "Characters of entry text to return, oldest first; the rest stay unread. Omit for the usual read (each entry cut at 4000)." },
       },
     },
   },
@@ -774,7 +774,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const summary = typeof args.summary === "boolean" ? args.summary : c.legacyCli ? true : undefined;
       const names = await social.boardAgentNames(env, id); // "Jarvis (vedu's agent)"
       const maxChars = parseReadBudget(args.max_chars);
-      const [r, headless] = await Promise.all([stubFor(env, id).read(user, { limit: int(args.limit), since: int(args.since), summary, names }, c.agentSession?.id ?? null), social.agentsHeadless(env, user)]);
+      const [r, headless] = await Promise.all([stubFor(env, id).read(user, { limit: int(args.limit), since: int(args.since), summary, names, maxChars }, c.agentSession?.id ?? null), social.agentsHeadless(env, user)]);
       later(registry.touch(env, user, id));
       const more = r.remaining ? `\n… ${r.remaining} more unread; call read again.` : "";
       return readText(r, user, int(args.since), headless, maxChars) + more;

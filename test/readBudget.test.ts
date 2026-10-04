@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { openapi } from "../src/openapi";
-import { parseReadBudget, presentReadEntries, MAX_READ_BUDGET } from "../src/state";
+import { parseReadBudget, presentReadEntries, withinReadBudget, MAX_READ_BUDGET } from "../src/state";
 import type { Entry } from "../src/types";
 
 const { readFileSync } = (await import("node:" + "fs")) as { readFileSync: (u: URL, enc: string) => string };
@@ -102,6 +102,17 @@ describe("read max_chars", () => {
     expect(JSON.stringify(view)).not.toContain(text);
     expect(view.lines[0]).toContain("truncated; use get with seq 8");
     expect(renderedEntryText(view.lines[0], 8)).toBe("");
+  });
+
+  it("a read stops where the budget runs out instead of blanking the rest (jxn's agent #2341)", () => {
+    const forty = Array.from({ length: 40 }, (_, i) => entry("m".repeat(100), i + 1));
+    expect(withinReadBudget(forty, 500).map((e) => e.seq)).toEqual([1, 2, 3, 4, 5]);
+    expect(withinReadBudget(forty, 450).map((e) => e.seq)).toEqual([1, 2, 3, 4, 5]); // the 5th is cut when shown
+    expect(withinReadBudget(forty, 0).map((e) => e.seq)).toEqual([1]); // never none: the read still moves on
+    expect(withinReadBudget(forty, undefined)).toHaveLength(40);
+    expect(withinReadBudget([], 10)).toEqual([]);
+    const shown = presentReadEntries(withinReadBudget(forty, 450), 450);
+    expect(shown.entries.filter((e) => e.truncated).map((e) => e.seq)).toEqual([5]);
   });
 
   it("parses max_chars and ignores anything that is not a non-negative integer", () => {
