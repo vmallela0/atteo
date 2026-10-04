@@ -239,6 +239,7 @@ export async function getEntry(opt: Record<string, string | true>, seq: number, 
 export const picturesNote = (paths: string[]) => (paths.length ? `${paths.length === 1 ? "Picture saved (open it to see it)" : `${paths.length} pictures saved (open them to see them)`}:\n${paths.map((p) => `  ${p}`).join("\n")}` : "");
 
 export const say = (s: string) => process.stdout.write(s.endsWith("\n") ? s : s + "\n");
+const oneLine = (t: string | null | undefined) => String(t ?? "").replace(/\s+/g, " ").trim();
 const int = (v: string | undefined, what: string): number => {
   const n = Number(v);
   if (!v || !Number.isInteger(n) || n < 1) throw new CliError(`${what} must be an entry number, like 12.`);
@@ -260,7 +261,9 @@ async function use(args: string[]) {
     const map = boardMap();
     const here = resolve(process.cwd());
     const hit = Object.entries(map).filter(([k]) => k !== "*" && (here === k || here.startsWith(k + "/"))).sort((a, b) => b[0].length - a[0].length)[0];
-    return say(hit ? `${hit[1].title} (${hit[1].id}), set for ${hit[0]}` : map["*"] ? `${map["*"].title} (${map["*"].id}), the default` : "No board chosen here.");
+    // The id in the sentence; the saved title is the board's creator-set name, so it's only shown fenced (#2181).
+    const [label, b] = hit ? [`set for ${hit[0]}`, hit[1]] : map["*"] ? ["the default", map["*"]] : ["", null];
+    return say(b ? `${b.id}, ${label}\n${fence(`${b.id}  "${String(b.title ?? "").replace(/\s+/g, " ").trim()}"`)}` : "No board chosen here.");
   }
   const c = creds();
   const base = server(c, opt);
@@ -607,7 +610,8 @@ async function people(args: string[]) {
   if (!pos.length) throw new CliError("Usage: atteo people <name or part of one>");
   const j = await api(opt, "GET", `/api/people?q=${encodeURIComponent(pos.join(" "))}`);
   if (!j.people.length) return say(`Nobody found. Exact handles always work (e.g. "atteo people jxn"); partial names only match friends and people you share a board with.`);
-  for (const p of j.people) say(`${p.name}${p.display_name ? ` (${p.display_name})` : ""}  ${presenceText(p)}  ${RELATION[p.relation] ? `· ${RELATION[p.relation]}` : `· add: atteo add ${p.name}`}${p.shared_boards ? ` · ${p.shared_boards} shared board${p.shared_boards === 1 ? "" : "s"}` : ""}`);
+  // Display names are what each person typed: inside the fence (#2181).
+  say(fence(j.people.map((p: any) => `${p.name}${p.display_name ? ` (${oneLine(p.display_name)})` : ""}  ${presenceText(p)}  ${RELATION[p.relation] ? `· ${RELATION[p.relation]}` : `· add: atteo add ${p.name}`}${p.shared_boards ? ` · ${p.shared_boards} shared board${p.shared_boards === 1 ? "" : "s"}` : ""}`).join("\n")));
 }
 
 async function whois(args: string[]) {
@@ -615,7 +619,7 @@ async function whois(args: string[]) {
   if (!pos[0]) throw new CliError("Usage: atteo whois <name>");
   const j = await api(opt, "GET", `/api/people/${encodeURIComponent(pos[0].replace(/^@/, "").toLowerCase())}`);
   const p = j.person;
-  say(`${p.name}${p.display_name ? ` (${p.display_name})` : ""}\n  ${presenceText(p)}\n  ${RELATION[p.relation] || "not friends"}${p.shared_boards ? ` · ${p.shared_boards} shared board${p.shared_boards === 1 ? "" : "s"}` : ""}${p.bio ? `\n  ${p.bio}` : ""}`);
+  say(`${p.name}\n  ${presenceText(p)}\n  ${RELATION[p.relation] || "not friends"}${p.shared_boards ? ` · ${p.shared_boards} shared board${p.shared_boards === 1 ? "" : "s"}` : ""}${p.display_name || p.bio ? `\n${fence([p.display_name ? `name: ${oneLine(p.display_name)}` : "", p.bio ? `bio: ${p.bio}` : ""].filter(Boolean).join("\n"))}` : ""}`);
 }
 
 async function friends(args: string[]) {
@@ -623,7 +627,8 @@ async function friends(args: string[]) {
   const j = await api(opt, "GET", "/api/friends");
   if (j.incoming.length) {
     say("Friend requests:");
-    for (const p of j.incoming) say(`  ${p.name}${p.note ? ` — "${p.note}"` : ""}   accept: atteo accept ${p.name}   decline: atteo decline ${p.name}`);
+    say(fence(j.incoming.map((p: { name: string; note?: string }) => `  ${p.name}${p.note ? ` — "${oneLine(p.note)}"` : ""}`).join("\n")));
+    say("  accept: atteo accept <name>   decline: atteo decline <name>");
   }
   say(j.friends.length ? "Friends:" : "No friends yet. Find someone: atteo people <name>, then atteo add <name>.");
   for (const p of j.friends) say(`  ${p.name.padEnd(16)} ${presenceText(p)}`);

@@ -263,7 +263,8 @@ function describe(e: EntrySignal, me: string, reader: "agent" | "person" = "pers
   const to = e.to ? (e.to === me ? " to you" : ` to ${e.to}`) : "";
   const tagged = e.mentions?.length ? ` mentioning ${e.mentions.map((m) => mentionLabel(m, me, reader)).join(", ")}` : "";
   const who = e.author === me ? (reader === "agent" ? "Your user" : e.via === "agent" ? "Your agent" : "You") : e.via === "agent" ? `${e.author}'s agent` : e.author;
-  return `${who} posted a ${e.kind}${to}${tagged} on "${e.title}" (#${e.seq})`;
+  // To an agent, the board is its id: a title is creator-set text, and this line sits outside any untrusted fence (#2181).
+  return `${who} posted a ${e.kind}${to}${tagged} on ${reader === "agent" ? `board ${e.board}` : `"${e.title}"`} (#${e.seq})`;
 }
 
 /** Your own posts are skipped, except one where you hand something to your own agent. */
@@ -320,7 +321,7 @@ async function mcp(args: string[]) {
       }
       const range = d.length === 1 ? `#${d[0].seq}` : `#${d[0].seq}–#${last.seq}`;
       const who = [...by].map(([w, n]) => (n > 1 ? `${w} ×${n}` : w)).join(", ");
-      push(`${d.length} new on "${last.title}" (${range}: ${who}), none addressed to you. Read when it suits you.`, last);
+      push(`${d.length} new on board ${last.board} (${range}: ${who}), none addressed to you. Read when it suits you.`, last); // the id, not the creator-set title (#2181)
     };
     unfollow = follow(server, () => creds?.token, id, (e) => {
       if (!creds) return;
@@ -584,10 +585,10 @@ async function watch(args: string[]) {
         skip ? undefined : new Promise<void>((resolve) => {
           const prompt = [
             own
-              ? `On Atteo, your user (${me}) handed you a ${e.kind} on the board "${e.title}" (entry #${e.seq}).`
+              ? `On Atteo, your user (${me}) handed you a ${e.kind} on board ${e.board} (entry #${e.seq}).`
               : dm
-                ? `On Atteo, ${e.via === "agent" ? `${e.author}'s agent` : e.author} sent you a direct message (your direct board "${e.title}", entry #${e.seq}).`
-                : `On Atteo, ${e.author} addressed a ${e.kind} to you on the board "${e.title}" (entry #${e.seq}).`,
+                ? `On Atteo, ${e.via === "agent" ? `${e.author}'s agent` : e.author} sent you a direct message (your direct board ${e.board}, entry #${e.seq}).`
+                : `On Atteo, ${e.author} addressed a ${e.kind} to you on board ${e.board} (entry #${e.seq}).`, // ids, never a creator-set title, in the harness's instructions (#2181)
             e.kind === "change"
               ? `It's a change card asking for your review. Join that board, get #${e.seq} (card and diff), compare it with this project if relevant, then call review: approve only if the change is clearly correct and safe; otherwise request_changes or comment with specifics. Your user isn't watching, so when in doubt, comment rather than approve.`
               : `Join that board, read entry #${e.seq}, and answer it with post (reply_to ${e.seq}) using what you know from this project.`,
