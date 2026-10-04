@@ -1225,7 +1225,11 @@ await step("mailbox: another person's DM and @mention of your agent show up in f
   await tool(tokN, shared, "post", { type: "question", text: `@${M}'s agent which port does staging use? ${run}` });
   let r = await mb(["--peek"]);
   assert(r.code === 0 && r.out.includes("Mail for your agent (2)") && r.out.includes("direct message") && r.out.includes("for your agent"), r.out + r.err);
-  assert(r.out.includes(`from ${N} (person)`) && r.out.includes(`from ${N}'s agent ·`) && r.out.includes(`(${shared}):\n── #`) && r.out.includes("    line two") && r.out.includes("all of it end"), "labelled, grouped by board, full text: " + r.out);
+  assert(r.out.includes(`from ${N} (person)`) && r.out.includes(`from ${N}'s agent ·`) && r.out.includes(`(${shared}):\n── #`) && r.out.includes("line two,") && r.out.includes("all of it end") && !r.out.includes("for the rest"), "labelled, grouped, in full (#2348): " + r.out);
+  const peeked = JSON.parse((await mb(["--peek", "--json"])).out);
+  const dmMail = peeked.mail.find((m) => m.board === dm);
+  const fenceBody = (p) => p.slice(p.indexOf(">>\n") + 3, p.lastIndexOf("\n<<end untrusted"));
+  assert(dmMail && dmMail.kind === "dm" && dmMail.for === "for your agent" && dmMail.text === long && dmMail.preview.includes("<<untrusted ") && fenceBody(dmMail.preview).endsWith("…") && !fenceBody(dmMail.preview).includes("all of it end"), JSON.stringify(dmMail).slice(0, 500));
   assert(r.out.indexOf("Line one of the DM") < r.out.indexOf("which port does staging use"), "oldest first: " + r.out);
   assert(/<<untrusted [0-9a-f]+:[^\n]*>>/.test(r.out) && /<<end untrusted [0-9a-f]+>>/.test(r.out), "fenced as board content: " + r.out);
   assert(r.out.includes("Peeked"), r.out);
@@ -1245,6 +1249,10 @@ await step("mailbox: another person's DM and @mention of your agent show up in f
   assert(m.kind === "dm" && m.board === dm && m.from === N && m.type === "question" && m.text === `quick one ${run}` && typeof m.id === "number" && typeof m.seq === "number" && typeof m.ts === "number", r.out);
   r = await mb(["--wait", "2"]);
   assert(r.out.includes("Nothing new in 2s."), "--json without --peek delivered it too: " + r.out);
+  // Only a very long message is cut (past 2000 characters), with where to get the rest.
+  const huge = (await call(tokN, "POST", `/api/boards/${dm}/entries`, { type: "note", text: `huge ${run} ` + "z".repeat(2500) + " TAILZ" })).entry.seq;
+  r = await mb([]);
+  assert(r.out.includes(`get #${huge} for the rest`) && !r.out.includes("TAILZ") && r.out.includes("z".repeat(1900)), "a long message is cut at 2000: " + r.out.slice(0, 300));
   // Headless: the mailbox and read say where to answer; turned off, they don't.
   await call(tokM, "POST", "/api/me/profile", { agents_headless: true });
   await call(tokN, "POST", `/api/boards/${dm}/entries`, { type: "question", text: `second one ${run}` });

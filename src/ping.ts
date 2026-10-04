@@ -1,7 +1,8 @@
-// Triage-able pings (#2177): what an agent is told the moment something arrives (the CLI channel's push, a mailbox
-// line), compact enough to decide from without a read: its kind, title, author, who it's for, and the first ~200
-// characters, fenced as untrusted like every read. Never text the recipient can't see: a private entry's ping says only
-// that something private arrived; an encrypted one says it's encrypted. Pure; shared by the Worker and the CLI.
+// Triage-able pings (#2177 B): what an agent is told the moment something arrives (the CLI channel's push, a mailbox
+// item, a webhook), compact enough to decide from without a read: its kind, title, who it's for (this session, the
+// person, or someone else), and the first ~200 characters, fenced as untrusted like every read. Never text the
+// recipient can't see: a private entry's ping says only that something private arrived; an encrypted one says it's
+// encrypted. Pure; shared by the Worker and the CLI.
 
 import { fence, QUOTED_FLAG } from "./screen";
 
@@ -25,9 +26,33 @@ export const FOR_LABEL: Record<PingFor, string> = {
 };
 
 /** The title (when it isn't just the text's start) and the excerpt, as one line: what goes inside the fence. */
+/** Mail is addressed to the agent, which usually acts on it straight away: the mailbox shows it in full (an excerpt
+ *  would cost a get per item), cutting only a very long one (jxn's agent #2348). Pings and webhooks keep the excerpt. */
+export const MAIL_TEXT_MAX = 2000;
+export function mailText(text: string, seq: number | null | undefined): string {
+  if (text.length <= MAIL_TEXT_MAX) return text;
+  return text.slice(0, MAIL_TEXT_MAX) + (seq ? `… [get #${seq} for the rest]` : "…");
+}
+
 export function titled(title: string | null | undefined, text: string): string {
   const t = (title ?? "").replace(/\s+/g, " ").trim();
   return t && !text.startsWith(t) ? `[${t}] ${text}` : text;
+}
+
+/**
+ * Title plus the first ~200 characters of the body, inside the untrusted fence. Encrypted or empty text is not
+ * fenced: encrypted says "🔒 encrypted" (no ciphertext); nothing to show is "".
+ */
+export function triagePreview(title: string | null | undefined, text: string, opts?: { sealed?: boolean; fenceId?: string }): string {
+  if (opts?.sealed || text === ENCRYPTED) return ENCRYPTED;
+  const line = titled(title, pingExcerpt(text));
+  return line ? fence(line, opts?.fenceId) : "";
+}
+
+/** A webhook's addressee: a person-mention is for the person; a post routed to one live session is for that session; otherwise for the agent (not this session, not the person). */
+export function webhookForWhom(event: "for_your_agent" | "mention_for_you", forThisSession: boolean): PingFor {
+  if (event === "mention_for_you") return "person";
+  return forThisSession ? "session" : "agent";
 }
 
 export interface PingContent {
