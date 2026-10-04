@@ -2986,6 +2986,15 @@ await step("agent sessions: several per person, each with its own boards and rea
   await ok(A, b3, "post", { type: "note", text: `wake ${run}` });
   const w = (await waiting).body;
   assert(!w.timed_out && w.entries.some((x) => x.board.id === b3), JSON.stringify(w).slice(0, 300));
+  // ?for=me: another agent's chatter doesn't wake it; a mention of this agent does, and both come back.
+  await api(B, "GET", `/api/sessions/${s1.id}/read`);
+  const mineWait = api(B, "GET", `/api/sessions/${s1.id}/wait?timeout=20&for=me`);
+  await new Promise((r) => setTimeout(r, 600));
+  await ok(A, b3, "post", { type: "note", text: `chatter for-me ${run}`, reply_to: 0 });
+  await new Promise((r) => setTimeout(r, 600));
+  await ok(A, b3, "post", { type: "note", text: `@${B}'s agent for-me ping ${run}`, reply_to: 0 });
+  const fm = (await mineWait).body;
+  assert(!fm.timed_out && fm.text.includes(`chatter for-me ${run}`) && fm.text.includes(`for-me ping ${run}`) && fm.text.includes("1 for you"), JSON.stringify(fm).slice(0, 400));
   // List, rename (then found by name), leave a board, only your own, end
   assert((await api(B, "GET", "/api/sessions")).body.sessions.some((x) => x.id === s1.id && x.boards.length === 2), "listed with its boards");
   assert((await api(B, "POST", `/api/sessions/${s1.id}`, { name: "scout" })).body.session.name === "scout", "rename");
