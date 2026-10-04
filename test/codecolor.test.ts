@@ -55,6 +55,17 @@ describe("code colours", () => {
     of("", "ts");
   });
 
+  it("a hostile block can't make a rule backtrack for long (opus-d #2028), and odd language names are just unknown", () => {
+    const N = 20000;
+    const worst: [string, string][] = [["css", "-a"], ["css", "a:"], ["toml", "a."], ["yaml", "a."], ["rust", "#["], ["sh", "${"], ["js", '\\"'], ["py", "\\'"], ["sql", "'\\"], ["json", '"\\']];
+    for (const [lang, unit] of worst) {
+      const code = unit.repeat(N / unit.length), t = performance.now();
+      of(code, lang);
+      expect(performance.now() - t, `${lang} ${JSON.stringify(unit)}`).toBeLessThan(200); // ~450ms before the bounds
+    }
+    for (const lang of ["__proto__", "constructor", "toString", "hasOwnProperty"]) expect(hlTokens("x", lang)).toBeNull();
+  });
+
   it("the server still sends plain text: colours are added on the page", () => {
     const html = renderText("```ts\nconst a = 1\n```");
     expect(html).toContain("<code>const a = 1</code>");

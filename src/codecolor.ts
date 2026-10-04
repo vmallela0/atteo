@@ -20,21 +20,23 @@ var HL_ALIAS={js:'js',javascript:'js',mjs:'js',cjs:'js',jsx:'js',node:'js',ts:'j
   html:'html',htm:'html',xml:'html',svg:'html',vue:'html',xhtml:'html',plist:'html',diff:'diff',patch:'diff'};
 // Regex sources come from regex literals (/…/.source), so each backslash means what it says.
 // No lookbehind: a regex literal Safari before 16.4 can't parse would stop the whole page script.
-var HL_DQ=/"(?:\\.|[^"\\\n])*"/.source,HL_SQ=/'(?:\\.|[^'\\\n])*'/.source,HL_BT=/\x60(?:\\[\s\S]|[^\x60\\])*\x60?/.source,
+// Every run that a lookahead or a closing character can make fail is bounded ({0,1000}, {1,64}, {0,200}), so a hostile
+// block can't make a rule backtrack quadratically and freeze the tab (opus-d #2028); code-colors tests the worst cases.
+var HL_DQ=/"(?:\\.|[^"\\\n]){0,1000}"/.source,HL_SQ=/'(?:\\.|[^'\\\n]){0,1000}'/.source,HL_BT=/\x60(?:\\[\s\S]|[^\x60\\])*\x60?/.source,
   HL_LC=/\/\/[^\n]*/.source,HL_BC=/\/\*[\s\S]*?(?:\*\/|$)/.source,HL_HC=/(?:^|\s)#[^\n]*/.source,
   HL_NUM=/\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\w*/.source,HL_ID=/[A-Za-z_$][\w$]*/.source,HL_TRI=/"""[\s\S]*?(?:"""|$)|'''[\s\S]*?(?:'''|$)/.source,
   HL_LINE=/(?:^|\n)[ \t]*/.source;
 var HL_JS='break case catch class const continue debugger default delete do else export extends finally for from function if import in instanceof let new of return static super switch this throw try typeof var void while with yield async await as implements interface type enum public private protected readonly declare namespace abstract keyof satisfies';
 var HL_LANGS={
   js:{r:[['c',HL_LC],['c',HL_BC],['s',HL_BT],['s',HL_DQ],['s',HL_SQ],['n',HL_NUM],['m',/@[\w.]+/]],k:HL_JS,l:'true false null undefined NaN Infinity',t:1},
-  json:{r:[['p',HL_DQ+/(?=\s*:)/.source],['s',HL_DQ],['c',HL_LC],['c',HL_BC],['n','-?'+HL_NUM]],l:'true false null'},
+  json:{r:[['p',HL_DQ+/(?=[ \t]{0,8}:)/.source],['s',HL_DQ],['c',HL_LC],['c',HL_BC],['n','-?'+HL_NUM]],l:'true false null'},
   py:{r:[['s',/(?:\b[rRbBuUfF]{1,2})?/.source+'(?:'+HL_TRI+')'],['c',/#[^\n]*/],['s',/(?:\b[rRbBuUfF]{1,2})?/.source+'(?:'+HL_DQ+'|'+HL_SQ+')'],['n',HL_NUM],['m',/@[\w.]+/]],
     k:'and as assert async await break class continue def del elif else except finally for from global if import in is lambda nonlocal not or pass raise return try while with yield match case self',l:'True False None',t:1},
-  sh:{r:[['c',HL_HC],['s',HL_DQ],['s',HL_SQ],['m',/\$\{[^}\n]*\}|\$(?:\w+|[@#?*!$-])/],['n',HL_NUM]],
+  sh:{r:[['c',HL_HC],['s',HL_DQ],['s',HL_SQ],['m',/\$\{[^}\n]{0,200}\}|\$(?:\w+|[@#?*!$-])/],['n',HL_NUM]],
     k:'if then else elif fi for while until do done case esac in function return exit local export source echo cd set unset readonly shift sudo alias',l:'true false'},
   go:{r:[['c',HL_LC],['c',HL_BC],['s',HL_BT],['s',HL_DQ],['s',HL_SQ],['n',HL_NUM]],
     k:'break case chan const continue default defer else fallthrough for func go goto if import interface map package range return select struct switch type var',l:'true false nil iota',t:1},
-  rs:{r:[['c',HL_LC],['c',HL_BC],['s','b?'+HL_DQ],['s',/'(?:\\.|[^'\\\n])'/],['n',HL_NUM],['m',/#!?\[[^\]\n]*\]|\b\w+!(?=[(\[{])/]],
+  rs:{r:[['c',HL_LC],['c',HL_BC],['s','b?'+HL_DQ],['s',/'(?:\\.|[^'\\\n])'/],['n',HL_NUM],['m',/#!?\[[^\]\n]{0,200}\]|\b\w{1,64}!(?=[(\[{])/]],
     k:'as async await break const continue crate dyn else enum extern fn for if impl in let loop match mod move mut pub ref return self Self static struct super trait type unsafe use where while',l:'true false',t:1},
   swift:{r:[['c',HL_LC],['c',HL_BC],['s',HL_TRI],['s',HL_DQ],['n',HL_NUM],['m',/[@#]\w+/]],
     k:'associatedtype class deinit enum extension fileprivate func import init inout internal let open operator private protocol public rethrows static struct subscript typealias var break case continue default defer do else fallthrough for guard if in repeat return switch where while as catch is super self Self throw throws try async await some any override mutating final lazy weak',l:'true false nil',t:1},
@@ -48,13 +50,13 @@ var HL_LANGS={
     k:'alias and begin break case class def defined do else elsif end ensure for if in module next not or redo rescue retry return self super then undef unless until when while yield require attr_accessor attr_reader puts',l:'true false nil',t:1},
   sql:{r:[['c',/--[^\n]*/],['c',HL_BC],['s',HL_SQ],['p',HL_DQ],['n',HL_NUM]],ci:1,
     k:'select from where and or not insert into values update set delete create table index view drop alter add column join left right inner outer full cross on as group by order having limit offset distinct union all in is like between case when then else end primary key foreign references default unique check constraint with returning asc desc exists if begin commit rollback transaction integer text real blob varchar char int bigint boolean date timestamp autoincrement replace pragma explain',l:'true false null'},
-  yaml:{r:[['c',HL_HC],['p',HL_LINE+/(?:- )?[\w.\-]+(?=[ \t]*:(?:\s|$))/.source],['s',HL_DQ],['s',HL_SQ],['n',HL_NUM],['m',/[&*][\w-]+|---/]],l:'true false null yes no on off ~'},
-  toml:{r:[['c',HL_HC],['c',HL_LINE+/;[^\n]*/.source],['t',HL_LINE+/\[[^\]\n]*\]/.source],['p',/[\w.\-]+(?=[ \t]*=)/],['s',HL_TRI],['s',HL_DQ],['s',HL_SQ],['n',HL_NUM]],l:'true false'},
-  css:{r:[['c',HL_BC],['c',HL_LC],['s',HL_DQ],['s',HL_SQ],['n',/#[\da-fA-F]{3,8}\b/],['k',/@[\w-]+|!important\b/],['p',/--?[\w-]+(?=\s*:[^;{}\n]*[;})\n])|\b[a-z][\w-]*(?=\s*:[^;{}\n]*[;})\n])/],['n',/-?\.?/.source+HL_NUM+'%?']]},
+  yaml:{r:[['c',HL_HC],['p',HL_LINE+/(?:- )?[\w.\-]{1,64}(?=[ \t]{0,8}:(?:\s|$))/.source],['s',HL_DQ],['s',HL_SQ],['n',HL_NUM],['m',/[&*][\w-]+|---/]],l:'true false null yes no on off ~'},
+  toml:{r:[['c',HL_HC],['c',HL_LINE+/;[^\n]*/.source],['t',HL_LINE+/\[[^\]\n]{0,200}\]/.source],['p',/[\w.\-]{1,64}(?=[ \t]{0,8}=)/],['s',HL_TRI],['s',HL_DQ],['s',HL_SQ],['n',HL_NUM]],l:'true false'},
+  css:{r:[['c',HL_BC],['c',HL_LC],['s',HL_DQ],['s',HL_SQ],['n',/#[\da-fA-F]{3,8}\b/],['k',/@[\w-]+|!important\b/],['p',/--?[\w-]{1,64}(?=[ \t]{0,8}:[^;{}\n]{0,200}[;})\n])|\b[a-z][\w-]{0,63}(?=[ \t]{0,8}:[^;{}\n]{0,200}[;})\n])/],['n',/-?\.?/.source+HL_NUM+'%?']]},
   html:{r:[['c',/<!--[\s\S]*?(?:-->|$)/],['m',/<![^>]*>?|<\?[\s\S]*?(?:\?>|$)/],['T',/<\/?[A-Za-z][\w:.-]*(?:"[^"]*"|'[^']*'|[^>"'])*>?/],['m',/&#?\w+;/]]}
 };
 var HL_RE={};
-function hlLang(lang){return HL_ALIAS[String(lang||'').trim().toLowerCase()]||null}
+function hlLang(lang){var k=String(lang||'').trim().toLowerCase();return Object.prototype.hasOwnProperty.call(HL_ALIAS,k)?HL_ALIAS[k]:null}
 function hlTokens(code,lang){
   var L=hlLang(lang);if(!L)return null;var out=[];
   if(L==='diff'){code.split(/(\n)/).forEach(function(l){var c=l[0];if(!l)return;out.push([l==='\n'?'':/^(?:\+\+\+|---)(?:\s|$)/.test(l)?'m':c==='+'?'i':c==='-'?'d':l.slice(0,2)==='@@'?'m':'',l])});return out}
