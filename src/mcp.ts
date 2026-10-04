@@ -1371,7 +1371,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const groups = new Map<string, Named[]>();
       for (const m of await social.mailWithAgentNames(env, r.mail)) groups.set(m.board ?? "", [...(groups.get(m.board ?? "") ?? []), m]);
       const from = (m: Named) => (m.from_owner ? "your user" : m.from_via === "agent" ? (m.from_agent_name ? `${m.from_agent_name} (${m.from}'s agent)` : `${m.from}'s agent`) : m.from);
-      const kind = (m: mailbox.Mail) => (m.kind === "human_decision" ? "human_decision (people decide; info only)" : m.kind === "from_your_person" ? "from your person" : m.kind);
+      const kind = (m: mailbox.Mail) => (m.kind === "human_decision" ? "human_decision (people decide; info only)" : m.kind === "from_your_person" ? (m.direct ? "from your person" : "from your person (to all agents: @agents/@all)") : m.kind);
       const line = (m: mailbox.Mail) =>
         `  ${m.seq ? `#${m.seq} ` : ""}${m.type} · ${kind(m)}${m.audience === "own" ? " · 🔒 own" : ""} · ${m.for} · ${from(m)}${m.to_session ? ` → ${m.to_session}` : ""}: ${m.encrypted ? "(encrypted: read it with the atteo CLI)" : titled(m.title, m.text).replace(/\n/g, "\n    ")}`;
       const body = [...groups.entries()].map(([b, ms]) => (b ? `"${ms[0].board_title ?? b}" (${b}):\n` : "") + ms.map(line).join("\n")).join("\n");

@@ -1350,9 +1350,12 @@ await step("one drainer (#2184): dispatch forks your own \"@you's agent\" from a
   const waiting = async (seq) => (await call("GET", "/api/mailbox?peek=1&limit=100")).mail.filter((m) => m.board === shared && m.seq === seq);
   // G (the person) asks their own agent on the shared board: mail from your person, and the dispatcher forks it.
   const own = await say(G, `@${G}'s agent please check the deploy ${run}`);
-  for (let i = 0; i < 40 && !(await waiting(own)).length; i++) await sleep(150);
+  // …and to every agent (@agents): mail all the same, but no fork (#2243: a broadcast isn't paid work for each).
+  const broad = await say(G, `@agents status round, anyone? ${run}`);
+  for (let i = 0; i < 40 && !((await waiting(own)).length && (await waiting(broad)).length); i++) await sleep(150);
   let r = await cli(["mailbox", "--peek"], { cred: credG, env: cfg });
-  assert(r.code === 0 && r.out.includes(`#${own} question · from your person`) && r.out.includes(`please check the deploy ${run}`), "labelled: " + r.out + r.err);
+  assert(r.code === 0 && r.out.includes(`#${own} question · from your person (they asked`) && r.out.includes(`please check the deploy ${run}`), "labelled: " + r.out + r.err);
+  assert(r.out.includes(`#${broad} question · from your person (to all agents: @agents/@all)`) && r.out.includes(`status round, anyone? ${run}`), "the broadcast is in the mailbox: " + r.out);
   const forkDir = join(dir, "drain-forks");
   mkdirSync(forkDir, { recursive: true });
   const stub = join(dir, "drain-fork.sh");
@@ -1363,6 +1366,7 @@ await step("one drainer (#2184): dispatch forks your own \"@you's agent\" from a
   let events = r.out.trim().split("\n").filter(Boolean).map((l) => JSON.parse(l));
   const fork = events.find((e) => e.event === "fork");
   assert(r.code === 0 && fork?.seq === own && fork.name === `question-${own}`, `forked: ${r.out}${r.err}`);
+  assert(events.filter((e) => e.event === "fork").length === 1 && events.some((e) => e.event === "passed" && e.seq === broad), `the @agents broadcast gets no fork: ${r.out}`);
   const prompt = readFileSync(join(forkDir, `${fork.session}.txt`), "utf8");
   assert(prompt.includes(`your user (${G})`) && prompt.includes(`--board ${shared} --reply ${own}`) && !prompt.includes('"Your agent"'), "your user's request, answered on that board: " + prompt);
   assert(!(await waiting(own)).length, "acked");

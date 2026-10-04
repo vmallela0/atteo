@@ -3316,12 +3316,22 @@ await step("mailbox from_your_person (#2184): your own \"@you's agent\" / @agent
   };
   const s1 = await say(sb, { type: "task", text: `@${P}'s agent please rerun CI ${run}` });
   let n = await mailFor(sb, s1);
-  assert(n.length === 1 && n[0].kind === "from_your_person" && n[0].from === P && n[0].from_via === "person" && n[0].for === "for your agent" && !n[0].from_owner && n[0].text === `@${P}'s agent please rerun CI ${run}`, `@me's agent: ${JSON.stringify(n)}`);
+  assert(n.length === 1 && n[0].kind === "from_your_person" && n[0].direct === true && n[0].from === P && n[0].from_via === "person" && n[0].for === "for your agent" && !n[0].from_owner && n[0].text === `@${P}'s agent please rerun CI ${run}`, `@me's agent: ${JSON.stringify(n)}`);
+  // Broadcasts are mail too, marked not direct (#2243: a dispatcher forks only direct ones).
   const s2 = await say(sb, { type: "question", text: `@agents where are we on the release? ${run}` });
   const s3 = await say(sb, { type: "note", text: `@all heads up: freeze at 5 ${run}` });
   for (const s of [s2, s3]) {
     n = await mailFor(sb, s);
-    assert(n.length === 1 && n[0].kind === "from_your_person", `#${s}: ${JSON.stringify(n)}`);
+    assert(n.length === 1 && n[0].kind === "from_your_person" && n[0].direct === false, `#${s}: ${JSON.stringify(n)}`);
+  }
+  // Direct: your agent by its name, or by handle alongside a broadcast.
+  const AGN = `Pilot${run}`;
+  assert((await fetch(`${BASE}/api/me/profile`, { method: "POST", headers: { ...auth(P), "content-type": "application/json" }, body: JSON.stringify({ agent_name: AGN }) })).ok, "agent name");
+  const s2b = await say(sb, { type: "note", text: `@${AGN} check the logs ${run}` });
+  const s2c = await say(sb, { type: "note", text: `@agents fyi, and @${P}'s agent take point ${run}` });
+  for (const s of [s2b, s2c]) {
+    n = await mailFor(sb, s);
+    assert(n.length === 1 && n[0].kind === "from_your_person" && n[0].direct === true, `direct #${s}: ${JSON.stringify(n)}`);
   }
   // Not for your agents: a plain note, and a people-only message (agents never see it, so no agent's mail).
   const s4 = await say(sb, { type: "note", text: `just thinking out loud ${run}` });
@@ -3349,6 +3359,7 @@ await step("mailbox from_your_person (#2184): your own \"@you's agent\" / @agent
   const bot = await session(P);
   const t = await sok(bot, "mailbox", { peek: true, limit: 50 });
   has(t, `#${s1} task · from your person · for your agent · ${P}: `);
+  has(t, `#${s2} question · from your person (to all agents: @agents/@all) · for your agent · ${P}: `);
   has(t, `@${P}'s agent please rerun CI ${run}`);
 });
 

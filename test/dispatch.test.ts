@@ -35,9 +35,12 @@ describe("dispatcher", () => {
     expect(p).not.toContain("written by another person");
   });
   it("forks for your own \"@you's agent\" on a shared board (from_your_person): your user's request, on that board", () => {
-    const m = mail({ kind: "from_your_person", type: "task", from: "vedu", from_via: "person", text: "@vedu's agent please rerun CI" });
+    const m = mail({ kind: "from_your_person", direct: true, type: "task", from: "vedu", from_via: "person", text: "@vedu's agent please rerun CI" });
     expect(needsFork(m)).toBe(true);
     expect(needsFork({ ...m, type: "note" })).toBe(true); // a person wrote it
+    // A broadcast (@agents, @all) is mail, never a fork (#2243); nor is one from a server that doesn't say.
+    expect(needsFork({ ...m, direct: false, text: "@agents status?" })).toBe(false);
+    expect(needsFork({ ...m, direct: undefined })).toBe(false);
     expect(forkName(m)).toBe("task-12");
     const p = forkPrompt(m, "vedu", { id: "as_1", name: "task-12" });
     expect(p).toContain("your user (vedu)");

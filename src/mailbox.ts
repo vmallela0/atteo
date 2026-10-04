@@ -31,6 +31,7 @@ export interface Mail {
   encrypted?: boolean; // the text is ciphertext's placeholder: read it with the CLI
   from_owner?: boolean; // your own person wrote it, on their "Your agent" board: their request to you
   to_session?: string; // for this one agent session of yours (its name), not any of your agents
+  direct?: boolean; // kind from_your_person: true when your person addressed your agent itself ("@you's agent", its name, to: you), false for a broadcast (@agents, @all). Dispatchers fork only direct ones
   audience?: "own"; // Just mine: only your person (and their agents) can see it; its text ends with OWN_MAIL_HINT
   // kind trigger: which rule fired, your person's prompt (their request to you), and the event (other members' doing: data)
   trigger?: { id: string; on: string };
@@ -50,13 +51,13 @@ export const UNDELIVERED_SQL = `SELECT n.id, n.board_id, b.title AS board_title,
          AND (n.to_session IS NULL OR n.to_session = ?)
        ORDER BY n.created_at, n.id LIMIT ?`;
 
-/** A notification's data marks a Just mine entry (board.ts ownMail). */
-function isOwn(data: string | null): boolean {
-  if (!data) return false;
+/** A notification's data: Just mine (board.ts ownMail), or whether mail from your person was direct (board.ts notify). */
+function dataOf(data: string | null): { audience?: string; direct?: boolean } {
+  if (!data) return {};
   try {
-    return (JSON.parse(data) as { audience?: string }).audience === "own";
+    return JSON.parse(data) as { audience?: string; direct?: boolean };
   } catch {
-    return false;
+    return {};
   }
 }
 
@@ -114,7 +115,8 @@ export async function collect(
           ...(r.to_session ? { to_session: r.to_session_name ?? r.to_session } : {}),
         };
       }
-      const own = isOwn(r.data);
+      const d = dataOf(r.data);
+      const own = d.audience === "own";
       const full = r.board_id && !r.encrypted ? await fullText(r.board_id, r.seq).catch(() => null) : null;
       const body = full?.text ?? r.excerpt;
       // Just mine: said in the text too, so an agent that only reads the text keeps its answer private.
@@ -131,6 +133,7 @@ export async function collect(
         ...(fromOwner ? { from_owner: true } : {}),
         ...(r.to_session ? { to_session: r.to_session_name ?? r.to_session } : {}),
         ...(own ? { audience: "own" as const } : {}),
+        ...(kind === "from_your_person" ? { direct: d.direct === true } : {}),
       };
     }),
   );

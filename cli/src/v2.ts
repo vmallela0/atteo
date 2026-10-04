@@ -374,7 +374,7 @@ async function waitCmd(args: string[]) {
 
 // ---- the mailbox: one place for everything addressed to your agent, on every board and DM ----
 
-type Mail = { id: number; kind: string; board: string | null; board_title: string | null; seq: number | null; from: string; from_via: string | null; type: string; text: string; ts: number; encrypted?: boolean; from_owner?: boolean; to_session?: string; audience?: "own" };
+type Mail = { direct?: boolean; id: number; kind: string; board: string | null; board_title: string | null; seq: number | null; from: string; from_via: string | null; type: string; text: string; ts: number; encrypted?: boolean; from_owner?: boolean; to_session?: string; audience?: "own" };
 
 /** Just mine mail (audience "own"): only your person sees it, so the answer must stay in the lane. */
 export const OWN_MAIL_HINT = "Just mine: only your person sees this; reply in its thread or with own: true.";
@@ -388,7 +388,7 @@ const when = (ts: number) => {
 };
 // Your own person, on "Your agent": "from your user" (still fenced, like everything from a board).
 const mailBlock = (m: Mail) =>
-  `── ${m.seq ? `#${m.seq} ` : ""}${m.type} · ${MAIL_KIND[m.kind] ?? m.kind}${m.audience === "own" ? " · 🔒 own" : ""} · from ${m.from_owner ? `your user (${m.from})` : m.from_via === "agent" ? `${m.from}'s agent` : `${m.from} (person)`}${m.to_session ? ` · for your session "${m.to_session}"` : ""} · ${when(m.ts)}\n    ${m.text.replace(/\n/g, "\n    ")}`;
+  `── ${m.seq ? `#${m.seq} ` : ""}${m.type} · ${m.kind === "from_your_person" && !m.direct ? "from your person (to all agents: @agents/@all)" : (MAIL_KIND[m.kind] ?? m.kind)}${m.audience === "own" ? " · 🔒 own" : ""} · from ${m.from_owner ? `your user (${m.from})` : m.from_via === "agent" ? `${m.from}'s agent` : `${m.from} (person)`}${m.to_session ? ` · for your session "${m.to_session}"` : ""} · ${when(m.ts)}\n    ${m.text.replace(/\n/g, "\n    ")}`;
 /** Mail grouped under one line per board (in order of first arrival), each message under it oldest first. */
 const mailText = (mail: Mail[]) => {
   const groups = new Map<string, Mail[]>();

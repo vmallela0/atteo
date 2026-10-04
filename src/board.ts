@@ -8,7 +8,7 @@ import { DurableObject } from "cloudflare:workers";
 import { computeSummary, formatSummary, summaryWithNames, tasksFor, withNames, DEFAULT_SUMMARY_CHARS, type Summary } from "./state";
 import { blockedMessage, scanFields, scanText, type SecretHit } from "./secrets";
 import { recordOutcome } from "./agents";
-import { ALL_AGENTS, ALL_HUMANS, ALL_MEMBERS, forAgent, forPerson, hasGroupMention, keep, MAX_GROUP_MENTIONS, MAX_MENTIONS, mentionsOwnAgent, SESSION_NAME_RE, type Mention } from "./mentions";
+import { ALL_AGENTS, ALL_HUMANS, ALL_MEMBERS, forAgent, forPerson, hasGroupMention, keep, MAX_GROUP_MENTIONS, MAX_MENTIONS, mentionsOwnAgent, parseMentions, SESSION_NAME_RE, type Mention } from "./mentions";
 import { ENTRY_TYPES, type ApprovalRef, type Attachment, type BoardInfo, type Entry, type Env, type Media, type Member, type NewEntry, type Viewer } from "./types";
 import { cleanTitle, EMOJI_RE, ftsQuery, USER_RE } from "./util";
 import { cardText, parseCard, type ChangeCard } from "./card";
@@ -2577,6 +2577,18 @@ export class Board extends DurableObject<Env> {
     if (fromPerson) await this.deliverWebhooks(info, e, [e.author]); // their own agent runtime's hook
   }
 
+  /** A person's post that reaches their own agent: by name ("@me's agent", "@<my agent's name>", "@me/<session>"),
+   *  not only through @agents / @all (which put the author's own agent in the mentions too). Encrypted boards: the
+   *  mentions are all there is (the text is ciphertext), so any own-agent mention counts. */
+  private async toOwnAgentDirectly(e: Entry): Promise<boolean> {
+    if (!mentionsOwnAgent(e)) return false;
+    if (![ALL_AGENTS, ALL_MEMBERS].some((g) => hasGroupMention(e.text, g))) return true;
+    // A broadcast in the text: look again without it, against the author alone (with their agent's name).
+    const blanked = e.text.replace(/(^|[^A-Za-z0-9_.@/-])@(?:agents|all)(?![A-Za-z0-9_'’]|&#39;)/gi, "$1 ");
+    const r = await this.env.DB.prepare("SELECT agent_name FROM users WHERE name = ?").bind(e.author).first<{ agent_name: string | null }>().catch(() => null);
+    return mentionsOwnAgent({ author: e.author, mentions: parseMentions(blanked, [{ user: e.author, agent_name: r?.agent_name ?? null }], e.author, "person").mentions });
+  }
+
   private async notify(info: BoardInfo, e: Entry, forSession: ForSession = null) {
     const members = new Set(this.members().map((m) => m.name));
     const kinds = new Map<string, "mention" | "agent" | "reply" | "decision" | "from_your_person">();
@@ -2610,6 +2622,7 @@ export class Board extends DurableObject<Env> {
     // so it's already read in their own inbox (only their agent's mailbox has it as new).
     // And what their agent writes back reaches the person (their inbox, like a reply), never the agent's own mailbox.
     let ownMail = false, ownReply = false;
+    let fromPerson: { direct: boolean } | null = null; // from_your_person's data
     if ((await this.kindOf(info.id)) === "agent") {
       if (e.via === "person") {
         ownMail = true;
@@ -2626,6 +2639,9 @@ export class Board extends DurableObject<Env> {
       // mine entries return before notify (Just mine has its own mail, ownMail).
       ownMail = true;
       kinds.set(e.author, "from_your_person");
+      // Direct (#2243): addressed to their agent itself, not a broadcast. Only direct mail gets a dispatcher fork
+      // (a broadcast spawning paid agent work for everyone is what the gate refused); broadcasts are mail all the same.
+      fromPerson = { direct: e.to === e.author || (await this.toOwnAgentDirectly(e)) };
     }
     if (e.reply_to != null) {
       const parent = this.sql.exec("SELECT author, via FROM entries WHERE seq = ?", e.reply_to).toArray()[0];
@@ -2649,8 +2665,8 @@ export class Board extends DurableObject<Env> {
     await this.env.DB.batch(
       [...kinds].map(([u, k]) =>
         this.env.DB.prepare(
-          "INSERT OR IGNORE INTO notifications (user, board_id, seq, kind, actor, actor_via, entry_type, excerpt, created_at, to_session, read_at, agent_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        ).bind(u, info.id, e.seq, k, e.author, e.via ?? null, e.type, k === "from_your_person" && info.encrypted ? "🔒 encrypted" : excerpt, e.ts, forSession && forSession.user === u ? forSession.session : null, ownMail && u === e.author ? e.ts : null, ownReply && u === e.author ? e.ts : null),
+          "INSERT OR IGNORE INTO notifications (user, board_id, seq, kind, actor, actor_via, entry_type, excerpt, created_at, to_session, read_at, agent_seen_at, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        ).bind(u, info.id, e.seq, k, e.author, e.via ?? null, e.type, k === "from_your_person" && info.encrypted ? "🔒 encrypted" : excerpt, e.ts, forSession && forSession.user === u ? forSession.session : null, ownMail && u === e.author ? e.ts : null, ownReply && u === e.author ? e.ts : null, k === "from_your_person" && fromPerson ? JSON.stringify(fromPerson) : null),
       ),
     );
   }
