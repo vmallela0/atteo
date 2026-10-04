@@ -62,6 +62,22 @@ export function limits(env: Env): Limits {
 
 const LIMIT_KEYS: (keyof Limits)[] = ["agentPerMin", "appPerMin", "dailyFree", "dailyPro", "liveSessions", "shedL1Requests", "shedL2Requests", "shedL1RowsRead", "shedL2RowsRead"];
 
+/** True when DEV_FAKE_NEAR_QUOTA=1 on a localhost server (tests fake load-shedding level 1). */
+export function nearQuotaAllowed(env: Env): boolean {
+  return env.DEV_FAKE_NEAR_QUOTA === "1" && isLocalServer(env);
+}
+
+let nearQuotaFake = false;
+export const nearQuotaActive = () => nearQuotaFake;
+
+/** Turn on/off the near-quota fake (ops/limits {nearQuota: true} when DEV_FAKE_NEAR_QUOTA=1). */
+export function setNearQuota(env: Env, on: boolean): boolean {
+  if (on && !nearQuotaAllowed(env)) return false;
+  nearQuotaFake = on;
+  if (on) shedCache = { level: 1, at: Date.now(), day: day() };
+  return true;
+}
+
 /** Sets (or with reset, clears) this isolate's overrides and counters. Tests and operators only. */
 export function setOverrides(o: Record<string, unknown>, reset = false): Partial<Limits> {
   if (reset) {
@@ -70,6 +86,7 @@ export function setOverrides(o: Record<string, unknown>, reset = false): Partial
     counters.clear();
     plans.clear();
     openWaits.clear();
+    nearQuotaFake = false;
     shedCache = null;
   }
   for (const k of LIMIT_KEYS) {
@@ -204,6 +221,10 @@ export const REQUESTS_TODAY_SQL = `SELECT SUM(count) AS n FROM usage_daily WHERE
 /** Today's shed level (0–2): from this isolate's cache, else one primary-key read (at most once a minute). */
 export async function shedLevel(env: Env, now = Date.now()): Promise<number> {
   const d = day(now);
+  if (nearQuotaFake) {
+    shedCache = { level: 1, at: now, day: d };
+    return 1;
+  }
   if (shedCache && shedCache.day === d && now - shedCache.at < SHED_MS) return shedCache.level;
   const prev = shedCache?.day === d ? shedCache.level : 0;
   shedCache = { level: prev, at: now, day: d }; // concurrent callers use this meanwhile
@@ -259,7 +280,7 @@ export async function updateShedLevel(env: Env, now = Date.now()): Promise<{ lev
   await flushAll(env, now);
   const [req, rowsRead] = await Promise.all([env.DB.prepare(REQUESTS_TODAY_SQL).bind(day(now)).first<{ n: number | null }>().catch(() => null), d1RowsReadToday(env, now)]);
   const requests = req?.n ?? 0;
-  const level = shedLevelFor({ requests, rowsRead }, limits(env));
+  const level = nearQuotaFake ? 1 : shedLevelFor({ requests, rowsRead }, limits(env));
   await setShedLevel(env, level, now).catch(() => {});
   return { level, requests, rows_read: rowsRead };
 }
