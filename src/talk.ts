@@ -34,14 +34,17 @@ dialog.talk::backdrop{background:rgba(0,0,0,.25)}
 .talk.speaking .talk-orb i:nth-child(2n){animation-delay:.15s}.talk.speaking .talk-orb i:nth-child(3n){animation-delay:.3s}
 @keyframes talkWave{50%{height:30px}}
 @media (prefers-reduced-motion:reduce){.talk-orb i{animation:none!important;transition:none}}
-.talk-st{text-align:center;font-size:14px;color:var(--muted);min-height:1.4em;padding:0 16px}
+.talk-st{text-align:center;font-size:14px;color:var(--text);min-height:1.4em;padding:0 16px}
 .talk-caps{max-height:240px;overflow:auto;padding:8px 16px;display:flex;flex-direction:column;gap:6px;font-size:14px;line-height:1.45}
-.talk-caps p{margin:0;overflow-wrap:anywhere}.talk-caps .who{font-weight:600;margin-right:6px}.talk-caps .you .who{color:var(--accent)}.talk-caps .atteo .who{color:#D97857}
+.talk-caps p{margin:0;overflow-wrap:anywhere}.talk-caps .who{font-weight:600;margin-right:6px}.talk-caps .you .who{color:var(--accent)}.talk-caps .atteo .who{color:#A34A2B}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .talk-caps .atteo .who{color:#F0A78E}}:root[data-theme="dark"] .talk-caps .atteo .who{color:#F0A78E}
 .talk-caps .note{color:var(--faint);font-size:12.5px}.talk-caps .err{color:var(--danger)}
 .talk-caps .you{opacity:.6}.talk-caps .you.live{font-style:italic}.talk-caps p.old{opacity:.35}.talk-caps[data-mode="atteo"] .you{display:none}
-.talk-cc{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--muted)}.talk-cc select{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:2px 4px}
+.talk-cc{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text)}.talk-cc select{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:2px 4px}
 .talk-ok{margin:6px 16px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;font-size:13.5px;display:flex;flex-direction:column;gap:8px}.talk-ok .row{display:flex;gap:8px}
 .talk-ft{display:flex;gap:8px;justify-content:center;padding:10px 16px 16px;flex-wrap:wrap}
+.talk-ft .btn.danger{background:#b91c1c;border-color:#b91c1c;color:#fff}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .talk-ft .btn.danger{background:#991b1b;border-color:#991b1b}}:root[data-theme="dark"] .talk-ft .btn.danger{background:#991b1b;border-color:#991b1b}
 .talk-ft .btn[aria-pressed="true"]{background:var(--bg-hover);color:var(--danger)}
 `;
 

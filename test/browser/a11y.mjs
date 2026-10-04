@@ -1,7 +1,7 @@
-// Accessibility (Atteo board #1909): axe-core on the board page, Account, and Ask — English and zh-Hans at 1280 and 390px.
-// Scans today's voice, privacy, and forward controls (not the global sidebar). Serious and critical violations fail.
-// Also (#2018) code blocks' syntax colours. Also (#1965) the whole page content of For you, Inbox, Approvals, People and the welcome page, seeded with an
-// approval, a mention and a friend request so their cards and buttons are on screen.
+// Accessibility (Atteo board #1909, #2106): axe-core on the board page, Account, and Ask — English and zh-Hans at 1280 and 390px.
+// Scans today's privacy and forward controls (not the global sidebar). Serious and critical violations fail.
+// Also (#2018) code blocks' syntax colours. Also (#1965) the whole page content of For you, Inbox, Approvals, People and the welcome page.
+// Overlays (#2106): Talk to Atteo live and Standing by, Invite an agent, HTML preview, Forward — en and zh-Hans at 1280 and 390px.
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { chromium } from "playwright-core";
@@ -14,6 +14,7 @@ const ops = async (p, b) => (await fetch(`${BASE}/api/ops/${p}`, { method: "POST
 
 // Each language at 1280 and 390px in light; English at 1280px in dark too (#1965: dark has its own colours).
 const RUNS = [["en", "", 1280, 820, false, "light"], ["en", "", 390, 844, true, "light"], ["en", "", 1280, 820, false, "dark"], ["zh-Hans", "?lang=zh-Hans", 1280, 820, false, "light"], ["zh-Hans", "?lang=zh-Hans", 390, 844, true, "light"]];
+const overlayRun = (lang, w) => (lang === "en" || lang === "zh-Hans") && (w === 1280 || w === 390);
 // Regions with today's controls: Talk to Atteo, the composer's mic, Just mine, forward selection, voice picker/allowance, Ask.
 const INCLUDES = [
   [".topbar"],
@@ -23,6 +24,8 @@ const INCLUDES = [
   ["#sel-float"],
   ["#fwd-dlg"],
   ["dialog.talk"],
+  ["#invite-agent"],
+  [".pv-dlg"],
   ["#dp-form"],
   ["#voice-allow"],
   ["#ask"],
@@ -38,6 +41,12 @@ const FAKES = `(() => {
   navigator.permissions.query = async () => ({ state: "granted" });
   const AC = window.AudioContext; window.AudioContext = class extends AC { createOscillator() { return super.createOscillator(); } };
 })();`;
+
+const FAKE_WS = `(()=>{const Real=window.WebSocket;window.__talk={sent:[],opened:0,all:[]};
+  window.WebSocket=function(url,protocols){if(!String(url).startsWith('wss://api.x.ai'))return new Real(url,protocols);
+    const ws={url,protocols,readyState:0,send(m){window.__talk.sent.push(JSON.parse(m))},close(){if(this.readyState===3)return;this.readyState=3;setTimeout(()=>this.onclose&&this.onclose({}),0)}};
+    window.__talk.ws=ws;window.__talk.all.push(ws);window.__talk.opened++;window.__talk.emit=e=>{if(ws.onmessage)ws.onmessage({data:JSON.stringify(e)})};setTimeout(()=>{ws.readyState=1;ws.onopen&&ws.onopen({})},50);return ws};
+  Object.assign(window.WebSocket,{CONNECTING:0,OPEN:1,CLOSING:2,CLOSED:3});})()`;
 
 const TTS = { enabled: true, used_chars: 20_000, budget_chars: 150_000, voices: ["eve", "ara", "leo", "rex", "sal"], voice_default: "eve" };
 const VOICE = { enabled: true, minutes_used: 12, minutes_budget: 60 };
@@ -61,19 +70,25 @@ async function axeScan(page, label, include = INCLUDES) {
   check(bad.length === 0, `${label}: ${bad.length ? bad.map((v) => v.id).join(", ") : "no serious/critical axe violations"}`);
 }
 
+const emit = (p, e) => p.evaluate((ev) => window.__talk.emit(ev), e);
+
 const run = Date.now().toString(36).slice(-4), P = `a11y${run}`, V = `av${run}`;
 for (const u of [P, V]) await ops("users", { name: u, email: `${u}@example.com`, verified: "true" });
 const board = (await ops("boards", { user: P, title: `A11y ${run}` })).board.id;
+await ops("boards", { user: P, title: `Fwd dst ${run}` }); // a second board for the forward picker
 await ops("members", { board, user: V });
 const ck = (await ops("sessions", { user: P })).cookie;
 const tok = (await ops("tokens", { user: P })).token;
 const mcp = async (name, args) => (await (await fetch(`${BASE}/mcp?board=${board}`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${tok}` }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }) })).json()).result.content[0].text;
 await mcp("read", {});
+const fwdSeq = +(await mcp("post", { type: "note", text: `Forward pick ${run}` })).match(/#(\d+)/)[1];
 await mcp("post", { type: "note", text: `Public note ${run}` });
 await fetch(`${BASE}/api/boards/${board}/entries`, { method: "POST", headers: { cookie: ck.split(";")[0], "content-type": "application/json" }, body: JSON.stringify({ type: "note", text: `Private lane ${run}`, own: true }) });
 await mcp("post", { type: "note", text: `@${P} voice bar ${run}` });
 // Code blocks, so the syntax colours are scanned (#2018): every kind of token, light and dark.
 await mcp("post", { type: "note", text: "Code\n\n```ts\n// note\nexport function f(ms = 250): Promise<void> { return g(\"x\", true) }\n```\n\n```html\n<a href=\"x\">hi</a> &amp;\n```\n\n```diff\n@@ -1 +1 @@\n-old\n+new\n```" });
+const htmlArtifact = `<!doctype html><html><head><title>t ${run}</title></head><body><h1>Preview ${run}</h1><button type="button">Tap</button></body></html>`;
+await mcp("post", { type: "artifact", text: "HTML mockup", artifact_name: `mock-${run}.html`, artifact_content: htmlArtifact });
 // For the page scans: an approval from P's agent, a mention from V, and a friend request from a third person.
 await mcp("request_approval", { title: `Send the deck ${run}`, details: "deck.pdf to the team", risk: "medium", wait_seconds: 0 });
 const tokV = (await ops("tokens", { user: V })).token;
@@ -84,43 +99,84 @@ const ckF = (await ops("sessions", { user: F })).cookie.split(";")[0];
 await fetch(`${BASE}/api/friends/request`, { method: "POST", headers: { cookie: ckF, "content-type": "application/json" }, body: JSON.stringify({ user: P }) });
 const PAGES = ["/for-you", "/inbox", "/approvals", "/people", "/welcome"];
 
-const browser = await chromium.launch({ executablePath: process.env.PW_CHROME || undefined });
+const browser = await chromium.launch({
+  executablePath: process.env.PW_CHROME || undefined,
+  args: ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream", "--autoplay-policy=no-user-gesture-required"],
+});
 const [k, ...v] = ck.split(";")[0].split("=");
 
 for (const [lang, qs, w, h, phone, scheme] of RUNS) {
   {
     const ctx = await browser.newContext({ colorScheme: scheme, viewport: { width: w, height: h }, ...(phone ? { hasTouch: true, isMobile: true } : {}) });
+    await ctx.grantPermissions(["microphone"]);
     await ctx.addCookies([{ name: k, value: v.join("="), url: BASE }]);
     await ctx.addInitScript(FAKES);
+    await ctx.addInitScript(FAKE_WS);
     await ctx.addInitScript(AXE);
     await ctx.route("**/api/app/tts/status", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(TTS) }));
     await ctx.route("**/api/app/voice/status", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(VOICE) }));
     await ctx.route("**/api/app/tts", (r) => r.fulfill({ status: 200, contentType: "audio/mpeg", body: Buffer.from([0xff, 0xfb, 0x90, 0x64, 0, 0, 0, 0]) }));
-    await ctx.route("**/api/app/voice/session", (r) => r.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ fallback: "device" }) }));
+    await ctx.route("**/api/app/voice/**", async (route) => {
+      const req = route.request();
+      return route.continue({ headers: { ...req.headers(), "x-dev-fake-voice": "1" } });
+    });
     const p = await ctx.newPage();
     const tag = `${lang} ${w}px${scheme === "dark" ? " dark" : ""}`;
     const tap = async (sel) => { if (phone) await p.locator(sel).tap(); else await p.locator(sel).click(); };
 
-    // Board: Talk to Atteo, the composer's mic, Just mine composer, forward dialog.
+    // Board: privacy controls, overlays, forward selection.
     await p.goto(`${BASE}/b/${board}${qs}`);
     await p.waitForTimeout(900);
     await tap("#po-btn");
     await tap('[data-po="own"]');
     await p.waitForTimeout(200);
-    await p.waitForTimeout(200);
     await p.evaluate(() => document.querySelector(".thread .code-b")?.scrollIntoView({ block: "center" }));
     await p.locator('.thread .code-b code[data-hl="on"]').first().waitFor({ timeout: 8000 }).catch(() => {});
     await axeScan(p, `board ${tag}`);
-    await tap('[data-talk]');
-    await p.waitForTimeout(400);
-    await axeScan(p, `board talk ${tag}`);
-    await p.keyboard.press("Escape");
-    await p.waitForTimeout(200);
-    await p.evaluate(() => { const d = document.getElementById("fwd-dlg"); if (d?.open) d.close(); });
-    await p.evaluate(() => { document.getElementById("fwd-send")?.removeAttribute("disabled"); document.getElementById("fwd-dlg")?.showModal(); });
-    await p.waitForTimeout(200);
-    await axeScan(p, `board forward ${tag}`);
-    await p.evaluate(() => document.getElementById("fwd-dlg")?.close());
+
+    if (overlayRun(lang, w)) {
+      // Talk to Atteo: live (listening) and Standing by after a quiet turn.
+      await p.evaluate(() => { window.__talkNapMs = 800; });
+      await tap('[data-talk]');
+      await p.waitForFunction(() => /Listening/.test(document.getElementById("talk-st")?.textContent || ""), { timeout: 8000 }).catch(() => {});
+      check(/Listening/.test(await p.locator("#talk-st").innerText()), `talk live ${tag}: listening`);
+      await axeScan(p, `talk live ${tag}`, [["dialog.talk"]]);
+      await emit(p, { type: "input_audio_buffer.speech_started" }); await p.waitForTimeout(80);
+      await emit(p, { type: "input_audio_buffer.speech_stopped" });
+      await emit(p, { type: "conversation.item.input_audio_transcription.completed", transcript: `hello ${run}` });
+      await emit(p, { type: "response.created", response: { id: "r1" } });
+      await emit(p, { type: "response.output_audio_transcript.done", response_id: "r1", transcript: "Hi there." });
+      await emit(p, { type: "response.done", response: { id: "r1" } });
+      await p.waitForTimeout(1200);
+      check(/Standing by/.test(await p.locator("#talk-st").innerText()), `talk standby ${tag}: standing by`);
+      await axeScan(p, `talk standby ${tag}`, [["dialog.talk"]]);
+      await p.keyboard.press("Escape");
+      await p.waitForTimeout(200);
+
+      // Forward: multi-select then the dialog (not a programmatic showModal).
+      if (phone) await p.evaluate((s) => document.querySelector(`#e${s} [data-select]`)?.click(), fwdSeq);
+      else { await p.locator(`#e${fwdSeq}`).hover(); await tap(`#e${fwdSeq} [data-select]`); }
+      await p.waitForTimeout(200);
+      await tap("#sel-fwd");
+      await p.waitForTimeout(400);
+      await axeScan(p, `forward ${tag}`, [["#fwd-dlg"]]);
+      await p.keyboard.press("Escape");
+      await p.waitForTimeout(200);
+
+      // Invite an agent.
+      await tap(".av-add");
+      await p.waitForTimeout(400);
+      await axeScan(p, `invite agent ${tag}`, [["#invite-agent"]]);
+      await p.keyboard.press("Escape");
+      await p.waitForTimeout(200);
+
+      // HTML preview overlay.
+      await tap(`[data-preview-file="mock-${run}.html"]`);
+      await p.waitForTimeout(800);
+      await axeScan(p, `html preview ${tag}`, [[".pv-dlg"]]);
+      await p.keyboard.press("Escape");
+      await p.waitForTimeout(200);
+    }
 
     // Account: voice picker and allowance.
     await p.goto(`${BASE}/me${qs}`);

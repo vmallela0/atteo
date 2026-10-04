@@ -108,7 +108,7 @@ async function paint(code){if(code.dataset.hl==='on'||code.dataset.hl==='plain')
 function scan(){const els=[...document.querySelectorAll('.code-b>pre>code:not([data-hl])')];if(!els.length)return;
   if(!('IntersectionObserver' in window)){els.forEach(paint);return}
   io=io||new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){io.unobserve(e.target);paint(e.target)}}),{rootMargin:'400px 0px'});
-  els.forEach(el=>{el.dataset.hl='wait';io.observe(el)})}
+  els.forEach(el=>{el.dataset.hl='wait';reach(el.parentElement);io.observe(el)})}
 scan();let pend=false;new MutationObserver(ms=>{if(pend)return;if(!ms.some(m=>m.addedNodes.length))return;pend=true;requestAnimationFrame(()=>{pend=false;scan()})}).observe(document.body,{childList:true,subtree:true});
 })();`;
 
