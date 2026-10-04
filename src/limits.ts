@@ -105,8 +105,8 @@ export const secondsToMidnight = (now = Date.now()) => Math.max(1, Math.ceil((Da
 const WINDOW_MS = 60_000;
 const windows = new Map<string, { start: number; cur: number; prev: number }>();
 
-/** Counts one request for `key`; ok, or how many seconds until it would be. */
-export function rateCheck(key: string, perMin: number, now = Date.now()): { ok: true } | { ok: false; retryAfter: number } {
+/** Counts one request (or `n`: an MCP batch's calls) for `key`; ok, or how many seconds until it would be. */
+export function rateCheck(key: string, perMin: number, now = Date.now(), n = 1): { ok: true } | { ok: false; retryAfter: number } {
   if (!perMin) return { ok: true };
   const start = now - (now % WINDOW_MS);
   let w = windows.get(key);
@@ -114,11 +114,11 @@ export function rateCheck(key: string, perMin: number, now = Date.now()): { ok: 
   else if (start !== w.start) w = { start, cur: 0, prev: w.cur };
   // The previous minute counts for the part of it still inside the last 60s.
   const est = w.prev * (1 - (now - start) / WINDOW_MS) + w.cur;
-  if (est >= perMin) {
+  if (est + n - 1 >= perMin) {
     windows.set(key, w);
     return { ok: false, retryAfter: Math.max(1, Math.ceil((start + WINDOW_MS - now) / 1000)) };
   }
-  w.cur++;
+  w.cur += n;
   if (windows.size > 10_000) windows.clear();
   windows.set(key, w);
   return { ok: true };
@@ -181,9 +181,9 @@ function estimate(metric: string, key: string, now = Date.now()): number {
   return c.base + c.pending;
 }
 
-function unbump(metric: string, key: string, now = Date.now()) {
+function unbump(metric: string, key: string, now = Date.now(), n = 1) {
   const c = counter(metric, key, now);
-  if (c.pending > 0) c.pending--;
+  c.pending = Math.max(0, c.pending - n);
 }
 
 /** Flushes everything this isolate is holding (the cron, before it reads the totals). */
@@ -323,6 +323,8 @@ export interface Admit {
   wait: boolean; // a long-poll: not counted in the budget (one per session instead)
   write: boolean; // changes something
   essential: boolean; // for an agent write: still allowed at shed level 2
+  calls?: number; // how many calls this is for the rate limit (an MCP batch: its inner calls); default 1
+  counted?: number; // how many of them count in the daily budget; default 0 for a wait, else 1
 }
 
 const err = (status: number, error: string, retryAfter: number, extra: Record<string, unknown> = {}) =>
@@ -333,15 +335,17 @@ export async function admit(env: Env, ctx: ExecutionContext | null, a: Admit, no
   const lim = limits(env);
   if (a.tokenKey) {
     const per = a.kind === "agent" ? lim.agentPerMin : lim.appPerMin;
-    const r = rateCheck(a.tokenKey, per, now);
+    const r = rateCheck(a.tokenKey, per, now, Math.max(1, a.calls ?? 1));
     if (!r.ok) return err(429, `Rate limit: at most ${per} requests a minute per ${a.kind === "agent" ? "agent" : "app"} token. Slow down and retry after ${r.retryAfter}s.`, r.retryAfter, { limit: per, scope: "token" });
   }
-  const est = a.wait ? estimate("requests", a.user, now) : bump(env, ctx, "requests", a.user, 1, now);
-  const used = a.wait ? est : est - 1; // before this request (a wait adds nothing)
-  if (lim.dailyFree && used >= lim.dailyFree && (a.kind === "agent" || a.write)) {
+  const n = Math.max(0, a.counted ?? (a.wait ? 0 : 1));
+  const est = n ? bump(env, ctx, "requests", a.user, n, now) : estimate("requests", a.user, now);
+  const used = est - n; // before this request (a wait adds nothing)
+  const last = used + Math.max(1, n) - 1; // the count before this request's last call: a batch must fit whole
+  if (lim.dailyFree && last >= lim.dailyFree && (a.kind === "agent" || a.write)) {
     const cap = (await isPro(env, a.user, now)) ? lim.dailyPro : lim.dailyFree;
-    if (cap && used >= cap) {
-      if (!a.wait) unbump("requests", a.user, now); // refused requests don't count
+    if (cap && last >= cap) {
+      if (n) unbump("requests", a.user, now, n); // refused requests don't count
       const s = secondsToMidnight(now);
       return err(
         429,

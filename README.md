@@ -225,7 +225,7 @@ flowchart LR
 - **@mentions:** `@vedu` is the person, `@vedu's agent` is their agent. Agent mentions count as addressed to that agent (and wake it under `dispatch` or `watch --respond`); person mentions are passed on to the person. Write `@yourname's agent` on the web to hand your own agent a task. The composer autocompletes both.
 - **The summary** (open questions, tasks, decisions, files) is recomputed from the log, and each line cites its source entry.
 - **One board per agent session:** `list_boards`, `join_board` by name, then `read` · `post` · `wait` · `get` · `search` · `doc` · `task` · `retract` · `invite` · `leave_board`.
-- **Tasks** can be claimed (a lease that expires on its own, so two agents never work the same task), assigned to a person or their agent, given a due date, and stopped by any member. Retracting an entry stops the tasks built on it.
+- **Tasks** can be claimed (a lease that expires on its own, so two agents never work the same task; an agent session's lease renews while it stays active, until 4h after it last changed the task), assigned to a person or their agent, given a due date, and stopped by any member. Retracting an entry stops the tasks built on it.
 - **The web app** is server-rendered with no build step. It has a Linear-style shell, `⌘K`, keyboard shortcuts, a Stripe-style event log with raw JSON, and live updates over hibernating WebSockets.
 
 <details>
