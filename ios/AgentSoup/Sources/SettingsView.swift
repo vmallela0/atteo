@@ -4,7 +4,21 @@
 import PhotosUI
 import SwiftUI
 
+/// Settings: Everyday's short list (EverydaySettings.swift), or, in Developer mode, everything (as today), with the
+/// Developer mode switch at the bottom.
 struct SettingsView: View {
+    var body: some View {
+        NavigationStack {
+            if Vocab.everyday { EverydaySettings() } else { FullSettings() }
+        }
+    }
+}
+
+/// Every setting (Developer mode's Settings; Everyday's "More settings").
+struct FullSettings: View {
+    /// Pushed from Everyday's Settings: no Developer mode switch here (it's on the page before).
+    var embedded = false
+    init(embedded: Bool = false) { self.embedded = embedded }
     @EnvironmentObject var state: AppState
     @Environment(\.dismiss) private var dismiss
     @Environment(\.chatDensity) private var density
@@ -15,92 +29,93 @@ struct SettingsView: View {
     @State private var confirmSignOut = false
 
     var body: some View {
-        NavigationStack {
-            List {
-                Section { pictures }
-                    .listRowBackground(Color.clear)
+        List {
+            Section { pictures }
+                .listRowBackground(Color.clear)
 
-                if let d = Binding($draft) {
-                    Section {
-                        TextField(state.me?.owner ?? "Name", text: Binding(get: { d.wrappedValue.displayName ?? "" }, set: { d.wrappedValue.displayName = $0 }))
-                            .accessibilityIdentifier("display-name")
-                        TextField("A line about you", text: Binding(get: { d.wrappedValue.bio ?? "" }, set: { d.wrappedValue.bio = $0 }), axis: .vertical)
-                            .lineLimit(1...4)
-                        Toggle("Show me in People", isOn: d.listed).tint(Theme.accent)
-                    } header: { SectionHeader("You") }
-                    .listRowBackground(Theme.card)
-                }
-
+            if let d = Binding($draft) {
                 Section {
-                    AgentNameField()
-                    TextField("What your agent knows (Stripe, our checkout repo…)", text: $summary, axis: .vertical)
+                    TextField(state.me?.owner ?? "Name", text: Binding(get: { d.wrappedValue.displayName ?? "" }, set: { d.wrappedValue.displayName = $0 }))
+                        .accessibilityIdentifier("display-name")
+                    TextField("A line about you", text: Binding(get: { d.wrappedValue.bio ?? "" }, set: { d.wrappedValue.bio = $0 }), axis: .vertical)
                         .lineLimit(1...4)
-                        .accessibilityIdentifier("agent-summary")
-                    Toggle("Others can find your agent", isOn: $agentListed).tint(Theme.accent)
-                } header: { SectionHeader("Your agent") } footer: {
-                    Text("Listed agents show up when other people's agents look for help. They still need your OK to start a conversation.")
-                }
-                .listRowBackground(Theme.card)
-
-                if let d = Binding($draft) {
-                    Section {
-                        Toggle("Board invites from friends", isOn: rule(d.rules.autoAcceptInvites, "friends")).tint(Theme.accent)
-                        Toggle("Friend requests from coworkers", isOn: rule(d.rules.autoAcceptFriends, "coworkers")).tint(Theme.accent)
-                        Toggle("Agents from coworkers", isOn: rule(d.rules.autoAcceptAgents, "coworkers")).tint(Theme.accent)
-                    } header: { SectionHeader("Accept automatically") }
-                    .listRowBackground(Theme.card)
-                }
-
-                Section {
-                    displayPicker("Text size", id: "display-text", \.text, [("s", "S"), ("m", "M"), ("l", "L")])
-                    displayPicker("Density", id: "display-density", \.density, [("comfortable", "Comfortable"), ("compact", "Compact")])
-                    displayPicker("Theme", id: "display-theme", \.theme, [("system", "System"), ("light", "Light"), ("dark", "Dark")])
-                } header: { SectionHeader("Display") } footer: {
-                    Text("Text size adds to your iPhone's own setting. Saved to your account, so the web follows it too.")
-                }
-                .listRowBackground(Theme.card)
-
-                Section {
-                    NavigationLink { FavouriteReactionsEditor() } label: {
-                        HStack {
-                            Text("Reactions")
-                            Spacer()
-                            Text(state.favouriteReactions.joined()).lineLimit(1).foregroundStyle(Theme.muted)
-                        }
-                    }
-                    .accessibilityIdentifier("favourite-reactions")
-                } footer: { Text("The emoji you see first when you hold a message.") }
-                .listRowBackground(Theme.card)
-
-                NotificationsSection()
-                FeelSection()
-                VoiceSection()
-
-                Section {
-                    if state.connections.isEmpty { Text("Nothing connected yet.").foregroundStyle(Theme.muted) }
-                    ForEach(state.connections) { c in
-                        ConnectionRow(c: c)
-                            .swipeActions { Button("Revoke", role: .destructive) { Haptics.play(.warning); Task { await state.revoke(c) } } }
-                    }
-                } header: { SectionHeader("Connected") } footer: { Text("Everything that can act as you. Swipe to revoke one; it stops at once.") }
-                .listRowBackground(Theme.card)
-
-                Section {
-                    Button("Sign out", role: .destructive) { confirmSignOut = true }.foregroundStyle(Theme.danger)
-                }
+                    Toggle("Show me in People", isOn: d.listed).tint(Theme.accent)
+                } header: { SectionHeader("You") }
                 .listRowBackground(Theme.card)
             }
-            .listSectionSpacing(.compact)
-            .listDensity(density)
-            .scrollContentBackground(.hidden)
-            .background(Theme.bg)
-            .navigationTitle("Settings")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() }.toolbarText(primary: true) } }
-            .confirmationDialog("Sign out of Atteo on this phone?", isPresented: $confirmSignOut, titleVisibility: .visible) {
-                Button("Sign out", role: .destructive) { state.signOut() }
-            } message: { Text("Your agents keep running. Sign back in any time.") }
+
+            Section {
+                AgentNameField()
+                TextField("What your agent knows (Stripe, our checkout repo…)", text: $summary, axis: .vertical)
+                    .lineLimit(1...4)
+                    .accessibilityIdentifier("agent-summary")
+                Toggle("Others can find your agent", isOn: $agentListed).tint(Theme.accent)
+            } header: { SectionHeader("Your agent") } footer: {
+                Text("Listed agents show up when other people's agents look for help. They still need your OK to start a conversation.")
+            }
+            .listRowBackground(Theme.card)
+
+            if let d = Binding($draft) {
+                Section {
+                    Toggle("Board invites from friends", isOn: rule(d.rules.autoAcceptInvites, "friends")).tint(Theme.accent)
+                    Toggle("Friend requests from coworkers", isOn: rule(d.rules.autoAcceptFriends, "coworkers")).tint(Theme.accent)
+                    Toggle("Agents from coworkers", isOn: rule(d.rules.autoAcceptAgents, "coworkers")).tint(Theme.accent)
+                } header: { SectionHeader("Accept automatically") }
+                .listRowBackground(Theme.card)
+            }
+
+            Section {
+                displayPicker("Text size", id: "display-text", \.text, [("s", "S"), ("m", "M"), ("l", "L")])
+                displayPicker("Density", id: "display-density", \.density, [("comfortable", "Comfortable"), ("compact", "Compact")])
+                displayPicker("Theme", id: "display-theme", \.theme, [("system", "System"), ("light", "Light"), ("dark", "Dark")])
+            } header: { SectionHeader("Display") } footer: {
+                Text("Text size adds to your iPhone's own setting. Saved to your account, so the web follows it too.")
+            }
+            .listRowBackground(Theme.card)
+
+            Section {
+                NavigationLink { FavouriteReactionsEditor() } label: {
+                    HStack {
+                        Text("Reactions")
+                        Spacer()
+                        Text(state.favouriteReactions.joined()).lineLimit(1).foregroundStyle(Theme.muted)
+                    }
+                }
+                .accessibilityIdentifier("favourite-reactions")
+            } footer: { Text("The emoji you see first when you hold a message.") }
+            .listRowBackground(Theme.card)
+
+            NotificationsSection()
+            FeelSection()
+            VoiceSection()
+
+            Section {
+                if state.connections.isEmpty { Text("Nothing connected yet.").foregroundStyle(Theme.muted) }
+                ForEach(state.connections) { c in
+                    ConnectionRow(c: c)
+                        .swipeActions { Button("Revoke", role: .destructive) { Haptics.play(.warning); Task { await state.revoke(c) } } }
+                }
+            } header: { SectionHeader("Connected") } footer: { Text("Everything that can act as you. Swipe to revoke one; it stops at once.") }
+            .listRowBackground(Theme.card)
+
+            // Everyday or Developer mode (Everyday.swift): the switch, last before signing out.
+            if !embedded { DeveloperModeSection() }
+
+            Section {
+                Button("Sign out", role: .destructive) { confirmSignOut = true }.foregroundStyle(Theme.danger)
+            }
+            .listRowBackground(Theme.card)
         }
+        .listSectionSpacing(.compact)
+        .listDensity(density)
+        .scrollContentBackground(.hidden)
+        .background(Theme.bg)
+        .navigationTitle(embedded ? "More settings" : "Settings")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() }.toolbarText(primary: true) } }
+        .confirmationDialog("Sign out of Atteo on this phone?", isPresented: $confirmSignOut, titleVisibility: .visible) {
+            Button("Sign out", role: .destructive) { state.signOut() }
+        } message: { Text("Your agents keep running. Sign back in any time.") }
         .task {
             draft = state.profile
             if let me = state.me { summary = me.summary ?? ""; agentListed = me.listed ?? false; loadedAgent = true }

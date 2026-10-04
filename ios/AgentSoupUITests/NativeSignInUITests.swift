@@ -16,6 +16,7 @@ final class NativeSignInUITests: XCTestCase {
 
     func app(theme: String) -> XCUIApplication {
         let a = XCUIApplication()
+        a.launchEnvironment["AGENT_SOUP_MODE"] = "developer" // today's app (Everyday.swift); Everyday tests opt in with "everyday"
         a.launchEnvironment["AGENT_SOUP_SERVER"] = server
         a.launchEnvironment["AGENT_SOUP_STILL"] = "1" // no endless animations: they keep the app from ever being idle for the test
         a.launchEnvironment["AGENT_SOUP_SIGNED_OUT"] = "1" // the sign-in screen, whatever this simulator signed in as before
