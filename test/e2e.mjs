@@ -281,6 +281,18 @@ await step("wait times out cleanly", async () => {
   assert(Date.now() - t0 < 4000, "too slow");
 });
 
+await step("wait returns every entry that landed while waiting, and nothing is left behind", async () => {
+  await ok(A, board, "read");
+  await ok(B, board, "read");
+  const waiting = ok(B, board, "wait", { timeout_seconds: 20 });
+  await new Promise((r) => setTimeout(r, 400));
+  const seqs = [];
+  for (const i of [1, 2, 3]) seqs.push(seqOf(await ok(A, board, "post", { type: "note", text: `burst-wait ${i} ${run}`, reply_to: 0 })));
+  const got = await waiting;
+  for (const s of seqs) has(got, `#${s} note`);
+  has(await ok(B, board, "read"), "(nothing new)");
+});
+
 await step("20 concurrent posts get unique, contiguous sequence numbers", async () => {
   await ok(A, board, "read");
   const seqs = (await Promise.all(Array.from({ length: 20 }, (_, i) => ok(A, board, "post", { type: "note", text: `burst ${i}` })))).map(seqOf).sort((a, b) => a - b);
@@ -303,7 +315,7 @@ await step("stale-read rejection: only unread entries that bear on a post stop i
   const bn = seqOf(await ok(B, board, "post", { type: "note", text: `Lunch at noon ${run}`, reply_to: 0 }));
   const landed = await ok(A, board, "post", { type: "note", text: `Unrelated update ${run}`, reply_to: 0 });
   assert(/^Posted #\d+/.test(landed), landed);
-  has(landed, "You missed");
+  has(landed, "Meanwhile");
   has(landed, `#${bn} note · ${B}'s agent: Lunch at noon ${run}`);
   has(await ok(A, board, "read"), "(nothing new)");
   // Mentions you: refused.
@@ -331,6 +343,53 @@ await step("stale-read rejection: only unread entries that bear on a post stop i
   ]);
   assert(!ra.isError && !rb.isError, `both land: A ${ra.text} B ${rb.text}`);
   assert(ra.text.includes(`race B ${run}`) !== rb.text.includes(`race A ${run}`), `exactly one lists the other: ${ra.text}\n${rb.text}`);
+});
+
+await step("stale-read: an answer to something you wrote stops a post elsewhere; strict: true refuses on anything unread", async () => {
+  await ok(A, board, "read");
+  const q = seqOf(await ok(A, board, "post", { type: "question", text: `Which region ${run}?`, reply_to: 0 }));
+  await ok(B, board, "read");
+  const ans = seqOf(await ok(B, board, "post", { type: "note", text: `eu-west ${run}`, reply_to: q }));
+  has(await err(A, board, "post", { type: "note", text: `Elsewhere ${run}`, reply_to: 0 }, "since you last read"), `#${ans} note`);
+  // Unrelated, top level: lands with "Meanwhile"; with strict: true the same is refused.
+  await ok(B, board, "read");
+  const u1 = seqOf(await ok(B, board, "post", { type: "note", text: `coffee ${run}`, reply_to: 0 }));
+  const landed = await ok(A, board, "post", { type: "note", text: `Unrelated again ${run}`, reply_to: 0 });
+  assert(/^Posted #\d+/.test(landed) && landed.includes("Meanwhile") && landed.includes(`#${u1} note`), landed);
+  await ok(B, board, "read");
+  const u2 = seqOf(await ok(B, board, "post", { type: "note", text: `tea ${run}`, reply_to: 0 }));
+  has(await err(A, board, "post", { type: "note", text: `Strictly ${run}`, reply_to: 0, strict: true }, "Not posted"), `#${u2} note`);
+});
+
+await step("wait {for: \"me\"}: other agents' cards and chatter don't wake it; a mention does, and brings everything new", async () => {
+  await ok(A, board, "read");
+  await ok(B, board, "read");
+  const t0 = Date.now();
+  const quiet = ok(A, board, "wait", { for: "me", timeout_seconds: 2 });
+  await new Promise((r) => setTimeout(r, 300));
+  const card = { branch: `chore/x-${run}`, base: "main", files: [{ path: "x.ts", added: 1, removed: 0 }], diff: "+ x" };
+  const c1 = seqOf(await ok(B, board, "post", { type: "change", text: `unrelated change ${run}`, card, reply_to: 0 }));
+  has(await quiet, "Nothing new for you");
+  assert(Date.now() - t0 >= 1500, "a card ended a for-me wait");
+  await err(A, board, "wait", { for: "you", timeout_seconds: 1 }, 'for is "me"');
+  const waiting = ok(A, board, "wait", { for: "me", timeout_seconds: 20 });
+  await new Promise((r) => setTimeout(r, 300));
+  const n1 = seqOf(await ok(B, board, "post", { type: "note", text: `chatter ${run}`, reply_to: 0 }));
+  await new Promise((r) => setTimeout(r, 300));
+  const m = seqOf(await ok(B, board, "post", { type: "note", text: `@${A}'s agent ping ${run}`, reply_to: 0 }));
+  const got = await waiting;
+  has(got, "(1 for you");
+  has(got, `#${c1} change`);
+  has(got, `#${n1} note`);
+  has(got, `#${m} note`);
+  has(got, `ping ${run}`);
+  has(await ok(A, board, "read"), "(nothing new)");
+  // Something for you already unread: a for-me wait returns at once, with the rest.
+  await ok(B, board, "post", { type: "note", text: `more chatter ${run}`, reply_to: 0 });
+  await ok(B, board, "post", { type: "question", to: A, text: `you there ${run}?`, reply_to: 0 });
+  const t1 = Date.now();
+  const now = await ok(A, board, "wait", { for: "me", timeout_seconds: 10 });
+  assert(Date.now() - t1 < 3000 && now.includes(`more chatter ${run}`) && now.includes(`you there ${run}?`), now);
 });
 
 await step("read: only what's new under a one-line header; the summary on the first read, then only when asked", async () => {
@@ -2935,6 +2994,15 @@ await step("agent sessions: several per person, each with its own boards and rea
   await ok(A, b3, "post", { type: "note", text: `wake ${run}` });
   const w = (await waiting).body;
   assert(!w.timed_out && w.entries.some((x) => x.board.id === b3), JSON.stringify(w).slice(0, 300));
+  // ?for=me: another agent's chatter doesn't wake it; a mention of this agent does, and both come back.
+  await api(B, "GET", `/api/sessions/${s1.id}/read`);
+  const mineWait = api(B, "GET", `/api/sessions/${s1.id}/wait?timeout=20&for=me`);
+  await new Promise((r) => setTimeout(r, 600));
+  await ok(A, b3, "post", { type: "note", text: `chatter for-me ${run}`, reply_to: 0 });
+  await new Promise((r) => setTimeout(r, 600));
+  await ok(A, b3, "post", { type: "note", text: `@${B}'s agent for-me ping ${run}`, reply_to: 0 });
+  const fm = (await mineWait).body;
+  assert(!fm.timed_out && fm.text.includes(`chatter for-me ${run}`) && fm.text.includes(`for-me ping ${run}`) && fm.text.includes("1 for you"), JSON.stringify(fm).slice(0, 400));
   // List, rename (then found by name), leave a board, only your own, end
   assert((await api(B, "GET", "/api/sessions")).body.sessions.some((x) => x.id === s1.id && x.boards.length === 2), "listed with its boards");
   assert((await api(B, "POST", `/api/sessions/${s1.id}`, { name: "scout" })).body.session.name === "scout", "rename");

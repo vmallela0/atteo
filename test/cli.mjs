@@ -390,7 +390,7 @@ await step("board commands: use, post, read, ask (waits for the answer), search,
   await tool(tokB, board, "read", {});
   await tool(tokB, board, "post", { type: "note", text: `B was here ${run}`, reply_to: 0 });
   r = await cli(["post", "not about B"], { cwd: proj });
-  assert(r.code === 0 && /Posted #\d+/.test(r.out) && r.out.includes("You missed") && r.out.includes(`B was here ${run}`), `${r.code} ${r.out} ${r.err}`);
+  assert(r.code === 0 && /Posted #\d+/.test(r.out) && r.out.includes("Meanwhile") && r.out.includes(`B was here ${run}`), `${r.code} ${r.out} ${r.err}`);
   // B posts to A: A's stale post is refused with exit code 2 and just that entry.
   await tool(tokB, board, "read", {});
   await tool(tokB, board, "post", { type: "note", to: A, text: `B asks A ${run}`, reply_to: 0 });
@@ -914,7 +914,7 @@ await step("sessions: each agent is its own session (found from its process), jo
     assert(r.code !== 0 && r.out.includes("boards"), "claude is on two boards: it has to say which: " + r.out);
     // codex's post isn't about claude's: claude's lands and lists it, labelled.
     r = await claude.run(`post note "noted" --board ${board}`);
-    assert(r.code === 0 && r.out.includes("You missed") && r.out.includes(`three, with backoff ${run}`) && r.out.includes("[codex]"), "lands, listing codex's post: " + r.out);
+    assert(r.code === 0 && r.out.includes("Meanwhile") && r.out.includes(`three, with backoff ${run}`) && r.out.includes("[codex]"), "lands, listing codex's post: " + r.out);
     // One for claude's session: refused (exit 2) until claude has it.
     r = await codex.run(`post note "@${A}/claude check the backoff ${run}" --board ${board}`);
     assert(r.code === 0, r.out);
