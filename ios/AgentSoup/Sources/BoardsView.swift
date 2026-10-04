@@ -53,6 +53,10 @@ struct BoardView: View {
     @State private var toSession: String? // "Your agent": one of your sessions (nil: any of your agents)
     @State private var confetti = 0 // bumped when a "Shipped" change card arrives while you're here
     @State private var newestSeen: Int? // the newest message when the chat opened (so only arrivals celebrate)
+    /// Scrolled up to read: the newest message when you left the latest. What lands after it is counted on the pill
+    /// ("3 new messages"), and the list stays where you are (jxn #1366, #1367; the web's unseen).
+    @State private var unseenAfter: Int?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// The People filter (jxn #1731, vedu #1060; the web's Hide agents): only what people wrote, their replies included.
     /// For you only, remembered for this board on this phone. Never on "Your agent" (it's all your agents there).
     @State private var peopleOnly: Bool
@@ -206,6 +210,8 @@ struct BoardView: View {
 
     @ViewBuilder private var chat: some View {
         let r = rows()
+        let unseen = unseenCount(r)
+        let pillShown = !stick && !atBottom && unseen > 0
         ScrollViewReader { proxy in
         ScrollView {
                 // Placeholders and messages are separate containers: sharing one list would give them colliding ids
@@ -223,7 +229,7 @@ struct BoardView: View {
                     ForEach(Array(r.shown.enumerated()), id: \.element.id) { i, e in
                         row(i, r)
                             .id(e.id)
-                            .transition(.asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity), removal: .opacity))
+                            .transition(.asymmetric(insertion: insertion(e), removal: .opacity))
                     }
                 }
                 .padding(.horizontal, Space.l).padding(.top, Space.xs).padding(.bottom, Space.s)
@@ -254,6 +260,8 @@ struct BoardView: View {
             // At the latest: the visible part (which includes what's under the composer) reaches the end.
             .onScrollGeometryChange(for: Bool.self) { g in g.visibleRect.maxY >= g.contentSize.height - 80 } action: { _, bottom in
                 if bottom != atBottom { withAnimation(.snappy) { atBottom = bottom } }
+                // Back at the latest: nothing's unseen. Leaving it: count what lands from now on.
+                if bottom { unseenAfter = nil } else if unseenAfter == nil, state.entries[board.id] != nil { unseenAfter = newestSeq }
             }
             // Near the top of what's loaded (and it's long enough to scroll): bring in the page before it.
             .onScrollGeometryChange(for: Bool.self) { g in g.contentSize.height > g.containerSize.height && g.visibleRect.minY < 360 } action: { _, top in
@@ -269,9 +277,36 @@ struct BoardView: View {
                 if list.last.map({ $0.author == state.me?.owner && $0.via != "agent" }) == true { stick = true }
                 if stick { withAnimation(.smooth(duration: 0.3)) { position.scrollTo(edge: .bottom) } }
             }
+            // Scrolled up and something arrived: "3 new messages ↓" (the web's pill), which takes you down to them.
+            .overlay(alignment: .bottom) {
+                ZStack {
+                    if pillShown {
+                        let words = String(localized: "\(unseen) new messages", bundle: .l10n)
+                        Button { toLatest() } label: {
+                            HStack(spacing: Space.xs) {
+                                Text(words).font(Typo.micro.weight(.semibold)).contentTransition(.numericText())
+                                Image(systemName: "arrow.down").font(.system(size: 11, weight: .bold))
+                            }
+                            .foregroundStyle(Theme.text)
+                            .padding(.horizontal, Space.m).frame(height: 32)
+                            .background(Theme.raised, in: Capsule())
+                            .shadow(color: .black.opacity(0.35), radius: 8, y: 2)
+                            .frame(minHeight: 44).contentShape(Capsule())
+                        }
+                        .buttonStyle(PressStyle())
+                        .padding(.bottom, Space.xs)
+                        .transition(.scale(scale: 0.8).combined(with: .opacity))
+                        .accessibilityLabel(words)
+                        .accessibilityHint(String(localized: "Jump to latest", bundle: .l10n))
+                        .accessibilityIdentifier("new-messages-pill")
+                    }
+                }
+                .animation(.snappy, value: pillShown)
+                .animation(.snappy, value: unseen)
+            }
             .overlay(alignment: .bottomTrailing) {
-                if !atBottom && !list.isEmpty {
-                    Button { stick = true; withAnimation(.smooth(duration: 0.35)) { position.scrollTo(edge: .bottom) } } label: {
+                if !atBottom && !list.isEmpty && !pillShown {
+                    Button { toLatest() } label: {
                         Image(systemName: "chevron.down").font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.text)
                             .frame(width: 36, height: 36).background(Theme.raised, in: Circle())
                             .shadow(color: .black.opacity(0.4), radius: 8, y: 2)
@@ -508,6 +543,32 @@ struct BoardView: View {
             }
             if atBottom { stick = true } // everything unread fits: stay with the latest
         }
+    }
+
+    /// The newest message here (sending ones aside).
+    private var newestSeq: Int { list.lazy.map(\.seq).max().map { max($0, 0) } ?? 0 }
+
+    /// Messages from others that landed since you scrolled up (the People filter's hidden ones don't count).
+    private func unseenCount(_ r: Rows) -> Int {
+        guard let base = unseenAfter else { return 0 }
+        return r.shown.lazy.filter { $0.seq > base && !isMine($0) }.count
+    }
+
+    /// The pill and the chevron: down to the latest, pinned there again.
+    private func toLatest() {
+        stick = true
+        unseenAfter = nil
+        withAnimation(.smooth(duration: 0.35)) { position.scrollTo(edge: .bottom) }
+    }
+
+    /// How a message comes into the chat. One that lands while you're here rises in lightly (8pt, 0.2s, like the web's
+    /// entryin, jxn #1366); with Reduce Motion it just appears. What was here when it opened, or older history loading
+    /// above, doesn't move (a People filter toggle only fades rows back).
+    private func insertion(_ e: Entry) -> AnyTransition {
+        guard let seen = newestSeen, e.seq > seen || e.seq < 0 else { return .opacity }
+        // Yours rose in as it was sent; the delivered copy takes the sending one's place without a second rise.
+        if reduceMotion || (e.seq > 0 && isMine(e)) { return .identity }
+        return AnyTransition.opacity.combined(with: .offset(y: 8)).animation(.easeOut(duration: 0.2))
     }
 
     /// The page before what's loaded, put in above without moving what you're reading.

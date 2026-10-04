@@ -159,8 +159,8 @@ final class AgentSoupUITests: XCTestCase {
             let posted = expectation(description: "posted")
             URLSession.shared.dataTask(with: r) { _, _, _ in posted.fulfill() }.resume()
             wait(for: [posted], timeout: 10)
-            let jump = a.buttons["Jump to latest"]
-            XCTAssertTrue(jump.waitForExistence(timeout: 5), "scrolled up: a jump button, not a yank")
+            let jump = a.buttons["new-messages-pill"] // "1 new message ↓" (jxn #1367)
+            XCTAssertTrue(jump.waitForExistence(timeout: 5), "scrolled up: the new-messages pill, not a yank")
             sleep(1)
             XCTAssertFalse(a.staticTexts["posted while you read history"].isHittable, "you stay where you were reading")
             shot("04d-reading")
