@@ -638,12 +638,18 @@ const handler = {
       // in as themselves (web, the app). An agent's token, or no viewer (ops), sees none of them.
       const seer = (): Seer | null => (viewer ? { user: viewer.name, person: viewer.via !== "agent" } : null);
       // The agent session making the call (the CLI sends X-Atteo-Session): what it causes counts as its own posts.
-      let sessionMemo: Promise<string | null> | null = null;
-      const asid = () =>
+      let sessionMemo: Promise<sessions.AgentSession | null> | null = null;
+      const asess = () =>
         (sessionMemo ??= (async () => {
           const h = atteoHeader(request, "session");
-          return h && viewer?.via === "agent" ? ((await sessions.get(env, viewer.name, h))?.id ?? null) : null;
+          return h && viewer?.via === "agent" ? await sessions.get(env, viewer.name, h) : null;
         })());
+      const asid = async () => (await asess())?.id ?? null;
+      // Its id and name for the board: posts and tasks it causes are its own, and "is on it" names it.
+      const asOpts = async () => {
+        const s = await asess();
+        return { session: s?.id ?? null, session_name: s?.name ?? null };
+      };
       // A read-only agent session (scope "read") can read and wait, mark things seen, and manage its own session,
       // but nothing it sends may change a board or anyone's account.
       if (viewer?.via === "agent" && method !== "GET" && method !== "HEAD" && atteoHeader(request, "session")) {
@@ -1051,7 +1057,7 @@ const handler = {
               if (k.rotate_needed) return json({ error: "Someone left or a device was removed: open a new epoch first (atteo does this for you).", rotate_needed: true }, 409);
               if (v2.epoch !== k.current) return json({ error: `This board's key is at epoch ${k.current}; encrypt with that.`, current: k.current }, 409);
             }
-            const e = await stub.postSealed(viewer.name, { to: b.to ? String(b.to) : null, note, payload: String(b.payload ?? ""), type: b.type, reply_to: Number(b.reply_to) || null }, { via: pv(), client: viewer.via === "agent" ? "atteo CLI" : null, session: await asid() });
+            const e = await stub.postSealed(viewer.name, { to: b.to ? String(b.to) : null, note, payload: String(b.payload ?? ""), type: b.type, reply_to: Number(b.reply_to) || null }, { via: pv(), client: viewer.via === "agent" ? "atteo CLI" : null, ...(await asOpts()) });
             ctx.waitUntil(registry.bumpBoard(env, km[1], e.seq).catch(() => {}));
             return json({ ok: true, entry: e }, 201);
           }
@@ -2227,7 +2233,7 @@ const handler = {
             const t = await stub.taskCreate(
               viewer.name,
               { title: String(b.title ?? ""), body: typeof b.body === "string" ? b.body : "", priority: (["high", "medium", "low"] as const).find((p) => p === b.priority) ?? null, parent: typeof b.parent === "number" && b.parent > 0 ? b.parent : null },
-              { via: pv(), session: await asid() },
+              { via: pv(), ...(await asOpts()) },
             );
             ctx.waitUntil(registry.bumpBoard(env, m[1], t.seq).catch(() => {}));
             return json({ ok: true, task: t }, 201);
@@ -2239,7 +2245,7 @@ const handler = {
           const seq = parseInt(m[2], 10);
           const b = (await request.json().catch(() => ({}))) as Record<string, unknown>;
           const s = (k: string) => (typeof b[k] === "string" ? (b[k] as string).trim() : undefined);
-          const opts = { via: pv(), session: await asid() };
+          const opts = { via: pv(), ...(await asOpts()) };
           try {
             let t;
             if (b.action === "edit")
@@ -2473,8 +2479,8 @@ const handler = {
           }
           try {
             const idem = messageId(request.headers.get("idempotency-key"));
-            const session = await asid();
-            const entry = await withRetry(() => stub.post(viewer.name, { type, text, to, mentions, reply_to: replyTo, via: pv(), session, idem, ...(peopleOnly ? { people_only: true, to_people: toPeople } : {}) }));
+            const so = await asOpts();
+            const entry = await withRetry(() => stub.post(viewer.name, { type, text, to, mentions, reply_to: replyTo, via: pv(), ...so, idem, ...(peopleOnly ? { people_only: true, to_people: toPeople } : {}) }));
             ctx.waitUntil(Promise.all([registry.touch(env, viewer.name, id), registry.bumpBoard(env, id, entry.seq)]).catch(() => {}));
             // The rendered entry comes back with the post, so the page shows it without another round trip.
             const root = replyTo ? ((await stub.rootsFor([entry.seq]))[entry.seq] ?? entry.seq) : entry.seq;

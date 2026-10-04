@@ -3,7 +3,9 @@
 // hairline borders, Geist type, light + dark, works down to phone width.
 
 import { chartHtml } from "./chart";
+import { STATUS_CSS, statusHtml } from "./status";
 import { highlightMentions, type Mention } from "./mentions";
+import { MERMAID_CSS, MERMAID_JS, mermaidHtml } from "./mermaid";
 import { esc } from "./util";
 
 // Dark tokens: the system setting picks them unless Display says light; Display can also force them.
@@ -374,7 +376,7 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .acc-list{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:8px}
 .sum h3 .linkish,.linkish{border:0;background:none;padding:0;font:inherit;font-size:12px;color:var(--accent);cursor:pointer}.linkish:hover{text-decoration:underline}
 /* view-only members: nothing that writes */
-.ro .composer,.ro [data-qr],.ro [data-rx-add],.ro [data-reply],.ro .rx-add,.ro [data-tk],.ro .kb-new,.ro #doc-new,.ro #doc-edit{display:none!important}
+.ro .composer,.ro [data-qr],.ro [data-rx-add],.ro button[data-reply],.ro .rx-add,.ro [data-tk],.ro .kb-new,.ro #doc-new,.ro #doc-edit{display:none!important}
 .ro .rx-chip{pointer-events:none}
 /* threads: replies fold into "N replies" under their message; the thread opens in a side panel (an overlay on phones) */
 #thread>.entry>.grow>.replies{display:none}#thread>.entry.thr-open>.grow>.replies{display:block}
@@ -558,6 +560,7 @@ rect.ch-s0,rect.ch-s1,rect.ch-s2,rect.ch-s3,rect.ch-s4,rect.ch-s5,rect.ch-s6,rec
 .ch-legend{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:6px;font-size:12px;color:var(--text)}.ch-legend span{display:inline-flex;align-items:center;gap:5px}.ch-legend b{color:var(--muted);font-weight:500}
 .ch-k{width:10px;height:10px;border-radius:3px;display:inline-block;border:0}.ch-k.ch-s0{background:var(--accent)}.ch-k.ch-s1{background:var(--ok)}.ch-k.ch-s2{background:var(--warn)}.ch-k.ch-s3{background:var(--decision)}.ch-k.ch-s4{background:var(--danger)}.ch-k.ch-s5{background:var(--claim)}.ch-k.ch-s6{background:var(--task)}.ch-k.ch-s7{background:var(--muted)}
 .ch-pie{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.ch-pie .ch-svg{width:170px;flex:none}.ch-pie .ch-legend{flex-direction:column;gap:4px}
+${STATUS_CSS}
 .ch-data{margin-top:4px}.ch-data summary{cursor:pointer;font-size:11.5px;color:var(--faint);list-style:none}.ch-data summary::-webkit-details-marker{display:none}.ch-data summary:hover{color:var(--ink)}
 .code-b{position:relative;margin:6px 0;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--bg-subtle)}.code-b>pre{margin:0;border:0;border-radius:0}.code-h{display:flex;align-items:center;justify-content:space-between;padding:3px 6px 3px 10px;border-bottom:1px solid var(--line);font-size:11.5px;color:var(--muted)}.code-copy{all:unset;cursor:pointer;padding:2px 8px;border-radius:6px;font-size:11.5px;color:var(--muted)}.code-copy:hover{background:var(--bg-hover);color:var(--ink)}
 .dev-mode{display:flex;align-items:center;gap:12px;border-style:dashed;cursor:pointer}.dev-ic{font-family:var(--mono,monospace);color:var(--muted);font-size:13px}
@@ -581,6 +584,7 @@ input.switch::after{content:"";position:absolute;top:3px;left:3px;width:18px;hei
 @media(max-width:640px){.pv-dlg{width:100vw;max-width:100vw;height:100dvh;max-height:none;margin:0;border-radius:0}.pv-w{display:none}}
 /* Highlights (mention tint, new-message flash, jump tint) bleed 12px each side whatever the density, so the avatar never sits on the edge (jxn #1311). */
 #thread>.entry.for-you,#thread>.entry.flash-in,#thread>.entry.hit,.thr-list>.entry.for-you,.thr-list>.entry.hit{margin-left:-12px;margin-right:-12px;padding-left:12px;padding-right:12px;border-radius:8px}
+${MERMAID_CSS}
 .mem-act{display:none}.mem-on .mem-act{display:inline-flex;width:30px;padding:0;justify-content:center;color:var(--muted)}.mem-on .mem-act:hover{color:var(--ink)}
 .soul-prev{white-space:pre-wrap;font-size:12.5px;line-height:1.5;color:var(--text);max-height:7.5em;overflow:hidden;-webkit-mask-image:linear-gradient(#000 70%,transparent);mask-image:linear-gradient(#000 70%,transparent)}
 .soul-meta{margin:4px 0 6px}.soul-edit{margin-top:2px}
@@ -1152,15 +1156,17 @@ export function renderText(text: string, mentions?: Mention[] | null, names?: Re
 function renderTextInner(text: string, mentions?: Mention[] | null): string {
   const out: string[] = [];
   const ck = { n: 0 }; // checklist items ("- [ ] …") are numbered in order, so a page can tick the n-th one
-  // ```lang blocks: [text, lang, code, text, …]; ```chart draws a chart (vedu #1246).
+  // ```lang blocks: [text, lang, code, text, …]; ```chart draws a chart, ```mermaid a diagram once it's on screen (vedu #1246).
   const parts = text.split(/```([^\n`]*)\n?([\s\S]*?)```/g);
   parts.forEach((part, i) => {
     if (i % 3 === 1) return;
     if (i % 3 === 2) {
       const lang = parts[i - 1].trim().toLowerCase();
+      if (lang === "status") return void out.push(statusHtml(part)); // the status card (#1289), made live by the board page
+
       // Code gets a small header with its language and Copy (jxn #1255).
       const code = `<pre><code>${esc(part.replace(/\n$/, ""))}</code></pre>`;
-      out.push(lang === "chart" ? chartHtml(part) : `<div class="code-b"><div class="code-h"><span class="mono">${esc(lang.replace(/[^\w+#.-]/g, "").slice(0, 20)) || "code"}</span><button type="button" class="code-copy" data-copy-code aria-label="Copy the code">Copy</button></div>${code}</div>`);
+      out.push(lang === "chart" ? chartHtml(part) : lang === "mermaid" ? mermaidHtml(part) : `<div class="code-b"><div class="code-h"><span class="mono">${esc(lang.replace(/[^\w+#.-]/g, "").slice(0, 20)) || "code"}</span><button type="button" class="code-copy" data-copy-code aria-label="Copy the code">Copy</button></div>${code}</div>`);
       return;
     }
     const paras = part.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
@@ -1345,7 +1351,7 @@ document.addEventListener('submit',async e=>{
   }finally{b&&(b.disabled=false)}
 });
 })();
-`;
+${MERMAID_JS}`;
 
 // ---------- app shell (signed-in pages) ----------
 

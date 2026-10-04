@@ -52,6 +52,16 @@ describe("board page", () => {
     expect(controls).toEqual(["panel-conv", "panel-log", "panel-docs", "panel-tasks"]);
     for (const id of controls) expect(html).toContain(`id="${id}"`);
   });
+
+  it("favourite reactions sync through /api/app/prefs, except on a viewer's page, which keeps them in this browser (vedu #1166)", async () => {
+    const page = async (role?: "viewer") =>
+      (await boardPage({ name: "vedu", email: "vedu@example.com", display_name: null, admin: false }, [], info, [{ user: "jxn", display_name: null, last_seen: 0 }, { user: "vedu", display_name: null, last_seen: 0, role }], entries, []).text());
+    const member = await page(),
+      viewer = await page("viewer");
+    expect(member).toContain("/api/app/prefs");
+    expect(member).toContain("let RX_SYNC=true&&!!ME");
+    expect(viewer).toContain("let RX_SYNC=false&&!!ME");
+  });
 });
 
 describe("checklists", () => {
@@ -116,6 +126,16 @@ describe("change card links (vedu #1097)", () => {
   });
 });
 
+describe("replies in the conversation (jxn #1351)", () => {
+  it("only the Reply button starts a reply; a reply's own article (data-reply = its parent) doesn't", async () => {
+    const html = await boardPage({ name: "jxn", email: "jxn@example.com", display_name: null, admin: false }, [], info, [{ user: "jxn", display_name: null, last_seen: 0 }], entries, []).text();
+    expect(html).toContain("e.target.closest('button[data-reply]')");
+    expect(html).not.toContain("e.target.closest('[data-reply]')");
+    expect(html).toContain(".ro button[data-reply]");
+    expect(html).not.toContain(".ro [data-reply]");
+  });
+});
+
 describe("markdown tables", () => {
   it("renders a header row, alignment and body rows; a lone | line stays text", async () => {
     const { renderText } = await import("../src/ui");
@@ -151,6 +171,25 @@ describe("charts (vedu #1246, spec #1247)", () => {
   });
 });
 
+describe("mermaid diagrams (vedu #1246, #1247)", () => {
+  it("sends a ```mermaid block as its code block, marked for the page to draw, with the text escaped", async () => {
+    const { renderText, page } = await import("../src/ui");
+    const { MERMAID_SRC, MERMAID_SRI } = await import("../src/mermaid");
+    const html = renderText('Flow\n\n```mermaid\nflowchart TD\n  A["<img src=x onerror=alert(1)>"] --> B</script>\n```');
+    expect(html).toContain('<div class="mmd"><div class="code-b"><div class="code-h"><span class="mono">mermaid</span>');
+    expect(html).toContain("<pre><code>flowchart TD\n  A[&quot;&lt;img src=x onerror=alert(1)&gt;&quot;] --&gt; B&lt;/script&gt;</code></pre>");
+    expect(html).not.toContain("<img");
+    expect(renderText("```js\nlet a = 1\n```")).not.toContain('class="mmd"');
+    // Pinned, with an integrity hash, strict, and nothing loaded up front: the page only names the URL inside its script.
+    expect(MERMAID_SRC).toMatch(/^https:\/\/cdn\.jsdelivr\.net\/npm\/mermaid@\d+\.\d+\.\d+\/dist\/mermaid\.min\.js$/);
+    expect(MERMAID_SRI).toMatch(/^sha384-[A-Za-z0-9+/]{64}$/);
+    const doc = await page("t", html).text();
+    expect(doc).toContain("securityLevel:'strict'");
+    expect(doc).toContain("s.integrity=SRI");
+    expect(doc).not.toMatch(/<script[^>]+src=[^>]*mermaid/);
+  });
+});
+
 describe("post titles", () => {
   it("cleanTitle keeps one short line", async () => {
     const { cleanTitle } = await import("../src/util");
@@ -168,5 +207,22 @@ describe("refLinks", () => {
     expect(out).toContain('data-ref="12"');
     expect(out).not.toContain('data-ref="39"');
     expect(out).toContain('data-ref="7"'); // a quoted '#7' still links
+  });
+});
+
+describe("status card (#1289)", () => {
+  it("sends a ```status block as its snapshot text, escaped and marked for the board page to make live", async () => {
+    const { renderText } = await import("../src/ui");
+    const html = renderText("```status\nWhere things stand\n\nRunning\n- #3 <img src=x onerror=alert(1)> (jxn's agent)\n```");
+    expect(html).toContain('<figure class="st" data-status><figcaption class="st-t">Where things stand</figcaption><pre class="st-snap"><code>Where things stand');
+    expect(html).toContain("- #3 &lt;img src=x onerror=alert(1)&gt; (jxn&#39;s agent)");
+    expect(html).not.toContain("<img");
+    // The board page offers /status and carries the live-card script, with its escapes intact.
+    const page = await boardPage({ name: "jxn", email: "jxn@example.com", display_name: null, admin: false }, [], info, [{ user: "jxn", display_name: null, last_seen: 0 }], entries, []).text();
+    expect(page).toContain("['status','The last 3 commits and the task queue, as a live card']");
+    expect(page).toContain("if(!/^\\/status\\s*$/i.test(ta.value)||!window.ST)return;");
+    expect(page).toContain("window.ST=(()=>");
+    expect(page).toContain("location.pathname.match(/^\\/b\\/([^/?#]+)/)");
+    expect(page).toContain("L.join('\\n').replace(/```/g,\"'''\")");
   });
 });
