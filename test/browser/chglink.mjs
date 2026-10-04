@@ -1,0 +1,31 @@
+// Tapping a change card opens it on GitHub: its PR, else its commit, else the range (vedu #1097). Its own controls still work.
+import { chromium } from "playwright-core";
+const BASE=process.env.BASE||"http://localhost:8787";
+const ops=async(p,b)=>(await fetch(`${BASE}/api/ops/${p}`,{method:"POST",headers:{"x-admin-key":"ci-admin-key","content-type":"application/json"},body:JSON.stringify(b)})).json();
+const run=Date.now().toString(36).slice(-4),P=`jc${run}`;
+await ops("users",{name:P,email:`${P}@example.com`,verified:"true"});
+const board=(await ops("boards",{user:P,title:`Cards ${run}`})).board.id;const ck=(await ops("sessions",{user:P})).cookie;
+const tok=(await ops("tokens",{user:P})).token;
+const mcp=async(name,args)=>(await (await fetch(`${BASE}/mcp?board=${board}`,{method:"POST",headers:{"content-type":"application/json",authorization:`Bearer ${tok}`},body:JSON.stringify({jsonrpc:"2.0",id:1,method:"tools/call",params:{name,arguments:args}})})).json()).result.content[0].text;
+const post=async(b)=>{await mcp("read",{});const t=await mcp("post",b);return {seq:+(t.match(/#(\d+)/)||[])[1]}};
+const one=await post({type:"change",text:`one commit ${run}`,card:{branch:"main",repo:"vmallela0/agent-soup",ci:"passing",commits:[{sha:"abc1234",title:"Fix the thing"}],files:[{path:"src/a.ts",added:3,removed:1}],diff:"diff --git a/src/a.ts b/src/a.ts\n+x"}});
+const many=await post({type:"change",text:`two commits ${run}`,card:{branch:"main",repo:"git@github.com:vmallela0/agent-soup.git",commits:[{sha:"ccc3333",title:"newer"},{sha:"aaa1111",title:"older"}],files:[]}});
+const pr=await post({type:"change",text:`with a PR ${run}`,card:{branch:"feat",repo:"vmallela0/agent-soup",pr_url:"https://github.com/vmallela0/agent-soup/pull/42",commits:[{sha:"ddd4444",title:"feat"}],files:[]}});
+const none=await post({type:"change",text:`no repo ${run}`,card:{branch:"main",commits:[{sha:"eee5555",title:"local"}],files:[]}});
+const sq=x=>x.entry?.seq??x.seq;
+let fails=0;const check=(ok,m)=>{console.log(`${ok?"✓":"✗"} ${m}`);if(!ok)fails++};
+const b=await chromium.launch({executablePath: process.env.PW_CHROME || undefined});
+for(const [w,mobile] of [[1100,false],[390,true]]){const ctx=await b.newContext({viewport:{width:w,height:900},isMobile:mobile,hasTouch:mobile});const [k,...v]=ck.split(";")[0].split("=");await ctx.addCookies([{name:k,value:v.join("="),url:BASE}]);
+  await ctx.route("https://github.com/**",r=>r.fulfill({status:200,body:"ok"}));
+  const p=await ctx.newPage();const errors=[];p.on("pageerror",e=>errors.push(e.message));await p.goto(`${BASE}/b/${board}`);await p.waitForTimeout(900);
+  const opens=async(sel,how="click")=>{const pop=ctx.waitForEvent("page",{timeout:2500}).catch(()=>null);await p.locator(sel).first()[how]({position:undefined});const np=await pop;const u=np?.url();await np?.close();return u||null};
+  const tap=mobile?"tap":"click";
+  check(await opens(`#e${sq(one)} .chg-label`,tap)==="https://github.com/vmallela0/agent-soup/commit/abc1234",`${w}px: tapping a one-commit card opens that commit`);
+  check(await opens(`#e${sq(many)} .chg-h`,tap)==="https://github.com/vmallela0/agent-soup/compare/aaa1111%5E...ccc3333",`${w}px: a card with several commits opens the compare view`);
+  check(await opens(`#e${sq(pr)} .chg-commits`,tap)==="https://github.com/vmallela0/agent-soup/pull/42",`${w}px: a card with a PR opens the PR`);
+  check(await p.locator(`#e${sq(none)} .chg[data-href]`).count()===0,`${w}px: a card without a GitHub repo isn't a link`);
+  check(await opens(`#e${sq(many)} .chg-commits li:last-child a.sha`,tap)==="https://github.com/vmallela0/agent-soup/commit/aaa1111",`${w}px: each sha opens its own commit`);
+  const before=ctx.pages().length;await p.locator(`#e${sq(one)} [data-diff]`)[tap]();await p.waitForTimeout(800);
+  check(ctx.pages().length===before&&await p.locator(`#e${sq(one)} .chg-diff`).isVisible(),`${w}px: View diff still opens the diff, not GitHub`);
+  check(!errors.length,`${w}px: no page errors ${errors.join(" | ")}`);await ctx.close()}
+await b.close();console.log(fails?`${fails} FAILED`:"change card links: all passed");process.exit(fails?1:0);

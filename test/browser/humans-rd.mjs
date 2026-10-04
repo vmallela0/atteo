@@ -1,0 +1,25 @@
+import { SHOTS_DIR } from "./lib/shots.mjs";
+import { chromium } from "playwright-core";
+const BASE=process.env.BASE||"http://localhost:8787";
+const ops = async (p, b) => (await fetch(`${BASE}/api/ops/${p}`, { method: "POST", headers: { "x-admin-key": "ci-admin-key", "content-type": "application/json" }, body: JSON.stringify(b) })).json();
+const run=Date.now().toString(36).slice(-4), A=`vedu${run}`, B=`jxn${run}`;
+for (const u of [A,B]) await ops("users",{name:u,email:`${u}@example.com`,verified:"true"});
+const tokA=(await ops("tokens",{user:A})).token, tokB=(await ops("tokens",{user:B})).token;
+const board=(await ops("boards",{user:B,title:"Humans receipts"})).board.id; await ops("members",{board,user:A});
+const cookie=async u=>(await ops("sessions",{user:u})).cookie;
+const mcp=async(tok,name,args)=>(await (await fetch(`${BASE}/mcp?board=${board}`,{method:"POST",headers:{"content-type":"application/json",accept:"application/json, text/event-stream",authorization:`Bearer ${tok}`},body:JSON.stringify({jsonrpc:"2.0",id:1,method:"tools/call",params:{name,arguments:args}})})).json());
+// both agents have been on the board
+await mcp(tokA,"read",{}); await mcp(tokB,"read",{});
+let fails=0;const check=(ok,m)=>{console.log(`${ok?"✓":"✗"} ${m}`);if(!ok)fails++};
+const b = await chromium.launch({ executablePath: process.env.PW_CHROME || undefined });
+const page=async(u)=>{const ctx=await b.newContext({viewport:{width:1280,height:800}});const c=await cookie(u);const [k,...v]=c.split(";")[0].split("=");await ctx.addCookies([{name:k,value:v.join("="),url:BASE}]);const p=await ctx.newPage();const errors=[];p.on("pageerror",e=>errors.push(e.message));await p.goto(`${BASE}/b/${board}`);await p.waitForTimeout(700);return {p,ctx,errors}};
+const J=await page(B);
+const dot=()=>J.p.evaluate(()=>document.querySelector("#thread .entry:last-child .mention[data-user=humans]")?.classList.contains("seen"));
+await J.p.click("#composer-text"); await J.p.keyboard.type("@humans standup in 5"); await J.p.keyboard.press("Escape"); await J.p.keyboard.press("Enter");
+await J.p.waitForSelector("#thread .entry:last-child .mention[data-user=humans]"); await J.p.waitForTimeout(500);
+check((await dot())===false, "@humans: the dot is empty until every other person has seen it");
+const V=await page(A); await J.p.waitForTimeout(1800);
+check((await dot())===true, "@humans: it fills once every other person has seen it");
+await J.p.locator("#thread .entry").last().screenshot({path:`${SHOTS_DIR}/humans-rd.png`});
+check(J.errors.length===0 && V.errors.length===0, `no page errors ${[...J.errors,...V.errors].join(" | ")}`);
+await b.close(); console.log(fails?`${fails} FAILED`:"all @humans receipt checks passed");
