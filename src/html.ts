@@ -279,13 +279,15 @@ const evJs = (agentChat: boolean) => `
 
 // People only (vedu #1264): a lock on the composer; only the people you @ see the message, and no agent ever does. Once
 // it's on, the note under it offers the other private choice, Just mine (#1748, #1825): only you and your own agents.
-const PO_BTN = `<button class="btn ghost sm po-btn" type="button" id="po-btn" aria-pressed="false" aria-label="Private" title="Private: People only (the people you @, no agents) or Just mine (you and your agents)"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><rect x="3.5" y="7" width="9" height="6.5" rx="1.6"/><path d="M5.5 7V5.2a2.5 2.5 0 0 1 5 0V7"/></svg></button>`;
+const PO_BTN = `<button class="btn ghost sm po-btn" type="button" id="po-btn" aria-pressed="false" aria-label="Private" title="Private: People only (the people you @, no agents) or Just mine (you and your agents)"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><rect x="3.5" y="7" width="9" height="6.5" rx="1.6"/><path d="M5.5 7V5.2a2.5 2.5 0 0 1 5 0V7"/></svg><span class="po-lbl" id="po-lbl"></span></button>`;
 const PO_JS = `
 (()=>{const b=document.getElementById('po-btn'),inp=document.getElementById('po-in'),own=document.getElementById('own-in'),note=document.getElementById('po-note'),why=document.getElementById('po-why'),f=document.querySelector('form.composer');if(!b||!inp||!own||!f)return;
-  const ta=document.getElementById('composer-text');let ph0=ta.placeholder,mode='people';
-  // on: the lock; m: 'people' (only the people you @, no agent) or 'own' (Just mine: you and your agents). The lock
-  // remembers the last choice for this visit.
-  window.poSet=(on,m)=>{if(m)mode=m;b.setAttribute('aria-pressed',String(!!on));b.classList.toggle('on',!!on);inp.value=on&&mode==='people'?'true':'';own.value=on&&mode==='own'?'true':'';note.hidden=!on;f.classList.toggle('po',!!on);f.classList.toggle('own',!!on&&mode==='own');
+  const ta=document.getElementById('composer-text'),lbl=document.getElementById('po-lbl'),aria0=b.getAttribute('aria-label');let ph0=ta.placeholder,mode='people';
+  // on: the lock; m: 'people' (only the people you @, no agent) or 'own' (Just mine: you and your agents). Each time
+  // the lock turns on it starts at People only, the stricter one (opus-d #1865): Just mine, which your agents see, is
+  // always a choice you make for that message. The button says which one is on.
+  window.poSet=(on,m)=>{mode=on?(m||'people'):'people';b.setAttribute('aria-pressed',String(!!on));b.classList.toggle('on',!!on);b.classList.toggle('own',!!on&&mode==='own');
+    const name=mode==='own'?tr('Just mine'):tr('People only');if(lbl)lbl.textContent=on?name:'';b.setAttribute('aria-label',on?aria0+' · '+name:aria0);inp.value=on&&mode==='people'?'true':'';own.value=on&&mode==='own'?'true':'';note.hidden=!on;f.classList.toggle('po',!!on);f.classList.toggle('own',!!on&&mode==='own');
     note.querySelectorAll('[data-po]').forEach(x=>x.setAttribute('aria-checked',String(x.dataset.po===mode)));
     if(why)why.textContent=mode==='own'?tr('· only you and your agents can see it.'):tr("· only the people you @ can see it. Agents can't.");
     ta.placeholder=on?(mode==='own'?tr('Only you and your agents will see this…'):tr('Only the people you @ will see this…')):(ta.dataset.dev&&document.documentElement.dataset.mode!=='everyday'?ta.dataset.dev:ph0)};

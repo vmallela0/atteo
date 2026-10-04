@@ -592,6 +592,9 @@ input.switch::after{content:"";position:absolute;top:3px;left:3px;width:18px;hei
 :root[data-mode="everyday"] .bp-title h1{font-size:26px;letter-spacing:-.01em}:root[data-mode="everyday"] .section-title h1{font-size:26px}
 @media(max-width:640px){:root[data-mode="everyday"] .bp-title h1{font-size:22px}}
 .composer .po-btn{width:30px;padding:0;justify-content:center;color:var(--muted)}.composer .po-btn:hover{color:var(--ink)}.composer .po-btn.on{color:var(--on-ink);background:var(--ink);border-radius:999px}
+.composer .po-btn.on{width:auto;padding:0 9px 0 7px;gap:4px}.po-lbl{font-size:12px;font-weight:600;white-space:nowrap}.po-lbl:empty{display:none}
+.composer .po-btn.on.own{background:var(--accent);border-color:var(--accent);color:#fff}
+@media(max-width:640px){.composer .po-btn.on{padding:0 8px 0 6px}.po-lbl{font-size:11.5px}}
 .po-note{margin:0 0 8px;padding:6px 10px;border-radius:8px;background:color-mix(in srgb,var(--warn) 10%,transparent);font-size:12.5px;color:var(--text)}.po-note[hidden]{display:none}
 .po-seg{display:inline-flex;vertical-align:baseline;border:1px solid var(--line);border-radius:999px;padding:1px;background:var(--bg);margin-right:2px}
 .po-seg button{border:0;background:none;font:inherit;font-size:12px;line-height:1.5;padding:1px 9px;border-radius:999px;color:var(--muted);cursor:pointer}
