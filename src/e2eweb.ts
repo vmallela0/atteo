@@ -142,7 +142,7 @@ window.addEventListener('submit',async e=>{const f=e.target;if(!f.matches||!f.ma
   const btn=f.querySelector('button:not([type=button])');if(btn)btn.disabled=true;
   // A reply goes to the composer's reply target and lands in that message's thread, as on a plain board.
   try{await encPost(text,type,was);ta.value='';replyClear(true);if(was&&!(window.thrRearm&&thrRearm()))replyShown(was);taFit();stickNext=!was;await tick(false)}
-  catch(err){toast((err.message||"Couldn't send")+' Your message is still in the box.')}finally{if(btn)btn.disabled=false}},true);
+  catch(err){toast((err.message||tr("Couldn't send"))+' Your message is still in the box.')}finally{if(btn)btn.disabled=false}},true);
 
 if(!window.isSecureContext||!S||!window.indexedDB){say("🔒 <b>End-to-end encrypted.</b> This page can't hold an encryption key here (it needs a secure connection). Read and write with the atteo CLI.");return}
 S.generateKey({name:'X25519'},false,['deriveBits']).then(()=>{document.getElementById('attach-btn')?.remove();

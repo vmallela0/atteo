@@ -19,7 +19,7 @@ import { stateOf } from "./sessions";
 import { E2E_JS } from "./e2eweb";
 import { STATUS_JS } from "./status";
 import { EMOJI } from "./emoji";
-import { LANG_NAMES, tr, type Lang } from "./i18n";
+import { LANG_NAMES, localize, tr, type Lang } from "./i18n";
 import { approvalCardHtml, approvalJs, type ApprovalCardData } from "./approvalCard";
 
 export type { Viewer, SideBoard };
@@ -295,8 +295,8 @@ const PREVIEW_JS = `
   const CSP='<meta http-equiv="Content-Security-Policy" content="default-src \\'none\\'; script-src \\'unsafe-inline\\'; style-src \\'unsafe-inline\\'; img-src data: blob:; font-src data:; media-src data: blob:; form-action \\'none\\'; base-uri \\'none\\'">';
   const withCsp=h=>/<head[^>]*>/i.test(h)?h.replace(/<head[^>]*>/i,m=>m+CSP):CSP+h;
   async function open(name,ver){
-    let html='';try{const r=await fetch('/api/boards/'+BOARD+'/doc?name='+encodeURIComponent(name)+(ver?'&version='+ver:''));const d=await r.json();if(!r.ok){toast(d.error||"Couldn't open it");return}html=d.content||'';
-      if(window.e2eDecryptDoc)html=await window.e2eDecryptDoc(d)||html}catch(e){toast("Couldn't open it");return}
+    let html='';try{const r=await fetch('/api/boards/'+BOARD+'/doc?name='+encodeURIComponent(name)+(ver?'&version='+ver:''));const d=await r.json();if(!r.ok){toast(d.error||tr("Couldn't open it"));return}html=d.content||'';
+      if(window.e2eDecryptDoc)html=await window.e2eDecryptDoc(d)||html}catch(e){toast(tr("Couldn't open it"));return}
     dlg.querySelector('#pv-name').textContent=name;fr.srcdoc=withCsp(html);setW('');if(!dlg.open)dlg.showModal()}
   function setW(w){fr.style.width=w?w+'px':'100%';dlg.querySelectorAll('[data-pv-w]').forEach(b=>b.classList.toggle('on',b.dataset.pvW===w))}
   dlg.addEventListener('click',e=>{if(e.target===dlg||e.target.closest('[data-pv-close]')){dlg.close();return}const w=e.target.closest('[data-pv-w]');if(w)setW(w.dataset.pvW)});
@@ -359,7 +359,7 @@ ${ALLOWANCE_JS}
   // Read aloud: new messages for you queue up behind a blip; the bar under them plays them in order.
   function who(el){return ((el.querySelector('.who')||{}).innerText||el.dataset.author||'').trim()}
   function pillUpd(){if(!q.length&&!speaking){pill.hidden=true;return}pill.hidden=false;const el=document.getElementById('e'+q[0]);
-    document.getElementById('vp-go').textContent=speaking?'🔊 Reading'+(ttsOut?' with the device voice':'')+(q.length?' · '+q.length+' more':'')+' · tap to stop':'🔊 '+(q.length>1?q.length+' for you, first from ':tr('For you from '))+(el?who(el):'')+' · tap or say “go ahead”'}
+    document.getElementById('vp-go').textContent=speaking?'🔊 '+tr(ttsOut?'Reading with the device voice':'Reading')+(q.length?' · '+tr('{n} more',{n:q.length}):'')+' · '+tr('tap to stop'):'🔊 '+(q.length>1?tr('{n} for you, first from {name}',{n:q.length,name:el?who(el):''}):tr('For you from {name}',{name:el?who(el):''}))+' · '+tr('tap or say “go ahead”')}
   // Atteo's own voice first (POST /api/app/tts, jxn #1612); the device's voice only when the server says to (fallback:"device":
   // not set up, over the allowance, the service down) or the audio won't play.
   var au=null,auN=0;
@@ -384,7 +384,7 @@ ${ALLOWANCE_JS}
     const never=()=>!started&&!u.done&&!syn.speaking;
     setTimeout(()=>{if(u.done)return;if(syn.resume)syn.resume();syn.speak(u);
       setTimeout(()=>{if(!never())return;syn.cancel();syn.speak(u);
-        setTimeout(()=>{if(!never())return;u.done=1;speaking=false;q.length=0;pillUpd();toast("The browser didn't play it: check the volume, or that this page may play sound")},2000)},1500)},200)}
+        setTimeout(()=>{if(!never())return;u.done=1;speaking=false;q.length=0;pillUpd();toast(tr("The browser didn't play it: check the volume, or that this page may play sound"))},2000)},1500)},200)}
   // The best voice this device has for the language: neural ones first (Edge "Natural", Apple "Premium"/"Enhanced", Google's), then local (jxn #1104)
   function bestVoice(){const vs=(syn.getVoices&&syn.getVoices())||[],l=LANG.toLowerCase(),two=l.slice(0,2);
     const score=v=>{const n=v.name||'',vl=(v.lang||'').toLowerCase().replace('_','-');if(!vl.startsWith(two))return -1;
@@ -942,15 +942,15 @@ f.addEventListener('submit',async e=>{e.preventDefault();const links=[0,1,2].map
 })();`;
 
 /** One row of the Stripe-style event log. */
-export function logRow(e: Entry, boardTitle?: string, boardId?: string): string {
+export function logRow(e: Entry, boardTitle?: string, boardId?: string, lang?: Lang): string {
   const d = new Date(e.ts);
   const t = d.toISOString();
   return `<tr class="ev" data-seq="${e.seq}"${boardId ? ` data-board="${esc(boardId)}"` : ""} tabindex="-1">
 <td class="mono" title="${t}">${t.slice(5, 10)} ${t.slice(11, 19)}</td>
 <td class="mono">#${e.seq}</td>
 ${boardTitle != null ? `<td class="truncate" style="max-width:160px">${esc(boardTitle)}</td>` : ""}
-<td><span class="row">${avatar(e.author, "sm", e.via === "agent")}${esc(e.via === "agent" ? `${e.author}'s agent` : e.author)}</span></td>
-<td>${typeTag(e.type)}</td>
+<td><span class="row">${avatar(e.author, "sm", e.via === "agent")}${esc(e.via === "agent" ? tr(lang, "{name}'s agent", { name: e.author }) : e.author)}</span></td>
+<td>${typeTag(e.type, lang)}</td>
 <td class="muted">${esc([e.to, ...(e.mentions ?? []).map((m) => mentionLabel(m))].filter(Boolean).join(", ")) || "—"}</td>
 <td class="sum"><span>${esc(clip(e.artifact_name ? `${e.artifact_name}${e.artifact_version ? ` v${e.artifact_version}` : ""} — ${e.text}` : e.text, 200))}</span></td></tr>`;
 }
@@ -966,12 +966,12 @@ const SHEET_JS = `
 window.openEntry=async(board,seq)=>{const d=document.getElementById('sheet');
   const r=await fetch('/api/boards/'+board+'/entries/'+seq);const j=await r.json();if(!r.ok){toast(j.error||tr('Could not load'));return}
   const e=j.entry;
-  document.getElementById('sheet-title').textContent='#'+e.seq+' '+e.type;
+  document.getElementById('sheet-title').textContent='#'+e.seq+' '+tr(e.type);
   document.getElementById('sheet-sub').innerHTML=esc(e.author)+(e.to?' → '+esc(e.to):'')+' · '+new Date(e.ts).toLocaleString()+' · <a class="link" href="/b/'+board+'#e'+e.seq+'">'+tr('Show in conversation')+'</a>';
-  const kv=[[tr('Board'),board],[tr('Sequence'),'#'+e.seq],[tr('Type'),e.type],[tr('Author'),e.author],[tr('To'),e.to||'everyone'],[tr('Mentions'),(e.mentions||[]).length?e.mentions.map(m=>'@'+m.user+(m.agent?"'s agent":'')).join(', '):'—'],[tr('Time'),new Date(e.ts).toISOString()],
+  const kv=[[tr('Board'),board],[tr('Sequence'),'#'+e.seq],[tr('Type'),tr(e.type)],[tr('Author'),e.author],[tr('To'),e.to||tr('everyone')],[tr('Mentions'),(e.mentions||[]).length?e.mentions.map(m=>'@'+m.user+(m.agent?"'s agent":'')).join(', '):'—'],[tr('Time'),new Date(e.ts).toISOString()],
     [tr('Reply to'),e.reply_to?'#'+e.reply_to:'—'],[tr('Resolves'),e.resolves.length?e.resolves.map(n=>'#'+n).join(', '):'—'],[tr('Supersedes'),e.supersedes?'#'+e.supersedes:'—'],
     [tr('Replies'),j.replies.length?j.replies.map(x=>'#'+x.seq+' '+x.type).join(', '):'—']];
-  if(e.artifact_name)kv.push([tr('File'),e.artifact_name+' ('+e.artifact_size+' bytes)']);
+  if(e.artifact_name)kv.push([tr('File'),e.artifact_name+' ('+tr('{n} bytes',{n:e.artifact_size})+')']);
   document.getElementById('sheet-kv').innerHTML=kv.map(([k,v])=>'<dt>'+k+'</dt><dd>'+esc(v)+'</dd>').join('');
   const raw=JSON.stringify(j.artifact_content!=null?{...e,artifact_content:j.artifact_content}:e,null,2);
   document.getElementById('sheet-json').innerHTML=esc(raw).replace(/(&quot;[^&]*?&quot;)(\s*:)/g,'<span class="k">$1</span>$2').replace(/:\s(&quot;.*?&quot;)(,?)$/gm,': <span class="s">$1</span>$2').replace(/:\s(-?\d+)(,?)$/gm,': <span class="n">$1</span>$2');
@@ -1058,7 +1058,7 @@ export function boardPage(
       ? `<div class="empty" id="empty"><h3>${esc(T("Talk to your agent"))}</h3><p class="small">Only you and your agents see this chat. Ask anything below: any of your agents can answer (<span class="mono">atteo dispatch</span> starts one for each message), or pick one of them.</p></div>`
     : `<div class="empty" id="empty"><h3>${esc(T("Nothing here yet"))}</h3><p class="small">Any agent joins with <span class="mono">atteo join ${esc(info.id)}</span>. Or write the first note below.</p>
 ${agent.connected ? "" : `<button class="btn primary lg" style="margin-top:16px" data-open="connect">${esc(T("Connect an agent"))}</button>`}</div>`;
-  const rows = [...entries].reverse().map((e) => logRow(e)).join("");
+  const rows = [...entries].reverse().map((e) => logRow(e, undefined, undefined, viewer.lang)).join("");
   const script = SHEET_JS + CONNECT_JS + (agentChat ? AGENT_PICK_JS : "") + `
 window.BOARD=${JSON.stringify(info.id)};let last=${last};
 // Earlier messages, on demand (a page at a time, or as far back as a given entry for a link to an older message). Replies go
@@ -1335,7 +1335,7 @@ document.querySelector('form.composer')?.addEventListener('submit',()=>{const m=
 // The text leaves the box right after the form has read it (the post handler reads it synchronously), so focus stays and you can type the next one.
 // Copy on a code block in a message (jxn #1255).
 document.addEventListener('click',async e=>{const b=e.target.closest('[data-copy-code]');if(!b)return;e.preventDefault();e.stopPropagation();const c=b.closest('.code-b')?.querySelector('code');if(!c)return;
-  try{await navigator.clipboard.writeText(c.textContent);b.textContent=tr('Copied');setTimeout(()=>{b.textContent=tr('Copy')},1500)}catch(err){toast("Couldn't copy: select the code instead")}});
+  try{await navigator.clipboard.writeText(c.textContent);b.textContent=tr('Copied');setTimeout(()=>{b.textContent=tr('Copy')},1500)}catch(err){toast(tr("Couldn't copy: select the code instead"))}});
 var SENT_TEXT=null;function sendLook(on){document.querySelector('form.composer')?.classList.toggle('sending',on)}
 document.querySelector('form.composer')?.addEventListener('submit',()=>{sentKey=draftNow();const t=ta.value.trim();if(t&&!pending.length){sendLook(true);const keep=ta.value;setTimeout(()=>{if(ta.value===keep){SENT_TEXT=keep;ta.value='';taFit()}},0)}if(!t||!rpTo||rpTo.value||pending.length)return; // files get their own copy (below); replies go in their thread, after the real post
   const el=document.createElement('article');el.className='entry pending';el.innerHTML='<div class="grow"><div class="meta"><span class="who"></span><span class="xs faint">'+tr('sending…')+'</span></div><div class="body"></div></div>';
@@ -1343,7 +1343,7 @@ document.querySelector('form.composer')?.addEventListener('submit',()=>{sentKey=
 },true);
 // While a post is retrying it says so; if it really can't be sent, your text is still in the box (the form only resets on success).
 window.postRetrying=()=>document.querySelectorAll('#thread .entry.pending .faint').forEach(x=>x.textContent='connection lost, retrying…');
-window.postFailed=(j)=>{sendLook(false);if(SENT_TEXT!=null&&!ta.value.trim()){ta.value=SENT_TEXT;taFit()}SENT_TEXT=null;document.querySelectorAll('#thread .entry.pending').forEach(x=>x.remove());toast(j.error||"Couldn't send. Your message is still in the box.")};
+window.postFailed=(j)=>{sendLook(false);if(SENT_TEXT!=null&&!ta.value.trim()){ta.value=SENT_TEXT;taFit()}SENT_TEXT=null;document.querySelectorAll('#thread .entry.pending').forEach(x=>x.remove());toast(j.error||tr("Couldn't send. Your message is still in the box."))};
 // @mention autocomplete: people ("@vedu") and agents ("@vedu's agent", including your own).
 const MOPTS=${jsString(mentionOptions(members.map((m) => m.user), viewer.name, agents, agentNames(members), new Set(members.filter((m) => m.agent_name_ambiguous).map((m) => m.user))))};
 const MNAMES=new Set(MOPTS.map(o=>o.u)),ME=${jsString(viewer.name)};
@@ -1522,7 +1522,7 @@ document.getElementById('composer-text')?.addEventListener('keydown',e=>{
 const READONLY=${info.archived || readOnly ? "true" : "false"};let curDoc=null,editing=false;
 async function loadDocs(){const r=await fetch('/api/boards/'+BOARD+'/files');const j=await r.json();const el=document.getElementById('doc-items');const fs=j.files||j.docs||[];
   const kb=n=>n<1024?n+' B':(n/1024).toFixed(1)+' KB';
-  el.innerHTML=fs.length?fs.map(d=>'<a href="#files" class="doc-item'+(curDoc&&curDoc.name===d.name?' on':'')+'" data-doc="'+esc(d.name)+'" title="'+esc(d.name+' · v'+d.version+(d.updated_by?' · '+(d.via==='agent'?d.updated_by+"'s agent":d.updated_by):''))+'"><span class="truncate mono">'+esc(d.name)+'</span><span class="xs faint">v'+d.version+(d.size!=null?' · '+kb(d.size):'')+'</span></a>').join(''):'<p class="xs faint">No files yet.</p>';
+  el.innerHTML=fs.length?fs.map(d=>'<a href="#files" class="doc-item'+(curDoc&&curDoc.name===d.name?' on':'')+'" data-doc="'+esc(d.name)+'" title="'+esc(d.name+' · v'+d.version+(d.updated_by?' · '+(d.via==='agent'?d.updated_by+"'s agent":d.updated_by):''))+'"><span class="truncate mono">'+esc(d.name)+'</span><span class="xs faint">v'+d.version+(d.size!=null?' · '+kb(d.size):'')+'</span></a>').join(''):'<p class="xs faint">'+tr('No files yet.')+'</p>';
   // Nothing open yet: the viewer says to pick a file, not that there are none.
   const ph=document.getElementById('doc-empty');if(ph){ph.dataset.none=ph.dataset.none||ph.textContent;ph.textContent=fs.length?tr('Pick a file to open it.'):ph.dataset.none}
   // On a wide screen, an empty viewer opens the most recently changed file (phones keep the list first).
@@ -1620,7 +1620,7 @@ cform.addEventListener('submit',async e=>{if(!pending.length)return;e.preventDef
     for(const x of files){fd.append('file',x.blob,x.name);fd.append('w',x.image&&x.w?String(x.w):'');fd.append('h',x.image&&x.h?String(x.h):'')}
     if(text)fd.append('text',text);if(rpTo.value)fd.append('reply_to',rpTo.value);
     const r=await fetch('/api/boards/'+BOARD+'/upload',{method:'POST',body:fd});
-    const j=await r.json().catch(()=>({}));if(!r.ok){fail(j.error||"Couldn't post "+(files.length>1?'those files':files[0].name)+'. They are still attached.');return}
+    const j=await r.json().catch(()=>({}));if(!r.ok){fail(j.error||tr("Couldn't post ")+(files.length>1?'those files':files[0].name)+'. They are still attached.');return}
     if(ph){ph.remove();ph=null}if(j.update&&addEntry(j.update)&&!rpTo.value){railBuild();toBottom()}
     files.forEach(x=>{if(x.url)URL.revokeObjectURL(x.url)});pending=pending.filter(x=>!files.includes(x));renderAtt();ta.value='';msync();
     sendLook(false);const was=+rpTo.value;cform.reset();draftSave(draftNow(),'');replyClear(true);if(was){ta.value=draftLoad('');replyShown(was)}taFit();stickNext=!was;tick(false)}
@@ -1741,7 +1741,7 @@ function renderRx(seq,list){const row=document.querySelector('[data-rx="'+seq+'"
       (work.length?part('think','🤔',work,rxNames(work)+(work.length>1?' are':' is')+' on it'):'');row.appendChild(d)}
   row.classList.toggle('has',chips.length>0);row.classList.toggle('has-rcpt',!!(read.length||done.length||work.length))}
 async function react(seq,emoji){const r=await fetch('/api/boards/'+BOARD+'/entries/'+seq+'/react',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({emoji})});
-  const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||"Couldn't react");return}
+  const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||tr("Couldn't react"));return}
   if(j.on){const e=emo(emoji);if(e[0]!==':'){freqAdd(e);quickApply()}}renderRx(seq,j.reactions)}
 // The emoji picker (vedu: "let me pick what emojis i will use, similar to slack"): your row on top (up to 8 you choose and
 // order, your most-used filling the rest; its first 3 are the one-click buttons on every message), search, then Frequently used
@@ -1800,7 +1800,7 @@ picker.innerHTML='<div class="rp-quick" role="group" aria-label="'+tr('Your reac
   '<div class="rp-czb"><button type="button" class="btn ghost sm" data-rp-mv="-1" aria-label="'+tr('Move left')+'" disabled>◀</button><button type="button" class="btn ghost sm" data-rp-mv="1" aria-label="'+tr('Move right')+'" disabled>▶</button>'+
   '<button type="button" class="btn ghost sm" data-rp-rm aria-label="'+tr('Remove from your row')+'" disabled>✕</button><span class="grow"></span><button type="button" class="btn ghost sm" data-rp-reset>'+tr('Reset')+'</button><button type="button" class="btn primary sm" data-rp-done>'+tr('Done')+'</button></div></div>'+
   '<div class="rp-search"><input class="input" type="search" placeholder="'+tr('Search emoji (fire, ship, :tada:)')+'" aria-label="'+tr('Search emoji')+'" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="done"></div>'+
-  '<div class="rp-tabs">'+['🕘',...EMO.map(c=>c[1])].map((ic,i)=>'<button type="button" data-rp-tab="'+i+'" aria-label="'+(i?EMO[i-1][0]:tr('Frequently used'))+'" title="'+(i?EMO[i-1][0]:tr('Frequently used'))+'">'+ic+'</button>').join('')+'</div>'+
+  '<div class="rp-tabs">'+['🕘',...EMO.map(c=>c[1])].map((ic,i)=>'<button type="button" data-rp-tab="'+i+'" aria-label="'+(i?tr(EMO[i-1][0]):tr('Frequently used'))+'" title="'+(i?tr(EMO[i-1][0]):tr('Frequently used'))+'">'+ic+'</button>').join('')+'</div>'+
   '<div class="rp-body"></div><div class="rp-foot"><span class="rp-big" aria-hidden="true"></span><span class="rp-nm"></span><button type="button" class="linkish" data-rp-cz>'+tr('Customize')+'</button></div>';
 document.body.appendChild(picker);
 const rpScrim=document.createElement('div');rpScrim.className='rp-scrim';rpScrim.hidden=true;document.body.appendChild(rpScrim);
@@ -1813,7 +1813,7 @@ function rpFind(q){q=q.toLowerCase().trim().replace(/^:+|:+$/g,'').replace(/ +/g
   if(al&&!hits.some(h=>h[1]===al))hits.unshift([-1,al]);return hits.sort((a,b)=>a[0]-b[0]).map(h=>h[1])}
 function rpRender(){const q=rpQ.value,hits=rpFind(q);rpCur=null;picker.classList.toggle('searching',!!hits);
   if(hits){rpBody.innerHTML=hits.length?rpSec(tr('Search results'),hits.slice(0,72)):'<div class="rp-none">No emoji match “'+esc(q.trim())+'”</div>';const f=rpBody.querySelector('[data-ep]');if(f)rpHi(f,true);else rpShow('');return}
-  const fr=[...new Set([...recentGet(),...freqTop(16)])].slice(0,16);rpBody.innerHTML=rpSec(tr('Frequently used'),[...new Set([...fr,...QUICK])].slice(0,Math.max(8,fr.length)),0)+EMO.map((c,i)=>rpSec(c[0],c[2].map(x=>x.e),i+1)).join('');rpBody.scrollTop=0;rpShow('')}
+  const fr=[...new Set([...recentGet(),...freqTop(16)])].slice(0,16);rpBody.innerHTML=rpSec(tr('Frequently used'),[...new Set([...fr,...QUICK])].slice(0,Math.max(8,fr.length)),0)+EMO.map((c,i)=>rpSec(tr(c[0]),c[2].map(x=>x.e),i+1)).join('');rpBody.scrollTop=0;rpShow('')}
 function rpQuick(){const mine=quickGet(),row=quickRow(),cz=picker.classList.contains('cz');
   rpQEl.innerHTML=row.map((e,i)=>cz?'<button type="button" class="rp-e rp-slot '+(i<mine.length?'pin':'auto')+(i===czSel?' sel':'')+'" data-slot="'+i+'" draggable="'+(i<mine.length)+'" aria-pressed="'+(i===czSel)+'" aria-label="'+(i<mine.length?(i+1)+': '+esc(e):tr('Most used ')+esc(e)+', tap to keep it')+'">'+esc(e)+'</button>'
     :'<button type="button" class="rp-e'+(rpMine.has(e)?' on':'')+'" data-pick="'+esc(e)+'" aria-label="React '+esc(e)+'">'+esc(e)+'</button>').join('');
@@ -1923,7 +1923,7 @@ document.addEventListener('change',async e=>{const i=e.target;if(!i.matches||!i.
   const save=b=>fetch('/api/boards/'+BOARD+'/tasks/'+seq,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'edit',summary,...b})}).then(async r=>({ok:r.ok,j:await r.json().catch(()=>({}))}));
   let r=await save({old_str:c.line,new_str:nl});
   if(!r.ok&&/more than once/.test(r.j.error||'')){const p=c.at-(text.length-t.body.length);r=await save({body:t.body.slice(0,p)+nl+t.body.slice(p+c.line.length),base_version:t.version})}
-  if(!r.ok)undo(r.j.error||"Couldn't save");i.disabled=false;refreshTask(seq)});
+  if(!r.ok)undo(r.j.error||tr("Couldn't save"));i.disabled=false;refreshTask(seq)});
 fetch('/api/boards/'+BOARD+'/tasks').then(r=>r.json()).then(j=>{const ts=j.tasks||[];ts.forEach(t=>TASKS[t.seq]=t);ts.forEach(renderTask)}).catch(()=>{});
 // ---- "on it" / "done": which agent took a message, and who finished it. The person whose agent it is can mark it
 // done or clear it (✓ / ×); a cleared marker disappears on the next update (the map always has all of them). ----
@@ -2342,7 +2342,7 @@ async function openTask(seq){const r=await fetch('/api/boards/'+BOARD+'/tasks/'+
   document.getElementById('td-assignee').value=t.assignee?(t.assignee_agent?t.assignee+"'s agent":t.assignee):'';
   const by=t.updated_via==='agent'?t.updated_by+"'s agent":t.updated_by;
   document.getElementById('td-meta').textContent='v'+t.version+' · edited by '+by+' '+tdate(t.updated_at)+(t.lease_holder?' · 🔒 '+(t.lease_agent?t.lease_holder+"'s agent":t.lease_holder)+' until '+tdate(t.lease_until):'')+(t.stop_reason?' · stopped: '+t.stop_reason:'')+(t.done_note?' · done: '+t.done_note:'');
-  document.getElementById('td-hist').innerHTML=(j.history||[]).map(v=>'<li>v'+v.version+' · '+esc(v.via==='agent'?v.author+"'s agent":v.author)+' · '+tdate(v.ts)+(v.summary?' — '+esc(v.summary):'')+'</li>').join('')||'<li>No edits yet</li>';
+  document.getElementById('td-hist').innerHTML=(j.history||[]).map(v=>'<li>v'+v.version+' · '+esc(v.via==='agent'?v.author+"'s agent":v.author)+' · '+tdate(v.ts)+(v.summary?' — '+esc(v.summary):'')+'</li>').join('')||'<li>'+tr('No edits yet')+'</li>';
   document.getElementById('td-err').hidden=true;
   document.getElementById('td-remove').hidden=!(t.author===ME||ME===CREATOR);
   if(!td.open){td.showModal();const ti=document.getElementById('td-title');ti.setSelectionRange(0,0);ti.scrollLeft=0;if(matchMedia('(pointer:coarse)').matches)ti.blur()}}
@@ -2418,12 +2418,12 @@ window.boardKeys=(e,k)=>{
     }
 
   </div></div>
-  <div class="bp-tabs"><div class="tabs" role="tablist" id="board-tabs"><button role="tab" aria-selected="true" aria-controls="panel-conv">${esc(T("Conversation"))}</button><button role="tab" aria-selected="false" aria-controls="panel-log">${esc(T("Log"))}</button><button role="tab" aria-selected="false" aria-controls="panel-docs">${esc(T("Files"))}</button><button role="tab" aria-selected="false" aria-controls="panel-tasks">${esc(T("Tasks"))} <span class="faint" id="task-count"></span></button></div>${agentChat ? "" : RECAP_BTN}
+  <div class="bp-tabs"><div class="tabs" role="tablist" id="board-tabs"><button role="tab" aria-selected="true" aria-controls="panel-conv">${esc(T("Conversation"))}</button><button role="tab" aria-selected="false" aria-controls="panel-log">${esc(T("Log"))}</button><button role="tab" aria-selected="false" aria-controls="panel-docs">${esc(T("Files"))}</button><button role="tab" aria-selected="false" aria-controls="panel-tasks">${esc(T("Tasks"))} <span class="faint" id="task-count"></span></button></div>${agentChat ? "" : localize(L, RECAP_BTN)}
     </div>
 </div>
 <div role="tabpanel" id="panel-conv" class="bp-panel" data-board-panel><div class="layout" id="conv-layout">
   <button class="btn ghost sm info-btn" type="button" id="info-btn" aria-expanded="false" aria-controls="board-info" aria-label="${esc(T("Board info"))}" title="${esc(T("Board info"))}"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2"/><path d="M10 2.75v10.5"/><path class="fill" d="M10.7 3.45h2.1a.75.75 0 0 1 .75.75v7.6a.75.75 0 0 1-.75.75h-2.1z" fill="currentColor" stroke="none"/></svg><span class="count" id="info-count" hidden></span></button>
-  <section class="conv">${agentChat ? "" : PIN_BAR}
+  <section class="conv">${agentChat ? "" : localize(L, PIN_BAR)}
     <div class="thread-wrap"><div class="thread-scroll" id="thread-scroll"><div class="thread" id="thread">${thread}</div></div>
       <div class="rail" id="rail" aria-hidden="true"></div><div class="rail-tip" id="rail-tip" hidden></div>
       <button class="btn sm new-pill" type="button" id="new-pill" hidden>${esc(T("Jump to latest ↓"))}</button></div>
@@ -2441,7 +2441,7 @@ window.boardKeys=(e,k)=>{
       <div class="bar">
         <button class="btn ghost sm attach" type="button" id="attach-btn" aria-label="${esc(T("Attach files"))}" title="${esc(T("Attach files or images (or paste or drop them)"))}"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M13.5 7.6 8.3 12.8a3.2 3.2 0 0 1-4.5-4.5l5.6-5.6a2.1 2.1 0 0 1 3 3L6.8 11.3a1 1 0 0 1-1.5-1.5l4.9-4.9"/></svg></button>
         <input type="file" id="attach-input" multiple hidden>
-        <button class="btn ghost sm at-btn" type="button" data-mention-for="composer-text" aria-label="${esc(T("Mention someone"))}" title="${esc(T("Mention a person or their agent (or type @)"))}">@</button>${agentChat ? sessionPicker(board.sessions ?? []) : ""}${VOICE_BTNS}${agentChat ? "" : PO_BTN}
+        <button class="btn ghost sm at-btn" type="button" data-mention-for="composer-text" aria-label="${esc(T("Mention someone"))}" title="${esc(T("Mention a person or their agent (or type @)"))}">@</button>${agentChat ? sessionPicker(board.sessions ?? []) : ""}${localize(L, VOICE_BTNS)}${agentChat ? "" : localize(L, PO_BTN)}
         <input type="hidden" name="type" id="cmp-type" value="note">
         <span class="grow"></span><button class="btn primary sm">${esc(T("Post"))}</button>
       </div>
@@ -2452,11 +2452,11 @@ window.boardKeys=(e,k)=>{
 </div></div>
 <div role="tabpanel" id="panel-log" class="bp-panel" data-board-panel hidden><div class="list scroll-x"><table class="log"><thead><tr><th>${esc(T("Time (UTC)"))}</th><th>#</th><th>${esc(T("Author"))}</th><th>${esc(T("Type"))}</th><th>${esc(T("To"))}</th><th>${esc(T("Summary"))}</th></tr></thead>
 <tbody id="log-body">${rows || `<tr id="log-empty"><td colspan="6" class="empty small">${esc(T("No events yet."))}</td></tr>`}</tbody></table></div>
-<p class="xs faint" style="margin-top:10px">Every entry, newest first. Click a row (or <kbd>J</kbd>/<kbd>K</kbd> then <kbd>↵</kbd>) for its raw payload.</p></div>
+<p class="xs faint" style="margin-top:10px">${esc(T("Every entry, newest first. Click a row (or J/K then ↵) for its raw payload."))}</p></div>
 <div role="tabpanel" id="panel-docs" class="bp-panel" data-board-panel hidden>
   <div class="docs">
     <div class="doc-list"><div class="row" style="justify-content:space-between;margin-bottom:8px"><span class="small muted">${esc(T("Files"))}</span>${info.archived ? "" : `<button class="btn sm" type="button" id="doc-new">${esc(T("New"))}</button>`}</div><div id="doc-items" class="small muted">${esc(T("Loading…"))}</div></div>
-    <div class="doc-view card pad" id="doc-view"><p class="muted small" id="doc-empty">No files yet. Create one (e.g. BACKLOG.md), post one from the conversation, or paste an image there. People and agents edit files together, and every save or post is a new version.</p></div>
+    <div class="doc-view card pad" id="doc-view"><p class="muted small" id="doc-empty">${esc(T("No files yet. Create one (e.g. BACKLOG.md), post one from the conversation, or paste an image there. People and agents edit files together, and every save or post is a new version."))}</p></div>
   </div>
 </div>
 
@@ -2481,7 +2481,7 @@ window.boardKeys=(e,k)=>{
       <p class="flash err" id="td-err" hidden></p>
       <div class="row" style="justify-content:space-between;margin-top:12px"><div class="row" style="gap:6px"><button class="btn sm ghost" type="button" id="td-open">${esc(T("Open in conversation"))}</button><button class="btn sm ghost" type="button" id="td-remove" hidden>${esc(T("Remove"))}</button></div><button class="btn primary sm">${esc(T("Save"))}</button></div>
     </div></form></dialog>
-${SHEET}${agentChat ? "" : RECAP_DLG + SOUL_DLG}
+${localize(L, SHEET)}${agentChat ? "" : localize(L, RECAP_DLG + SOUL_DLG)}
 <dialog class="lightbox" id="lightbox" aria-label="${esc(T("Image"))}"><img id="lightbox-img" alt=""><button class="lb-nav lb-prev" type="button" aria-label="${esc(T("Previous picture"))}" hidden>‹</button><button class="lb-nav lb-next" type="button" aria-label="${esc(T("Next picture"))}" hidden>›</button><span class="lb-count xs" hidden></span></dialog>
 
 ${connectDialog(viewer, { id: info.id, title: info.title })}
@@ -2515,7 +2515,7 @@ ${connectDialog(viewer, { id: info.id, title: info.title })}
     <select class="input acc-sel" name="expires_days" aria-label="${esc(T("Access"))}"><option value="0">${esc(T("No end date"))}</option><option value="7">${esc(T("7 days"))}</option><option value="30">${esc(T("30 days"))}</option><option value="90">${esc(T("90 days"))}</option></select>
     <button class="btn primary">${esc(T("Invite"))}</button></div>
     <p data-result hidden style="margin-top:8px"></p>
-    <p class="xs muted" style="margin-top:10px">From an agent: <span class="mono">atteo invite &lt;name&gt; --board ${esc(info.id)}</span>. Once they accept, their agents join with <span class="mono">atteo join ${esc(info.id)}</span>.</p>
+    <p class="xs muted" style="margin-top:10px">${esc(T("From an agent:"))} <span class="mono">atteo invite &lt;name&gt; --board ${esc(info.id)}</span>${esc(T(". Once they accept, their agents join with"))} <span class="mono">atteo join ${esc(info.id)}</span>.</p>
   </form>
   ${
     invites.length
@@ -2553,7 +2553,7 @@ ${connectDialog(viewer, { id: info.id, title: info.title })}
   <div class="row"><span class="grow xs" id="trg-err" style="color:var(--danger)"></span><button class="btn sm primary" type="submit">${esc(T("Add trigger"))}</button></div></form></section>`
       : ""
   }
-  <section class="acc-sec" id="acc-schedules" hidden><h3>${esc(T("Schedules"))}</h3><p class="xs muted" style="margin:-4px 0 8px">Post a task here at set times (e.g. weekdays 09:00: standup). Members’ agents claim and split it like any task, so the work is shared instead of repeated.${info.encrypted ? " This board is end-to-end encrypted, so it can’t have schedules." : ""}</p>
+  <section class="acc-sec" id="acc-schedules" hidden><h3>${esc(T("Schedules"))}</h3><p class="xs muted" style="margin:-4px 0 8px">${esc(T("Post a task here at set times (e.g. weekdays 09:00: standup). Members’ agents claim and split it like any task, so the work is shared instead of repeated."))}${info.encrypted ? " " + esc(T("This board is end-to-end encrypted, so it can’t have schedules.")) : ""}</p>
   <ul class="acc-list" id="sch-list"><li class="xs faint">${esc(T("Loading…"))}</li></ul>${
     canSched
       ? `
@@ -2561,7 +2561,7 @@ ${connectDialog(viewer, { id: info.id, title: info.title })}
   <textarea class="input" id="sch-body" rows="2" maxlength="2000" placeholder="${esc(T("Checklist (optional), e.g. - [ ] Yesterday\n- [ ] Today")).replace(/\n/g, "&#10;")}" aria-label="${esc(T("Task body (optional)"))}"></textarea>
   <div class="sch-when"><input class="input acc-url" id="sch-at" type="time" value="09:00" aria-label="${esc(T("Time"))}" required><select class="input acc-sel" id="sch-tz" aria-label="${esc(T("Time zone"))}"></select></div>
   <div class="sch-days" role="group" aria-label="${esc(T("Days"))}">${["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
-    .map((d, i) => `<button type="button" class="sch-day" data-day="${d}" aria-pressed="${i < 5 ? "true" : "false"}">${d[0].toUpperCase() + d.slice(1)}</button>`)
+    .map((d, i) => `<button type="button" class="sch-day" data-day="${d}" aria-pressed="${i < 5 ? "true" : "false"}">${esc(T(d[0].toUpperCase() + d.slice(1)))}</button>`)
     .join("")}</div>
   <div class="row"><span class="grow xs" id="sch-err" style="color:var(--danger)"></span><button class="btn sm primary" type="submit">${esc(T("Add schedule"))}</button></div></form>`
       : ""
@@ -2663,7 +2663,7 @@ const toBlob=async c=>{const w=await new Promise(r=>c.toBlob(r,'image/webp',.88)
 // Crop before saving (vedu #1001): drag to move, pinch / wheel / slider to zoom, rotate; a circle (people) or rounded
 // square (agents, boards) shows what will be kept. Resolves to a 256px square canvas, or null if cancelled.
 function crop(img,round){return new Promise(done=>{const V=280,d=document.createElement('dialog');d.className='crop-dlg';
-  d.innerHTML='<div class="bd"><canvas width="'+V+'" height="'+V+'" aria-label="Drag to move the picture"></canvas><div class="crop-row"><span class="xs muted">Zoom</span><input type="range" min="1" max="4" step="0.01" value="1" aria-label="Zoom" data-z><button type="button" class="btn sm" data-rot aria-label="Rotate">↻</button></div><div class="crop-row"><span class="xs muted">Light</span><input type="range" min="0.6" max="1.4" step="0.01" value="1" aria-label="Brightness" data-br></div><div class="crop-row"><span class="xs muted">Contrast</span><input type="range" min="0.6" max="1.4" step="0.01" value="1" aria-label="Contrast" data-ct></div></div><div class="crop-foot"><button type="button" class="btn sm" data-no>Cancel</button><button type="button" class="btn sm primary" data-ok>Save</button></div>';
+  d.innerHTML='<div class="bd"><canvas width="'+V+'" height="'+V+'" aria-label="'+tr(tr('Drag to move the picture'))+'"></canvas><div class="crop-row"><span class="xs muted">'+tr(tr('Zoom'))+'</span><input type="range" min="1" max="4" step="0.01" value="1" aria-label="'+tr(tr('Zoom'))+'" data-z><button type="button" class="btn sm" data-rot aria-label="'+tr(tr('Rotate'))+'">↻</button></div><div class="crop-row"><span class="xs muted">'+tr(tr('Light'))+'</span><input type="range" min="0.6" max="1.4" step="0.01" value="1" aria-label="'+tr(tr('Brightness'))+'" data-br></div><div class="crop-row"><span class="xs muted">'+tr(tr('Contrast'))+'</span><input type="range" min="0.6" max="1.4" step="0.01" value="1" aria-label="'+tr(tr('Contrast'))+'" data-ct></div></div><div class="crop-foot"><button type="button" class="btn sm" data-no>'+tr(tr('Cancel'))+'</button><button type="button" class="btn sm primary" data-ok>'+tr(tr('Save'))+'</button></div>';
   document.body.appendChild(d);const cv=d.querySelector('canvas'),x=cv.getContext('2d'),zr=d.querySelector('[data-z]'),br=d.querySelector('[data-br]'),ct=d.querySelector('[data-ct]');
   let z=1,ox=0,oy=0,rot=0;const dims=()=>rot%2?[img.height,img.width]:[img.width,img.height];
   const base=()=>{const [w,h]=dims();return V/Math.min(w,h)};
@@ -2867,7 +2867,11 @@ export interface Display {
   theme?: "system" | "light" | "dark";
   mode?: "auto" | "everyday" | "developer";
   lang?: "auto" | "en" | "zh-Hans" | "zh-Hant" | "es" | "ja" | "ko" | "hi";
+  voice?: "eve" | "ara" | "leo" | "rex" | "sal";
 }
+
+/** Read-aloud and voice chat voices (xAI's), as the picker names them. */
+const VOICE_NAMES: [string, string][] = [["eve", "Eve"], ["ara", "Ara"], ["leo", "Leo"], ["rex", "Rex"], ["sal", "Sal"]];
 
 /** Account → Display: how the chat looks to you (Slack-style). Saved to your profile, so the web and the app match. */
 function displaySection(d: Display | null | undefined, lang?: Lang): string {
@@ -2886,6 +2890,7 @@ ${seg("theme", esc(T("Theme")), [["system", esc(T("System"))], ["light", esc(T("
   )
     .map(([v, l]) => `<option value="${v}"${(d?.lang ?? "auto") === v ? " selected" : ""}>${esc(l)}</option>`)
     .join("")}</select>
+<label class="lbl" for="dp-voice" id="dp-voice-l" hidden>${esc(T("Read-aloud voice"))}</label><div class="dp-voice-row" id="dp-voice-row" hidden><select class="input dp-voice" id="dp-voice" data-voice="${esc(d?.voice ?? "eve")}">${VOICE_NAMES.map(([v, n]) => `<option value="${v}"${(d?.voice ?? "eve") === v ? " selected" : ""}>${n}</option>`).join("")}</select><button class="btn sm" type="button" id="dp-voice-play" aria-label="${esc(T("Play a sample of this voice"))}">${esc(T("Play"))}</button></div>
 </div></form>
 <div class="section-title" style="margin-top:24px"><div><h2 class="small" style="font-size:13px;color:var(--muted)">${esc(T("Advanced (for developers)"))}</h2></div></div>
 <label class="card pad dev-mode" for="dev-mode"><span class="dev-ic" aria-hidden="true">&lt;&gt;</span><span class="grow"><span class="small" style="color:var(--ink);font-weight:600">${esc(T("Developer mode"))}</span><span class="xs muted" id="dev-mode-hint" style="display:block;margin-top:2px">${esc(T("Tasks, change cards, #numbers, sessions. Turns on by itself if you connect Claude Code or Codex."))}</span></span><input type="checkbox" class="switch" id="dev-mode" role="switch"></label>
@@ -2917,9 +2922,23 @@ const DISPLAY_JS = `
   const cur=Object.assign({text:'m',density:'comfortable',theme:'system'},local,saved||{});
   for(const k of ['text','density','theme']){const i=f.querySelector('input[name="'+k+'"][value="'+cur[k]+'"]');if(i)i.checked=true}
   if(saved)applyDisplay(cur);
-  f.addEventListener('change',async e=>{if(e.target.id==='dp-lang')return;const d={text:f.text.value,density:f.density.value,theme:f.theme.value};applyDisplay(d);
+  f.addEventListener('change',async e=>{if(e.target.id==='dp-lang'||e.target.id==='dp-voice')return;const d={text:f.text.value,density:f.density.value,theme:f.theme.value};applyDisplay(d);
     const r=await fetch('/api/me/profile',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({display:d})}).catch(()=>null);
     toast(r&&r.ok?tr('Display saved'):tr('Saved on this device only'))})})();
+// Read-aloud voice (vedu #1717): shown when read aloud is on; saved as display.voice, which read-aloud and voice chat use
+// whenever they don't name one. Play reads a short sample in that voice (one request per voice, kept for the visit).
+(()=>{const s=document.getElementById('dp-voice'),btn=document.getElementById('dp-voice-play');if(!s)return;const cache={};let audio=null;
+  fetch('/api/app/tts/status',{cache:'no-store'}).then(r=>r.ok?r.json():null).then(j=>{if(!j||!j.enabled)return;
+    if(Array.isArray(j.voices)&&j.voices.length)[...s.options].forEach(o=>{if(!j.voices.includes(o.value))o.remove()});
+    if(j.voice_default&&[...s.options].some(o=>o.value===j.voice_default)){s.value=j.voice_default;s.dataset.voice=j.voice_default}
+    document.getElementById('dp-voice-l').hidden=false;document.getElementById('dp-voice-row').hidden=false}).catch(()=>{});
+  s.addEventListener('change',async()=>{const v=s.value;s.disabled=true;
+    const r=await fetch('/api/app/prefs',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({display:{voice:v}})}).catch(()=>null);
+    s.disabled=false;if(r&&r.ok){s.dataset.voice=v;toast(tr('Voice saved'))}else{s.value=s.dataset.voice;toast(tr('Could not save'))}});
+  btn.addEventListener('click',async()=>{const v=s.value;if(audio){audio.pause();audio=null}btn.disabled=true;
+    try{if(!cache[v]){const r=await fetch('/api/app/tts',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({text:tr('Hi, this is how I’ll read your messages to you.'),voice:v})});
+        if(!r.ok){const j=await r.json().catch(()=>({}));toast(j.error||tr('Could not play it'));return}cache[v]=URL.createObjectURL(await r.blob())}
+      audio=new Audio(cache[v]);await audio.play()}catch(e){toast(tr('Could not play it'))}finally{btn.disabled=false}})})();
 // Language (#1646): saved in display prefs (the app follows it too), then the page reloads in it.
 (()=>{const s=document.getElementById('dp-lang');if(!s)return;s.addEventListener('change',async()=>{s.disabled=true;
   const r=await fetch('/api/app/prefs',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({display:{lang:s.value}})}).catch(()=>null);

@@ -48,13 +48,13 @@ window.memRefresh=async()=>{let r;try{r=await fetch('/api/boards/'+BOARD+'/memor
   side.hidden=false;if(typeof foldApply==='function')foldApply()};
 async function memPost(body){const r=await fetch('/api/boards/'+BOARD+'/memory',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}).catch(()=>null);
   const j=r?await r.json().catch(()=>({})):{};
-  if(!r||!r.ok){toast(r&&r.status===409?'Memory is full: strike something first':j.error||"Couldn't remember it");return false}
+  if(!r||!r.ok){toast(r&&r.status===409?'Memory is full: strike something first':j.error||tr("Couldn't remember it"));return false}
   const it=j.item||{};toast(j.duplicate?'Already remembered':'Remembered'+(j.count?' ('+j.count+'/'+((MEM&&MEM.max)||50)+')':''));memRefresh();return true}
 document.addEventListener('click',async e=>{
   const rb=e.target.closest('[data-remember]');if(rb){e.preventDefault();e.stopPropagation();rb.disabled=true;await memPost({from:+rb.dataset.remember});rb.disabled=false;return}
   const sb=e.target.closest('[data-mem-strike]');if(sb){e.preventDefault();sb.disabled=true;
     const r=await fetch('/api/boards/'+BOARD+'/memory/'+encodeURIComponent(sb.dataset.memStrike),{method:'DELETE'}).catch(()=>null);
-    if(!r||!r.ok){const j=r?await r.json().catch(()=>({})):{};toast(j.error||"Couldn't strike it");sb.disabled=false;return}toast(tr('Struck from memory'));memRefresh();return}
+    if(!r||!r.ok){const j=r?await r.json().catch(()=>({})):{};toast(j.error||tr("Couldn't strike it"));sb.disabled=false;return}toast(tr('Struck from memory'));memRefresh();return}
   if(e.target.closest('[data-soul-edit]')){e.preventDefault();soulOpen()}});
 document.addEventListener('submit',async e=>{if(e.target.id!=='mem-add')return;e.preventDefault();const i=document.getElementById('mem-in'),t=i.value.trim();if(!t)return;if(await memPost({text:t}))i.value=''});
 const soulDlg=document.getElementById('soul-dlg');
@@ -64,7 +64,7 @@ document.getElementById('soul-form')?.addEventListener('submit',async e=>{e.prev
   const r=await fetch('/api/boards/'+BOARD+'/soul',{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({text:document.getElementById('soul-text').value,base_version:+soulDlg.dataset.base})}).catch(()=>null);
   const j=r?await r.json().catch(()=>({})):{};b.disabled=false;
   if(r&&r.status===409){const cur=j.current&&(j.current.soul||j.current);err.textContent='Someone saved a newer version'+(cur&&cur.updated_by?' ('+cur.updated_by+')':'')+'. Copy your text, then close and reopen to see theirs.';err.hidden=false;return}
-  if(!r||!r.ok){err.textContent=j.error||"Couldn't save it";err.hidden=false;return}
+  if(!r||!r.ok){err.textContent=j.error||tr("Couldn't save it");err.hidden=false;return}
   soulDlg.close();toast(tr('Soul saved: agents get the new version'));soulRefresh()});
 window.onSoulEvent=()=>soulRefresh();window.onMemoryEvent=()=>memRefresh();
 soulRefresh();memRefresh();
