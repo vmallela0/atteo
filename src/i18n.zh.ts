@@ -547,6 +547,8 @@ export const ZH_CN: Record<string, string> = {
   "Renamed": "已重命名",
   "Reopen": "重新打开",
   "Replies": "回复",
+  "In the chat": "在聊天中",
+  "Only in their threads": "只在各自的话题里",
   "Reply": "回复",
   "Reply to": "回复",
   "Reply to ": "回复 ",

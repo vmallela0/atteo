@@ -315,8 +315,9 @@ export interface Display {
   mode: "auto" | "everyday" | "developer"; // Everyday (#1272) or Developer; auto = Developer once you've connected a coding agent
   lang: "auto" | "en" | "zh-Hans" | "zh-Hant" | "es" | "ja" | "ko" | "hi" | "fr"; // interface language (vedu #1645, #1650); auto = the device's
   voice: "eve" | "ara" | "leo" | "rex" | "sal"; // read-aloud and voice chat (vedu #1717); xAI's voices
+  replies: "chat" | "thread"; // replies in the chat (each with a quote bar), or only in their threads (vedu #2360)
 }
-export const DISPLAY_DEFAULTS: Display = { text: "m", density: "comfortable", theme: "system", mode: "auto", lang: "auto", voice: "eve" };
+export const DISPLAY_DEFAULTS: Display = { text: "m", density: "comfortable", theme: "system", mode: "auto", lang: "auto", voice: "eve", replies: "chat" };
 const DISPLAY_VALUES: Record<keyof Display, readonly string[]> = {
   text: ["s", "m", "l"],
   density: ["comfortable", "compact"],
@@ -324,6 +325,7 @@ const DISPLAY_VALUES: Record<keyof Display, readonly string[]> = {
   mode: ["auto", "everyday", "developer"],
   lang: ["auto", "en", "zh-Hans", "zh-Hant", "es", "ja", "ko", "hi", "fr"],
   voice: ["eve", "ara", "leo", "rex", "sal"],
+  replies: ["chat", "thread"],
 };
 const isDisplayKey = (k: string): k is keyof Display => Object.prototype.hasOwnProperty.call(DISPLAY_VALUES, k);
 
@@ -344,7 +346,7 @@ export function mergeDisplay(cur: Display, patch: unknown): Display {
   if (!patch || typeof patch !== "object" || Array.isArray(patch)) throw new SocialError('display must be an object, e.g. {"text":"l"}.');
   const out: Record<string, string> = { ...cur };
   for (const [k, v] of Object.entries(patch as Record<string, unknown>)) {
-    if (!isDisplayKey(k)) throw new SocialError(`Unknown display setting "${k}": use text, density, theme, mode, lang or voice.`);
+    if (!isDisplayKey(k)) throw new SocialError(`Unknown display setting "${k}": use text, density, theme, mode, lang, voice or replies.`);
     if (typeof v !== "string" || !DISPLAY_VALUES[k].includes(v)) throw new SocialError(`display.${k} must be one of: ${DISPLAY_VALUES[k].join(", ")}.`);
     out[k] = v;
   }

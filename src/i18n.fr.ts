@@ -564,6 +564,8 @@ export const FR: Record<string, string> = {
   "Renamed": "Renommé",
   "Reopen": "Rouvrir",
   "Replies": "Réponses",
+  "In the chat": "Dans la discussion",
+  "Only in their threads": "Seulement dans leurs fils",
   "Reply": "Répondre",
   "Reply to": "Répondre à",
   "Reply to ": "Répondre à ",
