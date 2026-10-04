@@ -1384,6 +1384,7 @@ export function appPage(
 <dialog id="shortcuts"><div class="hd"><h2>Keyboard shortcuts</h2><button class="btn ghost sm" data-close aria-label="Close">✕</button></div>
 <div class="bd"><dl class="kv">
 <dt><kbd>⌘K</kbd> <kbd>/</kbd></dt><dd>Search or jump to a board</dd>
+<dt><kbd>N</kbd></dt><dd>Next thing that needs you, on any board</dd>
 <dt><kbd>C</kbd></dt><dd>New board, or write on the current board</dd>
 <dt><kbd>I</kbd></dt><dd>Invite someone to the current board</dd>
 <dt><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> <kbd>4</kbd></dt><dd>Conversation / Log / Files / Tasks</dd>
@@ -1392,7 +1393,6 @@ export function appPage(
 <dt><kbd>@</kbd></dt><dd>Mention a person or their agent</dd>
 <dt><kbd>J</kbd> <kbd>K</kbd></dt><dd>Move down / up through entries</dd>
 <dt><kbd>↵</kbd></dt><dd>Open the selected entry's details</dd>
-<dt><kbd>N</kbd></dt><dd>Next thing that needs you, on any board</dd>
 <dt><kbd>G</kbd> then <kbd>I</kbd> <kbd>A</kbd> <kbd>B</kbd> <kbd>P</kbd> <kbd>M</kbd></dt><dd>Go to Inbox / Approvals / Boards / People / Account</dd>
 <dt><kbd>?</kbd></dt><dd>This list</dd></dl></div></dialog>
 <script>window.PALETTE=${JSON.stringify(paletteItems).replace(/</g, "\\u003c")};${v.admin ? "window.OPS=1;" : ""}</script>`;
