@@ -6082,6 +6082,62 @@
         }
       }
     },
+    "Close preview": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cerrar vista previa"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレビューを閉じる"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭预览"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉預覽"
+          }
+        }
+      }
+    },
+    "Close this and try again.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ciérralo y vuelve a intentarlo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "閉じてもう一度お試しください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭后再试一次。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉後再試一次。"
+          }
+        }
+      }
+    },
     "Close this decision": {
       "localizations": {
         "es": {
@@ -9329,6 +9385,34 @@
           "stringUnit": {
             "state": "translated",
             "value": "好友之間可以直接發私信。成為好友並不會向對方開放你的任何看板。"
+          }
+        }
+      }
+    },
+    "Full": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Completa"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全画面"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全宽"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全屏"
           }
         }
       }
@@ -16307,6 +16391,34 @@
         }
       }
     },
+    "Runs in a sandbox: it can't see your account or reach the network.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se ejecuta en un entorno aislado: no puede ver tu cuenta ni acceder a la red."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サンドボックスで実行されます。アカウントを見ることも、ネットワークに接続することもできません。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在沙盒中运行：它看不到你的账户，也无法访问网络。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在沙盒中執行：它看不到你的帳戶，也無法連上網路。"
+          }
+        }
+      }
+    },
     "S": {
       "localizations": {
         "es": {
@@ -20715,6 +20827,34 @@
         }
       }
     },
+    "Width": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ancho"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "幅"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "宽度"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "寬度"
+          }
+        }
+      }
+    },
     "Work on %@": {
       "localizations": {
         "es": {
@@ -22900,6 +23040,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "亮度"
+          }
+        }
+      }
+    },
+    "preview.width.phone": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phone"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teléfono"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スマホ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手机"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手機"
           }
         }
       }

@@ -118,7 +118,7 @@ struct FileSortMenu: View {
 }
 
 /// A board's files: search, sort (recently updated first), one dense row each. Text opens in the reader; pictures
-/// and other stored files in Quick Look. Long-press to share or copy the name. Embeddable in any navigation stack.
+/// and other stored files in Quick Look; an .html file also has Preview (HTMLPreview.swift). Long-press to share or copy the name. Embeddable in any navigation stack.
 struct FilesPane: View {
     @EnvironmentObject var state: AppState
     @ObservedObject private var index = FileIndex.shared
@@ -129,6 +129,7 @@ struct FilesPane: View {
     @State private var preview: URL?
     @State private var opening: String?
     @State private var sharing: SharedFile?
+    @State private var running: HTMLPreviewTarget? // an .html file, previewed (HTMLPreview.swift)
     @FocusState private var searching: Bool
 
     private var docs: [DocMeta]? { index.docs[board] }
@@ -148,15 +149,20 @@ struct FilesPane: View {
         header
         List {
             ForEach(shown) { d in
-                Button { open(d) } label: { FileRow(doc: d, loading: opening == d.name) }
-                    .buttonStyle(RowPressStyle())
+                let html = HTMLPreview.available(board: board, name: d.name, stored: d.stored)
+                HStack(spacing: Space.s) {
+                    Button { open(d) } label: { FileRow(doc: d, loading: opening == d.name) }
+                        .buttonStyle(RowPressStyle())
+                        .accessibilityIdentifier("file-\(d.name)")
+                    if html { PreviewButton { running = HTMLPreviewTarget(board: board, name: d.name, version: d.version) } }
+                }
                     .listRowInsets(EdgeInsets(top: 0, leading: Space.l, bottom: 0, trailing: Space.l))
                     .listRowBackground(Theme.bg)
                     .listRowSeparatorTint(Theme.line)
                     .alignmentGuide(.listRowSeparatorLeading) { _ in 46 }
-                    .accessibilityIdentifier("file-\(d.name)")
                     .contextMenu {
                         Button(d.stored ? "Preview" : "Open", systemImage: d.stored ? "eye" : "doc.text") { open(d) }
+                        if html { Button("Preview", systemImage: "eye") { running = HTMLPreviewTarget(board: board, name: d.name, version: d.version) } }
                         Button("Share…", systemImage: "square.and.arrow.up") { share(d) }
                         Button("Copy name", systemImage: "doc.on.doc") { UIPasteboard.general.string = d.name }
                     }
@@ -183,6 +189,7 @@ struct FilesPane: View {
         .background(Theme.bg)
         .navigationDestination(item: $reading) { d in DocViewer(board: board, name: d.name) }
         .quickLookPreview($preview)
+        .htmlPreview($running)
         .sheet(item: $sharing) { s in ShareSheet(items: [s.url]).presentationDetents([.medium, .large]).ignoresSafeArea() }
         .task { await index.load(board) }
         // Live: a file shared or a doc written posts an artifact line to the board (the chat's socket brings it in);

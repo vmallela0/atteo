@@ -144,6 +144,7 @@ struct BoardInfoSheet: View {
     @State private var searching = false
     @State private var preview: URL?
     @State private var opening: String?
+    @State private var running: HTMLPreviewTarget? // an .html file, previewed (HTMLPreview.swift)
     @StateObject private var context = SoulMemoryModel() // the board's SOUL and MEMORY (BoardContext.swift)
 
     private var me: String? { state.me?.owner }
@@ -166,6 +167,7 @@ struct BoardInfoSheet: View {
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() }.toolbarText(primary: true) } }
             .toolbarBackground(Theme.bg, for: .navigationBar)
             .quickLookPreview($preview)
+            .htmlPreview($running)
             .task { await load() }
             .task(id: query) { await search() }
             .onReceive(NotificationCenter.default.publisher(for: .memoryChanged)) { n in if n.object as? String == board.id { Task { await context.load(board.id, state) } } }
@@ -260,6 +262,12 @@ struct BoardInfoSheet: View {
         // Stored bytes (pictures, PDFs…) go to Quick Look; text documents to the reader, with their versions.
         if f.mime != nil {
             Button { openFile(f) } label: { label }.buttonStyle(.plain).accessibilityIdentifier("file-\(f.name)")
+        } else if HTMLPreview.available(board: board.id, name: f.name, stored: false) {
+            // An .html file: Preview runs it (HTMLPreview.swift); the row still opens its source.
+            HStack(spacing: Space.s) {
+                NavigationLink { DocViewer(board: board.id, name: f.name) } label: { label }.accessibilityIdentifier("file-\(f.name)")
+                PreviewButton { running = HTMLPreviewTarget(board: board.id, name: f.name, version: f.version) }
+            }
         } else {
             NavigationLink { DocViewer(board: board.id, name: f.name) } label: { label }.accessibilityIdentifier("file-\(f.name)")
         }
