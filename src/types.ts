@@ -104,6 +104,7 @@ export interface NewEntry {
   card?: unknown; // type=change: checked and normalized by parseCard
   depends_on?: number[]; // premises: if one is disputed or retracted, this entry is flagged stale
   session?: string | null; // the agent session that posts it (set by the Worker, never by the client)
+  session_name?: string | null; // its name ("scout"): who "is on it" when the post takes the message it answers
   idem?: string | null; // the sender's id for this message (Idempotency-Key): a retry is stored once
   people_only?: boolean; // people-only: for to_people (and the author) only, never any agent (people on the web/app only)
   to_people?: string[]; // with people_only: the people it's for (board members, checked by the Worker)
