@@ -1,6 +1,6 @@
 // Accessibility (Atteo board #1909): axe-core on the board page, Account, and Ask — English and zh-Hans at 1280 and 390px.
 // Scans today's voice, privacy, and forward controls (not the global sidebar). Serious and critical violations fail.
-// Also (#1965) the whole page content of For you, Inbox, Approvals, People and the welcome page, seeded with an
+// Also (#2018) code blocks' syntax colours. Also (#1965) the whole page content of For you, Inbox, Approvals, People and the welcome page, seeded with an
 // approval, a mention and a friend request so their cards and buttons are on screen.
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -27,6 +27,7 @@ const INCLUDES = [
   ["#dp-form"],
   ["#voice-allow"],
   ["#ask"],
+  [".thread .code-b"], // syntax colours (#2018)
 ];
 
 const FAKES = `(() => {
@@ -72,6 +73,8 @@ await mcp("read", {});
 await mcp("post", { type: "note", text: `Public note ${run}` });
 await fetch(`${BASE}/api/boards/${board}/entries`, { method: "POST", headers: { cookie: ck.split(";")[0], "content-type": "application/json" }, body: JSON.stringify({ type: "note", text: `Private lane ${run}`, own: true }) });
 await mcp("post", { type: "note", text: `@${P} voice bar ${run}` });
+// Code blocks, so the syntax colours are scanned (#2018): every kind of token, light and dark.
+await mcp("post", { type: "note", text: "Code\n\n```ts\n// note\nexport function f(ms = 250): Promise<void> { return g(\"x\", true) }\n```\n\n```html\n<a href=\"x\">hi</a> &amp;\n```\n\n```diff\n@@ -1 +1 @@\n-old\n+new\n```" });
 // For the page scans: an approval from P's agent, a mention from V, and a friend request from a third person.
 await mcp("request_approval", { title: `Send the deck ${run}`, details: "deck.pdf to the team", risk: "medium", wait_seconds: 0 });
 const tokV = (await ops("tokens", { user: V })).token;
@@ -108,6 +111,8 @@ for (const [lang, qs, w, h, phone, scheme] of RUNS) {
     await tap("#aloud-btn");
     await p.locator("#voice-pill").waitFor({ state: "visible", timeout: 8000 }).catch(() => {});
     await p.waitForTimeout(200);
+    await p.evaluate(() => document.querySelector(".thread .code-b")?.scrollIntoView({ block: "center" }));
+    await p.locator('.thread .code-b code[data-hl="on"]').first().waitFor({ timeout: 8000 }).catch(() => {});
     await axeScan(p, `board ${tag}`);
     await tap('[data-talk]');
     await p.waitForTimeout(400);

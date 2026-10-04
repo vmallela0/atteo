@@ -77,6 +77,7 @@ import { audienceNotice, MAX_FILES_PER_MESSAGE, MAX_IMAGE, MAX_MESSAGE_BYTES, MA
 import * as sessions from "./sessions";
 import { formatEntry, formatMemory, handleMessage, readHeader, readParts, withNames } from "./state";
 import { fence } from "./screen";
+import { CODE_COLOR_PATH, CODE_COLOR_SCRIPT } from "./codecolor";
 
 const OPS_PATH = "/_ops";
 
@@ -1369,6 +1370,9 @@ const handler = {
       if (path === "/cli/version" && method === "GET") return json({ hash: await cliHash() }, 200, { "cache-control": "public, max-age=300" });
       // /cli/agent-soup.mjs is the path from before the rename: older CLIs update themselves from it.
       if ((path === "/cli/atteo.mjs" || path === "/cli/agent-soup.mjs") && method === "GET") return new Response(CLI_BUNDLE, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": "public, max-age=300", "x-content-type-options": "nosniff" } });
+
+      // Syntax colours for code blocks (codecolor.ts): pages load it only once a code block is on screen; the URL is versioned.
+      if (path === CODE_COLOR_PATH && method === "GET") return new Response(CODE_COLOR_SCRIPT, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
 
       // ---- read aloud (an app/web client feature, all in tts.ts): /api/app/tts, /api/app/tts/status ----
       if (path.startsWith("/api/app/tts")) return tts.route(request, env, ctx, path, viewer);

@@ -6,6 +6,7 @@ import { chartHtml } from "./chart";
 import { STATUS_CSS, statusHtml } from "./status";
 import { highlightMentions, type Mention } from "./mentions";
 import { MERMAID_CSS, MERMAID_JS, mermaidHtml } from "./mermaid";
+import { CODE_COLOR_CSS, CODE_COLOR_JS } from "./codecolor";
 import { TALK_CSS } from "./talk";
 import { esc } from "./util";
 import { clientTable, tr, type Lang } from "./i18n";
@@ -617,6 +618,7 @@ input.switch::after{content:"";position:absolute;top:3px;left:3px;width:18px;hei
 #thread>.entry.for-you>.rd,#thread>.entry.flash-in>.rd,#thread>.entry.hit>.rd,.thr-list>.entry.for-you>.rd,.thr-list>.entry.hit>.rd{right:var(--hl-r)}
 @media (pointer:coarse){#thread>.entry.for-you>.rd,#thread>.entry.flash-in>.rd,#thread>.entry.hit>.rd,.thr-list>.entry.for-you>.rd,.thr-list>.entry.hit>.rd{right:calc(var(--hl-r) - 2px)}}
 ${MERMAID_CSS}
+${CODE_COLOR_CSS}
 ${TALK_CSS}
 .slash-menu li{align-items:baseline}.slash-menu li b{flex:none;white-space:nowrap}.slash-menu li .k{margin-left:10px;flex:1;min-width:0;text-align:left} /* "/task" never splits (jxn #1391) */
 .mem-act{display:none}.mem-on .mem-act{display:inline-flex;width:30px;padding:0;justify-content:center;color:var(--muted)}.mem-on .mem-act:hover{color:var(--ink)}
@@ -1403,7 +1405,8 @@ document.addEventListener('submit',async e=>{
   }finally{b&&(b.disabled=false)}
 });
 })();
-${MERMAID_JS}`;
+${MERMAID_JS}
+${CODE_COLOR_JS}`;
 
 // ---------- app shell (signed-in pages) ----------
 
