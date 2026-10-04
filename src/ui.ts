@@ -4,6 +4,7 @@
 
 import { chartHtml } from "./chart";
 import { highlightMentions, type Mention } from "./mentions";
+import { MERMAID_CSS, MERMAID_JS, mermaidHtml } from "./mermaid";
 import { esc } from "./util";
 
 // Dark tokens: the system setting picks them unless Display says light; Display can also force them.
@@ -508,6 +509,7 @@ rect.ch-s0,rect.ch-s1,rect.ch-s2,rect.ch-s3,rect.ch-s4,rect.ch-s5,rect.ch-s6,rec
 .ch-pie{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.ch-pie .ch-svg{width:170px;flex:none}.ch-pie .ch-legend{flex-direction:column;gap:4px}
 .ch-data{margin-top:4px}.ch-data summary{cursor:pointer;font-size:11.5px;color:var(--faint);list-style:none}.ch-data summary::-webkit-details-marker{display:none}.ch-data summary:hover{color:var(--ink)}
 .code-b{position:relative;margin:6px 0;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--bg-subtle)}.code-b>pre{margin:0;border:0;border-radius:0}.code-h{display:flex;align-items:center;justify-content:space-between;padding:3px 6px 3px 10px;border-bottom:1px solid var(--line);font-size:11.5px;color:var(--muted)}.code-copy{all:unset;cursor:pointer;padding:2px 8px;border-radius:6px;font-size:11.5px;color:var(--muted)}.code-copy:hover{background:var(--bg-hover);color:var(--ink)}
+${MERMAID_CSS}
 .mem-act{display:none}.mem-on .mem-act{display:inline-flex;width:30px;padding:0;justify-content:center;color:var(--muted)}.mem-on .mem-act:hover{color:var(--ink)}
 .soul-prev{white-space:pre-wrap;font-size:12.5px;line-height:1.5;color:var(--text);max-height:7.5em;overflow:hidden;-webkit-mask-image:linear-gradient(#000 70%,transparent);mask-image:linear-gradient(#000 70%,transparent)}
 .soul-meta{margin:4px 0 6px}.soul-edit{margin-top:2px}
@@ -1074,7 +1076,7 @@ export function renderText(text: string, mentions?: Mention[] | null, names?: Re
 function renderTextInner(text: string, mentions?: Mention[] | null): string {
   const out: string[] = [];
   const ck = { n: 0 }; // checklist items ("- [ ] …") are numbered in order, so a page can tick the n-th one
-  // ```lang blocks: [text, lang, code, text, …]; ```chart draws a chart (vedu #1246).
+  // ```lang blocks: [text, lang, code, text, …]; ```chart draws a chart, ```mermaid a diagram once it's on screen (vedu #1246).
   const parts = text.split(/```([^\n`]*)\n?([\s\S]*?)```/g);
   parts.forEach((part, i) => {
     if (i % 3 === 1) return;
@@ -1082,7 +1084,7 @@ function renderTextInner(text: string, mentions?: Mention[] | null): string {
       const lang = parts[i - 1].trim().toLowerCase();
       // Code gets a small header with its language and Copy (jxn #1255).
       const code = `<pre><code>${esc(part.replace(/\n$/, ""))}</code></pre>`;
-      out.push(lang === "chart" ? chartHtml(part) : `<div class="code-b"><div class="code-h"><span class="mono">${esc(lang.replace(/[^\w+#.-]/g, "").slice(0, 20)) || "code"}</span><button type="button" class="code-copy" data-copy-code aria-label="Copy the code">Copy</button></div>${code}</div>`);
+      out.push(lang === "chart" ? chartHtml(part) : lang === "mermaid" ? mermaidHtml(part) : `<div class="code-b"><div class="code-h"><span class="mono">${esc(lang.replace(/[^\w+#.-]/g, "").slice(0, 20)) || "code"}</span><button type="button" class="code-copy" data-copy-code aria-label="Copy the code">Copy</button></div>${code}</div>`);
       return;
     }
     const paras = part.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
@@ -1261,7 +1263,7 @@ document.addEventListener('submit',async e=>{
   }finally{b&&(b.disabled=false)}
 });
 })();
-`;
+${MERMAID_JS}`;
 
 // ---------- app shell (signed-in pages) ----------
 
