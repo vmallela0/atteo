@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { LANG_NAMES, fromAcceptLanguage, matchLang, pickLang, tr } from "../src/i18n";
+import { LANG_NAMES, dirOf, fromAcceptLanguage, matchLang, pickLang, tr } from "../src/i18n";
 import { ZH_CN } from "../src/i18n.zh";
 import { ZH_HANT } from "../src/i18n.zh-hant";
 import { ES } from "../src/i18n.es";
@@ -13,6 +13,7 @@ import { RU } from "../src/i18n.ru";
 import { ID } from "../src/i18n.id";
 import { TR } from "../src/i18n.tr";
 import { BN } from "../src/i18n.bn";
+import { AR } from "../src/i18n.ar";
 import { boardPage, homePage } from "../src/html";
 import type { BoardInfo, Entry } from "../src/types";
 
@@ -147,8 +148,8 @@ describe("languages step 4 (#1786, #1842): Español, Français, 日本語, 한�
   });
 });
 
-describe("the top languages (vedu #2334): Português, Deutsch, Русский, Bahasa Indonesia, Türkçe, বাংলা", () => {
-  const tables = { pt: PT, de: DE, ru: RU, id: ID, tr: TR, bn: BN };
+describe("the top languages (vedu #2334): Português, Deutsch, Русский, Bahasa Indonesia, Türkçe, বাংলা, العربية", () => {
+  const tables = { pt: PT, de: DE, ru: RU, id: ID, tr: TR, bn: BN, ar: AR };
   it("are matched from the browser and the saved pref, and the picker names each in its own words", () => {
     expect(matchLang("pt-BR")).toBe("pt");
     expect(matchLang("pt-PT")).toBe("pt");
@@ -158,10 +159,12 @@ describe("the top languages (vedu #2334): Português, Deutsch, Русский, B
     expect(matchLang("in-ID")).toBe("id"); // the old code for Indonesian
     expect(matchLang("tr-TR")).toBe("tr");
     expect(matchLang("bn-BD")).toBe("bn");
-    expect(matchLang("ar-EG")).toBe(null); // Arabic waits for right-to-left
+    expect(matchLang("ar-EG")).toBe("ar");
+    expect(dirOf("ar")).toBe("rtl");
+    expect(dirOf("de")).toBe("ltr");
     expect(fromAcceptLanguage("nl-NL, de;q=0.8, en;q=0.5")).toBe("de");
     expect(pickLang("auto", null, "pt-BR,pt;q=0.9")).toBe("pt");
-    expect(LANG_NAMES).toMatchObject({ pt: "Português", de: "Deutsch", ru: "Русский", id: "Bahasa Indonesia", tr: "Türkçe", bn: "বাংলা" });
+    expect(LANG_NAMES).toMatchObject({ pt: "Português", de: "Deutsch", ru: "Русский", id: "Bahasa Indonesia", tr: "Türkçe", bn: "বাংলা", ar: "العربية" });
   });
   it("cover the same strings as 简体中文, keep every {placeholder} and <b>, and are never empty", () => {
     const keys = Object.keys(ZH_CN).sort();
@@ -176,12 +179,12 @@ describe("the top languages (vedu #2334): Português, Deutsch, Русский, B
   });
   it("the board page and home render in each, with scripts that compile", async () => {
     const info: BoardInfo = { id: "b_test1234", title: "pagos", created_by: "jxn", created_at: 0, entry_count: 1, last_seq: 1 };
-    for (const lang of ["pt", "de", "ru", "id", "tr", "bn"] as const) {
+    for (const lang of ["pt", "de", "ru", "id", "tr", "bn", "ar"] as const) {
       const viewer = { name: "jxn", email: "jxn@example.com", display_name: null, admin: false, lang };
       const res = boardPage(viewer, [], info, [{ user: "jxn", display_name: null, last_seen: 0 }], [], []);
       const html = await res.text();
       expect(res.headers.get("content-language")).toBe(lang);
-      expect(html).toContain(`<html lang="${lang}">`);
+      expect(html).toContain(lang === "ar" ? `<html lang="ar" dir="rtl">` : `<html lang="${lang}">`); // Arabic reads right to left
       expect(html).toContain(tables[lang]["Send"]);
       for (const s of [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1])) expect(() => new Function(s)).not.toThrow();
       expect(await homePage(viewer, [], []).text()).toContain(tables[lang]["New board"]);

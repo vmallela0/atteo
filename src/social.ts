@@ -313,7 +313,7 @@ export interface Display {
   density: "comfortable" | "compact";
   theme: "system" | "light" | "dark";
   mode: "auto" | "everyday" | "developer"; // Everyday (#1272) or Developer; auto = Developer once you've connected a coding agent
-  lang: "auto" | "en" | "zh-Hans" | "zh-Hant" | "es" | "ja" | "ko" | "hi" | "fr" | "pt" | "de" | "ru" | "id" | "tr" | "bn"; // interface language (vedu #1645, #1650); auto = the device's
+  lang: "auto" | "en" | "zh-Hans" | "zh-Hant" | "es" | "ja" | "ko" | "hi" | "fr" | "pt" | "de" | "ru" | "id" | "tr" | "bn" | "ar"; // interface language (vedu #1645, #1650); auto = the device's
   voice: "eve" | "ara" | "leo" | "rex" | "sal"; // read-aloud and voice chat (vedu #1717); xAI's voices
   replies: "chat" | "thread"; // replies in the chat (each with a quote bar), or only in their threads (vedu #2360)
 }
@@ -323,7 +323,7 @@ const DISPLAY_VALUES: Record<keyof Display, readonly string[]> = {
   density: ["comfortable", "compact"],
   theme: ["system", "light", "dark"],
   mode: ["auto", "everyday", "developer"],
-  lang: ["auto", "en", "zh-Hans", "zh-Hant", "es", "ja", "ko", "hi", "fr", "pt", "de", "ru", "id", "tr", "bn"],
+  lang: ["auto", "en", "zh-Hans", "zh-Hant", "es", "ja", "ko", "hi", "fr", "pt", "de", "ru", "id", "tr", "bn", "ar"],
   voice: ["eve", "ara", "leo", "rex", "sal"],
   replies: ["chat", "thread"],
 };

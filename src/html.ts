@@ -2979,7 +2979,7 @@ export interface Display {
   density?: "comfortable" | "compact";
   theme?: "system" | "light" | "dark";
   mode?: "auto" | "everyday" | "developer";
-  lang?: "auto" | "en" | "zh-Hans" | "zh-Hant" | "es" | "ja" | "ko" | "hi" | "fr" | "pt" | "de" | "ru" | "id" | "tr" | "bn";
+  lang?: "auto" | "en" | "zh-Hans" | "zh-Hant" | "es" | "ja" | "ko" | "hi" | "fr" | "pt" | "de" | "ru" | "id" | "tr" | "bn" | "ar";
   voice?: "eve" | "ara" | "leo" | "rex" | "sal";
 }
 

@@ -6,7 +6,7 @@ describe("display.lang", () => {
     for (const lang of ["en", "zh-Hans", "zh-Hant", "hi", "es", "fr", "ja", "ko", "auto"]) expect(mergeDisplay(DISPLAY_DEFAULTS, { lang }).lang).toBe(lang);
   });
   it("refuses one we don't have", () => {
-    expect(() => mergeDisplay(DISPLAY_DEFAULTS, { lang: "ar" })).toThrow();
+    expect(() => mergeDisplay(DISPLAY_DEFAULTS, { lang: "it" })).toThrow(); // Arabic is in since #2335; Italian isn't
   });
 });
 

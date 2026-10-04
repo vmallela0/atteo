@@ -9,7 +9,7 @@ import { MERMAID_CSS, MERMAID_JS, mermaidHtml } from "./mermaid";
 import { CODE_COLOR_CSS, CODE_COLOR_JS } from "./codecolor";
 import { TALK_CSS } from "./talk";
 import { esc } from "./util";
-import { clientTable, tr, type Lang } from "./i18n";
+import { clientTable, dirOf, tr, type Lang } from "./i18n";
 
 // Dark tokens: the system setting picks them unless Display says light; Display can also force them.
 const DARK = `  --bg:#0a0a0a;--bg-subtle:#111111;--bg-hover:#1a1a1a;--line:#232323;--line-strong:#2e2e2e;
@@ -246,7 +246,7 @@ dialog[open]{animation:pop .16s ease-out}dialog:focus{outline:none}@media (prefe
 @media(hover:none){.entry .acts{display:none;flex-wrap:wrap;max-width:100%;row-gap:4px} /* narrow phones and threads: the actions wrap instead of running off screen */.entry:target>.grow>.meta .acts,.entry.sel>.grow>.meta .acts,.entry.tap>.grow>.meta .acts{display:inline-flex;opacity:1}}
 /* "Replying to …" above the composer: the reply goes to that agent (or mentions that person). */
 /* replying: a slim line above the composer's text (who, and the first line of what you're answering) */
-.replying{display:flex;align-items:center;gap:6px;margin:0 0 8px;padding:2px 2px 2px 10px;border-left:2px solid var(--accent);font-size:12.5px;color:var(--muted)}
+.replying{display:flex;align-items:center;gap:6px;margin:0 0 8px;padding-block:2px;padding-inline:10px 2px;border-inline-start:2px solid var(--accent);font-size:12.5px;color:var(--muted)}
 .replying[hidden]{display:none}
 .replying .rp-go{all:unset;flex:1;min-width:0;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:22px}
 .replying .rp-go:focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-radius:4px}
@@ -255,7 +255,7 @@ dialog[open]{animation:pop .16s ease-out}dialog:focus{outline:none}@media (prefe
 .replying .x{flex:none;height:22px;width:22px;padding:0;justify-content:center}
 @keyframes flashin{from{background:color-mix(in srgb,var(--accent) 9%,transparent)}to{background:transparent}}
 .entry:target{background:color-mix(in srgb,var(--accent) 6%,transparent);border-radius:8px}
-.replies{margin:10px 0 0;padding-left:14px;border-left:2px solid var(--line)}
+.replies{margin:10px 0 0;padding-inline-start:14px;border-inline-start:2px solid var(--line)}
 .replies:empty{display:none}
 .replies .entry{border-top:0;padding:10px 0 0}
 .file{margin-top:8px;border:1px solid var(--line);border-radius:8px;overflow:hidden}
@@ -346,7 +346,7 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .kill{display:flex;align-items:center;gap:14px;margin-top:12px;padding:12px 14px;border:1px solid color-mix(in srgb,var(--danger) 30%,var(--line));border-radius:var(--r)}.kill b{color:var(--ink);font-size:13px}.kill p{margin:2px 0 0}
 .at-btn{width:30px;padding:0;justify-content:center;font-weight:600;font-size:14px;color:var(--muted)}.at-btn:hover{color:var(--ink)}
 /* quotes (forwarded messages) */
-.body blockquote.md-q{margin:6px 0;padding:6px 10px;border-left:3px solid var(--line-strong);background:var(--bg-subtle);border-radius:0 6px 6px 0;color:var(--text)}
+.body blockquote.md-q{margin:6px 0;padding:6px 10px;border-inline-start:3px solid var(--line-strong);background:var(--bg-subtle);border-radius:0 6px 6px 0;color:var(--text)}
 /* a quoted selection (vedu #1022): a compact box with who said it and ↗ original */
 .body blockquote.qt{max-width:560px;padding:7px 11px;border:1px solid var(--line);border-radius:10px}
 .qt-hd{display:flex;align-items:baseline;gap:10px;margin-bottom:2px;font-size:12.5px}.qt-who{font-weight:600;color:var(--ink);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -363,7 +363,7 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .fwd-list li{display:flex;align-items:center;gap:8px;padding:8px 10px;cursor:pointer;font-size:13px;min-width:0}.fwd-list li+li{border-top:1px solid var(--line)}
 .fwd-list li:hover{background:var(--bg-hover)}.fwd-list li[aria-selected="true"]{background:color-mix(in srgb,var(--accent) 9%,var(--bg));color:var(--ink)}
 .fwd-dot{width:8px;height:8px;border-radius:2px;background:var(--faint);flex:none}
-.fwd-prev{max-height:160px;overflow:auto;display:flex;flex-direction:column;gap:6px}.fwd-q{padding:6px 10px;border-left:3px solid var(--line-strong);background:var(--bg-subtle);border-radius:0 6px 6px 0;font-size:12.5px;min-width:0}
+.fwd-prev{max-height:160px;overflow:auto;display:flex;flex-direction:column;gap:6px}.fwd-q{padding:6px 10px;border-inline-start:3px solid var(--line-strong);background:var(--bg-subtle);border-radius:0 6px 6px 0;font-size:12.5px;min-width:0}
 .badge.hdl{position:relative;z-index:4;height:18px;font-size:11px;color:var(--accent);border-color:color-mix(in srgb,var(--accent) 35%,var(--line))}
 .badge.hdl.done{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 35%,var(--line))}
 .badge.hdl button{all:unset;cursor:pointer;margin-left:5px;padding:0 3px;border-radius:4px;color:var(--faint);font-size:11px;line-height:14px}
@@ -400,8 +400,8 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 /* threads: replies fold into "N replies" under their message; the thread opens in a side panel (an overlay on phones) */
 #thread>.entry>.grow>.replies{display:none}#thread>.entry.thr-open>.grow>.replies{display:block}
 /* Replies post in the conversation (jxn #1040): a bar quoting what they answer; the thread opens as an overlay */
-.rq{display:flex;flex-direction:column;align-items:flex-start;gap:1px;max-width:100%;margin:4px 0 2px;padding:4px 10px;border:0;border-left:3px solid var(--line-strong);border-radius:0 8px 8px 0;background:var(--bg-subtle);color:var(--muted);font:inherit;font-size:12.5px;text-align:left;cursor:pointer}
-.rq:hover{background:var(--bg-hover);border-left-color:var(--muted)}.rq-who{font-weight:600;color:var(--text)}.rq-t{display:block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rq{display:flex;flex-direction:column;align-items:flex-start;gap:1px;max-width:100%;margin:4px 0 2px;padding:4px 10px;border:0;border-inline-start:3px solid var(--line-strong);border-radius:0 8px 8px 0;background:var(--bg-subtle);color:var(--muted);font:inherit;font-size:12.5px;text-align:left;cursor:pointer}
+.rq:hover{background:var(--bg-hover);border-inline-start-color:var(--muted)}.rq-who{font-weight:600;color:var(--text)}.rq-t{display:block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .thr-dlg{width:min(620px,calc(100vw - 24px));height:min(760px,calc(100vh - 48px));padding:0;display:none}.thr-dlg[open]{display:flex;flex-direction:column}
 .thr-hd{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 16px;border-bottom:1px solid var(--line)}.thr-hd b{color:var(--ink)}.thr-hd .grow{flex:1}
 .thr-list{flex:1;overflow:auto;padding:4px 16px 12px}.thr-list>.entry:first-child{border-top:0}.thr-list>.entry.hit{background:color-mix(in srgb,var(--accent) 7%,transparent)}
@@ -447,7 +447,7 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .apc-acts{display:inline-flex;gap:6px;flex:none;margin-left:auto}.apc .tk{flex-wrap:wrap} /* too narrow for both: the buttons drop under the status, still on the right */.apc-acts[hidden]{display:none}.apc-risk{color:var(--danger);font-weight:500;white-space:nowrap}.apc-note{margin:6px 0 0}
 .inbox-item .apc{margin:0;padding:0 10px 12px 42px}.inbox-item .apc .dot{margin-top:0}
 .tk-subs{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:1px;font-size:12.5px}
-.tk-subs li{display:flex;align-items:center;gap:8px;min-width:0;padding:3px 8px;border-left:2px solid var(--line)}.tk-subs .grow{color:var(--text);text-decoration:none}.tk-subs a.grow:hover{text-decoration:underline}
+.tk-subs li{display:flex;align-items:center;gap:8px;min-width:0;padding:3px 8px;border-inline-start:2px solid var(--line)}.tk-subs .grow{color:var(--text);text-decoration:none}.tk-subs a.grow:hover{text-decoration:underline}
 .tk-subs li.st-done .grow{color:var(--muted);text-decoration:line-through;text-decoration-color:color-mix(in srgb,var(--muted) 60%,transparent)}
 .kcard .ksub{color:var(--muted);min-width:0;flex:0 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* reactions: chips under a message; the add button shows on hover (always on touch screens) */
@@ -768,7 +768,7 @@ ${TALK_CSS}
 .prof-boards{display:flex;flex-wrap:wrap;gap:8px;margin:0;padding:0;list-style:none}.prof-boards a{display:inline-block;padding:5px 10px;border:1px solid var(--line);border-radius:999px;color:var(--ink);font-size:13px}.prof-boards a:hover{background:var(--hover,rgba(127,127,127,.1))}
 @media (max-width:860px){.prof-hero{flex-direction:column;align-items:flex-start}.prof-hero .prof-act{width:100%}.prof-hero .prof-act .btn{flex:1;min-height:40px;justify-content:center}}
 /* approvals: risk shows as the card's left edge and its badge */
-.approval{padding:16px 18px;border-left:3px solid var(--line)}.approval:target{outline:2px solid var(--accent);outline-offset:3px}.approval.risk-medium{border-left-color:var(--warn)}.approval.risk-high{border-left-color:var(--danger)}
+.approval{padding:16px 18px;border-inline-start:3px solid var(--line)}.approval:target{outline:2px solid var(--accent);outline-offset:3px}.approval.risk-medium{border-inline-start-color:var(--warn)}.approval.risk-high{border-inline-start-color:var(--danger)}
 .ap-hd{display:flex;gap:12px;align-items:flex-start}.ap-title{font-size:15px;font-weight:600;line-height:1.35;margin:0 0 3px}
 .approval.risk-medium .ap-risk{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,var(--line))}.approval.risk-high .ap-risk{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 40%,var(--line))}
 .ap-details{max-height:280px;overflow:auto;margin:12px 0 0;padding:10px 12px;border-radius:8px;background:var(--bg-subtle);border:1px solid var(--line);font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word}
@@ -963,6 +963,12 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
 /* the sidebar toggle sits in the board area, top right: over the sidebar's corner, or the thread's when it's hidden */
 .bp-panel .info-btn{display:inline-flex;position:absolute;top:8px;right:0;z-index:7;width:30px;padding:0;justify-content:center;color:var(--muted);background:var(--bg)}
 .info-btn svg{flex:none}
+/* Right-to-left (Arabic, #2335): the grid and flex layout mirror on their own with dir=rtl; these are the pieces placed
+   by left/right. People's words keep their own direction, paragraph by paragraph (an English message on an Arabic page). */
+[dir=rtl] .bp-panel .info-btn{right:auto;left:0}[dir=rtl] .info-btn .count{right:auto;left:-4px}
+@media(max-width:860px){[dir=rtl] .sidebar{inset:0 0 0 auto;transform:translateX(100%)}[dir=rtl] .app.nav-open .sidebar{transform:none}[dir=rtl] .nav-x{right:auto;left:8px}}
+[dir=rtl] .composer textarea,[dir=rtl] .cmp-mirror{unicode-bidi:plaintext}[dir=rtl] pre,[dir=rtl] code,[dir=rtl] kbd,[dir=rtl] .mono{direction:ltr;unicode-bidi:isolate}
+.entry .body,.entry .body :is(p,li,h1,h2,h3,h4,h5,h6,blockquote,td,th,dd,dt),.rq-t,.fwd-q{unicode-bidi:plaintext;text-align:start}
 .info-btn:hover,.info-btn[aria-expanded=true]{color:var(--ink)}
 .info-btn .fill{opacity:0;transition:opacity .12s}.info-btn[aria-expanded=true] .fill{opacity:.35}
 .info-btn .count{position:absolute;top:-3px;right:-4px;min-width:15px;height:15px;padding:0 4px;border-radius:999px;background:var(--q);color:var(--on-ink);font-size:10px;font-weight:600;display:inline-grid;place-items:center;line-height:1}
@@ -1587,7 +1593,7 @@ window.liveRefresh=async()=>{if(document.hidden)return;try{const r=await fetch('
 setInterval(liveRefresh,60000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)liveRefresh()})})();`;
 
 function rawPage(title: string, body: string, script: string, status = 200, lang: Lang = "en"): Response {
-  const html = `<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  const html = `<!doctype html><html lang="${lang}"${dirOf(lang as Lang) === "rtl" ? ' dir="rtl"' : ""}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -1663,7 +1669,7 @@ document.addEventListener('click',e=>{const a=e.target.closest('[data-connect]')
 if(location.hash==='#connect'){const d=$('dialog#connect');if(d&&!d.open)d.showModal()}
 {let sx=0,sy=0,on=false;const sb=$('#sidebar');
   sb?.addEventListener('touchstart',e=>{const t=e.touches[0];sx=t.clientX;sy=t.clientY;on=$('#app')?.classList.contains('nav-open')},{passive:true});
-  sb?.addEventListener('touchend',e=>{const t=e.changedTouches[0],dx=t.clientX-sx,dy=t.clientY-sy;if(on&&dx<-50&&Math.abs(dx)>Math.abs(dy)*1.5)navSet(false)},{passive:true})}
+  sb?.addEventListener('touchend',e=>{const t=e.changedTouches[0],dx=t.clientX-sx,dy=t.clientY-sy;if(on&&(document.dir==='rtl'?dx>50:dx<-50)&&Math.abs(dx)>Math.abs(dy)*1.5)navSet(false)},{passive:true})}
 addEventListener('pageshow',()=>navSet(false));
 let g=false,gt;
 document.addEventListener('keydown',e=>{

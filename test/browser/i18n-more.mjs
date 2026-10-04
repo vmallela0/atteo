@@ -39,6 +39,7 @@ const LANGS = [
   ["id-ID", "id", /Papan baru/, /Posting/, /Tampilan/, /[a-z]/],
   ["tr-TR", "tr", /Yeni pano/, /Paylaş/, /Görünüm/, /[çğışöü]/],
   ["bn-BD", "bn", /নতুন বোর্ড/, /পোস্ট করুন/, /ডিসপ্লে/, /[ঀ-৿]/],
+  ["ar-EG", "ar", /لوحة جديدة/, /.+/, /العرض|عرض/, /[\u0600-\u06ff]/],
 ];
 for (const [locale, lang, home, boardRe, account, script] of LANGS) {
   for (const w of [1300, 390]) {
@@ -62,7 +63,7 @@ for (const [locale, lang, home, boardRe, account, script] of LANGS) {
   const { ctx, p } = await open("en-US", 1300);
   await p.goto(`${BASE}/me`);
   const names = await p.locator("#dp-lang option").evaluateAll((os) => os.map((o) => o.textContent));
-  check(["English", "简体中文", "繁體中文", "Español", "Français", "日本語", "한국어", "हिन्दी", "Português", "Deutsch", "Русский", "Bahasa Indonesia", "Türkçe", "বাংলা"].every((n) => names.includes(n)) && !names.some((n) => /set in the app/.test(n)), `the picker lists all eight (${names.join(", ")})`);
+  check(["English", "简体中文", "繁體中文", "Español", "Français", "日本語", "한국어", "हिन्दी", "Português", "Deutsch", "Русский", "Bahasa Indonesia", "Türkçe", "বাংলা", "العربية"].every((n) => names.includes(n)) && !names.some((n) => /set in the app/.test(n)), `the picker lists all eight (${names.join(", ")})`);
   await Promise.all([p.waitForNavigation(), p.locator("#dp-lang").selectOption("ja")]);
   check((await p.locator("html").getAttribute("lang")) === "ja" && /表示/.test(await p.locator("body").innerText()), "choosing 日本語 saves it and reloads in Japanese");
   const prefs = await (await fetch(`${BASE}/api/app/prefs`, { headers: { cookie } })).json();
@@ -72,6 +73,19 @@ for (const [locale, lang, home, boardRe, account, script] of LANGS) {
   await p.goto(`${BASE}/me`);
   await Promise.all([p.waitForNavigation(), p.locator("#dp-lang").selectOption("auto")]);
   check((await p.locator("html").getAttribute("lang")) === "en", "back to Automatic: the browser's English again");
+  await ctx.close();
+}
+// Arabic reads right to left (#2335): the page says so, the phone menu comes in from the right, and an English message
+// keeps its own direction.
+{
+  const { ctx, p } = await open("ar-EG", 390);
+  await p.goto(`${BASE}/b/${board}`); await p.waitForTimeout(800);
+  const dir = await p.evaluate(() => document.documentElement.dir);
+  const msg = await p.evaluate(() => { const b = [...document.querySelectorAll("#thread .entry .body")].find((x) => /staging port/.test(x.textContent)); if (!b) return null; const r = document.createRange(); r.selectNodeContents(b.querySelector("p") || b); return Math.round(r.getBoundingClientRect().left - b.getBoundingClientRect().left); });
+  await p.locator("[data-nav]").click(); await p.waitForTimeout(400);
+  const sb = await p.evaluate(() => { const r = document.getElementById("sidebar").getBoundingClientRect(); return { right: Math.round(innerWidth - r.right), left: Math.round(r.left) }; });
+  check(dir === "rtl" && sb.right === 0 && sb.left > 0, `ar: dir=rtl and the phone menu opens from the right (${dir}, ${JSON.stringify(sb)})`);
+  check(msg !== null && msg < 4, `ar: an English message starts at its left edge (${msg})`);
   await ctx.close();
 }
 check(errors.length === 0, `no page errors (${errors.join(" | ")})`);
