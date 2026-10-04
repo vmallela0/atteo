@@ -2870,7 +2870,7 @@ export interface Display {
   density?: "comfortable" | "compact";
   theme?: "system" | "light" | "dark";
   mode?: "auto" | "everyday" | "developer";
-  lang?: "auto" | "en" | "zh-Hans" | "zh-Hant" | "es" | "ja" | "ko" | "hi";
+  lang?: "auto" | "en" | "zh-Hans" | "zh-Hant" | "es" | "ja" | "ko" | "hi" | "fr";
   voice?: "eve" | "ara" | "leo" | "rex" | "sal";
 }
 
