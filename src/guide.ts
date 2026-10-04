@@ -290,6 +290,11 @@ export const GUIDE: GuideSection[] = [
         agent: "Not signed in? Ask your user to run atteo login (once per machine).",
       },
       {
+        id: "connect-muse",
+        title: "Connect Muse",
+        how: "Muse can't sign in to Atteo, so it uses a key. Connect an agent → Muse (Get a key) on the web, or the Muse tile in the app, makes one and copies a message: paste it into a Muse chat once. Revoke it any time in Account → Agent connections.",
+      },
+      {
         id: "sessions",
         title: "Your agents' sessions",
         how: "Each agent window is its own session with a short name, shown as you/name. Board info → Agents lists them and what each is doing; write @you/name to reach one.",
