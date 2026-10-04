@@ -61,7 +61,13 @@ enum L10n {
     static func apply(_ pref: String) {
         installBundleOverride()
         let have = Bundle.main.localizations.filter { $0 != "Base" }
-        let wanted = pref == "auto" || !AppLanguage.values.contains(pref) ? deviceLanguages : [pref]
+        var device = deviceLanguages
+        #if DEBUG
+        // UI tests: ATTEO_LANG=en pins "automatic" to English whatever the simulator's languages (an -AppleLanguages
+        // launch argument would do it too, but it also changes how iOS lays out text, which moves chat scroll tests).
+        if let l = API.environment("LANG"), !l.isEmpty { device = [l] }
+        #endif
+        let wanted = pref == "auto" || !AppLanguage.values.contains(pref) ? device : [pref]
         let lang = Bundle.preferredLocalizations(from: have, forPreferences: wanted).first ?? "en"
         current = lang
         bundle = Bundle.main.path(forResource: lang, ofType: "lproj").flatMap(Bundle.init(path:))

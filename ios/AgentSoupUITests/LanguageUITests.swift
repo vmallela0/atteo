@@ -1,6 +1,6 @@
 // QA for the interface language (vedu #1645): Settings → Appearance (Everyday) or → Display (Developer) → Language
 // switches the app's words at once, saves display.lang to /api/app/prefs (the web follows it), and back to English.
-// Every other test runs in English (the harness passes -AppleLanguages (en) and the server's lang stays auto); tearDown
+// Every other test runs in English (the harness passes AGENT_SOUP_LANG=en and the server's lang stays auto); tearDown
 // puts maya's lang back to auto even when a step here fails, so no later test sees Chinese.
 
 import XCTest
