@@ -1264,15 +1264,18 @@ let draftT=0;ta.addEventListener('input',()=>{clearTimeout(draftT);draftT=setTim
 window.addEventListener('pagehide',()=>draftSave(draftNow(),ta.value));
 if(!ta.value){const d=draftLoad('');if(d){ta.value=d;setTimeout(()=>{msync();ta.style.height=ta.scrollHeight+2+'px'},0)}}
 // Reply: points the main composer at a message, with a slim "Replying to …" line above it (✕ or Esc cancels; clicking
-// it shows the message). The reply lands in that message's thread. Each reply keeps its own draft, and an unsent reply
-// is still a reply after a reload.
+// it shows the message). The reply lands in that message's thread. An unsent reply is still a reply after a reload.
+// Starting a reply keeps what's in the box (vedu #1469): the text becomes the reply, and cancelling leaves it in the box.
+// Per-reply drafts are used only when the box is empty or you switch from one reply to another.
 /** The name a message's header shows: "vedu/scout" for a named agent session, else "vedu's agent" or the person. */
 const headName=el=>el.querySelector(':scope>.grow>.meta>.who')?.textContent||(el.dataset.author+(el.classList.contains('by-agent')?"'s agent":''));
-const rpBox=document.getElementById('replying'),rpTo=document.getElementById('reply-to');let rpAt='';
+const rpBox=document.getElementById('replying'),rpTo=document.getElementById('reply-to');let rpAt='',rpCarry=0; // rpCarry: the reply (seq) that took the main box's text
 const draftNow=()=>rpTo.value?'r'+rpTo.value:'';
 const taFit=()=>{ta.style.height='';if(ta.value)ta.style.height=ta.scrollHeight+2+'px';msync()};
-function replyTo(seq,focus=true){const el=document.getElementById('e'+seq);if(!el||READONLY)return;
-  if(+rpTo.value!==seq){draftSave(draftNow(),ta.value);rpTo.value=String(seq);ta.value=draftLoad('r'+seq)}
+function replyTo(seq,focus=true,restore=false){const el=document.getElementById('e'+seq);if(!el||READONLY)return;
+  if(+rpTo.value!==seq){
+    if(!rpTo.value&&ta.value.trim()&&!restore){rpCarry=seq;draftSave('','');rpTo.value=String(seq);draftSave(draftNow(),ta.value);try{localStorage.setItem(draftKey('carry'),String(seq))}catch(e){}}
+    else{draftSave(draftNow(),ta.value);rpTo.value=String(seq);ta.value=draftLoad('r'+seq)}}
   const by=el.dataset.author,who=el.classList.contains('by-agent')?by+"'s agent":by;
   const named=headName(el);document.getElementById('replying-who').textContent=who===ME?'yourself':named.includes('/')?named:who===ME+"'s agent"?'your agent':who;
   const body=el.querySelector(':scope>.grow>.body');document.getElementById('replying-text').textContent=((body?.innerText||body?.textContent||'').trim().split('\\n')[0]||'').slice(0,160);
@@ -1285,10 +1288,13 @@ function replyTo(seq,focus=true){const el=document.getElementById('e'+seq);if(!e
   const top=el.dataset.root&&+el.dataset.root!==seq&&document.getElementById('e'+el.dataset.root);
   if(top){const tw=top.classList.contains('by-agent')?top.dataset.author+"'s agent":top.dataset.author;if(tw!==ME&&tw!==who)rpAt+='@'+tw+' '}const rpM=rpAt.trim();if(rpAt&&!(ta.value.startsWith(rpM)&&/^\\s*$/.test(ta.value.slice(rpM.length,rpM.length+1))))ta.value=rpAt+ta.value;
   taFit();if(focus){ta.focus();ta.setSelectionRange(ta.value.length,ta.value.length)}}
-/** Leaves reply mode: the reply's draft is kept (unless it's only the @mention it started with) and your other draft comes back. */
-function replyClear(sent){if(!rpTo.value)return;if(!sent)draftSave(draftNow(),ta.value.trim()===rpAt.trim()?'':ta.value);
-  rpTo.value='';rpAt='';rpBox.hidden=true;try{localStorage.removeItem(draftKey('to'))}catch(e){}
-  if(!sent){ta.value=draftLoad('');taFit()}}
+/** Leaves reply mode. A reply that took the box's text gives it back (without the @mention it added); otherwise the
+ *  reply's draft is kept (unless it's only that @mention) and your other draft comes back. */
+function replyClear(sent){if(!rpTo.value)return;const mine=rpCarry===+rpTo.value,carry=mine&&!sent;if(mine)rpCarry=0;
+  if(carry){const m=rpAt.trim();if(m&&ta.value.startsWith(m))ta.value=ta.value.slice(m.length).replace(/^ /,'');draftSave(draftNow(),'')}
+  else if(!sent)draftSave(draftNow(),ta.value.trim()===rpAt.trim()?'':ta.value);
+  rpTo.value='';rpAt='';rpBox.hidden=true;try{localStorage.removeItem(draftKey('to'));if(!rpCarry)localStorage.removeItem(draftKey('carry'))}catch(e){}
+  if(carry){draftSave('',ta.value);taFit()}else if(!sent){ta.value=draftLoad('');taFit()}}
 /** After a reply is posted: its thread is open, so you can see it there. */
 // A reply posts at the bottom like any message (jxn #1040): after sending one, the conversation follows it there.
 function replyShown(){toBottom(true)}
@@ -1298,7 +1304,8 @@ document.addEventListener('click',e=>{const b=e.target.closest('button[data-repl
   if(e.target.closest('#reply-cancel')){replyClear();ta.focus();return}
   if(e.target.closest('#replying-go')&&rpTo.value)window.BOARD_CTX.jump(+rpTo.value)});
 ta.addEventListener('keydown',e=>{if(e.key==='Escape'&&!e.defaultPrevented&&rpTo.value){e.preventDefault();if(cmpHome)closeThread();else replyClear()}}); // in a thread, Esc closes it
-{let t=0;try{t=+localStorage.getItem(draftKey('to'))||0}catch(e){}if(t)setTimeout(()=>{if(document.getElementById('e'+t))replyTo(t,false);else replyClear()},0)}
+{let t=0,c=0;try{t=+localStorage.getItem(draftKey('to'))||0;c=+localStorage.getItem(draftKey('carry'))||0}catch(e){}
+  rpCarry=c;if(t)setTimeout(()=>{if(document.getElementById('e'+t))replyTo(t,false,true);else replyClear()},0)}
 // Quote (vedu #1022): select words in a message and Quote puts them in the composer as "> " lines ending "— who, #N".
 // The page shows that as a box with ↗ original; agents read the plain lines.
 const qBtn=document.createElement('button');qBtn.type='button';qBtn.className='btn sm quote-btn';qBtn.id='quote-btn';qBtn.hidden=true;qBtn.textContent='❝ Quote';document.body.appendChild(qBtn);
