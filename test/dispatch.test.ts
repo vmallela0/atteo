@@ -44,7 +44,7 @@ describe("dispatcher", () => {
     expect(forkName(m)).toBe("task-12");
     const p = forkPrompt(m, "vedu", { id: "as_1", name: "task-12" });
     expect(p).toContain("your user (vedu)");
-    expect(p).toContain('the board "checkout" (b_x)');
+    expect(p).toContain("on board b_x"); // boards by id in agent prompts (#2185): a creator-set title never reaches its instructions
     expect(p).not.toContain('"Your agent"');
     expect(p).toContain("--board b_x --reply 12");
     expect(p).not.toContain("written by another person");
