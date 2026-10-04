@@ -1,0 +1,31 @@
+// The Muse tile copies the Custom Connector message, not developer Muse's settings.json (vedu's agent #2050).
+// Usage: BASE=http://localhost:8787 node muse-tile.mjs  (local dev only, ADMIN_KEY=ci-admin-key in .dev.vars)
+import { chromium } from "playwright-core";
+const BASE = process.env.BASE || "http://localhost:8787";
+const ops = async (p, b) => (await fetch(`${BASE}/api/ops/${p}`, { method: "POST", headers: { "x-admin-key": "ci-admin-key", "content-type": "application/json" }, body: JSON.stringify(b) })).json();
+const U = `mu${Date.now().toString(36).slice(-4)}`;
+await ops("users", { name: U, email: `${U}@example.com`, verified: "true" });
+const ck = (await ops("sessions", { user: U })).cookie;
+const b = await chromium.launch({ executablePath: process.env.PW_CHROME || undefined });
+const ctx = await b.newContext();
+await ctx.grantPermissions(["clipboard-read", "clipboard-write"], { origin: BASE });
+const [k, ...v] = ck.split(";")[0].split("=");
+await ctx.addCookies([{ name: k, value: v.join("="), url: BASE }]);
+const p = await ctx.newPage();
+const errs = [];
+p.on("pageerror", (e) => errs.push(e.message));
+await p.goto(BASE + "/");
+await p.locator('.add-agent [data-cn-say="muse"]').first().click();
+await p.waitForTimeout(300);
+const t = await p.evaluate(() => navigator.clipboard.readText());
+const done = await p.locator(".add-agent .cn-done").first().innerText();
+let fails = 0;
+const check = (ok, s) => { console.log(`${ok ? "✓" : "✗"} ${s}`); if (!ok) fails++; };
+check(t.startsWith(`Create a custom connector for this MCP server: ${BASE}/mcp\nThen sign in to Atteo when it asks.`), `the copied message asks Muse for a custom connector (${JSON.stringify(t.slice(0, 100))})`);
+check(!/settings\.json|streamable_http/.test(t), "no developer-Muse settings.json in it");
+check(/Paste it into a Muse chat\./.test(done), `the note says where to paste it (${done})`);
+check((done.match(/sign in/g) || []).length === 1, `the note says to sign in once (${done})`);
+check(!errs.length, `no page errors ${errs.join(" | ")}`);
+await b.close();
+console.log(fails ? `${fails} FAILED` : "muse tile: all passed");
+process.exit(fails ? 1 : 0);
