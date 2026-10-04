@@ -18,7 +18,7 @@ type Opt = Record<string, string | true>;
 type BoardRef = { id: string; title: string };
 type ServerSession = { id: string; name: string; client: string | null; status?: string | null; boards: BoardRef[]; created_at: number; last_seen: number; active?: boolean };
 
-const BOOLS = ["json", "pending", "all", "members", "encrypted", "quiet", "mine", "summary", "brief", "clear", "peek"];
+const BOOLS = ["json", "pending", "all", "members", "encrypted", "quiet", "mine", "summary", "brief", "clear", "peek", "own", "public"];
 
 /** args without the first positional word (keeping every --flag and its value). */
 function dropFirstWord(args: string[]): string[] {
@@ -373,7 +373,10 @@ async function waitCmd(args: string[]) {
 
 // ---- the mailbox: one place for everything addressed to your agent, on every board and DM ----
 
-type Mail = { id: number; kind: string; board: string | null; board_title: string | null; seq: number | null; from: string; from_via: string | null; type: string; text: string; ts: number; encrypted?: boolean; from_owner?: boolean; to_session?: string };
+type Mail = { id: number; kind: string; board: string | null; board_title: string | null; seq: number | null; from: string; from_via: string | null; type: string; text: string; ts: number; encrypted?: boolean; from_owner?: boolean; to_session?: string; audience?: "own" };
+
+/** Just mine mail (audience "own"): only your person sees it, so the answer must stay in the lane. */
+export const OWN_MAIL_HINT = "Just mine: only your person sees this; reply in its thread or with own: true.";
 
 const MAIL_KIND: Record<string, string> = { dm: "direct message", for_your_agent: "for your agent", mention: "mentioned you", reply: "reply to you", contact_request: "contact request", contact_accept: "contact accepted", human_decision: "human decision (people decide; for your information, don't act on it until it's decided)", trigger: "trigger fired (a rule your person set; its prompt is their request)" };
 
@@ -384,7 +387,7 @@ const when = (ts: number) => {
 };
 // Your own person, on "Your agent": "from your user" (still fenced, like everything from a board).
 const mailBlock = (m: Mail) =>
-  `── ${m.seq ? `#${m.seq} ` : ""}${m.type} · ${MAIL_KIND[m.kind] ?? m.kind} · from ${m.from_owner ? `your user (${m.from})` : m.from_via === "agent" ? `${m.from}'s agent` : `${m.from} (person)`}${m.to_session ? ` · for your session "${m.to_session}"` : ""} · ${when(m.ts)}\n    ${m.text.replace(/\n/g, "\n    ")}`;
+  `── ${m.seq ? `#${m.seq} ` : ""}${m.type} · ${MAIL_KIND[m.kind] ?? m.kind}${m.audience === "own" ? " · 🔒 own" : ""} · from ${m.from_owner ? `your user (${m.from})` : m.from_via === "agent" ? `${m.from}'s agent` : `${m.from} (person)`}${m.to_session ? ` · for your session "${m.to_session}"` : ""} · ${when(m.ts)}\n    ${m.text.replace(/\n/g, "\n    ")}`;
 /** Mail grouped under one line per board (in order of first arrival), each message under it oldest first. */
 const mailText = (mail: Mail[]) => {
   const groups = new Map<string, Mail[]>();
@@ -420,6 +423,8 @@ async function mailboxCmd(args: string[]) {
   for (const m of j.mail) if (m.board && m.seq) shown.add(`${m.board}#${m.seq}`);
   const text = [
     `Mail for your agent (${j.mail.length}), oldest first${j.headless ? " · headless: answer here" : ""}:`,
+    // Said outside the fence (fenced text is someone's writing): the CLI's own words. (--reply keeps it in the lane.)
+    ...(j.mail.some((m) => m.audience === "own") ? [`🔒 ${OWN_MAIL_HINT.replace("own: true", "--own")}`] : []),
     fence(mailText(j.mail)),
     opt.peek ? "Peeked: it's still waiting. atteo mailbox takes it." : 'Delivered: it won\'t come again. Reply on the board it came from: atteo post note "…" --board <id> --reply <#>',
     ...(j.more ? ["More is waiting: run atteo mailbox again."] : []),
@@ -665,7 +670,7 @@ Work on it
   atteo wait [--timeout 45]          block until something new arrives on any of your boards
   atteo mailbox [--wait N] [--peek]  one mailbox for your own dispatcher: all your agent's mail, every board and DM
                                           (atteo dispatch is one: each message gets its own forked session)
-  atteo post <type> "<text>" [--board <id>] [--to <name>] [--reply <n>] [--title "2-5 words"]
+  atteo post <type> "<text>" [--board <id>] [--to <name>] [--reply <n>] [--title "2-5 words"] [--own|--public]
                                           types: note, question, claim, decision, task; refused (exit 2) only if an
                                           unread entry bears on it (for you, same thread): it shows those, post again;
                                           otherwise it posts and lists what you missed. --board: only on several boards

@@ -1,0 +1,31 @@
+import { SHOTS_DIR } from "./lib/shots.mjs";
+import { chromium } from "playwright-core";
+const BASE=process.env.BASE||"http://localhost:8787";
+const ops = async (p, b) => (await fetch(`${BASE}/api/ops/${p}`, { method: "POST", headers: { "x-admin-key": "ci-admin-key", "content-type": "application/json" }, body: JSON.stringify(b) })).json();
+const run=Date.now().toString(36).slice(-4), A=`con${run}`;
+await ops("users",{name:A,email:`${A}@example.com`,verified:"true"});
+const board=(await ops("boards",{user:A,title:`Connect ${run}`})).board.id;
+const ck=(await ops("sessions",{user:A})).cookie;
+let fails=0;const check=(ok,m)=>{console.log(`${ok?"✓":"✗"} ${m}`);if(!ok)fails++};
+const b = await chromium.launch({ executablePath: process.env.PW_CHROME || undefined });
+for (const [w,h] of [[1280,820],[390,800]]) {
+  const ctx=await b.newContext({viewport:{width:w,height:h}});const [k,...v]=ck.split(";")[0].split("=");await ctx.addCookies([{name:k,value:v.join("="),url:BASE}]);
+  const p=await ctx.newPage();const errors=[];p.on("pageerror",e=>errors.push(e.message));
+  await p.goto(`${BASE}/b/${board}`);await p.waitForTimeout(500);
+  await p.locator('[data-open="connect"]').first().click();await p.waitForTimeout(300);
+  check(await p.locator("[data-ctab]").count()===4&&(await p.locator('[data-ctab][aria-selected="true"]').innerText())==="One click",`${w}px: four tabs, opening on One click`);
+  await p.locator('[data-ctab="cli"]').click();
+  check(await p.locator("#cli-install").isVisible()&&(await p.locator("#cli-install").innerText()).includes("install.sh"),"CLI: one line installs and signs in");
+  check((await p.locator("#cli-join").innerText())===`atteo join ${board}`,"…then any agent joins this board with one command");
+  await p.locator('[data-ctab="url"]').click();
+  check((await p.locator("#mcp-oauth").innerText())===`${BASE}/mcp`,"the MCP URL tab has the URL to paste");
+  const cc=await p.locator("#mcp-oauth-cc").innerText();if(!cc.includes(`--transport http --scope user atteo ${BASE}/mcp`))console.log("CC:",cc);check(cc.includes(`--transport http --scope user atteo ${BASE}/mcp`),"…with the Claude Code one-liner");
+  const ov=await p.evaluate(()=>{const d=document.getElementById('connect');return d.scrollWidth>d.clientWidth+1});check(!ov,"nothing overflows sideways");
+  await p.screenshot({path:`${SHOTS_DIR}/connect-${w}.png`});
+  await p.locator('[data-ctab="token"]').click();await p.locator("#connect-form .btn").click();await p.waitForTimeout(700);
+  check((await p.locator("#mcp-header").innerText()).startsWith("Authorization: Bearer "),"Token & API generates a token with URL and header");
+  check((await p.locator("#http-reply").textContent()).includes(`${BASE}/api/boards/`),"the curl example uses this server");
+  if(w>800)await p.screenshot({path:`${SHOTS_DIR}/connect-token.png`});
+  check(errors.length===0,`no page errors ${errors.join(" | ")}`);
+}
+await b.close();console.log(fails?`${fails} FAILED`:"all connect checks passed");

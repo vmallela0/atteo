@@ -3,7 +3,7 @@
 name: Uptime
 on:
   schedule:
-    - cron: "*/15 * * * *"
+    - cron: "7 * * * *" # hourly: every 15 min was ~2,900 billed minutes a month on its own (#1982)
   workflow_dispatch:
 jobs:
   probe:

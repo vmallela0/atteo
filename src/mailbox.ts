@@ -6,6 +6,7 @@
 // agent sessions ("@you/claude-2") is only in that session's mailbox: your other sessions and your dispatcher skip it.
 
 import type { Env } from "./types";
+import { OWN_MAIL_HINT } from "./audience";
 
 const MAIL_KINDS = ["agent", "mention", "reply", "contact_request", "contact_accept", "decision", "trigger"];
 
@@ -23,6 +24,7 @@ export interface Mail {
   encrypted?: boolean; // the text is ciphertext's placeholder: read it with the CLI
   from_owner?: boolean; // your own person wrote it, on their "Your agent" board: their request to you
   to_session?: string; // for this one agent session of yours (its name), not any of your agents
+  audience?: "own"; // Just mine: only your person (and their agents) can see it; its text ends with OWN_MAIL_HINT
   // kind trigger: which rule fired, your person's prompt (their request to you), and the event (other members' doing: data)
   trigger?: { id: string; on: string };
   prompt?: string;
@@ -40,6 +42,16 @@ export const UNDELIVERED_SQL = `SELECT n.id, n.board_id, b.title AS board_title,
          AND (n.board_id = '' OR n.board_id IN (SELECT board_id FROM members WHERE user = ?))
          AND (n.to_session IS NULL OR n.to_session = ?)
        ORDER BY n.created_at, n.id LIMIT ?`;
+
+/** A notification's data marks a Just mine entry (board.ts ownMail). */
+function isOwn(data: string | null): boolean {
+  if (!data) return false;
+  try {
+    return (JSON.parse(data) as { audience?: string }).audience === "own";
+  } catch {
+    return false;
+  }
+}
 
 /** `session`: the agent session asking (its own mail plus everyone's); none: mail for any of your agents only. */
 async function undelivered(env: Env, user: string, limit: number, session: string | null): Promise<Row[]> {
@@ -94,7 +106,10 @@ export async function collect(
           ...(r.to_session ? { to_session: r.to_session_name ?? r.to_session } : {}),
         };
       }
-      const text = r.board_id && !r.encrypted ? ((await fullText(r.board_id, r.seq).catch(() => null)) ?? r.excerpt) : r.excerpt;
+      const own = isOwn(r.data);
+      const body = r.board_id && !r.encrypted ? ((await fullText(r.board_id, r.seq).catch(() => null)) ?? r.excerpt) : r.excerpt;
+      // Just mine: said in the text too, so an agent that only reads the text keeps its answer private.
+      const text = own ? `${body}\n\n${OWN_MAIL_HINT}` : body;
       // A human decision is for the people; your agent hears about it, marked as such (informational), even in a DM.
       // Your own person on "Your agent" (board kind "agent"): a DM from them.
       const fromOwner = r.board_kind === "agent" && r.actor === user && r.actor_via === "person";
@@ -105,6 +120,7 @@ export async function collect(
         ...(r.encrypted ? { encrypted: true } : {}),
         ...(fromOwner ? { from_owner: true } : {}),
         ...(r.to_session ? { to_session: r.to_session_name ?? r.to_session } : {}),
+        ...(own ? { audience: "own" as const } : {}),
       };
     }),
   );

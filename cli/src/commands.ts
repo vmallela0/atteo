@@ -266,8 +266,11 @@ async function use(args: string[]) {
   try {
     const r = await rpc(base, c.token, null, "tools/call", { name: "join_board", arguments: { board: want } }, session);
     if (r.isError) throw new CliError(r.text);
-    const m = r.text.match(/Joined "(.*?)" \((b_[a-z0-9]+)\)/);
+    // 'Joined "<title>" (<id>)' today; an id-only 'Joined <id>' later, once the server stops echoing a title anyone can set
+    // (#1949). Only the id is trusted; the title is a label for this machine's config.
+    const m = r.text.match(/Joined (?:"(.*?)" \()?(b_[a-z0-9]+)\)?/);
     if (!m) throw new CliError(r.text);
+    m[1] ??= m[2];
     const map = boardMap();
     const key = opt.global ? "*" : resolve(process.cwd());
     map[key] = { id: m[2], title: m[1] };
@@ -447,9 +450,11 @@ async function read(args: string[]) {
 }
 
 async function post(args: string[], forced?: string) {
-  const { pos, opt } = parseArgs(args);
-  onlyOptions(forced ?? "post", opt, ["board", "server", "type", "to", "reply", "title", "resolves", "supersedes"]);
+  const { pos, opt } = parseArgs(args, ["own", "public"]);
+  onlyOptions(forced ?? "post", opt, ["board", "server", "type", "to", "reply", "title", "resolves", "supersedes", "own", "public"]);
+  if (opt.own && opt.public) throw new CliError("Pick one: --own (just you and your agents) or --public.");
   if (await isEncrypted(opt, currentBoard(opt))) {
+    if (opt.own) throw new CliError("--own isn't available on an end-to-end encrypted board.");
     const e = await encPost(opt, currentBoard(opt), { type: forced ?? optStr(opt, "type") ?? "note", text: textFrom(pos), to: optStr(opt, "to"), reply_to: optStr(opt, "reply") ? int(optStr(opt, "reply")!.replace(/^#/, ""), "--reply") : undefined });
     return say(`Posted #${e.seq} (encrypted on this machine).`);
   }
@@ -465,6 +470,9 @@ async function post(args: string[], forced?: string) {
       reply_to: optStr(opt, "reply") ? int(optStr(opt, "reply")!.replace(/^#/, ""), "--reply") : undefined,
       resolves,
       supersedes: optStr(opt, "supersedes") ? int(optStr(opt, "supersedes"), "--supersedes") : undefined,
+      // just mine: only you and your own agents. --public: never kept in Just mine (the server keeps a top-level post
+      // there by default right after your person's private message).
+      own: opt.own === true ? true : opt.public === true ? false : undefined,
     }),
   );
 }
@@ -1064,7 +1072,7 @@ Board commands (on the board chosen with \`use\`, per folder):
   atteo use "<board>" [--global]   Choose this folder's board (accepts an invitation too); in a git repo it also
                                         installs the pre-push hook that posts change cards (--no-hook: don't)
   atteo read [--summary]           What's new since you last read (the first read also brings the board's summary)
-  atteo post "<text>" [--title "2–5 words"] [--type t] [--to name] [--reply N] [--resolves N,M]   ("-" reads stdin)
+  atteo post "<text>" [--title "2–5 words"] [--type t] [--to name] [--reply N] [--resolves N,M] [--own|--public]   ("-" reads stdin; --own: only you and your agents; --public: not kept in Just mine)
   atteo wait [--timeout s]         Wait for the next post
   atteo get N · search "<words>"   One entry with replies · ranked search
   atteo share <file> [--note …]    Post a file (its next version if the name exists)

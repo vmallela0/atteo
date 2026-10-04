@@ -9,6 +9,9 @@
 //   on a computer; Atteo has no hosted assistant), so they show "Coming soon" and do nothing.
 // "Done" polls the person's agent sessions and connections and flips to "Connected ✓" when a new one appears.
 
+import { tr, type Lang } from "./i18n";
+
+type Tr = (s: string, v?: Record<string, string | number>) => string;
 import { appPage, pebble, type SideBoard, type Viewer } from "./ui";
 import { esc } from "./util";
 
@@ -74,29 +77,29 @@ const PROVIDERS: Provider[] = [
   { id: "muse", name: "Muse", sub: "Your Muse account", letter: "M", match: /muse/i },
 ];
 
-const tile = (p: Provider, on: boolean) =>
+const tile = (p: Provider, on: boolean, T: Tr) =>
   `<div class="ev-row" data-ev-tile="${esc(p.id)}"><span class="ev-ic" aria-hidden="true">${esc(p.letter)}</span>
-<div class="grow"><div class="ev-name">${esc(p.name)}</div><div class="ev-sub">${esc(p.sub)}${on ? ` · <span class="ok">Connected</span>` : ""}</div></div>
-${p.flow ? `<button type="button" class="btn" data-open="ev-${esc(p.id)}">${on ? "Add again" : "Connect"}</button>` : `<span class="badge ev-soon">Coming soon</span>`}</div>`;
+<div class="grow"><div class="ev-name">${esc(p.name)}</div><div class="ev-sub">${esc(T(p.sub))}${on ? ` · <span class="ok">${esc(T("Connected"))}</span>` : ""}</div></div>
+${p.flow ? `<button type="button" class="btn" data-open="ev-${esc(p.id)}">${esc(T(on ? "Add again" : "Connect"))}</button>` : `<span class="badge ev-soon">${esc(T("Coming soon"))}</span>`}</div>`;
 
-function sheet(p: Provider, link: string): string {
+function sheet(p: Provider, link: string, T: Tr): string {
   const f = p.flow!;
   return `<dialog class="ev-sheet" id="ev-${esc(p.id)}" aria-labelledby="ev-${esc(p.id)}-h">
-<div class="hd"><div class="row" style="gap:12px"><span class="ev-ic" aria-hidden="true">${esc(p.letter)}</span><h2 id="ev-${esc(p.id)}-h">Connect ${esc(p.name)}</h2></div><button type="button" class="btn ghost sm" data-close aria-label="Close">✕</button></div>
+<div class="hd"><div class="row" style="gap:12px"><span class="ev-ic" aria-hidden="true">${esc(p.letter)}</span><h2 id="ev-${esc(p.id)}-h">${esc(T("Connect {name}", { name: p.name }))}</h2></div><button type="button" class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
 <div class="bd">
-<p class="ev-intro">About a minute: you copy one link into ${esc(p.name)}, then sign in.</p>
+<p class="ev-intro">${esc(T("About a minute: you copy one link into {name}, then sign in.", { name: p.name }))}</p>
 <ol class="ev-steps">
-<li><b>Copy your Atteo link.</b><button type="button" class="btn primary ev-copy" data-ev-copy="link">Copy link</button><div class="ev-link mono" data-ev-link>${esc(link)}</div></li>
-<li>${f.step2}<br><a class="btn ev-open" href="${esc(f.open.href)}" target="_blank" rel="noopener">${esc(f.open.label)} ↗</a></li>
-<li>${f.step3}</li>
+<li><b>${esc(T("Copy your Atteo link."))}</b><button type="button" class="btn primary ev-copy" data-ev-copy="link">${esc(T("Copy link"))}</button><div class="ev-link mono" data-ev-link>${esc(link)}</div></li>
+<li>${T(f.step2)}<br><a class="btn ev-open" href="${esc(f.open.href)}" target="_blank" rel="noopener">${esc(T(f.open.label))} ↗</a></li>
+<li>${T(f.step3)}</li>
 </ol>
-${f.note ? `<p class="ev-note">${f.note}</p>` : ""}
+${f.note ? `<p class="ev-note">${T(f.note)}</p>` : ""}
 ${
   f.grokBot
-    ? `<p class="ev-alt">Have a Grok Bot? Paste it a setup message instead. It adds Atteo and checks for new messages every 10 minutes.<br><button type="button" class="btn sm" data-ev-copy="alt">Copy message for Grok Bot</button></p><pre hidden data-ev-alt>${esc(grokBotMessage(link))}</pre>`
+    ? `<p class="ev-alt">${esc(T("Have a Grok Bot? Paste it a setup message instead. It adds Atteo and checks for new messages every 10 minutes."))}<br><button type="button" class="btn sm" data-ev-copy="alt">${esc(T("Copy message for Grok Bot"))}</button></p><pre hidden data-ev-alt>${esc(grokBotMessage(link))}</pre>`
     : ""
 }
-<div class="ev-done"><p class="ev-status" role="status" aria-live="polite"></p><button type="button" class="btn primary" data-ev-done>Done</button><a class="btn primary" href="/" data-ev-go hidden>Go to your chats</a></div>
+<div class="ev-done"><p class="ev-status" role="status" aria-live="polite"></p><button type="button" class="btn primary" data-ev-done>${esc(T("Done"))}</button><a class="btn primary" href="/" data-ev-go hidden>${esc(T("Go to your chats"))}</a></div>
 </div></dialog>`;
 }
 
@@ -105,27 +108,29 @@ export const dismissKey = (name: string) => `atteo-welcome-dismissed:${name}`;
 
 /** GET /welcome for a signed-in person. `connected`: the client names of their current agent sessions. */
 export function assistantWelcomePage(viewer: Viewer, side: SideBoard[], origin: string, connected: string[]): Response {
+  const L: Lang | undefined = viewer.lang,
+    T: Tr = (x, v) => tr(L, x, v);
   const link = `${origin}/mcp`;
   const on = (p: Provider) => connected.some((c) => p.match.test(c));
   const names = [...new Set(connected)];
   const body = `<div class="ev">
 <div class="ev-mark">${pebble(52)}</div>
-<h1>Bring your assistant</h1>
-<p class="ev-lede">Connect the AI assistant you already use, so it can work with the assistants of the people you share chats with. You paste one link into it and sign in.</p>
-${names.length ? `<p class="ev-now">Connected now: ${names.map(esc).join(", ")}</p>` : ""}
-<div class="list ev-list">${PROVIDERS.map((p) => tile(p, on(p))).join("")}</div>
-<div class="ev-or">or</div>
+<h1>${esc(T("Bring your assistant"))}</h1>
+<p class="ev-lede">${esc(T("Connect the AI assistant you already use, so it can work with the assistants of the people you share chats with. You paste one link into it and sign in."))}</p>
+${names.length ? `<p class="ev-now">${esc(T("Connected now:"))} ${names.map(esc).join(", ")}</p>` : ""}
+<div class="list ev-list">${PROVIDERS.map((p) => tile(p, on(p), T)).join("")}</div>
+<div class="ev-or">${esc(T("or"))}</div>
 <div class="card ev-row ev-own" data-ev-tile="atteo"><span class="ev-ic" aria-hidden="true">${pebble(28)}</span>
-<div class="grow"><div class="ev-name">Use Atteo's assistant</div><div class="ev-sub">For anyone who doesn't have one. We're still building it.</div></div><span class="badge ev-soon">Coming soon</span></div>
-<div class="ev-foot-links"><a href="/#connect" data-ev-dev>Something else? (for developers)</a><a href="/" data-ev-dismiss>Not now</a></div>
+<div class="grow"><div class="ev-name">${esc(T("Use Atteo's assistant"))}</div><div class="ev-sub">${esc(T("For anyone who doesn't have one. We're still building it."))}</div></div><span class="badge ev-soon">${esc(T("Coming soon"))}</span></div>
+<div class="ev-foot-links"><a href="/#connect" data-ev-dev>${esc(T("Something else? (for developers)"))}</a><a href="/" data-ev-dismiss>${esc(T("Not now"))}</a></div>
 </div>
-${PROVIDERS.filter((p) => p.flow).map((p) => sheet(p, link)).join("")}`;
-  return appPage("Bring your assistant · Atteo", {
+${PROVIDERS.filter((p) => p.flow).map((p) => sheet(p, link, T)).join("")}`;
+  return appPage(`${T("Bring your assistant")} · Atteo`, {
     viewer,
     boards: side,
     active: "welcome",
     narrow: true,
-    crumbs: `<span class="cur">Bring your assistant</span>`,
+    crumbs: `<span class="cur">${esc(T("Bring your assistant"))}</span>`,
     body,
     script: welcomeJs(viewer.name),
   });
@@ -143,21 +148,21 @@ const base={};
 const fresh=(b,n)=>{const ss=new Set(b.s.map(x=>x.id)),ts=new Set(b.t.map(x=>x.id));
   const s=n.s.find(x=>!ss.has(x.id));if(s)return s.client||s.name||'your assistant';
   const t=n.t.find(x=>!ts.has(x.id)&&x.kind==='cli'&&!x.revoked_at);return t?(t.label||'your assistant'):null};
-const reset=(d)=>{if(d.dataset.connected)return;const st=d.querySelector('.ev-status'),btn=d.querySelector('[data-ev-done]');st.textContent='';st.className='ev-status';btn.disabled=false;btn.textContent='Done'};
+const reset=(d)=>{if(d.dataset.connected)return;const st=d.querySelector('.ev-status'),btn=d.querySelector('[data-ev-done]');st.textContent='';st.className='ev-status';btn.disabled=false;btn.textContent=tr('Done')};
 async function check(d){if(d._poll)return;const st=d.querySelector('.ev-status'),btn=d.querySelector('[data-ev-done]');
   const b=await (base[d.id]||(base[d.id]=snapshot()));const t0=Date.now();
-  st.className='ev-status';st.textContent='Checking for your assistant…';btn.disabled=true;d._poll=1;
+  st.className='ev-status';st.textContent=tr('Checking for your assistant…');btn.disabled=true;d._poll=1;
   const tick=async()=>{const who=fresh(b,await snapshot());
-    if(who){d._poll=0;d.dataset.connected='1';st.className='ev-status ok';st.textContent='Connected ✓ '+who;btn.hidden=true;d.querySelector('[data-ev-go]').hidden=false;dismiss();return}
-    if(!d.open||Date.now()-t0>90000){d._poll=0;btn.disabled=false;btn.textContent='Check again';st.textContent=d.open?'Not connected yet. Finish the steps above, then press Check again.':'';return}
+    if(who){d._poll=0;d.dataset.connected='1';st.className='ev-status ok';st.textContent=tr('Connected ✓ ')+who;btn.hidden=true;d.querySelector('[data-ev-go]').hidden=false;dismiss();return}
+    if(!d.open||Date.now()-t0>90000){d._poll=0;btn.disabled=false;btn.textContent=tr('Check again');st.textContent=d.open?tr('Not connected yet. Finish the steps above, then press Check again.'):'';return}
     setTimeout(tick,2000)};
   tick()}
 document.addEventListener('click',async e=>{
   const o=e.target.closest('[data-open^="ev-"]');if(o){const d=document.getElementById(o.dataset.open);if(d){reset(d);if(!d.dataset.connected)base[d.id]=snapshot()}return}
   const c=e.target.closest('[data-ev-copy]');if(c){const d=c.closest('dialog'),src=d&&d.querySelector(c.dataset.evCopy==='alt'?'[data-ev-alt]':'[data-ev-link]');if(!src)return;
     const label=c.dataset.label||(c.dataset.label=c.textContent);
-    try{await navigator.clipboard.writeText(src.textContent);c.textContent='Copied ✓';toast('Copied. Now paste it.');setTimeout(()=>{c.textContent=label},2500)}
-    catch(err){const r=document.createRange();r.selectNodeContents(src);const s=getSelection();s.removeAllRanges();s.addRange(r);toast('Select the link and copy it')}
+    try{await navigator.clipboard.writeText(src.textContent);c.textContent=tr('Copied ✓');toast(tr(tr('Copied. Now paste it.')));setTimeout(()=>{c.textContent=label},2500)}
+    catch(err){const r=document.createRange();r.selectNodeContents(src);const s=getSelection();s.removeAllRanges();s.addRange(r);toast(tr(tr('Select the link and copy it')))}
     return}
   const dn=e.target.closest('[data-ev-done]');if(dn){check(dn.closest('dialog'));return}
   if(e.target.closest('[data-ev-dismiss]'))dismiss();
@@ -166,9 +171,10 @@ document.addEventListener('click',async e=>{
 
 /** The home banner pointing to /welcome, for someone who has never connected an assistant. Shown until dismissed. */
 export function welcomeBanner(viewer: Viewer): string {
+  const T = (x: string) => esc(tr(viewer.lang, x));
   return `<div class="card ev-banner" id="ev-banner" data-ev-key="${esc(dismissKey(viewer.name))}" hidden>${pebble(36)}
-<div class="grow"><b>Bring your assistant</b><span class="small muted">Connect Grok, ChatGPT or Claude so it can work with the people you share chats with.</span></div>
-<div class="ev-acts"><button type="button" class="btn ghost sm" data-ev-dismiss>Not now</button><a class="btn primary" href="/welcome">Bring your assistant</a></div></div>`;
+<div class="grow"><b>${T("Bring your assistant")}</b><span class="small muted">${T("Connect Grok, ChatGPT or Claude so it can work with the people you share chats with.")}</span></div>
+<div class="ev-acts"><button type="button" class="btn ghost sm" data-ev-dismiss>${T("Not now")}</button><a class="btn primary" href="/welcome">${T("Bring your assistant")}</a></div></div>`;
 }
 
 export const WELCOME_BANNER_JS = `
@@ -176,12 +182,13 @@ export const WELCOME_BANNER_JS = `
   b.querySelector('[data-ev-dismiss]').addEventListener('click',()=>{try{localStorage.setItem(k,'1')}catch(e){}b.hidden=true})})();`;
 
 /** Account → "Your assistant": who's connected (client names), with Change → /welcome; or a way to bring one. */
-export function assistantCard(connected: string[]): string {
+export function assistantCard(connected: string[], lang?: Lang): string {
+  const T = (x: string) => esc(tr(lang, x));
   const names = [...new Set(connected)];
-  return `<div class="section-title" style="margin-top:28px"><div><h2>Your assistant</h2></div></div>
+  return `<div class="section-title" style="margin-top:28px"><div><h2>${T("Your assistant")}</h2></div></div>
 ${
   names.length
-    ? `<a class="card ev-acct" href="/welcome" id="ev-acct"><span class="ev-ic" aria-hidden="true">${pebble(28)}</span><div class="grow"><div class="ev-name">${names.map(esc).join(", ")}</div><div class="ev-sub">Connected</div></div><span class="ev-chg">Change ›</span></a>`
-    : `<div class="card ev-acct" id="ev-acct"><span class="ev-ic" aria-hidden="true">${pebble(28)}</span><div class="grow"><div class="ev-name">No assistant yet</div><div class="ev-sub">Connect the one you already use.</div></div><a class="btn primary sm" href="/welcome">Bring your assistant</a></div>`
+    ? `<a class="card ev-acct" href="/welcome" id="ev-acct"><span class="ev-ic" aria-hidden="true">${pebble(28)}</span><div class="grow"><div class="ev-name">${names.map(esc).join(", ")}</div><div class="ev-sub">${T("Connected")}</div></div><span class="ev-chg">${T("Change")} ›</span></a>`
+    : `<div class="card ev-acct" id="ev-acct"><span class="ev-ic" aria-hidden="true">${pebble(28)}</span><div class="grow"><div class="ev-name">${T("No assistant yet")}</div><div class="ev-sub">${T("Connect the one you already use.")}</div></div><a class="btn primary sm" href="/welcome">${T("Bring your assistant")}</a></div>`
 }`;
 }

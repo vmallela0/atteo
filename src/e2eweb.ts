@@ -116,8 +116,23 @@ async function openOne(seq,payload){let p;try{p=JSON.parse(payload)}catch(e){ret
     if(p.v===1){const r=(p.recipients||[]).find(x=>x.kid===ST.dev.kid);if(!r)return {why:"Can't read this on this device: it was sent before this browser's key existed."};
       const content=await unwrapMine(r,ST.dev,V1);return {text:td.decode(await ungcm(await aesKey(content),p.iv,p.ct))}}}
   catch(e){return {why:"Can't decrypt this on this device."}}return {why:'Not an envelope this browser understands.'}}
+// Opened text, drawn like a plain board's (ui.ts block(), #1930): "> " lines are a quote, and ending "— who, #N" makes it
+// the quote box (who said it, ↗ to the original); "#N" is a link the page turns into a chip. The rest stays as written.
+const refs=h=>h.replace(/(^|[^\\w&#\/])#(\\d{1,6})\\b/g,(_,pre,n)=>pre+'<a class="ref" data-ref="'+n+'" href="#e'+n+'">#'+n+'</a>');
+function opened(t){const out=[];let plain=[],q=[];
+  const flushPlain=()=>{if(plain.length){const x=plain.join('\\n');if(x.trim())out.push('<div class="e2e-text">'+refs(esc(x))+'</div>')}plain=[]};
+  const flushQuote=()=>{if(!q.length)return;const src=q.length>1?q[q.length-1].replace(/^>\\s?/,'').match(/^— (.+), #(\\d{1,6})$/):null;
+    if(src){flushPlain();out.push('<blockquote class="md-q qt"><div class="qt-hd"><span class="qt-who">'+esc(src[1])+'</span><a class="qt-go" href="#e'+src[2]+'" data-jump="'+src[2]+'">↗ original</a></div><div class="qt-t e2e-text">'+refs(esc(q.slice(0,-1).map(l=>l.replace(/^>\\s?/,'')).join('\\n')))+'</div></blockquote>')}
+    else{flushPlain();out.push('<blockquote class="md-q"><div class="e2e-text">'+refs(esc(q.map(l=>l.replace(/^>\\s?/,'')).join('\\n')))+'</div></blockquote>')}q=[]};
+  for(const line of String(t).split('\\n')){if(/^>/.test(line))q.push(line);else{flushQuote();plain.push(line)}}
+  flushQuote();flushPlain();return out.join('')}
+// A short title from the opened text, like the page's shortTitle (html.ts) for plain boards: "#N" chips that point here read it.
+function short(t){const l=String(t).replace(/\`\`\`[\\s\\S]*?\`\`\`/g,'\\n').split('\\n').map(x=>x.trim()).find(Boolean)||'';
+  const w=l.replace(/@[A-Za-z0-9][A-Za-z0-9_.-]*(?:['’]s\\s+(?:agent|assistant))?/gi,' ').replace(/^[\\s,:;.\\-–—>]+/,'').split(/\\s+/).filter(Boolean);
+  return w.length?w.slice(0,4).join(' ').replace(/[,:;.\\-–—]+$/,'')+(w.length>4?'…':''):''}
 function show(seq,r){const el=document.querySelector('#e'+seq+'>.grow>.body');if(!el)return false;
-  el.innerHTML=r.text!=null?'<div class="e2e-text">'+esc(r.text)+'</div>':'<span class="e2e-none">🔒 '+esc(r.why)+'</span>';el.closest('.entry').classList.toggle('e2e-open',r.text!=null);
+  el.innerHTML=r.text!=null?opened(r.text):'<span class="e2e-none">🔒 '+esc(r.why)+'</span>';el.closest('.entry').classList.toggle('e2e-open',r.text!=null);
+  if(r.text!=null){const t=short(r.text),en=el.closest('.entry');if(t){en.dataset.title=t;document.querySelectorAll('a.ref[data-ref="'+seq+'"][data-done]').forEach(a=>{a.textContent='↗ '+t})}if(window.refChips)refChips(el)}
   const top=el.closest('.replies')?.closest('#thread>.entry');if(top)thrSum(+top.dataset.seq);return r.text!=null}
 let busy=null,queued=false,qFrom=null;
 /** Messages that came back on the page (a bounded conversation, #1365) arrive sealed again: open them on the next sync. */
@@ -137,12 +152,12 @@ async function encPost(text,type,reply_to,tries){tries=tries||0;const st=await e
   const c=await gcm(k.aes,te.encode(text));const m=text.match(/^@([a-z0-9][a-z0-9_.-]{0,31})/i),to=m&&MEMBERS.includes(m[1].toLowerCase())?m[1].toLowerCase():undefined; // addressed, like the CLI's --to
   try{return await api('POST','/api/boards/'+BOARD+'/sealed',{payload:JSON.stringify({v:2,epoch:st.current,iv:c.iv,ct:c.ct}),type,to,reply_to:reply_to||undefined})}
   catch(e){if(tries<2&&e.status===409)return encPost(text,type,reply_to,tries+1);throw e}} // a removal or a newer epoch since we looked
-window.addEventListener('submit',async e=>{const f=e.target;if(!f.matches||!f.matches('form.composer'))return;e.preventDefault();e.stopImmediatePropagation();
+window.addEventListener('submit',async e=>{const f=e.target;if(!f.matches||!f.matches('form.composer'))return;e.preventDefault();e.stopImmediatePropagation();if(window.micStop)micStop(); // it stops the submit, so the mic's own listener never hears it (#1711)
   const text=ta.value.trim();if(!text)return;const type=f.querySelector('input[name=type]:checked')?.value||'note',was=+rpTo.value||null;
   const btn=f.querySelector('button:not([type=button])');if(btn)btn.disabled=true;
   // A reply goes to the composer's reply target and lands in that message's thread, as on a plain board.
   try{await encPost(text,type,was);ta.value='';replyClear(true);if(was&&!(window.thrRearm&&thrRearm()))replyShown(was);taFit();stickNext=!was;await tick(false)}
-  catch(err){toast((err.message||"Couldn't send")+' Your message is still in the box.')}finally{if(btn)btn.disabled=false}},true);
+  catch(err){toast((err.message||tr("Couldn't send"))+' Your message is still in the box.')}finally{if(btn)btn.disabled=false}},true);
 
 if(!window.isSecureContext||!S||!window.indexedDB){say("🔒 <b>End-to-end encrypted.</b> This page can't hold an encryption key here (it needs a secure connection). Read and write with the atteo CLI.");return}
 S.generateKey({name:'X25519'},false,['deriveBits']).then(()=>{document.getElementById('attach-btn')?.remove();

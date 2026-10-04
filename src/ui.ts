@@ -6,11 +6,13 @@ import { chartHtml } from "./chart";
 import { STATUS_CSS, statusHtml } from "./status";
 import { highlightMentions, type Mention } from "./mentions";
 import { MERMAID_CSS, MERMAID_JS, mermaidHtml } from "./mermaid";
+import { TALK_CSS } from "./talk";
 import { esc } from "./util";
+import { clientTable, tr, type Lang } from "./i18n";
 
 // Dark tokens: the system setting picks them unless Display says light; Display can also force them.
 const DARK = `  --bg:#0a0a0a;--bg-subtle:#111111;--bg-hover:#1a1a1a;--line:#232323;--line-strong:#2e2e2e;
-  --ink:#ededed;--text:#ededed;--muted:#a1a1a1;--faint:#6f6f6f;--on-ink:#0a0a0a;--pb-agent:#F2EFE8;--pb-eye:#111113;
+  --ink:#ededed;--text:#ededed;--muted:#a1a1a1;--faint:#858585;--on-ink:#0a0a0a;--pb-agent:#F2EFE8;--pb-eye:#111113;
   --accent:#4ea1ff;--ok:#3ecf75;--warn:#fb923c;--danger:#f87171;
   --q:#fbbf24;--claim:#4ade80;--decision:#a78bfa;--task:#38bdf8;--artifact:#a3a3a3;--note:#737373;
   --shadow:0 1px 2px rgba(0,0,0,.4);--shadow-lg:0 12px 48px rgba(0,0,0,.6);
@@ -20,11 +22,11 @@ const DARK = `  --bg:#0a0a0a;--bg-subtle:#111111;--bg-hover:#1a1a1a;--line:#2323
 export const CSS = `
 :root{
   --bg:#ffffff;--bg-subtle:#fafafa;--bg-hover:#f4f4f5;--line:#ebebeb;--line-strong:#dcdcdc;
-  --ink:#0a0a0a;--text:#171717;--muted:#6b6b6b;--faint:#9a9a9a;--on-ink:#ffffff;--pb-agent:#111113;--pb-eye:#F2EFE8;
+  --ink:#0a0a0a;--text:#171717;--muted:#595959;--faint:#737373;--on-ink:#ffffff;--pb-agent:#111113;--pb-eye:#F2EFE8;
   --accent:#0062d1;--ok:#16a34a;--warn:#c2410c;--danger:#dc2626;
   --q:#d97706;--claim:#16a34a;--decision:#7c3aed;--task:#0284c7;--artifact:#737373;--note:#a3a3a3;
   --shadow:0 1px 2px rgba(0,0,0,.04),0 4px 16px rgba(0,0,0,.04);--shadow-lg:0 12px 48px rgba(0,0,0,.12);
-  --av-l:92%;--av-c:32%;--av-s:65%;
+  --av-l:92%;--av-c:28%;--av-s:65%;
   --r:10px;--r-sm:7px;
   color-scheme:light;
 }
@@ -41,8 +43,12 @@ export const CSS = `
 :hover::-webkit-scrollbar-thumb{background:var(--sb-hover)}
 @supports not selector(::-webkit-scrollbar){*{scrollbar-width:thin;scrollbar-color:var(--sb) transparent}*:hover{scrollbar-color:var(--sb-hover) transparent}}
 html{-webkit-text-size-adjust:100%}
-body{margin:0;background:var(--bg);color:var(--text);font:13.5px/1.5 "Geist",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+body{margin:0;background:var(--bg);color:var(--text);font:13.5px/1.5 "Geist",ui-sans-serif,system-ui,-apple-system,"Segoe UI","PingFang SC","Hiragino Sans GB","Noto Sans SC","Microsoft YaHei",sans-serif;
   -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;font-feature-settings:"ss01","cv11"}
+html:lang(zh-Hant) body{font-family:"Geist",ui-sans-serif,system-ui,-apple-system,"Segoe UI","PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif}
+html:lang(ja) body{font-family:"Geist",ui-sans-serif,system-ui,-apple-system,"Segoe UI","Hiragino Sans","Hiragino Kaku Gothic ProN","Noto Sans JP","Yu Gothic UI",Meiryo,sans-serif}
+html:lang(ko) body{font-family:"Geist",ui-sans-serif,system-ui,-apple-system,"Segoe UI","Apple SD Gothic Neo","Noto Sans KR","Malgun Gothic",sans-serif}
+html:lang(hi) body{font-family:"Geist",ui-sans-serif,system-ui,-apple-system,"Segoe UI","Kohinoor Devanagari","Noto Sans Devanagari","Nirmala UI",sans-serif}
 a{color:inherit;text-decoration:none}
 a.link{color:var(--accent)}a.link:hover{text-decoration:underline}
 code,pre,.mono{font-family:"Geist Mono",ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px}
@@ -215,7 +221,7 @@ dialog[open]{animation:pop .16s ease-out}dialog:focus{outline:none}
 :root[data-text="l"] .composer textarea{font-size:15.5px}
 :root[data-density="compact"] .entry{padding:7px 0;gap:10px}:root[data-density="compact"] .thread>.entry:first-child{padding-top:4px}:root[data-density="compact"] .replies .entry{padding:4px 0 0}
 :root[data-density="compact"] .entry .body{margin-top:0}:root[data-density="compact"] .entry .body p+p{margin-top:4px}
-.dp-grid{display:grid;grid-template-columns:110px 1fr;gap:12px 14px;align-items:center}.dp-grid .lbl{margin:0}
+.dp-lang{max-width:300px}.dp-voice-row{display:flex;gap:8px;align-items:center}.dp-voice{max-width:180px}.dp-grid{display:grid;grid-template-columns:110px 1fr;gap:12px 14px;align-items:center}.dp-grid .lbl{margin:0}
 .dp-grid .seg{flex-wrap:wrap}.dp-grid .seg input{display:inline;position:absolute;opacity:0;width:1px;height:1px;pointer-events:none}
 .dp-grid .seg input:focus-visible+label{outline:2px solid var(--accent);outline-offset:1px}
 @media (max-width:640px){.dp-grid{grid-template-columns:1fr;gap:6px}}
@@ -254,6 +260,9 @@ dialog[open]{animation:pop .16s ease-out}dialog:focus{outline:none}
 .t-change{color:var(--accent)}
 /* Members & access */
 dialog.access-dlg{width:min(640px,calc(100vw - 24px))}
+/* Invite an agent (#1855): a small + after the members' faces, and a two-choice dialog */
+.av-add{flex:none;display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;border:1px dashed var(--line-strong);background:transparent;color:var(--muted);cursor:pointer;padding:0}.av-add:hover{color:var(--ink);border-color:var(--ink)}
+dialog.ia-dlg{width:min(560px,calc(100vw - 24px))}.ia-opt h3{margin:0 0 4px;font-size:14px}.ia-opt+.ia-opt{border-top:1px solid var(--line);padding-top:14px}.ia-opt .copy{margin:8px 0}.ia-opt form{margin-top:8px;flex-wrap:wrap}
 .acc-sec{padding:14px 0;border-top:1px solid var(--line)}.acc-sec:first-child{border-top:0;padding-top:0}
 .acc-sec h3{font-size:12.5px;font-weight:600;color:var(--ink);margin:0 0 8px}.acc-sec summary{cursor:pointer}
 .acc-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.acc-sel{width:auto;height:30px;font-size:12.5px;padding:0 8px}
@@ -338,7 +347,7 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .body blockquote.qt{max-width:560px;padding:7px 11px;border:1px solid var(--line);border-radius:10px}
 .qt-hd{display:flex;align-items:baseline;gap:10px;margin-bottom:2px;font-size:12.5px}.qt-who{font-weight:600;color:var(--ink);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .qt-go{margin-left:auto;flex:none;text-decoration:none}.qt-go:hover{text-decoration:underline}
-.quote-btn{position:fixed;z-index:60;box-shadow:var(--shadow-lg)}
+.sel-float{position:fixed;z-index:60;display:flex;gap:6px;box-shadow:var(--shadow-lg);border-radius:var(--r-sm);background:var(--bg);padding:4px}
 /* multi-select and forward */
 .sel-bar{display:none;align-items:center;gap:10px;padding:10px 12px;margin-bottom:8px;font-size:13px}.selecting .sel-bar:not([hidden]){display:flex}
 .selecting .composer{display:none}.selecting #thread .entry{cursor:pointer;padding-left:30px}.selecting .entry .acts{display:none!important}
@@ -586,15 +595,26 @@ input.switch::after{content:"";position:absolute;top:3px;left:3px;width:18px;hei
 .ev-ok{flex:none;width:22px;height:22px;border-radius:50%;background:var(--ok);color:var(--bg);display:inline-flex;align-items:center;justify-content:center;font-size:13px;font-weight:700}
 :root[data-mode="everyday"] .bp-title h1{font-size:26px;letter-spacing:-.01em}:root[data-mode="everyday"] .section-title h1{font-size:26px}
 @media(max-width:640px){:root[data-mode="everyday"] .bp-title h1{font-size:22px}}
-.composer .po-btn{width:30px;padding:0;justify-content:center;color:var(--muted)}.composer .po-btn:hover{color:var(--ink)}.composer .po-btn.on{color:var(--on-ink);background:var(--ink);border-radius:999px}
-.po-note{margin:0 0 8px;padding:6px 10px;border-radius:8px;background:color-mix(in srgb,var(--warn) 10%,transparent);font-size:12.5px;color:var(--text)}.po-note[hidden]{display:none}.composer.po{box-shadow:0 0 0 1.5px color-mix(in srgb,var(--warn) 55%,transparent)}
+.composer .po-btn{width:30px;padding:0;justify-content:center;color:var(--muted);transition:color .15s,border-color .15s}.composer .po-btn:hover{color:var(--ink)}.composer .po-btn.on{color:var(--on-ink);background:var(--ink);border-radius:999px}
+.composer .po-btn.on{width:auto;padding:0 9px 0 7px;gap:4px}.po-lbl{font-size:12px;font-weight:600;white-space:nowrap}.po-lbl:empty{display:none}
+.composer .po-btn.on.own{background:var(--accent);border-color:var(--accent);color:var(--bg)}
+@media(max-width:640px){.composer .po-btn.on{padding:0 8px 0 6px}.po-lbl{font-size:11.5px}}
+.po-note{margin:0 0 8px;padding:6px 10px;border-radius:8px;background:color-mix(in srgb,var(--warn) 10%,transparent);font-size:12.5px;color:var(--text)}.po-note[hidden]{display:none}
+.po-seg{display:inline-flex;vertical-align:baseline;border:1px solid var(--line);border-radius:999px;padding:1px;background:var(--bg);margin-right:2px}
+.po-seg button{border:0;background:none;font:inherit;font-size:12px;line-height:1.5;padding:1px 9px;border-radius:999px;color:var(--muted);cursor:pointer}
+.po-seg button:hover{color:var(--ink)}.po-seg button[aria-checked="true"]{background:var(--ink);color:var(--on-ink);font-weight:600}
+.po-seg button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}.composer.po{box-shadow:0 0 0 1.5px color-mix(in srgb,var(--warn) 55%,transparent)}
 .pv-dlg{width:min(1100px,calc(100vw - 24px));height:min(860px,calc(100vh - 40px));padding:0;display:none}.pv-dlg[open]{display:flex;flex-direction:column}
 .pv-hd{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line)}.pv-hd .mono{min-width:0;font-size:13px}.pv-w button{padding:3px 10px;font-size:12px}
 .pv-body{flex:1;min-height:0;display:flex;justify-content:center;background:var(--bg-subtle);overflow:auto}.pv-body iframe{border:0;height:100%;background:#fff;transition:width .2s}.pv-note{margin:0;padding:6px 12px;border-top:1px solid var(--line)}
 @media(max-width:640px){.pv-dlg{width:100vw;max-width:100vw;height:100dvh;max-height:none;margin:0;border-radius:0}.pv-w{display:none}}
 /* Highlights (mention tint, new-message flash, jump tint) bleed 12px each side whatever the density, so the avatar never sits on the edge (jxn #1311). */
 #thread>.entry.for-you,#thread>.entry.flash-in,#thread>.entry.hit,.thr-list>.entry.for-you,.thr-list>.entry.hit{margin-left:-12px;margin-right:-12px;padding-left:12px;padding-right:12px;border-radius:8px}
+/* …and a seen-by ring on such a message stays where it was, clear of the rail (jxn #1751). */
+#thread>.entry.for-you>.rd,#thread>.entry.flash-in>.rd,#thread>.entry.hit>.rd,.thr-list>.entry.for-you>.rd,.thr-list>.entry.hit>.rd{right:12px}
+@media (pointer:coarse){#thread>.entry.for-you>.rd,#thread>.entry.flash-in>.rd,#thread>.entry.hit>.rd,.thr-list>.entry.for-you>.rd,.thr-list>.entry.hit>.rd{right:10px}}
 ${MERMAID_CSS}
+${TALK_CSS}
 .slash-menu li{align-items:baseline}.slash-menu li b{flex:none;white-space:nowrap}.slash-menu li .k{margin-left:10px;flex:1;min-width:0;text-align:left} /* "/task" never splits (jxn #1391) */
 .mem-act{display:none}.mem-on .mem-act{display:inline-flex;width:30px;padding:0;justify-content:center;color:var(--muted)}.mem-on .mem-act:hover{color:var(--ink)}
 .soul-prev{white-space:pre-wrap;font-size:12.5px;line-height:1.5;color:var(--text);max-height:7.5em;overflow:hidden;-webkit-mask-image:linear-gradient(#000 70%,transparent);mask-image:linear-gradient(#000 70%,transparent)}
@@ -1040,6 +1060,15 @@ a.ref:hover{color:var(--ink);background:color-mix(in srgb,var(--accent) 12%,var(
 #doc-pin svg{margin-right:2px}#doc-pin.on{color:var(--accent)}
 /* Recap: a header button and a sheet (bottom sheet on phones) */
 .recap-btn{position:relative;gap:5px;align-self:center;color:var(--muted)}.recap-btn:hover{color:var(--ink)}
+/* People (jxn #1731): only what people wrote. Agents' posts are hidden for this viewer alone (a root attribute from this browser) */
+:root[data-pf] #thread>.entry.by-agent,:root[data-pf] #thread>.ghost.by-agent,:root[data-pf] .thr-list>.entry.by-agent:not(:first-child){display:none}
+.pf-btn{gap:5px;align-self:center;color:var(--muted)}.pf-btn:hover{color:var(--ink)}.pf-btn[aria-pressed="true"]{color:var(--ink);background:var(--bg-hover)}
+.pf-empty{margin:28px auto;max-width:420px;padding:0 16px;text-align:center;font-size:13px;color:var(--faint)}
+@media(max-width:640px){.pf-btn span{display:none}.pf-btn{width:30px;padding:0;justify-content:center}} /* phones: the icon, so Recap still fits by the tabs */
+@media(max-width:379px){.recap-l{display:none}.recap-btn{width:30px;padding:0;justify-content:center}.recap-dot{position:absolute;top:4px;right:4px;margin:0;box-shadow:0 0 0 2px var(--bg)}} /* with Hide agents beside it */
+@media(max-width:359px){.bp-tabs{gap:2px}.bp-tabs .tabs button{padding-left:5px;padding-right:5px}} /* the narrowest phones: Recap stays clear of the info button below it */
+@media(pointer:coarse){.bp-tabs>.pf-btn,.bp-tabs>.recap-btn{z-index:1}} /* their taller tap areas sit over the conversation's top edge */
+.pf-list{flex:none}.pf-list[aria-pressed="true"]{background:var(--bg-hover);color:var(--ink);border-color:var(--line-strong)}
 .recap-dot{flex:none;width:6px;height:6px;border-radius:50%;background:var(--accent);align-self:flex-start;margin:5px 0 0 -2px}
 dialog.recap-dlg{width:min(560px,calc(100vw - 32px));max-height:min(80vh,720px)}
 .recap-dlg .bd{overflow-y:auto;max-height:calc(min(80vh,720px) - 80px)}
@@ -1073,6 +1102,7 @@ export interface Viewer {
   display_name: string | null;
   admin: boolean;
   via?: "agent" | "person"; // "agent" when the request came with a personal token (scripts, CLI, other agents)
+  lang?: Lang; // the interface language for pages (i18n.ts); English when unset
 }
 
 export function page(
@@ -1132,8 +1162,8 @@ export function avatarStack(names: string[], max = 5): string {
   return `<span class="avs">${shown}</span>${more}`;
 }
 
-export function typeTag(type: string): string {
-  return `<span class="type t-${esc(type)}"><span class="dot"></span><span>${esc(type)}</span></span>`;
+export function typeTag(type: string, lang?: Lang): string {
+  return `<span class="type t-${esc(type)}"><span class="dot"></span><span>${esc(tr(lang, type))}</span></span>`;
 }
 
 export function copyField(id: string, text: string): string {
@@ -1141,16 +1171,16 @@ export function copyField(id: string, text: string): string {
 }
 
 /** Relative time rendered on the server and kept fresh by the client script. */
-export function when(ts: number): string {
-  return `<time class="when" datetime="${new Date(ts).toISOString()}" data-ts="${ts}" title="${new Date(ts).toUTCString()}">${relTime(ts)}</time>`;
+export function when(ts: number, lang?: Lang): string {
+  return `<time class="when" datetime="${new Date(ts).toISOString()}" data-ts="${ts}" title="${new Date(ts).toUTCString()}">${relTime(ts, Date.now(), lang)}</time>`;
 }
 
-export function relTime(ts: number, now = Date.now()): string {
+export function relTime(ts: number, now = Date.now(), lang?: Lang): string {
   const s = Math.max(0, (now - ts) / 1000);
-  if (s < 45) return "just now";
-  if (s < 3600) return `${Math.round(s / 60)}m ago`;
-  if (s < 86400) return `${Math.round(s / 3600)}h ago`;
-  if (s < 86400 * 7) return `${Math.round(s / 86400)}d ago`;
+  if (s < 45) return tr(lang, "just now");
+  if (s < 3600) return tr(lang, "{n}m ago", { n: Math.round(s / 60) });
+  if (s < 86400) return tr(lang, "{n}h ago", { n: Math.round(s / 3600) });
+  if (s < 86400 * 7) return tr(lang, "{n}d ago", { n: Math.round(s / 86400) });
   return new Date(ts).toISOString().slice(0, 10);
 }
 
@@ -1309,6 +1339,8 @@ if(d.text==='s'||d.text==='l')r.dataset.text=d.text;if(d.density==='compact')r.d
 const CLIENT_JS = `
 /** The one HTML escaper for every page script. */
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c])}
+/** The interface in this page's language (i18n.ts): the English as written, looked up in window.I18N; {name} filled from v. */
+function tr(s,v){let x=(window.I18N&&window.I18N[s])||s;if(v)for(const k in v)x=x.split('{'+k+'}').join(v[k]);return x}
 (()=>{
 const $=(s,r=document)=>r.querySelector(s),$$=(s,r=document)=>[...r.querySelectorAll(s)];
 // Display settings: applied now, remembered here for the next first paint, and picked up from the account once per tab (so a change on the phone reaches the web).
@@ -1326,21 +1358,22 @@ if($('a[href="/me"]')){let fresh=false;try{fresh=!!sessionStorage.getItem('atteo
 // coming back to the tab and every 10 minutes; drafts are saved as you type, so reloading loses nothing.
 (()=>{let v0=null;const chk=async()=>{try{const j=await (await fetch('/health',{cache:'no-store'})).json();if(!j||!j.version)return;if(v0===null){v0=j.version;return}
   if(j.version===v0||document.getElementById('upd-bar'))return;const b=document.createElement('div');b.id='upd-bar';b.className='upd-bar';b.setAttribute('role','status');
-  b.innerHTML='<span>Atteo was updated</span><button class="btn sm primary" type="button">Reload</button>';b.querySelector('button').addEventListener('click',()=>location.reload());document.body.appendChild(b)}catch(e){}};
+  b.innerHTML='<span>'+tr('Atteo was updated')+'</span><button class="btn sm primary" type="button">'+tr('Reload')+'</button>';b.querySelector('button').addEventListener('click',()=>location.reload());document.body.appendChild(b)}catch(e){}};
   chk();document.addEventListener('visibilitychange',()=>{if(!document.hidden)chk()});setInterval(chk,600000)})();
 // Everyday words in the sidebar (#1272): Boards are "Chats". Developer mode keeps today's words.
-(()=>{const words=()=>{const ev=document.documentElement.dataset.mode==='everyday';document.querySelectorAll('.side-link[href="/"],.side-link[href="/chats"]').forEach(a=>{a.setAttribute('href',ev?'/chats':'/');const x=a.querySelector('span:not(.count)');if(x)x.textContent=ev?'Chats':'Boards'})};
+(()=>{const words=()=>{const ev=document.documentElement.dataset.mode==='everyday';document.querySelectorAll('.side-link[href="/"],.side-link[href="/chats"]').forEach(a=>{a.setAttribute('href',ev?'/chats':'/');const x=a.querySelector('span:not(.count)');if(x)x.textContent=ev?tr('Chats'):tr('Boards')})};
   words();document.addEventListener('atteo-mode',words)})();
 window.toast=(m)=>{const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),1800)};
 document.addEventListener('click',e=>{
   const c=e.target.closest('[data-copy]');
-  if(c){const src=$('#'+c.dataset.copy);navigator.clipboard.writeText('value' in src?src.value:src.innerText).then(()=>toast('Copied to clipboard'),()=>src.select&&src.select());return}
+  if(c){const src=$('#'+c.dataset.copy);navigator.clipboard.writeText('value' in src?src.value:src.innerText).then(()=>toast(tr('Copied to clipboard')),()=>src.select&&src.select());return}
   const o=e.target.closest('[data-open]');if(o){const d=$('#'+o.dataset.open),from=o.closest('dialog[open]');if(from&&from!==d)from.close();d&&!d.open&&d.showModal();const f=d&&d.querySelector('input:not([type=hidden]):not([type=checkbox]),textarea');if(f)f.focus();else if(d){d.tabIndex=-1;d.focus()}return} // no ring on the close button
   const x=e.target.closest('[data-close]');if(x){x.closest('dialog').close();return}
 });
 $$('dialog').forEach(d=>d.addEventListener('click',e=>{if(e.target===d)d.close()}));
-function rel(ts){const s=Math.max(0,(Date.now()-ts)/1000);if(s<45)return'just now';if(s<3600)return Math.round(s/60)+'m ago';if(s<86400)return Math.round(s/3600)+'h ago';if(s<604800)return Math.round(s/86400)+'d ago';return new Date(ts).toISOString().slice(0,10)}
-window.refreshTimes=()=>$$('time[data-ts]').forEach(t=>t.textContent=rel(+t.dataset.ts));setInterval(refreshTimes,30000);
+function rel(ts){const s=Math.max(0,(Date.now()-ts)/1000);if(s<45)return tr('just now');if(s<3600)return tr('{n}m ago',{n:Math.round(s/60)});if(s<86400)return tr('{n}h ago',{n:Math.round(s/3600)});if(s<604800)return tr('{n}d ago',{n:Math.round(s/86400)});return new Date(ts).toISOString().slice(0,10)}
+$$('button[data-copy]').forEach(b=>{if(b.textContent==='Copy')b.textContent=tr('Copy')});
+window.refreshTimes=()=>$$('time[data-ts]').forEach(t=>t.textContent=rel(+t.dataset.ts));setInterval(refreshTimes,30000);if(window.I18N&&Object.keys(window.I18N).length)refreshTimes();
 // Posting never fails silently: a message gets an id (Idempotency-Key) and is retried through dropped connections and
 // restarts for a couple of minutes; the server stores it once however many tries arrive. Your text stays until it lands.
 window.sendReliably=async(url,body,onRetry)=>{const key=crypto.randomUUID?crypto.randomUUID():Date.now()+'-'+Math.random().toString(36).slice(2);
@@ -1433,6 +1466,8 @@ export function appPage(
   },
 ): Response {
   const v = opts.viewer;
+  const L = v.lang,
+    T = (s: string, vars?: Record<string, string | number>) => tr(L, s, vars);
   const cur = (k: string) => (opts.active === k ? ' aria-current="page"' : "");
   const shared = opts.boards.filter((b) => b.kind !== "direct" && b.kind !== "agent"),
     direct = opts.boards.filter((b) => b.kind === "direct"),
@@ -1445,62 +1480,62 @@ export function appPage(
     .map((b) => `<a class="side-link side-board" href="/b/${esc(b.id)}"${cur(b.id)}>${avatar(directPeer(b, v.name), "xs")}<span class="truncate">${esc(directPeer(b, v.name))}</span>${working(b.live ?? 0, b.id)}</a>`)
     .join("");
   // "Your agent", pinned first under DMs: your private chat with your own agents (/agent makes it the first time).
-  const sideOwn = `<a class="side-link side-board" href="${own ? `/b/${esc(own.id)}` : "/agent"}"${own ? cur(own.id) : ""} data-agent-chat>${avatar(v.name, "xs", true)}<span class="truncate">Your agent</span>${own ? working(own.live ?? 0, own.id) : ""}</a>`;
+  const sideOwn = `<a class="side-link side-board" href="${own ? `/b/${esc(own.id)}` : "/agent"}"${own ? cur(own.id) : ""} data-agent-chat>${avatar(v.name, "xs", true)}<span class="truncate">${esc(T("Your agent"))}</span>${own ? working(own.live ?? 0, own.id) : ""}</a>`;
   const paletteItems = [
-    { label: "Your agent", hint: "Chat", href: own ? `/b/${own.id}` : "/agent" },
-    ...opts.boards.filter((b) => b.kind !== "agent").map((b) => ({ label: b.kind === "direct" ? `${directPeer(b, v.name)} (direct)` : b.title, hint: "Board", href: `/b/${b.id}` })),
-    { label: "For you", hint: "Home", href: "/for-you" },
-    { label: "Inbox", hint: "G I", href: "/inbox" },
-    { label: "Approvals", hint: "G A", href: "/approvals" },
-    { label: "People and friends", hint: "G P", href: "/people" },
-    { label: "New board", hint: "C", href: "/?new=1" },
-    { label: "All boards", hint: "G B", href: "/" },
-    { label: "Account and agent connections", hint: "G M", href: "/me" },
-    { label: "Keyboard shortcuts", hint: "?", href: "#shortcuts" },
+    { label: T("Your agent"), hint: T("Chat"), href: own ? `/b/${own.id}` : "/agent" },
+    ...opts.boards.filter((b) => b.kind !== "agent").map((b) => ({ label: b.kind === "direct" ? T("{name} (direct)", { name: directPeer(b, v.name) }) : b.title, hint: T("Board"), href: `/b/${b.id}` })),
+    { label: T("For you"), hint: T("Home"), href: "/for-you" },
+    { label: T("Inbox"), hint: "G I", href: "/inbox" },
+    { label: T("Approvals"), hint: "G A", href: "/approvals" },
+    { label: T("People and friends"), hint: "G P", href: "/people" },
+    { label: T("New board"), hint: "C", href: "/?new=1" },
+    { label: T("All boards"), hint: "G B", href: "/" },
+    { label: T("Account and agent connections"), hint: "G M", href: "/me" },
+    { label: T("Keyboard shortcuts"), hint: "?", href: "#shortcuts" },
     ...(v.admin ? [{ label: "Ops console", hint: "Operators", href: "/_ops" }] : []),
   ];
   const body = `<div class="app" id="app">
-<aside class="sidebar" aria-label="Navigation">
+<aside class="sidebar" aria-label="${esc(T("Navigation"))}">
   <a class="ws" href="/">${LOGO}<span class="wm">atteo</span></a>
-  <button class="search" type="button" data-palette>${ICON.search}<span>Search or jump to…</span><kbd>⌘K</kbd></button>
-  <a class="side-link" href="/for-you"${cur("foryou")}>${ICON.foryou}<span>For you</span></a>
-  <a class="side-link" href="/inbox"${cur("inbox")}>${ICON.inbox}<span>Inbox</span><span class="count" id="inbox-count" hidden></span></a>
-  <a class="side-link" href="/approvals"${cur("approvals")}>${ICON.approve}<span>Approvals</span><span class="count" id="approvals-count" hidden></span></a>
-  <a class="side-link" href="/"${cur("boards")}>${ICON.boards}<span>Boards</span></a>
-  <a class="side-link" href="/people"${cur("people")}>${ICON.me}<span>People</span></a>
+  <button class="search" type="button" data-palette>${ICON.search}<span>${esc(T("Search or jump to…"))}</span><kbd>⌘K</kbd></button>
+  <a class="side-link" href="/for-you"${cur("foryou")}>${ICON.foryou}<span>${esc(T("For you"))}</span></a>
+  <a class="side-link" href="/inbox"${cur("inbox")}>${ICON.inbox}<span>${esc(T("Inbox"))}</span><span class="count" id="inbox-count" hidden></span></a>
+  <a class="side-link" href="/approvals"${cur("approvals")}>${ICON.approve}<span>${esc(T("Approvals"))}</span><span class="count" id="approvals-count" hidden></span></a>
+  <a class="side-link" href="/"${cur("boards")}>${ICON.boards}<span>${esc(T("Boards"))}</span></a>
+  <a class="side-link" href="/people"${cur("people")}>${ICON.me}<span>${esc(T("People"))}</span></a>
   ${v.admin ? `<a class="side-link" href="/_ops"${cur("admin")}>${ICON.admin}<span>Ops</span></a>` : ""}
-  <div class="side-label"><span>Your boards</span><a href="/?new=1" title="New board (C)" aria-label="New board">${ICON.plus}</a></div>
-  ${sideBoards || `<p class="xs faint" style="padding:2px 9px">No boards yet</p>`}
-  <div class="side-label"><span>DMs</span></div>${sideOwn}${sideDirect}
+  <div class="side-label"><span>${esc(T("Your boards"))}</span><a href="/?new=1" title="${esc(T("New board (C)"))}" aria-label="${esc(T("New board"))}">${ICON.plus}</a></div>
+  ${sideBoards || `<p class="xs faint" style="padding:2px 9px">${esc(T("No boards yet"))}</p>`}
+  <div class="side-label"><span>${esc(T("DMs"))}</span></div>${sideOwn}${sideDirect}
   <div class="me"><a class="side-link" href="/me">${avatar(v.name, "sm")}<span class="truncate">${esc(v.name)}</span></a>
 </div>
 </aside>
 <div class="grow" style="min-width:0">
-  <header class="topbar"><button class="btn ghost sm menu-btn" type="button" data-nav aria-label="Menu">${ICON.menu}</button>
+  <header class="topbar"><button class="btn ghost sm menu-btn" type="button" data-nav aria-label="${esc(T("Menu"))}">${ICON.menu}</button>
     <nav class="crumbs" aria-label="Breadcrumb">${opts.crumbs}</nav><div class="actions">${opts.actions ?? ""}</div></header>
   <div class="content${opts.narrow ? " narrow" : ""}${opts.full ? " full" : ""}">${opts.body}</div>
 </div></div>
-<dialog class="palette" id="palette" aria-label="Search">
-<div class="pal-in"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/></svg><span class="pal-chips" id="pal-chips"></span><input class="input" id="palette-q" placeholder="Search messages, files, boards and actions…" autocomplete="off" aria-label="Search" aria-controls="palette-list"></div>
-<div class="pal-filters" id="pal-filters" aria-label="Filters"></div>
-<ul id="palette-list" role="listbox"></ul><div class="foot"><span><kbd>↑</kbd> <kbd>↓</kbd> move</span><span><kbd>↵</kbd> open</span><span><kbd>⌫</kbd> remove filter</span><span><kbd>esc</kbd> close</span></div></dialog>
-<dialog id="shortcuts"><div class="hd"><h2>Keyboard shortcuts</h2><button class="btn ghost sm" data-close aria-label="Close">✕</button></div>
+<dialog class="palette" id="palette" aria-label="${esc(T("Search"))}">
+<div class="pal-in"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/></svg><span class="pal-chips" id="pal-chips"></span><input class="input" id="palette-q" placeholder="${esc(T("Search messages, files, boards and actions…"))}" autocomplete="off" aria-label="Search" aria-controls="palette-list"></div>
+<div class="pal-filters" id="pal-filters" aria-label="${esc(T("Filters"))}"></div>
+<ul id="palette-list" role="listbox"></ul><div class="foot"><span><kbd>↑</kbd> <kbd>↓</kbd> ${esc(T("move"))}</span><span><kbd>↵</kbd> ${esc(T("open"))}</span><span><kbd>⌫</kbd> ${esc(T("remove filter"))}</span><span><kbd>esc</kbd> ${esc(T("close"))}</span></div></dialog>
+<dialog id="shortcuts"><div class="hd"><h2>${esc(T("Keyboard shortcuts"))}</h2><button class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
 <div class="bd"><dl class="kv">
-<dt><kbd>⌘K</kbd> <kbd>/</kbd></dt><dd>Search or jump to a board</dd>
-<dt><kbd>N</kbd></dt><dd>Next thing that needs you, on any board</dd>
-<dt><kbd>C</kbd></dt><dd>New board, or write on the current board</dd>
-<dt><kbd>I</kbd></dt><dd>Invite someone to the current board</dd>
-<dt><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> <kbd>4</kbd></dt><dd>Conversation / Log / Files / Tasks</dd>
-<dt><kbd>↵</kbd> · <kbd>⇧</kbd> <kbd>↵</kbd></dt><dd>Post · new line</dd>
-<dt><kbd>⌘F</kbd></dt><dd>Search this board's messages</dd>
-<dt><kbd>@</kbd></dt><dd>Mention a person or their agent</dd>
-<dt><kbd>J</kbd> <kbd>K</kbd></dt><dd>Move down / up through entries</dd>
-<dt><kbd>↵</kbd></dt><dd>Open the selected entry's details</dd>
-<dt><kbd>↵</kbd> · <kbd>⌫</kbd></dt><dd>Approve · deny the selected or focused approval (asks first when it's high risk)</dd>
-<dt><kbd>G</kbd> then <kbd>I</kbd> <kbd>A</kbd> <kbd>B</kbd> <kbd>P</kbd> <kbd>M</kbd></dt><dd>Go to Inbox / Approvals / Boards / People / Account</dd>
-<dt><kbd>?</kbd></dt><dd>This list</dd></dl></div></dialog>
+<dt><kbd>⌘K</kbd> <kbd>/</kbd></dt><dd>${esc(T("Search or jump to a board"))}</dd>
+<dt><kbd>N</kbd></dt><dd>${esc(T("Next thing that needs you, on any board"))}</dd>
+<dt><kbd>C</kbd></dt><dd>${esc(T("New board, or write on the current board"))}</dd>
+<dt><kbd>I</kbd></dt><dd>${esc(T("Invite someone to the current board"))}</dd>
+<dt><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> <kbd>4</kbd></dt><dd>${esc(T("Conversation / Log / Files / Tasks"))}</dd>
+<dt><kbd>↵</kbd> · <kbd>⇧</kbd> <kbd>↵</kbd></dt><dd>${esc(T("Post · new line"))}</dd>
+<dt><kbd>⌘F</kbd></dt><dd>${esc(T("Search this board's messages"))}</dd>
+<dt><kbd>@</kbd></dt><dd>${esc(T("Mention a person or their agent"))}</dd>
+<dt><kbd>J</kbd> <kbd>K</kbd></dt><dd>${esc(T("Move down / up through entries"))}</dd>
+<dt><kbd>↵</kbd></dt><dd>${esc(T("Open the selected entry's details"))}</dd>
+<dt><kbd>↵</kbd> · <kbd>⌫</kbd></dt><dd>${esc(T("Approve · deny the selected or focused approval (asks first when it's high risk)"))}</dd>
+<dt><kbd>G</kbd> ${esc(T("then"))} <kbd>I</kbd> <kbd>A</kbd> <kbd>B</kbd> <kbd>P</kbd> <kbd>M</kbd></dt><dd>${esc(T("Go to Inbox / Approvals / Boards / People / Account"))}</dd>
+<dt><kbd>?</kbd></dt><dd>${esc(T("This list"))}</dd></dl></div></dialog>
 <script>window.PALETTE=${JSON.stringify(paletteItems).replace(/</g, "\\u003c")};${v.admin ? "window.OPS=1;" : ""}</script>`;
-  return rawPage(title, body, (opts.script ?? "") + SHELL_JS + INBOX_JS + LIVE_JS, opts.status);
+  return rawPage(title, body, (opts.script ?? "") + SHELL_JS + INBOX_JS + LIVE_JS, opts.status, v.lang ?? "en");
 }
 
 // Inbox badge on every signed-in page: checks on load, when the tab comes back, and every minute. With permission,
@@ -1525,16 +1560,16 @@ window.liveRefresh=async()=>{if(document.hidden)return;try{const r=await fetch('
   document.querySelectorAll('[data-live]').forEach(el=>{const k=n[el.dataset.live]||0;el.hidden=!k;el.title=k+' agent'+(k===1?'':'s')+' working now';el.querySelector('.wk-n').textContent=k+' working'})}catch{}};
 setInterval(liveRefresh,60000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)liveRefresh()})})();`;
 
-function rawPage(title: string, body: string, script: string, status = 200): Response {
-  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+function rawPage(title: string, body: string, script: string, status = 200, lang: Lang = "en"): Response {
+  const html = `<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <style>${CSS}</style>${DISPLAY_HEAD}</head><body>${body}
 <div id="toast" role="status" aria-live="polite"></div>
-<script>${CLIENT_JS}${script}</script></body></html>`;
-  return new Response(html, { status, headers: { "content-type": "text/html; charset=utf-8" } });
+${lang === "en" ? "" : `<script>window.I18N=${clientTable(lang)}</script>`}<script>${CLIENT_JS}${script}</script></body></html>`;
+  return new Response(html, { status, headers: { "content-type": "text/html; charset=utf-8", "content-language": lang, vary: "Accept-Language, Cookie" } });
 }
 
 const SHELL_JS = `
@@ -1545,34 +1580,34 @@ const $=(s,r=document)=>r.querySelector(s),$$=(s,r=document)=>[...r.querySelecto
 const pal=$('#palette'),q=$('#palette-q'),list=$('#palette-list'),pChips=$('#pal-chips'),pFilt=$('#pal-filters');
 let sel=0,items=[],chips=[],mode=null,run=0,timer=null;
 const B=()=>window.BOARD_CTX||null; // on a board page: {id, me, members, jump(seq), openFile(name, version)}
-const KINDS=[['messages','Messages'],['files','Files'],['boards','Boards'],['actions','Actions']],TYPES=['question','task','decision','claim','note','change','artifact'];
+const KINDS=[['messages',tr('Messages')],['files',tr('Files')],['boards',tr('Boards')],['actions',tr('Actions')]],TYPES=['question','task','decision','claim','note','change','artifact'];
 const h=x=>String(x==null?'':x).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const has=(k,v)=>chips.some(c=>c.k===k&&(v==null||c.v===v)),chip=k=>chips.find(c=>c.k===k);
 const who=(u,agent)=>{const me=B()&&B().me;return u===me?(agent?'your agent':'you'):(agent?u+"'s agent":u)};
-const label=c=>c.k==='board'?'This board':c.k==='kind'?KINDS.find(k=>k[0]===c.v)[1]:c.k==='type'?'type: '+c.v:'from '+who(c.v,c.agent);
+const label=c=>c.k==='board'?tr('This board'):c.k==='kind'?KINDS.find(k=>k[0]===c.v)[1]:c.k==='type'?tr('type:')+' '+tr(c.v):tr('from')+' '+who(c.v,c.agent);
 function paintChips(){pChips.innerHTML=chips.map((c,i)=>'<span class="pal-chip">'+h(label(c))+'<button type="button" data-pchip="'+i+'" aria-label="Remove '+h(label(c))+'">✕</button></span>').join('');
-  const o=[];if(B()&&!has('board'))o.push(['board','','This board']);if(!has('kind'))KINDS.forEach(([v,l])=>o.push(['kind',v,l]));
-  if(B()&&!has('from'))o.push(['from','','From…']);if(!has('type'))o.push(['type','','Type…']);
+  const o=[];if(B()&&!has('board'))o.push(['board','',tr('This board')]);if(!has('kind'))KINDS.forEach(([v,l])=>o.push(['kind',v,l]));
+  if(B()&&!has('from'))o.push(['from','',tr('From…')]);if(!has('type'))o.push(['type','',tr('Type…')]);
   pFilt.innerHTML=o.map(x=>'<button type="button" class="pal-opt" data-popt="'+x[0]+'" data-v="'+x[1]+'">'+h(x[2])+'</button>').join('');pFilt.hidden=!o.length}
 function paint(rows){items=rows;sel=Math.min(sel,Math.max(0,rows.length-1));let g='';
   list.innerHTML=rows.map((r,n)=>(r.g!==g?'<li class="pal-g" aria-hidden="true">'+(g=r.g)+'</li>':'')+'<li role="option" data-n="'+n+'" id="po-'+n+'" aria-selected="'+(n===sel)+'"><span class="pal-l">'+r.label+'</span><span class="k">'+h(r.hint||'')+'</span></li>').join('')||'<li class="faint pal-none">'+(q.value.trim()?'No matches':'Type to search')+'</li>';
   q.setAttribute('aria-activedescendant',rows.length?'po-'+sel:'')}
 function pickList(){const t=q.value.trim().replace(/^@/,'').toLowerCase();
-  const rows=mode==='from'?(B()?B().members:[]).flatMap(u=>[{u,agent:false},{u,agent:true}]).filter(x=>x.u.startsWith(t)).map(x=>({g:'From',label:h(who(x.u,x.agent)),pick:{k:'from',v:x.u,agent:x.agent}}))
-    :TYPES.filter(x=>x.startsWith(t)).map(x=>({g:'Type',label:h(x),pick:{k:'type',v:x}}));paint(rows)}
+  const rows=mode==='from'?(B()?B().members:[]).flatMap(u=>[{u,agent:false},{u,agent:true}]).filter(x=>x.u.startsWith(t)).map(x=>({g:tr('From'),label:h(who(x.u,x.agent)),pick:{k:'from',v:x.u,agent:x.agent}}))
+    :TYPES.filter(x=>x.startsWith(t)).map(x=>({g:tr('Type'),label:h(tr(x)),pick:{k:'type',v:x}}));paint(rows)}
 const snip=x=>h(x||'').split('«').join('<mark>').split('»').join('</mark>');
 function render(){const my=++run;if(mode){pickList();return}const t=q.value.trim(),kind=chip('kind')&&chip('kind').v,b=B(),scoped=b&&(has('board')||has('from')||has('type'));
   const rows=[];
   if((!kind||kind==='boards'||kind==='actions')&&!scoped&&!has('from')&&!has('type'))
     PALETTE.filter(i=>!t||i.label.toLowerCase().includes(t.toLowerCase())).filter(i=>!kind||(kind==='boards')===(i.hint==='Board')).slice(0,t?8:6)
-      .forEach(i=>rows.push({g:i.hint==='Board'?'Boards':'Actions',label:h(i.label),hint:i.hint==='Board'?'':i.hint,href:i.href}));
+      .forEach(i=>rows.push({g:i.hint===tr('Board')?tr('Boards'):tr('Actions'),label:h(i.label),hint:i.hint==='Board'?'':i.hint,href:i.href}));
   paint(rows);
   if(kind==='boards'||kind==='actions'||(!t&&!has('from')&&!has('type')))return;
   clearTimeout(timer);timer=setTimeout(async()=>{const more=[];
     try{if(scoped){const p=new URLSearchParams({q:t});const f=chip('from');if(f){p.set('from',f.v);p.set('agent',f.agent?'1':'0')}if(chip('type'))p.set('type',chip('type').v);if(kind==='messages')p.set('in','chat');
         const j=await (await fetch('/api/boards/'+b.id+'/search?'+p)).json();
-        if(kind!=='files')(j.entries||[]).forEach(x=>more.push({g:'Messages',label:(x.title?'<b>'+h(x.title)+'</b> ':'')+snip(x.snippet),hint:who(x.author,x.via==='agent')+' · #'+x.seq,act:()=>b.jump(x.seq)}));
-        if(kind!=='messages')(j.files||[]).forEach(x=>more.push({g:'Files',label:'<span class="mono">'+h(x.name)+'</span> '+snip(x.snippet),hint:'v'+x.version,act:()=>b.openFile(x.name,x.version)}))}
+        if(kind!=='files')(j.entries||[]).forEach(x=>more.push({g:tr('Messages'),label:(x.title?'<b>'+h(x.title)+'</b> ':'')+snip(x.snippet),hint:who(x.author,x.via==='agent')+' · #'+x.seq,act:()=>b.jump(x.seq)}));
+        if(kind!=='messages')(j.files||[]).forEach(x=>more.push({g:tr('Files'),label:'<span class="mono">'+h(x.name)+'</span> '+snip(x.snippet),hint:'v'+x.version,act:()=>b.openFile(x.name,x.version)}))}
       else if(t){const j=await (await fetch('/api/boards/search?q='+encodeURIComponent(t))).json();
         (j.hits||[]).filter(x=>kind==='files'?x.kind==='file':kind==='messages'?x.kind==='entry':true).forEach(x=>{const here=b&&x.board===b.id;
           more.push({g:x.kind==='file'?'Files':'Messages',label:(x.kind==='file'?'<span class="mono">'+h(x.name)+'</span> ':'')+snip(x.snippet),hint:x.title+(x.seq?' · #'+x.seq:''),
@@ -1615,7 +1650,7 @@ async function nextNeed(){if(nnBusy)return;nnBusy=true;try{
   const list=[...(ap.approvals||[]).filter(a=>a.status==='pending').sort((x,y)=>x.created_at-y.created_at).map(a=>({url:'/approvals#'+a.id})),
     ...items.filter(i=>!i.read_at&&NN_KINDS.includes(i.kind)).sort((x,y)=>x.created_at-y.created_at).map(i=>({url:/request$/.test(i.kind)?'/people':at(i),id:i.id})).filter(x=>x.url)];
   const here=location.pathname+location.hash,next=list.find(x=>x.url!==here);
-  if(!next){toast(list.length?'That\u2019s the only thing waiting on you':'Nothing needs you right now');return}
+  if(!next){toast(list.length?tr('That’s the only thing waiting on you'):tr('Nothing needs you right now'));return}
   if(next.id)await fetch('/api/inbox/read',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({ids:[next.id]})}).catch(()=>{});
   const [path,hash]=next.url.split('#');if(path===location.pathname&&hash){location.hash=hash}else location.href=next.url}
   finally{nnBusy=false}}

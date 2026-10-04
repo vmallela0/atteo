@@ -26,35 +26,35 @@ export function soulMemoryJs(canEdit: boolean): string {
 // ---- SOUL and MEMORY: the board's standing context for agents (side panel; Remember on messages) ----
 let SOUL=null,MEM=null;const SM_EDIT=${canEdit ? "true" : "false"};
 const smWho=x=>x.via==='agent'?(x.session?x.by+'/'+x.session:x.by+"'s agent"):x.by;
-const smAgo=ts=>{if(!ts)return '';const s=(Date.now()-ts)/1000;return s<60?'just now':s<3600?Math.floor(s/60)+'m ago':s<86400?Math.floor(s/3600)+'h ago':Math.floor(s/86400)+'d ago'};
+const smAgo=ts=>{if(!ts)return '';const s=(Date.now()-ts)/1000;return s<60?tr('just now'):s<3600?tr('{n}m ago',{n:Math.floor(s/60)}):s<86400?tr('{n}h ago',{n:Math.floor(s/3600)}):tr('{n}d ago',{n:Math.floor(s/86400)})};
 const smFold=(id,title,n,peek,body)=>'<section class="fold" data-fold="'+id+'"><h3><button type="button" class="fold-h" aria-expanded="true" aria-controls="fold-'+id+'"><svg class="fold-c" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M4.5 3l3 3-3 3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="fold-t">'+title+'</span><span class="faint fold-n">'+n+'</span>'+(peek?'<span class="fold-peek truncate">'+esc(peek)+'</span>':'')+'</button></h3><div class="fold-b" id="fold-'+id+'">'+body+'</div></section>';
 window.soulRefresh=async()=>{let r;try{r=await fetch('/api/boards/'+BOARD+'/soul')}catch(e){return}
   const side=document.getElementById('soul-side');if(!side)return;if(!r.ok){side.hidden=true;return}
   SOUL=((await r.json().catch(()=>({}))).soul)||null;if(!SOUL){side.hidden=true;return}
   const text=String(SOUL.text||'').trim(),first=(text.split('\\n').map(l=>l.replace(/^[#>*\\-\\s]+/,'').trim()).filter(Boolean)[0])||'';
   const body=text?'<div class="soul-prev">'+esc(text)+'</div><div class="xs faint soul-meta">v'+SOUL.version+(SOUL.updated_by?' · edited by '+esc(SOUL.updated_by):'')+(SOUL.updated_at?' · '+smAgo(SOUL.updated_at):'')+'</div>'
-    :'<p class="none">No soul yet: who this board is and how you work. Agents read it when they join.</p>';
-  side.innerHTML=smFold('soul','Soul','',first,body+(SM_EDIT?'<button class="btn sm ghost soul-edit" type="button" data-soul-edit>'+(text?'Edit':'Write it')+'</button>':''));
+    :'<p class="none">'+tr('No soul yet: who this board is and how you work. Agents read it when they join.')+'</p>';
+  side.innerHTML=smFold('soul',tr('Soul'),'',first,body+(SM_EDIT?'<button class="btn sm ghost soul-edit" type="button" data-soul-edit>'+(text?tr('Edit'):tr('Write it'))+'</button>':''));
   side.hidden=false;if(typeof foldApply==='function')foldApply()};
 window.memRefresh=async()=>{let r;try{r=await fetch('/api/boards/'+BOARD+'/memory')}catch(e){return}
   const side=document.getElementById('mem-side');if(!side)return;if(!r.ok){side.hidden=true;document.documentElement.classList.remove('mem-on');return}
   MEM=await r.json().catch(()=>null);if(!MEM){side.hidden=true;return}document.documentElement.classList.add('mem-on');
   const items=MEM.items||[],max=MEM.max||50;
   const li=x=>'<li class="mem-it" data-mid="'+esc(String(x.id))+'"><span class="mem-t">'+esc(x.text)+'</span><span class="xs faint mem-m">'+esc(smWho(x))+(x.from?' · <a href="#e'+x.from+'" class="ref-plain">#'+x.from+'</a>':'')+(x.ts?' · '+smAgo(x.ts):'')+'</span>'+
-    (SM_EDIT?'<button class="btn ghost sm mem-x" type="button" data-mem-strike="'+esc(String(x.id))+'" aria-label="Strike this from memory" title="Strike it: agents stop reading it">✕</button>':'')+'</li>';
-  const add=SM_EDIT?'<form class="mem-add" id="mem-add"><input class="input" id="mem-in" maxlength="280" placeholder="Remember something…" aria-label="Remember something"><button class="btn sm" type="submit">Add</button></form>':'';
-  side.innerHTML=smFold('memory','Memory',items.length?items.length+'/'+max:'',items.length?items[items.length-1].text:'',
-    (items.length?'<ul class="mem-list">'+items.map(li).join('')+'</ul>':'<p class="none">Nothing yet. Agents keep facts here for later, and you can add any message with its bookmark.</p>')+add);
+    (SM_EDIT?'<button class="btn ghost sm mem-x" type="button" data-mem-strike="'+esc(String(x.id))+'" aria-label="'+tr('Strike this from memory')+'" title="'+tr('Strike it: agents stop reading it')+'">✕</button>':'')+'</li>';
+  const add=SM_EDIT?'<form class="mem-add" id="mem-add"><input class="input" id="mem-in" maxlength="280" placeholder="'+tr('Remember something…')+'" aria-label="'+tr('Remember something')+'"><button class="btn sm" type="submit">'+tr('Add')+'</button></form>':'';
+  side.innerHTML=smFold('memory',tr('Memory'),items.length?items.length+'/'+max:'',items.length?items[items.length-1].text:'',
+    (items.length?'<ul class="mem-list">'+items.map(li).join('')+'</ul>':'<p class="none">'+tr('Nothing yet. Agents keep facts here for later, and you can add any message with its bookmark.')+'</p>')+add);
   side.hidden=false;if(typeof foldApply==='function')foldApply()};
 async function memPost(body){const r=await fetch('/api/boards/'+BOARD+'/memory',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}).catch(()=>null);
   const j=r?await r.json().catch(()=>({})):{};
-  if(!r||!r.ok){toast(r&&r.status===409?'Memory is full: strike something first':j.error||"Couldn't remember it");return false}
+  if(!r||!r.ok){toast(r&&r.status===409?'Memory is full: strike something first':j.error||tr("Couldn't remember it"));return false}
   const it=j.item||{};toast(j.duplicate?'Already remembered':'Remembered'+(j.count?' ('+j.count+'/'+((MEM&&MEM.max)||50)+')':''));memRefresh();return true}
 document.addEventListener('click',async e=>{
   const rb=e.target.closest('[data-remember]');if(rb){e.preventDefault();e.stopPropagation();rb.disabled=true;await memPost({from:+rb.dataset.remember});rb.disabled=false;return}
   const sb=e.target.closest('[data-mem-strike]');if(sb){e.preventDefault();sb.disabled=true;
     const r=await fetch('/api/boards/'+BOARD+'/memory/'+encodeURIComponent(sb.dataset.memStrike),{method:'DELETE'}).catch(()=>null);
-    if(!r||!r.ok){const j=r?await r.json().catch(()=>({})):{};toast(j.error||"Couldn't strike it");sb.disabled=false;return}toast('Struck from memory');memRefresh();return}
+    if(!r||!r.ok){const j=r?await r.json().catch(()=>({})):{};toast(j.error||tr("Couldn't strike it"));sb.disabled=false;return}toast(tr('Struck from memory'));memRefresh();return}
   if(e.target.closest('[data-soul-edit]')){e.preventDefault();soulOpen()}});
 document.addEventListener('submit',async e=>{if(e.target.id!=='mem-add')return;e.preventDefault();const i=document.getElementById('mem-in'),t=i.value.trim();if(!t)return;if(await memPost({text:t}))i.value=''});
 const soulDlg=document.getElementById('soul-dlg');
@@ -64,8 +64,8 @@ document.getElementById('soul-form')?.addEventListener('submit',async e=>{e.prev
   const r=await fetch('/api/boards/'+BOARD+'/soul',{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({text:document.getElementById('soul-text').value,base_version:+soulDlg.dataset.base})}).catch(()=>null);
   const j=r?await r.json().catch(()=>({})):{};b.disabled=false;
   if(r&&r.status===409){const cur=j.current&&(j.current.soul||j.current);err.textContent='Someone saved a newer version'+(cur&&cur.updated_by?' ('+cur.updated_by+')':'')+'. Copy your text, then close and reopen to see theirs.';err.hidden=false;return}
-  if(!r||!r.ok){err.textContent=j.error||"Couldn't save it";err.hidden=false;return}
-  soulDlg.close();toast('Soul saved: agents get the new version');soulRefresh()});
+  if(!r||!r.ok){err.textContent=j.error||tr("Couldn't save it");err.hidden=false;return}
+  soulDlg.close();toast(tr('Soul saved: agents get the new version'));soulRefresh()});
 window.onSoulEvent=()=>soulRefresh();window.onMemoryEvent=()=>memRefresh();
 soulRefresh();memRefresh();
 `;

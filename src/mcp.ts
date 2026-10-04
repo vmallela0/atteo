@@ -27,6 +27,7 @@ import { fence } from "./screen";
 import { EMAIL_RE } from "./invite";
 import { atteoHeader, BOARD_RE, newBoardId, normalizeUser, publicOrigin } from "./util";
 import { runGrep } from "./grep";
+import { keptOwnNotice, OWN_MAIL_HINT } from "./audience";
 
 export const SERVER_NAME = "atteo";
 export const SERVER_VERSION = "0.1.0";
@@ -130,6 +131,7 @@ export const TOOLS = [
           description: "Member whose agent this is addressed to (e.g. their name). Omit for everyone. In the text, \"@name's agent\" also addresses their agent, and \"@name\" the person.",
         },
         reply_to: { type: "integer", description: "Entry number this replies to (it goes in that message's thread). Always set it when answering someone. Left out, an answer to a message you're on (your 🤔) is threaded under it for you; 0 posts at the top level on purpose. A non-question reply answers a question." },
+        own: { type: "boolean", description: "Just mine: only you and your own person/agents see it (note or question; no to). Use own: true for a new private message to your person. A reply to a 🔒 own entry stays own. Left out, a top-level note or question right after your person's 🔒 own message (the last thing you got, in the last 10 minutes) stays own too; own: false posts publicly." },
         resolves: { type: "array", items: { type: "integer" }, description: "Entry numbers this answers or completes (questions, tasks)." },
         supersedes: { type: "integer", description: "Entry number this replaces (drops it from the summary)." },
         depends_on: { type: "array", items: { type: "integer" }, description: "Claims or decisions this rests on: if one is disputed or retracted, this entry is flagged stale." },
@@ -674,7 +676,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       if (!hits.length) throw new ToolError(`No board of yours or invitation matches "${want}".\n${await optionsText(c)}`);
       if (hits.length > 1) {
         throw new ToolError(
-          `"${want}" matches more than one board. Ask your user which one:\n${hits.map((h) => `  ${h.id}  "${h.title}"${h.invite ? ` (invitation from ${h.from})` : ""}`).join("\n")}`,
+          `"${want}" matches more than one board. Ask your user which one:\n${fence(hits.map((h) => `  ${h.id}  "${h.title}"${h.invite ? ` (invitation from ${h.from})` : ""}`).join("\n"))}`,
         );
       }
       const target = hits[0];
@@ -689,7 +691,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
         } catch (e) {
           throw new ToolError(e instanceof Error ? e.message : String(e));
         }
-        if (!joined) throw new ToolError(`Couldn't accept the invitation to "${target.title}".`);
+        if (!joined) throw new ToolError(`Couldn't accept the invitation to ${target.id}.`);
         accepted = true;
       }
       if (!c.pinnedBoard) await registry.setMcpSessionBoard(env, c.sessionId, user, target.id);
@@ -700,6 +702,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
         if (as && !as.boards.includes(target.id)) later(sessions.setBoards(env, as, [...as.boards, target.id]));
       }
       later(registry.touch(env, user, target.id));
+      // Installed CLIs parse this line (`atteo use`: Joined "<title>" (<id>)), so it keeps the title for now.
       const out = [accepted ? `Accepted ${target.from}'s invitation and joined "${target.title}" (${target.id}).` : `Joined "${target.title}" (${target.id}) for this session.`];
       if (c.sharedSession) out.push("Note: this MCP client doesn't send a session id, so every session on this connection shares this board.");
       out.push(readText(r, user, null, await social.agentsHeadless(env, user)));
@@ -709,10 +712,10 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
     case "leave_board": {
       const id = await currentBoard(c, args);
       const board = await registry.getBoard(env, id);
-      if (board?.created_by === user) throw new ToolError(`Your user created "${board.title}", so they can't leave it.`);
+      if (board?.created_by === user) throw new ToolError(`Your user created board ${id}, so they can't leave it.`);
       await registry.removeMember(env, id, user);
       await stubFor(env, id).removeMember(user);
-      return `Left "${board?.title ?? id}". This session isn't on a board now.`;
+      return `Left board ${id}. This session isn't on a board now.`;
     }
 
     case "create_board": {
@@ -809,6 +812,8 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       if (!type || !(ENTRY_TYPES as readonly string[]).includes(type)) throw new ToolError(`type must be one of: ${ENTRY_TYPES.join(", ")}`);
       const to = args.to == null || args.to === "" ? null : normalizeUser(String(args.to));
       if (args.to != null && args.to !== "" && !to) throw new ToolError(`"${args.to}" is not a valid member name.`);
+      const own = args.own === true || args.own === "true";
+      const notOwn = args.own === false || args.own === "false"; // public on purpose: never kept in Just mine
       const stub = stubFor(env, id);
       // An agent session shows as its name (and tool): "scout · Codex"; otherwise the MCP client's name.
       const agentClient = (await agentOpts(c)).client;
@@ -833,6 +838,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
         artifact_name: str(args.artifact_name) ?? null,
         artifact_content: typeof args.artifact_content === "string" ? args.artifact_content : null,
         card: args.card,
+        ...(own ? { own: true } : notOwn ? { own: false } : {}),
       }, c.agentSession?.id ?? null));
       const missedSome = "refused" in res ? res.relevant.length > 0 : res.missed.length > 0;
       const names = missedSome ? await social.boardAgentNames(env, id) : undefined;
@@ -860,7 +866,10 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const notTagged = (unknown.length ? ` Not mentions (not members of this board): ${unknown.map((m) => "@" + m).join(", ")}.` : "") + (ambiguous.length ? ` Not mentions (more than one member's agent here is called that; write @<owner>'s agent): ${ambiguous.map((m) => "@" + m).join(", ")}.` : "");
       // Say where it went: in a thread (and whether we put it there), or at the top level.
       const threaded = entry.reply_to != null ? (args.reply_to == null ? ` Threaded under #${entry.reply_to}, the message you're answering (reply_to: 0 posts at the top level).` : ` In reply to #${entry.reply_to}.`) : "";
-      return `Posted #${entry.seq} (${type}${to ? ` → ${to}` : ""}${tagged}) to ${id}.${threaded}${hint}${notTagged}${missed}`;
+      const lock = entry.audience === "own" ? ", 🔒 own: only you and your person" : "";
+      // Own at the top level without asking for it: the board kept it in Just mine (board.ts ownByDefault).
+      const kept = entry.audience === "own" && entry.reply_to == null && !own && !notOwn ? ` ${keptOwnNotice(user)}` : "";
+      return `Posted #${entry.seq} (${type}${entry.to ? ` → ${entry.to}` : ""}${tagged}${lock}) to ${id}.${kept}${threaded}${hint}${notTagged}${missed}`;
     }
 
     case "remember": {
@@ -1235,7 +1244,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
         if (c.pinnedBoard) throw new ToolError(`This connection is pinned to another board; the direct board with ${name} is ${d.id}.`);
         await registry.setMcpSessionBoard(env, c.sessionId, user, d.id);
         const p = await social.person(env, user, name);
-        return `Joined your direct board with ${name} ("${d.title}", ${d.id}) for this session. ${name}: ${p ? pres(p) : "offline"}. Post a question with to=${name}; their agent gets it now if it's online, or when it's back. Then wait for the answer.`;
+        return `Joined your direct board with ${name} (${d.id}) for this session. ${name}: ${p ? pres(p) : "offline"}. Post a question with to=${name}; their agent gets it now if it's online, or when it's back. Then wait for the answer.`;
       }
       throw new ToolError("action must be one of: search, whois, friends, direct.");
     }
@@ -1345,7 +1354,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       if (w?.refused) throw new ToolError(`Another wait from this session is already open (are two loops sharing one session?). Try again in ${w.refused}s, or use one session per loop.`);
       let r: Awaited<ReturnType<typeof mailbox.collect>>;
       try {
-        r = await mailbox.collect(env, user, { limit, wait, peek, session: c.agentSession?.id ?? null, pollMs: level >= 1 ? 6000 : 3000, signal: w?.signal }, async (b, seq) => (await stubFor(env, b).get(seq)).entry.text);
+        r = await mailbox.collect(env, user, { limit, wait, peek, session: c.agentSession?.id ?? null, pollMs: level >= 1 ? 6000 : 3000, signal: w?.signal }, async (b, seq) => (await stubFor(env, b).get(seq, { user, person: false })).entry.text); // as the agent: its own lane too
       } finally {
         w?.done();
       }
@@ -1357,10 +1366,11 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const from = (m: Named) => (m.from_owner ? "your user" : m.from_via === "agent" ? (m.from_agent_name ? `${m.from_agent_name} (${m.from}'s agent)` : `${m.from}'s agent`) : m.from);
       const kind = (m: mailbox.Mail) => (m.kind === "human_decision" ? "human_decision (people decide; info only)" : m.kind);
       const line = (m: mailbox.Mail) =>
-        `  ${m.seq ? `#${m.seq} ` : ""}${m.type} · ${kind(m)} · ${from(m)}${m.to_session ? ` → ${m.to_session}` : ""}: ${m.encrypted ? "(encrypted: read it with the atteo CLI)" : m.text.replace(/\n/g, "\n    ")}`;
+        `  ${m.seq ? `#${m.seq} ` : ""}${m.type} · ${kind(m)}${m.audience === "own" ? " · 🔒 own" : ""} · ${from(m)}${m.to_session ? ` → ${m.to_session}` : ""}: ${m.encrypted ? "(encrypted: read it with the atteo CLI)" : m.text.replace(/\n/g, "\n    ")}`;
       const body = [...groups.entries()].map(([b, ms]) => (b ? `"${ms[0].board_title ?? b}" (${b}):\n` : "") + ms.map(line).join("\n")).join("\n");
       return (
         `${r.mail.length} mail, oldest first${peek ? " (peeked: still waiting)" : ""}${r.more ? "; more waiting, call mailbox again" : ""}. Answer in its thread: join_board <id>, post with reply_to=<#>.\n` +
+        (r.mail.some((m) => m.audience === "own") ? `🔒 ${OWN_MAIL_HINT}\n` : "") +
         fence(body)
       );
     }
@@ -1370,7 +1380,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const seq = int(args.seq);
       if (seq == null) throw new ToolError("seq is required.");
       const stub = stubFor(env, id);
-      const [r, names] = await Promise.all([stub.get(seq), social.boardAgentNames(env, id)]);
+      const [r, names] = await Promise.all([stub.get(seq, { user, person: false }), social.boardAgentNames(env, id)]);
       r.entry = withNames([r.entry], names)[0];
       r.replies = withNames(r.replies, names);
       const out = [formatEntry(r.entry, 100_000, user)];
@@ -1411,7 +1421,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
         author: normalizeUser(str(args.author)) ?? undefined,
         type: str(args.type),
         limit: int(args.limit),
-      });
+      }, { user, person: false });
       if (!r.entries.length && !r.files.length) return `Nothing matches "${query}".`;
       const out: string[] = [];
       if (r.files.length) out.push("Files (latest version; read with doc):", ...r.files.map((f) => `  ${f.name} v${f.version}: ${f.snippet.replace(/\s+/g, " ")}`), "");
@@ -1436,7 +1446,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
           context: int(args.context),
           max: int(args.max),
           files: args.files === true,
-        }, id);
+        }, id, { user, person: false });
         return r.count ? fence(r.text) : r.text;
       } catch (e) {
         throw new ToolError(e instanceof Error ? e.message : String(e));

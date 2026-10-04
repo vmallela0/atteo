@@ -1,5 +1,6 @@
 // Worker entry: MCP endpoint, sign-in, web pages, JSON API, and the operator console (/_ops).
 
+import { pickLang } from "./i18n";
 import * as a2a from "./a2a";
 import { runGrep } from "./grep";
 import * as usage from "./usage";
@@ -71,7 +72,8 @@ import { atteoHeader, BOARD_RE, connectCommand, esc, newBoardId, legacyHostRedir
 import * as Sentry from "@sentry/cloudflare";
 import { scrubForSentry } from "./sentry";
 export { Board } from "./board";
-import { MAX_FILES_PER_MESSAGE, MAX_IMAGE, MAX_MESSAGE_BYTES, MAX_WAIT_MS, peopleNotice } from "./board";
+import { forwardDestOk, forwardExcerptInEntry, keptOwnNotice } from "./audience";
+import { audienceNotice, MAX_FILES_PER_MESSAGE, MAX_IMAGE, MAX_MESSAGE_BYTES, MAX_WAIT_MS } from "./board";
 import * as sessions from "./sessions";
 import { formatEntry, formatMemory, handleMessage, readHeader, readParts, withNames } from "./state";
 import { fence } from "./screen";
@@ -136,11 +138,17 @@ async function loadViewer(env: Env, session: auth.Session | null, request?: Requ
   // Usually already joined in by getSession; look the member up only if it wasn't.
   const u = session.u_name ? { name: session.u_name, email: session.u_email ?? null, display_name: session.u_display_name ?? null } : await registry.userByName(env, session.user);
   if (!u) return null;
+  // The interface language (i18n.ts): ?lang=, else the saved display pref, else the browser's.
+  let pref: string | null = null;
+  try {
+    pref = session.u_display ? ((JSON.parse(session.u_display) as { lang?: unknown }).lang as string | null) ?? null : null;
+  } catch {}
   return {
     name: u.name,
     email: u.email ?? session.email,
     display_name: u.display_name,
     admin: !!session.email_verified && auth.isAdminEmail(env, session.email),
+    lang: pickLang(typeof pref === "string" ? pref : null, request ? new URL(request.url).searchParams.get("lang") : null, request?.headers.get("accept-language") ?? null),
   };
 }
 
@@ -171,7 +179,7 @@ async function canSee(c: Ctx, boardId: string): Promise<boolean> {
 }
 
 /** GET …/grep?q=&regex=0|1&case=0|1&author=&type=&since=<seq or ISO>&context=0..2&max=&files=0|1 → GrepOutput (text + hits). */
-async function grepResponse(env: Env, user: string, url: URL, boardId: string | null): Promise<Response> {
+async function grepResponse(env: Env, user: string, url: URL, boardId: string | null, who: Seer | null): Promise<Response> {
   const p = url.searchParams;
   const flag = (k: string) => p.get(k) === "1" || p.get(k) === "true";
   try {
@@ -184,7 +192,7 @@ async function grepResponse(env: Env, user: string, url: URL, boardId: string | 
       context: Number(p.get("context") ?? 0),
       max: Number(p.get("max") ?? 0),
       files: flag("files"),
-    }, boardId);
+    }, boardId, who);
     return json(out, 200, { "cache-control": "no-store" });
   } catch (e) {
     return json({ error: e instanceof Error ? e.message : String(e) }, 400);
@@ -508,6 +516,7 @@ async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): 
   if (shed.level < 1) {
     ctx.waitUntil(env.DB.prepare(registry.TAPE_PRUNE_SQL).bind(Date.now() - 7 * 86_400_000).run().catch(() => {}));
     ctx.waitUntil(appSignin.sweep(env).catch(() => {}));
+    ctx.waitUntil(inbox.pruneRead(env, now).catch(() => {}));
   }
   for (const m of await registry.expiredMembers(env)) {
     ctx.waitUntil(
@@ -928,7 +937,7 @@ const handler = {
         if (w?.refused) return waitRefused(w.refused);
         let r0: Awaited<ReturnType<typeof mailbox.collect>>;
         try {
-          r0 = await mailbox.collect(env, viewer.name, { limit, wait, peek, session: sid, pollMs: level >= 1 ? 6000 : 3000, signal: w?.signal }, async (b, seq) => (await boardStub(env, b).get(seq)).entry.text);
+          r0 = await mailbox.collect(env, viewer.name, { limit, wait, peek, session: sid, pollMs: level >= 1 ? 6000 : 3000, signal: w?.signal }, async (b, seq) => (await boardStub(env, b).get(seq, { user: viewer.name, person: false })).entry.text); // as the agent: its own lane too
         } finally {
           w?.done();
         }
@@ -1500,7 +1509,7 @@ const handler = {
         const board = BOARD_RE.test(m[1]) ? await registry.getBoard(env, m[1]) : null;
         if (!board || !(await registry.isMember(env, board.id, viewer.name))) return json({ error: "board not found" }, 404);
         if ((board as { kind?: string | null }).kind === "direct") return json({ error: "Direct boards don't have their own picture: they show the other person's." }, 400);
-        if (board.archived_at) return json({ error: `"${board.title}" is archived, so it's read-only. Its creator can restore it.` }, 403);
+        if (board.archived_at) return json({ error: `Board ${board.id} is archived, so it's read-only. Its creator can restore it.` }, 403);
         let mime = "";
         let bytes = new ArrayBuffer(0);
         if (method === "POST") {
@@ -1666,10 +1675,15 @@ const handler = {
       if (path === "/api/forward" && method === "POST") {
         if (!viewer) return needLogin();
         if (viewer.via === "agent") return json({ error: "Forwarding is for people, in the browser: agents can't move messages between boards." }, 403);
-        const b = (await request.json().catch(() => ({}))) as { from?: string; to?: string; seqs?: unknown; note?: string };
+        const b = (await request.json().catch(() => ({}))) as { from?: string; to?: string; seqs?: unknown; note?: string; selectedText?: string };
         const from = String(b.from ?? ""), to = String(b.to ?? "");
+        const selectedText = typeof b.selectedText === "string" ? b.selectedText.replace(/\r/g, "").trim() : "";
         const seqs = [...new Set((Array.isArray(b.seqs) ? b.seqs : []).map(Number).filter((n) => Number.isInteger(n) && n > 0))].sort((x, y) => x - y).slice(0, 50);
         if (!seqs.length) return json({ error: "Select at least one message." }, 400);
+        if (selectedText) {
+          if (seqs.length !== 1) return json({ error: "Selected text forwards one message at a time." }, 400);
+          if (!selectedText) return json({ error: "Selected text is empty." }, 400);
+        }
         if (!from || !to || from === to) return json({ error: "Pick another board to forward to." }, 400);
         if (!(await registry.isMember(env, from, viewer.name)) || !(await registry.isMember(env, to, viewer.name))) return json({ error: "board not found" }, 404);
         if ((await registry.memberRole(env, to, viewer.name)) === "viewer") return json({ error: "You can view that board but not post to it." }, 403);
@@ -1677,20 +1691,50 @@ const handler = {
         if (!src || !dst) return json({ error: "board not found" }, 404);
         if ((src as { encrypted?: number }).encrypted || (dst as { encrypted?: number }).encrypted) return json({ error: "End-to-end encrypted boards can't forward: the server can't read them." }, 400);
         const got = await Promise.all(seqs.map((n) => boardStub(env, from).get(n, seer()).catch(() => null)));
-        // People-only messages stay where they were said, with the people they were said to.
-        if (got.some((g) => g?.entry.audience)) return json({ error: "People-only messages can't be forwarded: they stay with the people they were sent to." }, 400);
         const picked = got.filter((g): g is NonNullable<typeof g> => !!g && !g.replies.some((r) => r.retracts === g.entry.seq)).map((g) => g.entry);
         if (!picked.length) return json({ error: "Those messages aren't there anymore." }, 404);
+        const destMembers = (await registry.boardMembers(env, to)).map((m) => m.user);
+        let forwardPeople: string[] | undefined;
+        for (const e of picked) {
+          const fd = forwardDestOk(e, destMembers);
+          if (!fd.ok) {
+            return json(
+              {
+                error:
+                  fd.reason === "just-mine"
+                    ? "Just-mine messages can't be forwarded: they stay with you and your own agents."
+                    : "People-only messages can only be forwarded to a board whose members are exactly the people who could see the original.",
+              },
+              400,
+            );
+          }
+          if (fd.people) {
+            const key = fd.people.slice().sort().join("\0");
+            const cur = forwardPeople?.slice().sort().join("\0");
+            if (forwardPeople && key !== cur) return json({ error: "Those people-only messages aren't for the same people." }, 400);
+            forwardPeople = fd.people;
+          }
+        }
+        if (selectedText && !forwardExcerptInEntry(selectedText, picked[0].text)) return json({ error: "That text isn't in the message" }, 400);
         const who = (e: Entry) => (e.via === "agent" ? `${e.author}'s agent` : e.author);
         const quote = (e: Entry) =>
           [`> **${who(e)}** · #${e.seq}`, ...(e.artifact_name ? [`> 📎 ${(e.attachments ?? []).map((a) => a.name).join(", ") || e.artifact_name}`] : []), ...e.text.slice(0, 2000).split("\n").slice(0, 40).map((l) => `> ${l}`)].join("\n");
         const note = String(b.note ?? "").trim().slice(0, 2000);
-        const text = [...(note ? [note] : []), `↪ Forwarded from **${src.title}** · ${picked.length} message${picked.length === 1 ? "" : "s"}`, ...picked.map(quote)].join("\n\n").slice(0, 20000);
+        const text = selectedText
+          ? [...(note ? [note] : []), `↪ Forwarded from **${src.title}** · excerpt`, [...selectedText.slice(0, 2000).split("\n").slice(0, 40).map((l) => `> ${l}`), `> — ${who(picked[0])}, #${picked[0].seq}`].join("\n")].join("\n\n").slice(0, 20000)
+          : [...(note ? [note] : []), `↪ Forwarded from **${src.title}** · ${picked.length} message${picked.length === 1 ? "" : "s"}`, ...picked.map(quote)].join("\n\n").slice(0, 20000);
         const hit = scanFields({ text });
         if (hit) return json({ error: blockedMessage(hit) }, 400);
         // Only the note can mention anyone: quoted @names don't ping people on the new board.
         const { mentions } = note && mayMention(note) ? parseMentions(note, await registry.boardMembers(env, to), viewer.name, "person") : { mentions: [] as Mention[] };
-        const entry = await boardStub(env, to).post(viewer.name, { type: "note", title: `Forwarded from ${src.title}`.slice(0, 60), text, mentions, via: "person" });
+        const entry = await boardStub(env, to).post(viewer.name, {
+          type: "note",
+          title: `Forwarded from ${src.title}`.slice(0, 60),
+          text,
+          mentions,
+          via: "person",
+          ...(forwardPeople ? { people_only: true, to_people: forwardPeople } : {}),
+        });
         ctx.waitUntil(registry.bumpBoard(env, to, entry.seq).catch(() => {}));
         return json({ ok: true, board: { id: to, title: dst.title }, seq: entry.seq, forwarded: picked.length }, 201);
       }
@@ -1775,7 +1819,7 @@ const handler = {
               if (!hits.length) return json({ error: `No board of yours or invitation matches "${want}". List them: atteo get boards` }, 404);
               if (hits.length > 1) return json({ error: `"${want}" matches more than one board; use its id.`, matches: hits.map((h) => ({ id: h.id, title: h.title, status: h.invite ? "invited" : "member" })) }, 409);
               const target = hits[0];
-              if (target.invite && !(me && (await registry.acceptInvitation(env, me, target.id, origin)))) return json({ error: `Couldn't accept the invitation to "${target.title}".` }, 400);
+              if (target.invite && !(me && (await registry.acceptInvitation(env, me, target.id, origin)))) return json({ error: `Couldn't accept the invitation to ${target.id}.` }, 400);
               await boardStub(env, target.id).joinSession(viewer.name, s.id);
               const cur = await live();
               const next = await sessions.setBoards(env, cur, [...cur.boards.filter((b) => b !== target.id), target.id]);
@@ -1930,7 +1974,8 @@ const handler = {
             text = (q("text") ?? "").slice(0, 4000);
             replyRaw = q("reply_to");
           }
-          const { mentions } = mayMention(text) ? parseMentions(text, await registry.boardMembers(env, id), viewer.name, pv()) : { mentions: [] };
+          const fileMembers = await registry.boardMembers(env, id);
+          const { mentions } = mayMention(text) ? parseMentions(text, fileMembers, viewer.name, pv()) : { mentions: [] };
           try {
             const replyTo = Number(replyRaw) > 0 ? Math.floor(Number(replyRaw)) : null; // files sent as a reply
             const entry = multi
@@ -1939,7 +1984,7 @@ const handler = {
             ctx.waitUntil(Promise.all([registry.touch(env, viewer.name, id), registry.bumpBoard(env, id, entry.seq)]).catch(() => {}));
             // Like a text post, the rendered entry comes back so the page can swap its "sending" copy for it.
             const root = replyTo ? ((await stub.rootsFor([entry.seq]))[entry.seq] ?? entry.seq) : entry.seq;
-            return json({ ok: true, entry, update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(entry, id, true, { canRetract: true }), row: logRow(entry), reactions: [] } }, 201);
+            return json({ ok: true, entry, update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(withAgentNames(entry, agentNames(fileMembers)), id, true, { canRetract: true, lang: viewer?.lang }), row: logRow(entry, undefined, undefined, viewer?.lang), reactions: [] } }, 201);
           } catch (e) {
             return json({ error: e instanceof Error ? e.message : String(e) }, 400);
           }
@@ -2215,7 +2260,7 @@ const handler = {
       // grep across all your boards (encrypted ones are skipped and counted).
       if (path === "/api/grep" && method === "GET") {
         if (!viewer) return needLogin();
-        return grepResponse(env, viewer.name, url, null);
+        return grepResponse(env, viewer.name, url, null, seer());
       }
       if (path === "/api/boards/search" && method === "GET") {
         if (!viewer) return needLogin();
@@ -2452,8 +2497,8 @@ const handler = {
               ...(e.via === "agent" && names[e.author] ? { agent_name: names[e.author] } : {}), // "Jarvis · vedu's agent"
               root: roots[e.seq] ?? e.seq,
               retracts: e.retracts,
-              html: entryHtml(withAgentNames(e, names), id, true, { canRetract: canRetract(e) }),
-              row: logRow(e),
+              html: entryHtml(withAgentNames(e, names), id, true, { canRetract: canRetract(e), lang: viewer?.lang }),
+              row: logRow(e, undefined, undefined, viewer?.lang),
               reactions: snap.reactions[e.seq] ?? [],
               ...(e.type === "change" ? { reviews: snap.reviews[e.seq] ?? [] } : {}),
               ...(snap.claims[e.seq] ? { claim: snap.claims[e.seq] } : {}),
@@ -2466,7 +2511,7 @@ const handler = {
             handling: snap.handling, // which agent took which message ("vedu/scout")
             reads: snap.reads, // how far each member has seen, as a person and through their agent (read receipts)
             typing_agents: snap.typing_agents, // agents working on a person's message right now ("… is typing")
-            summary: summaryHtml([], viewer?.name ?? "", members, snap.summary, { boardId: id, creator: snap.info.created_by }),
+            summary: summaryHtml([], viewer?.name ?? "", members, snap.summary, { boardId: id, creator: snap.info.created_by }, viewer?.lang),
             pinned: snap.pinned, // the board's pinned doc {name, version, …} or null
             count: snap.info.entry_count,
             last: snap.last, // past any people-only entries this viewer doesn't get, so the tab doesn't ask again
@@ -2491,18 +2536,19 @@ const handler = {
           const before = parseInt(url.searchParams.get("before") ?? "0", 10) || null;
           const page = await stub.page(before, parseInt(url.searchParams.get("limit") ?? "100", 10) || 100, seer());
           const seqs = page.map((e) => e.seq);
-          const [isOwner, roots, reactions] = await Promise.all([
+          const [isOwner, roots, reactions, names] = await Promise.all([
             viewer ? registry.memberRole(env, id, viewer.name).then((r) => r === "owner") : false,
             stub.rootsFor(seqs),
             stub.reactionsFor(seqs, seer()),
+            registry.boardMembers(env, id).then(agentNames), // "@Jarvis" chips, as on the page (jxn #1659)
           ]);
           return json({
             first: page.length ? page[0].seq : 0,
             entries: page.map((e) => ({
               seq: e.seq,
               root: roots[e.seq] ?? e.seq,
-              html: entryHtml(e, id, true, { canRetract: !!viewer && (e.author === viewer.name || isOwner) }),
-              row: logRow(e),
+              html: entryHtml(withAgentNames(e, names), id, true, { canRetract: !!viewer && (e.author === viewer.name || isOwner), lang: viewer?.lang }),
+              row: logRow(e, undefined, undefined, viewer?.lang),
               reactions: reactions[e.seq] ?? [],
               ...(e.human_decision ? { human_decision: e.human_decision } : {}),
             })),
@@ -2519,13 +2565,18 @@ const handler = {
         if (what === "entries" && !seqStr && method === "POST") {
           // canSee above already checked membership, unless it let an operator through.
           if (!viewer || (isOps(c) && !(await registry.isMember(env, id, viewer.name)))) return json({ error: "Only members can post." }, 403);
-          const body = (await request.json().catch(() => ({}))) as { text?: string; type?: string; to?: string | string[]; reply_to?: string | number; to_session?: string; people_only?: unknown };
+          const body = (await request.json().catch(() => ({}))) as { text?: string; type?: string; to?: string | string[]; reply_to?: string | number; to_session?: string; people_only?: unknown; own?: unknown };
           const type = (["note", "question", "task", "decision", "claim"] as const).find((t) => t === body.type) ?? "note";
           // People-only (vedu #1264): for the people named in `to` (a list, or one name) and/or @named in the text.
           // Never from an agent's token: agents can't create them (or read them).
-          const peopleOnly = body.people_only === true || body.people_only === "true" || body.people_only === 1;
+          const yes = (v: unknown) => v === true || v === "true" || v === 1;
+          const peopleOnly = yes(body.people_only);
           if (peopleOnly && viewer.via === "agent") return json({ error: "Only people can send people-only messages, signed in on the web or in the Atteo app. Agents can't create or read them." }, 403);
+          // Just mine (#1748): only you and your own agents; from you or your agent's token. The board checks the rest.
+          const own = yes(body.own);
+          const notOwn = body.own === false || body.own === "false" || body.own === 0; // public on purpose: never kept in Just mine
           let to = !peopleOnly && typeof body.to === "string" && body.to ? normalizeUser(body.to) : null;
+          if (own && (peopleOnly || (body.to != null && body.to !== "" && to !== viewer.name))) return json({ error: peopleOnly ? "Pick one: own (just you and your agents) or people-only (people you name, no agents)." : "A just-mine message is only for you and your own agents, so it can't go to anyone else. Drop to (or own)." }, 400);
           let text = String(body.text ?? "");
           // For one of your own agent sessions (the "Your agent" picker): "@you/<session>" leads the text, so it's
           // stored and shown as that session mention, and only that session's read, wait and mailbox get it.
@@ -2555,19 +2606,22 @@ const handler = {
             if (p.author !== viewer.name) {
               if (p.via === "person") {
                 if (!mentions.some((m) => m.user === p.author)) mentions.push({ user: p.author, agent: false });
-              } else if (!peopleOnly) to ??= p.author;
+              } else if (!peopleOnly && !own) to ??= p.author;
             }
           }
           try {
             const idem = messageId(request.headers.get("idempotency-key"));
             const so = await asOpts();
-            const entry = await withRetry(() => stub.post(viewer.name, { type, text, to, mentions, reply_to: replyTo, via: pv(), ...so, idem, ...(peopleOnly ? { people_only: true, to_people: toPeople } : {}) }));
+            const entry = await withRetry(() => stub.post(viewer.name, { type, text, to, mentions, reply_to: replyTo, via: pv(), ...so, idem, ...(peopleOnly ? { people_only: true, to_people: toPeople } : {}), ...(own ? { own: true } : notOwn ? { own: false } : {}) }));
             ctx.waitUntil(Promise.all([registry.touch(env, viewer.name, id), registry.bumpBoard(env, id, entry.seq)]).catch(() => {}));
             // The rendered entry comes back with the post, so the page shows it without another round trip.
             const root = replyTo ? ((await stub.rootsFor([entry.seq]))[entry.seq] ?? entry.seq) : entry.seq;
+            // The poster sees "@Jarvis" as that agent's chip straight away, as everyone else does (jxn #1659).
             // A people-only message (asked for, or a reply in one) says once, here, who can see it.
-            const notice = entry.audience ? { notice: peopleNotice(viewer.name, entry.to_people ?? []) } : {};
-            return json({ ok: true, entry, ...notice, update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(entry, id, true, { canRetract: true }), row: logRow(entry), reactions: [] }, ...(ambiguous.length ? { ambiguous } : {}) }, 201);
+            // An agent's top-level post the board kept in Just mine (board.ts ownByDefault) says so instead.
+            const said = entry.audience === "own" && entry.reply_to == null && !own && !notOwn && viewer.via === "agent" ? keptOwnNotice(viewer.name) : audienceNotice(entry, viewer.name);
+            const notice = said ? { notice: said } : {};
+            return json({ ok: true, entry, ...notice, update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(withAgentNames(entry, agentNames(boardMembers)), id, true, { canRetract: true, lang: viewer?.lang }), row: logRow(entry, undefined, undefined, viewer?.lang), reactions: [] }, ...(ambiguous.length ? { ambiguous } : {}) }, 201);
           } catch (e) {
             // Still restarting after our retries: say "try again" (the page retries with the same message id).
             if (isRetriable(e)) {
@@ -2594,7 +2648,7 @@ const handler = {
           }, 200, { "cache-control": "no-store" });
         }
         // grep for agents: exact matching lines, one per hit (grep.ts). Members only (canSee above).
-        if (what === "grep" && method === "GET") return grepResponse(env, viewer?.name ?? "", url, id);
+        if (what === "grep" && method === "GET") return grepResponse(env, viewer?.name ?? "", url, id, seer());
         // Read receipts: the board page reports the newest entry its person has had on screen.
         // "jxn is typing…": a person's composer says so every few seconds while they type; nothing is stored.
         if (what === "typing" && method === "POST") {
@@ -2640,6 +2694,13 @@ const handler = {
           if (((await registry.getBoard(env, id)) as { kind?: string | null } | null)?.kind === "agent") return json({ error: "This is your private chat with your own agents; no one else can join it." }, 400);
           const body = (await request.json().catch(() => ({}))) as { email?: string; to?: string; role?: string; expires_days?: string | number };
           const to = String(body.to ?? body.email ?? "").trim();
+          // invite.ts names the board by id (agents read these words; a title is anyone's text, #1922). A person (the
+          // web shows it with textContent, the app as plain text) gets the board's name back (opus-d #1953).
+          const forPerson = async (m: string) => {
+            if (viewer?.via === "agent") return m;
+            const title = ((await registry.getBoard(env, id)) as { title?: string | null } | null)?.title;
+            return title ? m.split(`board ${id}`).join(`"${title}"`) : m;
+          };
           const role = body.role === "viewer" ? "viewer" : "contributor"; // owners are promoted after they join
           const expiresDays = Number(body.expires_days) > 0 ? Math.min(365, Math.floor(Number(body.expires_days))) : null;
           // A name instead of an email invites a friend; their email stays private (the reply names them, never the address).
@@ -2649,10 +2710,11 @@ const handler = {
             const u = friend ? await registry.userByName(env, friend.name) : null;
             if (!u?.email) return json({ error: `You can invite friends by name; for anyone else, use their email.` }, 400);
             const r = await sendInvite(env, origin, { boardId: id, email: u.email, invitedBy: viewer.name, role, expiresDays });
-            return json({ ok: r.ok, added: r.added, message: r.message.split(` (${u.email.toLowerCase()})`).join("").split(u.email.toLowerCase()).join(u.name) });
+            return json({ ok: r.ok, added: r.added, message: await forPerson(r.message.split(` (${u.email.toLowerCase()})`).join("").split(u.email.toLowerCase()).join(u.name)) });
           }
           if (!EMAIL_RE.test(to)) return json({ error: "Enter a valid email address." }, 400);
-          return json(await sendInvite(env, origin, { boardId: id, email: to, invitedBy: viewer?.name ?? "ops", role, expiresDays }));
+          const r = await sendInvite(env, origin, { boardId: id, email: to, invitedBy: viewer?.name ?? "ops", role, expiresDays });
+          return json({ ...r, message: await forPerson(r.message) });
         }
         return json({ error: "not found" }, 404);
       }

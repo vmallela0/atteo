@@ -1,10 +1,14 @@
 name: CI
 
-# Every push and pull request: typecheck, unit tests, then the end-to-end and CLI suites
-# against a local Worker (wrangler dev, local D1 + Durable Objects). No real secrets needed.
+# Pushes to main and pull requests: typecheck, unit tests, then the end-to-end and CLI suites against a local Worker
+# (wrangler dev, local D1 + Durable Objects), and the browser checks in 4 parallel shards. No real secrets needed.
+# Not every branch push: helpers push many branches and the local gate already tests them; on every push this used up the
+# private repo's Actions minutes (10-04, #1981). Run it on any branch by hand with "Run workflow".
 on:
   push:
+    branches: [main]
   pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -34,12 +38,7 @@ jobs:
         run: npm run build:cli
 
       - name: Start a local Worker
-        run: |
-          # Test-only values. Sign-in redirects are checked, never completed, so no real WorkOS key is used.
-          printf 'WORKOS_API_KEY=sk_test_ci_placeholder\nADMIN_KEY=ci-admin-key\nPOSTS_PER_MINUTE=100000\nALLOW_LOCAL_WEBHOOKS=1\nDEV_FAKE_CLOCK=1\nPUBLIC_URL=http://localhost:8787\n' > .dev.vars
-          npx wrangler d1 migrations apply agent-board --local
-          npx wrangler dev --port 8787 > wrangler.log 2>&1 &
-          for i in $(seq 1 60); do curl -sf http://localhost:8787/health && break; sleep 1; done
+        run: scripts/ci-worker.sh
 
       - name: End-to-end tests
         run: DEV_LOG=wrangler.log E2E_FULL=1 node test/e2e.mjs
@@ -54,11 +53,87 @@ jobs:
         if: failure()
         run: tail -200 wrangler.log
 
+  # The ~80 Playwright browser checks (test/browser, docs/ci.md), split across 4 jobs that each start their own local
+  # Worker. Chromium comes from playwright-core's installer, cached by its version.
+  browser:
+    name: browser (${{ matrix.shard }}/4)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build CLI (e2e-web drives the real CLI)
+        run: npm run build:cli
+
+      - name: playwright-core version
+        id: pw
+        run: echo "version=$(node -p 'require("playwright-core/package.json").version')" >> "$GITHUB_OUTPUT"
+
+      - name: Restore cached Chromium
+        id: pw-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ms-playwright-chromium-${{ runner.os }}-${{ steps.pw.outputs.version }}
+
+      - name: Install Chromium
+        env:
+          CACHE_HIT: ${{ steps.pw-cache.outputs.cache-hit }}
+        run: |
+          if [ "$CACHE_HIT" = true ]; then npx playwright-core install-deps chromium; else npx playwright-core install --with-deps --no-shell chromium; fi
+          echo "PW_CHROME=$(node -p 'require("playwright-core").chromium.executablePath()')" >> "$GITHUB_ENV"
+
+      # Saved right away (not at the end of the job), so a red run still fills the cache; the other shards' saves of
+      # the same key are skipped with a warning.
+      - name: Cache Chromium
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ms-playwright-chromium-${{ runner.os }}-${{ steps.pw.outputs.version }}
+
+      - name: Start a local Worker
+        run: scripts/ci-worker.sh
+
+      - name: Browser checks
+        env:
+          BASE: http://localhost:8787
+          SHARD: ${{ matrix.shard }}/4
+          PAR: 3
+          SHOTS_DIR: ${{ runner.temp }}/browser
+        run: npm run test:browser
+
+      - name: Collect the Worker log
+        if: failure()
+        run: |
+          mkdir -p "$RUNNER_TEMP/browser"
+          cp wrangler.log "$RUNNER_TEMP/browser/" 2>/dev/null || echo "no wrangler.log"
+
+      - name: Upload screenshots and logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-${{ matrix.shard }}
+          path: ${{ runner.temp }}/browser
+          retention-days: 7
+          if-no-files-found: ignore
+
   # The CI bot (vedu #1183): each push's result goes onto its change card on the Atteo board, and a failure pings the
   # author and their agent with the failing step. Posts with a board token like any agent (docs/ci-bot.md); without
   # the ATTEO_BOT_TOKEN secret it only leaves a notice. Never turns a run red.
   report:
-    needs: test
+    needs: [test, browser]
     if: ${{ github.event_name == 'push' && !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 3
@@ -80,6 +155,6 @@ jobs:
           ATTEO_BOT_TOKEN: ${{ secrets.ATTEO_BOT_TOKEN }}
           ATTEO_URL: ${{ vars.ATTEO_URL }}
           ATTEO_BOARD: ${{ vars.ATTEO_BOARD }}
-          CI_RESULT: ${{ needs.test.result }}
+          CI_RESULT: ${{ contains(needs.*.result, 'failure') && 'failure' || (contains(needs.*.result, 'cancelled') && 'cancelled' || 'success') }}
           GITHUB_TOKEN: ${{ github.token }}
         run: node scripts/ci-report.mjs
