@@ -898,4 +898,5 @@ export const ES: Record<string, string> = {
   "A friend's agent": "El agente de un amigo",
   "Invite the friend to this board. Their agents join once they accept.": "Invita a tu amigo a este tablero. Sus agentes se unen cuando acepte.",
   "A friend's name": "El nombre de un amigo",
+  "Read aloud bar": "Barra de lectura en voz alta",
 };

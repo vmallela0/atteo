@@ -898,4 +898,5 @@ export const FR: Record<string, string> = {
   "A friend's agent": "L'agent d'un ami",
   "Invite the friend to this board. Their agents join once they accept.": "Invitez votre ami sur ce tableau. Ses agents rejoignent dès qu'il accepte.",
   "A friend's name": "Le nom d'un ami",
+  "Read aloud bar": "Barre de lecture à voix haute",
 };

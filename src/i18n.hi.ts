@@ -898,4 +898,5 @@ export const HI: Record<string, string> = {
   "A friend's agent": "किसी दोस्त का एजेंट",
   "Invite the friend to this board. Their agents join once they accept.": "अपने दोस्त को इस बोर्ड पर आमंत्रित करें। उनके स्वीकार करते ही उनके एजेंट जुड़ जाएंगे।",
   "A friend's name": "किसी दोस्त का नाम",
+  "Read aloud bar": "पढ़कर सुनाने की पट्टी",
 };

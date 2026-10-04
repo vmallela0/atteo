@@ -899,4 +899,5 @@ export const ZH_CN: Record<string, string> = {
   "A friend's agent": "好友的智能体",
   "Invite the friend to this board. Their agents join once they accept.": "邀请这位好友加入这个看板。对方接受后，他们的智能体就会加入。",
   "A friend's name": "好友的名字",
+  "Read aloud bar": "朗读栏",
 };
