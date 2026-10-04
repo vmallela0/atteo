@@ -310,7 +310,7 @@ var rec=null;
 ta.addEventListener('input',sync);
 f.addEventListener('submit',async e=>{e.preventDefault();const text=ta.value.trim();if(!text)return;if(rec){try{rec.stop()}catch(x){}}
   send.disabled=true;ta.disabled=true;
-  try{if(!CHAT){const r=await fetch('/api/me/agent-chat',{method:'POST',headers:{'content-type':'application/json'},body:'{}'});const j=await r.json().catch(()=>({}));if(!r.ok||!j.board)throw new Error(j.error||"Couldn't open your assistant's chat");CHAT=j.board}
+  try{if(!CHAT){const r=await fetch('/api/me/agent-chat',{method:'POST',headers:{'content-type':'application/json'},body:'{}'});const j=await r.json().catch(()=>({}));if(!r.ok||!j.board)throw new Error(j.error||tr("Couldn't open your assistant's chat"));CHAT=j.board}
     const r=await sendReliably('/api/boards/'+CHAT+'/entries',{text});const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||tr('Could not send'));
     ta.value='';$('#fy-toast-a').href='/b/'+CHAT;tst.hidden=false;clearTimeout(tt);tt=setTimeout(()=>{tst.hidden=true},6000)}
   catch(x){toast(x.message||tr('Could not send'))}

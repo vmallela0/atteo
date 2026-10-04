@@ -46,6 +46,7 @@ describe("languages (#1646)", () => {
     const res = boardPage(viewer, [], info, [{ user: "jxn", display_name: null, last_seen: 0 }, { user: "vedu", display_name: null, last_seen: 0 }], entries, []);
     const html = await res.text();
     expect(res.headers.get("content-language")).toBe("zh-Hans");
+    expect(res.headers.get("vary")).toContain("Accept-Language"); // caches keep each language apart
     expect(html).toContain('<html lang="zh-Hans">');
     expect(html).toContain("window.I18N={");
     for (const zh of ["对话", "发送", "看板信息", "回复", "问题"]) expect(html).toContain(zh);

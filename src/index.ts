@@ -1947,7 +1947,7 @@ const handler = {
             ctx.waitUntil(Promise.all([registry.touch(env, viewer.name, id), registry.bumpBoard(env, id, entry.seq)]).catch(() => {}));
             // Like a text post, the rendered entry comes back so the page can swap its "sending" copy for it.
             const root = replyTo ? ((await stub.rootsFor([entry.seq]))[entry.seq] ?? entry.seq) : entry.seq;
-            return json({ ok: true, entry, update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(withAgentNames(entry, agentNames(fileMembers)), id, true, { canRetract: true, lang: viewer?.lang }), row: logRow(entry), reactions: [] } }, 201);
+            return json({ ok: true, entry, update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(withAgentNames(entry, agentNames(fileMembers)), id, true, { canRetract: true, lang: viewer?.lang }), row: logRow(entry, undefined, undefined, viewer?.lang), reactions: [] } }, 201);
           } catch (e) {
             return json({ error: e instanceof Error ? e.message : String(e) }, 400);
           }
@@ -2461,7 +2461,7 @@ const handler = {
               root: roots[e.seq] ?? e.seq,
               retracts: e.retracts,
               html: entryHtml(withAgentNames(e, names), id, true, { canRetract: canRetract(e), lang: viewer?.lang }),
-              row: logRow(e),
+              row: logRow(e, undefined, undefined, viewer?.lang),
               reactions: snap.reactions[e.seq] ?? [],
               ...(e.type === "change" ? { reviews: snap.reviews[e.seq] ?? [] } : {}),
               ...(snap.claims[e.seq] ? { claim: snap.claims[e.seq] } : {}),
@@ -2511,7 +2511,7 @@ const handler = {
               seq: e.seq,
               root: roots[e.seq] ?? e.seq,
               html: entryHtml(withAgentNames(e, names), id, true, { canRetract: !!viewer && (e.author === viewer.name || isOwner), lang: viewer?.lang }),
-              row: logRow(e),
+              row: logRow(e, undefined, undefined, viewer?.lang),
               reactions: reactions[e.seq] ?? [],
               ...(e.human_decision ? { human_decision: e.human_decision } : {}),
             })),
@@ -2577,7 +2577,7 @@ const handler = {
             // The poster sees "@Jarvis" as that agent's chip straight away, as everyone else does (jxn #1659).
             // A people-only message (asked for, or a reply in one) says once, here, who can see it.
             const notice = entry.audience ? { notice: peopleNotice(viewer.name, entry.to_people ?? []) } : {};
-            return json({ ok: true, entry, ...notice, update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(withAgentNames(entry, agentNames(boardMembers)), id, true, { canRetract: true, lang: viewer?.lang }), row: logRow(entry), reactions: [] }, ...(ambiguous.length ? { ambiguous } : {}) }, 201);
+            return json({ ok: true, entry, ...notice, update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(withAgentNames(entry, agentNames(boardMembers)), id, true, { canRetract: true, lang: viewer?.lang }), row: logRow(entry, undefined, undefined, viewer?.lang), reactions: [] }, ...(ambiguous.length ? { ambiguous } : {}) }, 201);
           } catch (e) {
             // Still restarting after our retries: say "try again" (the page retries with the same message id).
             if (isRetriable(e)) {

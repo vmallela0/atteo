@@ -81,21 +81,21 @@ function rcRender(j,since){
   const ap=(j.approvals||[]).map(a=>'<li><a href="/approvals" class="rc-ext"><span class="rc-t">'+esc(a.title)+'</span><span class="rc-m xs faint">'+esc(a.risk||'')+' risk'+(a.tool?' · '+esc(a.tool):'')+'</span></a></li>');
   // New or blocked tasks nobody owes yet (unassigned) aren't under "who owes what": list them, so nothing new is missed.
   const owing=new Set(owed.flatMap(o=>o.items.map(x=>x.seq))),tm=j.tasks_moved||{};
-  const fresh=[...(tm.blocked||[]),...(tm.new||[])].filter((t,i,a)=>!owing.has(t.seq)&&a.findIndex(x=>x.seq===t.seq)===i).map(t=>rcItem(t,esc(t.owner_label||'unassigned')+(t.status==='blocked'?' · blocked':'')));
+  const fresh=[...(tm.blocked||[]),...(tm.new||[])].filter((t,i,a)=>!owing.has(t.seq)&&a.findIndex(x=>x.seq===t.seq)===i).map(t=>rcItem(t,esc(tr(t.owner_label||'unassigned'))+(t.status==='blocked'?' · blocked':'')));
   const done=(tm.done||[]).map(t=>rcItem(t,esc(t.owner_label||'')));
   const files=(j.files||[]).map(f=>'<li><a href="#files" data-recap-file="'+esc(f.name)+'"><span class="rc-t mono">'+esc(f.name)+'</span><span class="rc-m xs faint">'+(f.from_version?'v'+f.from_version+' → v'+f.to_version:'new')+(f.authors&&f.authors.length?' · '+esc(f.authors.join(', ')):'')+'</span></a></li>');
   const more=(ap.length?rcSec(tr('Waiting for your approval'),ap,''):'')+(fresh.length?rcSec(tr('New tasks'),fresh,''):'')+(done.length?rcSec(tr('Done'),done,''):'')+(files.length?rcSec(tr('Files changed'),files,''):'');
   const n=j.entries!=null?j.entries:j.count!=null?j.count:j.new_count;
   // Nothing posted since you last looked: say so, still show what's open and waiting, and offer the whole board.
   const quiet=since>0&&(n!=null?n===0:!dec.length&&!qs.length&&!owed.length);
-  rcSub.textContent=quiet?tr('Nothing new since you last looked'):since>0?(n!=null?n+' new message'+(n===1?'':'s')+' since you last looked':tr('Since you last looked')):tr('The whole board')+(n?' · '+n+' message'+(n===1?'':'s'):'');
+  rcSub.textContent=quiet?tr('Nothing new since you last looked'):since>0?(n!=null?tr(n===1?'{n} new message since you last looked':'{n} new messages since you last looked',{n}):tr('Since you last looked')):tr('The whole board')+(n?' · '+tr(n===1?'{n} message':'{n} messages',{n}):'');
   const all='<p class="small muted rc-none">'+(quiet?'':tr('Want more? '))+'<button class="linkish" type="button" data-recap-all>'+tr('Recap the whole board')+'</button></p>';
   rcBody.innerHTML=quiet?(qs.length?rcSec(tr('Still open'),qs,''):'')+(owed.length?ow:'')+more+all
     :rcSec(tr('Decisions'),dec,tr('No new decisions.'))+rcSec(tr('Open questions'),qs,tr('No open questions.'))+ow+more+(since>0?all:'')}
 async function rcOpen(since){rcSub.textContent=tr('Loading…');rcBody.innerHTML='<p class="small muted">'+tr('Loading…')+'</p>';if(!rcDlg.open)rcDlg.showModal();
   let r;try{r=await fetch('/api/boards/'+BOARD+'/recap?since='+since)}catch(e){r=null}
   if(!r||r.status===404||r.status===405){rcSub.textContent='';rcBody.innerHTML='<p class="small muted">Recap isn\\'t available on this server yet.</p>';return}
-  const j=await r.json().catch(()=>({}));if(!r.ok){rcSub.textContent='';rcBody.innerHTML='<p class="flash err">'+esc(j.error||"Couldn't load the recap")+'</p>';return}
+  const j=await r.json().catch(()=>({}));if(!r.ok){rcSub.textContent='';rcBody.innerHTML='<p class="flash err">'+esc(j.error||tr("Couldn't load the recap"))+'</p>';return}
   rcRender(j,since)}
 document.getElementById('recap-btn')?.addEventListener('click',()=>{const dot=document.getElementById('recap-dot');if(dot)dot.hidden=true;rcOpen(RECAP_SINCE)});
 rcDlg?.addEventListener('click',e=>{if(e.target===rcDlg||e.target.closest('[data-close]')){rcDlg.close();return}

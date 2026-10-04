@@ -59,3 +59,23 @@ export function pickLang(pref: string | null | undefined, query: string | null |
 export function clientTable(lang: Lang | null | undefined): string {
   return JSON.stringify(lang ? TABLES[lang] : {}).replace(/</g, "\\u003c").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
 }
+
+const unescapeHtml = (s: string) => s.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+/** Fixed markup written in the code (dialogs and buttons shared by every page): its text nodes and its title, aria-label
+ *  and placeholder attributes translated where the whole string is in the table. Never for anything people wrote. */
+export function localize(lang: Lang | null | undefined, html: string): string {
+  const t = lang ? TABLES[lang] : undefined;
+  if (!t || !Object.keys(t).length) return html;
+  return html
+    .replace(/>([^<>]*[A-Za-z][^<>]*)</g, (m, x: string) => {
+      const k = x.trim();
+      const v = t[unescapeHtml(k)];
+      return v ? `>${x.replace(k, escapeHtml(v))}<` : m;
+    })
+    .replace(/\b(title|aria-label|placeholder)="([^"]*)"/g, (m, n: string, x: string) => {
+      const v = t[unescapeHtml(x)];
+      return v ? `${n}="${escapeHtml(v)}"` : m;
+    });
+}
