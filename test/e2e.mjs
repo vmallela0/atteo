@@ -4775,6 +4775,24 @@ await step("voice (POST /api/app/voice/session): people only, validated, rate li
     assert(m.status === 400 && /just-mine/.test(m.body.error), `memory: ${m.status} ${JSON.stringify(m.body)}`);
     const f = await papi(A, "POST", "/api/forward", { from: ob, to: other, seqs: [mine] });
     assert(f.status === 400 && /just-mine/.test(f.body.error), `forward: ${f.status} ${JSON.stringify(f.body)}`);
+    // Files are the whole board's: one in the lane's thread is refused before it's stored (nobody gets the file).
+    const fname = `lane-${run}.txt`;
+    for (const multi of [false, true]) {
+      let up;
+      if (multi) {
+        const fd = new FormData();
+        for (const n of [fname, `2-${fname}`]) fd.append("file", new Blob([`secret file ${OWN}`], { type: "text/plain" }), n);
+        fd.append("reply_to", String(mine));
+        up = await web(`/api/boards/${ob}/upload`, A, { method: "POST", body: fd });
+      } else up = await web(`/api/boards/${ob}/upload?name=${fname}&reply_to=${mine}`, A, { method: "POST", headers: { "content-type": "text/plain" }, body: `secret file ${OWN}` });
+      const uj = await up.json().catch(() => ({}));
+      assert(up.status === 400 && /files are shared with the whole board/.test(uj.error), `file in the lane (${multi ? "several" : "one"}): ${up.status} ${JSON.stringify(uj)}`);
+    }
+    const docs = await ok(B, ob, "doc", { action: "list" });
+    assert(!docs.includes(fname), `the refused file was stored anyway: ${docs}`);
+    // Someone outside the lane can't even learn it's private.
+    const ob2 = await web(`/api/boards/${ob}/upload?name=x.txt&reply_to=${mine}`, B, { method: "POST", headers: { "content-type": "text/plain" }, body: "x" });
+    assert(ob2.status === 400 && /does not exist/.test((await ob2.json()).error), `B's file reply: ${ob2.status}`);
     for (const s of Object.values(sockets)) s.ws.close();
   });
 }
