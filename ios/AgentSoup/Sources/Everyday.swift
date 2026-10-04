@@ -135,8 +135,8 @@ extension String {
 
 /// Hooks other features plug into Everyday's screens without editing them.
 enum EverydayHooks {
-    /// The Ask screen's "Talk" slot (live voice with the assistant, e.g. Grok's): when set, its button shows beside
-    /// "Type instead". Nil: nothing there.
+    /// The Ask screen's "Talk" slot (live voice with the assistant): when set, its button shows at the top right of
+    /// the screen, like a call. Nil: nothing there.
     nonisolated(unsafe) static var talk: (() -> AnyView)?
 }
 

@@ -10,6 +10,8 @@ struct BoardView: View {
     @State private var showTasks = false
     @State private var workPane: WorkPane? // Tasks or Files, from the top bar (always reachable)
     @State private var showAgents = false
+    @State private var talking = false // the voice chat sheet, from the phone at the top right (vedu #1783)
+    @ObservedObject private var talkStatus = TalkStatus.shared // the phone shows once voice is set up on the server
     private var live: [BoardAgent] { (state.boardAgents[board.id] ?? []).filter { $0.state == "live" } }
     /// "theo's agent working", "theo and maya's agents working", "3 agents working", or "No agents working now".
     private var presence: String {
@@ -121,7 +123,18 @@ struct BoardView: View {
                 .accessibilityIdentifier("work-menu")
                 .accessibilityLabel(Vocab.pick(String(localized: "Tasks and files", bundle: .l10n), String(localized: "To-dos and files", bundle: .l10n)))
             }
+            // Voice chat with Atteo, like a call, at the top right (vedu #1783): the message box keeps the mic for dictation.
+            if talkStatus.enabled == true {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { focused = false; Haptics.play(.touch); talking = true } label: { ToolbarIcon("phone") }
+                        .accessibilityIdentifier("talk")
+                        .accessibilityLabel("Voice chat with Atteo")
+                        .accessibilityHint("Opens a live, hands-free voice chat.")
+                }
+            }
         }
+        .task { await talkStatus.load() }
+        .fullScreenCover(isPresented: $talking) { TalkSheet(board: board) }
         // A "#123" in a message: go to it (or open its thread, if it's an answer).
         .environment(\.openURL, OpenURLAction { url in
             if let p = personLink(url) { profile = p; return .handled }

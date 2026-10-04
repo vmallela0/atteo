@@ -1,7 +1,7 @@
 // Everyday's Ask screen (ios/qa/design/everyday, `ask`): voice first. A big clay circle: tap and talk (transcribed on
 // this phone, like the message box's hold-to-talk in Voice.swift), tap again when you're done and it goes to your
 // assistant (your "Your assistant" chat). Or pick a suggestion, or type instead. EverydayHooks.talk adds a live
-// "Talk" button beside "Type instead" when another feature provides one.
+// voice chat at the top right, like a call, when another feature provides one.
 
 import SwiftUI
 
@@ -75,6 +75,8 @@ struct AskView: View {
                 .accessibilityLabel("Close")
                 .accessibilityIdentifier("ask-close")
                 Spacer()
+                // A live voice conversation, when one is plugged in (EverydayHooks.talk): top right, like a call.
+                if let talk = EverydayHooks.talk { talk() }
             }
         }
         .padding(.horizontal, Space.s).padding(.top, Space.xs)
@@ -182,8 +184,6 @@ struct AskView: View {
             }
             .buttonStyle(PressStyle())
             .accessibilityIdentifier("ask-switch")
-            // A live voice conversation, when one is plugged in (EverydayHooks.talk).
-            if let talk = EverydayHooks.talk { talk() }
         }
         .padding(.vertical, Space.s)
     }
