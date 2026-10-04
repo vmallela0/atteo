@@ -583,6 +583,7 @@ input.switch::after{content:"";position:absolute;top:3px;left:3px;width:18px;hei
 #thread>.entry.for-you,#thread>.entry.flash-in,#thread>.entry.hit,.thr-list>.entry.for-you,.thr-list>.entry.hit{margin-left:-12px;margin-right:-12px;padding-left:12px;padding-right:12px;border-radius:8px}
 /* The "New" divider is the line: no second (border) line right under it (jxn #1311). */
 .new-line{margin:10px 0 2px}.new-line+.entry{border-top-color:transparent}
+.slash-menu li{align-items:baseline}.slash-menu li b{flex:none;white-space:nowrap}.slash-menu li .k{margin-left:10px;flex:1;min-width:0;text-align:left} /* "/task" never splits (jxn #1391) */
 .mem-act{display:none}.mem-on .mem-act{display:inline-flex;width:30px;padding:0;justify-content:center;color:var(--muted)}.mem-on .mem-act:hover{color:var(--ink)}
 .soul-prev{white-space:pre-wrap;font-size:12.5px;line-height:1.5;color:var(--text);max-height:7.5em;overflow:hidden;-webkit-mask-image:linear-gradient(#000 70%,transparent);mask-image:linear-gradient(#000 70%,transparent)}
 .soul-meta{margin:4px 0 6px}.soul-edit{margin-top:2px}
