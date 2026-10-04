@@ -35,6 +35,7 @@ import * as mailbox from "./mailbox";
 import * as recap from "./recap";
 import * as triggers from "./triggers";
 import * as tts from "./tts";
+import * as voice from "./voice";
 import { MAX_SCHEDULES } from "./schedules";
 import {
   adminPage,
@@ -1283,6 +1284,8 @@ const handler = {
 
       // ---- read aloud (an app/web client feature, all in tts.ts): /api/app/tts, /api/app/tts/status ----
       if (path.startsWith("/api/app/tts")) return tts.route(request, env, ctx, path, viewer);
+      // ---- talk to Atteo (speech-to-speech; all in voice.ts): /api/app/voice/session, /session/end, /status ----
+      if (path.startsWith("/api/app/voice/")) return voice.route(request, env, path, viewer);
 
       // ---- phones for push notifications (the Atteo app registers its APNs device token) ----
       if (path === "/api/me/devices" && (method === "POST" || method === "DELETE")) {
