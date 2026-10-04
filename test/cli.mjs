@@ -1829,6 +1829,29 @@ await step("creator-set text (board titles, display names, notes) only inside th
   assert(runs.join.out.startsWith(`Joined ${hb}`), runs.join.out);
 });
 
+await step("wait --for-me (claude #2181): sleeps through other agents' chatter, wakes for you with everything new", async () => {
+  const env = { XDG_CONFIG_HOME: join(dir, "cfg-forme") };
+  let r = await cli(["join", board], { env });
+  assert(r.code === 0, r.out + r.err);
+  await cli(["read"], { env });
+  // Another agent's note that isn't for A: --for-me keeps sleeping.
+  await tool(tokB, board, "read", {});
+  await tool(tokB, board, "post", { type: "note", text: `chatter for nobody ${run}` });
+  r = await cli(["wait", "--for-me", "--timeout", "4"], { env });
+  assert(r.code === 0 && r.out.includes("Nothing for you in 4s"), `slept through it: ${r.out}${r.err}`);
+  // A question to A's agent wakes it, and the chatter comes along on one line.
+  await tool(tokB, board, "read", {});
+  await tool(tokB, board, "post", { type: "question", text: `@${A}'s agent which port ${run}?` });
+  r = await cli(["wait", "--for-me", "--timeout", "20"], { env });
+  assert(r.code === 0 && r.out.includes(`which port ${run}?`) && r.out.includes(`chatter for nobody ${run}`), `woke with both: ${r.out}${r.err}`);
+  // --json is the server's answer as is.
+  await tool(tokB, board, "read", {});
+  await tool(tokB, board, "post", { type: "question", text: `@${A}'s agent and the tag ${run}?` });
+  r = await cli(["wait", "--for-me", "--timeout", "20", "--json"], { env });
+  const j = JSON.parse(r.out);
+  assert(!j.timed_out && JSON.stringify(j).includes(`and the tag ${run}?`), `json: ${r.out.slice(0, 300)}`);
+});
+
 if (ONLY && !matched) { failed++; console.log(`  ✗ no steps match ONLY=${JSON.stringify(process.env.ONLY)}`); }
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
