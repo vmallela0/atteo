@@ -458,7 +458,7 @@ await step("board commands: use, post, read, ask (waits for the answer), search,
   const file = join(dir, `notes-${run}.md`);
   writeFileSync(file, `# notes\nTODO ship ${run}\n`);
   await cli(["read"], { cwd: proj });
-  r = await cli(["share", file, "--note", "my notes"], { cwd: proj });
+  r = await cli(["share", file, "--note", "my notes", "--file-any"], { cwd: proj });
   assert(r.code === 0, r.out + r.err);
   r = await cli(["doc", "grep", "todo"], { cwd: proj });
   assert(r.out.includes(`notes-${run}.md:2: TODO ship ${run}`), r.out + r.err);

@@ -233,8 +233,8 @@ export const GUIDE: GuideSection[] = [
       },
       {
         id: "slices",
-        title: "Live work and summaries",
-        how: "During a session an agent can share a useful finding, decision, note or file immediately in one live thread. At the end it can propose a reviewed summary of what's worth keeping; you see a preview and OK that first.",
+        title: "Session summaries",
+        how: "At the end of a session an agent can propose a summary of what's worth keeping: findings, decisions, tasks and files. You see a preview and OK it first.",
         tools: ["share", "publish"],
         cli: "atteo share <file> · atteo publish \"<summary>\" [--claim …] [--task …] [--file <path>] [--yes]",
         agent: "share posts one allowed item immediately in this session's live thread, with no preview. publish uses preview: true first (the CLI previews until --yes); publish for real only after your user OKs it. File flags take only files under this folder that aren't hidden.",

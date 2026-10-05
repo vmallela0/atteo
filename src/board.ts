@@ -131,6 +131,7 @@ export interface TaskActOpts {
   client?: string | null;
   session?: string | null; // the agent session acting: notes it causes count as its own posts
   session_name?: string | null; // its name, for "is on it" labels
+  live_thread?: string | null; // agent session id, or the MCP connection/token fallback when there is no named session
 }
 
 /** Who holds a task's claim, as headers say it: "jxn/alt-b" for a named agent session, else "jxn's agent" or "jxn". */
@@ -4560,9 +4561,9 @@ export class Board extends DurableObject<Env> {
     item: { type: "claim" | "decision" | "note" | "artifact"; text: string; title?: string; artifact_name?: string; artifact_content?: string },
     opts: TaskActOpts,
   ): Promise<{ anchor: number; entry: Entry }> {
-    if (!opts.session) throw new BoardError("Live share needs an active agent session.");
+    if (!opts.live_thread) throw new BoardError("Live share needs an active MCP session.");
     if (!(["claim", "decision", "note", "artifact"] as const).includes(item.type)) throw new BoardError("Live share type must be claim, decision, note or artifact.");
-    const current = this.sql.exec("SELECT anchor FROM live_shares WHERE user = ? AND session = ?", user, opts.session).toArray()[0]?.anchor as number | undefined;
+    const current = this.sql.exec("SELECT anchor FROM live_shares WHERE user = ? AND session = ?", user, opts.live_thread).toArray()[0]?.anchor as number | undefined;
     const entry = await this.post(user, {
       type: item.type,
       text: item.text,
@@ -4577,7 +4578,7 @@ export class Board extends DurableObject<Env> {
       session_name: opts.session_name,
     });
     const anchor = current ?? entry.seq;
-    if (current == null) this.sql.exec("INSERT INTO live_shares (user, session, anchor) VALUES (?, ?, ?)", user, opts.session, anchor);
+    if (current == null) this.sql.exec("INSERT INTO live_shares (user, session, anchor) VALUES (?, ?, ?)", user, opts.live_thread, anchor);
     return { anchor, entry };
   }
 
@@ -4602,13 +4603,13 @@ export class Board extends DurableObject<Env> {
     for (const f of files) if (f.content.length > MAX_ARTIFACT) throw new BoardError(`${f.name} is too large (max ${MAX_ARTIFACT} characters).`);
     const hit = scanFields(Object.fromEntries([["summary", slice.summary], ...items.map((x, i) => [`item ${i + 1}`, x.text]), ...files.map((f) => [f.name, f.content])]));
     if (hit) throw new BoardError(blockedMessage(hit));
-    const liveAnchor = opts.session ? (this.sql.exec("SELECT anchor FROM live_shares WHERE user = ? AND session = ?", user, opts.session).toArray()[0]?.anchor as number | undefined) : undefined;
+    const liveAnchor = opts.live_thread ? (this.sql.exec("SELECT anchor FROM live_shares WHERE user = ? AND session = ?", user, opts.live_thread).toArray()[0]?.anchor as number | undefined) : undefined;
     this.rateLimit(user); // one slice counts as one post
     const head = await this.post(user, { type: "note", title: slice.title ?? "Session summary", text: slice.summary, reply_to: liveAnchor ?? 0, own: false, via: opts.via, client: opts.client, session: opts.session }, { seeding: true });
     const posted: { seq: number; type: string }[] = [];
     for (const x of items) posted.push({ seq: (await this.post(user, { type: x.type, text: x.text, reply_to: head.seq, via: opts.via, client: opts.client, session: opts.session }, { seeding: true })).seq, type: x.type });
     for (const f of files) posted.push({ seq: (await this.post(user, { type: "artifact", artifact_name: f.name, artifact_content: f.content, text: f.note ?? `From the session: ${f.name}`, reply_to: head.seq, via: opts.via, client: opts.client, session: opts.session }, { seeding: true })).seq, type: "artifact" });
-    if (liveAnchor != null && opts.session) this.sql.exec("DELETE FROM live_shares WHERE user = ? AND session = ?", user, opts.session);
+    if (liveAnchor != null && opts.live_thread) this.sql.exec("DELETE FROM live_shares WHERE user = ? AND session = ?", user, opts.live_thread);
     return { summary: head.seq, posted };
   }
 

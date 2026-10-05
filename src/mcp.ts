@@ -590,9 +590,9 @@ function readText(
 }
 
 /** How an agent's actions are recorded: its session's name and tool when it has one, else its MCP client's name. */
-async function agentOpts(c: CallContext): Promise<{ via: "agent"; client: string; session: string | null; session_name: string | null }> {
+async function agentOpts(c: CallContext): Promise<{ via: "agent"; client: string; session: string | null; session_name: string | null; live_thread: string }> {
   const client = c.agentSession ? `${c.agentSession.name} · ${c.agentSession.client ?? "agent"}` : ((await registry.mcpSessionClient(c.env, c.sessionId)) ?? "agent");
-  return { via: "agent", client, session: c.agentSession?.id ?? null, session_name: c.agentSession?.name ?? null };
+  return { via: "agent", client, session: c.agentSession?.id ?? null, session_name: c.agentSession?.name ?? null, live_thread: c.agentSession?.id ?? c.sessionId };
 }
 
 /** The agent session behind an MCP connection that didn't come through the CLI: made on its first tool call, named
