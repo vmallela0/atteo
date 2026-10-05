@@ -81,24 +81,58 @@ final class WorkUITests: XCTestCase {
 
     func row(_ a: XCUIApplication, _ title: String) -> XCUIElement { a.descendants(matching: .any)["task-row-\(title)"].firstMatch }
 
+    func testStoppedTaskHasItsOwnCollapsedGroup() throws {
+        continueAfterFailure = false
+        guard let board else { throw XCTSkip("needs the seeded board") }
+        let title = "QA stopped task \(UUID().uuidString)"
+        let created = call("POST", "/api/boards/\(board)/tasks", body: ["title": title])
+        guard let task = created["task"] as? [String: Any], let seq = task["seq"] as? Int else {
+            XCTFail("could not create the stopped task: \(created)")
+            return
+        }
+        defer { call("POST", "/api/boards/\(board)/entries/\(seq)/retract", body: ["reason": "QA cleanup"]) }
+        let stopped = call("POST", "/api/boards/\(board)/tasks/\(seq)", body: ["action": "stop", "reason": "QA grouping"])
+        XCTAssertEqual((stopped["task"] as? [String: Any])?["status"] as? String, "stopped")
+
+        let a = app()
+        openWork(a)
+        let open = a.descendants(matching: .any)["group-open"].firstMatch
+        let group = a.descendants(matching: .any)["group-stopped"].firstMatch
+        let taskRow = row(a, title)
+        XCTAssertTrue(open.waitForExistence(timeout: 8))
+        for _ in 0..<3 where !group.isHittable { a.swipeUp() }
+        XCTAssertTrue(group.exists)
+        XCTAssertTrue(group.label.hasPrefix("Stopped, "), group.label)
+        XCTAssertEqual(group.value as? String, "collapsed")
+        XCTAssertFalse(taskRow.exists, "stopped task is absent from Open")
+        group.tap()
+        XCTAssertTrue(taskRow.waitForExistence(timeout: 3))
+        XCTAssertGreaterThan(taskRow.frame.minY, group.frame.minY, "stopped task appears under Stopped")
+    }
+
     func testTasks() throws {
         continueAfterFailure = false
         let a = app()
         openWork(a)
         let any = a.descendants(matching: .any)
 
-        // Grouped by where they stand, with counts; sub-tasks under their parent.
+        // Grouped by each task's own status, with counts.
         let doing = any["group-doing"].firstMatch, open = any["group-open"].firstMatch
+        let blockedGroup = any["group-blocked"].firstMatch
         XCTAssertTrue(doing.waitForExistence(timeout: 8), "In progress group")
         XCTAssertTrue(open.exists, "Open group")
+        XCTAssertTrue(blockedGroup.exists, "Blocked group")
+        XCTAssertLessThan(open.frame.minY, blockedGroup.frame.minY)
         XCTAssertTrue(doing.label.hasPrefix("In progress, "), doing.label)
         let parent = row(a, "Guard empty carts in charge()"), sub = row(a, "Ship")
         XCTAssertTrue(parent.waitForExistence(timeout: 5) && sub.exists, "the parent and its sub-task")
-        XCTAssertGreaterThan(sub.frame.minY, parent.frame.minY, "the sub-task sits under its parent")
-        XCTAssertLessThan(sub.frame.minY, open.frame.minY, "…in the parent's group")
+        XCTAssertLessThan(parent.frame.minY, open.frame.minY, "in-progress parent stays in its group")
+        XCTAssertGreaterThan(sub.frame.minY, open.frame.minY, "to-do sub-task appears in Open")
+        XCTAssertLessThan(sub.frame.minY, blockedGroup.frame.minY)
         // Blocked, waiting on your approval, how far along, at a glance.
         let blocked = row(a, "Rotate the Stripe webhook secret")
         XCTAssertTrue(blocked.exists)
+        XCTAssertGreaterThan(blocked.frame.minY, blockedGroup.frame.minY, "blocked tasks stay out of Open")
         XCTAssertTrue(blocked.label.contains("Blocked"), blocked.label)
         XCTAssertTrue(blocked.label.contains("1 of 3 checked"), "checklist progress: \(blocked.label)")
         // (The everyday-flow tests may have answered its approval already; then it's rightly gone.)
@@ -116,12 +150,12 @@ final class WorkUITests: XCTestCase {
         shot("w01-tasks")
 
         // A group folds away and comes back.
-        open.tap()
+        blockedGroup.tap()
         let gone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: blocked)
         wait(for: [gone], timeout: 3)
-        XCTAssertEqual(open.value as? String, "collapsed")
+        XCTAssertEqual(blockedGroup.value as? String, "collapsed")
         shot("w02-collapsed")
-        open.tap()
+        blockedGroup.tap()
         XCTAssertTrue(blocked.waitForExistence(timeout: 3), "expanded again")
 
         // Filters: yours, your agent's, nobody's.
