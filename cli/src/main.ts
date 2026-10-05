@@ -11,6 +11,7 @@ import { createInterface } from "node:readline";
 import qrcode from "qrcode-terminal";
 import { forAgent, forPerson, mentionLabel, mentionsOwnAgent, type Mention } from "../../src/mentions";
 import { blockedMessage, scanFields } from "../../src/secrets";
+import { gatewayFetch, GatewayError } from "../../gateway/src/index";
 import { pingTail, type PingContent, type PingFor } from "../../src/ping";
 import { CARD_HELP, cardCommand } from "./card";
 import { hooksCmd } from "./hooks";
@@ -24,6 +25,7 @@ import { load, loadFor, remove, save, storeName, type Credentials } from "./cred
 
 const VERSION = "0.1.0";
 const DEFAULT_SERVER = "https://atteo.dev";
+const send = gatewayFetch();
 
 const err = (s: string) => process.stderr.write(s + "\n");
 
@@ -399,7 +401,7 @@ async function mcp(args: string[]) {
     if (creds?.token) headers.authorization = `Bearer ${creds.token}`;
     if (msg.method === "tools/call") Object.assign(headers, await sessionHeader());
     if (sessionId) headers["mcp-session-id"] = sessionId;
-    const res = await fetch(`${server}/mcp`, { method: "POST", headers, body: JSON.stringify(msg) });
+    const res = await send(`${server}/mcp`, { method: "POST", headers, body: JSON.stringify(msg) });
     const sid = res.headers.get("mcp-session-id");
     if (sid) sessionId = sid;
     return res;
@@ -459,6 +461,7 @@ async function mcp(args: string[]) {
       }
       write(body);
     } catch (e) {
+      if (e instanceof GatewayError && msg.id !== undefined) return toolText(msg.id, e.message);
       if (msg.id !== undefined) write({ jsonrpc: "2.0", id: msg.id, error: { code: -32000, message: `Atteo unreachable: ${(e as Error).message}` } });
     }
   }
