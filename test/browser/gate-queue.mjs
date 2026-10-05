@@ -53,11 +53,11 @@ for(const [label,w,phone,first,left] of [
   // A row is a jump: clicking it closes board info and jumps to the handoff's message.
   await rows.nth(0).locator("a").click();
   await p.waitForFunction(()=>!document.getElementById("invite").open);
-  await p.waitForFunction(()=>location.hash===`#e${l}`);
+  await p.waitForFunction((s)=>location.hash===`#e${s}`,l);
   check(true,`${label}: clicking a row closes the dialog and jumps to the message`);
   // The stalled flag: the queue hasn't moved in 30 min (the page's clock moves forward, board info reopens).
   await p.clock.setFixedTime(Date.now()+31*60000);
-  await seeQueue(p);
+  await seeQueue(p);await p.locator("#gate-h .xs").waitFor({timeout:5000}).catch(()=>{}); // the reopened dialog re-renders the header once its fetch returns
   check((await p.locator("#gate-h").innerText()).toLowerCase().includes("30"),`${label}: a queue idle 30 min is flagged`);
   check(await p.locator("#gate-h .xs").isVisible(),`${label}: the stalled mark shows beside the count`);
   check(await p.locator("#acc-handoffs .acc-row").first().boundingBox().then(r=>r&&r.x>=0&&r.x+r.width<=w),`${label}: rows fit ${w}px`);
