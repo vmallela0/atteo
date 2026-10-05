@@ -722,7 +722,7 @@ input.switch::after{content:"";position:absolute;top:3px;left:3px;width:18px;hei
 .po-seg button:hover{color:var(--ink)}.po-seg button[aria-checked="true"]{background:var(--ink);color:var(--on-ink);font-weight:600}
 .po-seg button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}.composer.po{box-shadow:0 0 0 1.5px var(--private)}
 .pv-dlg{width:min(1100px,calc(100vw - 24px));height:min(860px,calc(100vh - 40px));padding:0;display:none}.pv-dlg[open]{display:flex;flex-direction:column}
-.pv-hd{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line)}.pv-hd .mono{min-width:0;font-size:13px}.pv-w button{padding:3px 10px;font-size:12px}
+.pv-hd{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line)}.pv-hd .mono{min-width:0;font-size:13px}.pv-w{display:flex;border:2px solid var(--ink)}.pv-w button{font:500 12px var(--font-ui);padding:4px 11px;border:0;border-radius:0;background:var(--bg);color:var(--ink);cursor:pointer}.pv-w button[aria-pressed="true"]{background:var(--ink);color:var(--on-ink)}.pv-w button:focus-visible{outline:2px solid var(--accent);outline-offset:2px;position:relative}
 .pv-body{flex:1;min-height:0;display:flex;justify-content:center;background:var(--bg-subtle);overflow:auto}.pv-body iframe{border:0;height:100%;background:var(--preview-bg);transition:width .2s}.pv-note{margin:0;padding:6px 12px;border-top:1px solid var(--line)}
 @media(max-width:640px){.pv-dlg{width:100vw;max-width:100vw;height:100dvh;max-height:none;margin:0;border-radius:0}.pv-w{display:none}}
 /* Highlights (mention tint, new-message flash, jump tint) bleed past the avatar whatever the density, so it never sits on the edge (jxn #1311),

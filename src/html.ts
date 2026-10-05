@@ -365,7 +365,7 @@ export const PREVIEW_FRAME_HTML =
   `removeEventListener("message",f);document.open();document.write("<!doctype html>"+d.head+d.html);document.close()});parent.postMessage({t:"atteo-preview-ready",tok:location.hash.slice(1)},"*")</script>`;
 const PREVIEW_JS = `
 (()=>{const dlg=document.createElement('dialog');dlg.className='pv-dlg';dlg.setAttribute('aria-label',tr('Preview'));
-  dlg.innerHTML='<div class="pv-hd"><b class="mono truncate" id="pv-name"></b><span class="grow"></span><div class="seg pv-w" role="group" aria-label="'+tr('Width')+'"><button type="button" class="on" data-pv-w="">'+tr('Full')+'</button><button type="button" data-pv-w="390">'+tr('Phone')+'</button></div><button type="button" class="btn ghost sm" data-pv-close aria-label="'+tr('Close preview')+'">✕</button></div><div class="pv-body"><iframe id="pv-frame" sandbox="allow-scripts" referrerpolicy="no-referrer" title="'+tr('Preview')+'"></iframe></div><p class="xs faint pv-note">Runs in a sandbox: it can\\'t see your account or reach the network.</p>';
+  dlg.innerHTML='<div class="pv-hd"><b class="mono truncate" id="pv-name"></b><span class="grow"></span><div class="pv-w" role="group" aria-label="'+tr('Width')+'"><button type="button" aria-pressed="true" data-pv-w="">'+tr('Full')+'</button><button type="button" aria-pressed="false" data-pv-w="390">'+tr('Phone')+'</button></div><button type="button" class="btn ghost sm" data-pv-close aria-label="'+tr('Close preview')+'">✕</button></div><div class="pv-body"><iframe id="pv-frame" sandbox="allow-scripts" referrerpolicy="no-referrer" title="'+tr('Preview')+'"></iframe></div><p class="xs faint pv-note">Runs in a sandbox: it can\\'t see your account or reach the network.</p>';
   document.body.appendChild(dlg);const fr=dlg.querySelector('#pv-frame');
   const HEAD=${JSON.stringify(PREVIEW_HEAD).replace(/</g, "\\u003c")};
   // The shell says when it's listening; it gets the text once per open (a page that says "ready" again gets nothing).
@@ -381,7 +381,7 @@ const PREVIEW_JS = `
     // fetches none of its links, on top of the frame's sandbox and CSP. Drawn on a checkerboard, fitted to the frame.
     if(/\\.svg$/i.test(name))html='<style>html,body{margin:0;height:100%}body{display:grid;place-items:center;background:repeating-conic-gradient(#e8e8e8 0 25%,#fff 0 50%) 0 0/16px 16px}img{max-width:calc(100% - 32px);max-height:calc(100% - 32px);min-width:min(240px,100% - 32px)}</style><img id="pv-svg" alt="" src="data:image/svg+xml;charset=utf-8,'+encodeURIComponent(html)+'">';
     dlg.querySelector('#pv-name').textContent=name;pending=html;tok=Array.from(crypto.getRandomValues(new Uint8Array(16)),b=>b.toString(16).padStart(2,'0')).join('');fr.src='/preview-frame?'+Date.now()+'#'+tok;setW('');if(!dlg.open)dlg.showModal()}
-  function setW(w){fr.style.width=w?w+'px':'100%';dlg.querySelectorAll('[data-pv-w]').forEach(b=>b.classList.toggle('on',b.dataset.pvW===w))}
+  function setW(w){fr.style.width=w?w+'px':'100%';dlg.querySelectorAll('[data-pv-w]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.pvW===w)))}
   dlg.addEventListener('click',e=>{if(e.target===dlg||e.target.closest('[data-pv-close]')){dlg.close();return}const w=e.target.closest('[data-pv-w]');if(w)setW(w.dataset.pvW)});
   dlg.addEventListener('close',()=>{pending=null;tok='';fr.src='about:blank'});
   document.addEventListener('click',e=>{const b=e.target.closest('[data-preview-file]');if(!b)return;e.preventDefault();e.stopPropagation();open(b.dataset.previewFile,b.dataset.fileVer?+b.dataset.fileVer:undefined)},true);
