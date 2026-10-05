@@ -681,7 +681,9 @@ dialog.lightbox.zoomed img{max-width:none;max-height:none;margin:auto;border-rad
 /* change cards: a git change as a card (branch → base, CI, PR, commits, files, reviews, diff on demand) */
 .meta .via.owner{color:var(--muted)}.meta .via.sess{font-family:var(--font-mono);font-size:12.5px;color:var(--muted)}
 .composer.sending .attachments{display:none}
-.upd-bar{position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:60;display:flex;align-items:center;gap:10px;padding:6px 6px 6px 14px;border:1px solid var(--line);border-radius:999px;background:var(--bg);box-shadow:var(--shadow-lg);font-size:13px;color:var(--ink);white-space:nowrap}
+/* One piece (jxn #4304, #4325): Reload keeps its corners and sits the same 4px in on top, right and bottom; the bar
+   takes the button's corners (its radius plus the inset and the 1px border), so the edges line up. */
+.upd-bar{position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:60;display:flex;align-items:center;gap:10px;padding:4px 4px 4px 16px;border:1px solid var(--line);border-radius:calc(var(--r-sm) + 5px);background:var(--bg);box-shadow:var(--shadow-lg);font-size:13px;color:var(--ink);white-space:nowrap}
 .md-tw{overflow-x:auto;margin:6px 0;max-width:100%}.md-t{border-collapse:collapse;font-size:13px;line-height:1.45}.md-t th,.md-t td{border:1px solid var(--line);padding:4px 9px;text-align:left;vertical-align:top}.md-t th{background:var(--bg-subtle);color:var(--ink);font-weight:600}
 .ch{margin:8px 0;padding:10px 12px 6px;border:1px solid var(--line);border-radius:10px;background:var(--bg);max-width:620px}.ch-t{font-size:13px;font-weight:600;color:var(--ink);margin-bottom:4px}
 .ch{container-type:inline-size}.ch-svg{display:block;width:100%;height:auto;overflow:visible}.ch-narrow{display:none}@container (max-width:420px){.ch-wide{display:none}.ch-narrow{display:block}}.ch-grid{stroke:var(--line);stroke-width:1}.ch-axis{stroke:var(--line-strong,var(--line));stroke-width:1}
@@ -720,7 +722,7 @@ input.switch::after{content:"";position:absolute;top:3px;left:3px;width:18px;hei
 .po-seg button:hover{color:var(--ink)}.po-seg button[aria-checked="true"]{background:var(--ink);color:var(--on-ink);font-weight:600}
 .po-seg button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}.composer.po{box-shadow:0 0 0 1.5px var(--private)}
 .pv-dlg{width:min(1100px,calc(100vw - 24px));height:min(860px,calc(100vh - 40px));padding:0;display:none}.pv-dlg[open]{display:flex;flex-direction:column}
-.pv-hd{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line)}.pv-hd .mono{min-width:0;font-size:13px}.pv-w button{padding:3px 10px;font-size:12px}
+.pv-hd{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line)}.pv-hd .mono{min-width:0;font-size:13px}.pv-w{display:flex;border:2px solid var(--ink)}.pv-w button{font:500 12px var(--font-ui);padding:4px 11px;border:0;border-radius:0;background:var(--bg);color:var(--ink);cursor:pointer}.pv-w button[aria-pressed="true"]{background:var(--ink);color:var(--on-ink)}.pv-w button:focus-visible{outline:2px solid var(--accent);outline-offset:2px;position:relative}
 .pv-body{flex:1;min-height:0;display:flex;justify-content:center;background:var(--bg-subtle);overflow:auto}.pv-body iframe{border:0;height:100%;background:var(--preview-bg);transition:width .2s}.pv-note{margin:0;padding:6px 12px;border-top:1px solid var(--line)}
 @media(max-width:640px){.pv-dlg{width:100vw;max-width:100vw;height:100dvh;max-height:none;margin:0;border-radius:0}.pv-w{display:none}}
 /* Highlights (mention tint, new-message flash, jump tint) bleed past the avatar whatever the density, so it never sits on the edge (jxn #1311),

@@ -553,6 +553,7 @@ export const ZH_CN: Record<string, string> = {
   "Only when the message contains": "仅当消息包含",
   "Only you and your agents": "只有你和你的智能体",
   "Open": "打开",
+  "Edited, show history": "已编辑，查看历史",
   "Open this link?": "打开这个链接？",
   "Open ": "打开 ",
   "Open ChatGPT settings": "打开 ChatGPT 设置",

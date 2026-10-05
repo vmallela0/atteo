@@ -11,6 +11,11 @@
 // - no navigation after the first load (links, location changes, form posts and window.open are cancelled; in-page
 //   #anchors still scroll), no camera, microphone or motion, no link previews, and WebRTC removed before the page runs.
 // Encrypted boards: the app can't decrypt files yet (it opens them as stored), so Preview isn't offered there.
+//
+// An .svg file (jxn #4265) gets the same Preview, drawn the way the web does it (jxn's agent #4271, #4274): as an
+// <img src="data:image/svg+xml;base64,…"> inside the same locked-down page, never inline. An SVG in an <img> runs no
+// script and loads nothing remote, whatever it contains; JavaScript is also off for that page, and the CSP allows
+// only that data: image (SVGPreview below).
 
 import SwiftUI
 import WebKit
@@ -21,10 +26,10 @@ enum HTMLPreview {
         return n.hasSuffix(".html") || n.hasSuffix(".htm")
     }
 
-    /// Preview is offered for an .html text file (not stored bytes) on a board that isn't end-to-end encrypted.
+    /// Preview is offered for an .html or .svg text file (not stored bytes) on a board that isn't end-to-end encrypted.
     @MainActor
     static func available(board: String, name: String?, stored: Bool) -> Bool {
-        isHTML(name) && !stored && AppState.shared.boards.first(where: { $0.id == board })?.encrypted != true
+        (isHTML(name) || SVGPreview.isSVG(name)) && !stored && AppState.shared.boards.first(where: { $0.id == board })?.encrypted != true
     }
 
     /// The web's CSP (src/html.ts PREVIEW_JS), plus no DNS prefetching.
@@ -63,6 +68,33 @@ enum HTMLPreview {
         compiled = list
         return list
     }
+}
+
+/// An .svg file's preview page (jxn #4265, the web's rule #4271/#4274): the file as an image, never as markup.
+enum SVGPreview {
+    static func isSVG(_ name: String?) -> Bool {
+        name?.lowercased().hasSuffix(".svg") == true
+    }
+
+    /// No scripts, no connections: only the one data: image and the page's own style.
+    static let csp = #"<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; form-action 'none'; base-uri 'none'"><meta http-equiv="x-dns-prefetch-control" content="off">"#
+
+    /// The page around the drawing: the file's own bytes, base64'd into an <img> (so its encoding, a BOM or an
+    /// encoding="…" declaration, is the SVG parser's to read, never re-decoded here), scaled to fit and centred.
+    static func page(_ svg: Data) -> String {
+        let src = "data:image/svg+xml;base64," + svg.base64EncodedString()
+        return "<!doctype html>" + csp
+            + #"<meta name="viewport" content="width=device-width,initial-scale=1">"#
+            // A checkerboard behind it, as the web draws (#4274), so transparent and dark strokes both read; darker in dark mode.
+            + "<style>:root{--a:#fff;--b:#e9e9e9}@media (prefers-color-scheme:dark){:root{--a:#2b2b2b;--b:#353535}}"
+            + "html,body{margin:0;height:100%;background:conic-gradient(var(--b) 25%,var(--a) 0 50%,var(--b) 0 75%,var(--a) 0) 0 0/16px 16px}"
+            + "body{display:flex;align-items:center;justify-content:center}"
+            + "img{display:block;max-width:100%;max-height:100%;width:auto;height:auto;object-fit:contain}</style>"
+            + #"<body><img alt="" src=""# + src + #""></body>"#
+    }
+
+    /// The text as the board stores it (UTF-8).
+    static func page(_ svg: String) -> String { page(Data(svg.utf8)) }
 }
 
 /// Which file to preview.
@@ -106,6 +138,7 @@ struct HTMLPreviewSheet: View {
     @State private var rules: WKContentRuleList?
     @State private var failed = false
     @State private var phone = false
+    private var svg: Bool { SVGPreview.isSVG(target.name) }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -115,7 +148,7 @@ struct HTMLPreviewSheet: View {
                 ZStack {
                     Theme.raised
                     if let html, let rules {
-                        SandboxedPage(html: html, rules: rules)
+                        SandboxedPage(html: html, rules: rules, scripts: !svg)
                             .frame(width: phone ? min(390, g.size.width) : g.size.width)
                             .accessibilityIdentifier("preview-page")
                     } else if failed {
@@ -149,14 +182,16 @@ struct HTMLPreviewSheet: View {
             Text(verbatim: target.name).font(Typo.meta.weight(.semibold).monospaced()).foregroundStyle(Theme.text)
                 .lineLimit(1).truncationMode(.middle)
             Spacer(minLength: Space.s)
-            HStack(spacing: 2) {
-                width(String(localized: "Full", bundle: .l10n), on: !phone, id: "preview-width-full") { phone = false }
-                width(String(localized: "preview.width.phone", defaultValue: "Phone", bundle: .l10n), on: phone, id: "preview-width-phone") { phone = true }
+            if !svg { // a drawing scales to fit: no page width to choose
+                HStack(spacing: 2) {
+                    width(String(localized: "Full", bundle: .l10n), on: !phone, id: "preview-width-full") { phone = false }
+                    width(String(localized: "preview.width.phone", defaultValue: "Phone", bundle: .l10n), on: phone, id: "preview-width-phone") { phone = true }
+                }
+                .padding(2)
+                .background(Theme.raised, in: Capsule())
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel(Text("Width"))
             }
-            .padding(2)
-            .background(Theme.raised, in: Capsule())
-            .accessibilityElement(children: .contain)
-            .accessibilityLabel(Text("Width"))
             Button { dismiss() } label: {
                 Image(systemName: "xmark").font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.muted)
                     .frame(width: 30, height: 30).background(Theme.raised, in: Circle())
@@ -188,7 +223,7 @@ struct HTMLPreviewSheet: View {
         // No rule list, no page: it would otherwise run with only the CSP between it and the network.
         guard let r, let d else { failed = true; return }
         rules = r
-        html = HTMLPreview.withCsp(d.content)
+        html = svg ? SVGPreview.page(d.content) : HTMLPreview.withCsp(d.content)
     }
 }
 
@@ -196,6 +231,8 @@ struct HTMLPreviewSheet: View {
 struct SandboxedPage: UIViewRepresentable {
     let html: String
     let rules: WKContentRuleList
+    /// An .html page runs its own script (sandboxed); an .svg preview runs none at all.
+    var scripts = true
 
     func makeCoordinator() -> Guard { Guard() }
 
@@ -206,7 +243,7 @@ struct SandboxedPage: UIViewRepresentable {
         content.add(rules)
         content.addUserScript(WKUserScript(source: HTMLPreview.noRTC, injectionTime: .atDocumentStart, forMainFrameOnly: false))
         c.userContentController = content
-        c.defaultWebpagePreferences.allowsContentJavaScript = true
+        c.defaultWebpagePreferences.allowsContentJavaScript = scripts
         c.preferences.javaScriptCanOpenWindowsAutomatically = false
         c.preferences.isFraudulentWebsiteWarningEnabled = false // it would ask Safe Browsing about URLs
         c.dataDetectorTypes = []
