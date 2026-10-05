@@ -959,4 +959,6 @@ export const HI: Record<string, string> = {
   "Sending…": "भेजा जा रहा है…",
   "Sending to your agent in {n}s: “{t}”": "{n} सेकंड में आपके एजेंट को भेजा जाएगा: “{t}”",
   "Send what I dictate without asking": "जो मैं बोलूँ उसे बिना पूछे भेजें",
+  "Waiting to land ({n})": "मर्ज होने की प्रतीक्षा ({n})",
+  "nothing landed for 30 min": "30 मिनट से कुछ मर्ज नहीं हुआ",
 };

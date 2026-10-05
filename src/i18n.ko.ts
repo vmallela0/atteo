@@ -959,4 +959,6 @@ export const KO: Record<string, string> = {
   "Sending…": "보내는 중…",
   "Sending to your agent in {n}s: “{t}”": "{n}초 후 내 에이전트에게 보냅니다: “{t}”",
   "Send what I dictate without asking": "말한 내용을 묻지 않고 보내기",
+  "Waiting to land ({n})": "병합 대기 중 ({n}개)",
+  "nothing landed for 30 min": "30분 동안 병합된 것이 없습니다",
 };

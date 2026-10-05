@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { offBoardSeq, requestNow } from "../src/util";
 
 describe("offBoardSeq", () => {
@@ -23,16 +23,21 @@ describe("requestNow", () => {
   });
 
   it("uses real time without the env guard, off localhost, or for malformed values", () => {
-    const before = Date.now();
-    for (const [env, request] of [
-      [{}, req("localhost:8787")],
-      [{ DEV_FAKE_CLOCK: "true" }, req("localhost:8787")],
-      [{ DEV_FAKE_CLOCK: "1" }, req("atteo.dev")],
-      [{ DEV_FAKE_CLOCK: "1" }, req("localhost:8787", "tomorrow")],
-      [{ DEV_FAKE_CLOCK: "1" }, req("localhost:8787", "9007199254740992")],
-    ] as const) {
-      expect(requestNow(env, request)).toBeGreaterThanOrEqual(before);
-      expect(requestNow(env, request)).toBeLessThanOrEqual(Date.now());
+    const clock = vi.spyOn(Date, "now").mockReturnValue(1_800_000_000_000);
+    try {
+      const before = Date.now();
+      for (const [env, request] of [
+        [{}, req("localhost:8787")],
+        [{ DEV_FAKE_CLOCK: "true" }, req("localhost:8787")],
+        [{ DEV_FAKE_CLOCK: "1" }, req("atteo.dev")],
+        [{ DEV_FAKE_CLOCK: "1" }, req("localhost:8787", "tomorrow")],
+        [{ DEV_FAKE_CLOCK: "1" }, req("localhost:8787", "9007199254740992")],
+      ] as const) {
+        expect(requestNow(env, request)).toBeGreaterThanOrEqual(before);
+        expect(requestNow(env, request)).toBeLessThanOrEqual(Date.now());
+      }
+    } finally {
+      clock.mockRestore();
     }
   });
 });

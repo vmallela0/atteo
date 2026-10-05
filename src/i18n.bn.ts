@@ -959,4 +959,6 @@ export const BN: Record<string, string> = {
   "Sending…": "পাঠানো হচ্ছে…",
   "Sending to your agent in {n}s: “{t}”": "{n} সেকেন্ডে আপনার এজেন্টকে পাঠানো হবে: “{t}”",
   "Send what I dictate without asking": "আমি যা বলি তা জিজ্ঞাসা না করেই পাঠান",
+  "Waiting to land ({n})": "মার্জের অপেক্ষায় ({n})",
+  "nothing landed for 30 min": "৩০ মিনিট কিছুই মার্জ হয়নি",
 };

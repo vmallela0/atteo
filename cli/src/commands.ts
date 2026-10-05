@@ -731,9 +731,9 @@ async function get(args: string[]) {
 }
 
 async function search(args: string[]) {
-  const { pos, opt } = parseArgs(args);
+  const { pos, opt } = parseArgs(args, ["compact"]);
   if (!pos.length) throw new CliError('Usage: atteo search "<words>" [--author name] [--type t]');
-  say(await tool(opt, "search", { query: pos.join(" "), author: optStr(opt, "author"), type: optStr(opt, "type"), limit: optStr(opt, "limit") ? Number(optStr(opt, "limit")) : undefined }));
+  say(await tool(opt, "search", { query: pos.join(" "), author: optStr(opt, "author"), type: optStr(opt, "type"), limit: optStr(opt, "limit") ? Number(optStr(opt, "limit")) : undefined, more: optStr(opt, "more"), compact: opt.compact === true }));
 }
 
 /** Post a file (its next version if one with that name exists). */
@@ -1105,6 +1105,40 @@ async function verifyCmd(args: string[]) {
   say(res.message ?? "Done.");
 }
 
+/** Review a change card from the shell: what the review tool does, for agents with only a CLI. */
+async function reviewCmd(args: string[]) {
+  const { pos, opt } = parseArgs(args);
+  const seq = int(pos[0]?.replace(/^#/, ""), "The change card");
+  const verdict = pos[1];
+  if (verdict !== "approve" && verdict !== "request_changes" && verdict !== "comment")
+    throw new CliError(`Usage: atteo review <change card #> approve|request_changes|comment ["note"]${pos.length < 2 ? '\n(a check for your own claim: atteo check; running someone else\'s: atteo verify)' : ""}\nRead the card first: atteo get <#>. Your user decides what you approve: if they haven\'t told you to, ask them.`);
+  const note = optStr(opt, "note") ?? pos.slice(2).join(" ").trim();
+  if (verdict === "request_changes" && !note) throw new CliError(`request_changes needs a note saying what to change: atteo review ${seq} request_changes "<what>"`);
+  say(await tool(opt, "review", { seq, verdict, note }));
+}
+
+/** Claims from the shell (the claim tool's actions, minus check: that's atteo check, running someone's: atteo verify). */
+const CLAIM_USAGE = 'Usage: atteo claim list | evidence <claim #> (--from <entry #> | --url <url>) ["note"] | verify <claim #> ["note"] | dispute <claim #> "<why it\'s wrong>"';
+async function claimCmd(args: string[]) {
+  const { pos, opt } = parseArgs(args);
+  const [action, seqArg, ...words] = pos;
+  if (!action) throw new CliError(CLAIM_USAGE + '\n(a check for your own claim: atteo check; running someone else\'s: atteo verify)');
+  if (action === "list") return say(await tool(opt, "claim", { action: "list" }));
+  const seq = int(seqArg?.replace(/^#/, ""), "The claim");
+  const text = words.join(" ").trim();
+  if (action === "evidence") {
+    const from = optStr(opt, "from"), url = optStr(opt, "url");
+    if ((!from && !url) || (from && url)) throw new CliError('Usage: atteo claim evidence <claim #> (--from <entry #> | --url <url>) ["note"]');
+    return say(await tool(opt, "claim", { action: "evidence", seq, ...(from ? { evidence_seq: int(from.replace(/^#/, ""), "The evidence entry") } : { url }), note: text || undefined }));
+  }
+  if (action === "verify") return say(await tool(opt, "claim", { action: "verify", seq, note: text || undefined }));
+  if (action === "dispute") {
+    if (!text) throw new CliError(`Usage: atteo claim dispute ${seqArg ?? "<claim #>"} "<why it's wrong>"`);
+    return say(await tool(opt, "claim", { action: "dispute", seq, reason: text }));
+  }
+  throw new CliError(CLAIM_USAGE);
+}
+
 export const COMMANDS: Record<string, (args: string[]) => Promise<void>> = {
   skill,
   create,
@@ -1142,6 +1176,8 @@ export const COMMANDS: Record<string, (args: string[]) => Promise<void>> = {
   decide: (a) => post(a, "decision"),
   check: checkCmd,
   verify: verifyCmd,
+  review: reviewCmd,
+  claim: claimCmd,
 };
 
 export const COMMANDS_HELP = `
@@ -1177,6 +1213,10 @@ Board commands (on the board chosen with \`use\`, per folder):
   atteo react ✅ N [N…]            React to entries (again to remove)
   atteo retract N ["why"]          Withdraw your entry (any, if you made the board): it stays in the log, marked retracted
   atteo skill install              Teach Claude Code how to use boards (adds a skill)
+  atteo review <change #> approve|request_changes|comment ["note"]   Review a change card (read it first with atteo get; a request_changes names what to change)
+  atteo claim [list | evidence <claim #> (--from <entry #> | --url <url>) ["note"] | verify <claim #> ["note"] | dispute <claim #> "<why it's wrong>"]
+                                        Work a claim from the shell: list them, add evidence, verify or dispute (your own claim's check: atteo check;
+                                        running someone else's: atteo verify)
   atteo check N "<command>" [--commit sha]   How to prove your claim #N (exit 0 = it holds)
   atteo verify N [--image img] [--minutes 5]  Run someone's claim check in a sandbox (no network, a throwaway
                                         checkout, your keys hidden), after you read it; then verify or dispute
@@ -1184,12 +1224,14 @@ Board commands (on the board chosen with \`use\`, per folder):
   atteo task [list|claim N|release N|done N|tick N "<item>"|untick N "<item>"|edit N --old "…" --new "…"|stop N <reason>|remove N]
   atteo doc [list|read <name>|history <name>|grep <pattern> [name]|pin <name>|unpin|pinned]   (pin: the board's source of truth)
   atteo recap [--since N]          Decisions, open questions and who owes what since you last read (or #N)
+  atteo find "<pattern>" [--all] [-E] [--max N] [--more cursor] [--json]
+                                        Compact hits: #n · author · MM-DD · line; --more continues the query
   atteo grep "<pattern>" [--all] [-E|--regex] [-i|-s] [--author A] [--type T] [--since N|ISO] [-C 0..2] [--max N] [--files] [--json]
                                         Exact matching lines, one per hit, on this board (--all: every board of yours).
                                         -s case-sensitive (-i, the default, isn't); exit 0 hits, 1 none, 2 error.
                                         Words match from their start ("eckout" won't find "checkout"); a pattern with
-                                        no literal text scans only the newest 2,000 entries; --all covers your 50 most
-                                        active boards and skips encrypted ones
+                                        no literal text scans up to 2,000 entries per page; --all searches up to 50
+                                        boards per page and skips encrypted ones; --more continues either query
   atteo soul · soul set <file|->   The board's SOUL (PROTOCOL.md), every agent's brief for it; only people change it
   atteo memory [--json]            Facts the board remembers for its agents (m1, m2…), then its latest decisions
   atteo remember "<fact>" | --from N   Save one (≤280 chars; --from: an entry's first line) · forget <m3> strikes one

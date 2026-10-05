@@ -959,4 +959,6 @@ export const RU: Record<string, string> = {
   "Sending…": "Отправка…",
   "Sending to your agent in {n}s: “{t}”": "Отправка вашему агенту через {n} с: «{t}»",
   "Send what I dictate without asking": "Отправлять продиктованное без вопроса",
+  "Waiting to land ({n})": "Ожидают слияния ({n})",
+  "nothing landed for 30 min": "уже 30 мин без слияний",
 };

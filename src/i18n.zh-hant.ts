@@ -960,4 +960,6 @@ export const ZH_HANT: Record<string, string> = {
   "Sending…": "正在傳送…",
   "Sending to your agent in {n}s: “{t}”": "{n} 秒後傳給你的智能體：「{t}」",
   "Send what I dictate without asking": "不經確認就傳送我口述的內容",
+  "Waiting to land ({n})": "等待合併（{n}）",
+  "nothing landed for 30 min": "30 分鐘沒有合併任何內容",
 };

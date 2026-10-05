@@ -10,7 +10,6 @@ const KEY = process.env.ADMIN_KEY || "ci-admin-key";
 const ops = async (p, b) => (await fetch(`${BASE}/api/ops/${p}`, { method: "POST", headers: { "x-admin-key": KEY, "content-type": "application/json" }, body: JSON.stringify(b) })).json();
 const run = Date.now().toString(36).slice(-4);
 let fails = 0;
-const check = (ok, t) => { console.log(`${ok ? "✓" : "✗"} ${t}`); if (!ok) fails++; };
 const browser = await chromium.launch({ executablePath: process.env.PW_CHROME || undefined });
 
 // Where the highlight really shows: the entry's box cut by every ancestor that clips it, and the rail beside it.
@@ -26,26 +25,29 @@ const measure = (seq) => {
   return { cls: e.className, left: Math.round(left), right: Math.round(right), av: Math.round(av.left), rail: rl && rl.width ? Math.round(rl.left) : null,
     bg: getComputedStyle(e).backgroundColor, sideways: document.documentElement.scrollWidth > innerWidth };
 };
-const room = (tag, what, m, phone) => {
+const room = (check, tag, what, m, phone) => {
   const want = phone ? 7 : 11;
   check(m.av - m.left >= want, `${tag}: ${what} shows ${m.av - m.left}px left of the avatar (want ≥ ${want})`);
   check(m.rail == null || m.right <= m.rail - 1, `${tag}: ${what} ends at ${m.right}, clear of the rail at ${m.rail}`);
 };
 
+// Each (mode, width, scheme) gets its own board and context, and all six run side by side; each one's lines print together.
+const runs = [];
 for (const mode of ["developer", "everyday"]) {
   const P = `hp${mode[0]}${run}`, V = `hq${mode[0]}${run}`;
   for (const u of [P, V]) await ops("users", { name: u, email: `${u}@example.com`, verified: "true", display: { mode } });
-  const board = (await ops("boards", { user: P, title: `Highlight ${mode} ${run}` })).board.id;
-  await ops("members", { board, user: V });
   const ckP = (await ops("sessions", { user: P })).cookie, ckV = (await ops("sessions", { user: V })).cookie;
+  for (const [w, scheme] of [[1280, "light"], [390, "light"], [390, "dark"]]) runs.push(async () => {
+  const out = [], check = (ok, t) => { out.push(`${ok ? "✓" : "✗"} ${t}`); if (!ok) fails++; };
+  const board = (await ops("boards", { user: P, title: `Highlight ${mode} ${w} ${scheme} ${run}` })).board.id;
+  await ops("members", { board, user: V });
   const post = (ck, text) => fetch(`${BASE}/api/boards/${board}/entries`, { method: "POST", headers: { "content-type": "application/json", cookie: ck.split(";")[0] }, body: JSON.stringify({ text }) }).then((r) => r.json()).then((j) => j.entry?.seq ?? j.seq);
   const target = await post(ckV, `The agreed plan for the highlight ${run}`);
   for (let i = 0; i < 14; i++) await post(ckV, `older message ${i} with enough words to wrap onto a second line on a phone`);
   const ment = await post(ckV, `@${P} a mention whose tint needs room on both sides ${run}`);
   for (let i = 0; i < 2; i++) await post(ckV, `after ${i}`);
   const link = await post(ckV, `see #${target}`);
-
-  for (const [w, scheme] of [[1280, "light"], [390, "light"], [390, "dark"]]) {
+  {
     const phone = w < 500, tag = `${mode} ${w}px ${scheme}`;
     const ctx = await browser.newContext({ viewport: { width: w, height: phone ? 844 : 820 }, colorScheme: scheme, isMobile: phone, hasTouch: phone });
     const [k, ...v] = ckP.split(";")[0].split("=");
@@ -58,14 +60,14 @@ for (const mode of ["developer", "everyday"]) {
     await stable(() => p.evaluate(measure, ment));
     const m = await p.evaluate(measure, ment);
     check(/for-you/.test(m.cls), `${tag}: the mention is tinted`);
-    room(tag, "the mention tint", m, phone);
+    room(check, tag, "the mention tint", m, phone);
     check(!m.sideways, `${tag}: nothing scrolls sideways`);
     const n = await post(ckV, `fresh ${w} ${scheme} ${run}`);
     await p.locator(`#e${n}`).waitFor({ timeout: 8000 });
     await until(() => p.evaluate((s) => /flash-in/.test(document.getElementById("e" + s).className), n), 2000);
     const f = await p.evaluate(measure, n);
     check(/flash-in/.test(f.cls), `${tag}: a new message flashes`);
-    room(tag, "the new message's flash", f, phone);
+    room(check, tag, "the new message's flash", f, phone);
     const chip = p.locator(`#e${link} a.ref[data-ref="${target}"]`);
     await chip.first().waitFor({ timeout: 5000 }).catch(() => {});
     if (await chip.count()) {
@@ -73,13 +75,16 @@ for (const mode of ["developer", "everyday"]) {
       await until(() => p.evaluate((s) => /\bhit\b/.test(document.getElementById("e" + s).className), target)); await stable(() => p.evaluate(measure, target));
       const h = await p.evaluate(measure, target);
       check(/\bhit\b/.test(h.cls), `${tag}: a #ref jump tints its message`);
-      room(tag, "the jump tint", h, phone);
+      room(check, tag, "the jump tint", h, phone);
     } else check(false, `${tag}: the #${target} ref shows as a chip`);
     if (process.env.SHOTS && phone && scheme === "light" && mode === "developer") await p.screenshot({ path: `${process.env.SHOTS}/highlight-phone-${w}.png` }).catch(() => {});
     check(!errors.length, `${tag}: no page errors${errors.length ? ` (${errors[0]})` : ""}`);
     await ctx.close();
   }
+  console.log(out.join("\n"));
+  });
 }
+await Promise.all(runs.map((r) => r()));
 await browser.close();
 console.log(fails ? `${fails} FAILED` : "highlight room on phones: all passed");
 process.exit(fails ? 1 : 0);
