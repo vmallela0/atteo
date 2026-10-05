@@ -133,7 +133,9 @@ ${
   const more = react || reply || retract || edit ? `<button class="more-acts" type="button" data-more="${e.seq}" aria-label="${esc(T("More actions"))}" aria-expanded="false" title="${esc(T("More actions"))}">⋯</button>` : "";
   const remember = !opts.retracted && e.retracts == null && !e.audience ? rememberBtn(e.seq) : ""; // people-only: never agents' memory // shown once the board has a MEMORY
   const remind = opts.person && !opts.retracted && e.retracts == null ? `<details class="remind-menu"><summary>${esc(T("Remind me"))}</summary><div><button type="button" data-remind-message="hour" data-seq="${e.seq}">${esc(T("In 1 hour"))}</button><button type="button" data-remind-message="tonight" data-seq="${e.seq}">${esc(T("Tonight (20:00)"))}</button><button type="button" data-remind-message="tomorrow" data-seq="${e.seq}">${esc(T("Tomorrow (09:00)"))}</button></div></details>` : "";
-  const actions = react || reply || retract || edit ? `${more}<span class="acts">${react}${reply}${remember}${select}${edit}${retract}${remind}</span>` : "";
+  // A claim nobody has reviewed yet draws no strip under it (jxn #2998/#3002): its Verify / Dispute / Evidence sit here, filled by renderClaims.
+  const claimActs = e.type === "claim" && !opts.retracted && e.retracts == null ? `<span class="cl-acts" data-claim-acts="${e.seq}"></span>` : "";
+  const actions = react || reply || retract || edit ? `${more}<span class="acts">${react}${reply}${claimActs}${remember}${select}${edit}${retract}${remind}</span>` : "";
   // An approval entry: the card says where it stands, so the message is just what's asked (its text, for agents, says "waiting").
   const apr = (e as Entry & { approval?: ApprovalCardData & { title?: string } }).approval;
   return `<article class="entry${opts.retracted ? " retracted" : ""}${e.via === "agent" ? " by-agent" : ""}" id="e${e.seq}" data-seq="${e.seq}" data-author="${esc(e.author)}" data-title="${esc(shortTitle(e))}"${e.to ? ` data-to="${esc(e.to)}"` : ""}${e.reply_to != null ? ` data-reply="${e.reply_to}"` : ""}${opts.root != null && opts.root !== e.seq ? ` data-root="${opts.root}"` : ""}>
@@ -2097,28 +2099,32 @@ function renderClaims(map){CLAIMS=map||{};
     if(c.stale_from){const m=document.querySelector('#e'+seq+'>.grow>.meta');if(m){const b=document.createElement('span');b.className='badge stale';
       b.title=tr('Rests on #')+c.stale_from+', which was '+c.stale_why;b.textContent=tr('Stale');m.insertBefore(b,m.querySelector('.acts'))}}
     const el=document.querySelector('[data-claim="'+seq+'"]');if(!el||!c.status||el.querySelector('.cl-f:not([hidden])'))continue;
-    const own=el.closest('.entry').dataset.author===ME;
-    // A claim nobody has looked at yet carries no status pill, just its actions.
+    const own=el.closest('.entry').dataset.author===ME,acts=document.querySelector('[data-claim-acts="'+seq+'"]');
+    const btns=READONLY?'':(own||c.status==='verified'?'':'<button class="btn ghost sm" type="button" data-cl="verify">'+tr('Verify')+'</button>')+
+        (own||c.status==='disputed'?'':'<button class="btn ghost sm" type="button" data-cl="dispute">'+tr('Dispute')+'</button>')+
+        '<button class="btn ghost sm" type="button" data-cl="evidence">'+tr('Evidence')+'</button>';
+    const form='<form class="cl-f" hidden><input class="input" name="v" maxlength="300" required><button class="btn sm primary"></button><button class="btn sm ghost" type="button" data-cl-cancel>'+tr('Cancel')+'</button></form>';
+    // A claim nobody has looked at yet (no review, reason, check or stale premise) draws no strip (jxn #2998/#3002): its actions sit
+    // in the message's own action row, and the strip only opens to hold the evidence or dispute form.
+    if(c.status==='asserted'&&!c.reason&&!c.check&&!c.stale_from){el.innerHTML=form;el.hidden=true;if(acts)acts.innerHTML=btns;continue}
+    if(acts)acts.innerHTML='';
     el.innerHTML=(c.status==='asserted'?'':'<span class="tk-st cl-'+c.status+'"><span class="dot"></span>'+CLST[c.status]+(c.by?' by '+esc(c.by):'')+'</span>')+
       (c.reason?'<span class="tk-who truncate" title="'+esc(c.reason)+'">'+esc(c.reason)+'</span>':'')+
       // The claim's check: the command that shows it holds. Others click it to copy the sandboxed run for their terminal.
       (c.check&&c.status!=='verified'?'<button class="cl-cmd mono" type="button"'+(own?' disabled title="Others run this in a sandbox: atteo verify '+seq+'"':' data-cl-run="'+seq+'" title="Copy atteo verify '+seq+' (runs it sandboxed on your machine)"')+'><span aria-hidden="true">$</span> <span class="truncate">'+esc(c.check)+'</span></button>':'')+'<span class="grow"></span>'+
-      (READONLY?'':(own||c.status==='verified'?'':'<button class="btn ghost sm" type="button" data-cl="verify">'+tr('Verify')+'</button>')+
-        (own||c.status==='disputed'?'':'<button class="btn ghost sm" type="button" data-cl="dispute">'+tr('Dispute')+'</button>')+
-        '<button class="btn ghost sm" type="button" data-cl="evidence">'+tr('Evidence')+'</button>')+
-      '<form class="cl-f" hidden><input class="input" name="v" maxlength="300" required><button class="btn sm primary"></button><button class="btn sm ghost" type="button" data-cl-cancel>'+tr('Cancel')+'</button></form>';
+btns+form;
     el.hidden=false}}
 async function claimAct(seq,body){const r=await fetch('/api/boards/'+BOARD+'/claims/'+seq,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
   const j=await r.json().catch(()=>({}));toast(r.ok?j.message:(j.error||tr('Could not save')));tick(false);return r.ok}
-document.addEventListener('click',async e=>{const b=e.target.closest('[data-cl]');if(!b)return;const strip=b.closest('[data-claim]'),seq=+strip.dataset.claim,a=b.dataset.cl;
+document.addEventListener('click',async e=>{const b=e.target.closest('[data-cl]');if(!b)return;const host=b.closest('[data-claim],[data-claim-acts]'),seq=+(host.dataset.claim||host.dataset.claimActs),a=b.dataset.cl;
   if(a==='verify'){b.disabled=true;await claimAct(seq,{action:'verify'});return}
-  const f=strip.querySelector('.cl-f');f.dataset.mode=a;f.v.value='';f.v.placeholder=a==='dispute'?"What's wrong with it?":tr('A link, or #entry (a log or file posted here)');
+  const strip=document.querySelector('[data-claim="'+seq+'"]');if(!strip)return;strip.hidden=false;const f=strip.querySelector('.cl-f');f.dataset.mode=a;f.v.value='';f.v.placeholder=a==='dispute'?"What's wrong with it?":tr('A link, or #entry (a log or file posted here)');
   f.querySelector('.primary').textContent=a==='dispute'?tr('Dispute'):tr('Add evidence');f.hidden=false;f.v.focus()});
 document.addEventListener('click',e=>{const r=e.target.closest('[data-cl-run]');if(r)navigator.clipboard.writeText('atteo verify '+r.dataset.clRun).then(()=>toast(tr('Copied: atteo verify ')+r.dataset.clRun+'. Run it in your terminal'))});
 document.addEventListener('click',e=>{const c=e.target.closest('[data-cl-cancel]');if(c){c.closest('.cl-f').hidden=true;renderClaims(CLAIMS)}});
 document.addEventListener('submit',async e=>{const f=e.target.closest('.cl-f');if(!f)return;e.preventDefault();const seq=+f.closest('[data-claim]').dataset.claim,v=f.v.value.trim();
   let body;if(f.dataset.mode==='dispute')body={action:'dispute',reason:v};else{const n=v.match(/^#?([0-9]+)$/);body=n?{action:'evidence',evidence_seq:+n[1]}:{action:'evidence',url:v}}
-  if(await claimAct(seq,body))f.hidden=true});
+  if(await claimAct(seq,body)){f.hidden=true;renderClaims(CLAIMS)}});
 // ---- human decisions: a decision a person posts is the people's to make. Everyone else on the board agrees or objects (an
 // optional note on Object); it's decided when they all agree, or when its author closes it (decided or dropped). Agents only
 // comment. State comes with every update (d.decisions: seq → {state, author, votes, voters, waiting_on, closed_by, note}) and live.
