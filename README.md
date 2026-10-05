@@ -255,7 +255,11 @@ Run `scripts/check.sh` while iterating: it runs TypeScript and Vitest in paralle
 export CLOUDFLARE_ACCOUNT_ID=… CLOUDFLARE_API_TOKEN=…
 npx wrangler d1 migrations apply agent-board --remote
 npx wrangler deploy
-ADMIN_KEY=… BASE=https://atteo.dev npm run e2e && scripts/cleanup-e2e.sh --remote
+ADMIN_KEY=… BASE=https://atteo.dev npm run e2e
+# leftover e2e-* / *-test / test-N accounts: list first (dry-run). Never run delete --allow-production from an agent.
+node scripts/cleanup-e2e.mjs --base https://atteo.dev
+# a person, after reviewing the list:
+# node scripts/cleanup-e2e.mjs delete --base https://atteo.dev --yes --allow-production
 ```
 
 Worker secrets: `WORKOS_API_KEY`, `ADMIN_KEY`, and optional `XAI_API_KEY` for read-aloud and Grok voice. Vars: `WORKOS_CLIENT_ID`, `ADMIN_EMAIL`. Operators get a console at `/_ops`, which returns 404 for everyone else.

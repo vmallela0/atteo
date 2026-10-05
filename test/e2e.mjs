@@ -1,7 +1,7 @@
 // End-to-end test: two agents talk through a board over MCP with personal tokens, plus access control,
 // web pages and the ops API.
 // Usage: BASE=http://localhost:8787 ADMIN_KEY=... node test/e2e.mjs
-// Creates e2e-* users and "e2e …" boards on the target (remove with scripts/cleanup-e2e.sh). Sends no email.
+// Creates e2e-* users and "e2e …" boards on the target (list/remove with scripts/cleanup-e2e.mjs; dry-run by default). Sends no email.
 
 import { readFileSync } from "node:fs";
 import { devFetch } from "./devfetch.mjs";
@@ -3362,6 +3362,48 @@ await step("sealed envelopes: stored as given, fetched only by their recipient (
   assert((await (await web(`/api/boards/${fb}/sealed/${r.entry.seq}`, A)).json()).payload === envl, "recipient gets the envelope");
   assert((await web(`/api/boards/${fb}/sealed`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ to: B, payload: "plain text secret" }) })).status === 400, "only envelopes");
   assert((await web(`/api/boards/${fb}/sealed`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ to: OUT, payload: envl }) })).status === 400, "recipient must be on the board");
+});
+
+await step("ops test-accounts: list and dry-run, refuse real names, delete only named test users", async () => {
+  const digits = String(Date.now()).slice(-6);
+  const U = `e2e-cln-${run}`;
+  const T = `t${run}-test`;
+  const N = `test-${digits}`;
+  const R = `zr${run}`;
+  await makeUsers([U, T, N, R], { token: true, session: false });
+  const made = await ops("boards", { user: U, title: `e2e cln ${run}` });
+  const e2eBoard = made.body.board?.id;
+  assert(made.status === 201 && e2eBoard, JSON.stringify(made.body));
+
+  assert((await ops("test-accounts", null, "wrong")).status === 404, "operators only");
+  const listed = await ops("test-accounts");
+  assert(listed.status === 200 && listed.body.dry_run === true, JSON.stringify(listed.body).slice(0, 200));
+  const names = (listed.body.users ?? []).map((u) => u.name);
+  assert(names.includes(U) && names.includes(T) && names.includes(N), JSON.stringify(names));
+  assert(!names.includes(R) && !names.includes("vedu") && !names.includes("jxn"), "real handles stay out");
+
+  const dry = await ops("test-accounts", { dry_run: true, names: [U, T, N] });
+  assert(dry.status === 200 && dry.body.dry_run === true && !dry.body.deleted, JSON.stringify(dry.body).slice(0, 200));
+  assert((await ops("tokens", { user: U })).status === 201, "dry-run did not delete U");
+
+  const mixed = await ops("test-accounts", { confirm: "DELETE TEST ACCOUNTS", names: [U, R] });
+  assert(mixed.status === 400, JSON.stringify(mixed.body));
+  assert((await ops("tokens", { user: U })).status === 201, "refused delete is atomic");
+  assert((await ops("tokens", { user: R })).status === 201, "real-looking handle untouched");
+
+  const phrase = await ops("test-accounts", { confirm: "yes", names: [U] });
+  assert(phrase.status === 400, "wrong confirm phrase");
+
+  const gone = await ops("test-accounts", { confirm: "DELETE TEST ACCOUNTS", names: [U, T, N] });
+  assert(gone.status === 200 && gone.body.dry_run === false, JSON.stringify(gone.body).slice(0, 300));
+  assert((gone.body.deleted ?? []).sort().join() === [N, T, U].sort().join(), JSON.stringify(gone.body.deleted));
+  assert((gone.body.deleted_boards ?? []).includes(e2eBoard), JSON.stringify(gone.body.deleted_boards));
+  assert((await ops("tokens", { user: U })).status === 404, "U gone");
+  assert((await ops("tokens", { user: T })).status === 404, "T gone");
+  assert((await ops("tokens", { user: N })).status === 404, "N gone");
+  const after = ((await ops("test-accounts")).body.users ?? []).map((u) => u.name);
+  assert(!after.includes(U) && !after.includes(T) && !after.includes(N), after.join());
+  assert((await ops("tokens", { user: R })).status === 201, "untouched real-looking handle still exists");
 });
 
 await step("ops: usage metrics and server errors are on the console (operators only)", async () => {

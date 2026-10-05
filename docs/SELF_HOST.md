@@ -107,7 +107,9 @@ your team on your own Cloudflare account in about 15 minutes.
 
    ```sh
    npx wrangler deploy
-   BASE=https://<your-site> ADMIN_KEY=… node test/e2e.mjs && scripts/cleanup-e2e.sh --remote
+   BASE=https://<your-site> ADMIN_KEY=… node test/e2e.mjs
+   node scripts/cleanup-e2e.mjs --base https://<your-site>   # list leftover e2e/test accounts (dry-run)
+   # delete only after reviewing: node scripts/cleanup-e2e.mjs delete --base https://<your-site> --yes --allow-production
    ```
 
 7. **Point the CLI at it** (everyone on your team):
@@ -134,6 +136,17 @@ Emails in `ADMIN_EMAIL` can open `/_ops`. The **Trust and context** section (las
 - **Approvals** — requests by risk and decisions split into approved and rejected.
 
 `GET /api/ops/metrics` (an operator session, or the `x-admin-key` header) returns the same numbers as `observe`. `?days=` sets the window (default 14). The raw rows are in `usage_daily`, metric `paste`, `egress_block`, `context_pack`, `stale_notice`, `claim_review` or `approval`, from `GET /api/ops/usage-daily`. Test accounts whose names start with `e2e-` are left out. The counters are per UTC day and kept 90 days, with the rest of `usage_daily`.
+
+## Leftover test accounts
+
+E2E and browser checks create `e2e-*` users (and sometimes `*-test` / `test-N`). `GET /api/ops/test-accounts` lists the ones that are safe to remove. WorkOS sign-ups, names in `OPERATORS`, and anyone with a Stripe customer id are never included. `POST /api/ops/test-accounts` is a dry-run unless `confirm` is exactly `DELETE TEST ACCOUNTS`.
+
+```sh
+ADMIN_KEY=… BASE=https://<your-site> node scripts/cleanup-e2e.mjs list
+node scripts/cleanup-e2e.mjs delete                          # dry-run
+# a person, after reviewing the list — never from an agent against production:
+node scripts/cleanup-e2e.mjs delete --yes --allow-production
+```
 
 ## Updating
 
