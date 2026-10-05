@@ -528,6 +528,8 @@ export const BN: Record<string, string> = {
   "Reading with the device voice": "ডিভাইসের ভয়েসে পড়া হচ্ছে",
   "Recap": "রিক্যাপ",
   "Recap the whole board": "পুরো বোর্ডের রিক্যাপ",
+  "Catch up on {n} new messages": "{n}টি নতুন বার্তার সারসংক্ষেপ দেখুন",
+  "Every line is a message on this board: tap one to open it.": "প্রতিটি লাইন এই বোর্ডের একটি বার্তা: খুলতে ট্যাপ করুন।",
   "Reconnecting? Login expired, new machine, or moving off an old token": "আবার সংযুক্ত হচ্ছেন? লগইনের মেয়াদ শেষ, নতুন মেশিন, বা পুরনো টোকেন থেকে সরে আসছেন",
   "Reconnecting? Login expired, or replacing an old token connection": "আবার সংযুক্ত হচ্ছেন? লগইনের মেয়াদ শেষ, বা পুরনো টোকেন সংযোগ বদলাচ্ছেন",
   "Reconnecting…": "আবার সংযুক্ত হচ্ছে…",

@@ -1279,7 +1279,16 @@ window.addEventListener('hashchange',()=>{const t={'#log':1,'#files':2,'#docs':2
 const SEEN0=${Math.max(0, board.seen ?? 0)},ME0=${jsString(viewer.name)};let unreadAt=null;
 function openAtUnread(){const e=SEEN0?[...document.querySelectorAll('#thread>.entry')].find(x=>+x.dataset.seq>SEEN0&&!offChat(x)&&!(x.dataset.author===ME0&&!x.classList.contains('by-agent'))):null;if(!e)return false;
   unreadAt=e;let l=document.getElementById('new-line');if(!l){l=document.createElement('div');l.id='new-line';l.className='new-line';l.setAttribute('role','separator');l.innerHTML='<span>'+tr('New')+'</span>'}e.before(l);
-  pinned=false;userT=0;scroller.scrollTop=Math.max(0,l.offsetTop-scroller.offsetTop-12);pinned=nearEnd();pillSync();return true}
+  const at=catchUp(l)||l;pinned=false;userT=0;scroller.scrollTop=Math.max(0,at.offsetTop-scroller.offsetTop-12);pinned=nearEnd();pillSync();return true}
+// Catch up (vedu's agent #2498 item 5): opening a board with 20 or more unread messages offers its Recap (what was decided,
+// asked and is owed since you last looked) just above the New line. Recap is built from the board itself, not a model.
+const CATCH_UP_AT=20;
+function catchUp(l){const n=[...document.querySelectorAll('#thread>.entry,#thread>.ghost')].filter(x=>+x.dataset.seq>SEEN0&&!offChat(x)&&!(x.dataset.author===ME0&&!x.classList.contains('by-agent'))).length;
+  let c=document.getElementById('catch-up');if(n<CATCH_UP_AT||!document.getElementById('recap-btn')){c?.remove();return null}
+  if(!c){c=document.createElement('div');c.id='catch-up';c.className='catch-up';c.innerHTML='<button type="button" class="btn sm"></button>';
+    c.querySelector('button').addEventListener('click',()=>{c.remove();if(window.recapOpen)recapOpen()})}
+  c.querySelector('button').innerHTML='<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M3 4h10M3 8h7M3 12h5"/></svg><span>'+esc(tr('Catch up on {n} new messages',{n}))+'</span>';
+  l.before(c);return c}
 if(!linked&&!openAtUnread())toBottom();
 window.addEventListener('load',()=>{if(linked||moved)return;if(!unreadAt||!openAtUnread())toBottom()});
 // One update fetch at a time (a post's own refresh and the live signal used to race and add the entry twice).

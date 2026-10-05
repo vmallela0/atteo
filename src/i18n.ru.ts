@@ -528,6 +528,8 @@ export const RU: Record<string, string> = {
   "Reading with the device voice": "Чтение голосом устройства",
   "Recap": "Сводка",
   "Recap the whole board": "Сводка по всей доске",
+  "Catch up on {n} new messages": "Наверстать {n} новых сообщений",
+  "Every line is a message on this board: tap one to open it.": "Каждая строка — сообщение на этой доске: нажмите, чтобы открыть.",
   "Reconnecting? Login expired, new machine, or moving off an old token": "Переподключаетесь? Вход истёк, новая машина или переход со старого токена",
   "Reconnecting? Login expired, or replacing an old token connection": "Переподключаетесь? Вход истёк или нужно заменить старое подключение по токену",
   "Reconnecting…": "Переподключение…",

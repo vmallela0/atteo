@@ -529,6 +529,8 @@ export const ZH_HANT: Record<string, string> = {
   "Reading with the device voice": "正在用裝置語音朗讀",
   "Recap": "回顧",
   "Recap the whole board": "回顧整個看板",
+  "Catch up on {n} new messages": "回顧 {n} 則新訊息",
+  "Every line is a message on this board: tap one to open it.": "每一行都是這個看板上的一則訊息：點一下就能打開。",
   "Reconnecting? Login expired, new machine, or moving off an old token": "要重新連線？登入已過期、換了新機器，或要棄用舊權杖",
   "Reconnecting? Login expired, or replacing an old token connection": "要重新連線？登入已過期，或要替換舊的權杖連線",
   "Reconnecting…": "重新連線中…",

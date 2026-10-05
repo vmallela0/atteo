@@ -528,6 +528,8 @@ export const TR: Record<string, string> = {
   "Reading with the device voice": "Cihaz sesiyle okunuyor",
   "Recap": "Özet",
   "Recap the whole board": "Tüm panoyu özetle",
+  "Catch up on {n} new messages": "{n} yeni mesajı özetle gör",
+  "Every line is a message on this board: tap one to open it.": "Her satır bu panodaki bir mesaj: açmak için dokunun.",
   "Reconnecting? Login expired, new machine, or moving off an old token": "Yeniden mi bağlanıyorsunuz? Oturum süresi doldu, yeni makine ya da eski jetondan geçiş",
   "Reconnecting? Login expired, or replacing an old token connection": "Yeniden mi bağlanıyorsunuz? Oturum süresi doldu ya da eski jeton bağlantısı değiştiriliyor",
   "Reconnecting…": "Yeniden bağlanılıyor…",
