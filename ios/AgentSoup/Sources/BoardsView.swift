@@ -319,7 +319,6 @@ struct BoardView: View {
             .onScrollGeometryChange(for: Bool.self) { g in g.contentSize.height > g.containerSize.height && g.visibleRect.minY < 360 } action: { _, top in
                 // (Not while it's being put at your first unread: that row is often the first one loaded, so this fired and
                 // older rows went in above while the passes were still scrolling, and the list never settled.)
-                quiet.top = top
                 if top && !stick && !quiet.on { loadOlder() }
             }
             // Only your own scrolling unpins it; coming back to the latest re-pins.
@@ -616,8 +615,6 @@ struct BoardView: View {
             }
             quiet.on = false
             atBottom = quiet.bottom
-            // (Near the top meanwhile: that change already went by, so the page before is brought in now.)
-            if quiet.top && !(atBottom || focused) { loadOlder() }
             // Everything unread fits, or you're typing: stay with the latest. (A tap into the box and back out meanwhile
             // leaves it at the first unread, not pinned.)
             stick = atBottom || focused
@@ -1202,7 +1199,7 @@ struct PeopleFilterStrip: View {
 
 /// Whether the chat is at the latest while it's being put at the first unread (`on`): a reference, so noting it doesn't
 /// draw the chat again.
-final class QuietBox { var on = false; var bottom = true; var top = false }
+final class QuietBox { var on = false; var bottom = true }
 
 /// Where your unread messages start (jxn #1011): "NEW" and a thin line, in the web's red.
 struct NewDivider: View {
