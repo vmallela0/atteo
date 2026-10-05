@@ -91,6 +91,7 @@ struct DecisionActions {
     var agree: (() -> Void)? = nil
     var object: (() -> Void)? = nil // asks why (optional), then objects
     var close: (() -> Void)? = nil // its author: Decided or Dropped
+    var shape: [Bool] { [agree != nil, object != nil, close != nil] }
 
     /// The web's rules: a voter agrees while it's open and objects until its author closes it (an objection reopens
     /// one everyone had agreed to); its author closes it once. Nothing on an archived board.
