@@ -681,6 +681,8 @@ export const ZH_HANT: Record<string, string> = {
   "The browser didn't play it: check the volume, or that this page may play sound": "瀏覽器沒有播放：請檢查音量，或確認此頁面允許播放聲音",
   "The last 3 commits and the task queue, as a live card": "最近 3 次提交和任務佇列，以即時卡片顯示",
   "The microphone is blocked: allow it for this site to talk": "麥克風被禁用：請允許本網站使用麥克風後再說話",
+  "No sound from the microphone: pick the right one for this site in your browser's settings": "麥克風沒有聲音：請在瀏覽器設定中為本網站選擇正確的麥克風",
+  "Speech recognition can't reach its service: check your connection and try again": "語音辨識無法連線到其服務：請檢查網路後再試一次",
   "The plan, a checklist (- [ ] step), findings, links. People and agents edit this together.": "計劃、清單（- [ ] 步驟）、發現、連結。人和智能體一起編輯。",
   "The whole board": "整個看板",
   "Theme": "主題",

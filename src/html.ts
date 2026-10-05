@@ -416,7 +416,7 @@ const voiceJs = (agentChat: boolean) => `
       const send=/(^|[ ,.])send it[.!]?$/i.test(fin.trim());
       own=true;ta.value=base+spoken(send?fin.trim().replace(/[ ,.]*send it[.!]?$/i,''):(fin+mid).trim());ta.dispatchEvent(new Event('input',{bubbles:true}));own=false;
       if(send){micStop();if(ta.value.trim())ta.form.requestSubmit()}};
-    r.onerror=ev=>{if(ev.error==='not-allowed'||ev.error==='service-not-allowed')toast(tr('The microphone is blocked: allow it for this site to talk'))};
+    r.onerror=ev=>{const e=ev.error;if(e==='not-allowed'||e==='service-not-allowed')toast(tr('The microphone is blocked: allow it for this site to talk'));else if(e==='audio-capture'||e==='no-speech')toast(tr("No sound from the microphone: pick the right one for this site in your browser's settings"));else if(e==='network')toast(tr("Speech recognition can't reach its service: check your connection and try again"))};
     r.onend=()=>{if(rec!==r)return;rec=null;mic.setAttribute('aria-pressed','false');mic.classList.remove('on')};
     try{r.start()}catch(e){rec=null}}
   if(SR&&mic){mic.hidden=false;

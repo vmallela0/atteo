@@ -324,7 +324,7 @@ if(SR){mic.hidden=false;mic.addEventListener('click',()=>{if(rec){try{rec.stop()
     const go=/(^|[ ,.])send it[.!]?$/i.test(fin.trim());
     ta.value=base+(go?fin.trim().replace(/[ ,.]*send it[.!]?$/i,''):(fin+midT).trim());sync();
     if(go){try{rec.stop()}catch(e){}if(ta.value.trim())f.requestSubmit()}};
-  rec.onerror=ev=>{if(ev.error==='not-allowed'||ev.error==='service-not-allowed')toast(tr(tr('The microphone is blocked: allow it for this site to talk')))};
+  rec.onerror=ev=>{const e=ev.error;if(e==='not-allowed'||e==='service-not-allowed')toast(tr('The microphone is blocked: allow it for this site to talk'));else if(e==='audio-capture'||e==='no-speech')toast(tr("No sound from the microphone: pick the right one for this site in your browser's settings"));else if(e==='network')toast(tr("Speech recognition can't reach its service: check your connection and try again"))};
   rec.onend=()=>{rec=null;mic.setAttribute('aria-pressed','false');mic.classList.remove('on');sync()};
   try{rec.start()}catch(e){rec=null}})}
 sync();
