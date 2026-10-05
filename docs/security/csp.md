@@ -5,7 +5,7 @@ The application CSP is **report-only**. `CSP_ENFORCE` in `src/ui.ts` must remain
 ## Enforcement prerequisites
 
 - Every HTML response created by `page` or `rawPage` gets a fresh 128-bit nonce, and every server-rendered script element carries it.
-- Scripts loaded later (Mermaid, syntax highlighting, bug reporting, and html2canvas) inherit that nonce. The Mermaid file is pinned to one versioned URL and protected by its SHA-384 SRI hash.
+- Scripts loaded later (Mermaid, syntax highlighting, bug reporting, and html2canvas) inherit that nonce. The Mermaid file is this origin's pinned `/mermaid.min.js` and protected by its SHA-384 SRI hash.
 - Inline event-handler attributes and `javascript:` URLs are not used. `script-src-attr 'none'` makes that restriction explicit.
 - OAuth consent adds only the validated redirect origin or custom scheme to `form-action`.
 - HTML responses are private and revalidated so a shared cache cannot reuse a nonce.
@@ -22,7 +22,7 @@ These are intentional or operational gaps, not reasons to weaken script protecti
 3. `style-src` still needs `'unsafe-inline'` because the UI uses inline style attributes and generated style blocks. Removing it is separate hardening work and is not required to enforce the current script policy.
 4. `img-src`, `font-src`, and `media-src` intentionally permit the data/blob schemes used by avatars, uploads, captures, and playback. Narrowing them requires flow-by-flow testing.
 5. The preview shell intentionally permits inline script and style inside its opaque, `sandbox allow-scripts` frame. Its enforced policy blocks network, forms, framing, and access to the application origin.
-6. The application still permits one external script: the exact versioned Mermaid URL. Its SRI hash detects changed bytes, but removing this dependency would require self-hosting it.
+6. Done: Mermaid is self-hosted at `/mermaid.min.js` (the 12.1.0 UMD build) with the same SHA-384 SRI hash. `script-src` no longer lists an external URL.
 7. Voice requires `wss://api.x.ai`; confirm that provider endpoint has not changed immediately before rollout.
 8. The separately deployed `landing/` Worker is outside `CSP_ENFORCE`. It currently emits inline JSON-LD and no CSP; give that deployment its own nonce/hash policy before treating CSP as site-wide.
 9. The enforced browser simulation covers public, onboarding, and primary signed-in routes, but not the admin-only `/_ops` page (CI sets no `ADMIN_EMAIL`). It was checked by hand on 2026-10-05 with an operator session and `CSP_ENFORCE = true`: every script carries the nonce, and its Overview, Access and Events tabs run with no violation. Its server-rendered scripts still pass the shared nonce unit checks; add an admin browser fixture if that route changes materially.

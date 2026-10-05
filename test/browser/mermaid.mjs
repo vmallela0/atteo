@@ -40,16 +40,27 @@ let fails = 0;
 const check = (ok, t) => { console.log(`${ok ? "✓" : "✗"} ${t}`); if (!ok) fails++; };
 // BROWSER=webkit runs the same checks in WebKit (Safari's engine).
 const browser = process.env.BROWSER === "webkit" ? await webkit.launch() : await chromium.launch({ executablePath: process.env.PW_CHROME || undefined });
-const isLib = (u) => /mermaid/i.test(u) && !u.startsWith(BASE);
+{
+  const pinned = await fetch(`${BASE}/mermaid.min.js?v=12.1.0`);
+  const loose = await fetch(`${BASE}/mermaid.min.js`);
+  check(pinned.ok && /javascript/.test(pinned.headers.get("content-type") || "") && /immutable/.test(pinned.headers.get("cache-control") || "") && (await pinned.arrayBuffer()).byteLength > 1_000_000, "the library is served from this host, typed and cached for good");
+  check(loose.ok && !/immutable/.test(loose.headers.get("cache-control") || ""), "without a version the file is still served, not cached as immutable");
+}
+const isLib = (u) => /\/mermaid\.min\.js(?:\?|$)/.test(u);
 async function open(board, { w = 1200, scheme = "light", route } = {}) {
   const ctx = await browser.newContext({ viewport: { width: w, height: 900 }, colorScheme: scheme, isMobile: w < 500 });
   const [k, ...v] = ck.split(";")[0].split("=");
   await ctx.addCookies([{ name: k, value: v.join("="), url: BASE }]);
-  if (route) await ctx.route(/cdn\.jsdelivr\.net/, route);
+  if (route) await ctx.route(/\/mermaid\.min\.js(?:\?|$)/, route);
   await ctx.addInitScript(() => { window.pwn = () => { window.__pwned = "call"; }; });
   const p = await ctx.newPage();
   const libReqs = [], errors = [], tracker = [];
-  p.on("request", (r) => { if (isLib(r.url())) libReqs.push(r.url()); if (/tracker\.invalid/.test(r.url())) tracker.push(r.url()); });
+  p.on("request", (r) => {
+    const u = r.url();
+    if (isLib(u)) libReqs.push(u);
+    if (/tracker\.invalid/.test(u)) tracker.push(u);
+    if (/jsdelivr/i.test(u) || (/mermaid/i.test(u) && !u.startsWith(BASE))) errors.push("off-site mermaid " + u);
+  });
   p.on("pageerror", (e) => errors.push(e.message));
   p.on("dialog", (d) => { errors.push("dialog: " + d.message()); d.dismiss(); });
   await p.goto(`${BASE}/b/${board}`);
@@ -85,7 +96,7 @@ async function diagrams(w, scheme) {
   const tag = `${w}px ${scheme}`;
   for (const s of [sFlow, sWide, sEvil, sEvil2, sEvil3, sBad]) { await p.locator(`#e${s}`).scrollIntoViewIfNeeded(); await settled(p, s); }
   check(await drawn(p, sFlow), `${tag}: the flowchart draws as an SVG`);
-  check(libReqs.length === 1 && libReqs[0].includes("@12.1.0/"), `${tag}: the pinned library loads once (${libReqs.join(", ")})`);
+  check(libReqs.length === 1 && libReqs[0].startsWith(BASE) && libReqs[0].includes("v=12.1.0"), `${tag}: the pinned library loads once from this host (${libReqs.join(", ")})`);
   const g = await p.evaluate(([f, bad, wide]) => {
     const fe = document.querySelector(`#e${f} .mmd`), be = document.querySelector(`#e${bad} .mmd`), we = document.querySelector(`#e${wide} .mmd-d`);
     const shape = fe?.querySelector(".mmd-d .node rect, .mmd-d .node path, .mmd-d .node polygon");
