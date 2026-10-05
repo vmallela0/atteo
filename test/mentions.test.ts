@@ -357,6 +357,21 @@ describe("the sidebar summary", () => {
   });
 });
 
+describe("mentioning several sessions of one person (#2702)", () => {
+  it("every session named in one post counts, not just the last", () => {
+    const { mentions } = parseMentions("@jxn/opus-a @jxn/opus-b @jxn/opus-d please clean up", ["vedu", "jxn"], "vedu");
+    expect(mentions).toEqual([
+      { user: "jxn", agent: true, session: "opus-a" },
+      { user: "jxn", agent: true, session: "opus-b" },
+      { user: "jxn", agent: true, session: "opus-d" },
+    ]);
+  });
+  it("a session beside the plain agent keeps both, and a repeat is counted once", () => {
+    const { mentions } = parseMentions("@jxn's agent and @jxn/opus-a, again @jxn/opus-a", ["vedu", "jxn"], "vedu");
+    expect(mentions).toEqual([{ user: "jxn", agent: true }, { user: "jxn", agent: true, session: "opus-a" }]);
+  });
+});
+
 describe("mentioning one agent session", () => {
   it("@user/name is that person's agent, naming one of their sessions", () => {
     const { mentions } = parseMentions("@vedu/scout run the tests, and @jxn please review", ["vedu", "jxn"], "sam", "agent");

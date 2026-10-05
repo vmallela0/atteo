@@ -82,7 +82,8 @@ export function hasGroupMention(text: string, group: string, members?: Iterable<
   return false;
 }
 
-const key = (m: Mention) => `${m.user}${m.agent ? "/agent" : ""}`;
+// One entry per target: several sessions of one person each count (jxn's agent #2702), as does "@x's agent" beside them.
+const key = (m: Mention) => `${m.user}${m.agent ? "/agent" : ""}${m.agent && m.session ? `/${m.session.toLowerCase()}` : ""}`;
 
 /** A member of the board, by name, with the name they gave their agent (if any). */
 export type MemberRef = string | { user: string; agent_name?: string | null };
