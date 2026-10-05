@@ -3600,15 +3600,29 @@ await step("retention: owners set how long a board keeps messages; older ones ar
   await ops("members", { board: id, user: A }).catch(() => {});
   await ops("members", { board: id, user: B });
   await ok(A, id, "read");
-  const old = seqOf(await ok(A, id, "post", { type: "claim", text: `old secretless fact ${run}` }));
+  const marker = `old retention payload ${run}`;
+  const posted = await (await web(`/api/boards/${id}/entries`, A, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ type: "note", title: `Old title ${run}`, text: `@${B} ${marker}`, data: { private_note: marker } }),
+  })).json();
+  const old = posted.entry.seq;
+  const editedMarker = `edited retention payload ${run}`;
+  assert((await web(`/api/boards/${id}/entries/${old}`, A, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: `@${B} ${editedMarker}` }) })).status === 200, "old version made");
   const set = (who, days) => web(`/api/boards/${id}/retention`, who, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ days }) });
   assert((await set(B, 30)).status === 403, "owners only");
   const r = await (await set(A, 30)).json();
   assert(r.retention_days === 30 && r.pruned === 0, JSON.stringify(r));
   const p = await (await fetch(`${BASE}/api/ops/prune`, { method: "POST", headers: { "x-admin-key": ADMIN_KEY, "content-type": "application/json" }, body: JSON.stringify({ board: id, before: Date.now() + 1000 }) })).json();
   assert(p.pruned >= 1, JSON.stringify(p));
-  has(await ok(B, id, "get", { seq: old }), "removed: older than this board keeps messages");
-  assert(!(await ok(B, id, "search", { query: `secretless ${run}` })).includes(`#${old}`), "gone from search");
+  const compacted = await (await web(`/api/boards/${id}/entries/${old}?history=1`, B)).json();
+  has(compacted.entry.text, "removed: older than this board keeps messages");
+  assert(compacted.entry.title == null && compacted.entry.data == null && compacted.history.length === 0, `payload and edit history removed: ${JSON.stringify(compacted)}`);
+  assert(!(await ok(B, id, "search", { query: marker })).includes(`#${old}`) && !(await ok(B, id, "search", { query: editedMarker })).includes(`#${old}`), "current and edited text gone from search");
+  const inbox = (await (await web("/api/inbox", B)).json()).items.find((x) => x.board_id === id && x.seq === old);
+  assert(inbox && inbox.excerpt.includes("removed: older than this board keeps messages") && !JSON.stringify(inbox).includes(marker) && !JSON.stringify(inbox).includes(editedMarker), `inbox copy compacted: ${JSON.stringify(inbox)}`);
+  const tape = (await (await web("/api/tape?after=0&limit=500", B)).json()).lines.find((x) => x.board_id === id && x.seq === old);
+  assert(tape && tape.excerpt.includes("removed: older than this board keeps messages") && !tape.excerpt.includes(marker), `tape copy compacted: ${JSON.stringify(tape)}`);
   assert((await (await web(`/api/boards/${id}/audit`, A)).json()).audit.some((a) => a.action === "retention"), "audited");
 });
 
