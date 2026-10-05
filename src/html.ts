@@ -16,7 +16,8 @@ import { clientName, presenceLabel } from "./social";
 import type { ChangeCard } from "./card";
 import { handoffLine } from "./handoff";
 import type { Attachment, BoardInfo, Entry } from "./types";
-import { appPage, avatar, avatarStack, boardPic, copyField, hue, page, renderText, typeTag, when, working, type SideBoard, type Viewer } from "./ui";
+import { appPage, avatar, avatarStack, boardPic, copyField, hue, page, renderText, scriptSrc, typeTag, when, working, type SideBoard, type Viewer } from "./ui";
+import { fnv } from "./codecolor";
 import { esc, pictureUrl } from "./util";
 import { WELCOME_BANNER_JS, assistantCard, grokBotMessage, welcomeBanner } from "./welcome";
 import { stateOf } from "./sessions";
@@ -1084,52 +1085,12 @@ function inviteAgentDialog(T: (s: string) => string, info: { id: string; title: 
 </div></dialog>`;
 }
 
-export function boardPage(
-  viewer: Viewer,
-  side: SideBoard[],
-  info: BoardInfo,
-  members: MemberView[],
-  entries: Entry[],
-  invites: InviteRow[],
-  agent: AgentState = { connected: false, onThisBoard: false },
-  summary?: Summary, // the whole board's (big boards only send their newest entries)
-  agents: AgentHere[] = [],
-  board: { picture: string | null; kind: string | null; sessions?: { name: string; state: string; client: string | null }[]; seen?: number; last_seen?: number } = { picture: null, kind: null }, // from the directory (D1); sessions: yours, on "Your agent"; last_seen: how far you had read (for Recap)
-): Response {
-  const ctl = { boardId: info.id, creator: info.created_by };
-  const L = viewer.lang,
-    T = (s: string, v?: Record<string, string | number>) => tr(L, s, v);
-  // Your role on this board: owners manage access; viewers read only (no composer, no reactions, no invites).
-  const myRole = members.find((m) => m.user === viewer.name)?.role ?? (viewer.name === info.created_by ? "owner" : "contributor");
-  const isOwner = myRole === "owner" || viewer.name === info.created_by,
-    readOnly = myRole === "viewer";
-  // The board's picture: any member who can post changes it (not on a direct board, which shows the other person).
-  const direct = board.kind === "direct";
-  // "Your agent": your private chat with your own agents (any of them, or the one you pick); never anyone else.
-  const agentChat = board.kind === "agent";
-  const canPic = !readOnly && !info.archived && !direct && !agentChat;
-  // "Invite an agent" (vedu #1812, #1855): your own assistant (the join message) or a friend's agent (invite the friend).
-  const canInviteAgent = !readOnly && !info.archived && !direct && !agentChat;
-  // Triggers: any member who can post sets rules that wake their own agent (never anyone else's).
-  const canTrig = !readOnly && !info.archived && !agentChat;
-  // Schedules (shared crons): every member sees them; people who can post add them (not on an encrypted board, whose
-  // tasks would be plaintext). Toggling and deleting: the schedule's creator or an owner (checked again by the server).
-  const canSched = !readOnly && !info.archived && !info.encrypted;
-  const last = entries.length ? entries[entries.length - 1].seq : 0;
-  const first = entries.length ? entries[0].seq : 0;
-  // Big boards open on their newest entries; earlier ones load on demand.
-  const earlier = first > 1 ? `<button class="btn ghost sm load-earlier" type="button" id="load-earlier" data-before="${first}">${esc(T("Load earlier messages"))}</button>` : "";
-  const thread = entries.length
-    ? earlier + threadHtml(entries, info.id, { name: viewer.name, creator: info.created_by, encrypted: info.encrypted, lang: viewer.lang, person: viewer.via !== "agent" })
-    : agentChat
-      ? `<div class="empty" id="empty"><h3>${esc(T("Talk to your agent"))}</h3><p class="small">Only you and your agents see this chat. Ask anything below: any of your agents can answer (<span class="mono">atteo dispatch</span> starts one for each message), or pick one of them.</p></div>`
-    : `<div class="empty" id="empty"><h3>${esc(T("Nothing here yet"))}</h3><p class="small">${esc(T("Any agent joins with {cmd}. Or write the first note below.")).replace("{cmd}", `<span class="mono">atteo join ${esc(info.id)}</span>`)}</p>
-<div class="row" style="gap:8px;justify-content:center;flex-wrap:wrap;margin-top:16px">${agent.connected ? "" : `<button class="btn primary lg" data-open="connect">${esc(T("Connect an agent"))}</button>`}${!canInviteAgent ? "" : `<button class="btn lg${agent.connected ? " primary" : ""}" data-open="invite-agent">${esc(T("Invite an agent"))}</button>`}</div></div>`;
-  const rows = [...entries].reverse().map((e) => logRow(e, undefined, undefined, viewer.lang)).join("");
-  const script = SHEET_JS + CONNECT_JS + (agentChat ? AGENT_PICK_JS : "") + NOTIFY_SIDE_JS + REMIND_BROWSER_JS + `
+// The board page's script, the same for everyone: served as /board.js, hashed and cached for good, and loaded between the
+// page's inline parts (index.ts). What it needs from this page and viewer, it reads from window.BC (boardPage writes it).
+const BOARD_CORE_JS = `
 document.addEventListener('click',e=>{const b=e.target.closest('[data-remind-message]');if(b)remindItem(BOARD+':'+b.dataset.seq,b.dataset.remindMessage)});
-window.BOARD=${JSON.stringify(info.id)};let last=${last};
-${agentChat ? "" : `try{if(localStorage.getItem('atteo.pf.'+${jsString(viewer.name)})==='1')document.documentElement.setAttribute('data-pf','')}catch(e){}`} // the People filter, before anything measures the thread
+window.BOARD=BC.board;let last=BC.last;
+if(!BC.agentChat)try{if(localStorage.getItem('atteo.pf.'+BC.me)==='1')document.documentElement.setAttribute('data-pf','')}catch(e){} // the People filter, before anything measures the thread
 // Earlier messages, on demand (a page at a time, or as far back as a given entry for a link to an older message). Replies go
 // into their threads and get the same reactions, task strips and claim chips as live entries.
 async function loadEarlier(until){const b=document.getElementById('load-earlier');if(!b||b.disabled)return;b.disabled=true;if(until)pinned=false;
@@ -1286,7 +1247,7 @@ function pfHid(el){return el.classList.contains('by-agent')&&pfOn()}
 // @humans, @all), are addressed to you or answer one of yours, carry an approval, decisions, your own, and everything in
 // a direct chat or your agent's chat. A tap opens a folded one; a tap on an open one's sender line folds it again; the
 // board's ⋯ opens them all for this visit.
-const OL_WHOLE=${direct || agentChat ? "true" : "false"};
+const OL_WHOLE=BC.olWhole;
 function olFor(el){if(OL_WHOLE||el.classList.contains('for-you')||el.dataset.to===ME0)return false;
   if(el.dataset.author===ME0&&!el.classList.contains('by-agent'))return false;
   if(el.querySelector('.mention[data-user="'+ME0+'"],.mention[data-user="agents"],.mention[data-user="humans"],.mention[data-user="all"],.apc,.type.t-decision'))return false;
@@ -1333,7 +1294,7 @@ if(linked&&!document.getElementById(location.hash.slice(1)))setTimeout(goLinked,
 window.addEventListener('hashchange',()=>{const t={'#log':1,'#files':2,'#docs':2,'#tasks':3}[location.hash];if(t)tab(t);else goLinked()});
 // Open at your first unread message (jxn #1011): a thin "New" line above it and Jump to latest below. If you've read
 // everything, or it's your first visit, it opens at the newest. Messages you wrote yourself never count as unread.
-const SEEN0=${Math.max(0, board.seen ?? 0)},ME0=${jsString(viewer.name)};let unreadAt=null;
+const SEEN0=BC.seen0,ME0=BC.me;let unreadAt=null;
 function openAtUnread(){const e=SEEN0?[...document.querySelectorAll('#thread>.entry')].find(x=>+x.dataset.seq>SEEN0&&!offChat(x)&&!(x.dataset.author===ME0&&!x.classList.contains('by-agent'))):null;if(!e)return false;
   unreadAt=e;let l=document.getElementById('new-line');if(!l){l=document.createElement('div');l.id='new-line';l.className='new-line';l.setAttribute('role','separator');l.innerHTML='<span>'+tr('New')+'</span>'}e.before(l);
   const at=catchUp(l)||l;pinned=false;userT=0;scroller.scrollTop=Math.max(0,at.offsetTop-scroller.offsetTop-12);pinned=nearEnd();pillSync();return true}
@@ -1479,13 +1440,13 @@ document.querySelector('form.composer')?.addEventListener('submit',()=>{sentKey=
 window.postRetrying=()=>document.querySelectorAll('#thread .entry.pending .faint').forEach(x=>x.textContent='connection lost, retrying…');
 window.postFailed=(j)=>{sendLook(false);if(SENT_TEXT!=null&&!ta.value.trim()){ta.value=SENT_TEXT;taFit()}SENT_TEXT=null;document.querySelectorAll('#thread .entry.pending').forEach(x=>x.remove());toast(j.error||tr("Couldn't send. Your message is still in the box."))};
 // @mention autocomplete: people ("@vedu") and agents ("@vedu's agent", including your own).
-const MOPTS=${jsString(mentionOptions(members.map((m) => m.user), viewer.name, agents, agentNames(members), new Set(members.filter((m) => m.agent_name_ambiguous).map((m) => m.user))))};
-const MNAMES=new Set(MOPTS.map(o=>o.u)),ME=${jsString(viewer.name)};
+const MOPTS=BC.mopts;
+const MNAMES=new Set(MOPTS.map(o=>o.u)),ME=BC.me;
 // Agent names on this board (the @ menu's "Jarvis · vedu's agent" rows), longest first, for chips in the composer.
 const ANAMES=MOPTS.filter(o=>o.sub&&!o.ins.includes('/')&&o.ins!==o.u+"'s agent").map(o=>o.ins.toLowerCase()).sort((a,b)=>b.length-a.length);
 // "@you" glows, and so does the message it's in, including ones that arrive live.
 // Approval cards: the person asked gets Approve / Deny in place; a decision made anywhere shows up live.
-${approvalJs(viewer.name)}
+${approvalJs(null)}
 function markMe(root){root.querySelectorAll('.mention:not(.agent)').forEach(m=>{if(m.dataset.user===ME){m.classList.add('me');m.closest('.entry')?.classList.add('for-you')}})}
 markMe(document.getElementById('thread'));
 new MutationObserver(ms=>ms.forEach(m=>m.addedNodes.forEach(n=>{if(n.nodeType===1)markMe(n)}))).observe(document.getElementById('thread'),{childList:true,subtree:true});
@@ -1574,7 +1535,7 @@ ta.addEventListener('input',()=>{const now=Date.now();if(READONLY||!ta.value.tri
   fetch('/api/boards/'+BOARD+'/typing',{method:'POST',keepalive:true}).catch(()=>{})});
 // Drafts: what you were typing survives leaving the board (or the tab) and coming back; posting clears it.
 const draftKey=k=>'soup.draft.'+BOARD+(k?'.'+k:'');
-function draftSave(k,v){if(${info.encrypted ? "true" : "false"})return; // encrypted boards: no plaintext kept in the browser
+function draftSave(k,v){if(BC.encrypted)return; // encrypted boards: no plaintext kept in the browser
   try{v.trim()?localStorage.setItem(draftKey(k),v):localStorage.removeItem(draftKey(k))}catch(e){}}
 function draftLoad(k){try{return localStorage.getItem(draftKey(k))||''}catch(e){return ''}}
 let draftT=0;ta.addEventListener('input',()=>{clearTimeout(draftT);draftT=setTimeout(()=>draftSave(draftNow(),ta.value),250)});
@@ -1664,7 +1625,7 @@ document.getElementById('composer-text')?.addEventListener('keydown',e=>{
   if(e.defaultPrevented)return;
   if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing&&!matchMedia('(hover:none) and (pointer:coarse)').matches){e.preventDefault();const f=e.target.closest('form');if(e.target.value.trim()||pending.length)f.requestSubmit()}});
 // ---- shared documents ----
-const READONLY=${info.archived || readOnly ? "true" : "false"};let curDoc=null,editing=false;
+const READONLY=BC.readOnlyOrArchived;let curDoc=null,editing=false;
 async function loadDocs(){const r=await fetch('/api/boards/'+BOARD+'/files');const j=await r.json();const el=document.getElementById('doc-items');const fs=j.files||j.docs||[];
   const kb=n=>n<1024?n+' B':(n/1024).toFixed(1)+' KB';
   el.innerHTML=fs.length?fs.map(d=>'<a href="#files" class="doc-item'+(curDoc&&curDoc.name===d.name?' on':'')+'" data-doc="'+esc(d.name)+'" title="'+esc(d.name+' · v'+d.version+(d.updated_by?' · '+(d.via==='agent'?d.updated_by+"'s agent":d.updated_by):''))+'"><span class="truncate mono">'+esc(d.name)+'</span><span class="xs faint">v'+d.version+(d.size!=null?' · '+kb(d.size):'')+'</span></a>').join(''):'<p class="xs faint">'+tr('No files yet.')+'</p>';
@@ -1800,7 +1761,7 @@ lb.addEventListener('touchstart',e=>{if(e.touches.length===1){lbX=e.touches[0].c
 lb.addEventListener('touchend',e=>{if(lbX==null||lb.classList.contains('zoomed'))return;const dx=e.changedTouches[0].clientX-lbX,dy=e.changedTouches[0].clientY-lbY;lbX=null;
   if(lbSet.length>1&&Math.abs(dx)>40&&Math.abs(dx)>Math.abs(dy)*1.5){lbSwiped=Date.now();lbShow(lbI+(dx<0?1:-1))}});
 // ---- read receipts: a ring on your latest message (who has seen it), a dot on each @mention (has that one seen it) ----
-const MEMBERS=${jsString(members.map((m) => m.user))};let READS={},seenSent=0,seenTimer=null;
+const MEMBERS=BC.members;let READS={},seenSent=0,seenTimer=null;
 const seenAs=(u,agent)=>{const r=READS[u];return r?(agent?r.agent_seen:r.person_seen):(agent?-1:0)}; // agent -1: never on this board
 /** Everyone who should see an entry: each member, and each member's agent once it has been on the board; not its author. */
 function audience(el){const by=el.dataset.author,byAgent=el.classList.contains('by-agent'),out=[];
@@ -1924,7 +1885,7 @@ const rxSame=(a,b)=>a.length===b.length&&a.every((x,i)=>x===b[i]);
 function quickGet(){return rxList(rxLoad('quick',[]))}
 function recentGet(){return rxList(rxLoad('recent',[]))}
 function quickSet(list){list=rxList(list);rxSave('quick',list.length?list:null);rxSave('dirty',1);quickApply();rxPush()}
-let RX_SYNC=${readOnly ? "false" : "true"}&&!!ME,rxT=0,rxWait=0,rxBusy=false,rxGot=0;
+let RX_SYNC=!BC.readOnly&&!!ME,rxT=0,rxWait=0,rxBusy=false,rxGot=0;
 /** The server's prefs onto this browser. The server says the default preset until you choose (or after Reset): here that's "none
  *  chosen", so your most-used fill the row. A row chosen here before it synced (and still unsent) goes up instead of being replaced. */
 function rxTake(p){if(!p)return;rxGot=Date.now();rxSave('recent',rxList(p.recent_reactions));
@@ -2360,7 +2321,7 @@ document.addEventListener('click',async e=>{const a=e.target.closest('.hcard [da
   const r=await fetch('/api/direct/'+encodeURIComponent(d.dataset.direct),{method:'POST'});const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||tr('Could not open'));return}location.href='/b/'+j.board},true);
 document.addEventListener('click',async e=>{const b=e.target.closest('.hcard [data-friend]');if(!b)return;e.stopPropagation();const r=await fetch('/api/friends/'+encodeURIComponent(b.dataset.name)+'/'+b.dataset.friend,{method:'POST'});toast(r.ok?tr('Friends now'):tr('Could not update'));delete pcache[b.dataset.name];hClose()},true);
 // ---- Members & access (the Invite button and "Manage"): invite by email or link, roles and end dates, activity ----
-const IS_OWNER=${isOwner ? "true" : "false"},CREATOR=${jsString(info.created_by)};${readOnly ? "document.documentElement.classList.add('ro');" : ""}
+const IS_OWNER=BC.isOwner,CREATOR=BC.creator;if(BC.readOnly)document.documentElement.classList.add('ro');
 const accFmt=ts=>ts?new Date(ts).toISOString().slice(0,10):'';
 async function accLoad(){const [m,a,l]=await Promise.all([fetch('/api/boards/'+BOARD+'/members').then(r=>r.json()).catch(()=>({})),fetch('/api/boards/'+BOARD+'/audit').then(r=>r.json()).catch(()=>({})),
     IS_OWNER?fetch('/api/boards/'+BOARD+'/links').then(r=>r.json()).catch(()=>({})):Promise.resolve({})]);
@@ -2490,7 +2451,7 @@ window.applyTitle=(t)=>{t=bidi(t);const h=document.getElementById('board-title')
   inp.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();save()}if(e.key==='Escape'){e.preventDefault();stop()}});
   inp.addEventListener('blur',()=>{if(!inp.hidden&&!inp.disabled)save()});})();
 window.archiveDone=(j)=>{toast(j.message||tr('Done'));setTimeout(()=>location.reload(),400)};
-document.getElementById('del-confirm')?.addEventListener('input',e=>{document.getElementById('del-go').disabled=e.target.value.trim()!==${jsString(info.title)}});
+document.getElementById('del-confirm')?.addEventListener('input',e=>{document.getElementById('del-go').disabled=e.target.value.trim()!==BC.title});
 document.addEventListener('click',async e=>{const b=e.target.closest('[data-edit]');if(!b)return;
   const row=b.closest('.entry'),body=row?.querySelector('.body');if(!body||row.querySelector('[data-edit-box]'))return;
   const seq=b.dataset.edit;const got=await fetch('/api/boards/'+BOARD+'/entries/'+seq).then(r=>r.json());if(!got.entry){toast(got.error||tr('Could not load'));return}
@@ -2610,7 +2571,75 @@ window.boardKeys=(e,k)=>{
     els.forEach(x=>x.classList.remove('sel'));const el=els[cur];if(el){el.classList.add('sel');el.scrollIntoView({block:'nearest'})}}
   if(e.key==='Enter'&&els[cur]){openEntry(BOARD,els[cur].dataset.seq)}
 };
-` + (canPic ? BOARD_PIC_JS : "") + (info.encrypted ? E2E_JS : "") + STATUS_JS + voiceJs(agentChat) + TALK_JS + PREVIEW_JS + evJs(agentChat) + (agentChat ? "" : PO_JS) + (agentChat ? "" : pinRecapJs(board.last_seen ?? 0, !readOnly && !info.archived) + soulMemoryJs(!readOnly && !info.archived) + EXPORT_JS);
+// The thread is placed (at your first unread, a linked message or the newest): show it.
+document.getElementById('thread-scroll')?.removeAttribute('data-wait');
+`;
+export const BOARD_JS_PATH = "/board.js";
+export const BOARD_JS = BOARD_CORE_JS;
+export const BOARD_JS_SRC = `${BOARD_JS_PATH}?v=${fnv(BOARD_JS)}`;
+
+export function boardPage(
+  viewer: Viewer,
+  side: SideBoard[],
+  info: BoardInfo,
+  members: MemberView[],
+  entries: Entry[],
+  invites: InviteRow[],
+  agent: AgentState = { connected: false, onThisBoard: false },
+  summary?: Summary, // the whole board's (big boards only send their newest entries)
+  agents: AgentHere[] = [],
+  board: { picture: string | null; kind: string | null; sessions?: { name: string; state: string; client: string | null }[]; seen?: number; last_seen?: number } = { picture: null, kind: null }, // from the directory (D1); sessions: yours, on "Your agent"; last_seen: how far you had read (for Recap)
+): Response {
+  const ctl = { boardId: info.id, creator: info.created_by };
+  const L = viewer.lang,
+    T = (s: string, v?: Record<string, string | number>) => tr(L, s, v);
+  // Your role on this board: owners manage access; viewers read only (no composer, no reactions, no invites).
+  const myRole = members.find((m) => m.user === viewer.name)?.role ?? (viewer.name === info.created_by ? "owner" : "contributor");
+  const isOwner = myRole === "owner" || viewer.name === info.created_by,
+    readOnly = myRole === "viewer";
+  // The board's picture: any member who can post changes it (not on a direct board, which shows the other person).
+  const direct = board.kind === "direct";
+  // "Your agent": your private chat with your own agents (any of them, or the one you pick); never anyone else.
+  const agentChat = board.kind === "agent";
+  const canPic = !readOnly && !info.archived && !direct && !agentChat;
+  // "Invite an agent" (vedu #1812, #1855): your own assistant (the join message) or a friend's agent (invite the friend).
+  const canInviteAgent = !readOnly && !info.archived && !direct && !agentChat;
+  // Triggers: any member who can post sets rules that wake their own agent (never anyone else's).
+  const canTrig = !readOnly && !info.archived && !agentChat;
+  // Schedules (shared crons): every member sees them; people who can post add them (not on an encrypted board, whose
+  // tasks would be plaintext). Toggling and deleting: the schedule's creator or an owner (checked again by the server).
+  const canSched = !readOnly && !info.archived && !info.encrypted;
+  const last = entries.length ? entries[entries.length - 1].seq : 0;
+  const first = entries.length ? entries[0].seq : 0;
+  // Big boards open on their newest entries; earlier ones load on demand.
+  const earlier = first > 1 ? `<button class="btn ghost sm load-earlier" type="button" id="load-earlier" data-before="${first}">${esc(T("Load earlier messages"))}</button>` : "";
+  const thread = entries.length
+    ? earlier + threadHtml(entries, info.id, { name: viewer.name, creator: info.created_by, encrypted: info.encrypted, lang: viewer.lang, person: viewer.via !== "agent" })
+    : agentChat
+      ? `<div class="empty" id="empty"><h3>${esc(T("Talk to your agent"))}</h3><p class="small">Only you and your agents see this chat. Ask anything below: any of your agents can answer (<span class="mono">atteo dispatch</span> starts one for each message), or pick one of them.</p></div>`
+    : `<div class="empty" id="empty"><h3>${esc(T("Nothing here yet"))}</h3><p class="small">${esc(T("Any agent joins with {cmd}. Or write the first note below.")).replace("{cmd}", `<span class="mono">atteo join ${esc(info.id)}</span>`)}</p>
+<div class="row" style="gap:8px;justify-content:center;flex-wrap:wrap;margin-top:16px">${agent.connected ? "" : `<button class="btn primary lg" data-open="connect">${esc(T("Connect an agent"))}</button>`}${!canInviteAgent ? "" : `<button class="btn lg${agent.connected ? " primary" : ""}" data-open="invite-agent">${esc(T("Invite an agent"))}</button>`}</div></div>`;
+  const rows = [...entries].reverse().map((e) => logRow(e, undefined, undefined, viewer.lang)).join("");
+  // What the board script reads from this page (window.BC): the board, you, your role and where you had read to.
+  const bc = {
+    board: info.id,
+    last,
+    agentChat,
+    me: viewer.name,
+    olWhole: direct || agentChat,
+    seen0: Math.max(0, board.seen ?? 0),
+    mopts: mentionOptions(members.map((m) => m.user), viewer.name, agents, agentNames(members), new Set(members.filter((m) => m.agent_name_ambiguous).map((m) => m.user))),
+    encrypted: !!info.encrypted,
+    readOnlyOrArchived: !!(info.archived || readOnly),
+    readOnly,
+    members: members.map((m) => m.user),
+    isOwner,
+    creator: info.created_by,
+    title: info.title,
+  };
+  // The thread stays hidden until /board.js has placed it (no flash of its oldest messages while the file loads); if the file
+  // never comes, it shows anyway.
+  const script = `window.BC=${jsString(bc)};window.BOARD=BC.board;setTimeout(()=>document.getElementById('thread-scroll')?.removeAttribute('data-wait'),4000);` + SHEET_JS + CONNECT_JS + (agentChat ? AGENT_PICK_JS : "") + NOTIFY_SIDE_JS + REMIND_BROWSER_JS + scriptSrc(BOARD_JS_SRC) + (canPic ? BOARD_PIC_JS : "") + (info.encrypted ? E2E_JS : "") + STATUS_JS + voiceJs(agentChat) + TALK_JS + PREVIEW_JS + evJs(agentChat) + (agentChat ? "" : PO_JS) + (agentChat ? "" : pinRecapJs(board.last_seen ?? 0, !readOnly && !info.archived) + soulMemoryJs(!readOnly && !info.archived) + EXPORT_JS);
   const isCreator = viewer.name === info.created_by;
   const archivedBanner = info.archived
     ? `<div class="flash bp-banner"><span class="grow"><b>${esc(T("Archived."))}</b> ${esc(T("This board is read-only."))}</span>${
@@ -2666,7 +2695,7 @@ window.boardKeys=(e,k)=>{
 <div role="tabpanel" id="panel-conv" class="bp-panel" data-board-panel><div class="layout" id="conv-layout">
   <button class="btn ghost sm info-btn" type="button" id="info-btn" aria-expanded="false" aria-controls="board-info" aria-label="${esc(T("Board info"))}" title="${esc(T("Board info"))}"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2"/><path d="M10 2.75v10.5"/><path class="fill" d="M10.7 3.45h2.1a.75.75 0 0 1 .75.75v7.6a.75.75 0 0 1-.75.75h-2.1z" fill="currentColor" stroke="none"/></svg><span class="count" id="info-count" hidden></span></button>
   <section class="conv">${agentChat ? "" : localize(L, PIN_BAR)}
-    <div class="thread-wrap"><div class="thread-scroll" id="thread-scroll"><div class="thread" id="thread">${thread}</div><p class="pf-empty" id="pf-empty" hidden>${esc(T("No messages from people here yet. Turn the filter off to see everything."))}</p></div>
+    <div class="thread-wrap"><div class="thread-scroll" id="thread-scroll" data-wait><noscript><style>#thread-scroll[data-wait]>#thread{visibility:visible}</style></noscript><div class="thread" id="thread">${thread}</div><p class="pf-empty" id="pf-empty" hidden>${esc(T("No messages from people here yet. Turn the filter off to see everything."))}</p></div>
       <div class="rail" id="rail" aria-hidden="true"></div><div class="rail-tip" id="rail-tip" hidden></div>
       <button class="btn sm new-pill" type="button" id="new-pill" hidden>${esc(T("Jump to latest ↓"))}</button></div>
     <div class="sel-bar card" id="sel-bar" hidden><span id="sel-n">${esc(T("0 selected"))}</span><span class="xs faint hide-sm">${esc(T("Click messages to add or remove them"))}</span><span class="grow"></span><button class="btn sm" type="button" id="sel-cancel">${esc(T("Cancel"))}</button><button class="btn sm primary" type="button" id="sel-fwd" disabled>${esc(T("Forward"))}</button></div>

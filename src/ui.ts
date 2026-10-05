@@ -69,6 +69,7 @@ const DARK = `  --bg:#0E0E0E;--bg-subtle:#171716;--bg-hover:#1F1E1C;--line:#2A29
 const FONT_PRELOAD = `<link rel="preload" href="/fonts/onest-latin.woff2?v=${FONT_V}" as="font" type="font/woff2" crossorigin>`;
 
 export const CSS = `
+#thread-scroll[data-wait]>#thread{visibility:hidden} /* until the board script has placed it (html.ts) */
 :root{
   /* The design language (#2508), neutral (jxn #2858): ink on paper, bone and stone around it, graphite for secondary
      text. The one accent is oxblood, only on a view's single primary action (Post, the main call to action); --cone is
@@ -1756,15 +1757,31 @@ window.liveRefresh=async()=>{if(document.hidden)return;try{const r=await fetch('
   document.querySelectorAll('[data-live]').forEach(el=>{const k=n[el.dataset.live]||0;el.hidden=!k;el.title=k+' agent'+(k===1?'':'s')+' working now';el.querySelector('.wk-n').textContent=k+' working'})}catch{}};
 setInterval(liveRefresh,60000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)liveRefresh()})})();`;
 
+/** In a page's script, loads a cached script file at this point (rawPage splits the inline script around it). */
+export const scriptSrc = (src: string): string => `\u0000${src}\u0000`;
+// The page's inline script, with any scriptSrc() parts as their own <script src> between inline parts, in order.
+// …and fetched from the head on, so it's there (usually from the cache) by the time the parser reaches it.
+const scriptPreloads = (script: string): string =>
+  script
+    .split("\u0000")
+    .filter((_, i) => i % 2)
+    .map((src) => `<link rel="preload" as="script" href="${esc(src)}">`)
+    .join("");
+const pageScripts = (script: string, nonce: string): string =>
+  script
+    .split("\u0000")
+    .map((part, i) => (i % 2 ? `<script src="${esc(part)}" nonce="${nonce}"></script>` : part ? `<script nonce="${nonce}">${part}</script>` : ""))
+    .join("");
+
 function rawPage(title: string, body: string, script: string, status = 200, lang: Lang = "en"): Response {
   const security = pageSecurity();
   const html = `<!doctype html><html lang="${lang}"${dirOf(lang as Lang) === "rtl" ? ' dir="rtl"' : ""}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)}</title>
-${FONT_PRELOAD}
+${FONT_PRELOAD}${scriptPreloads(script)}
 <link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="stylesheet" href="${APP_CSS_SRC}">${DISPLAY_HEAD.replace("<script>", `<script nonce="${security.nonce}">`)}</head><body>${WORDMARK_DEFS}${body.replace("<script>window.PALETTE=", `<script nonce="${security.nonce}">window.PALETTE=`)}
 <div id="toast" role="status" aria-live="polite"></div>
-${lang === "en" ? "" : `<script nonce="${security.nonce}">window.I18N=${clientTable(lang)}</script>`}<script src="${APP_JS_SRC}" nonce="${security.nonce}"></script>${script ? `<script nonce="${security.nonce}">${script}</script>` : ""}</body></html>`;
+${lang === "en" ? "" : `<script nonce="${security.nonce}">window.I18N=${clientTable(lang)}</script>`}<script src="${APP_JS_SRC}" nonce="${security.nonce}"></script>${pageScripts(script, security.nonce)}</body></html>`;
   return new Response(html, { status, headers: { "content-type": "text/html; charset=utf-8", "content-language": lang, vary: "Accept-Language, Cookie", ...security.headers } });
 }
 
