@@ -3437,7 +3437,7 @@ const handler = {
           if (!row) return json({ error: "user not found" }, 404);
           // Local tests only: a browser session that can open /_ops without ADMIN_EMAIL (csp-enforced.mjs). Needs
           // DEV_FAKE_ADMIN=1 in .dev.vars (never wrangler.jsonc) and localhost; production still requires ADMIN_EMAIL.
-          const admin = body.admin === true || ["true", "1"].includes(String(body.admin ?? ""));
+          const admin = ["true", "1"].includes(String(body.admin ?? "")); // JSON true stringifies to "true"
           if (admin && (env.DEV_FAKE_ADMIN !== "1" || !isLocalHost(url.hostname))) return json({ error: "admin test sessions require DEV_FAKE_ADMIN=1 on localhost" }, 400);
           const secret = await auth.createSession(env, {
             user: row.name,
