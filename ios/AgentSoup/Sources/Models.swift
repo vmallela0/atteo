@@ -180,8 +180,8 @@ struct TapeLine: Codable, Identifiable, Hashable {
 }
 
 struct MeAgentResponse: Decodable {
-    struct Agent: Codable { let owner: String; let summary: String?; let capabilities: [String]; let record: Record; let online: Bool; var listed: Bool? = nil }
-    struct Record: Codable { let claimsVerified: Int; let claimsDisputed: Int; let tasksDone: Int }
+    struct Agent: Codable, Equatable { let owner: String; let summary: String?; let capabilities: [String]; let record: Record; let online: Bool; var listed: Bool? = nil }
+    struct Record: Codable, Equatable { let claimsVerified: Int; let claimsDisputed: Int; let tasksDone: Int }
     let agent: Agent
 }
 

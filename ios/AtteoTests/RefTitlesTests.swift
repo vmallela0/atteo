@@ -112,4 +112,17 @@ final class RefTitlesTests: XCTestCase {
         list[0].text = "decrypted words" // the old key never noticed this change
         XCTAssertEqual(RefTitles.cached(list, []), originalMap(list, []))
     }
+
+    // jxn #4181: a row holds only the titles its own "#123"s need, so a new message (a new title in the chat's map)
+    // doesn't make every row again.
+    func testOnlyKeepsWhatTheTextsReferTo() {
+        let all = RefTitles(map: [1: "Deploy plan", 2: "Retry budget", 3: "Release notes"])
+        XCTAssertEqual(all.only("see #2 and #3").map, [2: "Retry budget", 3: "Release notes"])
+        XCTAssertEqual(all.only("no refs here", nil).map, [:])
+        XCTAssertEqual(all.only("about #9", "answers #1").map, [1: "Deploy plan"], "an unknown number has no title")
+        XCTAssertEqual(all.only("issue#2 and &#3;").map, [:], "not a message ref")
+        var grown = all
+        grown.map[4] = "A new message"
+        XCTAssertEqual(grown.only("see #2"), all.only("see #2"), "a new message elsewhere: this row's titles are the same")
+    }
 }

@@ -50,4 +50,50 @@ final class MessageDraftsTests: XCTestCase {
         XCTAssertFalse(defaults.dictionaryRepresentation().keys.contains { $0.hasPrefix("message-draft.") })
         XCTAssertEqual(MessageDrafts(defaults: defaults).text(for: b), "")
     }
+
+    // jxn #4181: saving on every key redrew every row of Chats (they show drafts) and wrote UserDefaults each time.
+    func testSavingTheSameTextChangesNothing() {
+        let suite = UUID().uuidString
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let b = board("one")
+        let store = MessageDrafts(defaults: defaults)
+        store.save("words", for: b)
+        let after = store.revision
+        store.save("words", for: b)
+        XCTAssertEqual(store.revision, after, "no change, no redraw")
+        store.save("words!", for: b)
+        XCTAssertEqual(store.revision, after + 1)
+    }
+
+    @MainActor
+    func testBoxSavesOncePausedAndAtOnceWhenAsked() async throws {
+        let b = board("box-\(UUID().uuidString)")
+        defer { MessageDrafts.shared.clear(for: b) }
+        let box = ComposerDraft(board: b)
+        var seen: [String] = []
+        box.onChange = { seen.append($0) }
+        box.set("h"); box.set("he"); box.set("hey")
+        XCTAssertEqual(box.text, "hey")
+        XCTAssertEqual(seen, ["h", "he", "hey"])
+        XCTAssertEqual(MessageDrafts.shared.text(for: b), "", "not saved while typing")
+        try await Task.sleep(for: .milliseconds(1400))
+        XCTAssertEqual(MessageDrafts.shared.text(for: b), "hey", "saved once typing paused")
+        box.set("hey there")
+        box.save() // leaving the chat
+        XCTAssertEqual(MessageDrafts.shared.text(for: b), "hey there")
+        XCTAssertEqual(ComposerDraft(board: b).text, "hey there", "a new box restores it")
+    }
+
+    @MainActor
+    func testThreadBoxAttachesLater() {
+        let b = board("box-\(UUID().uuidString)")
+        defer { MessageDrafts.shared.clear(for: b, root: 9) }
+        MessageDrafts.shared.save("a reply", for: b, root: 9)
+        let box = ComposerDraft()
+        box.set("typed before it knew where") // no board yet: nothing saved
+        box.save()
+        box.attach(b, root: 9)
+        XCTAssertEqual(box.text, "a reply")
+    }
 }

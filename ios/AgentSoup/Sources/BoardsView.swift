@@ -6,7 +6,8 @@ import SwiftUI
 struct BoardView: View {
     @EnvironmentObject var state: AppState
     let board: Board
-    @State private var draft = ""
+    /// The box's words, outside this view's state: only the box redraws as you type (jxn #4181, MessageDrafts.swift).
+    @State private var draft: ComposerDraft
     @State private var tab: BoardTab // Chat · Tasks · Files under the title (BoardTabs.swift, vedu #2549)
     @State private var taskDetail: Int? // a task opened from the Tasks tab
     @State private var newTask = false
@@ -96,7 +97,7 @@ struct BoardView: View {
 
     init(board: Board) {
         self.board = board
-        _draft = State(initialValue: MessageDrafts.shared.text(for: board))
+        _draft = State(initialValue: ComposerDraft(board: board))
         _peopleOnly = State(initialValue: !board.isAgentChat && UserDefaults.standard.bool(forKey: Self.filterKey(board.id)))
         _tab = State(initialValue: BoardTab.remembered[board.id] ?? .chat)
     }
@@ -208,10 +209,10 @@ struct BoardView: View {
                 }
             }
         }
-        .onChange(of: draft) { _, text in MessageDrafts.shared.save(text, for: board) }
+        .onDisappear { draft.save() } // what was typed last, without waiting for the pause
         // iMessage-style: the thread slides up over the chat, with the same message box as the chat (jxn #1040, #1094).
         .sheet(item: $thread) { t in
-            NavigationStack { ThreadView(board: board, root: t.root, prefill: t.prefill, focus: t.focus, replyTo: t.replyTo, overChat: true, closes: true, carry: t.carries ? $draft : nil) }
+            NavigationStack { ThreadView(board: board, root: t.root, prefill: t.prefill, focus: t.focus, replyTo: t.replyTo, overChat: true, closes: true, carry: t.carries ? draft : nil) }
                 .environment(\.chatDensity, density)
                 .presentationDetents([.large]).presentationDragIndicator(.visible)
                 .presentationBackground(Theme.bg)
@@ -292,7 +293,7 @@ struct BoardView: View {
                 PersonCard(name: p.name, open: { b in profile = nil; state.openRequest = b }, agentFirst: p.agent, ask: {
                     profile = nil
                     let handle = "@\(p.name)'s agent "
-                    if !draft.localizedCaseInsensitiveContains(handle.trimmingCharacters(in: .whitespaces)) { draft = handle + draft }
+                    if !draft.text.localizedCaseInsensitiveContains(handle.trimmingCharacters(in: .whitespaces)) { draft.set(handle + draft.text) }
                     focused = true
                 })
             }
@@ -588,8 +589,10 @@ struct BoardView: View {
         let showReceipt = mine && live && (e.seq == r.latestMine || openReceipts.contains(e.seq))
         let hd = e.type == "decision" && !unsent ? state.decisions[board.id]?[e.seq] ?? e.humanDecision : nil
         let chips = live && r.openQuestions.contains(e.seq) ? state.quickChips[board.id]?[e.seq] : nil
-        return EntryRow(e: e, grouped: grouped, mine: mine, board: board.id, tasks: state.tasks[board.id] ?? [], reactions: state.reactions[board.id]?[e.seq] ?? [],
-                        parent: e.replyTo.flatMap { r.bySeq[$0] }, me: me, members: state.members[board.id] ?? [], progress: state.uploads[e.seq],
+        let parent = e.replyTo.flatMap { r.bySeq[$0] }
+        // Only a task row shows the tasks (as they are now): the others don't redraw when one is ticked.
+        return EntryRow(e: e, grouped: grouped, mine: mine, board: board.id, tasks: e.type == "task" ? state.tasks[board.id] ?? [] : [], reactions: state.reactions[board.id]?[e.seq] ?? [],
+                        parent: parent, me: me, members: state.members[board.id] ?? [],
                         reply: live ? { startReply(to: e) } : nil,
                         unsent: unsent, replies: r.replies[e.seq] ?? [], threadUnread: threadUnread(e.seq, r), handling: state.handling[board.id]?[e.seq], lit: flash == e.seq,
                         receipt: showReceipt ? receipt(for: e) : nil,
@@ -597,7 +600,8 @@ struct BoardView: View {
                         actions: actions(for: e, mine: mine, live: live, r),
                         decision: hd, decisionActions: DecisionActions.make(hd, seq: e.seq, board: board, state: state) { p in decisionNote = ""; decisionPrompt = p },
                         agentName: state.agentNames[board.id]?[e.author]?.name, quick: state.favouriteReactions, agentNames: state.agentNameMap(board.id),
-                        replyChips: chips, pickChip: { text in Task { await state.send(text, to: board, replyTo: e.seq) } }) {
+                        replyChips: chips, refTitle: RefTitles.cached(list, state.tasks[board.id] ?? []).only(e.text, parent?.text),
+                        pickChip: { text in Task { await state.send(text, to: board, replyTo: e.seq) } }) {
             Task { if e.local != nil || e.isMultiFile { await state.retryUpload(e, in: board) } else { await state.send(e.text, to: board, retrying: e) } }
         }
     }
@@ -819,7 +823,7 @@ struct BoardView: View {
     var composer: some View {
         VStack(spacing: 0) {
             ReadAloudBar(board: board.id) // a message for you, waiting to be read aloud (Voice.swift)
-            ChatComposer(board: board, draft: $draft, focused: $focused, placeholder: placeholder,
+            ChatComposer(board: board, box: draft, focused: $focused, placeholder: placeholder,
                          toSession: board.isAgentChat ? $toSession : nil)
         }
         .background(Theme.bg)
@@ -961,11 +965,11 @@ extension EntryRow: Equatable {
     static func == (a: EntryRow, b: EntryRow) -> Bool {
         a.e == b.e && a.grouped == b.grouped && a.mine == b.mine && a.board == b.board && a.tasks == b.tasks
             && a.reactions == b.reactions && a.parent == b.parent && a.me == b.me && a.members == b.members
-            && a.progress == b.progress && (a.reply == nil) == (b.reply == nil) && a.unsent == b.unsent
+            && (a.reply == nil) == (b.reply == nil) && a.unsent == b.unsent
             && a.replies == b.replies && a.threadUnread == b.threadUnread && a.handling == b.handling && a.lit == b.lit
             && a.receipt == b.receipt && (a.openReceipt == nil) == (b.openReceipt == nil) && a.actions.shape == b.actions.shape
             && a.decision == b.decision && a.decisionActions.shape == b.decisionActions.shape && a.agentName == b.agentName
-            && a.quick == b.quick && a.agentNames == b.agentNames && a.replyChips == b.replyChips
+            && a.quick == b.quick && a.agentNames == b.agentNames && a.replyChips == b.replyChips && a.refTitle == b.refTitle
     }
 }
 
@@ -979,7 +983,9 @@ struct EntryRow: View {
     var parent: Entry? = nil // what this one answers
     var me: String? = nil
     var members: [String] = [] // who's on the board (for @-mentions while a message is still sending)
-    var progress: Double? = nil // a picture or file going up: how far
+    /// A picture or file going up: how far. Read here, by the row that's sending, not passed in by the chat: the
+    /// ticks then redraw this row alone (jxn #4181).
+    private var progress: Double? { e.pending == true ? AppState.shared.uploads[e.seq] : nil }
     var reply: (() -> Void)? = nil // answer this message (nil: it can't be answered yet)
     var unsent = false // its author took it back
     var replies: [Entry] = [] // answers to it (its thread)
@@ -995,11 +1001,13 @@ struct EntryRow: View {
     var quick: [String] = defaultReactions // your favourite reactions, the row on top of the long-press menu (#1163)
     var agentNames: [String: String] = [:] // named agents here, lowercased name → owner ("@Jarvis" in a message)
     var replyChips: QuickChips? = nil // an agent's open question to you: one-tap replies (QuickReplies.swift)
+    /// What the "#123"s in it (and in what it answers) are called: only its own (RefTitles.only), not the chat's whole
+    /// map from the environment, which changes with every message and made every row again (jxn #4181).
+    var refTitle = RefTitles()
     var pickChip: (String) -> Void = { _ in }
     var retry: () -> Void = {}
     @State var drag: CGFloat = 0 // swipe right to reply
     @Environment(\.chatDensity) private var density
-    @Environment(\.refTitle) private var refTitle
     /// Room above a message: tight under the one before when grouped, a little more otherwise (less when compact).
     private func gapAbove(_ comfortable: CGFloat) -> CGFloat {
         density == .compact ? (grouped ? Space.xxs : Space.gap(density)) : (grouped ? Space.xs : comfortable)
