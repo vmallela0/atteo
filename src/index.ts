@@ -2670,6 +2670,7 @@ const handler = {
         if (!viewer) return needLogin();
         const board = await registry.getBoard(env, m[1]);
         if (!board || ((await registry.memberRole(env, m[1], viewer.name)) !== "owner" && board.created_by !== viewer.name)) return json({ error: "Only the board's owners can set how long it keeps messages." }, 403);
+        if (board.archived_at) return json({ error: "This board is archived. Restore it to change retention." }, 403);
         const b = (await request.json().catch(() => ({}))) as { days?: number | string | null };
         const days = b.days == null || b.days === "" || Number(b.days) === 0 ? null : Math.floor(Number(b.days));
         if (days != null && (!Number.isFinite(days) || days < 1 || days > 3650)) return json({ error: "days must be 1–3650, or empty to keep everything." }, 400);
