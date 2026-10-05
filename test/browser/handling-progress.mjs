@@ -31,7 +31,11 @@ await api("POST", `/api/sessions/${s.id}`, { status: STATUS }, s.id);
 let fails = 0;
 const check = (ok, t) => { console.log(`${ok ? "✓" : "✗"} ${t}`); if (!ok) fails++; };
 const b = await chromium.launch({ executablePath: process.env.PW_CHROME || undefined });
-for (const [w, mobile] of [[1280, false], [390, true]]) {
+// The progress line is drawn after the page asks who's handling what: wait for it rather than a fixed time.
+const lineIn = (p, seq) => p.locator(`#e${seq} .hdl-prog`, { hasText: STATUS.slice(0, 16) }).waitFor({ timeout: 10000 }).catch(() => {}); // the status fills in after the line
+// B at two widths and A run side by side (all read-only); the stalled step changes the session, so it comes after.
+await Promise.all([...[[1280, false], [390, true]].map(([w, mobile]) => asB(w, mobile)), asA()]);
+async function asB(w, mobile) {
   const ctx = await b.newContext({ viewport: { width: w, height: 860 }, isMobile: mobile, hasTouch: mobile });
   const [k, ...v] = ckB.split(";")[0].split("=");
   await ctx.addCookies([{ name: k, value: v.join("="), url: BASE }]);
@@ -39,7 +43,7 @@ for (const [w, mobile] of [[1280, false], [390, true]]) {
   const errors = [];
   p.on("pageerror", (e) => errors.push(e.message));
   await p.goto(`${BASE}/b/${board}`);
-  await p.waitForTimeout(2200);
+  await lineIn(p, m1);
   const line = (seq) => p.locator(`#e${seq} .hdl-prog`);
   const t1 = await line(m1).innerText().catch(() => "");
   check(t1.startsWith(`🤔 ${A}/worker: ${STATUS}`) && / · <1m|· \d+m/.test(t1) && !/Stalled/.test(t1), `${w}px: under the message it's on: its status and time ("${t1}")`);
@@ -50,13 +54,13 @@ for (const [w, mobile] of [[1280, false], [390, true]]) {
   await ctx.close();
 }
 // A, who can see it, gets the line under their own Just mine message.
-{
+async function asA() {
   const ctx = await b.newContext({ viewport: { width: 1280, height: 860 } });
   const [k, ...v] = ckA.split(";")[0].split("=");
   await ctx.addCookies([{ name: k, value: v.join("="), url: BASE }]);
   const p = await ctx.newPage();
   await p.goto(`${BASE}/b/${board}`);
-  await p.waitForTimeout(2200);
+  await lineIn(p, own);
   const t = await p.locator(`#e${own} .hdl-prog`).innerText().catch(() => "");
   check(t.startsWith(`🤔 ${A}/worker: ${STATUS}`), `A sees the progress under their own Just mine message ("${t}")`);
   await ctx.close();
@@ -70,12 +74,12 @@ if (quiet) {
   await ctx.addCookies([{ name: k, value: v.join("="), url: BASE }]);
   const p = await ctx.newPage();
   await p.goto(`${BASE}/b/${board}`);
-  await p.waitForTimeout(2200);
+  await p.locator(`#e${m1} .hdl-prog.stalled`).waitFor({ timeout: 10000 }).catch(() => {});
   const t = await p.locator(`#e${m1} .hdl-prog`).innerText().catch(() => "");
   check(/Stalled\? No activity for 1\dm/.test(t) && (await p.locator(`#e${m1} .hdl-prog.stalled`).count()) === 1, `a quiet session: "stalled?" ("${t}")`);
   // Releasing the marker takes the line away live.
   await api("POST", `/api/boards/${board}/handle/${m1}`, { action: "release" }, s.id);
-  await p.waitForTimeout(2500);
+  await p.locator(`#e${m1} .hdl-prog`).waitFor({ state: "detached", timeout: 10000 }).catch(() => {});
   check((await p.locator(`#e${m1} .hdl-prog`).count()) === 0, "a released marker's line goes away");
   await ctx.close();
 }
