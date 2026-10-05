@@ -291,9 +291,9 @@ describe("product success counters", () => {
     expect(counter("success", "first_agent_post")).toBe(2);
     await settleCounts();
     expect(db.prepare(`SELECT metric, key, count FROM usage_daily WHERE metric IN ('success', 'success_once') ORDER BY metric, key`).all()).toEqual([
+      { metric: "success", key: "first_agent_post", count: 2 },
       { metric: SUCCESS_ONCE_METRIC, key: "jxn", count: 1 },
       { metric: SUCCESS_ONCE_METRIC, key: "vedu", count: 1 },
-      { metric: "success", key: "first_agent_post", count: 2 },
     ]);
     const once = db.prepare(`SELECT day FROM usage_daily WHERE metric = ?`).get(SUCCESS_ONCE_METRIC) as { day: string };
     expect(once.day).toBe(SUCCESS_ONCE_DAY);
