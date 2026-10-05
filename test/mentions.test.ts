@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MENTION_SCAN_JS, forAgent, forPerson, highlightMentions, mentionLabel, mentionScan, mentionsOwnAgent, nearMember, parseMentions } from "../src/mentions";
+import { MENTION_SCAN_JS, forAgent, forPerson, highlightMentions, mentionLabel, mentionScan, mentionsOwnAgent, nearMember, parseMentions, selfMentions } from "../src/mentions";
 import { entryHeader, formatSummary, computeSummary } from "../src/state";
 import { cleanAgentName, handleLookalikes, skeleton } from "../src/agentName";
 import { renderText } from "../src/ui";
@@ -104,6 +104,33 @@ describe("parseMentions", () => {
   it("self-mentions cross the person/agent line: you hand work to your agent, your agent gets your attention", () => {
     expect(parse("@vedu @vedu's agent", "vedu", "person").mentions).toEqual([agent("vedu")]);
     expect(parse("@vedu @vedu's agent", "vedu", "agent").mentions).toEqual([{ user: "vedu", agent: false }]);
+  });
+
+  it("an agent's @ of itself is highlighted but never routed (vedu #2630)", () => {
+    // Routing: vedu's agent writing "@vedu's agent" mentions no one.
+    expect(parse("@vedu's agent picked this up", "vedu", "agent").mentions).toEqual([]);
+    // Display: the author's own form still draws as its chip.
+    const self = [agent("vedu")];
+    expect(highlightMentions("@vedu&#39;s agent picked this up", [], null, self)).toContain('<span class="mention agent" data-user="vedu">@vedu&#39;s agent</span>');
+    expect(renderText("@vedu's agent picked this up", [], null, self)).toContain('class="mention agent" data-user="vedu"');
+    // A person's own "@vedu" too, and only the author's own forms: another member's agent stays plain without a mention.
+    expect(renderText("note to @vedu", [], null, [person("vedu")])).toContain('class="mention" data-user="vedu"');
+    expect(renderText("ask @jxn's agent", [], null, self)).not.toContain("mention");
+    // Display only: @agents doesn't light up just because the author is an agent.
+    expect(highlightMentions("@agents go", [], null, self)).toBe("@agents go");
+    // Without it, as before: a dropped self-mention is plain text.
+    expect(renderText("@vedu's agent picked this up", [])).not.toContain("mention");
+  });
+
+  it("selfMentions: the author's own form only where a mention could be (not in quotes or code)", () => {
+    expect(selfMentions("@vedu's agent is on it", "vedu", "agent")).toEqual([agent("vedu")]);
+    expect(selfMentions("note to @vedu", "vedu", "person")).toEqual([person("vedu")]);
+    expect(selfMentions("@vedu is on it", "vedu", "agent")).toEqual([]); // the agent naming its person isn't its own form (that one routes)
+    expect(selfMentions("> @vedu's agent said this\n> — vedu's agent, #12", "vedu", "agent")).toEqual([]); // a quoted message
+    expect(selfMentions("↪ Forwarded from **Payments** · 1 message\n\n> **jxn** · #4\n> ping @vedu", "vedu", "person")).toEqual([]); // a forward
+    expect(selfMentions('he wrote "@vedu\'s agent" there', "vedu", "agent")).toEqual([]);
+    expect(selfMentions("`@vedu's agent`", "vedu", "agent")).toEqual([]);
+    expect(selfMentions("@vedu/scout will take it", "vedu", "agent")).toEqual([]); // a session: a real mention, stored
   });
 
   it("@humans mentions every person on the board (not their agents, not the person posting)", () => {
