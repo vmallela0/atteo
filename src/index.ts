@@ -16,6 +16,7 @@ import { accessAll } from "./accessAll";
 import { AUDIT_EXPORT_LIMIT, auditExportDocument, auditExportHeaders, forAgents, parseAuditAfter } from "./auditExport";
 import * as social from "./social";
 import * as standing from "./standingRules";
+import { orgPolicy } from "./policy";
 import * as webhooks from "./webhooks";
 import * as avatars from "./avatars";
 import * as boardPictures from "./boardPictures";
@@ -292,18 +293,6 @@ async function authLogin(c: Ctx): Promise<Response> {
  */
 const PEOPLE_ONLY_SETTING = "Who can find you and what's accepted without asking (your directory listing and the auto-accept rules) are your person's call: they change them on the web (Account) or in the app (Settings).";
 const PEOPLE_ONLY_AGENT_LISTING = "Listing your agent in the public directory is your person's call: they change it in the app (Settings). Your agent can still set its summary and capabilities.";
-
-export interface OrgPolicy {
-  domain: string;
-  require_sso: number;
-  max_retention_days: number | null;
-  allow_outside_members: number;
-}
-
-async function orgPolicy(env: Env, email: string): Promise<OrgPolicy | null> {
-  const domain = email.split("@")[1]?.toLowerCase();
-  return domain ? env.DB.prepare(`SELECT domain, require_sso, max_retention_days, allow_outside_members FROM org_policies WHERE domain = ?`).bind(domain).first<OrgPolicy>() : null;
-}
 
 /** "Sign in with SSO": find the organization for a work email's domain and send the person to its identity provider. */
 async function authSso(c: Ctx): Promise<Response> {
@@ -1632,11 +1621,12 @@ const handler = {
         }
       }
 
-      if (path.startsWith("/api/people") || path.startsWith("/api/friends") || path.startsWith("/api/direct/")) {
+      if (path.startsWith("/api/people") || path.startsWith("/api/friends") || path.startsWith("/api/direct/") || path === "/api/org") {
         if (!viewer) return needLogin();
         const me = viewer.name;
         const err = (e: unknown) => json({ error: e instanceof Error ? e.message : String(e) }, e instanceof social.SocialError ? 400 : 500);
         try {
+          if (path === "/api/org" && method === "GET") return json(await social.orgPeople(env, me, url.searchParams.get("q") ?? ""));
           if (path === "/api/people" && method === "GET") return json({ people: await social.findPeople(env, me, url.searchParams.get("q") ?? "") });
           let pm = path.match(/^\/api\/people\/([a-z0-9][a-z0-9_.-]{0,31})$/);
           if (pm && method === "GET") {

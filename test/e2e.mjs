@@ -3942,6 +3942,48 @@ await step("SSO and organization policies: SSO entry point, retention cap and in
   await setPol({ domain: dom, delete: true });
 });
 
+await step("organization directory: list members by email-domain policy", async () => {
+  const dom = `e2e-orgdir-${run}.test`;
+  const setPol = (b) => fetch(`${BASE}/api/ops/policies`, { method: "POST", headers: { "x-admin-key": ADMIN_KEY, "content-type": "application/json" }, body: JSON.stringify(b) });
+  assert((await setPol({ domain: dom })).status === 200, "policy saved");
+  const O1 = `e2e-org1-${run}`;
+  const O2 = `e2e-org2-${run}`;
+  const UN = `e2e-orgunv-${run}`;
+  const OUTU = `e2e-orgout-${run}`;
+  await makeUsers([
+    { name: O1, email: `${O1}@${dom}` },
+    { name: O2, email: `${O2}@${dom}` },
+    { name: UN, email: `${UN}@${dom}`, verified: "false" },
+    { name: OUTU, email: `${OUTU}@e2e-orgout-${run}.test` },
+  ]);
+  const getOrg = async (who, q = "") => {
+    const r = await fetch(`${BASE}/api/org${q ? `?q=${encodeURIComponent(q)}` : ""}`, { headers: { authorization: `Bearer ${tok[who]}` } });
+    return { status: r.status, body: await r.json() };
+  };
+  const listed = await getOrg(O1);
+  assert((await fetch(`${BASE}/api/org`)).status === 401, "sign in required");
+  assert(listed.status === 200 && listed.body.domain === dom, JSON.stringify(listed));
+  const names = listed.body.people.map((p) => p.name);
+  assert(names.includes(O1) && names.includes(O2) && !names.includes(UN) && !names.includes(OUTU), JSON.stringify(names));
+  const dump = JSON.stringify(listed.body);
+  assert(!dump.includes(`${O1}@`) && !dump.includes(`${O2}@`) && !listed.body.people.some((p) => "email" in p), dump);
+  const outsider = await getOrg(OUTU);
+  assert(outsider.status === 200 && outsider.body.domain === null && outsider.body.people.length === 0, JSON.stringify(outsider));
+  const q = await getOrg(O1, O2.slice(0, 8));
+  assert(q.body.people.length === 1 && q.body.people[0].name === O2, JSON.stringify(q));
+  const search = await (await fetch(`${BASE}/api/people?q=${O2.slice(0, 8)}`, { headers: { authorization: `Bearer ${tok[O1]}` } })).json();
+  assert(search.people.some((p) => p.name === O2), JSON.stringify(search));
+  const stranger = await (await fetch(`${BASE}/api/people?q=${O2.slice(0, 8)}`, { headers: { authorization: `Bearer ${tok[OUTU]}` } })).json();
+  assert(!stranger.people.some((p) => p.name === O2), JSON.stringify(stranger));
+  const sa = await session(O1);
+  has(await sok(sa, "people", { action: "org" }), O2);
+  has(await sok(sa, "people", { action: "org" }), dom);
+  assert(!(await sok(sa, "people", { action: "org" })).includes(`${O2}@`), "MCP org list has no emails");
+  const sb = await session(OUTU);
+  has(await sok(sb, "people", { action: "org" }), "isn't in an organization directory");
+  await setPol({ domain: dom, delete: true });
+});
+
 await step("rename and archive: creator only; archived boards are read-only and listed separately; restore works", async () => {
   const id = (await ops("boards", { user: A, title: `e2e arch ${run}` })).body.board.id;
   await ops("members", { board: id, user: B });

@@ -2,11 +2,15 @@
 // on a private board for two friends. Being friends never grants access to other boards (consent doesn't cascade).
 
 import { addMember, recordBoard } from "./registry";
+import { orgDomainOf } from "./policy";
 import { applies } from "./standingRules";
 import { noteFriendAccepted, type Later } from "./observe";
 import { EMOJI_RE, newBoardId, offBoardSeq, proseForAgent } from "./util";
 import { AgentNameError, cleanAgentName, handleLookalikes, skeleton } from "./agentName";
 import type { Env } from "./types";
+
+/** Cap for GET /api/org: a first slice, not a paged directory. */
+export const ORG_DIRECTORY_LIMIT = 100;
 
 export const FRIEND_REQUESTS_PER_DAY = 20;
 const ONLINE_MS = 3 * 60 * 1000; // a browser or agent active this recently counts as online
@@ -95,13 +99,16 @@ export async function relationOf(env: Env, me: string, other: string): Promise<{
 }
 
 /**
- * Who you can find: anyone by their exact handle, plus friends and people you share a board with by partial name.
+ * Who you can find: anyone by their exact handle, plus friends, people you share a board with, listed people,
+ * and (when an operator has set an org policy for your verified email domain) people at that domain, by partial name.
  * Someone who blocked you doesn't show up.
  */
 export async function findPeople(env: Env, me: string, query: string): Promise<Person[]> {
   const q = query.trim().toLowerCase().replace(/^@/, "").slice(0, 40);
   if (!q) return [];
   const like = `%${q.replace(/[\\%_]/g, (c) => "\\" + c)}%`;
+  const domain = await orgDomainOf(env, me);
+  const orgSql = domain ? ` OR (u.email_verified = 1 AND u.email IS NOT NULL AND lower(substr(u.email, instr(u.email, '@') + 1)) = ?4)` : "";
   const rows = (
     await env.DB.prepare(
       `SELECT u.name, u.display_name, u.bio, u.agent_name FROM users u
@@ -109,13 +116,39 @@ export async function findPeople(env: Env, me: string, query: string): Promise<P
           OR ((u.name LIKE ?2 ESCAPE '\\' OR lower(u.display_name) LIKE ?2 ESCAPE '\\') AND (
                 EXISTS (SELECT 1 FROM members m1 JOIN members m2 ON m1.board_id = m2.board_id WHERE m1.user = ?3 AND m2.user = u.name)
              OR EXISTS (SELECT 1 FROM friendships f WHERE f.status = 'accepted' AND ((f.a = ?3 AND f.b = u.name) OR (f.b = ?3 AND f.a = u.name)))
-             OR u.listed = 1))
+             OR u.listed = 1${orgSql}))
        ORDER BY (u.name = ?1) DESC, u.name LIMIT 20`,
     )
-      .bind(q, like, me)
+      .bind(...(domain ? [q, like, me, domain] : [q, like, me]))
       .all<{ name: string; display_name: string | null; bio: string | null; agent_name: string | null }>()
   ).results;
   return describe(env, me, rows);
+}
+
+/**
+ * People at `me`'s organization: the same verified email domain, only when that domain has an org_policies row.
+ * Handles and presence only — never emails. `domain` is null when the caller isn't in an organization.
+ */
+export async function orgPeople(env: Env, me: string, query = ""): Promise<{ domain: string | null; people: Person[] }> {
+  const domain = await orgDomainOf(env, me);
+  if (!domain) return { domain: null, people: [] };
+  const q = query.trim().toLowerCase().replace(/^@/, "").slice(0, 40);
+  const like = q ? `%${q.replace(/[\\%_]/g, (c) => "\\" + c)}%` : null;
+  const rows = (
+    like
+      ? await env.DB.prepare(
+          `SELECT name, display_name, bio, agent_name FROM users
+           WHERE email_verified = 1 AND email IS NOT NULL AND lower(substr(email, instr(email, '@') + 1)) = ?
+             AND (name LIKE ? ESCAPE '\\' OR lower(display_name) LIKE ? ESCAPE '\\' OR name = ?)
+           ORDER BY name LIMIT ?`,
+        ).bind(domain, like, like, q, ORG_DIRECTORY_LIMIT).all<{ name: string; display_name: string | null; bio: string | null; agent_name: string | null }>()
+      : await env.DB.prepare(
+          `SELECT name, display_name, bio, agent_name FROM users
+           WHERE email_verified = 1 AND email IS NOT NULL AND lower(substr(email, instr(email, '@') + 1)) = ?
+           ORDER BY name LIMIT ?`,
+        ).bind(domain, ORG_DIRECTORY_LIMIT).all<{ name: string; display_name: string | null; bio: string | null; agent_name: string | null }>()
+  ).results;
+  return { domain, people: await describe(env, me, rows) };
 }
 
 async function describe(env: Env, me: string, rows: { name: string; display_name: string | null; bio: string | null; agent_name?: string | null }[]): Promise<Person[]> {

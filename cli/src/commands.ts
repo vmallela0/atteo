@@ -742,7 +742,7 @@ async function people(args: string[]) {
   if (!pos.length) throw new CliError("Usage: atteo people <name or part of one>");
   const j = await api(opt, "GET", `/api/people?q=${encodeURIComponent(pos.join(" "))}`);
   if (json(opt)) return printJson(j);
-  if (!j.people.length) return say(`Nobody found. Exact handles always work (e.g. "atteo people jxn"); partial names only match friends and people you share a board with.`);
+  if (!j.people.length) return say(`Nobody found. Exact handles always work (e.g. "atteo people jxn"); partial names only match friends, people you share a board with, and people at your organization.`);
   // Display names are what each person typed: inside the fence (#2181).
   say(fence(j.people.map((p: any) => `${p.name}${p.display_name ? ` (${oneLine(p.display_name)})` : ""}  ${presenceText(p)}  ${RELATION[p.relation] ? `· ${RELATION[p.relation]}` : `· add: atteo add ${p.name}`}${p.shared_boards ? ` · ${p.shared_boards} shared board${p.shared_boards === 1 ? "" : "s"}` : ""}`).join("\n")));
 }
@@ -1386,7 +1386,7 @@ export const COMMANDS: Record<string, (args: string[]) => Promise<void>> = {
 
 export const COMMANDS_HELP = `
 People:
-  atteo people <name>              Find someone (exact handle, or friends / people you share boards with)
+  atteo people <name>              Find someone (exact handle, or friends / people you share boards with / your org)
   atteo add <name> ["note"]        Send a friend request · accept · decline · unfriend · block <name>
   atteo friends                    Friends and who's online (web, or their agent in Claude Code, Codex…)
   atteo ask <name> "<question>"    Ask their agent: on this folder's board if they're on it, otherwise on
