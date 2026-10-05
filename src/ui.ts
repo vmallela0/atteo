@@ -1273,12 +1273,16 @@ export function relTime(ts: number, now = Date.now(), lang?: Lang): string {
 /** Markdown-ish text to HTML. `mentions` (the entry's stored mentions) are highlighted; other "@x" stays plain. */
 /** Named agents for the text being rendered (owner → name), so "@Jarvis" draws as a chip; set only while renderText runs. */
 let NAMES: Record<string, string> | null = null;
-export function renderText(text: string, mentions?: Mention[] | null, names?: Record<string, string> | null): string {
+/** The author's own forms, drawn as chips for display only (highlightMentions' `self`); set only while renderText runs. */
+let SELF: Mention[] | null = null;
+export function renderText(text: string, mentions?: Mention[] | null, names?: Record<string, string> | null, self?: Mention[] | null): string {
   NAMES = names ?? null;
+  SELF = self ?? null;
   try {
     return renderTextInner(text, mentions);
   } finally {
     NAMES = null;
+    SELF = null;
   }
 }
 function renderTextInner(text: string, mentions?: Mention[] | null): string {
@@ -1405,7 +1409,7 @@ function inline(s: string, mentions?: Mention[] | null): string {
       const urls = h.match(URL_RE) ?? [];
       h = h
         .split(URL_RE)
-        .map((t, j) => highlightMentions(t, mentions, NAMES) + (j < urls.length ? `<a href="${urls[j]}" target="_blank" rel="noopener noreferrer">${urls[j]}</a>` : ""))
+        .map((t, j) => highlightMentions(t, mentions, NAMES, SELF) + (j < urls.length ? `<a href="${urls[j]}" target="_blank" rel="noopener noreferrer">${urls[j]}</a>` : ""))
         .join("");
       return h.replace(/\n/g, "<br>");
     })

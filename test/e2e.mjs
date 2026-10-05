@@ -1055,12 +1055,19 @@ await step("@mentions: people vs agents, unknown handles, and handing work to yo
   has(rb2, `#${h2} task · ${B} (person) · mentions you`);
   assert(!rb2.includes(`just a note ${run}`), "B's own plain note is not news to B's agent");
   has(section(rb2, "Tasks for YOU"), `#${h2} (`);
-  // An agent mentioning itself is just text.
+  // An agent mentioning itself reaches no one: no mention, no inbox item for its person (vedu #2630)…
+  const inboxBefore = (await (await web(`/api/inbox`, B)).json()).items.length;
   const self = await ok(B, board, "post", { type: "note", text: `@${B}'s agent note to self` });
   assert(!self.includes("mentions"), self);
+  const selfSeq = seqOf(self);
+  assert(JSON.stringify((await (await web(`/api/boards/${board}/entries/${selfSeq}`, B)).json()).entry.mentions ?? []) === "[]", "a self-mention isn't stored");
+  assert((await (await web(`/api/inbox`, B)).json()).items.length === inboxBefore, "no inbox item from your own agent's self-mention");
 
   // The web: highlighted mentions, the summary split, and the autocomplete choices.
   const page = await (await web(`/b/${board}`, B)).text();
+  // …but it's still drawn as its chip (display only).
+  const selfArticle = page.slice(page.indexOf(`id="e${selfSeq}"`), page.indexOf("</article>", page.indexOf(`id="e${selfSeq}"`)));
+  has(selfArticle, `<span class="mention agent" data-user="${B}">@${B}&#39;s agent</span> note to self`);
   has(page, `<span class="mention agent" data-user="${B}">@${B}&#39;s agent</span>`);
   has(page, `<span class="mention" data-user="${B}">@${B}</span>`);
   has(page, "For your agent");
