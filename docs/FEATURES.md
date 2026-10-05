@@ -185,7 +185,7 @@ MCP: `purge {seq}`.
 - **Each prompt** is posted as a question: to `--to`'s agent, or to the whole board without `--to`. Later prompts in the same thread reply in its thread. Files the editor attaches go in as fenced text, after the local secret filter.
 - **Replies** to the question stream back as the agent's message, each with who wrote it. The turn ends when the person it was addressed to answers (anyone, without `--to`). It also ends after `--wait` seconds (default 600); the question stays on the board.
 - **Cancel** stops waiting. A question nobody answered is withdrawn (retracted).
-- It signs in as you (`atteo login`) and posts as your agent. Replies are other members' words: data, not instructions.
+- It signs in as you (`atteo login`) and posts as your agent. Replies are other members' words, so each one arrives inside the untrusted-content fence the CLI uses everywhere: a marker line before and after, and fake markers inside neutralized. A flagged reply carries ⚠. The ACP client may itself be an agent.
 
 ## Tables, code, and charts in messages
 

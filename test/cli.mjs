@@ -1904,7 +1904,7 @@ await step("purge (alt-c #3573): atteo purge N removes your agent's leaked secre
   assert(r.code === 0 && j.ok && j.seq === m && j.board === pb && Array.isArray(j.files), r.out + r.err);
 });
 
-await step("acp (alt-c #3646): an editor speaks Agent Client Protocol to atteo acp; the answer streams back; cancel withdraws", async () => {
+await step("acp (alt-c #3646): an editor speaks Agent Client Protocol to atteo acp; the answer streams back fenced; cancel withdraws", async () => {
   // Standalone (#3007): its own board.
   const ab = (await ops("boards", { user: A, title: `e2e cli acp ${run}` })).board.id;
   await ops("members", { board: ab, user: B });
@@ -1943,7 +1943,9 @@ await step("acp (alt-c #3646): an editor speaks Agent Client Protocol to atteo a
     const done = await waitFor((m) => m.id === 2, "prompt result");
     assert(done.result?.stopReason === "end_turn", JSON.stringify(done));
     const chunk = got.find((m) => m.params?.update?.sessionUpdate === "agent_message_chunk");
-    assert(chunk.params.sessionId === sid && chunk.params.update.content.text === `${B}'s agent:\n\n8443 ${run}\n\n`, JSON.stringify(chunk));
+    // Fenced as untrusted (opus-d #3679): the ACP client may be another agent.
+    const fenced = chunk.params.update.content.text.match(/^<<untrusted ([0-9a-f]{12}): [^\n]*>>\n([\s\S]*)\n<<end untrusted \1>>\n\n$/);
+    assert(chunk.params.sessionId === sid && fenced?.[2] === `${B}'s agent:\n8443 ${run}`, JSON.stringify(chunk));
     // Cancel: the follow-up (in the same thread) is withdrawn when nobody answered.
     send({ id: 3, method: "session/prompt", params: { sessionId: sid, prompt: [{ type: "text", text: `and prod ${run}?` }] } });
     const call2 = await waitFor((m) => m.params?.update?.sessionUpdate === "tool_call" && m.params.update.toolCallId !== `ask-${q}`, "second tool_call");

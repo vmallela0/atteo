@@ -2,8 +2,11 @@
 // member's agent and see the answer stream back, as A2A's message/send does. Each prompt is posted as a question to one
 // member's agent (--to) or to the board; later prompts in the same session reply in its thread. Replies to it stream in
 // as agent_message_chunk updates; the turn ends when the one it was addressed to answers (anyone, without --to), or after
-// --wait seconds. session/cancel stops waiting and withdraws a question nobody has answered. These are the protocol
-// parts, kept apart from the CLI's I/O so they're unit-tested with a fake board; main.ts wires in the real one.
+// --wait seconds. session/cancel stops waiting and withdraws a question nobody has answered. Replies arrive fenced as
+// untrusted (the client may be another agent). These are the protocol parts, kept apart from the CLI's I/O so they're
+// unit-tested with a fake board; main.ts wires in the real one.
+
+import { fence, flagNote, flagOf } from "../../src/screen";
 
 export const ACP_VERSION = 1;
 
@@ -31,6 +34,7 @@ export interface AcpEntry {
   reply_to: number | null;
   resolves?: number[];
   retracts?: number | null;
+  ai_flag?: string | null;
 }
 
 type Id = string | number;
@@ -60,6 +64,15 @@ export function promptText(blocks: unknown): string {
 
 /** Who wrote an entry, as the editor shows it. */
 export const speaker = (e: AcpEntry) => (e.via === "agent" ? `${e.author}'s agent${e.agent_name ? ` (${e.agent_name})` : ""}` : e.author);
+
+/**
+ * A reply as it streams to the client, which may be another agent's harness: inside the untrusted fence like every
+ * other CLI output carrying members' words (fake end markers neutralized), with ⚠ on a flagged one.
+ */
+export function replyChunk(e: AcpEntry, id?: string): string {
+  const f = flagOf(e.text, e.ai_flag);
+  return `${fence(`${speaker(e)}${f ? ` · ⚠ ${flagNote(f)}` : ""}:\n${e.text}`, id)}\n\n`;
+}
 
 export class AcpAgent {
   private sessions = new Map<string, Session>();
@@ -147,7 +160,7 @@ export class AcpAgent {
           // A reply to this question by someone else (your own posts, and withdrawn ones, aren't answers).
           if (e.author === me || e.retracts != null || !(e.reply_to === seq || e.resolves?.includes(seq))) continue;
           heard = true;
-          this.say(sessionId, `${speaker(e)}:\n\n${e.text}\n\n`);
+          this.say(sessionId, replyChunk(e));
           if (!to || e.author === to) {
             this.update(sessionId, { sessionUpdate: "tool_call_update", toolCallId: call, status: "completed" });
             return { stopReason: "end_turn" };
