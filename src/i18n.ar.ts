@@ -359,6 +359,7 @@ export const AR: Record<string, string> = {
   "Low risk": "مخاطرة منخفضة",
   "Manage": "إدارة",
   "Manage billing": "إدارة الفوترة",
+  "Mark as unread": "وضع علامة كغير مقروء",
   "Mark all read": "وضع علامة مقروء على الكل",
   "Mark answered": "وضع علامة تمت الإجابة",
   "Mark answered: {title}": "وضع علامة تمت الإجابة: {title}",

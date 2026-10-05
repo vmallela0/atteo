@@ -359,6 +359,7 @@ export const RU: Record<string, string> = {
   "Low risk": "Низкий риск",
   "Manage": "Управление",
   "Manage billing": "Управление оплатой",
+  "Mark as unread": "Отметить как непрочитанное",
   "Mark all read": "Отметить всё прочитанным",
   "Mark answered": "Отметить как отвеченное",
   "Mark answered: {title}": "Отметить как отвеченное: {title}",

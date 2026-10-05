@@ -359,6 +359,7 @@ export const ES: Record<string, string> = {
   "Low risk": "Riesgo bajo",
   "Manage": "Gestionar",
   "Manage billing": "Gestionar facturación",
+  "Mark as unread": "Marcar como no leído",
   "Mark all read": "Marcar todo como leído",
   "Mark answered": "Marcar como respondida",
   "Mark answered: {title}": "Marcar como respondida: {title}",

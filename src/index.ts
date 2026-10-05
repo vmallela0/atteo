@@ -1530,9 +1530,24 @@ const handler = {
         return json({ ok: true, message: `Deleted "${board.title}".` });
       }
 
+      // A personal bookmark: no post, mail, or push is sent to anyone.
+      m = path.match(/^\/api\/boards\/([^/]+)\/unread$/);
+      if (m && method === "POST") {
+        if (!viewer) return needLogin();
+        if (viewer.via === "agent") return json({ error: "Only people can mark a board unread." }, 403);
+        if (!(await registry.isMember(env, m[1], viewer.name))) return json({ error: "board not found" }, 404);
+        const seq = await boardStub(env, m[1]).markUnread(viewer.name);
+        if (!seq) return json({ error: "This board has no entries." }, 409);
+        await env.DB.prepare(`INSERT INTO notifications (user, board_id, seq, kind, actor, actor_via, entry_type, excerpt, created_at, read_at)
+          VALUES (?, ?, 0, 'manual_unread', ?, 'person', 'note', '', ?, NULL)
+          ON CONFLICT(user, board_id, seq) DO UPDATE SET read_at = NULL`)
+          .bind(viewer.name, m[1], viewer.name, Date.now()).run();
+        return json({ ok: true, seq, unread: 1 });
+      }
+
       // ---- access: viewers can read but not change anything on a board ----
       m = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/(.+)$/);
-      if (m && method !== "GET" && viewer && !hasOpsKey(c) && !/^members\/[^/]+\/remove$/.test(m[2]) && m[2] !== "ws" && m[2] !== "seen") { // read receipts aren't changes
+      if (m && method !== "GET" && viewer && !hasOpsKey(c) && !/^members\/[^/]+\/remove$/.test(m[2]) && m[2] !== "ws" && m[2] !== "seen" && m[2] !== "unread") { // read receipts aren't changes
         if ((await registry.memberRole(env, m[1], viewer.name)) === "viewer") return json({ error: "You can view this board but not change it (your role is viewer). Ask an owner for contributor access." }, 403);
       }
 

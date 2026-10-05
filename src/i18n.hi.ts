@@ -359,6 +359,7 @@ export const HI: Record<string, string> = {
   "Low risk": "कम जोखिम",
   "Manage": "प्रबंधित करें",
   "Manage billing": "बिलिंग प्रबंधित करें",
+  "Mark as unread": "अपठित के रूप में चिह्नित करें",
   "Mark all read": "सब पढ़ा हुआ चिह्नित करें",
   "Mark answered": "जवाब दिया गया चिह्नित करें",
   "Mark answered: {title}": "जवाब दिया गया चिह्नित करें: {title}",

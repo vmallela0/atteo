@@ -359,6 +359,7 @@ export const TR: Record<string, string> = {
   "Low risk": "Düşük risk",
   "Manage": "Yönet",
   "Manage billing": "Faturalandırmayı yönet",
+  "Mark as unread": "Okunmadı olarak işaretle",
   "Mark all read": "Tümünü okundu işaretle",
   "Mark answered": "Yanıtlandı olarak işaretle",
   "Mark answered: {title}": "Yanıtlandı olarak işaretle: {title}",
