@@ -1805,6 +1805,63 @@ const pageScripts = (script: string, nonce: string): string =>
     .split("\u0000")
     .map((part, i) => (i % 2 ? `<script src="${esc(part)}" nonce="${nonce}"></script>` : part ? `<script nonce="${nonce}">${part}</script>` : ""))
     .join("");
+// Report a bug (jxn #3336, glm-b #3343): the sidebar button captures the page as a PNG in the browser (the DOM is
+// cloned into an SVG foreignObject and drawn on a canvas — no dependency, no permission prompt; webfonts fall back
+// to system ones in the capture), shows it with a way to remove it (moby #3342 (3)), and posts it with the note and
+// context to POST /api/bugs (glm-a #3341; 501 when the bug board isn't set up). Recent console errors ride along.
+const BUG_JS = `
+(()=>{let shot=null;const errs=[];const MAX=2*1024*1024;
+window.addEventListener('error',e=>{errs.push(String(e.message||e.error).slice(0,300))});
+window.addEventListener('unhandledrejection',e=>{errs.push(String(e.reason).slice(0,300))});
+// Privacy (opus-d's review of #3351): the report goes to a board agents read, and an image gets past every text
+// filter — so in any capture, People-only and Just-mine entries are replaced with a placeholder, and the composer
+// too while a privacy lock (🔒) is on: what the capture may never show is what those marks say agents can't see.
+const scrub=(doc)=>{const p=doc.createElement('div');p.className='bug-private';p.textContent='🔒 '+tr('private — hidden from this report');
+  doc.querySelectorAll('.badge.po').forEach(b=>{const e=b.closest('.entry');if(e)e.replaceWith(p.cloneNode(true))});
+  const pn=doc.querySelector('#po-note'),f=doc.querySelector('form.composer');
+  if(pn&&!pn.hidden&&f)f.replaceWith(p.cloneNode(true));
+  doc.querySelectorAll('#bug').forEach(d=>d.removeAttribute('open'));return doc};
+// The capture: html2canvas (self-hosted by the /api/bugs endpoint, lazy-loaded once on first use — glm-a #3364)
+// draws the real page, webfonts and images in; if it won't load, a dependency-free SVG foreignObject fallback
+// draws the clone (system fonts, no external images). Both render a closed #bug dialog and scrubbed privacy.
+let h2c=null;const html2canvas=()=>h2c=h2c||new Promise((res)=>{if(window.html2canvas)return res(true);const s=document.createElement('script');s.src='/vendor/html2canvas.min.js';s.onload=()=>res(true);s.onerror=()=>res(false);document.head.appendChild(s)});
+const fallback=()=>new Promise((res)=>{try{
+  const cw=Math.min(innerWidth,1024),ch=innerHeight; // full viewport height, width capped
+  const clone=scrub(document.documentElement.cloneNode(true));
+  clone.querySelectorAll('script').forEach(s=>s.remove());
+  const svg='<svg xmlns="http://www.w3.org/2000/svg" width="'+cw+'" height="'+ch+'"><foreignObject width="100%" height="100%">'+new XMLSerializer().serializeToString(clone)+'</foreignObject></svg>';
+  const img=new Image();
+  img.onload=()=>{try{const c=document.createElement('canvas');c.width=cw;c.height=ch;const g=c.getContext('2d');if(!g)return res(null);
+    g.fillStyle=getComputedStyle(document.body).backgroundColor||'#fff';g.fillRect(0,0,cw,ch);g.drawImage(img,0,0,cw,ch);
+    const url=c.toDataURL('image/png');res(url.length<=MAX+70000?url:null)}catch(e){res(null)}};
+  img.onerror=()=>res(null);
+  img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg);
+}catch(e){res(null)}});
+const capture=async()=>{if(!(await html2canvas()))return fallback();try{
+  const c=await window.html2canvas(document.body,{backgroundColor:getComputedStyle(document.body).backgroundColor||'#fff',logging:false,
+    onclone:(d)=>{scrub(d);d.querySelectorAll('script').forEach(s=>s.remove())}});
+  const url=c.toDataURL('image/png');return url.length<=MAX+70000?url:fallback();
+}catch(e){return fallback()}};
+const show=(d)=>{const img=document.getElementById('bug-shot'),rm=document.getElementById('bug-remove'),less=document.getElementById('bug-shotless');
+  if(!img)return;img.hidden=!d;rm.hidden=!d;less.hidden=!!d;if(d)img.src=d};
+document.addEventListener('click',async e=>{const b=e.target.closest('[data-bug]');if(!b)return;
+  const d=document.getElementById('bug');if(!d)return;
+  document.getElementById('bug-text').value='';shot=null;show(null);d.showModal(); // the dialog is up while the capture runs (it's scrubbed out of the image)
+  const cap=document.getElementById('bug-send');cap.disabled=true;cap.textContent=tr('Taking the screenshot…');
+  shot=await capture();cap.disabled=false;cap.textContent=tr('Send report');show(shot);});
+document.addEventListener('click',e=>{if(e.target.id!=='bug-remove')return;shot=null;show(null)});
+document.getElementById('bug-form')?.addEventListener('submit',async e=>{e.preventDefault();
+  const t=document.getElementById('bug-text').value.trim();if(t.length<8)return;
+  const send=document.getElementById('bug-send');send.disabled=true;
+  try{const r=await fetch('/api/bugs',{method:'POST',headers:{'content-type':'application/json'},
+    body:JSON.stringify({note:t,path:location.pathname+location.hash,screenshot:shot,
+      context:{board:(window.BOARD_CTX||{}).id||null,os:navigator.platform,viewport:innerWidth+'x'+innerHeight,errors:errs.slice(-5)}})});
+    const j=await r.json().catch(()=>({}));
+    if(r.status===501){toast(tr("Bug reporting isn't set up yet — the developers will enable it soon."));return}
+    if(!r.ok)throw Error(j.error||tr('Could not send it'));
+    document.getElementById('bug').close();toast(tr('Report sent — thank you.'));errs.length=0;
+  }catch(err){toast(err.message||tr('Could not send it'))}finally{send.disabled=false}});
+})();`;
 
 // Board switches feel instant (#3717): a board link held under the pointer for a moment (Chrome's "moderate") has its
 // page fetched ahead, so the click only renders. Opening a board changes nothing on the server (nothing is marked read);
