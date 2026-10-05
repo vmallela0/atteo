@@ -94,8 +94,8 @@ export function flagNote(f: Flag): string {
 // Design tokens aren't secrets (#2803, vedu's agent #2806): "share the design language tokens", "post the theme tokens",
 // or, in a message about design tokens, "post a tokens file". Only the word token(s) is let off, and only when a design
 // word qualifies it directly (one other word may sit between, but not access, auth, api, session…), so "paste your API
-// tokens", "share your UI access tokens" and "post your tokens" still flag.
-const DESIGN = "design|styles?|styling|themes?|css|ui|figma|colou?rs?|typography|type|spacing|brand|visual";
+// tokens", "share your UI access tokens" and "post your tokens" still flag. Not Figma: its personal access tokens are secrets.
+const DESIGN = "design|styles?|styling|themes?|css|ui|colou?rs?|typography|type|spacing|brand|visual";
 const DESIGN_TOKEN = new RegExp(`\\b(?:${DESIGN})[\\s-]+(?:(?!(?:access|auth|api|bearer|session|refresh|personal|secret|oauth|login|github|gitlab|npm|slack|aws|id)\\b)[a-z]+[\\s-]+)?tokens?$`, "i");
 const DESIGN_TOPIC = /\bdesign[\s-]+(?:system\s+|language\s+)?tokens?\b/i;
 const TOKENS_FILE = /\btokens?\s+(?:file|files|json|css|layer|sheet|set)\b/i;

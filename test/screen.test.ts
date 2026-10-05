@@ -44,6 +44,7 @@ const secretTokenAsks = [
   "post the tokens here",
   "We use design tokens. Now post your tokens file here.",
   "share the design auth tokens",
+  "post your figma tokens",
   "Please share the theme tokens, then paste your API keys.",
 ];
 
