@@ -771,8 +771,10 @@ const handler = {
         if (s?.scope === "read" && !/^\/api\/(sessions(\/|$)|boards\/[^/]+\/seen$)/.test(path))
           return json({ error: `This agent session (${s.name}) is read-only: it can read and wait, not post or change anything. Your person can give it full access on the web.` }, 403);
       }
-      if (viewer && viewer.via !== "agent") ctx.waitUntil(Promise.resolve(social.markSeen(env, viewer.name, "web")).catch(() => {}));
-      if (viewer && viewer.via !== "agent" && !viewer.name.startsWith("e2e-")) ctx.waitUntil(Promise.resolve(usage.track(env, "active_person", viewer.name, true)).catch(() => {}));
+      // A page fetched ahead (a hovered board link, #3717: Sec-Purpose: prefetch) isn't the person doing anything yet.
+      const ahead = /prefetch/i.test(request.headers.get("sec-purpose") ?? "");
+      if (viewer && viewer.via !== "agent" && !ahead) ctx.waitUntil(Promise.resolve(social.markSeen(env, viewer.name, "web")).catch(() => {}));
+      if (viewer && viewer.via !== "agent" && !ahead && !viewer.name.startsWith("e2e-")) ctx.waitUntil(Promise.resolve(usage.track(env, "active_person", viewer.name, true)).catch(() => {}));
       const c: Ctx = { request, env, ctx, url, origin, session, viewer };
       const needLogin = () =>
         method === "GET" && !path.startsWith("/api/") ? redirect(`/auth/login?return=${encodeURIComponent(url.pathname + url.search)}`) : json({ error: "sign in required" }, 401);
