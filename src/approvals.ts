@@ -3,7 +3,7 @@
 // an agent from acting; this gives every agent a standard, visible way to ask and wait, and gives people one queue.
 
 import { randomSecret } from "./auth";
-import { egressRefusal, type Later } from "./observe";
+import { egressRefusal, noteApprovalDecision, noteApprovalRequested, type Later } from "./observe";
 import type { ApprovalRef, Env } from "./types";
 import { offBoardSeq } from "./util";
 
@@ -100,6 +100,7 @@ export async function requestApproval(
       JSON.stringify({ push: pushFor(a) }),
     ),
   ]);
+  noteApprovalRequested(env, later, risk, user);
   return a;
 }
 
@@ -121,7 +122,7 @@ export async function listApprovals(env: Env, user: string, which: "pending" | "
  * never an agent's token (the route refuses those), and an approval is found only under the person it belongs to, so
  * another member gets "No such approval". A request that timed out stays denied.
  */
-export async function decide(env: Env, user: string, id: string, approve: boolean, note: string): Promise<Approval> {
+export async function decide(env: Env, user: string, id: string, approve: boolean, note: string, later: Later | null = null): Promise<Approval> {
   const a = await getApproval(env, user, id);
   if (!a) throw new ApprovalError("No such approval.");
   if (a.status !== "pending") throw new ApprovalError(a.status === "expired" ? "Already denied (timed out)." : `Already ${a.status}.`);
@@ -132,6 +133,7 @@ export async function decide(env: Env, user: string, id: string, approve: boolea
     .run();
   if (!r.meta.changes) throw new ApprovalError("Already decided or timed out.");
   const status = approve ? "approved" : "rejected";
+  void noteApprovalDecision(env, later, status, user);
   return { ...a, status, state: status, note: n, decided_at: now };
 }
 

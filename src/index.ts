@@ -1356,7 +1356,7 @@ const handler = {
             if (viewer.via === "agent") return json({ error: `Approve or reject in the browser: ${origin}/approvals#${am[1]}` }, 403);
             if (!(await approvals.getApproval(env, viewer.name, am[1]))) return json({ error: "not found" }, 404);
             const b = (await request.json().catch(() => ({}))) as { note?: string };
-            const decided = await approvals.decide(env, viewer.name, am[1], am[2] === "approve", String(b.note ?? ""));
+            const decided = await approvals.decide(env, viewer.name, am[1], am[2] === "approve", String(b.note ?? ""), ctx);
             // On its board: the card's status changes live ({type: "approval", id, status}).
             if (decided.board_id) await boardStub(env, decided.board_id).approvalDecided(approvals.refOf(decided)).catch((e) => console.error("approval event failed", e));
             return json({ ok: true, approval: decided });

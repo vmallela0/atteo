@@ -4,8 +4,12 @@ import {
   counter,
   egressRefusal,
   egressRefusalText,
+  noteApprovalDecision,
+  noteApprovalRequested,
+  noteClaimReview,
   noteContextPack,
   notePaste,
+  noteStaleNotice,
   observability,
   packBucket,
   resetCounters,
@@ -124,7 +128,39 @@ describe("paste, secret-filter blocks and context-pack size", () => {
     await settleCounts();
   });
 
-  it("sums the window into a block rate and an average pack size", async () => {
+  it("counts stale notices, claim reviews and approvals without request content", async () => {
+    const { env, db } = fakeEnv();
+    noteStaleNotice(env, null, 3, "vedu");
+    noteStaleNotice(env, null, 0, "vedu");
+    await noteClaimReview(env, null, "verified", "jxn");
+    await noteClaimReview(env, null, "disputed", "jxn");
+    noteApprovalRequested(env, null, "high", "vedu");
+    await noteApprovalDecision(env, null, "approved", "vedu");
+    noteStaleNotice(env, null, 5, "e2e-ada");
+    await noteClaimReview(env, null, "verified", "e2e-ada");
+    noteApprovalRequested(env, null, "low", "e2e-ada");
+    expect(counter("stale_notice", "invalidations")).toBe(2);
+    expect(counter("stale_notice", "notices")).toBe(1);
+    expect(counter("stale_notice", "entries")).toBe(3);
+    expect(counter("claim_review", "verified")).toBe(1);
+    expect(counter("claim_review", "disputed")).toBe(1);
+    expect(counter("approval", "requested")).toBe(1);
+    expect(counter("approval", "risk_high")).toBe(1);
+    expect(counter("approval", "approved")).toBe(1);
+    await settleCounts();
+    expect(db.prepare(`SELECT metric, key, count FROM usage_daily WHERE metric IN ('stale_notice', 'claim_review', 'approval') ORDER BY metric, key`).all()).toEqual([
+      { metric: "approval", key: "approved", count: 1 },
+      { metric: "approval", key: "requested", count: 1 },
+      { metric: "approval", key: "risk_high", count: 1 },
+      { metric: "claim_review", key: "disputed", count: 1 },
+      { metric: "claim_review", key: "verified", count: 1 },
+      { metric: "stale_notice", key: "entries", count: 3 },
+      { metric: "stale_notice", key: "invalidations", count: 2 },
+      { metric: "stale_notice", key: "notices", count: 1 },
+    ]);
+  });
+
+  it("sums the window into rates, averages and approval counts", async () => {
     const { env, db } = fakeEnv();
     const old = new Date(Date.now() - 100 * 86_400_000).toISOString().slice(0, 10);
     db.prepare(`INSERT INTO usage_daily (day, metric, key, count) VALUES (?, 'paste', 'person', 50)`).run(old);
@@ -133,6 +169,15 @@ describe("paste, secret-filter blocks and context-pack size", () => {
     egressRefusal(env, null, { artifact_content: github() });
     noteContextPack(env, null, "x".repeat(100), "vedu");
     noteContextPack(env, null, "y".repeat(2500), "vedu");
+    noteStaleNotice(env, null, 2, "vedu");
+    noteStaleNotice(env, null, 0, "vedu");
+    await noteClaimReview(env, null, "verified", "jxn");
+    await noteClaimReview(env, null, "verified", "jxn");
+    await noteClaimReview(env, null, "disputed", "jxn");
+    noteApprovalRequested(env, null, "medium", "vedu");
+    noteApprovalRequested(env, null, "high", "vedu");
+    await noteApprovalDecision(env, null, "approved", "vedu");
+    await noteApprovalDecision(env, null, "rejected", "vedu");
     await settleCounts();
 
     const o = await observability(env, 14);
@@ -151,6 +196,9 @@ describe("paste, secret-filter blocks and context-pack size", () => {
       ["8k_16k", 0],
       ["16k_plus", 0],
     ]);
+    expect(o.stale_notices).toEqual({ invalidations: 2, notices: 1, entries: 2, rate: 0.5 });
+    expect(o.claim_reviews).toEqual({ verified: 2, disputed: 1, total: 3, verified_ratio: 2 / 3 });
+    expect(o.approvals).toEqual({ requested: 2, approved: 1, rejected: 1, by_risk: { low: 0, medium: 1, high: 1 } });
     expect(src("src/usage.ts")).toContain("observability(env, n)");
     expect(src("src/usage.ts")).toContain("observe");
   });
@@ -160,6 +208,10 @@ describe("paste, secret-filter blocks and context-pack size", () => {
     await notePaste(env, null, "agent", "vedu");
     egressRefusal(env, null, { text: github() });
     noteContextPack(env, null, "x".repeat(1200), "vedu");
+    noteStaleNotice(env, null, 2, "vedu");
+    await noteClaimReview(env, null, "verified", "jxn");
+    noteApprovalRequested(env, null, "high", "vedu");
+    await noteApprovalDecision(env, null, "approved", "vedu");
     await settleCounts();
     const observe = await observability(env);
     const res = adminPage(
@@ -192,6 +244,10 @@ describe("paste, secret-filter blocks and context-pack size", () => {
     expect(html).toContain("github-token");
     expect(html).toContain("50.0%");
     expect(html).toContain("1,000–3,999 characters");
+    expect(html).toContain("Stale-notice rate");
+    expect(html).toContain("Verified-claim ratio");
+    expect(html).toContain("Approval requests");
+    expect(html).toContain("1 approved · 0 rejected");
     expect(html).not.toContain("ghp_");
   });
 });
@@ -203,6 +259,15 @@ describe("the write and read paths record those counters", () => {
     expect(board).toContain("notePaste(this.env, this.ctx, input.via)");
     expect(board).toContain("noteContextPack(this.env, this.ctx, pack, user)");
     expect(board).toContain('if (!user.startsWith("e2e-") && !internal.system && !internal.notice) notePaste');
+  });
+
+  it("claim outcomes, stale notices and approval events use their daily counters", () => {
+    expect(board).toContain('noteClaimReview(this.env, this.ctx, "verified", user)');
+    expect(board).toContain('noteClaimReview(this.env, this.ctx, "disputed", user)');
+    expect(board).toContain("noteStaleNotice(this.env, this.ctx, deps.length, user)");
+    expect(src("src/approvals.ts")).toContain("noteApprovalRequested(env, later, risk, user)");
+    expect(src("src/approvals.ts")).toContain("noteApprovalDecision(env, later, status, user)");
+    expect(src("src/index.ts")).toContain('approvals.decide(env, viewer.name, am[1], am[2] === "approve", String(b.note ?? ""), ctx)');
   });
 
   it("every board secret-filter refusal goes through the counter", () => {

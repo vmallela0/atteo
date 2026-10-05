@@ -91,7 +91,7 @@ export interface Metrics {
   clients: { client: string; agents: number }[];
   errors: { route: string; message: string; count: number; last_at: number }[];
   csp: { key: string; count: number; last_day: string }[]; // CSP report-only hits, last 7 days ("directive blocked")
-  observe: Observability; // paste, secret-filter blocks, context-pack size (src/observe.ts)
+  observe: Observability; // trust/context counters and derived rates (src/observe.ts)
 }
 
 export async function metrics(env: Env, n = 14): Promise<Metrics> {

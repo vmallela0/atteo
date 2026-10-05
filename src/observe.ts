@@ -5,7 +5,8 @@
 // How to read them (last 14 days, operators only):
 //   /_ops → Trust and context
 //   GET /api/ops/metrics → observe
-//   GET /api/ops/usage-daily → rows whose metric is paste, egress_block or context_pack
+//   GET /api/ops/usage-daily → rows whose metric is paste, egress_block, context_pack, stale_notice,
+//                              claim_review or approval
 //
 // paste            a write that landed on a board. key: person | agent
 // egress_block     the secret filter refused a write before it was stored. key: the rule id (never the secret)
@@ -14,7 +15,14 @@
 //                  key chars: total characters (average = chars / served)
 //                  key truncated: packs that hit the summary cap
 //                  key lt_1k | 1k_4k | 4k_8k | 8k_16k | 16k_plus: size bucket
-// Block rate is egress blocks ÷ (pastes + egress blocks). Test accounts (e2e-*) are left out.
+// stale_notice     a disputed or retracted premise was checked for dependents.
+//                  key invalidations: disputed/retracted premises
+//                  key notices: invalidations that made at least one dependent stale
+//                  key entries: total entries made stale
+// claim_review     key verified | disputed: completed reviews of claims
+// approval         key requested | approved | rejected, plus risk_low | risk_medium | risk_high for requests
+// Block rate is egress blocks ÷ (pastes + egress blocks); stale-notice rate is notices ÷ invalidations;
+// verified-claim ratio is verified ÷ (verified + disputed). Test accounts (e2e-*) are left out.
 
 import { blockedMessage, scanFields, scanText } from "./secrets";
 import type { Env } from "./types";
@@ -129,6 +137,35 @@ export function noteContextPack(env: Env | null | undefined, later: Later | null
   if (text.includes(TRUNCATED)) void count(env, later, "context_pack", "truncated");
 }
 
+/** A premise was disputed or retracted; count whether that produced stale notices and how many entries they cover. */
+export function noteStaleNotice(env: Env | null | undefined, later: Later | null | undefined, entries: number, user?: string | null): void {
+  if (skip(user)) return;
+  void count(env, later, "stale_notice", "invalidations");
+  if (entries > 0) {
+    void count(env, later, "stale_notice", "notices");
+    void count(env, later, "stale_notice", "entries", entries);
+  }
+}
+
+/** A claim review completed. The verified-claim ratio is verified ÷ all completed reviews. */
+export function noteClaimReview(env: Env | null | undefined, later: Later | null | undefined, outcome: "verified" | "disputed", user?: string | null): Promise<void> {
+  if (skip(user)) return Promise.resolve();
+  return count(env, later, "claim_review", outcome);
+}
+
+/** An approval request was created. Risk is counted separately without copying any request text. */
+export function noteApprovalRequested(env: Env | null | undefined, later: Later | null | undefined, risk: "low" | "medium" | "high", user?: string | null): void {
+  if (skip(user)) return;
+  void count(env, later, "approval", "requested");
+  void count(env, later, "approval", `risk_${risk}`);
+}
+
+/** A person approved or rejected a pending request. */
+export function noteApprovalDecision(env: Env | null | undefined, later: Later | null | undefined, outcome: "approved" | "rejected", user?: string | null): Promise<void> {
+  if (skip(user)) return Promise.resolve();
+  return count(env, later, "approval", outcome);
+}
+
 export interface Observability {
   days: number;
   paste: { person: number; agent: number; total: number };
@@ -142,6 +179,9 @@ export interface Observability {
     truncated: number;
     buckets: { key: PackBucket; label: string; count: number }[];
   };
+  stale_notices: { invalidations: number; notices: number; entries: number; rate: number | null };
+  claim_reviews: { verified: number; disputed: number; total: number; verified_ratio: number | null };
+  approvals: { requested: number; approved: number; rejected: number; by_risk: { low: number; medium: number; high: number } };
 }
 
 /** The trust and context counters for the last `n` UTC days, summed across isolates. */
@@ -149,7 +189,7 @@ export async function observability(env: Env, n = 14): Promise<Observability> {
   const since = day(Date.now() - (n - 1) * 86_400_000);
   const rows = (
     await env.DB.prepare(
-      `SELECT metric, key, SUM(count) AS c FROM usage_daily WHERE day >= ? AND metric IN ('paste', 'egress_block', 'context_pack') GROUP BY metric, key`,
+      `SELECT metric, key, SUM(count) AS c FROM usage_daily WHERE day >= ? AND metric IN ('paste', 'egress_block', 'context_pack', 'stale_notice', 'claim_review', 'approval') GROUP BY metric, key`,
     )
       .bind(since)
       .all<{ metric: string; key: string; c: number }>()
@@ -166,6 +206,11 @@ export async function observability(env: Env, n = 14): Promise<Observability> {
   const attempts = pasteTotal + blockTotal;
   const served = sum("context_pack", "served");
   const chars = sum("context_pack", "chars");
+  const invalidations = sum("stale_notice", "invalidations");
+  const notices = sum("stale_notice", "notices");
+  const verified = sum("claim_review", "verified");
+  const disputed = sum("claim_review", "disputed");
+  const reviews = verified + disputed;
   return {
     days: n,
     paste: { person, agent, total: pasteTotal },
@@ -177,6 +222,28 @@ export async function observability(env: Env, n = 14): Promise<Observability> {
       avg_chars: served ? chars / served : null,
       truncated: sum("context_pack", "truncated"),
       buckets: PACK_BUCKETS.map((key) => ({ key, label: BUCKET_LABEL[key], count: sum("context_pack", key) })),
+    },
+    stale_notices: {
+      invalidations,
+      notices,
+      entries: sum("stale_notice", "entries"),
+      rate: invalidations ? notices / invalidations : null,
+    },
+    claim_reviews: {
+      verified,
+      disputed,
+      total: reviews,
+      verified_ratio: reviews ? verified / reviews : null,
+    },
+    approvals: {
+      requested: sum("approval", "requested"),
+      approved: sum("approval", "approved"),
+      rejected: sum("approval", "rejected"),
+      by_risk: {
+        low: sum("approval", "risk_low"),
+        medium: sum("approval", "risk_medium"),
+        high: sum("approval", "risk_high"),
+      },
     },
   };
 }

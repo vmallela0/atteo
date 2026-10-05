@@ -129,8 +129,11 @@ Emails in `ADMIN_EMAIL` can open `/_ops`. The **Trust and context** section (las
 - **Egress blocks** — writes the secret filter refused, listed by rule. Nothing from that write was stored.
 - **Block rate** — blocks ÷ (pastes + blocks).
 - **Context pack size** — summaries handed to agents on read: how many, the average in characters, how many were cut off at the summary cap, and a size bucket.
+- **Stale-notice rate** — disputed or retracted premises that had dependents ÷ all disputed or retracted premises, plus the number of entries made stale.
+- **Verified-claim ratio** — verified claims ÷ completed claim reviews (verified + disputed).
+- **Approvals** — requests by risk and decisions split into approved and rejected.
 
-`GET /api/ops/metrics` (an operator session, or the `x-admin-key` header) returns the same numbers as `observe`. `?days=` sets the window (default 14). The raw rows are in `usage_daily`, metric `paste`, `egress_block` or `context_pack`, from `GET /api/ops/usage-daily`. Test accounts whose names start with `e2e-` are left out. The counters are per UTC day and kept 90 days, with the rest of `usage_daily`.
+`GET /api/ops/metrics` (an operator session, or the `x-admin-key` header) returns the same numbers as `observe`. `?days=` sets the window (default 14). The raw rows are in `usage_daily`, metric `paste`, `egress_block`, `context_pack`, `stale_notice`, `claim_review` or `approval`, from `GET /api/ops/usage-daily`. Test accounts whose names start with `e2e-` are left out. The counters are per UTC day and kept 90 days, with the rest of `usage_daily`.
 
 ## Updating
 

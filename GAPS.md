@@ -67,7 +67,7 @@ lives; most have an e2e step in `test/e2e.mjs` with the same words.
 | Vendor neutrality | Built | Any MCP client, the CLI, the REST API, A2A. |
 | No secrets at rest on board servers | Partial | Known credential formats are blocked before storage (server-side, not yet on the user's machine). Tokens and session cookies are stored only as hashes. Sealed secrets are encrypted to one member's devices. Encrypted boards store ciphertext only. |
 | Automated cross-room leakage tests | Built | e2e checks non-members get 404 on every board route and tool, and people-only and just-mine messages reach no one else by any path; CI runs the full e2e (`.github/workflows/ci.yml`). |
-| Observability (paste rate, pack size, stale-notice rate, verified-claim ratio, egress blocks, approvals) | Partial | Daily counters in `usage_daily`: `paste` (writes that landed, person or agent), `egress_block` (secret-filter refusals, by rule), `context_pack` (packs served, total characters, size bucket, truncations). Block rate is blocks ÷ (pastes + blocks); average pack size is characters ÷ packs. Read them on `/_ops` (Trust and context) or `GET /api/ops/metrics` (`observe`). Still missing: stale-notice rate, verified-claim ratio, approval counts. |
+| Observability (paste rate, pack size, stale-notice rate, verified-claim ratio, egress blocks, approvals) | Built | Daily counters in `usage_daily`: `paste`, `egress_block`, `context_pack`, `stale_notice`, `claim_review` and `approval`. Derived rates and counts are on `/_ops` (Trust and context) and `GET /api/ops/metrics` (`observe`); raw UTC-day rows are on `GET /api/ops/usage-daily`. |
 
 ## Architecture and operations
 

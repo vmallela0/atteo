@@ -7,7 +7,7 @@ import { fence, flagOf, screenText } from "./screen";
 import { FOR_LABEL, pingExcerpt, triagePreview, webhookForWhom } from "./ping";
 import { DurableObject } from "cloudflare:workers";
 import { computeSummary, formatSummary, summaryWithNames, tasksFor, withinReadBudget, withNames, DEFAULT_SUMMARY_CHARS, type Summary } from "./state";
-import { noteContextPack, noteEgressBlock, notePaste } from "./observe";
+import { noteClaimReview, noteContextPack, noteEgressBlock, notePaste, noteStaleNotice } from "./observe";
 import { blockedMessage, scanFields, scanText, type SecretHit } from "./secrets";
 import { recordOutcome } from "./agents";
 import { ALL_AGENTS, ALL_HUMANS, ALL_MEMBERS, forAgent, forPerson, hasGroupMention, keep, MAX_GROUP_MENTIONS, MAX_MENTIONS, mentionsOwnAgent, parseMentions, SESSION_NAME_RE, type Mention } from "./mentions";
@@ -1357,7 +1357,11 @@ export class Board extends DurableObject<Env> {
         entry.seq, entry.to, title, body, user, input.via ?? null, entry.ts,
       );
     }
-    if (entry.retracts != null) this.stopDependents(user, entry.retracts);
+    if (entry.retracts != null) {
+      const deps = this.dependents(entry.retracts);
+      noteStaleNotice(this.env, this.ctx, deps.length, user);
+      this.stopDependents(user, entry.retracts);
+    }
     // Resolving an open task finishes it (jxn #2172, opus-a #2175): a change card or a note saying "resolves #N" is the
     // record that it's done, so the task list stops showing it as doing. Only from someone who could close it anyway;
     // anyone else's leaves a hint on the task (#2221). A private message (People only, Just mine) leaves it alone.
@@ -3640,6 +3644,7 @@ export class Board extends DurableObject<Env> {
       if (claim.author === user) throw new BoardError("You can't verify your own claim (or your agent's); someone else has to check it.");
       this.sql.exec("UPDATE claim_state SET status = 'verified', verified_by = ?, verified_via = ?, disputed_by = NULL, disputed_via = NULL, dispute_reason = NULL, updated_at = ? WHERE seq = ?", user, opts.via ?? null, Date.now(), seq);
       this.trackRecord(seq, "claim", claim, "verified");
+      void noteClaimReview(this.env, this.ctx, "verified", user);
       await this.post(user, { type: "note", reply_to: seq, to: claim.author, text: `✓ Verified #${seq}${act.note ? `: ${act.note}` : "."}`, via: opts.via, client: opts.client, session: opts.session });
       return `#${seq} is verified by ${who}.`;
     }
@@ -3649,6 +3654,8 @@ export class Board extends DurableObject<Env> {
       this.sql.exec("UPDATE claim_state SET status = 'disputed', disputed_by = ?, disputed_via = ?, dispute_reason = ?, updated_at = ? WHERE seq = ?", user, opts.via ?? null, reason, Date.now(), seq);
       this.trackRecord(seq, "claim", claim, "disputed");
       const deps = this.dependents(seq);
+      void noteClaimReview(this.env, this.ctx, "disputed", user);
+      noteStaleNotice(this.env, this.ctx, deps.length, user);
       await this.post(user, {
         type: "note",
         reply_to: seq,
