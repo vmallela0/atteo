@@ -174,7 +174,33 @@ export function openapi(origin: string) {
       "/api/boards/{id}/members/{user}": { post: { summary: "Change a member's role or expiry (owner only)", parameters: [id, param("user", "path")], requestBody: body(obj({ role: { enum: ["owner", "contributor", "viewer"] }, expires_days: { oneOf: [int, str, { type: "null" }] } })), responses: { "200": ok("ok, members", obj({ ok: bool, members: arr(ref("BoardMember")) })), "403": ok("Owner required"), ...errors } } },
       "/api/boards/{id}/members/{user}/remove": { post: { summary: "Leave a board, or remove someone (owner only); creator cannot leave or be removed", parameters: [id, param("user", "path")], responses: { "200": ok("ok, left, message"), "403": ok("Owner required or creator cannot be removed"), ...errors } } },
       "/api/boards/{id}/agents": { get: { summary: "Live agents on a board, with owner agent_name and session state", parameters: [id], responses: { "200": ok("agents", obj({ agents: arr(obj({ user: str, agent_name: str, agent_name_ambiguous: bool, name: str, client: str, status: str, last_seen: int, state: str })) })), ...errors } } },
-      "/api/boards/{id}/audit": { get: { summary: "Board audit log", parameters: [id], responses: { "200": ok("audit"), ...errors } } },
+      "/api/boards/{id}/audit": { get: { summary: "Recent board access events, newest first (the Activity list, up to 100)", parameters: [id], responses: { "200": ok("audit"), ...errors } } },
+      "/api/boards/{id}/audit/export": {
+        get: {
+          summary: "Download the board access audit as JSON, oldest first (append order). Any member. Grants, invites, joins, role changes, removals, and invite links. When truncated is true, call again with after=next_after_id.",
+          parameters: [id, { name: "after", in: "query", required: false, schema: int, description: "Return events whose id is greater than this. Omit to start at the beginning." }],
+          responses: {
+            "200": ok(
+              "Access audit file",
+              obj(
+                {
+                  board_id: str,
+                  kind: { enum: ["access_audit"] },
+                  exported_at: str,
+                  order: { enum: ["append"] },
+                  after_id: int,
+                  count: int,
+                  truncated: bool,
+                  next_after_id: int,
+                  audit: arr(obj({ id: int, actor: str, action: str, target: str, detail: str, ts: int }, ["id", "actor", "action", "ts"])),
+                },
+                ["board_id", "kind", "exported_at", "order", "after_id", "count", "truncated", "audit"],
+              ),
+            ),
+            ...errors,
+          },
+        },
+      },
       "/api/boards/{id}/links": { get: { summary: "Invite links (owner only)", parameters: [id], responses: { "200": ok("links"), "403": ok("Owner required"), ...errors } }, post: { summary: "Create invite link (owner only)", parameters: [id], requestBody: body(obj({ role: { enum: ["viewer", "contributor"] }, link_days: int, member_days: int, max_uses: int })), responses: { "201": ok("link, url"), "403": ok("Owner required"), ...errors } } },
       "/api/boards/{id}/links/{lid}": { delete: { summary: "Revoke invite link (owner only)", parameters: [id, param("lid", "path")], responses: { "200": ok("ok"), "403": ok("Owner required"), ...errors } } },
       "/api/boards/{id}/invites": { post: { summary: "Invite by email, or by a friend's name", parameters: [id], requestBody: body(obj({ email: str, to: str, role: { enum: ["viewer", "contributor"] }, expires_days: int })), responses: { "200": ok("ok, added, message"), "403": ok("Member required"), ...errors } } },

@@ -2714,6 +2714,15 @@ await step("access: roles (viewers read but can't change), invite links with lim
   await j(A, `/api/boards/${fb}/members/${B}`, { role: "contributor" });
   await j(A, `/api/boards/${fb}/members/${OUT}/remove`, {});
   assert((await (await j(A, `/api/boards/${fb}/audit`)).json()).audit[0].action === "removed", "removal is audited");
+  const expRes = await j(B, `/api/boards/${fb}/audit/export`);
+  assert((expRes.headers.get("content-disposition") ?? "").includes(`attachment; filename="atteo-audit-${fb}-`), "export is a download");
+  const exp = await expRes.json();
+  assert(exp.kind === "access_audit" && exp.order === "append" && exp.truncated === false && exp.audit.some((a) => a.action === "removed"), JSON.stringify(exp).slice(0, 240));
+  for (let i = 1; i < exp.audit.length; i++) assert(exp.audit[i].id > exp.audit[i - 1].id, "append order");
+  assert((await fetch(`${BASE}/api/boards/${fb}/audit/export`)).status === 401, "export requires sign-in");
+  assert((await j(B, `/api/boards/${fb}/audit/export?after=nope`)).status === 400, "bad cursor");
+  const page = await (await j(B, `/api/boards/${fb}/audit/export?after=${exp.audit[0].id}`)).json();
+  assert(page.after_id === exp.audit[0].id && page.audit.every((a) => a.id > exp.audit[0].id) && !page.audit.some((a) => a.id === exp.audit[0].id), "cursor");
 });
 
 await step("approvals: an agent asks before side effects; only the person decides, in a browser; the agent sees the answer", async () => {
