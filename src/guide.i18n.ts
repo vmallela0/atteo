@@ -115,6 +115,8 @@ const KEYS = [
   "On the web, opening a board with 20 or more new messages offers Catch up above the New line: it opens the board's Recap of what was decided, asked and owed since you last looked.",
   "One line",
   "Account → Display → Messages (Settings → Display in the app): One line unless they mention you shows other people's messages as a single line until they mention you.",
+  "One-tap answers to an agent",
+  "When an agent asks you a question, tap a button under it (Yes, go ahead · Not now · Tell me more, or the choices it offered) and it's answered in the thread. On the web, 1–4 picks one.",
 ];
 
 const ZH_HANS = [
@@ -230,6 +232,8 @@ const ZH_HANS = [
   "网页版中，打开有 20 条以上新消息的看板时，会在“新建”行上方看到“回顾”按钮：点开看板的回顾，汇总自你上次看完以来决定了什么、问了什么、欠着什么。",
   "单行显示",
   "账户 → 显示 → 消息（应用里是设置 → 显示）：“没提到你的消息只显示一行”把别人的消息显示成一行，直到他们提到你。",
+  "一键回答智能体",
+  "智能体向你提问时，点一下下方的按钮（好，继续 · 现在不用 · 再说详细点，或它给出的选项），就会在话题里作答。网页上按 1–4 选择。",
 ];
 
 const ZH_HANT = [
@@ -345,6 +349,8 @@ const ZH_HANT = [
   "網頁版中，開啟有 20 則以上新訊息的看板時，會在「新建」列上方看到「回顧」按鈕：點開看板的回顧，彙整自你上次看完以來決定了什麼、問了什麼、欠著什麼。",
   "單行顯示",
   "帳戶 → 顯示 → 訊息（應用程式裡是設定 → 顯示）：「沒提到你的訊息只顯示一行」把別人的訊息顯示成一行，直到他們提到你。",
+  "一鍵回答代理",
+  "代理向你提問時，點一下下方的按鈕（好，繼續 · 現在不用 · 再說詳細點，或它提供的選項），就會在討論串裡作答。網頁上按 1–4 選擇。",
 ];
 
 const ES = [
@@ -460,6 +466,8 @@ const ES = [
   "En la web, al abrir un tablero con 20 o más mensajes nuevos aparece un botón de ponerse al día sobre la línea Nuevo: abre el Resumen del tablero, con lo decidido, lo preguntado y lo pendiente desde tu última lectura.",
   "Una línea",
   "Cuenta → Visualización → Mensajes (Ajustes → Visualización en la app): Una línea si no te mencionan muestra los mensajes de otras personas en una sola línea hasta que te mencionen.",
+  "Responde a un agente con un toque",
+  "Cuando un agente te hace una pregunta, toca un botón debajo (Sí, adelante · Ahora no · Cuéntame más, o las opciones que ofreció) y queda respondida en el hilo. En la web, 1–4 elige una.",
 ];
 
 const FR = [
@@ -575,6 +583,8 @@ const FR = [
   "Sur le web, ouvrir un tableau de 20 messages non lus ou plus propose Rattraper au-dessus de la ligne Nouveau : le Récap du tableau montre ce qui a été décidé, demandé et dû depuis votre dernier passage.",
   "Une ligne",
   "Compte → Affichage → Messages (Réglages → Affichage dans l’app) : Une ligne s’ils ne vous mentionnent pas affiche les messages des autres sur une ligne, jusqu’à ce qu’ils vous mentionnent.",
+  "Répondre à un agent d'un geste",
+  "Quand un agent vous pose une question, touchez un bouton dessous (Oui, vas-y · Pas maintenant · Dis-m'en plus, ou les choix qu'il propose) : la réponse part dans le fil. Sur le web, 1–4 en choisit un.",
 ];
 
 const JA = [
@@ -690,6 +700,8 @@ const JA = [
   "ウェブ版では、新着が20件以上のボードを開くと「新規」行の上に「まとめて見る」ボタンが出ます: 最後に見てからの決定・質問・未了をまとめたボードの「振り返り」を開きます。",
   "1行表示",
   "アカウント → 表示 → メッセージ（アプリでは設定 → 表示）:「自分宛てでなければ1行」は、他の人のメッセージを言及されるまで1行で表示します。",
+  "エージェントにワンタップで返答",
+  "エージェントから質問されたら、下のボタン（はい、進めて · 今はいい · もっと詳しく、またはエージェントが示した選択肢）をタップするとスレッドで返答されます。Webでは1〜4で選べます。",
 ];
 
 const KO = [
@@ -805,6 +817,8 @@ const KO = [
   "웹에서는 새 메시지가 20개 이상인 보드를 열면 새 메시지 줄 위에 따라잡기 버튼이 나타납니다: 마지막으로 본 뒤의 결정·질문·미완을 모은 보드의 요약을 엽니다.",
   "한 줄",
   "계정 → 화면 → 메시지 (앱에서는 설정 → 화면): 나를 언급하지 않으면 한 줄은 다른 사람의 메시지를 언급될 때까지 한 줄로 보여줍니다.",
+  "에이전트에게 한 번에 답하기",
+  "에이전트가 질문하면 아래 버튼(네, 진행해 주세요 · 지금은 아니요 · 더 알려 주세요, 또는 에이전트가 제시한 선택지)을 누르면 스레드에 답이 달립니다. 웹에서는 1–4로 고릅니다.",
 ];
 
 const HI = [
@@ -920,6 +934,8 @@ const HI = [
   "वेब पर, 20 या अधिक नए संदेशों वाला बोर्ड खोलने पर नई रेखा के ऊपर सार देखें बटन आता है: यह बोर्ड का सारांश खोलता है — आपके आखिरी पढ़े के बाद से क्या तय हुआ, क्या पूछा गया, क्या बाकी।",
   "एक पंक्ति",
   "खाता → डिस्प्ले → संदेश (ऐप में सेटिंग्स → डिस्प्ले): आपका ज़िक्र न हो तो एक पंक्ति दूसरों के संदेशों को उनके ज़िक्र तक एक पंक्ति में दिखाती है।",
+  "एजेंट को एक टैप में जवाब",
+  "जब कोई एजेंट आपसे सवाल पूछे, तो उसके नीचे का बटन टैप करें (हाँ, आगे बढ़ो · अभी नहीं · और बताओ, या उसके दिए विकल्प) और थ्रेड में जवाब चला जाता है। वेब पर 1–4 से चुनें।",
 ];
 
 const PT = [
@@ -1035,6 +1051,8 @@ const PT = [
   "Na web, abrir um quadro com 20 ou mais mensagens novas oferece um botão de acompanhar acima da linha Novo: abre o Resumo do quadro, com o que foi decidido, perguntado e fica devendo desde sua última leitura.",
   "Uma linha",
   "Conta → Exibição → Mensagens (Ajustes → Exibição no app): Uma linha se não mencionarem você mostra as mensagens de outras pessoas numa única linha até que mencionem você.",
+  "Responda a um agente com um toque",
+  "Quando um agente fizer uma pergunta, toque num botão abaixo dela (Sim, pode seguir · Agora não · Conte mais, ou as opções que ele ofereceu) e ela é respondida na conversa. Na web, 1–4 escolhe uma.",
 ];
 
 const DE = [
@@ -1150,6 +1168,8 @@ const DE = [
   "Im Web erscheint beim Öffnen eines Boards mit 20 oder mehr neuen Nachrichten über der Neu-Marke ein Aufholen-Knopf: Er öffnet den Rückblick des Boards — was seit deinem letzten Besuch entschieden, gefragt und offen ist.",
   "Eine Zeile",
   "Konto → Anzeige → Nachrichten (in der App Einstellungen → Anzeige): Eine Zeile, wenn du nicht erwähnt wirst, zeigt Nachrichten anderer einzeilig, bis sie dich erwähnen.",
+  "Einem Agenten mit einem Tippen antworten",
+  "Stellt dir ein Agent eine Frage, tippe auf einen Button darunter (Ja, mach weiter · Nicht jetzt · Erzähl mehr, oder die Optionen, die er anbietet), und sie ist im Thread beantwortet. Im Web wählt 1–4 eine aus.",
 ];
 
 const RU = [
@@ -1265,6 +1285,8 @@ const RU = [
   "В веб-версии при открытии доски с 20 и более новыми сообщениями над строкой «Новое» появляется кнопка наверстать: она открывает Сводку доски — что решено, спрошено и должны с вашего последнего захода.",
   "Одна строка",
   "Аккаунт → Отображение → Сообщения (в приложении Настройки → Отображение): «Одна строка, если вас не упомянули» показывает чужие сообщения одной строкой, пока вас не упомянут.",
+  "Ответ агенту одним касанием",
+  "Когда агент задаёт вам вопрос, нажмите кнопку под ним (Да, продолжай · Не сейчас · Расскажи подробнее или предложенные им варианты), и ответ уйдёт в ветку. В вебе выберите 1–4.",
 ];
 
 const ID = [
@@ -1380,6 +1402,8 @@ const ID = [
   "Di web, membuka papan dengan 20 pesan baru atau lebih menawarkan Kejar di atas garis Baru: membuka Rekap papan — apa yang diputuskan, ditanyakan, dan tertunggak sejak kunjunganmu terakhir.",
   "Satu baris",
   "Akun → Tampilan → Pesan (di aplikasi Pengaturan → Tampilan): Satu baris jika tidak menyebut Anda menampilkan pesan orang lain satu baris sampai mereka menyebut Anda.",
+  "Jawab agen dengan sekali ketuk",
+  "Saat agen bertanya, ketuk tombol di bawahnya (Ya, lanjutkan · Jangan sekarang · Ceritakan lebih lanjut, atau pilihan yang ia tawarkan) dan pertanyaannya terjawab di utas. Di web, 1–4 memilih salah satunya.",
 ];
 
 const TR = [
@@ -1495,6 +1519,8 @@ const TR = [
   "Web'de, 20 veya daha fazla yeni mesajı olan bir panoyu açınca Yeni çizgisinin üstünde bir yetişme düğmesi çıkar: son ziyaretinizden beri karara bağlananları, sorulanları ve eksik kalanları toplayan panonun Özetini açar.",
   "Tek satır",
   "Hesap → Görünüm → Mesajlar (uygulamada Ayarlar → Görünüm): Senden bahsetmiyorsa tek satır, başkalarının mesajlarını sizi anana dek tek satır gösterir.",
+  "Ajana tek dokunuşla yanıt",
+  "Bir ajan size soru sorduğunda altındaki bir düğmeye dokunun (Evet, devam et · Şimdi değil · Daha fazla anlat ya da sunduğu seçenekler); yanıt konuya gider. Web'de 1–4 ile seçin.",
 ];
 
 const BN = [
@@ -1610,6 +1636,8 @@ const BN = [
   "ওয়েবে, ২০টি বা বেশি নতুন বার্তার বোর্ড খুললে নতুন রেখার উপরে সারসংক্ষেপ বোতাম আসে: এটি বোর্ডের রিক্যাপ খোলে — শেষ দেখার পর থেকে কী সিদ্ধান্ত, কী প্রশ্ন, কী বাকি।",
   "এক লাইন",
   "অ্যাকাউন্ট → ডিসপ্লে → বার্তা (অ্যাপে সেটিংস → ডিসপ্লে): আপনার উল্লেখ না থাকলে এক লাইন অন্যদের বার্তা উল্লেখ না হওয়া পর্যন্ত এক লাইনে দেখায়।",
+  "এক ট্যাপে এজেন্টকে উত্তর",
+  "কোনো এজেন্ট প্রশ্ন করলে নিচের একটি বোতাম ট্যাপ করুন (হ্যাঁ, এগিয়ে যাও · এখন না · আরও বলো, অথবা এজেন্টের দেওয়া বিকল্প), থ্রেডে উত্তর চলে যাবে। ওয়েবে 1–4 দিয়ে বেছে নিন।",
 ];
 
 const AR = [
@@ -1725,6 +1753,8 @@ const AR = [
   "على الويب، عند فتح لوحة فيها 20 رسالة جديدة أو أكثر يظهر زر اطّلع على الجديد فوق خط «جديد»: يفتح ملخص اللوحة بما قُرر وسُئل وما هو مستحق منذ آخر زيارة.",
   "سطر واحد",
   "الحساب ← العرض ← الرسائل (في التطبيق: الإعدادات ← العرض): «سطر واحد ما لم تُذكر فيها» يعرض رسائل الآخرين بسطر واحد حتى يذكروك.",
+  "الرد على وكيل بلمسة واحدة",
+  "عندما يطرح عليك وكيل سؤالًا، المس زرًا أسفله (نعم، تابع · ليس الآن · أخبرني المزيد، أو الخيارات التي عرضها) فيُجاب في سلسلة الرسائل. على الويب، يختار 1–4 أحدها.",
 ];
 
 const table = (vals: string[]) => Object.fromEntries(KEYS.map((k, i) => [k, vals[i]]));

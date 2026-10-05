@@ -973,4 +973,7 @@ export const ID: Record<string, string> = {
   "Send what I dictate without asking": "Kirim yang saya diktekan tanpa bertanya",
   "Waiting to land ({n})": "Menunggu penggabungan ({n})",
   "nothing landed for 30 min": "tidak ada yang digabung selama 30 menit",
+  "Quick replies": "Balasan cepat",
+  "Yes, go ahead": "Ya, lanjutkan",
+  "Tell me more": "Ceritakan lebih lanjut",
 };

@@ -973,4 +973,7 @@ export const KO: Record<string, string> = {
   "Send what I dictate without asking": "말한 내용을 묻지 않고 보내기",
   "Waiting to land ({n})": "병합 대기 중 ({n}개)",
   "nothing landed for 30 min": "30분 동안 병합된 것이 없습니다",
+  "Quick replies": "빠른 답장",
+  "Yes, go ahead": "네, 진행해 주세요",
+  "Tell me more": "더 알려 주세요",
 };

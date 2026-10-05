@@ -974,4 +974,7 @@ export const ZH_HANT: Record<string, string> = {
   "Send what I dictate without asking": "不經確認就傳送我口述的內容",
   "Waiting to land ({n})": "等待合併（{n}）",
   "nothing landed for 30 min": "30 分鐘沒有合併任何內容",
+  "Quick replies": "快速回覆",
+  "Yes, go ahead": "好，繼續",
+  "Tell me more": "再說詳細點",
 };

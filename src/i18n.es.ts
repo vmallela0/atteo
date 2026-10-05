@@ -973,4 +973,7 @@ export const ES: Record<string, string> = {
   "Send what I dictate without asking": "Enviar lo que dicto sin preguntar",
   "Waiting to land ({n})": "En espera de integrarse ({n})",
   "nothing landed for 30 min": "nada se integra en 30 min",
+  "Quick replies": "Respuestas rápidas",
+  "Yes, go ahead": "Sí, adelante",
+  "Tell me more": "Cuéntame más",
 };

@@ -973,4 +973,7 @@ export const AR: Record<string, string> = {
   "Send what I dictate without asking": "إرسال ما أمليه دون سؤال",
   "Waiting to land ({n})": "في انتظار الدمج ({n})",
   "nothing landed for 30 min": "لم يُدمج شيء منذ 30 دقيقة",
+  "Quick replies": "ردود سريعة",
+  "Yes, go ahead": "نعم، تابع",
+  "Tell me more": "أخبرني المزيد",
 };

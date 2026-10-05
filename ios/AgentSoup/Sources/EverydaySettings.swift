@@ -7,6 +7,7 @@ import SwiftUI
 struct EverydaySettings: View {
     @EnvironmentObject var state: AppState
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.closeSettings) private var closeSettings // in the drawer: Done closes it
     @Environment(\.chatDensity) private var density
     @State private var bring = false
     @State private var confirmSignOut = false
@@ -105,7 +106,7 @@ struct EverydaySettings: View {
         .background(Theme.bg)
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() }.toolbarText(primary: true) } }
+        .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { if let closeSettings { closeSettings() } else { dismiss() } }.toolbarText(primary: true) } }
         .sheet(isPresented: $bring) { BringAssistantView(firstRun: false).presentationBackground(Theme.bg) }
         .confirmationDialog("Sign out of Atteo on this phone?", isPresented: $confirmSignOut, titleVisibility: .visible) {
             Button("Sign out", role: .destructive) { state.signOut() }

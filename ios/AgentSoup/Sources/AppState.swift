@@ -33,6 +33,7 @@ final class AppState: ObservableObject {
     var typingSent: [String: Date] = [:] // per board: when this phone last said you're typing
     @Published var agentSessions: [AgentChatSession] = [] // "Your agent": the sessions you can send to (AgentChat.swift)
     @Published var decisions: [String: [Int: HumanDecision]] = [:] // per board, per message: human decisions (HumanDecisions.swift)
+    @Published var quickChips: [String: [Int: QuickChips]] = [:] // per board, per question: one-tap replies for you (QuickReplies.swift)
     @Published var jumpRequest: JumpRequest? // a message to show once its chat opens (a search hit in Chats)
     @Published var openRequest: Board? // a chat to open from anywhere (Message on someone's card)
     struct JumpRequest: Equatable { let board: String; let seq: Int }
@@ -62,7 +63,8 @@ final class AppState: ObservableObject {
         #if DEBUG
         // Simulator runs against a local server: ATTEO_TOKEN skips the browser sign-in.
         if let t = API.environment("TOKEN"), !t.isEmpty { Keychain.token = t; signedIn = true }
-        if API.environment("FRESH") != nil { try? FileManager.default.removeItem(at: Self.cacheURL) }
+        // (and the message drafts, which live in UserDefaults: each test starts with an empty message box)
+        if API.environment("FRESH") != nil { try? FileManager.default.removeItem(at: Self.cacheURL); MessageDrafts.shared.clearAll() }
         // Simulator screenshots of the sign-in screen (the token stays where it is).
         if API.environment("SIGNED_OUT") != nil { signedIn = false }
         #endif
@@ -238,6 +240,7 @@ final class AppState: ObservableObject {
             if rx != reactions[b.id] { withAnimation(.smooth) { reactions[b.id] = rx } }
             if let rd = r.reads, rd != reads[b.id] { withAnimation(.smooth) { reads[b.id] = rd } }
             adoptDecisions(b.id, entries: r.entries, map: r.decisions)
+            adoptQuick(b.id, r.quick)
             let mine = (entries[b.id] ?? []).filter { $0.pending == true || $0.failed == true }
             let fresh = older + got + mine.filter { m in !r.entries.contains { $0.author == m.author && $0.text == m.text && $0.ts >= m.ts - 60_000 } }
             if fresh != entries[b.id] {
@@ -647,6 +650,7 @@ final class AppState: ObservableObject {
             for (k, v) in r.reactions ?? [:] { if let n = Int(k), n < first { rx[n] = v } }
             reactions[b.id] = rx
             adoptDecisions(b.id, entries: r.entries, map: nil)
+            adoptQuick(b.id, r.quick)
             let have = Set((entries[b.id] ?? []).map(\.seq))
             entries[b.id] = got.filter { !have.contains($0.seq) } + (entries[b.id] ?? [])
             return after > 0
@@ -771,6 +775,7 @@ final class AppState: ObservableObject {
         // Everyday or Developer, and the first run, are the person's too (Everyday.swift).
         AppMode.shared.forget()
         UserDefaults.standard.removeObject(forKey: BringAssistantView.doneKey)
+        MessageDrafts.shared.clearAll() // unsent words are the person's too
         profile = nil
         withAnimation(.smooth) {
             signedIn = false; loaded = false
