@@ -858,7 +858,8 @@ export function homePage(
   const active = boards.filter((b) => !b.archived_at).length;
   const archivedCount = boards.length - active;
   const liveOf = new Map(side.map((b) => [b.id, b.live ?? 0]));
-  const cards = boards
+  const pinRank = new Map(side.filter(b => b.pinned).map((b, i) => [b.id, i]));
+  const cards = [...boards].sort((a, b) => (pinRank.get(a.id) ?? 5) - (pinRank.get(b.id) ?? 5))
     .map((b) => {
       const meta = boardMeta(b);
       const names = (b.members ?? "").split(", ").filter(Boolean);
@@ -866,7 +867,7 @@ export function homePage(
       return `<article class="bcard${b.archived_at ? " archived" : ""}" data-text="${esc(text)}" data-archived="${b.archived_at ? 1 : 0}" data-id="${esc(b.id)}" data-meta="${esc(JSON.stringify(meta))}" data-title="${esc(b.title)}" data-people="${names.filter((n) => n !== viewer.name).length}" data-via="${esc(b.last_via ?? "")}">
   <a class="bcard-link" href="/b/${esc(b.id)}" aria-label="${esc(b.title)}"></a>
   <div class="row bc-top">${boardPic({ id: b.id, title: b.title, picture: pictureUrl(b.id, b.picture_v) }, "sm", `<span class="bc-dot" style="--h:${hue(b.id)}"></span>`)}
-    <h3 class="grow truncate">${esc(b.title)}</h3>
+    <h3 class="grow truncate">${esc(b.title)}</h3>${pinRank.has(b.id) ? `<span class="pin-mark" aria-label="${esc(T("Pinned"))}" title="${esc(T("Pinned"))}">📌</span>` : ""}${b.archived_at ? "" : `<details class="pin-actions"><summary aria-label="${esc(T("More actions"))}" title="${esc(T("More actions"))}">⋯</summary><button type="button" data-pin-board="${esc(b.id)}">${esc(T(pinRank.has(b.id) ? "Unpin" : "Pin"))}</button></details>`}
     ${working(liveOf.get(b.id) ?? 0, b.id)}${b.unread ? `<span class="bc-unread" title="${esc(T("Waiting for you"))}">${esc(T("{n} for you", { n: b.unread }))}</span>` : ""}
     <button class="btn ghost sm bc-edit" type="button" data-edit-board="${esc(b.id)}" aria-label="${esc(T("Edit details"))}">${esc(T("Edit"))}</button></div>
   ${meta.description ? `<p class="bc-desc">${esc(meta.description)}</p>` : ""}
@@ -933,7 +934,7 @@ const pfl=document.getElementById('pf-list'),PFK='atteo.pf.'+(pfl?pfl.dataset.me
 const pfOn=()=>{try{return localStorage.getItem(PFK)==='1'}catch(e){return false}};
 function apply(){const t=q.value.trim().toLowerCase(),s=show(),pf=pfOn();let n=0;if(pfl)pfl.setAttribute('aria-pressed',String(pf));
   cards.forEach(c=>{const ok=(s==='all'||(s==='archived')===(c.dataset.archived==='1'))&&(!t||c.dataset.text.includes(t))&&(!pf||c.dataset.people!=='0');c.hidden=!ok;if(ok)n++});
-  (pf?[...cards].sort((a,b)=>(a.dataset.via==='person'?0:1)-(b.dataset.via==='person'?0:1)):cards).forEach(c=>grid.appendChild(c)); // stable: newest first within each
+  (pf?[...cards].sort((a,b)=>(a.querySelector('.pin-mark')?0:1)-(b.querySelector('.pin-mark')?0:1)||(a.dataset.via==='person'?0:1)-(b.dataset.via==='person'?0:1)):cards).forEach(c=>grid.appendChild(c)); // stable: newest first within each
   document.getElementById('b-none').hidden=n>0||!!t}
 pfl?.addEventListener('click',()=>{const on=!pfOn();try{on?localStorage.setItem(PFK,'1'):localStorage.removeItem(PFK)}catch(e){}apply()});
 document.querySelectorAll('input[name=bshow]').forEach(r=>r.addEventListener('change',apply));
@@ -2696,8 +2697,8 @@ ${canInviteAgent ? inviteAgentDialog(T, info) : ""}
   }</section>
   <details class="acc-sec"><summary class="small muted">${esc(T("Activity"))}</summary><ul class="acc-list" id="acc-audit"></ul></details>
   ${
-    isCreator || canPic
-      ? `<section class="acc-sec" id="acc-board"><h3>${esc(T("This board"))}</h3>${picSec}${
+    true
+      ? `<section class="acc-sec" id="acc-board"><h3>${esc(T("This board"))}</h3>${picSec}${info.archived ? "" : `<div class="acc-row"><button class="btn ghost sm" type="button" data-pin-board="${esc(info.id)}">${esc(T(side.some(b => b.id === info.id && b.pinned) ? "Unpin" : "Pin"))}</button></div>`}${
           isCreator
             ? `<div class="acc-row">${
                 info.archived
@@ -2716,7 +2717,7 @@ ${canInviteAgent ? inviteAgentDialog(T, info) : ""}
     crumbs: agentChat ? `<span class="cur truncate">${esc(T("Your agent"))}</span>` : `<a class="muted" href="/">${esc(T("Boards"))}</a><span class="faint">/</span><span class="cur truncate">${esc(info.title)}</span>`,
     actions: `${agent.connected ? "" : `<button class="btn sm" data-open="connect" aria-label="${esc(T("Connect an agent"))}"><span class="hide-sm">${esc(T("Connect an agent"))}</span><span class="sm-only">${esc(T("Connect"))}</span></button>`}${readOnly || agentChat ? "" : `<button class="btn sm" data-open="invite">${esc(T("Invite"))}<kbd class="hide-sm">I</kbd></button>`}${
       // Rename/archive/delete live at the bottom of Members & access; a visible way in, so they aren't hidden behind Invite.
-      isCreator || canPic ? `<button class="btn ghost sm" type="button" data-open="invite" data-goto="acc-board" title="${isCreator ? "Picture, archive or delete" : "Board picture"}" aria-label="${esc(T("Board settings"))}"><svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="8" r="1.4"/><circle cx="8" cy="8" r="1.4"/><circle cx="13" cy="8" r="1.4"/></svg></button>` : ""
+      true ? `<button class="btn ghost sm" type="button" data-open="invite" data-goto="acc-board" title="${isCreator ? "Picture, archive or delete" : "Board picture"}" aria-label="${esc(T("Board settings"))}"><svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="8" r="1.4"/><circle cx="8" cy="8" r="1.4"/><circle cx="13" cy="8" r="1.4"/></svg></button>` : ""
     }`,
     body,
     script,

@@ -846,7 +846,7 @@ mark{background:color-mix(in srgb,var(--warn) 30%,transparent);color:inherit;bor
 .working{display:inline-flex;align-items:center;gap:5px;flex:none;font-size:11px;font-weight:500;color:var(--muted);white-space:nowrap}.working[hidden]{display:none}
 .working .dot,.ag-dot.live{background:var(--ok);animation:breathe 2.4s ease-in-out infinite}
 @keyframes breathe{0%,100%{box-shadow:0 0 0 0 color-mix(in srgb,var(--ok) 45%,transparent)}50%{box-shadow:0 0 0 3px color-mix(in srgb,var(--ok) 18%,transparent)}}
-.side-board .working{margin-left:auto;font-size:10.5px}.side-board .working .dot{width:6px;height:6px}
+.side-board-row{display:flex;align-items:center;position:relative}.side-board-row .side-board{flex:1;min-width:0}.pin-actions{position:relative;z-index:3}.pin-actions summary{list-style:none;cursor:pointer;color:var(--muted);padding:4px 7px;border-radius:6px}.pin-actions summary::-webkit-details-marker{display:none}.pin-actions summary:hover{background:var(--bg-hover);color:var(--ink)}.pin-actions>button{position:absolute;right:0;top:100%;white-space:nowrap;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--ink);padding:7px 14px;box-shadow:var(--shadow-lg);cursor:pointer}.pin-actions>button:hover{background:var(--bg-hover)}.pin-mark{font-size:12px;flex:none}.side-board .working{margin-left:auto;font-size:10.5px}.side-board .working .dot{width:6px;height:6px}
 @media (prefers-reduced-motion:reduce){.working .dot,.ag-dot.live{animation:none}}
 .side-board .bdot{width:8px;height:8px;margin:0 5px;border-radius:3px;flex:none;background:hsl(var(--h) 55% 55%)}
 /* board pictures (like a group chat's photo): a rounded square, its initial underneath until the image loads */
@@ -1454,6 +1454,7 @@ export interface SideBoard {
   title: string;
   kind?: string | null; // "direct": a private board between two friends (title "a ↔ b"); "agent": "Your agent", you and your own agents
   live?: number; // agent sessions working on it right now
+  pinned?: boolean;
   picture?: string | null; // the board picture's URL (members only, versioned), or null
 }
 
@@ -1506,7 +1507,7 @@ export function appPage(
     direct = opts.boards.filter((b) => b.kind === "direct"),
     own = opts.boards.find((b) => b.kind === "agent");
   const sideBoards = shared
-    .map((b) => `<a class="side-link side-board" href="/b/${esc(b.id)}"${cur(b.id)}>${boardPic(b, "xs", `<span class="bdot" style="--h:${hue(b.id)}"></span>`)}<span class="truncate">${esc(b.title)}</span>${working(b.live ?? 0, b.id)}</a>`)
+    .map((b) => `<div class="side-board-row"><a class="side-link side-board" href="/b/${esc(b.id)}"${cur(b.id)}>${boardPic(b, "xs", `<span class="bdot" style="--h:${hue(b.id)}"></span>`)}<span class="truncate">${esc(b.title)}</span>${b.pinned ? `<span class="pin-mark" aria-label="${esc(T("Pinned"))}" title="${esc(T("Pinned"))}">📌</span>` : ""}${working(b.live ?? 0, b.id)}</a><details class="pin-actions"><summary aria-label="${esc(T("More actions"))}" title="${esc(T("More actions"))}">⋯</summary><button type="button" data-pin-board="${esc(b.id)}">${esc(T(b.pinned ? "Unpin" : "Pin"))}</button></details></div>`)
     .join("");
   // Direct boards read as the person you share them with.
   const sideDirect = direct
@@ -1573,8 +1574,15 @@ export function appPage(
 <dt><kbd>G</kbd> ${esc(T("then"))} <kbd>I</kbd> <kbd>A</kbd> <kbd>B</kbd> <kbd>P</kbd> <kbd>M</kbd></dt><dd>${esc(T("Go to Inbox / Approvals / Boards / People / Account"))}</dd>
 <dt><kbd>?</kbd></dt><dd>${esc(T("This list"))}</dd></dl></div></dialog>
 <script>window.PALETTE=${JSON.stringify(paletteItems).replace(/</g, "\\u003c")};${v.admin ? "window.OPS=1;" : ""}</script>`;
-  return rawPage(title, body, (opts.script ?? "") + SHELL_JS + INBOX_JS + LIVE_JS, opts.status, v.lang ?? "en");
+  return rawPage(title, body, (opts.script ?? "") + SHELL_JS + INBOX_JS + LIVE_JS + PINS_JS, opts.status, v.lang ?? "en");
 }
+
+const PINS_JS = `
+(()=>{document.addEventListener('click',async e=>{const b=e.target.closest('[data-pin-board]');if(!b)return;e.preventDefault();e.stopPropagation();
+  b.disabled=true;try{const r=await fetch('/api/me/pins',{cache:'no-store'}),j=await r.json();if(!r.ok)throw Error(j.error||tr('Could not save'));
+    const id=b.dataset.pinBoard,old=j.pins||[],next=old.includes(id)?old.filter(x=>x!==id):[...old,id];
+    const put=await fetch('/api/me/pins',{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({pins:next})});const saved=await put.json();if(!put.ok)throw Error(saved.error||tr('Could not save'));location.reload();
+  }catch(err){alert(err.message)}finally{b.disabled=false}})})();`;
 
 // Inbox badge on every signed-in page: checks on load, when the tab comes back, and every minute. With permission,
 // a new item also shows a browser notification (once per item, across tabs).

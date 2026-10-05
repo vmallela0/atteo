@@ -35,6 +35,7 @@ import * as device from "./device";
 import { EMAIL_RE, sendInvite } from "./invite";
 import { mayMention, parseMentions, SESSION_NAME_RE, type Mention } from "./mentions";
 import * as registry from "./registry";
+import * as pins from "./pins";
 import * as boardkeys from "./boardkeys";
 import * as mailbox from "./mailbox";
 import * as recap from "./recap";
@@ -168,10 +169,10 @@ const waitRefused = (retryAfter: number) =>
   json({ error: "Another wait from this agent session is already open (are two loops sharing one session?). Use one session per loop.", retry_after: retryAfter }, 429, { "retry-after": String(retryAfter) });
 
 async function sideBoards(env: Env, user: string): Promise<SideBoard[]> {
-  const [boards, live] = await Promise.all([registry.boardsForUser(env, user), sessions.liveByBoard(env).catch(() => new Map<string, number>())]);
-  return boards
+  const [boards, live, pinned] = await Promise.all([registry.boardsForUser(env, user), sessions.liveByBoard(env).catch(() => new Map<string, number>()), pins.getPins(env, user)]);
+  return pins.sortPinned(boards, pinned)
     .filter((b) => !b.archived_at)
-    .map((b) => ({ id: b.id, title: b.title, kind: (b as { kind?: string | null }).kind ?? null, live: live.get(b.id) ?? 0, picture: boardPictures.pictureUrl(b.id, b.picture_v) }));
+    .map((b) => ({ id: b.id, title: b.title, kind: (b as { kind?: string | null }).kind ?? null, live: live.get(b.id) ?? 0, picture: boardPictures.pictureUrl(b.id, b.picture_v), pinned: pinned.includes(b.id) }));
 }
 
 /** Members (and operators) can see a board; everyone else gets a 404 so board ids don't leak. */
@@ -1216,6 +1217,14 @@ const handler = {
         if (!viewer) return needLogin();
         return json({ name: viewer.name, email: viewer.email, display_name: viewer.display_name, via: viewer.via ?? "person" }, 200, { "cache-control": "no-store" });
       }
+      if (path === "/api/me/pins" && (method === "GET" || method === "PUT")) {
+        if (!viewer) return needLogin();
+        if (viewer.via === "agent") return json({ error: "Pins are for people." }, 403);
+        if (method === "GET") return json({ pins: await pins.getPins(env, viewer.name) }, 200, { "cache-control": "no-store" });
+        const body = await request.json().catch(() => null) as { pins?: unknown } | null;
+        try { return json({ pins: await pins.putPins(env, viewer.name, body?.pins) }, 200, { "cache-control": "no-store" }); }
+        catch (e) { return json({ error: e instanceof Error ? e.message : String(e) }, 400); }
+      }
       // ---- client prefs (the web and the app; agents never need them): display settings, favourite reactions ----
       if (path === "/api/app/prefs" && (method === "GET" || method === "POST")) {
         if (!viewer) return needLogin();
@@ -1678,7 +1687,7 @@ const handler = {
         // The watcher checks in here every few minutes: that's how friends see "answers in the background".
         const watching = atteoHeader(request, "watch");
         if (watching) ctx.waitUntil(Promise.resolve(social.markSeen(env, who, "watch", watching === "respond")).catch(() => {}));
-        const [boards, live] = await Promise.all([registry.boardsForUser(env, who), sessions.liveByBoard(env).catch(() => new Map<string, number>())]);
+        const [boards, live, pinned] = await Promise.all([registry.boardsForUser(env, who), sessions.liveByBoard(env).catch(() => new Map<string, number>()), viewer?.via === "agent" ? Promise.resolve([] as string[]) : pins.getPins(env, who)]);
         const row = (b: (typeof boards)[number]) => ({
           live_agents: live.get(b.id) ?? 0, // agent sessions working on it right now
           id: b.id,
@@ -1690,6 +1699,7 @@ const handler = {
           encrypted: !!(b as { encrypted?: number }).encrypted,
           created_by: b.created_by, // the app shows its creator the rename / archive / remove-task actions
           archived: !!b.archived_at,
+          pinned: pinned.includes(b.id),
           picture: boardPictures.pictureUrl(b.id, b.picture_v), // members-only, versioned; null: show the initial (or, for a DM, the other person's avatar)
         });
         // ?with=<user>: only boards they're on (and invitations involving them); ?members=1 lists each board's members.
@@ -1699,7 +1709,7 @@ const handler = {
         const memberNames = async (id: string) => (wantMembers ? (await registry.boardMembers(env, id)).map((m) => m.user) : undefined);
         const me = await registry.userByName(env, who);
         const invites = me ? await registry.invitationsFor(env, me) : [];
-        const mine = await Promise.all(boards.map(async (b) => ({ ...row(b), status: "member" as const, members: await memberNames(b.id) })));
+        const mine = await Promise.all(pins.sortPinned(boards, pinned).map(async (b) => ({ ...row(b), status: "member" as const, members: await memberNames(b.id) })));
         const pending = await Promise.all(
           invites.map(async (i) => ({ id: i.board_id, title: i.board_title, status: "invited" as const, invited_by: i.invited_by, invited_at: i.created_at, members: await memberNames(i.board_id) })),
         );

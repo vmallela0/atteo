@@ -1484,6 +1484,26 @@ await step("a second board for the later steps", async () => {
   await ops("members", { board: fb, user: B });
 });
 
+await step("people pin up to five boards in order; agents cannot change pins", async () => {
+  const put = (who, ids) => web("/api/me/pins", who, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ pins: ids }) });
+  const get = async (who) => (await (await web("/api/me/pins", who)).json()).pins;
+  assert(JSON.stringify(await get(A)) === "[]", "pins start empty");
+  assert((await put(A, [board2, board])).status === 200, "pin two");
+  assert(JSON.stringify(await get(A)) === JSON.stringify([board2, board]), "pin order persisted");
+  assert(JSON.stringify(await get(B)) === "[]", "pins belong to one person");
+  const listed = (await (await web("/api/me/boards", A)).json()).boards;
+  assert(listed[0].id === board2 && listed[0].pinned && listed[1].id === board && listed[1].pinned, "API lists pins first in order");
+  const page = await (await web("/", A)).text();
+  assert(page.indexOf(`data-id="${board2}"`) < page.indexOf(`data-id="${board}"`), "Boards page pin order");
+  assert((await put(A, [board, board])).status === 400, "duplicate rejected");
+  assert((await put(A, [board2, "b_missing"])).status === 400, "nonmember rejected");
+  assert((await put(A, [board, board2, board, board2, board, board2])).status === 400, "six rejected");
+  assert((await fetch(`${BASE}/api/me/pins`, { headers: auth(A) })).status === 403, "agent GET rejected");
+  assert((await fetch(`${BASE}/api/me/pins`, { method: "PUT", headers: { ...auth(A), "content-type": "application/json" }, body: JSON.stringify({ pins: [] }) })).status === 403, "agent PUT rejected");
+  assert((await put(A, [])).status === 200 && (await get(A)).length === 0, "unpin persists");
+});
+
+
 await step("files are documents: posting a file publishes a version; get, search, summary and the files API agree", async () => {
   const name = `trace (prod) ${run}.log`;
   const clean = `trace -prod- ${run}.log`;
