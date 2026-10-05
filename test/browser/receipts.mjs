@@ -59,7 +59,8 @@ let box=await entry.boundingBox();await p.mouse.move(0,0);await p.waitForTimeout
 await p.screenshot({path:`${SHOTS_DIR}/receipts-light.png`,clip:{x:box.x,y:box.y-10,width:box.width,height:box.height+20}});
 const d=await open("dark");const de=d.locator(`#e${ask}`);box=await de.boundingBox();
 await d.screenshot({path:`${SHOTS_DIR}/receipts-dark.png`,clip:{x:box.x,y:box.y-10,width:box.width,height:box.height+20}});
-const dc=await d.evaluate(s=>getComputedStyle(document.querySelector('[data-rx="'+s+'"] .rx-rcpt')).color,ask);
+await d.waitForFunction(s=>!!document.querySelector('[data-rx="'+s+'"] .rx-rcpt'),ask,{timeout:8000}).catch(()=>{}); // the receipts come with the page's first update
+const dc=await d.evaluate(s=>{const r=document.querySelector('[data-rx="'+s+'"] .rx-rcpt');return r?getComputedStyle(r).color:null},ask);
 check(dc!==g.color,`dark mode uses the dark muted token (${g.color} → ${dc})`);
 // Only receipts: a fresh person message with just the agent's 👀 shows the line and no ☺+ in the row.
 const r2=await fetch(`${BASE}/api/boards/${board}/entries`,{method:"POST",headers:{"content-type":"application/json",cookie},body:JSON.stringify({text:`@${V}'s agent and the logs?`})}).then(r=>r.json());const ask2=r2.entry?.seq ?? r2.seq;
