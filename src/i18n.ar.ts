@@ -941,9 +941,11 @@ export const AR: Record<string, string> = {
   "Quiet hours": "ساعات الهدوء",
   "Nothing interrupts you then, except urgent approvals.": "لا شيء يقاطعك حينها، إلا الموافقات العاجلة.",
   "Notifications saved": "حُفظت الإشعارات",
-  "{n} updates since the last digest": "{n} تحديثات منذ آخر ملخّص",
+  "{n} updates since the last digest": "التحديثات منذ آخر ملخّص: {n}",
   "When Atteo answers": "متى يجيب Atteo",
   "Right away": "فورًا",
   "After a pause": "بعد توقف قصير",
   "When I tap Done": "عندما أنقر تم",
+  "{n} update since the last digest": "{n} تحديث منذ آخر ملخّص",
+  "Quiet hours need different start and end times.": "يجب أن يختلف وقت بدء ساعات الهدوء عن وقت انتهائها.",
 };

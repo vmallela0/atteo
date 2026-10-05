@@ -1046,13 +1046,15 @@ const handler = {
       if (path === "/api/inbox/count" && method === "GET") {
         if (!viewer) return needLogin();
         const cnt = await inbox.inboxCount(env, viewer.name, viewer.via !== "agent");
-        if (viewer.via === "agent" || !cnt.latest) return json(cnt, 200, { "cache-control": "no-store" });
-        // People: the newest item says whether it interrupts (one level lookup for its board, not all of them).
-        const lb = cnt.latest.board_id || cnt.latest.push?.board || "";
-        const [lvl, prefs] = await Promise.all([lb ? notify.getLevel(env, viewer.name, lb) : notify.DEFAULT_LEVEL, notify.getPrefs(env, viewer.name, notify.fallbackTz(url.searchParams.get("tz")))]);
+        if (viewer.via === "agent") return json(cnt, 200, { "cache-control": "no-store" });
+        // People: the newest item says whether it interrupts, and notify carries the digest that's due (digest_count:
+        // what waited for the slot at digest_at, and on which boards), so a client shows it once without counting.
+        const [levels, prefs] = await Promise.all([notify.getLevels(env, viewer.name), notify.getPrefs(env, viewer.name, notify.fallbackTz(url.searchParams.get("tz")))]);
         const now = requestNow(env, request);
-        const [latest] = inbox.withInterrupts([cnt.latest], lb ? { [lb]: lvl } : {}, prefs, now);
-        return json({ ...cnt, latest, notify: notify.summary(prefs, now) }, 200, { "cache-control": "no-store" });
+        const sum = notify.summary(prefs, now);
+        const due = await inbox.digestDue(env, viewer.name, levels, prefs, sum.digest_at);
+        const latest = cnt.latest ? inbox.withInterrupts([cnt.latest], levels, prefs, now)[0] : null;
+        return json({ ...cnt, latest, notify: { ...sum, digest_count: due?.n ?? 0, digest_boards: due?.boards ?? [] } }, 200, { "cache-control": "no-store" });
       }
       m = path.match(/^\/api\/inbox\/([^/]+)\/remind$/);
       if (m && (method === "POST" || method === "DELETE")) {

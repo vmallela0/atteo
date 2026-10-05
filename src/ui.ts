@@ -1668,15 +1668,14 @@ const PINS_JS = `
 const INBOX_JS = `
 (()=>{const el=document.getElementById('inbox-count');if(!el)return;const base=document.title;
 let seen=0;try{seen=+localStorage.getItem('inbox-seen')||0}catch{}
-const tz=encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC');let dg={};try{dg=JSON.parse(localStorage.getItem('inbox-dg'))||{}}catch{}
+const tz=encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC');let dgAt=0;try{dgAt=+localStorage.getItem('inbox-dg-at')||0}catch{}
 window.inboxRefresh=async()=>{try{const r=await fetch('/api/inbox/count?tz='+tz);if(!r.ok)return;const j=await r.json();
   el.hidden=!j.unread;el.textContent=j.unread>99?'99+':String(j.unread);document.title=(j.unread?'('+j.unread+') ':'')+base;
   const ap=document.getElementById('approvals-count');if(ap){ap.hidden=!j.approvals;ap.textContent=String(j.approvals||'')}
-  const can='Notification' in window&&Notification.permission==='granted',l=j.latest,due=j.notify&&j.notify.digest_at;
-  // The digest: what waited is counted; once the latest slot is newer than the last one shown, one summary.
-  if(l&&seen&&l.created_at>seen&&l.interrupt==='digest'){dg.n=(dg.n||0)+1;dg.b=[...new Set([...(dg.b||[]),l.board_title].filter(Boolean))].slice(0,5)}
-  if(due>(dg.at||0)){if(dg.n&&can)new Notification(tr('{n} updates since the last digest',{n:dg.n}),{body:(dg.b||[]).join(', '),tag:'inbox-digest'}).onclick=()=>{focus();location.href='/inbox'};dg={at:due}}
-  try{localStorage.setItem('inbox-dg',JSON.stringify(dg))}catch{}
+  const can='Notification' in window&&Notification.permission==='granted',l=j.latest,ns=j.notify||{},due=ns.digest_at,dn=ns.digest_count;
+  // The digest: the server counts what waited for the slot at digest_at; it shows once, when that slot is new here.
+  if(due>dgAt){if(dgAt&&dn&&can)new Notification(tr(dn===1?'{n} update since the last digest':'{n} updates since the last digest',{n:dn}),{body:(ns.digest_boards||[]).join(', '),tag:'inbox-digest'}).onclick=()=>{focus();location.href='/inbox'};
+    dgAt=due;try{localStorage.setItem('inbox-dg-at',String(due))}catch{}}
   if(l&&l.created_at>seen){if(l.kind!=='manual_unread'&&seen&&(!l.interrupt||l.interrupt==='now')&&can&&!(document.visibilityState==='visible'&&location.pathname==='/b/'+l.board_id)){
     const ap=l.kind==='approval',who=ap?'Your agent':l.actor_via==='agent'?l.actor+"'s agent":l.actor;
     const n=new Notification(who+(ap?' is asking for your approval':l.kind==='mention'?' mentioned you':l.kind==='decision'?' asks for a decision':l.kind==='reply'?' replied to you':l.kind==='friend_request'?' wants to be friends':l.kind==='friend_accept'?' accepted your request':' wrote to your agent'),{body:l.excerpt,tag:'inbox-'+l.id});

@@ -946,4 +946,6 @@ export const ES: Record<string, string> = {
   "Right away": "Al instante",
   "After a pause": "Tras una pausa",
   "When I tap Done": "Cuando toque Listo",
+  "{n} update since the last digest": "{n} novedad desde el último resumen",
+  "Quiet hours need different start and end times.": "Las horas de silencio necesitan horas de inicio y fin distintas.",
 };

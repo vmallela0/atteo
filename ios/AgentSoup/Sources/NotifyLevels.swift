@@ -137,6 +137,9 @@ struct QuietHoursRows: View {
         let p = hhmm.split(separator: ":").compactMap { Int($0) }
         return Calendar.current.date(bySettingHour: p.first ?? 0, minute: p.count > 1 ? p[1] : 0, second: 0, of: Date()) ?? Date()
     }
+    /// Quiet hours are a window: the same start and end is refused (by the server too, #2668), not "all day".
+    static func isWindow(start: String, end: String) -> Bool { start != end }
+
     static func hhmm(_ d: Date) -> String {
         let c = Calendar.current.dateComponents([.hour, .minute], from: d)
         return String(format: "%02d:%02d", c.hour ?? 0, c.minute ?? 0)
@@ -154,6 +157,11 @@ struct QuietHoursRows: View {
             if on {
                 DatePicker("Starts", selection: $start, displayedComponents: .hourAndMinute).accessibilityIdentifier("quiet-start")
                 DatePicker("Ends", selection: $end, displayedComponents: .hourAndMinute).accessibilityIdentifier("quiet-end")
+                if !Self.isWindow(start: Self.hhmm(start), end: Self.hhmm(end)) {
+                    Text("Quiet hours need different start and end times.")
+                        .font(.caption).foregroundStyle(Theme.danger)
+                        .accessibilityIdentifier("quiet-same")
+                }
             }
             Text(verbatim: String(localized: "Digest at \(digest.joined(separator: ", ")).", bundle: .l10n))
                 .font(.caption).foregroundStyle(Theme.muted)
@@ -173,7 +181,7 @@ struct QuietHoursRows: View {
     }
 
     private func save() {
-        guard loaded else { return }
+        guard loaded, Self.isWindow(start: Self.hhmm(start), end: Self.hhmm(end)) else { return } // the message says why
         let body: [String: Any] = ["quiet": ["on": on, "start": Self.hhmm(start), "end": Self.hhmm(end), "tz": TimeZone.current.identifier]]
         Task { _ = try? await API.shared.send("/api/me/notify", method: "PUT", body: body) }
     }
