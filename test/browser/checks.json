@@ -59,6 +59,7 @@
  "px-triggers": 17,
  "inline": 15,
  "voice": 18,
+ "voice-allowance": 10,
  "foryou": 8,
  "chglink": 6,
  "soulmem": 12,
