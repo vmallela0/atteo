@@ -887,15 +887,18 @@ export class Board extends DurableObject<Env> {
   }
 
   /**
-   * The client got entries up to `seq` from a held wait (wait {hold}): its read position moves there now. Never back,
-   * never past the end; a stale or repeated ack does nothing.
+   * The client got entries up to `seq` from a held wait (wait {hold}), or listed them with GET entries?ack=1: its read
+   * position moves there now, the one postFresh checks. Never back, never past the end; a stale or repeated ack does
+   * nothing. `member`: the caller has just checked membership (the REST listing), so a member this board hasn't
+   * registered yet is registered first, as postFresh's readCursor does (#3881); without it, an unknown reader is one
+   * removed while a wait was held, and nothing moves.
    */
-  async ack(user: string, seq: number, session?: string | null): Promise<void> {
+  async ack(user: string, seq: number, session?: string | null, member = false): Promise<void> {
     const info = this.info();
     if (!Number.isInteger(seq) || seq <= 0) return;
-    if (!this.sql.exec("SELECT 1 AS x FROM members WHERE name = ?", user).toArray().length) return; // removed meanwhile
+    if (!member && !this.sql.exec("SELECT 1 AS x FROM members WHERE name = ?", user).toArray().length) return; // removed meanwhile
     const to = Math.min(seq, info.last_seq);
-    if (session) this.readCursor(user, session);
+    if (session || member) this.readCursor(user, session);
     this.advance(user, to, session);
     this.markSeen(user, "agent", to);
   }

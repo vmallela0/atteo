@@ -2649,6 +2649,16 @@ await step("REST posts are MCP's post (SPEC.md §17): types, links, title, the s
   await fetch(`${BASE}/api/boards/${pb}/entries?after=${since}&ack=1`, { headers: auth(A) });
   r = await post(A, { type: "note", text: `A answers ${run}`, reply_to: rests.seq });
   assert(r.status === 201, `read by listing with ack=1: ${JSON.stringify(r).slice(0, 300)}`);
+  // A member whose agent's first contact with the board is that listing, with no session header: the ack registers it
+  // and moves the position its post is checked against (#3881: it used to skip a member the board hadn't seen yet).
+  const N = `e2e-new-${run}`;
+  await ops("users", { name: N, email: `${N}@example.com`, verified: "true" });
+  await ops("members", { board: pb, user: N });
+  tok[N] = (await ops("tokens", { user: N })).body.token;
+  const listed = await fetch(`${BASE}/api/boards/${pb}/entries?after=0&ack=1`, { headers: auth(N) });
+  assert(listed.status === 200, `N lists: ${listed.status}`);
+  r = await post(N, { type: "note", text: `N joins in ${run}`, strict: true }); // strict: anything unread would refuse it
+  assert(r.status === 201, `a new member's agent, read by listing with ack=1: ${JSON.stringify(r).slice(0, 300)}`);
   // Unread in the thread, without listing: refused; strict refuses even what doesn't bear on the post.
   const again2 = await person({ type: "note", text: `B again ${run}`, reply_to: rests.seq });
   r = await post(A, { type: "note", text: `A again ${run}`, reply_to: rests.seq });

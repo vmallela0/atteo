@@ -2937,7 +2937,8 @@ const handler = {
           // refused for what it already has (the stale-read rule, SPEC.md §9). Opt-in: a plain listing (export, cat log/N,
           // watch) moves no position (opus-d #3823). People's reading is the page's business.
           const ack = ["1", "true"].includes(url.searchParams.get("ack") ?? "");
-          if (ack && viewer?.via === "agent" && last > after) await stub.ack(viewer.name, last, (await asOpts()).session).catch(() => {});
+          // The same reader post uses (asOpts), registered if new (#3881); a failure is the request's, not hidden.
+          if (ack && viewer?.via === "agent" && last > after) await stub.ack(viewer.name, last, (await asOpts()).session, true);
           return json({ entries: list, last, reactions, reads: snap.reads, decisions: snap.decisions });
         }
         if (what === "entries" && !seqStr && method === "GET") {
