@@ -1411,6 +1411,7 @@ function connect(){
     if(d.type==='decision'){HDS[d.seq]=d.human_decision;renderHD(d.seq);return}
     if(d.type==='read'){READS[d.user]={person_seen:d.person_seen,agent_seen:d.agent_seen};renderReads();return}
     if(d.type==='task')refreshTask(d.seq);
+    if(d.type==='entry'&&d.kind==='handoff'&&document.getElementById('invite').open)gateLoad(); // the queue moved: a handoff posted or landed
     if(d.type==='task'&&d.done){sumNext=true;tick(false)} // done is a status change, not a message: refresh the open tasks
     if(d.type==='claim'||d.type==='handling')tick(false);
     if(d.type==='task'){if(!document.getElementById('panel-tasks').hidden)loadTasks();if(td&&td.open&&tcur&&tcur.seq===d.seq&&!tdirty)openTask(d.seq)}
@@ -2349,6 +2350,19 @@ async function accLoad(){const [m,a,l]=await Promise.all([fetch('/api/boards/'+B
   if(IS_OWNER)document.getElementById('acc-links').innerHTML=(l.links||[]).filter(x=>!x.revoked_at&&(!x.expires_at||x.expires_at>Date.now())).map(x=>'<li class="acc-row xs"><span class="grow">'+(x.role==='viewer'?tr('View only'):tr('Can post'))+' link · until '+accFmt(x.expires_at)+' · used '+x.uses+(x.max_uses?' of '+x.max_uses:'')+'</span><button class="btn ghost sm" type="button" data-link-revoke="'+esc(x.id)+'">'+tr('Revoke')+'</button></li>').join('');
   const verb={invited:'invited',joined:'joined',removed:'removed',left:'left',access_changed:'changed access for',link_created:'created an invite link',link_revoked:'revoked an invite link',renamed:'renamed the board',archived:'archived the board',restored:'restored the board',expired:'access ended for',picture_changed:'changed the board picture',picture_removed:'removed the board picture'};
   document.getElementById('acc-audit').innerHTML=(a.audit||[]).slice(0,50).map(x=>'<li class="xs"><b>'+esc(x.actor)+'</b> '+(verb[x.action]||esc(x.action))+(x.target?' <b>'+esc(x.target)+'</b>':'')+(x.detail?' <span class="faint">· '+esc(x.detail)+'</span>':'')+' <span class="faint">· '+new Date(x.ts).toLocaleString([],{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})+'</span></li>').join('')||'<li class="xs faint">'+tr('Nothing yet')+'</li>'}
+// ---- The gate's queue (#3209): open handoffs, oldest first, in board info — so nobody has to ask whether the gate is running ----
+const GATE_STALLED_MS=30*60000;
+async function gateLoad(){const sec=document.getElementById('acc-gate');if(!sec)return;
+  const j=await fetch('/api/boards/'+BOARD+'/handoffs').then(r=>r.json()).catch(()=>({}));
+  const hs=(j.handoffs||[]).filter(x=>x.handoff&&x.handoff.state==='open');
+  if(!hs.length){sec.hidden=true;return}
+  sec.hidden=false;
+  const stalled=Date.now()-hs[0].ts>GATE_STALLED_MS; // oldest first: nothing has landed in 30 min
+  document.getElementById('gate-h').innerHTML=esc(tr('Waiting to land ({n})',{n:hs.length}))+(stalled?' <span class="xs" style="color:var(--warn)">'+esc(tr('nothing landed for 30 min'))+'</span>':'');
+  document.getElementById('acc-handoffs').innerHTML=hs.map(h=>'<li class="acc-row xs"><a class="mono" href="#e'+h.seq+'">#'+h.seq+'</a><span class="grow truncate mono">'+esc(h.handoff.branch||'')+'</span><span class="truncate">'+esc(h.agent_name||h.author)+'</span><span class="faint">'+(h.handoff.lgtm?'LGTM · ':'')+'<time data-ts="'+h.ts+'"></time></span></li>').join('');
+  refreshTimes()}
+document.getElementById('acc-handoffs').addEventListener('click',e=>{if(e.target.closest('a'))document.getElementById('invite').close()}); // jump to the message: the board's #e link takes it from there
+setInterval(()=>{if(document.getElementById('invite').open&&!document.getElementById('acc-gate').hidden)gateLoad()},30000); // ages grow and the stalled flag moves while it's open
 // ---- Triggers (#980): "when X happens, wake my agent (or one session) with a prompt"; each person manages their own ----
 const TRG_ON={task:'a new task',question:'a new question',entry:'any new message',change:'a change card',schedule:'every day at'};
 const trgApi='/api/boards/'+BOARD+'/triggers';
@@ -2415,7 +2429,7 @@ document.addEventListener('click',async e=>{const b=e.target.closest('[data-sch-
   const on=d==='toggle'&&b.getAttribute('aria-checked')!=='true';
   const r=await fetch(schApi+'/'+encodeURIComponent(id),d==='delete'?{method:'DELETE'}:{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({enabled:on})}).catch(()=>null);
   if(!r||!r.ok){const j=r?await r.json().catch(()=>({})):{};toast(j.error||tr('Couldn’t save'));b.disabled=false;return}toast(d==='delete'?tr('Schedule deleted'):on?tr('Schedule on'):tr('Schedule off'));schLoad()});
-document.addEventListener('click',e=>{const o=e.target.closest('[data-open="invite"]');if(!o)return;accLoad();trgLoad();schLoad();const g=o.dataset.goto&&document.getElementById(o.dataset.goto);if(g)setTimeout(()=>g.scrollIntoView({block:'nearest'}),60)});
+document.addEventListener('click',e=>{const o=e.target.closest('[data-open="invite"]');if(!o)return;accLoad();trgLoad();schLoad();gateLoad();const g=o.dataset.goto&&document.getElementById(o.dataset.goto);if(g)setTimeout(()=>g.scrollIntoView({block:'nearest'}),60)});
 // Invite: suggest friends who aren't on the board yet, as you type (arrow keys and Enter pick one).
 let accFriends=null,accSel=0;const invIn=document.getElementById('inv-email'),invSug=document.getElementById('inv-sug');
 async function invSuggest(){if(!invIn)return;if(!accFriends)accFriends=(await fetch('/api/friends').then(r=>r.json()).catch(()=>({}))).friends||[];
@@ -2773,6 +2787,7 @@ ${canInviteAgent ? inviteAgentDialog(T, info) : ""}
   <div class="row"><span class="grow xs" id="sch-err" style="color:var(--danger)"></span><button class="btn sm primary" type="submit">${esc(T("Add schedule"))}</button></div></form>`
       : ""
   }</section>
+  <section class="acc-sec" id="acc-gate" hidden><h3 id="gate-h"></h3><ul class="acc-list" id="acc-handoffs"></ul></section>
   <details class="acc-sec"><summary class="small muted">${esc(T("Activity"))}</summary><ul class="acc-list" id="acc-audit"></ul></details>
   ${
     true

@@ -959,4 +959,6 @@ export const ZH_CN: Record<string, string> = {
   "Sending…": "正在发送…",
   "Sending to your agent in {n}s: “{t}”": "{n} 秒后发给你的智能体：“{t}”",
   "Send what I dictate without asking": "不经确认就发送我口述的内容",
+  "Waiting to land ({n})": "等待合并（{n}）",
+  "nothing landed for 30 min": "30 分钟没有合并任何内容",
 };
