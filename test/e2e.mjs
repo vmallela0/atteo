@@ -170,8 +170,8 @@ async function makeUsers(list, opts = {}) {
 // The board page loads its shared script from /board.js (#3431), and every app page its shell from /shell.js: the steps
 // that read the page's code put them back inline.
 const withBoardJs = async (html) => {
-  for (const m of [...html.matchAll(/<script src="(\/(?:board|shell)\.js\?v=[^"]+)"[^>]*><\/script>/g)]) {
-    const js = await (await fetch(BASE + m[1])).text();
+  for (const m of [...html.matchAll(/<script src="(\/(?:board|shell)\.js\?v=[^"]+|\/board-tail\.js\?f=[01]{4}(?:&amp;|&)v=[^"]+)"[^>]*><\/script>/g)]) {
+    const js = await (await fetch(BASE + m[1].replace(/&amp;/g, "&"))).text();
     html = html.replace(m[0], () => `<script>${js}</script>`);
   }
   return html;

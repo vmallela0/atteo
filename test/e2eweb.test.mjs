@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createPublicKey, diffieHellman, generateKeyPairSync, hkdfSync, createDecipheriv } from "node:crypto";
 import { E2E_JS } from "../src/e2eweb";
 import { decryptV2, encryptV2, newEpochKey, seal, wrapKey } from "../cli/src/sealed";
-import { BOARD_JS, boardPage } from "../src/html";
+import { BOARD_JS, boardPage, boardTail } from "../src/html";
 
 // A .mjs test: it runs the CLI's Node crypto (cli/src/sealed.ts), which the Workers tsconfig doesn't type.
 // The browser's crypto, lifted out of the page script and run on Node's WebCrypto, against the CLI's implementation.
@@ -75,7 +75,7 @@ describe("encrypted board page", () => {
   it("its script (with the encryption part) compiles, and keeps the plaintext out of drafts", async () => {
     const info = { id: "b_enc12345", title: "Secret", created_by: "jxn", created_at: 0, entry_count: 0, last_seq: 0, encrypted: true };
     // The shared board script comes from /board.js: put it back inline to read the page's scripts whole.
-    const html = (await boardPage({ name: "jxn", email: "jxn@example.com", display_name: null, admin: false }, [], info, [{ user: "jxn", display_name: null, last_seen: 0 }], [], []).text()).replace(/<script src="\/board\.js\?v=[^"]+"[^>]*><\/script>/, () => `<script>${BOARD_JS}</script>`);
+    const html = (await boardPage({ name: "jxn", email: "jxn@example.com", display_name: null, admin: false }, [], info, [{ user: "jxn", display_name: null, last_seen: 0 }], [], []).text()).replace(/<script src="\/board\.js\?v=[^"]+"[^>]*><\/script>/, () => `<script>${BOARD_JS}</script>`).replace(/<script src="\/board-tail\.js\?f=([01]{4})(?:&amp;|&)v=[^"]+"[^>]*><\/script>/, (_, f) => `<script>${boardTail(f).js}</script>`);
     const js = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1]).join("\n");
     expect(js).toContain("window.e2eSync=");
     for (const s of [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1])) expect(() => new Function(s)).not.toThrow();

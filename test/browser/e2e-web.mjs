@@ -7,9 +7,11 @@ import { SHOTS_DIR } from "./lib/shots.mjs";
 import { chromium } from "playwright-core";
 import { spawn } from "node:child_process";
 import { d1Execute } from "./lib/d1.mjs";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+// A download's text through its stream: download.path() isn't available when the browser is shared (run.mjs connects to it).
+const dlText = async (dl) => { const chunks = []; for await (const c of await dl.createReadStream()) chunks.push(c); return Buffer.concat(chunks).toString("utf8"); };
 const BASE=process.env.BASE||"http://localhost:8787", WT=new URL("../../", import.meta.url).pathname, CLI=WT+"cli/dist/agent-soup.mjs";
 const ops = async (p, b) => (await fetch(`${BASE}/api/ops/${p}`, { method: "POST", headers: { "x-admin-key": "ci-admin-key", "content-type": "application/json" }, body: JSON.stringify(b) })).json();
 const run=Date.now().toString(36).slice(-4), A=`ann${run}`, B=`bob${run}`, C=`cat${run}`;
@@ -33,7 +35,7 @@ const post=async(p,text)=>{await p.locator("#composer-text").fill(text);await p.
 const bodyOf=(p,text)=>p.locator("#thread .entry .e2e-text",{hasText:text});
 // The board's log download (#3401): Members & access → This board → Download the log; the saved .jsonl, line by line.
 const logOf=async p=>{await p.locator('[data-open="invite"]').first().click();await p.locator("#log-export").waitFor();
-  const [dl]=await Promise.all([p.waitForEvent("download"),p.locator("#log-export").click()]);const t=readFileSync(await dl.path(),"utf8");
+  const [dl]=await Promise.all([p.waitForEvent("download"),p.locator("#log-export").click()]);const t=await dlText(dl);
   await p.evaluate(()=>document.getElementById("invite").close());return t.split("\n").filter(Boolean).map(l=>JSON.parse(l))};
 const sealed=async()=>(await fetch(`${BASE}/api/boards/${board}/sealed?after=0`,{headers:{authorization:`Bearer ${tok[A]}`}}).then(r=>r.json())).entries;
 
