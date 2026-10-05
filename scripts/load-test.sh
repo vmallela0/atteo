@@ -27,10 +27,13 @@ if [[ -z "$port" ]]; then echo "No free port in 8860-8869" >&2; exit 1; fi
 state=$(mktemp -d /tmp/atteo-load.XXXXXX)
 . scripts/procgroups.sh
 cleanup() {
+  local rc=$?
   trap - EXIT INT TERM
+  set +e
   stop_groups 5
-  lsof -ti "tcp:$port" -sTCP:LISTEN 2>/dev/null | xargs kill -9 2>/dev/null || true
+  lsof -ti "tcp:$port" -sTCP:LISTEN 2>/dev/null | xargs kill -9 2>/dev/null
   rm -rf "$state"
+  exit "$rc"
 }
 trap cleanup EXIT
 trap 'exit 130' INT
