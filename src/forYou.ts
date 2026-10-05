@@ -5,6 +5,7 @@
 // board's own state (Board.forYou: open human decisions, open questions naming you, tasks and change cards your agent
 // finished). Board content is untrusted: every string from it is escaped here.
 
+import { shownName } from "./names";
 import type { Approval } from "./approvals";
 import type { InboxItem } from "./inbox";
 import { appPage, avatar, directPeer, relTime, type SideBoard, type Viewer } from "./ui";
@@ -46,9 +47,9 @@ export function greetingFor(hour: number, lang?: Lang): string {
   return tr(lang, hour < 12 ? "Good morning" : "Good afternoon");
 }
 
-/** The name to greet: the first word of the display name, else the handle. */
+/** The name to greet: the whole display name as shown ("The Puppeteer", jxn #4438), else the handle. */
 export function firstName(v: Pick<Viewer, "name" | "display_name">): string {
-  return v.display_name?.trim().split(/\s+/)[0] || v.name;
+  return shownName(v.name, v.display_name);
 }
 
 /** The line under the greeting: "3 things need you. Your assistant did 5 more." */

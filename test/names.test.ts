@@ -22,4 +22,19 @@ describe("display names (jxn #4369)", () => {
   it("the page's map keeps only names that differ from the handle", () => {
     expect(displayMap([{ user: "a", display_name: "Ann" }, { user: "b", display_name: "b" }, { user: "c", display_name: null }])).toEqual({ a: "Ann" });
   });
+
+  it("can't be dodged (#4429): invisible tails, stacked marks, look-alikes, fullwidth, an agent's label", () => {
+    expect(cleanDisplay("\u2800")).toBeNull(); // braille blank
+    expect(cleanDisplay("ved\u{E0041}u")).toBe("vedu"); // a tag character
+    expect([...(cleanDisplay("a\u0301\u0301\u0301\u0301\u0301") ?? "")].length).toBe(3); // at most two marks a letter
+    const known = ["vedu", "jxn"];
+    expect(looksLikeOtherHandle("mallory", "v\u0435du", known)).toBe(true); // Cyrillic е
+    expect(looksLikeOtherHandle("mallory", "ｖｅｄｕ", known)).toBe(true); // fullwidth
+    expect(looksLikeOtherHandle("mallory", "＠someone", known)).toBe(true);
+    expect(looksLikeOtherHandle("mallory", "vedu's agent", known)).toBe(true);
+    expect(looksLikeOtherHandle("mallory", "Vedu’s Assistant", known)).toBe(true);
+    expect(looksLikeOtherHandle("vedu", "Vedu", known)).toBe(false); // your own handle is fine
+    expect(looksLikeOtherHandle("vmallela", "Vedu M", known)).toBe(false);
+    expect(personHtml("mallory", "vеdu's agent", known)).toContain('<span class="pn-h">@mallory</span>');
+  });
 });
