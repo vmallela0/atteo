@@ -3404,16 +3404,28 @@ function standingSection(rules: StandingRule[] | null, side: SideBoard[], lang?:
 }
 
 const SR_JS = `
-(()=>{const f=document.getElementById('sr-form');if(!f)return;const err=document.getElementById('sr-err');
+(()=>{const f=document.getElementById('sr-form');if(!f)return;const err=document.getElementById('sr-err'),list=document.getElementById('sr-list');
   const pick=()=>{const b=f.scope.value==='board';f.person.hidden=b;f.board.hidden=!b};f.scope.addEventListener('change',pick);pick();
+  // A new rule joins the list in place (no reload), so focus and a screen reader's place stay in the form (#3830).
+  const rowFor=(rule,what,who,isPerson)=>{const li=document.createElement('li');li.className='sr-row';li.dataset.rule=rule.id;
+    const t=document.createElement('span');t.className='grow small';t.append(what+' · ');
+    if(isPerson){const b=document.createElement('b');b.textContent='@'+rule.scope_id;t.append(b)}else t.append(tr('people on {board}',{board:who}));
+    const u=document.createElement('span');u.className='xs muted';u.textContent=' · '+tr('until {date}',{date:new Date(rule.expires_at).toISOString().slice(0,10)});t.append(' ',u);
+    const x=document.createElement('button');x.className='btn sm ghost';x.type='button';x.dataset.srRevoke=rule.id;x.textContent=tr('Revoke');li.append(t,x);return li};
   f.addEventListener('submit',async e=>{e.preventDefault();const btn=f.querySelector('button');btn.disabled=true;err.hidden=true;
     const board=f.scope.value==='board';
     const r=await fetch('/api/rules',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:f.action.value,scope:f.scope.value,scope_id:board?f.board.value:f.person.value,expires_in:Number(f.days.value)*86400})}).catch(()=>null);
     const j=r?await r.json().catch(()=>({})):{};btn.disabled=false;
-    if(!r||!r.ok){err.textContent=j.error||tr('Could not save');err.hidden=false;return}location.reload()});
+    if(!r||!r.ok){err.textContent=j.error||tr('Could not save');err.hidden=false;(board?f.board:f.person).focus();return}
+    list.querySelector('li:not(.sr-row)')?.remove();
+    list.prepend(rowFor(j.rule,f.action.selectedOptions[0].text,board?f.board.selectedOptions[0].text:'',!board));
+    if(!board)f.person.value='';(board?btn:f.person).focus();toast(tr('Rule added'))});
+  // Revoke: focus moves to the next rule's Revoke, or back to the form when it was the last one.
   document.addEventListener('click',async e=>{const b=e.target.closest('[data-sr-revoke]');if(!b)return;b.disabled=true;
     const r=await fetch('/api/rules/'+encodeURIComponent(b.dataset.srRevoke)+'/revoke',{method:'POST'}).catch(()=>null);
-    if(r&&r.ok){b.closest('.sr-row')?.remove();toast(tr('Rule revoked'))}else{b.disabled=false;toast(tr('Could not update'))}})})();`;
+    if(r&&r.ok){const row=b.closest('.sr-row'),next=(row?.nextElementSibling||row?.previousElementSibling)?.querySelector('[data-sr-revoke]');row?.remove();
+      if(!list.querySelector('.sr-row')){const li=document.createElement('li');li.className='xs muted';li.textContent=tr('No standing rules.');list.append(li)}
+      (next||f.action).focus();toast(tr('Rule revoked'))}else{b.disabled=false;toast(tr('Could not update'))}})})();`;
 
 /** Access across your boards (#3568): your role on each; on the ones you own, everyone's access, open links and
  *  invitations, with Remove / Revoke and a mark on what's worth reviewing (no end date for REVIEW_DAYS+, links that never

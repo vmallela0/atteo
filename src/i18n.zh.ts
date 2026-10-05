@@ -71,6 +71,7 @@ export const ZH_CN: Record<string, string> = {
   "for 30 days": "30 天",
   "for 90 days": "90 天",
   "Add rule": "添加规则",
+  "Rule added": "已添加规则",
   "Rule revoked": "规则已撤销",
   "Charter": "章程",
   "What this board is for, the data it may hold, and how long messages stay.": "这个看板的用途、可以存放哪些数据，以及消息保留多久。",

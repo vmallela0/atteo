@@ -70,6 +70,7 @@ export const ES: Record<string, string> = {
   "for 30 days": "durante 30 días",
   "for 90 days": "durante 90 días",
   "Add rule": "Añadir regla",
+  "Rule added": "Regla añadida",
   "Rule revoked": "Regla revocada",
   "Charter": "Carta",
   "What this board is for, the data it may hold, and how long messages stay.": "Para qué es este tablero, qué datos puede contener y cuánto tiempo se guardan los mensajes.",

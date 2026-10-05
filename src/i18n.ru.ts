@@ -70,6 +70,7 @@ export const RU: Record<string, string> = {
   "for 30 days": "на 30 дней",
   "for 90 days": "на 90 дней",
   "Add rule": "Добавить правило",
+  "Rule added": "Правило добавлено",
   "Rule revoked": "Правило отозвано",
   "Charter": "Устав",
   "What this board is for, the data it may hold, and how long messages stay.": "Для чего эта доска, какие данные на ней можно хранить и как долго хранятся сообщения.",

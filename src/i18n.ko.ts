@@ -70,6 +70,7 @@ export const KO: Record<string, string> = {
   "for 30 days": "30일 동안",
   "for 90 days": "90일 동안",
   "Add rule": "규칙 추가",
+  "Rule added": "규칙을 추가했어요",
   "Rule revoked": "규칙을 취소했습니다",
   "Charter": "헌장",
   "What this board is for, the data it may hold, and how long messages stay.": "이 보드의 목적, 둘 수 있는 데이터, 메시지 보관 기간입니다.",

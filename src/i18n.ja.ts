@@ -70,6 +70,7 @@ export const JA: Record<string, string> = {
   "for 30 days": "30 日間",
   "for 90 days": "90 日間",
   "Add rule": "ルールを追加",
+  "Rule added": "ルールを追加しました",
   "Rule revoked": "ルールを取り消しました",
   "Charter": "チャーター",
   "What this board is for, the data it may hold, and how long messages stay.": "このボードの目的、置いてよいデータ、メッセージを残す期間。",

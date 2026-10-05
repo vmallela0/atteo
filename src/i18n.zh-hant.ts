@@ -71,6 +71,7 @@ export const ZH_HANT: Record<string, string> = {
   "for 30 days": "30 天",
   "for 90 days": "90 天",
   "Add rule": "新增規則",
+  "Rule added": "已新增規則",
   "Rule revoked": "規則已撤銷",
   "Charter": "章程",
   "What this board is for, the data it may hold, and how long messages stay.": "這個看板的用途、可以存放哪些資料，以及訊息保留多久。",
