@@ -17,32 +17,34 @@ const m=await post(ckP,`@${NAME} can you check staging ${run}`);const ms=m.entry
 let fails=0;const check=(ok,t)=>{console.log(`${ok?"✓":"✗"} ${t}`);if(!ok)fails++};
 check(r0.ok,`setting the agent name works (${r0.status})`);
 const bad=await prof(ckV,{agent_name:P});check(bad.status===400,`a name that looks like a member's is refused (${bad.status})`);
+// Until the agent post's header starts with this name (a rename shows up live), up to 8 s.
+const metaIs=(p,n)=>p.waitForFunction(([s,n])=>(document.querySelector(`#e${s}>.grow>.meta`)?.innerText||"").trim().startsWith(n),[a1,n],{timeout:8000}).catch(()=>{});
 const b=await chromium.launch({executablePath: process.env.PW_CHROME || undefined});
 for(const [w,scheme] of [[1280,"light"],[390,"dark"]]){
   const ctx=await b.newContext({viewport:{width:w,height:860},colorScheme:scheme,isMobile:w<500,hasTouch:w<500});const [k,...v]=ckP.split(";")[0].split("=");await ctx.addCookies([{name:k,value:v.join("="),url:BASE}]);
-  const p=await ctx.newPage();const errors=[];p.on("pageerror",e=>errors.push(e.message));await p.goto(`${BASE}/b/${board}`);await p.waitForTimeout(1100);
+  const p=await ctx.newPage();const errors=[];p.on("pageerror",e=>errors.push(e.message));await p.goto(`${BASE}/b/${board}`);await p.locator(`#e${ms} .mention.agent[data-user="${V}"]`).waitFor({timeout:8000}).catch(()=>{});
   const meta=await p.locator(`#e${a1}>.grow>.meta`).innerText();
   check(new RegExp(`^${NAME}`).test(meta.trim())&&new RegExp(`${V}'s agent`).test(meta),`${w}px: the agent's post reads "${NAME}" with "${V}'s agent" next to it (${meta.replace(/\s+/g," ").slice(0,80)})`);
   const chip=p.locator(`#e${ms} .mention.agent[data-user="${V}"]`);
   check(await chip.count()===1&&(await chip.innerText())===`@${NAME}`,`${w}px: "@${NAME}" in a message is that agent's chip`);
-  if(w>500){await chip.hover();await p.waitForTimeout(900);const hc=await p.locator(".hcard").innerText().catch(()=>"");
+  if(w>500){await chip.hover();await p.locator(".hcard",{hasText:NAME}).waitFor({timeout:5000}).catch(()=>{});const hc=await p.locator(".hcard").innerText().catch(()=>"");
     check(new RegExp(NAME).test(hc)&&new RegExp(`${V}.?s agent`).test(hc),`the hover card names it and says whose it is (${hc.replace(/\s+/g," ").slice(0,90)})`);
-    await p.locator("#composer-text").click();await p.keyboard.type(`@${NAME.slice(0,3)}`);await p.waitForTimeout(400);
+    await p.locator("#composer-text").click();await p.keyboard.type(`@${NAME.slice(0,3)}`);await p.locator("#mention-menu",{hasText:NAME}).waitFor({timeout:5000}).catch(()=>{});
     const menu=await p.locator("#mention-menu").innerText();check(new RegExp(`${NAME}`).test(menu)&&new RegExp(`${V}'s agent`).test(menu),`the @ menu offers it by name, with whose it is (${menu.replace(/\s+/g," ").slice(0,90)})`);
     await p.keyboard.press("Enter");await p.waitForTimeout(200);check((await p.inputValue("#composer-text")).startsWith(`@${NAME}`),"picking it inserts @"+NAME);
     await p.fill("#composer-text","");
     // Live rename
-    await prof(ckV,{agent_name:`Ada${run}`});await p.waitForTimeout(2500);
+    await prof(ckV,{agent_name:`Ada${run}`});await metaIs(p,`Ada${run}`);
     check(new RegExp(`^Ada${run}`).test((await p.locator(`#e${a1}>.grow>.meta`).innerText()).trim()),"renaming it updates its posts without a reload");
-    await prof(ckV,{agent_name:NAME});await p.waitForTimeout(1500)}
+    await prof(ckV,{agent_name:NAME});await metaIs(p,NAME)}
   await p.screenshot({path:`${SHOTS_DIR}/agentnames-${w}.png`});
   check(!errors.length,`${w}px: no page errors ${errors.join(" | ")}`);await ctx.close()}
 // Account: the field
 {const ctx=await b.newContext({viewport:{width:1100,height:900}});const [k,...v]=ckV.split(";")[0].split("=");await ctx.addCookies([{name:k,value:v.join("="),url:BASE}]);const p=await ctx.newPage();
-  await p.goto(`${BASE}/me`);await p.waitForTimeout(800);check(await p.inputValue("#pf-agent").catch(()=>null)===NAME,"Account shows your agent's name");
-  await p.fill("#pf-agent",`Max${run}`);await p.locator("#pf-form button.primary").click();await p.waitForTimeout(800);
+  await p.goto(`${BASE}/me`);await p.waitForFunction((n)=>document.getElementById("pf-agent")?.value===n,NAME,{timeout:8000}).catch(()=>{});check(await p.inputValue("#pf-agent").catch(()=>null)===NAME,"Account shows your agent's name");
+  await p.fill("#pf-agent",`Max${run}`);await p.locator("#pf-form button.primary").click();await p.waitForFunction(()=>/./.test(document.getElementById("toast")?.textContent||""),null,{timeout:8000}).catch(()=>{});await p.waitForTimeout(150);
   const me=await (await fetch(`${BASE}/api/people/${V}`,{headers:{cookie:ckV}})).json();check((me.person?.agent_name||me.agent_name)===`Max${run}`,`saving the form renames it (${me.person?.agent_name||me.agent_name})`);
-  await p.fill("#pf-agent",P);await p.locator("#pf-form button.primary").click();await p.waitForTimeout(800);
+  await p.evaluate(()=>{document.getElementById("toast").textContent=""});await p.fill("#pf-agent",P);await p.locator("#pf-form button.primary").click();await p.waitForFunction(()=>/./.test(document.getElementById("toast")?.textContent||""),null,{timeout:8000}).catch(()=>{});await p.waitForTimeout(150);
   check(/./.test(await p.locator("#toast").innerText())&&!/Profile saved/.test(await p.locator("#toast").innerText()),`a look-alike name shows the server's error (${await p.locator("#toast").innerText()})`);
   await ctx.close()}
 await b.close();console.log(fails?`${fails} FAILED`:"agent names: all passed");process.exit(fails?1:0);

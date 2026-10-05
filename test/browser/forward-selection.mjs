@@ -42,12 +42,12 @@ for (const [label, w, h, phone] of [["desktop", 1280, 820, false], ["phone", 390
   const errors = [];
   p.on("pageerror", (e) => errors.push(e.message));
   await p.goto(`${BASE}/b/${src}`);
-  await p.waitForTimeout(700);
+  await p.locator(`#e${s1} .body`).waitFor({ timeout: 8000 }).catch(() => {});
   await select(p, s1, WORDS, !phone);
   check(await p.locator("#sel-float").isVisible() && await p.locator("#fwd-q-btn").isVisible(), `${label}: selecting text shows Forward`);
   if (phone) await p.locator("#fwd-q-btn").tap();
   else await p.locator("#fwd-q-btn").click();
-  await p.waitForTimeout(400);
+  await p.locator("#fwd-dlg").waitFor({ state: "visible", timeout: 5000 }).catch(() => {});
   check(await p.locator("#fwd-dlg").isVisible(), `${label}: Forward opens the forward dialog`);
   check((await p.locator("#fwd-n").innerText()).toLowerCase().includes("excerpt"), `${label}: dialog title says excerpt`);
   check((await p.locator("#fwd-prev").innerText()).includes(WORDS), `${label}: preview shows the selected words`);
@@ -57,9 +57,9 @@ for (const [label, w, h, phone] of [["desktop", 1280, 820, false], ["phone", 390
   await p.locator("#fwd-note").fill(`see this excerpt ${label}`);
   await p.screenshot({ path: `${SHOTS_DIR}/forward-selection-${label}.png` });
   await p.locator("#fwd-send").click();
-  await p.waitForTimeout(700);
+  await p.locator("#fwd-dlg").waitFor({ state: "hidden", timeout: 8000 }).catch(() => {});
   await p.goto(`${BASE}/b/${dst}`);
-  await p.waitForTimeout(700);
+  await p.locator("#thread .entry", { hasText: `see this excerpt ${label}` }).waitFor({ timeout: 8000 }).catch(() => {});
   const last = p.locator("#thread .entry").last();
   const t = await last.innerText();
   check(t.includes(`see this excerpt ${label}`) && t.includes(`Forwarded from Source ${run}`) && t.includes("excerpt"), `${label}: note and forward header on the target board`);
