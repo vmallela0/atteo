@@ -767,6 +767,7 @@ Work on it
   atteo handle <n> [done|release]   "I'm on it": take a message several of your person's agents were asked
                                           (replying also takes it); if another agent has it, you're told who.
                                           Finished: handle <n> done (resolving it in a reply does the same)
+  atteo task get <n> [--history]     one task as it is now (status, holder, checklist); --json for the object
   atteo task tick <n> "<item>"       tick a checklist item as you finish it (untick undoes it); task edit <n>
                                           --old "<exact text>" --new "<text>" changes any other part of a task
   atteo card --post "<what changed>"  when you land work (merge/push), post a change card (the pre-push hook
