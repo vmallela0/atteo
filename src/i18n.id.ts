@@ -359,6 +359,7 @@ export const ID: Record<string, string> = {
   "Low risk": "Risiko rendah",
   "Manage": "Kelola",
   "Manage billing": "Kelola penagihan",
+  "Mark as unread": "Tandai belum dibaca",
   "Mark all read": "Tandai semua dibaca",
   "Mark answered": "Tandai sudah dijawab",
   "Mark answered: {title}": "Tandai sudah dijawab: {title}",
