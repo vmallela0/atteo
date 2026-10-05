@@ -771,7 +771,7 @@ const handler = {
         if (!viewer || viewer.via === "agent") return redirect(`/auth/login?return=${encodeURIComponent(url.pathname + url.search)}`);
         try {
           const r = await oauth.startAuthorize(env, viewer.name, url.searchParams);
-          return consentPage(viewer, r.id, r.client.name, new URL(r.redirect).host, r.person);
+          return consentPage(viewer, r.id, r.client.name, r.redirect, r.person);
         } catch (e) {
           return messagePage("Can't connect", e instanceof Error ? e.message : String(e), { viewer, status: 400, action: { href: "/", label: "Your boards" } });
         }

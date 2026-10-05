@@ -21,16 +21,37 @@ export const CSP_REPORT_PATH = "/api/csp-report";
  *  step). 'self' covers the board's own live socket (ws/wss on this host), so an injected script can't open one out. */
 export const VOICE_SOCKET_ORIGIN = "wss://api.x.ai";
 
+/**
+ * The form-action source for one place a form's POST may redirect to: an http(s) URL's origin, or another scheme on its
+ * own ("cursor:", an app's "atteo:"). Browsers apply form-action to the redirect after a POST too, so the OAuth consent
+ * page must allow its client's redirect_uri or connecting Claude.ai or Cursor fails once the CSP is enforced. null when
+ * the URL can't be a source (a source list is space-separated, so nothing odd goes in).
+ */
+export function formActionSource(raw: string): string | null {
+  let u: URL;
+  try {
+    u = new URL(raw);
+  } catch {
+    return null;
+  }
+  if (u.protocol === "http:" || u.protocol === "https:") return /^https?:\/\/[a-z0-9.:\[\]-]+$/i.test(u.origin) ? u.origin : null;
+  return /^[a-z][a-z0-9+.-]*:$/i.test(u.protocol) && !/^(javascript|data|blob|file|filesystem|about):$/i.test(u.protocol) ? u.protocol : null;
+}
+
 // Each HTML response owns its nonce. Inline CSS and style attributes are used throughout the UI. Mermaid is allowed as
 // its one pinned file (not the host) and loads with an SRI hash (mermaid.ts), so jsDelivr can't serve anything else.
-export function pageSecurity() {
+// The pages are private, revalidated each time (no shared cache may keep one person's page, or pin one nonce for many
+// responses); no-store would also keep them out of the back/forward cache.
+export function pageSecurity(opts: { formAction?: string[] } = {}) {
   const nonce = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
-  const policy = `default-src 'self'; script-src 'self' 'nonce-${nonce}' ${MERMAID_SRC}; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' blob: data:; connect-src 'self' ${VOICE_SOCKET_ORIGIN}; frame-src 'self' about:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'; report-uri ${CSP_REPORT_PATH}; report-to csp`;
+  const formAction = ["'self'", ...(opts.formAction ?? []).map(formActionSource).filter((x): x is string => !!x)].join(" ");
+  const policy = `default-src 'self'; script-src 'self' 'nonce-${nonce}' ${MERMAID_SRC}; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' blob: data:; connect-src 'self' ${VOICE_SOCKET_ORIGIN}; frame-src 'self' about:; frame-ancestors 'none'; base-uri 'none'; form-action ${formAction}; object-src 'none'; report-uri ${CSP_REPORT_PATH}; report-to csp`;
   const headers: Record<string, string> = {
     [CSP_ENFORCE ? "content-security-policy" : "content-security-policy-report-only"]: policy,
     "reporting-endpoints": `csp="${CSP_REPORT_PATH}"`,
     "x-content-type-options": "nosniff",
     "referrer-policy": "strict-origin-when-cross-origin",
+    "cache-control": "private, no-cache",
   };
   return { nonce, headers };
 }
@@ -1194,10 +1215,10 @@ export interface Viewer {
 export function page(
   title: string,
   body: string,
-  opts: { viewer?: Viewer | null; nav?: "boards" | "admin" | "me" | null; narrow?: boolean; script?: string; status?: number; headers?: HeadersInit; lang?: Lang } = {},
+  opts: { viewer?: Viewer | null; nav?: "boards" | "admin" | "me" | null; narrow?: boolean; script?: string; status?: number; headers?: HeadersInit; lang?: Lang; formAction?: string[] } = {},
 ): Response {
   const v = opts.viewer;
-  const security = pageSecurity();
+  const security = pageSecurity({ formAction: opts.formAction });
   const link = (href: string, label: string, key: string) => `<a href="${href}"${opts.nav === key ? ' aria-current="page"' : ""}>${label}</a>`;
   const nav = `<header class="nav"><div class="in">
 <a class="brand" href="/">${LOGO}<span class="wm">atteo</span></a>
