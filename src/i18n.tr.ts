@@ -552,6 +552,7 @@ export const TR: Record<string, string> = {
   "Only when the message contains": "Yalnızca mesaj şunu içerdiğinde",
   "Only you and your agents": "Yalnızca siz ve ajanlarınız",
   "Open": "Aç",
+  "Edited, show history": "Düzenlendi, geçmişi göster",
   "Open this link?": "Bu bağlantı açılsın mı?",
   "Open ": "Aç: ",
   "Open ChatGPT settings": "ChatGPT ayarlarını aç",

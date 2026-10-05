@@ -552,6 +552,7 @@ export const HI: Record<string, string> = {
   "Only when the message contains": "सिर्फ़ तब जब संदेश में हो",
   "Only you and your agents": "सिर्फ़ आप और आपके एजेंट",
   "Open": "खोलें",
+  "Edited, show history": "संपादित, इतिहास देखें",
   "Open this link?": "यह लिंक खोलें?",
   "Open ": "खोलें ",
   "Open ChatGPT settings": "ChatGPT सेटिंग खोलें",
