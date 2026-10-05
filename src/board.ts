@@ -31,6 +31,7 @@ import { backupConfig, blobPartKey, objectKey, uploadPart, type PartResult } fro
 import { decodeValue, encodeValue, type DumpTables } from "./backupcore";
 import { parseAgentCharter, type AgentCharter } from "./charter";
 import { mutersOf } from "./moderation";
+import { memberRole } from "./registry";
 
 export const MAX_TEXT = 32_000;
 export const MAX_ARTIFACT = 256_000;
@@ -99,6 +100,8 @@ export interface TaskView {
   lease_agent: boolean;
   lease_session_name: string | null; // the agent session holding the claim ("alt-b" → "jxn/alt-b has it", #3474)
   lease_until: number | null;
+  lapsed_holder: string | null; // an open task whose lease ran out: who held it ("jxn/alt-b"), until lapsed_at (#3809)
+  lapsed_at: number | null;
   stop_reason: string | null;
   done_note: string | null; // what the one who finished it said (shown on the task, not posted)
   resolved_by: number | null; // an open task: the entry that says it resolves it, from someone who can't close it (#2221)
@@ -737,7 +740,8 @@ export class Board extends DurableObject<Env> {
       if (!taskCols.has(col)) this.sql.exec(`ALTER TABLE tasks ADD COLUMN ${col} ${def}`);
     }
     // A claim by an agent session renews while that session is around (leases.ts): who, for how long, until when at most.
-    for (const [col, def] of [["lease_session", "TEXT"], ["lease_mins", "INTEGER"], ["lease_cap", "INTEGER"], ["lease_session_name", "TEXT"]]) {
+    // A lease that ran out (#3809): who held it and when it ended, so the task shows it lost its holder.
+    for (const [col, def] of [["lease_session", "TEXT"], ["lease_mins", "INTEGER"], ["lease_cap", "INTEGER"], ["lease_session_name", "TEXT"], ["lapsed_holder", "TEXT"], ["lapsed_at", "INTEGER"]]) {
       if (!taskCols.has(col)) this.sql.exec(`ALTER TABLE tasks ADD COLUMN ${col} ${def}`);
     }
     this.sql.exec("CREATE INDEX IF NOT EXISTS tasks_lease_session ON tasks(lease_session) WHERE lease_session IS NOT NULL");
@@ -1187,6 +1191,14 @@ export class Board extends DurableObject<Env> {
       if (!own || forSession?.user !== user) forSession = null; // just mine may still go to one of your own sessions
     }
     if (input.via === "agent") this.decisions.guardResolves(input.resolves ?? []); // people decide human decisions
+    if (input.supersedes != null) {
+      // Replacing an entry drops it from the summary: only its author (their agents included) or a board owner may, over
+      // any transport (#3809). The role is looked up only for someone else's entry.
+      const target = this.sql.exec("SELECT author FROM entries WHERE seq = ?", input.supersedes).one();
+      if (target.author !== user && info.created_by !== user && (await memberRole(this.env, info.id, user).catch(() => null)) !== "owner") {
+        throw new BoardError(`Only ${target.author} (who posted #${input.supersedes}) or an owner of the board can supersede it; reply to it instead.`);
+      }
+    }
     if (input.retracts != null) {
       // Only the entry's author, or the board's creator, may withdraw it; once is enough.
       const target = this.sql.exec("SELECT author, retracts FROM entries WHERE seq = ?", input.retracts).one();
@@ -2368,6 +2380,7 @@ export class Board extends DurableObject<Env> {
     );
     const answered = this.answersMine(user, list, session);
     const tasks = list.filter((e) => e.type === "task");
+    if (tasks.length) this.lapseLeases();
     const open = tasks.length
       ? new Set(
           this.sql
@@ -3309,7 +3322,25 @@ export class Board extends DurableObject<Env> {
     this.sql.exec("UPDATE tasks SET lease_cap = ? WHERE seq = ? AND lease_session IS NOT NULL", this.leaseNow() + LEASE_CAP_MS, t.seq);
   }
 
+  /**
+   * Leases that ran out end here (no sweeper runs; whatever reads tasks calls this first): the holder is cleared, a
+   * `doing` task goes back to `todo`, and the task keeps who held it and when it lapsed until it's claimed again (#3809).
+   */
+  private lapseLeases() {
+    this.sql.exec(
+      `UPDATE tasks SET
+         lapsed_holder = CASE WHEN lease_holder IS NULL THEN lapsed_holder WHEN lease_agent = 1 AND lease_session_name IS NOT NULL THEN lease_holder || '/' || lease_session_name WHEN lease_agent = 1 THEN lease_holder || '''s agent' ELSE lease_holder END,
+         lapsed_at = CASE WHEN lease_holder IS NULL THEN lapsed_at ELSE lease_until END,
+         status = CASE WHEN status = 'doing' THEN 'todo' ELSE status END,
+         updated_at = MAX(updated_at, lease_until),
+         lease_holder = NULL, lease_agent = NULL, lease_until = NULL, lease_session = NULL, lease_session_name = NULL, lease_mins = NULL, lease_cap = NULL
+       WHERE lease_until IS NOT NULL AND lease_until <= ?`,
+      this.leaseNow(),
+    );
+  }
+
   taskRows(filter: { status?: string; assignee?: string } = {}): TaskView[] {
+    this.lapseLeases();
     const now = this.leaseNow();
     const rows = this.sql
       .exec(
@@ -3332,6 +3363,8 @@ export class Board extends DurableObject<Env> {
         lease_agent: r.lease_agent === 1,
         lease_session_name: (r.lease_until as number | null) && (r.lease_until as number) > now && r.lease_agent === 1 ? ((r.lease_session_name as string | null) ?? null) : null,
         lease_until: (r.lease_until as number | null) && (r.lease_until as number) > now ? (r.lease_until as number) : null,
+        lapsed_holder: r.status === "done" || r.status === "stopped" ? null : ((r.lapsed_holder as string | null) ?? null),
+        lapsed_at: r.status === "done" || r.status === "stopped" ? null : ((r.lapsed_at as number | null) ?? null),
         stop_reason: (r.stop_reason as string | null) ?? null,
         done_note: r.status === "done" ? ((r.done_note as string | null) ?? null) : null,
         resolved_by: r.status === "done" || r.status === "stopped" ? null : ((r.resolved_by as number | null) ?? null),
@@ -3675,6 +3708,7 @@ export class Board extends DurableObject<Env> {
       if (t.priority) bits.push(`${t.priority} priority`);
       if (t.assignee) bits.push(`for ${t.assignee_agent ? `${t.assignee}'s agent` : t.assignee}`);
       if (t.lease_holder) bits.push(`${t.lease_agent ? `${t.lease_holder}'s agent` : t.lease_holder} holds it until ${iso(t.lease_until!)}`);
+      else if (t.lapsed_holder) bits.push(`${t.lapsed_holder}'s claim lapsed ${iso(t.lapsed_at!)}`);
       if (t.stop_reason) bits.push(t.stop_reason);
       if (t.due) bits.push(`due ${iso(t.due).slice(0, 10)}`);
       merge(t.seq, bits.join(" · "));
@@ -3703,7 +3737,7 @@ export class Board extends DurableObject<Env> {
     const until = now + mins * 60_000;
     const session = opts.session ?? null;
     this.sql.exec(
-      "UPDATE tasks SET lease_holder = ?, lease_agent = ?, lease_until = ?, lease_session = ?, lease_session_name = ?, lease_mins = ?, lease_cap = ?, status = CASE WHEN status IN ('todo','stopped') THEN 'doing' ELSE status END, stop_reason = NULL, updated_at = ? WHERE seq = ?",
+      "UPDATE tasks SET lease_holder = ?, lease_agent = ?, lease_until = ?, lease_session = ?, lease_session_name = ?, lease_mins = ?, lease_cap = ?, status = CASE WHEN status IN ('todo','stopped') THEN 'doing' ELSE status END, stop_reason = NULL, lapsed_holder = NULL, lapsed_at = NULL, updated_at = ? WHERE seq = ?",
       user, opts.via === "agent" ? 1 : 0, until, session, session ? (opts.session_name ?? null) : null, session ? mins : null, session ? now + LEASE_CAP_MS : null, Date.now(), seq,
     );
     if (session) this.leaseSessions?.add(session);
@@ -3746,7 +3780,7 @@ export class Board extends DurableObject<Env> {
     }
     if (change.status && change.status !== t.status) {
       if (!TASK_STATUSES.includes(change.status)) throw new BoardError(`status must be one of: ${TASK_STATUSES.join(", ")}`);
-      this.sql.exec("UPDATE tasks SET status = ?, stop_reason = CASE WHEN ? = 'stopped' THEN stop_reason ELSE NULL END, done_note = NULL, resolved_by = NULL WHERE seq = ?", change.status, change.status, seq);
+      this.sql.exec("UPDATE tasks SET status = ?, stop_reason = CASE WHEN ? = 'stopped' THEN stop_reason ELSE NULL END, done_note = NULL, resolved_by = NULL, lapsed_holder = NULL, lapsed_at = NULL WHERE seq = ?", change.status, change.status, seq);
       if (change.status === "done") this.sql.exec("UPDATE tasks SET lease_holder = NULL, lease_until = NULL WHERE seq = ?", seq);
       parts.push(`status → ${change.status}`);
     }
@@ -3961,6 +3995,14 @@ export class Board extends DurableObject<Env> {
     const info = this.info();
     if (info.archived) throw new BoardError(archivedError(info.id));
     const t = this.task(seq);
+    // Like any other change to the task, refused while someone else holds it (#3809); the server's own ticks aren't blocked.
+    if (!internal.auto && t.lease_holder && t.lease_holder !== user && info.created_by !== user) {
+      throw new BoardError(`#${seq} is claimed by ${holderLabel(t)} until ${iso(t.lease_until!)}; post on the board instead of changing it.`);
+    }
+    // A base_version, when given, is checked for old_str edits too: the piece may still be there while the rest moved on (#3809).
+    if (edit.base_version != null && edit.base_version !== t.version) {
+      throw new BoardError(`Task #${seq} is at v${t.version}, not v${edit.base_version}. Its current body:\n${fence(t.body)}`);
+    }
     let title = t.title;
     let body = t.body;
     if (edit.title !== undefined) {
@@ -3974,7 +4016,7 @@ export class Board extends DurableObject<Env> {
       if (body.indexOf(edit.old_str, i + 1) >= 0) throw new BoardError("old_str appears more than once; include more surrounding text.");
       body = body.slice(0, i) + (edit.new_str ?? "") + body.slice(i + edit.old_str.length);
     } else if (edit.body !== undefined) {
-      if (edit.base_version !== t.version) throw new BoardError(`Task #${seq} is at v${t.version}, not v${edit.base_version ?? "?"}. Its current body:\n${fence(t.body)}`);
+      if (edit.base_version == null) throw new BoardError(`Task #${seq} is at v${t.version}, not v${edit.base_version ?? "?"}. Its current body:\n${fence(t.body)}`);
       body = edit.body;
     }
     if (body.length > MAX_TEXT) throw new BoardError(`A task's body is limited to ${MAX_TEXT} characters; put long material in a file.`);
