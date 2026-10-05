@@ -1770,17 +1770,33 @@ cform.addEventListener('submit',async e=>{if(!pending.length)return;e.preventDef
     sendLook(false);const was=+rpTo.value;cform.reset();draftSave(draftNow(),'');replyClear(true);if(was){ta.value=draftLoad('');replyShown(was)}taFit();stickNext=!was;tick(false)}
   catch(err){fail("Couldn't post that. Your files are still attached.")}
   finally{btn.disabled=false}});
-// The lightbox: a picture full size; for a message with several, the arrows, ←/→ or a swipe go through them.
-const lb=document.getElementById('lightbox'),lbImg=document.getElementById('lightbox-img'),lbCount=lb.querySelector('.lb-count');let lbSet=[],lbI=0,lbSwiped=0;
-function lbShow(i){lbI=(i+lbSet.length)%lbSet.length;const b=lbSet[lbI];lbImg.src=b.dataset.img;lbImg.alt=b.dataset.imgName||'';
+// The lightbox: a picture fitted to the screen; for a message with several, the arrows, ←/→ or a swipe go through them.
+// A picture bigger than the screen zooms (vedu's agent #2993): a click on it shows it at full size, scrolled to where you
+// clicked, and you pan by scrolling or dragging; a click again (or Esc) fits it again. A click off the picture closes.
+const lb=document.getElementById('lightbox'),lbImg=document.getElementById('lightbox-img'),lbCount=lb.querySelector('.lb-count');let lbSet=[],lbI=0,lbSwiped=0,lbDrag=null;
+const lbBig=()=>lbImg.naturalWidth>lbImg.clientWidth+1||lbImg.naturalHeight>lbImg.clientHeight+1;
+function lbZoomable(){lb.classList.toggle('zoomable',lb.open&&lbImg.complete&&!lb.classList.contains('zoomed')&&lbBig())} // measured once it's open and loaded
+function lbZoom(on,x,y){if(on){const r=lbImg.getBoundingClientRect(),fx=r.width?(x-r.left)/r.width:.5,fy=r.height?(y-r.top)/r.height:.5;lb.classList.add('zoomed');lb.classList.remove('zoomable');
+    lb.scrollLeft=Math.max(0,lbImg.naturalWidth*fx-lb.clientWidth/2);lb.scrollTop=Math.max(0,lbImg.naturalHeight*fy-lb.clientHeight/2)}
+  else{lb.classList.remove('zoomed');lb.scrollLeft=lb.scrollTop=0;lbZoomable()}}
+lbImg.addEventListener('load',lbZoomable);addEventListener('resize',()=>{if(lb.open&&!lb.classList.contains('zoomed'))lbZoomable()});
+function lbShow(i){if(lb.classList.contains('zoomed'))lbZoom(false);lb.classList.remove('zoomable');lbI=(i+lbSet.length)%lbSet.length;const b=lbSet[lbI];lbImg.src=b.dataset.img;lbImg.alt=b.dataset.imgName||'';
   const sv=document.getElementById('lightbox-save');sv.href=b.dataset.img;sv.download=b.dataset.imgName||b.querySelector('img')?.alt||new URL(b.dataset.img,location.href).searchParams.get('name')||'picture';
   const many=lbSet.length>1;lb.querySelectorAll('.lb-nav').forEach(x=>x.hidden=!many);lbCount.hidden=!many;lbCount.textContent=(lbI+1)+' / '+lbSet.length}
-document.addEventListener('click',e=>{const b=e.target.closest('[data-img]');if(!b)return;const g=b.closest('[data-gallery]');lbSet=g?[...g.querySelectorAll('[data-img]')]:[b];lbShow(lbSet.indexOf(b));if(!lb.open){lb.showModal();lb.querySelector('.lb-nav:focus')?.blur()}});
-lb.addEventListener('click',e=>{if(Date.now()-lbSwiped<400||e.target.closest('.lb-save'))return;const n=e.target.closest('.lb-nav');if(n){lbShow(lbI+(n.classList.contains('lb-prev')?-1:1));return}lb.close()});
+document.addEventListener('click',e=>{const b=e.target.closest('[data-img]');if(!b)return;const g=b.closest('[data-gallery]');lbSet=g?[...g.querySelectorAll('[data-img]')]:[b];lbShow(lbSet.indexOf(b));if(!lb.open){lb.showModal();lb.querySelector('.lb-nav:focus')?.blur()}lbZoomable()});
+lb.addEventListener('click',e=>{if(Date.now()-lbSwiped<400||e.target.closest('.lb-save'))return;const n=e.target.closest('.lb-nav');if(n){lbShow(lbI+(n.classList.contains('lb-prev')?-1:1));return}
+  if(e.target===lbImg){if(lbDrag&&lbDrag.moved)return;if(lb.classList.contains('zoomed')){lbZoom(false);return}if(lbBig()){lbZoom(true,e.clientX,e.clientY);return}}
+  lb.close()});
+lb.addEventListener('cancel',e=>{if(lb.classList.contains('zoomed')){e.preventDefault();lbZoom(false)}}); // Esc: back to fitted first
+lb.addEventListener('close',()=>lbZoom(false));
+// Dragging a zoomed picture with the mouse pans it (touch pans natively).
+lb.addEventListener('mousedown',e=>{if(!lb.classList.contains('zoomed')||e.button!==0)return;lbDrag={x:e.clientX,y:e.clientY,l:lb.scrollLeft,t:lb.scrollTop,moved:false};e.preventDefault()});
+addEventListener('mousemove',e=>{if(!lbDrag)return;const dx=e.clientX-lbDrag.x,dy=e.clientY-lbDrag.y;if(Math.abs(dx)+Math.abs(dy)>4)lbDrag.moved=true;lb.scrollLeft=lbDrag.l-dx;lb.scrollTop=lbDrag.t-dy});
+addEventListener('mouseup',()=>{if(lbDrag)setTimeout(()=>{lbDrag=null},0)});
 document.addEventListener('keydown',e=>{if(!lb.open||lbSet.length<2)return;if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();lbShow(lbI+(e.key==='ArrowLeft'?-1:1))}});
 let lbX=null,lbY=0;
 lb.addEventListener('touchstart',e=>{if(e.touches.length===1){lbX=e.touches[0].clientX;lbY=e.touches[0].clientY}else lbX=null},{passive:true});
-lb.addEventListener('touchend',e=>{if(lbX==null)return;const dx=e.changedTouches[0].clientX-lbX,dy=e.changedTouches[0].clientY-lbY;lbX=null;
+lb.addEventListener('touchend',e=>{if(lbX==null||lb.classList.contains('zoomed'))return;const dx=e.changedTouches[0].clientX-lbX,dy=e.changedTouches[0].clientY-lbY;lbX=null;
   if(lbSet.length>1&&Math.abs(dx)>40&&Math.abs(dx)>Math.abs(dy)*1.5){lbSwiped=Date.now();lbShow(lbI+(dx<0?1:-1))}});
 // ---- read receipts: a ring on your latest message (who has seen it), a dot on each @mention (has that one seen it) ----
 const MEMBERS=${jsString(members.map((m) => m.user))};let READS={},seenSent=0,seenTimer=null;
