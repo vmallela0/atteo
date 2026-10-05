@@ -61,7 +61,8 @@ describe("code colours", () => {
     const worst: [string, string][] = [["css", "-a"], ["css", "a:"], ["toml", "a."], ["yaml", "a."], ["rust", "#["], ["sh", "${"], ["js", '\\"'], ["py", "\\'"], ["sql", "'\\"], ["json", '"\\']];
     for (const [lang, unit] of worst) {
       const small = unit.repeat(N / 4 / unit.length), code = small.repeat(4);
-      const growth = growthRatio(() => of(small, lang), () => of(code, lang));
+      // The least of three independent measurements: a load spike can only inflate one, real backtracking inflates all.
+      const growth = Math.min(...[0, 1, 2].map(() => growthRatio(() => of(small, lang), () => of(code, lang))));
       // 4x input should cost ~4x; quadratic backtracking costs ~16x.
       // Keep the original 20,000-character hostile inputs and every coverage assertion.
       expect(growth, `${lang} ${JSON.stringify(unit)} growth for 4x input`).toBeLessThan(8);
