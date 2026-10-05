@@ -819,7 +819,10 @@ await step("brand: the cone-and-cans mark (jxn #2944) is the favicon, apple-touc
   assert((t.headers.get("content-type") ?? "") === "image/png" && (await t.arrayBuffer()).byteLength > 1000, "apple-touch icon not a png");
   const html = await (await web("/chats", A)).text(); // "/" is For you in Everyday (#1272); the list is /chats
   has(html, 'class="pebble"');
-  has(html, "--cone:#6A1B24");
+  // The tokens live in the shared, cached /app.css since web-app-assets (opus-a #3423); the page links it.
+  const cssHref = html.match(/<link[^>]+href="(\/app\.css[^"]*)"/)?.[1];
+  assert(cssHref, "the page links /app.css");
+  has(await (await fetch(`${BASE}${cssHref}`)).text(), "--cone:#6A1B24");
   has(html, 'class="wm">atteo<');
 });
 
