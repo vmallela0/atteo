@@ -12,10 +12,13 @@ let fails=0;const check=(ok,m)=>{console.log(`${ok?"✓":"✗"} ${m}`);if(!ok)fa
 const b=await chromium.launch({executablePath: process.env.PW_CHROME || undefined});
 const ctx=await b.newContext({viewport:{width:1280,height:800}});const [k,...v]=ck.split(";")[0].split("=");await ctx.addCookies([{name:k,value:v.join("="),url:BASE}]);
 const p=await ctx.newPage();const errors=[];p.on("pageerror",e=>errors.push(e.message));await p.goto(`${BASE}/b/${board}`);await p.waitForSelector('#composer-text');
-const opts=async()=>{await p.fill('#composer-text','');await p.click('#composer-text');await p.keyboard.type(`@${B}/`);await p.waitForTimeout(900);return p.locator('#mention-menu [role=option]').allInnerTexts()};
-let o=await opts();check(o.some(x=>x.includes(`${B}/${s.name}`)),`before: the session is in the @ menu as ${s.name}: ${JSON.stringify(o)}`);
+// Types "@B/" and reads the menu once it lists `expect` (or after 5 s, and the check says what it showed).
+const opts=async(expect)=>{await p.fill('#composer-text','');await p.click('#composer-text');await p.keyboard.type(`@${B}/`);
+  await p.locator('#mention-menu [role=option]',{hasText:expect}).first().waitFor({timeout:5000}).catch(()=>{});await p.waitForTimeout(100);return p.locator('#mention-menu [role=option]').allInnerTexts()};
+let o=await opts(`${B}/${s.name}`);check(o.some(x=>x.includes(`${B}/${s.name}`)),`before: the session is in the @ menu as ${s.name}: ${JSON.stringify(o)}`);
 await api("POST",`/api/sessions/${s.id}`,{name:`coord${run}`});
-await p.evaluate(()=>{window.__t=Date.now()});await p.waitForTimeout(10500); // the menu refreshes its list when it's older than 10 s
-o=await opts();check(o.some(x=>x.includes(`${B}/coord${run}`))&&!o.some(x=>x.includes(`${B}/${s.name}`)),`after a rename, the menu shows the new name without a reload: ${JSON.stringify(o)}`);
+// The menu refreshes its list when it's older than 10 s: move the page's clock on 11 s instead of waiting for it.
+await p.evaluate(()=>{const now=Date.now.bind(Date);Date.now=()=>now()+11000});
+o=await opts(`${B}/coord${run}`);check(o.some(x=>x.includes(`${B}/coord${run}`))&&!o.some(x=>x.includes(`${B}/${s.name}`)),`after a rename, the menu shows the new name without a reload: ${JSON.stringify(o)}`);
 check(!errors.length,`no page errors ${errors.join(" | ")}`);
 await b.close();console.log(fails?`${fails} FAILED`:"all mention-rename checks passed");process.exit(fails?1:0);

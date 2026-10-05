@@ -29,9 +29,10 @@ check((await prog())==="0/3","n/m shows 0/3 with a bar");
 const subs=await card.locator(".tk-subs").innerText().catch(()=>"");
 check(subs.includes("Update the docs")&&subs.includes("Ask payments about refunds")&&/To do/.test(subs)&&!/#\d/.test(subs),`its sub-tasks are listed by title with their state, no numbers (${subs.replace(/\n/g," | ")})`);
 check(await card.locator(`.tk-subs a[href="#e${sub1}"]`).innerText()==="Update the docs","…each title links to its message (vedu #675)");
+// The task as the server has it, once it matches (a tick on the web saved), or after 8 s; then a beat for the card.
+const saved=async(re)=>{let got="";for(let k=0;k<80;k++){got=await mcp("task",{action:"get",seq});if(re.test(got))break;await p.waitForTimeout(100)}await p.waitForTimeout(150);return got};
 // Tick from the web
-await boxes.nth(0).check();await p.waitForTimeout(900);
-let got=await mcp("task",{action:"get",seq});
+await boxes.nth(0).check();let got=await saved(/- \[x\] Reproduce the double charge/);
 check(/- \[x\] Reproduce the double charge/.test(got)&&/v2/.test(got),"ticking a box on the web saves a versioned edit (v2, [x] in the body)");
 check((await prog())==="1/3"&&await card.locator(".body li.ck.done").count()===1,"…the card shows 1/3 and strikes the line through");
 const hist=await mcp("task",{action:"history",seq});
@@ -47,21 +48,20 @@ await p.waitForFunction(s=>document.querySelectorAll(`#e${s} .body li.ck.done`).
 check((await prog())==="3/3"&&await boxes.nth(2).isChecked(),"sub-task done → the parent's \"Update the docs\" line ticks live (3/3)");
 check(/Done/.test(await card.locator(`.tk-subs li:has(a[href="#e${sub1}"])`).innerText()),"…and the sub-task shows Done on the parent's card");
 // Untick from the web
-await boxes.nth(0).uncheck();await p.waitForTimeout(900);
-got=await mcp("task",{action:"get",seq});
+await boxes.nth(0).uncheck();got=await saved(/- \[ \] Reproduce the double charge/);
 check(/- \[ \] Reproduce the double charge/.test(got)&&(await prog())==="2/3","unticking on the web saves too (2/3)");
 // A duplicate line falls back to a whole-body versioned edit
 await mcp("task",{action:"edit",seq,old_str:"- [ ] Reproduce the double charge",new_str:"- [ ] Reproduce the double charge\n- [ ] Ping vedu\n- [ ] Ping vedu",summary:"dupes"});
 await p.waitForFunction(s=>document.querySelectorAll(`#e${s} .body li.ck`).length===5,seq,{timeout:6000}).catch(()=>{});
-await boxes.nth(1).check();await p.waitForTimeout(900);got=await mcp("task",{action:"get",seq});
+await boxes.nth(1).check();got=await saved(/- \[x\] Ping vedu\n- \[ \] Ping vedu/);
 check(/- \[x\] Ping vedu\n- \[ \] Ping vedu/.test(got),"a line that appears twice: ticking the first copy ticks only that one (whole-body edit against its version)");
-await boxes.nth(1).uncheck();await p.waitForTimeout(900);
-await boxes.nth(2).check();await p.waitForTimeout(900);got=await mcp("task",{action:"get",seq});
+await boxes.nth(1).uncheck();await saved(/- \[ \] Ping vedu\n- \[ \] Ping vedu/);
+await boxes.nth(2).check();got=await saved(/- \[ \] Ping vedu\n- \[x\] Ping vedu/);
 check(/- \[ \] Ping vedu\n- \[x\] Ping vedu/.test(got),"…and ticking the second copy ticks that exact line (whole-body edit against its version)");
 await card.scrollIntoViewIfNeeded();
 await p.screenshot({path:`${SHOTS_DIR}/check-card-light.png`,clip:await card.boundingBox()});
 // Tasks tab: sub-tasks say whose they are; the parent counts them; the checklist count is right
-await p.locator("#board-tabs button").nth(3).click();await p.waitForTimeout(700);
+await p.locator("#board-tabs button").nth(3).click();await p.locator(`.kcard[data-seq="${sub1}"]`).waitFor({timeout:8000}).catch(()=>{});
 const kp=await p.locator(`.kcard[data-seq="${seq}"]`).innerText(), k1=await p.locator(`.kcard[data-seq="${sub1}"]`).innerText();
 check(/☑ 3\/5/.test(kp)&&/1\/2 sub-tasks/.test(kp),`Tasks tab: the parent shows ☑ 3/5 and 1/2 sub-tasks (${kp.replace(/\n/g," | ")})`);
 check(/↳ Fix the checkout double charge/.test(k1)&&!/#\d/.test(k1),`…a sub-task shows ↳ its parent's title, no number (${k1.replace(/\n/g," | ")})`);
@@ -69,16 +69,16 @@ check(/↳ Fix the checkout double charge/.test(k1)&&!/#\d/.test(k1),`…a sub-t
 await p.locator("#kanban").screenshot({path:`${SHOTS_DIR}/check-kanban.png`});
 check(errors.length===0,`no page errors ${errors.join(" | ")}`);
 // Dark mode screenshot
-{ const c2=await login(B,{colorScheme:"dark"});const q=await c2.newPage();await q.goto(`${BASE}/b/${board}#e${seq}`);await q.waitForTimeout(1200);
+{ const c2=await login(B,{colorScheme:"dark"});const q=await c2.newPage();await q.goto(`${BASE}/b/${board}#e${seq}`);await q.locator(`#e${seq} .body li.ck`).first().waitFor({timeout:8000}).catch(()=>{});await q.waitForTimeout(300);
   await q.locator(`#e${seq}`).scrollIntoViewIfNeeded();await q.screenshot({path:`${SHOTS_DIR}/check-card-dark.png`,clip:await q.locator(`#e${seq}`).boundingBox()});await c2.close(); }
 // Viewer: sees the boxes, can't tick
-{ const c3=await login(C);const q=await c3.newPage();await q.goto(`${BASE}/b/${board}`);await q.waitForTimeout(1200);
+{ const c3=await login(C);const q=await c3.newPage();await q.goto(`${BASE}/b/${board}`);await q.locator(`#e${seq} > .grow > .body li.ck > input`).nth(4).waitFor({state:"attached",timeout:8000}).catch(()=>{});
   const vb=q.locator(`#e${seq} > .grow > .body li.ck > input`);
   check(await vb.count()===5&&await vb.evaluateAll(xs=>xs.every(x=>x.disabled)),"a read-only viewer sees the boxes but they're disabled");
   const r=await q.evaluate(async([b,s])=>(await fetch(`/api/boards/${b}/tasks/${s}`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"edit",old_str:"- [ ] Ping vedu",new_str:"- [x] Ping vedu"})})).status,[board,seq]);
   check(r===403,`…and the server refuses a viewer's edit (${r})`);await c3.close(); }
 // Plain messages with a checklist render boxes too, never tickable
-await mcp("post",{type:"note",text:"Shopping:\n- [x] milk\n- [ ] eggs"});await p.locator("#board-tabs button").nth(0).click();await p.waitForTimeout(1500);
+await mcp("post",{type:"note",text:"Shopping:\n- [x] milk\n- [ ] eggs"});await p.locator("#board-tabs button").nth(0).click();await p.locator("#thread > .entry",{hasText:"Shopping:"}).waitFor({timeout:8000}).catch(()=>{});await p.waitForTimeout(150);
 const note=p.locator("#thread > .entry").last().locator(".body li.ck > input");
 check(await note.count()===2&&await note.evaluateAll(xs=>xs.every(x=>x.disabled)),"a checklist in a plain message shows boxes, read-only");
 await b.close();console.log(fails?`${fails} FAILED`:"all live checklist checks passed");
