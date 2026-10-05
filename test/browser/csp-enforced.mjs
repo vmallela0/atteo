@@ -5,6 +5,7 @@
 //   the client's redirect_uri (an http one here; claude.ai and cursor:// get the same treatment);
 // - HTML previews: scripts, inline handlers (onclick=) and a frame-busting file all behave as in report-only, and
 //   nothing reaches the network;
+// - lazy bug-report scripts inherit the page nonce and the capture dialog opens;
 // - the main pages and a board with code colours and a mermaid diagram load with no violation.
 import { createServer } from "node:http";
 import { chromium } from "playwright-core";
@@ -58,7 +59,7 @@ const open = async () => {
   return { p, viol };
 };
 const pages = async () => {
-  await Promise.all(["/", `/b/${board}`, "/inbox", "/approvals", "/people", "/me", "/guide", "/for-you", "/ask", "/device"].map(async (path) => {
+  await Promise.all(["/", "/chats", `/b/${board}`, "/inbox", "/approvals", "/people", "/me", "/guide", "/docs", "/terms", "/privacy", "/welcome", "/for-you", "/ask", "/device"].map(async (path) => {
     const { p, viol } = await open();
     await p.goto(`${BASE}${path}`); await p.waitForTimeout(800);
     check(!viol.length, `${path}: no violations with the policy enforced ${viol.join(" | ")}`);
@@ -88,6 +89,20 @@ const preview = async (k) => {
   check(o === want && !page.length, `preview ${k}: works with the page's policy enforced (${o}) ${page.join(" | ")}`);
   await p.close();
 };
+const bugReport = async () => {
+  const { p, viol } = await open();
+  const response = await p.goto(`${BASE}/for-you`);
+  const nonce = (await response.allHeaders())["content-security-policy"]?.match(/'nonce-([^']+)'/)?.[1] ?? "";
+  const bugJs = p.waitForResponse((r) => new URL(r.url()).pathname === "/bug.js");
+  const captureJs = p.waitForResponse((r) => new URL(r.url()).pathname === "/vendor/html2canvas.min.js");
+  await p.locator("[data-bug]").click();
+  await Promise.all([bugJs, captureJs]);
+  await p.locator("#bug[open]").waitFor();
+  await p.locator("#bug-send:not([disabled])").waitFor({ timeout: 20000 });
+  const dynamicNonces = await p.locator('script#bug-js,script[src^="/vendor/html2canvas.min.js"]').evaluateAll((xs) => xs.map((x) => x.nonce));
+  check(!!nonce && dynamicNonces.length === 2 && dynamicNonces.every((n) => n === nonce) && !viol.length, `bug-report scripts inherit the nonce and capture opens ${viol.join(" | ")}`);
+  await p.close();
+};
 const consent = async (allow) => {
   const { p, viol } = await open();
   const label = allow ? "Allow" : "Don't allow", state = `s${allow ? 1 : 0}${run}`;
@@ -102,7 +117,7 @@ const consent = async (allow) => {
   await p.close();
 };
 try {
-  await Promise.all([pages(), drawing(), ...Object.keys(files).map(preview), consent(true), consent(false)]);
+  await Promise.all([pages(), drawing(), ...Object.keys(files).map(preview), bugReport(), consent(true), consent(false)]);
   check(!hits.some((h) => h.startsWith("/preview")), `a preview still can't reach the network (${hits.join(", ") || "nothing arrived"})`);
 } finally {
   await ctx.unrouteAll({ behavior: "ignoreErrors" });

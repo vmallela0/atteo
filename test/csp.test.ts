@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { page, appPage, formActionSource, CSP_ENFORCE, CSP_REPORT_PATH, VOICE_SOCKET_ORIGIN } from "../src/ui";
+import { page, appPage, formActionSource, CSP_ENFORCE, CSP_REPORT_PATH, VOICE_SOCKET_ORIGIN, BUG_PAGE_JS, SHELL_PAGE_JS } from "../src/ui";
 import { consentPage } from "../src/oauthPage";
 import { trackCapped } from "../src/usage";
 import type { Env } from "../src/types";
 import { landingPage, boardPage, boardTail, mePage, PREVIEW_FRAME_CSP, PREVIEW_FRAME_HTML } from "../src/html";
 import { REALTIME_URL } from "../src/voice";
 import { MERMAID_JS, MERMAID_SRC, MERMAID_SRI } from "../src/mermaid";
+import { CODE_COLOR_JS } from "../src/codecolor";
 import { allow, blockedKey, handleReport, parseReports, MAX_KEYS_PER_DAY, OVERFLOW_KEY } from "../src/csp";
 
 const viewer = { name: "csp", email: "csp@example.com", display_name: null, admin: false };
@@ -44,6 +45,9 @@ describe("HTML page CSP", () => {
       expect(scripts.length).toBeGreaterThan(0);
       for (const script of scripts) expect(script[1]).toContain(`nonce="${nonce}"`);
       expect(csp.split("; ").find((x) => x.startsWith("script-src"))).not.toContain("'unsafe-inline'");
+      expect(csp).toContain("script-src-attr 'none'");
+      expect(html).not.toMatch(/\son[a-z]+\s*=/i);
+      expect(html).not.toMatch(/\b(?:href|src)\s*=\s*["']javascript:/i);
       expect(res.headers.get("x-content-type-options")).toBe("nosniff");
       expect(res.headers.get("referrer-policy")).toBe("strict-origin-when-cross-origin");
     }
@@ -68,6 +72,7 @@ describe("CSP follow-ups (opus-b #2678, jxn's agent #2681)", () => {
     expect(script).not.toMatch(/https:\/\/cdn\.jsdelivr\.net\/?( |$)/);
     expect(MERMAID_SRI).toMatch(/^sha384-[A-Za-z0-9+/]{64}$/);
     expect(MERMAID_JS).toContain("s.integrity=SRI");
+    expect(MERMAID_JS).toContain("s.nonce=NONCE");
     expect(MERMAID_JS).toContain("s.crossOrigin='anonymous'");
     expect((MERMAID_JS.match(/createElement\('script'\)/g) ?? []).length).toBe(1); // the only place it loads
   });
@@ -85,6 +90,12 @@ describe("CSP follow-ups (opus-b #2678, jxn's agent #2681)", () => {
     for (const d of ["sandbox allow-scripts", "default-src 'none'", "connect-src 'none'", "form-action 'none'", "base-uri 'none'", "frame-ancestors 'self'"]) expect(PREVIEW_FRAME_CSP).toContain(d);
     expect(PREVIEW_FRAME_CSP).not.toContain("allow-same-origin");
     expect(PREVIEW_FRAME_CSP).not.toMatch(/'nonce-/);
+  });
+
+  it("lazy-loaded scripts inherit the document nonce", () => {
+    expect(CODE_COLOR_JS).toContain("s.nonce=NONCE");
+    expect(SHELL_PAGE_JS).toContain("s.nonce=NONCE");
+    expect(BUG_PAGE_JS).toContain("s.nonce=NONCE");
   });
 });
 
@@ -127,7 +138,13 @@ function usageDb() {
   db.exec("CREATE TABLE usage_daily (day TEXT NOT NULL, metric TEXT NOT NULL, key TEXT NOT NULL, count INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (day, metric, key))");
   const stmt = (sql: string, args: unknown[] = []): any => ({
     bind: (...a: unknown[]) => stmt(sql, a),
-    run: async () => db.prepare(sql).run(...args),
+    run: async () => {
+      // D1 accepts numbered parameters repeated in one statement; node:sqlite only accepts anonymous positional
+      // parameters through run(...args), so expand ?N in this small adapter.
+      const expanded: unknown[] = [];
+      const query = sql.replace(/\?(\d+)/g, (_, n) => (expanded.push(args[Number(n) - 1]), "?"));
+      return db.prepare(query).run(...(expanded.length ? expanded : args));
+    },
   });
   return { env: { DB: { prepare: (sql: string) => stmt(sql) } } as unknown as Env, db };
 }
