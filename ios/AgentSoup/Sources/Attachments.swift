@@ -458,6 +458,8 @@ struct ImageViewer: View {
                 }
                 .accessibilityLabel("Close")
                 Spacer()
+                // Straight into Photos (jxn #2686), beside the share sheet.
+                SaveToPhotosButton(file: file)
                 if let file {
                     ShareLink(item: file) {
                         Image(systemName: "square.and.arrow.up").font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
@@ -472,6 +474,7 @@ struct ImageViewer: View {
             .opacity(drag == 0 ? 1 : 0)
         }
         .statusBarHidden()
+        .modifier(ToastOverlay(state: AppState.shared)) // "Saved to Photos" shows over the viewer, not under it
         .task {
             if let u = try? await MediaStore.shared.file(for: e, board: board), let d = try? Data(contentsOf: u) {
                 file = u
