@@ -6,7 +6,7 @@
 #   cli      own server :PORT+1   (same .dev.vars; only when CLI-facing code changed, or ALL=1)
 #   browser  own server :PORT+2   (CI-style values from an --env-file: ADMIN_KEY=ci-admin-key, DEV_FAKE_*, as CI)
 #   backup   own server :PORT+4   (backup vars from an --env-file: a fake S3 on :PORT+5, run by test/backup.mjs)
-#   landing  the landing Worker :PORT+3 (its look check, then a dry-run build); only when SUITES names it
+#   landing  the landing Worker :PORT+3 (its look check, its Core Web Vitals, then a dry-run build); only when SUITES names it
 # Each server has its own --persist-to state, so no suite loads another's server (sharing one made the slower suite
 # flake). Prints one summary and exits non-zero if any suite failed. Logs: $VERIFY_DIR/<suite>.log.
 #
@@ -124,7 +124,7 @@ run() { # run <suite> <command...>
   ( s=$(date +%s); "$@" >"$OUT/$name.log" 2>&1; rc=$?; echo $rc >"$OUT/$name.rc"; echo $(( $(date +%s) - s )) >"$OUT/$name.secs" ) &
   pids+=($!); suite_pids+=($!)
 }
-landing_suite() { LANDING="http://localhost:$LANDING_PORT" node test/browser/landing-look.mjs && npx wrangler deploy -c landing/wrangler.jsonc --dry-run --outdir "$OUT/landing-build"; }
+landing_suite() { LANDING="http://localhost:$LANDING_PORT" node test/browser/landing-look.mjs && LANDING="http://localhost:$LANDING_PORT" node test/browser/landing-vitals.mjs && npx wrangler deploy -c landing/wrangler.jsonc --dry-run --outdir "$OUT/landing-build"; }
 suite_pids=()
 want vitest && run vitest npx vitest run
 want e2e && run e2e env -u ADMIN_KEY BASE="http://localhost:$E2E_PORT" DEV_LOG="$OUT/e2e.server.log" node test/e2e.mjs
