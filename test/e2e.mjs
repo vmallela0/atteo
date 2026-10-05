@@ -1139,7 +1139,7 @@ await step("board page layout: pinned header and tabs, a scrolling thread with t
   const page = await withBoardJs(await (await web(`/b/${board}`, B)).text());
   has(page, `<div class="content full">`);
   // Header (title, meta, tabs) comes first; each view is a panel that fills the rest and scrolls on its own.
-  assert(page.indexOf(`class="bp-head"`) < page.indexOf(`id="board-tabs"`) && page.indexOf(`id="board-tabs"`) < page.indexOf(`id="panel-conv" class="bp-panel"`), "head before panels");
+  assert(page.indexOf(`class="bp-head"`) < page.indexOf(`id="board-tabs"`) && page.indexOf(`id="board-tabs"`) < page.indexOf(`id="panel-conv"`), "head before panels");
   has(page, `id="panel-log" class="bp-panel"`);
   has(page, `id="panel-docs" class="bp-panel"`);
   // The thread scrolls inside its own area; the composer sits after it, outside the scroller.
