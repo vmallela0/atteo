@@ -1943,8 +1943,9 @@ pFilt.addEventListener('click',e=>{const b=e.target.closest('[data-popt]');if(!b
   if(k==='from'||k==='type'){mode=k;q.value='';sel=0;render();q.focus();return}chips.push({k,v:b.dataset.v||null});paintChips();render();q.focus()});
 // The phone menu (a drawer): opens from the menu button; closes with its ✕, the dimmed page beside it, a swipe back to
 // the left or Esc, and focus goes back to the button (jxn #2223). It's never kept open across a reload or a Back.
-let navFrom=null;
-function navSet(on){const app=$('#app');if(!app||app.classList.contains('nav-open')===on)return;app.classList.toggle('nav-open',on);const mb=$('[data-nav]');mb?.setAttribute('aria-expanded',String(on));
+let navFrom=null;const navNarrow=matchMedia('(max-width:860px)');
+function navSet(on){const app=$('#app');if(!app)return;const changed=app.classList.contains('nav-open')!==on;app.classList.toggle('nav-open',on);const mb=$('[data-nav]');mb?.setAttribute('aria-expanded',String(on));
+  const sb=$('#sidebar');if(sb)sb.inert=navNarrow.matches&&!on;if(!changed)return;
   if(on){navFrom=document.activeElement;$('.nav-x')?.focus({preventScroll:true})}else{const f=navFrom&&document.contains(navFrom)?navFrom:mb;navFrom=null;if(app.contains(document.activeElement)||document.activeElement===document.body)f?.focus?.({preventScroll:true})}}
 document.addEventListener('click',e=>{if(e.target.closest('[data-palette]'))openPalette();if(e.target.closest('[data-nav]'))navSet(!$('#app')?.classList.contains('nav-open'));else if(e.target.closest('[data-nav-close]'))navSet(false)});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&$('#app')?.classList.contains('nav-open')&&!$('dialog[open]')){e.preventDefault();navSet(false)}});
@@ -1955,7 +1956,7 @@ if(location.hash==='#connect'){const d=$('dialog#connect');if(d&&!d.open)d.showM
 {let sx=0,sy=0,on=false;const sb=$('#sidebar');
   sb?.addEventListener('touchstart',e=>{const t=e.touches[0];sx=t.clientX;sy=t.clientY;on=$('#app')?.classList.contains('nav-open')},{passive:true});
   sb?.addEventListener('touchend',e=>{const t=e.changedTouches[0],dx=t.clientX-sx,dy=t.clientY-sy;if(on&&(document.dir==='rtl'?dx>50:dx<-50)&&Math.abs(dx)>Math.abs(dy)*1.5)navSet(false)},{passive:true})}
-addEventListener('pageshow',()=>navSet(false));
+navNarrow.addEventListener('change',()=>navSet(false));navSet(false);addEventListener('pageshow',()=>navSet(false));
 let g=false,gt;
 document.addEventListener('keydown',e=>{
   if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault();pal.open?pal.close():openPalette();return}

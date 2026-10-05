@@ -2578,12 +2578,16 @@ document.getElementById('board-info').addEventListener('click',e=>{if(e.target.c
 infoCount();
 let convStuck=true;
 function tab(n){if(!document.getElementById('panel-conv').hidden)convStuck=atBottom();
-  document.querySelectorAll('#board-tabs button').forEach((b,i)=>b.setAttribute('aria-selected',String(i===n)));
+  document.querySelectorAll('#board-tabs button').forEach((b,i)=>{b.setAttribute('aria-selected',String(i===n));b.tabIndex=i===n?0:-1});
   // Each tab names its panel (aria-controls), so the panels' order in the page doesn't matter.
   const want=document.querySelectorAll('#board-tabs button')[n]?.getAttribute('aria-controls');
   document.querySelectorAll('[data-board-panel]').forEach(p=>p.hidden=p.id!==want);
   infoBtn.hidden=n!==0;if(n===0&&convStuck)toBottom();history.replaceState(null,'',['',"#log","#files","#tasks"][n]||location.pathname);if(n===2)loadDocs();if(n===3)loadTasks()}
 document.querySelectorAll('#board-tabs button').forEach((b,i)=>b.addEventListener('click',()=>tab(i)));
+document.getElementById('board-tabs').addEventListener('keydown',e=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;
+  const all=[...document.querySelectorAll('#board-tabs button')],vis=all.filter(b=>b.getClientRects().length).sort((a,b)=>(+getComputedStyle(a).order)-(+getComputedStyle(b).order)||all.indexOf(a)-all.indexOf(b));if(!vis.length)return;e.preventDefault();
+  const at=Math.max(0,vis.indexOf(document.activeElement));let next=e.key==='Home'?0:e.key==='End'?vis.length-1:(at+(e.key==='ArrowRight'?1:-1)+vis.length)%vis.length;
+  const b=vis[next];tab(all.indexOf(b));b.focus()});
 if(location.hash==='#log')tab(1);if(location.hash==='#files'||location.hash==='#docs')tab(2);
 // ---- Tasks (Kanban): the board's tasks by status; drag a card to another column to change it ----
 const KCOLS=[['todo',tr('To do')],['doing',tr('In progress')],['blocked',tr('Blocked')],['done',tr('Done')]];
@@ -2796,14 +2800,14 @@ export function boardPage(
     }
 
   </div></div>
-  <div class="bp-tabs"><div class="tabs" role="tablist" id="board-tabs"><button role="tab" aria-selected="true" aria-controls="panel-conv">${esc(T("Conversation"))}</button><button role="tab" aria-selected="false" aria-controls="panel-log">${esc(T("Log"))}</button><button role="tab" aria-selected="false" aria-controls="panel-docs">${esc(T("Files"))}</button><button role="tab" aria-selected="false" aria-controls="panel-tasks">${esc(T("Tasks"))} <span class="faint" id="task-count"></span></button></div>${
+  <div class="bp-tabs"><div class="tabs" role="tablist" id="board-tabs"><button id="tab-conv" role="tab" tabindex="0" aria-selected="true" aria-controls="panel-conv">${esc(T("Conversation"))}</button><button id="tab-log" role="tab" tabindex="-1" aria-selected="false" aria-controls="panel-log">${esc(T("Log"))}</button><button id="tab-docs" role="tab" tabindex="-1" aria-selected="false" aria-controls="panel-docs">${esc(T("Files"))}</button><button id="tab-tasks" role="tab" tabindex="-1" aria-selected="false" aria-controls="panel-tasks">${esc(T("Tasks"))} <span class="faint" id="task-count"></span></button></div>${
     agentChat
       ? ""
       : `<button class="btn ghost sm pf-btn" type="button" id="pf-btn" aria-pressed="false" aria-label="${esc(T("Hide agents"))}" title="${esc(T("Only messages people wrote. Agents' posts are hidden for you; nothing changes for anyone else."))}"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="8" cy="5.5" r="2.75"/><path d="M2.75 14c.6-2.9 2.7-4.5 5.25-4.5s4.65 1.6 5.25 4.5"/></svg><span>${esc(T("Hide agents"))}</span></button>${localize(L, RECAP_BTN)}`
   }${talkBtn(info.encrypted ? null : info.id, viewer.name)}
     </div>
 </div>
-<div role="tabpanel" id="panel-conv" class="bp-panel" data-board-panel><div class="layout" id="conv-layout">
+<div role="tabpanel" id="panel-conv" aria-labelledby="tab-conv" class="bp-panel" data-board-panel><div class="layout" id="conv-layout">
   <button class="btn ghost sm info-btn" type="button" id="info-btn" aria-expanded="false" aria-controls="board-info" aria-label="${esc(T("Board info"))}" title="${esc(T("Board info"))}"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2"/><path d="M10 2.75v10.5"/><path class="fill" d="M10.7 3.45h2.1a.75.75 0 0 1 .75.75v7.6a.75.75 0 0 1-.75.75h-2.1z" fill="currentColor" stroke="none"/></svg><span class="count" id="info-count" hidden></span></button>
   <section class="conv">${agentChat ? "" : localize(L, PIN_BAR)}
     <div class="thread-wrap"><div class="thread-scroll" id="thread-scroll" data-wait><noscript><style>#thread-scroll[data-wait]>#thread{visibility:visible}</style></noscript><div class="thread" id="thread">${thread}</div><p class="pf-empty" id="pf-empty" hidden>${esc(T("No messages from people here yet. Turn the filter off to see everything."))}</p></div>
@@ -2832,17 +2836,17 @@ export function boardPage(
 ${notifySide(L)}
 </aside>
 </div></div>
-<div role="tabpanel" id="panel-log" class="bp-panel" data-board-panel hidden><div class="list scroll-x"><table class="log"><thead><tr><th>${esc(T("Time (UTC)"))}</th><th>#</th><th>${esc(T("Author"))}</th><th>${esc(T("Type"))}</th><th>${esc(T("To"))}</th><th>${esc(T("Summary"))}</th></tr></thead>
+<div role="tabpanel" id="panel-log" aria-labelledby="tab-log" class="bp-panel" data-board-panel hidden><div class="list scroll-x"><table class="log"><thead><tr><th>${esc(T("Time (UTC)"))}</th><th>#</th><th>${esc(T("Author"))}</th><th>${esc(T("Type"))}</th><th>${esc(T("To"))}</th><th>${esc(T("Summary"))}</th></tr></thead>
 <tbody id="log-body">${rows || `<tr id="log-empty"><td colspan="6" class="empty small">${esc(T("No events yet."))}</td></tr>`}</tbody></table></div>
 <p class="xs faint" style="margin-top:10px">${esc(T("Every entry, newest first. Click a row (or J/K then ↵) for its raw payload."))}</p></div>
-<div role="tabpanel" id="panel-docs" class="bp-panel" data-board-panel hidden>
+<div role="tabpanel" id="panel-docs" aria-labelledby="tab-docs" class="bp-panel" data-board-panel hidden>
   <div class="docs">
     <div class="doc-list"><div class="row" style="justify-content:space-between;margin-bottom:8px"><span class="small muted">${esc(T("Files"))}</span>${info.archived ? "" : `<button class="btn sm" type="button" id="doc-new">${esc(T("New"))}</button>`}</div><div id="doc-items" class="small muted">${esc(T("Loading…"))}</div></div>
     <div class="doc-view card pad" id="doc-view"><p class="muted small" id="doc-empty">${esc(T("No files yet. Create one (e.g. BACKLOG.md), post one from the conversation, or paste an image there. People and agents edit files together, and every save or post is a new version."))}</p></div>
   </div>
 </div>
 
-<div role="tabpanel" id="panel-tasks" class="bp-panel" data-board-panel hidden>
+<div role="tabpanel" id="panel-tasks" aria-labelledby="tab-tasks" class="bp-panel" data-board-panel hidden>
   <div class="kanban-head row"><span class="small muted grow kb-hint">${esc(T("Drag a card to change its status. Agents see the same board through the"))} <code>${esc(T("task"))}</code> ${esc(T("tool."))}</span>${
     info.archived ? "" : `<form class="row kb-new" id="kb-new"><input class="input sm" id="kb-new-text" placeholder="${esc(T("New task…"))}" aria-label="${esc(T("New task"))}"><button class="btn sm">${esc(T("Add"))}</button></form>`
   }</div>
@@ -2856,8 +2860,8 @@ ${notifySide(L)}
         <label>${esc(T("Priority"))} <select class="input sm" id="td-pri"><option value="">—</option><option value="high">${esc(T("High"))}</option><option value="medium">${esc(T("Medium"))}</option><option value="low">${esc(T("Low"))}</option></select></label>
         <label class="grow">${esc(T("Assignee"))} <input class="input sm" id="td-assignee" list="td-people" placeholder="${esc(T("name or name's agent"))}"></label></div>
       <datalist id="td-people">${members.flatMap((m) => [`<option value="${esc(m.user)}">`, `<option value="${esc(m.user)}'s agent">`]).join("")}</datalist>
-      <textarea class="input mono td-body" id="td-body" rows="12" placeholder="${esc(T("The plan, a checklist (- [ ] step), findings, links. People and agents edit this together."))}"></textarea>
-      <input class="input sm" id="td-sum" placeholder="${esc(T("What changed? (optional)"))}" style="margin-top:8px">
+      <textarea class="input mono td-body" id="td-body" rows="12" aria-label="${esc(T("Task details"))}" placeholder="${esc(T("The plan, a checklist (- [ ] step), findings, links. People and agents edit this together."))}"></textarea>
+      <input class="input sm" id="td-sum" aria-label="${esc(T("Change summary"))}" placeholder="${esc(T("What changed? (optional)"))}" style="margin-top:8px">
       <p class="xs faint" id="td-meta" style="margin:8px 0 0"></p>
       <details style="margin-top:6px"><summary class="xs faint" style="cursor:pointer">${esc(T("History"))}</summary><ul class="xs faint td-hist" id="td-hist"></ul></details>
       <p class="flash err" id="td-err" hidden></p>

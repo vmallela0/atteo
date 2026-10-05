@@ -49,11 +49,14 @@ async function phone(who, mode, w) {
     const menu = p.locator(".menu-btn");
     const openNav = async () => { await menu.tap(); await until(navOpen, 2000); await settled(p, "#sidebar"); };
     // The drawer.
+    check(await p.locator("#sidebar").evaluate((el) => el.inert), `${tag}: the closed off-screen menu is inert`);
+    await menu.focus(); await p.keyboard.press("Tab");
+    check(!(await p.evaluate(() => document.getElementById("sidebar").contains(document.activeElement))), `${tag}: Tab skips the closed off-screen menu`);
     await openNav();
-    check(await navOpen() && await sbIn() && await p.locator(".nav-x").isVisible() && await p.locator(".nav-scrim").isVisible() && await focused(".nav-x") && (await menu.getAttribute("aria-expanded")) === "true",
+    check(await navOpen() && await sbIn() && !(await p.locator("#sidebar").evaluate((el) => el.inert)) && await p.locator(".nav-x").isVisible() && await p.locator(".nav-scrim").isVisible() && await focused(".nav-x") && (await menu.getAttribute("aria-expanded")) === "true",
       `${tag}: the menu opens with an ✕, the page dimmed beside it, and focus on the ✕`);
     await p.locator(".nav-x").tap(); await until(async () => !(await navOpen()), 2000); await settled(p, "#sidebar");
-    check(!(await navOpen()) && !(await sbIn()) && await focused(".menu-btn") && (await menu.getAttribute("aria-expanded")) === "false", `${tag}: ✕ closes it and focus goes back to the menu button`);
+    check(!(await navOpen()) && !(await sbIn()) && await p.locator("#sidebar").evaluate((el) => el.inert) && await focused(".menu-btn") && (await menu.getAttribute("aria-expanded")) === "false", `${tag}: ✕ closes it, makes it inert, and focus goes back to the menu button`);
     await openNav();
     await p.touchscreen.tap(w - 20, 500); await until(async () => !(await navOpen()), 2000);
     check(!(await navOpen()), `${tag}: a tap on the dimmed page beside it closes it`);
@@ -107,7 +110,7 @@ async function wide() {
   await ctx.addCookies([{ name: k, value: v.join("="), url: BASE }]);
   const p = await ctx.newPage();
   await p.goto(`${BASE}/b/${board}`); await loaded(p);
-  check(!(await p.locator(".nav-x").isVisible()) && !(await p.locator(".nav-scrim").isVisible()) && (await p.locator("#info-btn").evaluate((el) => getComputedStyle(el, "::after").content)) === "none", "1280px: no ✕ or dimmed page on a wide screen");
+  check(!(await p.locator("#sidebar").evaluate((el) => el.inert)) && !(await p.locator(".nav-x").isVisible()) && !(await p.locator(".nav-scrim").isVisible()) && (await p.locator("#info-btn").evaluate((el) => getComputedStyle(el, "::after").content)) === "none", "1280px: sidebar stays focusable, with no ✕ or dimmed page");
   await ctx.close();
 }
 // Arabic (right to left): board info follows the reading direction. A swipe to the right leaves it open; a swipe to the
