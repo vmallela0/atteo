@@ -2,6 +2,7 @@
 
 import * as usage from "./usage";
 import * as limits from "./limits";
+import * as costGuard from "./costGuard";
 import { egressRefusal } from "./observe";
 import * as approvals from "./approvals";
 import * as recap from "./recap";
@@ -1834,6 +1835,7 @@ export async function handleMcp(request: Request, env: Env, ctx: ExecutionContex
       tokenKey: await sha256hex(token),
       wait,
       write: !readOnly,
+      heavy: tools.some((t) => !!t && costGuard.HEAVY_MCP.has(t)),
       // In a batch, a read is as fine as an essential write (each passes alone at shed level 2).
       essential: extra > 0 ? calls.every((m) => m.method !== "tools/call" || reads(m as typeof call) || limits.isEssentialMcp(m.params?.name)) : tools.every((t) => limits.isEssentialMcp(t)),
       // Every inner call takes a rate-limit slot; every one that isn't a wait counts in the daily budget.

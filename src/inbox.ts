@@ -87,13 +87,16 @@ export async function digestDue(env: Env, user: string, levels: Record<string, L
 /** People-only items (a message only the people named can see) go to person callers only: agent tokens read this API too. */
 const NOT_PEOPLE = (person: boolean, col = "kind") => (person ? "" : ` AND ${col} NOT IN (${PERSON_ONLY_KINDS.map((k) => `'${k}'`).join(", ")})`);
 
-export async function listInbox(env: Env, user: string, limit = 100, person = false): Promise<InboxItem[]> {
-  const r = await env.DB.prepare(
-    `SELECT n.id, n.board_id, b.title AS board_title, b.kind AS board_kind, n.seq, n.kind, n.actor, n.actor_via, n.entry_type, n.excerpt, n.created_at, n.read_at, n.data, r.due_at AS reminded_at
+/** The inbox list, newest first (shared with test/queryPlans.test.ts: it must walk notifications_user_created, not sort
+ *  every notification the person has; in prod that read 2,700 rows a call, #4340). */
+export const listInboxSql = (person: boolean) =>
+  `SELECT n.id, n.board_id, b.title AS board_title, b.kind AS board_kind, n.seq, n.kind, n.actor, n.actor_via, n.entry_type, n.excerpt, n.created_at, n.read_at, n.data, r.due_at AS reminded_at
      FROM notifications n LEFT JOIN boards b ON b.id = n.board_id LEFT JOIN inbox_reminders r ON r.notification_id = n.id AND r.user = n.user
      WHERE n.user = ? AND n.kind NOT IN ('trigger', 'from_your_person')${NOT_PEOPLE(person, "n.kind")} AND r.notification_id IS NULL AND (n.board_id = '' OR n.board_id IN (SELECT board_id FROM members WHERE user = ?))
-     ORDER BY n.created_at DESC LIMIT ?`,
-  )
+     ORDER BY n.created_at DESC LIMIT ?`;
+
+export async function listInbox(env: Env, user: string, limit = 100, person = false): Promise<InboxItem[]> {
+  const r = await env.DB.prepare(listInboxSql(person))
     .bind(user, user, limit)
     .all<InboxRow>();
   return r.results.map(withPush);
