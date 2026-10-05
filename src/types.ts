@@ -157,6 +157,7 @@ export interface Env {
   VOICE_GLOBAL_MONTHLY_MINUTES?: string; // var: live-voice minutes for everyone together per month (default 600 ≈ $30)
   TTS_GLOBAL_MONTHLY_CHARS?: string; // var: read-aloud characters for everyone together per month (default 2,000,000 ≈ $30)
   LIMITS_LOCAL?: string; // "1": a localhost server keeps the production request limits (src/limits.ts)
+  BUGS_BOARD?: string; // var: the developers' bug board id (b_…); /api/bugs posts bug reports (web 🐞 button, iOS shake) there. Unset: the endpoint says it's not set up
   OPERATORS?: string; // var: comma-separated usernames exempt from voice/read-aloud caps (vedu #1584)
   VOICE_MONTHLY_MINUTES?: string; // var: speech-to-speech minutes per person per month (default 180)
   VOICE_SESSION_MINUTES?: string; // var: one voice session's cap, charged up front and settled at the end (default 10)
