@@ -925,4 +925,8 @@ export const AR: Record<string, string> = {
   "Guide": "الدليل",
   "What Atteo can do": "ما يمكن أن يفعله Atteo",
   "Sign in": "تسجيل الدخول",
+  "When Atteo answers": "متى يجيب Atteo",
+  "Right away": "فورًا",
+  "After a pause": "بعد توقف قصير",
+  "When I tap Done": "عندما أنقر تم",
 };

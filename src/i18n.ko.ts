@@ -925,4 +925,8 @@ export const KO: Record<string, string> = {
   "Guide": "가이드",
   "What Atteo can do": "Atteo로 할 수 있는 일",
   "Sign in": "로그인",
+  "When Atteo answers": "Atteo가 답하는 때",
+  "Right away": "바로",
+  "After a pause": "잠시 멈춘 뒤",
+  "When I tap Done": "완료를 탭할 때",
 };

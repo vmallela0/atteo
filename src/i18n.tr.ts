@@ -925,4 +925,8 @@ export const TR: Record<string, string> = {
   "Could not make the key: ": "Anahtar oluşturulamadı: ",
   "Copied. Paste it into a Muse chat.": "Kopyalandı. Bir Muse sohbetine yapıştırın.",
   "Selected: copy it, then paste it into a Muse chat.": "Seçildi: kopyalayın, sonra bir Muse sohbetine yapıştırın.",
+  "When Atteo answers": "Atteo ne zaman yanıtlasın",
+  "Right away": "Hemen",
+  "After a pause": "Bir duraklamadan sonra",
+  "When I tap Done": "Bitti'ye dokunduğumda",
 };

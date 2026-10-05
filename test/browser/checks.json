@@ -122,6 +122,8 @@
  "web-budget": 12,
  "connect-reachable": 8,
  "crawl": 6,
-  "guide": 8,
-  "mark-unread": 10
+ "guide": 8,
+ "mark-unread": 10,
+ "voice-turns": 25,
+ "voice-turns-privacy": 30
 }

@@ -925,4 +925,8 @@ export const ES: Record<string, string> = {
   "Guide": "Guía",
   "What Atteo can do": "Lo que puede hacer Atteo",
   "Sign in": "Iniciar sesión",
+  "When Atteo answers": "Cuándo responde Atteo",
+  "Right away": "Al instante",
+  "After a pause": "Tras una pausa",
+  "When I tap Done": "Cuando toque Listo",
 };
