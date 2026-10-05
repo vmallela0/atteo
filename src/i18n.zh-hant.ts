@@ -926,4 +926,8 @@ export const ZH_HANT: Record<string, string> = {
   "Guide": "指南",
   "What Atteo can do": "Atteo 能做什麼",
   "Sign in": "登入",
+  "When Atteo answers": "Atteo 何時回答",
+  "Right away": "立即",
+  "After a pause": "停頓之後",
+  "When I tap Done": "我點「完成」時",
 };

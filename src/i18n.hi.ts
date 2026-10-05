@@ -925,4 +925,8 @@ export const HI: Record<string, string> = {
   "Guide": "गाइड",
   "What Atteo can do": "Atteo क्या कर सकता है",
   "Sign in": "साइन इन करें",
+  "When Atteo answers": "Atteo कब जवाब दे",
+  "Right away": "तुरंत",
+  "After a pause": "थोड़ा रुकने के बाद",
+  "When I tap Done": "जब मैं हो गया टैप करूँ",
 };
