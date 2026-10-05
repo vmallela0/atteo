@@ -698,6 +698,7 @@ export const TR: Record<string, string> = {
   "Show all {n}": "Tümünü göster ({n})",
   "Show board info": "Pano bilgisini göster",
   "Show in conversation": "Konuşmada göster",
+  "Show in chat": "Sohbette göster",
   "Show less": "Daha az göster",
   "Show the ": "Göster: ",
   "Show the message": "Mesajı göster",

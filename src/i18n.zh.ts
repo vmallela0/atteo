@@ -705,6 +705,7 @@ export const ZH_CN: Record<string, string> = {
   "Show all {n}": "显示全部 {n} 条",
   "Show board info": "显示看板信息",
   "Show in conversation": "在对话中显示",
+  "Show in chat": "在聊天中显示",
   "Show less": "收起",
   "Show the ": "显示 ",
   "Show the message": "显示该消息",
