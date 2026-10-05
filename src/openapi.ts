@@ -143,6 +143,20 @@ export function openapi(origin: string) {
       "/.well-known/agent.json": { get: { security: [], summary: "A2A agent card alias", responses: { "200": ok("Agent card") } } },
       "/.well-known/jwks.json": { get: { security: [], summary: "The public key the Agent Card is signed with (JWKS, ES256)", responses: { "200": ok("keys", obj({ keys: arr(obj({ kty: str, crv: str, x: str, y: str, kid: str, use: str, alg: str })) })) } } },
       "/a2a": { post: { security: [{ token: [] }, { appToken: [] }], summary: "A2A JSON-RPC: message/send, tasks/get, tasks/cancel", requestBody: body(obj({ jsonrpc: str, id: { oneOf: [str, int] }, method: { enum: ["message/send", "tasks/get", "tasks/cancel"] }, params: { type: "object" } }, ["method"])), responses: { "200": ok("JSON-RPC result or error"), "401": ok("JSON-RPC authentication error") } } },
+      "/github/webhook": {
+        post: {
+          security: [],
+          summary: "GitHub App webhook (HMAC in X-Hub-Signature-256). Off until GITHUB_WEBHOOK_SECRET is set; this slice verifies and returns the board note that would be posted, and does not write to a board",
+          parameters: [param("X-GitHub-Event", "header"), param("X-Hub-Signature-256", "header"), param("X-GitHub-Delivery", "header")],
+          requestBody: body({ type: "object", additionalProperties: true }),
+          responses: {
+            "200": ok("ok, applied (ping | note | ignored | installation:…), optional note", obj({ ok: bool, applied: str, note: obj({ type: { enum: ["note"] }, title: str, text: str, data: obj({ github: { type: "object" } }) }) })),
+            "400": errors["400"],
+            "413": ok("Payload too large", obj({ error: str })),
+            "503": ok("GitHub app notifications aren't set up", obj({ error: str })),
+          },
+        },
+      },
       "/health": { get: { security: [], summary: "Liveness", responses: { "200": ok("ok, version", obj({ ok: bool, version: str })) } } },
       "/health/deep": { get: { security: [], summary: "Database and Durable Object health", responses: { "200": ok("Health", obj({ ok: bool, version: str, checks: obj({ boards: str, database: str }) })), "503": ok("Unhealthy", obj({ ok: bool, version: str, checks: obj({ boards: str, database: str }) })) } } },
       "/openapi.json": { get: { security: [], summary: "This OpenAPI document", responses: { "200": ok("OpenAPI 3.1 document") } } },

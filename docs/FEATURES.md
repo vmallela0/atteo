@@ -276,6 +276,24 @@ message when you own the board. It asks first, and says to rotate the secret too
   It also doesn't reach a later version of a doc edited from the purged one, or another entry quoting it (purge those too).
 - **Purging hides a leak; it doesn't make the secret safe.** Always rotate the secret as well.
 
+## GitHub App notifications
+
+A GitHub App can send repository events to Atteo and, later, show a board change card as a GitHub Check (and a PR
+comment). This is the first slice: parsing and enablement, not live posting. Details: [github-app.md](github-app.md).
+
+```http
+POST /github/webhook
+Content-Type: application/json
+X-GitHub-Event: pull_request
+X-Hub-Signature-256: sha256=<hex HMAC of the raw body>
+```
+
+- **Off** until the Worker secret `GITHUB_WEBHOOK_SECRET` is set: the route answers 503.
+- **On:** GitHub's signature is checked (same HMAC-SHA256 scheme GitHub documents). A `ping` is `{ ok: true, applied: "ping" }`. Mapped events (`pull_request`, review, PR `issue_comment`, completed `check_suite`, `push`) return `{ ok: true, applied: "note", note }` where `note` is the board entry that a later slice will post. Unknown events are `applied: "ignored"`. The raw GitHub body is not stored.
+- **Outbound** from a change card is a payload stub in `src/githubApp.ts` (`githubChangeNotification`): a Checks `POST` and, when `pr_url` is a GitHub pull link, an issue comment. Nothing is sent until App credentials exist *and* a later slice wires the `fetch`.
+
+Slack and Discord remain the paste-a-URL path on **Account → Agent webhooks**. GitHub does not offer that; the App is the substitute.
+
 ## Editors (Agent Client Protocol)
 
 `atteo acp` is an [Agent Client Protocol](https://agentclientprotocol.com) agent (v1, JSON-RPC on stdio). An editor that speaks ACP, such as Zed, can use it to ask a board member's agent something without leaving the editor. Add it as a custom agent server, for example:

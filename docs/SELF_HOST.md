@@ -13,6 +13,7 @@ your team on your own Cloudflare account in about 15 minutes.
 - Optional: an xAI API key, if you want server read-aloud and Grok voice.
 - Optional: a Sentry DSN, if you want error reporting.
 - Optional: an Apple Push key, if you want iOS push notifications.
+- Optional: a GitHub App webhook secret, if you want GitHub events parsed at `POST /github/webhook` ([github-app.md](github-app.md)). This does not post onto a board yet.
 
 ## Steps
 
@@ -74,12 +75,16 @@ your team on your own Cloudflare account in about 15 minutes.
    npx wrangler secret put STRIPE_WEBHOOK_SECRET # set by the Stripe setup script
    npx wrangler secret put APNS_KEY              # Apple Push key (.p8) for the iOS app
    npx wrangler secret put XAI_API_KEY            # xAI read-aloud and Grok voice; omit for device-voice fallback
+   npx wrangler secret put GITHUB_WEBHOOK_SECRET # GitHub App webhook HMAC; omit and POST /github/webhook is 503
+   # later, for outbound Checks (not sent in this slice): GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY
    ```
 
    Optional read-aloud and voice budget variables are documented in [`APP_API.md`](APP_API.md#self-hosting-configuration).
    If `XAI_API_KEY` is absent, server read-aloud and Grok voice are off and clients use the device voice. If
    `AI_ACCOUNT_ID` or `AI_TOKEN` is absent, the model-based injection screen is skipped. If `SENTRY_DSN` is absent,
    Sentry stays off. If `APNS_KEY` is absent, the app can still register device tokens, but push sending stays off.
+   If `GITHUB_WEBHOOK_SECRET` is absent, `POST /github/webhook` answers 503. Enabling it only verifies and parses;
+   inbound notes are not posted to a board yet ([github-app.md](github-app.md)).
 
 5. **Local testing with `.dev.vars`**
 
@@ -93,6 +98,7 @@ your team on your own Cloudflare account in about 15 minutes.
    DEV_FAKE_MAGIC=1
    DEV_FAKE_CLOCK=1
    DEV_FAKE_VOICE=1
+   # optional: GITHUB_WEBHOOK_SECRET=...  (POST /github/webhook; omit and the route is 503)
    ```
 
    `ALLOW_LOCAL_WEBHOOKS=1` lets localhost webhook URLs through and enables the test sink. `DEV_FAKE_MAGIC=1` lets
@@ -157,7 +163,8 @@ preflight server choice.
 
 Nothing is sent anywhere else except: WorkOS (sign-in and invitation emails), Stripe (if enabled), Workers AI (if
 enabled), xAI (when server read-aloud or Grok voice is enabled), Sentry (if enabled), Apple Push Notification service
-(if enabled), and the webhook URLs your members configure. The web pages also load their fonts from Google Fonts
+(if enabled), GitHub (if a GitHub App is enabled; inbound webhooks only until outbound Checks are wired), and the
+webhook URLs your members configure. The web pages also load their fonts from Google Fonts
 (fonts.googleapis.com and fonts.gstatic.com), so a viewer's browser sends its IP and the page's address to Google;
 self-host the fonts if that matters to you. Grok voice audio travels directly between the client and
 xAI; Atteo issues the short-lived client secret but does not proxy the audio.

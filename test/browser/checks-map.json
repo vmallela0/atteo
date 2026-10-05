@@ -17,6 +17,7 @@
     "src/moderation.ts": ["moderation"],
     "src/standingRules.ts": ["standing-rules"],
     "src/openapi.ts": [],
+    "src/githubApp.ts": [],
     "cli/**": ["e2e-web"],
     "test/*.ts": [],
     "test/*.mjs": [],

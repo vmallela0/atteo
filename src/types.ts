@@ -156,6 +156,9 @@ export interface Env {
   PUBLIC_URL?: string; // var: the public address (https://atteo.dev) for every link back to the product; see publicOrigin in util.ts
   ALLOW_LOCAL_WEBHOOKS?: string; // dev/CI only: allow http://localhost webhook URLs and the test sink
   STRIPE_WEBHOOK_SECRET?: string; // secret
+  GITHUB_WEBHOOK_SECRET?: string; // secret: GitHub App webhook HMAC; unset: POST /github/webhook is 503. Never in wrangler.jsonc
+  GITHUB_APP_ID?: string; // secret or var: GitHub App id for outbound Checks/comments; unused until outbound posting is wired
+  GITHUB_APP_PRIVATE_KEY?: string; // secret: GitHub App private key (PEM). Unset: outbound stays a stub. Never kept in D1
   SENTRY_DSN?: string; // secret (so dev/CI never report): Sentry project DSN; absent in dev/CI, then Sentry is off
   XAI_API_KEY?: string; // secret: xAI text-to-speech (POST /api/app/tts, src/tts.ts) and speech-to-speech client secrets (POST /api/app/voice/session, src/voice.ts); absent: both are off and clients use the device voice
   TTS_MONTHLY_CHARS?: string; // var: read-aloud characters per person per month (default 900,000)
