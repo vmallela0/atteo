@@ -47,36 +47,41 @@ struct SettingsDrawer: ViewModifier {
 
     private var sign: CGFloat { direction == .rightToLeft ? -1 : 1 }
 
-    func body(content: Content) -> some View {
-        GeometryReader { geo in
-            let w = DrawerMotion.width(for: geo.size.width)
-            ZStack(alignment: .leading) {
-                content
-                    .offset(x: progress * w * sign)
-                    .overlay {
-                        // The screen beside the open drawer: dimmed; tap or swipe it to close.
-                        Color.black.opacity(0.28 * progress)
-                            .ignoresSafeArea()
-                            .contentShape(Rectangle())
-                            .onTapGesture { settle(open: false) }
-                            .gesture(drag(width: w))
-                            .allowsHitTesting(progress > 0)
-                            .accessibilityHidden(true)
-                    }
-                    .overlay(alignment: .leading) {
-                        // The edge you pull from. It stays while a pull is under way (taking it away mid-drag would
-                        // cancel the drag); it only takes new touches while the drawer is closed.
-                        if enabled {
-                            Color.clear
-                                .frame(width: DrawerMotion.edge)
-                                .contentShape(Rectangle())
-                                .gesture(drag(width: w))
-                                .allowsHitTesting(progress == 0 || start != nil)
-                                .accessibilityHidden(true)
-                        }
-                    }
-                    .accessibilityAction(named: Text("Open Settings")) { if enabled { mounted = true; settle(open: true) } }
+    /// The screen's width (for the drawer's), read without wrapping the screen in anything.
+    @State private var screen: CGFloat = 390
 
+    func body(content: Content) -> some View {
+        let w = DrawerMotion.width(for: screen)
+        // The screen itself is left as it is (no container around it, nothing over it while the drawer is shut), so
+        // with a chat open the drawer changes nothing there: not its layout, hit-testing or accessibility.
+        content
+            .offset(x: progress * w * sign)
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { screen = $0 }
+            .overlay {
+                // The screen beside the open drawer: dimmed; tap or swipe it to close. Only while it's out.
+                if progress > 0 || mounted {
+                    Color.black.opacity(0.28 * progress)
+                        .ignoresSafeArea()
+                        .contentShape(Rectangle())
+                        .onTapGesture { settle(open: false) }
+                        .gesture(drag(width: w))
+                        .allowsHitTesting(progress > 0)
+                        .accessibilityHidden(true)
+                }
+            }
+            .overlay(alignment: .leading) {
+                // The edge you pull from: on the first screen only. It stays while a pull is under way (taking it
+                // away mid-drag would cancel the drag); it only takes new touches while the drawer is closed.
+                if enabled {
+                    Color.clear
+                        .frame(width: DrawerMotion.edge)
+                        .contentShape(Rectangle())
+                        .gesture(drag(width: w))
+                        .allowsHitTesting(progress == 0 || start != nil)
+                        .accessibilityHidden(true)
+                }
+            }
+            .overlay(alignment: .leading) {
                 if mounted {
                     SettingsView()
                         .environment(\.closeSettings) { settle(open: false) }
@@ -91,12 +96,15 @@ struct SettingsDrawer: ViewModifier {
                         .transition(.identity)
                 }
             }
-        }
-        .onChange(of: enabled) { _, on in if !on && progress > 0 { settle(open: false) } }
-        .onChange(of: dragging) { _, on in
-            // A drag that ended without onEnded (cancelled): settle by where it is.
-            if !on, start != nil { start = nil; settle(open: progress > 0.5) }
-        }
+            .accessibilityActions {
+                // VoiceOver: the gesture is never the only way (first screen only).
+                if enabled { Button("Open Settings") { mounted = true; settle(open: true) } }
+            }
+            .onChange(of: enabled) { _, on in if !on && progress > 0 { settle(open: false) } }
+            .onChange(of: dragging) { _, on in
+                // A drag that ended without onEnded (cancelled): settle by where it is.
+                if !on, start != nil { start = nil; settle(open: progress > 0.5) }
+            }
     }
 
     private func drag(width w: CGFloat) -> some Gesture {
