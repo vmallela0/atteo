@@ -285,34 +285,43 @@ struct DisplayPrefs: Codable, Equatable {
     /// False when the server's copy had no `replies` (a server from before it): the phone's own choice stands, and saves
     /// leave the key out if the server refuses it.
     var repliesKnown = true
+    /// Voice chat: when Atteo answers (vedu #2460, VoiceTurns.swift): "quick", "pause" (the default) or "tap".
+    var voiceTurns: String = "pause"
+    /// False when the server's copy had no `voice_turns` (a server from before it): the phone's choice stands, and
+    /// saves leave the key out.
+    var voiceTurnsKnown = true
 
     static let `default` = DisplayPrefs()
     /// xAI's voices, in the order the picker lists them (the server's tts.ts VOICES).
     static let voices = ["eve", "ara", "leo", "rex", "sal"]
 
-    private enum CodingKeys: String, CodingKey { case text, density, theme, lang, voice, replies }
+    private enum CodingKeys: String, CodingKey { case text, density, theme, lang, voice, replies, voiceTurns = "voice_turns" }
 
-    init(text: String = "m", density: String = "comfortable", theme: String = "system", lang: String = "auto", voice: String = "eve", replies: String = "chat") {
+    init(text: String = "m", density: String = "comfortable", theme: String = "system", lang: String = "auto", voice: String = "eve", replies: String = "chat", voiceTurns: String = "pause") {
         self.text = ["s", "m", "l"].contains(text) ? text : "m"
         self.density = ["comfortable", "compact"].contains(density) ? density : "comfortable"
         self.theme = ["system", "light", "dark"].contains(theme) ? theme : "system"
         self.lang = AppLanguage.values.contains(lang) ? lang : "auto"
         self.voice = Self.voices.contains(voice) ? voice : "eve"
         self.replies = ["chat", "thread"].contains(replies) ? replies : "chat"
+        self.voiceTurns = VoiceTurns(rawValue: voiceTurns) != nil ? voiceTurns : "pause"
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let replies = try? c.decode(String.self, forKey: .replies)
+        let turns = try? c.decode(String.self, forKey: .voiceTurns)
         self.init(text: (try? c.decode(String.self, forKey: .text)) ?? "m",
                   density: (try? c.decode(String.self, forKey: .density)) ?? "comfortable",
                   theme: (try? c.decode(String.self, forKey: .theme)) ?? "system",
                   lang: (try? c.decode(String.self, forKey: .lang)) ?? "auto",
                   voice: (try? c.decode(String.self, forKey: .voice)) ?? "eve",
-                  replies: replies ?? "chat")
+                  replies: replies ?? "chat",
+                  voiceTurns: turns ?? "pause")
         repliesKnown = replies != nil
+        voiceTurnsKnown = turns != nil
     }
     static func == (a: DisplayPrefs, b: DisplayPrefs) -> Bool {
-        a.text == b.text && a.density == b.density && a.theme == b.theme && a.lang == b.lang && a.voice == b.voice && a.replies == b.replies
+        a.text == b.text && a.density == b.density && a.theme == b.theme && a.lang == b.lang && a.voice == b.voice && a.replies == b.replies && a.voiceTurns == b.voiceTurns
     }
     /// "l,compact,dark", "l,compact,dark,zh-Hans", "l,compact,dark,zh-Hans,leo" or "l,compact,dark,zh-Hans,leo,thread"
     /// (the DEBUG ATTEO_DISPLAY override for simulator screenshots).
@@ -328,10 +337,11 @@ struct DisplayPrefs: Codable, Equatable {
     var textSteps: Int { text == "s" ? -2 : text == "l" ? 1 : 0 }
     /// Replies stay in their thread (the chat shows "N replies" instead).
     var repliesInThread: Bool { replies == "thread" }
-    /// What's saved: everything, or without `replies` for a server that doesn't take it yet.
-    func body(replies withReplies: Bool = true) -> [String: String] {
+    /// What's saved: everything, or without `replies` / `voice_turns` for a server that doesn't take them yet.
+    func body(replies withReplies: Bool = true, turns withTurns: Bool = true) -> [String: String] {
         var b = ["text": text, "density": density, "theme": theme, "lang": lang, "voice": voice]
         if withReplies { b["replies"] = replies }
+        if withTurns { b["voice_turns"] = voiceTurns }
         return b
     }
 }

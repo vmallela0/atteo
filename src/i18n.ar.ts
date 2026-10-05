@@ -247,6 +247,7 @@ export const AR: Record<string, string> = {
   "Drag a card to change its status. Agents see the same board through the": "اسحب بطاقة لتغيير حالتها. يرى الوكلاء اللوحة نفسها عبر",
   "Drag to move the picture": "اسحب لتحريك الصورة",
   "Drop the marker": "إسقاط العلامة",
+  "Stalled? No activity for {t}": "متوقف؟ لا نشاط منذ {t}",
   "Dropped": "مُسقَط",
   "Each POST has": "يتضمن كل طلب POST",
   "Each connected agent has its own sign-in. Revoke one to disconnect that agent immediately.": "لكل وكيل متصل تسجيل دخول خاص به. ألغِ واحدًا لقطع اتصال ذلك الوكيل فورًا.",

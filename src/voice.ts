@@ -6,7 +6,13 @@
 //   - the socket: new WebSocket(url, protocols) with protocols = ["xai-client-secret.<value>"] (or, off the browser,
 //     Authorization: Bearer <value>). Then send {type: "session.update", session} with the `session` given here.
 //   - push-to-talk (the default): turn_detection is null, so the app streams input_audio_buffer.append while the button
-//     is held, then sends input_audio_buffer.commit + response.create. hands_free: true asks for server VAD instead.
+//     is held, then sends input_audio_buffer.commit + response.create. hands_free: true streams the mic the whole time,
+//     and the person's display.voice_turns (vedu #2460) says who ends a turn: "quick" is the server's VAD (it answers at
+//     the first short pause); "pause" and "tap" leave turn_detection null and the client ends the turn itself, with
+//     commit + response.create: after pause_ms of quiet once it heard speech, or when the person taps Done (or presses
+//     play/pause on AirPods). xAI documents only turn_detection.type and idle_timeout_ms (no silence length), so a
+//     longer pause has to be the client's. Only a client that says so (client_turns: true) gets that; an older one
+//     still gets the server's VAD hands-free, and voice_turns "quick" says what it's running.
 //   - tools: the server never runs them. xAI sends response.function_call_arguments.done {name, call_id, arguments};
 //     the app calls the Atteo API in tool_routes with its OWN token, answers with conversation.item.create
 //     {item: {type: "function_call_output", call_id, output}} and then response.create. A route with confirm: true
@@ -19,7 +25,7 @@
 // session. So only live seconds count (settled to the second, no per-session minimum), and the per-minute limit allows
 // a call's quick resumes.
 
-import { savedVoice } from "./social";
+import { savedVoicePrefs } from "./social";
 import { isOperator } from "./tts";
 import type { Env } from "./types";
 import * as registry from "./registry";
@@ -33,6 +39,11 @@ export const DEFAULT_BUDGET_MINUTES = 180; // per person per month: 3 h (the Max
 export const DEFAULT_SESSION_MINUTES = 10; // one session's cap: charged up front, settled at the end
 export const DEFAULT_PER_MINUTE = 12; // sessions a person may start per minute: the app stands a call by after ~5 s of quiet and starts a fresh session on resume (jxn #2071), so a long call is many short sessions
 export const SAMPLE_RATE = 24000;
+/** "pause": how long the person must be quiet, after speaking, before the client ends the turn. */
+export const PAUSE_MS = 1500;
+export const VOICE_TURNS = ["quick", "pause", "tap"] as const;
+export type VoiceTurns = (typeof VOICE_TURNS)[number];
+export const DEFAULT_VOICE_TURNS: VoiceTurns = "pause";
 
 export interface ClientSecret {
   value: string;
@@ -158,11 +169,14 @@ export const TOOL_ROUTES: Record<string, { method: "GET" | "POST"; path: string;
   list_boards: { method: "GET", path: "/api/me/boards" },
 };
 
-export function sessionConfig(o: { person: string; board: { id: string; title: string } | null; voice: Voice; handsFree: boolean }) {
+/** Hands-free "quick" is the server's VAD; everything else (hold to talk, "pause", "tap") is the client's turns. */
+export const turnDetection = (handsFree: boolean, turns: VoiceTurns = DEFAULT_VOICE_TURNS) => (handsFree && turns === "quick" ? { type: "server_vad" } : null);
+
+export function sessionConfig(o: { person: string; board: { id: string; title: string } | null; voice: Voice; handsFree: boolean; turns?: VoiceTurns }) {
   return {
     instructions: instructionsFor(o.person, o.board),
     voice: o.voice,
-    turn_detection: o.handsFree ? { type: "server_vad" } : null,
+    turn_detection: turnDetection(o.handsFree, o.turns),
     audio: {
       // grok-transcribe gives the app live captions of what the person says, and the spoken "yes" for approvals
       // (conversation.item.input_audio_transcription.updated / .completed).
@@ -245,6 +259,7 @@ export interface VoiceDeps {
   budgetMinutes: number;
   /** The person's saved voice (display.voice), used when a session names none (vedu #1717). */
   defaultVoice?: Voice;
+  defaultTurns?: VoiceTurns;
   /** Everyone's minutes per month; Infinity for operators (vedu #1584). */
   globalMinutes?: number;
   sessionMinutes: number;
@@ -256,9 +271,13 @@ export interface VoiceDeps {
 
 const err = (error: string, status: number, extra: Record<string, unknown> = {}, headers: HeadersInit = {}) => Response.json({ error, ...extra }, { status, headers: { "cache-control": "no-store", ...headers } });
 
-/** POST /api/app/voice/session {board?, voice?, hands_free?} → what the app opens the socket with. */
+/** POST /api/app/voice/session {board?, voice?, hands_free?, voice_turns?, client_turns?} → what the app opens the socket with. */
 export async function createSession(user: { name: string; display_name?: string | null }, raw: unknown, deps: VoiceDeps): Promise<Response> {
-  const body = (raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {}) as { board?: unknown; voice?: unknown; hands_free?: unknown };
+  const body = (raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {}) as { board?: unknown; voice?: unknown; hands_free?: unknown; voice_turns?: unknown; client_turns?: unknown };
+  if (body.voice_turns != null && !(VOICE_TURNS as readonly unknown[]).includes(body.voice_turns)) return err(`voice_turns must be one of: ${VOICE_TURNS.join(", ")}.`, 400);
+  if (body.client_turns != null && typeof body.client_turns !== "boolean") return err("client_turns must be true or false.", 400);
+  // A client that can't end a turn itself (no client_turns) keeps the server's VAD hands-free, whatever the pref says.
+  const turns: VoiceTurns = body.client_turns === true ? ((body.voice_turns as VoiceTurns | undefined) ?? deps.defaultTurns ?? DEFAULT_VOICE_TURNS) : "quick";
   const voice = (body.voice == null || body.voice === "" ? (deps.defaultVoice ?? DEFAULT_VOICE) : String(body.voice).toLowerCase()) as Voice;
   if (!VOICES.includes(voice)) return err(`Unknown voice. Pick one of: ${VOICES.join(", ")}.`, 400);
   if (body.hands_free != null && typeof body.hands_free !== "boolean") return err("hands_free must be true or false.", 400);
@@ -297,10 +316,12 @@ export async function createSession(user: { name: string; display_name?: string 
       voice,
       voices: [...VOICES],
       hands_free: body.hands_free === true,
+      voice_turns: turns,
+      pause_ms: PAUSE_MS,
       max_seconds: s.seconds,
       minutes_used: minutes(used),
       minutes_budget: deps.budgetMinutes,
-      session: sessionConfig({ person: user.display_name || user.name, board, voice, handsFree: body.hands_free === true }),
+      session: sessionConfig({ person: user.display_name || user.name, board, voice, handsFree: body.hands_free === true, turns }),
       tool_routes: TOOL_ROUTES,
       end: { method: "POST", path: "/api/app/voice/session/end", body: { session_id: s.id, seconds: "<seconds the socket was open>" } },
     },
@@ -320,12 +341,13 @@ export async function finishSession(user: string, raw: unknown, deps: Pick<Voice
 }
 
 /** GET /api/app/voice/status: whether to show talk mode, and this month's minutes. */
-export async function status(user: string, deps: Pick<VoiceDeps, "db" | "provider" | "budgetMinutes" | "now" | "defaultVoice">) {
+export async function status(user: string, deps: Pick<VoiceDeps, "db" | "provider" | "budgetMinutes" | "now" | "defaultVoice" | "defaultTurns">) {
   return {
     enabled: !!deps.provider,
     minutes_used: minutes(await usedSeconds(deps.db, user, (deps.now ?? Date.now)())),
     minutes_budget: deps.budgetMinutes,
     voice_default: deps.defaultVoice ?? DEFAULT_VOICE,
+    voice_turns: deps.defaultTurns ?? DEFAULT_VOICE_TURNS,
     voices: [...VOICES],
   };
 }
@@ -341,8 +363,10 @@ export async function route(request: Request, env: Env, path: string, viewer: { 
   if (!viewer) return err("sign in required", 401);
   if (viewer.via === "agent") return err("Voice is for people, in the web or the app.", 403);
   const me = viewer.name;
+  const saved = await savedVoicePrefs(env, me);
   const deps: VoiceDeps = {
-    defaultVoice: await savedVoice(env, me),
+    defaultVoice: saved.voice,
+    defaultTurns: saved.voice_turns,
     db: env.DB,
     provider: providerFor(env, request),
     budgetMinutes: isOperator(env, me) ? 100_000 : budgetMinutesFor(env),
