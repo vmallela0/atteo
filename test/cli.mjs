@@ -1904,6 +1904,62 @@ await step("purge (alt-c #3573): atteo purge N removes your agent's leaked secre
   assert(r.code === 0 && j.ok && j.seq === m && j.board === pb && Array.isArray(j.files), r.out + r.err);
 });
 
+await step("acp (alt-c #3646): an editor speaks Agent Client Protocol to atteo acp; the answer streams back; cancel withdraws", async () => {
+  // Standalone (#3007): its own board.
+  const ab = (await ops("boards", { user: A, title: `e2e cli acp ${run}` })).board.id;
+  await ops("members", { board: ab, user: B });
+  const p = spawn("node", [CLI, "acp", "--to", B, "--board", ab, "--wait", "60"], { cwd: dir, env: { ...process.env, ATTEO_CREDENTIALS_FILE: credA, ATTEO_SERVER: BASE, XDG_CONFIG_HOME: join(dir, "cfg-acp") } });
+  const got = [];
+  let buf = "";
+  let stderr = "";
+  p.stderr.on("data", (d) => (stderr += d));
+  p.stdout.on("data", (d) => {
+    buf += d;
+    for (let i; (i = buf.indexOf("\n")) >= 0; buf = buf.slice(i + 1)) got.push(JSON.parse(buf.slice(0, i))); // stdout is only protocol
+  });
+  const send = (m) => p.stdin.write(JSON.stringify({ jsonrpc: "2.0", ...m }) + "\n");
+  const waitFor = async (pred, what) => {
+    for (let i = 0; i < 300; i++) {
+      const m = got.find(pred);
+      if (m) return m;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    throw new Error(`no ${what}: ${JSON.stringify(got).slice(0, 600)} ${stderr}`);
+  };
+  try {
+    send({ id: 0, method: "initialize", params: { protocolVersion: 1, clientCapabilities: {} } });
+    assert((await waitFor((m) => m.id === 0, "initialize")).result.protocolVersion === 1, "v1");
+    send({ id: 1, method: "session/new", params: { cwd: dir, mcpServers: [] } });
+    const sid = (await waitFor((m) => m.id === 1, "session")).result?.sessionId;
+    assert(sid, JSON.stringify(got.at(-1)));
+    send({ id: 2, method: "session/prompt", params: { sessionId: sid, prompt: [{ type: "text", text: `which port does staging use ${run}?` }] } });
+    const call = await waitFor((m) => m.params?.update?.sessionUpdate === "tool_call", "tool_call");
+    const q = Number(call.params.update.toolCallId.replace("ask-", ""));
+    assert(q && call.params.update.title.includes(`${B}'s agent`), JSON.stringify(call));
+    const asked = await tool(tokB, ab, "get", { seq: q });
+    assert(asked.includes(`which port does staging use ${run}?`) && asked.includes(`→ ${B}`), "posted as a question to B: " + asked);
+    await tool(tokB, ab, "read", {});
+    await tool(tokB, ab, "post", { type: "note", reply_to: q, text: `8443 ${run}` });
+    const done = await waitFor((m) => m.id === 2, "prompt result");
+    assert(done.result?.stopReason === "end_turn", JSON.stringify(done));
+    const chunk = got.find((m) => m.params?.update?.sessionUpdate === "agent_message_chunk");
+    assert(chunk.params.sessionId === sid && chunk.params.update.content.text === `${B}'s agent:\n\n8443 ${run}\n\n`, JSON.stringify(chunk));
+    // Cancel: the follow-up (in the same thread) is withdrawn when nobody answered.
+    send({ id: 3, method: "session/prompt", params: { sessionId: sid, prompt: [{ type: "text", text: `and prod ${run}?` }] } });
+    const call2 = await waitFor((m) => m.params?.update?.sessionUpdate === "tool_call" && m.params.update.toolCallId !== `ask-${q}`, "second tool_call");
+    const q2 = Number(call2.params.update.toolCallId.replace("ask-", ""));
+    send({ method: "session/cancel", params: { sessionId: sid } });
+    assert((await waitFor((m) => m.id === 3, "cancelled")).result?.stopReason === "cancelled", "cancelled");
+    const after = await tool(tokB, ab, "get", { seq: q2 });
+    assert(after.includes(`re #${q}`) && after.includes(`retracts #${q2}`), "threaded, then withdrawn: " + after);
+    send({ id: 4, method: "session/load", params: { sessionId: sid } });
+    assert((await waitFor((m) => m.id === 4, "load error")).error?.code === -32601, "no session/load");
+  } finally {
+    p.stdin.end();
+    p.kill();
+  }
+});
+
 await step("export (alt-c #3378): the board's log as JSON Lines, oldest first, paged past 500, --since, --out written whole, read position untouched", async () => {
   // Standalone (#3007): its own board; 520 seeded notes make the export page twice.
   const xb = (await ops("boards", { user: A, title: `e2e cli export ${run}` })).board.id;
