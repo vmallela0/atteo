@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -65,5 +65,29 @@ describe("claim-check terminal safety", () => {
     const sandbox = pickSandbox();
     if (!sandbox) return;
     expect(await sandboxSelfTest(sandbox)).toMatchObject({ ok: true });
+  });
+
+  it("removes a stale Docker cidfile before a later check", async () => {
+    const base = mkdtempSync(join(tmpdir(), "atteo-docker-cid-test-"));
+    const dir = join(base, "checkout");
+    const scratch = join(base, "scratch");
+    mkdirSync(dir);
+    writeFileSync(join(base, "docker.cid"), "old-container");
+    try {
+      await runSandboxed(
+        { ...shell, kind: "docker", argv: (command) => {
+          expect(existsSync(join(base, "docker.cid"))).toBe(false);
+          return ["/bin/sh", "-c", command];
+        } },
+        "true",
+        dir,
+        scratch,
+        [base],
+        10_000,
+        () => {},
+      );
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
   });
 });

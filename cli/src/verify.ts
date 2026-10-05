@@ -72,7 +72,7 @@ export function pickSandbox(image?: string): Sandbox | null {
         "--network", "none", "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
         "--pids-limit", "512", "--memory", "2g", "--cpus", "4", "--ulimit", "nofile=1024:1024",
         "--tmpfs", "/tmp:rw,nosuid,nodev,size=256m", "-v", `${dir}:/w`, "-w", "/w",
-        "-e", "HOME=/tmp", "-e", "CI=1", image, "sh", "-c", command,
+        "-e", "HOME=/tmp", "-e", "CI=1", "--entrypoint", "sh", image, "-c", command,
       ],
       kill: (writable) => {
         try {
@@ -123,6 +123,8 @@ export function runSandboxed(sb: Sandbox, command: string, dir: string, scratch:
   mkdirSync(tmp, { recursive: true });
   // A minimal environment: nothing from your shell (tokens, cloud credentials) beyond what finds the tools.
   const env: Record<string, string> = { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: home, TMPDIR: tmp, TMP: tmp, TEMP: tmp, LANG: process.env.LANG ?? "en_US.UTF-8", TERM: "dumb", CI: "1", NO_COLOR: "1" };
+  // Docker leaves its cidfile behind even with --rm; each probe/check gets a fresh one.
+  if (sb.kind === "docker") rmSync(join(writable[0], "docker.cid"), { force: true });
   const argv = sb.argv(command, dir, writable);
   const started = Date.now();
   return new Promise((resolve) => {
