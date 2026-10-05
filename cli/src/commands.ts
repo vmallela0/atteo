@@ -522,9 +522,11 @@ async function handoffSweep(opt: Record<string, string | true>): Promise<string>
   };
   const closed: string[] = [];
   let skipped = 0;
+  // merge-base --is-ancestor prints nothing on success, so git()'s empty-output-is-null would read every yes as no.
+  const isAncestor = (sha: string) => { try { execFileSync("git", ["merge-base", "--is-ancestor", sha, main], { cwd: process.cwd(), stdio: "ignore", timeout: 15_000 }); return true; } catch { return false; } };
   for (const h of handoffs) {
     const sha = h.handoff?.sha;
-    if (!sha || git(["merge-base", "--is-ancestor", sha, main]) === null) continue; // still off main: leave it open
+    if (!sha || !isAncestor(sha)) continue; // still off main: leave it open
     try {
       await tool(opt, "post", { type: "handoff", text: `Landed as ${sha.slice(0, 7)} (swept: an ancestor of origin/main).`, handoff: { state: "landed", sha }, reply_to: h.seq });
       closed.push(`#${h.seq}`);
@@ -532,7 +534,7 @@ async function handoffSweep(opt: Record<string, string | true>): Promise<string>
       skipped++; // e.g. the caller's own handoff: its lander has to say so
     }
   }
-  const done = closed.length ? `Closed ${closed.length} landed handoff${closed.length === 1 ? "" : "s"}: ${closed.join(", ")}.` : "Nothing to sweep: every open handoff is still off main";
+  const done = closed.length ? `Closed ${closed.length} landed handoff${closed.length === 1 ? "" : "s"}: ${closed.join(", ")}.` : "Nothing to sweep: every open handoff is still off main.";
   return skipped ? `${done}; skipped ${skipped} (the hander-off's lander must close ${skipped === 1 ? "it" : "them"}).` : `${done}.`;
 }
 
