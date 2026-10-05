@@ -521,7 +521,9 @@ struct ThreadView: View {
             if hidden(e) { withAnimation(.smooth(duration: 0.25)) { showAgents = true } } // going to an agent's answer shows agents again
             scrollTo = n
             withAnimation(.smooth(duration: 0.25)) { flash = n }
-            Task { try? await Task.sleep(nanoseconds: 1_400_000_000); withAnimation(.smooth(duration: 0.8)) { if flash == n { flash = nil } } }
+            // Lit for a moment (longer under UI tests, so a slow accessibility snapshot can still find it).
+            let hold: UInt64 = API.environment("STILL") != nil ? 6_000_000_000 : 1_400_000_000
+            Task { try? await Task.sleep(nanoseconds: hold); withAnimation(.smooth(duration: 0.8)) { if flash == n { flash = nil } } }
             return
         }
         let loaded = Dictionary((state.entries[board.id] ?? []).map { ($0.seq, $0) }, uniquingKeysWith: { a, _ in a })

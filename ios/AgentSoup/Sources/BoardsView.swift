@@ -429,7 +429,7 @@ struct BoardView: View {
         let e = r.shown[i]
         let prev = i > 0 ? r.shown[i - 1] : nil
         let newDay = prev.map { !Calendar.current.isDate(Date(timeIntervalSince1970: $0.ts / 1000), inSameDayAs: Date(timeIntervalSince1970: e.ts / 1000)) } ?? true
-        let grouped = !newDay && prev != nil && prev!.author == e.author && prev!.via == e.via && e.ts - prev!.ts < 5 * 60_000 && e.type == "note" && e.replyTo == nil && e.seq != newAt
+        let grouped = !newDay && prev != nil && prev!.senderKey == e.senderKey && e.ts - prev!.ts < 5 * 60_000 && e.type == "note" && e.replyTo == nil && e.seq != newAt
         let mine = isMine(e)
         let prevMine = prev.map { isMine($0) && $0.type != "task" } ?? false
         VStack(alignment: .leading, spacing: 0) {
@@ -820,12 +820,32 @@ struct EntryRow: View {
         density == .compact ? (grouped ? Space.xxs : Space.gap(density)) : (grouped ? Space.xs : comfortable)
     }
 
-    private var who: String { e.byAgent ? agentLabel(e.author, agentName ?? e.agentName) : e.author }
+    /// Like the web's author line (jxn #2589): a named agent reads "Jarvis · vedu's agent"; a named session
+    /// "vedu/scout"; any other agent post "vedu's agent"; people their name.
+    private var who: String {
+        guard e.byAgent else { return e.author }
+        if let n = agentName ?? e.agentName, !n.isEmpty { return agentLabel(e.author, n) }
+        if let s = e.sessionName { return "\(e.author)/\(s)" }
+        return agentLabel(e.author, nil)
+    }
+    /// What VoiceOver says for the sender: "vedu's agent, scout" for a session.
+    private var whoSpoken: String {
+        guard e.byAgent, let s = e.sessionName else { return who }
+        return "\(agentLabel(e.author, agentName ?? e.agentName)), \(s)"
+    }
     /// Someone else's message that @mentions you (the person, not your agent): tinted, like the web's.
     private var forYou: Bool {
         guard !mine, !unsent, let me = me?.lowercased(), e.author.lowercased() != me || e.byAgent else { return false }
         return (e.mentions ?? []).contains { !$0.agent && $0.user.lowercased() == me }
     }
+    /// UI tests read the highlight's frame (it must stay inside its own message, jxn #2595); nobody else sees it.
+    private static let markLit: Bool = {
+        #if DEBUG
+        return API.environment("STILL") != nil
+        #else
+        return false
+        #endif
+    }()
     private static let replyAt: CGFloat = 56
     private var replyAt: CGFloat { Self.replyAt }
 
@@ -852,9 +872,19 @@ struct EntryRow: View {
 
     var body: some View {
         Group { if mine && e.type != "task" { myMessage } else { theirMessage } }
+            // Just jumped to: a tint behind the message alone (jxn #2594/#2595). It reaches out sideways into the
+            // list's margin, like the "names you" tint, but never up or down: the gap to the next message is outside
+            // it, so it can't cover a neighbour.
             .background {
                 RoundedRectangle(cornerRadius: Radius.card, style: .continuous).fill(Theme.accent.opacity(lit ? 0.14 : 0))
-                    .padding(.horizontal, -Space.s).padding(.vertical, -Space.xxs)
+                    .padding(.horizontal, -Space.s)
+            }
+            .overlay {
+                // The highlight's frame, for UI tests only (a background isn't in the accessibility tree).
+                if lit, Self.markLit {
+                    Rectangle().fill(Color.white.opacity(0.001)).padding(.horizontal, -Space.s).allowsHitTesting(false)
+                        .accessibilityElement().accessibilityLabel("highlight").accessibilityIdentifier("lit-\(e.seq)")
+                }
             }
             .offset(x: drag)
             .background(alignment: .leading) {
@@ -865,6 +895,7 @@ struct EntryRow: View {
                     .scaleEffect(min(1, 0.5 + drag / replyAt / 2)).opacity(min(1, drag / replyAt))
                     .offset(x: -36 + min(drag, replyAt) * 0.6)
             }
+            .padding(.top, gapAbove(mine && e.type != "task" ? Space.m : Space.s + 2))
             .contextMenu {
                 if let react = actions.react {
                     // A quick-reaction row, like any messenger (the palette holds six); every other emoji just under it.
@@ -1042,7 +1073,6 @@ struct EntryRow: View {
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
         .padding(.leading, 56)
-        .padding(.top, gapAbove(Space.m))
     }
 
     /// Everyone else (people and agents): plain text under who said it.
@@ -1061,6 +1091,8 @@ struct EntryRow: View {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Text(who).font(Typo.secondary.weight(.semibold)).foregroundStyle(Theme.text).lineLimit(1)
                             .onTapGesture { actions.openProfile?(e.author, e.byAgent) }
+                            .accessibilityLabel(whoSpoken)
+                            .accessibilityIdentifier("sender-\(who)")
                         if let k = kind { Text(k).font(Typo.micro.weight(.medium)).foregroundStyle(e.type == "question" ? Theme.warn : Theme.faint) }
                         if let to = e.to { Text("to \(to)").font(Typo.micro).foregroundStyle(Theme.faint).lineLimit(1) }
                         Spacer(minLength: Space.xs)
@@ -1078,9 +1110,9 @@ struct EntryRow: View {
             }
         }
         // It names you (the web's .for-you): a soft tint, drawn inside the row so no edge cuts it (jxn #1311).
-        .padding(.horizontal, forYou ? Space.s : 0).padding(.vertical, forYou ? Space.xs + 2 : 0)
-        .background(forYou ? Theme.warn.opacity(0.09) : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .padding(.top, gapAbove(Space.s + 2))
+        // The text stays where every other message's is; only the tint reaches out into the margin (jxn #2594).
+        .padding(.vertical, forYou ? Space.xs + 2 : 0)
+        .background { RoundedRectangle(cornerRadius: 8, style: .continuous).fill(forYou ? Theme.warn.opacity(0.09) : .clear).padding(.horizontal, -Space.s) }
     }
 }
 
