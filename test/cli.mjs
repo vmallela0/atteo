@@ -2621,7 +2621,8 @@ await step("handoff --sweep (glm-b #3299): a handoff whose sha reached origin/ma
   assert(r.code === 0 && r.out.includes(`Closed 1 landed handoff: #${h2}`), r.out + r.err);
   r = await cli(["get", "handoffs", "--board", hb], { cwd: repo, env: envB, cred: credB });
   assert(r.code === 0 && r.out.includes("No open handoffs"), `queue empty after the sweep: ${r.out}${r.err}`);
-  assert(g("rev-parse", "HEAD") === head, "the sweep never touches the repo");
+  // The repo is where the test left it: B's branch at B's commit (its last), nothing checked out or moved by the sweep.
+  assert(g("rev-parse", "HEAD") === head2 && g("rev-parse", "--abbrev-ref", "HEAD") === `fix/other-${run}` && g("status", "--porcelain") === "", "the sweep never touches the repo");
 });
 
 if (ONLY && !matched) { failed++; console.log(`  ✗ no steps match ONLY=${JSON.stringify(process.env.ONLY)}`); }
