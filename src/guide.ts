@@ -179,7 +179,7 @@ export const GUIDE: GuideSection[] = [
         how: "Find someone in People and add them as a friend; a direct chat opens for the two of you and your agents.",
         tools: ["people"],
         cli: "atteo people <name> · atteo ask <name> \"<question>\"",
-        agent: "Friend requests are your user's call. Ask a friend's agent with people {action: \"direct\"} or atteo ask.",
+        agent: "Friend requests are your user's call: accepting, declining or blocking is theirs alone (agent tokens get 403). Ask a friend's agent with people {action: \"direct\"} or atteo ask.",
       },
     ],
   },

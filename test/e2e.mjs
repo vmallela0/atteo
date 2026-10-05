@@ -164,6 +164,12 @@ async function makeUser(name, { email, verified = "true", token = true, session 
     })(),
   ]);
 }
+// Contact decisions (accept, decline, remove, block) are the person's alone (#57, jxn #4345): agent tokens get 403,
+// so steps make them as the person, with a browser session.
+async function asPerson(who, path) {
+  if (!cookie[who]) cookie[who] = (await ops("sessions", { user: who, verified: "true" })).body.cookie;
+  return fetch(`${BASE}${path}`, { method: "POST", headers: { cookie: cookie[who], "content-type": "application/json" } });
+}
 async function makeUsers(list, opts = {}) {
   await Promise.all(list.map((n) => (typeof n === "string" ? makeUser(n, opts) : makeUser(n.name, { ...opts, ...n }))));
 }
@@ -2920,7 +2926,7 @@ await step("board pictures: any member sets one; served to members only, version
   await makeUsers([P1, P2]);
   const call = async (who, path) => (await fetch(`${BASE}${path}`, { method: "POST", headers: auth(who) })).json();
   await fetch(`${BASE}/api/friends/request`, { method: "POST", headers: { ...auth(P1), "content-type": "application/json" }, body: JSON.stringify({ user: P2 }) });
-  await call(P2, `/api/friends/${P1}/accept`);
+  await asPerson(P2, `/api/friends/${P1}/accept`);
   const dm = (await call(P1, `/api/direct/${P2}`)).board;
   assert(dm, "direct board");
   r = await up(P1, dm, png);
@@ -3002,7 +3008,9 @@ await step("social: find by handle, friend request with a note, accept from the 
   assert(r.relation === "pending_out", JSON.stringify(r));
   const inbox = (await (await api(B, "GET", "/api/inbox")).json()).items;
   assert(inbox.some((i) => i.kind === "friend_request" && i.actor === A && i.excerpt.includes(`from e2e ${run}`)), JSON.stringify(inbox.slice(0, 3)));
-  assert((await (await api(B, "POST", `/api/friends/${A}/accept`)).json()).relation === "friend", "accept");
+  const agentAccept = await api(B, "POST", `/api/friends/${A}/accept`);
+  assert(agentAccept.status === 403 && (await agentAccept.json()).error.includes("Only you can decide"), "an agent token can't accept (#57)");
+  assert((await (await asPerson(B, `/api/friends/${A}/accept`)).json()).relation === "friend", "accept");
   // Presence: B's agent session (MCP initialize with a client name) shows as online.
   const sb = await session(B);
   await sok(sb, "list_boards", {});
@@ -3020,11 +3028,11 @@ await step("social: find by handle, friend request with a note, accept from the 
   has(await ok(B, d.board, "read"), `dm question ${run}`);
   has(await (await web(`/u/${B}`, A)).text(), "Message");
   // Blocking hides you and stops requests; unfriending closes the direct route.
-  await api(B, "POST", `/api/friends/${OUT}/block`);
+  await asPerson(B, `/api/friends/${OUT}/block`);
   r = await (await api(OUT, "GET", `/api/people?q=${B}`)).json();
   assert(!r.people.length, "blocked people can't find you");
   assert((await api(OUT, "POST", "/api/friends/request", { user: B })).status === 400, "blocked people can't ask");
-  await api(A, "POST", `/api/friends/${B}/remove`);
+  await asPerson(A, `/api/friends/${B}/remove`);
   assert((await api(A, "POST", `/api/direct/${B}`)).status === 400, "not friends anymore");
 });
 
@@ -3500,7 +3508,7 @@ await step("network: an opt-in directory, and standing rules (invites from frien
   assert((await (await person(B, { listed: true, bio: `hi from ${run}` })).json()).profile.listed, "listed");
   assert((await (await api(D, "GET", `/api/people?q=${partial}`)).json()).people.some((p) => p.name === B), "listed people show up by partial name");
   // Friend requests from people B shares a board with are accepted by B's rule.
-  await api(A, "POST", `/api/friends/${B}/remove`);
+  await asPerson(A, `/api/friends/${B}/remove`);
   await person(B, { rules: { auto_accept_friends: "coworkers" } });
   assert((await (await api(A, "POST", "/api/friends/request", { user: B })).json()).relation === "friend", "accepted by rule");
   // Board invites from friends join B right away.
@@ -4565,7 +4573,7 @@ await step("mailbox: DMs and mail for your agent wait until your agent polls; fu
   await makeUsers([M1, M2], { session: false });
   const call = async (who, method, path, body) => { const r = await fetch(`${BASE}${path}`, { method, headers: { ...auth(who), "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined }); return r.json(); };
   await call(M1, "POST", "/api/friends/request", { user: M2 });
-  await call(M2, "POST", `/api/friends/${M1}/accept`);
+  await asPerson(M2, `/api/friends/${M1}/accept`);
   const dm = (await call(M1, "POST", `/api/direct/${M2}`)).board;
   const long = `Can your agent review the webhook check? ${"padding ".repeat(40)}${run}`;
   await ok(M1, dm, "post", { type: "note", title: "Webhook check", text: long }); // MCP: REST posts don't take a title
@@ -4602,7 +4610,7 @@ await step("mailbox tool (MCP): new mail as compact fenced lines under one heade
   await makeUsers([M1, M2], { session: false });
   const call = async (who, method, path, body) => (await fetch(`${BASE}${path}`, { method, headers: { ...auth(who), "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined })).json();
   await call(M1, "POST", "/api/friends/request", { user: M2 });
-  await call(M2, "POST", `/api/friends/${M1}/accept`);
+  await asPerson(M2, `/api/friends/${M1}/accept`);
   const dm = (await call(M1, "POST", `/api/direct/${M2}`)).board;
   const bot = await session(M2); // a URL connection with no board joined, like a Grok Bot routine
   await sok(bot, "mailbox"); // drain anything from setup (friend request)

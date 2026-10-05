@@ -215,7 +215,7 @@ async function getFriends(opt: Opt, which: "friends" | "requests") {
   const j = await api(opt, "GET", "/api/friends");
   if (which === "requests") {
     const text = [
-      j.incoming.length ? `Requests for you (${j.incoming.length}; atteo friend accept <name>):` : "No friend requests for you.",
+      j.incoming.length ? `Requests for you (${j.incoming.length}; your person accepts them in Atteo, not an agent):` : "No friend requests for you.",
       ...(j.incoming.length ? [fenced(j.incoming.map((p: { name: string; note?: string }) => `  ${p.name}${p.note ? ` — "${oneLine(p.note)}"` : ""}`))] : []),
       ...(j.outgoing.length ? [`Waiting on: ${j.outgoing.map((p: { name: string }) => p.name).join(", ")}`] : []),
     ].join("\n");

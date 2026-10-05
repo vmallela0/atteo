@@ -763,7 +763,7 @@ async function friends(args: string[]) {
   if (j.incoming.length) {
     say("Friend requests:");
     say(fence(j.incoming.map((p: { name: string; note?: string }) => `  ${p.name}${p.note ? ` — "${oneLine(p.note)}"` : ""}`).join("\n")));
-    say("  accept: atteo accept <name>   decline: atteo decline <name>");
+    say("  Your person accepts or declines these in Atteo (People); agents can't (#57).");
   }
   say(j.friends.length ? "Friends:" : "No friends yet. Find someone: atteo people <name>, then atteo add <name>.");
   for (const p of j.friends) say(`  ${p.name.padEnd(16)} ${presenceText(p)}`);
